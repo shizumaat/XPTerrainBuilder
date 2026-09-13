@@ -64,6 +64,7 @@ from .placement_carrier import coarsen, is_elevated   # noqa: F401  (§9 / §13)
 # §2's RECORDS live next door (the 1,000-line law) and are re-exported:
 # every caller and every twin reads them as this module's.
 from . import placement_atom as _atom
+from . import placement_family as _fam
 from . import placement_orphan as _orphan
 from .placement_record import Body, Kept, Split, SplitSet
 from .placement_record import Staged as _Staged   # noqa: F401
@@ -499,6 +500,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     #: §16c (7): the plan extent of every rigid cluster of more than one
     #: body, for the report (a cluster is ONE body no cut may divide)
     cl_spans: list[tuple[float, int]] = []
+    fams: list[_fam.Family] = []        # §16f, for the census
     by_class: dict[str, int] = {}
 
     # §16e (3): ONE CUTTER PER MEMBER, and the DECK FOOTPRINTS derived
@@ -694,6 +696,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cands, staged, surface, unit_pairs.get(ui, ()), counts,
             near_m=coarsen_reach_m, bind_ground_m=bind_ground_m)
         cl_spans.extend(cl_census[:5])
+
+        # §16f AN OBJECT FAMILY STAYS TOGETHER (RULINGS 2026-09-13af),
+        # in ``placement_family``: AFTER the contact bind, so the family
+        # plane is the last word on a FOOTED body's zero.
+        fams.extend(_fam.bind_families(
+            cands, staged, surface, pads, counts, unit_id=u.id,
+            contact_eps_m=contact_eps_m, bind_ground_m=bind_ground_m,
+            has_deck=any(m.deck_ring
+                          or m.deck_kind in ("flag", "signature")
+                          for m in u.members)))
 
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
@@ -937,7 +949,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # ground for a reason no report names)
     for k, v in sorted(refused.items()):
         counts[f"carrier_refused_{k}"] = v
-    return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole))
+    return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
+                    tuple(fams))
 
 
 
@@ -979,7 +992,8 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             geom_box=b.geom_box, foot_boxes=b.foot_boxes, fill=b.fill,
             ground_off=b.ground_off, geom_pts=b.geom_pts,
             feet=len(b.feet), datum=bool(b.anchor.datum),
-            bridge_of=b.bridge_of) for b in s.bodies))
+            bridge_of=b.bridge_of,
+            family_of=b.anchor.family) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
     return splits, kept

@@ -4342,3 +4342,219 @@ def test_a_partless_deck_member_is_a_body():
     assert p.box[0] <= _Cut.lat <= p.box[2] and p.area_m2 > 0.0
     # the file that cannot be read contributes nothing
     assert PB._declared_parts(m, _Cut(ok=False)) == []
+
+
+# ── §16f AN OBJECT FAMILY STAYS TOGETHER (RULINGS 2026-09-13af) ──────────
+
+def _fam_cand(member, box, z, cls=None, group=0):
+    """One footed candidate at plan ``box`` whose zero plane is ``z``."""
+    import auto_patch_v2.airport.placement_carrier as _PC0
+    return _PC0.Candidate(member, f"objects/m{member}.obj",
+                          AR.Anchor(cls or AR.BUILDING,
+                                    0.5 * (box[0] + box[2]),
+                                    0.5 * (box[1] + box[3]), 0.0, "r", z),
+                          frozenset({member}), 4, box, part_boxes=[box],
+                          group=group, body_class=cls or AR.BUILDING,
+                          fill=1.0, ground_off=0.0)
+
+
+class _FamStaged:
+    """The two fields ``bind_families`` reads off a staged member."""
+
+    def __init__(self, mi, resource, feet):
+        import types
+        self.mi = mi
+        self.m = types.SimpleNamespace(resource=resource)
+        # ONE raw body per member, group 0: (parts, class, anchor, feet, ...)
+        self.raw = [([], AR.BUILDING, AR.Anchor(AR.BUILDING, feet[0][0],
+                                                feet[0][1], 0.0, "r", 0.0),
+                     tuple(feet), False, (), (), None)]
+        self.groups = [[0]]
+        self.ground_off = [0.0]
+
+
+def test_16f_1_a_family_is_a_connected_plan_cluster_of_two_members():
+    """§16f (1)(b): the family is the CONNECTED PLAN CLUSTER, and it is
+    read at the BODY footprint — two members whose footprints touch are
+    one family; a third standing apart is not in it (§16f (2): it is cut
+    to its own ground)."""
+    from auto_patch_v2.airport import placement_family as FAM
+    walls = _fam_cand(0, (40.0000, -3.0000, 40.0010, -2.9990), 100.0)
+    roof = _fam_cand(1, (40.0005, -3.0005, 40.0015, -2.9985), 103.0)
+    away = _fam_cand(2, (40.0100, -3.0100, 40.0110, -3.0090), 90.0)
+    cl, adj = FAM._clusters([walls, roof, away], 0.002)
+    assert cl == [[0, 1]] and adj == {0: {1}, 1: {0}}                      # the far member is not in it
+    # ... and one member's own two bodies are NOT a family by themselves
+    solo = _fam_cand(0, (40.0005, -3.0005, 40.0015, -2.9985), 103.0, group=1)
+    assert FAM._clusters([walls, solo], 0.002)[0] == []
+
+
+def test_16f_1_two_placement_rows_do_not_make_a_family():
+    """The LEMD trap named in the ruling: a shared-datum pack puts 2,035
+    of 2,109 bodies on two rows.  The ROW (the unit) is only condition
+    (a); nothing binds without the plan cluster."""
+    from auto_patch_v2.airport import placement_family as FAM
+    apart = [_fam_cand(i, (40.0 + 0.01 * i, -3.0, 40.001 + 0.01 * i, -2.999),
+                       100.0 + i) for i in range(4)]
+    assert FAM._clusters(apart, 0.002)[0] == []
+    counts: dict = {}
+    assert FAM.bind_families(apart, [], lambda la, lo: 100.0, (), counts,
+                             unit_id="unit:1", contact_eps_m=0.002) == []
+    assert not counts.get("families")
+
+
+def test_16f_2_the_family_takes_one_zero_plane_on_its_pad():
+    """§16f (2): the family's bodies take ONE zero — the pad their
+    contacts mostly stand on — and every member's own zero IS that plane
+    afterwards, whatever the ground under it does."""
+    from auto_patch_v2.airport import placement_family as FAM
+    pad = AR.PadRing("building80", ((39.999, -3.001), (40.003, -3.001),
+                                    (40.003, -2.997), (39.999, -2.997)))
+    # a surface that RISES 6 m across the complex: the defect the owner read
+    def surface(la, lo):
+        return 100.0 + 6000.0 * (la - 40.0)
+
+    a = _fam_cand(0, (40.0000, -3.0000, 40.0010, -2.9990), 100.0)
+    b = _fam_cand(1, (40.0005, -3.0005, 40.0015, -2.9985), 106.0)
+    st = [_FamStaged(0, "objects/walls.obj",
+                     [(40.0000, -3.0000, 0.0), (40.0010, -2.9990, 0.0)]),
+          _FamStaged(1, "objects/roof.obj",
+                     [(40.0005, -3.0005, 0.0), (40.0015, -2.9985, 0.0)])]
+    counts: dict = {}
+    cands = [a, b]      # mutated in place, as ``bind_unit`` mutates it
+    fams = FAM.bind_families(cands, st, surface, (pad,), counts,
+                             unit_id="unit:9", contact_eps_m=0.002)
+    assert len(fams) == 1 and fams[0].pad == "building80"
+    assert counts["bodies_bound_to_family"] == 2
+    zeros = [c.anchor.surface_z - c.anchor.y_zero for c in cands]
+    assert max(zeros) - min(zeros) < 1e-9      # ONE plane, exactly
+    assert all(c.anchor.family == fams[0].id for c in cands)
+
+
+def test_16f_3_a_partial_cluster_is_reported_and_not_bound():
+    """§16f (3): FEASIBILITY IS MEASURED.  A cluster holding a small
+    fragment of its unit is a PARTIAL family — OTHH's bridge clutter
+    beside the deck plate (§16e (3) WITHDRAWN) and KCLT's unit:3, eight
+    separate hangars — and a partly-bound family is worse than an unbound
+    one, so it is reported per body and never bound."""
+    from auto_patch_v2.airport import placement_family as FAM
+    pair = [_fam_cand(0, (40.0000, -3.0000, 40.0010, -2.9990), 100.0),
+            _fam_cand(1, (40.0005, -3.0005, 40.0015, -2.9985), 103.0)]
+    fragments = [_fam_cand(2 + i,
+                           (40.05 + 0.01 * i, -3.0, 40.051 + 0.01 * i, -2.999),
+                           100.0) for i in range(6)]
+    cands = pair + fragments
+    counts: dict = {}
+    assert FAM.bind_families(cands, [], lambda la, lo: 100.0, (), counts,
+                             unit_id="unit:3", contact_eps_m=0.002) == []
+    assert counts.get("family_partial_clusters") == 1
+    assert not counts.get("families")
+
+
+def test_16f_4_one_plane_per_pad_and_the_pads_own_plane():
+    """§16f (4) (RULINGS 2026-09-13aq (i)): a family over TWO pads is TWO
+    planes, each the median of ITS OWN pad's graded ring — so one pad is
+    one plane however many families stand on it and whichever unit the
+    walk reaches first (KCLT's two terminal rows read 221.78 and 221.45
+    off their own contacts and the 0.33 m between them was the pad's
+    relief sampled twice)."""
+    from auto_patch_v2.airport import placement_family as FAM
+    west = AR.PadRing("building1", ((39.9995, -3.0010), (40.0012, -3.0010),
+                                    (40.0012, -2.9993), (39.9995, -2.9993)),
+                      (100.0, 100.0, 100.0, 100.0))
+    east = AR.PadRing("building2", ((39.9995, -2.9992), (40.0020, -2.9992),
+                                    (40.0020, -2.9970), (39.9995, -2.9970)),
+                      (108.0, 108.0, 108.0, 108.0))
+
+    def surface(la, lo):
+        return 108.0 if lo > -2.9992 else 100.0
+
+    a = _fam_cand(0, (40.0000, -3.0008, 40.0008, -2.9998), 100.0)
+    b = _fam_cand(1, (40.0004, -3.0000, 40.0010, -2.9988), 100.0)
+    c = _fam_cand(2, (40.0006, -2.9990, 40.0014, -2.9980), 108.0)
+    st = [_FamStaged(0, "objects/w.obj", [(40.0002, -3.0006, 0.0),
+                                          (40.0006, -3.0002, 0.0)]),
+          _FamStaged(1, "objects/m.obj", [(40.0006, -2.9998, 0.0),
+                                          (40.0008, -2.9996, 0.0)]),
+          _FamStaged(2, "objects/e.obj", [(40.0008, -2.9988, 0.0),
+                                          (40.0012, -2.9984, 0.0)])]
+    cands = [a, b, c]
+    counts: dict = {}
+    fams = FAM.bind_families(cands, st, surface, (west, east), counts,
+                             unit_id="unit:4", contact_eps_m=0.002,
+                             bind_ground_m=0.5)
+    planes = {f.pad: f.zero_z for f in fams}
+    assert planes == {"building1": 100.0, "building2": 108.0}
+    assert {c.anchor.family for c in cands} == {"unit:4#0@building1",
+                                                "unit:4#0@building2"}
+    # the two west members are one plane, the east one its own: the step
+    # falls at the pad frontage the design surface already terraces
+    zs = [c.anchor.surface_z - c.anchor.y_zero for c in cands]
+    assert zs[0] == zs[1] == 100.0 and zs[2] == 108.0
+
+
+def test_16f_5_pavement_is_king_over_the_family():
+    """§16f (5) (RULINGS 2026-09-13aq (ii)): a member whose ground
+    contacts are ALL on rolled-on pavement is CUT APART from its family
+    and stays on that pavement — an object never moves the aircraft.
+    Round 1 held a KCLT terminal wall +2.99 m over the apron."""
+    from auto_patch_v2.airport import placement_family as FAM
+
+    class _Roles:
+        def roles_many(self, las, los):
+            return ["apron"] * len(las)
+
+    def surface(la, lo):
+        return 100.0
+    surface.roles = _Roles()
+    surface.rolled_on = frozenset({"apron"})
+
+    pad = AR.PadRing("building7", ((39.999, -3.001), (40.003, -3.001),
+                                   (40.003, -2.997), (39.999, -2.997)),
+                     (100.0, 100.0, 100.0, 100.0))
+    a = _fam_cand(0, (40.0000, -3.0000, 40.0010, -2.9990), 100.0)
+    b = _fam_cand(1, (40.0005, -3.0005, 40.0015, -2.9985), 100.0)
+    st = [_FamStaged(0, "objects/wall.obj", [(40.0000, -3.0000, 0.0)]),
+          _FamStaged(1, "objects/roof.obj", [(40.0005, -3.0005, 0.0)])]
+    counts: dict = {}
+    assert FAM.bind_families([a, b], st, surface, (pad,), counts,
+                             unit_id="unit:5", contact_eps_m=0.002,
+                             bind_ground_m=0.5) == []
+    assert counts["family_bodies_on_pavement"] == 2
+    # ... and with no roles on the surface the reading is no evidence
+    bare = lambda la, lo: 100.0            # noqa: E731
+    c2 = [_fam_cand(0, (40.0000, -3.0000, 40.0010, -2.9990), 100.0),
+          _fam_cand(1, (40.0005, -3.0005, 40.0015, -2.9985), 100.0)]
+    assert FAM.bind_families(c2, st, bare, (pad,), {},
+                             unit_id="unit:5", contact_eps_m=0.002,
+                             bind_ground_m=0.5)
+
+
+def test_16f_4_the_ground_bound_holds_at_the_pad_join():
+    """§16f (4) + §16d (5): a member the pad group would pick up BY
+    CONTACT while its own ground stands further than ``bind_ground_m``
+    below the pad's plane is CUT TO ITS OWN GROUND — measured, those are
+    the members that came out +4.44 (KCLT), +8.92 (LEMD) and +12.21 m
+    (OTHH) above their own ground when the join was unbounded."""
+    from auto_patch_v2.airport import placement_family as FAM
+    pad = AR.PadRing("building9", ((39.9995, -3.0010), (40.0012, -3.0010),
+                                   (40.0012, -2.9993), (39.9995, -2.9993)),
+                     (100.0, 100.0, 100.0, 100.0))
+
+    def surface(la, lo):
+        return 100.0 if lo <= -2.9993 else 92.0        # a 8 m drop off the pad
+
+    on1 = _fam_cand(0, (40.0000, -3.0008, 40.0008, -2.9999), 100.0)
+    on2 = _fam_cand(1, (40.0002, -3.0006, 40.0009, -2.9997), 100.0)
+    off = _fam_cand(2, (40.0006, -2.9998, 40.0014, -2.9985), 92.0)
+    st = [_FamStaged(0, "objects/a.obj", [(40.0002, -3.0006, 0.0)]),
+          _FamStaged(1, "objects/b.obj", [(40.0004, -3.0004, 0.0)]),
+          _FamStaged(2, "objects/c.obj", [(40.0010, -2.9990, 0.0)])]
+    cands = [on1, on2, off]
+    counts: dict = {}
+    fams = FAM.bind_families(cands, st, surface, (pad,), counts,
+                             unit_id="unit:8", contact_eps_m=0.002,
+                             bind_ground_m=0.5)
+    assert len(fams) == 1 and fams[0].bodies == 2
+    assert counts["family_bodies_off_the_pad_plane"] == 1
+    assert cands[2].anchor.family == ""          # cut to its own ground

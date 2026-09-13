@@ -37,10 +37,13 @@ __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
            # §16e (3): the bridge family's own bars live in
            # ``bridge_family`` (the law and its reading in one module) and
            # are re-exported here, where every report reads its censuses
-           "census_bridges", "census_bridges_lines"]
+           "census_bridges", "census_bridges_lines",
+           "census_families", "census_families_lines"]
 
 from .bridge_family import (census_bridges,            # noqa: E402,F401
                             census_bridges_lines)
+from .placement_family import (census_families,        # noqa: E402,F401
+                               census_families_lines)
 
 
 # ── §14 (4): THE CENSUS ──────────────────────────────────────────────────

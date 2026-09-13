@@ -234,6 +234,11 @@ class Body:
     #: in either plan names a bridge (``airport/bridge_family``): the ROW
     #: puts three of OTHH's on one AGL and the deck's RING is a bbox.
     bridge_of: str = ""
+    #: §16f (1): THE FAMILY THIS BODY'S ZERO PLANE BELONGS TO — the
+    #: connected plan cluster of one shared-datum unit whose members take
+    #: one zero (``airport/placement_family``), else ``""``.  A carried
+    #: body takes its carrier's anchor and so publishes its family.
+    family_of: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -249,6 +254,7 @@ class Body:
                 "foot_boxes": [list(b) for b in self.foot_boxes],
                 "fill": self.fill, "ground_off": self.ground_off,
                 "datum": self.datum, "bridge_of": self.bridge_of or None,
+                "family_of": self.family_of or None,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts]}
 
@@ -278,7 +284,8 @@ class Body:
                    tuple((_f(q[0]), _f(q[1]), _f(q[2]))
                          for q in d.get("geom_pts", ()) or ()),
                    bool(d.get("datum", False)),
-                   str(d.get("bridge_of") or ""))
+                   str(d.get("bridge_of") or ""),
+                   str(d.get("family_of") or ""))
 
 
 @_dc.dataclass(frozen=True)

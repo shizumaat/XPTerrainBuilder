@@ -8253,3 +8253,40 @@ sub-0.1 m² triangles 2,301,676 → low hundreds, aspect p50 7,549 → < 5, DSF
 and > 0 on the LEMD control; the pre-flight refuses a synthetic hairline
 `.poly` and passes the four tiles; F-6, the basin, the ramps byte-identical
 where they are not the cause; suite twice.
+
+### §30 (4) MEASURED (lane `v2clusterpad`, 2026-09-13; branch `claude/v2clusterpad`)
+
+**THE CONSUMER CENSUS (owner RULINGS 2026-08-30l), taken BEFORE any
+consumer was edited.**  The change introduces ONE new region into the
+layout — the CLUSTER, a set of emitted `building` faces priced as one
+pad — and one new row family, the apron reach.  Every reader of a
+`building` pad, of a pad frontage (§28), of the pad ceiling (§30), of
+the apron trend, of the taxiway bands and of §16f's family census:
+
+| pass / reader | what it reads | ruling |
+|---|---|---|
+| `pads._pad_groups` (per FACE: id, ref, rim) | the pad's vertex set | UNTOUCHED — it stays the per-face derivation every geometric reader below needs.  The cluster is a SECOND grouping, `pads._plane_groups`, read only by the rows that price a PLANE |
+| `pads._pad_rows` → `pad_flats` / `pad_slope_ceiling` | the priced pairs | **EDITED** — priced over `_plane_groups`, so a cluster's faces are ONE plate and ONE hard 1 % ceiling.  This is §30 (4)'s "one plane" and the only place it is stated |
+| `pads.pad_frontage_level` | the pad's own mean vs its frontage's leaders | **EDITED** — the LEVEL row is minted over the cluster's whole rim (one plane, one level fit); the frontage read itself (`_fronting`, `pad_frontage_leaders`) is per FACE and unchanged, so a cluster fits to every frontage its faces have, seniority unchanged |
+| `pads._fronting` / `pad_frontage` / `pad_frontage_leaders` / `pad_shared` / `pad_fronts_airside` | per-face frontage relation | UNTOUCHED — a cluster fronts what its faces front |
+| `pads.pad_datum_withdrawn` (§9b) | per-face fronting test | UNTOUCHED — per face; a cluster face that fronts nothing keeps its DEM datum, and the plate then carries it into the plane, which is what makes a cluster with one fronting face level to that frontage |
+| `pads.frontage_near_miss` / `frontage_contacts` | pad polygons | UNTOUCHED — per face, geometric |
+| `pad_frontage_gs.groundside_frontage_level` (§28) | `_pad_polys` + `pad_fronts_airside` | UNTOUCHED — per face; §28 states the face-follows-pad direction and the cluster does not change which pad a lot fronts |
+| `pad_relief.pad_relief_offsets` (§11a (2)) | pad polygons + the groups' feet | UNTOUCHED — a per-VERTEX offset on the level plane; a cluster's plate carries it exactly as one pad's did |
+| `no_step.pad_pavement_edges` / `pad_contacts` | pad-to-pavement edges | UNTOUCHED — per face and per edge |
+| `constraints.ceiling` (`CEILING_RULING`, `LEVEL_RULING`) | the ruling HEADS | UNTOUCHED — the cluster's rows carry the same heads, so the hard set and the `[design] hard_rulings` / `pad_flat_rulings` pricing are unchanged.  The apron-reach row carries its OWN head and is named in NEITHER, so it is priced at the law's weight |
+| `verify/pads.pad_flat` (`plane_residual`) | per-FACE flatness | UNTOUCHED, and it is the instrument that reports the cost: a cluster whose faces cannot make one plane reports its residual per face, exactly as §30 (4) asks ("the report names the apron faces that stayed graded") |
+| `solve/design` §9b (`pad_datum_withdrawn`) | the withdrawn vertex set | UNTOUCHED (same call) |
+| `apron.apron_within_shape` / `apron_edge_portions`, the apron caps | the apron's own hard rows | UNTOUCHED — the reach row is a TARGET at the law weight and every apron cap outranks it; where they disagree the apron stays graded and the residual is the report |
+| the TAXIWAY family (`taxi_chain`, `taxi_centerlines`, `triangle_planes`, `taxi_box`, `junction_mesh`) | the taxi rows | UNTOUCHED and NEVER a follower of the reach: the reach's population excludes every vertex of a taxi- or runway-family face outright (§30 (4) "the reach stops at any taxiway family band") |
+| `pipeline/publication` | the sidecar | **EDITED** — additive key `cluster_pads` (id, members, pad refs, level, area, the reach's population) |
+| §16f's family census (`airport/placement_family`) | the object stage's own clusters | **EDITED** — `plan_clusters` is the SAME `_clusters` law read off the plan, so the design surface and the object stage cannot disagree about what one terminal is |
+
+**THE DEVIATION, NAMED (§30 (4) says "one `building` pad over the
+family's footprint union").**  What is emitted is the cluster's OWN pad
+faces priced as one plane, not a new polygon over the union: no new face,
+no new ref, no new shape class.  The union of the authored footprints is
+already covered by those faces, and minting a synthetic outline would put
+a new region into the planar map that every §28 / §30 / §20 consumer in
+the table above would have to be censused against again.  Reported, not
+decided.

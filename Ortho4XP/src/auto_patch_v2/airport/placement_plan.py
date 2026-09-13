@@ -415,6 +415,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  coarsen_reach_m: float = 0.0,
                  contact_eps_m: float = 0.0, rigid_reach_m: float = 0.0,
                  bind_ground_m: float = 0.0,
+                 cluster_min_m2: float = 0.0,
                  abutment_step_m: float = 0.0,
                  abutment_walk_max_m: float = 0.0,
                  abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
@@ -703,6 +704,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         fams.extend(_fam.bind_families(
             cands, staged, surface, pads, counts, unit_id=u.id,
             contact_eps_m=contact_eps_m, bind_ground_m=bind_ground_m,
+            cluster_min_m2=cluster_min_m2,
             has_deck=any(m.deck_ring
                           or m.deck_kind in ("flag", "signature")
                           for m in u.members)))

@@ -396,6 +396,18 @@ pad_level_rulings = [
 # precedent, ``frontage_near_miss_m`` 1.0).  0 disables the proximity
 # clause and leaves the identity read alone.
 pad_frontage_m = 3.0
+# §30 (4) THE CLUSTER PAD'S APRON REACH (owner RULINGS 2026-09-13bj item 1,
+# verbatim: "As long as it remains feasible with grade laws and taxiways,
+# etc. it's acceptable to flatten large apron areas around big terminals if
+# needed to accommodate a large terminal cluster").  An apron vertex within
+# this of a CLUSTER pad (`[placement] cluster_pad_min_m2`) takes the pad's
+# plane as its target, so the stands at the terminal are FLAT at the
+# terminal's level; the row carries the LAW's weight, so the apron's hard
+# caps and the taxi family win wherever one plane cannot be had, and the
+# reach stops at any taxiway band.  60 m is a stand depth: a widebody
+# stand at KCLT runs ~55 m from the gate line to the taxilane.  0 disables
+# the reach.
+cluster_apron_reach_m = 60.0
 # §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS 2026-09-13o,
 # refined 13p; Fable 2026-09-13).  A pad-face PAIR whose median DEM step —
 # the median over the face's frontage vertices of ``dem_z`` minus the pad

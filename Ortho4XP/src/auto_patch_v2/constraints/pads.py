@@ -89,7 +89,8 @@ __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "CEILING_RULING", "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
            "frontage_leaders", "_two_sided", "frontage_radius_m",
-           "pad_fronts_airside",
+           "pad_fronts_airside", "cluster_reach_m", "cluster_apron_faces",
+           "cluster_apron_level", "CLUSTER_REACH_RULING",
            "pad_relief_offsets"]
 
 GEN = "pads"
@@ -152,6 +153,65 @@ def _pad_groups(planar: PlanarMap, law: Law) -> list[tuple[int, str, list[int]]]
         if len(group) >= 2:
             out.append((f.id, f.ref, group))
     return out
+
+
+def cluster_reach_m(law: Law) -> float:
+    """§30 (4): ``[design] cluster_apron_reach_m`` — the plan distance
+    within which an apron vertex takes a CLUSTER pad's plane as its
+    target (owner RULINGS 2026-09-13bj item 1).  ONE derivation site; 0
+    disables the reach."""
+    return float(design_law(law).cluster_apron_reach_m)
+
+
+def _plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
+                  ) -> list[tuple[int, str, list[int], tuple[int, ...]]]:
+    """§30 (4): THE GROUPS A PAD *PLANE* IS PRICED OVER — every pad its
+    own, except that the faces of ONE TERMINAL CLUSTER are ONE entry.
+
+    ``(id, ref, rim vertices, the FACES it is made of)`` — the shape
+    :func:`_pad_groups` returns plus the face list, which is all :func:`_pad_rows` and
+    :func:`pad_frontage_level` need — so a cluster is one plate, one hard
+    1 % ceiling and one level fit, while every GEOMETRIC reader keeps
+    reading :func:`_pad_groups`'s per-face derivation (the consumer census
+    in the spec's §30 (4) MEASURED block rules each one).
+
+    The cluster is ``planar.cluster.cluster_pad_faces``, which is
+    ``airport.placement_family``'s own ``_clusters`` law asked of the pack
+    partition — the same relation the object stage's §16f (7) binds the
+    objects with, so the plane the design surface makes and the plane the
+    objects seat on are one thing by construction."""
+    groups = _pad_groups(planar, law)
+    plain = [(fid, ref, group, (fid,)) for fid, ref, group in groups]
+    if airport is None:
+        return plain
+    from ..planar.cluster import cluster_pad_faces
+    faces = cluster_pad_faces(planar, law, airport)
+    if not faces:
+        return plain
+    of_face: dict[int, str] = {}
+    for cid, fids in faces.items():
+        for fid in fids:
+            of_face.setdefault(fid, cid)
+    merged: dict[str, tuple[int, list[int], set[int], list[int]]] = {}
+    out: list[tuple[int, str, list[int], tuple[int, ...]]] = []
+    for fid, ref, group in groups:
+        cid = of_face.get(fid)
+        if cid is None:
+            out.append((fid, ref, group, (fid,)))
+            continue
+        got = merged.get(cid)
+        if got is None:
+            merged[cid] = (fid, list(group), set(group), [fid])
+            continue
+        _f0, vs, seen, fids = got
+        fids.append(fid)
+        for v in group:
+            if v not in seen:
+                seen.add(v)
+                vs.append(v)
+    for cid, (fid0, vs, _seen, fids) in merged.items():
+        out.append((fid0, f"cluster:{cid}", vs, tuple(sorted(fids))))
+    return sorted(out, key=lambda q: q[0])
 
 
 def _pavement_faces(planar: PlanarMap, law: Law) -> list[tuple[str, set[int]]]:
@@ -451,7 +511,9 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     off = (pad_relief_offsets(planar, law, airport)
            if (relief and airport is not None) else {})
     rows: list[Row] = []
-    for fid, ref, group in _pad_groups(planar, law):
+    # §30 (4): a TERMINAL CLUSTER's faces are ONE plane — one plate, one
+    # ceiling.  Every other pad is its own entry, exactly as before.
+    for fid, ref, group, _fids in _plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         for a, b in _pairs(group):
             if a == b:
@@ -650,15 +712,26 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
     lead = pad_frontage_leaders(planar, law)
     shared = pad_shared(planar, law)
     rows: list[Row] = []
-    for fid, ref, group in _pad_groups(planar, law):
-        by_role = lead.get(fid)
+    # §30 (4): a CLUSTER is ONE plane, so it takes ONE level fit — its
+    # whole rim against the leaders of EVERY face's frontage, seniority
+    # read over the union.  The frontage relation itself is per face and
+    # untouched (the consumer census): a cluster fronts what its faces
+    # front.
+    for fid, ref, group, fids in _plane_groups(planar, law, airport):
+        by_role: dict[str, list[tuple[int, list[tuple[int, float]]]]] = {}
+        for q in fids:
+            for role, pairs in (lead.get(q) or {}).items():
+                by_role.setdefault(role, []).extend(pairs)
         if not by_role:
             continue                       # fronts nothing: its DEM datum
+        sh: set[int] = set()
+        for q in fids:
+            sh |= shared.get(q, set())
         top = senior_role(law, sorted(by_role))
         # §9b reads the FOLLOWERS: a fronting pad's own vertices carry no
         # DEM datum (10l).  Its CONTACTS are the pavement's edge and stay
         # in the pavement body's mean.
-        own = tuple(sorted(set(group) - shared.get(fid, set())))
+        own = tuple(sorted(set(group) - sh))
         if not own:
             continue        # every rim vertex IS the pavement's: nothing follows
         for role, pairs in by_role.items():
@@ -696,6 +769,122 @@ def _two_sided(terms: tuple[tuple[int, float], ...], src: Source,
     return [Linear(terms, None, 0.0, src, follows=follows),
             Linear(tuple((v, -c) for v, c in terms), None, 0.0, src,
                    follows=follows)]
+
+
+#: The ruling HEAD of §30 (4)'s apron reach.  Named by NEITHER
+#: ``[design] pad_flat_rulings`` nor ``hard_rulings``: the row is a
+#: TARGET at the law's own weight, so every apron cap, every taxi row and
+#: the pad's own 1 % ceiling outrank it and the reach yields wherever one
+#: plane cannot be had — which is exactly the owner's "as long as it
+#: remains feasible with grade laws and taxiways".
+CLUSTER_REACH_RULING = "structures.building_pad cluster_apron_reach"
+
+
+def cluster_apron_faces(planar: PlanarMap, law: Law, airport: Airport
+                        ) -> dict[str, list[int]]:
+    """§30 (4): ``cluster id -> the APRON vertices within
+    ``cluster_apron_reach_m`` of its pad`` — the population the reach
+    rows are minted over, as data (the publication reads the same call).
+
+    THE REACH STOPS AT A TAXIWAY BAND (the ruling's own words).  The
+    population is the ``apron`` faces alone, and a vertex any face of the
+    TAXI or RUNWAY family also carries is struck: identity is the weld
+    (09-01g), so such a vertex IS a taxiway vertex and the taxi family is
+    never moved by a pad.  A vertex the pad already SHARES is struck too
+    — it is in the pad's own plate (10y) and a row against the plate's
+    own mean would only say the plane equals itself."""
+    reach = cluster_reach_m(law)
+    if reach <= 0.0:
+        return {}
+    from ..planar.cluster import cluster_pad_faces
+    faces = cluster_pad_faces(planar, law, airport)
+    if not faces:
+        return {}
+    vw = view(planar, law)
+    taxi = tuple(sorted(set(_rolled_on(law)) - {"apron"}))
+    struck: set[int] = set()
+    for f in vw.faces_of_role(taxi):
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            struck.update(ring)
+    apron_vs: list[int] = []
+    for f in vw.faces_of_role(("apron",)):
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            apron_vs.extend(ring)
+    if not apron_vs:
+        return {}
+    polys = {fid: poly for fid, _r, _g, poly in _pad_polys(planar, law)}
+    xy = {v: vw.xy[v] for v in set(apron_vs)}
+    out: dict[str, list[int]] = {}
+    for cid, fids in faces.items():
+        pad_vs: set[int] = set()
+        for q in fids:
+            pad_vs.update(_face_vertices(vw, q))
+        shapes = [polys[q] for q in fids if q in polys]
+        if not shapes:
+            continue
+        from shapely.ops import unary_union
+        u = unary_union(shapes)
+        got = sorted({v for v in set(apron_vs)
+                      if v not in struck and v not in pad_vs
+                      and u.distance(Point(*xy[v])) <= reach})
+        if got:
+            out[cid] = got
+    return out
+
+
+def _rolled_on(law: Law) -> tuple[str, ...]:
+    from ..law.tables import rolled_on_roles
+    return tuple(rolled_on_roles(law))
+
+
+def _face_vertices(vw, fid: int) -> list[int]:
+    out: list[int] = []
+    for ring in [vw.rings[fid], *vw.holes[fid]]:
+        out.extend(ring)
+    return out
+
+
+def cluster_apron_level(planar: PlanarMap, law: Law, airport: Airport
+                        ) -> list[Row]:
+    """§30 (4) THE APRON AROUND A BIG TERMINAL TAKES THE CLUSTER'S PLANE
+    (owner RULINGS 2026-09-13bj item 1, verbatim: "it's acceptable to
+    flatten large apron areas around big terminals if needed to
+    accommodate a large terminal cluster ... as long as it remains
+    feasible with grade laws and taxiways").
+
+    One ONE-WAY row per apron vertex in :func:`cluster_apron_faces`: the
+    vertex against THE CLUSTER PAD'S OWN MEAN (every rim vertex at
+    ``1/n``, the same leader shape :func:`pad_frontage_level` uses in the
+    other direction), the APRON as the follower.  So the stands at the
+    terminal come out flat at the terminal's level, and the pad is never
+    pulled by the apron it is flattening — 10l's direction still holds
+    for the pad's own level, which is fitted to its frontage first.
+
+    Priced at the LAW's own weight (:data:`CLUSTER_REACH_RULING` is in
+    no heavier family), so the apron's hard caps, the pad's 1 % ceiling
+    and every taxi row outrank it: where one plane cannot be had the
+    apron stays graded and ``verify`` reports the residual, which is
+    exactly the feasibility clause of §30 (4)."""
+    got = cluster_apron_faces(planar, law, airport)
+    if not got:
+        return []
+    groups = {ref.split("cluster:", 1)[1]: group
+              for _f, ref, group, _q in _plane_groups(planar, law, airport)
+              if ref.startswith("cluster:")}
+    rows: list[Row] = []
+    for cid, vs in sorted(got.items()):
+        group = groups.get(cid)
+        if not group:
+            continue
+        src = Source(GEN_LEVEL, CLUSTER_REACH_RULING
+                     + " (owner 2026-09-13bj item 1; spec §30 (4))",
+                     (f"cluster:{cid}", f"apron_vertices:{len(vs)}"))
+        base = {v: -1.0 / len(group) for v in group}
+        for v in vs:
+            terms = dict(base)
+            terms[v] = terms.get(v, 0.0) + 1.0
+            rows.extend(_two_sided(tuple(terms.items()), src, (v,)))
+    return rows
 
 
 def pad_slope_ceiling(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

@@ -400,6 +400,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
         # this entry still times a src that predates the key
         bind_ground_m=getattr(getattr(law.tables.emit, "cockpit", None),
                               "visual_m", None),
+        # §16f (7) (owner RULINGS 2026-09-13bj item 1), through the same
+        # dropper so a src predating the key still replays
+        cluster_min_m2=getattr(law.tables.structures.placement,
+                               "cluster_pad_min_m2", None),
         # §16e (6): the deck end line's LANDWARD WALK, through the same
         # dropper — a src predating the rule takes neither key
         abutment_step_m=getattr(law.tables.structures.bridge,

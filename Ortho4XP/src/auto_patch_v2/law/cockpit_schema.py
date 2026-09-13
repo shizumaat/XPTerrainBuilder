@@ -64,8 +64,17 @@ def value_at(tables: object, dotted: str):
 #:                 217 m ground).  CRITICAL unconditionally: there is no
 #:                 threshold to price it against and no view test to pass —
 #:                 a hole in the design surface is critical wherever it is.
+#: ``unmeshable`` the family measures geometry the MESHER cannot build —
+#:                 §39's hairline: an emitted edge laid within the identity
+#:                 spacing of, and parallel to, a foreign constrained edge.
+#:                 CRITICAL unconditionally (owner RULINGS 2026-09-13bk):
+#:                 it is a LOAD-TIME and TEXTURE defect, not a height, so
+#:                 there is no threshold to price it against and no view
+#:                 test to pass — LEMD's twenty-five 0.06-0.26 mm pairs
+#:                 became 2,301,676 sliver triangles and a tile X-Plane
+#:                 would not load.
 COCKPIT_CLASSES: tuple[str, ...] = ("step", "grade_break", "grade", "keepout",
-                                    "sentinel")
+                                    "sentinel", "unmeshable")
 
 
 @_dc.dataclass(frozen=True)

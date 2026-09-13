@@ -6048,6 +6048,132 @@ def _check_bank_across_seam(seam_half_width_m, seam_pins_ll, nodes,
     return out
 
 
+#: §39 (2) THE HAIRLINE LAW: two constrained edges count as PARALLEL when
+#: their directions differ by no more than this (owner RULINGS 2026-09-13bk).
+HAIRLINE_PARALLEL_DEG = 5.0
+
+
+def _hairline_segments(nodes, ways, feature_ways) -> List[Tuple[
+        Tuple[float, float], Tuple[float, float], Way]]:
+    """Every EMITTED constrained edge of the patch, with the way it came
+    from: the pavement rings AND the role-less feature ways (a bank foot,
+    a rim, a hole ring, a crown spine) — the mesh constrains all of them
+    alike, so a census that walked ``ways`` alone would have missed the
+    LEMD bank foot that made the defect."""
+    out = []
+    for w in list(ways) + list(feature_ways):
+        pts = [nodes[n] for n in w.nids if n in nodes]
+        for i in range(len(pts) - 1):
+            if pts[i] != pts[i + 1]:
+                out.append((pts[i], pts[i + 1], w))
+    return out
+
+
+def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
+                         spacing_m: float) -> List[Violation]:
+    """§39 (2) NO EDGE BESIDE ANOTHER — the ``hairline_pair`` family.
+
+    Every EMITTED ring edge is priced against every FOREIGN constrained
+    edge of the tile's vector map within ``spacing_m``
+    (``emit.identity.min_distinct_spacing_m``) and within
+    :data:`HAIRLINE_PARALLEL_DEG` of parallel.  Two edges that SHARE an
+    endpoint at the identity precision are one chain, not a pair, and are
+    skipped (the 11-dp identity join is what "shares its vertices exactly"
+    means).
+
+    THE FOREIGN POPULATION is the WATER, published by the emitter as the
+    ``shore_edges`` sidecar key — the same witness the shore weld ran
+    against, so the instrument and the law never read two waters (the
+    census-wrapper lesson).  A patch with no key prices only ring-vs-ring.
+
+    WHY IT IS CRITICAL UNCONDITIONALLY: it is a LOAD-TIME and a TEXTURE
+    defect, not a height.  Triangle4XP must recover both segments and
+    fills the wedge between them with a Steiner cascade — at LEMD
+    (13bk) 2,301,676 triangles under 0.1 m², 73 % of the tile, from
+    twenty-five 0.06–0.26 mm pairs; at SPLP (13an) 16,298 splits of one
+    5.32 m segment.  No metres of height are wrong: the tile will not
+    load.
+    """
+    spacing = float(spacing_m)
+    if spacing <= 0.0:
+        return []
+    segs = _hairline_segments(nodes, ways, feature_ways)
+    if not segs:
+        return []
+    lat0 = segs[0][0][0]
+    mlat = _M_PER_DEG_LAT
+    mlon = _M_PER_DEG_LAT * max(0.05, math.cos(math.radians(lat0)))
+
+    def xy(p):
+        return (p[1] * mlon, p[0] * mlat)
+
+    foreign: List[Tuple[Tuple[float, float], Tuple[float, float], Optional[Way]]] = []
+    for e in (shore_edges_ll or []):
+        try:
+            a, b = (float(e[0]), float(e[1])), (float(e[2]), float(e[3]))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if a != b:
+            foreign.append((a, b, None))
+    # ring-vs-ring is foreign too: another FACE's ring is not this one's
+    foreign.extend(segs)
+
+    cell = max(8.0, 4.0 * spacing)
+    grid: Dict[Tuple[int, int], List[int]] = {}
+    fxy = []
+    for i, (a, b, _w) in enumerate(foreign):
+        pa, pb = xy(a), xy(b)
+        fxy.append((pa, pb))
+        for cx in range(int(min(pa[0], pb[0]) // cell), int(max(pa[0], pb[0]) // cell) + 1):
+            for cy in range(int(min(pa[1], pb[1]) // cell), int(max(pa[1], pb[1]) // cell) + 1):
+                grid.setdefault((cx, cy), []).append(i)
+
+    def d_pt_seg(p, a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L = dx * dx + dy * dy
+        t = 0.0 if L <= 0.0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L))
+        return math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy))
+
+    out: List[Violation] = []
+    seen: set = set()
+    for a, b, w in segs:
+        pa, pb = xy(a), xy(b)
+        cand: set = set()
+        for cx in range(int(min(pa[0], pb[0]) // cell) - 1, int(max(pa[0], pb[0]) // cell) + 2):
+            for cy in range(int(min(pa[1], pb[1]) // cell) - 1, int(max(pa[1], pb[1]) // cell) + 2):
+                cand.update(grid.get((cx, cy), ()))
+        for i in cand:
+            fa, fb, fw = foreign[i]
+            if fw is w:
+                continue
+            if {a, b} & {fa, fb}:
+                continue                       # one chain, not a pair
+            qa, qb = fxy[i]
+            d = min(d_pt_seg(pa, qa, qb), d_pt_seg(pb, qa, qb),
+                    d_pt_seg(qa, pa, pb), d_pt_seg(qb, pa, pb))
+            if d > spacing:
+                continue
+            ang = abs(math.degrees(
+                math.atan2(pb[1] - pa[1], pb[0] - pa[0])
+                - math.atan2(qb[1] - qa[1], qb[0] - qa[0]))) % 180.0
+            ang = min(ang, 180.0 - ang)
+            if ang > HAIRLINE_PARALLEL_DEG:
+                continue
+            key = tuple(sorted([a, b, fa, fb]))
+            if key in seen:
+                continue
+            seen.add(key)
+            v = Violation(
+                grade_pct=0.0, excess_pct=0.0, distance_m=d,
+                de_m=spacing - d, way_a=w, way_b=(fw if fw is not None else w),
+                pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
+            v.lat, v.lon = a[0], a[1]
+            v.reading = "shore" if fw is None else "ring"
+            out.append(v)
+    out.sort(key=lambda r: r.distance_m)
+    return out
+
+
 # ── THE END-AROUND TAXIWAY CEILING, VALIDATOR HALF (owner RULINGS
 # 2026-09-13j item 2, ruled 13q item 2; spec design-surface-spec §36) ──
 # THE ONE READER: the accepted RECTS arrive through the ``eat_rects``
@@ -7766,6 +7892,14 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("bank_across_seam",
      "BANK FOOT node INSIDE a tile-seam band (no bank along a seam)",
      "within"),
+    # §39 (2) THE HAIRLINE LAW (owner RULINGS 2026-09-13bk; spec §39).
+    # Sidecar-declared like ``seam_residual``: ``shore_edges`` = the tile's
+    # FOREIGN water edges as ``[lat1, lon1, lat2, lon2]``, the same witness
+    # the emitter's shore weld ran against.  A LOAD-TIME and TEXTURE
+    # defect, not a height — CRITICAL unconditionally.
+    ("hairline_pair",
+     "EMITTED EDGE laid BESIDE a foreign constrained edge (the hairline)",
+     "within"),
     # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be):
     # sidecar-declared like ``seam_residual`` — ``road_coverage_join`` =
     # ``[lat, lon, the CORE ribbon's altitude just outside the coverage]``.
@@ -8363,6 +8497,10 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # §38 (3)/(5): the band's own half width, so ``bank_across_seam``
     # reads "inside the band" from the law the BUILD ran under
     "seam_half_width_m": "seam_half_width_m",
+    # §39 (1)/(2) THE HAIRLINE LAW: the FOREIGN water edges the emitter's
+    # shore weld ran against — so ``hairline_pair`` prices the population
+    # the law ran on and never a second water witness
+    "shore_edges": "shore_edges_ll",
     "mesh_edges": "mesh_edges_ll",
     # RULINGS 2026-09-05ae(1): a soft face's holes by ``shapeID`` — an apron
     # chord crossing one is no pair (``grade_graph._visibility_predicate``)
@@ -8745,6 +8883,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["anchor"] = tuple(anchor) if anchor else None
     ctx["seam_pins_ll"] = data.get("seam_pins")
     ctx["seam_half_width_m"] = data.get("seam_half_width_m")
+    # §39 (1)/(2): the emitter's own foreign-water population
+    ctx["shore_edges_ll"] = data.get("shore_edges") or None
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
     ctx["face_holes_ll"] = data.get("face_holes") or None
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
@@ -9397,6 +9537,13 @@ def cockpit_classify(family: str, row, *, law: dict,
     # surface, and a hole is critical at any airport it touches.
     if cls == "sentinel":
         return COCKPIT_VISUAL, "sentinel"
+    # THE HAIRLINE IS CRITICAL UNCONDITIONALLY (§39 (2), owner RULINGS
+    # 2026-09-13bk): an edge laid beside a foreign constrained edge is a
+    # LOAD-TIME and TEXTURE defect, not a height — there is no threshold
+    # to price it against and no view test to pass.  The mesher fills the
+    # wedge with a Steiner cascade wherever it is.
+    if cls == "unmeshable":
+        return COCKPIT_VISUAL, "unmeshable"
     mag = row_magnitude(row)
     roles = row_roles(row)
     rolled = law["rolled_on"]
@@ -9773,6 +9920,7 @@ def run_checks(
     anchor: Optional[Tuple[float, float]] = None,
     seam_pins_ll: Optional[list] = None,
     seam_half_width_m: Optional[float] = None,
+    shore_edges_ll: Optional[list] = None,
     mesh_edges_ll: Optional[list] = None,
     face_holes_ll: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
@@ -10205,6 +10353,20 @@ def run_checks(
         "already at the DEM — 13an, the chain Triangle4XP split 16,298 "
         "times against the tile border)", bank_seam, top_n)
     within = within + bank_seam
+
+    # §39 (2): every emitted edge — pavement ring AND role-less feature
+    # way — against the tile's foreign constrained edges
+    hairline = _fam("hairline_pair",
+                    _check_hairline_pair(
+                        shore_edges_ll, nodes, ways,
+                        [w for v in open_features.values() for w in v],
+                        proximity_m))
+    _pv("EMITTED EDGE laid BESIDE a foreign constrained edge, within "
+        f"{HAIRLINE_PARALLEL_DEG:g} deg of parallel (owner RULINGS "
+        "2026-09-13bk §39: LEMD's bank foot 0.06 mm from the water line "
+        "— 2.30 M sliver triangles and a tile X-Plane would not load)",
+        hairline, top_n)
+    within = within + hairline
 
     adjacent_edges = _fam("adjacent_ground_tear",
                           _check_adjacent_ground_edges(ways, nodes, ll_to_m))

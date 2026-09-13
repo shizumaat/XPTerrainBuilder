@@ -745,11 +745,94 @@ def _patch_bbox(path, margin=0.002):
             min(lons) - margin, max(lons) + margin)
 
 
+def hairline_audit(prefix, tile_lat, tile_lon, spacing_m, parallel_deg,
+                   slenderness, boundary_gap_m=0.1):
+    """§39 (3) THE HAIRLINE AUDIT of a build's Triangle input.
+
+    THE ONE IMPLEMENTATION is the engine's — ``O4_Mesh_Utils.hairline_pairs``
+    / ``hairline_refusals``, which is what the MESH PRE-FLIGHT itself runs
+    before every Triangle4XP call.  This is the instrument half of the same
+    reading, promoted from the scouts' ``nearpar.py`` on its second use
+    (13an's SPLP read, then 13bk's LEMD read): a second spelling of the pair
+    test here would be the census-wrapper defect one artefact over.
+
+    Reports every non-adjacent constrained pair of the ``.poly`` within
+    ``spacing_m`` and ``parallel_deg`` of parallel, and marks the UNMESHABLE
+    subset the pre-flight refuses on — a pair against the OUTER boundary
+    (Triangle4XP's ``-Y`` forbids Steiner points there, so the wedge can
+    only be relieved by splitting the other segment: 16,298 splits at SPLP)
+    or one whose Steiner cascade would run to ``slenderness`` splits
+    (LEMD's worst pair reads 24.88 m / 0.0595 mm = 417,901).
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    src = str(_Path(__file__).resolve().parents[1] / "src")
+    if src not in _sys.path:
+        _sys.path.insert(0, src)
+    import O4_Mesh_Utils as MESH
+    rows = MESH.hairline_pairs(prefix + ".poly", tile_lat,
+                               spacing_m=spacing_m, parallel_deg=parallel_deg)
+    bad = MESH.hairline_refusals(rows, slenderness=slenderness,
+                                 boundary_gap_m=boundary_gap_m)
+    by_marker = {}
+    for r in rows:
+        key = "/".join(str(x) for x in sorted((r["marker_a"], r["marker_b"])))
+        by_marker[key] = by_marker.get(key, 0) + 1
+    print(f"hairline audit — {prefix}.poly, tile {tile_lat:+03d}{tile_lon:+04d}")
+    print(f"  pairs within {spacing_m} m and {parallel_deg} deg of parallel: "
+          f"{len(rows)}")
+    print("  by marker pair: " + ", ".join(
+        f"{k} {v}" for k, v in sorted(by_marker.items(), key=lambda kv: -kv[1])))
+    print(f"  UNMESHABLE (outer boundary, or slenderness >= {slenderness:g}): "
+          f"{len(bad)}")
+    for r in (bad or rows)[:20]:
+        print("   gap {:9.4f} mm  ang {:6.3f}  len {:8.2f}/{:8.2f} m  "
+              "mk {}/{}  {:<22} at {:.7f},{:.7f}".format(
+                  r["gap_m"] * 1000.0, r["angle_deg"], r["len_a_m"],
+                  r["len_b_m"], r["marker_a"], r["marker_b"],
+                  "OUTER BOUNDARY (-Y)" if r["on_boundary"]
+                  else "slenderness {:.0f}".format(r["slenderness"]),
+                  tile_lat + r["lat"], tile_lon + r["lon"]))
+    return {"pairs": len(rows), "unmeshable": len(bad),
+            "by_marker": by_marker, "spacing_m": spacing_m,
+            "parallel_deg": parallel_deg, "slenderness": slenderness,
+            "rows": rows[:500], "refused": bad[:500]}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mesh", required=True, help="path to a .mesh file")
+    ap.add_argument("--mesh", default=None,
+                    help="path to a .mesh file (not needed for "
+                         "--hairline-audit, which reads the .poly)")
+    ap.add_argument("--hairline-audit", action="store_true",
+                    help="§39 (3): report every NON-ADJACENT constrained "
+                         "pair of the build's .poly laid within the identity "
+                         "spacing of, and near parallel to, another — the "
+                         "hairline Triangle4XP fills with a Steiner cascade "
+                         "(LEMD 13bk: 2.30 M sliver triangles; SPLP 13an: "
+                         "16,298 splits of one 5.32 m segment).  Runs the "
+                         "ENGINE's own pre-flight reader, so the instrument "
+                         "and the refusal can never disagree.")
+    ap.add_argument("--hairline-spacing", type=float, default=0.5, metavar="M",
+                    help="the identity spacing the pair test runs at "
+                         "(default 0.5 = emit.identity.min_distinct_spacing_m)")
+    ap.add_argument("--hairline-parallel", type=float, default=5.0,
+                    metavar="DEG", help="how near parallel a pair must be "
+                                        "(default 5)")
+    ap.add_argument("--hairline-boundary-gap", type=float, default=0.1,
+                    metavar="M",
+                    help="a pair against the OUTER boundary under this gap is "
+                         "unmeshable whatever its slenderness (-Y forbids "
+                         "Steiner points there; SPLP 13an: 0.0237 m, 16,298 "
+                         "splits).  Also an assumption, never a law.")
+    ap.add_argument("--hairline-slenderness", type=float, default=1.0e4,
+                    metavar="N",
+                    help="REPORTING/refusal threshold: shorter segment over "
+                         "gap, i.e. the Steiner cascade Triangle would build "
+                         "(default 1e4; an assumption, never a law — two runs "
+                         "quoted at two thresholds are not comparable)")
     g = ap.add_mutually_exclusive_group(required=False)
     g.add_argument("--patch-osm", help="derive airport bbox from this patch OSM")
     g.add_argument("--bbox", help="lat0,lat1,lon0,lon1")
@@ -863,6 +946,9 @@ def main(argv=None):
                     help="also write the counts here, with the bbox and "
                          "band edges stamped alongside")
     args = ap.parse_args(argv)
+    if not args.mesh and not args.hairline_audit:
+        ap.error('--mesh is required (only --hairline-audit reads the .poly '
+                 'alone, via --inputs PREFIX)')
 
     if args.edge_audit:
         if not args.near:
@@ -883,6 +969,27 @@ def main(argv=None):
             dem_slope_factor=args.dem_slope_factor,
             dem_bar_m=args.dem_bar, kml_path=args.kml,
             kml_cap=args.kml_cap)
+        if args.json:
+            import json
+            with open(args.json, "w") as fh:
+                json.dump(payload, fh, indent=1)
+            print(f"JSON -> {args.json}")
+        return 0
+
+    if args.hairline_audit:
+        prefix = args.inputs
+        if prefix is None:
+            if not (args.mesh or "").endswith(".mesh"):
+                raise SystemExit("REFUSING: --inputs PREFIX is required when "
+                                 "no --mesh path ending in .mesh is given")
+            prefix = args.mesh[:-len(".mesh")]
+        (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
+                                else _tile_origin(prefix + ".poly"))
+        payload = hairline_audit(prefix, tile_lat, tile_lon,
+                                 args.hairline_spacing, args.hairline_parallel,
+                                 args.hairline_slenderness,
+                                 args.hairline_boundary_gap)
+        payload.update({"inputs": prefix, "tile": [tile_lat, tile_lon]})
         if args.json:
             import json
             with open(args.json, "w") as fh:
@@ -924,8 +1031,8 @@ def main(argv=None):
             print(f"JSON -> {args.json}")
         return 0
     if not (args.bbox or args.patch_osm):
-        ap.error("give --bbox, --patch-osm, --interp-alt-audit or "
-                 "--water-audit")
+        ap.error("give --bbox, --patch-osm, --interp-alt-audit, "
+                 "--water-audit or --hairline-audit")
 
     if args.bbox:
         la0, la1, lo0, lo1 = (float(x) for x in args.bbox.split(","))

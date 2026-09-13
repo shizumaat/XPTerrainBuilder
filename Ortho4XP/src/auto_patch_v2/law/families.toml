@@ -181,6 +181,21 @@ solver    = "construction"
 # Triangle4XP against the unsplittable tile border).
 cockpit   = "keepout"
 
+[hairline_pair]
+measures  = "an EMITTED constrained edge laid within emit.identity.min_distinct_spacing_m of, and within 5 deg of parallel to, a FOREIGN constrained edge (an OSM water edge published as `shore_edges`, or another way's ring) without sharing its vertices"
+parameter = "emit.identity.min_distinct_spacing_m"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-09-13an; 2026-09-13bk"
+solver    = "construction"
+# "unmeshable": the row is not a height at all — Triangle4XP must recover
+# BOTH segments and fills the hairline wedge between them with a Steiner
+# cascade.  LEMD: twenty-five pairs 0.06-0.26 mm apart made 2,301,676
+# triangles under 0.1 m2 (73 % of the tile) and X-Plane would not load the
+# tile; SPLP: one 5.32 m segment split 16,298 times.  CRITICAL wherever it
+# is, whatever its elevation.
+cockpit   = "unmeshable"
+
 [adjacent_ground_tear]
 measures  = "graded-strip vertex outside the zone corridor (wall straddle exempt)"
 parameter = "zones.adjacent_ground.lip_width_m"

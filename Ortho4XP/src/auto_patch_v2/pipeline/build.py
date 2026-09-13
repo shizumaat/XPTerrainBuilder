@@ -390,8 +390,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"{ss.mouths_off_field}, on approach {ss.mouths_on_approach} of "
              f"{ss.approach_corridors} corridors)  duals merged "
              f"{ss.duals_merged}  object corridors {ss.object_corridors} (signatures "
-             f"{ts.signatures} of {ts.resources} resources, merged {ts.merged}, "
-             f"{ts.signature_s:.2f} s)  door ramps {ss.door_ramps}  sunken roads "
+             f"{ts.signatures} of {ts.resources} resources screened, {ts.not_screened} "
+             f"not screened, thin plates {ts.plates}, merged {ts.merged}, "
+             f"{ts.signature_s:.2f} s)  plate mouths {len(ss.plate_mouths)}  "
+             f"crest from approach {len(ss.crest_from_approach)}  "
+             f"door ramps {ss.door_ramps}  sunken roads "
              f"{ss.sunken_roads}  wall corridors {ss.wall_corridors}  tunnels {ss.tunnels}  "
              f"decks {ss.decks}  "
              f"cells cut {ss.cells_cut}  refused {len(ss.refused) + len(ts.refused)}", out)
@@ -402,6 +405,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         if ss.mouth_only_bores:
             _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
                  f"{', '.join(ss.mouth_only_bores)}", out)
+        for r in ss.plate_mouths:
+            _say(f"    {r}", out)
+        for r in ss.crest_from_approach:
+            _say(f"    {r}", out)
+        for r in ss.plate_mouths:
+            _say(f"    {r}", out)
+        for r in ss.crest_from_approach:
+            _say(f"    {r}", out)
         for r in ss.mouths_on_approach_named:
             _say(f"    {r}", out)
         for r in ss.mouths_off_field_nearest:

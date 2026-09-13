@@ -38,6 +38,7 @@ from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .structures import StructureStats, build_structures, ramp_targets
 from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
+from ..airport.thin_plates import read_plates
 from ..airport.door_wells import DoorStats, read_door_wells
 from ..airport.sunken_roads import SunkenRoadStats, read_sunken_roads
 from ..airport.wall_corridors import WallCorridorStats, read_wall_corridors
@@ -114,6 +115,13 @@ def build(airport: Airport, classification: Classification, law: Law,
     # THE TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1): read over the
     # geometry the cache already holds, they replace the OSM bores they cover
     corridors, tstats = read_corridors(airport, objects, cache, law)
+    # THE THIN-PLATE WALL OBJECTS (spec §33 (2)): the pack's bridge / tunnel
+    # PLATES, which the wall reader's skirt pre-screen refuses — they govern
+    # the MOUTH of the bore they span (owner RULINGS 2026-09-13d item 5)
+    plates, pstats = read_plates(airport, objects, cache, law,
+                                 {c.resource for c in corridors})
+    tstats.plates = pstats.plates
+    tstats.refused.extend(pstats.refused)
     # THE DOOR WELLS AND SUNKEN ROADS (RULINGS 2026-09-08b/c): read over the
     # same geometry, built through the same structure machinery
     wells, dstats = read_door_wells(airport, objects, cache, law)
@@ -122,7 +130,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
-                                                       corridors, extra)
+                                                       corridors, extra, plates)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
                                                   objects, cache, report=orep)
     bstats.objects = orep

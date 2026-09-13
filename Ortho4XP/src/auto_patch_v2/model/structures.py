@@ -57,6 +57,16 @@ class Deck:
     ring: tuple[XY, ...]
     datum: str = "dem"
     z: float | None = None
+    #: spec §33 (4) (owner RULINGS 2026-09-13d item 9): A TERRAIN DECK IS
+    #: TIED TO ITS ENDS.  The ground at the mapped way's two ends — the
+    #: apron on one side, the road on the other — and the governed cell
+    #: standing there (``""`` = bare ground, the DEM).  The deck's datum
+    #: is the higher of (trench floor + ``bridge.clearance_m``) and these;
+    #: the ramp beneath yields downward.  Empty for an object deck, whose
+    #: authored top IS its datum.
+    end_z: tuple[float, ...] = ()
+    end_ref: tuple[str, ...] = ()
+    end_xy: tuple[XY, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

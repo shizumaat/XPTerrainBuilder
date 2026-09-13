@@ -178,6 +178,12 @@ class TunnelObjectStats:
     signatures: int = 0
     corridors: int = 0
     merged: int = 0
+    #: spec §33 (1): resources the 06f cheap gate skipped before the
+    #: pre-screen (no skirt under the seat, no mapped bore in the plan) —
+    #: never READ, so never a verdict: counted, never enumerated.
+    not_screened: int = 0
+    #: spec §33 (2): THIN-PLATE wall objects read (``airport/thin_plates``).
+    plates: int = 0
     refused: list[str] = _dc.field(default_factory=list)
     signature_s: float = 0.0
 
@@ -708,6 +714,10 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     counts: dict[str, int] = {}
     admitted: list[tuple[WallSignature, _obj8.PlacedObject]] = []
     no_bore: set[str] = set()
+    #: spec §33 (1): the resources the pre-screen actually READ — every one
+    #: of them is named with its verdict (the no-bore skip below never
+    #: screened its resource and is counted, not enumerated).
+    screened: set[str] = set()
     for o in objects:
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
             continue
@@ -727,6 +737,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                 continue
         if o.path not in sigs:
             stats.resources += 1
+            screened.add(o.path)
             # THE PRE-SCREEN (the basin reader's O(n) step): a wall's skirt
             # spans at least the lesser of skirt_min_depth_m (a full wall,
             # below the seat) and edge_wall_min_skirt_m (an edge wall, below
@@ -769,11 +780,19 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         sigs[path] = ("no wall skirt under the seat and no mapped bore within the plan: not an "
                       "edge-wall candidate (2026-09-06f)")
     stats.signatures = sum(1 for s in sigs.values() if not isinstance(s, str))
+    # EVERY SCREENED RESOURCE IS NAMED (spec §33 (1); RULINGS 2026-09-13i).
+    # The four suppressed prefixes — "no wall skirt", "no genuine", "no
+    # crest plate", "a stub: the plan extent" — hid the pre-screen's own
+    # verdicts from every report, so LEMD's Bridge3 (1.03 m of solids over
+    # the whole of bore -5931) and Bridge2 (1.31 m over two decks) were
+    # refused INVISIBLY and the OSM corridor stood alone.  A resource the
+    # reader never screened (no skirt under the seat AND no mapped bore in
+    # its plan — the 06f cheap gate, OTHH's ~1,100 library resources) is
+    # not a verdict and is COUNTED, not enumerated.
     for path, sig in sigs.items():
-        if isinstance(sig, str) and not sig.startswith("no wall skirt") \
-                and not sig.startswith("no genuine") and not sig.startswith("no crest plate") \
-                and not sig.startswith("a stub: the plan extent"):
+        if isinstance(sig, str) and path in screened:
             stats.refused.append(f"{os.path.basename(path)} x{counts[path]}: {sig}")
+    stats.not_screened = len(no_bore - screened)
     # the other placements of each resource (the family rule reads them)
     plates: dict[str, list[tuple[str, Polygon]]] = {}
     for sig, o in admitted:

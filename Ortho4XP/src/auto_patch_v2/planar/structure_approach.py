@@ -20,13 +20,19 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..law.approach_corridor import ApproachCorridor
 from ..law.tables import role_family
-from ..model.airport import OsmWay
+from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
                                       is_tunnel_way)
 from ..classify.roles import Cell
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
+
+
+def _dem(airport: Airport, p: XY) -> float:
+    """ONE implementation with ``planar/structures._dem`` (the DEM sample
+    at a frame point)."""
+    return float(airport.dem.z(p[0], p[1]))
 
 
 def _parts(geom) -> list[Polygon]:
@@ -37,7 +43,7 @@ def _parts(geom) -> list[Polygon]:
 __all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "object_deck_intervals", "carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
            "mouths", "FieldRegion", "ApproachCorridor", "approach_corridor_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
-           "PARALLEL_COS", "NODE_TOL"]
+           "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground", "deck_ends"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
 NODE_TOL = 0.05
@@ -655,4 +661,190 @@ def object_deck_intervals(axis_ln: LineString, half_outer: float,
             continue
         out.append((oid, min(s_vals), max(s_vals), dp, top))
     out.sort(key=lambda t: t[1])
+    return out
+
+
+# ── the ramp's top (moved VERBATIM from planar/structures.py, lane
+#    v2wallplate: that file stands at its 1,000-line budget and §33 grows
+#    it; no behaviour moved with it) ─────────────────────────────────────
+def ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: float,
+              spacing: float, half: float, s_min: float = 0.0, grade: float | None = None,
+              max_len: float | None = None, straight: bool = False
+              ) -> tuple[float | None, list[float]]:
+    """``(s_top, station s values)`` — the first station at or beyond
+    ``s_min`` where the ``ramp_max_grade`` climb from ``mouth_z``
+    (starting at ``climb_from``) is at or above the DEM AND the DIRECT
+    distance from the mouth line reaches the climb at the cap (the
+    within-shape law prices ring pairs over the chord, so a curved
+    corridor needs more axis than a straight one), plus one station of
+    slack; ``None`` when the DEM is not reached within
+    ``max_ramp_length_m``.  ``s_min`` is an object corridor's wall
+    length: INSIDE the walls the DEM is not the ground (2026-09-06f:
+    LEMD's Bridge4 stands in a cutting the SPAIN5M DEM carries, its axis
+    sample 8 m under the walls' ground) — the ramp there is the design.
+    ``grade`` / ``max_len`` are a group's own law (a door ramp: 09-08b/c
+    ``cutout.door``), else the tunnel's; a ``straight`` axis needs no
+    curved-corridor chord allowance (its corner-to-corner distance is
+    never shorter than its axis distance)."""
+    tn = law.tables.structures.tunnel
+    g = tn.ramp_max_grade if grade is None else grade
+    bound = tn.max_ramp_length_m if max_len is None else max_len
+    ss = [0.0]
+    s = 0.0
+    m = axis_fn(climb_from)          # the chord is measured from where the climb starts
+    while s < bound:
+        s += spacing
+        ss.append(s)
+        if s <= climb_from or s < s_min - 1e-9:
+            continue
+        # the ramp meets the DEM where the DEM enters the ±ramp_max_grade
+        # CONE from the datum: rising ground is climbed, ground that has
+        # fallen below the bore floor (a mouth on a ridge of the smoothed
+        # DEM — measured LEMD -15327+-5980: the DEM 8.4 m under the datum
+        # 24 m out) is descended to, never stepped down to
+        reach = g * (s - climb_from)
+        p = axis_fn(s)
+        d = _dem(airport, p)
+        if math.isnan(d):
+            return None, ss
+        chord = math.hypot(p[0] - m[0], p[1] - m[1]) - (0.0 if straight else 2.0 * half)
+        if abs(d - mouth_z) <= reach and chord * g >= abs(d - mouth_z):
+            ss.append(s + spacing)
+            return s + spacing, ss
+    return None, ss
+
+
+# ── §33 (3)/(4): the approach's ground, and a terrain deck's two ends ──
+def deck_ends(airport: Airport, w, cells, polys, cell_tree
+              ) -> tuple[tuple[float, ...], tuple[str, ...], tuple[XY, ...]]:
+    """THE GROUND AT A TERRAIN DECK'S TWO ENDS (spec §33 (4); owner
+    RULINGS 2026-09-13d item 9 "it needs to smoothly connect the road on
+    either end ... the apron on the east end and the road on the west
+    side").  Per mapped end: the DEM there, and the governed cell standing
+    at it (``""`` where the end is bare ground) — the constraint generator
+    reads that cell's own solved value where it has one, so the deck meets
+    the APRON, not the DEM under it.  Measured LEMD way -6288: ends 609.99
+    and 606.10 against a trench floor + clearance of 604.12."""
+    zs: list[float] = []
+    refs: list[str] = []
+    pts: list[XY] = [tuple(w.points[0]), tuple(w.points[-1])]
+    for e in (w.points[0], w.points[-1]):
+        z = _dem(airport, e)
+        zs.append(float(z) if not math.isnan(z) else float("nan"))
+        ref = ""
+        if cell_tree is not None:
+            pt = Point(e)
+            for j in cell_tree.query(pt, predicate="intersects"):
+                c = cells[int(j)]
+                if c.kind != "structure" and polys[int(j)].contains(pt):
+                    ref = c.ref
+                    break
+        refs.append(ref)
+    return tuple(zs), tuple(refs), tuple(pts)
+
+
+def approach_ground(airport: Airport, axis_fn, band_m: float, spacing: float) -> float:
+    """THE APPROACH'S GROUND (spec §33 (3)): the MEDIAN DEM along the
+    approach's first stations beyond the mouth's own band — the stations
+    at ``spacing`` from ``band_m`` out to four times it, which is the
+    road the ramp has to meet.  ``nan`` when the DEM carries none of
+    them."""
+    zs = []
+    s = band_m
+    while s <= 4.0 * band_m + 1e-9:
+        z = _dem(airport, axis_fn(s))
+        if not math.isnan(z):
+            zs.append(z)
+        s += max(spacing, 1.0)
+    if not zs:
+        return float("nan")
+    zs.sort()
+    return zs[len(zs) // 2]
+
+
+# ── the thin-plate wall objects govern the mouth (spec §33 (2)) ──────────
+
+def apply_plates(mouth_list: list[Mouth], plates: _t.Sequence, osm: list[OsmWay],
+                 law: Law, reach_m: float) -> tuple[list[Mouth], list[str]]:
+    """THE PACK'S WALL OBJECTS GOVERN THE MOUTH (spec §33 (2); owner
+    RULINGS 2026-09-13d item 5; Fable 2026-09-13i).  A mouth standing
+    INSIDE a thin-plate wall object that spans its bore is the OBJECT's
+    (``tunnel.object.source_precedence = ["object", "osm"]``, per mouth as
+    05n-3 already applies it): it MOVES to the plate's own end — the plan
+    rectangle's short-side midpoint, so the corridor's axis is the
+    object's centre — takes the plate's WIDTH, and keeps the mapped road
+    beyond as its approach (the leading stretch that ran under the plate
+    is dropped; the mouth is the portal, and the bore behind it emits
+    nothing, §29).
+
+    Measured LEMD: ``Bridge3.obj`` is 354.2 x 25.1 m and covers all
+    223.7 m of bore ``-5931``; its mouths were built 7.0 m wide
+    (``lanes x lane_width_m``), 1.08 m off the object's centre and 83 m
+    INSIDE its north end.  Returns the mouths and one report line per
+    mouth moved."""
+    if not plates or not mouth_list:
+        return mouth_list, []
+    admitted = law.tables.structures.tunnel.admitted_values
+    out: list[Mouth] = []
+    notes: list[str] = []
+    for m in mouth_list:
+        p = _plate_for(m, plates)
+        if p is None:
+            out.append(m)
+            continue
+        # the plate END this mouth belongs to, and the direction INTO the plate
+        ax = LineString(p.ends)
+        k = 0 if ax.project(Point(m.xy)) < ax.length / 2.0 else 1
+        end, far = p.ends[k], p.ends[1 - k]
+        inward = unit(end, far)
+        path = _approach_beyond(end, inward, m.approach, p.plan, osm, law, reach_m, admitted)
+        moved = math.hypot(end[0] - m.xy[0], end[1] - m.xy[1])
+        notes.append(f"mouth of bore {'+'.join(str(i) for i in m.ways)} taken by {p.id} "
+                     f"(§33 (2)): moved {moved:.1f} m to the object's end, width "
+                     f"{m.width_m:.1f} -> {p.width_m:.1f} m")
+        out.append(Mouth(m.bore, end, inward, p.width_m, path, m.ways))
+    return out, notes
+
+
+def _plate_for(m: Mouth, plates: _t.Sequence):
+    """The thin plate that governs this mouth: it spans one of the bore's
+    own ways and holds the mapped end inside its plan."""
+    pt = Point(m.xy)
+    for p in plates:
+        if not p.bore_ways or not p.plan.contains(pt):
+            continue
+        if any(wid in m.ways for wid, _L in p.bore_ways):
+            return p
+    return None
+
+
+def _approach_beyond(end: XY, inward: XY, path: _t.Sequence[XY], plan: Polygon,
+                     osm: list[OsmWay], law: Law, reach_m: float, admitted) -> list[XY]:
+    """The approach from the plate's END outward: the mapped approach the
+    OSM mouth already walked, with the stretch that runs UNDER the plate
+    dropped and the plate's end midpoint prepended, so the ramp follows
+    the real road rather than a straight extension (a plate's end stands
+    off the mapped node, so ``approach`` alone would find no way there)."""
+    keep: list[XY] = []
+    if len(path) >= 2:
+        rest = LineString(path).difference(plan)
+        parts = [g for g in shapely.get_parts(rest) if g.geom_type == "LineString"]
+        if parts:
+            # the piece that starts nearest the plate's end, in path order
+            best = min(parts, key=lambda g: Point(end).distance(g))
+            if Point(end).distance(best) <= reach_m:
+                cs = list(best.coords)
+                if math.hypot(cs[0][0] - path[0][0], cs[0][1] - path[0][1]) \
+                        > math.hypot(cs[-1][0] - path[0][0], cs[-1][1] - path[0][1]):
+                    cs.reverse()
+                keep = [q for q in cs
+                        if math.hypot(q[0] - end[0], q[1] - end[1]) > NODE_TOL]
+    if not keep:
+        return approach(end, inward, osm, reach_m, admitted)
+    out = [end] + keep
+    ln = LineString(out)
+    if ln.length < reach_m:
+        a = unit(out[-2], out[-1])
+        out.append((out[-1][0] + a[0] * (reach_m - ln.length + 1.0),
+                    out[-1][1] + a[1] * (reach_m - ln.length + 1.0)))
     return out

@@ -402,6 +402,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         if ss.mouth_only_bores:
             _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
                  f"{', '.join(ss.mouth_only_bores)}", out)
+        for r in ss.plate_mouths:
+            _say(f"    {r}", out)
+        for r in ss.crest_from_approach:
+            _say(f"    {r}", out)
         for r in ss.mouths_on_approach_named:
             _say(f"    {r}", out)
         for r in ss.mouths_off_field_nearest:

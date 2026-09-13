@@ -280,13 +280,19 @@ def structure_records(airport, cl, law) -> dict:
     from ..airport.wall_corridors import read_wall_corridors
     from .wall_corridor_ramps import wall_corridor_groups
     corridors, tstats = read_corridors(airport, objects, cache, law)
+    from ..airport.thin_plates import read_plates
+    plates, pstats = read_plates(airport, objects, cache, law,
+                                 {c.resource for c in corridors})
+    tstats.plates = pstats.plates
+    tstats.refused.extend(pstats.refused)
     wells, dstats = read_door_wells(airport, objects, cache, law)
     roads, rstats = read_sunken_roads(airport, objects, cache, law)
     walls_c, wstats = read_wall_corridors(airport, objects, cache, law, cl,
                                           measure=True)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
-    cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra)
+    cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
+                                            plates)
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep)
 
     def ll(p):
@@ -306,6 +312,20 @@ def structure_records(airport, cl, law) -> dict:
                        "mouth_ll": ll(c.axis[0]), "far_ll": ll(c.axis[-1]),
                        "notes": list(c.notes)} for c in corridors],
         "corridor_refused": list(tstats.refused),
+        # spec §33 (2): the THIN-PLATE wall objects read
+        "plates": [{"id": p.id, "resource": p.resource, "object_id": p.object_id,
+                    "kind": p.kind, "length_m": p.length_m, "width_m": p.width_m,
+                    "span_m": p.span_m, "top_y_m": p.top_y_m, "top_z": p.top_z,
+                    "bore_ways": [list(t) for t in p.bore_ways],
+                    "bridge_ways": [list(t) for t in p.bridge_ways],
+                    "end0_ll": ll(p.ends[0]), "end1_ll": ll(p.ends[1]),
+                    "plan_ll": [ll(q) for q in p.plan.exterior.coords],
+                    "notes": list(p.notes)} for p in plates],
+        "plate_refused": list(pstats.refused),
+        "plate_stats": {k: v for k, v in _dc.asdict(pstats).items()
+                        if not isinstance(v, list)},
+        "plate_mouths": list(sstats.plate_mouths),
+        "crest_from_approach": list(sstats.crest_from_approach),
         "tunnel_object_stats": {k: v for k, v in _dc.asdict(tstats).items()
                                 if not isinstance(v, list)},
         "tunnels": [{"id": t.id, "source": t.source, "mouth_z": t.mouth_z,
@@ -427,6 +447,24 @@ def write_kml(rec: dict, path: Path) -> None:
                                       for i, r in enumerate(rec["wall_corridor_refused"])])
     folder("tunnels refused", [placemark(f"tunnel refused {i}", r, "refused")
                                for i, r in enumerate(rec["tunnel_refused"])])
+    folder("thin-plate wall objects (§33 (2))",
+           [placemark(f"{p['kind']}: {p['id']}",
+                      f"{p['length_m']:.1f} x {p['width_m']:.1f} m, solids span "
+                      f"{p['span_m']:.2f} m, top_y {p['top_y_m']:+.2f} "
+                      f"(absolute {p['top_z']}); bores {p['bore_ways']}; bridges "
+                      f"{p['bridge_ways']}; " + "; ".join(p["notes"]), "object",
+                      ring=p["plan_ll"], line=[p["end0_ll"], p["end1_ll"]],
+                      point=p["end0_ll"]) for p in rec["plates"]])
+    folder("tunnel objects refused (§33 (1): every screened resource)",
+           [placemark(f"refused {i}", r, "refused", point=site_of(r))
+            for i, r in enumerate(rec["corridor_refused"])])
+    folder("thin plates refused (§33 (1))",
+           [placemark(f"plate refused {i}", r, "refused", point=site_of(r))
+            for i, r in enumerate(rec["plate_refused"])])
+    folder("mouths taken by a wall object (§33 (2))",
+           [placemark(f"plate mouth {i}", r, "object") for i, r in enumerate(rec["plate_mouths"])])
+    folder("mouth crest from the approach (§33 (3))",
+           [placemark(f"crest {i}", r, "object") for i, r in enumerate(rec["crest_from_approach"])])
     folder("tunnel wall objects", [placemark(c["id"], f"{c['mouth_kind']} {c['ends']} depth "
                                              f"{c['depth_m']:.2f} floor {c['floor_z']:.2f}; "
                                              + "; ".join(c["notes"]), "object",

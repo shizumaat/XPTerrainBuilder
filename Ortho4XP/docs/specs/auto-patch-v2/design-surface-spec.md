@@ -5255,6 +5255,113 @@ at trench floor + `clearance_m` 5.10 = 603.85 while the apron they must meet is 
    census of the corridor readers first (08-30l); ONE `--engine v2` LEMD build;
    harness census with the cockpit block; twins; suite.
 
+**MEASURED** (lane `v2wallplate`, branch `claude/v2wallplate` off main `1d124ac2`;
+ONE tree, the shared corpus.  Synthetic-first: four dry `--stage structures` planar
+replays at LEMD and one at OTHH before the single `--engine v2` LEMD build.)
+
+**BASE.**  The dry replay at `1d124ac2` reproduces the shipped 1.0.325 structures
+line and the scout's read EXACTLY — `bores 68 (no on-field mouth 20, mouth-only
+built 27, replaced by objects 2)  mouths 87 (off-field 44, on approach 37 of 8
+corridors)  duals merged 16  object corridors 1 (signatures 28 of 182 resources)
+tunnels 50  decks 13  cells cut 2`, 105 named object refusals.
+
+**§33 CONSUMER CENSUS (08-30l), one table, before any consumer was edited.**
+
+| # | Reader | What it reads | Ruled |
+|---|---|---|---|
+| 1 | `airport/tunnel_objects.read_corridors` | OBJ8 signatures → `Corridor` | **(1)** the four-prefix suppression DELETED; every SCREENED resource named, the never-screened counted (`not_screened`).  The corridor list itself is untouched. |
+| 2 | `airport/thin_plates.read_plates` (NEW) | the same placements / cache | **(2)** reads exactly the class `read_corridors` refuses; `taken` = the resources already admitted as corridors, so an object is read ONCE. |
+| 3 | `planar/structures.build_structures` | `corridors`, cells | `plates=` is a NEW additive keyword; nothing existing re-ordered. |
+| 4 | `planar/structure_approach.mouths()` | bore ends → `Mouth` | unchanged; `apply_plates` runs after it and rewrites `xy` / `inward` / `width_m` / `approach` only. |
+| 5 | `field_region_for` (§29 mouth gate) | cover ∪ corridors ⊕ standoff | UNCHANGED and runs FIRST — the gate judges the MAPPED end, never the moved one.  Measured: `mouths_off_field` 44 → 44. |
+| 6 | `object_corridor.mouth_covered_by` (05n-3) | mouth xy vs corridor footprints | runs after the move; measured `mouths_replaced_by_object` 5 → 5, `bores_replaced_by_object` 2 → 2 (Bridge4 unaffected). |
+| 7 | `object_corridor.object_groups` | corridors → `Group` | untouched: a plate never becomes an object corridor, it governs the OSM mouth. |
+| 8 | `planar/structures` ramp geometry (`geometry`, `_pad_hit`, `beyond_strip`) | the mouth's width / inward | reads the plate's width, so ramp, void and cap are the object's 25.1 m. |
+| 9 | `planar/structures._ramp_top` | mouth_z, axis | MOVED VERBATIM to `structure_approach.ramp_top` (both files' budget); no behaviour moved — 46 of 50 tunnels byte-identical proves it. |
+| 10 | `model/structures.Deck` | `ref/way/s0/s1/ring/datum/z` | **(4)** three NEW optional fields (`end_z`, `end_ref`, `end_xy`), default `()`; every existing constructor and reader unaffected. |
+| 11 | `constraints/structures` deck rows | `deck_top` → `Band`; else `Offset(clearance_m)` | **(4)** adds a per-vertex lower `Band` on the ends' profile and an `Offset` to the governed cell at each end.  The object-deck branch untouched. |
+| 12 | `constraints/structures` mouth / rim rows | `tn.mouth_z`, `tn.mouth_dem_z`, `wall_path` | **(3)** changes the VALUE only; crest and floor move together, so the rows are unchanged. |
+| 13 | `verify/structures.tunnel_mouth_canonical` | cap crest − ramp mouth = `bore_datum_m` | invariant preserved by construction (the cap moves the floor with it). |
+| 14 | `verify/structures.tunnel_deck_clearance` | min(deck) − max(ramp) ≥ `clearance_m` | a LIFTED deck can only increase clearance — never a new row. |
+| 15 | `emit/osm_adapter` sidecar `road_bridge_decks` | always empty in v2 | unchanged. |
+| 16 | `pipeline/publication.tunnel_objects` | `tn.source != "osm"` | unchanged — a plate mouth stays `source = "osm"` (it IS an OSM bore; the object only placed its mouth). |
+| 17 | `pipeline/build` structures line | stats | **(1)/(2)/(3)** `N not screened`, `thin plates N`, `plate mouths N`, `crest from approach N`, one named line each. |
+| 18 | `planar/__main__ --stage structures` + `--kml` | the records | **(1)/(2)** `plates`, `plate_refused`, `plate_stats`, `plate_mouths`, `crest_from_approach`; a KML folder for each, plus `tunnel objects refused`. |
+| 19 | `airport/rebake_plan` / `emit/rebake` | `ATTR_hard_deck` objects | untouched: a thin plate is not a hard deck and is not in `pm.structures`, so nothing re-seats it (see the OWED note below). |
+| 20 | `planar/basins.object_decks` | `o.hard_deck` / `o.deck_top_z` | untouched. |
+| 21 | `airport/deck_signature` | `is_bridge_way` / `is_tunnel_way` | reused UNCHANGED by the plate reader — one predicate, never a second. |
+| 22 | `planar/zones`, `constraints/{zones,strips}` | `retaining_wall` faces | no new role, no new ref. |
+| 23 | `tools/check_grade` `LAW_FAMILIES` | the emitted roles | no new role and no new ref ⇒ no family change. |
+
+**(1) EVERY SCREENED RESOURCE IS NAMED.**  LEMD: **105 → 184** named object refusals
+over the **182** screened resources (79 verdicts that no report had ever printed —
+`no wall skirt` 40, `no genuine solid` / `no crest plate` / `a stub` the rest), plus
+1 named thin-plate refusal.  `Bridge3.obj` and `Bridge2.obj` are among them: they had
+been refused SILENTLY for having no skirt.
+
+**(2) THE THIN-PLATE WALL CLASS.**  The class is the GAP the wall pre-screen leaves —
+solids spanning `thin_plate_min_m` (1.0) up to `least_skirt` (1.5) — over a mapped
+way, with the bore run measured ALONG the plate's own axis.  Both gates were found by
+measurement: without the ceiling the class read **112 "plates" at LEMD**, a
+1,035 × 557 m cargo terminal spanning 37 m among them; without the along-axis test a
+750 × 89 m ground slab (`STRT4.obj`) claimed seven bores that merely CROSS its 89 m
+width, and took bore `-9263`'s mouths to an 88.6 m wide ramp.  With both: **4 screened,
+3 plates (1 bore, 2 deck), 1 refused by name**, 4 ms.
+
+* `wall-plate:Bridge3.obj@0` — **354.2 × 25.1 m**, solids 1.03 m, over **223.7 m of
+  bore `-5931` along its axis**.  Ends 40.4987906,−3.5849926 (north) and
+  40.4956006,−3.5849914 (south).
+* `wall-plate:Bridge2.obj@0` — 167.9 × 89.6 m, 1.31 m, over 84.3 m of bridge way
+  `-6288`; and `LEMD50.obj@0` 155.3 × 33.7 m over `-6291` + `-6288`.
+* refused: `Bridge1.obj` — its longest bore run along its axis is under
+  `hull_min_length_m` (it clips `-15327` for 8.2 m of 2,234); named.
+
+**The axis is the OBJECT'S OWN BOX, not the plan hull's rectangle.**  `minimum_
+rotated_rectangle` minimises AREA, so Bridge3's tapered hull read **354.2 × 20.2 m**
+on an axis off the object's centre; the authored box reads **354.2 × 25.1 m** — the
+owner's number.
+
+**BAR 5 — item 5's mouth.**  `tunnel:-5931@0`: mouth 40.4980351,−3.5850028 →
+**40.4987906,−3.5849926** (the object's north end, moved **83.9 m**), width
+**7.0 → 25.1 m**, axis on the object's box centre (0.0 m), ramp top 96 → 204 m,
+mouth floor 598.73 → 599.18.  `tunnel:-5931@1` moved 46.6 m to the object's south end.
+
+**(3) THE MOUTH CREST IS THE ROAD'S GROUND.**  Read as a CAP rather than a switch —
+`crest = min(DEM(mouth), approach_ground + bore_datum_m)`, biting only past
+`split_tol_m`, where `approach_ground` is the median DEM over the approach's stations
+from `bore_datum_m` out to 4 × it.  **DEVIATION, flagged for Fable review**: the
+clause's literal form ("the DEM within `bore_datum_m` of the mouth rises more than
+`split_tol_m` above the DEM along the approach's first stations") fires on EVERY
+ordinary portal — a portal's cover stands above the road it lets out onto by
+construction (measured LEMD `-5931`'s NORTH mouth: 603.83 at the cap against 602.51 on
+the approach, +1.32 m, and nothing wrong with it).  The cap form fires only where the
+sample cannot be the portal's cover.  **Two mouths at LEMD**:
+`tunnel:-15327+-5980@0` 582.68 → 580.74 (7.05 m over its approach's 575.64) and
+`tunnel:-6028@1` 584.91 → 584.32 (5.69 m over 579.22).
+
+**BAR 6 — item 6's mouth.**  `tunnel:-5931@1`, the DEM sample that stood on the
+overbridge embankment: mouth ground **610.23 → 607.01**, floor **605.13 → 601.91**,
+ramp **36 → 144 m**.  The site is fixed by clause (2) (the mouth moved off the
+embankment to the object's end), not by clause (3) — the cap did not need to fire
+there once the mouth stood where the object says.
+
+**(4) A TERRAIN DECK IS TIED TO ITS ENDS.**  The record now carries the ground and the
+governed cell at the mapped way's two ends; the generator bounds every deck vertex
+below at the higher of (trench floor + `clearance_m`) and the ENDS' PROFILE
+interpolated over the way's chord, and ties each end to the governed cell's own solved
+value where one stands there.  A single flat datum at "the higher of" the two ends was
+MEASURED and rejected: LEMD `-6288`'s ends read 609.99 (west road) and 606.10 (east,
+beside the apron), so one datum would stand 3.5 m over the apron the owner asked it to
+meet.  Trench floor + clearance at that site is 604.12 and the shipped decks emitted at
+**603.81–603.85**.
+
+**DRY PLANAR REPLAY, LEMD, base vs ruled (one tree).**  `bores 68 / no on-field mouth
+20 / mouth-only 27 / mouths 87 / off-field 44 / on approach 37 / duals 16 / object
+corridors 1 / tunnels 50 / decks 13 / cells cut 2 / bores replaced 2 / mouths replaced
+5` — **every count identical**.  Per tunnel: **46 of 50 byte-identical**; the four that
+move are `-5931@0`, `-5931@1` (clause 2) and `-15327+-5980@0`, `-6028@1` (clause 3).
+
+
 ## §34 RAMPS FOLLOW THEIR ROUTE; ZONES YIELD TO ROADS; A BRIDGE STATES THE CROSSING (Fable 2026-09-13i) — lane `v2rampwalk`, after `v2wallplate`
 
 Scout `v2lemd325t`, items 1, 7, 8: (7a) `_ramp_top` prices a curved approach by the

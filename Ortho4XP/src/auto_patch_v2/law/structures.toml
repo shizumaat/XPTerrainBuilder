@@ -74,6 +74,23 @@ edge_wall_min_skirt_m = 1.5
 # — a roof, refused by name.
 skirt_perimeter_min_fraction = 0.5
 bore_end_tolerance_m = 5.0         # RULINGS 2026-09-08o: a mapped bore END within this of the walls' plate is that object's mouth (OTHH: the bore's end stood 4.1–4.5 m outside the deep object's plate, beyond end_cap_open_m, so the object read "closed", the OSM mouth was refused for overlapping it and the closed-end fallback cut the crest-to-anchor depth); the OSM mouth PAIRS with the corridor instead of being refused
+# THE THIN-PLATE WALL CLASS (spec §33 (2); owner RULINGS 2026-09-13d item 5
+# "use object based wall objects provided by the scenery package ... as a
+# guide for where the tunnel mouth is and what size it is"; Fable
+# 2026-09-13i).  LEMD's pack models its bridges and tunnel walls as THIN
+# PLATES — Bridge3.obj 354 x 25 m spanning the whole of bore -5931 with
+# 1.03 m of solids, Bridge2.obj 168 x 90 m over two bridge ways at 1.31 m,
+# Bridge1.obj 1.50 m — which the wall pre-screen refuses below
+# least_skirt = min(skirt_min_depth_m, edge_wall_min_skirt_m) = 1.5.  A
+# pack object whose plan footprint lies over a mapped bore (tunnel=yes) or
+# deck (bridge=yes) for hull_min_length_m and whose solids span at least
+# this is an AUTHORED CORRIDOR: its plan ring gives the corridor's axis,
+# width and PORTAL POSITIONS (the object's ends); the depth stays
+# tunnel.bore_datum_m for a bore, and for a deck the deck's top is the
+# object's authored top WHERE THE PLACEMENT CARRIES AN ABSOLUTE SEAT
+# (OBJECT_MSL) — a DRAPED placement's authored top is an offset over the
+# solved ground, no datum at all, and the deck's ends govern (§33 (4)).
+thin_plate_min_m    = 1.0
 hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a stub, refused loudly
 end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall; also the tolerance for a bore end standing at a wall end
 merge_gap_m         = 3.0           # two corridors whose ground ends face within this are reported as one site (they are refused as overlapping structures, never merged into a hull)

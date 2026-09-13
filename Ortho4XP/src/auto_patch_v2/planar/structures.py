@@ -96,12 +96,15 @@ from .basins import object_decks
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .wall_corridor_ramps import (KIND as WALL_KIND, airside_stops, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
-from .structure_approach import (FieldRegion, PavementDeck, carriageway_width_m,
+from .structure_approach import (FieldRegion, PavementDeck, apply_plates,
+                                 approach_ground as _approach_ground,
+                                 deck_ends as _deck_ends,
+                                 carriageway_width_m,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  deck_intervals,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  object_deck_intervals, pavement_deck_intervals,
-                                 pavement_half_widths, unit)
+                                 pavement_half_widths, ramp_top as _ramp_top, unit)
 from .structure_geometry import (beyond_strip, corner_distance, geometry,
                                  pad_hit as _pad_hit)
 
@@ -168,6 +171,12 @@ class StructureStats:
     sunken_roads: int = 0
     #: RULINGS 2026-09-08m/08n Law C: kerb-wall corridors built
     wall_corridors: int = 0
+    #: spec §33 (2): the mouths a THIN-PLATE wall object took, one line each
+    #: (``airport/thin_plates``; ``planar/structure_approach.apply_plates``).
+    plate_mouths: list[str] = _dc.field(default_factory=list)
+    #: spec §33 (3): mouths whose crest was capped at the approach's ground
+    #: (the DEM sample stood on an overbridge embankment).
+    crest_from_approach: list[str] = _dc.field(default_factory=list)
 
 
 def _dem(airport: Airport, p: XY) -> float:
@@ -182,58 +191,12 @@ def _pad_relief_m(airport: Airport, poly: Polygon) -> float:
     return ring_relief_m(lambda x, y: _dem(airport, (x, y)), poly.exterior.coords)
 
 
-def _ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: float,
-              spacing: float, half: float, s_min: float = 0.0, grade: float | None = None,
-              max_len: float | None = None, straight: bool = False
-              ) -> tuple[float | None, list[float]]:
-    """``(s_top, station s values)`` — the first station at or beyond
-    ``s_min`` where the ``ramp_max_grade`` climb from ``mouth_z``
-    (starting at ``climb_from``) is at or above the DEM AND the DIRECT
-    distance from the mouth line reaches the climb at the cap (the
-    within-shape law prices ring pairs over the chord, so a curved
-    corridor needs more axis than a straight one), plus one station of
-    slack; ``None`` when the DEM is not reached within
-    ``max_ramp_length_m``.  ``s_min`` is an object corridor's wall
-    length: INSIDE the walls the DEM is not the ground (2026-09-06f:
-    LEMD's Bridge4 stands in a cutting the SPAIN5M DEM carries, its axis
-    sample 8 m under the walls' ground) — the ramp there is the design.
-    ``grade`` / ``max_len`` are a group's own law (a door ramp: 09-08b/c
-    ``cutout.door``), else the tunnel's; a ``straight`` axis needs no
-    curved-corridor chord allowance (its corner-to-corner distance is
-    never shorter than its axis distance)."""
-    tn = law.tables.structures.tunnel
-    g = tn.ramp_max_grade if grade is None else grade
-    bound = tn.max_ramp_length_m if max_len is None else max_len
-    ss = [0.0]
-    s = 0.0
-    m = axis_fn(climb_from)          # the chord is measured from where the climb starts
-    while s < bound:
-        s += spacing
-        ss.append(s)
-        if s <= climb_from or s < s_min - 1e-9:
-            continue
-        # the ramp meets the DEM where the DEM enters the ±ramp_max_grade
-        # CONE from the datum: rising ground is climbed, ground that has
-        # fallen below the bore floor (a mouth on a ridge of the smoothed
-        # DEM — measured LEMD -15327+-5980: the DEM 8.4 m under the datum
-        # 24 m out) is descended to, never stepped down to
-        reach = g * (s - climb_from)
-        p = axis_fn(s)
-        d = _dem(airport, p)
-        if math.isnan(d):
-            return None, ss
-        chord = math.hypot(p[0] - m[0], p[1] - m[1]) - (0.0 if straight else 2.0 * half)
-        if abs(d - mouth_z) <= reach and chord * g >= abs(d - mouth_z):
-            ss.append(s + spacing)
-            return s + spacing, ss
-    return None, ss
-
-
 # ── build ────────────────────────────────────────────────────────────────
 
 def build_structures(airport: Airport, classification: Classification, law: Law,
                      objects: _t.Sequence = (), corridors: _t.Sequence = (),
-                     extra_groups: _t.Sequence[Group] = ()
+                     extra_groups: _t.Sequence[Group] = (),
+                     plates: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -253,6 +216,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     odecks = object_decks(objects)
     tn = law.tables.structures.tunnel
     co = law.tables.structures.cutout
+    tol_m = law.tables.structures.placement.split_tol_m   # §33 (3)/(4) materiality
     if co.emit_wall_band:
         raise ValueError("cutout.emit_wall_band = true: only false is generated (RULINGS "
                          "2026-09-06b (1): no wall band, the mesh makes the wall)")
@@ -285,6 +249,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.approach_corridors = len(on_field.corridor or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
                            if bores else ([], []))
+    # THE PACK'S WALL OBJECTS GOVERN THE MOUTH (spec §33 (2)): a mouth
+    # inside a thin plate spanning its bore moves to the object's end and
+    # takes the object's width, before anything is reported or built.
+    mouth_list, stats.plate_mouths = apply_plates(mouth_list, plates,
+                                                  list(airport.osm_ways), law, reach)
     stats.mouths_off_field = len(dropped)
     (stats.mouths_off_field_nearest, stats.mouths_on_approach,
      stats.mouths_on_approach_named) = mouth_reports(on_field, mouth_list,
@@ -413,6 +382,27 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if math.isnan(mouth_dem):
             stats.refused.append(f"{tid}: no DEM at the mouth")
             continue
+        if c is None:
+            # THE MOUTH CREST IS THE ROAD'S GROUND, NOT THE OVERBRIDGE'S
+            # (spec §33 (3); owner RULINGS 2026-09-13d item 6).  `crest =
+            # "dem"` samples the DEM at the mouth node; a portal's cover may
+            # stand up to bore_datum_m above the road it lets out onto, and
+            # no more — a sample that stands HIGHER is not the portal's
+            # cover but an OVERBRIDGE EMBANKMENT crossing the road (measured
+            # LEMD bore -5931's south mouth: DEM 610.23 at the cap against
+            # 603.9-604.3 along the approach 12-24 m out, a 5.0-5.8 m rim
+            # wall and a ramp that DESCENDED).  The crest is capped at the
+            # approach's ground + bore_datum_m; the cap only bites beyond
+            # split_tol_m, the materiality the sim read is judged at.
+            ground = _approach_ground(airport, axis_fn, tn.bore_datum_m, spacing_g)
+            cap_z = ground + tn.bore_datum_m if not math.isnan(ground) else None
+            if cap_z is not None and mouth_dem - cap_z > tol_m:
+                stats.crest_from_approach.append(
+                    f"{tid}: mouth crest {mouth_dem:.2f} -> {cap_z:.2f} — the DEM at the mouth "
+                    f"stands {mouth_dem - ground:.2f} m over the approach's ground {ground:.2f} "
+                    f"(> bore_datum_m {tn.bore_datum_m} + split_tol_m {tol_m}): an "
+                    f"overbridge embankment, not the portal's cover (§33 (3))")
+                mouth_dem = cap_z
         mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
         # decks across the corridor (a first pass over the full reach)
         deck_ivals = deck_intervals(axis_ln, half + rim_off, bridges, bridge_lines,
@@ -660,7 +650,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     continue
             dref = f"bridge_deck:{w.id}"
             pav = isinstance(w, PavementDeck)
-            decks.append(Deck(dref, 0 if pav else w.id, s0, s1, tuple(dpoly.exterior.coords)[:-1]))
+            # A TERRAIN DECK IS TIED TO ITS ENDS (spec §33 (4)): the ground
+            # at the mapped way's two ends — the apron on one side, the road
+            # on the other — read once here and carried on the record (a
+            # pavement deck is the pavement's own surface and needs none).
+            ez, eref, exy = ((), (), ()) if pav \
+                else _deck_ends(airport, w, cells, polys, cell_tree)
+            decks.append(Deck(dref, 0 if pav else w.id, s0, s1,
+                              tuple(dpoly.exterior.coords)[:-1],
+                              end_z=ez, end_ref=eref, end_xy=exy))
             deck_polys.append(dpoly)
             # a pavement deck keeps the pavement's role (2026-09-06f); a
             # mapped bridge is road ground (08-30m)

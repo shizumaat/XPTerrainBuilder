@@ -457,8 +457,67 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if any(dpoly.distance(Point(planar.vertices[v].xy)) <= reach for v in vs):
                     for dv in sorted(set(deck_vs)):
                         rows.append(Offset(dv, vs[0], br_law.clearance_m, src_clear))
+            # A TERRAIN DECK IS TIED TO ITS ENDS (spec §33 (4); owner
+            # RULINGS 2026-09-13d item 9 "the bridge is too low as it needs
+            # to smoothly connect the road on either end").  ITS DATUM is
+            # the higher of (trench floor + bridge.clearance_m) and the
+            # GRADED surface at its two mapped ends — the apron on one
+            # side, the road on the other — as a LOWER bound per vertex, so
+            # the deck rises to meet them and the ramp beneath yields
+            # downward (the clearance rows above are satisfied by the lift,
+            # never by pushing the ramp).  A bound, never a pin: the road
+            # cap still shapes the face (08-30m; a DEM PIN across a 5 m deck
+            # edge was an IIS, measured LEMD deck -11828).  Measured LEMD
+            # ways -6288/-6291: emitted 603.81-603.85 = the DEM at the rim,
+            # against an apron at 606.5 and way ends at 609.99 / 606.10.
+            floor_lo = float(tn.mouth_z) + br_law.clearance_m
+            src_ends = Source(GEN, "spec §33 (4): a terrain deck is tied to its ends "
+                              "(RULINGS 2026-09-13d item 9, 2026-09-13i)",
+                              (*inputs, f"osm:{d.way}", *(r for r in d.end_ref if r)))
+            deck_sorted = sorted(set(deck_vs))
+            # THE ROAD SHAPE: the deck runs from one end's ground to the
+            # other's (owner item 9 "a road shape connecting directly to the
+            # apron on the east end and the road on the west side"), never
+            # below the trench floor + clearance.  Interpolated per vertex
+            # over the mapped way's own chord — a single flat datum at the
+            # HIGHER end would stand 3.5 m over the apron at the other
+            # (measured LEMD -6288: ends 609.99 west / 606.10 east).
+            if len(d.end_z) == 2 and len(d.end_xy) == 2 \
+                    and not any(math.isnan(z) for z in d.end_z):
+                (ax, ay), (bx, by) = d.end_xy
+                span2 = (bx - ax) ** 2 + (by - ay) ** 2
+                for dv in deck_sorted:
+                    vx, vy = planar.vertices[dv].xy
+                    t = 0.0 if span2 <= 1e-9 else \
+                        min(1.0, max(0.0, ((vx - ax) * (bx - ax) + (vy - ay) * (by - ay)) / span2))
+                    lo = max(floor_lo, d.end_z[0] + t * (d.end_z[1] - d.end_z[0]))
+                    if lo > floor_lo + 1e-9:
+                        rows.append(Band(dv, lo, None, src_ends))
+            # ...and where an end stands IN a governed cell, the deck meets
+            # THAT SURFACE'S OWN SOLVED VALUE, not the DEM under it (the
+            # apron pav92 solves to 606.6 where the DEM at the way's end
+            # reads 606.1): a relational bound on the cell's nearest vertex.
+            for ref in d.end_ref:
+                gv = _nearest_vertex(planar, faces_by_ref.get(ref, ()), dpoly)
+                if gv is None:
+                    continue
+                for dv in deck_sorted:
+                    rows.append(Offset(dv, gv, 0.0, src_ends))
     rows.extend(pins.values())
     return rows
+
+
+def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:
+    """The vertex of ``faces`` standing nearest ``near`` (spec §33 (4): the
+    governed surface a terrain deck's end meets — its own solved value, so
+    the deck is tied to the APRON, not to the DEM under it)."""
+    best = None
+    for f in faces:
+        for v in set(planar.ring_vertices(f.ring)):
+            d = near.distance(Point(planar.vertices[v].xy))
+            if best is None or d < best[0]:
+                best = (d, v)
+    return None if best is None else best[1]
 
 
 def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: list[int],

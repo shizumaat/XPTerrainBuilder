@@ -63,7 +63,10 @@ def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
     # §14a: the ring carries its HEIGHTS (§24 (1) makes them the apron's)
     z_id = {v[0]: v[3] for v in d["vertices"]}
     pads = tuple(_ar.PadRing(f["ref"],
-                             tuple(by_id[i] for i in f["ring"] if i in by_id))
+                             tuple(by_id[i] for i in f["ring"] if i in by_id),
+                             # §16f (4): the pad's OWN plane rides with it
+                             tuple(float(z_id[i]) for i in f["ring"]
+                                   if i in by_id))
                  for f in d["faces"]
                  if f["role"] == PAD_FACE_ROLE and len(f["ring"]) >= 3)
     rims = tuple(_ar.RimRing(b["ref"],

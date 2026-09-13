@@ -3941,3 +3941,97 @@ wall named and seated on its apron; LEMD's 80-member family partitioned by
 its pads, worst member-off-own-ground 8.40 → ≤ 0.5 m, the 249 changed bodies
 each ≤ 0.5 m off its pad plane; OTHH byte-identical; plan stage ≤ 11 s; torn
 seams 0; suite twice.
+
+### §16f (4)–(6) MEASURED (lane `v2family` round 2, 2026-09-13; branch `claude/v2family`)
+
+`airport/placement_family.py`: `pad_plurality` (§16f (4), the amended read),
+`_all_on_pavement` (§16f (5), through `anchor_rule._all_on_rolled` — one
+implementation), `_pad_groups` (the multi-source contact walk out of the pad
+seeds), and the pad-plane bound.  `anchor_rule.PadRing` grew `z` — the pad's
+OWN graded ring heights — filled in `placement_read.pads_rims_from_graded_doc`
+beside the rim's.  Frame: the registered `v2familyKCLTframe` rebake + graded
+(`frames.py list KCLT`, base `864e7577`); LEMD 1.0.325 (`v2lemd325o`) and OTHH
+1.0.326 (`v2othh1o`).  **No new build.**  `[guard] shared repo UNCHANGED` on
+every run.
+
+**BARS (round-1 base `864e7577` → round 2).**
+
+| bar | before | after |
+|---|---|---|
+| KCLT both rows on `building80` | `unit:31#0` median ground 221.31 / `unit:30#0` pad 221.78 — **0.47 → 0.33 → 0.00 m** | BOTH on **`building80` at 221.49** — MET (≤ 0.3) |
+| KCLT member vs pad | +4.26 (round 1: +4.44) | **+0.49** (`unit:31#0`, 18 members / 97 bodies) and **+0.42** (`unit:30#0`, 14 / 14) — MET (≤ 0.5) |
+| KCLT worst §17 motion row | +1.66 (base) / +2.99 (round 1) | **+1.66 m**, `Charlotte_Airport_008_ALB__b13` at 35.2125591,−80.9296589 **on apron** — NOT a family body — MET |
+| KCLT torn seams (write half) | 1 @ +0.00 m | **0** — MET (bar 0) |
+| KCLT §16d written geometry outside its own box | 0 | **2** — NOT MET, named below |
+| KCLT visual rows / §16b carried float / files | 155 / 45 / 487 | **128 / 41 / 475** |
+| KCLT round trip | — | **475 cut files, OK, 475/475 new `OBJECT_DEF`s, 0 rows carrying an elevation, duplicate rows 0** |
+| LEMD family partitioned by its pads | one plane, 80 members, worst **+8.40 m** | one pad group **`building4` at 602.34**, 23 members / 27 bodies, worst **+0.54 m** — PASS-with-residual (0.04 over) |
+| LEMD airport | visual 498, motion 6,258 ft / 368 bodies, files 2,435 | **497 / 6,264 ft / 369 / 2,432**; **64 of 2,435 bodies change** (23 placements) |
+| OTHH byte-identical | 1,831 bodies | **NOT MET — 233 bodies / 116 placements change**; 16 families / 206 bodies, worst family +1.00 m (`unit:90#0@building20#2`), the other 15 ≤ 0.5.  Airport bars all flat-or-better: visual 309 → **290**, motion 3,159 ft / 86 bodies → 3,153 / 84, §16b carried float 159 → **152**, files 1,831 → 1,788 |
+| plan stage, `--runs 3`, graded sampler, foreground | 10.80 s mean | **7.32 s** (7.31 / 7.27 / 7.38) — MET (≤ 11 s) |
+| suite | — | **1,259 passed, 1 skipped**, twice |
+
+**THE PAD GROUPS, NAMED.**  KCLT: `unit:31#0@building80` (18 members —
+`paredes_1/2/3/4/5/8/9/10`, `Paredes_7`, `techos_1/2`,
+`suelos_interiores_charlotte`, `vidrios_paredes_5/8/12` and their `_lit`) and
+`unit:30#0@building80` (14 of the `-`-prefixed twins), both at **221.49** —
+the median of `building80`'s own 865 graded ring vertices (221.15 … 222.32,
+1.17 m of relief, §20).  LEMD: `unit:27#3@building4`, 23 members of the
+Aerosoft old terminal at **602.34**; 20 more resources (`LEMD38` ×90,
+`LEMD60` ×19, `VRDCH` ×18 …) stand apart and keep their own ground.  OTHH:
+16 groups, the largest `unit:15#0@building2` (24 members, 3.91),
+`unit:60#0@building12` (15, 3.96), `unit:87#1@building18` (15, 4.03).
+
+**WHAT MADE THE NUMBERS.**  Three readings, in the order they were measured.
+
+1. **THE PAD'S OWN PLANE, not the group's contacts.**  Seating each group at
+   the median of ITS OWN on-pad contacts gave KCLT's two rows 221.45 and
+   221.78 — 0.33 m apart on ONE pad, the pad's 1.17 m of relief sampled
+   twice, and still over the 0.3 bar.  The plane is now `median(pad.z)`:
+   order-independent, one pad one plane by construction, row residual 0.00.
+2. **THE GROUND BOUND HOLDS AT THE PAD JOIN** (§16d (5) / 12ap (A), applied
+   at the new join).  §16f (4)'s contact clause picks up exactly the members
+   that stand OFF the pad on real relief — measured, 51 of 91 KCLT family
+   bodies have NO pad of their own — and lifting them to the pad's plane put
+   them +4.44 (KCLT), +8.92 (LEMD) and +12.21 m (OTHH) above their own
+   ground.  A member further than `bind_ground_m` (0.5) from the pad's plane
+   is now CUT TO ITS OWN GROUND and counted
+   (`family_bodies_off_the_pad_plane`).  This is what turned every
+   member-vs-pad bar.
+3. **§16a (2)'s FAMILY EXEMPTION IS DELETED.**  Round 1 needed it (a family
+   body was up to 4.4 m off its own ground and the carrier test read that as
+   mis-anchored, files 477 → 609).  (2)'s bound makes every family body
+   lawful to that test by construction, so the special case is gone and the
+   ordinary rule passes them.  Measured with and without: files 466 → 475,
+   visual 129 → 128, §16b carried float 43 → 41, outside-box 2 either way.
+
+**THE ONE REGRESSION, NAMED.**  §16d (1) written-geometry-outside-its-box
+**0 → 2**, both `line_segment` class:
+`Terminals/-paredes_7_charlotte__b1` **31.07 m** and `__b2` **6.17 m**,
+carried by `-paredes_2_charlotte__b0` / `-paredes_4_charlotte__b1` — two
+`unit:30` family members.  A SEGMENT's `geom_box` is its own station span
+(§11f (2)) and the family plane changed which member's FILE the segment rides
+into; the §16d (1) class `v2unboxed` closed for the un-carried case is
+re-exposed for a segment riding another member's file.  Not fixed — the
+attempt cap for this round was spent on (1)–(3) above, and it is a
+`placement_cut` / `obj8_split` question, not a family one.
+
+**RESIDUALS.**  LEMD's worst member reads **0.54** against the 0.50 bound the
+walk enforced: the bound reads the FOOTED body's own contacts and the census
+reads `anchor_ground_off` over the WRITTEN group's feet, which by then
+includes the carried bodies §15 appended to it.  0.04 m; reported, not
+iterated.  OTHH's `unit:90#0@building20#2` reads +1.00 m for the same reason
+at a group whose carried population is larger.
+
+**TWINS** (7 in total for §16f):
+`test_16f_4_one_plane_per_pad_and_the_pads_own_plane`,
+`test_16f_4_the_ground_bound_holds_at_the_pad_join`,
+`test_16f_5_pavement_is_king_over_the_family`, beside round 1's four.
+
+**NOT DONE.**  No new build (the registered frame served every bar).  No base
+write-pack arm — the outside-box and seam "before" are round 1's own write run
+on the same frame.  OTHH byte-identity is NOT achieved and no mechanism was
+added to force it: §16f binds 16 real pad groups there and the airport's own
+bars improve.  §16f (6)'s "name the rule-5b-refused members" is served by the
+census printing every family's members and every member cut apart; the plan
+still carries no basin-refusal record and none was added.

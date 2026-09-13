@@ -705,12 +705,11 @@ def carriers_for(pids: _t.AbstractSet[int],
         basin law working (13 of LEMD's 21 refused carriers, the worst
         6.17 m).  Nothing can close them: the basin cut is exempt for
         §14 (2)'s own reason.  A basin may carry — the T4S tower cluster
-        rides its rim.  A FAMILY-BOUND body is EXEMPT for the same
-        reason (§16f (2)): its zero is the family's floor and a member
-        on real relief is off its OWN ground by construction — refusing
-        them sent KCLT's terminal roofs past the walls they stand on
-        (measured: files 477 -> 609)."""
-        if c.body_class == _ar.BASIN or c.anchor.family:
+        rides its rim.  §16f needs NO exemption here: (4)'s pad-plane
+        bound keeps every family body within ``bind_ground_m`` of its own
+        ground, so the ordinary test passes it (round 1, unbounded, was
+        read as mis-anchored — files 477 -> 609)."""
+        if c.body_class == _ar.BASIN:
             return True
         if c.ground_off is None or tol_m <= 0.0:
             return True

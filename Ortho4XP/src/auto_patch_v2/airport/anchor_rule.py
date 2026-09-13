@@ -86,6 +86,11 @@ class PadRing:
 
     ref: str
     ring: tuple[tuple[float, float], ...]
+    #: §16f (4): the ring's own vertex HEIGHTS, in ring order — THE PAD'S
+    #: OWN PLANE, which is what a family's pad group is seated on
+    #: (RULINGS 2026-09-13aq (i)).  Empty where the caller read the ring
+    #: without them (every twin that builds a pad by hand).
+    z: tuple[float, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

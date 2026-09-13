@@ -702,7 +702,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # plane is the last word on a FOOTED body's zero.
         fams.extend(_fam.bind_families(
             cands, staged, surface, pads, counts, unit_id=u.id,
-            contact_eps_m=contact_eps_m,
+            contact_eps_m=contact_eps_m, bind_ground_m=bind_ground_m,
             has_deck=any(m.deck_ring
                           or m.deck_kind in ("flag", "signature")
                           for m in u.members)))

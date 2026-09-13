@@ -57,7 +57,8 @@ from ..law.tables import family, role_cap, role_side, senior_role
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
-__all__ = ["deck_refs", "road_ramp_targets", "with_road_ramp", "RampTargets"]
+__all__ = ["deck_refs", "road_ramp_targets", "road_route_frame",
+           "with_road_ramp", "RampTargets"]
 
 class RampTargets(_t.NamedTuple):
     """The derivation's product: ``targets`` vertex id -> the ramp target,
@@ -200,6 +201,68 @@ def _dem_along_route(pm: PlanarMap, law: Law, airport: Airport,
     return dem_prof, per_face_dem
 
 
+
+def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
+                     profiles=None) -> tuple[dict[int, tuple[int, float, float]],
+                                             dict[str, _t.Any]]:
+    """§37 (7) THE ROAD'S ROUTE FRAME — vertex -> ``(route id, station s,
+    signed lateral t)`` for EVERY road-family ring vertex (owner RULINGS
+    2026-09-13av).
+
+    A road pair is priced ALONG THE ROUTE, never across the plan chord:
+    ``s`` is the arclength along the road's own centreline — the SAME way
+    the ramp reads its DEM on (an OSM way, a mapped route, or the face's
+    own axis, ``airport/road_profile.core_profiles``) — and ``t`` the
+    signed offset across it, so two kerbs of one section stand a road
+    width apart in ``t`` and zero apart in ``s``.  Two vertices on
+    DIFFERENT routes are NOT A PAIR (a switchback's two branches, 45 m
+    apart in plan and 280 m apart along the road at KCLT ``dsf:pol51``);
+    a vertex no way answers has no frame and keeps the chord law.
+
+    DECKS ARE IN: §37 (6)'s deck exclusion is about the ramp TARGET (a
+    deck's level is §33 (4)'s), not about how its pairs are priced.
+    """
+    from .road_profile import core_profiles
+    if profiles is None:
+        prof, per_face = core_profiles(airport, pm, law)
+    else:
+        prof, per_face = profiles, profiles.per_face
+    roads = _road_roles(law)
+    rid = {id(w): i for i, w in enumerate(prof.all_ways)}
+    out: dict[int, tuple[int, float, float]] = {}
+    seen: set[int] = set()
+    for fid, f in pm.faces.items():
+        if f.role not in roads:
+            continue
+        for cyc in (f.ring, *f.holes):
+            for v in pm.ring_vertices(cyc):
+                if v in seen:
+                    continue
+                seen.add(v)
+                vx = pm.vertices[v]
+                # THE FACE IS THE ROAD: a way running THROUGH the face
+                # answers EVERY vertex of it whatever the lateral distance
+                # (``road_profile``'s own rule for through-ways, the core's
+                # lateral levelling).  The ramp TARGET reads them within
+                # the face's answer radius, because a value must not be
+                # borrowed from a road 40 m away; a STATION may be, and
+                # must: the 174 KCLT vertices outside the radius were
+                # exactly the outer kerbs of the wide pages whose pairs
+                # then fell back to the chord law and kept the switchback
+                # bound (measured: ``dsf:pol51`` v16836 unframed, cut
+                # 6.75 m).
+                through: list = []
+                for g in vx.incident_faces:
+                    through.extend((w, math.inf) for w, _r in per_face.get(g, ()))
+                a = prof.answer(vx.xy, vx.dem_z or 0.0, through)
+                if a.way is None:
+                    continue
+                out[v] = (rid.get(id(a.way), -1), float(a.s), float(a.t))
+    rep = {"vertices": len(seen), "framed": len(out),
+           "no_route": len(seen) - len(out), "routes": len(prof.all_ways)}
+    return out, rep
+
+
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                       profiles=None) -> RampTargets:
     """§37 (6)'s target for every groundside-road vertex (module docstring).
@@ -297,9 +360,12 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     the airside's own published target where it carries one.
     """
     tg = road_ramp_targets(pm, law, airport, profiles)
+    frame, frep = road_route_frame(pm, law, airport, profiles)
     if report is not None:
         report.update(tg.report)
+        report.update({f"frame_{k}": v for k, v in frep.items()})
     keep = {v: z for v, z in pm.preferred_z.items() if v not in tg.targets}
     if report is not None:
         report["preferred_withdrawn"] = len(pm.preferred_z) - len(keep)
-    return _dc.replace(pm, road_ramp_z=tg.targets, preferred_z=keep)
+    return _dc.replace(pm, road_ramp_z=tg.targets, road_route_frame=frame,
+                       preferred_z=keep)

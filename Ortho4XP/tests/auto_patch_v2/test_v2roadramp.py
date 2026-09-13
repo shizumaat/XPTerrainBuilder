@@ -312,3 +312,77 @@ def test_built_the_road_stands_on_its_ramp_target(law):
     far = max(tg, key=lambda v: pm.vertices[v].xy[1])
     x, y = pm.vertices[far].xy
     assert abs(z[far] - airport.dem.z(x, y)) < 1.0
+
+
+# ── §37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (RULINGS 2026-09-13av) ──
+
+def test_the_pair_reading_is_the_box_over_the_route(law):
+    """``cap_l·|Δs| + cap_t·|Δt|`` with Δs the ROUTE distance and Δt the
+    offset across it — the taxi family's own reading of a diagonal
+    (06q/06s), never the plan chord."""
+    from auto_patch_v2.constraints.roads import (NOT_A_PAIR, NO_FRAME,
+                                                 road_pair_reading)
+    deg = law.tables.common.road_transverse_axis_min_deg
+    # a pure LONGITUDINAL pair: 100 m along one route, no offset
+    b, tv = road_pair_reading(0.08, 0.02, deg, (7, 0.0, 0.0), (7, 100.0, 0.0))
+    assert b == pytest.approx(8.0) and tv is False
+    # a pure CROSS-SECTION pair: the two kerbs of one section (SIGNED t)
+    b, tv = road_pair_reading(0.08, 0.02, deg, (7, 10.0, 4.0), (7, 10.0, -4.0))
+    assert b == pytest.approx(0.16) and tv is True
+    # a switchback: two routes are NOT a pair whatever the plan chord
+    assert road_pair_reading(0.08, 0.02, deg, (7, 77.5, 0.1),
+                             (6, 78.0, 12.2)) == NOT_A_PAIR
+    # no frame: the caller keeps the chord law
+    assert road_pair_reading(0.08, 0.02, deg, None, (7, 1.0, 0.0)) == NO_FRAME
+
+
+def test_the_route_frame_covers_every_road_ring_vertex(hill):
+    """Every road-family ring vertex carries a frame: a way running
+    THROUGH the face answers its outer kerbs too (the 174 unframed KCLT
+    vertices were the wide pages' outer kerbs, and their pairs fell back
+    to the chord law that held the switchback)."""
+    airport, pm, _rep, law = hill
+    from auto_patch_v2.airport.road_ramp import road_route_frame
+    frame, rep = road_route_frame(pm, law, airport)
+    assert rep["no_route"] == 0 and rep["framed"] == rep["vertices"] > 0
+    assert set(frame) == set(_road_vertices(pm)) - {
+        v for v in _road_vertices(pm) if v not in frame}
+    # the frame is published on the map the pipeline hands the generator
+    assert set(pm.road_route_frame) == set(frame)
+
+
+def test_the_generator_prices_the_route_and_the_census_reads_it_the_same(hill):
+    """ONE reading: the census imports the generator's own
+    ``road_pair_reading`` (``check_grade._road_pair_reading_v2``), so the
+    two cannot drift — the census-wrapper precedent."""
+    import sys
+    from pathlib import Path as _P
+    airport, pm, _rep, law = hill
+    tools = str(_P(__file__).resolve().parents[2] / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import check_grade as cg
+    from auto_patch_v2.constraints.roads import road_pair_reading
+    deg = law.tables.common.road_transverse_axis_min_deg
+    assert cg._ROAD_XSECTION_MIN_DEG == deg
+    for fa, fb in (((3, 0.0, 0.0), (3, 50.0, 0.0)),
+                   ((3, 5.0, 3.0), (3, 5.0, -3.0)),
+                   ((3, 0.0, 0.0), (4, 0.0, 0.0))):
+        assert cg._road_pair_reading_v2(0.08, 0.02, fa, fb) == \
+            road_pair_reading(0.08, 0.02, deg, fa, fb)
+    # the sidecar key is LAW INPUT and registered as such
+    assert "road_route_frame" in cg.SIDECAR_LAW_KEYS
+
+
+def test_a_ring_edge_is_always_priced_across_a_route_boundary(law):
+    """A way BOUNDARY mid-road must not leave a step unpriced: two
+    ADJACENT ring vertices keep the chord reading even when the two routes
+    differ (the census's own R19-5 floor, and the generator's rule)."""
+    import re
+    from pathlib import Path as _P
+    gen = (_P(__file__).resolve().parents[2] / "src" / "auto_patch_v2"
+           / "constraints" / "roads.py").read_text()
+    assert "A RING EDGE IS ALWAYS PRICED" in gen
+    assert re.search(r"if j != i \+ 1 and not \(i == 0 and j == n - 1\)", gen)
+    cen = (_P(__file__).resolve().parents[2] / "tools" / "check_grade.py").read_text()
+    assert "A RING EDGE IS ALWAYS PRICED" in cen

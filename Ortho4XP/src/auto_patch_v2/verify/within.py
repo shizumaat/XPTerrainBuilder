@@ -45,6 +45,7 @@ import math
 
 from ..constraints.geometry import (chords_covered, face_cover, long_axis,
                                     pair_is_transverse, station_indices)
+from ..constraints.roads import NO_FRAME, NOT_A_PAIR, road_pair_reading
 from ..constraints.stretches import AxisIndex, compose_pairs, nearest_line_cap
 from ..constraints.taxi import short_pairs
 from ..law.tables import role_cap, snap_margin_m
@@ -136,6 +137,22 @@ def route_pair_budgets(p: Patch) -> dict[tuple[int, int], tuple[float, float] | 
         if va is None or vb is None or va == vb:
             continue
         out[(min(va, vb), max(va, vb))] = None if budget is None else (float(budget), float(dist))
+    return out
+
+
+def road_frames(p: Patch) -> dict[int, tuple[int, float, float]]:
+    """§37 (7) the published ``road_route_frame`` joined to vertices by
+    identity key (owner RULINGS 2026-09-13av): vertex -> ``(route, s, t)``.
+    Empty on a patch that publishes none — the chord law."""
+    pub = p.publication.get("road_route_frame")
+    if not pub:
+        return {}
+    key_of = {(round(la, 7), round(lo, 7)): vid for vid, (la, lo) in p.ll.items()}
+    out: dict[int, tuple[int, float, float]] = {}
+    for rec in pub:
+        v = key_of.get((round(float(rec[0]), 7), round(float(rec[1]), 7)))
+        if v is not None:
+            out[v] = (int(rec[2]), float(rec[3]), float(rec[4]))
     return out
 
 
@@ -232,6 +249,7 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     mesh_roles = set(ws.junction_mesh_roles)
     mesh = mesh_pairs(p)
     routed = route_pair_budgets(p)
+    rframe = road_frames(p)          # §37 (7)
     rigid_v: set[int] = set()
     for sh in p.shapes:
         if p.is_rigid(sh.role):
@@ -303,10 +321,25 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                         # strict inside the body gate (owner 2026-08-24);
                         # ``fan`` is the back-edge zones' cap (none modelled)
                         pair_cap = cap
-                transverse = axis is not None and pair_is_transverse(
-                    axis, xb - xa, yb - ya, min_deg)
-                if transverse:
-                    pair_cap = min(pair_cap, cap_t)
+                # §37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (owner
+                # RULINGS 2026-09-13av): the generator's own reading,
+                # imported — never a second spelling of the rule here.
+                road_read = None
+                if sh.role in roads and rframe:
+                    road_read = road_pair_reading(cap, min(cap_t, cap), min_deg,
+                                                  rframe.get(a), rframe.get(b), d)
+                if road_read == NOT_A_PAIR:
+                    if not adjacent:
+                        continue            # a switchback's two branches
+                    road_read = NO_FRAME
+                if road_read not in (None, NO_FRAME):
+                    bound, transverse = road_read
+                    pair_cap = bound / d
+                else:
+                    transverse = axis is not None and pair_is_transverse(
+                        axis, xb - xa, yb - ya, min_deg)
+                    if transverse:
+                        pair_cap = min(pair_cap, cap_t)
                 dz = sh.z[i] - sh.z[j]
                 de = abs(dz - _offset(drops, a, b, dz))
                 if route is not None:                  # the route reading (05ab)

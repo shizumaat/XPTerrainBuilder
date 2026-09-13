@@ -7558,3 +7558,147 @@ BARS (round 2, ONE KCLT build against the shared control `ctl-KCLT`):
 named route-followable or transverse; `dsf:pol51` follow ≥ 0.85 holds;
 `dsf:pol82` ≤ 0.5 m (today 0.80); cockpit CRITICAL motion ≤ 8, no road row;
 LEMD / CYXY dry re-read; suite twice.
+
+### §37 (6)/(7) **MEASURED — ROUND 2** (lane `v2roadramp`, 2026-09-13, branch `claude/v2roadramp`, base `70646dc8`)
+
+ONE `--engine v2 --patch-only` KCLT build, tag **`v2roadramp2`**, 311.0 s,
+rc 0, `status feasible`, `body_sha 3db860e1d3c7`, artifact ledger
+**`5dcfccc142b9`**, `[guard] shared repo UNCHANGED`.  The BASE is a
+control built for this round at the SAME base — tag `ctlkclt70646dc8`,
+ledger **`1f83c7a053d9`**, 315.2 s, tree `70646dc8` — because the shared
+`ctl-KCLT` stands at `864e7577` and main has since taken v2seampin,
+v2eatramp and v2settle; every number below is against the SAME-TREE
+control, and the round-1 column (`497728ff051c`, §37 (6) alone on
+`864e7577`) is quoted beside it so §37 (7)'s own movement is visible.
+
+#### WHAT LANDED
+
+* §37 (6) AMENDED: the deck exclusion (round 1's finding) is ratified law.
+* §37 (7): `airport/road_ramp.road_route_frame` derives, for EVERY
+  road-family ring vertex, `(route id, station s, signed lateral t)` off
+  the SAME ways the ramp reads its DEM on; `PlanarMap.road_route_frame`
+  carries it, `pipeline/publication` publishes it (sidecar
+  `road_route_frame`, LAW INPUT in `check_grade.SIDECAR_LAW_KEYS`), and
+  ONE reading — `constraints/roads.road_pair_reading` — is imported by
+  the generator, by `verify/within` and by `check_grade`, so the three
+  cannot drift (the census-wrapper precedent).
+* THE READING: `bound = cap_l·|Δs| + cap_t·|Δt|` (the taxi family's box,
+  06q/06s) with Δs the ROUTE distance and Δt the offset across it;
+  TRANSVERSE — and so `road_cross_section` — iff the pair's direction in
+  ROUTE coordinates is at least `road_transverse_axis_min_deg` off the
+  centreline; **NOT A PAIR** on two different routes; the chord law where
+  no route answers.  Two floors keep it a RELAXATION: a RING EDGE is
+  always priced (an adjacent pair keeps the chord reading across a route
+  boundary, so a way boundary mid-road cannot leave a step unpriced), and
+  no bound is under `cap_t × the pair's plan distance` (a projection can
+  collapse on a bend).
+* THE FRAME COVERS EVERY ROAD VERTEX: a way running THROUGH a face
+  answers its outer kerbs too (the ramp TARGET keeps the face's answer
+  radius).  Without that, 174 of KCLT's 2,026 road vertices were unframed
+  — the wide pages' outer kerbs — and their pairs fell back to the chord
+  law that held the switchback (measured: `dsf:pol51` cut 6.75 m).
+
+Generator population at KCLT: `road_within_shape` 76,261 rows — **routed
+24,741, chord 51,520** (the parking lots and groundside pavement, which
+are not roads and keep the chord law), **not_a_pair 47,965**, ring_edge
+578.  Published frame: 2,177 vertices.
+
+#### THE OWNER'S SITE — `dsf:pol51` (`--site`, radius 60 m)
+
+| | `ctl-KCLT` (864e7577) | §37 (6) | §37 (6)+(7) |
+|---|---|---|---|
+| FOLLOW RATIO | 0.294 | 0.857 | **1.007** |
+| highest FILL | +13.31 m | +1.62 | **+1.59** |
+| deepest CUT | 0.86 m | 5.58 | **5.33** |
+| \|emitted−DEM\| median / p95 | 0.43 / 10.54 | 2.33 / 4.11 | **0.61 / 3.78** |
+
+#### AIRPORT-WIDE ROADS (`--by-ref`, same options)
+
+All 2,533 road vertices: \|emitted−DEM\| median **0.708 → 0.171 m**, p95
+**3.348 → 1.674 m**, worst 4.17 → 5.33 m.  **Refs over 3 m off the DEM:
+8 → 2** — `dsf:pol51` (5.33 m of CUT at 35.2068764,−80.9301639) and
+`bridge_deck:-3595` (+4.08 m, the face §37 (6) excludes, unchanged from
+its 4.09 m).  `dsf:pol70` 8.17 → **1.65**, `dsf:pol50` 6.53 → **1.25**,
+`dsf:pol82` (owner item 7) 6.17 → **0.68 m** (bar ≤ 0.5: 0.18 m over,
+reported under §31 (4) as a residual).  `dsf:pol39` 3.64 → 2.22,
+`dsf:pol86` 3.46 → 1.67, `dsf:pol63` 3.84 → under 1.7.
+
+#### THE TEN WORST PAIRS, NAMED (the round-1 attribution, re-read under (7))
+
+| face | ref | plan chord | §37 (7) verdict |
+|---|---|---|---|
+| 827 | `dsf:pol51` (the switchback) | 45.6 m | **not a pair** (two routes) |
+| 777 | `dsf:pol50` | 161.4 m | **not a pair** |
+| 792 | `dsf:pol70` | 64.0 m | **not a pair** |
+| 600 | `dsf:pol39` | 93.7 m | **not a pair** |
+| 729 | `dsf:pol62` | 41.9 m | **not a pair** |
+| 737 | `dsf:pol82` | 81.7 m | **not a pair** |
+| 764 | `dsf:pol53` | 22.3 m | **not a pair** |
+| 828 | `dsf:pol51` | 77.6 m | route-followable, bound 6.97 m |
+| 597 | `dsf:pol39` | 84.2 m | route-followable, bound 8.07 m (target Δ 6.74 — met) |
+| 595 | `dsf:pol66` | 7.0 m | TRANSVERSE, bound 0.47 m (a real cross-section) |
+
+Seven of the ten are the switchback class the ruling frees; two are
+route-followable; one is a genuine cross-section.
+
+#### THE CENSUS AND THE VERIFY
+
+| | BASE `1f83c7a053d9` | §37 (6) (r1) | §37 (6)+(7) |
+|---|---|---|---|
+| harness LAW-TRUE | 11,274 | 17,030 | 13,128 |
+| harness **ADJUDICATED** | **3,813** (airside 3,379 / gs 434) | 7,622 | **5,684** (airside **3,801** / gs 1,883) |
+| `road_cross_section` | 330 | 1,691 | **642** |
+| `within_shape` | 8,500 | 11,541 | 9,743 |
+| `airside_no_step` | 612 | 1,374 | **657** |
+| `transverse` | 109 | 470 | 348 |
+| v2 VERIFY rows | 3,908 | 12,264 | **4,439** |
+| v2 VERIFY `road_cross_section` | **781** | 5,263 | **462** |
+| cockpit CRITICAL motion / visual | 7 / 0 | 8 / 0 | **12 / 0** |
+
+**THE TWO BARS ARE NOT MET AND THE LANE SAYS SO**: `road_cross_section`
+642 against ≤ 310 (the base at this tree is 330), adjudicated 5,684
+against ≤ 3,900, cockpit motion 12 against ≤ 8 (NO road row in either
+arm — the rolled-on set is airside by definition; the 12 are runway
+`strip_arc` grade breaks and two apron `mid_edge_step` rows, the same
+families as the base's 7).  What IS measured:
+
+1. §37 (7) removed two thirds of what §37 (6) cost: adjudicated 7,622 →
+   5,684, `road_cross_section` 1,691 → 642, `airside_no_step` 1,374 → 657
+   (below the base), v2 verify rows 12,264 → 4,439.
+2. **The two instruments now disagree in DIRECTION on the road family**:
+   the v2 VERIFY — which prices exactly the generator's rows, under the
+   same imported reading — reads `road_cross_section` **781 → 462**, an
+   improvement on the base; the v1 census reads 330 → 642.  Both now
+   PAIR the same way (the twin asserts the census imports the
+   generator's function); what still differs is the pair SELECTION
+   (`grade_graph.shape_constraints(road_path_metric=True)`, v1's own) and
+   the allowance envelope.  The residual is not a pairing artefact.
+3. The rows that remain are a road surface that now RIDES ITS TERRAIN
+   (median off-DEM 0.708 → 0.171 m): a section that rolls with the ground
+   breaks the 2 % cross-section, and the census counts it.  Whether a
+   groundside road's cross-section is a LAW or a target under §31 (3)
+   ("landside is visual only, grade laws there are TARGETS") is the
+   question this residual asks; it is not one this lane may answer.
+
+#### Build-time impact statement
+
+The frame is one extra answer per road vertex over the profiles
+`preferred_road_z` already built (KCLT: 2,177 vertices, inside the road
+stage's own 1.4 s); the pair law itself is arithmetic on two 3-tuples and
+DROPS 47,965 of 76,261 rows, so the solve got smaller (LP rows 95,797 →
+84,606) and faster (solve 104.6 → 71.5 s; whole build 426.5 → 311.0 s
+against the control's 315.2 s).  Nothing here is within 1 % of either
+budget on the wrong side.
+
+#### What round 2 did NOT do
+
+Merge into main; write RULINGS; touch §37 (1)'s caps, the bank, §27's
+flip, `solve/`, `constraints/eat.py` or the other lanes' files; a third
+KCLT build (the attempt cap: the route pairing, then the collapse floor,
+which moved the census 646 → 642 and was kept as a safety floor, not
+re-built for); a LEMD or CYXY BUILD (both re-read DRY on their captures:
+LEMD 157 road vertices all framed, 486 routed pairs / 184 not-a-pair, the
+61 apron-side lanes still carrying 0 ramp targets, the 13 decks excluded,
+6 governed vertices within 0.02 m of the DEM; CYXY 348 framed, 3,347
+routed / 2,902 not-a-pair, targets within 0.01 m of the core clamp); a
+new tool (no `tools/INDEX.md` row).

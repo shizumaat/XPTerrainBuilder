@@ -240,6 +240,7 @@ try:
         BASIN_DECLARED_FLOOR_MATCH_TOL_M as _BASIN_FLOOR_MATCH_TOL_M,
         BASIN_FLOOR_DISAGREEMENT_M as _BASIN_FLOOR_DISAGREEMENT_M,
         ROAD_CROSS_SECTION_LAW as _ROAD_XSECTION_LAW,
+        ROAD_TRANSVERSE_AXIS_MIN_DEG as _ROAD_XSECTION_MIN_DEG,
     )
 except Exception:
     # THE LAW IS UNREACHABLE ⇒ THE LAW DOES NOT RUN, and says so.  The
@@ -255,6 +256,7 @@ except Exception:
     _pair_is_transverse = None
     _road_xsection_cap = None
     _ROAD_XSECTION_LAW = False
+    _ROAD_XSECTION_MIN_DEG = 45.0
     _runway_axis_and_width = None
     _runway_strip_wall_keepout_rings = None
     _runway_strip_longitudinal_runs = None
@@ -809,6 +811,51 @@ def _pad_relief_by_nid(nodes: Dict[str, Tuple[float, float]],
     law never asked it to make flat.  A patch with no key reads exactly as
     before (11l (2))."""
     return _field_by_nid(nodes, pad_relief_ll)
+
+
+def _road_frame_by_nid(nodes: Dict[str, Tuple[float, float]],
+                       road_route_frame_ll: list) -> Dict[str, tuple]:
+    """§37 (7) THE ROAD'S ROUTE FRAME per nid (owner RULINGS 2026-09-13av;
+    sidecar ``road_route_frame``): ``nid -> (route id, station s, signed
+    lateral t)``, joined by rounded lat/lon like every other per-vertex
+    field.
+
+    LAW INPUT.  A road PAIR is priced along the ROUTE — the road's own
+    centreline — and never across the plan chord, so a census without this
+    key judges a law the build never ran under: it read a switchback's two
+    branches (45.6 m apart in plan, 279.9 m along the road at KCLT
+    ``dsf:pol51``) as one 8 % pair and a 161 m diagonal as a 2 %
+    cross-section.  A patch with no key reads exactly as before."""
+    out: Dict[str, tuple] = {}
+    if not road_route_frame_ll:
+        return out
+    idx = {(round(la, 7), round(lo, 7)): nid for nid, (la, lo) in nodes.items()}
+    for rec in road_route_frame_ll:
+        try:
+            la, lo, route, st, t = rec[0], rec[1], rec[2], rec[3], rec[4]
+        except (TypeError, IndexError, ValueError):
+            continue
+        nid = idx.get((round(float(la), 7), round(float(lo), 7)))
+        if nid is not None:
+            out[nid] = (int(route), float(st), float(t))
+    return out
+
+
+def _road_pair_reading_v2(cap_l: float, cap_t: float, fa, fb, chord=None):
+    """THE ONE §37 (7) READING, imported from the engine
+    (``auto_patch_v2.constraints.roads.road_pair_reading``) so the census
+    pairs EXACTLY as the generator does — never re-spelled here (the
+    census-wrapper precedent).  Falls back to the chord law (``"no_frame"``)
+    when the engine is not importable."""
+    try:
+        for _p in (str(Path(__file__).resolve().parents[1] / "src"),):
+            if _p not in sys.path:
+                sys.path.insert(0, _p)
+        from auto_patch_v2.constraints.roads import road_pair_reading
+    except Exception:                                   # pragma: no cover
+        return "no_frame"
+    return road_pair_reading(cap_l, cap_t, _ROAD_XSECTION_MIN_DEG, fa, fb,
+                             chord)
 
 
 def _crown_centerline_nids(nodes: Dict[str, Tuple[float, float]],
@@ -2001,6 +2048,7 @@ def iter_shape_grade_constraints(
         interior_zones_m: Optional[list] = None,
         face_holes_m: Optional[dict] = None,
         pad_relief_by_nid: Optional[Dict[str, float]] = None,
+        road_frame_by_nid: Optional[Dict[str, tuple]] = None,
         ) -> "list[ShapePairConstraint]":
     """Yield every within-shape vertex-pair the grade check constrains.
 
@@ -2146,6 +2194,7 @@ def iter_shape_grade_constraints(
         # station walk read a road's direction with).  ``None`` for every
         # non-road way and with the law gated off, which is what makes
         # every branch below a no-op on those.
+        _road_frame = road_frame_by_nid or {}
         _road_axis = None
         if _ROAD_XSECTION_LAW and law_role(w) in _ROAD_FAMILY_ROLES:
             _ax = _long_axis_of_points([(p[0], p[1]) for p in pts])
@@ -2158,6 +2207,46 @@ def iter_shape_grade_constraints(
             return _pair_is_transverse(_road_axis,
                                        pts[ib][0] - pts[ia][0],
                                        pts[ib][1] - pts[ia][1])
+
+        def _route_read(ia: int, ib: int, cap_l: float):
+            """§37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (owner RULINGS
+            2026-09-13av; sidecar ``road_route_frame``).
+
+            ``(cap, allowance, transverse)`` from the ONE reading the
+            generator uses, ``"skip"`` for a pair the law does not make (a
+            switchback's two branches, non-adjacent), or ``None`` where the
+            patch publishes no frame for this pair — then the chord law
+            below stands, exactly as before §37 (7).
+
+            A RING EDGE IS ALWAYS PRICED (the R19-5 floor, and the
+            generator's own rule): two ADJACENT ring vertices keep the
+            chord reading even across a route boundary, so a way boundary
+            mid-road can never leave a step unpriced.
+            """
+            if not _road_frame or law_role(w) not in _ROAD_FAMILY_ROLES:
+                return None
+            fa = _road_frame.get(pnids[ia])
+            fb = _road_frame.get(pnids[ib])
+            if fa is None or fb is None:
+                return None
+            cap_t = _road_xsection_cap(cap_l)
+            _lt = _lateral_cap_t_tag(w)
+            if _lt is not None:
+                cap_t = min(cap_t, _lt)
+            xi, yi = pts[ia][0], pts[ia][1]
+            xj, yj = pts[ib][0], pts[ib][1]
+            chord = math.hypot(xi - xj, yi - yj)
+            read = _road_pair_reading_v2(cap_l, cap_t, fa, fb, chord)
+            if read == "not_a_pair":
+                adjacent = (abs(ia - ib) == 1
+                            or {ia, ib} == {0, n - 1})
+                return None if adjacent else "skip"
+            if read == "no_frame":
+                return None
+            bound, transverse = read
+            d = chord
+            cap = bound / d if d > 0 else cap_l
+            return cap, bound + _pair_quant_noise_m(w), bool(transverse)
 
         def _xsec_allowance(d: float, cap_l: float):
             """``(cap, allowance)`` for a CROSS-SECTION pair whose
@@ -2228,13 +2317,19 @@ def iter_shape_grade_constraints(
                         crown_by_nid.get(pnids[_ib]), ei - ej)
                     if _unk:
                         _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
-                    _tv = _xsec(_ia, _ib)
-                    if _tv:
-                        _pcap, _pallow = _xsec_allowance(d, grade_cap)
+                    _rr = _route_read(_ia, _ib, grade_cap)
+                    if _rr == "skip":
+                        continue                       # §37 (7): not a pair
+                    if _rr is not None:
+                        _pcap, _pallow, _tv = _rr
                     else:
-                        _pcap = grade_cap
-                        _pallow = (max(_cap_m, grade_cap * d)
-                                   + _pair_quant_noise_m(w))
+                        _tv = _xsec(_ia, _ib)
+                        if _tv:
+                            _pcap, _pallow = _xsec_allowance(d, grade_cap)
+                        else:
+                            _pcap = grade_cap
+                            _pallow = (max(_cap_m, grade_cap * d)
+                                       + _pair_quant_noise_m(w))
                     out.append(ShapePairConstraint(
                         way=w, nid_a=pnids[_ia], nid_b=pnids[_ib],
                         xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
@@ -2283,12 +2378,18 @@ def iter_shape_grade_constraints(
                         crown_by_nid.get(pnids[ib]), ei - ej)
                     if _unk:
                         _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
-                    _tv = _xsec(ia, ib)
-                    if _tv:
-                        _pcap, _pallow = _xsec_allowance(d, cap.flat_cap())
+                    _rr = _route_read(ia, ib, cap.flat_cap())
+                    if _rr == "skip":
+                        continue                       # §37 (7): not a pair
+                    if _rr is not None:
+                        _pcap, _pallow, _tv = _rr
                     else:
-                        _pcap = cap.flat_cap()
-                        _pallow = _pair_grade_allowance(cap, d, w)
+                        _tv = _xsec(ia, ib)
+                        if _tv:
+                            _pcap, _pallow = _xsec_allowance(d, cap.flat_cap())
+                        else:
+                            _pcap = cap.flat_cap()
+                            _pallow = _pair_grade_allowance(cap, d, w)
                     out.append(ShapePairConstraint(
                         way=w, nid_a=pnids[ia], nid_b=pnids[ib],
                         xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
@@ -2326,12 +2427,18 @@ def iter_shape_grade_constraints(
                     ei - ej)
                 if _unk:
                     _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
-                _tv = _xsec(ia, ib)
-                if _tv:
-                    _pcap, _pallow = _xsec_allowance(d, cap.flat_cap())
+                _rr = _route_read(ia, ib, cap.flat_cap())
+                if _rr == "skip":
+                    continue                           # §37 (7): not a pair
+                if _rr is not None:
+                    _pcap, _pallow, _tv = _rr
                 else:
-                    _pcap = cap.flat_cap()
-                    _pallow = _pair_grade_allowance(cap, d, w)
+                    _tv = _xsec(ia, ib)
+                    if _tv:
+                        _pcap, _pallow = _xsec_allowance(d, cap.flat_cap())
+                    else:
+                        _pcap = cap.flat_cap()
+                        _pallow = _pair_grade_allowance(cap, d, w)
                 out.append(ShapePairConstraint(
                     way=w, nid_a=pnids[ia], nid_b=pnids[ib],
                     xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
@@ -6629,6 +6736,7 @@ def _check_within_shape(ways: List[Way],
                         taxi_box_out: Optional[List] = None,
                         apron_tier: Optional[dict] = None,
                         pad_relief_by_nid: Optional[Dict[str, float]] = None,
+                        road_frame_by_nid: Optional[Dict[str, tuple]] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -6669,7 +6777,8 @@ def _check_within_shape(ways: List[Way],
             crown_centerline_nids=crown_centerline_nids,
             pair_caps_ll=pair_caps_ll,
             interior_zones_m=interior_zones_m, face_holes_m=face_holes_m,
-            pad_relief_by_nid=pad_relief_by_nid):
+            pad_relief_by_nid=pad_relief_by_nid,
+            road_frame_by_nid=road_frame_by_nid):
         de = abs((c.ea - c.eb) - c.offset)
         allowance = c.allowance
         # JUNCTION STRETCH CAPS (RULINGS 2026-09-04y, applying 04t-3): a
@@ -8131,6 +8240,11 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # reports every relief pad's designed steps as ``within_shape`` /
     # ``plane_gradient`` rows.  A patch with no key reads exactly as before.
     "pad_relief": "pad_relief_ll",
+    # §37 (7) THE ROAD PAIR LAW'S ROUTE FRAME (owner RULINGS 2026-09-13av;
+    # ``_road_frame_by_nid``): LAW INPUT — the road's pairs are priced over
+    # the ROUTE, so a census without it judges the chord law the ruling
+    # withdrew.  A patch with no key reads exactly as before.
+    "road_route_frame": "road_route_frame_ll",
     "crown_centerline": "crown_centerline_ll",
     "pair_caps": "pair_caps_ll",
     # TAXIWAY STRETCHES (RULINGS 2026-09-04t-3 / 04y): the v2 emitter's
@@ -8496,6 +8610,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     # THE PAD'S RELIEF TARGET (11l (2)): absent on any patch built before
     # 11j, which reads exactly as it did then.
     ctx["pad_relief_ll"] = data.get("pad_relief") or None
+    # §37 (7): absent on any patch built before it (the chord law)
+    ctx["road_route_frame_ll"] = data.get("road_route_frame") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
     ctx["stretches_ll"] = data.get("stretches") or None
@@ -9519,6 +9635,7 @@ def run_checks(
     face_holes_ll: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
     pad_relief_ll: Optional[list] = None,
+    road_route_frame_ll: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
     station_caps_ll: Optional[list] = None,
@@ -9696,6 +9813,11 @@ def run_checks(
     # per-vertex field the pad's flatness is read AGAINST, so the census
     # and ``verify/pads.pad_flat`` measure one pad on one level plane.
     pad_relief_by_nid = _pad_relief_by_nid(nodes, pad_relief_ll or [])
+    # §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av)
+    road_frame_by_nid = _road_frame_by_nid(nodes, road_route_frame_ll or [])
+    if road_frame_by_nid and not quiet:
+        print(f"  road route frame (§37 (7)): {len(road_frame_by_nid)} road "
+              "vertex(es) — pairs priced ALONG THE ROUTE, never the chord")
     if pad_relief_by_nid and not quiet:
         print(f"  pad relief target: {len(pad_relief_by_nid)} pad vertex(es) "
               "read on their pad's LEVEL PLANE (11j)")
@@ -9779,7 +9901,8 @@ def run_checks(
         transverse_road_out=_road_xsec_rows,
         stretches_m=stretches_m, face_holes_m=face_holes_m,
         taxi_box=taxi_box, taxi_box_out=_taxi_box_rows,
-        apron_tier=apron_tier, pad_relief_by_nid=pad_relief_by_nid))
+        apron_tier=apron_tier, pad_relief_by_nid=pad_relief_by_nid,
+        road_frame_by_nid=road_frame_by_nid))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

@@ -229,6 +229,16 @@ class PlanarMap:
     #: threshold above it, and it SUPERSEDES ``preferred_z`` for the
     #: vertices it governs (which are therefore absent from that mapping).
     road_ramp_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av;
+    #: ``airport/road_ramp.road_route_frame``): road-family ring vertex ->
+    #: ``(route id, station s along that route, signed lateral t)``.  A
+    #: road PAIR is priced over ``s`` — the route, never the plan chord —
+    #: and a pair whose two vertices sit on DIFFERENT routes is not a pair
+    #: (a switchback's two branches).  Published to the sidecar so the
+    #: verify reader and the v1 census pair the same way the generator
+    #: does; empty on a map the publisher never ran over (the chord law).
+    road_route_frame: _t.Mapping[int, tuple[int, float, float]] = _dc.field(
+        default_factory=dict)
     #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
     #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
     #: -> shape id (a pad's majority shape), and the declared joints — the

@@ -79,27 +79,21 @@ def _prepare_solved(icao: str, airport, pm: PlanarMap, law: Law,
     # apron vertex held by its trend reads "held by bending alone" and the
     # objective table cannot name the ``apron_trend`` term at all.
     pm = with_apron_trend(pm, law, airport)
+    # THE EAT RAMP'S REACH (spec §36 (5)): the pipeline WITHDRAWS both
+    # trend channels over the derived ramp reach before it solves, so
+    # ``why`` must too — otherwise a ramp vertex reads as held by a
+    # ``taxi_trend`` row the build does not have.
+    from ..constraints.eat import withdraw_trend_over_reach
+    pm = withdraw_trend_over_reach(pm, law, airport)
     stage = _dc.replace(stage, pm=pm)
     cs, counts, _g = shape_constraints(pm, law, airport, stage)
     cs = _drop(cs, drop)
     wall["constraints"] = time.perf_counter() - t
     t = time.perf_counter()
+    # §38 (1) (owner RULINGS 2026-09-13ah): the seam is a ``Pin``, so the
+    # pipeline runs ONE solve and this twin does too — the fixed-point
+    # "seam passes" loop is deleted on both sides.
     sol, rep, press = solve_with_pressure(pm, cs, law)
-    tol = law.tables.emit.materiality.elevation_m
-    prev: frozenset[int] | None = None
-    for _n in range(6):                     # the pipeline's seam passes
-        if not pm.seam_vertices:
-            break
-        z = np.asarray(sol.z, float)
-        honoured = frozenset(v for v in pm.seam_vertices if pm.vertices[v].dem_z is not None
-                             and abs(z[v] - pm.vertices[v].dem_z) <= tol)
-        if len(honoured) == len(pm.seam_vertices) or honoured == prev:
-            break
-        prev = honoured
-        cs, counts2, _g = shape_constraints(pm, law, airport, stage, seam_honoured=honoured)
-        cs = _drop(cs, drop)
-        counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
-        sol, rep, press = solve_with_pressure(pm, cs, law)
     wall["solve"] = time.perf_counter() - t
     z = np.asarray(sol.z, float)
     if drop:

@@ -97,13 +97,14 @@ def stack(rows: _t.Iterable[Row]) -> ConstraintSet:
 
 def generate(planar: PlanarMap, law: Law, airport: Airport,
              only: _t.Container[str] | None = None,
-             seam_honoured: _t.Container[int] | None = None
+             yielded_out: list[Row] | None = None,
              ) -> tuple[ConstraintSet, dict[str, int], dict[str, float]]:
     """Run every generator (or ``only`` those named); return the set,
     the row count per generator and the wall seconds per generator.
-    ``seam_honoured``: the seam vertices whose DEM value the solve could
-    honour (the pipeline's second pass) — only pairs among THOSE are
-    exempt; ``None`` exempts pairs among every seam candidate."""
+
+    §38 (1) (owner RULINGS 2026-09-13ah): the seam is a ``Pin``, so there
+    is no honoured SET and no second pass — the ``seam_honoured``
+    parameter and the pipeline's seam-pass loop are deleted."""
     rows: list[Row] = []
     counts: dict[str, int] = {}
     walls: dict[str, float] = {}
@@ -128,9 +129,11 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
     rows, n_water = water_exempt(rows)
     counts["water_pin_row_withdrawn"] = n_water
     walls["water_pin_row_withdrawn"] = 0.0
-    rows, n_exempt = seam_exempt(rows, seam_honoured)
+    rows, n_exempt, n_seam_junior = seam_exempt(rows, yielded_out)
     counts["seam_pin_pair_exempt"] = n_exempt
     walls["seam_pin_pair_exempt"] = 0.0
+    counts["seam_pin_withdrawn_senior"] = n_seam_junior
+    walls["seam_pin_withdrawn_senior"] = 0.0
     # THE SENIOR STRUCTURE'S DATUM (precedence.toml [structures]): a
     # vertex two structures pin keeps one pin (lane v2hecalemd, LEMD)
     rows, n_junior = structures.reconcile_datums(rows, law)
@@ -206,23 +209,60 @@ def water_exempt(rows: list[Row]) -> tuple[list[Row], int]:
     return out, n
 
 
-def seam_exempt(rows: list[Row], honoured: _t.Container[int] | None = None
-                ) -> tuple[list[Row], int]:
+def seam_exempt(rows: list[Row], yielded_out: list[Row] | None = None
+                ) -> tuple[list[Row], int, int]:
     """THE SEAM-PIN PAIR EXEMPTION (user 2026-07-04, the census's own
     reading — ``check_grade`` with sidecar ``seam_pins``: "pin↔pin pairs
     skip, pin↔free pairs check at the body cap"): a grade row whose every
     vertex is a seam DEM pin prices terrain against terrain and is
-    dropped; a row with one free vertex stays.  Returns the rows and the
-    number dropped."""
+    dropped; a row with one free vertex stays.
+
+    AND THE SENIOR-DATUM WITHDRAWAL (§38 (1); ``constraints/seams.py``
+    docstring): the seam pin is a ``Pin`` since 13ah, so a vertex another
+    generator ALSO pins would carry two equalities and the reduction's
+    row order would decide which one holds.  A CIFP threshold outranks the
+    seam (the runway's own regulation value), so the SEAM pin is the one
+    withdrawn there — counted, never silent.  (Water is senior to both and
+    is settled earlier, in :func:`water_exempt`.)
+
+    AND THE ZONE BAND YIELDS BETWEEN TWO PINS (§38 (2); owner RULINGS
+    2026-09-13ah, attributed 13am (6)).  A ONE-WAY row (``follows``) whose
+    GOVERNED vertex is a seam pin governs a vertex that has no column: the
+    row survives only as a two-way PULL on the pavement it was written to
+    follow, which ``one_way_rulings`` exists to forbid ("the adjacent
+    ground follows the pavement and never pulls it", 09-09b (2)/(3)).
+    Measured at SPLP that pull is exactly what held the seam off its DEM —
+    the relax arm ``zone_bands −1,670 rows → z−dem after −0.000`` — and
+    with the seam pinned it re-appears as a 2.39 m zone miss and an
+    INFEASIBLE runway projection.  So the row YIELDS, on the same clause
+    ``water_exempt`` already applies to a water datum ("a zone band cannot
+    fight the datum it stands in").  Each yielded row is handed back
+    through ``yielded_out`` so the design report can NAME the family, its
+    two pins and the demanded-vs-allowed metres (§38 (2), never a silent
+    residual).
+
+    Returns the rows, the number of PAIRS dropped and the number of seam
+    PINS withdrawn against a senior pin."""
     pinned = seams.seam_vertices_pinned(rows)
-    if honoured is not None:
-        pinned = {v for v in pinned if v in honoured}
     if not pinned:
-        return rows, 0
+        return rows, 0, 0
+    senior = {r.v for r in rows
+              if isinstance(r, Pin) and r.source.generator != seams.GEN}
+    n_junior = 0
+    if senior & pinned:
+        keep: list[Row] = []
+        for r in rows:
+            if (isinstance(r, Pin) and r.source.generator == seams.GEN
+                    and r.v in senior):
+                n_junior += 1
+                continue
+            keep.append(r)
+        rows = keep
+        pinned = pinned - senior
     out: list[Row] = []
     n = 0
     for r in rows:
-        if isinstance(r, Linear) and r.source.generator == seams.GEN:
+        if isinstance(r, Pin):
             out.append(r)
             continue
         if isinstance(r, Diff) and r.a in pinned and r.b in pinned:
@@ -234,5 +274,15 @@ def seam_exempt(rows: list[Row], honoured: _t.Container[int] | None = None
         if isinstance(r, Offset) and r.a in pinned and r.b in pinned:
             n += 1
             continue
+        # §38 (2) THE ZONE BAND YIELDS: a one-way row whose GOVERNED vertex
+        # is a seam pin (the ``water_exempt`` clause, applied to the seam)
+        fv = getattr(r, "follows", None)
+        fvs = ((int(fv),) if isinstance(fv, int)
+               else tuple(int(q) for q in fv) if fv is not None else ())
+        if fvs and all(q in pinned for q in fvs):
+            if yielded_out is not None:
+                yielded_out.append(r)
+            n += 1
+            continue
         out.append(r)
-    return out, n
+    return out, n, n_junior

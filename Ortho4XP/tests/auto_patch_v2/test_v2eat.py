@@ -33,7 +33,8 @@ from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
                                          SceneryPack, TaxiEdge, TaxiNode)
 from auto_patch_v2.model.constraints import Flat, Pin, Source
 from auto_patch_v2.model.frame import Frame
-from auto_patch_v2.model.planar import Edge, EdgeKind, Face, PlanarMap, Vertex
+from auto_patch_v2.model.planar import (Breakline, Edge, EdgeKind, Face,
+                                        PlanarMap, Vertex)
 
 
 class _FlatDem:
@@ -308,3 +309,131 @@ def test_an_end_with_no_readable_anchor_pins_nothing(law):
     pm = PlanarMap("KCLT", verts, edges, faces, {})
     assert eat.eat_pins(pm, law, _airport(law)) == []
     assert eat.STATS["eat_pins"]["ends_without_anchor"] == 2
+
+
+# ── §36 (5) THE RAMP REACH IS DERIVED; THE TREND YIELDS ──────────────────
+# (Fable 2026-09-13, owner RULINGS 2026-09-13aa)
+#
+# What these pin: the reach is drop / cap along the LOOP'S OWN centreline,
+# never a constant; the trend rows inside it are WITHDRAWN (from BOTH
+# channels, so the apron trend cannot hand the same pull back) and the
+# ones outside it are untouched; a loop too short is REPORTED with the
+# grade it is forced to instead of being silently ramped at it; and an
+# airport with no EAT is returned byte-identical.
+
+def _loop_map(*, d0=400.0, d1=430.0, chain_half=700.0, dem_z=None):
+    """The fixture of :func:`_crossing` plus THE LOOP: a taxi face and its
+    own ``taxi_centerline`` breakline running across the corridor from
+    ``-chain_half`` to ``+chain_half`` in x at the crossing's mid D."""
+    pm = _map([_crossing(d0, d1)], dem_z=dem_z)
+    y = 2000.0 + 0.5 * (d0 + d1)
+    verts = dict(pm.vertices)
+    edges = dict(pm.edges)
+    vid = max(verts) + 1
+    eid = max(edges) + 1
+    chain = []
+    xs = [-chain_half + i * (2.0 * chain_half / 10.0) for i in range(11)]
+    for x in xs:
+        verts[vid] = Vertex(vid, (x, y), (35.0 + vid * 1e-6, -80.0 - vid * 1e-6),
+                            DEM_Z if dem_z is None else dem_z, ())
+        chain.append(vid)
+        vid += 1
+    bl_edges = []
+    for a, b in zip(chain, chain[1:]):
+        edges[eid] = Edge(eid, a, b, None, None, EdgeKind.CENTERLINE)
+        bl_edges.append(eid)
+        eid += 1
+    import dataclasses as _dc
+    bl = Breakline(0, "taxi_centerline", "taxiEAT", tuple(bl_edges), "E")
+    return _dc.replace(pm, vertices=verts, edges=edges, breaklines={0: bl}), chain
+
+
+def _with_trend(pm, chain, value=100.0):
+    """Every chain vertex carries a ground-trend target — the row §36 (5)
+    withdraws.  Set directly rather than fitted: the fit is
+    ``constraints/trend.py``'s and has its own twins; what these pin is
+    WHICH rows the reach withdraws."""
+    import dataclasses as _dc
+    return _dc.replace(pm, taxi_trend_z={v: value for v in chain})
+
+
+def test_the_reach_is_the_drop_over_the_taxi_cap(law):
+    """reach = |value - the loop's own profile at the foot| / the taxi
+    longitudinal cap — DERIVED from the law, never a constant."""
+    pm, chain = _loop_map()
+    pm = _with_trend(pm, chain)
+    plan = eat.eat_reach_plan(pm, law, _airport(law))
+    assert plan["pins"] == 4 and len(plan["feet"]) == 4, plan
+    rec = plan["feet"][0]
+    assert rec["cap"] == pytest.approx(0.015)
+    # the pin value is ~ -20.1 + 415*0.025 below the end; the trend says 100
+    assert rec["reach_m"] == pytest.approx(rec["drop_m"] / rec["cap"], rel=1e-3)
+    assert rec["drop_m"] > 5.0
+
+
+def test_the_trend_yields_over_the_reach_and_only_over_it(law):
+    """The loop's vertices inside the reach carry no trend row; the ones
+    beyond it keep theirs.  WITHDRAWN, not outweighed."""
+    pm, chain = _loop_map(chain_half=4000.0)
+    pm = _with_trend(pm, chain)
+    plan = eat.eat_reach_plan(pm, law, _airport(law))
+    reach = plan["feet"][0]["reach_m"]
+    out = eat.withdraw_trend_over_reach(pm, law, _airport(law))
+    s0 = plan["feet"][0]["station_m"]
+    kept, gone = 0, 0
+    for i, v in enumerate(chain):
+        s = i * (8000.0 / 10.0)
+        if abs(s - s0) <= reach - 1.0:
+            assert v not in out.taxi_trend_z, (v, s, s0, reach)
+            gone += 1
+        elif abs(s - s0) >= reach + 1.0:
+            assert v in out.taxi_trend_z, (v, s, s0, reach)
+            kept += 1
+    assert gone and kept
+
+
+def test_the_apron_trend_yields_on_the_same_terms(law):
+    """``apron_trend`` claims what the taxi trend does not hold, so a
+    withdrawal of one channel alone would hand the same DEM pull back at
+    the apron's price.  One withdrawal, both channels."""
+    import dataclasses as _dc
+
+    pm, chain = _loop_map()
+    pm = _dc.replace(pm, taxi_trend_z={chain[0]: 100.0},
+                     apron_trend_z={v: 100.0 for v in chain})
+    out = eat.withdraw_trend_over_reach(pm, law, _airport(law))
+    assert len(out.apron_trend_z) < len(pm.apron_trend_z)
+
+
+def test_a_loop_too_short_keeps_the_regulation_and_names_the_overrun(law):
+    """The crossing KEEPS its pin (a ``Pin`` is not negotiable); the
+    report names the grade the short loop forces, under the taxi family —
+    never a silent 3.9 %."""
+    pm, chain = _loop_map(chain_half=120.0)
+    pm = _with_trend(pm, chain)
+    plan = eat.eat_reach_plan(pm, law, _airport(law))
+    assert plan["short"], plan
+    s = plan["short"][0]
+    assert s["family"] == "taxi"
+    assert s["forced_grade"] > 0.015
+    assert eat.eat_pins(pm, law, _airport(law)), "the pin stands"
+
+
+def test_an_airport_with_no_eat_is_returned_unchanged(law):
+    """Five of the six frames recognise no rect at all; the withdrawal
+    must be a no-op there, object-identical."""
+    pm, chain = _loop_map()
+    pm = _with_trend(pm, chain)
+    ap = _airport(law, routes=False)          # no routed wrap: no rect
+    assert eat.withdraw_trend_over_reach(pm, law, ap) is pm
+
+
+def test_the_replay_can_drop_the_reach_alone(tmp_path):
+    """``--drop-generator eat_ramp_reach`` is the §36 (5) BEFORE arm: the
+    withdrawal is a channel edit made before the solve, so it cannot be
+    dropped by the row filter and is named here instead."""
+    import pathlib
+    src = pathlib.Path(__file__).resolve().parents[2] / "tools" / "v2_solve_replay.py"
+    text = src.read_text()
+    assert "eat_ramp_reach" in text
+    assert '("eat", "withdraw_trend_over_reach")' in text

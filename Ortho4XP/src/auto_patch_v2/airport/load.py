@@ -140,6 +140,12 @@ class LoadReport:
     #: (owner RULINGS 2026-09-13j item 5, ruled 13aj;
     #: ``constraints/road_ramp.py``, spec §37 (6))
     road_ramp: dict | None = None
+    #: THE EAT RAMP REACH (owner RULINGS 2026-09-13aa; spec §36 (5),
+    #: ``constraints/eat.eat_reach_plan``): per pinned foot the drop, the
+    #: taxi cap, the derived reach and the loop it has either side; the
+    #: trend rows withdrawn over it; and every loop TOO SHORT to ramp
+    #: lawfully, with the grade it is forced to.
+    eat_reach: dict | None = None
 
 
 def normalise_surface(code: int) -> Surface:

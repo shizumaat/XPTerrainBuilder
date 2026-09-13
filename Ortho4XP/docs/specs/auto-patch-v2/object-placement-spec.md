@@ -3766,3 +3766,36 @@ refusals of the family 27 → 0; the family seated at the terminal pad's level
 the pad (§31 visual); LEMD 1.0.325 and OTHH 1.0.326 frames byte-identical or
 every changed placement named with its reason; plan stage not worse than
 +10 % (`--runs 3`); suite twice.
+
+### §16f (4)–(6) THE FAMILY IS PARTITIONED BY PAD; PAVEMENT IS KING (Fable 2026-09-13; RULINGS 2026-09-13aq) — lane `v2family` round 2
+
+Round 1 (a51348e2): one plane per family put KCLT `unit:31#0` on median ground
+4.26 m above `building80` (43 of 129 anchors on the pad, so a MAJORITY read
+declined), held a wall +2.99 m over rolled-on apron, and gave LEMD's
+80-member old terminal one plane across 8.4 m of ground (worst member +8.40 m
+off its own ground).
+
+4. **ONE PLANE PER PAD.** A family is partitioned by the emitted `building`
+   pads its members stand on: a member joins the pad group of the pad its
+   contacts stand on by PLURALITY (largest share wins; §16d (6)'s "mostly" is
+   amended to plurality for families); a member on no pad joins the pad group
+   it touches (§16c (6) contact); a member touching no pad group is cut to
+   its own ground (§16c). Each pad group takes its pad's plane; the steps
+   between groups fall at the pad frontages the design surface terraces
+   (§28). CYXY's hillside building (one pad) stays one plane.
+5. **PAVEMENT IS KING (§17).** A member whose ground contacts are ALL on
+   rolled-on pavement (apron / taxi / runway) is cut apart from its family
+   and seated on that pavement — an object never moves the aircraft.
+6. **RULE 5b MEMBERS.** The bar "basin refusals 27 → 0" is withdrawn (the
+   object stage never sees the basin witness); instead every rule-5b-refused
+   member of a family is a family body on its pad group's plane, named in
+   the census.
+
+BARS (round 2, registered KCLT frame — `tools/harness/frames.py list KCLT`
+— and the LEMD 1.0.325 frame; no new build unless the replay cannot state a
+bar): KCLT both rows on `building80` (row residual 0.47 → ≤ 0.3 m; member vs
+pad +4.26 → ≤ 0.5); worst §17 motion row ≤ +1.66 m (round 1's base) with the
+wall named and seated on its apron; LEMD's 80-member family partitioned by
+its pads, worst member-off-own-ground 8.40 → ≤ 0.5 m, the 249 changed bodies
+each ≤ 0.5 m off its pad plane; OTHH byte-identical; plan stage ≤ 11 s; torn
+seams 0; suite twice.

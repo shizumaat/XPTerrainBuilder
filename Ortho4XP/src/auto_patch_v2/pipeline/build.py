@@ -19,11 +19,13 @@ from ..airport.road_profile import preferred_road_z
 from ..airport.road_ramp import with_road_ramp
 from ..classify import classify, load_rules
 from .shapes import joint_steps, shape_constraints, shape_stage
+from .seam_report import seam_yield_block
 from ..constraints.flat_site import GEN as FLAT_GEN
 from ..constraints.routes import RIDGE_KIND
 from ..constraints.runway_chord import ChordReport, with_runway_chord
 from ..constraints.apron_trend import (ApronTrendReport, apron_trend_block,
                                        with_apron_trend)
+from ..constraints.eat import withdraw_trend_over_reach
 from ..constraints.taxi_trend import (TaxiTrendReport, taxi_trend_block,
                                       with_taxi_trend)
 from ..constraints.runway_profile import RUNWAY_FAMILY
@@ -49,9 +51,6 @@ class Config:
     options: Options = Options()
     verify: bool = True
     feather_m: float = 60.0
-    #: Seam passes after the first solve (the exemption set = the seam
-    #: vertices the previous solve held on the DEM), to a fixed point.
-    seam_passes_max: int = 6
     #: Extra ``<osm>`` root attributes for the emitted patch (and every
     #: tile piece): a HOSTING tile build's rebuild-freshness stamps
     #: (the v1 tile driver reads them back through ``read_patch_source``
@@ -557,6 +556,28 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"{at_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
          f"{at_rep.get('max_below_dem_m', 0.0):.2f} m"
          + (f"; FALLBACK {at_rep['fallback']}" if at_rep.get("fallback") else ""), out)
+    # THE EAT RAMP'S REACH — THE TREND YIELDS (owner RULINGS 2026-09-13aa;
+    # spec §36 (5)).  An end-around taxiway pinned a tail height below the
+    # departure surface must ramp back to the ground at the TAXI cap, and
+    # the ramp's free neighbours were buying ~1 % of grade with their
+    # ground-trend residual instead (measured 2.37-3.87 % at KCLT).  Over
+    # the DERIVED reach — drop / cap along the loop's own centreline — both
+    # trend channels are WITHDRAWN, not outweighed.  Runs AFTER both are
+    # published, so neither claim is re-opened by the other's absence.
+    er_rep: dict = {}
+    pm = withdraw_trend_over_reach(pm, law, airport, er_rep)
+    lrep.eat_reach = dict(er_rep)
+    if er_rep.get("pins"):
+        _say(f"[{icao}] EAT ramp reach (13aa/§36-5): {er_rep.get('pins', 0)} pinned feet on "
+             f"{len(er_rep.get('feet', []))} loop(s), reach "
+             + ", ".join(f"{r['reach_m']:.0f} m (drop {r['drop_m']:.2f} at cap {r['cap']:.3f})"
+                         for r in er_rep.get("feet", [])[:4])
+             + f"; trend rows withdrawn {er_rep.get('withdrawn', 0)} "
+             f"(taxi {er_rep.get('withdrawn_taxi', 0)}, apron {er_rep.get('withdrawn_apron', 0)})"
+             + (f"; LOOP TOO SHORT at {len(er_rep['short'])} foot(feet) — forced grade "
+                + ", ".join(f"{(s.get('forced_grade') or 0) * 100:.2f} %"
+                            for s in er_rep["short"][:4]) + " (taxi family)"
+                if er_rep.get("short") else ""), out)
     # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE
     # DEM (owner RULINGS 2026-09-13j item 5, ruled 13aj; spec §37 (6)).
     # LAST of the target channels, because a mouth's level is READ from the
@@ -592,7 +613,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pm = stage.pm
     wall["shapes"] = time.perf_counter() - t
     t = time.perf_counter()
-    cs, counts, gwalls = shape_constraints(pm, law, airport, stage)
+    seam_yielded: list = []
+    cs, counts, gwalls = shape_constraints(pm, law, airport, stage,
+                                           yielded_out=seam_yielded)
     wall["constraints"] = time.perf_counter() - t
     if stage.dropped:
         _say(f"[{icao}] joints (08k): {sum(stage.dropped.values())} rows dropped across shape "
@@ -610,31 +633,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["solve"] = time.perf_counter() - t
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
-    # SEAM PASSES: a seam vertex the solve could not hold on the DEM is
-    # FREE, so the pairs the previous pass exempted as pin↔pin around it
-    # come back as law rows (the census prices them) and the LP runs
-    # again over exactly that set, to a fixed point of the honoured set.
-    if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
-        tol = law.tables.emit.materiality.elevation_m
-        prev: frozenset[int] | None = None
-        for n_pass in range(2, 2 + cfg.seam_passes_max):
-            honoured = frozenset(v for v in pm.seam_vertices if pm.vertices[v].dem_z is not None
-                                 and abs(sol.z[v] - pm.vertices[v].dem_z) <= tol)
-            if len(honoured) == len(pm.seam_vertices) or honoured == prev:
-                break                 # every seam value held, or a fixed point
-            prev = honoured
-            t = time.perf_counter()
-            cs, counts2, _g = shape_constraints(pm, law, airport, stage,
-                                                seam_honoured=honoured)
-            counts["seam_pin_pair_exempt"] = counts2["seam_pin_pair_exempt"]
-            sol, design_rep = solve_design(pm, cs, law, cfg.options,
-                                           size_out=size)
-            wall[f"solve_pass{n_pass}"] = time.perf_counter() - t
-            _say(f"[{icao}] seam pass {n_pass}: {len(honoured)}/{len(pm.seam_vertices)} honoured, "
-                 f"{counts2['seam_pin_pair_exempt']} pairs exempt, "
-                 f"{wall[f'solve_pass{n_pass}']:.2f} s, status {sol.status.value}", out)
-            if sol.status.value not in ("optimal", "feasible"):
-                break
+    # THE SEAM PASSES ARE DELETED (§38 (1); owner RULINGS 2026-09-13ah,
+    # attributed 13am).  A seam vertex is a ``Pin``, held exactly by the
+    # reduction, so there is no honoured set to iterate to a fixed point.
+    # The M3a pass re-ran the whole solve up to six times over the set of
+    # seam values the previous solve happened to hold, and at SPLP it
+    # OSCILLATED (45 → 28 → 27 → 28 …, terminating on repetition, 12 s of
+    # the 24 s build) while shipping 123 residuals up to 3.430 m.
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
     _say(f"[{icao}] {design_rep.line()}", out)
@@ -678,8 +683,18 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         off = [(d, v) for d, v in res_seam if d > tol]
         report_seam = {"seam_vertices": len(pm.seam_vertices), "honoured": len(res_seam) - len(off),
                        "residual": [{"vertex": v, "off_dem_m": round(d, 3)} for d, v in off]}
+        # §38 (2) A FAMILY UNMET BETWEEN TWO PINS IS NAMED (owner RULINGS
+        # 2026-09-13ah: "never a moved pin, never a silent residual").  The
+        # rows the seam pin made the zone band yield, read at the SOLVED
+        # surface: the pin, the family, and demanded vs allowed metres.
+        report_seam["yielded"] = seam_yield_block(pm, law, seam_yielded, sol.z)
         _say(f"[{icao}] seam: {report_seam['honoured']}/{len(res_seam)} vertices on the DEM; "
              f"{len(off)} residual" + (f", max {off[0][0]:.3f} m at vertex {off[0][1]}" if off else ""), out)
+        yb = report_seam["yielded"]
+        _say(f"[{icao}] seam yield (38.2): {yb['rows']} row(s) yielded to a seam pin"
+             + (f", {yb['unmet']} still unmet at the solved surface"
+                f" (worst {yb['worst_m']:.3f} m: " + "; ".join(yb["named"]) + ")"
+                if yb["unmet"] else " — every one met at the solved surface"), out)
     else:
         report_seam = None
     road_agree = None
@@ -824,7 +839,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                           "ways": paths.ways, "nodes": paths.nodes,
                           "bytes_patch": paths.bytes_patch,
                           "bytes_sidecar": paths.bytes_sidecar,
-                          "published": {k: len(v) for k, v in pub.items()},
+                          # a scalar sidecar key (``seam_half_width_m``) is reported as its
+        # own value; every other key is a collection and reports its size
+        "published": {k: (len(v) if hasattr(v, "__len__") else v)
+                      for k, v in pub.items()},
                           "tiles": {f"{tl:+03d}{tn:+04d}": {"patch": str(pp.patch),
                                                              "ways": pp.ways,
                                                              "nodes": pp.nodes}

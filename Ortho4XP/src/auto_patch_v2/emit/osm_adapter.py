@@ -80,6 +80,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
     "pair_caps", "seam_pins", "station_caps",
     "pair_caps", "seam_pins", "station_caps", "stretches",
+    # §38 (3)/(5) (owner RULINGS 2026-09-13ah/13an): the tile-seam band's
+    # own half width, so the census's ``bank_across_seam`` reads "inside
+    # the band" from the law the BUILD ran under and never from a
+    # constant of its own
+    "seam_half_width_m",
     "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
     "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon (``publication.face_holes_ll``)
@@ -303,6 +308,22 @@ def write_patch(surface: GradedSurface, law: Law, out_dir: str | Path,
                       patch.stat().st_size, side.stat().st_size)
 
 
+#: THE SEAM-BAND TEST (§38 (3)/13an (c)) — the band's own definition, in
+#: the emitted frame: a point within ``half_width_m`` of an integer
+#: graticule line.  Metres are converted at the point's own latitude, so
+#: the reading is the band's, not a degree approximation.
+_M_PER_DEG_LAT = 111_320.0
+
+
+def _in_seam_band(ll: _t.Sequence[float], half_m: float) -> bool:
+    import math
+    lat, lon = float(ll[0]), float(ll[1])
+    if abs(lat - round(lat)) * _M_PER_DEG_LAT <= half_m:
+        return True
+    scale = _M_PER_DEG_LAT * max(math.cos(math.radians(lat)), 1.0e-6)
+    return abs(lon - round(lon)) * scale <= half_m
+
+
 def tile_of_face(surface: GradedSurface, face) -> tuple[int, int]:
     """The 1° tile holding a face: the mean of its ring vertices (a face
     never straddles a tile line — the seam band is cut out of the map —
@@ -325,8 +346,23 @@ def write_tile_pieces(surface: GradedSurface, law: Law, out_dir: str | Path,
     faces on that tile's side of the seam band, their vertices and the
     breakline runs inside them; the sidecar is the whole airport's (the
     census's axes and pairs are geometric, the tile filter is on faces).
-    A single-tile surface writes one piece, identical to ``write_patch``."""
+    A single-tile surface writes one piece, identical to ``write_patch``.
+
+    NO PIECE CARRIES A VERTEX INSIDE THE SEAM BAND (§38 (3)/13an (c); owner
+    RULINGS 2026-09-13an).  The band is DRAPED DEM — no face lives in it —
+    but a BREAKLINE could still run through it, and one did: bank foot chain
+    ``bank:2`` (way −10046) followed a ~1.6 mm crack between the two collars
+    0.0237 m east of the meridian, this function split it by
+    ``floor(lon)`` with no seam test and wrote it verbatim into tile
+    −13−077, and Triangle4XP — forbidden by ``-Y`` from splitting the OUTER
+    border 2.37 cm away — split THAT segment 16,298 times instead (23,994
+    triangles under 1e-5 m²; the SPLP texture tear).  A breakline run is
+    therefore cut at the band as well as at the tile line, and the refusal
+    is COUNTED so a chain that should never have been derived there
+    (``emit/bank.py`` cuts the bank by the band at its own site) is visible
+    rather than silently trimmed."""
     import math
+    half = float(law.tables.emit.seam.half_width_m)
     by_tile: dict[tuple[int, int], list] = {}
     for f in surface.faces:
         by_tile.setdefault(tile_of_face(surface, f), []).append(f)
@@ -340,11 +376,13 @@ def write_tile_pieces(surface: GradedSurface, law: Law, out_dir: str | Path,
         # piece's crown spine keeps the stations the census reads against
         for b in surface.breaklines:
             keep |= {i for i in b.vertices
-                     if (int(math.floor(vs[i].ll[0])), int(math.floor(vs[i].ll[1]))) == (lat, lon)}
+                     if (int(math.floor(vs[i].ll[0])), int(math.floor(vs[i].ll[1]))) == (lat, lon)
+                     and not _in_seam_band(vs[i].ll, half)}
         verts = tuple(v for v in surface.vertices if v.id in keep)
         bls = []
         for b in surface.breaklines:
-            run = [i for i in b.vertices if i in keep]
+            run = [i for i in b.vertices
+                   if i in keep and not _in_seam_band(vs[i].ll, half)]
             if len(run) >= 2:
                 bls.append(_dc.replace(b, vertices=tuple(run)))
         piece = _dc.replace(surface, vertices=verts, faces=tuple(faces),

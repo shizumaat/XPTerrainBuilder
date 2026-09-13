@@ -247,6 +247,14 @@ class PlanarMap:
     #: each region, by region ref (``crest`` / ``road``).
     terrain_edges: tuple[tuple[tuple[float, float], ...], ...] = ()
     edge_kind_of_ref: _t.Mapping[str, str] = _dc.field(default_factory=dict)
+    #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
+    #: frame polygon rings — the SINGLE derivation is
+    #: ``planar/overlay.seam_bands``, recorded here so every downstream
+    #: reader takes THAT band and never re-derives the graticule.  The band
+    #: is DRAPED DEM: no face lives in it (``dropped_seam_faces``), its
+    #: edge vertices are ``seam_vertices``, and ``emit/bank.py`` derives no
+    #: bank inside it and unions it into the coverage before the collar.
+    seam_band_rings: tuple[tuple[tuple[float, float], ...], ...] = ()
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

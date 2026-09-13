@@ -138,13 +138,13 @@ def apply_joints(cs: ConstraintSet, stage: ShapeStage) -> ConstraintSet:
 
 
 def shape_constraints(pm: PlanarMap, law: Law, airport: Airport, stage: ShapeStage,
-                      seam_honoured: _t.Container[int] | None = None
+                      yielded_out: list | None = None,
                       ) -> tuple[ConstraintSet, dict[str, int], dict[str, float]]:
     """``constraints.generate`` under the joints: the generators run
     unchanged, the filter runs once, then the yield transform; the counts
     carry ``joint_dropped.<generator>`` and ``yield.<family>`` beside the
     generators' own."""
-    cs, counts, walls = generate(pm, law, airport, seam_honoured=seam_honoured)
+    cs, counts, walls = generate(pm, law, airport, yielded_out=yielded_out)
     t = time.perf_counter()
     cs = apply_joints(cs, stage)
     walls["joint_filter"] = time.perf_counter() - t

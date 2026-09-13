@@ -11,6 +11,11 @@ promoted on its second use by lane ``v2chord``).
         [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy] [--why-hard [N]]
     venv/bin/python tools/v2_solve_replay.py --why-from SOLVED.pkl --why-hard [N]
 
+``--drop-generator`` also takes the pseudo-generator ``eat_ramp_reach``:
+the EAT's §36 (5) trend WITHDRAWAL is a channel edit made before the
+solve, not a row, so it is dropped by name here rather than by row
+filter (``eat_anchor_rect`` drops the pins and their reach together).
+
 ``--capture`` runs load → PACK PARTITION + GROUPS (owner RULINGS
 2026-09-11j; folded in 2026-09-12u after a replay off a capture without
 them silently solved a different problem — no foot rows, no pad relief)
@@ -504,19 +509,33 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         is asked for, never assumed, so an OLD capture and an OLD tree still
         replay."""
         m = with_runway_chord(m, law, airport, fill_roles=chord_fill)
-        for mod, fn in (("constraints.taxi_trend", "with_taxi_trend"),
-                        ("constraints.apron_trend", "with_apron_trend"),
-                        # §37 (6) LAST: the ramp reads the airside's own
-                        # published target at the mouth and supersedes the
-                        # core's road fit for the vertices it governs
-                        ("airport.road_ramp", "with_road_ramp")):
+        for mod, fn in (("taxi_trend", "with_taxi_trend"),
+                        ("apron_trend", "with_apron_trend"),
+                        ("eat", "withdraw_trend_over_reach")):
+            # THE EAT RAMP REACH IS A CHANNEL EDIT, NOT A ROW (spec
+            # §36 (5)): it WITHDRAWS trend targets before the solve, so
+            # ``--drop-generator`` cannot reach it the way it reaches a
+            # generator's rows.  ``eat_anchor_rect`` drops the whole law
+            # (the pins AND their reach — a reach without its pin is not
+            # a state the build can be in); ``eat_ramp_reach`` drops the
+            # withdrawal ALONE, which is the §36 (5) before-arm.
+            if mod == "eat" and ({"eat_anchor_rect", "eat_ramp_reach"} & set(drop)):
+                continue
             try:
-                pub = getattr(__import__(f"auto_patch_v2.{mod}",
+                pub = getattr(__import__(f"auto_patch_v2.constraints.{mod}",
                                          fromlist=[fn]), fn)
             except (ImportError, AttributeError):
                 continue
             m = pub(m, law, airport)
-        return m
+        # §37 (6) LAST, and out of the loop because its DERIVATION is an
+        # M1 producer's (it reads the DEM along the road's own route):
+        # the ramp reads the airside's own published target at the mouth
+        # and supersedes the core's road fit for the vertices it governs.
+        try:
+            from auto_patch_v2.airport.road_ramp import with_road_ramp
+        except ImportError:
+            return m
+        return with_road_ramp(m, law, airport)
 
     if chord_fill:
         print(f"[{icao}] chord-fill target arm (08g-2): roles {chord_fill} within the strip take the "

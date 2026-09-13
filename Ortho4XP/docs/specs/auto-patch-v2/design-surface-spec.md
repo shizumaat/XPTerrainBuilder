@@ -5296,3 +5296,28 @@ no `tunnel` tag; the DEM's 7.5 m cutting is unmodelled; the taxi surface bathtub
    road ribbon (the 1.73 m step gone); item 1's taxiway level across F-6 (the 2.66 m
    bathtub gone) with mouths and ramps either side; axis/chord > 1.3 ramps 12 → 0;
    the other ramps quoted; ONE `--engine v2` LEMD build; census; twins; suite.
+
+### §28 (6) A hillside terrace is not a frontage (Fable 2026-09-13; RULINGS 2026-09-13o) — lane `v2frontagestep`
+
+Owner (13l item 1): at CYXY the groundside lots beside two buildings cut into a hill
+used to sit a storey above them and are now graded flat. Scout `v2cyxy1t`: §28 (1)'s
+`groundside_frontage` row (3,000-weight `pad_flat`) lands at the owner's exact
+vertices and outprices the face's own DEM datum (`body_datum` 300) ten to one; the
+frontage vertex set (`pad_frontage_gs.py:167-169`) carries NO DEM term. The DEM at the
+frontage stands +4.08 / +3.02 m (median per pair) above the pads `building10` /
+`building9` — one-plane pads at the downhill apron level over ground that spans 5.5 m
+under each ring (2-D DSF facade footprints; no authored split level). BEFORE (the
+pre-§28 arm) both faces sat on the DEM, +3.4 m above the pads; NOW +0.10 / −0.01, and
+`dsf:pol129` (35 m long, 8 % cap) is a 3.4 m excavation it can never climb out of.
+
+6. **THE BOUND IS PER PAIR.** A pad–frontage pair whose median |DEM(frontage) − pad
+   level| exceeds `[lot] frontage_step_max_m` (2.8 m) mints no `groundside_frontage`
+   row: the face keeps its own ground and the step is a lawful hillside terrace. Per
+   pair, never per vertex (a per-vertex bound saw-tooths S2's 16-vertex frontage).
+   Measured medians decide the number: CYXY +4.08 / +3.02 and SPJC's five (+3.20 …
+   +4.01) disarm; LEMD's `building4` (+2.66, the case the owner ordered graded in
+   11ai/12r), KCLT (+1.95), HECA (+1.02), OTHH (−1.03) stay armed. A 2.0 m bound would
+   re-open `building4`. Bars: CYXY's two faces back on the DEM (frontage z − DEM
+   within 0.3, +3.4 above the pads); `building4`'s joints unchanged (0.16 m); SPJC's
+   five pairs named; the `groundside_frontage` family count before/after; ONE
+   `--engine v2` CYXY build (28 s) against the ledger base; twin; suite.

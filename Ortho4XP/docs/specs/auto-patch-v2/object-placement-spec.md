@@ -4081,3 +4081,132 @@ z − pad z ≤ 0.05 m inside the reach); taxiway family unmoved (byte-identical
 runway/taxi rows); §17 motion rows on the apron around the terminal not
 worse than today's; LEMD's old terminal and OTHH's clusters re-read under
 the same law (named, not necessarily byte-identical); suite twice.
+
+### §16f (8) A RAMP STAYS IN ITS FAMILY (Fable 2026-09-13; RULINGS 2026-09-13bm item 3) — lane `v2spjc`
+
+SPJC's departures viaduct (`SPJC_LIMANUEVA_xp11_007__b0`) was expelled from
+the terminal family by the `bind_ground_m` test reading its own authored
+descent as a ground disagreement, then seated by the low-side foot at its
+deepest authored point: +7.81 m above the terminal.
+
+8. The family ground test reads a member's disagreement NET OF ITS AUTHORED
+   RELIEF — the HIGH end's `surface − y` (where it meets the building)
+   against the family plane, not the median over all contacts. A member
+   whose geometry descends is not expelled for descending; its low end may
+   sink below grade to the DEM (owner: "stay locked to the building and sink
+   into the ground so its ramp meets DEM").
+
+BAR: `…_007__b0` on `building6`'s plane (19.56) with its low end ≤ DEM; §15
+float 7.85 → ≤ 0.5 m; `ground_off` 7.05 → ≤ 0.5; KCLT / LEMD / OTHH families
+re-read (named).
+
+### §16e (3) REINSTATED BY NAME — A BRIDGE IS ITS PACK'S NAME FAMILY (owner RULINGS 2026-09-13bn; Fable 2026-09-13) — lane `v2bridgename`
+
+Owner (OTHH 1.0.327): "the actual deck is at the right level, but other
+components are still too high so the bridge is still coming apart into
+different components instead of staying a single unit." Row, ring and
+footprint families were each refuted (13v, 13ae); the pack's NAMING is what
+its author meant.
+
+3. **THE NAME FAMILY.** A bridge's members are every placement whose
+   resource file name shares the deck's stem — the text before `_CLUTTER`,
+   `_LOD`, or a trailing numbered suffix (`Bridge_01`, `Bridge_02`, …), read
+   off the pack's `OBJECT_DEF` paths by ONE derivation
+   (`bridge_family.name_stem`). The deck member (§16e (2)'s datum body) is
+   the family's datum; every other member — piers, clutter, railings —
+   takes the deck's zero as ONE rigid zero: no per-member cut, no carrier
+   search, no ground test (the feet land where they may — on, above or
+   below the ground the deck spans). A stem with no deck member falls back
+   to §16c. `bridge_of` publishes the stem; the census prints each family's
+   spread and members.
+
+BARS (OTHH frame, `v2_rebake_replay plan --sampler mesh`, matched arms):
+per-family zero spread 0.00 for every `Bridge_NN` (today `Bridge_02_CLUTTER_007`
+4.97 m); deck tops 3.96 / 3.96 / 3.96 held; cross-bridge carriers 0 on the
+name axis; LEMD and KCLT byte-identical (LEMD's `Bridge4` is a line-station
+body — name it); ONE OTHH build; suite twice.
+
+## §16g THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed; Fable 2026-09-13) — lane `v2clusterpad`
+
+Owner: "We always want to keep objects covering the same footprint together
+when changing their seat. Objects separated by lateral space, e.g. separate
+buildings, can move vertically independent of other buildings. Only time we
+allow actually cutting objects apart is for things like very long connecting
+pieces like the elevated rail at HECA." This ONE rule replaces every family
+derivation tried today: §16e (3) by row, ring, footprint contact or NAME
+(all withdrawn), §16f (1)'s shared-authored-datum condition, §16f (4)'s
+partition by pad. §16f (7) (a large cluster is one unit on one pad, the
+apron flattened around it — design §30 (4)) is this law's design-surface
+side and stands.
+
+1. **THE UNIT.** Two bodies whose plan footprints (their written triangles
+   projected, `geom_box` hull refined by the actual polygon) overlap or
+   touch within 0.5 m are one unit; units chain transitively (deck ↔ piers
+   ↔ clutter ↔ …). A body touching nothing is its own unit and seats alone
+   (§16c). Derived once per plan, at the end of PASS 1 (before the carrier
+   pool), published per body as `unit_of`; the census prints each unit's
+   members, spread and datum source.
+2. **ONE ZERO PER UNIT.** Every member of a unit takes one rigid zero — no
+   per-member cut, no carrier search, no ground test between members. The
+   datum, in priority: a DECK member's abutment datum (§16e (2)/(6)); else
+   the plane of the emitted `building` pad most of the unit's contacts
+   stand on (§16f (2), the cluster pad §30 (4) for a large unit); else the
+   median ground under the unit's contacts. A member whose own contacts sit
+   more than `visual_m` off the unit plane is REPORTED, never re-seated.
+   Pavement is king (§16f (5)) only for a unit standing ENTIRELY on
+   rolled-on pavement; inside a mixed unit the datum rule wins.
+3. **THE ONLY CUT.** A body whose footprint span is ≥ 200 m AND whose two
+   ends' ground differs by ≥ `visual_m` is a CONNECTOR (the HECA elevated
+   rail class) and is cut at §10's line stations; everything else stays
+   rigid. The census names every cut connector.
+
+BARS: OTHH every `Bridge_NN` deck ↔ piers ↔ clutter one unit (per-unit spread
+0.00; today 4.97 m on `Bridge_02_CLUTTER_007`; the deck tops 3.96 held);
+KCLT's terminal one unit on its cluster pad (the passengers on the floor);
+LEMD's old terminal one unit per touching cluster (named); HECA's elevated
+rail cut at stations (dry, named); plan stage not worse than +10 %; the
+family censuses of §16f re-read under §16g; suite twice.
+
+### §11b (7) A FOOT ON A STRUCTURE CUT STATES NO GROUND ROW (Fable 2026-09-13; RULINGS 2026-09-13bs, owner OTHH read 13bn item 2) — lane `v2cutfeet`
+
+OTHH's tunnel object `tunnel south west 2#b0` is re-seated to the ground
+(3.962) and its §11b foot rows then demand that the ramp its own walls cut
+stand at that ground every few metres: the ramp sags between the nails
+(+3.31 m off its design line at the owner's point; 12 of 21 monotone rows
+violated; all 13 of OTHH's over-cap `tunnel_ramp` rows on this one ramp).
+Dropping the foot rows solves the same capture as a +3.6 % descent, optimal,
+hard set settled.
+
+7. A placement foot whose surface sample lands on a structure-cut face —
+   `tunnel_ramp`, `tunnel_trench`, `wall_corridor_ramp`, `door_ramp`,
+   `garage_ramp`, `retaining_wall`, a basin floor — takes a `cut` verdict at
+   `foot_rows._verdict` (beside `basin` / `pavement` / `padded` / `bare`),
+   counted and reported, and emits NO `Linear`. The cut surface is §33 /
+   §34's; the object RIDES it (§16a: cut where its carrier is cut; §16c (3):
+   a foot over a structure cut is not a ground foot). An object at a trench
+   edge keeps its crest plate (§16e (1)) and rides the cut with its feet.
+
+BARS (the registered OTHH capture): `tunnel_ramp` off-design max 5.09 →
+≤ 0.05 m; in-scope `within_shape tunnel_ramp` 13 → 0; `wall_corridor_ramp`
+off-DEM 1.39 → ≤ 0.15; design solve OPTIMAL, hard set settled; `cut`
+verdicts printed (~574 pairs); LEMD and KCLT byte-identical; ONE OTHH build;
+suite twice. Owed: a `Flat` row at every station of a curving ramp (the
+kerbs separate past `_STATION_CLUSTER_M` and the monotone chain zig-zags).
+
+### §16g (4) COMPONENTS APART ARE SEPARATE BODIES (Fable 2026-09-13; RULINGS 2026-09-13bu item 4) — lane `v2clusterpad`
+
+KCLT's `Charlotte_Airport_001_ALB.obj` is a pure roof resource over the whole
+1.7 km hangar district, split into 28 footless bodies with boxes up to
+1,747 m wide; the §16c (7) short-circuit handed each a carrier from anywhere
+in its rigid cluster (+4.76 m over one hangar, −6.42 under another).
+
+4. The footprint unit applies at the COMPONENT level: a body whose own
+   connected components do not touch in plan (beyond the 0.5 m spacing) is
+   split into one body per plan cluster BEFORE the unit derivation, each
+   seated by the unit it touches. A footless body never inherits a cluster
+   zero chosen more than `coarsen_reach_m` away — the §16c (7) short-circuit
+   does not apply to footless members.
+
+BAR: `001_ALB` 28 bodies → one per hangar; zero spread 20.99 → ≤ 0.3 m per
+building; the four owner sites' roof base within 0.3 m of the wall tops
+beneath; `§15 carried over a refused carrier` 8 → 0.

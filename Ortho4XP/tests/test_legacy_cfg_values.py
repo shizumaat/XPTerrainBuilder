@@ -32,9 +32,11 @@ def test_progressive_cover_reads_as_true(tmp_path):
 # build read −13-077 / −13-078 (July cfgs carrying no line for a setting
 # added after they were written) on a different auto-patch engine from
 # the +60-136 beside them in the same run, because the reader opened
-# EITHER the tile file OR the global one.  (That key is retired — v1 went
-# 2026-09-13au — so these twins now pin the same reader on ``solve_model``.)  One reader serves the
-# CLI, the JSONL session and its worker children; these twins pin it.
+# EITHER the tile file OR the global one.  (Both keys the twins once used
+# are retired — ``auto_patch_engine`` 2026-09-13au, ``solve_model``
+# 2026-09-13bh — so they now pin the same reader on ``texture_mode``.)  One
+# reader serves the CLI, the JSONL session and its worker children; these
+# twins pin it.
 
 import os
 
@@ -67,12 +69,12 @@ def _layered_tile(tmp_path, monkeypatch, *, global_lines, tile_lines,
 def test_tile_cfg_missing_key_inherits_global(tmp_path, monkeypatch):
     tile = _layered_tile(
         tmp_path, monkeypatch,
-        global_lines="solve_model=constructive\ncover_zl=17\n",
+        global_lines="texture_mode=airport_ortho\ncover_zl=17\n",
         tile_lines="default_website=Arc\ndefault_zl=16\ncover_zl=18\n",
     )
     assert tile.read_from_config() == 1
     # Absent from the tile file -> the global's value, not the default.
-    assert tile.solve_model == "constructive"
+    assert tile.texture_mode == "airport_ortho"
     # Present in the tile file -> the tile's value.
     assert tile.cover_zl == 18
     assert tile.default_website == "Arc"
@@ -81,20 +83,20 @@ def test_tile_cfg_missing_key_inherits_global(tmp_path, monkeypatch):
 def test_tile_cfg_key_wins_over_global(tmp_path, monkeypatch):
     tile = _layered_tile(
         tmp_path, monkeypatch,
-        global_lines="solve_model=constructive\n",
-        tile_lines="solve_model=iterative\n",
+        global_lines="texture_mode=airport_ortho\n",
+        tile_lines="texture_mode=default_xplane\n",
     )
     assert tile.read_from_config() == 1
-    assert tile.solve_model == "iterative"
+    assert tile.texture_mode == "default_xplane"
 
 
 def test_no_tile_cfg_reads_global(tmp_path, monkeypatch):
     tile = _layered_tile(
         tmp_path, monkeypatch,
-        global_lines="solve_model=constructive\n", tile_lines=None,
+        global_lines="texture_mode=airport_ortho\n", tile_lines=None,
     )
     assert tile.read_from_config() == 1
-    assert tile.solve_model == "constructive"
+    assert tile.texture_mode == "airport_ortho"
 
 
 def test_session_setting_survives_sparse_files(tmp_path, monkeypatch):
@@ -104,32 +106,32 @@ def test_session_setting_survives_sparse_files(tmp_path, monkeypatch):
     tile = _layered_tile(
         tmp_path, monkeypatch,
         global_lines="cover_zl=17\n", tile_lines="default_zl=16\n",
-        session={"solve_model": "constructive"},
+        session={"texture_mode": "airport_ortho"},
     )
     assert tile.read_from_config() == 1
-    assert tile.solve_model == "constructive"
+    assert tile.texture_mode == "airport_ortho"
     assert tile.cover_zl == 17
 
 
 def test_use_global_reads_only_the_global(tmp_path, monkeypatch):
     tile = _layered_tile(
         tmp_path, monkeypatch,
-        global_lines="solve_model=constructive\n",
-        tile_lines="solve_model=iterative\n",
+        global_lines="texture_mode=airport_ortho\n",
+        tile_lines="texture_mode=default_xplane\n",
     )
     assert tile.read_from_config(use_global=True) == 1
-    assert tile.solve_model == "constructive"
+    assert tile.texture_mode == "airport_ortho"
 
 
 def test_explicit_config_file_is_layered_over_global(tmp_path, monkeypatch):
     tile = _layered_tile(
         tmp_path, monkeypatch,
-        global_lines="solve_model=constructive\n", tile_lines=None,
+        global_lines="texture_mode=airport_ortho\n", tile_lines=None,
     )
     explicit = tmp_path / "elsewhere.cfg"
     explicit.write_text("cover_zl=18\n")
     assert tile.read_from_config(config_file=str(explicit)) == 1
-    assert tile.solve_model == "constructive"
+    assert tile.texture_mode == "airport_ortho"
     assert tile.cover_zl == 18
 
 
@@ -143,10 +145,16 @@ def test_no_config_at_all_returns_zero(tmp_path, monkeypatch):
 def test_retired_key_in_tile_cfg_still_skipped(tmp_path, monkeypatch):
     tile = _layered_tile(
         tmp_path, monkeypatch,
-        global_lines="solve_model=constructive\n",
+        global_lines="texture_mode=airport_ortho\n",
         tile_lines="airport_elevation_inset_resolution_m=5\n"
-                   "flat_site_declared_corridors=\n",
+                   "flat_site_declared_corridors=\n"
+                   "solve_model=constructive\n",
     )
     assert tile.read_from_config() == 1
-    assert tile.solve_model == "constructive"
+    assert tile.texture_mode == "airport_ortho"
     assert not hasattr(tile, "airport_elevation_inset_resolution_m")
+    # RULINGS 2026-09-13bh: v1's solver switch, retired as
+    # ``auto_patch_engine`` was — no attribute, and the line is DELETED
+    # from the cfg on read (RULINGS 2026-09-13a (2)), never warned about.
+    assert not hasattr(tile, "solve_model")
+    assert "solve_model" not in open(tile._tile_cfg_path()).read()

@@ -211,10 +211,18 @@ def artifact_key(tree: str, icao: str, env: dict, corpus: dict,
                     "corpus": corpus.get("sha256"), "variant": variant})
 
 
+#: THE SOLVE MODEL, retired as a SETTING (owner RULINGS 2026-09-13bh) and
+#: kept here as a CONSTANT variant component.  ``solve_model`` was v1's
+#: solver switch; nothing in v2 reads it, so there is nothing left to
+#: select — but every arm ever stored was keyed with this spelling, and
+#: dropping the component would re-key them all and rebuild controls that
+#: exist (BUILD ECONOMY, CLAUDE.md).
+SOLVE_MODEL = "iterative"
+
+
 def build_variant(*, const_dem=None, allow_degraded_dem=False,
                   allow_no_sidecar=False, geometry_only=False,
-                  solve_model=None, engine=None,
-                  law_tables_sha256=None) -> dict:
+                  engine=None, law_tables_sha256=None) -> dict:
     """The request shape that changes the ARTIFACT rather than the corpus.
 
     ``--dem`` is here because a −500 m oracle patch and a real-DEM patch are
@@ -225,27 +233,16 @@ def build_variant(*, const_dem=None, allow_degraded_dem=False,
     ``compute_elevations=False`` (a visual-inspection artifact) is a
     different object from a solved patch — serving one for the other
     would hand a census a patch with no solved surface.
-    ``solve_model`` is here for exactly the ``geometry_only`` reason, and
-    the spec says so in as many words (``docs/specs/constructive-solve-
-    spec.md``, section "Mode plumbing": "the harness passes/records it in
-    frame.json and the artifact-ledger variant key (two models = two
-    artifacts, never served for each other)").  The whole round is an A/B
-    BETWEEN the two models at one tree and one corpus — every other key
-    part is identical by construction — so without this the constructive
-    arm would be served the iterative arm's patch and the comparison
-    would report zero difference.  ``None`` keeps the key a MISS-free
-    match for entries stored before the key existed only in the sense
-    that it is spelled the same as the default: a caller that knows the
-    mode always passes it (``build_airport.py`` does), and the resolver's
-    default is ``iterative``, so an old iterative entry and a new
-    explicitly-iterative request do NOT share a key.  That is deliberate
-    — a stale entry re-earned by one rebuild is cheaper than a wrong
-    serve.
+    ``solve_model`` is no longer a request shape at all: the owner retired
+    v1's solver switch (RULINGS 2026-09-13bh) and there is one solve.  The
+    component STAYS in the variant, pinned to :data:`SOLVE_MODEL`, because
+    every arm ever stored was keyed with that spelling — dropping it would
+    re-key the whole store and rebuild controls that already exist.
     """
     variant = {"dem": const_dem, "allow_degraded_dem": bool(allow_degraded_dem),
                "allow_no_sidecar": bool(allow_no_sidecar),
                "geometry_only": bool(geometry_only),
-               "solve_model": solve_model}
+               "solve_model": SOLVE_MODEL}
     # THE ENGINE (RULINGS 2026-09-03d): a v2 patch and a v1 patch of one
     # airport at one tree and corpus are two artifacts.  Keyed ONLY when
     # the engine is not v1, so every v1 key ever stored is unchanged — a

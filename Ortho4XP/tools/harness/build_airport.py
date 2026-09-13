@@ -158,13 +158,12 @@ WHAT IT RECORDS, always, next to the patch:
   layout's own ``dem_inset_provenance`` AFTER it; the resolved DATA MOUNTS
   (which corpus every data dir actually came from); and the shared-repo
   write audit.  Quote no elevation without it.
-* ``solve_model`` (in ``<tag>.frame.json`` and ``<tag>.result.json``) —
-  WHICH elevation solve ran and which source chose it (env override,
-  per-tile cfg, global cfg, default), per ``docs/specs/constructive-
-  solve-spec.md`` section "Mode plumbing".  The mode is also part of the
-  artifact-ledger variant key: a constructive patch is never served for
-  an iterative request, or the round's whole A/B would compare a patch
-  with itself.
+* THE SOLVE MODEL IS RETIRED (owner RULINGS 2026-09-13bh): ``solve_model``
+  was v1's solver switch and nothing in v2 reads it, so there is no
+  ``solve_model`` record in ``<tag>.frame.json`` or ``<tag>.result.json``
+  any more.  The artifact-ledger variant key keeps a CONSTANT
+  ``solve_model=iterative`` component (:data:`SOLVE_MODEL`) so every arm
+  stored before the retirement still keys and is still served.
 * ``<tag>.progress`` — START / step / EXIT stamps (the ``.progress``
   convention) so a lead can audit liveness without touching the run.
 * ``engine_cache_redirects`` (in ``<tag>.result.json`` and
@@ -235,6 +234,13 @@ ROOT = Path(__file__).resolve().parents[2]
 #: frame.json or an artifact-ledger variant key written before the
 #: retirement still reads and still keys the same arm.
 ENGINE = "v2"
+
+#: THE SOLVE MODEL — a CONSTANT since the owner retired ``solve_model``
+#: (RULINGS 2026-09-13bh): v1's solver switch, which nothing in v2 reads.
+#: It survives ONLY as the artifact-ledger variant component, keeping the
+#: spelling every stored arm was keyed with, so a control that exists is
+#: never rebuilt (BUILD ECONOMY, CLAUDE.md).
+SOLVE_MODEL = "iterative"
 
 # THE SHARED-REPO WRITE LAW lives in ONE module beside this one
 # (``shared_repo_guard.py``, owner ruling e9daef5): the write guard, its
@@ -393,35 +399,6 @@ def cfg_frame_diff(root, owner_cfg=OWNER_APP_CFG) -> dict:
         if mine != theirs.get(k):
             out[k] = (mine, theirs.get(k))
     return out
-
-
-def solve_model_record(root, tile_cfg=None) -> dict:
-    """WHICH solve model this build runs, and which source decided.
-
-    ``docs/specs/constructive-solve-spec.md`` section "Mode plumbing":
-    two models ship side by side and the harness "passes/records it in
-    frame.json and the artifact-ledger variant key".  A patch built by
-    the constructive model and one built by the iterative model are
-    DIFFERENT ARTIFACTS of the same airport at the same tree and corpus —
-    the A/B compares them — so the mode has to be in the frame AND in the
-    key.
-
-    The precedence is NOT re-implemented here: this reads the two cfg
-    FILES the harness already parses (:func:`read_cfg`, the same call
-    :func:`cfg_frame_diff` makes) and hands their values to the one
-    resolver, ``src/O4_Solve_Model.py``.  Importing that module needs only
-    ``src`` on the path and pulls in ``os`` — deliberately, because this
-    is called BEFORE the engine is imported, while the shared-repo guard
-    is not yet armed.
-    """
-    src = str(Path(root) / "src")
-    if src not in sys.path:
-        sys.path.insert(0, src)
-    import O4_Solve_Model as SM
-    return SM.provenance(
-        global_cfg=read_cfg(Path(root) / "Ortho4XP.cfg").get(SM.CFG_KEY),
-        tile_cfg=(read_cfg(Path(tile_cfg)).get(SM.CFG_KEY)
-                  if tile_cfg else None))
 
 
 def frame_surface_keys(root, owner_cfg=OWNER_APP_CFG) -> dict:
@@ -1836,7 +1813,6 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     from conftest import xplane_root                      # noqa: E402
     from auto_patch.pipeline import build_airport_pavement  # noqa: E402
     from auto_patch import config as ap_cfg               # noqa: E402
-    import O4_Solve_Model as SM                           # noqa: E402
     # SOLVE-STAGE CAPTURE (perf P2 instrument 1), armed HERE and not in
     # ``main``: the env key is the engine module's own constant, and
     # importing the engine before ``arm_shared_repo_protection`` has run
@@ -1909,9 +1885,10 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     # it on every build), so this costs no import the build had not
     # already paid, and it reports what the build actually saw.  A
     # patch-only build has no tile, so nothing here needs one.
-    engine_solve_model = SM.current()
-    prog.note(f"engine solve model: {engine_solve_model} "
-              f"(constructive-solve spec, 'Mode plumbing')")
+    # THE SOLVE MODEL IS RETIRED (RULINGS 2026-09-13bh): v1 always built
+    # with the iterative core and there is no key to read any more, so
+    # this record is the constant the solve dispatch now hard-codes.
+    engine_solve_model = SOLVE_MODEL
     # THE SWALLOWED-DEGRADATION REFUSALS, before anything is written: the
     # engine catches the guard's refusal and returns a DEM-less layout with
     # rc=0 (module docstring, item 8).  Two detectors, one from the guard's
@@ -2604,17 +2581,6 @@ def main(argv=None) -> int:
                   f"{args.icao} — the DEM cache state is UNKNOWN for this "
                   f"run and no elevation from it may be quoted.")
 
-    # ── THE SOLVE MODEL (constructive-solve spec, "Mode plumbing") ────
-    # Resolved BEFORE the build, from the same two cfg files the frame
-    # checker reads plus O4_SOLVE_MODEL, so it can go into the ledger
-    # variant key.  ``build_patch`` re-reads it from inside the engine
-    # and the two are compared below: one reader is the law, and this is
-    # the check that says so out loud.
-    solve = solve_model_record(root)
-    frame["solve_model"] = solve
-    prog.note(f"solve model: {solve['solve_model']} (from {solve['source']}; "
-              f"env={solve['env']} global_cfg={solve['global_cfg']})")
-
     # ── THE ENGINE (RULINGS 2026-09-03d: v2 beside v1; 2026-09-13au:
     # v1 RETIRED, so this is a CONSTANT) ──────────────────────────────
     # Recorded in the frame and keyed into the artifact ledger BEFORE any
@@ -2653,7 +2619,6 @@ def main(argv=None) -> int:
                 allow_degraded_dem=args.allow_degraded_dem,
                 allow_no_sidecar=args.allow_no_sidecar,
                 geometry_only=args.geometry_only,
-                solve_model=solve["solve_model"],
                 engine=ENGINE,
                 law_tables_sha256=(frame["law_tables"] or {}).get("sha256"))}
         ledger_key = AL.artifact_key(
@@ -2841,26 +2806,10 @@ def main(argv=None) -> int:
     # (``run_tile_steps`` ``skip_steps`` — a recorded skip, never an
     # attempted run reported DONE): under 31d the imagery half, by name.
     frame["steps_skipped"] = result.get("steps_skipped")
-    # THE SOLVE MODEL, re-resolved now that a ``--tile`` run's per-tile cfg
-    # has been provisioned (it did not exist when the pre-build record was
-    # taken, and precedence puts it above the global cfg).  On the patch
-    # path there is no per-tile cfg and this is the same dict again.
-    tcfg = (result.get("tile_cfg_provenance") or {}).get("cfg")
-    frame["solve_model"] = solve_model_record(root, tile_cfg=tcfg)
-    result["solve_model"] = frame["solve_model"]
-    # ONE READER, made executable: the engine resolved the mode from
-    # ``O4_Config_Utils``' loaded attribute, the harness from the cfg file
-    # on disk.  They read the same key through the same resolver, so a
-    # disagreement means a second reader crept in — refuse rather than
-    # report an arm under the wrong mode name.
-    engine_model = result.get("engine_solve_model")
-    if engine_model and engine_model != frame["solve_model"]["solve_model"]:
-        raise SystemExit(
-            f"REFUSING to report this build: the harness resolved solve "
-            f"model {frame['solve_model']['solve_model']!r} (from "
-            f"{frame['solve_model']['source']}) but the ENGINE solved with "
-            f"{engine_model!r}.  The frame, the ledger variant key and the "
-            f"patch would disagree about which model produced it.")
+    # THE SOLVE MODEL IS RETIRED (RULINGS 2026-09-13bh): no frame record,
+    # no per-tile re-resolve, and no one-reader check — there is one solve
+    # and no key to disagree about.  The ledger variant key keeps the
+    # constant :data:`SOLVE_MODEL` component so stored arms still serve.
     frame["dem_cache_after"] = (dem_cache_state(root, lat, lon)
                                 if lat is not None else None)
     (out_dir / f"{tag}.frame.json").write_text(json.dumps(frame, indent=1))

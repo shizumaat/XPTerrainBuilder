@@ -8253,3 +8253,84 @@ sub-0.1 m² triangles 2,301,676 → low hundreds, aspect p50 7,549 → < 5, DSF
 and > 0 on the LEMD control; the pre-flight refuses a synthetic hairline
 `.poly` and passes the four tiles; F-6, the basin, the ramps byte-identical
 where they are not the cause; suite twice.
+
+### §34 (5) NARROWED — NO UNDERPASS UNDER A JETWAY; §29 (7) THE RUNWAY LATERAL BAND (Fable 2026-09-13; RULINGS 2026-09-13bm) — lane `v2spjc`
+
+SPJC (owner 1.0.327, 13bi): `is_aeroway_bridge` admitted 63 `aeroway=jet_bridge`
+footways and bored 86 apron roads under 49–127 m "decks" read off the apron
+cell; the −641/−2525 trunk tunnel's south mouths were dropped 168 / 191 m off
+the field while 192 m beside runway 16R/34L at mid-length.
+
+- **§34 (5):** an underpass is bored only under an aeroway a taxiing aircraft
+  uses (`aeroway in {taxiway, runway}`, `apron` where mapped as a bridge);
+  never `jet_bridge` / `parking_position`, never `highway=footway`.
+  `_deck_half_width` refuses a cell wider than 4× the way's carriageway and
+  falls back to the carriageway; `is_bridge_way` excludes `jet_bridge` so no
+  jetway mints a terrain deck.
+7. **THE RUNWAY LATERAL BAND (§29).** The field region is the cover ⊕
+   `mouth_standoff_m` ∪ the approach corridors ∪ each runway's axis ⊕
+   `runway_view_half_width_m` (design: 250 m) — one derivation shared with
+   the cockpit block. A bore with one mouth built has its sibling admitted
+   under the same test. `mouth_standoff_m` stays 150.
+
+BARS: SPJC underpasses 19 → taxiway-only (named); tunnels at the owner's four
+points 0; the four jetway `bridge_deck:` faces gone; −641/−2525 south mouths
+built at −12.0202431, −77.129278; LEMD −6028's mouth by the same rule (dry);
+LEMD F-6 and KCLT taxiway U unchanged; ONE SPJC build; suite twice.
+
+### §39 AMENDED — THE SUBJECT IS THE VERTEX; THE BANK IS WELDED TO THE MESH'S WATER (Fable 2026-09-13; RULINGS 2026-09-13bt, owner VMMC read 13br) — lane `v2hairline`
+
+VMMC: both cliffs are `bank_foot` vertices 0.012–0.05 mm OFF the OSM sea chord,
+as bent triples (bank legs sharing both endpoints with the chord) that an
+edge-pair census skips as adjacent; the bank clipped its feet against the
+DEM's water witness while the mesh constrains the OSM SEA edges.
+
+- **(1') THE VERTEX.** Any emitted patch vertex — ring, breakline, `bank_foot`
+  chain, any `.poly` marker — within `min_distinct_spacing_m` of a foreign
+  constrained edge it does not lie ON is a `hairline_pair` row; segment
+  adjacency is irrelevant.
+- **(3') THE DEGENERATE TRIPLE.** The mesh pre-flight also rejects a path
+  a→m→b laid beside a chord a→b (zero area by construction).
+- **(5') ONE WATER WITNESS.** At `emit/bank.py`, after the DEM-water clip,
+  every foot station is snapped to the nearest vector-map water / coastline
+  vertex within the spacing; where only an edge is within the spacing the
+  station is projected onto it and adopted as a shared vertex, or DROPPED
+  (stations stopped at water or under the materiality floor carry no
+  earthwork); no station may sit astride the 0.5 m bar.
+- Instrument: `bentchord.py` promoted beside `--hairline-audit`.
+
+BARS (VMMC, added to §39's): bent-chord triples under 0.5 m at the bank
+chains 369 → 0; foot nodes within 0.5 mm of a SEA edge 15 → 0; sub-0.1 m²
+triangles in the two 60 m boxes 376,041 → CYXY's class; the latent `bank:4`
+site (22.147882733, 113.589822933) clean; `hairline_pair` > 0 on the VMMC
+control, 0 on the arm.
+
+### §39 AMENDED AGAIN — ANGLE-FREE, AND THE VECTOR MAP WELDS; §37 (3) AMENDED — ZONE EDGES ARE IN THE BANK (Fable 2026-09-13; RULINGS 2026-09-13bu, owner KCLT read 13bj) — lanes `v2hairline`, `v2zonebank`
+
+KCLT: a `bank_foot` node 2.79 mm (and another 0.24 mm) from an OSM water edge
+made `Vector_Map.insert_edge` split the water edge and mint a node — a
+2.79 mm constrained WATER segment, 481,602 slivers; the pairs are at 29° and
+89°, so a parallel gate misses them. Items 5 and the new coordinate are the
+adjacent-ground zone-2 outer edge 4.6 m / 2.5 m in a cut with NO bank foot.
+
+- **§39, angle-free:** `hairline_pair` and the pre-flight price (a) two distinct
+  constrained NODES within `min_distinct_spacing_m` and (b) any constrained
+  SEGMENT shorter than it; the 5° gate is deleted; 13bt's vertex-to-edge and
+  degenerate-triple tests stand.
+- **§39 (6) THE VECTOR MAP WELDS.** `insert_edge`'s split test is METRIC (a
+  crossing within the spacing of an endpoint takes that endpoint; no node is
+  minted), and after `snap_to_grid` every constrained node pair within the
+  spacing is welded onto the senior node (water, tile border, coastline
+  first) with the degenerate segment dropped. The stale 1e-7° comment at
+  `O4_Mesh_Utils.py:645` is corrected.
+- **§37 (3) amended:** every graded ring is in the bank's coverage, the
+  adjacent-ground zone-2 outer rings included; a zone edge ≥
+  `bank_materiality_m` off the DEM is load-bearing and gets its foot; census
+  family `zone_edge_cliff` — a zone-band outer edge whose mesh slope exceeds
+  1:1 where the DEM's is under half of it.
+
+BARS: KCLT constrained segments under 10 mm 28 → 0, the three sliver
+cascades 1,230,453 → CYXY's class, `hairline_pair` > 0 control / 0 arm (lane
+`v2hairline`); KCLT item 5 (35.2007757, −80.9455609) and 35.2056385,
+−80.9478669 banked at 1:3 — `zone_edge_cliff` 0 on the arm, > 0 on the
+control; the 13ax lips re-read (lane `v2zonebank`).

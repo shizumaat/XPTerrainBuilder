@@ -67,13 +67,11 @@ so there is no second copy to keep in sync. Change the number in `config.py` onl
   constraint + level-coupling graph, runway node/edge sets, writeback) live in
   `elevation_per_surface/solver_primitives.py`. `elevation.py` holds shared
   solver caps + standalone DEM loading.
-- **The solve MODE** is `src/O4_Solve_Model.py` (cfg key `solve_model`, values
-  `iterative` | `constructive`, default `iterative`; spec
-  `docs/specs/constructive-solve-spec.md` §"Mode plumbing"). Call
-  `O4_Solve_Model.current()` at the dispatch site — it is THE reader, and it
-  implements the precedence (`O4_SOLVE_MODEL` env > per-tile cfg > global cfg >
-  default). `driver.generate_auto_patches` publishes the tile's value for the
-  span in which airports build, so worker processes inherit it.
+- **The solve MODE is RETIRED** (owner RULINGS 2026-09-13bh): the `solve_model`
+  cfg key, `src/O4_Solve_Model.py` and its per-tile publication are gone —
+  nothing in v2 reads a solver switch. v1 always built with the ITERATIVE core,
+  so `route_profile/solve.py`'s dispatch is a constant and the constructive
+  grafts below it stand unreachable until v1 itself is deleted.
 - `runway_regrade.py`, `runway_redistribute.py` — runway FAA profile reconciliation.
 - `tile_cut.py` — clips shapes at integer lat/lon tile boundaries (seam handling).
 - `layout.py` — `PavementLayout`, `to_osm`.

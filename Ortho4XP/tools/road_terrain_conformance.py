@@ -407,6 +407,49 @@ def _deepest_ll(path_idx, rings):
                                           round(float(worst), 3)]
 
 
+def _by_ref(rings) -> list:
+    """PER SOURCE REF, the worst the road stands off the ground under it
+    (lane ``v2roadcap2``, RULINGS 2026-09-13ab).
+
+    The `ref` tag is the SOURCE the shape was cut from (`dsf:pol51`, a
+    pack pavement page; `pav17`, an apt.dat 110) — the unit the owner
+    names a site by and the unit a classification fix moves, and neither
+    the chain (arm-dependent: emit decimation re-fuses it) nor the whole
+    airport (which hides one road behind 800 lawful vertices) is that
+    unit.  Signed both ways: FILL is emitted above the DEM, CUT below.
+    It measures no law and counts no defects — the same population and
+    the same samplers as the composition-free reading above, grouped.
+    Scout ``v2roadcapkclt`` needed exactly this and wrote a one-off for
+    it; promoted on its second use (RULINGS ``7e90032``).
+    """
+    acc: dict = {}
+    for r in rings:
+        ref = r.get("ref") or "-"
+        a = acc.setdefault(ref, {"ref": ref, "role": r["role"], "vertices": 0,
+                                 "fill_max_m": None, "fill_ll": None,
+                                 "cut_max_m": None, "cut_ll": None,
+                                 "dev": []})
+        for z, d, ll in zip(r["z"], r["d"], r["ll"]):
+            if z is None or d is None:
+                continue
+            a["vertices"] += 1
+            a["dev"].append(abs(z - d))
+            if a["fill_max_m"] is None or z - d > a["fill_max_m"]:
+                a["fill_max_m"], a["fill_ll"] = z - d, ll
+            if a["cut_max_m"] is None or d - z > a["cut_max_m"]:
+                a["cut_max_m"], a["cut_ll"] = d - z, ll
+    out = []
+    for a in acc.values():
+        dev = a.pop("dev")
+        a["dev_median_m"] = ADR._median(dev) if dev else None
+        a["dev_p95_m"] = ADR._pct(dev, 95.0) if dev else None
+        a["off_dem_max_m"] = max(abs(a["fill_max_m"] or 0.0),
+                                 abs(a["cut_max_m"] or 0.0))
+        out.append(a)
+    out.sort(key=lambda a: -a["off_dem_max_m"])
+    return out
+
+
 def read_patch(patch: Path, *, dem_source: str = "airport-inset",
                dem_at: "Optional[Callable]" = None,
                bin_m: float = DEFAULT_BIN_M,
@@ -478,6 +521,7 @@ def read_patch(patch: Path, *, dem_source: str = "airport-inset",
         chains.append(_chain_read(p, rings, bin_m=bin_m))
     return {
         "patch": str(patch), "dem_source": dem_source, "vertices": verts,
+        "by_ref": _by_ref(rings),
         "dem_path": dem_path, "dem_origin": dem_origin,
         "road_rings": len(rings), "chains": chains, "bin_m": bin_m,
         "road_cap_pct": 100.0 * ROAD_CAP,
@@ -752,6 +796,13 @@ def main(argv=None) -> int:
     ap.add_argument("--bin-m", type=float, default=DEFAULT_BIN_M,
                     help="profile bin along the chain (m); two arms on "
                          "two bin sizes are NOT comparable")
+    ap.add_argument("--by-ref", action="store_true",
+                    help="per SOURCE REF (dsf:pol51, pav17 — the unit the "
+                         "owner names a site by and a classification fix "
+                         "moves): vertices, worst FILL and worst CUT off the "
+                         "DEM with their coordinates, |emitted-DEM| median "
+                         "and p95, worst first (--top rows; patch arms only, "
+                         "a levelled-roads sidecar carries no ref)")
     ap.add_argument("--profile", action="store_true",
                     help="print each arm's station/emitted/DEM profile")
     ap.add_argument("--json", type=Path, default=None)
@@ -809,6 +860,28 @@ def main(argv=None) -> int:
               f" m; cutting deeper than 5/10/20 m: {v['cut_over_5m']}/"
               f"{v['cut_over_10m']}/{v['cut_over_20m']}; worst "
               f"{_f(v['cut_worst_m'], 6, 2)} m")
+
+    if a.by_ref:
+        for r in reads:
+            rows = r.get("by_ref") or []
+            print(f"\n=== OFF-DEM BY SOURCE REF — {Path(r['patch']).name} "
+                  f"({len(rows)} ref(s) carrying road-family rings, worst "
+                  f"first) ===")
+            if not rows:
+                print("    none — reported, never zero-by-omission "
+                      "(a levelled-roads arm carries no ref)")
+            for row in rows[:a.top]:
+                fl = row["fill_ll"] or (None, None)
+                cl = row["cut_ll"] or (None, None)
+                print(f"    {row['ref']:<14} {row['role']:<17} "
+                      f"{row['vertices']:>5} vtx  off-DEM max "
+                      f"{row['off_dem_max_m']:>7.2f} m  "
+                      f"fill {_f(row['fill_max_m'], 7, 2)} m at "
+                      f"{_f(fl[0], 0, 7)},{_f(fl[1], 0, 7)}  "
+                      f"cut {_f(row['cut_max_m'], 7, 2)} m at "
+                      f"{_f(cl[0], 0, 7)},{_f(cl[1], 0, 7)}  "
+                      f"|dev| med {_f(row['dev_median_m'], 6, 2)} "
+                      f"p95 {_f(row['dev_p95_m'], 6, 2)}")
 
     if a.rank:
         for r in reads:

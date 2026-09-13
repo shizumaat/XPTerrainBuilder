@@ -340,3 +340,105 @@ def test_a_road_on_a_stand_page_does_not_make_it_a_lot(law):
     assert page
     assert not any(c.role in ("parking_lot", "groundside_pavement") for c in page), \
         [(c.role, c.side) for c in page]
+
+
+# ── §37 (5): A PAGE TOO NARROW TO PARK ON IS NOT A CAR PARK ────────────
+# (owner RULINGS 2026-09-13j item 7 / 13ab, lane ``v2roadcap2``).  The
+# KCLT site in miniature: an 8.4 m ribbon 600 m long, five OSM roads
+# reaching it and only a fraction of one mapped INSIDE it, no taxi
+# centreline, no startup.  ``narrow_road_width_m``'s own words are "a
+# page at most this wide that carries ANY road centreline IS the road",
+# but its branch is gated on ``min_road_fraction`` x HALF-PERIMETER —
+# 120 m on a 601 m ribbon — so the page fell to the LOT ladder's weakest
+# rung (04u ``reach > 0``) and §27 then flipped the ``parking_lot`` to
+# ``apron`` on 20.8 m of lateral contact, the LOT rule, §37 (2)'s share
+# test not applying to a face not born a road.
+
+def _ribbon(x0: float, y0: float, length: float, width: float) -> Polygon:
+    return _rect(x0, y0, x0 + length, y0 + width)
+
+
+def _ribbon_airport(road_m: float, width: float = 8.4):
+    """A landside ribbon page with ``road_m`` of OSM service road mapped
+    inside it, well clear of the runway and of every apron."""
+    a = _synthetic(gate=True)
+    page = Pavement("ribbon", Surface.ASPHALT,
+                    _ribbon(-400.0, 200.0, 600.0, width), ())
+    ways = ()
+    if road_m > 0.0:
+        y = 200.0 + width / 2.0
+        ways = (_way(41, [(-380.0, y), (-380.0 + road_m, y)], highway="service"),)
+    return _dc.replace(a, pavements=a.pavements + (page,),
+                       osm_ways=a.osm_ways + ways)
+
+
+def _ribbon_source(law, road_m: float, width: float = 8.4):
+    a = _ribbon_airport(road_m, width)
+    rules = load_rules()
+    recs, _polys = classify_sources(
+        a, build_evidence(a, rules,
+                          law.tables.structures.building_pad.min_area_m2, law),
+        rules)
+    srcs = {s.id: s for s in recs}
+    return srcs["ribbon"], rules
+
+
+def test_a_sub_module_ribbon_carrying_any_road_is_a_STRIP(law):
+    """71 m of mapped centreline in a 601 m ribbon — a tenth of the
+    half-perimeter, so ``carries`` is False and the 12 m narrow-road
+    branch never fires.  Below the parking floor the gate is the rule's
+    own words: ANY road centreline inside."""
+    src, rules = _ribbon_source(law, road_m=71.0)
+    assert src.width_m <= rules.lot.min_lot_width_m, src.width_m
+    assert src.road_m < rules.lot.min_road_fraction * (src.area_m2 / src.width_m), (
+        "the twin must exercise the branch ``carries`` does NOT cover")
+    assert src.cls == "strip", (src.cls, src.reason)
+    assert "too narrow to park on" in src.reason, src.reason
+
+
+def test_a_sub_module_ribbon_with_no_road_stays_open_never_a_lot(law):
+    """The veto's other half: the 04u rung reads only that roads REACH
+    the page.  With none inside, a page too narrow to hold a parking
+    module is ``open`` — it is never minted a car park."""
+    src, _ = _ribbon_source(law, road_m=0.0)
+    assert src.cls == "open", (src.cls, src.reason)
+
+
+def test_a_page_wide_enough_for_a_parking_module_is_untouched(law):
+    """CYXY ``pav4``'s own reading (11.5 m, 41 m of road on a 464 m
+    half-perimeter — the case ``min_road_fraction`` was written for):
+    ABOVE the floor, so the lot ladder still owns it and 09-04j stands."""
+    src, rules = _ribbon_source(law, road_m=41.0, width=11.5)
+    assert src.width_m > rules.lot.min_lot_width_m, src.width_m
+    assert src.cls == "lot", (src.cls, src.reason)
+    assert "reach it (04u)" in src.reason, src.reason
+
+
+def test_the_ribbon_keeps_its_road_role_through_the_airside_edge_pass(law):
+    """END TO END: born a road, §37 (2)'s SHARE test now applies to it,
+    and a graze does not flip it.  This is the owner's item 7 —
+    ``dsf:pol82`` a ``service_road`` on its own ground, not ``apron``."""
+    cl = classify(_ribbon_airport(71.0), law)
+    cells = [c for c in cl.cells if c.ref == "ribbon"]
+    assert cells
+    assert all(c.role == "service_road" for c in cells), \
+        [(c.role, c.side) for c in cells]
+    assert all(c.side == "groundside" for c in cells)
+
+
+def test_an_emit_sliver_clipping_a_road_is_never_a_road(law):
+    """LEMD's own defect, caught before it shipped: 34 emit slivers
+    0.1-0.3 m across clip a metre of road each, and every one of them
+    became a ``service_road`` on the first arm of this rule.  A page
+    narrower than one service-road corridor is an artefact, and a road
+    shorter than the feed's own noise floor is noise."""
+    src, rules = _ribbon_source(law, road_m=71.0, width=0.3)
+    assert src.width_m < rules.service.road_width_m, src.width_m
+    assert src.cls != "strip", (src.cls, src.reason)
+
+
+def test_a_metre_of_road_is_noise_not_evidence(law):
+    """The other floor: a sub-module page a road merely clips."""
+    src, rules = _ribbon_source(law, road_m=4.0)
+    assert src.road_m < rules.osm_roads.min_len_m, src.road_m
+    assert src.cls != "strip", (src.cls, src.reason)

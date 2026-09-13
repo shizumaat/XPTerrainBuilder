@@ -53,11 +53,19 @@ def capture_has_groups(cap: dict) -> bool:
     partition was folded in carries an ``Airport`` with no ``partition``
     and no derived ``groups``, and a replay off it silently solves a
     DIFFERENT problem.  One derivation, so the refusal and its twin read
-    the same predicate."""
+    the same predicate.
+
+    THE PREDICATE IS "THE DERIVATION RAN", NOT "IT FOUND SOMETHING"
+    (lane ``v2roadcap2``, 2026-09-13).  It read ``bool(groups.groups)``
+    and so refused every capture of an airport that HAS no groups —
+    KCLT's pack partitions 7,163 bodies into 0 groups, and a complete,
+    current capture of it could not be replayed at all.  An empty group
+    set is a measurement, not a missing stage; a capture predating 12u
+    is still caught by ``partition is None``, which is what actually
+    distinguishes the two."""
     ap = cap.get("airport")
-    groups = getattr(ap, "groups", None)
     return (getattr(ap, "partition", None) is not None
-            and groups is not None and bool(getattr(groups, "groups", ())))
+            and getattr(ap, "groups", None) is not None)
 
 
 def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
@@ -89,14 +97,35 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     law = Law.for_airport(icao)
     inputs = default_inputs()
     if mod_cache_root:
-        # THE LANE-LOCAL DERIVED CACHE (RULINGS 2026-09-13, lane
-        # ``v2zerocrater``): ``default_inputs`` reads no environment (the
-        # M0 §1 law ``test_model`` enforces), so the harness's
-        # copy-on-write ``Airport_mod_cache`` overlay is named HERE.  Needed
-        # to replay a pack the object stage has rewritten: v2's read frame
-        # is the ``.dsf.anchor_bak``, whose dump only the driver's
-        # ``engine_v2.fresh_pack_dump`` makes, and it must land lane-local.
+        # AN EXPLICIT OVERRIDE ONLY (lane ``v2roadcap2``, RULINGS
+        # 2026-09-13ab).  ``default_inputs`` now resolves the root through
+        # ``O4_File_Names.airport_mod_cache_root``, so the harness's
+        # copy-on-write overlay already arrives in ``inputs`` via
+        # ``O4_AIRPORT_MOD_CACHE_DIR``; this flag names a root the
+        # environment does not.
         inputs = _dc.replace(inputs, mod_cache_root=mod_cache_root)
+    # THE PRISTINE-DUMP HALF, THE BUILD ENTRY'S OWN IMPLEMENTATION
+    # (``auto_patch.engine_v2.fresh_pack_dump``, public since lane
+    # ``v2zerocrater``).  v2's read frame is the ``.dsf.anchor_bak`` and
+    # v2 never runs DSFTool itself, so without this a capture of an
+    # airport whose pack the object stage has written refuses at
+    # ``airport/load.py:289`` — KCLT has never had such a dump (13y).  The
+    # dump lands in whatever root was just resolved, which is lane-local
+    # whenever an overlay is armed.
+    try:
+        from auto_patch.engine_v2 import fresh_pack_dump as _fresh_dump
+        _harness = str(ROOT / "tools" / "harness")
+        if _harness not in sys.path:
+            sys.path.insert(0, _harness)
+        from build_airport import resolve_tile_for as _resolve_tile
+        _tile = _resolve_tile(icao, ROOT)
+        if _tile is not None:
+            _dump = _fresh_dump(inputs.xplane_root, icao, *_tile)
+            if _dump:
+                inputs = _dc.replace(inputs, dsf_dump_path=_dump)
+                print(f"  pack DSF dump (pristine read frame): {_dump}")
+    except Exception as exc:                # the load stage refuses loudly
+        print(f"  pack dump refresh skipped for {icao}: {exc}")
     t = time.perf_counter()
     airport, _lrep = load_with_report(icao, inputs, law)
     # THE PACK PARTITION AND THE GROUPS (build.py:288-318, verbatim in
@@ -244,6 +273,27 @@ def _site_read(pm, airport, z, sites, near_m: float = 12.0) -> list[dict]:
                     "max_step_m": round(step, 2),
                     "nearest": hits[:3]})
     return out
+
+
+def _worst_vertex_at(pm, airport, z, at: tuple, radius_m: float):
+    """The vertex within ``radius_m`` of ``at`` whose |z - DEM| is largest
+    — the vertex an owner coordinate MEANS (lane ``v2roadcap2``).  One
+    resolution, shared by ``--why-at``; the frame is the airport's own
+    transformer, never a proximity join on lat/lon degrees."""
+    to_xy, _ = airport.frame.transformers()
+    x0, y0 = to_xy(at[1], at[0])
+    best = None
+    for v, vert in pm.vertices.items():
+        x, y = vert.xy
+        if (x - x0) ** 2 + (y - y0) ** 2 > radius_m * radius_m:
+            continue
+        d = vert.dem_z
+        if d is None:
+            continue
+        off = abs(float(z[v]) - float(d))
+        if best is None or off > best[0]:
+            best = (off, v)
+    return None if best is None else best[1]
 
 
 def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
@@ -579,6 +629,11 @@ def main() -> int:
     ap.add_argument("--why-from", type=Path, metavar="PKL",
                     help="run --why-hump on a --solved-out pickle (no re-solve of the arm)")
     ap.add_argument("--why-vertex", type=int, help="why on this vertex id instead of --why-hump")
+    ap.add_argument("--why-at", metavar="LAT,LON",
+                    help="why on the WORST vertex (max |z - DEM|) within --site-radius "
+                         "of this coordinate — the owner's own frame for naming a site, "
+                         "so a report does not have to translate a coordinate into a "
+                         "vertex id by hand (lane v2roadcap2)")
     ap.add_argument("--why-relax", nargs="+", default=[], metavar="FAMILY",
                     help="relax-one-family arms (solve.why family labels) over the hump's ridge vertices")
     ap.add_argument("--why-hump", nargs=3, metavar=("RUNWAY", "S0", "S1"),
@@ -595,8 +650,17 @@ def main() -> int:
             sv = pickle.load(fh)
         law = Law.for_airport(sv["icao"])
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else ("", 0.0, 0.0)
+        vertex = a.why_vertex
+        if a.why_at:
+            vertex = _worst_vertex_at(sv["pm"], sv["airport"], sv["z"],
+                                      tuple(float(x) for x in a.why_at.split(",")),
+                                      a.site_radius)
+            if vertex is None:
+                print(f"[{sv['icao']}] --why-at {a.why_at}: no vertex within "
+                      f"{a.site_radius:g} m")
+                return 1
         res = _why_hump(sv["icao"], sv["pm"], law, sv["airport"], sv["cs"], sv["z"], *wh,
-                        relax=a.why_relax, vertex=a.why_vertex)
+                        relax=a.why_relax, vertex=vertex)
         if a.json:
             a.json.write_text(json.dumps(res, indent=1, default=str))
         return 0

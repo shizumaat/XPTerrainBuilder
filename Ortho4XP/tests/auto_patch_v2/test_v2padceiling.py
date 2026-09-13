@@ -261,9 +261,14 @@ def test_a_capture_without_groups_is_refused_by_name():
         groups = type("g", (), {"groups": (1,)})()
 
     assert mod.capture_has_groups({"airport": _A()}) is False
-    assert mod.capture_has_groups({"airport": _B()}) is False
     assert mod.capture_has_groups({"airport": _C()}) is True
     assert mod.capture_has_groups({}) is False
+    # AN EMPTY GROUP SET IS A MEASUREMENT, NOT A MISSING STAGE (lane
+    # ``v2roadcap2``): KCLT's pack partitions 7,163 bodies into 0 groups,
+    # and reading ``bool(groups.groups)`` refused every complete capture
+    # of it.  ``partition is None`` is what actually catches a pre-12u
+    # capture, and ``_A`` above is that case.
+    assert mod.capture_has_groups({"airport": _B()}) is True
 
 
 def test_the_capture_runs_every_pre_solve_stage_the_build_runs():

@@ -5208,3 +5208,91 @@ nearest rim vertex (`constraints/structures.py:588`), never a ramp profile.
    build. Bars: SE corner wall base within 0.3 m of the ring at every walled node
    and unwalled nodes 11 → 0; the ramp visible (bar in (5)); harness census; ONE
    `--engine v2` LEMD build against the 1.0.325 base; twins; suite.
+
+## §33 THE PACK'S WALL OBJECTS GOVERN THE MOUTH (owner RULINGS 2026-09-13d item 5; Fable 2026-09-13i) — lane `v2wallplate`
+
+Owner: "remember to use object based wall objects provided by the scenery package
+when present as a guide for where the tunnel mouth is and what size it is." Scout
+`v2lemd325t`: LEMD's pack models its bridges and tunnel walls as THIN PLATES —
+`Bridges/Bridge3.obj` 354 × 25 m spanning the whole `-5931` bore, solids 1.03 m tall;
+`Bridge2.obj` 168 × 90 m over the two `-6291/-6288` decks, 1.31 m; `Bridge1.obj`
+1.50 m — and `[tunnel.object]`'s pre-screen refuses anything under `least_skirt` =
+min(`skirt_min_depth_m` 3.0, `edge_wall_min_skirt_m` 1.5) (`tunnel_objects.py:702,
+737-742`) and then SUPPRESSES the refusal from every report (`:772-776`, four
+prefixes). So the OSM corridor stood alone: item 5's mouth 7.0 m wide (`lanes × 3.5`)
+against the object's 25.1 m, 1.08 m off its centre, 83 m inside the object's end;
+item 6's mouth floor set from the DEM over the overbridge EMBANKMENT (610.5 vs 605.8
+twelve metres away) — a 5.0–5.8 m rim wall and a ramp that descends; item 9's decks
+at trench floor + `clearance_m` 5.10 = 603.85 while the apron they must meet is at
+606.5 and the road at 605.7+ — nothing ties a terrain deck to its ends.
+
+1. **EVERY REFUSED RESOURCE IS NAMED.** The four suppressed prefixes are gone; the
+   structures line and the inventory KML carry every screened resource and its
+   verdict.
+2. **THE THIN-PLATE WALL CLASS.** A pack object whose plan footprint lies over a
+   mapped bore (`tunnel=yes`) or deck (`bridge=yes`) and whose solids span at least
+   `[tunnel.object] thin_plate_min_m` (1.0 m) is an AUTHORED CORRIDOR: its plan ring
+   gives the corridor's axis, width and portal positions (the object's ends); the
+   depth stays `bore_datum_m` for a bore and, for a deck, the deck's top is the
+   object's authored top. `source_precedence = ["object", "osm"]` then does what it
+   says. Item 5's mouth: 25.1 m wide at the object's north end; item 6's: at its
+   south end.
+3. **THE MOUTH CREST IS THE ROAD'S GROUND, NOT THE OVERBRIDGE'S.** `crest = "dem"`
+   samples the DEM at the mouth node; where that sample stands on an overbridge
+   embankment (the DEM within `bore_datum_m` of the mouth rises more than
+   `split_tol_m` above the DEM along the approach's first stations), the mouth crest
+   reads the approach's ground; the top cap follows the ground per corner.
+4. **A TERRAIN DECK IS TIED TO ITS ENDS.** Its datum is the higher of (trench floor +
+   `clearance_m`) and the graded surface at its two ends (the apron on one side,
+   the road on the other), the ramp beneath yielding downward; an object deck (2)
+   hands its authored top directly.
+5. **BARS**: item 5's mouth at the object's end, 25.1 m, axis on the object's centre
+   (≤ 0.3 m); item 6's mouth wall ≤ `split_tol_m` above the road's ground, the ramp
+   climbing monotonically to the DEM; item 9's decks meeting the apron (606.5) and
+   the road within 0.3 m at their ends; every refused resource named (182 screened
+   → N named); the other 15 LEMD corridors quoted before/after; OTHH's 9 object
+   corridors and 43 wall corridors byte-identical (dry planar replay); consumer
+   census of the corridor readers first (08-30l); ONE `--engine v2` LEMD build;
+   harness census with the cockpit block; twins; suite.
+
+## §34 RAMPS FOLLOW THEIR ROUTE; ZONES YIELD TO ROADS; A BRIDGE STATES THE CROSSING (Fable 2026-09-13i) — lane `v2rampwalk`, after `v2wallplate`
+
+Scout `v2lemd325t`, items 1, 7, 8: (7a) `_ramp_top` prices a curved approach by the
+straight CHORD from the mouth (`planar/structures.py:225-226`), so a ramp whose DEM
+condition is met at 271 m runs 420 m of axis (12 of 59 LEMD ramps have axis/chord >
+1.3; worst 3.85); and `approach()` tests direction only on the first hop and then
+takes the first candidate way at each node (`structure_approach.py:225-233`) — 7a's
+second hop turned 90° onto an unrelated road. (7b) the mapped 180° hairpin `-5958`
+exists; the ramp stops at 36 m because the DEM there is only 1.9 m above the floor,
+then sawtooths (`constraints/structures.py:10-16` bounds consecutive stations by a
+`Diff` only). (8) `planar/zones.py:74-78` subtracts CELLS from the zone band; an OSM
+road with no cell is never subtracted, and §19's road rule is gated on a crest
+(`terrain_edge.py:180-181`) — a 1.73 m step over 1.5 m inside `zone2#2` that no family
+prices (`graded_strip` cap None; `adjacent_ground_tear` empty on v2). (1) no bore: the
+roads under taxiway bridge F-6 (`aeroway=taxiway bridge=yes layer=1`, OSM −1230) carry
+no `tunnel` tag; the DEM's 7.5 m cutting is unmodelled; the taxi surface bathtubs
+2.66 m at 5.3 % across it.
+
+1. **A RAMP IS PRICED ALONG ITS ROUTE.** `_ramp_top`'s reach and climb tests read the
+   axis length walked, never the chord; the ramp ends at the first station where
+   the DEM condition holds ALONG the route.
+2. **THE APPROACH WALK KEEPS ITS HEADING.** After the first hop, the walk prefers the
+   continuation with the smallest turn and refuses a turn over `[tunnel]
+   approach_turn_max_deg` (60) unless the mapped way itself turns (a hairpin's own
+   nodes turn gradually); the route stays on the way it entered until that way ends.
+3. **A RAMP CLIMBS MONOTONICALLY** from the mouth to its top: the design profile is
+   monotone (a one-way `Diff` ≥ 0 per station toward the top) at ≤ the cap.
+4. **ZONES YIELD TO ROADS.** The zone band subtracts mapped road ribbons (OSM highway
+   ways ⊕ `groundside_cutback_m`) at the single zone derivation site whether or not
+   a cell exists; §19's rule 2 runs without a crest. `adjacent_ground:*` faces get a
+   within-face step reading in the cockpit block (a welded step > 0.5 m is critical
+   visual).
+5. **A BRIDGE STATES THE CROSSING.** A road passing under an `aeroway=*` way tagged
+   `bridge=yes` (`layer ≥ 1`) seeds an UNDERPASS: the aeroway is a terrain deck at the
+   taxi surface (level across the cutting under taxi law), the road a bore with
+   mouths and ramps where it leaves the deck's footprint (§29's gate applies).
+6. **BARS**: 7a ends at 40.4947925, −3.5817713 ± 15 m at the DEM; 7b runs the hairpin
+   and ends near 40.4938154, −3.5817946 at the DEM; item 8's zone face ends at the
+   road ribbon (the 1.73 m step gone); item 1's taxiway level across F-6 (the 2.66 m
+   bathtub gone) with mouths and ramps either side; axis/chord > 1.3 ramps 12 → 0;
+   the other ramps quoted; ONE `--engine v2` LEMD build; census; twins; suite.

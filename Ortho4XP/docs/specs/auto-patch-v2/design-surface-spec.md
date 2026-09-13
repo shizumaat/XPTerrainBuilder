@@ -5485,6 +5485,164 @@ no `tunnel` tag; the DEM's 7.5 m cutting is unmodelled; the taxi surface bathtub
    bathtub gone) with mouths and ramps either side; axis/chord > 1.3 ramps 12 → 0;
    the other ramps quoted; ONE `--engine v2` LEMD build; census; twins; suite.
 
+### 34.5 **MEASURED** (lane `v2rampwalk`, branch `claude/v2rampwalk` off main `c55141cf`)
+
+ONE tree, one corpus.  Arms, both `--engine v2` LEMD through
+`tools/harness/build_airport.py`: **BASE** = main `c55141cf`
+(`--base-arm`, artifact `bdeaf64f86bb`, body `4e2c8b856dbe`, 400.0 s,
+`status optimal`, verify 1,372) and the **LANE** tree (artifact
+`e87162aa889b`, body `fefe03c84963`, 432.8 s, `status feasible`, verify
+1,180).  A third, intermediate arm with §34 (5) ARMED is quoted under (5)
+(`f4cf494dab92`, body `5e1f083560ab`, 443.8 s).  Dry planar replays
+throughout (`planar --stage structures`, `tools/v2_solve_replay.py`
+capture 279 s + ~50 s per arm).
+
+**(1) A RAMP IS PRICED ALONG ITS ROUTE — LANDED.**  `ramp_top`'s chord
+term is deleted; the reach is the axis walked.  LEMD dry replay: 38 of
+49 ramps shorten, total ramp axis **6,158 → 4,658 m (−24 %)**; **axis/chord
+> 1.3: 2 → 1** (my instrument counts 2 at base over the 50 tunnel
+records, where the scout counted 12 of 59 over the emitted ramp FACES —
+two populations, both quoted).  **7a `tunnel:-15327@0`: 420 → 144 m of
+axis** (mouth 40.4947815, −3.5829176; top 40.4955757, −3.5823827, at the
+DEM 607.50).  **BAR MISSED, and the bar is the thing that moved**: §34 (6)
+puts 7a's end at 40.4947925, −3.5817713 ± 15 m, which is the far end of
+way −5913 at s = 264 — the ruled mechanism ends the ramp at s = 144,
+101 m short of it, because that is the first station where the 8 % climb
+from 596.92 meets the DEM ALONG THE ROUTE (607.19 at s = 132 against a
+reach of 10.56).  The bar's coordinate was where the DEFECT NODE stood
+under the over-long ramp; under (1) no ramp vertex exists there at all.
+Ruled tighter than the bar, not looser.
+
+**(2) THE APPROACH WALK KEEPS ITS HEADING — LANDED.**  `[tunnel]
+approach_turn_max_deg = 60`, schema'd.  ATTRIBUTION CORRECTION: 7a's
+"90° second hop onto −5913's continuation" is not a hop — the walk takes
+way −5913 whole (263.9 m, turn 0.4° at the mouth) and the 90° is INSIDE
+−5913's own nodes, which §34 (2) exempts by construction.  The clause
+DOES bite at 7b: at −5958's far end the old walk took the first candidate
+in load order, −15331 at 33.3°, with −15328 at 2.3° beside it.  Corridor
+churn from the shorter ramps: 3 bores lost, 2 gained (31h overlap pairs
+swapping which side is refused); LEMD tunnels 50 → 49.
+
+**(3) A RAMP CLIMBS MONOTONICALLY — LANDED, WITH A PRICE.**  One one-way
+`Offset(hi, lo, 0)` per consecutive station of the climb, sense taken
+from the ramp's own ends so a mouth topping BELOW its datum stays
+feasible.  LEMD offsets 296 → 690.  THE PRICE, measured on the replay
+(one variable, `RW_NO_MONO`): the design solve goes `optimal` →
+`feasible` — the active set does not settle inside its round cap (175
+rounds, 69 rows flipped, worst 0.010 m); with the monotone rows off, the
+same tree solves `optimal`.  And with the profile pressed onto the cap
+the emitter has no rounding headroom (12p's flagged class): `within_shape`
+2,769 → 3,616, +847 rows, ALL `tunnel_ramp|tunnel_ramp` groundside pairs
+at 8.02–8.03 % against the 8.00 % cap, worst |de| 19.02 m at
+40.47968, −3.58206.  They are out of scope (groundside, priced at the
+cap's own noise), and the ADJUDICATED count still falls — see the census
+— but the instrument moves a long way and the solve status is worse.
+
+**(4) ZONES YIELD TO ROADS — LANDED.**  `road_lines` now returns AT-GRADE
+centrelines only (a bored or bridged road is not the surface — one
+derivation, both consumers); `road_ribbons` grows them by
+`road_profile.lane_width_m + groundside_cutback_m` ⊕ the snap; the ribbon
+enters `clip_to_terrain_edge` as a BARRIER beside the crest, so the band
+ends at it and does not resume beyond it; §19 rule 2 runs with an empty
+crest.  RECORDED DEVIATION: §19.2 (2)'s "flush at the road's OUTER edge"
+is amended to the INNER edge for a cell-less road — the outer-edge
+reading was written for a road that HAS a cell, whose ⊕ cut-back is
+subtracted anyway; read literally it leaves the band standing on the
+road.  §19's own twin carries the amendment and its reason.  The new
+census family `adjacent_ground_step` (§34 (4)'s cockpit reading) is
+registered in `LAW_FAMILIES`, in `law/families.toml` (`cockpit = "step"`)
+and in the engine's own `verify/strips.adjacent_ground_step`, so the
+v1/v2 lockstep twin passes; its floor is `visual_m` AND `cliff_grade` in
+ONE step — without the cliff term it counts the lawful hillside drape
+(measured CYXY 296 rows).  RESULT: `adjacent_ground_step` **3 → 1** at
+LEMD; the base's 1.63 m at 40.4856895, −3.5884014 and its 0.82 m at
+40.4609353, −3.5409609 are gone.
+
+**(5) A BRIDGE STATES THE CROSSING — IMPLEMENTED, NOT ARMED; A RULING IS
+OWED.**  `planar/structure_underpass.py` (`is_aeroway_bridge`,
+`underpass_bores`, `approach_along`) plus `[tunnel] underpass_min_layer`
+/ `underpass_min_span_m`.  The predicate had to be LOCAL: the shared
+`is_bridge_way` requires `highway` or `railway`, so an aeroway bridge is
+invisible to every deck pass — which is exactly why nothing was seeded.
+The deck's half-width is read off the taxi CELL the aeroway stands in
+(`pavement_half_widths` cannot answer it: its ±2 m centre test asks
+whether a pavement TRACES a road, and a junction blob's across-axis
+centre is metres off the centreline it contains) — LEMD F-6 reads 7.6 m
+where the lanes fallback reads 3.5.  MEASURED with it armed
+(`f4cf494dab92`): `underpasses 1`, way −1230's two service roads bored,
+31h-merged into ONE ramp, mouths at 40.4610903, −3.5446736 and
+40.4612284, −3.5446741, ramps 96 / 84 m, floor 564.90 = DEM(mouth) 570.00
+− `bore_datum_m`.  AND THE COCKPIT GOT WORSE: **CRITICAL VISUAL 3 → 10**,
+seven of the ten at 40.46100, −3.54455, `strip_seam_tear` **0 → 4** — the
+portal RIM takes `DEM(mouth)` = 570.0, the road's ground down in the
+cutting, against a taxi surface solving ~573.5 above it, so the abutment
+reads as a 3.52 m cliff.  §34 (5)'s other half — "the aeroway is a
+terrain deck at the taxi surface, level across the cutting under taxi
+law" — has NO DEM source (the DEM carries no bridge): the abutment rim
+would have to take the TAXI CELL's own SOLVED value, a new relational
+law.  That is an owner/Fable ruling, so the lane stopped at its attempt
+cap, unwired the call, and left the module and its twins standing with
+the measurement.  KCLT taxiway U (13q item 3) is UNMEASURED: every KCLT
+load in a lane worktree is refused by the pack-dump freshness guard
+(`airport/load.py:289`, 13q's own chip — the `.dsf.anchor_bak` is newer
+than the cached dumps), and `--refresh-data` is not a lane's to run.
+
+**(6) ITEM 9'S DECK END — HALF LANDED, THE RESIDUAL ATTRIBUTED.**
+`deck_ends` now takes the nearest governed cell within `[bridge]
+deck_end_reach_m` (25 m) when no cell stands under the mapped end, so
+LEMD way −6288's east end reads `pav92` (13.3 m away, solved 606.60)
+instead of nothing.  IT DOES NOT MOVE THE DECK, and the replay says why:
+§33 (4)'s tie is a ONE-WAY lower bound (`Offset(deck, apron, 0)`) and the
+deck already stands 2 m ABOVE the apron.  THE RIM/DECK VERTEX COUPLING,
+ruled: six of the ten `bridge_deck:-6288` vertices carry the corridor
+RIM as well, but the rim's DEM pin is already skipped there — a deck face
+is `service_road`, a governed role, so `shared_with_ground` holds and the
+DECK's law governs the shared node.  The coupling is therefore NOT what
+holds the deck up.  What holds it up is its own end profile: the face
+spans t 0.157…0.787 of the way (13.3…66.3 m of 84.3 — it is the CORRIDOR
+crossing, and "the deck face reaches the way's end" is REFUSED as
+geometry: beyond the trench the road is ordinary ground), and the
+interpolated `Band` lo runs 609.29 at the west edge down to 606.93 at the
+east, from a WEST end whose DEM is 609.99 — a real embankment the road
+really comes off.  The solve leaves the deck at 608.26…609.31, i.e.
+1.3–1.7 m ABOVE its own east lo, because nothing pulls it down: the lo is
+one-way and the apron tie is one-way.  BAR MISSED (0.3 m of the apron at
+the east end): the deck ends 1.66 m above it.  The lever that would meet
+it is a two-sided materiality window on the end profile instead of a
+lower bound — which §33 (4) ruled out ("a bound, never a pin") and 13r
+measured as a regression in its face-extent form; it needs a ruling.
+
+**CENSUS** (harness, law-true, both arms in this tree): TOTAL 3,591 →
+4,278; **ADJUDICATED 1,181 → 1,055 (−126)**; out of scope 2,410 → 3,223.
+By family: `airside_no_step` 417 → 338, `transverse` 79 → 48, `taxi_box`
+235 → 178, `road_cross_section` 22 → 18, `strip_transverse` 39 → 37,
+`adjacent_ground_step` 3 → 1, against `within_shape` 2,769 → 3,616 (the
+(3) ramp-cap pairs above), `resa_transverse` 1 → 5, `strip_longitudinal`
+14 → 19, `plane_gradient` 0 → 3, `mid_edge_step` 0 → 1.
+
+**THE COCKPIT BLOCK.**  CRITICAL MOTION 1 → 2 (both `strip_arc` grade
+breaks; worst 0.610 → 0.520 m, the new one 0.400 m over 25.76 m at
+40.4597648, −3.5495209).  CRITICAL VISUAL 3 → 2 — but the WORST row is
+worse: 1.630 m over 1.5 m → **8.500 m over 12.03 m** at
+40.5331907, −3.5748496, and it is (4)'s.  Attributed: at 18R/36L's north
+end the ribbon barrier trims `adjacent_ground:runway:4:zone2#21`
+(155 nodes, 597.88…609.25) to `#23` (37 nodes, 599.45…607.95,
+`o4_edge = "road"`), and the trimmed boundary runs straight down the
+slope at the arrangement's own chord cap — one 12.03 m ring edge carrying
+8.50 m where the untrimmed face spread the same drop over many.  The
+trim's boundary needs densifying below the chord cap on a slope; owed.
+
+**SUITE** `tests/auto_patch_v2` + `tests/test_harness.py`: 1,125 passed,
+1 skipped, twice.  The v1 tunnel / bridge / ramp / portal set: 904
+passed, the SAME three pre-existing reds 13r named
+(`test_tunnel_portal_fidelity::TestClearanceAnnulus`,
+`test_object_anchor::test_kclt_eight_bake_pool_end_to_end`,
+`test_tunnel_ramp_run_merge::TestItIsNotAPostPass`).  One behaviour-
+neutral move to stay under the 1,000-line budget: `StructureStats` out of
+`planar/structures.py` into `planar/structure_stats.py`, proved by two
+`--stage structures` LEMD replays whose `structures.json` differ only in
+their timing fields.
+
 ### §28 (6) A hillside terrace is not a frontage (Fable 2026-09-13; RULINGS 2026-09-13o) — lane `v2frontagestep`
 
 Owner (13l item 1): at CYXY the groundside lots beside two buildings cut into a hill

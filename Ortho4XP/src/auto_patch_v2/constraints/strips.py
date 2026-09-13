@@ -340,9 +340,25 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
     an end has none (its vertices step ACROSS), so the lip's outer ring
     was tied to the runway only through 33 m transverse rows and the DEM
     pull took it 2.44 m under the runway end centre 3 m away (measured
-    LEMD 18R/36L, the 2026-09-04e seam tear).  A vertex laterally outside
-    the runway's width has no end-edge foot and keeps the transverse
-    rows."""
+    LEMD 18R/36L, the 2026-09-04e seam tear).
+
+    THE RUNWAY-END CORNER (§35, RULINGS 2026-09-13q item 1): a vertex
+    laterally OUTSIDE the runway's width used to fall out here (``t``
+    outside [0, 1]) and it does NOT keep the transverse rows — the
+    lateral law (``zones.abeam``) drops every runway-family band beyond
+    the runway's own extent, so the corner quadrant held §23's datum
+    alone against a runway cut into the hill (measured KCLT 18C/36C
+    south end, 1.0.324: nodes −4762 / −4763, 4.98 m over 4.62 m and
+    5.07 m over 3.91 m, the cockpit block's two critical-visual rows).
+    The corner now binds to the NEAREST POINT of the end edge (``t``
+    CLAMPED to [0, 1]) over its TRUE PLAN DISTANCE to that point — one
+    derivation serving both gates, and it tiles the plane with no gap
+    because the end corridor's rect is ALREADY as wide laterally as the
+    zone-2 half-width (``runway_groups``: ``end_half = max(width,
+    strip_half)``), so widening the rect a second time would change
+    nothing while clamping ``t`` is the whole gap.  For an abeam vertex
+    the clamp is the identity and the plan distance is the along-axis
+    distance the perpendicular end edge already gave."""
     ux, uy = g.unit
     m = vw.law.tables.emit.identity.min_distinct_spacing_m
 
@@ -371,6 +387,9 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
             if v in vw.pavement_vertices or v in walls:
                 continue
             x, y = xy[k]
+            # THE NEAREST POINT of the nearest end edge (§35 (1)): ``t``
+            # clamped, the bound taken over the true plan distance to it
+            best: tuple[float, int, int, float] | None = None
             for a, b, end in end_edges:
                 if not point_in_rect_ring(x, y, g.rings[end]):
                     continue
@@ -380,17 +399,20 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
                 if l2 < 1e-9:
                     continue
                 t = ((x - ax) * ex + (y - ay) * ey) / l2
-                if t < 0.0 or t > 1.0:
-                    continue                    # beside the corner, not abeam
-                s_v = s_of((x, y))
-                beyond = abs(s_v) if end == 1 else s_v - g.length_m
-                key = (min(v, a), max(v, a))
-                if beyond < 1.0 or key in seen:
-                    continue
-                seen.add(key)
-                rows.append(Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)),
-                                   -cap * beyond - q, cap * beyond + q, src))
-                break
+                t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+                dx, dy = x - (ax + t * ex), y - (ay + t * ey)
+                d = math.hypot(dx, dy)
+                if best is None or d < best[0]:
+                    best = (d, a, b, t)
+            if best is None:
+                continue
+            d, a, b, t = best
+            key = (min(v, a), max(v, a))
+            if d < 1.0 or key in seen:
+                continue
+            seen.add(key)
+            rows.append(Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)),
+                               -cap * d - q, cap * d + q, src))
     return rows
 
 

@@ -119,8 +119,18 @@ def main(argv) -> int:
     the source, which is the silent 1 m-lidar degradation all over
     again.  The sidecar is the channel that cannot go missing; the
     caller deletes it with the array.
+    ``[--lerc-decode] --selftest`` answers only "are the codecs here?".
     """
     args = [a for a in argv if a != "--lerc-decode"]
+    if args == ["--selftest"]:
+        # THE CAPABILITY PROBE (owner RULINGS 2026-09-13b): reaching here
+        # means this module imported, which means ``tifffile`` and
+        # ``imagecodecs`` imported -- the whole of what "can decode LERC"
+        # means for the caller.  A build that cannot exits non-zero on
+        # the import and the caller records ``unavailable:`` instead of
+        # minting a durable no-coverage negative out of its own
+        # inability.  No file, no fixture, no network.
+        return 0
     if len(args) != 2:
         print("usage: --lerc-decode IN OUT", file=sys.stderr)
         return 2

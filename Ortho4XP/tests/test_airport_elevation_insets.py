@@ -5207,3 +5207,262 @@ def test_write_index_skips_a_freshness_only_pass(tmp_path, monkeypatch):
     INS._write_index(60, -136, {"CYXY": dict(first["CYXY"],
                                              HRDEM="no-coverage")})
     assert json.loads(target.read_text())["CYXY"]["HRDEM"] == "no-coverage"
+
+
+# =====================================================================
+# THE CAPABILITY SKIP IS NOT A COVERAGE ANSWER (owner RULINGS 2026-09-13b)
+# =====================================================================
+#
+# NZQN, 2026-09-12: the packaged 1.0.324 engine could not decode LERC, so
+# ``_decode_lerc_sources`` returned ``[]``, ``fetch`` had nothing to warp
+# and answered ``None`` -- and ``None`` is recorded as a DURABLE
+# no-coverage.  "NEWZEALAND1M has no coverage at NZQN" went into
+# ``index.json``, ``complete.json`` marked the cache settled around it,
+# and every build since has cut the inset from 30 m COPERNICUS while 1 m
+# LiDAR sat behind a permanent negative.  These are the twins for the
+# four rules that close it.
+_LERC_DEFINITION = {
+    "code": "LERCPROVIDER",
+    "access_strategy": "capability_probe_strategy",
+    "asset_compression": "lerc",
+    "role": INSETS.ROLE_AIRPORT_INSET,
+    "enabled": True,
+    "priority": 90.0,
+    "coverage_bbox": (-180.0, -90.0, 180.0, 90.0),
+}
+
+
+def _capability_strategy(outcome):
+    """Register a strategy whose fetch enacts ``outcome`` and count calls."""
+    calls = {"count": 0}
+
+    @INSETS.register_access_strategy("capability_probe_strategy")
+    class _Strategy:
+        def discover(self, definition, bounding_box_wgs84):
+            return [{"href": "https://example.invalid/a.tif"}]
+
+        def fetch(self, definition, bbox, resolution_m, destination_path):
+            calls["count"] += 1
+            return outcome()
+
+    return calls
+
+
+def test_an_empty_decode_result_never_writes_no_coverage(monkeypatch):
+    """RULE (1), at the fetcher: no decoder is not "no data here".
+
+    The exact 1.0.324 condition -- discovery found assets, the decoder is
+    absent -- must raise :class:`ProviderUnavailable`, never return the
+    empty list whose emptiness became a durable negative.
+    """
+    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: False)
+    strategy = INSETS.ACCESS_STRATEGIES["static_stac"]()
+    with pytest.raises(INSETS.ProviderUnavailable) as raised:
+        strategy._decode_lerc_sources(
+            _LERC_DEFINITION,
+            [{"href": "https://example.invalid/a.tif"}],
+            "/tmp/unused",
+        )
+    assert "LERC decoder" in str(raised.value)
+
+
+def test_unavailable_is_a_status_class_of_its_own(tmp_path, monkeypatch):
+    """RULE (1), at the index: ``unavailable:`` is not no-coverage.
+
+    It is recorded (so a human reading the file sees WHY the tier is
+    degraded), it never short-circuits a later run, and no reader counts
+    it as a coverage answer.
+    """
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    calls = _capability_strategy(
+        lambda: (_ for _ in ()).throw(
+            INSETS.ProviderUnavailable("the LERC decoder is not available")
+        )
+    )
+    try:
+        boxes = {"NZQN": (168.70, -45.05, 168.79, -44.99)}
+        index = INSETS.ensure_airport_insets(
+            -45, 168, boxes, [_LERC_DEFINITION], 3.0
+        )
+        status = index["NZQN"]["LERCPROVIDER"]
+        assert INSETS.status_is_unavailable(status)
+        assert status != INSETS.NO_COVERAGE
+        assert "LERC decoder" in INSETS.unavailable_reason(status)
+        assert calls["count"] == 1
+        # It is NOT a durable negative: the next run asks again.
+        INSETS.ensure_airport_insets(
+            -45, 168, boxes, [_LERC_DEFINITION], 3.0
+        )
+        assert calls["count"] == 2
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+
+
+def test_a_legacy_lerc_negative_is_re_probed_exactly_once(
+    tmp_path, monkeypatch
+):
+    """RULE (2): the honest discriminator is the MISSING capability record.
+
+    A ``no-coverage`` for a capability-gated provider with no capability
+    stamp is UNVERIFIED -- it may be 1.0.324's.  It is re-probed once;
+    the probe stamps the capability set; and the run after that leaves it
+    alone.
+    """
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    monkeypatch.setattr(INSETS, "_engine_version", lambda: "1.50.1772")
+    index_path = FNAMES.airport_inset_index(-45, 168)
+    os.makedirs(os.path.dirname(index_path), exist_ok=True)
+    with open(index_path, "w") as handle:
+        # The record 1.0.324 left behind, verbatim in shape.
+        json.dump({"NZQN": {"LERCPROVIDER": INSETS.NO_COVERAGE,
+                            "checked": "2026-09-12",
+                            "bounding_box": [168.70, -45.05, 168.79,
+                                             -44.99]}}, handle)
+    calls = _capability_strategy(lambda: None)   # the provider answers: none
+    try:
+        boxes = {"NZQN": (168.70, -45.05, 168.79, -44.99)}
+        assert INSETS.unverified_capability_negatives(
+            -45, 168, [_LERC_DEFINITION]) == [
+                ("NZQN", "LERCPROVIDER", ["lerc"])]
+
+        index = INSETS.ensure_airport_insets(
+            -45, 168, boxes, [_LERC_DEFINITION], 3.0
+        )
+        assert calls["count"] == 1, "the unverified negative was not re-probed"
+        record = index["NZQN"]
+        assert record["LERCPROVIDER"] == INSETS.NO_COVERAGE
+        assert record["capabilities"]["LERCPROVIDER"] == {
+            "engine": "1.50.1772", "capabilities": ["lerc"]}
+        # EXACTLY ONCE: the stamp is what makes the negative verified.
+        assert INSETS.unverified_capability_negatives(
+            -45, 168, [_LERC_DEFINITION]) == []
+        INSETS.ensure_airport_insets(
+            -45, 168, boxes, [_LERC_DEFINITION], 3.0
+        )
+        assert calls["count"] == 1
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+
+
+def test_a_genuine_recorded_negative_is_never_re_probed(tmp_path, monkeypatch):
+    """RULE (2), the other side: a VERIFIED negative is left alone.
+
+    The provider answered and had zero pixels, and the run that heard it
+    recorded the capability it had.  Nothing re-probes that.
+    """
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    index_path = FNAMES.airport_inset_index(-45, 168)
+    os.makedirs(os.path.dirname(index_path), exist_ok=True)
+    with open(index_path, "w") as handle:
+        json.dump({"NZQN": {
+            "LERCPROVIDER": INSETS.NO_COVERAGE,
+            "checked": "2026-09-13",
+            "bounding_box": [168.70, -45.05, 168.79, -44.99],
+            "capabilities": {"LERCPROVIDER": {"engine": "1.50.1772",
+                                              "capabilities": ["lerc"]}},
+        }}, handle)
+    calls = _capability_strategy(lambda: None)
+    try:
+        assert INSETS.unverified_capability_negatives(
+            -45, 168, [_LERC_DEFINITION]) == []
+        INSETS.ensure_airport_insets(
+            -45, 168, {"NZQN": (168.70, -45.05, 168.79, -44.99)},
+            [_LERC_DEFINITION], 3.0,
+        )
+        assert calls["count"] == 0
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+
+
+def test_an_out_of_box_negative_is_never_unverified(tmp_path, monkeypatch):
+    """A negative that only says "my coverage box does not reach here"
+    needed no capability to write, so New Zealand's LiDAR never calls a
+    tile in Madrid into question."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    elsewhere = dict(_LERC_DEFINITION, coverage_bbox=(166.3, -47.4, 178.6,
+                                                      -34.3))
+    record = {"LERCPROVIDER": INSETS.NO_COVERAGE,
+              "bounding_box": [-3.7, 40.4, -3.5, 40.6]}
+    assert not INSETS.negative_is_unverified(record, "LERCPROVIDER",
+                                             elsewhere)
+
+
+def test_a_provider_needing_no_capability_is_never_re_probed():
+    """Only capability-GATED providers are in doubt."""
+    plain = {"code": "PLAIN", "access_strategy": "static_stac"}
+    record = {"PLAIN": INSETS.NO_COVERAGE}
+    assert INSETS.provider_required_capabilities(plain) == []
+    assert not INSETS.negative_is_unverified(record, "PLAIN", plain)
+    assert INSETS.provider_required_capabilities(_LERC_DEFINITION) == ["lerc"]
+    assert INSETS.provider_required_capabilities(
+        {"code": "RIO", "access_strategy": "arcgis_lerc_tiles"}) == ["lerc"]
+
+
+def test_provider_statuses_ignores_every_bookkeeping_key():
+    """ONE list of the non-provider keys.  The tile-report site had its
+    own, which omitted ``probes_for`` and counted a probe identity as a
+    provider status."""
+    record = {"HRDEM": "ok", "NZ": INSETS.NO_COVERAGE,
+              "checked": "2026-09-13", "probes": [[1.0, 2.0]],
+              "probes_for": ["x.tif", 12, 34], "bounding_box": [0, 0, 1, 1],
+              "capabilities": {"NZ": {"engine": "1.50.1772",
+                                      "capabilities": ["lerc"]}}}
+    assert INSETS.provider_statuses(record) == {
+        "HRDEM": "ok", "NZ": INSETS.NO_COVERAGE}
+
+
+def test_a_tile_with_an_unverified_negative_is_not_settled(
+    tmp_path, monkeypatch
+):
+    """``complete.json`` marked NZQN's cache complete AROUND the bad
+    negative, so the pass that would re-probe never ran."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "select_provider_definitions",
+                        lambda *a, **k: [_LERC_DEFINITION])
+    monkeypatch.setattr(INSETS, "insets_enabled_for_tile", lambda tile: True)
+    monkeypatch.setattr(INSETS, "_inset_completion_key",
+                        lambda tile: {"schema": "x", "airports_layer": [1, 2]})
+
+    class _Tile:
+        lat, lon = -45, 168
+        airport_elevation_providers = "auto"
+
+    tile = _Tile()
+    stamp_path = INSETS.inset_completion_stamp_path(-45, 168)
+    os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
+    with open(stamp_path, "w") as handle:
+        json.dump({"schema": "x", "airports_layer": [1, 2], "insets": []},
+                  handle)
+    index_path = FNAMES.airport_inset_index(-45, 168)
+    with open(index_path, "w") as handle:
+        json.dump({"NZQN": {"COPERNICUSGLO30": "ok",
+                            "bounding_box": [168.70, -45.05, 168.79,
+                                             -44.99]}}, handle)
+    assert INSETS.is_cached(tile) is True
+
+    with open(index_path, "w") as handle:
+        json.dump({"NZQN": {"COPERNICUSGLO30": "ok",
+                            "LERCPROVIDER": INSETS.NO_COVERAGE,
+                            "bounding_box": [168.70, -45.05, 168.79,
+                                             -44.99]}}, handle)
+    assert INSETS.is_cached(tile) is False
+
+
+def test_a_stamp_that_records_the_MISSING_capability_verifies_nothing():
+    """A capability record is not a rubber stamp: one that says the run
+    lacked LERC records the 1.0.324 condition rather than ruling it out,
+    so the negative stays unverified."""
+    record = {
+        "LERCPROVIDER": INSETS.NO_COVERAGE,
+        "bounding_box": [168.70, -45.05, 168.79, -44.99],
+        "capabilities": {"LERCPROVIDER": {"engine": "1.50.1771",
+                                          "capabilities": []}},
+    }
+    assert INSETS.negative_is_unverified(record, "LERCPROVIDER",
+                                         _LERC_DEFINITION)
+    record["capabilities"]["LERCPROVIDER"]["capabilities"] = ["lerc"]
+    assert not INSETS.negative_is_unverified(record, "LERCPROVIDER",
+                                             _LERC_DEFINITION)

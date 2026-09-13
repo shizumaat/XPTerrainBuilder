@@ -621,6 +621,52 @@ def missing_shared_artifacts(root, lat, lon) -> list:
                     "the cached airports OSM layer — the build would run an "
                     "overpass QUERY, and without it the DEM prep has no "
                     "smoothing masks"))
+    out.extend(unverified_inset_negatives(state, lat, lon))
+    return out
+
+
+def unverified_inset_negatives(state, lat, lon) -> list:
+    """The DEGRADED-TIER refusal (owner RULINGS 2026-09-13b (2)).
+
+    A ``no-coverage`` in the inset index recorded for a CAPABILITY-GATED
+    provider by a run that did not record its capabilities is UNVERIFIED:
+    1.0.324's packaged engine could not decode LERC at all, returned an
+    empty asset list, and the orchestration wrote "NEWZEALAND1M has no
+    coverage at NZQN" — so NZQN's inset has been cut from 30 m
+    COPERNICUS ever since, while 1 m LiDAR sat behind a permanent
+    negative.  The engine now RE-PROBES such a record once.
+
+    That re-probe fetches and re-cuts, which is a write into the shared
+    data repo — and a build never makes one as a side effect (ruling
+    e9daef5).  So a harness build REFUSES up front, names the airport and
+    the provider, and names ``--refresh-data dem``.  The app's own build
+    path takes the re-probe (it is the owner's machine and his data);
+    the harness does not.
+
+    The predicate is the ENGINE's own
+    (``O4_Airport_Elevation_Insets.unverified_capability_negatives``) —
+    imported, never copied.
+    """
+    if not state["airport_insets"]:
+        return []           # already refused above, for the whole cache
+    try:
+        import O4_Airport_Elevation_Insets as INSETS
+        unverified = INSETS.unverified_capability_negatives(lat, lon)
+    except Exception as exc:
+        print(f"  [harness] unverified-inset check skipped ({exc!r})")
+        return []
+    out = []
+    for (icao, code, capabilities) in unverified:
+        out.append(("dem",
+                    f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
+                    f"index.json [{icao}:{code}]",
+                    f"a no-coverage negative for {code} recorded with NO "
+                    f"capability record — the run that wrote it may have "
+                    f"lacked {'/'.join(capabilities).upper()} (1.0.324 did, "
+                    f"and minted exactly this negative for NEWZEALAND1M at "
+                    f"NZQN), so THE INSET HERE IS CUT AT A DEGRADED TIER; "
+                    f"the build would re-probe {code} and re-cut the inset "
+                    f"mid-build"))
     return out
 
 

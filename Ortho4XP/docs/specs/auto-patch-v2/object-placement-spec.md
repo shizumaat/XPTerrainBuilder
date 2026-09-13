@@ -2683,6 +2683,120 @@ body).  Matched arms on the 1.0.320 rebake plan + `LEMD.graded.json`,
   plan's ε-contact graph and the member rule bind a unit — the cross-member
   reach was not measured and is owed); no `tools/INDEX.md` row changed (no tool
   gained or lost a flag).
+
+**MEASURED (lane `v2reach`, 2026-09-12; branch `claude/v2reach` from main
+`5a7b325d`; owner RULINGS 2026-09-12am (1)).**  Matched arms on the 1.0.320
+rebake plan + `LEMD.graded.json`, `--admit-skipped` on the live pack read-only,
+the write half into APFS clones, `[guard] shared repo UNCHANGED` on every run.
+
+* **THE SITE, ATTRIBUTED — AND IT IS NOT THE REACH.**  `LEMD47` is written at
+  two zeros because §16c (7)'s rule (a) — an ELEVATED body joins its own
+  member's footed cluster — **never fired at all**.  `bind_unit` built every
+  `RigidNode` POSITIONALLY and the dataclass declares `footprint_m2` BEFORE
+  `footed`, so every node read `footprint_m2` **True** and `footed` its own
+  area: a member's `feet_i` held all 114 of `LEMD47`'s bodies, not one was
+  "not footed", and no union was ever made by (a).  Only the ε-contact graph
+  bound anything, and `LEMD47`'s footed walls (parts 929/931/961/964, 16 feet)
+  carry **ZERO** recorded contacts — all 114 with `LEMD48` are on its ELEVATED
+  parts.  Measured plan distance from those walls to the nearest other body of
+  the unit: **0.000 m** (its own elevated parts, `LEMD48`, `LEMD49`,
+  `LEMD38__b27` all overlap it in plan), so no reach length was ever the
+  question.  The seniority tie-break was inert for the same reason
+  (`_area` returned 1.0 for every footed candidate): what shipped at 12z was
+  "most feet, then the low side", not "then the footprint".
+* **THE FIX IS THE FIELD ORDER PLUS THE RULE'S OWN DISTANCE TEST, AND IT
+  MEETS THE OWNER'S BAR.**  Every field is named at both construction sites,
+  and rule (a) picks the footed body of the member the elevated body STANDS
+  OVER (largest plan overlap), else the NEAREST within `coarsen_reach_m`
+  (100 m).  Both halves of that are measured: 12z's one-footed FAST PATH
+  unioned with no test at all — dead while the field order was wrong, and the
+  moment (a) lived it broke §15 (1)'s own twin
+  (`test_a_roof_resource_rides_the_walls_of_ANOTHER_resource`: a member's
+  ground body 250 m from its roof, LEMD's `LEMD38` +6.11 m) — while a strict
+  OVERLAP test left `LEMD47` at **two zeros 0.491 m apart**, because its roof
+  pieces stand BESIDE its walls (0-12 m), not over them.
+* **THE BARS, LEMD** (main `5a7b325d` → this branch): `LEMD47`
+  **two zeros 0.804 m apart → ONE (603.619) — MET**; `LEMD48` one zero, now
+  the SAME one; T2 named-block spread **0.537 → 0.474 m — MET** (bar ≤ 0.5),
+  building-class spread 0.474 → **0.385**; the 11at / 12h / 12o / 12z sites
+  HELD (item 3 **+0.05**, item 5 **−0.27**, gate-5 sign −0.02 → **+0.04**,
+  T4 deck **+0.14**, `Terminal4_48` **−0.11**, `HANG3` **−0.81** / 2 files,
+  `Bridge2` 6 files, `green-LEMD50` 1 file, and
+  `Terminal4SAT_green-TEJ3` **5 files / 5 zeros, byte-equal — its panels do
+  not chain**); torn seams outside line/arc **0 → 0 — MET**;
+  single-component resources in ≥ 2 files **0 → 0 — MET**; §15 carried float
+  **0 → 0 — MET**; §14 footless at datum / on ground / basin split
+  **0/0/0 → 0/0/0**; §16 rows on the datum **0 → 0**; §16b carried piece
+  float **117 → 101**, wider than its terrain group **973 → 980** (worse by
+  7, named); files **2,148 → 2,114**; round trip **OK** (2,114/2,114 new
+  `OBJECT_DEF`s, 0 rows carrying an elevation); plan stage on the graded
+  sampler **9.22 / 9.29 / 9.30 s** against main's **9.81 / 9.86 / 9.85 —
+  MET** (bar ≤ 10.3).  `[guard] shared repo UNCHANGED` on every run.
+* **THE CLUSTERS.**  LEMD **211** clusters of more than one body (12z: 136),
+  five largest plan spans **299.3 / 298.9 / 298.4 / 297.8 / 297.3 m** — every
+  one inside `UNIT_CLUSTER_SPAN_MAX_M`; non-senior bodies bound **192 footed,
+  1,329 elevated** (12z: 168 / 733 — the difference is rule (a) working).
+  OTHH **215** clusters, five largest **300.0 m** ×5 (164 / 221 / 1,541 /
+  1,161 / 111 bodies), **403 footed, 22,932 elevated**.
+* **THE COLLATERAL, AIRPORT-WIDE** (keyed by part ids, never file name):
+  **93 carriers changed, 91 zeros moved**, largest real move **1.367 m**
+  (`OldTerminal_FSX-TECH`, 601.308 → 602.676), then 1.148 / 1.148 / 1.137 ×3
+  / 1.124 / 1.074; one body moved **+602 m** off its authored datum onto real
+  ground (`Cargo-LEMD64`, an improvement).
+* **THE BARS, OTHH** (matched arms under the guard, main → this branch): torn
+  seams **0 → 0 — MET**, single-component **0 → 0 — MET**, §15 carried float
+  **0 → 0 — MET**, files **1,337 → 1,252**, §16b carried piece float
+  **163 → 126**, wider **65 → 75** (worse by 10, named), §14 basin split
+  **1 → 1**, §14 footless at datum **4 → 5** — one WORSE on a bar already
+  violated, named: an elevated body that used to take a carrier now takes
+  neither a cluster nor one.  Round trip **OK** (1,251/1,251 new
+  `OBJECT_DEF`s), `[guard] shared repo UNCHANGED`.  Plan stage on the graded
+  sampler, this machine, same hour: **57.6 / 58.0 / 58.3 s** against main's
+  **61.5 / 59.9 / 60.0** — MET.
+* **THE CROSS-MEMBER RIGID REACH IS REFUTED AND DELETED** (the code is in
+  `claude/v2reach` `70776af7` and its revert; the record is here).  Solid
+  bodies of different members chaining within `rigid_reach_m` was implemented
+  twice and measured three ways on the same frame:
+
+  | arm | T2 block spread | carriers changed | LEMD plan stage |
+  |---|---|---|---|
+  | main `5a7b325d` | 0.537 | — | 9.8-9.9 s |
+  | field order + (a)'s distance test (SHIPPED) | **0.474** | 93 | **9.2-9.3 s** |
+  | field order + reach, PART BOXES | 1.548 | 254 | — |
+  | field order + reach, AUTHORED VERTICES | 1.949 | 137 | — |
+  | ... and no footed↔footed union | 0.875 | 100 | **67.1-67.9 s** |
+
+  (the three reach arms were measured against the FAST-PATH form of rule (a),
+  whose own numbers are `LEMD47` one zero, block 0.537, 66 carriers — the
+  arm the twin above then refuted)
+
+  The mechanism, named: a 2 m chain walks a terminal's APRON.  At LEMD it put
+  `AES_SAFE09__b16/17/19/20`, `PLANK__b3`, `TECH__b9/10/11`, `YETWY__b9/10`,
+  `TWY__b3`, `LEMD60__b15` and the terminal bodies beside them onto ONE zero
+  **1.24 m below the block** — eleven FOOTED bodies, each of which had read
+  its own ground, collapsed onto the one with the most feet.  Forbidding
+  footed↔footed unions (12z's within-member veto, extended) halves the damage
+  and does not remove it, and the reach still costs the LEMD plan stage
+  **6.8x** (67 s against 9.9, bar 10.3).  Both halves of the bar — "T2 block
+  spread ≤ 0.5" and "nothing else worse than 0.5 m that was under it" — are
+  MISSED by every arm of the reach and MET without it (0.474).  A
+  cross-member reach therefore needs a rule that is not distance: what §16c
+  (7) is FOR is a body with no ground of its own, and the ε-contact graph plus
+  rule (a) already reach that class.  The owner's call.
+* **Twins:** `test_an_elevated_body_joins_its_own_members_footed_cluster`
+  (both halves: `unit_rigid` directly, and one member with a footed part and
+  an elevated part over it through `build_splits` — it FAILS on main
+  `5a7b325d` and passes here); the four §16c (7)/(8) twins AMENDED to name
+  every `RigidNode` field, since building them positionally is what let the
+  defect through; and §15 (1)'s
+  `test_a_roof_resource_rides_the_walls_of_ANOTHER_resource` is what caught
+  the fast path — it is the distance test's own witness and is unchanged.
+  Suite **1,207 passed / 1 skipped**, twice (main 1,206 / 1).
+* **NOT DONE:** no airport build (§16c needs none);
+  `tej2`'s non-contacting pieces are unchanged; the T2 roofs' authored 5-9 m
+  gap is unchanged (12z's reading stands); no `tools/INDEX.md` row changed (no
+  tool gained or lost a flag).
+
 ## §17 THE COCKPIT FRAME, object stage (owner RULINGS 2026-09-12x/12y; design-surface-spec §31)
 
 A body's float, burial, seam or step is CRITICAL when it exceeds 0.5 m (`[cockpit]

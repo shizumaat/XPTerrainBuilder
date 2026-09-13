@@ -5960,6 +5960,78 @@ bridge / ramp / portal set: 904 passed, the SAME three pre-existing reds
 (`structures.py` 953, `structure_approach.py` 898,
 `constraints/structures.py` 961, `structure_underpass.py` 261).
 
+### 34.7 **MEASURED, ROUND 3** (lane `v2rampwalk`, `claude/v2rampwalk` merged onto main `f866e8bb`)
+
+§34 (4) NARROWED as ruled: the general road trim is WITHDRAWN (the ribbon
+barrier, `road_ribbons`, and §19 rule 2's crest un-gating are deleted;
+§19.2 (2) reads at the road's OUTER edge again, as originally ruled), and a
+zone band now yields ONLY to a TUNNEL CORRIDOR — `Classification.keepouts`,
+the mouth/ramp/trench/underpass outer rings the structure pass publishes —
+subtracted with the SAME `groundside_cutback_m ⊕ snap` stand-off a
+groundside cell gets, so the band never shares a vertex with the corridor's
+rim and the gap terraces against the ramp walls.  §34 (5), §34 (6) and
+§33 (4) stand exactly as round 2 landed them.  One derivation site, so
+§19.3's consumer table still holds verbatim.
+
+Arms, both `--engine v2` LEMD, one tree, one corpus, shared repo unchanged.
+**BASE** = main `f866e8bb` (`--base-arm`, artifact `00ddff5c133a`, body
+`667e8c2761ed` — byte-identical to round 2's base, which confirms
+`f866e8bb` is docs-only over `864e7577` for LEMD — 418.0 s, `optimal`,
+verify 1,431).  **LANE** artifact `0f6002e1aaf2`, body `bf66853f153a`,
+444.2 s, **`optimal`**, verify 1,322.
+
+**CENSUS**: TOTAL 3,698 → **3,572 (−126)**; **ADJUDICATED 1,215 → 1,156
+(−59)**; out of scope 2,483 → 2,416.  `transverse` 80 → 51, `taxi_box`
+240 → 210, `airside_no_step` 433 → 410, `strip_transverse` 44 → 36,
+`within_shape` 2,848 → **2,785 (−63)**, `adjacent_ground_step` 3 → 1,
+`raoa` 1 → 0, `cross_shape` 1 → 0, against `road_cross_section` 23 → 50.
+
+**THE COCKPIT BLOCK, both arms.**  BASE: CRITICAL motion **2** (worst
+0.430 m over 58.03 m, `strip_arc` at 40.4625636, −3.5525152), CRITICAL
+visual **3** (worst 1.720 m over 1.5 m at 40.4856895, −3.5884014).
+LANE: CRITICAL motion **2** (worst 0.430 → **0.070 m** at the same
+`strip_arc`; the second is a NEW 0.060 m welded `frontage_near_miss` step
+at 40.4668804, −3.5698264), CRITICAL visual **3 → 1**, worst
+**0.560 m over 0.5 m**, `adjacent_ground_step [apron|graded_strip]` at
+40.4609843, −3.5450536.
+
+**BARS.**
+* CRITICAL visual ≤ 3 — **1** ✅; NO row at 40.5331907, −3.5748496 ✅
+  (the 8.49 m edge is back inside `zone2`'s interior, spread as before);
+  none at F-6's 40.4609964 / 40.4610048 ✅ — the 5.29 m rows and both
+  `strip_seam_tear` rows are GONE (`strip_seam_tear` 0 on both arms).  The
+  ONE surviving visual row stands 33 m east of them at 40.4609843,
+  −3.5450536 and is 0.560 m over 0.50 m — an apron↔band lip in the
+  approach corridor, an order of magnitude under what it replaced.
+* `graded_strip|graded_strip` `within_shape` ≤ base + 20 — **0**, against
+  0 in the base (round 2: 671) ✅.
+* item 8's 1.63 / 1.72 m row at 40.4856895, −3.5884014 — **absent** ✅
+  (`adjacent_ground_step` 3 → 1): the road there is AT A TUNNEL, so the
+  corridor subtraction is what removes it, which is the ruling's point.
+* item 9's deck end ≤ 0.3 — `bridge_deck:-6288` east 608.25 → **607.67**
+  against the `pav92` vertex 13.4 m from the way's east end 606.60 →
+  607.49: gap 1.65 → **0.18 m** ✅.
+* `optimal` — **held** ✅ (both arms).
+* 7a / 7b — **held**: `tunnel:-15327@0` top **144 m** (was 420),
+  `tunnel:-5980@0` top 36 m; `tunnel_ramp|tunnel_ramp` `within_shape`
+  20 → **26**, no cap-riding population ✅.
+* KCLT item 3 — **unchanged by replay**: 124 aeroway+bridge ways, 3 at
+  `underpass_min_layer` (121 jet bridges), taxiway U −1560 bores 2 roads,
+  mouths 35.2015761 / 35.2018654, −80.94034; taxiways −71 and −70 one road
+  each.  No KCLT build.
+* SUITE `tests/auto_patch_v2` + `tests/test_harness.py`: **1,220 passed, 1
+  skipped, twice**.  The v1 tunnel / bridge / ramp / portal set: 860
+  passed, the two pre-existing reds 13r named that live in it
+  (`test_tunnel_portal_fidelity::TestClearanceAnnulus`,
+  `test_tunnel_ramp_run_merge::TestItIsNotAPostPass`).
+
+**WHAT ROUND 3 DID NOT SETTLE.**  `road_cross_section` 23 → 50 (+27) —
+groundside road faces re-priced by the corridor stand-off; all out of
+scope, none critical.  The new 0.060 m welded motion row at
+40.4668804, −3.5698264.  The 0.560 m visual row above.  `road_lines`
+keeps round 1's AT-GRADE filter (a `tunnel` / `bridge` way's centreline is
+not the surface): it only NARROWS §19 rule 2 and creates no trim.
+
 ### §28 (6) A hillside terrace is not a frontage (Fable 2026-09-13; RULINGS 2026-09-13o) — lane `v2frontagestep`
 
 Owner (13l item 1): at CYXY the groundside lots beside two buildings cut into a hill

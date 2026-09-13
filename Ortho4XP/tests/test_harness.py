@@ -8681,3 +8681,89 @@ def test_both_seam_families_carry_a_cockpit_class(cg):
         assert key in {k for k, _t, _b in cg.LAW_FAMILIES}
     assert table["seam_residual"]["cockpit"] == "step"
     assert table["bank_across_seam"]["cockpit"] == "keepout"
+
+
+# ── §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be) ─────────
+
+_JOIN_LAT, _JOIN_LON = 35.2077398, -80.9290045     # KCLT way 10826 station 0
+
+
+def _road_join_patch(tmp_path, *, name, ribbon, emitted):
+    """A four-node service-road ring whose eastern kerbs sit at the patch's
+    COVERAGE EDGE, with the core ribbon's altitude published for them
+    (sidecar ``road_coverage_join``).  ``emitted`` is what the patch
+    carries there, ``ribbon`` what the core levels the road to just
+    outside."""
+    m_lon = 111_320.0 * math.cos(math.radians(_JOIN_LAT))
+    west = _JOIN_LON - 20.0 / m_lon
+    nodes = [(-1, _JOIN_LAT, _JOIN_LON, emitted),
+             (-2, _JOIN_LAT + 0.00007, _JOIN_LON, emitted),
+             (-3, _JOIN_LAT + 0.00007, west, emitted),
+             (-4, _JOIN_LAT, west, emitted)]
+    ways = [(-100, [-1, -2, -3, -4, -1],
+             {"role": "service_road", "shapeID": "R1", "ref": "dsf:polX"})]
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='road-join-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_JOIN_LAT, _JOIN_LON],
+        "ruleset": "faa",
+        "road_coverage_join": [[round(_JOIN_LAT, 11), round(_JOIN_LON, 11), ribbon],
+                               [round(_JOIN_LAT + 0.00007, 11),
+                                round(_JOIN_LON, 11), ribbon]],
+    }))
+    return osm
+
+
+def test_a_road_meeting_the_core_ribbon_prices_no_join_row(cg, tmp_path):
+    """§37 (9): a road AT the ribbon's altitude where its way leaves the
+    coverage prices nothing — the join is a Pin and a pin holds."""
+    fo = _families(cg, _road_join_patch(tmp_path, name="joined",
+                                        ribbon=203.48, emitted=203.48))
+    assert fo["road_coverage_join"] == [], (
+        "a road vertex at its published ribbon altitude must price nothing")
+
+
+def test_a_road_standing_over_the_core_ribbon_prices_the_join(cg, tmp_path):
+    """THE MEASURED CLASS (RULINGS 2026-09-13be): at KCLT way 10826 station
+    0 the patch's kerb stood 2.36 m over the core ribbon it joins, and no
+    other family could see it — the patch is lawful on its own side and the
+    ribbon is not in the patch at all."""
+    fo = _families(cg, _road_join_patch(tmp_path, name="stepped",
+                                        ribbon=203.48, emitted=205.84))
+    rows = fo["road_coverage_join"]
+    assert len(rows) == 2, rows
+    assert max(cg.row_magnitude(r) for r in rows) == pytest.approx(2.36, abs=0.01)
+
+
+def test_a_patch_with_no_join_key_reads_exactly_as_before(cg, tmp_path):
+    """Every patch built before §37 (9) carries no key and prices no row."""
+    osm = _road_join_patch(tmp_path, name="nokey", ribbon=203.48, emitted=205.84)
+    side = Path(str(osm) + ".axes.json")
+    data = json.loads(side.read_text())
+    data.pop("road_coverage_join")
+    side.write_text(json.dumps(data))
+    assert _families(cg, osm)["road_coverage_join"] == []
+
+
+def test_the_join_family_is_registered_and_law_declared(cg):
+    """The family is in ``LAW_FAMILIES``, its key is LAW INPUT, and
+    ``families.toml`` declares it (the census cannot omit a family)."""
+    assert "road_coverage_join" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    assert cg.SIDECAR_LAW_KEYS.get("road_coverage_join") == "road_coverage_join_ll"
+    import sys as _sys
+    _sys.path.insert(0, str(Path(cg.__file__).resolve().parents[1] / "src"))
+    from auto_patch_v2.law import Law
+    fam = Law.load().tables.families["road_coverage_join"]
+    assert fam.cockpit == "step" and fam.solver == "pin"
+    assert set(fam.roles) == {"service_road", "service_junction"}

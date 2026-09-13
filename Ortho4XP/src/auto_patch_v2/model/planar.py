@@ -239,6 +239,12 @@ class PlanarMap:
     #: does; empty on a map the publisher never ran over (the chord law).
     road_route_frame: _t.Mapping[int, tuple[int, float, float]] = _dc.field(
         default_factory=dict)
+    #: §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be;
+    #: ``emit/road_join.py``): road vertex -> the CORE ribbon's altitude at
+    #: the first station outside the patch coverage, as an EQUALITY — the
+    #: patch's road and the core's levelled road meet at one level (KCLT way
+    #: 10826 station 0 stood 2.36 m over the ribbon across 7.9 m).
+    road_coverage_join: _t.Mapping[int, float] = _dc.field(default_factory=dict)
     #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
     #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
     #: -> shape id (a pad's majority shape), and the declared joints — the

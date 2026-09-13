@@ -50,6 +50,10 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # target at the law weight, with a HARD ceiling a visual threshold above
     # it, superseding the core's soft road fit (``constraints/road_ramp.py``).
     ("road_ramp", road_ramp.road_ramp_rows),
+    # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): where a
+    # road's way leaves the patch coverage the patch takes the CORE
+    # ribbon's altitude just outside — the two are one road.
+    ("road_coverage_join", road_ramp.road_join_rows),
     ("groundside_ramp", groundside.groundside_ramps),
     ("transverse", transverse.transverse),
     ("no_step_pairs", no_step.no_step_pairs),

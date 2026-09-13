@@ -535,7 +535,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             from auto_patch_v2.airport.road_ramp import with_road_ramp
         except ImportError:
             return m
-        return with_road_ramp(m, law, airport)
+        m = with_road_ramp(m, law, airport)
+        # §37 (9) the coverage-edge join, after the frame it reads
+        try:
+            from auto_patch_v2.airport.road_profile import core_profiles
+            from auto_patch_v2.emit.road_join import with_road_coverage_join
+        except ImportError:
+            return m
+        prof, per_face = core_profiles(airport, m, law)
+        return with_road_coverage_join(m, law, prof)
 
     if chord_fill:
         print(f"[{icao}] chord-fill target arm (08g-2): roles {chord_fill} within the strip take the "

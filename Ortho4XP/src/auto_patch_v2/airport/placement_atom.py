@@ -364,7 +364,8 @@ class RigidNode:
 
 def unit_rigid(nodes: _t.Sequence[RigidNode],
                contacts: _t.Iterable[tuple[int, int]],
-               span_max_m: float = UNIT_CLUSTER_SPAN_MAX_M
+               span_max_m: float = UNIT_CLUSTER_SPAN_MAX_M,
+               near_m: float = 0.0
                ) -> tuple[list[int], list[tuple[float, int, int]]]:
     """§16c (7): THE UNIT BINDS BY CONTACT (owner RULINGS 2026-09-12q).
 
@@ -455,24 +456,40 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
         feet_i = [i for i in idx if nodes[i].footed and nodes[i].box is not None]
         if not feet_i:
             continue
-        if len(feet_i) == 1:
-            # the common case, and the cheap one: OTHH publishes 49,793
-            # elevated bodies and the overlap loop below is per pair
-            for i in idx:
-                if not nodes[i].footed:
-                    _union(i, feet_i[0])
-            continue
+        # WHICH footed body, AND HOW FAR IS TOO FAR.  The one it STANDS
+        # OVER — the largest plan overlap — and, where it overlaps none,
+        # the NEAREST within ``near_m``.  Both halves are measured:
+        # `LEMD47`'s roof pieces stand BESIDE its walls, not over them
+        # (0-12 m, and binding only the overlapping ones left the
+        # resource at two zeros 0.491 m apart), while a member's own
+        # ground body can be hundreds of metres from its roof — LEMD's
+        # `LEMD38` roof took a carrier 250 m off and floated 6.11 m,
+        # which is §15 (1)'s law and its twin, and an unconditional
+        # union hands it back.  ``near_m`` is ``coarsen_reach_m``: the
+        # distance at which bodies of ONE member are already one thing.
+        # 12z's one-footed fast path made no test at all; it could not
+        # show while the rule was dead (RULINGS 2026-09-12am (1)).
         for i in idx:
             if nodes[i].footed or nodes[i].box is None:
                 continue
             b = nodes[i].box
-            best, best_ov = -1, 0.0
+            best, best_ov, near, near_d = -1, 0.0, -1, near_m
             for j in feet_i:
                 q = nodes[j].box
                 ov = (max(0.0, min(b[2], q[2]) - max(b[0], q[0]))
                       * max(0.0, min(b[3], q[3]) - max(b[1], q[1])))
                 if ov > best_ov:
                     best, best_ov = j, ov
+                if best_ov > 0.0 or near_m <= 0.0:
+                    continue
+                ml, mo = _ar._m_per_deg(0.5 * (b[0] + b[2]))
+                d = float(np.hypot(
+                    max(0.0, max(b[0] - q[2], q[0] - b[2])) * ml,
+                    max(0.0, max(b[1] - q[3], q[1] - b[3])) * mo))
+                if d < near_d:
+                    near, near_d = j, d
+            if best < 0:
+                best = near
             if best >= 0:
                 _union(i, best)
     # (b) AND THE ε-CONTACT GRAPH BINDS ACROSS MEMBERS
@@ -532,7 +549,7 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
 
 def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
           surface: _t.Any, contacts: _t.Iterable[tuple[int, int]],
-          counts: dict) -> tuple[dict, list]:
+          counts: dict, near_m: float = 0.0) -> tuple[dict, list]:
     """§16c (7) APPLIED TO ONE UNIT (owner RULINGS 2026-09-12q).
 
     Builds the unit's rigid nodes — every footed CANDIDATE and every
@@ -557,15 +574,27 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
     nodes: list[RigidNode] = []
     cand_of_node: list[int] = []
     node_of: dict[tuple[int, int], int] = {}
+    # EVERY FIELD IS NAMED, AND THAT IS THE LAW HERE (RULINGS 12am (1)).
+    # The first form of this call passed them POSITIONALLY and put the
+    # footprint where ``footed`` is declared: every node then read
+    # ``footed`` TRUE (its own area) and ``footprint_m2`` 1.0, and rule
+    # (a) below — an ELEVATED body joins its own member's footed cluster
+    # — never fired at all: a member's ``feet_i`` held every one of its
+    # bodies and not one was "not footed".  LEMD's `LEMD47` was the
+    # residue the owner read at 1.0.320: its footed walls carry ZERO
+    # recorded ε-contacts (all 114 with `LEMD48` are on its ELEVATED
+    # parts), nothing else bound them, and the resource was written at
+    # two zeros 0.804 m apart — over §31's 0.5 m visual threshold.
     for _ci, c in enumerate(cands):
         _z = (None if c.anchor.surface_z is None else
               float(c.anchor.surface_z) - float(c.anchor.y_zero))
         node_of[(c.member, ~c.group)] = len(nodes)
         cand_of_node.append(_ci)
         nodes.append(RigidNode(
-            c.member, frozenset(c.pids), c.box, True,
-            sum(_pc.box_area_m2(b) for b in c.part_boxes),
-            c.body_class not in _never_bind, _z, c.feet))
+            member=c.member, pids=frozenset(c.pids), box=c.box,
+            footprint_m2=sum(_pc.box_area_m2(b) for b in c.part_boxes),
+            footed=True, bindable=c.body_class not in _never_bind,
+            zero=_z, feet=c.feet))
     for st in staged:
         for _bi, _r in enumerate(st.raw):
             if not (_r[4] or st.footless):
@@ -573,14 +602,15 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
             node_of[(st.mi, _bi)] = len(nodes)
             cand_of_node.append(-1)
             nodes.append(RigidNode(
-                st.mi,
-                frozenset(p.pid for p in _r[0]),
-                _pc.hull_of(st.part_boxes[_bi]), False,
-                sum(_pc.box_area_m2(b) for b in st.part_boxes[_bi]),
-                _r[1] not in _never_bind, None))
+                member=st.mi,
+                pids=frozenset(p.pid for p in _r[0]),
+                box=_pc.hull_of(st.part_boxes[_bi]),
+                footprint_m2=sum(_pc.box_area_m2(b)
+                                 for b in st.part_boxes[_bi]),
+                footed=False, bindable=_r[1] not in _never_bind,
+                zero=None))
     senior_node, cl_census = unit_rigid(
-        nodes, contacts,
-        span_max_m=UNIT_CLUSTER_SPAN_MAX_M)
+        nodes, contacts, span_max_m=UNIT_CLUSTER_SPAN_MAX_M, near_m=near_m)
     counts["unit_clusters"] = counts.get("unit_clusters", 0) + len(cl_census)
     by_mi0 = {st.mi: st for st in staged}
     # (a) a FOOTED body of the cluster takes the senior's zero: its

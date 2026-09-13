@@ -3327,14 +3327,17 @@ def test_a_cluster_never_grows_wider_than_a_building(tmp_path):
     from auto_patch_v2.airport import placement_atom as ATOM
     far = ATOM.UNIT_CLUSTER_SPAN_MAX_M * 2.0 / 111_000.0
     near = ATOM.RigidNode(0, frozenset([1]), (40.0, -3.0, 40.0005, -2.9995),
-                          True, 100.0, True, 600.0, 8)
+                          footprint_m2=100.0, footed=True, bindable=True,
+                          zero=600.0, feet=8)
     away = ATOM.RigidNode(1, frozenset([2]),
                           (40.0 + far, -3.0, 40.0005 + far, -2.9995),
-                          True, 10.0, True, 610.0, 2)
+                          footprint_m2=10.0, footed=True, bindable=True,
+                          zero=610.0, feet=2)
     senior, census = ATOM.unit_rigid([near, away], [(1, 2)])
     assert senior == [-1, -1] and census == []
     close = ATOM.RigidNode(1, frozenset([2]), (40.0004, -3.0, 40.0009, -2.9995),
-                           True, 10.0, True, 610.0, 2)
+                           footprint_m2=10.0, footed=True, bindable=True,
+                           zero=610.0, feet=2)
     senior2, census2 = ATOM.unit_rigid([near, close], [(1, 2)])
     assert senior2[1] == 0 and senior2[0] == -1      # the senior is the
     assert census2 and census2[0][1] == 2            # body with the feet
@@ -3347,11 +3350,67 @@ def test_a_line_object_and_a_basin_never_join_a_unit_cluster():
     relief and the pits at LEMD03/36/85 split into 8 torn seams."""
     from auto_patch_v2.airport import placement_atom as ATOM
     a = ATOM.RigidNode(0, frozenset([1]), (40.0, -3.0, 40.0005, -2.9995),
-                       True, 100.0, True, 600.0, 8)
+                       footprint_m2=100.0, footed=True, bindable=True,
+                       zero=600.0, feet=8)
     fence = ATOM.RigidNode(1, frozenset([2]), (40.0002, -3.0, 40.0007, -2.9995),
-                           True, 10.0, False, 610.0, 2)
+                           footprint_m2=10.0, footed=True, bindable=False,
+                           zero=610.0, feet=2)
     senior, _c = ATOM.unit_rigid([a, fence], [(1, 2)])
     assert senior == [-1, -1]
+
+
+def test_an_elevated_body_joins_its_own_members_footed_cluster():
+    """§16c (7) rule (a), AND THE FIELD ORDER THAT KILLED IT (owner
+    RULINGS 2026-09-12am (1)).
+
+    A member is ONE authored object: its ELEVATED bodies ride the footed
+    body of their own member whether or not the plan records a contact
+    between them — a roof welded into its own walls often shares no PART
+    with them.  ``bind_unit`` built its nodes POSITIONALLY and put the
+    footprint where ``footed`` is declared, so every node read
+    ``footed`` true, a member's ``feet_i`` held all of its bodies and
+    NOTHING was ever unioned by this rule.  LEMD's `LEMD47` was the
+    residue: its footed walls carry no ε-contact at all (all 114 with
+    `LEMD48` are on its elevated parts) and the resource was written at
+    two zeros 0.804 m apart, over §31's 0.5 m visual threshold.
+
+    So: no contacts, one member, one footed body and one elevated — the
+    elevated body's senior IS the footed one."""
+    from auto_patch_v2.airport import placement_atom as ATOM
+    walls = ATOM.RigidNode(7, frozenset([1]), (40.0, -3.0, 40.0005, -2.9995),
+                           footprint_m2=100.0, footed=True, bindable=True,
+                           zero=600.0, feet=16)
+    roof = ATOM.RigidNode(7, frozenset([2]), (40.0, -3.0, 40.0005, -2.9995),
+                          footprint_m2=90.0, footed=False, bindable=True,
+                          zero=None)
+    senior, census = ATOM.unit_rigid([walls, roof], ())
+    assert senior[1] == 0 and senior[0] == -1, senior
+    assert census and census[0][1] == 2
+    # ... and the same through ``bind_unit``, which is where the swap
+    # was: ONE member, a footed part and an elevated part OVER it (the
+    # rule's own plan-overlap test), NO contacts at all — the two are
+    # separate components 100 m apart in the authored file, so §16c (8)
+    # does not weld them either.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        import pathlib
+        p, _n = _two_boxes(pathlib.Path(td), with_anim=False)
+        plan = _unit_plan([(p, [(0, 0.0, 0.0, 0.0, 0.0, 12.0),
+                                (1, 8.0, 0.0, 0.0, 8.0, 12.0)],
+                            "objects/one.obj")], contacts=())
+        ss = PP.build_splits(plan, _stepped_surface, write=False,
+                             **_elev_args())
+        zs = {round(bd.anchor.surface_z - bd.anchor.y_zero, 3)
+              for sp in ss.all for bd in sp.bodies
+              if bd.anchor.surface_z is not None}
+        assert len(zs) == 1, zs
+        assert ss.counts.get("bodies_bound_to_cluster_by_contact", 0) >= 1
+    # the swapped reading is what the defect was: a node whose `footed`
+    # is truthy is a FOOTED body, and two of one member never union
+    import dataclasses as _dc0
+    roof_as_footed = _dc0.replace(roof, footed=True, zero=601.0)
+    senior2, _c2 = ATOM.unit_rigid([walls, roof_as_footed], ())
+    assert senior2 == [-1, -1], senior2
 
 
 def test_the_rest_on_carrier_is_not_refused_for_its_own_ground():

@@ -734,12 +734,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # ── §16c (7): THE UNIT BINDS BY CONTACT ──────────────────────
         # The bodies of the unit the plan's own ε-contact graph links —
         # and every elevated body of a member with the footed body of
-        # its own member it stands over — are ONE RIGID CLUSTER at ONE
-        # zero: the SENIOR FOOTED body's, everything else riding it at
-        # its authored offset.  The law and its bounds live in
-        # ``placement_atom`` (RULINGS 2026-09-12q).
-        forced, cl_census = _atom.bind_unit(cands, staged, surface,
-                                            unit_pairs.get(ui, ()), counts)
+        # its own member it stands over, or nearest within the coarsen
+        # reach — are ONE RIGID CLUSTER at ONE zero: the SENIOR FOOTED
+        # body's.  The law lives in ``placement_atom`` (12q, 12am (1)).
+        forced, cl_census = _atom.bind_unit(
+            cands, staged, surface, unit_pairs.get(ui, ()), counts,
+            near_m=coarsen_reach_m)
         cl_spans.extend(cl_census[:5])
 
         # ── PASS 3: what does each elevated body STAND OVER? ──────────

@@ -1,5 +1,7 @@
 """"Ortho4XP configuration variables."""
 
+import os
+
 import O4_OSM_Utils as OSM
 
 # THE ROAD GRADE CAP IS ONE CONSTANT, NOT TWO (linear-transport census
@@ -914,6 +916,35 @@ retired_cfg_keys = {
         "2026-08-12) — delete the line."
     ),
 }
+
+
+#: THE ONCE REGISTER (owner RULINGS 2026-09-12as (1)): ``(source, var)``
+#: pairs already warned about IN THIS PROCESS.  KCLT's tile cfg carries
+#: two retired keys and is read three times per build (the tile overlay
+#: layers plus a read outside any tile context), so the owner saw six
+#: WARNING lines for two stale cfg lines.  A retirement is NEWS ONCE per
+#: key per file per process; the cfg SAVE then drops the line for good
+#: (``O4_Settings_Model.write_tile`` emits ``list_tile_vars`` only).
+_retired_cfg_warned = set()
+
+
+def retired_cfg_key_warning_once(var, value=None, source=None):
+    """:func:`retired_cfg_key_warning`, but ``None`` after the first time
+    this process saw ``var`` in the file ``source``.
+
+    ``source`` is the cfg file the line came from, normalised to an
+    absolute path; ``None`` is its own bucket (a caller with no file).
+    Every cfg READER goes through this — the global read and the tile
+    overlay read are the same news to the same user.
+    """
+    key = (os.path.abspath(source) if source else None, var)
+    if key in _retired_cfg_warned:
+        return None
+    text = retired_cfg_key_warning(var, value)
+    if text is None:
+        return None
+    _retired_cfg_warned.add(key)
+    return text
 
 
 def retired_cfg_key_warning(var, value=None):

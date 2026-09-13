@@ -1525,6 +1525,15 @@ def _ensure_bathymetry_band_now(
     # Walk the covering providers best-first: a provider whose coverage
     # claim exceeds its data (the Allen Coral Atlas library before any
     # package is downloaded) must not starve the ones behind it.
+    # WHY THIS TILE HAS NO BAND (owner RULINGS 2026-09-12as (4)): Qatar
+    # and Peru are simply outside CORALATLAS's reef atlas — a WARNING
+    # there reports weather as breakage.  A provider that answered "no
+    # data here" for every one of its cells is NO COVERAGE (INFO, named);
+    # a provider whose cells errored or timed out is a FETCH FAILURE
+    # (WARNING).  ``_fetch_cell``'s outcome is the evidence: NO_COVERAGE
+    # for a durable negative, ``None`` for a transient one.
+    no_coverage_codes = []
+    fetch_failure_codes = []
     for definition in definitions:
         if UI.red_flag:
             return None
@@ -1796,6 +1805,11 @@ def _ensure_bathymetry_band_now(
                 holding_lock=False,
             )
         if not existing_cells:
+            if cells and all(cell_outcomes.get(cell["stem"]) == NO_COVERAGE
+                             for cell in cells):
+                no_coverage_codes.append(code)
+            else:
+                fetch_failure_codes.append(code)
             UI.vprint(
                 1,
                 "   INFO:",
@@ -1836,9 +1850,23 @@ def _ensure_bathymetry_band_now(
         os.replace(temporary_vrt_path, vrt_path)
         return vrt_path
 
-    UI.lvprint(
-        0,
-        "   WARNING: no bathymetry band cell could be fetched for this"
-        " tile; masks keep their distance-only water fade.",
-    )
+    if no_coverage_codes and not fetch_failure_codes:
+        # Every provider that covers this tile reported no data here:
+        # the tile has no reef/bathymetry survey, which is not a fault.
+        UI.vprint(
+            1,
+            "   INFO: no bathymetry here —",
+            ", ".join(no_coverage_codes),
+            "report no coverage for this tile; masks keep their"
+            " distance-only water fade.",
+        )
+    else:
+        UI.lvprint(
+            0,
+            "   WARNING: no bathymetry band cell could be fetched for this"
+            " tile"
+            + (" (" + ", ".join(fetch_failure_codes) + " failed)"
+               if fetch_failure_codes else "")
+            + "; masks keep their distance-only water fade.",
+        )
     return None

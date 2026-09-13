@@ -552,6 +552,32 @@ def initialize_elevation_providers_dict(providers_directory=None):
     return result
 
 
+#: THE LERC DECODE WORKER (owner RULINGS 2026-09-12as (3)).  The decode
+#: is a SUBPROCESS because imagecodecs' LERC decoder and the osgeo
+#: shared libraries abort a process that loads both; the code it runs is
+#: ``src/O4_LERC_Decode.py``, which imports no GDAL and which the frozen
+#: bundle carries (Ortho4XP.spec pins tifffile / imagecodecs).
+_LERC_DECODE_MODULE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "O4_LERC_Decode.py")
+
+
+def lerc_worker_argv(source, destination):
+    """The argv that decodes ``source`` (a LERC GeoTIFF, or a directory
+    of ``.lerc`` blobs) into ``destination``.
+
+    From source that is ``python src/O4_LERC_Decode.py IN OUT``; frozen
+    it is the engine's own binary with the internal ``--lerc-decode``
+    argv, dispatched in ``Ortho4XP.py`` ahead of the heavy imports.
+    Before this the packaged engine had no decoder at all and NEW
+    ZEALAND's 1 m lidar silently degraded to the base tier.
+    """
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--lerc-decode", source, destination]
+    return [sys.executable, _LERC_DECODE_MODULE, source, destination]
+
+
 def _parse_boolean(value):
     if isinstance(value, bool):
         return value
@@ -2518,23 +2544,13 @@ class StaticStacCatalogStrategy:
         self._save_index(definition, index)
         return sources or None
 
-    # Runs in a THROWAWAY interpreter: imagecodecs' LERC decoder and the
-    # osgeo shared libraries abort the process when both are loaded (a
-    # native symbol clash, reproduced on macOS with the Homebrew GDAL and
-    # the imagecodecs wheels), so the decode must never share a process
-    # with GDAL.  argv: <input tiff> <output npy>; tags go to stdout.
-    _LERC_DECODE_SNIPPET = (
-        "import json, sys\n"
-        "import numpy\n"
-        "import tifffile\n"
-        "with tifffile.TiffFile(sys.argv[1]) as tif:\n"
-        "    page = tif.pages[0]\n"
-        "    numpy.save(sys.argv[2], page.asarray())\n"
-        "    print(json.dumps({\n"
-        "        'scale': list(page.tags['ModelPixelScaleTag'].value),\n"
-        "        'tiepoint': list(page.tags['ModelTiepointTag'].value),\n"
-        "    }))\n"
-    )
+    # THE DECODE RUNS OUT OF PROCESS, in ``src/O4_LERC_Decode.py``:
+    # imagecodecs' LERC decoder and the osgeo shared libraries abort the
+    # process when both are loaded (a native symbol clash, reproduced on
+    # macOS with the Homebrew GDAL and the imagecodecs wheels), so the
+    # decode must never share a process with GDAL.  ONE implementation
+    # for both the source and the frozen path (2026-09-12as (3)):
+    # ``lerc_worker_argv`` below spells the argv for each.
 
     def _decode_lerc_sources(self, definition, sources, destination_path):
         """Download + decode LERC-compressed assets to local GeoTIFFs.
@@ -2544,28 +2560,16 @@ class StaticStacCatalogStrategy:
         official wheels) ship WITHOUT -- a ``/vsicurl`` warp then fails
         with "missing codec LERC".  When the definition declares
         ``asset_compression=lerc`` the whole tile is downloaded instead
-        and decoded (in a subprocess, see ``_LERC_DECODE_SNIPPET``) into
+        and decoded (in a subprocess, :func:`lerc_worker_argv`) into
         a temporary plain GeoTIFF beside ``destination_path``,
         georeferenced from the embedded ModelPixelScale/ModelTiepoint
         tags and the definition's ``source_epsg``.  Returns the
         temporary paths (caller deletes).
         """
         import subprocess
-        import sys
 
         import requests
 
-        if getattr(sys, "frozen", False):
-            # The packaged application cannot spawn a bare interpreter;
-            # LERC sources degrade to the base tier there.
-            UI.vprint(
-                1,
-                "   WARNING: LERC-compressed elevation sources are not "
-                "available in the packaged application - skipping "
-                + str(definition.get("code"))
-                + ".",
-            )
-            return []
         source_epsg = int(float(definition.get("source_epsg", 4326)))
         temporary_paths = []
         for (number, entry) in enumerate(sources):
@@ -2578,13 +2582,7 @@ class StaticStacCatalogStrategy:
                 with open(tiff_path, "wb") as handle:
                     handle.write(response.content)
                 completed = subprocess.run(
-                    [
-                        sys.executable,
-                        "-c",
-                        self._LERC_DECODE_SNIPPET,
-                        tiff_path,
-                        npy_path,
-                    ],
+                    lerc_worker_argv(tiff_path, npy_path),
                     capture_output=True,
                     text=True,
                     timeout=600,
@@ -3259,37 +3257,9 @@ class ArcgisLercTileStrategy:
 
     MAXIMUM_TILES_PER_MOSAIC = 1024
 
-    # argv: <blob_directory> <output_directory>; decodes every *.lerc
-    # file to a .npy beside-named file, marking invalid samples -32768.
-    _LERC_BLOB_DECODE_SNIPPET = (
-        "import os, sys\n"
-        "import numpy\n"
-        "import imagecodecs\n"
-        "for name in os.listdir(sys.argv[1]):\n"
-        "    if not name.endswith('.lerc'):\n"
-        "        continue\n"
-        "    blob = open(os.path.join(sys.argv[1], name), 'rb').read()\n"
-        "    mask = None\n"
-        "    try:\n"
-        "        decoded = imagecodecs.lerc_decode(blob, masks=True)\n"
-        "        if isinstance(decoded, tuple):\n"
-        "            (values, mask) = decoded\n"
-        "        else:\n"
-        "            values = decoded\n"
-        "    except TypeError:\n"
-        "        values = imagecodecs.lerc_decode(blob)\n"
-        "    values = numpy.asarray(values, dtype=numpy.float32)\n"
-        "    values = values.reshape(values.shape[-2], values.shape[-1])\n"
-        "    if mask is not None:\n"
-        "        mask = numpy.asarray(mask, dtype=bool).reshape(values.shape)\n"
-        "        values[~mask] = -32768.0\n"
-        "    # ArcGIS elevation tiles carry a one-sample shared edge\n"
-        "    # (257x257 for a 256 grid): crop to the tile proper.\n"
-        "    values = values[:256, :256]\n"
-        "    numpy.save(\n"
-        "        os.path.join(sys.argv[2], name[:-5] + '.npy'), values\n"
-        "    )\n"
-    )
+    # The blob decode is the SAME worker the New Zealand provider uses
+    # (:func:`lerc_worker_argv`): every ``*.lerc`` in the blob directory
+    # becomes a ``.npy`` beside it, invalid samples marked -32768.
 
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
@@ -3305,22 +3275,12 @@ class ArcgisLercTileStrategy:
     ):
         import shutil
         import subprocess
-        import sys
 
         import requests
 
         if not has_gdal:
             return None
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
-            return None
-        if getattr(sys, "frozen", False):
-            UI.vprint(
-                1,
-                "   WARNING: LERC-tile elevation sources are not "
-                "available in the packaged application - skipping "
-                + str(definition.get("code"))
-                + ".",
-            )
             return None
         level = int(float(definition.get("tile_level", 15)))
         # The pyramid grid: Web Mercator with the global origin by
@@ -3396,13 +3356,7 @@ class ArcgisLercTileStrategy:
             if not fetched:
                 return None
             completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    self._LERC_BLOB_DECODE_SNIPPET,
-                    blob_directory,
-                    decoded_directory,
-                ],
+                lerc_worker_argv(blob_directory, decoded_directory),
                 capture_output=True,
                 text=True,
                 timeout=600,

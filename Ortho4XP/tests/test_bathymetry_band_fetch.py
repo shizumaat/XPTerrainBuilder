@@ -434,3 +434,63 @@ def test_all_nodata_fetch_records_durable_no_coverage(monkeypatch):
     # The negatives are durable: a second run fetches nothing.
     assert BATHYBAND.ensure_bathymetry_band(_tile()) is None
     assert len(fetch_calls) == len(FOUR_CELLS)
+
+
+# =====================================================================
+# NO COVERAGE IS NOT A FAILURE (owner RULINGS 2026-09-12as (4))
+# =====================================================================
+# CORALATLAS has no reef atlas at Qatar or Peru: every cell answers "no
+# data here", and the pass printed
+#   WARNING: no bathymetry band cell could be fetched for this tile
+# — weather reported as breakage.  No-coverage is INFO with the provider
+# named; only a fetch that FAILED (error, timeout, unreadable download)
+# is a WARNING.
+def _captured(capsys):
+    return capsys.readouterr().out
+
+
+def test_a_no_coverage_tile_reports_INFO_naming_the_provider(
+        monkeypatch, capsys):
+    _install_fake_fetch(monkeypatch, [], all_nodata=True)
+    assert BATHYBAND.ensure_bathymetry_band(_tile()) is None
+    output = _captured(capsys)
+    assert "WARNING" not in output
+    assert "no bathymetry here" in output
+    assert PROVIDER_CODE in output
+    assert "distance-only water fade" in output
+
+
+def test_a_FETCH_FAILURE_still_reports_WARNING(monkeypatch, capsys):
+    """An erroring fetch records no durable negative: the tile may well
+    have bathymetry and the user is told something went wrong."""
+    def _boom(definition, bounding_box, resolution, destination_path):
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(INSETS, "fetch_inset", _boom)
+    assert BATHYBAND.ensure_bathymetry_band(_tile()) is None
+    output = _captured(capsys)
+    assert "WARNING" in output
+    assert PROVIDER_CODE in output
+    assert "no bathymetry here" not in output
+
+
+def test_ONE_failed_cell_among_no_coverage_is_still_a_WARNING(
+        monkeypatch, capsys):
+    """A provider is no-coverage only when EVERY one of its cells said
+    so — one transient failure and the reading is not evidence."""
+    calls = []
+
+    def _fetch(definition, bounding_box, resolution, destination_path):
+        calls.append(bounding_box)
+        if len(calls) == 2:
+            raise RuntimeError("timed out")
+        (west, south, east, north) = bounding_box
+        _write_cell_geotiff(destination_path, west, south, east, north,
+                            all_nodata=True)
+        return {"provider": definition["code"]}
+
+    monkeypatch.setattr(INSETS, "fetch_inset", _fetch)
+    assert BATHYBAND.ensure_bathymetry_band(_tile()) is None
+    output = _captured(capsys)
+    assert "WARNING" in output
+    assert "no bathymetry here" not in output

@@ -592,6 +592,7 @@ def carriers_for(pids: _t.AbstractSet[int],
                  solid_cands: _t.Sequence[Candidate] | None = None,
                  index: "CandidateIndex | None" = None,
                  base_y: "float | None" = None,
+                 reach_m: float = 0.0,
                  ) -> list[tuple[Candidate, str]]:
     """§15 (1) + §16a (1): EVERY carrier this body stands over, ranked.
 
@@ -826,12 +827,21 @@ def carriers_for(pids: _t.AbstractSet[int],
     # the body's neighbours, walked ONCE: a unit's candidate list is
     # long (LEMD's unit:25 offers 111 footed bodies) and re-walking the
     # adjacency per candidate costs more than the whole carrier rule
-    neigh: list[int] = [q for p in pids for q in adj.get(p, ())]
+    # ...and counted by INTERSECTION, not by scanning the neighbour list
+    # once per candidate: §16d (4) asks this per ATOM, and the product of
+    # a unit's neighbours by its candidates was 7.4 M steps and 8 s of
+    # the LEMD plan stage.  The number is the same — the multiplicity of
+    # each neighbour pid, summed over the candidate's own pids.
+    neigh: dict[int, int] = {}
+    for p in pids:
+        for q in adj.get(p, ()):
+            neigh[q] = neigh.get(q, 0) + 1
+    _nk = neigh.keys()
     touch = []
     for c in solid:
-        n = sum(1 for q in neigh if q in c.pids)
-        if n:
-            touch.append((n, c))
+        hit = _nk & c.pids
+        if hit:
+            touch.append((sum(neigh[q] for q in hit), c))
     touch.sort(key=lambda q: (q[0], -q[1].member), reverse=True)
     for n, c in touch:
         if _ok(c) and _near_carried(c):
@@ -845,9 +855,23 @@ def carriers_for(pids: _t.AbstractSet[int],
             return (((la - clat) * ml) ** 2 + ((lo - clon) * mo) ** 2, c.member)
 
         for c in sorted(solid, key=_d2):
+            # §16d (2) (owner RULINGS 2026-09-13h): THE NEAREST-FOOTED
+            # FALLBACK IS CAPPED at ``coarsen_reach_m``.  Uncapped it
+            # bound 35 of LEMD's bodies to a footed body somewhere else
+            # on the airport — 19 of them over 100 m away, one 3,323 m —
+            # and a zero read a kilometre off is not this body's ground
+            # by any reading.  Beyond the cap the body takes its OWN
+            # ground (§16 (3)), which is what the caller does with an
+            # empty list.
+            d = _d2(c)[0] ** 0.5
+            if reach_m > 0.0 and d > reach_m:
+                if refusals is not None:
+                    refusals["nearest_beyond_reach"] = \
+                        refusals.get("nearest_beyond_reach", 0) + 1
+                break
             if _ok(c) and _near_carried(c):
                 return _out([(c, f"nearest footed body of the unit "
-                              f"({_d2(c)[0] ** 0.5:.0f} m)")])
+                              f"({d:.0f} m)")])
         return _out([])
     for c in sorted(solid, key=lambda c: (-c.feet, c.member)):
         if _ok(c) and _near_carried(c):
@@ -866,39 +890,6 @@ def carrier_for(pids: _t.AbstractSet[int],
     ``(None, "")`` when the unit offers the law no carrier at all."""
     out = carriers_for(pids, box, cands, adj, part_boxes, **kw)
     return out[0] if out else (None, "")
-
-
-def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
-                  raw: _t.Sequence[_t.Any], zero: float | None, tol_m: float,
-                  senior_of: _t.Callable[[_t.Any, _t.Sequence[int]], int],
-                  ground: float | None = None) -> int:
-    """The index of the member's own group standing at ``zero`` (within
-    ``tol_m``), or ``-1``.
-
-    §15 (1) says which terrain reading an elevated body takes; §9 still
-    says which FILE it is written in, and two zeros that agree within the
-    coarsening tolerance are one file by that rule.  So a roof whose
-    carrier is another resource, but whose carrier's zero is the zero one
-    of its own placement's groups already stands at, rides its own file:
-    the same height, one file fewer, and no reading changed."""
-    if zero is None or tol_m <= 0.0:
-        return -1
-    best, best_d = -1, tol_m
-    for gi, g in enumerate(groups):
-        a = raw[senior_of(raw, g)][2]
-        if a.surface_z is None:
-            continue
-        # §16b (1): and only WITHIN one terrain group — a piece cut off
-        # because the ground under it differs never rejoins a group
-        # standing on the other ground
-        if ground is not None and any(
-                len(raw[i]) > 7 and raw[i][7] is not None
-                and abs(float(raw[i][7]) - float(ground)) > tol_m for i in g):
-            continue
-        d = abs((float(a.surface_z) - float(a.y_zero)) - zero)
-        if d <= best_d:
-            best, best_d = gi, d
-    return best
 
 
 def merge_rides(rides: _t.Mapping[tuple[int, int], tuple[list[int], str]],
@@ -987,6 +978,7 @@ def cut_order(deps: _t.Mapping[int, _t.AbstractSet[int]]) -> list[int]:
 
 # ── the instruments (``placement_census``) ───────────────────────────────
 
+from .placement_boxes import group_at_zero            # noqa: E402,F401
 from .placement_census import (                          # noqa: E402
     CARRIED_GROUND_TOL_M, CARRIED_OWN_GROUND_TOL_M, FOOTLESS_KEPT,
     GEOM_GROUND_TOL_M, KEPT_FOOTLESS,
@@ -994,6 +986,7 @@ from .placement_census import (                          # noqa: E402
     THICKNESS_SKIP, _v15_rows, census_population, census_population_lines,
     census_v14, census_v14_lines, census_v15, census_v15_lines, census_v16,
     census_torn_seams, census_torn_seams_lines,
+    OUTSIDE_TOL_M, census_outside_box, census_outside_box_lines,
     census_v16_lines, census_v16b, census_v16b_lines,
     # §17 THE COCKPIT FRAME, object stage (RULINGS 2026-09-12x/12y)
     COCKPIT_RULING, cockpit_block, cockpit_block_lines)

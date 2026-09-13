@@ -170,6 +170,52 @@ def _pad_of(pads: _t.Sequence[PadRing], lat: float, lon: float) -> PadRing | Non
     return None
 
 
+#: §16d (6): what share of a body's ground contacts must stand on ONE
+#: emitted pad before the pad is the body's ground.  A MAJORITY reading,
+#: not a law constant: the sentence is "lies mostly on a `building` pad".
+PAD_MAJORITY = 0.5
+
+
+def pad_majority(cands: _t.Sequence[tuple[float, float, float, float]],
+                 pads: _t.Sequence[PadRing]) -> "PadRing | None":
+    """§16d (6): THE PAD A BODY STANDS ON (owner RULINGS 2026-09-13m).
+
+    A building's own pad is graded to ITS level (§20) and the apron
+    beside it is not; a body whose footprint spills off the pad has
+    ground contacts on both, and the generic rule then anchors it
+    wherever the zero-plane test happens to land — at KCLT's terminal
+    ONE pad (`building80`, 1.19 m of relief over 900 m) carries 213
+    bodies whose zeros spread 210.5-223.7 m, and the 133 whose anchor
+    point landed on apron or adjacent ground are the whole of that
+    spread: the 80 whose anchor landed ON the pad agree with it to
+    1.13 m.
+
+    So: where more than :data:`PAD_MAJORITY` of a body's ground contacts
+    stand inside ONE pad, that pad is the body's ground and the anchor is
+    chosen among the contacts ON it.  ``None`` where no pad holds a
+    majority — the generic rule then reads as before.
+
+    The ring test is pre-screened by the ring's own bounding box: a
+    terminal publishes hundreds of pads and this is asked once per ground
+    contact per body."""
+    if not pads or not cands:
+        return None
+    boxes = [(p, min(v[0] for v in p.ring), min(v[1] for v in p.ring),
+              max(v[0] for v in p.ring), max(v[1] for v in p.ring))
+             for p in pads if len(p.ring) >= 3]
+    hits: dict[str, tuple[PadRing, int]] = {}
+    for la, lo, _y, _z in cands:
+        for p, y0, x0, y1, x1 in boxes:
+            if y0 <= la <= y1 and x0 <= lo <= x1 and _inside(p.ring, la, lo):
+                got = hits.get(p.ref)
+                hits[p.ref] = (p, (got[1] if got else 0) + 1)
+                break
+    if not hits:
+        return None
+    p, n = max(hits.values(), key=lambda q: q[1])
+    return p if n > PAD_MAJORITY * len(cands) else None
+
+
 def rim_of(rims: _t.Sequence[RimRing], lat: float, lon: float) -> RimRing | None:
     """The emitted ``structure_rim`` ring this point stands INSIDE, if
     any — the body's OWN ring (§14 (2))."""
@@ -392,8 +438,11 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     from the member's own stations (:func:`datum_of`,
     :func:`_datum_anchor`).
 
-    ``pads`` are accepted and unused: the per-class table they served is
-    superseded.  ``rims`` are WIRED for the BASIN class (§14 (2)): the
+    ``pads`` are WIRED for §16d (6): where a body's ground contacts lie
+    MOSTLY inside one emitted `building` pad, only the contacts ON that
+    pad are read (:func:`pad_majority`) — the apron a footprint spills
+    onto is not the body's ground.  The per-class table the pads once
+    served is superseded.  ``rims`` are WIRED for the BASIN class (§14 (2)): the
     interior of the body's own ring is excluded from its anchor search
     and the anchor goes to the RIM, where the object's zero is
     (:func:`_basin_rim_anchor`).  An 11a DECK is still the one body with
@@ -447,6 +496,17 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     # — the common case) goes to the foot whose authored y is nearest the
     # object's own zero, then to the southern/western one, so the rule is
     # deterministic over a pack.
+    # §16d (6): A BODY ANCHORS ON THE PAD IT STANDS ON.  The contacts
+    # that spilled onto the apron are not this body's ground, and reading
+    # them is what spread KCLT's terminal over 13 m.
+    on_pad = ""
+    _pad = pad_majority(cands, pads)
+    if _pad is not None:
+        _on = [c for c in cands
+               if _inside(_pad.ring, c[0], c[1])]
+        if _on:
+            cands = _on
+            on_pad = f" on pad {_pad.ref}"
     zero = _median(tuple(z - y for _la, _lo, y, z in cands))
     best = min(cands, key=lambda c: (round(abs(c[3] - c[2] - zero), 6),
                                      round(abs(c[2]), 6), c[0], c[1]))
@@ -482,16 +542,18 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         if _all_on_rolled(cands, surface, roles, rolled_on):
             return Anchor(body_class, best[0], best[1], best[2],
                           f"median foot: every foot on rolled-on pavement "
-                          f"(§17, motion; terrain spread {residual:.2f} m)",
+                          f"(§17, motion; terrain spread {residual:.2f} m)"
+                          + on_pad,
                           best[3])
         # 11e (2): authored relief beyond the body's skirt — no point on
         # the footprint stands where the surface equals the zero
         low = min(cands, key=lambda c: (c[3], c[2], c[0], c[1]))
         return Anchor(body_class, low[0], low[1], low[2],
                       f"low-side foot (no point within {tol_m:g} m of the body's "
-                      f"zero plane: terrain spread {residual:.2f} m)", low[3])
+                      f"zero plane: terrain spread {residual:.2f} m)"
+                      + on_pad, low[3])
     return Anchor(body_class, best[0], best[1], best[2],
-                  "surface at the body's zero", best[3])
+                  "surface at the body's zero" + on_pad, best[3])
 
 
 def _basin_rim_anchor(geom: BodyGeometry, surface: Surface,

@@ -552,22 +552,30 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
         # burial; what §16c (7) is FOR is a body with no ground of its
         # own, not one whose own ground says something else.
         #
-        # So: a FOOTED body of ANOTHER MEMBER keeps the cluster only
-        # while its own zero stands within ``bind_ground_m``
-        # (``[cockpit] visual_m``) of the senior's.  Beyond it the body
-        # keeps its own anchor and is COUNTED.  The test is
-        # cross-member by construction — a refused bind is a seam
-        # between two different RESOURCES, never a cut inside a solid,
-        # and within one member 12z's own veto already stands.  An
-        # ELEVATED body has no zero to test and is never refused: it is
-        # exactly the class (7) exists for.
+        # So: a FOOTED body keeps the cluster only while its own zero
+        # stands within ``bind_ground_m`` (``[cockpit] visual_m``) of the
+        # senior's.  An ELEVATED body has no zero to test and is never
+        # refused: it is exactly the class (7) exists for.
+        #
+        # §16d (5) (owner RULINGS 2026-09-13m): THE BOUND IS
+        # MEMBER-AGNOSTIC.  12ap wrote the test as ``member !=
+        # top.member`` on the reading that within one member 12z's own
+        # veto already stands — it does not.  A NATIVE pack authors ONE
+        # MASTER MODEL PER MATERIAL (Nimbus KCLT: `paredes_N` walls,
+        # `techos_N` roofs, `vidrios` glazing, each on a single row), so
+        # a member spans the whole airport and a same-member bind is a
+        # bind across a kilometre: KCLT's hangar wall `005_ALB__b9` sank
+        # **5.04 m** into its pad on a same-member bind to an apron body
+        # 500 m away, the airport's worst §17 row, in a cluster 714 m
+        # wide at one zero.  What the bound is FOR — a body whose own
+        # ground disagrees with the cluster's — does not care whose file
+        # the body is in.
         _sz = nodes[top].zero
         for i in idx:
             if i == top:
                 continue
             if (bind_ground_m > 0.0 and _sz is not None
                     and nodes[i].footed and nodes[i].zero is not None
-                    and nodes[i].member != nodes[top].member
                     and abs(float(nodes[i].zero) - float(_sz))
                     > float(bind_ground_m)):
                 if counts is not None:

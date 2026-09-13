@@ -432,3 +432,208 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
     footless = (not any(p.feet for p in parts)
                 and a.body_class not in (_ar.BASIN, _ar.PLATE_ONLY, _ar.DECK))
     return (cls, a, feet, footless)
+
+
+# ── §16b (2) / §16a (1): the carrier targets and the carrier cut ─────────
+# Moved here from ``placement_plan`` for the 1,000-line law (§16d's own
+# growth): they MAKE raw bodies, which is this module's subject, and
+# ``placement_cut`` re-exports them so every caller and every twin still
+# reads them as that module's.
+
+def _footless_targets(st: "_t.Any", tol_m: float
+                      ) -> list[tuple[list[int], list[tuple]]]:
+    """§16b (2): the carrier questions a FOOTLESS placement asks.
+
+    §14 (1) asked ONE — a footbridge is a rigid span and a terminal roof
+    a rigid plate, and two carriers would give its halves two zeros.
+    §16b (1)'s cut has already divided the placement WHERE THE GROUND
+    UNDER IT DIFFERS, so rigidity holds within a terrain group and the
+    question is asked once per group: a span over one terrain is still
+    one target, and LEMD's `green-TEJ3` — one welded roof-panel resource
+    over 1 x 2 km — asks per piece and rides the roof each piece stands
+    over."""
+    groups: list[list[int]] = []
+    levels: list[float | None] = []
+    for i in range(len(st.raw)):
+        g = st.raw[i][7] if len(st.raw[i]) > 7 else None
+        for gi, lv in enumerate(levels):
+            if (g is None) == (lv is None) and (
+                    g is None or tol_m <= 0.0 or abs(float(g) - float(lv)) <= tol_m):
+                groups[gi].append(i)
+                break
+        else:
+            groups.append([i])
+            levels.append(g)
+    return [(g, [b for i in g for b in st.part_boxes[i]]) for g in groups]
+
+
+def _carrier_pieces(st: "_Staged", grp: list[int],
+                    over: _t.Sequence[tuple[_pc.Candidate, str]],
+                    counts: dict[str, int], tol_m: float = 0.0
+                    ) -> list[tuple[list[int], _pc.Candidate, str]]:
+    """§16a (1): A CARRIED BODY IS CUT WHERE ITS CARRIER IS CUT.
+
+    ``over`` is :func:`placement_carrier.carriers_for`'s ranked list of
+    the carrier groups this body stands over.  With one of them the body
+    is not cut at all (§14 (1)'s rigid span).  With several — a roof over
+    walls the terrain re-cut into three groups, a roof over two buildings
+    — the body's TRIANGLES are assigned to the carrier group each stands
+    over and one piece is made per group, each riding that group's zero
+    at the authored offset.  The ground under the carried body is never
+    read: that was §16 (3)'s reading, and it put the garage pavilions
+    −1.27 … +3.70 m against the slab they sit on.
+
+    New pieces are appended to ``st.raw`` / ``st.boxes`` /
+    ``st.part_boxes`` (the three parallel lists every later pass reads by
+    index) and the source body's own index is left behind, referenced by
+    nothing."""
+    if len(over) < 2:
+        return [(list(grp), over[0][0], over[0][1])]
+    # §9 STILL RULES THE FILE: carriers standing at ONE zero (within
+    # ``split_tol_m``) are one reading of the terrain, and cutting the
+    # body against them would make pieces ``merge_rides`` puts straight
+    # back into one file.  Dropping them before the cut changes no
+    # answer and is most of the cut's cost at a FLAT airport — OTHH
+    # asked for 3,869 cuts and needs 319 of them.
+    if tol_m > 0.0:
+        keep, zeros = [], []
+        for c, why in over:
+            z = (None if c.anchor.surface_z is None
+                 else float(c.anchor.surface_z) - float(c.anchor.y_zero))
+            if z is not None and any(abs(z - q) <= tol_m for q in zeros):
+                continue
+            keep.append((c, why))
+            if z is not None:
+                zeros.append(z)
+        over = keep
+        if len(over) < 2:
+            return [(list(grp), over[0][0], over[0][1])]
+    parts = [p for i in grp for p in st.raw[i][0]]
+    # §16c (1): the cut reads the group's OWN written triangles — the
+    # pieces a prior cut made, else everything this member's file will
+    # contain; never only the components its parts happen to name
+    gtris = (tuple(q for i in grp for q in (st.raw[i][5] or ()))
+             or (st.cutter.all_tris() if len(st.raw) == 1 else ()))
+    pieces = st.cutter.carrier_groups(parts, [c.part_boxes for c, _w in over],
+                                      tris_in=gtris)
+    if not pieces:
+        return [(list(grp), over[0][0], over[0][1])]
+    counts["carried_bodies_cut_by_carrier"] = \
+        counts.get("carried_bodies_cut_by_carrier", 0) + 1
+    counts["carrier_pieces"] = counts.get("carrier_pieces", 0) + len(pieces)
+    senior = st.raw[max(grp, key=lambda i: len(st.raw[i][0]))]
+    out: list[tuple[list[int], _pc.Candidate, str]] = []
+    for k, tris, box in pieces:
+        bi = len(st.raw)
+        _pp, _sp, _gg = _geom_ground(st.cutter, parts, tris, st.surface)
+        st.raw.append(([p for p in parts], senior[1], senior[2], (), True, tris,
+                       _pp, _gg))
+        st.boxes.append(box)
+        st.part_boxes.append([box])
+        # §16d (1): the piece's GEOM box is its own triangles' hull
+        if st.geom_boxes is not None:
+            st.geom_boxes.append(st.cutter.plan_box_of_tris(tris))
+        if st.part_tops:              # §16c (4): the piece's own top
+            st.part_tops.append(list(st.cutter.part_tops(
+                [(parts, "", None, (), True, tris, (), None)])[0]))
+        out.append(([bi], over[k][0], over[k][1]))
+    return out
+
+
+
+#: §16d (4): how many ATOMS one carried body is divided into before the
+#: division is refused.  An AFFORDABILITY bound, measured and not a law —
+#: exactly ``placement_atom.RIGID_REACH_COMPONENTS_MAX``'s reason: the
+#: rule exists for a roof resource of a dozen plates over a dozen
+#: buildings, and a clutter body publishing thousands of atoms would ask
+#: thousands of carrier searches.  Over the bound the body keeps §16a
+#: (1)'s single question.
+CARRIED_ATOMS_MAX = 64
+
+
+def _atom_targets(st: "_t.Any", grp: "list[int]",
+                  reach_m: float = 0.0) -> "list[list[int]]":
+    """§16d (4): ONE CARRIED TARGET PER ATOM (owner RULINGS 2026-09-13m).
+
+    §14 (1) asked the carrier question once for a whole carried body and
+    §16a (1) then cut the answer; a roof resource of twelve plates over
+    twelve buildings is not one rigid thing, and at KCLT — where a native
+    pack authors ONE MASTER MODEL PER MATERIAL — the six `001_ALB` roof
+    bodies span 154-1,774 m over 3-12 components and were carried at ONE
+    zero, floating +2.5 … +7.4 m over the walls beneath them (5,295
+    bodies left uncut by their carrier against 3 cut).
+
+    So the ATOM asks its own question.  The atom is §16c (1)'s, not the
+    bare connected component: §16c (6)/(7) bind components of one
+    resource that touch or come within the rigid reach into ONE body no
+    cut may divide, and dividing them here would undo that law
+    (``_comp_blocks`` is the one reading both take).
+
+    Returns the target groups — ``[grp]`` unchanged where the body is one
+    atom, is over the affordability bound, or publishes no triangles —
+    else one appended raw body per atom, each carrying that atom's
+    triangles and its own plan box."""
+    cutter = getattr(st, "cutter", None)
+    if cutter is None:
+        return [grp]
+    # A BODY NARROWER THAN THE REACH IS NOT ASKED.  §16a (1) already cuts
+    # a carried body against the carrier groups the search returns; what
+    # it cannot reach is the body so WIDE that the search answers for the
+    # whole of it with one carrier — KCLT's roof plates span 154-1,774 m.
+    # An affordability bound, measured: unarmed, the per-atom search took
+    # the LEMD plan stage 17.8 -> 28.2 s for bodies whose atoms all stand
+    # over the same thing anyway.
+    if reach_m > 0.0:
+        bx = _pc.hull_of(b for i in grp for b in st.part_boxes[i])
+        if bx is not None and _plan_box_span_m(bx) <= reach_m:
+            return [grp]
+    # EVERY TRIANGLE THE FILE WILL CONTAIN, both ways a raw body names
+    # them: a cut piece carries its own ``tris``, and a raw the cut never
+    # touched names its parts' whole COMPONENTS.  Reading only the first
+    # where a group holds both DROPS the rest — measured at KCLT, 9
+    # placements left 990-3,280 triangles claimed by no body, which
+    # ``obj8_split`` then handed to the nearest one (`001_ALB__b32`'s
+    # file reached 207 m outside its own box).
+    tris = tuple(q for i in grp for q in (st.raw[i][5] or ()))
+    rest = [p for i in grp if not st.raw[i][5] for p in st.raw[i][0]]
+    if rest:
+        tris = tris + cutter.part_tris(rest)
+    if not tris:
+        return [grp]
+    blocks = cutter._comp_blocks(tris)
+    if len(blocks) < 2 or len(blocks) > CARRIED_ATOMS_MAX:
+        return [grp]
+    parts = [p for i in grp for p in st.raw[i][0]]
+    senior = st.raw[max(grp, key=lambda i: len(st.raw[i][0]))]
+    # THE ATOM'S OWN PARTS, not the group's.  The parts a piece carries
+    # are what §15's CONTACT fallback reads as its neighbours, and handing
+    # every piece the whole body's pids makes every piece abut whatever
+    # any of them abuts — besides costing the search the whole product.
+    comp_of = cutter.comp_of(tris)
+    out: list[list[int]] = []
+    for blk in blocks:
+        bt = tuple(tris[j] for j in blk)
+        box = cutter.plan_box_of_tris(bt)
+        if not box:
+            continue
+        cset = {comp_of[j] for j in blk if comp_of[j] >= 0}
+        bp = [p for p in parts if p.comp in cset] or list(parts)
+        bi = len(st.raw)
+        _pp, _sp, _gg = _geom_ground(cutter, bp, bt, st.surface)
+        st.raw.append((bp, senior[1], senior[2], (), True,
+                       bt, _pp, _gg))
+        st.boxes.append(box)
+        st.part_boxes.append([box])
+        if st.geom_boxes is not None:
+            st.geom_boxes.append(box)
+        if st.part_tops:
+            st.part_tops.append(list(cutter.part_tops(
+                [(bp, "", None, (), True, bt, (), None)])[0]))
+        out.append([bi])
+    return out or [grp]
+
+
+def _plan_box_span_m(box: "tuple[float, float, float, float]") -> float:
+    """The longer side of a plan box in metres."""
+    ml, mo = _ar._m_per_deg(0.5 * (box[0] + box[2]))
+    return max((box[2] - box[0]) * ml, (box[3] - box[1]) * mo)

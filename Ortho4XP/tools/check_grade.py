@@ -9572,7 +9572,8 @@ def cockpit_block(rows_by_family, *, geometry: Optional[dict] = None,
         "approach_corridors": (len(geometry["corridor"]) if geometry
                                else None),
         #: §29 (7): the runway lateral bands, one per runway axis.
-        "runway_bands": (len(geometry["runway_band"]) if geometry
+        "runway_bands": (len(geometry["runway_band"])
+                         if geometry and geometry.get("runway_band") is not None
                          else None),
         "unlocated_rows": unlocated,
         "step_exempt_rows": exempt,

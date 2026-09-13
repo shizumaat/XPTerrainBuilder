@@ -29,7 +29,8 @@ import pytest
 
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.law import Law
-from auto_patch_v2.law.approach_corridor import ApproachCorridor
+from auto_patch_v2.law.approach_corridor import (ApproachCorridor,
+                                                 RunwayViewBand)
 from auto_patch_v2.law import tables as _T
 from auto_patch_v2.model.airport import (Airport, OsmWay, Runway, RunwayEnd,
                                          SceneryPack)
@@ -152,6 +153,103 @@ def test_the_law_refuses_a_corridor_that_is_the_retired_disc(law):
                           ValueError, law.tables)
     # the shipped table passes
     check_cockpit(ck, fams, ValueError, law.tables)
+
+
+# ── §29 (7) the runway lateral band ──────────────────────────────────────
+
+def test_the_band_is_the_axis_grown_by_the_law(law, ck):
+    """§29 (7) (Fable 2026-09-13; owner RULINGS 2026-09-13bm (ii)): each
+    runway's AXIS grown by ``runway_view_half_width_m``.  It runs BESIDE
+    the runway, over its whole length — which is exactly where the
+    approach corridor never reaches — and it is ONE derivation with the
+    corridor, from the SAME axes."""
+    band = _sa.runway_band_of(_airport(law), law)
+    half = float(ck.runway_view_half_width_m)
+    assert len(band) == 1                       # one runway, ONE band
+    assert band.ends[0].half_width_m == half
+    assert band.ends[0].length_m == pytest.approx(RWY_B[0] - RWY_A[0])
+
+    mid = ((RWY_A[0] + RWY_B[0]) / 2.0, RWY_A[1])
+    corr = _sa.approach_corridor_of(_airport(law), law)
+    # abeam mid-length, inside the band and in NO corridor — SPJC's own
+    # class: 192 m from runway 16R/34L at mid-length, in plain view
+    assert band.holds(mid[0], mid[1] + half - 1.0)
+    assert not corr.holds(mid[0], mid[1] + half - 1.0)
+    # just outside it, and off either end of the axis
+    assert not band.holds(mid[0], mid[1] + half + 1.0)
+    assert not band.holds(RWY_B[0] + 1.0, RWY_B[1])
+    assert band.distance_m(mid[0], mid[1] + half + 500.0) == \
+        pytest.approx(500.0)
+
+
+def test_the_band_and_the_corridor_are_one_derivation(law, ck):
+    """Both are ``law/approach_corridor``'s, built from ONE axis source,
+    and the harness reads the SAME classes — two copies of a region are
+    two regions."""
+    import sys
+    sys.path.insert(0, "tools")
+    import check_grade as cg
+    assert cg._RunwayViewBand is RunwayViewBand
+    assert _sa.RunwayViewBand is RunwayViewBand
+
+    cl = cg.cockpit_law(refresh=True)
+    assert cl["runway_view_half_width_m"] == \
+        pytest.approx(float(ck.runway_view_half_width_m))
+
+    def ll_to_m(lat, lon):
+        return (lon * 111320.0 * math.cos(math.radians(lat)),
+                lat * 110540.0)
+    axes = [((-600.0, 0.0), (600.0, 0.0), "09/27")]
+    geo = {"boundary_rings": [], "runway_axes": axes, "ll_to_m": ll_to_m,
+           "corridor": ApproachCorridor(axes, cl["approach_m"],
+                                        cl["approach_half_width_m"]),
+           "runway_band": RunwayViewBand(
+               axes, cl["runway_view_half_width_m"])}
+
+    def at(x, y):
+        lat = y / 110540.0
+        lon = x / (111320.0 * math.cos(math.radians(lat)))
+        return cg.cockpit_in_view(geo, lat, lon)
+
+    half = cl["runway_view_half_width_m"]
+    assert at(0.0, half - 1.0) == (True, "runway")
+    assert at(0.0, half + 1.0) == (False, "beyond")
+    # the retired disc stays retired: 4 km abeam is still beyond
+    assert at(0.0, 4000.0) == (False, "beyond")
+
+
+def test_the_law_refuses_a_band_wider_than_the_corridor(law):
+    """§29 (7): the band is what a pilot reads BESIDE the runway — a
+    narrower thing than the corridor ahead of it.  A band at or over the
+    corridor's half-width is the retired 5 km disc again."""
+    from auto_patch_v2.law.cockpit_schema import check_cockpit
+    import dataclasses as dc
+    ck = _T.cockpit(law)
+    fams = law.tables.families
+    for bad in (0.0, float(ck.approach_half_width_m)):
+        with pytest.raises(ValueError):
+            check_cockpit(dc.replace(ck, runway_view_half_width_m=bad),
+                          fams, ValueError, law.tables)
+    check_cockpit(ck, fams, ValueError, law.tables)
+
+
+def test_a_mouth_beside_the_runway_is_built(law, ck):
+    """§29 (7)'s own case, synthetically: a portal abeam the runway at
+    mid-length, outside ``mouth_standoff_m`` of every classified cell and
+    in NO approach corridor, is BUILT — SPJC's −641/−2525 trunk tunnel
+    dropped its south mouths 191 m off the cover while 192 m from runway
+    16R/34L, and the bore went into the ground and never came out."""
+    so = law.tables.structures.tunnel.mouth_standoff_m
+    half = float(ck.runway_view_half_width_m)
+    # abeam the runway, past the 150 m cover standoff of BOTH cells and
+    # inside the 250 m band; the approach corridors are off the ends only
+    y = RWY_A[1] - (so + 50.0)
+    assert so + 50.0 < half and y - 60.0 > so
+    cl2, tunnels, st = _run(law, ((0.0, y), (0.0, y + 30.0)))
+    assert st.runway_bands == 1
+    assert st.mouths >= 1 and st.tunnels >= 1
+    named = " ".join(st.mouths_on_approach_named)
+    assert "runway lateral band" in named
 
 
 # ── the mouth gate (§29 (1)) ─────────────────────────────────────────────

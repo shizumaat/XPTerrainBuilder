@@ -160,7 +160,8 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         # §34 (5) NARROWED (RULINGS 2026-09-13bm (i)): the cell may only
         # widen the deck up to DECK_CELL_MAX_RATIO × the carriageway.
         cell_half, n_read, n_refused = _deck_half_width(
-            axis_fn, ss, cells, polys, half, DECK_CELL_MAX_RATIO * half)
+            axis_fn, ss, cells, polys, half,
+            DECK_CELL_MAX_RATIO * 2.0 * half)
         half = max(half, cell_half)
         # THE MOUTH STANDS INSIDE THE DECK (spec §34 (5) as amended,
         # RULINGS 2026-09-13ai): the clip ribbon is the deck's own
@@ -257,10 +258,19 @@ def _stations(parent: LineString, s0: float, fwd: bool) -> list[float]:
 
 #: §34 (5) NARROWED (RULINGS 2026-09-13bm (i)): a pavement cell may state
 #: the deck only while it is plausibly the way's own pavement.  A cell
-#: WIDER than this multiple of the way's carriageway is a BLOB the axis
-#: merely stands in — SPJC's 738,901 m² ``pav40`` apron read 49–127 m of
-#: "deck" off a 4 m jetway — and is refused; the carriageway is then the
-#: deck, which is what the way itself says.
+#: whose HALF-WIDTH exceeds this multiple of the way's own CARRIAGEWAY
+#: WIDTH is a BLOB the axis merely stands in — SPJC's 738,901 m² ``pav40``
+#: apron read 49–127 m of "deck" off a 4 m jetway — and is refused; the
+#: carriageway is then the deck, which is what the way itself says.
+#:
+#: THE READING IS THE RULING'S, MEASURED (lane v2spjc, dry
+#: ``--stage structures`` arms): half-width vs 4x the carriageway (28 m
+#: half off a 7 m lanes fallback) refuses all 19 of SPJC's jetway blobs
+#: (29.9-127.1 m) and keeps KCLT taxiway U's real 18.0 m deck.  The
+#: tighter paraphrase — cell WIDTH vs 4x the carriageway, a 14 m half —
+#: also refuses SPJC but cut taxiway U to 12.1 m and lost one of its two
+#: mouths (``tunnel:-13665+-13664@1`` at 35.2015651, -80.9404036), which
+#: is a real taxiway bridge read as a blob.
 DECK_CELL_MAX_RATIO = 4.0
 
 

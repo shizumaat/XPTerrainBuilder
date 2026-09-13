@@ -539,17 +539,36 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
             held = on_field.holds(pt) or on_field.holds(reach)
             cand.append((m, held, min(on_field.distance_m(pt),
                                       on_field.distance_m(reach))))
-        # §29 (7) THE SIBLING MOUTH (Fable 2026-09-13; owner RULINGS
-        # 2026-09-13bm (ii)): "a tunnel with one mouth is never right".
-        # A bore ONE of whose ends the region admits has its sibling
-        # admitted too — SPJC's −641/−2525 trunk tunnel built its north
-        # mouth and dropped both south ones, leaving a bore that goes
-        # into the ground and never comes out.  A bore NEITHER of whose
-        # ends the region admits is dropped whole, as before (the 234 /
-        # 237 m Callao mouths).
-        sibling = any(held for _m, held, _d in cand)
+        # §29 (7) THE SIBLING MOUTH — RULED (Fable 2026-09-13; owner
+        # RULINGS 2026-09-13bm (ii): "a bore with one mouth built has its
+        # sibling admitted under the same test; a tunnel with one mouth is
+        # never right") and MEASURED REFUTED at LEMD by lane ``v2spjc``,
+        # so it is NOT armed and the clause is deleted rather than gated.
+        #
+        # THE MEASUREMENT (dry ``--stage structures`` arms on main
+        # 0c86fe2c, three-way base / band-only / band+sibling):
+        #   * SPJC needs it for NOTHING.  The bar — the −641/−2525 trunk
+        #     tunnel's south mouth at −12.0202431, −77.129278 — is built
+        #     by §29 (7)'s RUNWAY LATERAL BAND alone (191 m off the
+        #     cover, inside the 250 m band of runway 16R/34L); the
+        #     band-only arm and the band+sibling arm are identical at
+        #     SPJC (mouths 14, tunnels 8, off-field 6).
+        #   * LEMD it REGRESSES.  Armed, it rebuilt three mouths the
+        #     150 m standoff of RULINGS 2026-09-12r exists to drop —
+        #     ``tunnel:-4928@1`` 2,309 m off the field and
+        #     ``tunnel:-26708+-22223@0`` / ``tunnel:-26709+-8677@0`` at
+        #     40.48100, −3.63953 and 40.48053, −3.63947, ~6.7 km west of
+        #     the frame origin: the rail-bore class whose far mouths set
+        #     the patch's whole western bbox edge (LEMD tunnels 51 -> 54,
+        #     mouths 90 -> 93, off-field 45 -> 42).  A 4.9 km bore
+        #     admitted by 125–162 m of cover under ONE pad is exactly the
+        #     case where the sibling is nowhere a pilot looks.
+        #
+        # A narrowing that separates the two needs a law number this lane
+        # may not author (a bore length, or a distance from the built
+        # mouth).  Routed to the spec's author with the measurement.
         for m, held, d in cand:
-            if sibling:
+            if held:
                 out.append(m)
             else:
                 dropped.append(("+".join(str(i) for i in wids), m.xy, d))

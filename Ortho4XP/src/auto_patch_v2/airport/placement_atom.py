@@ -53,9 +53,18 @@ RIGID_CLUSTER_SPAN_MAX_M = 1200.0
 #: clusters; 300 m is the block whole and nothing larger.
 UNIT_CLUSTER_SPAN_MAX_M = 300.0
 
+#: §16c (7)'s CROSS-MEMBER REACH: the sweep is asked only of a unit with
+#: at most this many bindable bodies.  The same AFFORDABILITY bound
+#: :data:`RIGID_REACH_COMPONENTS_MAX` is for the member's own reach, at
+#: the unit's scale: OTHH publishes 49,793 elevated bodies and a unit of
+#: clutter is pieces meant to stand apart, not one authored object.  A
+#: unit over the bound keeps the ε-contact binding, which is cheap.
+UNIT_REACH_NODES_MAX = 6000
+
 __all__ = ["comp_of", "comp_cluster", "comp_blocks", "unit_clusters",
            "unit_rigid", "RigidNode", "bind_unit", "RIGID_REACH_COMPONENTS_MAX",
-           "RIGID_CLUSTER_SPAN_MAX_M", "UNIT_CLUSTER_SPAN_MAX_M"]
+           "RIGID_CLUSTER_SPAN_MAX_M", "UNIT_CLUSTER_SPAN_MAX_M",
+           "UNIT_REACH_NODES_MAX"]
 
 
 def comp_of(cut, tris) -> "list[int]":
@@ -360,11 +369,153 @@ class RigidNode:
     #: how many GROUND-CONTACT vertices it publishes — §9's own
     #: seniority, which decides the senior inside a file already
     feet: int = 0
+    #: §16c (7)'s CROSS-MEMBER REACH reads THIS: one AABB per PART,
+    #: ``(lat0, lon0, lat1, lon1, y0, y1)``, the authored ``y`` in the
+    #: UNIT's own frame (a unit is one anchor family with one ``agl_m``,
+    #: so its members' authored heights are the same plane's).  The reach
+    #: is 3-D on purpose: LEMD's `LEMD47` roof is authored 5-9 m above
+    #: the wall under it and a PLAN-only reach would weld every body a
+    #: terminal stacks over another.  Empty where the plan publishes no
+    #: box, and then the node reaches nothing.
+    parts3: tuple[tuple[float, float, float, float, float, float], ...] = ()
+
+
+#: §16c (7)'s reach: above this many PART pairs between two bodies the
+#: test is answered by the two hulls, which have already passed.  A
+#: coarsened candidate holds every part of a terminal's ground group and
+#: the pair loop is the only quadratic thing in the sweep.
+_REACH_PART_PAIRS_MAX = 4096
+
+
+def _apart(lo_a, hi_a, lo_b, hi_b, reach: float) -> bool:
+    """Are two AABBs further apart than ``reach`` on ANY axis?"""
+    return (lo_a[0] > hi_b[0] + reach or lo_b[0] > hi_a[0] + reach
+            or lo_a[1] > hi_b[1] + reach or lo_b[1] > hi_a[1] + reach
+            or lo_a[2] > hi_b[2] + reach or lo_b[2] > hi_a[2] + reach)
+
+
+def _cloud_within(ca, cb, reach: float) -> bool:
+    """§16c (7)'s reach, DECIDED ON THE AUTHORED GEOMETRY: does any
+    vertex of one body stand within ``reach`` of a vertex of the other?
+
+    The PART boxes are a prefilter and nothing more.  A part box is the
+    plan box of a whole authored component, and two components whose
+    boxes come within two metres can stand twenty apart: measured, the
+    box test alone welded LEMD's `LEMD59` terminal wall to an
+    `AES_SAFE09` body and took the T2 block's zero spread 0.537 ->
+    1.548 m.  So the union is made only when the clouds themselves
+    meet, which is the same nearest-neighbour-with-an-upper-bound query
+    §16c (8) asks of a member's own components (never
+    ``count_neighbors``: counting every pair within 2 m between two
+    dense clouds is billions)."""
+    from scipy.spatial import cKDTree
+    if ca is None or cb is None or not len(ca) or not len(cb):
+        return False
+    if len(ca) > len(cb):
+        ca, cb = cb, ca
+    d, _ix = cKDTree(cb).query(ca, k=1, distance_upper_bound=reach)
+    return bool(np.isfinite(d).any())
+
+
+def _parts_within(pa, pb, reach: float) -> bool:
+    """Does ANY part AABB of one body come within ``reach`` of a part of
+    the other, in all three axes?  The PREFILTER: the bodies' hulls have
+    already been tested, and this is what keeps the geometry test off
+    every pair a terminal's hull box overlaps."""
+    if len(pa) * len(pb) > _REACH_PART_PAIRS_MAX:
+        return True
+    for a in pa:
+        for b in pb:
+            if (a[0] > b[3] + reach or b[0] > a[3] + reach
+                    or a[1] > b[4] + reach or b[1] > a[4] + reach
+                    or a[2] > b[5] + reach or b[2] > a[5] + reach):
+                continue
+            return True
+    return False
+
+
+def _reach_unit(nodes: _t.Sequence[RigidNode], reach_m: float,
+                find: _t.Callable[[int], int],
+                union: _t.Callable[[int, int], None],
+                cloud: "_t.Callable[[int], _t.Any] | None" = None) -> int:
+    """§16c (7)'s CROSS-MEMBER RIGID REACH (owner RULINGS 2026-09-12am).
+
+    §16c (8) chains the SOLID components of one member that come within
+    ``[placement] rigid_reach_m``; across members of one unit only the
+    rebake plan's recorded ε-contacts bound anything, and a plan records
+    a contact only where two parts share a vertex position.  LEMD's
+    `LEMD47` is what that leaves: its 114 ε-contacts with `LEMD48` are
+    all on its ELEVATED parts, its footed walls carry NONE, and the
+    resource is written at two zeros 0.804 m apart — over §31's 0.5 m
+    visual threshold.
+
+    So the same bounded sweep runs UNIT-WIDE over BODIES: the nodes
+    sorted by the low corner of their box, the pairs whose boxes come
+    within the reach walked once, anything already bound skipped, the
+    PART boxes asked only then, and the AUTHORED GEOMETRY (``cloud``)
+    last — the boxes decide nothing, they only keep the geometry test
+    off the pairs a terminal's hull overlaps.  A LINE object and a
+    BASIN never bind (they arrive with ``bindable`` false) and TWO
+    FOOTED BODIES OF ONE MEMBER are never unioned — they were cut apart
+    because the ground under them differs (§9 / §16b (1)).  Every union
+    still passes the caller's plan-span cap.
+
+    ``cloud(i)`` is the body's authored vertices in the UNIT's own
+    frame (metres east / north of the unit anchor, authored ``y``) or
+    ``None`` where the file could not be read — such a node reaches
+    nothing, which is the pre-12am law for it.
+
+    Returns the number of unions the reach made."""
+    live = [i for i, q in enumerate(nodes) if q.bindable and q.parts3]
+    if len(live) < 2 or len(live) > UNIT_REACH_NODES_MAX:
+        return 0
+    from . import anchor_rule as _ar
+    lat_c = sum(q.parts3[0][0] for q in (nodes[i] for i in live)) / len(live)
+    lon_c = sum(q.parts3[0][1] for q in (nodes[i] for i in live)) / len(live)
+    ml, mo = _ar._m_per_deg(lat_c)
+    parts: dict[int, list[tuple]] = {}
+    lo: dict[int, tuple] = {}
+    hi: dict[int, tuple] = {}
+    for i in live:
+        arr = [(((b[0] - lat_c) * ml), ((b[1] - lon_c) * mo), b[4],
+                ((b[2] - lat_c) * ml), ((b[3] - lon_c) * mo), b[5])
+               for b in nodes[i].parts3]
+        parts[i] = arr
+        lo[i] = (min(a[0] for a in arr), min(a[1] for a in arr),
+                 min(a[2] for a in arr))
+        hi[i] = (max(a[3] for a in arr), max(a[4] for a in arr),
+                 max(a[5] for a in arr))
+    order = sorted(live, key=lambda i: lo[i][0])
+    made = 0
+    for a in range(len(order)):
+        i0 = order[a]
+        for b in range(a + 1, len(order)):
+            j0 = order[b]
+            if lo[j0][0] > hi[i0][0] + reach_m:
+                break                          # the sweep's own bound
+            if find(i0) == find(j0):
+                continue
+            if _apart(lo[i0], hi[i0], lo[j0], hi[j0], reach_m):
+                continue
+            if (nodes[i0].footed and nodes[j0].footed
+                    and nodes[i0].member == nodes[j0].member):
+                continue
+            if not _parts_within(parts[i0], parts[j0], reach_m):
+                continue
+            if cloud is not None and not _cloud_within(cloud(i0), cloud(j0),
+                                                       reach_m):
+                continue
+            union(i0, j0)
+            if find(i0) == find(j0):
+                made += 1               # the span cap may have refused
+    return made
 
 
 def unit_rigid(nodes: _t.Sequence[RigidNode],
                contacts: _t.Iterable[tuple[int, int]],
-               span_max_m: float = UNIT_CLUSTER_SPAN_MAX_M
+               span_max_m: float = UNIT_CLUSTER_SPAN_MAX_M,
+               reach_m: float = 0.0,
+               cloud: "_t.Callable[[int], _t.Any] | None" = None
                ) -> tuple[list[int], list[tuple[float, int, int]]]:
     """§16c (7): THE UNIT BINDS BY CONTACT (owner RULINGS 2026-09-12q).
 
@@ -483,6 +634,9 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
         for i in ia:
             for j in ib:
                 _union(i, j)
+    # (c) AND THE RIGID REACH CHAINS ACROSS THEM TOO (RULINGS 2026-09-12am)
+    if reach_m > 0.0:
+        _reach_unit(nodes, reach_m, _find, _union, cloud)
     groups: dict[int, list[int]] = {}
     for i in range(n):
         groups.setdefault(_find(i), []).append(i)
@@ -530,9 +684,82 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
     return (senior, census)
 
 
+def body_cloud(st: _t.Any, bodies: _t.Iterable[int]) -> "_t.Any":
+    """§16c (7)'s reach geometry, TRUE: the authored vertices of a set of
+    one member's raw bodies, in the UNIT's own frame.
+
+    A unit is ONE anchor spelling — every member of it is placed at the
+    same ``u.anchor`` and differs only in HEADING (``authored_offset``'s
+    own reading) — so a member's local ``(x, y, z)`` reaches the unit's
+    common frame by its heading alone, with no anchor needed:
+    ``east = x·cos h − z·sin h``, ``north = −(x·sin h + z·cos h)``
+    (``obj8.placement_affine``'s convention).  Returns an ``(N, 3)``
+    array of ``(east, north, y)`` metres, or ``None`` where the member's
+    file could not be read."""
+    cut = getattr(st, "cutter", None)
+    if cut is None or not cut._read():
+        return None
+    import math as _math
+    v = cut._geom.vertices
+    ids: list = []
+    for bi in bodies:
+        if not (0 <= bi < len(st.raw)):
+            continue
+        r = st.raw[bi]
+        if r[5]:
+            ids.append(np.unique(np.asarray(r[5], dtype=np.int64).reshape(-1)))
+            continue
+        for p in r[0]:
+            if 0 <= p.comp < len(cut._comps):
+                ids.append(np.unique(np.asarray(cut._comps[p.comp].tris,
+                                                dtype=np.int64).reshape(-1)))
+    if not ids:
+        return None
+    idx = np.unique(np.concatenate(ids))
+    idx = idx[(idx >= 0) & (idx < v.shape[0])]
+    if not idx.size:
+        return None
+    pts = v[idx]
+    h = _math.radians(float(getattr(st.m, "heading_deg", 0.0)))
+    s, c = _math.sin(h), _math.cos(h)
+    out = np.empty((pts.shape[0], 3), dtype=float)
+    out[:, 0] = pts[:, 0] * c - pts[:, 2] * s
+    out[:, 1] = -(pts[:, 0] * s + pts[:, 2] * c)
+    out[:, 2] = pts[:, 1]
+    return out
+
+
+def _part_aabbs(st: _t.Any, bodies: _t.Iterable[int]
+                ) -> "tuple[tuple[float, float, float, float, float, float], ...]":
+    """§16c (7)'s reach geometry for a set of a member's raw bodies: one
+    ``(lat0, lon0, lat1, lon1, y0, y1)`` per PART — its plan box with the
+    authored ``y`` it spans (``base_y`` to §16c (4)'s part TOP).  A
+    SEGMENT publishes one box for its whole station (11f (2)), so its
+    interval is the station's own."""
+    out: list[tuple[float, float, float, float, float, float]] = []
+    for bi in bodies:
+        if not (0 <= bi < len(st.part_boxes)):
+            continue
+        boxes = st.part_boxes[bi]
+        tops = st.part_tops[bi] if bi < len(st.part_tops) else []
+        prts = st.raw[bi][0]
+        if len(boxes) == len(prts) and prts:
+            for k, p in enumerate(prts):
+                y0 = float(p.base_y)
+                y1 = float(tops[k]) if k < len(tops) else y0
+                out.append((boxes[k][0], boxes[k][1], boxes[k][2], boxes[k][3],
+                            min(y0, y1), max(y0, y1)))
+            continue
+        y0 = min((float(p.base_y) for p in prts), default=0.0)
+        y1 = max((float(v) for v in tops), default=y0)
+        for b in boxes:
+            out.append((b[0], b[1], b[2], b[3], min(y0, y1), max(y0, y1)))
+    return tuple(out)
+
+
 def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
           surface: _t.Any, contacts: _t.Iterable[tuple[int, int]],
-          counts: dict) -> tuple[dict, list]:
+          counts: dict, reach_m: float = 0.0) -> tuple[dict, list]:
     """§16c (7) APPLIED TO ONE UNIT (owner RULINGS 2026-09-12q).
 
     Builds the unit's rigid nodes — every footed CANDIDATE and every
@@ -557,32 +784,61 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
     nodes: list[RigidNode] = []
     cand_of_node: list[int] = []
     node_of: dict[tuple[int, int], int] = {}
+    by_mi = {st.mi: st for st in staged}
+    #: (member, its raw body indices) per node — what the reach reads the
+    #: authored geometry of, built ONLY for the pairs the boxes admit
+    cloud_src: list[tuple[_t.Any, tuple]] = []
+    _cloud_cache: dict[int, _t.Any] = {}
+
+    def _cloud(i: int):
+        if i not in _cloud_cache:
+            st0, bodies0 = cloud_src[i]
+            _cloud_cache[i] = (None if st0 is None
+                               else body_cloud(st0, bodies0))
+        return _cloud_cache[i]
+    # EVERY FIELD IS NAMED.  The first form of this call passed them
+    # POSITIONALLY and put the footprint where ``footed`` is declared:
+    # every node then read ``footed`` true (its area) and
+    # ``footprint_m2`` 1.0, which killed rule (a) below outright — a
+    # member's ``feet_i`` held all of its bodies, none was "not footed",
+    # and no elevated body ever joined its own member's footed cluster.
+    # LEMD's `LEMD47` walls were the visible residue (RULINGS 12am).
     for _ci, c in enumerate(cands):
         _z = (None if c.anchor.surface_z is None else
               float(c.anchor.surface_z) - float(c.anchor.y_zero))
         node_of[(c.member, ~c.group)] = len(nodes)
         cand_of_node.append(_ci)
+        _st = by_mi.get(c.member)
+        _grp = (tuple(_st.groups[c.group])
+                if (_st is not None and 0 <= c.group < len(_st.groups))
+                else ())
+        cloud_src.append((_st if _grp else None, _grp))
         nodes.append(RigidNode(
-            c.member, frozenset(c.pids), c.box, True,
-            sum(_pc.box_area_m2(b) for b in c.part_boxes),
-            c.body_class not in _never_bind, _z, c.feet))
+            member=c.member, pids=frozenset(c.pids), box=c.box,
+            footprint_m2=sum(_pc.box_area_m2(b) for b in c.part_boxes),
+            footed=True, bindable=c.body_class not in _never_bind,
+            zero=_z, feet=c.feet,
+            parts3=(_part_aabbs(_st, _grp) if _grp else ())))
     for st in staged:
         for _bi, _r in enumerate(st.raw):
             if not (_r[4] or st.footless):
                 continue
             node_of[(st.mi, _bi)] = len(nodes)
             cand_of_node.append(-1)
+            cloud_src.append((st, (_bi,)))
             nodes.append(RigidNode(
-                st.mi,
-                frozenset(p.pid for p in _r[0]),
-                _pc.hull_of(st.part_boxes[_bi]), False,
-                sum(_pc.box_area_m2(b) for b in st.part_boxes[_bi]),
-                _r[1] not in _never_bind, None))
+                member=st.mi,
+                pids=frozenset(p.pid for p in _r[0]),
+                box=_pc.hull_of(st.part_boxes[_bi]),
+                footprint_m2=sum(_pc.box_area_m2(b)
+                                 for b in st.part_boxes[_bi]),
+                footed=False, bindable=_r[1] not in _never_bind, zero=None,
+                parts3=_part_aabbs(st, (_bi,))))
     senior_node, cl_census = unit_rigid(
-        nodes, contacts,
-        span_max_m=UNIT_CLUSTER_SPAN_MAX_M)
+        nodes, contacts, span_max_m=UNIT_CLUSTER_SPAN_MAX_M,
+        reach_m=reach_m, cloud=_cloud)
     counts["unit_clusters"] = counts.get("unit_clusters", 0) + len(cl_census)
-    by_mi0 = {st.mi: st for st in staged}
+    by_mi0 = by_mi
     # (a) a FOOTED body of the cluster takes the senior's zero: its
     #     file stays its own, anchored where the cluster is
     for (mi0, key), ni in node_of.items():

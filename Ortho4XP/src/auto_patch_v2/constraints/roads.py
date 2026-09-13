@@ -15,6 +15,8 @@ owns the general road profile.
 """
 from __future__ import annotations
 
+import math
+
 from ..law import Law
 from ..law.tables import family, role_cap
 from ..model.airport import Airport
@@ -23,15 +25,73 @@ from ..model.planar import PlanarMap
 from .geometry import long_axis, pair_is_transverse
 from .precedence import view
 
-__all__ = ["road_within_shape", "road_family_roles", "road_law_caps"]
+__all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
+           "road_pair_reading", "NOT_A_PAIR", "NO_FRAME"]
+
+#: :func:`road_pair_reading` verdicts (§37 (7)).
+NOT_A_PAIR = "not_a_pair"     # two routes: a switchback's branches
+NO_FRAME = "no_frame"         # no route answers one of them: the chord law
 
 GEN = "roads"
+
+#: per-generator statistics (``constraints.generate`` publishes them
+#: beside the row count as ``road_within_shape.<key>``)
+STATS: dict[str, dict[str, int]] = {}
 
 
 def road_family_roles(law: Law) -> tuple[str, ...]:
     """The roles the cross-section law is defined over — read from the
     family table, never typed here."""
     return tuple(family(law, "road_cross_section").roles)
+
+
+def road_pair_reading(cap_l: float, cap_t: float, min_deg: float,
+                      fa: tuple[int, float, float] | None,
+                      fb: tuple[int, float, float] | None,
+                      chord: float | None = None
+                      ) -> tuple[float, bool] | str:
+    """§37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (owner RULINGS
+    2026-09-13av) — THE ONE READING, imported by the generator, the v2
+    verify and the v1 census so all three pair the same way.
+
+    ``fa`` / ``fb`` are the two vertices' route frames
+    (``PlanarMap.road_route_frame``: ``(route id, station s, signed
+    lateral t)``).  Returns ``(bound_m, transverse)``:
+
+    * ``bound = cap_l·|Δs| + cap_t·|Δt|`` — the BOX (the taxi family's own
+      reading of a diagonal, RULINGS 2026-09-06q/06s), with ``Δs`` the
+      ROUTE distance along the road's centreline and ``Δt`` the offset
+      across it.  A pure cross-section pair reads ``cap_t × width``, a
+      pure longitudinal pair ``cap_l × route``, and neither is the plan
+      chord the law used to read.
+    * ``transverse`` — the pair is the CROSS-SECTION when its direction in
+      ROUTE COORDINATES is at least ``min_deg`` off the centreline
+      (``common.road_transverse_axis_min_deg``, the same number the ring's
+      long-axis test used); ``road_cross_section`` prices only those.
+
+    ``NOT_A_PAIR`` when the two vertices sit on DIFFERENT routes: two
+    branches of one page (KCLT ``dsf:pol51``'s switchback — 45.6 m apart
+    in plan, 279.9 m apart along the road) are not a pair, and the ground
+    between them is adjacent ground (§19 / §31).  ``NO_FRAME`` when either
+    vertex has no route: the caller keeps the chord law and counts it.
+    """
+    if fa is None or fb is None:
+        return NO_FRAME
+    if fa[0] != fb[0]:
+        return NOT_A_PAIR
+    ds, dt = abs(fa[1] - fb[1]), abs(fa[2] - fb[2])
+    transverse = math.degrees(math.atan2(dt, ds)) >= min_deg
+    bound = cap_l * ds + cap_t * dt
+    # NEVER TIGHTER THAN THE CROSS-SECTION'S OWN CHORD READING.  A
+    # projection COLLAPSES: two vertices a metre apart on a bend can share
+    # a station and an offset, and the box would then price them at ~0 —
+    # tighter than the law was before §37 (7), which prices no pair over
+    # ``cap_t x its plan distance``.  The route reading is a RELAXATION of
+    # the pair law (that is the whole of the ruling); this floor keeps it
+    # one (the census's own ``max(baked, cap*dist)`` convention).
+    if chord is not None:
+        bound = max(bound, cap_t * float(chord))
+    return bound, transverse
 
 
 def road_law_caps(planar: PlanarMap, law: Law, airport: Airport | None = None
@@ -88,6 +148,15 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     vw = view(planar, law)
     roads = road_family_roles(law)
     law_caps = road_law_caps(planar, law, airport)   # §37 (1): TRANSVERSE only
+    # §37 (7) (owner RULINGS 2026-09-13av): the road's own route frame,
+    # published by ``airport/road_ramp.road_route_frame``.  Absent (a v1
+    # map, a probe that skipped the publisher) the chord law stands.
+    frame = getattr(planar, "road_route_frame", None) or {}
+    stats = STATS.setdefault("road_within_shape",
+                             {"routed": 0, "chord": 0, "not_a_pair": 0,
+                              "ring_edge": 0})
+    for k in stats:
+        stats[k] = 0
     min_deg = law.tables.common.road_transverse_axis_min_deg
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     rows: list[Row] = []
@@ -121,6 +190,30 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     d = vw.dist(a, b)
                     if d < min_d:
                         continue
+                    # §37 (7): the ROUTE reading where the map carries the
+                    # road's own frame; the chord law where it does not
+                    read = road_pair_reading(cap_l, cap_t, min_deg,
+                                             frame.get(a), frame.get(b), d) \
+                        if frame else NO_FRAME
+                    if read == NOT_A_PAIR:
+                        # A RING EDGE IS ALWAYS PRICED (the census's own
+                        # R19-5 floor): two ADJACENT ring vertices are
+                        # neighbours whatever route answers them — a way
+                        # BOUNDARY mid-road must not leave a step
+                        # unpriced.  Only a non-adjacent cross-route pair
+                        # is the switchback the ruling frees.
+                        if j != i + 1 and not (i == 0 and j == n - 1):
+                            stats["not_a_pair"] += 1
+                            continue
+                        read = NO_FRAME
+                        stats["ring_edge"] += 1
+                    if read != NO_FRAME:
+                        bound, transverse = read
+                        stats["routed"] += 1
+                        rows.append(Diff(a, b, bound / d, d,
+                                         src_t if transverse else src_l))
+                        continue
+                    stats["chord"] += 1
                     (ax_, ay_), (bx_, by_) = vw.xy[a], vw.xy[b]
                     if axis is not None and pair_is_transverse(
                             axis, bx_ - ax_, by_ - ay_, min_deg):

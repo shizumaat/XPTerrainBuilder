@@ -16,6 +16,7 @@ from pathlib import Path
 from ..airport import flat_site as _flat
 from ..airport.load import Inputs, load_with_report
 from ..airport.road_profile import preferred_road_z
+from ..airport.road_ramp import with_road_ramp
 from ..classify import classify, load_rules
 from .shapes import joint_steps, shape_constraints, shape_stage
 from .seam_report import seam_yield_block
@@ -493,7 +494,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # profile on this DEM (``airport/road_profile.py``); the cap rows
     # below stay and v2 moves a vertex off it only where one binds.
     t = time.perf_counter()
-    road_pref, road_rep, _profiles = preferred_road_z(
+    road_pref, road_rep, road_profiles = preferred_road_z(
         airport, pm, law, inputs.road_grade_limit, inputs.lane_width_m)
     pm = _dc.replace(pm, preferred_z=road_pref)
     wall["road_profile"] = time.perf_counter() - t
@@ -576,6 +577,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                 + ", ".join(f"{(s.get('forced_grade') or 0) * 100:.2f} %"
                             for s in er_rep["short"][:4]) + " (taxi family)"
                 if er_rep.get("short") else ""), out)
+    # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE
+    # DEM (owner RULINGS 2026-09-13j item 5, ruled 13aj; spec §37 (6)).
+    # LAST of the target channels, because a mouth's level is READ from the
+    # airside's own published target (§21 chord / §8.6 taxi trend / §8.7
+    # apron trend) where it carries one; the ramp target then SUPERSEDES
+    # the core's soft road fit for every vertex it governs — the ONE
+    # superseding site.  The rows are ``constraints/road_ramp.py``'s.
+    ramp_rep: dict = {}
+    pm = with_road_ramp(pm, law, airport, ramp_rep, road_profiles)
+    lrep.road_ramp = dict(ramp_rep)
     rs = road_rep["profiles"]
     _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
          f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
@@ -586,6 +597,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"  DEM fallback {road_rep['dem_fallback']}"
          f"  off-DEM {road_rep['preferred_off_dem']} (max {road_rep['max_preferred_shift_m']:.2f} m)",
          out)
+    _say(f"[{icao}] road ramps (§37 (6)): {ramp_rep.get('vertices', 0)} groundside-road "
+         f"vertices from {ramp_rep.get('mouths', 0)} airside contacts at cap "
+         f"{ramp_rep.get('cap') or 0.0:.3f} -> {ramp_rep.get('targets', 0)} targets "
+         f"({ramp_rep.get('on_dem', 0)} on the DEM, {ramp_rep.get('on_ramp', 0)} on the ramp "
+         f"up to {ramp_rep.get('max_above_dem_m', 0.0):.2f} m above it over "
+         f"{ramp_rep.get('max_reach_m', 0.0):.0f} m of route, "
+         f"{ramp_rep.get('no_contact', 0)} with no contact); core fit withdrawn on "
+         f"{ramp_rep.get('preferred_withdrawn', 0)}", out)
     # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
     # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()

@@ -17,7 +17,7 @@ from ..model.planar import PlanarMap
 from . import (apron, ceiling, eat, flat_site, foot_rows, groundside,
                junction_mesh,
                no_step, pad_frontage_gs, pads,
-               proximity, roads, routes, runway_chord, runway_profile, seams, strips,
+               proximity, road_ramp, roads, routes, runway_chord, runway_profile, seams, strips,
                structures,
                taxi, transverse, water, zones)
 
@@ -44,6 +44,12 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("apron_within_shape", apron.apron_within_shape),
     ("apron_edge_portions", apron.apron_edge_portions),
     ("road_within_shape", roads.road_within_shape),
+    # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE DEM
+    # (owner RULINGS 2026-09-13j item 5, ruled 13aj; spec §37 (6)): the road
+    # target along its ROUTE is ``max(DEM, z_contact - cap * s)`` — a design
+    # target at the law weight, with a HARD ceiling a visual threshold above
+    # it, superseding the core's soft road fit (``constraints/road_ramp.py``).
+    ("road_ramp", road_ramp.road_ramp_rows),
     ("groundside_ramp", groundside.groundside_ramps),
     ("transverse", transverse.transverse),
     ("no_step_pairs", no_step.no_step_pairs),

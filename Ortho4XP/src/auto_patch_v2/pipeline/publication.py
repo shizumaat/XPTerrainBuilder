@@ -237,6 +237,19 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # under and never from a constant of its own
             "seam_half_width_m": float(law.tables.emit.seam.half_width_m),
             "station_caps": stations,
+            # §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av;
+            # ``airport/road_ramp.road_route_frame``, published through
+            # ``PlanarMap.road_route_frame``): ``[lat, lon, route id,
+            # station s, signed lateral t]`` per road-family ring vertex.
+            # A road PAIR is priced along the ROUTE, so the verify reader
+            # and the v1 census must pair the way the generator does —
+            # they read this and apply ``constraints.roads
+            # .road_pair_reading``, the one rule.  Empty on a map whose
+            # publisher never ran: every reader keeps the chord law.
+            "road_route_frame": [[ll[v][0], ll[v][1], int(r),
+                                  round(float(st), 4), round(float(t), 4)]
+                                 for v, (r, st, t)
+                                 in sorted(planar.road_route_frame.items())],
             "basin_facilities": basin_facilities(planar, law, z),
             # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec
             # §11a (2)/(4)): ``[[lat, lon, metres above the pad's level],

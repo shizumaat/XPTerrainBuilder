@@ -114,6 +114,24 @@ class Way:
         return float(np.interp(s, self.s, self.z))
 
 
+def _signed_offset(line: LineString, s: float, pt: XY) -> float:
+    """The SIGNED distance from ``line`` at station ``s`` to ``pt``: the
+    cross product of the line's local direction with the offset, so the
+    two KERBS of one section read opposite signs and ``|t_a - t_b|`` is
+    the road's width across it (§37 (7)).  An unsigned distance would read
+    ~0 across the section and price a cross-section pair as if it were
+    one point."""
+    e = 0.5
+    a = line.interpolate(max(0.0, s - e))
+    b = line.interpolate(min(line.length, s + e))
+    ux, uy = b.x - a.x, b.y - a.y
+    n = math.hypot(ux, uy)
+    if n <= 0.0:
+        return 0.0
+    f = line.interpolate(s)
+    return ((pt[0] - f.x) * (-uy / n)) + ((pt[1] - f.y) * (ux / n))
+
+
 @_dc.dataclass(frozen=True)
 class Answer:
     """One vertex's answer: the value, which way gave it (``None`` = the
@@ -123,6 +141,14 @@ class Answer:
     kind: str | None
     ref: str | None
     lateral_m: float
+    #: THE ROUTE FRAME OF THE ANSWER (§37 (7)): the winning way, the
+    #: station (arclength ALONG its polyline, the route distance the road
+    #: pair law is priced over) and the SIGNED lateral offset across it.
+    #: ``None`` / 0.0 on the DEM fallback.  Additive: every earlier reader
+    #: of ``Answer`` sees the same first four fields.
+    way: "Way | None" = None
+    s: float = 0.0
+    t: float = 0.0
 
 
 def face_axis(ring: _t.Sequence[XY], step_m: float) -> list[XY] | None:
@@ -262,6 +288,11 @@ class RoadProfiles:
     radius_m: float
     ways: tuple[Way, ...]
     axes: dict[int, Way] = _dc.field(default_factory=dict)
+    #: face id -> the ways that ANSWER that face's vertices, with the
+    #: face's own answer radius (:func:`core_profiles`' second return,
+    #: carried on the object so a second reader of the SAME profiles does
+    #: not rebuild them — ``airport/road_ramp.py``, §37 (6))
+    per_face: dict[int, list[tuple[Way, float]]] = _dc.field(default_factory=dict)
     _tree: STRtree | None = _dc.field(default=None, repr=False)
     _lines: list[LineString] = _dc.field(default_factory=list, repr=False)
 
@@ -301,6 +332,7 @@ class RoadProfiles:
         best: tuple[int, float, Way] | None = None
         cands: list[tuple[Way, LineString, float]] = [(w, w.line, r) for w, r in through]
         cands += [(self.ways[i], self._lines[i], self.radius_m) for i in self.ways_near(p)]
+        bline: LineString | None = None
         for w, line, r in cands:
             z, lat = self.project(w, line, p)
             if lat > r:
@@ -309,9 +341,12 @@ class RoadProfiles:
             if best is None or (rank, lat) < (best[0], best[1]):
                 best = (rank, lat, w)
                 bz = z
+                bline = line
         if best is None:
             return Answer(float(dem), None, None, math.inf)
-        return Answer(bz, best[2].kind, best[2].ref, best[1])
+        s = float(bline.project(p)) if bline is not None else 0.0
+        return Answer(bz, best[2].kind, best[2].ref, best[1], best[2], s,
+                      _signed_offset(bline, s, pt) if bline is not None else 0.0)
 
     def summary(self) -> dict[str, _t.Any]:
         """Population + intervention counts (the core's own summary)."""
@@ -472,6 +507,7 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         if aw:
             prof.axes[fid] = aw[0]
             per_face[fid] = [(aw[0], radius)]
+    prof.per_face = per_face
     return prof, per_face
 
 

@@ -136,6 +136,10 @@ class LoadReport:
     #: the apron bodies' 2-D trend fit coverage (owner RULINGS
     #: 2026-09-10ar; ``constraints/apron_trend.py``, spec §8.7)
     apron_trend: dict | None = None
+    #: the groundside roads' RAMP from their airside contacts to the DEM
+    #: (owner RULINGS 2026-09-13j item 5, ruled 13aj;
+    #: ``constraints/road_ramp.py``, spec §37 (6))
+    road_ramp: dict | None = None
     #: THE EAT RAMP REACH (owner RULINGS 2026-09-13aa; spec §36 (5),
     #: ``constraints/eat.eat_reach_plan``): per pinned foot the drop, the
     #: taxi cap, the derived reach and the loop it has either side; the

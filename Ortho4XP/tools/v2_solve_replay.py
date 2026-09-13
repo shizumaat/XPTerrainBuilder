@@ -527,7 +527,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             except (ImportError, AttributeError):
                 continue
             m = pub(m, law, airport)
-        return m
+        # §37 (6) LAST, and out of the loop because its DERIVATION is an
+        # M1 producer's (it reads the DEM along the road's own route):
+        # the ramp reads the airside's own published target at the mouth
+        # and supersedes the core's road fit for the vertices it governs.
+        try:
+            from auto_patch_v2.airport.road_ramp import with_road_ramp
+        except ImportError:
+            return m
+        return with_road_ramp(m, law, airport)
 
     if chord_fill:
         print(f"[{icao}] chord-fill target arm (08g-2): roles {chord_fill} within the strip take the "

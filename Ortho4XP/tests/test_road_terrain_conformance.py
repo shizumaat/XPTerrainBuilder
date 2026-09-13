@@ -50,7 +50,7 @@ def _hill(lat: float, _lon: float) -> float:
     return 100.0 + HILL_GRADE * 150.0 - HILL_GRADE * (s - 150.0)
 
 
-def _patch(tmp_path: Path, name: str, levels) -> Path:
+def _patch(tmp_path: Path, name: str, levels, refs=None) -> Path:
     """A chain of ``len(levels)`` square service_road rings marching north,
     each ring flat at its own level; consecutive rings SHARE their two
     touching nodes, which is the chain identity the tool joins on."""
@@ -92,6 +92,8 @@ def _patch(tmp_path: Path, name: str, levels) -> Path:
         for r in (a, b, c, d, a):
             lines.append(f"    <nd ref='{r}' />")
         lines.append("    <tag k='role' v='service_road' />")
+        if refs is not None:
+            lines.append(f"    <tag k='ref' v='{refs[k]}' />")
         lines.append("    <tag k='aeroway' v='taxiway' />")
         lines.append("  </way>")
     lines.append("</osm>")
@@ -374,3 +376,52 @@ def test_cli_reads_a_sidecar_and_refuses_an_empty_request(tmp_path, capsys):
     assert "CLAMP:" in out
     with pytest.raises(SystemExit):
         RTC.main([])
+
+
+# ── --by-ref: the per-SOURCE off-DEM reading (lane v2roadcap2) ──────────
+
+def test_by_ref_groups_the_off_dem_reading_by_source(tmp_path):
+    """The unit the owner names a site by, and the unit a CLASSIFICATION
+    fix moves: one ref rides the hill, the other is planed through it,
+    and the whole-patch reading averages them into one grey number.
+
+    Signed both ways — a road standing ABOVE the ground (fill) is the
+    KCLT ``dsf:pol51`` defect and is invisible to a cut-only reading.
+    """
+    levels = _levels_following()[:5] + _levels_flat()[:6]
+    refs = ["dsf:polA"] * 5 + ["dsf:polB"] * 6
+    r = _read(_patch(tmp_path, "BYREF.osm", levels, refs=refs))
+    rows = {row["ref"]: row for row in r["by_ref"]}
+    assert set(rows) == {"dsf:polA", "dsf:polB"}
+    assert rows["dsf:polA"]["off_dem_max_m"] < 1.5, rows["dsf:polA"]
+    assert rows["dsf:polB"]["off_dem_max_m"] > 4.0, rows["dsf:polB"]
+    assert r["by_ref"][0]["ref"] == "dsf:polB", "worst first"
+    # every road vertex is accounted for, exactly once
+    assert sum(row["vertices"] for row in r["by_ref"]) == \
+        r["vertices"]["road_vertices"]
+    # the coordinates are the WORST vertex's own, not a centroid
+    la, lo = rows["dsf:polB"]["cut_ll"]
+    assert abs(_hill(la, lo) - 100.0 - rows["dsf:polB"]["cut_max_m"]) < 0.01
+    # and it measures no law: no cap, no family, no row count
+    assert "rows" not in rows["dsf:polB"] and "cap" not in rows["dsf:polB"]
+
+
+def test_by_ref_reports_fill_separately_from_cut(tmp_path):
+    """A road held UP in the air (the owner's item 5) and a road cut into
+    the hill are different defects; the reader must not fold them into
+    one magnitude."""
+    r = _read(_patch(tmp_path, "FILL.osm", [130.0] * 11,
+                     refs=["dsf:polUP"] * 11))
+    row = r["by_ref"][0]
+    assert row["fill_max_m"] > 20.0, row
+    assert row["cut_max_m"] < 0.0, "nothing is cut — a negative worst-cut"
+
+
+def test_by_ref_is_in_the_tool_index(tmp_path):
+    """RULINGS ``7e90032``: a new option lands with its index row."""
+    index = (_ROOT.parent / "tools" / "INDEX.md").read_text()
+    row = [ln for ln in index.splitlines()
+           if "tools/road_terrain_conformance.py`" in ln]
+    assert row and "--by-ref" in row[0], (
+        "the index row must name the option — a tool absent from the "
+        "index is treated as absent")

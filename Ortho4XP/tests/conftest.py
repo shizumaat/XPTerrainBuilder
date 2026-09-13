@@ -1143,6 +1143,22 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture()
+def timing_runs():
+    """How many repeats a ``@pytest.mark.timing`` twin medians over.
+
+    ``O4_TIMING_RUNS`` (default 3).  Mirrors ``check_build_time.py --runs N``:
+    a budget is compared against the MEDIAN of N fresh runs, never one
+    (CLAUDE.md "Traps still on you": single-run wall times swing +/-25 %)."""
+    return max(1, int(os.environ.get("O4_TIMING_RUNS", "3")))
+
+
+def median_wall(run, runs):
+    """Median wall time over ``runs`` calls of ``run()`` (each returns seconds)."""
+    import statistics
+    return statistics.median(run() for _ in range(runs))
+
+
+@pytest.fixture()
 def stricter_lot_cap(monkeypatch):
     """Hold ``groundside_pavement``'s cap at the 5 % walking-surface value.
 

@@ -14,6 +14,7 @@ import sys
 import time
 
 import numpy
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -155,17 +156,24 @@ def test_monotone_land_to_water_on_center_line():
     assert decreases >= int(0.9 * (len(samples) - 1))
 
 
-def test_performance_smoke_on_full_size_mask():
+@pytest.mark.timing
+def test_performance_smoke_on_full_size_mask(timing_runs):
+    """A one-run wall-clock budget: ``timing``-marked, deselected by default
+    (RULINGS 2026-09-12z); read on the median of ``timing_runs``."""
+    from conftest import median_wall
     size = 4096
     foam_width_pixels = 300
     mask = _straight_shoreline_mask(size, foam_width_pixels)
-    start = time.monotonic()
     result = COAST.apply_coastal_foam_edge(mask, foam_width_pixels, 100)
-    elapsed = time.monotonic() - start
     assert result is not None
     assert result.shape == mask.shape
+
+    def one():
+        start = time.monotonic()
+        COAST.apply_coastal_foam_edge(mask, foam_width_pixels, 100)
+        return time.monotonic() - start
     # Generous bound so CI never flakes on a shared runner.
-    assert elapsed < 5.0
+    assert median_wall(one, timing_runs) < 5.0
 
 
 def test_inland_water_plateau_far_from_shoreline_is_preserved():

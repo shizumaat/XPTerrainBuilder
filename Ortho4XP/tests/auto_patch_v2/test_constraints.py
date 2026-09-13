@@ -257,12 +257,12 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
     assert fired, "the fixture's residual classes are reported, never hidden"
 
 
-def test_bench_style_instance_round_trip(law):
-    """A benchmark-style instance (the solver-benchmark generator's
+def _bench_instance():
+    """The benchmark-style instance (the solver-benchmark generator's
     shape: a jittered grid over a ridged DEM, breakline chains under
     caps, pins along a profile, a flat group, bands) assembled through
-    v2's own stack: the feasible instance solves under 1 s at 2.5k
-    vertices; the infeasible variant reports INFEASIBLE with an IIS."""
+    v2's own stack.  Returns ``(pm, rows, chain)``; the correctness twin
+    and the ``timing`` twin below solve it."""
     import random
     from auto_patch_v2.model.planar import (Breakline, Edge, EdgeKind, Face,
                                             PlanarMap, Vertex)
@@ -321,22 +321,21 @@ def test_bench_style_instance_round_trip(law):
     for (u, v) in eids:
         rows.append(Diff(u, v, 0.05, math.dist(verts[u].xy, verts[v].xy), src))
     rows.append(Flat(tuple(ids[(i, j)] for i in range(5, 8) for j in range(5, 8)), src))
+    return pm, rows, chain
+
+
+def test_bench_style_instance_round_trip(law):
+    """The feasible instance solves at 2.5k vertices; the infeasible
+    variant reports its contradiction as a residual the certificate names.
+    Its WALL CLOCK is read by ``test_bench_style_instance_wall`` (marked
+    ``timing``, deselected by default), never here."""
+    pm, rows, chain = _bench_instance()
     cs = ConstraintSet.from_rows(rows)
     sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
     # 08t: the law rows are TARGETS of a least-squares solve, so the
     # certificate reports a residual instead of a feasibility proof — the
     # PINS are exact (the equalities), the rest is the surface's own answer
-    # RE-SCOPED (owner RULINGS 2026-09-09r (4), lane v2cyxy): a PERF guard,
-    # not a surface law.  The fixture is ONE 2,400-vertex apron body, so it
-    # is the worst case of the PER-BODY DATUM (09p (3)) — one row over 2,400
-    # vertices.  Round 1 factorised that row's dense 2,400 x 2,400 block and
-    # ran 18.7 s; the Woodbury low-rank term (09r (1)) holds it out of the
-    # factorisation and the same solve runs 8.4 s.  The residue over the old
-    # 5 s is the ACTIVE SET, not the linear algebra: with a datum the set
-    # takes the full ``active_set_max_rounds`` (200) to settle on this
-    # fixture where it used to settle early.
-    assert sol.wall_s < 12.0
     assert sol.residual.max_pin_m < 1e-6 and sol.residual.max_flat_m < 1e-6
     # RE-SCOPED AGAIN (owner RULINGS 2026-09-10v (2), lane v2taxidatum round
     # 2), and REPORTED, never widened silently.  The per-body datum is now
@@ -356,6 +355,25 @@ def test_bench_style_instance_round_trip(law):
     # 08t: no infeasible branch — the contradiction is a RESIDUAL the
     # certificate names (the pin the fixture added cannot be met with the law)
     assert sol2.residual is not None and sol2.residual.max_m > 1.0
+
+
+@pytest.mark.timing
+def test_bench_style_instance_wall(law, timing_runs):
+    """PERF guard (owner RULINGS 2026-09-09r (4), lane v2cyxy), not a
+    surface law — so it lives OUTSIDE the correctness suite (RULINGS
+    2026-09-12z: it failed at 12.7 s under four lanes while every
+    correctness row passed; the timing-deferred law says no one-run gate).
+    The fixture is ONE 2,400-vertex apron body, the worst case of the
+    PER-BODY DATUM (09p (3)) — one row over 2,400 vertices.  Round 1
+    factorised that row's dense 2,400 x 2,400 block and ran 18.7 s; the
+    Woodbury low-rank term (09r (1)) holds it out of the factorisation and
+    the same solve runs 8.4 s.  The residue over the old 5 s is the ACTIVE
+    SET: with a datum the set takes the full ``active_set_max_rounds``
+    (200) to settle here.  Budget 12.0 s on the MEDIAN of ``timing_runs``."""
+    from conftest import median_wall
+    pm, rows, _chain = _bench_instance()
+    cs = ConstraintSet.from_rows(rows)
+    assert median_wall(lambda: solve_design(pm, cs, law)[0].wall_s, timing_runs) < 12.0
 
 
 # ── the osm writer's mesh-read contract ──────────────────────────────────
@@ -395,14 +413,8 @@ def test_cyxy_verify_matches_v1_census(tmp_path):
     from auto_patch_v2.planar.__main__ import default_inputs
     res = build_v2("CYXY", default_inputs(), tmp_path, Config())
     assert res.solution.status in (Status.OPTIMAL, Status.FEASIBLE)
-    # RE-SCOPED (owner RULINGS 2026-09-09r (4), lane v2cyxy): a PERF guard on
-    # the real CYXY through the pipeline API (the harness build is faster).
-    # Two round-2 costs are in it: the SETTLING POLISH (09r (3)) runs its
-    # multiplier rounds instead of stopping on the first flat one, and the
-    # runway x runway crossing release (09r (2)) leaves CYXY's hard set
-    # unsettled, so it pays all 12.  Measured 16.1 s (round 1: 11.3 s, and
-    # 09b065b2: 9.6 s); the guard carries the single-run +/-25 % swing.
-    assert res.wall["total"] < 22.0
+    # The pipeline's wall clock is read by ``test_cyxy_pipeline_wall``
+    # (marked ``timing``, deselected by default), never here.
     sys.path.insert(0, str(ROOT / "tools" / "harness"))
     sys.path.insert(0, str(ROOT / "tools"))
     cg = pytest.importorskip("check_grade")
@@ -449,3 +461,26 @@ def test_cyxy_verify_matches_v1_census(tmp_path):
             or k in ("within_shape", "road_cross_section"), (k, n, got)
     for k in DEFECT_KEYS:
         assert not res.verify_rows.get(k), (k, res.verify_rows.get(k))
+
+
+@pytest.mark.timing
+@pytest.mark.skipif(not (DATA / "Elevation_data").is_dir(), reason="shared data repo")
+def test_cyxy_pipeline_wall(tmp_path, timing_runs):
+    """PERF guard on the real CYXY through the pipeline API (owner RULINGS
+    2026-09-09r (4), lane v2cyxy; the harness build is faster) — OUTSIDE
+    the correctness suite (RULINGS 2026-09-12z: 29.4 s under four lanes
+    while the census lockstep passed).  Two round-2 costs are in it: the
+    SETTLING POLISH (09r (3)) runs its multiplier rounds instead of
+    stopping on the first flat one, and the runway x runway crossing
+    release (09r (2)) leaves CYXY's hard set unsettled, so it pays all 12.
+    Measured 16.1 s (round 1: 11.3 s, and 09b065b2: 9.6 s).  Budget 22.0 s
+    on the MEDIAN of ``timing_runs``."""
+    from conftest import median_wall
+    from auto_patch_v2.pipeline.build import Config, build as build_v2
+    from auto_patch_v2.planar.__main__ import default_inputs
+
+    def one():
+        res = build_v2("CYXY", default_inputs(), tmp_path, Config())
+        assert res.solution.status in (Status.OPTIMAL, Status.FEASIBLE)
+        return res.wall["total"]
+    assert median_wall(one, timing_runs) < 22.0

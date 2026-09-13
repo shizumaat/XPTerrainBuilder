@@ -61,8 +61,8 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-__all__ = ["BodyClass", "Anchor", "PadRing", "RimRing", "classify_body", "anchor_for",
-           "rim_of",
+__all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
+           "anchor_for", "datum_of", "keep_off_row", "rim_of",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
 
 BUILDING = "building"
@@ -117,6 +117,13 @@ class Anchor:
     surface_z: float | None = None
     #: the authored-frame offset the split writer subtracts (§4.3)
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    #: §16e: this anchor came from a DATUM (a crest plate, a deck top) —
+    #: an authored height the law puts AT the ground at named stations,
+    #: not a foot the body stands on.  The keep test reads it: a
+    #: one-body placement whose datum moved it off its authored row must
+    #: be WRITTEN, and a kept row would put its zero back on the datum
+    #: point it was moved off.
+    datum: bool = False
 
 
 # ── geometry helpers (plan, in degrees scaled to metres) ─────────────────
@@ -170,6 +177,138 @@ def rim_of(rims: _t.Sequence[RimRing], lat: float, lon: float) -> RimRing | None
         if len(r.ring) >= 3 and _inside(r.ring, lat, lon):
             return r
     return None
+
+
+# ── §16e: THE DATUM (owner RULINGS 2026-09-13k; Fable 2026-09-13n) ───────
+
+@_dc.dataclass(frozen=True)
+class Datum:
+    """AN AUTHORED HEIGHT THE LAW PUTS AT THE GROUND, AND WHERE IT READS IT.
+
+    §16e's two datums are one rule with two readings, and both were
+    already computed and stamped into the plan by the patch half while
+    NOTHING in the placement path read them:
+
+    * the CREST PLATE (§16e (1), ``plate_y`` / ``plate_stations``): a
+      tunnel wall's top plate is flush with the ground at its wall band
+      (``[tunnel.object] plate_datum = "ground"``, RULINGS 2026-09-05n-4).
+    * the DECK TOP (§16e (2), ``deck_top_y`` / ``deck_end_stations``): a
+      single-layer span over water meets the land at its END LINES
+      (R12's abutment reading), and its feet land where they may.
+
+    ``y`` is the AUTHORED y that must meet the ground — for a plate,
+    ``plate_y`` less ``plate_clearance_m`` (§24 (2): a basin plate's
+    stations lie on the trench floor, which stands that far under it) —
+    and ``stations`` the points whose ground it must meet."""
+
+    y: float
+    stations: tuple[tuple[float, float], ...]
+    label: str
+
+
+def datum_of(m: _t.Any) -> "Datum | None":
+    """§16e: the datum ONE MEMBER carries, or ``None``.
+
+    Read off the plan's own member record by attribute, so that a twin
+    can hand in any object with the fields and no model import comes
+    into this module.
+
+    THE CREST RULE KEYS ON ``plate_y``, NEVER ON THE BASIN
+    CLASSIFICATION (§16e (1)).  ``plate_y <= 0`` is a FLOOR-plate basin —
+    LEMD's pits, OTHH's 8 drainage basins — whose zero is its RIM by
+    §14 (2), and those are left exactly where they are: the datum here is
+    the CREST plate, the ``plate_y > 0`` reading that §5's MSL->AGL
+    conversion left standing +5 … +10 m over the rim at OTHH's nine
+    tunnel walls.
+
+    THE DECK RULE asks the two conditions §16e (2) names: the ring stands
+    over NO graded face (``deck_datum_z`` is ``None`` — a flyover with
+    land under its ring is untouched) and the member's components reach
+    NO ground within the ring (no part of it carries a foot).  A deck
+    with feet is a deck that meets the ground somewhere and the generic
+    rule reads it there."""
+    plate_y = getattr(m, "plate_y", None)
+    if plate_y is not None and float(plate_y) > 0.0:
+        st = tuple(getattr(m, "plate_stations", ()) or ())
+        if st:
+            clear = float(getattr(m, "plate_clearance_m", 0.0) or 0.0)
+            return Datum(float(plate_y) - clear, st, "crest plate")
+    top = getattr(m, "deck_top_y", None)
+    if (top is not None and getattr(m, "deck_datum_z", None) is None
+            and getattr(m, "deck_kind", "") in ("flag", "signature")):
+        st = tuple(getattr(m, "deck_end_stations", ()) or ())
+        if st and not any(getattr(p, "feet", ()) for p in getattr(m, "parts", ())):
+            return Datum(float(top), st, "deck top")
+    return None
+
+
+def keep_off_row(z_row: "float | None", anchor: "Anchor | None",
+                 tol_m: float) -> bool:
+    """§14 / §16e: MUST THIS ONE-BODY PLACEMENT BE WRITTEN rather than
+    KEPT on its authored row?
+
+    §14's reading: the keep is admitted only where the row and the anchor
+    read the SAME design surface — on a shared-datum row the row IS the
+    datum (LEMD: 73 of 104 one-body keeps draped more than 3 m from their
+    own anchor's zero).
+
+    §16e adds the case that reading cannot see: a body on a DATUM.  Two
+    surfaces agreeing says nothing there — OTHH's `tunnel middle - east`
+    reads the same ground at its wall band as at its row — because what
+    the keep really asks is whether row and anchor give the body the same
+    ZERO, and a datum's ``y_zero`` is +5 … +10 m by construction.  Kept,
+    X-Plane drapes the object's ZERO on the ground and its crest stands
+    +5 m over it."""
+    if anchor is not None and anchor.datum:
+        return True
+    z_anchor = None if anchor is None else anchor.surface_z
+    return (z_row is not None and z_anchor is not None
+            and abs(float(z_row) - float(z_anchor)) > tol_m)
+
+
+def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
+                  datum: "Datum") -> "Anchor | None":
+    """§16e: the body anchored ON ITS DATUM — at the station whose ground
+    is the MEDIAN of the datum's stations, with ``y_zero = datum.y``.
+
+    Anchoring there puts the authored height ``datum.y`` on the ground at
+    that station, which is what both readings ask for; every other point
+    of the body then renders its own authored offset from it, and the
+    feet land where they may (§16e (2)).  The median station is the same
+    reading the retired seat took (``emit/rebake._plate_reading``: "the
+    median of the mesh at the band's stations, land only") expressed as a
+    POINT rather than as a delta, because a placement is anchored and
+    never re-baked.
+
+    A sample ON WATER IS DISCARDED (R12 amendment 1): water is a mesh
+    datum at 0.00 and half of OTHH's Bridge_01 stands over the canal.
+    The water bit rides the surface callable (``surface.water``, beside
+    ``surface.roles`` / ``surface.many``); a caller that hands none in
+    reads every sample as land, which is the old behaviour exactly — no
+    reading is no evidence.
+
+    ``None`` where no station reads a surface at all: nothing to anchor
+    to, and the generic rule then reads as before."""
+    water = getattr(surface, "water", None)
+    zs: list[tuple[float, float, float]] = []
+    wet = off = 0
+    for la, lo in datum.stations:
+        z = surface(la, lo)
+        if z is None:
+            off += 1
+            continue
+        if water is not None and water(la, lo):
+            wet += 1
+            continue
+        zs.append((float(z), float(la), float(lo)))
+    if not zs:
+        return None
+    zs.sort()
+    z, la, lo = zs[len(zs) // 2]
+    return Anchor(body_class, la, lo, datum.y,
+                  f"§16e {datum.label} datum: the authored y {datum.y:+.2f} at "
+                  f"the ground {z:.2f} ({len(zs)} station(s) on land, {wet} on "
+                  f"water, {off} off-sheet)", z, datum=True)
 
 
 # ── the class ────────────────────────────────────────────────────────────
@@ -239,7 +378,7 @@ def _all_on_rolled(cands: _t.Sequence[tuple[float, float, float, float]],
 def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
                pads: _t.Sequence[PadRing] = (), rims: _t.Sequence[RimRing] = (),
                *, merged_into: str = "", tol_m: float = 0.0,
-               roles=None, rolled_on=None) -> Anchor:
+               roles=None, rolled_on=None, datum: "Datum | None" = None) -> Anchor:
     """THE GENERIC RULE (module doc; 11e (2)) for one body.
 
     ``geom.parts`` are its ground-contact components
@@ -248,6 +387,10 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     ground-contact vertex whose surface reads within it of the body's own
     ZERO PLANE anchors at its low-side foot and says so in
     :attr:`Anchor.reason`, carrying the residual.
+
+    ``datum`` is §16e's: a crest plate or a deck top, read FIRST and
+    from the member's own stations (:func:`datum_of`,
+    :func:`_datum_anchor`).
 
     ``pads`` are accepted and unused: the per-class table they served is
     superseded.  ``rims`` are WIRED for the BASIN class (§14 (2)): the
@@ -261,6 +404,18 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     position of the anchor point, which only the caller holding the
     authored frame can spell, and it fills that in before handing the cut
     to the writer."""
+    # §16e: THE DATUM IS READ FIRST, and it needs nothing from the parts:
+    # a crest plate and a deck top are heights the law puts AT the ground
+    # at stations of their own, and the body's own feet are the thing
+    # they are NOT read from.  It outranks the basin branch on purpose —
+    # §16e (1) keys on ``plate_y``, never on the classification: OTHH's
+    # tunnel walls classify BASIN (they stand inside their own emitted
+    # ``tunnel_wall`` ring) and §14 (2)'s rim anchor, written for a floor
+    # plate authored -depth, stood their crests +5 … +20 m over the rim.
+    if datum is not None and datum.stations:
+        a = _datum_anchor(body_class, geom, surface, datum)
+        if a is not None:
+            return a
     if not geom.parts:
         return Anchor(body_class, geom.origin_lat, geom.origin_lon, 0.0,
                       "no ground-contact component: the placement's own anchor",

@@ -222,6 +222,12 @@ class Body:
     #: CARRIER's patch, which is why every bar read 0 while the eye read
     #: +16 m over the ground (11ap).
     geom_pts: tuple[tuple[float, float, float], ...] = ()
+    #: §16e: this body is anchored on a DATUM — a crest plate or a deck
+    #: top, an authored height the law puts AT the ground.  Published
+    #: because its ``y_zero`` is +5 … +10 m BY CONSTRUCTION and every
+    #: reader that judges a high ``y_zero`` (§13's "elevated bodies as
+    #: own files", bar 0) would otherwise count the law as its defect.
+    datum: bool = False
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -236,6 +242,7 @@ class Body:
                 "geom_box": None if self.geom_box is None else list(self.geom_box),
                 "foot_boxes": [list(b) for b in self.foot_boxes],
                 "fill": self.fill, "ground_off": self.ground_off,
+                "datum": self.datum,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts]}
 
@@ -263,7 +270,8 @@ class Body:
                    None if d.get("ground_off") is None
                    else _f(d["ground_off"]),
                    tuple((_f(q[0]), _f(q[1]), _f(q[2]))
-                         for q in d.get("geom_pts", ()) or ()))
+                         for q in d.get("geom_pts", ()) or ()),
+                   bool(d.get("datum", False)))
 
 
 @_dc.dataclass(frozen=True)

@@ -39,6 +39,7 @@ __all__ = ["_Raw", "_raw_bodies", "_whole_body"]
 _Raw = _t.Tuple[list, str, _ar.Anchor, tuple, bool, tuple, tuple,
                 "float | None"]
 
+
 def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
                 rims: _t.Sequence[_ar.RimRing], counts: dict[str, int],
@@ -361,7 +362,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                           tuple((f[0], f[1], f[2]) for f in tfeet)),),
                         u.anchor[0], u.anchor[1])
                     ta = _ar.anchor_for(tcls, tgeom, surface, pads, body_rims,
-                                        tol_m=split_tol_m)
+                                        tol_m=split_tol_m,
+                                        datum=_ar.datum_of(m))   # §16e
                     # §16 (1): a triangle group of a body with no ground
                     # contact has none either (the VOR-marker class)
                     tfootless = (not any(p.feet for p in parts)
@@ -423,7 +425,8 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
         tuple((p.lat, p.lon, p.base_y,
                tuple((f[0], f[1], f[2]) for f in p.feet)) for p in parts),
         u.anchor[0], u.anchor[1])
-    a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m)
+    a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m,
+                       datum=_ar.datum_of(m))                    # §16e
     feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet) \
         or tuple((p.lat, p.lon, p.base_y) for p in parts)
     footless = (not any(p.feet for p in parts)

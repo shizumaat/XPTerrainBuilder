@@ -3770,3 +3770,198 @@ def test_the_anchor_rule_reads_the_roles_off_the_sampler():
     surface.rolled_on = frozenset({"runway"})
     assert "median foot" in AR.anchor_for(AR.OTHER, geom, surface,
                                           tol_m=0.3).reason
+
+
+# ── §16e (4): the instrument's own box ───────────────────────────────────
+
+def test_the_placement_census_hands_the_mesh_sampler_its_own_bbox_order():
+    """§16e (4): ``seat_feet_census --placement-plan --mesh`` passed its
+    bbox as ``(lat, lon)`` to a sampler that takes ``(lon, lat)``.
+
+    The twin is end to end over the mesh fixture the sampler's own tests
+    use: a plan row standing on the fixture's centre vertex must be
+    ANSWERED by a sampler built from :func:`plan_bounds`.  Spelled the
+    wrong way round, the box lands at lon 50 / lat 10, the sampler
+    retains no triangle and every row of the census reads ``None``."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "tools"))
+    import seat_feet_census as SFC
+    from auto_patch.mesh_sampler import MeshElevationSampler
+
+    mesh = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "fixtures", "mesh", "synthetic_fan_three_triangles.mesh")
+    plan = {"splits": [{"placement": {"index": 1},
+                        "bodies": [{"new_resource": "objects/a__b0.obj",
+                                    "anchor": {"lon": 10.0005, "lat": 50.0005,
+                                               "heading": 0.0}}]}],
+            "conversions": [{"resource": "objects/b.obj",
+                             "lon": 10.0002, "lat": 50.0002, "heading": 0.0}]}
+    _defs, plc = SFC.placement_plan_rows(plan)
+    assert [(round(p[1], 4), round(p[2], 4)) for p in plc] == \
+        [(10.0005, 50.0005), (10.0002, 50.0002)]      # (def, LON, LAT, hdg)
+    bounds = SFC.plan_bounds(plc)
+    assert bounds == (10.0002, 50.0002, 10.0005, 50.0005)
+    z = MeshElevationSampler(mesh, bounds).elevation_at_or_none(50.0005, 10.0005)
+    assert z is not None and abs(z - 250.0) < 1e-6
+    # ... and the transposed spelling retains NO TRIANGLE, which is the
+    # defect: at OTHH the census died on this very line
+    swapped = (bounds[1], bounds[0], bounds[3], bounds[2])
+    with pytest.raises(ValueError, match="no mesh triangles"):
+        MeshElevationSampler(mesh, swapped)
+
+
+# ── §16e: THE DECK TOP AND THE CREST PLATE ARE DATUMS ────────────────────
+
+def _member_like(**kw):
+    """A stand-in for ``model.rebake.Member`` — ``anchor_rule.datum_of``
+    reads its member by attribute on purpose, so a twin need not build a
+    whole plan to state the law."""
+    import types
+    base = dict(plate_y=None, plate_stations=(), plate_clearance_m=0.0,
+                deck_top_y=None, deck_datum_z=None, deck_kind="",
+                deck_end_stations=(), parts=())
+    base.update(kw)
+    return types.SimpleNamespace(**base)
+
+
+def _geom_at(lat, lon, y=0.0):
+    return AR.BodyGeometry(((lat, lon, y, ((lat, lon, y),)),), lat, lon)
+
+
+def test_the_crest_plate_is_the_datum():
+    """§16e (1): a member carrying ``plate_y > 0`` anchors at a wall-band
+    STATION with ``y_zero = plate_y`` — the crest at the ground there —
+    and the rule keys on ``plate_y``, never on the classification: OTHH's
+    tunnel walls class BASIN (they stand inside their own emitted
+    ``tunnel_wall`` ring) and §14 (2)'s rim anchor stood their crests
+    +5 … +10 m over the rim."""
+    ground = {(0.0, 0.0): 10.0, (0.0, 1e-4): 12.0, (0.0, 2e-4): 11.0}
+    surface = lambda la, lo: ground.get((round(la, 8), round(lo, 8)), 50.0)  # noqa
+    m = _member_like(plate_y=5.0, plate_stations=tuple(ground))
+    d = AR.datum_of(m)
+    assert d is not None and d.y == 5.0 and d.label == "crest plate"
+    a = AR.anchor_for(AR.BASIN, _geom_at(0.5, 0.5), surface, tol_m=0.3, datum=d)
+    # the MEDIAN station (11.0), and the crest lands ON it
+    assert a.datum is True and a.y_zero == 5.0 and a.surface_z == 11.0
+    assert (a.lat, a.lon) == (0.0, 2e-4)
+    assert abs((a.surface_z - a.y_zero + 5.0) - 11.0) < 1e-9
+    # §24 (2): the clearance comes off the datum, not the ground
+    d2 = AR.datum_of(_member_like(plate_y=5.0, plate_clearance_m=0.5,
+                                  plate_stations=tuple(ground)))
+    assert d2.y == 4.5
+
+
+def test_a_floor_plate_basin_is_not_a_crest_datum():
+    """§16e (1): ``plate_y <= 0`` is a FLOOR-plate basin — LEMD's pits,
+    OTHH's 8 drainage basins — whose zero is its RIM by §14 (2).  The
+    datum is the CREST plate and nothing else, so those read no datum at
+    all and every anchor they take is the one they took before."""
+    st = ((0.0, 0.0), (0.0, 1e-4))
+    assert AR.datum_of(_member_like(plate_y=-3.82, plate_stations=st)) is None
+    assert AR.datum_of(_member_like(plate_y=-13.14, plate_stations=st)) is None
+    assert AR.datum_of(_member_like(plate_y=5.0)) is None      # no stations
+    rim = AR.RimRing("basin_wall:1", ((-1.0, -1.0), (-1.0, 1.0),
+                                      (1.0, 1.0), (1.0, -1.0)))
+    g = _geom_at(0.0, 0.0, -7.0)
+    with_datum = AR.anchor_for(AR.BASIN, g, lambda la, lo: 100.0, (), (rim,),
+                               tol_m=0.3,
+                               datum=AR.datum_of(_member_like(plate_y=-3.82,
+                                                              plate_stations=st)))
+    without = AR.anchor_for(AR.BASIN, g, lambda la, lo: 100.0, (), (rim,),
+                            tol_m=0.3)
+    assert with_datum == without and "basin rim" in without.reason
+
+
+def test_the_deck_top_is_the_datum_of_a_span_over_water():
+    """§16e (2): a deck member whose ring stands over NO graded face
+    (``deck_datum_z`` None) and whose components reach no ground within
+    the ring anchors so that its TOP lands at the ground at the END
+    LINES, and a station ON WATER is discarded (R12 amendment 1: the mesh
+    is a datum at 0.00 over the canal)."""
+    import types
+    st = ((0.0, 0.0), (0.0, 1e-4), (0.0, 2e-4))
+    m = _member_like(deck_kind="flag", deck_top_y=3.58, deck_end_stations=st)
+    d = AR.datum_of(m)
+    assert d is not None and d.y == 3.58 and d.label == "deck top"
+    # ... a flyover with land under its ring is UNTOUCHED
+    assert AR.datum_of(_member_like(deck_kind="flag", deck_top_y=9.56,
+                                    deck_datum_z=3.96,
+                                    deck_end_stations=st)) is None
+    # ... and a deck whose own components reach the ground is not one
+    assert AR.datum_of(_member_like(
+        deck_kind="flag", deck_top_y=3.58, deck_end_stations=st,
+        parts=(types.SimpleNamespace(feet=((0.0, 0.0, 0.0),)),))) is None
+
+    zs = {(0.0, 0.0): 0.0, (0.0, 1e-4): 3.90, (0.0, 2e-4): 3.96}
+
+    def surface(la, lo):
+        return zs[(round(la, 8), round(lo, 8))]
+    surface.water = lambda la, lo: zs[(round(la, 8), round(lo, 8))] == 0.0
+    a = AR.anchor_for(AR.DECK, _geom_at(0.5, 0.5, 9.0), surface, tol_m=0.3,
+                      datum=d)
+    assert a.datum is True and a.y_zero == 3.58 and a.surface_z == 3.96
+    assert "1 on water" in a.reason
+    # the deck TOP renders at the land, and the feet land where they may
+    assert abs((a.surface_z - a.y_zero) + 3.58 - 3.96) < 1e-9
+    # a caller that hands no water bit reads every sample as land
+    bare = AR.anchor_for(AR.DECK, _geom_at(0.5, 0.5, 9.0),
+                         lambda la, lo: zs[(round(la, 8), round(lo, 8))],
+                         tol_m=0.3, datum=d)
+    assert bare.surface_z == 3.90 and bare.datum is True
+
+
+def test_a_datum_body_is_never_elevated_and_never_kept_on_its_row():
+    """§16e: the two gates that threw the datum away at the last step.
+
+    ``is_elevated`` reads a ``y_zero`` above ``elevated_base_m`` as a roof
+    set on the ground — and a crest plate's ``y_zero`` is +5 … +10 m BY
+    CONSTRUCTION, so every wall was handed to a carrier or to "its own
+    ground" after the datum had chosen its anchor (measured on the OTHH
+    1.0.326 frame: all nine walls, crest +2.71 … +10.78 m over the band).
+    The keep test is the same sentence on the row."""
+    flat = AR.Anchor(AR.OTHER, 0.0, 0.0, 5.0, "", 10.0)
+    on_datum = _dc_replace(flat, datum=True)
+    assert _PC.is_elevated(0.0, flat, 0.5) is True
+    assert _PC.is_elevated(0.0, on_datum, 0.5) is False
+    assert _PC.is_elevated(9.0, on_datum, 0.5) is False
+
+
+def _dc_replace(a, **kw):
+    import dataclasses
+    return dataclasses.replace(a, **kw)
+
+
+def test_the_keep_test_reads_the_zero_a_datum_body_would_lose():
+    """§16e: ``keep_off_row`` — §14's row test with §16e's case added.
+
+    Two surfaces agreeing says nothing for a DATUM body: OTHH's `tunnel
+    middle - east` reads the same ground at its wall band (2.62) as at
+    its row, so §14's reading KEPT it, X-Plane draped its zero on the
+    ground and its crest stood +5 m over the rim."""
+    plain = AR.Anchor(AR.OTHER, 0.0, 0.0, 0.0, "", 100.0)
+    assert AR.keep_off_row(100.0, plain, 0.3) is False
+    assert AR.keep_off_row(101.0, plain, 0.3) is True
+    assert AR.keep_off_row(None, plain, 0.3) is False      # no reading
+    assert AR.keep_off_row(100.0, None, 0.3) is False      # no body
+    crest = AR.Anchor(AR.BASIN, 0.0, 0.0, 5.0, "", 100.0, datum=True)
+    assert AR.keep_off_row(100.0, crest, 0.3) is True
+
+
+def test_a_flag_decks_end_lines_come_from_its_ring():
+    """§16e (2): a SIGNATURE deck's plate hands its ends over; a FLAG
+    deck — every bridge OTHH's pack authors — has none, so the ends are
+    derived from the RING: the two extreme cross-sections of its
+    principal axis."""
+    from auto_patch_v2.airport import rebake_plan as RP
+    # a 100 m x 10 m deck in lat/lon (about 9e-4 x 9e-5 degrees)
+    ring = ((0.0, 0.0), (0.0, 1e-3), (1e-4, 1e-3), (1e-4, 0.0))
+    ends = RP.ring_ends(ring)
+    assert ends is not None
+    lons = {round(p[1], 8) for e in ends for p in e}
+    assert lons == {0.0, 1e-3}                  # the two SHORT sides
+    for a, b in ends:
+        assert round(a[1], 8) == round(b[1], 8)  # each end line runs across
+        assert {round(a[0], 8), round(b[0], 8)} == {0.0, 1e-4}
+    st = RP.end_line_stations(ends, 2.0)
+    assert len(st) >= 12 and all(round(p[1], 8) in (0.0, 1e-3) for p in st)
+    assert RP.ring_ends(((0.0, 0.0), (0.0, 1.0))) is None

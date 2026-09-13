@@ -94,6 +94,13 @@ def is_elevated(base_y_min: float, anchor: _ar.Anchor,
     reading)."""
     if elevated_base_m <= 0.0:
         return False
+    # §16e: A DATUM BODY IS NEVER ELEVATED.  Both readings above ask
+    # whether the file's zero is the GROUND, and a crest plate's
+    # ``y_zero`` is +5 … +10 m BY CONSTRUCTION: read as elevated, every
+    # OTHH tunnel wall was handed to a carrier or to "its own ground" and
+    # the datum was thrown away at the last step.
+    if anchor.datum:
+        return False
     return bool(base_y_min > elevated_base_m or anchor.y_zero > elevated_base_m)
 
 

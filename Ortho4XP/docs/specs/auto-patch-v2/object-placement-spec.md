@@ -3180,3 +3180,102 @@ tunnel wall object is admitted — OTHH is the only corpus airport with them.
    the LEMD sites held; plan stage; suite. Instrument: `seat_feet_census.py
    --placement-plan --mesh` passes its bbox as (lat, lon) to a sampler that takes
    (lon, lat) — broken since the switch; fixed with a twin.
+
+**MEASURED (lane `v2othhdatums`, 2026-09-13).** Implemented in
+`airport/anchor_rule.py` (`Datum`, `datum_of`, `_datum_anchor`, `keep_off_row`,
+`Anchor.datum`), `airport/rebake_plan.py` (`ring_ends` / `end_line_stations`,
+stamped into the new `Member.deck_end_stations`), `model/rebake.py` +
+`model/placement.py` (the two published fields), `airport/placement_body.py`
+(the two `anchor_for` call sites pass `datum=`), `airport/placement_carrier.py`
+(`is_elevated`), `airport/placement_plan.py` (the keep test), and
+`auto_patch/engine_v2.py` (`surface.water`). Matched arms on the app's 1.0.326
+OTHH frame (`o4_v2_rebake_OTHH.json` + `OTHH.graded.json` + the built
+`Data+25+051.mesh`) replayed through `v2_rebake_replay.py plan --sampler mesh`,
+and the LEMD 1.0.325 frame the same way.
+
+* **WHY THE MESH AND NOT THE GRADED SAMPLER.** `obj8_split_report`'s graded
+  sampler reads the canal as OFF-SHEET, and the whole of §16e (2) turns on
+  water being a DATUM AT 0.00 — which only the mesh states. `v2_rebake_replay
+  plan --sampler mesh` is also the sampler the APP calls (12g) and the entry the
+  plan-stage time is read on, so one instrument gives both. No `--mesh` option
+  was added to `obj8_split_report`: a second sampler in a second entry is the
+  census-wrapper defect.
+* **§16e (1), THE NINE WALLS (bar: crest within 0.3 m of the corridor rim).**
+  Before / after, crest − ground at the wall band: `tunnel middle - west`
+  **+19.54 → 0.00**, `tunnel1` (two placements) **+10.78 / +9.13 → +0.02 /
+  +0.21**, `tunnel south west 2` **+10.30 → 0.00**, `tunnel_sw` **+5.29 →
+  0.00**, `tunnel west 1` **+5.01 → 0.00**, `tunnel west 3` **+4.47 → 0.00**,
+  `tunnel west 2` **+3.98 → +0.02**, `tunnel middle - east` **+6.02 → 0.00**.
+  **Walls over 0.3 m from the band: 9 → 0.** Four of the nine were KEPT on
+  their authored row before (the crest then stands `plate_y` over the ground by
+  construction) and are WRITTEN now: the keep test asked whether the row and
+  the anchor read the same SURFACE, which for a datum body says nothing
+  (`anchor_rule.keep_off_row`).
+* **The 8 drainage basins (`plate_y` ≤ 0) are BYTE-IDENTICAL** — every anchor
+  point, `y_zero`, surface and reason unchanged, all still `basin rim (...)` at
+  zero 3.959/3.960. **LEMD IS BYTE-IDENTICAL WHOLE**: 2,109 body rows and 4
+  keeps, ZERO changed, including the T4S pit and every named site
+  (green-TEJ3 20 rows, T4 47, HANG3 2, LEMD47 1, TABOX 2, Bridge4 2 — all 0).
+* **§16e (2), THE DECK TOP.** `Bridge_01`'s deck takes the datum: deck top
+  **5.52 → 3.23 m** against land at 3.96 — the bar (3.96 ± 0.3) is **MISSED by
+  0.43 m**, and the mechanism is measured, not guessed: its end lines stand on
+  the CANAL BANK, which the mesh reads 2.52 (start end median) and 3.60 (far
+  end) with one station on water; 3.96 is the graded road further landward.
+  R12's landward walk is not armed here — it walks on too few LAND samples and
+  this end line has eleven. Reported, not iterated (materiality/attempt cap).
+* **NOT DONE — `Bridge_04` / `Bridge_05` deck tops (6.43 / 6.43, bar 3.96).**
+  Their deck members carry NO PART AT ALL in the plan (`parts 0`: the partition
+  found no genuine solid in them), so the placement path forms no body for them
+  and there is nothing to anchor; both stay KEPT on their row. Giving a
+  partless datum member a body is a BODY-FORMATION change in
+  `placement_body._raw_bodies` (every downstream reader indexes the body's
+  parts) and belongs with §16 (1)'s population rule — reported for ruling.
+* **NOT DONE — §16e (3), and the two attempts are the attribution.** The rule
+  needs "the Bridge_NN family", and the pack states no such thing: OTHH's
+  unit:6 puts Bridge_02, Bridge_03 and Bridge_06 — three bridges 250 m apart —
+  on ONE row at ONE AGL, so `deck_signature.family_key` (the anchor spelling)
+  calls all thirty members one family, and at LEMD a shared-datum row would
+  call 171 resources one. The lane tried the DECK'S RING as the family (a body
+  standing inside `deck_ring` is that bridge's: the placement bound rigid, its
+  cuts exempt, and the rest-on candidate set — `placement_carrier.carriers_for`,
+  the `ranked` list built under `if box is not None` — cut to its own family).
+  Read on the member's LOWEST part the cross-bridge carries went **2 → 3**;
+  read on ALL its parts (attempt 2) **2 → 5**, and Bridge_02's per-placement
+  spreads went the wrong way too. Both attempts moved the section's own bar
+  backwards and the code is DELETED, not kept: the ring does not partition the
+  clutter (OTHH's `Bridge_02_CLUTTER_000` stands inside Bridge_06's ring) and a
+  family-less body is not filtered at all. What §16e (3) needs ruled is what
+  names a bridge when the row does not and the ring does not either.
+  `Bridge_02_CLUTTER_007`'s six piers therefore still span **4.97 m**, the
+  per-placement spreads are unchanged, and cross-bridge carriers stay **2**.
+* **The rest of OTHH** (matched arms, mesh census): feet histogram IDENTICAL
+  (437 / 164 / 44 / 3; rows with a foot > 0.3 m 211, > 3 m 3); files 1,334 →
+  **1,338** (the four written walls); §13 `elevated bodies as own files` **0**
+  with the 10 datum bodies counted apart; §14 `footless at datum` **3 → 3**
+  (§16e (4) asked 4 → ≤ 1; on the MESH frame the baseline is 3, and the datum
+  law does not touch that class — the graded frame's 4 is a sampler
+  difference); §14 basin-RING spread 0.00 → **0.20 m** (bar 0.3: the walls now
+  anchor on a band station rather than on the rim ring, and the bar reads them
+  there); §15 stands-over float 72 → 74 with CARRIED **7 → 7**; §16b carried
+  float 118 → **117**, wide 170 → **170**; cockpit CRITICAL visual 281 → 289.
+  Torn seams were not re-read (the written-pack census; no pack was written).
+* **Plan stage** (`--runs 3`, mesh sampler, foreground): **72.23 → 79.64 s**
+  mean (min 70.71 → 74.45). The ≤ 60 s bar is MISSED ON BOTH ARMS — it was
+  already missed on main — and the +7.4 s is the datum's own stations plus the
+  four newly-written walls; `surface` calls 568,468 → 569,216 (+748, 0.13 %),
+  so the wall time is not the datum reading and the two arms are within the
+  ±25 % single-run swing the law names. Reported, not optimised.
+* **THE INSTRUMENT (§16e (4)), fixed and twinned.** `seat_feet_census.py
+  --placement-plan --mesh` passed `(min lat, min lon, max lat, max lon)` to a
+  sampler taking `(min_lon, min_lat, max_lon, max_lat)`: at OTHH it raised
+  `no mesh triangles inside (25.24, 51.59, 25.28, 51.62) — wrong tile?` and the
+  mode had never run. `plan_bounds()` is the one place the two orders meet.
+* **THE REPLAY NOW ARMS THE SHARED-REPO GUARD** (`v2_rebake_replay.py`, the
+  same `harness/shared_repo_guard` implementation): `plan` calls
+  `ensure_dsf_text_path`, which generates a DSF dump into a mod cache the lane
+  worktree MOUNTS at the shared repo. Every run of this lane printed
+  `[guard] shared repo UNCHANGED`.
+* **Suite**: `tests/auto_patch_v2 tests/test_harness.py
+  tests/test_role_edge_census.py tests/test_mesh_sampler*.py
+  tests/test_post_mesh.py tests/test_object_rebake.py` — **1,237 passed, 1
+  skipped**, twice. Six new twins in `tests/auto_patch_v2/test_v2objsplit.py`.

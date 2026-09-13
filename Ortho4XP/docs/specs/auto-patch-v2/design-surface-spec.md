@@ -8277,3 +8277,30 @@ BARS: SPJC underpasses 19 → taxiway-only (named); tunnels at the owner's four
 points 0; the four jetway `bridge_deck:` faces gone; −641/−2525 south mouths
 built at −12.0202431, −77.129278; LEMD −6028's mouth by the same rule (dry);
 LEMD F-6 and KCLT taxiway U unchanged; ONE SPJC build; suite twice.
+
+### §39 AMENDED — THE SUBJECT IS THE VERTEX; THE BANK IS WELDED TO THE MESH'S WATER (Fable 2026-09-13; RULINGS 2026-09-13bt, owner VMMC read 13br) — lane `v2hairline`
+
+VMMC: both cliffs are `bank_foot` vertices 0.012–0.05 mm OFF the OSM sea chord,
+as bent triples (bank legs sharing both endpoints with the chord) that an
+edge-pair census skips as adjacent; the bank clipped its feet against the
+DEM's water witness while the mesh constrains the OSM SEA edges.
+
+- **(1') THE VERTEX.** Any emitted patch vertex — ring, breakline, `bank_foot`
+  chain, any `.poly` marker — within `min_distinct_spacing_m` of a foreign
+  constrained edge it does not lie ON is a `hairline_pair` row; segment
+  adjacency is irrelevant.
+- **(3') THE DEGENERATE TRIPLE.** The mesh pre-flight also rejects a path
+  a→m→b laid beside a chord a→b (zero area by construction).
+- **(5') ONE WATER WITNESS.** At `emit/bank.py`, after the DEM-water clip,
+  every foot station is snapped to the nearest vector-map water / coastline
+  vertex within the spacing; where only an edge is within the spacing the
+  station is projected onto it and adopted as a shared vertex, or DROPPED
+  (stations stopped at water or under the materiality floor carry no
+  earthwork); no station may sit astride the 0.5 m bar.
+- Instrument: `bentchord.py` promoted beside `--hairline-audit`.
+
+BARS (VMMC, added to §39's): bent-chord triples under 0.5 m at the bank
+chains 369 → 0; foot nodes within 0.5 mm of a SEA edge 15 → 0; sub-0.1 m²
+triangles in the two 60 m boxes 376,041 → CYXY's class; the latent `bank:4`
+site (22.147882733, 113.589822933) clean; `hairline_pair` > 0 on the VMMC
+control, 0 on the arm.

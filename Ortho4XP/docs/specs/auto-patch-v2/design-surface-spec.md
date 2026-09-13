@@ -8304,3 +8304,33 @@ chains 369 → 0; foot nodes within 0.5 mm of a SEA edge 15 → 0; sub-0.1 m²
 triangles in the two 60 m boxes 376,041 → CYXY's class; the latent `bank:4`
 site (22.147882733, 113.589822933) clean; `hairline_pair` > 0 on the VMMC
 control, 0 on the arm.
+
+### §39 AMENDED AGAIN — ANGLE-FREE, AND THE VECTOR MAP WELDS; §37 (3) AMENDED — ZONE EDGES ARE IN THE BANK (Fable 2026-09-13; RULINGS 2026-09-13bu, owner KCLT read 13bj) — lanes `v2hairline`, `v2zonebank`
+
+KCLT: a `bank_foot` node 2.79 mm (and another 0.24 mm) from an OSM water edge
+made `Vector_Map.insert_edge` split the water edge and mint a node — a
+2.79 mm constrained WATER segment, 481,602 slivers; the pairs are at 29° and
+89°, so a parallel gate misses them. Items 5 and the new coordinate are the
+adjacent-ground zone-2 outer edge 4.6 m / 2.5 m in a cut with NO bank foot.
+
+- **§39, angle-free:** `hairline_pair` and the pre-flight price (a) two distinct
+  constrained NODES within `min_distinct_spacing_m` and (b) any constrained
+  SEGMENT shorter than it; the 5° gate is deleted; 13bt's vertex-to-edge and
+  degenerate-triple tests stand.
+- **§39 (6) THE VECTOR MAP WELDS.** `insert_edge`'s split test is METRIC (a
+  crossing within the spacing of an endpoint takes that endpoint; no node is
+  minted), and after `snap_to_grid` every constrained node pair within the
+  spacing is welded onto the senior node (water, tile border, coastline
+  first) with the degenerate segment dropped. The stale 1e-7° comment at
+  `O4_Mesh_Utils.py:645` is corrected.
+- **§37 (3) amended:** every graded ring is in the bank's coverage, the
+  adjacent-ground zone-2 outer rings included; a zone edge ≥
+  `bank_materiality_m` off the DEM is load-bearing and gets its foot; census
+  family `zone_edge_cliff` — a zone-band outer edge whose mesh slope exceeds
+  1:1 where the DEM's is under half of it.
+
+BARS: KCLT constrained segments under 10 mm 28 → 0, the three sliver
+cascades 1,230,453 → CYXY's class, `hairline_pair` > 0 control / 0 arm (lane
+`v2hairline`); KCLT item 5 (35.2007757, −80.9455609) and 35.2056385,
+−80.9478669 banked at 1:3 — `zone_edge_cliff` 0 on the arm, > 0 on the
+control; the 13ax lips re-read (lane `v2zonebank`).

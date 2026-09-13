@@ -4192,3 +4192,21 @@ off-DEM 1.39 → ≤ 0.15; design solve OPTIMAL, hard set settled; `cut`
 verdicts printed (~574 pairs); LEMD and KCLT byte-identical; ONE OTHH build;
 suite twice. Owed: a `Flat` row at every station of a curving ramp (the
 kerbs separate past `_STATION_CLUSTER_M` and the monotone chain zig-zags).
+
+### §16g (4) COMPONENTS APART ARE SEPARATE BODIES (Fable 2026-09-13; RULINGS 2026-09-13bu item 4) — lane `v2clusterpad`
+
+KCLT's `Charlotte_Airport_001_ALB.obj` is a pure roof resource over the whole
+1.7 km hangar district, split into 28 footless bodies with boxes up to
+1,747 m wide; the §16c (7) short-circuit handed each a carrier from anywhere
+in its rigid cluster (+4.76 m over one hangar, −6.42 under another).
+
+4. The footprint unit applies at the COMPONENT level: a body whose own
+   connected components do not touch in plan (beyond the 0.5 m spacing) is
+   split into one body per plan cluster BEFORE the unit derivation, each
+   seated by the unit it touches. A footless body never inherits a cluster
+   zero chosen more than `coarsen_reach_m` away — the §16c (7) short-circuit
+   does not apply to footless members.
+
+BAR: `001_ALB` 28 bodies → one per hangar; zero spread 20.99 → ≤ 0.3 m per
+building; the four owner sites' roof base within 0.3 m of the wall tops
+beneath; `§15 carried over a refused carrier` 8 → 0.

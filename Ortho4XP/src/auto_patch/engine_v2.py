@@ -623,6 +623,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         coarsen_reach_m=law.tables.structures.placement.coarsen_reach_m,
         contact_eps_m=law.tables.structures.placement.contact_eps_m,
         rigid_reach_m=law.tables.structures.placement.rigid_reach_m,
+        # (A), owner RULINGS 2026-09-12ap: the height a cross-member
+        # §16c (7) bind may move a body off its OWN ground.
+        bind_ground_m=law.tables.emit.cockpit.visual_m,
         pads=pads, rims=rims,
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))

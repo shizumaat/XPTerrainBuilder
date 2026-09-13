@@ -1151,7 +1151,7 @@ _ELEV = 0.5        # [rebake] elevated_base_m
 
 
 def _elev_args(**kw):
-    a = dict(split_tol_m=0.3, elevated_base_m=_ELEV)
+    a = dict(split_tol_m=0.3, elevated_base_m=_ELEV, bind_ground_m=0.5)
     a.update(kw)
     return a
 
@@ -3420,6 +3420,59 @@ def test_an_elevated_body_joins_its_own_members_footed_cluster():
     assert senior2 == [-1, -1], senior2
 
 
+def test_a_bind_across_members_holds_only_while_the_ground_agrees():
+    """(A), owner RULINGS 2026-09-12ap.
+
+    §16c (7) hands a bound body the senior's zero WHOLE, with no height
+    test at all, and 12ap measured what that costs: 41 of LEMD's 76 sunk
+    bodies were anchored more than 2 m from their own feet — the
+    `TABOX`/`TABOXzwei`/`TAPSL` row of 12 GSE boxes bound over 154 m of
+    apron, each ~1.9 m INTO it.  A box a metre under its apron is a
+    visible burial.  So a FOOTED body of ANOTHER MEMBER keeps the cluster
+    only while its own zero stands within ``bind_ground_m``
+    (``[cockpit] visual_m`` 0.5) of the senior's, and beyond it keeps its
+    own anchor and is COUNTED.
+
+    AND THE REFUSAL IS NEVER A CUT INSIDE A SOLID: it is asked only
+    across MEMBERS — two different resources, whose seam is not a seam of
+    one welded body — and never within one, where 12z's own veto already
+    stands."""
+    from auto_patch_v2.airport import placement_atom as ATOM
+    box = (40.0, -3.0, 40.0005, -2.9995)
+    near = (40.0004, -3.0, 40.0009, -2.9995)
+    senior_n = ATOM.RigidNode(0, frozenset([1]), box, footprint_m2=100.0,
+                              footed=True, bindable=True, zero=600.0, feet=8)
+    agrees = ATOM.RigidNode(1, frozenset([2]), near, footprint_m2=10.0,
+                            footed=True, bindable=True, zero=600.4, feet=2)
+    sunk = ATOM.RigidNode(1, frozenset([2]), near, footprint_m2=10.0,
+                          footed=True, bindable=True, zero=601.9, feet=2)
+    # unarmed (``bind_ground_m`` 0) the old reading stands
+    assert ATOM.unit_rigid([senior_n, sunk], [(1, 2)])[0][1] == 0
+    # armed: 0.4 m of disagreement binds, 1.9 m does not
+    cnt: dict = {}
+    assert ATOM.unit_rigid([senior_n, agrees], [(1, 2)],
+                           bind_ground_m=0.5, counts=cnt)[0][1] == 0
+    assert not cnt.get("bind_refused_for_ground")
+    sen, _c = ATOM.unit_rigid([senior_n, sunk], [(1, 2)],
+                              bind_ground_m=0.5, counts=cnt)
+    assert sen == [-1, -1], sen
+    assert cnt["bind_refused_for_ground"] == 1
+    assert cnt["bind_refused_worst_m"] == pytest.approx(1.9, abs=1e-6)
+    # AND NEVER INSIDE ONE MEMBER: the same pair, one resource, binds
+    import dataclasses as _dc0
+    same = _dc0.replace(sunk, member=0)
+    cnt2: dict = {}
+    assert ATOM.unit_rigid([senior_n, same], [(1, 2)],
+                           bind_ground_m=0.5, counts=cnt2)[0][1] == 0
+    assert not cnt2.get("bind_refused_for_ground")
+    # an ELEVATED body has no ground of its own and is never refused:
+    # it is the class §16c (7) exists for
+    roof = ATOM.RigidNode(1, frozenset([2]), near, footprint_m2=10.0,
+                          footed=False, bindable=True, zero=None)
+    assert ATOM.unit_rigid([senior_n, roof], [(1, 2)],
+                           bind_ground_m=0.5, counts={})[0][1] == 0
+
+
 def test_the_rest_on_carrier_is_not_refused_for_its_own_ground():
     """§16c (8): §16a (2) refuses a candidate whose own zero stands off
     the ground under its own feet — but not the one the body RESTS ON.
@@ -3535,6 +3588,96 @@ def test_the_motion_float_is_section_7s_own_expression():
     assert PC.foot_float(599.0, 600.0, 0.5, 0.5) == pytest.approx(-1.0)
     assert PC.feet_in_band(((0, 0, 0.0), (0, 0, 0.2), (0, 0, 9.0)), 0.5) == \
         [(0, 0, 0.0), (0, 0, 0.2)]
+
+
+def test_section_17_judges_at_the_ground_contact_feet_not_the_whole_band():
+    """(B), owner RULINGS 2026-09-12ap.
+
+    ``contact_band_m`` (1 m) is the band the PLAN picks a part's feet
+    with and it is shared law that does not move — but a metre is a
+    storey of authored model, and 12ap measured that 360 of the 561 feet
+    §17 read as FLOATING over the visual threshold were vertices standing
+    at their own AUTHORED height over a correctly seated body.  §17
+    judges the feet that TOUCH: the in-band feet within ``split_tol_m``
+    of the body's lowest.  The wider reading is still taken and printed,
+    so the report states its own attribution."""
+    from auto_patch_v2.airport import placement_census as PC
+    feet = ((0, 0, 0.0), (0, 0, 0.2), (0, 0, 0.9), (0, 0, 9.0))
+    assert PC.ground_contact_feet(feet, 1.0, 0.3) == \
+        [(0, 0, 0.0), (0, 0, 0.2)]
+    # the band stays the outer scope; a tolerance at or above it is it
+    assert PC.ground_contact_feet(feet, 1.0, 1.0) == PC.feet_in_band(feet, 1.0)
+    assert PC.ground_contact_feet(feet, 1.0, 0.0) == PC.feet_in_band(feet, 1.0)
+
+    class _Roles:
+        def roles_many(self, las, los):
+            return ["apron"] * len(list(las))
+
+    # one body, seated dead on its ground, with a sign panel authored
+    # 0.9 m up inside the band: judged, it is clean; over the whole band
+    # it reads 0.9 m of "float" that nothing placed there.
+    body = [{"res": "sign.obj", "cls": "other", "anchor_lat": 40.0,
+             "anchor_lon": -3.0, "anchor_z": 600.0, "y_zero": 0.0,
+             "reason": "surface at the body's zero", "feet": feet[:3]}]
+    c = PC.census_motion(body, lambda la, lo: 600.0, _Roles(),
+                         rolled_on={"apron"}, motion_step_m=0.05,
+                         band_m=1.0, contact_tol_m=0.3, visual_m=0.5)
+    assert c["feet_read"] == 3 and c["feet_in_band"] == 3
+    assert c["float_gt_visual"] == 0
+    assert c["band_float_gt_visual"] == 1        # the authored panel
+    assert c["motion_feet_gt"] == 1              # the 0.2 m vertex only
+
+
+def test_the_replay_sampler_never_reads_across_a_graded_hole(tmp_path):
+    """(E), owner RULINGS 2026-09-12ap.
+
+    A face with a HOLE says, in the document itself, that the ground
+    inside that ring is not its own.  A Delaunay over the emitted
+    VERTICES knows none of that and spans the ring with triangles
+    reaching from the apron down to the trench floor: LEMD read
+    **592.22 m at a point whose ROLE is apron**, six metres outside the
+    hole, and that fabricated ramp was 12ap's two worst pavement feet
+    (`LEMDblast__b1` +7.18, `Terminal4sBlue-STRT4__b1` -5.08).  A point
+    in such a simplex reads the nearest vertex on ITS OWN SIDE of the
+    ring instead."""
+    import json as _json
+    # a 40 m apron square at 600 m with a hole, and a 590 m floor in it
+    def _v(i, la, lo, z):
+        return [i, la, lo, z]
+    ring = [(40.0000, -3.0000), (40.0004, -3.0000),
+            (40.0004, -2.9996), (40.0000, -2.9996)]
+    hole = [(40.00015, -2.99985), (40.00025, -2.99985),
+            (40.00025, -2.99975), (40.00015, -2.99975)]
+    flr = [(40.000155, -2.999845), (40.000245, -2.999845),
+           (40.000245, -2.999755), (40.000155, -2.999755)]
+    vs, faces = [], []
+    for k, (la, lo) in enumerate(ring):
+        vs.append(_v(k, la, lo, 600.0))
+    for k, (la, lo) in enumerate(hole):
+        vs.append(_v(4 + k, la, lo, 600.0))
+    for k, (la, lo) in enumerate(flr):
+        vs.append(_v(8 + k, la, lo, 590.0))
+    faces.append({"role": "apron", "ref": "pav1", "ring": [0, 1, 2, 3],
+                  "holes": [[4, 5, 6, 7]]})
+    faces.append({"role": "tunnel_trench", "ref": "pit", "ring": [8, 9, 10, 11],
+                  "holes": []})
+    p = tmp_path / "TEST.graded.json"
+    p.write_text(_json.dumps({"vertices": vs, "faces": faces,
+                              "breaklines": []}))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "tools"))
+    import obj8_split_report as RPT
+    s, _p, _r = RPT.surface_from_graded(str(p), 0.3)
+    assert s.holes_struck > 0
+    # on the apron, just outside the hole: the apron, never a ramp
+    assert s(40.000145, -2.99980) == pytest.approx(600.0, abs=1e-6)
+    # inside the pit: the floor
+    assert s(40.000200, -2.99980) == pytest.approx(590.0, abs=1e-6)
+    # and the whole apron reads flat, with nothing between the two levels
+    for k in range(9):
+        z = s(40.00000 + k * 0.000015, -2.99980)
+        assert z is None or z in (pytest.approx(600.0, abs=1e-6),
+                                  pytest.approx(590.0, abs=1e-6)), (k, z)
 
 
 def test_a_basin_bodys_floor_feet_are_not_motion():

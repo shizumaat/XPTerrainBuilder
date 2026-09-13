@@ -693,7 +693,9 @@ def _main() -> int:
                          rigid_reach_m=(_law.tables.structures.placement
                                         .rigid_reach_m
                                         if a.rigid_reach is None
-                                        else a.rigid_reach))
+                                        else a.rigid_reach),
+                         # (A), RULINGS 2026-09-12ap
+                         bind_ground_m=_law.tables.emit.cockpit.visual_m)
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
@@ -716,6 +718,18 @@ def _main() -> int:
           f"{c.get('bodies_plan_bound', 0)} "
           f"body group(s), {c.get('basin_bodies_bound', 0)} basin resource(s) "
           f"made one file (§14)")
+    # (A), owner RULINGS 2026-09-12ap: the binds the ground REFUSED.
+    print(f"  §16c (7) bound by contact: "
+          f"{c.get('bodies_bound_by_unit_contact', 0)} footed body(ies) "
+          f"re-anchored, {c.get('bodies_bound_to_cluster_by_contact', 0)} "
+          f"elevated body group(s) ridden; bound refused for ground "
+          f"{c.get('bind_refused_for_ground', 0)} (worst own-ground "
+          f"disagreement refused {c.get('bind_refused_worst_m', 0.0):.2f} m; "
+          f"widest retained cluster zero-plane span "
+          f"{c.get('bind_zero_span_worst_m', 0.0):.2f} m)")
+    if c.get("line_bodies_segmented"):
+        print(f"  §10 (2) line bodies segmented: {c['line_bodies_segmented']} "
+              f"into {c.get('line_segments', 0)} file(s)")
     print(f"  elevated bodies as own files: {own}"
           f"{'' if own == 0 else '   *** §13 (1) VIOLATED (bar 0) ***'}; "
           f"footless placements on their OWN ground (§16 (3), no carrier "

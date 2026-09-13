@@ -509,6 +509,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  line_max_h: float = 0.0, foot_band_m: float = 0.0,
                  coarsen_reach_m: float = 0.0,
                  contact_eps_m: float = 0.0, rigid_reach_m: float = 0.0,
+                 bind_ground_m: float = 0.0,
                  abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -739,7 +740,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # body's.  The law lives in ``placement_atom`` (12q, 12am (1)).
         forced, cl_census = _atom.bind_unit(
             cands, staged, surface, unit_pairs.get(ui, ()), counts,
-            near_m=coarsen_reach_m)
+            near_m=coarsen_reach_m, bind_ground_m=bind_ground_m)
         cl_spans.extend(cl_census[:5])
 
         # ── PASS 3: what does each elevated body STAND OVER? ──────────

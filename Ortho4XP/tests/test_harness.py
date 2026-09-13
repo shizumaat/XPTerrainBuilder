@@ -7959,10 +7959,16 @@ class _CkStep:
         self.lon = lon
 
 
-def _ck_geometry(cg, *, ring_deg=0.01, runway_at=(0.0, 0.0)):
-    """A synthetic §31 (2) frame: ONE boundary ring around (0,0) and one
-    runway point at ``runway_at``, in the same metre projection the census
-    uses."""
+def _ck_geometry(cg, *, ring_deg=0.01, runway_ll=((-0.009, 0.0),
+                                                  (0.009, 0.0))):
+    """A synthetic §31 (2) frame: ONE boundary ring around (0,0) and ONE
+    runway axis (2 km, running north-south through the origin by default),
+    in the same metre projection the census uses.
+
+    The APPROACH CORRIDOR is built by the SAME class the engine's mouth
+    gate reads (``auto_patch_v2.law.approach_corridor``, owner RULINGS
+    2026-09-12al) from the same two law numbers — never a disc, and never
+    a second corridor written here."""
     import math
 
     def ll_to_m(lat, lon):
@@ -7971,8 +7977,12 @@ def _ck_geometry(cg, *, ring_deg=0.01, runway_at=(0.0, 0.0)):
     ring = [ll_to_m(a, b) for a, b in
             ((-ring_deg, -ring_deg), (-ring_deg, ring_deg),
              (ring_deg, ring_deg), (ring_deg, -ring_deg))]
+    law = cg.cockpit_law()
+    axes = [(ll_to_m(*runway_ll[0]), ll_to_m(*runway_ll[1]), "RW")]
     return {"boundary_rings": [ring],
-            "runway_pts": [ll_to_m(*runway_at)],
+            "runway_axes": axes,
+            "corridor": cg._ApproachCorridor(axes, law["approach_m"],
+                                             law["approach_half_width_m"]),
             "ll_to_m": ll_to_m}
 
 

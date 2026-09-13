@@ -13,6 +13,16 @@ nothing, however much of its length runs under a cell.
 
 One synthetic airport, one apron, one bore per case; law values are read
 from the tables, never retyped.
+
+AMENDED BY §31 (2) / owner RULINGS 2026-09-12al (lane `v2approachcorridor`):
+the region is the cover ⊕ standoff **∪ THE APPROACH CORRIDOR**, so an end
+that is merely far from the cover is no longer off the region if it stands
+on a runway's extended centreline.  The fixture's OFF-REGION ends
+therefore run SOUTH, across the 09/27 runway's axis rather than along it:
+a point whose along-centreline station is negative at both thresholds
+(here |x| < 600) is outside every corridor whatever its y, which is what
+makes "off the region" mean off BOTH halves of it.  The corridor's own
+twins are `tests/auto_patch_v2/test_v2approachcorridor.py`.
 """
 from __future__ import annotations
 
@@ -86,25 +96,25 @@ def test_a_mouth_on_the_field_is_kept_and_built(law):
 
 
 def test_an_off_field_mouth_is_dropped_and_counted(law):
-    """§29 (1): the same bore run 2 km east — its east end stands far
-    outside the cover ⊕ standoff, so that mouth is dropped (counted) and
-    only the on-field west mouth is built."""
-    cl2, tunnels, st = _run(law, ((-80.0, -6.0), (2000.0, -6.0)),
-                            (((2000.0, -6.0), (2900.0, -6.0)),
-                             ((-80.0, -6.0), (-900.0, -6.0))))
+    """§29 (1): the same bore run 2 km SOUTH — its south end stands far
+    outside the cover ⊕ standoff and outside every approach corridor, so
+    that mouth is dropped (counted) and only the on-apron north mouth is
+    built."""
+    cl2, tunnels, st = _run(law, ((0.0, -60.0), (0.0, -2000.0)),
+                            (((0.0, -2000.0), (0.0, -2900.0)),))
     assert st.bores == 1 and st.bores_no_mouth == 0
     assert st.mouths == 1 and st.mouths_off_field == 1
     assert st.tunnels == 1 and not st.refused, st.refused
-    # the one ramp built stands at the WEST mouth
+    # the one ramp built stands at the NORTH mouth, on the apron
     assert [c.role for c in cl2.cells].count("tunnel_ramp") == 1
-    assert tunnels[0].axis[0][0] == pytest.approx(-80.0, abs=1.0)
+    assert tunnels[0].axis[0][1] == pytest.approx(-60.0, abs=1.0)
 
 
 def test_a_bore_admitted_only_by_cover_emits_nothing(law):
     """§29 (2) — THE LEMD RAIL BORE: 4 km of bore crossing the apron (160 m
     of cover, far past the retired ≥ 1 m admission) with BOTH mapped ends
     off the field emits NOTHING: no mouth, no tunnel, no cell touched."""
-    cl2, tunnels, st = _run(law, ((-2000.0, -6.0), (2000.0, -6.0)))
+    cl2, tunnels, st = _run(law, ((0.0, -2000.0), (0.0, 2000.0)))
     assert st.bores == 1 and st.bores_no_mouth == 1
     assert st.mouths == 0 and st.mouths_off_field == 2
     assert st.tunnels == 0 and tunnels == () and st.cells_cut == 0
@@ -122,11 +132,11 @@ def test_the_gate_is_the_cover_grown_by_the_standoff(law):
     so = law.tables.structures.tunnel.mouth_standoff_m
     assert so >= 146.0, ("the standoff must clear the whole measured on-field "
                          "population (the farthest kept mouth stands 146 m off)")
-    x_in = 80.0 + 0.5 * so
-    x_out = 80.0 + 2.0 * so
-    _cl, _t, st_in = _run(law, ((0.0, -6.0), (x_in, -6.0)))
+    y_in = -(60.0 + 0.5 * so)
+    y_out = -(60.0 + 6.0 * so)
+    _cl, _t, st_in = _run(law, ((0.0, 0.0), (0.0, y_in)))
     assert st_in.mouths == 2 and st_in.mouths_off_field == 0   # both within the standoff
-    _cl, _t, st_out = _run(law, ((0.0, -6.0), (x_out, -6.0)))
+    _cl, _t, st_out = _run(law, ((0.0, 0.0), (0.0, y_out)))
     assert st_out.mouths == 1 and st_out.mouths_off_field == 1  # the far end is beyond it
 
 
@@ -138,8 +148,8 @@ def test_a_mouth_on_the_field_is_built_though_its_bore_covers_nothing(law):
     would have refused it (LEMD: 8 such bores, 9 corridors, +329 census
     rows, accepted)."""
     so = law.tables.structures.tunnel.mouth_standoff_m
-    x = 80.0 + 0.5 * so                       # on the field, under nothing
-    cl2, tunnels, st = _run(law, ((x, -6.0), (x + 300.0, -6.0)))
+    y = -(60.0 + 0.5 * so)                    # on the field, under nothing
+    cl2, tunnels, st = _run(law, ((0.0, y), (0.0, y - 6.0 * so)))
     assert st.mouths == 1 and st.mouths_off_field == 1 and st.bores_no_mouth == 0
     assert st.bores_mouth_only == 1 and st.mouth_only_bores == ["-101"]
     assert st.tunnels == 1 and len(tunnels) == 1
@@ -157,12 +167,12 @@ def test_a_mouth_off_the_cover_whose_ramp_reaches_the_field_is_kept(law):
     field it serves); the other end of the same bore — nothing but
     hillside beyond it — is dropped."""
     so = law.tables.structures.tunnel.mouth_standoff_m
-    x = 80.0 + 4.0 * so                                   # far outside the standoff
-    far = Cell(3, "apron", "apron2", _rect(x + 2.0 * so, -60, x + 4.0 * so, 60), (), None,
+    y = -(60.0 + 4.0 * so)                                # far outside the standoff
+    far = Cell(3, "apron", "apron2", _rect(-80, y - 4.0 * so, 80, y - 2.0 * so), (), None,
                None, "airside", "apron", {})
-    cl2, tunnels, st = _run(law, ((-2000.0, -6.0), (x, -6.0)),
-                            (((x, -6.0), (x + 900.0, -6.0)),), (far,))
+    cl2, tunnels, st = _run(law, ((0.0, -12000.0), (0.0, y)),
+                            (((0.0, y), (0.0, y - 900.0)),), (far,))
     assert st.mouths == 1 and st.mouths_off_field == 1
     assert st.bores_no_mouth == 0
     assert st.tunnels == 1
-    assert tunnels[0].axis[0][0] == pytest.approx(x, abs=1.0)
+    assert tunnels[0].axis[0][1] == pytest.approx(y, abs=1.0)

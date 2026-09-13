@@ -113,7 +113,8 @@ tile_seam_zone_m   = 400.0 # nodes within this of a crossed tile line are seam-z
 # the object stage reads exactly these three keys through the same tables.
 motion_step_m = 0.05  # §31 (1) MOTION: a step or ridge over this between welded neighbours of two ROLLED-ON roles (the runway family, the taxi family, the apron/stands of precedence.toml) is CRITICAL; the aircraft feels it
 visual_m      = 0.5   # §31 (1) VISUAL: off those surfaces a cut / rise / seam / float / burial / terrace under this is invisible to the pilot and is REPORTED, never gated; over it, a defect
-approach_km   = 5.0   # §31 (2) the APPROACH range: terrain within this of a runway axis is seen on final and climb-out; a visual defect beyond it, and outside the airport boundary, is a REPORT
+approach_km   = 5.0   # §31 (2) the APPROACH CORRIDOR's LENGTH: how far beyond each runway threshold, along the extended centreline, a pilot reads the terrain on final and climb-out
+approach_half_width_m = 2000.0  # §31 (2) the corridor's lateral HALF-WIDTH (owner RULINGS 2026-09-12al): on a 3° final 5 km out the aircraft is ~260 m up and a portal 2 km off the nose is in plain view.  The corridor is ONE derivation (law/approach_corridor.py) read by the cockpit block's in-view test AND by §29's mouth gate; the retired reading — "within approach_km of a runway axis", a disc that admitted the whole airport — is deleted, not gated
 # §31 (7) THE CLIFF (owner RULINGS 2026-09-12af).  A SPANNED step-family row
 # is a SLOPE and is REPORT (12ad) — but only up to a point: a row whose
 # implied grade |dz| / span exceeds this is a CUT or a RISE, not ground, and

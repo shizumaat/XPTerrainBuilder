@@ -4166,3 +4166,29 @@ KCLT's terminal one unit on its cluster pad (the passengers on the floor);
 LEMD's old terminal one unit per touching cluster (named); HECA's elevated
 rail cut at stations (dry, named); plan stage not worse than +10 %; the
 family censuses of §16f re-read under §16g; suite twice.
+
+### §11b (7) A FOOT ON A STRUCTURE CUT STATES NO GROUND ROW (Fable 2026-09-13; RULINGS 2026-09-13bs, owner OTHH read 13bn item 2) — lane `v2cutfeet`
+
+OTHH's tunnel object `tunnel south west 2#b0` is re-seated to the ground
+(3.962) and its §11b foot rows then demand that the ramp its own walls cut
+stand at that ground every few metres: the ramp sags between the nails
+(+3.31 m off its design line at the owner's point; 12 of 21 monotone rows
+violated; all 13 of OTHH's over-cap `tunnel_ramp` rows on this one ramp).
+Dropping the foot rows solves the same capture as a +3.6 % descent, optimal,
+hard set settled.
+
+7. A placement foot whose surface sample lands on a structure-cut face —
+   `tunnel_ramp`, `tunnel_trench`, `wall_corridor_ramp`, `door_ramp`,
+   `garage_ramp`, `retaining_wall`, a basin floor — takes a `cut` verdict at
+   `foot_rows._verdict` (beside `basin` / `pavement` / `padded` / `bare`),
+   counted and reported, and emits NO `Linear`. The cut surface is §33 /
+   §34's; the object RIDES it (§16a: cut where its carrier is cut; §16c (3):
+   a foot over a structure cut is not a ground foot). An object at a trench
+   edge keeps its crest plate (§16e (1)) and rides the cut with its feet.
+
+BARS (the registered OTHH capture): `tunnel_ramp` off-design max 5.09 →
+≤ 0.05 m; in-scope `within_shape tunnel_ramp` 13 → 0; `wall_corridor_ramp`
+off-DEM 1.39 → ≤ 0.15; design solve OPTIMAL, hard set settled; `cut`
+verdicts printed (~574 pairs); LEMD and KCLT byte-identical; ONE OTHH build;
+suite twice. Owed: a `Flat` row at every station of a curving ramp (the
+kerbs separate past `_STATION_CLUSTER_M` and the monotone chain zig-zags).

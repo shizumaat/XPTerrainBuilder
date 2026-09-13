@@ -3,6 +3,23 @@ RULINGS 2026-09-13i item 1, 2026-09-13q item 3) — lane ``v2rampwalk``.
 
 Its own module because ``planar/structures.py`` and
 ``planar/structure_approach.py`` both stand at their 1,000-line budget.
+
+NOT CALLED BY THE BUILD (lane ``v2rampwalk``, 2026-09-13).  The seeding
+half below is implemented and MEASURED on one LEMD build (ledger
+``f4cf494dab92``): taxiway F-6, way −1230, deck half-width 7.6 m read off
+its own taxi cell, both service roads bored and 31h-merged into one ramp
+with mouths at the two abutments.  Arming it ALONE regresses the cockpit
+block — LEMD CRITICAL VISUAL 3 → 10, seven of the ten rows at
+40.46100, −3.54455 — because the portal RIM takes ``DEM(mouth)`` = 570.0
+(the road's ground, down in the cutting) against a taxi surface solving
+~573.5 above it, so the abutment reads as a 3.52 m cliff and mints four
+``strip_seam_tear`` rows that were zero.  §34 (5)'s other half — "the
+aeroway is a terrain deck at the taxi surface, level across the cutting
+under taxi law" — has NO DEM source (the DEM carries no bridge): the
+abutment rim would have to take the TAXI CELL's own solved value, a new
+relational law that is an owner/Fable ruling, not this lane's.  The
+module and its twins (``tests/auto_patch_v2/test_v2rampwalk.py``) stand
+so the next round starts from the measurement, not from scratch.
 """
 from __future__ import annotations
 

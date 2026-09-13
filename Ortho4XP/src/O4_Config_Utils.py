@@ -34,7 +34,7 @@ from O4_Cfg_Vars import (
     list_mesh_vars,
     list_tile_vars,
     list_vector_vars,
-    retired_cfg_key_warning,
+    retired_cfg_key_warning_once,
     retired_cfg_keys,
 )
 
@@ -122,7 +122,9 @@ try:
                 # write drops it), never reported as an invalid line.
                 # A LOUDLY retired key says so — a user whose setting
                 # stopped being read must be told, not silently ignored.
-                retirement = retired_cfg_key_warning(var, value)
+                # ONCE per key per file per process (2026-09-12as (1))
+                retirement = retired_cfg_key_warning_once(
+                    var, value, global_cfg_file)
                 if retirement:
                     UI.lvprint(0, "   WARNING:", retirement)
                 continue
@@ -276,7 +278,9 @@ class Tile:
                         # generic handler below would have swallowed it
                         # as an unknown key at verbosity 2 — a setting
                         # that stopped being read must be visible.
-                        retirement = retired_cfg_key_warning(var, value)
+                        # ONCE per key per file per process (12as (1))
+                        retirement = retired_cfg_key_warning_once(
+                            var, value, config_file)
                         if retirement:
                             UI.lvprint(0, "   WARNING:", retirement)
                         continue

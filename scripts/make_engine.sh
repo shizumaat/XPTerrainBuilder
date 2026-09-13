@@ -103,4 +103,46 @@ if [[ -d "dist/Ortho4XP.app" && ! -d "$OUT" ]]; then
 fi
 echo "${VERSION:-unknown}" > "$OUT/VERSION.txt"
 
+# THE LERC SMOKE TEST (owner RULINGS 2026-09-12as (3)).  The frozen engine
+# decodes LERC elevation assets by re-exec'ing itself as
+# `Ortho4XP --lerc-decode IN OUT` (src/O4_LERC_Decode.py); tifffile hands
+# the decode to imagecodecs' compiled _lerc extension.  A bundle missing
+# either does not crash — it SKIPS the source and silently degrades New
+# Zealand's 1 m lidar to the base tier, which is how it shipped in 1.0.324.
+# So a missing codec fails THE ENGINE BUILD, never a tile build.
+echo "Checking the frozen engine decodes LERC …"
+LERC_DIR="$(mktemp -d)"
+"$PY" - "$LERC_DIR" <<'PYEOF'
+import sys
+import numpy
+import tifffile
+directory = sys.argv[1]
+values = (numpy.arange(64 * 64, dtype=numpy.float32).reshape(64, 64) / 7.0)
+tifffile.imwrite(
+    directory + "/fixture.tif", values, compression="lerc",
+    extratags=[(33550, "d", 3, (1.0, 1.0, 0.0)),
+               (33922, "d", 6, (0.0, 0.0, 0.0, 170.0, -45.0, 0.0))])
+PYEOF
+"$OUT/Ortho4XP" --lerc-decode "$LERC_DIR/fixture.tif" "$LERC_DIR/out.npy" \
+  > "$LERC_DIR/tags.json" || {
+  echo "ERROR: the frozen engine cannot decode LERC (--lerc-decode failed) —" >&2
+  echo "       tifffile / imagecodecs / imagecodecs._lerc are missing from the bundle." >&2
+  exit 1
+}
+"$PY" - "$LERC_DIR" <<'PYEOF' || exit 1
+import json
+import sys
+import numpy
+directory = sys.argv[1]
+values = numpy.load(directory + "/out.npy")
+tags = json.load(open(directory + "/tags.json"))
+expected = (numpy.arange(64 * 64, dtype=numpy.float32).reshape(64, 64) / 7.0)
+if values.shape != (64, 64) or not numpy.allclose(values, expected, atol=1e-3):
+    raise SystemExit("ERROR: the frozen LERC decode returned the wrong array")
+if tags["tiepoint"][3:5] != [170.0, -45.0]:
+    raise SystemExit("ERROR: the frozen LERC decode lost the georeferencing tags")
+print("   frozen LERC decode OK (64x64 float32, tags carried)")
+PYEOF
+rm -rf "$LERC_DIR"
+
 echo "Frozen engine: $ENGINE/$OUT (version ${VERSION:-unknown})"

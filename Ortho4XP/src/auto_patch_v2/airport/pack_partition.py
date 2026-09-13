@@ -538,8 +538,13 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
         fxy = np.zeros((0, 3))
         fla = flo = np.zeros(0)
     at = 0
-    for p, la, lo, a0, o0, a1, o1 in zip(part.parts, lats, lons, la0, lo0, la1, lo1):
-        k = int(nf[p.pid])
+    # nf is POSITIONAL over ``part.parts`` -- index it by position, never by
+    # ``p.pid`` (a GLOBAL load-numbering id: ``extend_partition``'s fake
+    # Partition holds only the new parts, whose pids continue the numbering,
+    # so pid-indexing was an IndexError -- RULINGS 2026-09-12as (2))
+    for i, (p, la, lo, a0, o0, a1, o1) in enumerate(
+            zip(part.parts, lats, lons, la0, lo0, la1, lo1)):
+        k = int(nf[i])
         feet = tuple((round(float(fla[at + j]), 8), round(float(flo[at + j]), 8),
                       round(float(fxy[at + j, 2]), 3)) for j in range(k))
         at += k

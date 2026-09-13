@@ -55,6 +55,19 @@ if __name__ == '__main__' and '--proj-selfcheck' in sys.argv:
     print(_proj_error if _proj_error else "PROJ selfcheck OK")
     sys.exit(1 if _proj_error else 0)
 
+# THE LERC DECODE WORKER (owner RULINGS 2026-09-12as (3)): the elevation
+# inset fetcher spawns this executable as `Ortho4XP --lerc-decode IN OUT`
+# to decode a LERC asset out of process (imagecodecs' LERC decoder and
+# the osgeo libraries abort a process that loads both).  From source it
+# spawns src/O4_LERC_Decode.py directly; the frozen binary has no
+# interpreter to spawn, so it dispatches HERE — ahead of the PROJ
+# preflight and every heavy import, so the child loads the codecs and
+# nothing else.  Without it the packaged engine skipped every LERC
+# source and NEW ZEALAND's 1 m lidar silently degraded to the base tier.
+if __name__ == '__main__' and '--lerc-decode' in sys.argv:
+    import O4_LERC_Decode
+    sys.exit(O4_LERC_Decode.main(sys.argv[1:]))
+
 # One self-check per top-level process: multiprocessing helpers re-import this
 # module as "__mp_main__" and --engine-worker children skip it — neither runs
 # the gated pipeline-step entries, which execute only in the top-level process.

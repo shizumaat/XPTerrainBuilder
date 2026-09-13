@@ -75,10 +75,23 @@ if len(v2_law_datas) < 9:
 # pins the package, its compiled core and libhighs.
 highspy_datas, highspy_binaries, highspy_hidden = collect_all('highspy')
 
+# THE LERC CODECS (owner RULINGS 2026-09-12as (3)).  ``src/O4_LERC_Decode.py``
+# is reached only through the ``--lerc-decode`` argv branch, and tifffile
+# delegates the LERC decode to imagecodecs' compiled ``_lerc`` extension —
+# a codec the static scan cannot infer from ``tifffile`` alone (the highspy
+# precedent: a package PyInstaller never sees is a package the engine ships
+# without, and the failure shows up as silently degraded terrain, not a
+# traceback).  collect_all pins each package, its data and its extensions.
+tifffile_datas, tifffile_binaries, tifffile_hidden = collect_all('tifffile')
+imagecodecs_datas, imagecodecs_binaries, imagecodecs_hidden = collect_all('imagecodecs')
+for _codec in ('imagecodecs._lerc', 'imagecodecs._shared'):
+    if _codec not in imagecodecs_hidden:
+        imagecodecs_hidden.append(_codec)
+
 a = Analysis(
     ['Ortho4XP.py'],
     pathex=['src'],
-    binaries=highspy_binaries,
+    binaries=highspy_binaries + tifffile_binaries + imagecodecs_binaries,
     datas=[
         ('./Utils',               './Ortho4XP_Data/Utils'),
         ('./Extents',             './Ortho4XP_Data/Extents'),
@@ -89,8 +102,11 @@ a = Analysis(
         ('./Providers',           './Ortho4XP_Data/Providers'),
         ('community_server.txt',  './Ortho4XP_Data/'),
         ('overpass_servers.txt',  './Ortho4XP_Data/'),
-    ] + gdal_proj_datas + v2_law_datas + highspy_datas,
-    hiddenimports=collect_submodules('PIL') + collect_submodules('auto_patch_v2') + highspy_hidden,
+    ] + gdal_proj_datas + v2_law_datas + highspy_datas + tifffile_datas
+      + imagecodecs_datas,
+    hiddenimports=(collect_submodules('PIL') + collect_submodules('auto_patch_v2')
+                   + highspy_hidden + tifffile_hidden + imagecodecs_hidden
+                   + ['O4_LERC_Decode']),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

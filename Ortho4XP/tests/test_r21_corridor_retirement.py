@@ -146,3 +146,46 @@ class TestAStaleCfgStillLoads:
         output = capsys.readouterr().out
         assert "invalid line" not in output.lower()
         assert len(re.findall("RETIRED", output)) == 1
+
+    # ── ONCE PER KEY PER FILE PER PROCESS (owner RULINGS 2026-09-12as (1))
+    def test_the_same_cfg_read_again_warns_ONCE(self, tmp_path, capsys):
+        """KCLT's ``Ortho4XP_+35-081.cfg`` carries two retired keys and is
+        read three times in a build (the overlay layers, plus a read
+        outside any tile context): the owner saw six WARNING lines for
+        two stale lines.  A retirement is news once."""
+        text = KEY + "=" + OWNER_DECL + "\nauto_patch=ICAO\n"
+        build = tmp_path / "zOrtho4XP_+22+113"
+        build.mkdir()
+        (build / ("Ortho4XP_" + FNAMES.short_latlon(22, 113) + ".cfg")
+         ).write_text(text)
+        for _ in range(3):
+            CFG.Tile(22, 113, str(build)).read_from_config()
+        output = capsys.readouterr().out
+        assert len(re.findall("RETIRED", output)) == 1
+        # …and the "delete the line" instruction is in that one line
+        assert "delete the line" in output
+
+    def test_ANOTHER_cfg_carrying_it_is_its_own_news(self, tmp_path,
+                                                     capsys):
+        """The register is per FILE: a second tile whose cfg carries the
+        same stale line still tells its user."""
+        for lat, lon in ((22, 113), (23, 113)):
+            build = tmp_path / ("zOrtho4XP_" + FNAMES.short_latlon(lat, lon))
+            build.mkdir()
+            (build / ("Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg")
+             ).write_text(KEY + "=" + OWNER_DECL + "\n")
+            CFG.Tile(lat, lon, str(build)).read_from_config()
+        assert len(re.findall("RETIRED", capsys.readouterr().out)) == 2
+
+    def test_the_registers_key_is_the_pair(self):
+        """The unit under the two reads: same file + same key = silence,
+        a new key or a new file = news."""
+        CV._retired_cfg_warned.clear()
+        assert CV.retired_cfg_key_warning_once(KEY, OWNER_DECL, "/a.cfg")
+        assert CV.retired_cfg_key_warning_once(KEY, OWNER_DECL, "/a.cfg") is None
+        assert CV.retired_cfg_key_warning_once(KEY, OWNER_DECL, "/b.cfg")
+        assert CV.retired_cfg_key_warning_once("flat_site_declared", "", "/a.cfg")
+        # a silent retirement stays silent and is never registered
+        assert CV.retired_cfg_key_warning_once(
+            "airport_elevation_inset_resolution_m", "1", "/a.cfg") is None
+        assert (None, "x") not in CV._retired_cfg_warned

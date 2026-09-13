@@ -78,10 +78,19 @@ class Cockpit:
     #: never a gate.  Over it, and in view, it is a defect.
     visual_m: float
 
-    #: §31 (2) the APPROACH range, in KILOMETRES: the terrain a pilot sees
-    #: on final and climb-out.  A visual defect outside the airport
-    #: boundary and farther than this from every runway axis is a REPORT.
+    #: §31 (2) THE APPROACH CORRIDOR's LENGTH, in KILOMETRES: how far
+    #: beyond each runway threshold, along the extended centreline, the
+    #: pilot reads the terrain on final and climb-out.
     approach_km: float
+
+    #: §31 (2) THE APPROACH CORRIDOR's lateral HALF-WIDTH, in METRES
+    #: (owner RULINGS 2026-09-12al).  With ``approach_km`` it IS the
+    #: corridor — one derivation (``law/approach_corridor.py``), read by
+    #: the cockpit block's "in view" test and by §29 (1)'s mouth gate
+    #: alike.  A defect outside the airport boundary and outside every
+    #: corridor is not seen from an arriving or departing aircraft: a
+    #: REPORT, and for a tunnel mouth, raw DEM.
+    approach_half_width_m: float
 
     #: §31 (7) THE CLIFF (RULINGS 2026-09-12af), as a DOTTED LAW PATH, not
     #: a number: a spanned step-family row whose implied grade exceeds the
@@ -116,6 +125,19 @@ def check_cockpit(cockpit: Cockpit, families, error: type,
     if cockpit.approach_km <= 0.0:
         raise error(f"emit.cockpit: approach_km {cockpit.approach_km} must "
                     f"be > 0 (§31 (2): the range a pilot sees on final)")
+    if cockpit.approach_half_width_m <= 0.0:
+        raise error(
+            f"emit.cockpit: approach_half_width_m "
+            f"{cockpit.approach_half_width_m} must be > 0 (§31 (2): the "
+            f"approach corridor has a width — a zero half-width is a line "
+            f"no mouth and no row can stand in)")
+    if cockpit.approach_half_width_m >= cockpit.approach_km * 1000.0:
+        raise error(
+            f"emit.cockpit: approach_half_width_m "
+            f"{cockpit.approach_half_width_m} is not under approach_km "
+            f"{cockpit.approach_km} (§31 (2): the corridor is what a pilot "
+            f"sees AHEAD — a half-width at or over its length is the disc "
+            f"the ruling retired, wearing a corridor's name)")
     cliff_grade = value_at(tables, cockpit.cliff_grade)
     if not isinstance(cliff_grade, (int, float)):
         raise error(

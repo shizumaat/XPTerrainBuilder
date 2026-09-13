@@ -156,6 +156,15 @@ from auto_patch.strip_seam_law import (      # noqa: E402
     seam_pair_is_tear as _seam_pair_is_tear,
 )
 
+# §31 (2) / §29 (1) THE APPROACH CORRIDOR — the ONE derivation
+# (``auto_patch_v2.law.approach_corridor``, owner RULINGS 2026-09-12al),
+# the SAME class the engine's mouth gate reads through
+# ``planar/structure_approach.FieldRegion``.  A second copy of a region is
+# a second region: the harness and the engine must agree about where a
+# pilot is looking, or one builds what the other calls invisible.
+from auto_patch_v2.law.approach_corridor import (
+    ApproachCorridor as _ApproachCorridor)
+
 # LAW GEOMETRY shared with the emitters (single source — never a second
 # copy of a rule number here).  ``None`` when the package is unavailable:
 # the checks that consume them then report nothing rather than guessing.
@@ -8557,7 +8566,8 @@ _COCKPIT_LAW_CACHE: Optional[dict] = None
 def cockpit_law(*, refresh: bool = False) -> dict:
     """THE COCKPIT FRAME's own numbers, from the law tables.
 
-    ``{motion_step_m, visual_m, approach_km, approach_m, cliff_grade,
+    ``{motion_step_m, visual_m, approach_km, approach_m,
+    approach_half_width_m, cliff_grade,
     weld_tol_m, rolled_on, runway_family, family_class}`` — the three ``emit.toml [cockpit]`` keys, the ROLLED-ON
     role set derived from ``precedence.toml``, and every law family's
     declared cockpit class from ``families.toml``.
@@ -8585,6 +8595,11 @@ def cockpit_law(*, refresh: bool = False) -> dict:
         "visual_m": float(ck.visual_m),
         "approach_km": float(ck.approach_km),
         "approach_m": float(ck.approach_km) * 1000.0,
+        # §31 (2) as amended by owner RULINGS 2026-09-12al: the corridor's
+        # lateral half-width.  With ``approach_m`` it IS the corridor —
+        # built by ``auto_patch_v2.law.approach_corridor``, the SAME class
+        # the engine's mouth gate reads (§29 (1)).
+        "approach_half_width_m": float(ck.approach_half_width_m),
         "rolled_on": frozenset(_T.rolled_on_roles(law)),
         # §31 (7) THE CLIFF (RULINGS 2026-09-12af), resolved from the design
         # surface's own bank slope — never a number typed here
@@ -8613,34 +8628,63 @@ def cockpit_geometry(ways: List["Way"], nodes: Dict[str, Tuple[float, float]],
     Both come out of the emitted patch that is already parsed; nothing is
     measured and no file is read.  ``boundary_rings`` are the rings of the
     ``boundary`` role (TAXI scale: inside one of them is inside the
-    airport); ``runway_pts`` are the runway-family vertices decimated to a
-    100 m grid — the APPROACH test asks whether a row is within
-    ``approach_km`` of a runway axis, and at that range the difference
-    between a runway vertex and the axis is under the decimation cell.
+    airport); ``runway_axes`` are the runway-family rings' PRINCIPAL AXES
+    (``grade_law.runway_axis_and_width``, joined across the fragments a
+    tile cut or a crossing leaves, by the runway's own ref — the law's own
+    idea of where a runway's centreline is, never a second one), and
+    ``corridor`` is the ``ApproachCorridor`` built from them: per runway
+    END, ``approach_km`` beyond the threshold along the extended
+    centreline, ``approach_half_width_m`` to each side (owner RULINGS
+    2026-09-12al).  THE SAME CLASS the engine's mouth gate reads — the
+    engine derives its axes from ``airport.runways`` (the apt.dat
+    thresholds), the harness from the emitted rings, and
+    ``tests/auto_patch_v2/test_v2approachcorridor.py`` pins the two
+    against one fixture.
 
-    A patch with NO boundary ring (the boundary role is not always emitted)
-    falls back to the approach test alone, and that is stated in the block
-    rather than assumed away.
+    A patch with NO boundary ring (the boundary role is not always
+    emitted) falls back to the corridor alone, and a patch with no runway
+    geometry to the boundary alone; both are STATED in the block rather
+    than assumed away.
     """
-    runway_family = (law or cockpit_law())["runway_family"]
+    law = law or cockpit_law()
+    runway_family = law["runway_family"]
     rings: List[List[Tuple[float, float]]] = []
-    rwy_cells: Dict[Tuple[int, int], Tuple[float, float]] = {}
+    axis_pts: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
     for w in ways:
         role = effective_role(w)
         if role is None:
             continue
-        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        # OPEN vertex list: a closed ring repeats its first vertex and the
+        # repeat weights one corner twice in the principal-axis fit (the
+        # frame-congruence rule the strip reader already follows).
+        nids = w.nids
+        if len(nids) > 1 and nids[0] == nids[-1]:
+            nids = nids[:-1]
+        pts = [ll_to_m(*nodes[n]) for n in nids if n in nodes]
         if len(pts) < 2:
             continue
         if role == "boundary":
             rings.append(pts)
-        elif role in runway_family:
-            for x, y in pts:
-                rwy_cells.setdefault(
-                    (int(math.floor(x / 100.0)), int(math.floor(y / 100.0))),
-                    (x, y))
+        if role in runway_family:
+            # joined across the fragments a tile cut or a crossing leaves,
+            # by the runway's own ref — a fragment's principal axis is not
+            # the runway's
+            axis_pts[w.ref or w.wid].extend(pts)
+    axes: List[Tuple[Tuple[float, float], Tuple[float, float], str]] = []
+    for ref, pts in sorted(axis_pts.items()):
+        ax = (_runway_axis_and_width(pts)
+              if _runway_axis_and_width is not None else None)
+        if not ax:
+            continue
+        (ax0, ay0), (ax1, ay1) = ax[0], ax[1]
+        if math.hypot(ax1 - ax0, ay1 - ay0) < 1.0:
+            continue
+        axes.append(((ax0, ay0), (ax1, ay1), str(ref)))
+    corridor = _ApproachCorridor(axes, law["approach_m"],
+                                 law["approach_half_width_m"])
     return {"boundary_rings": rings,
-            "runway_pts": list(rwy_cells.values()),
+            "runway_axes": axes,
+            "corridor": corridor,
             "ll_to_m": ll_to_m}
 
 
@@ -8663,27 +8707,32 @@ def _cockpit_in_ring(rings, x: float, y: float) -> bool:
     return False
 
 
-def cockpit_in_view(geometry: Optional[dict], lat, lon,
-                    approach_m: float) -> Tuple[bool, str]:
+def cockpit_in_view(geometry: Optional[dict], lat, lon) -> Tuple[bool, str]:
     """§31 (2): is this row where a pilot looks?  ``(in_view, why)``.
 
-    ``taxi`` inside a boundary ring, ``approach`` within ``approach_m`` of
-    the runway geometry, ``beyond`` outside both, ``unlocated`` for a row
-    the census could not give a coordinate.  AN UNLOCATED ROW IS IN VIEW:
-    a defect whose place we cannot name is never dismissed for being far
-    away, and the block prints how many there were.
+    ``taxi`` inside a boundary ring, ``approach`` inside THE APPROACH
+    CORRIDOR — per runway end, ``approach_km`` beyond the threshold along
+    the extended centreline, ``approach_half_width_m`` to each side
+    (owner RULINGS 2026-09-12al) — ``beyond`` outside both, ``unlocated``
+    for a row the census could not give a coordinate.  AN UNLOCATED ROW IS
+    IN VIEW: a defect whose place we cannot name is never dismissed for
+    being far away, and the block prints how many there were.
+
+    THE RETIRED READING: "within ``approach_km`` of a runway axis", a 5 km
+    disc around every runway vertex, which admitted the whole airport and
+    5 km of country around it and discriminated nothing.  It is DELETED,
+    not gated — the corridor is the only approach test, and the
+    ``approach_m`` argument that carried the disc's radius is gone with
+    it so no caller can pass a second reading in.
     """
     if lat is None or lon is None or not geometry:
         return True, "unlocated"
     x, y = geometry["ll_to_m"](float(lat), float(lon))
     if _cockpit_in_ring(geometry["boundary_rings"], x, y):
         return True, "taxi"
-    lim = approach_m * approach_m
-    for px, py in geometry["runway_pts"]:
-        dx = px - x
-        dy = py - y
-        if dx * dx + dy * dy <= lim:
-            return True, "approach"
+    corridor = geometry.get("corridor")
+    if corridor is not None and corridor.holds(x, y):
+        return True, "approach"
     return False, "beyond"
 
 
@@ -8749,7 +8798,7 @@ def cockpit_classify(family: str, row, *, law: dict,
         if over_visual:
             in_view, _why = cockpit_in_view(
                 geometry, getattr(row, "lat", None),
-                getattr(row, "lon", None), law["approach_m"])
+                getattr(row, "lon", None))
             if in_view:
                 return COCKPIT_VISUAL, "cliff"
             return COCKPIT_REPORT, "beyond_view"
@@ -8773,8 +8822,7 @@ def cockpit_classify(family: str, row, *, law: dict,
             return COCKPIT_MOTION, step_why or "step_on_pavement"
         if over_visual:
             in_view, why = cockpit_in_view(
-                geometry, getattr(row, "lat", None), getattr(row, "lon", None),
-                law["approach_m"])
+                geometry, getattr(row, "lat", None), getattr(row, "lon", None))
             if in_view:
                 return COCKPIT_VISUAL, step_why or why
             return COCKPIT_REPORT, "beyond_view"
@@ -8873,10 +8921,17 @@ def cockpit_block(rows_by_family, *, geometry: Optional[dict] = None,
         "motion_step_m": law["motion_step_m"],
         "visual_m": law["visual_m"],
         "approach_km": law["approach_km"],
+        "approach_half_width_m": law["approach_half_width_m"],
         "rolled_on": sorted(law["rolled_on"]),
         "boundary_rings": (len(geometry["boundary_rings"]) if geometry
                            else None),
-        "runway_pts": len(geometry["runway_pts"]) if geometry else None,
+        #: §31 (2): the runways the corridor was derived from, and the
+        #: corridors themselves (two per runway).  ZERO corridors is a
+        #: FINDING, printed as one — the retired disc could never be zero
+        #: and so could never say "this patch has no runway geometry".
+        "runway_axes": len(geometry["runway_axes"]) if geometry else None,
+        "approach_corridors": (len(geometry["corridor"]) if geometry
+                               else None),
         "unlocated_rows": unlocated,
         "step_exempt_rows": exempt,
         "weld_tol_m": law["weld_tol_m"],
@@ -8929,17 +8984,26 @@ def cockpit_block_lines(c: dict) -> List[str]:
     mo, vi, re_ = c[COCKPIT_MOTION], c[COCKPIT_VISUAL], c[COCKPIT_REPORT]
     frame = (f"boundary {c['boundary_rings']} ring(s)"
              if c.get("boundary_rings") else "NO boundary ring in the patch "
-             "— the approach test alone decides view")
+             "— the approach corridor alone decides view")
+    corr = (f"{c['approach_corridors']} approach corridor(s) off "
+            f"{c['runway_axes']} runway axis/axes"
+            if c.get("approach_corridors") else
+            "NO approach corridor: the patch carries no runway geometry, so "
+            "only the boundary decides view")
     out = [
         f"--- COCKPIT (owner RULINGS {c['ruling']}: what the pilot feels, "
         f"what he sees, and what is report) ---",
         f"  frame: motion {c['motion_step_m']:g} m on rolled-on pavement "
         f"({', '.join(c['rolled_on'])}); visual {c['visual_m']:g} m within "
-        f"the boundary or {c['approach_km']:g} km of a runway axis; a "
+        f"the boundary or THE APPROACH CORRIDOR "
+        f"({c['approach_km']:g} km beyond each runway threshold along the "
+        f"extended centreline, "
+        f"{c['approach_half_width_m']:g} m to each side — owner "
+        f"2026-09-12al); a "
         f"SPANNED row steeper than {c['cliff_grade']:g} "
         f"(1:{1.0 / c['cliff_grade']:.2g}, the design surface's own bank) "
         f"is a CLIFF and is judged as if welded; "
-        f"{frame}; {c['rows']} census row(s) classified"
+        f"{frame}; {corr}; {c['rows']} census row(s) classified"
         + (f", {c['unlocated_rows']} with no coordinate (read as IN VIEW)"
            if c.get("unlocated_rows") else ""),
         f"  CRITICAL motion: {mo['n']}"

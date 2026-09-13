@@ -14,9 +14,11 @@ import typing as _t
 
 import shapely
 from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
+from ..law.approach_corridor import ApproachCorridor
 from ..law.tables import role_family
 from ..model.airport import OsmWay
 from ..model.frame import XY
@@ -34,7 +36,7 @@ def _parts(geom) -> list[Polygon]:
 
 __all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "object_deck_intervals", "carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
-           "mouths", "FieldRegion", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
+           "mouths", "FieldRegion", "ApproachCorridor", "approach_corridor_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
            "PARALLEL_COS", "NODE_TOL"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
@@ -279,37 +281,140 @@ def unit(a: XY, b: XY) -> XY:
     return (dx / L, dy / L)
 
 
-class FieldRegion:
-    """THE AIRPORT'S GOVERNED REGION for the mouth gate (spec §29 (1)):
-    the classified cover ⊕ ``[tunnel] mouth_standoff_m``, and with it the
-    ROOFED CORRIDORS' footprints — the object / kerb-wall corridors are
-    the owner's EGLL exception (Laws B/C, keyed on the pack's geometry,
-    never on OSM) and are the field authority where they stand, so a bore
-    mouth an object corridor takes is never gated away before the
-    precedence runs.  Held as polygons in an STRtree with a ``dwithin``
-    query rather than a buffered union — the same region, exactly,
-    without buffering a thousand-part union."""
+def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
+    """The RETIRED admission test (spec §29 (2)) — >= 1 m of the bore under
+    the classified cover — kept only to count the bores the mouth-based
+    admission and it disagree on (``bores_mouth_only``).  Reads the cell
+    tree rather than a union of every cell (same answer, no union to
+    build).  Lives here, beside the gate it is compared against, so
+    ``structures.py`` stays under its 1,000-line budget."""
+    if tree is None:
+        return False
+    parts = [line.intersection(polys[int(j)])
+             for j in tree.query(line, predicate="intersects")]
+    parts = [g for g in parts if not g.is_empty]
+    return bool(parts) and unary_union(parts).length >= 1.0
 
-    def __init__(self, polys: _t.Sequence[Polygon], standoff_m: float) -> None:
+
+def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon]
+                     ) -> "FieldRegion":
+    """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
+    classified cover (with the roofed corridors' footprints, which the
+    caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
+    the approach corridor of §31 (2)."""
+    return FieldRegion(list(polys),
+                       law.tables.structures.tunnel.mouth_standoff_m,
+                       approach_corridor_of(airport, law))
+
+
+def mouth_reports(on_field: "FieldRegion", mouth_list: _t.Sequence["Mouth"],
+                  dropped: _t.Sequence[tuple]) -> tuple[list[str], int, list[str]]:
+    """``(off-field lines, on-approach count, on-approach lines)`` for the
+    structures line — the nearest drops and every mouth THE CORRIDOR
+    kept, each with its true distance off the field, so both findings are
+    visible without a rebuild and neither is read as the other."""
+    off = [f"mouth off-field {ids} at {xy[0]:.0f},{xy[1]:.0f} — {d:.0f} m off "
+           f"the field and outside every approach corridor"
+           for ids, xy, d in sorted(dropped, key=lambda t: t[2])[:8]]
+    on_approach = [m for m in mouth_list if not on_field.on_cover(Point(m.xy))]
+    named = [f"mouth on approach {'+'.join(str(i) for i in m.ways)} at "
+             f"{m.xy[0]:.0f},{m.xy[1]:.0f} — "
+             f"{on_field.cover_distance_m(Point(m.xy)):.0f} m off the field, "
+             f"in view"
+             for m in on_approach[:12]]
+    return off, len(on_approach), named
+
+
+def approach_corridor_of(airport, law: Law) -> ApproachCorridor:
+    """THE APPROACH CORRIDOR of §31 (2) for one airport, from the model's
+    OWN runway ends (apt.dat row 100 thresholds) and the two ``[cockpit]``
+    numbers — never a second idea of either.
+
+    The harness reaches the same class from the emitted patch (the
+    principal axis of each runway's ring cloud): one derivation, two
+    sources for the axis it is derived FROM, which is why
+    ``tests/auto_patch_v2/test_v2approachcorridor.py`` pins them against
+    one fixture."""
+    ck = law.tables.emit.cockpit
+    axes = [(r.ends[0].xy, r.ends[1].xy, r.id)
+            for r in getattr(airport, "runways", ()) or ()]
+    return ApproachCorridor(axes, float(ck.approach_km) * 1000.0,
+                            float(ck.approach_half_width_m))
+
+
+class FieldRegion:
+    """THE REGION A MOUTH MAY STAND IN (spec §29 (1) as amended by owner
+    RULINGS 2026-09-12al): the classified cover ⊕ ``[tunnel]
+    mouth_standoff_m`` **∪ THE APPROACH CORRIDOR of §31 (2)**.
+
+    The cover carries the ROOFED CORRIDORS' footprints — the object /
+    kerb-wall corridors are the owner's EGLL exception (Laws B/C, keyed on
+    the pack's geometry, never on OSM) and are the field authority where
+    they stand, so a bore mouth an object corridor takes is never gated
+    away before the precedence runs.  Held as polygons in an STRtree with
+    a ``dwithin`` query rather than a buffered union — the same region,
+    exactly, without buffering a thousand-part union.
+
+    THE CORRIDOR IS NOT THIS MODULE'S IDEA of a corridor: it is
+    ``law/approach_corridor.ApproachCorridor``, the ONE derivation the
+    harness's cockpit block reads too (owner 12al: "if it would be visible
+    from an arriving or departing aircraft it should be cut, if not we can
+    leave it raw DEM").  A portal 208 m off the classified surfaces but on
+    the extended centreline of runway 14R is in plain view; one 4 km west
+    of everything may be too, and the answer is the corridor's, not a
+    standoff's.  ``corridor`` may be ``None`` (a caller with no runway
+    geometry): the cover then decides alone."""
+
+    def __init__(self, polys: _t.Sequence[Polygon], standoff_m: float,
+                 corridor=None) -> None:
         self.standoff_m = float(standoff_m)
         self._tree = STRtree(list(polys)) if len(polys) else None
+        self.corridor = corridor
+        rings = list(corridor.rings()) if corridor is not None else []
+        self._corridor_tree = (STRtree([Polygon(r) for r in rings])
+                               if rings else None)
 
     def holds(self, geom) -> bool:
-        """``geom`` (a mouth point or its ramp reach) stands on the field."""
+        """``geom`` (a mouth point or its ramp reach) stands where a pilot
+        would see it: on the field, or in an approach corridor."""
+        return self.on_cover(geom) or self.in_corridor(geom)
+
+    def on_cover(self, geom) -> bool:
+        """The cover ⊕ ``mouth_standoff_m`` half alone."""
         if self._tree is None:
             return False
         return len(self._tree.query(geom, predicate="dwithin",
                                     distance=self.standoff_m)) > 0
 
-    def distance_m(self, geom) -> float:
-        """How far off the field ``geom`` stands (the dropped-mouth report);
-        ``inf`` when there is no cover at all."""
+    def in_corridor(self, geom) -> bool:
+        """The §31 (2) half alone — quoted separately in the report, so a
+        mouth built ON APPROACH is never read as a mouth on the field."""
+        if self._corridor_tree is None:
+            return False
+        return len(self._corridor_tree.query(geom,
+                                             predicate="intersects")) > 0
+
+    def cover_distance_m(self, geom) -> float:
+        """Distance to the CLASSIFIED COVER alone — how far off the field
+        a mouth the corridor admitted actually stands."""
         if self._tree is None:
             return float("inf")
         j = self._tree.nearest(geom)
         if j is None:
             return float("inf")
         return float(self._tree.geometries[int(j)].distance(geom))
+
+    def distance_m(self, geom) -> float:
+        """How far off the REGION ``geom`` stands (the dropped-mouth
+        report): the lesser of its distance to the cover and to the
+        nearest corridor edge; ``inf`` when there is neither."""
+        d = self.cover_distance_m(geom)
+        if self._corridor_tree is not None:
+            j = self._corridor_tree.nearest(geom)
+            if j is not None:
+                d = min(d, float(
+                    self._corridor_tree.geometries[int(j)].distance(geom)))
+        return d
 
 
 def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,

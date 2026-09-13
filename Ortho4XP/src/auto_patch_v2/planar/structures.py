@@ -96,7 +96,8 @@ from .basins import object_decks
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .wall_corridor_ramps import (KIND as WALL_KIND, airside_stops, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
-from .structure_approach import (FieldRegion, PavementDeck, carriageway_width_m, chains,
+from .structure_approach import (FieldRegion, PavementDeck, carriageway_width_m,
+                                 chains, field_region_for, mouth_reports, under_cover,
                                  deck_intervals,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  object_deck_intervals, pavement_deck_intervals,
@@ -138,6 +139,13 @@ class StructureStats:
     #: the NEAREST of those, reported under the structures line so a drop
     #: at the margin is visible without a rebuild.
     mouths_off_field_nearest: list[str] = _dc.field(default_factory=list)
+    #: §29 (1) / §31 (2) (RULINGS 2026-09-12al): mouths held by THE
+    #: APPROACH CORRIDOR alone — off the cover, in view on a runway end's
+    #: extended centreline — counted apart from the on-field ones, and
+    #: the corridor count the gate ran with (2 per runway, 0 = none).
+    mouths_on_approach: int = 0
+    mouths_on_approach_named: list[str] = _dc.field(default_factory=list)
+    approach_corridors: int = 0
     duals_merged: int = 0
     tunnels: int = 0
     decks: int = 0
@@ -160,19 +168,6 @@ class StructureStats:
     sunken_roads: int = 0
     #: RULINGS 2026-09-08m/08n Law C: kerb-wall corridors built
     wall_corridors: int = 0
-
-
-def _under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
-    """The RETIRED admission test (spec §29 (2)) — ≥ 1 m of the bore under
-    the classified cover — kept only to count the bores the new
-    mouth-based admission and it disagree on
-    (``bores_mouth_only``).  Reads the cell tree rather than a
-    union of every cell (same answer, no union to build)."""
-    if tree is None:
-        return False
-    parts = [line.intersection(polys[int(j)]) for j in tree.query(line, predicate="intersects")]
-    parts = [g for g in parts if not g.is_empty]
-    return bool(parts) and unary_union(parts).length >= 1.0
 
 
 def _dem(airport: Airport, p: XY) -> float:
@@ -282,16 +277,21 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # admitted LEMD's 4.9 km rail bores by 125–162 m under ONE pad and built
     # their mouths 4.0 km west, and refused 8 real portals ON the field.
     # Those 8 are counted (``bores_mouth_only``) and named.
-    on_field = FieldRegion(polys + [c.footprint for c in corridors], tn.mouth_standoff_m)
+    # ...AND WHERE A PILOT WOULD SEE IT (RULINGS 2026-09-12al): the region
+    # is the cover ⊕ standoff UNION THE APPROACH CORRIDOR of §31 (2), one
+    # derivation the harness's cockpit block reads through the same class.
+    on_field = field_region_for(airport, law,
+                                polys + [c.footprint for c in corridors])
+    stats.approach_corridors = len(on_field.corridor or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
                            if bores else ([], []))
     stats.mouths_off_field = len(dropped)
-    stats.mouths_off_field_nearest = [
-        f"mouth off-field {ids} at {xy[0]:.0f},{xy[1]:.0f} — {d:.0f} m off the field"
-        for ids, xy, d in sorted(dropped, key=lambda t: t[2])[:8]]
+    (stats.mouths_off_field_nearest, stats.mouths_on_approach,
+     stats.mouths_on_approach_named) = mouth_reports(on_field, mouth_list,
+                                                     dropped)
     with_mouth = {id(b) for b in bores if any(m.bore is b for m in mouth_list)}
     covered = [b for b in bores if id(b) in with_mouth]
-    mouth_only = [b for b in covered if not _under_cover(b.line, polys, cell_tree)]
+    mouth_only = [b for b in covered if not under_cover(b.line, polys, cell_tree)]
     stats.bores_no_mouth = len(bores) - len(covered)
     stats.bores_mouth_only = len(mouth_only)
     stats.mouth_only_bores = ["+".join(str(w.id) for w in b.ways) for b in mouth_only][:12]

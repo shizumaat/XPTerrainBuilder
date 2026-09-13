@@ -4611,6 +4611,141 @@ refused 118`.
 * A concurrent process wrote 11 New Zealand paths into the shared repo during the
   DISCARDED first arm (CONTAMINATED flag worked, artifact not stored); the base and
   both kept arms report the shared repo UNCHANGED.
+### 29.1 **MEASURED, ROUND 2 — THE APPROACH CORRIDOR** (lane `v2approachcorridor`, branch `claude/v2approachcorridor` off main `19af2772`; owner RULINGS 2026-09-12al answering 12ae-1: "if it would be visible from an arriving or departing aircraft it should be cut, if not we can leave it raw DEM")
+
+**THE CORRIDOR, ONE DERIVATION.**  `src/auto_patch_v2/law/approach_corridor.py`
+(`ApproachCorridor`): per runway END, `[cockpit] approach_km` (5) beyond the
+threshold along the extended centreline, `[cockpit] approach_half_width_m`
+(2,000 m, the new key) to each side.  The ENGINE reaches it through
+`planar/structure_approach.approach_corridor_of` (axes = `airport.runways`'
+apt.dat thresholds) and `FieldRegion(polys, mouth_standoff_m, corridor)`; the
+HARNESS through `check_grade.cockpit_geometry` (axes = the emitted runway
+rings' principal axis, `grade_law.runway_axis_and_width`, joined by ref).  Same
+class, same two law numbers, one rectangle — twinned on one fixture.  The 5 km
+runway-axis DISC is deleted, and with it the `approach_m` argument of
+`cockpit_in_view`, so no caller can pass a radius in.
+
+**(1) THE SHIPPED LEMD PRODUCTS** (`Patches/+40-010/+40-004/`, the owner's
+1.0.323 rebuild, `LEMD_auto.patch.osm` mtime 2026-09-12 12:11; copied before
+reading).  4 runway axes -> **8 corridors**, 0 boundary rings (so at LEMD the
+corridor is the WHOLE in-view test):
+
+| corridor | threshold | outward | tip (5 km) |
+|---|---|---|---|
+| 14L/32R:0 | 40.49705,-3.55999 | 322.3° | 40.53258,-3.59611 |
+| 14L/32R:1 | 40.46790,-3.53037 | 142.3° | 40.43237,-3.49426 |
+| 14R/32L:0 | 40.48619,-3.57737 | 322.2° | 40.52170,-3.61352 |
+| 14R/32L:1 | 40.45522,-3.54583 | 142.2° | 40.41970,-3.50967 |
+| 18L/36R:0 | 40.53545,-3.55935 | 359.8° | 40.58036,-3.55954 |
+| 18L/36R:1 | 40.49990,-3.55921 | 179.8° | 40.45499,-3.55903 |
+| 18R/36L:0 | 40.53320,-3.57484 | 359.8° | 40.57812,-3.57509 |
+| 18R/36L:1 | 40.49200,-3.57461 | 179.8° | 40.44708,-3.57437 |
+
+(each corridor's four corners are in the lane's read; 14R/32L:0's ring is
+40.49719,-3.55869 / 40.53270,-3.59485 / 40.51070,-3.63220 / 40.47519,-3.59604.)
+
+* **`-6028`'s mouth at 40.51063,-3.56311 is IN** — corridor 14L/32R:0,
+  **1,358 m along** its 5,000 and **716 m lateral** of its ±2,000; distance to
+  the nearest corridor edge **0.0 m**.  12ae's open question is answered by the
+  law: a portal 208 m off the classified surfaces, on the 32R approach, is what
+  an arriving aircraft looks at.
+* **The two rail mouths at 40.4805,-3.6395 are OUT** — nearest corridor
+  14R/32L:0 (the 14R approach side the owner named), 2,720 m along it but
+  **4,547 m lateral** of ±2,000: **2,547 m outside the nearest corridor edge**.
+  They stay raw DEM, and the §29 round-1 result stands.
+* **THE COCKPIT BLOCK'S VIEW TEST, before -> after, on the shipped products**
+  (one tree, one parse, the retired disc rebuilt beside the corridor):
+  rows that LEAVE "in view" — LEMD **90** of 4,408 (4,318 stay), HECA
+  **29,242** of 37,364 (8,122 stay), SPJC **1,450** of 2,180 (730 stay), CYXY
+  **0** of 972, OTHH **1** of 1.  Nothing ENTERS view anywhere: the corridor is
+  strictly inside the disc.  The buckets barely move, because what the disc
+  admitted was mostly under threshold or spanned: the ONLY bucket change on the
+  five airports is **HECA CRITICAL VISUAL 1 -> 0** (the 0.531 m
+  `vertex_to_edge_step [apron|building]` at 30.1213393,31.4072652, now REPORT
+  `beyond_view`); LEMD 22 motion / 5 visual, SPJC 2 / 2, CYXY 0 / 0 and OTHH
+  0 / 0 are identical on both readings, and every census TOTAL is unchanged.
+
+**(2) THE BUILD.**  ONE `--engine v2` LEMD build of the change
+(`v2approachcorridor`, **362.3 s** wall, rc 0, `status optimal`, body
+`b27faf5ce243`, artifact ledger **`cf95ca6d8341`**) against a base arm built at
+main `19af2772` (`v2approachcorridor_base`, 350.7 s, body `803760c824e4`,
+ledger **`9f6558283155`**).  The named base `3510458499f8` (the §32 clamped
+arm) is a DIFFERENT code tree (`57bca3fe…` against main's `ca0ff868…`), so it
+was not quoted as the control — but the base built here reproduces its patch
+body EXACTLY (`803760c824e4` both), so the two arms are the same surface the
+ledger arm carried.  `shared repo UNCHANGED` on both (full before/after
+snapshot; 18 lock-churn operations on the base, the allowed class).
+
+* **The structures line**, base -> change:
+  `bores 68 (no on-field mouth 35, mouth-only built 12, replaced by objects 2)
+  mouths 55 (off-field 76) duals merged 9 object corridors 1 tunnels 29 decks 6
+  cells cut 2 refused 118`
+  ->
+  `bores 68 (no on-field mouth 20, mouth-only built 27, replaced by objects 2)
+  mouths 87 (off-field 44, on approach 37 of 8 corridors) duals merged 16
+  object corridors 1 tunnels 50 decks 13 cells cut 2 refused 122`.
+* **EVERY MOUTH THE CORRIDOR ADDED IS NAMED** (the report's first 12 of 37,
+  each with its true distance off the field): `-15327` at 162 m and 171 m,
+  **`-6028` at 208 m**, `-5388` at 1,535 / 1,550 m, `-5383` at 1,550 / 1,530 m,
+  `-5377` at 1,420 / 1,429 m, `-4928` at 2,237 m, `-4439` at 2,802 / 2,803 m.
+  Mouth-only bores BUILT: `-16684, -16683, -15336, -12795, -7847, -5284,
+  -4054, -4043, -3829, -6339, -1581, -1568` -> `-16684, -16683, -15336,
+  -12795, -7847, -5388, -5383, -5377, -5284, -4928, -4439, -4054` (12 -> 27,
+  the first 12 named).  The nearest drops are now 67 / 135 / 141 / 192 / 198 /
+  210 / 214 / 220 m off the field AND outside every corridor.
+* **THE RAIL MOUTHS DO NOT RETURN.**  Patch bbox lat **40.44976..40.53638 ->
+  40.42891..40.53638**, lon **-3.59918..-3.52877 -> -3.60536..-3.50982**; 191
+  nodes now stand west of -3.60 (the `-4928` portal at -3,769,-2,518 m), and
+  none anywhere near -3.6395.  The patch grows south and east where the new
+  portals are: ways **1,144 -> 1,230**, nodes **23,989 -> 25,697**.
+* **THE CENSUS, cockpit block first** (harness, both arms, one tree):
+  CRITICAL motion **4 -> 2** (the worst goes 0.940 m over 61.71 m `strip_arc
+  [primary_parallel|primary_parallel]` at 40.5006629,-3.5740136 -> 0.670 m over
+  58.03 m `strip_arc [junction|junction]` at 40.4625636,-3.5525152 — two
+  grade-break rows gone with the surfaces the new portals rebuilt), CRITICAL
+  visual **0 -> 0**, REPORT **3,605 -> 3,571**.
+  LAW-TRUE **3,609 -> 3,573** (-36), ADJUDICATED **1,183 -> 1,143** (-40), and
+  the whole delta is GROUNDSIDE: airside 3,557 both, groundside **51 -> 15**.
+  By family: `within_shape` 2,832 -> 2,792, `airside_no_step` 428 -> 419,
+  `strip_arc` 9 -> 8, `resa_transverse` 2 -> 1, `cross_shape` 1 -> **0**;
+  against `taxi_box` 198 -> 204, `transverse` 80 -> 87, `strip_longitudinal`
+  13 -> 15, `strip_transverse` 42 -> 43.  Engine verify rows 1,369 -> 1,354,
+  with `tunnel_mouth_canonical` 16 -> 26 and `tunnel_deck_clearance` 2 -> 7 —
+  the new portals' own rows.
+
+**(3) TWINS** — `tests/auto_patch_v2/test_v2approachcorridor.py` (8): the
+corridor is the law beyond each threshold and never back over the runway; an
+airport with no runway holds NOTHING (the empty region is empty, not vacuously
+true); the schema refuses a zero half-width and one at or over the corridor's
+length (the retired disc wearing a corridor's name); a mouth in the corridor
+far from the cover is BUILT and counted `mouths_on_approach`; one outside both
+is DROPPED and named "outside every approach corridor"; a bore with neither
+kind of mouth emits nothing; the engine and the harness read ONE corridor (same
+class object, and the apt.dat-threshold rectangle equals the emitted-ring
+rectangle within 1 m); and THE RETIRED BUFFER IS GONE (`cockpit_in_view` takes
+no radius, no `runway_pts` cloud survives, and a row 4 km ABEAM a runway —
+inside the old disc — is `beyond`).  `test_v2mouthgate.py`'s fixture was
+amended in the same commit: its off-region ends now run SOUTH, across the
+fixture runway's axis instead of along it, because "far from the cover" is no
+longer off the region when it stands on an extended centreline — the ruling
+working, visible in the twins.  **Suite** `tests/auto_patch_v2 tests/test_harness.py
+tests/test_role_edge_census.py tests/test_mesh_sampler*.py tests/test_post_mesh.py
+tests/test_object_rebake.py`: **1,214 passed / 1 skipped**, run TWICE (main
+`19af2772` collects 1,206 / 1; +8 new).
+
+**NOT DONE, named:** no OTHH / SPJC / HECA / CYXY BUILD under the new gate
+(their mouths are read only on the shipped products, where the corridor changes
+no bucket but OTHH's 4 OSM mouths and 13 uncovered bores stay unmeasured under
+12ab+12al — still owed from 12ae).  No app build, no five-airport sweep, no
+merge.  The two arms above were built BEFORE the line-budget extraction that
+moved `_under_cover` / the region assembly / the mouth report into
+`structure_approach.py` (`structures.py` stood at 999 lines and the additions
+crossed the 1,000-line file law); the extraction is textual — the same
+expressions, the same `unary_union` — and the CONFIRMING REBUILD on the
+committed tree (`v2approachcorridor_x`, 364.2 s, ledger `93c615b05a58`) comes
+back **body `b27faf5ce243`, byte-identical** to the arm quoted above, with the
+same structures line.
+
 ## §30 THE PAD CEILING CARRIES NO AUTHORED RELIEF (Fable 2026-09-12; RULINGS 2026-09-12u) — lane `v2padceiling`
 
 Scout `v2unsettled` reproduced the shipped `v2ramp8` LEMD solve bit-for-bit (142
@@ -4845,6 +4980,48 @@ but centimeter accuracy or anything invisible to the pilot is not important."
    corridor), and REPORT (all else) — with the worst of each named by coordinate.
    No new measurement; a classification of what the families already carry. Every
    spec's MEASURED block from now on quotes the cockpit block first.
+
+### 31.2 **MEASURED — THE APPROACH CORRIDOR REPLACES THE 5 km DISC** (lane `v2approachcorridor`; owner RULINGS 2026-09-12al)
+
+The corridor of §31 (2) is ONE derivation, `law/approach_corridor.ApproachCorridor`,
+read by the cockpit block's "in view" test and by §29 (1)'s mouth gate through the
+same class; the numbers are `[cockpit] approach_km` (5) and the new
+`[cockpit] approach_half_width_m` (2,000 m).  `cockpit_law` publishes both, the
+block's frame line prints the corridor rather than a radius and states how many
+corridors it ran with (a patch with NO runway geometry says so instead of
+falling back to something), and `cockpit_in_view` no longer takes a radius
+argument at all.
+
+**WHAT THE DISC WAS ADMITTING** (the shipped products of 1.0.323, one tree, one
+parse per airport, the retired reading rebuilt beside the corridor):
+
+| airport | census rows | in view under the DISC | in view under the CORRIDOR | leave | enter |
+|---|---|---|---|---|---|
+| LEMD | 4,408 | 4,408 | 4,318 | **90** | 0 |
+| HECA | 37,364 | 37,364 | 8,122 | **29,242** | 0 |
+| SPJC | 2,180 | 2,180 | 730 | **1,450** | 0 |
+| CYXY | 972 | 972 | 972 | 0 | 0 |
+| OTHH | 1 | 1 | 0 | **1** | 0 |
+
+The disc admitted EVERY located row at all five airports — 5 km around every
+runway vertex is the airport and its whole neighbourhood — which is exactly why
+it discriminated nothing.  The corridor keeps between 0 % (OTHH's single row)
+and 100 % (CYXY, a small field entirely under its own approaches) of them.
+
+**WHAT IT CHANGES IN THE BUCKETS: one row.**  HECA's CRITICAL VISUAL
+**1 -> 0** — the 0.531 m `vertex_to_edge_step [apron|building]` at
+30.1213393,31.4072652, which the disc called `approach` and the corridor leaves
+`beyond_view` (REPORT 37,224 -> 37,225).  LEMD (22 motion / 5 visual), SPJC
+(2 / 2), CYXY (0 / 0) and OTHH (0 / 0) read identically under both, and no
+census total moves anywhere.  The rows the corridor drops from view are the
+landside tail §31 (3) already calls targets: HECA's biggest are `within_shape`
+readings of 16.1–16.4 m standing 719–740 m outside the nearest corridor, and
+SPJC's are 5.5–6.0 m `within_shape` rows 8–279 m outside one.
+
+**Twins** `tests/auto_patch_v2/test_v2approachcorridor.py` (8, listed in §29.1)
+plus `tests/test_harness.py` §7, whose synthetic §31 (2) frame now carries a
+real runway AXIS and builds its corridor with the shipped class instead of a
+runway POINT with a radius.
 
 ## §32 THE ZONE BAND IS PROJECTED, LIKE THE RUNWAY (Fable 2026-09-12; RULINGS 2026-09-12ag) — lane `v2zoneclamp`
 

@@ -142,6 +142,67 @@ import O4_DEM_Utils as DEM
 # survives access-strategy refactors (spec section 3.2).
 NO_COVERAGE = "no-coverage"
 
+# =====================================================================
+# THE STATUS CLASSES OF THE INSET INDEX (owner RULINGS 2026-09-13b)
+# =====================================================================
+# ``no-coverage`` is a DURABLE NEGATIVE: the provider answered about this
+# box and has nothing.  It is never re-queried.  That makes it the most
+# expensive value in the index to write by mistake -- and 1.0.324 wrote
+# one for NEWZEALAND1M at NZQN because the PACKAGED engine could not
+# decode LERC at all: the fetcher returned an empty asset list, the warp
+# had nothing to warp, the strategy returned ``None``, and ``None`` means
+# no-coverage.  NZQN's 1 m lidar became a permanent "there is no lidar
+# here" and the tile has been cut from 30 m COPERNICUS ever since.
+#
+# So a provider skipped for a MISSING CAPABILITY -- no LERC decoder, no
+# GDAL, a download that failed for anything but a 404 -- records
+# ``unavailable:<reason>`` instead.  It is its own status class: the
+# reader never treats it as no-coverage, nothing is cached against it,
+# and the next run simply tries again (the ``TransientFetchError``
+# discipline, made durable-in-the-index so a human reading the file can
+# see WHY the tier is degraded).
+UNAVAILABLE_PREFIX = "unavailable:"
+
+#: Keys of a per-airport index record that are NOT provider statuses.
+#: One list, so a consumer counting statuses can never mistake a
+#: bookkeeping key for a provider (``probes_for`` was already being
+#: counted as one).
+INDEX_NON_PROVIDER_KEYS = (
+    "bounding_box",
+    "capabilities",
+    "checked",
+    "probes",
+    "probes_for",
+)
+
+
+def unavailable_status(reason):
+    """The index value for "this run could not ASK this provider"."""
+    return UNAVAILABLE_PREFIX + str(reason)
+
+
+def status_is_unavailable(status):
+    """True for an ``unavailable:<reason>`` record.  NOT no-coverage."""
+    return isinstance(status, str) and status.startswith(UNAVAILABLE_PREFIX)
+
+
+def unavailable_reason(status):
+    """The reason out of an ``unavailable:<reason>`` record, or ``None``."""
+    if not status_is_unavailable(status):
+        return None
+    return status[len(UNAVAILABLE_PREFIX):]
+
+
+def provider_statuses(airport_record):
+    """``{provider code: status}`` of one per-airport index record."""
+    if not isinstance(airport_record, dict):
+        return {}
+    return {
+        key: value
+        for (key, value) in airport_record.items()
+        if key not in INDEX_NON_PROVIDER_KEYS
+    }
+
 # Per-provider politeness cap for the concurrent airport fetches: at most
 # this many in-flight requests against any single elevation server.
 _PROVIDER_CONCURRENT_FETCHES = 2
@@ -242,6 +303,28 @@ class TransientFetchError(Exception):
     is never recorded as a durable no-coverage negative, while a returned
     ``None`` is.
     """
+
+
+class ProviderUnavailable(Exception):
+    """THIS RUN could not ask the provider -- a missing CAPABILITY.
+
+    Raised (instead of a ``None`` no-coverage answer) when the engine
+    itself is what is missing: no LERC decoder, no GDAL, a download that
+    failed for anything but a 404.  It says nothing about coverage, so
+    the caller records ``unavailable:<reason>`` -- a status class of its
+    own that the reader never reads as no-coverage and that no later run
+    short-circuits on.
+
+    Sibling of :class:`TransientFetchError` (the NETWORK had a bad
+    moment) and deliberately distinct from it: a transient failure
+    leaves no record at all, while this one leaves a legible "the tier
+    here is degraded because the engine could not decode it" in the
+    index.  Owner RULINGS 2026-09-13b.
+    """
+
+    def __init__(self, reason):
+        super().__init__(str(reason))
+        self.reason = str(reason)
 
 
 # Substrings (lower-cased) of libcurl / GDAL HTTP error messages that mean
@@ -576,6 +659,163 @@ def lerc_worker_argv(source, destination):
     if getattr(sys, "frozen", False):
         return [sys.executable, "--lerc-decode", source, destination]
     return [sys.executable, _LERC_DECODE_MODULE, source, destination]
+
+
+def lerc_selftest_argv():
+    """The same worker argv, asking only "can you decode LERC at all?".
+
+    The worker imports ``tifffile`` and ``imagecodecs`` at module level,
+    so a clean exit IS the capability answer -- no fixture, no file, no
+    network.
+    """
+    argv = lerc_worker_argv("IN", "OUT")
+    return argv[:-2] + ["--selftest"]
+
+
+# =====================================================================
+# WHAT THIS RUN IS CAPABLE OF (owner RULINGS 2026-09-13b (2))
+# =====================================================================
+# The index used to record WHAT a provider answered and never WHAT THE
+# RUN COULD ASK.  Those are different facts, and conflating them is how
+# a 1.0.324 engine with no LERC decoder wrote a permanent "New Zealand
+# has no 1 m lidar at NZQN".  From now on every durable status written
+# for a CAPABILITY-GATED provider carries the engine version and the
+# capability set of the run that wrote it, and a pre-existing negative
+# with no such record is UNVERIFIED -- re-probed exactly once.
+CAPABILITY_LERC = "lerc"
+
+#: Memo for the LERC capability probe: ``[None]`` until probed.
+_LERC_CAPABILITY = [None]
+
+
+def lerc_decode_available():
+    """Can THIS process decode LERC?  Probed once, memoised.
+
+    Runs the production worker argv with ``--selftest``, so the answer is
+    about the exact interpreter/binary a real decode would spawn -- the
+    frozen engine included.  A child that cannot import the codecs exits
+    non-zero and the answer is False.
+    """
+    if _LERC_CAPABILITY[0] is None:
+        import subprocess
+
+        try:
+            completed = subprocess.run(
+                lerc_selftest_argv(),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            _LERC_CAPABILITY[0] = completed.returncode == 0
+        except Exception:
+            _LERC_CAPABILITY[0] = False
+    return _LERC_CAPABILITY[0]
+
+
+def provider_required_capabilities(definition):
+    """The capabilities a provider's fetch NEEDS, as a sorted list.
+
+    Today that is LERC decoding, declared either by
+    ``asset_compression=lerc`` (New Zealand's STAC COGs) or by the
+    ``arcgis_lerc_tiles`` access strategy (the LERC blob pyramids).  A
+    provider needing nothing special returns ``[]`` -- its negatives
+    were never in doubt and are never re-probed.
+    """
+    if not isinstance(definition, dict):
+        return []
+    needs = set()
+    if str(definition.get("asset_compression", "")).lower() == "lerc":
+        needs.add(CAPABILITY_LERC)
+    if str(definition.get("access_strategy", "")) == "arcgis_lerc_tiles":
+        needs.add(CAPABILITY_LERC)
+    return sorted(needs)
+
+
+def run_capability_record(definition):
+    """What to stamp beside a durable status for ``definition``.
+
+    ``{"engine": <version>, "capabilities": [...]}`` -- the engine that
+    wrote the status and which of the provider's required capabilities
+    that engine HAD.  ``None`` for a provider that requires none (no
+    record is needed; nothing about it can be capability-degraded).
+    """
+    required = provider_required_capabilities(definition)
+    if not required:
+        return None
+    have = []
+    for capability in required:
+        if capability == CAPABILITY_LERC and lerc_decode_available():
+            have.append(capability)
+    return {"engine": _engine_version(), "capabilities": have}
+
+
+def _engine_version():
+    try:
+        import O4_Version
+
+        return str(O4_Version.version)
+    except Exception:
+        return "unknown"
+
+
+def _record_run_capabilities(airport_record, code, definition):
+    """Stamp the run's capability record for ``code`` into the record."""
+    record = run_capability_record(definition)
+    if record is None:
+        return
+    capabilities = airport_record.get("capabilities")
+    if not isinstance(capabilities, dict):
+        capabilities = {}
+        airport_record["capabilities"] = capabilities
+    capabilities[code] = record
+
+
+def negative_is_unverified(airport_record, code, definition,
+                           bounding_box=None):
+    """Is this record's ``no-coverage`` for ``code`` UNVERIFIED?
+
+    True when the provider needs a capability (LERC today), its declared
+    coverage box REACHES this airport, and the record carries NO
+    capability stamp for it: the negative was written by an engine whose
+    capabilities are unknown, and 1.0.324 is proof that such an engine
+    could mint one out of its own inability.  Exactly once -- the
+    re-probe writes the stamp, so a genuine negative (the provider
+    answered, zero pixels) is never asked again.
+
+    False for every other status, for a provider that needs nothing, and
+    -- the reason a tile in Madrid is never disturbed by New Zealand's
+    LiDAR -- for a negative that only says "this provider's own declared
+    box does not reach here".  That one needed no capability to write
+    and cannot be a capability artefact.  ``bounding_box`` defaults to
+    the box the record itself was evaluated against.
+    """
+    if not isinstance(airport_record, dict):
+        return False
+    if airport_record.get(code) != NO_COVERAGE:
+        return False
+    if not provider_required_capabilities(definition):
+        return False
+    if bounding_box is None:
+        bounding_box = airport_record.get("bounding_box")
+    if bounding_box is not None and not _coverage_bbox_intersects(
+        definition, bounding_box
+    ):
+        return False
+    capabilities = airport_record.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return True
+    stamp = capabilities.get(code)
+    if not isinstance(stamp, dict):
+        return True
+    # A stamp that says the run LACKED what the provider needs verifies
+    # nothing: it records the 1.0.324 condition instead of ruling it out.
+    recorded = stamp.get("capabilities")
+    if not isinstance(recorded, list):
+        return True
+    return any(
+        capability not in recorded
+        for capability in provider_required_capabilities(definition)
+    )
 
 
 def _parse_boolean(value):
@@ -2570,14 +2810,34 @@ class StaticStacCatalogStrategy:
 
         import requests
 
+        if not lerc_decode_available():
+            # THE 1.0.324 CONDITION, honestly named (owner RULINGS
+            # 2026-09-13b).  The packaged engine of that build returned
+            # an EMPTY list here instead, the warp had nothing to warp,
+            # the strategy answered ``None`` -- and ``None`` is recorded
+            # as a durable no-coverage.  NZQN's 1 m lidar was lost that
+            # way.  A missing decoder is never a coverage answer.
+            raise ProviderUnavailable(
+                "the LERC decoder is not available (tifffile/imagecodecs)"
+            )
         source_epsg = int(float(definition.get("source_epsg", 4326)))
         temporary_paths = []
+        # Why nothing decoded, when nothing decodes: a 404 is the server
+        # ANSWERING about the asset (durable), anything else -- a timeout,
+        # a 5xx, a decode crash -- is us, and must never become a
+        # no-coverage negative.
+        non_durable_failure = None
         for (number, entry) in enumerate(sources):
             tiff_path = destination_path + ".lerc%d.download" % number
             npy_path = destination_path + ".lerc%d.npy" % number
             try:
                 response = requests.get(entry["href"], timeout=300)
                 if response.status_code != 200:
+                    if int(response.status_code) != 404:
+                        non_durable_failure = (
+                            "asset download returned status %s"
+                            % response.status_code
+                        )
                     continue
                 with open(tiff_path, "wb") as handle:
                     handle.write(response.content)
@@ -2596,6 +2856,7 @@ class StaticStacCatalogStrategy:
                 tiepoint = tags["tiepoint"]
                 values = numpy.load(npy_path)
             except Exception as error:
+                non_durable_failure = "could not decode an asset: %s" % error
                 UI.vprint(
                     1,
                     "   WARNING: could not decode elevation tile",
@@ -2632,6 +2893,11 @@ class StaticStacCatalogStrategy:
             band.FlushCache()
             dataset = None
             temporary_paths.append(temporary_path)
+        if sources and not temporary_paths and non_durable_failure:
+            # Discovery FOUND assets over this box -- the provider has
+            # data here -- and none of them reached us for a reason that
+            # is ours or the transport's.  That is not coverage news.
+            raise ProviderUnavailable(non_durable_failure)
         return temporary_paths
 
     def fetch(
@@ -3282,6 +3548,13 @@ class ArcgisLercTileStrategy:
             return None
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
+        if not lerc_decode_available():
+            # Asked BEFORE the pyramid is downloaded: without the codecs
+            # every blob is unreadable, and the answer must be
+            # "unavailable", never a durable no-coverage negative.
+            raise ProviderUnavailable(
+                "the LERC decoder is not available (tifffile/imagecodecs)"
+            )
         level = int(float(definition.get("tile_level", 15)))
         # The pyramid grid: Web Mercator with the global origin by
         # default (Rio, Hong Kong, Zagreb); services caching in a
@@ -3362,12 +3635,12 @@ class ArcgisLercTileStrategy:
                 timeout=600,
             )
             if completed.returncode != 0:
-                UI.vprint(
-                    1,
-                    "   WARNING: LERC decode failed:",
-                    completed.stderr.strip()[-200:],
+                # The blobs ARRIVED and we could not read them: our
+                # decoder, not their coverage (owner RULINGS 2026-09-13b).
+                raise ProviderUnavailable(
+                    "the LERC tile decode failed: "
+                    + (completed.stderr.strip()[-200:] or "decode failed")
                 )
-                return None
             values = numpy.full(
                 (rows * 256, columns * 256), -32768.0, dtype=numpy.float32
             )
@@ -3387,7 +3660,9 @@ class ArcgisLercTileStrategy:
                 )
                 decoded_any = True
             if not decoded_any:
-                return None
+                raise ProviderUnavailable(
+                    "the LERC tile decode produced no readable tile"
+                )
         finally:
             shutil.rmtree(blob_directory, ignore_errors=True)
             shutil.rmtree(decoded_directory, ignore_errors=True)
@@ -6767,15 +7042,54 @@ def ensure_airport_insets(
                     stale_reason,
                     "- refetching.",
                 )
+            unverified = negative_is_unverified(
+                airport_record, code, definition, bounding_box
+            )
             if (
                 not refresh
                 and not negatives_are_stale
                 and airport_record.get(code) == NO_COVERAGE
+                and not unverified
             ):
                 continue
             if not _coverage_bbox_intersects(definition, bounding_box):
+                # The honest, capability-free negative: this provider's
+                # own declared box does not reach this airport.  No
+                # capability stamp -- ``negative_is_unverified`` reads the
+                # same boxes and never calls this one into question, so
+                # stamping it would be pure churn in the shared repo.
                 airport_record[code] = NO_COVERAGE
                 airport_record["checked"] = checked_stamp
+                continue
+            if unverified:
+                # A RECORDED REFRESH, not a content refresh: the negative
+                # on disk was written by an engine whose capabilities the
+                # index does not record, and 1.0.324 proved such an
+                # engine could mint one out of its own inability.  It
+                # completes a cache that was cut at a DEGRADED TIER.  It
+                # happens exactly once -- the probe below stamps the
+                # capability set, and a genuine negative is never asked
+                # again.  Owner RULINGS 2026-09-13b (2).
+                UI.vprint(
+                    1,
+                    "    [insets] %s: re-probing %s (recorded no-coverage "
+                    "by a run without %s) - refresh"
+                    % (icao, code,
+                       "/".join(provider_required_capabilities(definition))
+                       .upper()),
+                )
+            if not has_gdal:
+                airport_record[code] = unavailable_status(
+                    "GDAL is not available"
+                )
+                airport_record["checked"] = checked_stamp
+                _record_run_capabilities(airport_record, code, definition)
+                UI.vprint(
+                    1,
+                    "    [insets] %s: %s SKIPPED - GDAL is not available; "
+                    "recorded as unavailable, NOT as no-coverage (it will "
+                    "be asked again)" % (icao, code),
+                )
                 continue
             UI.vprint(
                 1,
@@ -6792,6 +7106,7 @@ def ensure_airport_insets(
                 # enlargement, so fetch beside it and replace on success.
                 fetch_destination = destination + ".refetch"
             fetch_raised = False
+            provider_unavailable = None
             # One-shot heartbeat so a long transfer is visibly alive:
             # stalls are aborted by the GDAL low-speed guard and retried
             # next run, so "still fetching" genuinely means still moving.
@@ -6819,6 +7134,24 @@ def ensure_airport_insets(
                         fetch_destination,
                         footprint_prefetch=footprint_prefetch,
                     )
+            except ProviderUnavailable as error:
+                # A MISSING CAPABILITY (owner RULINGS 2026-09-13b (1)):
+                # the engine could not ask, so the answer is
+                # ``unavailable:<reason>`` -- its own status class, which
+                # the reader never treats as no-coverage and which no
+                # later run short-circuits on.  INFO, not WARNING: the
+                # build is fine, the TIER here is degraded and the line
+                # says which provider and why.
+                provenance = None
+                fetch_raised = True
+                provider_unavailable = error.reason
+                UI.vprint(
+                    1,
+                    "    [insets] %s: %s SKIPPED - %s; recorded as "
+                    "unavailable, NOT as no-coverage (it will be asked "
+                    "again).  The inset here is cut at a LOWER TIER."
+                    % (icao, code, error.reason),
+                )
             except Exception as error:
                 # A raised failure (a network timeout, a server outage, a
                 # strategy crash) says nothing about coverage: skip the
@@ -6859,6 +7192,15 @@ def ensure_airport_insets(
                     # from a broken warp; left in place it would pass the
                     # cache check and bake garbage on the next run.
                     os.remove(destination)
+                if provider_unavailable is not None:
+                    # Legible in the file: WHY this tier is missing.  Not
+                    # a negative -- the next run asks again.
+                    airport_record[code] = unavailable_status(
+                        provider_unavailable
+                    )
+                    airport_record["checked"] = checked_stamp
+                    _record_run_capabilities(airport_record, code, definition)
+                    continue
                 if fetch_raised:
                     # Transient: no durable record for this provider; a
                     # lower-ranked provider may still cover the airport
@@ -6866,6 +7208,7 @@ def ensure_airport_insets(
                     continue
                 airport_record[code] = NO_COVERAGE
                 airport_record["checked"] = checked_stamp
+                _record_run_capabilities(airport_record, code, definition)
                 continue
             if cached_inset_is_stale:
                 os.replace(fetch_destination, destination)
@@ -6876,6 +7219,7 @@ def ensure_airport_insets(
                 json.dump(provenance, handle, indent=2, sort_keys=True)
             airport_record[code] = "ok"
             airport_record["checked"] = checked_stamp
+            _record_run_capabilities(airport_record, code, definition)
             # refresh=True: the raster on disk is new, so cached acceptance
             # probes from a previous (smaller) fetch must recompute.
             _store_acceptance_probes_in_record(
@@ -7838,6 +8182,41 @@ def _write_inset_completion_stamp(tile):
         UI.vprint(2, "Could not stamp the airport-inset cache:", error)
 
 
+def unverified_capability_negatives(lat, lon, provider_definitions=None):
+    """Every UNVERIFIED no-coverage negative in a tile's inset index.
+
+    ``[(icao, provider code, [required capabilities]), ...]`` -- the
+    records a next pass would RE-PROBE under owner RULINGS 2026-09-13b
+    (2), sorted.  Cheap: one JSON read, no network, no raster.
+
+    THE ONE PREDICATE for that question.  The engine's fetch loop asks it
+    per provider (:func:`negative_is_unverified`); ``is_cached`` asks it
+    to refuse to call such a tile settled; and the harness asks it to
+    REFUSE a build up front, because a re-probe is a write into the
+    shared data repo and a build never makes one as a side effect.
+    """
+    if provider_definitions is None:
+        provider_definitions = select_provider_definitions(
+            "auto", role=ROLE_AIRPORT_INSET
+        )
+    gated = [
+        definition
+        for definition in provider_definitions
+        if provider_required_capabilities(definition)
+    ]
+    if not gated:
+        return []
+    out = []
+    for (icao, airport_record) in sorted(_read_index(lat, lon).items()):
+        for definition in gated:
+            code = definition["code"]
+            if negative_is_unverified(airport_record, code, definition):
+                out.append(
+                    (icao, code, provider_required_capabilities(definition))
+                )
+    return out
+
+
 def is_cached(tile) -> bool:
     """True when this tile's airport-inset pass would fetch nothing.
 
@@ -7866,6 +8245,20 @@ def is_cached(tile) -> bool:
         for name in stamp.get("insets") or ():
             if _file_size_or_zero(os.path.join(directory, name)) <= 0:
                 return False
+        if unverified_capability_negatives(
+            tile.lat,
+            tile.lon,
+            select_provider_definitions(
+                getattr(tile, "airport_elevation_providers", "auto"),
+                role=ROLE_AIRPORT_INSET,
+            ),
+        ):
+            # The stamp says "nothing left to fetch", and it was written
+            # by the engine that could not ASK (owner RULINGS
+            # 2026-09-13b): NZQN's cache is marked complete around a
+            # negative that a decoder-less run minted.  A tile carrying
+            # one is not settled -- the pass must run and re-probe.
+            return False
         return True
     except Exception:
         return False
@@ -11318,14 +11711,16 @@ def summarize_tile_elevation_sources(
         fetched_airports = 0
         no_coverage_airports = 0
         for airport_record in index.values():
-            statuses = [
-                value
-                for (key, value) in airport_record.items()
-                if key not in ("checked", "probes", "bounding_box")
-            ]
+            # ONE list of the bookkeeping keys (INDEX_NON_PROVIDER_KEYS):
+            # this site had its own, which omitted ``probes_for`` and so
+            # counted a probe identity as a provider status.
+            statuses = list(provider_statuses(airport_record).values())
             if "ok" in statuses:
                 fetched_airports += 1
-            elif statuses:
+            elif any(status == NO_COVERAGE for status in statuses):
+                # ``unavailable:`` is NOT no-coverage: an airport whose
+                # only records are capability skips has not been answered
+                # about at all.
                 no_coverage_airports += 1
     return {
         "base_code": (

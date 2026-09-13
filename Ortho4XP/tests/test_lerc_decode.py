@@ -167,3 +167,52 @@ def test_the_engine_entry_dispatches_the_argv():
     entry = open(ENTRY).read()
     branch = entry.index("'--lerc-decode' in sys.argv")
     assert branch < entry.index("import O4_File_Names as FNAMES")
+
+
+# ── THE CAPABILITY PROBE (owner RULINGS 2026-09-13b) ──────────────────
+#
+# "Can this run decode LERC?" had no answer, so the fetcher's inability
+# arrived at the index as a coverage answer.  The probe runs the SAME
+# worker argv a real decode would spawn — frozen binary included — and
+# asks it nothing but whether the codecs imported.
+def test_the_selftest_argv_is_the_production_worker():
+    argv = INSETS.lerc_selftest_argv()
+    assert argv[:-1] == INSETS.lerc_worker_argv("IN", "OUT")[:-2]
+    assert argv[-1] == "--selftest"
+
+
+def test_the_selftest_answers_and_the_capability_is_memoised():
+    completed = subprocess.run(INSETS.lerc_selftest_argv(),
+                               capture_output=True, text=True, timeout=180)
+    assert completed.returncode == 0, completed.stderr[-400:]
+    INSETS._LERC_CAPABILITY[0] = None
+    try:
+        assert INSETS.lerc_decode_available() is True
+        # Memoised: a second call spawns nothing.
+        INSETS._LERC_CAPABILITY[0] = False
+        assert INSETS.lerc_decode_available() is False
+    finally:
+        INSETS._LERC_CAPABILITY[0] = None
+
+
+def test_the_ENGINE_ENTRY_answers_the_selftest():
+    """The frozen dispatch carries the probe too, ahead of every heavy
+    import — otherwise a packaged engine could not tell the difference
+    between "no decoder" and "no data"."""
+    completed = subprocess.run(
+        [sys.executable, ENTRY, "--lerc-decode", "--selftest"],
+        capture_output=True, text=True, timeout=180)
+    assert completed.returncode == 0, completed.stderr[-400:]
+
+
+def test_a_missing_decoder_raises_instead_of_answering_no_coverage(
+        monkeypatch):
+    """The 1.0.324 defect, in one assertion: the fetcher used to return
+    an EMPTY list here, which became ``None``, which became a durable
+    ``no-coverage`` for New Zealand's 1 m LiDAR at NZQN."""
+    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: False)
+    strategy = INSETS.ACCESS_STRATEGIES["static_stac"]()
+    with pytest.raises(INSETS.ProviderUnavailable):
+        strategy._decode_lerc_sources(
+            {"code": "NEWZEALAND1M", "asset_compression": "lerc"},
+            [{"href": "https://example.invalid/a.tif"}], "/tmp/unused")

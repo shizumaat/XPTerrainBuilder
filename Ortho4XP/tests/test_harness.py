@@ -1788,6 +1788,41 @@ def test_an_implicit_download_is_refused_and_names_its_scope(build_mod):
     assert "--refresh-data osm_layers" in str(exc2.value)
 
 
+def test_a_degraded_tier_inset_refuses_and_names_the_scope(
+        build_mod, tmp_path, monkeypatch):
+    """THE DEGRADED-TIER REFUSAL (owner RULINGS 2026-09-13b (2)).
+
+    The engine now RE-PROBES a no-coverage negative that a run without
+    the LERC decoder may have minted (1.0.324 minted exactly one for
+    NEWZEALAND1M at NZQN).  That re-probe fetches and re-cuts an inset —
+    a write into the shared data repo — so a harness build refuses it up
+    front, says WHY (the inset is cut at a degraded tier), and names
+    ``--refresh-data dem``.  The predicate is the ENGINE's own.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    state = {"tile_stem": "S46E168", "airport_insets": True}
+    monkeypatch.setattr(
+        INSETS, "unverified_capability_negatives",
+        lambda lat, lon: [("NZQN", "NEWZEALAND1M", ["lerc"])])
+    missing = build_mod.unverified_inset_negatives(state, -46, 168)
+    assert len(missing) == 1
+    (scope, artifact, why) = missing[0]
+    assert scope == "dem"
+    assert "S46E168_airport_insets/index.json" in artifact
+    assert "NZQN:NEWZEALAND1M" in artifact
+    assert "DEGRADED TIER" in why and "LERC" in why
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data dem" in str(exc.value)
+    # Authorised, it passes — the explicit, locked, ledgered act.
+    build_mod.require_no_implicit_refresh(missing, {"dem"})
+    # A verified corpus refuses nothing.
+    monkeypatch.setattr(
+        INSETS, "unverified_capability_negatives", lambda lat, lon: [])
+    assert build_mod.unverified_inset_negatives(state, -46, 168) == []
+
+
 def test_the_snapshot_sees_every_write(build_mod, guard_mod, tmp_path,
                                        monkeypatch):
     """The audit's guarantee is 'this build wrote NOTHING into the shared

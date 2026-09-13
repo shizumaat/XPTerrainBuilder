@@ -105,6 +105,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                coarsen_reach_m: float = 0.0, contact_eps_m: float = 0.0,
                rigid_reach_m: float = 0.0,
                bind_ground_m: float = 0.0,
+               abutment_step_m: float = 0.0,
+               abutment_walk_max_m: float = 0.0,
                pads: _t.Sequence = (), rims: _t.Sequence = (),
                engine_version: str = "", law_digest: str = "",
                write_cuts: bool = True) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
@@ -129,7 +131,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           coarsen_reach_m=coarsen_reach_m,
                           contact_eps_m=contact_eps_m,
                           rigid_reach_m=rigid_reach_m,
-                          bind_ground_m=bind_ground_m)
+                          bind_ground_m=bind_ground_m,
+                          abutment_step_m=abutment_step_m,
+                          abutment_walk_max_m=abutment_walk_max_m)
     splits, kept = _pp.to_placement_records(ss)
     conversions, _kept_conv = _dw.conversions_for_dump(dump, pack_root)
     split_idx = frozenset(s.placement.index for s in splits)

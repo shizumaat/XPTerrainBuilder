@@ -67,72 +67,25 @@ from . import placement_atom as _atom
 from . import placement_orphan as _orphan
 from .placement_record import Body, Kept, Split, SplitSet
 from .placement_record import Staged as _Staged   # noqa: F401
+# §16e (3): THE BRIDGE FAMILY (the deck's own model footprint), next door
+from . import bridge_family as _bf
+# §16b (2) / §16e (3): WHICH CANDIDATES A TARGET MAY REST ON, and what
+# the carrier cut makes of the answer — next door for the 1,000-line law
+# (moved whole by lane ``v2bridgecontact``, no line changed), re-exported
+# because every caller and every twin reads them as this module's.
+from .placement_targets import (_carrier_pieces,          # noqa: F401
+                                _footless_targets)
+# THE PLAN AND GRADED-DOC READERS live next door (the 1,000-line law,
+# moved by lane ``v2bridgecontact``) and are re-exported: every caller
+# and every twin — ``engine_v2``, ``obj8_split_report``, the replay —
+# reads them as this module's names, which they remain.
+from .placement_read import (PAD_FACE_ROLE, RIM_BREAKLINE_KIND,  # noqa: F401
+                             pads_rims_from_graded,
+                             pads_rims_from_graded_doc, read_plan)
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits", "coarsen",
            "is_elevated",
            "authored_offset", "pads_rims_from_graded", "pads_rims_from_graded_doc"]
-
-
-# ── reading a plan this tree did not write ───────────────────────────────
-
-def read_plan(path: str) -> tuple[RebakePlan, tuple[tuple[int, int], ...]]:
-    """The re-seat plan plus its ABUTMENT pairs (10ay).
-
-    ``RebakePlan.from_dict`` is the ONE reader — a second one is the
-    census-wrapper defect at one remove — but a plan written by a tree
-    carrying a LATER additive version (8 added ``abutments`` to 7's
-    fields, exactly as 7 added ``Part.line`` to 6's) is refused by its
-    version check alone.  So the abutments are lifted out here and the
-    version is presented as this tree's, which is what "additive" means;
-    anything that is NOT purely additive still fails, because the fields
-    the reader needs would not be there."""
-    d = json.loads(open(path, encoding="utf-8").read())
-    abut = tuple((int(a), int(b)) for a, b in d.get("abutments", ()))
-    from ..model.rebake import PLAN_VERSION
-    if int(d.get("version", 0)) > PLAN_VERSION:
-        d = dict(d, version=PLAN_VERSION)
-    return RebakePlan.from_dict(d), abut
-
-
-#: The graded roles §6's class rule reads: the emitted object PADS and the
-#: emitted structure RIMS.  One derivation, two callers — the shipped
-#: engine path (``auto_patch/engine_v2._place_objects``) and the dry run
-#: (``tools/obj8_split_report.surface_from_graded``).  A second copy is the
-#: census-wrapper defect: the engine ran for weeks with ``pads=()`` and
-#: ``rims=()`` — nothing shipped could ever classify ``building`` or
-#: ``basin`` — while the tool, deriving them, classified both.
-PAD_FACE_ROLE = "building"
-RIM_BREAKLINE_KIND = "structure_rim"
-
-
-def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
-                              ) -> tuple[tuple[_ar.PadRing, ...],
-                                         tuple[_ar.RimRing, ...]]:
-    """``(pads, rims)`` from a parsed ``<ICAO>.graded.json`` document: the
-    ``building`` faces' rings and the ``structure_rim`` breaklines, each
-    as its ``(lat, lon)`` ring.  A ring shorter than 3 kept vertices is
-    not a ring and is dropped (the same floor both callers used)."""
-    by_id = {v[0]: (v[1], v[2]) for v in d["vertices"]}
-    # §14a: the ring carries its HEIGHTS (§24 (1) makes them the apron's)
-    z_id = {v[0]: v[3] for v in d["vertices"]}
-    pads = tuple(_ar.PadRing(f["ref"],
-                             tuple(by_id[i] for i in f["ring"] if i in by_id))
-                 for f in d["faces"]
-                 if f["role"] == PAD_FACE_ROLE and len(f["ring"]) >= 3)
-    rims = tuple(_ar.RimRing(b["ref"],
-                             tuple(by_id[i] for i in b["vertices"] if i in by_id),
-                             tuple(float(z_id[i]) for i in b["vertices"]
-                                   if i in by_id))
-                 for b in d["breaklines"]
-                 if b["kind"] == RIM_BREAKLINE_KIND and len(b["vertices"]) >= 3)
-    return pads, rims
-
-
-def pads_rims_from_graded(path: str) -> tuple[tuple[_ar.PadRing, ...],
-                                              tuple[_ar.RimRing, ...]]:
-    """:func:`pads_rims_from_graded_doc` of the file at ``path``."""
-    with open(path, encoding="utf-8") as fh:
-        return pads_rims_from_graded_doc(json.loads(fh.read()))
 
 
 # ── the authored frame ───────────────────────────────────────────────────
@@ -198,6 +151,7 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                   by_class: dict[str, int],
                   part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
                   ground_off: _t.Sequence["float | None"] = (),
+                  bridge: _t.Sequence[str] = (),
                   geom_boxes: _t.Sequence = ()) -> list[Body]:
     """The groups of one member as :class:`Body` records, each on its
     SENIOR body's anchor (:func:`placement_carrier.senior_of`)."""
@@ -272,6 +226,7 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                                 for b in part_boxes[i]]
                                or [b for i in grp for b in part_boxes[i]])
                                if part_boxes else 1.0),
+                           bridge_of=_bf.body_bridge(bridge, grp),
                            geom_pts=_geom_pts(raw, grp)))
     return bodies
 
@@ -281,6 +236,7 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                   written: bool, body_id: int, counts: dict[str, int],
                   by_class: dict[str, int],
                   part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
+                  bridge: _t.Sequence[str] = (),
                   geom_boxes: _t.Sequence = ()) -> Body:
     """§14 (1) / §15 (1): the bodies of ``grp`` as ONE file written at
     their CARRIER's anchor with the carrier's ``y_zero``.
@@ -329,6 +285,7 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                                               for b in part_boxes[i]),
                                   [b for i in grp for b in part_boxes[i]])
                       if part_boxes else 1.0),
+                bridge_of=_bf.body_bridge(bridge, grp),
                 geom_pts=_geom_pts(raw, grp))
 
 
@@ -342,6 +299,7 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                      u: Unit, surface: _ar.Surface, body_id: int,
                      counts: dict[str, int], by_class: dict[str, int],
                      part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
+                     bridge: _t.Sequence[str] = (),
                      geom_boxes: _t.Sequence = ()) -> Body:
     """§16 (3): the body written at the GROUND UNDER ITS OWN FOOTPRINT.
 
@@ -382,6 +340,7 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                                               for b in part_boxes[i]),
                                   [b for i in grp for b in part_boxes[i]])
                       if part_boxes else 1.0),
+                bridge_of=_bf.body_bridge(bridge, grp),
                 geom_pts=_geom_pts(raw, grp))
 
 
@@ -455,6 +414,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  coarsen_reach_m: float = 0.0,
                  contact_eps_m: float = 0.0, rigid_reach_m: float = 0.0,
                  bind_ground_m: float = 0.0,
+                 abutment_step_m: float = 0.0,
+                 abutment_walk_max_m: float = 0.0,
                  abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -539,6 +500,40 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     #: body, for the report (a cluster is ONE body no cut may divide)
     cl_spans: list[tuple[float, int]] = []
     by_class: dict[str, int] = {}
+
+    # §16e (3): ONE CUTTER PER MEMBER, and the DECK FOOTPRINTS derived
+    # ONCE PER PLAN from the very same cutters.  A deck is parsed once
+    # for the whole stage: the parse IS what the plan stage costs (618 of
+    # OTHH's members parsed twice was 42 s of it, 11ak), so the footprint
+    # pass must add none.
+    # ONLY A DECK IS CACHED: the cutter holds the member's parsed OBJ8,
+    # and a pack-wide cache would hold every one of them at once (OTHH is
+    # 9.4 M triangles).  A deck is asked for twice — here and in pass 1 —
+    # and there are ten of them at OTHH.
+    _cutters: dict[int, "_LineCutter"] = {}
+
+    def _cutter_for(ui: int, mi: int, m) -> "_LineCutter":
+        hit = _cutters.get(id_of((ui, mi)))
+        if hit is not None:
+            return hit
+        _cmp = {p.pid: p.comp for p in m.parts}
+        _pairs = tuple((_cmp[a], _cmp[b])
+                       for a, b in intra.get(id_of((ui, mi)), [])
+                       if a in _cmp and b in _cmp)
+        hit = _LineCutter(m, line_segment_m, line_stations_max,
+                          foot_band_m, line_ratio, line_max_h,
+                          plan.units[ui].anchor[0], plan.units[ui].anchor[1],
+                          contact_eps_m=contact_eps_m,
+                          contact_pairs=_pairs,
+                          rigid_reach_m=rigid_reach_m,
+                          rigid_span_max_m=_atom.RIGID_CLUSTER_SPAN_MAX_M)
+        if m.deck_kind in ("flag", "signature"):
+            _cutters[id_of((ui, mi))] = hit
+        return hit
+
+    prints = _bf.deck_prints(plan, _cutter_for)
+    counts["bridge_deck_footprints"] = len(prints)
+
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
         # §14a (2): each basin ring's DEPTH, read ONCE per unit — a pit is
@@ -549,21 +544,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             counts["placements"] += 1
             _cut0 = (counts.get("bodies_re_cut_by_terrain", 0)
                      + counts.get("bodies_re_cut_by_triangle", 0))
-            # §16c (6): the member's OWN ε-contact edges, as COMPONENT
-            # index pairs — components the plan already calls touching
-            # bind whatever the distance test says
-            _cmp = {p.pid: p.comp for p in m.parts}
-            _pairs = tuple((_cmp[a], _cmp[b])
-                           for a, b in intra.get(id_of((ui, mi)), [])
-                           if a in _cmp and b in _cmp)
-            cutter = _LineCutter(m, line_segment_m, line_stations_max,
-                                 foot_band_m, line_ratio, line_max_h,
-                                 u.anchor[0], u.anchor[1],
-                                 contact_eps_m=contact_eps_m,
-                                 contact_pairs=_pairs,
-                                 rigid_reach_m=rigid_reach_m,
-                                 rigid_span_max_m=_atom
-                                 .RIGID_CLUSTER_SPAN_MAX_M)
+            # §16c (6): the member's OWN ε-contact edges ride the cutter
+            # (``_cutter_for``), which a DECK member already has open
+            # from §16e (3)'s footprint pass — one parse per member
+            cutter = _cutter_for(ui, mi, m)
             raw = _raw_bodies(m, u, intra.get(id_of((ui, mi)), []), surface,
                               pads, rims, counts, cutter=cutter,
                               split_tol_m=split_tol_m,
@@ -572,7 +556,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               line_stations_max=line_stations_max,
                               line_ratio=line_ratio, line_max_h=line_max_h,
                               foot_band_m=foot_band_m,
-                              coarsen_reach_m=coarsen_reach_m)
+                              coarsen_reach_m=coarsen_reach_m,
+                              abutment_step_m=abutment_step_m,
+                              abutment_walk_max_m=abutment_walk_max_m)
             counts["bodies_uncoarsened"] = \
                 counts.get("bodies_uncoarsened", 0) + len(raw)
             elevated = frozenset(i for i, r in enumerate(raw) if r[4])
@@ -602,6 +588,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                                ) > _cut0))
             if staged[-1].footless:
                 counts["footless"] += 1
+
+        # §16e (3), read once per unit and published per body — the
+        # rule and its whole reading live in ``bridge_family``.
+        _bf.assign_bodies(prints, staged, counts)
 
         # ── PASS 2: the footed members' ground groups = the candidates ─
         cands: list[_pc.Candidate] = []
@@ -874,7 +864,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 counts["footless_no_carrier"] += 1
                 body = _own_ground_file(st.raw, list(range(len(st.raw))), m, u,
                                         surface, 0, counts, by_class,
-                                        st.part_boxes, st.geom_boxes)
+                                        st.part_boxes, st.bridge,
+                                        st.geom_boxes)
                 counts["bodies"] += 1
                 record = Split(_index_of(m.id), m.id, m.resource,
                                m.authored_path, u.anchor[0], u.anchor[1],
@@ -887,17 +878,19 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             bodies = ([] if st.footless
                       else _group_bodies(st.raw, st.groups, m, u, counts,
                                          by_class, st.part_boxes,
-                                         st.ground_off, st.geom_boxes))
+                                         st.ground_off, st.bridge,
+                                         st.geom_boxes))
             for grp in st.own_ground:
                 bodies.append(_own_ground_file(st.raw, grp, m, u, surface,
                                                len(bodies), counts, by_class,
-                                               st.part_boxes, st.geom_boxes))
+                                               st.part_boxes, st.bridge,
+                                               st.geom_boxes))
             for grp, c, why in st.carried:
                 cw = written_of.get(c.member, True)
                 bodies.append(_carried_file(
                     st.raw, grp, m, u, c, why,
                     c.resource if cw else by_mi[c.member].m.resource, cw,
-                    len(bodies), counts, by_class, st.part_boxes,
+                    len(bodies), counts, by_class, st.part_boxes, st.bridge,
                     st.geom_boxes))
             counts["bodies"] += len(bodies)
             record = Split(_index_of(m.id), m.id, m.resource, m.authored_path,
@@ -985,7 +978,8 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             y_zero=b.anchor.y_zero, plan_box=b.plan_box,
             geom_box=b.geom_box, foot_boxes=b.foot_boxes, fill=b.fill,
             ground_off=b.ground_off, geom_pts=b.geom_pts,
-            feet=len(b.feet), datum=bool(b.anchor.datum)) for b in s.bodies))
+            feet=len(b.feet), datum=bool(b.anchor.datum),
+            bridge_of=b.bridge_of) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
     return splits, kept

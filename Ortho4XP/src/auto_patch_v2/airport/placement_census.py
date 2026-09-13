@@ -33,7 +33,14 @@ __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
            "census_outside_box", "census_outside_box_lines", "OUTSIDE_TOL_M",
            "census_motion", "census_motion_lines", "feet_in_band",
            "ground_contact_feet",
-           "foot_float"]
+           "foot_float",
+           # §16e (3): the bridge family's own bars live in
+           # ``bridge_family`` (the law and its reading in one module) and
+           # are re-exported here, where every report reads its censuses
+           "census_bridges", "census_bridges_lines"]
+
+from .bridge_family import (census_bridges,            # noqa: E402,F401
+                            census_bridges_lines)
 
 
 # ── §14 (4): THE CENSUS ──────────────────────────────────────────────────

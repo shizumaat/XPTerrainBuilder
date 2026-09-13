@@ -197,6 +197,22 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
     no_taxi = taxi_m < rules.cells.min_shared_m and named is None
     carries = road_m >= lot.min_road_fraction * half_perim
     carries_osm = (osm_m + aisle_m) >= lot.min_road_fraction * half_perim
+    # §37 (5) A PAGE TOO NARROW TO PARK ON IS NOT A CAR PARK (owner
+    # RULINGS 2026-09-13j item 7 / 13ab; ``lot.min_lot_width_m``).  A
+    # 90-degree car park's minimum module is one 5.0 m stall row plus one
+    # 6.0 m one-way aisle; a page narrower than that holds no parking at
+    # all, so the two WEAKEST rungs of the lot ladder below — which read
+    # only that roads reach or touch the page — must not mint one.
+    # ...and the floor: BELOW one service-road corridor the page is an
+    # EMIT SLIVER, not a narrow surface (LEMD's ``dsf:pol255#2`` family,
+    # 0.1-0.3 m across on a 200-800 m perimeter).  Measured before it
+    # shipped: without the floor 26 LEMD slivers stopped being minted
+    # ``parking_lot`` and LEMD's cell count moved 597 -> 578 for no
+    # reason connected to §37 (5).  §27 already owns the sliver class
+    # (``_LOT_SLIVER_RADIUS_M``); this rule leaves it alone.  KCLT's
+    # twelve are 6.7-10.3 m and unaffected by the floor.
+    too_narrow_for_lot = (rules.service.road_width_m <= width
+                          <= lot.min_lot_width_m)
     cls, reason = "open", "no road; or taxi/startup/apron evidence"
     if named is not None and taxi_m < rules.cells.min_shared_m:
         reason = (f"taxi by name {tok!r}" + (f" ({desig})" if desig else "")
@@ -210,6 +226,30 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
             cls, reason = "strip", (f"width {width:.1f} m, through {through:.0f} m >= "
                                     f"{lot.through_min_fraction:g} x {half_perim:.0f} m, "
                                     f"{pieces} road piece(s)")
+    elif no_taxi and too_narrow_for_lot and starts == 0 and \
+            road_m >= rules.osm_roads.min_len_m and \
+            acov < lot.apron_cover_fraction and not apron_named(description, rules):
+        # §37 (5), the other half: the narrow-road rule's own words are
+        # "a page at most ``narrow_road_width_m`` wide that carries ANY
+        # road centreline IS the road", but the branch above is gated on
+        # ``carries`` — ``min_road_fraction`` × HALF-PERIMETER, which on a
+        # long ribbon is a length, not a fraction of its width: KCLT's
+        # ``dsf:pol82`` needed 120 m of mapped centreline inside its 601 m
+        # to qualify and OSM maps 71 m of it (the centreline wanders in
+        # and out of an 8.4 m page).  Below the parking floor the gate is
+        # the rule's own: a road centreline inside that is not NOISE
+        # (``osm_roads.min_len_m``, the feed's own floor), on a page at
+        # least one service-road corridor wide (``service.road_width_m``)
+        # — LEMD's emit slivers are 0.1-0.3 m across and clip a metre of
+        # road each; 34 of them would otherwise have become roads.
+        # It carries the LOT
+        # ladder's own evidence vetoes — a mapped ``aeroway=apron`` over
+        # the page, an apron NAME, a 1300 startup on it — because a
+        # surveyed fact outranks a width heuristic in both directions
+        # (KCLT ``pav127`` 8.2 m, 100 % apron cover, stays ``open``).
+        cls, reason = "strip", (f"width {width:.1f} m <= lot minimum "
+                                f"{lot.min_lot_width_m:g} (too narrow to park on, "
+                                f"§37 (5)), road {road_m:.0f} m, {reach} road(s) reach it")
     # THE APRON VETO (owner RULINGS 2026-09-11ac item 6): a page with a
     # MAPPED APRON on it is not a car park.  It reads
     # ``lot.apron_cover_fraction`` — the same key ``open_default``'s
@@ -225,6 +265,14 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
             cls, reason = "lot", f"amenity=parking covers {pcov:.0%}"
         elif aisle_m > 0.0 and carries_osm:
             cls, reason = "lot", f"OSM parking aisle {aisle_m:.0f} m inside"
+        elif too_narrow_for_lot:
+            # §37 (5): MAPPED parking evidence (the two rungs above — an
+            # ``amenity=parking`` polygon, an OSM parking aisle) is a
+            # surveyed fact and still wins; the two rungs BELOW read only
+            # that roads reach the page, which on a sub-module width is
+            # evidence of a ROAD.  A narrow page with no road inside
+            # stays ``open``.
+            pass
         elif carries_osm:
             cls, reason = "lot", (f"OSM road {osm_m:.0f} m inside ({pieces} pieces), no "
                                   f"taxi centreline, no startup, width {width:.1f} m")

@@ -228,6 +228,12 @@ class Body:
     #: reader that judges a high ``y_zero`` (§13's "elevated bodies as
     #: own files", bar 0) would otherwise count the law as its defect.
     datum: bool = False
+    #: §16e (3): THE BRIDGE THIS BODY BELONGS TO — the DECK resource
+    #: whose model footprint polygon contains its plan centroid (or comes
+    #: within 0.5 m of it), else ``""``.  Published because nothing else
+    #: in either plan names a bridge (``airport/bridge_family``): the ROW
+    #: puts three of OTHH's on one AGL and the deck's RING is a bbox.
+    bridge_of: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -242,7 +248,7 @@ class Body:
                 "geom_box": None if self.geom_box is None else list(self.geom_box),
                 "foot_boxes": [list(b) for b in self.foot_boxes],
                 "fill": self.fill, "ground_off": self.ground_off,
-                "datum": self.datum,
+                "datum": self.datum, "bridge_of": self.bridge_of or None,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts]}
 
@@ -271,7 +277,8 @@ class Body:
                    else _f(d["ground_off"]),
                    tuple((_f(q[0]), _f(q[1]), _f(q[2]))
                          for q in d.get("geom_pts", ()) or ()),
-                   bool(d.get("datum", False)))
+                   bool(d.get("datum", False)),
+                   str(d.get("bridge_of") or ""))
 
 
 @_dc.dataclass(frozen=True)

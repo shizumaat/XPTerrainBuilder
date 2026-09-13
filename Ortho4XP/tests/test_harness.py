@@ -44,6 +44,7 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import inspect
+import math
 import json
 import os
 import re
@@ -8541,3 +8542,138 @@ def test_the_cliff_escape_reaches_every_family(cg):
             "airside_no_step", _row(("apron", "apron"), de, span),
             law=law, geometry=geo) == (cg.COCKPIT_REPORT,
                                        "spanned_over_motion")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §38 THE TILE SEAM IS A PIN — the two census families
+# (owner RULINGS 2026-09-13ah / 13am / 13an; spec design-surface-spec §38)
+# ══════════════════════════════════════════════════════════════════════
+# The instruments must prove themselves: a patch WITH the defect reports
+# it and a patch WITHOUT it reports nothing.  Before §38 the census had no
+# patch-edge-vs-DEM family at all and could not see SPLP's 3.430 m seam
+# berm; ``strip_seam_tear`` read 0 over it.
+
+_SEAM_LAT = -12.1660000
+_SEAM_LON = -77.0            # the meridian the airport crosses
+_SEAM_HALF_M = 5.0
+
+
+def _seam_patch(tmp_path, *, name, pin_dem, pin_z, bank_offset_m,
+                half_width_m=_SEAM_HALF_M, role="runway"):
+    """A two-node patch on one seam band edge plus one ``bank_foot`` chain
+    ``bank_offset_m`` from the meridian.  ``pin_dem`` is what the sidecar
+    publishes for the band-edge vertex, ``pin_z`` what the patch emits."""
+    m_per_deg_lon = 111_320.0 * math.cos(math.radians(_SEAM_LAT))
+    d_edge = half_width_m / m_per_deg_lon
+    edge_lon = _SEAM_LON - d_edge                 # the WEST band edge
+    b_lon = _SEAM_LON - bank_offset_m / m_per_deg_lon
+    # a CLOSED ring (the parser reads elevations off shape ways) whose two
+    # eastern corners sit on the band edge and are the published pins
+    west = edge_lon - 30.0 / m_per_deg_lon
+    nodes = [(-1, _SEAM_LAT, edge_lon, pin_z),
+             (-2, _SEAM_LAT + 0.0002, edge_lon, pin_z),
+             (-5, _SEAM_LAT + 0.0002, west, pin_z),
+             (-6, _SEAM_LAT, west, pin_z),
+             (-3, _SEAM_LAT, b_lon, 40.0),
+             (-4, _SEAM_LAT + 0.0001, b_lon, 40.0),
+             (-7, _SEAM_LAT + 0.0002, b_lon, 40.0)]
+    ways = [(-100, [-1, -2, -5, -6, -1], {"role": role, "shapeID": "S1"}),
+            # THREE nodes: ``_parse_osm`` drops a way under three
+            (-101, [-3, -4, -7], {"o4_feature": "bank_foot"})]
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='seam-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_SEAM_LAT, _SEAM_LON],
+        "ruleset": "icao",
+        "seam_pins": [[round(_SEAM_LAT, 11), round(edge_lon, 11), pin_dem],
+                      [round(_SEAM_LAT + 0.0002, 11), round(edge_lon, 11),
+                       pin_dem]],
+        "seam_half_width_m": half_width_m,
+    }))
+    return osm
+
+
+def test_a_seam_pin_on_its_dem_prices_no_seam_residual(cg, tmp_path):
+    fo = _families(cg, _seam_patch(tmp_path, name="onthedem",
+                                   pin_dem=54.50, pin_z=54.50,
+                                   bank_offset_m=60.0))
+    assert fo["seam_residual"] == [], (
+        "a seam vertex AT its published DEM sample must price nothing — "
+        "a Pin holds exactly, so a row here is emitted surface")
+
+
+def test_a_seam_pin_off_its_dem_prices_the_residual(cg, tmp_path):
+    """The SPLP class, at its own worst number: vertex 1408 emitted at
+    51.07 where the DEM is 54.50 (RULINGS 2026-09-13am (6))."""
+    fo = _families(cg, _seam_patch(tmp_path, name="offthedem",
+                                   pin_dem=54.50, pin_z=51.07,
+                                   bank_offset_m=60.0))
+    rows = fo["seam_residual"]
+    assert len(rows) == 2, (
+        f"2 published pins off their DEM priced {len(rows)} row(s)")
+    assert abs(rows[0].de_m - 3.43) < 0.01, (
+        f"the residual read {rows[0].de_m:.3f} m, not the 3.43 m the "
+        f"emitted surface stands off its published pin")
+
+
+def test_a_patch_with_no_seam_key_reads_exactly_as_before(cg, tmp_path):
+    osm = _seam_patch(tmp_path, name="nokey", pin_dem=54.50, pin_z=51.07,
+                      bank_offset_m=1.0)
+    side = Path(str(osm) + ".axes.json")
+    data = json.loads(side.read_text())
+    del data["seam_pins"], data["seam_half_width_m"]
+    side.write_text(json.dumps(data))
+    fo = _families(cg, osm)
+    assert fo["seam_residual"] == [] and fo["bank_across_seam"] == [], (
+        "a patch predating §38 declares no seam and must price neither "
+        "family — v1's own output goes through this reader")
+
+
+def test_a_bank_foot_inside_the_band_is_a_defect(cg, tmp_path):
+    """13an: chain ``bank:2`` sat 0.0237 m off the meridian and Triangle4XP
+    split it 16,298 times against the unsplittable tile border."""
+    fo = _families(cg, _seam_patch(tmp_path, name="bankin",
+                                   pin_dem=54.50, pin_z=54.50,
+                                   bank_offset_m=0.0237))
+    assert len(fo["bank_across_seam"]) == 3, (
+        f"a bank chain 0.0237 m from the meridian priced "
+        f"{len(fo['bank_across_seam'])} row(s), not its 3 nodes")
+
+
+def test_a_bank_foot_clear_of_the_band_is_not(cg, tmp_path):
+    fo = _families(cg, _seam_patch(tmp_path, name="bankout",
+                                   pin_dem=54.50, pin_z=54.50,
+                                   bank_offset_m=_SEAM_HALF_M + 1.0))
+    assert fo["bank_across_seam"] == [], (
+        "a bank foot OUTSIDE the band is the lawful bank the airport is "
+        "entitled to — the family must not price it")
+
+
+def test_both_seam_families_carry_a_cockpit_class(cg):
+    """A new family with no cockpit key does not load (``families.toml``
+    header).  This asserts the two §38 families are IN the law table as
+    well as in the register, and that the classes are the ones §38 (5)
+    asks for: ``seam_residual`` a STEP (so the cockpit rule gives it
+    CRITICAL motion on the rolled-on roles and visual elsewhere from ONE
+    threshold pair) and ``bank_across_seam`` a KEEPOUT (presence in a
+    region, not a height)."""
+    import tomllib
+    from pathlib import Path as _P
+    table = tomllib.loads((_P(cg.__file__).resolve().parents[1]
+                           / "src/auto_patch_v2/law/families.toml").read_text())
+    for key in ("seam_residual", "bank_across_seam"):
+        assert key in table, f"{key} is a census family with no law entry"
+        assert key in {k for k, _t, _b in cg.LAW_FAMILIES}
+    assert table["seam_residual"]["cockpit"] == "step"
+    assert table["bank_across_seam"]["cockpit"] == "keepout"

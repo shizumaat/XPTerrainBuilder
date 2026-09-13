@@ -99,9 +99,11 @@ import numpy as np
 from ..law import Law
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
+from .seam_band import seam_band_region
 from .surface import GradedSurface, SurfaceBreakline, SurfaceVertex
 
 __all__ = ["BANK_KIND", "BankReport", "FOOT_KINDS", "coverage_polygon",
+           "seam_band_region",
            "daylight_feet", "smooth_along", "smooth_runs", "with_bank"]
 
 #: The breakline kind and the ``o4_feature`` value of a bank foot ring.
@@ -147,6 +149,13 @@ class BankReport:
     #: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c): the banked region
     #: was cut at an edge — beyond it the DEM's own slope is the bank.
     at_edge: int = 0
+    #: §38 (3) THE TILE SEAM (owner RULINGS 2026-09-13ah): the seam bands
+    #: the region was cut by (0 on a single-tile airport) and how many
+    #: derived bank pieces the cut trimmed or removed.  The band is also
+    #: unioned into the coverage before the collar, so the slit between two
+    #: tile pieces is closed by the law and not by a constant coincidence.
+    seam_bands: int = 0
+    seam_pieces_cut: int = 0
     #: the rays that NEVER daylighted, named (chain, vertex, lat/lon)
     never_daylight: list[str] = _dc.field(default_factory=list)
     #: the toe-smoothing runs the daylight discontinuities cut the chains into
@@ -181,6 +190,9 @@ class BankReport:
                 f"skipped), DAYLIGHT {self.at_min} at the minimum / "
                 f"{self.daylighted} daylighted / {self.at_max} at the maximum"
                 + f" / {self.at_water} STOPPED AT WATER (09z: no foot there)"
+                + (f"; SEAM (38.3) {self.seam_bands} band(s), "
+                   f"{self.seam_pieces_cut} piece(s) cut, coverage unioned "
+                   f"before the collar" if self.seam_bands else "")
                 + (" / CUT AT THE TERRAIN EDGE (10c: no bank beyond it)"
                    if self.at_edge else "")
                 + (f" [{names}]" if self.never_daylight else "")
@@ -789,8 +801,34 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     # ``bank_min_width_m`` from the design surface BY CONSTRUCTION — a
     # repaired piece that collapsed back onto its own body cannot expose the
     # design ring as a foot (measured HECA: a foot node at distance 0.0).
-    banked = unary_union([cov.buffer(min_w, join_style="mitre",
-                                     mitre_limit=_MITER_MAX), *pieces])
+    # §38 (3) THE SEAM (owner RULINGS 2026-09-13ah; :func:`seam_band_region`).
+    # NO BANK IS DERIVED IN THE BAND — the coverage edge there is a pin line
+    # already at the DEM — and the band goes into the coverage EXPLICITLY
+    # before the collar, so the slit between the two tile pieces is closed
+    # by the law and not by two 5.0 m constants happening to agree.
+    seam_geom = seam_band_region(planar, law, cov)
+    collar_of = cov
+    if seam_geom is not None:
+        rep.seam_bands = 1
+        cut_pieces = []
+        for pc in pieces:
+            try:
+                q = pc.difference(seam_geom)
+            except Exception:                           # pragma: no cover
+                q = pc
+            if q.is_empty:
+                rep.seam_pieces_cut += 1
+                continue
+            if q.area < pc.area - 1e-9:
+                rep.seam_pieces_cut += 1
+            cut_pieces.append(q)
+        pieces = cut_pieces
+        try:
+            collar_of = unary_union([cov, seam_geom])
+        except Exception:                               # pragma: no cover
+            collar_of = cov
+    banked = unary_union([collar_of.buffer(min_w, join_style="mitre",
+                                           mitre_limit=_MITER_MAX), *pieces])
     # THE SHORE HAS NO BANK (owner RULINGS 2026-09-09z (3)), cut at the
     # SINGLE derivation site: the min-width collar is the one part of the
     # banked region no ray governs, so the region — not a per-ray veto —

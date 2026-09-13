@@ -8211,3 +8211,45 @@ and the taxiways stay feasible.
    the object stage seats the cluster on it. Feasibility is the solve's:
    where the reach cannot be met under the caps the report names the apron
    faces that stayed graded.
+
+## §39 THE HAIRLINE LAW (Fable 2026-09-13; RULINGS 2026-09-13an / 13bk; owner reads SPLP 13ag, LEMD 13bi, KCLT 13bj) — lane `v2hairline`
+
+Three sightings in one day of one class: a constrained edge laid within
+millimetres of, and parallel to, another — the SPLP bank chain 2.37 cm from
+the meridian (16,298 Triangle4XP nodes in 1.92 m), LEMD's two patch pavement
+rings 0.06–0.26 mm from the retention basins' water edges (2.30 M sub-0.1 m²
+triangles, 73 % of the tile, X-Plane stalled), and (pending the scout) KCLT's
+tearing. Triangle4XP must recover both segments and fills the wedge with a
+Steiner cascade; GEOS's OverlayNG falls back to its snapping noder on the
+same inputs (13bi's 35 GB union is the suspect twin).
+
+1. **NO EDGE BESIDE ANOTHER.** An emitted ring vertex or edge may not lie
+   within `identity.min_distinct_spacing_m` (0.5 m) of a FOREIGN constrained
+   edge — an OSM water edge, a tile border, a core road ribbon, another
+   face's ring — unless it SHARES that edge's vertices exactly (the 11-dp
+   identity join). A ring edge within the spacing of a water edge is
+   SNAPPED onto the water edge's own vertices (the shore weld: water is a
+   datum and already carries the vertex), never laid beside it. Applied at
+   ONE site: the emitter's ring writer, after every face is final.
+2. **THE CENSUS FAMILY `hairline_pair`** prices every emitted ring edge
+   against every foreign constrained edge of the tile's vector map within
+   the spacing and within 5° of parallel — CRITICAL unconditionally (a
+   load-time and texture defect, not a height).
+3. **THE MESH PRE-FLIGHT.** `O4_Mesh_Utils` audits the assembled `.poly`
+   before Triangle4XP: any non-adjacent constrained pair within the spacing
+   and within 5° of parallel is REFUSED by name (pair, markers, coordinates)
+   — the tile fails in seconds, never after a 40-minute Triangle run.
+   `mesh_region_tris.py --hairline-audit` is the instrument (promoted from
+   the scouts' `nearpar.py`).
+4. **THE LEMD CAUSE IS NAMED AT ITS SITE.** Bisect the 1773 batch on the
+   LEMD capture for the pass that moved the pavement ring onto the water
+   edge (the shore weld count fell 403,636 → 145,257): the seam-band and
+   bank-coverage changes (13as), the level belt (13w), the bank cut (§37
+   (3)), the basin footprint (§24 (4)) are the suspects, in that order.
+
+BARS: LEMD (`Data+40-004.mesh` from ONE harness tile build or the app's):
+sub-0.1 m² triangles 2,301,676 → low hundreds, aspect p50 7,549 → < 5, DSF
+≤ 23 MB, triangles ≈ 2.93 M; `hairline_pair` 0 at LEMD, KCLT, SPLP, CYXY
+and > 0 on the LEMD control; the pre-flight refuses a synthetic hairline
+`.poly` and passes the four tiles; F-6, the basin, the ramps byte-identical
+where they are not the cause; suite twice.

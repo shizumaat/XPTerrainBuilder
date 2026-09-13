@@ -23,6 +23,7 @@ from ..constraints.routes import RIDGE_KIND
 from ..constraints.runway_chord import ChordReport, with_runway_chord
 from ..constraints.apron_trend import (ApronTrendReport, apron_trend_block,
                                        with_apron_trend)
+from ..constraints.eat import withdraw_trend_over_reach
 from ..constraints.taxi_trend import (TaxiTrendReport, taxi_trend_block,
                                       with_taxi_trend)
 from ..constraints.runway_profile import RUNWAY_FAMILY
@@ -556,6 +557,28 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"{at_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
          f"{at_rep.get('max_below_dem_m', 0.0):.2f} m"
          + (f"; FALLBACK {at_rep['fallback']}" if at_rep.get("fallback") else ""), out)
+    # THE EAT RAMP'S REACH — THE TREND YIELDS (owner RULINGS 2026-09-13aa;
+    # spec §36 (5)).  An end-around taxiway pinned a tail height below the
+    # departure surface must ramp back to the ground at the TAXI cap, and
+    # the ramp's free neighbours were buying ~1 % of grade with their
+    # ground-trend residual instead (measured 2.37-3.87 % at KCLT).  Over
+    # the DERIVED reach — drop / cap along the loop's own centreline — both
+    # trend channels are WITHDRAWN, not outweighed.  Runs AFTER both are
+    # published, so neither claim is re-opened by the other's absence.
+    er_rep: dict = {}
+    pm = withdraw_trend_over_reach(pm, law, airport, er_rep)
+    lrep.eat_reach = dict(er_rep)
+    if er_rep.get("pins"):
+        _say(f"[{icao}] EAT ramp reach (13aa/§36-5): {er_rep.get('pins', 0)} pinned feet on "
+             f"{len(er_rep.get('feet', []))} loop(s), reach "
+             + ", ".join(f"{r['reach_m']:.0f} m (drop {r['drop_m']:.2f} at cap {r['cap']:.3f})"
+                         for r in er_rep.get("feet", [])[:4])
+             + f"; trend rows withdrawn {er_rep.get('withdrawn', 0)} "
+             f"(taxi {er_rep.get('withdrawn_taxi', 0)}, apron {er_rep.get('withdrawn_apron', 0)})"
+             + (f"; LOOP TOO SHORT at {len(er_rep['short'])} foot(feet) — forced grade "
+                + ", ".join(f"{(s.get('forced_grade') or 0) * 100:.2f} %"
+                            for s in er_rep["short"][:4]) + " (taxi family)"
+                if er_rep.get("short") else ""), out)
     rs = road_rep["profiles"]
     _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
          f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "

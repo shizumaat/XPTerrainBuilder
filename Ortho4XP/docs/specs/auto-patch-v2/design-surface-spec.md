@@ -6382,3 +6382,55 @@ new tool (nothing here needed one — the bank's own census is
 `BankReport.line()`, the share census is `tools/role_edge_census.py`,
 the defect counts are `tools/harness/census.py`), so no `tools/INDEX.md`
 row; any merge.
+
+### §36 (5) THE RAMP REACH IS DERIVED; THE TREND YIELDS (Fable 2026-09-13; RULINGS 2026-09-13aa) — lane `v2eatramp`
+
+Lane `v2eat` measured the six ramp edges off the pinned feet at 2.37–3.87 %
+over 28.6–59.1 m against the 1.5 % taxi cap: the ramp's free neighbours keep
+a `taxi_trend` DEM target (weight 30) against the cap (300) — v1's "loop too
+short to ramp lawfully" outcome. The taxi cap is law (§31: a 3.9 % taxiway is
+a slope a pilot feels; the DEM target is the unreliable witness).
+
+5. **THE RAMP RUNS BACK ALONG THE LOOP UNTIL THE CAP IS MET.** From each
+   pinned foot the ramp follows the EAT loop's own centreline (the routed
+   wrap the rect was recognised on) until the loop's DEM-fitted profile is
+   reached at ≤ the taxi longitudinal cap: reach = drop / cap (KCLT: ~9 m /
+   0.015 ≈ 600 m per side, which the end-around loop affords). Over that
+   reach `taxi_trend` is WITHDRAWN for the loop's vertices (not outweighed)
+   and the loop's transverse rows carry its shoulders with it. Where the loop
+   is too short to ramp lawfully, the crossing KEEPS the regulation value and
+   the report names the overrun as a forbidden grade under the taxi family —
+   never a silent 3.9 %. The `[design] hard_rulings` register is untouched
+   (a Pin holds exactly; §36 MEASURED).
+
+BARS (KCLT, same capture both arms, then ONE build): every edge on the EAT
+loop ≤ 1.5 % (today six at 2.37–3.87 %); the crossing 217.26 ± 0.05 at all
+four vertices; the hard set SETTLED (today 13 `pavement_max_grade ceiling`
+rows, max 0.0479 m — name them and show they are the ramp's neighbours before
+claiming the fix clears them); cockpit CRITICAL motion ≤ 16 with the two
+grade breaks v2eat introduced named and placed; `eat_ceiling` 0; the five
+other frames unchanged (no rect recognised); suite twice.
+
+### §37 (5) THE SECOND MECHANISM UNDER THE EAST ROAD (Fable 2026-09-13; RULINGS 2026-09-13ab) — lane `v2roadcap2`
+
+Scout `v2roadcapkclt` on main 064e244e: §37 (1) moved `dsf:pol51` 0.94 m
+(+14.22 → +13.28 m) — the DEM grade along its chain is 6.8 %, under the 8 %
+road cap, so the longitudinal cap was never what held it (follow ratio
+0.287 over 179 m). `dsf:pol82` (owner's shapeID 791) is STILL `apron` at
++11.52 m though §37 (2)'s share rule should have left a face with 2 % of its
+perimeter on airside a road. Both attributions were incomplete. The lane
+first makes `explain KCLT` run (the `planar.__main__.default_inputs` half of
+the 13q chip: honour `O4_AIRPORT_MOD_CACHE_DIR` / the harness redirect as
+`build_airport.py` now does — one resolution, not two), then NAMES the rows
+holding `dsf:pol51` up (transverse rows to an apron edge? a bank or zone
+band? a pad frontage? the `taxi_trend` of a neighbour?) and the PASS that
+classes `dsf:pol82` apron (scorer role before §27, or a share read on the
+wrong perimeter), and fixes what it names.
+
+BARS (KCLT, ONE build): `dsf:pol51` within 2 m of the DEM over its chain
+(follow ratio ≥ 0.8), no service road over 3 m off the DEM airport-wide
+(today max +13.28 / −4.25); `dsf:pol82` classed `service_road` on its own
+ground; the 1:3 bank at the east edge shrinks with the fill it daylighted;
+cockpit CRITICAL motion ≤ 9 (13ab's block) with no new row on the east road;
+LEMD role census byte-identical (§37 (2) holds: the 61 apron-side lanes stay
+apron); suite twice.

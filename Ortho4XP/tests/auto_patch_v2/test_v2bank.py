@@ -107,19 +107,76 @@ def test_a_ring_six_metres_up_puts_its_foot_at_one_in_three(apron_map, law):  # 
     assert rep.max_slope <= d.bank_slope + 1e-3, rep
 
 
-def test_a_ring_one_metre_up_takes_the_minimum_width(apron_map, law):  # noqa: F811
-    """09e: ``max(bank_min_width_m, …)`` — 1 m of fill would want 3.0 m,
-    the floor gives it 5.0."""
+def test_a_ring_one_metre_up_carries_no_bank(apron_map, law):  # noqa: F811
+    """§37 (3) THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (owner RULINGS
+    2026-09-13q item 8), superseding 09e's reading of this case.
+
+    1 m of fill would want a 3.0 m bank and the ``bank_min_width_m`` floor
+    would give it 5.0 — but ``bank_materiality_m`` is exactly
+    ``bank_min_width_m * bank_slope`` (1.65 m), so the whole
+    minimum-width regime IS the regime with no earthwork in it.  The ring
+    and the DEM meet inside the narrowest bank the law knows; nothing is
+    emitted and the mesh's own interpolation carries the metre."""
+    from auto_patch_v2.emit.bank import bank_materiality_m
     airport, pm, _r = apron_map
-    _banked, _surf, rep = _bank(airport, pm, law, 1.0)
+    banked, _surf, rep = _bank(airport, pm, law, 1.0)
     d = law.tables.emit.design
-    assert 1.0 / d.bank_slope < d.bank_min_width_m       # the floor is what binds
-    assert d.bank_min_width_m - 0.2 <= rep.mean_m <= \
-        d.bank_min_width_m * math.sqrt(2.0) + 0.2, rep
-    assert rep.max_m == pytest.approx(d.bank_min_width_m * math.sqrt(2.0),
-                                      abs=0.2), rep
-    # a bank at the FLOOR is gentler than the law's 1:3, never steeper
-    assert rep.max_slope < d.bank_slope, rep
+    assert 1.0 / d.bank_slope < d.bank_min_width_m       # the floor would bind
+    assert bank_materiality_m(d) == pytest.approx(1.65)
+    assert 1.0 < bank_materiality_m(d)                   # ... and it is immaterial
+    assert rep.rings == 0 and rep.foot_vertices == 0, rep
+    assert rep.stations > 0 and rep.immaterial == rep.stations, rep
+    assert rep.bare_rings == 1, rep
+    assert not [b for b in banked.breaklines if b.kind == BANK_KIND]
+
+
+def test_the_load_bearing_floor_is_derived_never_typed(law):   # noqa: F811
+    """§37 (3): ``bank_materiality_m`` has ONE derivation site and is not
+    a typed law value — it is the drop a minimum-width bank carries."""
+    from auto_patch_v2.emit import bank as B
+    d = law.tables.emit.design
+    assert B.bank_materiality_m(d) == d.bank_min_width_m * d.bank_slope
+    assert not hasattr(d, "bank_materiality_m")
+
+
+def test_material_runs_pads_each_run_and_keeps_a_whole_ring_closed():
+    """§37 (3): the load-bearing runs of a cyclic ring, each padded by one
+    station on each side so the chain fades out on the ground; an
+    all-material ring stays the closed ring; a ring with nothing
+    load-bearing carries no chain at all."""
+    from auto_patch_v2.emit.bank import material_runs
+    assert material_runs([True] * 5) == [[0, 1, 2, 3, 4]]
+    assert material_runs([False] * 5) == []
+    assert material_runs([False, True, True, False, False]) == [[0, 1, 2, 3]]
+    # the run that WRAPS the ring's seam is one run, not two
+    assert material_runs([True, False, False, False, True]) == [[3, 4, 0, 1]]
+    # TWO runs one station apart are ONE chain: padding them separately
+    # would emit the same ground twice on two sets of nodes (duplicate
+    # constrained segments — 09t's Triangle hazard, measured as 3
+    # duplicate foot coordinates at CYXY and 14 at LEMD before the fix)
+    assert material_runs([True, False, True]) == [[0, 1, 2]]
+    assert material_runs([True, False, True, False, False, False, False]) \
+        == [[6, 0, 1, 2, 3]]
+    # ... and no chain is ever shorter than the 3 nodes the adapter emits
+    assert all(len(r) >= 3 for r in material_runs(
+        [True, False, False, False, False, True, False, False]))
+
+
+def test_a_long_foot_chord_is_split_at_the_law_and_lands_on_the_dem(law):  # noqa: F811
+    """§37 (3): no emitted chord is longer than ``bank_chord_max_m`` and
+    every split station is DEM-sampled (measured on the 1.0.324 KCLT
+    products: 451 chords over 30 m, up to 5.6 m off the DEM mid-chord)."""
+    from auto_patch_v2.emit.bank import split_chain
+    d = law.tables.emit.design
+    dem = _FlatDem()
+    pts = [(0.0, 0.0), (100.0, 0.0)]
+    out_p, out_z, added = split_chain(pts, [700.0, 700.0], dem,
+                                      d.bank_chord_max_m, d.bank_split_tol_m,
+                                      d.bank_min_width_m)
+    assert added == 3 and len(out_p) == 5
+    assert all(abs(z - 700.0) < 1e-9 for z in out_z)
+    for a, b in zip(out_p, out_p[1:]):
+        assert math.hypot(b[0] - a[0], b[1] - a[1]) <= d.bank_chord_max_m + 1e-9
 
 
 def test_the_foot_follows_the_ground_away_on_sloping_terrain(law):   # noqa: F811

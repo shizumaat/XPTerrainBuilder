@@ -57,6 +57,7 @@ import dataclasses as _dc
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
@@ -506,6 +507,11 @@ def _write_pack(a, plan, ss, sampler) -> None:
         print(line)
     for line in PC.census_torn_seams_lines(_torn):
         print(line)
+    # §16d (1): AND THE OTHER WRITTEN-FRAME BAR — is every written
+    # triangle inside the box the plan published for its body?
+    for line in PC.census_outside_box_lines(
+            PC.census_outside_box([q.to_dict() for q in splits], root)):
+        print(line)
     # THE READ-BACK: the written DSF dumped again must carry every new
     # placement, on its own new OBJECT_DEF
     back = os.path.join(work, "readback.text")
@@ -634,15 +640,18 @@ def _main() -> int:
         written = json.loads(open(a.plan, encoding="utf-8").read())
         root = os.path.abspath(a.torn_seams)
         c = PC.census_torn_seams(written.get("splits", ()), root)
-        print(f"torn-seam census of {written.get('icao', '?')} over {root}")
+        ob = PC.census_outside_box(written.get("splits", ()), root)
+        print(f"written-frame census of {written.get('icao', '?')} over {root}")
         for line in PC.cockpit_block_lines(PC.cockpit_block(
                 splits=written.get("splits", ()), torn=c)):
             print(line)
         for line in PC.census_torn_seams_lines(c):
             print(line)
+        for line in PC.census_outside_box_lines(ob):
+            print(line)
         if a.json:
             with open(a.json, "w", encoding="utf-8") as fh:
-                json.dump(c, fh, indent=1)
+                json.dump({"torn": c, "outside_box": ob}, fh, indent=1)
         return 0
 
     from auto_patch_v2.law import Law
@@ -674,6 +683,7 @@ def _main() -> int:
              if a.line_segment is None else a.line_segment)
     print(f"  line segments: [placement] line_segment_m {seg_m:g} m "
           f"(cap {rb.line_object_stations_max} stations)")
+    _t0 = time.perf_counter()
     ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut,
                          split_tol_m=tol_m,
                          elevated_base_m=rb.elevated_base_m,
@@ -696,6 +706,11 @@ def _main() -> int:
                                         else a.rigid_reach),
                          # (A), RULINGS 2026-09-12ap
                          bind_ground_m=_law.tables.emit.cockpit.visual_m)
+    # THE PLAN STAGE, timed where the shipped engine's own call is: this
+    # is the number the round budgets quote, and it must not include the
+    # graded parse, the Delaunay or the census the tool wraps it in.
+    print(f"  plan stage: {time.perf_counter() - _t0:.2f} s"
+          + ("" if a.no_cut else " (with the OBJ8 cut)"))
     c = ss.counts
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")

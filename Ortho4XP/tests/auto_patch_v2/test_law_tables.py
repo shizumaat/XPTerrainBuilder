@@ -200,6 +200,33 @@ def _common_checks(c: Checks, t) -> None:
          t.common.road_transverse_axis_min_deg)
     c.eq("common.runway_crown_transverse", v1.RUNWAY_CROWN_TRANSVERSE,
          t.common.runway_crown_transverse)
+    # THE END-AROUND TAXIWAY (spec §36; owner RULINGS 2026-09-13j item 2).
+    # v1 carried the whole law in ``config.py``; v2 states it ONCE in
+    # ``rulesets.toml`` and this is the twin that holds the two equal (the
+    # ramp-cap precedent, RULINGS 2026-09-12p).
+    eat = t.common.eat
+    for L in LETTERS:
+        c.eq(f"common.eat.tail_height_m[{L}]",
+             v1.TAIL_HEIGHT_BY_CODE_LETTER[L],
+             eat.tail_height_m.value(code_letter=L))
+    c.eq("common.eat.min_crossing_m", v1.EAT_MIN_CROSSING_DIST_M,
+         eat.min_crossing_m)
+    c.eq("common.eat.max_crossing_m", v1.EAT_MAX_CROSSING_DIST_M,
+         eat.max_crossing_m)
+    c.eq("common.eat.segment_gap_m", v1.EAT_RECT_SEGMENT_GAP_M,
+         eat.segment_gap_m)
+    c.eq("common.eat.rect_max_along_m", v1.EAT_RECT_MAX_ALONG_M,
+         eat.rect_max_along_m)
+    c.eq("common.eat.min_runway_code_number", v1.EAT_MIN_RUNWAY_CODE_NUMBER,
+         eat.min_runway_code_number)
+    c.eq("faa.eat.slope", v1.EAT_FAA_DEPARTURE_SLOPE,
+         t.rulesets["faa"].eat.slope)
+    c.eq("faa.eat.setback_m", v1.EAT_FAA_SETBACK_M,
+         t.rulesets["faa"].eat.setback_m)
+    c.eq("icao.eat.slope", v1.EAT_EASA_TAKEOFF_CLIMB_SLOPE,
+         t.rulesets["icao"].eat.slope)
+    c.eq("icao.eat.setback_m", v1.EAT_EASA_SETBACK_M,
+         t.rulesets["icao"].eat.setback_m)
     c.eq("icao stand == apron", v1.ICAO_RULESET.stand_max_grade,
          roles["apron"].longitudinal)
     c.eq("faa stand == apron", v1.FAA_RULESET.stand_max_grade,

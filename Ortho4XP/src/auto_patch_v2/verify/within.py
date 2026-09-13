@@ -253,8 +253,11 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
             pc = junction_pair_caps(sh, lines, xy_all, cap, min_d, mesh)
         else:
             pc = stretch_pair_caps(sh, lines, xy_all, cap, min_d) if sh.role in taxi else {}
-        rc = role_cap(law, sh.role, sh.code_number, sh.code_letter)
-        cap_t = min(cap, rc.transverse) if rc else cap
+        # §37 (1): the lateral-contiguity binding is the TRANSVERSE cap
+        # (``Patch.cap_t``); ``cap`` above is the role's own longitudinal
+        cap_t = p.cap_t(sh)
+        if cap_t is None:
+            cap_t = cap
         q = noise_m(law, sh.role)
         n = len(sh.ids)
         if n < 3:

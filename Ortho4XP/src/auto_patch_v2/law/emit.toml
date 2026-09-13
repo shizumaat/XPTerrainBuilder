@@ -131,6 +131,7 @@ approach_half_width_m = 2000.0  # §31 (2) the corridor's lateral HALF-WIDTH (ow
 # first; the accessor resolves this dotted path (`tables.cliff_grade`) and
 # the loader REFUSES a path that does not name a grade in (0, 1].
 cliff_grade   = "emit.design.bank_slope"   # §31 (7): the 1:3 bank, read from where it already lives
+sentinel_drop_m = 50.0  # RULINGS 2026-09-13 (lane v2zerocrater): how far below the patch's OWN 5th-percentile emitted elevation a vertex must sit before the census reads it as a SENTINEL — a no-data marker or a homogeneous least-squares block's 0.0 — rather than geometry.  A real airport's design surface spans tens of metres (KCLT 202-226 m over 4 km), so this can never reclassify a lawful cut; the class it names is KCLT's 217 m crater
 
 [lateral_contiguity]
 # THE STATION WALK (owner FINAL 2026-08-02 clause 2; RULINGS 2026-08-25b,
@@ -469,6 +470,25 @@ bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on
 # the minimum.  The toe smoothing (09f) is CUT wherever the raw daylight
 # distance jumps by more than ``bank_toe_break_m`` between neighbours: the
 # toe may jump where the ground does.
+# §37 (3) THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (owner RULINGS
+# 2026-09-13q KCLT item 8; Fable 2026-09-13).  Measured on the 1.0.324
+# KCLT products: the foot ring is emitted at EVERY station of the banked
+# region's boundary — 1,855 stations over 34.2 km — and 71.6 % of them
+# carry |z_ring - DEM(foot)| under 1.65 m, i.e. no earthwork at all, while
+# 451 chords run over 30 m and stand up to 5.6 m off the DEM mid-chord.
+# So a station is emitted only where the transition is LOAD-BEARING:
+# |z_ring - DEM(foot)| over ``bank_materiality_m``, which is DERIVED, not
+# typed — ``bank_min_width_m * bank_slope`` (1.65 m) is exactly the drop a
+# minimum-width bank carries, so below it the ring and the DEM meet inside
+# the narrowest bank the law knows and the mesh's own interpolation
+# carries the difference.  Each surviving RUN is emitted as its own chain
+# (padded by one station each side so the bank fades out on the ground
+# rather than ending mid-slope); inside a run no chord is longer than
+# ``bank_chord_max_m``, and a chord whose mid-point stands more than
+# ``bank_split_tol_m`` off the DEM is split further, never below
+# ``bank_min_width_m``.
+bank_chord_max_m    = 30.0
+bank_split_tol_m    = 1.0
 bank_sample_m       = 2.0
 bank_daylight_tol_m = 0.3
 bank_max_width_m    = 200.0

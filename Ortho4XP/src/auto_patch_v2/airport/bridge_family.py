@@ -86,6 +86,7 @@ from .rebake_plan import _mpd as _m_per_deg
 import math as _math
 
 __all__ = ["DeckPrint", "deck_prints", "bridge_of_point", "CONTACT_M",
+           "assign_bodies", "body_bridge",
            "census_bridges", "census_bridges_lines", "bridge_tag"]
 
 #: §16e (3): "centroid-in-polygon or within 0.5 m of it".  The spec's own
@@ -313,6 +314,45 @@ def bridge_of_point(prints: _t.Sequence[DeckPrint], lat: float, lon: float,
         return min(hits, key=lambda p: (p.under_y, p.key))
     return min(hits, key=lambda p: (round(abs(float(top_y) - p.under_y), 3),
                                     p.key))
+
+
+def assign_bodies(prints: _t.Sequence[DeckPrint], staged: _t.Sequence,
+                  counts: dict) -> None:
+    """§16e (3): WHICH BRIDGE IS EACH RAW BODY ON — written into each
+    staged member's ``bridge`` list, in place.
+
+    A body BELONGS to the deck whose MODEL FOOTPRINT POLYGON contains its
+    plan centroid (or comes within :data:`CONTACT_M`); two containing
+    decks are broken by the underside nearest the body's top.  A body no
+    footprint contains has no family, which is the answer §16e (3) gives
+    it — nothing FILTERS or BINDS on the value (3) is WITHDRAWN, RULINGS
+    2026-09-13ae) and it exists to be PUBLISHED and CENSUSED."""
+    if not prints:
+        return
+    from .placement_carrier import hull_of
+    for st in staged:
+        st.bridge = [""] * len(st.raw)
+        for bi in range(len(st.raw)):
+            bx = hull_of(st.part_boxes[bi])
+            if bx is None:
+                continue
+            tp = (max(st.part_tops[bi])
+                  if bi < len(st.part_tops) and st.part_tops[bi] else None)
+            hit = bridge_of_point(prints, 0.5 * (bx[0] + bx[2]),
+                                  0.5 * (bx[1] + bx[3]), tp, CONTACT_M)
+            if hit is not None:
+                st.bridge[bi] = hit.key
+                counts["bridge_bodies"] = counts.get("bridge_bodies", 0) + 1
+
+
+def body_bridge(bridge: _t.Sequence[str], grp: _t.Sequence[int]) -> str:
+    """§16e (3): the BRIDGE a WRITTEN body belongs to — the key its raw
+    bodies agree on, or ``""`` where they do not (a group the cuts drew
+    across a deck's edge belongs to no one bridge, and the relation names
+    only what it can name)."""
+    keys = {bridge[i] for i in grp if i < len(bridge)}
+    keys.discard("")
+    return keys.pop() if len(keys) == 1 else ""
 
 
 # ── the instrument (§16e (3)'s bars) ─────────────────────────────────────

@@ -98,4 +98,28 @@ if is_timing:
             "time are exclusive. Wait for these, or coordinate:\n" + out
         )
 
+# --- 5. Unbounded waiters: a `while`/`until` loop that sleeps must carry a
+#        deadline. Owner 2026-09-13: two lane waiters ran 20h54 and 23h38
+#        after their producers died (`until [ -s FILE ]; do sleep 60; done`).
+#        Memory `background-task-notifications-unreliable`: grep-loops spin
+#        forever if the process dies. ------------------------------------
+_loop = re.search(r"\b(while|until)\b[^\n]*?\bdo\b[^\n]*?\bsleep\s+\d", scan)
+if _loop:
+    _bounded = (
+        re.search(r"\btimeout\s+(-k\s*\S+\s+)?\d+", scan)          # timeout N cmd
+        or re.search(r"\$\{?SECONDS\}?", cmd)                       # $SECONDS deadline
+        or re.search(r"\b(n|i|k|tries|rounds|attempts)\s*=\s*\$\(\(", cmd)  # counter
+        or re.search(r"\bseq\s+\d+", scan)                          # for i in $(seq N)
+    )
+    if not _bounded:
+        deny(
+            "BLOCKED (unbounded waiter): a while/until loop that sleeps must "
+            "carry a deadline — waiters have run 20+ h after their producer "
+            "died. Bound it: `timeout 3600 zsh -c '...loop...'`, or "
+            "`until COND || [ $SECONDS -gt 3600 ]; do sleep 60; done; "
+            "[ $SECONDS -gt 3600 ] && echo TIMED_OUT`, or a counter "
+            "`n=$((n+1)); [ $n -ge 60 ] && break`. Prefer the harness's "
+            "task notification over a poll loop where one exists."
+        )
+
 sys.exit(0)

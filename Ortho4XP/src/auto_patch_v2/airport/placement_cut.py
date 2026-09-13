@@ -36,6 +36,7 @@ __all__ = ["authored_latlon", "segment_anchor", "pristine_path",
 from .placement_carrier import is_elevated            # noqa: E402  (§13)
 # §16b's WRITTEN-GEOMETRY reading lives next door (the 1,000-line law);
 # every caller and every twin reads it as this module's.
+from . import placement_geom as _pg                   # noqa: E402
 from .placement_geom import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402,F401
                              _geom_ground, _geom_span, surface_many,
                              thin_points)
@@ -641,6 +642,22 @@ class _LineCutter:
         return tuple(tuple(int(q) for q in row)
                      for row in np.concatenate(tl).tolist())
 
+    def written_components(self) -> "list[tuple[int, _t.Any, tuple]]":
+        """§16d (1): every connected component the WRITER will emit
+        (``placement_geom.written_components`` — the law and its
+        reading; it lives there for the 1,000-line file law)."""
+        return _pg.written_components(self)
+
+    def part_tris(self, parts: _t.Sequence[Part]) -> tuple:
+        """The authored triangles of ``parts``' own components
+        (``placement_geom.part_tris``)."""
+        return _pg.part_tris(self, parts)
+
+    def plan_box_of_tris(self, tris) -> "tuple | None":
+        """§16d (1): the PLAN BOX of a set of authored triangles
+        (``placement_geom.plan_box_of_tris``)."""
+        return _pg.plan_box_of_tris(self, tris)
+
     def geom_points(self, parts: _t.Sequence[Part],
                     tris: _t.Sequence[_t.Sequence[int]] = (),
                     cap: int = 0) -> tuple[tuple[float, float, float], ...]:
@@ -879,4 +896,7 @@ def _rim_of(rims: _t.Sequence[_ar.RimRing], lat: float, lon: float,
 # §14/§14a/§16/§16a/§16b's BODY FORMATION lives next door (the 1,000-line
 # law); it is re-exported here because every caller and every twin reads
 # these names as this module's.
-from .placement_body import _Raw, _raw_bodies, _whole_body  # noqa: E402,F401
+from .placement_body import (CARRIED_ATOMS_MAX,  # noqa: E402,F401
+                             _atom_targets, _carrier_pieces,
+                             _footless_targets, _Raw, _raw_bodies,
+                             _whole_body)

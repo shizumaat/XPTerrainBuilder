@@ -615,7 +615,7 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         rel = rel[: -len(".anchor_bak")]
     stem = os.path.splitext(os.path.basename(rel))[0]
     files: list[SplitFile] = []
-    for k, b in enumerate(live):
+    for b in live:
         bid = b.body_id
         head = [h for j, h in enumerate(src.header) if j != src.point_counts_at]
         body_text: list[str] = list(head)
@@ -639,7 +639,16 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         body_text.append("")
         body_text.extend(out[bid])
         body_text.append("")
-        files.append(SplitFile(bid, body_resource_name(rel, k),
+        # §16d (1): THE FILE IS NAMED BY ITS BODY, never by its position
+        # in the live list.  The plan spells a body's file
+        # ``body_resource_name(resource, body_id)`` and the DSF row is
+        # written on that name, so a body the cut left with NO triangle
+        # (its geometry inside an ANIM block another body owns) used to
+        # shift every later body's file one name down — the row then
+        # carried the NEXT body's geometry at this body's zero.  Measured
+        # at LEMD: `OldTerminal_FSX-DCNEUN`, whose ``__b0`` row held
+        # ``b1``'s object 254 m from ``b0``'s own box.
+        files.append(SplitFile(bid, body_resource_name(rel, bid),
                                "\n".join(body_text) + "\n",
                                len(vt_out[bid]), tri_count[bid], b.offset,
                                tuple(lods_seen[bid]), anim_count[bid]))

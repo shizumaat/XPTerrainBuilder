@@ -233,7 +233,8 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
     # every generator's count, plus a generator's own ``<name>.<stat>`` keys
     # (apron_within_shape.chords_outside_face, RULINGS 2026-09-05ae(1))
     assert {k.split(".", 1)[0] for k in counts} == {n for n, _f in GENERATORS} | {"seam_pin_pair_exempt", "water_pin_row_withdrawn",
-                                       "structure_datum_withdrawn", "pavement_ceiling"}
+                                       "structure_datum_withdrawn", "pavement_ceiling",
+                                       "eat_pin_withdrawn_senior"}
     assert "apron_within_shape.chords_outside_face" in counts
     sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message

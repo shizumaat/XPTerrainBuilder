@@ -354,15 +354,21 @@ def test_a_mouth_keeps_a_shape_groundside():
         ("parking_lot", "pav2", lot, None, {"kind": "lot"}),
     ])
     assert n == 0 and rounds == 1 and roles == ["apron", "service_road", "parking_lot"]
-    # the SAME 10 m of contact laid LATERALLY is never a mouth: widen the
-    # cap beyond the factor and the road flips
-    wide = box(0, 0, 10, 200)
+    # the SAME contact laid LATERALLY is never a mouth — but §37 (2) now
+    # asks a ROAD for a SHARE of its perimeter, so a lateral graze is not
+    # enough on its own: the apron must run ALONGSIDE the road.
+    wide = box(0, 0, 10, 200)                 # perimeter 420 m
     apron2 = box(-100, -100, 100, 0)
     n, _r, roles, _ = _lot_flip_case([
         ("apron", "pav1", apron2.union(box(10, 0, 100, 30)), None, {}),
         ("service_road", "r1", wide, None, {}),
     ])
-    assert n == 1 and roles[1] == "apron"
+    assert n == 0 and roles[1] == "service_road"      # 30 m of 420 = 7 %
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron2.union(box(10, 0, 100, 200)), None, {}),
+        ("service_road", "r1", wide, None, {}),
+    ])
+    assert n == 1 and roles[1] == "apron"             # 200 m of 420 = 48 %
 
 
 def test_airside_edge_never_flips_a_sliver():

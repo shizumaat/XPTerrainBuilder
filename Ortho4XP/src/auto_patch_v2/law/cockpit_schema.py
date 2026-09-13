@@ -57,7 +57,15 @@ def value_at(tables: object, dotted: str):
 #:                 step: REPORT.
 #: ``keepout``     the family measures a thing's PRESENCE in a region,
 #:                 not a height at all: REPORT.
-COCKPIT_CLASSES: tuple[str, ...] = ("step", "grade_break", "grade", "keepout")
+#: ``sentinel``    the family measures a value that is NOT GEOMETRY at all —
+#:                 a no-data marker or a homogeneous least-squares block's
+#:                 0.0 that reached the product (RULINGS 2026-09-13, lane
+#:                 ``v2zerocrater``: KCLT's 20 apron vertices at 0.00 over
+#:                 217 m ground).  CRITICAL unconditionally: there is no
+#:                 threshold to price it against and no view test to pass —
+#:                 a hole in the design surface is critical wherever it is.
+COCKPIT_CLASSES: tuple[str, ...] = ("step", "grade_break", "grade", "keepout",
+                                    "sentinel")
 
 
 @_dc.dataclass(frozen=True)
@@ -100,6 +108,14 @@ class Cockpit:
     #: ``tables.cliff_grade`` resolves it and the loader refuses a path
     #: that does not name a grade in (0, 1].
     cliff_grade: str
+
+    #: THE SENTINEL FLOOR (RULINGS 2026-09-13, lane ``v2zerocrater``): how
+    #: far under the patch's OWN 5th-percentile emitted elevation a vertex
+    #: must sit before it is read as a SENTINEL rather than as geometry.
+    #: The ``sentinel_elevation`` family's parameter; patch-intrinsic
+    #: because the census has no DEM, and measured from a ROBUST floor
+    #: because the crater IS the minimum.
+    sentinel_drop_m: float = 50.0
 
 
 def check_cockpit(cockpit: Cockpit, families, error: type,

@@ -8045,11 +8045,14 @@ def test_every_law_family_declares_a_cockpit_class(cg):
     ``families.toml`` would classify silently as REPORT — the census-
     wrapper defect wearing a reading rule's hat.  ``cockpit_law`` refuses
     instead; this asserts the register is total TODAY."""
+    from auto_patch_v2.law.cockpit_schema import COCKPIT_CLASSES
     law = cg.cockpit_law(refresh=True)
     for key, _title, _bucket in cg.LAW_FAMILIES:
         assert key in law["family_class"], key
-        assert law["family_class"][key] in (
-            "step", "grade_break", "grade", "keepout"), key
+        # THE REGISTER IS THE LAW'S OWN (RULINGS 2026-09-13): a literal
+        # tuple here was a SECOND copy of ``COCKPIT_CLASSES``, and adding
+        # the ``sentinel`` class moved one without the other.
+        assert law["family_class"][key] in COCKPIT_CLASSES, key
 
 
 def test_a_step_over_the_motion_threshold_on_apron_is_critical_motion(cg):

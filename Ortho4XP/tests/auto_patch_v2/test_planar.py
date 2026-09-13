@@ -166,6 +166,61 @@ def test_cli_writes_products(tmp_path):
     assert rep["load"]["pack_name"] == "CYXY Fixture"
 
 
+def test_default_inputs_mod_cache_root_follows_the_lane_redirect(tmp_path, monkeypatch):
+    """THE IMPLICIT ``Airport_mod_cache`` ROOT IS THE ENGINE ACCESSOR'S
+    (2026-09-13, lane modcacheguard).  ``default_inputs`` used to join
+    ``ENGINE_DIR / "Airport_mod_cache"`` itself, so ``explain KCLT`` under
+    an exported ``O4_AIRPORT_MOD_CACHE_DIR`` still read the SHARED repo's
+    cache and its freshness refusal named that path.  Three assertions:
+    the redirect is honoured; an explicit ``--data-root`` still wins (the
+    accessor's own rule); and the freshness guard in ``airport/load.py``
+    READS THE REDIRECTED ROOT — an empty lane root refuses NAMING it, a
+    dump seeded lane-local is the one served."""
+    import shutil
+    from auto_patch_v2.airport.dsf import text_dump_tag
+    from auto_patch_v2.airport.load import load_with_report
+    from auto_patch_v2.planar.__main__ import default_inputs
+
+    lane = tmp_path / "lane_mod_cache"
+    lane.mkdir()
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+    monkeypatch.setenv("O4_AIRPORT_MOD_CACHE_DIR", str(lane))
+    implicit = default_inputs(str(FIX), str(FIX / "CIFP"), dem_frame="authored")
+    assert implicit.mod_cache_root == str(lane)
+    explicit = default_inputs(str(FIX), str(FIX / "CIFP"), str(FIX),
+                              dem_frame="authored")
+    assert explicit.mod_cache_root == str(FIX / "Airport_mod_cache")
+
+    # a pack carrying a REAL tile DSF (the fixture ships none), so the
+    # freshness guard is reached
+    xp = tmp_path / "xp"
+    shutil.copytree(FIX / "Custom Scenery", xp / "Custom Scenery")
+    dsf = (xp / "Custom Scenery" / "CYXY Fixture" / "Earth nav data"
+           / "+60-140" / "+60-136.dsf")
+    dsf.parent.mkdir(parents=True)
+    dsf.write_bytes(b"XPLNEDSF fixture bytes")
+    inputs = _dc.replace(
+        default_inputs(str(xp), str(FIX / "CIFP"), dem_frame="authored"),
+        osm_root=str(FIX / "OSM_data"), elevation_root=str(FIX / "Elevation_data"))
+    assert inputs.mod_cache_root == str(lane)
+    law = Law.for_airport("CYXY")
+    with pytest.raises(RuntimeError) as exc:
+        load_with_report("CYXY", inputs, law)
+    msg = str(exc.value)
+    assert str(lane / "CYXY Fixture") in msg, msg
+    assert str(FIX / "Airport_mod_cache") not in msg, msg
+    assert "+60-136.dsf.<sha256[:8]>.text" in msg, msg
+
+    # seeded lane-local under the engine's own name, the read lands there
+    (lane / "CYXY Fixture").mkdir()
+    dump = lane / "CYXY Fixture" / f"+60-136.dsf.{text_dump_tag(str(dsf))}.text"
+    shutil.copy(FIX / "Airport_mod_cache" / "CYXY Fixture" / "+60-136.dsf.fixture.text",
+                dump)
+    _, rep = load_with_report("CYXY", inputs, law)
+    assert rep.dsf_dump_path == str(dump)
+    assert not rep.dsf_dump_stale
+
+
 # ── wall-clock twins: ``timing``-marked, deselected by default ─────────────
 # (RULINGS 2026-09-12z; CLAUDE.md "Traps still on you": single-run wall
 # times swing +/-25 %, a budget is read on the MEDIAN of N runs)

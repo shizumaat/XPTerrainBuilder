@@ -64,6 +64,7 @@ from .placement_carrier import coarsen, is_elevated   # noqa: F401  (§9 / §13)
 # §2's RECORDS live next door (the 1,000-line law) and are re-exported:
 # every caller and every twin reads them as this module's.
 from . import placement_atom as _atom
+from . import placement_orphan as _orphan
 from .placement_record import Body, Kept, Split, SplitSet
 from .placement_record import Staged as _Staged   # noqa: F401
 # §16e (3): THE BRIDGE FAMILY (the deck's own model footprint), next door
@@ -112,21 +113,12 @@ def authored_offset(anchor_lat: float, anchor_lon: float, y_zero: float,
 # feed live next door (the 1,000-line law); they are re-exported here
 # because every caller and every twin reads them as this module's.
 from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
-                            GROUND_CELL_M, _bodies_of,
+                            GROUND_CELL_M, _atom_targets, _bodies_of,
+                            _carrier_pieces, _footless_targets,
                             _cut_parts_by_terrain, _LineCutter, _part_zero,
                             _plan_span_m, _Raw, _raw_bodies, _rim_of,
                             _geom_ground, authored_latlon, pristine_path,
                             segment_anchor, surface_many, thin_points)
-
-
-def _bridge_of(bridge: _t.Sequence[str], grp: _t.Sequence[int]) -> str:
-    """§16e (3): the BRIDGE a written body belongs to — the key its raw
-    bodies agree on, or ``""`` where they do not (a group the cuts drew
-    across a deck's edge belongs to no one bridge, and the law names
-    only what it can name)."""
-    keys = {bridge[i] for i in grp if i < len(bridge)}
-    keys.discard("")
-    return keys.pop() if len(keys) == 1 else ""
 
 
 def _geom_pts(raw: _t.Sequence[_Raw], grp: _t.Sequence[int]
@@ -137,12 +129,30 @@ def _geom_pts(raw: _t.Sequence[_Raw], grp: _t.Sequence[int]
     return thin_points(tuple(p for i in grp for p in raw[i][6]), GEOM_PTS_MAX)
 
 
+def _geom_hull(grp: _t.Sequence[int],
+               part_boxes: _t.Sequence[_t.Sequence[tuple]],
+               geom_boxes: _t.Sequence = ()) -> "tuple | None":
+    """§16d (1): THE HULL OF WHAT THE FILE WILL CONTAIN.
+
+    A body's ``geom_box`` was the hull of its PART boxes, and a body the
+    cut made carries its part box from its FEET (11f (2)) — so a line
+    segment, a terrain group, a basin arc or a carrier piece published a
+    box drawn round its feet while the writer put its whole triangle set
+    in the file.  ``Staged.geom_boxes`` carries the triangle hull where a
+    cut gave the raw body one; this hulls both."""
+    bs = [b for i in grp for b in part_boxes[i]]
+    bs += [geom_boxes[i] for i in grp
+           if i < len(geom_boxes) and geom_boxes[i]]
+    return _pc.hull_of(bs)
+
+
 def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                   m: Member, u: Unit, counts: dict[str, int],
                   by_class: dict[str, int],
                   part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
                   ground_off: _t.Sequence["float | None"] = (),
-                  bridge: _t.Sequence[str] = ()) -> list[Body]:
+                  bridge: _t.Sequence[str] = (),
+                  geom_boxes: _t.Sequence = ()) -> list[Body]:
     """The groups of one member as :class:`Body` records, each on its
     SENIOR body's anchor (:func:`placement_carrier.senior_of`)."""
     bodies: list[Body] = []
@@ -157,11 +167,15 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
         # §13 (3): an elevated member's vertices are NOT feet — they never
         # stood on the ground, and counting them is what made the 218
         # census green while the sim was broken
-        n_elev = sum(1 for i in grp if raw[i][4])
+        # §16d (1): an ORPHAN component carries no parts — it is not an
+        # elevated MEMBER of the placement, only geometry the file must
+        # contain, and counting it as one inflates every §13 number
+        _mem = [i for i in grp if raw[i][0]]
+        n_elev = sum(1 for i in _mem if raw[i][4])
         if n_elev:
             counts["bodies_elevated_carried"] = \
                 counts.get("bodies_elevated_carried", 0) + n_elev
-        if n_elev == len(grp):
+        if _mem and n_elev == len(_mem):
             counts["elevated_own_files"] = counts.get("elevated_own_files", 0) + 1
         feet = tuple(f for i in grp if not raw[i][4] for f in raw[i][3])
         if a.reason.startswith("low-side foot ("):
@@ -191,8 +205,7 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                            if part_boxes else _pc.box_of(feet, parts),
                            # §16 (2)/(3): the body's OWN geometry, and the
                            # bounded footprint the stands-over relation reads
-                           geom_box=(_pc.hull_of(b for i in grp
-                                                 for b in part_boxes[i])
+                           geom_box=(_geom_hull(grp, part_boxes, geom_boxes)
                                      if part_boxes else _pc.box_of(feet, parts)),
                            foot_boxes=(_pc.foot_boxes(
                                [b for i in grp if not raw[i][4]
@@ -213,7 +226,7 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
                                 for b in part_boxes[i]]
                                or [b for i in grp for b in part_boxes[i]])
                                if part_boxes else 1.0),
-                           bridge_of=_bridge_of(bridge, grp),
+                           bridge_of=_bf.body_bridge(bridge, grp),
                            geom_pts=_geom_pts(raw, grp)))
     return bodies
 
@@ -223,7 +236,8 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                   written: bool, body_id: int, counts: dict[str, int],
                   by_class: dict[str, int],
                   part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
-                  bridge: _t.Sequence[str] = ()) -> Body:
+                  bridge: _t.Sequence[str] = (),
+                  geom_boxes: _t.Sequence = ()) -> Body:
     """§14 (1) / §15 (1): the bodies of ``grp`` as ONE file written at
     their CARRIER's anchor with the carrier's ``y_zero``.
 
@@ -248,8 +262,10 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                     + ("" if written else " [carrier kept whole on its "
                        "authored row]"))
     by_class[cls] = by_class.get(cls, 0) + 1
+    # §16d (1): the orphan components in this file are not carried MEMBERS
+    _mem = [i for i in grp if raw[i][0]] or list(grp)
     counts["bodies_elevated_carried"] = \
-        counts.get("bodies_elevated_carried", 0) + len(grp)
+        counts.get("bodies_elevated_carried", 0) + len(_mem)
     tris = tuple(t for i in grp for t in raw[i][5])
     cut_comps = tuple(sorted({p.comp for i in grp if not raw[i][5]
                               for p in raw[i][0]}))
@@ -258,10 +274,10 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                 tuple(sorted(p.pid for p in parts)), feet=(),
                 merged_into=carrier_res, merged_into_written=written,
                 cut_components=cut_comps, tris=tris, elevated=True,
-                elevated_members=len(grp),
-                plan_box=_pc.hull_of(b for i in grp for b in part_boxes[i])
+                elevated_members=len(_mem),
+                plan_box=_pc.hull_of(b for i in _mem for b in part_boxes[i])
                 if part_boxes else _pc.box_of((), parts),
-                geom_box=(_pc.hull_of(b for i in grp for b in part_boxes[i])
+                geom_box=(_geom_hull(grp, part_boxes, geom_boxes)
                           if part_boxes else _pc.box_of((), parts)),
                 foot_boxes=(_pc.foot_boxes([b for i in grp for b in part_boxes[i]])
                             if part_boxes else ()),
@@ -269,7 +285,7 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                                               for b in part_boxes[i]),
                                   [b for i in grp for b in part_boxes[i]])
                       if part_boxes else 1.0),
-                bridge_of=_bridge_of(bridge, grp),
+                bridge_of=_bf.body_bridge(bridge, grp),
                 geom_pts=_geom_pts(raw, grp))
 
 
@@ -283,7 +299,8 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                      u: Unit, surface: _ar.Surface, body_id: int,
                      counts: dict[str, int], by_class: dict[str, int],
                      part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
-                     bridge: _t.Sequence[str] = ()) -> Body:
+                     bridge: _t.Sequence[str] = (),
+                     geom_boxes: _t.Sequence = ()) -> Body:
     """§16 (3): the body written at the GROUND UNDER ITS OWN FOOTPRINT.
 
     §14 (1) left a footless placement whose unit held no footed body on
@@ -314,14 +331,16 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                 _split.body_resource_name(m.resource, body_id),
                 tuple(sorted(p.pid for p in parts)), feet=(),
                 cut_components=cut_comps, tris=tris, elevated=True,
-                elevated_members=len(grp), plan_box=box, geom_box=box,
+                elevated_members=len(grp), plan_box=box,
+                geom_box=(_geom_hull(grp, part_boxes, geom_boxes)
+                          if part_boxes else box) or box,
                 foot_boxes=(_pc.foot_boxes([b for i in grp for b in part_boxes[i]])
                             if part_boxes else ()),
                 fill=(_pc.fill_of(_pc.hull_of(b for i in grp
                                               for b in part_boxes[i]),
                                   [b for i in grp for b in part_boxes[i]])
                       if part_boxes else 1.0),
-                bridge_of=_bridge_of(bridge, grp),
+                bridge_of=_bf.body_bridge(bridge, grp),
                 geom_pts=_geom_pts(raw, grp))
 
 
@@ -369,7 +388,20 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         return
     counts["split"] += 1
     counts["files"] += len(files) or len(bodies)
+    if files and len(files) < len(bodies):
+        # §16d (1): a body the cut left with NO TRIANGLE has no file, so
+        # it has no DSF row either — a row on a name nothing wrote is an
+        # OBJECT_DEF X-Plane cannot resolve.  Counted and dropped, never
+        # silently carried (its geometry is inside an ANIM block another
+        # body of the same placement owns).
+        live = {f.body_id for f in files}
+        counts["bodies_without_a_file"] = \
+            counts.get("bodies_without_a_file", 0) + len(bodies) - len(files)
+        record = _dc.replace(record,
+                             bodies=tuple(b for b in bodies
+                                          if b.body_id in live))
     splits.append(_dc.replace(record, files=files))
+
 
 
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
@@ -541,39 +573,25 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # resting on this one rests ON, read where it overlaps
             _tops = cutter.part_tops(raw)
             part_tops = [list(v) for v in _tops]
+            # §16d (1): the plan hull of a cut body's OWN TRIANGLES — the
+            # box that says what the FILE will contain, beside the feet
+            # box that says what it stands on
+            geom_boxes = [(cutter.plan_box_of_tris(r[5]) if r[5] else None)
+                          for r in raw]
             staged.append(_Staged(mi, m, list(raw), boxes, part_boxes, elevated,
                                   bool(raw) and len(elevated) == len(raw),
                                   cutter=cutter, surface=surface,
                                   part_tops=part_tops,
+                                  geom_boxes=geom_boxes,
                                   terrain_cut=(counts.get("bodies_re_cut_by_terrain", 0)
                                                + counts.get("bodies_re_cut_by_triangle", 0)
                                                ) > _cut0))
             if staged[-1].footless:
                 counts["footless"] += 1
 
-        # ── §16e (3): WHICH BRIDGE IS EACH BODY ON? ──────────────────
-        # A body BELONGS to the deck whose MODEL FOOTPRINT POLYGON
-        # contains its plan centroid (or comes within 0.5 m); two
-        # containing decks are broken by the underside nearest the body's
-        # top.  A body no footprint contains has NO family and is never
-        # filtered — §16e (3), read once here and published per body.
-        if prints:
-            for st in staged:
-                st.bridge = [""] * len(st.raw)
-                for bi in range(len(st.raw)):
-                    bx = _pc.hull_of(st.part_boxes[bi])
-                    if bx is None:
-                        continue
-                    tp = (max(st.part_tops[bi])
-                          if bi < len(st.part_tops) and st.part_tops[bi]
-                          else None)
-                    hit = _bf.bridge_of_point(
-                        prints, 0.5 * (bx[0] + bx[2]), 0.5 * (bx[1] + bx[3]),
-                        tp, _bf.CONTACT_M)
-                    if hit is not None:
-                        st.bridge[bi] = hit.key
-                        counts["bridge_bodies"] = \
-                            counts.get("bridge_bodies", 0) + 1
+        # §16e (3), read once per unit and published per body — the
+        # rule and its whole reading live in ``bridge_family``.
+        _bf.assign_bodies(prints, staged, counts)
 
         # ── PASS 2: the footed members' ground groups = the candidates ─
         cands: list[_pc.Candidate] = []
@@ -655,6 +673,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                             else None)),
                     part_tops=_ft))
 
+        # ── §16d (1): EVERY WRITTEN TRIANGLE BELONGS TO A BODY ───────
+        # (owner RULINGS 2026-09-13h).  The candidates are made, so the
+        # PART HULLS the reach is measured against exist; a component
+        # within ``coarsen_reach_m`` of one joins that body's group and
+        # asks nothing, and a component beyond every one of them becomes
+        # a FOOTLESS BODY of this member — placed by §15's carrier search
+        # below like any other, and on its own ground where the search
+        # accepts nothing (§16 (3)).
+        for st in staged:
+            _orphan.place_orphans(st, coarsen_reach_m, surface, counts)
+
         # ── §16c (7): THE UNIT BINDS BY CONTACT ──────────────────────
         # The bodies of the unit the plan's own ε-contact graph links —
         # and every elevated body of a member with the footed body of
@@ -713,12 +742,37 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 st.own_ground.extend([i] for i in sorted(floor)
                                      if st.footless or i in st.elevated)
             rides: dict[tuple[int, int], tuple[list[int], str]] = {}
+            _gz_memo: dict = {}
+            # §16d (4) (owner RULINGS 2026-09-13m): A CARRIED BODY'S
+            # COMPONENTS GROUP BY CARRIER.  Each ATOM of a carried body
+            # asks its own carrier question — a roof resource of twelve
+            # plates over twelve buildings is twelve pieces, not one body
+            # at one zero.  The division happens BEFORE the search, so
+            # §16a (1)'s cut and §16b (3)'s ground test read the piece
+            # that actually stands there.
+            _atoms = []
             for grp, gboxes in targets:
+                for sub in _atom_targets(st, grp, coarsen_reach_m):
+                    if sub is grp:
+                        _atoms.append((grp, gboxes, grp))
+                    else:
+                        # the SOURCE group is kept beside the piece: §16c
+                        # (7)'s cluster membership is keyed by raw index,
+                        # and a piece the atom cut made has none of its
+                        # own — dropping it put the owner's footbridge
+                        # back on its own ground instead of on the
+                        # terminal it is bound to.
+                        _atoms.append((sub, [b for i in sub
+                                             for b in st.part_boxes[i]], grp))
+                        counts["carried_bodies_cut_by_atom"] = \
+                            counts.get("carried_bodies_cut_by_atom", 0) + 1
+            targets = _atoms
+            for grp, gboxes, src in targets:
                 bx = _pc.hull_of(gboxes)
                 _pids = frozenset(p.pid for i in grp for p in st.raw[i][0])
                 # §16c (7): IS THIS BODY PART OF A RIGID CLUSTER?  Then
                 # its zero is the cluster's and no search is asked.
-                _f = sorted({forced[(st.mi, i)] for i in grp
+                _f = sorted({forced[(st.mi, i)] for i in src
                              if (st.mi, i) in forced})
                 if _f:
                     counts["bodies_bound_to_cluster_by_contact"] = \
@@ -741,7 +795,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                                cands)),
                         base_y=min((q[2] for i in grp for q in st.raw[i][6]),
                                    default=None),
-                        solid_cands=_solid, index=_index)
+                        # §16d (2): the NEAREST-footed fallback is capped
+                        solid_cands=_solid, index=_index,
+                        reach_m=coarsen_reach_m)
                 if not over:
                     # §16 (3): no carrier the law will accept — the body
                     # anchors on the ground under its OWN footprint with
@@ -777,7 +833,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     same = _pc.group_at_zero(
                         st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
                         next((st.raw[i][7] for i in bi
-                              if st.raw[i][7] is not None), None))
+                              if st.raw[i][7] is not None), None),
+                        memo=_gz_memo)
                     if same >= 0:
                         counts["elevated_ride_own_file_same_zero"] = \
                             counts.get("elevated_ride_own_file_same_zero", 0) + 1
@@ -807,7 +864,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 counts["footless_no_carrier"] += 1
                 body = _own_ground_file(st.raw, list(range(len(st.raw))), m, u,
                                         surface, 0, counts, by_class,
-                                        st.part_boxes, st.bridge)
+                                        st.part_boxes, st.bridge,
+                                        st.geom_boxes)
                 counts["bodies"] += 1
                 record = Split(_index_of(m.id), m.id, m.resource,
                                m.authored_path, u.anchor[0], u.anchor[1],
@@ -820,17 +878,20 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             bodies = ([] if st.footless
                       else _group_bodies(st.raw, st.groups, m, u, counts,
                                          by_class, st.part_boxes,
-                                         st.ground_off, st.bridge))
+                                         st.ground_off, st.bridge,
+                                         st.geom_boxes))
             for grp in st.own_ground:
                 bodies.append(_own_ground_file(st.raw, grp, m, u, surface,
                                                len(bodies), counts, by_class,
-                                               st.part_boxes, st.bridge))
+                                               st.part_boxes, st.bridge,
+                                               st.geom_boxes))
             for grp, c, why in st.carried:
                 cw = written_of.get(c.member, True)
                 bodies.append(_carried_file(
                     st.raw, grp, m, u, c, why,
                     c.resource if cw else by_mi[c.member].m.resource, cw,
-                    len(bodies), counts, by_class, st.part_boxes, st.bridge))
+                    len(bodies), counts, by_class, st.part_boxes, st.bridge,
+                    st.geom_boxes))
             counts["bodies"] += len(bodies)
             record = Split(_index_of(m.id), m.id, m.resource, m.authored_path,
                            u.anchor[0], u.anchor[1], m.heading_deg, tuple(bodies))

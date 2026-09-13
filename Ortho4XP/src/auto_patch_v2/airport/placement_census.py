@@ -30,6 +30,7 @@ __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
            "LAWFUL_SKIPS", "CARRIED_GROUND_TOL_M", "GEOM_GROUND_TOL_M",
            "CARRIED_OWN_GROUND_TOL_M", "census_torn_seams",
            "census_torn_seams_lines", "SEAM_STEP_TOL_M",
+           "census_outside_box", "census_outside_box_lines", "OUTSIDE_TOL_M",
            "census_motion", "census_motion_lines", "feet_in_band",
            "ground_contact_feet",
            "foot_float",
@@ -892,10 +893,12 @@ def census_v16_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
     return out
 
 
-# §16c (5) lives in ``placement_seams`` (the 1,000-line law); both tools
-# read it through this module, which is the census front door.
-from .placement_seams import (SEAM_STEP_TOL_M, census_torn_seams,  # noqa: E402,F401
-                              census_torn_seams_lines)
+# §16c (5) and §16d (1) — the two censuses that open the WRITTEN files —
+# live in ``placement_seams`` (the 1,000-line law); both tools read them
+# through this module, which is the census front door.
+from .placement_seams import (OUTSIDE_TOL_M, SEAM_STEP_TOL_M,  # noqa: E402,F401
+                              census_outside_box, census_outside_box_lines,
+                              census_torn_seams, census_torn_seams_lines)
 
 
 # §17's MOTION reading (owner RULINGS 2026-09-12am (2)) lives in

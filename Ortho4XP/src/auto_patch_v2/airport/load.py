@@ -289,6 +289,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         raise RuntimeError(
             f"{icao}: the pack DSF {pack_dsf} is newer than every cached text "
             f"dump under {_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name)} "
+            f"(no fresh {os.path.basename(pack_dsf)}.<sha256[:8]>.text there — "
+            "the dump is named for THIS file, RULINGS 2026-09-11m) "
             "— the pack's objects would be read from a stale dump (OTHH's tunnel "
             "walls, 2026-09-04). Refresh it explicitly: build_airport.py "
             "--refresh-data airport_mod_cache (the app's driver refreshes it "

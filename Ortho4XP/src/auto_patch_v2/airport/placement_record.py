@@ -221,9 +221,17 @@ class Staged:
     #: terrain group, so the answer "nobody" is given per group too.
     own_ground: list[list[int]] = _dc.field(default_factory=list)
     #: §16e (3): one BRIDGE key per raw body — the deck whose model
-    #: footprint contains it, or ``""``.  Read by the rigid-cluster bind
-    #: and by the carrier search's family filter, and published on the
-    #: body as ``Body.bridge_of``.
+    #: footprint contains it, or ``""``.  §16e (3) is WITHDRAWN (RULINGS
+    #: 2026-09-13ae): nothing BINDS or FILTERS on it, and it is carried
+    #: here only so the body can PUBLISH it (``Body.bridge_of``) and the
+    #: census read it.
     bridge: list[str] = _dc.field(default_factory=list)
+    #: §16d (1): one per ``raw`` entry — the PLAN HULL OF ITS OWN
+    #: TRIANGLES where a cut gave it any, else ``None``.  A raw body the
+    #: cut made carries its ``box`` from its FEET (11f (2): a segment
+    #: covers its own station span), which is the right plan footprint
+    #: and the wrong GEOM box: the writer puts the TRIANGLES in the file,
+    #: so ``geom_box`` is hulled over these as well as the part boxes.
+    geom_boxes: list[tuple | None] = _dc.field(default_factory=list)
 
 

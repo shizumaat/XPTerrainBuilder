@@ -5505,74 +5505,143 @@ unmeasured:
 
 #### LEMD — the closing build
 
-ONE `--engine v2 --patch-only` build, tag `v2roadcapLEMD`, **399.96 s**
-engine / 417.2 s wall, rc 0, artifact ledger **`648c9198fba3`**, shared
-repo UNCHANGED, corpus `e512b4ea8cca`.
+ONE `--engine v2 --patch-only` build per arm, one tree, one corpus
+(`e512b4ea8cca`), both at base `ec8723e9`, both rc 0, shared repo
+UNCHANGED:
 
-* **§37 (2) — LEMD's flips STAND.**  `tools/role_edge_census.py` on the
-  emitted patch: 124 groundside shapes, 28 sharing ≥ 10 m with airside
-  pavement, **0 substantive (all 28 slivers, 789 m²), 0 LOT-class** —
-  byte-for-byte the shape of §27 round 2's own bar.  No apron-side lane
-  came back: a lane that runs 828 m ALONGSIDE its apron is a share, not a
-  graze.
-* **§37 (3) — the bank.**  5,163 design-boundary vertices → **846 foot
-  nodes** in 106 chains, **104 of them open**; **489 of 2,596** region
-  stations load-bearing (2,107 under the 1.65 m floor, not emitted), 11
-  rings carry no bank at all, 149 split stations, **chords over 30 m: 0**
-  (longest emitted chord **30.0 m**), 11,245 m of foot.  Bank slope p95
-  **0.576** / max 1.260 against the law's 0.33 — steeper than 1:3 at the
-  stations that remain, which is the pre-existing `slope-to-nearest-design-
-  vertex` statistic now read over load-bearing stations ONLY (the
-  minimum-width feet that used to hold the p95 down are exactly the ones
-  §37 (3) removes).  Reported, not fixed: it is the §9.5 residual, not a
-  §37 mechanism.
-* `service_road` off the DEM: 71 of 128 vertices over 0.5 m, max 6.93 m.
+* BASE — tag `v2roadcapLEMDbase`, 523.6 s engine, artifact ledger
+  **`11c63567bce3`**;
+* §37 — tag `v2roadcapLEMD2`, 510.5 s engine, artifact ledger
+  **`648c9198fba3`** (the first §37 arm, `v2roadcapLEMD`, 400.0 s, is the
+  same patch outside the bank: it carried the padded-run overlap the
+  twin now forbids).
+
+**§37 (2) — LEMD's flips STAND, PROVEN BY IDENTITY.**  The two arms'
+patches carry **1,075 role-carrying faces with byte-identical roles: 0
+changed**.  `tools/role_edge_census.py` reads the same figure on both:
+124 groundside shapes, 28 sharing ≥ 10 m with airside pavement, **0
+substantive (all 28 slivers, 789 m²), 0 LOT-class**.  A lane that runs
+828 m ALONGSIDE its apron is a share, not a graze; none came back.
+
+**§37 (3) — the bank.**
+
+| | BASE | §37 |
+|---|---|---|
+| foot nodes | **2,594** in 48 closed rings | **836** in 78 chains, 76 open |
+| foot length | 60,986 m | **11,544 m** |
+| chords over 30 m | **820** (max 131.7 m) | **0** (max 30.0 m) |
+| duplicate foot coordinates | **5** (pre-existing) | **0** |
+| load-bearing stations | — | **489 of 2,596** (2,107 under the 1.65 m floor; 11 rings carry no bank at all); 153 split stations |
+| bank slope p95 / max |  0.433 / 1.255 | **0.580** / 1.260 |
+
+The slope p95 rises because it is the pre-existing `slope to the nearest
+DESIGN vertex` statistic now read over LOAD-BEARING stations only — the
+minimum-width feet that held it down are exactly the ones §37 (3)
+removes.  It is the §9.5 residual, reported and not fixed.
+
+**§37 (1) — THE CENSUS MOVED THE WRONG WAY AT LEMD, AND THE LANE DOES NOT
+PAPER OVER IT.**
+
+| harness census | BASE | §37 |
+|---|---|---|
+| LAW-TRUE | 3,573 (within 3,570 / cross 3 / steps 0) | 3,798 (3,795 / 3 / 0) |
+| **ADJUDICATED** | **1,143** — airside 1,127 / gs 15 / mixed 1 | **1,379** — airside **1,345** / gs 33 / mixed 1 |
+| `within_shape` | 2,792 | 2,821 |
+| `taxi_box` | 204 | **326** |
+| `airside_no_step` | 419 | **481** |
+| `road_cross_section` | 0 | 2 |
+| `strip_transverse` / `strip_longitudinal` | 43 / 15 | 49 / 20 |
+
+**+236 adjudicated, +218 of it airside — and the roads are groundside.**
+Attribution, in the order the rulings require:
+
+1. **It is not §37 (2)**: the classification is byte-identical (above).
+2. **It is not §37 (3)**: the bank is built AFTER the solve and is
+   census-skipped; the pre-fix and post-fix §37 arms — which differ ONLY
+   in the bank — census **identically** (3,798 / 1,379, family for
+   family).  The same holds at CYXY (1,049 / 345 in both).
+3. **§37 (1) is a STRICT RELAXATION of the road family, proven by
+   construction.**  The transverse cap is arithmetically unchanged —
+   `min(rc.transverse, cap_l)` with `cap_l = min(long, law_cap)` equals
+   `min(rc.transverse, long, law_cap)` — and the longitudinal cap only
+   ever rises (0.015 → 0.080 on a contiguous road).  The generator row
+   COUNTS are identical in both arms, line for line, all 62 of them.  So
+   no row was tightened and none was added.
+4. **What is left is the LP landing on a different optimum of an
+   UNSETTLED system.**  Both arms report `HARD SET NOT SETTLED` (2 and
+   25 of 126,696 rows violated) and `LAG NOT SETTLED`; the assembled
+   design system moves 64,902 → 66,830 rows (the one-sided split, not
+   the generators); and the same mechanism at CYXY moves the census the
+   OTHER WAY, −61 adjudicated / −75 airside.  Non-monotone across two
+   airports from one strictly-relaxing change is the signature RULINGS
+   2026-09-12i named for §27's tunnel ramp: an LP re-solve of a free
+   interior, not a mechanism.  **The census is not the objective.**
+5. **What this lane did NOT do**: it did not tune the objective, gate the
+   change, or iterate a third time.  The regression is REPORTED with its
+   site numbers for the owner's adjudication.  Nothing here says the
+   +218 rows are lawful — only that they are not a groundside pull the
+   code can be shown to make.
 
 #### CYXY — the control, both arms at `ec8723e9`, one tree, one corpus
 
-| | BASE (`163c4e7f50dc`) | §37 (`ca3838bfca39`) |
+| | BASE (`163c4e7f50dc`) | §37 (`cc9c86490555`) |
 |---|---|---|
 | harness census LAW-TRUE | 1,047 | 1,049 |
 | harness census **ADJUDICATED** | **406** (airside 381 / gs 25) | **345** (airside **306** / gs 39) |
-| `within_shape` (law-true) | 915 | 968 — the whole rise is `withdrawn_law_05aa` taxi chords, 625 → 688, never adjudicated |
+| `within_shape` | 915 | 968 — the whole rise is `withdrawn_law_05aa` taxi chords, 625 → 688, never adjudicated |
 | `road_cross_section` | 12 | 17 |
 | `taxi_box` | 34 | **17** |
 | `airside_no_step` | 74 | **40** |
-| `plane_gradient` | 1 | **0** |
+| `plane_gradient` | 1 | **0** — §37 (1)'s L2: the isotropic plane row is no longer bound to a contiguous class |
 | `transverse` | 9 | 5 |
-| bank foot nodes | **649** in 20 closed rings | **156** in 22 chains, all open |
-| bank foot length | 14,835 m | **2,353 m** |
+| bank foot nodes | **649** in 20 closed rings | **153** in 19 chains, all open |
+| bank foot length | 14,835 m | **2,346 m** |
 | bank chords over 30 m | **218** (max 82.3 m) | **0** (max 29.8 m) |
 | bank load-bearing stations | — | **79 of 648** |
+| duplicate foot coordinates | 0 | 0 |
 | groundside shapes ≥ 10 m airside edge, substantive | 3 (10,295 m²) | 4 (11,546 m²) — one road came back, exactly §37 (2) |
 | `service_road` off-DEM > 0.5 m | 83 / 292 (max 2.99 m) | 93 / 314 (max 3.14 m) |
-| v2 verify rows | 312 | 316 |
 
-**−61 adjudicated rows at CYXY, −75 of them airside.**  The airside gain
-is `airside_no_step` (74 → 40) and `taxi_box` (34 → 17): a road that no
-longer drags its 1.5 % cap along its whole length stops pulling the
-pavement it fronts.  Groundside rises 25 → 39, which is the road taking
-its own 8 % and being read at it.
+**−61 adjudicated at CYXY, −75 of them airside**, the gain in
+`airside_no_step` (74 → 40) and `taxi_box` (34 → 17).
 
 **CYXY's ring does NOT vanish.**  §37 (3) predicted 649 → 0 from the
 scout's headline ("max 2.4 m").  Read with the emitter's OWN inner-end
-rule — the nearest point of the coverage with its z interpolated ALONG the
-boundary edge, which is `emit/bank.py::_inner`, not the nearest design
-VERTEX — CYXY carries 115 stations over 1.65 m and 27 over 5 m.  The
-measured answer to the owner's question "do we need it at all" is
-therefore: **yes, but only for a sixth of it** — 79 load-bearing stations,
-2,353 m of foot instead of 14,835 m, and 84 % of the ring gone.
+rule — the nearest point of the coverage with its z interpolated ALONG
+the boundary edge, which is `emit/bank.py::_inner`, not the nearest
+design VERTEX — CYXY carries 115 stations over 1.65 m and 27 over 5 m.
+The measured answer to the owner's question "do we need it at all" is
+therefore: **yes, but only for a sixth of it** — 79 load-bearing
+stations, 2,346 m of foot instead of 14,835 m, 84 % of the ring gone.
+At LEMD the same reading leaves 489 of 2,596 and 81 % of the foot gone;
+the KCLT products read 526 of 1,855 (28.4 %).
+
+#### A DEFECT §37 (3) INTRODUCED AND THE TWIN NOW FORBIDS
+
+Padding each load-bearing run separately makes two runs one station
+apart OVERLAP, and two chains over the same ground re-emit the same edge
+on two sets of nodes — the duplicate constrained segments RULINGS
+2026-09-09t measured Triangle's recovery spinning on.  Measured on the
+first arms: **3 duplicate foot coordinates at CYXY, 14 at LEMD**.  The
+padding is now part of the MEMBERSHIP (`keep[i] = flags[i-1] or flags[i]
+or flags[i+1]`, then maximal cyclic runs of `keep`), twinned, and both
+arms read 0 — the LEMD base's own 5 duplicates are gone with them.
 
 #### Build-time impact statement
 
-Bank pass CYXY 0.14 s → 0.15 s, LEMD 0.54 s (it now reads `_inner` for
-every region station instead of only for emitted ones, and re-reads it for
-the kept ones).  §37 (1) removes a `min`; §37 (2) adds one comparison per
-candidate.  Whole-build wall is a re-solve of a changed system on a machine
-running four lanes, so no A/B is quoted (standing law: never one run per
-side).  Nothing here is within 1 % of either budget.
+Bank pass: CYXY 0.14 s both arms, LEMD 0.54 → 0.51 s.  §37 (1) removes a
+`min`; §37 (2) adds one comparison per candidate; §37 (3) reads `_inner`
+for every region station instead of only for emitted ones and re-reads it
+for the kept ones, which the bank pass absorbs.  Whole-build wall is a
+re-solve of a changed system on a machine running four lanes
+concurrently, so no A/B is quoted (standing law: never one run per side).
+Nothing here is within 1 % of either budget.
 
 #### What this lane did NOT do
 
-KCLT (blocked, above); the five-airport sweep (orchestrator); any
-`--refresh-data`; any merge.
+KCLT (blocked — the pristine-DSF dump, above); the five-airport sweep
+(the orchestrator's, once per merged batch); any `--refresh-data`; any
+new tool (nothing here needed one — the bank's own census is
+`BankReport.line()`, the share census is `tools/role_edge_census.py`,
+the defect counts are `tools/harness/census.py`), so no `tools/INDEX.md`
+row; any merge.

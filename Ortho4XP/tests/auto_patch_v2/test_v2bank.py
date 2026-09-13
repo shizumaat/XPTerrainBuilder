@@ -150,6 +150,16 @@ def test_material_runs_pads_each_run_and_keeps_a_whole_ring_closed():
     assert material_runs([False, True, True, False, False]) == [[0, 1, 2, 3]]
     # the run that WRAPS the ring's seam is one run, not two
     assert material_runs([True, False, False, False, True]) == [[3, 4, 0, 1]]
+    # TWO runs one station apart are ONE chain: padding them separately
+    # would emit the same ground twice on two sets of nodes (duplicate
+    # constrained segments — 09t's Triangle hazard, measured as 3
+    # duplicate foot coordinates at CYXY and 14 at LEMD before the fix)
+    assert material_runs([True, False, True]) == [[0, 1, 2]]
+    assert material_runs([True, False, True, False, False, False, False]) \
+        == [[6, 0, 1, 2, 3]]
+    # ... and no chain is ever shorter than the 3 nodes the adapter emits
+    assert all(len(r) >= 3 for r in material_runs(
+        [True, False, False, False, False, True, False, False]))
 
 
 def test_a_long_foot_chord_is_split_at_the_law_and_lands_on_the_dem(law):  # noqa: F811

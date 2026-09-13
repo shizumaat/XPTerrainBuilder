@@ -576,17 +576,24 @@ def material_runs(flags: list[bool]) -> list[list[int]]:
     n = len(flags)
     if n == 0 or not any(flags):
         return []
-    if all(flags):
+    # the PADDING IS PART OF THE MEMBERSHIP, not a per-run afterthought:
+    # padding each run separately makes two runs one station apart OVERLAP,
+    # and two chains over the same ground re-emit the same edge on two sets
+    # of nodes — duplicate constrained segments, which is exactly what 09t
+    # measured Triangle's segment recovery spinning on (measured before the
+    # fix: 3 duplicate foot coordinates at CYXY, 14 at LEMD).
+    keep = [flags[i] or flags[(i - 1) % n] or flags[(i + 1) % n]
+            for i in range(n)]
+    if all(keep):
         return [list(range(n))]
-    starts = [i for i in range(n) if flags[i] and not flags[(i - 1) % n]]
+    starts = [i for i in range(n) if keep[i] and not keep[(i - 1) % n]]
     runs: list[list[int]] = []
     for s0 in starts:
-        idx = [(s0 - 1) % n]
+        idx: list[int] = []
         i = s0
-        while flags[i % n] and len(idx) <= n:
+        while keep[i % n] and len(idx) < n:
             idx.append(i % n)
             i += 1
-        idx.append(i % n)
         runs.append(idx)
     return runs
 

@@ -165,6 +165,11 @@ def census(surface: GradedSurface, law: Law,
            law_caps: _t.Mapping[int, float] | None = None
            ) -> dict[str, list[Row]]:
     """Rows per family over the emitted product; rows on relaxed vertices
-    carry :data:`RELAXED_KEY` (:func:`mark_relaxed`)."""
+    carry :data:`RELAXED_KEY` (:func:`mark_relaxed`).
+
+    ``law_caps`` is ``constraints.roads.road_law_caps`` — since §37 (1)
+    (RULINGS 2026-09-13q item 5) the TRANSVERSE binding of lateral
+    contiguity, read through ``Patch.cap_t``; a road's longitudinal cap is
+    its role's own."""
     p = Patch.of(surface, law, publication, law_caps)
     return mark_yielded(p, mark_relaxed(p, census_patch(p)))

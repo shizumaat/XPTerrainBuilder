@@ -6475,3 +6475,137 @@ BARS: LEMD on a fresh main capture `HARD SET SETTLED` and `LAG SETTLED`
 rows / 0.4144 m, lag 0.332 m) SETTLED or the failure named; solve wall not
 worse than +10 % (`--runs 3`); runway and zone projections unchanged on pure
 columns; suite twice; ONE LEMD build.
+
+**MEASURED (lane `v2settle`, branch `claude/v2settle` off `6fe94558`).** ONE
+fresh LEMD capture on merged main (`v2_solve_replay.py --capture LEMD`,
+199 s, 23,191 vertices / 1,149 faces), four arms replayed off it, each law
+measured ALONE and then combined. Every run `[guard] shared repo UNCHANGED`;
+lane-local `O4_AIRPORT_MOD_CACHE_DIR` / `O4_DSF_CACHE_DIR`.
+
+**THE CAPTURE REFUSED TO BE MADE FIRST — a main regression, fixed here.**
+The first capture read `pack partition 95 s bodies 14,256 groups 0 relief 0
+infeasible 0` against the scout's `groups 9,820 relief 5,036 infeasible
+3,163`: the WHOLE PAD GROUP LAW was off at LEMD on merged main, silently,
+exit 0. `airport/pack_partition._member_of` builds every pack member with a
+POSITIONAL tail, and `5fc707eb` (§16e (2)) inserted `deck_end_stations` into
+`model.rebake.Member` ahead of it, sliding `plate_y` onto the `()` meant for
+`plate_stations`. `plate_y is not None` is `planar.group._eligible`'s FIRST
+test, so all 14,256 bodies were refused — no groups, no relief bodies, no
+pad rows to settle. It is the SECOND time an inserted field has shifted that
+call (2026-09-11t's `plate_clearance_m`, whose warning comment sat two lines
+above). Fixed by naming every field; `tests/auto_patch_v2/test_v2settle.py`
+now asserts on the AST that the call passes no positional argument. Nothing
+below could be measured until this landed, and it is not this spec's law:
+it wants its own ruling.
+
+| arm | hard rows violated / 127,380 | worst | lag | solve wall |
+|---|---|---|---|---|
+| A base (main + the fix) | 4 | **0.0985 m** | NOT SETTLED, 0.399 m in 3 rounds | 62.1 s |
+| B §32 (4) purity ALONE | **3** | **0.0299 m** | NOT SETTLED, 0.399 m in 3 | 68.0 s |
+| C §20a ceiling 20 ALONE | 25 | 0.1225 m | NOT SETTLED, 0.289 m in 20 | 118.2 s |
+| D purity + ceiling 20 | 23 | 0.0324 m | NOT SETTLED, 0.289 m in 20 | 124.6 s |
+
+**§32 (4) PURITY — LANDED.** Arm B against arm A: the worst hard row
+0.0985 → 0.0299 m and the violated set 4 → 3, for exactly ONE column of
+4,850 refused (`hard_columns 1`). The corridor's own reading is unchanged to
+the digit — worst zone miss `8.1029 → 1.756762 m (owned 0.000000)` on BOTH
+arms, 3,322 → 3,321 columns moved — so purity buys the hard set 0.069 m and
+costs the zone law nothing. The row that goes is main's worst, the pad-slope
+ceiling between the two rim vertices at 40.48527108321,−3.59323243501 /
+40.48527109147,−3.59320294912 that the clamp had moved independently. This
+matches the scout's `--design-weight zone_projection=0` control (3 rows /
+0.0271 m) while keeping the projection ON, which the control could not.
+
+**§20a — HALF LANDED, HALF REFUTED.** The NAMED FAILURE is landed
+(`design_report.read_lag_failure` / `lag_failure_line`): the cap's hit now
+reports which rows still move, the worst row's generator and ruling, its
+LEADER vertex with the canonical lat/lon and that leader's last move, into
+the design line and the sidecar — `LAG NOT SETTLED after 20 of 20 round(s):
+1,132 of 13,932 one-way rows still move more than 0.01 m; worst 0.2890 m on
+row … (pads: structures.building_pad frontage_level …), leader v… at …`.
+THE ≥ 20 SAFETY CEILING IS REFUTED, in both combinations: the
+leader/follower iteration does not contract at LEMD. Twenty rounds buy
+0.110 m of leader motion (0.399 → 0.289 m, tol 0.01), take the violated hard
+set from 4 to 25 rows (worst 0.0985 → 0.1225 m; with purity, 3 → 23 and
+0.0299 → 0.0324) and cost +90 % of the solve against a +10 % bar. So
+`one_way_max_rounds` stays 3 with the measurement recorded in
+`law/emit.toml`, and `tests/auto_patch_v2/test_v2lag.py` pins the
+refutation. THIS IS A DEVIATION FROM THE SPEC TEXT and is reported for the
+Fable author's ruling, not decided in the lane.
+
+**§30 (3) THE PAD PLANE — NOT BUILT, and it could not have reached the
+bar.** Its condition is met (`pads` is still unsettled after (4)) but the
+residual is under the convergence guard's materiality floor and the co-equal
+residual is outside the pad plane's reach. What arm B leaves is three rows:
+`pavement_ceiling` 0.0299 m at 40.45850655257,−3.56962843176 (apron|apron),
+`pads` 0.0298 m at 40.49433943943,−3.59364375649 (building|building), and
+`pavement_ceiling` 0.0200 m at the runway projection's own held bar. Over
+`hard_tol_m` 0.02 that is 0.0099 / 0.0098 / 0.0000 m — the pad row is 0.0098
+m over, BELOW the 0.01 m elevation materiality floor, and the pavement
+ceiling beside it is the same size and is not a pad ceiling, so a per-body
+pad QP would leave `HARD SET SETTLED` unreached anyway. Building a third
+projection to move one row by 1 cm, when an equal row it cannot touch stays,
+is the kind of mechanism the build economy refuses. Reported, not built.
+
+**THE BARS.**
+
+* `HARD SET SETTLED` at LEMD: **NOT MET** — 3 rows, worst 0.0299 m (from 4 /
+  0.0985). The residual over the bar is 0.0099 m, under the materiality
+  floor: PASS-with-residual, quoted for the owner's sign-off.
+* `LAG SETTLED`: **NOT MET and refuted as reachable by the ceiling** — the
+  failure is now NAMED instead of silent, which is the half that landed.
+* v8276/v8273 (40.48527108321,−3.59323243501): **MET** — 0.0985 m → off the
+  violated set entirely (≤ 0.02 m).
+* v9295/v9696 (40.49615941816,−3.59037117965 / 40.49424548294,
+  −3.59145556585): **MET on arm B** — neither carries a violated row after
+  purity (both DO carry one on the refuted ceiling arms C/D, 0.0324 m).
+* KCLT's three counters: **NOT MEASURED.** The capture refuses at load —
+  the pack DSF `.anchor_bak` is newer than every cached text dump, and the
+  only lawful cure is `build_airport.py --refresh-data airport_mod_cache`,
+  which this lane's brief forbids. Same refusal `59a67dac` recorded.
+* Solve wall +10 %: **MET.** The added work is one pass over the hard set
+  inside the projection, and the projection's OWN instrumented wall reads it
+  directly: 0.05 / 0.06 / 0.08 s base → 0.07 / 0.08 / 0.09 s with purity,
+  +0.02 s on a ~60 s solve = **+0.03 %**. The whole-replay wall cannot
+  resolve that: three runs a side, exclusive and foreground, read base 59.8
+  / 63.0 / 82.0 s and purity 57.3 / 78.5 / 72.9 s — a ±37 % spread on
+  IDENTICAL code (min 59.8 vs 57.3, median 63.0 vs 72.9).
+* Runway and zone projections unchanged on pure columns: **MET.** Zone
+  columns clamped 4,850 → 4,849 (the one refused column), moved 3,322 →
+  3,321, worst zone miss and `owned` identical to six digits. The runway
+  projection line is unchanged (24,642 hard rows, 2,827 free columns,
+  0.0493 → 0.020000 m, 0.035 m max move) — purity does not touch it.
+* Instrument: `v2_solve_replay.py --why-hard [N]` promoted with its
+  `tools/INDEX.md` row and twins in `tests/auto_patch_v2/test_v2padceiling.py`.
+
+**THE CLOSING BUILD** — `build_airport.py LEMD --engine v2 --tag v2settle`,
+578.6 s, rc 0, `body_sha ccc706451007`, ledger `9b08303ac583`, `shared repo
+UNCHANGED by this build (full-surface before/after snapshot)`, v2-verify
+1,441 rows. The design report's three lines, verbatim:
+
+    4/127380 hard rows violated (max violation 0.0299 m in 2 polish
+    round(s), HARD SET NOT SETTLED)
+
+    13932 one-way rows in 3 lag round(s) (worst leader move 0.399 m, LAG NOT
+    SETTLED after 3 of 3 round(s): 2980 of 13932 one-way rows still move more
+    than 0.01 m; worst 0.3988 m on row 910478 (rim_level:
+    structures.structure_rim frontage_level (service_road; owner 2026-09-10an:
+    the rim is flush with the pavement it sits in), leader v19987 at
+    40.48346832042,-3.58072988310, v19988 at 40.48346831636,-3.58075347118,
+    v19986 at 40.48343689447,-3.58018145109, v20001 at
+    40.48349993554,-3.58016377812)
+
+    zone projection (12ag): 10418 corridor rows over 4850 ground vertices,
+    4849 columns clamped (0 impure, 1 carrying a foreign hard row, 0 fixed
+    vertices, 3321 moved, 47 empty bands), worst zone miss 8.1029 ->
+    1.756762 m (owned 0.000000), max move 8.103 m, 0.23 s (optimal)
+
+The build's worst hard row is the replay's, to the digit: 0.0299 m, down
+from main's 0.0985. The named lag failure earns its first keep immediately —
+LEMD's worst leader is NOT a pad frontage row at all but a
+`structures.structure_rim frontage_level` on a SERVICE ROAD at
+40.48346832042,−3.58072988310, which `LAG NOT SETTLED` alone could never
+have said. (The report counts 4 violated rows where `--why-hard` counts 3:
+the third is the runway projection's row sitting EXACTLY on `hard_tol_m`
+0.020000, and the two readers round it opposite ways. Cosmetic, named here
+so nobody attributes it twice.)

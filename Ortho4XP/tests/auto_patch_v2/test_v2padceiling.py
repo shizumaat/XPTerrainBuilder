@@ -297,6 +297,75 @@ def test_the_capture_runs_every_pre_solve_stage_the_build_runs():
     assert not missing, f"the capture skips {sorted(missing)}"
 
 
+# ── §32 (4) THE INSTRUMENT: ``--why-hard`` ──────────────────────────────
+# (Fable 2026-09-13, RULINGS 2026-09-13ac; promoted from scout
+# ``v2unsettled2``'s ``hardrows.py`` on its second use)
+
+class _WhyV:
+    def __init__(self, lat, lon):
+        self.key, self.dem_z, self.incident_faces = (lat, lon), 616.0, ()
+
+
+class _WhyPM:
+    icao = "LEMD"
+    faces: dict = {}
+
+    def __init__(self, vertices):
+        self.vertices = vertices
+
+
+class _WhyRow:
+    source = type("s", (), {"generator": "pads",
+                            "ruling": "structures.building_pad pad_slope_max "
+                                      "ceiling (owner 2026-09-09c)"})()
+
+
+def _why_hard(monkeypatch, law, one, hard, pm, z, limit=10):
+    """Run the tool's ``why_hard`` over a STATED assembly: the reader's job
+    is the reading, and the assembler has its own twins."""
+    import auto_patch_v2.solve.design as _design
+    mod = _replay_module()
+    base = type("B", (), {"one": one, "hard": hard})()
+    monkeypatch.setattr(_design, "assemble", lambda *a, **k: base)
+    calls: list[str] = []
+    return mod.why_hard("LEMD", pm, law, object(), z, limit, calls.append), calls
+
+
+def test_why_hard_lists_every_violated_row_in_metres_of_surface(law, monkeypatch):
+    """``HARD SET NOT SETTLED`` names ONE truncated ruling.  ``--why-hard``
+    names the whole violated set with the vertices and their canonical
+    lat/lon — which is what it took to see that main's worst row was a PAIR
+    the zone projection had clamped independently (13ac).
+
+    The scaling is design.py's own ``2 / Σ|c|``: a K row is a difference of
+    grades, and only that divisor makes its residual comparable with a Δz
+    row's — the units ``hard_tol_m`` is stated in.  The twin states a row
+    whose coefficients do NOT sum to 2, so a missing divisor shows.
+    """
+    pm = _WhyPM({0: _WhyV(40.48527108321, -3.59323243501),
+                 1: _WhyV(40.48527109147, -3.59320294912)})
+    one = [([(0, 2.0), (1, -2.0)], 0.05, _WhyRow()),      # Σ|c| = 4 -> x 0.5
+           ([(0, 1.0), (1, -1.0)], 99.0, _WhyRow())]
+    out, calls = _why_hard(monkeypatch, law, one, [0, 1], pm,
+                           {0: 616.30, 1: 616.00})
+    assert out["hard_rows"] == 2 and out["violated"] == 1
+    assert out["settled"] is False
+    # raw (2*616.30 - 2*616.00) - 0.05 = 0.55; x 0.5 = 0.275 m of surface
+    assert out["worst_m"] == pytest.approx(0.275, abs=1e-6)
+    assert out["by_generator"] == {"pads": 1}
+    row = out["rows"][0]
+    assert [v["v"] for v in row["vertices"]] == [0, 1]
+    assert row["vertices"][0]["lat"] == pytest.approx(40.48527108321)
+    text = "\n".join(calls)
+    assert "1 / 2 hard rows violated" in text and "40.48527108321" in text
+
+
+def test_why_hard_says_SETTLED_rather_than_printing_nothing(law, monkeypatch):
+    out, calls = _why_hard(monkeypatch, law, [], [], _WhyPM({}), {})
+    assert out["settled"] is True and out["violated"] == 0
+    assert "HARD SET SETTLED" in "\n".join(calls)
+
+
 # ── (3b)/(3c) THE SOLVE'S OWN INSTRUMENTS ───────────────────────────────
 
 def test_hard_active_is_the_violated_rows_of_the_shipped_surface(law):

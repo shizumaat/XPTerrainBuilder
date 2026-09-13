@@ -245,3 +245,60 @@ def test_the_shipped_solve_runs_the_projection_and_settles_the_family(solved, la
     assert prep.after_family_m <= held_m(law) + EXACT_M, prep.as_dict()
     assert prep.vertices > 0 and prep.columns > 0 and prep.rows > 0
     assert "runway_projection" in rep.as_dict()
+
+
+# ── EVERY OPTIONAL FIELD OF ``Member`` IS PASSED BY NAME ────────────────
+# (lane ``v2settle`` 2026-09-13, measured on the LEMD capture)
+#
+# ``airport/pack_partition._member_of`` builds every pack member.  It used
+# to pass the tail POSITIONALLY, and twice a field inserted into
+# ``model.rebake.Member`` slid that tail by one:
+#
+#   * 2026-09-11t inserted ``plate_clearance_m`` — the viaduct's
+#     ``elevated_deck`` read False and ``skirted`` read the clearance;
+#   * 5fc707eb (§16e (2)) inserted ``deck_end_stations`` — ``plate_y``
+#     landed on the ``()`` meant for ``plate_stations``.  ``plate_y is not
+#     None`` is ``planar.group._eligible``'s FIRST test, so at LEMD every
+#     one of 14,256 bodies came out ineligible and the pad group law
+#     derived groups 0, relief 0, infeasible 0 (it derives 9,820 / 5,036 /
+#     3,163).  The whole pad law was silently off, and the build still
+#     exited 0.
+#
+# Neither shift is visible at the call site and neither breaks a type.  The
+# only spelling a future insertion cannot break is the keyword, so that is
+# what this asserts — on the SOURCE, because a value twin only catches the
+# fields it happens to name.
+
+def test_pack_partition_builds_its_Member_entirely_by_keyword():
+    import ast
+    import pathlib
+
+    src = pathlib.Path(
+        __import__("auto_patch_v2.airport.pack_partition", fromlist=["x"]).__file__)
+    tree = ast.parse(src.read_text())
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "Member"]
+    assert calls, "pack_partition no longer builds a Member — retarget this twin"
+    for c in calls:
+        assert not c.args, (
+            f"{src.name}:{c.lineno} passes {len(c.args)} POSITIONAL argument(s) to "
+            "Member(); a field inserted into model.rebake.Member silently shifts "
+            "them (plate_y -> plate_stations killed the pad group law at LEMD, "
+            "2026-09-13). Pass every field by name.")
+
+
+def test_a_plain_pack_member_carries_no_plate_and_is_group_eligible():
+    """The value half: what the shift produced was ``plate_y = ()``, which
+    is not None, so ``_eligible`` refused it.  A member with parts and no
+    plate is eligible."""
+    from auto_patch_v2.model.rebake import Member, Part
+    from auto_patch_v2.planar.group import _eligible
+
+    part = Part(pid=1, comp=0, lat=40.0, lon=-3.0, base_y=0.0, area_m2=10.0,
+                box=(0.0, 0.0, 1.0, 1.0))
+    m = Member(id="dsf:obj1", resource="a.obj", authored_path="/a.obj",
+               live_path="/a.obj", heading_deg=0.0, parts=(part,))
+    assert m.plate_y is None and m.deck_stations == ()
+    assert _eligible(m)
+    assert not _eligible(_dc.replace(m, plate_y=0.0))

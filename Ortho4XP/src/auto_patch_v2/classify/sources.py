@@ -203,7 +203,16 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
     # 6.0 m one-way aisle; a page narrower than that holds no parking at
     # all, so the two WEAKEST rungs of the lot ladder below — which read
     # only that roads reach or touch the page — must not mint one.
-    too_narrow_for_lot = width <= lot.min_lot_width_m
+    # ...and the floor: BELOW one service-road corridor the page is an
+    # EMIT SLIVER, not a narrow surface (LEMD's ``dsf:pol255#2`` family,
+    # 0.1-0.3 m across on a 200-800 m perimeter).  Measured before it
+    # shipped: without the floor 26 LEMD slivers stopped being minted
+    # ``parking_lot`` and LEMD's cell count moved 597 -> 578 for no
+    # reason connected to §37 (5).  §27 already owns the sliver class
+    # (``_LOT_SLIVER_RADIUS_M``); this rule leaves it alone.  KCLT's
+    # twelve are 6.7-10.3 m and unaffected by the floor.
+    too_narrow_for_lot = (rules.service.road_width_m <= width
+                          <= lot.min_lot_width_m)
     cls, reason = "open", "no road; or taxi/startup/apron evidence"
     if named is not None and taxi_m < rules.cells.min_shared_m:
         reason = (f"taxi by name {tok!r}" + (f" ({desig})" if desig else "")
@@ -218,7 +227,6 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
                                     f"{lot.through_min_fraction:g} x {half_perim:.0f} m, "
                                     f"{pieces} road piece(s)")
     elif no_taxi and too_narrow_for_lot and starts == 0 and \
-            width >= rules.service.road_width_m and \
             road_m >= rules.osm_roads.min_len_m and \
             acov < lot.apron_cover_fraction and not apron_named(description, rules):
         # §37 (5), the other half: the narrow-road rule's own words are

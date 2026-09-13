@@ -6475,3 +6475,206 @@ BARS: LEMD on a fresh main capture `HARD SET SETTLED` and `LAG SETTLED`
 rows / 0.4144 m, lag 0.332 m) SETTLED or the failure named; solve wall not
 worse than +10 % (`--runs 3`); runway and zone projections unchanged on pure
 columns; suite twice; ONE LEMD build.
+
+### §37 (5) **MEASURED** (lane `v2roadcap2`, 2026-09-13, branch `claude/v2roadcap2`, base `2002c7dc` + main `05050624`)
+
+ONE `--engine v2` KCLT build, tag **`v2roadcap2`**, 371.1 s engine / 418.5 s
+wall, rc 0, `status optimal`, `body_sha a7651dd35206`, artifact ledger
+**`0e50c1a921f1`**, `[guard] shared repo UNCHANGED`.  The BASE it is quoted
+against is scout `v2roadcapkclt`'s build on main `064e244e` (RULINGS
+2026-09-13ab, ledger `2951cfc994bd`) — a DIFFERENT sha, stated because this
+lane did not spend a second 7-minute build on a control the ledger already
+holds.
+
+#### THE INSTRUMENT
+
+`explain KCLT` and `v2_solve_replay --capture KCLT` RUN in a lane worktree,
+under `O4_AIRPORT_MOD_CACHE_DIR` pointed at a copy-on-write overlay, with the
+shared repo untouched.  Three halves, of which the lane wrote two:
+
+* the mod-cache resolution — **the owner's own `modcacheguard` chip, main
+  `05050624`**, merged into this branch; the lane's parallel implementation
+  was dropped in its favour;
+* `tools/v2_solve_replay.py --capture` now makes its own PRISTINE pack dump
+  through the build entry's own `auto_patch.engine_v2.fresh_pack_dump` (one
+  implementation, three callers).  v2 never runs DSFTool itself and KCLT has
+  never had a `+35-081.dsf.anchor_bak.*.text`, so without this every capture
+  of KCLT refused at `airport/load.py:289` whatever root it resolved;
+* `capture_has_groups` read `bool(groups.groups)` and so refused every
+  COMPLETE capture of an airport that HAS no groups — **KCLT partitions
+  7,163 bodies into 0 groups**.  The predicate is now "the derivation ran";
+  `partition is None` is what actually catches a pre-12u capture.
+
+#### (b) `dsf:pol82` — ATTRIBUTED, FIXED, MEASURED
+
+13ab offered two hypotheses ("the scorer's role before §27, or §37 (2)'s
+share read on the wrong perimeter").  `explain KCLT --at
+35.2208425,-80.9278375` names a third, and it is neither:
+
+> `cell 226: role=apron ... ref=dsf:pol82` — `source_class=lot`,
+> `source_reason=5 road(s) reach it (04u), no taxi centreline, no startup,
+> width 8.4 m`, `airside_edge_m=20.8`, `airside_edge_flip=1`,
+> `airside_edge_round=2`, `airside_edge_was=parking_lot`.
+
+§27's flip is READ CORRECTLY on the right perimeter, and the scorer never
+touched the face.  The face was born **`parking_lot`**, so
+`airside_edge.airside_edge_flip`'s `was_road[i]` is False and §37 (2)'s share
+test — which asks whether a face was born `service_road` / `service_junction`
+— never applied; the LOT rule (20.8 m ≥ `airside_edge_min_m` 10 m) flipped it.
+
+Why it was born a lot is `classify/sources.py:_record`.  `narrow_road_width_m`
+(12 m) says in its own words "a source polygon at most this wide that carries
+ANY road centreline IS the road", but its branch is gated on `carries` =
+`road_m ≥ min_road_fraction × HALF-PERIMETER`.  On a ribbon the half-perimeter
+is a LENGTH, not a width: `dsf:pol82` is 8.44 m × 601 m, so `carries` demanded
+**120.3 m** of mapped centreline and OSM maps **70.5 m** inside it (the
+centreline wanders in and out of an 8.4 m page; five roads reach it).  The
+strip branch never fired, and the face fell through to the LOT ladder's
+weakest rung — `reach > 0`, RULINGS 2026-09-04u.  **Twelve KCLT pages
+6.7–10.3 m wide read the same way.**
+
+THE LAW (`[lot] min_lot_width_m` = 11.0 m): a 90-degree car park's minimum
+module is one 5.0 m stall row plus one 6.0 m one-way aisle.  In the band
+`[service.road_width_m, min_lot_width_m]` = [6.0, 11.0] m a page never reaches
+the two WEAKEST lot rungs (`carries_osm`, the 04u `reach` rung), and it is the
+ROAD where it carries a road centreline that is not noise
+(`osm_roads.min_len_m` 10 m).  MAPPED evidence still outranks the width in
+both directions: `amenity=parking` cover, an OSM parking aisle, `aeroway=apron`
+cover, an apron name and a 1300 startup all keep their verdicts.  BELOW 6.0 m
+the page is an EMIT SLIVER and §27's own sliver class owns it — the first arm
+of this rule took 26 LEMD slivers (`dsf:pol255#2` and family, 0.1–0.3 m across)
+out of the lot class and moved LEMD's cell count 597 → 578 for no reason
+connected to §37 (5); the floor is why the rule is a band.
+
+| KCLT | BASE (13ab, main 064e244e) | §37 (5) (`0e50c1a921f1`) |
+|---|---|---|
+| `dsf:pol82` role | **`apron`** | **`service_road`** (emitted shapeID 783) |
+| `dsf:pol82` off-DEM max | +11.52 m (13ab) / +12.33 m (1.0.324) | **+6.13 m** at 35.2206623,−80.9287108 |
+| source classes | lot 60 / open 193 / strip 30 | lot 48 / open 197 / strip 38 (12 moved) |
+| cockpit CRITICAL motion | 9 (worst 0.790 m `strip_arc`) | **5** (worst 0.610 m `mid_edge_step [apron\|apron]` at 35.2082082,−80.9412547, a 13ab row) |
+| cockpit CRITICAL visual | 2 (pre-§35) | **0** |
+| census LAW-TRUE | 11,504 | 11,541 |
+| census ADJUDICATED | 3,959 (airside 3,592) | **3,739 (airside 3,357)** |
+| road ramps (08r-2) | — | `dsf:pol82` now appears as a ROAD ramp: 0.73 m over 62 m = 1.18 % |
+
+No new row stands on the east road: the census's worst ten are all
+`cross_connector` at 35.230,−80.952 (the west side).
+
+CONTROLS, dry (`explain --sources`, classify only, no build):
+
+| | BASE | §37 (5) |
+|---|---|---|
+| **CYXY** | 120 cells; lot 16 / open 48 / strip 7 | **BYTE-IDENTICAL** — 0 source classes changed. `pav4` (11.5 m, 41 m of road on a 464 m half-perimeter — the case `min_road_fraction` was written for, 09-04j) is ABOVE the floor and unmoved |
+| **LEMD** | 597 cells; lot 37 / open 260 / strip 11 | 597 cells; lot 36 / open 260 / strip 12 — **ONE source changed**, `pav119` (8.9 m, 130 m of OSM road) lot → strip |
+
+**§37 (2) HOLDS at LEMD and the bar is quoted honestly**: the 61 apron-side
+lanes are `service_road`-born faces and this rule does not touch them; but the
+role census is NOT byte-identical — `pav119` moves from `parking_lot` to
+`service_road` (both groundside), which is §37 (5) doing exactly what it says
+on the one LEMD page in its class.
+
+#### (a) `dsf:pol51` — ATTRIBUTED, EVERY NAMED CANDIDATE REFUTED, NOT FIXED
+
+`dsf:pol51` classifies CORRECTLY: `explain KCLT --at 35.2074982,-80.9296586`
+reads `role=service_road side=groundside kind=strip`, `source_class=strip`,
+`source_reason=width 11.1 m <= narrow 12, road 385 m` (through 385 m, 4
+pieces).  Nothing in the classification holds it up.
+
+The binding read is `tools/v2_solve_replay.py --why-from … --why-at
+35.2074982,-80.9296586 --site-radius 25` — `solve.why`'s duals on a pressure
+solve of the SAME LP (`|z_pressure − z| max 0.000 m`), off a capture of this
+tree:
+
+> `ridge vertex v19369  z 213.15  DEM 199.91 (z-DEM +13.24)`
+> `binding rows on v19369 by family: (none: no row binds the vertex — the
+> objective holds it)`
+> `chain trace: no terminal reached — the objective holds it`
+
+**ZERO rows bind the owner's site.**  Every mechanism §37 (5) named as a
+candidate is REFUTED at this vertex: no transverse row to an apron edge, no
+zone band, no pad frontage, no neighbour's `taxi_trend`, no bank row.  There
+is no cap to relax and no generator to fix.
+
+What holds it is the OBJECTIVE, and the road's own fit target is not where the
+road is.  Read off the solved set at the same vertex:
+
+| v19369 | m |
+|---|---|
+| DEM | 199.91 |
+| `PlanarMap.preferred_z` (the core-clamp adapter, `airport/road_profile.preferred_road_z`) | **203.44 (+3.53 over the DEM)** |
+| solved z | **213.15 (+13.24 over the DEM, +9.71 over its own target)** |
+
+So the second mechanism is TWO terms, neither of them a constraint:
+
+1. the road's fit TARGET is already +3.53 m up — `cap_lipschitz_profile`'s
+   mid-envelope over the whole OSM way, not the terrain under the page (the
+   build's own reading: `roads vs core profile: 3096 vertices, mean
+   |z−profile| 0.789 m, max 9.890 m, 2710 off beyond materiality in 202 of
+   223 faces`);
+2. the solve then sits **+9.71 m above that target** with nothing binding it,
+   because the smoothing / coupling terms that tie the road to the airside
+   FILL beside it outweigh the road's fit weight.  The site read shows the
+   region is one smooth surface at the fill's level — 74 vertices within 60 m,
+   `z−DEM` mean 6.92 / min 0.94 / max 13.24, roles `building`,
+   `graded_strip`, `junction`, `service_road`, **max step over a short edge
+   0.02 m**; airport-wide `graded_strip` 12.48 m, `building` 12.61 m,
+   `junction` 11.18 m off the DEM.
+
+THE LANE STOPPED HERE AND DID NOT FIX IT.  The fix is an OBJECTIVE-WEIGHT law
+— which term wins where a groundside road meets an airside fill — and RULINGS
+2026-09-13y already ruled that class a STOP-and-report for a lane ("the
+census is not the objective"; the lane did not tune the objective).  Owner law
+1a puts a new weight law behind a Fable spec.  The measurement it needs is
+already cheap and reproducible: the capture is 76 s and `--why-at` is 93 s.
+
+BARS, stated as measured:
+
+| bar | before | after |
+|---|---|---|
+| `dsf:pol51` within 2 m of the DEM, follow ratio ≥ 0.8 | 0.287, +13.28 m | **0.283, +13.29 m — NOT MET** (attributed above) |
+| no `service_road` over 3 m off the DEM airport-wide | max +13.28 / −4.25 | **max +13.29 / −4.17 — NOT MET** (same mechanism; 5 refs over 3 m, next worst `dsf:pol70` +8.16) |
+| `dsf:pol82` classed `service_road` on its own ground | `apron`, +11.52 m | **`service_road`, +6.13 m — ROLE MET, GROUND NOT** (the (a) mechanism) |
+| the 1:3 bank at the east edge shrinks with the fill | 401/1,876 load-bearing, 732 foot nodes | **421/2,408 load-bearing, 754 foot nodes — NOT MET**: (a) removed no fill, so the bank has none to give back |
+| cockpit CRITICAL motion ≤ 9, no new row on the east road | 9 | **5, none on the east road — MET** |
+| LEMD role census byte-identical | — | **ONE source moved (`pav119`) — see above** |
+| CYXY control | — | **byte-identical** |
+
+#### CONSUMER CENSUS (owner RULINGS 2026-08-30l) — the source-class change
+
+The change moves faces between two GROUNDSIDE roles (`parking_lot` →
+`service_road`) at their single derivation site (`classify/sources.py:_record`,
+the source classifier), so `side` stays a pure function of `role` and no
+consumer is edited.
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| S1 | `classify/roles.classify` source branch | `src.cls` | THE ONE derivation site — `strip` → `service_road`, `lot` → `parking_lot`, unchanged code. |
+| S2 | `classify/airside_edge.airside_edge_flip` | the BORN role (`_ROAD_ROLES`) | UNCHANGED CODE, and this is the point: a face born a road now takes §37 (2)'s SHARE test. `dsf:pol82` 20.8 m of a 1,203 m perimeter = 1.7 % < 0.2 → no flip. |
+| S3 | `law.tables.role_side` | the role | UNAFFECTED — both roles are groundside. |
+| S4 | `constraints/roads.road_family_roles` (`families.road_cross_section.roles`) | the role | The face GAINS the `road_cross_section` family and the 8 % / 2 % road caps, and LOSES the lot's 5 % cap. This is the intent (§37 (1)); measured: `road_cross_section` 733 verify rows, `lateral_contiguity` 20, no new census family. |
+| S5 | `airport/road_profile.road_family_vertices` / `axis_roles` | the role | The face gains a core-clamp fit target (`road_fit_vertices` 1,748 → 2,585). Intended: a road is fitted to the core's profile, a lot is not. |
+| S6 | §20 pad levels (`constraints/pads`) / §28 frontages (`constraints/pad_frontage_gs`) | `parking_lot` by class tag | A frontage neighbour changes CLASS but not side; `groundside_frontage` 164 → 148 design-target rows, max miss 1.384 → 0.717 m. |
+| S7 | `tools/role_edge_census.py` `_GROUNDSIDE_ROLES` | the emitted patch | UNAFFECTED — both roles are in the set; the LOT-class split moves, which is what it is there to report. |
+| S8 | `tools/road_terrain_conformance.py` `_ROAD_FAMILY_ROLES` (= `grade_law.ROAD_ROLES`) | the emitted patch | The face ENTERS the road population: KCLT road vertices 2,533, and `dsf:pol82` is now readable as a road (`--by-ref`). |
+| S9 | `check_grade.law_role` / `LAW_FAMILIES` | the way tag | UNCHANGED — no family added, no key added; the harness census reads it as a road. |
+| S10 | `emit/osm_adapter` oracle aliases | the role | UNCHANGED — `service_road` already has its alias. |
+| S11 | §27 `_LOT_SLIVER_RADIUS_M` | the face | UNTOUCHED, deliberately: the 6.0 m floor keeps every emit sliver on the old path (the 26-LEMD-sliver arm above). |
+| S12 | v1 `auto_patch/` | its own classifier | UNTOUCHED — §37 is v2 law. |
+
+#### Build-time impact statement
+
+`_record` gains two comparisons per source polygon (596 at KCLT); the classify
+stage is unmeasurable against it.  The road population grows
+(`road_fit_vertices` 1,748 → 2,585), which is rows the solve already prices for
+every other road.  KCLT engine wall 373.3 s (13ab, main) → 371.1 s here, on a
+machine running other lanes — no A/B is quoted (standing law).  Nothing is
+within 1 % of either budget.
+
+#### What this lane did NOT do
+
+The (a) fix (attributed to the objective; a weight law needs a Fable spec — see
+above); any `--refresh-data`; the five-airport sweep; any LEMD or CYXY BUILD
+(the LEMD and CYXY arms above are DRY classify reads, as the brief required);
+a fresh KCLT BASE build (13ab's ledger `2951cfc994bd` is quoted instead, and
+its sha is stated); `constraints/eat.py` or the EAT loop (lane `v2eatramp`);
+any merge; any RULINGS entry.

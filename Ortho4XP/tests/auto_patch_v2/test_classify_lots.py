@@ -433,7 +433,7 @@ def test_an_emit_sliver_clipping_a_road_is_never_a_road(law):
     narrower than one service-road corridor is an artefact, and a road
     shorter than the feed's own noise floor is noise."""
     src, rules = _ribbon_source(law, road_m=71.0, width=0.3)
-    assert src.width_m < rules.service.road_width_m, src.width_m
+    assert src.width_m < rules.service.road_width_m, src.width_m   # below the band
     assert src.cls != "strip", (src.cls, src.reason)
 
 

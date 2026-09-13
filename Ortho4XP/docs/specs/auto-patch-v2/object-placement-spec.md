@@ -2889,3 +2889,152 @@ foot) is adopted on the numbers above. Two INSTRUMENT defects found and fixed in
 passing: `tools/v2_rebake_replay.py plan` had been dead since 12j/12s (it imported
 `RebakePlan` from `emit.rebake` and read the deleted `carrier_fill_min` before its own
 signature dropper ran), so no lane could have timed the plan stage with it.
+
+### §17 (3) / §16c (7) THE PAVEMENT-FOOT CLASS: the instrument, the ground-contact feet, and the bind's own ground (owner RULINGS 2026-09-12ap (A)/(B)/(C)/(E); lane `v2pavefeet`)
+
+12ap attributed §17's > 0.5 m pavement-foot class and ruled four things.  Three
+are here; the fourth is refuted below.
+
+**(E) THE REPLAY SAMPLER HONOURS GRADED HOLES.**  A face with a HOLE says, in
+the emitted document itself, that the ground inside that ring is not its own.
+The dry run's design surface is a Delaunay over the emitted VERTICES and knows
+none of that: it spans the ring with triangles reaching from an apron vertex
+down to a trench vertex.  LEMD's apron `pav16` is cut by a hole standing at
+597.7-599.5 with the `tunnel_trench` floor (590.8-594.5) inside it, and the
+sampler read **592.22 m at a point whose ROLE is apron**, six metres OUTSIDE
+the hole.  A simplex that CROSSES a hole ring with a step over `split_tol_m` is
+now struck, and a point inside one reads the nearest vertex of that simplex ON
+ITS OWN SIDE of the ring — never an interpolation across it, never a height
+nothing published.  `GradedRoles` already honoured holes and is unchanged.
+
+**(B) §17 JUDGES A BODY AT ITS GROUND-CONTACT FEET** — the in-band feet within
+`[placement] split_tol_m` of its lowest (`placement_motion.ground_contact_feet`).
+`[basin] contact_band_m` is shared law and does not move; a metre is a storey of
+authored model, and what touches the ground is the narrower set.  BOTH sets are
+sampled and the wider reading is printed beside the judged one, so the report
+states its own attribution instead of a lane taking it by hand.
+
+**(A) A §16c (7) BIND ACROSS MEMBERS HOLDS ONLY WHILE THE BOUND BODY'S OWN
+GROUND AGREES.**  A FOOTED body of ANOTHER MEMBER keeps the cluster only while
+its own zero stands within `bind_ground_m` (`[cockpit] visual_m` 0.5) of the
+senior's; beyond it the body keeps its own anchor and is COUNTED (`bound refused
+for ground N`, with the worst refused disagreement and the widest RETAINED
+cluster zero-plane span).  Cross-member by construction: a refused bind is a
+seam between two RESOURCES, never a cut inside a solid, and within one member
+12z's veto already stands.  An ELEVATED body has no zero to test and is never
+refused — it is the class (7) exists for.  The bound body's reason names ITSELF
+("bound to X ... own ground +N.NN m"), and the generic rule's residual is
+printed as TERRAIN SPREAD, not "authored relief": a body authored dead flat on
+a 5.56 m slope carried "authored relief 5.56 m", and 12ao's own attribution
+table was built on that field.
+
+**MEASURED** (the 1.0.320 LEMD frame — rebake plan + `LEMD.graded.json`,
+`--admit-skipped` on the live pack read-only, the write half into APFS clones,
+`[guard] shared repo UNCHANGED` on every run; OTHH the same; main `9258a6cc`
+against branch `claude/v2pavefeet`).
+
+* **12ap's POPULATION, REPRODUCED** with the scout's per-body projection
+  promoted as `obj8_split_report --motion-rows` (its second use).  On the
+  POST-12aq frame the class is **247 bodies / 1,772 pavement feet over 0.5 m**
+  (12ap, pre-12aq: 240 / 1,628), **96 SUNK** bodies (12ap: 76) of which **47**
+  are anchored more than 2 m from their own feet (12ap: 41), median **64.9 m**,
+  max **269.7 m**, **46 of the 47 by reason `§16c`** — the `TABOX`/`TABOXzwei`/
+  `TAPSL` row among them.  By 12ap's own mechanism buckets the frame has
+  MOVED since 12aq: whole-body OFFSET 38 bodies / 321 feet, AUTHORED foot
+  relief 174 / 1,280, TERRAIN 35 / 171 — the authored-relief bucket, which is
+  (B)'s, is now the mass.
+* **THE TWO WORST WERE THE INSTRUMENT.**  `Terminal4sBlue-LEMDblast__b1`
+  (+7.18) and `Terminal4sBlue-STRT4__b1` (−5.08) are 81 m LINE bodies whose
+  ANCHORS sat in the fabricated ramp: `LEMDblast__b1`'s anchor read **592.22 m**
+  on the apron and now reads **599.13**, a 6.91 m correction, and the pair is
+  gone from the census.  LEMD's worst pavement foot after (E) is
+  **+2.41 m** (`OldTerminal_FSX-LEMD54__b0`) and after (A) the row below it is
+  the `TABOX` class at +1.88.  There is NO object rule owed for the trench
+  straddlers: they were never real.
+* **THE BARS, LEMD** (main → this branch): torn seams outside line/arc
+  **0 → 0 — MET**; single-component resources in ≥ 2 files **0 → 0 — MET**;
+  §15 carried body floating over its carrier **0 → 0 — MET**; §14 footless at
+  datum / on ground / basin split **0/0/0 → 0/0/0**; §16 rows on the datum
+  **0 → 0**; duplicate rows surviving the write **0**; round trip **OK**
+  (2,149/2,149 new `OBJECT_DEF`s, 0 rows carrying an elevation); files
+  **2,107 → 2,149**; §16b carried piece float **111 → 119** and wider than its
+  terrain group **967 → 983** (both WORSE, named — more bodies keep their own
+  zero and are read on their own ground); §16a (2) refusal set **215 → 164**.
+  Plan stage on the graded sampler, 3 runs, `v2_rebake_replay.py plan
+  --sampler graded`: **10.17 / 10.22 / 10.20** → **9.95 / 10.06 / 10.08 s**,
+  mean 10.19 → **10.03 — MET** (bar ≤ 10.3).
+* **THE COCKPIT BLOCK, LEMD.**  Bodies on pavement 499 → 515; CRITICAL MOTION
+  **6,640 → 5,400 feet** on 407 → **356 bodies** (buried 3,566 → 3,032,
+  floating 3,074 → 2,368).  What the EYE reads at those feet over 0.5 m:
+  **FLOATING 663 → 128**, **BURIED 1,109 → 808**.  The two rules separate
+  cleanly, because the report now prints both readings: over the WHOLE band the
+  same arm gives floating 663 → **581** and buried 1,109 → **816**, so (E)+(A)
+  take floating 663 → 581 and buried 1,109 → 816, and (B) alone takes them
+  **581 → 128** and **816 → 808**.  Off-sheet stays where it was (feet 36 → 43,
+  bodies whose anchor reads no surface 26 → 27): the side-aware read is what
+  keeps it there — the first two forms of (E) cost 435 and then 160 bodies.
+* **(A)'s OWN NUMBERS.**  LEMD **74 binds refused for ground**, worst refused
+  own-ground disagreement **2.38 m**, widest RETAINED cluster zero-plane span
+  **1.89 m** (over 0.5: the cap is asked cross-member, and a same-member pair
+  the ε-contact graph unions is not refused — named, not fixed).  The `TABOX`
+  row: **9 of the 12 boxes released** to their own ground and now read +0.57 …
+  +0.70 (from +1.68 … +1.88); the three still bound (`TABOX__b2/__b3`,
+  `TABOXzwei__b4`) have own-ground disagreements of **+0.45 / +0.13 / +0.13 m**
+  — inside the bar — and their residual +1.82/+1.88 is the ground spanning
+  1.75 m under one 7 m box plus `TAPSL__b0`'s own low-side anchor, which is
+  11e (2), not §16c.  **The bar "each box within 0.5 m of its own ground" is
+  MET.**
+* **THE NAMED SITES HOLD, byte-identical**: `LEMD47` ONE zero **603.619** and
+  `LEMD48` the same; T2 building-class spread **0.385 m** both arms; item 3
+  **+0.05**, item 5 **−0.27**, gate-5 sign **−0.02**, T4 deck **+0.14**,
+  `Terminal4_48` **−0.09**, `HANG3` **−0.81**; `green-TEJ3` and the T4S deck
+  unchanged.  One T2 roof moved: `LEMD41__b4` (−0.14 on `T2SL3__b0`) is no
+  longer a rest-on row, so the roof list reads 2 of 4 over 0.3 m instead of 2
+  of 5, worst 14.64 either way (12z's authored 5-9 m gap, unchanged).
+* **THE BARS, OTHH** (matched arms under the guard): torn seams **0 → 0 —
+  MET**, single-component **0 → 0 — MET**, §15 carried float **0 → 0 — MET**,
+  duplicates 0, round trip **OK** (1,268/1,268), files **1,252 → 1,269**;
+  **§14 footless at datum 5 → 4** — and the body 12aq's 4 → 5 left UNNAMED and
+  owed is `Buildings/Terminal/OTHH_TerminalRoads_CLUTTER_02_001__b2.obj`, which
+  (A) takes back out; §14 basin split **1 → 1**; §16b carried piece float
+  **126 → 135** and wider **75 → 78** (both worse, named).  CRITICAL MOTION
+  **3,891 → 2,822 feet** on 103 → **74 bodies**; over 0.5 m FLOATING
+  **332 → 12**, BURIED **0 → 0**.  (A): **54 binds refused**, worst **5.92 m**,
+  widest retained span 2.70 m.  Plan stage, 3 runs, same hour, same machine:
+  **60.36 / 60.97 / 61.04** → **61.24 / 61.69 / 61.38 s** — the ≤ 60 s bar is
+  **MISSED ON BOTH ARMS** (main is already over it), and (A) costs **+0.65 s,
+  1.1 %**, inside the noise floor.
+* **(C) IS REFUTED AND DELETED** (the code is in this branch's history; the
+  record is here).  "A LINE station is cut where the surface under it spans
+  more than `split_tol_m`" was implemented twice.  The first form fired on
+  NOTHING — `terrain_groups` places WHOLE COMPONENTS (§16c (1), 12d's torn
+  vault) and a fence is one welded component, so every station read one group.
+  The second gave the line class its own triangle-atom mode, which §10 (2)
+  already licenses (the torn-seam census excludes line and arc pieces for
+  exactly that reason), and it FIRED: **572 stations cut into 2,926 pieces**.
+  It buys nothing and costs a third of the pack: files **2,149 → 2,854**
+  (+33 %); §16b line-class wider than its terrain group **531 → 713** (WORSE —
+  more bodies, each still read against `split_tol_m` and still capped at
+  `line_object_stations_max`); §16b carried piece float **119 → 125** (worse);
+  CRITICAL MOTION **5,400 → 5,406**, floating **128 → 129**, buried
+  **808 → 802** — flat.  NO bar improved.  This is §16b MEASURED's own earlier
+  refutation ("cutting each station again by the ground took LEMD's fence and
+  grass files 2,227 → 7,722 for a class the eye does not read") reproduced with
+  a smaller blast radius and the same verdict, and (C)'s motivating site — the
+  trench straddlers — was dissolved by (E) before the rule was asked.  §10's
+  station law stands.
+* **Twins:** `test_a_bind_across_members_holds_only_while_the_ground_agrees`
+  (armed and unarmed; cross-member refused, same-member never, elevated never;
+  the counts), `test_section_17_judges_at_the_ground_contact_feet_not_the_whole_band`
+  (the narrow set, the band as the outer scope, and both readings out of ONE
+  census pass), `test_the_replay_sampler_never_reads_across_a_graded_hole` (an
+  apron with a hole and a floor in it: the apron reads 600 outside, the floor
+  590 inside, and nothing in between), and
+  `test_anchor_with_no_point_at_its_zero_takes_the_low_side_foot` AMENDED — its
+  body is authored dead FLAT and it is the witness for the naming defect.
+  Suite **1,226 passed / 1 skipped**, twice (main 1,223 / 1).
+* **NOT DONE:** no airport build (§17 needs none); (C) deleted, above; the
+  same-member cluster zero-plane span (1.89 m LEMD, 2.70 m OTHH) is REPORTED,
+  not capped — the ruling's test is cross-member and capping inside a member
+  would be a cut inside a solid; §16b's two counts move the wrong way at both
+  airports and are named; OTHH's plan-stage bar stays missed on both arms.

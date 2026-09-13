@@ -32,8 +32,8 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["foot_float", "feet_in_band", "census_motion",
-           "census_motion_lines", "MotionBody"]
+__all__ = ["foot_float", "feet_in_band", "ground_contact_feet",
+           "census_motion", "census_motion_lines", "MotionBody"]
 
 
 class MotionBody(_t.TypedDict, total=False):
@@ -78,13 +78,42 @@ def feet_in_band(feet: _t.Sequence[_t.Tuple[float, float, float]],
     return [f for f in fs if f[2] - floor <= float(band_m)]
 
 
+def ground_contact_feet(feet: _t.Sequence[_t.Tuple[float, float, float]],
+                        band_m: float, contact_tol_m: float) -> list:
+    """(B), owner RULINGS 2026-09-12ap: THE FEET §17 JUDGES A BODY AT.
+
+    ``[basin] contact_band_m`` (1 m) is the band the PLAN picks a part's
+    feet with, and it is shared law that stays as it is — but a metre is
+    a storey of authored model.  12ap measured the difference: of the 561
+    feet §17 read as floating over the visual threshold on the 1.0.320
+    LEMD frame, **360** were vertices standing at their own AUTHORED
+    height over a body that is correctly seated — a sign panel, a
+    handrail, a canopy lip inside the metre.  The model authored them
+    there; nothing in the placement put them there, and reading them as
+    float measures the pack.
+
+    What TOUCHES THE GROUND is the narrower set: the in-band feet within
+    ``[placement] split_tol_m`` of the body's LOWEST foot — the same
+    tolerance the cut already treats as one ground.  ``contact_tol_m``
+    above ``band_m`` reads as the band itself (the band is the outer
+    scope; this only ever narrows it)."""
+    fs = feet_in_band(feet, band_m)
+    tol = float(contact_tol_m)
+    if not fs or tol <= 0.0 or tol >= float(band_m):
+        return fs
+    floor = min(f[2] for f in fs)
+    return [f for f in fs if f[2] - floor <= tol]
+
+
 def census_motion(bodies: _t.Sequence[_t.Mapping[str, _t.Any]],
                   surface, roles, *,
                   rolled_on: _t.AbstractSet[str],
                   motion_step_m: float,
                   band_m: float,
                   visual_m: float = 0.5,
+                  contact_tol_m: float = 0.0,
                   exempt_classes: _t.AbstractSet[str] = frozenset(),
+                  want_rows: bool = False,
                   top: int = 10) -> dict:
     """§17: every written body's feet, and what the graded face under
     each of them IS.
@@ -115,9 +144,22 @@ def census_motion(bodies: _t.Sequence[_t.Mapping[str, _t.Any]],
     ys: list[float] = []
     owner: list[int] = []
     rows = []
+    n_band = 0
+    contact: list[bool] = []
     for b in bodies:
         za = b.get("anchor_z")
-        fs = feet_in_band(b.get("feet") or (), band_m)
+        _all = b.get("feet") or ()
+        # BOTH SETS ARE SAMPLED, ONE IS JUDGED.  (B) narrows §17's
+        # judgement to the ground-contact feet; the wider band is still
+        # READ, so the report can say in its own numbers how much of the
+        # old count was the model's authored relief and how much the
+        # placement's — the attribution 12ap had to take by hand.
+        fsb = feet_in_band(_all, band_m)
+        fs = ground_contact_feet(_all, band_m, contact_tol_m)
+        _floor = min((f[2] for f in fsb), default=0.0)
+        _tol = (float(band_m) if contact_tol_m <= 0.0
+                else min(float(contact_tol_m), float(band_m)))
+        n_band += len(fsb)
         i = len(rows)
         rows.append({"res": str(b.get("res") or "?"),
                      "cls": str(b.get("cls") or ""),
@@ -125,13 +167,19 @@ def census_motion(bodies: _t.Sequence[_t.Mapping[str, _t.Any]],
                      "za": None if za is None else float(za),
                      "y0": float(b.get("y_zero") or 0.0),
                      "n_feet": len(fs)})
+        if want_rows:
+            rows[i].update({
+                "anchor_lat": float(b.get("anchor_lat") or 0.0),
+                "anchor_lon": float(b.get("anchor_lon") or 0.0),
+                "feet": []})
         if za is None:
             continue
-        for f in fs:
+        for f in fsb:
             las.append(float(f[0]))
             los.append(float(f[1]))
             ys.append(float(f[2]))
             owner.append(i)
+            contact.append(f[2] - _floor <= _tol)
     many = getattr(surface, "many", None)
     zs = (list(many(las, los)) if many is not None
           else [surface(la, lo) for la, lo in zip(las, los)])
@@ -165,19 +213,41 @@ def census_motion(bodies: _t.Sequence[_t.Mapping[str, _t.Any]],
     # float the other reads better than 10 cm of float on the high side.
     per_body: dict[int, list[float]] = {}
     all_pav: dict[int, bool] = {}
+    band_float = band_buried = band_feet = 0
     for k, i in enumerate(owner):
         z = zs[k]
+        r = rows[i]
+        role = None if z is None else rls[k]
+        if want_rows:
+            r["feet"].append({
+                "lat": las[k], "lon": los[k], "y": ys[k],
+                "z": None if z is None else float(z),
+                "role": None if role is None else str(role),
+                "pav": role in rolled, "contact": bool(contact[k]),
+                "d": (None if z is None else
+                      foot_float(z, r["za"], ys[k], r["y0"]))})
         if z is None:
-            feet_off += 1
+            if contact[k]:
+                feet_off += 1
             continue
-        role = rls[k]
         if role not in rolled:
-            all_pav[i] = False
+            if contact[k]:
+                all_pav[i] = False
+            continue
+        # the WIDE reading, for the attribution line only: what the same
+        # float over the whole 1 m band says.  (B)'s own difference.
+        if rows[i]["cls"] not in exempt_classes:
+            band_feet += 1
+            _dw = foot_float(z, r["za"], ys[k], r["y0"])
+            if _dw > vis:
+                band_buried += 1
+            elif -_dw > vis:
+                band_float += 1
+        if not contact[k]:
             continue
         all_pav.setdefault(i, True)
         feet_pav += 1
         on_pav.add(i)
-        r = rows[i]
         d = foot_float(z, r["za"], ys[k], r["y0"])
         per_body.setdefault(i, []).append(d)
         if r["cls"] in exempt_classes:
@@ -226,6 +296,12 @@ def census_motion(bodies: _t.Sequence[_t.Mapping[str, _t.Any]],
     return {"ruling": "2026-09-12am (2)",
             "motion_step_m": step,
             "band_m": float(band_m),
+            "contact_tol_m": float(contact_tol_m),
+            "feet_in_band": n_band,
+            "band_feet_on_pavement": band_feet,
+            "band_float_gt_visual": band_float,
+            "band_buried_gt_visual": band_buried,
+            "rows": tuple(rows) if want_rows else (),
             "rolled_on": tuple(sorted(rolled)),
             "bodies_read": len(rows),
             "bodies_off_sheet": sum(1 for r in rows if r["za"] is None),
@@ -278,6 +354,13 @@ def census_motion_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            f"{'/'.join(c['rolled_on'])}; {c['feet_off_sheet']} foot(feet) "
            f"off-sheet, {c['bodies_off_sheet']} body(ies) whose anchor reads "
            f"no surface)",
+           f"   §17 judged at the GROUND-CONTACT feet ((B), RULINGS "
+           f"2026-09-12ap): within {c.get('contact_tol_m', 0):g} m of the "
+           f"body's lowest foot — {c['feet_read']} of "
+           f"{c.get('feet_in_band', c['feet_read'])} foot(feet) inside "
+           f"[basin] contact_band_m {c['band_m']:g} m (shared law, "
+           f"unchanged); a vertex authored higher inside the metre is the "
+           f"MODEL's relief, not a placement float",
            f"   §17 CRITICAL MOTION (> {c['motion_step_m']:g} m at a foot on "
            f"pavement): {c['motion_feet_gt']} foot(feet) on "
            f"{c['motion_bodies_gt']} body(ies) — {c['motion_buried']} buried, "
@@ -296,6 +379,16 @@ def census_motion_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
                    f"(> {c.get('visual_m', 0.5):g} m): FLOATING "
                    f"{c['float_gt_visual']} (a visible gap), BURIED "
                    f"{c['buried_gt_visual']} (invisible, 11e (2)'s own trade)")
+    if c.get("band_feet_on_pavement"):
+        out.append(
+            f"   §17 (B)'s own difference — the SAME float read at every "
+            f"in-band vertex, not only the ground-contact feet: "
+            f"{c['band_feet_on_pavement']} foot(feet) on pavement, over "
+            f"{c.get('visual_m', 0.5):g} m FLOATING "
+            f"{c['band_float_gt_visual']} and BURIED "
+            f"{c['band_buried_gt_visual']}; the difference from the judged "
+            f"counts above is the MODEL's authored relief inside the metre, "
+            f"never a placement float")
     if c.get("bands"):
         out.append("   §17 by size: " + ", ".join(
             f"{n} in {b} m" for b, n in c["bands"]))

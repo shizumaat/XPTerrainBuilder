@@ -31,6 +31,7 @@ __all__ = ["census_v14", "census_v14_lines", "census_v15", "census_v15_lines",
            "CARRIED_OWN_GROUND_TOL_M", "census_torn_seams",
            "census_torn_seams_lines", "SEAM_STEP_TOL_M",
            "census_motion", "census_motion_lines", "feet_in_band",
+           "ground_contact_feet",
            "foot_float"]
 
 
@@ -894,7 +895,8 @@ from .placement_seams import (SEAM_STEP_TOL_M, census_torn_seams,  # noqa: E402,
 # ``placement_motion`` for the same 1,000-line law; the cockpit block
 # classifies what it returns.
 from .placement_motion import (census_motion,  # noqa: E402,F401
-                               census_motion_lines, feet_in_band, foot_float)
+                               census_motion_lines, feet_in_band, foot_float,
+                               ground_contact_feet)
 
 
 # §17 THE COCKPIT FRAME, object stage, lives in ``placement_cockpit`` (the

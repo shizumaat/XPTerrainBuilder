@@ -361,6 +361,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
                               "contact_eps_m", 0.0),
         rigid_reach_m=getattr(law.tables.structures.placement,
                               "rigid_reach_m", 0.0),
+        # (A), owner RULINGS 2026-09-12ap — through the same dropper, so
+        # this entry still times a src that predates the key
+        bind_ground_m=getattr(getattr(law.tables.emit, "cockpit", None),
+                              "visual_m", None),
         pads=pads, rims=rims, engine_version="", law_digest="",
         write_cuts=False)
     import inspect

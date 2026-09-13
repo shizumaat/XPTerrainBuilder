@@ -365,7 +365,8 @@ class RigidNode:
 def unit_rigid(nodes: _t.Sequence[RigidNode],
                contacts: _t.Iterable[tuple[int, int]],
                span_max_m: float = UNIT_CLUSTER_SPAN_MAX_M,
-               near_m: float = 0.0
+               near_m: float = 0.0, bind_ground_m: float = 0.0,
+               counts: dict | None = None
                ) -> tuple[list[int], list[tuple[float, int, int]]]:
     """§16c (7): THE UNIT BINDS BY CONTACT (owner RULINGS 2026-09-12q).
 
@@ -540,16 +541,51 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
         # body 0.9 m below (area); measured both ways, this lane.
         top = max(footed, key=lambda i: (nodes[i].feet, _area(i),
                                          -(nodes[i].zero or 0.0), -nodes[i].member))
+        # (A), owner RULINGS 2026-09-12ap: A BIND ACROSS MEMBERS HOLDS
+        # ONLY WHILE THE BOUND BODY'S OWN GROUND AGREES.  §16c (7) hands
+        # a body the SENIOR'S ZERO whole, with no height test at all, and
+        # 12ap measured what that costs: 41 of LEMD's 76 sunk bodies were
+        # anchored MORE THAN 2 m from their own feet (median 37.5 m, max
+        # 270 m), the plainest being the `TABOX`/`TABOXzwei`/`TAPSL` row
+        # of 12 GSE boxes bound over 154 m of apron and each standing
+        # ~1.9 m INTO it.  A box a metre under its apron is a visible
+        # burial; what §16c (7) is FOR is a body with no ground of its
+        # own, not one whose own ground says something else.
+        #
+        # So: a FOOTED body of ANOTHER MEMBER keeps the cluster only
+        # while its own zero stands within ``bind_ground_m``
+        # (``[cockpit] visual_m``) of the senior's.  Beyond it the body
+        # keeps its own anchor and is COUNTED.  The test is
+        # cross-member by construction — a refused bind is a seam
+        # between two different RESOURCES, never a cut inside a solid,
+        # and within one member 12z's own veto already stands.  An
+        # ELEVATED body has no zero to test and is never refused: it is
+        # exactly the class (7) exists for.
+        _sz = nodes[top].zero
         for i in idx:
-            if i != top:
-                senior[i] = top
+            if i == top:
+                continue
+            if (bind_ground_m > 0.0 and _sz is not None
+                    and nodes[i].footed and nodes[i].zero is not None
+                    and nodes[i].member != nodes[top].member
+                    and abs(float(nodes[i].zero) - float(_sz))
+                    > float(bind_ground_m)):
+                if counts is not None:
+                    counts["bind_refused_for_ground"] = \
+                        counts.get("bind_refused_for_ground", 0) + 1
+                    counts["bind_refused_worst_m"] = max(
+                        counts.get("bind_refused_worst_m", 0.0),
+                        round(abs(float(nodes[i].zero) - float(_sz)), 3))
+                continue
+            senior[i] = top
     census.sort(reverse=True)
     return (senior, census)
 
 
 def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
           surface: _t.Any, contacts: _t.Iterable[tuple[int, int]],
-          counts: dict, near_m: float = 0.0) -> tuple[dict, list]:
+          counts: dict, near_m: float = 0.0,
+          bind_ground_m: float = 0.0) -> tuple[dict, list]:
     """§16c (7) APPLIED TO ONE UNIT (owner RULINGS 2026-09-12q).
 
     Builds the unit's rigid nodes — every footed CANDIDATE and every
@@ -610,7 +646,23 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
                 footed=False, bindable=_r[1] not in _never_bind,
                 zero=None))
     senior_node, cl_census = unit_rigid(
-        nodes, contacts, span_max_m=UNIT_CLUSTER_SPAN_MAX_M, near_m=near_m)
+        nodes, contacts, span_max_m=UNIT_CLUSTER_SPAN_MAX_M, near_m=near_m,
+        bind_ground_m=bind_ground_m, counts=counts)
+    # (A): the cluster's ZERO-PLANE SPAN, capped the same way and
+    # reported — every retained footed member stands within
+    # ``bind_ground_m`` of its senior, so this is what the cap bought.
+    if bind_ground_m > 0.0:
+        _byz: dict[int, list[float]] = {}
+        for _i, _sn in enumerate(senior_node):
+            if _sn >= 0 and nodes[_i].footed and nodes[_i].zero is not None:
+                _byz.setdefault(_sn, []).append(float(nodes[_i].zero))
+        for _sn, _zz in _byz.items():
+            _z0 = nodes[_sn].zero
+            if _z0 is not None:
+                _zz.append(float(_z0))
+            _sp = max(_zz) - min(_zz)
+            counts["bind_zero_span_worst_m"] = max(
+                counts.get("bind_zero_span_worst_m", 0.0), round(_sp, 3))
     counts["unit_clusters"] = counts.get("unit_clusters", 0) + len(cl_census)
     by_mi0 = {st.mi: st for st in staged}
     # (a) a FOOTED body of the cluster takes the senior's zero: its
@@ -621,10 +673,22 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
             continue
         ci, si = cand_of_node[ni], cand_of_node[sn]
         c, sc = cands[ci], cands[si]
+        # (E)/12ap: THE REASON NAMES THIS BODY'S OWN READING, not the
+        # senior's.  A bound body used to inherit the senior's whole
+        # Anchor including the sentence that explains it, and 12ao's
+        # "4,454 feet on low-side anchors" table was built on that
+        # field.  It says what it is — bound, to whom — and carries the
+        # body's own zero against the one it takes.
+        _own = (None if (c.anchor.surface_z is None
+                         or sc.anchor.surface_z is None) else
+                (float(c.anchor.surface_z) - float(c.anchor.y_zero))
+                - (float(sc.anchor.surface_z) - float(sc.anchor.y_zero)))
         a = _dc0.replace(sc.anchor, body_class=c.anchor.body_class,
-                        reason=f"§16c (7) bound by contact to "
-                               f"{sc.resource} (the unit's rigid "
-                               f"cluster, senior by footprint)")
+                        reason=f"§16c (7) bound to {sc.resource} (the "
+                               f"unit's rigid cluster, senior by feet then "
+                               f"footprint; own ground "
+                               + ("off-sheet)" if _own is None
+                                  else f"{_own:+.2f} m)"))
         st0 = by_mi0.get(mi0)
         if st0 is None or not (0 <= c.group < len(st0.groups)):
             continue

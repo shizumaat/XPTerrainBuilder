@@ -295,6 +295,13 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     zero = _median(tuple(z - y for _la, _lo, y, z in cands))
     best = min(cands, key=lambda c: (round(abs(c[3] - c[2] - zero), 6),
                                      round(abs(c[2]), 6), c[0], c[1]))
+    # THE RESIDUAL IS THE ZERO-PLANE SPREAD -- "TERRAIN SPREAD", never
+    # "authored relief" ((E), owner RULINGS 2026-09-12ap).  It is the
+    # spread of ``surface(foot) - authored y`` over the body's ground
+    # contacts: what the DESIGN SURFACE does under a body whose own feet
+    # are a rigid frame.  A body authored dead flat on a 1 m slope has a
+    # 1 m residual and no authored relief at all, and printing it as the
+    # model's relief sent 12ao's own attribution table the wrong way.
     # THE RESIDUAL IS THE BODY'S OWN SPREAD, not the anchor's distance to
     # the median: with an odd number of ground contacts some vertex always
     # attains the median exactly, so "the minimum is above the tolerance"
@@ -320,14 +327,14 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         if _all_on_rolled(cands, surface, roles, rolled_on):
             return Anchor(body_class, best[0], best[1], best[2],
                           f"median foot: every foot on rolled-on pavement "
-                          f"(§17, motion; authored relief {residual:.2f} m)",
+                          f"(§17, motion; terrain spread {residual:.2f} m)",
                           best[3])
         # 11e (2): authored relief beyond the body's skirt — no point on
         # the footprint stands where the surface equals the zero
         low = min(cands, key=lambda c: (c[3], c[2], c[0], c[1]))
         return Anchor(body_class, low[0], low[1], low[2],
                       f"low-side foot (no point within {tol_m:g} m of the body's "
-                      f"zero plane: authored relief {residual:.2f} m)", low[3])
+                      f"zero plane: terrain spread {residual:.2f} m)", low[3])
     return Anchor(body_class, best[0], best[1], best[2],
                   "surface at the body's zero", best[3])
 

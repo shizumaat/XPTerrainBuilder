@@ -6747,3 +6747,40 @@ byte-identical; the design report's settled lines; suite twice.
   8.02 % → 0 (round 1: 2,769 → 3,616).
 - **§19.2 (2)** "flush at the road's OUTER edge" reads INNER edge for a
   cell-less road (§34 (4) subtracts the ribbon whether or not a cell exists).
+
+### §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE DEM (Fable 2026-09-13; RULINGS 2026-09-13aj) — lane `v2roadramp`
+
+Lane `v2roadcap2`: KCLT `dsf:pol51` (owner item 5) is held +13.24 m over the
+DEM by NO row — `--why-at` on a pressure solve names zero binding rows; the
+objective holds it, +9.71 m above its own `preferred_road_z` target (203.44),
+welded by smoothness to the airside fill beside it (`graded_strip` 12.48 /
+`building` 12.61 m off the DEM). A weight contest is not a law.
+
+6. **THE ROAD'S PROFILE IS DERIVED ALONG ITS ROUTE.** From each AIRSIDE
+   CONTACT of a groundside road (the mouth where it meets an apron, pad or
+   lot; that level is the airside's — airside is king), the road target along
+   route distance s is `max(DEM(s), z_contact − road_cap × s)`: it descends at
+   the road cap until it meets the DEM and follows the DEM from there (and
+   climbs at the cap where the DEM rises above the contact); between two
+   contacts the two ramps meet at their higher envelope; a road with no
+   airside contact targets the DEM. The target is a DESIGN TARGET (§31 (3)
+   class, design-target weight — not the `preferred_road_z` soft fit, which
+   this supersedes for groundside roads) with a HARD ceiling
+   `z ≤ target + visual_m`, so smoothness can never lift the road back onto
+   the fill. The road's own longitudinal cap (§37 (1)) and cross-section
+   stand; the bank (§37 (3)) then daylights only the short fill at the
+   contact. §34 (1) and §36 (5) are the same law for tunnel and EAT ramps.
+
+Consumer census first (owner 2026-08-30l): every reader of `preferred_road_z`,
+the road envelope / core clamp, `road_law_caps`, the mouth (§27), the bank's
+load-bearing test, `road_terrain_conformance`.
+
+BARS (KCLT, ONE build, base = 3e7dd382 with `--base-arm`): `dsf:pol51` follow
+ratio 0.283 → ≥ 0.8 and within 2 m of the DEM over its chain (`--by-ref`);
+no service road > 3 m off the DEM airport-wide (today 5 refs, worst +13.29);
+`dsf:pol82` on its ground (+6.13 → ≤ 0.5); the east-edge bank shrinks with
+the fill (`BankReport.line()`, load-bearing stations 421 → fewer, named);
+cockpit CRITICAL motion ≤ 5 with no new east-road row; LEMD dry replay: the
+61 apron-side lanes untouched (apron), every groundside road whose worst
+off-DEM changes by > 0.5 m NAMED with its contact; CYXY control byte-identical
+or named; solve settled lines quoted; suite twice.

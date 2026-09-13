@@ -5845,6 +5845,120 @@ corners; §32's clamp cannot reach a vertex with no band.
    HECA's, CYXY's, SPJC's, OTHH's corners by dry replay of their frames (no build);
    `strip_seam_tear` 2 → 0 at KCLT; ONE `--engine v2` KCLT build; twin; suite.
 
+### §35 **MEASURED** (lane `v2rwycorner`, 2026-09-13, branch `claude/v2rwycorner`, base `ec8723e9`)
+
+**THE SITE REPRODUCED, on the owner's 1.0.324 KCLT products.** Node **−4762**
+(35.1994462, −80.9510241) reads **209.27** m, 4.62 m from runway ring node −4685
+at **204.29**; its mirror **−4763** (35.1994823, −80.9504531) reads **209.36**,
+3.91 m from −3567 at **204.29** — the census's two `strip_seam_tear` rows,
+**4.98 m over 4.62 m** and **5.07 m over 3.91 m**. Both carry
+`adjacent_ground:runway:4:zone1#23` and `…:zone2#42` and no runway band: 18C/36C's
+half-width fits at 23.6 m and both sit ~2.5 m outside it, 14 m beyond the end.
+
+**THE DERIVATION CHOSEN, and why (§35 (1) gave two).** The CHORD, not a wider
+rect: `runway_groups` ALREADY builds the end corridor at
+`end_half = max(width, strip_half)` (`strips.py:121-133`), i.e. laterally the
+zone-2 half-width (KCLT/FAA 76.2 m, LEMD/ICAO code 4 75 m) — so the corner
+vertex is INSIDE `g.rings[end]` already and widening the rect a second time
+changes nothing. The whole gap was `_end_foot_rows`' `if t < 0.0 or t > 1.0:
+continue`. It now CLAMPS `t` and takes the bound over the TRUE PLAN DISTANCE to
+that nearest point; for an abeam vertex the clamp is the identity and the plan
+distance is the along-axis distance the old code used. `zones.abeam` is
+UNTOUCHED — the lateral law stays the lateral law, and the two tile with no gap
+because a vertex farther than the zone-2 half-width from every runway edge has
+no band to lose. Twinned shut (`test_the_lateral_law_still_refuses_the_corner`).
+
+**THE AMENDMENT, measured rather than reasoned.** Taking only the nearest end
+edge DROPPED every vertex whose nearest (vertex, foot) pair was already in
+`seen`, where the pre-§35 loop walked the edges in ring order and stated the
+next one: LEMD went **64,902 → 63,668** design rows, a net LOSS of 1,234, and
+its verify census **1,354 → 1,596** rows. With the fallback (the nearest edge
+states the law; a nearer edge whose pair is already stated yields to the next)
+the same arm states **66,660** rows, **+1,758** over base — the corner law added
+and nothing lost.
+
+**THE CLOSING TEST DID NOT RUN AT KCLT — REPORTED, NOT WORKED AROUND.**
+`build_airport.py KCLT --engine v2` refuses in `airport/load.py:289`:
+
+> KCLT: the pack DSF …/+35-081.dsf.anchor_bak is newer than every cached text
+> dump under …/Airport_mod_cache/Nimbus Simulation - KCLT V1.4 - Charlotte XP12
+> — the pack's objects would be read from a stale dump… Refresh it explicitly:
+> build_airport.py --refresh-data airport_mod_cache
+
+The message's premise is FALSE and the true condition is worth the chip's while:
+the anchor_bak is dated **Jul 27 16:35**, OLDER than all three cached dumps, and
+the dump of ITS OWN BYTES exists — `text_dump_tag(…anchor_bak)` = **7bf41307**
+and `+35-081.dsf.7bf41307.text` (Sep 12 22:10) is in the cache. It is unreachable
+only because `find_text_dump` keys the candidate set by the file's BASENAME
+prefix (`+35-081.dsf.anchor_bak.`, RULINGS 2026-09-11m) while the dump was
+written before the object stage renamed the file. The dump is CONTENT-keyed, so
+the prefix is redundant for correctness. Lane-local vs shared root is NOT the
+cause here (both cache roots hold identical files); the ruling's `chip` is real
+but this is a second, distinct condition. No refresh was run.
+
+**THE SUBSTITUTE ARMS, and their bars.** Two airports, each a true A/B on ONE
+tree (base = `ec8723e9`'s `strips.py` in this worktree, `e9f02ed210a9`; arm =
+`46c95984a692`), the harness's own entry, shared corpus, `shared repo UNCHANGED`
+on every run. Instrument: `tools/runway_end_ground.py --corners ICAO`, promoted
+out of this lane's scratchpad on its second use (INDEX row + twin in the same
+commit), which reproduces the KCLT site numbers exactly.
+
+1. **CYXY** (13–15 s per arm, `v2rwycorner_cyxy_base` `4a900e21a4df` →
+   `v2rwycorner_cyxy2` `55e8e9898359`): the worst corner **0.99 m over 4.46 m
+   (excess +0.63) → 0.37 m (excess +0.01)** at 14L/32R end2R; 8 corners, 25
+   corner vertices, total over bound **1 → 1** (the same vertex, now AT its
+   bound). Solve **optimal** both arms, **HARD SET SETTLED** both, 12,733 rows,
+   engine verify **312 → 311**.
+2. **LEMD** (`v2rwycorner_lemd_base2` `b27faf5ce243`, 546 s → `v2rwycorner_lemd2`
+   `2c73ddc9dcd5`, 488 s): 16 corners, 72 corner vertices. **Worst corner excess
+   2.19 m → 0.04 m**; by corner, 18R/36L end1L **6.24 → 4.07 m** (bound 4.05),
+   end1R **6.25 → 4.10 m** (bound 4.06), 14R/32L end1L **4.70 → 4.08 m** (bound
+   4.06). Total over bound 3 → 3, every residual **0.02–0.04 m** — the end-skirt
+   rows are design TARGETS, so this is held-at-its-bound, reported as
+   PASS-with-residual and not iterated.
+
+**THE PRICE AT LEMD — A DEVIATION FOR THE OWNER, not decided here.** Census
+(`tools/harness/census.py`, both arms this tree): **LAW-TRUE 3,573 → 3,593
+(+20)**, **ADJUDICATED 1,143 → 1,199 (+56)**, verdict FAIL both. By family:
+`airside_no_step` 419 → 437 (worst 2.670 → 2.700), `taxi_box` 204 → 216,
+`strip_arc` 8 → 10, `strip_longitudinal` 15 → 16, `raoa` 1 → 3 (worst **0.020 →
+0.680 m**), `cross_shape` 0 → 1, `resa_transverse` 1 → 1 (worst 1.830 → 1.920);
+AGAINST it `within_shape` 2,792 → 2,782, `transverse` 87 → 83, `strip_transverse`
+43 → 41. `strip_seam_tear`, `runway_end_skirt`, `adjacent_ground_tear`,
+`drainage_minimum` and every other family: unchanged. The solve reports
+**optimal → feasible**, hard rows violated **2 → 25** of 126,696 (max violation
+0.1563 → 0.1288 m). The runway projection is unmoved (24,644 rows, worst hard row
+0.020000 both). The lane's read is that a 6.25 m corner cliff on approach is worth
+0.02–0.68 m of apron/taxi target residual 3 km away — but `raoa` worst 0.02 →
+0.68 m is a RUNWAY-family reading and the owner should price it.
+
+**Twins.** `tests/auto_patch_v2/test_v2rwycorner.py` (7 cases, **3 red on base**):
+the corner quadrant exists; every corner vertex carries a row; the row's feet are
+the end edge's two ends with weights summing to 1 and its bound is exactly
+`cap·d + q`; the 3√2 m diagonal vertex; the falling DEM breaks the new rows (the
+fix bites); `abeam` still refuses the corner; the rect is already zone-2 wide; an
+abeam vertex is unchanged. `tests/test_runway_end_corners.py` (4 cases) twins the
+instrument. TWO EXISTING TWINS MOVED, both named in place:
+`test_runway_transverse.py` — §35 moved that fixture's worst edge to EXACTLY
+`hard_tol_m` and it read 0.020000000000072793 against 0.02, so the comparison
+carries a 1e-9 float epsilon (the tolerance itself is unchanged);
+`test_why.py` — the chain trace now ends on a **BAND** rather than FREE
+(`reached={'FREE': 16, 'BAND': 1}`), a holder like a pin, so BAND joins the
+accepted terminal kinds with its own note asserted. Suite
+(`tests/auto_patch_v2 tests/test_harness.py`) **1,114 passed, 1 skipped**, twice.
+
+**NOT DONE, named.** No KCLT build and therefore **no after-numbers for the two
+36C cliffs, no KCLT census, no `strip_seam_tear` 2 → 0** — the refusal above.
+KCLT's 12 corners are quoted BEFORE only (7 vertices over their bound; worst
+5.07 m over 3.91 m against a 0.34 m bound at 18C/36C end2R, then 4.98/4.62,
+0.98/4.61, 0.83/4.25, 0.60/4.25). HECA's, SPJC's and OTHH's corners were NOT dry
+-replayed: no v2 frame of them exists on this machine (the `dist/` and worktree
+`Patches/` copies are v1 — their sidecars carry no `design` key — and the class
+is read off the SOLVED surface, so a v1 patch would answer a different question).
+An older HECA v2 patch of unknown provenance reads 3 corners over cap (worst
+6.27 m over 78.4 m at 05C/23C end2R) and is quoted only as evidence the class is
+not KCLT-only. No app build, no five-airport sweep, no merge.
+
 ## §36 THE EAT LAW, PORTED (owner RULINGS 2026-09-13j item 2; Fable 2026-09-13q) — lane `v2eat`
 
 Owner: "The EAT here should be lower than the runway by law right?" — YES. v1's law

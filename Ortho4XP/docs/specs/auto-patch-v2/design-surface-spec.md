@@ -5321,3 +5321,96 @@ pre-§28 arm) both faces sat on the DEM, +3.4 m above the pads; NOW +0.10 / −0
    within 0.3, +3.4 above the pads); `building4`'s joints unchanged (0.16 m); SPJC's
    five pairs named; the `groundside_frontage` family count before/after; ONE
    `--engine v2` CYXY build (28 s) against the ledger base; twin; suite.
+
+## §35 THE RUNWAY-END CORNER (Fable 2026-09-13; RULINGS 2026-09-13q, KCLT item 1) — lane `v2rwycorner`
+
+Scout `v2kclt1t`: at 36C's end (18C/36C cut 6.44 m into the hill) two graded-strip
+nodes 2.8–3.0 m outside the runway's half-width and 14 m beyond its end carry NO law
+row — `constraints/zones.py:207-221` `abeam` binds a strip vertex only within the
+runway's own extent (s ∈ [0, L]) and `constraints/strips.py:381-382` `_end_foot_rows`
+binds only t ∈ [0, 1] along the end edge, whose docstring says such a vertex "keeps
+the transverse rows" that `abeam` has just removed. They hold only §23's datum (the
+DEM, 3.0) against a runway 6.4 m below: 4.98 m over 4.62 m and 5.07 m over 3.91 m,
+the cockpit block's two CRITICAL VISUAL cliffs. Every runway end has four such
+corners; §32's clamp cannot reach a vertex with no band.
+
+1. **THE CORNER IS BOUND TO THE NEAREST POINT OF THE END EDGE.** A strip vertex
+   beyond a runway end and lateral of its width takes `_end_foot_rows`' chord form
+   against the nearest point of the end edge (t clamped to [0, 1]) over its true
+   plan distance, under `end_skirt.max_down_grade`; equivalently the end corridor's
+   rect is widened laterally by the zone-2 half-width so `abeam` and the chord tile
+   the plane with no gap. One derivation, both gates.
+2. **BARS**: the two 36C cliffs gone (steps ≤ `end_skirt.max_down_grade` × d); every
+   corner of KCLT's 3 runways quoted (12 corners: worst step before/after); LEMD's,
+   HECA's, CYXY's, SPJC's, OTHH's corners by dry replay of their frames (no build);
+   `strip_seam_tear` 2 → 0 at KCLT; ONE `--engine v2` KCLT build; twin; suite.
+
+## §36 THE EAT LAW, PORTED (owner RULINGS 2026-09-13j item 2; Fable 2026-09-13q) — lane `v2eat`
+
+Owner: "The EAT here should be lower than the runway by law right?" — YES. v1's law
+(`src/auto_patch/grade_law.py:2352 eat_pavement_ceiling`: ceiling(D) = max(0, D −
+setback) · slope − tail_height, FAA 40:1 slope 0.025 from the departure end, tail
+height by code letter (E 20.1 m), the hard ANCHOR RECT of `eat-anchor-rect-spec.md`,
+recognition ≥ 300 m) was never ported: `auto_patch_v2` has no EAT law (zero matches
+in `constraints/`, `planar/`, `law/*.toml`). KCLT's 18C end-around crossing at
+D 372–416 m stands at runway end +0.9 m where the law puts it at −8.6 … −10.6 m —
+the "pre-law, FLAT at end +0.9 m" state the v1 spec named as the thing to fix.
+
+1. **THE EAT ANCHOR RECT IS A HARD PIN FAMILY IN v2**: recognition (a taxiway
+   crossing the extended centreline beyond a departure end at ≥ `eat.min_crossing_m`
+   300 m, routed wrap), value `end_z + max(0, D − setback) · slope − tail_height`,
+   cut-only, ramps at the taxi caps to the pavement either side; the constants in
+   `law/rulesets.toml [faa.eat]` / `[icao.eat]` (v1's `config.py:5828/5985-6015/5922`
+   values, one copy, v1 asserted equal by a law-tables twin like the ramp cap's).
+2. **BARS**: KCLT's crossing at 216.3–217.4 m (today 226.6–226.9); the ramps within the
+   taxi caps; the other five airports' EAT recognition quoted (which have one; none
+   moves that has none); ONE `--engine v2` KCLT build; census; twins; suite.
+
+## §37 A ROAD KEEPS ITS OWN LONGITUDINAL LAW; A ROAD FLIPS BY SHARE; THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (Fable 2026-09-13; RULINGS 2026-09-13q, KCLT items 5, 7, 8; CYXY item 2) — lane `v2roadcap`
+
+Scout `v2kclt1t`: (5) the service road down to KCLT's east access road falls 1.4 %
+where its DEM falls 9 % and ends +14.22 m in the air — `constraints/roads.py:38-70`
+`road_law_caps` gives a road the STRICTEST longitudinal cap of any governed face it
+touches (lateral contiguity, 2026-08-02 cl. 2) — 0.015 on 42 of KCLT's 121 groundside
+faces; the 1:3 bank then walks 34 m to daylight it (lawful on that ray; airport-wide
+17.6 % of foot stations are steeper than 1:3, max 1:0.4). (7) shapeID 791 (`dsf:pol82`,
+8.4 m wide, 1,203 m perimeter, 575 m of road centreline inside, no taxi centreline —
+a STRIP by evidence) was flipped to `apron` by §27 on 15.3 + 10.5 m of lateral apron
+contact (2 % of its perimeter) and, under the apron's 1.5 %, climbs +12.3 m off its
+ground; 60 ribbon aprons (< 12 m wide) carry 108,744 m². (8) the `bank_foot` ring is
+the 1:3 transition from the patch COVERAGE (the union of every planar face — not an
+aerodrome boundary; KCLT has none in OSM) to the DEM, emitted at every station: KCLT
+34.2 km (42 % of stations carry < 0.5 m; 5.8 % over 5 m, max 19.2 m, stand-off to
+89 m; 451 chords over 30 m up to 5.6 m off the DEM mid-chord), CYXY 14.8 km (51 %
+under 0.5 m, max 2.4 m, none over 5 m).
+
+1. **LATERAL CONTIGUITY BINDS THE TRANSVERSE CAP ONLY.** A road-family face takes
+   the strictest cap of its contiguous faces for its TRANSVERSE law (it must not
+   tear against the surface beside it); its LONGITUDINAL cap stays its own
+   (`service_road` 8 %). Consumer census first (§28 frontages, §20 pad levels,
+   `road_cross_section`, the lateral-contiguity family). KCLT's east road descends
+   to its DEM.
+2. **A ROAD FLIPS BY SHARE, A LOT BY EDGE.** §27's lateral test stays as ruled for
+   lot-class faces (≥ 10 m); a STRIP-class face (a road by evidence) flips only when
+   its lateral airside contact is at least `[lot] road_airside_edge_frac` (0.2) of
+   its perimeter — LEMD's 61 apron-side lanes (edges to 828 m) stay apron; a
+   through-road touching an apron for 2 % of its length stays a road (owner 13j
+   item 7). Consumer: `airside_edge_flip` only.
+3. **THE BANK IS EMITTED WHERE IT IS LOAD-BEARING.** A foot station is emitted only
+   where |z_ring − DEM(foot)| exceeds `[design] bank_materiality_m` = `bank_min_width_m
+   × bank_slope` (1.65 m); elsewhere the ring carries no foot and the mesh's own
+   interpolation blends the sub-metre difference. Long foot chords are split at
+   `bank_chord_max_m` (30 m) so no chord stands more than `split_tol_m` off the DEM
+   mid-chord. The bank's own law is unchanged: it still daylights at 1:3 where it is
+   emitted; the real reduction comes from (1) and (2), which remove the fill the
+   bank was covering. The owner's question ("do we need it at all?") is answered
+   with the numbers: CYXY's ring vanishes; KCLT's shrinks to its load-bearing
+   stations, re-quoted after (1)/(2).
+4. **BARS**: KCLT `dsf:pol51` within 2 m of its DEM at its east end (today +14.22),
+   `service_road` off-DEM max 14.2 → < 3 m; shapeID 791 a `service_road` (its fill
+   +12.3 → on its ground); ribbon aprons 60 → quoted; LEMD's §27 flips unchanged (dry
+   replay); bank foot stations KCLT 1,855 → N (load-bearing only), CYXY 649 → 0 (dry
+   replay), stations steeper than 1:3 quoted; chords over 30 m 451 → 0; ONE
+   `--engine v2` KCLT build with the cockpit block first (critical motion 16 → quoted,
+   the three item-5 cliffs gone); census; twins; suite. The census's 215 m apron
+   step at 35.2138431, −80.9480288 is the z = 0 crater (lane `v2zerocrater`), excluded.

@@ -3088,3 +3088,44 @@ unit` fallback (`placement_carrier.py:833-843`) has no distance cap (35 binds, 1
    plan stage LEMD ≤ 10.3 s; OTHH the same under the guard; the cockpit block's
    worst coordinates verified against the bodies' geometry (twin); suite. No build;
    the app after.
+
+### §16d (4)–(6) Carried components group by carrier; the ground bound is member-agnostic; a body anchors on the pad it stands on (Fable 2026-09-13; RULINGS 2026-09-13m)
+
+Scout `v2kclt1o` on KCLT (Nimbus, native XP12: master models per material — `paredes_N`
+walls, `techos_N` roofs, `vidrios` glazing — each on ONE placement row; 34 rows carry 71
+split placements, bodies up to 1,628 m from their row): (a) hangar wall `005_ALB__b9`
+5.04 m into its pad — a SAME-MEMBER §16c (7)/(8) bind to a body 500 m away on the
+apron; 12ap's 0.5 m ground bound tests only `member != top.member`, so it was skipped
+(the cluster spans 714 m at one zero; the airport's worst §17 row +5.96 m); (b) roof
+plates `001_ALB__b5/b6/b11/b18/b28/b29` float +2.5 … +7.4 m — elevated bodies of 3–12
+components spanning 154–1,774 m carried at ONE zero (`carried_bodies_uncut` 5,295 vs
+3 cut by carrier), the walls under them correctly seated; (c) the terminal: one pad
+`building80` (1.19 m of relief); 213 bodies overlap it, zeros 210.5–223.7 — the 80
+whose ANCHOR POINT lands on the pad agree with it to 1.13 m, the 133 whose anchor
+point lands on apron/adjacent ground (213.8–224.6) do not; clusters by contact are 272
+separate things at one zero each; 12 rest-on carriers with authored gaps to −9.9 m;
+a wall carried by GLAZING; a 20-vertex z = 0.00 crater in apron face 661 (`dsf:pol31`)
+— design surface, not object law (RULINGS 13m, lane `v2zerocrater`).
+
+4. **A CARRIED BODY'S COMPONENTS GROUP BY CARRIER.** Each connected component of a
+   carried (elevated / footless) body finds the footed body IT stands over (§15's
+   overlap at the component); components over different carriers are different
+   pieces, each at its carrier's zero; a component over none anchors on its own
+   ground (§16 (3)). §16a (1)'s "cut where the carrier is cut" and (1)'s reach are
+   read per component. A roof resource of twelve plates over twelve buildings is
+   twelve pieces.
+5. **THE GROUND BOUND IS MEMBER-AGNOSTIC**: §16c (7)'s bind holds only while the
+   bound body's own-ground zero is within `visual_m` 0.5 of the senior's, same
+   member or not (12ap (A) applied everywhere); a cluster's zero-plane span obeys it.
+6. **A BODY ANCHORS ON THE PAD IT STANDS ON.** Where a footed body's written
+   geometry lies mostly on a `building` pad, its anchor point is chosen on that pad
+   (the low-side foot that lies on the pad, else the pad's level under the body's
+   centroid) — never on the apron or ground it happens to spill onto. The pad's own
+   relief (§20: 1.19 m over 900 m at KCLT's terminal) is a §20/§28 reading, reported.
+7. **BARS (KCLT 1.0.324 frame + LEMD 1.0.325 frame, matched arms)**: `005_ALB__b9` on
+   its pad (−5.04 → within 0.5); the six `001_ALB` roof bodies on their walls (each
+   piece within 0.5 m of the wall top beneath it); terminal bodies anchoring off
+   every pad 133 → 0, the complex's zero spread 13.2 m → the pad's relief; the
+   glazing carrier named and, if glazing is footless by authoring, excluded by the
+   existing solid test (report, do not name-match); the LEMD sites held; seams 0;
+   §16b carried-own-ground bar at KCLT 32 → quoted; files; plan stage; suite.

@@ -166,6 +166,22 @@ def placement_plan_rows(plan: dict) -> tuple[list[str], list[tuple[int, float, f
     return defs, plc
 
 
+def plan_bounds(plc: list[tuple[int, float, float, float]]
+                ) -> tuple[float, float, float, float]:
+    """THE MESH SAMPLER'S BOX, IN THE SAMPLER'S OWN ORDER (spec §16e (4)).
+
+    ``plc`` rows are ``(def, LON, LAT, heading)`` —
+    :func:`placement_plan_rows`' order — and
+    :class:`auto_patch.mesh_sampler.MeshElevationSampler` takes
+    ``(min_lon, min_lat, max_lon, max_lat)``.  This call was spelled
+    inline as ``(min lat, min lon, max lat, max lon)``, which at OTHH
+    asked for a box at lon 25.2, lat 51.6: the sampler retained NO
+    triangle and ``--placement-plan --mesh`` measured nothing at all.
+    The one place the two orders meet, so a twin can hold it."""
+    return (min(q[1] for q in plc), min(q[2] for q in plc),
+            max(q[1] for q in plc), max(q[2] for q in plc))
+
+
 def measure_rows(pack_root: str, defs: list[str],
                  plc: list[tuple[int, float, float, float]], sampler,
                  thickness: float = 0.5) -> list[dict]:
@@ -238,9 +254,7 @@ def _census_placement_plan(ap, args) -> int:
     if args.graded:
         sampler = _GradedSampler(args.graded)
     else:
-        sampler = MeshElevationSampler(args.mesh,
-                                       (min(q[2] for q in plc), min(q[1] for q in plc),
-                                        max(q[2] for q in plc), max(q[1] for q in plc)))
+        sampler = MeshElevationSampler(args.mesh, plan_bounds(plc))
     rows = measure_rows(pack, defs, plc, sampler, args.thickness)
     if args.json:
         with open(args.json, "w") as fh:
@@ -291,11 +305,20 @@ def _print_elevated(plan: dict, sampler=None) -> None:
     what catches the class: the 218 LEMD bodies of 11s censused PERFECT
     because the writer had put each one's lowest vertex on the ground."""
     base = _elevated_base_m(plan)
+    # §16e: A DATUM BODY IS NOT THIS CLASS.  Its ``y_zero`` is +5 … +10 m
+    # BY CONSTRUCTION — a tunnel wall's crest plate, a bridge's deck top,
+    # an authored height the law puts AT the ground — so counting it here
+    # would report the law as the defect §13 bars at zero.  It is printed
+    # as its own class instead.
     own = [(b.get("authored_offset", (0, 0, 0))[1], b.get("new_resource", "?"))
            for s in plan.get("splits", ())
            for b in s.get("bodies", ())
            if len(b.get("authored_offset", ())) > 1
-           and float(b["authored_offset"][1]) > base]
+           and float(b["authored_offset"][1]) > base
+           and not b.get("datum")]
+    datums = [(b.get("y_zero", 0.0), b.get("new_resource", "?"))
+              for s in plan.get("splits", ())
+              for b in s.get("bodies", ()) if b.get("datum")]
     carried = sum(int(b.get("elevated_members", 0))
                   for s in plan.get("splits", ()) for b in s.get("bodies", ()))
     from auto_patch_v2.airport.placement_carrier import FOOTLESS_KEPT
@@ -306,6 +329,12 @@ def _print_elevated(plan: dict, sampler=None) -> None:
           + ("" if not own else "   *** VIOLATED ***"))
     for y, res in sorted(own, reverse=True)[:5]:
         print(f"      +{y:.2f} m  {res}")
+    if datums:
+        print(f"   §16e bodies on a DATUM (a crest plate / a deck top — an "
+              f"authored height AT the ground, counted apart from §13's bar): "
+              f"{len(datums)}")
+        for y, res in sorted(datums, reverse=True)[:5]:
+            print(f"      y_zero {y:+.2f} m  {res}")
     print(f"   §13/§16 footless placements with no carrier "
           f"(their own ground): {footless}; "
           f"elevated bodies carried at their authored offset: {carried}")

@@ -45,6 +45,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
+sys.path.insert(0, os.path.join(HERE, "harness"))
 
 
 def cmd_order(args) -> int:
@@ -240,6 +241,40 @@ def cmd_plan(args: argparse.Namespace) -> int:
     with open(args.plan) as fh:
         plan_ = _rb.RebakePlan.from_json(fh.read())
     law = Law.for_airport(plan_.icao)
+    # §16e (2) BACK-FILL, NAMED AND COUNTED.  ``deck_end_stations`` is
+    # derived by the PATCH half (``rebake_plan.ring_ends`` /
+    # ``end_line_stations``) and a plan written before §16e carries none,
+    # so replaying one would measure a law the plan predates.  The SAME
+    # two functions are called here on the plan's own ``deck_ring`` —
+    # never a second derivation — and the count is printed.
+    try:
+        from auto_patch_v2.airport.rebake_plan import (end_line_stations,
+                                                       ring_ends)
+    except ImportError:
+        ring_ends = None
+    if ring_ends is not None:
+        import dataclasses as _dc1
+        _n = 0
+        _step = law.tables.structures.bridge.abutment_sample_step_m
+        _units = []
+        for _u in plan_.units:
+            _ms = []
+            for _m in _u.members:
+                if (_m.deck_kind in ("flag", "signature")
+                        and _m.deck_datum_z is None and _m.deck_ring
+                        and not _m.deck_end_stations):
+                    _e = ring_ends(_m.deck_ring)
+                    _st = end_line_stations(_e, _step)
+                    if _st:
+                        _n += 1
+                        _m = _dc1.replace(_m, deck_ends=_m.deck_ends or _e,
+                                          deck_end_stations=_st)
+                _ms.append(_m)
+            _units.append(_dc1.replace(_u, members=tuple(_ms)))
+        plan_ = _dc1.replace(plan_, units=tuple(_units))
+        if _n:
+            print("  §16e (2) back-fill: %d deck member(s) given their end "
+                  "lines (this plan predates the field)" % _n)
     lat, lon = args.tile
     dsf_path = _dsf2.dsf_path_in_pack(plan_.pack_root, lat, lon)
     pack_name = os.path.basename(os.path.normpath(plan_.pack_root))
@@ -393,6 +428,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
         watched = _watch_surface(surface, counters)
         watched.roles = _roles           # §17, as the shipped path attaches
         watched.rolled_on = _rolled
+        # §16e: the WATER bit, as the shipped path attaches it
+        _w = getattr(surface, "water", None)
+        if _w is not None:
+            watched.water = _w
         started = time.perf_counter()
         out_plan, files, _ = _pw.build_plan(plan_, dump, watched, **keywords)
         elapsed = time.perf_counter() - started
@@ -536,6 +575,38 @@ def cmd_disk(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """The entry, under the SHARED-REPO WRITE GUARD — the SAME
+    implementation ``obj8_split_report.py`` and ``harness/build_airport.py``
+    arm (``tools/harness/shared_repo_guard.py``), never a second one.
+
+    A replay is a MEASUREMENT and must cost the shared corpus zero
+    writes, and this entry armed NOTHING: ``plan`` calls
+    ``dsf_reader.ensure_dsf_text_path``, which GENERATES a DSF text dump
+    into the mod cache when the cache has none — and a lane worktree
+    MOUNTS ``Airport_mod_cache`` at the shared repo (the same class
+    RULINGS 2026-09-12j caught in ``obj8_split_report``)."""
+    from shared_repo_guard import (SharedRepoWriteGuard,  # noqa: E402
+                                   report_unauthorised_writes,
+                                   require_no_unauthorised_writes,
+                                   shared_repo_snapshot, snapshot_diff)
+    before = shared_repo_snapshot()
+    guard = SharedRepoWriteGuard(set(), os.getcwd())
+    try:
+        with guard:
+            rc = _main(argv)
+    finally:
+        changes = snapshot_diff(before, shared_repo_snapshot())
+        offenders = report_unauthorised_writes(changes, set(), None)
+    if guard.blocked:
+        print(f"\n  shared-repo writes REFUSED at the call site: "
+              f"{len(guard.blocked)}")
+        for b in list(guard.blocked)[:10]:
+            print(f"    {b}")
+    require_no_unauthorised_writes(offenders, entry="v2_rebake_replay")
+    return rc
+
+
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     o = sub.add_parser("order", help="THE PARTITION-ORDER TWIN (11j / spec §11a (3)): "

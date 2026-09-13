@@ -938,9 +938,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 # the anchor read the SAME surface: otherwise the placement is
                 # written at its anchor like any other body file.
                 z_row = surface(u.anchor[0], u.anchor[1])
-                z_anchor = bodies[0].anchor.surface_z if bodies else None
-                off_row = (z_row is not None and z_anchor is not None
-                           and abs(float(z_row) - float(z_anchor)) > split_tol_m)
+                # ... and never a body on a §16e DATUM
+                off_row = _ar.keep_off_row(
+                    z_row, bodies[0].anchor if bodies else None, split_tol_m)
                 if off_row and len(bodies) < 2:
                     counts["one_body_off_row"] = counts.get("one_body_off_row", 0) + 1
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
@@ -994,7 +994,7 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             y_zero=b.anchor.y_zero, plan_box=b.plan_box,
             geom_box=b.geom_box, foot_boxes=b.foot_boxes, fill=b.fill,
             ground_off=b.ground_off, geom_pts=b.geom_pts,
-            feet=len(b.feet)) for b in s.bodies))
+            feet=len(b.feet), datum=bool(b.anchor.datum)) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
     return splits, kept

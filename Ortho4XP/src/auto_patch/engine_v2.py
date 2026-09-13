@@ -498,6 +498,16 @@ def _placement_surface(mesh_sample):
       and no answer can differ from the sampler's own.
     """
     memo: dict[tuple[float, float], float | None] = {}
+    #: §16e / R12 amendment 1: THE WATER BIT, beside the height.  The mesh
+    #: is a datum at 0.00 over water and half of OTHH's Bridge_01 stands
+    #: over the canal, so a datum's stations must be able to discard a
+    #: sample on water — the SAME discard the retired seat's
+    #: ``_plate_reading`` / ``_abutment_grade`` made.  It rides the
+    #: surface callable as ``.water``, the way ``.roles`` and ``.many``
+    #: do, so no caller between here and ``anchor_rule`` grows an
+    #: argument; it is asked only at a datum's stations (OTHH: 1,033
+    #: points of the stage's 336,003).
+    wmemo: dict[tuple[float, float], bool] = {}
     batch = getattr(mesh_sample, "many", None)
 
     def _surface(lat: float, lon: float):
@@ -537,7 +547,17 @@ def _placement_surface(mesh_sample):
                 answers[index] = z
         return answers
 
+    def _water(lat: float, lon: float) -> bool:
+        key = (lat, lon)
+        hit = wmemo.get(key)
+        if hit is None:
+            s = mesh_sample(lat, lon)
+            hit = bool(s[1]) if (s is not None and len(s) > 1) else False
+            wmemo[key] = hit
+        return hit
+
     _surface.many = _surface_many
+    _surface.water = _water
     return _surface
 
 

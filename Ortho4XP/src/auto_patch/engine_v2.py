@@ -380,9 +380,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
 # THE OBJECT STAGE AFTER THE MESH (RULINGS 2026-09-04i 04f-1;
 # THE SEAT RETIRED 2026-09-12s, spec §8)
 # ══════════════════════════════════════════════════════════════════════════
-# v1's Phase 2 (``post_mesh.rebake_dsf_objects``) runs at the END of
-# ``O4_Mesh_Utils.build_mesh`` / ``sort_mesh``; under ``auto_patch_engine =
-# v2`` the same hook routes HERE instead.  What runs here is the PLACEMENT
+# The retired v1 Phase 2 (``post_mesh.rebake_dsf_objects``) ran at the END
+# of ``O4_Mesh_Utils.build_mesh`` / ``sort_mesh``; since v1 went (RULINGS
+# 2026-09-13au) that hook routes HERE, unconditionally.  What runs here is the PLACEMENT
 # path and nothing else: over the tile build's own ``o4_v2_rebake_<ICAO>.
 # json`` plans and a sampler of the built mesh, every object is cut,
 # re-anchored and placed ON the terrain (``airport/placement_*.py``).

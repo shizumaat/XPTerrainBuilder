@@ -260,6 +260,8 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         src_mouth = Source(GEN, "tunnel.bore_datum_m (2026-09-03b)", inputs)
         src_flat = Source(GEN, "tunnel_ramp laterally flat (road_cross_section 0 %)", inputs)
         src_top = Source(GEN, "ramp top = ground (2026-08-30 canonical mouth)", inputs)
+        src_mono = Source(GEN, "tunnel.ramp monotone profile (spec 34 (3); 2026-09-13i)",
+                          inputs)
         src_wall = Source(GEN, "tunnel.crest = dem: the rim at the DEM by station "
                           "(2026-09-03b L1; 2026-09-06b no band)", inputs)
         # the descent law's cap: a door ramp's own (09-08b/c Law A), else the tunnel's
@@ -377,6 +379,29 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     d = math.hypot(xa - xb, ya - yb)
                     if d > 1e-6:
                         rows.append(Diff(ids[i], ids[j], ramp_cap, d, src_ramp))
+            # A RAMP CLIMBS MONOTONICALLY (spec §34 (3); Fable 2026-09-13i,
+            # RULINGS 2026-09-13i item 7b): the cap above is SYMMETRIC, so a
+            # ramp whose stations each sat inside it could still saw-tooth
+            # between them (measured LEMD -5980: 6.6 % of alternating sign
+            # on a road a driver reads as one descent).  One ONE-WAY row per
+            # consecutive STATION toward the top — ``Offset(a, b, 0)`` is
+            # ``z[a] − z[b] >= 0`` — makes the design profile monotone; the
+            # Flat above ties each station's width, so one representative
+            # vertex carries it.  The SENSE follows the ramp's own ends: a
+            # mouth on a ridge of the smoothed DEM tops BELOW its datum
+            # (``ramp_top``'s descend-to case) and is monotone downward, so
+            # the row never contradicts the pins the generator already set.
+            st = [(s, vs[0]) for s, vs in groups_climb if vs]
+            if len(st) > 1:
+                za = _dem_at(airport, *tn.axis[-1])
+                down = not math.isnan(za) and za < tn.mouth_z - 1e-9
+                for (_s0, a), (_s1, b) in zip(st, st[1:]):
+                    # ``Offset(hi, lo, 0)`` is ``z[hi] − z[lo] >= 0``: the
+                    # station FURTHER from the mouth is the higher one
+                    # (``a`` is nearer, ``b`` further), reversed where the
+                    # ramp tops below its datum
+                    hi, lo = (a, b) if down else (b, a)
+                    rows.append(Offset(hi, lo, 0.0, src_mono))
             # the datum: the mouth, every covered stretch, and the resume
             # group just beyond the last deck (``climb_from_s`` is that
             # deck's far edge + the gap, where the far piece begins)

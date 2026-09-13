@@ -468,8 +468,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 # is an extension, not a mapped road — OTHH tunnel_sw: a
                 # bridge 400 m out pushed the climb past the reach)
                 design_grade = grade_g
-                s_free, _ss = _ramp_top(airport, law, axis_fn, mouth_z, resume, spacing_g, half,
-                                        s_min=g.hull_s, grade=grade_g, straight=g.straight)
+                s_free, _ss = _ramp_top(airport, law, axis_fn, mouth_z, resume, spacing_g,
+                                        s_min=g.hull_s, grade=grade_g)
                 if s_free is not None:
                     deck_ivals = [d for d in deck_ivals if d[1] <= s_free]
                     obj_ivals = [d for d in obj_ivals if d[1] <= s_free]
@@ -496,9 +496,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                      f"ground inside the walls ({c.depth_m:.2f} m over "
                                      f"{g.hull_s:.0f} m) and the far end is a wall")
                 continue
-            s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing_g, half,
+            s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing_g,
                                   s_min=g.hull_s if c is not None else 0.0, grade=grade_g,
-                                  max_len=max_len_g, straight=g.straight)
+                                  max_len=max_len_g)
             if s_top is None:
                 if any(math.isnan(_dem(airport, axis_fn(s))) for s in ss):
                     stats.refused.append(f"{tid}: no DEM along the climb (the corridor leaves "
@@ -655,7 +655,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # on the other — read once here and carried on the record (a
             # pavement deck is the pavement's own surface and needs none).
             ez, eref, exy = ((), (), ()) if pav \
-                else _deck_ends(airport, w, cells, polys, cell_tree)
+                else _deck_ends(airport, w, cells, polys, cell_tree, law)
             decks.append(Deck(dref, 0 if pav else w.id, s0, s1,
                               tuple(dpoly.exterior.coords)[:-1],
                               end_z=ez, end_ref=eref, end_xy=exy))

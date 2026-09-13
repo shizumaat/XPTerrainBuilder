@@ -25,7 +25,7 @@ from shapely.ops import unary_union
 from ..classify.roles import TAXI_FAMILY, Cell
 from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
-from .terrain_edge import EdgeReport, clip_to_terrain_edge
+from .terrain_edge import EdgeReport, clip_to_terrain_edge, road_ribbons
 
 __all__ = ["ZoneRegion", "zone_regions"]
 
@@ -72,6 +72,18 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # same construction as the pad set-back, so the band never enters the
     # gap a pad's knife opened in a lot
     cut = ag.groundside_cutback_m + snap_margin_m(law)
+    # ZONES YIELD TO ROADS (spec §34 (4); Fable 2026-09-13i, RULINGS
+    # 2026-09-13i item 8): the band subtracts every MAPPED at-grade road
+    # ribbon, whether or not the classifier gave that road a cell — as a
+    # BARRIER inside the terrain-edge clip below, so the band ends at the
+    # ribbon AND the ground beyond the ribbon (which the band can no longer
+    # reach from its own pavement) goes back to the DEM, exactly as §19's
+    # rim road already does.  Before this only CELLS were subtracted, so
+    # LEMD's −6289 — a mapped road with no cell — ran through
+    # ``adjacent_ground:taxi:...:zone2#2`` and the band held its designed
+    # 615.89 over the road's own ground 613.54: a 1.73 m step over 1.5 m
+    # that no law family prices.
+    ribbons = road_ribbons(roads, law)
     everything = unary_union(
         [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
          if c.side == "groundside" else Polygon(c.ring, c.holes) for c in cells]
@@ -112,7 +124,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             # the extent ends at the physical edge, HERE, so every reader
             # downstream sees one trimmed polygon
             clip = clip_to_terrain_edge(geom, seed, dem, roads, law,
-                                        edge_report)
+                                        edge_report, ribbons)
             geom = clip.kept
             parts = shapely.get_parts(geom) if geom.geom_type != "Polygon" else [geom]
             k = 0

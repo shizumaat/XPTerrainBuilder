@@ -39,10 +39,12 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..airport.deck_signature import is_bridge_way, is_tunnel_way
 from ..law import Law
 from ..law.tables import snap_margin_m
 
-__all__ = ["EdgeClip", "EdgeReport", "road_lines", "clip_to_terrain_edge"]
+__all__ = ["EdgeClip", "EdgeReport", "road_lines", "road_ribbons",
+           "road_half_width_m", "clip_to_terrain_edge"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -77,18 +79,56 @@ class EdgeReport:
 
 
 def road_lines(osm_ways=()) -> tuple[LineString, ...]:
-    """The OSM road centrelines in the frame: every way carrying a
-    ``highway`` tag from the road feeds (``airport/osm.load_feed``'s
+    """The AT-GRADE OSM road centrelines in the frame: every way carrying
+    a ``highway`` tag from the road feeds (``airport/osm.load_feed``'s
     ``airport_small_roads`` / ``big_roads``, already loaded into
-    ``Airport.osm_ways``)."""
+    ``Airport.osm_ways``) that is neither a BORE nor a BRIDGE.
+
+    ONE derivation for both consumers (§19 rule 2's rim road and §34 (4)'s
+    band subtraction).  A ``tunnel`` or ``bridge`` way's centreline is not
+    the surface: a bored road under the band neither ends the adjacent
+    ground nor takes a ribbon out of it, and a viaduct over it is the
+    deck's own law (the structure passes carry both, ``planar/structures``).
+    """
     out: list[LineString] = []
     for w in osm_ways or ():
-        if not (getattr(w, "tags", None) or {}).get("highway"):
+        tags = getattr(w, "tags", None) or {}
+        if not tags.get("highway"):
+            continue
+        if is_tunnel_way(tags) or is_bridge_way(tags):
             continue
         pts = [(float(p[0]), float(p[1])) for p in getattr(w, "points", ())]
         if len(pts) >= 2:
             out.append(LineString(pts))
     return tuple(out)
+
+
+def road_half_width_m(law: Law) -> float:
+    """A mapped road's RIBBON half-width: the lane width plus the
+    ``groundside_cutback_m`` every road already receives.  ONE reading
+    for §19 rule 2's outer-edge barrier and §34 (4)'s band subtraction."""
+    return (float(law.tables.emit.road_profile.lane_width_m)
+            + float(law.tables.zones.adjacent_ground.groundside_cutback_m))
+
+
+def road_ribbons(roads, law: Law):
+    """ZONES YIELD TO ROADS (spec §34 (4); Fable 2026-09-13i, RULINGS
+    2026-09-13i item 8): the mapped road ribbons a zone band subtracts —
+    every at-grade centreline of ``road_lines`` grown by
+    ``road_half_width_m`` ⊕ the identity snap, as ONE geometry.
+
+    The band used to subtract CELLS only (``planar/zones.zone_regions``),
+    so a mapped road the classifier gave no cell — LEMD's −6289 — ran
+    straight through ``adjacent_ground:...:zone2#2`` and the band held its
+    designed level 1.73 m over the road's own ground across 1.5 m, a step
+    no law family prices (``graded_strip`` has no cap; the tear families
+    are empty on v2).  The road keeps its own profile; the band stops at
+    the ribbon and the gap between them terraces (the groundside terrace
+    law), exactly as it already does beside a road that HAS a cell."""
+    if not roads:
+        return Polygon()
+    half = road_half_width_m(law) + snap_margin_m(law)
+    return unary_union([ln.buffer(half, **_MITRE) for ln in roads])
 
 
 def _segments(geom) -> list[LineString]:
@@ -176,13 +216,12 @@ def _road_barriers(part: Polygon, seed, crest, roads, law) -> tuple[list, list, 
     run, which the road REPLACES: "without a road the crest of (1) is the
     edge", so with one the road is)."""
     d = law.tables.emit.design
-    if crest.is_empty or not roads:
+    if not roads:
         return [], [], 0
     g = float(d.edge_grid_m)
     snap = float(d.edge_road_snap_m)
     run_min = float(d.edge_road_run_m)
-    half = (float(law.tables.emit.road_profile.lane_width_m)
-            + float(law.tables.zones.adjacent_ground.groundside_cutback_m))
+    half = road_half_width_m(law)
     reach = part.buffer(half + g, **_MITRE)
     out: list = []
     relief: list = []
@@ -197,7 +236,14 @@ def _road_barriers(part: Polygon, seed, crest, roads, law) -> tuple[list, list, 
             n = max(2, int(piece.length / g) + 1)
             ss = np.linspace(0.0, piece.length, n)
             pts = [piece.interpolate(float(s)) for s in ss]
-            near = [crest.distance(p) <= snap for p in pts]
+            # RULE 2 RUNS WITHOUT A CREST (spec §34 (4); Fable
+            # 2026-09-13i): the rim road ends the adjacent ground because
+            # it is the physical edge of the graded ground, not because the
+            # DEM happens to fall away beyond it.  Gated on the crest
+            # (§19.2 (2) as first built) a road on flat ground governed
+            # nothing, and LEMD's zone2#2 ran through −6289 unclipped.
+            near = [True] * len(pts) if crest.is_empty \
+                else [crest.distance(p) <= snap for p in pts]
             i = 0
             while i < len(near):
                 if not near[i]:
@@ -235,13 +281,17 @@ def _road_barriers(part: Polygon, seed, crest, roads, law) -> tuple[list, list, 
 
 
 def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
-                         report: EdgeReport | None = None) -> EdgeClip:
+                         report: EdgeReport | None = None, ribbons=None) -> EdgeClip:
     """One region geometry clipped by the terrain edge (module docstring).
     ``seed`` is the region's PAVEMENT SIDE (the pavement union for zone 1,
     its lip offset for zone 2): what the kept part must stay connected to,
-    and the reference the outward direction is measured from."""
+    and the reference the outward direction is measured from.
+    ``ribbons`` is §34 (4)'s mapped road set (``road_ribbons``), a BARRIER
+    like the crest: the band ends at it and does not resume beyond it."""
     rep = report if report is not None else EdgeReport()
-    if dem is None or geom is None or geom.is_empty or seed is None or seed.is_empty:
+    if geom is None or geom.is_empty or seed is None or seed.is_empty:
+        return EdgeClip(geom)
+    if dem is None and (ribbons is None or ribbons.is_empty):
         return EdgeClip(geom)
     tol = snap_margin_m(law)
     d = law.tables.emit.design
@@ -255,16 +305,26 @@ def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
         if part.is_empty or part.distance(seed) > max(tol, g):
             kept_parts.append(part)          # not this region's own ground
             continue
-        crest, _cells = _crest_geometry(part, seed, dem, law)
+        crest, _cells = (_crest_geometry(part, seed, dem, law) if dem is not None
+                         else (Polygon(), 0))
         rings, relief, n_runs = _road_barriers(part, seed, crest, roads, law)
-        if crest.is_empty and not rings:
+        ribs = Polygon() if ribbons is None else ribbons.intersection(part)
+        if crest.is_empty and not rings and ribs.is_empty:
             kept_parts.append(part)          # no edge: byte-identical
             continue
         rep.roads_governing += n_runs
         if relief:
             # the road REPLACES the crest it runs along (rule 2)
-            crest = crest.difference(unary_union(relief))
-        barrier = unary_union([crest, *rings]) if rings else crest
+            rel = unary_union(relief)
+            crest = crest.difference(rel)
+            # ...and a GOVERNING run keeps §19.2 (2)'s reading over §34 (4)'s:
+            # the band ends FLUSH at that road's OUTER edge, so its ribbon is
+            # not also a barrier at the inner edge (which would cut the band
+            # one carriageway short of the ruled line).  §34 (4)'s ribbon
+            # governs every OTHER mapped road — the ones that cross the band
+            # or run too short to be a rim road.
+            ribs = ribs.difference(rel)
+        barrier = unary_union([crest, *rings, ribs])
         if barrier.is_empty:
             kept_parts.append(part)
             continue
@@ -287,7 +347,7 @@ def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
             kept_parts.append(part)
             continue
         rep.area_cut_m2 += cut
-        kind = "road" if n_runs else "crest"
+        kind = "road" if (n_runs or not ribs.is_empty) else "crest"
         kinds.add(kind)
         rep.trimmed_road += int(kind == "road")
         rep.trimmed_crest += int(kind == "crest")

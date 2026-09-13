@@ -186,8 +186,14 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     pins = [r for r in rows if isinstance(r, Pin)]
     diffs = [r for r in rows if isinstance(r, Diff)]
     offs = [r for r in rows if isinstance(r, Offset)]
+    # spec 34 (3): the ramp's MONOTONE rows are Offsets too (min_delta 0);
+    # the deck clearance is the rest
+    mono = [o for o in offs if "monotone" in o.source.ruling]
+    decks = [o for o in offs if o not in mono]
     assert all(d.cap == tn.ramp_max_grade for d in diffs) and diffs
-    assert offs and all(o.min_delta == law.tables.structures.bridge.clearance_m for o in offs)
+    assert decks and all(o.min_delta == law.tables.structures.bridge.clearance_m
+                         for o in decks)
+    assert mono and all(o.min_delta == 0.0 for o in mono)
     # one pin per vertex; every wall vertex either pinned at the DEM of
     # its band or carried by the governed ground it shares (in a band
     # Flat with its station partner)

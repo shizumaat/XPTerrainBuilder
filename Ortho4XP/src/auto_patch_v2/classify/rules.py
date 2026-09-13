@@ -81,6 +81,7 @@ class OsmRoads:
 class Lot:
     min_road_fraction: float
     narrow_road_width_m: float
+    min_lot_width_m: float
     max_road_pieces_per_100m: float
     apron_name_tokens: tuple[str, ...]
     through_min_fraction: float

@@ -599,7 +599,25 @@ one_way_rulings = [
   "structures.building_pad groundside_frontage",           # 09-12r / spec §28 (2): the LOT / SERVICE ROAD follows the pad's edge level and never pulls a pad — airside is king, and §20's apron frontage still sets the pad
   "structures.building_pad groundside_frontage junior",
 ]
-one_way_max_rounds = 3     # the lag rounds, each one damped active-set solve (measured HECA: the leader move falls 0.29 m -> under the materiality by round 3; more rounds bought 0.00 m of surface and 12 s)
+# §20a THE LAG IS A CONVERGENCE CONDITION (Fable 2026-09-13, RULINGS
+# 2026-09-13ac): the lag runs to ``one_way_tol_m`` or the report NAMES the
+# failure — which rows still move, the worst row's law, its LEADER vertex
+# with the canonical lat/lon and that leader's last move
+# (``design_report.read_lag_failure``).  That half is LANDED, and it is
+# what "never a silent stop" asks for.
+#
+# THE >= 20 SAFETY CEILING IS REFUTED (lane v2settle, LEMD replay off a
+# fresh main capture, the arm measured ALONE with ``--design-weight
+# one_way_max_rounds=20``): the leader/follower iteration does NOT contract
+# at LEMD.  3 rounds -> worst leader move 0.399 m, 4 hard rows violated,
+# worst 0.0985 m, solve 62.1 s.  20 rounds -> worst leader move 0.289 m
+# (1,132 of 13,932 rows still over the 0.01 m tolerance), 25 hard rows
+# violated, worst 0.1225 m, solve 118.2 s.  Twenty rounds buy 0.11 m of
+# leader motion, cost SIX TIMES the violated hard rows and +90 % of the
+# solve — against a +10 % wall bar.  So the cap stays at the measured
+# HECA value and the failure is REPORTED instead; raising it is not a
+# lever, exactly as ``polish_rounds_max`` is not (12u, 13ac).
+one_way_max_rounds = 3     # the lag rounds, each one damped active-set solve (measured HECA: the leader move falls 0.29 m -> under the materiality by round 3; more rounds bought 0.00 m of surface and 12 s.  LEMD 2026-09-13: 20 rounds do not converge either and cost +90 % — see the §20a block above)
 one_way_relax      = 0.5   # UNDER-RELAXATION of the lag: the plain fixed point does not contract (measured HECA: the worst leader move sat at 0.25-0.29 m over six rounds)
 one_way_tol_m      = 0.01  # the lag has settled when no leader foot moved this far (the elevation materiality)
 active_set_max_rounds = 200    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)

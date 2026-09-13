@@ -528,6 +528,22 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
 #     ungoverned, so the group is never moved and the runway projection
 #     above cannot be undone by this one.
 #
+# AND §32 (4), PURITY OF A POST-SOLVE PROJECTION (Fable 2026-09-13; owner
+# RULINGS 2026-09-13ac).  Membership purity is not enough.  A column every
+# one of whose vertices IS governed can still carry a hard row this
+# projection does not answer for, and the clamp then answers its own row
+# and MINTS that one — nothing re-reads it afterwards.  That is how merged
+# main shipped its worst hard row: two pad-rim ground vertices 3 cm apart,
+# both governed, clamped into their own bands INDEPENDENTLY, and the
+# ``pad_slope_max`` ceiling between them opened.  So a column carrying a
+# FOREIGN hard row is refused and left to the solve
+# (:func:`foreign_hard_columns`, counted as ``hard_columns``).  MEASURED at
+# LEMD off a fresh main capture, the arm alone: the worst violated hard row
+# 0.0985 -> 0.0299 m (4 rows -> 3), for ONE column of 4,850 refused and the
+# corridor's own reading BIT-IDENTICAL (worst zone miss 8.1029 -> 1.756762 m
+# on both arms, owned 0).  The test is stated once so every projection that
+# follows takes it.
+#
 # ORDER: after the runway projection, before emit.  The runway family's
 # vertices carry no zone row (``zone_bands`` skips ``own_law``), and no
 # clampable column holds one, so the two projections are disjoint and
@@ -558,6 +574,10 @@ class ZoneClampReport:
     #: FIXED — reported, never silently dropped
     columns: int = 0
     impure_columns: int = 0
+    #: §32 (4) PURITY: governed columns REFUSED because they carry a hard
+    #: row this projection does not own (a pad ceiling, a pavement ceiling,
+    #: a runway row) — left to the solve, never clamped independently
+    hard_columns: int = 0
     fixed_vertices: int = 0
     #: how many clamped columns actually moved, and how many had an EMPTY
     #: band intersection (moved to the midpoint instead)
@@ -577,6 +597,7 @@ class ZoneClampReport:
         return {"ran": self.ran, "rows": self.rows, "vertices": self.vertices,
                 "columns": self.columns,
                 "impure_columns": self.impure_columns,
+                "hard_columns": self.hard_columns,
                 "fixed_vertices": self.fixed_vertices,
                 "moved": self.moved, "conflicts": self.conflicts,
                 "before_m": round(self.before_m, 6),
@@ -591,6 +612,7 @@ class ZoneClampReport:
         return (f"zone projection (12ag): {self.rows} corridor rows over "
                 f"{self.vertices} ground vertices, {self.columns} columns "
                 f"clamped ({self.impure_columns} impure, "
+                f"{self.hard_columns} carrying a foreign hard row, "
                 f"{self.fixed_vertices} fixed vertices, {self.moved} moved, "
                 f"{self.conflicts} empty bands), worst zone miss "
                 f"{self.before_m:.4f} -> {self.after_m:.6f} m "
@@ -618,6 +640,44 @@ def zone_band_sides(base: _t.Any) -> list[int]:
     return [k for k, (_terms, _hi, row) in enumerate(base.one)
             if row.source.generator == ZONE_GENERATOR
             and row.source.ruling.split(" (")[0].strip() == ZONE_RULING]
+
+
+def foreign_hard_columns(base: _t.Any, owned: _t.Container[int]) -> np.ndarray:
+    """§32 (4) PURITY OF A POST-SOLVE PROJECTION (Fable 2026-09-13; owner
+    RULINGS 2026-09-13ac) — the columns a projection MAY NOT TOUCH.
+
+    A post-solve projection is a CLAMP: it moves one column onto one row's
+    bound with every other column frozen.  That is lawful exactly while the
+    column carries no other row it has to answer for.  Where it does, the
+    clamp answers its own row and MINTS the other's violation, and no later
+    stage re-reads it — which is precisely how merged main shipped its worst
+    hard row: ``project_zone_bands`` clamped v8276 and v8273 (a pad rim, 3 cm
+    apart) into their own corridor bands INDEPENDENTLY, and the
+    ``pad_slope_max`` ceiling between them opened to 0.1292 m where the solve
+    had left 0.0271 m (13ac; the interventional arm ``--design-weight
+    zone_projection=0`` reads 3 rows / 0.0271 m).
+
+    So: a column is clampable only when EVERY hard row touching it is one of
+    ``owned`` (the row indices into ``base.one`` this projection settles).  A
+    column carrying a foreign hard row — a pad ceiling, a pavement ceiling, a
+    runway row — is LEFT TO THE SOLVE, and the report names how many.  The
+    test is stated once, here, so every projection that follows takes it.
+
+    Returns a boolean mask over ``base.red.n_cols``.
+    """
+    red = base.red
+    bad = np.zeros(int(red.n_cols), dtype=bool)
+    if not red.n_cols:
+        return bad
+    col = red.col
+    for k in base.hard:
+        if k in owned:
+            continue
+        for v, _c in base.one[k][0]:
+            c = int(col[v])
+            if c >= 0:
+                bad[c] = True
+    return bad
 
 
 def project_zone_bands(planar: PlanarMap, law: Law, base: _t.Any,
@@ -659,9 +719,15 @@ def project_zone_bands(planar: PlanarMap, law: Law, base: _t.Any,
     # ``gov_v`` is a set, so one bincount over its columns already counts
     # DISTINCT governed vertices per column
     governed = np.bincount(col[gov_arr], minlength=red.n_cols)
-    pure = (governed > 0) & (governed == total)
+    mixed = (governed > 0) & (governed != total)
+    # §32 (4): and the column must carry no HARD row this projection does
+    # not own (:func:`foreign_hard_columns`) — main's worst row was a pad
+    # ceiling between two rim vertices clamped independently (13ac).
+    foreign = foreign_hard_columns(base, set(sides))
+    pure = (governed > 0) & ~mixed & ~foreign
     rep.columns = int(pure.sum())
-    rep.impure_columns = int(np.count_nonzero(governed) - rep.columns)
+    rep.impure_columns = int(mixed.sum())
+    rep.hard_columns = int(((governed > 0) & ~mixed & foreign).sum())
     if not rep.columns:
         rep.status = "no pure column"
         return x, rep

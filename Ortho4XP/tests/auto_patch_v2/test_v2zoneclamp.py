@@ -22,6 +22,7 @@ import pytest
 from auto_patch_v2.law import load_default
 from auto_patch_v2.model.constraints import Linear, Source
 from auto_patch_v2.solve.project import (ZONE_GENERATOR, ZONE_RULING,
+                                         foreign_hard_columns,
                                          project_zone_bands, zone_band_sides)
 from auto_patch_v2.solve.rows import _Reduction, _law_sides
 
@@ -34,9 +35,13 @@ TIE = ("zones.adjacent_ground.runway.band_max_down strip tie "
 class _FakeBase:
     red: _Reduction
     one: list
+    #: §32 (4): the HARD row indices into ``one`` — the real ``solve.design
+    #: .Base`` always carries them and :func:`foreign_hard_columns` reads
+    #: them, so the fake states them too
+    hard: list = _dc.field(default_factory=list)
 
 
-def _base(n_vertices: int, rows, flats=()):
+def _base(n_vertices: int, rows, flats=(), hard=()):
     red = _Reduction(n_vertices)
     for g in flats:
         for v in g[1:]:
@@ -51,7 +56,7 @@ def _base(n_vertices: int, rows, flats=()):
     cs = _CS()
     cs.linears = list(rows)
     one, _eq = _law_sides(cs)
-    return _FakeBase(red=red, one=one)
+    return _FakeBase(red=red, one=one, hard=list(hard))
 
 
 def _corridor(v, foot, lo, hi):
@@ -175,6 +180,93 @@ def test_the_strip_tie_is_not_swept_in_by_its_shared_generator(law):
     assert rep.rows == 0 and rep.moved == 0
     assert out == pytest.approx(x)
     assert ZONE_RULING == "zones.adjacent_ground"
+
+
+# ── §32 (4) PURITY (Fable 2026-09-13; RULINGS 2026-09-13ac) ─────────────
+
+PAD_CEIL = "structures.building_pad pad_slope_max ceiling (owner 2026-09-09c)"
+
+
+def _hard_of(base, generator):
+    """The ``base.one`` indices a generator's rows landed on.  A two-sided
+    ``Linear`` becomes TWO one-sided rows (``_law_sides``), so a row's
+    index is never its position in the list the twin wrote."""
+    return [k for k, (_t, _b, row) in enumerate(base.one)
+            if row.source.generator == generator]
+
+
+def _pad_ceiling(a, b, cap):
+    """The hard row main's worst violation was: the pad-slope ceiling
+    between two rim vertices, ``z_a - z_b <= cap``."""
+    return Linear(((a, 1.0), (b, -1.0)), None, cap,
+                  Source("pads", PAD_CEIL, (f"vertex:{a}",)))
+
+
+def test_a_zone_vertex_carrying_a_foreign_hard_row_is_left_to_the_solve(law):
+    """§32 (4): main's worst hard row, in miniature.  v0 and v1 are a pad
+    rim 3 cm apart, both governed by their own corridor bands and both
+    carrying ONE pad-slope ceiling between them.  Clamped independently,
+    the clamp answers the two bands and MINTS the ceiling (this is the
+    0.1292 m at v8276/v8273, 13ac).  Under purity neither column is
+    clampable, both keep the solve's value, and the ceiling holds."""
+    rows = [_corridor(0, 2, -0.15, -0.09),
+            _corridor(1, 3, -0.15, -0.09),
+            _pad_ceiling(0, 1, 0.025)]
+    base = _base(4, rows)
+    base.hard = _hard_of(base, "pads")
+    # the two feet stand 0.30 m apart, so the two bands pull the rim
+    # vertices 0.30 m apart -- twelve times the ceiling
+    x = _x_of(base, [577.60, 577.61, 578.00, 577.70])
+    out, rep = project_zone_bands(None, law, base, x)
+    z = _z_of(base, out)
+    assert rep.vertices == 2
+    assert rep.columns == 0
+    assert rep.hard_columns == 2
+    assert rep.impure_columns == 0
+    assert rep.moved == 0
+    assert out == pytest.approx(x)                 # left to the solve
+    assert z[0] - z[1] <= 0.025 + 1e-9             # the ceiling still holds
+
+
+def test_the_projection_still_clamps_a_PURE_column_byte_identically(law):
+    """Purity narrows the population and nothing else: the same pit
+    vertex of :func:`test_the_pit_vertex_is_clamped_into_its_own_band`,
+    now with a pad ceiling elsewhere in the problem, is clamped to the
+    same value it was before."""
+    rows = [_corridor(0, 1, -0.1500, -0.0900),
+            _pad_ceiling(2, 3, 0.025)]
+    base = _base(4, rows)
+    base.hard = _hard_of(base, "pads")
+    x = _x_of(base, [569.76, 578.00, 600.0, 600.5])
+    out, rep = project_zone_bands(None, law, base, x)
+    z = _z_of(base, out)
+    assert rep.columns == 1 and rep.hard_columns == 0 and rep.moved == 1
+    assert z[0] == pytest.approx(577.85, abs=1e-6)
+    assert z[2] == pytest.approx(600.0) and z[3] == pytest.approx(600.5)
+
+
+def test_a_row_the_projection_OWNS_never_makes_its_own_column_impure(law):
+    """The test is "no hard row it does NOT own".  A corridor row that is
+    itself hard must not lock its own vertex out of the clamp."""
+    base = _base(2, [_corridor(0, 1, -0.15, -0.09)])
+    base.hard = _hard_of(base, ZONE_GENERATOR)
+    x = _x_of(base, [569.76, 578.00])
+    out, rep = project_zone_bands(None, law, base, x)
+    assert rep.hard_columns == 0 and rep.columns == 1 and rep.moved == 1
+    assert _z_of(base, out)[0] == pytest.approx(577.85, abs=1e-6)
+
+
+def test_foreign_hard_columns_names_every_column_a_foreign_row_touches(law):
+    """The test is stated ONCE so every projection that follows takes it
+    (§32 (4) closing sentence): the helper is public and reads the whole
+    hard set, not the zone rows' own view of it."""
+    rows = [_corridor(0, 2, -0.15, -0.09), _pad_ceiling(0, 1, 0.025)]
+    base = _base(3, rows)
+    base.hard = _hard_of(base, "pads")
+    bad = foreign_hard_columns(base, set())
+    assert bad[int(base.red.col[0])] and bad[int(base.red.col[1])]
+    assert not bad[int(base.red.col[2])]
+    assert not foreign_hard_columns(base, set(base.hard)).any()
 
 
 def test_the_law_can_turn_the_projection_off_by_name(law):

@@ -823,21 +823,25 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rep.one_way_settled = False
     x = _inner(None)
 
-    # PHASE B — THE LAG (RULINGS 2026-09-09b (2)/(3)).  The one-way rows'
-    # leader feet are re-read from the current surface, UNDER-RELAXED by
-    # ``one_way_relax`` (the plain fixed point does not contract: measured
-    # HECA, the worst leader move sat at 0.25-0.29 m over six rounds), and
-    # the inner set is re-solved.  It runs to settlement BEFORE the hard
-    # rows' multipliers, so the augmented Lagrangian sees a problem that
-    # stops moving under it — interleaved, each lag round undid the
-    # previous multiplier round and the runway laws drifted OUT (measured
-    # HECA: a 0.52 m ``runway_transverse`` DEFECT).
+    # PHASE B — THE LAG IS A CONVERGENCE CONDITION (09-09b (2)/(3); §20a,
+    # RULINGS 2026-09-13ac).  The one-way leaders are re-read from the
+    # surface, UNDER-RELAXED by ``one_way_relax`` (the plain fixed point
+    # does not contract), and the set re-solved — to ``one_way_tol_m`` or
+    # to a NAMED failure, always BEFORE the multipliers (interleaved, each
+    # lag round undid the previous one and the runway laws drifted OUT:
+    # HECA, a 0.52 m ``runway_transverse`` DEFECT).  ``one_way_max_rounds``
+    # is a SAFETY CEILING, and its hit is that named failure: the polish
+    # ran inside an unconverged lag at LEMD and the wobble crossed
+    # ``hard_tol_m`` (13ac).
     theta = float(d.one_way_relax)
+    dmove = np.zeros(0)
     for outer in range(1, (int(d.one_way_max_rounds) if ow_i.size else 0) + 1):
         target = np.asarray(A1_lead @ x).ravel()[ow_i]
         cur = shift[ow_i]
         new_shift = target if outer == 1 else cur + theta * (target - cur)
-        move = math.inf if outer == 1 else float(np.max(np.abs(new_shift - cur)))
+        dmove = (np.abs(new_shift - cur) if outer > 1
+                 else np.full(ow_i.size, math.inf))
+        move = float(np.max(dmove)) if dmove.size else 0.0
         shift[ow_i] = new_shift
         rep.one_way_rounds = outer
         rep.one_way_move_m = 0.0 if move == math.inf else move
@@ -848,18 +852,17 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         if move <= float(d.one_way_tol_m):
             rep.one_way_settled = True
             break
+    if ow_i.size and not rep.one_way_settled:       # §20a: NAME the failure
+        rep.read_lag_failure(ow_i, dmove, float(d.one_way_tol_m),
+                             int(d.one_way_max_rounds), one, base_p.one_way,
+                             planar)
 
     # PHASE C — THE HARD ROWS' MULTIPLIERS, the lag now FROZEN (spec §6
-    # deviation 7).  THE HARD SET MUST SETTLE (owner RULINGS 2026-09-09r
-    # (3)): the loop runs until every hard row is within ``hard_tol_m`` or
-    # until ``polish_rounds_max`` rounds are spent.  A round that buys less
-    # than one tolerance of violation NO LONGER ENDS IT (round 1's rule):
-    # measured, the multiplier sequence is not monotone — it oscillates
-    # while the one-sided active set around it re-forms (m3c road fixture:
-    # 0.050, 0.039, 0.058, 0.040, 0.019 m) — so the first flat round is
-    # nowhere near the answer.  The BEST iterate is kept and returned.
-    # Exhausting the cap is a NAMED FAILURE in the report, never a silent
-    # "not settled" in a shipped patch.
+    # deviation 7; owner RULINGS 2026-09-09r (3)).  Runs to ``hard_tol_m``
+    # or ``polish_rounds_max``; the sequence is NOT monotone (it oscillates
+    # while the one-sided set re-forms), so a flat round ends nothing, the
+    # BEST iterate is returned, and the cap's hit is a NAMED failure.
+    # ``law/emit.toml`` [design] carries the measurements.
     if hard_i.size:
         Ah, bh = A1[hard_i], b1[hard_i]
         mu = np.zeros(hard_i.size)
@@ -891,13 +894,10 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
             k = int(np.argmax(Ah @ x - bh))
             rep.hard_worst = one[int(hard_i[k])][2].source.ruling[:70]
     # PHASE D — THE FINAL PROJECTION (owner RULINGS 2026-09-09y, closing
-    # 09v (3)).  The augmented Lagrangian above cannot CERTIFY the hard set,
-    # and at HECA its residual landed on runway rows the DEFECT gate refuses.
-    # Every non-runway vertex is now FIXED at its solved z and the runway
-    # family's vertices are re-solved as a small QP holding every
-    # runway-family hard row exactly (``solve/project.py``); the rows the
-    # surrounding sheet states on runway vertices are re-read below as
-    # REPORT FIGURES, which is exactly what the ruling asks of them.
+    # 09v (3)).  The Lagrangian above cannot CERTIFY the hard set, so every
+    # non-runway vertex is FIXED and the runway family re-solved as a small
+    # QP holding its hard rows exactly (``solve/project.py``, which carries
+    # the rationale and §32 (4)'s purity test).
     if x is not None:
         # ... then PHASE E, the ZONE projection (12ag, §32): one entry,
         x, rep.runway_projection, rep.zone_projection = project_after_solve(

@@ -124,6 +124,11 @@ class Anchor:
     #: be WRITTEN, and a kept row would put its zero back on the datum
     #: point it was moved off.
     datum: bool = False
+    #: §16f (1): the FAMILY whose one zero plane this anchor is on, or
+    #: ``""``.  Published per body as ``family_of`` — a carried body
+    #: takes its carrier's anchor and so is published with its carrier's
+    #: family, which is what "the family stays together" means.
+    family: str = ""
 
 
 # ── geometry helpers (plan, in degrees scaled to metres) ─────────────────

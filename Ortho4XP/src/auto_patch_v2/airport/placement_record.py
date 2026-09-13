@@ -101,6 +101,7 @@ class Body:
                 "geom_box": None if self.geom_box is None else list(self.geom_box),
                 "foot_boxes": [list(b) for b in self.foot_boxes],
                 "ground_off": self.ground_off,
+                "family_of": a.family,
                 "fill": self.fill,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts],
@@ -151,6 +152,10 @@ class SplitSet:
     #: over the whole pack, and a placement that stays whole is still an
     #: AGL placement standing on its anchor's surface
     whole: tuple[Split, ...] = ()
+    #: §16f (3): the object FAMILIES derived from this plan, each with
+    #: its members, its one zero plane and the pad or ground it took —
+    #: a censused fact, published beside the splits
+    families: tuple[_t.Any, ...] = ()
 
     @property
     def all(self) -> tuple[Split, ...]:

@@ -64,6 +64,7 @@ from .placement_carrier import coarsen, is_elevated   # noqa: F401  (§9 / §13)
 # §2's RECORDS live next door (the 1,000-line law) and are re-exported:
 # every caller and every twin reads them as this module's.
 from . import placement_atom as _atom
+from . import placement_family as _fam
 from . import placement_orphan as _orphan
 from .placement_record import Body, Kept, Split, SplitSet
 from .placement_record import Staged as _Staged   # noqa: F401
@@ -538,6 +539,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     #: §16c (7): the plan extent of every rigid cluster of more than one
     #: body, for the report (a cluster is ONE body no cut may divide)
     cl_spans: list[tuple[float, int]] = []
+    #: §16f: the families derived from this plan, for the census
+    fams: list[_fam.Family] = []
     by_class: dict[str, int] = {}
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
@@ -704,6 +707,24 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cands, staged, surface, unit_pairs.get(ui, ()), counts,
             near_m=coarsen_reach_m, bind_ground_m=bind_ground_m)
         cl_spans.extend(cl_census[:5])
+
+        # ── §16f: AN OBJECT FAMILY STAYS TOGETHER ────────────────────
+        # (owner RULINGS 2026-09-13af).  §16c (7) binds what the plan's
+        # ε-contact graph links — a 2 mm VERTEX contact — and refuses the
+        # bind where the two bodies' own grounds disagree by more than
+        # ``bind_ground_m``.  A pack that authors a whole terminal
+        # complex on ONE FLAT DATUM PLANE over real relief has neither:
+        # its walls, roofs, glazing and interior floors are separate
+        # RESOURCES whose vertices never touch, and their own grounds
+        # disagree by metres — which is the defect, not the evidence.
+        # The FAMILY is the unit's members whose FOOTPRINTS form one
+        # connected plan cluster, and they take ONE zero: the pad they
+        # mostly stand on.  Run AFTER the contact bind so the family
+        # plane is the last word on a footed body's zero; the carried
+        # and elevated bodies follow their carriers onto it (§15).
+        fams.extend(_fam.bind_families(
+            cands, staged, surface, pads, counts, unit_id=u.id,
+            contact_eps_m=contact_eps_m))
 
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
@@ -944,7 +965,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # ground for a reason no report names)
     for k, v in sorted(refused.items()):
         counts[f"carrier_refused_{k}"] = v
-    return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole))
+    return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
+                    tuple(fams))
 
 
 

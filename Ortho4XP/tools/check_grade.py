@@ -5680,6 +5680,76 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
     return out
 
 
+# ── THE END-AROUND TAXIWAY CEILING, VALIDATOR HALF (owner RULINGS
+# 2026-09-13j item 2, ruled 13q item 2; spec design-surface-spec §36) ──
+# THE ONE READER: the accepted RECTS arrive through the ``eat_rects``
+# sidecar key exactly as the joints arrive through ``terrace_joints`` and
+# the basins through ``basin_facilities`` — so the solve and the census
+# read ONE declaration of where an end-around taxiway is and what the
+# regulation put it at.  Recognition is NOT re-derived here: it needs the
+# apt.dat route network and the runway ends, which no patch carries, and
+# a second spelling of it would be the census-wrapper defect.  A patch
+# with no key (v1's own output, or a v2 patch predating §36) reads
+# ``None`` and this family reports nothing, exactly as before.
+
+def _check_eat_ceiling(eat_rects, nodes, ways) -> List[Violation]:
+    """EAT pavement standing ABOVE its departure-surface ceiling.
+
+    Each published rect carries its regulation ``value_m`` and the
+    ``[lat, lon]`` of every vertex it governs; the row is that vertex
+    standing above the value by more than the elevation materiality.  The
+    pin holds EXACTLY in the design solve (a pinned vertex is eliminated
+    from the unknowns), so a row here means the EMITTED surface left the
+    value the solve pinned — the only way this family can speak.
+
+    The join is the canonical 11-dp lat/lon identity (memory
+    ``canonical-identity-join``), never a proximity match; a rect vertex
+    the patch does not carry is silently absent, which is what a vertex
+    the rect law withdrew looks like.
+    """
+    if not eat_rects:
+        return []
+    by_ll: Dict[Tuple[float, float], float] = {}
+    for w in ways:
+        for nid, z in zip(w.nids, w.elevs):
+            if z is None or nid not in nodes:
+                continue
+            lat, lon = nodes[nid]
+            by_ll.setdefault((round(lat, 7), round(lon, 7)), float(z))
+    out: List[Violation] = []
+    for rec in (eat_rects or []):
+        try:
+            value = float(rec["value_m"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        ref = f"{rec.get('runway', '')}/{rec.get('end', '')}".strip("/")
+        for ll in (rec.get("vertices") or []):
+            try:
+                lat, lon = float(ll[0]), float(ll[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            z = by_ll.get((round(lat, 7), round(lon, 7)))
+            if z is None or z - value <= _EAT_CEILING_TOL_M:
+                continue
+            way = Way(f"eat_rect:{rec.get('rect')}", "junction",
+                      ref or "eat_rect", "taxiway", [], [],
+                      {"role": "junction", "ref": ref or "eat_rect"})
+            v = Violation(
+                grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                de_m=z - value, way_a=way, way_b=way,
+                pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                elev_a=z, elev_b=value)
+            v.lat, v.lon = lat, lon
+            out.append(v)
+    return out
+
+
+#: The materiality the ceiling is read at: the same elevation quantum the
+#: emitted surface carries (``emit.materiality.elevation_m``), so a row
+#: here is surface, never rounding.
+_EAT_CEILING_TOL_M = 0.01
+
+
 # ── THE FAN-RAMP LAW, VALIDATOR HALF (owner RULINGS 21f0980) ────────
 # THE ONE READER: the zones arrive through the ``fan_ramp_zones`` sidecar
 # key, exactly as the joints arrive through ``terrace_joints`` — so the
@@ -7306,6 +7376,14 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     ("basin_floor_declaration",
      "BASIN FACILITY floor DISAGREES with its own body depth", "within"),
+    # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
+    # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
+    # above it: the accepted rects arrive as ``eat_rects`` and this prices
+    # the pavement they govern against the regulation value the solve
+    # pinned.  A patch with no key reports nothing.
+    ("eat_ceiling",
+     "END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling",
+     "within"),
     ("adjacent_ground_tear", "ADJACENT-GROUND graded-strip TEAR", "within"),
     ("strip_seam_tear", "ADJACENT-GROUND strip SEAM tear", "within"),
     # THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1)/(3)): every vertex of
@@ -7958,6 +8036,14 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # family — so a census without this key would judge a law the build
     # never ran under, in both directions.
     "basin_facilities": "basin_facilities",
+    # THE ACCEPTED END-AROUND TAXIWAY RECTS (spec §36; owner RULINGS
+    # 2026-09-13j item 2).  LAW INPUT: recognition needs the apt.dat route
+    # network and the runway ends, which no patch carries, so the rects the
+    # solve accepted — with the regulation value each was pinned at — are
+    # declared here and the ``eat_ceiling`` family prices exactly them.  A
+    # patch with no key (v1's own output, or a v2 patch predating §36)
+    # reports nothing in that family, as it did before.
+    "eat_rects": "eat_rects",
     "ruleset": "ruleset",
     # THE TIERED APRON LAW the build priced (owner RULINGS 2026-09-06w):
     # ``{preferred, max, fan}`` as fractions, published by v2
@@ -8277,6 +8363,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["interior_zones_ll"] = data.get("interior_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["basin_facilities"] = data.get("basin_facilities") or None
+    ctx["eat_rects"] = data.get("eat_rects") or None
     ctx["ruleset"] = data.get("ruleset") or None
     ctx["relaxed_rows"] = data.get("relaxed_rows") or None
     ctx["yielded_rows"] = data.get("yielded_rows") or None
@@ -8305,6 +8392,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
                  if ctx["disconnected_rings_ll"] else "")
               + (f", {len(ctx['basin_facilities'])} declared basin "
                  f"facility(ies)" if ctx["basin_facilities"] else "")
+              + (f", {len(ctx['eat_rects'])} end-around-taxiway rect(s)"
+                 if ctx["eat_rects"] else "")
               + f", ruleset={ctx['ruleset']!r}"
               + (f", {len(ctx['relaxed_rows'])} relaxed row(s) [04t(1)]"
                  if ctx["relaxed_rows"] else "")
@@ -9290,6 +9379,7 @@ def run_checks(
     interior_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     basin_facilities: Optional[list] = None,
+    eat_rects: Optional[list] = None,
     ruleset: Optional[str] = None,
     xsection_spans: Optional[list] = None,
     stretches_ll: Optional[list] = None,
@@ -9664,6 +9754,13 @@ def run_checks(
         f"not evidenced by its geometry)",
         basin_declaration, top_n)
     within = within + basin_declaration
+
+    eat_rows = _fam("eat_ceiling", _check_eat_ceiling(eat_rects, nodes, ways))
+    _pv("END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling "
+        "(the rect the solve PINNED at end_z + max(0, D - setback)*slope - "
+        "tail, read back off the emitted surface — owner RULINGS "
+        "2026-09-13j item 2, spec §36)", eat_rows, top_n)
+    within = within + eat_rows
 
     adjacent_edges = _fam("adjacent_ground_tear",
                           _check_adjacent_ground_edges(ways, nodes, ll_to_m))

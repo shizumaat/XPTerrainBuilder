@@ -78,6 +78,7 @@ from __future__ import annotations
 import typing as _t
 
 from ..constraints.contiguity import road_station_caps
+from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
@@ -138,7 +139,8 @@ def face_holes_ll(planar: PlanarMap) -> dict[str, list[list[list[float]]]]:
     return out
 
 def publication(planar: PlanarMap, law: Law, airport: Airport,
-                z: _t.Sequence[float] | None = None) -> dict[str, _t.Any]:
+                z: _t.Sequence[float] | None = None,
+                cs: _t.Any = None) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
     crown drops are the BUILT ones.  The shape joints (owner RULINGS
     2026-09-08k, ``planar.shape_joints``) are declared, and every published
@@ -227,6 +229,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "pad_relief": [[ll[v][0], ll[v][1], round(o, 4)]
                            for v, o in sorted(pad_relief_offsets(planar, law,
                                                                  airport).items())],
+            # THE END-AROUND TAXIWAY RECTS (spec §36): one record per
+            # ACCEPTED rect — its end, its runway, its regulation value and
+            # the vertices it pinned, read off the FINAL constraint set so
+            # the census prices exactly what the solve pinned.  Empty where
+            # the airport has no EAT by recognition, and absent (never
+            # invented) when the caller hands no constraint set.
+            "eat_rects": ([] if cs is None
+                          else _eat_rects(planar, cs)),
             "tunnel_objects": tunnel_objects(planar, airport)}
 
 

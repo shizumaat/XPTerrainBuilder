@@ -496,7 +496,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             t = time.perf_counter()
             surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                                   {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
-            vrows = run_census(surf, law, publication(pm, law, airport, sol.z),
+            vrows = run_census(surf, law, publication(pm, law, airport, sol.z, cs),
                                road_law_caps(pm, law, airport))
             summary = {k: len(v) for k, v in vrows.items() if v}
             result["verify"] = {"by_family": summary,
@@ -530,7 +530,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             t = time.perf_counter()
             surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                                   {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
-            pub = publication(pm, law, airport, sol.z)
+            pub = publication(pm, law, airport, sol.z, cs)
             header = {"o4_apt_dat": airport.pack.apt_dat_path, "o4_pack": airport.pack.name,
                       "o4_replay": "v2_solve_replay"}
             paths = write_patch(surf, law, emit_dir, pub, header, face_tags(pm, law, airport))

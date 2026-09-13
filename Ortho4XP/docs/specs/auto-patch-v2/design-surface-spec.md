@@ -6920,3 +6920,47 @@ off-DEM changes by > 0.5 m NAMED with its contact; CYXY control byte-identical
 or named; solve settled lines quoted; suite twice.
 
 
+
+### §38 AMENDED after scout `v2splpseam` (Fable 2026-09-13; RULINGS 2026-09-13am) — lane `v2seampin`
+
+Measured on SPLP (864e7577): one solve, per-tile pieces, 0 shared vertices
+between the pieces (the west piece ends at −5.0 m, the east begins at +1.8 m;
+the 10 m band is the mesh's draped DEM); seam pass oscillates 45 → 28 → 27 →
+28 …, `27/150 vertices on the DEM; 123 residual, max 3.430 m` (a 3 m berm
+10 m wide along the seam through the runway strip); runway band-edge vertices
++0.51 … +0.63 m above the DEM (the dip and rise the owner reads); the
+relax arm names the graded-strip ZONE BAND as what holds the seam off its DEM;
+`_Chord.knots` takes only crossing pins; bank chain −10045 has 2 nodes inside
+the band; the coverage slit is closed only because `bank_min_width_m` ==
+`seam.half_width_m` (5.0 == 5.0).
+
+1. **(1) stands.** `constraints/seams.py` mints `Pin`; the seam pass in
+   `pipeline/build.py` (598–660) is DELETED — a pin needs no pass. The
+   sidecar publishes ALL seam pins (150 at SPLP, not the 27 honoured).
+2. **(2) names its mechanism.** Between two seam pins the graded-strip zone
+   band YIELDS (a soft escalation group, the `runway_profile` end-zone
+   pattern); the runway chord takes seam pins as KNOTS in `_Chord.knots`
+   exactly as `runway_crossing_pins` are taken, so the end-zone preference
+   absorbs the curvature between a threshold and a seam pin. A family still
+   unmet between two pins is NAMED (pins, family, demanded vs allowed).
+3. **(3) at one derivation site.** `emit/bank.py` cuts the banked region by
+   the seam bands beside the water and terrain-edge cuts, and unions the
+   seam bands into the coverage EXPLICITLY before the collar; the equality
+   of the two 5.0 m constants is no longer load-bearing.
+4. **(4) REWRITTEN — ONE AIRPORT, ONE SOLVE, PER-TILE PIECES.** The band is
+   draped DEM; the pins are the band-edge vertices at ±`half_width_m`, each
+   at its own tile's DEM sample, so each piece meets the drape at zero step.
+5. **NEW CENSUS FAMILIES** in `check_grade.LAW_FAMILIES` (twins in
+   `test_harness.py`): `seam_residual` — every band-edge vertex against its
+   own DEM sample (CRITICAL motion on runway/taxi roles, visual elsewhere);
+   `bank_across_seam` — any bank foot node within `half_width_m`.
+
+BARS (SPLP, one build, `--base-arm` 864e7577): `seam: 150/150 vertices on the
+DEM` (0 residuals); runway band-edge vertices z−DEM ≤ 0.05 m (today +0.51 …
++0.63); vertex 1408 at 54.50 (today 51.07); no bank foot node within
+`half_width_m` (today 2); `seam_residual` 0 and `bank_across_seam` 0 (both
+> 0 on the base arm, proving the instruments); cockpit CRITICAL: no row on
+the seam; solve settled lines quoted both arms; LEMD / KCLT / CYXY dry
+replays byte-identical (no seam vertices); suite twice. The mesh-side
+cluster (16,298 border nodes in 1.92 m at lat −12.1609306 on tile −13−077)
+is scout `v2splpmesh`'s, not this lane's.

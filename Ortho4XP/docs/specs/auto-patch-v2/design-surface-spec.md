@@ -5169,3 +5169,42 @@ zone-vertex tail and the clamp is per-vertex, so it holds there by construction,
 but it is unmeasured). The placement / object census was not run, so the
 `foot_rows` price is quoted as a design residual and not as buried bodies. No
 app build, no sweep, no merge.
+
+### §24 (4)–(6) The ring is the shell's OUTER footprint; the floor follows a ramp (Fable 2026-09-13; RULINGS 2026-09-13g) — lane `v2basinfoot`
+
+Owner (13d item 2): the SE corner still gaps; the NW corner's cut must reach the
+midpoint of the north edge so the modeled road ramp is visible rising to apron level.
+Scout `v2lemd325b` on the 1.0.325 frame (ring `basin_wall:0@849`, 59 nodes): the gap
+is HORIZONTAL — 11 of 59 ring nodes have no wall within 6–15 m (the engine's own
+`_rim_open` reports "57 of 69 rim stations beyond 2.0 m of the shells' at-grade
+geometry", diagnostic only); at node 1 the design drops 6.7 m one metre inside the ring
+and the nearest pit wall tops out 4 m BELOW the apron edge; five `basin_floor_at_
+declaration` rows. Cause: `planar/basins.py:356` builds the region from each solid
+component's footprint clipped BELOW the local DEM (`obj8.py:765`), exterior only,
+rim inset 0.00 (the shell reads 0.00 m thick) — not §24 (1)'s "OUTER wall face at its
+top". The same clip drops the road ramp (`Ground-FSX-LEMD85__b2`: 100.5 m, 591.4 →
+597.5, 6.1 % mean, reaching apron level at −3.56946 — 11 m from the owner's midpoint)
+out of the region as it rises: a 51.9 × 11.0 m notch that the pad `building15` fills at
+598.4, burying ~51 m of the ramp, worst 2.92 m; the floor is one depth below the
+nearest rim vertex (`constraints/structures.py:588`), never a ramp profile.
+
+4. **THE RING IS THE SHELL'S OUTER FOOTPRINT AT THE TOP OF ITS WALLS** — every
+   component of the basin resource(s) incl. its ramp — never the below-DEM clip.
+   Trims the SE overhang and keeps the ramp corridor inside the cut in one edit at
+   the single derivation site (`basins.py` region + `_rim`).
+5. **THE FLOOR FOLLOWS A RAMP**: floor vertices under a ramp corridor (a deck of the
+   basin resource climbing from the floor to the rim) take the deck's authored
+   elevation minus `floor_clearance_m` per station; elsewhere the one depth stands.
+   Bar: deck − design ≥ 0 over the ramp's whole run (today −2.92 m worst); the 5
+   declaration rows → 0.
+6. **CONSUMER CENSUS at spec time (08-30l)** — one table before editing: the basin
+   rows in `constraints/structures.py`, `planar/structures.py`'s `contact_band_m`
+   reader, the pad cut (`cuts_pads`, `building_pad.in_basin_sits_at_floor` — the
+   `building15` notch), verify's basin families, `pad_level_report`, `airport/
+   basin_ring.py`'s arcs (§14a — the SE node-3 straddle resolves once nodes 0/1/4/5
+   have wall within the band), the placement census's basin exemption. OTHH: its 10
+   basins / 21 carriers have shells with real thickness (0.75–2.5 m) — the planar
+   replay is dry-run BEFORE the edit and re-quoted after (rims moved, m); no OTHH
+   build. Bars: SE corner wall base within 0.3 m of the ring at every walled node
+   and unwalled nodes 11 → 0; the ramp visible (bar in (5)); harness census; ONE
+   `--engine v2` LEMD build against the 1.0.325 base; twins; suite.

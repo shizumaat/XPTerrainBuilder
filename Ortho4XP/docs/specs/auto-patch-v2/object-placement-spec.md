@@ -4099,3 +4099,29 @@ deepest authored point: +7.81 m above the terminal.
 BAR: `…_007__b0` on `building6`'s plane (19.56) with its low end ≤ DEM; §15
 float 7.85 → ≤ 0.5 m; `ground_off` 7.05 → ≤ 0.5; KCLT / LEMD / OTHH families
 re-read (named).
+
+### §16e (3) REINSTATED BY NAME — A BRIDGE IS ITS PACK'S NAME FAMILY (owner RULINGS 2026-09-13bn; Fable 2026-09-13) — lane `v2bridgename`
+
+Owner (OTHH 1.0.327): "the actual deck is at the right level, but other
+components are still too high so the bridge is still coming apart into
+different components instead of staying a single unit." Row, ring and
+footprint families were each refuted (13v, 13ae); the pack's NAMING is what
+its author meant.
+
+3. **THE NAME FAMILY.** A bridge's members are every placement whose
+   resource file name shares the deck's stem — the text before `_CLUTTER`,
+   `_LOD`, or a trailing numbered suffix (`Bridge_01`, `Bridge_02`, …), read
+   off the pack's `OBJECT_DEF` paths by ONE derivation
+   (`bridge_family.name_stem`). The deck member (§16e (2)'s datum body) is
+   the family's datum; every other member — piers, clutter, railings —
+   takes the deck's zero as ONE rigid zero: no per-member cut, no carrier
+   search, no ground test (the feet land where they may — on, above or
+   below the ground the deck spans). A stem with no deck member falls back
+   to §16c. `bridge_of` publishes the stem; the census prints each family's
+   spread and members.
+
+BARS (OTHH frame, `v2_rebake_replay plan --sampler mesh`, matched arms):
+per-family zero spread 0.00 for every `Bridge_NN` (today `Bridge_02_CLUTTER_007`
+4.97 m); deck tops 3.96 / 3.96 / 3.96 held; cross-bridge carriers 0 on the
+name axis; LEMD and KCLT byte-identical (LEMD's `Bridge4` is a line-station
+body — name it); ONE OTHH build; suite twice.

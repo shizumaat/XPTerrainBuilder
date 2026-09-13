@@ -106,6 +106,7 @@ from .structure_approach import (FieldRegion, PavementDeck, apply_plates,
                                  object_deck_intervals, pavement_deck_intervals,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
 from .structure_stats import StructureStats
+from .structure_underpass import underpass_bores as _underpass_bores, approach_along
 from .structure_geometry import (beyond_strip, corner_distance, geometry,
                                  pad_hit as _pad_hit)
 
@@ -168,21 +169,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                    if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
     cells = list(classification.cells)
     polys = [Polygon(c.ring, c.holes) for c in cells]
-    # A BRIDGE STATES THE CROSSING (spec §34 (5)) is NOT CALLED here.
-    # ``planar/structure_underpass.underpass_bores`` is implemented and
-    # measured (LEMD taxiway F-6, way -1230: 2 roads bored, dual-merged,
-    # mouths at the two abutments), but arming it ALONE regresses the
-    # cockpit block — LEMD CRITICAL VISUAL 3 -> 10 on one measured build
-    # (ledger f4cf494dab92), 7 of the 10 rows at 40.46100,-3.54455: the
-    # portal RIM takes ``DEM(mouth)`` = 570.0, the road's ground down in
-    # the cutting, against a taxi surface solving ~573.5 above it, so the
-    # abutment reads as a 3.52 m cliff and mints 4 ``strip_seam_tear``
-    # rows that were 0.  §34 (5)'s OTHER half — "the aeroway is a terrain
-    # deck at the taxi surface, level across the cutting under taxi law" —
-    # has no DEM source (the DEM carries no bridge), so the abutment rim
-    # would have to take the TAXI CELL's own solved value: a new
-    # relational law, an owner/Fable ruling this lane may not make
-    # (lane v2rampwalk, 2026-09-13; reported to the spawner).
+    # A BRIDGE STATES THE CROSSING (spec §34 (5); ARMED at round 2,
+    # RULINGS 2026-09-13ai): an ``aeroway`` ``bridge=yes layer >= 1`` way
+    # over a road seeds a bore the OSM data never tagged — neither measured
+    # case tags one (LEMD F-6 way -1230, KCLT taxiway U -1560).  The clip
+    # puts the mouth INSIDE the taxi cell so the corridor's rim lands on
+    # the deck and takes its solved surface (``structure_underpass``'s
+    # module doc; the round-1 measurement that forced it is there too).
+    up_ways, up_parents, stats.underpasses = _underpass_bores(airport, law, cells, polys)
+    tunnel_ways += up_ways
     if (not tunnel_ways and not corridors and not extra_groups) or not classification.cells:
         return classification, (), stats
     cell_tree = STRtree(polys) if polys else None
@@ -206,6 +201,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.approach_corridors = len(on_field.corridor or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
                            if bores else ([], []))
+    for m in mouth_list if up_parents else ():
+        par = next((up_parents[id(w)] for w in m.bore.ways if id(w) in up_parents), None)
+        if par is not None:                  # §34 (5): the ramp follows the road
+            m.approach = approach_along(par, m.xy, m.inward, reach)
     # THE PACK'S WALL OBJECTS GOVERN THE MOUTH (spec §33 (2)): a mouth
     # inside a thin plate spanning its bore moves to the object's end and
     # takes the object's width, before anything is reported or built.

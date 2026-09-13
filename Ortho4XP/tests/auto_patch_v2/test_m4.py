@@ -190,7 +190,12 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     # the deck clearance is the rest
     mono = [o for o in offs if "monotone" in o.source.ruling]
     decks = [o for o in offs if o not in mono]
-    assert all(d.cap == tn.ramp_max_grade for d in diffs) and diffs
+    # spec §34 (6) as amended (RULINGS 2026-09-13ai): a ramp pair is priced
+    # ``cap - hard_tol_m / d`` so the design solve's own held residual lands
+    # the emitted row AT the cap, never over it
+    _ht = law.tables.emit.design.hard_tol_m
+    assert diffs and all(
+        d.cap == pytest.approx(max(0.0, tn.ramp_max_grade - _ht / d.d)) for d in diffs)
     assert decks and all(o.min_delta == law.tables.structures.bridge.clearance_m
                          for o in decks)
     assert mono and all(o.min_delta == 0.0 for o in mono)

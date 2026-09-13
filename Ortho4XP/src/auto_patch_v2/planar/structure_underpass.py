@@ -4,22 +4,26 @@ RULINGS 2026-09-13i item 1, 2026-09-13q item 3) — lane ``v2rampwalk``.
 Its own module because ``planar/structures.py`` and
 ``planar/structure_approach.py`` both stand at their 1,000-line budget.
 
-NOT CALLED BY THE BUILD (lane ``v2rampwalk``, 2026-09-13).  The seeding
-half below is implemented and MEASURED on one LEMD build (ledger
-``f4cf494dab92``): taxiway F-6, way −1230, deck half-width 7.6 m read off
-its own taxi cell, both service roads bored and 31h-merged into one ramp
-with mouths at the two abutments.  Arming it ALONE regresses the cockpit
-block — LEMD CRITICAL VISUAL 3 → 10, seven of the ten rows at
-40.46100, −3.54455 — because the portal RIM takes ``DEM(mouth)`` = 570.0
-(the road's ground, down in the cutting) against a taxi surface solving
-~573.5 above it, so the abutment reads as a 3.52 m cliff and mints four
-``strip_seam_tear`` rows that were zero.  §34 (5)'s other half — "the
-aeroway is a terrain deck at the taxi surface, level across the cutting
-under taxi law" — has NO DEM source (the DEM carries no bridge): the
-abutment rim would have to take the TAXI CELL's own solved value, a new
-relational law that is an owner/Fable ruling, not this lane's.  The
-module and its twins (``tests/auto_patch_v2/test_v2rampwalk.py``) stand
-so the next round starts from the measurement, not from scratch.
+ARMED at round 2 (RULINGS 2026-09-13ai).  Round 1 measured the seeding
+alone as a cockpit REGRESSION — LEMD CRITICAL VISUAL 3 → 10, seven of the
+ten rows at 40.46100, −3.54455 (ledger ``f4cf494dab92``) — because the
+portal RIM took ``DEM(mouth)`` = 570.0, the road's ground down in the
+cutting, against a taxi surface solving ~573.5 above it: a 3.52 m
+abutment cliff and four ``strip_seam_tear`` rows that were zero.
+
+THE CURE, ruled 13ai and built here: the rim under a deck takes the taxi
+cell's SOLVED surface, never ``DEM(mouth)`` — and the way to say that in
+the law this repo already has is GEOMETRIC.  The bore is clipped to the
+deck ribbon SHRUNK by the rim stand-off (``wall_gap_m +
+wall_band_width_m``) and one identity step, so the mouth stands inside
+the taxi cell and the corridor's END CAP — the rim — lands ON the cell,
+where the structure's own cut makes it the cell's hole-ring vertex.  One
+node, one value (09-01g): the rim IS the taxi surface there, and
+``constraints/structures.rim_level``'s one-way ``frontage_level`` row
+(RULINGS 2026-09-10an — the rim rises to the pavement it sits in and
+never pulls it down) governs the rest.  ``_rim_rows`` skips the DEM pin
+on a vertex the governed ground shares, so ``DEM(mouth)`` never reaches
+it.
 """
 from __future__ import annotations
 
@@ -123,7 +127,16 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         axis_fn = (lambda s, _ln=ln: (_ln.interpolate(min(s, _ln.length)).x,
                                       _ln.interpolate(min(s, _ln.length)).y))
         half = max(half, _deck_half_width(axis_fn, ss, cells, polys, half))
-        ribbon = ln.buffer(half, **_MITRE)
+        # THE MOUTH STANDS INSIDE THE DECK (spec §34 (5) as amended,
+        # RULINGS 2026-09-13ai): the clip ribbon is the deck's own
+        # half-width LESS the rim stand-off and one identity step, so the
+        # corridor's end cap — the rim — lands ON the taxi cell and shares
+        # its hole-ring vertex instead of standing 1.6 m outside it at
+        # ``DEM(mouth)``, the road's ground down in the cutting.
+        rim_off = tn.wall_gap_m + tn.wall_band_width_m
+        grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
+        half_clip = max(grid, half - rim_off - grid)
+        ribbon = ln.buffer(half_clip, **_MITRE)
         n = 0
         for r in roads:
             piece = LineString(r.points).intersection(ribbon)
@@ -138,7 +151,8 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                 parents[id(sw)] = LineString(r.points)
                 n += 1
         notes.append(f"underpass {w.tags.get('aeroway')} {w.id} (layer {w.tags.get('layer')}, "
-                     f"deck half-width {half:.1f} m): {n} road(s) bored")
+                     f"deck half-width {half:.1f} m, clip {half_clip:.1f} m): "
+                     f"{n} road(s) bored")
     return out, parents, notes
 
 

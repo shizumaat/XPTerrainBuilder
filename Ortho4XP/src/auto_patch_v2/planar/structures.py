@@ -106,7 +106,8 @@ from .structure_approach import (FieldRegion, PavementDeck, apply_plates,
                                  object_deck_intervals, pavement_deck_intervals,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
 from .structure_stats import StructureStats
-from .structure_underpass import underpass_bores as _underpass_bores, approach_along
+from .structure_underpass import (underpass_bores as _underpass_bores,
+                                  approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
 from .structure_geometry import (beyond_strip, corner_distance, geometry,
                                  pad_hit as _pad_hit)
 
@@ -675,6 +676,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         notes = []
         if len(members) > 1:
             notes.append(f"dual carriageway of {len(members)} bores (2026-08-31h)")
+        # spec §34 (5): a bore the aeroway bridge STATED — the rim under its
+        # deck takes the taxi cell's solved surface, never DEM(mouth)
+        up_deck = next((w.tags[UNDERPASS_TAG] for m in (g.members or ())
+                        for w in getattr(getattr(m, "bore", None), "ways", ())
+                        if UNDERPASS_TAG in (w.tags or {})), None)
+        if up_deck:
+            notes.append(f"{UNDERPASS_NOTE}{up_deck}")
         for d, drole in zip(decks, deck_roles):
             if d.datum == "deck_top":
                 notes.append(f"object bridge {d.ref} deck top {d.z:.2f} over s {d.s0:.0f}-{d.s1:.0f}")

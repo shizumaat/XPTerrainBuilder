@@ -71,17 +71,12 @@ class EdgeReport:
     area_cut_m2: float = 0.0
     edge_length_m: float = 0.0
     roads_governing: int = 0
-    #: spec §34 (4) as amended (RULINGS 2026-09-13ai): stations INSERTED
-    #: into a trimmed boundary so no ring edge carries more than
-    #: ``[cockpit] visual_m`` of DEM change.
-    edge_stations: int = 0
 
     def line(self) -> str:
         return (f"terrain edge: {self.trimmed_crest} region(s) cut at a CREST, "
                 f"{self.trimmed_road} at a ROAD ({self.roads_governing} road run(s)), "
                 f"{self.emptied} emptied; {self.area_cut_m2:,.0f} m² beyond the "
-                f"edge given back to the DEM, {self.edge_length_m:,.0f} m of edge "
-                f"({self.edge_stations} slope station(s))")
+                f"edge given back to the DEM, {self.edge_length_m:,.0f} m of edge")
 
 
 def road_lines(osm_ways=()) -> tuple[LineString, ...]:
@@ -349,90 +344,29 @@ def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
         kinds.add(kind)
         rep.trimmed_road += int(kind == "road")
         rep.trimmed_crest += int(kind == "crest")
-        # A TRIMMED BOUNDARY IS DENSIFIED ON A SLOPE (spec §34 (4) as
-        # amended, RULINGS 2026-09-13ai): the trim's own boundary is a
-        # STRAIGHT chord the barrier cut, and on relief a single ring edge
-        # at the arrangement's chord cap can carry metres of DEM change —
-        # measured LEMD round 1: ``zone2#21`` (155 nodes, 597.88…609.25) was
-        # trimmed to ``#23`` (37 nodes) and one 12.03 m edge carried 8.50 m,
-        # the cockpit block's worst CRITICAL VISUAL.  The untrimmed face
-        # spread the same drop over many vertices; the trim must too.
-        kept = _densify_new_boundary(kept, part, dem, law, tol)
+        # DENSIFYING THE TRIMMED BOUNDARY IS REFUTED (spec §34 (4) as
+        # amended, RULINGS 2026-09-13ai; MEASURED by lane ``v2rampwalk``
+        # round 2, one LEMD build, ledger 1498afa25daa).  The ruled remedy
+        # was to space the trim's stations so no ring edge carries more
+        # than ``visual_m`` of DEM change.  Built (``_densify_new_boundary``
+        # below, kept for the record) it inserted 402 stations and turned
+        # the ONE 8.50 m ``adjacent_ground_step`` row into 704
+        # ``within_shape`` pairs on ``graded_strip|graded_strip`` at up to
+        # 67.9 % — the base arm has ZERO.  The reason is geometric: the
+        # region's OWN outer ring runs ALONG the contour (it parallels the
+        # pavement, which is why its 155 nodes over an 11.4 m DEM range
+        # carry no row at all), while the ribbon trim's chord runs ACROSS
+        # it — every station added to a cross-contour chord is another
+        # priced pair on the same slope.  Densifying moves the reading, not
+        # the surface.  A trim that follows the contour is the open
+        # question; not this lane's to rule (the builder is DELETED, not
+        # kept gated: the measurement above and git are its record).
         new = kept.boundary.difference(part.boundary.buffer(tol))
         for ln in getattr(new, "geoms", [new]):
             if ln.geom_type == "LineString" and ln.length > tol:
                 lines.append(ln)
                 rep.edge_length_m += ln.length
-                rep.edge_stations += max(0, len(ln.coords) - 2)
         kept_parts.append(kept)
     out = unary_union(kept_parts) if kept_parts else Polygon()
     kind = "road" if "road" in kinds else ("crest" if "crest" in kinds else "none")
     return EdgeClip(out, tuple(lines), kind)
-
-
-def _densify_new_boundary(kept, part, dem, law: Law, tol: float):
-    """A TRIMMED BOUNDARY IS DENSIFIED ON A SLOPE (spec §34 (4) as amended;
-    RULINGS 2026-09-13ai).
-
-    Every ring edge of ``kept`` that the TRIM made — one whose midpoint
-    stands off ``part``'s own boundary — is split until no piece carries
-    more than ``[cockpit] visual_m`` of DEM change end to end.  The face's
-    ORIGINAL edges are untouched: they are welded to pavement and to the
-    neighbouring regions, and inserting a vertex there would move the
-    identity join, not the surface.
-
-    Returns ``kept`` unchanged where there is no DEM, no new edge, or no
-    edge carrying more than the threshold (byte-identical)."""
-    if dem is None or kept is None or kept.is_empty:
-        return kept
-    from ..law.tables import cockpit as _cockpit_law
-    step = float(_cockpit_law(law).visual_m)
-    if step <= 0.0:
-        return kept
-    grid = float(law.tables.emit.identity.min_distinct_spacing_m)
-    outline = part.boundary
-    changed = False
-
-    def _ring(coords) -> list:
-        nonlocal changed
-        out: list = []
-        cs = list(coords)
-        for i in range(len(cs) - 1):
-            a, b = cs[i], cs[i + 1]
-            out.append(a)
-            L = math.hypot(b[0] - a[0], b[1] - a[1])
-            if L <= 2.0 * grid:
-                continue
-            mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
-            if outline.distance(shapely.points(*mid)) <= tol:
-                continue                      # the face's OWN edge, welded
-            n = max(2, min(64, int(L / grid) + 1))
-            ts = np.linspace(0.0, 1.0, n + 1)
-            xs = a[0] + (b[0] - a[0]) * ts
-            ys = a[1] + (b[1] - a[1]) * ts
-            zs = _dem_many(dem, xs, ys)
-            zs = zs[np.isfinite(zs)]
-            if zs.size < 2:
-                continue
-            drop = float(zs.max() - zs.min())
-            k = int(math.ceil(drop / step))
-            if k <= 1:
-                continue
-            k = min(k, max(1, int(L / max(grid, 1e-6))))
-            for j in range(1, k):
-                f = j / k
-                out.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
-            changed = True
-        out.append(cs[-1])
-        return out
-
-    parts = []
-    for g in getattr(kept, "geoms", [kept]):
-        if g.geom_type != "Polygon" or g.is_empty:
-            continue
-        parts.append(Polygon(_ring(g.exterior.coords),
-                             [_ring(h.coords) for h in g.interiors]))
-    if not changed or not parts:
-        return kept
-    out = unary_union(parts) if len(parts) > 1 else parts[0]
-    return out if out.geom_type in ("Polygon", "MultiPolygon") else kept

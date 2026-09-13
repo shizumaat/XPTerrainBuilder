@@ -35,6 +35,7 @@ from shapely.geometry import LineString
 from ..law import Law
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
+from ..model.structures import UNDERPASS_NOTE as _UNDERPASS_NOTE
 from shapely.geometry import Point
 from shapely.strtree import STRtree
 
@@ -42,7 +43,12 @@ from .structure_approach import carriageway_width_m, is_bridge, is_tunnel_way, u
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
-__all__ = ["underpass_bores", "approach_along", "is_aeroway_bridge", "UNDERPASS_TAG"]
+__all__ = ["underpass_bores", "approach_along", "is_aeroway_bridge",
+           "UNDERPASS_TAG", "UNDERPASS_NOTE"]
+
+#: Re-exported from the RECORD (``model/structures``), where both the
+#: planar stage and the constraint generator may read it.
+UNDERPASS_NOTE = _UNDERPASS_NOTE
 
 
 def is_aeroway_bridge(tags: _t.Mapping[str, str]) -> bool:

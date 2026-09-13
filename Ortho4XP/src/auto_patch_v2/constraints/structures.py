@@ -71,7 +71,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 
 from ..law import Law
 from ..law.tables import is_rigid_role, pavement_roles
@@ -79,7 +79,7 @@ from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Source
 from ..model.frame import XY
 from ..model.planar import Face, PlanarMap
-from ..model.structures import Basin, Tunnel
+from ..model.structures import UNDERPASS_NOTE, Basin, Tunnel
 from .precedence import view
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
@@ -326,7 +326,32 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if path is not None:
             wall_vs = sorted({v for f in walls.get(tn.id, ())
                               for v in planar.ring_vertices(f.ring) if not on_floor(v)})
-            groups = _rim_rows(planar, airport, path, wall_vs, shared_with_ground, pin, src_wall)
+            # THE PORTAL RIM UNDER A DECK TAKES THE TAXI CELL'S SOLVED
+            # SURFACE (spec §34 (5) as amended; RULINGS 2026-09-13ai).  The
+            # DEM carries no bridge, so ``DEM(mouth)`` is the ROAD down in
+            # the cutting: at LEMD F-6 that pinned the abutment at 570.0
+            # against a taxi surface solving ~576, and the cockpit read a
+            # 3.5–5.3 m cliff (measured round 1 and round 2, ledgers
+            # f4cf494dab92 / 1498afa25daa).  An underpass rim vertex
+            # standing INSIDE a governed pavement cell is therefore not
+            # pinned at the DEM at all: it takes an EQUALITY (offset 0) to
+            # that cell's own nearest vertex — the ``frontage_level``
+            # mechanism, two-sided here because the rim IS the deck's
+            # surface, not a crest that merely rises to it.
+            up_ref = next((n[len(UNDERPASS_NOTE):] for n in tn.notes
+                           if n.startswith(UNDERPASS_NOTE)), None)
+            on_deck: dict[int, int] = {}
+            if up_ref is not None:
+                for v in wall_vs:
+                    gv = _deck_cell_vertex(planar, vw, v, structure_roles)
+                    if gv is not None:
+                        on_deck[v] = gv
+                for v, gv in on_deck.items():
+                    rows.append(Offset(v, gv, 0.0, src_wall))
+                    rows.append(Offset(gv, v, 0.0, src_wall))
+            shared = (shared_with_ground if not on_deck
+                      else (lambda v: v in on_deck or shared_with_ground(v)))
+            groups = _rim_rows(planar, airport, path, wall_vs, shared, pin, src_wall)
             if tn.cap_centre is not None and groups:
                 uc = path.project(Point(tn.cap_centre))
                 cap_reps.append(min(groups, key=lambda g: abs(g[0] - uc))[1][0])
@@ -569,8 +594,14 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     if not grp:
                         continue
                     ref = d.end_ref[k] if k < len(d.end_ref) else ""
-                    gv = _nearest_vertex(planar, faces_by_ref.get(ref, ()), dpoly) \
-                        if ref else None
+                    # ...measured from the WAY'S OWN END, not from the deck
+                    # POLYGON: the face is the corridor crossing and stops
+                    # short of the end, so the nearest apron vertex to the
+                    # POLYGON stood 33.8 m away on a 470-node apron at 607.4
+                    # where the vertex the end actually meets is 13.4 m away
+                    # at 606.6 (measured LEMD -6288, round 2 replay)
+                    gv = _nearest_vertex(planar, faces_by_ref.get(ref, ()),
+                                         Point(d.end_xy[k])) if ref else None
                     if gv is not None and gv not in set(deck_sorted):
                         # RELATIONAL EQUALITY: |z[deck] - z[pavement]| <= tol
                         for dv in grp:
@@ -597,6 +628,31 @@ def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:
             d = near.distance(Point(planar.vertices[v].xy))
             if best is None or d < best[0]:
                 best = (d, v)
+    return None if best is None else best[1]
+
+
+def _deck_cell_vertex(planar: PlanarMap, vw, v: int, structure_roles) -> int | None:
+    """THE DECK CELL A PORTAL RIM VERTEX STANDS IN (spec §34 (5) as
+    amended): the governed pavement face whose ring CONTAINS the vertex's
+    plan point, and that face's nearest OTHER vertex — the value the rim
+    takes.  ``None`` where the vertex stands on no such face (an ordinary
+    rim, which keeps 09-03b L1's DEM pin)."""
+    pt = Point(planar.vertices[v].xy)
+    best = None
+    for fid, cap in vw.caps.items():
+        f = planar.faces[fid]
+        if cap is None or f.role in structure_roles or f.role == "graded_strip":
+            continue
+        ring = list(vw.rings[fid])
+        if v in ring:
+            continue
+        poly = Polygon([planar.vertices[u].xy for u in ring])
+        if not poly.is_valid or not poly.contains(pt):
+            continue
+        for u in ring:
+            d = pt.distance(Point(planar.vertices[u].xy))
+            if best is None or d < best[0]:
+                best = (d, u)
     return None if best is None else best[1]
 
 

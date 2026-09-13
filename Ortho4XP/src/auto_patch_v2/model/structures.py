@@ -135,6 +135,16 @@ def profile_z(profile: "tuple[tuple[float, float], ...]", s: float) -> float:
     return float(profile[-1][1])
 
 
+#: THE UNDERPASS MARK (spec §34 (5) as amended; RULINGS 2026-09-13ai).
+#: The prefix of the ``Tunnel.notes`` line the planar stage writes when an
+#: ``aeroway`` ``bridge=yes`` way STATED the crossing, naming that way.
+#: The constraint generator reads it to put the portal rim on the DECK
+#: cell's own solved surface instead of ``DEM(mouth)``, which is the road
+#: down in the cutting.  It lives on the RECORD because both layers read
+#: it and ``constraints`` may not import ``planar``.
+UNDERPASS_NOTE = "underpass under aeroway "
+
+
 @_dc.dataclass(frozen=True)
 class Deck:
     """A road bridge deck across a ramp (RULINGS 2026-08-30c/d/f/m).

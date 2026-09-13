@@ -3547,3 +3547,29 @@ spread 4.97 → ≤ 0.3; per-placement zero spread ≤ 0.3 for every bridge;
 cross-bridge carriers 2 → 0; `bridge_of` published for all 30 members;
 walls (§16e (1)) and the 8 drainage basins byte-identical; LEMD 1.0.325
 byte-identical; plan stage not worse than 80 s (`--runs 3`); suite twice.
+
+### §16e (3) WITHDRAWN; (6) AMENDED (Fable 2026-09-13; RULINGS 2026-09-13ae)
+
+Lane `v2bridgecontact` refuted (3) a third way (its MEASURED block above):
+OTHH's bridge clutter runs BESIDE the deck plate (only 51–71 of ~80–102
+bridge bodies inside a deck footprint or within 0.5 m; the rest 0.6 … 45 m
+outside) and Bridge_02/03/06 are an interchange whose decks overlap in plan.
+A footprint family is partial, and a partly-bound bridge is worse than an
+unbound one (cross-bridge carriers 2 → 9 on both arms).
+
+3. **WITHDRAWN.** The deck is the only datum body of a bridge. Its separate
+   clutter and piers rest on their own ground under §16c and are REPORTED
+   per body: `Body.bridge_of` (the deck whose model footprint contains the
+   body, or ""), the per-placement zero spread and the cross-bridge carrier
+   count are census lines, not bars. No bind and no carrier filter reads
+   `bridge_of`. The owner's read of OTHH in app 1.0.327 decides whether any
+   further bridge law is wanted.
+6. **AMENDED — the walk stops at the first dry, level line.** The first
+   limb (a graded pavement/road face) is unreadable where the mesh carries
+   no roles (no graded face within 140 m landward of either Bridge_01
+   abutment). The end-line datum walks landward from the end line in 5 m
+   steps and stops at the first line that is DRY (no water sample) and
+   LEVEL within `split_tol_m` across its span — that line is the design
+   surface's graded ground there; the bank is exactly where the line is not
+   level. Measured: Bridge_01 / 04 / 05 deck tops 3.96 / 3.96 / 3.96 against
+   the land at 3.96.

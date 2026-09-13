@@ -352,7 +352,14 @@ def clip_to_terrain_edge(geom, seed, dem, roads, law: Law,
         # below, kept for the record) it inserted 402 stations and turned
         # the ONE 8.50 m ``adjacent_ground_step`` row into 704
         # ``within_shape`` pairs on ``graded_strip|graded_strip`` at up to
-        # 67.9 % — the base arm has ZERO.  The reason is geometric: the
+        # 67.9 % — the base arm has ZERO.  CORRECTED by the arm that
+        # DELETED it: 671 of those 704 stand WITHOUT the densifier, so the
+        # cost is the TRIM's, not the densification's (+33); and the 8.49 m
+        # row it was ruled to remove SURVIVED both arms unchanged, because
+        # the edge carrying it lies on the region's ORIGINAL outer ring —
+        # the trim only removed the material beside it — where the
+        # densifier deliberately does not insert (those vertices are welded
+        # to the neighbouring regions).  The reason is geometric: the
         # region's OWN outer ring runs ALONG the contour (it parallels the
         # pavement, which is why its 155 nodes over an 11.4 m DEM range
         # carry no row at all), while the ribbon trim's chord runs ACROSS

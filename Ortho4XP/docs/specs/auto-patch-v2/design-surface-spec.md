@@ -5854,6 +5854,112 @@ neutral move to stay under the 1,000-line budget: `StructureStats` out of
 `--stage structures` LEMD replays whose `structures.json` differ only in
 their timing fields.
 
+### 34.6 **MEASURED, ROUND 2** (lane `v2rampwalk`, `claude/v2rampwalk` merged onto main `864e7577`)
+
+Arms, both `--engine v2` LEMD, ONE tree, one corpus, the shared-repo guard
+clean on both.  **BASE** = main `864e7577` (`--base-arm`, artifact
+`439c6493b02c`, body `667e8c2761ed`, 430.5 s, `status optimal`, verify
+1,431).  **LANE** = this tree (artifact `6afd79da37d2`, body
+`c482e5366f6c`, 449.1 s, **`status optimal`**, verify 1,290).  An
+intermediate lane arm — before the round-2 attempt 2 on §33 (4) / §34 (5)
+and with the densifier still in — is `1498afa25daa` (body `2411176dea57`,
+428.2 s, `feasible`) and is quoted where it isolates a mechanism.
+
+**CENSUS**: TOTAL 3,698 → 4,363; **ADJUDICATED 1,215 → 1,154 (−61)**; out
+of scope 2,483 → 3,209.  `taxi_box` 240 → 193, `transverse` 80 → 49,
+`airside_no_step` 433 → 408, `strip_transverse` 44 → 37, against
+`within_shape` 2,848 → 3,574 and `road_cross_section` 23 → 58.
+
+**COCKPIT, both arms.**  BASE: CRITICAL motion 2 (worst 0.430 m over
+58.03 m, `strip_arc` at 40.4625636, −3.5525152), CRITICAL visual 3 (worst
+1.720 m over 1.5 m, `adjacent_ground_step` at 40.4856895, −3.5884014).
+LANE: CRITICAL **motion 2 → 1** (worst 0.230 m over 66.18 m at
+40.4928034, −3.5741300), CRITICAL **visual 3 → 11** (worst 8.490 m over
+12.03 m at 40.5331907, −3.5748496; then 5.29 m at 40.4609964, −3.5416344
+and 40.4610048, −3.5445453).  The visual regression is (3)'s and (5)'s,
+attributed below.
+
+**§34 (6) THE RAMP PROFILE SITS UNDER THE CAP — LANDED, BAR MET.**  Each
+ramp pair is priced `cap − hard_tol_m / d`.  `within_shape`
+`tunnel_ramp|tunnel_ramp` **20 (base) → 28 (lane)**: round 1's +847 rows
+at 8.02–8.03 % against the 8.00 % cap are GONE (the +8 is the two extra
+underpass ramps).  And the design solve is back to **`optimal`** — round
+1's `optimal → feasible` was the monotone profile pressed onto the cap;
+one `hard_tol_m` of headroom settles the active set (208 rounds, no
+"SET NOT SETTLED" line).
+
+**§33 (4) A DECK END IS AN EQUALITY — LANDED, BAR MET.**  The end group
+takes a two-sided `Offset(deck, pavement, ±split_tol_m)` to the governed
+cell `deck_ends` found, and the cell's nearest vertex is now measured
+FROM THE WAY'S OWN END, not from the deck polygon (the face is the
+corridor crossing and stops 18 m short, so the polygon's nearest apron
+vertex stood 33.8 m away on a 470-node apron).  LEMD `bridge_deck:-6288`
+east-most vertex **608.25 → 607.65** against the `pav92` vertex 13.4 m
+from the way's east end at **607.47**: a gap of **0.18 m**, inside
+`split_tol_m` 0.3 (round 1: 1.66 m).  NOTE FOR THE RECORD: the equality
+is two-sided, so BOTH ends moved — that apron vertex went 606.60 → 607.47
+while the deck came down 0.60 m.  West end 609.28 → 608.84 against its
+DEM chord window 609.38 ± 0.3 (0.54 m under it; the west end runs onto an
+unclassified road and has no governed cell to tie to).
+
+**§34 (5) THE PORTAL RIM UNDER A DECK — PARTLY LANDED, BAR MISSED.**
+`structure_underpass.py` is ARMED; LEMD reports `underpasses 1`, taxiway
+F-6 way −1230 (deck half-width 7.6 m read off its own taxi cell, clip
+5.5 m), both service roads bored and 31h-merged, `tunnel:-5821+-5820@0/@1`
+mouths at the abutments, ramps 96 / 84 m, floor 564.90, and both records
+carry the mark `underpass under aeroway -1230`.  TWO cures were built:
+(a) the clip is shrunk by the rim stand-off so the corridor's end cap
+lands ON the taxi cell, and (b) an underpass rim vertex standing inside a
+governed pavement cell takes a two-sided `Offset` (offset 0) to that
+cell's nearest vertex instead of `_rim_rows`' DEM pin.  MEASURED: the rim
+way at the mouth now runs **570.0…576.07** where the taxi cell `pav157`
+is at 576.45 — the shared half took the deck.  THE BAR IS STILL MISSED:
+CRITICAL visual at the site is not 0 and `strip_seam_tear` is 2, not 0.
+The residual is a DIFFERENT face: the 5.29 m row is
+`graded_strip|junction` between `adjacent_ground:taxi:E:zone1#75`
+(568.66…575.52), the ADJACENT-GROUND band the corridor cut, and the
+taxiway at 576.45 — the zone band beside the trench follows the trench
+down.  That is the zone law beside a structure, not the rim's datum, and
+it is outside both this clause's text and this lane's attempt cap.
+
+**KCLT ITEM 3 — MEASURED BY REPLAY (no build).**  Main's load cure works:
+with `auto_patch.engine_v2.fresh_pack_dump` in the inputs KCLT loads in a
+lane worktree.  KCLT carries **124** `aeroway` + `bridge` ways, of which
+**3** reach `underpass_min_layer` — the 121 others are JET BRIDGES
+(`aeroway=jet_bridge bridge=yes highway=footway`, no `layer`), which the
+layer gate excludes by construction.  **Taxiway U, way −1560** (deck
+half-width 18.0 m, clip 15.9 m): **2 roads bored**, one of them the
+untagged tertiary −13664, mouths at **35.2015761, −80.9403453** and
+**35.2018654, −80.9403264** — 21.4 m and 40.2 m inside 13ai's bar
+coordinates (35.2013838 / 35.2022266, −80.94041), which mark the bridge's
+own ends rather than the abutments the clip puts the mouths at.  Two more
+underpasses at KCLT: taxiways −71 and −70 (deck half-widths 6.4 / 5.6 m,
+one road each, 8.6 / 6.9 m of bore — just over `underpass_min_span_m`).
+No KCLT BUILD was run: the LEMD build is the round's one closing build.
+
+**§34 (4) A TRIMMED BOUNDARY IS DENSIFIED ON A SLOPE — REFUTED AND
+DELETED.**  Built as ruled (`visual_m` of DEM change per ring edge, on the
+trim's own new edges only): it inserted 402 stations and the 8.50 m row
+DID NOT MOVE (8.500 → 8.490).  Attributed on the arm that removed it: the
+edge carrying the row is **A 40.5332464, −3.5760707 z 599.45 → B
+40.5331383, −3.5760707 z 607.94, 12.03 m apart** on
+`adjacent_ground:runway:4:zone2#24`'s ORIGINAL outer ring — the trim
+removed the material beside it, it did not create it, and the densifier
+deliberately does not insert into a region's own welded edges.  The
+`graded_strip|graded_strip` `within_shape` count is **671 without the
+densifier and 704 with it** against **0** in the base, so the 671 are the
+TRIM's price and only 33 were the densification's.  The builder is
+deleted (the comment at the call site and git are its record); the open
+question — a trim that follows the contour instead of cutting across it —
+is named there and is not this lane's to rule.
+
+**SUITE** `tests/auto_patch_v2` + `tests/test_harness.py`: **1,214 passed,
+1 skipped, twice**, after the merge and again at the end.  The v1 tunnel /
+bridge / ramp / portal set: 904 passed, the SAME three pre-existing reds
+13r named.  Files under the 1,000-line budget throughout
+(`structures.py` 953, `structure_approach.py` 898,
+`constraints/structures.py` 961, `structure_underpass.py` 261).
+
 ### §28 (6) A hillside terrace is not a frontage (Fable 2026-09-13; RULINGS 2026-09-13o) — lane `v2frontagestep`
 
 Owner (13l item 1): at CYXY the groundside lots beside two buildings cut into a hill

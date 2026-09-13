@@ -22,6 +22,11 @@ import math
 
 from ..constraints.geometry import principal_axis
 from ..law.tables import zone2_half_width_m
+from ..model.structures import deck_z_on_faces
+
+#: The corridor ring's own identity spacing (1 m), in DEGREES — the
+#: published corridor is lon/lat and the tolerance travels with it.
+_RING_TOL_DEG = 1.0 / 111320.0
 from .frame import Patch, Row, Shape, row
 
 __all__ = ["wall_in_runway_strip", "basin_floor_declaration", "tunnel_mouth_canonical",
@@ -166,7 +171,16 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
             declared[str(ref)] = {"floor_m": float(rec["floor_m"]),
                                   "wall_ref": str(rec.get("wall_ref") or ""),
                                   "depth": (None if rec.get("floor_below_rim_m") is None
-                                            else float(rec["floor_below_rim_m"]))}
+                                            else float(rec["floor_below_rim_m"])),
+                                  # §24 (5) (owner RULINGS 2026-09-13g): under a
+                                  # ramp corridor the floor is the published
+                                  # DECK minus the clearance, per station — the
+                                  # one depth is not the law there
+                                  "clearance": float(rec.get("floor_clearance_m") or 0.0),
+                                  "ramp_faces": [[tuple(q) for q in t]
+                                                 for t in (rec.get("ramp_faces_ll") or ())],
+                                  "ramp_rings": [[tuple(q) for q in r]
+                                                 for r in (rec.get("ramp_rings_ll") or ())]}
         except (KeyError, TypeError, ValueError):
             continue
     rims: dict[str, list[tuple[tuple[float, float], float]]] = {}
@@ -189,7 +203,16 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
             continue
         rim = rims.get(rec["wall_ref"]) or []
         for k, z in enumerate(f.z):
-            if rec["depth"] is not None and rim:
+            # the corridor is published in LON / LAT: the patch's metres are
+            # not the planar frame's, and the join has to be in the one
+            # coordinate system both carry
+            vlat, vlon = p.ll[f.ids[k]]
+            deck = deck_z_on_faces(rec.get("ramp_faces") or (), rec.get("ramp_rings") or (),
+                                   vlon, vlat, ring_tol=_RING_TOL_DEG)
+            if deck is not None:
+                want = deck - rec["clearance"]
+                what = f"ramp deck {deck:.2f} - {rec['clearance']:.2f}"
+            elif rec["depth"] is not None and rim:
                 x, y = f.xy[k]
                 rz = min(rim, key=lambda q: (q[0][0] - x) ** 2 + (q[0][1] - y) ** 2)[1]
                 want, what = rz - rec["depth"], f"rim {rz:.2f} - {rec['depth']:.2f}"

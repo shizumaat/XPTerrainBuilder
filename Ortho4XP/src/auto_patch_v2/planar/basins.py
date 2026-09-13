@@ -30,12 +30,18 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    ground is a BUILDING standing on the pack's plane over real relief
    — REFUSED by resource with its height above the ground (LEMD's cargo
    terminal: slab 5.8 m under the local ground, walls 15 m above it).
-2. REGION — the union of the witnesses' footprints BELOW THE GROUND
-   (not below the admission plane: the cut must reach the shell's rim —
-   under the 2.5 m clip OTHH's Drainage_06 bowl split into three pieces
-   with its −2.51 m floor between them left uncut), closed at
+2. REGION — the union of the witnessing components' OUTER PLAN
+   FOOTPRINTS (spec §24 (4), owner RULINGS 2026-09-13g: the wall face at
+   the TOP of the walls, ``FloorWitness.outer``), closed at
    ``footprint_close_m``, one region per connected part.  NO AREA GATE:
-   ``min_area_m2`` is reported per basin as a diagnostic.
+   ``min_area_m2`` is reported per basin as a diagnostic.  It was the
+   witnesses' footprints CLIPPED BELOW THE GROUND — and that clip is
+   taken at ONE plane per component (the DEM under its centroid), so
+   every part of the shell standing above that plane was missing from
+   the region: at LEMD's T4S pit the modelled road ramp left the cut the
+   moment it climbed through 593.00, a 52 x 11 m notch a building pad
+   then filled 2.92 m over the ramp.  (The clip is still the ADMISSION's
+   evidence — rule 1 reads a floor under the ground.)
 3. RIM DIAGNOSTIC — the ring's stations (``rim_sample_step_m`` apart)
    farther than ``footprint_close_m`` from the member OBJECTS' at-grade
    geometry (every component's geometry from ``contact_band_m`` under
@@ -99,6 +105,16 @@ governed ground's value where shared: the rim LEVEL with the apron,
 pavement and pad it lies under at the rim (08-26: inside a below-grade
 region the trench is senior to every pad/building authority;
 ``cuts_pads``).
+
+THE FLOOR FOLLOWS A RAMP (owner RULINGS 2026-09-13g, spec §24 (5)): a
+component of the basin's own shell whose near-horizontal DECK faces climb
+from the floor plate to the rim at a drivable grade (``ramp_max_grade``)
+is a RAMP CORRIDOR — its plan is a floor face of the trench and the
+terrain under it takes the deck's authored elevation minus
+``floor_clearance_m`` per station (``constraints/structures.basins``,
+``Basin.deck_z_at``), never the one depth.  A bowl's BANK climbs from
+floor to rim as well and is refused by its grade; every candidate is
+reported in the basin's notes with its reading.
 
 Every vertex is born on the identity grid; the FLOOR is snapped away
 from the rim so the gap survives the arrangement's rounding (the M4
@@ -224,6 +240,21 @@ def shell_thickness_m(region: Polygon, plates, step_m: float = 1.0,
             best = d if best is None else min(best, d)
     t = best or 0.0
     return min(t, max_m) if max_m is not None else t
+
+
+def _outer(w) -> Polygon:
+    """THE REGION IS BUILT FROM THE SHELL'S OUTER PLAN FOOTPRINT (owner
+    RULINGS 2026-09-13g, spec §24 (4)) — the wall face at the TOP of the
+    walls, not ``FloorWitness.below``'s clip at the DEM under the
+    component's centroid.  ``below`` is the ADMISSION's evidence (rule 1
+    reads a floor under the ground); as the REGION it made the cut follow
+    a contour of the terrain through the middle of the shell: at LEMD's
+    T4S pit 11 of the 59 ring nodes stood 6–15 m from any wall, and the
+    modelled road ramp — the shell's own deck, rising through that one
+    plane — was cut out of the region as a 52 x 11 m notch that a
+    building pad then filled 2.92 m over the ramp.  A record made before
+    §24 (4) (a fixture) keeps ``below``."""
+    return w.below if getattr(w, "outer", None) is None else w.outer
 
 
 def _rim(region: Polygon, inset: float, grid: float) -> Polygon | None:
@@ -354,7 +385,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     witnessed = [o for o in objects if o.witnesses]
     if not witnessed:
         return classification, (), stats
-    u = unary_union([w.below for o in witnessed for w in o.witnesses])
+    u = unary_union([_outer(w) for o in witnessed for w in o.witnesses])
     u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
     parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and not g.is_empty]
     stats.regions = len(parts)
@@ -379,8 +410,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     for k, ring in enumerate(rings):
         bid = f"basin:{k}"
         site = _ll(airport, ring)
-        members = [o for o in witnessed if any(w.below.intersects(ring) for w in o.witnesses)]
-        wits = [w for o in members for w in o.witnesses if w.below.intersects(ring)]
+        members = [o for o in witnessed if any(_outer(w).intersects(ring) for w in o.witnesses)]
+        wits = [w for o in members for w in o.witnesses if _outer(w).intersects(ring)]
         member_ids = {o.id for o in members}
         plate = unary_union([w.plate for w in wits]).intersection(ring).area
         for o in members:
@@ -474,6 +505,20 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # THE STAND-OFF COMES OUT OF THE FLOOR (§24 (1)), never out of the
         # cut's outline: the rim is the wall face and the floor is trimmed
         # to clear it by the mesh wall band's width
+        # ── §24 (5): THE FLOOR FOLLOWS A RAMP ─────────────────────────
+        # The shell's own deck climbing from the floor to the rim is a
+        # RAMP: the terrain under it is part of the trench (so the cut
+        # reaches it at all) and follows the deck per station
+        # (``constraints/structures.basins``), never the one depth.
+        ramps: list[tuple[Polygon, list]] = []
+        for o in members:
+            idx = [w.comp_index for w in o.witnesses
+                   if w.comp_index >= 0 and _outer(w).intersects(ring)]
+            if not idx:
+                continue
+            ramps.extend(_basin_witness.ramp_decks(o, cache, idx, floor_z, rest, bl.contact_band_m,
+                                         bl.floor_plate_normal_y_min, grid,
+                                         bl.ramp_max_grade))
         trimmed = _floors_inside(floors, rim, standoff, grid)
         if not trimmed:
             stats.refused.append(f"{bid}: no floor plate ({plate:.0f} m2) survives the "
@@ -482,6 +527,32 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             continue
         floor_trim_m2 = sum(f.area for f in floors) - sum(f.area for f in trimmed)
         floors = trimmed
+        # the ramp corridors become floor faces of their own, the plate's
+        # floor keeping every metre it already had (``ring`` — the plate
+        # seat's stations, 09ac (2) — is the plate face's, untouched)
+        plate_floor_u = unary_union(floors)
+        ramp_floors: list[Polygon] = []
+        ramp_faces: list[tuple] = []
+        for r in ramps:
+            if not r["admitted"]:
+                continue
+            for part in _parts(r["ring"].intersection(rim).difference(plate_floor_u)):
+                ramp_floors.extend(_floors_inside([part], rim, standoff, grid))
+        ramp_floors = [f for f in ramp_floors if f.area >= grid * grid]
+        # THE PUBLISHED DECK IS THE DECK OVER THE FLOOR IT GOVERNS.  A
+        # corridor read off the shell runs past the trench — over the pit's
+        # own floor plate at its foot, and out beyond the rim — and a face
+        # there would state a profile for terrain no basin row owns (at
+        # LEMD 78 of 138 deck vertices then read "buried" against the APRON
+        # over them, −8.91 m, which is the wall, not the ramp).
+        if ramp_floors:
+            gov = unary_union(ramp_floors).buffer(grid, **_MITRE)
+            for r in ramps:
+                if not r["admitted"]:
+                    continue
+                ramp_faces.extend(t for t in r["faces"]
+                                  if gov.covers(Point(sum(q[0] for q in t) / 3.0,
+                                                      sum(q[1] for q in t) / 3.0)))
         if tunnel_u is not None and rim.buffer(grid).intersects(tunnel_u):
             # a sunken road (2026-09-08b/c Law B) is a STRUCTURE before this
             # pass runs: its plate is never a basement, by ORDER (spec §4)
@@ -491,16 +562,17 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             stats.refused.append(f"{bid}: {ring.area:.0f} m2 overlaps a tunnel structure "
                                  f"({owner or 'a bore ramp'}; structures are never cut) at {site}")
             continue
-        void = rim.difference(unary_union(floors))
+        all_floors = floors + ramp_floors
+        void = rim.difference(unary_union(all_floors))
         floor_ref, wall_ref = f"basin_floor:{k}", f"basin_wall:{k}"
-        for j, f in enumerate(floors):
+        for j, f in enumerate(all_floors):
             new_cells.append((FLOOR_ROLE, floor_ref if j == 0 else f"{floor_ref}#{j}", f, ()))
         for part in _parts(void):
             new_cells.append((WALL_ROLE, wall_ref, part,
                               tuple(tuple(h.coords)[:-1] for h in part.interiors)))
         knives.append(rim)
         kind = "covered pit" if cov > 0.0 else "pit"
-        floor_area = sum(f.area for f in floors)
+        floor_area = sum(f.area for f in all_floors)
         # THE SEAT THE DESIGN IMPLIES (2026-09-06b (3)): the family's plate
         # y (the deepest member's, relative to its rendered y = 0 plane);
         # an anchor INSIDE the floor renders on the floor after the mesh,
@@ -526,7 +598,17 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                   f"rim_protrusion_max_fraction {bl.rim_protrusion_max_fraction:.0%}, 2026-09-06f: "
                   f"cover, not the rim)") if prot.protrusion_fraction > 0.0
                  else "rim tops out in the contact band",
-                 f"floor faces {len(floors)} ({floor_area:.0f} m2 of {ring.area:.0f} m2 region)",
+                 f"floor faces {len(all_floors)} ({floor_area:.0f} m2 of {ring.area:.0f} m2 "
+                 f"region)",
+                 (f"ramp corridors {len(ramp_floors)} ({sum(f.area for f in ramp_floors):.0f} m2, "
+                  f"{len(ramp_faces)} deck face(s)): the floor under them follows the deck "
+                  f"per station (13g §24 (5))" if ramp_floors
+                  else "no ramp corridor: the one depth stands everywhere (§24 (5))"),
+                 "deck candidates: " + ("; ".join(
+                     f"{r['area_m2']:.0f} m2 rise {r['rise_m']:.2f} m over run {r['run_m']:.1f} m "
+                     f"= grade {r['grade']:.2f} — "
+                     + ("RAMP" if r["admitted"] else f"refused ({r['reason']})")
+                     for r in ramps) or "none"),
                  f"anchor {'INSIDE' if inside else 'outside'} the floor: plate y {plate_y:+.2f}, "
                  f"seat expect {seat_expect:+.2f} m"]
         if ring.area < bl.min_area_m2:
@@ -539,7 +621,14 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                             float(plate), kind, tuple(ring.exterior.coords)[:-1],
                             tuple(o.id for o in members), float(plate_y),
                             str(deepest.id), inside,
-                            float(seat_expect), float(deepest.agl_m)))
+                            float(seat_expect), float(deepest.agl_m),
+                            tuple(tuple(f.exterior.coords)[:-1] for f in ramp_floors),
+                            tuple(ramp_faces),
+                            tuple(tuple(_lonlat(airport, x, y)
+                                        for x, y in tuple(f.exterior.coords)[:-1])
+                                  for f in ramp_floors),
+                            tuple(tuple(_lonlat(airport, q[0], q[1]) + (q[2],) for q in t)
+                                  for t in ramp_faces)))
     stats.basins = len(basins)
     if not basins:
         return classification, (), stats
@@ -589,6 +678,14 @@ def _rim_estimate(airport: Airport, ring: Polygon, step: float) -> float | None:
         if not math.isnan(z):
             vals.append(z)
     return float(median(vals)) if vals else None
+
+
+def _lonlat(airport: Airport, x: float, y: float) -> tuple[float, float]:
+    """``(lon, lat)`` — the SIDECAR's own ordering (the published corridor
+    is read back by ``verify`` against the patch's lat/lon, never the
+    planar frame's metres)."""
+    la, lo = airport.frame.transformers()[1](x, y)
+    return (float(lo), float(la))
 
 
 def _ll_pair(airport: Airport, geom) -> tuple[float, float]:

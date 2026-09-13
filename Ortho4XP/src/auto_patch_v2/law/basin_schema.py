@@ -32,6 +32,7 @@ class Basin:
     cuts_pads: bool
     cuts_runway_family: bool
     floor_plate_normal_y_min: float    # 04i: the floor-plate gate
+    ramp_max_grade: float              # 2026-09-13g (spec §24 (5)): a basin DECK steeper than this is a bowl's BANK, not a drivable ramp — the floor under it keeps the one depth
     rim_reaches_grade: bool            # 04i: the closed-region test
     rim_protrusion_max_fraction: float # 2026-09-06f: this share of a component's face area may stand above the band (a tower in the pit is not the rim)
     authored_depth_min_m: float        # 2026-09-09ag: the floor plate stands this far under the placement's OWN render datum too — the depth is AUTHORED (spec §13)

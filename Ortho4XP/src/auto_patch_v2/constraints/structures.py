@@ -482,6 +482,16 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # over the mapped way's own chord — a single flat datum at the
             # HIGHER end would stand 3.5 m over the apron at the other
             # (measured LEMD -6288: ends 609.99 west / 606.10 east).
+            # REFUTED (lane v2wallplate, round 2, MEASURED, one build): making
+            # the profile span the DECK FACE's own extent instead of the way's
+            # — so the face's edges carry the end values — moved the east edge
+            # the WRONG way (608.26 -> 608.81 against an apron at 606.60), cost
+            # 149 verify rows (1372 -> 1521, road_cross_section 22 -> 72) and
+            # dropped the solve from optimal to feasible.  The face's own edges
+            # do not reach the end values because the deck ring's vertices ARE
+            # the corridor RIM's (they are the same nodes), so the deck cannot
+            # move without the rim; do not retry it without ruling that
+            # coupling first.
             if len(d.end_z) == 2 and len(d.end_xy) == 2 \
                     and not any(math.isnan(z) for z in d.end_z):
                 (ax, ay), (bx, by) = d.end_xy

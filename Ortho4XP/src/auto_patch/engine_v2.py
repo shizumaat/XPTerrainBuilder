@@ -656,6 +656,10 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         # (A), owner RULINGS 2026-09-12ap: the height a cross-member
         # §16c (7) bind may move a body off its OWN ground.
         bind_ground_m=law.tables.emit.cockpit.visual_m,
+        # §16e (6): the deck end line's LANDWARD WALK to the graded face
+        # the deck connects to (RULINGS 2026-09-13v).
+        abutment_step_m=law.tables.structures.bridge.abutment_sample_step_m,
+        abutment_walk_max_m=law.tables.structures.bridge.abutment_walk_max_m,
         pads=pads, rims=rims,
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))

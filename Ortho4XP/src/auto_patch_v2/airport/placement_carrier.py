@@ -45,7 +45,8 @@ __all__ = ["is_elevated", "coarsen", "bind_plan_overlaps", "Candidate",
            "census_v15", "census_v15_lines", "STANDS_OVER_TOL_M",
            "merge_rides", "cut_order", "group_at_zero", "senior_of",
            "FOOTLESS_KEPT", "KEPT_FOOTLESS", "KEPT_NO_CARRIER", "OWN_GROUND",
-           "THICKNESS_SKIP", "LAWFUL_SKIPS", "_v15_rows"]
+           "THICKNESS_SKIP", "LAWFUL_SKIPS", "_v15_rows",
+           "census_bridges", "census_bridges_lines"]   # §16e (3)
 
 # THE INSTRUMENTS LIVE NEXT DOOR (``placement_census``) and are re-exported
 # here: every caller — both tools and the twins — reads them as this
@@ -985,7 +986,8 @@ from .placement_census import (                          # noqa: E402
     KEPT_NO_CARRIER, LAWFUL_SKIPS, OWN_GROUND, STANDS_OVER_TOL_M,
     THICKNESS_SKIP, _v15_rows, census_population, census_population_lines,
     census_v14, census_v14_lines, census_v15, census_v15_lines, census_v16,
-    census_torn_seams, census_torn_seams_lines,
+    census_torn_seams, census_torn_seams_lines, census_bridges,
+    census_bridges_lines,
     OUTSIDE_TOL_M, census_outside_box, census_outside_box_lines,
     census_v16_lines, census_v16b, census_v16b_lines,
     # §17 THE COCKPIT FRAME, object stage (RULINGS 2026-09-12x/12y)

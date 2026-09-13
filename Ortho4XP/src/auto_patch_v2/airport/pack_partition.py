@@ -316,14 +316,25 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                and _line.is_line_object(cache, o.resolved, rb))
     if is_line:
         counts["line_objects"] += 1
-    # the tail is passed BY NAME: a new optional field inserted before
-    # ``skirted`` silently shifted these two positionally (measured while
-    # adding ``plate_clearance_m``, 2026-09-11t — the viaduct's
+    # EVERY OPTIONAL FIELD IS PASSED BY NAME.  Twice now a field inserted
+    # into ``model.rebake.Member`` has silently shifted this call's
+    # positional tail: ``plate_clearance_m`` in 2026-09-11t (the viaduct's
     # ``elevated_deck`` read False and every member's ``skirted`` read the
-    # clearance)
-    member = Member(o.id, rel, o.resolved, live_path_of(o.resolved),
-                    o.heading_deg, (), None, None, None, o.deck_kind, None,
-                    (), (), (), None, (),
+    # clearance), and ``deck_end_stations`` in 5fc707eb / §16e (2), which
+    # slid ``plate_y`` onto the ``()`` meant for ``plate_stations`` —
+    # ``plate_y is not None`` is ``planar.group._eligible``'s first test, so
+    # EVERY body at LEMD came out ineligible and the pad group law derived
+    # 0 groups, 0 relief bodies (measured 2026-09-13, lane ``v2settle``).
+    # Naming the tail is not a style choice: it is the only spelling a
+    # future insertion cannot break.  ``tests/auto_patch_v2/test_v2settle
+    # .py`` twins it.
+    member = Member(id=o.id, resource=rel, authored_path=o.resolved,
+                    live_path=live_path_of(o.resolved),
+                    heading_deg=o.heading_deg, parts=(),
+                    deck_ring=None, deck_top_y=None, deck_datum_z=None,
+                    deck_kind=o.deck_kind, deck_ends=None,
+                    deck_end_stations=(), deck_profile=(), deck_evidence=(),
+                    deck_stations=(), plate_y=None, plate_stations=(),
                     skirted=skirted, elevated_deck=deck_body)
     return member, (o, geom, list(comps)), bool(is_line)
 

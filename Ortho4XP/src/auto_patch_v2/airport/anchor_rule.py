@@ -255,9 +255,25 @@ class Datum:
     y: float
     stations: tuple[tuple[float, float], ...]
     label: str
+    #: §16e (6): the deck's two END LINES ``((a, b), (c, d))`` in
+    #: ``(lat, lon)`` — what the LANDWARD WALK walks, one line at a time,
+    #: away from the span.  Empty for a crest plate (a wall band does not
+    #: walk) and for a deck whose plan carries no ends.
+    ends: tuple[tuple[tuple[float, float], tuple[float, float]], ...] = ()
+    #: §16e (6): the walk's step and its reach (``[bridge]
+    #: abutment_sample_step_m`` / ``abutment_walk_max_m``) and the
+    #: LEVEL tolerance that says an end line has left the bank
+    #: (``[placement] split_tol_m`` — the same 0.3 m that says one
+    #: terrain group).  All zero = the walk is not armed and the
+    #: stations are read where they stand, which is §16e (2) exactly.
+    step_m: float = 0.0
+    walk_max_m: float = 0.0
+    level_tol_m: float = 0.0
 
 
-def datum_of(m: _t.Any) -> "Datum | None":
+def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
+             abutment_walk_max_m: float = 0.0,
+             level_tol_m: float = 0.0) -> "Datum | None":
     """§16e: the datum ONE MEMBER carries, or ``None``.
 
     Read off the plan's own member record by attribute, so that a twin
@@ -277,7 +293,15 @@ def datum_of(m: _t.Any) -> "Datum | None":
     land under its ring is untouched) and the member's components reach
     NO ground within the ring (no part of it carries a foot).  A deck
     with feet is a deck that meets the ground somewhere and the generic
-    rule reads it there."""
+    rule reads it there.
+
+    §16e (5): A PARTLESS DECK MEMBER IS A BODY, and it reaches this rule
+    with ``parts`` empty — the ``feet`` test below is then vacuously
+    true, which is the answer the law wants (a member with no genuine
+    solid has no foot anywhere).
+
+    §16e (6): the walk's three numbers ride the Datum rather than this
+    module, which holds no law constant."""
     plate_y = getattr(m, "plate_y", None)
     if plate_y is not None and float(plate_y) > 0.0:
         st = tuple(getattr(m, "plate_stations", ()) or ())
@@ -289,7 +313,13 @@ def datum_of(m: _t.Any) -> "Datum | None":
             and getattr(m, "deck_kind", "") in ("flag", "signature")):
         st = tuple(getattr(m, "deck_end_stations", ()) or ())
         if st and not any(getattr(p, "feet", ()) for p in getattr(m, "parts", ())):
-            return Datum(float(top), st, "deck top")
+            ends = tuple(tuple((float(q[0]), float(q[1])) for q in ln)
+                         for ln in (getattr(m, "deck_ends", None) or ()))
+            return Datum(float(top), st, "deck top",
+                         ends=ends if len(ends) >= 2 else (),
+                         step_m=float(abutment_step_m),
+                         walk_max_m=float(abutment_walk_max_m),
+                         level_tol_m=float(level_tol_m))
     return None
 
 
@@ -338,12 +368,17 @@ def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     reads every sample as land, which is the old behaviour exactly — no
     reading is no evidence.
 
+    §16e (6): AND FOR A DECK TOP THE STATIONS WALK LANDWARD FIRST
+    (:func:`_walked_stations`) — the datum is the graded face the deck
+    CONNECTS TO, not the bank under its end line.
+
     ``None`` where no station reads a surface at all: nothing to anchor
     to, and the generic rule then reads as before."""
     water = getattr(surface, "water", None)
+    stations, walked = _walked_stations(datum, surface, water)
     zs: list[tuple[float, float, float]] = []
     wet = off = 0
-    for la, lo in datum.stations:
+    for la, lo in stations:
         z = surface(la, lo)
         if z is None:
             off += 1
@@ -359,7 +394,110 @@ def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     return Anchor(body_class, la, lo, datum.y,
                   f"§16e {datum.label} datum: the authored y {datum.y:+.2f} at "
                   f"the ground {z:.2f} ({len(zs)} station(s) on land, {wet} on "
-                  f"water, {off} off-sheet)", z, datum=True)
+                  f"water, {off} off-sheet{walked})", z, datum=True)
+
+
+def _line_reading(pts: _t.Sequence[tuple[float, float]], surface: Surface,
+                  water) -> tuple[list[tuple[float, float, float]], int, int]:
+    """One end line's samples: ``(kept, wet, off)`` — the land readings,
+    how many stations stood on water and how many off every face."""
+    kept: list[tuple[float, float, float]] = []
+    wet = off = 0
+    for la, lo in pts:
+        z = surface(la, lo)
+        if z is None:
+            off += 1
+            continue
+        if water is not None and water(la, lo):
+            wet += 1
+            continue
+        kept.append((float(z), float(la), float(lo)))
+    return kept, wet, off
+
+
+def _walked_stations(datum: "Datum", surface: Surface, water
+                     ) -> tuple[tuple[tuple[float, float], ...], str]:
+    """§16e (6): THE DECK'S END-LINE DATUM IS THE GRADED FACE THE DECK
+    CONNECTS TO, NOT THE BANK UNDER THE END LINE (Fable 2026-09-13;
+    RULINGS 2026-09-13v).
+
+    ``Bridge_01``'s end lines stand on the canal bank: the mesh reads
+    1.89 … 3.23 at one end and 2.55 … 3.96 at the other, the pooled
+    median is 3.23, and the deck seated 0.73 m BELOW the road at 3.96
+    that drives onto it — a step at the abutment (measured, lane
+    ``v2othhdatums``).  So each end line SHIFTS LANDWARD — away from the
+    other end, which is the span — one ``step_m`` at a time up to
+    ``walk_max_m``, and stops at the first offset where the line has
+    left the bank:
+
+    * no station of it reads WATER and none is off every face, AND
+    * the line has REACHED GRADED GROUND — either the design surface
+      names a FACE ROLE under it (``surface.roles``, the spec's first
+      limb: a graded pavement/road face), or the line is LEVEL within
+      ``level_tol_m``.
+
+    THE SECOND LIMB IS THE ONE OTHH TAKES, AND IT IS MEASURED, NOT
+    ASSUMED: there is NO graded face within 140 m landward of either of
+    Bridge_01's ends (894 faces, ``roles_many`` empty at every station
+    of every offset out to 140 m), and the DESIGN GROUND the road stands
+    on there is the flat 3.96 the other three bridges carry as their own
+    ``deck_datum_z``.  The bank is exactly the stretch where the line is
+    NOT level: ``end0`` spans 1.34 m at the end line, 1.76 m at 5 m,
+    0.44 m at 10 m and 0.00 m (all 3.96) from 15 m; ``end1`` spans
+    1.41 / 0.28 / 0.24 / 0.12 and 0.00 m from 20 m.  Walking further
+    than the first level line would walk INTO the next canal (``end0``
+    is back over water from 85 m), which is why the walk stops at the
+    first offset that satisfies it and never at the best of all of them.
+
+    A walk that never satisfies the test keeps the ORIGINAL stations —
+    no reading is no evidence, and §16e (2)'s pooled median stands.
+
+    Returns ``(stations, note)``; ``note`` is what the anchor's reason
+    prints about the walk."""
+    if (not datum.ends or datum.step_m <= 0.0 or datum.walk_max_m <= 0.0
+            or len(datum.ends) < 2):
+        return (tuple(datum.stations), "")
+    # ONE derivation (11j) — and the UNMEMOISED metres-per-degree, for
+    # ``bridge_family``'s reason: ``_m_per_deg`` memoises per 1e-4 deg and
+    # its value depends on which call site touched a key FIRST, so asking
+    # it from a NEW site moves every later ``authored_offset`` in the
+    # airport by microns and breaks the byte-identity of resources this
+    # law does not touch (measured, this lane).
+    from .rebake_plan import _mpd, end_line_stations
+    roles = getattr(surface, "roles", None)
+    mids = [(0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])) for a, b in datum.ends]
+    out: list[tuple[float, float]] = []
+    walks: list[str] = []
+    for i, (a, b) in enumerate(datum.ends):
+        base = end_line_stations([(a, b)], datum.step_m)
+        ml, mo = _mpd(mids[i][0])
+        other = mids[(i + 1) % len(mids)]
+        dla = (mids[i][0] - other[0]) * ml
+        dlo = (mids[i][1] - other[1]) * mo
+        norm = math.hypot(dla, dlo)
+        chosen, moved = base, -1.0
+        if norm > 1e-6:
+            ux, uy = dla / norm, dlo / norm
+            w = 0.0
+            while w <= datum.walk_max_m + 1e-9:
+                pts = tuple((la + ux * w / ml, lo + uy * w / mo)
+                            for la, lo in base)
+                kept, wet, off = _line_reading(pts, surface, water)
+                if kept and not wet and not off:
+                    zs = [q[0] for q in kept]
+                    level = (datum.level_tol_m > 0.0
+                             and max(zs) - min(zs) <= datum.level_tol_m)
+                    graded = False
+                    if roles is not None:
+                        graded = any(roles.roles_many([q[0] for q in pts],
+                                                      [q[1] for q in pts]))
+                    if level or graded:
+                        chosen, moved = pts, w
+                        break
+                w += datum.step_m
+        out.extend(chosen)
+        walks.append("-" if moved < 0.0 else f"{moved:.0f} m")
+    return (tuple(out), f"; landward walk {' / '.join(walks)}")
 
 
 # ── the class ────────────────────────────────────────────────────────────

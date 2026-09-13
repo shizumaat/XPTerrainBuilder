@@ -8,7 +8,8 @@ promoted on its second use by lane ``v2chord``).
 
     venv/bin/python tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl
     venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar]
-        [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy]
+        [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy] [--why-hard [N]]
+    venv/bin/python tools/v2_solve_replay.py --why-from SOLVED.pkl --why-hard [N]
 
 ``--capture`` runs load → PACK PARTITION + GROUPS (owner RULINGS
 2026-09-11j; folded in 2026-09-12u after a replay off a capture without
@@ -296,6 +297,71 @@ def _worst_vertex_at(pm, airport, z, at: tuple, radius_m: float):
     return None if best is None else best[1]
 
 
+def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print) -> dict:
+    """EVERY VIOLATED HARD ROW OF A SOLVED SURFACE (spec §32 (4) instrument;
+    promoted from scout ``v2unsettled2``'s ``hardrows.py`` on its second use).
+
+    ``HARD SET NOT SETTLED`` names ONE row — its ruling, truncated.  That is
+    not enough to attribute: 12u spent a scout re-deriving the population by
+    hand, and 13ac needed the row's VERTICES and their lat/lon to see that
+    main's worst row was a pair the zone projection had clamped
+    independently.  This prints the whole violated set: generator, ruling,
+    demanded vs allowed metres, and per vertex the id, coefficient, solved z,
+    DEM, lat/lon and the roles touching it.
+
+    It re-assembles the design problem from ``(pm, cs, law)`` — the same
+    ``solve.design.assemble`` the solve runs — and applies design.py's own
+    row scaling (``2 / Σ|c|``, so every violation reads in METRES of surface,
+    the units ``hard_tol_m`` is stated in).  Read-only: no solve, no write.
+    """
+    from auto_patch_v2.law.tables import design as design_law
+    from auto_patch_v2.solve.design import assemble
+    from auto_patch_v2.solve.design_report import DesignReport
+    base = assemble(pm, cs, law, DesignReport())
+    tol = float(design_law(law).hard_tol_m)
+    rows = []
+    for k in sorted(base.hard):
+        terms, bound, row = base.one[k]
+        s = sum(abs(c) for _v, c in terms)
+        sc = 2.0 / s if s > 0 else 1.0
+        val = sum(c * float(z[v]) for v, c in terms)
+        v = (val - float(bound)) * sc
+        if v > tol:
+            rows.append((v, k, terms, float(bound), val, row))
+    rows.sort(key=lambda r: -r[0])
+    by_gen: dict[str, int] = {}
+    for v, _k, _t, _b, _val, row in rows:
+        by_gen[row.source.generator] = by_gen.get(row.source.generator, 0) + 1
+    out(f"[{icao}] why-hard: {len(rows)} / {len(base.hard)} hard rows violated over "
+        f"hard_tol_m {tol} m"
+        + (f"; worst {rows[0][0]:.6f} m" if rows else " — HARD SET SETTLED"))
+    if by_gen:
+        out("    by generator: " + ", ".join(f"{k} {n}" for k, n in
+                                             sorted(by_gen.items(), key=lambda kv: -kv[1])))
+    recs = []
+    for v, k, terms, bound, val, row in rows[:limit]:
+        out(f"--- row {k}  violation {v:.4f} m  gen={row.source.generator}")
+        out(f"    ruling: {row.source.ruling[:160]}")
+        out(f"    demanded {val:.4f} vs allowed {bound:.4f} (raw {val - bound:+.4f})")
+        vs = []
+        for vid, c in terms:
+            key = pm.vertices[vid].key
+            roles = sorted({pm.faces[f].role for f in pm.vertices[vid].incident_faces})
+            out(f"      v{vid} c={c:+.6f} z={float(z[vid]):.4f} dem={pm.vertices[vid].dem_z} "
+                f"ll={key[0]},{key[1]} roles={roles}")
+            vs.append({"v": vid, "c": c, "z": round(float(z[vid]), 4),
+                       "dem": pm.vertices[vid].dem_z, "lat": key[0], "lon": key[1],
+                       "roles": roles})
+        recs.append({"row": k, "violation_m": round(v, 6),
+                     "generator": row.source.generator, "ruling": row.source.ruling,
+                     "demanded": round(val, 6), "allowed": round(bound, 6),
+                     "vertices": vs})
+    return {"icao": icao, "hard_rows": len(base.hard), "violated": len(rows),
+            "hard_tol_m": tol, "settled": not rows,
+            "worst_m": round(rows[0][0], 6) if rows else 0.0,
+            "by_generator": by_gen, "rows": recs}
+
+
 def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
               out=print, relax: list[str] | None = None, vertex: int | None = None) -> dict:
     """``why`` for the highest crown-ridge vertex of ``runway`` in stations
@@ -397,7 +463,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            sites: list[tuple[float, float]] | None = None, emit_dir: Path | None = None,
            why_hump: tuple[str, float, float] | None = None, verify: bool = False,
            solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
-           site_radius_m: float = 12.0) -> int:
+           site_radius_m: float = 12.0, why_hard_limit: int | None = None) -> int:
     import numpy as np
     from auto_patch_v2.airport.road_profile import preferred_road_z
     from auto_patch_v2.law import Law
@@ -566,6 +632,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             with solved_out.open("wb") as fh:
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm, "cs": cs,
                              "z": z}, fh)
+        if why_hard_limit is not None:
+            result["why_hard"] = why_hard(icao, pm, law, cs, z, why_hard_limit)
         if why_hump is not None:
             result["why_hump"] = _why_hump(icao, pm, law, airport, cs, z, *why_hump)
         if z_out is not None:
@@ -634,6 +702,14 @@ def main() -> int:
                          "of this coordinate — the owner's own frame for naming a site, "
                          "so a report does not have to translate a coordinate into a "
                          "vertex id by hand (lane v2roadcap2)")
+
+
+    ap.add_argument("--why-hard", nargs="?", type=int, const=40, default=None, metavar="N",
+                    help="list EVERY violated hard row of the solved surface (spec §32 (4)): "
+                         "generator, ruling, demanded vs allowed metres, and per vertex the "
+                         "id, coefficient, z, DEM, lat/lon and roles; N caps the printed rows "
+                         "(default 40, the counts and the JSON cover them all).  Works on a "
+                         "--replay arm and on a --why-from PKL")
     ap.add_argument("--why-relax", nargs="+", default=[], metavar="FAMILY",
                     help="relax-one-family arms (solve.why family labels) over the hump's ridge vertices")
     ap.add_argument("--why-hump", nargs=3, metavar=("RUNWAY", "S0", "S1"),
@@ -649,6 +725,11 @@ def main() -> int:
         with a.why_from.open("rb") as fh:
             sv = pickle.load(fh)
         law = Law.for_airport(sv["icao"])
+        if a.why_hard is not None:
+            res = why_hard(sv["icao"], sv["pm"], law, sv["cs"], sv["z"], a.why_hard)
+            if a.json:
+                a.json.write_text(json.dumps(res, indent=1, default=str))
+            return 0
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else ("", 0.0, 0.0)
         vertex = a.why_vertex
         if a.why_at:
@@ -673,7 +754,7 @@ def main() -> int:
                                       for k, v in (it.split("=") for it in a.design_weight)},
                       verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
                       emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
-                      chord_fill=tuple(a.chord_fill))
+                      chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard)
     ap.error("one of --capture / --replay")
     return 2
 

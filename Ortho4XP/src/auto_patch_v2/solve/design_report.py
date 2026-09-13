@@ -161,6 +161,14 @@ class DesignReport:
     one_way_rounds: int = 0
     one_way_settled: bool = True
     one_way_move_m: float = 0.0
+    #: §20a THE LAG IS A CONVERGENCE CONDITION (Fable 2026-09-13; owner
+    #: RULINGS 2026-09-13ac).  When the lag exhausts ``one_way_max_rounds``
+    #: without reaching ``one_way_tol_m`` the report NAMES the failure —
+    #: how many rows still move, the worst row's generator and ruling, its
+    #: LEADER vertex (id and lat/lon) and that leader's last move.  Until
+    #: 13ac the cap was a silent stop at three rounds and the polish ran
+    #: inside a lag that had not converged.
+    one_way_failure: dict[str, _t.Any] = _dc.field(default_factory=dict)
     bend_rows_by_class: dict[str, int] = _dc.field(default_factory=dict)
     #: THE MISSED TARGETS (sidecar ``design_target``, RULINGS 2026-09-08t/v):
     #: one record per law row the design surface did not reach — its family,
@@ -203,6 +211,57 @@ class DesignReport:
         self.hard_worst = "" if self.hard_settled else ruling(int(np.argmax(viol)))
         return worst
 
+    def read_lag_failure(self, ow_i: np.ndarray, move: np.ndarray, tol: float,
+                         cap: int, one: list, one_way: dict, planar: _t.Any
+                         ) -> dict[str, _t.Any]:
+        """§20a: NAME the lag's failure (owner RULINGS 2026-09-13ac).
+
+        ``one_way_max_rounds`` is a SAFETY CEILING, not a schedule: hitting
+        it means the leader/follower fixed point did not contract, and the
+        augmented-Lagrangian polish that follows is then iterating inside a
+        problem that is still moving under it — which is how LEMD's 2-3 cm
+        pad-ceiling shortfall crossed ``hard_tol_m`` while the report said
+        only ``LAG NOT SETTLED``.
+
+        ``move`` is the last round's per-row leader motion, positionally
+        over ``ow_i``.  Records the rows still moving, the worst row's
+        generator / ruling, its LEADER vertices (the terms that are not the
+        row's ``one_way`` followers) with their canonical lat/lon, and that
+        leader's move."""
+        if not move.size:
+            return self.one_way_failure
+        k = int(np.argmax(move))
+        row_i = int(ow_i[k])
+        _terms, _b, row = one[row_i]
+        followers = set(one_way.get(row_i) or ())
+        leaders = [v for v, _c in _terms if v not in followers]
+        self.one_way_failure = {
+            "rounds": self.one_way_rounds, "cap": cap, "tol_m": tol,
+            "rows_moving": int(np.count_nonzero(move > tol)),
+            "rows": int(move.size),
+            "worst_move_m": round(float(move[k]), 6),
+            "worst_row": row_i,
+            "generator": row.source.generator,
+            "ruling": row.source.ruling[:120],
+            "leaders": [{"v": v,
+                         "lat": planar.vertices[v].key[0],
+                         "lon": planar.vertices[v].key[1]} for v in leaders[:4]],
+            "followers": sorted(followers)[:4]}
+        return self.one_way_failure
+
+    def lag_failure_line(self) -> str:
+        """The named failure, one line (empty where the lag settled)."""
+        f = self.one_way_failure
+        if not f:
+            return ""
+        led = ", ".join(f"v{r['v']} at {r['lat']:.11f},{r['lon']:.11f}"
+                        for r in f["leaders"]) or "(no leader column)"
+        return (f"LAG NOT SETTLED after {f['rounds']} of {f['cap']} round(s): "
+                f"{f['rows_moving']} of {f['rows']} one-way rows still move "
+                f"more than {f['tol_m']} m; worst {f['worst_move_m']:.4f} m on "
+                f"row {f['worst_row']} ({f['generator']}: {f['ruling']}), "
+                f"leader {led}")
+
     def as_dict(self) -> dict[str, _t.Any]:
         return {"rounds": self.rounds, "converged": self.converged,
                 "set_flips": self.set_flips,
@@ -230,6 +289,7 @@ class DesignReport:
                 "one_way_rounds": self.one_way_rounds,
                 "one_way_settled": self.one_way_settled,
                 "one_way_move_m": round(self.one_way_move_m, 6),
+                "one_way_failure": self.one_way_failure,
                 "bend_rows_by_class": self.bend_rows_by_class,
                 "targets": len(self.targets),
                 "solver_wall_s": round(self.solver_wall_s, 3),
@@ -292,7 +352,9 @@ class DesignReport:
                 f"{', HARD SET SETTLED' if self.hard_settled else ', HARD SET NOT SETTLED'}), "
                 f"{self.one_way_rows} one-way rows in {self.one_way_rounds} lag "
                 f"round(s) (worst leader move {self.one_way_move_m:.3f} m"
-                f"{'' if self.one_way_settled else ', LAG NOT SETTLED'}), "
+                + ('' if self.one_way_settled
+                   else ', ' + (self.lag_failure_line() or 'LAG NOT SETTLED'))
+                + "), "
                 f"{self.solver_wall_s:.2f} s solver; "
                 + self.runway_projection.line() + "; "
                 + self.zone_projection.line() + "; "

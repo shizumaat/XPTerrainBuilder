@@ -1267,13 +1267,16 @@ def test_bare_dsf_outside_a_pack_keeps_legacy_alongside_cache(
 
 def test_mesh_hook_swallows_exceptions(monkeypatch):
     """``build_mesh``'s tail (and ``sort_mesh``'s) calls the shared
-    guard ``_auto_patch_post_mesh_rebake``; a raising
-    ``rebake_dsf_objects`` must never propagate out of it."""
+    guard ``_auto_patch_post_mesh_rebake``; a raising re-seat must never
+    propagate out of it.  The re-seat is v2's ``rebake_after_mesh`` (v1
+    retired, RULINGS 2026-09-13au — the guard no longer dispatches to
+    ``post_mesh.rebake_dsf_objects``)."""
+    from auto_patch import engine_v2
+
     def exploding_rebake(tile):
         raise RuntimeError("synthetic post-mesh failure")
 
-    monkeypatch.setattr(
-        post_mesh, "rebake_dsf_objects", exploding_rebake)
+    monkeypatch.setattr(engine_v2, "rebake_after_mesh", exploding_rebake)
     messages = []
     monkeypatch.setattr(
         O4_Mesh_Utils.UI, "vprint",

@@ -24,5 +24,14 @@ ECONOMY section there is law:
   are deleted; chip/lane branches are merged by the spawner — report your
   branch and sha, do not merge main yourself unless the brief says so.
 
+- WAITING: never poll with an unbounded loop. A `while`/`until … sleep`
+  loop must carry a deadline (`timeout 3600 zsh -c '…'`, `|| [ $SECONDS
+  -gt 3600 ]`, or a counter) and print `TIMED_OUT` when it fires — the
+  bash guard refuses the unbounded form (owner 2026-09-13: two waiters
+  ran 21 h and 24 h after their producers died). Prefer a foreground
+  build (the harness returns when it exits) or the task notification
+  over a poll loop; size the deadline to the thing you wait for (a build
+  ≤ 15 min, a suite ≤ 10 min) — never "until it appears".
+
 Report back: what was measured (with the ledger key or build tag), what
 changed, the branch/sha, and every item you did NOT do.

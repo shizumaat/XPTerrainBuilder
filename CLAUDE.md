@@ -180,6 +180,11 @@ is what that costs.
   is a private measurement frame — warm it explicitly via
   `--refresh-data dem`). Timing runs stay exclusive per the standing law.
 
+- An unbounded waiter (`until [ -s FILE ]; do sleep 60; done`) that
+  outlives its producer: two ran 21 h and 24 h on 2026-09-13. The bash
+  guard refuses a sleeping `while`/`until` loop with no `timeout N`,
+  `$SECONDS` deadline or counter; size the bound to the wait.
+
 ### Traps still on you
 
 - Single-run wall times swing ±25%: never A/B one run per side (use the

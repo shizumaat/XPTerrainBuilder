@@ -2020,20 +2020,13 @@ def solve_route_profile(layout, icao: str,
     )
 
     t0 = _time.time()
-    # ── THE SOLVE-MODEL SWITCH (constructive-solve round) ────────────
-    # ``O4_Solve_Model`` is THE ONE READER (K2's plumbing: env >
-    # per-tile cfg > global cfg > default; a typo RAISES).  This deep
-    # call site has no Tile — the driver's ``tile_scope`` published the
-    # tile's value to the environment for exactly this read, and a lane
-    # arm pins the mode the same way (``O4_SOLVE_MODEL``).
-    import O4_Solve_Model as _SM
-    _solve_constructive = _SM.is_constructive()
-    if _solve_constructive:
-        import O4_UI_Utils as _UI_sm
-        _UI_sm.vprint(1, f"  [solve-model] {icao}: CONSTRUCTIVE solve "
-                         f"core (spec constructive-solve; anchor "
-                         f"assembly, law objects and the publication "
-                         f"tail shared with the iterative model)")
+    # ── THE SOLVE-MODEL SWITCH: RETIRED (owner RULINGS 2026-09-13bh).
+    # ``solve_model`` was v1's solver switch and ``O4_Solve_Model`` its
+    # one reader; both are gone.  This is v1 code, and the ITERATIVE
+    # core is what it always built with, so the switch is a CONSTANT.
+    # The constructive grafts below stand unreachable until v1 itself is
+    # deleted (stage B).
+    _solve_constructive = False
     nodes, bucket_to_idx = _build_node_list(layout)
     if not nodes:
         return

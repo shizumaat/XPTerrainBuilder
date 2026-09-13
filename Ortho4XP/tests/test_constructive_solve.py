@@ -24,9 +24,11 @@ These pin the spec's pre-delegated properties at unit level:
   the redistributed axis with the CIFP thresholds as the ONLY pegs
   (snapped or synthetic).
 
-(The mode key itself — precedence, typo refusal, tile publication — is
-K2's ``O4_Solve_Model``, twinned in ``tests/test_solve_model.py``; the
-dispatch site here only calls ``is_constructive()``.)
+(The mode KEY is gone: the owner retired ``solve_model`` and
+``O4_Solve_Model`` with it (RULINGS 2026-09-13bh) — v1 always built with
+the iterative core, so the dispatch site is a constant and these
+constructive primitives stand unreachable from a build until v1 itself
+is deleted.  They are still twinned here, as the spec's record.)
 """
 import math
 import os

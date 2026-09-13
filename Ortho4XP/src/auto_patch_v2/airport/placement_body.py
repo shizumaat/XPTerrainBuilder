@@ -22,6 +22,8 @@ from ..model.rebake import Member, Part, Unit
 from . import anchor_rule as _ar
 from . import basin_ring as _br
 from . import placement_carrier as _pc
+from . import bridge_family as _bf
+from . import rebake_plan as _rbp
 from .placement_carrier import is_elevated
 from .placement_cut import (_basin_floor_member, _bodies_of,
                             _cut_parts_by_terrain, _floor_member,
@@ -50,6 +52,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 contact_eps_m: float = 0.0,
                 contact_pairs: _t.Sequence[tuple[int, int]] = (),
                 rigid_reach_m: float = 0.0,
+                abutment_step_m: float = 0.0,
+                abutment_walk_max_m: float = 0.0,
                 cutter: "_LineCutter | None" = None
                 ) -> list[_Raw]:
     """One member's bodies, classed and anchored — the per-placement half,
@@ -64,13 +68,31 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
     groups instead.  §16 (2)'s part and triangle cuts stay exactly as
     they were for a body that stands on the ground."""
     groups = _bodies_of(m, edges)
-    pid_of = {p.pid: p for p in m.parts}
+    parts_of_member = m.parts
     if cutter is None:
         cutter = _LineCutter(m, line_segment_m, line_stations_max, foot_band_m,
                              line_ratio, line_max_h, u.anchor[0], u.anchor[1],
                              contact_eps_m=contact_eps_m,
                              contact_pairs=contact_pairs,
                              rigid_reach_m=rigid_reach_m)
+    # §16e (5): A PARTLESS DECK MEMBER IS A BODY (Fable 2026-09-13;
+    # RULINGS 2026-09-13v).  ``Bridge_04`` / ``Bridge_05``'s deck members
+    # carry ``parts 0`` — the partition found no genuine solid in a
+    # 0.14 m-thick deck plate — so no group formed, no body was made,
+    # nothing was anchored and both stayed KEPT on their row at 6.43 m
+    # against land at 3.96 (measured, lane ``v2othhdatums``).  It is the
+    # §16 (1) POPULATION class, not a skip: the member's own declared
+    # components ARE its body, and it anchors under §16e (2) like any
+    # other deck.  Only a member the DATUM claims is admitted here — a
+    # partless member with no datum has no height the law can put
+    # anywhere and stays exactly as it was.
+    if not parts_of_member and _ar.datum_of(m) is not None:
+        parts_of_member = _declared_parts(m, cutter)
+        if parts_of_member:
+            counts["datum_partless_members_bodied"] = \
+                counts.get("datum_partless_members_bodied", 0) + 1
+            groups = [[p.pid for p in parts_of_member]]
+    pid_of = {p.pid: p for p in parts_of_member}
     # §16c (6)/(7): THE CLUSTER IS THE ATOM, and that is a statement
     # about the BODY and not only about the cut.  The ε-contact graph
     # forms one body per component where it records no contact at all
@@ -182,7 +204,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         # such a member the body's own written geometry is the file's own
         # triangles — not the parts the partition happened to record.
         own_tris = (cutter.all_tris() if len(groups) == 1 else ())
-        whole0 = _whole_body(parts, m, u, surface, pads, body_rims, split_tol_m)
+        whole0 = _whole_body(parts, m, u, surface, pads, body_rims, split_tol_m,
+                             abutment_step_m, abutment_walk_max_m)
         if is_elevated(base_min, whole0[1], elevated_base_m) or whole0[3]:
             # §16b (1): THE TERRAIN CUT IS PRIOR AND UNIVERSAL, and it is
             # read on the body's OWN WRITTEN TRIANGLES.  §16a (1) left a
@@ -294,7 +317,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             if not is_basin and any(p.feet for p in parts):
                 if whole is None:
                     whole = _whole_body(parts, m, u, surface, pads, body_rims,
-                                        split_tol_m)
+                                        split_tol_m, abutment_step_m,
+                                        abutment_walk_max_m)
                 off = _pc.anchor_ground_off(whole[1], whole[2], surface)
             foot_pieces = (cutter.foot_groups(parts, surface, split_tol_m,
                                               line_stations_max)
@@ -363,7 +387,11 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                         u.anchor[0], u.anchor[1])
                     ta = _ar.anchor_for(tcls, tgeom, surface, pads, body_rims,
                                         tol_m=split_tol_m,
-                                        datum=_ar.datum_of(m))   # §16e
+                                        datum=_ar.datum_of(       # §16e
+                                            m,
+                                            abutment_step_m=abutment_step_m,
+                                            abutment_walk_max_m=abutment_walk_max_m,
+                                            level_tol_m=split_tol_m))
                     # §16 (1): a triangle group of a body with no ground
                     # contact has none either (the VOR-marker class)
                     tfootless = (not any(p.feet for p in parts)
@@ -377,7 +405,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 continue
             if whole is None:
                 whole = _whole_body(parts, m, u, surface, pads, body_rims,
-                                    split_tol_m)
+                                    split_tol_m, abutment_step_m,
+                                    abutment_walk_max_m)
             cls, a, feet, footless = whole
             gpts, _gs, gg = _geom_ground(
                 cutter, parts, own_tris if len(pieces_p) == 1 else (), surface)
@@ -390,9 +419,74 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
     return raw
 
 
+def _declared_parts(m: Member, cutter: "_LineCutter") -> list[Part]:
+    """§16e (5): the MODEL'S DECLARED BOUNDS as parts — one :class:`Part`
+    per solid component of the authored file, for a member whose plan
+    carries none.
+
+    The partition's ``parts`` are the GENUINE solids; a deck plate
+    0.14 m thick is refused by the thickness gate and the member reaches
+    the placement path with an empty tuple.  Its file is not empty:
+    ``Bridge_04`` publishes 54 solid triangles in ONE component and
+    ``Bridge_05`` 18, both ``ATTR_hard_deck`` (which is why the deck
+    signature flagged them at all).  Those components, read through the
+    cutter that is already open on the file, are the body.
+
+    The pids are NEGATIVE and derived from the placement's own DSF row,
+    so they are unique across the pack and match no real pid: the
+    contact / abutment graph speaks in plan pids and must record no edge
+    for a part the plan never published.  ``feet`` is empty — a deck
+    plate has no ground contact, which is exactly what §16e (2)'s datum
+    is for."""
+    if not cutter._read():                                   # noqa: SLF001
+        return []
+    row = 0
+    tail = str(getattr(m, "id", "")).rsplit(":", 1)[-1]
+    digits = "".join(ch for ch in tail if ch.isdigit())
+    if digits:
+        row = int(digits)
+    out: list[Part] = []
+    for ci, c in enumerate(cutter._comps):                   # noqa: SLF001
+        tris = c.tris
+        if tris is None or len(tris) == 0:
+            continue
+        lat0, lon0 = _bf._latlon(float(c.cx), float(c.cz),
+                                 cutter.lat, cutter.lon, m.heading_deg)
+        box = _declared_box(cutter, tris, m)
+        # the UNMEMOISED reading, for ``bridge_family``'s own reason:
+        # seeding ``anchor_rule``'s memo from a new call site moves every
+        # later offset in the airport by microns
+        ml, mo = _rbp._mpd(lat0)
+        out.append(Part(pid=-(1 + row * 1000 + ci), comp=ci,
+                        lat=lat0, lon=lon0, base_y=float(c.min_y),
+                        area_m2=float(max(0.0, (box[2] - box[0]) * ml)
+                                      * max(0.0, (box[3] - box[1]) * mo)),
+                        box=box, feet=(), line=False))
+    return out
+
+
+def _declared_box(cutter: "_LineCutter", tris, m: Member
+                  ) -> tuple[float, float, float, float]:
+    """One component's plan box in ``(lat, lon)`` — the declared bounds
+    §16e (5) names, read off the same vertices the cut will write."""
+    import numpy as np
+    v = cutter._geom.vertices                                # noqa: SLF001
+    ids = np.unique(np.asarray(tris, dtype=np.int64).reshape(-1))
+    ids = ids[ids < v.shape[0]]
+    pts = [_bf._latlon(float(v[i, 0]), float(v[i, 2]), cutter.lat,
+                       cutter.lon, m.heading_deg)
+           for i in ids.tolist()]
+    if not pts:
+        return (cutter.lat, cutter.lon, cutter.lat, cutter.lon)
+    return (min(q[0] for q in pts), min(q[1] for q in pts),
+            max(q[0] for q in pts), max(q[1] for q in pts))
+
+
 def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
                 surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
-                rims: _t.Sequence[_ar.RimRing], split_tol_m: float
+                rims: _t.Sequence[_ar.RimRing], split_tol_m: float,
+                abutment_step_m: float = 0.0,
+                abutment_walk_max_m: float = 0.0
                 ) -> tuple[str, _ar.Anchor, tuple, bool]:
     """One set of parts CLASSED and ANCHORED as a body: ``(class, anchor,
     feet, footless)`` — §6's rule, read once.
@@ -426,7 +520,10 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
                tuple((f[0], f[1], f[2]) for f in p.feet)) for p in parts),
         u.anchor[0], u.anchor[1])
     a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m,
-                       datum=_ar.datum_of(m))                    # §16e
+                       datum=_ar.datum_of(                       # §16e
+                           m, abutment_step_m=abutment_step_m,
+                           abutment_walk_max_m=abutment_walk_max_m,
+                           level_tol_m=split_tol_m))
     feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet) \
         or tuple((p.lat, p.lon, p.base_y) for p in parts)
     footless = (not any(p.feet for p in parts)

@@ -3965,3 +3965,176 @@ def test_a_flag_decks_end_lines_come_from_its_ring():
     st = RP.end_line_stations(ends, 2.0)
     assert len(st) >= 12 and all(round(p[1], 8) in (0.0, 1e-3) for p in st)
     assert RP.ring_ends(((0.0, 0.0), (0.0, 1.0))) is None
+
+
+# ── §16e (3)/(5)/(6) (Fable 2026-09-13; RULINGS 2026-09-13v) ─────────────
+
+def test_the_deck_end_line_datum_walks_landward_to_the_graded_ground():
+    """§16e (6): the datum is the graded face the deck CONNECTS TO, not
+    the bank under the end line.
+
+    OTHH's ``Bridge_01`` end lines stand on the canal bank — the mesh
+    reads 1.89 … 3.23 at one end and 2.55 … 3.96 at the other, the pooled
+    median is 3.23 and the deck seated 0.73 m BELOW the road at 3.96 that
+    drives onto it.  Each end line shifts LANDWARD, away from the span,
+    until it is DRY and LEVEL, which is where it has left the bank."""
+    # two end lines 20 m apart in latitude; LANDWARD is away from the
+    # other end.  The bank rises over the first 14 m of each walk and is
+    # UNEVEN across the line while it does (the reading the walk leaves).
+    M = 111_132.954
+    ends = (((0.0, 0.0), (0.0, 2e-5)), ((-2e-4, 0.0), (-2e-4, 2e-5)))
+
+    def surface(la, lo):
+        d = la * M if la >= -1e-4 else (-2e-4 - la) * M
+        d = max(d, 0.0)
+        if d >= 14.0:
+            return 3.96
+        return 1.9 + (d / 14.0) * 2.06 + (0.5 if lo > 1e-5 else 0.0)
+
+    # ...and one station of the NEAR end line itself is over water
+    surface.water = lambda la, lo: abs(la) < 1e-9 and lo > 1.5e-5
+
+    d = AR.Datum(3.575, tuple(p for e in ends for p in e), "deck top",
+                 ends=ends, step_m=5.0, walk_max_m=60.0, level_tol_m=0.3)
+    a = AR.anchor_for(AR.DECK, _geom_at(-1e-4, 1e-5, 9.0), surface,
+                      tol_m=0.3, datum=d)
+    assert a.datum is True and a.y_zero == 3.575
+    # the deck top lands ON the graded road, not on the bank
+    assert abs(a.surface_z - 3.96) < 1e-6
+    assert "landward walk 15 m / 15 m" in a.reason
+    # ...and with the walk DISARMED (no ends, no step) the pooled median
+    # of the end lines stands, which is §16e (2) exactly
+    d0 = AR.Datum(3.575, tuple(p for e in ends for p in e), "deck top")
+    a0 = AR.anchor_for(AR.DECK, _geom_at(-1e-4, 1e-5, 9.0), surface,
+                       tol_m=0.3, datum=d0)
+    assert a0.surface_z < 3.0 and "landward walk" not in a0.reason
+
+
+def test_the_landward_walk_keeps_its_stations_when_it_never_finds_land():
+    """§16e (6): a walk that never meets dry, level ground keeps the
+    ORIGINAL stations — no reading is no evidence."""
+    ends = (((0.0, 0.0), (0.0, 2e-5)), ((-2e-4, 0.0), (-2e-4, 2e-5)))
+    surface = lambda la, lo: 0.0                                    # noqa: E731
+    surface.water = lambda la, lo: True
+    d = AR.Datum(3.5, tuple(p for e in ends for p in e), "deck top",
+                 ends=ends, step_m=5.0, walk_max_m=20.0, level_tol_m=0.3)
+    pts, note = AR._walked_stations(d, surface, surface.water)
+    # the BASE lines, un-shifted (the walk subdivides them at ``step_m``)
+    assert note.count("-") == 2
+    assert {round(q[0], 8) for q in pts} == {0.0, -2e-4}
+
+
+def test_a_bridge_is_named_by_contact_with_the_decks_model_footprint():
+    """§16e (3): the deck's FOOTPRINT POLYGON is its mesh projected to
+    plan — not its ring, which is a bbox.  A point in the bbox but off
+    the polygon belongs to no bridge."""
+    from auto_patch_v2.airport import bridge_family as BF
+    # an L-shaped deck: two triangles filling the lower-left of its bbox
+    tris = ((((0.0, 0.0), (0.0, 1e-3), (1e-3, 0.0))),
+            (((0.0, 1e-3), (1e-3, 0.0), (2e-4, 1e-3))))
+    p = BF.DeckPrint(key="deck_a", unit=0, member=0, under_y=8.0,
+                     box=(0.0, 0.0, 1e-3, 1e-3), tris=tris)
+    p.index()
+    assert p.contains(1e-4, 1e-4) is True            # inside the polygon
+    assert p.contains(9e-4, 9e-4) is False           # inside the BBOX only
+    # ...and the 0.5 m reach admits a body just proud of the plate
+    assert p.contains(-3e-6, 5e-4, 0.5) is True
+    assert p.contains(-3e-5, 5e-4, 0.5) is False
+    assert BF.bridge_of_point((p,), 1e-4, 1e-4) is p
+    assert BF.bridge_of_point((p,), 9e-4, 9e-4) is None
+
+
+def test_two_containing_decks_go_to_the_underside_nearest_the_body_top():
+    """§16e (3): where two deck footprints both contain the body, the
+    deck whose UNDERSIDE is nearest the body's TOP wins (absolute
+    vertical distance — §16c (4)'s own rest-on reading).  OTHH's
+    Bridge_02/03/06 are an INTERCHANGE and their footprints overlap."""
+    from auto_patch_v2.airport import bridge_family as BF
+    square = (((0.0, 0.0), (0.0, 1e-3), (1e-3, 1e-3)),
+              ((0.0, 0.0), (1e-3, 1e-3), (1e-3, 0.0)))
+    lo = BF.DeckPrint("low", 0, 0, 4.0, (0.0, 0.0, 1e-3, 1e-3), square)
+    hi = BF.DeckPrint("high", 0, 1, 12.0, (0.0, 0.0, 1e-3, 1e-3), square)
+    lo.index(); hi.index()
+    assert BF.bridge_of_point((lo, hi), 5e-4, 5e-4, 11.5).key == "high"
+    assert BF.bridge_of_point((lo, hi), 5e-4, 5e-4, 3.6).key == "low"
+    # with no top to read, the LOWER underside wins
+    assert BF.bridge_of_point((lo, hi), 5e-4, 5e-4, None).key == "low"
+
+
+def test_the_bridge_census_reads_the_plans_own_rows():
+    """§16e (3)'s bars, over the placement plan's own shape — the census
+    ``seat_feet_census`` and ``obj8_split_report`` both print."""
+    from auto_patch_v2.airport import bridge_family as BF
+    assert BF.bridge_tag("Buildings/Bridges Bus/OTHH_Bridge_02_CLUTTER.obj") \
+        == "Bridge_02"
+    assert BF.bridge_tag("Buildings/Terminal/T4.obj") == ""
+
+    def body(res, cls="other", sz=4.0, y0=0.0, mi=None, of=None):
+        return {"new_resource": res, "class": cls, "surface_z": sz,
+                "y_zero": y0, "merged_into": mi, "bridge_of": of,
+                "anchor_reason": "", "geom_pts": []}
+    splits = [
+        {"placement": {"resource": "x/OTHH_Bridge_01_LOD0_000.obj"},
+         "bodies": [body("x/B1_deck.obj", "deck", 3.96, 3.575,
+                         of="x/OTHH_Bridge_01_LOD0_000.obj")]},
+        {"placement": {"resource": "x/OTHH_Bridge_01_CLUTTER.obj"},
+         "bodies": [body("x/B1_c0.obj", sz=4.0, y0=0.0),
+                    body("x/B1_c1.obj", sz=9.0, y0=0.0)]},
+        {"placement": {"resource": "x/OTHH_Bridge_02_CLUTTER.obj"},
+         "bodies": [body("x/B2_c0.obj", mi="x/B1_c0.obj")]},
+    ]
+    c = BF.census_bridges(splits)
+    assert c["total"] == 4 and c["published"] == 1 and c["agree"] == 1
+    assert c["by_tag"]["Bridge_01"]["deck_top"] == 3.96
+    # the CLUTTER placement's two bodies stand 5 m apart
+    assert round(c["spreads"][0][0], 2) == 5.0
+    assert c["spreads"][0][1] == "Bridge_01"
+    # ...and the Bridge_02 body carried by a Bridge_01 file is the cross
+    assert [q[0] for q in c["cross"]] == ["Bridge_02"]
+    lines = BF.census_bridges_lines(c)
+    assert any("CROSS-BRIDGE carriers (BAR 0): 1" in q for q in lines)
+    assert any("Bridge_01" in q for q in lines)
+
+
+def test_a_partless_deck_member_is_a_body():
+    """§16e (5): a deck member whose partition found no genuine solid
+    (``parts 0``: OTHH's ``Bridge_04`` / ``Bridge_05``, a 0.14 m-thick
+    plate) is ADMITTED as one body whose footprint is the model's
+    DECLARED BOUNDS — the §16 (1) population class, not a skip.
+
+    A partless member with NO datum is untouched: it has no height the
+    law could put anywhere."""
+    from auto_patch_v2.airport import placement_body as PB
+
+    class _Comp:
+        def __init__(self):
+            import numpy as np
+            self.tris = np.asarray([[0, 1, 2]], dtype=np.int64)
+            self.min_y, self.max_y = 4.51, 4.65
+            self.cx, self.cz = 0.0, 0.0
+
+    class _Cut:
+        lat, lon = 25.25, 51.62
+
+        def __init__(self, ok=True):
+            import numpy as np
+            self._ok = ok
+            self._comps = [_Comp()] if ok else []
+            self._geom = type("G", (), {"vertices": np.asarray(
+                [[0.0, 4.51, 0.0], [10.0, 4.65, 0.0], [0.0, 4.6, 10.0]])})()
+
+        def _read(self):
+            return self._ok
+
+    m = _member_like(deck_kind="flag", deck_top_y=4.65,
+                     deck_end_stations=((25.25, 51.62),))
+    m.id = "dsf:obj14031"
+    m.heading_deg = 0.0
+    parts = PB._declared_parts(m, _Cut())
+    assert len(parts) == 1
+    p = parts[0]
+    assert p.comp == 0 and p.feet == () and p.base_y == 4.51
+    assert p.pid < 0                      # never a pid the plan published
+    assert p.box[0] <= _Cut.lat <= p.box[2] and p.area_m2 > 0.0
+    # the file that cannot be read contributes nothing
+    assert PB._declared_parts(m, _Cut(ok=False)) == []

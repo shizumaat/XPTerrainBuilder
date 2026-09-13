@@ -393,6 +393,10 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
     reading onto one zero (fences and grass mats, chained station to
     station).  A LINE object never binds at all, for §10's reason.
 
+    §16e (3)'s BRIDGE FAMILY WAS TRIED HERE AND IS REFUTED — see
+    ``bridge_family``'s module doc for the numbers.  Nothing of it
+    remains in this function.
+
     ``contacts`` are the unit's ε-contact PART pairs.  Returns
     ``(senior, census)`` — the senior node of each node (``-1`` where
     the node is its own, or its cluster holds no footed body) and

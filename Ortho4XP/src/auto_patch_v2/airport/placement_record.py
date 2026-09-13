@@ -83,6 +83,15 @@ class Body:
     #: (124 m for ``green-TEJ3``, whose written file spans 2,342 m), so
     #: every bar read 0 while the eye read +16 m (11ap).
     geom_pts: tuple[tuple[float, float, float], ...] = ()
+    #: §16e (3): THE BRIDGE THIS BODY BELONGS TO — the resource of the
+    #: DECK whose model footprint polygon contains its plan centroid (or
+    #: comes within 0.5 m of it), else ``""``.  A DERIVED relation, one
+    #: per plan (``bridge_family``), published because nothing else in
+    #: the plan names a bridge: the ROW puts three of OTHH's on one AGL
+    #: and the deck's RING is a bbox that swallows a neighbour's clutter.
+    #: The bodies sharing one value are ONE RIGID CLUSTER and rest only
+    #: on each other.
+    bridge_of: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         a = self.anchor
@@ -104,6 +113,7 @@ class Body:
                 "fill": self.fill,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts],
+                "bridge_of": self.bridge_of or None,
                 "feet": len(self.feet)}
 
 
@@ -210,5 +220,10 @@ class Staged:
     #: and not a body since §16b (2): the carrier question is asked per
     #: terrain group, so the answer "nobody" is given per group too.
     own_ground: list[list[int]] = _dc.field(default_factory=list)
+    #: §16e (3): one BRIDGE key per raw body — the deck whose model
+    #: footprint contains it, or ``""``.  Read by the rigid-cluster bind
+    #: and by the carrier search's family filter, and published on the
+    #: body as ``Body.bridge_of``.
+    bridge: list[str] = _dc.field(default_factory=list)
 
 

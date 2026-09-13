@@ -367,6 +367,15 @@ def _print_elevated(plan: dict, sampler=None) -> None:
         print(line)
     for line in PC.census_v14_lines(c, elevated_base_m=base, split_tol_m=tol):
         print(line)
+    # §16e (3): THE BRIDGE FAMILY (RULINGS 2026-09-13v) — the derived
+    # relation the plan publishes per body (``bridge_of``), its bars and
+    # its agreement with the pack's own ``Bridge_NN`` spelling.  The same
+    # call ``obj8_split_report`` makes over the same plan shape.
+    for line in PC.census_bridges_lines(PC.census_bridges(
+            plan.get("splits", ()),
+            None if sampler is None
+            else (lambda la, lo: sampler.elevation_at_or_none(la, lo)))):
+        print(line)
     # §15 (3): the stands-over float — the class neither the foot census
     # nor §14's bars can see (a carried body has no feet at all)
     for line in PC.census_v15_lines(_v15):

@@ -3323,3 +3323,123 @@ spread 4.97 → ≤ 0.3; per-placement zero spread ≤ 0.3 for every bridge;
 cross-bridge carriers 2 → 0; `bridge_of` published for all 30 members;
 walls (§16e (1)) and the 8 drainage basins byte-identical; LEMD 1.0.325
 byte-identical; plan stage not worse than 80 s (`--runs 3`); suite twice.
+
+**MEASURED — §16e (3)(5)(6) (lane `v2bridgecontact`, 2026-09-13).** Arms
+on the app's 1.0.326 OTHH frame (`o4_v2_rebake_OTHH.json` +
+`OTHH.graded.json` + the built `Data+25+051.mesh`) and the 1.0.325 LEMD
+frame, replayed through `v2_rebake_replay.py plan --sampler mesh` and
+censused with `seat_feet_census.py --placement-plan --mesh`. Implemented
+in `airport/anchor_rule.py` (`Datum.ends` / `step_m` / `walk_max_m` /
+`level_tol_m`, `_walked_stations`, `_line_reading`),
+`airport/placement_body.py` (`_declared_parts` / `_declared_box` and the
+§16e (5) admission), the new `airport/bridge_family.py` (the whole
+relation, its census and its bars), `model/placement.py` +
+`airport/placement_record.py` (`Body.bridge_of`, `Staged.bridge`),
+`airport/placement_plan.py` (the once-per-plan footprint pass over
+shared cutters), `airport/placement_write.py` + `auto_patch/engine_v2.py`
++ `tools/v2_rebake_replay.py` (the two `[bridge]` keys), and
+`tools/seat_feet_census.py` (the block). Two modules were MOVED WHOLE
+for the 1,000-line law, no line changed and both re-exported from
+`placement_plan`: `airport/placement_read.py` (`read_plan`,
+`pads_rims_from_graded*`) and `airport/placement_targets.py`
+(`_footless_targets`, `_carrier_pieces`).
+
+| bar | before | after |
+| --- | --- | --- |
+| `Bridge_01` deck top vs the graded road 3.96 | 3.23 (0.73 off) | **3.96 (0.00) PASS** |
+| `Bridge_04` deck top | KEPT on its row, 6.43 | **3.96 (0.00) PASS** |
+| `Bridge_05` deck top | KEPT on its row, 6.43 | **3.96 (0.00) PASS** |
+| `Bridge_02_CLUTTER_007` pier spread | 4.97 m | 4.97 m — **MISSED** |
+| per-placement zero spread > 0.3 m | 12 of 14 | 12 of 14 — **MISSED** |
+| cross-bridge carriers (resource-name axis) | 2 | 2 — **MISSED** |
+| `bridge_of` published | – | 57 bodies / 34 of 39 split bridge placements |
+| §16e (1) nine walls + 8 drainage basins | – | **BYTE-IDENTICAL** |
+| LEMD 1.0.325 whole | – | **BYTE-IDENTICAL** (322 splits, 2,122 bodies, 0 changed) |
+| plan stage (`--runs 3`, mesh, foreground) | 79.64 s mean (13v) | **70.87 s mean, min 67.92** |
+| suite | – | 1,264 passed, 1 skipped, twice |
+
+* **§16e (6), THE LANDWARD WALK, AND THE ONE LIMB THAT IS NOT THE
+  SPEC'S.** The spec stops the walk at "a graded pavement/road face or
+  the design surface's graded ground". THE FIRST LIMB IS UNREADABLE AT
+  THIS SITE AND THAT IS MEASURED, NOT ASSUMED: `graded_roles_from_doc`
+  builds 894 faces from `OTHH.graded.json` and `roles_many` is EMPTY at
+  every station of every 5 m offset out to 140 m landward of BOTH of
+  `Bridge_01`'s end lines — there is no graded face at the abutments at
+  all, which is the same fact `deck_datum_z = None` states. The second
+  limb is implemented as the reading the mesh does give: the walk stops
+  at the first offset where no station is on water or off-sheet AND the
+  line is LEVEL within `[placement] split_tol_m`. The bank is exactly
+  the stretch where it is not — `end0` spans 1.34 m at the end line,
+  1.76 at 5 m, 0.44 at 10 m and 0.00 (all 3.96) from 15 m; `end1` spans
+  1.41 / 0.28 / 0.24 / 0.12 and 0.00 from 20 m; and 3.96 is the level
+  the other three bridges carry as their own `deck_datum_z`. The
+  role limb is kept and asked first wherever a sampler carries roles.
+  **INTENT QUESTION for the spec's author:** is "the design surface's
+  graded ground" the level line the walk finds, or is a deck whose
+  abutments touch no graded face outside §16e (6) altogether?
+* **§16e (5) IS THE WHOLE OF Bridge_04/05.** Their deck members carry
+  ONE solid component each (54 and 18 `ATTR_hard_deck` triangles, y
+  4.51–4.65 and 4.55–4.61 — a 0.14 m plate the thickness gate refused),
+  so `_declared_parts` reads the components the cutter already has open
+  and the member becomes one body with negative pids the contact graph
+  can never match. Both end lines already read 3.96 with zero spread, so
+  the walk does not move them: the datum alone puts them on the road.
+  Files 1,338 → 1,340, placements kept 376 → 374.
+* **§16e (3) IS DERIVED, PUBLISHED AND CENSUSED — AND WIRED TO NOTHING.**
+  The relation (the deck's mesh projected to plan, exact
+  point-in-triangle plus the 0.5 m reach, ties to the underside nearest
+  the body's top) is in `bridge_family.py` and published as
+  `Body.bridge_of`. Its other two halves — one bridge is one rigid
+  cluster, and a body rests only on its own deck or piers — were built
+  on it and BOTH ARMS MOVED THE SECTION'S OWN BARS BACKWARDS, so the
+  code is DELETED under the attempt cap:
+  * arm 1 (family cluster + pool cut to the family): cross-bridge
+    carriers 2 → **9**, per-placement spreads over 0.3 m 12 of 14 → **17
+    of 19**, `Bridge_02_CLUTTER_007` 4.97 → **6.61 m**.
+  * arm 2 (the family actually UNIONED — §16c (7) deliberately never
+    unions two footed bodies of one member, so arm 1's cluster never
+    formed at all — and only the DECKS cut out of a family-LESS body's
+    pool, which is §16e (3)'s own "never filtered"): cross 2 → **9**,
+    spreads 12 of 16, worst 4.97 → **9.66 m**.
+  THE MECHANISM (the distance from every bridge body's plan centroid to
+  the nearest deck footprint): (a) THE FAMILY IS PARTIAL — 51 to 71 of
+  ~80–102 bridge bodies fall inside a footprint or within 0.5 m and the
+  rest stand 0.6 … 45 m outside it, because OTHH's bridge clutter runs
+  BESIDE the deck plate (parapets, kerbs, lamp masts); a partly-bound
+  bridge is worse than an unbound one, its named half on one zero and
+  its unnamed half on its own ground, and the per-placement bar reads
+  across both. (b) THE DECKS OVERLAP EACH OTHER — Bridge_02/03/06 are an
+  INTERCHANGE: `Bridge_03_CLUTTER_000__b1` stands INSIDE Bridge_02's
+  footprint (0.1 m), `Bridge_02_CLUTTER_001__b3` and `_002__b0` inside
+  Bridge_06's. By CONTACT those bodies are that deck's, which is the
+  law; the bar is stated over the pack's `Bridge_NN` SPELLING, which the
+  law deliberately does not read. 66 of 71 published values agreed with
+  the name and the five that did not are the interchange.
+  **TWO INTENT QUESTIONS:** is a body BESIDE a deck plate that bridge's
+  (the 0.5 m reach is the spec's own number and this lane did not change
+  it), and on which axis is the cross-bridge bar read when contact and
+  name disagree?
+* **THE BYTE-IDENTITY WAS NEARLY LOST TO A MEMO, AND THE FIX IS THE
+  RULE.** `anchor_rule._m_per_deg` memoises per 1e-4 deg of latitude and
+  keeps whichever exact latitude touched a key FIRST. Reading it from a
+  NEW call site before the unit loop handed every later caller in the
+  same 11 m band a value it did not compute: 94 `authored_offset`s moved
+  by ~8 microns and **101 OTHH placements this law does not touch** —
+  four drainage/dewatering resources among them — stopped being
+  byte-identical while every anchor point, zero and reason was
+  unchanged. The footprint pass, `_declared_parts` and the landward walk
+  all read the UNMEMOISED `rebake_plan._mpd` instead (`bridge_family._latlon`
+  is `placement_cut.authored_latlon`'s own two lines over it), and the
+  changed set went 101 → 59 → 58 → **1** (`Bridge_01`'s deck, which is
+  §16e (6)) plus the two decks §16e (5) adds.
+* **THE RESIDUE OTHH CARRIES.** §15 stands-over float 74 → 78 with
+  CARRIED **7 → 9** and §16b wide 170 → 172: `Bridge_04`'s two clutter
+  bodies now ride the deck body §16e (5) created (+2.47 m each), which
+  did not exist to ride before. §14 footless-at-datum 3 → 3, §13
+  elevated-own-files 0 → 0, §16b carried-own-ground 117 → 117.
+* **A CONTROL TRAP, RECORDED.** `v2_rebake_replay plan --src` pointed at
+  ANOTHER LIVE CHECKOUT of the identical sha is not a control:
+  `/Users/noah/XPTerrainBuilder/Ortho4XP/src` gave LEMD **3,646** bodies
+  where a `git archive` of the same sha gave **2,122** — the number the
+  branch also gives. Every base arm here is cut with
+  `git archive <sha> src | tar -x -C <scratch>`.

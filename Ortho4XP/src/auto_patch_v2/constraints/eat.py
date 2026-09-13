@@ -84,7 +84,8 @@ from .precedence import view
 from .runway_chord import _chords, _with_knots, runway_crossings
 
 __all__ = ["eat_pins", "eat_rects", "withdraw_against_senior", "eat_ceiling_offset",
-           "eat_clear_distance", "GEN", "RULING", "RECTS", "STATS"]
+           "eat_clear_distance", "eat_reach_plan", "withdraw_trend_over_reach",
+           "GEN", "RULING", "RECTS", "STATS"]
 
 GEN = "eat_anchor_rect"
 RULING = ("rulesets.eat ceiling (owner RULINGS 2026-09-13j item 2; "
@@ -457,3 +458,219 @@ def withdraw_against_senior(rows: list[Row]) -> tuple[list[Row], int]:
             continue
         out.append(r)
     return out, n
+
+
+# ── §36 (5) THE RAMP REACH IS DERIVED; THE TREND YIELDS ────────────────
+# (Fable 2026-09-13, owner RULINGS 2026-09-13aa)
+#
+# Lane ``v2eat`` measured the six ring edges off the pinned feet at
+# 2.37-3.87 % over 28.6-59.1 m against the 1.5 % taxi cap.  The mechanism
+# was named in that lane's own consumer census, not guessed: the ramp's
+# free neighbours keep a ``taxi_trend`` DEM target (``[design] taxi_trend``
+# 30) against the taxi cap (``law`` 300), so the least-squares solve buys
+# ~1 % of grade with trend residual rather than running the ramp OUT along
+# the loop.  §31 settles which of the two is law — a 3.9 % taxiway is a
+# slope a pilot feels; the DEM is the unreliable witness — so the trend
+# YIELDS, and it yields by being WITHDRAWN rather than outweighed: a
+# re-weighting would still trade, and the trade is what is wrong.
+#
+# THE REACH IS DERIVED, NEVER TUNED.  From each pinned foot the ramp runs
+# back along the EAT loop's OWN centreline — the routed wrap the rect was
+# recognised on, read through ``taxi_trend.taxi_chains`` so the withdrawal
+# and the row it withdraws share one station frame — until the loop's
+# DEM-fitted profile is reached at no more than the taxi longitudinal cap:
+#
+#     reach = |value − the loop's profile at the foot| / cap
+#
+# (KCLT: ~9 m / 0.015 ~ 600 m per side, which the end-around loop
+# affords).  Over that reach the loop's vertices — the chain's own and
+# every vertex of the faces that chain speaks for, so THE LOOP'S
+# TRANSVERSE ROWS CARRY ITS SHOULDERS WITH IT — carry no trend target at
+# all.  Where the loop is too short to ramp lawfully the crossing KEEPS
+# the regulation value (a ``Pin`` is not negotiable) and the overrun is
+# NAMED in the report under the taxi family, never left as a silent
+# 3.9 %.
+#
+# THE APRON TREND YIELDS ON THE SAME TERMS.  ``apron_trend`` claims a
+# vertex the taxi trend does not hold (``apron_trend.taxi_held``); a
+# withdrawal that dropped only the taxi channel would hand the same DEM
+# pull back at ``[design] apron_trend``.  One withdrawal, both channels —
+# which is also why it runs AFTER both are published (``pipeline/build``),
+# so neither claim is re-opened by the other's absence.
+
+#: The reach withdrawal's own record, published as ``report.load.eat_reach``.
+REACH: dict[str, _t.Any] = {}
+
+
+def _chain_frames(pm: PlanarMap, chains) -> list[dict[str, _t.Any]]:
+    """Per chain, the segment arrays a point is projected onto: the
+    segment starts, the segment vectors, their squared lengths and the
+    stations of both endpoints (the frame ``taxi_trend._face_extension``
+    projects the face's vertices in)."""
+    out = []
+    for c in chains:
+        xy = [pm.vertices[v].xy for v in c.vertices]
+        A = [(float(p[0]), float(p[1])) for p in xy[:-1]]
+        D = [(float(b[0]) - float(a[0]), float(b[1]) - float(a[1]))
+             for a, b in zip(xy[:-1], xy[1:])]
+        LL = [(dx * dx + dy * dy) or 1.0 for dx, dy in D]
+        out.append({"A": A, "D": D, "LL": LL,
+                    "S0": list(c.stations[:-1]), "S1": list(c.stations[1:]),
+                    "s_lo": c.stations[0], "s_hi": c.stations[-1]})
+    return out
+
+
+def _project_chain(frame: dict, xy: tuple[float, float]) -> tuple[float, float]:
+    """``(station, distance)`` of ``xy`` on one chain frame."""
+    best_d2 = float("inf")
+    best_s = 0.0
+    px, py = float(xy[0]), float(xy[1])
+    for (ax, ay), (dx, dy), ll, s0, s1 in zip(
+            frame["A"], frame["D"], frame["LL"], frame["S0"], frame["S1"]):
+        t = ((px - ax) * dx + (py - ay) * dy) / ll
+        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+        rx, ry = px - (ax + t * dx), py - (ay + t * dy)
+        d2 = rx * rx + ry * ry
+        if d2 < best_d2:
+            best_d2, best_s = d2, s0 + t * (s1 - s0)
+    return best_s, math.sqrt(best_d2)
+
+
+def eat_reach_plan(pm: PlanarMap, law: Law, airport: Airport
+                   ) -> dict[str, _t.Any]:
+    """THE RAMP REACH, PER PINNED FOOT (§36 (5), module block above).
+
+    Returns ``{"withdraw": set[int], "feet": [...], "short": [...],
+    "chains": n}``: the vertices whose trend target the EAT withdraws, one
+    record per pinned foot (its loop, its drop, its cap, its reach and the
+    loop length it actually has either side), and the feet whose loop is
+    TOO SHORT with the grade the ramp is forced to instead — the report
+    the law owes rather than a silent grade break.
+
+    Derived from the pins the generator would mint on this very map, so
+    the withdrawal and the pin cannot disagree.  A pin later withdrawn
+    against a senior authority (:func:`withdraw_against_senior`) leaves
+    its reach withdrawn: those vertices are then FREE rather than trend-
+    pulled, which is the conservative direction (nothing is pulled to a
+    ground the senior authority has already overruled).  KCLT withdraws 0
+    such pins."""
+    plan: dict[str, _t.Any] = {"withdraw": set(), "feet": [], "short": [],
+                               "chains": 0, "pins": 0}
+    if not (pm.taxi_trend_z or pm.apron_trend_z):
+        return plan
+    rows = eat_pins(pm, law, airport)
+    if not rows:
+        return plan
+    from .taxi_trend import chain_of_face, taxi_chains
+    chains = taxi_chains(pm, law)
+    if not chains:
+        return plan
+    owner = chain_of_face(pm, law, chains)
+    frames = _chain_frames(pm, chains)
+    plan["chains"] = len(chains)
+    plan["pins"] = len(rows)
+    reach_m = float(law.tables.emit.design.taxi_trend_face_reach_m)
+    vw = view(pm, law)
+    # the vertices each chain speaks for: its own, and every vertex of the
+    # faces it owns (the shoulders the transverse rows carry)
+    members: dict[int, list[int]] = {}
+    for fid, i in owner.items():
+        f = pm.faces[fid]
+        vs = members.setdefault(i, [])
+        for ring in (f.ring, *f.holes):
+            vs.extend(pm.ring_vertices(ring))
+    for i, c in enumerate(chains):
+        members.setdefault(i, []).extend(c.vertices)
+    held = set(pm.taxi_trend_z) | set(pm.apron_trend_z)
+    withdraw: set[int] = plan["withdraw"]
+    for r in rows:
+        v = r.v
+        # THE LOOP: the chain that speaks for the foot's own faces; where
+        # the foot sits on no owned face (a junction fillet), the nearest
+        # chain within the trend's own face reach
+        votes: dict[int, int] = {}
+        for fid in pm.vertices[v].incident_faces:
+            i = owner.get(fid)
+            if i is not None:
+                votes[i] = votes.get(i, 0) + 1
+        if votes:
+            ci = max(sorted(votes), key=lambda k: votes[k])
+            s0, dist = _project_chain(frames[ci], pm.vertices[v].xy)
+        else:
+            ci, s0, dist = -1, 0.0, float("inf")
+            for i, fr in enumerate(frames):
+                s, d = _project_chain(fr, pm.vertices[v].xy)
+                if d < dist:
+                    ci, s0, dist = i, s, d
+            if ci < 0 or dist > reach_m:
+                plan["short"].append({
+                    "vertex": v, "ll": list(pm.vertices[v].key),
+                    "reason": ("no taxi centreline within "
+                               f"{reach_m:.0f} m of the pinned foot "
+                               f"(nearest {dist:.0f} m)")})
+                continue
+        # THE DROP is against the loop's OWN DEM-fitted profile — the very
+        # target being withdrawn — and the DEM only where there is none
+        ref = pm.taxi_trend_z.get(v)
+        if ref is None:
+            ref = pm.apron_trend_z.get(v)
+        if ref is None:
+            ref = pm.vertices[v].dem_z
+        if ref is None:
+            continue
+        cap = vw.vertex_cap.get(v)
+        if not cap or cap <= 0.0:
+            continue
+        drop = abs(float(ref) - float(r.z))
+        reach = drop / float(cap)
+        fr = frames[ci]
+        back, fwd = s0 - fr["s_lo"], fr["s_hi"] - s0
+        rec = {"vertex": v, "ll": list(pm.vertices[v].key), "chain": chains[ci].bl,
+               "station_m": round(s0, 1), "foot_m": round(dist, 1),
+               "drop_m": round(drop, 2), "cap": cap,
+               "reach_m": round(reach, 1),
+               "loop_back_m": round(back, 1), "loop_fwd_m": round(fwd, 1)}
+        plan["feet"].append(rec)
+        if back < reach or fwd < reach:
+            have = max(min(back, reach), min(fwd, reach))
+            short = {**rec, "forced_grade": round(drop / have, 4) if have > 0
+                     else None,
+                     "family": "taxi"}
+            plan["short"].append(short)
+        for u in members.get(ci, ()):
+            if u not in held or u in withdraw:
+                continue
+            s, d = _project_chain(fr, pm.vertices[u].xy)
+            if d <= reach_m and abs(s - s0) <= reach:
+                withdraw.add(u)
+    plan["withdrawn"] = len(withdraw)
+    return plan
+
+
+def withdraw_trend_over_reach(pm: PlanarMap, law: Law, airport: Airport,
+                              report: dict | None = None) -> PlanarMap:
+    """``pm`` with the ground-trend targets WITHDRAWN over every EAT ramp's
+    derived reach (§36 (5); :func:`eat_reach_plan`).
+
+    Called by ``pipeline/build`` after BOTH trend channels are published
+    (and by ``pipeline/why`` and ``tools/v2_solve_replay`` in the same
+    position, which is how every arm solves the pipeline's own LP).  An
+    airport with no EAT — five of the six frames — is returned
+    unchanged."""
+    import dataclasses as _dc
+
+    plan = eat_reach_plan(pm, law, airport)
+    if report is not None:
+        report.update({k: v for k, v in plan.items() if k != "withdraw"})
+        report["withdrawn"] = len(plan["withdraw"])
+    drop = plan["withdraw"]
+    if not drop:
+        return pm
+    if report is not None:
+        report["withdrawn_taxi"] = len(drop & set(pm.taxi_trend_z))
+        report["withdrawn_apron"] = len(drop & set(pm.apron_trend_z))
+    return _dc.replace(
+        pm,
+        taxi_trend_z={v: z for v, z in pm.taxi_trend_z.items() if v not in drop},
+        apron_trend_z={v: z for v, z in pm.apron_trend_z.items()
+                       if v not in drop})

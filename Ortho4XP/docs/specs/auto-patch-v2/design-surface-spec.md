@@ -6675,6 +6675,193 @@ claiming the fix clears them); cockpit CRITICAL motion ≤ 16 with the two
 grade breaks v2eat introduced named and placed; `eat_ceiling` 0; the five
 other frames unchanged (no rect recognised); suite twice.
 
+
+### §36 (5) **MEASURED** (lane `v2eatramp`, 2026-09-13, branch `claude/v2eatramp`, base `2002c7dc` merged to main `864e7577`, sha `9b34fe6d`)
+
+**THE RAMP CAME DOWN AND THE COCKPIT WENT QUIET; THE RAMP DID NOT REACH
+THE CAP, AND THE HARD SET MOVED THE WRONG WAY.**  Worst ramp edge
+3.87 % → **2.13 %**, the loop's own centreline 2.44 % → **1.90 %** with a
+uniform **1.60–1.66 %** running leg, against the 1.5 % taxi cap — the loop
+is 10 % TOO SHORT and the law's own report now says so by name.  Cockpit
+CRITICAL motion **12 → 7** (bar ≤ 16, MET, and below the no-EAT arm's 13);
+law-true census 11,792 → 11,259, adjudicated 3,883 → 3,798.  Hard rows
+violated **13 → 70** — all 61 new rows `structures.building_pad`, on
+buildings 3.5 km from the crossing: BELOW BAR, reported for the owner.
+
+**THE FRAME, STATED** (owner RULINGS 2026-09-13ak).  Base `2002c7dc`
+carried a silent main regression — `pack_partition` built `Member`
+positionally, every KCLT member came back with a non-`None` `plate_y`,
+`planar/group._eligible` reads that as "another law governs this body",
+and the whole pad group law was OFF (KCLT groups 7,007 → 0, relief bodies
+1,261 → 0, infeasible 1,032 → 0, off an IDENTICAL partition: bodies 7,163,
+abutment pairs 5,054, units 60).  This lane measured it, reported it and
+did NOT patch it; main fixed it in `db5b99ca` and the arms below were all
+re-cut on the merged tree.  Every offline arm is ONE `v2_solve_replay`
+capture of KCLT taken on THAT tree (`--capture`, 86 s, 22,328 vertices,
+1,175 faces, groups 7,007), replayed three ways under this branch:
+`--drop-generator eat_anchor_rect` (no EAT), `--drop-generator
+eat_ramp_reach` (the pins, no reach — today), and the default.  One
+capture, one tree, one code version.
+
+**THE CONSUMER CENSUS** (owner RULINGS 2026-08-30l), ruled before any
+consumer was edited.  The region is "the ground-trend TARGET on the EAT
+loop's vertices" (`PlanarMap.taxi_trend_z` / `apron_trend_z`) and the rect
+that derives the reach:
+
+| # | consumer | what it reads | RULING |
+|---|---|---|---|
+| 1 | `solve/design` §5c (`for vid, target in planar.taxi_trend_z`) | the channel, one row per vertex at `[design] taxi_trend` 30 | **THE ROW THAT YIELDS.**  Withdrawn by ABSENCE from the channel, never by weight: `solve` imports `law` and `model` only (M0 §1), so the derivation cannot live at the row site — and a re-weighting would still TRADE, and the trade is what §31 forbids. |
+| 2 | `constraints/apron_trend` (`taxi_held = set(pm.taxi_trend_z)`) | claims every vertex the taxi trend does NOT hold | **AFFECTED — it yields on the same terms.**  Withdrawing one channel alone hands the same DEM pull back at `[design] apron_trend`.  ONE withdrawal, BOTH channels, run AFTER both are published so neither claim is re-opened by the other's absence.  KCLT: taxi 3,035 → 2,881, apron 5,310 → 5,291. |
+| 3 | `constraints/taxi_trend._face_extension` (face → chain ownership) | which chain speaks for a face | **SHARED, NOT COPIED** — lifted verbatim into `taxi_chains` / `chain_of_face`, so the reach reads the loop's centreline in the SAME station frame the trend was fitted along.  Two derivations of "the loop's centreline" would withdraw on one frame and price on another. |
+| 4 | `constraints/eat.eat_pins` | the rect, the pins | UNCHANGED.  The reach is derived from the pins the generator would mint on this very map, so pin and withdrawal cannot disagree (0.04 s, run twice per build). |
+| 5 | `constraints/eat.withdraw_against_senior` | an EAT pin junior to another authority | REPORTED, not fixed: a pin later withdrawn as junior leaves its reach withdrawn, so those vertices are FREE rather than trend-pulled — the conservative direction.  KCLT withdraws 0 (`eat_pin_withdrawn_senior 0` on the build). |
+| 6 | `taxi_trend.taxi_trend_block` / `design_report.taxi_trend_rows` | the residual per chain | CORRECT BY CONSTRUCTION — it reads the FINAL channel, so a withdrawn vertex is neither priced nor reported. |
+| 7 | `pipeline/why` | its own LP | **EDITED** — publishes the withdrawal in the pipeline's position; without it a ramp vertex reads as held by a `taxi_trend` row the build does not have. |
+| 8 | `tools/v2_solve_replay._targets` | the build's target channels | **EDITED** — third entry, plus the `eat_ramp_reach` pseudo-generator: the withdrawal is a CHANNEL edit made before the solve, so `--drop-generator` cannot reach it by row filter and it is named instead.  That is the before-arm. |
+| 9 | `[design] hard_rulings` | which heads are hard | **UNTOUCHED**, as §36 (5) requires.  A `Pin` never enters `one`/`eqs`; the taxi cap stays a soft law row at `law` 300. |
+| 10 | the transverse / `no_step` / `taxi_box` rows on the loop's shoulders | pairs whose feet include a withdrawn vertex | UNCHANGED — and they are what carries the shoulders down with the spine (§36 (5)'s own sentence): the withdrawal covers the chain's own vertices AND every vertex of the faces that chain owns. |
+| 11 | `verify/eat.eat_ceiling`, the `eat_rects` sidecar key | the census family | UNAFFECTED — the pins are unchanged; `eat_ceiling` reads 0 rows in every arm and on the build. |
+| 12 | the five other frames | no rect recognised (§36 MEASURED) | UNAFFECTED BY CONSTRUCTION — `withdraw_trend_over_reach` returns the map OBJECT-IDENTICAL when the generator mints no pin; twinned. |
+
+**THE REACH, DERIVED** (`report.load.eat_reach`).  All four pinned feet sit
+on ONE loop — breakline chain 4, the 18C end-around, 1,310 m long:
+
+| foot | station | drop vs the loop's own trend | cap | reach = drop / cap | loop back / fwd | verdict |
+|---|---|---|---|---|---|---|
+| 2536 | 625.9 m | 10.53 m | 0.015 | **702.1 m** | 625.9 / 683.8 | SHORT — forced **1.54 %** |
+| 2537 | 646.5 m | 10.79 m | 0.015 | **719.4 m** | 646.5 / 663.3 | SHORT — forced **1.63 %** |
+| 2616 | 626.5 m | 10.54 m | 0.015 | **702.6 m** | 626.5 / 683.3 | SHORT — forced **1.54 %** |
+| 3760 | 627.4 m | 10.55 m | 0.015 | **703.4 m** | 627.4 / 682.4 | SHORT — forced **1.55 %** |
+
+177 vertices fall inside the reach; 173 carried a trend target and lost it
+(154 taxi + 19 apron).  **The whole 32-vertex chain is inside the reach** —
+the loop is saturated, so there is no reach knob left to turn: the residual
+is the loop's own length, not a tuning.
+
+**BAR 1 — every edge on the EAT loop ≤ 1.5 %: MISSED at 2.13 %** (today
+3.87 %).  The six ring edges carrying one pinned foot:
+
+| edge | span | BEFORE | AFTER |
+|---|---|---|---|
+| 3759–3760 | 49.1 m | 3.05 % | **2.13 %** |
+| 2535–2536 | 48.6 m | 2.44 % | **1.90 %** |
+| 2616–2617 | 59.1 m | 2.57 % | **1.84 %** |
+| 2537–2538 | 28.6 m | 3.87 % | **1.58 %** |
+| 3760–3761 | 49.1 m | 2.98 % | **1.58 %** |
+| 2615–2616 | 58.6 m | 2.37 % | **1.13 %** |
+
+Along the loop's OWN centreline the profile is now one clean ramp: the
+forward leg a uniform **1.60–1.66 %** over 660 m (before: 1.68–3.87 %
+spent in the first 100 m and FLAT beyond), the back leg 1.0–1.90 %.
+1.60–1.66 % is the forced grade the reach table predicts to within
+0.03 pp — the measurement saying the holder is the loop's LENGTH and
+nothing else.  The 0.4–0.6 pp above it on the ring edges is the bending
+term shaping the last 50 m into the pin; closing that would take the taxi
+cap into `hard_rulings`, which §36 (5) forbids.  (The identical figures
+came off the pre-merge frame too, on lane `v2eat`'s `ec8723e9` capture:
+the site result is frame-robust.)
+
+**BAR 2 — the crossing 217.26 ± 0.05: MET.**  `alt_abs 217.26` at all four
+nodes of the CLOSING BUILD's patch (35.23146663387,−80.95365582614 ·
+35.23148016243,−80.95343062726 · 35.23166042348,−80.95366682242 ·
+35.23127284508,−80.95362285927); pin residual 0.0000 m; `eat_ceiling` 0.
+
+**BAR 3 — the hard set SETTLED: MISSED, AND IT MOVED BACKWARDS**
+(`v2_solve_replay --why-hard`):
+
+| arm | hard rows violated / 241,556 | max | by generator |
+|---|---|---|---|
+| no EAT | **1** | 0.0200 m | runway_profile 1 |
+| EAT, no reach (today) | **13** | 0.0334 m | pavement_ceiling 8, runway_profile 5 |
+| EAT + reach | **70** | **0.0760 m** | **pads 61**, pavement_ceiling 6, runway_profile 3 |
+
+**THE 13 NAMED, AND THE 70.**  Today's 13 are 8
+`rulesets.common.pavement_max_grade ceiling` and 5 runway-profile rows;
+the worst four pavement rows are `parking_lot`↔`parking_lot` pairs at
+(35.21333896,−80.92936611) 0.0334 · (35.20325433,−80.94420462) 0.0274 ·
+(35.21096060,−80.93927847) 0.0273 · (35.21387543,−80.93042035) 0.0251 —
+**terminal-side car parks 2–3 km from the crossing at (35.2313,−80.9536);
+not one is a ramp neighbour, and none is inside the reach.**  The fix
+therefore never claimed them, and it did not clear them: 6 remain.  What
+it DID do is add 61 `structures.building_pad pad_slope_max ceiling` rows,
+worst 0.0760 m, every one on BUILDING vertices at (35.20120,−80.93023) and
+(35.20964,−80.93273) — 3.5 km from the EAT, on the other side of the
+field.  No row of any arm touches an EAT pin or a withdrawn vertex.  All
+three arms report `HARD SET NOT SETTLED` and `LAG NOT SETTLED` (4,104 of
+11,266 one-way rows still moving, worst 0.4304 m on `zones.adjacent_ground`),
+and the active set flips 868–1,676 rows: this is KCLT's own instance of
+13y (B), and a strictly-local withdrawal 3.5 km away landing 61 pad rows is
+the signature RULINGS 2026-09-12i named — an LP re-solve of an unsettled
+free interior, not a mechanism.  **Nothing here says those 61 rows are
+lawful.**  The lane did not tune the objective, gate the change or iterate
+a third time; the regression is reported with its coordinates for the
+owner's adjudication.
+
+**BAR 4 — the census** (`tools/harness/census.py`, all three arms
+replay-emitted from the one capture):
+
+| | no EAT | EAT, no reach | EAT + reach |
+|---|---|---|---|
+| LAW-TRUE TOTAL | 11,095 | 11,792 | **11,259** |
+| ADJUDICATED | 3,657 (airside 3,266) | 3,883 (airside 3,479) | **3,798** (airside 3,362) |
+| `within_shape` | 8,357 | 8,917 | **8,483** |
+| `airside_no_step` | 608 | 718 | **612** |
+| `taxi_box` | 327 | 328 | **317** |
+| `strip_arc` | 12 | 11 | **6** |
+| `transverse` | 106 | 114 | **109** |
+| `eat_ceiling` | 0 | 0 | **0** |
+
+The reach gives back 533 law-true rows and 85 adjudicated of the 697 / 226
+the EAT costs; `airside_no_step` returns to within 4 rows of the no-EAT
+arm and `within_shape` to within 126.
+
+**BAR 5 — cockpit CRITICAL motion ≤ 16: MET, 7** (no EAT 13, EAT without
+the reach 12).  CRITICAL visual **0** in all three.  The whole movement is
+`strip_arc` forbidden grade BREAKs — the graded strip's longitudinal
+grade-CHANGE rate where the ramp starts and stops: **9 → 8 → 3**, with
+`step_on_pavement` 4 and the `frontage_near_miss` 2 / `mid_edge_step` 2
+unmoved in every arm.  The ramp the reach builds is smooth enough that the
+strip beside it stops breaking: six of the nine breaks the pre-EAT surface
+carried are gone.  The CLOSING BUILD reads the same: motion **7**, visual
+**0**, worst 0.603 m over 0.9 m `mid_edge_step`.
+
+**THE FIVE OTHER FRAMES: UNCHANGED, BY CONSTRUCTION.**  The withdrawal is
+gated on `eat_pins` minting a row; §36 MEASURED recognised no rect at
+CYXY, HECA, SPJC, OTHH or LEMD and that code is untouched, so
+`withdraw_trend_over_reach` returns the same PlanarMap OBJECT there
+(twinned: `test_an_airport_with_no_eat_is_returned_unchanged`).
+
+**THE CLOSING BUILD.**  ONE `build_airport.py KCLT --engine v2 --tag
+v2eatramp2`, wall **355.7 s**, rc 0, `status=feasible`, `body_sha
+47ab51d3c20f`, 1,307 ways / 23,094 nodes, v2-verify 3,908 rows, **shared
+repo UNCHANGED**, artifact ledger **`3d37ac3788da`**.  Its design line
+reproduces the AFTER replay exactly (580 active-set rounds, 2,881 taxi
+trend rows, 70/241,556 hard rows, max 0.0760 m) — the replay IS the
+build's own LP, arm for arm.  Census of the built patch:
+LAW-TRUE 11,274, ADJUDICATED 3,813 (airside 3,379), `eat_ceiling` 0,
+cockpit motion 7 / visual 0.  Generator: `eat_anchor_rect` 4 pins,
+`eat_pin_withdrawn_senior` 0.  **Suite** (`tests/auto_patch_v2`,
+`test_harness.py`, `test_role_edge_census.py`): 1,218 passed / 1 skipped,
+twice.
+
+**Build-time impact.**  `eat_reach_plan` runs the EAT generator a second
+time (0.04 s at KCLT) plus one projection of 177 candidate vertices onto
+one 32-segment chain; the whole withdrawal is under 0.1 s of a 356 s
+build, and nothing here is within 1 % of either budget.  It costs nothing
+at all on an airport with no EAT (the generator returns before any chain
+is built).
+
+#### What this lane did NOT do
+
+The five-airport sweep (the orchestrator's); any `--refresh-data`; any
+merge to main; any RULINGS entry; any change to `[design] hard_rulings`,
+to the objective weights or to `planar/group._eligible` / the
+`capture_has_groups` predicate (both another lane's ground — the group
+regression was reported, and main fixed it); any third iteration on bar 1
+or bar 3; and any new tool — the `eat_ramp_reach` ablation is a value of
+`v2_solve_replay`'s existing `--drop-generator`, documented in its
+docstring and twinned.
+
 ### §37 (5) THE SECOND MECHANISM UNDER THE EAST ROAD (Fable 2026-09-13; RULINGS 2026-09-13ab) — lane `v2roadcap2`
 
 Scout `v2roadcapkclt` on main 064e244e: §37 (1) moved `dsf:pol51` 0.94 m
@@ -7184,3 +7371,70 @@ off-DEM changes by > 0.5 m NAMED with its contact; CYXY control byte-identical
 or named; solve settled lines quoted; suite twice.
 
 
+
+### §38 AMENDED after scout `v2splpseam` (Fable 2026-09-13; RULINGS 2026-09-13am) — lane `v2seampin`
+
+Measured on SPLP (864e7577): one solve, per-tile pieces, 0 shared vertices
+between the pieces (the west piece ends at −5.0 m, the east begins at +1.8 m;
+the 10 m band is the mesh's draped DEM); seam pass oscillates 45 → 28 → 27 →
+28 …, `27/150 vertices on the DEM; 123 residual, max 3.430 m` (a 3 m berm
+10 m wide along the seam through the runway strip); runway band-edge vertices
++0.51 … +0.63 m above the DEM (the dip and rise the owner reads); the
+relax arm names the graded-strip ZONE BAND as what holds the seam off its DEM;
+`_Chord.knots` takes only crossing pins; bank chain −10045 has 2 nodes inside
+the band; the coverage slit is closed only because `bank_min_width_m` ==
+`seam.half_width_m` (5.0 == 5.0).
+
+1. **(1) stands.** `constraints/seams.py` mints `Pin`; the seam pass in
+   `pipeline/build.py` (598–660) is DELETED — a pin needs no pass. The
+   sidecar publishes ALL seam pins (150 at SPLP, not the 27 honoured).
+2. **(2) names its mechanism.** Between two seam pins the graded-strip zone
+   band YIELDS (a soft escalation group, the `runway_profile` end-zone
+   pattern); the runway chord takes seam pins as KNOTS in `_Chord.knots`
+   exactly as `runway_crossing_pins` are taken, so the end-zone preference
+   absorbs the curvature between a threshold and a seam pin. A family still
+   unmet between two pins is NAMED (pins, family, demanded vs allowed).
+3. **(3) at one derivation site.** `emit/bank.py` cuts the banked region by
+   the seam bands beside the water and terrain-edge cuts, and unions the
+   seam bands into the coverage EXPLICITLY before the collar; the equality
+   of the two 5.0 m constants is no longer load-bearing.
+4. **(4) REWRITTEN — ONE AIRPORT, ONE SOLVE, PER-TILE PIECES.** The band is
+   draped DEM; the pins are the band-edge vertices at ±`half_width_m`, each
+   at its own tile's DEM sample, so each piece meets the drape at zero step.
+5. **NEW CENSUS FAMILIES** in `check_grade.LAW_FAMILIES` (twins in
+   `test_harness.py`): `seam_residual` — every band-edge vertex against its
+   own DEM sample (CRITICAL motion on runway/taxi roles, visual elsewhere);
+   `bank_across_seam` — any bank foot node within `half_width_m`.
+
+BARS (SPLP, one build, `--base-arm` 864e7577): `seam: 150/150 vertices on the
+DEM` (0 residuals); runway band-edge vertices z−DEM ≤ 0.05 m (today +0.51 …
++0.63); vertex 1408 at 54.50 (today 51.07); no bank foot node within
+`half_width_m` (today 2); `seam_residual` 0 and `bank_across_seam` 0 (both
+> 0 on the base arm, proving the instruments); cockpit CRITICAL: no row on
+the seam; solve settled lines quoted both arms; LEMD / KCLT / CYXY dry
+replays byte-identical (no seam vertices); suite twice. The mesh-side
+cluster (16,298 border nodes in 1.92 m at lat −12.1609306 on tile −13−077)
+is scout `v2splpmesh`'s, not this lane's.
+
+### §34 (4) NARROWED — A ZONE BAND YIELDS ONLY TO A TUNNEL CORRIDOR (Fable 2026-09-13; RULINGS 2026-09-13ar) — lane `v2rampwalk` round 3
+
+Round 2 (8e101597): the general "zones yield to roads" trim exposed
+`zone2#24`'s original outer ring (8.49 m over 12.03 m at 40.5331907,
+−3.5748496 — the band used to spread that terrain across its interior) and
+cost 671 `graded_strip|graded_strip` rows; the densifier cannot insert into a
+region's own welded edges (refuted). At F-6 the zone-1 band followed the
+underpass trench down (5.29 m rows).
+
+4. **THE CORRIDOR, NOT THE ROAD.** A zone band yields only to a TUNNEL
+   CORRIDOR — the mouth, the ramp, the trench and the underpass corridor as
+   §34 (1)–(3) and (5) price them — which is SUBTRACTED from the band; the
+   band's boundary there is the corridor's own edge (terraced by the ramp
+   walls). A road elsewhere inside adjacent ground grades WITH the zone (the
+   standing law). Owner item 8 (a road at a tunnel) is the corridor case.
+
+BARS (round 3, ONE LEMD build with `--base-arm`): CRITICAL visual ≤ 3 with
+no row at 40.5331907, −3.5748496 and none at F-6 (40.4609964 …
+40.4610048); `graded_strip|graded_strip` `within_shape` ≤ base + 20 (round
+2: 671); item 8's 1.63 m row absent; item 9's deck end ≤ 0.3 (round 2:
+0.18); `optimal`; 7a / 7b ramp bars hold; KCLT item 3 by replay unchanged;
+suite twice.

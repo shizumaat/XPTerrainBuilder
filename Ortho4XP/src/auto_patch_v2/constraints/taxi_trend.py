@@ -67,7 +67,8 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
 __all__ = ["TaxiTrendReport", "taxi_trend_targets", "with_taxi_trend",
-           "taxi_trend_block", "TAXI_CENTERLINE"]
+           "taxi_trend_block", "taxi_chains", "chain_of_face",
+           "TAXI_CENTERLINE"]
 
 #: The breakline kind whose chains ARE the taxi routes (the same kind
 #: ``solve/design.py`` prices the second-difference profile along).
@@ -130,6 +131,47 @@ def _chains(pm: PlanarMap, law: Law) -> list[_Chain]:
     return out
 
 
+def taxi_chains(pm: PlanarMap, law: Law) -> list[_Chain]:
+    """EVERY TAXI CENTRELINE CHAIN in its own station frame — the public
+    name of this module's one chain derivation (:func:`_chains`).
+
+    Published because the EAT reach (``constraints/eat.py``, spec §36 (5))
+    runs its ramp back along THE LOOP'S OWN CENTRELINE and must read the
+    same chains, in the same station frame, that this module fitted the
+    trend along: two derivations of "the loop's centreline" would withdraw
+    a trend row on one frame and price it on another."""
+    return _chains(pm, law)
+
+
+def chain_of_face(pm: PlanarMap, law: Law,
+                  chains: list[_Chain]) -> dict[int, int]:
+    """face id -> the index in ``chains`` of THE CHAIN THAT SPEAKS FOR IT.
+
+    The apt.dat centreline record (``taxi57``) and the pavement polygon
+    (``pav28``) carry different refs, so the map's own incidence (I5) is
+    the join.  A face belongs to the chain with the MOST of its vertices
+    on it, ties to the longer chain: a chain merely crossing a junction
+    fillet touches it at one or two vertices and never becomes its
+    authority.  Measured: without this, CYXY's ``taxi_box`` short-pair
+    rows go 6 -> 47 (the long parallel valuing a stub's far end at its own
+    station gradient).
+
+    ONE derivation, shared with the EAT reach (:func:`taxi_chains`)."""
+    taxi = frozenset(law.tables.precedence.taxi_family.members)
+    owner: dict[int, tuple[int, int, float]] = {}   # face -> (chain, hits, length)
+    for i, c in enumerate(chains):
+        hits: dict[int, int] = {}
+        for v in c.vertices:
+            for fid in pm.vertices[v].incident_faces:
+                if pm.faces[fid].role in taxi:
+                    hits[fid] = hits.get(fid, 0) + 1
+        for fid, n in hits.items():
+            cur = owner.get(fid)
+            if cur is None or (n, c.length_m) > (cur[1], cur[2]):
+                owner[fid] = (i, n, c.length_m)
+    return {fid: i for fid, (i, _n, _l) in owner.items()}
+
+
 def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
                     ats: list[_t.Callable[[float], float | None]],
                     have: _t.AbstractSet[int], reach_m: float,
@@ -168,27 +210,8 @@ def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
     Returns the new targets, how many candidates were out of reach, and the
     furthest foot distance actually used."""
     taxi = frozenset(law.tables.precedence.taxi_family.members)
-    # THE FACE'S OWN CHAIN.  The apt.dat centreline record (``taxi57``) and
-    # the pavement polygon (``pav28``) carry different refs, so the map's
-    # own incidence (I5) is the join.  A face belongs to the chain with the
-    # MOST of its vertices on it, ties to the longer chain: a chain merely
-    # crossing a junction fillet touches it at one or two vertices and
-    # never becomes its authority.  Measured: without this, CYXY's
-    # ``taxi_box`` short-pair rows go 6 -> 47 (the long parallel valuing a
-    # stub's far end at its own station gradient).
-    owner: dict[int, tuple[int, int, float]] = {}   # face -> (chain, hits, length)
-    for i, c in enumerate(chains):
-        hits: dict[int, int] = {}
-        for v in c.vertices:
-            for fid in pm.vertices[v].incident_faces:
-                if pm.faces[fid].role in taxi:
-                    hits[fid] = hits.get(fid, 0) + 1
-        for fid, n in hits.items():
-            cur = owner.get(fid)
-            if cur is None or (n, c.length_m) > (cur[1], cur[2]):
-                owner[fid] = (i, n, c.length_m)
     faces_of: dict[int, list[int]] = {}
-    for fid, (i, _n, _l) in owner.items():
+    for fid, i in chain_of_face(pm, law, chains).items():
         faces_of.setdefault(i, []).append(fid)
     out: dict[int, float] = {}
     best: dict[int, float] = {}

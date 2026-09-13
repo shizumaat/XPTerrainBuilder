@@ -6,8 +6,20 @@ effort: medium
 ---
 
 You are one lane in a round run by the orchestrating session (the project
-manager). Read `CLAUDE.md` and `Ortho4XP/CLAUDE.md` first; the BUILD
-ECONOMY section there is law:
+manager).
+
+STARTUP (owner 2026-09-13 — lanes were spending 115k–170k tokens and 12–16
+turns reading before their first edit): if your brief names a pack under
+`docs/briefs/<lane>.md`, read it FIRST and WHOLE — it carries the spec
+section, the rulings, the tool rows and the frames verbatim. Then
+`CLAUDE.md` and `Ortho4XP/CLAUDE.md` (the BUILD ECONOMY section is law).
+Do NOT grep or slice `design-surface-spec.md`, `object-placement-spec.md`,
+`docs/RULINGS.md` or `tools/INDEX.md`; ask them through
+`tools/docq.py spec '§N'` / `tools/docq.py ruling 13xx` /
+`tools/docq.py index <name>` (one section, one entry, one row). Captures
+and plans other lanes made: `tools/harness/frames.py list ICAO`; register
+yours at the end (`frames.py register …`) so the next lane does not hunt.
+
 
 - Iterate SYNTHETIC-FIRST: cut the trouble site out of the shipped patch
   with `Ortho4XP/tools/repro_cut.py ICAO --coord LAT LON --radius M` (a

@@ -88,7 +88,14 @@ class PlacedPart:
     #: plan stage no second OBJ8 parse.  ``None`` for a part whose hull
     #: degenerates (fewer than three distinct points), which reads as its
     #: box.
-    ring: np.ndarray = _dc.field(default=None, repr=False, compare=False)
+    #: §16g (7) (1) THE FOOTPRINT OUTLINE (owner RULINGS 2026-09-14c item
+    #: 1, amended 14j): ONE RING PER BLOB of the union of this
+    #: component's projected triangles, each ``(k, 2)`` frame ``(x, z)``
+    #: and each simplified OUTWARD.  Computed HERE, where the geometry is
+    #: already placed, so the unit law costs the plan stage no second
+    #: OBJ8 parse.  Empty where the outline degenerates — the caller then
+    #: reads the part by its box.
+    rings: tuple = _dc.field(default=(), repr=False, compare=False)
 
     @property
     def plan_box(self) -> tuple[float, float, float, float]:
@@ -172,36 +179,110 @@ def _feet(pts: np.ndarray, min_y: float, base_plane: float, band: float, k_max: 
 #: a rendering, and OTHH carries 137,908 of them.
 FOOTPRINT_RING_MAX = 16
 
+#: §16g (7) (1): the OUTWARD simplification tolerance, metres — a tenth
+#: of ``footprint_touch_m`` at its shipped 0.5 m, so the growth a ring
+#: takes is small against the contact it is read at.
+OUTLINE_SIMPLIFY_M = 0.05
 
-def plan_hull(pts: "np.ndarray | None") -> "np.ndarray | None":
-    """§16g (7) (1): the component's FOOTPRINT POLYGON in plan — the
-    CONVEX HULL of its placed vertices, ``(k, 2)`` frame ``(x, z)``.
+#: A component past this many plan triangles takes its convex hull
+#: instead: the union is the honest shape but a clutter mesh's is not
+#: worth its seconds, and the hull is outward.
+OUTLINE_TRIS_MAX = 4000
 
-    WHY THE HULL, AND WHAT IT IS NOT (owner RULINGS 2026-09-14c item 1;
-    the attribution is 14g).  §16g (7) asks for the FOOTPRINT, "not the
-    part boxes", because a rotated building's lat/lon box overlaps its
-    neighbour's while the footprints stand 3.5-20 m apart, and that box
-    chain handed ``T3_road.obj``'s deck datum to 1,509 HECA bodies.  The
-    hull is what breaks that: for a rotated rectangle the hull IS the
-    rectangle, and every false hop 14g measured was found with HULL lower
-    bounds (smallest real gap 3.46 m).  It is also CONSERVATIVE — the
-    hull contains the true footprint, so a hull that does not touch
-    cannot hide a real contact and the law can never split a unit that
-    genuinely abuts.  What it does NOT do is follow a CONCAVE outline: an
-    L-shaped terminal's hull bridges the notch, so a body standing in
-    that notch still chains.  That is the stricter reading, named and
-    left open rather than assumed.
 
-    Computed HERE, where the geometry is already placed, so §16g (7)
-    costs the plan stage no second OBJ8 parse.  ``None`` where the hull
-    degenerates (fewer than three distinct points in plan) — the caller
-    reads such a part by its box, as it always did."""
+def _outward(poly, tol: float, cap: int):
+    """``poly`` simplified to at most ``cap`` vertices and GUARANTEED to
+    CONTAIN it (owner RULINGS 2026-09-14j: "never inward — a simplified
+    ring must contain the true footprint").
+
+    Buffer OUT by the tolerance, then simplify by it: the simplify error
+    is bounded by ``tol`` and the buffer has already paid it, so the
+    result covers the original.  The tolerance doubles until the ring
+    fits, and the last resort is the convex hull, which contains
+    everything by construction."""
+    import shapely
+    t = tol
+    for _ in range(12):
+        q = poly.buffer(t, join_style=2).simplify(t)
+        if not q.is_valid:
+            q = q.buffer(0)
+        if not q.is_empty and q.covers(poly) and len(q.exterior.coords) <= cap + 1:
+            return q
+        t *= 2.0
+    return shapely.convex_hull(poly)
+
+
+def plan_hull(pts: "np.ndarray | None",
+              tris: "np.ndarray | None" = None) -> "list[np.ndarray]":
+    """§16g (7) (1) THE FOOTPRINT POLYGON: the component's TRUE OUTLINE in
+    plan — the UNION of its projected triangles — as one ring per
+    connected blob, ``(k, 2)`` frame ``(x, z)``.
+
+    ROUND 4 (owner RULINGS 2026-09-14j).  Round 3 used the CONVEX HULL
+    and said so; the measurement refuted it against the bar.  The hull
+    killed the deck hop (1,489 HECA bodies at 96.20 -> 0) but it BRIDGES
+    A CONCAVE NOTCH, so a courtyard terminal's hull still swallowed the
+    bodies standing in it: 20 units whose pads span more than a metre
+    survived, the worst 581 bodies over 24 pads spanning 29.56 m.  The
+    outline is what §16g (7) (1) asked for first.
+
+    Every simplification is OUTWARD (:func:`_outward`): a ring that does
+    not contain the true footprint could SPLIT a unit that genuinely
+    abuts, and a unit wrongly split is a body seated on ground that is
+    not its own.  Growing a ring can only keep a chain that the true
+    outline would break, which is the safe direction and is reported.
+
+    A component whose union comes apart into disjoint blobs returns ONE
+    RING PER BLOB — ``rings_touch`` reads a body as a SET of rings
+    already, so nothing downstream needs to know.  Holes are dropped
+    (outward again).  ``[]`` where the outline degenerates, and the
+    caller then reads the part by its box, as it always did."""
     if pts is None or len(pts) < 3:
-        return None
+        return []
+    if tris is None or len(tris) == 0:
+        return _hull_ring(pts)
+    import shapely
+    xz = np.column_stack((pts[:, 0], pts[:, 2]))
+    t = xz[tris]                                   # (m, 3, 2)
+    # a triangle with no plan area contributes nothing to a footprint
+    ar = np.abs((t[:, 1, 0] - t[:, 0, 0]) * (t[:, 2, 1] - t[:, 0, 1])
+                - (t[:, 2, 0] - t[:, 0, 0]) * (t[:, 1, 1] - t[:, 0, 1]))
+    t = t[ar > 1e-6]
+    if len(t) == 0:
+        return _hull_ring(pts)
+    if len(t) > OUTLINE_TRIS_MAX:
+        return _hull_ring(pts)
+    try:
+        rings = np.concatenate([t, t[:, :1, :]], axis=1)
+        u = shapely.union_all(shapely.polygons(rings))
+        if u.is_empty:
+            return _hull_ring(pts)
+        if not u.is_valid:
+            u = u.buffer(0)
+        out: list = []
+        for g in (u.geoms if u.geom_type.startswith("Multi") else [u]):
+            if g.is_empty or g.area <= 0.0:
+                continue
+            q = _outward(g, OUTLINE_SIMPLIFY_M, FOOTPRINT_RING_MAX)
+            r = np.asarray(q.exterior.coords[:-1], dtype=float)
+            if len(r) >= 3:
+                out.append(r)
+        return out or _hull_ring(pts)
+    except Exception:
+        return _hull_ring(pts)
+
+
+def _hull_ring(pts: np.ndarray) -> "list[np.ndarray]":
+    """The component's plan CONVEX HULL as a single ring — round 3's
+    reading, kept as the fallback for a component the outline cannot be
+    taken over (a degenerate or enormous one).  It CONTAINS the true
+    footprint, so the fallback is outward like everything else."""
+    if pts is None or len(pts) < 3:
+        return []
     xz = np.unique(np.round(np.column_stack((pts[:, 0], pts[:, 2])), 3),
                    axis=0)
     if len(xz) < 3:
-        return None
+        return []
     order = np.lexsort((xz[:, 1], xz[:, 0]))
     p = xz[order]
 
@@ -219,10 +300,10 @@ def plan_hull(pts: "np.ndarray | None") -> "np.ndarray | None":
 
     ring = np.asarray(half(p)[:-1] + half(p[::-1])[:-1], dtype=float)
     if len(ring) < 3:
-        return None
+        return []
     while len(ring) > FOOTPRINT_RING_MAX:
         ring = ring[::2]
-    return ring
+    return [ring]
 
 
 def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
@@ -265,7 +346,7 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
                                     _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
                                           foot_band_m, k_max), is_line,
-                                    plan_hull(pts)))
+                                    plan_hull(pts, lt)))
     return parts
 
 

@@ -25,6 +25,7 @@ import typing as _t
 
 from .frame import LL
 
+
 __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
            "PLAN_VERSION", "PLAN_FILENAME"]
 
@@ -42,6 +43,20 @@ PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
 
 # ── the plan ─────────────────────────────────────────────────────────────
+
+def _rings(raw) -> tuple:
+    """§16g (7) (1)'s footprint rings from the plan.  A plan written
+    before RULINGS 2026-09-14j carries ONE FLAT ring (a list of
+    ``[lat, lon]`` pairs); one written after carries a LIST of rings, one
+    per blob.  Both shapes are read, so an older frame is never silently
+    mis-parsed into nonsense."""
+    if not raw:
+        return ()
+    head = raw[0]
+    if len(head) == 2 and not isinstance(head[0], (list, tuple)):
+        return (tuple((float(a), float(b)) for a, b in raw),)
+    return tuple(tuple((float(a), float(b)) for a, b in r) for r in raw if r)
+
 
 @_dc.dataclass(frozen=True)
 class Part:
@@ -78,14 +93,15 @@ class Part:
     #: SEGMENT — every vertex takes the delta of the nearest station.
     line: bool = False
     #: §16g (7) (1) THE FOOTPRINT POLYGON (owner RULINGS 2026-09-14c item
-    #: 1): this component's plan CONVEX HULL as ``(lat, lon)`` vertices,
-    #: at most ``contact.FOOTPRINT_RING_MAX`` of them.  §16g (1)'s unit
+    #: 1, amended 14j): this component's plan OUTLINE — the union of its
+    #: projected triangles, simplified OUTWARD — as ``(lat, lon)``
+    #: vertices, at most ``contact.FOOTPRINT_RING_MAX`` of them.  §16g (1)'s unit
     #: chains on THIS, never on ``box`` — a rotated building's lat/lon box
     #: overlaps a neighbour whose footprint is 20 m away, and that chain
     #: handed a rail deck's datum to 1,509 HECA bodies (14g).  EMPTY in a
     #: plan written before the field, and the reader then falls back to
     #: ``box`` and SAYS SO.
-    ring: tuple[tuple[float, float], ...] = ()
+    rings: tuple[tuple[tuple[float, float], ...], ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -273,7 +289,8 @@ class RebakePlan:
                     "heading_deg": m.heading_deg,
                     "parts": [[p.pid, p.comp, p.lat, p.lon, p.base_y, p.area_m2, *p.box,
                                [list(f) for f in p.feet], p.line,
-                               [list(v) for v in p.ring]] for p in m.parts],
+                               [[list(v) for v in r] for r in p.rings]]
+                              for p in m.parts],
                     "deck_ring": None if m.deck_ring is None
                     else [[a, b] for a, b in m.deck_ring],
                     "deck_top_y": m.deck_top_y, "deck_datum_z": m.deck_datum_z,
@@ -322,9 +339,7 @@ class RebakePlan:
                                  tuple((float(a), float(b), float(c))
                                        for a, b, c in (p[10] if len(p) > 10 else ())),
                                  bool(p[11]) if len(p) > 11 else False,
-                                 tuple((float(a), float(b))
-                                       for a, b in (p[12] if len(p) > 12
-                                                    else ())))
+                                 _rings(p[12] if len(p) > 12 else ()))
                             for p in m.get("parts", ())),
                 deck_ring=None if m.get("deck_ring") is None
                 else tuple((float(a), float(b)) for a, b in m["deck_ring"]),

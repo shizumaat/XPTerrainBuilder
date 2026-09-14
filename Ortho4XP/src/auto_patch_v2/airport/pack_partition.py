@@ -550,11 +550,12 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
         fla = flo = np.zeros(0)
     # §16g (7) (1): the FOOTPRINT RINGS, projected in one batch beside
     # the feet — a part with no ring (a degenerate hull) keeps its box
-    nr = np.array([0 if p.ring is None else p.ring.shape[0]
-                   for p in part.parts])
-    if nr.sum():
-        rxy = np.concatenate([p.ring for p in part.parts
-                              if p.ring is not None and p.ring.shape[0]])
+    # every RING of every part, flattened once; ``nr`` is the per-part
+    # list of ring LENGTHS, so the tail is re-cut in order below
+    nr = [[len(r) for r in (p.rings or ())] for p in part.parts]
+    flat = [r for p in part.parts for r in (p.rings or ()) if len(r)]
+    if flat:
+        rxy = np.concatenate(flat)
         rla, rlo = to_ll_batch(rxy[:, 0], rxy[:, 1])
     else:
         rla = rlo = np.zeros(0)
@@ -572,16 +573,19 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
         at += k
         # rounded to the millimetre (8 dp of a degree, 3 dp of a metre): the
         # plan is a witness set, and OTHH's 152 k parts are 26 MB unrounded
-        k_r = int(nr[i])
-        ring = tuple((round(float(rla[ra + j]), 8), round(float(rlo[ra + j]), 8))
-                     for j in range(k_r))
-        ra += k_r
+        rings = []
+        for k_r in nr[i]:
+            rings.append(tuple((round(float(rla[ra + j]), 8),
+                                round(float(rlo[ra + j]), 8))
+                               for j in range(k_r)))
+            ra += k_r
+        rings = tuple(rings)
         out.setdefault(p.member, []).append(
             Part(p.pid, p.comp, round(float(la), 8), round(float(lo), 8),
                  round(p.base_y, 3), round(p.area_m2, 3),
                  (round(float(min(a0, a1)), 8), round(float(min(o0, o1)), 8),
                   round(float(max(a0, a1)), 8), round(float(max(o0, o1)), 8)),
-                 feet, bool(p.line), ring))
+                 feet, bool(p.line), rings))
     return out
 
 

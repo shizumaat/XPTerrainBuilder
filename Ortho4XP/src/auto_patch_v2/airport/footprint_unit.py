@@ -444,8 +444,9 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         if bx:
             shims.append(_PShim(len(shims), key, bx, frozenset(pids),
                                 plan.units[ui].members[mi].resource,
-                                tuple(q.ring for q in live
-                                      if len(getattr(q, "ring", ())) >= 3)))
+                                tuple(r for q in live
+                                      for r in getattr(q, "rings", ())
+                                      if len(r) >= 3)))
     if len(shims) < 2:
         return [], []
     clusters, _adj = _clusters(shims, touch_m, min_members=1,
@@ -686,6 +687,33 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
         spread_after_m=0.0, apart=())]
 
 
+def _end_probe(cn: _t.Any, own: _t.Sequence[tuple], feet_of
+               ) -> tuple:
+    """§16g (7) (2) as clarified (owner RULINGS 2026-09-14j): WHERE the
+    connector's end contact is read.
+
+    At the connector's OWN GROUND FEET in that end, as degenerate boxes,
+    so ``plan_unit_datums`` samples the terrain exactly where the piece
+    touches it — its pad if it stands on one, the design surface
+    otherwise.  Round 3 sampled the end's BOX CENTRES and HECA's
+    1,149 m rail read OFF-SHEET at both ends (measured: 0 of 7 and 0 of
+    8 centres on any graded face), so only one end ever produced a datum
+    and the ``min`` of the two had nothing to choose from — the rail came
+    out at 93.16, its south end, when its north end stands at ~73.4.  A
+    foot is a real contact point and is on the sheet wherever the patch
+    covers the piece at all.  With no foot in the end, the box centres
+    stand as they did."""
+    lo = min(b[0] for b in own)
+    hi = max(b[2] for b in own)
+    lo2 = min(b[1] for b in own)
+    hi2 = max(b[3] for b in own)
+    feet = [f for f in feet_of(cn.pids)
+            if lo <= f[0] <= hi and lo2 <= f[1] <= hi2]
+    if feet:
+        return tuple((f[0], f[1], f[0], f[1]) for f in feet)
+    return tuple(own)
+
+
 def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     pads: _t.Sequence[_ar.PadRing], touch_m: float,
                     cluster_min_m2: float, counts: dict,
@@ -712,6 +740,15 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
         return {}, []
     units, conns = plan_units_and_connectors(plan, touch_m,
                                             connector_span_m, counts)
+    _parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
+
+    def _feet_of(pids):
+        out = []
+        for q in pids:
+            p = _parts.get(q)
+            if p is not None:
+                out.extend(p.feet)
+        return out
     dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
     out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
@@ -753,10 +790,12 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
         # OWN geometry at that end, never over the end unit — a rail's end
         # component is a whole district and its median ground is not the
         # ground the abutment stands on.
-        ends = [(u, own, ky) for u, own, bx, ky in
+        ends = [(u, _end_probe(cn, own, _feet_of), ky)
+                for u, own, bx, ky in
                 ((cn.end_a, cn.own_a, cn.boxes_a, cn.keys_a),
                  (cn.end_b, cn.own_b, cn.boxes_b, cn.keys_b))
                 if u and bx and own]
+        ends = [e for e in ends if e[1]]
         if not ends:
             continue
         ed = plan_unit_datums(

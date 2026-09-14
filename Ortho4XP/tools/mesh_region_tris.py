@@ -800,6 +800,173 @@ def hairline_audit(prefix, tile_lat, tile_lon, spacing_m, slenderness,
             "refused": bad[:500]}
 
 
+# ── THE NODE -> MESH CROSS-REFERENCE (owner RULINGS 2026-09-13cp) ──────
+#
+# THE QUESTION no census can answer: the PATCH is right and the MESH is
+# wrong.  Scout ``v2lemd329`` read the owner's 1.0.329 +40-004 tile this
+# way and found it — road ribbons the ``.node`` carries at 588-590 m
+# emitted at 568 (a 20.7 m canyon), 1,400 of 278,177 bare-INTERP_ALT
+# input nodes off by more than 2 m, worst -24.3 m, while every one of the
+# 29,186 PATCH_RING nodes was exact.  That SPLIT BY CLASS is the whole
+# instrument: "the mesh moved" is not attribution, "the mesh moved the
+# ribbons and not the rings" is.
+#
+# THE IDENTITY IS VERIFIED, NEVER TRUSTED: Triangle writes the input
+# vertices first and in order, so input node ``i`` is mesh vertex ``i``;
+# the coordinates are compared and a mismatch REFUSES (the same rule
+# ``O4_Mesh_Utils.patch_valued_vertex_indices`` states).
+#
+# Promoted here rather than forked into a new tool (RULINGS ``7e90032``):
+# the MEDIT parse, the ``.node``/``.poly`` reading, the tile-origin
+# resolution and the JSON stamping are this tool's already.
+
+#: The marker CLASS of an input node, by precedence over its incident
+#: constrained segments.  A node wearing several markers is named by the
+#: strongest authority on it, which is the one whose altitude it carries.
+_XREF_CLASSES = (("PATCH_RING", lambda m: m == PATCH_RING_MARKER),
+                 ("WATER", lambda m: m & 7 and not m & INTERP_ALT_BIT),
+                 ("WATER|INTERP_ALT", lambda m: m & 7 and m & INTERP_ALT_BIT),
+                 ("INTERP_ALT", lambda m: m == INTERP_ALT_BIT),
+                 ("OTHER", lambda m: m > 0),
+                 ("DUMMY", lambda m: m == 0))
+
+
+def _read_node_altitudes(prefix):
+    """``{1-based id: (x, y, z)}`` of a Triangle ``.node`` — the CARRIED
+    altitude the vector map authored, column 4."""
+    out = {}
+    with open(prefix + ".node") as handle:
+        count = int(handle.readline().split()[0])
+        for _ in range(count):
+            c = handle.readline().split()
+            out[int(c[0])] = (float(c[1]), float(c[2]),
+                              float(c[3]) if len(c) > 3 else float("nan"))
+    return out
+
+
+def _stats(values):
+    if not values:
+        return {"n": 0, "max": 0.0, "p95": 0.0}
+    import statistics
+    sv = sorted(values)
+    k = min(len(sv) - 1, int(round(0.95 * (len(sv) - 1))))
+    return {"n": len(sv), "max": float(sv[-1]), "p95": float(sv[k]),
+            "median": float(statistics.median(sv))}
+
+
+def node_mesh_xref(mesh_path, prefix, tile_lat, tile_lon, bar_m=2.0,
+                   edge_step=True):
+    """Print, and return, the per-class ``|z_node - z_mesh|`` reading and
+    the PATCH EDGE STEP (the cliff the bank exists to grade)."""
+    import collections
+
+    nodes = _read_node_altitudes(prefix)
+    (_n2, segments, _seeds) = read_poly_inputs(prefix)
+    (nv, lon, lat, zed, tri, _att) = _read_mesh_attributed(mesh_path)
+    if nv < len(nodes):
+        raise SystemExit(f"REFUSING: the mesh has {nv:,} vertices against "
+                         f"{len(nodes):,} input nodes — not this build's")
+    best = {}
+    for (a, b, m) in segments:
+        for i in (a, b):
+            best[i] = best.get(i, 0) | m
+    payload = {"mesh": mesh_path, "inputs": prefix, "bar_m": bar_m,
+               "tile": [tile_lat, tile_lon], "classes": {}}
+    per_class = collections.defaultdict(list)
+    worst = {}
+    checked = 0
+    for i in range(1, len(nodes) + 1):
+        (x, y, z) = nodes[i]
+        if abs(lon[i - 1] - (x + tile_lon)) > 1e-7 \
+                or abs(lat[i - 1] - (y + tile_lat)) > 1e-7:
+            raise SystemExit(
+                f"REFUSING: the mesher did not preserve the input vertex "
+                f"order at node {i} — this cross-reference has no identity "
+                "join and every number it printed would be a coincidence")
+        checked += 1
+        if z != z:                                  # NaN: no carried alt
+            continue
+        marker = best.get(i)
+        name = "UNCONSTRAINED"
+        if marker is not None:
+            for (label, test) in _XREF_CLASSES:
+                if test(marker):
+                    name = label
+                    break
+        d = abs(float(zed[i - 1]) - z)
+        per_class[name].append(d)
+        if d > worst.get(name, (-1.0,))[0]:
+            worst[name] = (d, lat[i - 1], lon[i - 1], z, float(zed[i - 1]))
+    print(f"node->mesh xref: {checked:,} input nodes joined by index "
+          f"(coordinates verified), bar {bar_m} m")
+    for name in sorted(per_class, key=lambda k: -len(per_class[k])):
+        vals = per_class[name]
+        st = _stats(vals)
+        over = sum(1 for v in vals if v > bar_m)
+        (dw, wlat, wlon, zn, zm) = worst[name]
+        print(f"  {name:16s} {st['n']:>8,} nodes  off>|{bar_m}| "
+              f"{over:>6,}  median {st['median']:.3f}  p95 {st['p95']:.3f}  "
+              f"max {dw:.3f} m at {wlat:.7f},{wlon:.7f} "
+              f"(node {zn:.2f} -> mesh {zm:.2f})")
+        payload["classes"][name] = dict(
+            st, over_bar=over,
+            worst=[dw, wlat, wlon, zn, zm])
+    if edge_step:
+        payload["patch_edge_step"] = _patch_edge_step(
+            nodes, segments, nv, lon, lat, zed, tri, tile_lat, tile_lon)
+    return payload
+
+
+def _patch_edge_step(nodes, segments, nv, lon, lat, zed, tri,
+                     tile_lat, tile_lon):
+    """THE CLIFF THE BANK EXISTS TO GRADE (owner request 2026-09-13): for
+    every PATCH_RING mesh vertex, the biggest altitude step to a
+    triangulation neighbour that is NOT on a patch ring and stands
+    OUTSIDE the patch coverage."""
+    from shapely import geometry
+    from shapely.prepared import prep
+
+    ring_ids = set()
+    for (a, b, m) in segments:
+        if m == PATCH_RING_MARKER:
+            ring_ids.add(a - 1)
+            ring_ids.add(b - 1)
+    if not ring_ids:
+        print("patch edge step: no PATCH_RING segment in this .poly — "
+              "nothing to measure")
+        return {"n": 0}
+    (_faces, coverage) = _arrangement(
+        {i: (nodes[i][0], nodes[i][1]) for i in nodes}, segments,
+        lambda m: m == PATCH_RING_MARKER)
+    covered = prep(coverage) if not coverage.is_empty else None
+    outside = {}
+    steps, worst = [], (-1.0, 0.0, 0.0)
+    for k in range(0, len(tri), 3):
+        (v1, v2, v3) = tri[k], tri[k + 1], tri[k + 2]
+        for (p, q) in ((v1, v2), (v2, v3), (v3, v1), (v2, v1), (v3, v2),
+                       (v1, v3)):
+            if p not in ring_ids or q in ring_ids:
+                continue
+            if q not in outside:
+                outside[q] = (covered is not None and not covered.covers(
+                    geometry.Point(lon[q] - tile_lon, lat[q] - tile_lat)))
+            if not outside[q]:
+                continue
+            d = abs(float(zed[p]) - float(zed[q]))
+            steps.append(d)
+            if d > worst[0]:
+                worst = (d, lat[p], lon[p])
+    st = _stats(steps)
+    over1 = sum(1 for v in steps if v > 1.0)
+    over3 = sum(1 for v in steps if v > 3.0)
+    print(f"patch edge step: {st['n']:,} ring->outside pair(s), median "
+          f"{st.get('median', 0.0):.3f}  p95 {st['p95']:.3f}  max "
+          f"{st['max']:.3f} m at {worst[1]:.7f},{worst[2]:.7f}; "
+          f">1 m {over1:,}  >3 m {over3:,}")
+    return dict(st, over_1m=over1, over_3m=over3,
+                worst=[worst[0], worst[1], worst[2]])
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -947,6 +1114,15 @@ def main(argv=None):
                     help="at most this many WALL polygons in the KML, worst "
                          "first (default 2000 — a fold can mint tens of "
                          "thousands and a KML no viewer opens is no evidence)")
+    ap.add_argument("--node-xref", action="store_true",
+                    help="cross-reference every INPUT node's carried "
+                         "altitude against its own MESH vertex, split by "
+                         "the node's marker class, and read the PATCH EDGE "
+                         "STEP beside it (owner RULINGS 2026-09-13cp). "
+                         "Needs --inputs PREFIX and --mesh.")
+    ap.add_argument("--node-xref-bar", type=float, default=2.0, metavar="M",
+                    help="the off-by bar the per-class counts are taken at "
+                         "(default 2.0 m — the scout's own reading)")
     ap.add_argument("--json", default=None, metavar="OUT.json",
                     help="also write the counts here, with the bbox and "
                          "band edges stamped alongside")
@@ -974,6 +1150,23 @@ def main(argv=None):
             dem_slope_factor=args.dem_slope_factor,
             dem_bar_m=args.dem_bar, kml_path=args.kml,
             kml_cap=args.kml_cap)
+        if args.json:
+            import json
+            with open(args.json, "w") as fh:
+                json.dump(payload, fh, indent=1)
+            print(f"JSON -> {args.json}")
+        return 0
+
+    if args.node_xref:
+        prefix = args.inputs
+        if prefix is None and (args.mesh or "").endswith(".mesh"):
+            prefix = args.mesh[:-len(".mesh")]
+        if prefix is None:
+            raise SystemExit("REFUSING: --node-xref needs --inputs PREFIX")
+        (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
+                                else _tile_origin(prefix + ".poly"))
+        payload = node_mesh_xref(args.mesh, prefix, tile_lat, tile_lon,
+                                 bar_m=args.node_xref_bar)
         if args.json:
             import json
             with open(args.json, "w") as fh:

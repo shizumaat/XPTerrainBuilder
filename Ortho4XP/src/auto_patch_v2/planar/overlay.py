@@ -41,8 +41,11 @@ __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_ban
            "absorb_enclosed_pavement", "ENCLOSED_MIN_FRAC"]
 
 #: §41 (1): the fraction of its OWN area a pavement face must have inside
-#: another pavement face's exterior ring to be that face's hole.
-ENCLOSED_MIN_FRAC = 0.95
+#: another pavement face's exterior ring to be that face's hole.  DEFINED
+#: IN ``classify/sources.py`` and re-exported here: §42 (2) as amended
+#: (RULINGS 2026-09-13dc) applies the same test to a §42 object body
+#: before the slice, and ``classify`` may not import ``planar``.
+from ..classify.sources import ENCLOSED_MIN_FRAC  # noqa: E402,F401
 
 
 @_dc.dataclass(frozen=True)

@@ -45,10 +45,20 @@ from .evidence import Evidence, apron_named, polygon_parts, taxi_name_match
 from .rules import Rules
 
 __all__ = ["SourceRecord", "classify_sources", "object_body_cuts",
-           "OBJECT_PAVEMENT_PREFIX"]
+           "OBJECT_PAVEMENT_PREFIX", "ENCLOSED_MIN_FRAC"]
 
 #: the source-id prefix ``airport/load.py`` gives a §42 object-pavement body
 OBJECT_PAVEMENT_PREFIX = "dsf:objpav"
+
+#: §41 (1) (owner RULINGS 2026-09-13co item 2): the fraction of its OWN
+#: area a pavement region must have inside another's EXTERIOR RING to be
+#: that one's rather than its own.  ONE definition, read by both halves of
+#: the rule — ``planar/overlay.absorb_enclosed_pavement`` applies it to
+#: FACES, ``object_body_cuts`` below to a §42 object body before the slice
+#: (RULINGS 2026-09-13dc).  It lives at the earlier stage because ``planar``
+#: may import ``classify`` and never the other way (the layering twin,
+#: ``tests/auto_patch_v2/test_model.py::test_dependency_direction``).
+ENCLOSED_MIN_FRAC = 0.95
 
 _BOUNDARY_TOL_M = 0.5
 
@@ -339,14 +349,13 @@ def object_body_cuts(ev: Evidence, region) -> list[LineString]:
     cap.
 
     THE ONE EXCEPTION IS §41 (1), and it is the SAME TEST the planar pass
-    applies to faces (``planar/overlay.absorb_enclosed_pavement``): a body
-    at least ``ENCLOSED_MIN_FRAC`` of whose area lies inside a mapped
-    page's EXTERIOR RING is that page's — it is not cut here, it unions
-    into the page, and there is no boundary between them for a step to
-    stand on.  Reading the same constant from the same module keeps the
-    two halves of §41 (1) from drifting apart.
+    applies to faces (``planar/overlay.absorb_enclosed_pavement``, which
+    re-exports ``ENCLOSED_MIN_FRAC`` from here): a body at least that
+    fraction of whose area lies inside a mapped page's EXTERIOR RING is
+    that page's — it is not cut here, it unions into the page, and there
+    is no boundary between them for a step to stand on.  One constant, so
+    the two halves of §41 (1) cannot drift apart.
     """
-    from ..planar.overlay import ENCLOSED_MIN_FRAC   # the §41 (1) fraction, defined once
     bodies = [(sid, g) for sid, g in ev.pavement_polys
               if sid.startswith(OBJECT_PAVEMENT_PREFIX)]
     if not bodies:

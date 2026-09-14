@@ -621,6 +621,13 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         # (A), owner RULINGS 2026-09-12ap: the height a cross-member
         # §16c (7) bind may move a body off its OWN ground.
         bind_ground_m=law.tables.emit.cockpit.visual_m,
+        # §16f (7) (owner RULINGS 2026-09-13bj item 1): the footprint-union
+        # area above which a family is a CLUSTER and seats as one unit.
+        cluster_min_m2=law.tables.structures.placement.cluster_pad_min_m2,
+        # §16g (owner RULINGS 2026-09-13bo): the FOOTPRINT UNIT and the
+        # only cut (the HECA elevated-rail connector class).
+        touch_m=law.tables.structures.placement.footprint_touch_m,
+        connector_span_m=law.tables.structures.placement.connector_span_m,
         # §16e (6): the deck end line's LANDWARD WALK to the graded face
         # the deck connects to (RULINGS 2026-09-13v).
         abutment_step_m=law.tables.structures.bridge.abutment_sample_step_m,

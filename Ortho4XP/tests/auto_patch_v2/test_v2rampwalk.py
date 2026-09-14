@@ -228,6 +228,71 @@ def test_layer_zero_and_a_clip_state_no_crossing(law):
     assert all(LineString(w.points).length >= tn.underpass_min_span_m for w in got)
 
 
+def test_no_underpass_under_a_jetway(law):
+    """§34 (5) NARROWED (Fable 2026-09-13; owner RULINGS 2026-09-13bm item
+    1).  SPJC's OSM carries 63 ways ``{aeroway=jet_bridge, bridge=yes,
+    highway=footway, layer=1}`` and every one of them bored the apron
+    service roads beneath it: 19 underpasses, 86 roads, 11 of 18 tunnel
+    records, and four ``bridge_deck:`` faces across a live apron.  Only an
+    aeroway a TAXIING AIRCRAFT uses states a crossing."""
+    from auto_patch_v2.airport.deck_signature import is_bridge_way
+    for aeroway in ("taxiway", "runway", "apron"):
+        assert _su.is_aeroway_bridge({"aeroway": aeroway, "bridge": "yes"})
+    for aeroway in ("jet_bridge", "parking_position", "gate", ""):
+        assert not _su.is_aeroway_bridge({"aeroway": aeroway,
+                                          "bridge": "yes"})
+    # a footway is refused whatever its aeroway says
+    assert not _su.is_aeroway_bridge(
+        {"aeroway": "taxiway", "bridge": "yes", "highway": "footway"})
+    assert not _su.is_aeroway_bridge({"aeroway": "taxiway", "bridge": "no"})
+
+    # and no jetway mints a terrain DECK either (symmetrically), while a
+    # plain road or rail bridge still does
+    jetway = {"access": "private", "aeroway": "jet_bridge", "bridge": "yes",
+              "highway": "footway"}          # KCLT way -1361, verbatim
+    assert not is_bridge_way(jetway)
+    assert is_bridge_way({"highway": "footway", "bridge": "yes"})
+    assert is_bridge_way({"railway": "rail", "bridge": "yes"})
+
+    # end to end: the jetway bores nothing
+    deck, road = _underpass_ways(aeroway="jet_bridge")
+    deck = OsmWay(deck.id, deck.kind, deck.points, False,
+                  {**dict(deck.tags), "highway": "footway"})
+    ap = _airport(law, ways=[deck, road])
+    assert _su.underpass_bores(ap, law, [], [])[0] == []
+
+
+def test_a_blob_cell_never_states_the_deck(law):
+    """§34 (5) NARROWED: ``_deck_half_width`` reads the pavement CELL the
+    axis stands in, and SPJC's 738,901 m2 ``pav40`` apron turned a 4 m
+    jetway into a 49-127 m ribbon that caught every road on the apron.  A
+    cell whose HALF-WIDTH exceeds ``DECK_CELL_MAX_RATIO`` x the way's own
+    CARRIAGEWAY WIDTH is refused and the carriageway is the deck.
+
+    The ratio is measured, not guessed: at 4x the carriageway it refuses
+    all 19 of SPJC's blobs and keeps KCLT taxiway U's real 18.0 m deck."""
+    from shapely.geometry import Polygon as _Poly
+    from auto_patch_v2.classify.roles import Cell as _Cell
+
+    class _C:
+        kind = "pavement"
+    half_default = 4.0                       # a 8 m carriageway
+    cap = _su.DECK_CELL_MAX_RATIO * 2.0 * half_default
+    axis = lambda s: (float(s), 0.0)
+    ss = [0.0, 10.0, 20.0]
+
+    def read(cell_half):
+        poly = _Poly([(-100.0, -cell_half), (200.0, -cell_half),
+                      (200.0, cell_half), (-100.0, cell_half)])
+        return _su._deck_half_width(axis, ss, [_C()], [poly], half_default,
+                                    cap)
+
+    inside, n_read, n_ref = read(cap - 5.0)
+    assert inside == pytest.approx(cap - 5.0) and n_read == 3 and n_ref == 0
+    blob, n_read, n_ref = read(cap + 5.0)
+    assert blob == half_default and n_read == 0 and n_ref == 3
+
+
 def test_the_underpass_ramp_follows_the_parent_road(law):
     """§34 (5)/(1): a mouth the clip made stands mid-way along the road, at
     no mapped node, so ``approach``'s node index finds nothing there —

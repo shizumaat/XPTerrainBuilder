@@ -110,6 +110,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # the law read one water witness and never two.
     "shore_edges",
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
+    "cluster_pads",  # §30 (4) (owner RULINGS 2026-09-13bj item 1): one record per TERMINAL CLUSTER — its members, the emitted `building` faces its footprint union stands on, the ONE level the solve gave that plane, and the apron vertices the reach targeted (with how many reached it).  The object stage's §16g seats the cluster on this level (``pipeline/publication.cluster_pads``)
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

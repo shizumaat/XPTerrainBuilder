@@ -705,7 +705,13 @@ def _main() -> int:
                                         if a.rigid_reach is None
                                         else a.rigid_reach),
                          # (A), RULINGS 2026-09-12ap
-                         bind_ground_m=_law.tables.emit.cockpit.visual_m)
+                         bind_ground_m=_law.tables.emit.cockpit.visual_m,
+                         cluster_min_m2=_law.tables.structures.placement
+                         .cluster_pad_min_m2,
+                         touch_m=_law.tables.structures.placement
+                         .footprint_touch_m,
+                         connector_span_m=_law.tables.structures.placement
+                         .connector_span_m)
     # THE PLAN STAGE, timed where the shipped engine's own call is: this
     # is the number the round budgets quote, and it must not include the
     # graded parse, the Delaunay or the census the tool wraps it in.

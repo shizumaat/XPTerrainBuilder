@@ -60,7 +60,9 @@ from . import placement_boxes as _pb
 
 __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
            "pad_plurality", "bind_families",
-           "census_families", "census_families_lines"]
+           "census_families", "census_families_lines",
+           "union_area_m2", "PlanCluster", "plan_clusters", "bodies_of_plan",
+           "cluster_plane"]
 
 #: §16f (1): two placement rows do not make a family and neither does one
 #: member — a FAMILY is a cluster of at least this many members of one
@@ -118,7 +120,8 @@ class Family:
                 f"{len(self.apart)} member(s) cut apart")
 
 
-def _clusters(cands: _t.Sequence[_t.Any], eps_m: float
+def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
+              min_members: int = FAMILY_MIN_MEMBERS
               ) -> "tuple[list[list[int]], dict[int, set[int]]]":
     """§16f (1)(b): the unit's footed bodies grouped into CONNECTED PLAN
     CLUSTERS — two bodies are in contact where any pair of their PART
@@ -144,7 +147,7 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float
             if c.body_class not in (_ar.LINE_SEGMENT, _ar.BASIN)
             and (c.part_boxes or c.box)]
     adj: dict[int, set[int]] = {}
-    if len(live) < FAMILY_MIN_MEMBERS:
+    if len(live) < 2:
         return [], adj
     boxes = {i: (list(cands[i].part_boxes) or [cands[i].box]) for i in live}
     hull = {i: _pb.hull_of(boxes[i]) for i in live}
@@ -161,8 +164,14 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float
     # ordered by the hull's south edge so the sweep stops (§14 (3)'s own
     # shape; OTHH's clutter members are thousands of boxes each)
     order = sorted(live, key=lambda i: hull[i][0])
+    # THE SWEEP CARRIES THE TOLERANCE.  At §16f's millimetres the slack
+    # rounds away; at §16g's ``footprint_touch_m`` (0.5 m) it does not,
+    # and without it the sweep BREAKS on the very pair the law binds — a
+    # pier 0.3 m north of its deck starts past the deck's north edge
+    # (measured, the §16g twin).
+    _slack = eps_m / 111_132.0
     for ai, a in enumerate(order):
-        north = hull[a][2]
+        north = hull[a][2] + _slack
         for b in order[ai + 1:]:
             if hull[b][0] > north:
                 break
@@ -183,8 +192,173 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float
     # one member's own bodies are already one object to §14 (3) / §16c
     return ([sorted(v) for _k, v in sorted(out.items(),
                                            key=lambda kv: min(kv[1]))
-             if len({cands[i].member for i in v}) >= FAMILY_MIN_MEMBERS], adj)
+             if (len(v) >= 2 if min_members <= 1
+                 else len({cands[i].member for i in v}) >= min_members)], adj)
 
+
+
+def bodies_of_plan(plan: _t.Any
+                   ) -> "tuple[dict[tuple[int, int, int], tuple[int, ...]], dict[int, tuple[int, int, int]]]":
+    """``(body -> its part ids, part id -> its body)`` over a whole plan,
+    from ``placement_plan._bodies_of`` — §9's own body law, the
+    intra-placement ε-contact component, with a LINE part binding
+    nothing.  ONE derivation: the split writer, ``planar/group.py`` (which
+    re-exports this) and §16g's footprint unit cut the same bodies or they
+    are not talking about the same object.
+
+    It lives in ``airport`` because §16g needs it at LOAD time and
+    ``airport`` may not import ``planar``."""
+    from .placement_plan import _bodies_of
+
+    member_of_pid: dict[int, tuple[int, int]] = {}
+    for ui, u in enumerate(plan.units):
+        for mi, m in enumerate(u.members):
+            for p in m.parts:
+                member_of_pid[p.pid] = (ui, mi)
+    intra: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for a, b in plan.contacts:
+        ka, kb = member_of_pid.get(a), member_of_pid.get(b)
+        if ka is not None and ka == kb:
+            intra.setdefault(ka, []).append((a, b))
+    bodies: dict[tuple[int, int, int], tuple[int, ...]] = {}
+    of_pid: dict[int, tuple[int, int, int]] = {}
+    for ui, u in enumerate(plan.units):
+        for mi, m in enumerate(u.members):
+            for gi, g in enumerate(_bodies_of(m, intra.get((ui, mi), []))):
+                key = (ui, mi, gi)
+                bodies[key] = tuple(g)
+                for q in g:
+                    of_pid[q] = key
+    return bodies, of_pid
+
+
+def union_area_m2(boxes: _t.Iterable[tuple[float, float, float, float]]
+                  ) -> float:
+    """§16f (7): THE FOOTPRINT UNION of a set of plan boxes, in square
+    metres — the area the boxes COVER, each overlap counted once.
+
+    Never the hull (a terminal's two wings and the apron between them
+    read as one 200 x 300 m rectangle) and never the sum of the parts (a
+    wall ring's boxes overlap each other hundreds of times).  A
+    rectangle-union sweep: the distinct latitudes cut the plan into
+    slabs, and within a slab the covering longitude intervals are merged.
+    Exact, dependency-free, and O(n^2 log n) on the box count — the
+    caller decimates before it matters."""
+    bs = [b for b in boxes if b and b[2] > b[0] and b[3] > b[1]]
+    if not bs:
+        return 0.0
+    ys = sorted({b[0] for b in bs} | {b[2] for b in bs})
+    total = 0.0
+    for y0, y1 in zip(ys, ys[1:]):
+        dy = y1 - y0
+        if dy <= 0.0:
+            continue
+        spans = sorted((b[1], b[3]) for b in bs if b[0] <= y0 and b[2] >= y1)
+        if not spans:
+            continue
+        ml, mo = _ar._m_per_deg(0.5 * (y0 + y1))
+        cover = 0.0
+        lo, hi = spans[0]
+        for a, b in spans[1:]:
+            if a > hi:
+                cover += hi - lo
+                lo, hi = a, b
+            else:
+                hi = max(hi, b)
+        cover += hi - lo
+        total += (dy * ml) * (cover * mo)
+    return total
+
+
+@_dc.dataclass(frozen=True)
+class PlanCluster:
+    """§16f (7) / design §30 (4): ONE LARGE TERMINAL CLUSTER, derived from
+    the REBAKE PLAN alone so the DESIGN SURFACE can emit its pad before
+    the object stage exists (the family census runs after the planar
+    stage; the cluster must be known at planar time or there is no pad
+    for the object stage to seat on)."""
+
+    id: str
+    unit: str
+    #: the resources of the members in the cluster
+    members: tuple[str, ...]
+    #: every PART box of the cluster, ``(lat0, lon0, lat1, lon1)``
+    boxes: tuple[tuple[float, float, float, float], ...]
+    #: the footprint UNION's area (:func:`union_area_m2`)
+    area_m2: float
+    #: the hull of the union — the cheap plan reject every reader takes
+    hull: tuple[float, float, float, float]
+
+    def line(self) -> str:
+        return (f"{self.id}: {len(self.members)} member(s), footprint union "
+                f"{self.area_m2:,.0f} m2")
+
+
+class _Shim:
+    """A plan MEMBER's body dressed as the candidate :func:`_clusters`
+    reads — the ONE cluster law, asked of the plan instead of the
+    placement candidates.  Nothing else of a candidate is touched."""
+
+    __slots__ = ("member", "part_boxes", "box", "body_class", "resource")
+
+    def __init__(self, member: int, boxes: list, resource: str) -> None:
+        self.member = member
+        self.part_boxes = boxes
+        self.box = _pb.hull_of(boxes)
+        self.body_class = ""
+        self.resource = resource
+
+
+def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float
+                  ) -> list[PlanCluster]:
+    """§16f (7)'s CLUSTERS read off a ``RebakePlan`` — the planar-time
+    half of the family law (design spec §30 (4)).
+
+    The same three tests §16f (1)/(3)/(7) state, in the same order and
+    through the same :func:`_clusters`: one authored datum plane (the
+    plan's own ``Unit``), one connected plan cluster of at least
+    ``FAMILY_MIN_MEMBERS`` members within ``contact_eps_m``, more than
+    ``FAMILY_SHARE_MIN`` of the unit's eligible bodies, and a footprint
+    union over ``min_m2``.  A LINE part founds no body here for the same
+    reason §16f (1) excludes a line segment.
+
+    The BODY is the unit of contact, as it is at the object stage
+    (``_clusters``'s own docstring: a member-level read dragged a body
+    500 m out on the apron onto the plane).  ``planar/group.bodies_of_plan``
+    is the ONE body derivation and is imported, never re-implemented."""
+    if contact_eps_m <= 0.0 or min_m2 <= 0.0 or not getattr(plan, "units", ()):
+        return []
+    bodies, _of_pid = bodies_of_plan(plan)
+    out: list[PlanCluster] = []
+    for ui, u in enumerate(plan.units):
+        parts_of: dict[int, _t.Any] = {p.pid: p for m in u.members
+                                       for p in m.parts}
+        shims: list[_Shim] = []
+        for (bu, mi, _gi), pids in sorted(bodies.items()):
+            if bu != ui:
+                continue
+            bx = [parts_of[q].box for q in pids
+                  if q in parts_of and not parts_of[q].line]
+            if bx:
+                shims.append(_Shim(mi, bx, u.members[mi].resource))
+        if len(shims) < FAMILY_MIN_MEMBERS:
+            continue
+        clusters, _adj = _clusters(shims, contact_eps_m)
+        for cl in clusters:
+            if len(cl) <= FAMILY_SHARE_MIN * max(1, len(shims)):
+                continue                      # §16f (3): a PARTIAL cluster
+            boxes = [b for i in cl for b in shims[i].part_boxes]
+            area = union_area_m2(boxes)
+            if area < min_m2:
+                continue
+            hull = _pb.hull_of(boxes)
+            if hull is None:
+                continue
+            out.append(PlanCluster(
+                id=f"{u.id}#{cl[0]}", unit=u.id,
+                members=tuple(sorted({shims[i].resource for i in cl})),
+                boxes=tuple(boxes), area_m2=area, hull=hull))
+    return out
 
 
 def pad_plurality(cands: _t.Sequence[tuple[float, float, float, float]],
@@ -280,10 +454,123 @@ def _median(xs: _t.Sequence[float]) -> float:
     return s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
 
 
+def cluster_plane(boxes: _t.Sequence[tuple[float, float, float, float]],
+                  pads: _t.Sequence[_ar.PadRing]
+                  ) -> "tuple[float | None, tuple[str, ...]]":
+    """§16f (7) / §30 (4): THE CLUSTER PAD'S LEVEL — the median of the
+    graded ring heights of EVERY emitted ``building`` pad the cluster's
+    footprint union stands on, and the refs of those pads.
+
+    The design surface priced those faces as ONE plane
+    (``constraints.pads._plane_groups``), so their vertices are one
+    plane's and the median is that plane's level whatever the sampling.
+    ``(None, ())`` where the caller read no pads with their heights (the
+    twins that build a pad by hand) — the caller then falls back to the
+    median ground under the cluster's own contacts, as §16f (2) does."""
+    if not pads or not boxes:
+        return None, ()
+    zs: list[float] = []
+    refs: list[str] = []
+    for p in pads:
+        if not p.z or len(p.ring) < 3:
+            continue
+        pb0 = (min(v[0] for v in p.ring), min(v[1] for v in p.ring),
+               max(v[0] for v in p.ring), max(v[1] for v in p.ring))
+        if any(_pb.box_gap_m(pb0, b) <= 0.0 for b in boxes):
+            zs.extend(float(q) for q in p.z)
+            refs.append(p.ref)
+    if not zs:
+        return None, ()
+    return _median(zs), tuple(sorted(set(refs)))
+
+
+def _bind_cluster(cands: list, by_mi: _t.Mapping[int, _t.Any],
+                  surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
+                  counts: dict, per: _t.Mapping[int, list],
+                  cl: _t.Sequence[int], area_m2: float, *,
+                  unit_id: str, bind_ground_m: float,
+                  bound_ci: set) -> list[Family]:
+    """§16f (7): ONE UNIT, ONE PLANE, ONE PAD.  Every body of ``per``
+    takes the cluster pad's level — no pad partition (4), no pavement
+    clause (5), no ground bound at the join.  A member whose own contacts
+    stand further than ``bind_ground_m`` off the plane is COUNTED and
+    NAMED, never re-seated: "these large complex structures have to be
+    seated as a unit"."""
+    from . import placement_carrier as _pc
+    boxes = [b for ci in cl for b in (cands[ci].part_boxes or
+                                      ([cands[ci].box] if cands[ci].box else []))]
+    zero, refs = cluster_plane(boxes, pads)
+    where = "+".join(refs) if refs else ""
+    if zero is None:
+        zero = _median([q[3] - q[2] for cc in per.values() for q in cc])
+    fid = f"{unit_id or 'unit'}#{cl[0]}@cluster"
+    mems = sorted({cands[ci].member for ci in per})
+    gz = [cands[ci].anchor.surface_z - cands[ci].anchor.y_zero
+          for ci in per if cands[ci].anchor.surface_z is not None]
+    moved = 0
+    n_off = 0
+    worst = 0.0
+    n_contacts = 0
+    for ci, cc in sorted(per.items()):
+        c = cands[ci]
+        st = by_mi[c.member]
+        n_contacts += len(cc)
+        _st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
+        own_med = _median([q[3] - q[2] for q in cc[::_st]])
+        if bind_ground_m > 0.0 and abs(own_med - zero) > bind_ground_m:
+            n_off += 1
+            if abs(own_med - zero) > abs(worst):
+                worst = own_med - zero
+        best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - zero), 6),
+                                      round(abs(q[2]), 6), q[0], q[1]))
+        own = best[3] - best[2]
+        a = _ar.Anchor(
+            c.anchor.body_class, best[0], best[1], best[3] - zero,
+            f"§16f (7) cluster {fid} of {len(mems)} member(s) on "
+            + (f"pad {where}" if where else "its median ground")
+            + f" at {zero:.2f} (own ground {own - zero:+.2f} m)",
+            best[3], family=fid)
+        grp0 = (st.groups[c.group] if 0 <= c.group < len(st.groups) else ())
+        if not grp0:
+            continue
+        k0 = _pc.senior_of(st.raw, grp0)
+        r0 = st.raw[k0]
+        st.raw[k0] = (r0[0], r0[1], a) + tuple(r0[3:])
+        _off = _pb.anchor_ground_off(
+            a, tuple(f for j in grp0 for f in st.raw[j][3]), surface)
+        if c.group < len(st.ground_off):
+            st.ground_off[c.group] = _off
+        cands[ci] = _dc.replace(c, anchor=a, ground_off=_off)
+        bound_ci.add(ci)
+        moved += 1
+    if not moved:
+        return []
+    counts["bodies_bound_to_family"] = \
+        counts.get("bodies_bound_to_family", 0) + moved
+    counts["families"] = counts.get("families", 0) + 1
+    counts["family_clusters"] = counts.get("family_clusters", 0) + 1
+    counts["cluster_bodies"] = counts.get("cluster_bodies", 0) + moved
+    counts["cluster_footprint_union_m2"] = max(
+        counts.get("cluster_footprint_union_m2", 0), int(area_m2))
+    if n_off:
+        counts["cluster_members_off_the_plane"] = \
+            counts.get("cluster_members_off_the_plane", 0) + n_off
+        counts["cluster_worst_off_the_plane_cm"] = max(
+            counts.get("cluster_worst_off_the_plane_cm", 0),
+            int(round(abs(worst) * 100)))
+    return [Family(
+        id=fid, unit=unit_id or "",
+        members=tuple(by_mi[m].m.resource for m in mems if m in by_mi),
+        bodies=moved, contacts=n_contacts, zero_z=zero, pad=where,
+        spread_before_m=((max(gz) - min(gz)) if gz else 0.0),
+        spread_after_m=0.0, apart=())]
+
+
 def bind_families(cands: list, staged: _t.Sequence[_t.Any],
                   surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
                   counts: dict, *, unit_id: str = "",
                   contact_eps_m: float = 0.0, bind_ground_m: float = 0.0,
+                  cluster_min_m2: float = 0.0,
                   has_deck: bool = False) -> list[Family]:
     """§16f APPLIED TO ONE UNIT.  ``cands`` and each ``staged`` member's
     ``raw`` / ``ground_off`` are mutated in place, exactly as
@@ -301,6 +588,21 @@ def bind_families(cands: list, staged: _t.Sequence[_t.Any],
     measured, unit:6 came out 29 members at one zero with a member
     8.20 m off its own ground.  The deck is the only datum body of a
     bridge (§16e (2)) and its clutter rests on its own ground.
+
+    §16f (7) A LARGE TERMINAL CLUSTER IS ONE UNIT ON ONE PAD (owner
+    RULINGS 2026-09-13bj item 1).  A family whose FOOTPRINT UNION
+    (:func:`union_area_m2`) exceeds ``cluster_min_m2`` is a CLUSTER, and
+    for it (4)'s pad partition, (5)'s pavement clause and the pad-join
+    ground bound are ALL withdrawn: every member — walls, roofs, floors,
+    the interior furniture, the pieces standing on the apron — takes ONE
+    zero, the plane of the CLUSTER PAD the design surface emitted for it
+    (design spec §30 (4)).  The owner read the alternative at KCLT
+    1.0.327: 13aq's partition put the terminal on two pad groups, and the
+    passengers and seats, which have no pad of their own and no contact
+    with one, were cut to the ground UNDER the building.  A member whose
+    own contacts stand further than ``bind_ground_m`` off the plane is
+    REPORTED here (``cluster_members_off_the_plane``) and seated anyway —
+    that is the whole of "seated as a unit".
 
     Returns the families derived, for the census."""
     if contact_eps_m <= 0.0 or not cands:
@@ -329,6 +631,15 @@ def bind_families(cands: list, staged: _t.Sequence[_t.Any],
     for cl in clusters:
         if len(cl) <= FAMILY_SHARE_MIN * max(1, eligible):
             continue
+        # §16f (7): IS THIS A CLUSTER?  The FOOTPRINT UNION of the plan
+        # cluster's own part boxes, measured before anything is cut away
+        # from it — (5)'s pavement clause and (4)'s pad partition are
+        # what a cluster withdraws, so neither may decide whether it is
+        # one.
+        area = union_area_m2([b for ci in cl for b in
+                              (cands[ci].part_boxes or
+                               ([cands[ci].box] if cands[ci].box else []))])
+        is_cluster = cluster_min_m2 > 0.0 and area >= cluster_min_m2
         # every contact of the family, and the zero each body reads today
         per: dict[int, list] = {}
         zeros_before: list[float] = []
@@ -346,13 +657,25 @@ def bind_families(cands: list, staged: _t.Sequence[_t.Any],
             # pavement is CUT APART from its family and stays on that
             # pavement — an object never moves the aircraft.  Round 1
             # held a KCLT terminal wall +2.99 m over the apron.
-            if _all_on_pavement(cc, surface):
+            #
+            # IT YIELDS INSIDE A CLUSTER (§16f (7), RULINGS 2026-09-13bj
+            # item 1): a wall standing on apron takes the cluster plane
+            # and the apron under it is the design surface's business
+            # (§30 (4)'s reach) — the owner ruled the terminal seats as
+            # one unit and the apron around it may be flattened to it.
+            if not is_cluster and _all_on_pavement(cc, surface):
                 n_paved += 1
                 continue
             per[ci] = cc
             if c.anchor.surface_z is not None:
                 zeros_before.append(float(c.anchor.surface_z)
                                     - float(c.anchor.y_zero))
+        if is_cluster and per:
+            families.extend(_bind_cluster(
+                cands, by_mi, surface, pads, counts, per, cl, area,
+                unit_id=unit_id, bind_ground_m=bind_ground_m,
+                bound_ci=bound_ci))
+            continue
         if n_paved:
             counts["family_bodies_on_pavement"] = \
                 counts.get("family_bodies_on_pavement", 0) + n_paved
@@ -526,7 +849,8 @@ def census_families(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             d["resources"].add(res)
             if not d["pad"]:
                 why = str(b.get("anchor_reason", ""))
-                if "§16f family" in why and " on pad " in why:
+                if (("§16f family" in why or "§16f (7) cluster" in why
+                     or "§16g unit" in why) and " on pad " in why):
                     d["pad"] = why.split(" on pad ", 1)[1].split(" at ")[0]
             if z is not None and y is not None:
                 d["zeros"].append(float(z) - float(y))

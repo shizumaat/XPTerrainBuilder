@@ -8023,6 +8023,12 @@ def _ck_geometry(cg, *, ring_deg=0.01, runway_ll=((-0.009, 0.0),
             "runway_axes": axes,
             "corridor": cg._ApproachCorridor(axes, law["approach_m"],
                                              law["approach_half_width_m"]),
+            # §29 (7) THE RUNWAY LATERAL BAND (RULINGS 2026-09-13bm (ii)):
+            # the fixture frame carries every term the real
+            # ``cockpit_geometry`` builds, or the twin measures a census
+            # the census never runs.
+            "runway_band": cg._RunwayViewBand(
+                axes, law["runway_view_half_width_m"]),
             "ll_to_m": ll_to_m}
 
 

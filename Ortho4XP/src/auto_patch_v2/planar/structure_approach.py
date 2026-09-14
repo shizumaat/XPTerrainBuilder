@@ -18,7 +18,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.approach_corridor import ApproachCorridor
+from ..law.approach_corridor import ApproachCorridor, RunwayViewBand
 from ..law.tables import role_family
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
@@ -42,7 +42,7 @@ def _parts(geom) -> list[Polygon]:
 
 __all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "object_deck_intervals", "carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
-           "mouths", "FieldRegion", "ApproachCorridor", "approach_corridor_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
+           "mouths", "FieldRegion", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
            "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground", "deck_ends"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
@@ -324,10 +324,12 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon]
     """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
     classified cover (with the roofed corridors' footprints, which the
     caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
-    the approach corridor of §31 (2)."""
+    the approach corridor of §31 (2), union THE RUNWAY LATERAL BAND of
+    §29 (7)."""
     return FieldRegion(list(polys),
                        law.tables.structures.tunnel.mouth_standoff_m,
-                       approach_corridor_of(airport, law))
+                       approach_corridor_of(airport, law),
+                       runway_band_of(airport, law))
 
 
 def mouth_reports(on_field: "FieldRegion", mouth_list: _t.Sequence["Mouth"],
@@ -337,15 +339,33 @@ def mouth_reports(on_field: "FieldRegion", mouth_list: _t.Sequence["Mouth"],
     kept, each with its true distance off the field, so both findings are
     visible without a rebuild and neither is read as the other."""
     off = [f"mouth off-field {ids} at {xy[0]:.0f},{xy[1]:.0f} — {d:.0f} m off "
-           f"the field and outside every approach corridor"
+           f"the field, outside every approach corridor and outside the "
+           f"runway lateral band"
            for ids, xy, d in sorted(dropped, key=lambda t: t[2])[:8]]
     on_approach = [m for m in mouth_list if not on_field.on_cover(Point(m.xy))]
     named = [f"mouth on approach {'+'.join(str(i) for i in m.ways)} at "
              f"{m.xy[0]:.0f},{m.xy[1]:.0f} — "
              f"{on_field.cover_distance_m(Point(m.xy)):.0f} m off the field, "
-             f"in view"
+             f"in view ({_view_reason(on_field, m)})"
              for m in on_approach[:12]]
     return off, len(on_approach), named
+
+
+def _view_reason(on_field: "FieldRegion", m: "Mouth") -> str:
+    """WHICH TERM ADMITTED THIS MOUTH — §31 (2)'s approach corridor, §29
+    (7)'s runway lateral band, or the ramp reach reaching one of them.
+    The report states its own attribution: "in view" alone let 12al's
+    corridor and 13bm's band be read as one region."""
+    pt = Point(m.xy)
+    reach = LineString(m.approach) if len(m.approach) >= 2 else pt
+    for name, geom in (("approach corridor", pt), ("approach corridor", reach)):
+        if on_field.in_corridor(geom):
+            return name if geom is pt else name + ", by its ramp reach"
+    for geom in (pt, reach):
+        if on_field.in_band(geom):
+            return ("runway lateral band" if geom is pt
+                    else "runway lateral band, by its ramp reach")
+    return "cover, by its ramp reach"
 
 
 def approach_corridor_of(airport, law: Law) -> ApproachCorridor:
@@ -358,11 +378,26 @@ def approach_corridor_of(airport, law: Law) -> ApproachCorridor:
     sources for the axis it is derived FROM, which is why
     ``tests/auto_patch_v2/test_v2approachcorridor.py`` pins them against
     one fixture."""
-    ck = law.tables.emit.cockpit
-    axes = [(r.ends[0].xy, r.ends[1].xy, r.id)
+    return ApproachCorridor(_runway_axes(airport),
+                            float(law.tables.emit.cockpit.approach_km) * 1000.0,
+                            float(law.tables.emit.cockpit.approach_half_width_m))
+
+
+def _runway_axes(airport) -> list[tuple]:
+    """The model's OWN runway axes (apt.dat row 100 thresholds) — the ONE
+    source both §31 (2)'s corridor and §29 (7)'s band are built from."""
+    return [(r.ends[0].xy, r.ends[1].xy, r.id)
             for r in getattr(airport, "runways", ()) or ()]
-    return ApproachCorridor(axes, float(ck.approach_km) * 1000.0,
-                            float(ck.approach_half_width_m))
+
+
+def runway_band_of(airport, law: Law) -> RunwayViewBand:
+    """§29 (7) THE RUNWAY LATERAL BAND (Fable 2026-09-13; owner RULINGS
+    2026-09-13bm (ii)) for one airport: each runway's axis ⊕ ``[cockpit]
+    runway_view_half_width_m``, from the SAME axes and the SAME
+    ``law/approach_corridor`` derivation as the corridor."""
+    return RunwayViewBand(
+        _runway_axes(airport),
+        float(law.tables.emit.cockpit.runway_view_half_width_m))
 
 
 class FieldRegion:
@@ -389,18 +424,37 @@ class FieldRegion:
     geometry): the cover then decides alone."""
 
     def __init__(self, polys: _t.Sequence[Polygon], standoff_m: float,
-                 corridor=None) -> None:
+                 corridor=None, band=None) -> None:
         self.standoff_m = float(standoff_m)
         self._tree = STRtree(list(polys)) if len(polys) else None
         self.corridor = corridor
         rings = list(corridor.rings()) if corridor is not None else []
         self._corridor_tree = (STRtree([Polygon(r) for r in rings])
                                if rings else None)
+        self.band = band
+        brings = list(band.rings()) if band is not None else []
+        self._band_tree = (STRtree([Polygon(r) for r in brings])
+                           if brings else None)
 
     def holds(self, geom) -> bool:
         """``geom`` (a mouth point or its ramp reach) stands where a pilot
-        would see it: on the field, or in an approach corridor."""
-        return self.on_cover(geom) or self.in_corridor(geom)
+        would see it: on the field, in an approach corridor, or BESIDE a
+        runway inside §29 (7)'s lateral band."""
+        return self.on_cover(geom) or self.in_corridor(geom) or \
+            self.in_band(geom)
+
+    def in_band(self, geom) -> bool:
+        """§29 (7) THE RUNWAY LATERAL BAND alone (Fable 2026-09-13; owner
+        RULINGS 2026-09-13bm (ii)) — quoted separately in the report, like
+        the corridor, so "beside the runway" is never read as "on the
+        field".  The corridor runs BEYOND each threshold and never beside
+        the runway; SPJC's trunk-tunnel south mouths stood 191 m off the
+        cover, 5 km from every corridor and 192 m from runway 16R/34L at
+        mid-length."""
+        if self._band_tree is None:
+            return False
+        return len(self._band_tree.query(geom,
+                                         predicate="intersects")) > 0
 
     def on_cover(self, geom) -> bool:
         """The cover ⊕ ``mouth_standoff_m`` half alone."""
@@ -432,11 +486,12 @@ class FieldRegion:
         report): the lesser of its distance to the cover and to the
         nearest corridor edge; ``inf`` when there is neither."""
         d = self.cover_distance_m(geom)
-        if self._corridor_tree is not None:
-            j = self._corridor_tree.nearest(geom)
+        for tree in (self._corridor_tree, self._band_tree):
+            if tree is None:
+                continue
+            j = tree.nearest(geom)
             if j is not None:
-                d = min(d, float(
-                    self._corridor_tree.geometries[int(j)].distance(geom)))
+                d = min(d, float(tree.geometries[int(j)].distance(geom)))
         return d
 
 
@@ -469,20 +524,54 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
     for b in bores:
         width = max(carriageway_width_m(w.tags, law) for w in b.ways)
         wids = tuple(w.id for w in b.ways)
+        cand: list[tuple[Mouth, bool, float]] = []
         for end, nxt in ((b.points[0], b.points[1]), (b.points[-1], b.points[-2])):
             inward = unit(end, nxt)
             path = approach(end, inward, osm, reach_m,
                             law.tables.structures.tunnel.admitted_values,
                             law.tables.structures.tunnel.approach_turn_max_deg)
-            if on_field is not None:
-                pt = Point(end)
-                reach = LineString(path) if len(path) >= 2 else pt
-                if not (on_field.holds(pt) or on_field.holds(reach)):
-                    dropped.append(("+".join(str(i) for i in wids), end,
-                                    min(on_field.distance_m(pt),
-                                        on_field.distance_m(reach))))
-                    continue
-            out.append(Mouth(b, end, inward, width, path, wids))
+            m = Mouth(b, end, inward, width, path, wids)
+            if on_field is None:
+                cand.append((m, True, 0.0))
+                continue
+            pt = Point(end)
+            reach = LineString(path) if len(path) >= 2 else pt
+            held = on_field.holds(pt) or on_field.holds(reach)
+            cand.append((m, held, min(on_field.distance_m(pt),
+                                      on_field.distance_m(reach))))
+        # §29 (7) THE SIBLING MOUTH — RULED (Fable 2026-09-13; owner
+        # RULINGS 2026-09-13bm (ii): "a bore with one mouth built has its
+        # sibling admitted under the same test; a tunnel with one mouth is
+        # never right") and MEASURED REFUTED at LEMD by lane ``v2spjc``,
+        # so it is NOT armed and the clause is deleted rather than gated.
+        #
+        # THE MEASUREMENT (dry ``--stage structures`` arms on main
+        # 0c86fe2c, three-way base / band-only / band+sibling):
+        #   * SPJC needs it for NOTHING.  The bar — the −641/−2525 trunk
+        #     tunnel's south mouth at −12.0202431, −77.129278 — is built
+        #     by §29 (7)'s RUNWAY LATERAL BAND alone (191 m off the
+        #     cover, inside the 250 m band of runway 16R/34L); the
+        #     band-only arm and the band+sibling arm are identical at
+        #     SPJC (mouths 14, tunnels 8, off-field 6).
+        #   * LEMD it REGRESSES.  Armed, it rebuilt three mouths the
+        #     150 m standoff of RULINGS 2026-09-12r exists to drop —
+        #     ``tunnel:-4928@1`` 2,309 m off the field and
+        #     ``tunnel:-26708+-22223@0`` / ``tunnel:-26709+-8677@0`` at
+        #     40.48100, −3.63953 and 40.48053, −3.63947, ~6.7 km west of
+        #     the frame origin: the rail-bore class whose far mouths set
+        #     the patch's whole western bbox edge (LEMD tunnels 51 -> 54,
+        #     mouths 90 -> 93, off-field 45 -> 42).  A 4.9 km bore
+        #     admitted by 125–162 m of cover under ONE pad is exactly the
+        #     case where the sibling is nowhere a pilot looks.
+        #
+        # A narrowing that separates the two needs a law number this lane
+        # may not author (a bore length, or a distance from the built
+        # mouth).  Routed to the spec's author with the measurement.
+        for m, held, d in cand:
+            if held:
+                out.append(m)
+            else:
+                dropped.append(("+".join(str(i) for i in wids), m.xy, d))
     return out, dropped
 
 

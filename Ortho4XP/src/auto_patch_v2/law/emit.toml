@@ -115,6 +115,7 @@ motion_step_m = 0.05  # §31 (1) MOTION: a step or ridge over this between welde
 visual_m      = 0.5   # §31 (1) VISUAL: off those surfaces a cut / rise / seam / float / burial / terrace under this is invisible to the pilot and is REPORTED, never gated; over it, a defect
 approach_km   = 5.0   # §31 (2) the APPROACH CORRIDOR's LENGTH: how far beyond each runway threshold, along the extended centreline, a pilot reads the terrain on final and climb-out
 approach_half_width_m = 2000.0  # §31 (2) the corridor's lateral HALF-WIDTH (owner RULINGS 2026-09-12al): on a 3° final 5 km out the aircraft is ~260 m up and a portal 2 km off the nose is in plain view.  The corridor is ONE derivation (law/approach_corridor.py) read by the cockpit block's in-view test AND by §29's mouth gate; the retired reading — "within approach_km of a runway axis", a disc that admitted the whole airport — is deleted, not gated
+runway_view_half_width_m = 250.0  # §29 (7) THE RUNWAY LATERAL BAND's half-width (Fable 2026-09-13; owner RULINGS 2026-09-13bm (ii)): the approach corridor runs BEYOND each threshold and never BESIDE the runway, so SPJC's trunk-tunnel south mouths — 192 m abeam runway 16R/34L at mid-length, in a landing pilot's plain view — stood outside every region §29 (1)'s mouth gate had and the tunnel was built with ONE mouth.  The third term of the field region is each runway's AXIS grown by this, from the SAME law/approach_corridor.py derivation the corridor is, read by the SAME two consumers (the mouth gate and the cockpit block's in-view test).  250 m: the width a pilot on the runway reads
 # §31 (7) THE CLIFF (owner RULINGS 2026-09-12af).  A SPANNED step-family row
 # is a SLOPE and is REPORT (12ad) — but only up to a point: a row whose
 # implied grade |dz| / span exceeds this is a CUT or a RISE, not ground, and
@@ -396,6 +397,18 @@ pad_level_rulings = [
 # precedent, ``frontage_near_miss_m`` 1.0).  0 disables the proximity
 # clause and leaves the identity read alone.
 pad_frontage_m = 3.0
+# §30 (4) THE CLUSTER PAD'S APRON REACH (owner RULINGS 2026-09-13bj item 1,
+# verbatim: "As long as it remains feasible with grade laws and taxiways,
+# etc. it's acceptable to flatten large apron areas around big terminals if
+# needed to accommodate a large terminal cluster").  An apron vertex within
+# this of a CLUSTER pad (`[placement] cluster_pad_min_m2`) takes the pad's
+# plane as its target, so the stands at the terminal are FLAT at the
+# terminal's level; the row carries the LAW's weight, so the apron's hard
+# caps and the taxi family win wherever one plane cannot be had, and the
+# reach stops at any taxiway band.  60 m is a stand depth: a widebody
+# stand at KCLT runs ~55 m from the gate line to the taxilane.  0 disables
+# the reach.
+cluster_apron_reach_m = 60.0
 # §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS 2026-09-13o,
 # refined 13p; Fable 2026-09-13).  A pad-face PAIR whose median DEM step —
 # the median over the face's frontage vertices of ``dem_z`` minus the pad

@@ -33,7 +33,8 @@ STANDING = """\
 - Worktree: `tools/harness/lane_worktree.sh up <lane> <base sha>`; branch `claude/<lane>`.
   `git merge main` FIRST if main has moved past the base sha.
 - `Ortho4XP/venv/bin/python tools/blast.py <file>` before editing each source
-  file; files under 1,000 lines.
+  file; a file past 1,000 lines is a warning to reconsider its architecture (split by
+  responsibility when it no longer fits; past 1,500 split before merging — owner 13bz).
 - ONE closing build through the harness (v2 is the only engine, RULINGS
   2026-09-13au — there is no `--engine` flag); base arms cut with
   `git archive <sha> src`, never another live checkout.

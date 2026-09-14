@@ -579,3 +579,25 @@ contact_eps_m       = 0.002
 # by design and chaining them would re-assemble the 2 km run §10 exists
 # to cut.  0 disarms the reach and leaves §16c (6)'s contact alone.
 rigid_reach_m       = 2.0
+
+# §16f (7) A LARGE TERMINAL CLUSTER IS ONE UNIT ON ONE PAD (owner RULINGS
+# 2026-09-13bj item 1).  A family whose FOOTPRINT UNION covers more than
+# this is a CLUSTER and takes ONE plane — the cluster pad's — for every
+# member, interior furniture included: 13aq's partition by pad put KCLT's
+# terminal on several planes and the passengers and seats, which have no
+# pad of their own, fell to the ground under the building.  A terminal,
+# not a hangar: KCLT's complex covers ~54,000 m2.  0 disarms the clause.
+cluster_pad_min_m2  = 5000.0
+
+# §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed).
+# Two bodies whose plan footprints overlap or come within this are ONE
+# unit, chained transitively; a body touching nothing seats alone.
+# Metres, not the millimetres of `contact_eps_m`: a pier stands BESIDE
+# its deck, it does not share a vertex with it.  0 disarms §16g.
+footprint_touch_m   = 0.5
+
+# §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
+# rail class — a body whose footprint span reaches this AND whose two
+# ends' ground differs by `[cockpit] visual_m` is a CONNECTOR, cut at
+# §10's line stations and never holding its unit rigid.  0 disarms it.
+connector_span_m    = 200.0

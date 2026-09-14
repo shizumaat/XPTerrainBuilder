@@ -145,9 +145,22 @@ def family_key(o: _obj8.PlacedObject) -> tuple[float, float, float]:
 
 def is_bridge_way(tags: _t.Mapping[str, str]) -> bool:
     """A mapped bridge: ``bridge`` set and not ``no`` on a highway or
-    railway (the one predicate ``planar/structures.py`` uses too)."""
+    railway (the one predicate ``planar/structures.py`` uses too).
+
+    §34 (5) NARROWED (Fable 2026-09-13; RULINGS 2026-09-13bm item 1): an
+    ``aeroway=jet_bridge`` is EXCLUDED, symmetrically with
+    ``planar/structure_underpass.is_aeroway_bridge``.  SPJC's 63 jetways
+    are tagged ``highway=footway`` beside their ``aeroway``, so they
+    passed this test too and minted FOUR ``bridge_deck:`` apron faces —
+    terrain decks at jetway level across a live apron.  A passenger
+    walkway on stilts is not a mapped bridge over the ground; nothing it
+    spans is in a cutting."""
     b = tags.get("bridge")
-    return bool(b) and b != "no" and ("highway" in tags or "railway" in tags)
+    if not b or b == "no":
+        return False
+    if str(tags.get("aeroway", "")).strip() == "jet_bridge":
+        return False
+    return "highway" in tags or "railway" in tags
 
 
 #: spec §26 (RULINGS 2026-09-11aq item A) — the fallback when no law is in

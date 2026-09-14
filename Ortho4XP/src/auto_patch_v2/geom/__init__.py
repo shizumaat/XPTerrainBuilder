@@ -10,6 +10,7 @@ Only shape lives here: no law value, no model type, no I/O.
 """
 from __future__ import annotations
 
+from .cluster_outline import OUTLINE_SIMPLIFY_M, cluster_outlines
 from .triangulate import face_triangles
 
-__all__ = ["face_triangles"]
+__all__ = ["face_triangles", "cluster_outlines", "OUTLINE_SIMPLIFY_M"]

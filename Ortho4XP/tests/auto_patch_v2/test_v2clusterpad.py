@@ -447,15 +447,19 @@ def test_16g_10_3_pad_cluster_mismatch_names_a_cluster_spanning_two_pads(law):
         _Cluster(airport, (PAD_B,), rings=(PAD_B,), cid="unit:1#1")))
     assert pad_cluster_mismatch(pm, law, one) == []
 
-    # ... and the other direction: TWO clusters each more than half of
-    # ONE pad is `pad_spans_clusters`
-    both = _dc.replace(airport, clusters=(
-        _Cluster(airport, (PAD_A,), rings=(PAD_A,), cid="unit:1#0"),
-        _Cluster(airport, (PAD_A,), rings=(PAD_A,), cid="unit:2#0")))
-    rows = pad_cluster_mismatch(pm, law, both)
-    assert [r["kind"] for r in rows] == ["pad_spans_clusters"], rows
-    assert rows[0]["ref"] == "padA"
-    assert sorted(rows[0]["others"]) == ["unit:1#0", "unit:2#0"]
+    # ... and TWO clusters over the SAME ground are not two pads: the
+    # GROUND FLOOR owns it (``geom.cluster_outlines`` rule 3, the answer
+    # to HECA's 519 overlapping pairs), so the upper one mints no pad,
+    # claims nothing, and there is no mismatch to report
+    from auto_patch_v2.constraints.cluster_pad import cluster_polys
+    stacked = _dc.replace(airport, clusters=(
+        _Cluster(airport, (PAD_A,), rings=(PAD_A,), floors=(0.0,),
+                 cid="unit:1#0"),
+        _Cluster(airport, (PAD_A,), rings=(PAD_A,), floors=(4.0,),
+                 cid="unit:2#0")))
+    got = cluster_polys(stacked, 0.0, 0.5)
+    assert [c.id for c, _g in got] == ["unit:1#0"], got
+    assert pad_cluster_mismatch(pm, law, stacked) == []
 
 
 def test_16g_10_2_a_cluster_with_no_OUTLINE_gets_no_cluster_pad(law):

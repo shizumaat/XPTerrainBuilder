@@ -207,9 +207,14 @@ def test_dependency_direction():
     # which may not import each other.
     order = ["geom", "law", "model", "solve", "emit"]
     producers = {"geom": set(),
-                 "airport": {"law", "model"},
-                 "classify": {"law", "model", "airport"},
-                 "planar": {"law", "model", "airport", "classify"},
+                 # ``geom`` is BELOW law and every layer may read it (its
+                 # own docstring): §16g (10) (2)'s cluster outline is one
+                 # derivation shared by ``classify`` (which MINTS the pad)
+                 # and ``constraints`` (which censuses it) — two layers
+                 # that may not import each other.
+                 "airport": {"geom", "law", "model"},
+                 "classify": {"geom", "law", "model", "airport"},
+                 "planar": {"geom", "law", "model", "airport", "classify"},
                  # M2: constraints import law + model (+ nothing of v2 above);
                  # verify reads law/model/emit and the constraints' pure
                  # geometry; pipeline is the orchestrator and reads everything

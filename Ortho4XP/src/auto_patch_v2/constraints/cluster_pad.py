@@ -36,6 +36,7 @@ import typing as _t
 from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
+from ..geom import cluster_outlines
 from ..law import Law
 from ..law.tables import design as design_law, rolled_on_roles
 from ..model.airport import Airport
@@ -64,8 +65,16 @@ def cluster_reach_m(law: Law) -> float:
 #: airport with no terminal.
 NO_OUTLINE: list[str] = []
 
+#: The outline derivation is ~7 s over HECA's 2,638 clusters and three
+#: readers ask for it per generator pass (the pad faces, the offsets, the
+#: mismatch census).  A two-entry memo keyed on the airport object keeps
+#: it ONE derivation in fact as well as in law — the same shape
+#: ``planar/cluster._MEMO`` uses for the clusters themselves.
+_POLY_MEMO: list[tuple[int, _t.Any, float, list]] = []
 
-def cluster_polys(airport: Airport | None, min_m2: float = 0.0
+
+def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
+                  law_touch: float | None = None
                   ) -> list[tuple[_t.Any, Polygon]]:
     """§30 (4): each CLUSTER carried on ``Airport.clusters``
     (``planar/cluster.py``, computed once at load beside the pack
@@ -98,27 +107,24 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0
     NO_OUTLINE.clear()
     if not cl or airport is None:
         return []
-    from shapely.ops import unary_union
-    to_xy, _to_ll = airport.frame.transformers()
+    touch = float(law_touch) if law_touch is not None else 0.0
+    got = counts = None
+    for k, ap, t0, cached in _POLY_MEMO:
+        if k == id(airport) and ap is airport and t0 == touch:
+            got, counts = cached, {}
+            break
+    if got is None:
+        to_xy, _to_ll = airport.frame.transformers()
+        got, counts = cluster_outlines(cl, to_xy, touch)
+        _POLY_MEMO.append((id(airport), airport, touch, got))
+        del _POLY_MEMO[:-2]
+    if counts.get("no_rings"):
+        NO_OUTLINE.extend(str(c.id) for c in cl if not (getattr(c, "rings", ()) or ()))
     out: list[tuple[_t.Any, Polygon]] = []
-    for c in cl:
+    for c, g in got:
         if min_m2 > 0.0 and float(getattr(c, "area_m2", 0.0)) < min_m2:
             continue
-        ps: list[Polygon] = []
-        for r in (getattr(c, "rings", ()) or ()):
-            if len(r) < 3:
-                continue
-            g = Polygon([to_xy(lo, la) for la, lo in r])
-            if not g.is_valid:
-                g = g.buffer(0.0)
-            if not g.is_empty and g.area > 0.0:
-                ps.append(g)
-        if not ps:
-            NO_OUTLINE.append(c.id)            # a box union is NOT a pad
-            continue
-        u = unary_union(ps)
-        if not u.is_empty:
-            out.append((c, u))
+        out.append((c, g))
     return out
 
 
@@ -168,7 +174,7 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
     got: dict[str, list[int]] = {}
     by_face: dict[int, list[str]] = {}
     yielded: dict[str, tuple[int, ...]] = {}
-    pairs = cluster_polys(airport, min_m2)
+    pairs = cluster_polys(airport, min_m2, _touch_m(law))
     if not pairs:
         return got, by_face, yielded
     polys = _pad_polys(planar, law)
@@ -569,7 +575,7 @@ def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
         return {}
     touch = float(law.tables.structures.placement.footprint_touch_m)
     split = float(law.tables.structures.placement.floor_split_m)
-    pairs = cluster_polys(airport)
+    pairs = cluster_polys(airport, 0.0, touch)
     if len(pairs) < 2:
         return {}
     floor_of: dict[str, float] = {}
@@ -654,3 +660,10 @@ def cluster_pairs(planar: PlanarMap,
                         pairs.add(key)
                         n_cross += 1
     return sorted(pairs), n_cross
+
+
+def _touch_m(law: Law) -> float:
+    """§16g (7) (1) / (10) (2): ``[placement] footprint_touch_m`` — ONE
+    read, the same tolerance the cluster was CHAINED with, used to CLOSE
+    its outline (``geom.cluster_outlines`` rule 2)."""
+    return float(law.tables.structures.placement.footprint_touch_m)

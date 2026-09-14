@@ -17,6 +17,7 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..geom import cluster_outlines
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
@@ -453,42 +454,50 @@ def _cluster_pads(airport: Airport, law) -> list[Polygon]:
     A cluster whose plan predates ``Part.rings`` carries none and is
     SKIPPED (counted): a box union is not a footprint and 13ci measured
     what pricing one costs.  Returns the polygons in the clusters' own
-    order; the caller sorts and gates them."""
+    order; the caller sorts and gates them.
+
+    TWO CORRECTIONS, both MEASURED on the closing HECA arm, and both
+    stated at THIS one derivation site rather than as per-consumer
+    vetoes (CLAUDE.md's own preference).
+
+    (a) THE OUTLINE IS CLOSED AT THE TOUCH TOLERANCE.  A cluster's bodies
+    chain because their footprints come within ``footprint_touch_m``, and
+    that is NOT the same as their simplified rings overlapping: 107 of
+    HECA's 2,485 clusters came out DISJOINT in plan, the largest in TEN
+    pieces over 259,443 m2.  A cluster in ten pieces is not one pad, so
+    the union is closed by the same tolerance the chain was made with
+    (a dilate/erode at ``footprint_touch_m``, mitred so no vertex count
+    explodes) and then simplified back.  A cluster still in pieces after
+    that really is apart in plan and each piece stands as its own pad.
+
+    (b) THE GROUND FLOOR OWNS THE GROUND.  (10) (1) splits a touching
+    chain at a floor, and at HECA 519 pairs of the resulting clusters
+    OVERLAP IN PLAN — because a building's floors stack over ONE
+    footprint, and two regions cannot occupy the same ground.  Read as
+    two pads that is 369 ``pad_cluster_mismatch`` rows; read as what it
+    is, it is one building whose upper floors stand ON the lower one.
+    So where two clusters overlap, the pad goes to the one with the LOWER
+    authored ground floor and the overlap is SUBTRACTED from the higher;
+    a cluster left with nothing mints no pad at all and is counted
+    (``over_another``) — it stands on the pad beneath it, which is
+    exactly what §13 / §16a already say about an elevated body and its
+    carrier."""
     CLUSTER_PADS.clear()
     cl = getattr(airport, "clusters", None) or ()
     if law is None or not cl:
         return []
-    if not bool(law.tables.structures.placement.pad_from_cluster):
+    st = law.tables.structures.placement
+    if not bool(st.pad_from_cluster):
         CLUSTER_PADS.update(disarmed=True, clusters=len(cl))
         return []
     to_xy, _to_ll = airport.frame.transformers()
-    out: list[Polygon] = []
-    no_rings = 0
-    for c in cl:
-        rings = getattr(c, "rings", ()) or ()
-        if not rings:
-            no_rings += 1
-            continue
-        ps = []
-        for r in rings:
-            if len(r) < 3:
-                continue
-            g = Polygon([to_xy(lo, la) for la, lo in r])
-            if not g.is_valid:
-                g = g.buffer(0.0)
-            if not g.is_empty and g.area > 0.0:
-                ps.append(g)
-        if not ps:
-            no_rings += 1
-            continue
-        u = unary_union(ps)
-        for piece in polygon_parts(u):
-            if piece.area > 0.0:
-                out.append(piece)
-    CLUSTER_PADS.update(clusters=len(cl), pads=len(out),
-                        no_rings=no_rings,
-                        area_m2=round(sum(p.area for p in out), 1))
-    return out
+    got, counts = cluster_outlines(cl, to_xy,
+                                   float(st.footprint_touch_m))
+    CLUSTER_PADS.update(counts)
+    CLUSTER_PADS["area_m2"] = round(sum(g.area for _c, g in got), 1)
+    return [g for _c, g in got]
+
+
 
 
 def _pads(airport: Airport, rules: Rules, min_area: float, boundary,

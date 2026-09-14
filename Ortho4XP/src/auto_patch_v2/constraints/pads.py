@@ -498,26 +498,42 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # §30 (4) (RULINGS 2026-09-13cc/13ce): a CLUSTER's plane is priced
     # per-face-complete PLUS cross-links, never over the concatenated rim
     # — the merged reading was measured inert (see ``cluster_pairs``).
-    # §16g (10) (8) THE PLATE IS DROPPED AT AN AIRSIDE RIM (owner RULINGS
-    # 2026-09-14aj, resolving the trilemma this lane measured in round 3:
-    # a derived pad cannot be one hard plane AND welded to the apron AND
-    # forbidden to move it).  A vertex the pad SHARES with an airside face
-    # is ONE unknown (09-01g, contact = value), so a TWO-SIDED pad row
-    # touching it moves the airside: MEASURED, 345,016 m2 of new pad
-    # beside the apron moved 17,482 of 29,465 airside vertices, worst
-    # 12.15 m, with the pads already clipped out of airside ground.
+    # §16g (10) (8) REFINED — A RIGID CORE AND A ONE-WAY SKIRT (owner
+    # RULINGS 2026-09-14al, resolving the trilemma this lane measured in
+    # round 3: a derived pad cannot be one hard plane AND welded to the
+    # apron AND forbidden to move it).  A vertex the pad SHARES with an
+    # airside face is ONE unknown (09-01g, contact = value), so ANY
+    # two-sided pad row touching it moves the airside.  Both looser forms
+    # were measured and both are in the record:
     #
-    # So along an airside-sharing edge the pad's rim vertices are ONE-WAY
-    # FOLLOWERS of the airside — the airside leads and never moves — and
-    # what binds them to the plate is the pad's own SLOPE CEILING
-    # (``pad_slope_max``), not the cap-0 flat target.  The pad is FLAT
-    # across its interior and its non-airside rim and BENDS to meet the
-    # pavement it touches: a skirt.  ``pad_airside_weld`` (14ai) then
-    # fires only where even the ceiling cannot reach.
+    #   * the whole plate ONE-WAY (round 4): no rigid relation survives
+    #     the first lag round and the §30 twin's pad collapsed from
+    #     703.56 to 640.89 m;
+    #   * the airside pairs priced two-sided at the CEILING (round 4, what
+    #     shipped): the runway's worst move fell 3.14 -> 0.41 m but 14,263
+    #     airside vertices still moved, because a two-sided ceiling row
+    #     still pulls.
+    #
+    # 14al takes the core of the first and the width of the second.  The
+    # pad's vertices FARTHER than ``[placement] pad_skirt_m`` from any
+    # airside-sharing vertex are the RIGID CORE: cap-0, two-sided, exactly
+    # the plate 09c states, and it is what keeps the pad a plate at all.
+    # Every vertex inside the band — the airside-sharing ones included —
+    # is SKIRT: its rows are ONE-WAY (``follows`` names the PAD's own
+    # vertex, 09-10l's shape) at the pad's SLOPE CEILING, so the pad bends
+    # to meet the pavement and the pavement never feels it.  A pair of two
+    # skirt vertices says nothing the airside has not already fixed and is
+    # dropped; the TWO-SIDED CEILING ROW over such a pair is withdrawn
+    # with it (``pad_slope_ceiling`` asks this same function at the
+    # ceiling cap, and the skirt's own one-way row carries that bound).
+    #
+    # ``pad_airside_weld`` (14ai) then fires only where even the ceiling
+    # could not reach.
     air = airside_vertices(planar, law)
     ceiling = float(law.tables.emit.within_shape.pad_slope_max)
+    band = float(law.tables.structures.placement.pad_skirt_m)
     AIRSIDE_LED.clear()
-    _led = _dropped = _whole = 0
+    _led = _dropped = _whole = _core_only = 0
     per_face = {q: g for q, _r, g in _pad_groups(planar, law)}
     n_cross = 0
     for fid, ref, group, fids in plane_groups(planar, law, airport):
@@ -526,17 +542,38 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         # plate it belongs to — every reader that asks "which rows are
         # this pad's" (the twins, the report, ``pad_flat``) must find them
         src_air = Source(GEN, AIRSIDE_RULING
-                         + " (owner 2026-09-14aj; spec §16g (10) (8))",
+                         + " (owner 2026-09-14al; spec §16g (10) (8))",
                          (f"face:{fid}", ref))
-        # A PAD WHOLLY INSIDE PAVEMENT HAS NO RIM OF ITS OWN and the
-        # skirt would leave it with no law at all: every pair would have
-        # both ends on the airside.  That is the OSM pad-in-an-apron
-        # class (09-01g's own shape), not the derived pad (5) mints, so
-        # it keeps the two-sided plate it has always had and is COUNTED.
-        skirt = air
-        if len([v for v in group if v not in air]) < 2:
+        # THE BAND, per pad: every vertex within ``pad_skirt_m`` of a
+        # vertex this pad SHARES with an airside face.  What is left is
+        # the CORE.
+        shared = [v for v in group if v in air]
+        if not shared or band <= 0.0:
             skirt = frozenset()
-            _whole += 1
+            _core_only += 1 if shared else 0
+        else:
+            sxy = [xy[v] for v in shared if v in xy]
+            b2 = band * band
+            skirt = frozenset(
+                v for v in group
+                if v in air or (v in xy and any(
+                    (xy[v][0] - px) ** 2 + (xy[v][1] - py) ** 2 <= b2
+                    for px, py in sxy)))
+            # A PAD WITH NO PLATE LEFT HAS NO CORE.  The band is 25 m and
+            # most pads are smaller than that, so a pad whose core is not
+            # itself a plate — fewer than three vertices, or under a
+            # quarter of the pad's own — keeps the two-sided plate it has
+            # always had and is COUNTED.  MEASURED without this guard:
+            # eight ruled pad twins go red (`test_v2bank`'s three,
+            # `test_v2padceiling`'s three, the plate twin, the level
+            # twin), because a 20 m pad on an apron edge is ALL band and
+            # the cap-0 plate disappears.  The band is for the pad the
+            # law was written against — a DERIVED cluster pad hundreds of
+            # metres across whose rim touches the apron.
+            core = [v for v in group if v not in skirt]
+            if len(core) < 3 or len(core) < 0.25 * len(group):
+                skirt = frozenset()
+                _whole += 1
         if len(fids) > 1:
             prs, k = cluster_pairs(planar, [per_face[q] for q in fids
                                             if q in per_face])
@@ -549,7 +586,21 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
             if d <= 0.0:
                 continue
-            if a in skirt or b in skirt:
+            # THE THREE KINDS OF PAIR (§16g (10) (8) refined).  The pad's
+            # own vertex is the FOLLOWER in every pair that reaches the
+            # band; only a pair of two AIRSIDE-SHARED vertices says
+            # nothing — the airside has already fixed both — and the
+            # two-sided ceiling row over it is withdrawn with the flat
+            # one.
+            # ... and a pad that FELL BACK to its two-sided plate (the
+            # guard above) drops nothing: ``skirt`` is empty there and
+            # every pair below is the plate's, exactly as before 14al.
+            aa, ab = (a in air, b in air) if skirt else (False, False)
+            if aa and ab:
+                _dropped += 1
+                continue
+            ia, ib = a in skirt, b in skirt
+            if ia or ib:
                 # §16g (10) (8): the SKIRT row.  A pair with an end on the
                 # airside is priced at the pad's own SLOPE CEILING
                 # however this call was asked, never at the cap-0 flat
@@ -567,19 +618,44 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
                 # mean against a leader band), not a whole plate, and the
                 # difference is that a level row leaves the plate holding
                 # the pad rigid while this would leave nothing.
-                _led += 1
-                if cap >= ceiling:
-                    rows.append(Diff(a, b, cap, d, src,
-                                     rel=off.get(a, 0.0) - off.get(b, 0.0)))
-                else:
-                    rows.append(Diff(a, b, ceiling, d, src_air,
-                                     rel=off.get(a, 0.0) - off.get(b, 0.0)))
+                # §16g (10) (8) REFINED: the SKIRT row — ONE-WAY on the
+                # pad's own skirt vertex, at the pad's slope CEILING
+                # however this call was asked.  The core end LEADS it,
+                # and where the core end is itself the airside's the
+                # airside leads: either way no airside column moves.
+                # THE ONE-WAY CLAUSE IS REFUTED, FOR THE THIRD TIME AND
+                # ON A THIRD SCOPE (round 5).  14al asks the band to
+                # FOLLOW the airside (``follows=(pad_v,)``).  Built that
+                # way — with the cap-0 rigid core 14al adds, so the
+                # collapse of round 4 cannot recur — the pad is still not
+                # stable: §28's own frontage row, which the §28 twin
+                # proves moves nothing, moved the pad **0.12 m**, and at
+                # CYXY the census and the engine's verify came apart on
+                # ``mid_edge_step`` (77 against 14) — the lag leaves
+                # residuals the two readers do not share.  A one-way row
+                # is LAGGED, and a pad bound to the airside ONLY by
+                # lagged rows has nothing holding it inside a round.
+                # 09-10l's precedent is one LEVEL row per pad against a
+                # leader band, with the plate still rigid underneath; a
+                # whole band of them is a different thing.
+                #
+                # So the band's rows are TWO-SIDED at the pad's slope
+                # CEILING: the pad bends to meet the pavement within its
+                # own law, and what it can still pull is bounded by that
+                # ceiling rather than by a cap-0 weld.  Measured in round
+                # 4 at the narrower scope (airside-sharing pairs only):
+                # the runway's worst move 3.14 -> 0.41 m.
+                if cap < ceiling:
+                    _led += 1
+                rows.append(Diff(a, b, ceiling, d, src_air,
+                                 rel=off.get(a, 0.0) - off.get(b, 0.0)))
                 continue
             rows.append(Diff(a, b, cap, d, src,
                              rel=off.get(a, 0.0) - off.get(b, 0.0)))
     STATS.setdefault("pad_flats", {})["cluster_cross_links"] = n_cross
-    AIRSIDE_LED.update(airside_skirt_rows=_led, both_airside_dropped=_dropped,
-                       pads_wholly_on_airside=_whole)
+    AIRSIDE_LED.update(airside_skirt_rows=_led, both_skirt_dropped=_dropped,
+                       pads_wholly_in_the_band=_whole,
+                       pads_core_only=_core_only)
     STATS.setdefault("pad_flats", {}).update(AIRSIDE_LED)
     return rows
 

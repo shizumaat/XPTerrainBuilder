@@ -641,6 +641,15 @@ pad_from_cluster    = true
 # carrying 3,594 of its 9,333 touch edges.  2.5 m is a storey.  0 disarms.
 chain_min_height_m  = 2.5
 
+# §16g (10) (8) REFINED (owner RULINGS 2026-09-14al) THE SKIRT BAND: a
+# pad's vertices within this of an edge it SHARES with an airside face
+# follow the airside ONE-WAY within the pad's slope ceiling; everything
+# farther is the cap-0 RIGID CORE and stays flat.  The core is what keeps
+# the plate a plate — a wholly one-way plate collapsed 703.56 -> 640.89 m
+# in the §30 twin.  25 m is a building's own depth from its frontage.
+# 0 disarms the band: the whole pad is core.
+pad_skirt_m         = 25.0
+
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two
 # ends' ground differs by `[cockpit] visual_m` is a CONNECTOR, cut at

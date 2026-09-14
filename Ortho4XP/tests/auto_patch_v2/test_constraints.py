@@ -229,11 +229,31 @@ def test_strip_families_and_pads(synthetic, law):
     ceiling = law.tables.emit.within_shape.pad_slope_max
     assert flats and all(isinstance(r, Diff) for r in flats)
     assert {r.cap for r in flats} <= {0.0, ceiling}
+    # §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): the ceiling-
+    # capped flat rows are the SKIRT BAND's — every pad vertex within
+    # ``[placement] pad_skirt_m`` of a vertex the pad SHARES with an
+    # airside face, the shared ones included — and the cap-0 rows are
+    # the RIGID CORE beyond it.  (Before 14al the band was the shared
+    # vertices alone; the band is what 14al widened it to.)
     skirt = [r for r in flats if r.cap == ceiling]
     air = pads.airside_vertices(pm, law)
-    assert all(r.a in air or r.b in air for r in skirt), skirt[:2]
-    assert all(r.a not in air and r.b not in air
-               for r in flats if r.cap == 0.0)
+    band = float(law.tables.structures.placement.pad_skirt_m)
+    xy = {v: q.xy for v, q in pm.vertices.items()}
+    near = {v for v in xy
+            if any((xy[v][0] - xy[w][0]) ** 2 + (xy[v][1] - xy[w][1]) ** 2
+                   <= band * band for w in air if w in xy)}
+    assert all(r.a in near or r.b in near for r in skirt), skirt[:2]
+    # ... and where the band leaves no PLATE — a pad smaller than
+    # ``pad_skirt_m``, which is most of them and is this fixture's — the
+    # pad FALLS BACK to the two-sided cap-0 plate it has always had and
+    # nothing is a skirt.  The two states are the law; a pad in neither
+    # would be one whose core is a plate AND whose cap-0 rows reach the
+    # band, which is what the assertion below forbids.
+    if skirt:
+        assert all(r.a not in near and r.b not in near
+                   for r in flats if r.cap == 0.0)
+    else:
+        assert all(r.cap == 0.0 for r in flats)
     assert len(ceil) == len(flats)
     assert all(r.cap == ceiling for r in ceil)
     assert {v for r in ceil for v in (r.a, r.b)} >= rim

@@ -238,6 +238,18 @@ class Placement:
     #: rule and every body chains, as it did before 14ah.
     chain_min_height_m: float = 2.5
 
+    #: §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): THE SKIRT
+    #: BAND.  A pad's vertices within this of an edge it SHARES with an
+    #: airside face follow the airside ONE-WAY within the pad's slope
+    #: ceiling — the airside leads and is never pulled; everything
+    #: farther is the pad's cap-0 RIGID CORE and stays flat.  The core is
+    #: what keeps the plate a plate: MEASURED, a plate whose EVERY
+    #: binding was one-way had no rigid relation in the first lag round
+    #: and collapsed 703.56 -> 640.89 m in the §30 twin.  25 m is a
+    #: building's own depth from its frontage.  0 disarms the band and
+    #: the whole pad is core (the pre-14al two-sided reading).
+    pad_skirt_m: float = 25.0
+
     #: §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): "very long
     #: connecting pieces like the elevated rail at HECA which would
     #: require two buildings kilometers apart to be at the same

@@ -11526,3 +11526,25 @@ portal step; the airside cell is never pulled; the report names the moved
 mouth and the metres it moved.  BAR: `OTHH_Terminal_Base_2_5.obj@0` cut with
 both mouths, each mouth's move named (the /a side needs ≥ 1.7 m more run at
 10 %); the five `Terminal_Base_2_1` corridors unchanged.
+
+### §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak; Fable 2026-09-14) — lane `v2othhfix`
+
+"All the ramps leading down into/under the terminal are coming out too far
+and pulling down the service road edge."  When a corridor's climb-out would
+reach a SERVICE ROAD LOCKED TO AIRSIDE (a road edge-sharing or absorbed into
+airside pavement, or whose level is an airside contact under §37 (10))
+before it reaches the ground:
+1. the ramp ENDS at the road edge; the road edge keeps its airside-locked
+   level and is never pulled;
+2. the ramp runs from that road edge down to the ramp bottom at the
+   BUILDING EDGE (the corridor mouth), and the grade cap is LIFTED for that
+   pinched run — whatever grade the span requires is lawful;
+3. the report names each pinched ramp (`pinched_ramp`: corridor, road,
+   span, grade); §34 (8)'s mouth move applies only where no such road
+   pinches the climb.
+BARS (OTHH, ONE build): every terminal ramp that today extends into a
+service road ends at the road edge (list them: corridor, road way, the
+road edge's level before → after — unchanged); the ramp bottom at the
+building edge unchanged; the pinched grades named; the road-family census
+(`road_cross_section`, `road_ramp`, airside vertices moved 0) before →
+after; no ramp under the terminal shortened or lost.

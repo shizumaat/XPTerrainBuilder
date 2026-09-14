@@ -202,7 +202,19 @@ class Vector_Map:
     #: would fuse ordinary OSM geometry (KCLT carries 2,245 constrained
     #: segments under 0.5 m and only 28 under 10 mm).  An assumption, and
     #: a DEVIATION from the ruling's letter, recorded as one.
-    weld_spacing_m = float(os.environ.get("O4_VECTOR_WELD_M", "0.010"))
+    split_spacing_m = float(os.environ.get("O4_VECTOR_SPLIT_M", "0.010"))
+    #: THE POST-SNAP WELD's radius — 0.0 = OFF.  MEASURED AND WITHDRAWN
+    #: (LEMD tile, 2026-09-13, this lane): welding one node onto its senior
+    #: at 10 mm produced a ``.poly`` Triangle4XP refuses — "Internal error
+    #: in segmentintersection(): Topological inconsistency after splitting a
+    #: segment ... at (0.715087891, 0.111688666)", i.e. a subsegment split
+    #: AT its own endpoint.  Moving a node re-nodes nothing: an edge that
+    #: passed BESIDE the junior node now passes THROUGH the senior one and
+    #: the arrangement is no longer noded.  The weld therefore needs a
+    #: re-noding pass it does not have, and ships OFF; the metric split test
+    #: above (which never MOVES anything) carries §39 (i) on its own.
+    #: ``O4_VECTOR_WELD_M`` arms it for the lane that finishes it.
+    weld_spacing_m = float(os.environ.get("O4_VECTOR_WELD_M", "0.0"))
 
     def _near_endpoint(self, c_x, c_y, ids):
         """The nearest of ``ids`` to ``(c_x, c_y)`` within
@@ -215,7 +227,7 @@ class Vector_Map:
         for nid in ids:
             x, y = self.nodes_dico[nid]
             d = sqrt(((x - c_x) * m_lon) ** 2 + ((y - c_y) * m_lat) ** 2)
-            if d <= self.weld_spacing_m and (best is None or d < best[0]):
+            if d <= self.split_spacing_m and (best is None or d < best[0]):
                 best = (d, nid)
         return None if best is None else best[1]
 

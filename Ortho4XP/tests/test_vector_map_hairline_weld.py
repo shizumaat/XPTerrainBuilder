@@ -40,6 +40,7 @@ def _dlon(m):
 
 def _map():
     vm = Vector_Map()
+    vm.split_spacing_m = 0.010
     vm.weld_spacing_m = 0.010
     return vm
 

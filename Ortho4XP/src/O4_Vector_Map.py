@@ -1197,7 +1197,8 @@ def build_poly_file(tile):
     # segment between them is what Triangle4XP cascades off (KCLT:
     # 481,602 + 723,015 triangles under 0.1 m2 off a 2.7913 mm and a
     # 0.2401 mm constrained WATER segment).
-    vector_map.weld_hairlines(vector_map.weld_spacing_m, tile.lat)
+    if vector_map.weld_spacing_m > 0.0:
+        vector_map.weld_hairlines(vector_map.weld_spacing_m, tile.lat)
     # THE BANK ANNULUS IS A TRIANGLE REGION WITH A MAXIMUM AREA (owner
     # RULINGS 2026-09-09x).  The blend law
     # (``O4_Mesh_Utils.bank_annulus_blend_values``) is exact but has

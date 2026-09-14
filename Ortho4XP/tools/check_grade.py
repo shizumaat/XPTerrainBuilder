@@ -8080,17 +8080,17 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     (ADJACENT_GROUND_STEP_FAMILY,
      "ADJACENT-GROUND within-face welded STEP", "within"),
     ("strip_seam_tear", "ADJACENT-GROUND strip SEAM tear", "within"),
-    # spec §41 (2): an adjacent-ground zone strip standing on aircraft
-    # pavement — an AREA row (``de_m`` is m²), read in the SOLID frame
-    # (``_check_zone_on_pavement``).
-    (ZONE_ON_PAVEMENT_FAMILY,
-     "ADJACENT-GROUND zone strip STANDING ON pavement", "within"),
     # THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1)/(3)): every vertex of
     # any role abeam a runway edge within the strip's zone-2 half width,
     # read GEOMETRICALLY against the edge foot at the strip transverse
     # bound — keyed on v2's ``adjacent_ground:*`` refs (``_check_runway_
     # edge_tie``); the v2 verify's family of the same key.
     ("strip_transverse", "RUNWAY-EDGE TIE (any vertex abeam a runway edge)", "within"),
+    # spec §41 (2): an adjacent-ground zone strip standing on aircraft
+    # pavement — an AREA row (``de_m`` is m²), read in the SOLID frame
+    # (``_check_zone_on_pavement``).
+    (ZONE_ON_PAVEMENT_FAMILY,
+     "ADJACENT-GROUND zone strip STANDING ON pavement", "within"),
     ("transverse", "TRANSVERSE (cross-corridor) grade", "within"),
     ("drainage_spine", "DRAINAGE SPINE at or above its LOWER pavement",
      "within"),

@@ -5346,3 +5346,35 @@ flake — the memo-key chip).
   four shoulders along 05L/23R, the largest 55,524 m² sharing 3,491 m
   of the runway ring (`dsf:objpav103`); HECA 32 shoulders / 575 k m².
   Bars henceforth at coordinates, not shapeIDs.
+
+## 2026-09-14z v2connector round 6 MERGED (instrumentation only): `airport.clusters` is NOT empty — the §30 (4) yield gate `_touching_component` collapses each cluster to one pad face; (10)'s floor level = the body's GROUND floor; lane `v2padcluster` takes §16g (9)–(10) from a fresh context
+
+Lane `v2connector` @ f4998176 (HECA build `HECA_20260914T110528`, rc
+0, 479 s, cache WROTE — cold, the partition cache not implicated).
+`[clusters] 2 terminal cluster(s) (partition units 44, touch 0.5 m,
+min 5000.0 m2)`: `unit:42#0` 404,118 m² / 84 members hits 22 pad faces
+spanning 29.30 m; `unit:43#8` 929,155 m² / 149 members hits 73 pad
+faces spanning 18.84 m — yet `cluster_cross_links = 0`, because
+`cluster_pad._touching_component` (13ch/13ci's yield gate) keeps ONE
+face per cluster, `plane_groups` never merges, and §16g (8)'s
+`cluster_offsets` bails on `len(floor) < 2`. Round 5's "empty
+clusters" inference was wrong; the lane's own instrumentation says so.
+The (8) plumbing (`PlanCluster.floors`, `cluster_offsets`, the `rel=`
+channel) is in place and twinned, inert only because the gate starves
+it. The lane is at the end of its useful context and hands over.
+
+* RULING: (10)'s "authored floor level" is the body's GROUND FLOOR —
+  the lowest ground-contact component's `base_y` — never per
+  component (a cluster's per-component range at HECA is −6.46 … 112.90
+  m; a tall building must not split per storey). `PlanCluster.floors`
+  becomes per body at that reading.
+* RULING: under (10) the yield gate is REPLACED — a cluster no longer
+  picks one existing pad face; its pad IS its outline (one pad per
+  cluster, and with the floor split a 73-pad cluster becomes N
+  clusters each with its own derived pad); 13ci's union gate stays only
+  for the cluster-APRON reach, which is disarmed (13ce).
+* Lane `v2padcluster` (fresh, brief pack): the handover list — read
+  `YIELDED` at HECA dry; the consumer census of every reader of
+  `airport.clusters` / `PlanCluster` / `cluster_pad_faces` / `building`
+  pads in one table; `floor_split_m`; the pad-from-cluster derivation;
+  `pad_cluster_mismatch`; KCLT control; the HECA bars.

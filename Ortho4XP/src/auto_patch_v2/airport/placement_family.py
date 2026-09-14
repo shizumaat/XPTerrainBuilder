@@ -52,6 +52,7 @@ spread, the members cut apart and the pad or ground it seated on.
 """
 from __future__ import annotations
 
+import bisect as _bi
 import dataclasses as _dc
 import typing as _t
 
@@ -190,10 +191,14 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
     # into a plan grid (each grown by ``eps_m``, so a pair within the
     # tolerance necessarily shares a cell).  MEASURED at OTHH: grid 557.5 s
     # against the sweep's 485.7 s for IDENTICAL clusters (185 either way) —
-    # the cost is not the pairing at all but ``bodies_of_plan`` and the
-    # PART-BOX product inside ``_bind`` (OTHH's clutter members carry
-    # thousands of boxes each).  The grid is DELETED rather than kept
-    # gated; the next attempt belongs in those two places.
+    # the cost is not the pairing.  THE ATTRIBUTION THAT FOLLOWED IT WAS
+    # WRONG (scout `v2partcost`, RULINGS 2026-09-14b): it blamed
+    # ``bodies_of_plan`` and the PART-BOX product inside ``_bind``, and a
+    # cProfile of the whole ``plan_clusters`` on the registered OTHH
+    # capture reads ``bodies_of_plan`` at **0.43 s** and this pairing
+    # sweep (``_clusters`` + ``_bind`` + ``box_gap_m``, 24.2 M pairs) at
+    # **27.2 s** of 324 — the other 295 s were ``union_area_m2``'s
+    # per-slab re-scan, fixed there.  The grid stays DELETED.
     for ai, a in enumerate(order):
         north = hull[a][2] + _slack
         for b in order[ai + 1:]:
@@ -257,8 +262,76 @@ def union_area_m2(boxes: _t.Iterable[tuple[float, float, float, float]]
     wall ring's boxes overlap each other hundreds of times).  A
     rectangle-union sweep: the distinct latitudes cut the plan into
     slabs, and within a slab the covering longitude intervals are merged.
-    Exact, dependency-free, and O(n^2 log n) on the box count — the
-    caller decimates before it matters."""
+    Exact and dependency-free.
+
+    THE SWEEP CARRIES AN ACTIVE SET (RULINGS 2026-09-14b, lane
+    ``v2unionsweep``).  It used to RE-SCAN every box for every slab
+    (``[b for b in bs if b[0] <= y0 and b[2] >= y1]``), which is
+    O(slabs x boxes): at OTHH that is 88 calls x 246 k slabs = 45.8 M
+    evaluations, **284 s of a 300 s ``plan_clusters``** — while the merge
+    itself cost 3.4 s, because the live spans are few and the box list is
+    long.  The box y-starts and y-ends are now sorted ONCE and the live
+    spans maintained incrementally across the slab boundaries: a box
+    enters at its ``b[0]`` and leaves at its ``b[2]``, so each box is
+    touched twice instead of once per slab.  The slab's span list is the
+    SAME SEQUENCE the old ``sorted()`` produced (``bisect.insort`` keeps
+    the identical total order on the ``(lon0, lon1)`` tuples), the merge
+    and the accumulation below are untouched, and the areas are
+    FLOAT-EXACT against the old reading (twin:
+    ``tests/auto_patch_v2/test_v2unionsweep.py``)."""
+    bs = [b for b in boxes if b and b[2] > b[0] and b[3] > b[1]]
+    if not bs:
+        return 0.0
+    ys = sorted({b[0] for b in bs} | {b[2] for b in bs})
+    n = len(bs)
+    by_start = sorted(bs, key=lambda b: b[0])
+    by_end = sorted(bs, key=lambda b: b[2])
+    live: list[tuple[float, float]] = []
+    si = ei = 0
+    total = 0.0
+    for y0, y1 in zip(ys, ys[1:]):
+        # a box covers this slab iff ``b[0] <= y0 and b[2] >= y1``; every
+        # ``b[0]`` and ``b[2]`` is itself one of ``ys``, so that is
+        # exactly ``b[0] <= y0 < b[2]`` — enter at the start, leave at
+        # the end.  Leaves run FIRST (a box never enters and leaves at
+        # one boundary: ``b[2] > b[0]`` and both are in ``ys``).
+        while ei < n and by_end[ei][2] <= y0:
+            b = by_end[ei]
+            ei += 1
+            del live[_bi.bisect_left(live, (b[1], b[3]))]
+        while si < n and by_start[si][0] <= y0:
+            b = by_start[si]
+            si += 1
+            _bi.insort(live, (b[1], b[3]))
+        dy = y1 - y0
+        if dy <= 0.0:
+            continue
+        spans = live
+        if not spans:
+            continue
+        ml, mo = _ar._m_per_deg(0.5 * (y0 + y1))
+        cover = 0.0
+        lo, hi = spans[0]
+        for a, b in spans[1:]:
+            if a > hi:
+                cover += hi - lo
+                lo, hi = a, b
+            else:
+                hi = max(hi, b)
+        cover += hi - lo
+        total += (dy * ml) * (cover * mo)
+    return total
+
+
+def _union_area_m2_reference(boxes: _t.Iterable[tuple[float, float, float, float]]
+                             ) -> float:
+    """THE PRE-SWEEP READING of :func:`union_area_m2`, kept for the
+    EXACT-EQUALITY TWIN alone (RULINGS 2026-09-14b): the same law read
+    with the O(slabs x boxes) re-scan the active set replaced.  It is
+    called by nothing in the engine; `test_v2unionsweep` asserts the two
+    agree BIT FOR BIT (``==`` on the float, and on the raw bytes of
+    ``struct.pack``) on synthetic overlapping / touching / nested /
+    disjoint boxes and on the OTHH capture's own cluster boxes."""
     bs = [b for b in boxes if b and b[2] > b[0] and b[3] > b[1]]
     if not bs:
         return 0.0

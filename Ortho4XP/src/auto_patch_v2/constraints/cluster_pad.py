@@ -164,40 +164,53 @@ def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport | None
 
 def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
               min_m2: float
-              ) -> "tuple[dict[str, list[int]], dict[int, list[str]], dict[str, tuple[int, ...]]]":
-    """THE ONE READING of the cluster↔pad relation: ``(faces per cluster,
-    clusters per face, the clipped faces per cluster)``.
+              ) -> "tuple[dict[str, list[int]], dict[str, list[str]], dict[str, tuple[int, ...]]]":
+    """THE ONE READING of the cluster<->pad relation: ``(faces per
+    cluster, clusters per PAD REF, the clipped faces per cluster)``.
+
+    A PAD IS A REF, NOT A FACE (measured on the round-2 HECA arm).  The
+    planar map splits one minted pad into several faces carrying ONE
+    ``building`` ref — a hole, a sliver merge, a joint contour — and
+    counting FACES read 41 of those as "this cluster spans four pads"
+    when all four were ``building32``.  The mismatch family asks whether
+    a BUILDING spans two pads, and the pad the owner means is the one the
+    design surface names.
 
     :func:`cluster_pad_faces` asks it of the clusters over
     ``cluster_pad_min_m2``; :func:`pad_cluster_mismatch` asks it of the
     whole population.  One derivation, two readers — never two."""
     got: dict[str, list[int]] = {}
-    by_face: dict[int, list[str]] = {}
+    by_ref: dict[str, list[str]] = {}
     yielded: dict[str, tuple[int, ...]] = {}
     pairs = cluster_polys(airport, min_m2, _touch_m(law))
     if not pairs:
-        return got, by_face, yielded
+        return got, by_ref, yielded
     polys = _pad_polys(planar, law)
     if not polys:
-        return got, by_face, yielded
+        return got, by_ref, yielded
     tree = STRtree([p[3] for p in polys])
+    seen: set[tuple[str, str]] = set()
     for c, u in pairs:
         keep: list[int] = []
         clipped: list[int] = []
         for i in tree.query(u, predicate="intersects"):
-            fid, _ref, _grp, poly = polys[int(i)]
+            fid, ref, _grp, poly = polys[int(i)]
             if poly.area <= 0.0:
                 continue
             if poly.intersection(u).area >= _OWN_FACE_SHARE * poly.area:
                 keep.append(int(fid))
-                by_face.setdefault(int(fid), []).append(c.id)
+                if (c.id, str(ref)) not in seen:
+                    seen.add((c.id, str(ref)))
+                    by_ref.setdefault(str(ref), []).append(c.id)
             else:
                 clipped.append(int(fid))
         if clipped:
-            yielded[c.id] = tuple(sorted(clipped))
+            yielded.setdefault(c.id, ())
+            yielded[c.id] = tuple(sorted(set(yielded[c.id]) | set(clipped)))
         if keep:
-            got[c.id] = sorted(keep)
-    return got, by_face, yielded
+            got.setdefault(c.id, [])
+            got[c.id] = sorted(set(got[c.id]) | set(keep))
+    return got, by_ref, yielded
 
 
 def pad_cluster_mismatch(planar: PlanarMap, law: Law,
@@ -224,7 +237,7 @@ def pad_cluster_mismatch(planar: PlanarMap, law: Law,
     the counterparties and a representative point, which is what the
     census needs to place it."""
     out: list[dict[str, _t.Any]] = []
-    by_cluster, by_face, _clipped = _face_map(planar, law, airport, 0.0)
+    by_cluster, by_ref, _clipped = _face_map(planar, law, airport, 0.0)
     if not by_cluster:
         return out
     _to_xy, to_ll = (airport.frame.transformers() if airport is not None
@@ -239,17 +252,19 @@ def pad_cluster_mismatch(planar: PlanarMap, law: Law,
         lon, lat = to_ll(p.x, p.y)
         return round(float(lat), 7), round(float(lon), 7)
 
+    first_face: dict[str, int] = {}
+    for fid, (ref, _g) in sorted(polys.items()):
+        first_face.setdefault(ref, fid)
     for cid, fids in sorted(by_cluster.items()):
-        if len(fids) > 1:
+        refs = sorted({polys[f][0] for f in fids if f in polys})
+        if len(refs) > 1:
             lat, lon = _at(fids[0])
             out.append({"kind": "cluster_spans_pads", "ref": cid,
-                        "others": [polys[f][0] for f in fids if f in polys],
-                        "lat": lat, "lon": lon})
-    for fid, cids in sorted(by_face.items()):
+                        "others": refs, "lat": lat, "lon": lon})
+    for ref, cids in sorted(by_ref.items()):
         if len(cids) > 1:
-            lat, lon = _at(fid)
-            out.append({"kind": "pad_spans_clusters",
-                        "ref": (polys[fid][0] if fid in polys else str(fid)),
+            lat, lon = _at(first_face.get(ref, -1))
+            out.append({"kind": "pad_spans_clusters", "ref": ref,
                         "others": sorted(cids), "lat": lat, "lon": lon})
     return out
 

@@ -31,7 +31,8 @@ import typing as _t
 
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
-from .placement_family import boxes_touch
+from .placement_contact import (_polys_touch, boxes_touch,
+                                m_per_deg_exact, ring_metres)
 
 __all__ = ["PlanConnector", "CONNECTOR_BOXES_MAX", "_span_m",
            "_is_connector", "_connector_ends", "authored_units",
@@ -225,6 +226,12 @@ def contact_graph(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
     slack = touch_m / 111_132.0
     adj: dict[int, list[int]] = {i: [] for i in order}
     boxes = {i: (list(shims[i].part_boxes) or [hull[i]]) for i in order}
+    # §16g (7) (1): the SAME footprint-polygon predicate the partition
+    # chains on — the topology and the partition are one relation
+    ml, mo = m_per_deg_exact(hull[order[0]][0]) if order else (1.0, 1.0)
+    rings = {i: [ring_metres(r, ml, mo)
+                 for r in (getattr(shims[i], "rings", ()) or ()) if len(r) >= 3]
+             for i in order}
     for ai, a in enumerate(order):
         north = hull[a][2] + slack
         ha = hull[a]
@@ -233,7 +240,8 @@ def contact_graph(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
             if hb[0] > north:
                 break
             if (_pb.box_gap_m(ha, hb) <= touch_m
-                    and boxes_touch(boxes[a], boxes[b], ha, hb, touch_m)):
+                    and boxes_touch(boxes[a], boxes[b], ha, hb, touch_m)
+                    and _polys_touch(rings[a], rings[b], touch_m)):
                 adj[a].append(b)
                 adj[b].append(a)
     return adj

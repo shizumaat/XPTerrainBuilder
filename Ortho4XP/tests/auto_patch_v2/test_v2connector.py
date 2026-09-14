@@ -146,11 +146,12 @@ def test_a_long_body_chained_to_one_unit_stays_a_member():
     assert FU._span_m([p.box for p in via.parts]) > 500.0
 
 
-def test_a_body_bridging_two_units_is_a_connector_on_the_high_end_datum():
-    """§16g (6) (1)/(2): a 300 m body whose two ends touch two DIFFERENT
-    units IS a connector — and it is seated on the datum of the unit its
-    HIGH end touches (DECK over PAD over GROUND, then the higher zero),
-    never dropped."""
+def test_a_body_bridging_two_units_is_a_connector_seated_at_its_low_end():
+    """§16g (6) (1) + §16g (7) (2) (owner RULINGS 2026-09-14c item 1): a
+    300 m body whose two ends touch two DIFFERENT units IS a connector —
+    and it is seated at its LOW end's contact, never dropped and never on
+    the high end's deck.  13df's high-end seat is WITHDRAWN: at HECA it
+    lifted the T3 terminal complex onto `T3_road.obj`'s deck."""
     from auto_patch_v2.airport import footprint_unit as FU
     # each end is TWO bodies (a unit is a cluster of at least two)
     lo_b = _PMember("objects/low.obj", [_PPart(1, _blk(_lat(-40), _lat(0))),
@@ -186,10 +187,11 @@ def test_a_body_bridging_two_units_is_a_connector_on_the_high_end_datum():
                                            0.5, 0.0, counts, 200.0)
     row = pid_units[10]
     # the row's first four fields stay the body's own UNIT's seat — a long
-    # body that turns out not to STEP is an ordinary member — and the HIGH
+    # body that turns out not to STEP is an ordinary member — and the LOW
     # end's seat rides beside it for `_bind_plan_wide` to take
     assert row[0] == units[0].id and row[4] == ends
-    assert row[5] == (conns[0].end_b, 25.0, "high.obj", "deck")
+    # the LOW end is the ground at 10.0, NOT the deck at 25.0
+    assert row[5] == (conns[0].end_a, 10.0, "", "ground")
     # ... and an ordinary member carries no alternative at all
     assert pid_units[1][0] == units[0].id and pid_units[1][4] == ("", "")
     assert pid_units[1][5] is None
@@ -198,10 +200,12 @@ def test_a_body_bridging_two_units_is_a_connector_on_the_high_end_datum():
 
 
 def test_a_connector_never_reaches_the_low_side_foot():
-    """§16g (6) (2): the exclusion in ``_bind_plan_wide`` is REPLACED by a
-    seat.  An identified connector is bound with the unit at its HIGH
-    end's datum and publishes ``connector_of``; nothing hands it back to
-    §16c, which is the 7.81 m the owner read at SPJC."""
+    """§16g (6) (2) as amended by §16g (7) (2): the exclusion in
+    ``_bind_plan_wide`` is REPLACED by a seat, and the seat is the LOW
+    end's contact.  An identified connector publishes ``connector_of``
+    and nothing hands it back to §16c — which is the 7.81 m the owner
+    read at SPJC — while nothing takes ITS deck either, which is the
+    23.70 m the owner read at HECA."""
     from auto_patch_v2.airport import footprint_unit as FU
     box_lo = [_blk(_lat(-40), _lat(0)), _blk(_lat(0), _lat(40))]
     box_hi = [_blk(_lat(340), _lat(380)), _blk(_lat(380), _lat(420))]
@@ -242,8 +246,8 @@ def test_a_connector_never_reaches_the_low_side_foot():
     assert a.reason.startswith(FU.UNIT_REASON)           # NOT a low-side foot
     assert "CONNECTOR" in a.reason
     assert a.connector_of.count("|") == 1 and a.connector_of != "|"
-    # seated on the HIGH end's datum (the deck's 25.0), not its own ground
-    assert abs(a.surface_z - a.y_zero - 25.0) < 1e-6
+    # seated at the LOW end's ground (10.0), not the high end's deck 25.0
+    assert abs(a.surface_z - a.y_zero - 10.0) < 1e-6
 
 
 def test_the_authored_unit_is_the_shared_dsf_origin_and_heading():

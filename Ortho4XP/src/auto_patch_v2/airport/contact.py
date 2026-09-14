@@ -81,6 +81,14 @@ class PlacedPart:
     #: forms no body and founds no foot; its ``feet`` are its DRAPE
     #: STATIONS, widened here to one per ``body_feet_span_m``.
     line: bool = False
+    #: §16g (7) (1) THE FOOTPRINT POLYGON (owner RULINGS 2026-09-14c item
+    #: 1, attributed 14g): ``(k, 2)`` frame ``(x, z)`` — the CONVEX HULL
+    #: of this component's placed vertices in plan.  It is computed HERE,
+    #: where the geometry is already placed, so the unit law costs the
+    #: plan stage no second OBJ8 parse.  ``None`` for a part whose hull
+    #: degenerates (fewer than three distinct points), which reads as its
+    #: box.
+    ring: np.ndarray = _dc.field(default=None, repr=False, compare=False)
 
     @property
     def plan_box(self) -> tuple[float, float, float, float]:
@@ -158,6 +166,65 @@ def _feet(pts: np.ndarray, min_y: float, base_plane: float, band: float, k_max: 
     return out
 
 
+#: §16g (7) (1): how many vertices a footprint ring may carry into the
+#: plan.  A hull past this is decimated by every other vertex until it
+#: fits — the ring is a CONTACT shape read at ``footprint_touch_m``, not
+#: a rendering, and OTHH carries 137,908 of them.
+FOOTPRINT_RING_MAX = 16
+
+
+def plan_hull(pts: "np.ndarray | None") -> "np.ndarray | None":
+    """§16g (7) (1): the component's FOOTPRINT POLYGON in plan — the
+    CONVEX HULL of its placed vertices, ``(k, 2)`` frame ``(x, z)``.
+
+    WHY THE HULL, AND WHAT IT IS NOT (owner RULINGS 2026-09-14c item 1;
+    the attribution is 14g).  §16g (7) asks for the FOOTPRINT, "not the
+    part boxes", because a rotated building's lat/lon box overlaps its
+    neighbour's while the footprints stand 3.5-20 m apart, and that box
+    chain handed ``T3_road.obj``'s deck datum to 1,509 HECA bodies.  The
+    hull is what breaks that: for a rotated rectangle the hull IS the
+    rectangle, and every false hop 14g measured was found with HULL lower
+    bounds (smallest real gap 3.46 m).  It is also CONSERVATIVE — the
+    hull contains the true footprint, so a hull that does not touch
+    cannot hide a real contact and the law can never split a unit that
+    genuinely abuts.  What it does NOT do is follow a CONCAVE outline: an
+    L-shaped terminal's hull bridges the notch, so a body standing in
+    that notch still chains.  That is the stricter reading, named and
+    left open rather than assumed.
+
+    Computed HERE, where the geometry is already placed, so §16g (7)
+    costs the plan stage no second OBJ8 parse.  ``None`` where the hull
+    degenerates (fewer than three distinct points in plan) — the caller
+    reads such a part by its box, as it always did."""
+    if pts is None or len(pts) < 3:
+        return None
+    xz = np.unique(np.round(np.column_stack((pts[:, 0], pts[:, 2])), 3),
+                   axis=0)
+    if len(xz) < 3:
+        return None
+    order = np.lexsort((xz[:, 1], xz[:, 0]))
+    p = xz[order]
+
+    def half(seq) -> list:
+        out: list = []
+        for q in seq:
+            while len(out) >= 2:
+                a, b = out[-2], out[-1]
+                if ((b[0] - a[0]) * (q[1] - a[1])
+                        - (b[1] - a[1]) * (q[0] - a[0])) > 0.0:
+                    break
+                out.pop()
+            out.append(q)
+        return out
+
+    ring = np.asarray(half(p)[:-1] + half(p[::-1])[:-1], dtype=float)
+    if len(ring) < 3:
+        return None
+    while len(ring) > FOOTPRINT_RING_MAX:
+        ring = ring[::2]
+    return ring
+
+
 def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                  foot_samples_max: int = 4,
                  line_members: _t.Collection[int] = (),
@@ -197,7 +264,8 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                                     (cx, cy), pts.min(axis=0), pts.max(axis=0),
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
                                     _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
-                                          foot_band_m, k_max), is_line))
+                                          foot_band_m, k_max), is_line,
+                                    plan_hull(pts)))
     return parts
 
 

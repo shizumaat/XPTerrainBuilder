@@ -257,3 +257,110 @@ def _two_face_patch() -> str:
     way(-2, ids["h"], "cross_connector", "pav77", "2")
     lines.append("</osm>")
     return "\n".join(lines) + "\n"
+
+
+# ── 4. the hole survives the emit (RULINGS 2026-09-13da residual) ───────
+#
+# The 3 rows / 52.3 m² the family reported on the v2zonehole HECA closing
+# arm were minted BETWEEN the arrangement and the sidecar: ``publication``
+# read ``face_holes`` off the planar map, then ``merge_sub_spacing`` folded
+# 782 sub-spacing vertices out of the emitted rings — the host's hole ring
+# and the zone strip's ring that shares it alike — and the sidecar kept the
+# stale vertex.  Exterior (emitted) minus hole (stale) is a 0.5 m sliver of
+# "solid" along the strip.  The writer now derives the key from the surface
+# it writes.
+
+M_LAT = 111_320.0
+
+
+def _host_hole_strip(law):
+    """A 200 m apron with a 100 m hole, and the zone strip that IS the
+    hole (the arrangement's partition: the strip ring shares the hole's
+    vertices).  One hole vertex ``B`` stands 0.42 m from its neighbour
+    ``H2`` and 0.3 m into the hole — a sub-spacing detour the identity
+    join folds away.  Returns ``(surface, B's vertex id)``."""
+    import math
+
+    from auto_patch_v2.emit.surface import (GradedSurface, SurfaceFace,
+                                            SurfaceVertex)
+    la0, lo0 = 30.0, 31.0
+    m_lon = M_LAT * math.cos(math.radians(la0))
+
+    def ll(x, y):
+        return (round(la0 + y / M_LAT, 11), round(lo0 + x / m_lon, 11))
+
+    pts = {0: ll(0, 0), 1: ll(200, 0), 2: ll(200, 200), 3: ll(0, 200),
+           4: ll(50, 50), 5: ll(50, 150), 6: ll(150, 150), 7: ll(150, 50),
+           8: ll(150 - 0.3, 150 - 0.3)}       # B: 0.42 m from H2 (id 6)
+    verts = tuple(SurfaceVertex(i, pts[i], 100.0) for i in sorted(pts))
+    hole = (4, 5, 8, 6, 7)
+    faces = (SurfaceFace(1, "apron", "pav1", (0, 1, 2, 3), (hole,), "airside"),
+             SurfaceFace(2, "graded_strip", "adjacent_ground:taxi:E:zone1#1",
+                         tuple(reversed(hole)), (), "airside"))
+    return GradedSurface(icao="TEST", ruleset="icao", origin=(la0, lo0),
+                         crs="+proj=tmerc", identity_dp=11, vertices=verts,
+                         faces=faces, breaklines=(), provenance={}), 8
+
+
+def _family_rows(patch, holes_ll):
+    import check_grade as CG
+    nodes, ways = CG._parse_osm(patch)[:2]
+    ll_to_m = CG._ll_to_m_factory(nodes, None)
+    holes_m = {k: [[ll_to_m(*pt) for pt in r] for r in rings]
+               for k, rings in holes_ll.items()}
+    return CG._check_zone_on_pavement(ways, nodes, ll_to_m, holes_m)
+
+
+def test_a_hole_holding_a_zone_strip_survives_the_emit_intact(tmp_path):
+    """The twin: host with a hole containing a zone strip → merge → patch.
+    The sidecar's hole is the hole the EMITTED rings bound (the merged
+    vertex gone, the ring still one hole), and the family reads 0 rows."""
+    import json
+
+    from auto_patch_v2.emit import osm_adapter as A
+    from auto_patch_v2.law import Law
+    law = Law.for_airport("HECA")
+    surf0, b_id = _host_hole_strip(law)
+    b_ll = [v.ll for v in surf0.vertices if v.id == b_id][0]
+    rep = A.WeldReport()
+    surf = A.merge_sub_spacing(surf0, law, rep)
+    assert rep.merged == 1
+    assert all(b_id not in h for f in surf.faces for h in f.holes)
+    # the caller's (stale) publication is superseded by the writer's own
+    paths = A.write_patch(surf, law, tmp_path,
+                          {"face_holes": A.face_holes_ll(surf0)})
+    side = json.loads(paths.sidecar.read_text())
+    holes = side["face_holes"]
+    assert list(holes) == ["1"] and len(holes["1"]) == 1, "one host, one hole"
+    ring = [tuple(pt) for pt in holes["1"][0]]
+    assert len(ring) == 4 and b_ll not in ring
+    # the hole ring IS the emitted strip ring (same vertices, same identity)
+    text = paths.patch.read_text()
+    assert f"lat='{b_ll[0]:.11f}'" not in text, "the merged vertex is not a node"
+    assert _family_rows(paths.patch, holes) == []
+
+
+def test_the_stale_planar_hole_is_the_defect(tmp_path):
+    """The control that reproduces the HECA residual: the PRE-merge hole
+    ring read against the POST-merge rings mints the sliver (0.5 × 100 m ×
+    0.3 m = 15 m²) as pavement under the strip — one CRITICAL row."""
+    from auto_patch_v2.emit import osm_adapter as A
+    from auto_patch_v2.law import Law
+    law = Law.for_airport("HECA")
+    surf0, _b = _host_hole_strip(law)
+    surf = A.merge_sub_spacing(surf0, law, A.WeldReport())
+    paths = A.write_patch(surf, law, tmp_path, {})
+    rows = _family_rows(paths.patch, A.face_holes_ll(surf0))
+    assert len(rows) == 1
+    assert rows[0].de_m == pytest.approx(15.0, abs=0.5)
+    assert rows[0].way_a.ref == "adjacent_ground:taxi:E:zone1#1"
+
+
+def test_publication_no_longer_derives_face_holes():
+    """One derivation site: the writer.  ``publication`` publishes no
+    ``face_holes`` of its own for a later pass to make stale."""
+    import inspect
+
+    from auto_patch_v2.pipeline import publication as P
+    assert not hasattr(P, "face_holes_ll")
+    assert '"face_holes"' not in inspect.getsource(P.publication)

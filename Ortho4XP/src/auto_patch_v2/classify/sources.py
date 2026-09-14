@@ -44,7 +44,21 @@ from ..model.airport import Airport
 from .evidence import Evidence, apron_named, polygon_parts, taxi_name_match
 from .rules import Rules
 
-__all__ = ["SourceRecord", "classify_sources", "apron_union"]
+__all__ = ["SourceRecord", "classify_sources", "apron_union",
+           "object_body_cuts", "OBJECT_PAVEMENT_PREFIX", "ENCLOSED_MIN_FRAC"]
+
+#: the source-id prefix ``airport/load.py`` gives a §42 object-pavement body
+OBJECT_PAVEMENT_PREFIX = "dsf:objpav"
+
+#: §41 (1) (owner RULINGS 2026-09-13co item 2): the fraction of its OWN
+#: area a pavement region must have inside another's EXTERIOR RING to be
+#: that one's rather than its own.  ONE definition, read by both halves of
+#: the rule — ``planar/overlay.absorb_enclosed_pavement`` applies it to
+#: FACES, ``object_body_cuts`` below to a §42 object body before the slice
+#: (RULINGS 2026-09-13dc).  It lives at the earlier stage because ``planar``
+#: may import ``classify`` and never the other way (the layering twin,
+#: ``tests/auto_patch_v2/test_model.py::test_dependency_direction``).
+ENCLOSED_MIN_FRAC = 0.95
 
 _BOUNDARY_TOL_M = 0.5
 
@@ -120,7 +134,20 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules
     out: list[SourceRecord] = []
     cut: dict[str, Polygon] = {}
     for sid, poly in ev.pavement_polys:
-        rec = _record(sid, desc.get(sid, ""), poly, road_tree, roads, osm_tree,
+        # §42 (3) (RULINGS 2026-09-13cv): AN OBJECT-PAVEMENT REMAINDER
+        # KEEPS ITS RESOURCE.  A source overlapping apt.dat pavement is
+        # admitted as its remainder pieces (``<id>#k``,
+        # ``evidence._dsf_pavements``) and the description lookup is by
+        # the WHOLE id, so a remainder classifies with an empty
+        # description — and ``explain --shape`` could not name the draped
+        # OBJ8 a cell was born of.  Scoped to ``dsf:objpav`` ids: the
+        # same gap on ``.pol`` remainders is older than §42 and its repair
+        # would move existing pages' apron-NAME and taxi-name evidence,
+        # which is a measured change of its own, not this lane's.
+        base = sid.split("#", 1)[0]
+        rec = _record(sid, desc.get(sid) or (
+            desc.get(base, "") if base.startswith("dsf:objpav") else ""),
+                      poly, road_tree, roads, osm_tree,
                       osm_roads, aisle_tree, aisles, taxi_tree, taxis, start_tree,
                       parking, apron_u, rules)
         out.append(rec)
@@ -311,3 +338,56 @@ def _road_reach(poly: Polygon, tree: STRtree | None, lines, tol: float) -> int:
                  for c in (ln.coords[0], ln.coords[-1])):
             n += 1
     return n
+
+
+def object_body_cuts(ev: Evidence, region) -> list[LineString]:
+    """§42 (2) AS AMENDED (owner RULINGS 2026-09-13dc; Fable's §42
+    amendment) — AN ADJACENT OBJECT BODY IS ITS OWN FACE.
+
+    THE DEFECT this repairs is round 1's own measurement.  The slice runs
+    over ``ev.pavement_union`` and cuts it only along centrelines and the
+    strip/lot boundaries, so a §42 body merely TOUCHING a mapped page
+    dissolved into it: at HECA ``apron:pav132`` came out as ONE face of
+    2,687 nodes spanning 63.85-154.79 m of DEM (HECA has ~85 m of real
+    relief), off-DEM to 11.73 m and joint steps to 5.38 m — a surface no
+    apron cap can hold, and classification lost rather than gained.
+
+    So an object-pavement body CUTS AT ITS OWN BOUNDARY, exactly as a
+    strip or a lot does (owner 2026-09-04j, the mouth cut) — but it is NOT
+    a strip or a lot: it enters ``_source_for``'s dictionary nowhere, so
+    the face it bounds is kinded by the ordinary evidence ladder
+    (apron / lot / corridor) and welded to its neighbour at the seam under
+    the ordinary shape-joint and no-step laws, each face inside its own
+    cap.
+
+    THE ONE EXCEPTION IS §41 (1), and it is the SAME TEST the planar pass
+    applies to faces (``planar/overlay.absorb_enclosed_pavement``, which
+    re-exports ``ENCLOSED_MIN_FRAC`` from here): a body at least that
+    fraction of whose area lies inside a mapped page's EXTERIOR RING is
+    that page's — it is not cut here, it unions into the page, and there
+    is no boundary between them for a step to stand on.  One constant, so
+    the two halves of §41 (1) cannot drift apart.
+    """
+    bodies = [(sid, g) for sid, g in ev.pavement_polys
+              if sid.startswith(OBJECT_PAVEMENT_PREFIX)]
+    if not bodies:
+        return []
+    # the MAPPED pages' exterior rings (apt.dat 110 polygons and `.pol`
+    # pages), holes filled: §41 (1) reads the ring, never the solid
+    frames = [Polygon(g.exterior) for sid, g in ev.pavement_polys
+              if not sid.startswith(OBJECT_PAVEMENT_PREFIX) and g.area > 0.0]
+    tree = STRtree(frames) if frames else None
+    gate = region.buffer(0.01)
+    out: list[LineString] = []
+    for _sid, body in bodies:
+        if tree is not None and body.area > 0.0 and any(
+                frames[int(j)].intersection(body).area
+                >= ENCLOSED_MIN_FRAC * body.area
+                for j in tree.query(body, predicate="intersects")):
+            continue                       # §41 (1): the page's, not its own
+        for ring in [body.exterior, *body.interiors]:
+            g = LineString(ring.coords).intersection(gate)
+            out += [q for q in ([g] if g.geom_type == "LineString"
+                                else list(getattr(g, "geoms", ())))
+                    if q.geom_type == "LineString" and q.length > 0.0]
+    return out

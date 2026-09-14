@@ -531,6 +531,14 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # could not reach.
     air = airside_vertices(planar, law)
     ceiling = float(law.tables.emit.within_shape.pad_slope_max)
+    # §16g (10) (8) REFINED: the BAND's width.  0 is round 4's scope —
+    # the airside-SHARED vertices alone — and is what ships, because the
+    # 25 m band was MEASURED WORSE on every airside bar at HECA (moved
+    # 14,263 -> 15,014, the runway 1,021 -> 1,394 and its worst 0.41 ->
+    # 0.57 m, ``pad_airside_weld`` 16 -> 21 and its worst 1.135 -> 2.42
+    # m, law-true 63,904 -> 66,771) while buying only the terminal body
+    # +0.08 -> +0.00 m.  A wider band softens more of the pad, and a
+    # softer pad moves more of the apron inside the same ceiling.
     band = float(law.tables.structures.placement.pad_skirt_m)
     AIRSIDE_LED.clear()
     _led = _dropped = _whole = _core_only = 0
@@ -548,9 +556,16 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         # vertex this pad SHARES with an airside face.  What is left is
         # the CORE.
         shared = [v for v in group if v in air]
-        if not shared or band <= 0.0:
-            skirt = frozenset()
-            _core_only += 1 if shared else 0
+        if not shared:
+            skirt = frozenset()          # nothing airside: all core
+        elif band <= 0.0:
+            # ``pad_skirt_m = 0`` is NOT "no skirt": it is the SHARED
+            # VERTICES ALONE — round 4's scope, and MEASURED the better
+            # of the two (see the module note and the spec's round-5
+            # MEASURED block).  A pad with no airside vertex at all is
+            # untouched either way.
+            skirt = frozenset(shared)
+            _core_only += 1
         else:
             sxy = [xy[v] for v in shared if v in xy]
             b2 = band * band
@@ -559,8 +574,9 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
                 if v in air or (v in xy and any(
                     (xy[v][0] - px) ** 2 + (xy[v][1] - py) ** 2 <= b2
                     for px, py in sxy)))
-            # A PAD WITH NO PLATE LEFT HAS NO CORE.  The band is 25 m and
-            # most pads are smaller than that, so a pad whose core is not
+        if skirt:
+            # A PAD WITH NO PLATE LEFT HAS NO CORE.  A pad whose core is
+            # not
             # itself a plate — fewer than three vertices, or under a
             # quarter of the pad's own — keeps the two-sided plate it has
             # always had and is COUNTED.  MEASURED without this guard:
@@ -571,7 +587,14 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
             # law was written against — a DERIVED cluster pad hundreds of
             # metres across whose rim touches the apron.
             core = [v for v in group if v not in skirt]
-            if len(core) < 3 or len(core) < 0.25 * len(group):
+            # At the SHIPPED band (0, the shared vertices alone) the test
+            # is round 4's: two core vertices are a plate's worth, and
+            # anything less is the OSM pad-in-an-apron class.  A WIDE
+            # band needs the stricter test, because a 20 m pad on an
+            # apron edge is all band and its handful of core vertices is
+            # not a plate.
+            if (len(core) < 2 if band <= 0.0
+                    else (len(core) < 3 or len(core) < 0.25 * len(group))):
                 skirt = frozenset()
                 _whole += 1
         if len(fids) > 1:

@@ -237,11 +237,16 @@ def test_strip_families_and_pads(synthetic, law):
     # vertices alone; the band is what 14al widened it to.)
     skirt = [r for r in flats if r.cap == ceiling]
     air = pads.airside_vertices(pm, law)
+    # the band ships at 0 — the shared vertices ALONE (round 4's scope,
+    # measured the better of the two on every airside bar); a positive
+    # value widens it to every pad vertex within it of a shared one
     band = float(law.tables.structures.placement.pad_skirt_m)
     xy = {v: q.xy for v, q in pm.vertices.items()}
-    near = {v for v in xy
-            if any((xy[v][0] - xy[w][0]) ** 2 + (xy[v][1] - xy[w][1]) ** 2
-                   <= band * band for w in air if w in xy)}
+    near = set(air) if band <= 0.0 else {
+        v for v in xy
+        if v in air or any((xy[v][0] - xy[w][0]) ** 2
+                           + (xy[v][1] - xy[w][1]) ** 2 <= band * band
+                           for w in air if w in xy)}
     assert all(r.a in near or r.b in near for r in skirt), skirt[:2]
     # ... and where the band leaves no PLATE — a pad smaller than
     # ``pad_skirt_m``, which is most of them and is this fixture's — the
@@ -257,7 +262,14 @@ def test_strip_families_and_pads(synthetic, law):
     assert len(ceil) == len(flats)
     assert all(r.cap == ceiling for r in ceil)
     assert {v for r in ceil for v in (r.a, r.b)} >= rim
-    assert len(ceil) == len(rim) * (len(rim) - 1) // 2
+    # §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): the two-sided
+    # ceiling row over a pair of two AIRSIDE-SHARED vertices is
+    # WITHDRAWN — the airside has already fixed both ends and the row
+    # only let the pad pull them.  So the ceiling pass prices every pair
+    # BUT those; before 14al it was every pair without exception.
+    n_shared = len([v for v in rim if v in air])
+    withdrawn = n_shared * (n_shared - 1) // 2 if skirt else 0
+    assert len(ceil) == len(rim) * (len(rim) - 1) // 2 - withdrawn
     assert {v for r in flats for v in (r.a, r.b)} >= shared.get(pad_face.id, set())
 
 

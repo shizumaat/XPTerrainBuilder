@@ -648,7 +648,14 @@ chain_min_height_m  = 2.5
 # the plate a plate — a wholly one-way plate collapsed 703.56 -> 640.89 m
 # in the §30 twin.  25 m is a building's own depth from its frontage.
 # 0 disarms the band: the whole pad is core.
-pad_skirt_m         = 25.0
+# SHIPPED AT 0 — which is NOT "no skirt" but the airside-SHARED vertices
+# alone (round 4's scope).  MEASURED at HECA, 25 m against 0: airside
+# moved 14,263 -> 15,014, the runway 1,021 -> 1,394 and its worst 0.41 ->
+# 0.57 m, `pad_airside_weld` 16 -> 21 (worst 1.135 -> 2.42), law-true
+# 63,904 -> 66,771, for the terminal body +0.08 -> +0.00 m.  AIRSIDE IS
+# KING: a wider band softens more of the pad and a softer pad moves more
+# of the apron inside the same ceiling.  The design value is 25.0.
+pad_skirt_m         = 0.0
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two

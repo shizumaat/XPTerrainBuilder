@@ -537,14 +537,33 @@ def test_16g_10_8_the_band_is_the_skirt_and_beyond_it_the_core_is_rigid(law):
     assert all(r.follows is None for r in rows)
 
 
-def test_16g_10_8_pad_skirt_m_zero_is_the_identity(law):
-    """``pad_skirt_m = 0`` disarms the band: the whole pad is core and
-    every flat row is the cap-0 plate, exactly as before 14al."""
+def test_16g_10_8_pad_skirt_m_zero_is_the_SHARED_VERTICES_ALONE(law):
+    """``pad_skirt_m = 0`` is NOT "no skirt": it is round 4's scope, the
+    airside-SHARED vertices alone — and it is what ships, because the
+    25 m band was MEASURED WORSE on every airside bar at HECA (moved
+    14,263 -> 15,014, the runway 1,021 -> 1,394 and its worst 0.41 ->
+    0.57 m) for the terminal body +0.08 -> +0.00 m.
+
+    A wider band is still the law's own value and the key carries it;
+    what the twin pins is that 0 does not throw the skirt away."""
     import dataclasses as _d
 
-    from auto_patch_v2.constraints.pads import pad_flats
+    from auto_patch_v2.constraints.pads import airside_vertices, pad_flats
     airport, pm, _z, _c = _arm(law, True)
     pl = _d.replace(law.tables.structures.placement, pad_skirt_m=0.0)
     st = _d.replace(law.tables.structures, placement=pl)
-    off = _d.replace(law, tables=_d.replace(law.tables, structures=st))
-    assert all(r.cap == 0.0 for r in pad_flats(pm, off, airport))
+    zero = _d.replace(law, tables=_d.replace(law.tables, structures=st))
+    ceiling = law.tables.emit.within_shape.pad_slope_max
+    air = airside_vertices(pm, law)
+    rows = pad_flats(pm, zero, airport)
+    skirt = [r for r in rows if r.cap == ceiling]
+    # every ceiling-capped flat row reaches a SHARED vertex and nothing
+    # wider — that is the whole of "0 is round 4's scope"
+    assert all(r.a in air or r.b in air for r in skirt)
+    # ... and the two lawful states are the only ones: a pad with a core
+    # skirts its shared vertices, a pad without one falls back whole
+    if skirt:
+        assert all(r.a not in air and r.b not in air
+                   for r in rows if r.cap == 0.0)
+    else:
+        assert all(r.cap == 0.0 for r in rows)

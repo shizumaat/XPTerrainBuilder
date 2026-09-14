@@ -284,6 +284,18 @@ class PlanCluster:
     area_m2: float
     #: the hull of the union — the cheap plan reject every reader takes
     hull: tuple[float, float, float, float]
+    #: §16g (8) (owner RULINGS 2026-09-14u): the AUTHORED FLOOR of each
+    #: box in ``boxes``, aligned with it — the pack's own ``Part.base_y``,
+    #: the height that box's geometry starts at above its placement row.
+    #: The design surface derives a cluster's OTHER pads from its
+    #: reference pad with THIS (pad = reference + the authored offset),
+    #: and it must be an AUTHORED quantity: the seated unit datum is read
+    #: out of the SOLVED cluster pad (`placement_plan.build_splits` takes
+    #: the emitted surface), so the object stage runs after the solve and
+    #: cannot be what the solve derives a pad from.  Empty in a cluster
+    #: built before the field, and the reader then has no offset to
+    #: derive with and leaves the group at one plane, as it was.
+    floors: tuple[float, ...] = ()
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -295,11 +307,15 @@ class _Shim:
     reads — the ONE cluster law, asked of the plan instead of the
     placement candidates.  Nothing else of a candidate is touched."""
 
-    __slots__ = ("member", "part_boxes", "box", "body_class", "resource")
+    __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
+                 "floors")
 
-    def __init__(self, member: int, boxes: list, resource: str) -> None:
+    def __init__(self, member: int, boxes: list, resource: str,
+                 floors: "list | None" = None) -> None:
         self.member = member
         self.part_boxes = boxes
+        #: §16g (8): the authored floor of each of ``part_boxes``
+        self.floors = list(floors or ())
         self.box = _pb.hull_of(boxes)
         self.body_class = ""
         self.resource = resource
@@ -333,10 +349,12 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float
         for (bu, mi, _gi), pids in sorted(bodies.items()):
             if bu != ui:
                 continue
-            bx = [parts_of[q].box for q in pids
-                  if q in parts_of and not parts_of[q].line]
+            live = [parts_of[q] for q in pids
+                    if q in parts_of and not parts_of[q].line]
+            bx = [q.box for q in live]
             if bx:
-                shims.append(_Shim(mi, bx, u.members[mi].resource))
+                shims.append(_Shim(mi, bx, u.members[mi].resource,
+                                   [float(q.base_y) for q in live]))
         if len(shims) < FAMILY_MIN_MEMBERS:
             continue
         clusters, _adj = _clusters(shims, contact_eps_m)
@@ -344,6 +362,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float
             if len(cl) <= FAMILY_SHARE_MIN * max(1, len(shims)):
                 continue                      # §16f (3): a PARTIAL cluster
             boxes = [b for i in cl for b in shims[i].part_boxes]
+            floors = [f for i in cl for f in shims[i].floors]
             area = union_area_m2(boxes)
             if area < min_m2:
                 continue
@@ -353,7 +372,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float
             out.append(PlanCluster(
                 id=f"{u.id}#{cl[0]}", unit=u.id,
                 members=tuple(sorted({shims[i].resource for i in cl})),
-                boxes=tuple(boxes), area_m2=area, hull=hull))
+                boxes=tuple(boxes), area_m2=area, hull=hull,
+                floors=tuple(floors) if len(floors) == len(boxes) else ()))
     return out
 
 

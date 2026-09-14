@@ -4818,3 +4818,106 @@ LOAD, one stage before the pack partition exists, so it cannot be the
 cluster pads.  Moving the pack partition ahead of `load`'s §42 block is a
 pipeline re-ordering this lane did not take; the interaction is left to
 classify's existing pad-over-pavement precedence and reported here.
+
+### §16g (9)–(10) MEASURED, ROUNDS 1–2 — THE LAW IS IMPLEMENTED AND IT BREAKS THE AIRSIDE: STOP-AND-REPORT (lane `v2padcluster`, 2026-09-14; branch `claude/v2padcluster`)
+
+**THE ARMS.**  ONE TREE, ONE MAIN, LAW VALUES ONLY — the base arm is this
+same branch with `[placement] pad_from_cluster = false`, `floor_split_m =
+0` and `cluster_pad_min_m2 = 0`, which is exactly what those keys' disarm
+clauses are for and is a stronger interventional arm than two checkouts.
+Both foreground through the harness, both `[guard] shared repo UNCHANGED`.
+
+* DISARM — `v2padclusterHECAdisarm`, rc 0, **462.1 s**, `body_sha
+  97a2267cfc28`, ways 1,741, v2-verify rows 30,543
+* LANE — `v2padclusterHECA2`, rc 0, **394.8 s**, `body_sha c83dfe27b38d`,
+  ways 2,079, v2-verify rows 60,812, artifact ledger `beb3e32ab119`
+* (round 1, superseded: `v2padclusterHECA`, rc 0, 809.3 s, `body_sha
+  b4bfc32f437d` — `pad_cluster_mismatch` **369**)
+
+**WHAT LANDED.**  (9): `plan_clusters` has no `FAMILY_*` and no area gate,
+chains on `Part.rings` and splits at the ground floor — HECA 2 → **1,954
+clusters** (`[clusters]` say-line names the population).  (10) (1): the
+floor is the body's GROUND FLOOR and the split is taken between two
+FOOTED bodies only (per-component: 20,203 clusters, a tall building per
+storey — refuted).  (10) (2): the `building` pad is the cluster's outline
+union, closed at `footprint_touch_m` and offered LOWEST FLOOR FIRST with
+each overlap subtracted (the ONE derivation, `geom/cluster_outline.py`,
+shared by `classify` which mints the pad and `constraints` which censuses
+it).  13ci's touching-component yield gate is DELETED.  (10) (3):
+`pad_cluster_mismatch`, CRITICAL, registered in both registers.  §16g (8)
+is narrowed to the DECLARED TERRACE STEPS between touching clusters
+(`TOUCHING_STEPS`, published; **128** at HECA, e.g. `unit:38#25 <->
+unit:43#6330 +6.469 m`), minting no row.
+
+| bar | DISARM | LANE | verdict |
+|---|---|---|---|
+| `pad_cluster_mismatch` (bar 0) | 34 (33 + 1) | **44** (41 `cluster_spans_pads` + 3 `pad_spans_clusters`) | **MISSED** (369 at round 1) |
+| clusters claiming EXACTLY ONE pad, of 1,400 | 206 | **322** | improved, not met |
+| clusters claiming NO pad | 1,161 | 1,037 | — |
+| `building` pad area | 867,374 m² / 414 faces | **1,369,935 m² / 652 faces** (+58 %) | the pack's true footprints |
+| **airside vertices moved (bar 0)** | — | **13,637 of 21,534 taxi/runway-family vertices over `hard_tol_m` 0.02, worst 10.14 m; the RUNWAY itself 1,110 of 3,426, worst 4.38 m** | **MISSED — AIRSIDE IS KING** |
+| the owner's terminal, 30.1279552 31.403143 | surface 72.07 | **82.90** (+10.83 m); `T3_49.obj b4` seated on `building11` at 90.60, **7.66 m above its own feet** | **MISSED — worse at the named site** |
+| constraints stage (bar ≤ +10 %) | 83.46 s | **131.42 s (+57 %)** | **MISSED** |
+| planar stage | 50.25 s | 53.57 s (+6.6 %) | met |
+| v2-verify `pad_flat` / `frontage_near_miss` | 94 / 34 | 251 / 166 | reported |
+| suite | 1,468 passed, 1 skipped, twice | | met |
+
+**THE ATTRIBUTION, AND IT IS THE LAW'S OWN PREMISE.**  The airside map
+barely moves — runway, `primary_parallel`, `stub` and
+`secondary_parallel` AREAS are unchanged to the square metre and
+`graded_strip` loses 741 m² — so this is not a classification shift.  It
+is the SOLVE: 502,561 m² of NEW hard-flat pad, of which 94,795 m² came
+out of the apron and ~370,000 m² out of ground that carried no face at
+all, and the apron shares vertices with those pads by 09-01g's weld.  The
+pad law is hard; the apron and the taxi family are welded to it; so a pad
+set that grows 58 % moves the field.  §30 (4)'s own owner clause — "as
+long as it remains feasible with grade laws and taxiways" — and the
+standing "airside is king" both refuse this.
+
+**THE RESIDUAL MISMATCH, ATTRIBUTED.**  Round 1's 369 was two mechanisms,
+both measured and both closed: 107 of 2,485 cluster outlines were
+DISJOINT in plan (the largest in TEN pieces over 259,443 m²) because the
+bodies chain within `footprint_touch_m` while their simplified rings need
+not overlap; and **519 PAIRS of clusters OVERLAP in plan**, because the
+floor split cuts a building into its storeys and two regions cannot
+occupy the same ground.  After the close and the ground-floor rule: 0
+overlapping pad polygons, `pad_spans_clusters` 257 → 3.  The 41 that
+remain are `cluster_spans_pads` — **172 clusters are still in more than
+one piece after the close**, and each piece mints its own `buildingN`.
+THE NEXT LEVER, NAMED AND NOT ARMED (the attempt cap is spent): split a
+cluster at the CONNECTED COMPONENTS of its closed outline, after which a
+cluster is one region by construction and `cluster_spans_pads` can only
+come from classify cutting one region in two.
+
+**AND ONE PREMISE OF 14x IS REFUTED AT HECA.**  "HECA's 23-pad T3
+district must resolve into as many clusters as it has floor levels": its
+FOOTED bodies stand at 0.00 and −1.00 m and genuinely touch, so at
+`floor_split_m` 0.5 the district stays ONE cluster of 9,334 bodies /
+541,200 m².  The 23-pad span is the emitted PADS' own relief, not an
+authored floor disagreement.  48 of 1,954 clusters still hold bodies
+whose ground floors differ by more than `floor_split_m` — the split is
+PAIRWISE over the touch adjacency and a ladder of sub-tolerance steps
+drifts; named, not fixed.
+
+**THE KCLT CONTROL IS UNCHANGED, AND THE REASON IS NAMED.**  On the
+registered frame (`v2cpKCLTr2`, base `880a9293`) all 355 clusters carry
+NO footprint outline — the plan predates §16g (7) (1)'s ring field — so
+`cluster_outlines` yields **0 pad polygons**, `_pads` falls back to the
+pre-14x derivation exactly, `cluster_pad_faces` is empty, and
+`building80` (865 verts, median 221.44, spread 1.08) and `building91`
+stand as they did.  A box union is deliberately NOT a fallback: 13ci
+measured what pricing one costs.  The control is therefore unchanged BY
+CONSTRUCTION and not by measurement — **a KCLT build carrying the
+outlines is OWED and was not run.**
+
+**THE INTENT QUESTION (owner).**  §16g (10) (2) is implemented as ruled
+and the price is 13,637 moved taxi/runway vertices and the owner's own
+terminal 7.66 m off its feet.  Three ways out, none of them this lane's
+to choose: (a) the derived pad is a LEVEL for the object stage only and
+never a hard flat region in the planar map (the pads stay the footprint
+cache's, `cluster_pads` carries the cluster's level); (b) the derived pad
+is minted only where it takes NO airside face's ground (a pad that would
+eat apron keeps the cache's smaller polygon); (c) the pad rows are
+demoted below the taxi family's, and the report names the buildings that
+stayed graded.  **Nothing further is armed and the branch should not
+merge on the airside numbers.**

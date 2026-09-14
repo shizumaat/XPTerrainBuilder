@@ -4607,3 +4607,31 @@ still all valid and I should launch them?"
   hole rings + `diagnose_iis` CLI; anchor memo key). The started `toolfix`
   chip's anchor half was ALSO done by v2zonehole (merged, 13da) — its
   `explain --patch` half stands.
+
+## 2026-09-14b OTHH partition 648 s attributed (scout `v2partcost`): `union_area_m2` re-scans every box per y-slab (91 % of a 300 s cluster derivation added by 6bc998f1); HECA +211 s is §42 (74 %) — lane `v2unionsweep`
+
+Read-only replays on registered captures at 628cca80. `partition` wraps
+`read_objects`, `pack_partition`, `_derive_groups`, `_derive_clusters`
+(build.py:276-337). `plan_clusters` on the OTHH capture (109 units, 1,064
+members, 164,799 parts): 299.8 s, of which **`placement_family.py:271`**
+(`spans = sorted(… for b in bs if b[0] <= y0 and b[2] >= y1)` inside
+`union_area_m2`, 88 calls × ~246 k slabs = 45.8 M evaluations) = 284 s.
+311.7 (last pre-cluster OTHH partition) + 299.8 = 611.5 vs the app's
+647.5. History: 259.6 (09-12) → 271.8 → 311.7 → 647.5 — the merge is
+6bc998f1 (§16g/§30 (4) cluster pad, 13bj/13bo/13bu); the in-tree note
+blaming `bodies_of_plan` (0.43 s) was wrong. NOT the articulation-point
+connector (object stage), NOT a cold dump cache (mod cache untouched on
+09-14). HECA `plan_clusters` = 28.7 s. HECA app 534 vs the 1a7a7158 base
+323.4: **§42 +155 (constraints +79, verify +50, solve +15)**, §40 +19
+(solve), §37 (10) +5, ~+32 noise/§41; plus ~29 s of cluster pad in both.
+
+* Lane `v2unionsweep`: active-set sweep in `union_area_m2` (sort box
+  y-starts/ends once; live longitude spans per slab), byte-identical
+  areas (exact-equality twin on the OTHH capture); optional sum-of-areas
+  upper bound before the sweep. Bar: OTHH partition 647 → ≤ 350 s dry
+  on the capture (cluster derivation 300 → < 30 s), HECA 28.7 → < 5 s,
+  clusters/areas identical.
+* HECA's §42 cost is a LAW question (dissolve adjacent object faces
+  harder before constraints; or verify at a coarser pitch on
+  object-pavement faces) — decided after the owner's 1.0.331 HECA read.
+* Unattributed: app-log minus report overhead (OTHH 95 s, HECA 64 s).

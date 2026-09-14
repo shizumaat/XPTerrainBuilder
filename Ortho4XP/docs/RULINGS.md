@@ -4555,3 +4555,25 @@ byte-identical (`53e787b3ab0f` both arms). Suite 1,350 twice.
   taxi/apron evidence stay out)? split an authored body at some extent?
   Both wait on the read.
 * Load +0.25–0.40 s stands (13dc).
+
+## 2026-09-13dk APP 1.0.331 BUILT (engine 1.50.1777): the SPJC viaduct seat, HECA items 1/2/4/5/6, object-based pavement, bank still OFF
+
+Main 90606905 + version bump. Carries over 1.0.330: §16g (6) the
+articulation-point connector + `unit_of` filled (13df); §40 runway
+shoulder + apron-cover refusal, shoulder cross-slope 2.5 % (13dg); §41
+notch absorption + `zone_on_pavement` (13da); §37 (10) taxiway contacts,
+geometric route pairs, one-way ribbon rows (13di); §42 object-based
+pavement, layer-group discriminator, adjacent bodies own faces (13dj);
+`bank_omit = true` still (13cy — the bank read is the owner's).
+
+* What to read: SPJC viaduct at −12.0322, −77.1170407 (deck on the
+  terminal datum 19.56; the south abutment still ~1.5 m over ungraded
+  ground — owed); HECA shape 44 as runway shoulder, shape 93 apron, the
+  dip at 30.1312203, 31.3983896, the road step at 30.1096746, 31.4048466,
+  the road end at 30.1077666, 31.4031555, the apron at 30.1235047,
+  31.4160956 (now graded); HECA's new seams — the 7.10 m apron|apron
+  terrace (shapes 5/7), the shoulder face 18.66 m off the DEM, the 8.5 km
+  perimeter asphalt as one face; every airport's patch edge with no bank.
+* NOT in this build: HECA item 3 (the apron hill — two owner questions,
+  13de), item 7 (not reproduced), the KCLT tile (owner's `--refresh-data
+  dem`), the staged solve (13dh), the six chips.

@@ -1907,6 +1907,15 @@ def print_report(rep: dict, top: int, cg=None) -> None:
           f"basin_facilities={ev.get('basin_facility_count')} "
           f"triangle_plane_unresolved="
           f"{ev.get('triangle_plane_unresolved')}")
+    # §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak/14am): how many
+    # within-shape pairs the LIFT took, and on how many ways.  Counted,
+    # never hidden — a lift is a law the census applied, so it reports its
+    # own size beside the families it changed.
+    _lc = dict(getattr(cg, "_LIFTED_CAP_STATS", {}) or {})
+    if _lc.get("ways"):
+        print(f"  \u00a734 (9) LIFTED pinched-ramp cap: ways={_lc['ways']} "
+              f"within-shape pairs lifted={_lc.get('pairs', 0)} "
+              f"(sidecar 'lifted_caps' names each: corridor, road, span, grade)")
     # ── THE BUILD'S OWN AIRSIDE-SCOPED CERTIFICATE (air7; RULINGS
     # 2026-09-01l/r) — the solve's law-graph verdict on the zero-airside
     # beta bar, printed beside the census's emitted-surface counts so

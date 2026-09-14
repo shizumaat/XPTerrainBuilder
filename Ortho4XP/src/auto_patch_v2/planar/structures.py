@@ -809,7 +809,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               tuple(notes), top_pinned, clipped_by,
                               (cap_mid[0], cap_mid[2]) if cap_mid else None,
                               cap_mid[1] if cap_mid else None, design_grade=design_grade,
-                              **extra))
+                              pinched=pinched, **extra))
         if clipped_by:
             # THE PORTAL FACE AT THE PAD EDGE (08-07 ruling 3): the clipped
             # ramp's top edge stands off the ground beyond it by the gap

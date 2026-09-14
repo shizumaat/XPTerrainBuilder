@@ -1129,6 +1129,44 @@ def _lateral_cap_tag(way: "Way") -> Optional[float]:
 LATERAL_CAP_T_TAG = "o4_grade_law_cap_t"
 
 
+#: §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak; the census read
+#: RULED in 2026-09-14am, the 12m class "a build steeper than the judged
+#: cap mints a violation by construction").  The tag ``pipeline/
+#: publication.face_tags`` stamps on a ramp face whose climb ENDED at an
+#: airside-locked service road's edge: its within-shape LONGITUDINAL cap is
+#: LIFTED — the ruling verbatim, "whatever grade the span requires is
+#: lawful".
+#:
+#: THE LIFT IS THE PRESENCE, NOT THE VALUE (the value names the grade the
+#: run was DESIGNED at, for a report).  The axis average is not the
+#: requirement: OTHH's ``route7`` pinch is 5.1 m of axis at 36.98 %, but
+#: its ramp's two long edges run 4.93 m and 3.81 m and the emitted ring
+#: carries a 1.12 m chord at 85.8 % — a cap set to the designed grade would
+#: leave 9 of the 20 rows the ruling calls lawful.
+LIFTED_CAP_TAG = "o4_grade_law_cap_lifted"
+
+#: How many within-shape pairs the §34 (9) lift took, and on how many ways
+#: — counted-never-hidden, reported beside the family.
+_LIFTED_CAP_STATS: Dict[str, int] = {"pairs": 0, "ways": 0}
+
+
+def _lifted_cap_tag(way: "Way") -> Optional[float]:
+    """The §34 (9) LIFT on this way (:data:`LIFTED_CAP_TAG`), as the
+    designed grade it names, or ``None``.
+
+    Scoped to the WAY, by construction: the pinched run's own face carries
+    the tag and nothing else does, so the lift can never reach a
+    neighbouring taxi/apron/road face (the ruling: "the lift applies to
+    the pinched ramp faces only")."""
+    raw = way.tags.get(LIFTED_CAP_TAG)
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def _lateral_cap_t_tag(way: "Way") -> Optional[float]:
     """The TRANSVERSE lateral-contiguity cap the build stamped on this way
     (:data:`LATERAL_CAP_T_TAG`, §37 (1)), or ``None``."""
@@ -7274,6 +7312,8 @@ def _check_within_shape(ways: List[Way],
     2026-09-06s) — never in the return value.
     """
     out: List[Violation] = []
+    _LIFTED_CAP_STATS["ways"] = sum(
+        1 for w in ways if _lifted_cap_tag(w) is not None)     # §34 (9)
     _jsc = _junction_stretch_crossings(ways, nodes, stretches_m)
     _son = _stretch_node_index(stretches_m)
     for c in iter_shape_grade_constraints(
@@ -7354,6 +7394,18 @@ def _check_within_shape(ways: List[Way],
         if de <= allowance:
             if _box:
                 _TAXI_BOX_STATS["inside"] += 1
+            continue
+        # §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak/14am): the
+        # within-shape LONGITUDINAL cap of a pinched ramp face is LIFTED.
+        # Applied HERE — after the allowance, before the row — so it takes
+        # exactly the rows it is meant to and nothing else: the pair's
+        # ROAD CROSS-SECTION reading (``transverse_road_out``, a transverse
+        # law the ruling does not touch) is left to its own family, and
+        # ``_role_grade_limit`` is untouched, so the ramp keeps its role
+        # cap in ``cross_shape``, ``taxi_box``, the step families and every
+        # other reader (the 30l consumer census).
+        if _lifted_cap_tag(c.way) is not None and not c.transverse_road:
+            _LIFTED_CAP_STATS["pairs"] += 1
             continue
         if _box:
             _TAXI_BOX_STATS["over"] += 1
@@ -8918,6 +8970,15 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
 #: carries must appear here or in ``SIDECAR_LAW_KEYS`` (twin-asserted), so a
 #: newly emitted key can never be silently ignored by every reader.
 SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
+    # §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak/14am, sidecar
+    # ``lifted_caps``): ``[shapeID, corridor, road ref, span m, designed
+    # grade]`` per ramp face whose within-shape LONGITUDINAL cap is LIFTED
+    # — the record §34 (9) (3) reports by name.  EVIDENCE: the LIFT itself
+    # rides on the way as ``o4_grade_law_cap_lifted``
+    # (:data:`LIFTED_CAP_TAG`, read per pair in ``_check_within_shape``),
+    # so this list prices nothing and a reader that lost it would still
+    # adjudicate identically.
+    "lifted_caps",
     # THE DESIGN SURFACE's residual per family (RULINGS 2026-09-08t, sidecar
     # ``design``, replacing ``law_tiers``): rounds, unknowns, rows, the hard
     # runway rows and per family how many targets were missed and by how
@@ -10302,6 +10363,7 @@ def run_checks(
     """
     _CROWN_UNKNOWN_PAIRS.clear()
     _TAXI_BOX_STATS.clear()
+    _LIFTED_CAP_STATS.update(pairs=0, ways=0)          # §34 (9)
     _APRON_PREF_STATS.clear()
     # REGION RULESET (phase B).  ``ruleset`` is the SIDECAR's key — the
     # authority the build actually ran under.  The census NEVER re-derives

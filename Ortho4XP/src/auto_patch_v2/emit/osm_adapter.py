@@ -105,6 +105,13 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
     "pair_caps", "seam_pins", "station_caps",
     "pair_caps", "seam_pins", "station_caps", "stretches",
+    # §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak/14am): the
+    # report record per ramp face whose within-shape LONGITUDINAL cap is
+    # LIFTED (``pipeline/publication._lifted_records``).  EVIDENCE — the
+    # census reads the LIFT itself off the way tag
+    # ``o4_grade_law_cap_lifted``, which ``publication.face_tags`` stamps
+    # through this module's ``face_tags`` channel.
+    "lifted_caps",
     # §38 (3)/(5) (owner RULINGS 2026-09-13ah/13an): the tile-seam band's
     # own half width, so the census's ``bank_across_seam`` reads "inside
     # the band" from the law the BUILD ran under and never from a

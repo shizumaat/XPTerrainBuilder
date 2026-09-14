@@ -462,6 +462,272 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
                          for k, r in fam.items()}, "trace": trace}
 
 
+def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path) -> dict:
+    """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
+    the graded surface, THE BANK (``emit/bank.with_bank``), the terrain-edge
+    ways and the patch — so a same-frame divergence
+    (``tools/patch_proximity_diff.py``, ``tools/osm_site.py``) can be read
+    off a replay instead of a 6-minute build.  No rebake plan, no tile
+    pieces.
+
+    THE BANK WAS MISSING HERE until 2026-09-13 (lane ``v2zonebank``): the
+    replay wrote the patch straight out of ``graded_surface``, so every
+    ``bank_foot`` question asked of a replay arm read ZERO feet and looked
+    like the defect under attribution."""
+    from auto_patch_v2.emit.bank import BankReport, with_bank
+    from auto_patch_v2.emit.graded import graded_surface
+    from auto_patch_v2.emit.osm_adapter import write_patch
+    from auto_patch_v2.emit.terrain_edge import with_terrain_edges
+    from auto_patch_v2.pipeline.publication import face_tags, publication
+    t = time.perf_counter()
+    surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
+                          {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
+    brep = BankReport()
+    surf_out = with_bank(surf, pm, law, airport, brep)
+    surf_out = with_terrain_edges(surf_out, pm, law)
+    print("    " + brep.line(icao))
+    pub = publication(pm, law, airport, sol.z, cs)
+    header = {"o4_apt_dat": airport.pack.apt_dat_path, "o4_pack": airport.pack.name,
+              "o4_replay": "v2_solve_replay"}
+    paths = write_patch(surf_out, law, emit_dir, pub, header, face_tags(pm, law, airport))
+    print(f"    emitted {paths.patch} ({paths.ways} ways, {paths.nodes} nodes) in "
+          f"{time.perf_counter() - t:.1f} s")
+    return {"patch": str(paths.patch), "bank": _dc.asdict(brep),
+            "surface": surf_out}
+
+
+def bank_walk(icao, pm, law, airport, surf_out, stations=None,
+              regions=None, out=print) -> dict:
+    """§37 (3) THE ZONE-2 WALK (owner RULINGS 2026-09-13bu): per
+    ``adjacent_ground:*:zone2`` face ring, ``|z_ring − DEM(foot)|`` at every
+    station — the drop the law measures load-bearing against — with the
+    stations at or over ``bank_materiality_m``, whether the station's foot
+    point stands OUTSIDE the design coverage at all (only those can carry a
+    bank), whether it falls in the terrain-edge no-bank region or the water
+    cut, and how many emitted ``bank_foot`` vertices lie within reach of the
+    ring.  Prices no law and counts no defects: every number is read off the
+    map, the DEM and the emitted surface."""
+    import numpy as np
+    from shapely.geometry import Point, Polygon
+    from auto_patch_v2.emit.bank import (BANK_KIND, _dem_many, _outward_normals,
+                                         bank_materiality_m, coverage_polygon)
+    from auto_patch_v2.emit.terrain_edge import no_bank_region
+    d_law = law.tables.emit.design
+    mat = bank_materiality_m(d_law)
+    min_w = float(d_law.bank_min_width_m)
+    reach = float(d_law.bank_max_width_m)
+    slope = float(d_law.bank_slope)
+    dem = getattr(airport, "dem", None)
+    cov = coverage_polygon(pm)
+    if dem is None or cov is None:
+        return {}
+    edge_geom = no_bank_region(pm, law, cov)
+    water_geom = None
+    wf = getattr(dem, "water_geometry", None)
+    if callable(wf):
+        try:
+            bx0, by0, bx1, by1 = cov.bounds
+            water_geom = wf((bx0 - reach, by0 - reach, bx1 + reach, by1 + reach))
+        except Exception:
+            water_geom = None
+        if water_geom is not None and water_geom.is_empty:
+            water_geom = None
+    z_of = {v.id: v.z for v in surf_out.vertices}
+    feet = [(v.id, v.ll) for v in surf_out.vertices]
+    foot_ids: set[int] = set()
+    for b in surf_out.breaklines:
+        if b.kind == BANK_KIND:
+            foot_ids.update(b.vertices)
+    _to_xy = airport.frame.transformers()[0]
+    fpts = []
+    for vid, ll in feet:
+        if vid in foot_ids:
+            fpts.append(_to_xy(ll[1], ll[0]))   # to_xy(lon, lat)
+    tree = None
+    if fpts:
+        from scipy.spatial import cKDTree
+        tree = cKDTree(np.asarray(fpts, float))
+    rows = []
+    for fid, f in sorted(pm.faces.items()):
+        ref = f.ref or ""
+        if ":zone2" not in ref:
+            continue
+        ring = [pm.vertices[v].xy for v in pm.ring_vertices(f.ring)]
+        vids = list(pm.ring_vertices(f.ring))
+        if len(ring) < 3:
+            continue
+        nrm = np.asarray(_outward_normals(ring), float)
+        pts = np.asarray(ring, float)
+        fx = pts[:, 0] + nrm[:, 0] * min_w
+        fy = pts[:, 1] + nrm[:, 1] * min_w
+        zdem = _dem_many(dem, fx, fy)
+        zr = np.asarray([z_of.get(v, float("nan")) for v in vids], float)
+        drop = np.abs(zr - zdem)
+        outside = np.asarray([not cov.contains(Point(x, y))
+                              for x, y in zip(fx.tolist(), fy.tolist())])
+        in_edge = np.asarray([edge_geom is not None
+                              and edge_geom.contains(Point(x, y))
+                              for x, y in zip(fx.tolist(), fy.tolist())])
+        in_water = np.asarray([water_geom is not None
+                               and water_geom.contains(Point(x, y))
+                               for x, y in zip(fx.tolist(), fy.tolist())])
+        # THE FOOT'S OWN REACH, per station: the 1:3 daylight distance this
+        # station's drop buys plus the minimum width — never the airport-wide
+        # ``bank_max_width_m``, which calls a foot 200 m away "near".
+        near_foot = np.zeros(len(pts), bool)
+        if tree is not None:
+            dd, _ = tree.query(np.column_stack([fx, fy]))
+            want = np.minimum(np.nan_to_num(drop) / slope, reach) + 2.0 * min_w
+            near_foot = dd <= want
+        material = np.isfinite(drop) & (drop > mat)
+        bad = np.flatnonzero(material & outside & ~near_foot)
+        _to_ll = airport.frame.transformers()[1]
+        probe = [(float(fx[i]), float(fy[i]), *_to_ll(float(pts[i, 0]),
+                                                      float(pts[i, 1])),
+                  float(drop[i])) for i in bad.tolist()]
+        rows.append({"_probe": probe,
+            "face": fid, "ref": ref, "stations": int(len(pts)),
+            "material": int(material.sum()),
+            "material_outside": int((material & outside).sum()),
+            "material_outside_no_foot": int((material & outside & ~near_foot).sum()),
+            "in_edge_region": int((material & outside & in_edge).sum()),
+            "in_water": int((material & outside & in_water).sum()),
+            "max_drop_m": round(float(np.nanmax(drop)) if len(drop) else 0.0, 2),
+        })
+    tot = {k: sum(r[k] for r in rows) for k in
+           ("stations", "material", "material_outside",
+            "material_outside_no_foot", "in_edge_region", "in_water")}
+    out(f"[{icao}] §37 (3) zone-2 walk: {len(rows)} zone2 ring(s), "
+        f"{tot['stations']} stations, materiality {mat:.2f} m; "
+        f"{tot['material']} station(s) >= materiality, of which "
+        f"{tot['material_outside']} have their foot point OUTSIDE the design "
+        f"coverage; {tot['material_outside_no_foot']} of those carry NO "
+        f"bank_foot within their own 1:3 reach "
+        f"({tot['in_edge_region']} in the terrain-edge no-bank region, "
+        f"{tot['in_water']} in water)")
+    worst = sorted(rows, key=lambda r: -r["material_outside_no_foot"])[:12]
+    for r in worst:
+        if not r["material_outside_no_foot"]:
+            break
+        out(f"    {r['ref']}#{r['face']}: {r['material_outside_no_foot']}/"
+            f"{r['stations']} unbanked material station(s), max drop "
+            f"{r['max_drop_m']:.2f} m, edge {r['in_edge_region']}, "
+            f"water {r['in_water']}")
+    res = {"materiality_m": mat, "totals": tot, "rings": rows,
+           "unbanked": [[r["ref"], r["face"], *pr] for r in rows
+                        for pr in r.get("_probe", [])]}
+    if regions:
+        # WHERE DOES AN UNBANKED STATION STAND? (the ``region_probe`` hook)
+        # inside the banked region means the coverage HOLE it belongs to was
+        # swallowed by the union and its rim never became a boundary ring.
+        _cov, _bk = regions[0]
+        n_in = n_hole = 0
+        for r in rows:
+            for pr in r.get("_probe", []):
+                pt = Point(pr[0], pr[1])
+                n_in += int(_bk.contains(pt))
+                n_hole += int(any(Polygon(h).contains(pt)
+                                  for poly in getattr(_cov, "geoms", [_cov])
+                                  for h in poly.interiors))
+        seen = set()
+        for r in rows:
+            for pr in r.get("_probe", [])[:1]:
+                pt = Point(pr[0], pr[1])
+                for poly in getattr(_cov, "geoms", [_cov]):
+                    for h in poly.interiors:
+                        hp = Polygon(h)
+                        if hp.contains(pt) and id(h) not in seen and len(seen) < 8:
+                            seen.add(id(h))
+                            core = hp.difference(_bk)
+                            out(f"    hole {hp.area:.0f} m2 (rim {hp.length:.0f} m) "
+                                f"at {r['ref']}: UNBANKED CORE {core.area:.0f} m2, "
+                                f"{len(list(getattr(core, 'geoms', [core])))} part(s)")
+        out(f"[{icao}] of the unbanked material stations, {n_in} stand INSIDE "
+            f"the banked region and {n_hole} inside a HOLE of the design "
+            f"coverage (the rim never became a boundary ring)")
+    if stations:
+        # THE LOAD-BEARING TEST AS THE EMITTER RAN IT (the ``station_probe``
+        # hook): the nearest banked-region boundary station to each unbanked
+        # zone-2 material station, with the two z the verdict was taken on.
+        st = [s for ring in stations for s in ring]
+        sxy = np.asarray([[s["x"], s["y"]] for s in st], float)
+        from scipy.spatial import cKDTree
+        stree = cKDTree(sxy)
+        out(f"[{icao}] banked-region stations {len(st)}, load-bearing "
+            f"{sum(1 for s in st if s['load_bearing'])}")
+        shown = 0
+        for r in rows:
+            if not r["material_outside_no_foot"] or shown >= 8:
+                continue
+            for probe in r.pop("_probe", [])[:2]:
+                dd, k = stree.query(probe[:2])
+                s = st[int(k)]
+                extra = ""
+                if regions:
+                    _cov, _bk = regions[0]
+                    pt = Point(probe[0], probe[1])
+                    from shapely.geometry import Polygon as _P
+                    hole_a = None
+                    for _poly in getattr(_cov, "geoms", [_cov]):
+                        for _h in _poly.interiors:
+                            hp = _P(_h)
+                            if hp.contains(pt):
+                                hole_a = hp.area
+                    extra = (f" [hole area {hole_a}, in cov {_cov.contains(pt)}, in banked "
+                             f"{_bk.contains(pt)}, d(cov bdy) "
+                             f"{_cov.boundary.distance(pt):.1f} m, d(banked bdy) "
+                             f"{_bk.boundary.distance(pt):.1f} m]")
+                out(f"    {r['ref']}#{r['face']} station at "
+                    f"{probe[2]:.7f},{probe[3]:.7f} drop {probe[4]:.2f} m -> "
+                    f"nearest banked station {dd:.1f} m away: z_ring "
+                    f"{s['z_ring']:.2f} z_foot {s['z_foot']:.2f} "
+                    f"|d| {abs(s['z_ring'] - s['z_foot']):.2f} ray {s['d_m']:.1f} m "
+                    f"LOAD-BEARING={s['load_bearing']}" + extra)
+                shown += 1
+        res["stations"] = len(st)
+    for r in rows:
+        r.pop("_probe", None)
+    return res
+
+
+def bank_from(pkl: Path, emit_dir: Path | None, walk: bool,
+              json_out: Path | None) -> int:
+    """THE EMIT HALF ALONE, off a ``--solved-out`` pickle: the bank stage
+    replayed without re-paying the 80 s solve (lane ``v2zonebank``, §37 (3))."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.solve.api import Solution, Status
+    with pkl.open("rb") as fh:
+        sv = pickle.load(fh)
+    icao, pm, airport, cs, z = (sv["icao"], sv["pm"], sv["airport"],
+                                sv["cs"], sv["z"])
+    law = Law.for_airport(icao)
+    sol = Solution(tuple(float(v) for v in z), Status.OPTIMAL, None)
+    res: dict = {}
+    surf_out = None
+    if emit_dir is not None:
+        r = emit_patch(icao, pm, law, airport, cs, sol, emit_dir)
+        surf_out = r.pop("surface")
+        res.update(r)
+    if walk:
+        from auto_patch_v2.emit.bank import BankReport, with_bank
+        from auto_patch_v2.emit.graded import graded_surface
+        stations: list = []
+        regions: list = []
+        surf = graded_surface(pm, law, sol, airport.frame.origin,
+                              airport.frame.crs, {})
+        brep = BankReport()
+        surf_out = with_bank(surf, pm, law, airport, brep,
+                             station_probe=stations.append,
+                             region_probe=lambda c, b: regions.append((c, b)))
+        print("    " + brep.line(icao))
+        res["bank"] = _dc.asdict(brep)
+        res["zone2_walk"] = bank_walk(icao, pm, law, airport, surf_out,
+                                      stations, regions)
+    if json_out is not None:
+        json_out.write_text(json.dumps(res, indent=1, default=str))
+    return 0
+
+
 def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            z_out: Path | None, method: str = "normal",
            design_weights: dict[str, float] | None = None, verbose: bool = False,
@@ -670,22 +936,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         if z_out is not None:
             np.save(z_out, z)
         if emit_dir is not None:
-            # THE PATCH (the build's emit half, ``pipeline/build.py``): so the
-            # same-frame divergence (``tools/patch_proximity_diff.py``) can be
-            # read on a replay arm — no rebake plan, no tile pieces
-            from auto_patch_v2.emit.graded import graded_surface
-            from auto_patch_v2.emit.osm_adapter import write_patch
-            from auto_patch_v2.pipeline.publication import face_tags, publication
-            t = time.perf_counter()
-            surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
-                                  {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
-            pub = publication(pm, law, airport, sol.z, cs)
-            header = {"o4_apt_dat": airport.pack.apt_dat_path, "o4_pack": airport.pack.name,
-                      "o4_replay": "v2_solve_replay"}
-            paths = write_patch(surf, law, emit_dir, pub, header, face_tags(pm, law, airport))
-            result["patch"] = str(paths.patch)
-            print(f"    emitted {paths.patch} ({paths.ways} ways, {paths.nodes} nodes) in "
-                  f"{time.perf_counter() - t:.1f} s")
+            result.update(emit_patch(icao, pm, law, airport, cs, sol, emit_dir))
     if json_out is not None:
         json_out.write_text(json.dumps(result, indent=1, default=str))
     return 0
@@ -745,7 +996,15 @@ def main() -> int:
                     help="relax-one-family arms (solve.why family labels) over the hump's ridge vertices")
     ap.add_argument("--why-hump", nargs=3, metavar=("RUNWAY", "S0", "S1"),
                     help="why on the highest ridge vertex above the chord in stations S0..S1")
+    ap.add_argument("--bank-from", type=Path, metavar="PKL",
+                    help="replay the EMIT HALF (bank + terrain edges + patch) off a "
+                         "--solved-out pickle, without re-paying the solve")
+    ap.add_argument("--bank-walk", action="store_true",
+                    help="§37 (3): the per-station adjacent-ground zone-2 walk "
+                         "(|z_ring - DEM(foot)| and the feet emitted)")
     a = ap.parse_args()
+    if a.bank_from:
+        return bank_from(a.bank_from, a.emit, a.bank_walk, a.json)
     if a.capture:
         if a.out is None:
             ap.error("--capture needs --out")

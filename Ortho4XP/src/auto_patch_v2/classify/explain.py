@@ -32,6 +32,8 @@ REKIND_MARKS: tuple[tuple[str, str], ...] = (
     ("airside_edge_flip", "airside edge (§27)"),
     ("taxi_name", "taxi by name (04z-1)"),
     ("open_default", "open default (04u)"),
+    ("neck_cut", "apron cut at a neck: the neck (§43 (1))"),
+    ("neck_new_apron", "apron cut at a neck: the apron beyond (§43 (1))"),
     ("demoted", "touch-chain demotion"),
 )
 

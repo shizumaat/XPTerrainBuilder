@@ -93,6 +93,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
+from .neck import necks_of, split_at_necks
 from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
 from .sources import (SourceRecord, apron_union, classify_sources,
@@ -235,7 +236,17 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     through = _through_routes(ev, rules) if prox is not None else []
     corridors = _route_corridors(through, ev, rules) if prox is not None else None
     shoulders: list[tuple[Polygon, _t.Any, float, str]] = []
-    for face in faces:
+    # §43 AN APRON ENDS AT ITS MOUTH: a WORKLIST, not a plain loop — an
+    # apron-candidate face that turns out to hold a neck is cut at the
+    # neck's mouths and its pieces go back through the SAME ladder, each
+    # scored on its own evidence (``_neck_pieces``).
+    to_ll = airport.frame.transformers()[1]
+    queue: list[tuple[Polygon, dict]] = [(f, {}) for f in faces]
+    stats["apron_necks"] = 0
+    qi = 0
+    while qi < len(queue):
+        face, neck_ev = queue[qi]
+        qi += 1
         # §40 (1): pavement running along a runway ring IS the runway's
         # shoulder — decided before every other rung, and out of the
         # corridor ladder, the demotion and the §27 pass entirely
@@ -243,12 +254,14 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         if sh is not None:
             shoulders.append((face, sh[0], sh[1], _ref_for(face, pav_tree, ev)))
             continue
+        is_neck = bool(neck_ev and neck_ev.get("neck_cut"))
         src = _source_for(face, cut_tree, cut_ids, cut_polys, src_of)
         if src is not None:
             # A STRIP is the road, a LOT the lot (owner 2026-09-04j): its
             # own face, cut at its boundary, no chain question to ask.
             evid = {"area_m2": face.area, "n_taxi": 0, "kind": src.cls}
             evid.update(src.as_evidence())
+            evid.update(neck_ev)       # a §43 piece keeps its mark here too
             role = "service_road" if src.cls == "strip" else "parking_lot"
             scored.append((face, role, src.id, None, evid, False))
             continue
@@ -276,11 +289,39 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # §40 (2): OSM `aeroway=apron` cover REFUSES the corridor kind —
         # the cell is apron and the proximity cut does not re-mint it
         cover = _apron_cover(face, apron_u) if kind == "corridor" else 0.0
-        apron_refused = cover >= rules.lot.apron_cover_fraction
+        # §43 (1) OVERRIDES §40 (2) ON A NECK, and the two rules read the
+        # same ground: OSM draws one `aeroway=apron` polygon over HECA's
+        # apron AND over the taxiway that leaves it (shape 344's cell
+        # reads 50 % cover), so apron cover cannot say where the apron
+        # ends — the LOCAL width can, and §43 is the owner's word for
+        # exactly this pavement.  A neck is taxi family by construction.
+        apron_refused = cover >= rules.lot.apron_cover_fraction and not is_neck
         if apron_refused:
             kind, axis = "apron", None
             evid = dict(evid, kind="apron", apron_cover_refused_corridor=1.0,
                         cell_apron_cover=cover)
+        # §43 (1) THE NECK CUT, at the one place the ladder knows this face
+        # is an APRON CANDIDATE.  "An apron cell is CUT at both ends of
+        # every neck": a face the ladder already reads as a CORRIDOR is a
+        # taxiway end to end and has no apron to end — offering it here cut
+        # HECA's parallels into their own bulges for nothing (measured
+        # 2026-09-14, arm 1: 37 neck cells, of which the 1,970 m and
+        # 1,434 m "necks" were taxiways).  A face already cut at a neck is
+        # never re-offered (the pieces carry their mark).
+        if not neck_ev and (kind == "apron" or apron_refused):
+            pieces = _neck_pieces(face, rules, to_ll, notes, stats)
+            if pieces:
+                queue.extend(pieces)
+                continue
+        if is_neck:
+            if kind == "apron":
+                # §43 (1): "kinded by the corridor ladder" — the taxi
+                # family's evidence-free rung, as the route-proximity and
+                # taxi-name rungs use it
+                kind, axis = "junction", None
+            evid = dict(evid, **neck_ev, kind=kind, neck_apron_cover=cover)
+        elif neck_ev:
+            evid = dict(evid, **neck_ev)
         if kind == "apron" and not taxi and truck and not _holds_startup(face, start_tree):
             kind = "service"           # a stand (1300) makes it apron, not service territory
         if kind == "service":
@@ -456,6 +497,69 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
                           sources=tuple(sources))
+
+
+def _mouth_ll(mouth, to_ll) -> str:
+    """One §43 mouth CUT LINE as ``lat,lon -> lat,lon`` (the owner's own
+    notation for the two cut lines he drew at HECA shape 344)."""
+    (ax, ay), (bx, by) = mouth
+    return "%.7f,%.7f -> %.7f,%.7f" % (*to_ll(ax, ay), *to_ll(bx, by))
+
+
+def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
+                 stats: dict) -> list[tuple[Polygon, dict]]:
+    """§43 AN APRON ENDS AT ITS MOUTH (owner RULINGS 2026-09-14c item 2):
+    ``face`` cut at the mouths of its NECKS (``classify/neck.py``), as
+    ``(polygon, mark)`` pairs for the scorer's worklist — empty where the
+    face holds no neck (the overwhelming majority; nothing is re-scored).
+
+    ``mark`` carries ``neck_cut`` for the neck itself and
+    ``neck_new_apron`` for the pavement beyond it — §43 (1)'s two halves,
+    both ``explain.REKIND_MARKS`` rows, so the dry role census names every
+    cut with its width, its length and its mouths.
+
+    §43 (3), WHAT DOES NOT CUT, is enforced by the CALLER, at the one site
+    that knows: a road STRIP / parking LOT face and a §40 (1) runway
+    shoulder never reach this line (they left the ladder earlier), and a
+    face the ladder reads as a CORRIDOR is not offered — "roads joining
+    two lots do not cut", and a taxiway is not an apron that ends.  "A
+    taxiway running ALONG an apron edge does not cut" needs no rule at
+    all: such pavement never narrows, so ``necks_of`` finds nothing."""
+    necks = necks_of(face, rules)
+    if not necks:
+        return []
+    pieces = split_at_necks(face, necks, rules)
+    if len(pieces) < 2:
+        return []
+    mouths = " | ".join(_mouth_ll(m, to_ll) for n in necks
+                        for m in n.mouth_lines)
+    for n in necks:
+        stats["apron_necks"] = stats.get("apron_necks", 0) + 1
+        rp = n.polygon.representative_point()
+        lat, lon = to_ll(rp.x, rp.y)
+        notes.append(
+            f"§43 neck cut: {n.area_m2:,.0f} m2, local width <= "
+            f"{rules.apron.neck_width_m:g} m over {n.length_m:,.1f} m "
+            f"(mean {n.width_m:,.1f} m), {n.n_lobes} mouths at "
+            + " | ".join(_mouth_ll(m, to_ll) for m in n.mouth_lines)
+            + f"; neck at {lat:.7f},{lon:.7f}"
+            + (f" ({n.curved_mouths} curved)" if n.curved_mouths else ""))
+    out: list[tuple[Polygon, dict]] = []
+    for poly, is_neck in pieces:
+        if not is_neck:
+            out.append((poly, {"neck_new_apron": 1.0, "neck_mouths": mouths}))
+            continue
+        # THIS piece's OWN neck (a face may hold several): the census has
+        # to name each cut with the width and length ITS rule read, never
+        # an aggregate over the parent face
+        n = max(necks, key=lambda q: q.polygon.intersection(poly).area)
+        out.append((poly, {
+            "neck_cut": 1.0, "neck_length_m": n.length_m,
+            "neck_width_m": n.width_m, "neck_area_m2": n.area_m2,
+            "neck_lobes": float(n.n_lobes),
+            "neck_mouths": " | ".join(_mouth_ll(m, to_ll)
+                                      for m in n.mouth_lines)}))
+    return out
 
 
 def _source_for(face: Polygon, tree: STRtree | None, ids: list[str],

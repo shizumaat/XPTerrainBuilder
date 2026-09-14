@@ -8504,3 +8504,129 @@ the reach (13cc (ii)) moved the taxi numbers only 2,815 → 2,651 / 1.88 →
 merge is doing none of either.  A reach that cannot be weakened enough to
 hold the taxiways without also giving up the terminal is the wrong lever,
 and the right one is the merge the measurement above says is broken.
+
+### §30 (4) ROUND 4 MEASURED — THE MERGE NOW WORKS, AND IT IS THE MERGE THAT MOVES THE TAXIWAYS
+
+Two things landed, and only the second one mattered.
+
+1. **`cluster_pairs`: per-face-complete plus cross-links.**  Each member
+   face keeps exactly the pairs it would have alone (`_pairs`, per face)
+   and the faces are tied by links from every decimated vertex of each
+   junior face to its NEAREST vertex in the senior rim.  KCLT 865 + 18:
+   `building91` gets its whole 153-pair plate back (was 17 under the
+   concatenated rim) and **18 CROSS-LINKS** (was 40 weak crossings).
+2. **CLUSTERS SHARING A FACE ARE ONE PLANE — this was the real defect.**
+   `plane_groups` gave a face to whichever cluster `setdefault` saw
+   first.  KCLT's two terminal rows BOTH stand on `building80`, so
+   `unit:30#0` took it whole and `unit:31#0` was left holding
+   `building91`'s 18 vertices ALONE — a "cluster" of one face with
+   nothing to cross-link to.  **The built sidecar said so all along**:
+   `cluster_pads` read `unit:31#0 pads [building80, building91] rim 18`.
+   That, and not the `_pairs` decimation, is why the PAD-ONLY arm came
+   out byte-identical to DISARM twice.  Clusters are now unioned over
+   the faces they share.
+
+**THE THREE ARMS** (one tree, law values only; the reach is DISARMED at 0
+in both, RULINGS 13ce).  DISARM `v2cpKCLTd4` (`bde3f0aff32e`) against
+PAD-ONLY `v2cpKCLTp5` (`3ad63ed931f6`) — the graded documents now DIFFER,
+which is the round's first bar:
+
+| bar | DISARM | PAD-ONLY (round 4) | round 3 |
+|---|---|---|---|
+| the merge does work | — | **graded docs differ** — MET | byte-identical |
+| `building91` | 217.89 | **221.52** (bar 221.3) — MET | 217.89 |
+| cluster union spread (bar ≤ 1.5) | 4.30 m | **1.07 m** — MET | 4.30 |
+| `building80` flatness (bar ≤ 1.08) | 1.07 m | **1.07 m** — MET | 1.07 |
+| apron median \|dz\| in 60 m, reach OFF | 0.24 | **0.25** (max 1.18, 0 of 70 within 0.05) | 0.24 |
+| **taxi family (bar ≤ 0.02, 0 over 0.05)** | — | **2,406 moved, worst 2.07 m, 1,525 over 0.02, 1,074 over 0.05 — MISSED** | 0 |
+
+**THE CONFLICT, NAMED.**  The reach is off in both arms, so this taxi
+movement is the MERGE's own: lifting `building91` 3.63 m onto the
+terminal plane propagates through the pad's frontage and no-step welds
+into the taxi family, worst 2.07 m.  The owner's two conditions — "these
+large complex structures have to be seated as a unit" and "as long as it
+remains feasible with grade laws and taxiways" — are in direct conflict
+at KCLT, and the thing they meet on is a 20 x 25 m pad inside the
+terminal footprint standing 3.6 m below its floor.  Round 3 read this as
+the reach's fault; with the reach disarmed and the merge working, it is
+the cluster plane itself.  **STOP-and-report: nothing further is armed,
+and the branch should not merge on the taxi numbers alone.**
+
+**THE APRON, WITH THE REACH OFF.**  Median \|dz\| 0.25 m, 0 of 70
+vertices within 0.05 — the merge alone does NOT flatten the stands, so
+the "if needed" clause is still unmet.  A SHORT reach (≤ 20 m at
+`apron_trend`) is the obvious next lever and is deliberately NOT armed:
+the taxi family already misses its bar without it.
+### §30 (4) (5) THE CLUSTER PAD YIELDS TO THE TAXIWAY (Fable 2026-09-13; RULINGS 2026-09-13ch, owner 13bj) — lane `v2clusterpad` round 5
+
+Round 4 (eb169be7) made the merge work and measured its price: lifting KCLT's
+`building91` 3.63 m onto the terminal floor moves 2,406 taxi-family vertices
+(worst 2.07 m) through the pad's frontage and no-step welds, with the apron
+reach off. The owner's own clause decides it.
+
+5. A member pad whose merge onto the cluster plane would move any
+   taxi-family vertex by more than `hard_tol_m` KEEPS ITS OWN PLANE
+   (reported with the pad, the taxi vertices and the metres); the cluster
+   plane is the plurality pad's, the unit datum is unchanged, and every
+   object on the yielding pad is still seated on the floor by §16g (5). The
+   gate is decided at generator time from the pad's coupling to the taxi
+   family (the lane measures which coupling carries the movement), never by
+   a post-hoc revert. The apron reach stays disarmed.
+
+BARS: KCLT PAD-ONLY == DISARM by the GATE (the report names `building91`
+as yielding, the taxi vertices and 2.07 m); taxi family byte-identical;
+`building91` 217.89; passengers on the floor (§16g (5) rows unchanged); a
+synthetic twin where a cluster with no taxi coupling merges (union spread →
+0) and one where it yields; OTHH plan stage re-timed (`--runs 3`, quiet
+machine); suite twice.
+
+### §30 (4) (5) MEASURED (lane `v2clusterpad` round 5; RULINGS 13ch)
+
+**13ch (i)'s PREMISE IS REFUTED, AND THE GATE MOVED TO WHERE THE DEFECT
+IS.**  The ruling asked the lane to measure which coupling carries round
+4's 2.07 m and to gate on it.  Measured, on the round-4 arms:
+
+* `building91` shares **NO vertex** with `building80`, with any apron
+  face or with any taxi face — its 18 vertices belong to its own face and
+  nothing else;
+* it fronts nothing: the nearest pavement of any kind is **80.35 m** away
+  against a `[design] pad_frontage_m` of **3.0 m**;
+* the taxi vertices that move are not near it — the six worst stand
+  **2,192 … 2,218 m** from it (1,816 … 1,841 m from `building80`); the
+  nearest moved taxi vertex is 431 m away and **none** is within 200 m.
+
+There is no coupling to gate on: the movement is a field-wide shift of
+the solve, not a local transmission.  What `building91` IS, is a separate
+building **65.81 m from the terminal** that the cluster's coarse PART-BOX
+union happened to intersect — §16g (2)'s undone item (b), the
+box-versus-polygon reading, reaching the design surface.  §30 (4)'s own
+words are "one pad over the family's FOOTPRINT UNION", and a pad 66 m
+outside the union is not in it.
+
+**THE GATE AS BUILT** (`cluster_pad._touching_component`, generator time,
+no post-hoc revert): of the faces the footprint union intersects, the
+cluster's plane covers the CONNECTED COMPONENT — pads within
+`[placement] footprint_touch_m` (0.5 m) of each other, the same chain the
+footprint unit itself is built on — that holds the largest face.  Every
+other intersected face KEEPS ITS OWN PLANE, is collected in
+`cluster_pad.YIELDED` and named per cluster in the sidecar's
+`cluster_pads` as `yielded_pads`.
+
+**THE THREE ARMS** (one tree, law values only; the reach disarmed in both):
+
+| bar | DISARM `v2cpKCLTd4` | PAD-ONLY `v2cpKCLTp6` |
+|---|---|---|
+| graded document | `bde3f0aff32e` | **`bde3f0aff32e` — BYTE-IDENTICAL, MET** |
+| taxi family | 6,453 verts | **0 moved, worst 0.0000 m — MET** |
+| `building91` | 217.89 | **217.89 — MET** (it yields; the report names it) |
+| the cluster's plane | — | `building80` alone, median 221.46, spread 1.07 |
+| union spread | 4.30 m | 4.30 m — by the GATE, not by failure |
+| §16g (5) rows | — | **unchanged**: 11,314 multi-anchor rows, 5,263 in a unit, 4,896 `OBJECT_MSL`, 6,336 on ground, **0 dropped**; the passengers and seats at 35.2191877, −80.9426007 at **225.46** = `building80`'s 221.46 + their authored 4.00 m — on the floor |
+
+**WHAT THE GATE COSTS, NAMED.**  KCLT's cluster now has ONE member face,
+so round 4's `cluster_pairs` (per-face-complete + cross-links) and the
+shared-face union have NO effect at this airport — they are exercised by
+the twins and will act at an airport whose terminal really does span two
+touching pads.  Round 4's union-spread bar (4.30 → 1.07) is therefore
+WITHDRAWN here: it was measuring the lift of a building that does not
+belong to the terminal.

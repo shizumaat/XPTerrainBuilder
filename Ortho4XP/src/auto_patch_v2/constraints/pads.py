@@ -93,6 +93,9 @@ __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "pad_relief_offsets"]
 
 GEN = "pads"
+#: The generator's own statistics (``constraints.generate`` publishes them
+#: beside its row count as ``pad_flats.<key>``).
+STATS: dict[str, dict[str, int]] = {}
 #: The LEVEL rows carry their own generator so ``DesignReport.families``
 #: reports their residual as its own line (owner 2026-09-10l: "reports
 #: the residual"), never lumped with the flatness target.
@@ -453,10 +456,21 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     rows: list[Row] = []
     # §30 (4): a TERMINAL CLUSTER's faces are ONE plane — one plate, one
     # ceiling.  Every other pad is its own entry, exactly as before.
-    from .cluster_pad import plane_groups
-    for fid, ref, group, _fids in plane_groups(planar, law, airport):
+    from .cluster_pad import cluster_pairs, plane_groups
+    # §30 (4) (RULINGS 2026-09-13cc/13ce): a CLUSTER's plane is priced
+    # per-face-complete PLUS cross-links, never over the concatenated rim
+    # — the merged reading was measured inert (see ``cluster_pairs``).
+    per_face = {q: g for q, _r, g in _pad_groups(planar, law)}
+    n_cross = 0
+    for fid, ref, group, fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
-        for a, b in _pairs(group):
+        if len(fids) > 1:
+            prs, k = cluster_pairs(planar, [per_face[q] for q in fids
+                                            if q in per_face])
+            n_cross += k
+        else:
+            prs = _pairs(group)
+        for a, b in prs:
             if a == b:
                 continue
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
@@ -464,6 +478,7 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
                 continue
             rows.append(Diff(a, b, cap, d, src,
                              rel=off.get(a, 0.0) - off.get(b, 0.0)))
+    STATS.setdefault("pad_flats", {})["cluster_cross_links"] = n_cross
     return rows
 
 

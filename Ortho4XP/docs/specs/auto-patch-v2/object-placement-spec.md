@@ -4319,3 +4319,27 @@ in its rigid cluster (+4.76 m over one hangar, −6.42 under another).
 BAR: `001_ALB` 28 bodies → one per hangar; zero spread 20.99 → ≤ 0.3 m per
 building; the four owner sites' roof base within 0.3 m of the wall tops
 beneath; `§15 carried over a refused carrier` 8 → 0.
+
+### §16g (5) PER-PLACEMENT ELEVATION — `OBJECT_MSL` (Fable 2026-09-13; RULINGS 2026-09-13bw; owner 2026-09-11a/b) — lane `v2clusterpad` round 2
+
+KCLT's passengers and seats (owner 13bj item 1) are among 205 multi-anchor
+placements the plan DROPS ("one file cannot carry per-placement offsets");
+no family law reaches them. The owner's 11a/11b instruction was the answer:
+"if you're modifying the DSF, you can just change the elevation of each
+placement."
+
+5. A multi-anchor resource — one file, N placements needing N seats — is
+   seated PER PLACEMENT by its DSF row: `OBJECT_MSL lat lon heading elev`,
+   the elevation being the unit plane (or the body's own anchor) at that
+   placement. No file copy, no per-file offset. The writer's round trip
+   proves the rows parse; the census counts placements seated by row.
+
+Round 2 also: §16g (1) derived PLAN-WIDE (after PASS 1 over all units,
+before the carrier pool — the per-unit derivation left OTHH's bridges at
+1.52 / 1.93 m spread); (2) polygon footprints, not part boxes.
+
+BARS: KCLT passengers/seats at 35.2191877, −80.9426007 seated at the
+cluster plane 222.28 ± 0.05 by `OBJECT_MSL`; dropped multi-anchor placements
+205 → 0 at KCLT (count per airport); OTHH every `Bridge_NN` one unit, spread
+0.00 (today 1.52 / 1.93); a MATCHED KCLT design base build — taxi family
+byte-identical, pad flatness before → after; suite twice.

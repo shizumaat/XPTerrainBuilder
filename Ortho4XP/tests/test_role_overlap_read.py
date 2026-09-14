@@ -210,3 +210,100 @@ def test_the_tool_is_in_the_index():
     if not index.exists():                      # a lane worktree mirror
         pytest.skip("no repo-root tools/INDEX.md in this checkout")
     assert "role_overlap_read.py" in index.read_text()
+
+
+# ── --slivers and --hole-rings (RULINGS 2026-09-14g items 4/5, lane
+#    ``v2slivers``): the two reads §41 (4) and the hole-suppression rule
+#    are accepted on — which zone strips are too small or too thin to
+#    carry a transition, and which emitted hole rings the faces inside
+#    them already cover.
+
+def test_the_inscribed_width_is_the_widest_place(tmp_path):
+    """RULINGS 2026-09-14g item 4: ``2 A / P`` is a MEAN-width proxy that
+    over-counted HECA's narrow zone faces 42 -> 153, so the read uses the
+    MAXIMUM INSCRIBED CIRCLE's diameter — and it is the ENGINE's own
+    number (``planar.overlay.inscribed_width_m``), never a second one."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar.overlay import inscribed_width_m as engine_w
+    p = Polygon(_square(3.0)).union(Polygon([(3.0, -0.1), (15.0, -0.1),
+                                             (15.0, 0.1), (3.0, 0.1)]))
+    assert ROR.inscribed_width_m(p) == pytest.approx(engine_w(p), abs=1e-6)
+    assert ROR.inscribed_width_m(p) == pytest.approx(6.0, abs=0.05)
+    assert 2.0 * p.area / p.length < 3.0
+
+
+def test_the_tool_constants_are_the_laws(tmp_path):
+    """The three §41 (4) / item-5 numbers have ONE authority — the law
+    table — and the tool's defaults mirror it (the ``ENCLOSED_MIN_FRAC``
+    precedent, RULINGS 2026-09-13cs)."""
+    from auto_patch_v2.law import Law
+    t = Law.for_airport("CYXY").tables.emit.terrace
+    assert ROR.STRIP_MIN_M2 == t.strip_min_m2
+    assert ROR.STRIP_MIN_WIDTH_M == t.strip_min_width_m
+    assert ROR.HOLE_COVER_EPS == t.hole_cover_eps
+
+
+def test_the_sliver_read_names_the_strips_and_their_host(tmp_path):
+    """HECA shape 1035 in miniature: a 2 m-wide zone face against a
+    taxiway, with the pavement it borders longest named as its host — and
+    a full-size band beside it that is NOT a sliver."""
+    pav = ({"role": "cross_connector", "ref": "pav115", "shapeID": "221"},
+           _square(50.0))
+    sliver = ({"role": "graded_strip", "ref": "adjacent_ground:taxi:E:zone1#38",
+               "shapeID": "1035"},
+              [(50.0, -4.0), (58.0, -4.0), (58.0, -2.0), (50.0, -2.0)])
+    band = ({"role": "graded_strip", "ref": "adjacent_ground:taxi:E:zone2#1",
+             "shapeID": "1036"},
+            [(50.0, 0.0), (70.0, 0.0), (70.0, 40.0), (50.0, 40.0)])
+    p = _patch(tmp_path, "s.osm", [pav, sliver, band])
+    r = ROR.strip_slivers(p)
+    assert r["strip_ways"] == 2 and r["slivers"] == 1
+    row = r["rows"][0]
+    assert row["shapeID"] == "1035"
+    assert row["area_m2"] == pytest.approx(16.0, rel=0.05)
+    assert row["width_m"] == pytest.approx(2.0, abs=0.05)
+    assert row["below_area"] and row["below_width"]
+    assert row["host"] == "cross_connector:pav115"
+    assert row["shared_edge_m"] == pytest.approx(2.0, rel=0.05)
+    # the thresholds are the read's, both ways
+    assert ROR.strip_slivers(p, area_min_m2=0.0, width_min_m=0.0)["slivers"] == 0
+
+
+def test_the_hole_read_gives_the_cover_fraction_and_the_width(tmp_path):
+    """RULINGS 2026-09-14g item 5: way -10231 shipped because the ring
+    EDGES were not a superset though the inner faces covered 92 % of the
+    area.  The read reports that fraction, the inscribed width, and the
+    verdict each ring falls under."""
+    host = ({"role": "cross_connector", "ref": "pav115", "shapeID": "221"},
+            _square(50.0))
+    inner = ({"role": "service_road", "ref": "route4", "shapeID": "222"},
+             [(-9.0, -1.0), (9.0, -1.0), (9.0, 1.0), (-9.0, 1.0)])
+    ring = ({"o4_feature": "gap_interior_ring", "shapeID": "221"},
+            [(-10.0, -1.0), (10.0, -1.0), (10.0, 1.0), (-10.0, 1.0)])
+    p = _patch(tmp_path, "h.osm", [host, inner, ring])
+    r = ROR.hole_rings(p)
+    assert r["rings"] == 1
+    row = r["rows"][0]
+    assert row["host"] == "cross_connector:pav115"
+    assert row["cover_frac"] == pytest.approx(0.9, rel=0.05)
+    assert row["width_m"] == pytest.approx(2.0, abs=0.05)
+    assert row["verdict"] == "hairline"       # 2 m < strip_min_width_m
+    assert r["hairline"] == 1 and r["covered"] == 0 and r["void"] == 0
+    # a WIDE ring the inner face does not cover is a real void
+    r2 = ROR.hole_rings(p, width_min_m=0.0)
+    assert r2["rows"][0]["verdict"] == "void"
+    # ... and at the cover the inner face actually gives, covered
+    r3 = ROR.hole_rings(p, width_min_m=0.0, eps=0.2)
+    assert r3["rows"][0]["verdict"] == "covered"
+
+
+def test_the_three_reads_are_three_reads(tmp_path):
+    """``--contains``, ``--slivers`` and ``--hole-rings`` are different
+    questions in different frames: never two at once, never with
+    ``--over`` / ``--on``."""
+    p = _patch(tmp_path, "m.osm", [_STRIP, _LOT])
+    assert ROR.main([str(p), "--slivers", "--hole-rings"]) == 2
+    assert ROR.main([str(p), "--slivers", "--over", "graded_strip",
+                     "--on", "groundside_pavement"]) == 2
+    assert ROR.main([str(p), "--slivers"]) == 0
+    assert ROR.main([str(p), "--hole-rings"]) == 0

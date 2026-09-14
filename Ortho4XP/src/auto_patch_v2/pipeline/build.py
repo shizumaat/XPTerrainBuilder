@@ -358,6 +358,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
          f"  seam-band faces dropped {pstats.dropped_seam_faces}"
          f"  slivers merged {pstats.slivers_merged} (08d-4a)", out)
+    # §41 (4) (owner RULINGS 2026-09-14c item 4): the sliver ZONE strips
+    if pstats.zone_slivers_dissolved or pstats.zone_slivers_dropped:
+        _say(f"[{icao}] zone slivers (41-4): "
+             f"{pstats.zone_slivers_dissolved} dissolved into their host, "
+             f"{pstats.zone_slivers_dropped} host-less dropped, "
+             f"{pstats.zone_sliver_area_m2:,.1f} m2", out)
     sh = pstats.shapes
     if sh.faces:
         # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19)

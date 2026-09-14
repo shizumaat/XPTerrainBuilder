@@ -239,6 +239,12 @@ class PlanarMap:
     #: does; empty on a map the publisher never ran over (the chord law).
     road_route_frame: _t.Mapping[int, tuple[int, float, float]] = _dc.field(
         default_factory=dict)
+    #: §37 (10) (2) THE ROUTES THAT ABSORBED ANOTHER (owner RULINGS
+    #: 2026-09-13cs item 4): the surviving route ids of every merge, so a
+    #: pair the merge NEWLY prices can be recognised where it binds a
+    #: MOUTH the road ring shares with its airside neighbour — such a row
+    #: is minted ONE-WAY on the road vertex (airside is king).
+    road_route_merged: frozenset[int] = _dc.field(default_factory=frozenset)
     #: §37 (10) (1) THE AIRSIDE CONTACT A ROAD DOES NOT TOUCH (owner
     #: RULINGS 2026-09-13cs item 5; ``airport/road_ramp.reach_contacts``):
     #: road vertex -> ``(a, b, u, s)`` — the two vertices of the AIRSIDE

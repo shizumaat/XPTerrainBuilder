@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 
 from ..law import Law
-from ..law.tables import family, role_cap
+from ..law.tables import family, role_cap, role_side
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
@@ -26,7 +26,20 @@ from .geometry import long_axis, pair_is_transverse
 from .precedence import view
 
 __all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
-           "road_pair_reading", "one_ribbon_m", "NOT_A_PAIR", "NO_FRAME"]
+           "road_pair_reading", "one_ribbon_m", "RIBBON_RULING",
+           "NOT_A_PAIR", "NO_FRAME"]
+
+#: §37 (10) (2) THE RIBBON PAIR THAT TOUCHES A MOUTH (owner RULINGS
+#: 2026-09-13cs item 4, coordinator 2026-09-13 round 2).  A road RING's
+#: vertices include the MOUTH it shares with the apron or taxiway beside
+#: it, so a pair this lane newly prices ACROSS a ribbon can bind an
+#: AIRSIDE-owned vertex — and a two-sided ``Diff`` pulls it.  AIRSIDE IS
+#: KING: such a row is minted ONE-WAY on the ROAD vertex (``follows``),
+#: under its own ruling head so it is registered in ``[design]
+#: one_way_rulings`` and NOT in ``hard_rulings`` (hard and one-way share
+#: ``solve/design``'s single ``shift`` vector and cannot both apply).
+RIBBON_RULING = ("roads.road_ribbon airside follower "
+                 "(owner 2026-09-13cs item 4; spec §37 (10))")
 
 #: :func:`road_pair_reading` verdicts (§37 (7)).
 NOT_A_PAIR = "not_a_pair"     # two routes: a switchback's branches
@@ -127,6 +140,12 @@ def road_pair_reading(cap_l: float, cap_t: float, min_deg: float,
     return bound, transverse
 
 
+def _airside(planar: PlanarMap, law: Law, v: int) -> bool:
+    """Whether a ring vertex is AIRSIDE-OWNED — the MOUTH test §37 (6)'s
+    contacts use (``any(role_side == "airside")`` over ``roles_at``)."""
+    return any(role_side(law, r) == "airside" for r in planar.roles_at(v))
+
+
 def road_law_caps(planar: PlanarMap, law: Law, airport: Airport | None = None
                   ) -> dict[int, float]:
     """Road-family face -> the STRICTEST longitudinal cap of any governed
@@ -185,9 +204,15 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     # published by ``airport/road_ramp.road_route_frame``.  Absent (a v1
     # map, a probe that skipped the publisher) the chord law stands.
     frame = getattr(planar, "road_route_frame", None) or {}
+    # §37 (10) (2): the routes a MERGE fused.  A pair on one of them may
+    # be one the merge NEWLY prices (before it, the two frames were two
+    # routes and the verdict was NOT_A_PAIR) — and 8 of HECA's 24 newly
+    # priced pairs bind a MOUTH.
+    merged = getattr(planar, "road_route_merged", None) or frozenset()
     stats = STATS.setdefault("road_within_shape",
                              {"routed": 0, "chord": 0, "not_a_pair": 0,
-                              "ring_edge": 0})
+                              "ring_edge": 0, "ribbon_follower": 0,
+                              "ribbon_airside_pair": 0})
     for k in stats:
         stats[k] = 0
     min_deg = law.tables.common.road_transverse_axis_min_deg
@@ -215,6 +240,7 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                        (f"face:{f.id}", f.ref))
         src_t = Source(GEN, "road_cross_section (2026-08-25g)",
                        (f"face:{f.id}", f.ref))
+        src_ribbon = Source(GEN, RIBBON_RULING, (f"face:{f.id}", f.ref))
         for cyc in [ring, *vw.holes[f.id]]:
             n = len(cyc)
             for i in range(n):
@@ -226,10 +252,26 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         continue
                     # §37 (7): the ROUTE reading where the map carries the
                     # road's own frame; the chord law where it does not
+                    fa, fb = frame.get(a), frame.get(b)
                     read = road_pair_reading(cap_l, cap_t, min_deg,
-                                             frame.get(a), frame.get(b), d,
-                                             ribbon) \
+                                             fa, fb, d, ribbon) \
                         if frame else NO_FRAME
+                    # §37 (10) (2): a pair ACROSS THE RIBBON is the one
+                    # verdict this lane changed from NOT_A_PAIR, so it is
+                    # the one that may newly bind a mouth
+                    priced = read not in (NO_FRAME, NOT_A_PAIR)
+                    # ACROSS THE RIBBON: two routes, so before §37 (10)
+                    # the verdict was NOT_A_PAIR and the row is NEW.
+                    cross = (priced and fa is not None and fb is not None
+                             and fa[0] != fb[0])
+                    # ON A MERGED ROUTE: the row MAY be new (the two
+                    # frames were two routes before the merge).  A pair
+                    # touching a mouth is made ONE-WAY — which can only
+                    # reduce the pull on airside — but NEVER dropped,
+                    # because a pair that was already priced here must not
+                    # lose its row.
+                    fused = (priced and not cross and fa is not None
+                             and fa[0] in merged)
                     if read == NOT_A_PAIR:
                         # A RING EDGE IS ALWAYS PRICED (the census's own
                         # R19-5 floor): two ADJACENT ring vertices are
@@ -245,6 +287,22 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     if read != NO_FRAME:
                         bound, transverse = read
                         stats["routed"] += 1
+                        if cross or fused:
+                            air_a, air_b = _airside(planar, law, a), \
+                                _airside(planar, law, b)
+                            if cross and air_a and air_b:
+                                # two AIRSIDE vertices are not a road pair
+                                # at all — before §37 (10) this was
+                                # NOT_A_PAIR and the road family never
+                                # priced it.  It stays theirs.
+                                stats["ribbon_airside_pair"] += 1
+                                continue
+                            if air_a or air_b:
+                                stats["ribbon_follower"] += 1
+                                rows.append(Diff(a, b, bound / d, d,
+                                                 src_ribbon,
+                                                 follows=(b if air_a else a,)))
+                                continue
                         rows.append(Diff(a, b, bound / d, d,
                                          src_t if transverse else src_l))
                         continue

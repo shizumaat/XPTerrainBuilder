@@ -162,6 +162,53 @@ def test_the_generator_is_registered_and_mints_nothing_without_the_channel(law):
     assert road_contact_rows(pm, law, airport) == []
 
 
+# ── (3b) AIRSIDE IS KING: NO ROW OF THIS LANE IS TWO-SIDED ON A MOUTH ──
+
+def test_no_airside_vertex_carries_a_ramp_target_or_loses_one(law):
+    """(b) of the round-2 remedy: the §37 (6) target governs ROAD-OWNED
+    vertices only, so withdrawing it over the end group cannot RELEASE an
+    airside vertex the target was incidentally holding — there is no such
+    vertex.  MEASURED at HECA: 544 targets, 0 airside; 66 withdrawn, 0
+    airside."""
+    from auto_patch_v2.airport.road_ramp import road_ramp_targets
+    from auto_patch_v2.law.tables import role_side
+    airport, pm, rep = _near(law, 4.0)
+    air = lambda v: any(role_side(law, r) == "airside"
+                        for r in pm.roles_at(v))
+    tg = road_ramp_targets(pm, law, airport).targets
+    assert tg and not [v for v in tg if air(v)]
+    withdrawn = set(tg) - set(pm.road_ramp_z)
+    assert withdrawn and not [v for v in withdrawn if air(v)]
+
+
+def test_a_ribbon_pair_that_binds_a_mouth_is_one_way_on_the_road(law):
+    """(a) of the round-2 remedy.  A road RING's vertices include the
+    MOUTH it shares with the apron; a pair this lane newly prices across
+    that ribbon — or on a route the MERGE fused — is minted under
+    ``RIBBON_RULING`` with ``follows`` naming the ROAD vertex, so the
+    airside column is a leader and never feels the road.  A cross-ribbon
+    pair whose BOTH vertices are airside is not minted at all: before
+    §37 (10) it read ``NOT_A_PAIR`` and the road family never priced it.
+    """
+    from auto_patch_v2.constraints.roads import (RIBBON_RULING, STATS,
+                                                 road_within_shape)
+    from auto_patch_v2.law.tables import role_side
+    from auto_patch_v2.model.constraints import Diff
+    airport, pm, rep = _near(law, 4.0)
+    rows = road_within_shape(pm, law, airport)
+    air = lambda v: any(role_side(law, r) == "airside"
+                        for r in pm.roles_at(v))
+    assert RIBBON_RULING.split("(")[0].strip() in one_way_rulings(law)
+    assert RIBBON_RULING.split("(")[0].strip() not in hard_rulings(law)
+    for row in rows:
+        if not isinstance(row, Diff) or row.source.ruling != RIBBON_RULING:
+            continue
+        assert row.follows is not None and len(row.follows) == 1
+        assert not air(row.follows[0])          # the ROAD vertex follows
+        assert air(row.a) or air(row.b)         # and a mouth is the leader
+    assert "ribbon_follower" in STATS["road_within_shape"]
+
+
 # ── (4) TWO ROUTES ON ONE RIBBON ────────────────────────────────────────
 
 class _Way:

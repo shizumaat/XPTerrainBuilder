@@ -649,6 +649,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["no_route"] = frep["no_route"]
     rep["merged_routes"] = frep.get("merged_routes", 0)
     rep["merged_pairs"] = frep.get("merged_pairs", [])
+    rep["_merged"] = frozenset(m["into"] for m in rep["merged_pairs"])
     # §37 (10) (1): the contact a road does not TOUCH — the road ENDS
     # within reach of an airside face's edge and takes that face's level
     # there.  It is NOT a seed of this envelope: the level is the airside
@@ -746,6 +747,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report.update(tg.report)
         report.update({f"frame_{k}": v for k, v in frep.items()})
     contact = tg.report.pop("_contact_edge", {})
+    merged = tg.report.pop("_merged", frozenset())
     # §37 (10) (1) AT THE MOUTH THE LEVEL IS THE AIRSIDE'S, AND ONLY THE
     # AIRSIDE'S.  A road END that takes a reach contact carries the §37 (6)
     # ramp target too — the clamp of its own terrain, which at HECA
@@ -765,4 +767,5 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     if report is not None:
         report["preferred_withdrawn"] = len(pm.preferred_z) - len(keep)
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
-                       road_contact_edge=contact, preferred_z=keep)
+                       road_contact_edge=contact, road_route_merged=merged,
+                       preferred_z=keep)

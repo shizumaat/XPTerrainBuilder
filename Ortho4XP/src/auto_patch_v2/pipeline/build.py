@@ -363,6 +363,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"  [partition] cache WROTE {_cpath}", out)
     airport = _dc.replace(airport, partition=_part, groups=_groups,
                           clusters=_clusters)
+    # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.
+    # HECA's round-5 build priced 0 cluster cross-links while
+    # ``plan_clusters`` on the same plan returned 2, and nothing in the
+    # build named the difference — an empty derivation must say why.
+    from ..planar.cluster import WHY as _cwhy
+    _say(f"  [clusters] {len(_clusters)} terminal cluster(s)"
+         + (f"  -- {_cwhy['gate']}" if not _clusters and _cwhy.get("gate")
+            else "")
+         + (f"  (partition units {_cwhy.get('units')}, touch "
+            f"{_cwhy.get('touch_m')} m, min {_cwhy.get('min_m2')} m2)"), out)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
          f"members {_part.counts['members']}  parts {_part.counts['parts']}  "

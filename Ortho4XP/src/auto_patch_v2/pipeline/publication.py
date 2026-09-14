@@ -153,11 +153,16 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
 
     Read off the SAME derivations the rows were priced from
     (``constraints.cluster_pad``), never a second reading of the law."""
-    from ..constraints.cluster_pad import (YIELDED, cluster_apron_faces,
-                                           cluster_pad_faces, plane_groups)
+    from ..constraints.cluster_pad import (DERIVED, OFFSET_SPREAD, REFERENCE,
+                                           YIELDED, cluster_apron_faces,
+                                           cluster_offsets, cluster_pad_faces,
+                                           plane_groups)
     faces = cluster_pad_faces(planar, law, airport)
     if not faces:
         return []
+    # §16g (8): fill REFERENCE / DERIVED / OFFSET_SPREAD for the report —
+    # the SAME call the rows were priced from, never a second reading
+    cluster_offsets(planar, law, airport)
     reach = cluster_apron_faces(planar, law, airport)
     vs_of = {ref.split("cluster:", 1)[1]: group
              for _f, ref, group, _q in plane_groups(planar, law, airport)
@@ -187,7 +192,22 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                     # plane and the report names them
                     "yielded_pads": sorted(
                         {planar.faces[q].ref for q in YIELDED.get(cid, ())
-                         if q in planar.faces})})
+                         if q in planar.faces}),
+                    # §16g (8) (owner RULINGS 2026-09-14u): the pads this
+                    # cluster DERIVED from its reference, by the bodies'
+                    # authored floor offsets, and the reference itself
+                    "reference_pad": (
+                        planar.faces[REFERENCE[cid]].ref
+                        if cid in REFERENCE and REFERENCE[cid] in planar.faces
+                        else None),
+                    "derived_pads": {
+                        planar.faces[f].ref: d
+                        for f, d in sorted(DERIVED.get(cid, {}).items())
+                        if f in planar.faces and d},
+                    "pad_offset_spread": {
+                        planar.faces[f].ref: OFFSET_SPREAD[f]
+                        for f in sorted(OFFSET_SPREAD)
+                        if f in fids and f in planar.faces}})
     return out
 
 

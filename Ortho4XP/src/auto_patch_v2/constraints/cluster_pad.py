@@ -421,6 +421,106 @@ _CROSS_MAX = 40
 STATS: dict[str, int] = {}
 
 
+#: §16g (8): per cluster, the REFERENCE face its other pads are derived
+#: from, and the per-pad authored floor the derivation used — read by the
+#: publication so the report names the plane it built.
+REFERENCE: dict[str, int] = {}
+DERIVED: dict[str, dict[int, float]] = {}
+#: §16g (8) (2): pads carrying bodies of DIFFERENT authored floors, with
+#: the spread the pad took the lowest of.
+OFFSET_SPREAD: dict[int, float] = {}
+
+
+def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
+                    ) -> dict[int, float]:
+    """§16g (8) THE PADS UNDER A CONNECTED UNIT FOLLOW THE SEATED BODIES
+    (owner RULINGS 2026-09-14u): ``vertex -> the metres this pad stands
+    above its cluster's REFERENCE pad``.
+
+    THE DEFECT (14o/14u).  With true footprint outlines HECA's T3
+    district still chains across 23 pads spanning 29.99 m, because its
+    footprints genuinely touch end to end — lawful under §16g (7) (1).
+    Pricing that district as ONE plane floats its bodies against their
+    own pads by up to 30 m; §30 (4)'s cluster pad was written for a
+    terminal whose pads really are one level, and a district is not that.
+
+    THE DERIVATION, and why it must be AUTHORED.  Each pad's level is the
+    reference pad's plus the authored floor offset of the bodies standing
+    on it.  It CANNOT be taken from the seated unit datum: the object
+    stage reads the EMITTED surface (``placement_plan.build_splits``
+    takes it), so it runs after the solve, and a pad the solve is about
+    to fix cannot be derived from a seat that does not exist yet.  The
+    pack's own ``Part.base_y`` travels here on
+    ``placement_family.PlanCluster.floors`` and is available at load.
+
+    THE REFERENCE is the PLURALITY pad — the face most of the cluster's
+    boxes stand on — because that is the pad the object stage's own
+    ``anchor_rule.pad_plurality`` hands the unit as its datum, so the
+    plane the surface builds and the plane the objects seat on stay one
+    thing (§30 (4)'s own sentence).  Its offset is 0 by construction and
+    its level stays the solve's.
+
+    (2) A pad carrying bodies of DIFFERENT authored floors takes the
+    LOWEST and the spread is named (:data:`OFFSET_SPREAD`), so a
+    split-level building on one pad reads as the lower floor and nothing
+    is buried.
+
+    The offsets ride ``pads._pad_rows``' existing ``rel=`` channel, so a
+    cluster's cross-links target the DIFFERENCE and each face stays flat
+    within itself — no new row kind, no second pricing site."""
+    REFERENCE.clear()
+    DERIVED.clear()
+    OFFSET_SPREAD.clear()
+    out: dict[int, float] = {}
+    if airport is None:
+        return out
+    pairs = cluster_polys(airport)
+    if not pairs:
+        return out
+    faces = cluster_pad_faces(planar, law, airport)
+    if not faces:
+        return out
+    polys = _pad_polys(planar, law)
+    if not polys:
+        return out
+    rim_of = {int(q[0]): list(q[2]) for q in polys}
+    poly_of = {int(q[0]): q[3] for q in polys}
+    to_xy, _to_ll = airport.frame.transformers()
+    by_id = {c.id: c for c in (getattr(airport, "clusters", None) or ())}
+    for cid, fids in sorted(faces.items()):
+        c = by_id.get(cid)
+        if c is None or not getattr(c, "floors", ()) or len(c.floors) != len(c.boxes):
+            continue                      # no authored floor: one plane
+        pts = []
+        for (la0, lo0, la1, lo1), fy in zip(c.boxes, c.floors):
+            x, y = to_xy(0.5 * (lo0 + lo1), 0.5 * (la0 + la1))
+            pts.append((Point(x, y), float(fy)))
+        floor: dict[int, list[float]] = {}
+        for fid in fids:
+            q = poly_of.get(fid)
+            if q is None:
+                continue
+            got = [fy for pt, fy in pts if q.covers(pt)]
+            if got:
+                floor[fid] = got
+        if len(floor) < 2:
+            continue                      # one pad: nothing to derive
+        ref = max(sorted(floor), key=lambda f: len(floor[f]))
+        base = min(floor[ref])
+        REFERENCE[cid] = ref
+        DERIVED[cid] = {}
+        for fid, got in sorted(floor.items()):
+            if len(got) > 1 and max(got) - min(got) > 0.0:
+                OFFSET_SPREAD[fid] = round(max(got) - min(got), 3)
+            d = min(got) - base           # (2): the LOWEST floor wins
+            DERIVED[cid][fid] = round(d, 3)
+            if abs(d) <= 0.0:
+                continue
+            for v in rim_of.get(fid, ()):
+                out[v] = d
+    return out
+
+
 def cluster_pairs(planar: PlanarMap,
                   faces: _t.Sequence[_t.Sequence[int]]
                   ) -> "tuple[list[tuple[int, int]], int]":

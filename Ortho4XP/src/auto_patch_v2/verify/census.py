@@ -90,21 +90,38 @@ def FAMILIES(law: Law) -> tuple[str, ...]:
     return tuple(law.tables.families)
 
 
+#: THE PER-FAMILY VERIFY CLOCK (lane ``v2cost2``, RULINGS 2026-09-14q:
+#: "no per-family verify clock exists", so OTHH's 133 s could only be
+#: code-attributed).  Seconds per reader of the LAST :func:`census_patch`
+#: run, published under the report's ``verify.wall_s``.
+WALL_S: dict[str, float] = {}
+
+
 def census_patch(p: Patch) -> dict[str, list[Row]]:
+    import time as _time
+    WALL_S.clear()
     out: dict[str, list[Row]] = {k: [] for k in FAMILIES(p.law)}
+    t0 = _time.perf_counter()
     within, xsec = within_shape(p)
+    WALL_S["within_shape"] = _time.perf_counter() - t0
     out["within_shape"] = within
     out["road_cross_section"] = xsec
     for key, fn in READERS.items():
+        t0 = _time.perf_counter()
         out[key] = fn(p)
+        WALL_S[key] = _time.perf_counter() - t0
     # the tunnel ACCEPTANCE checks (M4) — not law families, published
     # beside them under their own keys
     for key, fn in ACCEPTANCE.items():
+        t0 = _time.perf_counter()
         out[key] = fn(p)
+        WALL_S[key] = _time.perf_counter() - t0
     # THE PAD-FLAT CHECK (verify/pads.py): a rigid pad is one flat value,
     # or one plane under 04t(1) — a row here is a DEFECT, never a census
     # residual (RULINGS 03h; lane v2padflat 2026-09-05)
+    t0 = _time.perf_counter()
     out[FAMILY_PAD_FLAT] = pad_flat(p)
+    WALL_S[FAMILY_PAD_FLAT] = _time.perf_counter() - t0
     return out
 
 
@@ -184,5 +201,20 @@ def census(surface: GradedSurface, law: Law,
     (RULINGS 2026-09-13q item 5) the TRANSVERSE binding of lateral
     contiguity, read through ``Patch.cap_t``; a road's longitudinal cap is
     its role's own."""
+    return census_frame(surface, law, publication, law_caps)[1]
+
+
+def census_frame(surface: GradedSurface, law: Law,
+                 publication: _t.Mapping[str, _t.Any] | None = None,
+                 law_caps: _t.Mapping[int, float] | None = None
+                 ) -> tuple[Patch, dict[str, list[Row]]]:
+    """:func:`census` WITH THE FRAME IT READ (lane ``v2cost2``).
+
+    ``Patch.of`` is the whole emitted surface re-projected and indexed; the
+    pipeline needed a second one only because ``census`` threw this one
+    away, and building it (plus the ``road_law_caps`` it takes) ran
+    UNCLOCKED after ``wall["verify"]`` — OTHH's 105 unattributed seconds
+    (RULINGS 2026-09-14q).  Same rows, same order; the caller reuses ``p``
+    for ``apron_over_preference``."""
     p = Patch.of(surface, law, publication, law_caps)
-    return mark_yielded(p, mark_relaxed(p, census_patch(p)))
+    return p, mark_yielded(p, mark_relaxed(p, census_patch(p)))

@@ -454,7 +454,23 @@ def _weld_pairs(parts: _t.Sequence[PlacedPart], mm: float) -> np.ndarray:
 
 
 def _inside(pts: np.ndarray, lo: np.ndarray, hi: np.ndarray, eps: float) -> np.ndarray:
-    m = ((pts >= lo - eps) & (pts <= hi + eps)).all(axis=1)
+    """The points of ``pts`` inside the ``eps``-grown box.
+
+    AXIS BY AXIS, IN PLACE (lane ``v2cost2``, RULINGS 2026-09-14q item 2):
+    ``((pts >= lo - eps) & (pts <= hi + eps)).all(axis=1)`` builds two
+    ``(n, 3)`` boolean temporaries and then reduces them — at OTHH this
+    runs 2.78 M times and the ``ufunc.reduce`` behind ``.all`` was 58 s of
+    the partition.  Six ``(n,)`` comparisons anded in place give the
+    SAME booleans with no reduction and no ``(n, 3)`` temporary."""
+    x = pts[:, 0]
+    m = x >= lo[0] - eps
+    np.logical_and(m, x <= hi[0] + eps, out=m)
+    y = pts[:, 1]
+    np.logical_and(m, y >= lo[1] - eps, out=m)
+    np.logical_and(m, y <= hi[1] + eps, out=m)
+    z = pts[:, 2]
+    np.logical_and(m, z >= lo[2] - eps, out=m)
+    np.logical_and(m, z <= hi[2] + eps, out=m)
     return pts[m]
 
 
@@ -502,14 +518,34 @@ def _narrow_rows(src: PlacedPart, dst: PlacedPart, eps: float, budget: int
         return None
     lo = cand.min(axis=0) - eps
     hi = cand.max(axis=0) + eps
-    keep = np.nonzero(((dst.tri_hi >= lo) & (dst.tri_lo <= hi)).all(axis=1))[0]
+    # the same axis-by-axis screen as :func:`_inside` (14q item 2): no
+    # (n, 3) temporary, no ``.all`` reduction, the same booleans
+    thi_all, tlo_all = dst.tri_hi, dst.tri_lo
+    kmask = thi_all[:, 0] >= lo[0]
+    np.logical_and(kmask, tlo_all[:, 0] <= hi[0], out=kmask)
+    np.logical_and(kmask, thi_all[:, 1] >= lo[1], out=kmask)
+    np.logical_and(kmask, tlo_all[:, 1] <= hi[1], out=kmask)
+    np.logical_and(kmask, thi_all[:, 2] >= lo[2], out=kmask)
+    np.logical_and(kmask, tlo_all[:, 2] <= hi[2], out=kmask)
+    keep = np.nonzero(kmask)[0]
     if keep.shape[0] == 0:
         return None
     if cand.shape[0] * keep.shape[0] > budget:
         return True
     tlo = dst.tri_lo[keep] - eps
     thi = dst.tri_hi[keep] + eps
-    m = ((cand[:, None, :] >= tlo[None]) & (cand[:, None, :] <= thi[None])).all(axis=2)
+    # the point x triangle screen, likewise per axis: the (n, k, 3)
+    # pair of boolean temporaries and their ``.all(axis=2)`` were the
+    # heaviest reduction in the pass
+    c0 = cand[:, 0][:, None]
+    m = c0 >= tlo[None, :, 0]
+    np.logical_and(m, c0 <= thi[None, :, 0], out=m)
+    c1 = cand[:, 1][:, None]
+    np.logical_and(m, c1 >= tlo[None, :, 1], out=m)
+    np.logical_and(m, c1 <= thi[None, :, 1], out=m)
+    c2 = cand[:, 2][:, None]
+    np.logical_and(m, c2 >= tlo[None, :, 2], out=m)
+    np.logical_and(m, c2 <= thi[None, :, 2], out=m)
     pi, ki = np.nonzero(m)
     if pi.shape[0] == 0:
         return None

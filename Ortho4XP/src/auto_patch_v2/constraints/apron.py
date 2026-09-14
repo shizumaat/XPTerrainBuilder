@@ -71,7 +71,8 @@ from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap
-from .geometry import chords_covered, face_cover, principal_axis, project_to_chain
+from .geometry import (chord_midpoints_hit, chords_covered, face_cover,
+                       principal_axis, project_to_chain)
 from .precedence import View, view
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
@@ -113,12 +114,38 @@ class _Tier:
         """The hard row (none when ``hard`` is ``None``: the face's own cap
         already holds it, an edge portion of a taxi face) and the
         preference row on the same pair, citing the hard row's inputs."""
+        return self.mint(self.reserve(a, b, d, src))
+
+    #: how many rows one pair mints — the hard row and / or the preference
+    #: row, so a caller that DEFERS the minting can still count them
+    @property
+    def n_rows(self) -> int:
+        return (self.hard is not None) + (self.preferred is not None)
+
+    def reserve(self, a: int, b: int, d: float, src: Source
+                ) -> tuple[int, int, float, Source, int]:
+        """The pair with its PREFERENCE-GROUP INDEX taken, no ``Row`` built.
+
+        The group name ``apron:<face>:<k>`` is assigned in the order the
+        pairs are enumerated — including the pairs the face cover later
+        rejects, which consume a ``k`` and mint nothing.  A caller that
+        defers the minting to after the cover test must therefore take
+        ``k`` HERE, in enumeration order, or every surviving group would
+        be renamed (RULINGS 2026-09-14q, lane ``v2cost2``: OTHH built
+        1.67 M rows to discard 1.44 M)."""
+        k = self.k
+        if self.preferred is not None:
+            self.k += 1
+        return (a, b, d, src, k)
+
+    def mint(self, item: tuple[int, int, float, Source, int]) -> tuple[Row, ...]:
+        """The rows of a pair :meth:`reserve` already indexed."""
+        a, b, d, src, k = item
         out: list[Row] = []
         if self.hard is not None:
             out.append(Diff(a, b, self.hard, d, src))
         if self.preferred is not None:
-            g = f"{PREFERENCE_GROUP}:{self.fid}:{self.k}"
-            self.k += 1
+            g = f"{PREFERENCE_GROUP}:{self.fid}:{k}"
             out.append(Diff(a, b, self.preferred, d,
                             Source(self.generator, PREFERENCE_RULING, src.inputs),
                             soft=g, ceiling=None))
@@ -194,7 +221,10 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                                "(2026-09-10t (2) amends 08-24)",
                           (f"face:{f.id}", f.ref))
         # THE CHORDS (never the ring edges) must stay inside the face (05ae-1)
-        chords: list[tuple[Row, ...]] = []
+        # THE CHORDS ARE RESERVED, NOT MINTED (RULINGS 2026-09-14q): the
+        # face cover below rejects most of them, and a rejected pair's
+        # ``Row`` objects were built only to be thrown away.
+        chords: list[tuple[int, int, float, Source, int]] = []
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             n = len(ring)
             for i in range(n):
@@ -209,7 +239,7 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     if adjacent:
                         rows.extend(tier.rows(a, b, d, src_ring))
                     elif a_strict or b in strict:
-                        chords.append(tier.rows(a, b, d, src_spine))
+                        chords.append(tier.reserve(a, b, d, src_spine))
                     elif d <= gate + min_d:
                         # the body gate is read in the CENSUS'S OWN frame
                         # (equirectangular, ~0.2 % off this one at CYXY's
@@ -222,7 +252,7 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         # models no fan-ramp zone yet, so every body chord
                         # inside the gate holds the STRICT cap; ``fan`` is
                         # the back-edge zones' cap when M3b generates them
-                        chords.append(tier.rows(a, b, d, src_body))
+                        chords.append(tier.reserve(a, b, d, src_body))
                     else:
                         # THE GATE IS A CHORD LENGTH, NOT A COVERAGE LIMIT
                         # (owner RULINGS 2026-09-10t (2) / 10v (3)).  A pair
@@ -241,19 +271,31 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
                         # (cap x d) written per station, and never a weaker
                         # one.  The 05ae face cover below still applies: a
                         # chord leaving the pavement is still no path.
-                        chords.append(tier.rows(a, b, d, src_long))
+                        chords.append(tier.reserve(a, b, d, src_long))
         n_pref += tier.k
         if not chords:
             continue
         cover = face_cover(vw.face_ring_xy(f.id),
                            [[vw.xy[v] for v in h] for h in vw.holes[f.id]], tol)
-        inside = chords_covered(cover, [(vw.xy[c[0].a], vw.xy[c[0].b]) for c in chords])
-        for c, ok in zip(chords, inside):
+        segs = [(vw.xy[c[0]], vw.xy[c[1]]) for c in chords]
+        # the MIDPOINT screen first (one vectorised predicate, no
+        # LineString built): a chord whose midpoint misses the cover is
+        # not covered by it, so the full predicate runs on the survivors
+        # only and the rejected pairs mint nothing
+        hit = chord_midpoints_hit(cover, segs)
+        live = [i for i in range(len(chords)) if hit[i]]
+        inside = chords_covered(cover, [segs[i] for i in live])
+        kept = set()
+        for i, ok in zip(live, inside):
             if ok:
-                rows.extend(c)
+                kept.add(i)
+        n_row = tier.n_rows
+        for i, c in enumerate(chords):
+            if i in kept:
+                rows.extend(tier.mint(c))
             else:
                 outside += 1
-                n_pref -= len(c) - 1
+                n_pref -= n_row - 1
     STATS["apron_within_shape"] = {"chords_outside_face": outside,
                                    "preference_rows": n_pref}
     return rows

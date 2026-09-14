@@ -8630,3 +8630,97 @@ the twins and will act at an airport whose terminal really does span two
 touching pads.  Round 4's union-spread bar (4.30 → 1.07) is therefore
 WITHDRAWN here: it was measuring the lift of a building that does not
 belong to the terminal.
+
+## §40 A PAVEMENT ALONG A RUNWAY IS THE RUNWAY'S; APRON EVIDENCE REFUSES THE CORRIDOR KIND (owner RULINGS 2026-09-13co items 1/6; Fable 2026-09-13; RULINGS 2026-09-13cs) — lane `v2roles`
+
+**THE DEFECT (scout `v2heca329`, HECA 1.0.329).**  Shape 44 (`primary_parallel:pav73`,
+96,426 m², mean width 101.5 m) shares **585.1 m of boundary with runway
+05L/23R's ring** and its source page is 73 % covered by OSM `aeroway=apron`;
+`_kind` calls the cell a CORRIDOR because `shared_m` and `width_m` say so and
+nothing in `classify/rules.toml` lets apron cover refuse the corridor kind
+(`[lot] apron_cover_fraction` is a LOT rung; `[lot] apron_name_tokens` reads the
+apt.dat description, which for a DSF page is `asphalt_D3/strips.pol`).  Shape 93
+(`secondary_parallel:pav74`, 51,563 m², width 27.8 m, apron cover 13 %) is the
+same: the owner reads it as apron, and shape 478 is the zone strip the taxi role
+manufactures around it (2,185 m², 614 m shared).
+
+1. **THE RUNWAY SHOULDER.**  A pavement cell whose boundary runs ≥
+   `runway_shoulder_shared_m` (100 m) along a runway ring, or whose centroid
+   lies within the runway's strip, is not a taxiway of any kind: it is the
+   runway's SHOULDER — it joins the runway body (the §29 chord surface and the
+   runway's lateral law) and is emitted as part of the runway's datum, never as
+   a corridor beside it.  The census names every shoulder with its shared
+   length.
+2. **APRON EVIDENCE REFUSES THE CORRIDOR.**  OSM `aeroway=apron` cover ≥
+   `apron_cover_fraction` over a cell REFUSES the corridor kind (the cell is
+   APRON, tier by §19), the same rung that today refuses the lot.  Corridor
+   evidence (taxi length, shared edge) does not override apron cover; a
+   corridor that is truly a corridor has no apron over it.
+3. A cell re-kinded by (1) or (2) manufactures no adjacent-ground zone strips
+   (zones exist around taxi-family faces only): shape 478 disappears by
+   construction.
+
+BARS (HECA, the 1.0.329 frame dry through `auto_patch_v2 explain --patch …`):
+shape 44's cell → runway shoulder of 05L/23R, named; shape 93's cell → apron;
+no `graded_strip:adjacent_ground:taxi` face inside or along either; the role
+census of the five-airport frames before → after (every re-kinded cell named
+with its evidence — a runway shoulder at CYXY/SPJC/KCLT/OTHH must be a real
+shoulder); `within_shape` rows on pav73/pav74 before → after; suite twice.
+
+## §41 A FACE INSIDE A PAVEMENT FACE IS A HOLE OF IT; ZONES ARE CLIPPED OUT OF PAVEMENT (owner RULINGS 2026-09-13co item 2; Fable 2026-09-13; RULINGS 2026-09-13cs) — lane `v2zonehole`
+
+**THE DEFECT.**  At 30.1312203, 31.3983896 (HECA) the taxiway station is inside
+`primary_parallel:pav73` AND inside `graded_strip:adjacent_ground:taxi:F:zone2#7`
+(stations 0–60 m) AND inside `cross_connector:pav77` (892 m², 100 % within
+pav73's ring).  Three surfaces over one point; the mesh takes the union and
+the taxiway dips 66.83 → 65.49 → 67.68 over 87 m (8.6 % climb-out against a
+1.5 % cap); verify has 0 rows within 40 m because each face is lawful on its
+own.
+
+1. A pavement face lying wholly (≥ 95 % of its area) inside another pavement
+   face is a HOLE of the outer face for the purpose of the design surface: it
+   contributes no rows of its own; the outer face's law governs every vertex
+   in it.  (A cross-connector inside a parallel is the parallel.)
+2. Adjacent-ground zone strips are CLIPPED out of every pavement body before
+   emission: a zone vertex standing on pavement is a defect the census names
+   (`zone_on_pavement`, CRITICAL when > 0.5 m² of overlap).
+3. `role_overlap_read.py` is repaired (it crashes on the 1.0.329 sidecar:
+   `KeyError: 'anchor'`) and reports the containment census per airport.
+
+BARS: HECA the 1.0.329 frame: `zone_on_pavement` 0 after (today: zone2#7 over
+pav73 at the site), pav77 a hole of pav73; the taxiway profile through the site
+monotone within the 1.5 % cap; the five-airport containment census before →
+after; suite twice.
+
+### §37 (10) THE AIRSIDE CONTACT SET INCLUDES TAXIWAYS; A ROUTE PAIR IS FOUND BY GEOMETRY (owner RULINGS 2026-09-13co items 3/4/5; Fable 2026-09-13; RULINGS 2026-09-13cs) — lane `v2roadcontact`
+
+**THE DEFECTS (scout `v2heca329`, HECA 1.0.329).**  (5) `service_road:route0`
+ends at 108.09 on the DEM 4.4 m from the `graded_strip` at 106.62 and
+`secondary_parallel:pav74` at 106.9 — a 33 % cliff — because §37 (6)'s airside
+contact names "apron, pad or lot" and a TAXIWAY is not in the set, so the road
+has no contact and targets the DEM.  (3) `service_road:route7` holds the DEM at
+109.14–110.17 beside `apron:pav131` at 108.43 (11.6 m away) and ground cut 1.5 m
+below the DEM, so the three-way meeting is a hill and `pav115`'s cross-slope
+runs 2.03 % over 28 m.  (4) at 30.1096746, 31.4048466 a 3 m ribbon carries two
+route frames — route 5936 (a 40 m stub, t = +4.10) and route 5934 (t = −2.12) —
+so §37 (7) returns `NOT_A_PAIR`, the section is never priced, and the road
+steps 1.30 m over 3.05 m (42.6 %) against a declared 1.5 % cap.
+
+1. The AIRSIDE CONTACT of §37 (6) is any airside face: apron, pad, lot,
+   TAXIWAY (every taxi-family role), junction, stub, and the runway shoulder
+   of §40.  A road that ends within `contact_reach_m` (15 m) of an airside
+   face's edge without touching it has a contact at the nearest edge point,
+   at that face's solved level (route7 → pav131).
+2. TWO ROUTES ARE ONE CARRIAGEWAY when their corridors interpenetrate: any
+   pair of routes whose frames place vertices within `pair_lateral_m` (6 m)
+   of each other over ≥ `pair_overlap_m` (10 m) of arc are MERGED into one
+   route before the cross-section reading; `NOT_A_PAIR` is never returned for
+   two vertices on one ribbon.  The census names every merged pair.
+3. The cross-section (§37 (8)) is then priced on every airside road, and
+   `road_cross_section` at HECA goes from 4 rows to every ribbon.
+
+BARS (HECA 1.0.329 frame, dry arm then ONE HECA build): route0's end within
+0.05 m of pav74's edge level, the 33 % step gone; the item-4 pair priced (step
+≤ 2 % over 3 m); route7 contact from pav131, `pav115` cross-slope ≤ 1.5 %; the
+`road_cross_section` / `transverse` / `road_ramp` census before → after on
+HECA and KCLT (KCLT from its registered frame, dry); suite twice.

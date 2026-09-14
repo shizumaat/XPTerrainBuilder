@@ -5795,3 +5795,24 @@ unpinched sibling half `-10858` keeps its one 10.19 % row by design.
   keeps the uncommitted edits in 8 files) and the bash classifier was
   unavailable for one call (this entry's first append was lost and is
   re-recorded here). Nothing merged was lost: `670a692a` is on main.
+
+## 2026-09-14ap APP 1.0.334 BUILT (engine 1.50.1780) — the OTHH customer build: the pinched ramps (§34 (9)) + the census lift; pads = clusters and the staged solve are NOT in it (1.0.335)
+
+Owner: "What's your ETA on 334? I need to prioritize getting a fully
+certified OTHH build I can ship to a customer." Built at once from
+main 00d47e45: over 1.0.333 it carries 14am (`Terminal_Base_2_1@2` and
+`Terminal_Base_2_5@0/a` end at their road edges; `route7` no longer
+lifted; airside 0) and 14ao (the census judges the two pinched ramps
+at the lift; ADJUDICATED 3,223 → 3,204, verify defects {} on the
+closing build). Bank OFF (13cy — the owner's OTHH reads since 1.0.330
+accept it). NOT in it, by priority: §16g (9)–(10) pads = clusters and
+the staged solve (`claude/v2padcluster` @ a3185dbb, `claude/v2staged`
+in progress) — HECA-driven, surface-changing at every airport, held
+for 1.0.335 so the OTHH customer build carries nothing unread.
+
+* OTHH certification on 1.0.334 = the owner's sim read of the OTHH
+  tile built on it (the acceptance law, 13ce/campaign goal) plus the
+  harness census on the shipped patch (`tools/harness/census.py`,
+  law-true frame) and `verify_defects {}` in the report. Expected tile
+  time: cold partition ~4.5 min once, then ~5 min patch on the warm
+  cache; ~12 min the first tile, ~8 after.

@@ -79,7 +79,7 @@ from shapely.ops import linemerge, unary_union
 from shapely.strtree import STRtree
 
 from ..classify.evidence import polygon_parts
-from ..classify.roles import Classification
+from ..classify.roles import Classification, is_runway_shoulder
 from ..law import Law
 from ..law.tables import family, is_rigid_role, snap_margin_m, zone2_half_width_m
 from ..model.airport import Airport
@@ -143,7 +143,10 @@ def strip_keepout(classification: Classification, law: Law):
     rw_roles = set(law.tables.precedence.runway_family.members)
     cl = law.ruleset.end_skirt.corridor_length_m
     for c in classification.cells:
-        if c.role not in rw_roles or len(c.ring) < 3:
+        # §40 (4): a SHOULDER manufactures no region (the same rule the
+        # strip keep-out in ``planar/structures`` and the zone bands
+        # follow) — its host runway's keep-out already covers it
+        if c.role not in rw_roles or len(c.ring) < 3 or is_runway_shoulder(c):
             continue
         poly = Polygon(c.ring)
         if poly.is_empty or poly.area <= 0.0:

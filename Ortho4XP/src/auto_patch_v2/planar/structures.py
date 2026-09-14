@@ -86,7 +86,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..classify.roles import Cell, Classification
+from ..classify.roles import Cell, Classification, is_runway_shoulder
 from ..law import Law
 from ..law.tables import role_family, role_side, zone2_half_width_m
 from ..model.airport import Airport, OsmWay
@@ -291,7 +291,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stop_air_tree = STRtree([p for p, _r in stops_air]) if stops_air else None
     strip: list[Polygon] = []
     for p, c in zip(polys, cells):
-        if c.role in RUNWAY_FAMILY:
+        # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
+        # region.  It is runway pavement (so every surface reader above
+        # keeps it) but the strip keep-out is drawn around the RUNWAY,
+        # which the shoulder lies inside; buffering the shoulder too drew
+        # a second keep-out nothing ruled and refused VHHH's road tunnel
+        # at 22.30368, 113.92917 (84,000 + 8,040 + 6,228 m2 of shoulder
+        # by 75 m).  The census of every RUNWAY_FAMILY reader is the
+        # spec's §40 (4) MEASURED table.
+        if c.role in RUNWAY_FAMILY and not is_runway_shoulder(c):
             hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter)
             if hw:
                 strip.append(p.buffer(hw, **_MITRE))

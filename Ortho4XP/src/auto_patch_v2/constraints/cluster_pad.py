@@ -136,10 +136,34 @@ def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
     faces = cluster_pad_faces(planar, law, airport)
     if not faces:
         return plain
-    of_face: dict[int, str] = {}
-    for cid, fids in faces.items():
-        for fid in fids:
-            of_face.setdefault(fid, cid)
+    # CLUSTERS SHARING A FACE ARE ONE PLANE (measured, round 4).  A face
+    # belongs to at most one plane, and ``setdefault`` gave it to whichever
+    # cluster was enumerated first: KCLT's two terminal rows BOTH stand on
+    # `building80`, so `unit:30#0` took it whole and `unit:31#0` was left
+    # with `building91`'s 18 vertices alone — a "cluster" of one face with
+    # nothing to cross-link to.  That, and not the `_pairs` decimation, is
+    # why the PAD-ONLY arm came out byte-identical to DISARM twice.  The
+    # clusters are therefore UNIONED over the faces they share.
+    root: dict[str, str] = {cid: cid for cid in faces}
+
+    def _find(a: str) -> str:
+        while root[a] != a:
+            root[a] = root[root[a]]
+            a = root[a]
+        return a
+
+    owner: dict[int, str] = {}
+    for cid in sorted(faces):
+        for fid in faces[cid]:
+            other = owner.get(fid)
+            if other is None:
+                owner[fid] = cid
+            else:
+                ra, rb = _find(cid), _find(other)
+                if ra != rb:
+                    root[max(ra, rb)] = min(ra, rb)
+    of_face: dict[int, str] = {fid: _find(cid)
+                               for fid, cid in sorted(owner.items())}
     merged: dict[str, tuple[int, list[int], set[int], list[int]]] = {}
     out: list[tuple[int, str, list[int], tuple[int, ...]]] = []
     for fid, ref, group in groups:

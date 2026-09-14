@@ -11360,3 +11360,40 @@ reading 164 of OTHH's 410 cells refused; per cell 2).
 3. Zone strips from NEIGHBOURING taxi faces on a re-kinded cell's ground are
    §41 (2)'s `zone_on_pavement` class (3 at HECA shape 93) — the
    arrangement-to-emit mint, chipped; not §40's.
+
+## §43 AN APRON ENDS AT ITS MOUTH (owner RULINGS 2026-09-14c item 2; Fable 2026-09-14) — lane `v2apronneck`
+
+"Aprons, like parking lots are joined by roads, are separated by taxiways.
+A taxiway can run along an apron edge, but when the taxiway leaves the apron
+at a mouth, it's only taxiway until it widens into another apron … taxiways
+should carry more of the slope than aprons."
+
+1. A NECK is a stretch of contiguous pavement whose width (the inscribed
+   width across the medial axis) is ≤ `apron_neck_width_m` (45 m, the
+   corridor floor of §40) for ≥ `apron_neck_length_m` (60 m).  An apron
+   cell is CUT at both ends of every neck; the neck is kinded by the
+   corridor ladder (taxiway / junction / stub by evidence); the pavement
+   beyond, where it widens past the neck width again, is a NEW apron cell.
+2. The cut lines are the neck's two mouths — the shortest chord across the
+   pavement at the point where the width crosses the neck width — welded
+   into the arrangement like any shape joint; each side keeps its own law
+   (the apron its tier, the corridor its longitudinal and cross caps).
+3. Roads joining two lots do not cut (§27 lots are joined by roads); a
+   taxiway running ALONG an apron edge (sharing a boundary, not
+   penetrating it) does not cut.
+
+BARS (HECA, the 1.0.331 frame, dry then ONE build): shape 344 cut at
+30.1141763, 31.4114194 → 30.1137443, 31.4118218 (± 15 m along the axis) and a
+new apron beginning at 30.1166525, 31.411575 → 30.1169773, 31.4119433 (± 15 m);
+the neck between kinded taxiway/junction; the role census before → after on
+HECA and the registered frames (every cut named with its neck width and
+length — a false cut through a real apron is the failure); the taxiway
+between the two aprons carrying the slope (its longitudinal grade vs the two
+aprons' tier planes, before → after); suite twice.
+
+### §41 (4) A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS 2026-09-14c item 4; Fable 2026-09-14) — scout `v2heca331`, then the lane it names
+
+A `graded_strip` (adjacent-ground zone) face below `strip_min_m2` (50) or
+narrower than `strip_min_width_m` (3.0, inscribed) is dissolved into its host
+(the pavement it borders) and never emitted: it cannot carry a lawful
+transition and mints a hump (HECA shape 1035 at 30.1110278, 31.4062316).

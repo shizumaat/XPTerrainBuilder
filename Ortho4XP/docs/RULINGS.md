@@ -4635,3 +4635,58 @@ connector (object stage), NOT a cold dump cache (mod cache untouched on
   harder before constraints; or verify at a coarser pitch on
   object-pavement faces) — decided after the owner's 1.0.331 HECA read.
 * Unattributed: app-log minus report overhead (OTHH 95 s, HECA 64 s).
+
+## 2026-09-14c Owner law refinements from the 1.0.331 HECA read (five items) — §16g (7)/(6) amended, §43 written, §41 (4) written; scout `v2heca331`, lane `v2apronneck`
+
+Owner, verbatim: "Law refinements from reviewing HECA: 1. Objects that
+have even 1m gap all the way around should only group all the pieces in
+that same footprint, and be seated as a group, these are individual
+buildings. Only if they're physically touching/overlapping footprints do
+they stay locked together as a single group. For example, buildings 138,
+143, 147, 153, 159, 160, 170 all appear to have got different level pads,
+but the objects mostly stayed at one level so they're floating instead of
+sitting on their pads. 2. Aprons, like parking lots are joined by roads,
+are separated by taxiways. A taxiway can run along an apron edge, but
+when the taxiway leaves the apron at a mouth, it's only taxiway until it
+widens into another apron. For example, apron shapeID 344 should end and
+become taxiway/junction with a 'cut' here: 30.1141763, 31.4114194 to
+about here: 30.1137443, 31.4118218 and then a separate apron begins
+roughly here: 30.1166525, 31.411575 to 30.1169773, 31.4119433. This is
+very important since taxiways should carry more of the slope than aprons.
+3. Not cutting the long, thin, elevated railway is now causing MANY
+objects including the terminal building here: 30.1279552, 31.403143 to
+float. Many of the buildings around there appear to be separate, so
+should be seated individually. Also, for cases with long connected pieces
+like this, I think it would be better to keep it tied to the low side so
+it disappears into the ground on the high side, rather than keeping it
+connected to the high side like we used to, since that leaves it floating
+in the air. 4. There's a tiny 'graded_strip' shapeID 1035 here:
+30.1110278, 31.4062316 that's causing a hump, simply removing it would I
+think resolve it. 5. Also gap_interior_ring shapeID 221 here: 30.1107301,
+31.4062627 seems misplaced, it crosses a service road."
+
+* RULINGS: (1) §16g (7) — bodies chain by their FOOTPRINT POLYGONS
+  touching/overlapping (≤ `footprint_touch_m` 0.5), never by part
+  BOXES and never through a shared pad or cluster pad; a body with a
+  gap all round is its own unit on its own pad. (3) §16g (6) (2)
+  amended — an identified CONNECTOR is NOT a member of either unit and
+  never lends its deck as a unit datum; it is seated to its LOW-end
+  contact (it disappears into the ground at the high end) until the §10
+  station cut lands; the units at both ends keep their own datums.
+  13df's high-end seat is WITHDRAWN (it lifted the T3 terminal complex
+  — 15,940 bodies — onto the road deck at 95.55). (2) §43 AN APRON ENDS
+  AT ITS MOUTH: a pavement neck narrower than `apron_neck_width_m` over
+  ≥ `apron_neck_length_m` is taxiway/junction; the apron is cut at both
+  ends of the neck and a new apron begins where the pavement widens
+  again — "taxiways carry more of the slope than aprons". (4) §41 (4) —
+  a zone strip below `strip_min_m2` / narrower than `strip_min_width_m`
+  is dissolved into its host, never emitted. (5) attribution first.
+* Scout `v2heca331` (1.0.331 HECA products): WHY buildings 138/143/147/
+  153/159/160/170 share a level (box chaining? cluster pad? authored
+  unit? the connector's unit?), the terminal at 30.1279552, 31.403143
+  (its unit, datum source, the connector), shape 1035's area/width and
+  the hump, shape 221's derivation (`gap_interior_ring`) and the road it
+  crosses; numbers for each. Lane `v2apronneck` (§43) dispatched now on
+  shape 344 with the owner's two cut lines as the bars.
+* The 1.0.331 HECA read otherwise stands as the acceptance of 13dg/13dj
+  (no objection raised to the shoulder, the notch, the object pavement).

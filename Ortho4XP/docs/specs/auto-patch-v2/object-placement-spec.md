@@ -4638,3 +4638,27 @@ filled, with `connector_of`.  `unit_connectors_cut` 0 at every airport;
 bodies (a carried body takes its carrier's anchor, as `family_of` does): the
 census counts SEATS, bearers are report-only (RULINGS 13df).  The §10 station
 cut is still not written; `connector_of` records both ends for it.
+
+### §16g (7) UNITS CHAIN BY FOOTPRINT POLYGON, NEVER BY BOX OR PAD; §16g (6) (2) AMENDED — A CONNECTOR IS ITS OWN BODY, SEATED LOW (owner RULINGS 2026-09-14c items 1/3; Fable 2026-09-14) — lane after scout `v2heca331`
+
+1. Two bodies are one unit only if their FOOTPRINT POLYGONS (the refined
+   footprint, §16g MEASURED (b) is withdrawn — not the part boxes) touch or
+   overlap within `footprint_touch_m`.  A body with a gap all round — even
+   1 m — is its own unit, seated on its own pad.  Sharing a pad, a cluster
+   pad or an authored DSF origin never chains two bodies (the cluster pad
+   is a DATUM for the bodies that touch it, §16f (7)/§30 (4)-(5); `authored_unit`
+   stays a census witness).  HECA buildings 138/143/147/153/159/160/170 each
+   have their own pad and must sit on it.
+2. (6) (2) amended: a body that (6) (1) names a CONNECTOR is REMOVED from the
+   unit chain — it is its own body, and neither unit takes its deck as a
+   datum.  It is seated to its LOW-end contact (ground or pad at the low
+   end) so it disappears into the ground at the high end; the §10 station
+   cut, when written, grades it between its two end contacts.  13df's
+   high-end seat is withdrawn: at HECA it lifted the T3 terminal complex
+   (15,940 bodies) onto `T3_road.obj`'s deck.
+
+BARS: HECA the seven buildings each on its own pad (authored zero = pad
+datum ± `hard_tol_m`); the terminal at 30.1279552, 31.403143 on its pad, not
+the deck; the elevated rail seated at its low end, named; KCLT/OTHH/LEMD/SPJC
+unit censuses before → after (units up, bodies per unit down, every
+per-unit zero spread 0.00); the SPJC viaduct (13df) unchanged at 19.56.

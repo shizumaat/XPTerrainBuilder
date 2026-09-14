@@ -4978,6 +4978,18 @@ the disarmed ground named; `pad_cluster_mismatch` 0; `pad_airside_weld` 0;
 constraints ≤ +10 %; KCLT build at the final tree (the terminal pad's weld
 named); SPJC build carrying heights (19.56 ± 0.02).
 
+### §16g (10) (8) REFINED — RIGID CORE, ONE-WAY SKIRT (Fable 2026-09-14; RULINGS 2026-09-14al) — lane `v2padcluster`
+
+MEASURED (r4): a whole-plate one-way form leaves the plate no rigid
+relation and it collapses; a two-sided ceiling row on the airside-sharing
+pairs holds the plate but still pulls 14,263 airside vertices (worst 4.55
+m).  So: the pad's vertices farther than `pad_skirt_m` (25 m) from any
+airside-sharing edge form a cap-0 RIGID CORE; the SKIRT BAND within
+`pad_skirt_m` follows the airside ONE-WAY within the pad slope ceiling —
+the airside leads and is never pulled; the core stays a plate.  BARS: HECA
+airside moved > 0.02 m = 0; the terminal at its pad (72.60); `pad_airside_
+weld` 0 or each named; KCLT `building80` weld re-read; SPJC viaduct re-read.
+
 ### §16g (10) (4)–(6) MEASURED, ROUND 3 (lane `v2padcluster`, 2026-09-14; branch `claude/v2padcluster`)
 
 **WHAT CARRIES THE T3 CHAIN, MEASURED FIRST (the round's first order).**

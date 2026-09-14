@@ -226,3 +226,20 @@ def test_30_4_no_cluster_is_the_identity(law):
     assert cluster_apron_faces(pm, law, airport) == {}
     assert cluster_apron_level(pm, law, airport) == []
     assert counts.get("cluster_apron_level", 0) == 0
+
+
+def test_30_4_the_cluster_pads_are_published_in_the_sidecar(law):
+    """The bar: the cluster pad is PUBLISHED (``cluster_pads``) so the
+    object stage and the report read the plane the solve made, and it is
+    read off the SAME derivations the rows were priced from."""
+    from auto_patch_v2.pipeline.publication import cluster_pads
+    airport, pm, z, _c = _arm(law, True)
+    got = cluster_pads(pm, law, airport, z)
+    assert len(got) == 1
+    rec = got[0]
+    assert sorted(rec["pads"]) == ["padA", "padB"]
+    assert rec["level"] is not None and rec["rim_vertices"] > 0
+    assert rec["apron_vertices_in_reach"] >= rec["apron_vertices_at_the_plane"]
+    # an airport with no cluster publishes nothing
+    a0, pm0, z0, _c0 = _arm(law, False)
+    assert cluster_pads(pm0, law, a0, z0) == []

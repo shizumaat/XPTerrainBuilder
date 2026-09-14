@@ -153,7 +153,7 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
 
     Read off the SAME derivations the rows were priced from
     (``constraints.cluster_pad``), never a second reading of the law."""
-    from ..constraints.cluster_pad import (cluster_apron_faces,
+    from ..constraints.cluster_pad import (YIELDED, cluster_apron_faces,
                                            cluster_pad_faces, plane_groups)
     faces = cluster_pad_faces(planar, law, airport)
     if not faces:
@@ -181,7 +181,13 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                     "level": (None if lvl is None else round(lvl, 3)),
                     "rim_vertices": len(vs),
                     "apron_vertices_in_reach": len(ap),
-                    "apron_vertices_at_the_plane": flat})
+                    "apron_vertices_at_the_plane": flat,
+                    # §30 (4) (5) (owner RULINGS 2026-09-13ch): the member
+                    # pads the gate turned away — they keep their own
+                    # plane and the report names them
+                    "yielded_pads": sorted(
+                        {planar.faces[q].ref for q in YIELDED.get(cid, ())
+                         if q in planar.faces})})
     return out
 
 

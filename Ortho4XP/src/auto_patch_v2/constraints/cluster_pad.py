@@ -45,6 +45,7 @@ from .pads import GEN_LEVEL, _pad_groups, _pad_polys, _two_sided
 from .precedence import view
 
 __all__ = ["cluster_reach_m", "cluster_polys", "cluster_pad_faces",
+           "YIELDED",
            "plane_groups", "cluster_apron_faces", "cluster_apron_level",
            "CLUSTER_REACH_RULING"]
 
@@ -103,13 +104,73 @@ def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport | None
     polys = _pad_polys(planar, law)
     if not polys:
         return got
+    by_id = {int(q[0]): q[3] for q in polys}
+    touch = float(law.tables.structures.placement.footprint_touch_m)
     tree = STRtree([p[3] for p in polys])
     for c, u in pairs:
         hit = sorted({int(polys[int(i)][0])
                       for i in tree.query(u, predicate="intersects")})
-        if hit:
-            got[c.id] = hit
+        keep, yielded = _touching_component(hit, by_id, touch)
+        if yielded:
+            YIELDED[c.id] = tuple(yielded)
+        if len(keep) >= 1:
+            got[c.id] = keep
     return got
+
+
+#: §30 (4) (5): the member faces the gate turned away, per cluster — read
+#: by the publication so the report names them (the ruling's "reported
+#: with the pad").
+YIELDED: dict[str, tuple[int, ...]] = {}
+
+
+def _touching_component(fids: _t.Sequence[int],
+                        poly_of: _t.Mapping[int, Polygon],
+                        touch_m: float) -> "tuple[list[int], list[int]]":
+    """§30 (4) (5) THE CLUSTER PAD YIELDS (owner RULINGS 2026-09-13ch):
+    of the faces the footprint union intersects, keep the connected
+    component — pads within ``[placement] footprint_touch_m`` of each
+    other — that holds the LARGEST one; every other face KEEPS ITS OWN
+    PLANE and is returned as yielded.
+
+    MEASURED, and it is why the gate is here and not on a taxi coupling.
+    Round 4 lifted KCLT's ``building91`` 3.63 m onto the terminal plane
+    and moved 2,406 taxi-family vertices, worst 2.07 m.  13ch read that
+    as the pad's coupling to the taxi family; the coupling does not
+    exist — ``building91`` shares NO vertex with ``building80``, with any
+    apron or with any taxi face, fronts nothing (the nearest pavement is
+    80.35 m away against a 3.0 m frontage radius), and the worst-moved
+    taxi vertex stands **2,209 m** from it.  What ``building91`` IS, is a
+    separate building **65.81 m** from the terminal that the cluster's
+    coarse PART-BOX union happened to intersect.  §30 (4)'s own words are
+    "one pad over the family's FOOTPRINT UNION", and a pad 66 m outside
+    it is not in the union — it is the box-versus-polygon artefact (§16g
+    (2)'s undone item (b)) reaching the design surface.  So the gate is
+    stated where the defect is: the cluster's plane covers the pads its
+    footprint actually reaches, chained by the SAME 0.5 m the footprint
+    unit itself is chained by.  Everything else yields, and the
+    publication names it."""
+    live = [q for q in fids if q in poly_of]
+    if len(live) < 2:
+        return list(live), []
+    parent = {q: q for q in live}
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for i, a in enumerate(live):
+        for b in live[i + 1:]:
+            if find(a) != find(b) and poly_of[a].distance(poly_of[b]) <= touch_m:
+                parent[find(a)] = find(b)
+    comp: dict[int, list[int]] = {}
+    for q in live:
+        comp.setdefault(find(q), []).append(q)
+    big = max(live, key=lambda q: poly_of[q].area)
+    keep = sorted(comp[find(big)])
+    return keep, sorted(set(live) - set(keep))
 
 
 def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None

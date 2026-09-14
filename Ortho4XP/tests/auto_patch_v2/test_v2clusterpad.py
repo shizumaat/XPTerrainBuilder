@@ -42,7 +42,11 @@ HALF_W = 22.5
 Y0, Y1 = 140.0, 300.0
 #: the two pads of the "terminal", 40 m apart in x with the apron between
 PAD_A = (-120.0, 200.0, -20.0, 280.0)
-PAD_B = (20.0, 200.0, 120.0, 280.0)
+PAD_B = (-20.0, 200.0, 80.0, 280.0)
+#: §30 (4) (5): a pad the cluster's footprint union touches by a BOX
+#: artefact but that stands far from every member — KCLT's `building91`,
+#: 65.81 m from the terminal — YIELDS and keeps its own plane
+PAD_FAR = (170.0, 200.0, 210.0, 240.0)
 
 
 def _rect(x0, y0, x1, y1):
@@ -103,11 +107,13 @@ def _cells():
                  (), 3, "D", "airside", "runway", {}),
             Cell(1, "apron", "apronA",
                  _rect(-300.0, Y0, 300.0, Y1),
-                 (_rect(*PAD_A), _rect(*PAD_B)),
+                 (_rect(*PAD_A), _rect(*PAD_B), _rect(*PAD_FAR)),
                  None, None, "airside", "apron", {}),
             Cell(2, "building", "padA", _rect(*PAD_A), (), None, None,
                  "airside", "pad", {}),
             Cell(3, "building", "padB", _rect(*PAD_B), (), None, None,
+                 "airside", "pad", {}),
+            Cell(5, "building", "padFar", _rect(*PAD_FAR), (), None, None,
                  "airside", "pad", {}),
             Cell(4, "primary_parallel", "twyA",
                  _rect(-300.0, 60.0, 300.0, 100.0), (), 3, "D",
@@ -122,8 +128,10 @@ def law():
 def _arm(law, clustered: bool):
     airport = _airport(law)
     if clustered:
-        airport = _dc.replace(airport,
-                              clusters=(_Cluster(airport, (PAD_A, PAD_B)),))
+        # the union covers the FAR pad too — the box artefact the gate
+        # is for; padA and padB touch and are the cluster's real plane
+        airport = _dc.replace(airport, clusters=(
+            _Cluster(airport, (PAD_A, PAD_B, PAD_FAR)),))
     pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
     cs, counts, _w = generate(pm, law, airport)
     sol, _rep = solve_design(pm, cs, law)
@@ -186,9 +194,14 @@ def test_30_4_a_cluster_is_one_plane_over_every_pad_it_stands_on(law):
     def level(pm, z, ref):
         return float(np.mean(z[sorted(_verts(pm, ref))]))
 
-    apart = abs(level(pm0, z0, "padA") - level(pm0, z0, "padB"))
     together = abs(level(pm1, z1, "padA") - level(pm1, z1, "padB"))
-    assert together < apart and together <= 0.30, (apart, together)
+    assert together <= 0.30, together
+    # the two faces are ONE priced group — which is the claim; on this
+    # fixture they also TOUCH, so 09-01g's weld already holds them close
+    # without the cluster and the levels alone do not discriminate (the
+    # discriminating case is the airport's: KCLT's `building91`, and the
+    # yielding twin below)
+    assert len(one[0][2]) == len(_verts(pm1, "padA") | _verts(pm1, "padB"))
 
 
 def _with_reach(law, reach_m):
@@ -339,3 +352,24 @@ def test_30_4_two_clusters_on_one_pad_are_ONE_plane(law):
     assert len(groups[0][3]) == 2            # holding BOTH faces
     verts = set(groups[0][2])
     assert verts >= _verts(pm, "padA") and verts >= _verts(pm, "padB")
+
+
+def test_30_4_5_a_pad_the_footprint_does_not_reach_YIELDS(law):
+    """§30 (4) (5) (owner RULINGS 2026-09-13ch): the cluster's plane
+    covers the pads its footprint actually REACHES — chained by the same
+    `footprint_touch_m` the unit is — and every other face the coarse
+    part-box union happened to intersect KEEPS ITS OWN PLANE and is
+    named.  KCLT's `building91` is that face: 65.81 m from the terminal,
+    sharing no vertex with anything, and merging it moved 2,406 taxi
+    vertices by up to 2.07 m."""
+    from auto_patch_v2.constraints.cluster_pad import YIELDED
+    airport, pm, z, _c = _arm(law, True)
+    faces = cluster_pad_faces(pm, law, airport)
+    kept = {pm.faces[q].ref for v in faces.values() for q in v}
+    assert kept == {"padA", "padB"}, kept
+    yielded = {pm.faces[q].ref for v in YIELDED.values() for q in v}
+    assert yielded == {"padFar"}, yielded
+    # ... and the yielding pad is NOT dragged onto the cluster's level
+    far = float(np.mean(z[sorted(_verts(pm, "padFar"))]))
+    one = float(np.mean(z[sorted(_verts(pm, "padA") | _verts(pm, "padB"))]))
+    assert abs(far - one) > 0.30, (far, one)

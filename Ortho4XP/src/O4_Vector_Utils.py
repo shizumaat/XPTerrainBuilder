@@ -211,9 +211,21 @@ class Vector_Map:
     #: its own endpoint), because MOVING a node re-nodes nothing: an edge
     #: that passed BESIDE the junior now passes THROUGH the senior and the
     #: arrangement is no longer noded.  RE-ARMED under owner RULINGS
-    #: 2026-09-13cg (ii) as weld + RE-NODE (:meth:`_renode_at`), which is
-    #: the missing half.  ``O4_VECTOR_WELD_M`` overrides it; 0 disables.
-    weld_spacing_m = float(os.environ.get("O4_VECTOR_WELD_M", "0.010"))
+    #: 2026-09-13cg (ii) as weld + RE-NODE (:meth:`_renode_at`) — and
+    #: WITHDRAWN AGAIN, second attempt, on the measurement.  With the
+    #: re-noding pass in place (which provably restores the invariant on
+    #: the twin's fixture, in BOTH directions) the LEMD tile STILL refuses
+    #: with the IDENTICAL message and coordinates, and ``_renode_at``
+    #: reports 0 splits — so whatever the one welded node does to
+    #: Triangle4XP is not the un-noded arrangement this pass repairs.  The
+    #: matched control settles it: the same tree with ``O4_VECTOR_WELD_M=0``
+    #: builds (rc 0, 2,745,898 triangles, 1,636 sub-0.1 m^2 in the LEMD
+    #: box), and with it armed refuses at "Splitting subsegment
+    #: (0.715087891, 0.111688666) (0.715087891, 0.103639220544) at
+    #: (0.715087891, 0.111688666)".  Ships OFF; the code and its twins stay
+    #: for the lane that attributes the refusal itself.  ``O4_VECTOR_WELD_M``
+    #: arms it.
+    weld_spacing_m = float(os.environ.get("O4_VECTOR_WELD_M", "0.0"))
 
     def _near_endpoint(self, c_x, c_y, ids):
         """The nearest of ``ids`` to ``(c_x, c_y)`` within

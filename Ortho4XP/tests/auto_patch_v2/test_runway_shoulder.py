@@ -215,3 +215,67 @@ def test_apron_cover_below_the_floor_leaves_the_corridor(law, rules):
     cells = _par_cells(cl)
     assert cells and all(c.role == "primary_parallel" for c in cells.values()), \
         [(x, c.role, c.evidence.get("cell_apron_cover")) for x, c in cells.items()]
+
+
+# ── 5. the shoulder keeps the datum and takes its own cross-slope ────────
+
+def test_the_shoulder_cap_is_one_reading(law):
+    """§40 (2) as amended (owner RULINGS 2026-09-13dd): inside the
+    runway's own half width the law is the RUNWAY's transverse maximum;
+    beyond it, the SHOULDER's.  One accessor
+    (``law.tables.runway_transverse_cap``) — the generator, the v2 verify
+    reader and the v1 census all price through it, so the three cannot
+    disagree about where the runway ends."""
+    from auto_patch_v2.law.tables import (runway_transverse_cap,
+                                          runway_transverse_max)
+    rwy = runway_transverse_max(law, "F", 4)
+    shoulder = law.ruleset.runway.shoulder_transverse_max
+    assert shoulder == 0.025 and rwy == 0.015
+    assert runway_transverse_cap(law, 0.0, 30.0, "F", 4) == rwy
+    assert runway_transverse_cap(law, 30.0, 30.0, "F", 4) == rwy   # ON the edge
+    assert runway_transverse_cap(law, 30.01, 30.0, "F", 4) == shoulder
+    assert runway_transverse_cap(law, 204.9, 30.0, "F", 4) == shoulder
+    # HECA's two round-1 rows pass at the shoulder cap and failed at the
+    # runway's: 1.5287 % at 108.665 m and 1.5233 % at 204.872 m
+    for grade, d in ((0.015287, 108.665), (0.015233, 204.872)):
+        assert grade > runway_transverse_cap(law, d, 30.0, "F", 4) * 0 + rwy
+        assert grade <= runway_transverse_cap(law, d, 30.0, "F", 4)
+    # no geometry (a patch that published no half width) keeps the runway
+    assert runway_transverse_cap(law, 500.0, 0.0, "F", 4) == rwy
+
+
+def test_the_census_reads_the_shoulder_line_from_the_sidecar(tmp_path):
+    """The v1 census marks a SHOULDER vertex off the sidecar's
+    ``runway_axes`` — the solve's own line — and never re-derives the
+    width from the runway RINGS, which a shoulder fattens
+    (``check_grade.shoulder_nids``)."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import check_grade as cg
+
+    class _W:
+        def __init__(self, tags, nids):
+            self.tags, self.nids = tags, nids
+
+    # a 60 m-wide runway along the equator-ish axis: half width 30 m
+    nodes = {"1": (0.0, 0.0), "2": (0.0, 0.001), "3": (0.0002, 0.0),
+             "4": (0.002, 0.0)}
+    m_per_deg = 111_320.0
+
+    def ll_to_m(lat, lon):
+        return (lon * m_per_deg, lat * m_per_deg)
+
+    ways = [_W({"role": "runway", "ref": "09/27"}, ["1", "2", "3", "4"])]
+    axes = [["09/27", 0.0, 0.0, 0.0, 0.01, 30.0]]
+    got = cg.shoulder_nids(ways, nodes, ll_to_m, axes)
+    # node 3 is 22 m off the axis (inside), node 4 is 223 m off (shoulder)
+    assert got == {"4"}, got
+    # no published axes: nothing is a shoulder, the runway cap stands
+    assert cg.shoulder_nids(ways, nodes, ll_to_m, None) == set()
+    assert cg.shoulder_nids(ways, nodes, ll_to_m, []) == set()
+    # the sidecar keys are the ones the solve publishes
+    from auto_patch_v2.emit.osm_adapter import SIDECAR_KEYS
+    assert "runway_axes" in SIDECAR_KEYS
+    assert "shoulder_transverse_max" in SIDECAR_KEYS
+    assert cg.SIDECAR_LAW_KEYS["runway_axes"] == "runway_axes_ll"
+    assert cg.SIDECAR_LAW_KEYS["shoulder_transverse_max"] == \
+        "shoulder_transverse_max"

@@ -55,6 +55,7 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import (role_cap, runway_end_zone_length_m,
+                          runway_transverse_cap,
                           runway_transverse_max, runway_vertical_curve_bound)
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Pin, Row, Source
@@ -207,6 +208,15 @@ def _foot(vw: View, v: int, chains: list[list[int]]
     return best
 
 
+def runway_half_widths(airport: Airport) -> dict[str, float]:
+    """Runway ref -> its own HALF WIDTH (``Runway.slab_corners``' own
+    source).  §40 (2) as amended: the line beyond which a runway-family
+    vertex is a SHOULDER vertex and takes the shoulder's cross-slope.
+    Published in the sidecar (``pipeline.publication``) so the v1 census
+    reads the same line the generator did."""
+    return {rw.id: rw.width_m / 2.0 for rw in airport.runways}
+
+
 def crown_drops(planar: PlanarMap, law: Law, airport: Airport,
                 z: _t.Sequence[float] | None = None) -> dict[int, float]:
     """Vertex -> crown drop (m) for every runway-family ring vertex (0.0
@@ -216,10 +226,16 @@ def crown_drops(planar: PlanarMap, law: Law, airport: Airport,
     vw = view(planar, law)
     chains = ridge_chains(vw)
     crown = law.tables.common.runway_crown_transverse
+    half_of = runway_half_widths(airport)
     every = [c for chs in chains.values() for c in chs]
     out: dict[int, float] = {}
     for f in vw.faces_of_role(RUNWAY_FAMILY):
         ref_ids = [f.ref] if f.role == "runway" else f.ref.split("+")
+        # §40 (2): THE CROWN STOPS AT THE RUNWAY EDGE — the designed
+        # cross-fall is the runway's, between its own edges; a SHOULDER
+        # vertex's declared drop is the EDGE's (it keeps the runway's
+        # datum), never the crown continued to its own offset
+        half = max((half_of.get(r, 0.0) for r in ref_ids), default=0.0)
         own = [c for r in ref_ids for c in chains.get(r, [])]
         if not own:
             continue
@@ -235,7 +251,8 @@ def crown_drops(planar: PlanarMap, law: Law, airport: Airport,
             if ft is None:
                 continue
             if z is None:
-                out[v] = round(crown * ft[0], 6)
+                d0 = min(ft[0], half) if half > 0.0 else ft[0]
+                out[v] = round(crown * d0, 6)
             else:
                 d, a, b, t = ft
                 out[v] = round((1.0 - t) * z[a] + t * z[b] - z[v], 6)
@@ -249,10 +266,14 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     vw = view(planar, law)
     chains = ridge_chains(vw)
     crown = law.tables.common.runway_crown_transverse
+    half_of = runway_half_widths(airport)
     rows: list[Row] = []
     done: set[int] = set()
     for f in vw.faces_of_role(RUNWAY_FAMILY):
         ref_ids = [f.ref] if f.role == "runway" else f.ref.split("+")
+        # §40 (2): the crown floor stops at the runway edge (see
+        # ``crown_drops``); beyond it the shoulder keeps the edge's datum
+        half = max((half_of.get(r, 0.0) for r in ref_ids), default=0.0)
         chs = [c for r in ref_ids for c in chains.get(r, [])]
         if not chs:
             continue
@@ -266,7 +287,7 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 continue
             done.add(v)
             d, a, b, t = ft
-            drop = crown * d
+            drop = crown * (min(d, half) if half > 0.0 else d)
             terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
             if t <= 0.0:
                 terms = ((v, 1.0), (a, -1.0))
@@ -295,6 +316,7 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     Crossing-ring vertices are exempt (§3.1.19; the verify scope)."""
     vw = view(planar, law)
     chains = ridge_chains(vw)
+    half_of = runway_half_widths(airport)
     xing: set[int] = set()
     for f in vw.faces_of_role(("runway_crossing",)):
         xing.update(vw.rings[f.id])
@@ -304,9 +326,7 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
         chs = chains.get(f.ref, [])
         if not chs:
             continue
-        cap = runway_transverse_max(law, f.code_letter, f.code_number)
-        if cap is None:
-            continue
+        half = half_of.get(f.ref, 0.0)
         own_ridge = {v for c in chs for v in c}
         src = Source(GEN, "rulesets.runway.transverse_max (2026-09-05o)",
                      (f"face:{f.id}", f.ref))
@@ -318,6 +338,14 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                 continue
             done.add(v)
             d, a, b, t = ft
+            # §40 (2) as amended: the runway's 1.5 % inside its own
+            # half-width, the SHOULDER's 2.5 % beyond it — the one reading
+            # (``law.tables.runway_transverse_cap``) the verify and the v1
+            # census price through as well
+            cap = runway_transverse_cap(law, d, half, f.code_letter,
+                                        f.code_number)
+            if cap is None:
+                continue
             bound = cap * d
             if t <= 0.0:
                 terms = ((a, 1.0), (v, -1.0))

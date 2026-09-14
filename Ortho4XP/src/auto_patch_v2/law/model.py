@@ -81,6 +81,12 @@ class RunwayLaw:
     vertical_curve_k_m: CodeTable
     transverse_max: CodeTable
     transverse_min: float
+    #: §40 (2) as amended (owner RULINGS 2026-09-13dd): the cap on a
+    #: SHOULDER vertex — one beyond the runway's own half-width, pavement
+    #: that joined the runway body under §40 (1).  ICAO Annex 14 §3.2.4.
+    #: REQUIRED, and stated in ``rulesets.toml`` like every other cap: no
+    #: cap value lives in Python (``test_no_numeric_literal_in_law_python``).
+    shoulder_transverse_max: float
     end_zone_precision_only_codes: frozenset[int] = frozenset()
     end_zone_max_length_m: float | None = None
     vertical_curve_min_change: CodeTable | None = None

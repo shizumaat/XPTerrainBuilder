@@ -86,7 +86,7 @@ from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
-from ..constraints.runway_profile import crown_drops
+from ..constraints.runway_profile import crown_drops, runway_half_widths
 from ..constraints.seams import seam_pins, seam_vertices_pinned
 from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
@@ -263,6 +263,19 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                     seen.add(key)
                     taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
+            # §40 (2) as amended (owner RULINGS 2026-09-13dd): per runway
+            # ``[ref, lat_a, lon_a, lat_b, lon_b, half_width_m]`` — the
+            # RUNWAY's own geometry (apt.dat ends and width, never a fit
+            # to the rings a §40 shoulder fattens), so the v1 census reads
+            # the same shoulder line the generator priced at, plus the
+            # shoulder cap itself
+            "runway_axes": [
+                [rw.id, round(rw.ends[0].ll[0], 11), round(rw.ends[0].ll[1], 11),
+                 round(rw.ends[1].ll[0], 11), round(rw.ends[1].ll[1], 11),
+                 round(runway_half_widths(airport).get(rw.id, 0.0), 4)]
+                for rw in airport.runways],
+            "shoulder_transverse_max":
+                float(law.ruleset.runway.shoulder_transverse_max),
             # §30 (4) THE CLUSTER PADS (owner RULINGS 2026-09-13bj item 1):
             # what the object stage's §16g seats a big terminal on, and
             # what the report reads to name the apron faces that stayed

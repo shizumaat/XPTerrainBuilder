@@ -17,9 +17,11 @@ frame and the role-carrying rings come from the harness library itself
 (``check_grade._parse_osm`` / ``_ll_to_m_factory`` about the sidecar's
 own anchor) — imported, never re-spelled, which is the census-wrapper
 precedent; defect counts come from ``harness/census.py`` and nowhere
-else.  A patch without its ``.axes.json`` sidecar is REFUSED: without
-the anchor there is no metre frame, and an area in the wrong frame is a
-number that looks right and is not.
+else.  A patch without its ``.axes.json`` sidecar is REFUSED: the
+frame is the sidecar's — a v1 ``anchor``, or v2's anchor-less node-mean
+frame (``verify/frame.Patch.of``; the v2 register carries no anchor by
+design) — and an area in the wrong frame is a number that looks right
+and is not.  ``frame`` in the report names which was used.
 
 MEASURED BASIS (HECA round 6b/6c).  On the round-6b closing arm
 ``r6b_arm``: ``graded_strip:gap_fill_spine`` over ``groundside_pavement``
@@ -99,11 +101,24 @@ def read(path, *, over: str, on: str,
     side_path = Path(str(path) + ".axes.json")
     if not side_path.exists():
         raise SystemExit(
-            f"REFUSING: {path} has no .axes.json sidecar — without the "
-            f"anchor there is no metre frame to measure areas in.")
+            f"REFUSING: {path} has no .axes.json sidecar — the law-true "
+            f"frame (its anchor, or the emitter that carries none) is "
+            f"unknown, and an area in the wrong frame looks right and is "
+            f"not.")
     nodes, ways = CG._parse_osm(path)
     side = json.loads(side_path.read_text())
-    anchor = tuple(side["anchor"])
+    # THE METRE FRAME.  A v1 sidecar carries the builder's projection
+    # ``anchor``; a v2 sidecar carries NONE by design (its register is
+    # closed, ``emit/osm_adapter.SIDECAR_KEYS``; ``build_airport.py``
+    # records ``anchor: None`` for it) and v2's own frame is the MEAN OF
+    # THE VERTICES (``auto_patch_v2/verify/frame.Patch.of``) — which is
+    # exactly ``_ll_to_m_factory``'s anchor-less frame over the patch's
+    # nodes (one node per vertex).  Read the anchor where it is, and the
+    # v2 frame where it is not (RULINGS 2026-09-13cs chip: ``KeyError:
+    # 'anchor'`` on every current sidecar).
+    anchor = side.get("anchor") or None
+    anchor = tuple(anchor) if anchor else None
+    frame = "sidecar anchor" if anchor else "node mean (v2 frame)"
     to_m = CG._ll_to_m_factory(nodes, anchor)
 
     over_match = _selector(over)
@@ -237,7 +252,8 @@ def read(path, *, over: str, on: str,
                      "over_frac": round(a / p.area, 4) if p.area else None,
                      "on": hits})
     rows.sort(key=lambda r: -r["over_area_m2"])
-    return {"patch": str(path), "anchor": list(anchor),
+    return {"patch": str(path),
+            "anchor": list(anchor) if anchor else None, "frame": frame,
             "over": over, "on": on, "min_area_m2": float(min_area_m2),
             "pad_m": float(pad_m),
             "over_ways": len(over_ways), "on_ways": len(on_ways),
@@ -254,7 +270,7 @@ def read(path, *, over: str, on: str,
 
 
 def _report(res: dict, top: int) -> None:
-    print(f"=== {res['patch']}")
+    print(f"=== {res['patch']}  [frame: {res.get('frame', 'sidecar anchor')}]")
     if res.get("beyond"):
         print(f"  {res['over']} BEYOND {res['pad_m']:g} m of {res['on']}: "
               f"{res['beyond_ways']} of {res['over_ways']} way(s), "

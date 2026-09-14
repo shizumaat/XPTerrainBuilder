@@ -15,7 +15,9 @@ These twins pin what makes it trustworthy:
   * a stack under the floor is not a stack;
   * it prices nothing and counts no defects — the report carries areas
     and populations only;
-  * a patch with no sidecar is REFUSED (no anchor, no metre frame);
+  * a patch with no sidecar is REFUSED (no frame declared);
+  * a v2 sidecar — no top-level ``anchor`` by design — reads in v2's own
+    node-mean frame instead of raising (RULINGS 2026-09-13cs chip);
   * this index row exists.
 
 No network, no DEM, no X-Plane install.
@@ -143,7 +145,7 @@ def test_it_prices_no_law(tmp_path):
     p = _patch(tmp_path, "d.osm", [_STRIP, _LOT])
     r = ROR.read(p, over="graded_strip:gap_fill_spine",
                  on="groundside_pavement")
-    assert set(r) == {"patch", "anchor", "over", "on", "min_area_m2",
+    assert set(r) == {"patch", "anchor", "frame", "over", "on", "min_area_m2",
                       "pad_m", "over_ways", "on_ways", "over_area_m2",
                       "stacked", "area_m2", "beyond", "beyond_ways",
                       "beyond_area_m2", "beyond_by_ref", "beyond_rows",
@@ -158,6 +160,37 @@ def test_a_patch_with_no_sidecar_is_refused(tmp_path):
         ROR.read(p, over="graded_strip:gap_fill_spine",
                  on="groundside_pavement")
     assert "sidecar" in str(ei.value)
+
+
+def test_a_v2_sidecar_with_no_anchor_reads_in_the_node_mean_frame(tmp_path):
+    """RULINGS 2026-09-13cs chip: every CURRENT sidecar is v2's, whose
+    register carries NO top-level ``anchor`` by design (``emit/osm_adapter
+    .SIDECAR_KEYS``; ``build_airport.py`` records ``anchor: None``), and
+    the reader raised ``KeyError: 'anchor'`` on all of them.  v2's own
+    frame is the mean of the vertices (``verify/frame.Patch.of``) — the
+    same anchor-less frame ``_ll_to_m_factory`` builds — so the read goes
+    through, names the frame, and the area is the v1 area to the metre
+    (both frames are equirectangular about a point ~100 m apart; the
+    ``cos(lat0)`` difference is parts per million on this fixture)."""
+    p = _patch(tmp_path, "v2.osm", [_STRIP, _LOT])
+    side = tmp_path / "v2.osm.axes.json"
+    side.write_text(json.dumps({          # the v2 register, no anchor
+        "ruleset": "icao", "axes": [], "stretches": [], "crown_drops": [],
+        "terrace_joints": [], "basin_facilities": [], "road_bridge_decks": [],
+        "design": {"rounds": 1}, "design_target": []}))
+    assert "anchor" not in json.loads(side.read_text())
+    r = ROR.read(p, over="graded_strip:gap_fill_spine",
+                 on="groundside_pavement")
+    assert r["anchor"] is None
+    assert r["frame"] == "node mean (v2 frame)"
+    assert r["stacked"] == 1 and r["rows"][0]["shapeID"] == "3190"
+    assert 1590.0 < r["area_m2"] < 1610.0
+    # ... and a v1 sidecar still reads about ITS anchor.
+    v1 = _patch(tmp_path, "v1.osm", [_STRIP, _LOT])
+    r1 = ROR.read(v1, over="graded_strip:gap_fill_spine",
+                  on="groundside_pavement")
+    assert r1["frame"] == "sidecar anchor" and r1["anchor"] == list(ANCHOR)
+    assert abs(r1["area_m2"] - r["area_m2"]) < 1.0
 
 
 def test_beyond_reports_the_complement_at_arms_length(tmp_path):

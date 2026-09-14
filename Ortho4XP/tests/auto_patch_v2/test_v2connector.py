@@ -312,3 +312,118 @@ def test_one_unit_and_open_ground_beyond_the_span_is_a_connector():
     assert len(far) == 1 and "" in (far[0].end_a, far[0].end_b)
     # ... and 100 m past it: a unit within the reach, so it is a member
     assert arm(500.0) == []
+
+
+# ── §16g (6) ROUND 2: the topology is ONE PASS (RULINGS 2026-09-14e) ─────
+
+def _shim(i, boxes):
+    from auto_patch_v2.airport import footprint_unit as FU
+    return FU._PShim(i, (0, i, 0), list(boxes), frozenset({i}),
+                     f"objects/s{i}.obj")
+
+
+def _old_components(idxs, shims, touch_m):
+    """ROUND 1's derivation, kept HERE as the twin's witness: the
+    components of a sub-list, re-clustered from scratch.  The shipped code
+    may never do this again (it is what killed the owner's OTHH tile), so
+    the only place it survives is as the thing the table is checked
+    against."""
+    from auto_patch_v2.airport.placement_family import _clusters
+    if not idxs:
+        return []
+    sub = [shims[j] for j in idxs]
+    cl, _adj = ([], {}) if len(sub) < 2 else _clusters(sub, touch_m,
+                                                       min_members=1)
+    out = [[idxs[k] for k in c] for c in cl]
+    seen = {j for g in out for j in g}
+    out.extend([j] for j in idxs if j not in seen)
+    return out
+
+
+def test_the_cluster_topology_answers_every_removal_in_one_pass():
+    """§16g (6) as re-founded (owner RULINGS 2026-09-14e): the components
+    a body's removal leaves come from ONE Hopcroft-Tarjan pass over the
+    cluster's contact graph, and they are the SAME components round 1 got
+    by re-clustering the whole unit per body — which at OTHH was 160
+    re-derivations of a 43,334-body clustering and cost the owner a
+    killed tile."""
+    from auto_patch_v2.airport import footprint_connector as FC
+    from auto_patch_v2.airport.placement_family import _clusters
+    # a chain A=B=C=D of abutting blocks with a spur E beside C: removing
+    # B or C separates the chain, removing A, D or E separates nothing
+    w = 0.0004
+    shims = [_shim(i, [_blk(_lat(60 * i), _lat(60 * i + 60),
+                            -3.0, -3.0 + w)]) for i in range(4)]
+    shims.append(_shim(4, [_blk(_lat(130), _lat(170),
+                                -3.0 + w, -3.0 + 2 * w)]))
+    cl = sorted(range(5))
+    assert _clusters(shims, 0.5, min_members=1)[0] == [cl]   # ONE unit
+    topo = FC.cluster_topology(cl, shims, 0.5)
+    for u in cl:
+        got = topo.components_without(u)
+        want = _old_components([j for j in cl if j != u], shims, 0.5)
+        assert got == want, (u, got, want)
+    # the cut vertices are the two the eye reads
+    assert sorted(topo.sep) == [1, 2]
+    # ... and removing C leaves THREE components, the spur among them
+    assert topo.components_without(2) == [[0, 1], [3], [4]]
+    # A DISCONNECTED input is not one cluster and each piece stays its own
+    # component — the table is not only asked about clusters
+    apart = shims + [_shim(5, [_blk(_lat(5000), _lat(5060))])]
+    t2 = FC.cluster_topology(list(range(6)), apart, 0.5)
+    for u in range(6):
+        assert t2.components_without(u) == _old_components(
+            [j for j in range(6) if j != u], apart, 0.5), u
+
+
+def test_the_contact_graph_is_every_edge_not_a_spanning_forest():
+    """``_clusters`` records an edge only when it UNIONS two components,
+    so its ``_adj`` is a spanning FOREST (OTHH: 61,604 edges over 62,406
+    bodies) — and articulation points read off a tree call every interior
+    body a cut vertex.  §16g (6)'s graph is the FULL contact relation."""
+    from auto_patch_v2.airport import footprint_connector as FC
+    from auto_patch_v2.airport.placement_family import _clusters
+    # a TRIANGLE: three bodies each touching the other two
+    d = 0.0003
+    shims = [_shim(0, [_blk(_lat(0), _lat(40), -3.0, -3.0 + d)]),
+             _shim(1, [_blk(_lat(40), _lat(80), -3.0, -3.0 + d)]),
+             _shim(2, [_blk(_lat(0), _lat(80), -3.0 + d, -3.0 + 2 * d)])]
+    adj = FC.contact_graph([0, 1, 2], shims, 0.5)
+    assert {k: sorted(v) for k, v in adj.items()} == {0: [1, 2], 1: [0, 2],
+                                                     2: [0, 1]}
+    _cl, forest = _clusters(shims, 0.5, min_members=1)
+    assert sum(len(v) for v in forest.values()) // 2 == 2      # a TREE
+    assert sum(len(v) for v in adj.values()) // 2 == 3         # the graph
+    # and on the full graph nothing separates a triangle
+    assert FC.cluster_topology([0, 1, 2], shims, 0.5).sep == {}
+
+
+def test_boxes_touch_is_exactly_the_product():
+    """The contact predicate is ONE relation however it is computed: the
+    hull filter and the latitude sweep answer what the plain box x box
+    product answers, on both sides of ``_PAIR_PRODUCT_MAX``."""
+    import random
+    from auto_patch_v2.airport import placement_boxes as PB
+    from auto_patch_v2.airport import placement_family as PF
+    rng = random.Random(20260914)
+
+    def gen(n, lat0, lon0, spread):
+        out = []
+        for _ in range(n):
+            a = lat0 + rng.random() * spread
+            b = lon0 + rng.random() * spread
+            out.append((a, b, a + rng.random() * spread * 0.05,
+                        b + rng.random() * spread * 0.05))
+        return out
+
+    seen = set()
+    for n, m in ((3, 3), (40, 40), (80, 90), (200, 300)):
+        for k in range(6):
+            ba = gen(n, 40.0, -3.0, 0.002)
+            bb = gen(m, 40.0 + k * 0.0004, -3.0, 0.002)
+            ha, hb = PB.hull_of(ba), PB.hull_of(bb)
+            want = any(PB.box_gap_m(x, y) <= 0.5 for x in ba for y in bb)
+            assert PF.boxes_touch(ba, bb, ha, hb, 0.5) is want, (n, m, k)
+            seen.add(want)
+    assert seen == {True, False}       # both answers were exercised
+    assert PF.boxes_touch((), (), None, None, 0.5) is False

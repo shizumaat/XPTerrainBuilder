@@ -281,3 +281,49 @@ def test_a_genuine_second_crossing_still_mints():
                 "INTERP_ALT")
     assert len(vm.nodes_dico) == before + 6, (
         "four ring endpoints and TWO distinct crossings")
+
+
+# ── RULINGS 13cp: THE SHARED NODE CARRIES THE CROSSED CHAIN'S ALTITUDE ──
+# Shipping the metric split branch without it put the NEW way's z into the
+# OLD chain: measured at LEMD on app 1.0.329, 10,438 of 56,830 WATER input
+# nodes emitted more than 2 m off their own .node z, worst −25.1 m at
+# 40.9122564, −3.4733278.
+
+def _z_of(vm, coord):
+    for nid, p in vm.nodes_dico.items():
+        if p == coord:
+            return vm.data_nodes[nid]
+    raise AssertionError(f"no node at {coord}")
+
+
+def _insert_z(vm, p, q, marker, zp, zq):
+    vm.insert_way(numpy.array([[p[0], p[1], zp], [q[0], q[1], zq]]),
+                  marker, check=True)
+
+
+def test_the_shared_node_takes_the_crossed_chains_altitude():
+    """A WATER edge at z 0 crossed 3 mm from a bank node at z 40: the
+    shared node is the water's level, not the bank's."""
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    bank_end = (X, Y)
+    off = _dlon(0.003)
+    # the WATER chain first, so it is the OLD edge the bank crosses
+    _insert_z(vm, (bank_end[0] - off, Y - _dlat(10.0)),
+              (bank_end[0] - off, Y + _dlat(10.0)), "WATER", 0.0, 0.0)
+    _insert_z(vm, (X - _dlon(20.0), Y), bank_end, "INTERP_ALT", 40.0, 40.0)
+    assert vm.split_z_carried >= 1
+    assert _z_of(vm, bank_end) == pytest.approx(0.0, abs=1e-6), (
+        "the crossed WATER chain's interpolated z, not the bank's 40 m")
+
+
+def test_nothing_is_carried_when_no_crossing_resolves_to_a_node():
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    _insert_z(vm, (X, Y - _dlat(10.0)), (X, Y + _dlat(10.0)),
+              "WATER", 0.0, 0.0)
+    _insert_z(vm, (X - _dlon(20.0), Y), (X + _dlon(20.0), Y),
+              "INTERP_ALT", 40.0, 40.0)
+    assert vm.split_z_carried == 0, (
+        "a crossing in the true interior mints its own node with the "
+        "interpolated z, as it always did")

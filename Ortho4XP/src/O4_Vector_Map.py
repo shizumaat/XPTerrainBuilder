@@ -1190,6 +1190,9 @@ def build_poly_file(tile):
             vector_map.seeds["SEA"] = [numpy.array([1000, 1000])]
         else:
             vector_map.seeds["SEA"] = [numpy.array([0.5, 0.5])]
+    UI.vprint(1, "   Crossing identity (§39 (iv), RULINGS 13cp): "
+                 f"{vector_map.split_z_carried} crossing(s) resolved to an "
+                 "existing node and took the crossed chain's altitude.")
     vector_map.snap_to_grid(9)
     # §39 (i) THE HAIRLINE WELD (owner RULINGS 2026-09-13bu), at the LAST
     # site every pass's output has arrived: two constrained nodes closer

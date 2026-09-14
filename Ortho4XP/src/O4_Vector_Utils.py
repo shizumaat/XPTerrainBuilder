@@ -132,6 +132,11 @@ class Vector_Map:
         #: ``insert_node``'s own dedupe stays exact — this is consulted
         #: only where ``insert_edge`` would MINT a node.
         self._node_cells: dict = {}
+        #: §39 (iv) / owner RULINGS 2026-09-13cp: how many times a crossing
+        #: resolved to an EXISTING node and that node took the crossed
+        #: chain's interpolated altitude.  Reported by the tile build so
+        #: the branch's reach is a number, not an assumption.
+        self.split_z_carried = 0
         self.dico_edges = {}
         # keys are tuples of 2 ints (end-points ids) and values are ints (ids).
         # An egde id is needed for the index (bbox)
@@ -361,8 +366,23 @@ class Vector_Map:
                     # the crossing is at one of the NEW edge's endpoints —
                     # split the old edge THERE and share that node, so the
                     # arrangement stays planar and no sub-spacing segment is
-                    # born (this is KCLT's cure)
+                    # born (this is KCLT's cure).
+                    #
+                    # AND THE SHARED NODE CARRIES THE OLD CHAIN'S ALTITUDE
+                    # (owner RULINGS 2026-09-13cp).  The rule is the one
+                    # stated three lines below and as old as this function
+                    # — "important to rely on the old id2 id3 for the z
+                    # value" — and shipping the branch without it put the
+                    # NEW way's z into the OLD chain: measured at LEMD on
+                    # app 1.0.329, 10,438 of 56,830 WATER input nodes
+                    # emitted more than 2 m off their own ``.node`` z, the
+                    # worst -25.1 m at 40.9122564, -3.4733278.  A node is
+                    # ONE altitude; where a crossing makes two ways share
+                    # one, the crossed chain's interpolated value is it.
                     c_id = near
+                    self.data_nodes[c_id] = (1 - beta) * self.data_nodes[id2] \
+                        + beta * self.data_nodes[id3]
+                    self.split_z_carried += 1
                     del self.dico_edges[(id2, id3)]
                     del self.edges_dico[edge_id]
                     del self.data_edges[edge_id]
@@ -383,6 +403,11 @@ class Vector_Map:
                         GEO.lon_to_m(self.nodes_dico[id0][1] + 0.5))
                     if c_id is None:
                         c_id = self.insert_node(c_x, c_y, c_z)
+                    else:
+                        # 13cp again: the reused node now belongs to the
+                        # OLD chain too, so it carries the old chain's z.
+                        self.data_nodes[c_id] = c_z
+                        self.split_z_carried += 1
                     # destroy old edge
                     del self.dico_edges[(id2, id3)]
                     del self.edges_dico[edge_id]

@@ -800,6 +800,101 @@ def hairline_audit(prefix, tile_lat, tile_lon, spacing_m, slenderness,
             "refused": bad[:500]}
 
 
+def z_xref(prefix, mesh_path, tile_lat, tile_lon, bbox, flag_m, attr_mask=None):
+    """WHO OWNS THIS NODE'S ALTITUDE — the vector map's ``.node`` z against
+    the altitude the built mesh carries at the SAME coordinate, per
+    ``.poly`` attribute (owner RULINGS 2026-09-13cp).
+
+    THE QUESTION IT ANSWERS: a pass that makes two ways SHARE a node makes
+    them share ONE altitude, and if it picks the wrong one the crossed
+    chain is silently re-levelled.  Measured at LEMD on app 1.0.329:
+    10,438 of 56,830 WATER (attr 1) input nodes emitted more than 2 m off
+    their own ``.node`` z, worst −25.1 m at 40.9122564, −3.4733278.
+
+    Promoted from the scout's ``xref.py`` on its second use (13cp's
+    attribution, then this lane's before/after), extended not forked: the
+    disc becomes the tool's own ``--bbox``, and the MEDIT parse, the
+    tile-origin resolution and the JSON stamping are this tool's already.
+    """
+    la0, la1, lo0, lo1 = bbox
+
+    def toks(handle):
+        for line in handle:
+            parts = line.split()
+            if parts and not parts[0].startswith("#"):
+                yield parts
+
+    nodes = {}
+    with open(prefix + ".node") as fh:
+        gen = toks(fh)
+        n = int(next(gen)[0])
+        for _ in range(n):
+            q = next(gen)
+            lon, lat = float(q[1]) + tile_lon, float(q[2]) + tile_lat
+            if la0 <= lat <= la1 and lo0 <= lon <= lo1:
+                nodes[int(q[0])] = (lon, lat,
+                                    float(q[3]) if len(q) > 3 else 0.0)
+    attrs = {}
+    with open(prefix + ".poly") as fh:
+        gen = toks(fh)
+        next(gen)
+        m = int(next(gen)[0])
+        for _ in range(m):
+            q = next(gen)
+            at = int(q[3]) if len(q) > 3 else 0
+            for k in (int(q[1]), int(q[2])):
+                if k in nodes:
+                    attrs.setdefault(k, 0)
+                    attrs[k] |= at
+    key = {(round(v[0], 9), round(v[1], 9)): i for i, v in nodes.items()}
+    mesh_z = {}
+    with open(mesh_path) as fh:
+        line = fh.readline()
+        while line and not line.startswith("Vertices"):
+            line = fh.readline()
+        nv = int(fh.readline())
+        for _ in range(nv):
+            q = fh.readline().split()
+            k = (round(float(q[0]), 9), round(float(q[1]), 9))
+            if k in key:
+                mesh_z[key[k]] = float(q[2]) * 100000.0
+    by_attr = {}
+    worst = None
+    for i, (lon, lat, z) in nodes.items():
+        mz = mesh_z.get(i)
+        if mz is None:
+            continue
+        at = attrs.get(i, 0)
+        if attr_mask is not None and not (at & attr_mask):
+            continue
+        d = abs(mz - z)
+        rec = by_attr.setdefault(at, {"matched": 0, "over": 0, "worst": 0.0,
+                                      "at": None})
+        rec["matched"] += 1
+        if d > flag_m:
+            rec["over"] += 1
+        if d > abs(rec["worst"]):
+            rec["worst"], rec["at"] = mz - z, (lat, lon)
+        if worst is None or d > abs(worst[0]):
+            worst = (mz - z, lat, lon, at)
+    print(f"z cross-reference — {prefix}.node vs {mesh_path}")
+    print(f"  bbox lat {la0:.4f}..{la1:.4f} lon {lo0:.4f}..{lo1:.4f}; "
+          f"{len(nodes):,} vector node(s) in it, {len(mesh_z):,} matched in "
+          f"the mesh; flag |dz| > {flag_m} m")
+    for at in sorted(by_attr):
+        r = by_attr[at]
+        where = "" if r["at"] is None else \
+            f"  worst {r['worst']:+.3f} m at {r['at'][0]:.7f},{r['at'][1]:.7f}"
+        print(f"  attr {at:<5d} matched {r['matched']:>8,}  over the flag "
+              f"{r['over']:>8,}{where}")
+    if worst is not None:
+        print(f"  WORST overall {worst[0]:+.3f} m at {worst[1]:.7f},"
+              f"{worst[2]:.7f} (attr {worst[3]})")
+    return {"bbox": list(bbox), "flag_m": flag_m,
+            "by_attr": {str(k): v for k, v in by_attr.items()},
+            "nodes_in_bbox": len(nodes), "matched": len(mesh_z)}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -807,6 +902,16 @@ def main(argv=None):
     ap.add_argument("--mesh", default=None,
                     help="path to a .mesh file (not needed for "
                          "--hairline-audit, which reads the .poly)")
+    ap.add_argument("--z-xref", action="store_true",
+                    help="WHO OWNS THIS NODE'S ALTITUDE (owner RULINGS "
+                         "2026-09-13cp): every vector .node z against the "
+                         "altitude the built mesh carries at the SAME "
+                         "coordinate, counted per .poly attribute, with the "
+                         "worst offender named.  Needs --mesh and --inputs "
+                         "(or a .mesh path the inputs sit beside) and a "
+                         "--bbox.  Promoted from the scout's xref.py.")
+    ap.add_argument("--z-flag", type=float, default=2.0, metavar="M",
+                    help="|mesh z - node z| over this is counted (default 2)")
     ap.add_argument("--hairline-audit", action="store_true",
                     help="§39 (3), ANGLE-FREE: report every constrained "
                          "NODE PAIR, SHORT SEGMENT, BENT CHORD and "
@@ -974,6 +1079,29 @@ def main(argv=None):
             dem_slope_factor=args.dem_slope_factor,
             dem_bar_m=args.dem_bar, kml_path=args.kml,
             kml_cap=args.kml_cap)
+        if args.json:
+            import json
+            with open(args.json, "w") as fh:
+                json.dump(payload, fh, indent=1)
+            print(f"JSON -> {args.json}")
+        return 0
+
+    if args.z_xref:
+        if not args.bbox:
+            raise SystemExit("REFUSING: --z-xref needs --bbox lat0,lat1,lon0,lon1")
+        prefix = args.inputs
+        if prefix is None:
+            if not (args.mesh or "").endswith(".mesh"):
+                raise SystemExit("REFUSING: --inputs PREFIX is required when "
+                                 "no --mesh path ending in .mesh is given")
+            prefix = args.mesh[:-len(".mesh")]
+        (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
+                                else _tile_origin(prefix + ".poly"))
+        box = tuple(float(x) for x in args.bbox.split(","))
+        payload = z_xref(prefix, args.mesh, tile_lat, tile_lon, box,
+                         args.z_flag)
+        payload.update({"inputs": prefix, "mesh": args.mesh,
+                        "tile": [tile_lat, tile_lon]})
         if args.json:
             import json
             with open(args.json, "w") as fh:

@@ -181,6 +181,15 @@ class Design:
     #: ``emit/bank.py``), never typed.
     bank_chord_max_m: float
     bank_split_tol_m: float
+    #: THE OMIT ARM (owner request 2026-09-13, via the round's
+    #: coordinator: "can we please try completely omitting the bank_foot
+    #: shapes altogether to confirm they're necessary?").  ``true`` and
+    #: the bank pass emits NOTHING at all.  A MEASUREMENT ARM, default
+    #: ``false``; it is deleted the moment the owner rules on the
+    #: bank_foot class (13ce / 13cm).  It is a law key and not an
+    #: environment gate because ``auto_patch_v2`` reads no environment
+    #: by design (``tests/auto_patch_v2/test_model.py``).
+    bank_omit: bool
     bank_sample_m: float
     bank_daylight_tol_m: float
     bank_max_width_m: float

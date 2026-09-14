@@ -146,24 +146,26 @@ def test_an_apron_side_lane_keeps_its_flip():
 
 # ── §37 (3) THE MESH READS A LOAD-BEARING RUN ──────────────────────────
 
-def test_the_mesh_closes_an_open_foot_chain_into_its_ribbon():
-    """``_bank_rings_from_patches`` read only CLOSED ways, so a
-    load-bearing RUN would have taken the whole ring's annulus out of
-    ``bank_annulus_blend_values``.  An open chain is closed into the strip
-    of ground between it and the design coverage; an implausible closure
-    is refused, which leaves those vertices to the harmonic extension —
-    this module's standing rule, never the other way round."""
+def test_the_mesh_never_closes_an_open_foot_chain_itself():
+    """OWNER RULINGS 2026-09-13cp: the mesh step does NOT reconstruct a
+    ribbon for an open ``bank_foot`` chain.
+
+    §37 (3)'s open chains met ``_close_open_foot``, a ``nearest_points``
+    projection onto the design coverage — and it fed
+    ``bank_annulus_blend_values`` 15 vertices at LEMD where the closed
+    ring fed it 33,377.  The closed coverage is the EMITTER's
+    (``emit/bank.py``: the boundary ring of the banked region is emitted
+    WHOLE and CLOSED); here an open chain is LINEWORK, so it bounds no
+    region and cannot invent one."""
     import sys
     sys.path.insert(0, str(__import__("pathlib").Path(
         __file__).resolve().parents[2] / "src"))
     import O4_Mesh_Utils as M
-    from shapely.geometry import box
 
-    cov = box(0.0, 0.0, 1.0, 1.0)
-    chain = [(-0.001, 0.0), (-0.001, 0.5), (-0.001, 1.0)]
-    ribbon = M._close_open_foot(chain, cov)
-    assert ribbon is not None and ribbon.area == pytest.approx(0.001, rel=1e-6)
-    # a chain that runs far from the coverage sweeps an implausible area
-    far = [(-5.0, 0.0), (-5.0, 1.0)]
-    assert M._close_open_foot(far, cov) is None
-    assert M._close_open_foot([(0.0, 0.0)], cov) is None
+    assert not hasattr(M, "_close_open_foot")
+    assert not hasattr(M, "BANK_OPEN_CHAIN_AREA_WIDTHS")
+    # and the reader's contract is now three-valued: closed feet, design
+    # rings, open foot LINES.
+    import inspect
+    doc = inspect.getdoc(M._bank_rings_from_patches) or ""
+    assert "open_foot_lines" in doc

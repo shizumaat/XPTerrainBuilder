@@ -511,6 +511,10 @@ bank_foot_smooth = 30.0   # the toe's smoothing weight, against a unit weight on
 # ``bank_min_width_m``.
 bank_chord_max_m    = 30.0
 bank_split_tol_m    = 1.0
+# THE OMIT ARM (owner request 2026-09-13): true emits NO bank_foot way at
+# all.  A measurement arm for the owner's standing question about the
+# bank_foot class (13ce / 13cm) — never a shipped setting.
+bank_omit           = false
 bank_sample_m       = 2.0
 bank_daylight_tol_m = 0.3
 bank_max_width_m    = 200.0

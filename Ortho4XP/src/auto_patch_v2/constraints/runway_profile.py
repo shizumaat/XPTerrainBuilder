@@ -38,6 +38,15 @@ Rows (all from ``rulesets.<authority>.runway`` and
   (HECA 05C/23C: half 14's outer edge 18 m under the ridge across 31 m).
   Vertices on a ``runway_crossing`` ring are exempt (Annex 14 §3.1.19
   "except at intersections", the crown reader's own scope).
+* THE FACE'S VERTEX SET (lane ``rwyholes``, the RULINGS 2026-09-13dd
+  chip): the crown drop, the crown floor and the transverse maximum are
+  stated for EVERY vertex of a runway-family face — the outer ring AND
+  the hole rings, through ``View.face_vertices`` (``model.planar.
+  face_vertex_ids``, the accessor the verifier's ``Shape.vertex_ids``
+  shares).  A §40 shoulder ribbon wrapping a zone-strip island is an
+  annulus: on the v2roles HECA frame 8 of 33 runway faces carried holes
+  and their 490 hole vertices — the runway's own, judged at its cap by
+  the census — were priced by no row and declared no drop.
 * VERTICAL CURVE (RULINGS 2026-09-06b law 1, family
   ``runway_vertical_curve``, HARD, the runway tier): between consecutive
   profile chords the grade may change by no more than
@@ -219,10 +228,11 @@ def runway_half_widths(airport: Airport) -> dict[str, float]:
 
 def crown_drops(planar: PlanarMap, law: Law, airport: Airport,
                 z: _t.Sequence[float] | None = None) -> dict[int, float]:
-    """Vertex -> crown drop (m) for every runway-family ring vertex (0.0
-    on the ridge): the DESIGNED drop ``crown × d`` without ``z``, the
-    BUILT drop ``z_foot − z_v`` with it — the sidecar ``crown_drops``
-    field declares the built one."""
+    """Vertex -> crown drop (m) for every runway-family FACE vertex —
+    outer and hole rings (``View.face_vertices``) — 0.0 on the ridge: the
+    DESIGNED drop ``crown × d`` without ``z``, the BUILT drop
+    ``z_foot − z_v`` with it — the sidecar ``crown_drops`` field declares
+    the built one."""
     vw = view(planar, law)
     chains = ridge_chains(vw)
     crown = law.tables.common.runway_crown_transverse
@@ -240,7 +250,7 @@ def crown_drops(planar: PlanarMap, law: Law, airport: Airport,
         if not own:
             continue
         on_ridge = {v for c in every for v in c}
-        for v in vw.rings[f.id]:
+        for v in vw.face_vertices(f.id):
             if v in out:
                 continue
             if v in on_ridge:
@@ -260,9 +270,10 @@ def crown_drops(planar: PlanarMap, law: Law, airport: Airport,
 
 
 def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """Every off-ridge runway-family vertex sits at least ``crown × d``
-    below the ridge at its foot (family ``runway_crown``, 2026-08-05;
-    solver mode ``offset``)."""
+    """Every off-ridge runway-family FACE vertex — outer and hole rings
+    (``View.face_vertices``) — sits at least ``crown × d`` below the ridge
+    at its foot (family ``runway_crown``, 2026-08-05; solver mode
+    ``offset``)."""
     vw = view(planar, law)
     chains = ridge_chains(vw)
     crown = law.tables.common.runway_crown_transverse
@@ -279,7 +290,7 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             continue
         own_ridge = {v for c in chs for v in c}
         src = Source(GEN, "common.runway_crown_transverse", (f"face:{f.id}", f.ref))
-        for v in vw.rings[f.id]:
+        for v in vw.face_vertices(f.id):
             if v in done or v in own_ridge:
                 continue
             ft = _foot(vw, v, chs)
@@ -304,7 +315,8 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """The runway TRANSVERSE MAXIMUM as HARD law (RULINGS 2026-09-05o; spec
     ``runway-transverse-max-spec.md`` §3): for every off-ridge ``runway``
-    ring vertex ``v`` with foot ``(a, b, t)`` at lateral distance ``d`` on
+    FACE vertex ``v`` (outer and hole rings, ``View.face_vertices``) with
+    foot ``(a, b, t)`` at lateral distance ``d`` on
     its OWN ridge chain (the crown's ``_foot``), one two-sided ``Linear``
 
         −cap·d ≤ (1 − t)·z_a + t·z_b − z_v ≤ cap·d
@@ -319,7 +331,7 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     half_of = runway_half_widths(airport)
     xing: set[int] = set()
     for f in vw.faces_of_role(("runway_crossing",)):
-        xing.update(vw.rings[f.id])
+        xing.update(vw.face_vertices(f.id))
     rows: list[Row] = []
     done: set[int] = set()
     for f in vw.faces_of_role(("runway",)):
@@ -330,7 +342,7 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
         own_ridge = {v for c in chs for v in c}
         src = Source(GEN, "rulesets.runway.transverse_max (2026-09-05o)",
                      (f"face:{f.id}", f.ref))
-        for v in vw.rings[f.id]:
+        for v in vw.face_vertices(f.id):
             if v in done or v in own_ridge or v in xing:
                 continue
             ft = _foot(vw, v, chs)

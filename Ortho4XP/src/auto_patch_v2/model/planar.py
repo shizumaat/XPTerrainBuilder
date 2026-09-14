@@ -109,6 +109,33 @@ class Face:
     side: str = "airside"
 
 
+def face_vertex_ids(ring: _t.Sequence[int],
+                    holes: _t.Iterable[_t.Sequence[int]]) -> list[int]:
+    """THE VERTEX SET OF A FACE — its outer ring's vertices, then each hole
+    ring's, in walking order, every vertex once (lane ``rwyholes``; the
+    RULINGS 2026-09-13dd chip).
+
+    A hole vertex is the face's OWN: the map lists the face among the
+    vertex's ``incident_faces`` (I5) and the sidecar's ``face_holes``
+    publishes the hole as part of the face.  A law stated "for every vertex
+    of a runway face" that read the OUTER ring alone (``View.rings``) left
+    490 vertices on 8 of HECA's 33 runway faces — the §40 shoulder ribbons
+    round their zone-strip islands — priced by no crown / transverse row
+    while the census judged them at the runway's cap.  Every reader of "the
+    face's vertices" — the generators' ``View.face_vertices`` and the
+    verifier's ``Shape.vertex_ids`` — goes through THIS function, so the two
+    instruments read one population.  Rings are OPEN (first vertex not
+    repeated)."""
+    seen: set[int] = set()
+    out: list[int] = []
+    for cycle in (ring, *holes):
+        for v in cycle:
+            if v not in seen:
+                seen.add(v)
+                out.append(v)
+    return out
+
+
 @_dc.dataclass(frozen=True)
 class Breakline:
     """A chain of edges the solver grades ALONG (longitudinal) and the

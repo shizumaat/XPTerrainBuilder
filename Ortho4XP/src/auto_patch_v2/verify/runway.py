@@ -1,8 +1,15 @@
 """``runway_crown``, ``runway_transverse`` and ``runway_end_skirt`` over
 the emitted rings.
 
+THE POPULATION (lane ``rwyholes``, the RULINGS 2026-09-13dd chip): both
+readers below price EVERY vertex of a runway-family face — its outer ring
+AND its hole rings, ``Shape.vertex_ids`` = ``model.planar.face_vertex_ids``,
+the accessor the generator's ``View.face_vertices`` reads through — so the
+verifier and the generator count one vertex set (v2roles HECA: 490 hole
+vertices on 8 of 33 runway faces were declared nothing and read by nobody).
+
 Crown (RULINGS 2026-08-05; v1 ``_check_runway_crown``): every
-runway-family ring vertex carrying a published drop must sit at least
+runway-family face vertex carrying a published drop must sit at least
 that far below the nearest ``crown_spine`` feature (interpolated along
 it), less the instrument envelope; with nothing declared the ruleset's
 crown minimum (``runway.transverse_min``) binds on runways against the
@@ -89,7 +96,7 @@ def runway_crown(p: Patch) -> list[Row]:
     xing: set[int] = set()
     for sh in p.shapes:
         if sh.role == "runway_crossing":
-            xing.update(sh.ids)
+            xing.update(sh.vertex_ids)
     axis_pts: dict[str, list] = {}
     for sh in p.shapes:
         if sh.role in RUNWAY_FAMILY:
@@ -100,11 +107,13 @@ def runway_crown(p: Patch) -> list[Row]:
     for sh in p.shapes:
         if sh.role not in RUNWAY_FAMILY:
             continue
-        declared = any(v in drops for v in sh.ids)
+        # THE FACE'S VERTEX SET (lane ``rwyholes``): outer AND hole rings,
+        # the population the generator's ``crown_drops`` declares
+        declared = any(v in drops for v in sh.vertex_ids)
         noise = noise_m(law, sh.role)
-        for k, v in enumerate(sh.ids):
-            x, y = sh.xy[k]
-            z = sh.z[k]
+        for v in sh.vertex_ids:
+            x, y = p.xy[v]
+            z = p.z[v]
             dist, ridge_z, foot = _nearest_ridge(x, y, spines)
             if ridge_z is None:
                 ax = axes.get(sh.ref)
@@ -158,7 +167,7 @@ def runway_transverse(p: Patch) -> list[Row]:
     xing: set[int] = set()
     for sh in p.shapes:
         if sh.role == "runway_crossing":
-            xing.update(sh.ids)
+            xing.update(sh.vertex_ids)
     out: list[Row] = []
     seen: set[int] = set()
     # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
@@ -175,11 +184,12 @@ def runway_transverse(p: Patch) -> list[Row]:
         half = half_of.get(sh.ref, 0.0)
         noise = noise_m(law, sh.role)
         ridge = own.get(sh.ref, spines)
-        for k, v in enumerate(sh.ids):
+        # outer AND hole rings — the generator's population (``rwyholes``)
+        for v in sh.vertex_ids:
             if v in xing or v in seen:
                 continue
             seen.add(v)
-            x, y = sh.xy[k]
+            x, y = p.xy[v]
             dist, ridge_z, foot = _nearest_ridge(x, y, ridge)
             if ridge_z is None or dist <= 0.0:
                 continue
@@ -187,7 +197,7 @@ def runway_transverse(p: Patch) -> list[Row]:
                                         sh.code_number)
             if cap is None:
                 continue
-            fall = ridge_z - sh.z[k]
+            fall = ridge_z - p.z[v]
             over = abs(fall) - cap * dist - noise
             if over <= 0.0:
                 continue

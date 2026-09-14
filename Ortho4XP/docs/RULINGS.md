@@ -4133,3 +4133,19 @@ annulus seeds 252 → 3, valued vertices 84,631 → 0, INTERP_ALT 629,054 →
   `--shape` only before the ICAO.
 * Not verified: item 7; the `apron_named=1` token on cells 58/191 (source
   description matches no token — untraced); no registered HECA frame.
+
+## 2026-09-13ct Owner on HECA item 8: the apron is the pack object `Concrete_Polygon_1.obj`
+
+Owner, verbatim: "The apron area for item 8 is covered by
+'Concrete_Polygon_1.obj' in the airport package, which is large and has
+concrete at other parts of the airport, so I assume we are cutting this
+object into smaller pieces so they can be seated on the ground?"
+
+* The 13cs item-8 reading ("the pack's draped `.pol` page") is corrected:
+  the pavement is an OBJECT. Law that applies: §16g (4) components apart
+  are separate bodies, each seated on its own unit datum; §16b terrain cut
+  for a footed body. Suspect: the +19.70 m body at 30.120503, 31.402651
+  (`feet:20`, diameter 1,143.8 m) IS this object, unsplit.
+* Scout `v2heca329` resumed: bodies, seats, mesh under each piece, and
+  whether an object-pavement footprint enters the layout as a source
+  polygon (`o4_object_footprints_+30+031.cache` exists in the mod cache).

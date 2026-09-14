@@ -5114,3 +5114,28 @@ cProfile inflation ×1.3 (scaled below).
   batched per component; VHHH planar 366 → ≤ 230 s, byte-identical.
 * Expected after both: OTHH patch ~840 → ~350 s warm-cache; VHHH ~880
   → ~550 s.
+
+## 2026-09-14r v2bankfoot round 4 MERGED: the seed floor is REFUTED as the VHHH tunnel cause (14m withdrawn); seeding hardened (no width drop; encoding-survival test); the tunnel regression is unattributed and needs the owner's coordinate
+
+Lane `v2bankfoot` @ 345cf11b. Dry re-seed of the shipped 1.0.332 VHHH
+patch set: 84 faces dropped by the 0.5 m floor — 14 tunnel-family, ALL
+`tunnel_trench:basin_floor` slivers of 0.3–1.9 m² beside basin floors;
+NO `tunnel_ramp` face dropped. On the shipped mesh every tunnel ring is
+100 % INTERP_ALT (62/62 ramps, 72/72 trenches), the twelve largest ramps
+at dz_med 0.00 vs their authored alt; interventionally, removing the
+floor leaves the tunnel table identical. Fix anyway: every face seeds
+at its pole with clearance min(0.5 m, inradius/2); a face is dropped
+only under the 10 mm hairline floor (one constant with
+`HAIRLINE_DEGENERATE_M`) or when the seed does not survive the 1e-9°
+encoding grid (`_survives_encoding`); VHHH run: all 4,057 seeds
+enclosed, skipped faces 132 → 4 (three hairlines at 22.29193, 113.8971).
+
+* Left unexplained: 24 of 62 `tunnel_ramp` rings and 4 of 72 trenches
+  carry mesh > 0.5 m off their authored alt somewhere (`basin_floor:5#1`
+  2,794 m² with 4 interior vertices; `:83` +2.46). And the PATCH may
+  itself have changed 1.0.330 → 1.0.332 (apron-neck, slivers, contacts,
+  connector) — no 1.0.330 VHHH artefact survives; a faithful mesh of a
+  worse patch reads as perfect. OWNER: a coordinate and what is wrong
+  (shallow? walls gone? a step at the mouth?).
+* Chip candidate: the lane's `tunfast.py` (per tunnel ring: mesh vs
+  patch alt, attr share) on its second use.

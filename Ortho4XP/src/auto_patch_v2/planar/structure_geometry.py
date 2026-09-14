@@ -68,7 +68,7 @@ def _unit(a: XY, b: XY) -> XY:
 
 __all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
            "rim_standoff", "corner_distance", "beyond_strip",
-           "design_points", "collapse_stations", "collapse_for_ramp"]
+           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets"]
 
 
 def rim_standoff(thickness_m: float, cutout, spacing_m: float) -> tuple[float, float]:
@@ -267,6 +267,52 @@ def collapse_stations(ss: _t.Sequence[float], pts: list[tuple[XY, ...]], zs: lis
             j -= 1
         out.append(ss[j])
         i = j
+    return out
+
+
+def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: list,
+                 vxy: list[XY], dem_z: _t.Sequence[float]) -> dict[int, float]:
+    """THE RAMP'S OBJECTIVE TARGET IS ITS OWN DESIGN, not the DEM: vertex
+    id -> the designed profile value ``clamp(DEM, mouth_z − g·Δs, mouth_z
+    + g·Δs)`` (``Δs`` from where the climb starts; ``g`` the tunnel's
+    ``design_grade`` — ``min(ramp_max_grade, depth / wall length)`` for an
+    object corridor, 05n-1 — else ``ramp_max_grade``) for every
+    ``tunnel_ramp`` ring vertex.  With the DEM as target the ramp's pull levered the
+    apron sharing its end cap 0.49 m up through the mouth datum
+    (measured on the M4 twin) — groundside pulling airside; at its
+    design the ramp has nothing to pull with."""
+    if not tunnels:
+        return {}
+    from ..model.structures import profile_z
+    g = law.tables.structures.tunnel.ramp_max_grade
+    axes = {tn.id: LineString(tn.axis) for tn in tunnels}
+    out: dict[int, float] = {}
+    for fid, face in faces.items():
+        if face.role not in ("tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp"):
+            continue
+        ids = {edges[e].a for e in face.ring} | {edges[e].b for e in face.ring}
+        cx = sum(vxy[v][0] for v in ids) / len(ids)
+        cy = sum(vxy[v][1] for v in ids) / len(ids)
+        tid = min(axes, key=lambda k: axes[k].distance(Point(cx, cy)))
+        tn = tunnels[[t.id for t in tunnels].index(tid)]
+        gt = tn.design_grade if tn.design_grade > 0.0 else g
+        for v in ids:
+            s = axes[tid].project(Point(vxy[v]))
+            if tn.profile:
+                # a sunken road (09-08b/c Law B): the plate's own floor
+                out[v] = profile_z(tn.profile, min(s, tn.top_s))
+                continue
+            reach = gt * max(0.0, s - tn.climb_from_s)
+            if tn.source in ("object", "door") and s <= tn.wall_length_m + 1e-6:
+                # INSIDE THE WALLS the design line itself (05n-1; the DEM
+                # there is not the ground — 2026-09-06f: a cutting the DEM
+                # carries would pull the ramp under its own design)
+                out[v] = tn.mouth_z + gt * max(0.0, min(s, tn.top_s) - tn.climb_from_s)
+                continue
+            d = float(dem_z[v])
+            if math.isnan(d):
+                continue
+            out[v] = max(tn.mouth_z - reach, min(tn.mouth_z + reach, d))
     return out
 
 

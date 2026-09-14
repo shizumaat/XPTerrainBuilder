@@ -90,16 +90,6 @@ FAMILY_CONTACTS_MAX = 4000
 #: body and left on their own ground.
 FAMILY_SHARE_MIN = 0.5
 
-#: Above this many live bodies :func:`_clusters` indexes by a plan GRID
-#: instead of the south-edge sweep.  A SPEED constant, not a law value:
-#: the two paths return the same clusters and the twins hold the small
-#: one.  See the grid's own comment for what measured it.
-_GRID_ABOVE = 2000
-#: the grid's cell, metres (never smaller than the tolerance)
-_GRID_CELL_M = 50.0
-#: a body covering more cells than this is compared against everything —
-#: bucketing a 2 km fence into 1,600 cells costs more than the scan
-_GRID_CELLS_MAX = 4096
 
 
 @_dc.dataclass(frozen=True)
@@ -194,53 +184,22 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
             adj.setdefault(a, set()).add(b)
             adj.setdefault(b, set()).add(a)
 
-    if len(live) > _GRID_ABOVE:
-        # THE PLAN-WIDE READING NEEDS A GRID (§16g (1), owner RULINGS
-        # 2026-09-13bw).  The south-edge sweep below is O(n·k) in the
-        # bodies whose latitude bands overlap, which at ONE UNIT is a
-        # handful and over a WHOLE PLAN is most of the airport: OTHH's
-        # plan stage read 249 -> 809 s the first time §16g (1) was asked
-        # plan-wide.  Each hull is grown by ``eps_m`` and bucketed, so a
-        # pair within the tolerance necessarily shares a cell — the same
-        # answer, and the twin over the small path holds it.
-        cell = max(_GRID_CELL_M, eps_m)
-        # ONE metres-per-degree for the whole grid: read per body it
-        # varies with that body's own latitude, and over an airport's
-        # easting that shifts two neighbours a full cell apart — measured
-        # at KCLT, the per-body reading found 127 clusters where the
-        # sweep finds 114.
-        _lat0 = 0.5 * (min(hull[i][0] for i in live)
-                       + max(hull[i][2] for i in live))
-        ml, mo = _ar._m_per_deg(_lat0)
-        grid: dict[tuple[int, int], list[int]] = {}
-        for i in live:
-            h = hull[i]
-            i0 = int((h[0] * ml - eps_m) // cell)
-            i1 = int((h[2] * ml + eps_m) // cell)
-            j0 = int((h[1] * mo - eps_m) // cell)
-            j1 = int((h[3] * mo + eps_m) // cell)
-            if (i1 - i0 + 1) * (j1 - j0 + 1) > _GRID_CELLS_MAX:
-                grid.setdefault(("wide", 0), []).append(i)   # type: ignore[arg-type]
-                continue
-            for ci in range(i0, i1 + 1):
-                for cj in range(j0, j1 + 1):
-                    grid.setdefault((ci, cj), []).append(i)
-        wide = grid.pop(("wide", 0), [])                     # type: ignore[arg-type]
-        for members in grid.values():
-            for ai, a in enumerate(members):
-                for b in members[ai + 1:]:
-                    _bind(a, b)
-        for a in wide:                       # a body wider than the grid
-            for b in live:
-                if a != b:
-                    _bind(a, b)
-    else:
-        for ai, a in enumerate(order):
-            north = hull[a][2] + _slack
-            for b in order[ai + 1:]:
-                if hull[b][0] > north:
-                    break
-                _bind(a, b)
+    # THE GRID WAS TRIED AND REFUTED (§16g (1), lane v2clusterpad round 2).
+    # The plan-wide reading is slow — OTHH's ``plan_units`` reads 485.7 s —
+    # and the sweep below looked like the cause, so the hulls were bucketed
+    # into a plan grid (each grown by ``eps_m``, so a pair within the
+    # tolerance necessarily shares a cell).  MEASURED at OTHH: grid 557.5 s
+    # against the sweep's 485.7 s for IDENTICAL clusters (185 either way) —
+    # the cost is not the pairing at all but ``bodies_of_plan`` and the
+    # PART-BOX product inside ``_bind`` (OTHH's clutter members carry
+    # thousands of boxes each).  The grid is DELETED rather than kept
+    # gated; the next attempt belongs in those two places.
+    for ai, a in enumerate(order):
+        north = hull[a][2] + _slack
+        for b in order[ai + 1:]:
+            if hull[b][0] > north:
+                break
+            _bind(a, b)
     out: dict[int, list[int]] = {}
     for i in live:
         out.setdefault(find(i), []).append(i)

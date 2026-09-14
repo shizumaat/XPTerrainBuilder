@@ -133,6 +133,10 @@ class Design:
     #: DEM datum mean — a pad's own datum (09p (3)) is for a pad that
     #: fronts NO pavement.
     pad_level_rulings: tuple[str, ...]
+    #: §30 (4) (owner RULINGS 2026-09-13cc (ii)): the ruling HEADS of the
+    #: CLUSTER PAD's apron reach, priced at ``apron_trend`` instead of
+    #: ``law`` so the taxi family's law rows always outrank them.
+    cluster_reach_rulings: tuple[str, ...]
     #: A PAD FRONTS BY PROXIMITY (owner RULINGS 2026-09-10ax (1)): the
     #: plan distance within which a pad EDGE fronts a pavement EDGE,
     #: shared vertex or not.  ``constraints.pads.frontage_radius_m`` is

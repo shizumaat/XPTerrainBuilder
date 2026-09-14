@@ -360,6 +360,15 @@ foot_row_rulings = [
   "structures.placement foot_row",                       # 09-11q: the body's foot on bare ground, level = the least-squares fit to the DEM
 ]
 pad_flat = 3000.0
+# §30 (4) (owner RULINGS 2026-09-13cc (ii)): the CLUSTER PAD'S APRON REACH
+# is priced at the APRON TREND's design-target weight, not at ``law`` — a
+# target the taxi family's own law rows always outrank, so the reach yields
+# wherever the taxiways cannot follow ("as long as it remains feasible with
+# grade laws and taxiways").  At ``law`` it did NOT yield: measured on the
+# matched KCLT pair, 2,815 of 6,453 taxi/runway vertices moved, worst 1.88 m.
+cluster_reach_rulings = [
+  "structures.building_pad cluster_apron_reach",
+]
 pad_flat_rulings = [
   "structures.building_pad flat",                        # 09-09c: the pad's flatness target, priced on the PLANE'S TILT (10y)
   "structures.building_pad frontage_level",              # 09-10l/10y: the SENIOR fronting pavement's edge mean IS the pad's level where one plane cannot meet every frontage

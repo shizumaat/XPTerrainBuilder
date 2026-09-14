@@ -31,7 +31,8 @@ import typing as _t
 
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
-from .placement_family import boxes_touch
+from .placement_contact import (_polys_touch, boxes_touch,
+                                m_per_deg_exact, ring_metres)
 
 __all__ = ["PlanConnector", "CONNECTOR_BOXES_MAX", "_span_m",
            "_is_connector", "_connector_ends", "authored_units",
@@ -117,6 +118,14 @@ class PlanConnector:
     #: DECK branch of :func:`plan_unit_datums` reads the datum off
     keys_a: tuple[tuple[int, int, int], ...] = ()
     keys_b: tuple[tuple[int, int, int], ...] = ()
+    #: §16g (7) (2): the CONNECTOR'S OWN boxes at each end — the third of
+    #: its footprint nearest that end.  The low-end seat is read HERE and
+    #: not over the end unit, because a 1.1 km rail's end component is a
+    #: whole terminal district whose median ground says nothing about the
+    #: ground the rail's own abutment stands on (HECA: the component
+    #: median 95.77 against the rail's north end ~73.4).
+    own_a: tuple[tuple[float, float, float, float], ...] = ()
+    own_b: tuple[tuple[float, float, float, float], ...] = ()
 
 
 #: §16g (6): how many of a body's part boxes the end-topology test reads.
@@ -225,6 +234,12 @@ def contact_graph(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
     slack = touch_m / 111_132.0
     adj: dict[int, list[int]] = {i: [] for i in order}
     boxes = {i: (list(shims[i].part_boxes) or [hull[i]]) for i in order}
+    # §16g (7) (1): the SAME footprint-polygon predicate the partition
+    # chains on — the topology and the partition are one relation
+    ml, mo = m_per_deg_exact(hull[order[0]][0]) if order else (1.0, 1.0)
+    rings = {i: [ring_metres(r, ml, mo)
+                 for r in (getattr(shims[i], "rings", ()) or ()) if len(r) >= 3]
+             for i in order}
     for ai, a in enumerate(order):
         north = hull[a][2] + slack
         ha = hull[a]
@@ -233,7 +248,8 @@ def contact_graph(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
             if hb[0] > north:
                 break
             if (_pb.box_gap_m(ha, hb) <= touch_m
-                    and boxes_touch(boxes[a], boxes[b], ha, hb, touch_m)):
+                    and boxes_touch(boxes[a], boxes[b], ha, hb, touch_m)
+                    and _polys_touch(rings[a], rings[b], touch_m)):
                 adj[a].append(b)
                 adj[b].append(a)
     return adj
@@ -393,6 +409,13 @@ def _connector_ends(i: int, uid: str, shims: _t.Sequence[_PShim],
     if not hit:
         return None
 
+    mine_all = _thin(shims[i].part_boxes, CONNECTOR_BOXES_MAX)
+    _p = sorted(pos(b) for b in mine_all)
+    _lo3 = _p[0] + (_p[-1] - _p[0]) / 3.0
+    _hi3 = _p[-1] - (_p[-1] - _p[0]) / 3.0
+    own_lo = tuple(b for b in mine_all if pos(b) <= _lo3) or tuple(mine_all[:1])
+    own_hi = tuple(b for b in mine_all if pos(b) >= _hi3) or tuple(mine_all[-1:])
+
     def _made(a: str, b: str) -> PlanConnector:
         return PlanConnector(
             id=f"cn:{shims[i].key[0]}:{i}", key=shims[i].key,
@@ -404,7 +427,8 @@ def _connector_ends(i: int, uid: str, shims: _t.Sequence[_PShim],
             boxes_b=(() if not b else
                      tuple(x for j in _by[b] for x in shims[j].part_boxes)),
             keys_a=(() if not a else tuple(shims[j].key for j in _by[a])),
-            keys_b=(() if not b else tuple(shims[j].key for j in _by[b])))
+            keys_b=(() if not b else tuple(shims[j].key for j in _by[b])),
+            own_a=own_lo, own_b=own_hi)
 
     _by = {f"{uid}/c{k}": g for _lo, _hi, k, g in hit}
     if len(hit) >= 2:

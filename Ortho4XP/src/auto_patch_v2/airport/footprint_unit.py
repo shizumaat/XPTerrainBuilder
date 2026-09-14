@@ -32,6 +32,7 @@ import typing as _t
 
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
+from .placement_contact import _polys_touch, m_per_deg_exact, ring_metres
 from .footprint_connector import (CONNECTOR_BOXES_MAX, ClusterTopology,
                                   PlanConnector, _is_connector,
                                   _near_index, _span_m,
@@ -305,20 +306,31 @@ class PlanUnit:
     members: tuple[str, ...]
     boxes: tuple[tuple[float, float, float, float], ...]
     area_m2: float
+    #: §16g (7) (2) THE DECK GUARD (owner RULINGS 2026-09-14c item 1): the
+    #: PART IDS of the bodies whose FOOTPRINT POLYGONS touch a deck
+    #: member's ring in this unit — the only bodies a deck lends its datum
+    #: to.  Empty where the unit holds no deck.  Before the guard a deck
+    #: reached by a BOX chain handed 96.20 to 1,509 HECA bodies, six
+    #: buildings among them 4.0-5.3 m off their own pads (14g).
+    deck_pids: frozenset[int] = frozenset()
+    #: the deck member's own datum and name, or ``None``
+    deck: "tuple[float, str] | None" = None
 
 
 class _PShim:
     """A plan body dressed as the candidate :func:`_clusters` reads."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "key", "pids",
-                 "resource")
+                 "resource", "rings")
 
-    def __init__(self, seq, key, boxes, pids, resource):
+    def __init__(self, seq, key, boxes, pids, resource, rings=()):
         self.member = seq            # a UNIQUE id per body: the chaining
         self.key = key               # is plan-wide, so "member" may not
         self.pids = pids             # collapse two bodies of one member
         self.resource = resource
         self.part_boxes = boxes
+        #: §16g (7) (1): this body's component FOOTPRINT POLYGONS
+        self.rings = tuple(rings)
         self.box = _pb.hull_of(boxes)
         self.body_class = ""
 
@@ -330,8 +342,68 @@ def plan_units(plan: _t.Any, touch_m: float) -> list[PlanUnit]:
     return plan_units_and_connectors(plan, touch_m, 0.0)[0]
 
 
+def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
+                  plan: _t.Any, touch_m: float, connector_span_m: float,
+                  counts: "dict | None"
+                  ) -> "tuple[frozenset[int], tuple[float, str] | None]":
+    """§16g (7) THE DECK GUARD (owner RULINGS 2026-09-14c item 1): WHICH
+    bodies of this unit may take a deck member's datum?
+
+    Only those whose FOOTPRINT POLYGONS touch the deck's own footprint.
+    §16g (2) gave a deck's zero to its whole unit, and with the unit
+    chained on PART BOXES that unit was `fu:38:20` — 978 bodies over
+    2,471 m standing on 136 pads that span 34.8 m — so `T3_road.obj`'s
+    rail deck handed 96.20 to 1,509 HECA bodies: six buildings 4.0-5.3 m
+    above their own pads and the terminal at 30.1279552, 31.403143
+    +23.70 m (14g).  §16g (7) (1)'s polygon chain breaks most of that
+    hop; the guard is what makes the rest impossible AND VISIBLE, and it
+    is counted (``deck_datum_lent_to``) so a census can see whom a deck
+    reached.
+
+    A CONNECTOR NEVER LENDS (§16g (7) (2)): a body long enough to be the
+    rail is its own body, and neither unit takes its deck."""
+    decks = []
+    for i in cl:
+        ui, mi, _gi = shims[i].key
+        m = plan.units[ui].members[mi]
+        dz = getattr(m, "deck_datum_z", None)
+        if dz is None:
+            continue
+        if (connector_span_m > 0.0
+                and _span_m(shims[i].part_boxes) >= connector_span_m):
+            if counts is not None:
+                counts["deck_lender_refused_connector"] = \
+                    counts.get("deck_lender_refused_connector", 0) + 1
+            continue
+        decks.append((i, float(dz), m.resource.rsplit("/", 1)[-1],
+                      getattr(m, "deck_ring", None)))
+    if not decks:
+        return frozenset(), None
+    i0, dz, name, ring = sorted(decks)[0]
+    ml, mo = m_per_deg_exact(shims[i0].box[0])
+    theirs = [ring_metres(ring, ml, mo)] if ring and len(ring) >= 3 else []
+    theirs += [ring_metres(r, ml, mo) for r in (shims[i0].rings or ())
+               if len(r) >= 3]
+    lent: set[int] = set(shims[i0].pids)
+    n = 1
+    for i in cl:
+        if i == i0:
+            continue
+        mine = [ring_metres(r, ml, mo) for r in (shims[i].rings or ())
+                if len(r) >= 3]
+        if not theirs or not mine or _polys_touch(mine, theirs, touch_m):
+            lent.update(shims[i].pids)
+            n += 1
+    if counts is not None:
+        counts["deck_datum_lent_to"] = counts.get("deck_datum_lent_to", 0) + n
+        counts["deck_units"] = counts.get("deck_units", 0) + 1
+        counts["deck_unit_bodies"] = counts.get("deck_unit_bodies", 0) + len(cl)
+    return frozenset(lent), (dz, name)
+
+
 def plan_units_and_connectors(plan: _t.Any, touch_m: float,
-                              connector_span_m: float
+                              connector_span_m: float,
+                              counts: "dict | None" = None
                               ) -> "tuple[list[PlanUnit], list[PlanConnector]]":
     """§16g (1) PLAN-WIDE with §16g (6)'s CONNECTOR reading.
 
@@ -366,14 +438,18 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     shims: list[_PShim] = []
     for key, pids in sorted(bodies.items()):
         ui, mi, _gi = key
-        bx = [parts_of[q].box for q in pids
-              if q in parts_of and not parts_of[q].line]
+        live = [parts_of[q] for q in pids
+                if q in parts_of and not parts_of[q].line]
+        bx = [q.box for q in live]
         if bx:
             shims.append(_PShim(len(shims), key, bx, frozenset(pids),
-                                plan.units[ui].members[mi].resource))
+                                plan.units[ui].members[mi].resource,
+                                tuple(q.ring for q in live
+                                      if len(getattr(q, "ring", ())) >= 3)))
     if len(shims) < 2:
         return [], []
-    clusters, _adj = _clusters(shims, touch_m, min_members=1)
+    clusters, _adj = _clusters(shims, touch_m, min_members=1,
+                               counts=counts)
     # every body that is IN a unit: the "nothing at the other end" test is
     # about the whole plan, not about the connector's own unit (a rail
     # ending 50 m short of the NEXT building connects two things).  The
@@ -382,15 +458,19 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
              if connector_span_m > 0.0 else None)
     out: list[PlanUnit] = []
     conns: list[PlanConnector] = []
+    conn_keys: set = set()
     for cl in clusters:
         boxes = [b for i in cl for b in shims[i].part_boxes]
         uid = f"fu:{shims[cl[0]].key[0]}:{cl[0]}"
+        deck_pids, deck = _deck_lending(cl, shims, plan, touch_m,
+                                        connector_span_m, counts)
         out.append(PlanUnit(
             id=uid,
             bodies=tuple(shims[i].key for i in cl),
             pids=frozenset().union(*(shims[i].pids for i in cl)),
             members=tuple(sorted({shims[i].resource for i in cl})),
-            boxes=tuple(boxes), area_m2=union_area_m2(boxes)))
+            boxes=tuple(boxes), area_m2=union_area_m2(boxes),
+            deck_pids=deck_pids, deck=deck))
         if connector_span_m <= 0.0:
             continue
         conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
@@ -431,14 +511,12 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     for un in units:
         zero: float | None = None
         where = src = ""
-        for (ui, mi, _gi) in un.bodies:
-            m = by_key.get((ui, mi))
-            dz = None if m is None else getattr(m, "deck_datum_z", None)
-            if dz is not None:
-                zero = float(dz)
-                where = m.resource.rsplit("/", 1)[-1]
-                src = "deck"
-                break
+        # §16g (7): THE DECK IS NO LONGER THE UNIT'S DATUM.  It is lent,
+        # per body, to the bodies whose footprint polygons touch it
+        # (``PlanUnit.deck_pids``, overlaid by :func:`plan_wide_seats`);
+        # what this function computes is the datum for everything ELSE.
+        # A plan with no ring field publishes no ``deck_pids`` and the
+        # whole unit takes the deck, which is the pre-(7) reading.
         pts = _centres(un.boxes, FAMILY_CONTACTS_MAX)
         if zero is None:
             cc = [(la, lo, 0.0, surface(la, lo)) for la, lo in pts]
@@ -574,9 +652,9 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
                      else "its median ground"))
             + f" at {zero:.2f} (own ground {own - zero:+.2f} m)"
             + ("" if pair is None else
-               f" — §16g (6) CONNECTOR between {pair[0] or 'open ground'} "
-               f"and {pair[1] or 'open ground'}, seated on its HIGH end's "
-               f"unit (no station cut written)"),
+               f" — §16g (6)/(7) CONNECTOR between "
+               f"{pair[0] or 'open ground'} and {pair[1] or 'open ground'}, "
+               f"seated on its LOW end's contact (no station cut written)"),
             best[3], family=fid,
             connector_of=("" if pair is None else f"{pair[0]}|{pair[1]}"))
         grp0 = (st.groups[c.group] if 0 <= c.group < len(st.groups) else ())
@@ -632,7 +710,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     be placed by WHERE IT STANDS."""
     if touch_m <= 0.0:
         return {}, []
-    units, conns = plan_units_and_connectors(plan, touch_m, connector_span_m)
+    units, conns = plan_units_and_connectors(plan, touch_m,
+                                            connector_span_m, counts)
     dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
     out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
@@ -642,6 +721,13 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
             continue
         for q in un.pids:
             out[q] = (un.id, d[0], d[1], d[2], ("", ""), None)
+        # §16g (7) THE DECK GUARD: the deck's datum is LENT, per body, to
+        # the bodies whose footprint polygons touch it — never to the unit
+        if un.deck is not None and un.deck_pids:
+            dz, name = un.deck
+            for q in un.deck_pids:
+                if q in out:
+                    out[q] = (un.id, dz, name, "deck", ("", ""), None)
         h = _pb.hull_of(un.boxes)
         if h is not None:
             seats.append((h[0], h[1], h[2], h[3], d[0], d[2]))
@@ -651,23 +737,37 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     # the higher zero breaks the tie.  An end on open ground names no unit
     # and can never win; a connector neither of whose ends has a datum is
     # left to §16c.
-    rank = {"deck": 0, "cluster_pad": 1, "pad": 1, "ground": 2}
+    # §16g (7) (2) (owner RULINGS 2026-09-14c item 1): THE CONNECTOR IS
+    # SEATED LOW.  13df seated it on its HIGH end so the piece met the
+    # deck it arrived at; at HECA that reading lifted the T3 terminal
+    # complex onto `T3_road.obj`'s deck, and the owner withdrew it.  The
+    # piece now takes its LOW end's contact — ground or pad — so it
+    # disappears INTO the ground at the high end instead of standing the
+    # airport up to meet it, and §10's station cut, when it is written,
+    # grades it between its two end contacts.  Between the two ends the
+    # LOWER zero wins outright; the source ranks only a tie.
+    rank = {"ground": 0, "pad": 1, "cluster_pad": 1, "deck": 2}
     n_open = 0
     for cn in conns:
-        ends = [(u, bx, ky) for u, bx, ky in
-                ((cn.end_a, cn.boxes_a, cn.keys_a),
-                 (cn.end_b, cn.boxes_b, cn.keys_b)) if u and bx]
+        # §16g (7) (2): each end's contact is read under the CONNECTOR'S
+        # OWN geometry at that end, never over the end unit — a rail's end
+        # component is a whole district and its median ground is not the
+        # ground the abutment stands on.
+        ends = [(u, own, ky) for u, own, bx, ky in
+                ((cn.end_a, cn.own_a, cn.boxes_a, cn.keys_a),
+                 (cn.end_b, cn.own_b, cn.boxes_b, cn.keys_b))
+                if u and bx and own]
         if not ends:
             continue
         ed = plan_unit_datums(
-            [PlanUnit(id=u, bodies=tuple(ky), pids=frozenset(), members=(),
-                      boxes=tuple(bx), area_m2=union_area_m2(list(bx)))
-             for u, bx, ky in ends], plan, surface, pads, cluster_min_m2)
-        cand = [(rank.get(ed[u][2], 3), -ed[u][0], u) for u, _bx, _ky in ends
-                if u in ed]
+            [PlanUnit(id=u, bodies=(), pids=frozenset(), members=(),
+                      boxes=tuple(own), area_m2=union_area_m2(list(own)))
+             for u, own, ky in ends], plan, surface, pads, cluster_min_m2)
+        cand = [(round(ed[u][0], 6), rank.get(ed[u][2], 3), u)
+                for u, _own, _ky in ends if u in ed]
         if not cand:
             continue
-        _r, _z, u = min(cand)
+        _z, _r, u = min(cand)
         d = ed[u]
         if not (cn.end_a and cn.end_b):
             n_open += 1

@@ -4710,9 +4710,14 @@ def test_16g_1_the_unit_is_derived_PLAN_WIDE_across_placement_units():
 
 
 def test_16g_2_the_plan_wide_datum_is_deck_then_pad_then_ground():
-    """§16g (2) read PLAN-WIDE: the plan carries a deck member's own
-    datum, so the piers chained to it take the deck's plane with no
-    bridge-specific law anywhere — 13bo's own test."""
+    """§16g (2) read PLAN-WIDE, AS AMENDED BY §16g (7) (owner RULINGS
+    2026-09-14c item 1): a deck's datum is no longer the UNIT's — it is
+    LENT, per body, to the bodies whose footprint polygons touch the deck
+    (``PlanUnit.deck_pids``, overlaid in ``plan_wide_seats``), so what
+    ``plan_unit_datums`` computes is the datum for everything else.  A
+    deck reached by a BOX chain was handing 96.20 to 1,509 HECA bodies.
+    13bo's piers still take the deck — they touch it — and the twin now
+    reads that through the lending set."""
     from auto_patch_v2.airport import footprint_unit as FU
     d = 0.3 / 111132.0
     pad = AR.PadRing("building80", ((39.998, -3.002), (40.004, -3.002),
@@ -4732,7 +4737,8 @@ def test_16g_2_the_plan_wide_datum_is_deck_then_pad_then_ground():
         units = FU.plan_units(plan, 0.5)
         return FU.plan_unit_datums(units, plan, surface, pads, 0.0)[units[0].id]
 
-    assert arm(5.5, (pad,)) == (5.5, "deck.obj", "deck")
+    # the deck no longer decides the UNIT's datum — the unit reads its pad
+    assert arm(5.5, (pad,)) == (100.0, "building80", "pad")
     assert arm(None, (pad,)) == (100.0, "building80", "pad")
     assert arm(None, ()) == (90.0, "", "ground")
 

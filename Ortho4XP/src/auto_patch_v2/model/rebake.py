@@ -77,6 +77,15 @@ class Part:
     #: for one; its ``feet`` are its DRAPE STATIONS and it is seated per
     #: SEGMENT — every vertex takes the delta of the nearest station.
     line: bool = False
+    #: §16g (7) (1) THE FOOTPRINT POLYGON (owner RULINGS 2026-09-14c item
+    #: 1): this component's plan CONVEX HULL as ``(lat, lon)`` vertices,
+    #: at most ``contact.FOOTPRINT_RING_MAX`` of them.  §16g (1)'s unit
+    #: chains on THIS, never on ``box`` — a rotated building's lat/lon box
+    #: overlaps a neighbour whose footprint is 20 m away, and that chain
+    #: handed a rail deck's datum to 1,509 HECA bodies (14g).  EMPTY in a
+    #: plan written before the field, and the reader then falls back to
+    #: ``box`` and SAYS SO.
+    ring: tuple[tuple[float, float], ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -263,7 +272,8 @@ class RebakePlan:
                     "authored_path": m.authored_path, "live_path": m.live_path,
                     "heading_deg": m.heading_deg,
                     "parts": [[p.pid, p.comp, p.lat, p.lon, p.base_y, p.area_m2, *p.box,
-                               [list(f) for f in p.feet], p.line] for p in m.parts],
+                               [list(f) for f in p.feet], p.line,
+                               [list(v) for v in p.ring]] for p in m.parts],
                     "deck_ring": None if m.deck_ring is None
                     else [[a, b] for a, b in m.deck_ring],
                     "deck_top_y": m.deck_top_y, "deck_datum_z": m.deck_datum_z,
@@ -311,7 +321,10 @@ class RebakePlan:
                                                float(p[9])),
                                  tuple((float(a), float(b), float(c))
                                        for a, b, c in (p[10] if len(p) > 10 else ())),
-                                 bool(p[11]) if len(p) > 11 else False)
+                                 bool(p[11]) if len(p) > 11 else False,
+                                 tuple((float(a), float(b))
+                                       for a, b in (p[12] if len(p) > 12
+                                                    else ())))
                             for p in m.get("parts", ())),
                 deck_ring=None if m.get("deck_ring") is None
                 else tuple((float(a), float(b)) for a, b in m["deck_ring"]),

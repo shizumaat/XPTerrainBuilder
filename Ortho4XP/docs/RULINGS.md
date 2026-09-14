@@ -4713,3 +4713,29 @@ Suite 1,389 twice.
   unit's components; OTHH 19 connectors over the largest units).
 * Promotion signal (lane): `cluster_arm.py` (dry `plan_clusters`
   reader, two airports × two arms) → `tools/` on its third use.
+
+## 2026-09-14e The OTHH stall attributed (scout `v2objcost`): the §16g (6) connector reading re-clusters the whole unit per long body — 251 candidates over 62,406 bodies at OTHH; lane `v2connector` round 2 (articulation points once per cluster)
+
+Step table from the app log + file mtimes (mesh proper is 22–45 s and
+did NOT grow — vertices 394,329 → 391,769; the Dirichlet ribbons SHRINK
+the free solve): +30+031 object stage 1m08 (1.0.324) → 1m21 (1.0.327)
+→ **18m02 (1.0.331)**; +25+051 object stage ~2m25 (1.0.327) → ~11m06
+(1.0.329) → **≥ 42m20, never finished (1.0.331, killed 07:42:29)**.
+SIGINT stack on main: `plan_wide_seats → plan_units_and_connectors →
+_connector_ends (per long body) → footprint_connector._components →
+_clusters → placement_family._bind`. The live OTHH plan carries 62,406
+bodies / 137,908 part boxes (fattest 1,885) and **251 bodies over
+`connector_span_m`** (13df measured 19 over 1,173); each candidate
+re-derives its unit's components from scratch through the full box × box
+product (`CONNECTOR_BOXES_MAX` thins only `_touches`). The module does
+not exist at 6ec68b44 — it first ships in 1.50.1777. Secondary: the
+1.0.327 → 1.0.329 half is the plan-wide `_clusters` (~485 s, `_bind`'s
+box product; 6bc998f1). `union_area_m2` is NOT in the stack (14d holds).
+
+* Lane `v2connector` r2 (URGENT, no law change): Hopcroft–Tarjan
+  articulation points ONCE per cluster over the adjacency `_clusters`
+  already builds; `_bind`'s box product → a sorted sweep. Bars: OTHH
+  `plan_units_and_connectors` on the live plan < 60 s; unit partition +
+  connector set identical on SPJC/HECA/KCLT frames; HECA object stage
+  < 120 s; suite twice.
+* Then app 1.0.332 with the VHHH seal fix (`v2bankfoot`).

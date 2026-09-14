@@ -8557,3 +8557,25 @@ vertices within 0.05 — the merge alone does NOT flatten the stands, so
 the "if needed" clause is still unmet.  A SHORT reach (≤ 20 m at
 `apron_trend`) is the obvious next lever and is deliberately NOT armed:
 the taxi family already misses its bar without it.
+### §30 (4) (5) THE CLUSTER PAD YIELDS TO THE TAXIWAY (Fable 2026-09-13; RULINGS 2026-09-13ch, owner 13bj) — lane `v2clusterpad` round 5
+
+Round 4 (eb169be7) made the merge work and measured its price: lifting KCLT's
+`building91` 3.63 m onto the terminal floor moves 2,406 taxi-family vertices
+(worst 2.07 m) through the pad's frontage and no-step welds, with the apron
+reach off. The owner's own clause decides it.
+
+5. A member pad whose merge onto the cluster plane would move any
+   taxi-family vertex by more than `hard_tol_m` KEEPS ITS OWN PLANE
+   (reported with the pad, the taxi vertices and the metres); the cluster
+   plane is the plurality pad's, the unit datum is unchanged, and every
+   object on the yielding pad is still seated on the floor by §16g (5). The
+   gate is decided at generator time from the pad's coupling to the taxi
+   family (the lane measures which coupling carries the movement), never by
+   a post-hoc revert. The apron reach stays disarmed.
+
+BARS: KCLT PAD-ONLY == DISARM by the GATE (the report names `building91`
+as yielding, the taxi vertices and 2.07 m); taxi family byte-identical;
+`building91` 217.89; passengers on the floor (§16g (5) rows unchanged); a
+synthetic twin where a cluster with no taxi coupling merges (union spread →
+0) and one where it yields; OTHH plan stage re-timed (`--runs 3`, quiet
+machine); suite twice.

@@ -5295,3 +5295,28 @@ measurement — `comment-prose-may-describe-unlanded-state`).
   may alone be why HECA has no cluster pads; lane granted
   `planar/cluster.py` and the cluster wiring in `airport/load.py` /
   `pipeline/build.py` (coordinate with v2cost2 r2 on `load.py`).
+
+## 2026-09-14x Owner: "pads must match building clusters, no building, or cluster can span multiple pads, if it does, it means we didn't identify the building shape or cluster correctly. They should match exactly." — §16g (10) THE PAD IS THE CLUSTER; §16g (8) narrowed
+
+Owner, verbatim: "Agreed, pads must match building clusters, no
+building, or cluster can span multiple pads, if it does, it means we
+didn't identify the building shape or cluster correctly. They should
+match exactly."
+
+* RULING §16g (10): the design surface's `building` PAD IS the
+  cluster's footprint — one pad per cluster, exactly its outline
+  union, one level; and a cluster is ONE BUILDING: bodies chain into a
+  cluster only if their footprints touch (§16g (7)) AND they share one
+  authored floor level (within `floor_split_m`, 0.5 m — a body
+  touching at a different authored floor is a different building, its
+  own cluster, its own pad, joined by a declared terrace step). A pad
+  spanning two clusters, or a cluster spanning two pads, is a census
+  CRITICAL (`pad_cluster_mismatch`) — a misidentified shape, never
+  seated over. §16g (8)'s "derived pads within a unit" is NARROWED to
+  this: the offsets between touching clusters ARE the steps between
+  their pads. HECA's 23-pad T3 district must resolve into as many
+  clusters as it has floor levels, each on its own pad.
+* Lane `v2connector` r6 (brief amended): the pad geometry is DERIVED
+  from the cluster (the pad stage reads `airport.clusters`; the
+  footprint-cache pads are the fallback where no cluster exists);
+  consumer census of every pad reader; KCLT control.

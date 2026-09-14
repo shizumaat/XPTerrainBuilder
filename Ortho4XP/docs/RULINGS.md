@@ -4739,3 +4739,73 @@ box product; 6bc998f1). `union_area_m2` is NOT in the stack (14d holds).
   connector set identical on SPJC/HECA/KCLT frames; HECA object stage
   < 120 s; suite twice.
 * Then app 1.0.332 with the VHHH seal fix (`v2bankfoot`).
+
+## 2026-09-14f v2bankfoot round 3 MERGED (b9076372): VHHH unblocked — the unsealed seed was a 1 µm seed clearance, NOT the 13cp marker (14a's attribution corrected)
+
+Interventional, one tree: with `OPEN_BREAKLINE_FEATURES = ()` (13cp's
+marker fully OFF) the SAME seed at (0.876712142, 0.321098147) is
+unsealed — the marker is exonerated (zero degree-1 marker nodes tile-wide;
+both LEMD arms seal with 95 open runs marked). The seed is a FACE seed of
+`adjacent_ground:runway:4:zone2#24` (410 vertices, 767 m × 5.2 km) whose
+`representative_point()` (a scanline construction) landed 0.856 mm inside
+the boundary; `INTERP_ALT_SEED_CLEARANCE_DEG` was 1e-11 (≈ 1 µm), a
+hundred times finer than the map's own 0.11 mm grid — in the encoded
+arrangement the seed sat outside every bounded face. The audit was right
+to refuse. FIX at one site, `O4_Vector_Map.interp_alt_seed_point`:
+`INTERP_ALT_SEED_CLEARANCE_M = 0.5` (derived to degrees); a grazing
+representative point falls back to the pole of inaccessibility
+(`maximum_inscribed_circle`); a face whose inscribed radius is under the
+clearance is dropped (keeps raw DEM); `face.boundary` incl. holes. VHHH
+mesh run rc 0: `all 4030 seed(s) enclosed`, 132 degenerate faces skipped
+(new), 73 open runs still marked; ribbons pinned (attr 8 off > 2 m 249 →
+168, worst −29.8 → +9.9); WATER/SEA unmoved (the `insert_edge` suspect
+stays). Twins 402 on main.
+
+* 14a's "an open chain does not bound a face" was WRONG — recorded.
+* Residual risk: the 0.5 m inscribed-radius floor is measured at VHHH
+  only (132 faces skipped); the 1.0.332 sweep is the cross-check.
+* attr-15 overrides (LEMD 337 / VHHH 155, worst −9.2 / −7.3 m, 09ad (b))
+  — RULED: the bar "PATCH_RING stays 0" is withdrawn; 09ad (b) stands
+  (a coverage ring inside a bank annulus takes the bank field by law).
+
+## 2026-09-14g HECA 1.0.331 items 1/3/4/5 attributed (scout `v2heca331`): PART-BOX chaining hands the rail deck's datum to 1,509 bodies; 57 sliver zone faces; `gap_interior_ring` = a hole whose suppression test fails open
+
+* Item 1/3, one mechanism: `placement_family._clusters` binds on PART
+  BOXES (§16g MEASURED (b), the deviation never done) at 0.5 m; rotated
+  buildings' lat/lon boxes overlap while the FOOTPRINT gaps are 3.5–20 m
+  (hull lower bounds: 138↔Strip_metal 15.4, 143 17.1, 147 17.2, 153 3.5,
+  159 7.2, 160 3.5; `building_texture b44 ↔ concrete_3 b0` 20.4; only
+  viaduct↔viaduct really touches). Unit `fu:38:20@deck`: 978 bodies,
+  2,471 m span, 136 pads spanning 34.8 m; datum = `T3_road.obj` (the
+  rail DECK, a MEMBER reached by the box chain) → DECK > PAD > GROUND
+  gives 96.20 to everything: six of the seven buildings +4.0 … +5.3 m
+  (170 is on its pad, 0.00); the terminal at 30.1279552, 31.403143 pad
+  72.50 → +23.70 m; airport-wide 1,509 bodies at 96.20, 579 > 5 m, 367 >
+  15 m, worst +28.3. CORRECTION to 14c: the connector's high-end seat
+  moves only 9 bodies; the lift is the DECK MEMBER in a box-chained
+  unit. The connector `concrete_3.obj` b1: 1,146 m, south ground ~93.0,
+  north ~73.4 (19.7 m step), seated 96.20.
+* RULING: §16g (7) (1) polygon footprints IS the fix (breaks every hop
+  above; smallest real gap 3.46 m); plus a DECK GUARD the census sees —
+  a deck member lends its datum only to bodies whose footprint POLYGONS
+  touch the deck ring. (7) (2) connector-low stands. Bar: 17 units span
+  > 1 m of pads (1,363 bodies; `fu:38:20` 34.8 m, `fu:41:345` 17.1 m …)
+  → every unit on ≤ 1 pad or span ≤ `hard_tol_m`. Lane: `v2connector`
+  round 3 after its cost round (same files).
+* Item 4: shape 1035 = 15.6 m², inscribed 2.16 m, hole 0 of
+  `cross_connector:pav115`, a zone-1 strip standing at ~106.0 inside a
+  taxiway at 104.4 — +1.3–1.6 m over 7 m ≈ 23 %. §41 (4) at HECA: 57
+  faces / 1,635 m² (51 < 50 m², 43 < 3.0 m inscribed) — use the
+  INSCRIBED circle (2A/P over-counts to 153). Dissolve at the zone
+  emitter BEFORE the hole is cut (trim at the single derivation site).
+* Item 5: `gap_interior_ring` is emitted verbatim from a face's HOLES
+  (`emit/osm_adapter.py:274-276`): the hole is suppressed only when the
+  inner faces' ring EDGES are a superset — here they cover 92 % of the
+  area but not edge-for-edge, so way −10231 (29.3 m², ~1 m wide, hole 1
+  of pav115) ships as a constrained ring straight across
+  `service_road:route4` and two zone strips. 57 such rings at HECA (also
+  shapes 220, 294). RULING: suppress by AREA (inner faces cover ≥ 1 − ε)
+  and refuse any hole narrower than `strip_min_width_m`.
+* Lane `v2slivers`: §41 (4) + the hole suppression. Scout readers
+  `site.py` (coordinate → faces + bodies + unit/datum/float) and
+  `padspan.py` (per-unit pad span) → promote on second use.

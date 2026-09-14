@@ -4720,3 +4720,101 @@ own pad (named); the seven buildings + the terminal at 30.1279552, 31.403143
 on their pads; terrace steps between touching clusters named; KCLT dry:
 the terminal's cluster pad and its members' seats unchanged (13bo, the
 control); SPJC 19.56 dry; airside 0; suite twice.
+
+### §16g (9)–(10) MEASURED (lane `v2padcluster`, 2026-09-14; branch `claude/v2padcluster`)
+
+**THE DRY READ FIRST (the handover's item 1), off the registered HECA
+round-6 frame `HECA_20260914T110528` (rebake plan + graded document).**
+
+*(a) WHAT THE §30 (4) (5) YIELD GATE DISCARDS.*  `cluster_pad
+._touching_component` keeps ONE pad face per cluster and yields the rest:
+
+| cluster | union | pad faces hit | KEPT | area kept |
+|---|---|---|---|---|
+| `unit:42#0` | 404,117 m² / 84 members | 22 (204,419 m²) | 1 — `building7` | 52,330 m² = **25.6 %** |
+| `unit:43#8` | 929,154 m² / 149 members | 73 (294,461 m²) | 1 — `building1` | 63,356 m² = **21.5 %** |
+
+So 14z's reading is exact: the gate starves everything downstream —
+`plane_groups` never merges, `cluster_pairs` counts 0 cross-links and
+`cluster_offsets` bails on `len(floor) < 2`.  Three quarters of the pad
+area a cluster stands on yields to the box-versus-polygon artefact the
+gate was written for.
+
+*(b) THE POPULATION, and (10) (1)'s premise is REFUTED at HECA.*
+24,165 plan bodies in 324 units; **8,290 carry a ground-contact
+component** (a `Part` with `feet`) and 15,875 do not — they are ELEVATED
+and have no ground floor of their own.
+
+| population | clusters | largest |
+|---|---|---|
+| today (part BOXES, `FAMILY_*` + `min_m2` on) | **2** | `unit:43#8` 929,154 m² / 12,198 bodies |
+| (9): outlines at `footprint_touch_m`, gates OFF | **1,251** (444 of ≥ 2 bodies) | 569,608 m² / 9,892 bodies |
+| (10): + floor split over EVERY body's `base_y` | **20,203** | — |
+| (10): + floor split over FOOTED bodies only (14z's GROUND FLOOR) | **2,677** | 541,200 m² / 9,334 bodies |
+
+Splitting on every body's lowest component shatters a tall building per
+storey (20,203 clusters) — exactly what 14z forbids, so the split is
+taken between two GROUND-CONTACT bodies only and an elevated body chains
+by touch alone.  **And the T3 district still does not resolve**: its
+footed bodies stand at 0.00 and −1.00 m and genuinely touch, so at
+`floor_split_m` 0.5 the district stays ONE cluster of 9,334 bodies /
+541,200 m².  14x's "HECA's 23-pad T3 district must resolve into as many
+clusters as it has floor levels" is a premise the plan does not carry:
+the 23-pad span is the emitted PADS' own relief, not an authored floor
+disagreement.  Reported, not decided.
+
+*(c) THE MISMATCH, TAKEN DRY.*  414 emitted `building` pad faces,
+870,563 m².  Against the (9) population: 85 pads span more than one
+cluster (worst 5), 64 clusters span more than one pad (worst 18), and
+**918 of 1,251 clusters cover no pad at all**.  Under (10): 91 / 65 /
+2,118 of 2,524 — the floor split makes the pad↔cluster mismatch WORSE
+(worst pad 5 → 37 clusters), because the pads were never derived from
+the clusters.  The owner's "they should match exactly" is unreachable by
+matching the two populations; only (10) (2)'s derivation reaches it.
+
+*(d) AND IT IS EMITTABLE.*  At the pad law's own floor
+(`[building_pad] min_area_m2` 250) the cluster outlines are **401** pads
+(9: 370) against **414** today — the pad COUNT is unchanged; the covered
+area is 1,541,286 m² against 870,563 m² (1.77×), which is the pack's
+true footprints replacing the footprint cache's.
+
+**THE CONSUMER CENSUS (owner RULINGS 2026-08-30l), taken BEFORE any
+consumer was edited.**  The change does NOT introduce a new shape class,
+role or accessor: what changes is (i) the POPULATION on
+`Airport.clusters` (2 → ~2,677) and (ii) the DERIVATION of the `building`
+pad polygons (the cluster outline union replacing the footprint-cache
+ring).  Every reader of `Airport.clusters` / `PlanCluster`, of the pad
+polygons and of the pad levels:
+
+| pass / reader | what it reads | ruling |
+|---|---|---|
+| `planar/cluster.clusters` | `Airport.partition` + `[placement] footprint_touch_m` / `cluster_pad_min_m2` | **EDITED** — the derivation itself: gates off, outlines, floor split.  `cluster_pad_min_m2` stops filtering the POPULATION and keeps its one remaining job, the threshold a cluster gets a §30 (4) cluster PAD PLANE at |
+| `pipeline/build.py` `[clusters]` say-line + `partition_cache` payload | `len(_clusters)`, `WHY` | UNTOUCHED in contract — the tuple is longer and the cache entry is a pure function of the same fingerprint (the payload's 4th element is the cluster tuple; a stale entry is keyed out by the code fingerprint) |
+| `airport/partition_cache.py` (lane `v2cost2`) | stores/loads the cluster tuple | NOT EDITED — opaque payload; the fingerprint covers the code |
+| `classify/evidence._pads` (the ONE pad derivation site) | `airport.buildings` + `[building_pad] min_area_m2` / boundary / runway / skirt | **EDITED** — one pad per CLUSTER (its outline union), then the SAME four gates unchanged; the admitted footprints NO cluster covers keep today's `unary_union` reading, which is (10) (2)'s "fallback where the plan has no cluster".  `[placement] pad_from_cluster = false` restores today's derivation exactly and is the matched base arm |
+| `classify/evidence._drop_skirted` (§22.2) | the pads + skirted placement footprints | UNTOUCHED — per pad, geometric; a cluster-derived pad is judged by the same cover fraction |
+| `classify/roles.classify` (`pad_union`, :168 / :315) | the pads as ONE union | UNTOUCHED — the union is larger (1.77×), which is the change's intent: the ground under a pack building is a pad, not apron |
+| `airport/load.py` §42 `pad_union` (object pavement) | `dsf:object*` footprints | UNTOUCHED and NAMED AS A DEVIATION — §42 runs at LOAD, before the pack is partitioned, so it cannot see the clusters.  It keeps gating draped object pavement on the footprint-cache polygons; where a cluster pad now covers a §42 body, classify's own pad-over-pavement precedence governs, as it does for a `.pol` page |
+| `pads._pad_groups` / `_pad_polys` (per FACE) | the pad's vertex set / polygon | UNTOUCHED — per face, and a cluster pad IS one face |
+| `pads._pad_rows` → `pad_flats` / `pad_slope_ceiling` | the priced pairs over `plane_groups` | UNTOUCHED in code — under (10) a cluster covers exactly its own pad face, so the merge is the identity and `cluster_pairs`' cross-links are exercised only where classify SPLIT one cluster outline (a runway difference, a multipolygon) |
+| `pads.pad_frontage_level` / `_fronting` / `pad_frontage*` / `pad_shared` / `pad_fronts_airside` / `pad_datum_withdrawn` / `frontage_near_miss` | per-face frontage relation | UNTOUCHED — per face; the pads are bigger, so a cluster fronts what its own outline fronts, which is the correction |
+| `pad_frontage_gs.groundside_frontage_level` (§28) | `_pad_polys` + `pad_fronts_airside` | UNTOUCHED — per face; §28's direction is unchanged |
+| `pad_relief.pad_relief_offsets` (§11a (2)) | pad polygons + the groups' feet | UNTOUCHED — per vertex on the level plane |
+| `no_step.pad_pavement_edges` / `pad_contacts` | pad-to-pavement edges | UNTOUCHED — per face and per edge |
+| `constraints.ceiling` (`CEILING_RULING`, `LEVEL_RULING`) | the ruling HEADS | UNTOUCHED — same heads, same hard set |
+| `constraints/foot_rows.py` (§11b (2)) | `rigid_roles` under a body's feet | UNTOUCHED in code; a body whose ground is now a PAD takes the pad's plane instead of foot rows, which is (10)'s own intent |
+| `verify/pads.pad_flat` (`plane_residual`) | per-FACE flatness | UNTOUCHED — and it is the instrument that reports the cost |
+| `cluster_pad.cluster_polys` | `PlanCluster.boxes` | **EDITED** — reads `PlanCluster.rings` (the true outline), never the part boxes: the box union is the artefact 13ci's yield gate was written to undo |
+| `cluster_pad.cluster_pad_faces` / `_touching_component` | the faces a union intersects | **EDITED** — asked only of clusters over `cluster_pad_min_m2`, and the one-face yield is REPLACED: a cluster's faces are the pad faces its own outline covers.  13ci's union gate survives only for the cluster-APRON reach, which stays DISARMED (13ce) |
+| `cluster_pad.cluster_apron_faces` / `cluster_apron_level` (the reach) | apron vertices near a cluster pad | UNTOUCHED — `[design] cluster_apron_reach_m` is 0 (13ce) |
+| `cluster_pad.cluster_offsets` (§16g (8)) | `PlanCluster.floors` per box, the plurality pad | **EDITED and NARROWED by 14x** — (8)'s within-a-unit derived pads are withdrawn: under (10) each cluster IS one pad at one level, so what remains is the STEP between two TOUCHING clusters' pads, published as a declared joint (§23) and minting no row |
+| `airport/footprint_unit.plan_unit_datums` / `anchor_rule.pad_plurality` (lane `v2cost2` owns `anchor_rule.py`) | the emitted pads under a unit | UNTOUCHED in code — the pad SET changes and a unit's plurality pad is now its own cluster's pad, which is the defect §16g (8) was raised for |
+| `pipeline/publication` | the sidecar `cluster_pads` | **EDITED** — additive: `floor`, `rings_area_m2`, `touching_steps`; `yielded_pads` keeps its key and goes empty |
+| `tools/check_grade.py` `LAW_FAMILIES` + `law/families.toml` | the census families | **EDITED** — new CRITICAL family `pad_cluster_mismatch` |
+| `tools/pad_span_census.py` | a unit's bodies' pads and their span | UNTOUCHED — it reads the emitted pads and the plan, and is the before/after instrument |
+
+**THE DEVIATION, NAMED.**  §42's object-pavement `pad_union` is read at
+LOAD, one stage before the pack partition exists, so it cannot be the
+cluster pads.  Moving the pack partition ahead of `load`'s §42 block is a
+pipeline re-ordering this lane did not take; the interaction is left to
+classify's existing pad-over-pavement precedence and reported here.

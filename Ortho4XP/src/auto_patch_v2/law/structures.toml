@@ -361,6 +361,16 @@ floor_plate_normal_y_min = 0.7     # a solid face is a FLOOR PLATE when |normal_
 # every OTHH drainage / dewatering bank 0.20 - 0.29 (Drainage_01's 3,360 m2
 # ring, the one that also spans its pit, reads 0.26).  Set between them.
 ramp_max_grade = 0.15
+# A BASIN'S RAMP CORRIDOR IS RE-NODED AT ITS STATIONS (spec §24 (8), owner
+# RULINGS 2026-09-14s).  §24 (5)'s "the floor under a ramp corridor follows
+# the deck per station" has no vertices to land on: the constraint half pins
+# EXISTING planar vertices only, so VHHH's basin_floor:5#1 (2,794 m2, 6.9 m
+# of drop) carried FOUR interior vertices and a 42 % mouth step — a
+# four-triangle fan where the pack authors a ramp.  The basin pass cuts the
+# corridor's ring at every station along its climb axis before emission, the
+# structures pass's stationed ramp being the model; the same 2 m the
+# corridor machinery uses ([cutout].station_m).
+ramp_station_m = 2.0
 rim_reaches_grade   = true         # THE RIM TEST (04i; v1's pit seed PIT_SEED_MAX_ABOVE_GRADE_Y_M = the ground band): a floor witness's shell TOPS OUT within contact_band_m of the local ground — a shell passing through the ground is a BUILDING standing on the pack's flat plane over real relief (LEMD cargo terminal: slab 5.8 m under the local ground, walls 15 m above it), REFUSED by resource with its height; the ring-station openness (stations farther than footprint_close_m from the members' at-grade geometry) is REPORTED per basin, never a refusal (OTHH's owner-accepted Dewatering pits read 1–2 of 46 stations open where a buried culvert leaves the shell)
 # THE RIM IS THE SHELL'S GROUND-CONTACT RING (RULINGS 2026-09-06f (970)): solids
 # of the SAME component standing above the contact band are cover or

@@ -31,6 +31,7 @@ from shapely.geometry import LineString
 from ..law import Law
 from ..law.cutout_schema import WALL_BOTTOM
 from ..law.tables import role_side
+from ..model.structures import profile_z
 from ..airport.wall_corridors import CLASS_GARAGE
 from .object_corridor import Group
 from .structure_approach import unit
@@ -121,8 +122,28 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     pad) runs to the pavement EDGE — the exact station one grid step
     short of where the axis enters the cell (the stations' granularity
     gave up to a station of run) — and steepens to reach the ground there
-    up to ``max_ramp_grade``; above it the corridor is refused loudly,
-    never a portal face.  ``(ss, geom, s_top, design_grade, refusal)``."""
+    up to ``max_ramp_grade``.
+
+    A CLIMB THAT CANNOT REACH AIRSIDE MOVES ITS MOUTH AWAY FROM AIRSIDE
+    (spec §34 (8) as amended, owner RULINGS 2026-09-14u — which supersedes
+    14p's portal).  Where the steepened climb still cannot reach the ground
+    inside ``max_ramp_grade``, the corridor's MOUTH — where its flat trench
+    floor ends and the climb begins — is moved AWAY from the airside edge,
+    toward and if need be under the building, by the run the cap needs
+    (``rise / max_ramp_grade`` minus the run available).  The ramp then runs
+    at the cap from the moved mouth and reaches the ground at the pavement
+    edge at full depth under the building; there is no step, and the airside
+    cell is never pulled.  Measured at OTHH ``Terminal_Base_2_5.obj@0``:
+    1.88 m of rise with 17.1 m of run = 11.0 % against the 10 % cap, so the
+    mouth moves 1.7 m back under the terminal (recovering the grid step the
+    stop is snapped short by leaves 10.7 %, so the move is the rule, not a
+    rounding).  The corridor is refused only where the climb runs the WRONG
+    WAY (the ground at the stop stands under the trench floor), or where
+    moving the mouth would push it past the corridor's own far end.
+
+    ``(ss, geom, s_top, design_grade, refusal, climb_from)`` — ``climb_from``
+    is the MOVED mouth, unchanged when the ramp reaches the ground as it
+    stands."""
     geom = regeom(ss)
     stop_poly = next((p for p, ref in stop_list if ref == clipped_by), None)
     if stop_poly is not None and s_top + spacing <= axis_ln.length:
@@ -141,34 +162,61 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     run = s_top - climb_from
     rise = (top_ground - mouth_z) if not math.isnan(top_ground) else math.inf
     g2 = rise / run if run > 1e-6 else math.inf
-    if not (0.0 <= g2 <= wc.max_ramp_grade + 1e-9):
+    if g2 < 0.0 or math.isinf(g2) or math.isnan(g2):
         return ss, geom, s_top, g2, (
-            f"the climb stopped by {clipped_by} at s {s_top:.1f} would need {100.0 * g2:.1f} % "
-            f"over {run:.1f} m to reach the ground {top_ground:.2f} (> max_ramp_grade "
-            f"{100.0 * wc.max_ramp_grade:.0f} %; 2026-09-08m (a))")
-    return ss, geom, s_top, g2, None
+            f"the climb stopped by {clipped_by} at s {s_top:.1f} runs the wrong way: "
+            f"{run:.1f} m of run for {rise:.2f} m of rise to the ground {top_ground:.2f} — "
+            f"a trench standing over its own ground is no corridor (§34 (8))"), climb_from
+    if g2 > wc.max_ramp_grade + 1e-9:
+        # §34 (8) as amended (14u): MOVE THE MOUTH away from airside by the
+        # run the cap needs, and run the ramp at the cap from there
+        need = rise / wc.max_ramp_grade
+        moved = s_top - need
+        if moved < -1e-9:
+            return ss, geom, s_top, g2, (
+                f"the climb stopped by {clipped_by} at s {s_top:.1f} needs {need:.1f} m of run "
+                f"at max_ramp_grade {100.0 * wc.max_ramp_grade:.0f} % for {rise:.2f} m of rise, "
+                f"and the corridor is only {s_top:.1f} m long — the mouth cannot move that far "
+                f"back (§34 (8), 14u)"), climb_from
+        moved = max(0.0, moved)
+        ss = sorted(set([s for s in ss if abs(s - moved) > 1e-6] + [moved]))
+        geom_m = regeom(ss)
+        if geom_m is not None:
+            geom = geom_m
+        return ss, geom, s_top, rise / max(s_top - moved, 1e-9), None, moved
+    return ss, geom, s_top, g2, None, climb_from
 
 
-def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, axis_fn
-                          ) -> tuple[tuple, float | None]:
+def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, axis_fn,
+                          climb_from: float | None = None) -> tuple[tuple, float | None]:
     """The profile published to the generator (spec §6a row 19): the wall
     bottom inside the walls, then the design line from the wall end's
-    floor to the ground at the top.  ``(profile, top ground)``."""
+    floor to the ground at the top.  ``(profile, top ground)``.
+
+    WITH A MOVED MOUTH (spec §34 (8) as amended, RULINGS 2026-09-14u) the
+    climb starts at ``climb_from`` instead of the wall end — back under the
+    building — so the wall bottom's own stations BEYOND that point give way
+    to the ramp's line: the trench reaches full depth at the moved mouth and
+    the ramp runs at the cap from there to the ground."""
     prof = list(g.profile)
+    knee = g.hull_s if climb_from is None else min(float(climb_from), g.hull_s)
     top_ground = None
-    if g.climbs and s_top > g.hull_s + 1e-6:
-        z_end = prof[-1][1] if prof else mouth_z
+    if g.climbs and s_top > knee + 1e-6:
+        z_end = profile_z(tuple(prof), knee) if prof else mouth_z
         top_ground = float(airport.dem.z(*axis_fn(s_top)))
+        prof = [p for p in prof if p[0] <= knee + 1e-6]
+        if not prof or abs(prof[-1][0] - knee) > 1e-6:
+            prof.append((float(knee), z_end))
         for s in ss:
-            if s > g.hull_s + 1e-6:
-                prof.append((float(s), z_end + design_grade * (s - g.hull_s)))
+            if s > knee + 1e-6:
+                prof.append((float(s), z_end + design_grade * (s - knee)))
         if not math.isnan(top_ground):
             prof[-1] = (prof[-1][0], top_ground)
     return tuple(prof), top_ground
 
 
 def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, top_ground,
-                       clipped_by) -> str:
+                       clipped_by, moved_m: float = 0.0) -> str:
     """The per-site line the report quotes."""
     tg = float("nan") if top_ground is None else top_ground
     return (f"wall corridor (2026-09-08m/n Law C, {c.cls}) of {c.resource}: floor = the wall "
@@ -177,4 +225,9 @@ def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, 
             f"{c.width_m:.1f} m, ends {c.ends}"
             + (f"; climb {s_top - climb_from:.1f} m at {100.0 * design_grade:.2f} % to the ground "
                f"{tg:.2f}" if g.climbs else "; no climb: the authored ramp meets the ground")
-            + (f" — STOPPED at {clipped_by} and steepened (08m (a))" if clipped_by else ""))
+            + (f" — STOPPED at {clipped_by} and steepened (08m (a))" if clipped_by else "")
+            + (f"; THE MOUTH MOVED {moved_m:.2f} m AWAY FROM {clipped_by}, back under the "
+               f"building, to s {climb_from:.1f}: the ramp runs at "
+               f"{100.0 * design_grade:.1f} % (max_ramp_grade) from there and reaches the ground "
+               f"at full depth — no step, and the airside cell is never pulled "
+               f"(§34 (8) as amended, 14u)" if moved_m > 1e-9 else ""))

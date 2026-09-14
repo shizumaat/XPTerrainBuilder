@@ -5414,3 +5414,127 @@ equal). Suite 1,426 twice. Left named: VHHH `extend_partition`
 (`contact.extend:781-783`, needs a VHHH capture); the object-stage
 sinks (`_seg_gap2`, `comp_cluster`, `split_obj8`); OTHH exercises no
 `extend_partition` (0 plate objects) — the rebuild path is twin-proved.
+
+## 2026-09-14ac v2othhfix MERGED (40cc2516): OTHH basins floor/region 0.20 → 0.87, ramp stations 837 → 207 (profile unchanged to 0.0000 m), the under-terminal corridor cut with both mouths moved 1.78 m; VHHH basin ramp 9 → 205 vertices
+
+Lane `v2othhfix` @ 9c982d04 (closing OTHH build `v2othhfix2` at
+8e92e26a, ledger 20d817adcf38, rc 0, verify rows 493 → 488, ADJUDICATED
+1,764 → 1,766, planar −2 %; suite 1,455 twice; 1,448 on main). §24 (7):
+buried plates per ring named (`buried_skipped`, 19 lines — the
+2,998 m² and 4,744 m² Dewatering floors taken), the region floor;
+basin:6 879 → 3,852 m² of 4,330; stations above −9.18 316 → 45 of 396
+(emitted surface; the 45 in the 0.5 m wall band); the 0.95 bar is
+unreachable against the whole region because §24 (1)'s 0.5 m rim
+stand-off is 5–17 % of these snaky regions — 0.93–1.00 against
+rim-minus-stand-off. §24 (8): VHHH `basin:5`'s ramp corridor 9 → 205
+vertices at `[basin] ramp_station_m` 2.0. §34 (7): `collapse_stations`
+after the profile — 41 groups 837 → 207 stations, profile identical at
+all 399 former stations. §34 (8) amended: `Terminal_Base_2_5@0/a,/b`
+cut, each mouth moved 1.78 m under the terminal at exactly 10 %;
+`Qatar_DutyFree_003.obj@1/a` now refused BY NAME (needs 122.1 m of run
+at 10 %, the corridor is 106.0 m). Airside moved > 0.1 m: 0 at the
+corridor; 43 airport-wide, all at the Dewatering pits (the §24 (7)
+cut). `planar/basin_geometry.py` split out.
+
+* RULED: the §24 (7) bar is restated against rim-minus-stand-off
+  (≥ 0.95 there — met); a basin region so small that the stand-off
+  eats its floor (basin:9 158 m², VHHH ~35 m² jetway pits) takes a
+  scaled stand-off, min(0.5 m, inscribed_radius/4) — owed to the next
+  basin round, not this merge.
+* OWNER (small): `Qatar_DutyFree_003.obj@1` — its mouth would have to
+  move 16 m PAST the corridor's authored far end to hold 10 %. Under
+  14u as worded the mouth moves "enough" — beyond the wall object,
+  under the building? Or does a corridor that cannot fit its ramp
+  stand down (today)?
+* Not done: LEMD basin:0 control (the change moves every basin by
+  design); no mesh run for the basin bar; the build predates two
+  move-only commits and the v2cost2 merge.
+
+## 2026-09-14ad APP 1.0.333 BUILT (engine 1.50.1779): the VHHH tunnel back, OTHH basins/ramps/underpass, apron necks, slivers, the six chips, the cost cuts — bank still OFF; pads-match-clusters NOT yet in
+
+Main d7ac5c07 + version bump. Over 1.0.332: §40 (4) shoulder
+manufactures no region (14y — VHHH tunnel back); §24 (7)/(8), §34
+(7)/(8) (14ac — OTHH basin floors, 8-node ramps, the under-terminal
+corridor cut); §43 apron necks (14l); §41 (4) slivers + hole rings
+(14k); v2cost2 r1+r2 (14v/14ab — partition cache 31 MB, OTHH patch 632
+→ 299 s warm); v2gradecache r3 (14t); the six chips (14aa); v2connector
+r3–r6 (14j/14o/14z — outlines, the rail low, the deck lift gone).
+NOT in it: §16g (9)–(10) pads = clusters (lane `v2padcluster`
+running); HECA item 3 (apron cap / split — owner questions 13de); the
+KCLT tile (owner's DEM refresh). Every airport's first build is COLD
+for the partition cache (pays the partition once; the second build of
+a tile is the warm number).
+
+* What to read: VHHH 22.30368, 113.92917 (the tunnel ramp and open
+  wall back); OTHH the basin at 25.2523246, 51.6245625 (floor across
+  the span), the terminal ramps (8-node), the corridor under the
+  terminal at 25.26621, 51.61134 (cut, mouths moved 1.78 m); HECA
+  shape 344's neck (30.1141763, 31.4114194 → the taxiway carries the
+  slope), the hump at 30.1110278, 31.4062316 gone, the ring at
+  30.1107301, 31.4062627 gone; HECA's buildings still float where
+  clusters span pads (1.0.334).
+* Process: the app-build gate now uses `pgrep -fl … | grep -v pgrep`
+  — the earlier `pgrep -f` matched its own shell and refused a build
+  on an idle machine.
+
+## 2026-09-14ae OTHH corridors KML (scout `v2othhkml`): ONE through-corridor under the main terminal, 77.8 m of authored wall, 112 m axis-to-axis with both ramps; deep objects never offered as candidates
+
+Owner: "I believe the tunnel under the building would be close to 90m
+total, with a ramp on either end … Could you generate a KML file
+showing where you find corridors under the terminal building that
+have subsurface walls". KML delivered (`othh_corridors.kml`, the
+`v2othhfix2` closing build + the `a5_OTHH` dry structures arm): 25
+admitted-and-cut, 48 admitted-no-ramp, 26 refused candidates; 107
+emitted faces; 14 terminal pad ways; 13 wall objects.
+`OTHH_Terminal_Base_2_5.obj@0` IS the one through-corridor: `/a` and
+`/b` are its two halves from the midpoint 25.266166, 51.6113547;
+authored wall 77.79 m (bands 432/433, 9.85 m apart), full-depth level
+run 74.24 m, ramps 18.89 m at 10.00 % each end, axis end-to-end 112.0
+m; floor 2.074, crest 3.962, headroom 4.31. The five
+`Terminal_Base_2_1` corridors are CLOSED BAYS (6.3 m of wall, one
+ramp each). `Qatar_DutyFree_003.obj@1` (25.283218, 51.604172) is the
+only refused one near the terminal area (12.21 m deep, needs 122 m
+run, has 106).
+
+* OWED: objects with authored geometry ≥ 1 m below zero near the
+  terminal that appear in NO candidate row —
+  `TerminalRoads_Parking_005.obj` (−9.09 m), `TerminalRoads_03_005`
+  (−4.73), `Terminal_Base_9_6` (−1.89), `Terminal_Base_4` (−1.35) and
+  ~15 more; depth alone is not candidacy (a readable band PAIR is), and
+  the structures dump publishes no band-per-object table. A band-level
+  dump (`wall_corridors` per object: bands found, pairs formed, why
+  not) is the next instrument; then a read of the −9.09 m one.
+* The pack's `o4_dsf_object_positions` cache carries positions without
+  names — a true per-placement footprint needs the placement plan.
+
+## 2026-09-14af The "unconsidered deep objects" at OTHH read through the reader (scout `v2othhbands`): none is a missed tunnel — 14ae's premise (depth ⇒ candidacy) refuted
+
+`TerminalRoads_Parking_005.obj` (−9.09 m) = 51 copies of one 3.5 × 2.5
+× 9.36 m post (the same mesh as `Bridge_03_CLUTTER_LOD0_005`) stepping
+down the car park's ramps in a ladder of authored offsets — a
+balustrade/column row, no floor plate, no wall band (cap 2.25 m >
+`wall_face_max_thickness_m` 2.0; runs 3.5 m < `min_wall_length_m` 5);
+basin and tunnel-object passes refuse it BY NAME. `03_005`: 3 of the
+same posts. `03_003`, `02_003`: parking DECK plates (caps 9–31 m and a
+41 × 399 m road deck). `01_003`: a 519 × 232 m viaduct colonnade of
+3.1 m piers (runs 0.6 m). `Terminal_Base_9_6` (−1.89): its two 58 m
+sheets PAIR and are merged into the through-corridor `Terminal_Base_2_5
+@0` (W71/W72) — invisible by NAME only (the record is named by the
+longest member). `Terminal_Base_4` (−1.35): 4.87 m sheets refused at
+`min_wall_length_m` 5.0 by 0.13 m, but its vertical faces feed the
+`Terminal_Base_2_1` bays as END-CAP geometry. Every terminal object's
+placement shares one anchor (25.265161, 51.611794; 30 members).
+
+* Nothing to cut that is not cut; the one true through-corridor
+  stands (14ae). Owed, small: the wall-corridor record should name
+  EVERY contributing object (band provenance is discarded at
+  `wall_geometry.py:257`); `Parking_005`'s posts poking through the
+  mesh (−5.13 … +4.23 vs DEM 3.96) are a REBAKE/seat item for the
+  object stage (the posts are authored to ride a ramp we do not cut).
+
+## 2026-09-14ag Owner confirms the OTHH through-corridor: "the through corridor you found in the KML is the one I want, and appeared missing in the last build. I will check it in the next build."
+
+`OTHH_Terminal_Base_2_5.obj@0` (14ae) is the owner's corridor; it was
+refused in 1.0.332 (13db: the 11 % climb-out) and is cut in 1.0.333
+(14ac: mouths moved 1.78 m under the terminal). The 1.0.333 OTHH read
+is its acceptance.

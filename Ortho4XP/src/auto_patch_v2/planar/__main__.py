@@ -439,6 +439,8 @@ def structure_records(airport, cl, law) -> dict:
                     "ramp_rings_ll": [[list(ll(p)) for p in r] for r in b.ramp_rings],
                     "notes": list(b.notes)} for b in basins],
         "basin_refused": list(bstats.refused),
+        # §24 (7) (a): every component skipped as buried, named
+        "buried_skipped": list(bstats.buried_named),
         # THE AT-GRADE READ, TIMED (owner RULINGS 2026-09-13bp (iii))
         "grade_read": {"seconds": round(bstats.grade_geometry_s, 2),
                        "calls": bstats.grade_calls, "unions": bstats.grade_unions,

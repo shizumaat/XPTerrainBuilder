@@ -493,7 +493,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # senior to the pad (08-26): only its ramp BEYOND the walls is
         top_pinned = g.climbs
         clipped_by = ""
-        portal_m = 0.0
+        moved_m = 0.0
         ss = [s for s in ss if s <= s_top + 1e-9]
         beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         # a door ramp's HOST cells: the ones its well stands in (cut like
@@ -561,7 +561,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             continue
         if c is not None and g.kind == WALL_KIND and clipped_by and g.climbs:
             # Law C (08m (a)): run to the pavement EDGE and steepen, or refuse
-            ss, geom, s_top, design_grade, why, portal_m = stop_and_steepen(
+            ss, geom, s_top, design_grade, why, moved_to = stop_and_steepen(
                 airport, wc_law, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,
                 stop_list, stop_tree_g, host, beyond, grid, spacing_g,
                 lambda ss_try: geometry(axis_fn, ss_try, half, rim_off, inward, grid, g.capped,
@@ -569,11 +569,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if why:
                 stats.refused.append(f"{tid}: {why}")
                 continue
-            # §34 (8): with a PORTAL the top is NOT at the ground — the
-            # ramp ends at the pavement edge and the portal face (the same
-            # one a clipped ramp already gets, 08-07 ruling 3) carries the
-            # residual step.  Pinning it would pull the airside cell.
-            top_pinned = portal_m <= 1e-9
+            # §34 (8) as amended (14u): the MOUTH moved away from airside by
+            # the run the cap needs, back under the building; the ramp runs
+            # at the cap from there and still reaches the ground
+            moved_m, climb_from = climb_from - moved_to, moved_to
+            top_pinned = True
         # ── §34 (7): THE STATIONS ARE THE SAMPLING, NOT THE EMITTED SHAPE
         # (owner RULINGS 2026-09-14n item 2 / 2026-09-14p).  The profile is
         # solved above; now a straight constant-grade run collapses to its
@@ -757,9 +757,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 # LAW C (2026-09-08m/08n): the published profile includes the
                 # climb (spec §6a row 19); the site line the report quotes
                 profile_out, top_ground = wall_corridor_profile(
-                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn, portal_m)
+                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn, climb_from)
                 notes.append(wall_corridor_note(c, g, mouth_dem, s_top, climb_from, design_grade,
-                                                top_ground, clipped_by, portal_m))
+                                                top_ground, clipped_by, moved_m))
             else:
                 notes.append(f"sunken road (2026-09-08b/c Law B) of {c.resource}: cut {mouth_z:.2f} "
                              f"= ground {mouth_dem:.2f} − {c.depth_m:.2f}, {g.hull_s:.1f} m along "

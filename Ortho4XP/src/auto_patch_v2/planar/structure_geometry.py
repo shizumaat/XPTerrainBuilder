@@ -280,14 +280,15 @@ def collapse_for_ramp(axis_fn, ss: _t.Sequence[float], half: float, rim_off: flo
     PUBLISH it do: the floor profile inside the walls
     (``wall_corridor_profile`` / Law B's pins, which carry the RECORD's own
     stations and the collapse never touches), the constant-grade design
-    line beyond the knee (the wall end for a Law C corridor, where the
-    climb starts otherwise), and the top at the GROUND where the generator
+    line beyond the knee (the wall end for a Law C corridor, or its MOVED
+    mouth under §34 (8); where the climb starts otherwise), and the top at
+    the GROUND where the generator
     pins it there — the profile BREAKS at that pin, so the collapse has to
     see it.  The knees are protected: no run is ever collapsed through the
     mouth, the start of the climb, the wall end or the top."""
     from ..model.structures import profile_z
     profile = tuple(g.profile)
-    knee = (g.hull_s if wall_kind else climb_from) if g.climbs \
+    knee = (min(g.hull_s, climb_from) if wall_kind else climb_from) if g.climbs \
         else (profile[-1][0] if profile else climb_from)
 
     def z_at(s: float) -> float:

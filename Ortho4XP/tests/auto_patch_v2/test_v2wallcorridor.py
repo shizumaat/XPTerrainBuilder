@@ -398,23 +398,24 @@ def test_a_ramp_meeting_airside_pavement_stops_and_steepens(objs, law):
     assert t.top_s < free[0].top_s
     x, y = t.axis[-1]
     assert profile_z(t.profile, t.top_s) == pytest.approx(airport.dem.z(x, y), abs=1e-6)
-    # ...and a pavement too close to climb to at max_ramp_grade ENDS THE RAMP
-    # AT THE PAVEMENT with a portal face (spec §34 (8), RULINGS 2026-09-14p):
-    # the refusal is the RAMP's, never the corridor's, so the corridor is
-    # still CUT with both its mouths and the airside cell is never pulled
+    # ...and a pavement too close to climb to at max_ramp_grade MOVES THE
+    # MOUTH away from airside, back under the building, by the run the cap
+    # needs (spec §34 (8) as amended, owner RULINGS 2026-09-14u): no step,
+    # the corridor still CUT with both its mouths, the airside cell unpulled
     near = Cell(2, "apron", "apron2", _rect(-60, 50, 60, 200), (), None, None, "airside", "apron", {})
     cl = Classification(tuple(_cells((near,))), (), {}, ())
     _cl3, tunnels2, sst2 = build_structures(airport, cl, law, objects, (), groups)
     assert not [r for r in sst2.refused if "max_ramp_grade" in r], sst2.refused
     assert len(tunnels2) == 2, sst2.refused
-    portal = [t for t in tunnels2 if t.clipped_by == "apron2"]
-    assert len(portal) == 1
-    p = portal[0]
-    assert not p.top_pinned                     # the top is NOT at the ground
-    assert p.design_grade == pytest.approx(wc.max_ramp_grade, abs=1e-9)
-    px, py = p.axis[-1]
-    assert profile_z(p.profile, p.top_s) < airport.dem.z(px, py) - 1e-6
-    assert any("PORTAL" in n and "apron2" in n for n in p.notes), p.notes
+    moved = [t for t in tunnels2 if t.clipped_by == "apron2"]
+    assert len(moved) == 1
+    m = moved[0]
+    assert m.top_pinned                          # the ramp DOES reach the ground
+    assert m.design_grade <= wc.max_ramp_grade + 1e-9
+    assert m.climb_from_s < t.climb_from_s - 1e-6      # the mouth moved back
+    mx, my = m.axis[-1]
+    assert profile_z(m.profile, m.top_s) == pytest.approx(airport.dem.z(mx, my), abs=1e-6)
+    assert any("MOUTH MOVED" in n and "apron2" in n for n in m.notes), m.notes
 
 
 def test_a_descending_wall_bottom_is_a_garage_ramp_cut_as_authored(objs, law):

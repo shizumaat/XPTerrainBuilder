@@ -2589,20 +2589,78 @@ INTERP_ALT_MIN_FACE_AREA_DEG2 = (
 #: boundary than this is not reliably inside ANY implementation's version
 #: of that face, so it is no seed at all.  One MICROMETRE in degrees: an
 #: honest face's representative point stands metres clear.
-INTERP_ALT_SEED_CLEARANCE_DEG = 1.0e-11
+#
+# THE CLEARANCE IS THE ENCODING'S OWN QUANTUM (owner RULINGS 2026-09-13cp
+# follow-up; the VHHH +22+113 refusal, measured 2026-09-14).  One
+# micrometre was FAR below anything the vector map can hold: it snaps
+# every node onto a 1e-9 degree grid (``snap_to_grid(9)``, 0.11 mm),
+# ``are_encroached`` moves a crossing onto an endpoint on a dimensionless
+# 1e-8, and §39 (i)'s weld may move a constrained node by
+# ``Vector_Map.weld_spacing_m``.  MEASURED at VHHH on app 1.0.331: the
+# face seed (0.876712142, 0.321098147) stands 0.856 mm inside its own raw
+# face -- a scanline representative point that grazed the boundary of
+# ``adjacent_ground:runway:4:zone2#24``, a 767 m x 5.2 km graded strip --
+# and in the ENCODED arrangement it is OUTSIDE every bounded face: one
+# marked edge 0.78 mm away and the next 13 m away.  The seal audit
+# refused the tile (correctly: Triangle4XP's plague would flood the whole
+# land component from it) and the owner's build died in the mesh step.
+#
+# So the floor is stated in METRES and derived: a seed nearer its face's
+# boundary than the map can move that boundary is not in the ENCODED face
+# at all, whatever the raw polygon says.
+INTERP_ALT_SEED_CLEARANCE_M = 0.5
+INTERP_ALT_SEED_CLEARANCE_DEG = (
+    INTERP_ALT_SEED_CLEARANCE_M / 111320.0
+)
 
 
 def interp_alt_seed_point(face):
     """The point to seed ``face`` at, or ``None`` when the face cannot
-    hold one — too small to hold a mesh vertex, or so thin that its own
-    representative point lands on its boundary.  Either way it is a noding
-    artifact of two near-coincident ways, not a region to seed."""
+    hold one — too small to hold a mesh vertex, or so thin that no point
+    of it stands :data:`INTERP_ALT_SEED_CLEARANCE_M` clear of its own
+    boundary.  Either way it is a noding artifact of two near-coincident
+    ways, not a region to seed.
+
+    THE REPRESENTATIVE POINT IS NOT THE DEEPEST POINT (2026-09-14).
+    ``representative_point`` is a horizontal-scanline construction: on an
+    ample but re-entrant face it can graze the boundary, and at VHHH it
+    grazed a 5.2 km graded strip's boundary by 0.856 mm.  Dropping the
+    face on that alone would throw away a real region, so the short
+    representative point falls back to the POLE OF INACCESSIBILITY — the
+    interior point farthest from the boundary.  Only a face whose
+    INSCRIBED RADIUS is under the clearance is dropped, and such a face is
+    under a metre wide: it holds no mesh vertex and the mesh's own
+    interpolation carries it.
+    """
     if face.area < INTERP_ALT_MIN_FACE_AREA_DEG2:
         return None
+    # ``boundary``, not ``exterior``: a seed grazing a HOLE's edge is as
+    # unreliable as one grazing the outer ring.
+    boundary = face.boundary
     seed_point = face.representative_point()
-    if face.exterior.distance(seed_point) < INTERP_ALT_SEED_CLEARANCE_DEG:
+    if boundary.distance(seed_point) >= INTERP_ALT_SEED_CLEARANCE_DEG:
+        return seed_point
+    deepest = _pole_of_inaccessibility(face)
+    if (deepest is not None
+            and boundary.distance(deepest) >= INTERP_ALT_SEED_CLEARANCE_DEG):
+        return deepest
+    return None
+
+
+def _pole_of_inaccessibility(face):
+    """The interior point of ``face`` farthest from its boundary, or
+    ``None`` when it cannot be computed.  A refinement, never a build
+    stopper — every failure returns ``None`` and the caller drops the
+    face, which is the conservative direction."""
+    try:
+        import shapely as _sh
+
+        spoke = _sh.maximum_inscribed_circle(
+            face, INTERP_ALT_SEED_CLEARANCE_DEG / 10.0)
+        point = geometry.Point(spoke.coords[0])
+        return point if face.contains(point) else None
+    except Exception:
         return None
-    return seed_point
 
 
 def is_degenerate_interp_alt_face(face):

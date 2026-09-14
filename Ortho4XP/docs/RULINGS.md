@@ -5844,3 +5844,14 @@ test."
   pinched run gains its length and the grade drops. Lane `v2othhfix`
   r3; then app 1.0.335-candidate (OTHH-only change) for the owner's
   test.
+
+## 2026-09-14ar Owner on 1.0.334 OTHH: "all the other tunnel walls seem right, but the tunnel wall object is missing for this tunnel: 25.2697569, 51.6055534"
+
+* Added to lane `v2othhfix` r3 as a READ first: the tunnel at that
+  coordinate (which corridor/bore in the structures dump), the pack's
+  wall object(s) there (resource, placement), and what the object
+  stage did with them in the 1.0.334 rewritten DSF (`o4_v2_placement
+  _OTHH.json`: skipped / converted to on-ground / split — is the wall
+  body missing from the DSF, seated below the mesh, or never authored
+  at that tunnel?). Fix in the same round if it is the object stage's
+  (a dropped/converted wall body); otherwise a named item.

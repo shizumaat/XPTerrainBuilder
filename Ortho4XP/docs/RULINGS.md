@@ -5257,3 +5257,41 @@ the verify clock: `census_frame` hands the pipeline its `Patch`;
   and re-places the few members `extend` touches; ≤ 60 MB; and the
   `classify` regression closed (warm partition+classify ≤ 40 s). Lane
   `v2cost2` r2 BEFORE app 1.0.333 ships the cache.
+
+## 2026-09-14w v2connector round 5: §16g (8) implemented and INERT at HECA — the design-surface CLUSTER and the object-stage UNIT are two populations; `airport.clusters` is EMPTY at HECA solve time — ruled: one population; lane r6
+
+Lane `v2connector` @ 2e97d822 (HECA build `HECA_20260914T104957`, rc
+0, byte-for-byte round 4's pad census). `PlanCluster.floors` (authored
+`base_y` per box), `cluster_pad.cluster_offsets` (reference = the
+plurality pad, the one `pad_plurality` hands the unit; lowest floor on
+a shared pad; `pad_offset_spread`), `pads._pad_rows` folds the offsets
+into the existing `rel=` channel (no new row kind), publication
+reports `reference_pad` / `derived_pads`. Suite 1,415 twice. BUT
+`pad_flats.cluster_cross_links = 0` at HECA — no §30 (4) cluster-pad
+group forms, so the derivation is unreachable. Two causes: (a)
+`cluster_pad.py`'s docstring ("the same relation the object stage
+binds with") is FALSE — `plan_clusters` uses part BOXES at
+`contact_eps_m` 0.002 m with the FAMILY_MIN_MEMBERS / FAMILY_SHARE_MIN
+/ `cluster_pad_min_m2` gates; the object stage uses footprint OUTLINES
+at `footprint_touch_m` 0.5 m with no gates (§16g (7)); (b)
+`airport.clusters` is EMPTY at HECA solve time although
+`plan_clusters` on the same plan returns 2 clusters (largest 926,525
+m²) — a load/planar wiring gap in `planar/cluster.py` / `load.py`
+(possibly the partition cache path — v2cost2 merged after the lane's
+base). The lane owns the census miss (a docstring read, not a
+measurement — `comment-prose-may-describe-unlanded-state`).
+
+* RULING §16g (9): ONE POPULATION. The design-surface cluster IS the
+  object-stage unit: `plan_clusters` adopts the §16g (7) relation
+  (footprint outlines at `footprint_touch_m`), one derivation for
+  both; the family gates go; `cluster_pad_min_m2` (5,000 m²) stays as
+  the threshold for emitting a cluster PAD (§30 (4)–(5): the touching
+  component's plane, now the reference pad + the §16g (8) derived
+  pads). Consumer census of every cluster reader in ONE table first —
+  KCLT's load-bearing cluster pad (the passengers on the terminal
+  floor, 13bo) is the control that must not move.
+* The wiring gap (b) is measured FIRST (why `airport.clusters` is
+  empty at HECA — is it the gates, the cache, or the load path) — it
+  may alone be why HECA has no cluster pads; lane granted
+  `planar/cluster.py` and the cluster wiring in `airport/load.py` /
+  `pipeline/build.py` (coordinate with v2cost2 r2 on `load.py`).

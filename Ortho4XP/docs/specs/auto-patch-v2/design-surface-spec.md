@@ -6700,6 +6700,33 @@ padding is now part of the MEMBERSHIP (`keep[i] = flags[i-1] or flags[i]
 or flags[i+1]`, then maximal cyclic runs of `keep`), twinned, and both
 arms read 0 — the LEMD base's own 5 duplicates are gone with them.
 
+#### THE CLOSING BUILD OF THE ARM AS RULED (RULINGS 2026-09-13dh)
+
+ONE HECA build of `claude/v2roadcontact` **`9eaebbf8`** on merged main
+`38dd98be`, tag **`v2roadcontactHECA3`**: **rc 0**, 332.5 s,
+`status feasible`, `body_sha 8bbae5f33254`, artifact ledger
+**`5e3f94ef2db6`**, **`[guard] shared repo UNCHANGED`** (full-surface
+before/after snapshot), lock churn 18 operations (coordination state).
+v2 verify 21,797 rows and **`verify_defects {}` — the DEFECT families the
+app's driver gates on are EMPTY**.
+
+| the built patch | value |
+|---|---|
+| ADJUDICATED | 14,850 — **airside 14,506 / groundside 300** / mixed 44 |
+| LAW-TRUE | 33,242 |
+| `road_cross_section` | **27** (all groundside) |
+| `transverse` | 1,575 (airside 1,409 / groundside 166) |
+| `road_coverage_join` | 0 |
+| `route0`'s end vs the nearest airside edge (`pav74`, 4.34 m away, level 106.627) | **106.65 — +0.023 m** (shipped 1.0.329: +1.474 m) |
+| the item-4 pair over 3.05 m | **0.05 m — 1.6 %** (shipped 1.0.329: 1.30 m, 42.6 %) |
+
+The build's ABSOLUTE census is not comparable to the round-1 build
+(`v2roadcontactHECA2`, 12,771 adjudicated): main moved three merges in
+between — §40's runway shoulder alone takes `transverse` 790 → 1,575 and
+`runway_crown` 40 → 183 on both sides of any road arm. The before → after
+attribution is the MATCHED REPLAY PAIR above, both arms cut from the same
+base.
+
 #### Build-time impact statement
 
 Bank pass: CYXY 0.14 s both arms, LEMD 0.54 → 0.51 s.  §37 (1) removes a

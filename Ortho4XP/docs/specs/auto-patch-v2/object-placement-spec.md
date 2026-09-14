@@ -4553,3 +4553,23 @@ offset: the second-floor concourse floor, which is exactly the relation
 (`showel.obj`, `water_tank.obj`) are written at **221.44**, the pad
 plane itself.  Under 13by's earlier reading all of them would have been
 left to the drape and the +4.00 m would have been lost.
+
+**§16g (1) PLAN-WIDE, THE OTHH PLAN STAGE RE-TIMED (lane `v2clusterpad`
+round 5, owed since round 2).**  The grid was deleted as refuted in round
+3 (`plan_units` grid 557.5 s against the sweep's 485.7 s for identical
+clusters); this is what the shipped sweep costs.
+
+| arm | OTHH plan stage |
+|---|---|
+| §16f, per-unit (round 2 base) | 237.66 s (with the OBJ8 cut) |
+| §16g per-unit (round 2) | 249.43 s (with the cut) |
+| §16g PLAN-WIDE, first arm (round 2) | 808.61 s (with the cut) |
+| **§16g plan-wide, grid deleted (round 5)** | **436.53 s (with the cut)** — ONE run, and CONTENDED (another lane's build started inside it), so it is an upper bound, not a timing |
+| the same, `--no-cut`, quiet machine, 3 runs | **367.87 / 371.73 / 366.13 — mean 368.58 s**, spread 1.5 % |
+
+So plan-wide costs OTHH roughly **1.75x** the per-unit reading (436.5
+against 249.4), down from the 3.2x the first arm measured.  The cost is
+`bodies_of_plan` and the PART-BOX product inside `_clusters._bind`, not
+the pairing sweep — which is also where §16g (2)'s undone polygon
+footprints would have to be paid for, so the two are one piece of work.
+A clean exclusive with-cut `--runs 3` is still owed.

@@ -5476,3 +5476,33 @@ a tile is the warm number).
 * Process: the app-build gate now uses `pgrep -fl … | grep -v pgrep`
   — the earlier `pgrep -f` matched its own shell and refused a build
   on an idle machine.
+
+## 2026-09-14ae OTHH corridors KML (scout `v2othhkml`): ONE through-corridor under the main terminal, 77.8 m of authored wall, 112 m axis-to-axis with both ramps; deep objects never offered as candidates
+
+Owner: "I believe the tunnel under the building would be close to 90m
+total, with a ramp on either end … Could you generate a KML file
+showing where you find corridors under the terminal building that
+have subsurface walls". KML delivered (`othh_corridors.kml`, the
+`v2othhfix2` closing build + the `a5_OTHH` dry structures arm): 25
+admitted-and-cut, 48 admitted-no-ramp, 26 refused candidates; 107
+emitted faces; 14 terminal pad ways; 13 wall objects.
+`OTHH_Terminal_Base_2_5.obj@0` IS the one through-corridor: `/a` and
+`/b` are its two halves from the midpoint 25.266166, 51.6113547;
+authored wall 77.79 m (bands 432/433, 9.85 m apart), full-depth level
+run 74.24 m, ramps 18.89 m at 10.00 % each end, axis end-to-end 112.0
+m; floor 2.074, crest 3.962, headroom 4.31. The five
+`Terminal_Base_2_1` corridors are CLOSED BAYS (6.3 m of wall, one
+ramp each). `Qatar_DutyFree_003.obj@1` (25.283218, 51.604172) is the
+only refused one near the terminal area (12.21 m deep, needs 122 m
+run, has 106).
+
+* OWED: objects with authored geometry ≥ 1 m below zero near the
+  terminal that appear in NO candidate row —
+  `TerminalRoads_Parking_005.obj` (−9.09 m), `TerminalRoads_03_005`
+  (−4.73), `Terminal_Base_9_6` (−1.89), `Terminal_Base_4` (−1.35) and
+  ~15 more; depth alone is not candidacy (a readable band PAIR is), and
+  the structures dump publishes no band-per-object table. A band-level
+  dump (`wall_corridors` per object: bands found, pairs formed, why
+  not) is the next instrument; then a read of the −9.09 m one.
+* The pack's `o4_dsf_object_positions` cache carries positions without
+  names — a true per-placement footprint needs the placement plan.

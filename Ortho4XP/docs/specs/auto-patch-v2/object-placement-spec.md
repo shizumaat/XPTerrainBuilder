@@ -5206,3 +5206,92 @@ keeps a cap-0 core over its non-airside vertices and only the skirt band
 follows), which is the form that did not collapse in the twin; or (iii)
 accept a bounded airside movement with the 0.41 m runway figure as the
 stated cap.
+
+### §16g (10) (8) REFINED — MEASURED, ROUND 5 (lane `v2padcluster`, 2026-09-14; branch `claude/v2padcluster`)
+
+**THREE ARMS, ONE TREE, LAW VALUES ONLY**, all against DISARM
+`v2padclusterHECAdisarm`, all `[guard] shared repo UNCHANGED`:
+
+| arm | `pad_skirt_m` | wall | `body_sha` | ledger |
+|---|---|---|---|---|
+| round 4's scope (the shared vertices) | — | 420.6 s | `1112755a1db9` | `85c18b3071e6` |
+| **the 25 m BAND** | 25.0 | 433.5 s | `ee7d0f56911c` | `b63e49fd65b0` |
+| **SHIPPED** (band 0 = the shared vertices, + 14al's withdrawal) | 0.0 | 451.5 s | `18e51b7d084e` | `a602bba1b858` |
+
+| bar | DISARM | r4 scope | 25 m BAND | **SHIPPED** |
+|---|---|---|---|---|
+| airside moved > 0.02 m, of 21,523 (bar 0) | — | 10,048 | 10,683 | **9,573** |
+| worst airside move | — | 4.55 m | 4.52 m | 4.55 m |
+| **the RUNWAY** | — | 1,021, worst 0.410 | 1,394, worst 0.570 | **885, worst 0.390** |
+| `pad_airside_weld` (bar 0) | 3 (worst 0.085) | 16 (worst 1.135) | 21 (worst 2.42) | **29 (worst 1.135)** |
+| `pad_cluster_mismatch` (bar 0) | 33 | 14 | 14 | **14** |
+| law-true census | 62,103 | 63,904 | 66,771 | **64,844** |
+| the terminal body on `building298` | — | 72.62, +0.08 m | 72.62, +0.00 m | **72.60, +0.07 m** |
+| constraints (bar ≤ +20 %) | 83.46 s | 96.57 (+15.7 %) | 102.43 (+22.7 %) | **109.69 (+31.4 %)** |
+
+**14al's ONE-WAY CLAUSE IS REFUTED FOR THE THIRD TIME, ON A THIRD
+SCOPE.**  14al adds the cap-0 rigid core precisely so round 4's collapse
+cannot recur, and it does not recur — with a core the pad holds.  It is
+still not STABLE: built with the band following the airside one-way,
+§28's own frontage row — which its twin proves moves NOTHING — moved the
+pad **0.12 m**, and at CYXY the census and the engine's verify came apart
+on `mid_edge_step` (**77 against 14**), i.e. the lag leaves residuals the
+two readers do not share.  A one-way row is LAGGED; a pad bound to the
+airside only by lagged rows has nothing holding it inside a round.
+09-10l's precedent is ONE level row per pad against a leader band, with
+the plate still rigid underneath — a whole band of them is a different
+thing.  The band therefore ships TWO-SIDED at the pad's slope ceiling.
+
+**AND THE 25 m WIDTH IS REFUTED BY MEASUREMENT TOO.**  It is WORSE on
+every airside bar — airside 10,048 → 10,683, the runway 1,021 → 1,394 and
+its worst 0.410 → 0.570 m, `pad_airside_weld` 16 → 21 and its worst 1.135
+→ 2.42 m, law-true 63,904 → 66,771 — and buys only the terminal body
++0.08 → +0.00 m.  A wider band softens more of the pad, and a softer pad
+moves more of the apron inside the same ceiling.  `pad_skirt_m` keeps
+25.0 as its documented design value and **ships at 0**, which is NOT "no
+skirt" but the airside-SHARED vertices alone.
+
+**WHAT 14al DID BUY, AND IT IS THE BEST ARM.**  Its other half — WITHDRAW
+the two-sided ceiling row over a pair of two airside-shared vertices —
+is what the shipped arm adds to round 4, and it is worth **4,008 dropped
+pairs**: airside 10,048 → **9,573**, the runway 1,021 → **885** and its
+worst 0.410 → **0.390 m**, law-true 66,771 → 64,844.  The pad no longer
+has any two-sided row between two vertices the airside already owns.
+Counters published per build: `pad_flats.airside_skirt_rows` 4,959,
+`both_skirt_dropped` 4,008, `pads_core_only` 74, `pads_wholly_in_the_band`
+**30** — those 30 are the pads with no plate left (the OSM
+pad-in-an-apron class), which keep their two-sided plate; at the 25 m
+band that count is 55 and is the answer to "how many pads are skirt
+only".
+
+**THE 14 `pad_cluster_mismatch` ROWS, ATTRIBUTED — ONE CLASS.**  12
+`cluster_spans_pads` + 2 `pad_spans_clusters`, and every one is the SAME
+defect: **the cluster piece and the emitted pad ref are cut in different
+places.**  The cluster is cut by `geom.cluster_outlines` (the closed
+outline's connected components, then the airside clip — which is why the
+ids carry `/k`: `unit:43#16/0`, `/1`, `/3`), and the pad ref is cut again
+downstream by `classify/evidence._pads` (the runway difference, the
+boundary gate, `min_area`, §22.2's skirt drop, and the separately-unioned
+FALLBACK footprints, one of which landing inside a cluster piece splits
+it).  `building19` is claimed by `unit:43#16/0` AND `/1` — two pieces of
+ONE cluster over one pad, the two cutters disagreeing about where the cut
+is.  TO REACH 0: a cluster piece must be minted as ONE part and never
+re-cut — `_pads` must not subdivide it, and a fallback footprint landing
+inside one must be absorbed rather than mint its own ref.  NOT ARMED
+(the round's attempts are spent).
+
+**THE COST, NAMED.**  Constraints 83.46 → **109.69 s (+31.4 %)**, over
+the +20 % the round accepted.  It is not the skirt: `pad_flats` runs in
+2.6 s and the LP is SMALLER than round 3's (222,546 rows against
+245,680).  It is the PAD POPULATION — 823,018 → **830,023** `diffs` over
+1,091,467 m² of derived pad against DISARM's 867,173 — plus the per-pad
+band walk, which is O(rim × shared) per pad and is the one piece of this
+round's own work in the number.
+
+**KCLT AND SPJC STAND ON THEIR ROUND-4 FRAMES.**  The one-way skirt is
+not in the shipped law, so nothing it would have changed there was built;
+the two-sided withdrawal changes the design surface, so the KCLT weld
+(the terminal pad 221.46 → 220.93, 743 nodes shared with apron `pav14`)
+and the SPJC viaduct (20.07 on `building7` in a 6-member unit against
+13df's 19.56) are as round 4 measured them and were NOT re-built this
+round — **owed**.

@@ -5506,3 +5506,28 @@ run, has 106).
   not) is the next instrument; then a read of the −9.09 m one.
 * The pack's `o4_dsf_object_positions` cache carries positions without
   names — a true per-placement footprint needs the placement plan.
+
+## 2026-09-14af The "unconsidered deep objects" at OTHH read through the reader (scout `v2othhbands`): none is a missed tunnel — 14ae's premise (depth ⇒ candidacy) refuted
+
+`TerminalRoads_Parking_005.obj` (−9.09 m) = 51 copies of one 3.5 × 2.5
+× 9.36 m post (the same mesh as `Bridge_03_CLUTTER_LOD0_005`) stepping
+down the car park's ramps in a ladder of authored offsets — a
+balustrade/column row, no floor plate, no wall band (cap 2.25 m >
+`wall_face_max_thickness_m` 2.0; runs 3.5 m < `min_wall_length_m` 5);
+basin and tunnel-object passes refuse it BY NAME. `03_005`: 3 of the
+same posts. `03_003`, `02_003`: parking DECK plates (caps 9–31 m and a
+41 × 399 m road deck). `01_003`: a 519 × 232 m viaduct colonnade of
+3.1 m piers (runs 0.6 m). `Terminal_Base_9_6` (−1.89): its two 58 m
+sheets PAIR and are merged into the through-corridor `Terminal_Base_2_5
+@0` (W71/W72) — invisible by NAME only (the record is named by the
+longest member). `Terminal_Base_4` (−1.35): 4.87 m sheets refused at
+`min_wall_length_m` 5.0 by 0.13 m, but its vertical faces feed the
+`Terminal_Base_2_1` bays as END-CAP geometry. Every terminal object's
+placement shares one anchor (25.265161, 51.611794; 30 members).
+
+* Nothing to cut that is not cut; the one true through-corridor
+  stands (14ae). Owed, small: the wall-corridor record should name
+  EVERY contributing object (band provenance is discarded at
+  `wall_geometry.py:257`); `Parking_005`'s posts poking through the
+  mesh (−5.13 … +4.23 vs DEM 3.96) are a REBAKE/seat item for the
+  object stage (the posts are authored to ride a ramp we do not cut).

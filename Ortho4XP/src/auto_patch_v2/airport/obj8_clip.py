@@ -41,29 +41,51 @@ def _clip(corners, plane_y: float, below: bool) -> list[tuple[float, float]] | N
     return ring if len(ring) >= 3 else None
 
 
+def _polygon_parts(u) -> list:
+    """The POLYGON parts of ``u`` above the sliver area, vectorised (owner
+    RULINGS 2026-09-14q): ``geom_type`` and ``area`` are property reads per
+    part, and this filter runs on every clip of every component."""
+    parts = shapely.get_parts(u)
+    if not parts.size:
+        return []
+    keep = (shapely.get_type_id(parts) == 3) & (shapely.area(parts) > 1e-9)
+    return parts[keep].tolist()
+
+
 def _union_rings(rings: list[list[tuple[float, float]]]):
     """The union of clipped-triangle rings, REPAIRED at the contribution
     (a clip of a folded or sliver triangle is invalid; one invalid member
     refuses the whole union — measured OTHH, a side-location conflict at
     the millimetre) and unioned under a snapping precision when the exact
-    union still refuses."""
+    union still refuses.
+
+    EVERY PREDICATE HERE IS VECTORISED (owner RULINGS 2026-09-14q, scout
+    ``v2partcost2``): ``is_empty`` / ``is_valid`` / ``area`` are PROPERTY
+    reads on one geometry each, and this runs over every clipped triangle
+    of every component — the same per-object property cost that made
+    ``_rim_index`` 137 s at VHHH.  Same predicates, same order, same
+    survivors; one C call per predicate instead of one per ring."""
     if not rings:
         return None
-    polys = []
+    built = []
     for r in rings:
         try:
-            p = Polygon(r)
+            built.append(Polygon(r))
         except (ValueError, TypeError):
             continue
-        if p.is_empty:
-            continue
-        if not p.is_valid:
-            p = shapely.make_valid(p)
-        if p.is_empty or p.area <= 1e-9:
-            continue
-        polys.append(p)
-    if not polys:
+    if not built:
         return None
+    arr = np.empty(len(built), dtype=object)
+    arr[:] = built
+    arr = arr[~shapely.is_empty(arr)]
+    if arr.size:
+        bad = ~shapely.is_valid(arr)
+        if bad.any():
+            arr[bad] = shapely.make_valid(arr[bad])
+        arr = arr[~shapely.is_empty(arr) & (shapely.area(arr) > 1e-9)]
+    if not arr.size:
+        return None
+    polys = arr.tolist()
     try:
         u = unary_union(polys)
     except GEOSException:
@@ -73,7 +95,7 @@ def _union_rings(rings: list[list[tuple[float, float]]]):
             u = unary_union([p.buffer(1e-6) for p in polys])
     if not u.is_valid:
         u = shapely.make_valid(u)
-    parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and g.area > 1e-9]
+    parts = _polygon_parts(u)
     if not parts:
         return None
     return unary_union(parts) if len(parts) > 1 else parts[0]
@@ -116,14 +138,14 @@ def _clip_component(v: np.ndarray, comp: Component, plane_y: float, below: bool)
         u = unary_union(polys)
         if not u.is_valid:
             u = shapely.make_valid(u)
-        parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and g.area > 1e-9]
+        parts = _polygon_parts(u)
         return (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
     u = _union_rings(rings)
     if polys:
         u2 = unary_union(polys + ([u] if u is not None else []))
         if not u2.is_valid:
             u2 = shapely.make_valid(u2)
-        parts = [g for g in shapely.get_parts(u2) if g.geom_type == "Polygon" and g.area > 1e-9]
+        parts = _polygon_parts(u2)
         return (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
     return u
 
@@ -161,6 +183,6 @@ def _clip_both(v: np.ndarray, comp: Component, plane_y: float):
         pg = unary_union(polys + ([pg] if pg is not None else []))
         if not pg.is_valid:
             pg = shapely.make_valid(pg)
-        parts = [g for g in shapely.get_parts(pg) if g.geom_type == "Polygon" and g.area > 1e-9]
+        parts = _polygon_parts(pg)
         pg = (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
     return (None if u.is_empty else u), pg

@@ -142,6 +142,49 @@ def face_holes_ll(planar: PlanarMap) -> dict[str, list[list[list[float]]]]:
             out[str(fid)] = rings
     return out
 
+def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
+                 z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+    """§30 (4): one record per TERMINAL CLUSTER — its id, its members, the
+    emitted ``building`` faces its footprint union stands on, the LEVEL
+    the solve gave that one plane, its footprint-union area, and how many
+    apron vertices the reach targeted (with how many of them came within
+    the materiality floor of the plane, which is the "apron faces that
+    stayed graded" the ruling asks the report to name).
+
+    Read off the SAME derivations the rows were priced from
+    (``constraints.cluster_pad``), never a second reading of the law."""
+    from ..constraints.cluster_pad import (cluster_apron_faces,
+                                           cluster_pad_faces, plane_groups)
+    faces = cluster_pad_faces(planar, law, airport)
+    if not faces:
+        return []
+    reach = cluster_apron_faces(planar, law, airport)
+    vs_of = {ref.split("cluster:", 1)[1]: group
+             for _f, ref, group, _q in plane_groups(planar, law, airport)
+             if ref.startswith("cluster:")}
+    by_id = {c.id: c for c in (getattr(airport, "clusters", None) or ())}
+    tol = float(law.tables.emit.materiality.elevation_m)
+    out: list[dict[str, _t.Any]] = []
+    for cid, fids in sorted(faces.items()):
+        vs = vs_of.get(cid) or []
+        zs = ([float(z[v]) for v in vs if v < len(z)] if z is not None else [])
+        lvl = (sorted(zs)[len(zs) // 2] if zs else None)
+        ap = reach.get(cid, [])
+        flat = (sum(1 for v in ap if v < len(z) and lvl is not None
+                    and abs(float(z[v]) - lvl) <= tol)
+                if z is not None else 0)
+        c = by_id.get(cid)
+        out.append({"id": cid,
+                    "members": list(getattr(c, "members", ()) or ()),
+                    "area_m2": round(float(getattr(c, "area_m2", 0.0)), 1),
+                    "pads": sorted({planar.faces[f].ref for f in fids}),
+                    "level": (None if lvl is None else round(lvl, 3)),
+                    "rim_vertices": len(vs),
+                    "apron_vertices_in_reach": len(ap),
+                    "apron_vertices_at_the_plane": flat})
+    return out
+
+
 def publication(planar: PlanarMap, law: Law, airport: Airport,
                 z: _t.Sequence[float] | None = None,
                 cs: _t.Any = None) -> dict[str, _t.Any]:
@@ -214,6 +257,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                     seen.add(key)
                     taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
     return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
+            # §30 (4) THE CLUSTER PADS (owner RULINGS 2026-09-13bj item 1):
+            # what the object stage's §16g seats a big terminal on, and
+            # what the report reads to name the apron faces that stayed
+            # graded.  Empty at an airport with no cluster (CYXY's class).
+            "cluster_pads": cluster_pads(planar, law, airport, z),
             "apron_tier": apron_tier(law),
             "terrace_joints": terrace_joints_ll(planar, law, z),
             "taxi_route_pairs": taxi_pairs,

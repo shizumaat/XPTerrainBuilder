@@ -451,7 +451,10 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     off = (pad_relief_offsets(planar, law, airport)
            if (relief and airport is not None) else {})
     rows: list[Row] = []
-    for fid, ref, group in _pad_groups(planar, law):
+    # §30 (4): a TERMINAL CLUSTER's faces are ONE plane — one plate, one
+    # ceiling.  Every other pad is its own entry, exactly as before.
+    from .cluster_pad import plane_groups
+    for fid, ref, group, _fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         for a, b in _pairs(group):
             if a == b:
@@ -650,15 +653,27 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
     lead = pad_frontage_leaders(planar, law)
     shared = pad_shared(planar, law)
     rows: list[Row] = []
-    for fid, ref, group in _pad_groups(planar, law):
-        by_role = lead.get(fid)
+    # §30 (4): a CLUSTER is ONE plane, so it takes ONE level fit — its
+    # whole rim against the leaders of EVERY face's frontage, seniority
+    # read over the union.  The frontage relation itself is per face and
+    # untouched (the consumer census): a cluster fronts what its faces
+    # front.
+    from .cluster_pad import plane_groups
+    for fid, ref, group, fids in plane_groups(planar, law, airport):
+        by_role: dict[str, list[tuple[int, list[tuple[int, float]]]]] = {}
+        for q in fids:
+            for role, pairs in (lead.get(q) or {}).items():
+                by_role.setdefault(role, []).extend(pairs)
         if not by_role:
             continue                       # fronts nothing: its DEM datum
+        sh: set[int] = set()
+        for q in fids:
+            sh |= shared.get(q, set())
         top = senior_role(law, sorted(by_role))
         # §9b reads the FOLLOWERS: a fronting pad's own vertices carry no
         # DEM datum (10l).  Its CONTACTS are the pavement's edge and stay
         # in the pavement body's mean.
-        own = tuple(sorted(set(group) - shared.get(fid, set())))
+        own = tuple(sorted(set(group) - sh))
         if not own:
             continue        # every rim vertex IS the pavement's: nothing follows
         for role, pairs in by_role.items():

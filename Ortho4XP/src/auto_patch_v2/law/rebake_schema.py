@@ -176,3 +176,36 @@ class Placement:
     #: and chaining them would re-assemble the 2 km run §10 exists to
     #: cut.  0 disarms the reach and leaves §16c (6)'s contact alone.
     rigid_reach_m: float = 2.0
+
+    #: §16f (7) A LARGE TERMINAL CLUSTER IS ONE UNIT ON ONE PAD (owner
+    #: RULINGS 2026-09-13bj item 1).  A family (§16f (1)) whose FOOTPRINT
+    #: UNION covers more than this is a CLUSTER: every member takes ONE
+    #: zero plane — the cluster pad's — with no per-member cut to its own
+    #: ground, no pad partition (§16f (4)) and no pavement-is-king
+    #: (§16f (5)).  The owner read the alternative at KCLT 1.0.327:
+    #: "passengers and seat objects ... sitting on the ground under the
+    #: building instead of on the floor inside the building".  5,000 m2
+    #: is a terminal, not a hangar: KCLT's terminal complex covers
+    #: ~54,000 m2 and the airport's next largest family ~2,000.  0
+    #: disarms the clause and leaves 13aq's partition by pad alone.
+    cluster_pad_min_m2: float = 5000.0
+
+    #: §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo,
+    #: interviewed): "We always want to keep objects covering the same
+    #: footprint together when changing their seat."  Two bodies whose
+    #: plan footprints overlap or come within this are ONE UNIT, chained
+    #: transitively (deck <-> piers <-> clutter); a body touching nothing
+    #: seats alone.  This REPLACES §16f (1)'s shared-authored-datum
+    #: condition — overlap alone binds — and it is metres, not the
+    #: millimetres of ``contact_eps_m``: an exporter's pier stands beside
+    #: its deck, it does not share a vertex with it.  0 disarms §16g.
+    footprint_touch_m: float = 0.5
+
+    #: §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): "very long
+    #: connecting pieces like the elevated rail at HECA which would
+    #: require two buildings kilometers apart to be at the same
+    #: elevation".  A body whose footprint span reaches this AND whose
+    #: two ends' ground differs by ``[cockpit] visual_m`` is a CONNECTOR:
+    #: it is cut at §10's line stations and never holds its unit rigid.
+    #: 0 disarms the class and every body stays rigid.
+    connector_span_m: float = 200.0

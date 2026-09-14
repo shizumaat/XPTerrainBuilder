@@ -95,6 +95,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "pad_relief",  # owner RULINGS 2026-09-11j (spec §11a (2)/(4)): per pad vertex, the metres the terrain stands above the pad's LEVEL — the relief a body's authored feet ask for.  The pad's flatness READER measures on the level plane with these subtracted (``verify/pads.relief_offsets``); without them every relief pad reads as a plane-residual row.
     "eat_rects",  # spec §36 (owner RULINGS 2026-09-13j item 2): one record per ACCEPTED end-around-taxiway rect — end, runway, the regulation value and the vertices it pinned (``pipeline/publication`` off the final constraint set).  The census's ``eat_ceiling`` family prices exactly this list, so a vertex the rect law withdrew is never reported (lockstep)
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
+    "cluster_pads",  # §30 (4) (owner RULINGS 2026-09-13bj item 1): one record per TERMINAL CLUSTER — its members, the emitted `building` faces its footprint union stands on, the ONE level the solve gave that plane, and the apron vertices the reach targeted (with how many reached it).  The object stage's §16g seats the cluster on this level (``pipeline/publication.cluster_pads``)
 )
 
 #: Feature class of a hole ring (v1 vocabulary the census and mesh read).

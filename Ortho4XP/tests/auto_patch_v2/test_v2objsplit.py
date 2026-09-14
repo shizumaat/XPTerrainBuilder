@@ -4558,3 +4558,83 @@ def test_16f_4_the_ground_bound_holds_at_the_pad_join():
     assert len(fams) == 1 and fams[0].bodies == 2
     assert counts["family_bodies_off_the_pad_plane"] == 1
     assert cands[2].anchor.family == ""          # cut to its own ground
+
+
+# ── §16g THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo) ─────────────────
+
+def test_16g_1_two_bodies_that_touch_are_one_unit_whatever_their_row():
+    """§16g (1): overlap or touch within ``footprint_touch_m`` binds, and
+    §16f (1)'s shared-authored-datum condition is DROPPED — a deck and a
+    pier standing half a metre apart are one unit though no vertex is
+    shared and no row is."""
+    from auto_patch_v2.airport import placement_family as FAM
+    deck = _fam_cand(0, (40.0000, -3.0000, 40.0010, -2.9990), 100.0)
+    # 0.3 m clear of the deck in plan: the 2 mm contact test sees nothing
+    pier = _fam_cand(1, (40.0010 + 0.3 / 111132.0, -3.0000,
+                         40.0016, -2.9995), 100.0)
+    away = _fam_cand(2, (40.0100, -3.0100, 40.0110, -3.0090), 90.0)
+    assert FAM._clusters([deck, pier, away], 0.002, min_members=1)[0] == []
+    cl, _adj = FAM._clusters([deck, pier, away], 0.5, min_members=1)
+    assert cl == [[0, 1]]                       # the far body seats alone
+    # and two bodies of ONE member bind too (min_members=1, 13bo)
+    solo = _fam_cand(0, (40.0005, -3.0005, 40.0015, -2.9985), 103.0, group=1)
+    assert FAM._clusters([deck, solo], 0.5, min_members=1)[0] == [[0, 1]]
+
+
+def test_16g_2_the_unit_datum_is_deck_then_pad_then_ground():
+    """§16g (2): ONE zero per unit, by priority.  The same three bodies
+    read three ways — with a DECK member in the unit, with a pad under it,
+    and with neither."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    import types
+    pad = AR.PadRing("building80", ((39.999, -3.001), (40.003, -3.001),
+                                    (40.003, -2.997), (39.999, -2.997)),
+                     (100.0,) * 4)
+
+    def surface(la, lo):
+        return 100.0 + 6000.0 * (la - 40.0)     # rises 6 m across the unit
+
+    def arm(pads, deck):
+        a = _fam_cand(0, (40.0000, -3.0000, 40.0010, -2.9990), 100.0)
+        b = _fam_cand(1, (40.0008, -3.0005, 40.0016, -2.9985), 104.8)
+        st = [_FamStaged(0, "objects/a.obj", [(40.0004, -2.9996, 0.0)]),
+              _FamStaged(1, "objects/b.obj", [(40.0012, -2.9992, 0.0)])]
+        if deck:
+            st[0].m = types.SimpleNamespace(resource="objects/a.obj",
+                                            deck_kind="flag", deck_ring=None)
+        cands = [a, b]
+        counts: dict = {}
+        got = FU.bind_footprint_units(cands, st, surface, pads, counts,
+                                      unit_id="unit:1", touch_m=0.5,
+                                      visual_m=0.5, cluster_min_m2=0.0,
+                                      connector_span_m=0.0)
+        zs = [c.anchor.surface_z - c.anchor.y_zero for c in cands]
+        return got, zs, counts
+
+    got, zs, counts = arm((pad,), True)
+    assert zs[0] == zs[1] and counts["unit_datum_deck"] == 1
+    assert got[0].zero_z == 100.0               # the deck's own zero leads
+    got, zs, counts = arm((pad,), False)
+    assert zs[0] == zs[1] == 100.0 and counts["unit_datum_pad"] == 1
+    assert got[0].pad == "building80"
+    got, zs, counts = arm((), False)
+    assert zs[0] == zs[1] and counts["unit_datum_ground"] == 1
+    # one zero per unit in every arm — that is the whole of §16g (2)
+    assert got[0].spread_before_m > 0.0
+
+
+def test_16g_3_only_a_long_connector_with_a_step_is_cut():
+    """§16g (3): the HECA elevated-rail class and nothing else — a body
+    is cut out of its unit only when its footprint span reaches
+    ``connector_span_m`` AND its two ends' ground differs by
+    ``visual_m``.  A long body over flat ground stays rigid."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    box = (40.0000, -3.0000, 40.0000 + 300.0 / 111132.0, -2.9990)
+    long_ = _fam_cand(0, box, 100.0)
+    short = _fam_cand(1, (40.0000, -2.9992, 40.0006, -2.9985), 100.0)
+    ends = [(box[0], -2.9995, 0.0, 100.0), (box[2], -2.9995, 0.0, 104.0)]
+    assert FU._is_connector(long_, ends, 200.0, 0.5) is True
+    flat = [(box[0], -2.9995, 0.0, 100.0), (box[2], -2.9995, 0.0, 100.1)]
+    assert FU._is_connector(long_, flat, 200.0, 0.5) is False
+    assert FU._is_connector(short, ends, 200.0, 0.5) is False
+    assert FU._is_connector(long_, ends, 0.0, 0.5) is False   # disarmed

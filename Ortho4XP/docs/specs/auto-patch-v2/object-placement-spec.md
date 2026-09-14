@@ -4167,6 +4167,115 @@ LEMD's old terminal one unit per touching cluster (named); HECA's elevated
 rail cut at stations (dry, named); plan stage not worse than +10 %; the
 family censuses of §16f re-read under §16g; suite twice.
 
+### §16g MEASURED (lane `v2clusterpad`, 2026-09-13; branch `claude/v2clusterpad`)
+
+**WHAT LANDED.**  `airport/footprint_unit.py` (NEW) holds the whole law:
+`bind_footprint_units` (the unit, its one zero and the priority datum) and
+`cluster_zero_allowed` (§16g (4)'s bound on §16c (7)'s short-circuit).  The
+DERIVATION is `placement_family._clusters` asked at `[placement]
+footprint_touch_m` (0.5 m) with `min_members=1` — ONE derivation, three
+readers: this law, `planar/cluster.plan_clusters` (the design surface's
+cluster, read off the pack partition at LOAD so §30 (4)'s pad exists before
+the object stage does) and §16f's own census.  `placement_plan.build_splits`
+calls `bind_footprint_units` where it called `bind_families`; §16f's bind is
+no longer on the shipped path and its law and twins stand where they are.
+`unit_of` is published beside `family_of` (`placement_record`,
+`model/placement.Body`).  New law keys: `[placement] footprint_touch_m =
+0.5`, `[placement] connector_span_m = 200.0`, `[placement]
+cluster_pad_min_m2 = 5000.0`, `[design] cluster_apron_reach_m = 60.0`.
+
+**A DEFECT IN THE SWEEP, FOUND BY THE NEW TOLERANCE.**  `_clusters`'s
+south-edge sweep broke on `hull[b][0] > hull[a][2]` — no slack for `eps_m`.
+At §16f's millimetres that rounds away; at 0.5 m it BREAKS ON THE VERY PAIR
+THE LAW BINDS (a pier 0.3 m north of its deck starts past the deck's north
+edge).  The sweep now carries the tolerance; the §16g twin holds it.
+
+**THE FRAME.**  The registered KCLT rebake + graded pair
+(`frames.py list KCLT`, the `v2familyKCLTframe` build, base `864e7577`), the
+OTHH 1.0.326 frame (`v2othh1o`), matched dry arms through
+`tools/obj8_split_report.py`; base arm `git archive 0c86fe2c src tools`.
+**EVERY OBJECT-STAGE NUMBER BELOW IS READ AGAINST A DESIGN SURFACE THAT
+CARRIES NO CLUSTER PAD** — the graded document is the base build's — so a
+member the unit holds UP over its own ground is the design surface's job,
+not yet done in these arms.  That is the whole reason §16f (7) and §30 (4)
+are one ruling.
+
+| bar | base `0c86fe2c` | §16g |
+|---|---|---|
+| KCLT units | §16f: 2 families, 191 bodies | **50 units, 399 bodies; per-unit zero spread 0.00 everywhere** |
+| KCLT the terminal | two rows, both `building80` 221.49 | **`unit:31#0` (19 members, 163 bodies) and `unit:30#0` (19, 29) both on `building80` at 221.49** |
+| KCLT datum sources | — | `cluster_pad` (the two terminal units + 30 more over 5,000 m²), `pad`, `ground` — counted per unit in `unit_datum_*` |
+| KCLT plan stage (with the OBJ8 cut) | 14.39 s | **12.61 s** |
+| KCLT §17 CRITICAL MOTION | 910 feet / 73 bodies | **1,171 / 68** — WORSE in feet, and expected: the unit holds members level over ground the design surface has not yet lifted |
+| KCLT §16b carried float / wider | 41 / 232 | **32 / 249** |
+| KCLT §15 carried over a refused body | 7 | **7** (the coordinator's 8 → 0 bar is against another base; NOT met) |
+| KCLT §16a (2) refusal set | 80 | **161** — the same reading: a unit member standing on real relief |
+| OTHH plan stage | 237.66 s | **200.30 s** |
+| OTHH files | 1,788 | **2,478** (695 placements split, bodies 2,136 → 2,836) |
+| OTHH low-side anchors with a residual | 199 | **69** |
+
+**§16g (4) COMPONENTS APART (RULINGS 2026-09-13bu item 4).**  Two edits:
+`placement_body._atom_targets` no longer applies the `coarsen_reach_m`
+AFFORDABILITY bound to a FOOTLESS member (a footless body has no ground of
+its own to fall back on, so its components apart in plan must each ask what
+they stand over), and `footprint_unit.cluster_zero_allowed` withdraws §16c
+(7)'s short-circuit from every footless member and from any cluster member
+standing further than `coarsen_reach_m` away.  Measured on the same frame:
+`Charlotte_Airport_001_ALB` **29 bodies → 82**, and the owner's four roof
+sites (13bj item 4) each acquire a roof body of their own —
+35.2141727,−80.9291957 had its nearest at **68.6 m** (zero 214.79) and now
+has one at **42.1 m** (216.16); 35.2142131,−80.9282182 **52.6 m → 37.1 m**;
+35.2140873,−80.9306125 **106.5 m → 20.6 m**; and 35.212974,−80.9298385 had
+**NO body within 120 m at all** and now has one at **50.2 m** (217.36).  The
+resource's whole-resource zero spread stays 20.29 → 21.43 m, which is the
+1.7 km hangar district's real relief and NOT the bar; the per-building bar
+and the roof-base-vs-wall-top reading need the built surface and are in the
+closing build's numbers.
+
+**NOT DONE, NAMED.**  (a) §16g (1) is derived per PLAN UNIT, not
+plan-wide: PASS 1's staged bodies exist one unit at a time, so two
+touching bodies on different placement rows in different `Unit`s do not
+bind.  At KCLT that costs nothing (both terminal rows land on one pad
+plane anyway) but it is a deviation from "overlap alone binds".
+(b) The footprint test is the PART BOXES, not the refined polygon
+(`_clusters`'s own reading, kept).  (c) §16g (3)'s connector is
+IDENTIFIED and left out of its unit's rigid bind, and §10's station cut
+and §16b's terrain cut divide it as they already do — no new cut was
+written.  (d) LINE segments and BASIN bodies keep §16f's exclusions.
+
+**THE UNIT CENSUS, PER AIRPORT (final tree, matched dry arms).**
+
+KCLT, on the lane build's OWN frame (`v2clusterpadKCLT2`, the first frame
+carrying the cluster pad) — base `0c86fe2c` against the branch, the SAME
+two documents both arms:
+
+| bar | base | §16g |
+|---|---|---|
+| units | 1 family / 84 bodies | **58 units / 367 bodies**, per-unit zero spread **0.00** everywhere |
+| datum source | — | `cluster_pad` **25**, `pad` **12**, `ground` **21**; 8 connectors named and left out; 87 members reported off their unit's plane |
+| the terminal | `unit:31#0@building80`, 16 members / 84 bodies, 222.07 | **`unit:31#0@cluster_pad`, 19 members / 165 bodies, 222.07** |
+| the owner's site 35.2191877,−80.9426007 | 3 bodies, all 222.07 | **3 bodies, all 222.07** — already on the terminal's floor in BOTH arms on this frame; the passengers and seats themselves are among the **205 multi-anchor placements the plan drops** and the object stage never seats them (see the intent question) |
+| plan stage | 15.72 s | **14.10 s** |
+| §17 CRITICAL MOTION | 971 feet / 75 bodies | **1,049 / 72** |
+| §15 footed float > 0.5 m | 75 | **123** |
+| §15 carried over a refused body | 13 | **8** |
+| §16b carried float / wider | 57 / 246 | **50 / 257** |
+| files | 518 | **648** |
+
+OTHH 1.0.326 (`v2othh1o`), the same two documents both arms:
+
+| bar | base | §16g |
+|---|---|---|
+| units | 16 families / 206 bodies | **85 units / 1,173 bodies**, spread 0.00; datum `ground` 54, `pad` 15, `cluster_pad` 15, **`deck` 1**; 27 connectors; 8 units entirely on pavement |
+| `Bridge_01 / 02 / 03 / 04 / 06` zero spread | 1.95 / **9.71** / **9.18** / 0.00 / **9.67** m | 1.95 / **1.52** / **1.93** / 0.00 / **0.00** m — the bar (0.00 per bridge) is MET for 04 and 06 and NOT for 01/02/03 |
+| plan stage | 237.66 s | **249.43 s** |
+| files | 1,788 | **2,541** |
+
+The bridges are NOT one unit each, and the reason is named above: §16g (1)
+is derived per PLAN UNIT and the footprint test is the PART BOXES.  Where
+the chain reaches, it reaches all the way (Bridge_06 9.67 → 0.00 with no
+bridge-specific law anywhere in the code, which is 13bo's own test).
+
 ### §11b (7) A FOOT ON A STRUCTURE CUT STATES NO GROUND ROW (Fable 2026-09-13; RULINGS 2026-09-13bs, owner OTHH read 13bn item 2) — lane `v2cutfeet`
 
 OTHH's tunnel object `tunnel south west 2#b0` is re-seated to the ground

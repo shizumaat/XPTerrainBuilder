@@ -64,7 +64,7 @@ from .placement_carrier import coarsen, is_elevated   # noqa: F401  (§9 / §13)
 # §2's RECORDS live next door (the 1,000-line law) and are re-exported:
 # every caller and every twin reads them as this module's.
 from . import placement_atom as _atom
-from . import placement_family as _fam
+from . import footprint_unit as _fu
 from . import placement_orphan as _orphan
 from .placement_record import Body, Kept, Split, SplitSet
 from .placement_record import Staged as _Staged   # noqa: F401
@@ -415,6 +415,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  coarsen_reach_m: float = 0.0,
                  contact_eps_m: float = 0.0, rigid_reach_m: float = 0.0,
                  bind_ground_m: float = 0.0,
+                 cluster_min_m2: float = 0.0, touch_m: float = 0.0,
+                 connector_span_m: float = 0.0,
                  abutment_step_m: float = 0.0,
                  abutment_walk_max_m: float = 0.0,
                  abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
@@ -500,7 +502,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     #: §16c (7): the plan extent of every rigid cluster of more than one
     #: body, for the report (a cluster is ONE body no cut may divide)
     cl_spans: list[tuple[float, int]] = []
-    fams: list[_fam.Family] = []        # §16f, for the census
+    fams: list = []                     # §16g units, for the census
     by_class: dict[str, int] = {}
 
     # §16e (3): ONE CUTTER PER MEMBER, and the DECK FOOTPRINTS derived
@@ -700,13 +702,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # §16f AN OBJECT FAMILY STAYS TOGETHER (RULINGS 2026-09-13af),
         # in ``placement_family``: AFTER the contact bind, so the family
         # plane is the last word on a FOOTED body's zero.
-        fams.extend(_fam.bind_families(
+        # §16g THE FOOTPRINT UNIT (13bo) replaces every family
+        # derivation; the law lives whole in ``footprint_unit``.
+        fams.extend(_fu.bind_footprint_units(
             cands, staged, surface, pads, counts, unit_id=u.id,
-            contact_eps_m=contact_eps_m, bind_ground_m=bind_ground_m,
-            has_deck=any(m.deck_ring
-                          or m.deck_kind in ("flag", "signature")
-                          for m in u.members)))
-
+            touch_m=touch_m, visual_m=bind_ground_m,
+            cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m))
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
         by_key = {(c.member, c.group): c for c in cands}
@@ -755,13 +756,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      if st.footless or i in st.elevated)
             rides: dict[tuple[int, int], tuple[list[int], str]] = {}
             _gz_memo: dict = {}
-            # §16d (4) (owner RULINGS 2026-09-13m): A CARRIED BODY'S
-            # COMPONENTS GROUP BY CARRIER.  Each ATOM of a carried body
-            # asks its own carrier question — a roof resource of twelve
-            # plates over twelve buildings is twelve pieces, not one body
-            # at one zero.  The division happens BEFORE the search, so
-            # §16a (1)'s cut and §16b (3)'s ground test read the piece
-            # that actually stands there.
+            # §16d (4) (RULINGS 2026-09-13m) / §16g (4) (13bu): a
+            # carried body's ATOMS each ask their own carrier question,
+            # BEFORE the search, so §16a (1)'s cut and §16b (3)'s ground
+            # test read the piece that actually stands there.
             _atoms = []
             for grp, gboxes in targets:
                 for sub in _atom_targets(st, grp, coarsen_reach_m):
@@ -784,8 +782,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 _pids = frozenset(p.pid for i in grp for p in st.raw[i][0])
                 # §16c (7): IS THIS BODY PART OF A RIGID CLUSTER?  Then
                 # its zero is the cluster's and no search is asked.
-                _f = sorted({forced[(st.mi, i)] for i in src
-                             if (st.mi, i) in forced})
+                # §16g (4): no FOOTLESS member, no distant cluster.
+                _f = _fu.cluster_zero_allowed(
+                    sorted({forced[(st.mi, i)] for i in src
+                            if (st.mi, i) in forced}),
+                    st, bx, cands, coarsen_reach_m, counts)
                 if _f:
                     counts["bodies_bound_to_cluster_by_contact"] = \
                         counts.get("bodies_bound_to_cluster_by_contact", 0) + 1

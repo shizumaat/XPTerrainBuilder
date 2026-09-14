@@ -417,6 +417,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  bind_ground_m: float = 0.0,
                  cluster_min_m2: float = 0.0, touch_m: float = 0.0,
                  connector_span_m: float = 0.0,
+                 chain_min_height_m: float = 0.0,
                  abutment_step_m: float = 0.0,
                  abutment_walk_max_m: float = 0.0,
                  abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
@@ -540,7 +541,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
-                                      connector_span_m)  # §16g (6)
+                                      connector_span_m,  # §16g (6)
+                                      chain_min_height_m)  # §16g (10) (4)
 
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────

@@ -749,6 +749,9 @@ def _main() -> int:
                          line_ratio=rb.line_object_ratio,
                          line_max_h=rb.line_object_max_h,
                          foot_band_m=band_m, abutments=abut,
+                         # §16g (10) (4): only a WALLED body links a unit
+                         chain_min_height_m=(_law.tables.structures.placement
+                                             .chain_min_height_m),
                          coarsen_reach_m=(_law.tables.structures.placement
                                           .coarsen_reach_m
                                           if a.coarsen_reach is None

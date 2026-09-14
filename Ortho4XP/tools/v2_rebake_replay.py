@@ -408,6 +408,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
                         "footprint_touch_m", None),
         connector_span_m=getattr(law.tables.structures.placement,
                                  "connector_span_m", None),
+        chain_min_height_m=getattr(law.tables.structures.placement,
+                                   "chain_min_height_m", None),
         # §16e (6): the deck end line's LANDWARD WALK, through the same
         # dropper — a src predating the rule takes neither key
         abutment_step_m=getattr(law.tables.structures.bridge,

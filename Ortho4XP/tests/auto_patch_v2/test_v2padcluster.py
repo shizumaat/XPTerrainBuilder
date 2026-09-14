@@ -411,3 +411,42 @@ def test_16g_10_6_pad_airside_weld_is_registered_and_prices_the_plane():
     lone = cg.Way("w3", "building", "building9", "",
                   ["1", "4"], [10.0, 10.0], {"role": "building"})
     assert cg._check_pad_airside_weld([lone], nodes, ll, 0.02) == []
+
+
+def test_16g_10_4_the_UNIT_takes_the_same_leaf_rule_as_the_cluster():
+    """§16g (9) ONE POPULATION + (10) (4): the object stage's FOOTPRINT
+    UNIT chains by the same relation the design surface's cluster does,
+    so the leaf rule must hold on BOTH sides or there are two
+    populations again.
+
+    MEASURED at HECA with the rule on the design side only: the cluster
+    resolved (largest 541,200 m2 / 9,334 bodies -> 171,086 m2 / 1 body)
+    while the object stage still chained the T3 terminal into
+    ``fu:38:23@cluster_pad`` — 52 members on one datum — and its body sat
+    7.50 m above its own ground.
+
+    A body that chains with nothing is NOT made a unit here (it never
+    was: `_clusters` drops the singletons and the default path seats it
+    on its own ground, which is what a LEAF wants)."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    a = _PMember("objects/a.obj", [_part(1, _lat(0), _lat(40), height=8.0)])
+    slab = _PMember("objects/slab.obj",
+                    [_part(2, _lat(40), _lat(60), height=0.2)])
+    b = _PMember("objects/b.obj", [_part(3, _lat(60), _lat(100), height=9.0)])
+    plan = _PPlan([_PUnit("unit:0", [a, slab, b])])
+    # disarmed: the slab bridges and the three are ONE unit
+    off, _c = FU.plan_units_and_connectors(plan, TOUCH, 0.0, {}, 0.0)
+    assert len(off) == 1 and len(off[0].bodies) == 3, off
+    # armed: the slab links nothing, and neither building chains anything
+    # else, so no unit forms at all — each seats on its own ground
+    counts: dict = {}
+    on, _c2 = FU.plan_units_and_connectors(plan, TOUCH, 0.0, counts, 2.5)
+    assert on == [], on
+    assert counts["unit_leaf_bodies"] == 1
+    assert counts["unit_chain_no_height"] == 0
+
+    # ... and two WALLED bodies that touch each other are still one unit
+    c = _PMember("objects/c.obj", [_part(4, _lat(40), _lat(60), height=7.0)])
+    two, _c3 = FU.plan_units_and_connectors(
+        _PPlan([_PUnit("unit:0", [a, c, b])]), TOUCH, 0.0, {}, 2.5)
+    assert len(two) == 1 and len(two[0].bodies) == 3, two

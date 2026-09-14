@@ -321,9 +321,9 @@ class _PShim:
     """A plan body dressed as the candidate :func:`_clusters` reads."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "key", "pids",
-                 "resource", "rings")
+                 "resource", "rings", "walled")
 
-    def __init__(self, seq, key, boxes, pids, resource, rings=()):
+    def __init__(self, seq, key, boxes, pids, resource, rings=(), walled=True):
         self.member = seq            # a UNIQUE id per body: the chaining
         self.key = key               # is plan-wide, so "member" may not
         self.pids = pids             # collapse two bodies of one member
@@ -333,6 +333,8 @@ class _PShim:
         self.rings = tuple(rings)
         self.box = _pb.hull_of(boxes)
         self.body_class = ""
+        #: §16g (10) (4): this body has WALLS and may LINK a unit
+        self.walled = bool(walled)
 
 
 def plan_units(plan: _t.Any, touch_m: float) -> list[PlanUnit]:
@@ -403,7 +405,8 @@ def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
 
 def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                               connector_span_m: float,
-                              counts: "dict | None" = None
+                              counts: "dict | None" = None,
+                              chain_min_height_m: float = 0.0
                               ) -> "tuple[list[PlanUnit], list[PlanConnector]]":
     """§16g (1) PLAN-WIDE with §16g (6)'s CONNECTOR reading.
 
@@ -429,12 +432,27 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
 
     Held to the LONG bodies (``connector_span_m``), so the cost is one
     sub-clustering per long body and nothing at all when the law is
-    disarmed."""
+    disarmed.
+
+    §16g (10) (4) ONLY A WALLED BODY LINKS A UNIT (owner RULINGS
+    2026-09-14ah).  The same rule the design surface's ``plan_clusters``
+    applies to its clusters, applied to the UNIT — they are one relation
+    (§16g (9) ONE POPULATION) and a leaf rule that held on one side only
+    would be two populations again.  MEASURED at HECA: with the design
+    cluster resolved but the unit still chaining through slabs, the T3
+    terminal stayed in ``fu:38:23@cluster_pad`` — 52 members on one datum
+    — and its body sat 7.50 m above its own ground.  A body whose tallest
+    component's ``Part.height_m`` is under ``chain_min_height_m``, or
+    whose member the plan already calls a DECK, is its own unit.  0
+    disarms; a plan carrying no height at all does not apply it and the
+    count says so (``unit_chain_no_height``)."""
     if touch_m <= 0.0 or not getattr(plan, "units", ()):
         return [], []
     bodies, _of_pid = bodies_of_plan(plan)
     parts_of = {p.pid: p for u in plan.units for m in u.members
                 for p in m.parts}
+    any_height = any(float(getattr(q, "height_m", 0.0)) > 0.0
+                     for q in parts_of.values())
     shims: list[_PShim] = []
     for key, pids in sorted(bodies.items()):
         ui, mi, _gi = key
@@ -442,15 +460,37 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                 if q in parts_of and not parts_of[q].line]
         bx = [q.box for q in live]
         if bx:
+            tall = max((float(getattr(q, "height_m", 0.0)) for q in live),
+                       default=0.0)
+            walled = (chain_min_height_m <= 0.0 or not any_height
+                      or (tall >= chain_min_height_m
+                          and not str(getattr(plan.units[ui].members[mi],
+                                              "deck_kind", "") or "")))
             shims.append(_PShim(len(shims), key, bx, frozenset(pids),
                                 plan.units[ui].members[mi].resource,
                                 tuple(r for q in live
                                       for r in getattr(q, "rings", ())
-                                      if len(r) >= 3)))
+                                      if len(r) >= 3), walled))
     if len(shims) < 2:
         return [], []
-    clusters, _adj = _clusters(shims, touch_m, min_members=1,
-                               counts=counts)
+    # §16g (10) (4): the chain runs over the WALLED bodies alone; a LEAF
+    # is its own unit, seated on its own ground or its carrier
+    walled_ix = [i for i, q in enumerate(shims) if q.walled]
+    leaves = [i for i, q in enumerate(shims) if not q.walled]
+    if walled_ix:
+        sub = [shims[i] for i in walled_ix]
+        clusters, _adj = _clusters(sub, touch_m, min_members=1, counts=counts)
+        clusters = [[walled_ix[k] for k in cl] for cl in clusters]
+    else:
+        clusters, _adj = [], {}
+    # NO BACKFILL: a body that chains with nothing has never been a
+    # PlanUnit here (``_clusters`` drops the singletons) and is seated on
+    # its own ground by the default path — which is exactly what §16g
+    # (10) (4) says a LEAF must be.  Adding singleton units would be a
+    # second change riding on this one.
+    if counts is not None:
+        counts["unit_leaf_bodies"] = len(leaves)
+        counts["unit_chain_no_height"] = 0 if any_height else 1
     # every body that is IN a unit: the "nothing at the other end" test is
     # about the whole plan, not about the connector's own unit (a rail
     # ending 50 m short of the NEXT building connects two things).  The
@@ -717,7 +757,8 @@ def _end_probe(cn: _t.Any, own: _t.Sequence[tuple], feet_of
 def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     pads: _t.Sequence[_ar.PadRing], touch_m: float,
                     cluster_min_m2: float, counts: dict,
-                    connector_span_m: float = 0.0
+                    connector_span_m: float = 0.0,
+                    chain_min_height_m: float = 0.0
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
     where, source, connector ends, the HIGH end's own seat), the units'
@@ -739,7 +780,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     if touch_m <= 0.0:
         return {}, []
     units, conns = plan_units_and_connectors(plan, touch_m,
-                                            connector_span_m, counts)
+                                             connector_span_m, counts,
+                                             chain_min_height_m)
     _parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
 
     def _feet_of(pids):

@@ -4052,3 +4052,20 @@ the 19 road refs' deepest cuts are `bridge_deck:` refs §37 (6) excludes).
 * Not verified: no 1.0.327 tile/patch survives (the `.dsf.bak` was not
   decoded); the log carries no version marker; the split branch's firing
   count.
+
+## 2026-09-13cq Owner: "try completely omitting the bank_foot shapes altogether to confirm they're necessary" — OMIT arm added to lane `v2bankfoot`
+
+Owner, verbatim: "Can we please try completely omitting the 'bank_foot'
+shapes altogether to confirm they're necessary?" (standing reservations
+about the class: 13ce, 13cm).
+
+* Lane `v2bankfoot` runs an OMIT arm FIRST (emitter writes no `bank_foot`
+  ways; everything else main), ONE LEMD tile-mesh run on the fix arm's
+  frame, and reports the two arms side by side: the site profile and the
+  node→mesh cross-reference by attr; the annulus / harmonic counters; THE
+  PATCH EDGE — per ring vertex the step to the nearest free vertex outside
+  the coverage (max, p95, > 1 m, > 3 m), the same at the zone-band edges
+  (the cliff the 1:3 bank existed to grade); the census families
+  `bank_across_seam` / `adjacent_ground_step` / zone edge; mesh wall time.
+* Deleting the class is the owner's ruling on those numbers, not the
+  lane's.

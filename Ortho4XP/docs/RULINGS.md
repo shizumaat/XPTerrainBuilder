@@ -3907,3 +3907,83 @@ RULED from the first: a TUNNEL EMITS ONLY ITS MOUTHS AND RAMPS — rail or highw
 ## 2026-09-13cm — OWNER READ OF 1.0.329 (verbatim): "LEMD has a number of issues, including some strange new terrain issues with deeply sunken roads. SPJC looks good except for the access road ramp at the south end of terminal I mentioned before being separated from the building and sitting on top of the terrain instead of the top deck meeting the sloping terrain at the ramp ends."
 
 * LEMD "deeply sunken roads" — NEW in this batch: the candidates are §37 (6) (the groundside road ramp to the DEM, now with the core clamp as its floor — a road descending at 8 % from an airside contact into a hollow it should follow, or the hard ceiling `target + visual_m` pulling a road below the surface where the route's DEM read dips), §37 (9) (the coverage-edge join taking a core ribbon altitude), §37 (8) (the hard cross-section pulling a kerb down), the level belt; the 13ba/13bf LEMD readings were DRY replays only ("no road moves > 0.5 m") — the first LEMD BUILD under §37 (6)–(9) is the owner's. Scout `v2lemd329` (the app's LEMD products; `road_terrain_conformance --by-ref` for the deepest cuts; `--why-at` on the worst; coordinates from the owner when given). SPJC: the departures viaduct `SPJC_LIMANUEVA_xp11_007__b0` (−12.0322, −77.1170407) still "separated from the building and sitting on top of the terrain instead of the top deck meeting the sloping terrain at the ramp ends" — the owner's frame: the object is an ELEVATED ROADWAY whose top deck is the road; its high end belongs to the terminal unit (§16g), its low end meets the terrain — the ground under the ramp is the ACCESS ROAD and should be graded (§37 (6)) from the terminal contact down so the terrain meets the deck's low end (§16e (6)'s deck-end datum read the other way round: the road rises to the deck, the deck does not sink to the road). Scout `v2spjcramp` reads the body on the 1.0.329 products: its unit, datum, the terrain under its two ends, and the road faces beneath it.
+
+## 2026-09-13cn SPJC viaduct attributed: §16g (3) EXPELS the body it should bind — §16g (6) written, lane `v2connector`
+
+Scout `v2spjcramp` on the owner's 1.0.329 SPJC products (no build; read-only).
+The access-road viaduct `SPJC_LIMANUEVA_xp11_007__b0` (span 549 m, 16
+components, one body) has `unit_of = None`: §16g (3)'s connector test (span
+≥ 200 m AND end-ground spread ≥ 0.5 m; here 11.58 m) names it a connector and
+`_bind_plan_wide` drops it from the terminal unit `fu:0:0@cluster_pad`
+(datum `building6` 19.5604) WITHOUT writing the promised station cut, so it
+falls to §16c's low-side foot: the −8.308 m footing bottom is pinned to the
+mesh (19.058), authored zero lands at 27.366 — **7.81 m above the unit
+datum**, the deck 18.3–19.7 m over the apron, the south abutment slab +8.96 m
+in the air; the only contact with the mesh is the footing bottom at s 0–50 m
+(−0.02 … +0.15). `xp11_010__b0` (span 1,030 m) is expelled the same way,
+0.99 m LOW. All eleven LIMANUEVA placements share ONE DSF origin/heading in
+the source pack (a shared-datum pack); nine chain into the terminal unit, the
+two longest are thrown out. The terminal did not move 1.0.327 → 1.0.329
+(`SPJC.rebake.json` byte-identical across three frames; `building6`
+[18.84, 20.13] in all). Second, smaller class: no road face reaches the
+viaduct's low end (nearest road chain 655.7 m; OSM `highway=service`
+−10092/−10616 within 25 m are absorbed into `pav49`/`pav46` under the
+free-road ruling), so §37 (6)/§34 grade nothing there — at the correct datum
+the south abutment still wants +1.56 m of fill, NE columns up to 2.4 m of
+cut. `--why-at` not run (no capture; no solved vertex within 52.6 m).
+
+* RULING (the owner's words 13ce: cutting is allowed ONLY for "very long
+  connecting pieces like the elevated rail at HECA"): a connector CONNECTS
+  two units. §16g (6) written: (1) connector = span ≥ 200 m AND spread ≥
+  0.5 m AND its two ends touch two DIFFERENT units (or one unit and open
+  ground); a body whose every contact chains into one unit is that unit's
+  member however long; (2) an identified connector is seated on its
+  high-end unit's datum until the station cut is written — it never falls
+  to the low-side foot; (3) the shared-DSF-origin pack row is recorded as
+  `authored_unit`, and a partition separating siblings raises
+  `unit_split_authored` (WARN).
+* Lane `v2connector` (Opus, brief pack) implements §16g (6) in
+  `airport/footprint_unit.py`; closing test SPJC through the harness (the
+  two bodies at the datum, `unit_connectors_cut` 0 there, HECA rail still a
+  connector).
+* The residual (+1.56 m fill at the abutment, no road under the viaduct)
+  stays open under §37 (6)/§34 — the absorbed service ways are the next
+  read once the datum is right.
+* Not verified: the 1.0.327 placement plan (overwritten; app builds are not
+  in the artifact ledger); `artifact_ledger.py --history` does not exist as
+  a CLI — the brief was wrong to name it.
+
+## 2026-09-13co Owner read of 1.0.329 — HECA ("mostly … close to the best we've built so far"), six items — scout `v2heca329`
+
+Owner, verbatim: "HECA is mostly looking close to the best we've built so
+far. Some issues: 1. shapeID 44 is a taxiway role, but taxiway cannot run
+adjacent to a runway, that portion should have been absorbed into the runway
+itself 2. Around here: 30.1312203, 31.3983896 I can't tell if there's a gap
+with no coverage, or just a problem, but in the sim their's a bit dip in the
+taxiway that aircraft could not drive through. 3. This taxiway has too much
+lateral slope: 30.1114112, 31.4063353. Really we just need this area
+30.1116052, 31.4066985 to be lowered so we don't have so much of a hill
+right there, then the road, taxiway, and apron can all meet more smoothly.
+4. This is the edge of a road: 30.1096746, 31.4048466, the center of the
+road here: 30.1096476, 31.4048517 is lower creating a sharp lateral slope in
+the road 5. Road here: 30.1077666, 31.4031555 is ending in a cliff above the
+taxiway, it should join the taxiway edge smoothly with no gap and at the
+same elevation. 6. This large area 30.1082777, 31.4022695 is apron, not all
+taxiway, and shapeID 478 should be part of it, not adjacent ground"
+
+* Earlier in the same read (LEMD): "There's nothing in the patch, it seems
+  like both LEMD and HECA the terrain looks different, did anything change
+  with the DEM? … a road that now appears in a deep canyon: 40.465414,
+  -3.5531888". Checked: NO DEM refresh since 2026-09-08 (refresh ledger), no
+  elevation file newer than the 1.0.329 app. Mesh-path commits since
+  1.0.327: b6ad4309 / 0523aec5 / 95579a99 / d1fd6242 (§39 shore weld,
+  vector-map weld OFF, pre-flight). Scout `v2lemd329` redirected: coverage
+  test at the coordinate, mesh profile vs DEM, diff of every code path
+  touching non-patch terrain.
+* Scout `v2heca329` dispatched on the six HECA items: (1) shape 44's role
+  and its runway adjacency — the §29 (7) lateral band / role scorer; (2)
+  coverage at 30.1312203, 31.3983896 and the dip's profile; (3)/(4) the
+  cross-slope at the two sites against §37 (8) (road cross-section is LAW)
+  and the taxiway lateral cap; (5) the road end vs the taxiway edge — §37
+  (9) coverage-edge join; (6) shape 478's role and the apron/taxiway
+  partition at 30.1082777, 31.4022695.

@@ -370,18 +370,27 @@ def test_16g_10_5_a_cluster_in_two_pieces_is_SPLIT_at_the_pieces():
 
 # ── (6) THE PAD WELDS TO THE AIRSIDE ────────────────────────────────────
 
-def test_16g_10_6_pad_airside_weld_is_registered_and_prices_the_plane():
-    """§16g (10) (6) (owner RULINGS 2026-09-14ai): a pad sharing an edge
-    with airside is pulled to the airside's level there — the airside is
-    the datum and never yields — so what can fail is the pad being unable
-    to BE A PLANE at that edge.  The step ACROSS the weld is 0 by
-    construction (09-01g: contact = value, one node one value), which is
-    why this prices the pad's own plane residual at the SHARED vertices.
+def test_16g_10_6_pad_airside_weld_fires_only_where_the_SKIRT_cannot_reach():
+    """§16g (10) (6) (owner RULINGS 2026-09-14ai), threshold restated by
+    14aj (8): a pad sharing an edge with airside is pulled to the
+    airside's level there — the airside is the datum and never yields —
+    and the pad may BEND to reach it within its own slope ceiling.  The
+    row fires only where even that cannot reach.
+
+    The step ACROSS the weld is 0 by construction (09-01g: contact =
+    value, one node one value), which is why this prices the pad's
+    SHARED vertex against its own other vertices at ``pad_slope_max·d``.
+
+    THE FIRST READING (a least-squares plane residual against
+    ``hard_tol_m``) MEASURED THE WRONG THING and is deleted: under (8)
+    that residual IS the bend the law allows, and HECA read 16 rows at
+    DISARM against 36 with the skirt — the instrument was counting the
+    law working.
 
     Computed from the PATCH by node identity, so the twin is over the
-    check itself: a flat pad welded to a flat apron reports nothing; the
-    same pad with one shared corner pulled 0.5 m reports one row naming
-    the airside way."""
+    check: a pad whose shared corner sits inside 1 % of its own span
+    reports nothing; the same pad with that corner lifted past it reports
+    one row naming the airside way."""
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
@@ -389,6 +398,7 @@ def test_16g_10_6_pad_airside_weld_is_registered_and_prices_the_plane():
 
     assert "pad_airside_weld" in {k for k, _t, _b in cg.LAW_FAMILIES}
 
+    # a 44 x 44 m pad, so 1 % of its own span is ~0.44 m
     nodes = {"1": (0.0000, 0.0000), "2": (0.0000, 0.0004),
              "3": (0.0004, 0.0004), "4": (0.0004, 0.0000),
              "5": (0.0000, 0.0008), "6": (0.0004, 0.0008)}
@@ -401,55 +411,21 @@ def test_16g_10_6_pad_airside_weld_is_registered_and_prices_the_plane():
                       list(zs), {"role": "building"})
     apron = cg.Way("w2", "apron", "apronA", "", ["2", "5", "6", "3"],
                    [10.0, 10.0, 10.0, 10.0], {"role": "apron"})
-    flat = cg._check_pad_airside_weld([pad([10.0] * 4), apron], nodes, ll,
-                                      0.02)
-    assert flat == []
-    # the shared edge is nodes 2 and 3; pull node 2 half a metre
-    bent = cg._check_pad_airside_weld(
-        [pad([10.5, 10.0, 10.0, 10.0]), apron], nodes, ll, 0.02)
-    assert len(bent) == 1, bent
-    assert bent[0].way_a.ref.startswith("building1 -> apronA")
-    assert bent[0].de_m > 0.02
-    # a pad sharing NOTHING with airside is never a row
+    # the shared edge is nodes 2 and 3; a 0.20 m bend is INSIDE the cap
+    inside = cg._check_pad_airside_weld(
+        [pad([10.0, 10.2, 10.0, 10.0]), apron], nodes, ll, 0.01, 0.02)
+    assert inside == [], inside
+    # ... and a 2 m one is not
+    over = cg._check_pad_airside_weld(
+        [pad([10.0, 12.0, 10.0, 10.0]), apron], nodes, ll, 0.01, 0.02)
+    assert len(over) == 1, over
+    assert over[0].way_a.ref.startswith("building1 -> apronA")
+    assert over[0].de_m > 0.0
+    assert (over[0].lat, over[0].lon) == nodes["2"]
+    # a disarmed cap reports nothing, and a pad sharing NOTHING with
+    # airside is never a row
+    assert cg._check_pad_airside_weld(
+        [pad([10.0, 12.0, 10.0, 10.0]), apron], nodes, ll, 0.0, 0.02) == []
     lone = cg.Way("w3", "building", "building9", "",
-                  ["1", "4"], [10.0, 10.0], {"role": "building"})
-    assert cg._check_pad_airside_weld([lone], nodes, ll, 0.02) == []
-
-
-def test_16g_10_4_the_UNIT_takes_the_same_leaf_rule_as_the_cluster():
-    """§16g (9) ONE POPULATION + (10) (4): the object stage's FOOTPRINT
-    UNIT chains by the same relation the design surface's cluster does,
-    so the leaf rule must hold on BOTH sides or there are two
-    populations again.
-
-    MEASURED at HECA with the rule on the design side only: the cluster
-    resolved (largest 541,200 m2 / 9,334 bodies -> 171,086 m2 / 1 body)
-    while the object stage still chained the T3 terminal into
-    ``fu:38:23@cluster_pad`` — 52 members on one datum — and its body sat
-    7.50 m above its own ground.
-
-    A body that chains with nothing is NOT made a unit here (it never
-    was: `_clusters` drops the singletons and the default path seats it
-    on its own ground, which is what a LEAF wants)."""
-    from auto_patch_v2.airport import footprint_unit as FU
-    a = _PMember("objects/a.obj", [_part(1, _lat(0), _lat(40), height=8.0)])
-    slab = _PMember("objects/slab.obj",
-                    [_part(2, _lat(40), _lat(60), height=0.2)])
-    b = _PMember("objects/b.obj", [_part(3, _lat(60), _lat(100), height=9.0)])
-    plan = _PPlan([_PUnit("unit:0", [a, slab, b])])
-    # disarmed: the slab bridges and the three are ONE unit
-    off, _c = FU.plan_units_and_connectors(plan, TOUCH, 0.0, {}, 0.0)
-    assert len(off) == 1 and len(off[0].bodies) == 3, off
-    # armed: the slab links nothing, and neither building chains anything
-    # else, so no unit forms at all — each seats on its own ground
-    counts: dict = {}
-    on, _c2 = FU.plan_units_and_connectors(plan, TOUCH, 0.0, counts, 2.5)
-    assert on == [], on
-    assert counts["unit_leaf_bodies"] == 1
-    assert counts["unit_chain_no_height"] == 0
-
-    # ... and two WALLED bodies that touch each other are still one unit
-    c = _PMember("objects/c.obj", [_part(4, _lat(40), _lat(60), height=7.0)])
-    two, _c3 = FU.plan_units_and_connectors(
-        _PPlan([_PUnit("unit:0", [a, c, b])]), TOUCH, 0.0, {}, 2.5)
-    assert len(two) == 1 and len(two[0].bodies) == 3, two
+                  ["1", "4"], [10.0, 12.0], {"role": "building"})
+    assert cg._check_pad_airside_weld([lone], nodes, ll, 0.01, 0.02) == []

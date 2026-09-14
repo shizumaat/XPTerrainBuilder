@@ -5983,36 +5983,53 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
     return out
 
 
-def _check_pad_airside_weld(ways, nodes, ll_to_m, hard_tol_m: float
-                            ) -> List[Violation]:
-    """§16g (10) (6) EVERY PAD SHARING AN EDGE WITH AIRSIDE WELDS SMOOTHLY
-    TO IT (owner RULINGS 2026-09-14ai, verbatim: *"be sure all pads
-    sharing an edge with airside must weld smoothly to the airside"*) —
-    CRITICAL.
+#: §16g (10) (6)/(8): the pad's own SLOPE CEILING — what the skirt is
+#: allowed to bend by to reach an airside edge — and the census's own
+#: rounding envelope.  Read from the engine's law where it is importable;
+#: the bare-patch CLI keeps the shipped values.
+try:                                                    # pragma: no cover
+    from auto_patch_v2.law import tables as _V2_TABLES
+    _V2_T = _V2_TABLES.load_default().tables
+    _PAD_SLOPE_MAX = float(_V2_T.emit.within_shape.pad_slope_max)
+    _HARD_TOL_M = float(_V2_T.emit.design.hard_tol_m)
+except Exception:                                       # pragma: no cover
+    _PAD_SLOPE_MAX = 0.01
+    _HARD_TOL_M = 0.02
+
+
+def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
+                            tol_m: float) -> List[Violation]:
+    """§16g (10) (6)/(8) EVERY PAD SHARING AN EDGE WITH AIRSIDE WELDS
+    SMOOTHLY TO IT (owner RULINGS 2026-09-14ai, verbatim: *"be sure all
+    pads sharing an edge with airside must weld smoothly to the
+    airside"*; the threshold restated by 14aj) — CRITICAL.
 
     THE STEP ITSELF IS ZERO BY CONSTRUCTION and that is not what this
     measures.  A pad and an apron that share an edge share its NODES, and
     a node carries ONE value (09-01g, "contact = value"), so the emitted
-    step across a welded edge is 0.000 m however the solve went.  What
-    CAN go wrong — and what the owner's sentence is about — is the pad
-    being unable to BE A PLANE while meeting that edge: the airside is
-    the datum and never yields, so a pad whose shared boundary runs
-    across the apron's own fall is pulled out of plane at exactly those
-    nodes.  This prices that: per ``building`` ref, the pad's own
-    least-squares PLANE over all its vertices, read at the vertices it
-    SHARES with an airside way, against ``hard_tol_m``.
+    step across a welded edge is 0.000 m however the solve went.
 
-    ``pad_flat`` (``verify/pads``) prices the whole pad's planarity and
-    would report the same pad for relief anywhere in it; this one names
-    the AIRSIDE EDGE as the cause, which is what makes it actionable and
-    what the bar is written in.  Rows carry the pad ref, the airside way
-    the edge is shared with, and the worst residual.
+    What CAN go wrong is the pad being unable to REACH that edge.  §16g
+    (10) (8) makes the pad FLAT across its interior and its non-airside
+    rim and lets it BEND to meet the pavement it touches — but only
+    within its own slope ceiling (``[emit.within_shape] pad_slope_max``,
+    1 %).  So the row fires where a vertex the pad SHARES with an airside
+    face stands further from another vertex of the same pad than
+    ``cap * d`` allows: the skirt could not reach, and 14ai's sentence is
+    broken.  ``tol_m`` is the census's own rounding envelope.
+
+    THE FIRST READING WAS AGAINST ``hard_tol_m`` AND IT MEASURED THE
+    WRONG THING (round 4): it priced the pad's own least-squares plane
+    residual at the shared vertices, which under (8) is exactly the bend
+    the law ALLOWS — HECA read 16 rows at DISARM and 36 with the skirt,
+    i.e. the instrument counted the law working.  14ai's own words are
+    "within the pad's own slope cap", and this is that.
 
     The join is NODE IDENTITY, never proximity (memory
     `canonical-identity-join`) — the same join
     ``tools/role_edge_census.py`` uses for the shared-edge population."""
     out: List[Violation] = []
-    if not ways:
+    if not ways or cap <= 0.0:
         return out
     airside_nodes: Dict[str, "Way"] = {}
     for w in ways:
@@ -6028,8 +6045,8 @@ def _check_pad_airside_weld(ways, nodes, ll_to_m, hard_tol_m: float
     for ref, group in sorted(per_ref.items()):
         pts: List[Tuple[float, float]] = []
         zs: List[float] = []
+        nid_of: List[str] = []
         shared: List[int] = []
-        who: Dict[int, str] = {}
         seen: set = set()
         for w in group:
             for k, nid in enumerate(w.nids):
@@ -6041,63 +6058,42 @@ def _check_pad_airside_weld(ways, nodes, ll_to_m, hard_tol_m: float
                 seen.add(nid)
                 pts.append(ll_to_m(*nodes[nid]))
                 zs.append(float(z))
+                nid_of.append(nid)
                 if nid in airside_nodes:
                     shared.append(len(pts) - 1)
-                    who[len(pts) - 1] = (airside_nodes[nid].ref
-                                         or airside_nodes[nid].wid)
-        if len(pts) < 3 or not shared:
+        if len(pts) < 2 or not shared:
             continue
-        n = float(len(pts))
-        mx = sum(q[0] for q in pts) / n
-        my = sum(q[1] for q in pts) / n
-        mz = sum(zs) / n
-        sxx = syy = sxy = sxz = syz = 0.0
-        for (x, y), z in zip(pts, zs):
-            dx, dy, dz = x - mx, y - my, z - mz
-            sxx += dx * dx
-            syy += dy * dy
-            sxy += dx * dy
-            sxz += dx * dz
-            syz += dy * dz
-        det = sxx * syy - sxy * sxy
-        if abs(det) < 1e-9:
-            a_, b_ = 0.0, 0.0
-        else:
-            a_ = (sxz * syy - syz * sxy) / det
-            b_ = (syz * sxx - sxz * sxy) / det
+        # the pad's own pairs, decimated the way the plate itself is
+        step = max(1, len(pts) // 64)
+        others = list(range(0, len(pts), step))
         worst = 0.0
-        at = -1
+        at = by = -1
         for i in shared:
-            x, y = pts[i]
-            r = zs[i] - (mz + a_ * (x - mx) + b_ * (y - my))
-            if abs(r) > abs(worst):
-                worst, at = r, i
-        if at < 0 or abs(worst) <= hard_tol_m:
+            xi, yi = pts[i]
+            for j in others:
+                if j == i:
+                    continue
+                xj, yj = pts[j]
+                d = math.hypot(xi - xj, yi - yj)
+                if d <= 0.0:
+                    continue
+                excess = abs(zs[i] - zs[j]) - cap * d
+                if excess > worst:
+                    worst, at, by = excess, i, j
+        if at < 0 or worst <= tol_m:
             continue
         pad = Way("pad_airside_weld", "building",
-                  f"{ref} -> {who.get(at, '?')}", "", [], [],
-                  {"role": "building"})
-        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-                      de_m=abs(worst), way_a=pad, way_b=pad,
+                  f"{ref} -> {airside_nodes[nid_of[at]].ref or airside_nodes[nid_of[at]].wid}",
+                  "", [], [], {"role": "building"})
+        v = Violation(grade_pct=0.0, excess_pct=0.0,
+                      distance_m=math.hypot(pts[at][0] - pts[by][0],
+                                            pts[at][1] - pts[by][1]),
+                      de_m=worst, way_a=pad, way_b=pad,
                       pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                      elev_a=zs[at] - worst, elev_b=zs[at])
-        for nid in seen:
-            if nid in nodes and ll_to_m(*nodes[nid]) == pts[at]:
-                v.lat, v.lon = nodes[nid]
-                break
+                      elev_a=zs[by], elev_b=zs[at])
+        v.lat, v.lon = nodes[nid_of[at]]
         out.append(v)
     return out
-
-
-#: §16g (10) (6): the residual a pad's plane is allowed at a vertex it
-#: shares with airside — ``[emit.solve] hard_tol_m``, the same value the
-#: solve HOLDS a hard row at.  Read from the engine's own law where it is
-#: importable; the bare-patch CLI keeps the shipped value.
-try:                                                    # pragma: no cover
-    from auto_patch_v2.law import tables as _V2_TABLES
-    _HARD_TOL_M = float(_V2_TABLES.load_default().tables.emit.design.hard_tol_m)
-except Exception:                                       # pragma: no cover
-    _HARD_TOL_M = 0.02
 
 
 #: §16g (10) (3): the sidecar key the declared defect set arrives on.
@@ -10846,12 +10842,13 @@ def run_checks(
 
     weld_rows = _fam("pad_airside_weld",
                      _check_pad_airside_weld(ways, nodes, ll_to_m,
-                                             _HARD_TOL_M))
+                                             _PAD_SLOPE_MAX, _HARD_TOL_M))
     _pv("PAD SHARING AN EDGE WITH AIRSIDE pulled OUT OF PLANE at that "
         "edge (owner RULINGS 2026-09-14ai: \"all pads sharing an edge "
         "with airside must weld smoothly to the airside\" — the airside "
-        "is the datum and never yields, so a pad that cannot BE A PLANE "
-        "while meeting its shared edge is named with that edge; the step "
+        "is the datum and never yields, and §16g (10) (8) lets the pad "
+        "BEND to reach it within `pad_slope_max` — so a row is a pad "
+        "whose skirt could NOT reach, named with that edge; the step "
         "across the weld is 0 by construction and is not what this "
         "measures)", weld_rows, top_n)
     within = within + weld_rows

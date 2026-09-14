@@ -134,8 +134,8 @@ cockpit   = "keepout"
 # PLANE at the vertices it shares with airside: the airside is the datum
 # and never yields.
 [pad_airside_weld]
-measures  = "a `building` pad's own plane residual at the vertices it shares with an airside face"
-parameter = "emit.design.hard_tol_m"
+measures  = "a pad vertex SHARED with an airside face standing further from another vertex of its own pad than the pad's slope ceiling allows — the SKIRT could not reach"
+parameter = "emit.within_shape.pad_slope_max"
 roles     = ["object_pad"]
 pairs     = "within"
 ruling    = "2026-09-14ai"

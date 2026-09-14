@@ -129,6 +129,7 @@ import os
 import typing as _t
 from collections import OrderedDict as _od
 
+import numpy as _np
 import shapely
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
@@ -332,15 +333,27 @@ def _rim_open(ring: Polygon, rim_geom, step: float, reach: float
     than ``reach`` from the founding shells' at-grade geometry."""
     ext = ring.exterior
     n = max(4, int(math.ceil(ext.length / step)))
-    open_n = 0
-    first: XY | None = None
-    for i in range(n):
-        p = ext.interpolate(ext.length * i / n)
-        if rim_geom is None or rim_geom.distance(p) > reach:
-            open_n += 1
-            if first is None:
-                first = (p.x, p.y)
-    return open_n, n, first
+    pts = shapely.line_interpolate_point(ext, [ext.length * i / n for i in range(n)])
+    # THE STATIONS ARE QUERIED THROUGH AN INDEX (measured 2026-09-13, lane
+    # ``v2gradecache``, cProfile over VHHH's structure stage): one station
+    # against the WHOLE rim is a point-to-MULTILINESTRING distance, and
+    # VHHH's 96 rings cost 549,207 of them — 1,196 s of a 3,580 s build,
+    # for a REPORTED DIAGNOSTIC that refuses nothing.  Same GEOS distances,
+    # same predicate (a station is closed when some part of the rim lies
+    # within ``reach``), the tree only skips the parts that cannot.
+    if rim_geom is None:
+        near = _np.zeros(n, dtype=bool)
+    else:
+        parts = [g for g in shapely.get_parts(rim_geom) if not g.is_empty]
+        near = _np.zeros(n, dtype=bool)
+        if parts:
+            hit = STRtree(parts).query_nearest(pts, max_distance=reach, all_matches=False)
+            near[_np.asarray(hit[0] if _np.ndim(hit) == 2 else hit, dtype=int)] = True
+    open_i = _np.flatnonzero(~near)
+    if open_i.size == 0:
+        return 0, n, None
+    p0 = pts[int(open_i[0])]
+    return int(open_i.size), n, (float(p0.x), float(p0.y))
 
 
 def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:

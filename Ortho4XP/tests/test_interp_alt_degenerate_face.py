@@ -154,3 +154,78 @@ def test_the_audit_accepts_the_floor_seeded_map():
     VMAP.seed_interp_alt_subcells(vector_map)
 
     assert VMAP.audit_interp_alt_seed_sealing(vector_map) == 1
+
+
+# ── THE CLEARANCE IS THE ENCODING'S QUANTUM (VHHH, 2026-09-14) ─────────
+#
+# The owner's 1.0.331 build of +22+113 died in the mesh step:
+# ``UnsealedInterpAltSeed`` on ONE of 4,095 seeds, at tile-relative
+# (0.876712142, 0.321098147).  MEASURED: that seed is a face seed of
+# ``adjacent_ground:runway:4:zone2#24`` (a 767 m x 5.2 km graded strip)
+# standing **0.856 mm** inside its own raw face — a horizontal-scanline
+# ``representative_point`` that grazed the boundary — while in the
+# ENCODED arrangement it lies OUTSIDE every bounded face (one marked
+# edge 0.78 mm away, the next 13 m away).  The clearance floor was
+# 1e-11 degrees, ONE MICROMETRE: a hundred times finer than the vector
+# map's own ``snap_to_grid(9)`` grid (0.11 mm) and far under
+# ``are_encroached``'s 1e-8 and §39 (i)'s weld.
+#
+# ATTRIBUTED INTERVENTIONALLY, not inferred: the same seed refuses with
+# ``OPEN_BREAKLINE_FEATURES = ()``, i.e. with RULINGS 2026-09-13cp's
+# marker change fully OFF.  It is the seeder's floor, not the marker.
+
+def test_the_clearance_is_stated_in_metres_and_derived():
+    assert VMAP.INTERP_ALT_SEED_CLEARANCE_M == 0.5
+    assert abs(VMAP.INTERP_ALT_SEED_CLEARANCE_DEG - 0.5 / 111320.0) < 1e-18
+    # and it is far COARSER than the vector map's own coordinate grid,
+    # which is the whole point (snap_to_grid(9) = 1e-9 degrees).
+    assert VMAP.INTERP_ALT_SEED_CLEARANCE_DEG > 1.0e-9 * 100
+
+
+def test_a_seed_grazing_its_own_boundary_MOVES_to_the_deepest_point():
+    """VHHH's class: an AMPLE face whose scanline representative point
+    grazes the boundary keeps its seed — at the pole of inaccessibility,
+    not at the graze.  Dropping it would throw away a real region."""
+    # An AMPLE block (1 km x 11 m) with a 0.4 m-wide, 110 m-tall SPIKE on
+    # top: the face's mid-height scanline runs through the spike, so the
+    # representative point grazes, while the block is metres deep.
+    w = 0.2 / 111320.0
+    face = geometry.Polygon([
+        (0.100000, 0.100000), (0.110000, 0.100000),
+        (0.110000, 0.100100), (0.105000 + w, 0.100100),
+        (0.105000 + w, 0.101100), (0.105000 - w, 0.101100),
+        (0.105000 - w, 0.100100), (0.100000, 0.100100),
+    ])
+    graze = face.representative_point()
+    assert face.boundary.distance(graze) < VMAP.INTERP_ALT_SEED_CLEARANCE_DEG
+    seed = VMAP.interp_alt_seed_point(face)
+    assert seed is not None and face.contains(seed)
+    assert face.boundary.distance(seed) >= VMAP.INTERP_ALT_SEED_CLEARANCE_DEG
+    assert not VMAP.is_degenerate_interp_alt_face(face)
+
+
+def test_a_face_thinner_than_the_clearance_EVERYWHERE_is_dropped():
+    """A 0.4 m-wide, 1 km-long strip holds no mesh vertex: its inscribed
+    radius is under the floor, so it is a noding artifact, not a region.
+    (Its AREA is 400 m^2 — far over the area floor, which is why the
+    area alone was never the criterion.)"""
+    w = 0.2 / 111320.0                       # half-width 0.2 m
+    strip = geometry.Polygon([
+        (0.100, 0.100 - w), (0.109, 0.100 - w),
+        (0.109, 0.100 + w), (0.100, 0.100 + w),
+    ])
+    assert strip.area * VMAP._SQ_M_PER_SQ_DEG > 100.0
+    assert VMAP.interp_alt_seed_point(strip) is None
+    assert VMAP.is_degenerate_interp_alt_face(strip)
+
+
+def test_a_seed_grazing_a_HOLE_is_as_unreliable_as_one_grazing_the_rim():
+    """``boundary``, not ``exterior``: the encoded map can move a hole's
+    edge exactly as it can move the outer ring."""
+    ring = geometry.Polygon([(0.100, 0.100), (0.102, 0.100),
+                             (0.102, 0.102), (0.100, 0.102)])
+    hole = geometry.Point(0.101, 0.101).buffer(0.0009, quad_segs=64)
+    face = ring.difference(hole)
+    seed = VMAP.interp_alt_seed_point(face)
+    assert seed is None or (
+        face.boundary.distance(seed) >= VMAP.INTERP_ALT_SEED_CLEARANCE_DEG)

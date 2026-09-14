@@ -4890,3 +4890,73 @@ never lends; `plan_unit_datums` no longer takes a deck for a unit. Units
 * Unverified this round: the seven buildings and the terminal
   individually; SPJC/KCLT/OTHH/LEMD (their registered plans predate the
   `ring` field — a rebuild puts the law in reach; the 1.0.333 sweep).
+
+## 2026-09-14k v2slivers MERGED (25148cdf): shape 1035 gone, 55 sliver zone faces dissolved, 8 minted `gap_interior_ring`s gone; shape 220 is a real void; a 9-ring class flagged
+
+Lane `v2slivers` @ 88dfed33; matched HECA pair at fef82b29 (base
+`v2sl_heca_base` / closing `v2sl_heca2`, ledger-registered, verify
+defects {}). §41 (4) `dissolve_sliver_zones` at the arrangement (inscribed
+width via `maximum_inscribed_circle`; rigid pads refused as hosts):
+HECA 57 slivers / 1,647 m² → 1 / 188 m² (shape 95, 2.91 m in the census
+frame vs ≥ 3.0 in the arrangement frame — a 3 % frame difference at the
+threshold, accepted); shape 1035 gone, no vertex within 12 m of the
+site, the taxiway's own nodes 104.3–104.7. Holes: `_hole_cover` =
+edge-superset OR area ≥ 1 − `hole_cover_eps` (0.02) OR hairline (<
+`strip_min_width_m`): 57 rings → 49, all real voids; way −10231 and
+shape 294's ring gone. Census law-true −212, ADJUDICATED +70 (strip
+vertices now priced under pavement law), CRITICAL visual −50. CYXY
+lawfully not byte-identical (12 slivers / 4 hairline rings). Suite 1,416.
+
+* RULED: the edge-superset test is KEPT beside the area test — replacing
+  it outright emitted 9 NEW rings / 245,000 m² at HECA (holes 10–66 k m²
+  in `primary_parallel:dsf:objpav93` faces whose inner faces cover
+  72–100 % but leave residue owned by no face) — a different class,
+  flagged: holes in OBJECT-PAVEMENT faces whose interior is partly
+  unowned (§42's arrangement) — owed a read.
+* Owner intent (item 5 residue): shape 220's ring −10229 (514.6 m²,
+  3.13 m inscribed, cover 0.07) is a REAL VOID by the ruling and stays.
+  If the owner wants it gone it is a different rule (a void narrower
+  than N m inside a taxiway?) — ask.
+* `role_overlap_read.py --slivers / --hole-rings` extended.
+
+## 2026-09-14l v2apronneck MERGED (f9b1d9b5): §43 — HECA shape 344 cut at the owner's line A (2.8 m off); the neck carries the slope; one intent question on line B
+
+Lane `v2apronneck` @ 6f4fa4df; HECA build (ledger d53f79789526, verify
+defects {}); classify stage −0.7 %; suite 1,396. `classify/neck.py`:
+LOCAL width by erosion (`face.buffer(-W/2)` lobes; NARROW = the rest; a
+component adjacent to ≥ 2 lobes that SEPARATES them is a neck — the
+rim of every wide body is one connected NARROW component and must not
+count; corridor cells are never offered). Shape 344 (mean width 44.8 →
+"corridor" → §40 (2) refused it → one apron over the dumbbell, 79,658
+m², z span 21.77 m): cut at 30.1138224,31.4114547 → 30.1141607,31.4113972
+(2.8 m from the owner's line A); the ~300 m between →
+`secondary_parallel:dsf:objpav100` + junction pieces carrying −2.18 %
+(the apron carried −1.51 % across it before); new apron beyond 24,948 m²
+span 2.51 m; `pav131` → `pav37` span 7.63 → 6.81. Five-frame dry: HECA
+10 / OTHH 11 / KCLT 9 / SPJC 3 / CYXY 0 necks, every neck 9.3–40.0 m
+mean width, apron area lost = taxi area gained to the m². §41 (1) does
+not re-absorb a neck piece (geometric, twin, and measured 82/28
+unchanged).
+
+* RULED: §43 (1) overrides §40 (2) on a neck (OSM draws one apron
+  polygon over the apron AND the taxiway leaving it; `neck_apron_cover`
+  recorded).
+* Residual quoted: ADJUDICATED 24,305 → 26,647 (+2,342), ENTIRELY rows
+  touching the runway role (8,529 → 11,362: `cross_connector|runway`
+  1,011 → 3,532) — the §40 shoulder-as-`runway` class already owed at
+  13dg (`runway_shoulder` as a distinct role); rows away from the
+  runway −491.
+* INTENT QUESTION (owner): line B (30.1166525,31.411575 →
+  30.1169773,31.4119433) straddles shape 344's EXISTING boundary — its
+  NE end is already inside `cross_connector:dsf:objpav100` in 1.0.331
+  and the pavement north of B is a corridor; §43's new apron begins
+  where the local width passes 45 m again, at ~30.1207 (470 m north).
+  Is the apron the owner expects at B the one at 30.1207, or should
+  the corridor north of B be re-read as apron (a §40/§27 question)?
+  Swept `neck_width_m` 30–60 m: the nearest mouth to B is ≥ 32.5 m at
+  every value; line A stays 2.7–2.8 m.
+* `classify/roles.py` 1,129 lines (warn); one neck pass per face (a
+  neck revealed inside a piece is not found) — noted.
+* Suite on merged main: 1,427 passed, 1 failed once and did not
+  reproduce on rerun — the order-dependent memo-key class (chip
+  running).

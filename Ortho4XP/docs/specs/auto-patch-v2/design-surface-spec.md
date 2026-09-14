@@ -8840,3 +8840,23 @@ edge (13cp).  An OPEN way of a class whose closed form wears the marker
 `audit_bank_annulus` refuses a patch with a bank foot that values under 10 %
 of its annulus candidates.  Bare INTERP_ALT input nodes are Dirichlet, never
 free.  `[design] bank_omit` (default false) is the owner's OMIT arm (13cq).
+
+### §41 (1) AMENDED — A NOTCH IS ABSORBED; AN ISLAND AND A NARROW-MOUTHED BODY ARE NOT (Fable 2026-09-13; RULINGS 2026-09-13da) — lane `v2zonehole`
+
+MEASURED: the arrangement is a PARTITION — `cross_connector:pav77` sits in a
+HOLE of `primary_parallel:pav73#45`, hole-aware intersection 0.000 m²; the
+defect is the NOTCH pinned 3 m below its host, which the host ramps to at 11 %
+inside its own face (65.7 → 68.05 over 21 m at 30.1312203, 31.3983896).  So
+the containment frame is the host's EXTERIOR RING (`--contains`, ring fraction
+≥ 0.95), and two narrowings hold, both measured:
+1. A contained face sharing NO boundary with its host is an ISLAND in a loop
+   (`apron:pav5`, 2,362 m², 12.97 m off `pav67`) — not absorbed.
+2. A contained face reached through a mouth narrower than
+   `emit.terrace.narrow_mouth_max_m` (12.0) is a SEPARATE BODY under the
+   owner's body law (RULINGS 2026-09-08k) — not absorbed.  Absorbing CYXY's
+   `apron:pav21#204` (9.31 m mouth) moved the control 39 → 54
+   `airside_no_step`; with the gate CYXY is byte-identical.
+`absorb_enclosed_pavement` runs smallest-first with union-find between
+`merge_slivers` and `dissolve_degenerate_holes`; HECA 39 → 4 contained faces
+(the 4 are ~80 m² `junction:pav8` notches minted by the merge geometry itself
+— a second pass, owed).

@@ -4277,3 +4277,23 @@ items 1–6 and 8 are unchanged in this build).
   whole-airport look at HECA/LEMD versus 1.0.327.
 * Not in this build: the SPJC viaduct seat (13cn), HECA 1–6/8 (13cs/13cv),
   the KCLT tile (owner's `--refresh-data dem` still pending).
+
+## 2026-09-13da v2zonehole MERGED (4fe1d8a1): the HECA dip was a NOTCH, not a stack; §41 (1) amended (island and narrow mouth stay separate)
+
+Lane `v2zonehole` @ 4fe1d8a1. HECA closing arm (base 13431931, registered):
+contained faces 39 / 65,772 m² → 4 / 245 m²; `pav77` absorbed into
+`pav73#45`; law-true census 40,067 → 38,151; rows within 100 m of the site
+615 → 551 (worst within-shape 5.80 → 4.59 %); CYXY control byte-identical;
+suite 1,324 twice. `zone_on_pavement` family registered (cockpit `keepout`).
+`role_overlap_read.py`: `--contains` census; anchor read `side.get` with
+the census's mean-of-nodes frame — coordinate with the owner's `toolfix` chip
+on `_frame` only.
+
+* RULINGS on the two narrowings: BOTH ACCEPTED (§41 (1) amended). An
+  island is not a notch; a narrow-mouthed body is 08k's separate body.
+* Residual, chip-sized: `zone_on_pavement` 3 rows / 52.3 m² at HECA are
+  minted BETWEEN the arrangement and the emitted patch (`pav73#45` carries
+  1 sidecar hole and still covers `zone1#5`) — the lane's clip in the
+  arrangement was byte-identical (fires on nothing) and was deleted.
+  `build_shapes` or emit's identity collapse. Chip.
+* Owed: a second absorption pass for the 4 merge-minted junction notches.

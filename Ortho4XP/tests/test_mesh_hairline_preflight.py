@@ -188,7 +188,7 @@ def test_a_chain_is_a_chain_not_a_node_pair(tmp_path):
 
 
 def test_the_preflight_refuses_and_names_the_pair(tmp_path, capsys, monkeypatch):
-    monkeypatch.delenv("O4_HAIRLINE_PREFLIGHT", raising=False)
+    monkeypatch.setenv("O4_HAIRLINE_PREFLIGHT", "refuse")   # the law's mode; the default is report (RULINGS 2026-09-13cj)
     prefix = _lemd_pair(tmp_path, "refuse", 0.0000595)
     assert MESH.hairline_preflight(prefix + ".poly", _Tile()) == 0
     out = capsys.readouterr().out

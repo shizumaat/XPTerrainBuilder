@@ -367,14 +367,24 @@ def hairline_refusals(findings, *, slenderness=HAIRLINE_SLENDERNESS,
     * ``boundary_gap_m`` (0.1 m) for anything beside the OUTER boundary,
       whatever its slenderness (SPLP 13an: 23.7 mm, 16,298 splits).
     """
+    # RULINGS 2026-09-13cj (owner: LEMD refused on app 1.0.328 with 47
+    # findings, 45 of them 10-13 mm road/water slivers the core has always
+    # meshed): a finding REFUSES only when BOTH floors say unmeshable — under
+    # the degenerate gap AND over the slenderness — or when it sits beside
+    # the outer boundary (SPLP's class).  Either floor alone is a REPORT.
     out = []
-    for kind in ("node_pairs", "short_segments", "bent_chords"):
+    for kind in ("node_pairs", "short_segments"):
+        # a node pair or a constrained segment under the degenerate gap is
+        # unmeshable whatever its neighbours (KCLT's 2.79 mm water segment,
+        # 481,602 slivers): the gap alone refuses
         for r in findings.get(kind, ()):
-            if r["gap_m"] < degenerate_m or r["slenderness"] >= slenderness:
+            if r["gap_m"] < degenerate_m:
                 out.append(dict(r, kind=kind))
+    for r in findings.get("bent_chords", ()):
+        if r["gap_m"] < degenerate_m and r["slenderness"] >= slenderness:
+            out.append(dict(r, kind="bent_chords"))
     for r in findings.get("vertex_edges", ()):
-        if (r["gap_m"] < degenerate_m
-                or r["slenderness"] >= slenderness
+        if ((r["gap_m"] < degenerate_m and r["slenderness"] >= slenderness)
                 or (r.get("on_boundary") and r["gap_m"] < boundary_gap_m)):
             out.append(dict(r, kind="vertex_edges"))
     out.sort(key=lambda r: r["gap_m"])
@@ -388,7 +398,13 @@ def hairline_preflight(poly_file, tile):
     named — its kind, its gap, its markers and its coordinates — so the
     derivation site is identifiable without a second run.
     """
-    mode = os.environ.get("O4_HAIRLINE_PREFLIGHT", "refuse").strip().lower()
+    # DEFAULT REPORT (RULINGS 2026-09-13cj): until the shore weld covers
+    # every foreign constrained edge (lane v2hairline round 2), a refusal
+    # would block the owner's tile on geometry the emitter cannot yet fix;
+    # the findings are printed and censused (`hairline_pair`, CRITICAL).
+    # ``O4_HAIRLINE_PREFLIGHT=refuse`` is the law's mode and returns as the
+    # default when round 2's bars hold.
+    mode = os.environ.get("O4_HAIRLINE_PREFLIGHT", "report").strip().lower()
     if mode == "off":
         return 1
     try:

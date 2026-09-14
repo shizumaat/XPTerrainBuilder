@@ -162,6 +162,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     ev = build_evidence(airport, rules, pad_min, law, cache)
     sources, cut_polys = classify_sources(airport, ev, rules)
     apron_u = apron_union(airport)     # §40 (2): mapped apron, read PER CELL
+    # §40 (1): each runway's ring as a contact BAND, built ONCE (a buffer
+    # per face per runway is ~2,200 constructions at HECA)
+    rw_edges = [(rw, poly, poly.exterior.buffer(rules.cells.on_tol_m,
+                                                cap_style="flat"))
+                for rw, poly in ev.runway_polys]
     src_of = {r.id: r for r in sources}
     cut_ids = list(cut_polys)
     cut_tree = STRtree([cut_polys[i] for i in cut_ids]) if cut_ids else None
@@ -226,7 +231,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # §40 (1): pavement running along a runway ring IS the runway's
         # shoulder — decided before every other rung, and out of the
         # corridor ladder, the demotion and the §27 pass entirely
-        sh = _runway_shoulder(face, ev, rules)
+        sh = _runway_shoulder(face, rw_edges, rules)
         if sh is not None:
             shoulders.append((face, sh[0], sh[1], _ref_for(face, pav_tree, ev)))
             continue
@@ -857,12 +862,14 @@ def _apron_cover(face: Polygon, apron_u) -> float:
     return face.intersection(apron_u).area / face.area
 
 
-def _runway_shoulder(face: Polygon, ev: Evidence, rules: Rules):
+def _runway_shoulder(face: Polygon, rw_edges, rules: Rules):
     """§40 (1) THE RUNWAY SHOULDER (owner RULINGS 2026-09-13co item 1):
     the runway whose ring this cell's boundary runs at least
-    ``corridor.runway_shoulder_shared_m`` along (within ``cells.on_tol_m``,
-    the same contact tolerance the centreline touch test uses), with that
-    shared length; ``None`` where no runway does.  Both the outer ring and
+    ``corridor.runway_shoulder_shared_m`` along, with that shared length;
+    ``None`` where no runway does.  ``rw_edges`` is
+    ``(runway, slab, slab ring buffered by cells.on_tol_m)`` — the same
+    contact tolerance the centreline touch test uses, the band built once
+    per airport.  Both the outer ring and
     the holes count — a cell that wraps a runway touches it on an interior
     ring.  The longest contact wins where two runways qualify.
 
@@ -880,17 +887,16 @@ def _runway_shoulder(face: Polygon, ev: Evidence, rules: Rules):
     runway, that portion should have been absorbed into the runway
     itself")."""
     need = rules.corridor.runway_shoulder_shared_m
-    if need <= 0.0 or not ev.runway_polys:
+    if need <= 0.0 or not rw_edges:
         return None
     tol = rules.cells.on_tol_m
     depth_max = rules.corridor.runway_shoulder_max_depth_m
     best: tuple[_t.Any, float] | None = None
     bound = face.boundary
-    for rw, poly in ev.runway_polys:
+    for rw, poly, band in rw_edges:
         if poly.distance(face) > tol:
             continue
-        shared = bound.intersection(
-            poly.exterior.buffer(tol, cap_style="flat")).length
+        shared = bound.intersection(band).length
         if shared < need:
             continue
         # THE SHOULDER IS A RIBBON (`runway_shoulder_max_depth_m`): mean

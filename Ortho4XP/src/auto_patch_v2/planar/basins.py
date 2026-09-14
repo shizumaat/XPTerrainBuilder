@@ -126,6 +126,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import math
 import os
+import time as _time
 import typing as _t
 from collections import OrderedDict as _od
 
@@ -168,6 +169,13 @@ class BasinStats:
     #: clip+union actually run (one per distinct ``(resource, planes)``),
     #: ``grade_vertices`` what they consumed.
     grade_geometry_s: float = 0.0
+    #: THE REGION LOOP'S OWN UNIONS, TIMED PER SITE (owner 2026-09-13, round
+    #: 2).  With the at-grade read memoised and the rim diagnostic indexed,
+    #: VHHH's ``build_basins`` was still 1,378 s of a 1,755 s structure
+    #: stage, and 1,038 s of it was 634 ``unary_union`` calls made HERE — an
+    #: aggregate no report named.  Seconds per call site.
+    union_s: dict = _dc.field(default_factory=dict)
+    union_n: dict = _dc.field(default_factory=dict)
     grade_calls: int = 0
     grade_unions: int = 0
     grade_vertices: int = 0
@@ -326,34 +334,62 @@ def _floors_inside(floors: list[Polygon], rim: Polygon, standoff: float, grid: f
     return sorted(out, key=lambda q: -q.area)
 
 
-def _rim_open(ring: Polygon, rim_geom, step: float, reach: float
+#: the end of the member walk (a member's index may legitimately be ``None``)
+_DONE = object()
+
+
+def _rim_open(ring: Polygon, rim_trees: _t.Iterable, step: float, reach: float
               ) -> tuple[int, int, XY | None]:
     """The closed-region test (04i rule 3): ``(open stations, stations,
     the first open station)`` — a station is OPEN when it lies farther
-    than ``reach`` from the founding shells' at-grade geometry."""
+    than ``reach`` from the founding shells' at-grade geometry.
+
+    ``rim_trees`` is a LAZY sequence of ONE INDEX PER MEMBER, never one
+    index over the union — lazy because holding all of them is the same
+    peak (owner 2026-09-13, round 2)
+    (owner 2026-09-13, round 2).  The distance from a point to a set of
+    lines is the minimum over the set, so unioning the members changes
+    neither the point set nor that minimum — but at VHHH the union cost
+    979.5 s over 96 rings, and materialising every member's linework at
+    once cost basin:0 alone 60,402,378 ``LineString`` objects, 96.4 s and
+    12.4 -> 34.9 GB of resident memory.  Per member, each index is one
+    shell's parts; a station once closed is never asked again, so the
+    query shrinks as the members are walked."""
     ext = ring.exterior
     n = max(4, int(math.ceil(ext.length / step)))
     pts = shapely.line_interpolate_point(ext, [ext.length * i / n for i in range(n)])
-    # THE STATIONS ARE QUERIED THROUGH AN INDEX (measured 2026-09-13, lane
-    # ``v2gradecache``, cProfile over VHHH's structure stage): one station
-    # against the WHOLE rim is a point-to-MULTILINESTRING distance, and
-    # VHHH's 96 rings cost 549,207 of them — 1,196 s of a 3,580 s build,
-    # for a REPORTED DIAGNOSTIC that refuses nothing.  Same GEOS distances,
-    # same predicate (a station is closed when some part of the rim lies
-    # within ``reach``), the tree only skips the parts that cannot.
-    if rim_geom is None:
-        near = _np.zeros(n, dtype=bool)
-    else:
-        parts = [g for g in shapely.get_parts(rim_geom) if not g.is_empty]
-        near = _np.zeros(n, dtype=bool)
-        if parts:
-            hit = STRtree(parts).query_nearest(pts, max_distance=reach, all_matches=False)
-            near[_np.asarray(hit[0] if _np.ndim(hit) == 2 else hit, dtype=int)] = True
+    near = _np.zeros(n, dtype=bool)
+    todo = _np.arange(n)
+    walk = iter(rim_trees)
+    while todo.size:
+        tree = next(walk, _DONE)
+        if tree is _DONE:
+            break
+        if tree is None:
+            continue
+        hit = tree.query_nearest(pts[todo], max_distance=reach, all_matches=False)
+        idx = _np.asarray(hit[0] if _np.ndim(hit) == 2 else hit, dtype=int)
+        if idx.size:
+            near[todo[idx]] = True
+            keep = _np.ones(todo.size, dtype=bool)
+            keep[idx] = False
+            todo = todo[keep]
     open_i = _np.flatnonzero(~near)
     if open_i.size == 0:
         return 0, n, None
     p0 = pts[int(open_i[0])]
     return int(open_i.size), n, (float(p0.x), float(p0.y))
+
+
+def _rim_index(geom):
+    """One member's at-grade linework as an index over its PARTS: a point
+    against a whole multi-part rim is an O(parts) GEOS distance (VHHH's
+    96 rings cost 549,207 of them, 1,196 s of a 3,580 s build), and the
+    rim reading is a REPORTED DIAGNOSTIC that refuses nothing."""
+    if geom is None:
+        return None
+    parts = [g for g in shapely.get_parts(geom) if not g.is_empty]
+    return STRtree(parts) if parts else None
 
 
 def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:
@@ -396,6 +432,12 @@ def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:
 #: pass on the shared ``ResourceCache``; this only re-applies an affine.
 _GRADE_WINDOW = 16
 
+#: How many MEMBER RIM INDEXES the region loop keeps at once.  One shell's
+#: linework can be 1.6 M parts, so this window is the ceiling on what the
+#: rim diagnostic holds; the same two shells found their way into ~40 of
+#: VHHH's rings, so a window at all is worth 1.25 s of part-derivation each.
+_RIM_TREE_WINDOW = 4
+
 
 class _LRU:
     """A tiny bounded most-recently-used map (``None`` = miss)."""
@@ -415,6 +457,21 @@ class _LRU:
         self._d.move_to_end(k)
         while len(self._d) > self._cap:
             self._d.popitem(last=False)
+
+
+class _UnionClock:
+    """``unary_union`` with the call SITE named, so the region loop's cost
+    is attributable without a profiler (owner 2026-09-13, round 2)."""
+
+    def __init__(self, s: dict, n: dict) -> None:
+        self._s, self._n = s, n
+
+    def __call__(self, site: str, parts):
+        t0 = _time.perf_counter()
+        u = unary_union(parts)
+        self._s[site] = self._s.get(site, 0.0) + _time.perf_counter() - t0
+        self._n[site] = self._n.get(site, 0) + 1
+        return u
 
 
 def _record_grade(stats: BasinStats, cache: obj8.ResourceCache, bl) -> None:
@@ -445,6 +502,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     stats.  Nothing below grade comes back unchanged; nothing is refused
     without its reason."""
     stats = BasinStats()
+    uu = _UnionClock(stats.union_s, stats.union_n)
     bl = law.tables.structures.basin
     co = law.tables.structures.cutout
     if bl.floor != "deepest_solid" or bl.rim != "ground" or bl.seat != "floor_plate":
@@ -457,7 +515,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     witnessed = [o for o in objects if o.witnesses]
     if not witnessed:
         return classification, (), stats
-    u = unary_union([_outer(w) for o in witnessed for w in o.witnesses])
+    u = uu("regions", [_outer(w) for o in witnessed for w in o.witnesses])
     u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
     parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and not g.is_empty]
     stats.regions = len(parts)
@@ -465,9 +523,9 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
 
     cells = list(classification.cells)
     polys = [Polygon(c.ring, c.holes) for c in cells]
-    runway_u = unary_union([p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
+    runway_u = uu("runway_u", [p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
         if any(c.role in RUNWAY_FAMILY for c in cells) else None
-    tunnel_u = unary_union([p for p, c in zip(polys, cells) if c.kind == "structure"]) \
+    tunnel_u = uu("tunnel_u", [p for p, c in zip(polys, cells) if c.kind == "structure"]) \
         if any(c.kind == "structure" for c in cells) else None
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
     cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m)
@@ -491,6 +549,15 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             grade_cache.put(o.id, v)
         return v
 
+    rim_tree_cache: _LRU = _LRU(_RIM_TREE_WINDOW)
+
+    def rim_tree_of(o):
+        v = rim_tree_cache.get(o.id)
+        if v is None:
+            v = (_rim_index(grade_of(o)[0]),)
+            rim_tree_cache.put(o.id, v)
+        return v[0]
+
     def cover_of(o):
         v = cover_cache.get(o.id)
         if v is None:
@@ -508,11 +575,10 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         members = [o for o in witnessed if any(_outer(w).intersects(ring) for w in o.witnesses)]
         wits = [w for o in members for w in o.witnesses if _outer(w).intersects(ring)]
         member_ids = {o.id for o in members}
-        plate = unary_union([w.plate for w in wits]).intersection(ring).area
+        plate = uu("wits.plate", [w.plate for w in wits]).intersection(ring).area
         # ── rule 3: the rim diagnostic (reported, never a refusal) ────
-        lines = [g0 for g0 in (grade_of(o)[0] for o in members) if g0 is not None]
-        rim_geom = unary_union(lines) if lines else None
-        open_n, n, first = _rim_open(ring, rim_geom, bl.rim_sample_step_m, bl.footprint_close_m)
+        open_n, n, first = _rim_open(ring, (rim_tree_of(o) for o in members),
+                                     bl.rim_sample_step_m, bl.footprint_close_m)
         rim_note = (f"rim stations beyond {bl.footprint_close_m} m of the shells' at-grade "
                     f"geometry: {open_n} of {n} ({open_n * ring.exterior.length / n:.0f} of "
                     f"{ring.exterior.length:.0f} m"
@@ -527,9 +593,9 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                 if cv is not None:
                     covering.append(cv)
             if covering:
-                cov = unary_union(covering).intersection(ring).area / ring.area
+                cov = uu("cover", covering).intersection(ring).area / ring.area
         owning = [g1 for g1 in (grade_of(o)[1] for o in members) if g1 is not None]
-        own = unary_union(owning) if owning else None
+        own = uu("own_cover", owning) if owning else None
         if own is not None:
             cov_own = own.intersection(ring).area / ring.area
         # THE BASEMENT TEST IS A FRACTION (RULINGS 2026-09-06c (1)): own
@@ -573,7 +639,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         datum_drop = rest - datum_z
         # the floor face(s): the members' floor plates ⊕ floor_overlap_m,
         # closed at footprint_close_m, on the identity grid
-        plates_u = unary_union([w.plate for w in wits]).intersection(ring)
+        plates_u = uu("plates_u", [w.plate for w in wits]).intersection(ring)
         floors = _floors(plates_u, co.floor_overlap_m, bl.footprint_close_m, grid)
         if not floors:
             stats.refused.append(f"{bid}: {ring.area:.0f} m2 — no floor plate ({plate:.0f} m2) "
@@ -619,7 +685,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # the ramp corridors become floor faces of their own, the plate's
         # floor keeping every metre it already had (``ring`` — the plate
         # seat's stations, 09ac (2) — is the plate face's, untouched)
-        plate_floor_u = unary_union(floors)
+        plate_floor_u = uu("plate_floor", floors)
         ramp_floors: list[Polygon] = []
         ramp_faces: list[tuple] = []
         for r in ramps:
@@ -635,7 +701,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         # LEMD 78 of 138 deck vertices then read "buried" against the APRON
         # over them, −8.91 m, which is the wall, not the ramp).
         if ramp_floors:
-            gov = unary_union(ramp_floors).buffer(grid, **_MITRE)
+            gov = uu("ramp_gov", ramp_floors).buffer(grid, **_MITRE)
             for r in ramps:
                 if not r["admitted"]:
                     continue
@@ -652,7 +718,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                  f"({owner or 'a bore ramp'}; structures are never cut) at {site}")
             continue
         all_floors = floors + ramp_floors
-        void = rim.difference(unary_union(all_floors))
+        void = rim.difference(uu("void", all_floors))
         floor_ref, wall_ref = f"basin_floor:{k}", f"basin_wall:{k}"
         for j, f in enumerate(all_floors):
             new_cells.append((FLOOR_ROLE, floor_ref if j == 0 else f"{floor_ref}#{j}", f, ()))
@@ -722,7 +788,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     _record_grade(stats, cache, bl)
     if not basins:
         return classification, (), stats
-    knife = unary_union(knives)
+    knife = uu("knife", knives)
     out_cells: list[Cell] = []
     for c, p in zip(cells, polys):
         if c.role in RUNWAY_FAMILY or c.kind == "structure" or not p.intersects(knife):

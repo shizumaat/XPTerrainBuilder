@@ -163,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
         gr = rec["grade_read"]
         print(f"{airport.icao} at-grade read: {gr['seconds']:.2f} s, {gr['calls']} placements, "
               f"{gr['unions']} clip+union, {gr['vertices']} vertices")
+        print(f"{airport.icao} basin unions: " + "  ".join(
+            f"{k} {v[0]:.1f}s/{v[1]}" for k, v in rec["basin_unions"].items()))
         for c in rec["corridors"]:
             print(f"  corridor {c['id']}: edge_wall {c['edge_wall']}  mouth {c['mouth_kind']}  "
                   f"ends {c['ends']}  length {c['length_m']:.1f} m  width {c['width_m']:.1f} m  "
@@ -441,6 +443,8 @@ def structure_records(airport, cl, law) -> dict:
         "grade_read": {"seconds": round(bstats.grade_geometry_s, 2),
                        "calls": bstats.grade_calls, "unions": bstats.grade_unions,
                        "vertices": bstats.grade_vertices},
+        "basin_unions": {k: [round(v, 2), bstats.union_n.get(k, 0)]
+                         for k, v in sorted(bstats.union_s.items(), key=lambda kv: -kv[1])},
         "cells_cut": {"structures": sstats.cells_cut, "basins": bstats.cells_cut},
     }
 

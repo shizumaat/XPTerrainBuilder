@@ -4689,3 +4689,34 @@ before → after, per unit); `fu:38:23` (23 pads / 579 bodies) all members on
 their pads; the seven buildings + the terminal at 30.1279552, 31.403143 on
 their pads; declared terrace joints between derived pads named with their
 steps; airside vertices moved 0; SPJC viaduct 19.56 unchanged; ONE HECA build.
+
+### §16g (9)–(10) ONE POPULATION; THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x; Fable 2026-09-14) — lane `v2connector`
+
+(9) ONE POPULATION.  The design-surface cluster IS the object-stage unit:
+one derivation (`plan_clusters` adopts §16g (7)'s relation, footprint
+outlines at `footprint_touch_m`); the FAMILY_* gates go; `cluster_pad_min_m2`
+stays only as the threshold for emitting a cluster pad.
+
+(10) THE PAD IS THE CLUSTER.  "Pads must match building clusters … they
+should match exactly."
+1. A CLUSTER is ONE BUILDING: bodies chain only if their footprints touch
+   (7) AND their authored floor levels agree within `floor_split_m` (0.5 m).
+   A touching body at a different authored floor is a different building —
+   its own cluster, its own pad — and the difference is a declared terrace
+   step between the two pads.
+2. The design surface's `building` PAD is DERIVED from the cluster: one pad
+   per cluster, its footprint = the cluster's outline union, one level.  The
+   footprint-cache pads are the fallback only where the plan has no cluster
+   (a resource the object stage skips).
+3. A pad spanning two clusters, or a cluster spanning two pads, is
+   `pad_cluster_mismatch` (CRITICAL): a misidentified shape, never seated
+   over.  (8)'s derived offsets within a unit are narrowed to the steps
+   between touching clusters' pads.
+
+BARS (HECA, ONE build): `pad_cluster_mismatch` 0; every body within
+`hard_tol_m` of its own pad (bodies > 0.02 m off: count before → after); the
+T3 district resolved into N clusters = its distinct floor levels, each on its
+own pad (named); the seven buildings + the terminal at 30.1279552, 31.403143
+on their pads; terrace steps between touching clusters named; KCLT dry:
+the terminal's cluster pad and its members' seats unchanged (13bo, the
+control); SPJC 19.56 dry; airside 0; suite twice.

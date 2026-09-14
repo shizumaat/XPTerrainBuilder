@@ -99,7 +99,32 @@ from .rules import Rules, load_rules
 from .sources import (SourceRecord, apron_union, classify_sources,
                       object_body_cuts)
 
-__all__ = ["Cell", "CutLine", "Classification", "classify"]
+__all__ = ["Cell", "CutLine", "Classification", "classify", "SHOULDER_KIND",
+           "is_runway_shoulder"]
+
+#: §40 (1): the ``Cell.kind`` of pavement that joined the runway BODY.
+SHOULDER_KIND = "runway_shoulder"
+
+
+def is_runway_shoulder(cell) -> bool:
+    """§40 (4) (owner RULINGS 2026-09-14s): this cell is a runway SHOULDER
+    — runway-role pavement that joined the runway body under §40 (1).
+
+    THE ONE PREDICATE the REGION derivations ask.  A shoulder carries the
+    runway's datum, crown, lateral law and census partition (§40 (2)) — so
+    every SURFACE reader of the runway family keeps it — but it
+    MANUFACTURES NO REGION: the runway's strip keep-out and its
+    adjacent-ground bands are drawn around the RUNWAY, which the shoulder
+    lies inside, and buffering the shoulder too draws a second, far larger
+    region that nothing ruled.  MEASURED at VHHH (1.0.332): three shoulder
+    cells beside 07R/25L (84,000 / 8,040 / 6,228 m2) buffered by the 75 m
+    strip half width refused the `tunnel1_done.obj` road tunnel at
+    22.30368, 113.92917 ("the wall would stand inside the runway strip
+    keep-out"), the basin pass cut a 4,057 m2 pit in its place, and the
+    zone pass minted 587,849 m2 of zone-2 band.  The census of every
+    reader, and which are surface and which region, is the spec's §40 (4)
+    MEASURED table.""" 
+    return getattr(cell, "kind", "") == SHOULDER_KIND
 
 _LETTERS = "ABCDEF"
 TAXI_FAMILY = ("primary_parallel", "secondary_parallel", "stub",

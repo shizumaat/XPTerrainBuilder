@@ -22,7 +22,7 @@ import shapely
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from ..classify.roles import TAXI_FAMILY, Cell
+from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
 from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
@@ -93,7 +93,12 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
     for c in cells:
-        if c.role in RUNWAY_FAMILY:
+        # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
+        # zone band — it inherits its host runway's, which it lies inside
+        # (`rules.toml`'s own words, measured at VHHH: 587,849 m2 of
+        # zone-2 band the shoulders minted).  The spec's §40 (4) MEASURED
+        # table is the census of every RUNWAY_FAMILY reader.
+        if c.role in RUNWAY_FAMILY and not is_runway_shoulder(c):
             key = ("runway", c.code_number, None)
         elif c.role in TAXI_FAMILY:
             key = ("taxi", None, c.code_letter)

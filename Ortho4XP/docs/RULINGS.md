@@ -4387,3 +4387,45 @@ KCLT 1, OTHH 3, SPJC 0 — every one a ribbon 3.3–49.8 m deep.
   faces have holes on the §40 arm, 490 vertices); `auto_patch_v2 build`
   CLI broken at head (`Options.__init__() … 'diagnose_iis'`,
   `pipeline/__main__.py:93`).
+
+## 2026-09-13de HECA item 3 attributed (scout `v2hecahill`): the hill is a 5.4 % natural knoll inside ONE 1,375 m apron body, held up by nothing but the objective — the apron's 1.5 % cap is priced SOFT; two intent questions
+
+Read-only replay of the registered HECA capture (base 1a7a7158) against
+the owner's 1.0.329 products (tile +30+030/+30+031). The corner
+`-7736`/v7369 (108.434, DEM 109.67) carries ZERO target/datum/pin rows —
+no pad datum, no §23 ground datum, no §19 tier plane, no basin ring;
+every binding row is a ceiling toward its ring neighbour v7368 (106.382,
+36 m away): `apron_within_shape` 1.5 % × 36.1 m = 0.542 m allowed against
+2.052 m demanded (+1.510 m over) — and those rows are `hard = False` (law
+300 vs `hard_weight` 300000; `[design] hard_rulings` lists only the runway
+family, the 5 % pavement ceiling, the pad slope and two road rulings)
+while RULINGS 2026-09-06w (1) says "hard cap 1.5 % in all directions on
+EVERY apron row". The only hard row on the pair (5 % ceiling) is already
+broken by 0.024 m. `apron:pav131` is ONE face: 221 vertices, 1,375 × 542
+m, z 86.57 → 109.54 (22.97 m of range), its 1 % preference spent as 449 m
+/ 1,241 m ramps down to the 23R threshold pin at 60.66. Frozen-neighbour
+walk: no lawful level for the corner alone; at 1.5 % anchored on v7368
+the corner is ≤ 106.92 and the 109.5 lobe must come down 2.07 m (2.84 m
+below its DEM). At the junction `pav115` (107.75) and `pav131` (107.85)
+already meet within 0.10 m; `route7` stands +1.3–1.4 m over both on the
+DEM, the 24 m zone-2 strip carrying the climb at 5.5 %. The taxiway's
+"lateral slope": NOT lateral (0.45 % over 42 m) — it is pav115's
+LONGITUDINAL 1.7–2.0 % (`airside_no_step` rows 0.96–2.01 m, priced and
+adjudicated, soft); 13db's "2.03 % over 28 m" was that. 130 adjudicated
+rows within 60 m, leader `within_shape apron|junction` 5.207 %.
+
+* INTENT QUESTION 1 (owner): is 06w (1)'s "hard" the `[design]
+  hard_rulings` class (300000, the solve cannot trade it) or the law tier
+  (300, traded — today)? Arming it hard at pav131 as one body is
+  INFEASIBLE (the frozen walk) — so it needs question 2 first.
+* INTENT QUESTION 2 (owner): SPLIT `apron:pav131` into tiers at its
+  natural break — a declared terrace joint between the NE 109.5 lobe and
+  the main apron (the `terrace_joints_ll` machinery the census honours) —
+  so the lobe can be cut the ~2 m the owner asks for while the rest of
+  the apron is untouched, the residual becoming ONE declared step instead
+  of 130 rows. A new region class → consumer census at spec time (30l).
+  Where the break falls is the owner's (a coordinate or "at the junction
+  with pav115").
+* Instruments owed: the scout's assembled-rows-on-a-pair and
+  frozen-neighbour-interval readers beside `--why-hard` (second use →
+  promote). Note: the brief said tile +30+040; it is +30+030.

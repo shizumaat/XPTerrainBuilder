@@ -33,8 +33,9 @@ from ..constraints.runway_profile import RUNWAY_FAMILY
 from ..emit.bank import BankReport, with_bank
 from ..emit.terrain_edge import with_terrain_edges
 from ..emit.graded import graded_surface
-from ..emit.osm_adapter import (PatchPaths, WeldReport, shore_edges_of,
-                                weld_to_shore, write_patch, write_tile_pieces)
+from ..emit.osm_adapter import (PatchPaths, WeldReport, merge_sub_spacing,
+                                shore_edges_of, weld_to_shore, write_patch,
+                                write_tile_pieces)
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
@@ -811,6 +812,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         wrep = WeldReport()
         shore = shore_edges_of(airport.dem, surf_out)
         surf_out = weld_to_shore(surf_out, law, shore, wrep)
+        # §39 (iii) (owner RULINGS 2026-09-13cg): and the identity join
+        # MERGES a sub-spacing segment rather than writing one — after the
+        # weld, whose projection can itself bring two vertices together.
+        surf_out = merge_sub_spacing(surf_out, law, wrep)
         _say(wrep.line(icao), out)
         report["shore_weld"] = _dc.asdict(wrep)
         pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]

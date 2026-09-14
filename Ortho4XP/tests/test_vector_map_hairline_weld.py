@@ -146,3 +146,84 @@ def test_the_weld_leaves_ordinary_geometry_alone():
     n_before = len(vm.nodes_dico)
     assert vm.weld_hairlines(0.010, LAT) == 0
     assert len(vm.nodes_dico) == n_before
+
+
+# ── §39 (ii) THE RE-NODING PASS (owner RULINGS 2026-09-13cg) ────────────
+# Round 1's weld moved ONE node on the LEMD tile and Triangle4XP refused
+# the whole `.poly`: "Internal error in segmentintersection(): Topological
+# inconsistency after splitting a segment.  Splitting subsegment
+# (0.715087891, 0.111688666) (0.715087891, 0.103639220544) at
+# (0.715087891, 0.111688666)" — a subsegment split AT its own endpoint,
+# because an edge that passed BESIDE the junior now passed THROUGH the
+# senior with nothing noding it there.
+
+def _noding_violations(vm, radius_m):
+    """Nodes standing in the INTERIOR of an edge they are no endpoint of —
+    the invariant whose absence Triangle4XP reports as a topological
+    inconsistency."""
+    out = []
+    for nid, (x, y) in vm.nodes_dico.items():
+        px, py = x * M_LON, y * M_LAT
+        for (n0, n1) in vm.edges_dico.values():
+            if nid in (n0, n1):
+                continue
+            (x0, y0), (x1, y1) = vm.nodes_dico[n0], vm.nodes_dico[n1]
+            ax, ay, bx, by = x0 * M_LON, y0 * M_LAT, x1 * M_LON, y1 * M_LAT
+            dx, dy = bx - ax, by - ay
+            L = dx * dx + dy * dy
+            if L <= 0.0:
+                continue
+            t = ((px - ax) * dx + (py - ay) * dy) / L
+            if not (0.0 < t < 1.0):
+                continue
+            if math.hypot(px - (ax + t * dx), py - (ay + t * dy)) <= radius_m:
+                out.append((nid, n0, n1))
+    return out
+
+
+def _renode_map():
+    """The LEMD arm-2 failure in miniature.  A 10 m WATER edge ``E``; a
+    senior stub whose foot ``S`` stands 6 mm above E without crossing it;
+    a junior stub whose foot ``J`` stands 8 mm above S.  J welds onto S,
+    and E then runs 6 mm past a node it does not share — which is exactly
+    what Triangle4XP reports as a topological inconsistency."""
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    _insert(vm, (X - _dlon(5.0), Y), (X + _dlon(5.0), Y), "WATER")
+    s_foot = (X, Y + _dlat(0.006))
+    _insert(vm, s_foot, (X, Y + _dlat(20.0)), "WATER")
+    j_foot = (X, Y + _dlat(0.014))
+    _insert(vm, j_foot, (X + _dlon(20.0), Y + _dlat(0.014)), "INTERP_ALT")
+    return vm, s_foot, j_foot
+
+
+def test_the_weld_leaves_the_arrangement_NODED():
+    vm, s_foot, j_foot = _renode_map()
+    assert _noding_violations(vm, 0.010), (
+        "the fixture must start with the violation the weld has to fix")
+    report = {}
+    assert vm.weld_hairlines(0.010, LAT, report=report) == 1
+    assert report["renoded"] >= 1, "the passing edge must be split at the senior"
+    assert s_foot in set(vm.nodes_dico.values())
+    assert j_foot not in set(vm.nodes_dico.values())
+    assert _noding_violations(vm, 0.010) == [], (
+        "a node inside an edge it is no endpoint of is exactly what "
+        "Triangle4XP calls a topological inconsistency")
+
+
+def test_the_renoding_pass_preserves_the_marker():
+    vm, _s, _j = _renode_map()
+    water = vm.dico_attributes["WATER"]
+    before = sum(1 for mk in vm.data_edges.values() if mk & water)
+    vm.weld_hairlines(0.010, LAT)
+    after = sum(1 for mk in vm.data_edges.values() if mk & water)
+    assert after >= before, "a split makes two WATER edges of one, never none"
+
+
+def test_a_map_with_nothing_to_weld_is_untouched():
+    vm = _map()
+    a = (0.0692, 0.2181530)
+    _insert(vm, a, (a[0] + _dlon(20.0), a[1]), "WATER")
+    before = dict(vm.edges_dico)
+    assert vm.weld_hairlines(0.010, LAT) == 0
+    assert vm.edges_dico == before

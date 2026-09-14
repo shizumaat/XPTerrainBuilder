@@ -4690,7 +4690,7 @@ their pads; the seven buildings + the terminal at 30.1279552, 31.403143 on
 their pads; declared terrace joints between derived pads named with their
 steps; airside vertices moved 0; SPJC viaduct 19.56 unchanged; ONE HECA build.
 
-### §16g (9)–(10) ONE POPULATION; THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x; Fable 2026-09-14) — lane `v2connector`
+### §16g (9) ONE POPULATION; (10) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x; Fable 2026-09-14) — lane `v2connector`
 
 (9) ONE POPULATION.  The design-surface cluster IS the object-stage unit:
 one derivation (`plan_clusters` adopts §16g (7)'s relation, footprint

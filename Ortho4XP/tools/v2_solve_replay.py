@@ -496,8 +496,7 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path) -> dict:
             "surface": surf_out}
 
 
-def bank_walk(icao, pm, law, airport, surf_out, stations=None,
-              regions=None, out=print) -> dict:
+def bank_walk(icao, pm, law, airport, surf_out, out=print) -> dict:
     """§37 (3) THE ZONE-2 WALK (owner RULINGS 2026-09-13bu): per
     ``adjacent_ground:*:zone2`` face ring, ``|z_ring − DEM(foot)|`` at every
     station — the drop the law measures load-bearing against — with the
@@ -616,75 +615,6 @@ def bank_walk(icao, pm, law, airport, surf_out, stations=None,
     res = {"materiality_m": mat, "totals": tot, "rings": rows,
            "unbanked": [[r["ref"], r["face"], *pr] for r in rows
                         for pr in r.get("_probe", [])]}
-    if regions:
-        # WHERE DOES AN UNBANKED STATION STAND? (the ``region_probe`` hook)
-        # inside the banked region means the coverage HOLE it belongs to was
-        # swallowed by the union and its rim never became a boundary ring.
-        _cov, _bk = regions[0]
-        n_in = n_hole = 0
-        for r in rows:
-            for pr in r.get("_probe", []):
-                pt = Point(pr[0], pr[1])
-                n_in += int(_bk.contains(pt))
-                n_hole += int(any(Polygon(h).contains(pt)
-                                  for poly in getattr(_cov, "geoms", [_cov])
-                                  for h in poly.interiors))
-        seen = set()
-        for r in rows:
-            for pr in r.get("_probe", [])[:1]:
-                pt = Point(pr[0], pr[1])
-                for poly in getattr(_cov, "geoms", [_cov]):
-                    for h in poly.interiors:
-                        hp = Polygon(h)
-                        if hp.contains(pt) and id(h) not in seen and len(seen) < 8:
-                            seen.add(id(h))
-                            core = hp.difference(_bk)
-                            out(f"    hole {hp.area:.0f} m2 (rim {hp.length:.0f} m) "
-                                f"at {r['ref']}: UNBANKED CORE {core.area:.0f} m2, "
-                                f"{len(list(getattr(core, 'geoms', [core])))} part(s)")
-        out(f"[{icao}] of the unbanked material stations, {n_in} stand INSIDE "
-            f"the banked region and {n_hole} inside a HOLE of the design "
-            f"coverage (the rim never became a boundary ring)")
-    if stations:
-        # THE LOAD-BEARING TEST AS THE EMITTER RAN IT (the ``station_probe``
-        # hook): the nearest banked-region boundary station to each unbanked
-        # zone-2 material station, with the two z the verdict was taken on.
-        st = [s for ring in stations for s in ring]
-        sxy = np.asarray([[s["x"], s["y"]] for s in st], float)
-        from scipy.spatial import cKDTree
-        stree = cKDTree(sxy)
-        out(f"[{icao}] banked-region stations {len(st)}, load-bearing "
-            f"{sum(1 for s in st if s['load_bearing'])}")
-        shown = 0
-        for r in rows:
-            if not r["material_outside_no_foot"] or shown >= 8:
-                continue
-            for probe in r.pop("_probe", [])[:2]:
-                dd, k = stree.query(probe[:2])
-                s = st[int(k)]
-                extra = ""
-                if regions:
-                    _cov, _bk = regions[0]
-                    pt = Point(probe[0], probe[1])
-                    from shapely.geometry import Polygon as _P
-                    hole_a = None
-                    for _poly in getattr(_cov, "geoms", [_cov]):
-                        for _h in _poly.interiors:
-                            hp = _P(_h)
-                            if hp.contains(pt):
-                                hole_a = hp.area
-                    extra = (f" [hole area {hole_a}, in cov {_cov.contains(pt)}, in banked "
-                             f"{_bk.contains(pt)}, d(cov bdy) "
-                             f"{_cov.boundary.distance(pt):.1f} m, d(banked bdy) "
-                             f"{_bk.boundary.distance(pt):.1f} m]")
-                out(f"    {r['ref']}#{r['face']} station at "
-                    f"{probe[2]:.7f},{probe[3]:.7f} drop {probe[4]:.2f} m -> "
-                    f"nearest banked station {dd:.1f} m away: z_ring "
-                    f"{s['z_ring']:.2f} z_foot {s['z_foot']:.2f} "
-                    f"|d| {abs(s['z_ring'] - s['z_foot']):.2f} ray {s['d_m']:.1f} m "
-                    f"LOAD-BEARING={s['load_bearing']}" + extra)
-                shown += 1
-        res["stations"] = len(st)
     for r in rows:
         r.pop("_probe", None)
     return res
@@ -711,18 +641,13 @@ def bank_from(pkl: Path, emit_dir: Path | None, walk: bool,
     if walk:
         from auto_patch_v2.emit.bank import BankReport, with_bank
         from auto_patch_v2.emit.graded import graded_surface
-        stations: list = []
-        regions: list = []
         surf = graded_surface(pm, law, sol, airport.frame.origin,
                               airport.frame.crs, {})
         brep = BankReport()
-        surf_out = with_bank(surf, pm, law, airport, brep,
-                             station_probe=stations.append,
-                             region_probe=lambda c, b: regions.append((c, b)))
+        surf_out = with_bank(surf, pm, law, airport, brep)
         print("    " + brep.line(icao))
         res["bank"] = _dc.asdict(brep)
-        res["zone2_walk"] = bank_walk(icao, pm, law, airport, surf_out,
-                                      stations, regions)
+        res["zone2_walk"] = bank_walk(icao, pm, law, airport, surf_out)
     if json_out is not None:
         json_out.write_text(json.dumps(res, indent=1, default=str))
     return 0

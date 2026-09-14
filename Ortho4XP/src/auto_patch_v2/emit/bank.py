@@ -139,9 +139,6 @@ class BankReport:
     ring_vertices: int = 0
     foot_vertices: int = 0
     repaired_rings: int = 0
-    #: §37 (3) as amended: coverage HOLES with no room for a minimum-width
-    #: bank, swallowed by the collar (the lawful ``_MIN_HOLE_WIDTHS`` case).
-    holes_filled: int = 0
     skipped_rings: int = 0
     #: THE DAYLIGHT CLASSIFICATION (09g) of every boundary-ring ray
     at_min: int = 0
@@ -190,8 +187,7 @@ class BankReport:
         return (f"[{icao}] bank (09g): {self.rings} rings banked "
                 f"({self.ring_vertices} boundary vertices -> {self.foot_vertices} "
                 f"foot nodes, {self.repaired_rings} repaired, {self.skipped_rings} "
-                f"skipped, {self.holes_filled} hole(s) with no room for a "
-                f"minimum-width bank), DAYLIGHT {self.at_min} at the minimum / "
+                f"skipped), DAYLIGHT {self.at_min} at the minimum / "
                 f"{self.daylighted} daylighted / {self.at_max} at the maximum"
                 + f" / {self.at_water} STOPPED AT WATER (09z: no foot there)"
                 + (f"; SEAM (38.3) {self.seam_bands} band(s), "
@@ -506,74 +502,41 @@ def _ray_limit(pts: np.ndarray, nrm: np.ndarray, d: np.ndarray, tree, segs,
 
 def _foot_piece(pts: np.ndarray, nrm: np.ndarray, d: np.ndarray, host,
                 exterior: bool, min_w: float = 0.0):
-    """THE BANK PIECE this chain contributes — the ground between the chain
-    and its foot, as a polygon (``None`` when degenerate), and whether the
-    raw offset had to be repaired (spec §9.4 deviation 3).  For an exterior
-    chain that is the offset polygon itself; for a HOLE it is the hole
-    minus the inward offset (the bank runs INTO the hole).
-
-    §37 (3) AS AMENDED — A HOLE IS NEVER SWALLOWED WHOLE (owner RULINGS
-    2026-09-13bu (ii); lane ``v2zonebank``).  The hole branch used to return
-    THE WHOLE HOST whenever the inward offset was not strictly contained in
-    it — which it is not whenever the offset folds or pokes out through a
-    notch in a concave rim (152 of KCLT's rings on the 13bu frame).  That
-    piece then filled the hole in ``with_bank``'s ``unary_union``, the hole
-    vanished from the banked region, the boundary walk never visited its
-    rim, the load-bearing test never ran on it and NO FOOT WAS EMITTED — so
-    the rim's own cut stood against the hole's raw DEM.  Measured at KCLT
-    (``v2_solve_replay --bank-walk``): 110 adjacent-ground zone-2 stations
-    at or over ``bank_materiality_m`` with no foot, 110 of them inside the
-    banked region and 109 inside a coverage hole; the owner's two sites
-    (RULINGS 2026-09-13bj item 5 and its follow-up) are two of them.
-
-    THE HOLE'S PIECE IS THE BAND, NOT ``host − offset``: the ground actually
-    swept between the rim and its feet, as the union of the per-station
-    quads ``(p_i, p_i+1, f_i+1, f_i)``.  A band has no fold to pick a
-    largest part from, so the toe survives whatever the rim does, and the
-    hole stays in the banked region with a boundary for the load-bearing
-    walk to visit.  Only a hole with no room for a minimum-width bank at
-    all is still swallowed — the ``_MIN_HOLE_WIDTHS`` case, where the
-    coverage collar fills it anyway."""
+    """THE BANK PIECE this chain contributes — the ground swept between the
+    chain and its feet, as the union of the per-station quads
+    ``(p_i, p_i+1, f_i+1, f_i)`` (``None`` when degenerate), and whether the
+    offset had to be repaired (§9.4 dev. 3).  §37 (3) AS AMENDED (RULINGS
+    2026-09-13bu (ii), lane ``v2zonebank``): it used to be the offset ring's
+    SOLID polygon, which covers the ring's whole interior — every HOLE in
+    the coverage included — so the union erased the holes, the walk never
+    visited their rims and no foot was emitted inside one (KCLT: 110 zone-2
+    stations over the materiality floor with none).  Outside a ring the band
+    IS that polygon minus the host, so the outer boundary is unchanged; a
+    hole with no room for a minimum-width bank is still swallowed."""
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
     fx = pts[:, 0] + nrm[:, 0] * d
     fy = pts[:, 1] + nrm[:, 1] * d
-    repaired = False
     n = len(pts)
-    quads = []
-    for i in range(n):
-        j = (i + 1) % n
-        q = Polygon([(pts[i, 0], pts[i, 1]), (pts[j, 0], pts[j, 1]),
-                     (fx[j], fy[j]), (fx[i], fy[i])])
-        if not q.is_valid:
-            q = q.buffer(0)
-            repaired = True
-        if not q.is_empty:
-            quads.append(q)
-    if not quads:
-        return None, True
-    band = unary_union(quads)
+    raw = [Polygon([(pts[i, 0], pts[i, 1]), (pts[(i + 1) % n, 0],
+                    pts[(i + 1) % n, 1]), (fx[(i + 1) % n], fy[(i + 1) % n]),
+                    (fx[i], fy[i])]) for i in range(n)]
+    repaired = any(not q.is_valid for q in raw)
+    band = unary_union([q for q in ((q if q.is_valid else q.buffer(0))
+                                    for q in raw) if not q.is_empty])
     if band.is_empty:
         return None, True
     if exterior:
-        # OUTSIDE the ring the band IS the offset polygon minus the host, so
-        # the banked region's outer boundary is unchanged; what it no longer
-        # does is hand the union a SOLID polygon over the ring's whole
-        # interior, which swallowed every hole in the coverage.
         return band, repaired
-    # a HOLE: the bank eats into it from its rim.  No room for a
-    # minimum-width bank at all -> the collar fills it (the one lawful swallow).
+    # a HOLE with no room, or a band that met itself across it: the collar
     floor = host.buffer(-min_w) if min_w > 0.0 else host
+    piece = band.intersection(host)
     if floor.is_empty or floor.area <= 0.0:
         return host, True
-    piece = band.intersection(host)
     if piece.is_empty:
         return None, True
-    if piece.area >= host.area - 1.0e-9:
-        # the band met itself across the hole: there is no toe left, so the
-        # bank is the minimum-width collar and the core keeps the DEM
-        return host.difference(floor), True
-    return piece, repaired
+    return ((host.difference(floor), True)
+            if piece.area >= host.area - 1.0e-9 else (piece, repaired))
 
 
 def _push_off(ring: list, cov, min_w: float, dem=None) -> list:
@@ -696,22 +659,12 @@ def split_chain(pts: list[tuple[float, float]], zs: list[float], dem,
 
 
 def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
-              airport: Airport, report: BankReport | None = None,
-              station_probe=None, region_probe=None) -> GradedSurface:
+              airport: Airport, report: BankReport | None = None
+              ) -> GradedSurface:
     """The surface with its BANK FOOT rings appended (module docstring):
     new vertices (their z the DEM at the foot) and one CLOSED breakline of
     kind :data:`BANK_KIND` per banked boundary ring.  The input surface is
-    returned unchanged when the airport has no coverage or no DEM.
-
-    ``station_probe`` is the ATTRIBUTION HOOK (lane ``v2zonebank``, §37 (3)):
-    a callable handed, per banked-region boundary ring, the list of its
-    stations with the foot point, the DEM there, the inner end of the ray
-    (the nearest point of the design coverage, its interpolated design z and
-    the plan distance) and the load-bearing verdict — so an instrument can
-    read WHY a station carried no foot without re-deriving the banked region
-    (``tools/v2_solve_replay.py --bank-walk``).  ``None`` in every build.
-    ``region_probe`` is handed the design coverage and the banked region
-    once, for the same reason."""
+    returned unchanged when the airport has no coverage or no DEM."""
     import time
     from shapely.geometry import LineString, Point, Polygon
     from shapely.geometry.polygon import orient
@@ -833,9 +786,6 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
                                          d_raw[kind == _K_WATER])
         d = _ray_limit(pts, nrm, d, tree, segs, min_w)
         piece, repaired = _foot_piece(pts, nrm, d, host, exterior, min_w)
-        if not exterior and piece is not None and host.area > 0 \
-                and piece.area / host.area > 0.99:
-            rep.holes_filled += 1
         if piece is None:
             rep.skipped_rings += 1
             continue
@@ -916,8 +866,6 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
                 rep.at_edge = 1
         except Exception:                               # pragma: no cover
             pass
-    if region_probe is not None:
-        region_probe(cov, banked)
     from scipy.spatial import cKDTree
     rz = np.asarray(ring_z, float)
     ktree = cKDTree(rz[:, :2]) if len(rz) else None
@@ -970,14 +918,6 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
             inner_all = [_inner(x, y) for x, y in zip(fx.tolist(), fy.tolist())]
             flags = [abs(zq - z) > mat_m if math.isfinite(zq) else True
                      for (_qx, _qy, zq, _dd), z in zip(inner_all, zf.tolist())]
-            if station_probe is not None:
-                station_probe([
-                    {"x": float(x), "y": float(y), "z_foot": float(z),
-                     "qx": qx, "qy": qy, "z_ring": zq, "d_m": dd,
-                     "load_bearing": bool(fl)}
-                    for (x, y, z), (qx, qy, zq, dd), fl in zip(
-                        zip(fx.tolist(), fy.tolist(), zf.tolist()),
-                        inner_all, flags)])
             rep.stations += len(flags)
             rep.immaterial += sum(1 for f in flags if not f)
             runs = material_runs(flags)

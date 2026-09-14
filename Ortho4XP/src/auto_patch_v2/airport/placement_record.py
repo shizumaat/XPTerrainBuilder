@@ -175,6 +175,12 @@ class SplitSet:
     #: its members, its one zero plane and the pad or ground it took —
     #: a censused fact, published beside the splits
     families: tuple[_t.Any, ...] = ()
+    #: §16g (5) (owner RULINGS 2026-09-13bw): the PLAN-WIDE footprint
+    #: units as ``(lat0, lon0, lat1, lon1, zero)`` — the plane a placement
+    #: standing inside one is seated at by its DSF row.  Published here
+    #: because the WRITER is where a dropped multi-anchor placement is
+    #: first seen beside the plan (``placement_write.build_plan``).
+    unit_seats: tuple[tuple[float, float, float, float, float], ...] = ()
 
     @property
     def all(self) -> tuple[Split, ...]:

@@ -318,10 +318,18 @@ def edit_dump(text: str, plan: PlacementPlan) -> str:
 
     conv = {c.index: c for c in plan.conversions}
     spl = {s.placement.index: s for s in plan.splits}
+    # §16g (5) (owner RULINGS 2026-09-13bw): the placements seated by
+    # their ROW.  A row here is NEITHER converted nor split — the three
+    # edits are disjoint by construction and the refusals below say so.
+    msl = {m.index: m for m in getattr(plan, "msl_seats", ())}
+    clash = sorted((set(msl) & set(conv)) | (set(msl) & set(spl)))
+    if clash:
+        raise ValueError(f"placements both row-seated and converted/split: "
+                         f"{clash[:8]}")
     both = sorted(set(conv) & set(spl))
     if both:
         raise ValueError(f"placements both converted and split: {both}")
-    missing = sorted((set(conv) | set(spl)) - set(by_ordinal))
+    missing = sorted((set(conv) | set(spl) | set(msl)) - set(by_ordinal))
     if missing:
         raise ValueError(f"plan names placements this dump does not have: "
                          f"{missing[:8]} (dump has {len(rows)})")
@@ -367,6 +375,14 @@ def edit_dump(text: str, plan: PlacementPlan) -> str:
             # (tokens copied verbatim: no coordinate is re-formatted)
             hdg = toks[5] if len(toks) > 5 else "0.000000"
             edits[i] = [" ".join((KIND_ON_GROUND, toks[1], toks[2], toks[3], hdg)) + eol]
+        elif o in msl:
+            # §16g (5): OBJECT_MSL idx lon lat z hdg — the elevation the
+            # unit's plane (or the surface) has at this placement, on the
+            # row, so one file serves N anchors at N seats
+            m = msl[o]
+            edits[i] = [" ".join((KIND_MSL, toks[1], _num(m.lon, 9),
+                                  _num(m.lat, 9), _num(m.elevation, 4),
+                                  _num(m.heading_deg, 6))) + eol]
         elif o in spl:
             s = spl[o]
             edits[i] = [" ".join((KIND_ON_GROUND, str(new_index[b.new_resource]),

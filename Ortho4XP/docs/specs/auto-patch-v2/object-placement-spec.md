@@ -4343,3 +4343,75 @@ cluster plane 222.28 ± 0.05 by `OBJECT_MSL`; dropped multi-anchor placements
 205 → 0 at KCLT (count per airport); OTHH every `Bridge_NN` one unit, spread
 0.00 (today 1.52 / 1.93); a MATCHED KCLT design base build — taxi family
 byte-identical, pad flatness before → after; suite twice.
+
+### §16g ROUND 2 MEASURED (lane `v2clusterpad`, 2026-09-13; RULINGS 13bw/13by)
+
+**(a) THE UNIT IS DERIVED PLAN-WIDE.**  `footprint_unit.plan_units` /
+`plan_unit_datums` / `plan_wide_seats`: the relation is read off the PLAN
+before any unit is staged (`bodies_of_plan` + `_clusters`, the same two
+derivations), its datum settled per unit (DECK from `Member.deck_datum_z`,
+else the pad plurality's own plane, else the median ground under the part
+centres), and a staged candidate LOOKS UP the seat by PART ID.  One zero
+across placement rows by construction.  OTHH, matched dry arms on the
+1.0.326 frame:
+
+| bar | base | round 1 (per-unit) | round 2 (plan-wide) |
+|---|---|---|---|
+| `Bridge_01` zero spread | 1.95 m | 1.95 | **0.00** |
+| `Bridge_02` | 9.71 | **1.52** | 1.52 |
+| `Bridge_03` | 9.18 | **1.93** | 1.93 |
+| `Bridge_04` / `Bridge_06` | 0.00 / 9.67 | 0.00 / **0.00** | 0.00 / **0.00** |
+| units on a DECK datum | — | 1 | **4** |
+| plan-wide units / seated | — | — | 185 / 173 |
+
+`Bridge_02` and `Bridge_03` are the bar still MISSED, and the cause is
+(b): their remaining pieces stand more than 0.5 m from every PART BOX of
+the rest, which the refined polygon would close and the box does not.
+
+**THE COST, AND THE GRID THAT PAID IT.**  Asked plan-wide, `_clusters`'s
+south-edge sweep is O(n·k) in the bodies whose latitude bands overlap —
+at one unit a handful, over a whole plan most of the airport: OTHH's plan
+stage went 249 → **808.61 s** on the first plan-wide arm.  `_clusters`
+now indexes by a plan GRID above `_GRID_ABOVE` (2,000 live bodies), each
+hull grown by the tolerance so a pair within it necessarily shares a
+cell.  The two paths return IDENTICAL clusters at KCLT (114 units either
+way, asserted vertex-for-vertex) — and the first grid attempt did NOT:
+reading metres-per-degree at each body's own latitude shifts two
+neighbours a full cell apart over an airport's easting and found 127
+clusters.  One `m_per_deg` for the whole grid fixed it.
+
+**(b) POLYGON FOOTPRINTS: NOT DONE.**  The plan-wide derivation is
+PLAN-SIDE and the plan carries only `Part.box`; the polygon needs every
+member's OBJ8 parsed, which is what the plan stage costs.  Named as the
+cause of the `Bridge_02` / `Bridge_03` residual above.
+
+**(c) §16g (5), AS AMENDED BY THE OWNER (13by).**  The first
+implementation wrote `OBJECT_MSL lat lon heading elev` for every dropped
+multi-anchor placement; the owner then answered his own question — ON
+GROUND SUFFICES AND IS THE BETTER DEFAULT, because inside an airport the
+mesh terrain IS our design surface, and under a terminal cluster that is
+the cluster pad, i.e. the floor.  So `msl_seats_for_dump` now returns a
+row ONLY for a unit whose datum is a DECK (on-ground there would put the
+piece on the road under the deck); everything else is left alone, and
+`multi_anchor_census` counts how each is seated.  KCLT, on the pack's
+pristine dump against the round-2 plan:
+
+| class | KCLT |
+|---|---|
+| multi-anchor rows the plan holds no member for | **11,314** (205 RESOURCES) |
+| left ON GROUND | **8,979** |
+| converted from `OBJECT_MSL` / `OBJECT_AGL` to on-ground | **2,335** |
+| written as `OBJECT_MSL` (a deck datum) | **0** |
+| DROPPED | **0** — the bar |
+
+**THE OWNER'S SITE, MEASURED.**  The passengers and seats at
+35.2191877, −80.9426007 are `sala_sillas_4x2.obj`,
+`sala_personas_4x1_a.obj` and `sala_maletas_4x1_a.obj`, 4.8–7.8 m away,
+authored as **`OBJECT_AGL`** rows — which the conversions pass ALREADY
+turns into on-ground rows, on main as on this branch.  The graded surface
+at that point is `building80`'s pad plane: **221.47 (disarm) / 221.44
+(cluster)** — the floor, and the SAME in both arms, because the cluster
+pad's effect there is on `building91` (+3.43 m), not on `building80`.
+The bar as written ("222.28 ± 0.05") was a number from the earlier
+UNMATCHED frame; on the matched pair the terminal floor is 221.44.  An
+intent question follows from that and is in the report.

@@ -4638,3 +4638,131 @@ def test_16g_3_only_a_long_connector_with_a_step_is_cut():
     assert FU._is_connector(long_, flat, 200.0, 0.5) is False
     assert FU._is_connector(short, ends, 200.0, 0.5) is False
     assert FU._is_connector(long_, ends, 0.0, 0.5) is False   # disarmed
+
+
+# ── §16g round 2 (owner RULINGS 2026-09-13bw) ────────────────────────────
+
+class _PPart:
+    def __init__(self, pid, box, line=False):
+        self.pid = pid
+        self.box = box
+        self.line = line
+        self.lat = 0.5 * (box[0] + box[2])
+        self.lon = 0.5 * (box[1] + box[3])
+        self.base_y = 0.0
+        self.feet = ()
+        self.comp = 0
+        self.area_m2 = 1.0
+
+
+class _PMember:
+    def __init__(self, resource, parts, deck_datum_z=None):
+        self.id = resource
+        self.resource = resource
+        self.parts = tuple(parts)
+        self.deck_datum_z = deck_datum_z
+        self.deck_ring = None
+        self.deck_kind = ""
+
+
+class _PUnit:
+    def __init__(self, uid, members):
+        self.id = uid
+        self.members = tuple(members)
+
+
+class _PPlan:
+    def __init__(self, units, contacts=()):
+        self.units = tuple(units)
+        self.contacts = tuple(contacts)
+
+
+def test_16g_1_the_unit_is_derived_PLAN_WIDE_across_placement_units():
+    """§16g (1) as ruled in 13bw: a deck on one placement row and its
+    piers on another are ONE unit.  Round 1 derived the relation inside
+    the per-``Unit`` loop and could not see across — which is why OTHH's
+    `Bridge_02` / `Bridge_03` came out at 1.52 / 1.93 m of spread."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    d = 0.3 / 111132.0
+    deck = _PMember("objects/deck.obj",
+                    [_PPart(1, (40.0000, -3.0000, 40.0010, -2.9990))])
+    pier = _PMember("objects/pier.obj",
+                    [_PPart(2, (40.0010 + d, -3.0000, 40.0016, -2.9995))])
+    away = _PMember("objects/away.obj",
+                    [_PPart(3, (40.0100, -3.0100, 40.0110, -3.0090))])
+    plan = _PPlan([_PUnit("unit:0", [deck]), _PUnit("unit:1", [pier, away])])
+    units = FU.plan_units(plan, 0.5)
+    assert len(units) == 1, units
+    assert set(units[0].members) == {"objects/deck.obj", "objects/pier.obj"}
+    assert units[0].pids == frozenset({1, 2})       # the far member alone
+    # and at §16f's millimetres nothing binds at all
+    assert FU.plan_units(plan, 0.002) == []
+
+
+def test_16g_2_the_plan_wide_datum_is_deck_then_pad_then_ground():
+    """§16g (2) read PLAN-WIDE: the plan carries a deck member's own
+    datum, so the piers chained to it take the deck's plane with no
+    bridge-specific law anywhere — 13bo's own test."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    d = 0.3 / 111132.0
+    pad = AR.PadRing("building80", ((39.998, -3.002), (40.004, -3.002),
+                                    (40.004, -2.996), (39.998, -2.996)),
+                     (100.0,) * 4)
+
+    def surface(la, lo):
+        return 90.0
+
+    def arm(deck_z, pads):
+        deck = _PMember("objects/deck.obj",
+                        [_PPart(1, (40.0000, -3.0000, 40.0010, -2.9990))],
+                        deck_datum_z=deck_z)
+        pier = _PMember("objects/pier.obj",
+                        [_PPart(2, (40.0010 + d, -3.0000, 40.0016, -2.9995))])
+        plan = _PPlan([_PUnit("unit:0", [deck]), _PUnit("unit:1", [pier])])
+        units = FU.plan_units(plan, 0.5)
+        return FU.plan_unit_datums(units, plan, surface, pads, 0.0)[units[0].id]
+
+    assert arm(5.5, (pad,)) == (5.5, "deck.obj", "deck")
+    assert arm(None, (pad,)) == (100.0, "building80", "pad")
+    assert arm(None, ()) == (90.0, "", "ground")
+
+
+def test_16g_5_a_multi_anchor_placement_is_seated_by_its_dsf_row():
+    """§16g (5) (owner 2026-09-11a/b, RULINGS 2026-09-13bw): a resource
+    the plan DROPPED because one file cannot carry N seats is seated on
+    the ROW — the unit's plane where it stands inside one, the surface
+    where it does not.  A resource the plan HOLDS, a stock library object
+    and a single-anchor row are all left alone."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    import types
+
+    def P(i, path, lat, lon):
+        return types.SimpleNamespace(def_path=path, lat=lat, lon=lon,
+                                     heading_deg=90.0, kind="OBJECT",
+                                     elevation=None)
+
+    rows = [P(0, "objects/seat.obj", 40.0005, -2.9995),   # inside the unit
+            P(1, "objects/seat.obj", 40.0500, -2.9000),   # out on the field
+            P(2, "objects/wall.obj", 40.0005, -2.9995),   # the plan holds it
+            P(3, "objects/wall.obj", 40.0006, -2.9994),
+            P(4, "objects/solo.obj", 40.0005, -2.9995)]   # one anchor only
+    dump = types.SimpleNamespace(placements=rows)
+    wall = _PMember("objects/wall.obj",
+                    [_PPart(1, (40.0000, -3.0000, 40.0010, -2.9990))])
+    plan = _PPlan([_PUnit("unit:0", [wall])])
+    # a PAD-datum unit: ON GROUND, nothing written (owner 13by)
+    pad_unit = [(40.0000, -3.0000, 40.0010, -2.9990, 222.28, "cluster_pad")]
+    assert FU.msl_seats_for_dump(dump, plan, pad_unit,
+                                 lambda la, lo: 100.0, "", frozenset()) == ()
+    c = FU.multi_anchor_census(dump, plan, (), frozenset())
+    assert c["multi_anchor_rows"] == 2 and c["multi_anchor_on_ground"] == 2
+    assert c["multi_anchor_dropped"] == 0
+    # a DECK-datum unit: on-ground would put the piece on the road UNDER
+    # the deck, so the row carries the deck's plane
+    deck_unit = [(40.0000, -3.0000, 40.0010, -2.9990, 12.5, "deck")]
+    seats = FU.msl_seats_for_dump(dump, plan, deck_unit,
+                                  lambda la, lo: 100.0, "", frozenset())
+    assert {m.index: (round(m.elevation, 2), m.why) for m in seats} \
+        == {0: (12.5, "deck")}
+    c = FU.multi_anchor_census(dump, plan, seats, frozenset())
+    assert c["multi_anchor_object_msl"] == 1 and c["multi_anchor_on_ground"] == 1

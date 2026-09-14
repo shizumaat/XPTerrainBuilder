@@ -34,7 +34,8 @@ from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
                                _clusters, _contacts_of, _median,
-                               cluster_plane, pad_plurality, union_area_m2)
+                               bodies_of_plan, cluster_plane, pad_plurality,
+                               union_area_m2)
 
 __all__ = ["UNIT_REASON", "bind_footprint_units"]
 
@@ -96,7 +97,9 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
                          pads: _t.Sequence[_ar.PadRing], counts: dict, *,
                          unit_id: str = "", touch_m: float = 0.0,
                          visual_m: float = 0.0, cluster_min_m2: float = 0.0,
-                         connector_span_m: float = 0.0) -> list[Family]:
+                         connector_span_m: float = 0.0,
+                         plan_wide: "_t.Mapping[int, tuple[str, float, str, str]] | None" = None
+                         ) -> list[Family]:
     """§16g THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed;
     spec §16g) — the ONE rule that replaces every family derivation of
     2026-09-13: §16e (3)'s row / ring / footprint / NAME attempts, §16f
@@ -129,6 +132,10 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
         return []
     from . import placement_carrier as _pc
     by_mi = {st.mi: st for st in staged}
+    if plan_wide:
+        return _bind_plan_wide(cands, by_mi, surface, counts, plan_wide,
+                               visual_m=visual_m,
+                               connector_span_m=connector_span_m)
     clusters, _adj = _clusters(cands, touch_m, min_members=1)
     units: list[Family] = []
     bound_ci: set[int] = set()
@@ -290,3 +297,405 @@ def cluster_zero_allowed(forced: _t.Sequence[int], st: _t.Any,
         counts["cluster_zero_refused_footless_or_far"] = \
             counts.get("cluster_zero_refused_footless_or_far", 0) + 1
     return keep
+
+
+# ── §16g (1) PLAN-WIDE (owner RULINGS 2026-09-13bw) ──────────────────────
+
+@_dc.dataclass(frozen=True)
+class PlanUnit:
+    """One FOOTPRINT UNIT of the WHOLE plan (§16g (1) as ruled in 13bw).
+
+    Round 1 derived the unit inside the per-``Unit`` loop, because that is
+    where PASS 1's staged bodies exist — and 13bw ruled that a
+    CONSTRUCTION ARTEFACT, not the law: OTHH's `Bridge_02` / `Bridge_03`
+    came out at 1.52 / 1.93 m of spread precisely because their deck,
+    piers and clutter are authored on rows that fall in different plan
+    ``Unit``s and each pass could only see its own.
+
+    So the relation is derived from the PLAN, before any unit is staged:
+    the bodies are ``placement_family.bodies_of_plan``'s (§9's own body
+    law, the ONE derivation) and the chaining is
+    ``placement_family._clusters``'s, asked over every body of every unit
+    at once.  What each pass then does is LOOK UP the datum this unit was
+    given — one zero across plan units by construction."""
+
+    id: str
+    #: ``(unit, member, body)`` keys of its bodies
+    bodies: tuple[tuple[int, int, int], ...]
+    #: every PART id it holds — the join a staged candidate is mapped by
+    pids: frozenset[int]
+    members: tuple[str, ...]
+    boxes: tuple[tuple[float, float, float, float], ...]
+    area_m2: float
+
+
+class _PShim:
+    """A plan body dressed as the candidate :func:`_clusters` reads."""
+
+    __slots__ = ("member", "part_boxes", "box", "body_class", "key", "pids",
+                 "resource")
+
+    def __init__(self, seq, key, boxes, pids, resource):
+        self.member = seq            # a UNIQUE id per body: the chaining
+        self.key = key               # is plan-wide, so "member" may not
+        self.pids = pids             # collapse two bodies of one member
+        self.resource = resource
+        self.part_boxes = boxes
+        self.box = _pb.hull_of(boxes)
+        self.body_class = ""
+
+
+def plan_units(plan: _t.Any, touch_m: float) -> list[PlanUnit]:
+    """§16g (1) PLAN-WIDE: every footprint unit of ``plan``, chained
+    across placement ``Unit``s.  A body touching nothing is its own unit
+    and is NOT returned — it seats alone (§16c)."""
+    if touch_m <= 0.0 or not getattr(plan, "units", ()):
+        return []
+    bodies, _of_pid = bodies_of_plan(plan)
+    parts_of = {p.pid: p for u in plan.units for m in u.members
+                for p in m.parts}
+    shims: list[_PShim] = []
+    for key, pids in sorted(bodies.items()):
+        ui, mi, _gi = key
+        bx = [parts_of[q].box for q in pids
+              if q in parts_of and not parts_of[q].line]
+        if bx:
+            shims.append(_PShim(len(shims), key, bx, frozenset(pids),
+                                plan.units[ui].members[mi].resource))
+    if len(shims) < 2:
+        return []
+    clusters, _adj = _clusters(shims, touch_m, min_members=1)
+    out: list[PlanUnit] = []
+    for cl in clusters:
+        boxes = [b for i in cl for b in shims[i].part_boxes]
+        out.append(PlanUnit(
+            id=f"fu:{shims[cl[0]].key[0]}:{cl[0]}",
+            bodies=tuple(shims[i].key for i in cl),
+            pids=frozenset().union(*(shims[i].pids for i in cl)),
+            members=tuple(sorted({shims[i].resource for i in cl})),
+            boxes=tuple(boxes), area_m2=union_area_m2(boxes)))
+    return out
+
+
+def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
+             cap: int) -> list[tuple[float, float]]:
+    step = max(1, len(boxes) // cap)
+    return [(0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])) for b in boxes[::step]]
+
+
+def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
+                     surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
+                     cluster_min_m2: float
+                     ) -> dict[str, tuple[float, str, str]]:
+    """§16g (2)'s PRIORITY DATUM, read PLAN-WIDE: ``unit id -> (zero,
+    where, source)``.
+
+    DECK first — the plan itself carries a deck member's own datum
+    (``Member.deck_datum_z``, §16e (2)/(6)), so the piers and clutter
+    chained to it take the deck's plane without any bridge-specific law,
+    which is 13bo's own test.  Then the PAD most of the unit's footprint
+    stands on (its OWN plane, ``median(pad.z)`` — the §30 (4) cluster pad
+    for a unit over ``cluster_pad_min_m2``).  Then the median ground under
+    its part centres.
+
+    The ground is sampled at the PART CENTRES rather than at the feet: the
+    feet belong to a staged body and this pass runs before any staging.  A
+    unit whose every centre falls off the surface takes no datum and its
+    bodies keep whatever the per-unit passes give them."""
+    by_key: dict[tuple[int, int], _t.Any] = {}
+    for ui, u in enumerate(plan.units):
+        for mi, m in enumerate(u.members):
+            by_key[(ui, mi)] = m
+    out: dict[str, tuple[float, str, str]] = {}
+    for un in units:
+        zero: float | None = None
+        where = src = ""
+        for (ui, mi, _gi) in un.bodies:
+            m = by_key.get((ui, mi))
+            dz = None if m is None else getattr(m, "deck_datum_z", None)
+            if dz is not None:
+                zero = float(dz)
+                where = m.resource.rsplit("/", 1)[-1]
+                src = "deck"
+                break
+        pts = _centres(un.boxes, FAMILY_CONTACTS_MAX)
+        if zero is None:
+            cc = [(la, lo, 0.0, surface(la, lo)) for la, lo in pts]
+            cc = [q for q in cc if q[3] is not None]
+            if not cc:
+                continue
+            p = pad_plurality(cc, pads)
+            if p is not None and p.z:
+                zero, where, src = _median(list(p.z)), p.ref, "pad"
+                if cluster_min_m2 > 0.0 and un.area_m2 >= cluster_min_m2:
+                    src = "cluster_pad"
+            else:
+                zero, where, src = _median([q[3] for q in cc]), "", "ground"
+        out[un.id] = (zero, where, src)
+    return out
+
+
+def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
+                    surface: _ar.Surface, counts: dict,
+                    plan_wide: _t.Mapping[int, tuple[str, float, str, str]],
+                    *, visual_m: float, connector_span_m: float
+                    ) -> list[Family]:
+    """§16g (1)/(2) PLAN-WIDE (owner RULINGS 2026-09-13bw): seat every
+    candidate of this pass at the datum ITS PLAN-WIDE UNIT was given.
+
+    ``plan_wide`` maps a PART ID to ``(unit id, zero, where, source)`` —
+    the join is the pid, because the plan's body keys and a staged
+    candidate's ground groups are different partitions of the same
+    triangles and the part is what both are made of.  A candidate whose
+    pids name no unit (a body touching nothing) is left alone: it seats by
+    §16c as it always did."""
+    seats: dict[str, list[int]] = {}
+    info: dict[str, tuple[float, str, str]] = {}
+    for ci, c in enumerate(cands):
+        if c.body_class in (_ar.LINE_SEGMENT, _ar.BASIN):
+            continue
+        hit: dict[str, int] = {}
+        for q in c.pids:
+            got = plan_wide.get(q)
+            if got is not None:
+                hit[got[0]] = hit.get(got[0], 0) + 1
+        if not hit:
+            continue
+        uid = max(sorted(hit), key=lambda k: hit[k])
+        _u, z, where, src = plan_wide[next(q for q in sorted(c.pids)
+                                           if plan_wide.get(q, ("",))[0] == uid)]
+        seats.setdefault(uid, []).append(ci)
+        info[uid] = (z, where, src)
+    out: list[Family] = []
+    for uid, cis in sorted(seats.items()):
+        zero, where, src = info[uid]
+        per: dict[int, list] = {}
+        for ci in cis:
+            c = cands[ci]
+            st = by_mi.get(c.member)
+            if st is None:
+                continue
+            cc = _contacts_of(c, st, surface)
+            if not cc:
+                continue
+            if _is_connector(c, cc, connector_span_m, visual_m):
+                counts["unit_connectors_cut"] = \
+                    counts.get("unit_connectors_cut", 0) + 1
+                continue
+            per[ci] = cc
+        if len(per) < 2:
+            continue
+        # §16g (2): PAVEMENT IS KING only for a unit standing ENTIRELY on
+        # rolled-on pavement.  Read over the candidates THIS pass holds —
+        # a plan-wide unit split across passes is judged per pass, which
+        # is the one place the plan-wide reading cannot reach.
+        if all(_all_on_pavement(cc, surface) for cc in per.values()):
+            counts["unit_all_on_pavement"] = \
+                counts.get("unit_all_on_pavement", 0) + 1
+            continue
+        out.extend(_seat(cands, by_mi, surface, counts, per, zero, where,
+                         src, uid, visual_m))
+    return out
+
+
+def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
+          counts: dict, per: _t.Mapping[int, list], zero: float, where: str,
+          src: str, uid: str, visual_m: float) -> list[Family]:
+    """Put every candidate of ``per`` on ``zero`` — the one anchor rewrite
+    §16f (2) and §16g (2) both take, factored so the per-unit and the
+    plan-wide readings cannot drift apart."""
+    from . import placement_carrier as _pc
+    fid = f"{uid}@{src}"
+    mems = sorted({cands[ci].member for ci in per})
+    gz = [cands[ci].anchor.surface_z - cands[ci].anchor.y_zero
+          for ci in per if cands[ci].anchor.surface_z is not None]
+    moved = n_off = n_contacts = 0
+    for ci, cc in sorted(per.items()):
+        c = cands[ci]
+        st = by_mi[c.member]
+        n_contacts += len(cc)
+        _st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
+        if (visual_m > 0.0
+                and abs(_median([q[3] - q[2] for q in cc[::_st]]) - zero)
+                > visual_m):
+            n_off += 1
+        best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - zero), 6),
+                                      round(abs(q[2]), 6), q[0], q[1]))
+        own = best[3] - best[2]
+        a = _ar.Anchor(
+            c.anchor.body_class, best[0], best[1], best[3] - zero,
+            f"{UNIT_REASON} {fid} of {len(mems)} member(s) on "
+            + (f"pad {where}" if src in ("pad", "cluster_pad")
+               else (f"deck {where}" if src == "deck"
+                     else "its median ground"))
+            + f" at {zero:.2f} (own ground {own - zero:+.2f} m)",
+            best[3], family=fid)
+        grp0 = (st.groups[c.group] if 0 <= c.group < len(st.groups) else ())
+        if not grp0:
+            continue
+        k0 = _pc.senior_of(st.raw, grp0)
+        r0 = st.raw[k0]
+        st.raw[k0] = (r0[0], r0[1], a) + tuple(r0[3:])
+        _off = _pb.anchor_ground_off(
+            a, tuple(f for j in grp0 for f in st.raw[j][3]), surface)
+        if c.group < len(st.ground_off):
+            st.ground_off[c.group] = _off
+        cands[ci] = _dc.replace(c, anchor=a, ground_off=_off)
+        moved += 1
+    if not moved:
+        return []
+    counts["bodies_bound_to_unit"] = \
+        counts.get("bodies_bound_to_unit", 0) + moved
+    counts["footprint_units"] = counts.get("footprint_units", 0) + 1
+    counts[f"unit_datum_{src}"] = counts.get(f"unit_datum_{src}", 0) + 1
+    if n_off:
+        counts["unit_members_off_the_plane"] = \
+            counts.get("unit_members_off_the_plane", 0) + n_off
+    return [Family(
+        id=fid, unit=uid,
+        members=tuple(by_mi[m].m.resource for m in mems if m in by_mi),
+        bodies=moved, contacts=n_contacts, zero_z=zero, pad=where,
+        spread_before_m=((max(gz) - min(gz)) if gz else 0.0),
+        spread_after_m=0.0, apart=())]
+
+
+def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
+                    pads: _t.Sequence[_ar.PadRing], touch_m: float,
+                    cluster_min_m2: float, counts: dict
+                    ) -> "tuple[dict[int, tuple[str, float, str, str]], list[tuple[float, float, float, float, float, str]]]":
+    """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
+    where, source), the units' plan boxes with their zero)``.
+
+    The PART is the join for a staged candidate, because the plan's
+    bodies and a candidate's ground groups are different partitions of
+    the same triangles.  The BOXES are the join for §16g (5)'s dropped
+    multi-anchor placement, which has no part of its own in the plan at
+    all — the pack dropped it before the plan was written — and can only
+    be placed by WHERE IT STANDS."""
+    if touch_m <= 0.0:
+        return {}, []
+    units = plan_units(plan, touch_m)
+    dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
+    out: dict[int, tuple[str, float, str, str]] = {}
+    seats: list[tuple[float, float, float, float, float, str]] = []
+    for un in units:
+        d = dat.get(un.id)
+        if d is None:
+            continue
+        for q in un.pids:
+            out[q] = (un.id, d[0], d[1], d[2])
+        h = _pb.hull_of(un.boxes)
+        if h is not None:
+            seats.append((h[0], h[1], h[2], h[3], d[0], d[2]))
+    counts["plan_wide_units"] = len(units)
+    counts["plan_wide_units_seated"] = len(dat)
+    return out, seats
+
+
+# ── §16g (5) PER-PLACEMENT ELEVATION (owner RULINGS 2026-09-13bw) ────────
+
+def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
+                       unit_seats: _t.Sequence[tuple[float, float, float,
+                                                     float, float, str]],
+                       surface: _ar.Surface, pack_root: str,
+                       split_idx: _t.AbstractSet[int]) -> tuple:
+    """§16g (5): the placements to seat by their DSF ROW —
+    ``OBJECT_MSL lat lon heading elevation``.
+
+    THE POPULATION is the MULTI-ANCHOR resources the plan DROPPED: a
+    pack-authored resource placed at two or more rows that the rebake plan
+    holds no member for.  One file cannot carry a per-placement offset, so
+    the plan drops it and it keeps whatever the terrain does — which is
+    the owner's item 1 at KCLT (13bj): "passengers and seat objects ...
+    sitting on the ground under the building instead of on the floor".
+    The offset therefore goes on the ROW, which is exactly the owner's own
+    2026-09-11a/b instruction.
+
+    ON GROUND IS THE DEFAULT AND THE BETTER ONE (owner RULINGS
+    2026-09-13by, answering his own question): X-Plane drapes a plain
+    ``OBJECT`` row at the mesh terrain under its anchor, and inside an
+    airport that terrain IS our design surface — under a terminal cluster
+    it is the cluster pad (§30 (4)), i.e. the floor.  The 205 KCLT
+    placements were never dropped because on-ground was wrong for them;
+    they were dropped because the plan wanted to write a per-placement
+    offset into ONE shared file and could not.  So a placement whose unit
+    datum EQUALS the terrain at its anchor — a PAD-datum or GROUND-datum
+    unit, which is every terminal cluster and every building family — is
+    LEFT ON GROUND and this function returns nothing for it.
+
+    ``OBJECT_MSL`` is written ONLY where the unit's datum is NOT the
+    terrain at the anchor: a DECK-datum unit (bridge clutter over a road
+    or water, where on-ground would put the piece on the road UNDER the
+    deck).  Its elevation is that deck's plane.
+
+    A placement whose row the SPLIT already replaces is never here — the
+    two edits would collide, and ``dsf_write.edit_dump`` refuses it."""
+    from ..model.placement import MslSeat
+    from . import obj8 as _obj8
+    have = {m.resource for u in getattr(plan, "units", ()) for m in u.members}
+    rows = list(getattr(dump, "placements", ()) or ())
+    if not rows:
+        return ()
+    n_of: dict[str, int] = {}
+    for p in rows:
+        n_of[p.def_path] = n_of.get(p.def_path, 0) + 1
+    # the smallest unit box containing the point wins: a concourse inside
+    # a terminal is the seat a body standing in it takes
+    boxes = sorted((b for b in unit_seats if b[5] == "deck"),
+                   key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+    out: list[MslSeat] = []
+    for i, p in enumerate(rows):
+        if i in split_idx or n_of.get(p.def_path, 0) < 2:
+            continue
+        if p.def_path in have or _obj8.is_stock_library_resource(p.def_path):
+            continue
+        for la0, lo0, la1, lo1, zero, _src in boxes:
+            if la0 <= p.lat <= la1 and lo0 <= p.lon <= lo1:
+                out.append(MslSeat(i, p.def_path, float(p.lon), float(p.lat),
+                                   float(p.heading_deg), float(zero), "deck"))
+                break
+    return tuple(out)
+
+
+def multi_anchor_census(dump: _t.Any, plan: _t.Any,
+                        msl: _t.Sequence[_t.Any],
+                        split_idx: _t.AbstractSet[int]) -> dict[str, int]:
+    """§16g (5) as amended (owner RULINGS 2026-09-13by): how the
+    MULTI-ANCHOR placements the plan holds no member for are seated.
+
+    ``multi_anchor_on_ground`` — left alone, the design surface seats
+    them (the default and the better one: under a terminal cluster the
+    mesh terrain IS the cluster pad, i.e. the floor).
+    ``multi_anchor_object_msl`` — written with an elevation because their
+    unit's datum is a DECK and on-ground would put them on the road under
+    it.  ``multi_anchor_converted_from_msl`` — rows the pack authored as
+    ``OBJECT_MSL`` / ``OBJECT_AGL`` for pieces standing on the ground,
+    which the conversions pass turns into on-ground rows (the other half
+    of the owner's 11b: "remove all hard-coded elevations").
+
+    NONE of them is DROPPED any more, which is the number the ruling
+    asks for: KCLT's 205 were dropped only because the plan wanted to
+    write one offset into one shared file and could not."""
+    from . import obj8 as _obj8
+    have = {m.resource for u in getattr(plan, "units", ()) for m in u.members}
+    rows = list(getattr(dump, "placements", ()) or ())
+    n_of: dict[str, int] = {}
+    for p in rows:
+        n_of[p.def_path] = n_of.get(p.def_path, 0) + 1
+    seated = {m.index for m in msl}
+    out = {"multi_anchor_rows": 0, "multi_anchor_on_ground": 0,
+           "multi_anchor_object_msl": 0,
+           "multi_anchor_converted_from_msl": 0, "multi_anchor_dropped": 0}
+    for i, p in enumerate(rows):
+        if i in split_idx or n_of.get(p.def_path, 0) < 2:
+            continue
+        if p.def_path in have or _obj8.is_stock_library_resource(p.def_path):
+            continue
+        out["multi_anchor_rows"] += 1
+        if i in seated:
+            out["multi_anchor_object_msl"] += 1
+        elif p.kind in ("OBJECT_MSL", "OBJECT_AGL"):
+            out["multi_anchor_converted_from_msl"] += 1
+        else:
+            out["multi_anchor_on_ground"] += 1
+    return out

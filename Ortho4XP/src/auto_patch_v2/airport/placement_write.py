@@ -56,6 +56,7 @@ import typing as _t
 
 from ..model.placement import (PLAN_FILENAME, PlacementPlan, Provenance)
 from . import dsf_write as _dw
+from . import footprint_unit as _fu
 from . import placement_plan as _pp
 
 __all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
@@ -143,14 +144,31 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     conversions, _kept_conv = _dw.conversions_for_dump(dump, pack_root)
     split_idx = frozenset(s.placement.index for s in splits)
     conversions = tuple(c for c in conversions if c.index not in split_idx)
+    # §16g (5) PER-PLACEMENT ELEVATION (owner RULINGS 2026-09-13bw; the
+    # owner's own 2026-09-11a/b words).  A MULTI-ANCHOR resource — one
+    # file at N anchors needing N seats — is dropped from the plan, keeps
+    # its authored row and renders wherever the terrain went; KCLT's
+    # passengers and seats are 205 of them.  It is seated HERE, on the
+    # row, because this is the one place the DUMP and the plan are seen
+    # together.
+    msl = _fu.msl_seats_for_dump(dump, rebake_plan, ss.unit_seats, surface,
+                                 pack_root, split_idx)
+    # a row seated by §16g (5) is NOT also converted to on-ground: the
+    # whole point is that it keeps an elevation column
+    _mi = frozenset(m.index for m in msl)
+    conversions = tuple(c for c in conversions if c.index not in _mi)
+    counts_extra = {"msl_seats": len(msl)}
+    counts_extra.update(_fu.multi_anchor_census(dump, rebake_plan, msl,
+                                                split_idx))
     files = tuple(f for s in ss.splits for f in s.files)
     counts = dict(ss.counts)
     counts["conversions"] = len(conversions)
+    counts.update(counts_extra)
     plan = PlacementPlan(
         icao=icao, pack_name=pack_name, pack_root=pack_root, dsf_path=dsf_path,
         dsf_backup_path=dsf_path + ".anchor_bak",
         provenance=Provenance("", engine_version, law_digest, counts),
-        conversions=conversions, splits=splits, kept=kept)
+        conversions=conversions, splits=splits, kept=kept, msl_seats=msl)
     return plan, files, ss
 
 

@@ -502,7 +502,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     #: §16c (7): the plan extent of every rigid cluster of more than one
     #: body, for the report (a cluster is ONE body no cut may divide)
     cl_spans: list[tuple[float, int]] = []
-    fams: list = []                     # §16g units, for the census
+    fams: list = []                     # §16g units, census
     by_class: dict[str, int] = {}
 
     # §16e (3): ONE CUTTER PER MEMBER, and the DECK FOOTPRINTS derived
@@ -537,6 +537,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
     prints = _bf.deck_prints(plan, _cutter_for)
     counts["bridge_deck_footprints"] = len(prints)
+
+    _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
+                                      cluster_min_m2, counts)
 
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
@@ -702,12 +705,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # §16f AN OBJECT FAMILY STAYS TOGETHER (RULINGS 2026-09-13af),
         # in ``placement_family``: AFTER the contact bind, so the family
         # plane is the last word on a FOOTED body's zero.
-        # §16g THE FOOTPRINT UNIT (13bo) replaces every family
-        # derivation; the law lives whole in ``footprint_unit``.
         fams.extend(_fu.bind_footprint_units(
             cands, staged, surface, pads, counts, unit_id=u.id,
             touch_m=touch_m, visual_m=bind_ground_m,
-            cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m))
+            cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m,
+            plan_wide=_pw))
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
         by_key = {(c.member, c.group): c for c in cands}
@@ -756,10 +758,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      if st.footless or i in st.elevated)
             rides: dict[tuple[int, int], tuple[list[int], str]] = {}
             _gz_memo: dict = {}
-            # §16d (4) (RULINGS 2026-09-13m) / §16g (4) (13bu): a
-            # carried body's ATOMS each ask their own carrier question,
-            # BEFORE the search, so §16a (1)'s cut and §16b (3)'s ground
-            # test read the piece that actually stands there.
+            # §16d (4) (13m) / §16g (4) (13bu): a carried body's ATOMS
+            # each ask their own carrier question BEFORE the search.
             _atoms = []
             for grp, gboxes in targets:
                 for sub in _atom_targets(st, grp, coarsen_reach_m):
@@ -951,7 +951,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     for k, v in sorted(refused.items()):
         counts[f"carrier_refused_{k}"] = v
     return SplitSet(tuple(splits), tuple(kept), counts, tuple(whole),
-                    tuple(fams))
+                    tuple(fams), tuple(_seats))
 
 
 

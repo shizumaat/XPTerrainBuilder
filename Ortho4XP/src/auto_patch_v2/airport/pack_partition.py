@@ -68,7 +68,7 @@ from . import skirt as _skirt
 from .pack import live_path_of
 
 __all__ = ["Screen", "PackPartition", "partition_pack", "extend_partition",
-           "counts_zero"]
+           "counts_zero", "MemberRecipe", "MemberGeometries"]
 
 
 def counts_zero() -> dict[str, int]:
@@ -233,11 +233,85 @@ class PackPartition:
 
 
 @_dc.dataclass(frozen=True)
+class MemberRecipe:
+    """What it takes to RE-PLACE one member: its placement and the
+    component indices :func:`_build_member` admitted for it.
+
+    THE RECIPE, NOT THE PLACED GEOMETRY (owner RULINGS 2026-09-14v).
+    A :data:`contact.MemberGeometry` holds the resource's whole parsed
+    ``ObjGeometry`` — free in memory (every member is a reference into the
+    one ``ResourceCache``) and 985 MB on disk when the partition cache
+    pickles it, because pickling materialises every shared array once per
+    member.  The recipe is the placement plus the admitted component
+    indices; the geometry comes back from the ``ResourceCache``, which is
+    the SAME parse the load partition read (the cache fingerprint pins
+    every pack ``.obj``)."""
+
+    obj: _obj8.PlacedObject
+    comps: tuple[int, ...]
+
+
+class MemberGeometries(_t.Sequence):
+    """The load partition's members, RE-PLACED ON DEMAND from recipes.
+
+    ``contact.extend`` asks for the handful of members whose part boxes
+    come within ε of an added plate — never for all of them — so the
+    sequence builds what it is indexed for and memoises that.  Pickles as
+    its RECIPES alone (:class:`MemberRecipe`); :meth:`bind` gives the
+    revived sequence the ``ResourceCache`` of the run that reads it."""
+
+    __slots__ = ("_recipes", "_cache", "_built")
+
+    def __init__(self, recipes: _t.Sequence["MemberRecipe"],
+                 cache: _obj8.ResourceCache | None = None) -> None:
+        self._recipes = tuple(recipes)
+        self._cache = cache
+        self._built: dict[int, tuple] = {}
+
+    def bind(self, cache: _obj8.ResourceCache) -> "MemberGeometries":
+        """Read through ``cache`` from here on (a revived sequence has
+        none).  Returns self."""
+        if cache is not self._cache:
+            self._cache = cache
+            self._built = {}
+        return self
+
+    def __len__(self) -> int:
+        return len(self._recipes)
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            return [self[k] for k in range(*i.indices(len(self._recipes)))]
+        i = int(i)
+        hit = self._built.get(i)
+        if hit is not None:
+            return hit
+        if self._cache is None:
+            raise RuntimeError("MemberGeometries: no ResourceCache bound — "
+                               "call bind() before reading a revived partition")
+        r = self._recipes[i]
+        geom = self._cache.geometry(r.obj.resolved)
+        all_comps = self._cache.components(r.obj.resolved)
+        built = (r.obj, geom, [(k, all_comps[k]) for k in r.comps
+                               if 0 <= k < len(all_comps)])
+        self._built[i] = built
+        return built
+
+    def __getstate__(self) -> dict:
+        return {"recipes": self._recipes}      # never the placed geometry
+
+    def __setstate__(self, state: dict) -> None:
+        self._recipes = tuple(state["recipes"])
+        self._cache = None
+        self._built = {}
+
+
+@_dc.dataclass(frozen=True)
 class _LoadGeom:
     """What the incremental second phase queries (11l (1)): the load
-    partition's part boxes and component ids, the member geometry it was
-    read from (references into the one ``ResourceCache``, so holding it
-    costs nothing), and the anchor-plane numbering it must extend."""
+    partition's part boxes and component ids, the members it was read
+    from (:class:`MemberGeometries` — recipes, re-placed on demand), and
+    the anchor-plane numbering it must extend."""
 
     index: _contact.BaseIndex
     members: tuple
@@ -455,6 +529,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     placed: list[tuple[_obj8.PlacedObject, _obj8.ObjGeometry,
                        list[tuple[int, _obj8.Component]]]] = []
     line_members: set[int] = set()
+    recipes: list[MemberRecipe] = []
     member_ref: list[tuple[tuple[float, float, float], str, str]] = []
     for key, o in keyed:
         if o.path in drop_now:
@@ -471,6 +546,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             line_members.add(len(placed))
         members[o.path] = member
         placed.append(mgeom)
+        recipes.append(MemberRecipe(mgeom[0], tuple(k for k, _c in mgeom[2])))
         member_ref.append((key, o.path, o.id))
 
     # THE ANCHOR PLANE per member (owner RULINGS 2026-09-10ay; spec §17)
@@ -516,7 +592,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     counts["structures"] = part.structures
     counts["pairs_tested"] = part.pairs_tested
     counts["pairs_unproved"] = part.pairs_unproved
-    geom = _LoadGeom(_contact.base_index(part), tuple(placed), tuple(member_ref),
+    geom = _LoadGeom(_contact.base_index(part), MemberGeometries(recipes, cache),
+                     tuple(member_ref),
                      tuple(anchor_of_member), dict(anchor_ix),
                      frozenset(deck_family_ids)) if sc.is_empty() else None
     return PackPartition(airport.icao, airport.pack.name, pack_root, tuple(units),
@@ -651,10 +728,14 @@ def extend_partition(part: PackPartition, airport: Airport,
         skipped.pop(o.path, None)
     if not new_members:
         return part
+    base_members = geom.members
+    if isinstance(base_members, MemberGeometries):
+        # a REVIVED partition carries recipes and no cache (14v)
+        base_members = base_members.bind(cache)
     anchor_ix = dict(geom.anchor_ix)
     anchor_of = list(geom.anchor_of_member) + \
         [anchor_ix.setdefault(k, len(anchor_ix)) for k, _p, _o in new_ref]
-    ext = _contact.extend(geom.index, geom.members, new_members,
+    ext = _contact.extend(geom.index, base_members, new_members,
                           rb.contact_epsilon_m, rb.contact_weld_m,
                           rb.contact_narrow_budget, rb.contact_batch_rows,
                           law.tables.structures.basin.contact_band_m,
@@ -666,7 +747,7 @@ def extend_partition(part: PackPartition, airport: Airport,
     to_ll_batch = _batch_to_ll(airport.frame)
     fake = _contact.Partition(ext.parts, (), 0, 0, 0, 0, ())
     rows = _parts_by_member(fake, to_ll_batch)
-    base_n = len(geom.members)
+    base_n = len(base_members)
     # ── merge: rebuild the units from the load reading plus the added ──
     by_key: dict[tuple[float, float, float], dict[str, Member]] = {}
     for ui, u in enumerate(part.units):

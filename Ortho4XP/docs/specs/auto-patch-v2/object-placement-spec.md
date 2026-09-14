@@ -4242,3 +4242,36 @@ plane anyway) but it is a deviation from "overlap alone binds".
 IDENTIFIED and left out of its unit's rigid bind, and §10's station cut
 and §16b's terrain cut divide it as they already do — no new cut was
 written.  (d) LINE segments and BASIN bodies keep §16f's exclusions.
+
+**THE UNIT CENSUS, PER AIRPORT (final tree, matched dry arms).**
+
+KCLT, on the lane build's OWN frame (`v2clusterpadKCLT2`, the first frame
+carrying the cluster pad) — base `0c86fe2c` against the branch, the SAME
+two documents both arms:
+
+| bar | base | §16g |
+|---|---|---|
+| units | 1 family / 84 bodies | **58 units / 367 bodies**, per-unit zero spread **0.00** everywhere |
+| datum source | — | `cluster_pad` **25**, `pad` **12**, `ground` **21**; 8 connectors named and left out; 87 members reported off their unit's plane |
+| the terminal | `unit:31#0@building80`, 16 members / 84 bodies, 222.07 | **`unit:31#0@cluster_pad`, 19 members / 165 bodies, 222.07** |
+| the owner's site 35.2191877,−80.9426007 | 3 bodies, all 222.07 | **3 bodies, all 222.07** — already on the terminal's floor in BOTH arms on this frame; the passengers and seats themselves are among the **205 multi-anchor placements the plan drops** and the object stage never seats them (see the intent question) |
+| plan stage | 15.72 s | **14.10 s** |
+| §17 CRITICAL MOTION | 971 feet / 75 bodies | **1,049 / 72** |
+| §15 footed float > 0.5 m | 75 | **123** |
+| §15 carried over a refused body | 13 | **8** |
+| §16b carried float / wider | 57 / 246 | **50 / 257** |
+| files | 518 | **648** |
+
+OTHH 1.0.326 (`v2othh1o`), the same two documents both arms:
+
+| bar | base | §16g |
+|---|---|---|
+| units | 16 families / 206 bodies | **85 units / 1,173 bodies**, spread 0.00; datum `ground` 54, `pad` 15, `cluster_pad` 15, **`deck` 1**; 27 connectors; 8 units entirely on pavement |
+| `Bridge_01 / 02 / 03 / 04 / 06` zero spread | 1.95 / **9.71** / **9.18** / 0.00 / **9.67** m | 1.95 / **1.52** / **1.93** / 0.00 / **0.00** m — the bar (0.00 per bridge) is MET for 04 and 06 and NOT for 01/02/03 |
+| plan stage | 237.66 s | **249.43 s** |
+| files | 1,788 | **2,541** |
+
+The bridges are NOT one unit each, and the reason is named above: §16g (1)
+is derived per PLAN UNIT and the footprint test is the PART BOXES.  Where
+the chain reaches, it reaches all the way (Bridge_06 9.67 → 0.00 with no
+bridge-specific law anywhere in the code, which is 13bo's own test).

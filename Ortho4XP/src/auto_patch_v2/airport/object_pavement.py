@@ -56,6 +56,8 @@ import dataclasses as _dc
 import os
 import typing as _t
 
+import numpy as np
+import shapely
 from shapely import affinity as _affinity
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -201,10 +203,28 @@ def draped_footprint(geom: _obj8.ObjGeometry, y_tol_m: float):
     if not ys.size or float(abs(ys).max()) > y_tol_m:
         return None
     tris = v[geom.draped][:, :, [0, 2]]
-    polys = [p for p in (Polygon(t) for t in tris) if p.is_valid and p.area > 0.0]
-    if not polys:
+    # The triangles are built and dissolved IN BULK.  A draped page is a
+    # TRIANGULATION — the triangles tile their footprint and do not
+    # overlap — so ``coverage_union_all`` dissolves them by their shared
+    # edges instead of intersecting every pair: measured over HECA's
+    # eight pages (379-2,000 triangles each) 0.34 s -> 0.23 s for the
+    # same eight areas to the square metre.  A page whose triangles are
+    # NOT a clean coverage (an exporter's T-vertices, a self-overlap)
+    # makes the coverage union refuse or return an invalid geometry, and
+    # the general union does the work.
+    rings = np.concatenate([tris, tris[:, :1, :]], axis=1)
+    polys = shapely.polygons(shapely.linearrings(
+        rings.reshape(-1, 2),
+        indices=np.repeat(np.arange(rings.shape[0]), 4)))
+    polys = polys[shapely.is_valid(polys) & (shapely.area(polys) > 0.0)]
+    if not polys.size:
         return None
-    u = unary_union(polys)
+    try:
+        u = shapely.coverage_union_all(polys)
+        if not u.is_valid:
+            raise ValueError("not a coverage")
+    except Exception:
+        u = unary_union(list(polys))
     if not u.is_valid:
         u = u.buffer(0)
     return None if u.is_empty else u

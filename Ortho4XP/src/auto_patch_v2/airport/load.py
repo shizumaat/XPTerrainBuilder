@@ -31,6 +31,7 @@ from . import osm as _osm
 from . import pack as _pack
 
 __all__ = ["Inputs", "LoadReport", "load", "load_with_report",
+           "namespace_osm_ids", "way_id_line", "OSM_FEED_ID_BAND",
            "normalise_surface", "runway_code_number", "runway_code_letter"]
 
 #: ICAO Annex 14 Vol I Table 1-1: aerodrome reference code NUMBER by
@@ -123,6 +124,13 @@ class LoadReport:
     #: §25 (RULINGS 2026-09-11aq item B): relations read, outer ways given
     #: the relation's tags, rings stitched, unclosable outers, inners dropped
     osm_relations: str = ""
+    #: THE WAY-ID NAMESPACE (RULINGS 2026-09-13bm/bv chip): ways merged,
+    #: distinct BARE ids among them, how many of those ids were used more
+    #: than once (the collision count — the three feeds each number their
+    #: ways negatively from −1) and how many occurrences were renumbered
+    #: into their feed's band.  ``collisions`` is the BEFORE reading;
+    #: ``renumbered`` is what the merge had to move to reach zero.
+    osm_way_ids: str = ""
     dem_provenance: dict[str, str] = _dc.field(default_factory=dict)
     notes: list[str] = _dc.field(default_factory=list)
     #: The flat-site verdict record (``airport/flat_site.record``; set by
@@ -263,19 +271,29 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     sources: list[str] = []
     osm_relations = _osm.RelationReport()
     if inputs.osm_root:
+        raw: list[tuple[str, _osm.RawWay]] = []
         for feed in _osm.FEEDS:
             doc = _osm.load_feed(inputs.osm_root, feed, lat0, lon0,
                                  inputs.radius_deg)
             sources.extend(doc.sources)
             osm_relations = osm_relations.merge(doc.relations)
-            for w in doc.ways:
-                pts = tuple(to_xy(lo, la) for la, lo in w.points)
-                osm_ways.append(OsmWay(_osm_id(w.id), feed, pts, w.closed, w.tags))
-                if w.closed and _is_building(w.tags):
-                    buildings.append(Building(
-                        f"osm:{w.id}", pts[:-1], (), "osm",
-                        _float_or_none(w.tags.get("height")),
-                        _int_or_none(w.tags.get("building:levels"))))
+            raw.extend((feed, w) for w in doc.ways)
+        base_ids, way_ids = namespace_osm_ids([(f, w.id) for f, w in raw])
+        moved_brefs = 0
+        for (feed, w), bid, wid in zip(raw, base_ids, way_ids):
+            pts = tuple(to_xy(lo, la) for la, lo in w.points)
+            osm_ways.append(OsmWay(wid, feed, pts, w.closed, w.tags))
+            if w.closed and _is_building(w.tags):
+                # the ref keeps its BARE spelling; only the occurrence
+                # that had to MOVE names its feed (see namespace_osm_ids)
+                bref = f"osm:{w.id}" if wid == bid else f"osm:{feed}:{w.id}"
+                moved_brefs += wid != bid
+                buildings.append(Building(
+                    bref, pts[:-1], (), "osm",
+                    _float_or_none(w.tags.get("height")),
+                    _int_or_none(w.tags.get("building:levels"))))
+        rep.osm_way_ids = (f"{way_id_line(base_ids, way_ids)}, "
+                           f"building refs moved {moved_brefs:,}")
     rep.osm_sources = tuple(sources)
     rep.osm_relations = osm_relations.line()
     rep.buildings_by_source["osm"] = len(buildings)
@@ -461,6 +479,76 @@ def _osm_id(wid: str) -> int:
         return int(tail)
     except ValueError:
         return -(zlib.crc32(wid.encode("utf-8")) % (1 << 31)) - 1
+
+
+#: THE PER-FEED ID BAND (RULINGS 2026-09-13bm/bv chip).  The three
+#: per-tile feeds (``osm.FEEDS``) are independent Overpass exports and
+#: each numbers its ways negatively from −1, so ids COLLIDE the moment
+#: the merge puts them in one ``Airport.osm_ways``: at SPJC 2,143 of
+#: 10,952 ids were used more than once — −192 both a jetway (``airports``)
+#: and a ``highway=service`` (``airport_small_roads``), −641 both a
+#: residential road and the ``highway=trunk tunnel=yes`` — and every ref
+#: keyed by the id (``tunnel:<ids>@n``, ``bridge_deck:<id>``,
+#: ``UNDERPASS_TAG``, ``osm:<id>``) was ambiguous between them.
+#: A colliding occurrence moves by one BAND per feed, which keeps the
+#: original id legible in the moved one (−192 in feed 1 -> −1000000192).
+OSM_FEED_ID_BAND = 1_000_000_000
+
+
+def namespace_osm_ids(rows: _t.Sequence[tuple[str, str]]
+                      ) -> tuple[list[int], list[int]]:
+    """``(bare ids, unique ids)`` for ``(feed, raw way id)`` rows in MERGE
+    ORDER — the one derivation site of an ``OsmWay.id``.
+
+    THE FIRST OCCURRENCE OF AN ID KEEPS IT BARE and every later
+    occurrence moves into its feed's band (probing the next band if that
+    is taken too), so:
+
+    * no two ways share an id after the three feeds merge, and
+    * an id used by ONE feed only never changes spelling — which is why
+      the specs' MEASURED refs (LEMD F-6 ``-1230``, KCLT taxiway U
+      ``-1560``, ``tunnel:-14070@1``) still read the same.
+
+    Order is the merge order (``osm.FEEDS`` then each feed's way order),
+    so the assignment is deterministic for a given extract.  Nothing here
+    is a tunable: a band is arithmetic, not law."""
+    base = [_osm_id(raw) for _feed, raw in rows]
+    used = set(base)
+    bare_taken: set[int] = set()
+    out: list[int] = []
+    for (feed, _raw), b in zip(rows, base):
+        if b not in bare_taken:
+            bare_taken.add(b)
+            out.append(b)
+            continue
+        try:
+            k = _osm.FEEDS.index(feed) + 1
+        except ValueError:
+            k = 1
+        cand = b - OSM_FEED_ID_BAND * k
+        while cand in used:
+            cand -= OSM_FEED_ID_BAND
+        used.add(cand)
+        out.append(cand)
+    return base, out
+
+
+def way_id_line(base: _t.Sequence[int], unique: _t.Sequence[int]) -> str:
+    """The load report's way-id line: what the merge read and what it had
+    to move.  ``collisions`` is the reading BEFORE the namespace — the
+    number of BARE ids used by more than one way (SPJC 2,143 of 10,952);
+    ``renumbered`` is the occurrences beyond the first that had to move
+    for the AFTER reading to be zero."""
+    counts: dict[int, int] = {}
+    for b in base:
+        counts[b] = counts.get(b, 0) + 1
+    after: dict[int, int] = {}
+    for u in unique:
+        after[u] = after.get(u, 0) + 1
+    return (f"ways {len(base):,}, distinct ids {len(counts):,}, "
+            f"collisions {sum(1 for n in counts.values() if n > 1):,} -> "
+            f"{sum(1 for n in after.values() if n > 1):,}, "
+            f"renumbered {sum(1 for b, u in zip(base, unique) if b != u):,}")
 
 
 def _float_or_none(s: str | None) -> float | None:

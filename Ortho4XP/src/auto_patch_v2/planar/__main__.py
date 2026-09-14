@@ -154,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.kml:
             write_kml(rec, Path(args.kml))
             print(f"  KML -> {args.kml}")
+        # the OSM way-id namespace (RULINGS 2026-09-13bm/bv chip): stdout
+        # only, so a structures.json diff stays a diff of the STRUCTURES
+        print(f"{airport.icao} OSM way ids: {lrep.osm_way_ids}")
         print(f"{airport.icao} structures: corridors {len(rec['corridors'])}  door wells "
               f"{len(rec['door_wells'])} (refused {len(rec['door_refused'])})  sunken roads "
               f"{len(rec['sunken_roads'])} (refused {len(rec['sunken_refused'])})  tunnels "

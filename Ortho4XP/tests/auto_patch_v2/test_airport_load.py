@@ -5,6 +5,7 @@ grammars, the bezier flattening, the DEM composite and the pack
 selection are checked in isolation."""
 from __future__ import annotations
 
+import dataclasses as _dc
 import math
 import os
 import sys
@@ -20,8 +21,9 @@ from auto_patch_v2.airport import dsf as S
 from auto_patch_v2.airport import osm as O
 from auto_patch_v2.airport import pack as P
 from auto_patch_v2.airport.load import (Inputs, load_with_report,
-                                        normalise_surface, runway_code_letter,
-                                        runway_code_number)
+                                        namespace_osm_ids, normalise_surface,
+                                        runway_code_letter, runway_code_number,
+                                        way_id_line)
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Surface
 from auto_patch_v2.model.frame import Frame
@@ -405,3 +407,86 @@ def test_find_text_dump_never_crosses_the_live_and_pristine_names(tmp_path):
     written_dump.unlink()
     assert S.find_text_dump(str(root), "LEMD Pack", 40, -4,
                             dsf_path=str(dsf)) is None
+
+
+# ── the per-feed way-id namespace (RULINGS 2026-09-13bm/bv chip) ─────────
+
+def _write_feed(root: Path, lat: int, lon: int, feed: str, ways) -> None:
+    """One plain-XML feed file at the tile layout ``load_feed`` reads.
+    ``ways`` is ``[(id, {tags}, [(lat, lon), ...])]``."""
+    d = root / f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}" / f"{lat:+03d}{lon:+04d}"
+    d.mkdir(parents=True, exist_ok=True)
+    nodes, body = [], []
+    nid = -1
+    for wid, tags, pts in ways:
+        refs = []
+        for la, lo in pts:
+            nodes.append(f'<node id="{nid}" lat="{la!r}" lon="{lo!r}"/>')
+            refs.append(nid)
+            nid -= 1
+        nds = "".join(f'<nd ref="{r}"/>' for r in refs)
+        tg = "".join(f'<tag k="{k}" v="{v}"/>' for k, v in tags.items())
+        body.append(f'<way id="{wid}">{nds}{tg}</way>')
+    (d / f"{lat:+03d}{lon:+04d}_{feed}.osm").write_text(
+        '<?xml version="1.0"?><osm version="0.6">'
+        + "".join(nodes) + "".join(body) + "</osm>")
+
+
+def _collide_fixture(tmp_path: Path) -> tuple:
+    """CYXY loaded against a synthetic OSM root where way −192 exists in
+    BOTH the ``airports`` feed (a jetway) and ``airport_small_roads``
+    (a service road) — the SPJC class — plus a single-feed way −1230."""
+    a0, _ = load_with_report("CYXY", fixture_inputs(), Law.for_airport("CYXY"))
+    lat0, lon0 = a0.frame.origin
+    tl, tn = int(math.floor(lat0)), int(math.floor(lon0))
+    root = tmp_path / "OSM_data"
+    seg = [(lat0, lon0), (lat0 + 0.001, lon0 + 0.001)]
+    ring = [(lat0, lon0), (lat0, lon0 + 0.001), (lat0 + 0.001, lon0 + 0.001),
+            (lat0 + 0.001, lon0), (lat0, lon0)]
+    _write_feed(root, tl, tn, "airports", [
+        (-192, {"aeroway": "jet_bridge", "bridge": "yes", "layer": "1"}, seg),
+        (-1230, {"aeroway": "taxiway", "bridge": "yes", "layer": "1"}, seg),
+        (-77, {"building": "yes"}, ring)])
+    _write_feed(root, tl, tn, "airport_small_roads", [
+        (-192, {"highway": "service"}, seg),
+        (-77, {"building": "yes"}, ring)])
+    _write_feed(root, tl, tn, "big_roads", [
+        (-641, {"highway": "trunk", "tunnel": "yes"}, seg)])
+    inp = _dc.replace(fixture_inputs(), osm_root=str(root))
+    return load_with_report("CYXY", inp, Law.for_airport("CYXY"))
+
+
+def test_colliding_feed_ids_load_as_two_ways_with_distinct_ids(tmp_path):
+    a, rep = _collide_fixture(tmp_path)
+    ids = [w.id for w in a.osm_ways]
+    assert len(ids) == len(set(ids))                     # no id shared
+    jet = [w for w in a.osm_ways if w.tags.get("aeroway") == "jet_bridge"]
+    svc = [w for w in a.osm_ways if w.tags.get("highway") == "service"]
+    assert len(jet) == 1 and len(svc) == 1
+    assert jet[0].id == -192                             # first feed keeps it bare
+    assert svc[0].id != -192 and svc[0].kind == "airport_small_roads"
+    # the two building refs are distinct too (both ways are id −77)
+    brefs = [b.id for b in a.buildings if b.source == "osm"]
+    assert len(brefs) == len(set(brefs))
+    assert any(r.startswith("osm:airport_small_roads:") for r in brefs)
+    assert "collisions 2 -> 0" in rep.osm_way_ids
+    assert "building refs moved 1" in rep.osm_way_ids
+
+
+def test_a_single_feed_way_keeps_its_bare_id(tmp_path):
+    a, rep = _collide_fixture(tmp_path)
+    by_tag = {w.tags.get("aeroway"): w for w in a.osm_ways if w.tags.get("aeroway")}
+    assert by_tag["taxiway"].id == -1230                 # LEMD F-6's spelling
+    trunk = [w for w in a.osm_ways if w.tags.get("tunnel") == "yes"]
+    assert [w.id for w in trunk] == [-641]               # SPJC's south-mouth bore
+    # the building ref of the FIRST (un-moved) −77 keeps its bare spelling;
+    # only the one that had to move names its feed
+    tl, tn = int(math.floor(a.frame.origin[0])), int(math.floor(a.frame.origin[1]))
+    brefs = {b.id for b in a.buildings if b.source == "osm"}
+    assert f"osm:{tl:+03d}{tn:+04d}:-77" in brefs
+    assert f"osm:airport_small_roads:{tl:+03d}{tn:+04d}:-77" in brefs
+    # namespace_osm_ids is the ONE derivation site and is order-deterministic
+    rows = [("airports", "-1"), ("big_roads", "-1"), ("airports", "-2")]
+    assert namespace_osm_ids(rows) == ([-1, -1, -2], [-1, -3000000001, -2])
+    assert way_id_line(*namespace_osm_ids(rows)) == (
+        "ways 3, distinct ids 2, collisions 1 -> 0, renumbered 1")

@@ -123,6 +123,7 @@ def explain_main(args) -> int:
           + ", ".join(f"{k} {v}" for k, v in sorted(
               {c: sum(1 for r in cl.sources if r.cls == c) for c in ("strip", "lot", "open")}.items())))
     print(f"[{icao}] OSM relations (spec 25): {load_rep.osm_relations}")
+    print(f"[{icao}] OSM way ids (per-feed namespace): {load_rep.osm_way_ids}")
     if args.sources:
         print(f"{'source':<12} {'cls':<5} {'area_m2':>9} {'width':>6} {'road':>7} "
               f"{'osm':>7} {'taxi':>6} {'strt':>4} {'apron%':>6} {'park%':>6}  "

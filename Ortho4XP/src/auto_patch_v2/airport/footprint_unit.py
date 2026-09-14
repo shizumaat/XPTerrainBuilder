@@ -32,15 +32,19 @@ import typing as _t
 
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
-from .footprint_connector import (CONNECTOR_BOXES_MAX, PlanConnector,
-                                  _connector_ends, _is_connector, _span_m,
-                                  authored_unit_census, authored_units)
+from .footprint_connector import (CONNECTOR_BOXES_MAX, ClusterTopology,
+                                  PlanConnector, _is_connector,
+                                  _near_index, _span_m,
+                                  authored_unit_census, authored_units,
+                                  cluster_topology, connectors_of_cluster,
+                                  contact_graph)
 from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
                                _clusters, _contacts_of, _median,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
 
-__all__ = ["UNIT_REASON", "bind_footprint_units", "PlanConnector"]
+__all__ = ["UNIT_REASON", "bind_footprint_units", "PlanConnector",
+           "ClusterTopology"]
 
 
 #: §16g's own counts key prefix, so the census can tell a §16g unit from
@@ -372,8 +376,10 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     clusters, _adj = _clusters(shims, touch_m, min_members=1)
     # every body that is IN a unit: the "nothing at the other end" test is
     # about the whole plan, not about the connector's own unit (a rail
-    # ending 50 m short of the NEXT building connects two things).
-    _in_a_unit = [i for cl in clusters for i in cl]
+    # ending 50 m short of the NEXT building connects two things).  The
+    # index is built ONCE (RULINGS 2026-09-14e).
+    index = (_near_index([i for cl in clusters for i in cl], shims)
+             if connector_span_m > 0.0 else None)
     out: list[PlanUnit] = []
     conns: list[PlanConnector] = []
     for cl in clusters:
@@ -387,13 +393,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
             boxes=tuple(boxes), area_m2=union_area_m2(boxes)))
         if connector_span_m <= 0.0:
             continue
-        for i in cl:
-            if _span_m(shims[i].part_boxes) < connector_span_m:
-                continue
-            got = _connector_ends(i, cl, uid, shims, touch_m,
-                                  connector_span_m, _in_a_unit)
-            if got is not None:
-                conns.append(got)
+        conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
+                                           connector_span_m, index))
     return out, conns
 
 

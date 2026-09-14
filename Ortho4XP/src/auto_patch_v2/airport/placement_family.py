@@ -91,6 +91,10 @@ FAMILY_CONTACTS_MAX = 4000
 #: body and left on their own ground.
 FAMILY_SHARE_MIN = 0.5
 
+#: :func:`boxes_touch` answers a small pair by the plain product — the
+#: filtering and sorting cost more than the comparisons below this many.
+_PAIR_PRODUCT_MAX = 4096
+
 
 
 @_dc.dataclass(frozen=True)
@@ -120,6 +124,60 @@ class Family:
                 f"{self.zero_z:.2f} on {where}; per-body zero spread "
                 f"{self.spread_before_m:.2f} -> {self.spread_after_m:.2f} m; "
                 f"{len(self.apart)} member(s) cut apart")
+
+
+def boxes_touch(ba: _t.Sequence[tuple[float, float, float, float]],
+                bb: _t.Sequence[tuple[float, float, float, float]],
+                ha: tuple[float, float, float, float],
+                hb: tuple[float, float, float, float],
+                eps_m: float) -> bool:
+    """Does ANY box of ``ba`` come within ``eps_m`` of any box of ``bb``?
+    The one contact predicate §16f (1)(b) and §16g (1)/(6) are stated in
+    — read by :func:`_clusters`'s ``_bind`` and by §16g (6)'s contact
+    graph, so the unit partition and the connector topology can never be
+    two different relations.
+
+    THE PLAIN PRODUCT IS THE WRONG SHAPE FOR A CLUTTER BODY (RULINGS
+    2026-09-14b measured the pairing at 27.2 s of OTHH's ``plan_clusters``
+    over 24.2 M pairs; OTHH's fattest body carries **1,885 boxes**, so one
+    unlucky pair is 3.5 M comparisons).  Two exact reductions, in order:
+    the boxes of each side that cannot reach the OTHER SIDE'S HULL are
+    dropped first (a box that touches some ``y`` is necessarily within
+    ``eps_m`` of ``hb``), and what survives is walked as a LATITUDE SWEEP
+    — both sides sorted by their south edge once, a moving window of the
+    ``bb`` boxes whose latitude span can still reach the current ``ba``
+    box — instead of the full product.  The answer is the product's, to
+    the bit: the same predicate on the same pairs, with the pairs that
+    cannot satisfy it never asked."""
+    if not ba or not bb:
+        return False
+    if len(ba) * len(bb) <= _PAIR_PRODUCT_MAX:
+        return any(_pb.box_gap_m(x, y) <= eps_m for x in ba for y in bb)
+    xs = [x for x in ba if _pb.box_gap_m(x, hb) <= eps_m]
+    if not xs:
+        return False
+    ys = [y for y in bb if _pb.box_gap_m(y, ha) <= eps_m]
+    if not ys:
+        return False
+    if len(xs) * len(ys) <= _PAIR_PRODUCT_MAX:
+        return any(_pb.box_gap_m(x, y) <= eps_m for x in xs for y in ys)
+    slack = eps_m / 111_132.0
+    xs.sort(key=lambda b: b[0])
+    ys.sort(key=lambda b: b[0])
+    n = len(ys)
+    lo = 0
+    live: list = []
+    for x in xs:
+        south, north = x[0] - slack, x[2] + slack
+        while lo < n and ys[lo][0] <= north:
+            live.append(ys[lo])
+            lo += 1
+        if live and live[0][2] < south:
+            live = [y for y in live if y[2] >= south]
+        for y in live:
+            if y[0] <= north and _pb.box_gap_m(x, y) <= eps_m:
+                return True
+    return False
 
 
 def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
@@ -176,8 +234,7 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
     def _bind(a: int, b: int) -> None:
         if find(a) == find(b) or _pb.box_gap_m(hull[a], hull[b]) > eps_m:
             return
-        if any(_pb.box_gap_m(x, y) <= eps_m
-               for x in boxes[a] for y in boxes[b]):
+        if boxes_touch(boxes[a], boxes[b], hull[a], hull[b], eps_m):
             parent[find(a)] = find(b)
             # §16f (4): the CONTACT EDGES are kept — a member on no
             # pad joins the pad group it TOUCHES, and that needs the

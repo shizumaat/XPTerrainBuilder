@@ -4191,3 +4191,42 @@ No route into the layout: object footprints enter only as `building` pads
   names the resource.
 * Lane `v2drapedsrc` (Opus, brief pack), HECA closing build; the other
   frames dry.
+
+## 2026-09-13cw v2bankfoot MERGED (128aeb16): the canyons are gone in BOTH arms; the bank buys the patch edge only partly — the owner's bank ruling is now a numbers question
+
+Lane `v2bankfoot` @ 6b3a57cb, merged 128aeb16; twins 520 passed on main.
+Two LEMD tile-mesh arms on one frame (registered `frames.py list LEMD`):
+
+| reading | 1.0.329 | OMIT (no bank) | FIX |
+|---|---|---|---|
+| owner's site mesh z (ribbon 588–590) | 568.3 | 589.00 | 589.00 |
+| road ribbons off > 2 m (of ~278 k) | 1,400 (−24.3) | 4 (−2.5) | 3 (−2.4) |
+| annulus valued | 15 | — | 39,105 / 58,555 |
+| harmonic moved / no-authored components | 2,729 / 371 | 987 / 0 | 491 / 0 |
+| patch-edge step median / p95 / max | — | 0.74 / 5.68 / 19.9 | 0.42 / 4.94 / 22.1 |
+| edge pairs > 1 m / > 3 m | — | 6,610 / 2,584 | 5,078 / 1,924 |
+| PATCH_RING off > 2 m | 0 | 2 | 337 (worst −9.22: 09ad (b) pre-valued rings inside the annulus taking the bank field — pre-§37 (3) behaviour restored, bar NOT met, not weakened) |
+| WATER off > 2 m | 10,438 | 10,448 | 10,262 (unattributed either way) |
+| census ADJUDICATED | — | 1,143 | 1,143 |
+
+* THE ANSWER to 13cq: the bank was NOT carrying the ribbons — OMIT restores
+  them. What the bank still buys is the patch edge, partly: > 3 m steps
+  2,584 → 1,924, median 0.74 → 0.42, worst unchanged ~20 m; 1,924 steps over
+  3 m remain WITH the bank, and `adjacent_ground_step` sees 1 in both arms
+  (§8.4's one-triangle cliff is invisible to every family). The bank class
+  stays; deleting it is the owner's ruling on these numbers. Note the FIX
+  arm's own cost: 337 coverage/graded-strip ring nodes moved up to 9.22 m
+  by the bank field (09ad (b)).
+* RULING on the lane's deviation: §37 (3) AMENDED — the coverage closes,
+  load-bearing governs resolution only. Not attempted: narrowing the
+  banked REGION to a min-width collar at immaterial stations (same
+  closure, fewer nodes) — owed if the owner keeps the bank.
+* ALSO load-bearing independently of the bank: 65 OPEN `structure_rim`
+  ways at LEMD entered as DUMMY too; now breaklines.
+* HECA not measured (no registered frame; the on-disk HECA patches predate
+  §37 (3)) — the 1.0.330 build is the HECA read.
+* Chip: `run_tile_mesh_only.py` audits with no input scope (a concurrent
+  HECA/OTHH lane's 118 mod-cache writes failed the LEMD run as
+  CONTAMINATED) — the external-candidate downgrade.
+* Lane discipline: `v2zonehole` wrote the MAIN tree's `tools/INDEX.md`
+  (reverted, saved to the session scratchpad; its worktree copy intact).

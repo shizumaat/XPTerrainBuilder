@@ -8824,3 +8824,19 @@ CYXY/SPJC/KCLT/OTHH/LEMD dry from registered frames: every admitted object
 pavement named with its resource and m² (a pack with none stays byte-identical);
 ONE HECA build: the ground under body 6 graded, `pav132` and body 6 one apron
 surface, no step at their seam; load stage not worse than +5 %; suite twice.
+
+### §37 (3) AMENDED — THE COVERAGE CLOSES; LOAD-BEARING GOVERNS RESOLUTION ONLY (Fable 2026-09-13; RULINGS 2026-09-13cw) — lane `v2bankfoot`
+
+The banked region's boundary ring is emitted WHOLE and CLOSED. §37 (3)'s
+load-bearing test decides which stretches of it are chord-RESOLVED
+(`split_chain(..., mask)`, `BankReport.load_bearing`), never whether the
+coverage closes: the mesh's bank machinery is a REGION reading
+(`patches_area`, `patch_coverage_polygon`, the INTERP_ALT seed needs a marker
+segment all the way round — 61,604 INTERP_ALT triangles in coverage with no
+ring vs 283,247 closed), and an open way in the vector map is a `DUMMY`
+edge (13cp).  An OPEN way of a class whose closed form wears the marker
+(`OPEN_BREAKLINE_FEATURES = ("bank_foot", "structure_rim")`) wears
+`PATCH_RING_MARKER`; `crown_spine` / `terrain_edge` stay `DUMMY`.
+`audit_bank_annulus` refuses a patch with a bank foot that values under 10 %
+of its annulus candidates.  Bare INTERP_ALT input nodes are Dirichlet, never
+free.  `[design] bank_omit` (default false) is the owner's OMIT arm (13cq).

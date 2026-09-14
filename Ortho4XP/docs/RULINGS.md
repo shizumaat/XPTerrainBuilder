@@ -5078,3 +5078,39 @@ caught it (INDEX.md loses rows in merges; only per-tool twins notice).
   not the shape). §34 (8) a climb stopped by airside pavement ends AT
   the pavement with a portal/rim face taking the residual step; the
   refusal is a RAMP refusal, never a corridor refusal. Lane `v2othhfix`.
+
+## 2026-09-14q "what is still taking so much time" attributed (scout `v2partcost2`): the patch stage is 73–79 % of both tiles; seven cuts named, all law-neutral — lanes `v2cost2` and `v2gradecache` r3
+
+The two tiles ran CONCURRENTLY (contended). OTHH 19m14 = patch 841 s
+(73 %) + mesh 13 + object 268 + masks 12 + DSF 17; VHHH 18m35 = patch
+882 s (79 %) + mesh 57 + object 84 + masks 27 + DSF 64. The object
+stage is no longer the problem (14h holds; the split writer 2 s).
+cProfile inflation ×1.3 (scaled below).
+
+| stage | app s | the sink |
+|---|---|---|
+| OTHH partition | 298 | `contact._narrow_rows` 2.78 M Python calls (89 s), `skirt._plan_union` 6,462 `unary_union` (33 s), `read_objects` 43 (`deck_signature.classify` 336 k `np.unique`); `partition_pack` is a PURE function of (pack, dump, law, version, frame) — cacheable like `o4_object_footprints` |
+| OTHH constraints | 169 | `apron_within_shape` 110 s builds 1.67 M Row objects then discards 1.44 M (`chords_outside_face`) |
+| OTHH verify | 133 | `verify/within.chords_outside_face` re-enumerates the SAME chord population the constraints pass just ran (code-attributed; no per-family verify clock exists) |
+| OTHH object stage | 268 | `anchor_rule.pad_majority` recomputes the pads' bounding boxes on every one of 191,661 calls (656 M `max()`), `_inside` 20.4 M Python ray casts; `comp_cluster` 107 M `box_gap_m` |
+| VHHH planar | 366 | `basins._rim_index` 120.8 M per-object `.is_empty` PROPERTY calls (137 s profiled) — one line; `door_wells.read_door_wells` 93 s (163 k `union_all` in `obj8_clip`); `wall_corridors._bands_of` 53 |
+| VHHH rebake_plan | 168 | `pack_partition.extend_partition` → `_contact.extend` over 71 plate objects (OTHH: 17 plates, 2 s) — located, not measured |
+| unattributed | OTHH 105, VHHH 26 | uninstrumented code after `wall["verify"]`: a SECOND `Patch.of` + `road_law_caps` for `apron_over_preference` (`build.py:932-934`) |
+
+* Lane `v2cost2` (byte-identity bars): (1) CACHE `partition_pack` +
+  `derive_clusters` in the mod cache keyed by the footprint-cache
+  fingerprint (`airport/dsf.py:15` pattern; `derive_groups` reads the
+  DEM and is NOT cached); (2) batch `_narrow_rows`' screen like
+  `_narrow_pass.flush`, `skirt._plan_union` → one `union_all`; (3)
+  `apron_within_shape`: pre-reject by chord midpoint with one
+  vectorised `contains_xy`, build rows last — identical row set; (4)
+  publish the constraints pass's per-face outside-chord set and let
+  verify read it (per-family verify clocks added); (5) `pad_majority`
+  boxes hoisted once per plan, `_inside` → prepared `contains_xy`; (6)
+  measure `extend_partition` at VHHH and cut it; (7) clock the second
+  `Patch.of`/`road_law_caps` and remove the duplication.
+* Lane `v2gradecache` r3 (RESUME, its own code): `_rim_index` is_empty
+  vectorised (`parts[~shapely.is_empty(parts)]`), `obj8_clip` unions
+  batched per component; VHHH planar 366 → ≤ 230 s, byte-identical.
+* Expected after both: OTHH patch ~840 → ~350 s warm-cache; VHHH ~880
+  → ~550 s.

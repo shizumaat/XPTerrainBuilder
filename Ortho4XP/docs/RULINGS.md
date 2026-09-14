@@ -5181,3 +5181,17 @@ identical across patches). The mesh is innocent.
 * Open: whether an 84,000 m² face beside 07R/25L is a shoulder at all
   (`runway_shoulder_max_depth_m` 50 admitted it) — the owner's eye on
   the 1.0.333 VHHH read.
+
+## 2026-09-14t v2gradecache round 3 MERGED: VHHH structures stage 400.7 → 306.7 s (−23 %), byte-identical on every `structures.json` key
+
+Lane `v2gradecache` @ 6196113c. Per-geometry PROPERTY reads (`is_empty`
+/ `is_valid` / `area` / `geom_type`) over every part → array predicates
+(`shapely.is_empty` etc.) at `basins._rim_index` and `obj8_clip`
+(`_union_rings` gate; shared `_polygon_parts()`). VHHH/LEMD
+`structures.json` identical on every key. Suite 1,413 twice.
+`wall_corridors._bands_of` vectorisation REFUTED (334 vs 307 s) and
+deleted — its residual is not the property class. Bar `planar` ≤ 230 s
+NOT MET (predicted ≈ 272). Left for a ruling: the trailing
+`unary_union(parts)` over already-disjoint parts (3 sites) →
+`shapely.multipolygons` would skip a GEOS overlay but may reorder
+members — needs a patch-level identity gate, not `structures.json`.

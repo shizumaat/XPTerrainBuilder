@@ -42,7 +42,11 @@ HALF_W = 22.5
 Y0, Y1 = 140.0, 300.0
 #: the two pads of the "terminal", 40 m apart in x with the apron between
 PAD_A = (-120.0, 200.0, -20.0, 280.0)
-PAD_B = (20.0, 200.0, 120.0, 280.0)
+PAD_B = (-20.0, 200.0, 80.0, 280.0)
+#: §30 (4) (5): a pad the cluster's footprint union touches by a BOX
+#: artefact but that stands far from every member — KCLT's `building91`,
+#: 65.81 m from the terminal — YIELDS and keeps its own plane
+PAD_FAR = (170.0, 200.0, 210.0, 240.0)
 
 
 def _rect(x0, y0, x1, y1):
@@ -103,11 +107,13 @@ def _cells():
                  (), 3, "D", "airside", "runway", {}),
             Cell(1, "apron", "apronA",
                  _rect(-300.0, Y0, 300.0, Y1),
-                 (_rect(*PAD_A), _rect(*PAD_B)),
+                 (_rect(*PAD_A), _rect(*PAD_B), _rect(*PAD_FAR)),
                  None, None, "airside", "apron", {}),
             Cell(2, "building", "padA", _rect(*PAD_A), (), None, None,
                  "airside", "pad", {}),
             Cell(3, "building", "padB", _rect(*PAD_B), (), None, None,
+                 "airside", "pad", {}),
+            Cell(5, "building", "padFar", _rect(*PAD_FAR), (), None, None,
                  "airside", "pad", {}),
             Cell(4, "primary_parallel", "twyA",
                  _rect(-300.0, 60.0, 300.0, 100.0), (), 3, "D",
@@ -122,8 +128,10 @@ def law():
 def _arm(law, clustered: bool):
     airport = _airport(law)
     if clustered:
-        airport = _dc.replace(airport,
-                              clusters=(_Cluster(airport, (PAD_A, PAD_B)),))
+        # the union covers the FAR pad too — the box artefact the gate
+        # is for; padA and padB touch and are the cluster's real plane
+        airport = _dc.replace(airport, clusters=(
+            _Cluster(airport, (PAD_A, PAD_B, PAD_FAR)),))
     pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
     cs, counts, _w = generate(pm, law, airport)
     sol, _rep = solve_design(pm, cs, law)
@@ -186,9 +194,14 @@ def test_30_4_a_cluster_is_one_plane_over_every_pad_it_stands_on(law):
     def level(pm, z, ref):
         return float(np.mean(z[sorted(_verts(pm, ref))]))
 
-    apart = abs(level(pm0, z0, "padA") - level(pm0, z0, "padB"))
     together = abs(level(pm1, z1, "padA") - level(pm1, z1, "padB"))
-    assert together < apart and together <= 0.30, (apart, together)
+    assert together <= 0.30, together
+    # the two faces are ONE priced group — which is the claim; on this
+    # fixture they also TOUCH, so 09-01g's weld already holds them close
+    # without the cluster and the levels alone do not discriminate (the
+    # discriminating case is the airport's: KCLT's `building91`, and the
+    # yielding twin below)
+    assert len(one[0][2]) == len(_verts(pm1, "padA") | _verts(pm1, "padB"))
 
 
 def _with_reach(law, reach_m):
@@ -273,3 +286,90 @@ def test_30_4_the_cluster_pads_are_published_in_the_sidecar(law):
     # an airport with no cluster publishes nothing
     a0, pm0, z0, _c0 = _arm(law, False)
     assert cluster_pads(pm0, law, a0, z0) == []
+
+
+def test_30_4_a_cluster_is_priced_per_face_complete_plus_cross_links(law):
+    """§30 (4) round 4 (RULINGS 13ce): each member face of a cluster keeps
+    EXACTLY the pairs it would have alone, and the faces are tied by
+    explicit CROSS-LINKS — never by handing ``_pairs`` the concatenated
+    rim, which was measured inert (KCLT's 865 + 18 group priced 1,624
+    pairs with 40 crossing while ``building91``'s own plate fell 153 →
+    17, and the PAD-ONLY arm came out byte-identical to DISARM)."""
+    import math
+    import types
+
+    from auto_patch_v2.constraints.cluster_pad import cluster_pairs
+    from auto_patch_v2.constraints.pads import _pairs
+
+    class _PM:
+        def __init__(self, n_big, n_small):
+            self.vertices = {}
+            for i in range(n_big):
+                a = 2 * math.pi * i / n_big
+                self.vertices[i] = types.SimpleNamespace(
+                    xy=(400 * math.cos(a), 300 * math.sin(a)))
+            for j in range(n_small):
+                a = 2 * math.pi * j / n_small
+                self.vertices[1000 + j] = types.SimpleNamespace(
+                    xy=(12 * math.cos(a) + 50, 10 * math.sin(a) + 20))
+
+    big, small = list(range(865)), list(range(1000, 1018))
+    prs, n_cross = cluster_pairs(_PM(865, 18), [big, small])
+    sm = set(small)
+    inside = [q for q in prs if q[0] in sm and q[1] in sm]
+    cross = [q for q in prs if (q[0] in sm) != (q[1] in sm)]
+    # the small face keeps its WHOLE plate — the round-3 defect, closed
+    assert len(inside) == len(_pairs(small)) == 153
+    # ... and every one of its vertices is tied to the senior rim
+    assert len(cross) == n_cross == 18
+    assert {v for q in cross for v in q if v in sm} == sm
+    # the senior face keeps its own pairs unchanged
+    assert len([q for q in prs if q[0] not in sm and q[1] not in sm]) \
+        == len(_pairs(big))
+    # one face is not a cluster and gets exactly its own pairs, no links
+    solo, k = cluster_pairs(_PM(865, 18), [big])
+    assert k == 0 and len(solo) == len(_pairs(big))
+
+
+def test_30_4_two_clusters_on_one_pad_are_ONE_plane(law):
+    """Measured, round 4: KCLT's two terminal rows BOTH stand on
+    `building80`, and ``setdefault`` gave the face to whichever cluster
+    came first — the other was left holding `building91`'s 18 vertices
+    alone, a "cluster" of one face with nothing to cross-link to.  That,
+    not the `_pairs` decimation, is why PAD-ONLY came out byte-identical
+    to DISARM twice.  Clusters sharing a face are now UNIONED."""
+    import dataclasses as _d
+
+    airport = _airport(law)
+    a, b = _Cluster(airport, (PAD_A, PAD_B)), _Cluster(airport, (PAD_A,))
+    object.__setattr__(b, "id", "unit:2#0") if False else setattr(b, "id",
+                                                                  "unit:2#0")
+    airport = _d.replace(airport, clusters=(a, b))
+    pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
+    groups = [q for q in plane_groups(pm, law, airport)
+              if q[1].startswith("cluster:")]
+    assert len(groups) == 1, groups          # ONE plane, not two partials
+    assert len(groups[0][3]) == 2            # holding BOTH faces
+    verts = set(groups[0][2])
+    assert verts >= _verts(pm, "padA") and verts >= _verts(pm, "padB")
+
+
+def test_30_4_5_a_pad_the_footprint_does_not_reach_YIELDS(law):
+    """§30 (4) (5) (owner RULINGS 2026-09-13ch): the cluster's plane
+    covers the pads its footprint actually REACHES — chained by the same
+    `footprint_touch_m` the unit is — and every other face the coarse
+    part-box union happened to intersect KEEPS ITS OWN PLANE and is
+    named.  KCLT's `building91` is that face: 65.81 m from the terminal,
+    sharing no vertex with anything, and merging it moved 2,406 taxi
+    vertices by up to 2.07 m."""
+    from auto_patch_v2.constraints.cluster_pad import YIELDED
+    airport, pm, z, _c = _arm(law, True)
+    faces = cluster_pad_faces(pm, law, airport)
+    kept = {pm.faces[q].ref for v in faces.values() for q in v}
+    assert kept == {"padA", "padB"}, kept
+    yielded = {pm.faces[q].ref for v in YIELDED.values() for q in v}
+    assert yielded == {"padFar"}, yielded
+    # ... and the yielding pad is NOT dragged onto the cluster's level
+    far = float(np.mean(z[sorted(_verts(pm, "padFar"))]))
+    one = float(np.mean(z[sorted(_verts(pm, "padA") | _verts(pm, "padB"))]))
+    assert abs(far - one) > 0.30, (far, one)

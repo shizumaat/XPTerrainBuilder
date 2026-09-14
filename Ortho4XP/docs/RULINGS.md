@@ -4832,3 +4832,25 @@ reports identical but timing lines. Suite 1,411 twice on main.
   connector seated low; bar = the 17 pad-spanning units → ≤ 1 pad each.
 * APP 1.0.332 next: 14f (VHHH seal), 14d (partition), 14h (object
   stage).
+
+## 2026-09-14i APP 1.0.332 BUILT (engine 1.50.1778): VHHH seal, OTHH object stage, partition — bank still OFF; the build ran while 27 engine processes were alive (process discipline breach, recorded)
+
+Main 56b874b2 + version bump. Carries over 1.0.331: 14f (seed
+clearance 0.5 m, pole of inaccessibility — VHHH builds), 14h (cluster
+topology once per cluster — OTHH object stage 42 min+ → 20 s, HECA
+898 → 80 s), 14d (`union_area_m2` sweep — OTHH partition −280 s), 14a's
+chips not yet merged. NOT in it: §16g (7) (v2connector r3 running), §43
+(v2apronneck), §41 (4)/holes (v2slivers), HECA item 3 apron hill (owner
+questions 13de), KCLT tile (owner's DEM refresh).
+
+* BREACH: `pgrep` printed 27 `Resources/Engine/Ortho4XP` processes
+  immediately before `make_engine.sh`/`make_app.sh` ran (the check was
+  not a gate in the command). The engine log shows no build activity
+  after the owner's 07:42 kill and no error after 08:28; the processes
+  are gone at 08:30. Whether the owner's app was mid-build at 08:28 is
+  the owner's to say. Standing rule restated: the app build command
+  GATES on `pgrep` = 0, never merely prints it.
+* Expected tile times on 1.0.332 (from the lane arms): OTHH patch
+  ~14–15 min (partition ~330 s) + mesh ~1 min + object stage ~1 min;
+  HECA patch ~9 min + 1.5 min + ~1.5 min. HECA's patch stays ~2× 1.0.329
+  by §42 (13dj) until the owner's read rules on it.

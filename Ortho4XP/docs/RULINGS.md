@@ -5414,3 +5414,38 @@ equal). Suite 1,426 twice. Left named: VHHH `extend_partition`
 (`contact.extend:781-783`, needs a VHHH capture); the object-stage
 sinks (`_seg_gap2`, `comp_cluster`, `split_obj8`); OTHH exercises no
 `extend_partition` (0 plate objects) — the rebuild path is twin-proved.
+
+## 2026-09-14ac v2othhfix MERGED (40cc2516): OTHH basins floor/region 0.20 → 0.87, ramp stations 837 → 207 (profile unchanged to 0.0000 m), the under-terminal corridor cut with both mouths moved 1.78 m; VHHH basin ramp 9 → 205 vertices
+
+Lane `v2othhfix` @ 9c982d04 (closing OTHH build `v2othhfix2` at
+8e92e26a, ledger 20d817adcf38, rc 0, verify rows 493 → 488, ADJUDICATED
+1,764 → 1,766, planar −2 %; suite 1,455 twice; 1,448 on main). §24 (7):
+buried plates per ring named (`buried_skipped`, 19 lines — the
+2,998 m² and 4,744 m² Dewatering floors taken), the region floor;
+basin:6 879 → 3,852 m² of 4,330; stations above −9.18 316 → 45 of 396
+(emitted surface; the 45 in the 0.5 m wall band); the 0.95 bar is
+unreachable against the whole region because §24 (1)'s 0.5 m rim
+stand-off is 5–17 % of these snaky regions — 0.93–1.00 against
+rim-minus-stand-off. §24 (8): VHHH `basin:5`'s ramp corridor 9 → 205
+vertices at `[basin] ramp_station_m` 2.0. §34 (7): `collapse_stations`
+after the profile — 41 groups 837 → 207 stations, profile identical at
+all 399 former stations. §34 (8) amended: `Terminal_Base_2_5@0/a,/b`
+cut, each mouth moved 1.78 m under the terminal at exactly 10 %;
+`Qatar_DutyFree_003.obj@1/a` now refused BY NAME (needs 122.1 m of run
+at 10 %, the corridor is 106.0 m). Airside moved > 0.1 m: 0 at the
+corridor; 43 airport-wide, all at the Dewatering pits (the §24 (7)
+cut). `planar/basin_geometry.py` split out.
+
+* RULED: the §24 (7) bar is restated against rim-minus-stand-off
+  (≥ 0.95 there — met); a basin region so small that the stand-off
+  eats its floor (basin:9 158 m², VHHH ~35 m² jetway pits) takes a
+  scaled stand-off, min(0.5 m, inscribed_radius/4) — owed to the next
+  basin round, not this merge.
+* OWNER (small): `Qatar_DutyFree_003.obj@1` — its mouth would have to
+  move 16 m PAST the corridor's authored far end to hold 10 %. Under
+  14u as worded the mouth moves "enough" — beyond the wall object,
+  under the building? Or does a corridor that cannot fit its ramp
+  stand down (today)?
+* Not done: LEMD basin:0 control (the change moves every basin by
+  design); no mesh run for the basin bar; the build predates two
+  move-only commits and the v2cost2 merge.

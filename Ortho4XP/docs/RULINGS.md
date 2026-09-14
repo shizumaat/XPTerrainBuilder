@@ -5003,3 +5003,78 @@ at each entrance."
   retaining walls at each entrance — why no underpass cut (§34 (4)–(6),
   `structure_underpass`, `structure_approach`, door wells: which test
   refused it, with numbers).
+
+## 2026-09-14o v2connector round 4 MERGED (4bb102c1): the true outline, the rail at its north end (76.70), `plan_units_and_connectors` 17.2 s; 17 pad-spanning units are LAWFUL touching chains — an intent question
+
+Lane `v2connector` @ deca6c2f; HECA build `HECA_20260914T093118`
+(ledger 9c1ae5a6873e, 598 s); frames registered for r3 and r4. Outline
+= union of the component's projected triangles, one ring per blob,
+simplified OUTWARD (`OUTLINE_SIMPLIFY_M` 0.05, hull past 4,000 tris);
+84.1 % of parts carry rings, the plan SMALLER (17.9 → 17.1 MB). Matched
+arms (r4 code, hull plan vs outline plan): `plan_units_and_connectors`
+21.7 → 17.2 s; units 304 → 324; bodies at 96.20 0 → 0; the rail
+`concrete_3` b1 93.45 → **76.70 at its NORTH end** (own ground ± 0.09;
+14g's ~73.4 was the DEM, this is the design surface at its feet); b0
+also a connector at 94.55. Suite 1,421 on main. `git merge main`
+silently dropped the `pad_span_census` INDEX row — the tool's twin
+caught it (INDEX.md loses rows in merges; only per-tool twins notice).
+
+* MISSED and now understood: units whose pads span > 1 m 20 → 17 (845
+  bodies); `fu:38:23@cluster_pad` 23 pads / 579 bodies / 29.99 m did NOT
+  split because the T3 district's footprints GENUINELY TOUCH,
+  transitively, across all 23 pads — under §16g (7) (1) as the owner
+  worded it ("only if they're physically touching/overlapping") that
+  chain is lawful and no sharper footprint breaks it (next: `fu:43:7386`
+  19 pads / 10.3 m, `fu:43:7179` 7 / 9.8, `fu:39:104` 11 / 7.8).
+* INTENT QUESTION (owner), three options: (a) the PADS FOLLOW THE UNIT
+  — a connected mass is one unit at one datum (13cb's invariant), and
+  the design surface's pads under it take their level from the seated
+  bodies (pad = datum + the body's authored floor offset), the ground
+  terracing between pads by the ground law — no body floats, the pack
+  author's terracing wins; (b) per-pad seats WITHIN a unit — the unit
+  stays a rigid relation only for bodies sharing a pad (13cb weakened);
+  (c) a chaining tolerance smaller than `footprint_touch_m` (0.5 m
+  welds a district) — a different law from "touch". Recommended: (a).
+* Owed: the seven buildings + the terminal per-site read (the
+  airport-wide 96.20 count is 0); SPJC/KCLT/OTHH/LEMD under the outline
+  (their plans predate `Part.rings`; the 1.0.333 sweep).
+
+## 2026-09-14p OTHH items attributed (scout `v2othh332`): the basin floor is read per placement and the floor slab is a silently-skipped buried component; the ramp zig-zag is the 0.5 m identity snap per 2 m station; the underpass is refused by a 1.0 pp ramp grade — §24 (7), §34 (7), §34 (8) written; lane `v2othhfix`
+
+* BASIN (basin:6, `OTHH_Dewatering_02_LOD0_002.obj`): the two floor
+  faces (ways −10875/−10876 at −9.68) are the only witnessed plates of
+  the SHELL placement (879 of 4,330 m², 20 %); the 2,998 m² floor slab
+  is a SIBLING placement `…_001.obj` whose components are skipped as
+  BURIED (`obj8.py:669-671`, `shell_reaches_grade and top < local −
+  contact_band_m` → `buried_components`, no report line) and whose only
+  grade-reaching parts are 2.5/5.6 m² risers refused by
+  `rim_protrusion_max_fraction`. The void becomes `retaining_wall` at
+  the rim: mesh inside the rim median −5.63 m, 270 of 393 stations
+  above the object's floor −9.18 — a V-funnel with ~10 m of flat floor.
+  LEMD's basin: one grade-reaching shell whose plate IS the footprint
+  (97.4 %); every OTHH basin 10–56 %.
+* RAMPS (`tunnel_ramp` / `wall_corridor_ramp`, 8–57 nodes): one
+  cross-section per 2 m station (`[cutout].station_m`), every edge
+  point `snap_out`ped to the 0.5 m identity grid on both coordinates
+  (`structure_geometry.py:137-150`) — max lateral offset from the
+  straight chord 0.27–0.49 m, i.e. one grid quantum; the route is
+  straight. The faithful shape is landing / climb / landing = 8 nodes
+  (today 40 / 29).
+* UNDERPASS (`OTHH_Terminal_Base_2_5.obj@0`, inside `building5`): every
+  admission test PASSES (wall depth 1.89 > 1.0, headroom 4.31 > 3.5,
+  mouths, authored grade, not a jetway); refused at `stop_and_steepen`
+  — the 8 % climb out of each mouth is stopped by airside pavement
+  (`pav24` / `pav11`) at s = 56.0 with 17.1 m left for 1.88 m of rise =
+  11.0 % > `max_ramp_grade` 10 % (08m (a)) — ONE ROW PER ENTRANCE, and
+  Law C discards the whole corridor. `Terminal_Base_2_1`'s five
+  corridors under the same terminal cut fine (their climbs reach open
+  ground). `structure_underpass` (§34 (5)) cannot apply: the seed is an
+  OSM aeroway bridge.
+* RULINGS: §24 (7) a basin's floor is the WHOLE admitted region;
+  sibling placements' deep plates witness inside an admitted region;
+  a buried component inside someone else's pit is never dropped
+  silently. §34 (7) a ramp corridor carries a cross-chord only where
+  the route bends or the profile breaks (stations are the sampling,
+  not the shape). §34 (8) a climb stopped by airside pavement ends AT
+  the pavement with a portal/rim face taking the residual step; the
+  refusal is a RAMP refusal, never a corridor refusal. Lane `v2othhfix`.

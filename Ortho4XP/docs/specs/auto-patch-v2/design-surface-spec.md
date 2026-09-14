@@ -11397,3 +11397,51 @@ A `graded_strip` (adjacent-ground zone) face below `strip_min_m2` (50) or
 narrower than `strip_min_width_m` (3.0, inscribed) is dissolved into its host
 (the pavement it borders) and never emitted: it cannot carry a lawful
 transition and mints a hump (HECA shape 1035 at 30.1110278, 31.4062316).
+
+### §24 (7) THE FLOOR IS THE WHOLE ADMITTED REGION (owner RULINGS 2026-09-14n item 1; Fable 2026-09-14; RULINGS 2026-09-14p) — lane `v2othhfix`
+
+Once a region is admitted as a pit, the trench floor covers the region minus
+the rim stand-off; the witnessed plate DELIMITS NOTHING — it witnesses depth.
+(a) The floor witness is read over the whole ADMITTED FAMILY: a sibling
+placement whose deep horizontal plate lies inside an admitted region
+contributes it even when its own shell never reaches grade (the
+`buried_components` skip in `obj8.py` is a pit-SEED test and never
+suppresses a plate inside another placement's pit); every skipped buried
+component is NAMED in the report with its area and depth.  (b) Where no
+plate lies under part of the region the floor still takes `floor_z`: a
+rim-level island inside a pit is terrain standing inside the object's walls.
+BARS (OTHH 1.0.332 frame): floor/region ≥ 0.95 on all ten basins (today
+0.10–0.56; basin:6 879/4,330 m²); mesh stations inside basin:6's rim above
+`solid_min_z` (−9.18) 270 of 393 → 0; LEMD basin:0 unchanged (97.4 %, the
+control); ONE OTHH build.
+
+### §34 (7) A RAMP CORRIDOR CARRIES A CROSS-CHORD ONLY WHERE THE ROUTE BENDS OR THE PROFILE BREAKS (owner RULINGS 2026-09-14n item 2; Fable 2026-09-14; RULINGS 2026-09-14p) — lane `v2othhfix`
+
+Stations at `station_m` are the SAMPLING of the profile, not the emitted
+shape.  After the profile is solved, consecutive stations whose axis stays
+within `min_distinct_spacing_m` (0.5) of the chord between the surviving ends
+AND whose design z stays within the materiality floor (0.01 m) of the linear
+interpolation between them are COLLAPSED; a straight constant-grade run emits
+its two end chords and nothing between; a landing-to-climb transition keeps
+its chord.  The 0.5 m identity `snap_out` then has nothing between the ends to
+stagger.  BARS: OTHH ways −10854 (40 nodes) / −10859 (29) → 8 nodes each
+(landing / climb / landing), max lateral offset from the chord ≤ 0.05 m
+(today 0.27–0.49); the ramp profile unchanged within 0.01 m at every former
+station; every `tunnel_ramp` at OTHH before → after node counts.
+
+### §34 (8) A CLIMB STOPPED BY AIRSIDE ENDS AT THE PAVEMENT; THE REFUSAL IS THE RAMP'S, NEVER THE CORRIDOR'S (owner RULINGS 2026-09-14n item 2; Fable 2026-09-14; RULINGS 2026-09-14p) — lane `v2othhfix`
+
+When `stop_and_steepen` cannot reach the ground inside `max_ramp_grade`
+before the axis enters airside pavement, the ramp ENDS at the pavement edge
+at the grade it has, and the residual step is taken by a PORTAL / RIM FACE at
+the pavement boundary (a retaining wall — what the pack authors there); the
+airside cell is never pulled (airside is king).  A corridor whose trench is
+otherwise lawful is CUT with its mouths (§33 (2)); the report names the ramp
+refusal and the portal height.  Measure first: the stopped station is snapped
+one `grid` short of the cell boundary (`wall_corridor_ramps.py:133`) — at
+OTHH `Terminal_Base_2_5.obj@0` the miss is 1.0 pp over 17.1 m (1.88 m of
+rise); if recovering that half-metre makes it lawful, say so, and still land
+the portal rule for the next one.  BARS: the corridor under the terminal at
+25.26621, 51.61134 CUT (trench + both mouths), the portal faces named with
+their heights; the five `Terminal_Base_2_1` corridors unchanged; no airside
+vertex moves.

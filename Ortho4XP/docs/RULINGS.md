@@ -5643,3 +5643,27 @@ make the rim one-way broke 13 twins that encode the OLD plate law.
   (80.94 vs 72.07 explained or gone); `pad_cluster_mismatch` 0;
   `pad_airside_weld` 0; constraints ≤ +10 %; KCLT build at the final
   tree; SPJC build carrying heights (dry is inert).
+
+## 2026-09-14ak Owner on 1.0.333 OTHH: "looks great" — one item: ramps into/under the terminal come out too far and pull the service road edge down — §34 (9) THE PINCHED RAMP
+
+Owner, verbatim: "OK, OTHH looks great, only little problem left is all
+the ramps leading down into/under the terminal are coming out too far
+and pulling down the service road edge, so they must, when pinched
+between a perpendicular service road that is required to stay locked
+with airside, and a building, the grade cap is lifted, and whatever
+grade is needed to ramp from the road edge to the bottom of the ramp at
+the building edge is allowed."
+
+* RULING §34 (9): when a corridor's climb-out would reach a service
+  road that is LOCKED to airside (a road that edge-shares or is
+  absorbed into airside pavement — the free-road ruling — or any road
+  whose level is an airside contact) before reaching the ground, the
+  ramp ENDS AT THE ROAD EDGE: the road edge keeps its airside-locked
+  level (never pulled), the ramp runs from that edge down to the ramp
+  bottom at the BUILDING EDGE, and the grade cap is LIFTED for that
+  pinched run — whatever grade the span requires is lawful, reported
+  by name (`pinched_ramp`, grade, span). §34 (8)'s mouth move applies
+  only when there is no such road; the ramp never extends into the
+  road. Lane `v2othhfix` r2 (same code: `wall_corridor_ramps.
+  stop_and_steepen`). The OTHH read otherwise stands as the acceptance
+  of 14ac.

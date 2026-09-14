@@ -5598,3 +5598,48 @@ control unchanged BY CONSTRUCTION (its plan carries no outlines).
   such a pad follows the welded level. Lane `v2padcluster` r3 (same
   round): bar = every airside-sharing pad at HECA/KCLT welded (step
   along the shared edge ≤ `hard_tol_m`), named.
+
+## 2026-09-14aj v2padcluster round 3 STOPPED: (4) and (5) hold (T3 resolved, apron untouched on the map) but the solve still moves 17,482 airside vertices — the trilemma named; ruled: leaves get no pad, a pad bends to the airside at its rim; round 4
+
+Lane `v2padcluster` @ a1ae0950 (HECA `v2padclusterHECA4`, ledger
+72fb36419b42; KCLT `v2padclusterKCLT3` at 01724ef4; suite 1,475
+twice). The T3 chain: two single-component CEILING plates (`T3_4.obj`,
+extent 0.00 m) carry 3,594 of 9,333 edges, `floor.obj` 996,
+`concrete_3` 219 — floor and ceiling hold the district together;
+with (4) the largest cluster 541,200 m² / 9,334 bodies → 171,086 m² /
+1 body (clusters 1,954 → 4,278). (5): apron area 2.94 → 3.01 M m² (pads
+no longer eat apron). The terminal body +7.66 → **+0.15 m off its own
+ground** (it left the 52-member unit). BUT: airside moved > 0.02 m
+17,482 of 29,465 (worst 12.15; runway 856, worst 3.14); the terminal
+SURFACE 80.94 (bar 72.50; DISARM 72.07); `pad_airside_weld` 16 → 24;
+`pad_cluster_mismatch` 27; constraints +55 %; KCLT terminal pad 221.46
+→ 220.56 (−0.90, by coordinate — `building{N}` renumbers). Mechanism:
+345,016 m² of new hard-flat pad now sits BESIDE the apron along its
+whole perimeter and a shared vertex is one unknown (09-01g) — the
+conflict moved from the interior to the edge. Stated: a derived pad is
+(a) one hard plane, (b) welded to the apron along its rim, (c)
+forbidden to move the apron — any two hold, not three. Attempts to
+make the rim one-way broke 13 twins that encode the OLD plate law.
+
+* RULING §16g (10) (7) LEAVES GET NO PAD: a derived pad is minted for a
+  WALLED cluster only (≥ `chain_min_height_m`, ≥ `cluster_pad_min_m2`);
+  a leaf (slab, plate, deck, canopy, road) seats on its own ground and
+  never mints a pad — the 171,086 m² single-body "cluster" and most of
+  the 345,016 m² beside the apron are leaves.
+* RULING §16g (10) (8) — drop (a) AT THE RIM: a pad is FLAT (cap 0)
+  across its interior and its non-airside rim; along an airside-sharing
+  edge its rim vertices are ONE-WAY FOLLOWERS of the airside (airside
+  leads, never moves), and the plate meets those pinned vertices within
+  the pad's slope ceiling (1 %) — a bent skirt, not a step. The twins
+  that assert a two-sided cap-0 plate at an airside edge encode the old
+  law and are RE-FOUNDED, not preserved. (14ai's `pad_airside_weld`
+  fires only where even the ceiling cannot reach.)
+* KCLT −0.90 m at the terminal pad is a LAWFUL change under (6)/(8) if
+  it is the weld to the apron — the lane names the airside face and
+  the step before/after; the owner's KCLT read is the acceptance.
+* Round 4: (7) + (8); bars: HECA airside moved 0; the terminal body
+  on a WALLED cluster's pad within 0.02, the pad within 1 % of the
+  airside it touches, the pad's cut/fill vs the DISARM ground named
+  (80.94 vs 72.07 explained or gone); `pad_cluster_mismatch` 0;
+  `pad_airside_weld` 0; constraints ≤ +10 %; KCLT build at the final
+  tree; SPJC build carrying heights (dry is inert).

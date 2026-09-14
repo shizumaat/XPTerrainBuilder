@@ -4958,6 +4958,26 @@ on such a pad follows the welded level.  BAR: every airside-sharing pad at
 HECA and KCLT welded (step along the shared edge ≤ `hard_tol_m`), named with
 its airside face.
 
+### §16g (10) (7)–(8) LEAVES GET NO PAD; A PAD BENDS TO THE AIRSIDE AT ITS RIM (Fable 2026-09-14; RULINGS 2026-09-14aj) — lane `v2padcluster`
+
+MEASURED (r3): (4)/(5) hold, yet 345,016 m² of new hard-flat pad beside the
+apron moved 17,482 airside vertices — a shared vertex is one unknown.  A
+derived pad cannot be (a) one hard plane, (b) welded to the apron along its
+rim and (c) forbidden to move the apron all at once.
+7. A derived pad is minted for a WALLED cluster only; a leaf (slab, plate,
+   deck, canopy, road; §16g (10) (4)) seats on its own ground and mints no
+   pad.
+8. (a) is dropped AT THE RIM: a pad is flat (cap 0) across its interior and
+   non-airside rim; along an airside-sharing edge its rim vertices are
+   one-way followers of the airside (airside leads), and the plate meets
+   them within the pad's slope ceiling (1 %) — a bent skirt, never a step.
+   Twins asserting a two-sided cap-0 plate at an airside edge are re-founded.
+BARS: HECA airside moved 0; the terminal body on its walled cluster's pad
+within 0.02 m, the pad within 1 % of the airside it touches, its cut/fill vs
+the disarmed ground named; `pad_cluster_mismatch` 0; `pad_airside_weld` 0;
+constraints ≤ +10 %; KCLT build at the final tree (the terminal pad's weld
+named); SPJC build carrying heights (19.56 ± 0.02).
+
 ### §16g (10) (4)–(6) MEASURED, ROUND 3 (lane `v2padcluster`, 2026-09-14; branch `claude/v2padcluster`)
 
 **WHAT CARRIES THE T3 CHAIN, MEASURED FIRST (the round's first order).**

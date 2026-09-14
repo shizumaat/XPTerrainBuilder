@@ -4424,3 +4424,24 @@ cluster plane 222.28 ± 0.05 by `OBJECT_MSL`; dropped multi-anchor placements
 205 → 0 at KCLT (count per airport); OTHH every `Bridge_NN` one unit, spread
 0.00 (today 1.52 / 1.93); a MATCHED KCLT design base build — taxi family
 byte-identical, pad flatness before → after; suite twice.
+
+### §16g (5) AMENDED — THE FAMILY RELATION IS THE INVARIANT (owner RULINGS 2026-09-13cb; Fable 2026-09-13) — lane `v2clusterpad` round 2
+
+Owner: placements grouped with a terminal "have to stay relative to the
+object family they're grouped with, otherwise they are back to being on the
+actual ground, rather than 'floating' on the second floor of the terminal
+where the author placed them."
+
+5. A placement in a footprint unit is seated at the UNIT'S DATUM plus its
+   authored offset, wherever its anchor falls. "On ground" is only the case
+   where the terrain at the anchor already equals the unit datum (within
+   `hard_tol_m`) — then the row is left alone. Otherwise the row is written
+   `OBJECT_MSL` = unit datum + authored offset. A pack's own `OBJECT_MSL` /
+   `OBJECT_AGL` is read as the authored offset relative to the pack's
+   authored ground, never kept as an absolute (the 11b conversion). Counted
+   per airport: in a unit / left on ground / written MSL / converted.
+
+BARS: KCLT's passengers/seats at 35.2191877, −80.9426007 at the cluster plane
++ their authored offset (on the floor the author placed them); a twin with an
+anchor over apron beside the pad proves the `OBJECT_MSL` branch; dropped
+multi-anchor placements 205 → 0.

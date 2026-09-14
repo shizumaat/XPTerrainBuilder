@@ -4573,3 +4573,47 @@ against 249.4), down from the 3.2x the first arm measured.  The cost is
 the pairing sweep — which is also where §16g (2)'s undone polygon
 footprints would have to be paid for, so the two are one piece of work.
 A clean exclusive with-cut `--runs 3` is still owed.
+
+### §16g (6) A CONNECTOR JOINS TWO UNITS; AN IDENTIFIED CONNECTOR KEEPS ITS DATUM (Fable 2026-09-13; RULINGS 2026-09-13cn; owner 2026-09-13 "only … very long connecting pieces like the elevated rail at HECA") — lane `v2connector`
+
+**THE DEFECT (scout `v2spjcramp`, SPJC 1.0.329).**  `SPJC_LIMANUEVA_xp11_007__b0`,
+the access-road viaduct at −12.0322, −77.1170407: span 549 m, end-ground spread
+11.58 m → (3) names it a CONNECTOR, `_bind_plan_wide` drops it out of the
+terminal unit `fu:0:0@cluster_pad` (datum `building6` 19.5604) and writes NO
+cut, so it falls to §16c's low-side foot, which pins its −8.308 m footing
+bottom to the mesh: authored zero at 27.366 against the unit datum 19.560 —
+**7.81 m high**, the deck 18 m over the apron, "sitting on top of the terrain".
+`xp11_010__b0` (span 1,030 m) is expelled the same way and lands 0.99 m LOW.
+All eleven LIMANUEVA placements share ONE DSF origin in the source pack: they
+are one authored unit.  Nine chain into the terminal unit; the two longest
+are thrown out by the very rule that exists for a kilometre of elevated rail.
+
+**THE LAW.**
+1. A CONNECTOR is a body that CONNECTS: its span is ≥ `connector_span_m`,
+   its end ground differs by ≥ `visual_m`, AND its two ends touch (≤
+   `footprint_touch_m`) TWO DIFFERENT plan-wide units, or one unit and open
+   ground beyond `connector_span_m` of it.  A body whose every contact
+   chains into ONE unit is a MEMBER of that unit however long it is and
+   however much the ground under it varies — the elevated viaduct inside a
+   terminal is the terminal's.  "Long and sloping" alone identifies nothing.
+2. A body that (1) DOES name a connector is still chained for the purpose of
+   the unit census, and until §10's station cut is actually written for it,
+   it is seated on the datum of the unit its HIGH end touches (the deck-side
+   unit; DECK > PAD > GROUND between the two).  An identified connector
+   never falls to §16c's low-side foot: the exclusion in `_bind_plan_wide`
+   is replaced by that seat.  When the station cut lands, each piece keeps
+   its unit's datum at its unit end and grades between (the §10 line).
+3. Provenance is a witness, not a rule: bodies whose source-pack placements
+   share one DSF origin and heading (the shared-datum pack, `-13-078.dsf`
+   LIMANUEVA rows) are recorded in the census as `authored_unit`; a unit
+   partition that separates two `authored_unit` siblings is reported as
+   `unit_split_authored` in the cockpit (WARN) — the measurement that would
+   have named this defect at plan time.
+
+BARS: SPJC `xp11_007__b0` and `xp11_010__b0` members of `fu:0:0@cluster_pad`,
+authored zero at the unit datum (19.56 ± `hard_tol_m`), `unit_connectors_cut`
+0 at SPJC; HECA's elevated rail still identified as a connector (its ends in
+two units or open ground) and seated on its high-end unit's datum, named;
+KCLT / OTHH / LEMD unit censuses re-read: connectors before → after with each
+one's two end units named; `unit_split_authored` 0 at SPJC after; plan stage
+not worse than +5 %; suite twice.

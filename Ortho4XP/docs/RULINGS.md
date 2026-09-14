@@ -3901,3 +3901,154 @@ RULED from the first: a TUNNEL EMITS ONLY ITS MOUTHS AND RAMPS — rail or highw
 ## 2026-09-13cj — OWNER (verbatim): "LEMD failed with 328: [+40-004] ERROR: the assembled .poly is UNMESHABLE (§39 (3) …): 47 finding(s) — a constrained node, segment or bent chord inside 0.5 m of another. … Fix the derivation site, or set O4_HAIRLINE_PREFLIGHT=report to build it anyway." — THE PRE-FLIGHT REFUSED ON GEOMETRY THE CORE HAS ALWAYS MESHED: of the 47, 45 are `short_segments` of 10.0–13.1 mm at markers 8/8 (road ribbons) and 1/1 (water) across the whole 1° tile (40.58, −3.96; 40.00, −3.61; 40.98, −3.93 …), refused by the SLENDERNESS floor alone (15,019–72,018 ≥ 1e4) though over the 10 mm degenerate floor — the class 1.0.327 and every prior build meshed; the 2 that are ours: a 0.7792 mm `short_segments` (0/0, slenderness 73,973) and its `bent_chords` (15/0, slenderness 79) at 40.497989, −3.581543 — a PATCH RING node bent onto a LAND edge (marker 0), a foreign edge the shore weld (water only) does not cover. FIXED on main (session): `hairline_refusals` refuses a `node_pairs` / `short_segments` finding on the GAP alone (under the 10 mm degenerate floor — KCLT's 2.79 mm segment made 481,602 slivers) and a `bent_chords` / `vertex_edges` finding only under BOTH floors (gap < 10 mm AND slenderness ≥ 1e4) or beside the outer boundary; slenderness alone is a REPORT. And the pre-flight's DEFAULT is `report` (the findings printed and censused as `hairline_pair`, CRITICAL) until the weld covers every foreign constrained edge — `O4_HAIRLINE_PREFLIGHT=refuse` is the law's mode and returns as the default when v2hairline round 2's bars hold; the refuse-mode twin sets it explicitly. Twins 368/0 (`test_mesh_hairline_preflight`, `test_v2hairline`, `test_harness`). APP 1.0.329 built for the owner's LEMD; v2hairline round 2 told: the weld's foreign edges are EVERY constrained edge (land, coastline, road ribbon, tile border), not water only — the 40.497989, −3.581543 pair is its bar.
 
 ## 2026-09-13ck — APP 1.0.329 BUILT (engine 1.50.1775; main with the version files): 13cj's pre-flight narrowing and `report` default (LEMD builds again), 13ci's cluster-pad gate (the touching component; `building91` yields by name; the reach disarmed). Not in it: v2gradecache (VHHH), v2hairline round 2 (one witness, the re-noding weld, sub-spacing segments, every foreign edge). The owner rebuilds LEMD on 1.0.329 and reads 1.0.328's other sites.
+
+## 2026-09-13cl — v2gradecache MERGED (c766cf41, lane a4a953f0): 13bp (i)–(iii) — `at_grade_geometry` memoized per `(resource, round(plane, 2))` with the placement affine applied after (`airport/obj8_grade.py`, split out of `obj8.py` at 1,112 lines), `grade_cache` / `cover_cache` per RESOURCE, the timer (`planar.basins.grade_geometry_s` / `grade_calls` / `grade_unions` / `grade_vertices` in `report.json` and a `[ICAO] at-grade read:` line) and the vertex-budget refusal (`[basin] rim_read_vertex_budget = 40,000,000`, names the pack). VHHH: the at-grade read 2,626 → 11.88 s (811 distinct pairs over 6,752 placements, 1.82 M vertices) — AND 13bp's arithmetic REFUTED: `wall_s.planar` was still 2,845 s; cProfile over the structure stage: `build_basins` 2,016 of 2,360 s, of which `planar/basins.py:_rim_open` 1,195.9 s over 96 calls — 549,207 point-to-MULTILINESTRING GEOS distances for a REPORTED DIAGNOSTIC that refuses nothing (13s's owed `_rim_open` item, now the tile's largest cost); `at_grade_geometry` 106.5 s profiled. FIXED in the same lane: `_rim_open` on an STRtree `query_nearest(max_distance=reach)` — same distances, same predicate: `planar --stage structures` armA (memo only) 2,418.1 s / 62.5 GB → armB 1,217.8 s / 73.4 GB (−1,200.3 s, matching the profile), `structures.json` byte-identical (70 basins, 43 refusals). RESIDUAL at VHHH ~1,133 s: the ring loop's OTHER unions ≈ 714 s, `door_wells.read_s` 117 s, `wall_corridors.read_s` 66 s — the ≤ 120 s bar needs another round on `build_basins`' ring loop. PEAK RSS 77.8 GB on the build (bar 4 GB, MISSED): NOT the at-grade read — RSS plateaus at 44.3 GB during LOAD / PARTITION, falls to 7.8, rises again; upstream of the change (armA 62.5 vs armB 73.4 over identical output) — its own attribution owed. LEMD / OTHH basins BYTE-IDENTICAL (`rim_ll`, `region_ll`, `floor_z`, `ramp_rings_ll`, refusals; two reported diagnostics move at the 1 cm plane quantum: LEMD `basin:0` `covered_fraction` 0.22750697 → 0.22750614; one OTHH `sunken_refused` message "50 %" → "49 %", same verdict). ZGSZ / VMMC / CYXY byte-identity ARGUED not measured (stock-only packs never enter the read). Suite 1,313/0 twice on main. Round 2 on the same lane: the ring loop's remaining unions (714 s), `door_wells` / `wall_corridors` reads, the RSS attribution (load / partition 44 GB — what holds it), bar VHHH planar ≤ 120 s and RSS ≤ 8 GB or the holder named.
+
+## 2026-09-13cm — OWNER READ OF 1.0.329 (verbatim): "LEMD has a number of issues, including some strange new terrain issues with deeply sunken roads. SPJC looks good except for the access road ramp at the south end of terminal I mentioned before being separated from the building and sitting on top of the terrain instead of the top deck meeting the sloping terrain at the ramp ends."
+
+* LEMD "deeply sunken roads" — NEW in this batch: the candidates are §37 (6) (the groundside road ramp to the DEM, now with the core clamp as its floor — a road descending at 8 % from an airside contact into a hollow it should follow, or the hard ceiling `target + visual_m` pulling a road below the surface where the route's DEM read dips), §37 (9) (the coverage-edge join taking a core ribbon altitude), §37 (8) (the hard cross-section pulling a kerb down), the level belt; the 13ba/13bf LEMD readings were DRY replays only ("no road moves > 0.5 m") — the first LEMD BUILD under §37 (6)–(9) is the owner's. Scout `v2lemd329` (the app's LEMD products; `road_terrain_conformance --by-ref` for the deepest cuts; `--why-at` on the worst; coordinates from the owner when given). SPJC: the departures viaduct `SPJC_LIMANUEVA_xp11_007__b0` (−12.0322, −77.1170407) still "separated from the building and sitting on top of the terrain instead of the top deck meeting the sloping terrain at the ramp ends" — the owner's frame: the object is an ELEVATED ROADWAY whose top deck is the road; its high end belongs to the terminal unit (§16g), its low end meets the terrain — the ground under the ramp is the ACCESS ROAD and should be graded (§37 (6)) from the terminal contact down so the terrain meets the deck's low end (§16e (6)'s deck-end datum read the other way round: the road rises to the deck, the deck does not sink to the road). Scout `v2spjcramp` reads the body on the 1.0.329 products: its unit, datum, the terrain under its two ends, and the road faces beneath it.
+
+## 2026-09-13cn SPJC viaduct attributed: §16g (3) EXPELS the body it should bind — §16g (6) written, lane `v2connector`
+
+Scout `v2spjcramp` on the owner's 1.0.329 SPJC products (no build; read-only).
+The access-road viaduct `SPJC_LIMANUEVA_xp11_007__b0` (span 549 m, 16
+components, one body) has `unit_of = None`: §16g (3)'s connector test (span
+≥ 200 m AND end-ground spread ≥ 0.5 m; here 11.58 m) names it a connector and
+`_bind_plan_wide` drops it from the terminal unit `fu:0:0@cluster_pad`
+(datum `building6` 19.5604) WITHOUT writing the promised station cut, so it
+falls to §16c's low-side foot: the −8.308 m footing bottom is pinned to the
+mesh (19.058), authored zero lands at 27.366 — **7.81 m above the unit
+datum**, the deck 18.3–19.7 m over the apron, the south abutment slab +8.96 m
+in the air; the only contact with the mesh is the footing bottom at s 0–50 m
+(−0.02 … +0.15). `xp11_010__b0` (span 1,030 m) is expelled the same way,
+0.99 m LOW. All eleven LIMANUEVA placements share ONE DSF origin/heading in
+the source pack (a shared-datum pack); nine chain into the terminal unit, the
+two longest are thrown out. The terminal did not move 1.0.327 → 1.0.329
+(`SPJC.rebake.json` byte-identical across three frames; `building6`
+[18.84, 20.13] in all). Second, smaller class: no road face reaches the
+viaduct's low end (nearest road chain 655.7 m; OSM `highway=service`
+−10092/−10616 within 25 m are absorbed into `pav49`/`pav46` under the
+free-road ruling), so §37 (6)/§34 grade nothing there — at the correct datum
+the south abutment still wants +1.56 m of fill, NE columns up to 2.4 m of
+cut. `--why-at` not run (no capture; no solved vertex within 52.6 m).
+
+* RULING (the owner's words 13ce: cutting is allowed ONLY for "very long
+  connecting pieces like the elevated rail at HECA"): a connector CONNECTS
+  two units. §16g (6) written: (1) connector = span ≥ 200 m AND spread ≥
+  0.5 m AND its two ends touch two DIFFERENT units (or one unit and open
+  ground); a body whose every contact chains into one unit is that unit's
+  member however long; (2) an identified connector is seated on its
+  high-end unit's datum until the station cut is written — it never falls
+  to the low-side foot; (3) the shared-DSF-origin pack row is recorded as
+  `authored_unit`, and a partition separating siblings raises
+  `unit_split_authored` (WARN).
+* Lane `v2connector` (Opus, brief pack) implements §16g (6) in
+  `airport/footprint_unit.py`; closing test SPJC through the harness (the
+  two bodies at the datum, `unit_connectors_cut` 0 there, HECA rail still a
+  connector).
+* The residual (+1.56 m fill at the abutment, no road under the viaduct)
+  stays open under §37 (6)/§34 — the absorbed service ways are the next
+  read once the datum is right.
+* Not verified: the 1.0.327 placement plan (overwritten; app builds are not
+  in the artifact ledger); `artifact_ledger.py --history` does not exist as
+  a CLI — the brief was wrong to name it.
+
+## 2026-09-13co Owner read of 1.0.329 — HECA ("mostly … close to the best we've built so far"), six items — scout `v2heca329`
+
+Owner, verbatim: "HECA is mostly looking close to the best we've built so
+far. Some issues: 1. shapeID 44 is a taxiway role, but taxiway cannot run
+adjacent to a runway, that portion should have been absorbed into the runway
+itself 2. Around here: 30.1312203, 31.3983896 I can't tell if there's a gap
+with no coverage, or just a problem, but in the sim their's a bit dip in the
+taxiway that aircraft could not drive through. 3. This taxiway has too much
+lateral slope: 30.1114112, 31.4063353. Really we just need this area
+30.1116052, 31.4066985 to be lowered so we don't have so much of a hill
+right there, then the road, taxiway, and apron can all meet more smoothly.
+4. This is the edge of a road: 30.1096746, 31.4048466, the center of the
+road here: 30.1096476, 31.4048517 is lower creating a sharp lateral slope in
+the road 5. Road here: 30.1077666, 31.4031555 is ending in a cliff above the
+taxiway, it should join the taxiway edge smoothly with no gap and at the
+same elevation. 6. This large area 30.1082777, 31.4022695 is apron, not all
+taxiway, and shapeID 478 should be part of it, not adjacent ground"
+
+* Earlier in the same read (LEMD): "There's nothing in the patch, it seems
+  like both LEMD and HECA the terrain looks different, did anything change
+  with the DEM? … a road that now appears in a deep canyon: 40.465414,
+  -3.5531888". Checked: NO DEM refresh since 2026-09-08 (refresh ledger), no
+  elevation file newer than the 1.0.329 app. Mesh-path commits since
+  1.0.327: b6ad4309 / 0523aec5 / 95579a99 / d1fd6242 (§39 shore weld,
+  vector-map weld OFF, pre-flight). Scout `v2lemd329` redirected: coverage
+  test at the coordinate, mesh profile vs DEM, diff of every code path
+  touching non-patch terrain.
+* Scout `v2heca329` dispatched on the six HECA items: (1) shape 44's role
+  and its runway adjacency — the §29 (7) lateral band / role scorer; (2)
+  coverage at 30.1312203, 31.3983896 and the dip's profile; (3)/(4) the
+  cross-slope at the two sites against §37 (8) (road cross-section is LAW)
+  and the taxiway lateral cap; (5) the road end vs the taxiway edge — §37
+  (9) coverage-edge join; (6) shape 478's role and the apron/taxiway
+  partition at 30.1082777, 31.4022695.
+
+## 2026-09-13cp LEMD "canyon roads" attributed: §37 (3)'s OPEN bank feet enter the vector map as DUMMY edges — the bank annulus collapsed (33,377 → 15 valued vertices), the harmonic extension took the ground (414 → 2,729 moved) — lane `v2bankfoot`
+
+Scout `v2lemd329`, read-only on the owner's 1.0.329 +40-004 tile. At
+40.465414, −3.5531888 the `.node` file carries the road ribbon at 588–590 m
+(the core's clamped, correct altitude); the built mesh emits it at 568.3 —
+a 20.7 m trench, a smooth 568 plane over 600 m. Tile-wide, every input
+node cross-referenced to its own mesh vertex: PATCH_RING_MARKER 0 of 29,186
+off; runway/taxiway/hangar 0; **INTERP_ALT road ribbons 1,400 of 278,177
+off by > 2 m, worst −24.3 m at 40.4727134, −3.5610941**; DUMMY 110; WATER
+10,438 (worst −25.1 m — a second population, see below). Both sites lie
+INSIDE `patch_coverage_polygon` (24.4 km²), so the domain filter admits
+them and no audit fires. The engine log's per-run counters for +40-004
+across every historical run: bank annulus valued vertices 12,961 → 32,325
+→ 33,377 → 46,338 → 43,665 → **2 → 15**; harmonic "patch/road interiors
+moved" 448 → 426 → 414 → 450 → 511 → **95,151 → 2,729** with, for the
+first time, components with no authored vertex (371 "kept own"); total
+INTERP_ALT triangles 1,670,705 → 371,965. NOT the DEM (13co); NOT the
+patch (`road_cross_section` 2 rows worst 0.16 m, `road_coverage_join` 0;
+the 19 road refs' deepest cuts are `bridge_deck:` refs §37 (6) excludes).
+
+* THE CAUSE: `c632622d` §37 (3) "the bank is emitted where it is
+  load-bearing" — LEMD's patch now carries **105 OPEN `bank_foot` ways and
+  0 closed**. `O4_Vector_Map.py:3007` gives `PATCH_RING_MARKER` only to a
+  closed way; `:3040-3043` inserts every open way as **`DUMMY` (attr 0)**:
+  the foot is no longer a Dirichlet datum, no longer an INTERP_ALT flood
+  barrier, no longer in `patches_area`. `O4_Mesh_Utils.py:1109-1155`'s new
+  `open_feet` / `_close_open_foot` projection then feeds
+  `bank_annulus_blend_values` 15 vertices where it fed 33,377, and the
+  R18-1b harmonic extension interpolates the vacated corridor from remote
+  data — the 568 plane under a 589 hillside. The same mechanism explains
+  the owner's "HECA looks different" and is presumed under HECA items 2–5
+  (13co) until measured.
+* SECOND SUSPECT, unquantified: `0523aec5`'s metric split test in
+  `O4_Vector_Utils.insert_edge` (`:279-315`, ON by default,
+  `split_spacing_m = 0.010`) re-creates a crossed old edge THROUGH THE NEW
+  WAY'S NODE, so the new way's altitude enters the old chain — against the
+  comment at `:314` "rely on the old id2 id3 for the z value". Candidate
+  for the 10,438 WATER nodes off by > 2 m. Routed to lane `v2hairline`
+  (its code): carry the old edge's interpolated z; measure the WATER
+  population before → after.
+* RULING: an open bank foot is a BREAKLINE, not a dummy edge. It wears
+  the marker its closed predecessor wore (attr `PATCH_RING_MARKER`: the
+  INTERP_ALT barrier and the Dirichlet datum), and coverage for
+  `patches_area` / `patch_coverage_polygon` is closed AT THE EMITTER from
+  the load-bearing runs and the design coverage, never by `nearest_points`
+  projection inside the mesh step. `_close_open_foot`'s silent `None` and
+  the annulus split get a report line and a LOUD bar: the mesh step
+  refuses when `bank_annulus_blend_values` values < 10 % of the annulus
+  vertices at an airport with any bank foot. Interim belt: bare INTERP_ALT
+  road-ribbon input nodes leave the free set of
+  `interpolate_free_interior_altitudes` (R18-1b's own docstring promises
+  ribbons byte-unchanged).
+* Lane `v2bankfoot` (Opus, brief pack; the bank lane's code) implements
+  it; closing test ONE LEMD tile-mesh run (the site profile 588–590, annulus
+  back to the 3–4 × 10⁴ range, harmonic moved back to the ~400–500 range,
+  INTERP_ALT off-by-> 2 m 1,400 → ~0) plus the HECA counters dry from the
+  registered frame. Fresh LEMD capture registered by the scout (base
+  32c78eaf).
+* Instrumentation carried: §37 (6) governs 6 of 108 service-road vertices
+  at LEMD; §37 (9) 10 exits → 0 pins (the `road_join.py:87` station match
+  never fires there; KCLT 42 → 22) — owed, not this round.
+* Not verified: no 1.0.327 tile/patch survives (the `.dsf.bak` was not
+  decoded); the log carries no version marker; the split branch's firing
+  count.

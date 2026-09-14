@@ -8724,3 +8724,42 @@ BARS (HECA 1.0.329 frame, dry arm then ONE HECA build): route0's end within
 ≤ 2 % over 3 m); route7 contact from pav131, `pav115` cross-slope ≤ 1.5 %; the
 `road_cross_section` / `transverse` / `road_ramp` census before → after on
 HECA and KCLT (KCLT from its registered frame, dry); suite twice.
+
+## §42 OBJECT-BASED PAVEMENT IS A SOURCE (owner RULINGS 2026-09-13cv; Fable 2026-09-13) — lane `v2drapedsrc`
+
+**THE DEFECT (RULINGS 2026-09-13cu, HECA).**  `Airport/ground/Concrete_Polygon_1.obj`
+is a draped OBJ8 ground polygon (`TEXTURE_DRAPED`, 1,137 vertices all at local
+Y = 0, 379 triangles, 29 disjoint bodies, 580,331 m²) placed once at the pack
+origin.  X-Plane drapes it correctly; the LAYOUT never sees it — pavement
+sources are apt.dat 110 polygons and `.pol` POLYGON_DEF pages only
+(`airport/load.py:309-381`), object footprints enter only as `building` pads.
+The owner's apron at 30.1235047, 31.4160956 (body 6, 25,012 m²) drapes on raw
+mesh at 95.09 while the mapped apron `pav132` is graded 82 m away.
+
+1. **IDENTIFICATION.**  A placed OBJ8 whose draped geometry (a `TRIS` block
+   under `TEXTURE_DRAPED` / `ATTR_draped`, every vertex within `draped_y_tol_m`
+   (0.05) of Y = 0) covers ≥ `object_pavement_min_m2` (200) is OBJECT-BASED
+   PAVEMENT.  Its footprint is the union of its draped triangles, transformed
+   by the placement (origin, heading), split into DISJOINT BODIES; each body
+   is one source polygon with `source = "dsf:object_pavement"`, the object's
+   resource path as its description, and the pack's texture name as
+   evidence.  A body that is also a solid object's footprint (`building` pad)
+   is not double-counted: pads win where they overlap.
+2. **CLASSIFICATION.**  An object-pavement body enters `classify/sources.py`
+   as a `lot`/`open` source exactly like a `.pol` page and is kinded by the
+   same evidence rules (§40's apron-cover refusal, corridor width, taxi
+   length, runway shoulder); it carries no privileged role.  Where it
+   overlaps an apt.dat or `.pol` page, the mapped page's evidence governs and
+   the object body extends it (union), never a second surface (§41).
+3. **THE CENSUS.**  `load` reports `object_pavements` (bodies, m², per
+   resource) beside `dsf_pavements`; `explain --shape` names the resource for
+   a cell born of one; the object-footprints cache gains the draped bodies
+   under a separate key so the `building` pad path is untouched.
+
+BARS: HECA the 1.0.329 frame dry: 29 bodies / ~580 k m² admitted from
+`Concrete_Polygon_1.obj`, body 6 classified (apron by evidence, named); the
+cell census before → after (no `building` pad lost, no cell duplicated);
+CYXY/SPJC/KCLT/OTHH/LEMD dry from registered frames: every admitted object
+pavement named with its resource and m² (a pack with none stays byte-identical);
+ONE HECA build: the ground under body 6 graded, `pav132` and body 6 one apron
+surface, no step at their seam; load stage not worse than +5 %; suite twice.

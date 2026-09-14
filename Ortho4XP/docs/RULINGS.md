@@ -4180,3 +4180,14 @@ No route into the layout: object footprints enter only as `building` pads
   ground under them. At HECA that is 29 bodies / 580 k m². Awaits the
   owner's ruling; then a lane `v2drapedsrc`.
 * Standing HECA object debt carried (13cs): `unit:43` +19.70 m.
+
+## 2026-09-13cv Owner: "Yes, lets try and identify object based pavement so we can classify it correctly" — §42 written, lane `v2drapedsrc`
+
+* §42 OBJECT-BASED PAVEMENT IS A SOURCE: a placed OBJ8's draped, Y = 0
+  geometry ≥ 200 m², per disjoint body, is a `dsf:object_pavement` source
+  polygon classified by the same evidence rules as a `.pol` page; pads win
+  on overlap; a mapped page's evidence governs where they meet (union,
+  never a second surface). Census `object_pavements` in load; `explain`
+  names the resource.
+* Lane `v2drapedsrc` (Opus, brief pack), HECA closing build; the other
+  frames dry.

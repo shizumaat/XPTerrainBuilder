@@ -192,3 +192,113 @@ def test_partition_cache_fingerprint_needs_a_pack_and_a_dump(tmp_path):
         frame = None
         icao = "OTHH"
     assert _pc.fingerprint(_Air(), None, dump_path=None, radius_deg=0.05) is None
+
+
+# ── round 2 (owner RULINGS 2026-09-14v): the RECIPE, not the geometry ────
+
+class _FakeComp:
+    def __init__(self, k):
+        self.k = k
+
+    def __eq__(self, other):
+        return isinstance(other, _FakeComp) and other.k == self.k
+
+    def __repr__(self):
+        return f"C{self.k}"
+
+
+class _FakeObj:
+    """A ``PlacedObject`` stand-in (module level, so it pickles)."""
+
+    def __init__(self, resolved):
+        self.resolved = resolved
+
+    def __eq__(self, other):
+        return isinstance(other, _FakeObj) and other.resolved == self.resolved
+
+
+class _FakeCache:
+    """A ``ResourceCache`` stand-in that counts its parses."""
+
+    def __init__(self):
+        self.parses = 0
+
+    def geometry(self, path):
+        self.parses += 1
+        return f"geom:{path}"
+
+    def components(self, path):
+        return [_FakeComp(k) for k in range(5)]
+
+
+def test_member_geometries_rebuild_is_the_eager_reading():
+    from auto_patch_v2.airport.pack_partition import (MemberGeometries,
+                                                      MemberRecipe)
+
+    objs = [_FakeObj(f"/pack/{k}.obj") for k in range(4)]
+    recipes = [MemberRecipe(o, (0, 2, 4)) for o in objs]
+    cache = _FakeCache()
+    # the EAGER reading the load partition built
+    eager = [(o, cache.geometry(o.resolved),
+              [(k, _FakeComp(k)) for k in (0, 2, 4)]) for o in objs]
+    cache.parses = 0
+    lazy = MemberGeometries(recipes, cache)
+    assert len(lazy) == 4
+    # it builds ONLY what it is indexed for, and memoises that
+    assert lazy[2] == eager[2] and cache.parses == 1
+    assert lazy[2] is lazy[2] and cache.parses == 1
+    assert [lazy[i] for i in range(4)] == eager and cache.parses == 4
+
+
+def test_member_geometries_pickle_carries_no_geometry():
+    import pickle
+    from auto_patch_v2.airport.pack_partition import (MemberGeometries,
+                                                      MemberRecipe)
+
+    cache = _FakeCache()
+    lazy = MemberGeometries([MemberRecipe(_FakeObj("/pack/a.obj"), (1, 3))], cache)
+    got = lazy[0]                                   # realise it
+    blob = pickle.dumps(lazy)
+    back = pickle.loads(blob)
+    # the placed geometry never travels
+    assert b"geom:/pack/a.obj" not in blob
+    with pytest.raises(RuntimeError):
+        back[0]                                     # no cache bound yet
+    fresh = _FakeCache()
+    assert back.bind(fresh) is back
+    assert back[0] == got and fresh.parses == 1
+
+
+def test_resource_cache_derived_state_round_trip():
+    from auto_patch_v2.airport.obj8 import ResourceCache
+    a = ResourceCache(0.1)
+    a.skirt["/pack/a.obj"] = "reading"
+    a._range["/pack/a.obj"] = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
+    a._bounds["/pack/a.obj"] = np.zeros((2, 4))
+    st = a.derived_state()
+    assert set(st) == {"skirt", "range", "bounds"}
+    b = ResourceCache(0.1)
+    assert b.restore_derived(st) == 3
+    assert b.skirt == a.skirt and b._range == a._range
+    assert np.array_equal(b._bounds["/pack/a.obj"], a._bounds["/pack/a.obj"])
+    # the PARSE is never in it, and an empty / older payload is harmless
+    assert "geom" not in st and "comps" not in st
+    assert ResourceCache(0.1).restore_derived(None) == 0
+    assert ResourceCache(0.1).restore_derived({"unknown": {"x": 1}}) == 0
+
+
+def test_partition_cache_is_deflated_and_reads_a_plain_pickle(tmp_path):
+    """The file is DEFLATED (14v's size bar), losslessly — and a file
+    written before the deflate still reads."""
+    import pickle as _pk
+    import zlib
+    p = str(tmp_path / "c.cache")
+    payload = ("x" * 50_000, [1] * 20_000)
+    assert _pc.write(p, "fp", payload) is True
+    raw = open(p, "rb").read()
+    assert zlib.decompress(raw)                      # it IS deflated
+    assert len(raw) < 50_000                         # and it paid off
+    assert _pc.read(p, "fp") == payload
+    with open(p, "wb") as fh:                        # a pre-deflate file
+        _pk.dump({"fingerprint": "fp", "result": payload}, fh, protocol=5)
+    assert _pc.read(p, "fp") == payload

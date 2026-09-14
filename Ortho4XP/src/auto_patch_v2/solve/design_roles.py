@@ -18,7 +18,7 @@ from ..law.tables import (apron_roles as _apron_roles,
                           role_side, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['airside_stage_roles', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'cluster_reach_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['airside_stage_roles', 'conforming_rulings', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'cluster_reach_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -88,6 +88,29 @@ def airside_stage_vertices(planar: _t.Any, law: Law) -> frozenset[int]:
         for ring in (f.ring, *f.holes):
             out.update(planar.ring_vertices(ring))
     return frozenset(out)
+
+
+def conforming_rulings(law: Law) -> frozenset[str]:
+    """§20b (1b) THE RULINGS THAT CONFORM — the ruling HEADS a row belongs
+    to when the row's whole job is to make something FOLLOW: the one-way
+    register (``one_way_rulings``: the pad's frontage and airside skirt,
+    the structure rim, the road ribbon and the groundside road's airside
+    contact, the adjacent ground), the pad's own placement registers
+    (``pad_flat_rulings`` / ``pad_level_rulings`` / ``foot_row_rulings``)
+    and §30 (4)'s cluster reach.
+
+    Stage 1 refuses them EVEN WHERE EVERY COLUMN IS AIRSIDE, and that is
+    the measurement this rule was written from: a derived pad WELDS to the
+    apron, so its skirt and flatness rows sit between two vertices the
+    apron already owns, which made them airside-column rows that stage 1
+    would solve — the pad moving the apron through the back door.  At HECA
+    that read 9,936 airside vertices moved against DISARM with stage 1
+    otherwise correct.  A conforming row's place is stage 2, where its
+    airside feet are constants and it governs only what conforms.
+
+    The registers are the law's own; there is no hand list here."""
+    return (one_way_rulings(law) | pad_flat_rulings(law) | pad_level_rulings(law)
+            | foot_row_rulings(law) | cluster_reach_rulings(law))
 
 
 def datum_roles(law: Law) -> tuple[tuple[str, frozenset[str]], ...]:

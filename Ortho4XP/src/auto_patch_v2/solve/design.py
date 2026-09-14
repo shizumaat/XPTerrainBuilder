@@ -77,6 +77,7 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_fre
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "stage_split", "airside_stage_roles", "airside_stage_vertices",
+           "conforming_rulings",
            "bend_roles", "pavement_roles", "bend_class", "apron_roles",
            "taxi_body_roles", "datum_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "pad_level_rulings",
@@ -99,7 +100,7 @@ _LAG_OFF = 1.0e9
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
-    airside_stage_roles, airside_stage_vertices, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, cluster_reach_rulings, hard_rulings, ruling_head, is_hard)
+    airside_stage_roles, airside_stage_vertices, conforming_rulings, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, cluster_reach_rulings, hard_rulings, ruling_head, is_hard)
 
 @_dc.dataclass(frozen=True)
 class _BodyDatum:
@@ -207,7 +208,21 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # 1. the sheets and their triangulation
     roles = set(bend_roles(law))
     pav_roles = set(pavement_roles(law))
-    sheet_faces = [f.id for f in planar.faces.values() if f.role in roles]
+    # §20b (1c) THE SHEET IS THIS STAGE'S OWN.  The bending operator is
+    # assembled over the triangulation of EVERY sheet face, so a pavement
+    # vertex on the airside boundary carries a stencil reaching into the
+    # strip beside it — one row, mixed columns, which the stage drop would
+    # then refuse ENTIRELY, leaving the airside sheet with no bending at
+    # its own edge (measured: the runway crown's built drop 0.146 -> 0.558
+    # m on ``test_crown``'s fixture).  A stage therefore triangulates only
+    # the faces it owns: the Laplacian's stencil never leaves the stage,
+    # and every bending row it writes is in-stage by construction.
+    sheet_faces = [f.id for f in planar.faces.values()
+                   if f.role in roles
+                   and not (drop_f and any(
+                       v in drop_f
+                       for ring in (f.ring, *f.holes)
+                       for v in planar.ring_vertices(ring)))]
     tris: list[tuple[int, int, int]] = []
     for fid in sheet_faces:
         tris.extend(_face_triangles(planar, fid))
@@ -416,11 +431,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #: as detached and takes a DEM plane of its own beside that row.
     hard_follow: set[int] = set()
     stage_dropped = 0
+    #: §20b (1b): the rows whose whole job is to FOLLOW — stage 1 refuses
+    #: them even where every column is airside (a welded pad's skirt and
+    #: flatness rows sit between two vertices the apron owns)
+    conform = conforming_rulings(law) if drop_f else frozenset()
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
         if vs & drop_f:               # §20b: not this stage's problem
             stage_dropped += 1
+            continue
+        if conform and (getattr(row, "follows", None) is not None
+                        or ruling_head(row) in conform):
+            stage_dropped += 1        # §20b (1b): a conforming row is stage 2's
             continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
@@ -475,6 +498,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         vs = {v for v, _c in side[0]}
         if vs & drop_f:               # §20b: not this stage's problem
             stage_dropped += 1
+            continue
+        if conform and (getattr(side[2], "follows", None) is not None
+                        or ruling_head(side[2]) in conform):
+            stage_dropped += 1        # §20b (1b)
             continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
@@ -754,6 +781,46 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rep2.hard_max_violation_m = rep1.hard_max_violation_m
         rep2.hard_worst = rep1.hard_worst
     rep2.hard_settled = bool(rep1.hard_settled and rep2.hard_settled)
+    # THE ASSEMBLY COUNTERS ARE THE TWO STAGES' (§20b's census table, the
+    # report row).  A counter that says how many rows of a kind the problem
+    # carried describes ONE assembly, and under §20b there are two: the
+    # apron bodies' datum planes, the taxi and apron trends, the ground
+    # datum, the level belt, the bank filter, the foot rows and the bending
+    # rows per class all live in the stage that owns their vertices.  Left
+    # as stage 2's they read 0 for everything airside — the report would
+    # say "0 apron bodies on their own DEM PLANE" of a build that fitted
+    # 271 of them in stage 1.
+    rep2.body_datum_rows += rep1.body_datum_rows
+    rep2.body_datum_bodies += rep1.body_datum_bodies
+    rep2.body_datums = list(rep1.body_datums) + list(rep2.body_datums)
+    rep2.taxi_trend_rows += rep1.taxi_trend_rows
+    rep2.apron_trend_rows += rep1.apron_trend_rows
+    rep2.ground_datum_rows += rep1.ground_datum_rows
+    rep2.level_belt_rows += rep1.level_belt_rows
+    rep2.foot_rows += rep1.foot_rows
+    rep2.bank_rows += rep1.bank_rows
+    rep2.one_way_rows += rep1.one_way_rows
+    rep2.rounds += rep1.rounds
+    rep2.detached += rep1.detached
+    rep2.components = max(rep2.components, rep1.components)
+    rep2.triangles = max(rep2.triangles, rep1.triangles)
+    rep2.converged = bool(rep1.converged and rep2.converged)
+    rep2.set_flips = max(rep2.set_flips, rep1.set_flips)
+    rep2.set_flip_max_m = max(rep2.set_flip_max_m, rep1.set_flip_max_m)
+    for c, n in rep1.bend_rows_by_class.items():
+        rep2.bend_rows_by_class[c] = rep2.bend_rows_by_class.get(c, 0) + n
+    # THE RUNWAY PROJECTION RAN IN STAGE 1, where the runway family is free;
+    # in stage 2 it is a no-op on a fixed family (``if not rep.columns``),
+    # so the report carries stage 1's certificate — the one that describes
+    # the shipped runway.
+    if not rep2.runway_projection.ran:
+        rep2.runway_projection = rep1.runway_projection
+    if not rep2.zone_projection.ran and rep1.zone_projection.ran:
+        rep2.zone_projection = rep1.zone_projection
+    if rep1.one_way_rows and not rep1.one_way_settled and rep2.one_way_settled:
+        rep2.one_way_settled = False
+        rep2.one_way_failure = rep1.one_way_failure
+        rep2.one_way_move_m = max(rep2.one_way_move_m, rep1.one_way_move_m)
     if size_out is not None:
         size_out.update({"stage1_columns": size1.get("columns", 0),
                          "stage1_rows": size1.get("rows", 0),

@@ -651,8 +651,23 @@ zone_projection = true
 # to airside is one-way BY CONSTRUCTION and airside cannot move.  Priced as
 # a posture instead (a one-way ruling, a lagged leader), "airside is king"
 # left 9,573 moved airside vertices at HECA, 885 of them runway (13an).
-# ``false`` is the DIAGNOSTIC ARM — the single solve, for the matched pair.
-staged_solve    = true
+# SHIPS OFF (lane ``v2staged``, 2026-09-14, MEASURED at HECA on a matched
+# pair — ON `266b56b5a358`, OFF `18e51b7d084e` which is r5's own shipped
+# body byte for byte).  The architecture is built and holds by construction
+# (no airside column exists in stage 2; the twins in
+# ``tests/auto_patch_v2/test_v2staged.py`` pin both arms), and it is CHEAPER
+# (build 476.3 -> 416.0 s).  It does NOT reach 14an's bar: airside vertices
+# moved against DISARM 8,976 -> 10,371, because what moves them is not the
+# coupling the staging removes but (a) the pad derivation's own change to
+# the AIRSIDE VERTEX SET (268 vertices gone, 93 new, 844 -> 841 apron faces)
+# and (b) an airside solve that is UNSETTLED (13y (B) / 13ab), so a
+# perturbed problem lands on a different optimum — motion reads the same
+# 1 km from the nearest pad as beside one.  And the conforming side pays:
+# hard rows violated 1,021 -> 3,260 (pads, pavement_ceiling, road_ramp —
+# a pad welded to a fixed rim and a road pinched under its ramp ceiling
+# cannot meet their caps when airside cannot yield a centimetre).  Turned
+# ON by the owner's ruling, not by a lane.  ``true`` is the staged arm.
+staged_solve    = false
 hard_tol_m      = 0.02    # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
 # THE ADJACENT GROUND FOLLOWS THE PAVEMENT AND NEVER PULLS IT (09-09b
 # (2)/(3)): a row whose ruling head is listed here is priced ONE-WAY — the

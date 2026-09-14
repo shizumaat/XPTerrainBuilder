@@ -246,3 +246,40 @@ def test_stage_two_is_smaller_than_the_single_solve(arms):
     two solves' worth of work."""
     _zs, rep_s, _z1, rep_1 = arms
     assert rep_s.unknowns < rep_1.unknowns
+
+
+# ── what the staged arm CHANGES, held with its number ────────────────────
+
+def test_a_pad_welded_to_two_pavements_takes_the_airsides_own_drop(law):
+    """§20b's consequence for a WELDED pad, measured on ``test_v2padlevel``'s
+    own fixture (an apron and a taxiway 1.8 m apart over the 60 m the pad
+    spans, i.e. 3 %), and the reason it is reported rather than decided:
+
+    * with the single solve the pad holds its 1 % ceiling (0.0079) because
+      the two pavements YIELD toward it;
+    * staged, ten of the pad's fourteen vertices are vertices of an airside
+      face, so stage 1 fixes them and the pad's plane is the AIRSIDE'S OWN
+      drop, 3 % — the weld is exact and the pad's own ceiling is unreachable.
+
+    Nothing holds that ceiling because 14al withdrew the two-sided ceiling
+    row over a pair of two airside-shared vertices (``constraints/pads.py``,
+    `pad_skirt_m = 0`) — a withdrawal whose whole purpose was to stop such a
+    row PULLING the airside, which under §20b it cannot do.  Reversing it is
+    the spec author's call, not this lane's; the twin holds both numbers so
+    the ruling has something to rule on.
+    """
+    from tests.auto_patch_v2.test_v2padlevel import (_two_pavement_cells,
+                                                     _airport as _pad_airport,
+                                                     _pad_plane, _verts)
+    from auto_patch_v2.constraints import generate as _generate
+    cells, dem = _two_pavement_cells(1.8)
+    tilts = {}
+    for staged in (False, True):
+        lw = _law_arm(law, staged_solve=staged)
+        ap = _pad_airport(lw, dem)
+        pm, _st = build(ap, Classification(tuple(cells), (), {}, ()), lw)
+        cs, _c, _w = _generate(pm, lw, ap)
+        sol, _rep = solve_design(pm, cs, lw)
+        tilts[staged] = _pad_plane(pm, np.asarray(sol.z, float))[2]
+    assert tilts[False] <= 0.012, tilts          # the 1 % ceiling holds
+    assert 0.029 <= tilts[True] <= 0.031, tilts  # the airside's own 3 %

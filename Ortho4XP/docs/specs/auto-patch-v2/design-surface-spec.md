@@ -11632,3 +11632,121 @@ runway 885, worst 0.390 m); the terminal body on `building298` at 72.6 ±
 14; stage-2 airside values equal stage 1's to 1e-9 (twin and build); every
 hard airside ruling settled; solve wall ≤ 1.5× the single solve, both stages
 named; CYXY byte-identical or the diff named; suite twice.
+
+### §20b MEASURED (lane `v2staged`, branch `claude/v2staged` off `claude/v2padcluster` a3185dbb + main; HECA)
+
+**THE ARCHITECTURE IS BUILT AND IT HOLDS BY CONSTRUCTION.**  Stage 2's
+reduction gives an airside-pavement vertex NO COLUMN (`test_v2staged.py::
+test_stage_two_carries_no_airside_column`), the shipped z on every airside
+vertex IS stage 1's (`…is_stage_ones`, 1e-9), and a row coupling airside to
+a pad or a road keeps only its groundside columns — one-way with no
+`follows=`, no lag, no skirt (`…has_a_constant_on_its_airside_side`).  The
+single solve on the SAME map lands airside elsewhere, so the instrument is
+not vacuous.  It is also CHEAPER: the offline HECA replay pair reads
+**95.8 s staged (stage 1 90.3 + stage 2 5.5) against 117.9 s single** — 0.81×
+against a 1.5× bar — and the closing builds read **416.0 s against 476.3 s**.
+
+**THE MATCHED PAIR IS EXACT.**  The OFF arm built on this tree
+(`v2stagedHECAoff`, 476.3 s) has `body_sha 18e51b7d084e` — byte for byte
+`v2padcluster` r5's own shipped arm (ledger `a602bba1b858`).  Everything
+merged since changed nothing at HECA, so the r5 and DISARM frames are
+lawful controls for this lane's numbers.
+
+| arm (HECA, one tree) | `body_sha` | build | airside moved vs DISARM (> 0.02 m, of 19,521) | worst | runway | hard rows violated | worst |
+|---|---|---|---|---|---|---|---|
+| OFF = r5 shipped | `18e51b7d084e` | 476.3 s | **8,976** | 7.71 m | 885 / 0.390 m | 1,021 / 365,395 | 2.984 m |
+| staged, first form | `943df8b90952` | 454.5 s | 9,936 | 7.40 | 477 / 1.570 | ~3,300 | 4.652 |
+| staged + (1b) only | `9a873f30aea4` | 557.0 s | 11,144 | 7.41 | 990 / 1.540 | — | — |
+| **staged FINAL** (1b + 1c) | `266b56b5a358` | **416.0 s** | **10,371** | 7.38 | 477 / 1.560 | 3,260 / 365,395 | 5.314 |
+
+**14an's BAR IS NOT MET, AND THE MOVER IS NOT THE COUPLING.**  With (1b) no
+pad, road, zone, foot or reach row is in stage 1 at all, yet airside still
+moves against DISARM — and it moves EVERYWHERE: 2,495 of the moved vertices
+lie within 25 m of a pad, 3,774 lie 300–1,000 m away and **405 lie more
+than a kilometre from the nearest pad** (worst 0.91 m there).  Two causes,
+neither of them a row from the conforming side:
+
+1. **THE PAD DERIVATION CHANGES THE AIRSIDE PROBLEM ITSELF.**  Between
+   DISARM and the pad arm the airside vertex set differs by 268 gone / 93
+   new and the airside faces by 844 → 841 (the holes are 82 in both): the
+   apron's own rings, its body datum plane and its 2-D trend are fitted
+   over a different vertex set, so stage 1 is not the same problem.
+2. **THE AIRSIDE SOLVE IS UNSETTLED** (13y (B), 13ab; the owner ranked it
+   first among debts, 12s).  Stage 1 alone reads `42/161,690 hard rows
+   violated, max 0.1794 m, NOT SETTLED` and its active set does not settle
+   either.  A perturbed unsettled system lands on a different optimum, and
+   that is what a moved vertex a kilometre from any pad is.
+
+**WHAT THE CONFORMING SIDE PAYS.**  Hard rows violated 1,021 → 3,260, worst
+2.984 → 5.314 m, and `--why-hard` on the replay names the classes: `pads`
+4 → 199, `pavement_ceiling` 23 → 81, `road_ramp` 15 → 48, `roads` 16 → 36,
+`runway_profile` 13 → **6** (the runway's own hard set IMPROVES).  The
+mechanism is honest: a pad welded to a fixed apron rim cannot also hold its
+own 1 % ceiling, and a service road pinched between a fixed airside contact
+and its ramp ceiling cannot hold both — worst `roads.groundside_road ramp
+ceiling` +2.33 m at 30.10445522994,31.39662999264.  Under the single solve
+the airside yielded the centimetres that made those rows feasible; that
+yielding IS what §20b forbids.
+
+**THE CENSUS AND THE SITE** (`v2stagedHECAoff` → `v2stagedHECA3`):
+adjudicated 28,413 → 29,018, law-true total 64,738 → 64,065;
+`airside_no_step` 7,919 → **6,801**, `taxi_box` 3,429 → **2,854**,
+`frontage_near_miss` 39 → 30; `within_shape` 49,704 → 50,678,
+`transverse` 1,330 → 1,353, `pad_airside_weld` 29 → 33,
+`pad_cluster_mismatch` **14 → 14** (bar met, not this lane's).  The terminal
+at 30.1279552,31.403143: `building298` 72.60 → **73.05** (DISARM 72.06) —
+over the owner's own 72.50 bar, 0.45 m over the brief's restatement of it.
+The runway projection is stage 1's and reads BETTER: worst hard row
+0.2702 → 0.020000 m with **0 elastic rows** (the single solve needed one).
+
+**THREE DEVIATIONS, REPORTED NOT DECIDED.**
+
+1. **§20b (1b) — A CONFORMING ROW IS NEVER STAGE 1's, even where every
+   column is airside.**  The brief's rule ("every row whose every column is
+   airside") admits a welded pad's skirt and flatness rows, because those
+   sit between two vertices the apron already owns: the pad moving the
+   apron through the back door (9,936 airside vertices with the rule as
+   written).  Stage 1 therefore refuses any row that declares a `follows`
+   or whose ruling head is in the law's own conformance registers
+   (`solve/design_roles.conforming_rulings`).
+2. **§20b (1c) — A STAGE TRIANGULATES ONLY THE FACES IT OWNS.**  The
+   bending operator is assembled over every sheet face, so a pavement
+   vertex on the airside boundary carries a stencil reaching into the strip
+   and the stage drop refused the row entirely, leaving the airside sheet
+   with no bending at its own edge (`test_crown`'s built crown drop 0.146 →
+   0.558 m).  With the sheet restricted to the stage's own faces the crown
+   is back at 0.146 m.  What does NOT come back is the LEVEL the airside
+   sheet used to borrow from the ground's datum across that boundary:
+   §23.3's "a level or tilt the datum gives a strip transmits exactly zero"
+   is true for an interior stencil and FALSE at the sheet's edge, and on
+   `test_v2ground`'s valley fixture the taxiway that used to sit +2.68 m
+   over the valley floor now sits −3.92 m under it, the strip following to
+   −5.03 m.  At HECA the same reading is inert (`off-DEM by role` identical
+   to two decimals on every role), because a real taxi family carries its
+   own trend.  Whether an airside sheet may take a level from the ground it
+   stands on is exactly the question §20b exists to answer, and it is the
+   spec author's to answer.
+3. **A WELDED PAD'S CEILING IS UNREACHABLE.**  A pad whose opposite rims
+   are welded to two pavements 3 % apart takes the AIRSIDE'S OWN 3 % (the
+   twin measures 0.030 staged against 0.0079 single) and nothing holds its
+   1 % ceiling, because 14al withdrew the two-sided ceiling row over a pair
+   of two airside-shared vertices — a withdrawal whose whole purpose was to
+   stop that row PULLING the airside, which under §20b it cannot do.
+   Reversing it is the cheapest candidate fix for the 199 `pads` rows
+   above, and it is in `constraints/pads.py`, not this lane's files.
+
+**SHIPPED OFF.**  `[design] staged_solve = false`.  The architecture, its
+twins and both arms' numbers are on the branch; the suite is 1,502 green
+twice with the flag off, and every §20b twin sets the flag explicitly, so
+both arms stay pinned.  Turning it on is the owner's ruling: it buys the
+airside its own solve (the runway's hard set and `airside_no_step` /
+`taxi_box` all improve, 60 s of build), and it costs the conforming side
+2,239 more violated hard rows and the terminal 0.45 m — while NOT buying
+14an's "airside moved = 0", which the unsettled airside solve and the pad
+derivation's own change to the airside vertex set put out of reach of any
+staging.
+
+**NOT MEASURED** (owed): a pads-OFF staged control (the DISARM law values
+with `staged_solve = true`), which would separate cause 1 from cause 2
+outright; KCLT and SPJC on this tree; the terminal BODY's own-ground delta
+(the object stage is not in a patch build).

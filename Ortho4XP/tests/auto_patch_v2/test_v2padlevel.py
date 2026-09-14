@@ -413,26 +413,11 @@ def test_beyond_one_percent_the_pad_follows_the_senior_pavement(law):
     """1.8 m over 60 m is 3 % — no plane meets both inside the 1 %
     ceiling.  The TAXI family outranks the apron in ``precedence.toml``,
     so the pad follows the taxiway and the miss against the apron is the
-    reported residual of the ``pad_level`` family.
-
-    RE-FOUNDED under §20b THE STAGED SOLVE (lane ``v2staged``), and the
-    reason is a DEVIATION reported to the spec author, not decided here.
-    Ten of this pad's fourteen vertices are SHARED with an airside face,
-    so stage 1 fixes them at the apron's 699.72 and the taxiway's 698.52 —
-    the weld, exactly as "airside is king" states it — and the pad's plane
-    between them is then 1.20 m over 60 m = 2.0 %, decided entirely by
-    airside.  Nothing holds the 1 % ceiling there because 14al WITHDREW
-    the two-sided ceiling row over a pair of two airside-shared vertices
-    (``constraints/pads.py``, `pad_skirt_m = 0`): that withdrawal existed
-    to stop a two-sided row PULLING the airside, which under §20b it
-    cannot do — the airside side is a constant.  With the withdrawal
-    reversed the ceiling would be a row over two fixed feet again and the
-    pad could not meet both welds.  The measured behaviour is held here
-    with its number so the owner's ruling has something to rule on."""
+    reported residual of the ``pad_level`` family."""
     cells, dem = _two_pavement_cells(1.8)
     pm, z, rep, _cs = _solve(law, cells, dem)
     lo, hi, tilt = _pad_plane(pm, z)
-    assert 0.019 <= tilt <= 0.021, tilt        # §20b: the airside's own drop
+    assert tilt <= 0.010 + 2e-3, tilt          # the hard ceiling holds
     taxi = sorted(_verts(pm, "taxiN") - _verts(pm, "padA"))
     apron = sorted(_verts(pm, "apronA") - _verts(pm, "padA"))
     z_taxi, z_apron = float(np.mean(z[taxi])), float(np.mean(z[apron]))

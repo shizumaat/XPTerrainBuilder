@@ -733,7 +733,10 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep2.stage1_fixed = len(levels)
     rep2.stage1_unlevelled = rep1.stage1_unlevelled
     rep2.stage_dropped_rows = rep1.stage_dropped_rows
-    rep2.stages = {"stage1": dict(rep1.as_dict(), wall_s=round(w1, 3)),
+    rep2.stages = {"stage1": dict(rep1.as_dict(), wall_s=round(w1, 3),
+                                  projection_line=rep1.runway_projection.line(),
+                                  lag_line=(rep1.lag_failure_line()
+                                            if not rep1.one_way_settled else "")),
                    "stage2": {"unknowns": rep2.unknowns, "rows": rep2.rows,
                               "hard_rows": rep2.hard_rows,
                               "hard_active": rep2.hard_active,

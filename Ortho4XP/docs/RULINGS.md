@@ -5531,3 +5531,10 @@ placement shares one anchor (25.265161, 51.611794; 30 members).
   `wall_geometry.py:257`); `Parking_005`'s posts poking through the
   mesh (−5.13 … +4.23 vs DEM 3.96) are a REBAKE/seat item for the
   object stage (the posts are authored to ride a ramp we do not cut).
+
+## 2026-09-14ag Owner confirms the OTHH through-corridor: "the through corridor you found in the KML is the one I want, and appeared missing in the last build. I will check it in the next build."
+
+`OTHH_Terminal_Base_2_5.obj@0` (14ae) is the owner's corridor; it was
+refused in 1.0.332 (13db: the 11 % climb-out) and is cut in 1.0.333
+(14ac: mouths moved 1.78 m under the terminal). The 1.0.333 OTHH read
+is its acceptance.

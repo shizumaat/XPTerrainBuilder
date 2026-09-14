@@ -44,7 +44,7 @@ from ..model.airport import Airport
 from .evidence import Evidence, apron_named, polygon_parts, taxi_name_match
 from .rules import Rules
 
-__all__ = ["SourceRecord", "classify_sources"]
+__all__ = ["SourceRecord", "classify_sources", "apron_union"]
 
 _BOUNDARY_TOL_M = 0.5
 
@@ -84,6 +84,20 @@ class SourceRecord:
         return out
 
 
+def apron_union(airport: Airport):
+    """The OSM ``aeroway=apron`` polygons of the airport, as one geometry.
+
+    THE ONE READING of mapped apron (RULINGS 2026-09-04u / 09-11ac item 6,
+    §40 (2)): the LOT rung reads its cover over a SOURCE POLYGON, §40 (2)
+    over a CELL, and both must mean the same thing by "apron is drawn
+    here" — a second spelling of the selection is a second answer.
+    Unclosed ways are not areas and never count."""
+    aprons = [_polygon(w.points) for w in airport.osm_ways
+              if w.closed and w.tags.get("aeroway") == "apron"]
+    aprons = [a for a in aprons if a is not None]
+    return unary_union(aprons) if aprons else Polygon()
+
+
 def classify_sources(airport: Airport, ev: Evidence, rules: Rules
                      ) -> tuple[list[SourceRecord], dict[str, Polygon]]:
     """Every source polygon's record, and the polygons of the strips and
@@ -101,9 +115,7 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules
     start_tree = STRtree(starts) if starts else None
     parking = unary_union([p for _i, p in ev.parking_polys]) if ev.parking_polys \
         else Polygon()
-    aprons = [_polygon(w.points) for w in airport.osm_ways
-              if w.closed and w.tags.get("aeroway") == "apron"]
-    apron_u = unary_union([a for a in aprons if a is not None]) if aprons else Polygon()
+    apron_u = apron_union(airport)
     desc = {p.id: p.description for p in airport.pavements}
     out: list[SourceRecord] = []
     cut: dict[str, Polygon] = {}

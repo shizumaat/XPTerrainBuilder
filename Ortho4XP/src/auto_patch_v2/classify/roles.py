@@ -49,6 +49,26 @@ route-proximity band (already junction).  Demoted by the touch-chain
 law it is ``groundside_pavement``, never a lot.  The editor's default
 name ("New Taxiway N") names nothing.
 
+§40 A PAVEMENT ALONG A RUNWAY IS THE RUNWAY'S; APRON EVIDENCE REFUSES
+THE CORRIDOR KIND (owner RULINGS 2026-09-13co items 1/6, 2026-09-13cs
+items 1/6; Fable 2026-09-13; ``rules.corridor.runway_shoulder_shared_m``
+/ ``rules.lot.apron_cover_fraction``):
+
+1. THE RUNWAY SHOULDER (``_runway_shoulder``).  A pavement cell whose
+   boundary runs at least ``runway_shoulder_shared_m`` along a RUNWAY
+   RING is not a taxiway of any kind: it is that runway's SHOULDER and
+   it JOINS THE RUNWAY BODY — role ``runway`` at the runway's own ref,
+   code number and code letter, so the §29 chord surface, the crown and
+   the runway's lateral law reach it and it is emitted as part of the
+   runway's datum.  It never enters the corridor / junction / apron
+   ladder, the touch-chain demotion or the §27 pass: it IS the runway.
+2. APRON EVIDENCE REFUSES THE CORRIDOR.  OSM ``aeroway=apron`` cover at
+   or above ``lot.apron_cover_fraction`` over the cell's source makes
+   the cell APRON, and the route-proximity cut does not re-mint it as a
+   junction — corridor evidence does not override apron cover.
+3. Neither cell manufactures an adjacent-ground zone strip: zones exist
+   around taxi-family faces only, and neither verdict is taxi family.
+
 Runway slabs are ``runway``; their pairwise overlaps ``runway_crossing``;
 ground-route corridors outside pavement ``service_road``; building
 footprints ``building`` (pads yield to their apron — RULINGS
@@ -75,7 +95,7 @@ from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
-from .sources import SourceRecord, classify_sources
+from .sources import SourceRecord, apron_union, classify_sources
 
 __all__ = ["Cell", "CutLine", "Classification", "classify"]
 
@@ -141,6 +161,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     pad_min = law.tables.structures.building_pad.min_area_m2
     ev = build_evidence(airport, rules, pad_min, law, cache)
     sources, cut_polys = classify_sources(airport, ev, rules)
+    apron_u = apron_union(airport)     # §40 (2): mapped apron, read PER CELL
     src_of = {r.id: r for r in sources}
     cut_ids = list(cut_polys)
     cut_tree = STRtree([cut_polys[i] for i in cut_ids]) if cut_ids else None
@@ -200,7 +221,15 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     scored: list[tuple[Polygon, str, str, str | None, dict, bool]] = []
     through = _through_routes(ev, rules) if prox is not None else []
     corridors = _route_corridors(through, ev, rules) if prox is not None else None
+    shoulders: list[tuple[Polygon, _t.Any, float, str]] = []
     for face in faces:
+        # §40 (1): pavement running along a runway ring IS the runway's
+        # shoulder — decided before every other rung, and out of the
+        # corridor ladder, the demotion and the §27 pass entirely
+        sh = _runway_shoulder(face, ev, rules)
+        if sh is not None:
+            shoulders.append((face, sh[0], sh[1], _ref_for(face, pav_tree, ev)))
+            continue
         src = _source_for(face, cut_tree, cut_ids, cut_polys, src_of)
         if src is not None:
             # A STRIP is the road, a LOT the lot (owner 2026-09-04j): its
@@ -231,6 +260,14 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             evid["n_taxi_unnamed"] = len(taxi) - len(named)
         else:
             kind, axis, evid = _kind(face, taxi, rules)
+        # §40 (2): OSM `aeroway=apron` cover REFUSES the corridor kind —
+        # the cell is apron and the proximity cut does not re-mint it
+        cover = _apron_cover(face, apron_u) if kind == "corridor" else 0.0
+        apron_refused = cover >= rules.lot.apron_cover_fraction
+        if apron_refused:
+            kind, axis = "apron", None
+            evid = dict(evid, kind="apron", apron_cover_refused_corridor=1.0,
+                        cell_apron_cover=cover)
         if kind == "apron" and not taxi and truck and not _holds_startup(face, start_tree):
             kind = "service"           # a stand (1300) makes it apron, not service territory
         if kind == "service":
@@ -258,7 +295,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                         taxi_name_designator=named_src.taxi_designator or "-",
                         letter_chains=float(n_serving))
             stats["taxi_named"] = stats.get("taxi_named", 0) + 1
-        if role == "apron" and prox is not None:
+        if role == "apron" and prox is not None and not apron_refused:
             # THE ROUTE-PROXIMITY CUT (user 2026-07-06), after scoring as
             # v1 applies it, BOUNDED BY THE ROUTE TERRITORY (owner ruling
             # RULINGS 2026-09-05x, spec relaxation-without-certificate
@@ -352,6 +389,22 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                 # pavement union the road was cut from
                 final.append(["service_road", f"route{i}", part, None, {},
                               "service_road"])
+
+    # ── §40 (1): the shoulders JOIN THE RUNWAY BODY ────────────────
+    # Added as runway cells (the runway's ref, code number and code
+    # letter) BEFORE the §27 pass, so a lot beside a shoulder reads it as
+    # the airside pavement it is.  They never passed through `scored`:
+    # no corridor ladder, no touch-chain demotion, no open default.
+    stats["runway_shoulders"] = len(shoulders)
+    stats["runway_shoulder_m2"] = sum(f.area for f, _rw, _s, _p in shoulders)
+    for face, rw, shared, page in shoulders:
+        add("runway", rw.id, face, "runway_shoulder", rw.code_number,
+            rw.code_letter,
+            {"area_m2": face.area, "kind": "runway_shoulder",
+             "shoulder_of": rw.id, "shoulder_shared_m": shared,
+             "shoulder_source": page or "-"})
+        notes.append(f"runway shoulder: {face.area:,.0f} m2 sharing "
+                     f"{shared:,.1f} m with runway {rw.id} (§40 (1))")
 
     # ── §27: an airside edge makes a lot (and a road) airside ──────
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
@@ -782,6 +835,73 @@ def _apron_named(src: SourceRecord | None, rules: Rules) -> bool:
     d = src.description.lower()
     return any(t in d for t in rules.lot.apron_name_tokens) or \
         src.apron_cover >= rules.lot.parking_cover_fraction
+
+
+def _apron_cover(face: Polygon, apron_u) -> float:
+    """§40 (2): the fraction of THIS CELL under mapped OSM
+    ``aeroway=apron`` (``sources.apron_union``, the one reading).
+
+    THE CELL, NOT ITS SOURCE PAGE (the spec's own word, and the
+    difference is the whole rule).  The LOT rung reads the cover of a
+    SOURCE polygon because the lot question is about the page; the
+    corridor question is about the ground the cell covers, and a page is
+    routinely the whole airside.  MEASURED at OTHH on the source
+    reading: 164 of 410 cells refused — nearly every parallel, connector
+    and stub on the field — because one enormous page carries 10 % of
+    mapped apron somewhere on it.  OSM draws an apron over the apron, not
+    over the taxiway that crosses it."""
+    if apron_u is None or apron_u.is_empty or face.area <= 0.0:
+        return 0.0
+    if not face.intersects(apron_u):
+        return 0.0
+    return face.intersection(apron_u).area / face.area
+
+
+def _runway_shoulder(face: Polygon, ev: Evidence, rules: Rules):
+    """§40 (1) THE RUNWAY SHOULDER (owner RULINGS 2026-09-13co item 1):
+    the runway whose ring this cell's boundary runs at least
+    ``corridor.runway_shoulder_shared_m`` along (within ``cells.on_tol_m``,
+    the same contact tolerance the centreline touch test uses), with that
+    shared length; ``None`` where no runway does.  Both the outer ring and
+    the holes count — a cell that wraps a runway touches it on an interior
+    ring.  The longest contact wins where two runways qualify.
+
+    A cell qualifies only when it RUNS ALONG the runway: its mean depth
+    off the shared edge (area / shared length) is at most
+    ``corridor.runway_shoulder_max_depth_m`` — the corridor width test
+    with the runway ring as the spine.  This second condition is a lane
+    DEVIATION from §40 (1)'s literal words, taken on §40's own BAR ("a
+    shoulder is only a cell that really runs along a runway") and
+    reported with its measurement: on the shared length alone OTHH's
+    runway role grew from 619,131 to 3,832,917 m2.
+
+    The cell is then the runway's SHOULDER: not a taxiway of any kind, but
+    part of the runway BODY (owner: "taxiway cannot run adjacent to a
+    runway, that portion should have been absorbed into the runway
+    itself")."""
+    need = rules.corridor.runway_shoulder_shared_m
+    if need <= 0.0 or not ev.runway_polys:
+        return None
+    tol = rules.cells.on_tol_m
+    depth_max = rules.corridor.runway_shoulder_max_depth_m
+    best: tuple[_t.Any, float] | None = None
+    bound = face.boundary
+    for rw, poly in ev.runway_polys:
+        if poly.distance(face) > tol:
+            continue
+        shared = bound.intersection(
+            poly.exterior.buffer(tol, cap_style="flat")).length
+        if shared < need:
+            continue
+        # THE SHOULDER IS A RIBBON (`runway_shoulder_max_depth_m`): mean
+        # depth off the runway edge = area / shared length, the corridor
+        # width test re-anchored on the runway ring.  A big page welded
+        # to a runway for 100 m is not a shoulder.
+        if depth_max > 0.0 and face.area > depth_max * shared:
+            continue
+        if best is None or shared > best[1]:
+            best = (rw, shared)
+    return best
 
 
 def _kind(face: Polygon, taxi: list[Chain], rules: Rules

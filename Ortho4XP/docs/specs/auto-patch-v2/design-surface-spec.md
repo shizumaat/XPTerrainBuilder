@@ -8910,7 +8910,22 @@ Twinned (`test_no_airside_vertex_carries_a_ramp_target_or_loses_one`).
 
 **(c) THE BYTE READING, AIRSIDE FIRST.**
 
-| HECA, matched pair on the registered capture | BASE `a621b491` | §37 (10) round 2 |
+| HECA, matched pair on the registered capture | BASE `38dd98be` | §37 (10) round 2 |
+|---|---|---|
+| **ADJUDICATED AIRSIDE** | **12,052** | **12,088 (+36)** |
+| airside `within_shape` / `taxi_box` / `airside_no_step` | 30,908 / 2,036 / 3,788 | 30,854 / 2,068 / 3,811 |
+| airside value vertices moved > 0.1 m | — | **123 of 9,255, 4 over 0.5 m, worst 0.550 m** |
+| ADJUDICATED total / groundside / mixed | 12,429 / 322 / 55 | 12,418 / **280** / 50 |
+| `road_cross_section` | 40 | **30** |
+| `transverse` (airside) | 777 (611) | **744** (609) |
+| `route0` end vs `pav74`'s edge | +1.460 m | **+0.054 m** |
+| item-4 pair over 3.05 m | 1.30 m (42.6 %) | **0.04 m (1.3 %)** |
+
+The SAME code delta read against the PREVIOUS base is +1 airside row, not +36
+— which is itself the reading below: the groundside gain (−42 / −49) and the
+two site fixes are stable across bases, the airside row count is not.
+
+| HECA, the same pair one merge earlier | BASE `a621b491` | §37 (10) round 2 |
 |---|---|---|
 | **ADJUDICATED AIRSIDE** | **11,960** | **11,961 (+1)** |
 | airside `within_shape` / `taxi_box` / `airside_no_step` | 31,002 / 2,040 / 3,691 | 31,001 / 2,039 / 3,691 |

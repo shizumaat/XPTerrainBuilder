@@ -4415,3 +4415,39 @@ pad's effect there is on `building91` (+3.43 m), not on `building80`.
 The bar as written ("222.28 ± 0.05") was a number from the earlier
 UNMATCHED frame; on the matched pair the terminal floor is 221.44.  An
 intent question follows from that and is in the report.
+
+**(c) FINAL — §16g (5) AS RULED IN 13cb: THE FAMILY RELATION IS THE
+INVARIANT.**  13by's "on ground for everything" was corrected: a
+placement standing in a footprint unit is seated at THE UNIT'S DATUM PLUS
+ITS AUTHORED OFFSET wherever its anchor falls, so a second-floor
+passenger floats where the author put them.  "On ground" survives only
+where the terrain at the anchor ALREADY equals the datum within
+`[design] hard_tol_m` (0.02 m) AND the row asks for no offset — there the
+row is left exactly as it is.  `authored_offset` reads an `OBJECT_AGL`
+row's column as the offset and an `OBJECT_MSL` row's as an ABSOLUTE
+against the ground the pack was authored on (the plan's flat datum
+`z0_m`; with none known the offset cannot be recovered and the row is
+left alone rather than guessed at).
+
+KCLT, the pack's pristine dump against the round-2 plan and its graded
+surface (flat datum `z0_m` 223.876):
+
+| class | KCLT |
+|---|---|
+| multi-anchor rows the plan holds no member for | **11,314** (205 resources) |
+| standing INSIDE a footprint unit | **5,263** |
+| written `OBJECT_MSL` = unit datum + authored offset | **4,846** |
+| left ON GROUND (no unit, or the terrain already IS the datum) | **6,386** |
+| converted from the pack's own `OBJECT_MSL` | **82** |
+| **DROPPED** | **0** — the bar, MET |
+
+**THE OWNER'S SITE, FINAL.**  The three resources at 4.8–7.8 m from
+35.2191877, −80.9426007 — `sala_sillas_4x2.obj` (seats),
+`sala_personas_4x1_a.obj` (passengers) and `sala_maletas_4x1_a.obj` — are
+`OBJECT_AGL` rows authored **+4.00 m**, and they are now written
+`OBJECT_MSL` at **225.44** = the cluster pad's plane **221.44** plus that
+offset: the second-floor concourse floor, which is exactly the relation
+13cb makes the invariant.  Ground-level neighbours in the same unit
+(`showel.obj`, `water_tank.obj`) are written at **221.44**, the pad
+plane itself.  Under 13by's earlier reading all of them would have been
+left to the drape and the +4.00 m would have been lost.

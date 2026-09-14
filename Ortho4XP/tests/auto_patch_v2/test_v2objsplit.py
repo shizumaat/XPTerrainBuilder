@@ -4750,19 +4750,36 @@ def test_16g_5_a_multi_anchor_placement_is_seated_by_its_dsf_row():
     wall = _PMember("objects/wall.obj",
                     [_PPart(1, (40.0000, -3.0000, 40.0010, -2.9990))])
     plan = _PPlan([_PUnit("unit:0", [wall])])
-    # a PAD-datum unit: ON GROUND, nothing written (owner 13by)
-    pad_unit = [(40.0000, -3.0000, 40.0010, -2.9990, 222.28, "cluster_pad")]
-    assert FU.msl_seats_for_dump(dump, plan, pad_unit,
-                                 lambda la, lo: 100.0, "", frozenset()) == ()
-    c = FU.multi_anchor_census(dump, plan, (), frozenset())
+    # THE TERRAIN IS ALREADY THE DATUM (the cluster pad under the
+    # terminal): the row is LEFT ALONE and X-Plane's drape does it.
+    unit = [(40.0000, -3.0000, 40.0010, -2.9990, 222.28, "cluster_pad")]
+    assert FU.msl_seats_for_dump(dump, plan, unit, lambda la, lo: 222.28,
+                                 "", frozenset()) == ()
+    c = FU.multi_anchor_census(dump, plan, (), frozenset(), unit)
     assert c["multi_anchor_rows"] == 2 and c["multi_anchor_on_ground"] == 2
-    assert c["multi_anchor_dropped"] == 0
-    # a DECK-datum unit: on-ground would put the piece on the road UNDER
-    # the deck, so the row carries the deck's plane
-    deck_unit = [(40.0000, -3.0000, 40.0010, -2.9990, 12.5, "deck")]
-    seats = FU.msl_seats_for_dump(dump, plan, deck_unit,
-                                  lambda la, lo: 100.0, "", frozenset())
+    assert c["multi_anchor_dropped"] == 0 and c["multi_anchor_in_a_unit"] == 1
+    # THE ANCHOR STANDS OVER APRON BESIDE THE PAD (owner 13cb): the unit
+    # datum is 222.28 and the terrain there 219.10, so the row is written
+    # at the DATUM — the family relation, not the ground under the foot.
+    seats = FU.msl_seats_for_dump(dump, plan, unit, lambda la, lo: 219.10,
+                                  "", frozenset())
     assert {m.index: (round(m.elevation, 2), m.why) for m in seats} \
-        == {0: (12.5, "deck")}
-    c = FU.multi_anchor_census(dump, plan, seats, frozenset())
+        == {0: (222.28, "cluster_pad")}
+    c = FU.multi_anchor_census(dump, plan, seats, frozenset(), unit)
     assert c["multi_anchor_object_msl"] == 1 and c["multi_anchor_on_ground"] == 1
+    # AND THE AUTHORED OFFSET RIDES: a second-floor passenger authored
+    # +4.20 m AGL floats at the unit plane + 4.20, never on the ground
+    rows[0].kind = "OBJECT_AGL"
+    rows[0].elevation = 4.20
+    seats = FU.msl_seats_for_dump(dump, plan, unit, lambda la, lo: 222.28,
+                                  "", frozenset())
+    assert [round(m.elevation, 2) for m in seats] == [226.48]
+    # an OBJECT_MSL row is the pack's ABSOLUTE and needs the ground the
+    # pack was authored on; with none known it is left alone, not guessed
+    rows[0].kind = "OBJECT_MSL"
+    rows[0].elevation = 300.0
+    assert FU.msl_seats_for_dump(dump, plan, unit, lambda la, lo: 222.28,
+                                 "", frozenset()) == ()
+    seats = FU.msl_seats_for_dump(dump, plan, unit, lambda la, lo: 222.28,
+                                  "", frozenset(), authored_ground=295.0)
+    assert [round(m.elevation, 2) for m in seats] == [227.28]

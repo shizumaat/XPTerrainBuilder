@@ -628,6 +628,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         # only cut (the HECA elevated-rail connector class).
         touch_m=law.tables.structures.placement.footprint_touch_m,
         connector_span_m=law.tables.structures.placement.connector_span_m,
+        # §16g (5) (owner RULINGS 2026-09-13cb): "on ground" is only where
+        # the terrain at the anchor already IS the unit's datum
+        hard_tol_m=law.tables.emit.design.hard_tol_m,
         # §16e (6): the deck end line's LANDWARD WALK to the graded face
         # the deck connects to (RULINGS 2026-09-13v).
         abutment_step_m=law.tables.structures.bridge.abutment_sample_step_m,

@@ -108,6 +108,7 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                bind_ground_m: float = 0.0,
                cluster_min_m2: float = 0.0,
                touch_m: float = 0.0, connector_span_m: float = 0.0,
+               hard_tol_m: float = 0.02,
                abutment_step_m: float = 0.0,
                abutment_walk_max_m: float = 0.0,
                pads: _t.Sequence = (), rims: _t.Sequence = (),
@@ -151,15 +152,19 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     # passengers and seats are 205 of them.  It is seated HERE, on the
     # row, because this is the one place the DUMP and the plan are seen
     # together.
+    _flat = getattr(rebake_plan, "flat", None)
     msl = _fu.msl_seats_for_dump(dump, rebake_plan, ss.unit_seats, surface,
-                                 pack_root, split_idx)
+                                 pack_root, split_idx,
+                                 tol_m=hard_tol_m,
+                                 authored_ground=(None if _flat is None
+                                                  else _flat.z0_m))
     # a row seated by §16g (5) is NOT also converted to on-ground: the
     # whole point is that it keeps an elevation column
     _mi = frozenset(m.index for m in msl)
     conversions = tuple(c for c in conversions if c.index not in _mi)
     counts_extra = {"msl_seats": len(msl)}
     counts_extra.update(_fu.multi_anchor_census(dump, rebake_plan, msl,
-                                                split_idx))
+                                                split_idx, ss.unit_seats))
     files = tuple(f for s in ss.splits for f in s.files)
     counts = dict(ss.counts)
     counts["conversions"] = len(conversions)

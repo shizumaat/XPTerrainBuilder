@@ -598,7 +598,9 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
                        unit_seats: _t.Sequence[tuple[float, float, float,
                                                      float, float, str]],
                        surface: _ar.Surface, pack_root: str,
-                       split_idx: _t.AbstractSet[int]) -> tuple:
+                       split_idx: _t.AbstractSet[int], *,
+                       tol_m: float = 0.02,
+                       authored_ground: "float | None" = None) -> tuple:
     """§16g (5): the placements to seat by their DSF ROW —
     ``OBJECT_MSL lat lon heading elevation``.
 
@@ -611,22 +613,29 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
     The offset therefore goes on the ROW, which is exactly the owner's own
     2026-09-11a/b instruction.
 
-    ON GROUND IS THE DEFAULT AND THE BETTER ONE (owner RULINGS
-    2026-09-13by, answering his own question): X-Plane drapes a plain
-    ``OBJECT`` row at the mesh terrain under its anchor, and inside an
-    airport that terrain IS our design surface — under a terminal cluster
-    it is the cluster pad (§30 (4)), i.e. the floor.  The 205 KCLT
-    placements were never dropped because on-ground was wrong for them;
-    they were dropped because the plan wanted to write a per-placement
-    offset into ONE shared file and could not.  So a placement whose unit
-    datum EQUALS the terrain at its anchor — a PAD-datum or GROUND-datum
-    unit, which is every terminal cluster and every building family — is
-    LEFT ON GROUND and this function returns nothing for it.
+    THE FAMILY RELATION IS THE INVARIANT (owner RULINGS 2026-09-13cb,
+    correcting 13by).  A placement standing in a footprint unit is seated
+    at THE UNIT'S DATUM PLUS ITS AUTHORED OFFSET, wherever its anchor
+    happens to fall — so a second-floor passenger floats where the author
+    put them and never drops to the actual ground.
 
-    ``OBJECT_MSL`` is written ONLY where the unit's datum is NOT the
-    terrain at the anchor: a DECK-datum unit (bridge clutter over a road
-    or water, where on-ground would put the piece on the road UNDER the
-    deck).  Its elevation is that deck's plane.
+    "ON GROUND" is only the case where the terrain at the anchor ALREADY
+    equals the unit's datum within ``tol_m`` (``[emit] hard_tol_m``,
+    0.02 m) — the cluster pad under the terminal — and there the row is
+    left exactly as it is and X-Plane's own drape does the work.
+    Everywhere else (an anchor over apron, a road, a sunken pier area, a
+    deck, a terraced pad) the row is written ``OBJECT_MSL`` at
+    ``unit datum + authored offset``.
+
+    THE AUTHORED OFFSET: an ``OBJECT_AGL`` row's elevation column IS the
+    offset; an ``OBJECT_MSL`` row's is an ABSOLUTE against the ground the
+    pack was authored on, so the offset is that absolute minus the pack's
+    authored ground (never kept as an absolute — the 11b conversion); a
+    plain ``OBJECT`` row's offset is 0.  ``authored_ground`` is the
+    caller's reading of the datum the pack was built on (the plan's flat
+    datum ``z0_m`` where it has one); where none is known an
+    ``OBJECT_MSL`` row's offset cannot be recovered and the row is left
+    alone rather than guessed at, which the census counts.
 
     A placement whose row the SPLIT already replaces is never here — the
     two edits would collide, and ``dsf_write.edit_dump`` refuses it."""
@@ -641,25 +650,58 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
         n_of[p.def_path] = n_of.get(p.def_path, 0) + 1
     # the smallest unit box containing the point wins: a concourse inside
     # a terminal is the seat a body standing in it takes
-    boxes = sorted((b for b in unit_seats if b[5] == "deck"),
-                   key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+    boxes = sorted(unit_seats, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
     out: list[MslSeat] = []
     for i, p in enumerate(rows):
         if i in split_idx or n_of.get(p.def_path, 0) < 2:
             continue
         if p.def_path in have or _obj8.is_stock_library_resource(p.def_path):
             continue
-        for la0, lo0, la1, lo1, zero, _src in boxes:
+        seat = None
+        for la0, lo0, la1, lo1, zero, src in boxes:
             if la0 <= p.lat <= la1 and lo0 <= p.lon <= lo1:
-                out.append(MslSeat(i, p.def_path, float(p.lon), float(p.lat),
-                                   float(p.heading_deg), float(zero), "deck"))
+                seat = (zero, src)
                 break
+        if seat is None:
+            continue                      # in no unit: §16c seats it
+        zero, src = seat
+        off = authored_offset(p, authored_ground)
+        if off is None:
+            continue                      # an MSL row with no known ground
+        z = surface(p.lat, p.lon)
+        if z is not None and abs(float(z) - zero) <= tol_m and off == 0.0:
+            continue                      # the terrain IS the datum: leave it
+        out.append(MslSeat(i, p.def_path, float(p.lon), float(p.lat),
+                           float(p.heading_deg), float(zero) + off, src))
     return tuple(out)
+
+
+def authored_offset(p: _t.Any, authored_ground: "float | None"
+                    ) -> "float | None":
+    """§16g (5) (owner RULINGS 2026-09-13cb): the height THIS placement's
+    row asks for above the ground it stands on.
+
+    ``OBJECT_AGL``'s elevation column already is it.  ``OBJECT_MSL``'s is
+    an absolute against the ground the pack was AUTHORED on, so the
+    offset is that absolute minus ``authored_ground``; with no authored
+    ground known the offset cannot be recovered and the caller is told so
+    (``None``) rather than handed a guess.  A plain ``OBJECT`` row asks
+    for 0 — whatever height its geometry carries is inside the file and
+    rides with it."""
+    kind = getattr(p, "kind", "OBJECT")
+    if kind == "OBJECT_AGL":
+        return float(getattr(p, "elevation", 0.0) or 0.0)
+    if kind == "OBJECT_MSL":
+        if authored_ground is None:
+            return None
+        return float(getattr(p, "elevation", 0.0) or 0.0) - float(authored_ground)
+    return 0.0
 
 
 def multi_anchor_census(dump: _t.Any, plan: _t.Any,
                         msl: _t.Sequence[_t.Any],
-                        split_idx: _t.AbstractSet[int]) -> dict[str, int]:
+                        split_idx: _t.AbstractSet[int],
+                        unit_seats: _t.Sequence[tuple] = ()) -> dict[str, int]:
     """§16g (5) as amended (owner RULINGS 2026-09-13by): how the
     MULTI-ANCHOR placements the plan holds no member for are seated.
 
@@ -683,8 +725,8 @@ def multi_anchor_census(dump: _t.Any, plan: _t.Any,
     for p in rows:
         n_of[p.def_path] = n_of.get(p.def_path, 0) + 1
     seated = {m.index for m in msl}
-    out = {"multi_anchor_rows": 0, "multi_anchor_on_ground": 0,
-           "multi_anchor_object_msl": 0,
+    out = {"multi_anchor_rows": 0, "multi_anchor_in_a_unit": 0,
+           "multi_anchor_on_ground": 0, "multi_anchor_object_msl": 0,
            "multi_anchor_converted_from_msl": 0, "multi_anchor_dropped": 0}
     for i, p in enumerate(rows):
         if i in split_idx or n_of.get(p.def_path, 0) < 2:
@@ -698,4 +740,7 @@ def multi_anchor_census(dump: _t.Any, plan: _t.Any,
             out["multi_anchor_converted_from_msl"] += 1
         else:
             out["multi_anchor_on_ground"] += 1
+        if any(la0 <= p.lat <= la1 and lo0 <= p.lon <= lo1
+               for la0, lo0, la1, lo1, _z, _s in unit_seats):
+            out["multi_anchor_in_a_unit"] += 1
     return out

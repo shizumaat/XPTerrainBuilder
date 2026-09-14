@@ -5795,3 +5795,63 @@ unpinched sibling half `-10858` keeps its one 10.19 % row by design.
   keeps the uncommitted edits in 8 files) and the bash classifier was
   unavailable for one call (this entry's first append was lost and is
   re-recorded here). Nothing merged was lost: `670a692a` is on main.
+
+## 2026-09-14ap APP 1.0.334 BUILT (engine 1.50.1780) — the OTHH customer build: the pinched ramps (§34 (9)) + the census lift; pads = clusters and the staged solve are NOT in it (1.0.335)
+
+Owner: "What's your ETA on 334? I need to prioritize getting a fully
+certified OTHH build I can ship to a customer." Built at once from
+main 00d47e45: over 1.0.333 it carries 14am (`Terminal_Base_2_1@2` and
+`Terminal_Base_2_5@0/a` end at their road edges; `route7` no longer
+lifted; airside 0) and 14ao (the census judges the two pinched ramps
+at the lift; ADJUDICATED 3,223 → 3,204, verify defects {} on the
+closing build). Bank OFF (13cy — the owner's OTHH reads since 1.0.330
+accept it). NOT in it, by priority: §16g (9)–(10) pads = clusters and
+the staged solve (`claude/v2padcluster` @ a3185dbb, `claude/v2staged`
+in progress) — HECA-driven, surface-changing at every airport, held
+for 1.0.335 so the OTHH customer build carries nothing unread.
+
+* OTHH certification on 1.0.334 = the owner's sim read of the OTHH
+  tile built on it (the acceptance law, 13ce/campaign goal) plus the
+  harness census on the shipped patch (`tools/harness/census.py`,
+  law-true frame) and `verify_defects {}` in the report. Expected tile
+  time: cold partition ~4.5 min once, then ~5 min patch on the warm
+  cache; ~12 min the first tile, ~8 after.
+
+## 2026-09-14aq Owner on 1.0.334 OTHH: the pinched ramps still cross the road edge on the EAST side and could go further WEST; use the pack's white edge-line marking as the road edge; full depth at the BUILDING WALL, not the outer end of the protruding retaining walls — §34 (9) (4)–(5)
+
+Owner, verbatim: "OTHH with build 334, the tunnels are still crossing
+the road edge line on the East side of the building, but could go a
+bit further on the west side. Can you detect the white line marking
+from the scenery package that marks the road edge? Also, the ramp is
+reaching full depth at the outer edge of the retaining walls which
+protrude from the building, probably about 4m, the ramp does not need
+to reach full depth until the actual building wall so we can make the
+ramp less steep. Make those refinements and build a new app so I can
+test."
+
+* RULING §34 (9) (4) THE ROAD EDGE IS THE PAINTED LINE: where the pack
+  carries a road-edge marking (the draped `markings` layer-group
+  objects §42 refuses as pavement — e.g. `asphalt_white.obj` — a white
+  line running along the road within `road_edge_line_reach_m` (6 m)
+  of the road face's edge and roughly parallel to it) the pinched
+  ramp ENDS AT THAT LINE, not at the OSM/patch road-face edge; the
+  marking is the witness of where the road really is. Where no
+  marking exists the face edge stands.
+* RULING §34 (9) (5) FULL DEPTH AT THE BUILDING WALL: the ramp bottom
+  (mouth, full depth) is the corridor's COVERED start — the building
+  wall — not the outer end of the retaining-wall bands that protrude
+  from it (~4 m at OTHH); the protruding stretch is RAMP, so the
+  pinched run gains its length and the grade drops. Lane `v2othhfix`
+  r3; then app 1.0.335-candidate (OTHH-only change) for the owner's
+  test.
+
+## 2026-09-14ar Owner on 1.0.334 OTHH: "all the other tunnel walls seem right, but the tunnel wall object is missing for this tunnel: 25.2697569, 51.6055534"
+
+* Added to lane `v2othhfix` r3 as a READ first: the tunnel at that
+  coordinate (which corridor/bore in the structures dump), the pack's
+  wall object(s) there (resource, placement), and what the object
+  stage did with them in the 1.0.334 rewritten DSF (`o4_v2_placement
+  _OTHH.json`: skipped / converted to on-ground / split — is the wall
+  body missing from the DSF, seated below the mesh, or never authored
+  at that tunnel?). Fix in the same round if it is the object stage's
+  (a dropped/converted wall body); otherwise a named item.

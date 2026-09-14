@@ -11750,3 +11750,21 @@ staging.
 with `staged_solve = true`), which would separate cause 1 from cause 2
 outright; KCLT and SPJC on this tree; the terminal BODY's own-ground delta
 (the object stage is not in a patch build).
+
+### §34 (9) (4)–(5) THE PAINTED ROAD EDGE; FULL DEPTH AT THE BUILDING WALL (owner RULINGS 2026-09-14aq) — lane `v2othhfix`
+
+4. Where the pack carries a road-edge MARKING — a draped `markings` object
+   (the class §42 refuses as pavement) whose line runs along the road within
+   `road_edge_line_reach_m` (6 m) of the road face's edge and within
+   `road_edge_line_parallel_deg` (15°) of it — the pinched ramp ends at the
+   PAINTED LINE; the marking witnesses where the road really is.  Without
+   one, the face edge stands.  The report names which witness each pinched
+   ramp used.
+5. The ramp's full-depth point is the corridor's COVERED START — the
+   building wall — never the outer end of the retaining-wall bands that
+   protrude from it; the protruding stretch is ramp.  BARS (OTHH, ONE
+   build): the two pinched ramps end at the painted line east and west
+   (named with the marking object and the offset from the face edge);
+   `Terminal_Base_2_5@0/a` full depth at the building wall (the ~4 m of
+   protruding wall added to the run — the pinched grade before → after);
+   airside 0; road edges unchanged.

@@ -64,7 +64,7 @@ __all__ = ["cluster_min_m2", "clusters", "PlanCluster"]
 #: asks for it once per generator.  A tiny memo keyed on the airport
 #: object keeps the answer one derivation in fact as well as in law; two
 #: entries cover a build's airport and a twin's fixture.
-_MEMO: list[tuple[int, _t.Any, float, float, tuple[PlanCluster, ...]]] = []
+_MEMO: list[tuple[int, _t.Any, _t.Any, float, tuple[PlanCluster, ...]]] = []
 _MEMO_MAX = 2
 
 
@@ -85,6 +85,12 @@ def _touch_m(law: Law) -> float:
     binds by.  Until 13bo this read ``contact_eps_m`` (2 mm) and the two
     sides would have grouped differently."""
     return float(law.tables.structures.placement.footprint_touch_m)
+
+
+def _chain_min_height_m(law: Law) -> float:
+    """§16g (10) (4): ``[placement] chain_min_height_m`` — ONE derivation
+    site.  0 lets every body chain, as it did before 14ah."""
+    return float(law.tables.structures.placement.chain_min_height_m)
 
 
 def _floor_split_m(law: Law) -> float:
@@ -110,9 +116,11 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     cluster PAD PLANE alone."""
     eps = _touch_m(law)
     split = _floor_split_m(law)
+    tall = _chain_min_height_m(law)
     part = getattr(airport, "partition", None)
     WHY.clear()
     WHY.update(min_m2=cluster_min_m2(law), touch_m=eps, floor_split_m=split,
+               chain_min_height_m=tall,
                partition=part is not None,
                units=len(getattr(part, "units", ()) or ()))
     if eps <= 0.0 or part is None or not getattr(part, "units", ()):
@@ -122,13 +130,17 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
         return ()
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
-        if k == key and ap is airport and m0 == split and e0 == eps:
+        if k == key and ap is airport and m0 == (split, tall) and e0 == eps:
             return got
-    got = tuple(plan_clusters(part, eps, floor_split_m=split))
+    counts: dict = {}
+    got = tuple(plan_clusters(part, eps, floor_split_m=split,
+                              chain_min_height_m=tall, counts=counts))
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)
+    WHY["leaf_bodies"] = counts.get("cluster_leaf_bodies", 0)
+    WHY["walled_clusters"] = sum(1 for c in got if c.walled)
     if not got:
         WHY["gate"] = "plan_clusters: the partition's units hold no body"
-    _MEMO.append((key, airport, split, eps, got))
+    _MEMO.append((key, airport, (split, tall), eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got

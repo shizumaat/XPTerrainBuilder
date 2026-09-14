@@ -305,6 +305,9 @@ class PlanCluster:
     #: with them), and how many of those carry a ground-contact component
     bodies: int = 0
     footed: int = 0
+    #: §16g (10) (4): how many of the member bodies are WALLED (a cluster
+    #: of 1 body with 0 walled is a LEAF — a slab, a plate, a deck)
+    walled: int = 0
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -317,12 +320,13 @@ class _Shim:
     placement candidates.  Nothing else of a candidate is touched."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
-                 "floors", "rings", "floor", "footed")
+                 "floors", "rings", "floor", "footed", "walled")
 
     def __init__(self, member: int, boxes: list, resource: str,
                  floors: "list | None" = None,
                  rings: "list | None" = None,
-                 floor: float = 0.0, footed: bool = False) -> None:
+                 floor: float = 0.0, footed: bool = False,
+                 walled: bool = True) -> None:
         self.member = member
         self.part_boxes = boxes
         #: §16f (8): the authored floor of each of ``part_boxes``
@@ -335,6 +339,11 @@ class _Shim:
         #: has a ground-contact component at all
         self.floor = float(floor)
         self.footed = bool(footed)
+        #: §16g (10) (4): this body has WALLS — its tallest component's
+        #: solid height reaches ``[placement] chain_min_height_m``, and
+        #: the object stage does not already class it as a deck.  A body
+        #: that does not is a LEAF and links nothing.
+        self.walled = bool(walled)
         self.box = _pb.hull_of(boxes)
         self.body_class = ""
         self.resource = resource
@@ -377,7 +386,9 @@ def _floor_split(cl: _t.Sequence[int], adj: _t.Mapping[int, set],
 
 
 def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
-                  floor_split_m: float = 0.0) -> list[PlanCluster]:
+                  floor_split_m: float = 0.0,
+                  chain_min_height_m: float = 0.0,
+                  counts: "dict | None" = None) -> list[PlanCluster]:
     """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
     derivation, read off a ``RebakePlan`` — the planar-time half of the
     law (design spec §30 (4)).
@@ -402,6 +413,18 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
 
     THE CHAIN SPLITS AT A FLOOR (§16g (10) (1)): see :func:`_floor_split`.
 
+    ONLY A WALLED BODY CHAINS (§16g (10) (4), owner RULINGS 2026-09-14ah).
+    A THIN body — one whose tallest component's ``Part.height_m`` is under
+    ``chain_min_height_m``, or whose member the object stage already
+    classes as a DECK (``Member.deck_kind``) — is a LEAF: it is its own
+    single-body cluster, seated on its own ground, and it never links two
+    walled bodies.  MEASURED at HECA before the rule: two single-component
+    ``T3_4.obj`` plates authored 15.73 m up with 0.00 m of solid extent
+    carried **1,822 and 1,772** of the T3 district's 9,333 touch edges,
+    and `concrete_3.obj` (one component, 17,383 m2, extent 0.00) carried
+    219 — the district was ONE cluster of 9,334 bodies because its
+    buildings are joined by the floor between them.  0 disarms the rule.
+
     The BODY is the unit of contact, as it is at the object stage
     (``_clusters``'s own docstring: a member-level read dragged a body
     500 m out on the apron onto the plane).  ``planar/group.bodies_of_plan``
@@ -410,6 +433,14 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
         return []
     bodies, _of_pid = bodies_of_plan(plan)
     out: list[PlanCluster] = []
+    # §16g (10) (4): A PLAN WRITTEN BEFORE ``Part.height_m`` CARRIES NO
+    # SOLID HEIGHT, and reading that as "every body is thin" would leave
+    # the airport with NO cluster at all and say nothing.  The pass
+    # watches for any height and, finding none, does not apply the rule
+    # and REPORTS it (``cluster_no_height``) — the same discipline
+    # ``_clusters`` keeps for a plan carrying no footprint rings.
+    any_height = any(float(getattr(q, "height_m", 0.0)) > 0.0
+                     for u in plan.units for m in u.members for q in m.parts)
     for ui, u in enumerate(plan.units):
         parts_of: dict[int, _t.Any] = {p.pid: p for m in u.members
                                        for p in m.parts}
@@ -426,21 +457,43 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
             # component that has ground FEET; a body with none is
             # ELEVATED and carries its lowest component, flagged
             footed = [float(q.base_y) for q in live if q.feet]
+            # §16g (10) (4): WALLED?  The tallest component's own solid
+            # height, or the object stage's own deck verdict.
+            tall = max((float(getattr(q, "height_m", 0.0)) for q in live),
+                       default=0.0)
+            walled = (chain_min_height_m <= 0.0 or not any_height
+                      or (tall >= chain_min_height_m
+                          and not str(getattr(u.members[mi], "deck_kind", "")
+                                      or "")))
             shims.append(_Shim(
                 mi, bx, u.members[mi].resource,
                 [float(q.base_y) for q in live],
                 rings=[r for q in live for r in q.rings if len(r) >= 3],
                 floor=min(footed) if footed
                 else min(float(q.base_y) for q in live),
-                footed=bool(footed)))
+                footed=bool(footed), walled=walled))
         if not shims:
             continue
         # ``min_members=1``: §16g (9)'s population has no member gate —
         # a single member's own touching bodies ARE one building
-        chains, adj = _clusters(shims, contact_eps_m, min_members=1)
+        # §16g (10) (4): the chain is built over the WALLED bodies alone;
+        # every LEAF is its own single-body cluster.
+        walled = [i for i, q in enumerate(shims) if q.walled]
+        leaves = [i for i, q in enumerate(shims) if not q.walled]
+        if walled:
+            sub = [shims[i] for i in walled]
+            chains, sadj = _clusters(sub, contact_eps_m, min_members=1)
+            chains = [[walled[k] for k in cl] for cl in chains]
+            adj = {walled[a]: {walled[b] for b in bs}
+                   for a, bs in sadj.items()}
+        else:
+            chains, adj = [], {}
         seen = {i for cl in chains for i in cl}
-        chains = list(chains) + [[i] for i in range(len(shims))
-                                 if i not in seen]
+        chains = list(chains) + [[i] for i in walled if i not in seen] \
+            + [[i] for i in leaves]
+        if counts is not None:
+            counts["cluster_leaf_bodies"] = \
+                counts.get("cluster_leaf_bodies", 0) + len(leaves)
         for cl in chains:
             for grp in _floor_split(cl, adj, shims, floor_split_m):
                 boxes = [b for i in grp for b in shims[i].part_boxes]
@@ -458,7 +511,10 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                     rings=tuple(tuple(r) for i in grp
                                 for r in shims[i].rings),
                     bodies=len(grp),
-                    footed=sum(1 for i in grp if shims[i].footed)))
+                    footed=sum(1 for i in grp if shims[i].footed),
+                    walled=sum(1 for i in grp if shims[i].walled)))
+    if counts is not None:
+        counts["cluster_no_height"] = 0 if any_height else 1
     return out
 
 

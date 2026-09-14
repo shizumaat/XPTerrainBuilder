@@ -633,6 +633,14 @@ floor_split_m       = 0.5
 # derivation, and the matched BASE ARM.
 pad_from_cluster    = true
 
+# §16g (10) (4) WHAT CHAINS (owner RULINGS 2026-09-14ah): only a WALLED
+# body links a cluster.  A body whose tallest component's solid height is
+# under this is a LEAF — seated on its own ground or carrier, never a
+# link between two walled bodies.  HECA's T3 district chained through two
+# single-component `T3_4.obj` plates (authored 15.73 m up, extent 0.00 m)
+# carrying 3,594 of its 9,333 touch edges.  2.5 m is a storey.  0 disarms.
+chain_min_height_m  = 2.5
+
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two
 # ends' ground differs by `[cockpit] visual_m` is a CONNECTOR, cut at

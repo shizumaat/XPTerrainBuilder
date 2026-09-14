@@ -458,7 +458,7 @@ def test_16g_10_3_pad_cluster_mismatch_names_a_cluster_spanning_two_pads(law):
         _Cluster(airport, (PAD_A,), rings=(PAD_A,), floors=(4.0,),
                  cid="unit:2#0")))
     got = cluster_polys(stacked, 0.0, 0.5)
-    assert [c.id for c, _g in got] == ["unit:1#0"], got
+    assert [c.id for _i, c, _g in got] == ["unit:1#0"], got
     assert pad_cluster_mismatch(pm, law, stacked) == []
 
 

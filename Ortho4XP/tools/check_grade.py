@@ -5983,6 +5983,123 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
     return out
 
 
+def _check_pad_airside_weld(ways, nodes, ll_to_m, hard_tol_m: float
+                            ) -> List[Violation]:
+    """§16g (10) (6) EVERY PAD SHARING AN EDGE WITH AIRSIDE WELDS SMOOTHLY
+    TO IT (owner RULINGS 2026-09-14ai, verbatim: *"be sure all pads
+    sharing an edge with airside must weld smoothly to the airside"*) —
+    CRITICAL.
+
+    THE STEP ITSELF IS ZERO BY CONSTRUCTION and that is not what this
+    measures.  A pad and an apron that share an edge share its NODES, and
+    a node carries ONE value (09-01g, "contact = value"), so the emitted
+    step across a welded edge is 0.000 m however the solve went.  What
+    CAN go wrong — and what the owner's sentence is about — is the pad
+    being unable to BE A PLANE while meeting that edge: the airside is
+    the datum and never yields, so a pad whose shared boundary runs
+    across the apron's own fall is pulled out of plane at exactly those
+    nodes.  This prices that: per ``building`` ref, the pad's own
+    least-squares PLANE over all its vertices, read at the vertices it
+    SHARES with an airside way, against ``hard_tol_m``.
+
+    ``pad_flat`` (``verify/pads``) prices the whole pad's planarity and
+    would report the same pad for relief anywhere in it; this one names
+    the AIRSIDE EDGE as the cause, which is what makes it actionable and
+    what the bar is written in.  Rows carry the pad ref, the airside way
+    the edge is shared with, and the worst residual.
+
+    The join is NODE IDENTITY, never proximity (memory
+    `canonical-identity-join`) — the same join
+    ``tools/role_edge_census.py`` uses for the shared-edge population."""
+    out: List[Violation] = []
+    if not ways:
+        return out
+    airside_nodes: Dict[str, "Way"] = {}
+    for w in ways:
+        if effective_role(w) in _NO_STEP_AIRSIDE_ROLES:
+            for nid in w.nids:
+                airside_nodes.setdefault(nid, w)
+    if not airside_nodes:
+        return out
+    per_ref: Dict[str, List["Way"]] = {}
+    for w in ways:
+        if effective_role(w) == "building" and w.ref:
+            per_ref.setdefault(str(w.ref), []).append(w)
+    for ref, group in sorted(per_ref.items()):
+        pts: List[Tuple[float, float]] = []
+        zs: List[float] = []
+        shared: List[int] = []
+        who: Dict[int, str] = {}
+        seen: set = set()
+        for w in group:
+            for k, nid in enumerate(w.nids):
+                if nid in seen or nid not in nodes:
+                    continue
+                z = w.elevs[k] if k < len(w.elevs) else None
+                if z is None:
+                    continue
+                seen.add(nid)
+                pts.append(ll_to_m(*nodes[nid]))
+                zs.append(float(z))
+                if nid in airside_nodes:
+                    shared.append(len(pts) - 1)
+                    who[len(pts) - 1] = (airside_nodes[nid].ref
+                                         or airside_nodes[nid].wid)
+        if len(pts) < 3 or not shared:
+            continue
+        n = float(len(pts))
+        mx = sum(q[0] for q in pts) / n
+        my = sum(q[1] for q in pts) / n
+        mz = sum(zs) / n
+        sxx = syy = sxy = sxz = syz = 0.0
+        for (x, y), z in zip(pts, zs):
+            dx, dy, dz = x - mx, y - my, z - mz
+            sxx += dx * dx
+            syy += dy * dy
+            sxy += dx * dy
+            sxz += dx * dz
+            syz += dy * dz
+        det = sxx * syy - sxy * sxy
+        if abs(det) < 1e-9:
+            a_, b_ = 0.0, 0.0
+        else:
+            a_ = (sxz * syy - syz * sxy) / det
+            b_ = (syz * sxx - sxz * sxy) / det
+        worst = 0.0
+        at = -1
+        for i in shared:
+            x, y = pts[i]
+            r = zs[i] - (mz + a_ * (x - mx) + b_ * (y - my))
+            if abs(r) > abs(worst):
+                worst, at = r, i
+        if at < 0 or abs(worst) <= hard_tol_m:
+            continue
+        pad = Way("pad_airside_weld", "building",
+                  f"{ref} -> {who.get(at, '?')}", "", [], [],
+                  {"role": "building"})
+        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                      de_m=abs(worst), way_a=pad, way_b=pad,
+                      pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                      elev_a=zs[at] - worst, elev_b=zs[at])
+        for nid in seen:
+            if nid in nodes and ll_to_m(*nodes[nid]) == pts[at]:
+                v.lat, v.lon = nodes[nid]
+                break
+        out.append(v)
+    return out
+
+
+#: §16g (10) (6): the residual a pad's plane is allowed at a vertex it
+#: shares with airside — ``[emit.solve] hard_tol_m``, the same value the
+#: solve HOLDS a hard row at.  Read from the engine's own law where it is
+#: importable; the bare-patch CLI keeps the shipped value.
+try:                                                    # pragma: no cover
+    from auto_patch_v2.law import tables as _V2_TABLES
+    _HARD_TOL_M = float(_V2_TABLES.load_default().tables.emit.design.hard_tol_m)
+except Exception:                                       # pragma: no cover
+    _HARD_TOL_M = 0.02
+
+
 #: §16g (10) (3): the sidecar key the declared defect set arrives on.
 _PAD_CLUSTER_MISMATCH_KEY = "pad_cluster_mismatch"
 
@@ -8186,6 +8303,13 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("pad_cluster_mismatch",
      "PAD <-> CLUSTER MISMATCH (a pad spanning two clusters, or a cluster "
      "spanning two pads)", "within"),
+    # §16g (10) (6) THE PAD WELDS TO THE AIRSIDE (owner RULINGS
+    # 2026-09-14ai).  Computed FROM THE PATCH (node identity), not
+    # declared: the shared-edge population is recoverable from the
+    # emitted rings, so no sidecar key is needed.
+    ("pad_airside_weld",
+     "PAD SHARING AN EDGE WITH AIRSIDE pulled OUT OF PLANE at that edge",
+     "within"),
     # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
     # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
     # above it: the accepted rects arrive as ``eat_rects`` and this prices
@@ -10719,6 +10843,18 @@ def run_checks(
         f"not evidenced by its geometry)",
         basin_declaration, top_n)
     within = within + basin_declaration
+
+    weld_rows = _fam("pad_airside_weld",
+                     _check_pad_airside_weld(ways, nodes, ll_to_m,
+                                             _HARD_TOL_M))
+    _pv("PAD SHARING AN EDGE WITH AIRSIDE pulled OUT OF PLANE at that "
+        "edge (owner RULINGS 2026-09-14ai: \"all pads sharing an edge "
+        "with airside must weld smoothly to the airside\" — the airside "
+        "is the datum and never yields, so a pad that cannot BE A PLANE "
+        "while meeting its shared edge is named with that edge; the step "
+        "across the weld is 0 by construction and is not what this "
+        "measures)", weld_rows, top_n)
+    within = within + weld_rows
 
     pcm_rows = _fam("pad_cluster_mismatch",
                     _check_pad_cluster_mismatch(pad_cluster_mismatch))

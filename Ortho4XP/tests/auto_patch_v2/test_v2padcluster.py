@@ -29,9 +29,12 @@ from test_v2connector import (_blk, _chain, _lat, _PMember, _PPart,  # noqa: E40
                              _PPlan, _PUnit)
 
 
-def _part(pid, la0, la1, *, base_y=0.0, footed=True, lo0=-3.0000, lo1=-2.9990):
+def _part(pid, la0, la1, *, base_y=0.0, footed=True, height=9.0,
+          lo0=-3.0000, lo1=-2.9990):
     p = _PPart(pid, _blk(la0, la1, lo0, lo1))
     p.base_y = base_y
+    #: §16g (10) (4): the component's own SOLID HEIGHT
+    p.height_m = height
     # a GROUND-CONTACT component is one the plan gave FEET; an ELEVATED
     # one has none (``model/rebake.Part.feet``)
     p.feet = ((p.lat, p.lon, base_y),) if footed else ()
@@ -257,3 +260,154 @@ def test_16g_10_3_the_mismatch_family_is_registered_and_priced():
     assert rows[0].way_a.ref.startswith("pad_spans_clusters:building7")
     assert (rows[0].lat, rows[0].lon) == (30.1, 31.4)
     assert all(r.way_a.tags["role"] == "object_pad" for r in rows)
+
+
+# ── (4) WHAT CHAINS ─────────────────────────────────────────────────────
+
+def test_16g_10_4_a_thin_body_is_a_LEAF_and_links_nothing():
+    """§16g (10) (4) (owner RULINGS 2026-09-14ah): only a WALLED body
+    links a cluster.
+
+    MEASURED at HECA before the rule: two single-component `T3_4.obj`
+    plates authored 15.73 m up with **0.00 m of solid extent** carried
+    1,822 and 1,772 of the T3 district's 9,333 touch edges, and
+    `concrete_3.obj` (one component, 17,383 m2, extent 0.00) carried 219
+    — the district was ONE cluster of 9,334 bodies because its buildings
+    are joined by the FLOOR between them.
+
+    The fixture is that shape: two walled blocks 20 m apart, bridged by a
+    slab that touches both."""
+    a = _PMember("objects/a.obj", [_part(1, _lat(0), _lat(40), height=8.0)])
+    slab = _PMember("objects/slab.obj",
+                    [_part(2, _lat(40), _lat(60), height=0.2)])
+    b = _PMember("objects/b.obj", [_part(3, _lat(60), _lat(100), height=9.0)])
+    plan = _plan([a, slab, b])
+    # disarmed: the slab bridges and all three are ONE cluster
+    one = plan_clusters(plan, TOUCH, chain_min_height_m=0.0)
+    assert len(one) == 1 and one[0].bodies == 3, [(q.id, q.bodies) for q in one]
+    # armed: the slab is a LEAF and the two buildings are two clusters
+    got = plan_clusters(plan, TOUCH, chain_min_height_m=2.5)
+    assert len(got) == 3, [(q.id, q.bodies, q.walled) for q in got]
+    assert sorted(q.bodies for q in got) == [1, 1, 1]
+    assert sorted(q.walled for q in got) == [0, 1, 1]
+
+
+def test_16g_10_4_a_deck_member_is_a_LEAF_however_tall_it_is():
+    """The other half of (4): a body the object stage already classes as
+    a DECK (``Member.deck_kind``) is a leaf whatever its solid height —
+    the ruling names "deck" beside the height test, and a bridge deck
+    standing 9 m proud is not a wall between two buildings."""
+    a = _PMember("objects/a.obj", [_part(1, _lat(0), _lat(40), height=8.0)])
+    deck = _PMember("objects/deck.obj",
+                    [_part(2, _lat(40), _lat(60), height=9.0)])
+    deck.deck_kind = "signature"
+    b = _PMember("objects/b.obj", [_part(3, _lat(60), _lat(100), height=9.0)])
+    got = plan_clusters(_plan([a, deck, b]), TOUCH, chain_min_height_m=2.5)
+    assert len(got) == 3, [(q.id, q.bodies, q.walled) for q in got]
+
+
+def test_16g_10_4_a_plan_with_no_height_does_not_apply_the_rule_and_says_so():
+    """A plan written before ``Part.height_m`` carries no solid height,
+    and reading that as "every body is thin" would leave the airport with
+    NO cluster at all and say nothing.  The rule is not applied and the
+    pass REPORTS it — the same discipline `_clusters` keeps for a plan
+    with no footprint rings."""
+    a = _PMember("objects/a.obj", [_part(1, _lat(0), _lat(40), height=0.0)])
+    b = _PMember("objects/b.obj", [_part(2, _lat(40), _lat(80), height=0.0)])
+    c = {}
+    got = plan_clusters(_plan([a, b]), TOUCH, chain_min_height_m=2.5, counts=c)
+    assert len(got) == 1 and got[0].bodies == 2      # the rule stood down
+    assert c["cluster_no_height"] == 1 and c["cluster_leaf_bodies"] == 0
+
+
+# ── (5) A DERIVED PAD NEVER TAKES AIRSIDE GROUND ────────────────────────
+
+def test_16g_10_5_the_pad_is_clipped_by_airside_and_a_pad_wholly_on_it_is_dropped():
+    """§16g (10) (5) (owner RULINGS 2026-09-14ah): the pad polygon is the
+    cluster's outline CLIPPED by every airside face, and a cluster wholly
+    on airside pavement gets NO pad — its bodies seat on the pavement.
+
+    MEASURED without it (lane round 2): 502,561 m2 of new hard flat pad,
+    94,795 m2 of it taken out of the apron, moved 13,637 of 21,534
+    airside vertices — the runway itself 1,110 of 3,426, worst 4.38 m."""
+    from shapely.geometry import box as _sbox
+    from auto_patch_v2.geom import cluster_outlines
+    apron = _sbox(20.0, 0.0, 200.0, 40.0)          # the "airside"
+    half = _Cl("unit:0#0", [_sq(0.0, 0.0, 40.0, 40.0)])
+    onit = _Cl("unit:0#1", [_sq(60.0, 0.0, 100.0, 40.0)])
+    ident = lambda lo, la: (float(lo), float(la))   # noqa: E731
+    free, c0 = cluster_outlines([half, onit], ident, 0.0)
+    assert len(free) == 2 and c0["on_airside"] == 0
+    got, counts = cluster_outlines([half, onit], ident, 0.0, airside=apron)
+    assert counts["on_airside"] == 1 and counts["clipped"] == 1
+    assert [cid for cid, _c, _g in got] == ["unit:0#0"]
+    assert round(got[0][2].area) == 800            # 0..20 of a 40 x 40
+    assert got[0][2].intersection(apron).area == 0.0
+
+
+def test_16g_10_5_a_cluster_in_two_pieces_is_SPLIT_at_the_pieces():
+    """§16g (10) (5): "a cluster whose outline is in more than one piece
+    is SPLIT at the pieces (each a cluster with its own pad)" — the lever
+    round 2 named and did not arm.  Its 41 residual
+    ``cluster_spans_pads`` rows were exactly this class.
+
+    Each piece takes ``<cluster id>/<k>``; a cluster in ONE piece keeps
+    its own id, so nothing renames where the rule does not bite."""
+    from auto_patch_v2.geom import cluster_outlines
+    ident = lambda lo, la: (float(lo), float(la))   # noqa: E731
+    apart = _Cl("unit:0#0", [_sq(0.0, 0.0, 40.0, 40.0),
+                             _sq(900.0, 0.0, 940.0, 40.0)])
+    got, counts = cluster_outlines([apart], ident, 0.5)
+    assert [cid for cid, _c, _g in got] == ["unit:0#0/0", "unit:0#0/1"]
+    assert counts["still_in_pieces"] == 1
+    one = _Cl("unit:0#1", [_sq(0.0, 0.0, 40.0, 40.0)])
+    got2, _c2 = cluster_outlines([one], ident, 0.5)
+    assert [cid for cid, _c, _g in got2] == ["unit:0#1"]
+
+
+# ── (6) THE PAD WELDS TO THE AIRSIDE ────────────────────────────────────
+
+def test_16g_10_6_pad_airside_weld_is_registered_and_prices_the_plane():
+    """§16g (10) (6) (owner RULINGS 2026-09-14ai): a pad sharing an edge
+    with airside is pulled to the airside's level there — the airside is
+    the datum and never yields — so what can fail is the pad being unable
+    to BE A PLANE at that edge.  The step ACROSS the weld is 0 by
+    construction (09-01g: contact = value, one node one value), which is
+    why this prices the pad's own plane residual at the SHARED vertices.
+
+    Computed from the PATCH by node identity, so the twin is over the
+    check itself: a flat pad welded to a flat apron reports nothing; the
+    same pad with one shared corner pulled 0.5 m reports one row naming
+    the airside way."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import check_grade as cg
+
+    assert "pad_airside_weld" in {k for k, _t, _b in cg.LAW_FAMILIES}
+
+    nodes = {"1": (0.0000, 0.0000), "2": (0.0000, 0.0004),
+             "3": (0.0004, 0.0004), "4": (0.0004, 0.0000),
+             "5": (0.0000, 0.0008), "6": (0.0004, 0.0008)}
+
+    def ll(lat, lon):
+        return (lon * 111320.0, lat * 110540.0)
+
+    def pad(zs):
+        return cg.Way("w1", "building", "building1", "", ["1", "2", "3", "4"],
+                      list(zs), {"role": "building"})
+    apron = cg.Way("w2", "apron", "apronA", "", ["2", "5", "6", "3"],
+                   [10.0, 10.0, 10.0, 10.0], {"role": "apron"})
+    flat = cg._check_pad_airside_weld([pad([10.0] * 4), apron], nodes, ll,
+                                      0.02)
+    assert flat == []
+    # the shared edge is nodes 2 and 3; pull node 2 half a metre
+    bent = cg._check_pad_airside_weld(
+        [pad([10.5, 10.0, 10.0, 10.0]), apron], nodes, ll, 0.02)
+    assert len(bent) == 1, bent
+    assert bent[0].way_a.ref.startswith("building1 -> apronA")
+    assert bent[0].de_m > 0.02
+    # a pad sharing NOTHING with airside is never a row
+    lone = cg.Way("w3", "building", "building9", "",
+                  ["1", "4"], [10.0, 10.0], {"role": "building"})
+    assert cg._check_pad_airside_weld([lone], nodes, ll, 0.02) == []

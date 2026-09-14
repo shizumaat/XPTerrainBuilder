@@ -41,9 +41,14 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      to_xy: _t.Callable[[float, float], tuple[float, float]],
                      touch_m: float,
                      simplify_m: float = OUTLINE_SIMPLIFY_M,
-                     ) -> "tuple[list[tuple[_t.Any, Polygon]], dict[str, int]]":
-    """``([(cluster, its pad polygon), ...], counts)`` in the planar
-    frame's metres — one entry per PIECE a cluster's pad is in.
+                     airside=None,
+                     ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
+    """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
+    planar frame's metres — one entry per PIECE, and each PIECE IS ITS
+    OWN CLUSTER (§16g (10) (5)): a cluster whose outline falls into more
+    than one piece is SPLIT at the pieces and each carries the id
+    ``<cluster id>/<k>``.  A cluster in one piece keeps its own id, so
+    nothing renames at an airport where the rule does not bite.
 
     THE RULES, in order, each MEASURED on HECA's closing arm:
 
@@ -74,10 +79,23 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        which is what §13 / §16a already say of an elevated body and its
        carrier.
 
-    ``touch_m <= 0`` disarms the close (rule 2) and leaves the raw union.
+    4. A DERIVED PAD NEVER TAKES AIRSIDE GROUND (§16g (10) (5), owner
+       RULINGS 2026-09-14ah).  ``airside`` — the union of every airside
+       face (the runway family, the taxi family and the apron) — is
+       SUBTRACTED from every outline, and a cluster whose outline lies
+       wholly on airside pavement gets NO pad at all (counted
+       ``on_airside``): its bodies seat on the pavement.  MEASURED
+       without it (lane round 2): 502,561 m2 of new hard flat pad, of
+       which 94,795 m2 came out of the apron, moved 13,637 of 21,534
+       airside vertices, the runway itself 1,110 of 3,426 and worst
+       4.38 m.  Airside is king, and §30 (4)'s own owner clause is "as
+       long as it remains feasible with grade laws and taxiways".
+
+    ``touch_m <= 0`` disarms the close (rule 2); ``airside=None``
+    disarms the clip (rule 4).
     """
     counts = {"clusters": len(clusters), "no_rings": 0, "over_another": 0,
-              "still_in_pieces": 0, "pads": 0}
+              "still_in_pieces": 0, "on_airside": 0, "clipped": 0, "pads": 0}
     if not clusters:
         return [], counts
     order = sorted(
@@ -85,7 +103,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         key=lambda i: (min(getattr(clusters[i], "floors", ()) or (0.0,)),
                        -float(getattr(clusters[i], "area_m2", 0.0)),
                        str(getattr(clusters[i], "id", i))))
-    out: list[tuple[_t.Any, Polygon]] = []
+    out: list[tuple[str, _t.Any, Polygon]] = []
     taken: list[Polygon] = []
     for i in order:
         c = clusters[i]
@@ -110,6 +128,16 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         if u.is_empty:
             counts["no_rings"] += 1
             continue
+        if airside is not None and not airside.is_empty and u.intersects(airside):
+            before = u.area
+            u = u.difference(airside)
+            if u.is_empty or u.area <= 0.0:
+                counts["on_airside"] += 1        # it seats on the pavement
+                continue
+            if u.area < before:
+                counts["clipped"] += 1
+            if not u.is_valid:
+                u = u.buffer(0.0)
         hit = [g for g in taken if g.intersects(u)]
         if hit:
             u = u.difference(unary_union(hit))
@@ -118,8 +146,10 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
             counts["over_another"] += 1
             continue
         counts["still_in_pieces"] += len(pieces) - 1
-        for piece in pieces:
-            out.append((c, piece))
+        cid = str(getattr(c, "id", i))
+        pieces.sort(key=lambda g: (round(g.bounds[1], 3), round(g.bounds[0], 3)))
+        for k, piece in enumerate(pieces):
+            out.append((cid if len(pieces) == 1 else f"{cid}/{k}", c, piece))
             taken.append(piece)
     counts["pads"] = len(out)
     return out, counts

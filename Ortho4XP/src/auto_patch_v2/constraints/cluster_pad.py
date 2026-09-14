@@ -70,12 +70,51 @@ NO_OUTLINE: list[str] = []
 #: mismatch census).  A two-entry memo keyed on the airport object keeps
 #: it ONE derivation in fact as well as in law — the same shape
 #: ``planar/cluster._MEMO`` uses for the clusters themselves.
-_POLY_MEMO: list[tuple[int, _t.Any, float, list]] = []
+_POLY_MEMO: list[tuple[int, _t.Any, _t.Any, list]] = []
+
+
+def airside_union(planar: PlanarMap, law: Law):
+    """§16g (10) (5): the union of every AIRSIDE face of the emitted map —
+    the runway family, the taxi family and the apron, straight off
+    ``law.tables.rolled_on_roles`` so a new pavement role joins it with no
+    code change.
+
+    This is the design surface's OWN reading of the same region
+    ``classify/evidence`` clipped the pads out of at mint time (there, the
+    apt.dat runway slabs and 110 pages): the pads were cut from it, so
+    pad and airside tile the same ground and the two readings agree where
+    it matters.  Memoised per planar map — the census and the offsets
+    both ask."""
+    key = id(planar)
+    for k, pm, got in _AIRSIDE_MEMO:
+        if k == key and pm is planar:
+            return got
+    from shapely.ops import unary_union
+    vw = view(planar, law)
+    ps: list[Polygon] = []
+    for f in vw.faces_of_role(tuple(sorted(rolled_on_roles(law)))):
+        ring = vw.rings[f.id]
+        if len(ring) < 3:
+            continue
+        g = Polygon([vw.xy[v] for v in ring],
+                    [[vw.xy[v] for v in h] for h in vw.holes[f.id]
+                     if len(h) >= 3])
+        if not g.is_valid:
+            g = g.buffer(0.0)
+        if not g.is_empty and g.area > 0.0:
+            ps.append(g)
+    got = unary_union(ps) if ps else None
+    _AIRSIDE_MEMO.append((key, planar, got))
+    del _AIRSIDE_MEMO[:-2]
+    return got
+
+
+_AIRSIDE_MEMO: list[tuple[int, _t.Any, _t.Any]] = []
 
 
 def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
-                  law_touch: float | None = None
-                  ) -> list[tuple[_t.Any, Polygon]]:
+                  law_touch: float | None = None, airside=None
+                  ) -> list[tuple[str, _t.Any, Polygon]]:
     """§30 (4): each CLUSTER carried on ``Airport.clusters``
     (``planar/cluster.py``, computed once at load beside the pack
     partition and the groups) with its FOOTPRINT UNION as one plan
@@ -109,22 +148,24 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
         return []
     touch = float(law_touch) if law_touch is not None else 0.0
     got = counts = None
+    akey = id(airside)
     for k, ap, t0, cached in _POLY_MEMO:
-        if k == id(airport) and ap is airport and t0 == touch:
+        if k == id(airport) and ap is airport and t0 == (touch, akey):
             got, counts = cached, {}
             break
     if got is None:
         to_xy, _to_ll = airport.frame.transformers()
-        got, counts = cluster_outlines(cl, to_xy, touch)
-        _POLY_MEMO.append((id(airport), airport, touch, got))
+        got, counts = cluster_outlines(cl, to_xy, touch, airside=airside)
+        _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
     if counts.get("no_rings"):
-        NO_OUTLINE.extend(str(c.id) for c in cl if not (getattr(c, "rings", ()) or ()))
-    out: list[tuple[_t.Any, Polygon]] = []
-    for c, g in got:
+        NO_OUTLINE.extend(str(c.id) for c in cl
+                          if not (getattr(c, "rings", ()) or ()))
+    out: list[tuple[str, _t.Any, Polygon]] = []
+    for cid, c, g in got:
         if min_m2 > 0.0 and float(getattr(c, "area_m2", 0.0)) < min_m2:
             continue
-        out.append((c, g))
+        out.append((cid, c, g))
     return out
 
 
@@ -182,7 +223,8 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
     got: dict[str, list[int]] = {}
     by_ref: dict[str, list[str]] = {}
     yielded: dict[str, tuple[int, ...]] = {}
-    pairs = cluster_polys(airport, min_m2, _touch_m(law))
+    pairs = cluster_polys(airport, min_m2, _touch_m(law),
+                          airside_union(planar, law))
     if not pairs:
         return got, by_ref, yielded
     polys = _pad_polys(planar, law)
@@ -190,7 +232,7 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
         return got, by_ref, yielded
     tree = STRtree([p[3] for p in polys])
     seen: set[tuple[str, str]] = set()
-    for c, u in pairs:
+    for cid, c, u in pairs:
         keep: list[int] = []
         clipped: list[int] = []
         for i in tree.query(u, predicate="intersects"):
@@ -199,17 +241,15 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
                 continue
             if poly.intersection(u).area >= _OWN_FACE_SHARE * poly.area:
                 keep.append(int(fid))
-                if (c.id, str(ref)) not in seen:
-                    seen.add((c.id, str(ref)))
-                    by_ref.setdefault(str(ref), []).append(c.id)
+                if (cid, str(ref)) not in seen:
+                    seen.add((cid, str(ref)))
+                    by_ref.setdefault(str(ref), []).append(cid)
             else:
                 clipped.append(int(fid))
         if clipped:
-            yielded.setdefault(c.id, ())
-            yielded[c.id] = tuple(sorted(set(yielded[c.id]) | set(clipped)))
+            yielded[cid] = tuple(sorted(set(yielded.get(cid, ())) | set(clipped)))
         if keep:
-            got.setdefault(c.id, [])
-            got[c.id] = sorted(set(got[c.id]) | set(keep))
+            got[cid] = sorted(set(got.get(cid, ())) | set(keep))
     return got, by_ref, yielded
 
 
@@ -590,31 +630,31 @@ def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
         return {}
     touch = float(law.tables.structures.placement.footprint_touch_m)
     split = float(law.tables.structures.placement.floor_split_m)
-    pairs = cluster_polys(airport, 0.0, touch)
+    pairs = cluster_polys(airport, 0.0, touch, airside_union(planar, law))
     if len(pairs) < 2:
         return {}
     floor_of: dict[str, float] = {}
-    for c, _u in pairs:
+    for cid, c, _u in pairs:
         fl = [f for f in (getattr(c, "floors", ()) or ())]
         if not fl:
             continue
-        floor_of[c.id] = min(fl)
+        floor_of[cid] = min(fl)
         if split > 0.0 and max(fl) - min(fl) > split:
-            OFFSET_SPREAD[c.id] = round(max(fl) - min(fl), 3)
-    tree = STRtree([u for _c, u in pairs])
-    for i, (c, u) in enumerate(pairs):
-        if c.id not in floor_of:
+            OFFSET_SPREAD[cid] = round(max(fl) - min(fl), 3)
+    tree = STRtree([u for _i, _c, u in pairs])
+    for i, (cid, c, u) in enumerate(pairs):
+        if cid not in floor_of:
             continue
         for j in tree.query(u.buffer(touch), predicate="intersects"):
             j = int(j)
             if j <= i:
                 continue
-            d, v = pairs[j]
-            if d.id not in floor_of or u.distance(v) > touch:
+            did, _d, v = pairs[j]
+            if did not in floor_of or u.distance(v) > touch:
                 continue
-            step = round(floor_of[d.id] - floor_of[c.id], 3)
+            step = round(floor_of[did] - floor_of[cid], 3)
             if abs(step) > 0.0:
-                TOUCHING_STEPS[(c.id, d.id)] = step
+                TOUCHING_STEPS[(cid, did)] = step
     return {}
 
 

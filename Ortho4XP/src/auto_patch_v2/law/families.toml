@@ -126,6 +126,22 @@ ruling    = "2026-09-14x"
 solver    = "construction"
 cockpit   = "keepout"
 
+# §16g (10) (6) THE PAD WELDS TO THE AIRSIDE (owner RULINGS 2026-09-14ai,
+# verbatim: "be sure all pads sharing an edge with airside must weld
+# smoothly to the airside").  CRITICAL.  Computed FROM THE PATCH by node
+# identity — the step across a welded edge is 0 by construction (09-01g,
+# contact = value), so what is priced is the pad being pulled OUT OF
+# PLANE at the vertices it shares with airside: the airside is the datum
+# and never yields.
+[pad_airside_weld]
+measures  = "a `building` pad's own plane residual at the vertices it shares with an airside face"
+parameter = "emit.design.hard_tol_m"
+roles     = ["object_pad"]
+pairs     = "within"
+ruling    = "2026-09-14ai"
+solver    = "edge"
+cockpit   = "step"
+
 [basin_floor_declaration]
 measures  = "a basin facility floor disagreeing with its own body depth"
 parameter = "structures.basin.floor"

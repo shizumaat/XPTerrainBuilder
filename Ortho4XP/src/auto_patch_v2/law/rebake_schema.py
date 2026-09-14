@@ -225,6 +225,19 @@ class Placement:
     #: the matched BASE ARM of this law's measurement.
     pad_from_cluster: bool = True
 
+    #: §16g (10) (4) WHAT CHAINS (owner RULINGS 2026-09-14ah): only a
+    #: WALLED body links a cluster.  A body whose tallest component's
+    #: SOLID HEIGHT (``Part.height_m``) is under this — a floor slab, a
+    #: plate, a deck, a canopy, a road, an apron object — is a LEAF: it is
+    #: seated on its own ground or its carrier and is NEVER a link between
+    #: two walled bodies.  MEASURED at HECA: two single-component
+    #: ``T3_4.obj`` plates authored 15.73 m up, solid extent 0.00 m,
+    #: carried 1,822 and 1,772 of the T3 district's 9,333 touch edges, and
+    #: the district came out as ONE cluster of 9,334 bodies / 541,200 m2.
+    #: 2.5 m is a storey: below it nothing can have walls.  0 disarms the
+    #: rule and every body chains, as it did before 14ah.
+    chain_min_height_m: float = 2.5
+
     #: §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): "very long
     #: connecting pieces like the elevated rail at HECA which would
     #: require two buildings kilometers apart to be at the same

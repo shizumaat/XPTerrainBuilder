@@ -446,7 +446,7 @@ def _trim_leadins(chains: list[Chain], airport: Airport, rules: Rules
 CLUSTER_PADS: dict[str, object] = {}
 
 
-def _cluster_pads(airport: Airport, law) -> list[Polygon]:
+def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     """§16g (10) (2): ONE pad polygon per CLUSTER — the union of its
     member bodies' footprint rings (``PlanCluster.rings``, the §16g (7)
     (1) outlines), in the planar frame's metres.
@@ -491,11 +491,11 @@ def _cluster_pads(airport: Airport, law) -> list[Polygon]:
         CLUSTER_PADS.update(disarmed=True, clusters=len(cl))
         return []
     to_xy, _to_ll = airport.frame.transformers()
-    got, counts = cluster_outlines(cl, to_xy,
-                                   float(st.footprint_touch_m))
+    got, counts = cluster_outlines(cl, to_xy, float(st.footprint_touch_m),
+                                   airside=airside)
     CLUSTER_PADS.update(counts)
-    CLUSTER_PADS["area_m2"] = round(sum(g.area for _c, g in got), 1)
-    return [g for _c, g in got]
+    CLUSTER_PADS["area_m2"] = round(sum(g.area for _i, _c, g in got), 1)
+    return [g for _i, _c, g in got]
 
 
 
@@ -545,7 +545,17 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
         p = polygon_from(b.outer, b.holes)
         if p is not None and p.area > 0:
             polys.append(p)
-    cluster_pads = _cluster_pads(airport, law)
+    # §16g (10) (5) A DERIVED PAD NEVER TAKES AIRSIDE GROUND (owner
+    # RULINGS 2026-09-14ah).  At EVIDENCE time the airside is what the
+    # apt.dat surface says it is — the runway slabs and every 110
+    # pavement page — which is exactly the population the roles are
+    # scored from; a pad is clipped out of all of it.  Round 2 measured
+    # the alternative: 94,795 m2 of apron taken by pads moved 13,637
+    # airside vertices through 09-01g's weld.
+    _airside = unary_union([g for g in (runway_union, pavement_union)
+                            if g is not None and not g.is_empty])
+    cluster_pads = _cluster_pads(airport, law,
+                                 None if _airside.is_empty else _airside)
     if cluster_pads:
         # the FALLBACK half: only the footprints no cluster covers
         cu = unary_union(cluster_pads)

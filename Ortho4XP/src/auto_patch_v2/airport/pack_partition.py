@@ -662,7 +662,14 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
                  round(p.base_y, 3), round(p.area_m2, 3),
                  (round(float(min(a0, a1)), 8), round(float(min(o0, o1)), 8),
                   round(float(max(a0, a1)), 8), round(float(max(o0, o1)), 8)),
-                 feet, bool(p.line), rings))
+                 feet, bool(p.line), rings,
+                 # §16g (10) (4) (owner RULINGS 2026-09-14ah): the
+                 # component's own SOLID HEIGHT, which is what says
+                 # whether it has WALLS.  Already measured here —
+                 # ``PlacedPart.box_max`` is the authored xyz maximum —
+                 # and written so the design surface can read it off the
+                 # plan without opening the pack.
+                 round(float(p.box_max[1]) - float(p.base_y), 3)))
     return out
 
 

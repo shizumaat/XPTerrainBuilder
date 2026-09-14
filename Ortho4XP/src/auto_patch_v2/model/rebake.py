@@ -102,6 +102,18 @@ class Part:
     #: plan written before the field, and the reader then falls back to
     #: ``box`` and SAYS SO.
     rings: tuple[tuple[tuple[float, float], ...], ...] = ()
+    #: §16g (10) (4) WHAT CHAINS (owner RULINGS 2026-09-14ah): this
+    #: component's own SOLID HEIGHT — the authored ``y`` extent of its
+    #: geometry, ``box_max[y] - base_y``.  A body whose tallest component
+    #: is under ``[placement] chain_min_height_m`` is a THIN body (a floor
+    #: slab, a plate, a deck, a canopy, an apron object) and is a LEAF of
+    #: the cluster chain: it is seated, but it never links two walled
+    #: bodies.  MEASURED at HECA: two single-component ``T3_4.obj`` plates
+    #: authored 15.73 m up, extent 0.00 m, carried 1,822 and 1,772 of the
+    #: T3 district's 9,333 touch edges between them.  0.0 in a plan
+    #: written before the field, and the reader then SAYS SO rather than
+    #: reading every body as thin.
+    height_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -289,7 +301,8 @@ class RebakePlan:
                     "heading_deg": m.heading_deg,
                     "parts": [[p.pid, p.comp, p.lat, p.lon, p.base_y, p.area_m2, *p.box,
                                [list(f) for f in p.feet], p.line,
-                               [[list(v) for v in r] for r in p.rings]]
+                               [[list(v) for v in r] for r in p.rings],
+                               p.height_m]
                               for p in m.parts],
                     "deck_ring": None if m.deck_ring is None
                     else [[a, b] for a, b in m.deck_ring],
@@ -339,7 +352,8 @@ class RebakePlan:
                                  tuple((float(a), float(b), float(c))
                                        for a, b, c in (p[10] if len(p) > 10 else ())),
                                  bool(p[11]) if len(p) > 11 else False,
-                                 _rings(p[12] if len(p) > 12 else ()))
+                                 _rings(p[12] if len(p) > 12 else ()),
+                                 float(p[13]) if len(p) > 13 else 0.0)
                             for p in m.get("parts", ())),
                 deck_ring=None if m.get("deck_ring") is None
                 else tuple((float(a), float(b)) for a, b in m["deck_ring"]),

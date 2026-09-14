@@ -4854,3 +4854,39 @@ questions 13de), KCLT tile (owner's DEM refresh).
   ~14–15 min (partition ~330 s) + mesh ~1 min + object stage ~1 min;
   HECA patch ~9 min + 1.5 min + ~1.5 min. HECA's patch stays ~2× 1.0.329
   by §42 (13dj) until the owner's read rules on it.
+
+## 2026-09-14j v2connector round 3 MERGED (3a5b9f86): the deck lift is gone (1,489 bodies at 96.20 → 0); two misses ruled into round 4
+
+Lane `v2connector` @ a191b26e; HECA build `HECA_20260914T083816` (ledger
+fd20ddfd334c, 507 s). Units chain on the FOOTPRINT POLYGON — the
+component's plan CONVEX HULL from the placed triangles at partition
+time (`Part.ring`, ≤ 16 vertices, no second OBJ8 parse; boxes stay the
+cheap superset and the fallback for plans without rings —
+`unit_chain_no_polygon` 3,701 of 24,165 at HECA, degenerate hulls). DECK
+GUARD: a deck lends only to bodies whose polygons touch it, a connector
+never lends; `plan_unit_datums` no longer takes a deck for a unit. Units
+177 → 304; bodies at 96.20 1,489 → **0**; bodies with a deck seat 956 →
+0. `placement_contact.py` split out (909 + 268 lines);
+`tools/pad_span_census.py` promoted (+ INDEX row, twin). Suite 1,387.
+
+* MISSED (1): units whose pads span > 1 m 17 → 20 (891 bodies; worst
+  `fu:38:23@cluster_pad` 24 pads / 581 bodies / 29.56 m) — the convex
+  hull bridges concave notches (an L-shaped or courtyard terminal's hull
+  swallows the gap). RULING: attempt 2 of §16g (7) (1) is the TRUE
+  OUTLINE — the union of the projected triangles (concave), at the one
+  derivation site `contact.plan_hull`; simplify to ≤ N vertices
+  conservatively (outward).
+* MISSED (2): the rail `concrete_3.obj` b1 seated 93.16 (the SOUTH end)
+  because only one end produces a contact datum and `min` had nothing to
+  choose. RULING (§16g (7) (2) clarified, the owner's words "disappears
+  into the ground on the high side"): a connector end with no pad/deck
+  contact takes the TERRAIN under that end (the design surface / DEM at
+  the end's feet); the seat is the LOWER of the two end datums so
+  computed. Attempt cap reset for this rule by the ruling.
+* Cost 6.5 → 21.7 s at HECA (`plan_units_and_connectors`; the polygon
+  rejects pairs the boxes admitted) — accepted under the 60 s bar.
+* Deviation accepted: "removed from the unit chain" is implemented at
+  the SEAT (own seat, lends nothing), not as a re-partition.
+* Unverified this round: the seven buildings and the terminal
+  individually; SPJC/KCLT/OTHH/LEMD (their registered plans predate the
+  `ring` field — a rebuild puts the law in reach; the 1.0.333 sweep).

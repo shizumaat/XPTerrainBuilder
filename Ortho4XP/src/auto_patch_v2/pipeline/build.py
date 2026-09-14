@@ -33,7 +33,8 @@ from ..constraints.runway_profile import RUNWAY_FAMILY
 from ..emit.bank import BankReport, with_bank
 from ..emit.terrain_edge import with_terrain_edges
 from ..emit.graded import graded_surface
-from ..emit.osm_adapter import PatchPaths, write_patch, write_tile_pieces
+from ..emit.osm_adapter import (PatchPaths, WeldReport, shore_edges_of,
+                                weld_to_shore, write_patch, write_tile_pieces)
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
@@ -800,6 +801,19 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         surf_out = with_terrain_edges(surf_out, pm, law)
         _say(brep.line(icao), out)
         report["bank"] = _dc.asdict(brep)
+        # §39 (1) THE HAIRLINE LAW / THE SHORE WELD (owner RULINGS
+        # 2026-09-13bk): the LAST thing done to the surface before it is
+        # written, at the one site every ring passes through.  No emitted
+        # vertex may stand beside a foreign constrained edge; where the
+        # bank followed the water line it now SHARES the water's own
+        # vertices.  The edges are published so the ``hairline_pair``
+        # census prices exactly the population the weld ran against.
+        wrep = WeldReport()
+        shore = shore_edges_of(airport.dem, surf_out)
+        surf_out = weld_to_shore(surf_out, law, shore, wrep)
+        _say(wrep.line(icao), out)
+        report["shore_weld"] = _dc.asdict(wrep)
+        pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
         paths = write_patch(surf_out, law, out_dir, pub, header,
                             face_tags(pm, law, airport))
         if pm.seam_vertices:

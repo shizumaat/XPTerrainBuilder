@@ -8689,6 +8689,109 @@ def test_both_seam_families_carry_a_cockpit_class(cg):
     assert table["bank_across_seam"]["cockpit"] == "keepout"
 
 
+# ── §39 (2) THE HAIRLINE LAW (owner RULINGS 2026-09-13bk) ──────────────
+
+#: The LEMD site, verbatim from the shipped ``Data+40-004.poly`` of app
+#: 1.0.327: the OSM WATER edge (marker 1) and the two TMERC-frame chord
+#: splits the bank foot ring (marker 15) laid on it, 0.0594 mm off the
+#: mesh's own straight line and exactly parallel to it.
+_HAIR_A = (40.47647780, -3.54580410)
+_HAIR_B = (40.47587640, -3.54541440)
+_HAIR_S1 = (40.47627733349, -3.54567419923)
+_HAIR_S2 = (40.47607686682, -3.54554429923)
+
+
+def _hairline_patch(tmp_path, *, name, ring, shore=True):
+    """A four-node apron ring plus a ``bank_foot`` chain over ``ring``,
+    with the tile's foreign water edge published as ``shore_edges``."""
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='hairline-twin'>"]
+    far = [(40.4750, -3.5480), (40.4750, -3.5460),
+           (40.4752, -3.5460), (40.4752, -3.5480)]
+    nid = 0
+    ids_ring, ids_chain = [], []
+    for lat, lon in far:
+        nid -= 1
+        ids_ring.append(nid)
+        out.append(f"  <node id='{nid}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='600.00' /></node>")
+    for lat, lon in ring:
+        nid -= 1
+        ids_chain.append(nid)
+        out.append(f"  <node id='{nid}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='600.00' /></node>")
+    out.append("  <way id='-100'>")
+    out += [f"    <nd ref='{n}' />" for n in ids_ring + [ids_ring[0]]]
+    out += ["    <tag k='role' v='apron' />", "    <tag k='shapeID' v='S1' />"]
+    out.append("  </way>")
+    out.append("  <way id='-101'>")
+    out += [f"    <nd ref='{n}' />" for n in ids_chain]
+    out.append("    <tag k='o4_feature' v='bank_foot' />")
+    out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    side = {"ruleset": "icao", "anchor": [_HAIR_A[0], _HAIR_A[1]]}
+    if shore:
+        side["shore_edges"] = [[_HAIR_A[0], _HAIR_A[1], _HAIR_B[0], _HAIR_B[1]]]
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    return osm
+
+
+def test_the_lemd_hairline_is_priced(cg, tmp_path):
+    """The instrument proves itself on the geometry that made the defect:
+    a bank foot laid on the water line through the tmerc-frame chord
+    splits, 0.0594 mm off it and 0.000 deg from parallel."""
+    fo = _families(cg, _hairline_patch(
+        tmp_path, name="hairline",
+        ring=[_HAIR_A, _HAIR_S1, _HAIR_S2, _HAIR_B]))
+    rows = fo["hairline_pair"]
+    assert rows, ("the LEMD pair — 25 of which made 2.30 M sliver "
+                  "triangles — must price at least one row")
+    assert min(r.distance_m for r in rows) < 5.0e-4, (
+        f"the worst gap read {min(r.distance_m for r in rows):.6f} m, not "
+        f"the sub-millimetre hairline")
+
+
+def test_the_welded_ring_prices_nothing(cg, tmp_path):
+    """§39 (1)'s output: the chord splits gone, the ring SHARING the
+    water edge's own two vertices.  Two edges that share their endpoints
+    are one chain, not a pair."""
+    fo = _families(cg, _hairline_patch(
+        tmp_path, name="welded", ring=[_HAIR_A, _HAIR_B]))
+    assert fo["hairline_pair"] == [], (
+        "a ring welded onto the water's own vertices is the LAWFUL "
+        "shore and must price nothing")
+
+
+def test_a_patch_with_no_shore_key_prices_no_water_row(cg, tmp_path):
+    """A patch predating §39 declares no water witness; the family then
+    prices ring-vs-ring only — v1's own output goes through this reader."""
+    fo = _families(cg, _hairline_patch(
+        tmp_path, name="noshore", shore=False,
+        ring=[_HAIR_A, _HAIR_S1, _HAIR_S2, _HAIR_B]))
+    assert fo["hairline_pair"] == []
+
+
+def test_hairline_pair_is_critical_unconditionally(cg):
+    """§39 (2): a LOAD-TIME and TEXTURE defect, not a height — there is no
+    threshold to price it against and no view test to pass."""
+    import tomllib
+    from pathlib import Path as _P
+    table = tomllib.loads((_P(cg.__file__).resolve().parents[1]
+                           / "src/auto_patch_v2/law/families.toml").read_text())
+    assert table["hairline_pair"]["cockpit"] == "unmeshable"
+    assert "hairline_pair" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    law = cg.cockpit_law(refresh=True)
+    bucket, why = cg.cockpit_classify(
+        "hairline_pair",
+        cg.Violation(grade_pct=0.0, excess_pct=0.0, distance_m=24.8,
+                     de_m=0.4999, way_a=None, way_b=None, pt_a=(0.0, 0.0),
+                     pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0),
+        law=law)
+    assert (bucket, why) == (cg.COCKPIT_VISUAL, "unmeshable")
+
+
 # ── §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be) ─────────
 
 _JOIN_LAT, _JOIN_LON = 35.2077398, -80.9290045     # KCLT way 10826 station 0

@@ -4,6 +4,7 @@ import os
 import pickle
 import subprocess
 import numpy
+import math
 from math import cos, isfinite, pi
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
@@ -62,6 +63,370 @@ if os.path.exists(FNAMES.resource_path("community_server.txt")):
 
 
 ##############################################################################
+####################################################################################
+# §39 (3) THE MESH PRE-FLIGHT — THE HAIRLINE (owner RULINGS 2026-09-13an,
+# 13bk; spec design-surface-spec §39).
+#
+# TWO SIGHTINGS OF ONE CLASS, both of them a constrained edge laid within
+# millimetres of, and parallel to, another:
+#
+#  * SPLP (13an): a ``PATCH_RING_MARKER`` bank-foot segment 0.0237 m east
+#    of and exactly parallel to the TILE BORDER.  Triangle4XP's ``-Y``
+#    forbids Steiner points on the OUTER boundary but not on interior
+#    segments, so every candidate on the bank segment encroaches the
+#    border 2.37 cm away and Triangle split the BANK segment instead —
+#    16,298 times over 1.92 m, 23,994 triangles under 1e-5 m^2: the
+#    texture tear.
+#  * LEMD (13bk): the same bank foot 0.0594-0.2644 mm from the OSM water
+#    edge over 25-131 m, at 0.000 deg.  2,301,676 triangles under 0.1 m^2,
+#    73 % of the tile, DSF 22.0 -> 28.5 MB, and X-Plane would not load it.
+#
+# THE READING is the pair's SLENDERNESS: how many times Triangle must
+# split the shorter segment to fill the wedge, which is its length over
+# the gap.  LEMD's worst pair reads 24.83 m / 0.0000594 m = 418,000;
+# SPLP's reads only 224 and is caught by the boundary clause instead
+# (``-Y`` means the wedge cannot be relieved at all there, at any
+# slenderness).  A pair 0.12-0.50 m apart is ordinary layout — LEMD's own
+# patch carries 367 of those between neighbouring rings — and is
+# REPORTED, never refused: the law here is what the MESHER cannot build,
+# not what the design surface may place.
+#
+# ``O4_HAIRLINE_PREFLIGHT=report`` downgrades the refusal to a warning
+# (this round's experiment knob, removed once the owner has adjudicated
+# the tiles it fires on); ``=off`` skips the audit entirely.
+####################################################################################
+
+#: THE PARALLEL GATE IS WITHDRAWN (owner RULINGS 2026-09-13bu): KCLT's two
+#: cascades stand at 29.08 and 89.20 deg — the catching predicate is
+#: angle-free.  The constant stays only so an old caller fails loudly.
+HAIRLINE_PARALLEL_DEG = None
+#: A node pair, a constrained segment or a bent chord CLOSER than this is
+#: unmeshable whatever its neighbourhood — KCLT 13bu's own bar
+#: ("constrained segments under 10 mm 28 -> 0"), which also catches VMMC's
+#: 0.0124-0.0497 mm triples and leaves the centimetre-scale OSM segments
+#: every real tile carries.  An assumption, named as one.
+HAIRLINE_DEGENERATE_M = 0.010
+#: The identity spacing the law is written against — ``auto_patch_v2``'s
+#: ``emit.identity.min_distinct_spacing_m``, read from the law tables when
+#: they are importable and this constant otherwise (the mesh runs with no
+#: v2 law object in hand).
+HAIRLINE_SPACING_M = 0.5
+#: REFUSE a non-boundary pair whose shorter segment is at least this many
+#: times its own gap: the Steiner cascade Triangle would have to build.
+#: An ASSUMPTION calibrated on the two measured sightings, never a law —
+#: two runs quoted at two thresholds are not comparable.  LEMD's nine
+#: patch/water pairs read 95,714-417,901; its 367 ordinary ring-vs-ring
+#: neighbours 0.12-0.50 m apart read under 500.
+HAIRLINE_SLENDERNESS = 1.0e4
+#: REFUSE a pair against the OUTER BOUNDARY under this gap, whatever its
+#: slenderness: ``-Y`` forbids Steiner points there, so the wedge can only
+#: be relieved by splitting the OTHER segment, and Triangle's encroachment
+#: rule makes that cascade geometric (SPLP 13an: a 5.32 m bank segment
+#: 0.0237 m from the meridian, split 16,298 times).  Also an assumption:
+#: it separates SPLP's 23.7 mm from the harmless 444 mm land segments
+#: every tile carries beside its border.
+HAIRLINE_BOUNDARY_GAP_M = 0.1
+
+
+def _hairline_read_poly(poly_file):
+    """``(nodes, segments)`` of a Triangle ``.poly`` and its ``.node``.
+
+    Both are read in the ``.poly``'s own TILE-RELATIVE DEGREE frame, which
+    is the frame Triangle triangulates in — reading the pair in metres
+    through a projection is the very mistake §39 exists to catch.
+    """
+    node_file = poly_file[:-5] + ".node" if poly_file.endswith(".poly") \
+        else poly_file + ".node"
+
+    def toks(handle):
+        for line in handle:
+            parts = line.split()
+            if parts and not parts[0].startswith("#"):
+                yield parts
+
+    nodes = {}
+    with open(node_file) as handle:
+        gen = toks(handle)
+        count = int(next(gen)[0])
+        for _ in range(count):
+            parts = next(gen)
+            nodes[int(parts[0])] = (float(parts[1]), float(parts[2]))
+    segments = []
+    with open(poly_file) as handle:
+        gen = toks(handle)
+        next(gen)                                    # the ``.node`` reference
+        count = int(next(gen)[0])
+        for _ in range(count):
+            parts = next(gen)
+            segments.append((int(parts[1]), int(parts[2]),
+                             int(parts[3]) if len(parts) > 3 else 0))
+    return nodes, segments
+
+
+def hairline_findings(poly_file, lat, *, spacing_m=HAIRLINE_SPACING_M):
+    """§39 (2)/(3) as AMENDED (owner RULINGS 2026-09-13bt / 13bu) — the
+    FOUR angle-free readings of one ``.poly``, worst first in each.
+
+    THE PARALLEL GATE IS GONE.  The three sightings after SPLP each hid in
+    a topology the 5-degree edge-pair test could not see:
+
+    * LEMD (13bk) — a patch ring edge 0.0595 mm from and 0.000 deg to a
+      water edge: ``vertex_edge``;
+    * VMMC (13bt) — a bank foot laid as a BENT TRIPLE on the OSM sea
+      chord, ``a -> m -> b`` beside ``a -> b``, sharing BOTH endpoints, so
+      every non-adjacent pair test skips it and every parallel test too:
+      ``bent_chord``;
+    * KCLT (13bu) — a bank node 2.7913 mm from a water edge made
+      ``Vector_Map.insert_edge`` SPLIT that edge and mint a node, leaving a
+      2.7913 mm constrained WATER segment (481,602 slivers).  The pair is
+      at 29.08 deg: ``short_segment`` and ``node_pair`` are what catch it.
+
+    Returns ``{node_pairs, short_segments, bent_chords, vertex_edges}``,
+    each a list of dicts carrying ``gap_m`` (the offending distance), the
+    markers, the coordinates and — where a neighbouring constrained
+    feature gives one — ``slenderness`` (that feature's length over the
+    gap: the Steiner cascade Triangle must build).
+    """
+    nodes, segments = _hairline_read_poly(poly_file)
+    m_lat = GEO.lat_to_m
+    m_lon = GEO.lon_to_m(lat + 0.5)
+
+    def xy(nid):
+        x, y = nodes[nid]
+        return (x * m_lon, y * m_lat)
+
+    pts = {nid: xy(nid) for nid in nodes}
+    # only CONSTRAINED nodes are the subject: a free ``.node`` point is
+    # not something Triangle must recover
+    used = {}
+    seg_len = {}
+    adj = {}
+    for idx, (a, b, _mk) in enumerate(segments):
+        pa, pb = pts[a], pts[b]
+        seg_len[idx] = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
+        for nid in (a, b):
+            used.setdefault(nid, []).append(idx)
+        adj.setdefault(a, {})[b] = idx
+        adj.setdefault(b, {})[a] = idx
+
+    def longest_at(nid, skip=()):
+        return max((seg_len[i] for i in used.get(nid, ()) if i not in skip),
+                   default=0.0)
+
+    cell = max(8.0, 16.0 * spacing_m)
+    ngrid = {}
+    for nid in used:
+        p = pts[nid]
+        ngrid.setdefault((int(p[0] // cell), int(p[1] // cell)), []).append(nid)
+    sgrid = {}
+    for idx, (a, b, _mk) in enumerate(segments):
+        pa, pb = pts[a], pts[b]
+        for cx in range(int(min(pa[0], pb[0]) // cell),
+                        int(max(pa[0], pb[0]) // cell) + 1):
+            for cy in range(int(min(pa[1], pb[1]) // cell),
+                            int(max(pa[1], pb[1]) // cell) + 1):
+                sgrid.setdefault((cx, cy), []).append(idx)
+
+    def near_cells(grid, p):
+        cx, cy = int(p[0] // cell), int(p[1] // cell)
+        out = []
+        for ax in (cx - 1, cx, cx + 1):
+            for ay in (cy - 1, cy, cy + 1):
+                out.extend(grid.get((ax, ay), ()))
+        return out
+
+    def d_pt_seg(p, a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = dx * dx + dy * dy
+        t = 0.0 if length <= 0.0 else max(0.0, min(1.0, (
+            (p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length))
+        return math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy))
+
+    def row(nid, gap, mk_a, mk_b, extra_len):
+        return {"gap_m": float(gap), "marker_a": mk_a, "marker_b": mk_b,
+                "lat": nodes[nid][1], "lon": nodes[nid][0],
+                "slenderness": (extra_len / gap) if gap > 0.0 else float("inf")}
+
+    # (a) TWO DISTINCT CONSTRAINED NODES within the spacing, not joined by
+    #     a segment (that case is (b), and is reported there instead)
+    node_pairs = []
+    seen_pair = set()
+    for nid, p in ((n, pts[n]) for n in used):
+        for other in near_cells(ngrid, p):
+            if other == nid:
+                continue
+            key = (nid, other) if nid < other else (other, nid)
+            if key in seen_pair:
+                continue
+            seen_pair.add(key)
+            if other in adj.get(nid, ()):
+                continue
+            q = pts[other]
+            gap = math.hypot(p[0] - q[0], p[1] - q[1])
+            if gap > spacing_m:
+                continue
+            node_pairs.append(row(
+                nid, gap, segments[used[nid][0]][2], segments[used[other][0]][2],
+                max(longest_at(nid), longest_at(other))))
+
+    # (b) A CONSTRAINED SEGMENT SHORTER THAN THE SPACING — two distinct
+    #     vertices the law says may never be that close, and the shape
+    #     Triangle cascades off (KCLT: 2.7913 mm -> 481,602 slivers)
+    short_segments = []
+    for idx, (a, b, mk) in enumerate(segments):
+        if seg_len[idx] >= spacing_m:
+            continue
+        short_segments.append(row(
+            a, seg_len[idx], mk, mk,
+            max(longest_at(a, skip=(idx,)), longest_at(b, skip=(idx,)))))
+
+    # (c) THE DEGENERATE TRIPLE (13bt): a path ``a -> m -> b`` beside the
+    #     chord ``a -> b``.  Zero area by construction, and invisible to
+    #     every non-adjacent pair test — the bank legs SHARE both endpoints
+    bent_chords = []
+    seen_mid = set()
+    for idx, (a, b, mk) in enumerate(segments):
+        pa, pb = pts[a], pts[b]
+        length = seg_len[idx]
+        if length <= 0.0:
+            continue
+        for mid, leg in adj.get(a, {}).items():
+            if mid == b or b not in adj.get(mid, ()):
+                continue
+            pm = pts[mid]
+            dx, dy = pb[0] - pa[0], pb[1] - pa[1]
+            off = abs((pm[0] - pa[0]) * dy - (pm[1] - pa[1]) * dx) / length
+            t = ((pm[0] - pa[0]) * dx + (pm[1] - pa[1]) * dy) / (length * length)
+            if not (0.0 < t < 1.0) or off >= spacing_m:
+                continue
+            key = (mid, a, b) if a < b else (mid, b, a)
+            if key in seen_mid:
+                continue
+            seen_mid.add(key)
+            r = row(mid, off, mk, segments[leg][2], length)
+            r["chord_m"] = length
+            bent_chords.append(r)
+
+    # (d) A CONSTRAINED NODE beside a constrained SEGMENT it is not an
+    #     endpoint of (13bt (1'): THE SUBJECT IS THE VERTEX) — LEMD's class
+    vertex_edges = []
+    for nid, p in ((n, pts[n]) for n in used):
+        best = None
+        for idx in near_cells(sgrid, p):
+            a, b, mk = segments[idx]
+            if nid in (a, b):
+                continue
+            gap = d_pt_seg(p, pts[a], pts[b])
+            if gap > spacing_m:
+                continue
+            if best is None or gap < best[0]:
+                best = (gap, idx, mk)
+        if best is None:
+            continue
+        gap, idx, mk = best
+        r = row(nid, gap, segments[used[nid][0]][2], mk, seg_len[idx])
+        r["on_boundary"] = _hairline_on_boundary(nodes, segments[idx])
+        vertex_edges.append(r)
+
+    for rows in (node_pairs, short_segments, bent_chords, vertex_edges):
+        rows.sort(key=lambda r: r["gap_m"])
+    return {"node_pairs": node_pairs, "short_segments": short_segments,
+            "bent_chords": bent_chords, "vertex_edges": vertex_edges}
+
+
+def _hairline_on_boundary(nodes, seg, tol=1.0e-9):
+    """13an's ``-Y`` clause: the segment lies ON the tile's outer boundary
+    (a tile-relative coordinate of exactly 0 or 1 at both endpoints), where
+    Triangle4XP may place no Steiner point, so a wedge beside it can only
+    be relieved by splitting the OTHER segment."""
+    p, q = nodes[seg[0]], nodes[seg[1]]
+    for axis in (0, 1):
+        for edge in (0.0, 1.0):
+            if abs(p[axis] - edge) < tol and abs(q[axis] - edge) < tol:
+                return True
+    return False
+
+
+def hairline_refusals(findings, *, slenderness=HAIRLINE_SLENDERNESS,
+                      boundary_gap_m=HAIRLINE_BOUNDARY_GAP_M,
+                      degenerate_m=HAIRLINE_DEGENERATE_M):
+    """The UNMESHABLE subset of :func:`hairline_findings`, tagged by kind.
+
+    Two floors, both ASSUMPTIONS calibrated on the four measured sites and
+    named as such (a REPORTING threshold, never a law — two runs quoted at
+    two thresholds are not comparable):
+
+    * ``degenerate_m`` (10 mm, KCLT 13bu's own bar "constrained segments
+      under 10 mm 28 -> 0") — a node pair, a segment or a bent chord this
+      close is a shape no mesher can build.  It catches KCLT's 2.7913 mm
+      and 0.2401 mm segments and VMMC's 0.0124-0.0497 mm triples, and
+      leaves the 2,245 centimetre-scale OSM segments a real tile carries.
+    * ``slenderness`` (1e4) — the Steiner cascade a vertex-beside-an-edge
+      would force.  LEMD's worst reads 417,901; its own 367 neighbouring
+      rings 0.12-0.50 m apart read under 500.
+    * ``boundary_gap_m`` (0.1 m) for anything beside the OUTER boundary,
+      whatever its slenderness (SPLP 13an: 23.7 mm, 16,298 splits).
+    """
+    out = []
+    for kind in ("node_pairs", "short_segments", "bent_chords"):
+        for r in findings.get(kind, ()):
+            if r["gap_m"] < degenerate_m or r["slenderness"] >= slenderness:
+                out.append(dict(r, kind=kind))
+    for r in findings.get("vertex_edges", ()):
+        if (r["gap_m"] < degenerate_m
+                or r["slenderness"] >= slenderness
+                or (r.get("on_boundary") and r["gap_m"] < boundary_gap_m)):
+            out.append(dict(r, kind="vertex_edges"))
+    out.sort(key=lambda r: r["gap_m"])
+    return out
+
+
+def hairline_preflight(poly_file, tile):
+    """§39 (3): audit the assembled ``.poly`` before Triangle4XP.
+
+    Returns 1 to proceed, 0 to refuse the tile.  Every refused finding is
+    named — its kind, its gap, its markers and its coordinates — so the
+    derivation site is identifiable without a second run.
+    """
+    mode = os.environ.get("O4_HAIRLINE_PREFLIGHT", "refuse").strip().lower()
+    if mode == "off":
+        return 1
+    try:
+        findings = hairline_findings(poly_file, tile.lat)
+    except Exception as error:                              # pragma: no cover
+        UI.vprint(1, "   WARNING: hairline pre-flight skipped:",
+                  f"{type(error).__name__}: {error}")
+        return 1
+    bad = hairline_refusals(findings)
+    UI.vprint(1, "-> Hairline pre-flight (§39 (3)): "
+                 + ", ".join(f"{k} {len(v)}" for k, v in findings.items())
+                 + f" within {HAIRLINE_SPACING_M} m; {len(bad)} UNMESHABLE.")
+    if not bad:
+        return 1
+    for row in bad[:20]:
+        UI.vprint(0, "   HAIRLINE  {:<14s} gap {:10.4f} mm  markers {}/{}  "
+                     "slenderness {:.0f}  at {:.9f},{:.9f}"
+                  .format(row["kind"], row["gap_m"] * 1000.0,
+                          row["marker_a"], row["marker_b"],
+                          row["slenderness"],
+                          tile.lat + row["lat"], tile.lon + row["lon"]))
+    if len(bad) > 20:
+        UI.vprint(0, f"   ... and {len(bad) - 20} more")
+    if mode == "report":
+        UI.vprint(0, "   O4_HAIRLINE_PREFLIGHT=report: building anyway.")
+        return 1
+    UI.lvprint(0, "\nERROR: the assembled .poly is UNMESHABLE (§39 (3), owner "
+                  "RULINGS 2026-09-13bk/13bt/13bu): {} finding(s) — a "
+                  "constrained node, segment or bent chord inside "
+                  "{} m of another.  Triangle4XP fills each wedge with a "
+                  "Steiner cascade: LEMD 2,301,676 sliver triangles, KCLT "
+                  "1,232,247, VMMC 376,041.  Fix the derivation site, or set "
+                  "O4_HAIRLINE_PREFLIGHT=report to build it anyway.\n"
+               .format(len(bad), HAIRLINE_SPACING_M))
+    return 0
+
+
+
 def build_curv_tol_weight_map(tile, weight_array):
     if tile.apt_curv_tol != tile.curvature_tol and tile.apt_curv_tol > 0:
         UI.vprint(
@@ -644,8 +1009,13 @@ BANK_FOOT_FEATURE = "bank_foot"
 
 #: A ``.poly`` ring edge is ON a ring of the patch ``.osm`` when its
 #: midpoint lies within this many degrees of it (~0.11 m).  The vector
-#: map snaps its nodes to a 1e-7 degree grid, so the two never differ by
-#: more than a few times that.
+#: map snaps its nodes to a 1e-9 degree grid (``O4_Vector_Map``:
+#: ``snap_to_grid(9)``, ~0.11 MILLImetre) and then welds what is still
+#: inside ``Vector_Map.weld_spacing_m`` (§39 (i), owner RULINGS
+#: 2026-09-13bu), so the two never differ by more than a few times that.
+#: The old text here said 1e-7 degrees — 0.011 m, a hundred times the
+#: real grid — and reading it is how the KCLT hairline class was thought
+#: to be impossible.
 BANK_RING_MATCH_TOLERANCE = 1.0e-6
 
 #: §37 (3) (owner RULINGS 2026-09-13q item 8): a ``bank_foot`` way may now
@@ -2331,6 +2701,13 @@ def build_mesh(tile):
         weight_file,
         poly_file,
     ]
+
+    # §39 (3) THE MESH PRE-FLIGHT (owner RULINGS 2026-09-13an / 13bk):
+    # audit the assembled ``.poly`` BEFORE Triangle4XP, so an unmeshable
+    # input fails in seconds instead of after a 40-minute Triangle run and
+    # a 2.3 M-triangle DSF X-Plane will not load.
+    if not hairline_preflight(poly_file, tile):
+        return 0
 
     del tile.dem  # for machines with not much RAM, we do not need it anymore
     tile.dem = None

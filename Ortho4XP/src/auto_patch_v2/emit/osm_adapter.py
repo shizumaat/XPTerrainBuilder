@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import json
+import math
 import typing as _t
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -71,7 +72,15 @@ from .graded import z_decimals
 from .surface import GradedSurface
 
 __all__ = ["SIDECAR_KEYS", "PatchPaths", "write_patch", "render_patch",
-           "render_sidecar", "tile_of_face", "write_tile_pieces"]
+           "render_sidecar", "tile_of_face", "write_tile_pieces",
+           "WeldReport", "shore_edges_of", "weld_to_shore"]
+
+#: A lat/lon pair, as everything emit-side spells it.
+LL_T = _t.Tuple[float, float]
+
+#: THE SEAM-BAND TEST (§38 (3)/13an (c)) and the shore weld's own metric
+#: (§39 (1)): metres per degree of latitude in the emitted frame.
+_M_PER_DEG_LAT = 111_320.0
 
 #: The sidecar keys v2 publishes, and nothing else (Appendix A §5).
 SIDECAR_KEYS: tuple[str, ...] = (
@@ -94,6 +103,12 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "design_target",  # RULINGS 2026-09-08t/v: one record per law row the surface missed — the census's ``design_target`` heading
     "pad_relief",  # owner RULINGS 2026-09-11j (spec §11a (2)/(4)): per pad vertex, the metres the terrain stands above the pad's LEVEL — the relief a body's authored feet ask for.  The pad's flatness READER measures on the level plane with these subtracted (``verify/pads.relief_offsets``); without them every relief pad reads as a plane-residual row.
     "eat_rects",  # spec §36 (owner RULINGS 2026-09-13j item 2): one record per ACCEPTED end-around-taxiway rect — end, runway, the regulation value and the vertices it pinned (``pipeline/publication`` off the final constraint set).  The census's ``eat_ceiling`` family prices exactly this list, so a vertex the rect law withdrew is never reported (lockstep)
+    # §39 (1)/(2) THE HAIRLINE LAW (owner RULINGS 2026-09-13bk): the
+    # FOREIGN constrained water edges the shore weld ran against, as
+    # ``[lat1, lon1, lat2, lon2]`` — the population the ``hairline_pair``
+    # census prices every emitted ring edge against, so the instrument and
+    # the law read one water witness and never two.
+    "shore_edges",
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
     "cluster_pads",  # §30 (4) (owner RULINGS 2026-09-13bj item 1): one record per TERMINAL CLUSTER — its members, the emitted `building` faces its footprint union stands on, the ONE level the solve gave that plane, and the apron vertices the reach targeted (with how many reached it).  The object stage's §16g seats the cluster on this level (``pipeline/publication.cluster_pads``)
 )
@@ -277,6 +292,271 @@ def render_patch(surface: GradedSurface, law: Law,
     return "\n".join(lines) + "\n", n_ways, len(surface.vertices)
 
 
+#: §39 (1) THE HAIRLINE LAW — the shore weld's report.
+@_dc.dataclass
+class WeldReport:
+    """What :func:`weld_to_shore` did (one line in the build log)."""
+
+    shore_edges: int = 0
+    candidates: int = 0
+    snapped: int = 0
+    dropped: int = 0
+    stranded: int = 0
+    worst_mm_before: float = 0.0
+    worst_at: tuple[float, float] | None = None
+
+    def line(self, icao: str) -> str:
+        at = "" if self.worst_at is None else \
+            f" (worst {self.worst_mm_before:.4f} mm at " \
+            f"{self.worst_at[0]:.7f},{self.worst_at[1]:.7f})"
+        return (f"[{icao}] shore weld (§39 (1)): {self.shore_edges} foreign water "
+                f"edges, {self.candidates} vertices inside the spacing — "
+                f"{self.snapped} snapped onto a water vertex, {self.dropped} "
+                f"dropped off the shore line, {self.stranded} left beside it"
+                + at)
+
+
+def _local_metres(origin: LL_T) -> tuple[float, float]:
+    """``(m per deg lat, m per deg lon)`` at ``origin`` — the LINEAR frame
+    the mesh itself reasons in (``O4_Vector_Utils.scalx``: tile-relative
+    degrees with the longitude axis scaled by ``cos(lat)``).  §39's whole
+    point is that a straight line HERE is a straight line in the ``.poly``
+    the mesh writes; a straight line in the tmerc metres frame is NOT."""
+    lat0 = float(origin[0])
+    return (_M_PER_DEG_LAT,
+            _M_PER_DEG_LAT * max(math.cos(math.radians(lat0)), 1.0e-6))
+
+
+def shore_edges_of(dem, surface: GradedSurface, pad_m: float = 5.0
+                   ) -> list[tuple[LL_T, LL_T]]:
+    """THE FOREIGN CONSTRAINED EDGES the patch can run beside: the tile's
+    WATER boundary, in lat/lon, as the mesh will constrain it.
+
+    The witness is not ours (``water-datum-spec``): ``dem.water(lat, lon)``
+    → :class:`airport.dem_production.TileWater`, whose ``polys`` are the
+    core's own cached water/coastline polygons in TILE-RELATIVE degrees —
+    exactly the coordinates ``O4_Vector_Map.include_water`` encodes.  Only
+    the edges within ``pad_m`` of the surface's bounding box are returned:
+    the rest cannot be within the identity spacing of anything emitted.
+    """
+    fn = getattr(dem, "water", None)
+    if not callable(fn):
+        return []
+    lats = [v.ll[0] for v in surface.vertices]
+    lons = [v.ll[1] for v in surface.vertices]
+    if not lats:
+        return []
+    mlat, mlon = _local_metres(surface.origin)
+    dla, dlo = pad_m / mlat, pad_m / mlon
+    la0, la1 = min(lats) - dla, max(lats) + dla
+    lo0, lo1 = min(lons) - dlo, max(lons) + dlo
+    out: list[tuple[LL_T, LL_T]] = []
+    seen: set[tuple[LL_T, LL_T]] = set()
+    tiles = {(int(math.floor(la)), int(math.floor(lo)))
+             for la, lo in zip(lats, lons)}
+    for (tla, tlo) in sorted(tiles):
+        try:
+            w = fn(tla, tlo)
+        except Exception:                                # pragma: no cover
+            w = None
+        if w is None or not getattr(w, "polys", None):
+            continue
+        for poly in w.polys:
+            for ring in [poly.exterior, *poly.interiors]:
+                cs = list(ring.coords)
+                for i in range(len(cs) - 1):
+                    a = (cs[i][1] + w.lat, cs[i][0] + w.lon)
+                    b = (cs[i + 1][1] + w.lat, cs[i + 1][0] + w.lon)
+                    if max(a[0], b[0]) < la0 or min(a[0], b[0]) > la1:
+                        continue
+                    if max(a[1], b[1]) < lo0 or min(a[1], b[1]) > lo1:
+                        continue
+                    key = (a, b) if a <= b else (b, a)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append((a, b))
+    return out
+
+
+def _seg_reading(p: tuple[float, float], a: tuple[float, float],
+                 b: tuple[float, float]) -> tuple[float, float]:
+    """``(distance, parameter)`` of ``p`` against segment ``a→b``, planar."""
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    L = dx * dx + dy * dy
+    t = 0.0 if L <= 0.0 else max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / L))
+    return math.hypot(p[0] - (ax + t * dx), p[1] - (ay + t * dy)), t
+
+
+def weld_to_shore(surface: GradedSurface, law: Law,
+                  edges: _t.Sequence[tuple[LL_T, LL_T]],
+                  report: "WeldReport | None" = None) -> GradedSurface:
+    """§39 (1) NO EDGE BESIDE ANOTHER — the SHORE WELD, at the one site
+    every emitted ring passes through.
+
+    THE DEFECT IT REMOVES (owner RULINGS 2026-09-13bk; measured here at
+    LEMD 40.4762773, −3.5456742): the bank foot ring follows the water
+    line because ``emit/bank.py`` cuts the banked region BY the water, so
+    its vertices ARE the water polygon's — but the ring is then chord-split
+    at ``bank_chord_max_m`` in the FRAME (tmerc metres), while the mesh
+    constrains the water edge as a straight segment in tile-relative
+    DEGREES.  A straight line in one frame is not a straight line in the
+    other: over a 74.5 m water edge the two separate by 0.0676 mm in the
+    middle while sharing both endpoints exactly.  Triangle4XP must recover
+    both segments and fills that hairline wedge with a Steiner cascade —
+    2,301,676 triangles under 0.1 m² and a tile X-Plane would not load.
+
+    THE LAW, in order, for every emitted vertex within
+    ``emit.identity.min_distinct_spacing_m`` of a foreign edge:
+
+    * within the spacing of one of that edge's OWN VERTICES → SNAPPED onto
+      it exactly (the 11-dp identity join then makes them ONE node: water
+      is a datum and already carries the vertex);
+    * otherwise standing in the INTERIOR of the edge, with both of its
+      neighbours on the shore too → DROPPED: it is a chord split of a line
+      the water already constrains, and the segment it split survives as
+      the water's own.  Only a vertex belonging to exactly ONE emitted
+      sequence is dropped — a shared vertex would leave a T-junction.
+    * otherwise → left where it is and COUNTED as ``stranded``, so a
+      genuine near-parallel run is reported rather than silently moved
+      half a metre.  The ``hairline_pair`` census and the mesh pre-flight
+      price exactly what is left.
+    """
+    rep = report if report is not None else WeldReport()
+    rep.shore_edges = len(edges)
+    if not edges or not surface.vertices:
+        return surface
+    spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
+    dp = int(surface.identity_dp)
+    mlat, mlon = _local_metres(surface.origin)
+    la0, lo0 = float(surface.origin[0]), float(surface.origin[1])
+
+    def xy(ll: _t.Sequence[float]) -> tuple[float, float]:
+        return ((float(ll[1]) - lo0) * mlon, (float(ll[0]) - la0) * mlat)
+
+    segs = [(xy(a), xy(b), a, b) for a, b in edges]
+    # the foreign VERTICES, keyed at the identity precision
+    fverts: dict[tuple[float, float], LL_T] = {}
+    for _, _, a, b in segs:
+        for q in (a, b):
+            fverts.setdefault((round(q[0], dp), round(q[1], dp)), q)
+    fxy = [xy(q) for q in fverts.values()]
+    fll = list(fverts.values())
+
+    from scipy.spatial import cKDTree
+    vtree = cKDTree(fxy) if fxy else None
+    # a coarse cell index over the segments: spacing is 0.5 m, cells 8 m
+    CELL = 8.0
+    grid: dict[tuple[int, int], list[int]] = {}
+    for i, (p, q, _, _) in enumerate(segs):
+        for cx in range(int(min(p[0], q[0]) // CELL), int(max(p[0], q[0]) // CELL) + 1):
+            for cy in range(int(min(p[1], q[1]) // CELL), int(max(p[1], q[1]) // CELL) + 1):
+                grid.setdefault((cx, cy), []).append(i)
+
+    new_ll: dict[int, LL_T] = {}
+    on_shore: set[int] = set()          # within the spacing of a foreign edge
+    interior: set[int] = set()          # ... of its INTERIOR, not its vertices
+    for v in surface.vertices:
+        p = xy(v.ll)
+        cx, cy = int(p[0] // CELL), int(p[1] // CELL)
+        cand: set[int] = set()
+        for ax in (cx - 1, cx, cx + 1):
+            for ay in (cy - 1, cy, cy + 1):
+                cand.update(grid.get((ax, ay), ()))
+        if not cand:
+            continue
+        best = min((_seg_reading(p, segs[i][0], segs[i][1])[0], i) for i in cand)
+        if best[0] > spacing:
+            continue
+        rep.candidates += 1
+        on_shore.add(v.id)
+        if best[0] * 1000.0 > rep.worst_mm_before:
+            rep.worst_mm_before = best[0] * 1000.0
+            rep.worst_at = (float(v.ll[0]), float(v.ll[1]))
+        d_vert, j = (vtree.query(p) if vtree is not None else (1.0e9, -1))
+        if d_vert <= spacing:
+            q = fll[int(j)]
+            if (round(v.ll[0], dp), round(v.ll[1], dp)) != (round(q[0], dp), round(q[1], dp)):
+                new_ll[v.id] = (float(q[0]), float(q[1]))
+                rep.snapped += 1
+            continue
+        interior.add(v.id)
+
+    if not on_shore:
+        return surface
+
+    # how many emitted sequences each vertex belongs to: a vertex two rings
+    # share cannot be dropped from one of them (a T-junction is the same
+    # class of defect one dimension down)
+    seqs: list[tuple[str, int, list[int]]] = []
+    for f in surface.faces:
+        seqs.append(("ring", f.id, list(f.ring)))
+        for hi, h in enumerate(f.holes):
+            seqs.append((f"hole{hi}", f.id, list(h)))
+    for b in surface.breaklines:
+        seqs.append(("break", b.id, list(b.vertices)))
+    degree: dict[int, int] = {}
+    for _, _, ids in seqs:
+        for i in set(ids):
+            degree[i] = degree.get(i, 0) + 1
+
+    def prune(ids: list[int], closed: bool) -> list[int]:
+        n = len(ids)
+        if n < (4 if closed else 3):
+            return ids
+        out: list[int] = []
+        for k, i in enumerate(ids):
+            if i in interior and degree.get(i, 0) == 1:
+                prv = ids[k - 1] if (closed or k > 0) else None
+                nxt = ids[(k + 1) % n] if (closed or k + 1 < n) else None
+                if prv in on_shore and nxt in on_shore:
+                    rep.dropped += 1
+                    continue
+            out.append(i)
+        if len(out) < (3 if closed else 2):
+            return ids
+        return out
+
+    dropped_from: dict[tuple[str, int], list[int]] = {}
+    for what, oid, ids in seqs:
+        closed = what != "break"
+        kept = prune(ids, closed)
+        if len(kept) != len(ids):
+            dropped_from[(what, oid)] = kept
+    rep.stranded = sum(1 for i in interior
+                       if any(i in ids for _, _, ids in seqs))
+    # a dropped vertex is still counted stranded above only if it survived;
+    # recompute against what the prune kept
+    kept_any: set[int] = set()
+    for what, oid, ids in seqs:
+        kept_any.update(dropped_from.get((what, oid), ids))
+    rep.stranded = len(interior & kept_any)
+
+    if not new_ll and not dropped_from:
+        return surface
+
+    faces = []
+    for f in surface.faces:
+        ring = tuple(dropped_from.get(("ring", f.id), list(f.ring)))
+        holes = tuple(tuple(dropped_from.get((f"hole{hi}", f.id), list(h)))
+                      for hi, h in enumerate(f.holes))
+        faces.append(_dc.replace(f, ring=ring, holes=holes)
+                     if ring != f.ring or holes != f.holes else f)
+    breaks = []
+    for b in surface.breaklines:
+        run = dropped_from.get(("break", b.id))
+        breaks.append(_dc.replace(b, vertices=tuple(run)) if run is not None else b)
+    live = {i for f in faces for i in f.ring} | \
+        {i for f in faces for h in f.holes for i in h} | \
+        {i for b in breaks for i in b.vertices}
+    verts = tuple(_dc.replace(v, ll=new_ll[v.id]) if v.id in new_ll else v
+                  for v in surface.vertices if v.id in live)
+    return _dc.replace(surface, vertices=verts, faces=tuple(faces),
+                       breaklines=tuple(breaks))
+
+
 def render_sidecar(law: Law, sidecar: _t.Mapping[str, _t.Any] | None) -> dict:
     """The sidecar document: the given keys (⊆ ``SIDECAR_KEYS``) plus
     ``ruleset`` and the always-empty declarations."""
@@ -311,15 +591,11 @@ def write_patch(surface: GradedSurface, law: Law, out_dir: str | Path,
                       patch.stat().st_size, side.stat().st_size)
 
 
-#: THE SEAM-BAND TEST (§38 (3)/13an (c)) — the band's own definition, in
-#: the emitted frame: a point within ``half_width_m`` of an integer
-#: graticule line.  Metres are converted at the point's own latitude, so
-#: the reading is the band's, not a degree approximation.
-_M_PER_DEG_LAT = 111_320.0
-
-
 def _in_seam_band(ll: _t.Sequence[float], half_m: float) -> bool:
-    import math
+    """THE SEAM-BAND TEST (§38 (3)/13an (c)) — the band's own definition,
+    in the emitted frame: a point within ``half_width_m`` of an integer
+    graticule line.  Metres are converted at the point's own latitude, so
+    the reading is the band's, not a degree approximation."""
     lat, lon = float(ll[0]), float(ll[1])
     if abs(lat - round(lat)) * _M_PER_DEG_LAT <= half_m:
         return True

@@ -539,7 +539,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     counts["bridge_deck_footprints"] = len(prints)
 
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
-                                      cluster_min_m2, counts)
+                                      cluster_min_m2, counts,
+                                      connector_span_m)  # §16g (6)
 
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
@@ -994,7 +995,17 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             ground_off=b.ground_off, geom_pts=b.geom_pts,
             feet=len(b.feet), datum=bool(b.anchor.datum),
             bridge_of=b.bridge_of,
-            family_of=b.anchor.family) for b in s.bodies))
+            family_of=b.anchor.family,
+            # §16g (1): the FOOTPRINT UNIT, published apart from
+            # ``family_of`` so a census can tell which law seated the
+            # body — the same derivation ``placement_record.Body`` makes.
+            # It was declared on the model and NEVER FILLED here, so
+            # every product wrote ``unit_of: null`` while the unit law was
+            # running (measured on the owner's 1.0.329 SPJC products).
+            unit_of=(b.anchor.family
+                     if str(b.anchor.reason).startswith(_fu.UNIT_REASON)
+                     else ""),
+            connector_of=b.anchor.connector_of) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
     return splits, kept

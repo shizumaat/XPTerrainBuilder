@@ -4624,20 +4624,30 @@ def test_16g_2_the_unit_datum_is_deck_then_pad_then_ground():
 
 
 def test_16g_3_only_a_long_connector_with_a_step_is_cut():
-    """§16g (3): the HECA elevated-rail class and nothing else — a body
-    is cut out of its unit only when its footprint span reaches
-    ``connector_span_m`` AND its two ends' ground differs by
-    ``visual_m``.  A long body over flat ground stays rigid."""
+    """§16g (3) AS AMENDED BY §16g (6) (owner RULINGS 2026-09-13cn): the
+    HECA elevated-rail class and nothing else — span, end-ground step AND
+    a TOPOLOGY.  A long body over flat ground stays rigid, and a long body
+    whose every contact chains into ONE unit is that unit's member however
+    long it is (the SPJC viaduct)."""
     from auto_patch_v2.airport import footprint_unit as FU
     box = (40.0000, -3.0000, 40.0000 + 300.0 / 111132.0, -2.9990)
     long_ = _fam_cand(0, box, 100.0)
     short = _fam_cand(1, (40.0000, -2.9992, 40.0006, -2.9985), 100.0)
     ends = [(box[0], -2.9995, 0.0, 100.0), (box[2], -2.9995, 0.0, 104.0)]
-    assert FU._is_connector(long_, ends, 200.0, 0.5) is True
+    two = ("fu:0:1", "fu:0:9")
+    assert FU._is_connector(long_, ends, 200.0, 0.5, ends=two) is True
+    # one unit and OPEN GROUND at the other end is also a connector
+    assert FU._is_connector(long_, ends, 200.0, 0.5,
+                            ends=("", "fu:0:9")) is True
     flat = [(box[0], -2.9995, 0.0, 100.0), (box[2], -2.9995, 0.0, 100.1)]
-    assert FU._is_connector(long_, flat, 200.0, 0.5) is False
-    assert FU._is_connector(short, ends, 200.0, 0.5) is False
-    assert FU._is_connector(long_, ends, 0.0, 0.5) is False   # disarmed
+    assert FU._is_connector(long_, flat, 200.0, 0.5, ends=two) is False
+    assert FU._is_connector(short, ends, 200.0, 0.5, ends=two) is False
+    assert FU._is_connector(long_, ends, 0.0, 0.5, ends=two) is False
+    # §16g (6): EVERY CONTACT INTO ONE UNIT -> a MEMBER, not a connector
+    assert FU._is_connector(long_, ends, 200.0, 0.5,
+                            ends=("fu:0:1", "fu:0:1")) is False
+    # and with no partition to witness the topology, nothing is a connector
+    assert FU._is_connector(long_, ends, 200.0, 0.5) is False
 
 
 # ── §16g round 2 (owner RULINGS 2026-09-13bw) ────────────────────────────

@@ -4577,3 +4577,33 @@ pavement, layer-group discriminator, adjacent bodies own faces (13dj);
 * NOT in this build: HECA item 3 (the apron hill — two owner questions,
   13de), item 7 (not reproduced), the KCLT tile (owner's `--refresh-data
   dem`), the staged solve (13dh), the six chips.
+
+## 2026-09-14a Owner's 1.0.331 tile builds: VHHH tile FAILS (UnsealedInterpAltSeed after 13cp), HECA patch 283 → 598 s, OTHH 1,142 s (partition 648 s)
+
+Owner: "I'm trying to build with 331, the VHHH tile failed, and HECA and
+OTHH are already past 18 minutes without completing the patch files,
+which is at least a 2x slow down." Also: "there's 5 open chips, are they
+still all valid and I should launch them?"
+
+* VHHH +22+113: `build_poly_file → audit_interp_alt_seed_sealing`:
+  "1 of 6623 INTERP_ALT seed(s) sit in an UNBOUNDED face … First ones:
+  (0.876712142, 0.321098147)" after "73 OPEN load-bearing run(s) took the
+  patch-ring marker" (13cp/13cw; with `bank_omit` true these are
+  `structure_rim`). An open marked chain does not bound a face; a seed
+  placed beside it lands in the unbounded face. Lane `v2bankfoot`
+  RESUMED, urgent: open breaklines never seed / are excluded from the
+  seal walk; ONE VHHH mesh run.
+* Both patches DID finish: HECA 597.6 s (1.0.329: 282.9 s; app report
+  partition 115 / constraints 136 / solve 135 / verify 81) — the cost of
+  §42 (3× pavement under law; the v2drapedsrc lane pair showed
+  constraints 48 → 579, verify 18 → 554 in round 1) plus §40; OTHH
+  1,142 s (app runs before: 897 / 759 / 1,280) — NOT slower than 1.0.329
+  but `partition` 647.5 s of it. Scout `v2partcost` dispatched:
+  profile the partition stage at OTHH (cold DSFTool dump? the 13df
+  articulation-point reading?), the partition history by base sha, and a
+  stage × arm apportionment of HECA's +315 s.
+* Chips: all five valid and independent of what merged (mesh-only scope
+  downgrade; zone_on_pavement mint; .pol remainder description; runway
+  hole rings + `diagnose_iis` CLI; anchor memo key). The started `toolfix`
+  chip's anchor half was ALSO done by v2zonehole (merged, 13da) — its
+  `explain --patch` half stands.

@@ -108,8 +108,8 @@ from .structure_approach import (FieldRegion, PavementDeck, apply_plates,
 from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
-from .structure_geometry import (beyond_strip, corner_distance, geometry,
-                                 pad_hit as _pad_hit)
+from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
+                                 geometry, pad_hit as _pad_hit, ramp_targets)
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -501,6 +501,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # senior to the pad (08-26): only its ramp BEYOND the walls is
         top_pinned = g.climbs
         clipped_by = ""
+        moved_m = 0.0
         ss = [s for s in ss if s <= s_top + 1e-9]
         beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         # a door ramp's HOST cells: the ones its well stands in (cut like
@@ -568,7 +569,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             continue
         if c is not None and g.kind == WALL_KIND and clipped_by and g.climbs:
             # Law C (08m (a)): run to the pavement EDGE and steepen, or refuse
-            ss, geom, s_top, design_grade, why = stop_and_steepen(
+            ss, geom, s_top, design_grade, why, moved_to = stop_and_steepen(
                 airport, wc_law, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,
                 stop_list, stop_tree_g, host, beyond, grid, spacing_g,
                 lambda ss_try: geometry(axis_fn, ss_try, half, rim_off, inward, grid, g.capped,
@@ -576,7 +577,34 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if why:
                 stats.refused.append(f"{tid}: {why}")
                 continue
+            # §34 (8) as amended (14u): the MOUTH moved away from airside by
+            # the run the cap needs, back under the building; the ramp runs
+            # at the cap from there and still reaches the ground
+            moved_m, climb_from = climb_from - moved_to, moved_to
             top_pinned = True
+        # ── §34 (7): THE STATIONS ARE THE SAMPLING, NOT THE EMITTED SHAPE
+        # (owner RULINGS 2026-09-14n item 2 / 2026-09-14p).  The profile is
+        # solved above; now a straight constant-grade run collapses to its
+        # two end chords, so the 0.5 m identity ``snap_out`` has nothing
+        # between the ends to stagger (OTHH's terminal ramps read 40 and 29
+        # nodes on a STRAIGHT route, one grid quantum of zig-zag per 2 m
+        # station).  The knees — the mouth, where the climb starts, the wall
+        # end and the pinned top — are never collapsed through.
+        collapse_note = ""
+        if len(ss) > 2:
+            # §34 (7): a straight constant-grade run emits its end chords
+            ss_c = collapse_for_ramp(
+                axis_fn, ss, half, rim_off, half_fn, g, climb_from=climb_from, s_top=s_top,
+                mouth_z=mouth_z, design_grade=design_grade, top_pinned=top_pinned,
+                wall_kind=g.kind == WALL_KIND, dem_z=airport.dem.z, grid=grid,
+                z_tol=law.tables.emit.materiality.elevation_m)
+            geom_c = geometry(axis_fn, ss_c, half, rim_off, inward, grid, g.capped,
+                              g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off) \
+                if len(ss_c) < len(ss) else None
+            if geom_c is not None:
+                collapse_note = (f"stations collapsed {len(ss)} -> {len(ss_c)} (§34 (7): a "
+                                 f"cross-chord only where the route bends or the profile breaks)")
+                ss, geom = ss_c, geom_c
         axis, left, right = geom.axis, geom.left, geom.right
         ramp, outer, cap_out = geom.ramp, geom.outer, geom.cap_out
         if c is not None and not g.capped and g.mouth_strip:
@@ -686,6 +714,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
         notes = []
+        if collapse_note:
+            notes.append(collapse_note)
         if len(members) > 1:
             notes.append(f"dual carriageway of {len(members)} bores (2026-08-31h)")
         # spec §34 (5): a bore the aeroway bridge STATED — the rim under its
@@ -735,9 +765,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 # LAW C (2026-09-08m/08n): the published profile includes the
                 # climb (spec §6a row 19); the site line the report quotes
                 profile_out, top_ground = wall_corridor_profile(
-                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn)
+                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn, climb_from)
                 notes.append(wall_corridor_note(c, g, mouth_dem, s_top, climb_from, design_grade,
-                                                top_ground, clipped_by))
+                                                top_ground, clipped_by, moved_m))
             else:
                 notes.append(f"sunken road (2026-09-08b/c Law B) of {c.resource}: cut {mouth_z:.2f} "
                              f"= ground {mouth_dem:.2f} − {c.depth_m:.2f}, {g.hull_s:.1f} m along "
@@ -919,52 +949,6 @@ def _reseat_expect(c, mouth_z: float, grade: float, s_top: float, airport: Airpo
 def _owner_kept(cell: tuple, tunnels: list[Tunnel], keep: list[bool]) -> bool:
     ids = {t.id for t, k in zip(tunnels, keep) if k}
     return cell[3] in ids
-
-
-def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: list,
-                 vxy: list[XY], dem_z: _t.Sequence[float]) -> dict[int, float]:
-    """THE RAMP'S OBJECTIVE TARGET IS ITS OWN DESIGN, not the DEM: vertex
-    id -> the designed profile value ``clamp(DEM, mouth_z − g·Δs, mouth_z
-    + g·Δs)`` (``Δs`` from where the climb starts; ``g`` the tunnel's
-    ``design_grade`` — ``min(ramp_max_grade, depth / wall length)`` for an
-    object corridor, 05n-1 — else ``ramp_max_grade``) for every
-    ``tunnel_ramp`` ring vertex.  With the DEM as target the ramp's pull levered the
-    apron sharing its end cap 0.49 m up through the mouth datum
-    (measured on the M4 twin) — groundside pulling airside; at its
-    design the ramp has nothing to pull with."""
-    if not tunnels:
-        return {}
-    from ..model.structures import profile_z
-    g = law.tables.structures.tunnel.ramp_max_grade
-    axes = {tn.id: LineString(tn.axis) for tn in tunnels}
-    out: dict[int, float] = {}
-    for fid, face in faces.items():
-        if face.role not in ("tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp"):
-            continue
-        ids = {edges[e].a for e in face.ring} | {edges[e].b for e in face.ring}
-        cx = sum(vxy[v][0] for v in ids) / len(ids)
-        cy = sum(vxy[v][1] for v in ids) / len(ids)
-        tid = min(axes, key=lambda k: axes[k].distance(Point(cx, cy)))
-        tn = tunnels[[t.id for t in tunnels].index(tid)]
-        gt = tn.design_grade if tn.design_grade > 0.0 else g
-        for v in ids:
-            s = axes[tid].project(Point(vxy[v]))
-            if tn.profile:
-                # a sunken road (09-08b/c Law B): the plate's own floor
-                out[v] = profile_z(tn.profile, min(s, tn.top_s))
-                continue
-            reach = gt * max(0.0, s - tn.climb_from_s)
-            if tn.source in ("object", "door") and s <= tn.wall_length_m + 1e-6:
-                # INSIDE THE WALLS the design line itself (05n-1; the DEM
-                # there is not the ground — 2026-09-06f: a cutting the DEM
-                # carries would pull the ramp under its own design)
-                out[v] = tn.mouth_z + gt * max(0.0, min(s, tn.top_s) - tn.climb_from_s)
-                continue
-            d = float(dem_z[v])
-            if math.isnan(d):
-                continue
-            out[v] = max(tn.mouth_z - reach, min(tn.mouth_z + reach, d))
-    return out
 
 
 def _parts(geom) -> list[Polygon]:

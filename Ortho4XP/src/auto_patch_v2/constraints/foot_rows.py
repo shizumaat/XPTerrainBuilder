@@ -71,6 +71,26 @@ taxiway takes no rows at all — the pavement law owns that surface, the
 object goes to the terrain, and the body is reported with its role and
 residual rather than graded to.
 
+**A FOOT ON A STRUCTURE CUT STATES NO GROUND ROW** (owner RULINGS
+2026-09-13bs, spec §11b (7)): a foot whose surface sample lands on a
+STRUCTURE face — ``tunnel_ramp``, ``tunnel_trench`` (a basin floor is
+one), ``wall_corridor_ramp``, ``door_ramp``, ``garage_ramp``,
+``retaining_wall``, the bridge cuts — stands on a surface §33 / §34
+STATE, not on ground.  The body takes a ``cut`` verdict, is counted and
+reported, and emits NO ``Linear``: the object RIDES the cut, exactly as
+§16a rules for a carried body ("cut where its carrier is cut") and
+§16c (3) for a foot over a structure cut.  The self-referential case is
+the one that minted the defect: OTHH's ``tunnel south west 2#b0`` was
+re-seated to the ground (3.962) and its eight foot rows then demanded
+that the ramp ITS OWN WALLS CUT stand at that ground every few metres —
+the ramp sagged +3.31 m off its design line between the nails, 12 of 21
+monotone rows violated, and the whole design solve fell from OPTIMAL to
+``feasible`` with two hard rows violated.  An object standing at a
+trench EDGE keeps its crest plate (§16e (1)) and rides the cut with its
+feet.  The role set is ONE list — ``law.tables.is_structure_role``
+(``precedence.toml`` ``structure = true``), the same register
+``pavement_roles`` subtracts — never a literal tuple here.
+
 **A BASIN BODY IS §14's** (owner RULINGS 2026-09-11x (3)): a body
 authored BELOW its own zero standing inside an emitted basin rim is the
 PIT, not something on the ground, and the basin law owns its level.  It
@@ -159,7 +179,8 @@ class BodyVerdict:
     gid: str
     #: ``bare`` (rows fired — EVERY foot), ``off_sheet`` (a foot stands
     #: on no face of the sheet), ``infeasible``, ``basin`` (§14's, 11x
-    #: (3)), ``pavement``, ``padded``, ``no_dem`` (a foot the DEM does
+    #: (3)), ``cut`` (a foot on a STRUCTURE-CUT face — §11b (7), 13bs),
+    #: ``pavement``, ``padded``, ``no_dem`` (a foot the DEM does
     #: not sample)
     verdict: str
     feet: int
@@ -189,7 +210,8 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
     groups = getattr(airport, "groups", None)
     dem = getattr(airport, "dem", None)
     counts = {"bodies": 0, "bare": 0, "off_sheet": 0, "infeasible": 0,
-              "basin": 0, "pavement": 0, "padded": 0, "no_dem": 0,
+              "basin": 0, "cut": 0, "cut_feet": 0, "pavement": 0,
+              "padded": 0, "no_dem": 0,
               "rows": 0, "feet_off_sheet": 0, "partial": 0}
     if groups is None or not getattr(groups, "groups", ()) or dem is None:
         return [], [], counts
@@ -215,6 +237,15 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
             # level is the basin's floor law — never a ground target
             verdicts.append(_verdict(g, "basin", roles, None, 0))
             counts["basin"] += 1
+            continue
+        if "cut" in kinds:
+            # §11b (7) (RULINGS 2026-09-13bs): a foot on a STRUCTURE-CUT
+            # face stands on a surface §33 / §34 state.  The object rides
+            # it (§16a / §16c (3)); it does not ask the cut to stand at
+            # the ground it was cut out of.
+            verdicts.append(_verdict(g, "cut", roles, None, 0))
+            counts["cut"] += 1
+            counts["cut_feet"] += len(g.feet)
             continue
         if "pavement" in kinds:
             verdicts.append(_verdict(g, "pavement", roles, None, 0))
@@ -311,10 +342,15 @@ class _FaceIndex:
 
     def __init__(self, planar: PlanarMap, law: Law) -> None:
         from .pads import rigid_roles
-        from ..law.tables import pavement_roles
+        from ..law.tables import is_structure_role, pavement_roles
         self.pm = planar
         self._rigid = frozenset(rigid_roles(law))
         self._pav = frozenset(pavement_roles(law)) - self._rigid
+        # §11b (7): the STRUCTURE-CUT roles, taken from the ONE register
+        # ``precedence.toml`` states them in (``structure = true``) — the
+        # same one ``pavement_roles`` subtracts, never a literal tuple
+        self._cut = frozenset(r for r in law.tables.precedence.roles
+                              if is_structure_role(law, r))
         from .precedence import view
         vw = view(planar, law)
         polys: list[Polygon] = []
@@ -378,6 +414,10 @@ class _FaceIndex:
     def kind(self, role: str | None) -> str:
         if role is None:
             return "none"
+        if role in self._cut:
+            # §11b (7): a STRUCTURE face — the cut is stated by §33 / §34
+            # and the object rides it (RULINGS 2026-09-13bs)
+            return "cut"
         if role in self._rigid:
             return "rigid"
         return "pavement" if role in self._pav else "ground"

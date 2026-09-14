@@ -463,25 +463,31 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     """§16g (1)/(2) PLAN-WIDE (owner RULINGS 2026-09-13bw): seat every
     candidate of this pass at the datum ITS PLAN-WIDE UNIT was given.
 
-    ``plan_wide`` maps a PART ID to ``(unit id, zero, where, source)`` —
-    the join is the pid, because the plan's body keys and a staged
-    candidate's ground groups are different partitions of the same
-    triangles and the part is what both are made of.  A candidate whose
-    pids name no unit (a body touching nothing) is left alone: it seats by
-    §16c as it always did.
+    ``plan_wide`` maps a PART ID to ``(unit id, zero, where, source,
+    connector ends, the HIGH end's own seat)`` — the join is the pid,
+    because the plan's body keys and a staged candidate's ground groups
+    are different partitions of the same triangles and the part is what
+    both are made of.  A candidate whose pids name no unit (a body
+    touching nothing) is left alone: it seats by §16c as it always did.
 
     §16g (6) (owner RULINGS 2026-09-13cn): an identified CONNECTOR is NOT
-    dropped out of the bind.  ``plan_wide`` gives it the unit its HIGH end
-    touches, and it is seated on THAT unit's datum with its two end units
-    recorded in ``connector_of``; when §10's station cut is written for it,
-    each piece keeps its own end's datum and grades between.  It never
-    reaches §16c's low-side foot, which is what put SPJC's viaduct 7.81 m
-    above the terminal (13cn)."""
-    seats: dict[str, list[int]] = {}
-    info: dict[str, tuple[float, str, str]] = {}
-    conn_pair: dict[int, tuple[str, str]] = {}
+    dropped out of the bind.  It is moved onto the seat of the unit its
+    HIGH end touches, with both ends recorded in ``connector_of``; when
+    §10's station cut is written for it, each piece keeps its own end's
+    datum and grades between.  It never reaches §16c's low-side foot,
+    which is what put SPJC's viaduct 7.81 m above the terminal (13cn).
+
+    THE HIGH-END SEAT IS TAKEN ONLY BY A BODY THAT PASSES ALL THREE
+    TESTS.  The plan names the TOPOLOGY (span + two ends); the GROUND STEP
+    is a staged reading and lives here, so a long body whose ends stand at
+    the same height is an ordinary MEMBER of its whole unit and keeps the
+    unit's datum — moving it onto one end's component would be the same
+    expulsion under a new name."""
     counts.setdefault("unit_connectors_cut", 0)
     counts.setdefault("unit_connectors_seated", 0)
+    per_uid: dict[str, dict[int, list]] = {}
+    info: dict[str, tuple[float, str, str]] = {}
+    conn: dict[int, tuple[str, str]] = {}
     for ci, c in enumerate(cands):
         if c.body_class in (_ar.LINE_SEGMENT, _ar.BASIN):
             continue
@@ -496,31 +502,27 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
         row = plan_wide[next(q for q in sorted(c.pids)
                              if plan_wide.get(q, ("",))[0] == uid)]
         z, where, src = row[1], row[2], row[3]
+        st = by_mi.get(c.member)
+        if st is None:
+            continue
+        cc = _contacts_of(c, st, surface)
+        if not cc:
+            continue
         pair = row[4] if len(row) > 4 else ("", "")
-        if pair and pair[0] != pair[1]:
-            conn_pair[ci] = pair
-        seats.setdefault(uid, []).append(ci)
+        high = row[5] if len(row) > 5 else None
+        if (high is not None and pair and pair[0] != pair[1]
+                and _is_connector(c, cc, connector_span_m, visual_m,
+                                  ends=pair)):
+            conn[ci] = pair
+            uid, z, where, src = high
+            counts["unit_connectors_seated"] = \
+                counts.get("unit_connectors_seated", 0) + 1
+        per_uid.setdefault(uid, {})[ci] = cc
         info[uid] = (z, where, src)
     out: list[Family] = []
-    for uid, cis in sorted(seats.items()):
+    for uid, per in sorted(per_uid.items()):
         zero, where, src = info[uid]
-        per: dict[int, list] = {}
-        conn: dict[int, tuple[str, str]] = {}
-        for ci in cis:
-            c = cands[ci]
-            st = by_mi.get(c.member)
-            if st is None:
-                continue
-            cc = _contacts_of(c, st, surface)
-            if not cc:
-                continue
-            if _is_connector(c, cc, connector_span_m, visual_m,
-                             ends=conn_pair.get(ci)):
-                conn[ci] = conn_pair[ci]
-                counts["unit_connectors_seated"] = \
-                    counts.get("unit_connectors_seated", 0) + 1
-            per[ci] = cc
-        if len(per) < 2 and not conn:
+        if len(per) < 2 and not any(ci in conn for ci in per):
             continue
         # §16g (2): PAVEMENT IS KING only for a unit standing ENTIRELY on
         # rolled-on pavement.  Read over the candidates THIS pass holds —
@@ -531,7 +533,8 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                 counts.get("unit_all_on_pavement", 0) + 1
             continue
         out.extend(_seat(cands, by_mi, surface, counts, per, zero, where,
-                         src, uid, visual_m, conn=conn))
+                         src, uid, visual_m,
+                         conn={ci: conn[ci] for ci in per if ci in conn}))
     return out
 
 
@@ -610,12 +613,15 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     connector_span_m: float = 0.0
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
-    where, source, connector ends), the units' plan boxes with their
-    zero)``.
+    where, source, connector ends, the HIGH end's own seat), the units'
+    plan boxes with their zero)``.
 
     ``connector ends`` is ``("", "")`` for an ordinary member and the two
-    end unit ids for a §16g (6) CONNECTOR, whose row names the unit its
-    HIGH end touches.
+    end units of a §16g (6) CONNECTOR; the sixth field is then that
+    connector's HIGH end's ``(unit, zero, where, source)``, which
+    :func:`_bind_plan_wide` takes ONLY when the staged ground-step test
+    fires too.  The first four fields stay the body's own UNIT's seat, so
+    a long body that turns out not to step is an ordinary member.
 
     The PART is the join for a staged candidate, because the plan's
     bodies and a candidate's ground groups are different partitions of
@@ -634,7 +640,7 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
         if d is None:
             continue
         for q in un.pids:
-            out[q] = (un.id, d[0], d[1], d[2], ("", ""))
+            out[q] = (un.id, d[0], d[1], d[2], ("", ""), None)
         h = _pb.hull_of(un.boxes)
         if h is not None:
             seats.append((h[0], h[1], h[2], h[3], d[0], d[2]))
@@ -664,8 +670,16 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
         d = ed[u]
         if not (cn.end_a and cn.end_b):
             n_open += 1
+        # the body keeps its UNIT's seat unless the staged ground-step
+        # test also fires (``_bind_plan_wide``); the HIGH end's seat rides
+        # beside it as the alternative, never as the default.
+        base = out.get(next(iter(cn.pids)))
         for q in cn.pids:
-            out[q] = (u, d[0], d[1], d[2], (cn.end_a, cn.end_b))
+            row = out.get(q) or base
+            if row is None:
+                continue
+            out[q] = (row[0], row[1], row[2], row[3],
+                      (cn.end_a, cn.end_b), (u, d[0], d[1], d[2]))
     counts["plan_wide_units"] = len(units)
     counts["plan_wide_units_seated"] = len(dat)
     counts["plan_wide_connectors"] = len(conns)

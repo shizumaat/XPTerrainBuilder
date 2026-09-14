@@ -185,10 +185,14 @@ def test_a_body_bridging_two_units_is_a_connector_on_the_high_end_datum():
     pid_units, _seats = FU.plan_wide_seats(plan, lambda la, lo: 10.0, (),
                                            0.5, 0.0, counts, 200.0)
     row = pid_units[10]
-    assert row[1] == 25.0 and row[3] == "deck"      # the HIGH end's datum
-    assert row[0] == conns[0].end_b and row[4] == ends
-    # ... and the ordinary members keep the plain unit seat
+    # the row's first four fields stay the body's own UNIT's seat — a long
+    # body that turns out not to STEP is an ordinary member — and the HIGH
+    # end's seat rides beside it for `_bind_plan_wide` to take
+    assert row[0] == units[0].id and row[4] == ends
+    assert row[5] == (conns[0].end_b, 25.0, "high.obj", "deck")
+    # ... and an ordinary member carries no alternative at all
     assert pid_units[1][0] == units[0].id and pid_units[1][4] == ("", "")
+    assert pid_units[1][5] is None
     assert counts["plan_wide_connectors"] == 1
     assert counts["plan_wide_connectors_to_open_ground"] == 0
 

@@ -4720,3 +4720,28 @@ own pad (named); the seven buildings + the terminal at 30.1279552, 31.403143
 on their pads; terrace steps between touching clusters named; KCLT dry:
 the terminal's cluster pad and its members' seats unchanged (13bo, the
 control); SPJC 19.56 dry; airside 0; suite twice.
+
+### §16g (10) (4)–(5) WHAT CHAINS, AND A DERIVED PAD NEVER TAKES AIRSIDE GROUND (Fable 2026-09-14; RULINGS 2026-09-14ah) — lane `v2padcluster`
+
+MEASURED (lane r2, HECA): with pads derived from clusters as hard flat
+regions, 502,561 m² of new pad (94,795 m² from apron) moved 13,637 of
+21,534 airside vertices (runway 1,110, worst 4.38 m) and put the terminal at
++10.83 m; the T3 district stayed ONE cluster of 9,334 bodies / 541,200 m²
+because its footed bodies genuinely touch through the authored ground
+slabs.
+
+4. WHAT CHAINS.  Only WALLED bodies link a cluster.  A thin body — floor
+   slab, plate, deck, canopy, road, apron object; solid height <
+   `chain_min_height_m` (2.5 m), or classed deck/plate/pavement by the
+   object stage — is a LEAF: seated on its own ground or carrier, never a
+   link between two walled bodies.
+5. A DERIVED PAD NEVER TAKES AIRSIDE GROUND.  The pad polygon is the
+   cluster's outline clipped by every airside face; a cluster wholly on
+   airside pavement gets no pad.  A cluster whose outline is in more than
+   one piece is SPLIT at the pieces (each a cluster with its own pad).
+
+BARS: HECA airside vertices moved > 0.02 m = 0; the terminal at 30.1279552,
+31.403143 at its pad 72.50; `pad_cluster_mismatch` 0; the T3 district
+resolved into its buildings (count, largest cluster's area named);
+constraints ≤ +10 %; KCLT BUILD with outlines — `building80` 221.44 ± 0.02
+and the terminal's members' seats unchanged; SPJC 19.56 dry.

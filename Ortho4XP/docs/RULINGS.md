@@ -4974,3 +4974,32 @@ patch z), fix = never drop a face for being narrow (seed at the pole
 with clearance = min(0.5 m, radius/2); drop only under the 10 mm
 hairline floor or when the encoded pole is not strictly inside), ONE
 VHHH mesh run. OTHH good = the OMIT/13cy bank read holds there.
+
+## 2026-09-14n Owner on 1.0.332 OTHH: "Two small issues at OTHH, then I think it's fully approved!" — scout `v2othh332`
+
+Owner, verbatim: "1. The drainage basins are not cutting out the whole
+basin, just either side here: 25.2523246, 51.6245625 and 25.2527399,
+51.624374, but the object goes between those two points, so it seems
+like the same below grade cut shape should extend across that space so
+no terrain pokes through the basin object, just like the much larger
+basin at LEMD. 2. The small ramps leading down along the main terminal
+look good, however I don't understand why the shapes have so many nodes
+and are not straight, but seem to zig zag back and forth. Since they're
+straight, why not a simple rectangle with 4 nodes, two at the low end of
+the ramp and two at the high end? And we're still not cutting the ramp
+for the one corridor that passes under the terminal and has the same
+sort of short retaining walls extending out from the terminal building
+at each entrance."
+
+* Scout `v2othh332` (1.0.332 OTHH products): (1) the basin at the two
+  points — which basin bodies/rings (§24) exist there, why the cut is
+  two pieces with the object's middle uncut (two components of one
+  object? the floor read per part? a covered stretch dropped?), the
+  object's footprint vs the rings; (2) the terminal ramps — which
+  shapes (role, node count, the route/station derivation §34 that mints
+  the zig-zag: per-station widths?), and the ruling to write: a straight
+  ramp is a 4-node rectangle between its two end chords (stations only
+  where the route bends); (3) the corridor under the terminal with
+  retaining walls at each entrance — why no underpass cut (§34 (4)–(6),
+  `structure_underpass`, `structure_approach`, door wells: which test
+  refused it, with numbers).

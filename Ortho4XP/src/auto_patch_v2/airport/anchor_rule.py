@@ -192,6 +192,28 @@ def _pad_of(pads: _t.Sequence[PadRing], lat: float, lon: float) -> PadRing | Non
 #: not a law constant: the sentence is "lies mostly on a `building` pad".
 PAD_MAJORITY = 0.5
 
+#: The pads' bounding boxes, HOISTED (lane ``v2cost2``, RULINGS
+#: 2026-09-14q item 5).  :func:`pad_majority` is asked once per ground
+#: contact per body — OTHH 191,661 times — and rebuilt every pad's box
+#: from its ring on each call (656 M ``max()``).  The pads are ONE tuple
+#: per plan, so the boxes are cached against that object's identity (the
+#: tuple is held here, so its ``id`` cannot be reused while cached) and
+#: the cache is a single slot: a second plan in one process replaces it.
+_PAD_BOXES: dict[str, _t.Any] = {"pads": None, "boxes": ()}
+
+
+def _pad_boxes(pads: _t.Sequence[PadRing]):
+    """``[(pad, lat_min, lon_min, lat_max, lon_max), ...]`` for ``pads``,
+    computed once per pads object (module note)."""
+    if _PAD_BOXES["pads"] is pads:
+        return _PAD_BOXES["boxes"]
+    boxes = [(p, min(v[0] for v in p.ring), min(v[1] for v in p.ring),
+              max(v[0] for v in p.ring), max(v[1] for v in p.ring))
+             for p in pads if len(p.ring) >= 3]
+    _PAD_BOXES["pads"] = pads
+    _PAD_BOXES["boxes"] = boxes
+    return boxes
+
 
 def pad_majority(cands: _t.Sequence[tuple[float, float, float, float]],
                  pads: _t.Sequence[PadRing]) -> "PadRing | None":
@@ -217,9 +239,7 @@ def pad_majority(cands: _t.Sequence[tuple[float, float, float, float]],
     contact per body."""
     if not pads or not cands:
         return None
-    boxes = [(p, min(v[0] for v in p.ring), min(v[1] for v in p.ring),
-              max(v[0] for v in p.ring), max(v[1] for v in p.ring))
-             for p in pads if len(p.ring) >= 3]
+    boxes = _pad_boxes(pads)
     hits: dict[str, tuple[PadRing, int]] = {}
     for la, lo, _y, _z in cands:
         for p, y0, x0, y1, x1 in boxes:

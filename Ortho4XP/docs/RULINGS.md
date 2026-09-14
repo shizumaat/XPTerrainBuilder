@@ -4248,3 +4248,14 @@ at LEMD/OTHH (every basin rim/region/floor/ramp/refusal identical; the known
   windows — a memo would never hit), `wall_corridors` 53.1, `sunken_roads`
   24.7, `read_placed_objects` ~61. Owed as its own lane when the campaign
   turns to cost.
+
+## 2026-09-13cy Owner: "turn off bank foot emission for the next build so i can see output" — `bank_omit = true` shipped in app 1.0.330
+
+* `[design] bank_omit = true` on main for the 1.0.330 build (the OMIT arm
+  of 13cw as the shipped setting); the twin asserts true with this
+  ruling. The owner's sim read of 1.0.330 is the bank class's
+  adjudication: keep (flip back false, then the edge-grading law the
+  census can measure) or delete.
+* Every airport's patch edge in 1.0.330 is the design ring meeting the raw
+  DEM over one triangle (LEMD: 2,584 steps > 3 m, worst 19.9 m) — expected,
+  not a regression to report.

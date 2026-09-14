@@ -94,7 +94,7 @@ class TestTheMeshNeverClosesTheFootItself:
         # "omit the bank_foot shapes altogether" arm is a law key.
         from auto_patch_v2.law import tables as T
 
-        assert T.load_default().tables.emit.design.bank_omit is False
+        assert T.load_default().tables.emit.design.bank_omit is True   # owner RULINGS 2026-09-13cy (1.0.330 read)
 
     def test_the_emitter_emits_a_CLOSED_ring(self):
         # ``emit/bank.py`` is the single closure site: every bank_foot

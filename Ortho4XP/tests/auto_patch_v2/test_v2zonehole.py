@@ -95,6 +95,24 @@ def test_an_island_that_touches_nothing_is_refused():
     assert len(out) == 2
 
 
+def test_a_notch_reached_through_a_narrow_mouth_is_a_separate_body():
+    """RULINGS 2026-09-08k: a neck narrower than the mouth separates two
+    bodies, and a step between bodies is LAWFUL.  Measured (CYXY): the one
+    contained face there, ``apron:pav21#204``, is reached through a 9.31 m
+    mouth, and absorbing it moved the control's ``airside_no_step`` 39 ->
+    54 rows (10 over 0.5 m -> 26) with the v1 oracle unmoved at 39."""
+    host = Polygon(_rect(0, 0, 100, 100),
+                   [((40, 40), (40, 60), (45, 60), (45, 40))[::-1]])
+    notch = Polygon(_rect(40, 40, 45, 60))               # a 20 m contact
+    par = _region("primary_parallel", "pav1")
+    faces = [(host, par), (notch, _region("apron", "pav2"))]
+    assert absorb_enclosed_pavement(faces, ROLES, mouth_m=12.0)[1] == 1
+    assert absorb_enclosed_pavement(faces, ROLES, mouth_m=60.0)[1] == 0
+    # the default is the ungated read, so a caller must pass the law's own
+    # number (``emit.terrace.narrow_mouth_max_m``); the arrangement does
+    assert absorb_enclosed_pavement(faces, ROLES)[1] == 1
+
+
 def test_a_neighbour_that_is_not_enclosed_is_left_alone():
     """Two faces side by side share a boundary and neither is inside the
     other's ring — the ordinary case, untouched."""

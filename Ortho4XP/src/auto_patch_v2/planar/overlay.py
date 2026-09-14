@@ -203,7 +203,8 @@ def build_arrangement(airport: Airport, classification: Classification,
     # body with one law (owner RULINGS 2026-08-30l: trim at the derivation
     # site, never per consumer)
     faces, absorbed, detached = absorb_enclosed_pavement(
-        faces, tuple(law.tables.emit.terrace.shape_roles))
+        faces, tuple(law.tables.emit.terrace.shape_roles),
+        mouth_m=law.tables.emit.terrace.narrow_mouth_max_m)
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
@@ -325,7 +326,8 @@ def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float
 
 def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
                              roles: tuple[str, ...],
-                             min_frac: float = ENCLOSED_MIN_FRAC
+                             min_frac: float = ENCLOSED_MIN_FRAC,
+                             mouth_m: float = 0.0
                              ) -> tuple[list[tuple[Polygon, Region]], int, int]:
     """§41 (1) — A PAVEMENT FACE INSIDE A PAVEMENT FACE IS A HOLE OF IT
     (owner RULINGS 2026-09-13co item 2; attributed RULINGS 2026-09-13cs
@@ -353,12 +355,28 @@ def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
     21 m — 11 % across a code-F taxiway against a 1.5 % cap — and the
     census sees no row, because each face is lawful on its own.
 
-    THE ONE NARROWING (reported, RULINGS 2026-09-13cs): a face that shares
-    NO boundary run with its host is NOT absorbed — the union would be two
-    disjoint pieces, which no face can be.  That is an island in the middle
-    of a taxiway loop (HECA ``apron:pav5``, 2,362 m², 12.97 m off
-    ``cross_connector:pav67``'s solid), not a notch cut into a body; it is
-    counted as ``enclosed_detached`` and left alone.
+    TWO NARROWINGS, BOTH MEASURED, BOTH REPORTED.
+
+    (a) A face that shares NO boundary run with its host is NOT absorbed —
+    the union would be two disjoint pieces, which no face can be.  That is
+    an island in the middle of a taxiway loop (HECA ``apron:pav5``,
+    2,362 m², 12.97 m off ``cross_connector:pav67``'s solid), not a notch
+    cut into a body; it is counted as ``enclosed_detached``.
+
+    (b) A face whose contact with its host is no wider than ``mouth_m``
+    (``emit.terrace.narrow_mouth_max_m``) is NOT absorbed: by the owner's
+    OWN body law (RULINGS 2026-09-08k, ``planar/shapes.py``) "a neck
+    narrower than the mouth … separates two bodies", and a step between
+    two bodies is LAWFUL.  Absorbing across a narrow mouth outlaws a
+    lawful terrace and the solve cannot deliver it.  MEASURED, and this is
+    why the gate is here: at CYXY the ONE contained face is
+    ``apron:pav21#204`` (528 m²) reached through a 9.31 m mouth, and
+    absorbing it moved the control airport's ``airside_no_step`` from 39
+    rows to 54 — 10 rows over 0.5 m to 26, worst 1.96 m — with the v1
+    oracle unmoved at 39 (the flatness the merge demanded, which no solve
+    could meet).  With the gate CYXY absorbs nothing.  HECA's
+    ``cross_connector:pav77`` shares 103.54 m with ``primary_parallel:
+    pav73`` and passes it by an order of magnitude.
 
     Smallest first, so a chain of nested notches folds into the outermost
     body.  Returns the faces, how many were absorbed and how many enclosed
@@ -405,6 +423,8 @@ def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
                 continue
             saw_host = True
             shared = poly.boundary.intersection(pj.boundary).length
+            if shared <= float(mouth_m):
+                continue        # a neck, not a notch: two bodies (08k)
             if shared > best_shared:
                 best, best_shared = j, shared
         if best is None:

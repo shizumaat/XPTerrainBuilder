@@ -283,6 +283,12 @@ def read(path, *, over: str, on: str,
 #: ENCLOSED_MIN_FRAC``); the twin asserts the two agree.
 CONTAINED_MIN_FRAC = 0.95
 
+#: ``emit.terrace.narrow_mouth_max_m``: a contact no wider than this does
+#: not join two bodies (owner RULINGS 2026-09-08k), so a notch reached only
+#: through it keeps its own law and its lawful step — the gate
+#: ``planar.overlay.absorb_enclosed_pavement`` applies.
+CONTAINED_MOUTH_M = 12.0
+
 #: The aircraft-pavement roles the containment census reads — the emitter's
 #: own ``emit.terrace.shape_roles``, mirrored in
 #: ``check_grade._ZONE_ON_PAVEMENT_ROLES``.
@@ -292,7 +298,8 @@ CONTAINED_ROLES = ("runway", "runway_crossing", "primary_parallel",
 
 
 def contained(path, *, min_frac: float = CONTAINED_MIN_FRAC,
-              roles: tuple = CONTAINED_ROLES):
+              roles: tuple = CONTAINED_ROLES,
+              mouth_m: float = CONTAINED_MOUTH_M):
     """THE CONTAINMENT CENSUS (spec §41 (1); owner RULINGS 2026-09-13co
     item 2) — which pavement faces lie inside another pavement face.
 
@@ -395,13 +402,17 @@ def contained(path, *, min_frac: float = CONTAINED_MIN_FRAC,
                      "shared_edge_m": round(shared, 2),
                      "dist_to_solid_m": round(dist, 2),
                      "touches": shared > 0.0,
+                     "kind": ("notch" if shared > float(mouth_m)
+                              else ("mouth" if shared > 0.0 else "island")),
                      "lat": round(lat, 7), "lon": round(lon, 7)})
     rows.sort(key=lambda r: -r["area_m2"])
     return {"patch": str(path), "anchor": list(anchor) if anchor else None,
             "frame": frame, "min_frac": float(min_frac),
+            "mouth_m": float(mouth_m),
             "pavement_ways": len(faces), "contained": len(rows),
-            "touching": sum(1 for r in rows if r["touches"]),
-            "detached": sum(1 for r in rows if not r["touches"]),
+            "notches": sum(1 for r in rows if r["kind"] == "notch"),
+            "mouths": sum(1 for r in rows if r["kind"] == "mouth"),
+            "islands": sum(1 for r in rows if r["kind"] == "island"),
             "area_m2": round(sum(r["area_m2"] for r in rows), 1),
             "rows": rows}
 
@@ -410,14 +421,15 @@ def _report_contained(res: dict, top: int) -> None:
     print(f"=== {res['patch']}  [{res['frame']} frame]")
     print(f"  pavement faces {res['pavement_ways']}: {res['contained']} lie "
           f"at >= {100.0 * res['min_frac']:.0f} % inside another pavement "
-          f"face's RING ({res['touching']} touching = a notch, "
-          f"{res['detached']} detached = an island), "
+          f"face's RING ({res['notches']} notch = absorbed, "
+          f"{res['mouths']} through a mouth <= {res['mouth_m']:g} m = a "
+          f"separate body (08k), {res['islands']} island), "
           f"{res['area_m2']:,.0f} m2 total")
     for r in res["rows"][:top]:
         print(f"    {r['role']}:{r['ref']}#{r['shapeID']:>5} "
               f"{r['area_m2']:9,.0f} m2  ring {r['ring_frac']:.3f}  solid "
-              f"{r['solid_frac']:.3f}  {'notch' if r['touches'] else 'ISLAND'}"
-              f" {r['dist_to_solid_m']:6.2f} m  in "
+              f"{r['solid_frac']:.3f}  {r['kind'].upper():>6} shared "
+              f"{r['shared_edge_m']:8.2f} m  in "
               f"{r['in_role']}:{r['in_ref']}#{r['in_shapeID']}  at "
               f"{r['lat']},{r['lon']}")
 
@@ -472,6 +484,10 @@ def main(argv=None) -> int:
                          "which pavement faces lie inside another pavement "
                          "face's exterior RING, with the solid fraction "
                          "beside it and whether the two touch")
+    ap.add_argument("--mouth", type=float, default=CONTAINED_MOUTH_M,
+                    help="--contains: the narrow-mouth width (RULINGS "
+                         "2026-09-08k, emit.terrace.narrow_mouth_max_m) "
+                         "below which a contact does not join two bodies")
     ap.add_argument("--min-frac", type=float, default=CONTAINED_MIN_FRAC,
                     help="--contains: the fraction of its own area a face "
                          "must have inside the other's ring (§41 (1): 0.95)")
@@ -505,7 +521,7 @@ def main(argv=None) -> int:
     out = []
     for f in a.files:
         if a.contains:
-            res = contained(f, min_frac=a.min_frac)
+            res = contained(f, min_frac=a.min_frac, mouth_m=a.mouth)
             _report_contained(res, a.top)
             out.append(res)
             continue

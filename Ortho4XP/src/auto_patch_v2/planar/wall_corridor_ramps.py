@@ -38,7 +38,12 @@ from .structure_approach import unit
 from .structure_geometry import pad_hit as _pad_hit, rim_standoff
 
 __all__ = ["wall_corridor_groups", "RAMP_ROLE", "GARAGE_ROLE", "KIND", "airside_stops",
-           "stop_and_steepen", "wall_corridor_profile", "wall_corridor_note"]
+           "locked_road_stops", "ROAD_ROLES", "stop_and_steepen", "wall_corridor_profile",
+           "wall_corridor_note"]
+
+#: The groundside ROAD family §34 (9) can pinch a ramp against.  A parking
+#: lot is not a road (it is a place, and §24's pad law governs it).
+ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
 
 KIND = "wall_corridor"
 RAMP_ROLE = "wall_corridor_ramp"
@@ -116,8 +121,42 @@ def airside_stops(cells, polys, law: Law, runway_family) -> list:
             and (role_side(law, c.role) == "airside" or c.role == "building")]
 
 
+def locked_road_stops(cells, polys, law: Law, runway_family, airside_reach_m: float) -> list:
+    """THE SERVICE ROADS LOCKED TO AIRSIDE (spec §34 (9), owner RULINGS
+    2026-09-14ak) — ``[(polygon, ref)]``, the stops a corridor's climb-out
+    may be PINCHED against.
+
+    A groundside road is locked to airside when its level is not its own to
+    give: it edge-shares with (or is absorbed into) airside pavement — the
+    free-road ruling — or it stands within ``airside_reach_m``
+    (``emit.roads.contact_reach_m``, §37 (10) (1)) of an airside face's
+    edge, where §37 (10) gives its end THAT face's solved level.  Such a
+    road cannot yield to a ramp: pulling it down would pull airside through
+    the contact, and airside is king.  So the ramp ends at its edge instead
+    (:func:`stop_and_steepen`).
+
+    A road with no airside contact is NOT locked — it is free to follow the
+    ramp, and nothing here stops the climb."""
+    air = [p for p, c in zip(polys, cells)
+           if c.kind != "structure" and c.role not in runway_family
+           and role_side(law, c.role) == "airside"]
+    if not air:
+        return []
+    tree = shapely.STRtree(air)
+    out = []
+    for p, c in zip(polys, cells):
+        if c.kind == "structure" or c.role not in ROAD_ROLES:
+            continue
+        near = p.buffer(airside_reach_m)
+        if any(air[int(j)].distance(p) <= airside_reach_m + 1e-9
+               for j in tree.query(near, predicate="intersects")):
+            out.append((p, c.ref))
+    return out
+
+
 def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,
-                     stop_list, stop_tree, host, beyond, grid, spacing, regeom):
+                     stop_list, stop_tree, host, beyond, grid, spacing, regeom,
+                     locked_roads=()):
     """RULINGS 2026-09-08m (a): a climb STOPPED at airside pavement (or a
     pad) runs to the pavement EDGE — the exact station one grid step
     short of where the axis enters the cell (the stations' granularity
@@ -141,9 +180,23 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     WAY (the ground at the stop stands under the trench floor), or where
     moving the mouth would push it past the corridor's own far end.
 
-    ``(ss, geom, s_top, design_grade, refusal, climb_from)`` — ``climb_from``
-    is the MOVED mouth, unchanged when the ramp reaches the ground as it
-    stands."""
+    THE PINCHED RAMP (spec §34 (9), owner RULINGS 2026-09-14ak) takes
+    PRECEDENCE over both.  Where the stop is a SERVICE ROAD LOCKED TO
+    AIRSIDE (``locked_roads``, :func:`locked_road_stops`), the ramp ENDS AT
+    THE ROAD EDGE: the road keeps its airside-locked level and is never
+    pulled, the ramp runs from that edge down to its bottom at the BUILDING
+    EDGE, and the cap is LIFTED for that pinched run — whatever grade the
+    span requires is lawful, because the two things the ramp is pinched
+    between (a road that may not move and the building it dives under) both
+    stand where they stand.  The mouth does NOT move: shortening the run is
+    the owner's complaint ("the ramps ... are coming out too far and
+    pulling down the service road edge"), and the moved mouth of 14u is for
+    an unpinched climb.
+
+    ``(ss, geom, s_top, design_grade, refusal, climb_from, pinched)`` —
+    ``climb_from`` is the MOVED mouth (unchanged when the ramp reaches the
+    ground as it stands), ``pinched`` the ``(road ref, span m, grade)`` of a
+    §34 (9) pinch or ``None``."""
     geom = regeom(ss)
     stop_poly = next((p for p, ref in stop_list if ref == clipped_by), None)
     if stop_poly is not None and s_top + spacing <= axis_ln.length:
@@ -162,11 +215,20 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     run = s_top - climb_from
     rise = (top_ground - mouth_z) if not math.isnan(top_ground) else math.inf
     g2 = rise / run if run > 1e-6 else math.inf
+    if clipped_by in locked_roads:
+        # §34 (9): the ramp ENDS at the road edge, the cap lifted for the
+        # pinched run.  A climb the wrong way is still no corridor.
+        if g2 < 0.0 or math.isinf(g2) or math.isnan(g2):
+            return ss, geom, s_top, g2, (
+                f"the climb pinched against the locked service road {clipped_by} at s "
+                f"{s_top:.1f} runs the wrong way: {run:.1f} m of run for {rise:.2f} m of rise "
+                f"to the road edge {top_ground:.2f} (§34 (9))"), climb_from, None
+        return ss, geom, s_top, g2, None, climb_from, (clipped_by, run, g2)
     if g2 < 0.0 or math.isinf(g2) or math.isnan(g2):
         return ss, geom, s_top, g2, (
             f"the climb stopped by {clipped_by} at s {s_top:.1f} runs the wrong way: "
             f"{run:.1f} m of run for {rise:.2f} m of rise to the ground {top_ground:.2f} — "
-            f"a trench standing over its own ground is no corridor (§34 (8))"), climb_from
+            f"a trench standing over its own ground is no corridor (§34 (8))"), climb_from, None
     if g2 > wc.max_ramp_grade + 1e-9:
         # §34 (8) as amended (14u): MOVE THE MOUTH away from airside by the
         # run the cap needs, and run the ramp at the cap from there
@@ -177,14 +239,14 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
                 f"the climb stopped by {clipped_by} at s {s_top:.1f} needs {need:.1f} m of run "
                 f"at max_ramp_grade {100.0 * wc.max_ramp_grade:.0f} % for {rise:.2f} m of rise, "
                 f"and the corridor is only {s_top:.1f} m long — the mouth cannot move that far "
-                f"back (§34 (8), 14u)"), climb_from
+                f"back (§34 (8), 14u)"), climb_from, None
         moved = max(0.0, moved)
         ss = sorted(set([s for s in ss if abs(s - moved) > 1e-6] + [moved]))
         geom_m = regeom(ss)
         if geom_m is not None:
             geom = geom_m
-        return ss, geom, s_top, rise / max(s_top - moved, 1e-9), None, moved
-    return ss, geom, s_top, g2, None, climb_from
+        return ss, geom, s_top, rise / max(s_top - moved, 1e-9), None, moved, None
+    return ss, geom, s_top, g2, None, climb_from, None
 
 
 def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, axis_fn,
@@ -216,7 +278,7 @@ def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, a
 
 
 def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, top_ground,
-                       clipped_by, moved_m: float = 0.0) -> str:
+                       clipped_by, moved_m: float = 0.0, pinched=None) -> str:
     """The per-site line the report quotes."""
     tg = float("nan") if top_ground is None else top_ground
     return (f"wall corridor (2026-09-08m/n Law C, {c.cls}) of {c.resource}: floor = the wall "
@@ -230,4 +292,9 @@ def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, 
                f"building, to s {climb_from:.1f}: the ramp runs at "
                f"{100.0 * design_grade:.1f} % (max_ramp_grade) from there and reaches the ground "
                f"at full depth — no step, and the airside cell is never pulled "
-               f"(§34 (8) as amended, 14u)" if moved_m > 1e-9 else ""))
+               f"(§34 (8) as amended, 14u)" if moved_m > 1e-9 else "")
+            + (f"; pinched_ramp (§34 (9)): the climb ENDS AT THE EDGE of the airside-locked "
+               f"service road {pinched[0]} — the road keeps its level and is never pulled — and "
+               f"runs {pinched[1]:.1f} m from that edge down to the ramp bottom at the building "
+               f"edge at {100.0 * pinched[2]:.1f} %, the cap LIFTED for the pinched run"
+               if pinched else ""))

@@ -407,6 +407,7 @@ def structure_records(airport, cl, law) -> dict:
                             if w.trench.geom_type == "Polygon" else [],
                             "profile": list(w.profile), "sibling": w.sibling,
                             "notes": list(w.notes)} for w in walls_c],
+        "pinched_ramps": list(sstats.pinched_ramps),
         "wall_corridor_refused": list(wstats.refused),
         # RULINGS 2026-09-10z: (a) authored depth / (b'') the mouth opens
         # onto groundside — the verdict and witness per candidate

@@ -4745,3 +4745,14 @@ BARS: HECA airside vertices moved > 0.02 m = 0; the terminal at 30.1279552,
 resolved into its buildings (count, largest cluster's area named);
 constraints ≤ +10 %; KCLT BUILD with outlines — `building80` 221.44 ± 0.02
 and the terminal's members' seats unchanged; SPJC 19.56 dry.
+
+### §16g (10) (6) A PAD SHARING AN EDGE WITH AIRSIDE WELDS TO IT (owner RULINGS 2026-09-14ai) — lane `v2padcluster`
+
+A `building` pad that shares an edge with an airside face takes the airside
+face's solved level along that edge — no step — and its plane meets it
+within the pad's own slope cap; the airside is the datum (airside is king),
+the pad never pulls it.  A pad that cannot meet its airside edge within cap
+is `pad_airside_weld` (CRITICAL), never a terrace step.  The cluster seated
+on such a pad follows the welded level.  BAR: every airside-sharing pad at
+HECA and KCLT welded (step along the shared edge ≤ `hard_tol_m`), named with
+its airside face.

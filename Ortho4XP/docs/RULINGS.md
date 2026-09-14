@@ -4259,3 +4259,21 @@ at LEMD/OTHH (every basin rim/region/floor/ramp/refusal identical; the known
 * Every airport's patch edge in 1.0.330 is the design ring meeting the raw
   DEM over one triangle (LEMD: 2,584 steps > 3 m, worst 19.9 m) — expected,
   not a regression to report.
+
+## 2026-09-13cz APP 1.0.330 BUILT (engine 1.50.1776): bank feet OFF, the canyon fix, hairline r2, gradecache r2
+
+Main 5718891f + version bump. Carries: 13cp/13cw (open feet as breaklines,
+ribbons Dirichlet, the annulus loud bar, `structure_rim` breaklines),
+13cy `bank_omit = true` (NO bank_foot ways in any patch), 13cr (one shore
+witness, sub-spacing merge, crossing-mint join; pre-flight stays report),
+13cx (VHHH planar 483 s / 8.6 GB), the §16g (6)/§40/§41/§37 (10)/§42 LAW
+but NOT their lanes (`v2connector`, `v2roles`, `v2zonehole`,
+`v2roadcontact`, `v2drapedsrc` still running — the SPJC viaduct, HECA
+items 1–6 and 8 are unchanged in this build).
+
+* What to read: LEMD 40.465414,−3.5531888 (the canyon: expect the road at
+  588–590); every airport's patch EDGE with no bank (the design ring
+  meets the raw DEM over one triangle); LEMD `hairline_pair` sites; the
+  whole-airport look at HECA/LEMD versus 1.0.327.
+* Not in this build: the SPJC viaduct seat (13cn), HECA 1–6/8 (13cs/13cv),
+  the KCLT tile (owner's `--refresh-data dem` still pending).

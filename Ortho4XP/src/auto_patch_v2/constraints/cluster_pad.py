@@ -323,3 +323,72 @@ def cluster_apron_level(planar: PlanarMap, law: Law, airport: Airport
             terms[v] = terms.get(v, 0.0) + 1.0
             rows.extend(_two_sided(tuple(terms.items()), src, (v,)))
     return rows
+
+
+#: How many CROSS-LINKS one member face of a cluster contributes at most.
+#: A plane has three degrees of freedom, so three would tie it; the cap is
+#: ``pads._MAX_PAIRWISE`` for the same reason a rim is decimated to it —
+#: a well-spread subset witnesses the plane and the row count stays O(n).
+_CROSS_MAX = 40
+
+#: What :func:`cluster_pairs` last counted, for the generator's own stats
+#: line (``constraints.generate`` publishes ``pads.<key>``).
+STATS: dict[str, int] = {}
+
+
+def cluster_pairs(planar: PlanarMap,
+                  faces: _t.Sequence[_t.Sequence[int]]
+                  ) -> "tuple[list[tuple[int, int]], int]":
+    """§30 (4): THE PAIRS A CLUSTER'S PLANE IS PRICED OVER — each member
+    face's OWN complete set, as if it stood alone, PLUS explicit
+    CROSS-LINKS between the faces.  Returns ``(pairs, cross-link count)``.
+
+    THE MERGED READING WAS MEASURED AND REFUTED (RULINGS 2026-09-13cc,
+    lane round 3).  Handing ``pads._pairs`` the concatenated rim let its
+    decimation over ``_MAX_PAIRWISE`` do both jobs badly: KCLT's 865 + 18
+    vertex cluster priced 1,624 pairs of which only **40 crossed between
+    the faces**, while ``building91``'s own plate fell from 153 pairwise
+    cap-0 rows to **17** consecutive ones — the merge took nine tenths of
+    the small pad's rigidity away and gave it 40 weak links back.  The
+    arms proved it inert: PAD-ONLY came out BYTE-IDENTICAL to DISARM
+    (graded `bde3f0aff32e`, patch `47c91c99b599`).
+
+    So the two jobs are separated.  Each face keeps exactly the pairs it
+    would have alone — ``_pairs`` unchanged, per face — and the faces are
+    then tied by links from every (decimated) vertex of each junior face
+    to its NEAREST vertex in the SENIOR face (the largest rim).  Nearest,
+    because a link is a weld in all but name and the shortest one is the
+    one the geometry already implies; from every vertex, because a plane
+    has three degrees of freedom and a handful of long links leaves a
+    small face free to tilt about them."""
+    live = [list(vs) for vs in faces if len(vs) >= 2]
+    if not live:
+        return [], 0
+    from .pads import _MAX_PAIRWISE, _pairs
+    pairs: set[tuple[int, int]] = set()
+    for vs in live:
+        for a, b in _pairs(vs):
+            if a != b:
+                pairs.add((min(a, b), max(a, b)))
+    n_cross = 0
+    if len(live) > 1:
+        senior = max(live, key=len)
+        xy = {v: planar.vertices[v].xy for vs in live for v in vs
+              if v in planar.vertices}
+        sen = [(v, xy[v]) for v in senior if v in xy]
+        for vs in live:
+            if vs is senior:
+                continue
+            step = max(1, len(vs) // _CROSS_MAX)
+            for v in vs[::step]:
+                q = xy.get(v)
+                if q is None or not sen:
+                    continue
+                w = min(sen, key=lambda s: ((s[1][0] - q[0]) ** 2
+                                            + (s[1][1] - q[1]) ** 2))[0]
+                if w != v:
+                    key = (min(v, w), max(v, w))
+                    if key not in pairs:
+                        pairs.add(key)
+                        n_cross += 1
+    return sorted(pairs), n_cross

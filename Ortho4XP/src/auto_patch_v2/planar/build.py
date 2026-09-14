@@ -87,6 +87,13 @@ class BuildStats:
     #: (``overlay.absorb_enclosed_pavement``)
     enclosed_absorbed: int = 0
     enclosed_detached: int = 0
+    #: §41 (4) (owner RULINGS 2026-09-14c item 4): sliver ZONE faces
+    #: dissolved into the face they border, the host-less ones dropped,
+    #: their total area and one row each (``overlay.dissolve_sliver_zones``)
+    zone_slivers_dissolved: int = 0
+    zone_slivers_dropped: int = 0
+    zone_sliver_area_m2: float = 0.0
+    zone_sliver_rows: tuple = ()
     #: RULINGS 2026-09-08m/08n Law C: the kerb-wall corridors read
     wall_corridors: WallCorridorStats = _dc.field(default_factory=WallCorridorStats)
     #: owner RULINGS 2026-09-10b/10c (spec §19): the terrain edge's trim
@@ -147,6 +154,10 @@ def build(airport: Airport, classification: Classification, law: Law,
                        holes_dissolved=arr.holes_dissolved,
                        enclosed_absorbed=arr.enclosed_absorbed,
                        enclosed_detached=arr.enclosed_detached,
+                       zone_slivers_dissolved=arr.zone_slivers_dissolved,
+                       zone_slivers_dropped=arr.zone_slivers_dropped,
+                       zone_sliver_area_m2=arr.zone_sliver_area_m2,
+                       zone_sliver_rows=arr.zone_sliver_rows,
                        door_wells=dstats, sunken_roads=rstats, wall_corridors=wstats,
                        terrain_edge=arr.edge_report)
     frame = airport.frame

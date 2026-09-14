@@ -202,6 +202,24 @@ band_roles         = ["apron", "junction", "service_road", "service_junction"]  
 # law — the sliver merge runs in the planar build, the groundside ramp is a
 # LAW GENERATOR (``constraints/groundside.py``).
 sliver_area_factor  = 8.0     # 08d change 4 (a): a face of the SAME pavement and role under (identity.min_distinct_spacing_m x this)^2 = 16 m2 is a classification sliver merged into its neighbour at the planar build (HECA pav131 face 269: 3 nodes, 9.8 m2, 47 m long)
+# §41 (4) A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS 2026-09-14c item 4;
+# attributed 2026-09-14g item 4; ``planar/overlay.dissolve_sliver_zones``): an
+# adjacent-ground zone face this small or this narrow has nowhere to put the
+# transition it exists to carry — it stands at whatever its own bound gives it
+# and mints a hump inside the pavement around it (HECA shape 1035: 15.7 m2,
+# 2.16 m wide, at 106.0 inside a taxiway at 104.4, +1.3-1.6 m over 7 m).  It is
+# dissolved into the pavement it borders at the SINGLE derivation site, before
+# the host's hole is cut, so it is never emitted and never a hole.
+strip_min_m2       = 50.0   # a zone face under this is a sliver (owner's number)
+strip_min_width_m  = 3.0    # ... or narrower than this at its WIDEST place (the INSCRIBED circle's diameter; 2A/P is a mean-width proxy and over-counted 57 -> 153 at HECA)
+# RULINGS 2026-09-14g item 5 (``emit/osm_adapter.render_patch``): a face's hole
+# is emitted as a ``gap_interior_ring`` only when the faces INSIDE it do not
+# already constrain it.  That test read the hole's ring EDGES against the inner
+# faces' and so failed open on a hole covered by AREA but not edge-for-edge —
+# HECA way -10231, 29.5 m2, 1.60 m wide, 92.3 % covered, shipped as a
+# constrained ring straight across ``service_road:route4``.  The test is the
+# AREA one, at this slack.
+hole_cover_eps     = 0.02   # inner faces covering >= 1 - this of the hole's area ARE the hole's constraint
 groundside_ramp_max = 0.05    # 08d change 4 (b): the apron edge RAMPS to the groundside ring across the stand-off at this grade (v1 GROUNDSIDE_MAX_GRADE, config.py:1519), never a step
 
 [design]

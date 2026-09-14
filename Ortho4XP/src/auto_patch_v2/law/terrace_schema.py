@@ -30,6 +30,17 @@ class Terrace:
     #: 08d change 4 (b): the grade at which the apron edge RAMPS to the
     #: groundside ring across the stand-off (``constraints/groundside.py``).
     groundside_ramp_max: float
+    #: §41 (4) (owner RULINGS 2026-09-14c item 4): a zone strip under this
+    #: area, or narrower than ``strip_min_width_m`` at its widest place
+    #: (the INSCRIBED circle's diameter), carries no lawful transition and
+    #: is dissolved into the pavement it borders
+    #: (``planar/overlay.dissolve_sliver_zones``).
+    strip_min_m2: float
+    strip_min_width_m: float
+    #: RULINGS 2026-09-14g item 5: the slack on "the faces inside this hole
+    #: already constrain it" — the AREA test that replaced the ring-EDGE
+    #: superset one in ``emit/osm_adapter.render_patch``.
+    hole_cover_eps: float
 
 
 def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -> None:
@@ -48,3 +59,8 @@ def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -
     if tr.sliver_area_factor <= 0.0 or not 0.0 < tr.groundside_ramp_max < 1.0:
         raise err("emit.terrace: sliver_area_factor must be positive and "
                   "groundside_ramp_max a grade fraction in (0, 1)")
+    if tr.strip_min_m2 < 0.0 or tr.strip_min_width_m < 0.0:
+        raise err("emit.terrace: strip_min_m2 and strip_min_width_m must "
+                  "not be negative (0 disarms §41 (4))")
+    if not 0.0 <= tr.hole_cover_eps < 1.0:
+        raise err("emit.terrace: hole_cover_eps must be a fraction in [0, 1)")

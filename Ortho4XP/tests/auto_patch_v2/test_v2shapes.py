@@ -484,8 +484,16 @@ def test_the_law_table_carries_the_shape_keys(law):
     # RULINGS 2026-09-08t: the sliver factor and the groundside ramp moved
     # here when [yield] was deleted with the yielding machinery
     assert tt.sliver_area_factor > 0.0 and 0.0 < tt.groundside_ramp_max < 1.0
-    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05)
+    # §41 (4) / RULINGS 2026-09-14g item 5 (lane ``v2slivers``): the zone
+    # sliver floors and the hole-cover slack joined the table
+    assert tt.strip_min_m2 >= 0.0 and tt.strip_min_width_m >= 0.0
+    assert 0.0 <= tt.hole_cover_eps < 1.0
+    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05, 50.0, 3.0, 0.02)
     check_terrace(good, {"apron"}, LawError)
+    with pytest.raises(LawError):
+        check_terrace(_dc.replace(good, strip_min_width_m=-1.0), {"apron"}, LawError)
+    with pytest.raises(LawError):
+        check_terrace(_dc.replace(good, hole_cover_eps=1.0), {"apron"}, LawError)
     with pytest.raises(LawError):
         check_terrace(_dc.replace(good, narrow_mouth_max_m=0.4), {"apron"}, LawError)
     with pytest.raises(LawError):

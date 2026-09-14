@@ -79,8 +79,11 @@ def _selector(spec: str):
     return _match
 
 
-def _frame(path):
+def _frame(path, feature_out=None):
     """``(nodes, ways, anchor, frame_name, sidecar)`` for one patch.
+    ``feature_out``: the dict ``check_grade._parse_osm`` collects the
+    ROLE-LESS feature ways into (``gap_interior_ring`` and friends), so a
+    read that needs them stays ONE parse of the file.
 
     THE ANCHOR REPAIR (chip RULINGS 2026-09-13cs; lane ``v2zonehole``).
     This read used to do ``side["anchor"]`` and died with ``KeyError:
@@ -101,7 +104,7 @@ def _frame(path):
             f"REFUSING: {p} has no .axes.json sidecar — without the census "
             f"context there is no metre frame to measure areas in.")
     import check_grade as CG
-    nodes, ways = CG._parse_osm(p)
+    nodes, ways = CG._parse_osm(p, feature_out)
     side = json.loads(side_path.read_text())
     a = side.get("anchor")
     anchor = (float(a[0]), float(a[1])) if a else None
@@ -417,6 +420,262 @@ def contained(path, *, min_frac: float = CONTAINED_MIN_FRAC,
             "rows": rows}
 
 
+#: §41 (4) (owner RULINGS 2026-09-14c item 4, attributed 2026-09-14g item
+#: 4): the zone-strip minimums — mirrored from ``law/emit.toml [terrace]
+#: strip_min_m2`` / ``strip_min_width_m``.  A strip under either cannot
+#: carry a lawful transition.
+STRIP_MIN_M2 = 50.0
+STRIP_MIN_WIDTH_M = 3.0
+#: The zone-strip role (``planar/zones.py``).
+STRIP_ROLE = "graded_strip"
+#: RULINGS 2026-09-14g item 5: the hole-cover slack — mirrored from
+#: ``law/emit.toml [terrace] hole_cover_eps``.
+HOLE_COVER_EPS = 0.02
+#: The feature class of an emitted hole ring (``emit/osm_adapter.HOLE_FEATURE``).
+HOLE_FEATURE = "gap_interior_ring"
+
+
+def inscribed_width_m(poly, tol: float = 0.01) -> float:
+    """THE WIDTH OF A FACE: twice the radius of its MAXIMUM INSCRIBED
+    CIRCLE — the diameter of the largest disc the shape holds, i.e. how
+    wide it is at its WIDEST place.  NOT ``2 A / P``, a mean-width proxy
+    that over-counted HECA's narrow zone faces 42 -> 153 (RULINGS
+    2026-09-14g item 4).
+
+    THE ENGINE'S OWN FUNCTION (``planar.overlay.inscribed_width_m``),
+    imported and never re-spelled: the law DISSOLVES a strip on this
+    number, so an instrument that computed its own would be reading a
+    different shape than the one the build judged."""
+    src = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    from auto_patch_v2.planar.overlay import inscribed_width_m as _w
+    return _w(poly, tol)
+
+
+def _poly_of(w, nodes, to_m, holes_ll=None):
+    """One emitted way's ring as a metre-frame polygon (with its sidecar
+    holes when ``holes_ll`` is given), or ``None``."""
+    from shapely.geometry import Polygon
+    pts = [to_m(*nodes[n]) for n in w.nids if n in nodes]
+    if len(pts) < 4:
+        return None
+    hs = []
+    if holes_ll is not None:
+        hs = [[to_m(*pt) for pt in r]
+              for r in holes_ll.get(str(w.tags.get("shapeID")), [])]
+    try:
+        p = Polygon(pts, [h for h in hs if len(h) >= 4])
+        if not p.is_valid:
+            p = p.buffer(0)
+    except Exception:                                     # pragma: no cover
+        return None
+    if p.is_empty or p.geom_type != "Polygon" or p.area <= 0.0:
+        return None
+    return p
+
+
+def strip_slivers(path, *, role: str = STRIP_ROLE,
+                  area_min_m2: float = STRIP_MIN_M2,
+                  width_min_m: float = STRIP_MIN_WIDTH_M):
+    """THE SLIVER ZONE STRIP (spec §41 (4); owner RULINGS 2026-09-14c item
+    4) — which emitted ``graded_strip`` faces are too small or too narrow
+    to carry a lawful adjacent-ground transition.
+
+    A zone strip under ``area_min_m2`` or narrower than ``width_min_m``
+    (:func:`inscribed_width_m`) has nowhere to put the transition it
+    exists to carry, so it stands at whatever its own bound gives it and
+    mints a hump inside the pavement around it — HECA shape 1035,
+    15.6 m², 2.16 m wide, standing at ~106.0 in a taxiway at 104.4
+    (+1.3-1.6 m over 7 m, RULINGS 2026-09-14g item 4).  Each such face is
+    named with its area, inscribed width, elevation span and the pavement
+    face it borders longest (its HOST — what ``planar.overlay.
+    dissolve_sliver_zones`` unions it into).
+
+    It measures no law and counts no defects: geometry and the metre
+    frame come from the harness library (``check_grade``), defect counts
+    from ``harness/census.py`` and nowhere else."""
+    import check_grade as CG
+    from shapely.strtree import STRtree
+
+    nodes, ways, anchor, frame, side = _frame(path)
+    to_m = CG._ll_to_m_factory(nodes, anchor)
+    holes_ll = side.get("face_holes") or {}
+
+    strips, others = [], []
+    for w in ways:
+        p = _poly_of(w, nodes, to_m, holes_ll)
+        if p is None:
+            continue
+        (strips if w.role == role else others).append((w, p))
+    tree = STRtree([p for _w, p in others]) if others else None
+
+    rows = []
+    for w, p in strips:
+        width = inscribed_width_m(p)
+        if p.area >= float(area_min_m2) and width >= float(width_min_m):
+            continue
+        host, host_len = None, 0.0
+        for j in (tree.query(p) if tree is not None else ()):
+            w2, p2 = others[int(j)]
+            try:
+                shared = p.boundary.intersection(p2.boundary).length
+            except Exception:                             # pragma: no cover
+                continue
+            if shared > host_len:
+                host, host_len = w2, shared
+        zs = [z for z in (w.elevs or []) if z is not None]
+        c = p.representative_point()
+        lat, lon = to_m.inverse(c.x, c.y)
+        rows.append({"way": w.wid, "shapeID": w.tags.get("shapeID"),
+                     "role": w.role, "ref": w.ref,
+                     "area_m2": round(p.area, 1),
+                     "width_m": round(width, 2),
+                     "below_area": p.area < float(area_min_m2),
+                     "below_width": width < float(width_min_m),
+                     "z_min": round(min(zs), 2) if zs else None,
+                     "z_max": round(max(zs), 2) if zs else None,
+                     "host_way": host.wid if host else None,
+                     "host": (f"{host.role}:{host.ref}" if host else None),
+                     "host_shapeID": (host.tags.get("shapeID") if host
+                                      else None),
+                     "shared_edge_m": round(host_len, 2),
+                     "lat": round(lat, 7), "lon": round(lon, 7)})
+    rows.sort(key=lambda r: r["area_m2"])
+    return {"patch": str(path), "frame": frame,
+            "anchor": list(anchor) if anchor else None,
+            "role": role, "area_min_m2": float(area_min_m2),
+            "width_min_m": float(width_min_m),
+            "strip_ways": len(strips),
+            "strip_area_m2": round(sum(p.area for _w, p in strips), 1),
+            "slivers": len(rows),
+            "area_m2": round(sum(r["area_m2"] for r in rows), 1),
+            "below_area": sum(1 for r in rows if r["below_area"]),
+            "below_width": sum(1 for r in rows if r["below_width"]),
+            "rows": rows}
+
+
+def hole_rings(path, *, eps: float = HOLE_COVER_EPS,
+               width_min_m: float = STRIP_MIN_WIDTH_M):
+    """THE EMITTED HOLE RINGS (RULINGS 2026-09-14g item 5) — every
+    ``gap_interior_ring`` way in the patch with the fraction of its area
+    the INNER FACES cover and its inscribed width.
+
+    The emitter suppresses a hole whose inner faces already constrain it;
+    until 2026-09-14 that test was an EDGE-SUPERSET one, which fails open
+    on a hole the inner faces cover by area but not edge-for-edge — HECA
+    way -10231, 29.3 m², ~1 m wide, hole 1 of ``cross_connector:pav115``,
+    shipped as a constrained ring straight across ``service_road:route4``.
+    This read is how that population is counted: per ring the host face,
+    the area, the inscribed width and the COVER FRACTION, with a verdict —
+    ``covered`` (inner faces cover >= 1 - eps: the ring is a duplicate),
+    ``hairline`` (narrower than ``width_min_m``: it can carry no
+    transition) or ``void`` (a real uncovered hole, which KEEPS its ring).
+
+    It measures no law and counts no defects."""
+    import check_grade as CG
+    from shapely.ops import unary_union
+    from shapely.strtree import STRtree
+
+    feats: dict = {}
+    nodes, ways, anchor, frame, side = _frame(path, feats)
+    to_m = CG._ll_to_m_factory(nodes, anchor)
+
+    faces = []
+    for w in ways:
+        p = _poly_of(w, nodes, to_m)
+        if p is not None:
+            faces.append((w, p))
+    tree = STRtree([p for _w, p in faces]) if faces else None
+    by_shape = {str(w.tags.get("shapeID")): w for w, _p in faces}
+
+    rows = []
+    for w in feats.get(HOLE_FEATURE, ()):
+        hp = _poly_of(w, nodes, to_m)
+        if hp is None:
+            continue
+        host_id = str(w.tags.get("shapeID"))
+        inner = []
+        for j in (tree.query(hp) if tree is not None else ()):
+            w2, p2 = faces[int(j)]
+            # INSIDE the hole, never the HOST whose hole it is: a face ring
+            # is parsed with its holes FILLED, so the host's own ring
+            # contains the hole entirely and an overlap test alone would
+            # call every hole of a thin host covered by its host.  The
+            # criterion is the emitter's own (``emit/osm_adapter._hole_cover``)
+            if str(w2.tags.get("shapeID")) == host_id:
+                continue
+            if p2.area > hp.area * 1.001:
+                continue
+            try:
+                if hp.contains(p2.representative_point()):
+                    inner.append((w2, p2))
+            except Exception:                             # pragma: no cover
+                continue
+        try:
+            cover = (unary_union([p for _w, p in inner]).intersection(hp).area
+                     / hp.area) if inner else 0.0
+        except Exception:                                 # pragma: no cover
+            cover = 0.0
+        width = inscribed_width_m(hp)
+        host = by_shape.get(str(w.tags.get("shapeID")))
+        c = hp.representative_point()
+        lat, lon = to_m.inverse(c.x, c.y)
+        rows.append({"way": w.wid, "host_shapeID": w.tags.get("shapeID"),
+                     "host": (f"{host.role}:{host.ref}" if host else None),
+                     "area_m2": round(hp.area, 1),
+                     "width_m": round(width, 2),
+                     "cover_frac": round(cover, 4),
+                     "inner_faces": len(inner),
+                     "inner": [f"{x.role}:{x.ref}#{x.tags.get('shapeID')}"
+                               for x, _p in inner[:6]],
+                     "verdict": ("covered" if cover >= 1.0 - float(eps)
+                                 else ("hairline" if width < float(width_min_m)
+                                       else "void")),
+                     "lat": round(lat, 7), "lon": round(lon, 7)})
+    rows.sort(key=lambda r: -r["area_m2"])
+    return {"patch": str(path), "frame": frame,
+            "anchor": list(anchor) if anchor else None,
+            "cover_eps": float(eps), "width_min_m": float(width_min_m),
+            "rings": len(rows),
+            "area_m2": round(sum(r["area_m2"] for r in rows), 1),
+            "covered": sum(1 for r in rows if r["verdict"] == "covered"),
+            "hairline": sum(1 for r in rows if r["verdict"] == "hairline"),
+            "void": sum(1 for r in rows if r["verdict"] == "void"),
+            "rows": rows}
+
+
+def _report_slivers(res: dict, top: int) -> None:
+    print(f"=== {res['patch']}  [{res['frame']} frame]")
+    print(f"  {res['role']} faces {res['strip_ways']} "
+          f"({res['strip_area_m2']:,.0f} m2): {res['slivers']} SLIVER "
+          f"({res['area_m2']:,.0f} m2) under {res['area_min_m2']:g} m2 "
+          f"({res['below_area']}) or narrower than "
+          f"{res['width_min_m']:g} m inscribed ({res['below_width']})")
+    for r in res["rows"][:top]:
+        z = ("-" if r["z_min"] is None
+             else f"{r['z_min']:.2f}..{r['z_max']:.2f}")
+        print(f"    shape {str(r['shapeID']):>5} {str(r['ref'])[:34]:<34} "
+              f"{r['area_m2']:8.1f} m2  width {r['width_m']:5.2f} m  "
+              f"z {z:>14}  host {r['host']} shared "
+              f"{r['shared_edge_m']:7.2f} m  at {r['lat']},{r['lon']}")
+
+
+def _report_holes(res: dict, top: int) -> None:
+    print(f"=== {res['patch']}  [{res['frame']} frame]")
+    print(f"  {HOLE_FEATURE} rings {res['rings']} "
+          f"({res['area_m2']:,.0f} m2): {res['covered']} covered "
+          f">= {100.0 * (1.0 - res['cover_eps']):.0f} %, {res['hairline']} "
+          f"hairline < {res['width_min_m']:g} m, {res['void']} real void")
+    for r in res["rows"][:top]:
+        print(f"    way {r['way']:>7} host {str(r['host'])[:28]:<28}"
+              f"#{str(r['host_shapeID']):>5} {r['area_m2']:8.1f} m2  width "
+              f"{r['width_m']:5.2f} m  cover {r['cover_frac']:.3f} "
+              f"({r['inner_faces']}) {r['verdict'].upper():>8}  at "
+              f"{r['lat']},{r['lon']}")
+
+
 def _report_contained(res: dict, top: int) -> None:
     print(f"=== {res['patch']}  [{res['frame']} frame]")
     print(f"  pavement faces {res['pavement_ways']}: {res['contained']} lie "
@@ -484,6 +743,28 @@ def main(argv=None) -> int:
                          "which pavement faces lie inside another pavement "
                          "face's exterior RING, with the solid fraction "
                          "beside it and whether the two touch")
+    ap.add_argument("--slivers", action="store_true",
+                    help="the SLIVER ZONE STRIP census instead (spec §41 "
+                         "(4)): which graded_strip faces are under "
+                         "--strip-min-area or narrower than "
+                         "--strip-min-width (inscribed circle), with the "
+                         "pavement host each borders longest")
+    ap.add_argument("--hole-rings", action="store_true",
+                    help="the EMITTED HOLE RING census instead (RULINGS "
+                         "2026-09-14g item 5): every gap_interior_ring "
+                         "way with the fraction of its area the inner "
+                         "faces cover and its inscribed width")
+    ap.add_argument("--strip-min-area", type=float, default=STRIP_MIN_M2,
+                    help="--slivers: emit.terrace.strip_min_m2 (50)")
+    ap.add_argument("--strip-min-width", type=float,
+                    default=STRIP_MIN_WIDTH_M,
+                    help="--slivers / --hole-rings: "
+                         "emit.terrace.strip_min_width_m (3.0)")
+    ap.add_argument("--cover-eps", type=float, default=HOLE_COVER_EPS,
+                    help="--hole-rings: emit.terrace.hole_cover_eps — the "
+                         "slack on 'the inner faces cover it'")
+    ap.add_argument("--strip-role", default=STRIP_ROLE,
+                    help="--slivers: the role read (default graded_strip)")
     ap.add_argument("--mouth", type=float, default=CONTAINED_MOUTH_M,
                     help="--contains: the narrow-mouth width (RULINGS "
                          "2026-09-08k, emit.terrace.narrow_mouth_max_m) "
@@ -508,14 +789,20 @@ def main(argv=None) -> int:
     ap.add_argument("--top", type=int, default=12)
     ap.add_argument("--json")
     a = ap.parse_args(argv)
-    if a.contains:
+    modes = [m for m in ("contains", "slivers", "hole_rings")
+             if getattr(a, m)]
+    if len(modes) > 1:
+        print("role_overlap_read: --contains, --slivers and --hole-rings "
+              "are three different reads; run one at a time")
+        return 2
+    if modes:
         if a.over or a.on:
-            print("role_overlap_read: --contains is its own read; it takes "
-                  "neither --over nor --on")
+            print(f"role_overlap_read: --{modes[0].replace('_', '-')} is its "
+                  f"own read; it takes neither --over nor --on")
             return 2
     elif not (a.over and a.on):
         print("role_overlap_read: --over and --on are required (or "
-              "--contains for the containment census)")
+              "--contains / --slivers / --hole-rings for the other reads)")
         return 2
     sites = [tuple(float(v) for v in s.split(",")) for s in a.site]
     out = []
@@ -523,6 +810,19 @@ def main(argv=None) -> int:
         if a.contains:
             res = contained(f, min_frac=a.min_frac, mouth_m=a.mouth)
             _report_contained(res, a.top)
+            out.append(res)
+            continue
+        if a.slivers:
+            res = strip_slivers(f, role=a.strip_role,
+                                area_min_m2=a.strip_min_area,
+                                width_min_m=a.strip_min_width)
+            _report_slivers(res, a.top)
+            out.append(res)
+            continue
+        if a.hole_rings:
+            res = hole_rings(f, eps=a.cover_eps,
+                             width_min_m=a.strip_min_width)
+            _report_holes(res, a.top)
             out.append(res)
             continue
         res = read(f, over=a.over, on=a.on, min_area_m2=a.min_area,

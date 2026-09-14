@@ -680,6 +680,22 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             "relief targets, no basin bodies) — the trap owner RULINGS 2026-09-12u names, "
             "spec \u00a730 (3a).  Re-capture with the current tool: "
             f"venv/bin/python tools/v2_solve_replay.py --capture {icao} --out {pkl}")
+    # A CAPTURE PREDATING A TARGET CHANNEL REPLAYS WITH THAT CHANNEL
+    # EMPTY, and says which (lane ``v2roadcontact``, §37 (10)).  A
+    # ``PlanarMap`` field added since the pickle was written is simply
+    # ABSENT on the unpickled instance, so the first ``dataclasses.replace``
+    # raises ``AttributeError`` and a REGISTERED FRAME another lane shares
+    # becomes unreplayable for a channel its own stage never produced.
+    # The publisher derives the channel in the replay anyway; the backfill
+    # is the dataclass's OWN default, and every field it fills is named.
+    missing = [f for f in _dc.fields(type(pm)) if not hasattr(pm, f.name)]
+    for f in missing:
+        d = (f.default_factory() if f.default_factory is not _dc.MISSING
+             else f.default)
+        object.__setattr__(pm, f.name, None if d is _dc.MISSING else d)
+    if missing:
+        print(f"[{icao}] capture predates {len(missing)} PlanarMap channel(s), "
+              f"backfilled at their defaults: {', '.join(f.name for f in missing)}")
     law = Law.for_airport(icao)
     t0 = time.perf_counter()
     if resume == "planar":

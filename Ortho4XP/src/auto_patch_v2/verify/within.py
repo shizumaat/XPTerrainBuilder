@@ -45,7 +45,8 @@ import math
 
 from ..constraints.geometry import (chords_covered, face_cover, long_axis,
                                     pair_is_transverse, station_indices)
-from ..constraints.roads import NO_FRAME, NOT_A_PAIR, road_pair_reading
+from ..constraints.roads import (NO_FRAME, NOT_A_PAIR, one_ribbon_m,
+                                 road_pair_reading)
 from ..constraints.stretches import AxisIndex, compose_pairs, nearest_line_cap
 from ..constraints.taxi import short_pairs
 from ..law.tables import role_cap, snap_margin_m
@@ -327,7 +328,8 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                 road_read = None
                 if sh.role in roads and rframe:
                     road_read = road_pair_reading(cap, min(cap_t, cap), min_deg,
-                                                  rframe.get(a), rframe.get(b), d)
+                                                  rframe.get(a), rframe.get(b), d,
+                                                  one_ribbon_m())
                 if road_read == NOT_A_PAIR:
                     if not adjacent:
                         continue            # a switchback's two branches

@@ -852,11 +852,15 @@ def _road_pair_reading_v2(cap_l: float, cap_t: float, fa, fb, chord=None):
         for _p in (str(Path(__file__).resolve().parents[1] / "src"),):
             if _p not in sys.path:
                 sys.path.insert(0, _p)
-        from auto_patch_v2.constraints.roads import road_pair_reading
+        from auto_patch_v2.constraints.roads import (one_ribbon_m,
+                                                     road_pair_reading)
     except Exception:                                   # pragma: no cover
         return "no_frame"
+    # §37 (10) (2) (RULINGS 2026-09-13cs item 4): the ONE-RIBBON width is
+    # the law's own key, read through the engine's accessor so the census
+    # and the generator price one number.
     return road_pair_reading(cap_l, cap_t, _ROAD_XSECTION_MIN_DEG, fa, fb,
-                             chord)
+                             chord, one_ribbon_m())
 
 
 def _crown_centerline_nids(nodes: Dict[str, Tuple[float, float]],

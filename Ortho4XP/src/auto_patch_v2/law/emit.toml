@@ -162,6 +162,15 @@ answer_radius_lane_widths = 2.0  # a vertex reads the profile within this many l
 # the longitudinal cap is `common.roles.service_road.longitudinal` — ONE
 # constant with the core's `road_grade_limit` default (O4_Cfg_Vars); a
 # hosted build passes the tile's own value.
+[road_contact]
+# §37 (10) THE AIRSIDE CONTACT SET INCLUDES TAXIWAYS; A ROUTE PAIR IS
+# FOUND BY GEOMETRY (Fable 2026-09-13; owner RULINGS 2026-09-13cs items
+# 3/4/5, read on the owner's 1.0.329 HECA products).
+contact_reach_m = 15.0  # (1) HECA `service_road:route0` ENDS at 108.09 on the DEM 4.4 m short of `secondary_parallel:pav74`'s edge at 106.9 — a 33 % cliff — because §37 (6) read a contact only where the road SHARES a vertex with the airside face.  A road that ends within this of an airside face's edge takes a contact at the nearest edge point, at that face's own level: the mouth is where the vehicle crosses, not where the two rings happen to weld
+pair_lateral_m  = 6.0   # (2) two routes whose frames place vertices this close ACROSS the road are one carriageway (a 3 m ribbon at HECA carries route frames 5936 and 5934, so §37 (7) returned NOT_A_PAIR and the 1.30 m step over 3.05 m was never priced) — wider than any single service-road lane, narrower than two roads with ground between them
+pair_overlap_m  = 10.0  # ... and only when they run together for at least this much arc: a crossing (two routes meeting at a point) is not a carriageway
+extra_roles     = ["parking_lot"]  # the contact set is every AIRSIDE VALUE role — apron, the pad, the whole taxi family (junction and stub) and the runway family with §40's shoulder, read from precedence.toml so a new role joins by being declared — plus §37 (10)'s LOT, which precedence.toml partitions groundside but which is hard surface stated at its own level
+
 [terrace]
 # THE SHAPES (owner RULINGS 2026-09-08k; spec ``heca-v1-parity-spec.md`` §8;
 # ``planar/shapes.py``): "if pavement is touching, or overlapping, then it
@@ -629,6 +638,8 @@ one_way_rulings = [
   "structures.structure_rim frontage_level",                # 09-10an: a structure RIM is flush with the pavement it sits in — the crest rises to the apron, it never pulls the apron down into the pit
   "structures.building_pad groundside_frontage",           # 09-12r / spec §28 (2): the LOT / SERVICE ROAD follows the pad's edge level and never pulls a pad — airside is king, and §20's apron frontage still sets the pad
   "structures.building_pad groundside_frontage junior",
+  "roads.road_ribbon airside follower",                     # §37 (10) (2) (coordinator round 2): a pair this lane newly prices ACROSS a ribbon may bind the MOUTH a road ring shares with its apron — the ROAD vertex follows, the airside column never feels it.  AIRSIDE IS KING
+  "roads.groundside_road airside contact",                  # §37 (10) (1) (RULINGS 2026-09-13cs item 5): the road's END takes the level of the airside edge within `contact_reach_m` and ramps away at its own cap — one-way, because AIRSIDE IS KING and no airside vertex moves for a road (HECA `route0` ends 4.4 m from `pav74`, whose ring vertices carry NO published target and whose DEM is 1.4 m ABOVE the level the solve gives it: only the airside's own column knows that level)
 ]
 # §20a THE LAG IS A CONVERGENCE CONDITION (Fable 2026-09-13, RULINGS
 # 2026-09-13ac): the lag runs to ``one_way_tol_m`` or the report NAMES the

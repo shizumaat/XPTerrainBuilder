@@ -5583,3 +5583,18 @@ control unchanged BY CONSTRUCTION (its plan carries no outlines).
   coordinate (14g's table: 138 ≈ `building_texture_4 b7`, etc. — the
   lane reads `site.py`); constraints ≤ +10 %; KCLT: a BUILD carrying
   outlines is owed (dry is inert); SPJC 19.56 dry.
+
+## 2026-09-14ai Owner: "be sure all pads sharing an edge with airside must weld smoothly to the airside" — §16g (10) (6)
+
+* RULING §16g (10) (6): a `building` pad (derived or footprint) that
+  shares an edge with an airside face (runway family, taxi family,
+  apron) WELDS to it: the pad's level along that edge equals the
+  airside face's solved level there (the airside is the datum — airside
+  is king — the pad takes the level, never the reverse), no step, and
+  the pad's plane meets it within the pad's own slope cap; a pad that
+  cannot meet its airside edge within cap is a census CRITICAL
+  (`pad_airside_weld`), never a step. This is 09-01g's weld restated
+  for derived pads and made census-visible; the seat of the cluster on
+  such a pad follows the welded level. Lane `v2padcluster` r3 (same
+  round): bar = every airside-sharing pad at HECA/KCLT welded (step
+  along the shared edge ≤ `hard_tol_m`), named.

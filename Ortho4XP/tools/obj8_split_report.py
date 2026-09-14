@@ -10,7 +10,8 @@ own two products and NOTHING ELSE: the re-seat plan
 
     venv/bin/python tools/obj8_split_report.py PLAN.json --graded SURFACE.json
         [--write-into DIR] [--json OUT.json] [--top N] [--filter SUBSTR]
-        [--rows SUBSTR,SUBSTR] [--no-cut] [--split-tol M]
+        [--rows SUBSTR,SUBSTR] [--rows-near LAT,LON[,R]]
+        [--no-cut] [--split-tol M]
     venv/bin/python tools/obj8_split_report.py PLAN.json --graded SURFACE.json
         --write-pack PACK_COPY [--patch-dir DIR] [--dsftool BIN]
 
@@ -219,8 +220,17 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
     return sampler, pads, rims
 
 
+def _near_m(lat0: float, lon0: float, lat: float, lon: float) -> float:
+    """Plan distance in metres at this latitude — the same small-angle
+    frame every per-site read in this tool uses."""
+    import math
+    return math.hypot((lat - lat0) * 110_540.0,
+                      (lon - lon0) * 111_320.0 * math.cos(math.radians(lat0)))
+
+
 def census(ss: PP.SplitSet, sampler, band_m: float,
-           rows_of: tuple[str, ...] = ()) -> dict:
+           rows_of: tuple[str, ...] = (),
+           near: "tuple[float, float, float] | None" = None) -> dict:
     """§7: the float per ground-contact foot under the placement law.
 
     §15 (5) THE INSTRUMENT: this tool samples the GRADED SURFACE; the
@@ -250,7 +260,20 @@ def census(ss: PP.SplitSet, sampler, band_m: float,
     rows come back under ``"rows"``: the body's anchor, the feet counted,
     the worst foot signed and |Δ|, and the 0.3 m verdict.  They are read
     off THIS SAME pass — a second instrument over the same population is
-    the census-wrapper defect (CLAUDE.md)."""
+    the census-wrapper defect (CLAUDE.md).
+
+    ``near`` — ``(lat, lon, radius_m)`` — selects the SAME rows BY PLACE
+    instead of by resource (lane ``v2padcluster``, 2026-09-14, promoted
+    from the `v2heca331` scout's scratchpad `site.py` on its second use:
+    the 14g attribution, then §16g (10)'s per-site bars).  The owner
+    names a defect by coordinate, never by resource, and the resource a
+    coordinate belongs to is exactly what an attribution does not know
+    yet; the shapeIDs in a report go stale between builds while a
+    coordinate does not.  The distance is the body's ANCHOR to the point
+    (the anchor IS what the seat is written at), and the rows come back
+    nearest first.  ``osm_site --at/--contains`` answers the other half
+    of the same question — which emitted FACES cover the point — and is
+    not re-spelled here."""
     bins: collections.Counter = collections.Counter()
     worst: list[tuple[float, str, float, float]] = []
     per_placement: collections.Counter = collections.Counter()
@@ -258,8 +281,12 @@ def census(ss: PP.SplitSet, sampler, band_m: float,
         collections.Counter)
     rows: list[dict] = []
     for s in ss.all:
-        named = any(n in s.resource for n in rows_of)
+        by_name = any(n in s.resource for n in rows_of)
         for b in s.bodies:
+            named = by_name or (
+                near is not None
+                and _near_m(near[0], near[1], b.anchor.lat, b.anchor.lon)
+                <= near[2])
             za = b.anchor.surface_z
             if not b.feet:
                 if named:
@@ -316,7 +343,12 @@ def census(ss: PP.SplitSet, sampler, band_m: float,
                     row["within_0_3"] = row["worst_abs"] < 0.3
                 rows.append(row)
     worst.sort(reverse=True)
-    rows.sort(key=lambda r: (r["resource"], r["body"]))
+    if near is not None:
+        for r in rows:
+            r["site_m"] = round(_near_m(near[0], near[1], *r["anchor"]), 2)
+        rows.sort(key=lambda r: (r["site_m"], r["resource"], r["body"]))
+    else:
+        rows.sort(key=lambda r: (r["resource"], r["body"]))
     return {"bins": dict(bins), "worst": worst[:20], "rows": rows,
             "feet": sum(v for k, v in bins.items()
                         if k not in ("buried", "floating")),
@@ -602,6 +634,12 @@ def _main() -> int:
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--filter", default="", help="only placements whose resource "
                                                  "contains this")
+    ap.add_argument("--rows-near", default="", metavar="LAT,LON[,R]",
+                    help="the SAME per-body rows as --rows, selected by "
+                         "PLACE: every body whose ANCHOR is within R "
+                         "metres (default 40) of LAT,LON, nearest first. "
+                         "The owner names a site by coordinate and the "
+                         "shapeIDs go stale between builds")
     ap.add_argument("--rows", default="", help="comma-separated resource "
                     "substrings whose PER-BODY census rows are printed by "
                     "name (anchor, feet, worst foot, the 0.3 m verdict) — "
@@ -944,10 +982,17 @@ def _main() -> int:
         _write_pack(a, plan, ss, sampler)
 
     rows_of = tuple(n.strip() for n in a.rows.split(",") if n.strip())
-    cen = census(ss, sampler, band_m, rows_of=rows_of)
-    if rows_of:
-        print(f"\nNAMED ROWS ({', '.join(rows_of)}): "
-              f"{len(cen['rows'])} bodies")
+    near = None
+    if a.rows_near:
+        q = [float(v) for v in a.rows_near.split(",")]
+        if len(q) not in (2, 3):
+            raise SystemExit("--rows-near takes LAT,LON or LAT,LON,RADIUS_M")
+        near = (q[0], q[1], q[2] if len(q) == 3 else 40.0)
+    cen = census(ss, sampler, band_m, rows_of=rows_of, near=near)
+    if rows_of or near:
+        what = (f"within {near[2]:.0f} m of {near[0]:.7f},{near[1]:.7f}"
+                if near else ", ".join(rows_of))
+        print(f"\nNAMED ROWS ({what}): {len(cen['rows'])} bodies")
         for r in cen["rows"]:
             az = "OFF-SHEET" if r["anchor_z"] is None else f"{r['anchor_z']:.2f}"
             w = ("no foot" if r["worst_abs"] is None
@@ -958,7 +1003,8 @@ def _main() -> int:
                   f"[{r['body_class']}] anchor {r['anchor'][0]:.7f},"
                   f"{r['anchor'][1]:.7f} z {az} y0 {r['y_zero']:+.2f} "
                   f"({r['reason']})  feet {r['feet']} "
-                  f"(off-sheet {r['off_sheet']})  worst {w}  {v}")
+                  f"(off-sheet {r['off_sheet']})  worst {w}  {v}"
+                  + (f"  site {r['site_m']:.1f} m" if "site_m" in r else ""))
     print(f"\nCENSUS (§7) over {cen['feet']} ground-contact feet of "
           f"{sum(len(s.bodies) for s in ss.all)} bodies:")
     print("  " + "  ".join(f"{k} {v}" for k, v in sorted(cen["bins"].items())))

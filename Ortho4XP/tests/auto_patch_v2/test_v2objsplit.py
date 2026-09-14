@@ -1137,6 +1137,48 @@ def test_named_rows_carry_the_bodys_own_anchor_and_a_0_3_verdict(tmp_path):
         assert r["within_0_3"] in (True, False, None)
 
 
+def test_rows_near_selects_the_same_rows_BY_PLACE(tmp_path):
+    """``--rows-near`` (lane ``v2padcluster``, 2026-09-14; promoted from
+    the `v2heca331` scout's `site.py` on its SECOND use) is the SAME
+    projection selected by COORDINATE instead of by resource — the owner
+    names a defect by place, and the shapeIDs in a report go stale
+    between builds while a coordinate does not.
+
+    It changes what is reported, never what is measured; the distance is
+    the body's ANCHOR to the point; and the rows come back nearest
+    first."""
+    RPT, ss, sampler = _split_set_for_rows(tmp_path)
+    by_name = RPT.census(ss, sampler, 1.0, rows_of=("bld.obj",))
+    b0 = by_name["rows"][0]
+    lat, lon = b0["anchor"]
+
+    plain = RPT.census(ss, sampler, 1.0)
+    near = RPT.census(ss, sampler, 1.0, near=(lat, lon, 5.0))
+    # the MEASUREMENT is untouched
+    assert near["bins"] == plain["bins"] == by_name["bins"]
+    assert near["feet"] == plain["feet"]
+    assert near["worst"] == plain["worst"]
+
+    assert near["rows"], "the body at its own anchor must be selected"
+    got = {(r["resource"], r["body"]) for r in near["rows"]}
+    assert (b0["resource"], b0["body"]) in got
+    # every selected row carries its distance, and they are nearest first
+    ds = [r["site_m"] for r in near["rows"]]
+    assert ds == sorted(ds) and ds[0] <= 5.0
+    assert all(d <= 5.0 for d in ds)
+
+    # a radius of 0 at a point far from everything selects nothing; the
+    # census itself still reports its whole population
+    far = RPT.census(ss, sampler, 1.0, near=(lat + 1.0, lon + 1.0, 5.0))
+    assert far["rows"] == [] and far["bins"] == plain["bins"]
+
+    # ... and the row a place selects is the SAME row the resource
+    # selects, field for field (bar the distance the place read adds)
+    same = next(r for r in near["rows"]
+                if (r["resource"], r["body"]) == (b0["resource"], b0["body"]))
+    assert {k: v for k, v in same.items() if k != "site_m"} == b0
+
+
 # ── §13 (owner RULINGS 2026-09-11r/s): AN ELEVATED BODY NEVER HAS A
 # FILE OF ITS OWN ────────────────────────────────────────────────────────
 # The owner's LEMD read: roofs, road decks and tower parts sit on the

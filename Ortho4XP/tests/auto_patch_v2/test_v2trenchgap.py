@@ -149,7 +149,10 @@ def test_corridor_rim_inside_the_wall_floor_untouched(objs, law):
             dists.append(d)
             assert inside.contains(Point(p)), p
             assert d >= standoff - 1e-6, (p, d)
-    assert len(dists) > 10
+    # §34 (7) (RULINGS 2026-09-14p): a straight constant-thickness corridor
+    # emits its END CHORDS and nothing between, so this rim is a handful of
+    # points, not one per 2 m station — what is measured is the STAND-OFF
+    assert len(dists) >= 8
     assert min(dists) == pytest.approx(standoff, abs=1e-6)
     # §1 put this rim 1.0 m off the ramp (outside the wall): it is 0.5 now
     assert max(dists) < _section_1_band(t_l, co) - 1e-6

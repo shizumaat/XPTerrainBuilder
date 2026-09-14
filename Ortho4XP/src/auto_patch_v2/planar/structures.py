@@ -108,8 +108,8 @@ from .structure_approach import (FieldRegion, PavementDeck, apply_plates,
 from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
-from .structure_geometry import (beyond_strip, corner_distance, geometry,
-                                 pad_hit as _pad_hit)
+from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
+                                 geometry, pad_hit as _pad_hit)
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -493,6 +493,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # senior to the pad (08-26): only its ramp BEYOND the walls is
         top_pinned = g.climbs
         clipped_by = ""
+        portal_m = 0.0
         ss = [s for s in ss if s <= s_top + 1e-9]
         beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         # a door ramp's HOST cells: the ones its well stands in (cut like
@@ -560,7 +561,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             continue
         if c is not None and g.kind == WALL_KIND and clipped_by and g.climbs:
             # Law C (08m (a)): run to the pavement EDGE and steepen, or refuse
-            ss, geom, s_top, design_grade, why = stop_and_steepen(
+            ss, geom, s_top, design_grade, why, portal_m = stop_and_steepen(
                 airport, wc_law, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,
                 stop_list, stop_tree_g, host, beyond, grid, spacing_g,
                 lambda ss_try: geometry(axis_fn, ss_try, half, rim_off, inward, grid, g.capped,
@@ -568,7 +569,34 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if why:
                 stats.refused.append(f"{tid}: {why}")
                 continue
-            top_pinned = True
+            # §34 (8): with a PORTAL the top is NOT at the ground — the
+            # ramp ends at the pavement edge and the portal face (the same
+            # one a clipped ramp already gets, 08-07 ruling 3) carries the
+            # residual step.  Pinning it would pull the airside cell.
+            top_pinned = portal_m <= 1e-9
+        # ── §34 (7): THE STATIONS ARE THE SAMPLING, NOT THE EMITTED SHAPE
+        # (owner RULINGS 2026-09-14n item 2 / 2026-09-14p).  The profile is
+        # solved above; now a straight constant-grade run collapses to its
+        # two end chords, so the 0.5 m identity ``snap_out`` has nothing
+        # between the ends to stagger (OTHH's terminal ramps read 40 and 29
+        # nodes on a STRAIGHT route, one grid quantum of zig-zag per 2 m
+        # station).  The knees — the mouth, where the climb starts, the wall
+        # end and the pinned top — are never collapsed through.
+        collapse_note = ""
+        if len(ss) > 2:
+            # §34 (7): a straight constant-grade run emits its end chords
+            ss_c = collapse_for_ramp(
+                axis_fn, ss, half, rim_off, half_fn, g, climb_from=climb_from, s_top=s_top,
+                mouth_z=mouth_z, design_grade=design_grade, top_pinned=top_pinned,
+                wall_kind=g.kind == WALL_KIND, dem_z=airport.dem.z, grid=grid,
+                z_tol=law.tables.emit.materiality.elevation_m)
+            geom_c = geometry(axis_fn, ss_c, half, rim_off, inward, grid, g.capped,
+                              g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off) \
+                if len(ss_c) < len(ss) else None
+            if geom_c is not None:
+                collapse_note = (f"stations collapsed {len(ss)} -> {len(ss_c)} (§34 (7): a "
+                                 f"cross-chord only where the route bends or the profile breaks)")
+                ss, geom = ss_c, geom_c
         axis, left, right = geom.axis, geom.left, geom.right
         ramp, outer, cap_out = geom.ramp, geom.outer, geom.cap_out
         if c is not None and not g.capped and g.mouth_strip:
@@ -678,6 +706,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
         notes = []
+        if collapse_note:
+            notes.append(collapse_note)
         if len(members) > 1:
             notes.append(f"dual carriageway of {len(members)} bores (2026-08-31h)")
         # spec §34 (5): a bore the aeroway bridge STATED — the rim under its
@@ -727,9 +757,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 # LAW C (2026-09-08m/08n): the published profile includes the
                 # climb (spec §6a row 19); the site line the report quotes
                 profile_out, top_ground = wall_corridor_profile(
-                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn)
+                    airport, g, ss, s_top, mouth_z, design_grade, axis_fn, portal_m)
                 notes.append(wall_corridor_note(c, g, mouth_dem, s_top, climb_from, design_grade,
-                                                top_ground, clipped_by))
+                                                top_ground, clipped_by, portal_m))
             else:
                 notes.append(f"sunken road (2026-09-08b/c Law B) of {c.resource}: cut {mouth_z:.2f} "
                              f"= ground {mouth_dem:.2f} − {c.depth_m:.2f}, {g.hull_s:.1f} m along "

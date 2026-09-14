@@ -67,7 +67,8 @@ def _unit(a: XY, b: XY) -> XY:
     return (dx / L, dy / L)
 
 __all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
-           "rim_standoff", "corner_distance", "beyond_strip"]
+           "rim_standoff", "corner_distance", "beyond_strip",
+           "design_points", "collapse_stations", "collapse_for_ramp"]
 
 
 def rim_standoff(thickness_m: float, cutout, spacing_m: float) -> tuple[float, float]:
@@ -191,6 +192,115 @@ def _cap(m: XY, lin: XY, rin: XY, d: XY, nv: XY, ramp: Polygon, off: float, grid
             _clear(snap_out((m[0] + d[0] * off, m[1] + d[1] * off), m, grid), d, ramp, off, grid),
             _clear(snap_out((rin[0] + dirs[2][0] * off, rin[1] + dirs[2][1] * off), rin, grid),
                    dirs[2], ramp, off, grid)]
+
+
+def design_points(axis_fn, ss: _t.Sequence[float], half: float, rim_off: float,
+                  half_fn=None, rim_fn=None) -> list[tuple[XY, ...]]:
+    """The UNSNAPPED design points of every station — ``(axis, left,
+    right, left rim, right rim)`` — i.e. what :func:`_geometry_at` then
+    snaps to the identity grid.  The collapse of §34 (7) is judged on
+    these, never on the snapped ring: the snap is precisely the 0.27–0.49 m
+    stagger the owner read as a zig-zag."""
+    axis = [axis_fn(s) for s in ss]
+    nrm = normals(axis)
+    out: list[tuple[XY, ...]] = []
+    for p, nv, s in zip(axis, nrm, ss):
+        hl, hr = half_fn(s) if half_fn is not None else (half, half)
+        rl, rr = rim_fn(s) if rim_fn is not None else (rim_off, rim_off)
+        lp = (p[0] + nv[0] * hl, p[1] + nv[1] * hl)
+        rp = (p[0] - nv[0] * hr, p[1] - nv[1] * hr)
+        out.append((p, lp, rp,
+                    (lp[0] + nv[0] * rl, lp[1] + nv[1] * rl),
+                    (rp[0] - nv[0] * rr, rp[1] - nv[1] * rr)))
+    return out
+
+
+def _on_chord(pts: list[tuple[XY, ...]], zs: list[float], i: int, j: int,
+              lateral_m: float, z_m: float) -> bool:
+    """Every station strictly between ``i`` and ``j`` stands within
+    ``lateral_m`` of the chord ``i``–``j`` in EVERY design point (axis,
+    both floor edges, both rim lines) and within ``z_m`` of the straight
+    line between their design elevations."""
+    for k in range(i + 1, j):
+        f = (k - i) / (j - i)
+        if abs(zs[k] - (zs[i] + (zs[j] - zs[i]) * f)) > z_m:
+            return False
+        for c in range(len(pts[k])):
+            a, b, p = pts[i][c], pts[j][c], pts[k][c]
+            seg = LineString([a, b]) if a != b else Point(a)
+            if seg.distance(Point(p)) > lateral_m:
+                return False
+    return True
+
+
+def collapse_stations(ss: _t.Sequence[float], pts: list[tuple[XY, ...]], zs: list[float],
+                      lateral_m: float, z_m: float,
+                      protect: _t.Collection[float] = ()) -> list[float]:
+    """A RAMP CORRIDOR CARRIES A CROSS-CHORD ONLY WHERE THE ROUTE BENDS OR
+    THE PROFILE BREAKS (spec §34 (7), owner RULINGS 2026-09-14n item 2 /
+    2026-09-14p).  Stations at ``station_m`` are the SAMPLING of the
+    profile, not the emitted shape: once the profile is solved, a run of
+    consecutive stations that adds nothing to either — every interior
+    station within ``lateral_m`` (``emit.identity.min_distinct_spacing_m``)
+    of the chord between the surviving ends and within ``z_m`` (the
+    materiality floor) of the straight profile between them — COLLAPSES
+    to that chord.  A straight constant-grade run then emits its two end
+    chords and nothing between; a landing-to-climb transition keeps its
+    chord because the profile breaks there.  The 0.5 m identity
+    ``snap_out`` has nothing left between the ends to stagger (OTHH's
+    40- and 29-node ramps: one grid quantum of lateral offset per 2 m
+    station, on a straight route)."""
+    n = len(ss)
+    if n <= 2:
+        return list(ss)
+    # the knees the caller KNOWS (the mouth, where the climb starts, the
+    # wall end, the pinned top) are never collapsed through: a run is only
+    # ever collapsed between two of them
+    kept = sorted({k for k in range(n)
+                   if any(abs(ss[k] - p) <= 1e-6 for p in protect)} | {0, n - 1})
+    out = [ss[0]]
+    i = 0
+    while i < n - 1:
+        limit = next(k for k in kept if k > i)
+        j = limit
+        while j > i + 1 and not _on_chord(pts, zs, i, j, lateral_m, z_m):
+            j -= 1
+        out.append(ss[j])
+        i = j
+    return out
+
+
+def collapse_for_ramp(axis_fn, ss: _t.Sequence[float], half: float, rim_off: float,
+                      half_fn, g, *, climb_from: float, s_top: float, mouth_z: float,
+                      design_grade: float, top_pinned: bool, wall_kind: bool,
+                      dem_z, grid: float, z_tol: float) -> list[float]:
+    """:func:`collapse_stations` over ONE ramp group (§34 (7)).
+
+    The design elevation per station is read exactly as the halves that
+    PUBLISH it do: the floor profile inside the walls
+    (``wall_corridor_profile`` / Law B's pins, which carry the RECORD's own
+    stations and the collapse never touches), the constant-grade design
+    line beyond the knee (the wall end for a Law C corridor, where the
+    climb starts otherwise), and the top at the GROUND where the generator
+    pins it there — the profile BREAKS at that pin, so the collapse has to
+    see it.  The knees are protected: no run is ever collapsed through the
+    mouth, the start of the climb, the wall end or the top."""
+    from ..model.structures import profile_z
+    profile = tuple(g.profile)
+    knee = (g.hull_s if wall_kind else climb_from) if g.climbs \
+        else (profile[-1][0] if profile else climb_from)
+
+    def z_at(s: float) -> float:
+        if not (g.climbs and s > knee + 1e-9):
+            return profile_z(profile, s) if profile else mouth_z
+        return (profile[-1][1] if profile else mouth_z) + design_grade * (s - knee)
+    zs = [z_at(s) for s in ss]
+    if g.climbs and top_pinned:
+        z_top = float(dem_z(*axis_fn(s_top)))
+        if not math.isnan(z_top):
+            zs[-1] = z_top
+    return collapse_stations(ss, design_points(axis_fn, ss, half, rim_off, half_fn, g.rim_fn),
+                             zs, grid, z_tol, protect=(climb_from, knee, g.hull_s, s_top))
 
 
 def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,

@@ -33,6 +33,7 @@ class Basin:
     cuts_runway_family: bool
     floor_plate_normal_y_min: float    # 04i: the floor-plate gate
     ramp_max_grade: float              # 2026-09-13g (spec §24 (5)): a basin DECK steeper than this is a bowl's BANK, not a drivable ramp — the floor under it keeps the one depth
+    ramp_station_m: float              # 2026-09-14s (spec §24 (8)): the corridor's ring is re-noded at this spacing along its climb axis, so §24 (5)'s per-station deck profile has vertices to land on (VHHH basin_floor:5#1: 4 interior vertices over 2,794 m2 and a 42 % mouth step)
     rim_reaches_grade: bool            # 04i: the closed-region test
     rim_protrusion_max_fraction: float # 2026-09-06f: this share of a component's face area may stand above the band (a tower in the pit is not the rim)
     authored_depth_min_m: float        # 2026-09-09ag: the floor plate stands this far under the placement's OWN render datum too — the depth is AUTHORED (spec §13)

@@ -121,8 +121,27 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     pad) runs to the pavement EDGE — the exact station one grid step
     short of where the axis enters the cell (the stations' granularity
     gave up to a station of run) — and steepens to reach the ground there
-    up to ``max_ramp_grade``; above it the corridor is refused loudly,
-    never a portal face.  ``(ss, geom, s_top, design_grade, refusal)``."""
+    up to ``max_ramp_grade``.
+
+    A CLIMB STOPPED BY AIRSIDE ENDS AT THE PAVEMENT; THE REFUSAL IS THE
+    RAMP'S, NEVER THE CORRIDOR'S (spec §34 (8), owner RULINGS 2026-09-14n
+    item 2 / 2026-09-14p).  Where the steepened climb still cannot reach
+    the ground inside ``max_ramp_grade``, the ramp ENDS at the pavement
+    edge at the grade it HAS and the residual step is taken by a PORTAL /
+    RIM FACE at the pavement boundary — the same face a building pad's
+    edge already gets (08-07 ruling 3, ``top_pinned = False``).  The
+    airside cell is never pulled down to meet it (airside is king), and a
+    corridor whose trench is otherwise lawful is CUT with its mouths
+    (§33 (2)).  Measured at OTHH ``Terminal_Base_2_5.obj@0``: 1.88 m of
+    rise with 17.1 m left = 11.0 % against the 10 % cap — recovering the
+    grid step the stop is snapped short by (0.5 m of run) leaves 10.7 %,
+    so the portal is the rule, not a rounding.  The corridor is refused
+    only where the climb runs the WRONG WAY (the ground at the stop
+    stands under the trench floor), which no portal can take.
+
+    ``(ss, geom, s_top, design_grade, refusal, portal_m)`` — ``portal_m``
+    is the residual step the portal face carries, 0.0 when the ramp meets
+    the ground."""
     geom = regeom(ss)
     stop_poly = next((p for p, ref in stop_list if ref == clipped_by), None)
     if stop_poly is not None and s_top + spacing <= axis_ln.length:
@@ -141,19 +160,29 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     run = s_top - climb_from
     rise = (top_ground - mouth_z) if not math.isnan(top_ground) else math.inf
     g2 = rise / run if run > 1e-6 else math.inf
-    if not (0.0 <= g2 <= wc.max_ramp_grade + 1e-9):
+    if g2 < 0.0 or math.isinf(g2) or math.isnan(g2):
         return ss, geom, s_top, g2, (
-            f"the climb stopped by {clipped_by} at s {s_top:.1f} would need {100.0 * g2:.1f} % "
-            f"over {run:.1f} m to reach the ground {top_ground:.2f} (> max_ramp_grade "
-            f"{100.0 * wc.max_ramp_grade:.0f} %; 2026-09-08m (a))")
-    return ss, geom, s_top, g2, None
+            f"the climb stopped by {clipped_by} at s {s_top:.1f} runs the wrong way: "
+            f"{run:.1f} m of run for {rise:.2f} m of rise to the ground {top_ground:.2f} — "
+            f"no portal takes a trench standing over its own ground (§34 (8))"), 0.0
+    if g2 > wc.max_ramp_grade + 1e-9:
+        # §34 (8): the ramp ends AT the pavement at the grade it has; the
+        # portal face takes the rest.  The refusal is the RAMP's.
+        return ss, geom, s_top, wc.max_ramp_grade, None, \
+            rise - wc.max_ramp_grade * run
+    return ss, geom, s_top, g2, None, 0.0
 
 
-def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, axis_fn
-                          ) -> tuple[tuple, float | None]:
+def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, axis_fn,
+                          portal_m: float = 0.0) -> tuple[tuple, float | None]:
     """The profile published to the generator (spec §6a row 19): the wall
     bottom inside the walls, then the design line from the wall end's
-    floor to the ground at the top.  ``(profile, top ground)``."""
+    floor to the ground at the top.  ``(profile, top ground)``.
+
+    WITH A PORTAL (``portal_m`` > 0, spec §34 (8)) the top is NOT pinned
+    to the ground: the ramp ends at the pavement edge at ``design_grade``
+    and the portal face carries the residual — pinning it there would
+    pull the airside cell down onto the ramp."""
     prof = list(g.profile)
     top_ground = None
     if g.climbs and s_top > g.hull_s + 1e-6:
@@ -162,13 +191,13 @@ def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, a
         for s in ss:
             if s > g.hull_s + 1e-6:
                 prof.append((float(s), z_end + design_grade * (s - g.hull_s)))
-        if not math.isnan(top_ground):
+        if not math.isnan(top_ground) and portal_m <= 1e-9:
             prof[-1] = (prof[-1][0], top_ground)
     return tuple(prof), top_ground
 
 
 def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, top_ground,
-                       clipped_by) -> str:
+                       clipped_by, portal_m: float = 0.0) -> str:
     """The per-site line the report quotes."""
     tg = float("nan") if top_ground is None else top_ground
     return (f"wall corridor (2026-09-08m/n Law C, {c.cls}) of {c.resource}: floor = the wall "
@@ -177,4 +206,8 @@ def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, 
             f"{c.width_m:.1f} m, ends {c.ends}"
             + (f"; climb {s_top - climb_from:.1f} m at {100.0 * design_grade:.2f} % to the ground "
                f"{tg:.2f}" if g.climbs else "; no climb: the authored ramp meets the ground")
-            + (f" — STOPPED at {clipped_by} and steepened (08m (a))" if clipped_by else ""))
+            + (f" — STOPPED at {clipped_by} and steepened (08m (a))" if clipped_by else "")
+            + (f"; the climb ENDS AT THE PAVEMENT at {100.0 * design_grade:.1f} % "
+               f"(max_ramp_grade) and a PORTAL / RIM FACE at the {clipped_by} boundary takes the "
+               f"residual {portal_m:.2f} m — the refusal is the ramp's, never the corridor's, and "
+               f"the airside cell is never pulled (§34 (8))" if portal_m > 1e-9 else ""))

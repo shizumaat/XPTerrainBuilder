@@ -497,6 +497,13 @@ class PlacedObject:
     #: under their OWN ground (into ``ResourceCache.components``) in a
     #: placement with a FLOOR WITNESS — with none it is no facility.
     below_grade_comps: tuple[int, ...] = ()
+    #: THE BURIED PLATES (spec §24 (7) (a)): floor witnesses of components
+    #: whose shell never reaches grade.  They SEED no pit — a buried shell
+    #: has no rim — but where one lies inside a region another placement's
+    #: shell admitted, the region pass takes it as a floor witness of that
+    #: pit (OTHH ``Dewatering_02_LOD0_001``'s 2,998 m2 slab inside
+    #: ``_002``'s basin:6).  Never part of ``below_grade``/``witnesses``.
+    buried: tuple[FloorWitness, ...] = ()
 
 
 @_dc.dataclass
@@ -514,6 +521,12 @@ class ObjReport:
     msl_notes: int = 0
     no_dem_at_anchor: int = 0
     buried_components: int = 0
+    #: EVERY BURIED COMPONENT NAMED (spec §24 (7) (a)): one line per
+    #: component whose shell never reaches grade — resource, component
+    #: index, plate area, top and floor depth against the ground under it
+    #: — instead of the silent ``buried_components`` tally that hid
+    #: OTHH's 2,998 m2 basin floor slab.
+    buried_named: list[str] = _dc.field(default_factory=list)
     #: Resources with genuine, grade-reaching solids under the admission
     #: plane but NO floor plate (a skirt, not a pit): path -> (placements,
     #: deepest depth under the local ground, deepest rendered z).  Every
@@ -620,6 +633,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         g = cache.geometry(phys)
         below = bbox = deck = smin_z = smin_d = top = None
         witnesses: list[FloorWitness] = []
+        buried_wits: list[FloorWitness] = []
         deep_comps: list[int] = []
         if g is not None and not stock:
             base = anchor_z + agl               # the rendered y = 0 plane
@@ -667,10 +681,37 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         continue
                     if depth <= -admission_depth_m:   # 09w (1): a PART
                         deep_comps.append(ci)
+                    plane_below = local - base - admission_depth_m     # authored y
+                    # THE BURIED SKIP IS A PIT-SEED TEST, NEVER A SUPPRESSION
+                    # (spec §24 (7) (a), owner RULINGS 2026-09-14n item 1 /
+                    # 2026-09-14p): a component whose whole shell stands under
+                    # the ground cannot SEED a pit — it has no rim at grade —
+                    # but its deep horizontal plate still WITNESSES DEPTH
+                    # wherever it lies inside a region another placement's
+                    # shell admitted.  At OTHH the 2,998 m2 floor slab of
+                    # ``OTHH_Dewatering_02_LOD0_001.obj`` is exactly that: a
+                    # SIBLING of the shell that founds basin:6, dropped here
+                    # silently, leaving the pit witnessing 879 of 4,330 m2.
+                    # So the plate is kept aside (``buried``) for the region
+                    # pass to pick up, and every skipped component is NAMED
+                    # with its area and depth.
                     if shell_reaches_grade and base + comp.max_y < local - contact_band_m:
                         rep.buried_components += 1
+                        bw = _witness(g.vertices, comp, base, local, plane_below,
+                                      floor_plate_normal_y_min, mat, ci) \
+                            if comp.min_y <= plane_below else None
+                        rep.buried_named.append(
+                            f"{os.path.basename(dpath)}#{ci}: "
+                            + (f"floor plate {bw.plate_area_m2:.0f} m2 " if bw is not None
+                               else "no floor plate, ")
+                            + f"top {base + comp.max_y - local:+.2f} m / floor {depth:+.2f} m "
+                              f"vs the ground under it — the shell never reaches grade "
+                              f"(buried, > contact_band_m {contact_band_m}): no pit SEED"
+                            + (", plate offered to any region that admits it (§24 (7) (a))"
+                               if bw is not None else ""))
+                        if bw is not None:
+                            buried_wits.append(bw)
                         continue
-                    plane_below = local - base - admission_depth_m     # authored y
                     if comp.min_y > plane_below:
                         continue
                     if smin_z is None or z_min < smin_z:
@@ -734,7 +775,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                                 "flag" if deck is not None else "",
                                 ("ATTR_hard_deck: the primary deck signature",)
                                 if deck is not None else (), None,
-                                tuple(sorted(set(deep_comps))) if witnesses else ()))
+                                tuple(sorted(set(deep_comps))) if witnesses else (),
+                                tuple(buried_wits)))
     return out, rep
 
 

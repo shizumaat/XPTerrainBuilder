@@ -276,6 +276,12 @@ class Body:
     family_of: str = ""
     #: §16g (1) (owner RULINGS 2026-09-13bo): the FOOTPRINT UNIT
     unit_of: str = ""
+    #: §16g (6) (owner RULINGS 2026-09-13cn): ``"<unit a>|<unit b>"`` where
+    #: this body CONNECTS two footprint units (an empty side is open
+    #: ground).  It is seated on its HIGH end's unit datum until §10's
+    #: station cut is written for it; the pair is published because the
+    #: census has to be able to name the two units the piece must reach.
+    connector_of: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
@@ -293,6 +299,7 @@ class Body:
                 "datum": self.datum, "bridge_of": self.bridge_of or None,
                 "family_of": self.family_of or None,
                 "unit_of": self.unit_of or None,
+                "connector_of": self.connector_of or None,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts]}
 
@@ -324,7 +331,8 @@ class Body:
                    bool(d.get("datum", False)),
                    str(d.get("bridge_of") or ""),
                    str(d.get("family_of") or ""),
-                   str(d.get("unit_of") or ""))
+                   str(d.get("unit_of") or ""),
+                   str(d.get("connector_of") or ""))
 
 
 @_dc.dataclass(frozen=True)

@@ -96,6 +96,7 @@ def cockpit_block(*, splits: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
                   v16b: _t.Mapping[str, _t.Any] | None = None,
                   torn: _t.Mapping[str, _t.Any] | None = None,
                   motion: _t.Mapping[str, _t.Any] | None = None,
+                  units: _t.Mapping[str, _t.Any] | None = None,
                   law: _t.Mapping[str, float] | None = None) -> dict:
     """§17: the placement stage's rows in the COCKPIT frame.
 
@@ -182,6 +183,33 @@ def cockpit_block(*, splits: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
         # the CUT tolerance, not an acceptance") — never critical
         for rec in list(critical):
             if rec["kind"].startswith("§16b body wider"):
+                critical.remove(rec)
+                report.append(rec)
+    if units is not None:
+        # §16g (6) (3) (owner RULINGS 2026-09-13cn): PROVENANCE IS A
+        # WITNESS.  A shared-datum pack writes its pieces at ONE DSF
+        # origin and heading; a footprint partition that separates two of
+        # those siblings is the measurement that would have named SPJC's
+        # viaduct at PLAN time, before the eye found it 7.81 m up.  WARN,
+        # never a rule: nothing here moves a body.
+        n = int(units.get("unit_split_authored", 0) or 0)
+        _item("§16g (6) authored unit SPLIT across footprint units", n, [],
+              f"{units.get('authored_units', 0)} shared-datum pack "
+              f"group(s) at one DSF origin and heading, "
+              f"{units.get('authored_units_in_a_unit', 0)} of them with a "
+              f"body in a footprint unit; a split is a WARN, not a defect "
+              f"— the pack's row is a witness, never a rule. "
+              f"Connectors seated on their high end's unit datum: "
+              f"{units.get('unit_connectors_seated', 0)} "
+              f"({units.get('plan_wide_connectors', 0)} named plan-wide, "
+              f"{units.get('unit_connectors_cut', 0)} CUT out of a unit "
+              f"— §16g (6) bar 0)",
+              threshold=0.0, exact=False)
+        # a WARN, not a cockpit defect: the pack's row is a witness and
+        # the eye reads nothing here — it goes in REPORT whatever its
+        # count (the §16b span bar's own precedent).
+        for rec in list(critical):
+            if rec["kind"].startswith("§16g (6) authored unit"):
                 critical.remove(rec)
                 report.append(rec)
     if torn is not None:

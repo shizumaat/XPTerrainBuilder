@@ -830,7 +830,8 @@ def _main() -> int:
         print(f"   §17 motion rows -> {a.motion_rows} "
               f"({len(motion['rows'])} body(ies))")
     for line in PC.cockpit_block_lines(PC.cockpit_block(
-            splits=_plan_rows, v15=v15, v16b=v16b, motion=motion)):
+            splits=_plan_rows, v15=v15, v16b=v16b, motion=motion,
+            units=ss.counts)):
         print(line)
     for line in PCM.census_motion_lines(motion):
         print(line)

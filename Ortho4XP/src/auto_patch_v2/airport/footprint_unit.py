@@ -32,12 +32,15 @@ import typing as _t
 
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
+from .footprint_connector import (CONNECTOR_BOXES_MAX, PlanConnector,
+                                  _connector_ends, _is_connector, _span_m,
+                                  authored_unit_census, authored_units)
 from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
                                _clusters, _contacts_of, _median,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
 
-__all__ = ["UNIT_REASON", "bind_footprint_units"]
+__all__ = ["UNIT_REASON", "bind_footprint_units", "PlanConnector"]
 
 
 #: §16g's own counts key prefix, so the census can tell a §16g unit from
@@ -55,41 +58,6 @@ def _is_deck_member(st: _t.Any) -> bool:
         return False
     return bool(getattr(m, "deck_ring", None)
                 or getattr(m, "deck_kind", "") in ("flag", "signature"))
-
-
-def _span_m(boxes: _t.Sequence[tuple[float, float, float, float]]) -> float:
-    """The plan DIAGONAL of a body's footprint, metres (§16g (3))."""
-    h = _pb.hull_of(boxes)
-    if h is None:
-        return 0.0
-    ml, mo = _ar._m_per_deg(0.5 * (h[0] + h[2]))
-    return (((h[2] - h[0]) * ml) ** 2 + ((h[3] - h[1]) * mo) ** 2) ** 0.5
-
-
-def _is_connector(c: _t.Any, cc: _t.Sequence[tuple[float, float, float, float]],
-                  span_m: float, visual_m: float) -> bool:
-    """§16g (3) THE ONLY CUT — the HECA elevated-rail class: a footprint
-    span of at least ``span_m`` AND two ends whose GROUND differs by at
-    least ``visual_m``.  "Very long connecting pieces ... which would
-    require two buildings kilometers apart to be at the same elevation"
-    (owner 13bo); everything shorter stays rigid however steep.
-
-    The ends are the two contacts furthest apart in plan, read on the
-    hull's long axis — the cheap reading of "its two ends", and the one
-    the span itself is measured on."""
-    if span_m <= 0.0 or visual_m <= 0.0 or len(cc) < 2:
-        return False
-    boxes = list(c.part_boxes) or ([c.box] if c.box else [])
-    if _span_m(boxes) < span_m:
-        return False
-    h = _pb.hull_of(boxes)
-    if h is None:
-        return False
-    along_lat = (h[2] - h[0]) >= (h[3] - h[1])
-    key = (lambda q: q[0]) if along_lat else (lambda q: q[1])
-    lo = min(cc, key=key)
-    hi = max(cc, key=key)
-    return abs((lo[3] - lo[2]) - (hi[3] - hi[2])) >= visual_m
 
 
 def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
@@ -120,9 +88,14 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
     for a unit standing ENTIRELY on rolled-on pavement — inside a mixed
     unit the datum rule wins (13bo, superseding §16f (5)).
 
-    (3) THE ONLY CUT: a CONNECTOR (:func:`_is_connector`) is left out of
-    the unit's rigid bind and named, so §10's line stations and §16b's
-    own terrain cut divide it as they already do.
+    (3) AS AMENDED BY §16g (6) (owner RULINGS 2026-09-13cn): a CONNECTOR
+    (:func:`_is_connector`) is a body that CONNECTS TWO UNITS, and it is
+    no longer left out of anything — it is seated on the datum of the unit
+    its HIGH end touches and records both ends in ``connector_of`` until
+    §10's station cut is written for it.  A body whose every contact
+    chains into ONE unit is that unit's MEMBER however long it is.  The
+    topology can only be read from the plan-wide partition, so the
+    per-``Unit`` path below never names a connector at all.
 
     Mutates ``cands`` and the staged members' ``raw`` / ``ground_off`` in
     place, the shape :func:`bind_families` and
@@ -139,9 +112,9 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
     clusters, _adj = _clusters(cands, touch_m, min_members=1)
     units: list[Family] = []
     bound_ci: set[int] = set()
+    counts.setdefault("unit_connectors_cut", 0)
     for cl in clusters:
         per: dict[int, list] = {}
-        n_conn = 0
         for ci in cl:
             c = cands[ci]
             st = by_mi.get(c.member)
@@ -150,11 +123,12 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
             cc = _contacts_of(c, st, surface)
             if not cc:
                 continue
-            if _is_connector(c, cc, connector_span_m, visual_m):
-                n_conn += 1
-                counts["unit_connectors_cut"] = \
-                    counts.get("unit_connectors_cut", 0) + 1
-                continue
+            # §16g (6): NO connector test here.  This path sees ONE
+            # cluster and nothing outside it, so it can never witness the
+            # "two DIFFERENT units" the law requires — and a body whose
+            # every contact chains into one unit is that unit's member
+            # however long it is (13cn).  The topology is asked only where
+            # the plan-wide partition exists (:func:`_bind_plan_wide`).
             per[ci] = cc
         if len(per) < 2:
             continue
@@ -349,8 +323,39 @@ def plan_units(plan: _t.Any, touch_m: float) -> list[PlanUnit]:
     """§16g (1) PLAN-WIDE: every footprint unit of ``plan``, chained
     across placement ``Unit``s.  A body touching nothing is its own unit
     and is NOT returned — it seats alone (§16c)."""
+    return plan_units_and_connectors(plan, touch_m, 0.0)[0]
+
+
+def plan_units_and_connectors(plan: _t.Any, touch_m: float,
+                              connector_span_m: float
+                              ) -> "tuple[list[PlanUnit], list[PlanConnector]]":
+    """§16g (1) PLAN-WIDE with §16g (6)'s CONNECTOR reading.
+
+    THE PARTITION IS UNCHANGED — the units are exactly the ones §16g (1)
+    already derived, and an identified connector STAYS IN ITS UNIT for the
+    census (§16g (6) (2): "still chained for the purpose of the unit
+    census").  What the connector reading adds is a question asked of each
+    LONG body inside its own unit: **is this body the link?**  Remove it
+    and see what its unit falls into.
+
+    * The remainder breaks into two or more COMPONENTS and the body's two
+      hull ends touch two DIFFERENT ones — it CONNECTS them.  "Two
+      different units" can only ever mean this: a body that chains two
+      groups makes them one unit by existing, so the partition WITH it in
+      can never witness the split.
+    * The remainder stays connected and the body touches it at ONE end
+      only, with nothing within ``connector_span_m`` of the other — it
+      connects that unit to open ground (the HECA elevated rail running
+      off the terminal).
+    * Anything else — every contact into one component, or a free end with
+      a unit inside the reach — is a MEMBER however long it is.  That is
+      13cn's correction and the SPJC viaduct.
+
+    Held to the LONG bodies (``connector_span_m``), so the cost is one
+    sub-clustering per long body and nothing at all when the law is
+    disarmed."""
     if touch_m <= 0.0 or not getattr(plan, "units", ()):
-        return []
+        return [], []
     bodies, _of_pid = bodies_of_plan(plan)
     parts_of = {p.pid: p for u in plan.units for m in u.members
                 for p in m.parts}
@@ -363,18 +368,33 @@ def plan_units(plan: _t.Any, touch_m: float) -> list[PlanUnit]:
             shims.append(_PShim(len(shims), key, bx, frozenset(pids),
                                 plan.units[ui].members[mi].resource))
     if len(shims) < 2:
-        return []
+        return [], []
     clusters, _adj = _clusters(shims, touch_m, min_members=1)
+    # every body that is IN a unit: the "nothing at the other end" test is
+    # about the whole plan, not about the connector's own unit (a rail
+    # ending 50 m short of the NEXT building connects two things).
+    _in_a_unit = [i for cl in clusters for i in cl]
     out: list[PlanUnit] = []
+    conns: list[PlanConnector] = []
     for cl in clusters:
         boxes = [b for i in cl for b in shims[i].part_boxes]
+        uid = f"fu:{shims[cl[0]].key[0]}:{cl[0]}"
         out.append(PlanUnit(
-            id=f"fu:{shims[cl[0]].key[0]}:{cl[0]}",
+            id=uid,
             bodies=tuple(shims[i].key for i in cl),
             pids=frozenset().union(*(shims[i].pids for i in cl)),
             members=tuple(sorted({shims[i].resource for i in cl})),
             boxes=tuple(boxes), area_m2=union_area_m2(boxes)))
-    return out
+        if connector_span_m <= 0.0:
+            continue
+        for i in cl:
+            if _span_m(shims[i].part_boxes) < connector_span_m:
+                continue
+            got = _connector_ends(i, cl, uid, shims, touch_m,
+                                  connector_span_m, _in_a_unit)
+            if got is not None:
+                conns.append(got)
+    return out, conns
 
 
 def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
@@ -437,7 +457,7 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
 
 def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                     surface: _ar.Surface, counts: dict,
-                    plan_wide: _t.Mapping[int, tuple[str, float, str, str]],
+                    plan_wide: _t.Mapping[int, tuple],
                     *, visual_m: float, connector_span_m: float
                     ) -> list[Family]:
     """§16g (1)/(2) PLAN-WIDE (owner RULINGS 2026-09-13bw): seat every
@@ -448,9 +468,20 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     candidate's ground groups are different partitions of the same
     triangles and the part is what both are made of.  A candidate whose
     pids name no unit (a body touching nothing) is left alone: it seats by
-    §16c as it always did."""
+    §16c as it always did.
+
+    §16g (6) (owner RULINGS 2026-09-13cn): an identified CONNECTOR is NOT
+    dropped out of the bind.  ``plan_wide`` gives it the unit its HIGH end
+    touches, and it is seated on THAT unit's datum with its two end units
+    recorded in ``connector_of``; when §10's station cut is written for it,
+    each piece keeps its own end's datum and grades between.  It never
+    reaches §16c's low-side foot, which is what put SPJC's viaduct 7.81 m
+    above the terminal (13cn)."""
     seats: dict[str, list[int]] = {}
     info: dict[str, tuple[float, str, str]] = {}
+    conn_pair: dict[int, tuple[str, str]] = {}
+    counts.setdefault("unit_connectors_cut", 0)
+    counts.setdefault("unit_connectors_seated", 0)
     for ci, c in enumerate(cands):
         if c.body_class in (_ar.LINE_SEGMENT, _ar.BASIN):
             continue
@@ -462,14 +493,19 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
         if not hit:
             continue
         uid = max(sorted(hit), key=lambda k: hit[k])
-        _u, z, where, src = plan_wide[next(q for q in sorted(c.pids)
-                                           if plan_wide.get(q, ("",))[0] == uid)]
+        row = plan_wide[next(q for q in sorted(c.pids)
+                             if plan_wide.get(q, ("",))[0] == uid)]
+        z, where, src = row[1], row[2], row[3]
+        pair = row[4] if len(row) > 4 else ("", "")
+        if pair and pair[0] != pair[1]:
+            conn_pair[ci] = pair
         seats.setdefault(uid, []).append(ci)
         info[uid] = (z, where, src)
     out: list[Family] = []
     for uid, cis in sorted(seats.items()):
         zero, where, src = info[uid]
         per: dict[int, list] = {}
+        conn: dict[int, tuple[str, str]] = {}
         for ci in cis:
             c = cands[ci]
             st = by_mi.get(c.member)
@@ -478,12 +514,13 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             cc = _contacts_of(c, st, surface)
             if not cc:
                 continue
-            if _is_connector(c, cc, connector_span_m, visual_m):
-                counts["unit_connectors_cut"] = \
-                    counts.get("unit_connectors_cut", 0) + 1
-                continue
+            if _is_connector(c, cc, connector_span_m, visual_m,
+                             ends=conn_pair.get(ci)):
+                conn[ci] = conn_pair[ci]
+                counts["unit_connectors_seated"] = \
+                    counts.get("unit_connectors_seated", 0) + 1
             per[ci] = cc
-        if len(per) < 2:
+        if len(per) < 2 and not conn:
             continue
         # §16g (2): PAVEMENT IS KING only for a unit standing ENTIRELY on
         # rolled-on pavement.  Read over the candidates THIS pass holds —
@@ -494,13 +531,15 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                 counts.get("unit_all_on_pavement", 0) + 1
             continue
         out.extend(_seat(cands, by_mi, surface, counts, per, zero, where,
-                         src, uid, visual_m))
+                         src, uid, visual_m, conn=conn))
     return out
 
 
 def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
           counts: dict, per: _t.Mapping[int, list], zero: float, where: str,
-          src: str, uid: str, visual_m: float) -> list[Family]:
+          src: str, uid: str, visual_m: float,
+          conn: "_t.Mapping[int, tuple[str, str]] | None" = None
+          ) -> list[Family]:
     """Put every candidate of ``per`` on ``zero`` — the one anchor rewrite
     §16f (2) and §16g (2) both take, factored so the per-unit and the
     plan-wide readings cannot drift apart."""
@@ -522,14 +561,20 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
         best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - zero), 6),
                                       round(abs(q[2]), 6), q[0], q[1]))
         own = best[3] - best[2]
+        pair = (conn or {}).get(ci)
         a = _ar.Anchor(
             c.anchor.body_class, best[0], best[1], best[3] - zero,
             f"{UNIT_REASON} {fid} of {len(mems)} member(s) on "
             + (f"pad {where}" if src in ("pad", "cluster_pad")
                else (f"deck {where}" if src == "deck"
                      else "its median ground"))
-            + f" at {zero:.2f} (own ground {own - zero:+.2f} m)",
-            best[3], family=fid)
+            + f" at {zero:.2f} (own ground {own - zero:+.2f} m)"
+            + ("" if pair is None else
+               f" — §16g (6) CONNECTOR between {pair[0] or 'open ground'} "
+               f"and {pair[1] or 'open ground'}, seated on its HIGH end's "
+               f"unit (no station cut written)"),
+            best[3], family=fid,
+            connector_of=("" if pair is None else f"{pair[0]}|{pair[1]}"))
         grp0 = (st.groups[c.group] if 0 <= c.group < len(st.groups) else ())
         if not grp0:
             continue
@@ -561,10 +606,16 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
 
 def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     pads: _t.Sequence[_ar.PadRing], touch_m: float,
-                    cluster_min_m2: float, counts: dict
-                    ) -> "tuple[dict[int, tuple[str, float, str, str]], list[tuple[float, float, float, float, float, str]]]":
+                    cluster_min_m2: float, counts: dict,
+                    connector_span_m: float = 0.0
+                    ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
-    where, source), the units' plan boxes with their zero)``.
+    where, source, connector ends), the units' plan boxes with their
+    zero)``.
+
+    ``connector ends`` is ``("", "")`` for an ordinary member and the two
+    end unit ids for a §16g (6) CONNECTOR, whose row names the unit its
+    HIGH end touches.
 
     The PART is the join for a staged candidate, because the plan's
     bodies and a candidate's ground groups are different partitions of
@@ -574,21 +625,52 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     be placed by WHERE IT STANDS."""
     if touch_m <= 0.0:
         return {}, []
-    units = plan_units(plan, touch_m)
+    units, conns = plan_units_and_connectors(plan, touch_m, connector_span_m)
     dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
-    out: dict[int, tuple[str, float, str, str]] = {}
+    out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
     for un in units:
         d = dat.get(un.id)
         if d is None:
             continue
         for q in un.pids:
-            out[q] = (un.id, d[0], d[1], d[2])
+            out[q] = (un.id, d[0], d[1], d[2], ("", ""))
         h = _pb.hull_of(un.boxes)
         if h is not None:
             seats.append((h[0], h[1], h[2], h[3], d[0], d[2]))
+    # §16g (6) (2): THE HIGH END KEEPS THE CONNECTOR.  Between the two end
+    # units the datum SOURCE ranks first — DECK over PAD over GROUND, the
+    # deck-side unit being the one the piece arrives at in the air — and
+    # the higher zero breaks the tie.  An end on open ground names no unit
+    # and can never win; a connector neither of whose ends has a datum is
+    # left to §16c.
+    rank = {"deck": 0, "cluster_pad": 1, "pad": 1, "ground": 2}
+    n_open = 0
+    for cn in conns:
+        ends = [(u, bx, ky) for u, bx, ky in
+                ((cn.end_a, cn.boxes_a, cn.keys_a),
+                 (cn.end_b, cn.boxes_b, cn.keys_b)) if u and bx]
+        if not ends:
+            continue
+        ed = plan_unit_datums(
+            [PlanUnit(id=u, bodies=tuple(ky), pids=frozenset(), members=(),
+                      boxes=tuple(bx), area_m2=union_area_m2(list(bx)))
+             for u, bx, ky in ends], plan, surface, pads, cluster_min_m2)
+        cand = [(rank.get(ed[u][2], 3), -ed[u][0], u) for u, _bx, _ky in ends
+                if u in ed]
+        if not cand:
+            continue
+        _r, _z, u = min(cand)
+        d = ed[u]
+        if not (cn.end_a and cn.end_b):
+            n_open += 1
+        for q in cn.pids:
+            out[q] = (u, d[0], d[1], d[2], (cn.end_a, cn.end_b))
     counts["plan_wide_units"] = len(units)
     counts["plan_wide_units_seated"] = len(dat)
+    counts["plan_wide_connectors"] = len(conns)
+    counts["plan_wide_connectors_to_open_ground"] = n_open
+    counts.update(authored_unit_census(plan, out))
     return out, seats
 
 

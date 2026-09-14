@@ -212,10 +212,40 @@ def _offset(drops: dict[int, float], a: int, b: int, dz: float) -> float:
     return lo if dz < lo else (hi if dz > hi else dz)
 
 
+#: THE OUTSIDE-CHORD SET, READ ONCE PER PATCH (lane ``v2cost2``, RULINGS
+#: 2026-09-14q item 4).  :func:`within_shape` and
+#: :func:`apron_over_preference` both ask it, of the SAME ``Patch`` in the
+#: same verify stage, and the second reading re-enumerated the whole chord
+#: population — 45.6 s of OTHH's verify (measured on the lane's matched
+#: pair).  One slot: the patch is held so its ``id`` cannot be reused, and
+#: a second patch replaces the whole slot.
+_OUTSIDE: dict[str, object] = {"patch": None, "by_shape": {}}
+
+
 def chords_outside_face(p: Patch, sh: Shape, min_d: float) -> set[tuple[int, int]]:
     """The index pairs of ``sh``'s NON-ADJACENT chords that leave the face
     (its ring with its hole features, ``face_cover`` at the snap
-    tolerance) — RULINGS 2026-09-05ae(1); empty for a degenerate face."""
+    tolerance) — RULINGS 2026-09-05ae(1); empty for a degenerate face.
+
+    Memoised per ``(patch, shape, min_d)`` (module note above): the same
+    answer, read once."""
+    if _OUTSIDE["patch"] is not p:
+        _OUTSIDE["patch"] = p
+        _OUTSIDE["by_shape"] = {}
+    # the SHAPE OBJECT, not its key: both callers walk ``p.shapes``,
+    # so the same shape is the same object, and the patch held above
+    # holds its shapes (their ``id`` cannot be reused)
+    key = (id(sh), round(float(min_d), 9))
+    hit = _OUTSIDE["by_shape"].get(key)
+    if hit is not None:
+        return hit
+    out = _chords_outside_face(p, sh, min_d)
+    _OUTSIDE["by_shape"][key] = out
+    return out
+
+
+def _chords_outside_face(p: Patch, sh: Shape, min_d: float) -> set[tuple[int, int]]:
+    """:func:`chords_outside_face`'s reading, unmemoised."""
     holes = [f.xy for f in p.features if f.feature == "gap_interior_ring" and f.host == sh.key]
     cover = face_cover(sh.xy, holes, snap_margin_m(p.law))
     if cover is None:

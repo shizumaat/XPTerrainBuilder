@@ -38,6 +38,10 @@ from shapely.strtree import STRtree
 
 from ..model.frame import XY
 
+if _t.TYPE_CHECKING:                      # annotations only (PEP 563 is on)
+    from ..law import Law
+    from ..model.structures import Tunnel
+
 
 def pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | None,
             gap: float, exclude: _t.Collection[str] = ()) -> str | None:

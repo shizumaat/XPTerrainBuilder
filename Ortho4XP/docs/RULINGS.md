@@ -3987,3 +3987,68 @@ taxiway, and shapeID 478 should be part of it, not adjacent ground"
   and the taxiway lateral cap; (5) the road end vs the taxiway edge — §37
   (9) coverage-edge join; (6) shape 478's role and the apron/taxiway
   partition at 30.1082777, 31.4022695.
+
+## 2026-09-13cp LEMD "canyon roads" attributed: §37 (3)'s OPEN bank feet enter the vector map as DUMMY edges — the bank annulus collapsed (33,377 → 15 valued vertices), the harmonic extension took the ground (414 → 2,729 moved) — lane `v2bankfoot`
+
+Scout `v2lemd329`, read-only on the owner's 1.0.329 +40-004 tile. At
+40.465414, −3.5531888 the `.node` file carries the road ribbon at 588–590 m
+(the core's clamped, correct altitude); the built mesh emits it at 568.3 —
+a 20.7 m trench, a smooth 568 plane over 600 m. Tile-wide, every input
+node cross-referenced to its own mesh vertex: PATCH_RING_MARKER 0 of 29,186
+off; runway/taxiway/hangar 0; **INTERP_ALT road ribbons 1,400 of 278,177
+off by > 2 m, worst −24.3 m at 40.4727134, −3.5610941**; DUMMY 110; WATER
+10,438 (worst −25.1 m — a second population, see below). Both sites lie
+INSIDE `patch_coverage_polygon` (24.4 km²), so the domain filter admits
+them and no audit fires. The engine log's per-run counters for +40-004
+across every historical run: bank annulus valued vertices 12,961 → 32,325
+→ 33,377 → 46,338 → 43,665 → **2 → 15**; harmonic "patch/road interiors
+moved" 448 → 426 → 414 → 450 → 511 → **95,151 → 2,729** with, for the
+first time, components with no authored vertex (371 "kept own"); total
+INTERP_ALT triangles 1,670,705 → 371,965. NOT the DEM (13co); NOT the
+patch (`road_cross_section` 2 rows worst 0.16 m, `road_coverage_join` 0;
+the 19 road refs' deepest cuts are `bridge_deck:` refs §37 (6) excludes).
+
+* THE CAUSE: `c632622d` §37 (3) "the bank is emitted where it is
+  load-bearing" — LEMD's patch now carries **105 OPEN `bank_foot` ways and
+  0 closed**. `O4_Vector_Map.py:3007` gives `PATCH_RING_MARKER` only to a
+  closed way; `:3040-3043` inserts every open way as **`DUMMY` (attr 0)**:
+  the foot is no longer a Dirichlet datum, no longer an INTERP_ALT flood
+  barrier, no longer in `patches_area`. `O4_Mesh_Utils.py:1109-1155`'s new
+  `open_feet` / `_close_open_foot` projection then feeds
+  `bank_annulus_blend_values` 15 vertices where it fed 33,377, and the
+  R18-1b harmonic extension interpolates the vacated corridor from remote
+  data — the 568 plane under a 589 hillside. The same mechanism explains
+  the owner's "HECA looks different" and is presumed under HECA items 2–5
+  (13co) until measured.
+* SECOND SUSPECT, unquantified: `0523aec5`'s metric split test in
+  `O4_Vector_Utils.insert_edge` (`:279-315`, ON by default,
+  `split_spacing_m = 0.010`) re-creates a crossed old edge THROUGH THE NEW
+  WAY'S NODE, so the new way's altitude enters the old chain — against the
+  comment at `:314` "rely on the old id2 id3 for the z value". Candidate
+  for the 10,438 WATER nodes off by > 2 m. Routed to lane `v2hairline`
+  (its code): carry the old edge's interpolated z; measure the WATER
+  population before → after.
+* RULING: an open bank foot is a BREAKLINE, not a dummy edge. It wears
+  the marker its closed predecessor wore (attr `PATCH_RING_MARKER`: the
+  INTERP_ALT barrier and the Dirichlet datum), and coverage for
+  `patches_area` / `patch_coverage_polygon` is closed AT THE EMITTER from
+  the load-bearing runs and the design coverage, never by `nearest_points`
+  projection inside the mesh step. `_close_open_foot`'s silent `None` and
+  the annulus split get a report line and a LOUD bar: the mesh step
+  refuses when `bank_annulus_blend_values` values < 10 % of the annulus
+  vertices at an airport with any bank foot. Interim belt: bare INTERP_ALT
+  road-ribbon input nodes leave the free set of
+  `interpolate_free_interior_altitudes` (R18-1b's own docstring promises
+  ribbons byte-unchanged).
+* Lane `v2bankfoot` (Opus, brief pack; the bank lane's code) implements
+  it; closing test ONE LEMD tile-mesh run (the site profile 588–590, annulus
+  back to the 3–4 × 10⁴ range, harmonic moved back to the ~400–500 range,
+  INTERP_ALT off-by-> 2 m 1,400 → ~0) plus the HECA counters dry from the
+  registered frame. Fresh LEMD capture registered by the scout (base
+  32c78eaf).
+* Instrumentation carried: §37 (6) governs 6 of 108 service-road vertices
+  at LEMD; §37 (9) 10 exits → 0 pins (the `road_join.py:87` station match
+  never fires there; KCLT 42 → 22) — owed, not this round.
+* Not verified: no 1.0.327 tile/patch survives (the `.dsf.bak` was not
+  decoded); the log carries no version marker; the split branch's firing
+  count.

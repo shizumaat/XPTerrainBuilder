@@ -440,6 +440,57 @@ def _trim_leadins(chains: list[Chain], airport: Airport, rules: Rules
     return kept, trimmed
 
 
+#: §16g (10) (2): what :func:`_cluster_pads` last derived, for the
+#: build's own say-line and the sidecar (``pipeline/publication``).
+CLUSTER_PADS: dict[str, object] = {}
+
+
+def _cluster_pads(airport: Airport, law) -> list[Polygon]:
+    """§16g (10) (2): ONE pad polygon per CLUSTER — the union of its
+    member bodies' footprint rings (``PlanCluster.rings``, the §16g (7)
+    (1) outlines), in the planar frame's metres.
+
+    A cluster whose plan predates ``Part.rings`` carries none and is
+    SKIPPED (counted): a box union is not a footprint and 13ci measured
+    what pricing one costs.  Returns the polygons in the clusters' own
+    order; the caller sorts and gates them."""
+    CLUSTER_PADS.clear()
+    cl = getattr(airport, "clusters", None) or ()
+    if law is None or not cl:
+        return []
+    if not bool(law.tables.structures.placement.pad_from_cluster):
+        CLUSTER_PADS.update(disarmed=True, clusters=len(cl))
+        return []
+    to_xy, _to_ll = airport.frame.transformers()
+    out: list[Polygon] = []
+    no_rings = 0
+    for c in cl:
+        rings = getattr(c, "rings", ()) or ()
+        if not rings:
+            no_rings += 1
+            continue
+        ps = []
+        for r in rings:
+            if len(r) < 3:
+                continue
+            g = Polygon([to_xy(lo, la) for la, lo in r])
+            if not g.is_valid:
+                g = g.buffer(0.0)
+            if not g.is_empty and g.area > 0.0:
+                ps.append(g)
+        if not ps:
+            no_rings += 1
+            continue
+        u = unary_union(ps)
+        for piece in polygon_parts(u):
+            if piece.area > 0.0:
+                out.append(piece)
+    CLUSTER_PADS.update(clusters=len(cl), pads=len(out),
+                        no_rings=no_rings,
+                        area_m2=round(sum(p.area for p in out), 1))
+    return out
+
+
 def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
           pavement_union, runway_union, law=None, cache=None
           ) -> tuple[list[tuple[str, Polygon]], int, list[str]]:
@@ -453,7 +504,30 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     dropped before ``pad_union``, so every region that differences
     itself by the pads (``roles.classify`` :168 / :315) simply covers
     the footprint and the ground under the building keeps its design
-    surface — no hole, no new shape class, no per-consumer veto."""
+    surface — no hole, no new shape class, no per-consumer veto.
+
+    §16g (10) (2) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x,
+    verbatim: *"pads must match building clusters, no building, or
+    cluster can span multiple pads ... they should match exactly"*).
+    Where the pack has been partitioned into CLUSTERS
+    (``Airport.clusters``, ``planar/cluster.py``) each cluster's own
+    OUTLINE UNION is ONE pad candidate — one pad per cluster, never
+    unioned with a neighbouring cluster's, which is the whole of "match
+    exactly": two clusters that touch at different floors are two
+    buildings and the ground between their pads terraces by §23.  The
+    admitted footprints NO cluster covers keep the pre-14x reading (one
+    ``unary_union``, its connected parts) — (10) (2)'s "the
+    footprint-cache pads are the fallback where the plan has no
+    cluster".  Every gate below — the runway difference, ``min_area``,
+    the boundary and §22.2's skirt drop — is unchanged and applies to
+    both halves.  ``[placement] pad_from_cluster = false`` restores the
+    pre-14x derivation exactly and is this law's matched base arm.
+
+    MEASURED dry on HECA's round-6 frame: 414 emitted pads / 870,563 m2
+    become 401 cluster pads / 1,541,286 m2 at the same
+    ``[building_pad] min_area_m2`` — the COUNT is unchanged and the
+    covered area is the pack's true footprints replacing the footprint
+    cache's."""
     polys = []
     admitted = tuple(rules.buildings.sources)
     for b in airport.buildings:
@@ -462,13 +536,21 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
         p = polygon_from(b.outer, b.holes)
         if p is not None and p.area > 0:
             polys.append(p)
-    if not polys:
+    cluster_pads = _cluster_pads(airport, law)
+    if cluster_pads:
+        # the FALLBACK half: only the footprints no cluster covers
+        cu = unary_union(cluster_pads)
+        polys = [p for p in polys
+                 if p.intersection(cu).area < 0.5 * p.area]
+    if not polys and not cluster_pads:
         return [], 0, []
-    merged = unary_union(polys)
+    parts = list(cluster_pads)
+    if polys:
+        parts.extend(polygon_parts(unary_union(polys)))
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
     out: list[tuple[str, Polygon]] = []
     dropped = 0
-    for part in sorted(polygon_parts(merged),
+    for part in sorted(parts,
                        key=lambda g: (round(g.bounds[1]), round(g.bounds[0]))):
         if not runway_union.is_empty and part.intersects(runway_union):
             part = part.difference(runway_union)

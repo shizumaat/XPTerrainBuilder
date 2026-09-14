@@ -201,6 +201,30 @@ class Placement:
     #: its deck, it does not share a vertex with it.  0 disarms §16g.
     footprint_touch_m: float = 0.5
 
+    #: §16g (10) (1) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x):
+    #: "pads must match building clusters ... they should match exactly."
+    #: A CLUSTER is ONE BUILDING, so two bodies chain only if their
+    #: footprints touch (§16g (7)) AND their AUTHORED GROUND FLOORS agree
+    #: within this; a touching body at a different floor is a different
+    #: building, its own cluster, its own pad, and the difference is a
+    #: declared terrace step between the two pads (§23).  The floor is
+    #: the body's GROUND FLOOR — the lowest GROUND-CONTACT component's
+    #: ``base_y`` (RULINGS 2026-09-14z) — and the test is taken between
+    #: two GROUND-CONTACT bodies only: read off every component instead,
+    #: it splits a tall building per storey (HECA 2,677 -> 20,203
+    #: clusters, MEASURED).  0 disarms the split and a touching chain is
+    #: one cluster however its floors stand.
+    floor_split_m: float = 0.5
+
+    #: §16g (10) (2) (owner RULINGS 2026-09-14x): the design surface's
+    #: ``building`` PAD is DERIVED from the cluster — one pad per
+    #: cluster, its footprint the cluster's outline union — and the
+    #: footprint-cache pads are the fallback only where the plan has no
+    #: cluster.  ``false`` restores the pre-14x derivation exactly (every
+    #: admitted footprint unioned in ``classify/evidence._pads``) and is
+    #: the matched BASE ARM of this law's measurement.
+    pad_from_cluster: bool = True
+
     #: §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): "very long
     #: connecting pieces like the elevated rail at HECA which would
     #: require two buildings kilometers apart to be at the same

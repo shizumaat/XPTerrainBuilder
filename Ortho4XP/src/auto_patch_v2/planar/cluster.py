@@ -69,8 +69,12 @@ _MEMO_MAX = 2
 
 
 def cluster_min_m2(law: Law) -> float:
-    """``[placement] cluster_pad_min_m2`` — ONE derivation site.  0
-    disarms the cluster pad and leaves every pad its own plane."""
+    """``[placement] cluster_pad_min_m2`` — ONE derivation site.  §16g (9)
+    (owner RULINGS 2026-09-14x) NARROWS it: it no longer filters the
+    cluster POPULATION (that was the second population the object stage
+    never shared), only the threshold a cluster gets a §30 (4) cluster
+    PAD PLANE at.  0 disarms the cluster pad and leaves every pad its own
+    plane."""
     return float(law.tables.structures.placement.cluster_pad_min_m2)
 
 
@@ -83,6 +87,13 @@ def _touch_m(law: Law) -> float:
     return float(law.tables.structures.placement.footprint_touch_m)
 
 
+def _floor_split_m(law: Law) -> float:
+    """§16g (10) (1): ``[placement] floor_split_m`` — ONE derivation
+    site.  0 leaves a touching chain one cluster however its floors
+    stand."""
+    return float(law.tables.structures.placement.floor_split_m)
+
+
 #: §16g (8)/(9) (owner RULINGS 2026-09-14w): WHY a derivation came out
 #: empty — the gate that closed, so a silent ``()`` is never mistaken for
 #: "this airport has no terminal".  Read by the build's own say-line.
@@ -90,34 +101,34 @@ WHY: dict[str, object] = {}
 
 
 def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
-    """§16f (7)'s clusters of this airport's pack, or ``()`` where the
-    law is disarmed or no pack was read."""
-    min_m2 = cluster_min_m2(law)
+    """§16g (9)'s ONE POPULATION for this airport's pack, or ``()`` where
+    the law is disarmed or no pack was read.
+
+    Every connected footprint chain of every unit, split at a floor —
+    NOT the two families §16f's gates used to leave.  The size threshold
+    that used to live here is :func:`cluster_min_m2` and belongs to the
+    cluster PAD PLANE alone."""
     eps = _touch_m(law)
+    split = _floor_split_m(law)
     part = getattr(airport, "partition", None)
     WHY.clear()
-    WHY.update(min_m2=min_m2, touch_m=eps,
+    WHY.update(min_m2=cluster_min_m2(law), touch_m=eps, floor_split_m=split,
                partition=part is not None,
                units=len(getattr(part, "units", ()) or ()))
-    if min_m2 <= 0.0 or eps <= 0.0 or part is None or not getattr(part, "units", ()):
-        WHY["gate"] = ("law disarmed" if min_m2 <= 0.0 or eps <= 0.0
+    if eps <= 0.0 or part is None or not getattr(part, "units", ()):
+        WHY["gate"] = ("law disarmed (footprint_touch_m 0)" if eps <= 0.0
                        else "no pack partition" if part is None
                        else "partition carries no units")
         return ()
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
-        if k == key and ap is airport and m0 == min_m2 and e0 == eps:
+        if k == key and ap is airport and m0 == split and e0 == eps:
             return got
-    got = tuple(plan_clusters(part, eps, min_m2))
+    got = tuple(plan_clusters(part, eps, floor_split_m=split))
     WHY["clusters"] = len(got)
+    WHY["with_rings"] = sum(1 for c in got if c.rings)
     if not got:
-        # the three gates inside ``plan_clusters``, priced apart so the
-        # empty answer names which one closed
-        from ..airport.placement_family import (FAMILY_MIN_MEMBERS,
-                                                FAMILY_SHARE_MIN)
-        WHY["gate"] = (f"plan_clusters: none survived "
-                       f"min_members {FAMILY_MIN_MEMBERS} / share "
-                       f"{FAMILY_SHARE_MIN} / area {min_m2:,.0f} m2")
-    _MEMO.append((key, airport, min_m2, eps, got))
+        WHY["gate"] = "plan_clusters: the partition's units hold no body"
+    _MEMO.append((key, airport, split, eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got

@@ -92,6 +92,7 @@ from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
 from ..constraints.transverse import axes
 from ..law import Law
+from ..constraints.cluster_pad import pad_cluster_mismatch as _pad_cluster_mismatch
 from ..constraints.pad_relief import pad_relief_offsets
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
@@ -154,14 +155,18 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
     Read off the SAME derivations the rows were priced from
     (``constraints.cluster_pad``), never a second reading of the law."""
     from ..constraints.cluster_pad import (DERIVED, OFFSET_SPREAD, REFERENCE,
-                                           YIELDED, cluster_apron_faces,
+                                           TOUCHING_STEPS, YIELDED,
+                                           cluster_apron_faces,
                                            cluster_offsets, cluster_pad_faces,
                                            plane_groups)
     faces = cluster_pad_faces(planar, law, airport)
     if not faces:
         return []
-    # §16g (8): fill REFERENCE / DERIVED / OFFSET_SPREAD for the report —
-    # the SAME call the rows were priced from, never a second reading
+    # §16g (8) as narrowed by (10) (owner RULINGS 2026-09-14x): fill
+    # TOUCHING_STEPS (the declared terrace steps between touching
+    # clusters' pads) and OFFSET_SPREAD (a cluster whose own bodies
+    # disagree about the ground floor — a defect in the split) — the SAME
+    # derivation the law states, never a second reading
     cluster_offsets(planar, law, airport)
     reach = cluster_apron_faces(planar, law, airport)
     vs_of = {ref.split("cluster:", 1)[1]: group
@@ -204,10 +209,23 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                         planar.faces[f].ref: d
                         for f, d in sorted(DERIVED.get(cid, {}).items())
                         if f in planar.faces and d},
-                    "pad_offset_spread": {
-                        planar.faces[f].ref: OFFSET_SPREAD[f]
-                        for f in sorted(OFFSET_SPREAD)
-                        if f in fids and f in planar.faces}})
+                    # §16g (10) (1): the cluster's own authored GROUND
+                    # FLOOR (the lowest of its member bodies') and the
+                    # DECLARED TERRACE STEPS to the clusters it touches
+                    "floor": (round(min(getattr(c, "floors", ()) or [0.0]), 3)
+                              if getattr(c, "floors", ()) else None),
+                    "bodies": int(getattr(c, "bodies", 0) or 0),
+                    "footed_bodies": int(getattr(c, "footed", 0) or 0),
+                    "touching_steps": {
+                        (b if a == cid else a): d
+                        for (a, b), d in sorted(TOUCHING_STEPS.items())
+                        if cid in (a, b)},
+                    # (10) (1): a cluster whose own bodies disagree about
+                    # the ground floor cannot exist under the split — a
+                    # non-empty reading here is a defect, and is named
+                    "pad_offset_spread": (
+                        {cid: OFFSET_SPREAD[cid]} if cid in OFFSET_SPREAD
+                        else {})})
     return out
 
 
@@ -301,6 +319,15 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # what the report reads to name the apron faces that stayed
             # graded.  Empty at an airport with no cluster (CYXY's class).
             "cluster_pads": cluster_pads(planar, law, airport, z),
+            # §16g (10) (3) `pad_cluster_mismatch` (owner RULINGS
+            # 2026-09-14x): CRITICAL — a pad spanning two clusters or a
+            # cluster spanning two pads is a misidentified shape.  LAW
+            # INPUT: the census cannot recompute a cluster from the patch
+            # (the outlines live in the rebake plan), so the DEFECT SET
+            # is declared here, over the WHOLE cluster population, and
+            # the family prices exactly it.  Empty is the bar.
+            "pad_cluster_mismatch": _pad_cluster_mismatch(planar, law,
+                                                          airport),
             "apron_tier": apron_tier(law),
             "terrace_joints": terrace_joints_ll(planar, law, z),
             "taxi_route_pairs": taxi_pairs,

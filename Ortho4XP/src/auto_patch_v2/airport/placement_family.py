@@ -284,18 +284,27 @@ class PlanCluster:
     area_m2: float
     #: the hull of the union — the cheap plan reject every reader takes
     hull: tuple[float, float, float, float]
-    #: §16g (8) (owner RULINGS 2026-09-14u): the AUTHORED FLOOR of each
-    #: box in ``boxes``, aligned with it — the pack's own ``Part.base_y``,
-    #: the height that box's geometry starts at above its placement row.
-    #: The design surface derives a cluster's OTHER pads from its
-    #: reference pad with THIS (pad = reference + the authored offset),
-    #: and it must be an AUTHORED quantity: the seated unit datum is read
-    #: out of the SOLVED cluster pad (`placement_plan.build_splits` takes
-    #: the emitted surface), so the object stage runs after the solve and
-    #: cannot be what the solve derives a pad from.  Empty in a cluster
-    #: built before the field, and the reader then has no offset to
-    #: derive with and leaves the group at one plane, as it was.
+    #: §16g (10) (1) (owner RULINGS 2026-09-14u, AMENDED by 14z): the
+    #: AUTHORED GROUND FLOOR of each member BODY of the cluster — the
+    #: lowest GROUND-CONTACT component's ``base_y`` (a ``Part`` carrying
+    #: ``feet``; a body with no footed part is ELEVATED and falls back to
+    #: its lowest component, flagged in :attr:`footed`).  14u read it per
+    #: PART BOX; 14z ruled it per body, because a per-component read
+    #: splits a tall building per storey (HECA's per-component range is
+    #: −6.46 … 112.90 m, and the split came out 2,677 -> 20,203
+    #: clusters).  Aligned with :attr:`bodies`.  Empty in a cluster built
+    #: before the field.
     floors: tuple[float, ...] = ()
+    #: §16g (10) (2): THE CLUSTER'S OUTLINE — every member body's
+    #: footprint ring (``Part.rings``, ``(lat, lon)``), whose union IS the
+    #: ``building`` pad the design surface emits for this cluster.  Empty
+    #: in a plan written before §16g (7) (1)'s field, and the pad
+    #: derivation then falls back to the footprint cache and SAYS SO.
+    rings: tuple[tuple[tuple[float, float], ...], ...] = ()
+    #: how many member bodies the cluster holds (``floors`` is aligned
+    #: with them), and how many of those carry a ground-contact component
+    bodies: int = 0
+    footed: int = 0
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -308,37 +317,96 @@ class _Shim:
     placement candidates.  Nothing else of a candidate is touched."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
-                 "floors")
+                 "floors", "rings", "floor", "footed")
 
     def __init__(self, member: int, boxes: list, resource: str,
-                 floors: "list | None" = None) -> None:
+                 floors: "list | None" = None,
+                 rings: "list | None" = None,
+                 floor: float = 0.0, footed: bool = False) -> None:
         self.member = member
         self.part_boxes = boxes
-        #: §16g (8): the authored floor of each of ``part_boxes``
+        #: §16f (8): the authored floor of each of ``part_boxes``
         self.floors = list(floors or ())
+        #: §16g (7) (1): the body's FOOTPRINT RINGS — what ``_clusters``
+        #: chains on.  Without them the chain falls back to the part
+        #: boxes, which is the reading 14c item 1 withdrew.
+        self.rings = list(rings or ())
+        #: §16g (10) (1) / 14z: the body's GROUND FLOOR and whether it
+        #: has a ground-contact component at all
+        self.floor = float(floor)
+        self.footed = bool(footed)
         self.box = _pb.hull_of(boxes)
         self.body_class = ""
         self.resource = resource
 
 
-def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float
-                  ) -> list[PlanCluster]:
-    """§16f (7)'s CLUSTERS read off a ``RebakePlan`` — the planar-time
-    half of the family law (design spec §30 (4)).
+def _floor_split(cl: _t.Sequence[int], adj: _t.Mapping[int, set],
+                 shims: _t.Sequence[_t.Any], floor_split_m: float
+                 ) -> list[list[int]]:
+    """§16g (10) (1) A CLUSTER IS ONE BUILDING (owner RULINGS 2026-09-14x):
+    split a touching chain where two bodies' authored GROUND FLOORS differ
+    by more than ``floor_split_m``.
 
-    The same three tests §16f (1)/(3)/(7) state, in the same order and
-    through the same :func:`_clusters`: one authored datum plane (the
-    plan's own ``Unit``), one connected plan cluster of at least
-    ``FAMILY_MIN_MEMBERS`` members within ``contact_eps_m``, more than
-    ``FAMILY_SHARE_MIN`` of the unit's eligible bodies, and a footprint
-    union over ``min_m2``.  A LINE part founds no body here for the same
-    reason §16f (1) excludes a line segment.
+    The SAME adjacency :func:`_clusters` chained on — this is the touch
+    relation with one more condition on its edge, never a second
+    derivation — and the condition is asked only where BOTH bodies have a
+    ground-contact component (14z: an ELEVATED body has no ground floor
+    of its own; splitting on its lowest component splits a tall building
+    per storey, HECA 2,677 -> 20,203 clusters).  0 disarms the split."""
+    if floor_split_m <= 0.0 or len(cl) < 2:
+        return [list(cl)]
+    par = {i: i for i in cl}
+
+    def find(a: int) -> int:
+        while par[a] != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+
+    for a in cl:
+        for b in adj.get(a, ()):
+            if b not in par or find(a) == find(b):
+                continue
+            both = shims[a].footed and shims[b].footed
+            if not both or abs(shims[a].floor - shims[b].floor) <= floor_split_m:
+                par[find(a)] = find(b)
+    comp: dict[int, list[int]] = {}
+    for i in cl:
+        comp.setdefault(find(i), []).append(i)
+    return [sorted(v) for _k, v in sorted(comp.items())]
+
+
+def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
+                  floor_split_m: float = 0.0) -> list[PlanCluster]:
+    """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
+    derivation, read off a ``RebakePlan`` — the planar-time half of the
+    law (design spec §30 (4)).
+
+    THE FAMILY GATES ARE GONE (owner RULINGS 2026-09-14x/14z, §16g (9)).
+    Until 14x this applied §16f (1)/(3)/(7)'s three tests —
+    ``FAMILY_MIN_MEMBERS``, ``FAMILY_SHARE_MIN`` and ``min_m2`` — and
+    returned the two clusters at HECA that passed all three, while the
+    object stage's §16g (7) chained the SAME bodies with no gate at all.
+    Two populations for "what is one building" is the census-wrapper
+    defect in geometry.  There is now ONE: every connected footprint
+    chain of a unit is a cluster, singletons included (HECA 2 -> 2,677).
+    ``min_m2`` no longer filters the population — it is kept as the
+    threshold a cluster gets a §30 (4) cluster PAD PLANE at, and is
+    carried per cluster in :attr:`PlanCluster.area_m2` for that reader.
+
+    THE CHAIN IS THE FOOTPRINT POLYGON (§16g (7) (1)): the shims carry
+    ``Part.rings``, so ``_clusters`` chains on the outlines and falls
+    back to the part boxes only where the plan predates that field.  The
+    box reading is what put a pad 66 m outside a terminal into its
+    cluster (13ci) and it is not the relation the object stage binds by.
+
+    THE CHAIN SPLITS AT A FLOOR (§16g (10) (1)): see :func:`_floor_split`.
 
     The BODY is the unit of contact, as it is at the object stage
     (``_clusters``'s own docstring: a member-level read dragged a body
     500 m out on the apron onto the plane).  ``planar/group.bodies_of_plan``
     is the ONE body derivation and is imported, never re-implemented."""
-    if contact_eps_m <= 0.0 or min_m2 <= 0.0 or not getattr(plan, "units", ()):
+    if contact_eps_m <= 0.0 or not getattr(plan, "units", ()):
         return []
     bodies, _of_pid = bodies_of_plan(plan)
     out: list[PlanCluster] = []
@@ -352,28 +420,45 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float
             live = [parts_of[q] for q in pids
                     if q in parts_of and not parts_of[q].line]
             bx = [q.box for q in live]
-            if bx:
-                shims.append(_Shim(mi, bx, u.members[mi].resource,
-                                   [float(q.base_y) for q in live]))
-        if len(shims) < FAMILY_MIN_MEMBERS:
+            if not bx:
+                continue
+            # §16g (10) (1) / 14z: the body's GROUND FLOOR — the lowest
+            # component that has ground FEET; a body with none is
+            # ELEVATED and carries its lowest component, flagged
+            footed = [float(q.base_y) for q in live if q.feet]
+            shims.append(_Shim(
+                mi, bx, u.members[mi].resource,
+                [float(q.base_y) for q in live],
+                rings=[r for q in live for r in q.rings if len(r) >= 3],
+                floor=min(footed) if footed
+                else min(float(q.base_y) for q in live),
+                footed=bool(footed)))
+        if not shims:
             continue
-        clusters, _adj = _clusters(shims, contact_eps_m)
-        for cl in clusters:
-            if len(cl) <= FAMILY_SHARE_MIN * max(1, len(shims)):
-                continue                      # §16f (3): a PARTIAL cluster
-            boxes = [b for i in cl for b in shims[i].part_boxes]
-            floors = [f for i in cl for f in shims[i].floors]
-            area = union_area_m2(boxes)
-            if area < min_m2:
-                continue
-            hull = _pb.hull_of(boxes)
-            if hull is None:
-                continue
-            out.append(PlanCluster(
-                id=f"{u.id}#{cl[0]}", unit=u.id,
-                members=tuple(sorted({shims[i].resource for i in cl})),
-                boxes=tuple(boxes), area_m2=area, hull=hull,
-                floors=tuple(floors) if len(floors) == len(boxes) else ()))
+        # ``min_members=1``: §16g (9)'s population has no member gate —
+        # a single member's own touching bodies ARE one building
+        chains, adj = _clusters(shims, contact_eps_m, min_members=1)
+        seen = {i for cl in chains for i in cl}
+        chains = list(chains) + [[i] for i in range(len(shims))
+                                 if i not in seen]
+        for cl in chains:
+            for grp in _floor_split(cl, adj, shims, floor_split_m):
+                boxes = [b for i in grp for b in shims[i].part_boxes]
+                if not boxes:
+                    continue
+                hull = _pb.hull_of(boxes)
+                if hull is None:
+                    continue
+                out.append(PlanCluster(
+                    id=f"{u.id}#{grp[0]}", unit=u.id,
+                    members=tuple(sorted({shims[i].resource for i in grp})),
+                    boxes=tuple(boxes), area_m2=union_area_m2(boxes),
+                    hull=hull,
+                    floors=tuple(shims[i].floor for i in grp),
+                    rings=tuple(tuple(r) for i in grp
+                                for r in shims[i].rings),
+                    bodies=len(grp),
+                    footed=sum(1 for i in grp if shims[i].footed)))
     return out
 
 

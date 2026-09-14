@@ -79,13 +79,18 @@ def _airport(law):
 
 
 class _Cluster:
-    """What ``planar/cluster.py`` puts on ``Airport.clusters``: the id and
-    the PART BOXES of the footprint union, in lat/lon."""
+    """What ``planar/cluster.py`` puts on ``Airport.clusters``: the id, the
+    PART BOXES of the footprint union, and — since §16g (7) (1) / (10) —
+    the true footprint RINGS, which are what every reader uses.  The two
+    are given APART here on purpose: the boxes are the coarse superset
+    that once reached a pad 66 m outside the terminal (13ci), the rings
+    are the footprint, and (10) reads the rings."""
 
-    def __init__(self, airport, rects):
+    def __init__(self, airport, rects, rings=None, floors=(0.0, 0.0),
+                 cid="unit:1#0"):
         _to_xy, to_ll = airport.frame.transformers()
-        self.id = "unit:1#0"
-        self.unit = "unit:1"
+        self.id = cid
+        self.unit = cid.split("#", 1)[0]
         self.members = ("objects/wall.obj", "objects/roof.obj")
         boxes = []
         for x0, y0, x1, y1 in rects:
@@ -94,6 +99,12 @@ class _Cluster:
             boxes.append((min(la0, la1), min(lo0, lo1),
                           max(la0, la1), max(lo0, lo1)))
         self.boxes = tuple(boxes)
+        self.rings = tuple(
+            tuple(to_ll(x, y) for x, y in _rect(*r))
+            for r in (rings if rings is not None else rects))
+        self.floors = tuple(floors)
+        self.bodies = len(self.floors)
+        self.footed = len(self.floors)
         self.area_m2 = 20000.0
         self.hull = (min(b[0] for b in boxes), min(b[1] for b in boxes),
                      max(b[2] for b in boxes), max(b[3] for b in boxes))
@@ -130,8 +141,12 @@ def _arm(law, clustered: bool):
     if clustered:
         # the union covers the FAR pad too — the box artefact the gate
         # is for; padA and padB touch and are the cluster's real plane
+        # the BOX union covers the FAR pad too — the artefact 13ci built
+        # a whole yield gate for — while the true OUTLINE is padA+padB.
+        # (10) reads the outline, so padFar is simply not in the cluster.
         airport = _dc.replace(airport, clusters=(
-            _Cluster(airport, (PAD_A, PAD_B, PAD_FAR)),))
+            _Cluster(airport, (PAD_A, PAD_B, PAD_FAR),
+                     rings=(PAD_A, PAD_B)),))
     pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
     cs, counts, _w = generate(pm, law, airport)
     sol, _rep = solve_design(pm, cs, law)
@@ -341,9 +356,8 @@ def test_30_4_two_clusters_on_one_pad_are_ONE_plane(law):
     import dataclasses as _d
 
     airport = _airport(law)
-    a, b = _Cluster(airport, (PAD_A, PAD_B)), _Cluster(airport, (PAD_A,))
-    object.__setattr__(b, "id", "unit:2#0") if False else setattr(b, "id",
-                                                                  "unit:2#0")
+    a = _Cluster(airport, (PAD_A, PAD_B))
+    b = _Cluster(airport, (PAD_A,), cid="unit:2#0")
     airport = _d.replace(airport, clusters=(a, b))
     pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
     groups = [q for q in plane_groups(pm, law, airport)
@@ -354,22 +368,91 @@ def test_30_4_two_clusters_on_one_pad_are_ONE_plane(law):
     assert verts >= _verts(pm, "padA") and verts >= _verts(pm, "padB")
 
 
-def test_30_4_5_a_pad_the_footprint_does_not_reach_YIELDS(law):
-    """§30 (4) (5) (owner RULINGS 2026-09-13ch): the cluster's plane
-    covers the pads its footprint actually REACHES — chained by the same
-    `footprint_touch_m` the unit is — and every other face the coarse
-    part-box union happened to intersect KEEPS ITS OWN PLANE and is
-    named.  KCLT's `building91` is that face: 65.81 m from the terminal,
-    sharing no vertex with anything, and merging it moved 2,406 taxi
-    vertices by up to 2.07 m."""
+def test_16g_10_a_pad_the_OUTLINE_does_not_reach_is_not_the_clusters(law):
+    """§16g (10) (2) (owner RULINGS 2026-09-14x, 14z) REPLACES 13ci's
+    touching-component YIELD GATE.
+
+    13ci's gate existed because the cluster's union was a union of PART
+    BOXES, which reached KCLT's `building91` 65.81 m outside the
+    terminal's footprint; the gate then kept the connected component
+    holding the largest face, and MEASURED at HECA it kept ONE face of 22
+    and ONE of 73 — it starved the merge it was guarding.  Under §16g (7)
+    (1) the union is the true OUTLINE, so the far pad is not in the
+    cluster to begin with: no gate, nothing yielded, and the pad keeps
+    its own plane by simply never having been claimed.
+
+    This fixture states it exactly: the cluster's BOXES cover padFar, its
+    RINGS do not."""
     from auto_patch_v2.constraints.cluster_pad import YIELDED
     airport, pm, z, _c = _arm(law, True)
     faces = cluster_pad_faces(pm, law, airport)
     kept = {pm.faces[q].ref for v in faces.values() for q in v}
     assert kept == {"padA", "padB"}, kept
+    # nothing YIELDS: the outline never reached padFar
     yielded = {pm.faces[q].ref for v in YIELDED.values() for q in v}
-    assert yielded == {"padFar"}, yielded
+    assert yielded == set(), yielded
     # ... and the yielding pad is NOT dragged onto the cluster's level
     far = float(np.mean(z[sorted(_verts(pm, "padFar"))]))
     one = float(np.mean(z[sorted(_verts(pm, "padA") | _verts(pm, "padB"))]))
     assert abs(far - one) > 0.30, (far, one)
+
+
+def test_16g_10_the_steps_between_touching_clusters_are_DECLARED(law):
+    """§16g (8) AS NARROWED BY (10) (owner RULINGS 2026-09-14x): 14u's
+    derived pads WITHIN a cluster are withdrawn — a touching body at a
+    different authored floor is now a different CLUSTER with its own pad
+    — and what is left is the STEP between two touching clusters' pads,
+    a declared terrace joint (§23) and never a priced row."""
+    import dataclasses as _d
+
+    from auto_patch_v2.constraints.cluster_pad import (TOUCHING_STEPS,
+                                                       cluster_offsets)
+    airport = _airport(law)
+    a = _Cluster(airport, (PAD_A,), floors=(0.0,), cid="unit:1#0")
+    b = _Cluster(airport, (PAD_B,), floors=(3.0,), cid="unit:1#1")
+    airport = _d.replace(airport, clusters=(a, b))
+    pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
+    # it mints NO row — the step is the ground law's, not the pad's
+    assert cluster_offsets(pm, law, airport) == {}
+    assert TOUCHING_STEPS == {("unit:1#0", "unit:1#1"): 3.0}, TOUCHING_STEPS
+    # ... and two clusters that do NOT touch declare no step
+    far = _Cluster(airport, (PAD_FAR,), floors=(3.0,), cid="unit:1#1")
+    cluster_offsets(pm, law, _d.replace(airport, clusters=(a, far)))
+    assert TOUCHING_STEPS == {}
+
+
+def test_16g_10_3_pad_cluster_mismatch_names_a_cluster_spanning_two_pads(law):
+    """§16g (10) (3) (owner RULINGS 2026-09-14x): CRITICAL — "no
+    building, or cluster can span multiple pads ... they should match
+    exactly".
+
+    The fixture's cluster is more than half of BOTH ``padA`` and
+    ``padB``, which is exactly the shape the owner refuses: it is
+    reported, named and placed.  A cluster that is one pad reports
+    nothing, which is the bar."""
+    import dataclasses as _d
+
+    from auto_patch_v2.constraints.cluster_pad import pad_cluster_mismatch
+    airport, pm, _z, _c = _arm(law, True)
+    got = pad_cluster_mismatch(pm, law, airport)
+    assert len(got) == 1, got
+    assert got[0]["kind"] == "cluster_spans_pads"
+    assert got[0]["ref"] == "unit:1#0"
+    assert sorted(got[0]["others"]) == ["padA", "padB"]
+    assert got[0]["lat"] is not None and got[0]["lon"] is not None
+
+    # THE BAR: one pad per cluster reports nothing
+    one = _dc.replace(airport, clusters=(
+        _Cluster(airport, (PAD_A,), rings=(PAD_A,), cid="unit:1#0"),
+        _Cluster(airport, (PAD_B,), rings=(PAD_B,), cid="unit:1#1")))
+    assert pad_cluster_mismatch(pm, law, one) == []
+
+    # ... and the other direction: TWO clusters each more than half of
+    # ONE pad is `pad_spans_clusters`
+    both = _dc.replace(airport, clusters=(
+        _Cluster(airport, (PAD_A,), rings=(PAD_A,), cid="unit:1#0"),
+        _Cluster(airport, (PAD_A,), rings=(PAD_A,), cid="unit:2#0")))
+    rows = pad_cluster_mismatch(pm, law, both)
+    assert [r["kind"] for r in rows] == ["pad_spans_clusters"], rows
+    assert rows[0]["ref"] == "padA"
+    assert sorted(rows[0]["others"]) == ["unit:1#0", "unit:2#0"]

@@ -45,7 +45,7 @@ from .pads import GEN_LEVEL, _pad_groups, _pad_polys, _two_sided
 from .precedence import view
 
 __all__ = ["cluster_reach_m", "cluster_polys", "cluster_pad_faces",
-           "YIELDED",
+           "YIELDED", "TOUCHING_STEPS", "pad_cluster_mismatch",
            "plane_groups", "cluster_apron_faces", "cluster_apron_level",
            "CLUSTER_REACH_RULING"]
 
@@ -58,12 +58,24 @@ def cluster_reach_m(law: Law) -> float:
     return float(design_law(law).cluster_apron_reach_m)
 
 
-def cluster_polys(airport: Airport | None) -> list[tuple[_t.Any, Polygon]]:
+def cluster_polys(airport: Airport | None, min_m2: float = 0.0
+                  ) -> list[tuple[_t.Any, Polygon]]:
     """§30 (4): each CLUSTER carried on ``Airport.clusters``
     (``planar/cluster.py``, computed once at load beside the pack
     partition and the groups) with its FOOTPRINT UNION as one plan
-    polygon in the PLANAR FRAME's metres — the union of its part boxes,
-    which is exactly what ``placement_family.union_area_m2`` measures.
+    polygon in the PLANAR FRAME's metres.
+
+    §16g (7) (1) / (10) (2) (owner RULINGS 2026-09-14c item 1, 14x): the
+    union is of the cluster's OUTLINE RINGS (``PlanCluster.rings``),
+    never of its part BOXES.  The box union is what put a pad 66 m
+    outside KCLT's terminal inside its cluster and cost §30 (4) (5) a
+    whole yield gate (13ci) — a rotated building's lat/lon box is not its
+    footprint.  A cluster whose plan predates the ring field falls back
+    to the boxes and the caller counts it.
+
+    ``min_m2`` (``[placement] cluster_pad_min_m2``, §16g (9)'s one
+    remaining job for that key) keeps only the clusters big enough for a
+    §30 (4) cluster PAD PLANE; 0 takes them all.
 
     ``constraints`` may not import ``planar`` (the layering twin), which
     is why the derivation travels on the airport and only its GEOMETRY
@@ -75,15 +87,26 @@ def cluster_polys(airport: Airport | None) -> list[tuple[_t.Any, Polygon]]:
     to_xy, _to_ll = airport.frame.transformers()
     out: list[tuple[_t.Any, Polygon]] = []
     for c in cl:
-        rects = []
-        for la0, lo0, la1, lo1 in c.boxes:
-            x0, y0 = to_xy(lo0, la0)
-            x1, y1 = to_xy(lo1, la1)
-            if x1 > x0 and y1 > y0:
-                rects.append(_box(x0, y0, x1, y1))
-        if not rects:
+        if min_m2 > 0.0 and float(getattr(c, "area_m2", 0.0)) < min_m2:
             continue
-        u = unary_union(rects)
+        ps: list[Polygon] = []
+        for r in (getattr(c, "rings", ()) or ()):
+            if len(r) < 3:
+                continue
+            g = Polygon([to_xy(lo, la) for la, lo in r])
+            if not g.is_valid:
+                g = g.buffer(0.0)
+            if not g.is_empty and g.area > 0.0:
+                ps.append(g)
+        if not ps:
+            for la0, lo0, la1, lo1 in c.boxes:     # pre-ring plan
+                x0, y0 = to_xy(lo0, la0)
+                x1, y1 = to_xy(lo1, la1)
+                if x1 > x0 and y1 > y0:
+                    ps.append(_box(x0, y0, x1, y1))
+        if not ps:
+            continue
+        u = unary_union(ps)
         if not u.is_empty:
             out.append((c, u))
     return out
@@ -91,31 +114,136 @@ def cluster_polys(airport: Airport | None) -> list[tuple[_t.Any, Polygon]]:
 
 def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport | None
                       ) -> dict[str, list[int]]:
-    """``cluster id -> the rigid FACE ids its footprint union stands on``.
+    """``cluster id -> the rigid FACE ids its footprint union stands on``,
+    for the clusters over ``[placement] cluster_pad_min_m2`` (§16g (9):
+    that key's ONE remaining job).
 
     The test is INTERSECTION with the UNION, never with its hull: a
     terminal's hull spans the apron between its concourses and would
     swallow every stand's own structure (measured at KCLT, the hull is
-    864,000 m2 against a 379,000 m2 union)."""
+    864,000 m2 against a 379,000 m2 union).
+
+    §16g (10) (2) REPLACES 13ci's YIELD GATE (owner RULINGS 2026-09-14x,
+    14z).  The gate kept the touching COMPONENT holding the largest face
+    and yielded every other, because the union was a box union that
+    reached pads outside the footprint; MEASURED at HECA it kept ONE face
+    of 22 and ONE of 73 — 25.6 % and 21.5 % of the intersected pad area —
+    and starved ``plane_groups``, ``cluster_pairs`` and
+    ``cluster_offsets`` alike.  Under (10) the cluster's pad IS its own
+    outline, so the question is no longer "which of these pads is really
+    the terminal's" but simply WHICH FACES THIS CLUSTER'S OWN POLYGON IS:
+    a face whose area is mostly inside the cluster's outline.  A face the
+    outline merely clips keeps its own plane and is still named in
+    :data:`YIELDED`, which should now be EMPTY at an airport whose pads
+    are derived from the clusters.  The apron reach (13ci, disarmed at
+    13ce) keeps the union reading through :func:`cluster_apron_faces`."""
+    min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
+    if min_m2 <= 0.0:                 # 0 disarms the cluster PAD PLANE
+        return {}
+    YIELDED.clear()
+    got, _by_face, yielded = _face_map(planar, law, airport, min_m2)
+    YIELDED.update(yielded)
+    return got
+
+
+def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
+              min_m2: float
+              ) -> "tuple[dict[str, list[int]], dict[int, list[str]], dict[str, tuple[int, ...]]]":
+    """THE ONE READING of the cluster↔pad relation: ``(faces per cluster,
+    clusters per face, the clipped faces per cluster)``.
+
+    :func:`cluster_pad_faces` asks it of the clusters over
+    ``cluster_pad_min_m2``; :func:`pad_cluster_mismatch` asks it of the
+    whole population.  One derivation, two readers — never two."""
     got: dict[str, list[int]] = {}
-    pairs = cluster_polys(airport)
+    by_face: dict[int, list[str]] = {}
+    yielded: dict[str, tuple[int, ...]] = {}
+    pairs = cluster_polys(airport, min_m2)
     if not pairs:
-        return got
+        return got, by_face, yielded
     polys = _pad_polys(planar, law)
     if not polys:
-        return got
-    by_id = {int(q[0]): q[3] for q in polys}
-    touch = float(law.tables.structures.placement.footprint_touch_m)
+        return got, by_face, yielded
     tree = STRtree([p[3] for p in polys])
     for c, u in pairs:
-        hit = sorted({int(polys[int(i)][0])
-                      for i in tree.query(u, predicate="intersects")})
-        keep, yielded = _touching_component(hit, by_id, touch)
-        if yielded:
-            YIELDED[c.id] = tuple(yielded)
-        if len(keep) >= 1:
-            got[c.id] = keep
-    return got
+        keep: list[int] = []
+        clipped: list[int] = []
+        for i in tree.query(u, predicate="intersects"):
+            fid, _ref, _grp, poly = polys[int(i)]
+            if poly.area <= 0.0:
+                continue
+            if poly.intersection(u).area >= _OWN_FACE_SHARE * poly.area:
+                keep.append(int(fid))
+                by_face.setdefault(int(fid), []).append(c.id)
+            else:
+                clipped.append(int(fid))
+        if clipped:
+            yielded[c.id] = tuple(sorted(clipped))
+        if keep:
+            got[c.id] = sorted(keep)
+    return got, by_face, yielded
+
+
+def pad_cluster_mismatch(planar: PlanarMap, law: Law,
+                         airport: Airport | None) -> list[dict[str, _t.Any]]:
+    """§16g (10) (3) `pad_cluster_mismatch` (owner RULINGS 2026-09-14x,
+    verbatim: *"no building, or cluster can span multiple pads, if it
+    does, it means we didn't identify the building shape or cluster
+    correctly"*) — CRITICAL, a misidentified shape, never seated over.
+
+    Two rows, both from :func:`_face_map` over the WHOLE cluster
+    population (not the cluster-pad threshold's subset):
+
+    * ``cluster_spans_pads`` — one cluster is more than half of two or
+      more emitted ``building`` faces;
+    * ``pad_spans_clusters`` — one face is more than half claimed by two
+      or more clusters.
+
+    Under §16g (10) (2)'s derivation both are structurally impossible
+    (each cluster's outline IS one pad), so a row here says the
+    derivation did not hold — classify split one cluster's outline
+    (a runway difference, a multipolygon), two clusters' outlines merged
+    under the pad law's own union, or the pads came from the footprint
+    cache because the plan carries no rings.  The record names the ref,
+    the counterparties and a representative point, which is what the
+    census needs to place it."""
+    out: list[dict[str, _t.Any]] = []
+    by_cluster, by_face, _clipped = _face_map(planar, law, airport, 0.0)
+    if not by_cluster:
+        return out
+    _to_xy, to_ll = (airport.frame.transformers() if airport is not None
+                     else (None, None))
+    polys = {int(q[0]): (str(q[1]), q[3]) for q in _pad_polys(planar, law)}
+
+    def _at(fid: int) -> tuple[float | None, float | None]:
+        q = polys.get(fid)
+        if q is None or to_ll is None:
+            return None, None
+        p = q[1].representative_point()
+        lon, lat = to_ll(p.x, p.y)
+        return round(float(lat), 7), round(float(lon), 7)
+
+    for cid, fids in sorted(by_cluster.items()):
+        if len(fids) > 1:
+            lat, lon = _at(fids[0])
+            out.append({"kind": "cluster_spans_pads", "ref": cid,
+                        "others": [polys[f][0] for f in fids if f in polys],
+                        "lat": lat, "lon": lon})
+    for fid, cids in sorted(by_face.items()):
+        if len(cids) > 1:
+            lat, lon = _at(fid)
+            out.append({"kind": "pad_spans_clusters",
+                        "ref": (polys[fid][0] if fid in polys else str(fid)),
+                        "others": sorted(cids), "lat": lat, "lon": lon})
+    return out
+
+
+#: §16g (10) (2): the share of a pad face's own area that must lie inside
+#: a cluster's outline for the face to BE that cluster's pad.  A half is
+#: the only defensible split — a face more than half inside one cluster
+#: is inside no other — and it makes ``pad_cluster_mismatch`` decidable
+#: by the same reading the census takes.
+_OWN_FACE_SHARE = 0.5
 
 
 #: §30 (4) (5): the member faces the gate turned away, per cluster — read
@@ -124,54 +252,14 @@ def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport | None
 YIELDED: dict[str, tuple[int, ...]] = {}
 
 
-def _touching_component(fids: _t.Sequence[int],
-                        poly_of: _t.Mapping[int, Polygon],
-                        touch_m: float) -> "tuple[list[int], list[int]]":
-    """§30 (4) (5) THE CLUSTER PAD YIELDS (owner RULINGS 2026-09-13ch):
-    of the faces the footprint union intersects, keep the connected
-    component — pads within ``[placement] footprint_touch_m`` of each
-    other — that holds the LARGEST one; every other face KEEPS ITS OWN
-    PLANE and is returned as yielded.
-
-    MEASURED, and it is why the gate is here and not on a taxi coupling.
-    Round 4 lifted KCLT's ``building91`` 3.63 m onto the terminal plane
-    and moved 2,406 taxi-family vertices, worst 2.07 m.  13ch read that
-    as the pad's coupling to the taxi family; the coupling does not
-    exist — ``building91`` shares NO vertex with ``building80``, with any
-    apron or with any taxi face, fronts nothing (the nearest pavement is
-    80.35 m away against a 3.0 m frontage radius), and the worst-moved
-    taxi vertex stands **2,209 m** from it.  What ``building91`` IS, is a
-    separate building **65.81 m** from the terminal that the cluster's
-    coarse PART-BOX union happened to intersect.  §30 (4)'s own words are
-    "one pad over the family's FOOTPRINT UNION", and a pad 66 m outside
-    it is not in the union — it is the box-versus-polygon artefact (§16g
-    (2)'s undone item (b)) reaching the design surface.  So the gate is
-    stated where the defect is: the cluster's plane covers the pads its
-    footprint actually reaches, chained by the SAME 0.5 m the footprint
-    unit itself is chained by.  Everything else yields, and the
-    publication names it."""
-    live = [q for q in fids if q in poly_of]
-    if len(live) < 2:
-        return list(live), []
-    parent = {q: q for q in live}
-
-    def find(a: int) -> int:
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
-
-    for i, a in enumerate(live):
-        for b in live[i + 1:]:
-            if find(a) != find(b) and poly_of[a].distance(poly_of[b]) <= touch_m:
-                parent[find(a)] = find(b)
-    comp: dict[int, list[int]] = {}
-    for q in live:
-        comp.setdefault(find(q), []).append(q)
-    big = max(live, key=lambda q: poly_of[q].area)
-    keep = sorted(comp[find(big)])
-    return keep, sorted(set(live) - set(keep))
-
+#: §30 (4) (5) 13ci's TOUCHING-COMPONENT YIELD GATE IS DELETED
+#: (owner RULINGS 2026-09-14x/14z).  It kept the connected component
+#: of intersected pads holding the largest face and yielded the rest,
+#: because a cluster's PART-BOX union reached pads outside its
+#: footprint.  Under §16g (7) (1) the union is the true OUTLINE and
+#: under (10) (2) the pad IS that outline, so there is nothing left
+#: to gate: MEASURED at HECA the gate kept 1 face of 22 and 1 of 73.
+#: Refuted mechanisms are deleted, not kept gated.
 
 def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
                   ) -> list[tuple[int, str, list[int], tuple[int, ...]]]:
@@ -428,97 +516,76 @@ REFERENCE: dict[str, int] = {}
 DERIVED: dict[str, dict[int, float]] = {}
 #: §16g (8) (2): pads carrying bodies of DIFFERENT authored floors, with
 #: the spread the pad took the lowest of.
-OFFSET_SPREAD: dict[int, float] = {}
+OFFSET_SPREAD: dict[_t.Any, float] = {}
+#: §16g (10) (owner RULINGS 2026-09-14x): the DECLARED TERRACE STEPS
+#: between touching clusters' pads — ``(cluster a, cluster b) -> metres``
+#: between their authored ground floors.  (8)'s within-a-unit derived
+#: pads are withdrawn into this.
+TOUCHING_STEPS: dict[tuple[str, str], float] = {}
 
 
 def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
                     ) -> dict[int, float]:
-    """§16g (8) THE PADS UNDER A CONNECTED UNIT FOLLOW THE SEATED BODIES
-    (owner RULINGS 2026-09-14u): ``vertex -> the metres this pad stands
-    above its cluster's REFERENCE pad``.
+    """§16g (8) AS NARROWED BY (10) (owner RULINGS 2026-09-14x): THE
+    OFFSETS BETWEEN TOUCHING CLUSTERS' PADS ARE DECLARED TERRACE STEPS.
 
-    THE DEFECT (14o/14u).  With true footprint outlines HECA's T3
-    district still chains across 23 pads spanning 29.99 m, because its
-    footprints genuinely touch end to end — lawful under §16g (7) (1).
-    Pricing that district as ONE plane floats its bodies against their
-    own pads by up to 30 m; §30 (4)'s cluster pad was written for a
-    terminal whose pads really are one level, and a district is not that.
+    14u derived the OTHER pads of one unit from a reference pad, because
+    HECA's T3 district chained across 23 pads spanning 29.99 m and one
+    datum floated its bodies against their own pads.  14x answers the
+    same defect one level up: a touching body at a different authored
+    floor is a DIFFERENT BUILDING with its own cluster and its own pad,
+    so there is no longer a cluster standing on several pads to derive
+    within — and what is left is the STEP between two clusters whose
+    outlines touch.  That step is the ground law's (§23, a declared
+    terrace joint), not a pad row: each pad is already one plane at its
+    own level and pricing the step would be the design surface telling
+    the pack author how to terrace.
 
-    THE DERIVATION, and why it must be AUTHORED.  Each pad's level is the
-    reference pad's plus the authored floor offset of the bodies standing
-    on it.  It CANNOT be taken from the seated unit datum: the object
-    stage reads the EMITTED surface (``placement_plan.build_splits``
-    takes it), so it runs after the solve, and a pad the solve is about
-    to fix cannot be derived from a seat that does not exist yet.  The
-    pack's own ``Part.base_y`` travels here on
-    ``placement_family.PlanCluster.floors`` and is available at load.
-
-    THE REFERENCE is the PLURALITY pad — the face most of the cluster's
-    boxes stand on — because that is the pad the object stage's own
-    ``anchor_rule.pad_plurality`` hands the unit as its datum, so the
-    plane the surface builds and the plane the objects seat on stay one
-    thing (§30 (4)'s own sentence).  Its offset is 0 by construction and
-    its level stays the solve's.
-
-    (2) A pad carrying bodies of DIFFERENT authored floors takes the
-    LOWEST and the spread is named (:data:`OFFSET_SPREAD`), so a
-    split-level building on one pad reads as the lower floor and nothing
-    is buried.
-
-    The offsets ride ``pads._pad_rows``' existing ``rel=`` channel, so a
-    cluster's cross-links target the DIFFERENCE and each face stays flat
-    within itself — no new row kind, no second pricing site."""
+    So this mints NO row (it returns ``{}`` and always has for the
+    ``rel=`` channel's purposes) and PUBLISHES the joints:
+    :data:`TOUCHING_STEPS` maps ``(cluster a, cluster b)`` to the metres
+    between their authored ground floors, for the sidecar and the
+    report.  :data:`REFERENCE` / :data:`DERIVED` stay as keys so the
+    publication's shape is unchanged; they are empty under (10).
+    :data:`OFFSET_SPREAD` keeps its (8) (2) meaning — a CLUSTER whose own
+    member bodies disagree about the ground floor by more than
+    ``floor_split_m`` cannot exist under (10) (1), so a non-empty
+    reading here is a defect in the split and is named."""
     REFERENCE.clear()
     DERIVED.clear()
     OFFSET_SPREAD.clear()
-    out: dict[int, float] = {}
+    TOUCHING_STEPS.clear()
     if airport is None:
-        return out
+        return {}
+    touch = float(law.tables.structures.placement.footprint_touch_m)
+    split = float(law.tables.structures.placement.floor_split_m)
     pairs = cluster_polys(airport)
-    if not pairs:
-        return out
-    faces = cluster_pad_faces(planar, law, airport)
-    if not faces:
-        return out
-    polys = _pad_polys(planar, law)
-    if not polys:
-        return out
-    rim_of = {int(q[0]): list(q[2]) for q in polys}
-    poly_of = {int(q[0]): q[3] for q in polys}
-    to_xy, _to_ll = airport.frame.transformers()
-    by_id = {c.id: c for c in (getattr(airport, "clusters", None) or ())}
-    for cid, fids in sorted(faces.items()):
-        c = by_id.get(cid)
-        if c is None or not getattr(c, "floors", ()) or len(c.floors) != len(c.boxes):
-            continue                      # no authored floor: one plane
-        pts = []
-        for (la0, lo0, la1, lo1), fy in zip(c.boxes, c.floors):
-            x, y = to_xy(0.5 * (lo0 + lo1), 0.5 * (la0 + la1))
-            pts.append((Point(x, y), float(fy)))
-        floor: dict[int, list[float]] = {}
-        for fid in fids:
-            q = poly_of.get(fid)
-            if q is None:
+    if len(pairs) < 2:
+        return {}
+    floor_of: dict[str, float] = {}
+    for c, _u in pairs:
+        fl = [f for f in (getattr(c, "floors", ()) or ())]
+        if not fl:
+            continue
+        floor_of[c.id] = min(fl)
+        if split > 0.0 and max(fl) - min(fl) > split:
+            OFFSET_SPREAD[c.id] = round(max(fl) - min(fl), 3)
+    tree = STRtree([u for _c, u in pairs])
+    for i, (c, u) in enumerate(pairs):
+        if c.id not in floor_of:
+            continue
+        for j in tree.query(u.buffer(touch), predicate="intersects"):
+            j = int(j)
+            if j <= i:
                 continue
-            got = [fy for pt, fy in pts if q.covers(pt)]
-            if got:
-                floor[fid] = got
-        if len(floor) < 2:
-            continue                      # one pad: nothing to derive
-        ref = max(sorted(floor), key=lambda f: len(floor[f]))
-        base = min(floor[ref])
-        REFERENCE[cid] = ref
-        DERIVED[cid] = {}
-        for fid, got in sorted(floor.items()):
-            if len(got) > 1 and max(got) - min(got) > 0.0:
-                OFFSET_SPREAD[fid] = round(max(got) - min(got), 3)
-            d = min(got) - base           # (2): the LOWEST floor wins
-            DERIVED[cid][fid] = round(d, 3)
-            if abs(d) <= 0.0:
+            d, v = pairs[j]
+            if d.id not in floor_of or u.distance(v) > touch:
                 continue
-            for v in rim_of.get(fid, ()):
-                out[v] = d
-    return out
+            step = round(floor_of[d.id] - floor_of[c.id], 3)
+            if abs(step) > 0.0:
+                TOUCHING_STEPS[(c.id, d.id)] = step
+    return {}
+
 
 
 def cluster_pairs(planar: PlanarMap,

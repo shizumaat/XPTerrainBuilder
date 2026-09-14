@@ -607,6 +607,22 @@ cluster_pad_min_m2  = 5000.0
 # its deck, it does not share a vertex with it.  0 disarms §16g.
 footprint_touch_m   = 0.5
 
+# §16g (10) (1) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x): a
+# CLUSTER is ONE BUILDING — bodies chain only if their footprints touch
+# AND their authored GROUND FLOORS (the lowest ground-contact component's
+# base_y, RULINGS 2026-09-14z) agree within this.  A touching body at a
+# different floor is a different building on its own pad, joined by a
+# declared terrace step.  Taken between GROUND-CONTACT bodies only: read
+# off every component it splits a tall building per storey (HECA 2,677 ->
+# 20,203 clusters).  0 disarms the split.
+floor_split_m       = 0.5
+
+# §16g (10) (2): the `building` PAD is DERIVED from the cluster (one pad
+# per cluster, its outline union); the footprint-cache pads are the
+# fallback where the plan has no cluster.  false = the pre-14x
+# derivation, and the matched BASE ARM.
+pad_from_cluster    = true
+
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two
 # ends' ground differs by `[cockpit] visual_m` is a CONNECTOR, cut at

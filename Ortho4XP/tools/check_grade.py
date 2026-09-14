@@ -5983,6 +5983,53 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
     return out
 
 
+#: §16g (10) (3): the sidecar key the declared defect set arrives on.
+_PAD_CLUSTER_MISMATCH_KEY = "pad_cluster_mismatch"
+
+
+def _check_pad_cluster_mismatch(recs) -> List[Violation]:
+    """§16g (10) (3) THE PAD IS THE CLUSTER, CRITICAL (owner RULINGS
+    2026-09-14x, verbatim: *"pads must match building clusters, no
+    building, or cluster can span multiple pads, if it does, it means we
+    didn't identify the building shape or cluster correctly.  They should
+    match exactly."*).
+
+    SIDECAR-DECLARED, like ``basin_floor_declaration`` and
+    ``eat_ceiling`` above it, and for the same reason: the relation is
+    between the emitted ``building`` faces and the pack's CLUSTERS, and a
+    cluster's footprint outlines live in the rebake plan, which no patch
+    carries.  The build therefore declares the DEFECT SET over its whole
+    cluster population (``constraints.cluster_pad.pad_cluster_mismatch``,
+    the SAME ``_face_map`` the cluster pad itself is derived from — one
+    reading, two readers) and this prices exactly it.  A patch with no
+    key — v1's own output, or a v2 patch predating 14x — reports nothing,
+    as it did before.
+
+    One row per declared record.  There is no magnitude to report: a
+    misidentified shape is not a grade excess, it is a shape that must
+    never be seated over, so the row carries its counterparties in the
+    way name and zero metres."""
+    out: List[Violation] = []
+    for rec in (recs or []):
+        if not isinstance(rec, dict):
+            continue
+        kind = str(rec.get("kind") or "pad_cluster_mismatch")
+        ref = str(rec.get("ref") or "")
+        others = [str(q) for q in (rec.get("others") or [])]
+        name = f"{kind}:{ref}" + (f" -> {','.join(others)}" if others else "")
+        way = Way("pad_cluster_mismatch", "object_pad", name, "", [], [],
+                  {"role": "object_pad"})
+        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                      de_m=float(max(0, len(others) - 1)),
+                      way_a=way, way_b=way, pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                      elev_a=0.0, elev_b=0.0)
+        lat, lon = rec.get("lat"), rec.get("lon")
+        if lat is not None and lon is not None:
+            v.lat, v.lon = float(lat), float(lon)
+        out.append(v)
+    return out
+
+
 # ── §38 THE TILE SEAM IS A PIN, VALIDATOR HALF (owner RULINGS
 # 2026-09-13ah / 13am / 13an; spec design-surface-spec §38 (5)) ─────
 # TWO families, both sidecar-declared like ``eat_ceiling`` above: the
@@ -8133,6 +8180,12 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     ("basin_floor_declaration",
      "BASIN FACILITY floor DISAGREES with its own body depth", "within"),
+    # §16g (10) (3) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x).
+    # Sidecar-declared like the family above it: the build declares the
+    # defect set over its whole cluster population and this prices it.
+    ("pad_cluster_mismatch",
+     "PAD <-> CLUSTER MISMATCH (a pad spanning two clusters, or a cluster "
+     "spanning two pads)", "within"),
     # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
     # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
     # above it: the accepted rects arrive as ``eat_rects`` and this prices
@@ -8885,6 +8938,12 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # patch with no key (v1's own output, or a v2 patch predating §36)
     # reports nothing in that family, as it did before.
     "eat_rects": "eat_rects",
+    # §16g (10) (3) THE DECLARED PAD<->CLUSTER DEFECT SET (owner RULINGS
+    # 2026-09-14x).  LAW INPUT: a cluster is a relation between the
+    # emitted pads and the PACK's footprint outlines, which no patch
+    # carries, so the build declares the records and the
+    # ``pad_cluster_mismatch`` family prices exactly them.
+    "pad_cluster_mismatch": "pad_cluster_mismatch",
     "ruleset": "ruleset",
     # THE TIERED APRON LAW the build priced (owner RULINGS 2026-09-06w):
     # ``{preferred, max, fan}`` as fractions, published by v2
@@ -9214,6 +9273,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["basin_facilities"] = data.get("basin_facilities") or None
     ctx["eat_rects"] = data.get("eat_rects") or None
+    ctx["pad_cluster_mismatch"] = data.get("pad_cluster_mismatch") or None
     ctx["ruleset"] = data.get("ruleset") or None
     ctx["relaxed_rows"] = data.get("relaxed_rows") or None
     ctx["yielded_rows"] = data.get("yielded_rows") or None
@@ -10269,6 +10329,7 @@ def run_checks(
     disconnected_rings_ll: Optional[list] = None,
     basin_facilities: Optional[list] = None,
     eat_rects: Optional[list] = None,
+    pad_cluster_mismatch: Optional[list] = None,
     ruleset: Optional[str] = None,
     xsection_spans: Optional[list] = None,
     stretches_ll: Optional[list] = None,
@@ -10658,6 +10719,15 @@ def run_checks(
         f"not evidenced by its geometry)",
         basin_declaration, top_n)
     within = within + basin_declaration
+
+    pcm_rows = _fam("pad_cluster_mismatch",
+                    _check_pad_cluster_mismatch(pad_cluster_mismatch))
+    _pv("PAD <-> CLUSTER MISMATCH (owner RULINGS 2026-09-14x: \"pads must "
+        "match building clusters ... they should match exactly\" — a "
+        "`building` pad more than half claimed by two clusters, or a "
+        "cluster that is more than half of two pads; a misidentified "
+        "shape, never seated over)", pcm_rows, top_n)
+    within = within + pcm_rows
 
     eat_rows = _fam("eat_ceiling", _check_eat_ceiling(eat_rects, nodes, ways))
     _pv("END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling "

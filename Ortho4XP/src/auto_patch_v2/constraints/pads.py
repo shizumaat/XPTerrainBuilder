@@ -456,21 +456,17 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     rows: list[Row] = []
     # §30 (4): a TERMINAL CLUSTER's faces are ONE plane — one plate, one
     # ceiling.  Every other pad is its own entry, exactly as before.
-    from .cluster_pad import cluster_offsets, cluster_pairs, plane_groups
-    # §16g (8) (owner RULINGS 2026-09-14u): a CLUSTER's pads are DERIVED
-    # from its reference pad by the bodies' AUTHORED floor offsets, and
-    # they ride this same ``rel`` channel — so a cluster's cross-links
-    # target the DIFFERENCE, each face stays flat within itself, and
-    # there is no second pricing site to drift from this one.  Its
-    # offsets are ADDED to §30 (6)'s relief, which is per-vertex and
-    # about a different thing (the terrain standing above the pad).
-    _co = cluster_offsets(planar, law, airport)
-    if _co:
-        off = dict(off)
-        for _v, _d in _co.items():
-            off[_v] = off.get(_v, 0.0) + _d
-        STATS.setdefault("pad_flats", {})["cluster_pads_derived"] = len(
-            {v for v in _co})
+    from .cluster_pad import cluster_pairs, plane_groups
+    # §16g (8) AS NARROWED BY (10) (owner RULINGS 2026-09-14x): 14u's
+    # derived pads WITHIN a cluster are withdrawn and mint no row here.
+    # A touching body at a different authored floor is now a different
+    # CLUSTER with its own pad at its own level (``plan_clusters``'s
+    # floor split), so there is no cluster spanning pads to derive
+    # across; the step between two touching clusters' pads is the ground
+    # law's declared terrace joint (§23) and is PUBLISHED, not priced
+    # (``cluster_pad.cluster_offsets`` / ``TOUCHING_STEPS``, read by
+    # ``pipeline/publication``).  ``off`` therefore carries §30 (6)'s
+    # per-vertex relief alone, as it did before 14u.
     # §30 (4) (RULINGS 2026-09-13cc/13ce): a CLUSTER's plane is priced
     # per-face-complete PLUS cross-links, never over the concatenated rim
     # — the merged reading was measured inert (see ``cluster_pairs``).

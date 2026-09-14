@@ -109,6 +109,23 @@ ruling    = "2026-08-06"
 solver    = "construction"
 cockpit   = "step"
 
+# §16g (10) (3) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x,
+# verbatim: "pads must match building clusters, no building, or cluster
+# can span multiple pads, if it does, it means we didn't identify the
+# building shape or cluster correctly.  They should match exactly.").
+# CRITICAL and sidecar-declared: the census cannot recompute a cluster
+# from the patch (the footprint outlines live in the rebake plan), so the
+# build declares the DEFECT SET over its whole cluster population and
+# this prices exactly it.  A patch with no key reports nothing.
+[pad_cluster_mismatch]
+measures  = "a `building` pad more than half claimed by two clusters, or a cluster that is more than half of two pads"
+parameter = "structures.placement.pad_from_cluster"
+roles     = ["object_pad"]
+pairs     = "within"
+ruling    = "2026-09-14x"
+solver    = "construction"
+cockpit   = "keepout"
+
 [basin_floor_declaration]
 measures  = "a basin facility floor disagreeing with its own body depth"
 parameter = "structures.basin.floor"

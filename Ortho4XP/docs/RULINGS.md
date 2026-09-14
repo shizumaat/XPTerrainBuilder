@@ -4355,3 +4355,35 @@ draped ground pages) — byte-identity structural.
   its own.
 * Load cost +0.25–0.40 s (+6.6–11.5 % of a 3.8 s stage; 0.4 % of the
   60 s budget) — accepted, under the 1 % review floor.
+
+## 2026-09-13dd v2roles round 1 reported: shape 44 → runway shoulder of 05L/23R, shape 93 → apron; §40 amended (ribbon, datum, shoulder cap); round 2 before a below-bar merge
+
+Lane `v2roles` @ 6dd7c0dd; matched HECA pair (base `v2roles_HECA_base` at
+1a7a7158 / lane `v2roles_HECA`, both registered). Shape 44: `runway`
+kind `runway_shoulder` ref 05L/23R, `shoulder_shared_m` 592 (23,393 m² of
+pav73; a 7,548 m² piece stays parallel); shape 93: `apron`
+(`apron_cover_refused_corridor`, cell cover 0.269); zone strips on 44's
+ground 5 → 0; `within_shape` pav73/pav74 2,026/196 → 830/92; classify
+stage inside noise. Five-frame dry census: shoulders CYXY 1, HECA 24,
+KCLT 1, OTHH 3, SPJC 0 — every one a ribbon 3.3–49.8 m deep.
+
+* RULED (§40 amended): the depth floor 50 m (the lane's deviation) is
+  law; the centroid clause withdrawn; apron cover per CELL; the shoulder
+  keeps the runway's datum and takes ICAO's shoulder cross-slope 2.5 %
+  beyond the runway's half-width — HECA's 2 new `runway_transverse` rows
+  (1.53 %, 3–5 cm) are shoulder rows and pass under it.
+* BELOW BAR, held: matched census law-true 38,609 → 34,488 (−4,121) but
+  ADJUDICATED 12,841 → 15,352 (+2,511: `airside_no_step` +2,312,
+  `transverse` +796, `taxi_box` +584, `strip_transverse` +569;
+  `within_shape` −8,372) — a shoulder read under the runway's tighter
+  law. Round 2 with the shoulder cap and the no-step datum, re-census; the
+  owner signs the residual with numbers.
+* Trace closed: `apron_named=1` on cells 58/191 = `roles._apron_named`'s
+  second branch, `apron_cover ≥ parking_cover_fraction` (0.5; pav73 0.726)
+  — the PARKING knob used for an APRON test, the one place 11ac item 6
+  did not separate. Left alone (§40 (2) dominates below 0.5); owed.
+* Chips: `constraints/runway_profile.py` crown/transverse read outer
+  rings only while the census prices hole-ring vertices (8 of 33 runway
+  faces have holes on the §40 arm, 490 vertices); `auto_patch_v2 build`
+  CLI broken at head (`Options.__init__() … 'diagnose_iis'`,
+  `pipeline/__main__.py:93`).

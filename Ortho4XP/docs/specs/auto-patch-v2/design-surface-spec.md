@@ -8892,3 +8892,31 @@ existing tier law's reach) of DEM; the role census before → after against a
 BASE ARM built at the lane's base sha (not the 1.0.329 products — 13dc); ONE
 HECA build; joint steps and off-DEM at the new seams named; load ≤ +5 % or the
 cost named (the +0.25 s is under the 1 % review floor).
+
+### §40 AMENDED — THE SHOULDER IS A RIBBON, KEEPS THE RUNWAY'S DATUM, AND TAKES THE SHOULDER'S OWN CROSS-SLOPE (Fable 2026-09-13; RULINGS 2026-09-13dd) — lane `v2roles`
+
+MEASURED (round 1): §40 (1) as written (shared edge ≥ 100 m) swallowed the
+field — OTHH runway role 619,131 → 3,832,917 m² (6× the slab), KCLT ×3.2,
+HECA ×1.7.  The lane's depth floor (`corridor.runway_shoulder_max_depth_m` =
+50.0, mean depth = area / shared length) holds the bar "a cell that really
+runs along a runway": shape 44's cell reads 39.6 m; HECA's cell at
+30.1098157, 31.4343111 (97.6 m) does not.  §40 (1)'s centroid-in-strip clause
+is WITHDRAWN (it would make every parallel inside the 150 m strip a shoulder).
+§40 (2) reads the CELL's apron cover, never the source page's (on the page
+reading 164 of OTHH's 410 cells refused; per cell 2).
+
+1. A SHOULDER is a ribbon: shared edge ≥ `runway_shoulder_shared_m` AND mean
+   depth ≤ `runway_shoulder_max_depth_m`.  It carries role `runway` at the
+   runway's ref, code and letter (a distinct role needs `precedence.toml` and
+   six `RUNWAY_FAMILY` tuples — owed, not this round).
+2. THE SHOULDER KEEPS THE RUNWAY'S DATUM — continuous, no step, across the
+   shared edge (the runway's chord surface reaches it) — BUT TAKES THE
+   SHOULDER'S OWN CROSS-SLOPE: `[runway] shoulder_transverse_max = 0.025`
+   (ICAO Annex 14 §3.2.4: shoulder transverse slope ≤ 2.5 %), priced on
+   shoulder vertices beyond the runway's own half-width; the runway's
+   1.5 % holds inside its width only.  MEASURED: HECA's two
+   `runway_transverse` rows at 1.5287 % / 1.5233 % (108.7 / 204.9 m from the
+   ridge, 3.1 / 4.8 cm of excess) are shoulder rows and pass under 2.5 %.
+3. Zone strips from NEIGHBOURING taxi faces on a re-kinded cell's ground are
+   §41 (2)'s `zone_on_pavement` class (3 at HECA shape 93) — the
+   arrangement-to-emit mint, chipped; not §40's.

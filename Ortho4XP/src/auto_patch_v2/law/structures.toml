@@ -612,3 +612,32 @@ footprint_touch_m   = 0.5
 # ends' ground differs by `[cockpit] visual_m` is a CONNECTOR, cut at
 # §10's line stations and never holding its unit rigid.  0 disarms it.
 connector_span_m    = 200.0
+
+# ─────────────────────────────────────────────────────────────────────────
+# §42 OBJECT-BASED PAVEMENT IS A SOURCE (owner RULINGS 2026-09-13cv; the
+# defect is RULINGS 2026-09-13cu).  A pack's DRAPED OBJ8 ground polygons
+# are pavement source geometry beside the apt.dat 110 polygons and the
+# `.pol` pages: X-Plane drapes them on the mesh, so they never float and
+# the object stage rightly skips them — but the LAYOUT was blind to them,
+# and 580,331 m2 of HECA's concrete (`Airport/ground/Concrete_Polygon_1.obj`,
+# the owner's apron among it) had no route into the design surface.
+[load]
+draped_y_tol_m         = 0.05    # a draped vertex further than this off Y = 0 is not a ground polygon (HECA's concrete: every vertex at 1.2e-07)
+object_pavement_min_m2 = 200.0   # the object's whole draped footprint must reach this
+
+# THE PAVEMENT DECLARATION (lane `v2drapedsrc`, measured at HECA on the
+# 1.0.329 frame; v1's ruled gate `dsf_reader._is_pavement_object`).
+# Y = 0 and area alone admit 27 placements / 937 bodies / 31,892,813 m2 at
+# HECA — three times the airport — because a pack's draped pages are not
+# only its pavement: `Hangar_Tower/AO.obj` (7,753,162 m2) and three more
+# are baked AMBIENT-OCCLUSION SHADOWS, `ground/d1..d9` (6.4 M m2) are dirt
+# decals, `ground/asphalt_white.obj` and `ground/car_parking.obj` are the
+# painted MARKINGS on the pavement.  The pack declares which is which:
+# pavement is drawn in a pavement layer group at the base offset, a decal
+# in `markings`, a marking at `runways +2`, a shadow in no draped group at
+# all.  With this gate HECA admits 8 placements / 221 bodies / 5,688,974 m2
+# — `Concrete_Polygon_1.obj` at exactly RULINGS 13cu's 29 bodies / 580,331 m2.
+object_pavement_layer_groups     = ["runways", "taxiways"]
+object_pavement_max_layer_offset = 1
+object_pavement_skip_tokens      = ["sign", "line", "marking", "decal", "paint",
+                                    "logo", "grunge", "stain", "skid", "crack_line"]

@@ -27,6 +27,7 @@ from . import dem as _dem
 from . import dsf as _dsf
 from . import dsf_write as _dw
 from . import obj8 as _obj8
+from . import object_pavement as _objpav
 from . import osm as _osm
 from . import pack as _pack
 
@@ -112,6 +113,11 @@ class LoadReport:
     dsf_pavements: int = 0
     #: DSF pavement pages refused as another airport's (beyond the admission gate)
     dsf_pavements_far: int = 0
+    #: §42 (3) (RULINGS 2026-09-13cv): the pack's DRAPED OBJ8 ground
+    #: polygons admitted as source polygons — bodies, m2, per resource,
+    #: and every draped resource refused with its reason
+    object_pavements: _objpav.ObjectPavementReport = _dc.field(
+        default_factory=_objpav.ObjectPavementReport)
     footprint_cache_path: str | None = None
     unresolved_objects: int = 0
     objects_resolved: int = 0
@@ -378,7 +384,6 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 pl.heading_deg, None, False, None, agl, resolved, pl.kind))
     rep.dsf_pavements = n_pol
     rep.dsf_pavements_far = n_far
-    pavements = pavements + tuple(dsf_pavements)
     cache_path = inputs.footprint_cache_path or (
         os.path.join(_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name),
                      f"o4_object_footprints_{tile[0]:+03d}{tile[1]:+04d}.cache")
@@ -391,6 +396,38 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             n_obj += 1
     rep.buildings_by_source["dsf:fac"] = n_fac
     rep.buildings_by_source["dsf:object"] = n_obj
+
+    # ── §42 OBJECT-BASED PAVEMENT (RULINGS 2026-09-13cv) ───────────────
+    # The pack's DRAPED OBJ8 ground polygons, per disjoint body, as source
+    # polygons beside the ``.pol`` pages: ``airport/object_pavement.py``
+    # holds the identification law and the measurement behind it.  They
+    # are read AFTER the object footprints because the pads win where the
+    # two overlap (§42 (1)), and admitted with a ``dsf:`` id so classify's
+    # draped-page gates (``classify/evidence._dsf_pavements``: inside the
+    # boundary buffer, the apt.dat overlay drop, the area floor) judge
+    # them exactly as they judge a ``.pol`` page — §42 (2): no privileged
+    # role, and where a body meets a mapped page the mapped page's
+    # evidence governs.
+    pads = [b for b in buildings if b.source.startswith("dsf:object")]
+    pad_union = None
+    if pads:
+        from shapely.ops import unary_union as _uu
+        parts = [_shape_of(b.outer) for b in pads if len(b.outer) >= 3]
+        pad_union = _uu(parts) if parts else None
+    op_bodies, rep.object_pavements = _objpav.read_object_pavements(
+        [_objpav.Placement(o.id, o.path, o.resolved_path or "", o.xy,
+                           o.heading_deg)
+         for o in dsf_objects if o.resolved_path],
+        law, pad_union)
+    for k, body in enumerate(op_bodies):
+        dsf_pavements.append(Pavement(
+            f"dsf:objpav{k}", normalise_surface(
+                _dsf.pavement_surface_code(body.resource)),
+            tuple((float(x), float(y)) for x, y in body.polygon.exterior.coords[:-1]),
+            tuple(tuple((float(x), float(y)) for x, y in r.coords[:-1])
+                  for r in body.polygon.interiors),
+            body.resource))
+    pavements = pavements + tuple(dsf_pavements)
 
     # ── DEM ────────────────────────────────────────────────────────
     if inputs.elevation_root and inputs.dem_frame == "production":

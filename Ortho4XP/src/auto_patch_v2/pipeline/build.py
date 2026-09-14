@@ -269,6 +269,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["load"] = time.perf_counter() - t
     _say(f"[{icao}] load {wall['load']:.2f} s  runways {len(airport.runways)}  "
          f"pavements {len(airport.pavements)}  buildings {len(airport.buildings)}", out)
+    # §42 (3) THE CENSUS (RULINGS 2026-09-13cv): the pack's draped OBJ8
+    # ground polygons admitted as source polygons, per resource.
+    if lrep.object_pavements.line():
+        _say(f"  [load] {lrep.object_pavements.line()}", out)
+        for ln in lrep.object_pavements.resource_lines():
+            _say(ln, out)
     t = time.perf_counter()
     # ONE ``ResourceCache`` for the whole build (spec §22): the skirt
     # reader runs inside classify, the structure passes and the re-seat

@@ -326,6 +326,27 @@ class RetainingWall:
 
 
 @_dc.dataclass(frozen=True)
+class LoadLaw:
+    """§42 OBJECT-BASED PAVEMENT (owner RULINGS 2026-09-13cv): which of a
+    pack's DRAPED OBJ8 ground polygons are pavement SOURCE geometry.
+    ``airport/object_pavement.py`` carries the measurement behind each
+    key."""
+
+    #: a draped vertex further than this off Y = 0 is not a ground polygon
+    draped_y_tol_m: float
+    #: the object's whole draped footprint must reach this
+    object_pavement_min_m2: float
+    #: ``ATTR_layer_group_draped`` groups that are PAVEMENT (v1's ruled
+    #: gate, ``dsf_reader._PAVEMENT_OBJECT_LAYER_GROUPS``); an object
+    #: declaring none, or declaring ``markings``, is a shadow or a decal
+    object_pavement_layer_groups: tuple[str, ...]
+    #: ...at no greater draw offset: +2 is painted ON the pavement
+    object_pavement_max_layer_offset: int
+    #: basename tokens that veto a page whatever it declares
+    object_pavement_skip_tokens: tuple[str, ...]
+
+
+@_dc.dataclass(frozen=True)
 class Structures:
     """structures.toml."""
 
@@ -338,6 +359,7 @@ class Structures:
     retaining_wall: RetainingWall
     rebake: Rebake
     placement: Placement
+    load: LoadLaw
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

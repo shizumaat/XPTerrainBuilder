@@ -108,7 +108,20 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules
     out: list[SourceRecord] = []
     cut: dict[str, Polygon] = {}
     for sid, poly in ev.pavement_polys:
-        rec = _record(sid, desc.get(sid, ""), poly, road_tree, roads, osm_tree,
+        # §42 (3) (RULINGS 2026-09-13cv): AN OBJECT-PAVEMENT REMAINDER
+        # KEEPS ITS RESOURCE.  A source overlapping apt.dat pavement is
+        # admitted as its remainder pieces (``<id>#k``,
+        # ``evidence._dsf_pavements``) and the description lookup is by
+        # the WHOLE id, so a remainder classifies with an empty
+        # description — and ``explain --shape`` could not name the draped
+        # OBJ8 a cell was born of.  Scoped to ``dsf:objpav`` ids: the
+        # same gap on ``.pol`` remainders is older than §42 and its repair
+        # would move existing pages' apron-NAME and taxi-name evidence,
+        # which is a measured change of its own, not this lane's.
+        base = sid.split("#", 1)[0]
+        rec = _record(sid, desc.get(sid) or (
+            desc.get(base, "") if base.startswith("dsf:objpav") else ""),
+                      poly, road_tree, roads, osm_tree,
                       osm_roads, aisle_tree, aisles, taxi_tree, taxis, start_tree,
                       parking, apron_u, rules)
         out.append(rec)

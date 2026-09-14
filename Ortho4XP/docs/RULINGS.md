@@ -5139,3 +5139,45 @@ enclosed, skipped faces 132 → 4 (three hairlines at 22.29193, 113.8971).
   (shallow? walls gone? a step at the mouth?).
 * Chip candidate: the lane's `tunfast.py` (per tunnel ring: mesh vs
   patch alt, attr share) on its second use.
+
+## 2026-09-14s VHHH tunnel regression attributed (scout `v2vhhhtunnel`): §40's shoulder re-role grew the RUNWAY strip keep-out and refused the big road tunnel; the basin pass took the vacated ground — a 30l consumer-census miss; §40 (4) written; lanes `v2roles` r3 + `v2othhfix`
+
+Old arm = v2gradecache's VHHH patch (51c4666b, 2026-09-13 22:04) vs
+the owner's 1.0.332 patch: every matched tunnel-family ring z-identical
+(70 trenches, 30 ramps, 103 rims; only decimation differs). ONE site
+changed, 22.30368, 113.92917 (`tunnel/tunnel1_done.obj`): the 62-node
+`tunnel_ramp` (6,310 m², 7.31 → 2.22) and its OPEN wall are GONE;
+instead `basin:5` — a CLOSED 25-node rim at 7.31 (4,057 m²) and two
+floors to −0.13 (2.35 m below the old ramp's bottom); the descent
+carried by 4 interior vertices (1.4 / 1,000 m² vs 22 in the pavement);
+a 42 % mouth cliff (7.25 → 0.91 in 15 m). Reports: tunnels 28 → 27,
+refused 44 → 45, basins 70 → 71 (`basin:5` new). Mechanism: f19e2226
+(§40) re-roled three faces beside 07R/25L to `runway` (83,999 + 8,040 +
+6,228 m²; VHHH runway area 780 k → 1,273 k m²); `planar/structures.py:
+292-298` builds the strip keep-out from every `RUNWAY_FAMILY` cell ⊕
+75 m (`zone2_half_width_m`, code 4) — the shoulders stand 60–69 m from
+the tunnel footprint (old nearest runway face 221 m) → `:593-597`
+"the wall would stand inside the runway strip keep-out"; then
+`planar/build.py` runs structures before basins, `basins.py:711-719`'s
+"overlaps a tunnel structure" guard no longer fires, region 5 is
+admitted as a pit. Collateral: `zones.py:96-99` keys on `RUNWAY_FAMILY`
+too → the shoulders mint 75 m zone-2 bands (`graded_strip` +587,849
+m²; `junction dsf:pol406` 7.11 → 5.98 beside the tunnel) —
+contradicting rules.toml's own "a shoulder manufactures no zone strip".
+The 14r "24 ramps > 0.5 m" population dissolves under a per-vertex
+envelope reading (100 of 101 rings at 0.00; one −2.00 m ramp byte-
+identical across patches). The mesh is innocent.
+
+* RULING §40 (4): a runway shoulder is PAVEMENT OF THE RUNWAY, not the
+  runway's STRIP: it carries the runway's datum, crown and lateral law
+  and manufactures NO region — it is excluded at the two region
+  derivation sites (`structures.py` strip keep-out; `zones.py` zone
+  band — it inherits the host runway's band), and every `RUNWAY_FAMILY`
+  reader is censused in one table (the 30l miss). Lane `v2roles` r3.
+* §24 (8): a basin's ramp corridor is RE-NODED at `ramp_station_m`
+  before emission so §24 (5)'s per-station profile has vertices (today
+  `constraints/structures.py:779-783` only pins existing planar
+  vertices — a 4-triangle fan). Lane `v2othhfix` (basins.py).
+* Open: whether an 84,000 m² face beside 07R/25L is a shoulder at all
+  (`runway_shoulder_max_depth_m` 50 admitted it) — the owner's eye on
+  the 1.0.333 VHHH read.

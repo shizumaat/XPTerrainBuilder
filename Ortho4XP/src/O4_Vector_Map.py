@@ -101,6 +101,28 @@ PATCH_RING_MARKER = (
     | VECT.Vector_Map.dico_attributes["SEA_EQUIV"]
 )
 
+# AN OPEN LOAD-BEARING RUN IS A BREAKLINE, NOT A DUMMY EDGE (owner
+# RULINGS 2026-09-13cp).  MEASURED on the owner's 1.0.329 +40-004 tile:
+# since §37 (3) ("the bank is emitted where it is load-bearing",
+# c632622d) LEMD's patch carries 105 OPEN ``bank_foot`` ways and 0
+# closed, and the ``else`` branch of the way loop below inserted every
+# open way as ``DUMMY`` (attr 0).  The foot then stopped being the
+# INTERP_ALT flood barrier and the Dirichlet datum of R18-1b, the bank
+# annulus collapsed from 33,377 valued vertices to 15, and the harmonic
+# extension interpolated the vacated corridor from remote data — road
+# ribbons authored at 588-590 m emitted at 568 (a 20.7 m canyon at
+# 40.465414,-3.5531888).
+#
+# THE RULE, and its SCOPE: an open way whose CLOSED form would wear
+# :data:`PATCH_RING_MARKER` wears it open too.  That is exactly the
+# features the emitter may split — a ``bank_foot`` ring cut by a tile
+# piece or by §37 (3)'s load-bearing runs, and a ``structure_rim`` cut
+# the same way (``auto_patch_v2.emit.osm_adapter``).  ``crown_spine``
+# and ``terrain_edge`` are ALWAYS open and never wore the marker, so
+# they keep ``DUMMY``: widening to them would be a new law, separately
+# measured, not this repair.
+OPEN_BREAKLINE_FEATURES = ("bank_foot", "structure_rim")
+
 # SEAWALL AT THE PAVEMENT/WATER EDGE (owner 2026-08-10, VMMC; Round 7,
 # docs/specs/round7-seawall-spec.md).  The ring above stops the flood, so
 # the pavement comes out land — but the mesh OUTSIDE the ring still had to
@@ -2769,6 +2791,10 @@ def include_patches(vector_map, tile):
     # Closed patch polygons, kept so that INTERP_ALT seeds can be placed
     # per planar FACE after all patch files are read (see below).
     interp_alt_patch_polygons = []
+    # RULINGS 2026-09-13cp: how many OPEN load-bearing runs took the
+    # patch-ring marker (a report figure — the 1.0.329 defect was 105 of
+    # them silently going in as DUMMY).
+    open_breaklines = 0
     patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
     if not os.path.exists(patch_dir):
         return (patches_area, patches_list, geometry.Polygon())
@@ -3038,9 +3064,28 @@ def include_patches(vector_map, tile):
                 except:
                     UI.vprint(2, "     Skipping invalid patch polygon.")
             else:
-                vector_map.insert_way(
-                    numpy.hstack([way, alti_way]), "DUMMY", check=True
-                )
+                # RULINGS 2026-09-13cp: an OPEN load-bearing run is a
+                # BREAKLINE (see OPEN_BREAKLINE_FEATURES above) — the
+                # INTERP_ALT barrier and the Dirichlet datum its closed
+                # predecessor was.  Anything else open stays DUMMY.
+                if (dt["w"].get(wayid, {}).get("o4_feature")
+                        in OPEN_BREAKLINE_FEATURES):
+                    vector_map.insert_way(
+                        numpy.hstack([way, alti_way]),
+                        PATCH_RING_MARKER,
+                        check=True,
+                    )
+                    open_breaklines += 1
+                else:
+                    vector_map.insert_way(
+                        numpy.hstack([way, alti_way]), "DUMMY", check=True
+                    )
+    if open_breaklines:
+        UI.vprint(
+            1,
+            f"   Patch breaklines: {open_breaklines} OPEN load-bearing run(s) "
+            "took the patch-ring marker (INTERP_ALT barrier + Dirichlet "
+            "datum) instead of DUMMY (RULINGS 2026-09-13cp).")
     # ── R21: THE ISTHMUS NEEDS NO RING ─────────────────────────────────
     # (owner ruling 2026-08-12, "LAND-CONNECTED CONTINUITY".)  R17-2's
     # DECLARED CORRIDOR needed the two authorities above — a ring to stop

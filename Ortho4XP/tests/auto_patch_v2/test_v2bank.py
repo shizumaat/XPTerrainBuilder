@@ -115,8 +115,18 @@ def test_a_ring_one_metre_up_carries_no_bank(apron_map, law):  # noqa: F811
     would give it 5.0 — but ``bank_materiality_m`` is exactly
     ``bank_min_width_m * bank_slope`` (1.65 m), so the whole
     minimum-width regime IS the regime with no earthwork in it.  The ring
-    and the DEM meet inside the narrowest bank the law knows; nothing is
-    emitted and the mesh's own interpolation carries the metre."""
+    and the DEM meet inside the narrowest bank the law knows; NO STATION
+    IS RESOLVED.
+
+    AMENDED by owner RULINGS 2026-09-13cp: the boundary ring is still
+    EMITTED, and CLOSED.  Dropping it left the banked region without a
+    closed boundary in the patch, and the mesh step's whole bank
+    machinery is a REGION reading (``patches_area``,
+    ``patch_coverage_polygon``, the INTERP_ALT plague's outer barrier) —
+    LEMD 1.0.329 came out with 105 open ways, 0 closed, an annulus of 15
+    valued vertices and a 20.7 m canyon under the roads.  So materiality
+    governs which stretches are RESOLVED (chord-split), never whether the
+    coverage closes."""
     from auto_patch_v2.emit.bank import bank_materiality_m
     airport, pm, _r = apron_map
     banked, _surf, rep = _bank(airport, pm, law, 1.0)
@@ -124,10 +134,12 @@ def test_a_ring_one_metre_up_carries_no_bank(apron_map, law):  # noqa: F811
     assert 1.0 / d.bank_slope < d.bank_min_width_m       # the floor would bind
     assert bank_materiality_m(d) == pytest.approx(1.65)
     assert 1.0 < bank_materiality_m(d)                   # ... and it is immaterial
-    assert rep.rings == 0 and rep.foot_vertices == 0, rep
     assert rep.stations > 0 and rep.immaterial == rep.stations, rep
-    assert rep.bare_rings == 1, rep
-    assert not [b for b in banked.breaklines if b.kind == BANK_KIND]
+    assert rep.bare_rings == 1 and rep.load_bearing == 0, rep
+    assert rep.split_added == 0, rep          # nothing is resolved
+    assert rep.open_chains == 0, rep          # 13cp: the ring is CLOSED
+    feet = [b for b in banked.breaklines if b.kind == BANK_KIND]
+    assert len(feet) == 1 and feet[0].vertices[0] == feet[0].vertices[-1]
 
 
 def test_the_load_bearing_floor_is_derived_never_typed(law):   # noqa: F811

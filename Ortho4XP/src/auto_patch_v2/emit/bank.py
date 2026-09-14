@@ -169,6 +169,12 @@ class BankReport:
     stations: int = 0
     immaterial: int = 0
     bare_rings: int = 0
+    #: §37 (3) as RULINGS 2026-09-13cp leaves it: the ring is CLOSED, so
+    #: ``open_chains`` is 0 by construction and the load-bearing test
+    #: governs which stretches are RESOLVED (chord-split) instead.
+    load_bearing: int = 0
+    #: 1 when the OMIT arm suppressed the pass entirely (BANK_OMIT_ENV).
+    omitted: int = 0
     open_chains: int = 0
     split_added: int = 0
     max_chord_m: float = 0.0
@@ -203,7 +209,8 @@ class BankReport:
                 f"(law 0.33 = 1:3); LOAD-BEARING (13q item 8) "
                 f"{self.stations - self.immaterial}/{self.stations} stations "
                 f"({self.immaterial} under the materiality floor, not "
-                f"emitted; {self.bare_rings} ring(s) carry no bank at all), "
+                f"un-resolved; {self.bare_rings} ring(s) carry no bank at all), "
+                f"{self.load_bearing} station(s) resolved, "
                 f"{self.open_chains} open chain(s), {self.split_added} split "
                 f"station(s), longest emitted chord {self.max_chord_m:.1f} m; "
                 f"the engine blends the annulus "
@@ -619,7 +626,8 @@ def material_runs(flags: list[bool]) -> list[list[int]]:
 
 
 def split_chain(pts: list[tuple[float, float]], zs: list[float], dem,
-                chord_max: float, tol: float, floor: float
+                chord_max: float, tol: float, floor: float,
+                mask: list[bool] | None = None
                 ) -> tuple[list[tuple[float, float]], list[float], int]:
     """§37 (3): the chain with every chord at most ``chord_max`` long and
     no chord mid-point standing more than ``tol`` off the DEM — the split
@@ -628,11 +636,22 @@ def split_chain(pts: list[tuple[float, float]], zs: list[float], dem,
 
     An inserted point lies ON a boundary edge of the banked region, so it
     is outside the design coverage exactly as its two endpoints are.
+
+    ``mask`` (RULINGS 2026-09-13cp) selects the EDGES that are densified —
+    one flag per chord, ``mask[k]`` for ``pts[k] -> pts[k+1]``.  ``None``
+    densifies every chord (the historical behaviour).  It exists because
+    the ring is now always CLOSED (the coverage the mesh step reads is
+    closed AT THE EMITTER) while §37 (3)'s load-bearing test still governs
+    WHICH stretches carry an earthwork worth resolving.
     """
     out_p: list[tuple[float, float]] = [pts[0]]
     out_z: list[float] = [zs[0]]
     added = 0
     for k in range(len(pts) - 1):
+        if mask is not None and not mask[k]:
+            out_p.append(pts[k + 1])
+            out_z.append(zs[k + 1])
+            continue
         (x0, y0), (x1, y1) = pts[k], pts[k + 1]
         z0, z1 = zs[k], zs[k + 1]
         seg = math.hypot(x1 - x0, y1 - y0)
@@ -675,6 +694,13 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
     dem = getattr(airport, "dem", None)
     d_law = law.tables.emit.design
     cov = coverage_polygon(planar)
+    # THE OMIT ARM (owner request 2026-09-13, ``[design] bank_omit``):
+    # emit NO bank at all, so the owner can read what the bank_foot class
+    # is actually buying.  Default false; a measurement arm, not a
+    # setting.
+    if bool(getattr(d_law, "bank_omit", False)):
+        rep.omitted = 1
+        return surface
     if dem is None or cov is None:
         return surface
     z_of = {v.id: v.z for v in surface.vertices}
@@ -923,57 +949,84 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
             runs = material_runs(flags)
             if not runs:
                 rep.bare_rings += 1
-                continue
+            # ── THE RING IS CLOSED AT THE EMITTER (owner RULINGS
+            # 2026-09-13cp) ────────────────────────────────────────────
+            # §37 (3) emitted ONE OPEN CHAIN PER LOAD-BEARING RUN and
+            # nothing over the immaterial stretches, so the banked
+            # region stopped having a closed boundary in the patch at
+            # all — LEMD 105 open ways, 0 closed.  The mesh step's whole
+            # bank machinery is a REGION reading: ``patches_area`` and
+            # ``patch_coverage_polygon`` are unions of CLOSED patch
+            # rings, the annulus is ``banked - design``, and the
+            # INTERP_ALT plague needs a marked segment all the way round
+            # or it has no outer barrier.  A ribbon reconstructed inside
+            # the mesh step (``_close_open_foot``'s ``nearest_points``
+            # projection) fed the blend 15 vertices where the closed ring
+            # fed it 33,377, and the harmonic extension then took the
+            # ground: the owner's 20.7 m canyon.
+            #
+            # So the boundary ring of the banked region is emitted WHOLE
+            # and CLOSED, and §37 (3)'s load-bearing test governs what it
+            # governs without a hole in the coverage: a material run is
+            # RESOLVED (chord-split at ``bank_chord_max_m``, mid-chord
+            # within ``split_tol_m`` of the DEM), an immaterial stretch
+            # passes through at its own stations, no densification.  Every
+            # station carries the DEM either way, which is what an
+            # immaterial station means (the ring stands less than
+            # ``bank_materiality_m`` off it).
+            n_st = len(flags)
+            material = [False] * n_st
             for idx in runs:
-                closed = len(idx) == len(flags) and all(flags)
-                rp = [(float(fx[i]), float(fy[i])) for i in idx]
-                rz_ = [float(zf[i]) for i in idx]
-                if closed:
-                    rp.append(rp[0])
-                    rz_.append(rz_[0])
-                rp, rz_, added = split_chain(rp, rz_, dem, chord_max,
-                                             split_tol, min_w)
-                rep.split_added += added
-                if closed:
-                    rp, rz_ = rp[:-1], rz_[:-1]
-                if len(rp) < 3:
-                    rep.skipped_rings += 1
-                    continue
-                ids: list[int] = []
-                for (x, y), z in zip(rp, rz_):
-                    lat, lon = _to_ll(x, y)
-                    new_v.append(SurfaceVertex(next_id, (lat, lon), float(z)))
-                    ids.append(next_id)
-                    next_id += 1
-                new_b.append(SurfaceBreakline(
-                    next_bl, BANK_KIND, f"bank:{rep.rings}",
-                    tuple(ids) + (ids[0],) if closed else tuple(ids)))
-                next_bl += 1
-                rep.rings += 1
-                rep.open_chains += int(not closed)
-                rep.foot_vertices += len(ids)
-                fx_e = [q[0] for q in rp]
-                fy_e = [q[1] for q in rp]
-                for k_ in range(len(rp) - 1):
-                    rep.max_chord_m = max(
-                        rep.max_chord_m,
-                        math.hypot(fx_e[k_ + 1] - fx_e[k_],
-                                   fy_e[k_ + 1] - fy_e[k_]))
-                # the inner end of every EMITTED bank ray, once
-                inner = [_inner(x, y) for x, y in zip(fx_e, fy_e)]
-                for (x, y, z), (qx, qy, zq, dd) in zip(
-                        zip(fx_e, fy_e, rz_), inner):
-                    dists.append(dd)
-                    if ktree is not None:
-                        dv, k = ktree.query([x, y])
-                        # the STEEPEST LOCAL TRANSITION this foot node
-                        # makes: its own drop to the nearest DESIGN ring
-                        # vertex over the plan distance to that vertex
-                        # (never to some other body's ring at another
-                        # distance — two instruments)
-                        if float(dv) > 1.0e-6:
-                            slopes.append(
-                                abs(float(rz[int(k), 2]) - z) / float(dv))
+                for i in idx:
+                    material[i] = True
+            rep.load_bearing += sum(material)
+            rp = [(float(fx[i]), float(fy[i])) for i in range(n_st)]
+            rz_ = [float(zf[i]) for i in range(n_st)]
+            rp.append(rp[0])
+            rz_.append(rz_[0])
+            edge_mask = [material[k] and material[(k + 1) % n_st]
+                         for k in range(n_st)]
+            rp, rz_, added = split_chain(rp, rz_, dem, chord_max,
+                                         split_tol, min_w, edge_mask)
+            rep.split_added += added
+            rp, rz_ = rp[:-1], rz_[:-1]
+            if len(rp) < 3:
+                rep.skipped_rings += 1
+                continue
+            ids: list[int] = []
+            for (x, y), z in zip(rp, rz_):
+                lat, lon = _to_ll(x, y)
+                new_v.append(SurfaceVertex(next_id, (lat, lon), float(z)))
+                ids.append(next_id)
+                next_id += 1
+            new_b.append(SurfaceBreakline(
+                next_bl, BANK_KIND, f"bank:{rep.rings}",
+                tuple(ids) + (ids[0],)))
+            next_bl += 1
+            rep.rings += 1
+            rep.foot_vertices += len(ids)
+            fx_e = [q[0] for q in rp]
+            fy_e = [q[1] for q in rp]
+            for k_ in range(len(rp) - 1):
+                rep.max_chord_m = max(
+                    rep.max_chord_m,
+                    math.hypot(fx_e[k_ + 1] - fx_e[k_],
+                               fy_e[k_ + 1] - fy_e[k_]))
+            # the inner end of every EMITTED bank ray, once
+            inner = [_inner(x, y) for x, y in zip(fx_e, fy_e)]
+            for (x, y, z), (qx, qy, zq, dd) in zip(
+                    zip(fx_e, fy_e, rz_), inner):
+                dists.append(dd)
+                if ktree is not None:
+                    dv, k = ktree.query([x, y])
+                    # the STEEPEST LOCAL TRANSITION this foot node
+                    # makes: its own drop to the nearest DESIGN ring
+                    # vertex over the plan distance to that vertex
+                    # (never to some other body's ring at another
+                    # distance — two instruments)
+                    if float(dv) > 1.0e-6:
+                        slopes.append(
+                            abs(float(rz[int(k), 2]) - z) / float(dv))
     # THE FACE IS THE ENGINE'S (owner RULINGS 2026-09-09p (1) /
     # 2026-09-09t).  09f-1/09h/09i/09j authored it here with LEVEL RINGS;
     # 09t measured a level ring re-emitting the FOOT's own edges wherever

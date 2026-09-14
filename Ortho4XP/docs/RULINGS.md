@@ -4429,3 +4429,28 @@ rows within 60 m, leader `within_shape apron|junction` 5.207 %.
 * Instruments owed: the scout's assembled-rows-on-a-pair and
   frozen-neighbour-interval readers beside `--why-hard` (second use →
   promote). Note: the brief said tile +30+040; it is +30+030.
+
+## 2026-09-13df v2connector MERGED (2d01dc7f): the SPJC viaduct on the terminal datum; connectors by articulation point; `unit_of` was never written
+
+Lane `v2connector` @ f410e8a9. SPJC closing build (ledger 5fe4d215e11d):
+`xp11_007__b0` 27.41 → 19.56, `xp11_010__b0` 18.57 → 19.56 (datum 19.560),
+`unit_connectors_cut` 2 → 0, `unit_split_authored` 0, plan stage +3.8 %;
+dry on the 1.0.329 products: HECA 37 → 0 / KCLT 3 → 0 / LEMD 23 → 0 /
+OTHH 23 → 0 connectors cut, `bodies_bound_to_unit` up at every airport.
+HECA `concrete_3.obj` b1 (1,149 m) 73.83 → 95.55 on the T3 road deck
+(+21.7 m); KCLT `paredes_10` b1 213.77 → 221.46.
+
+* RULED: the articulation-point reading IS §16g (6) (spec MEASURED);
+  seat only when topology AND ground step fire; `connector_of` on carried
+  bodies is report-only, the census counts seats.
+* Defect fixed in passing: `Body.unit_of` never filled in
+  `to_placement_records` — every 1.0.329 placement plan carried null.
+* OWNER: which HECA resource is the "elevated rail" (a coordinate) — the
+  law's longest instance is `concrete_3.obj` b1 between the terminal
+  complex and a 1,469-body group; unverified as identity. And OTHH
+  `unit_split_authored` 34 (114 authored units in that pack) against 0–4
+  elsewhere — pack authoring or defect is the owner's read.
+* Chip: `test_v2objsplit.py::test_a_basin_wall_follows_its_ring…` is
+  knife-edge on float — `anchor_rule._m_per_deg` memoises on
+  `int(lat·1e4)`, a midpoint sample poisons the key, the 50 m arc flips
+  serially. Round the memo key or move the fixture.

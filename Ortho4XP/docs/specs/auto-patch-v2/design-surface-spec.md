@@ -8412,3 +8412,39 @@ cascades 1,230,453 → CYXY's class, `hairline_pair` > 0 control / 0 arm (lane
 `v2hairline`); KCLT item 5 (35.2007757, −80.9455609) and 35.2056385,
 −80.9478669 banked at 1:3 — `zone_edge_cliff` 0 on the arm, > 0 on the
 control; the 13ax lips re-read (lane `v2zonebank`).
+
+### §30 (4) ROUND 2: THE MATCHED BASE BUILD (lane `v2clusterpad`, RULINGS 13bw (d))
+
+Round 1's "before" was the registered `v2familyKCLTframe` graded document
+and a full day of main lay between the arms.  Round 2 built the pair: ONE
+TREE, ONE MAIN, ONE LAW VALUE — the base arm is this same branch with
+`[placement] cluster_pad_min_m2 = 0` and `[design] cluster_apron_reach_m
+= 0`, which is exactly what those keys' "0 disarms" clauses are for, and
+is a stronger interventional arm than two checkouts.  Both foreground
+through the harness, both `[guard] shared repo UNCHANGED`.
+
+* DISARM — `v2cpKCLTdisarm`, rc 0, **491.7 s**, `body_sha 6cc83db0aa06`,
+  ways 1,336, v2-verify rows **4,096**
+* CLUSTER — `v2cpKCLTr2`, rc 0, **493.0 s**, `body_sha 5fb560ae50d0`,
+  ways 1,335, v2-verify rows **4,033**
+
+| bar | DISARM | CLUSTER |
+|---|---|---|
+| `building80` | 865 verts, 221.13 … 222.19, spread **1.06** | 221.09 … 222.17, spread **1.08** — the pad is NOT made less flat by the cluster (round 1's "+0.29 m worse" was the unmatched frame) |
+| `building91` | **217.89** (flat) | **221.32** — LIFTED 3.43 m onto the terminal's plane |
+| the cluster pad's union spread | **4.30 m** | **1.08 m** — MET |
+| apron within the 60 m reach (70 vertices) | median \|apron − pad\| **0.25 m**, max 1.18, **0** within 0.05 | median **0.07 m**, max 1.18, **1** within 0.05 |
+| **the TAXIWAY family, byte-identical** | 6,453 vertices | **NOT MET — 2,815 moved, worst 1.88 m, 1,320 over 0.05 m** |
+
+**THE TAXI BAR IS MISSED AND THE MECHANISM IS NAMED.**  No taxi- or
+runway-family vertex is ever a FOLLOWER of a reach row and none is in the
+reach's population — both twinned, both exact.  The movement is the JOINT
+SOLVE's: the reach lifts apron the taxi family is welded to through
+§20's own no-step and trend rows, and those rows are senior to the
+reach's.  1.88 m at a taxiway vertex is not a residual, it is the thing
+the owner's own condition forbids ("as long as it remains feasible with
+grade laws and taxiways"), so this is a STOP-and-report: the reach as
+specified (60 m, at the law's weight, bounded only by the taxi band's own
+vertices and its catchment) cannot hold the taxiways still, and what
+gives — a shorter reach, a HARD ceiling on taxi movement, or the apron
+between pad and taxiway staying graded — is the owner's to rule.

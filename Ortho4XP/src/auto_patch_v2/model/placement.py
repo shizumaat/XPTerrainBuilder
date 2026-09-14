@@ -34,7 +34,7 @@ __all__ = [
     "PLAN_VERSION", "PLAN_FILENAME", "BACKUP_SUFFIX", "PROVENANCE_FILENAME",
     "KIND_ON_GROUND", "KIND_MSL", "KIND_AGL", "CONVERTIBLE_KINDS",
     "BODY_CLASSES", "Provenance", "Conversion", "Anchor", "PlacementRef",
-    "Body", "Split", "Kept", "PlacementPlan",
+    "Body", "Split", "Kept", "PlacementPlan", "MslSeat",
 ]
 
 #: 1: the first plan (11b — conversions, splits, kept).
@@ -86,6 +86,41 @@ class Provenance:
         return cls(str(d.get("dump_sha", "")), str(d.get("engine_version", "")),
                    str(d.get("law_digest", "")),
                    {str(k): int(v) for k, v in dict(d.get("counts", {})).items()})
+
+
+@_dc.dataclass(frozen=True)
+class MslSeat:
+    """§16g (5) (owner RULINGS 2026-09-13bw; owner 2026-09-11a/b "you can
+    just change the elevation of each placement"): one placement seated
+    by its DSF ROW — ``OBJECT_MSL lat lon heading elevation``.
+
+    This is how a MULTI-ANCHOR resource is seated: one file placed at N
+    anchors that need N different seats cannot carry a per-placement
+    offset in the OBJ8, so the offset goes where it belongs, on the row.
+    KCLT's passengers and seats (owner 13bj item 1) are 205 such
+    placements the plan DROPS, and no family law reaches them."""
+
+    index: int
+    resource: str
+    lon: float
+    lat: float
+    heading_deg: float
+    #: the absolute MSL elevation written into the row
+    elevation: float
+    #: what chose it — ``unit`` (a footprint unit's plane) or ``surface``
+    why: str = ""
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"index": self.index, "resource": self.resource,
+                "lon": self.lon, "lat": self.lat,
+                "heading": self.heading_deg,
+                "elevation": self.elevation, "why": self.why}
+
+    @classmethod
+    def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "MslSeat":
+        return cls(int(d["index"]), str(d["resource"]), _f(d["lon"]),
+                   _f(d["lat"]), _f(d.get("heading", 0.0)),
+                   _f(d.get("elevation", 0.0)), str(d.get("why", "")))
 
 
 @_dc.dataclass(frozen=True)
@@ -339,6 +374,8 @@ class PlacementPlan:
     dsf_backup_path: str
     provenance: Provenance
     conversions: tuple[Conversion, ...] = ()
+    #: §16g (5): the placements seated by their DSF row (``MslSeat``)
+    msl_seats: tuple[MslSeat, ...] = ()
     splits: tuple[Split, ...] = ()
     kept: tuple[Kept, ...] = ()
 
@@ -370,7 +407,9 @@ class PlacementPlan:
                 "splits": len(self.splits),
                 "bodies": sum(len(s.bodies) for s in self.splits),
                 "new_resources": len(self.new_resources()),
-                "kept": len(self.kept)}
+                "kept": len(self.kept),
+                # §16g (5): placements seated by their DSF row
+                "msl_seats": len(self.msl_seats)}
 
     # ── JSON ────────────────────────────────────────────────────────────
     def to_dict(self) -> dict[str, _t.Any]:
@@ -381,7 +420,8 @@ class PlacementPlan:
                 "counts": self.counts(),
                 "conversions": [c.to_dict() for c in self.conversions],
                 "splits": [s.to_dict() for s in self.splits],
-                "kept": [k.to_dict() for k in self.kept]}
+                "kept": [k.to_dict() for k in self.kept],
+                "msl_seats": [m.to_dict() for m in self.msl_seats]}
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -399,7 +439,9 @@ class PlacementPlan:
                    conversions=tuple(Conversion.from_dict(c)
                                      for c in d.get("conversions", ())),
                    splits=tuple(Split.from_dict(s) for s in d.get("splits", ())),
-                   kept=tuple(Kept.from_dict(k) for k in d.get("kept", ())))
+                   kept=tuple(Kept.from_dict(k) for k in d.get("kept", ())),
+                   msl_seats=tuple(MslSeat.from_dict(m)
+                                   for m in d.get("msl_seats", ())))
 
     @classmethod
     def from_json(cls, text: str) -> "PlacementPlan":

@@ -5320,3 +5320,29 @@ match exactly."
   from the cluster (the pad stage reads `airport.clusters`; the
   footprint-cache pads are the fallback where no cluster exists);
   consumer census of every pad reader; KCLT control.
+
+## 2026-09-14y v2roles round 3 MERGED: the VHHH tunnel is back (§40 (4) — a shoulder manufactures no region); a THIRD region site found by the census
+
+Lane `v2roles` @ e69c0d31. The one table (§40 (4) MEASURED): every
+`RUNWAY_FAMILY` reader ruled SURFACE or REGION; region sites =
+`structures.py` `strip_u`, `zones.py` band groups, AND
+`shapes.py:138-150 strip_keepout` (the joint keep-out — not named by
+the VHHH read); one predicate `is_runway_shoulder(cell)` at those
+three. VHHH structures, matched arms: tunnels 27 → 28 (`tunnel:-3365+
+-532@0`, decks `dsf:obj5950/5951`, 30 stations), basins 71 → 70
+(`basin:5` gone at 22.30367635, 113.92917437). VHHH closing build
+(registered; no ledger key — an external-candidate delta from
+v2othhfix's window): the `tunnel_ramp` way −10488 back with 62 nodes
+2.22 → 7.31 and the open wall −11230 (69 nodes); `graded_strip` −2.0 %
+vs the pre-§40 arm; runway area 780 k → 1,274 k m² (the shoulders ARE
+runway body). Five-frame regions: HECA zone band −1.87 M m², strip
+keep-out −3.17 M m²; SPJC (no shoulders) byte-identical = the null
+control; HECA structures identical (no tunnel/basin appears or
+disappears). Suite 1,430 twice (one non-reproducing `test_v2objsplit`
+flake — the memo-key chip).
+
+* 13dg's "shape 44" is no longer addressable (the 1.0.332 HECA patch
+  re-cut its pages under §42): the owner's SITE is still absorbed —
+  four shoulders along 05L/23R, the largest 55,524 m² sharing 3,491 m
+  of the runway ring (`dsf:objpav103`); HECA 32 shoulders / 575 k m².
+  Bars henceforth at coordinates, not shapeIDs.

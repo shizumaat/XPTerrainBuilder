@@ -157,7 +157,9 @@ def test_30_4_the_law_key_and_the_ruling_head_are_data(law):
     its own caps and to the taxiways (the owner's feasibility clause)."""
     from auto_patch_v2.solve.design import (cluster_reach_rulings,
                                             hard_rulings, pad_flat_rulings)
-    assert cluster_reach_m(law) == 60.0
+    # RULINGS 2026-09-13ce: the reach ships DISARMED (0.0) until the cluster
+    # pad MERGE does the work (round 4); the design value is 60.0.
+    assert cluster_reach_m(law) == 0.0
     assert CLUSTER_REACH_RULING not in pad_flat_rulings(law)
     assert CLUSTER_REACH_RULING not in hard_rulings(law)
     # §30 (4) (13cc (ii)): the reach is priced at the APRON TREND's own
@@ -189,18 +191,31 @@ def test_30_4_a_cluster_is_one_plane_over_every_pad_it_stands_on(law):
     assert together < apart and together <= 0.30, (apart, together)
 
 
+def _with_reach(law, reach_m):
+    """The reach re-armed for a twin (RULINGS 2026-09-13ce ships it at 0.0):
+    the ONE derivation site is ``cluster_pad.cluster_reach_m``; the twin
+    patches that reader rather than the frozen law tables."""
+    import unittest.mock as _mock
+    from auto_patch_v2.constraints import cluster_pad as _cp
+    return _mock.patch.object(_cp, "cluster_reach_m", lambda _law: reach_m)
+
+
 def test_30_4_the_reach_flattens_the_apron_and_stops_at_the_taxiway(law):
-    """(2): the apron vertices within ``cluster_apron_reach_m`` take the
+    """DISARMED on main (RULINGS 2026-09-13ce): the reach is 0.0 by law value
+    until the cluster pad merge does the work; this twin arms it locally.
+
+    (2): the apron vertices within ``cluster_apron_reach_m`` take the
     cluster's plane; the TAXIWAY family's own vertices are not in the
     population at all and are not moved."""
-    airport, pm, z, counts = _arm(law, True)
-    got = cluster_apron_faces(pm, law, airport)
+    with _with_reach(law, 60.0):
+        airport, pm, z, counts = _arm(law, True)
+        got = cluster_apron_faces(pm, law, airport)
+        # the rows are ONE-WAY with the APRON as the follower
+        rows = cluster_apron_level(pm, law, airport)
     assert got and sum(len(v) for v in got.values()) > 0
     taxi = _verts(pm, "twyA")
     assert not (set().union(*got.values()) & taxi)
     assert counts.get("cluster_apron_level", 0) > 0
-    # the rows are ONE-WAY with the APRON as the follower
-    rows = cluster_apron_level(pm, law, airport)
     assert rows and all(r.follows for r in rows)
     # and the apron in the reach came out at the pads' level
     pad = float(np.mean(z[sorted(_verts(pm, "padA") | _verts(pm, "padB"))]))

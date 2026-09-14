@@ -127,12 +127,13 @@ class DeckPrint:
         if not self.tris:
             return
         # THE UNMEMOISED reading (``rebake_plan._mpd``, the same formula):
-        # ``anchor_rule._m_per_deg`` MEMOISES per 1e-4 deg of latitude and
-        # its value depends on which caller touched a key FIRST, so
-        # asking it here — before the unit loop — moved every downstream
-        # ``authored_offset`` in the airport by ~8 microns and broke the
-        # byte-identity of resources this law does not touch (measured,
-        # this lane: 94 placements' offsets, 93 fills).
+        # ``anchor_rule._m_per_deg`` is QUANTISED per 1e-4 deg of latitude
+        # (exact per key since the 13df chip — it used to hold whichever
+        # caller touched a key first), so asking it here — before the
+        # unit loop — moved every downstream ``authored_offset`` in the
+        # airport by ~8 microns and broke the byte-identity of resources
+        # this law does not touch (measured, this lane: 94 placements'
+        # offsets, 93 fills).  The unmemoised formula stays.
         self._ml, self._mo = _m_per_deg(0.5 * (self.box[0] + self.box[2]))
         c = _CELL_M
         for k, t in enumerate(self.tris):

@@ -149,13 +149,31 @@ class Anchor:
 #: changes by ~1e-5 m/deg over that, and §16b's cut asks for it three
 #: million times per airport (2.6 s of the LEMD plan stage, measured).
 _MPD: dict[int, tuple[float, float]] = {}
+#: the memo's latitude quantum: one key per 1e-4 deg (~11 m of latitude)
+_MPD_KEYS_PER_DEG = 10_000.0
 
 
 def _m_per_deg(lat: float) -> tuple[float, float]:
-    k = int(lat * 10_000.0)
+    """Metres per degree of latitude and longitude at ``lat``, memoised
+    per 1e-4 deg of latitude.
+
+    THE MEMO IS EXACT AND ORDER-INDEPENDENT (RULINGS 2026-09-13df chip):
+    the value stored under a key is computed AT THE KEY'S OWN LATITUDE
+    (``k / 1e4``), never at the latitude of whichever caller touched the
+    key first.  It used to key on ``int(lat * 1e4)`` and store the
+    caller's value, so ``placement_family.union_area_m2`` sampling a slab
+    midpoint at 40.00009 N left key 400000 holding 85393.88093 m/deg of
+    longitude where a cold call at 40.0 gives 85393.93697 — and a fixture
+    whose ring node sat at exactly 50 m of longitude read
+    49.99999999998842 after that caller and 50.00000000000935 before it.
+    A memo whose answer depends on call order is a hidden global; this one
+    answers ``f(round(lat, 4))`` whoever asks, whenever.  The key rounds to
+    the NEAREST quantum (half the error of truncation).
+    """
+    k = round(lat * _MPD_KEYS_PER_DEG)
     hit = _MPD.get(k)
     if hit is None:
-        r = math.radians(lat)
+        r = math.radians(k / _MPD_KEYS_PER_DEG)
         hit = (111_132.954 - 559.822 * math.cos(2 * r)
                + 1.175 * math.cos(4 * r),
                111_412.84 * math.cos(r) - 93.5 * math.cos(3 * r))
@@ -470,11 +488,12 @@ def _walked_stations(datum: "Datum", surface: Surface, water
             or len(datum.ends) < 2):
         return (tuple(datum.stations), "")
     # ONE derivation (11j) — and the UNMEMOISED metres-per-degree, for
-    # ``bridge_family``'s reason: ``_m_per_deg`` memoises per 1e-4 deg and
-    # its value depends on which call site touched a key FIRST, so asking
-    # it from a NEW site moves every later ``authored_offset`` in the
-    # airport by microns and breaks the byte-identity of resources this
-    # law does not touch (measured, this lane).
+    # ``bridge_family``'s reason: ``_m_per_deg`` is quantised per 1e-4 deg
+    # (exact per key since the 13df chip, but still a different number
+    # from the formula at the caller's own latitude), so switching this
+    # site to the memo would move every ``authored_offset`` it feeds by
+    # microns and break the byte-identity of resources this law does not
+    # touch (measured, this lane).
     from .rebake_plan import _mpd, end_line_stations
     roles = getattr(surface, "roles", None)
     mids = [(0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])) for a, b in datum.ends]

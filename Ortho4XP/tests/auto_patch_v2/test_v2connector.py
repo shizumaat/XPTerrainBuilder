@@ -67,9 +67,11 @@ class _PPlan:
 #: ring node at exactly 50 m of longitude and classifies it ``b < 50.0``:
 #: 50.00000000000935 cold, 49.99999999998842 warm — the arc flips and the
 #: twin reads [100.0, 100.0] instead of [100.0, 101.5].  Serial only (the
-#: two files land on different xdist workers).  NAMED, not fixed: it is
-#: another law's twin and the fix is a ruling (round the memo key, or
-#: nudge the fixture off the boundary).
+#: two files land on different xdist workers).  FIXED at the memo (lane
+#: ``memokey``): the value under a key is now computed at the KEY's
+#: latitude, so the memo is exact whoever asks first
+#: (``test_v2objsplit.test_m_per_deg_memo_is_exact_and_order_independent``).
+#: These twins stay at 41 N; nothing depends on it any more.
 def _lat(m: float) -> float:
     """The latitude ``m`` metres north of 41 N."""
     return 41.0 + m / 111_132.0

@@ -5084,3 +5084,113 @@ by its own clause and the units are byte-identical — 4 units, `fu:0:0`
 with 484 bodies / 24 members including `xp11_007` and `xp11_010`.  The
 19.56 viaduct is untouched BY CONSTRUCTION, not by measurement; an SPJC
 build carrying heights is OWED, as is a KCLT one at the final tree.
+
+### §16g (10) (7)–(8) MEASURED, ROUND 4 (lane `v2padcluster`, 2026-09-14; branch `claude/v2padcluster`)
+
+**THE ARMS.**  DISARM `v2padclusterHECAdisarm` (`97a2267cfc28`) against
+LANE `v2padclusterHECA5` (rc 0, 420.6 s, `1112755a1db9`, ledger
+`85c18b3071e6`); KCLT `v2padclusterKCLT4` (rc 0, 259.0 s, `2fa924a012cc`,
+ledger `dca6d7449633`); SPJC `v2padclusterSPJC4` (rc 0, 82.1 s,
+`7f9b9659d13c`, no ledger — 23 external-candidate deltas in the window,
+another lane's).  All four `[guard] shared repo UNCHANGED`.  Suite
+**1,474 passed / 1 skipped, twice**.
+
+**(7) LEAVES GET NO PAD, MEASURED.**  Of HECA's 1,380,739 m² of cluster
+outline, **359,152 m² in 1,518 pads are LEAVES** (no walled body) and
+**175,708 m² in 821 more are walled but under `cluster_pad_min_m2`** —
+together **39 %** of the pad area that sat beside the apron.  The emitted
+pad area falls 1,212,189 → **1,091,467 m²** (DISARM 867,173).  The same
+population is used by `classify` (which mints) and by the census (which
+judges), so the mismatch family can never report a cluster that was never
+given a pad.
+
+| bar | DISARM | round 3 | **round 4** | verdict |
+|---|---|---|---|---|
+| **airside moved > 0.02 m (bar 0)** | — | 17,482 of 29,465, worst 12.15 m | **14,263 of 29,783, worst 4.55 m** | MISSED, worst −63 % |
+| the RUNWAY alone | — | 856 of 3,426, worst 3.14 m | **1,021 of 3,426, worst 0.41 m** | worst −87 % |
+| terminal 30.1279552 31.403143, SURFACE (bar 72.50) | 72.07 | 80.94 | **72.60** | **MET (+0.10)** |
+| the terminal BODY | — | on `building11`, own ground +7.50 m | **`T3_concrete_white b4` on WALLED cluster pad `building298` at 72.62 via `fu:38:96@cluster_pad` (18 members), own ground +0.08 m; `metal b8` +0.05, worst foot +0.21 WITHIN 0.3** | ~MET (0.08 vs the 0.02 bar) |
+| the terminal pad's CUT/FILL vs the DISARM ground | 72.07 | +8.87 | **+0.55 m of FILL**, cluster `fu:38:96@cluster_pad`, pad `building298` | named |
+| `pad_cluster_mismatch` (bar 0) | 33 | 27 | **14** | MISSED |
+| `pad_airside_weld` (bar 0) | **3** (worst 0.085 m) | — | **16** (worst 1.135 m, `building4 → pav1` over 51.5 m) | MISSED |
+| constraints (bar ≤ +10 %) | 83.46 s | +55 % | **96.57 s, +15.7 %** | MISSED |
+| law-true census total | 62,103 | 77,288 (+24 %) | **63,904 (+2.9 %)** | reported |
+
+**WHERE THE CONSTRAINT COST GOES.**  `pad_flats` itself is 10.6 → **2.5
+s** (the skirt prices fewer cap-0 pairs), and the LP is SMALLER than
+round 3's (245,680 → 212,368 rows, 34,448 → 32,872 columns).  What
+remains is the pad population: 823,018 → **838,816** `diffs`, i.e. 15,798
+more difference rows over 1,091,467 m² of pad against 867,173.  The
+residual +15.7 % is the price of the pads themselves, not of (8).
+
+**(8)'s ONE-WAY CLAUSE IS REFUTED BY MEASUREMENT, AND ONLY THAT CLAUSE.**
+14aj asks for the airside-sharing rim vertices to be ONE-WAY FOLLOWERS.
+Built that way, a plate whose every binding is one-way has no rigid
+relation to anything in the first lag round and does not chase back: the
+§30 twin's pad collapsed from **703.56 to 640.89 m**.  09-10l's one-way
+precedent is a LEVEL row — a mean against a leader band — which leaves
+the PLATE holding the pad rigid; a whole plate one-way leaves nothing.
+What shipped is the rest of (8): a pair with an end the pad shares with
+airside is priced at the pad's own **slope ceiling** instead of the cap-0
+flat target, so the pad is flat across its interior and its non-airside
+rim and BENDS to meet the pavement it touches.  HECA: **8,967 skirt
+rows**, 0 pairs dropped, **30 pads wholly inside pavement** kept their
+two-sided plate (the OSM pad-in-an-apron class, which the skirt would
+leave with no law at all).  That alone took the airside's worst move from
+12.15 m to 4.55 m and the runway's from 3.14 to 0.41.
+
+**THE TWINS, RE-FOUNDED AND NAMED (14aj's own instruction).**
+
+| twin | asserted | now asserts |
+|---|---|---|
+| `test_constraints::test_strip_families_and_pads` | a cap-0 `Diff` over EVERY rim pair at `pad_flat` | the cap set is `{0, pad_slope_max}`; every ceiling-capped FLAT row has an airside end and every cap-0 row has none; the ceiling pass is still one row per pair over the whole rim (the ROW SET is unchanged) |
+| `test_v2padlevel::test_a_pad_between_two_pavements_..._tiers_neither` | the pad's MEAN lies between its two frontages | the pad MEETS each frontage (a shared vertex IS that pavement's vertex, 09-01g) and its tilt stays inside the 1 % ceiling.  The bracket only ever held because a flat plate pinned at both edges must sit between them |
+| `test_v2frontage::test_the_only_channel_left_is_the_two_way_apron_edge_ramp_law` | the two-way apron-edge ramp moves the pad < 0.05 m | the same claim, re-measured at **0.172 m**: a looser pad, the same channel, still downward, still the ramp's |
+| `test_v2clusterpad` / `test_v2padcluster` fixtures | a cluster with no `walled` count | `_Cl` / `_Cluster` carry `walled`, because (7) drops a leaf |
+| `verify.census.NOT_IMPLEMENTED` | — | gains `pad_cluster_mismatch` / `pad_airside_weld`: both are the CENSUS's and `verify` has no reader, so the lockstep twin must not expect one (CYXY v1 read 7 weld rows against v2's 0) |
+| `test_v2padcluster::…pad_airside_weld…` | a least-squares plane residual against `hard_tol_m` | the SHARED vertex against its own pad's other vertices at `pad_slope_max·d`.  The first reading measured the bend (8) ALLOWS — HECA read 16 rows at DISARM and 36 with the skirt, the instrument counting the law working.  At the cap: DISARM **3**, LANE **16** |
+
+**KCLT, AND THE −0.53 m IS THE WELD, NAMED.**  The terminal pad at
+13bo's own coordinate (35.2191877, −80.9426007) is `building80`, 850
+vertices, median **221.46 → 220.93** (round 3: 220.56), spread 1.07 →
+**3.77**.  It shares **743 nodes with the apron `pav14`** (z 220.04 …
+223.81) and 51 more with `pav118` — so the step across the weld is 0 by
+construction and the pad's 3.77 m spread IS the apron's own fall across
+the edge it is welded to.  The bar (unchanged within `hard_tol_m`) is
+MISSED by 0.53 m and the movement is the weld's, which is what 14aj said
+would make it lawful — **the owner's read is the acceptance.**  `pad_
+airside_weld` 25 rows, worst `building80 → pav14` **1.384 m over 11.6 m**:
+the pad could not reach that edge even bending at 1 %.
+
+**SPJC, BUILT WITH HEIGHTS, AND THE VIADUCT MOVES.**  `xp11_007__b0` is
+on pad `building7` at **20.07** in unit `fu:0:3@cluster_pad` of **6
+members** — 13df's reading was **19.5604** in `fu:0:0@cluster_pad` of 24.
+The leaf rule split the 24-member unit into 6 and the derived pad stands
+0.51 m above it: **MISSED by 0.51 m**, and `building7` is also SPJC's
+worst weld row (0.970 m over 20.0 m against `pav46`).
+
+**THE SEVEN HECA BUILDINGS, AS FAR AS THE IDENTITIES REACH.**  A body
+INDEX is as unstable as a pad ref — the cut renumbers bodies exactly as
+the derived pads renumber `building{N}` — so only the bodies whose index
+survived both arms can be quoted: `T3_38 b1` (14g's 160) `fu:43:7386@
+cluster_pad` of 20 members on `building53` at 98.02, own ground **−6.70 →
++0.04 m** on `building160` in a 2-member unit; `T3_38 b4` (170) own
+ground −0.02 → **−0.02**, WITHIN 0.3 both arms; `T3_38 b3` (147) median
+ground 93.18 worst −2.45 → `building168` at 90.62, own ground −0.01,
+worst **−0.33**.  `building_texture_4 b7/b8` and `building_texture_3
+b29/b31` do not exist under those indices in either arm and were NOT
+read.
+
+**STOP-and-report.**  Three bars moved a long way (the terminal is MET,
+the runway's worst move is 0.41 m, the cost is +15.7 %) and three are
+still missed — airside 14,263, `pad_cluster_mismatch` 14,
+`pad_airside_weld` 16.  The remaining airside movement is no longer the
+pad pulling its own edge: it is the pad's SKIRT, bending at up to 1 %
+over hundreds of metres, plus the 30 pads that keep a two-sided plate.
+The lever the owner must choose among is now narrow: (i) a skirt WIDTH —
+the bend is allowed only within N metres of the shared edge and the pad
+is flat beyond it; (ii) the one-way form with a RIGID SEED (the plate
+keeps a cap-0 core over its non-airside vertices and only the skirt band
+follows), which is the form that did not collapse in the twin; or (iii)
+accept a bounded airside movement with the 0.41 m runway figure as the
+stated cap.

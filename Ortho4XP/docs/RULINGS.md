@@ -4297,3 +4297,34 @@ on `_frame` only.
   arrangement was byte-identical (fires on nothing) and was deleted.
   `build_shapes` or emit's identity collapse. Chip.
 * Owed: a second absorption pass for the 4 merge-minted junction notches.
+
+## 2026-09-13db v2roadcontact round 1 reported, NOT merged: items 4/5 met, item 3's mechanism refuted, airside moved — round 2 ordered
+
+Lane `v2roadcontact` @ bb7a0b03 (HECA build `v2roadcontactHECA2`, ledger
+96f569b01af9). Item 5: `route0`'s end 108.09 → 106.66 vs the taxiway edge
+106.606 (+1.474 → +0.054, step 33 % → 1.2 %). Item 4: 1.30 m → 0.05 m over
+3.05 m (42.6 % → 1.6 %). HECA `road_cross_section` 21 → 28 priced,
+`not_a_pair` 9,092 → 9,065; KCLT dry `road_cross_section` 373 → 280.
+
+* REFUTED, item 3: `route7` has 8 airside mouths among its 15 vertices
+  (on `pav115`/`pav131`, all at 0.00) and its 6 owned vertices sit 0.6–1.0
+  m over them inside its 8 % cap — no contact law moves it. The "hill" at
+  30.1116052, 31.4066985 is `apron:pav131`'s own datum (108.43) against
+  ground cut to 107.85 and the road on the DEM at 109.14: an AIRSIDE datum
+  question (§23), not a road one. Owner intent: "we just need this area
+  lowered" — a separate read of what holds pav131 at 108.43.
+* NOT MERGED: airside moved — HECA 115 airside vertices > 0.1 m (worst
+  0.770 m, an apron), KCLT airside rows 3,524 → 3,656. Mechanism: the LP
+  re-solve after 66 mouth targets are withdrawn + ribbon pairs priced on
+  road rings that include mouth vertices. Round 2: every row involving a
+  mouth/airside vertex is one-way on that vertex; withdrawing a target
+  releases no airside vertex; bar = 0 airside moves > 0.1 m, KCLT airside
+  ≤ 3,524.
+* FINDING for a ruling: hard + one-way is not expressible in
+  `solve/design` (one `shift` vector — the augmented Lagrangian's
+  `shift[hard_i]` overwrites the one-way lag); the contact row is priced at
+  `[design] law`, not hard. Accepted for now; owed a second shift vector
+  if a hard one-way row is ever needed.
+* §37 (10) (3)'s "4 rows → every ribbon" conflated violation rows with
+  priced rows (15 of 18 refs were already priced) — spec text to correct
+  at merge.

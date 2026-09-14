@@ -38,7 +38,8 @@ from .zones import zone_regions
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
            "merge_slivers", "dissolve_degenerate_holes",
-           "absorb_enclosed_pavement", "ENCLOSED_MIN_FRAC"]
+           "absorb_enclosed_pavement", "dissolve_sliver_zones",
+           "inscribed_width_m", "ENCLOSED_MIN_FRAC"]
 
 #: §41 (1): the fraction of its OWN area a pavement face must have inside
 #: another pavement face's exterior ring to be that face's hole.  DEFINED
@@ -113,6 +114,18 @@ class Arrangement:
     #: with its enclosing body, so the union would not be one face — an
     #: island in the middle of a loop, not a notch cut into a body.
     enclosed_detached: int = 0
+    #: §41 (4) (owner RULINGS 2026-09-14c item 4): sliver ZONE faces
+    #: dissolved into the face they border (``dissolve_sliver_zones``) —
+    #: never emitted, never a hole.  ``slivers_zone_area_m2`` is their
+    #: area; ``slivers_zone_dropped`` the ones that border nothing at all
+    #: (no host to dissolve into: the DEM owns them, as it owns every face
+    #: no region claims).
+    zone_slivers_dissolved: int = 0
+    zone_slivers_dropped: int = 0
+    zone_sliver_area_m2: float = 0.0
+    #: One record per dissolved/dropped sliver: ``(ref, area_m2, width_m,
+    #: host role:ref or None)`` — what the report names.
+    zone_sliver_rows: tuple = ()
 
 
 def build_arrangement(airport: Airport, classification: Classification,
@@ -208,12 +221,22 @@ def build_arrangement(airport: Airport, classification: Classification,
     faces, absorbed, detached = absorb_enclosed_pavement(
         faces, tuple(law.tables.emit.terrace.shape_roles),
         mouth_m=law.tables.emit.terrace.narrow_mouth_max_m)
+    # §41 (4): a sliver ZONE face is dissolved into the pavement it borders
+    # HERE, before the host's hole is cut — the same single-derivation-site
+    # discipline (owner RULINGS 2026-08-30l) the absorption above follows
+    faces, zs_dissolved, zs_dropped, zs_area, zs_rows = dissolve_sliver_zones(
+        faces, law.tables.emit.terrace.strip_min_m2,
+        law.tables.emit.terrace.strip_min_width_m,
+        tuple(law.tables.emit.terrace.shape_roles),
+        tuple(r for r, spec in law.tables.precedence.roles.items()
+              if spec.rigid))
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged,
                        tuple(edge_lines), erep, holes_gone,
-                       absorbed, detached)
+                       absorbed, detached,
+                       zs_dissolved, zs_dropped, zs_area, zs_rows)
 
 
 def dissolve_degenerate_holes(faces: list[tuple[Polygon, Region]], sep_m: float,
@@ -325,6 +348,114 @@ def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float
         keep[i] = None
         merged += 1
     return [f for f in keep if f is not None], merged
+
+
+def inscribed_width_m(poly: Polygon, tol: float = 0.01) -> float:
+    """THE WIDTH OF A FACE: twice the radius of its MAXIMUM INSCRIBED
+    CIRCLE — the diameter of the largest disc the shape holds, i.e. how
+    wide it is at its WIDEST place.
+
+    Deliberately NOT ``2 A / P``, which is a mean-width proxy: a shape
+    with one fat end and a long tail reads narrow under the proxy while
+    holding a wide disc, and on the owner's 1.0.331 HECA patch the proxy
+    called 153 zone faces narrower than 3 m where the inscribed circle
+    calls 42 (RULINGS 2026-09-14g item 4 — "use the INSCRIBED circle")."""
+    if poly is None or poly.is_empty or poly.area <= 0.0:
+        return 0.0
+    try:
+        return 2.0 * float(shapely.maximum_inscribed_circle(poly, tol).length)
+    except Exception:                                      # pragma: no cover
+        return 0.0
+
+
+def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
+                          area_min_m2: float, width_min_m: float,
+                          host_roles: tuple[str, ...] = (),
+                          refuse_roles: tuple[str, ...] = ()
+                          ) -> tuple[list[tuple[Polygon, Region]], int, int,
+                                     float, tuple]:
+    """§41 (4) — A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS
+    2026-09-14c item 4; attributed RULINGS 2026-09-14g item 4).
+
+    An adjacent-ground ZONE face under ``area_min_m2`` or narrower than
+    ``width_min_m`` at its widest place (:func:`inscribed_width_m`) has
+    nowhere to put the transition it exists to carry: it takes whatever
+    its own zone bound gives it and stands proud of the pavement all
+    round it.  HECA shape 1035 — ``adjacent_ground:taxi:E:zone1#38``,
+    15.7 m², 2.16 m wide, hole 0 of ``cross_connector:pav115`` at
+    30.1110278, 31.4062316 — sat at 105.86-106.01 inside a taxiway at
+    104.4: +1.3-1.6 m over 7 m, ≈ 23 %, the owner's hump.
+
+    It is UNIONED INTO THE FACE IT BORDERS LONGEST — an aircraft-pavement
+    face (``host_roles``) first, then any other cell, then a neighbouring
+    zone face, never a RIGID one (``refuse_roles``: a building pad is one
+    level for the body that stands on it, and 4.4 m² of adjacent ground
+    welded onto its footprint is a pad the owner never authored) — HERE,
+    at the single derivation site, so the host's hole is
+    never cut, no consumer downstream ever sees the strip, and nothing has
+    to veto it per-consumer (owner RULINGS 2026-08-30l).  A sliver that
+    borders NOTHING (9 of HECA's 57 touch no face at all) has no host to
+    dissolve into and is DROPPED, exactly as a face no region claims is
+    dropped: the DEM owns it.
+
+    Smallest-first, so a chain of slivers resolves into the body and never
+    into each other.  Returns ``(faces, dissolved, dropped, area_m2,
+    rows)``."""
+    if (area_min_m2 <= 0.0 and width_min_m <= 0.0) or not faces:
+        return faces, 0, 0, 0.0, ()
+    tree = STRtree([p for p, _r in faces])
+    keep: list[tuple[Polygon, Region] | None] = list(faces)
+    hosts = set(host_roles)
+    refused = set(refuse_roles)
+    order = sorted((i for i, (_p, r) in enumerate(faces) if r.source == "zone"),
+                   key=lambda i: faces[i][0].area)
+    dissolved = dropped = 0
+    area = 0.0
+    rows: list[tuple] = []
+    for i in order:
+        if keep[i] is None:
+            continue
+        poly, region = keep[i]
+        width = inscribed_width_m(poly)
+        if poly.area >= area_min_m2 and width >= width_min_m:
+            continue
+        best = None
+        best_rank = None
+        for j in tree.query(poly, predicate="intersects"):
+            j = int(j)
+            if j == i or keep[j] is None:
+                continue
+            pj, rj = keep[j]
+            if rj.role in refused:
+                continue
+            try:
+                shared = poly.boundary.intersection(pj.boundary).length
+            except Exception:                              # pragma: no cover
+                continue
+            if shared <= 0.0:
+                continue
+            tier = (0 if rj.role in hosts else
+                    (1 if rj.source != "zone" else 2))
+            rank = (tier, -shared)
+            if best_rank is None or rank < best_rank:
+                best, best_rank = j, rank
+        area += poly.area
+        if best is None:
+            keep[i] = None
+            dropped += 1
+            rows.append((region.ref, round(poly.area, 1), round(width, 2), None))
+            continue
+        pj, rj = keep[best]
+        u = pj.union(poly)
+        if u.geom_type != "Polygon":
+            u = max(shapely.get_parts(u), key=lambda g: g.area)
+        keep[best] = (u, rj)
+        keep[i] = None
+        dissolved += 1
+        rows.append((region.ref, round(poly.area, 1), round(width, 2),
+                     f"{rj.role}:{rj.ref}"))
+    return ([f for f in keep if f is not None], dissolved, dropped,
+            round(area, 1), tuple(rows))
 
 
 def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],

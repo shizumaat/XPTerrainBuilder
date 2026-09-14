@@ -16,11 +16,16 @@ THE PATCH v2 WRITES:
     exactly as v1 so the census keeps it out of the ring laws and the
     mesh still constrains it (``include_patches`` inserts every closed
     way as a ring; ``_parse_osm`` routes the feature class to
-    ``feature_out``).  A hole every edge of which is already an edge of
-    some face ring (the planar map's normal case: the hole IS the faces
-    inside it) is NOT written — the ring would be a coincident duplicate
-    carrying the parent's shapeID, which read in the sim as "shapeID 718
-    gap_interior_ring" over what is apron 730 (owner, OTHH 2026-09-04);
+    ``feature_out``).  A hole the faces INSIDE it already cover (by AREA,
+    at ``emit.terrace.hole_cover_eps`` — the planar map's normal case:
+    the hole IS the faces inside it) is NOT written: the ring would be a
+    coincident duplicate carrying the parent's shapeID, which read in the
+    sim as "shapeID 718 gap_interior_ring" over what is apron 730 (owner,
+    OTHH 2026-09-04).  Neither is a hole narrower than
+    ``emit.terrace.strip_min_width_m`` (RULINGS 2026-09-14g item 5: the
+    92 %-covered, 1.6 m-wide HECA hole that shipped as a constrained ring
+    across ``service_road:route4``).  A hole that is neither KEEPS its
+    ring — a real void is never lost;
   * one closed way per STRUCTURE RIM (``emit.graded.RIM_KIND``; RULINGS
     2026-09-06b (1)): the void face's exterior at the ground, tagged
     ``o4_feature=structure_rim`` with the structure's ``ref`` — a
@@ -65,6 +70,8 @@ import math
 import typing as _t
 from pathlib import Path
 from xml.sax.saxutils import escape
+
+import shapely
 
 from ..law.model import Law
 from ..law.tables import role_cap
@@ -169,11 +176,125 @@ def _q(v: object) -> str:
     return "'" + escape(str(v), {"'": "&apos;", '"': "&quot;"}) + "'"
 
 
-def _edges(cycle: _t.Sequence[int]) -> set[tuple[int, int]]:
-    """The unordered vertex-id edges of a closed cycle."""
-    n = len(cycle)
-    return {(min(cycle[i], cycle[(i + 1) % n]), max(cycle[i], cycle[(i + 1) % n]))
-            for i in range(n)}
+def _hole_cover(surface: GradedSurface, law: Law):
+    """``(hole ring ids) -> bool`` — is this hole ALREADY CONSTRAINED, so
+    that emitting its ring would only duplicate what is there?
+
+    RULINGS 2026-09-14g item 5.  Until 2026-09-14 the test was a ring-EDGE
+    superset: the hole was suppressed only when every one of its edges was
+    already an edge of some face ring (or of a structure rim).  That FAILS
+    OPEN on a hole the inner faces cover by AREA but not edge-for-edge —
+    HECA way -10231, hole 1 of ``cross_connector:pav115``, 29.5 m², 1.60 m
+    wide, 92.3 % covered by three inner faces, shipped as a constrained
+    ring straight across ``service_road:route4`` and two zone strips (the
+    owner's item 5, RULINGS 2026-09-14c).
+
+    So the test is by AREA — the faces INSIDE the hole (plus the structure
+    RIMS, which are the void faces' own rings and are emitted as their own
+    constrained ways) cover at least ``1 - emit.terrace.hole_cover_eps`` of
+    it — and a hole NARROWER than ``emit.terrace.strip_min_width_m`` at its
+    widest place is refused outright: a hairline ring carries no transition
+    and every value it holds is the min-norm solution's (the §41 (4) and
+    RULINGS 2026-09-10h arguments, in the emitted frame).
+
+    THE RING-EDGE SUPERSET TEST IS KEPT BESIDE IT, as a second sufficient
+    condition, deliberately: measured at HECA, dropping it EMITTED 9 new
+    rings of 245,000 m2 (``primary_parallel:dsf:objpav93`` #4/#5/#6 and
+    five more, holes 10k-66k m2 whose inner faces cover 72-100 % of them
+    and whose edges are ring edges throughout).  Those are a DIFFERENT
+    class from the owner's item 5 — the edge test suppressing a partly
+    uncovered hole — and this rule was ruled to suppress MORE, never to
+    ship more.  So the two tests are OR-ed: whatever was suppressed before
+    still is, plus the area-covered and the hairline classes.
+
+    A hole none of the three catches KEEPS its ring: a real void is never
+    lost.  Faces with no holes never pay for any of this."""
+    if not any(f.holes for f in surface.faces):
+        return lambda h, host_id=None: False
+    ring_edges: set[tuple[int, int]] = set()
+
+    def _edges(cycle) -> set[tuple[int, int]]:
+        n = len(cycle)
+        return {(min(cycle[i], cycle[(i + 1) % n]),
+                 max(cycle[i], cycle[(i + 1) % n])) for i in range(n)}
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    from shapely.strtree import STRtree
+    from .graded import RIM_KIND
+
+    eps = float(law.tables.emit.terrace.hole_cover_eps)
+    width_min = float(law.tables.emit.terrace.strip_min_width_m)
+    my, mx = _local_metres(surface.origin)
+    xy = {v.id: (v.ll[1] * mx, v.ll[0] * my) for v in surface.vertices}
+
+    def poly(ids) -> "Polygon | None":
+        pts = [xy[i] for i in ids if i in xy]
+        if len(pts) < 3:
+            return None
+        try:
+            p = Polygon(pts)
+            if not p.is_valid:
+                p = p.buffer(0)
+        except Exception:                                  # pragma: no cover
+            return None
+        return None if (p.is_empty or p.geom_type != "Polygon"
+                        or p.area <= 0.0) else p
+
+    inners: list = []
+    for f in surface.faces:
+        ring_edges.update(_edges(f.ring))
+        p = poly(f.ring)
+        if p is not None:
+            inners.append((f.id, p))
+    for b in surface.breaklines:
+        if b.kind != RIM_KIND or len(b.vertices) < 3:
+            continue
+        # the rim IS a void face's exterior, emitted as its own constrained
+        # ring: a pavement hole it fills is covered (the pre-2026-09-14 edge
+        # test carried this case and the area test must carry it too)
+        run = (b.vertices[:-1] if b.vertices[0] == b.vertices[-1]
+               else b.vertices)
+        ring_edges.update(_edges(run))
+        p = poly(run)
+        if p is not None:
+            inners.append((None, p))
+    tree = STRtree([p for _i, p in inners]) if inners else None
+
+    def covered(h, host_id=None) -> bool:
+        if _edges(h) <= ring_edges:
+            return True                  # every edge already constrained
+        hp = poly(h)
+        if hp is None:
+            return True                  # degenerate: no ring to emit
+        if 2.0 * float(shapely.maximum_inscribed_circle(hp, 0.01).length) \
+                < width_min:
+            return True                  # the hairline class
+        if tree is None:
+            return False
+        inside = []
+        for j in tree.query(hp):
+            fid, p = inners[int(j)]
+            # a face is INSIDE the hole, never the host whose hole it is:
+            # the host's own ring polygon (its holes filled) contains the
+            # hole entirely, so an overlap test alone would call every
+            # hole of a thin host covered by its host
+            if fid is not None and fid == host_id:
+                continue
+            if p.area > hp.area * 1.001:
+                continue
+            try:
+                if hp.contains(p.representative_point()):
+                    inside.append(p)
+            except Exception:                              # pragma: no cover
+                continue
+        if not inside:
+            return False
+        try:
+            return unary_union(inside).intersection(hp).area >= (1.0 - eps) * hp.area
+        except Exception:                                  # pragma: no cover
+            return False
+
+    return covered
 
 
 def render_patch(surface: GradedSurface, law: Law,
@@ -217,14 +338,7 @@ def render_patch(surface: GradedSurface, law: Law,
         lines.append("  </way>")
 
     from .graded import RIM_KIND
-    ring_edges: set[tuple[int, int]] = set()
-    for f in surface.faces:
-        ring_edges.update(_edges(f.ring))
-    for b in surface.breaklines:
-        if b.kind == RIM_KIND:
-            # a cut pavement's hole ring IS the rim: covered by it
-            ring_edges.update(_edges(b.vertices[:-1] if b.vertices[0] == b.vertices[-1]
-                                     else b.vertices))
+    hole_cover = _hole_cover(surface, law)
 
     for f in surface.faces:
         spec = reg.get(f.role)
@@ -271,8 +385,8 @@ def render_patch(surface: GradedSurface, law: Law,
             tags.append((k, val))
         way(f.ring, tags, True)
         for h in f.holes:
-            if _edges(h) <= ring_edges:
-                continue                    # covered: the inner faces constrain it
+            if hole_cover(h, f.id):
+                continue     # covered, or a hairline that can carry nothing
             way(h, [("o4_feature", HOLE_FEATURE), ("shapeID", str(f.id))], True)
     from .bank import BANK_KIND
     for b in surface.breaklines:

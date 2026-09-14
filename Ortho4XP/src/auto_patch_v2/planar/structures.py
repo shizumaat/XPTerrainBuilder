@@ -94,7 +94,8 @@ from ..model.frame import XY
 from ..model.structures import Deck, Tunnel
 from .basins import object_decks
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
-from .wall_corridor_ramps import (KIND as WALL_KIND, airside_stops, stop_and_steepen,
+from .wall_corridor_ramps import (KIND as WALL_KIND, airside_stops, locked_road_stops,
+                                  stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
 from .structure_approach import (FieldRegion, PavementDeck, apply_plates,
                                  approach_ground as _approach_ground,
@@ -288,6 +289,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stop_tree = STRtree([p for p, _r in stops]) if stops else None
     # a WALL-CORRIDOR ramp stops at AIRSIDE cells and pads only (Law C)
     stops_air = airside_stops(cells, polys, law, RUNWAY_FAMILY)
+    # ...and at a SERVICE ROAD LOCKED TO AIRSIDE (§34 (9), owner RULINGS
+    # 2026-09-14ak): a road whose level is an airside contact cannot yield
+    # to the ramp, so the ramp ends at its edge with the cap lifted
+    locked = locked_road_stops(cells, polys, law, RUNWAY_FAMILY,
+                               law.tables.emit.road_contact.contact_reach_m)
+    locked_refs = {ref for _p, ref in locked}
+    stops_air = stops_air + locked
     stop_air_tree = STRtree([p for p, _r in stops_air]) if stops_air else None
     strip: list[Polygon] = []
     for p, c in zip(polys, cells):
@@ -502,6 +510,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         top_pinned = g.climbs
         clipped_by = ""
         moved_m = 0.0
+        pinched = None
         ss = [s for s in ss if s <= s_top + 1e-9]
         beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         # a door ramp's HOST cells: the ones its well stands in (cut like
@@ -569,11 +578,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             continue
         if c is not None and g.kind == WALL_KIND and clipped_by and g.climbs:
             # Law C (08m (a)): run to the pavement EDGE and steepen, or refuse
-            ss, geom, s_top, design_grade, why, moved_to = stop_and_steepen(
+            ss, geom, s_top, design_grade, why, moved_to, pinched = stop_and_steepen(
                 airport, wc_law, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,
                 stop_list, stop_tree_g, host, beyond, grid, spacing_g,
                 lambda ss_try: geometry(axis_fn, ss_try, half, rim_off, inward, grid, g.capped,
-                                        g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off))
+                                        g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off),
+                locked_refs)
             if why:
                 stats.refused.append(f"{tid}: {why}")
                 continue
@@ -767,7 +777,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 profile_out, top_ground = wall_corridor_profile(
                     airport, g, ss, s_top, mouth_z, design_grade, axis_fn, climb_from)
                 notes.append(wall_corridor_note(c, g, mouth_dem, s_top, climb_from, design_grade,
-                                                top_ground, clipped_by, moved_m))
+                                                top_ground, clipped_by, moved_m, pinched))
+                if pinched:
+                    stats.pinched_ramps.append(
+                        f"{tid}: pinched against {pinched[0]} — {pinched[1]:.1f} m from the road "
+                        f"edge down to the building edge at {100.0 * pinched[2]:.1f} % "
+                        f"(cap lifted, §34 (9))")
             else:
                 notes.append(f"sunken road (2026-09-08b/c Law B) of {c.resource}: cut {mouth_z:.2f} "
                              f"= ground {mouth_dem:.2f} − {c.depth_m:.2f}, {g.hull_s:.1f} m along "

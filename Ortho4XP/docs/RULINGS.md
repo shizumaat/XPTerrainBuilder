@@ -4690,3 +4690,26 @@ think resolve it. 5. Also gap_interior_ring shapeID 221 here: 30.1107301,
   shape 344 with the owner's two cut lines as the bars.
 * The 1.0.331 HECA read otherwise stands as the acceptance of 13dg/13dj
   (no objection raised to the shoulder, the notch, the object pavement).
+
+## 2026-09-14d v2unionsweep MERGED (358a9707): OTHH cluster derivation 300 → 16.6 s, bit-identical areas; the owner ABORTED the OTHH tile — the object stage ran > 1 h at 97 % CPU
+
+Lane `v2unionsweep` @ 99cf52ba: `union_area_m2` keeps a live span set
+across slab boundaries (`bisect.insort`, same total order as `sorted`, so
+the merge sums in the same order): OTHH `plan_clusters` 666 → 16.6 s
+(contended arms; 40×), HECA 67.5 → 2.2 s; 44 / 2 clusters and every area
+bit-identical (25 twins on the raw IEEE-754 bytes incl. the OTHH
+capture's own boxes; the reference kept beside for the twin only).
+Suite 1,389 twice.
+
+* Owner: "OTHH is over an hour now and still hasn't progressed, that's
+  unacceptable. Clearly a bug there." The +25+051 log ends at
+  `[v2 placement] OTHH: design surface 95 object pad(s), 59 structure
+  rim(s), 823 graded face(s) for the §17 motion rule`, one process at
+  97 % CPU, then `Engine process exiting (terminate signal)` — the
+  owner killed it. HECA's tile completed in 29 m 52 s. Scout `v2objcost`
+  re-prioritised: the object-plan profile at OTHH on main vs 6ec68b44
+  (pre-13df), stack dump if it does not finish in 15 min. Prime
+  suspect: the articulation-point reading (per long body, recompute the
+  unit's components; OTHH 19 connectors over the largest units).
+* Promotion signal (lane): `cluster_arm.py` (dry `plan_clusters`
+  reader, two airports × two arms) → `tools/` on its third use.

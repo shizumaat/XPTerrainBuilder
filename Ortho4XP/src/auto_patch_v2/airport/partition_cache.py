@@ -48,12 +48,20 @@ import hashlib
 import os
 import pickle
 import typing as _t
+import zlib
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 1
+CACHE_VERSION = 2
+
+#: The payload is DEFLATED at level 1 (owner RULINGS 2026-09-14v: the
+#: file has a size bar).  Measured on the OTHH payload: 72.6 -> 31.3 MB,
+#: 0.5 s to compress and 0.1 s to read back — lossless, so the pickle
+#: bytes and therefore the revived reading are untouched.  A file written
+#: before this (plain pickle) still reads: the deflate is tried first.
+_ZLIB_LEVEL = 1
 
 #: The modules the cached reading runs through — their source bytes are
 #: the code half of the fingerprint.  Import paths inside the package.
@@ -205,7 +213,12 @@ def read(path: str | None, fp: str | None) -> _t.Any | None:
         return None
     try:
         with open(path, "rb") as fh:
-            blob = pickle.load(fh)
+            raw = fh.read()
+        try:
+            raw = zlib.decompress(raw)
+        except zlib.error:
+            pass                        # a pre-deflate file, read as it is
+        blob = pickle.loads(raw)
     except Exception:
         return None
     if not isinstance(blob, dict) or blob.get("fingerprint") != fp:
@@ -222,8 +235,9 @@ def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp%d" % os.getpid()
         with open(tmp, "wb") as fh:
-            pickle.dump({"fingerprint": fp, "result": result}, fh,
-                        protocol=pickle.HIGHEST_PROTOCOL)
+            fh.write(zlib.compress(
+                pickle.dumps({"fingerprint": fp, "result": result},
+                             protocol=pickle.HIGHEST_PROTOCOL), _ZLIB_LEVEL))
         os.replace(tmp, path)
         return True
     except Exception:

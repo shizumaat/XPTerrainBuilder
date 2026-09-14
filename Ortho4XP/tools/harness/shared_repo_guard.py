@@ -829,6 +829,63 @@ def airports_named_in(relpath):
     return m.group(1) if m else None
 
 
+#: A per-pack derived-cache path: ``Airport_mod_cache/<pack folder name>/…``
+#: (``auto_patch.dsf_reader.airport_mod_cache_dir``).  The pack name is
+#: the X-Plane Custom Scenery folder's basename, spaces and all.
+_MOD_CACHE_PACK_RE = re.compile(r"Airport_mod_cache/([^/]+)/.+")
+
+
+def mod_cache_pack_of(relpath):
+    """The scenery PACK a per-pack derived-cache path belongs to, or
+    ``None`` for every other path.
+
+    Most of a pack's cache dir names NO tile (measured 2026-09-13, the
+    HECA pack during a +40-004 LEMD mesh-only run: 67
+    ``o4_object_partition_<hash>.cache``, 60 ``o4_object_pad_frame_<hash>
+    .cache``, 9 ``o4_object_exclusions_<hash>.cache`` — 117 paths keyed
+    by content hash alone), so under the tile rule every one of them was
+    unscopable, and a concurrent lane's object stage contaminated a run
+    whose own guard had blocked nothing.  The pack name is the scope
+    those paths DO carry.
+    """
+    m = _MOD_CACHE_PACK_RE.fullmatch(str(relpath))
+    return m.group(1) if m else None
+
+
+def mod_cache_packs_naming(tiles, repo=None) -> set:
+    """The pack folders under the shared ``Airport_mod_cache`` whose cache
+    dir holds at least one entry naming one of ``tiles``.
+
+    The derivation of a build's PACK scope, read off the corpus ONCE at
+    arm time (a directory listing, ~180 packs, no file is opened): a
+    pack that has cached anything for a tile this build reads
+    (``+40-004.dsf.text``, ``o4_object_footprints_+40-004.cache``) is a
+    pack this build's object stage can rewrite hash-keyed sidecars for.
+    ``tiles`` is the WITH-NEIGHBOURS set, so the seam packs count.  A
+    pack that has cached nothing for those tiles is one this build has
+    no reason to touch — and a pack that appears NEW inside the window
+    writes its tile-named dump first, which the tile rule still holds in
+    scope.  Filesystem state is read here and nowhere in
+    :class:`BuildInputScope`, so ``covers`` stays path-shape only.
+    """
+    root = Path(repo) if repo is not None else DATA_REPO
+    cache_root = root / "Airport_mod_cache"
+    wanted = {(int(la), int(lo)) for la, lo in tiles}
+    out = set()
+    if not wanted or not cache_root.is_dir():
+        return out
+    for pack in cache_root.iterdir():
+        if not pack.is_dir():
+            continue
+        try:
+            names = os.listdir(pack)
+        except OSError:
+            continue
+        if any(tiles_named_in(n) & wanted for n in names):
+            out.add(pack.name)
+    return out
+
+
 class BuildInputScope:
     """WHICH shared-repo paths THIS build could have had a reason to touch.
 
@@ -853,9 +910,20 @@ class BuildInputScope:
     positively exclude.
     """
 
-    def __init__(self, tiles=(), icaos=(), *, label=""):
+    def __init__(self, tiles=(), icaos=(), *, packs=None, label=""):
         self.tiles = {(int(la), int(lo)) for la, lo in tiles or ()}
+        # ``icaos=None`` means the caller could NOT enumerate its airports
+        # (a tile entry with no cached airports layer): a road-feed path
+        # is then unscopable, not external — the conservative direction.
+        # ``()`` keeps its meaning: no airport is in scope.
+        self.icaos_known = icaos is not None
         self.icaos = {str(i).upper() for i in icaos or () if i}
+        # ``packs=None`` means the caller scoped NO packs (the pre-
+        # 2026-09-14 behaviour: every hash-keyed pack sidecar is
+        # unscopable and contaminates).  A set — derived through
+        # :func:`mod_cache_packs_naming` — names the packs this build
+        # can have reached; a pack outside it is positively external.
+        self.packs = None if packs is None else {str(p) for p in packs}
         self.label = label
         self._with_neighbours = {
             (la + dla, lo + dlo)
@@ -877,11 +945,18 @@ class BuildInputScope:
         rel = str(relpath)
         icao = airports_named_in(rel)
         if icao is not None:
-            return icao in self.icaos
+            return icao in self.icaos if self.icaos_known else True
         named = tiles_named_in(rel)
-        if not named:
-            return True                     # unscopable ⇒ not excludable
-        return bool(named & self._with_neighbours)
+        if named:
+            return bool(named & self._with_neighbours)
+        # THE PACK RULE (2026-09-14): a hash-keyed sidecar under a pack
+        # this build never cached for is external; the same sidecar under
+        # a pack in scope, or under any pack when the caller scoped none,
+        # stays in scope.
+        pack = mod_cache_pack_of(rel)
+        if pack is not None and self.packs is not None:
+            return pack in self.packs
+        return True                         # unscopable ⇒ not excludable
 
     def record(self) -> dict:
         """The scope as it rides in ``<tag>.frame.json``, so a later reader
@@ -890,8 +965,35 @@ class BuildInputScope:
             "label": self.label,
             "tiles": sorted(map(list, self.tiles)),
             "tiles_with_neighbours": sorted(map(list, self._with_neighbours)),
-            "icaos": sorted(self.icaos),
+            "icaos": sorted(self.icaos) if self.icaos_known else None,
+            "packs": sorted(self.packs) if self.packs is not None else None,
         }
+
+
+def tile_input_scope(lat, lon, icaos=None, *, label="", repo=None):
+    """THE input set of a WHOLE-TILE run — the one derivation both tile
+    entries share (``run_tile_mesh_only.py``; ``build_airport.py --tile``
+    names its anchor airport the same way through :class:`BuildInputScope`).
+
+    A tile run reads its own Elevation_data tile and insets, its OSM_data
+    tile, the neighbours of both at the seams, the road feeds of the
+    airports ON the tile (``icaos``, the engine's own per-tile airport
+    dictionary; ``None`` when the caller could not enumerate them, which
+    keeps every road feed in scope), and the mod-cache packs that have
+    cached anything for those tiles (:func:`mod_cache_packs_naming`).
+    Everything a concurrent lane writes for ANOTHER tile's packs is then
+    positively outside this set — the 2026-09-13 class, 117 HECA-pack
+    sidecars failing a +40-004 LEMD mesh-only run as CONTAMINATED with
+    its own ``guard.blocked`` empty.
+    """
+    tiles = [(int(lat), int(lon))]
+    with_neighbours = {(tiles[0][0] + dla, tiles[0][1] + dlo)
+                       for dla in (-1, 0, 1) for dlo in (-1, 0, 1)}
+    return BuildInputScope(
+        tiles=tiles,
+        icaos=None if icaos is None else list(icaos),
+        packs=mod_cache_packs_naming(with_neighbours, repo=repo),
+        label=label or f"tile {tiles[0][0]:+03d}{tiles[0][1]:+04d}")
 
 
 def contaminating_writes(offenders) -> list:

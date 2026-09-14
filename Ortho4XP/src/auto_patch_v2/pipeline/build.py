@@ -311,8 +311,22 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _cpath = _pcache.cache_path(airport, inputs.mod_cache_root, lrep.dsf_dump_path)
     _hit = _pcache.read(_cpath, _fp)
     if _hit is not None:
-        pack_objects, pack_report, _part, _cached_clusters = _hit
-        _say(f"  [partition] cache HIT {_cpath}", out)
+        pack_objects, pack_report, _part, _cached_clusters, _derived = _hit
+        # THE ONE ``ResourceCache`` IS PUT BACK WHERE THE PARTITION LEFT
+        # IT (owner RULINGS 2026-09-14v item 2): a hit that skips the
+        # pack reading leaves the cache EMPTY, and classify then re-runs
+        # ``read_objects`` (its ``placed["objects"]`` memo) and re-derives
+        # every skirt reading — 68 s that simply moved stage.  The
+        # placements and the small per-resource readings are restored;
+        # the parsed geometry is not cached and is re-parsed on demand.
+        ocache.placed["objects"] = (pack_objects, pack_report)
+        _nd = ocache.restore_derived(_derived)
+        # the revived partition's members are RECIPES: bind this run's cache
+        _g = getattr(_part, "geom", None)
+        if _g is not None and hasattr(_g.members, "bind"):
+            _g.members.bind(ocache)
+        _say(f"  [partition] cache HIT {_cpath} ({_nd} resource reading(s) "
+             f"restored)", out)
     else:
         _cached_clusters = None
         pack_objects, pack_report = _read_objects(airport, law, ocache)
@@ -359,7 +373,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     else:
         _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
         if _pcache.write(_cpath, _fp,
-                         (pack_objects, pack_report, _part, _clusters)):
+                         (pack_objects, pack_report, _part, _clusters,
+                          ocache.derived_state())):
             _say(f"  [partition] cache WROTE {_cpath}", out)
     airport = _dc.replace(airport, partition=_part, groups=_groups,
                           clusters=_clusters)

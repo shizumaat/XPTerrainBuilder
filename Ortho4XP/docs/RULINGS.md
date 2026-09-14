@@ -5378,3 +5378,39 @@ it. The lane is at the end of its useful context and hands over.
   `airport.clusters` / `PlanCluster` / `cluster_pad_faces` / `building`
   pads in one table; `floor_split_m`; the pad-from-cluster derivation;
   `pad_cluster_mismatch`; KCLT control; the HECA bars.
+
+## 2026-09-14aa The six owner chips MERGED into main (c5c4576a): meshscope, polremainder, zonemint, memokey, rwyholes, toolfix
+
+All six chip branches carried finished commits (09:10–09:27 today;
+toolfix 21:43 yesterday) and are now ancestors of main: `meshscope`
+(run_tile_mesh_only passes the run's input set — external candidates,
+not contamination), `polremainder` (a `.pol` remainder keeps its page's
+description), `zonemint` (sidecar `face_holes` derived from the
+EMITTED rings by `write_patch`, per tile piece — the 13da residual),
+`memokey` (`_m_per_deg` answers at the key's latitude, exact and
+order-independent), `rwyholes` (a runway face's vertex set is its
+outer AND hole rings, one accessor for generators and verifier; the
+`auto_patch_v2 build` CLI repaired), `toolfix` (explain resolves the
+data-root patch and prints its provenance; `--shape` either side of
+the ICAO; its anchor half had landed via v2zonehole — main's `_frame`
+kept). Conflicts: frames (union), DEFERRED_VERIFICATION (both
+entries), `pipeline/__main__.py` (both: `options_from_args` +
+toolfix's patch resolution), INDEX (main's rows). Suite 1,459 passed
+with ONE non-reproducing failure on the first run (the
+`test_v2objsplit` basin-wall twin again — still flaky after memokey;
+re-attribution owed).
+
+## 2026-09-14ab v2cost2 round 2 MERGED: the partition cache is 31 MB (recipes, deflated), partition+classify warm 321 → 18 s, OTHH patch 632 → 299 s, byte-identical
+
+Lane `v2cost2` @ 7bc09ea7. `MemberRecipe` / `MemberGeometries` (re-place
+on demand from the `ResourceCache`, pickle as recipes; bound at the
+hit site and in `extend_partition`): 1,047 → 31.3 MB (deflate level 1,
+lossless). `ResourceCache.derived_state()`/`restore_derived()` carry
+the small per-resource readings (0.3 MB, never the parse): partition
+8.07 s warm, classify 10.2; `planar` 63 → 84 s on a hit (the parse
+lands there) — partition+classify+planar 389 → 103 s. Identity held
+(patch sha, rebake, graded, body_sha equal base/cold/warm; CYXY
+equal). Suite 1,426 twice. Left named: VHHH `extend_partition`
+(`contact.extend:781-783`, needs a VHHH capture); the object-stage
+sinks (`_seg_gap2`, `comp_cluster`, `split_obj8`); OTHH exercises no
+`extend_partition` (0 plate objects) — the rebuild path is twin-proved.

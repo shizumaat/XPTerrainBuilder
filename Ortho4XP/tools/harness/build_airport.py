@@ -265,6 +265,7 @@ from shared_repo_guard import (                          # noqa: E402,F401
     report_unauthorised_writes, _DEGRADED_OPTIONS,
     require_no_swallowed_write_block, mirror_tree_as_overlay,
     BuildInputScope, contaminating_writes, tiles_named_in, airports_named_in,
+    tile_input_scope, mod_cache_pack_of, mod_cache_packs_naming,
     require_no_unauthorised_writes,
 )
 

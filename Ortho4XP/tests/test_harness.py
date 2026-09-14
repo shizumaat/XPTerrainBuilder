@@ -3331,6 +3331,145 @@ def test_the_airport_scoping_reads_the_road_feed_by_ICAO(build_mod):
         "OSM_data/_airport_road_feed/CYXY_road_feed.cache")
 
 
+# ── THE PACK RULE (2026-09-14, lane meshscope) ────────────────────────
+# Measured 2026-09-13: a +40-004 LEMD ``run_tile_mesh_only.py`` run, its
+# own ``guard.blocked`` EMPTY, failed rc 1 as CONTAMINATED on 117
+# ``Airport_mod_cache/c_EGY - 100_airport - HECA Cairo (Tai Models)/…``
+# paths (+ 1 OTHH path) a concurrent lane's object stage wrote.  The
+# mesh-only entry passed NO input scope, and even with one the paths are
+# hash-keyed (``o4_object_partition_<hash>.cache``) — they name no tile,
+# so the tile rule alone calls them unscopable.  The PACK is the scope
+# they carry; the entry now passes the same ``BuildInputScope`` the
+# build entry does, derived through ONE factory.
+
+_HECA_PACK = "c_EGY - 100_airport - HECA Cairo (Tai Models)"
+_LEMD_PACK = "Aerosoft - LEMD Madrid - 1 - Airport"
+_MS_OTHER_PACK_HASHED = (f"Airport_mod_cache/{_HECA_PACK}/"
+                         "o4_object_exclusions_02ffb16efa76df0f.cache")
+_MS_MY_PACK_HASHED = (f"Airport_mod_cache/{_LEMD_PACK}/"
+                      "o4_object_pad_frame_04edbf141805d34c.cache")
+_MS_MY_TILE = "Elevation_data/+40-010/N40W004.hgt"
+
+
+def _mesh_scope(build_mod, **kw):
+    return build_mod.BuildInputScope(
+        tiles=[(40, -4)], icaos=["LEMD"], packs={_LEMD_PACK}, **kw)
+
+
+def test_an_out_of_scope_PACK_sidecar_in_the_window_is_an_EXTERNAL_candidate(
+        build_mod):
+    """THE MEASURED CLASS: the HECA pack's hash-keyed sidecar, during a
+    +40-004 run whose guard blocked nothing → NAMED, external, rc 0."""
+    assert build_mod.mod_cache_pack_of(_MS_OTHER_PACK_HASHED) == _HECA_PACK
+    assert build_mod.mod_cache_pack_of(_MS_MY_TILE) is None
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [], "modified": [_MS_OTHER_PACK_HASHED], "removed": []},
+        set(), prog, blocked=[], input_scope=_mesh_scope(build_mod))
+    assert [o["path"] for o in offenders] == [_MS_OTHER_PACK_HASHED]
+    assert offenders[0]["external_candidate"] is True
+    assert build_mod.contaminating_writes(offenders) == []
+    build_mod.require_no_unauthorised_writes(offenders, entry="mesh-only")
+    assert "external-candidate" in "\n".join(notes)
+    # the other airport's tile-named dump is external under the TILE rule
+    assert not _mesh_scope(build_mod).covers(
+        f"Airport_mod_cache/{_HECA_PACK}/+30+031.dsf.text")
+
+
+def test_an_IN_scope_path_in_the_window_still_CONTAMINATES(build_mod):
+    """Both halves of the input set keep the law: the run's own tile, and
+    its own pack's hash-keyed sidecar."""
+    scope = _mesh_scope(build_mod)
+    for mine in (_MS_MY_TILE, _MS_MY_PACK_HASHED,
+                 "OSM_data/+40-010/+40-004/+40-004_airports.osm.bz2",
+                 "OSM_data/_airport_road_feed/LEMD_road_feed.cache"):
+        offenders = build_mod.report_unauthorised_writes(
+            {"added": [mine], "modified": [], "removed": []},
+            set(), types.SimpleNamespace(note=lambda m: None),
+            blocked=[], input_scope=scope)
+        assert offenders[0]["external_candidate"] is False, mine
+        with pytest.raises(SystemExit):
+            build_mod.require_no_unauthorised_writes(offenders,
+                                                     entry="mesh-only")
+
+
+def test_a_scope_that_names_NO_packs_keeps_the_old_strictness(build_mod):
+    """``packs=None`` (every pre-2026-09-14 caller) — a hash-keyed pack
+    sidecar is unscopable and contaminates exactly as before; and a
+    guard-blocked run externalises nothing even with packs scoped."""
+    old = build_mod.BuildInputScope(tiles=[(40, -4)], icaos=["LEMD"])
+    assert old.covers(_MS_OTHER_PACK_HASHED)
+    assert old.record()["packs"] is None
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [_MS_OTHER_PACK_HASHED], "modified": [], "removed": []},
+        set(), types.SimpleNamespace(note=lambda m: None),
+        blocked=[{"path": _MS_MY_TILE, "via": "open", "scope": "dem"}],
+        input_scope=_mesh_scope(build_mod))
+    assert offenders[0]["external_candidate"] is False
+
+
+def test_unknown_airports_keep_every_road_feed_in_scope(build_mod):
+    """A tile entry that could not enumerate its airports (no cached
+    airports layer) passes ``icaos=None``: a road feed is then unscopable,
+    never external — the conservative direction.  ``()`` still means "no
+    airport in scope"."""
+    feed = "OSM_data/_airport_road_feed/OTHH_road_feed.cache"
+    assert build_mod.BuildInputScope(tiles=[(40, -4)], icaos=None).covers(feed)
+    assert not build_mod.BuildInputScope(tiles=[(40, -4)], icaos=()).covers(
+        feed)
+    assert build_mod.BuildInputScope(tiles=[(40, -4)], icaos=None).record()[
+        "icaos"] is None
+
+
+def test_tile_input_scope_derives_its_packs_from_the_shared_repo(
+        build_mod, tmp_path):
+    """The ONE factory: a pack is in scope iff its cache dir names the tile
+    or a seam neighbour; the tile and its ICAOs ride along unchanged."""
+    root = tmp_path / "Airport_mod_cache"
+    for pack, names in {
+            _HECA_PACK: ["+30+031.dsf.text",
+                         "o4_object_exclusions_02ffb16efa76df0f.cache"],
+            _LEMD_PACK: ["+40-004.dsf.00b7681e.text"],
+            "Global Airports": ["+30+031.dsf.text", "+41-005.dsf.text"],
+            "Empty Pack": [],
+            }.items():
+        (root / pack).mkdir(parents=True)
+        for n in names:
+            (root / pack / n).write_text("")
+    (root / "stray_file").write_text("")
+    packs = build_mod.mod_cache_packs_naming({(40, -4), (41, -5)},
+                                             repo=tmp_path)
+    assert packs == {_LEMD_PACK, "Global Airports"}
+    scope = build_mod.tile_input_scope(40, -4, ["LEMD"], repo=tmp_path)
+    rec = scope.record()
+    assert rec["tiles"] == [[40, -4]] and rec["icaos"] == ["LEMD"]
+    assert rec["packs"] == sorted(packs)
+    assert rec["label"] == "tile +40-004"
+    assert not scope.covers(_MS_OTHER_PACK_HASHED)
+    assert scope.covers(_MS_MY_PACK_HASHED)
+    assert scope.covers(f"Airport_mod_cache/Global Airports/"
+                        f"o4_object_partition_0000000000000000.cache")
+    assert build_mod.mod_cache_packs_naming(set(), repo=tmp_path) == set()
+    assert build_mod.mod_cache_packs_naming({(40, -4)},
+                                            repo=tmp_path / "nowhere") == set()
+
+
+def test_the_mesh_only_entry_passes_the_SHARED_tile_scope_and_its_blocked_set():
+    """The entry derives its scope through the one factory and hands the
+    audit BOTH halves the label needs: the scope and its own blocked set
+    (without ``blocked=guard.blocked`` a guard-blocked run would
+    externalise)."""
+    src = MESH_ONLY.read_text()
+    assert "tile_input_scope(" in src
+    assert "tile_icao_candidates(" in src
+    assert "input_scope=input_scope" in src
+    assert "blocked=guard.blocked" in src
+    assert src.index("tile_input_scope(") < src.index("shared_repo_snapshot()"), (
+        "the scope is derived BEFORE the window opens")
+    assert "class BuildInputScope" not in src
+
+
 def test_the_refusal_reads_the_label_through_the_ONE_helper(build_mod):
     """``require_no_unauthorised_writes`` must not carry its own reading of
     the label — a second copy of ``not o['external_candidate']`` is the
@@ -3589,7 +3728,9 @@ def test_the_loaded_build_module_IS_the_guard_module_not_a_copy(build_mod):
                  "is_library_index_artifact", "RefreshLock",
                  "record_refresh", "report_unauthorised_writes",
                  "require_no_swallowed_write_block", "REFRESH_SCOPES",
-                 "SHARED_DATA_DIRS", "DATA_REPO"):
+                 "SHARED_DATA_DIRS", "DATA_REPO", "BuildInputScope",
+                 "tile_input_scope", "mod_cache_pack_of",
+                 "mod_cache_packs_naming"):
         assert getattr(build_mod, name) is getattr(guard_mod, name), (
             f"build_airport.{name} is not the guard module's own object — "
             f"a re-export that copies is the census-wrapper defect")

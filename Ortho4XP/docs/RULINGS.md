@@ -5449,3 +5449,30 @@ cut). `planar/basin_geometry.py` split out.
 * Not done: LEMD basin:0 control (the change moves every basin by
   design); no mesh run for the basin bar; the build predates two
   move-only commits and the v2cost2 merge.
+
+## 2026-09-14ad APP 1.0.333 BUILT (engine 1.50.1779): the VHHH tunnel back, OTHH basins/ramps/underpass, apron necks, slivers, the six chips, the cost cuts — bank still OFF; pads-match-clusters NOT yet in
+
+Main d7ac5c07 + version bump. Over 1.0.332: §40 (4) shoulder
+manufactures no region (14y — VHHH tunnel back); §24 (7)/(8), §34
+(7)/(8) (14ac — OTHH basin floors, 8-node ramps, the under-terminal
+corridor cut); §43 apron necks (14l); §41 (4) slivers + hole rings
+(14k); v2cost2 r1+r2 (14v/14ab — partition cache 31 MB, OTHH patch 632
+→ 299 s warm); v2gradecache r3 (14t); the six chips (14aa); v2connector
+r3–r6 (14j/14o/14z — outlines, the rail low, the deck lift gone).
+NOT in it: §16g (9)–(10) pads = clusters (lane `v2padcluster`
+running); HECA item 3 (apron cap / split — owner questions 13de); the
+KCLT tile (owner's DEM refresh). Every airport's first build is COLD
+for the partition cache (pays the partition once; the second build of
+a tile is the warm number).
+
+* What to read: VHHH 22.30368, 113.92917 (the tunnel ramp and open
+  wall back); OTHH the basin at 25.2523246, 51.6245625 (floor across
+  the span), the terminal ramps (8-node), the corridor under the
+  terminal at 25.26621, 51.61134 (cut, mouths moved 1.78 m); HECA
+  shape 344's neck (30.1141763, 31.4114194 → the taxiway carries the
+  slope), the hump at 30.1110278, 31.4062316 gone, the ring at
+  30.1107301, 31.4062627 gone; HECA's buildings still float where
+  clusters span pads (1.0.334).
+* Process: the app-build gate now uses `pgrep -fl … | grep -v pgrep`
+  — the earlier `pgrep -f` matched its own shell and refused a build
+  on an idle machine.

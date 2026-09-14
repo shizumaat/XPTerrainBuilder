@@ -10,11 +10,12 @@ vertices' canonical lat/lon identity so the census joins exactly.
   ``constraints.stretches``) as ``[[[lat, lon]…], cL, letter, ref]`` —
   the per-stretch pair law v2 verify re-composes (v1's oracle reads the
   stretch caps through ``axes``);
+* ``face_holes`` is NOT published here (RULINGS 2026-09-13da residual):
+  the emit's shore weld and sub-spacing merge reshape rings AFTER this
+  publication, so the patch writer derives the key from the surface it
+  writes (``emit/osm_adapter.face_holes_ll``) — the oracle's visibility
+  polygon is the face with the holes its EMITTED rings bound;
 * ``mesh_edges``: every junction-mesh face's triangle-mesh edges
-* ``face_holes``: every face's holes as ``[[lat, lon], ...]`` rings by
-  face id — the way's ``shapeID`` — so the v1 oracle's visibility polygon
-  is the face WITH its holes (RULINGS 2026-09-05ae(1)); a covered hole
-  ships no way of its own, so this is the oracle's only sight of it
   (RULINGS 2026-09-04y, ``constraints.junction_mesh``) as
   ``[[lat, lon], [lat, lon]]`` — the v1 oracle's JUNCTION MESH RULE
   consumes them 1:1 (``MeshEdgesExact``) and v2 verify prices exactly
@@ -123,24 +124,6 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
     return out
 
 
-
-def face_holes_ll(planar: PlanarMap) -> dict[str, list[list[list[float]]]]:
-    """Sidecar ``face_holes``: ``{face id: [hole ring [[lat, lon], ...], ...]}``
-    for every face that has a hole (module docstring; RULINGS
-    2026-09-05ae(1))."""
-    out: dict[str, list[list[list[float]]]] = {}
-    for fid, f in sorted(planar.faces.items()):
-        if not f.holes:
-            continue
-        rings = []
-        for h in f.holes:
-            ids = list(planar.ring_vertices(h))
-            if len(ids) >= 3:
-                rings.append([[planar.vertices[v].key[0], planar.vertices[v].key[1]]
-                              for v in ids])
-        if rings:
-            out[str(fid)] = rings
-    return out
 
 def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                  z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
@@ -285,7 +268,6 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "terrace_joints": terrace_joints_ll(planar, law, z),
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh,
-            "face_holes": face_holes_ll(planar),
             "airside_no_step_edges": edges,
             "pad_pavement_no_step_edges": pad_edges,
             # §38 (1)/(5): ``[lat, lon, the vertex's OWN tile's baked DEM

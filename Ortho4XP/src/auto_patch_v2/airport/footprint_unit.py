@@ -749,17 +749,22 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     rank = {"ground": 0, "pad": 1, "cluster_pad": 1, "deck": 2}
     n_open = 0
     for cn in conns:
-        ends = [(u, bx, ky) for u, bx, ky in
-                ((cn.end_a, cn.boxes_a, cn.keys_a),
-                 (cn.end_b, cn.boxes_b, cn.keys_b)) if u and bx]
+        # §16g (7) (2): each end's contact is read under the CONNECTOR'S
+        # OWN geometry at that end, never over the end unit — a rail's end
+        # component is a whole district and its median ground is not the
+        # ground the abutment stands on.
+        ends = [(u, own, ky) for u, own, bx, ky in
+                ((cn.end_a, cn.own_a, cn.boxes_a, cn.keys_a),
+                 (cn.end_b, cn.own_b, cn.boxes_b, cn.keys_b))
+                if u and bx and own]
         if not ends:
             continue
         ed = plan_unit_datums(
-            [PlanUnit(id=u, bodies=tuple(ky), pids=frozenset(), members=(),
-                      boxes=tuple(bx), area_m2=union_area_m2(list(bx)))
-             for u, bx, ky in ends], plan, surface, pads, cluster_min_m2)
+            [PlanUnit(id=u, bodies=(), pids=frozenset(), members=(),
+                      boxes=tuple(own), area_m2=union_area_m2(list(own)))
+             for u, own, ky in ends], plan, surface, pads, cluster_min_m2)
         cand = [(round(ed[u][0], 6), rank.get(ed[u][2], 3), u)
-                for u, _bx, _ky in ends if u in ed]
+                for u, _own, _ky in ends if u in ed]
         if not cand:
             continue
         _z, _r, u = min(cand)

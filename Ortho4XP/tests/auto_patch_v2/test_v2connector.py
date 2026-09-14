@@ -246,8 +246,15 @@ def test_a_connector_never_reaches_the_low_side_foot():
     assert a.reason.startswith(FU.UNIT_REASON)           # NOT a low-side foot
     assert "CONNECTOR" in a.reason
     assert a.connector_of.count("|") == 1 and a.connector_of != "|"
-    # seated at the LOW end's ground (10.0), not the high end's deck 25.0
-    assert abs(a.surface_z - a.y_zero - 10.0) < 1e-6
+    # seated at the ground under ITS OWN LOW END — the low third of its
+    # own footprint, where the synthetic surface runs 11.6 … 15.5 — and
+    # nowhere near the high end's deck at 25.0.  §16g (7) (2) reads the
+    # contact under the CONNECTOR, not over the end unit: a rail's end
+    # component is a whole district whose median says nothing about the
+    # ground its abutment stands on (HECA 95.77 against the rail's 73.4).
+    zero = a.surface_z - a.y_zero
+    assert 11.0 < zero < 16.0, zero
+    assert zero < 25.0 - 5.0
 
 
 def test_the_authored_unit_is_the_shared_dsf_origin_and_heading():

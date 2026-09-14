@@ -56,12 +56,24 @@ def m_per_deg_exact(lat: float) -> tuple[float, float]:
             111_412.84 * _math.cos(r) - 93.5 * _math.cos(3 * r))
 
 
-def ring_metres(ring, ml: float, mo: float) -> "list[tuple[float, float]]":
-    """A ``(lat, lon)`` footprint ring in METRES about the plan origin —
-    one scaling for the whole airport (``_ar._m_per_deg`` at a single
-    reference latitude), because a contact at 0.5 m cannot care about the
-    1e-5 m/deg the latitude carries across a few kilometres."""
-    return [(a * ml, b * mo) for a, b in ring]
+def ring_metres(ring, ml: float, mo: float):
+    """A ``(lat, lon)`` footprint ring in METRES with its own BOX:
+    ``(vertices, (x0, y0, x1, y1))``.
+
+    One scaling for the whole airport (a single reference latitude),
+    because a contact at 0.5 m cannot care about the 1e-5 m/deg the
+    latitude carries across a few kilometres.  The BOX is the reject that
+    makes the law affordable: a body is a SET of component rings, so
+    ``_polys_touch`` is a ring x ring product, and at HECA the bare
+    product cost the pass 104 s against 6.5 (measured).  A ring lies
+    inside its own box, so a box pair further apart than the tolerance
+    cannot touch."""
+    vs = [(a * ml, b * mo) for a, b in ring]
+    xs = [v[0] for v in vs]
+    ys = [v[1] for v in vs]
+    n = len(vs)
+    edges = [(vs[i], vs[(i + 1) % n]) for i in range(n)]
+    return (vs, (min(xs), min(ys), max(xs), max(ys)), edges)
 
 
 def _seg_gap2(p, q, r, t) -> float:
@@ -105,9 +117,16 @@ def _inside(ring, x: float, y: float) -> bool:
     return hit
 
 
+def _box_apart(a, b, eps_m: float) -> bool:
+    return (a[0] - b[2] > eps_m or b[0] - a[2] > eps_m
+            or a[1] - b[3] > eps_m or b[1] - a[3] > eps_m)
+
+
 def rings_touch(ra, rb, eps_m: float) -> bool:
     """§16g (7) (1): do these two FOOTPRINT POLYGONS touch or come within
-    ``eps_m``?  Rings are metre ``(x, y)`` vertex lists.
+    ``eps_m``?  Each ring is ``(vertices, edges)`` in metres — the edges
+    precomputed by :func:`ring_metres`, because this loop runs millions
+    of times and the modulo indexing was a measurable share of it.
 
     Edge-to-edge distance plus a containment test, which is the whole
     relation for two simple rings: either an edge pair is within the
@@ -118,14 +137,15 @@ def rings_touch(ra, rb, eps_m: float) -> bool:
     if not ra or not rb:
         return True                    # no ring: the box reading stands
     e2 = eps_m * eps_m
-    na, nb = len(ra), len(rb)
-    for i in range(na):
-        p, q = ra[i], ra[(i + 1) % na]
-        for j in range(nb):
-            if _seg_gap2(p, q, rb[j], rb[(j + 1) % nb]) <= e2:
+    va, ea = ra
+    vb, eb = rb
+    gap = _seg_gap2
+    for p, q in ea:
+        for r, t in eb:
+            if gap(p, q, r, t) <= e2:
                 return True
-    return (_inside(rb, ra[0][0], ra[0][1])
-            or _inside(ra, rb[0][0], rb[0][1]))
+    return (_inside(vb, va[0][0], va[0][1])
+            or _inside(va, vb[0][0], vb[0][1]))
 
 
 def boxes_touch(ba: _t.Sequence[tuple[float, float, float, float]],
@@ -189,9 +209,10 @@ def _polys_touch(ra, rb, eps_m: float) -> bool:
     has."""
     if not ra or not rb:
         return True
-    for x in ra:
-        for y in rb:
-            if rings_touch(x, y, eps_m):
+    for vx, bx, ex in ra:
+        for vy, by, ey in rb:
+            if (not _box_apart(bx, by, eps_m)
+                    and rings_touch((vx, ex), (vy, ey), eps_m)):
                 return True
     return False
 

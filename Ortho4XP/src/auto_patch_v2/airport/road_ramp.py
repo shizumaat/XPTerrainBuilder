@@ -62,11 +62,13 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import family, role_cap, role_side, senior_role
+from ..law.tables import (family, is_value_role, role_cap, role_side,
+                          senior_role)
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
-__all__ = ["deck_refs", "road_ramp_targets", "road_route_frame",
+__all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
+           "road_route_frame", "reach_contacts", "merge_routes",
            "with_road_ramp", "RampTargets"]
 
 class RampTargets(_t.NamedTuple):
@@ -76,6 +78,9 @@ class RampTargets(_t.NamedTuple):
 
     targets: dict[int, float]
     report: dict[str, _t.Any]
+    #: §37 (7)'s route frame the targets were read in (the SAME one
+    #: :func:`with_road_ramp` publishes — derived once per build)
+    frame: dict[int, tuple[int, float, float]] = {}
 
 
 def _road_roles(law: Law) -> frozenset[str]:
@@ -133,6 +138,150 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     return out
 
 
+def contact_roles(law: Law) -> frozenset[str]:
+    """§37 (10) (1) THE AIRSIDE CONTACT SET (owner RULINGS 2026-09-13cs
+    item 5): every face that carries its OWN airside level — apron, the
+    pad, the whole TAXI family (``junction`` and ``stub`` with it) and the
+    runway family, §40's shoulder joining as soon as the role is declared
+    — plus the roles ``[road_contact] extra_roles`` names (the LOT, which
+    ``precedence.toml`` partitions groundside but which is stated hard
+    surface a road meets).
+
+    Read off ``precedence.toml`` (``side = "airside"`` and ``value =
+    true``), never typed here: §37 (6) named "apron, pad or lot" in PROSE
+    and a taxiway was not in it, which is why HECA's ``route0`` ended
+    4.4 m short of ``pav74`` with no contact at all and targeted the DEM
+    1.2 m above it — a 33 % cliff.
+    """
+    roles = law.tables.precedence.roles
+    out = {r for r in roles
+           if role_side(law, r) == "airside" and is_value_role(law, r)}
+    out.update(getattr(law.tables.emit.road_contact, "extra_roles", ()) or ())
+    return frozenset(out)
+
+
+def _airside_level(pm: PlanarMap, v: int) -> float | None:
+    """THE AIRSIDE'S OWN LEVEL at one vertex: the highest of the published
+    airside targets it carries (``apron_trend_z`` / ``taxi_trend_z`` /
+    ``preferred_z``) and the DEM under it — airside is king, and the
+    contact is never sunk below the ground."""
+    cands = [z for z in (pm.apron_trend_z.get(v), pm.taxi_trend_z.get(v),
+                         pm.preferred_z.get(v)) if z is not None]
+    dem = pm.vertices[v].dem_z
+    if dem is not None:
+        cands.append(float(dem))
+    return max(float(z) for z in cands) if cands else None
+
+
+def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
+                   mouths: _t.Mapping[int, float],
+                   frame: _t.Mapping[int, tuple[int, float, float]],
+                   reach_m: float, end_m: float
+                   ) -> tuple[dict[int, tuple[int, int, float, float]],
+                              list[dict[str, _t.Any]]]:
+    """§37 (10) (1) THE CONTACT A ROAD DOES NOT TOUCH (owner RULINGS
+    2026-09-13cs item 5): for each ROUTE END that carries no mouth, the
+    nearest point on an airside face's EDGE within ``reach_m``.
+
+    Returns ``vertex -> (a, b, u, s)``: the two vertices of the airside
+    edge the road contacts, the interpolation parameter along it, and the
+    ROUTE distance from the contact to that vertex.  The generator turns
+    each into ONE-WAY ceiling ``z[v] <= (1-u)·z[a] + u·z[b] + cap·s``.
+
+    THE CONTACT LEVEL IS NOT ESTIMATED, IT IS THE AIRSIDE'S OWN COLUMN.
+    §37 (10) says "at that face's solved level", and pre-solve there is
+    no such number: MEASURED at the site, HECA ``pav74``'s ring vertices
+    beside ``route0`` carry NO published target at all (``taxi_trend_z``
+    / ``apron_trend_z`` / ``preferred_z`` all absent) and their DEM is
+    108.12 / 108.51, while the solve puts that edge at 106.77 — the
+    taxiway is CUT 1.4 m.  An estimated contact of ``max(published,
+    DEM)`` would have RAISED ``route0``'s end to 108.29 and made the
+    cliff worse (measured, arm 1).  A row against the airside's own
+    columns reads the level the solve gives it, and ``follows`` keeps it
+    ONE-WAY: airside is king, no airside vertex moves for a road.
+
+    An END is the road's own extent along its route — the vertices within
+    ``end_m`` (one lane width) of its first or last station.  A road that
+    runs BESIDE an apron for 400 m takes no contact from it: the mouth is
+    where the vehicle crosses, and that is an end.  A vertex with a
+    touching MOUTH between it and the end keeps that mouth's ramp; the
+    nearer of two reach ends wins.
+    """
+    from shapely.geometry import LineString, Point
+    from shapely.strtree import STRtree
+
+    cset = contact_roles(law)
+    segs: list[LineString] = []
+    ends: list[tuple[int, int]] = []
+    for fid, f in pm.faces.items():
+        if f.role not in cset:
+            continue
+        for cyc in (f.ring, *f.holes):
+            vs = pm.ring_vertices(cyc)
+            for a, b in zip(vs, list(vs[1:]) + [vs[0]]):
+                pa, pb = pm.vertices[a].xy, pm.vertices[b].xy
+                if math.dist(pa, pb) < 1e-6:
+                    continue
+                segs.append(LineString([pa, pb]))
+                ends.append((a, b))
+    out: dict[int, tuple[int, int, float, float]] = {}
+    named: list[dict[str, _t.Any]] = []
+    if not segs:
+        return out, named
+    tree = STRtree(segs)
+    by_route: dict[int, list[tuple[float, int]]] = {}
+    for v in owned:
+        fr = frame.get(v)
+        if fr is not None:
+            by_route.setdefault(fr[0], []).append((fr[1], v))
+    mouth_s: dict[int, list[float]] = {}
+    for v in mouths:
+        fr = frame.get(v)
+        if fr is not None:
+            mouth_s.setdefault(fr[0], []).append(fr[1])
+    at: dict[int, float] = {}                   # vertex -> its own |Δs|
+    for r, items in by_route.items():
+        items.sort()
+        ms = mouth_s.get(r, ())
+        for end_s, group in ((items[0][0], [v for s_, v in items
+                                            if s_ <= items[0][0] + end_m]),
+                             (items[-1][0], [v for s_, v in items
+                                             if s_ >= items[-1][0] - end_m])):
+            if any(abs(m - end_s) <= end_m for m in ms):
+                continue                       # the end already has a mouth
+            best: tuple[float, int, int, float, int] | None = None
+            for v in group:
+                if v in mouths:
+                    continue
+                p = Point(pm.vertices[v].xy)
+                for i in tree.query(p, predicate="dwithin", distance=reach_m):
+                    i = int(i)
+                    d = float(segs[i].distance(p))
+                    if best is not None and d >= best[0]:
+                        continue
+                    ln = segs[i]
+                    a, b = ends[i]
+                    u = (ln.project(p) / ln.length) if ln.length else 0.0
+                    best = (d, a, b, float(u), v)
+            if best is None:
+                continue
+            _d, a, b, u, at_v = best
+            n = 0
+            for s_, v in items:
+                ds = abs(s_ - end_s)
+                if any(min(end_s, s_) < m < max(end_s, s_) for m in ms):
+                    continue                   # a mouth stands between them
+                if v in at and at[v] <= ds:
+                    continue                   # a nearer end already governs
+                at[v] = ds
+                out[v] = (a, b, u, ds)
+                n += 1
+            named.append({"route": r, "governs": n, "gap_m": round(_d, 2),
+                          "edge": (a, b), "u": round(u, 3),
+                          "at": pm.vertices[at_v].xy})
+    return out, named
+
+
 def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
               ) -> dict[int, float]:
     """THE MOUTHS: every vertex of a road face whose senior role is an
@@ -150,14 +299,9 @@ def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
                 roles = pm.roles_at(v)
                 if not any(role_side(law, r) == "airside" for r in roles):
                     continue
-                dem = pm.vertices[v].dem_z
-                cands = [z for z in (pm.apron_trend_z.get(v),
-                                     pm.taxi_trend_z.get(v),
-                                     pm.preferred_z.get(v)) if z is not None]
-                if dem is not None:
-                    cands.append(float(dem))
-                if cands:
-                    out[v] = max(float(z) for z in cands)
+                z = _airside_level(pm, v)
+                if z is not None:
+                    out[v] = z
     return out
 
 
@@ -173,6 +317,48 @@ def _graph(pm: PlanarMap, nodes: _t.AbstractSet[int]
         adj.setdefault(e.a, []).append((e.b, d))
         adj.setdefault(e.b, []).append((e.a, d))
     return adj
+
+
+def _dijkstra(adj: _t.Mapping[int, list[tuple[int, float]]],
+              seeds: _t.Mapping[int, float], cap: float
+              ) -> tuple[dict[int, float], dict[int, float]]:
+    """THE HIGHER ENVELOPE OF THE MOUTHS (§37 (6)): the highest level a
+    contact can still be at after descending at ``cap`` along the road's
+    own graph — a max-label Dijkstra, exact because every hop only ever
+    LOWERS the label.  Returns the labels and the route distance walked."""
+    lab: dict[int, float] = {}
+    walked: dict[int, float] = {}
+    pq: list[tuple[float, int]] = []
+    for v, z in seeds.items():
+        if lab.get(v, -math.inf) < z:
+            lab[v] = z
+            walked[v] = 0.0
+            heapq.heappush(pq, (-z, v))
+    while pq:
+        nz, u = heapq.heappop(pq)
+        z = -nz
+        if z < lab.get(u, -math.inf) - 1e-9:
+            continue
+        for w, d in adj.get(u, ()):
+            zw = z - cap * d
+            if zw > lab.get(w, -math.inf) + 1e-9:
+                lab[w] = zw
+                walked[w] = walked.get(u, 0.0) + d
+                heapq.heappush(pq, (-zw, w))
+    return lab, walked
+
+
+def _lift(ss: _t.Sequence[float], vals: _t.Sequence[float], cap: float
+          ) -> dict[float, float]:
+    """§37 (8) ONTO THE ROUTE: the cap-Lipschitz UPPER envelope of the
+    per-vertex descent labels at the stations of ONE route, so the ramp is
+    ONE VALUE PER STATION and can never tilt a section."""
+    out = list(vals)
+    for i in range(1, len(out)):                            # forward
+        out[i] = max(out[i], out[i - 1] - cap * (ss[i] - ss[i - 1]))
+    for i in range(len(out) - 2, -1, -1):                   # backward
+        out[i] = max(out[i], out[i + 1] - cap * (ss[i + 1] - ss[i]))
+    return {s_: z_ for s_, z_ in zip(ss, out)}
 
 
 def _floor_along_route(pm: PlanarMap, law: Law, airport: Airport,
@@ -230,6 +416,92 @@ def _dem_twin(prof, per_face):
     return dem_prof, per_face_dem
 
 
+def merge_routes(ways: _t.Sequence, raw: _t.Mapping[int, tuple[int, float, float]],
+                 xy: _t.Mapping[int, tuple[float, float]],
+                 lateral_m: float, overlap_m: float, slack_m: float
+                 ) -> tuple[dict[int, int], list[dict[str, _t.Any]]]:
+    """§37 (10) (2) TWO ROUTES ARE ONE CARRIAGEWAY WHEN THEIR CORRIDORS
+    INTERPENETRATE (owner RULINGS 2026-09-13cs item 4).
+
+    ``raw`` is the per-vertex ``(route, s, t)`` answer before the merge.
+    Two routes whose frames place vertices within ``lateral_m`` of each
+    other over at least ``overlap_m`` of arc are ONE route: returns
+    ``route -> the route it merges into`` and the named pairs.
+
+    A 3 m ribbon at HECA carries route 5936 (a 40 m stub) and route 5934,
+    so every pair across it read ``NOT_A_PAIR``, the section was never
+    priced and the road stepped 1.30 m over 3.05 m (42.6 %) against a
+    1.5 % cap.  ``NOT_A_PAIR`` must never be the answer for two vertices
+    on ONE ribbon.
+
+    THE MERGE IS ONE-WAY, INTO THE LONGER ROUTE, AND ONLY WHERE THE
+    SHORTER ONE LIES INSIDE IT (every station of the shorter way within
+    ``lateral_m + slack_m`` of the longer's line).  Without that test one
+    6 m proximity chains route to route across a whole network and the
+    stations of the survivor mean nothing; with it a crossing (two routes
+    meeting at a point, no arc together) and two roads with ground
+    between them stay two routes.
+    """
+    from shapely.geometry import Point
+    from shapely.strtree import STRtree
+
+    vs = [v for v in raw if v in xy]
+    if len(vs) < 2:
+        return {}, []
+    pts = [Point(xy[v]) for v in vs]
+    tree = STRtree(pts)
+    span: dict[tuple[int, int], list[float]] = {}
+    hits = tree.query(pts, predicate="dwithin", distance=lateral_m)
+    for i, j in zip(hits[0].tolist(), hits[1].tolist()):
+        if i == j:
+            continue
+        ra, sa, _ = raw[vs[i]]
+        rb, sb, _ = raw[vs[j]]
+        if ra == rb:
+            continue
+        span.setdefault((ra, rb), []).append(sa)
+    cand: set[tuple[int, int]] = set()
+    for (ra, rb), ss in span.items():
+        if max(ss) - min(ss) >= overlap_m:
+            cand.add((min(ra, rb), max(ra, rb)))
+    if not cand:
+        return {}, []
+
+    def length(r: int) -> float:
+        w = ways[r]
+        return float(w.s[-1]) if len(w.s) else 0.0
+
+    parent: dict[int, int] = {}
+
+    def find(r: int) -> int:
+        while parent.get(r, r) != r:
+            parent[r] = parent.get(parent[r], parent[r])
+            r = parent[r]
+        return r
+
+    named: list[dict[str, _t.Any]] = []
+    order = sorted(cand, key=lambda p: -max(length(p[0]), length(p[1])))
+    for ra, rb in order:
+        a, b = find(ra), find(rb)
+        if a == b:
+            continue
+        if length(a) < length(b):
+            a, b = b, a
+        line = ways[a].line
+        wb = ways[b]
+        far = max(line.distance(Point(float(x), float(y)))
+                  for x, y in wb.xy)
+        if far > lateral_m + slack_m:
+            continue
+        parent[b] = a
+        named.append({"into": a, "into_ref": ways[a].ref,
+                      "into_kind": ways[a].kind, "route": b,
+                      "ref": wb.ref, "kind": wb.kind,
+                      "length_m": round(length(b), 1),
+                      "max_lateral_m": round(far, 2)})
+    return {r: find(r) for r in parent}, named
+
+
 def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
                      profiles=None) -> tuple[dict[int, tuple[int, float, float]],
                                              dict[str, _t.Any]]:
@@ -257,9 +529,11 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
         prof, per_face = profiles           # already unpacked by the caller
     else:
         prof, per_face = profiles, profiles.per_face
+    from shapely.geometry import Point
     roads = _road_roles(law)
     rid = {id(w): i for i, w in enumerate(prof.all_ways)}
     out: dict[int, tuple[int, float, float]] = {}
+    xy: dict[int, tuple[float, float]] = {}
     seen: set[int] = set()
     for fid, f in pm.faces.items():
         if f.role not in roads:
@@ -288,7 +562,29 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
                 if a.way is None:
                     continue
                 out[v] = (rid.get(id(a.way), -1), float(a.s), float(a.t))
+                xy[v] = vx.xy
+    # §37 (10) (2): two routes on ONE ribbon are ONE carriageway.  The
+    # merged route is RE-STATIONED on the survivor's own centreline, so
+    # every reader — the pair law, the ramp's floor, the coverage join —
+    # sees one route with one station axis and NOT_A_PAIR is never the
+    # answer for two vertices of one ribbon.
+    from .road_profile import _signed_offset
+    rc = law.tables.emit.road_contact
+    all_ways = prof.all_ways
+    into, merged = merge_routes(all_ways, out, xy, rc.pair_lateral_m,
+                                rc.pair_overlap_m, prof.lane_width_m)
+    if into:
+        lines = {r: all_ways[r].line for r in set(into.values())}
+        for v, (r, s_, t_) in list(out.items()):
+            dst = into.get(r)
+            if dst is None:
+                continue
+            ln = lines[dst]
+            p = Point(xy[v])
+            s2 = float(ln.project(p))
+            out[v] = (dst, s2, _signed_offset(ln, s2, xy[v]))
     rep = {"vertices": len(seen), "framed": len(out),
+           "merged_routes": len(into), "merged_pairs": merged,
            "no_route": len(seen) - len(out), "routes": len(prof.all_ways),
            # the ways BY ROUTE ID, so a caller reads the clamp on the route
            # THIS frame names (§37 (8)) instead of asking for a second
@@ -342,40 +638,41 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                               "on_ramp": 0, "no_contact": 0, "no_route": 0,
                               "max_above_dem_m": 0.0, "max_reach_m": 0.0,
                               "max_route_off_vertex_dem_m": 0.0,
-                              "max_clamp_over_dem_m": 0.0}
+                              "max_clamp_over_dem_m": 0.0,
+                              "reach_contacts": 0, "reach_ends": []}
     if not owned or cap is None:
-        return RampTargets({}, rep)
+        return RampTargets({}, rep, {})
     prof_f, per_face_f = _floor_along_route(pm, law, airport, profiles)
     dem_prof, per_face_dem = _dem_twin(prof_f, per_face_f)
+    frame, frep = road_route_frame(pm, law, airport, (prof_f, per_face_f))
+    ways = frep.pop("_ways")
+    rep["no_route"] = frep["no_route"]
+    rep["merged_routes"] = frep.get("merged_routes", 0)
+    rep["merged_pairs"] = frep.get("merged_pairs", [])
+    # §37 (10) (1): the contact a road does not TOUCH — the road ENDS
+    # within reach of an airside face's edge and takes that face's level
+    # there.  It is NOT a seed of this envelope: the level is the airside
+    # EDGE's own column, which pre-solve nobody knows (at HECA ``pav74``
+    # carries no published target and its DEM stands 1.4 m ABOVE the level
+    # the solve gives it, so seeding the estimate RAISED ``route0``'s end
+    # to 108.29 — measured, arm 1).  It is a ROW: see
+    # ``constraints/road_ramp.road_contact_rows``.
+    rc = law.tables.emit.road_contact
+    contact, reach_named = reach_contacts(pm, law, owned, mouths, frame,
+                                          rc.contact_reach_m,
+                                          prof_f.lane_width_m)
+    rep["reach_contacts"] = len(reach_named)
+    rep["reach_governed"] = len(contact)
+    rep["reach_ends"] = reach_named
     adj = _graph(pm, set(owned) | set(mouths))
     # THE HIGHER ENVELOPE OF THE MOUTHS (§37 (6)): ``g`` is the highest
     # level any mouth can still be at after descending at the cap along
     # the route — a max-label Dijkstra, exact because every hop only ever
     # LOWERS the label.
-    g: dict[int, float] = {}
-    pq: list[tuple[float, int]] = []
-    for v, z in mouths.items():
-        if g.get(v, -math.inf) < z:
-            g[v] = z
-            heapq.heappush(pq, (-z, v))
-    reach: dict[int, float] = {v: 0.0 for v in mouths}
-    while pq:
-        nz, u = heapq.heappop(pq)
-        z = -nz
-        if z < g.get(u, -math.inf) - 1e-9:
-            continue
-        for w, d in adj.get(u, ()):
-            zw = z - cap * d
-            if zw > g.get(w, -math.inf) + 1e-9:
-                g[w] = zw
-                reach[w] = reach.get(u, 0.0) + d
-                heapq.heappush(pq, (-zw, w))
+    g, reach = _dijkstra(adj, mouths, cap)
     # ONTO THE ROUTE (§37 (8)): per route, the cap-Lipschitz UPPER envelope
     # of the descent values at the stations that carry one — so the ramp is
     # ONE VALUE PER STATION and not one per vertex.
-    frame, frep = road_route_frame(pm, law, airport, (prof_f, per_face_f))
-    ways = frep.pop("_ways")
-    rep["no_route"] = frep["no_route"]
     by_route: dict[int, list[tuple[float, int]]] = {}
     for v in set(owned) | set(mouths):
         f_ = frame.get(v)
@@ -385,12 +682,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     for r, items in by_route.items():
         items.sort()
         ss = [s_ for s_, _v in items]
-        vals = [g.get(v, -math.inf) for _s, v in items]
-        for i in range(1, len(vals)):                       # forward
-            vals[i] = max(vals[i], vals[i - 1] - cap * (ss[i] - ss[i - 1]))
-        for i in range(len(vals) - 2, -1, -1):              # backward
-            vals[i] = max(vals[i], vals[i + 1] - cap * (ss[i + 1] - ss[i]))
-        env[r] = {s_: z_ for (s_, _v), z_ in zip(items, vals)}
+        env[r] = _lift(ss, [g.get(v, -math.inf) for _s, v in items], cap)
     targets: dict[int, float] = {}
     for v in sorted(owned):
         vx = pm.vertices[v]
@@ -428,7 +720,9 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["max_reach_m"] = round(rep["max_reach_m"], 1)
     rep["max_route_off_vertex_dem_m"] = round(rep["max_route_off_vertex_dem_m"], 3)
     rep["max_clamp_over_dem_m"] = round(rep.get("max_clamp_over_dem_m", 0.0), 3)
-    return RampTargets(targets, rep)
+    rep["_frame_report"] = frep
+    rep["_contact_edge"] = contact
+    return RampTargets(targets, rep, frame)
 
 
 def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
@@ -445,13 +739,30 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     the airside's own published target where it carries one.
     """
     tg = road_ramp_targets(pm, law, airport, profiles)
-    frame, frep = road_route_frame(pm, law, airport, profiles)
+    frame = tg.frame
+    frep = tg.report.pop("_frame_report", {})
     frep.pop("_ways", None)            # the Way objects are not a report
     if report is not None:
         report.update(tg.report)
         report.update({f"frame_{k}": v for k, v in frep.items()})
+    contact = tg.report.pop("_contact_edge", {})
+    # §37 (10) (1) AT THE MOUTH THE LEVEL IS THE AIRSIDE'S, AND ONLY THE
+    # AIRSIDE'S.  A road END that takes a reach contact carries the §37 (6)
+    # ramp target too — the clamp of its own terrain, which at HECA
+    # ``route0`` is 108.29 while ``pav74``'s edge solves at 106.77 — and
+    # the two are priced at the SAME ``[design] law`` weight, so the end
+    # split the difference and landed 0.70 m short of the contact
+    # (measured, arm 3).  A weight contest is not a law: the target is
+    # WITHDRAWN over the end group (route distance under one lane width,
+    # where the contact row's own allowance ``cap x s`` is under 0.32 m),
+    # exactly as ``preferred_road_z`` is withdrawn under the ramp.
+    lane = float(law.tables.emit.road_profile.lane_width_m)
+    at_mouth = {v for v, (_a, _b, _u, s_) in contact.items() if s_ <= lane}
+    targets = {v: z for v, z in tg.targets.items() if v not in at_mouth}
+    if report is not None:
+        report["contact_mouth_withdrawn"] = len(tg.targets) - len(targets)
     keep = {v: z for v, z in pm.preferred_z.items() if v not in tg.targets}
     if report is not None:
         report["preferred_withdrawn"] = len(pm.preferred_z) - len(keep)
-    return _dc.replace(pm, road_ramp_z=tg.targets, road_route_frame=frame,
-                       preferred_z=keep)
+    return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
+                       road_contact_edge=contact, preferred_z=keep)

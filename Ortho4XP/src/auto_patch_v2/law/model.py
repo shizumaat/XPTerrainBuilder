@@ -455,6 +455,26 @@ class RoadProfile:
     lane_width_m: float
     answer_radius_lane_widths: float
 
+
+@_dc.dataclass(frozen=True)
+class RoadContact:
+    """§37 (10) THE AIRSIDE CONTACT SET AND THE GEOMETRIC ROUTE PAIR
+    (Fable 2026-09-13; owner RULINGS 2026-09-13cs items 3/4/5)."""
+
+    #: (1) a road that ENDS this far from an airside face's edge without
+    #: touching it takes a contact at the nearest edge point
+    contact_reach_m: float
+    #: (2) two routes whose frames place vertices this close laterally...
+    pair_lateral_m: float
+    #: ... over at least this much arc are ONE carriageway
+    pair_overlap_m: float
+    #: contact roles BESIDE the airside value roles (apron, pad, the taxi
+    #: family, the runway family with §40's shoulder): §37 (10)'s LOT,
+    #: which precedence.toml partitions groundside but which is hard
+    #: surface a road meets at a stated level
+    extra_roles: tuple[str, ...] = ()
+
+
 @_dc.dataclass(frozen=True)
 class EmitLaw:
     """emit.toml."""
@@ -471,6 +491,8 @@ class EmitLaw:
     seam: Seam
     lateral_contiguity: LateralContiguity
     road_profile: RoadProfile
+    #: [road_contact]: §37 (10) (RULINGS 2026-09-13cs)
+    road_contact: RoadContact
     terrace: Terrace
     #: [design]: THE DESIGN SURFACE's objective weights (RULINGS 2026-09-08t) —
     #: replaces [relaxation] and [yield], deleted with the tier / IIS /

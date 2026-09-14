@@ -8724,3 +8724,139 @@ BARS (HECA 1.0.329 frame, dry arm then ONE HECA build): route0's end within
 ≤ 2 % over 3 m); route7 contact from pav131, `pav115` cross-slope ≤ 1.5 %; the
 `road_cross_section` / `transverse` / `road_ramp` census before → after on
 HECA and KCLT (KCLT from its registered frame, dry); suite twice.
+
+#### §37 (10) CONSUMER CENSUS (owner RULINGS 2026-08-30l), completed BEFORE any consumer was edited — lane `v2roadcontact`
+
+The change adds ONE region (the reach contact's airside EDGE) and changes ONE
+existing reading (the route frame's route ids, through the merge). Both are
+derived at ONE site — `airport/road_ramp.py` — and published as channels.
+
+**A. EVERY READER OF `PlanarMap.road_route_frame` (the merge changes route ids).**
+
+| # | consumer | RULE |
+|---|---|---|
+| F1 | `constraints/roads.road_within_shape` (the generator) | UNCHANGED CODE beyond passing the new `one_ribbon` argument. Route ids are OPAQUE to it: it only asks whether two frames name the SAME route. A merge can only turn `NOT_A_PAIR` into a priced pair — never the reverse. |
+| F2 | `verify/within.road_frames` | UNCHANGED — reads the published frame by identity key; ids are opaque. Passes `one_ribbon_m()`. |
+| F3 | `tools/check_grade._road_frame_by_nid` (sidecar `road_route_frame`, a LAW INPUT) | UNCHANGED — ids opaque; the ONE reading `road_pair_reading` is imported, and the ONE-RIBBON width with it (`one_ribbon_m()`), so generator / verify / census keep pricing one law. Twinned (`test_v2roadcontact.py`). |
+| F4 | `emit/road_join.road_coverage_joins` (§37 (9)) | UNCHANGED — reads `(route, station)` to find a way's coverage exit. A merged route re-stations onto the SURVIVOR's centreline, so the exit is found on the survivor's line; MEASURED: `road_coverage_join` 0 on both HECA arms and both KCLT arms. |
+| F5 | `airport/road_ramp.road_ramp_targets` (the ramp's own floor + envelope) | READS THE MERGED FRAME, which is the point: the clamp is read at `ways[route].at(s)` — the survivor's own profile — so a merged ribbon has ONE floor per station instead of two. |
+| F6 | `pipeline/publication` / `emit/osm_adapter` (the sidecar key) | UNCHANGED — it publishes whatever the channel holds. |
+
+**B. THE CONTACT ROW, AND WHY IT IS NOT A TARGET.**
+
+| # | consumer | RULE |
+|---|---|---|
+| C1 | the §37 (6) ramp target (`road_ramp_z`) | **WITHDRAWN over the end group** (route distance ≤ one lane width). At the mouth the level is the airside's, and only the airside's. MEASURED: with both authorities at `[design] law` HECA `route0`'s end split the difference and stood 0.70 m over its contact (arm 3); with the target withdrawn, 0.054 m. |
+| C2 | `[design] hard_rulings` | **NOT REGISTERED, and the reason is measured**: `solve/design` carries ONE `shift` vector, and the augmented Lagrangian's `shift[hard_i] = mu / rho` OVERWRITES the one-way lag of a row in both registers — the leaders vanish from the row. Registered hard, this row drove HECA's roads to `z − DEM = −108 m` and minted 63,170 within-shape rows (arm 2). The §37 (6) ramp ceiling above it stays the hard one. **This is a solver limitation, not a law: hard + one-way is not expressible today.** |
+| C3 | `[design] one_way_rulings` | **REGISTERED** — `follows=(v,)`, so the road vertex keeps its column and the two AIRSIDE columns enter the right-hand side lagged. No contact row can move an airside vertex (airside is king). |
+| C4 | `classify/roles` / §27's flip | UNAFFECTED — the contact SET is read off `precedence.toml` (`side = "airside"` and `value = true`) plus `[road_contact] extra_roles`, so §40's runway shoulder joins by being DECLARED, not by being typed. A role with no level of its own (`graded_strip`, `boundary`, a clearance) is not a contact. |
+| C5 | `emit/bank.py`, `road_terrain_conformance`, the census families | UNAFFECTED — all read the SOLVED surface / the emitted patch. |
+| C6 | a capture pickled before the channel | `tools/v2_solve_replay.py` BACKFILLS a missing `PlanarMap` field at its dataclass default and NAMES it (the publisher derives the channel in the replay anyway). Without it a registered frame another lane shares becomes unreplayable. |
+
+### §37 (10) **MEASURED** (lane `v2roadcontact`, 2026-09-13, branch `claude/v2roadcontact`, base `1a7a7158`)
+
+Frame: ONE HECA capture (`v2_solve_replay --capture`, 156 s, 17,408 vertices /
+762 faces, registered), replayed on the BASE tree and on this branch — a
+matched pair on one capture. KCLT: the registered `v2roadramp` capture
+(base `70646dc8`), the same matched-pair method, the base arm cut with
+`git archive 1a7a7158 src/auto_patch_v2`.
+
+#### THE OWNER'S SITES
+
+| site | BASE | §37 (10) |
+|---|---|---|
+| (5) `route0` end 30.1077666, 31.4031555 vs `pav74`'s edge | 108.09 against a contact level of **106.630** — **+1.460 m** | **106.67 against 106.616 — +0.054 m** (bar 0.05 m: 0.004 m over, one materiality floor) |
+| (5) the step over the 4.4 m gap | 33 % | **1.2 %** |
+| (4) the pair 30.1096746,31.4048466 / 30.1096476,31.4048517 (3.05 m apart, route frames 5936 / 5934) | 105.25 vs 103.95 = **1.30 m, 42.6 %** | **104.00 vs 103.96 = 0.04 m, 1.3 %** (bar ≤ 2 %: MET) |
+| (3) `route7` / `pav115` 30.1114112,31.4063353 | 107.72 | 107.72 — **UNCHANGED, and the ruling's premise is REFUTED below** |
+
+**ITEM 3'S MECHANISM IS REFUTED.** §37 (10) (1) says `route7` "holds the DEM
+beside `apron:pav131`" for want of a contact. MEASURED on the capture:
+`route7` is 15 vertices in two faces and **8 of them ARE airside mouths** —
+v7150/7151/7152/7167 on `pav115`, v7161/7162/7163/7164/7170 on `pav131`,
+every one at 0.00 m. It has contacts at both ends already, and its 6 owned
+vertices stand 0.6–1.0 m over those mouths across Δs ≈ 18 m — **inside its
+own 8 % longitudinal cap (allowance 1.44 m)**, so neither a contact nor a
+climb ceiling can move it. The "hill" is a lawful road between two mouths
+that are themselves on their terrain (mouth DEM 109.6–110.1, solved
+109.16–109.54). `pav115`'s cross-slope is an AIRSIDE (taxi-family) question,
+not a road-contact one. Attempt spent; no code was written for item 3.
+
+#### HECA CENSUS (harness `census.py`, the two replay-emitted patches)
+
+| | BASE | §37 (10) |
+|---|---|---|
+| LAW-TRUE | 38,437 | **38,289** |
+| ADJUDICATED | 12,312 (airside 11,960 / gs 299) | **12,268** (airside 11,941 / **gs 274**) |
+| `road_cross_section` | 21 | **28** |
+| `transverse` | 771 | **742** |
+| `road_coverage_join` | 0 | 0 |
+| v2 verify `road_cross_section` / `within_shape` / `transverse` | 4 / 8,986 / 771 | 9 / 8,989 / 742 |
+
+#### KCLT (matched replay pair on the registered `v2roadramp` capture)
+
+| | BASE | §37 (10) |
+|---|---|---|
+| LAW-TRUE | 13,577 | 13,666 |
+| ADJUDICATED | 5,075 (airside 3,524 / gs 1,549) | 5,101 (airside **3,656** / gs **1,443**) |
+| `road_cross_section` | **373** | **280** |
+| `transverse` | 271 | 288 |
+| v2 verify `road_cross_section` | 2 | 8 |
+
+Dry derivation at KCLT: **132 reach ends** governing 978 of 1,796 road
+vertices, **6 merged route pairs** (named: `route585#377`→`osm:-10026`,
+`osm:-10627`→`osm:-10628`, `route437#341`→`osm:-12916`,
+`route459#346`→`osm:-12039`, `osm:-13773`→`osm:-10617`,
+`route717#399`→`osm:-9748`), 268 mouth targets withdrawn.
+
+#### §37 (10) (3) IS ALREADY TRUE, AND THE "4 ROWS" WAS A VIOLATION COUNT
+
+The clause reads "`road_cross_section` at HECA goes from 4 rows to every
+ribbon". MEASURED on the generator: cross-section rows are PRICED on **15 of
+HECA's 18 road / groundside refs in BOTH arms** (`route8` 108→115, `route0`
+63→67, `route2` 61→62, `pav55` 48→54…). The 4 was the VERIFY VIOLATION
+count, not a priced-row count. What the ruling actually buys is the pairs
+the switchback rule was freeing wrongly: `road_within_shape` `routed`
+9,932 → **9,973**, `not_a_pair` 9,092 → **9,065** at HECA, and
+`not_a_pair` 41,820 with 24,164 routed at KCLT.
+
+#### AIRSIDE MOTION — REPORTED, NOT CLAIMED CLEAN
+
+No CONTACT row can move an airside vertex (one-way, C3). But the one-ribbon
+pair rule prices pairs on road RINGS, whose vertices include the mouths a
+road shares with its apron, and withdrawing 66 mouth targets re-solves the
+whole LP. MEASURED HECA base → arm over 9,255 airside value vertices:
+**115 move more than 0.1 m (1.2 %), 2 more than 0.5 m, worst 0.770 m**
+(an apron at 30.1014237, 31.3933314); runway worst 0.080 m. The bar "no
+airside vertex moves for a road" is NOT met as a byte reading; no row
+minted by this lane pulls airside.
+
+#### Build-time impact statement
+
+One extra STRtree over the airside faces' ring edges and one nearest-edge
+query per route END, plus the merge's one `dwithin` query over the framed
+road vertices. MEASURED standalone on the HECA capture with the road
+profiles WARM (as the build shares them, P9), three runs each:
+`with_road_ramp` **0.23 / 0.23 / 0.26 s on this branch against 0.26 / 0.27 /
+0.27 s on the base** — inside the run-to-run spread, no new pass and no
+second `core_profiles`. Whole HECA build 337.6 s (tag `v2roadcontactHECA2`);
+no A/B is claimed (standing law: never one run per side). The solve carries
+301 extra one-way rows at HECA and 978 at KCLT.
+
+#### THE CLOSING BUILD (the acceptance arm)
+
+ONE HECA build through the harness, tag **`v2roadcontactHECA2`**, rc 0,
+**337.6 s**, `status feasible`, `body_sha 38465d2dfd2a`, artifact ledger
+**`96f569b01af9`**, `[guard] shared repo UNCHANGED`. Read against the
+OWNER'S SHIPPED 1.0.329 patch at the two sites:
+
+| site | shipped 1.0.329 | build `v2roadcontactHECA2` |
+|---|---|---|
+| `route0` end vs `pav74`'s edge (106.616 / 106.606) | 108.09 — **+1.474 m** | 106.66 — **+0.054 m** |
+| item-4 pair over 3.05 m | 105.25 / 103.95 = **1.30 m, 42.6 %** | 103.83 / 103.88 = **0.05 m, 1.6 %** |
+
+Build census (harness): LAW-TRUE 38,441, ADJUDICATED 12,771 (airside 12,446
+/ groundside **273**), `road_cross_section` 23, `transverse` 790,
+`road_coverage_join` 0; v2 verify 16,589 rows, DEFECT families ALL ZERO.
+The build's frame is not the replay pair's, so the before → after reading
+is the REPLAY PAIR above; the build is the acceptance arm.

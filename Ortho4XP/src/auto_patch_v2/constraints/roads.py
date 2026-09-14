@@ -26,7 +26,7 @@ from .geometry import long_axis, pair_is_transverse
 from .precedence import view
 
 __all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
-           "road_pair_reading", "NOT_A_PAIR", "NO_FRAME"]
+           "road_pair_reading", "one_ribbon_m", "NOT_A_PAIR", "NO_FRAME"]
 
 #: :func:`road_pair_reading` verdicts (§37 (7)).
 NOT_A_PAIR = "not_a_pair"     # two routes: a switchback's branches
@@ -45,10 +45,30 @@ def road_family_roles(law: Law) -> tuple[str, ...]:
     return tuple(family(law, "road_cross_section").roles)
 
 
+_ONE_RIBBON: float | None = None
+
+
+def one_ribbon_m(law: Law | None = None) -> float:
+    """§37 (10) (2) ONE RIBBON'S WIDTH — ``[road_contact] pair_lateral_m``.
+    Two vertices closer than this in PLAN are on one carriageway however
+    many route frames answer them, so ``NOT_A_PAIR`` is never their
+    verdict.  The census has no ``Law`` in hand and reads the same key
+    through the default tables, so all three readers price one number."""
+    global _ONE_RIBBON
+    if law is not None:
+        return float(law.tables.emit.road_contact.pair_lateral_m)
+    if _ONE_RIBBON is None:
+        from ..law import load_default
+        _ONE_RIBBON = float(
+            load_default().tables.emit.road_contact.pair_lateral_m)
+    return _ONE_RIBBON
+
+
 def road_pair_reading(cap_l: float, cap_t: float, min_deg: float,
                       fa: tuple[int, float, float] | None,
                       fb: tuple[int, float, float] | None,
-                      chord: float | None = None
+                      chord: float | None = None,
+                      one_ribbon: float = 0.0
                       ) -> tuple[float, bool] | str:
     """§37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (owner RULINGS
     2026-09-13av) — THE ONE READING, imported by the generator, the v2
@@ -78,6 +98,19 @@ def road_pair_reading(cap_l: float, cap_t: float, min_deg: float,
     if fa is None or fb is None:
         return NO_FRAME
     if fa[0] != fb[0]:
+        # §37 (10) (2) (owner RULINGS 2026-09-13cs item 4): NOT_A_PAIR is
+        # NEVER the answer for two vertices ON ONE RIBBON.  Two routes
+        # answering vertices a road's width apart in PLAN are one
+        # carriageway — HECA's 3 m ribbon carries route 5936 (a 40 m stub)
+        # and route 5934, and the section between them went unpriced and
+        # stepped 1.30 m over 3.05 m (42.6 %) against a 1.5 % cap.  The
+        # SWITCHBACK the ruling frees is the other case: KCLT
+        # ``dsf:pol51``'s two branches stand 45.6 m apart in plan.  Across
+        # the ribbon the pair is a CROSS-SECTION and prices at ``cap_t x
+        # its plan distance`` — the reading it would have had on one route
+        # with ``Δs = 0``.
+        if chord is not None and one_ribbon > 0.0 and chord <= one_ribbon:
+            return cap_t * float(chord), True
         return NOT_A_PAIR
     ds, dt = abs(fa[1] - fb[1]), abs(fa[2] - fb[2])
     transverse = math.degrees(math.atan2(dt, ds)) >= min_deg
@@ -158,6 +191,7 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     for k in stats:
         stats[k] = 0
     min_deg = law.tables.common.road_transverse_axis_min_deg
+    ribbon = one_ribbon_m(law)          # §37 (10) (2): one ribbon's width
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     rows: list[Row] = []
     # groundside classes without a cross-section axis: all pairs at the
@@ -193,7 +227,8 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     # §37 (7): the ROUTE reading where the map carries the
                     # road's own frame; the chord law where it does not
                     read = road_pair_reading(cap_l, cap_t, min_deg,
-                                             frame.get(a), frame.get(b), d) \
+                                             frame.get(a), frame.get(b), d,
+                                             ribbon) \
                         if frame else NO_FRAME
                     if read == NOT_A_PAIR:
                         # A RING EDGE IS ALWAYS PRICED (the census's own

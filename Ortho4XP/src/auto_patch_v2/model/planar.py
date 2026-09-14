@@ -239,6 +239,16 @@ class PlanarMap:
     #: does; empty on a map the publisher never ran over (the chord law).
     road_route_frame: _t.Mapping[int, tuple[int, float, float]] = _dc.field(
         default_factory=dict)
+    #: §37 (10) (1) THE AIRSIDE CONTACT A ROAD DOES NOT TOUCH (owner
+    #: RULINGS 2026-09-13cs item 5; ``airport/road_ramp.reach_contacts``):
+    #: road vertex -> ``(a, b, u, s)`` — the two vertices of the AIRSIDE
+    #: edge its route END contacts within ``[road_contact] contact_reach_m``,
+    #: the interpolation along that edge and the ROUTE distance from the
+    #: contact.  The generator prices ONE-WAY ``z[v] <= (1-u)·z[a] +
+    #: u·z[b] + cap·s``: the road ramps away from the airside's OWN SOLVED
+    #: level at its own cap, and never pulls the airside (airside is king).
+    road_contact_edge: _t.Mapping[int, tuple[int, int, float, float]] = \
+        _dc.field(default_factory=dict)
     #: §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be;
     #: ``emit/road_join.py``): road vertex -> the CORE ribbon's altitude at
     #: the first station outside the patch coverage, as an EQUALITY — the

@@ -51,6 +51,12 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # target at the law weight, with a HARD ceiling a visual threshold above
     # it, superseding the core's soft road fit (``constraints/road_ramp.py``).
     ("road_ramp", road_ramp.road_ramp_rows),
+    # §37 (10) (1) THE AIRSIDE CONTACT SET INCLUDES TAXIWAYS (owner RULINGS
+    # 2026-09-13cs item 5): a road that ENDS within ``[road_contact]
+    # contact_reach_m`` of an airside face's edge without touching it takes
+    # a ONE-WAY ceiling at that edge's own solved level plus its own cap
+    # along the route — HECA ``route0``'s 33 % cliff over 4.4 m.
+    ("road_contact", road_ramp.road_contact_rows),
     # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): where a
     # road's way leaves the patch coverage the patch takes the CORE
     # ribbon's altitude just outside — the two are one road.

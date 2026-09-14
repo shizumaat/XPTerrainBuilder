@@ -5195,3 +5195,27 @@ NOT MET (predicted ≈ 272). Left for a ruling: the trailing
 `unary_union(parts)` over already-disjoint parts (3 sites) →
 `shapely.multipolygons` would skip a GEOS overlay but may reorder
 members — needs a patch-level identity gate, not `structures.json`.
+
+## 2026-09-14u Owner rulings: (1) the OTHH under-building tunnel — push the MOUTH away from airside so the ramp holds the cap and reaches full depth; (2) "the pads under a connected unit take their level from the seated bodies … the pack author's terracing wins" APPROVED
+
+Owner, verbatim: "1. For the OTHH under building tunnel, when the ramp
+can't reach airside, push the mouth away from airside enough to
+maintain grade cap, allowing ramp to reach full depth under the
+building. 2. 'the pads under a connected unit take their level from the
+seated bodies so nothing floats and the pack author's terracing wins'
+approved"
+
+* §34 (8) AMENDED (supersedes the portal rule of 14p): when
+  `stop_and_steepen` cannot reach the ground inside `max_ramp_grade`
+  before airside pavement, the MOUTH MOVES AWAY from the airside edge
+  (toward / under the building) by the length the cap needs — the
+  trench lengthens, the ramp runs at the cap from the moved mouth and
+  reaches full depth under the building; no portal step; airside never
+  pulled. Lane `v2othhfix`.
+* §16g (8) / §30 (6): for a unit whose members stand on several pads,
+  each pad's level is DERIVED from the seated unit — pad = unit datum +
+  the authored floor offset of the bodies on that pad (the cluster pad
+  is the datum plane at the reference pad); the ground between pads
+  terraces by the ground law; no body floats. The design surface takes
+  the pads from the objects, not the objects from the pads. Lane
+  `v2connector` r5.

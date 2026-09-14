@@ -11480,3 +11480,16 @@ carried 4 interior vertices and a 42 % mouth step.  The basin pass re-nodes
 the ramp corridor at `ramp_station_m` before emission (the structures pass's
 stationed ramp is the model).  BAR: any basin ramp corridor ≥ 1 vertex per
 `ramp_station_m` along its axis; the mouth grade within the ramp cap.
+
+### §34 (8) AMENDED — A CLIMB THAT CANNOT REACH AIRSIDE MOVES ITS MOUTH AWAY FROM AIRSIDE (owner RULINGS 2026-09-14u; supersedes the portal of 14p) — lane `v2othhfix`
+
+When `stop_and_steepen` cannot reach the ground inside `max_ramp_grade`
+before the axis enters airside pavement, the corridor's MOUTH is moved away
+from the airside edge — toward and if need be under the building — by the
+run the cap needs (rise / `max_ramp_grade` − the run available); the trench
+lengthens by that amount, the ramp runs at the cap from the moved mouth to
+the ground, and the corridor reaches full depth under the building.  No
+portal step; the airside cell is never pulled; the report names the moved
+mouth and the metres it moved.  BAR: `OTHH_Terminal_Base_2_5.obj@0` cut with
+both mouths, each mouth's move named (the /a side needs ≥ 1.7 m more run at
+10 %); the five `Terminal_Base_2_1` corridors unchanged.

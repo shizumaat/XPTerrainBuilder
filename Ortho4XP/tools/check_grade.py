@@ -6057,6 +6057,17 @@ def _check_bank_across_seam(seam_half_width_m, seam_pins_ll, nodes,
 #: (``O4_Mesh_Utils.HAIRLINE_DEGENERATE_M``): an assumption and a
 #: REPORTING threshold, never a law.
 HAIRLINE_DEGENERATE_M = 0.010
+#: §39 (2): a vertex closer than this to a foreign edge IS ON it.  The
+#: emitted identity is 11 decimal places of a degree, so rounding a
+#: point that lies exactly on a line to the coordinates the patch
+#: writes leaves it up to half a quantum off — 0.5e-11 deg, 0.6 um.
+#: A vertex the 11-dp identity join cannot distinguish from a point OF
+#: the edge is not laid BESIDE it, which is what §39 forbids, and the
+#: mesh (whose own ``.node`` writes 9 decimals, a 0.11 mm grid) cannot
+#: see the difference either.  Two quanta, so both axes fit.  It hides
+#: none of the four measured sites: the nearest is VMMC at 0.0124 mm,
+#: eleven times this.
+HAIRLINE_ON_EDGE_M = 2.0 * _M_PER_DEG_LAT * 1.0e-11
 
 
 def _hairline_segments(nodes, ways, feature_ways) -> List[Tuple[
@@ -6205,6 +6216,12 @@ def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
     for v in out:
         if v.distance_m >= HAIRLINE_DEGENERATE_M:
             v.out_of_scope = HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE
+        elif v.reading != "short" and v.distance_m <= HAIRLINE_ON_EDGE_M:
+            # ON the edge, not beside it — a shared point, which the mesher
+            # splits the foreign segment at, cleanly.  §39 (1)'s own
+            # projection branch produces exactly these (KCLT round 2:
+            # 0.2-0.4 um) and LEMD's five survivors read exactly 0.000 m.
+            v.out_of_scope = HAIRLINE_ON_EDGE_OUT_OF_SCOPE
     out.sort(key=lambda r: r.distance_m)
     return out
 
@@ -8143,7 +8160,19 @@ WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE = "withdrawn_law_05aa"
 #: gap is ABOVE the degenerate floor (:data:`HAIRLINE_DEGENERATE_M`).
 #: Measured and named, never counted for acceptance.
 HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE = "above_degenerate_floor"
+#: §39 (2): the stamp of a row whose vertex stands ON the foreign edge
+#: within the 11-dp identity quantum (:data:`HAIRLINE_ON_EDGE_M`).
+HAIRLINE_ON_EDGE_OUT_OF_SCOPE = "on_the_edge"
 OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
+    HAIRLINE_ON_EDGE_OUT_OF_SCOPE:
+        "ON the foreign edge, not beside it (spec 39 (1)/(2)): the "
+        "emitted vertex is within the 11-dp identity quantum of the "
+        "edge, i.e. it IS a point of it as far as the identity join "
+        "and the mesh's own 9-decimal .node grid can tell.  The "
+        "mesher splits the foreign segment there and no wedge exists.  "
+        "The shore weld's PROJECTION branch produces exactly these "
+        "(KCLT round 2: three at 0.2-0.4 um).  It hides none of the "
+        "four measured sites - the nearest, VMMC, is 0.0124 mm.",
     HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE:
         "ordinary layout, not a hairline (spec 39 (2), owner RULINGS "
         "2026-09-13bk/13bt/13bu): the emitted vertex stands beside a "

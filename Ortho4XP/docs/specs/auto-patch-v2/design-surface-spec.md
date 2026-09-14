@@ -8448,3 +8448,59 @@ specified (60 m, at the law's weight, bounded only by the taxi band's own
 vertices and its catchment) cannot hold the taxiways still, and what
 gives — a shorter reach, a HARD ceiling on taxi movement, or the apron
 between pad and taxiway staying graded — is the owner's to rule.
+
+### §30 (4) ROUND 3 MEASURED (lane `v2clusterpad`; RULINGS 13cc) — THE REACH STILL MISSES, AND THE PLANE MERGE IS INERT
+
+13cc's two amendments landed: (i) the reach's population now also strikes
+every apron vertex a taxi-family NO-STEP row couples to a taxi vertex
+(`no_step.no_step_edges`, the one derivation of that coupling), and (ii)
+the reach's rows are priced at `[design] apron_trend` (30) through a new
+`cluster_reach_rulings` weight class, an order below `law` (300).
+
+THREE MATCHED KCLT ARMS, one tree, law values only, all `[guard] shared
+repo UNCHANGED`:
+
+| arm | law | wall | `body_sha` | verify rows |
+|---|---|---|---|---|
+| DISARM | pad 0, reach 0 | 374.7 s | `4da4d2811eee` | 4,066 |
+| PAD-ONLY | pad 5000, reach 0 | 354.9 s | **`4da4d2811eee`** | 4,066 |
+| CLUSTER | pad 5000, reach 60 | 407.3 s | `0b2caa790b47` | 4,001 |
+
+| bar | DISARM | CLUSTER (13cc) | round 2 (at `law`) |
+|---|---|---|---|
+| taxi vertices moved (of 6,453) | — | **2,651** | 2,815 |
+| worst taxi move | — | **1.45 m** | 1.88 m |
+| taxi over 0.05 m | — | **1,133** | 1,320 |
+| taxi over `hard_tol_m` 0.02 (the bar: 0) | — | **1,607 — MISSED** | — |
+| cluster union spread (bar ≤ 1.5) | 4.30 m | **2.81 m — MISSED** | 1.08 m |
+| `building91` | 217.89 | **219.37** | 221.32 |
+| apron median \|dz\| in the reach | 0.24 | **0.25** | 0.07 |
+
+**THE ATTRIBUTION, AND IT IS NOT WHAT THE SPEC ASSUMED.**  PAD-ONLY is
+**byte-identical to DISARM** — the same graded document
+(`bde3f0aff32e`) and the same patch (`47c91c99b599`).  So §30 (4)'s
+PLANE MERGE, the thing the section is named for, changes NOTHING at KCLT
+on its own: every metre of `building91`'s lift, every metre of apron
+flattening AND every one of the 2,651 moved taxi vertices comes from the
+APRON REACH alone.
+
+**WHY THE MERGE IS INERT, MEASURED STATICALLY.**  `pads._pairs`
+decimates a rim over `_MAX_PAIRWISE` (40) to `group[::step]` plus the
+consecutive pairs.  For the merged cluster group (865 + 18 = 883
+vertices, step 23) that prices **1,624 pairs of which only 40 CROSS
+between the two faces** — and it costs `building91` its own plate,
+whose 18 vertices go from 153 pairwise cap-0 rows to **17** consecutive
+ones.  The merge therefore hands the small pad 40 weak cross links while
+taking away nine tenths of its own rigidity.  That is a defect in the
+merge, not in the ruling: `_pairs` must be per-FACE-complete and then
+cross-linked, or the cluster must be priced by an explicit inter-face
+basis.  NOT FIXED — the attempt cap for this round was spent on 13cc's
+two amendments, and the fix needs its own arm.
+
+**SO THE TAXI BAR IS STILL MISSED, AND THE LEVER IS NAMED.**  Weakening
+the reach (13cc (ii)) moved the taxi numbers only 2,815 → 2,651 / 1.88 →
+1.45 m while giving back most of the cluster pad's effect (union 1.08 →
+2.81 m).  The reach is doing ALL the work and ALL the damage; the plane
+merge is doing none of either.  A reach that cannot be weakened enough to
+hold the taxiways without also giving up the terminal is the wrong lever,
+and the right one is the merge the measurement above says is broken.

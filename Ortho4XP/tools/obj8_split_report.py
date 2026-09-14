@@ -482,14 +482,31 @@ def _write_pack(a, plan, ss, sampler) -> None:
     conversions, _k = _dw.conversions_for_dump(dump, root)
     split_idx = frozenset(s.placement.index for s in splits)
     conversions = tuple(c for c in conversions if c.index not in split_idx)
+    # §16g (5) (owner RULINGS 2026-09-13cb): the placements seated by
+    # their DSF ROW, from the SAME call ``placement_write.build_plan``
+    # makes — this tool builds its own ``PlacementPlan`` and without it
+    # the write half would silently drop every one of them (measured:
+    # "0 rows still carry an elevation" on a run that owed 4,846).
+    from auto_patch_v2.airport import footprint_unit as _fu
+    from auto_patch_v2.law import Law as _L2
+    _flat = getattr(plan, "flat", None)
+    msl = _fu.msl_seats_for_dump(
+        dump, plan, ss.unit_seats, sampler, root, split_idx,
+        tol_m=float(_L2.load().tables.emit.design.hard_tol_m),
+        authored_ground=(None if _flat is None else _flat.z0_m))
+    _mi = frozenset(m.index for m in msl)
+    conversions = tuple(c for c in conversions if c.index not in _mi)
     counts = dict(ss.counts)
     counts["conversions"] = len(conversions)
+    counts.update(_fu.multi_anchor_census(dump, plan, msl, split_idx,
+                                          ss.unit_seats))
     pl = PlacementPlan(icao=plan.icao, pack_name=os.path.basename(root),
                        pack_root=root, dsf_path=dsf_path,
                        dsf_backup_path=dsf_path + ".anchor_bak",
                        provenance=Provenance("", "", str(
                            law_tables_digest().get("sha256") or ""), counts),
-                       conversions=conversions, splits=splits, kept=kept)
+                       conversions=conversions, splits=splits, kept=kept,
+                       msl_seats=msl)
     files = tuple(f for s in ss.splits for f in s.files)
     res = PW.apply_plan(pl, files, tool, patch_dir=a.patch_dir or root,
                         work_dir=work)
@@ -539,8 +556,10 @@ def _write_pack(a, plan, ss, sampler) -> None:
     print(f"  read back: {len(d2.placements)} placement(s), "
           f"{len(want & have)}/{len(want)} new OBJECT_DEF(s) present, "
           f"{rows} row(s) on them; "
-          f"{sum(1 for q in d2.placements if q.kind != 'OBJECT')} row(s) still carry an "
-          f"elevation")
+          f"{sum(1 for q in d2.placements if q.kind != 'OBJECT')} row(s) carry an "
+          f"elevation ({len(pl.msl_seats)} of them written by §16g (5) — a "
+          f"placement whose unit datum is not the terrain at its anchor; the "
+          f"rest are a defect)")
 
 
 def main() -> int:

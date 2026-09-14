@@ -17,7 +17,7 @@ from ..law.tables import (apron_roles as _apron_roles,
                           pavement_roles as _pavement_roles, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'cluster_reach_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -80,6 +80,21 @@ def one_way_rulings(law: Law) -> frozenset[str]:
     one_way_rulings`` (RULINGS 2026-09-09b (2)/(3): the adjacent ground
     follows the pavement edge and never pulls it)."""
     return frozenset(design_law(law).one_way_rulings)
+
+
+def cluster_reach_rulings(law: Law) -> frozenset[str]:
+    """§30 (4) (owner RULINGS 2026-09-13cc (ii)): the ruling HEADS of the
+    CLUSTER PAD's apron reach, priced at ``[design] apron_trend`` — the
+    APRON TREND's own design-target weight — instead of ``law``.
+
+    The reach says where the apron around a big terminal WOULD like to
+    be; the taxi family's law rows say where the aircraft rolls.  At
+    ``law`` the two were equals and the reach won often enough to move
+    2,815 of KCLT's 6,453 taxi/runway vertices, worst 1.88 m (measured on
+    the matched DISARM/CLUSTER pair).  At ``apron_trend`` the taxi rows
+    outrank it by an order and the reach yields exactly where the owner
+    said it must."""
+    return frozenset(design_law(law).cluster_reach_rulings)
 
 
 def foot_row_rulings(law: Law) -> frozenset[str]:

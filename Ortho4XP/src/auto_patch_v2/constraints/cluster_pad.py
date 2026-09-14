@@ -163,12 +163,14 @@ def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
 
 
 
-#: The ruling HEAD of §30 (4)'s apron reach.  Named by NEITHER
-#: ``[design] pad_flat_rulings`` nor ``hard_rulings``: the row is a
-#: TARGET at the law's own weight, so every apron cap, every taxi row and
-#: the pad's own 1 % ceiling outrank it and the reach yields wherever one
-#: plane cannot be had — which is exactly the owner's "as long as it
-#: remains feasible with grade laws and taxiways".
+#: The ruling HEAD of §30 (4)'s apron reach.  Named by ``[design]
+#: cluster_reach_rulings`` and by NEITHER ``pad_flat_rulings`` nor
+#: ``hard_rulings``: owner RULINGS 2026-09-13cc (ii) prices the row at the
+#: APRON TREND's design-target weight (``apron_trend``, 30) — a target the
+#: taxi family's own law rows (300) always outrank, so the reach yields
+#: wherever one plane cannot be had, which is exactly the owner's "as long
+#: as it remains feasible with grade laws and taxiways".  At ``law`` it
+#: did not yield: 2,815 taxi vertices moved, worst 1.88 m.
 CLUSTER_REACH_RULING = "structures.building_pad cluster_apron_reach"
 
 
@@ -184,7 +186,17 @@ def cluster_apron_faces(planar: PlanarMap, law: Law, airport: Airport
     (09-01g), so such a vertex IS a taxiway vertex and the taxi family is
     never moved by a pad.  A vertex the pad already SHARES is struck too
     — it is in the pad's own plate (10y) and a row against the plate's
-    own mean would only say the plane equals itself."""
+    own mean would only say the plane equals itself.
+
+    AND IT STOPS ONE APRON CELL SHORT OF ANY TAXI FACE (owner RULINGS
+    2026-09-13cc (i), the taxi bar).  Striking the band's own vertices is
+    not enough and neither is the catchment: MEASURED on the matched KCLT
+    pair, the reach lifted apron the taxi family is COUPLED to and 2,815
+    of 6,453 taxi/runway vertices moved, worst 1.88 m — through §20's own
+    no-step and trend rows, which are senior to the reach.  So an apron
+    vertex a taxi-family NO-STEP row pairs with a taxi vertex
+    (``no_step.no_step_edges``, the ONE derivation of that coupling) is
+    struck as well."""
     reach = cluster_reach_m(law)
     if reach <= 0.0:
         return {}
@@ -204,6 +216,16 @@ def cluster_apron_faces(planar: PlanarMap, law: Law, airport: Airport
             if not g.is_empty:
                 tpolys.append(g if g.is_valid else g.buffer(0.0))
     ttree = STRtree(tpolys) if tpolys else None
+    # §30 (4) (13cc (i)): one apron cell short — an apron vertex the
+    # no-step law COUPLES to a taxi vertex is struck with the band itself
+    from .no_step import no_step_edges
+    coupled: set[int] = set()
+    for a, b, _cap, _d in no_step_edges(planar, law, airport):
+        if a in struck and b not in struck:
+            coupled.add(b)
+        elif b in struck and a not in struck:
+            coupled.add(a)
+    struck |= coupled
     apron_vs: list[int] = []
     for f in vw.faces_of_role(("apron",)):
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:

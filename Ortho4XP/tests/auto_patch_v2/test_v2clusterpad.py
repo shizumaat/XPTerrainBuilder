@@ -155,10 +155,17 @@ def test_30_4_the_law_key_and_the_ruling_head_are_data(law):
     head is in NEITHER the pad-plane family nor the hard set — the row is
     a target at the law's weight, which is what makes the apron yield to
     its own caps and to the taxiways (the owner's feasibility clause)."""
-    from auto_patch_v2.solve.design import hard_rulings, pad_flat_rulings
+    from auto_patch_v2.solve.design import (cluster_reach_rulings,
+                                            hard_rulings, pad_flat_rulings)
     assert cluster_reach_m(law) == 60.0
     assert CLUSTER_REACH_RULING not in pad_flat_rulings(law)
     assert CLUSTER_REACH_RULING not in hard_rulings(law)
+    # §30 (4) (13cc (ii)): the reach is priced at the APRON TREND's own
+    # design-target weight, strictly BELOW the law's, so every taxi row
+    # outranks it
+    assert CLUSTER_REACH_RULING in cluster_reach_rulings(law)
+    d = law.tables.emit.design
+    assert d.apron_trend < d.law
 
 
 def test_30_4_a_cluster_is_one_plane_over_every_pad_it_stands_on(law):
@@ -203,6 +210,14 @@ def test_30_4_the_reach_flattens_the_apron_and_stops_at_the_taxiway(law):
     # NO TAXI VERTEX IS EVER A FOLLOWER of a reach row — that is what
     # "the reach stops at any taxiway band" is, and it is exact.
     assert not (taxi & {v for r in rows for v in (r.follows or ())})
+    # ... an apron vertex a taxi-family NO-STEP row couples to a taxi
+    # vertex is struck too (13cc (i)): the reach stops ONE APRON CELL
+    # short of any taxi face, not merely at the band
+    from auto_patch_v2.constraints.no_step import no_step_edges
+    pop = set().union(*got.values())
+    for a, b, _c, _d in no_step_edges(pm, law, airport):
+        assert not (a in taxi and b in pop), (a, b)
+        assert not (b in taxi and a in pop), (a, b)
     # ... and an apron vertex nearer a taxi- or runway-family face than
     # the pad is not in the population either: the band's CATCHMENT is
     # the boundary, which is what "the reach stops at a taxiway band"

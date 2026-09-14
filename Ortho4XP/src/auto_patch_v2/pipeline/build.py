@@ -264,6 +264,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     cfg = config or Config()
     wall: dict[str, float] = {}
     t = time.perf_counter()
+    # THE RUN'S OWN CLOCK (lane ``v2cost2``, RULINGS 2026-09-14q item 7):
+    # ``total`` was the SUM OF THE STAGES, so every second spent outside a
+    # named stage was invisible — OTHH's 105 s.  ``total`` is now the wall
+    # of the whole call and ``unclocked`` names what no stage claimed.
+    t_build = t
     law = law or Law.for_airport(icao)
     airport, lrep = load_with_report(icao, inputs, law)
     wall["load"] = time.perf_counter() - t
@@ -292,8 +297,26 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     from ..law.tables import group_span_max_m as _span_max
     from ..planar.basins import read_objects as _read_objects
     from ..planar.group import derive as _derive_groups
-    pack_objects, pack_report = _read_objects(airport, law, ocache)
-    _part = _partition_pack(airport, pack_objects, ocache, law)
+    # THE PACK PARTITION IS CACHED (lane ``v2cost2``, RULINGS 2026-09-14q
+    # item 1): the pack reading and the partition are a pure function of
+    # the pack files, the dump, the law, the frame and the code, so they
+    # are stored beside ``o4_object_footprints_<tile>.cache`` in the
+    # pack's mod-cache folder under the same fingerprint discipline
+    # (``airport/partition_cache.py`` carries the whole argument, and why
+    # the write is that cache's class and not a ``--refresh-data`` act).
+    # ``_derive_groups`` reads the DEM and is NEVER cached.
+    from ..airport import partition_cache as _pcache
+    _fp = _pcache.fingerprint(airport, law, dump_path=lrep.dsf_dump_path,
+                              radius_deg=inputs.radius_deg)
+    _cpath = _pcache.cache_path(airport, inputs.mod_cache_root, lrep.dsf_dump_path)
+    _hit = _pcache.read(_cpath, _fp)
+    if _hit is not None:
+        pack_objects, pack_report, _part, _cached_clusters = _hit
+        _say(f"  [partition] cache HIT {_cpath}", out)
+    else:
+        _cached_clusters = None
+        pack_objects, pack_report = _read_objects(airport, law, ocache)
+        _part = _partition_pack(airport, pack_objects, ocache, law)
     # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
     # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
     # terrain under an object's feet is GROUND, and the slope a pilot
@@ -331,7 +354,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # relation.  Carried on the airport because ``constraints`` may not
     # import ``planar``.
     from ..planar.cluster import clusters as _derive_clusters
-    _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
+    if _cached_clusters is not None:
+        _clusters = _cached_clusters
+    else:
+        _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
+        if _pcache.write(_cpath, _fp,
+                         (pack_objects, pack_report, _part, _clusters)):
+            _say(f"  [partition] cache WROTE {_cpath}", out)
     airport = _dc.replace(airport, partition=_part, groups=_groups,
                           clusters=_clusters)
     wall["partition"] = time.perf_counter() - t
@@ -910,14 +939,21 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         if cfg.verify:
             t = time.perf_counter()
             from ..constraints.roads import road_law_caps
-            from ..verify import census
-            vrows = census(surf, law, pub, road_law_caps(pm, law, airport))
-            wall["verify"] = time.perf_counter() - t
+            from ..verify import census_frame
+            # ONE FRAME FOR THE WHOLE VERIFY STAGE (lane ``v2cost2``,
+            # RULINGS 2026-09-14q item 7): the caps and the ``Patch`` were
+            # built TWICE — once here and once for
+            # ``apron_over_preference`` below, the second time AFTER this
+            # clock stopped, which is where OTHH's 105 unattributed
+            # seconds were.  Same rows, one frame, inside the clock.
+            _caps = road_law_caps(pm, law, airport)
+            _vpatch, vrows = census_frame(surf, law, pub, _caps)
             # RULINGS 2026-09-08t: every row is counted LAW-TRUE — there is
             # no relaxed / yielded scope any more.  A row here is a DESIGN
             # TARGET the surface missed; the census reports, never blocks.
+            _v_census_s = time.perf_counter() - t
             summary = {k: len(v) for k, v in vrows.items()}
-            _say(f"[{icao}] verify {wall['verify']:.2f} s  rows "
+            _say(f"[{icao}] verify {_v_census_s:.2f} s  rows "
                  f"{sum(summary.values())}  " + ", ".join(
                      f"{k} {n}" for k, n in summary.items() if n), out)
             from ..verify.census import DEFECT_KEYS
@@ -927,16 +963,27 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                     f"{r.get('way_a')} {r.get('reading')} {r.get('magnitude_m')} m"
                     for r in vrows[k][:10]) + (" ..." if n > 10 else ""), out)
             from ..verify.within import apron_over_preference as _v_pref
-            from ..verify.frame import Patch as _Patch
-            v_pref = _v_pref(_Patch.of(surf, law, pub, road_law_caps(pm, law, airport)))
+            v_pref = _v_pref(_vpatch)
+            from ..verify.census import WALL_S as _VWALL
+            # the stage clock covers the preference report too (item 7)
+            wall["verify"] = time.perf_counter() - t
             _say(f"[{icao}] verify: apron_over_preference {v_pref['over_preference']}/{v_pref['rows']} "
                  f"(max grade {v_pref['max_grade']:.4f}) — a report figure, the "
                  f"design surface has no preference ladder", out)
             report["verify"] = {"by_family": summary,
                                 "apron_over_preference": v_pref,
                                 "defects": defects,
+                                # THE PER-FAMILY VERIFY CLOCK (14q): which
+                                # reader the stage's seconds went to
+                                "wall_s": dict({"census": round(_v_census_s, 3),
+                                                "stage": round(wall["verify"], 3)},
+                                               **{k: round(v, 3)
+                                                  for k, v in sorted(_VWALL.items(),
+                                                                     key=lambda kv: -kv[1])}),
                                 "rows": {k: v for k, v in vrows.items() if v}}
-    wall["total"] = sum(wall.values())
+    _staged = sum(wall.values())
+    wall["total"] = time.perf_counter() - t_build
+    wall["unclocked"] = wall["total"] - _staged
     report["wall_s"] = {k: round(v, 3) for k, v in wall.items()}
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     (Path(out_dir) / f"{icao}.report.json").write_text(

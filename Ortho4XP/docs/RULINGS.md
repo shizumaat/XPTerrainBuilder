@@ -4328,3 +4328,154 @@ Lane `v2roadcontact` @ bb7a0b03 (HECA build `v2roadcontactHECA2`, ledger
 * §37 (10) (3)'s "4 rows → every ribbon" conflated violation rows with
   priced rows (15 of 18 refs were already priced) — spec text to correct
   at merge.
+
+## 2026-09-13dc v2drapedsrc round 1 reported, held for round 2: the discriminator is ruled in; the field-wide apron union is ruled OUT
+
+Lane `v2drapedsrc` @ c8cb0bb4 (HECA build `v2drapedsrc_heca`, ledger
+302ca060e48e). The owner's site 30.1235047, 31.4160956: 0 rings → inside
+`apron:pav132` (one face). `Concrete_Polygon_1.obj` 29 bodies / 580,331 m²
+reproduced exactly; body 6 `dsf:objpav62` 25,011 m², apron cover 90 %.
+The other five airports admit 0 object pavements (no other pack ships
+draped ground pages) — byte-identity structural.
+
+* RULED IN (§42 (1) amended): the layer-group discriminator — §42 as I
+  wrote it admitted 31.9 M m² of shadows, decals and markings; pavement
+  must declare `ATTR_layer_group_draped` in a pavement group. Solid
+  triangles do not disqualify a resource.
+* RULED OUT (§42 (2) amended): my "union into the mapped page" clause —
+  it made `pav132` a 2,687-node apron over 91 m of DEM relief (HECA IS
+  NOT FLAT), off-DEM max 11.73 m, joint steps 5.38 m, and shifted the
+  role census (apron 48 → 120, cross_connector 130 → 76). An adjacent
+  object body is its own face; union only under §41 (1). Round 2 with a
+  BASE ARM at the lane's base sha (the round-1 deltas were cross-tree
+  against 1.0.329 — indicative only).
+* Chip: `.pol` remainders (`<id>#k`) classify with an EMPTY description
+  (`evidence._dsf_pavements` splits, `classify/sources.py` looks up the
+  whole id) — repairing it moves KCLT/LEMD evidence, a measured change of
+  its own.
+* Load cost +0.25–0.40 s (+6.6–11.5 % of a 3.8 s stage; 0.4 % of the
+  60 s budget) — accepted, under the 1 % review floor.
+
+## 2026-09-13dd v2roles round 1 reported: shape 44 → runway shoulder of 05L/23R, shape 93 → apron; §40 amended (ribbon, datum, shoulder cap); round 2 before a below-bar merge
+
+Lane `v2roles` @ 6dd7c0dd; matched HECA pair (base `v2roles_HECA_base` at
+1a7a7158 / lane `v2roles_HECA`, both registered). Shape 44: `runway`
+kind `runway_shoulder` ref 05L/23R, `shoulder_shared_m` 592 (23,393 m² of
+pav73; a 7,548 m² piece stays parallel); shape 93: `apron`
+(`apron_cover_refused_corridor`, cell cover 0.269); zone strips on 44's
+ground 5 → 0; `within_shape` pav73/pav74 2,026/196 → 830/92; classify
+stage inside noise. Five-frame dry census: shoulders CYXY 1, HECA 24,
+KCLT 1, OTHH 3, SPJC 0 — every one a ribbon 3.3–49.8 m deep.
+
+* RULED (§40 amended): the depth floor 50 m (the lane's deviation) is
+  law; the centroid clause withdrawn; apron cover per CELL; the shoulder
+  keeps the runway's datum and takes ICAO's shoulder cross-slope 2.5 %
+  beyond the runway's half-width — HECA's 2 new `runway_transverse` rows
+  (1.53 %, 3–5 cm) are shoulder rows and pass under it.
+* BELOW BAR, held: matched census law-true 38,609 → 34,488 (−4,121) but
+  ADJUDICATED 12,841 → 15,352 (+2,511: `airside_no_step` +2,312,
+  `transverse` +796, `taxi_box` +584, `strip_transverse` +569;
+  `within_shape` −8,372) — a shoulder read under the runway's tighter
+  law. Round 2 with the shoulder cap and the no-step datum, re-census; the
+  owner signs the residual with numbers.
+* Trace closed: `apron_named=1` on cells 58/191 = `roles._apron_named`'s
+  second branch, `apron_cover ≥ parking_cover_fraction` (0.5; pav73 0.726)
+  — the PARKING knob used for an APRON test, the one place 11ac item 6
+  did not separate. Left alone (§40 (2) dominates below 0.5); owed.
+* Chips: `constraints/runway_profile.py` crown/transverse read outer
+  rings only while the census prices hole-ring vertices (8 of 33 runway
+  faces have holes on the §40 arm, 490 vertices); `auto_patch_v2 build`
+  CLI broken at head (`Options.__init__() … 'diagnose_iis'`,
+  `pipeline/__main__.py:93`).
+
+## 2026-09-13de HECA item 3 attributed (scout `v2hecahill`): the hill is a 5.4 % natural knoll inside ONE 1,375 m apron body, held up by nothing but the objective — the apron's 1.5 % cap is priced SOFT; two intent questions
+
+Read-only replay of the registered HECA capture (base 1a7a7158) against
+the owner's 1.0.329 products (tile +30+030/+30+031). The corner
+`-7736`/v7369 (108.434, DEM 109.67) carries ZERO target/datum/pin rows —
+no pad datum, no §23 ground datum, no §19 tier plane, no basin ring;
+every binding row is a ceiling toward its ring neighbour v7368 (106.382,
+36 m away): `apron_within_shape` 1.5 % × 36.1 m = 0.542 m allowed against
+2.052 m demanded (+1.510 m over) — and those rows are `hard = False` (law
+300 vs `hard_weight` 300000; `[design] hard_rulings` lists only the runway
+family, the 5 % pavement ceiling, the pad slope and two road rulings)
+while RULINGS 2026-09-06w (1) says "hard cap 1.5 % in all directions on
+EVERY apron row". The only hard row on the pair (5 % ceiling) is already
+broken by 0.024 m. `apron:pav131` is ONE face: 221 vertices, 1,375 × 542
+m, z 86.57 → 109.54 (22.97 m of range), its 1 % preference spent as 449 m
+/ 1,241 m ramps down to the 23R threshold pin at 60.66. Frozen-neighbour
+walk: no lawful level for the corner alone; at 1.5 % anchored on v7368
+the corner is ≤ 106.92 and the 109.5 lobe must come down 2.07 m (2.84 m
+below its DEM). At the junction `pav115` (107.75) and `pav131` (107.85)
+already meet within 0.10 m; `route7` stands +1.3–1.4 m over both on the
+DEM, the 24 m zone-2 strip carrying the climb at 5.5 %. The taxiway's
+"lateral slope": NOT lateral (0.45 % over 42 m) — it is pav115's
+LONGITUDINAL 1.7–2.0 % (`airside_no_step` rows 0.96–2.01 m, priced and
+adjudicated, soft); 13db's "2.03 % over 28 m" was that. 130 adjudicated
+rows within 60 m, leader `within_shape apron|junction` 5.207 %.
+
+* INTENT QUESTION 1 (owner): is 06w (1)'s "hard" the `[design]
+  hard_rulings` class (300000, the solve cannot trade it) or the law tier
+  (300, traded — today)? Arming it hard at pav131 as one body is
+  INFEASIBLE (the frozen walk) — so it needs question 2 first.
+* INTENT QUESTION 2 (owner): SPLIT `apron:pav131` into tiers at its
+  natural break — a declared terrace joint between the NE 109.5 lobe and
+  the main apron (the `terrace_joints_ll` machinery the census honours) —
+  so the lobe can be cut the ~2 m the owner asks for while the rest of
+  the apron is untouched, the residual becoming ONE declared step instead
+  of 130 rows. A new region class → consumer census at spec time (30l).
+  Where the break falls is the owner's (a coordinate or "at the junction
+  with pav115").
+* Instruments owed: the scout's assembled-rows-on-a-pair and
+  frozen-neighbour-interval readers beside `--why-hard` (second use →
+  promote). Note: the brief said tile +30+040; it is +30+030.
+
+## 2026-09-13df v2connector MERGED (2d01dc7f): the SPJC viaduct on the terminal datum; connectors by articulation point; `unit_of` was never written
+
+Lane `v2connector` @ f410e8a9. SPJC closing build (ledger 5fe4d215e11d):
+`xp11_007__b0` 27.41 → 19.56, `xp11_010__b0` 18.57 → 19.56 (datum 19.560),
+`unit_connectors_cut` 2 → 0, `unit_split_authored` 0, plan stage +3.8 %;
+dry on the 1.0.329 products: HECA 37 → 0 / KCLT 3 → 0 / LEMD 23 → 0 /
+OTHH 23 → 0 connectors cut, `bodies_bound_to_unit` up at every airport.
+HECA `concrete_3.obj` b1 (1,149 m) 73.83 → 95.55 on the T3 road deck
+(+21.7 m); KCLT `paredes_10` b1 213.77 → 221.46.
+
+* RULED: the articulation-point reading IS §16g (6) (spec MEASURED);
+  seat only when topology AND ground step fire; `connector_of` on carried
+  bodies is report-only, the census counts seats.
+* Defect fixed in passing: `Body.unit_of` never filled in
+  `to_placement_records` — every 1.0.329 placement plan carried null.
+* OWNER: which HECA resource is the "elevated rail" (a coordinate) — the
+  law's longest instance is `concrete_3.obj` b1 between the terminal
+  complex and a 1,469-body group; unverified as identity. And OTHH
+  `unit_split_authored` 34 (114 authored units in that pack) against 0–4
+  elsewhere — pack authoring or defect is the owner's read.
+* Chip: `test_v2objsplit.py::test_a_basin_wall_follows_its_ring…` is
+  knife-edge on float — `anchor_rule._m_per_deg` memoises on
+  `int(lat·1e4)`, a midpoint sample poisons the key, the 50 m arc flips
+  serially. Round the memo key or move the fixture.
+
+## 2026-09-13dg v2roles MERGED (a914cb64): shape 44 a runway shoulder, shape 93 an apron; shoulder cross-slope 2.5 % beyond the half-width; HECA ADJUDICATED +2,026 — the residual quoted for the owner
+
+Lane `v2roles` r2 @ 4cc18b3c. HECA build `v2roles_HECA_r2b` (ledger
+09ca36ca6c1a): `runway_transverse` DEFECT 2 → 0, no DEFECT family; suite
+1,349 twice. One accessor `law.tables.runway_transverse_cap` (runway cap
+inside the half-width, `rulesets.<authority>.runway.shoulder_transverse_max`
+0.025 beyond) priced by the generator, verify and the census; the sidecar
+publishes `runway_axes` + `shoulder_transverse_max`; the crown stops at the
+runway edge on all three channels.
+
+* MERGED UNGATED (29e/f), residual quoted: law-true 38,612 → 33,265
+  (−5,347) but ADJUDICATED 12,844 → 14,870 (+2,026): `airside_no_step`
+  +2,175 of which +1,442 (66 %) are pairs with the runway role — rows
+  moved into scope at the runway's no-step law because the runway GREW by
+  20 shoulder ways / 1,222 vertices (`runway|runway` 7 → 825, the
+  shoulder's inner edge against the slab) — the expected class; +733 touch
+  no runway (`junction|junction` +538 …) = §40 (2)'s re-kinded apron cells
+  + the merged v2zonehole/v2bankfoot, UNSEPARATED (the base arm predates
+  both; one build was the instruction). `within_shape` −1,921.
+* The owner may refuse: `git revert` of the merge. The 1.0.331 HECA read
+  of shape 44/93 is the acceptance.
+* Owed: `runway_shoulder` as a distinct role (`precedence.toml` + six
+  `RUNWAY_FAMILY` tuples); the hole-ring chip; a matched base at a5bb6be3
+  to split the +733.

@@ -134,6 +134,13 @@ class Anchor:
     #: takes its carrier's anchor and so is published with its carrier's
     #: family, which is what "the family stays together" means.
     family: str = ""
+    #: §16g (6) (owner RULINGS 2026-09-13cn): this body CONNECTS two
+    #: footprint units — ``"<unit a>|<unit b>"``, an empty side meaning
+    #: open ground.  It is seated on its HIGH end's unit datum until §10's
+    #: station cut is written for it, and it never falls to §16c's
+    #: low-side foot; the pair is published so the census can name the two
+    #: units the piece has to reach.
+    connector_of: str = ""
 
 
 # ── geometry helpers (plan, in degrees scaled to metres) ─────────────────

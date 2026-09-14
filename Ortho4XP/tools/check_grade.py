@@ -6937,6 +6937,83 @@ def _stretch_node_index(stretches_m: Optional[list]) -> Dict[str, list]:
     return out
 
 
+#: §40 (2) as amended (owner RULINGS 2026-09-13dd): a vertex this far PAST
+#: the runway's published half width is a SHOULDER vertex.  The identity
+#: spacing's scale: a vertex ON the shared edge is carried by the runway
+#: slab as well and keeps the runway's own cap.
+_SHOULDER_EDGE_TOL_M = 0.5
+
+
+def shoulder_nids(ways: List["Way"], nodes, ll_to_m,
+                  runway_axes_ll: Optional[list]) -> set:
+    """§40 (2) as amended (owner RULINGS 2026-09-13dd): the node ids of
+    RUNWAY-role vertices lying BEYOND their runway's own half width — the
+    SHOULDER vertices, pavement that joined the runway body under §40 (1).
+
+    THE LINE IS THE SOLVE'S, NEVER THIS READER'S (the sidecar's
+    ``runway_axes``: ``[ref, lat_a, lon_a, lat_b, lon_b, half_m]`` from
+    the apt.dat ends and width).  It cannot be re-derived here from the
+    runway RINGS — a shoulder is a runway ring, and fitting the width to
+    the rings would read the shoulder as part of the runway and never
+    find its own line (the same trap ``constraints.strips.runway_groups``
+    had).  A patch with no ``runway_axes`` key yields the empty set and
+    every runway vertex is priced at the runway cap, exactly as before.
+
+    The half width is grown by the identity spacing so a vertex ON the
+    shared edge — one the runway slab and the shoulder both carry — stays
+    a RUNWAY vertex at the runway's own cap."""
+    if not runway_axes_ll:
+        return set()
+    axes = []
+    for r in runway_axes_ll:
+        if len(r) < 6:
+            continue
+        ax, ay = ll_to_m(float(r[1]), float(r[2]))
+        bx, by = ll_to_m(float(r[3]), float(r[4]))
+        L = math.hypot(bx - ax, by - ay)
+        if L <= 0.0:
+            continue
+        axes.append((str(r[0]), ax, ay, (bx - ax) / L, (by - ay) / L,
+                     float(r[5]) + _SHOULDER_EDGE_TOL_M))
+    if not axes:
+        return set()
+    by_ref = {a[0]: a for a in axes}
+    out = set()
+    for w in ways:
+        if law_role(w) != "runway":
+            continue
+        a = by_ref.get(w.tags.get("ref", ""))
+        if a is None or a[5] <= 0.0:
+            continue
+        _ref, ax, ay, ux, uy, half = a
+        for nid in w.nids:
+            ll = nodes.get(nid)
+            if ll is None:
+                continue
+            x, y = ll_to_m(ll[0], ll[1])
+            lat_off = abs(-(x - ax) * uy + (y - ay) * ux)
+            if lat_off > half:
+                out.add(nid)
+    return out
+
+
+def _shoulder_cap(c: "ShapePairConstraint", nids: set,
+                  cap: Optional[float]) -> Optional[float]:
+    """The cap of a within-shape pair BOTH of whose nodes are shoulder
+    vertices (:func:`shoulder_nids`): the shoulder's own transverse
+    maximum, published by the solve (``shoulder_transverse_max``).  A
+    pair with one node on the runway proper keeps the runway's cap — the
+    strictest law either endpoint stands under.  ``None`` for every other
+    pair, and for a patch that published no cap."""
+    if not nids or cap is None or c.transverse_road:
+        return None
+    if law_role(c.way) != "runway":
+        return None
+    if c.nid_a not in nids or c.nid_b not in nids:
+        return None
+    return cap if cap > c.cap else None
+
+
 def _common_stretch_cap(c: "ShapePairConstraint", on: Dict[str, list],
                         max_grade: float) -> Optional[float]:
     """THE PER-STRETCH PAIR LAW on a taxi RECT (plane) shape (RULINGS
@@ -7163,6 +7240,8 @@ def _check_within_shape(ways: List[Way],
                         apron_tier: Optional[dict] = None,
                         pad_relief_by_nid: Optional[Dict[str, float]] = None,
                         road_frame_by_nid: Optional[Dict[str, tuple]] = None,
+                        shoulder_nid_set: Optional[set] = None,
+                        shoulder_cap: Optional[float] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -7215,6 +7294,16 @@ def _check_within_shape(ways: List[Way],
         # strictest letter.  Shifts the allowance by the cap difference so
         # every other envelope term (quantisation, terrace, fan-ramp)
         # stays exactly as the law priced it.
+        # §40 (2) as amended (owner RULINGS 2026-09-13dd): a pair BOTH of
+        # whose nodes are SHOULDER vertices — beyond the runway's own
+        # published half width — is priced at the SHOULDER's transverse
+        # maximum, not the runway's 1.5 %.  The shoulder keeps the
+        # runway's DATUM, not its cross-fall; the generator and the v2
+        # verify price through the same line (``runway_axes``).
+        _sh = _shoulder_cap(c, shoulder_nid_set, shoulder_cap)
+        if _sh is not None:
+            allowance += (_sh - c.cap) * c.dist
+            c.cap = _sh
         _sc = _junction_stretch_cap(c, _jsc, max_grade)
         if _sc is None:
             # RECT STRETCH CAPS (RULINGS 2026-09-04y on a plane shape): a
@@ -8714,6 +8803,9 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # chord crossing one is no pair (``grade_graph._visibility_predicate``)
     "face_holes": "face_holes_ll",
     "crown_drops": "crown_drops_ll",
+    # §40 (2) as amended: the runway/shoulder line and the shoulder cap
+    "runway_axes": "runway_axes_ll",
+    "shoulder_transverse_max": "shoulder_transverse_max",
     # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; ratified 11l (2);
     # spec ``object-placement-spec.md`` §11a (2)/(4)): per pad vertex, the
     # metres the emitted terrain stands ABOVE the pad's own LEVEL.  LAW
@@ -9096,6 +9188,9 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
     ctx["face_holes_ll"] = data.get("face_holes") or None
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
+    # §40 (2) as amended (owner RULINGS 2026-09-13dd)
+    ctx["runway_axes_ll"] = data.get("runway_axes") or None
+    ctx["shoulder_transverse_max"] = data.get("shoulder_transverse_max")
     # THE PAD'S RELIEF TARGET (11l (2)): absent on any patch built before
     # 11j, which reads exactly as it did then.
     ctx["pad_relief_ll"] = data.get("pad_relief") or None
@@ -10151,6 +10246,11 @@ def run_checks(
     anchor: Optional[Tuple[float, float]] = None,
     seam_pins_ll: Optional[list] = None,
     seam_half_width_m: Optional[float] = None,
+    # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
+    # axis and half width, and the shoulder's transverse maximum — the
+    # line the SOLVE drew between runway and shoulder
+    runway_axes_ll: Optional[list] = None,
+    shoulder_transverse_max: Optional[float] = None,
     shore_edges_ll: Optional[list] = None,
     mesh_edges_ll: Optional[list] = None,
     face_holes_ll: Optional[dict] = None,
@@ -10337,6 +10437,13 @@ def run_checks(
     pad_relief_by_nid = _pad_relief_by_nid(nodes, pad_relief_ll or [])
     # §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av)
     road_frame_by_nid = _road_frame_by_nid(nodes, road_route_frame_ll or [])
+    # §40 (2) as amended: the SHOULDER vertices, off the solve's own line
+    _shoulder_nids = shoulder_nids(ways, nodes, ll_to_m, runway_axes_ll)
+    if _shoulder_nids and not quiet:
+        print(f"  runway shoulders (§40 (2)): {len(_shoulder_nids)} vertex(es) "
+              f"beyond their runway's half width, priced at "
+              f"{100 * (shoulder_transverse_max or 0.0):.1f} % (the shoulder's "
+              f"own transverse maximum), not the runway's")
     if road_frame_by_nid and not quiet:
         print(f"  road route frame (§37 (7)): {len(road_frame_by_nid)} road "
               "vertex(es) — pairs priced ALONG THE ROUTE, never the chord")
@@ -10424,7 +10531,9 @@ def run_checks(
         stretches_m=stretches_m, face_holes_m=face_holes_m,
         taxi_box=taxi_box, taxi_box_out=_taxi_box_rows,
         apron_tier=apron_tier, pad_relief_by_nid=pad_relief_by_nid,
-        road_frame_by_nid=road_frame_by_nid))
+        road_frame_by_nid=road_frame_by_nid,
+        shoulder_nid_set=_shoulder_nids,
+        shoulder_cap=shoulder_transverse_max))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

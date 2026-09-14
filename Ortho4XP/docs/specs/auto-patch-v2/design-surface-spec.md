@@ -11258,3 +11258,63 @@ the containment frame is the host's EXTERIOR RING (`--contains`, ring fraction
 `merge_slivers` and `dissolve_degenerate_holes`; HECA 39 → 4 contained faces
 (the 4 are ~80 m² `junction:pav8` notches minted by the merge geometry itself
 — a second pass, owed).
+
+### §42 AMENDED — PAVEMENT DECLARES ITS LAYER GROUP; AN ADJACENT OBJECT BODY IS ITS OWN FACE (Fable 2026-09-13; RULINGS 2026-09-13dc) — lane `v2drapedsrc`
+
+MEASURED (round 1, HECA 1.0.329 frame): §42 (1) as written admitted 27
+placements / 937 bodies / 31.9 M m² — three times the airport — because baked
+ambient-occlusion shadows (`AO.obj` 7.75 M m²), dirt decals (`ground/d1..d9`)
+and painted markings (`asphalt_white`, `car_parking`) are all draped Y = 0
+geometry.  And §42 (2)'s "union into the mapped page" made `pav132` one apron
+ring of 2,687 nodes spanning 63.85–154.79 m of DEM (off-DEM max 11.73 m,
+joint steps to 5.38 m) — a surface no apron cap can hold.
+
+1. (1) amended: object-based pavement DECLARES ITSELF — the OBJ8 carries
+   `ATTR_layer_group_draped` in a pavement group at offset ≤ 1 and no
+   decorative basename token (v1's `_is_pavement_object` discriminator, now
+   law: `[load] object_pavement_layer_groups`).  A shadow declares no draped
+   group; a decal declares `markings`; a marking declares `runways +2`.  HECA:
+   8 resources / 221 authored bodies / 5.69 M m².  A resource with SOLID
+   triangles is not disqualified: its draped part is a source, its solid
+   stays the pad path's; pads win where they overlap.
+2. (2) amended: an object body UNIONS into a mapped page only where §41 (1)
+   holds (the body lies ≥ 95 % inside the page's exterior ring).  An
+   ADJACENT body is its OWN FACE — apron/lot/corridor by evidence — welded to
+   the mapped page at the seam under the ordinary shape-joint and
+   no-step laws, each face inside its own cap.  One field-wide apron is not
+   the intent; classification is.
+
+BARS (round 2): HECA dry — body 6 its own apron face adjacent to `pav132`
+(or inside it: named); no apron face spanning > `apron_relief_max_m` (the
+existing tier law's reach) of DEM; the role census before → after against a
+BASE ARM built at the lane's base sha (not the 1.0.329 products — 13dc); ONE
+HECA build; joint steps and off-DEM at the new seams named; load ≤ +5 % or the
+cost named (the +0.25 s is under the 1 % review floor).
+
+### §40 AMENDED — THE SHOULDER IS A RIBBON, KEEPS THE RUNWAY'S DATUM, AND TAKES THE SHOULDER'S OWN CROSS-SLOPE (Fable 2026-09-13; RULINGS 2026-09-13dd) — lane `v2roles`
+
+MEASURED (round 1): §40 (1) as written (shared edge ≥ 100 m) swallowed the
+field — OTHH runway role 619,131 → 3,832,917 m² (6× the slab), KCLT ×3.2,
+HECA ×1.7.  The lane's depth floor (`corridor.runway_shoulder_max_depth_m` =
+50.0, mean depth = area / shared length) holds the bar "a cell that really
+runs along a runway": shape 44's cell reads 39.6 m; HECA's cell at
+30.1098157, 31.4343111 (97.6 m) does not.  §40 (1)'s centroid-in-strip clause
+is WITHDRAWN (it would make every parallel inside the 150 m strip a shoulder).
+§40 (2) reads the CELL's apron cover, never the source page's (on the page
+reading 164 of OTHH's 410 cells refused; per cell 2).
+
+1. A SHOULDER is a ribbon: shared edge ≥ `runway_shoulder_shared_m` AND mean
+   depth ≤ `runway_shoulder_max_depth_m`.  It carries role `runway` at the
+   runway's ref, code and letter (a distinct role needs `precedence.toml` and
+   six `RUNWAY_FAMILY` tuples — owed, not this round).
+2. THE SHOULDER KEEPS THE RUNWAY'S DATUM — continuous, no step, across the
+   shared edge (the runway's chord surface reaches it) — BUT TAKES THE
+   SHOULDER'S OWN CROSS-SLOPE: `[runway] shoulder_transverse_max = 0.025`
+   (ICAO Annex 14 §3.2.4: shoulder transverse slope ≤ 2.5 %), priced on
+   shoulder vertices beyond the runway's own half-width; the runway's
+   1.5 % holds inside its width only.  MEASURED: HECA's two
+   `runway_transverse` rows at 1.5287 % / 1.5233 % (108.7 / 204.9 m from the
+   ridge, 3.1 / 4.8 cm of excess) are shoulder rows and pass under 2.5 %.
+3. Zone strips from NEIGHBOURING taxi faces on a re-kinded cell's ground are
+   §41 (2)'s `zone_on_pavement` class (3 at HECA shape 93) — the
+   arrangement-to-emit mint, chipped; not §40's.

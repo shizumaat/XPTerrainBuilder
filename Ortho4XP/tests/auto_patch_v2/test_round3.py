@@ -144,12 +144,19 @@ def test_open_page_a_route_reaches_is_a_lot(law):
 
 # ── 3. an open page with nothing is groundside, never apron ──────────────
 
-def _bare_page_airport(reach: bool, offset_y: float = 0.0, width: float = 200.0):
-    """A 200 x 75 m open page on the RUNWAY's south edge (the chain seed:
+def _bare_page_airport(reach: bool, offset_y: float = 0.0, width: float = 90.0):
+    """A ``width`` x 75 m open page on the RUNWAY's south edge (the chain seed:
     never demoted), touching no taxi centreline, no startup, no apron
     name, no road: within the runway's proximity band it is a junction
     (07-06), beyond it the slice scores APRON — the face the 04u default
-    governs; optionally a route ending at its east boundary."""
+    governs; optionally a route ending at its east boundary.
+
+    The default width is 90 m — UNDER §40 (1)'s
+    ``corridor.runway_shoulder_shared_m`` (100 m, owner RULINGS
+    2026-09-13co item 1), which would otherwise make this page the
+    runway's SHOULDER (part of the runway body) before §27 or the 04u
+    default is reached.  That supersession is twinned in
+    ``test_runway_shoulder.py``; here the page is a page."""
     a = _synthetic(gate=True, island=False)
     page = Pavement("bare", Surface.ASPHALT,
                     _rect(600.0, -90.0 + offset_y, 600.0 + width, -15.0 + offset_y), ())
@@ -203,7 +210,7 @@ def test_open_page_with_nothing_is_groundside_by_default(law):
 
 def test_an_open_page_welded_to_the_runway_is_apron(law):
     """§27 (6) (owner RULINGS 2026-09-12i): the SAME bare page on the
-    runway's south edge runs 200 m of LATERAL airside boundary, so it is
+    runway's south edge runs 90 m of LATERAL airside boundary, so it is
     `apron` — with or without a road reaching it.  Before 12i the page
     flipped only when a road made it a lot, and the same page on the same
     runway edge read `groundside_pavement` without one; that split is what

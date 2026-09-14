@@ -163,7 +163,8 @@ from auto_patch.strip_seam_law import (      # noqa: E402
 # a second region: the harness and the engine must agree about where a
 # pilot is looking, or one builds what the other calls invisible.
 from auto_patch_v2.law.approach_corridor import (
-    ApproachCorridor as _ApproachCorridor)
+    ApproachCorridor as _ApproachCorridor,
+    RunwayViewBand as _RunwayViewBand)
 
 # LAW GEOMETRY shared with the emitters (single source — never a second
 # copy of a rule number here).  ``None`` when the package is unavailable:
@@ -9216,6 +9217,12 @@ def cockpit_law(*, refresh: bool = False) -> dict:
         # built by ``auto_patch_v2.law.approach_corridor``, the SAME class
         # the engine's mouth gate reads (§29 (1)).
         "approach_half_width_m": float(ck.approach_half_width_m),
+        # §29 (7) THE RUNWAY LATERAL BAND (Fable 2026-09-13; owner RULINGS
+        # 2026-09-13bm (ii)): the corridor runs BEYOND each threshold and
+        # never BESIDE the runway, so a defect 192 m abeam the runway at
+        # mid-length read "beyond".  Built by the SAME
+        # ``auto_patch_v2.law.approach_corridor`` module the corridor is.
+        "runway_view_half_width_m": float(ck.runway_view_half_width_m),
         "rolled_on": frozenset(_T.rolled_on_roles(law)),
         # §31 (7) THE CLIFF (RULINGS 2026-09-12af), resolved from the design
         # surface's own bank slope — never a number typed here
@@ -9298,9 +9305,11 @@ def cockpit_geometry(ways: List["Way"], nodes: Dict[str, Tuple[float, float]],
         axes.append(((ax0, ay0), (ax1, ay1), str(ref)))
     corridor = _ApproachCorridor(axes, law["approach_m"],
                                  law["approach_half_width_m"])
+    band = _RunwayViewBand(axes, law["runway_view_half_width_m"])
     return {"boundary_rings": rings,
             "runway_axes": axes,
             "corridor": corridor,
+            "runway_band": band,
             "ll_to_m": ll_to_m}
 
 
@@ -9349,6 +9358,12 @@ def cockpit_in_view(geometry: Optional[dict], lat, lon) -> Tuple[bool, str]:
     corridor = geometry.get("corridor")
     if corridor is not None and corridor.holds(x, y):
         return True, "approach"
+    # §29 (7) THE RUNWAY LATERAL BAND (owner RULINGS 2026-09-13bm (ii)):
+    # what a pilot reads BESIDE the runway, which the corridor — beyond
+    # the thresholds only — never covered.
+    band = geometry.get("runway_band")
+    if band is not None and band.holds(x, y):
+        return True, "runway"
     return False, "beyond"
 
 
@@ -9545,6 +9560,7 @@ def cockpit_block(rows_by_family, *, geometry: Optional[dict] = None,
         "visual_m": law["visual_m"],
         "approach_km": law["approach_km"],
         "approach_half_width_m": law["approach_half_width_m"],
+        "runway_view_half_width_m": law["runway_view_half_width_m"],
         "rolled_on": sorted(law["rolled_on"]),
         "boundary_rings": (len(geometry["boundary_rings"]) if geometry
                            else None),
@@ -9555,6 +9571,10 @@ def cockpit_block(rows_by_family, *, geometry: Optional[dict] = None,
         "runway_axes": len(geometry["runway_axes"]) if geometry else None,
         "approach_corridors": (len(geometry["corridor"]) if geometry
                                else None),
+        #: §29 (7): the runway lateral bands, one per runway axis.
+        "runway_bands": (len(geometry["runway_band"])
+                         if geometry and geometry.get("runway_band") is not None
+                         else None),
         "unlocated_rows": unlocated,
         "step_exempt_rows": exempt,
         "weld_tol_m": law["weld_tol_m"],
@@ -9613,6 +9633,8 @@ def cockpit_block_lines(c: dict) -> List[str]:
             if c.get("approach_corridors") else
             "NO approach corridor: the patch carries no runway geometry, so "
             "only the boundary decides view")
+    corr += (f"; {c['runway_bands']} runway lateral band(s)"
+             if c.get("runway_bands") else "")
     out = [
         f"--- COCKPIT (owner RULINGS {c['ruling']}: what the pilot feels, "
         f"what he sees, and what is report) ---",
@@ -9622,7 +9644,9 @@ def cockpit_block_lines(c: dict) -> List[str]:
         f"({c['approach_km']:g} km beyond each runway threshold along the "
         f"extended centreline, "
         f"{c['approach_half_width_m']:g} m to each side — owner "
-        f"2026-09-12al); a "
+        f"2026-09-12al) or THE RUNWAY LATERAL BAND "
+        f"({c.get('runway_view_half_width_m', 0):g} m each side of every "
+        f"runway axis — owner 2026-09-13bm); a "
         f"SPANNED row steeper than {c['cliff_grade']:g} "
         f"(1:{1.0 / c['cliff_grade']:.2g}, the design surface's own bank) "
         f"is a CLIFF and is judged as if welded; "

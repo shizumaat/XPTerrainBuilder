@@ -414,6 +414,13 @@ def structure_records(airport, cl, law) -> dict:
         "wall_corridor_stats": {k: v for k, v in _dc.asdict(wstats).items()
                                 if not isinstance(v, list)},
         "tunnel_refused": list(sstats.refused),
+        # THE MOUTH GATE'S OWN REPORT (§29 (1)/(7), lane v2spjc): the
+        # dropped mouths with their distance off the region and the built
+        # ones the CORRIDOR or the RUNWAY LATERAL BAND admitted, each
+        # naming which term admitted it — a dry run has to answer "why is
+        # this mouth here / gone" without a rebuild.
+        "mouths_off_field_nearest": list(sstats.mouths_off_field_nearest),
+        "mouths_on_approach_named": list(sstats.mouths_on_approach_named),
         "structure_stats": {k: v for k, v in _dc.asdict(sstats).items()
                             if not isinstance(v, list)},
         # THE RIM RING ITSELF (lane v2basinfoot, spec §24 (4)): the dry run

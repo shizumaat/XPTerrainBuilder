@@ -143,7 +143,7 @@ def test_it_prices_no_law(tmp_path):
     p = _patch(tmp_path, "d.osm", [_STRIP, _LOT])
     r = ROR.read(p, over="graded_strip:gap_fill_spine",
                  on="groundside_pavement")
-    assert set(r) == {"patch", "anchor", "over", "on", "min_area_m2",
+    assert set(r) == {"patch", "anchor", "frame", "over", "on", "min_area_m2",
                       "pad_m", "over_ways", "on_ways", "over_area_m2",
                       "stacked", "area_m2", "beyond", "beyond_ways",
                       "beyond_area_m2", "beyond_by_ref", "beyond_rows",

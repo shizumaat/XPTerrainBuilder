@@ -37,7 +37,12 @@ from .weld import WeldStats, weld_cells
 from .zones import zone_regions
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
-           "merge_slivers", "dissolve_degenerate_holes"]
+           "merge_slivers", "dissolve_degenerate_holes",
+           "absorb_enclosed_pavement", "ENCLOSED_MIN_FRAC"]
+
+#: §41 (1): the fraction of its OWN area a pavement face must have inside
+#: another pavement face's exterior ring to be that face's hole.
+ENCLOSED_MIN_FRAC = 0.95
 
 
 @_dc.dataclass(frozen=True)
@@ -97,6 +102,14 @@ class Arrangement:
     #: RULINGS 2026-09-10h (1): degenerate hole rings dissolved into their
     #: own face (``dissolve_degenerate_holes``) — never a vertex set.
     holes_dissolved: int = 0
+    #: §41 (1) (owner RULINGS 2026-09-13co item 2; RULINGS 2026-09-13cs
+    #: item 2): pavement faces enclosed by another pavement face's ring
+    #: and absorbed into it (``absorb_enclosed_pavement``).
+    enclosed_absorbed: int = 0
+    #: The same rule's REFUSALS: an enclosed face that shares NO boundary
+    #: with its enclosing body, so the union would not be one face — an
+    #: island in the middle of a loop, not a notch cut into a body.
+    enclosed_detached: int = 0
 
 
 def build_arrangement(airport: Airport, classification: Classification,
@@ -185,11 +198,18 @@ def build_arrangement(airport: Airport, classification: Classification,
         faces.append((poly, best))
     ident = law.tables.emit.identity.min_distinct_spacing_m
     faces, merged = merge_slivers(faces, (ident * law.tables.emit.terrace.sliver_area_factor) ** 2)
+    # §41 (1): an enclosed pavement face is its host's hole — absorbed HERE,
+    # at the single derivation site, so every consumer downstream reads one
+    # body with one law (owner RULINGS 2026-08-30l: trim at the derivation
+    # site, never per consumer)
+    faces, absorbed, detached = absorb_enclosed_pavement(
+        faces, tuple(law.tables.emit.terrace.shape_roles))
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged,
-                       tuple(edge_lines), erep, holes_gone)
+                       tuple(edge_lines), erep, holes_gone,
+                       absorbed, detached)
 
 
 def dissolve_degenerate_holes(faces: list[tuple[Polygon, Region]], sep_m: float,
@@ -301,6 +321,104 @@ def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float
         keep[i] = None
         merged += 1
     return [f for f in keep if f is not None], merged
+
+
+def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
+                             roles: tuple[str, ...],
+                             min_frac: float = ENCLOSED_MIN_FRAC
+                             ) -> tuple[list[tuple[Polygon, Region]], int, int]:
+    """§41 (1) — A PAVEMENT FACE INSIDE A PAVEMENT FACE IS A HOLE OF IT
+    (owner RULINGS 2026-09-13co item 2; attributed RULINGS 2026-09-13cs
+    item 2; spec §41).  A pavement face at least ``min_frac`` of whose own
+    area lies inside another, LARGER pavement face's EXTERIOR RING is that
+    face's hole: it contributes no rows of its own and the outer face's law
+    governs every vertex in it.  A cross-connector inside a parallel is the
+    parallel.  Implemented as an absorption into the host face, so there is
+    one face, one role, one ref and one law — no boundary between them for
+    a step to stand on.
+
+    THE FRAME IS THE HOST'S EXTERIOR RING, NOT ITS SOLID, and that is the
+    whole reading.  The enclosed face sits in a HOLE of the host (the
+    arrangement is a partition: a face never overlaps another), so the
+    hole-aware intersection of the two is 0 m² BY CONSTRUCTION and a
+    solid-frame test finds nothing.  Measured on the owner's 1.0.329 HECA
+    patch: 22 faces stand at ≥ 95 % inside another pavement face's ring,
+    every one of them at 0.000 solid fraction; 21 of the 22 share that
+    face's boundary.
+
+    WHY IT IS A DEFECT (the owner's site 30.1312203, 31.3983896).
+    ``cross_connector:pav77`` (895 m²) is a notch in ``primary_parallel:
+    pav73``'s ring, pinned at 65.5 m while the parallel around it holds
+    68–69.5 m: the parallel's OWN surface has to ramp 65.7 → 68.05 m over
+    21 m — 11 % across a code-F taxiway against a 1.5 % cap — and the
+    census sees no row, because each face is lawful on its own.
+
+    THE ONE NARROWING (reported, RULINGS 2026-09-13cs): a face that shares
+    NO boundary run with its host is NOT absorbed — the union would be two
+    disjoint pieces, which no face can be.  That is an island in the middle
+    of a taxiway loop (HECA ``apron:pav5``, 2,362 m², 12.97 m off
+    ``cross_connector:pav67``'s solid), not a notch cut into a body; it is
+    counted as ``enclosed_detached`` and left alone.
+
+    Smallest first, so a chain of nested notches folds into the outermost
+    body.  Returns the faces, how many were absorbed and how many enclosed
+    faces were refused for being detached."""
+    if len(faces) < 2 or not roles:
+        return faces, 0, 0
+    role_set = set(roles)
+    polys = [p for p, _r in faces]
+    tree = STRtree(polys)
+    keep: list[tuple[Polygon, Region] | None] = list(faces)
+    #: union-find: which face each original index now lives in
+    home = list(range(len(faces)))
+
+    def root(i: int) -> int:
+        while home[i] != i:
+            home[i] = home[home[i]]
+            i = home[i]
+        return i
+
+    absorbed = detached = 0
+    for i in sorted(range(len(faces)), key=lambda k: polys[k].area):
+        if keep[i] is None or faces[i][1].role not in role_set:
+            continue
+        poly = keep[i][0]
+        if poly.area <= 0.0:
+            continue
+        best = None
+        best_shared = 0.0
+        saw_host = False
+        # a BOUNDING-BOX query, not ``intersects``: the enclosed face lies
+        # in the host's HOLE, so the two are disjoint as solids
+        for j in tree.query(poly):
+            j = root(int(j))
+            if j == i or keep[j] is None:
+                continue
+            pj, rj = keep[j]
+            if rj.role not in role_set or pj.area <= poly.area:
+                continue
+            try:
+                inside = poly.intersection(Polygon(pj.exterior)).area
+            except Exception:                             # pragma: no cover
+                continue
+            if inside < min_frac * poly.area:
+                continue
+            saw_host = True
+            shared = poly.boundary.intersection(pj.boundary).length
+            if shared > best_shared:
+                best, best_shared = j, shared
+        if best is None:
+            detached += 1 if saw_host else 0
+            continue
+        pj, rj = keep[best]
+        u = pj.union(poly)
+        if u.geom_type != "Polygon":
+            u = max(shapely.get_parts(u), key=lambda g: g.area)
+        keep[best] = (u, rj)
+        keep[i] = None
+        home[i] = best
+        absorbed += 1
+    return [f for f in keep if f is not None], absorbed, detached
 
 
 def _degree_offset(to_xy, lon: float, lat: float, along_lon: bool,

@@ -4508,3 +4508,18 @@ times the bar.
   and quoted.
 * ONE closing HECA build ordered on 9eaebbf8 (the one-way change was
   never built); merge after.
+
+## 2026-09-13di v2roadcontact MERGED (c30b16a0): HECA items 4 and 5 closed on the closing build
+
+Lane `v2roadcontact` @ 62d05427; closing build `v2roadcontactHECA3` at
+9eaebbf8 on main 38dd98be (ledger 5e3f94ef2db6, rc 0, feasible, shared
+repo UNCHANGED, verify DEFECT families empty). Built patch vs the owner's
+1.0.329: `route0` end vs `pav74`'s edge +1.474 → **+0.023 m**; the item-4
+pair 42.6 % → **1.6 %**. Census on the built patch: ADJUDICATED 14,850
+(airside 14,506 / groundside 300 / mixed 44), `road_cross_section` 27 (all
+groundside), `transverse` 1,575 — absolute figures carry §40's shoulder
+(`transverse` 790 → 1,575, `runway_crown` 40 → 183 on both sides of any
+road arm); the attribution is the matched pair in 13dh.
+
+* Owed to the campaign (13dh): the staged solve — airside first,
+  groundside conforms — as the mechanism behind "airside is king".

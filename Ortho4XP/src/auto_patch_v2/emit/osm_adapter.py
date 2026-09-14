@@ -85,6 +85,13 @@ _M_PER_DEG_LAT = 111_320.0
 #: The sidecar keys v2 publishes, and nothing else (Appendix A §5).
 SIDECAR_KEYS: tuple[str, ...] = (
     "ruleset", "axes", "routes", "runway_end_skirt", "crown_drops",
+    # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
+    # axis and HALF WIDTH, and the shoulder cap — the line beyond which a
+    # runway-family vertex is a SHOULDER vertex and is priced at
+    # ``shoulder_transverse_max`` instead of the runway's 1.5 %.  The v1
+    # census reads the line the generator drew and never re-derives it
+    # from the runway RINGS, which a shoulder fattens.
+    "runway_axes", "shoulder_transverse_max",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     "road_coverage_join",  # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each coverage exit
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)

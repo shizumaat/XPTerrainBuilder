@@ -39,7 +39,7 @@ import math
 
 from ..constraints.geometry import principal_axis
 from ..constraints.runway_profile import curve_stations
-from ..law.tables import runway_transverse_max, runway_vertical_curve_bound
+from ..law.tables import runway_transverse_cap, runway_vertical_curve_bound
 from .frame import Patch, Row, noise_m, row
 from .within import crown_by_vertex
 
@@ -161,12 +161,18 @@ def runway_transverse(p: Patch) -> list[Row]:
             xing.update(sh.ids)
     out: list[Row] = []
     seen: set[int] = set()
+    # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
+    # half width, published by the solve (``pipeline.publication``'s
+    # ``runway_axes``) — beyond it the vertex is a SHOULDER vertex and the
+    # cap is the shoulder's, through the ONE accessor the generator prices
+    # at.  A patch predating §40 carries no key: every vertex then reads
+    # the runway cap, exactly as before.
+    half_of = {str(r[0]): float(r[5])
+               for r in (p.publication.get("runway_axes") or []) if len(r) >= 6}
     for sh in p.shapes:
         if sh.role != "runway":
             continue
-        cap = runway_transverse_max(law, sh.code_letter, sh.code_number)
-        if cap is None:
-            continue
+        half = half_of.get(sh.ref, 0.0)
         noise = noise_m(law, sh.role)
         ridge = own.get(sh.ref, spines)
         for k, v in enumerate(sh.ids):
@@ -176,6 +182,10 @@ def runway_transverse(p: Patch) -> list[Row]:
             x, y = sh.xy[k]
             dist, ridge_z, foot = _nearest_ridge(x, y, ridge)
             if ridge_z is None or dist <= 0.0:
+                continue
+            cap = runway_transverse_cap(law, dist, half, sh.code_letter,
+                                        sh.code_number)
+            if cap is None:
                 continue
             fall = ridge_z - sh.z[k]
             over = abs(fall) - cap * dist - noise

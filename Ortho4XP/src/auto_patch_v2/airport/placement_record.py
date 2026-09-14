@@ -120,6 +120,11 @@ class Body:
                 "unit_of": (a.family
                             if str(a.reason).startswith(_fu.UNIT_REASON)
                             else ""),
+                # §16g (6) (owner RULINGS 2026-09-13cn): the two units
+                # this body CONNECTS, or "" — an identified connector is
+                # seated on its HIGH end's unit datum and never falls to
+                # §16c's low-side foot.
+                "connector_of": a.connector_of,
                 "fill": self.fill,
                 "geom_pts": [[round(q[0], 8), round(q[1], 8), round(q[2], 3)]
                              for q in self.geom_pts],

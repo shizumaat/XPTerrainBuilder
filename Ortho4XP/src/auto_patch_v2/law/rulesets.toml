@@ -88,6 +88,7 @@ max_grade_change  = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0
 vertical_curve_k_m = { by_code = { "1" = 75.0, "2" = 75.0, "3" = 150.0, "4" = 300.0 }, default = 300.0 }  # m per 1 % change (§3.1.16)
 transverse_max    = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.1.18
 transverse_min    = 0.010                                 # crown minimum (recorded, §3.1.18)
+shoulder_transverse_max = 0.025                            # §40 (2) as amended (owner RULINGS 2026-09-13dd; ICAO Annex 14 §3.2.4, runway SHOULDER transverse slope): the cap on a shoulder vertex BEYOND the runway's own half-width. A shoulder keeps the runway's DATUM — no step across the shared edge, the §29 chord surface reaches it — but not the runway's 1.5 % cross-fall, which is the law of the paved runway between its edges. MEASURED at HECA (round 1): two shoulder vertices at 108.7 m and 204.9 m from the ridge read 1.5287 % and 1.5233 % — 3.1 and 4.8 cm past the 1.50 % cap, DEFECT rows the app build fails on; both pass at 2.5 %.
 
 [icao.taxi]
 longitudinal = { by_letter = { "A" = 0.030, "B" = 0.030, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.10
@@ -140,6 +141,7 @@ vertical_curve_k_m = { by_letter = { "A" = 91.4, "B" = 91.4, "C" = 305.0, "D" = 
 vertical_curve_min_change = { by_letter = { "A" = 0.004, "B" = 0.004 }, default = 0.0 }  # below this no curve (AAC A/B, §3.16.1.1); 0 = always
 transverse_max    = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }
 transverse_min    = 0.010
+shoulder_transverse_max = 0.025                            # §40 (2) as amended (RULINGS 2026-09-13dd): the shoulder cap beyond the runway half-width (FAA AC 150/5300-13B §3.13: shoulder grades to 5 %; the ICAO 2.5 % is the stricter reading v2 applies to both authorities until the owner rules otherwise)
 
 [faa.taxi]
 longitudinal = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §4 taxiway family

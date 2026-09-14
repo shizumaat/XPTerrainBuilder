@@ -76,6 +76,24 @@ class Runway:
         (ax, ay), (bx, by) = self.ends[0].xy, self.ends[1].xy
         return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
 
+    @property
+    def slab_corners(self) -> tuple[XY, XY, XY, XY]:
+        """THE RUNWAY SLAB's four corners in the frame: physical end to
+        physical end (the apt.dat ends plus each end's blast pad /
+        overrun) at the declared width.  The ONE derivation of the slab's
+        geometry: ``classify.evidence.runway_rectangle`` polygonises it
+        and ``constraints.strips.runway_groups`` fits the strip footprint
+        to it (§40 (1) — the strip axis is the RUNWAY's, never a fit to
+        whatever else carries the runway role, e.g. a shoulder)."""
+        (ax, ay), (bx, by) = self.ends[0].xy, self.ends[1].xy
+        L = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5 or 1.0
+        ux, uy = (bx - ax) / L, (by - ay) / L
+        ax, ay = ax - ux * self.ends[0].overrun_m, ay - uy * self.ends[0].overrun_m
+        bx, by = bx + ux * self.ends[1].overrun_m, by + uy * self.ends[1].overrun_m
+        px, py = -uy * self.width_m / 2, ux * self.width_m / 2
+        return ((ax + px, ay + py), (bx + px, by + py),
+                (bx - px, by - py), (ax - px, ay - py))
+
 
 @_dc.dataclass(frozen=True)
 class Pavement:

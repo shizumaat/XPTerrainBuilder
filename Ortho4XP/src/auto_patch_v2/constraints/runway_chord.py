@@ -518,6 +518,7 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
     vw = view(pm, law)
     chains = ridge_chains(vw)
     crown = law.tables.common.runway_crown_transverse
+    half_of = {rw.id: rw.width_m / 2.0 for rw in airport.runways}
     straight, n_without = _chords(pm, law, airport)
     # THE NEAREST-THRESHOLD CROSSING NODE (RULINGS 2026-09-09z (1)): the
     # governing runway's chord is UNCHANGED across the crossing; every other
@@ -572,7 +573,8 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
             if is_fill and f.role != fill_within and not any(
                     pm.faces[g].role == fill_within for g in pm.vertices[v].incident_faces):
                 continue
-            best: tuple[float, float] | None = None       # (lateral d, chord z at the foot)
+            best: tuple[float, float, float] | None = None
+            # (lateral d, chord z at the foot, that runway's half-width)
             p = vw.xy[v]
             for r in refs:
                 c = chords[r]
@@ -586,11 +588,25 @@ def runway_chord_targets(pm: PlanarMap, law: Law, airport: Airport,
                         continue                 # a fill target never extrapolates past a pin
                     zc = c.z(sc)
                     if best is None or d < best[0]:
-                        best = (d, zc)
+                        best = (d, zc, half_of.get(r, 0.0))
             if best is None:
                 continue
-            d, zc = best
-            out[v] = zc - crown * d
+            d, zc, half = best
+            # §40 (1) THE CROWN STOPS AT THE RUNWAY EDGE (owner RULINGS
+            # 2026-09-13co item 1).  The designed cross-fall is the
+            # RUNWAY's, between its own edges; past them — a SHOULDER
+            # vertex, pavement that joined the runway body — the target is
+            # the runway EDGE's value, the datum the shoulder joins, and
+            # the transverse MAXIMUM governs the fall from there.  MEASURED
+            # at CYXY: without the clamp the target continues the crown at
+            # exactly `runway_crown_transverse`, which IS the transverse
+            # cap, so a 100 m shoulder reads 1.53 % against a 1.50 % cap —
+            # 4 runway_transverse DEFECT rows (1.56-1.93 m, each 0.03 pp
+            # over).  A vertex on the slab is UNMOVED (d <= half-width
+            # there): every airport with no shoulder reads as before, and
+            # the `fill_roles` experiment arm keeps its own unclamped
+            # crown plane.
+            out[v] = zc - crown * (d if is_fill or half <= 0.0 else min(d, half))
             dem = pm.vertices[v].dem_z
             if is_fill and dem is not None and out[v] < dem:
                 continue                     # a fill target FILLS; where the DEM is higher it stays the target

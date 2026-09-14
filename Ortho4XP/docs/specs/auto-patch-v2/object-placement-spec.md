@@ -4617,3 +4617,24 @@ two units or open ground) and seated on its high-end unit's datum, named;
 KCLT / OTHH / LEMD unit censuses re-read: connectors before → after with each
 one's two end units named; `unit_split_authored` 0 at SPJC after; plan stage
 not worse than +5 %; suite twice.
+
+### §16g (6) MEASURED — THE ARTICULATION-POINT READING (lane `v2connector`, 2026-09-13; RULINGS 2026-09-13df)
+
+"Hold the long body out and see what its ends touch" holds TERMINALS out at
+200 m; a unit built without them is not the unit.  What ships: the partition
+is §16g (1)'s byte-for-byte, and each long body is asked *remove me and see
+what my unit falls into* — ends in two different components → connector;
+one component and nothing within `connector_span_m` of the free end →
+connector to open ground; every contact into one component → MEMBER however
+long.  A topology-connector is seated on its high end's component only when
+the ground-step test ALSO fires (round 1 expelled the 8 of LEMD's 9 and 12 of
+HECA's 26 topology-connectors that do not step).  `Body.unit_of` was declared
+and never filled — every written plan carried null while the unit law ran;
+filled, with `connector_of`.  `unit_connectors_cut` 0 at every airport;
+`bodies_bound_to_unit` rose everywhere.  SPJC `xp11_007__b0` 27.41 → 19.56,
+`xp11_010__b0` 18.57 → 19.56 (unit datum 19.560).  HECA's longest connector
+`concrete_3.obj` b1 (1,149 m, terminal complex ↔ a 1,469-body group) 73.83 →
+95.55 on the `T3_road.obj` deck.  `connector_of` propagates onto carried
+bodies (a carried body takes its carrier's anchor, as `family_of` does): the
+census counts SEATS, bearers are report-only (RULINGS 13df).  The §10 station
+cut is still not written; `connector_of` records both ends for it.

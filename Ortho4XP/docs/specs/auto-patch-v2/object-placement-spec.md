@@ -4946,3 +4946,110 @@ BARS: HECA airside vertices moved > 0.02 m = 0; the terminal at 30.1279552,
 resolved into its buildings (count, largest cluster's area named);
 constraints ≤ +10 %; KCLT BUILD with outlines — `building80` 221.44 ± 0.02
 and the terminal's members' seats unchanged; SPJC 19.56 dry.
+
+### §16g (10) (4)–(6) MEASURED, ROUND 3 (lane `v2padcluster`, 2026-09-14; branch `claude/v2padcluster`)
+
+**WHAT CARRIES THE T3 CHAIN, MEASURED FIRST (the round's first order).**
+Per body of the largest cluster (`unit:43`, 9,334 bodies / 9,333 touch
+edges), how many cluster edges pass through it:
+
+| resource | edges | parts | solid extent | `base_y` | area |
+|---|---|---|---|---|---|
+| `T3_4.obj` | **1,822** | 1 | **0.00 m** | 15.73 | 1,161 m² |
+| `T3_4.obj` | **1,772** | 1 | **0.00 m** | 15.73 | 1,161 m² |
+| `metal_titles.obj` | 1,531 | 58 | 23.51 m | 3.73 | 25,477 m² |
+| `Plastic.obj` | 1,165 | 238 | 22.07 m | 6.09 | 18,553 m² |
+| `floor.obj` | 996 | 12 | 6.53 m | −0.63 | 14,415 m² |
+| `door.obj` | 468 | 1 | 0.00 m | −0.46 | 589 m² |
+| `concrete_3.obj` | 219 | 1 | 0.00 m | −1.84 | 17,383 m² |
+| `strip_concrete.obj` | 41 | 1 | 0.00 m | −0.17 | 1,289 m² |
+
+Two single-component CEILING PLATES carry **3,594 of the district's
+9,333 edges** between them; six `T3_4.obj` bodies carry 3,598 endpoints,
+`black_glass.obj` contributes 366 bodies all at extent 0.00, and
+`concrete_3.obj` is 13cs's 17,383 m² ground slab.  **The district is held
+together by its floor and its ceiling**, exactly as 14ah read it.
+
+**THE ARMS.**  DISARM `v2padclusterHECAdisarm` (`97a2267cfc28`, 462.1 s)
+against LANE `v2padclusterHECA4` (`cbefb8edcacb`, 384.4 s, ledger
+`72fb36419b42`), both `[guard] shared repo UNCHANGED`.  `v2padclusterHECA3`
+is byte-identical in its design surface (same `body_sha`) — the object-
+stage half of (4) moves no vertex, which is itself the proof that the
+unit rule and the cluster rule are separable.
+
+| bar | DISARM | round 2 | round 3 | verdict |
+|---|---|---|---|---|
+| clusters | — | 1,954 | **4,278** | — |
+| largest cluster over the pad threshold | — | 541,200 m² / 9,334 bodies | **171,086 m² / 1 body** | **(4) MET — the T3 district is resolved** |
+| `pad_cluster_mismatch` (bar 0) | 33 | 44 | **27** | MISSED |
+| `pad_airside_weld` (bar 0, new) | 16 | — | **24** | MISSED, and WORSE |
+| **airside vertices moved > 0.02 m (bar 0)** | — | 13,637 of 21,534 | **17,482 of 29,465, worst 12.15 m; the runway 856 of 3,426, worst 3.14 m** | **MISSED** |
+| `building` pad area | 867,173 m² | 1,369,935 | **1,212,189** | the clip gave 157,746 m² back |
+| apron area | 2,935,484 m² | 2,841,363 | **3,012,902** | **(5) MET — the pads no longer eat the apron** |
+| the terminal 30.1279552 31.403143, SURFACE (bar 72.50) | 72.07 | 82.90 | **80.94** | MISSED |
+| the terminal's BODY off its own ground | — | `T3_49 b4` +7.66 m | **`T3_49 b3` +0.15 m, WITHIN 0.3** | **MET — it left the 52-member unit** |
+| constraints stage (bar ≤ +10 %) | 83.46 s | +57 % | **129.67 s, +55 %** | MISSED |
+| law-true census total | 62,116 | — | **77,288** | reported |
+| suite | | | 1,475 passed, twice | MET |
+
+**(5) WORKS ON THE MAP AND NOT ON THE SOLVE, AND THAT IS THE ROUND'S
+FINDING.**  Clipping the pads out of airside did what it says: the apron
+GAINS 77,418 m² instead of losing 94,795, and no pad overlaps a runway or
+a taxiway.  The airside still moves 17,482 vertices.  The mechanism is
+not overlap — it is the WELD: 345,016 m² of new hard-flat pad now sits
+BESIDE the apron along its whole perimeter, and a shared vertex is ONE
+unknown (09-01g, contact = value), so the pad's flat rows and the apron's
+own rows are peers at every boundary node.  Clipping moved the conflict
+from the interior to the edge; it did not remove it.
+
+**(6) AS A CONSTRAINT WAS ATTEMPTED TWICE AND BOTH FORMS ARE REFUTED BY
+MEASUREMENT.**  14ai's sentence — "the airside is the datum, the pad
+never pulls it" — has two implementations and this lane measured both:
+
+1. WITHDRAW the shared vertices from the pad's flat plate.  The pad then
+   has no plate at its rim and loses its own law: the §30 twin's pad
+   tilted to **2.6 % against a 1 % HARD ceiling**, and a pad between two
+   pavements half a percent apart stopped being flat.  Narrowing the
+   withdrawal to the cap-0 target and leaving the 1 % ceiling the whole
+   rim did not save it (4 ruled twins still red).
+2. Make those rows ONE-WAY with the airside vertex as LEADER (09-10l's
+   own shape, a new head in `one_way_rulings` + `pad_flat_rulings`).
+   **13 ruled twins go red**, including the plate's own two-sidedness
+   (§30 "every rim pair priced, contacts included") and §28's frontage
+   direction.
+
+Both are rewrites of laws this lane does not own, so NEITHER SHIPPED.
+What shipped is (6)'s CENSUS — `pad_airside_weld`, CRITICAL, computed
+from the patch by node identity — and it reads **16 pads at DISARM and 24
+with the derived pads**.  The step ACROSS a welded edge is 0 by
+construction and is not what it measures; what it measures is the pad
+pulled out of plane at the edge, which is the thing the owner's sentence
+forbids and which is now visible for the first time.
+
+**THE CONFLICT, STATED ONCE.**  A derived pad is (a) one hard plane, (b)
+welded to the apron along its whole rim, and (c) forbidden to move the
+apron.  Any two of the three can hold; all three cannot, and the three
+are §30's pad law, 09-01g's weld and 14ai's airside datum respectively.
+**STOP-and-report: nothing further is armed.**  The lever the owner must
+choose among: drop (a) for pads that share an airside edge (the pad
+becomes a level, not a plane, at that edge — and its 1 % ceiling with
+it); drop (b) (a derived pad stands OFF the apron by a declared joint,
+§23, and shares no vertex); or drop (c) and accept a bounded airside
+movement with a stated cap.
+
+**KCLT, AND THE REF IS NOT A HANDLE.**  `v2padclusterKCLT3` (rc 0,
+274.2 s, `d19ae4797bc4`, guard UNCHANGED; no ledger key — the tree moved
+during the run).  Read BY COORDINATE at 13bo's own site (35.2191877,
+−80.9426007), because `building{N}` is an ORDINAL and the derived pads
+renumber every later one: the terminal pad is **221.46 → 220.56 m**
+(−0.90), 865 → 483 vertices, spread 1.07 → 0.51.  The bar was unchanged
+within `hard_tol_m`: **MISSED by 0.90 m**, and the members' seats follow
+it.  `building80` as a REF now names a 16-vertex pad elsewhere — quoting
+it across these arms would have reported 3.77 m of pure renumbering.
+
+**SPJC IS INERT AND SAYS SO.**  The registered frame
+(`SPJC_20260913T214930`) carries no `Part.height_m`, so (4) stands down
+by its own clause and the units are byte-identical — 4 units, `fu:0:0`
+with 484 bodies / 24 members including `xp11_007` and `xp11_010`.  The
+19.56 viaduct is untouched BY CONSTRUCTION, not by measurement; an SPJC
+build carrying heights is OWED, as is a KCLT one at the final tree.

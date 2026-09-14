@@ -4328,3 +4328,30 @@ Lane `v2roadcontact` @ bb7a0b03 (HECA build `v2roadcontactHECA2`, ledger
 * §37 (10) (3)'s "4 rows → every ribbon" conflated violation rows with
   priced rows (15 of 18 refs were already priced) — spec text to correct
   at merge.
+
+## 2026-09-13dc v2drapedsrc round 1 reported, held for round 2: the discriminator is ruled in; the field-wide apron union is ruled OUT
+
+Lane `v2drapedsrc` @ c8cb0bb4 (HECA build `v2drapedsrc_heca`, ledger
+302ca060e48e). The owner's site 30.1235047, 31.4160956: 0 rings → inside
+`apron:pav132` (one face). `Concrete_Polygon_1.obj` 29 bodies / 580,331 m²
+reproduced exactly; body 6 `dsf:objpav62` 25,011 m², apron cover 90 %.
+The other five airports admit 0 object pavements (no other pack ships
+draped ground pages) — byte-identity structural.
+
+* RULED IN (§42 (1) amended): the layer-group discriminator — §42 as I
+  wrote it admitted 31.9 M m² of shadows, decals and markings; pavement
+  must declare `ATTR_layer_group_draped` in a pavement group. Solid
+  triangles do not disqualify a resource.
+* RULED OUT (§42 (2) amended): my "union into the mapped page" clause —
+  it made `pav132` a 2,687-node apron over 91 m of DEM relief (HECA IS
+  NOT FLAT), off-DEM max 11.73 m, joint steps 5.38 m, and shifted the
+  role census (apron 48 → 120, cross_connector 130 → 76). An adjacent
+  object body is its own face; union only under §41 (1). Round 2 with a
+  BASE ARM at the lane's base sha (the round-1 deltas were cross-tree
+  against 1.0.329 — indicative only).
+* Chip: `.pol` remainders (`<id>#k`) classify with an EMPTY description
+  (`evidence._dsf_pavements` splits, `classify/sources.py` looks up the
+  whole id) — repairing it moves KCLT/LEMD evidence, a measured change of
+  its own.
+* Load cost +0.25–0.40 s (+6.6–11.5 % of a 3.8 s stage; 0.4 % of the
+  60 s budget) — accepted, under the 1 % review floor.

@@ -5855,3 +5855,43 @@ test."
   body missing from the DSF, seated below the mesh, or never authored
   at that tunnel?). Fix in the same round if it is the object stage's
   (a dropped/converted wall body); otherwise a named item.
+
+## 2026-09-14as v2staged + v2padcluster MERGED with BOTH mechanisms OFF (`pad_from_cluster = false`, `staged_solve = false`): main's surface is byte-unchanged; the airside is not yet invariant under pads — two prerequisites named
+
+Lane `v2staged` @ 65351424 (on `claude/v2padcluster` a3185dbb; HECA
+arms `v2stagedHECAoff` = r5's shipped `18e51b7d084e` and the staged
+FINAL `266b56b5a358`; suite 1,502 twice on the branch, 1,495 on main
+with the three padcluster twins arming the flag themselves). §20b
+built: stage 1 = the airside pavement problem alone (runway/taxi/apron
+from the law, its own polish and projections), stage 2 = everything
+with every airside column SUBSTITUTED as a constant (a ±tol box would
+mint ~40 k hard rows); (1b) a row with a `follows` or a conformance
+head is never stage 1's even when all-airside (a welded pad's skirt
+rows between two apron vertices — 9,936 moved with the rule as
+written); (1c) a stage triangulates only its own faces (the bending
+stencil never leaves the stage). Measured: airside moved vs DISARM
+8,976 (OFF) → 10,371 (staged) — NOT the coupling: 405 moved vertices
+over a kilometre from any pad; (a) the pad derivation CHANGES THE
+AIRSIDE PROBLEM (268 airside vertices gone, 93 new, 844 → 841 apron
+faces; the body datum and 2-D trend refit) and (b) the airside solve
+is UNSETTLED (stage 1 alone: 42 of 161,690 hard rows, max 0.18 m — 13y
+(B)/13ab), so a perturbed problem lands on a different optimum. The
+conforming side pays (`pads` 4 → 199, `road_ramp` 15 → 48) because
+airside cannot yield a centimetre — which §20b forbids. Stage clocks
+90.3 + 5.5 = 95.8 s vs 117.9 single (0.81×). Terminal 72.60 → 73.05.
+
+* RULING: both ship OFF. The airside becomes invariant under pads
+  only when (i) THE PAD DERIVATION LEAVES THE AIRSIDE VERTEX SET ALONE
+  — a pad clipped by airside shares the airside's EXISTING vertices
+  and adds none; the body datum / 2-D trend are fitted on airside
+  alone (the pads never enter the fit) — and (ii) the airside solve
+  SETTLES (13y (B)/13ab — the standing first-ranked debt: 42 unsettled
+  hard rows at HECA). Then staged ON gives identity by construction.
+  Two lanes, in that order, before 1.0.335 arms pads at HECA.
+* Deviations recorded for the spec author: §23.3 (the airside sheet
+  borrowing the ground's datum across the stencil) is false under §20b
+  at the sheet's edge (valley fixture +2.68 → −3.92; HECA inert); a
+  welded pad's 1 % ceiling is unreachable under §20b (the two-sided
+  row 14al withdrew can return, since under §20b it cannot pull).
+* The OTHH customer line is untouched: OTHH on main = 1.0.334's
+  surface (both flags off).

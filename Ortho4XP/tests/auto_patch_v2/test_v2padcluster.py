@@ -180,6 +180,17 @@ class _AP:
         self.dsf_objects = ()
 
 
+def _armed(law):
+    """The ARMED law: ``[placement] pad_from_cluster = true``.  It SHIPS
+    false on main (RULINGS 2026-09-14as — the derived pads are held for the
+    owner's HECA read), so the twins that read the derivation arm it
+    themselves; the identity twin below arms and disarms explicitly."""
+    import dataclasses as _dc
+    on = _dc.replace(law.tables.structures.placement, pad_from_cluster=True)
+    st = _dc.replace(law.tables.structures, placement=on)
+    return _dc.replace(law, tables=_dc.replace(law.tables, structures=st))
+
+
 def test_16g_10_2_one_pad_per_cluster_and_touching_clusters_are_not_merged():
     """§16g (10) (2): the ``building`` pad is DERIVED from the cluster —
     one pad per cluster, its outline union.
@@ -191,7 +202,7 @@ def test_16g_10_2_one_pad_per_cluster_and_touching_clusters_are_not_merged():
     out as one pad with one level.  Under (10) they are two buildings,
     two pads, and the step between them is §23's declared terrace."""
     from auto_patch_v2.classify.evidence import _cluster_pads
-    law = Law.for_airport("ZZZZ")
+    law = _armed(Law.for_airport("ZZZZ"))
     ap = _AP([_Cl("unit:0#0", [_sq(0.0, 0.0, 40.0, 40.0)], floors=(0.0,)),
               _Cl("unit:0#1", [_sq(40.0, 0.0, 80.0, 40.0)], floors=(3.0,))])
     got = _cluster_pads(ap, law)
@@ -212,7 +223,7 @@ def test_16g_10_2_pad_from_cluster_false_is_the_identity():
     import dataclasses as _dc
 
     from auto_patch_v2.classify.evidence import CLUSTER_PADS, _cluster_pads
-    law = Law.for_airport("ZZZZ")
+    law = _armed(Law.for_airport("ZZZZ"))
     off = _dc.replace(
         law.tables.structures.placement, pad_from_cluster=False)
     st = _dc.replace(law.tables.structures, placement=off)
@@ -231,7 +242,7 @@ def test_16g_10_2_a_cluster_with_no_outline_is_skipped_and_counted():
     the build then falls back to the footprint cache and is not silently
     reading boxes as buildings."""
     from auto_patch_v2.classify.evidence import CLUSTER_PADS, _cluster_pads
-    law = Law.for_airport("ZZZZ")
+    law = _armed(Law.for_airport("ZZZZ"))
     got = _cluster_pads(_AP([_Cl("unit:0#0", [])]), law)
     assert got == [] and CLUSTER_PADS["no_rings"] == 1
 

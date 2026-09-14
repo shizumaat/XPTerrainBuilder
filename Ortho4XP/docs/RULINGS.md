@@ -4133,3 +4133,61 @@ annulus seeds 252 → 3, valued vertices 84,631 → 0, INTERP_ALT 629,054 →
   `--shape` only before the ICAO.
 * Not verified: item 7; the `apron_named=1` token on cells 58/191 (source
   description matches no token — untraced); no registered HECA frame.
+
+## 2026-09-13ct Owner on HECA item 8: the apron is the pack object `Concrete_Polygon_1.obj`
+
+Owner, verbatim: "The apron area for item 8 is covered by
+'Concrete_Polygon_1.obj' in the airport package, which is large and has
+concrete at other parts of the airport, so I assume we are cutting this
+object into smaller pieces so they can be seated on the ground?"
+
+* The 13cs item-8 reading ("the pack's draped `.pol` page") is corrected:
+  the pavement is an OBJECT. Law that applies: §16g (4) components apart
+  are separate bodies, each seated on its own unit datum; §16b terrain cut
+  for a footed body. Suspect: the +19.70 m body at 30.120503, 31.402651
+  (`feet:20`, diameter 1,143.8 m) IS this object, unsplit.
+* Scout `v2heca329` resumed: bodies, seats, mesh under each piece, and
+  whether an object-pavement footprint enters the layout as a source
+  polygon (`o4_object_footprints_+30+031.cache` exists in the mod cache).
+
+## 2026-09-13cu `Concrete_Polygon_1.obj` read: a DRAPED ground polygon, correctly NOT cut; 580,331 m² of HECA's concrete has no route into the layout
+
+Scout `v2heca329` (resumed), read-only. The object: OBJ8 `TEXTURE_DRAPED`,
+1,137 vertices ALL at local Y = 0.000, 379 triangles, 29 disjoint bodies,
+580,331 m² total, authored extent 2,962 × 4,032 m; ONE `OBJECT` seat at the
+pack origin (30.1121147, 31.4120270, mesh 108.443, shared with 199 other
+placements); ground under its corners 45.0–130.9 m. The rebake plan lists
+it `skipped: no genuine solid component: nothing to seat` (one of 50 of 90
+skips) — no `__bN.obj` pieces, correctly: X-Plane drapes it onto the mesh,
+it cannot float. The owner's point 30.1235047, 31.4160956 is inside body 6
+(25,012 m², 182 × 217 m), drawn on the raw mesh at 95.09; the mapped apron
+`pav132` is graded 82 m away — the seam is the "missing apron". The
++19.70 m body at 30.120503, 31.402651 is NOT this object: it is `unit:43`,
+the Terminal 3 hangar/tower complex (`T3_concrete_Yellow`,
+`floor_more_yellow`, `titles_1`, `building`), 597 m outside the concrete.
+No route into the layout: object footprints enter only as `building` pads
+(930 at HECA, the concrete not among them); pavement sources are apt.dat
+110 polygons and `.pol` POLYGON_DEF pages only (`airport/load.py:309-381`,
+1 admitted at HECA); `classify/sources.py` has no object-footprint source.
+
+* Answer to the owner: we are NOT cutting it and need not — it is draped.
+  The defect is source evidence: the layout is blind to the pack's draped
+  OBJ ground polygons.
+* INTENT QUESTION (recommended YES): admit a pack's draped OBJ ground
+  polygons (`TEXTURE_DRAPED`, all vertices at Y = 0, per disjoint body) as
+  pavement source geometry beside `.pol` pages, classified by the same
+  rules (apron/lot/corridor by evidence), so the design surface grades the
+  ground under them. At HECA that is 29 bodies / 580 k m². Awaits the
+  owner's ruling; then a lane `v2drapedsrc`.
+* Standing HECA object debt carried (13cs): `unit:43` +19.70 m.
+
+## 2026-09-13cv Owner: "Yes, lets try and identify object based pavement so we can classify it correctly" — §42 written, lane `v2drapedsrc`
+
+* §42 OBJECT-BASED PAVEMENT IS A SOURCE: a placed OBJ8's draped, Y = 0
+  geometry ≥ 200 m², per disjoint body, is a `dsf:object_pavement` source
+  polygon classified by the same evidence rules as a `.pol` page; pads win
+  on overlap; a mapped page's evidence governs where they meet (union,
+  never a second surface). Census `object_pavements` in load; `explain`
+  names the resource.
+* Lane `v2drapedsrc` (Opus, brief pack), HECA closing build; the other
+  frames dry.

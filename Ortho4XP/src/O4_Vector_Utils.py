@@ -127,6 +127,11 @@ class Vector_Map:
         self.dico_nodes = {}
         # keys are tuples of 2 floats (in our case (lon-base_lon), lat-base_lat)
         # and values are ints (ids)
+        #: §39 (iv): a coarse spatial hash of the node coordinates, so the
+        #: CROSSING mint can ask "is there already a node here" in O(1).
+        #: ``insert_node``'s own dedupe stays exact — this is consulted
+        #: only where ``insert_edge`` would MINT a node.
+        self._node_cells: dict = {}
         self.dico_edges = {}
         # keys are tuples of 2 ints (end-points ids) and values are ints (ids).
         # An egde id is needed for the index (bbox)
@@ -166,7 +171,49 @@ class Vector_Map:
             self.nodes_dico[node_id] = key
             self.data_nodes[node_id] = z
             self.next_node_id += 1
+            cells = self._node_cells
+            if cells is not None:
+                cells.setdefault(self._node_cell(x, y), []).append(node_id)
         return node_id
+
+    #: §39 (iv) (owner RULINGS 2026-09-13cg/13cj): the cell size of the
+    #: node hash the CROSSING mint consults, in tile-relative degrees.
+    #: One cell per weld radius, so a query reads nine cells.
+    _NODE_CELL_DEG = 1.0e-5                       # ~1.1 m
+
+    def _node_cell(self, x, y):
+        c = self._NODE_CELL_DEG
+        return (int(x // c), int(y // c))
+
+    def _node_near(self, x, y, radius_m, m_lat, m_lon):
+        """THE MINT'S OWN IDENTITY JOIN (§39 (iv)).  ``insert_node`` dedupes
+        on EXACT float equality (owner RULINGS 2026-09-13bu named it), so
+        two crossings of the SAME line by two different edges mint two
+        nodes however close they fall — and the segment between them is a
+        constrained sliver nobody authored.  MEASURED at LEMD: the
+        orthogrid line at lon −3.581542969 was crossed by two patch ring
+        edges 0.8 MILLIMETRES apart, and the 0.0008 m grid segment that
+        left is the tile's worst remaining ``short_segments`` /
+        ``bent_chords`` pair (40.497989, −3.581543, slenderness 79 —
+        13cj).  So before a crossing node is minted, an existing node
+        within ``radius_m`` of it IS that node.
+
+        Nothing is ever MOVED: the authored vertex keeps its coordinate and
+        the crossing simply resolves to it.  Returns the id or ``None``.
+        """
+        best = None
+        cx, cy = self._node_cell(x, y)
+        for ax in (cx - 1, cx, cx + 1):
+            for ay in (cy - 1, cy, cy + 1):
+                for nid in self._node_cells.get((ax, ay), ()):
+                    p = self.nodes_dico.get(nid)
+                    if p is None:
+                        continue
+                    d = sqrt(((p[0] - x) * m_lon) ** 2
+                             + ((p[1] - y) * m_lat) ** 2)
+                    if d <= radius_m and (best is None or d < best[0]):
+                        best = (d, nid)
+        return None if best is None else best[1]
 
     def update_edge(self, nodeid0, nodeid1, marker):
         if nodeid0 == nodeid1:
@@ -328,7 +375,14 @@ class Vector_Map:
                     c_z = (1 - beta) * self.data_nodes[
                         id2
                     ] + beta * self.data_nodes[id3]
-                    c_id = self.insert_node(c_x, c_y, c_z)
+                    # §39 (iv): an existing node within the radius of the
+                    # crossing IS the crossing — never a second node 0.8 mm
+                    # from the first (:meth:`_node_near`).
+                    c_id = self._node_near(
+                        c_x, c_y, self.split_spacing_m, GEO.lat_to_m,
+                        GEO.lon_to_m(self.nodes_dico[id0][1] + 0.5))
+                    if c_id is None:
+                        c_id = self.insert_node(c_x, c_y, c_z)
                     # destroy old edge
                     del self.dico_edges[(id2, id3)]
                     del self.edges_dico[edge_id]

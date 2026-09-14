@@ -227,3 +227,57 @@ def test_a_map_with_nothing_to_weld_is_untouched():
     before = dict(vm.edges_dico)
     assert vm.weld_hairlines(0.010, LAT) == 0
     assert vm.edges_dico == before
+
+
+# ── §39 (iv) THE CROSSING MINT'S OWN IDENTITY JOIN (RULINGS 13cg/13cj) ──
+# LEMD, measured on this lane's own tile arm: the ORTHOGRID line at lon
+# −3.581542969 is crossed by two patch ring edges whose crossings fall 0.8
+# MILLIMETRES apart, and `insert_node` dedupes on exact float equality, so
+# it minted both — leaving a 0.0008 m constrained grid segment nobody
+# authored.  That pair (`short_segments` 0/0 plus its `bent_chords` 15/0,
+# slenderness 79, at 40.497989, −3.581543) is the tile's worst remaining
+# finding and the one the owner's 1.0.328 pre-flight refused on.
+
+def _grid_crossing_map():
+    """A vertical grid line crossed by two near-parallel ring edges whose
+    crossings fall 0.8 mm apart — LEMD's geometry, to scale."""
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    _insert(vm, (X, Y - _dlat(20.0)), (X, Y + _dlat(20.0)), "DUMMY")
+    for dy in (0.0, _dlat(0.0008)):
+        _insert(vm, (X - _dlon(15.0), Y + dy), (X + _dlon(15.0), Y + dy),
+                "INTERP_ALT")
+    return vm
+
+
+def test_two_crossings_a_millimetre_apart_mint_one_node():
+    vm = _grid_crossing_map()
+    shortest = _shortest_segment_m(vm)
+    assert shortest > 0.01, (
+        f"a {shortest * 1000:.4f} mm constrained segment survived — that is "
+        f"LEMD's orthogrid sliver at 40.497989, -3.581543")
+
+
+def test_the_crossing_dedupe_moves_nothing():
+    """The authored vertices keep their coordinates; only the MINT is
+    refused."""
+    vm = _grid_crossing_map()
+    X, Y = 0.0692, 0.2181530
+    coords = set(vm.nodes_dico.values())
+    for dy in (0.0, _dlat(0.0008)):
+        assert (X - _dlon(15.0), Y + dy) in coords
+        assert (X + _dlon(15.0), Y + dy) in coords
+
+
+def test_a_genuine_second_crossing_still_mints():
+    """Two crossings a metre apart are two nodes: the join is METRIC, not
+    a licence to collapse the grid."""
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    _insert(vm, (X, Y - _dlat(20.0)), (X, Y + _dlat(20.0)), "DUMMY")
+    before = len(vm.nodes_dico)
+    for dy in (0.0, _dlat(1.0)):
+        _insert(vm, (X - _dlon(15.0), Y + dy), (X + _dlon(15.0), Y + dy),
+                "INTERP_ALT")
+    assert len(vm.nodes_dico) == before + 6, (
+        "four ring endpoints and TWO distinct crossings")

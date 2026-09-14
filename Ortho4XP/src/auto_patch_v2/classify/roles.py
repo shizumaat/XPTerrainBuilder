@@ -75,7 +75,7 @@ from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .open_default import apron_evidence, open_pavement_role
 from .rules import Rules, load_rules
-from .sources import SourceRecord, classify_sources
+from .sources import SourceRecord, classify_sources, object_body_cuts
 
 __all__ = ["Cell", "CutLine", "Classification", "classify"]
 
@@ -185,6 +185,13 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         region = region.difference(ev.pad_union)
     taxi_parts, truck_parts, prox, spurs, src_cuts = _cut_lines(
         ev, region, rules, cut_polys)
+    # §42 (2) as amended (RULINGS 2026-09-13dc): a §42 object-pavement body
+    # that is not §41 (1)-inside a mapped page CUTS AT ITS OWN BOUNDARY, so
+    # it is its own face and is kinded by evidence — never dissolved into
+    # the page it merely touches (``sources.object_body_cuts``).
+    obj_cuts = object_body_cuts(ev, region)
+    src_cuts = src_cuts + obj_cuts
+    stats["object_body_cuts"] = len(obj_cuts)
     faces = _slice(region, taxi_parts, truck_parts, spurs + src_cuts, rules)
     stats["slice_faces"] = len(faces)
     stats["keyhole_spurs"] = len(spurs)

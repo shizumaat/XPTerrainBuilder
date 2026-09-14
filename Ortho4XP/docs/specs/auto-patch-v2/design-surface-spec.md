@@ -8579,3 +8579,54 @@ as yielding, the taxi vertices and 2.07 m); taxi family byte-identical;
 synthetic twin where a cluster with no taxi coupling merges (union spread →
 0) and one where it yields; OTHH plan stage re-timed (`--runs 3`, quiet
 machine); suite twice.
+
+### §30 (4) (5) MEASURED (lane `v2clusterpad` round 5; RULINGS 13ch)
+
+**13ch (i)'s PREMISE IS REFUTED, AND THE GATE MOVED TO WHERE THE DEFECT
+IS.**  The ruling asked the lane to measure which coupling carries round
+4's 2.07 m and to gate on it.  Measured, on the round-4 arms:
+
+* `building91` shares **NO vertex** with `building80`, with any apron
+  face or with any taxi face — its 18 vertices belong to its own face and
+  nothing else;
+* it fronts nothing: the nearest pavement of any kind is **80.35 m** away
+  against a `[design] pad_frontage_m` of **3.0 m**;
+* the taxi vertices that move are not near it — the six worst stand
+  **2,192 … 2,218 m** from it (1,816 … 1,841 m from `building80`); the
+  nearest moved taxi vertex is 431 m away and **none** is within 200 m.
+
+There is no coupling to gate on: the movement is a field-wide shift of
+the solve, not a local transmission.  What `building91` IS, is a separate
+building **65.81 m from the terminal** that the cluster's coarse PART-BOX
+union happened to intersect — §16g (2)'s undone item (b), the
+box-versus-polygon reading, reaching the design surface.  §30 (4)'s own
+words are "one pad over the family's FOOTPRINT UNION", and a pad 66 m
+outside the union is not in it.
+
+**THE GATE AS BUILT** (`cluster_pad._touching_component`, generator time,
+no post-hoc revert): of the faces the footprint union intersects, the
+cluster's plane covers the CONNECTED COMPONENT — pads within
+`[placement] footprint_touch_m` (0.5 m) of each other, the same chain the
+footprint unit itself is built on — that holds the largest face.  Every
+other intersected face KEEPS ITS OWN PLANE, is collected in
+`cluster_pad.YIELDED` and named per cluster in the sidecar's
+`cluster_pads` as `yielded_pads`.
+
+**THE THREE ARMS** (one tree, law values only; the reach disarmed in both):
+
+| bar | DISARM `v2cpKCLTd4` | PAD-ONLY `v2cpKCLTp6` |
+|---|---|---|
+| graded document | `bde3f0aff32e` | **`bde3f0aff32e` — BYTE-IDENTICAL, MET** |
+| taxi family | 6,453 verts | **0 moved, worst 0.0000 m — MET** |
+| `building91` | 217.89 | **217.89 — MET** (it yields; the report names it) |
+| the cluster's plane | — | `building80` alone, median 221.46, spread 1.07 |
+| union spread | 4.30 m | 4.30 m — by the GATE, not by failure |
+| §16g (5) rows | — | **unchanged**: 11,314 multi-anchor rows, 5,263 in a unit, 4,896 `OBJECT_MSL`, 6,336 on ground, **0 dropped**; the passengers and seats at 35.2191877, −80.9426007 at **225.46** = `building80`'s 221.46 + their authored 4.00 m — on the floor |
+
+**WHAT THE GATE COSTS, NAMED.**  KCLT's cluster now has ONE member face,
+so round 4's `cluster_pairs` (per-face-complete + cross-links) and the
+shared-face union have NO effect at this airport — they are exercised by
+the twins and will act at an airport whose terminal really does span two
+touching pads.  Round 4's union-spread bar (4.30 → 1.07) is therefore
+WITHDRAWN here: it was measuring the lift of a building that does not
+belong to the terminal.

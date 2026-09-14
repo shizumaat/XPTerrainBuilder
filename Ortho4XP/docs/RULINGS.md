@@ -4230,3 +4230,21 @@ Two LEMD tile-mesh arms on one frame (registered `frames.py list LEMD`):
   CONTAMINATED) — the external-candidate downgrade.
 * Lane discipline: `v2zonehole` wrote the MAIN tree's `tools/INDEX.md`
   (reverted, saved to the session scratchpad; its worktree copy intact).
+
+## 2026-09-13cx v2gradecache round 2 MERGED (fb7cd9e5): VHHH planar 2,845 → 483 s, build 3,580 → 921 s, peak RSS 77.8 → 8.62 GB
+
+Lane `v2gradecache` @ 51c4666b, merged fb7cd9e5. One instrument, one
+tree: `rim_geom = unary_union(lines)` cost 979.5 s over 96 rings to answer
+a distance query a union cannot change — removed; `basin:0`'s `_rim_open`
+materialised 60,402,378 LineStrings in one list (a transient, 12.4 → 34.9
+GB) — members indexed lazily, a closed station never re-asked. Byte-identity
+at LEMD/OTHH (every basin rim/region/floor/ramp/refusal identical; the known
+1 cm `covered_fraction` quantum at LEMD basin:0). Suite 1,307 twice.
+
+* Bars: `wall_s.planar` ≤ 120 s NOT MET (483.4 s; attempt cap on the rim
+  site); RSS ≤ 8 GB missed by 8 % (8.62; the extra is constraints/rebake/
+  verify, not basins). Residual named with seconds: `_rim_open` ~150,
+  `door_wells` 123.8 (172 windowed `at_grade_geometry` calls, distinct
+  windows — a memo would never hit), `wall_corridors` 53.1, `sunken_roads`
+  24.7, `read_placed_objects` ~61. Owed as its own lane when the campaign
+  turns to cost.

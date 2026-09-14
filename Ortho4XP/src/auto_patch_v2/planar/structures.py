@@ -110,7 +110,8 @@ from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
-                                 geometry, pad_hit as _pad_hit, ramp_targets)
+                                 covered_start as _covered_start, geometry,
+                                 pad_hit as _pad_hit, ramp_targets)
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -295,6 +296,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     locked = locked_road_stops(cells, polys, law, RUNWAY_FAMILY,
                                law.tables.emit.road_contact.contact_reach_m)
     locked_refs = {ref for _p, ref in locked}
+    #: §34 (9) (4): the pack's `markings` bodies, parsed at most once and
+    #: only where a ramp is actually pinched (they are refused at load)
+    mark_cache: dict = {}
     stops_air = stops_air + locked
     stop_air_tree = STRtree([p for p, _r in stops_air]) if stops_air else None
     strip: list[Polygon] = []
@@ -458,6 +462,20 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # a door ramp (09-08b/c): the well floor stays at the sill, the
             # climb starts at the well's outer edge
             climb_from = max(climb_from, g.climb_from_s)
+        covered_from = None
+        # ── §34 (9) (5): FULL DEPTH AT THE BUILDING WALL ──────────────
+        # (owner RULINGS 2026-09-14aq: "the ramp is reaching full depth at
+        # the outer edge of the retaining walls which protrude from the
+        # building, probably about 4 m; the ramp does not need to reach
+        # full depth until the actual building wall".)  The corridor's
+        # full-depth point is its COVERED START — where the axis passes
+        # under the building — never the outer end of the wall bands that
+        # protrude from it; the protruding stretch is RAMP, and the run it
+        # adds is what takes the pinched grade down.
+        if g.kind == WALL_KIND and c is not None and g.climbs and pad_tree is not None:
+            covered_from = _covered_start(axis_fn, g.hull_s, pads, pad_tree, grid)
+            if covered_from is not None and covered_from < climb_from - 1e-6:
+                climb_from = covered_from
         # a group's length law is measured from where its climb starts
         max_len_g = None if g.max_length_m is None else climb_from + g.max_length_m + spacing_g
         if g.climbs and c is not None and fits:
@@ -511,6 +529,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         clipped_by = ""
         moved_m = 0.0
         pinched = None
+        road_witness = ""
         ss = [s for s in ss if s <= s_top + 1e-9]
         beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         # a door ramp's HOST cells: the ones its well stands in (cut like
@@ -583,7 +602,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 stop_list, stop_tree_g, host, beyond, grid, spacing_g,
                 lambda ss_try: geometry(axis_fn, ss_try, half, rim_off, inward, grid, g.capped,
                                         g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off),
-                locked_refs)
+                locked_refs, mark_cache)
             if why:
                 stats.refused.append(f"{tid}: {why}")
                 continue
@@ -592,6 +611,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # at the cap from there and still reaches the ground
             moved_m, climb_from = climb_from - moved_to, moved_to
             top_pinned = True
+            if pinched:
+                road_witness = pinched[3] or "the road face edge (the pack paints no line here)"
         # ── §34 (7): THE STATIONS ARE THE SAMPLING, NOT THE EMITTED SHAPE
         # (owner RULINGS 2026-09-14n item 2 / 2026-09-14p).  The profile is
         # solved above; now a straight constant-grade run collapses to its
@@ -777,12 +798,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 profile_out, top_ground = wall_corridor_profile(
                     airport, g, ss, s_top, mouth_z, design_grade, axis_fn, climb_from)
                 notes.append(wall_corridor_note(c, g, mouth_dem, s_top, climb_from, design_grade,
-                                                top_ground, clipped_by, moved_m, pinched))
+                                                top_ground, clipped_by, moved_m, pinched,
+                                                covered_from, road_witness))
                 if pinched:
                     stats.pinched_ramps.append(
                         f"{tid}: pinched against {pinched[0]} — {pinched[1]:.1f} m from the road "
                         f"edge down to the building edge at {100.0 * pinched[2]:.1f} % "
-                        f"(cap lifted, §34 (9))")
+                        f"(cap lifted, §34 (9)); the road edge is {road_witness or 'the face edge'}"
+                        + (f"; full depth at the building wall, s {covered_from:.1f} "
+                           f"(+{g.hull_s - covered_from:.1f} m of run, §34 (9) (5))"
+                           if covered_from is not None and covered_from < g.hull_s - 1e-6 else ""))
             else:
                 notes.append(f"sunken road (2026-09-08b/c Law B) of {c.resource}: cut {mouth_z:.2f} "
                              f"= ground {mouth_dem:.2f} − {c.depth_m:.2f}, {g.hull_s:.1f} m along "

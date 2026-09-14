@@ -72,7 +72,7 @@ def _unit(a: XY, b: XY) -> XY:
 
 __all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
            "rim_standoff", "corner_distance", "beyond_strip",
-           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets"]
+           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start"]
 
 
 def rim_standoff(thickness_m: float, cutout, spacing_m: float) -> tuple[float, float]:
@@ -272,6 +272,32 @@ def collapse_stations(ss: _t.Sequence[float], pts: list[tuple[XY, ...]], zs: lis
         out.append(ss[j])
         i = j
     return out
+
+
+def covered_start(axis_fn, hull_s: float, pads, pad_tree, step: float) -> float | None:
+    """THE CORRIDOR'S COVERED START (spec §34 (9) (5), owner RULINGS
+    2026-09-14aq): the station where the axis leaves the BUILDING it runs
+    under — the building wall — walking out from the mouth.  ``None`` when
+    the axis never stands under a pad (nothing protrudes, the wall end is
+    already the covered start).
+
+    The building PAD is the covering plate's own footprint in the layout,
+    which is why it is read here and not re-derived from the headroom
+    plate: one region, one reading.  At OTHH ``Terminal_Base_2_5``'s
+    retaining walls protrude ~4 m past the terminal, and taking full depth
+    at their outer end spent that run on nothing."""
+    inside = None
+    s = 0.0
+    while s <= hull_s + 1e-9:
+        p = Point(axis_fn(s))
+        hit = any(pads[int(j)][0].covers(p)
+                  for j in pad_tree.query(p, predicate="intersects"))
+        if hit:
+            inside = s
+        elif inside is not None:
+            break
+        s += step
+    return None if inside is None or inside >= hull_s - 1e-6 else inside
 
 
 def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: list,

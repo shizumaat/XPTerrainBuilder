@@ -37,6 +37,7 @@ from pathlib import Path
 
 import pytest
 from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -279,3 +280,48 @@ def test_the_census_reads_the_shoulder_line_from_the_sidecar(tmp_path):
     assert cg.SIDECAR_LAW_KEYS["runway_axes"] == "runway_axes_ll"
     assert cg.SIDECAR_LAW_KEYS["shoulder_transverse_max"] == \
         "shoulder_transverse_max"
+
+
+# ── 6. a shoulder manufactures no REGION (§40 (4)) ───────────────────────
+
+def test_a_shoulder_manufactures_no_region(law, rules):
+    """§40 (4) (owner RULINGS 2026-09-14s): a shoulder carries the runway's
+    datum but NO region — it is excluded where the strip keep-out and the
+    zone bands are derived, and inherits its host runway's.
+
+    The VHHH defect: three shoulder cells beside 07R/25L buffered by the
+    75 m strip half width refused the `tunnel1_done.obj` road tunnel and
+    minted 587,849 m² of zone-2 band.  Read here on the derivations
+    themselves: the same airport with and without a shoulder yields the
+    SAME strip keep-out and the same runway zone-band sources."""
+    from auto_patch_v2.classify.roles import is_runway_shoulder
+    from auto_patch_v2.planar.shapes import strip_keepout
+
+    base = classify(_synthetic(gate=True, island=False), law, rules)
+    withs = classify(_shoulder_airport(300.0), law, rules)
+    sh = [c for c in withs.cells if is_runway_shoulder(c)]
+    assert len(sh) == 1 and sh[0].role == "runway"
+    # the predicate is exact: nothing else in either classification is one
+    assert not [c for c in base.cells if is_runway_shoulder(c)]
+    assert not [c for c in withs.cells
+                if is_runway_shoulder(c) and c.kind != "runway_shoulder"]
+
+    # (a) the joint keep-out: the shoulder adds no polygon of its own
+    a = strip_keepout(base, law)
+    b = strip_keepout(withs, law)
+    ua = unary_union(a) if a else Polygon()
+    ub = unary_union(b) if b else Polygon()
+    assert ua.symmetric_difference(ub).area < 1.0, (ua.area, ub.area)
+
+    # (b) the zone bands: the runway group's sources are the SLAB cells
+    # only, so the band population does not grow with the shoulder
+    from auto_patch_v2.planar.zones import RUNWAY_FAMILY as ZRF
+
+    def band_sources(cl):
+        return sorted(round(Polygon(c.ring, c.holes).area, 3)
+                      for c in cl.cells
+                      if c.role in ZRF and not is_runway_shoulder(c))
+    assert band_sources(base) == band_sources(withs)
+    # ...and the shoulder really is in the runway family, so only the
+    # predicate — not the role — keeps it out
+    assert sh[0].role in ZRF

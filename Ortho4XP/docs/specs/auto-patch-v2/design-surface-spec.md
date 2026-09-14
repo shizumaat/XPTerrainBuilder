@@ -11471,6 +11471,39 @@ wall back), basins 71 → 70 (`basin:5` gone), `graded_strip` area back to the
 old arm's within 5 %; HECA shape 44 still a shoulder with the runway datum
 (13dg's bars hold); the `RUNWAY_FAMILY` census table in the spec.
 
+MEASURED — THE `RUNWAY_FAMILY` CONSUMER CENSUS (lane `v2roles`, 2026-09-14;
+RULINGS 2026-08-30l).  Every reader of the runway-family role set in
+`src/auto_patch_v2/`, by grep, ruled in ONE table before either site was
+edited.  A SURFACE reader asks "is this pavement the runway's?" and KEEPS
+the shoulder (it carries the runway's datum, crown, lateral law and census
+partition, §40 (2)).  A REGION derivation buffers or unions runway cells
+into a ZONE OF INFLUENCE off the pavement and EXCLUDES it: a shoulder is
+pavement of the runway, and the runway's strip and bands are already drawn
+around the runway itself, which the shoulder lies inside.  The predicate is
+one helper, `classify.roles.is_runway_shoulder(cell)` (`Cell.kind ==
+"runway_shoulder"`); only the three REGION sites call it.
+
+| site | what it derives | class | verdict |
+|---|---|---|---|
+| `planar/structures.py:293-298` `strip` / `strip_u` | runway cells ⊕ `zone2_half_width_m` (75 m) — the strip keep-out a structure wall may not stand in | REGION | **EXCLUDE** — the VHHH defect: 84,000 + 8,040 + 6,228 m² of shoulder ⊕ 75 m refused `tunnel1_done.obj` at 22.30368, 113.92917 |
+| `planar/zones.py:96-99` zone-band `groups` | the adjacent-ground band sources, by family and code | REGION | **EXCLUDE** — the shoulders minted 587,849 m² of 75 m zone-2 band at VHHH, against `rules.toml`'s own "a shoulder manufactures no zone strip" |
+| `planar/shapes.py:138-150` `strip_keepout` | each runway cell's long axis + end-skirt corridor ⊕ the strip half width — where a joint is never declared | REGION | **EXCLUDE** — same shape of error, found by this census and not by the VHHH read: a 84,000 m² shoulder has a long axis of its own |
+| `constraints/strips.py` `runway_groups` | the strip footprint (axis, width, rings) | REGION | already EXCLUDED by construction (§40 (1), round 1): reads `Runway.slab_corners`, the apt.dat ends and width, never the role's rings |
+| `planar/structures.py:277-278` `runway_u` | what a structure ramp may NOT cross | surface | KEEP — a ramp crossing a shoulder cuts the runway's own pavement |
+| `planar/structures.py:287` `stops` (door ramp) | the governed cells a door ramp stops at, runway family excepted | surface | KEEP |
+| `planar/structures.py:290` → `planar/wall_corridor_ramps.py:109-114` `airside_stops` | the airside cells a wall-corridor ramp stops at | surface | KEEP |
+| `planar/structures.py:858` | cells the object knife never cuts | surface | KEEP — the runway's pavement is not cut by an object |
+| `planar/basins.py:526-527` `runway_u`, `:794` | what a basin never cuts (`cuts_runway_family`) | surface | KEEP |
+| `planar/shapes.py:218-226` network roots | the runway-connected face network | surface | KEEP — a shoulder is reachable pavement |
+| `constraints/runway_profile.py` `crown_drops`, `runway_crown`, `runway_transverse` | the datum, crown floor and transverse law per vertex | surface | KEEP (§40 (2): the crown stops at the runway edge, the cap becomes the shoulder's) |
+| `constraints/runway_chord.py:559` `faces_of_role(RUNWAY_FAMILY)` | the §29 chord target | surface | KEEP — this is §40 (1)'s whole point |
+| `constraints/zones.py:198-206` `face_of_edge` | which runway face an edge's band belongs to | surface | KEEP — the shoulder's `ref` IS its host runway's, so it inherits that runway's band |
+| `constraints/zones.py:96-99`, `:326-331` | family of a band edge; the tie population's runway exclusion | surface | KEEP |
+| `constraints/eat.py:280`, `apron_trend.py:170`, `taxi_trend.py:115`, `flat_site.py:80` | role-set membership for the EAT rects, the trend terms and the flat-site datum | surface | KEEP |
+| `solve/project.py:158-161` `runway_family_vertices`, `solve/design.py:188` | the projection's runway vertex set | surface | KEEP |
+| `verify/runway.py`, `verify/strips.py`, `verify/structures.py`, `tools/check_grade.py` | the census readings | surface | KEEP (the shoulder is priced at its own cap, §40 (2)) |
+| `law/tables.py` `role_family` / `role_words` / `precedence` | the role register | surface | KEEP |
+
 ### §24 (8) A BASIN'S RAMP CORRIDOR IS RE-NODED AT ITS STATIONS (Fable 2026-09-14; RULINGS 2026-09-14s) — lane `v2othhfix`
 
 §24 (5)'s "the floor under a ramp corridor follows the deck per station"

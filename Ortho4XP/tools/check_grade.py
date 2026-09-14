@@ -6048,6 +6048,16 @@ def _check_bank_across_seam(seam_half_width_m, seam_pins_ll, nodes,
     return out
 
 
+#: §39 (2): the DEGENERATE FLOOR - a gap under this is unmeshable
+#: whatever its neighbourhood (owner RULINGS 2026-09-13bu's own bar,
+#: "constrained segments under 10 mm 28 -> 0"); one over it is ordinary
+#: layout, adjudicated HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE.  The same
+#: number the mesh pre-flight runs at
+#: (``O4_Mesh_Utils.HAIRLINE_DEGENERATE_M``): an assumption and a
+#: REPORTING threshold, never a law.
+HAIRLINE_DEGENERATE_M = 0.010
+
+
 def _hairline_segments(nodes, ways, feature_ways) -> List[Tuple[
         Tuple[float, float], Tuple[float, float], Way]]:
     """Every EMITTED constrained edge of the patch, with the way it came
@@ -6185,6 +6195,15 @@ def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
         length = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
         if length < spacing:
             out.append(_row(w, w, a[0], a[1], length, "short"))
+    # THE ADJUDICATION (instruments report, the law adjudicates): a row
+    # above the DEGENERATE FLOOR is ordinary layout - measured, printed,
+    # counted in the family, and out of the acceptance count.  A row
+    # BESIDE THE OUTER BOUNDARY stands whatever its gap (13an's -Y
+    # clause), but a patch census cannot see the tile border: that
+    # clause lives in the mesh pre-flight, which reads the .poly.
+    for v in out:
+        if v.distance_m >= HAIRLINE_DEGENERATE_M:
+            v.out_of_scope = HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE
     out.sort(key=lambda r: r.distance_m)
     return out
 
@@ -8119,7 +8138,26 @@ YIELDED_OUT_OF_SCOPE = "yielded_by_08d"
 #: ``harness/census.py::stamp_withdrawn_taxi_chords`` from the sidecar's
 #: ``taxi_route_pairs`` key, never inside ``run_checks``.
 WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE = "withdrawn_law_05aa"
+#: §39 (2): the ``out_of_scope`` stamp of a ``hairline_pair`` row whose
+#: gap is ABOVE the degenerate floor (:data:`HAIRLINE_DEGENERATE_M`).
+#: Measured and named, never counted for acceptance.
+HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE = "above_degenerate_floor"
 OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
+    HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE:
+        "ordinary layout, not a hairline (spec 39 (2), owner RULINGS "
+        "2026-09-13bk/13bt/13bu): the emitted vertex stands beside a "
+        "foreign constrained edge, or the emitted segment is shorter "
+        "than the identity spacing, but by MORE than the degenerate "
+        "floor (10 mm).  The defect the law names is what the MESHER "
+        "cannot build, and the four measured sites all sit far below "
+        "the floor - LEMD 0.0594-0.2644 mm, VMMC 0.0124-0.0497 mm, "
+        "KCLT 0.2401 and 2.7913 mm, SPLP 23.7 mm against the outer "
+        "boundary (where -Y forbids relief at any gap, so THAT clause "
+        "stands whatever the gap and lives in the mesh pre-flight).  A "
+        "decimetre gap between two neighbouring rings is the layout: "
+        "the CLEAN control CYXY reads 264 such rows and 0 under the "
+        "floor.  Reported here so the population stays visible.",
+
     WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE:
         "withdrawn law (05aa): the row prices a TAXI-FAMILY pair by its "
         "CHORD (cap x straight distance), the reading the owner WITHDREW "

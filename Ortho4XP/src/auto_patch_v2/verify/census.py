@@ -75,6 +75,13 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
 NOT_IMPLEMENTED: tuple[str, ...] = (
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
     "drainage_spine", "apron_lattice_membrane", "drainage_minimum",
+    # §39 (2) (owner RULINGS 2026-09-13bk/13bt/13bu): the hairline needs the
+    # TILE's foreign constrained edges — the OSM water the mesh constrains,
+    # published by the emitter as the ``shore_edges`` sidecar key.  A
+    # ``Patch`` carries the emitted surface and nothing outside it, so v2
+    # verify has no reader for it and the oracle is the only instrument
+    # (with the mesh pre-flight, which reads the assembled ``.poly``).
+    "hairline_pair",
 )
 
 

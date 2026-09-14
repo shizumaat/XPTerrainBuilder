@@ -4960,3 +4960,17 @@ unchanged).
 * Suite on merged main: 1,427 passed, 1 failed once and did not
   reproduce on rerun — the order-dependent memo-key class (chip
   running).
+
+## 2026-09-14m Owner on 1.0.332: "the tunnel cuts were almost perfect in the last build for VHHH and now the latest build are mostly broken. OTHH looks good though." — suspect: 14f's 0.5 m seed floor DROPS narrow tunnel faces
+
+Between 1.0.330 (VHHH's last good mesh) and 1.0.332 the VHHH mesh path
+changed only by 14f: a face whose inscribed radius is under
+`INTERP_ALT_SEED_CLEARANCE_M` (0.5) is dropped and keeps the raw DEM —
+VHHH logged 132 degenerate faces skipped (was 0). Tunnel walls, ramp
+side strips and the pieces between a ramp and its wall are sub-metre
+faces; a dropped face fills the tunnel back in. Lane `v2bankfoot`
+resumed: name the 132 by role, profile the largest tunnel ramp (mesh vs
+patch z), fix = never drop a face for being narrow (seed at the pole
+with clearance = min(0.5 m, radius/2); drop only under the 10 mm
+hairline floor or when the encoded pole is not strictly inside), ONE
+VHHH mesh run. OTHH good = the OMIT/13cy bank read holds there.

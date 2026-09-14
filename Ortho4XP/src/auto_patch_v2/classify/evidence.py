@@ -159,15 +159,10 @@ def polygon_parts(geom) -> list[Polygon]:
 def runway_rectangle(rw: Runway) -> Polygon:
     """The runway slab: physical end to physical end (the apt.dat ends
     plus each end's blast pad / overrun), full width (v1 trims 3 m each
-    side — a legacy margin v2 does not carry)."""
-    (ax, ay), (bx, by) = rw.ends[0].xy, rw.ends[1].xy
-    L = math.hypot(bx - ax, by - ay)
-    ux, uy = (bx - ax) / L, (by - ay) / L
-    ax, ay = ax - ux * rw.ends[0].overrun_m, ay - uy * rw.ends[0].overrun_m
-    bx, by = bx + ux * rw.ends[1].overrun_m, by + uy * rw.ends[1].overrun_m
-    px, py = -uy * rw.width_m / 2, ux * rw.width_m / 2
-    return Polygon([(ax + px, ay + py), (bx + px, by + py),
-                    (bx - px, by - py), (ax - px, ay - py)])
+    side — a legacy margin v2 does not carry).  The corners are the
+    model's own (``Runway.slab_corners``): ONE derivation, shared with
+    the strip footprint (§40 (1))."""
+    return Polygon(rw.slab_corners)
 
 
 # ── network chains ───────────────────────────────────────────────────────

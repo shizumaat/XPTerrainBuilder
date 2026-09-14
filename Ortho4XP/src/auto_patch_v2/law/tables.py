@@ -224,6 +224,31 @@ def runway_transverse_max(law: Law, code_letter: str | None,
     return law.ruleset.runway.transverse_max.value(code_number, code_letter)
 
 
+def runway_transverse_cap(law: Law, lateral_m: float, half_width_m: float,
+                          code_letter: str | None,
+                          code_number: int | None = None) -> float | None:
+    """THE ONE READING of a runway-family vertex's transverse cap (§40 (2)
+    as amended, owner RULINGS 2026-09-13dd).
+
+    Inside the runway's own half-width the law is the RUNWAY's
+    (``transverse_max``, §3.1.18).  Beyond it the vertex is a SHOULDER
+    vertex — pavement that joined the runway body under §40 (1) — and the
+    law is the SHOULDER's (``shoulder_transverse_max``, Annex 14 §3.2.4):
+    the shoulder keeps the runway's DATUM, not its cross-fall.  The
+    generator (``constraints.runway_profile.runway_transverse``), the v2
+    verify reader and the v1 census all price through this one function,
+    so the three instruments cannot disagree about where the runway ends.
+
+    ``half_width_m <= 0`` (no runway geometry) keeps the runway cap."""
+    cap = law.ruleset.runway.transverse_max.value(code_number, code_letter)
+    if half_width_m <= 0.0 or lateral_m <= half_width_m:
+        return cap
+    shoulder = law.ruleset.runway.shoulder_transverse_max
+    if cap is None:
+        return shoulder
+    return max(cap, shoulder)
+
+
 def authority_rank(law: Law, role: str) -> int:
     """Precedence rank (lower wins); unnamed roles tail (RULINGS
     2026-08-03 "emitters emit, never grade")."""

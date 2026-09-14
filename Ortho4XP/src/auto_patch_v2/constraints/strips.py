@@ -4,8 +4,9 @@ ICAO Annex 14 §3.4.12-14, §3.5.11, §3.8.4; FAA AC 150/5300-13B §3.16.5).
 
 THE STRIP FOOTPRINT is the census's own (``grade_law.runway_strip_wall_
 keepout_rings``, lockstep by construction): per runway, the principal
-axis of every ``runway``-role ring vertex of that ``ref``
-(:func:`geometry.principal_axis`), the LATERAL rectangle ``axis ±
+axis of the RUNWAY SLAB's corners (``model.airport.Runway.slab_corners``;
+:func:`geometry.principal_axis`, the ring cloud only where no runway
+claims the ref — §40 (1)), the LATERAL rectangle ``axis ±
 zones.adjacent_ground.runway.half_width`` over the runway's own extent,
 and the two END corridors ``± max(runway width, strip half-width)``
 extending ``end_skirt.corridor_length_m`` beyond each end.  The code
@@ -100,11 +101,28 @@ def runway_code_number(length_m: float, law: Law) -> int:
 
 
 def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
-    """Strip footprints from the RUNWAY-role rings grouped by ref."""
+    """Strip footprints from the RUNWAY SLAB of each runway.
+
+    THE AXIS COMES FROM THE RUNWAY, NOT FROM WHAT CARRIES ITS ROLE (§40
+    (1), owner RULINGS 2026-09-13co item 1).  A runway's strip footprint
+    is its own geometry — the apt.dat ends plus each end's overrun, at the
+    declared width (``model.airport.Runway.slab_corners``, the same
+    rectangle the slab cells are cut from) — and reading it off the
+    runway-role RINGS instead made it a function of everything else that
+    carries the role: a §40 SHOULDER joins the runway body at the runway's
+    own ref, and a 100 m-wide shoulder would have fattened the fitted
+    width and moved the strip rect for every consumer of it.  The ring
+    cloud stays the fallback for a ref no runway in the layout claims.
+    For a runway with no shoulder the two readings are the same rectangle:
+    the slab cells are that rectangle less its crossings, whose extreme
+    vertices are the rectangle's own corners."""
     law = vw.law
     pts_by_ref: dict[str, list[XY]] = {}
     for f in vw.faces_of_role(("runway",)):
         pts_by_ref.setdefault(f.ref, []).extend(vw.xy[v] for v in vw.rings[f.id])
+    for rw in airport.runways:
+        if rw.id in pts_by_ref:
+            pts_by_ref[rw.id] = list(rw.slab_corners)
     letter_of = {rw.id: rw.code_letter for rw in airport.runways}
     out: list[RunwayGroup] = []
     for ref, pts in pts_by_ref.items():

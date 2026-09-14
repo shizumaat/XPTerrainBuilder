@@ -17,7 +17,58 @@ from ..model.airport import Airport
 from .evidence import Evidence
 from .roles import Cell, Classification
 
-__all__ = ["shape_polygon", "explain_at", "explain_polygon", "render"]
+__all__ = ["shape_polygon", "explain_at", "explain_polygon", "render",
+           "role_census"]
+
+#: Evidence keys that mark a cell a rule RE-KINDED away from the verdict
+#: the ladder would otherwise have given it — the census names each one
+#: with the number the rule read (§40 (1) / (2), owner RULINGS
+#: 2026-09-13co items 1 and 6).  A rule that re-kinds without leaving a
+#: mark here is invisible to the before/after read, which is the whole
+#: instrument: add the key with the rule.
+REKIND_MARKS: tuple[tuple[str, str], ...] = (
+    ("shoulder_shared_m", "runway shoulder (§40 (1))"),
+    ("apron_cover_refused_corridor", "apron cover refused the corridor (§40 (2))"),
+    ("airside_edge_flip", "airside edge (§27)"),
+    ("taxi_name", "taxi by name (04z-1)"),
+    ("open_default", "open default (04u)"),
+    ("demoted", "touch-chain demotion"),
+)
+
+
+def role_census(cl: Classification, airport: Airport | None = None,
+                marks: bool = True) -> list[str]:
+    """THE ROLE CENSUS of one classification: cells and area per role,
+    then every RE-KINDED cell named with the evidence its rule read.
+
+    The dry before/after read a role-law change is accepted on (§40's
+    BARS): it counts nothing and prices no law — every number is the
+    classification's own."""
+    by_role: dict[str, list[float]] = {}
+    for c in cl.cells:
+        by_role.setdefault(c.role, []).append(Polygon(c.ring, c.holes).area)
+    out = [f"{'role':<22} {'cells':>6} {'area_m2':>12}"]
+    for role in sorted(by_role, key=lambda r: (-sum(by_role[r]), r)):
+        a = by_role[role]
+        out.append(f"{role:<22} {len(a):>6} {sum(a):>12,.0f}")
+    out.append(f"{'TOTAL':<22} {len(cl.cells):>6} "
+               f"{sum(sum(v) for v in by_role.values()):>12,.0f}")
+    if not marks:
+        return out
+    to_ll = airport.frame.transformers()[1] if airport is not None else None
+    for key, label in REKIND_MARKS:
+        rows = [c for c in cl.cells if c.evidence.get(key)]
+        out.append(f"-- {label}: {len(rows)} cell(s)")
+        for c in sorted(rows, key=lambda c: -Polygon(c.ring, c.holes).area):
+            p = Polygon(c.ring, c.holes)
+            lat_lon = ""
+            if to_ll is not None:
+                lat, lon = to_ll(p.centroid.x, p.centroid.y)
+                lat_lon = f" at {lat:.7f},{lon:.7f}"
+            out.append(f"   cell {c.id} role={c.role} kind={c.kind} ref={c.ref} "
+                       f"area={p.area:,.0f} m2{lat_lon}: "
+                       + ", ".join(f"{k}={_fmt(v)}" for k, v in c.evidence.items()))
+    return out
 
 
 def shape_polygon(patch_path: str, shape_id: int, airport: Airport

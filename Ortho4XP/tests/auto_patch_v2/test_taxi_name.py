@@ -37,18 +37,25 @@ def rules():
 
 
 def _page_airport(description: str, reach: bool = True, offset_y: float = 0.0):
-    """A 200 x 75 m page on the runway's south edge (chain seed) with no
+    """A 90 x 75 m page on the runway's south edge (chain seed) with no
     centreline and no startup, a route ending at its east boundary (the
-    04u lot reading), described as ``description``."""
+    04u lot reading), described as ``description``.
+
+    90 m of runway edge, deliberately: §40 (1) (owner RULINGS 2026-09-13co
+    item 1) makes a page running `corridor.runway_shoulder_shared_m`
+    (100 m) or more along a runway ring that RUNWAY'S SHOULDER, part of the
+    runway body, before any of these rules is reached — the page this file
+    is about is a page with a NAME, not a shoulder.  The supersession
+    itself is twinned in ``test_runway_shoulder.py``."""
     a = _synthetic(gate=True, island=False)
     page = Pavement("page", Surface.ASPHALT,
-                    _rect(600.0, -90.0 + offset_y, 800.0, -15.0 + offset_y), (),
+                    _rect(600.0, -90.0 + offset_y, 690.0, -15.0 + offset_y), (),
                     description)
     a = _dc.replace(a, pavements=a.pavements + (page,))
     if reach:
         nodes = dict(a.taxi_nodes)
-        nodes[40] = TaxiNode(40, (900.0, -50.0 + offset_y), "both")
-        nodes[41] = TaxiNode(41, (800.0, -50.0 + offset_y), "both")
+        nodes[40] = TaxiNode(40, (790.0, -50.0 + offset_y), "both")
+        nodes[41] = TaxiNode(41, (690.0, -50.0 + offset_y), "both")
         a = _dc.replace(a, taxi_nodes=nodes,
                         ground_routes=a.ground_routes + (GroundRoute(40, 41, "truck", False),))
     return a
@@ -89,7 +96,7 @@ def test_named_page_without_centreline_is_a_junction(law, rules):
                and c.evidence["taxi_name_designator"] == "K" for c in cells)
     assert cl.stats["taxi_named"] >= 1
     # explain shows the token match
-    text = "\n".join(explain_polygon(Polygon(_rect(600.0, -90.0, 800.0, -15.0)), cl, ev, a))
+    text = "\n".join(explain_polygon(Polygon(_rect(600.0, -90.0, 690.0, -15.0)), cl, ev, a))
     assert "TAXI NAME 'taxiway' designator K (04z-1)" in text and "taxi_name=taxiway" in text
 
 
@@ -135,7 +142,7 @@ def test_named_page_with_a_startup_keeps_apron(law, rules):
     above the name); the apron-named page is untouched."""
     from auto_patch_v2.model.airport import Startup
     a = _page_airport("Taxiway K", reach=False)
-    a = _dc.replace(a, startups=a.startups + (Startup("S9", (700.0, -70.0), 0.0, "gate"),))
+    a = _dc.replace(a, startups=a.startups + (Startup("S9", (650.0, -70.0), 0.0, "gate"),))
     cl = classify(a, law, rules)
     roles = _page_roles(cl)
     assert "apron" in roles and "junction" in roles, roles      # band + body

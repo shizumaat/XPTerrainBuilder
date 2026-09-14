@@ -52,6 +52,13 @@ def main(argv: list[str] | None = None) -> int:
                         "cover, startups) — the airport-wide census behind one "
                         "shape's verdict, so a rule change's collateral is read "
                         "in ONE classification instead of one run per shape")
+    e.add_argument("--roles", action="store_true",
+                   help="ALSO print the ROLE CENSUS of the whole airport — cells "
+                        "and area per role, then every RE-KINDED cell (a runway "
+                        "shoulder, an apron-cover corridor refusal, a §27 flip, a "
+                        "taxi name, the open default, a demotion) named with its "
+                        "centroid and the evidence its rule read: the dry "
+                        "before/after read a ROLE-LAW change is accepted on")
     e.add_argument("--xplane-root")
     e.add_argument("--cifp-dir")
     e.add_argument("--data-root")
@@ -103,12 +110,13 @@ def explain_main(args) -> int:
     from ..airport.load import load_with_report
     from ..classify import classify, load_rules
     from ..classify.evidence import build_evidence
-    from ..classify.explain import explain_at, explain_polygon, render, shape_polygon
+    from ..classify.explain import (explain_at, explain_polygon, render,
+                                    role_census, shape_polygon)
     if args.shape is not None and args.at is not None:
         print("explain: at most one of --shape N / --at LAT,LON")
         return 2
-    if args.shape is None and args.at is None and not args.sources:
-        print("explain: one of --shape N / --at LAT,LON / --sources")
+    if args.shape is None and args.at is None and not (args.sources or args.roles):
+        print("explain: one of --shape N / --at LAT,LON / --sources / --roles")
         return 2
     icao = args.icao.upper()
     inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
@@ -132,6 +140,8 @@ def explain_main(args) -> int:
                   f"{r.road_m:>7.0f} {r.osm_road_m:>7.0f} {r.taxi_m:>6.0f} "
                   f"{r.startups:>4d} {r.apron_cover:>6.0%} {r.parking_cover:>6.0%}  "
                   f"{r.description!r} -> {r.reason}")
+    if args.roles:
+        print(render(role_census(cl, airport)))
     if args.at is not None:
         lat, lon = (float(v) for v in args.at.split(","))
         to_xy, _ = airport.frame.transformers()

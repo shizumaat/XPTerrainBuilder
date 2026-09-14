@@ -708,3 +708,72 @@ def test_the_law_refuses_a_collar_that_cannot_reach_the_band(law):  # noqa: F811
     bad = _law_with(law, half_width_m=9.0, bank_min_width_m=5.0)
     with pytest.raises(LawError, match="bank_min_width_m"):
         _check_cross_refs(bad.tables)
+
+
+# --- §37 (3) AS AMENDED: the bank piece is a BAND, and a hole is never
+# --- swallowed whole (owner RULINGS 2026-09-13bu (ii); lane v2zonebank)
+
+def _sq(cx, cy, h):
+    return [(cx - h, cy - h), (cx + h, cy - h), (cx + h, cy + h), (cx - h, cy + h)]
+
+
+def test_the_exterior_bank_piece_is_a_band_and_never_a_solid_disc():
+    """The exterior piece used to be the OFFSET RING'S SOLID POLYGON, which
+    covers the ring's whole interior — every hole in the coverage included.
+    Unioned into the banked region that erased the holes, so their rims never
+    became boundary rings and no foot was ever emitted inside one (KCLT: 110
+    adjacent-ground zone-2 stations at or over the materiality floor with no
+    foot).  The piece is the band between the ring and its feet."""
+    from shapely.geometry import Point, Polygon
+    from auto_patch_v2.emit.bank import _foot_piece, _outward_normals
+    ring = _sq(0.0, 0.0, 50.0)
+    pts = np.asarray(ring, float)
+    nrm = np.asarray(_outward_normals(ring), float)
+    d = np.full(len(ring), 5.0)
+    piece, _rep = _foot_piece(pts, nrm, d, Polygon(ring), True, 5.0)
+    assert not piece.contains(Point(0.0, 0.0)), \
+        "the exterior piece covers the ring's interior — it is a solid disc"
+    assert piece.contains(Point(52.0, 0.0)), "the band outside the ring is missing"
+
+
+def test_a_convoluted_hole_keeps_its_toe_instead_of_being_swallowed():
+    """A hole whose rim is convoluted makes the vertex-offset ring self-
+    intersect; the old code took ``max(parts, area)`` and, where that was not
+    contained in the host, returned THE WHOLE HOLE.  The band derivation has
+    no fold to pick from, so a hole with room for a minimum-width bank always
+    keeps a toe for the load-bearing walk to stand on."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.emit.bank import _foot_piece, _outward_normals
+    # a star-shaped hole: 24 alternating radii, the classic offset folder
+    rim = []
+    for k in range(24):
+        a = 2.0 * math.pi * k / 24.0
+        r = 60.0 if k % 2 == 0 else 34.0
+        rim.append((r * math.cos(a), r * math.sin(a)))
+    host = Polygon(rim)
+    # the hole chain is walked CW, so the "outward" normal points inward
+    chain = rim[::-1]
+    pts = np.asarray(chain, float)
+    nrm = np.asarray(_outward_normals(chain), float)
+    d = np.full(len(chain), 8.0)
+    piece, _rep = _foot_piece(pts, nrm, d, host, False, 5.0)
+    assert piece is not None
+    assert piece.area < host.area - 1.0, \
+        "the hole was swallowed whole: no toe, no boundary ring, no foot"
+    assert host.difference(piece).area > 100.0, "the toe left no core at all"
+
+
+def test_a_hole_with_no_room_for_a_minimum_width_bank_is_still_swallowed():
+    """The one lawful swallow (``_MIN_HOLE_WIDTHS``): the coverage collar
+    fills a hole too narrow to hold a foot, and the report counts it."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.emit.bank import _foot_piece, _outward_normals
+    ring = _sq(0.0, 0.0, 4.0)          # 8 m across, min_w 5 m: no room
+    host = Polygon(ring)
+    chain = ring[::-1]
+    pts = np.asarray(chain, float)
+    nrm = np.asarray(_outward_normals(chain), float)
+    piece, repaired = _foot_piece(pts, nrm, np.full(len(chain), 5.0), host,
+                                  False, 5.0)
+    assert repaired
+    assert piece.area == pytest.approx(host.area)

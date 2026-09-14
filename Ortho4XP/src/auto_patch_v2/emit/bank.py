@@ -501,34 +501,42 @@ def _ray_limit(pts: np.ndarray, nrm: np.ndarray, d: np.ndarray, tree, segs,
 
 
 def _foot_piece(pts: np.ndarray, nrm: np.ndarray, d: np.ndarray, host,
-                exterior: bool):
-    """THE BANK PIECE this chain contributes — the ground between the chain
-    and its foot, as a polygon (``None`` when degenerate), and whether the
-    raw offset had to be repaired (spec §9.4 deviation 3).  For an exterior
-    chain that is the offset polygon itself; for a HOLE it is the hole
-    minus the inward offset (the bank runs INTO the hole)."""
+                exterior: bool, min_w: float = 0.0):
+    """THE BANK PIECE this chain contributes — the ground swept between the
+    chain and its feet, as the union of the per-station quads
+    ``(p_i, p_i+1, f_i+1, f_i)`` (``None`` when degenerate), and whether the
+    offset had to be repaired (§9.4 dev. 3).  §37 (3) AS AMENDED (RULINGS
+    2026-09-13bu (ii), lane ``v2zonebank``): it used to be the offset ring's
+    SOLID polygon, which covers the ring's whole interior — every HOLE in
+    the coverage included — so the union erased the holes, the walk never
+    visited their rims and no foot was emitted inside one (KCLT: 110 zone-2
+    stations over the materiality floor with none).  Outside a ring the band
+    IS that polygon minus the host, so the outer boundary is unchanged; a
+    hole with no room for a minimum-width bank is still swallowed."""
     from shapely.geometry import Polygon
+    from shapely.ops import unary_union
     fx = pts[:, 0] + nrm[:, 0] * d
     fy = pts[:, 1] + nrm[:, 1] * d
-    raw = Polygon(list(zip(fx.tolist(), fy.tolist())))
-    repaired = False
-    if not raw.is_valid or raw.is_empty:
-        raw = raw.buffer(0)
-        repaired = True
-    cand = [g for g in getattr(raw, "geoms", [raw])
-            if getattr(g, "geom_type", "") == "Polygon" and not g.is_empty]
+    n = len(pts)
+    raw = [Polygon([(pts[i, 0], pts[i, 1]), (pts[(i + 1) % n, 0],
+                    pts[(i + 1) % n, 1]), (fx[(i + 1) % n], fy[(i + 1) % n]),
+                    (fx[i], fy[i])]) for i in range(n)]
+    repaired = any(not q.is_valid for q in raw)
+    band = unary_union([q for q in ((q if q.is_valid else q.buffer(0))
+                                    for q in raw) if not q.is_empty])
+    if band.is_empty:
+        return None, True
     if exterior:
-        if not cand:
-            return None, True
-        return max(cand, key=lambda g: g.area), repaired
-    # a HOLE: the bank eats into it from its rim
-    inner = max(cand, key=lambda g: g.area) if cand else None
-    if inner is None or not host.contains(inner):
+        return band, repaired
+    # a HOLE with no room, or a band that met itself across it: the collar
+    floor = host.buffer(-min_w) if min_w > 0.0 else host
+    piece = band.intersection(host)
+    if floor.is_empty or floor.area <= 0.0:
         return host, True
-    piece = host.difference(inner)
     if piece.is_empty:
         return None, True
-    return piece, repaired
+    return ((host.difference(floor), True)
+            if piece.area >= host.area - 1.0e-9 else (piece, repaired))
 
 
 def _push_off(ring: list, cov, min_w: float, dem=None) -> list:
@@ -777,7 +785,7 @@ def with_bank(surface: GradedSurface, planar: PlanarMap, law: Law,
         d[kind == _K_WATER] = np.minimum(d[kind == _K_WATER],
                                          d_raw[kind == _K_WATER])
         d = _ray_limit(pts, nrm, d, tree, segs, min_w)
-        piece, repaired = _foot_piece(pts, nrm, d, host, exterior)
+        piece, repaired = _foot_piece(pts, nrm, d, host, exterior, min_w)
         if piece is None:
             rep.skipped_rings += 1
             continue

@@ -54,6 +54,10 @@ class StructureStats:
     #: spanning an object corridor, kept as decks over the ramp.
     pavement_decks: int = 0
     refused: list[str] = _dc.field(default_factory=list)
+    #: THE PINCHED RAMPS (spec §34 (9), owner RULINGS 2026-09-14ak): one
+    #: line per corridor whose climb-out ended at an airside-locked service
+    #: road's edge with the cap lifted — corridor, road, span, grade.
+    pinched_ramps: list[str] = _dc.field(default_factory=list)
     cells_cut: int = 0
     #: RULINGS 2026-09-05k-1 / 05n-3: object corridors built, the OSM bores
     #: replaced (both mouths inside an object), the mouths taken, and the

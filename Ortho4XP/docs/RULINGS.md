@@ -5708,3 +5708,30 @@ owner's KCLT read is the acceptance. SPJC with heights: the viaduct
   weld` → 0 or named; `pad_cluster_mismatch` 14 attributed; constraints
   ≤ +20 % accepted (the population); KCLT/SPJC re-read on the same
   frames.
+
+## 2026-09-14am v2othhfix round 2 MERGED: §34 (9) the pinched ramp — two OTHH terminal ramps end at the road edge, `route7` no longer lifted 0.64–0.74 m, airside moved 0
+
+Lane `v2othhfix` @ ed971ccd (OTHH build `v2othhfix_r2`, ledger
+3060701734b4, rc 0, verify defects {} both arms; suite 1,455 twice).
+The population: `Terminal_Base_2_1.obj@2` (ramp past `route9`, 26 m
+at 8 %) and `Terminal_Base_2_5.obj@0/a` (past `route7`, 56 m; route7's
+ramp-side edge 3.99–4.06 vs 4.70–4.77 far side = 0.64–0.74 m of pull).
+`locked_road_stops`: a groundside road within `contact_reach_m` (15
+m) of airside joins the Law C stop set and takes precedence over
+both §34 (8) branches. After: `@2` top 26.0 → 18.9 m, 11.05 % over
+12.6 m; `@0/a` top 56.0 → 44.0, **36.98 % over 5.1 m**; the `route7#1`
+split pieces gone; road edges unchanged; the mouth move stops firing
+(§34 (9) supersedes); corridors 40 → 40; airside 0 of 16,810 moved;
+`road_cross_section` 6 → 6; ADJUDICATED 3,206 → 3,223 (+17).
+
+* The +17 / the 26 `within_shape` rows on the two pinch sites (10.2 …
+  85.8 % vs `cap_pct` 10) are the 12m class: the BUILD cap is lifted,
+  the JUDGED cap is not. RULED: the census takes the lifted cap — a
+  per-shape `lifted_cap` channel (publication → emit tag →
+  `verify/frame.Patch.cap`); a 30l consumer census at spec time; a
+  small lane (`v2liftedcap`) — owed, not blocking.
+* OWNER (eye): the `route7` pinch is 5.1 m of span carrying 1.9 m of
+  drop (36.98 %; the worst ring diagonal 85.8 %) — a short steep face
+  where the road edge is 5 m from the building. "Whatever grade is
+  needed" as ruled; if a minimum pinched span (a longer ramp eating
+  into the road's far side) is wanted, say so.

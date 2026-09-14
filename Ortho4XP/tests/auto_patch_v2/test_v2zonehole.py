@@ -171,6 +171,30 @@ def test_the_default_floor_is_the_ruling_s_95_percent():
     assert ROR.CONTAINED_MIN_FRAC == ENCLOSED_MIN_FRAC
 
 
+# ── 1b. the zone clip ────────────────────────────────────────────────
+
+def test_a_zone_strip_is_clipped_out_of_every_pavement_body():
+    """§41 (2).  ``planar/zones.py`` already subtracts every cell, so this
+    is a no-op on a patch built before §41 (1); what breaks it is the
+    absorption, whose union can close a ring around a thin wedge of strip
+    that the hole dissolve then folds into the body (measured on the HECA
+    §41 arm: 3 strips, 52.3 m² of 586,619 m² of adjacent ground)."""
+    from auto_patch_v2.planar.overlay import clip_zones_from_pavement
+    pav = _region("apron", "pav1")
+    zone = Region("graded_strip", "adjacent_ground:taxi:F:zone2#7",
+                  Polygon(_rect(0, 0, 1, 1)), None, None, "airside", "zone", 2)
+    faces = [(Polygon(_rect(0, 0, 100, 100)), pav),
+             (Polygon(_rect(50, 0, 150, 100)), zone)]
+    out = clip_zones_from_pavement(faces, ROLES)
+    assert [round(p.area, 1) for p, _r in out] == [10000.0, 5000.0]
+    # the pavement is untouched and the strip keeps its region
+    assert out[1][1] is zone
+    # a strip that stands on nothing is returned unchanged
+    clear = [(Polygon(_rect(0, 0, 10, 10)), pav),
+             (Polygon(_rect(50, 0, 60, 10)), zone)]
+    assert clip_zones_from_pavement(clear, ROLES) == clear
+
+
 # ── 2. the census family ─────────────────────────────────────────────
 
 def test_zone_on_pavement_is_a_registered_law_family():

@@ -38,7 +38,8 @@ from .zones import zone_regions
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
            "merge_slivers", "dissolve_degenerate_holes",
-           "absorb_enclosed_pavement", "ENCLOSED_MIN_FRAC"]
+           "absorb_enclosed_pavement", "clip_zones_from_pavement",
+           "ENCLOSED_MIN_FRAC"]
 
 #: §41 (1): the fraction of its OWN area a pavement face must have inside
 #: another pavement face's exterior ring to be that face's hole.
@@ -207,6 +208,11 @@ def build_arrangement(airport: Airport, classification: Classification,
         mouth_m=law.tables.emit.terrace.narrow_mouth_max_m)
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
+    # §41 (2): the zone strips are CLIPPED out of every pavement body —
+    # LAST, after the absorption and the hole dissolve, because those are
+    # what can put a pavement body over a strip in the first place
+    faces = clip_zones_from_pavement(
+        faces, tuple(law.tables.emit.terrace.shape_roles))
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged,
                        tuple(edge_lines), erep, holes_gone,
@@ -439,6 +445,71 @@ def absorb_enclosed_pavement(faces: list[tuple[Polygon, Region]],
         home[i] = best
         absorbed += 1
     return [f for f in keep if f is not None], absorbed, detached
+
+
+#: §41 (2)'s own floor, the census's (``check_grade.ZONE_ON_PAVEMENT_MIN_
+#: AREA_M2``): a strip over pavement by less than this is emit rounding,
+#: and the clip LEAVES IT ALONE.  Not tidiness — ``difference`` re-nodes
+#: the ring it touches, and a clip applied to every strip moved the CYXY
+#: control's ``airside_no_step`` 39 -> 48 rows and ``within_shape``
+#: 224 -> 249 while cutting NOTHING (CYXY has no strip over pavement at
+#: all).  The clip acts only where the defect is.
+ZONE_ON_PAVEMENT_MIN_AREA_M2 = 0.5
+
+
+def clip_zones_from_pavement(faces: list[tuple[Polygon, Region]],
+                             roles: tuple[str, ...],
+                             min_area_m2: float = ZONE_ON_PAVEMENT_MIN_AREA_M2
+                             ) -> list[tuple[Polygon, Region]]:
+    """§41 (2) — ZONE STRIPS ARE CLIPPED OUT OF EVERY PAVEMENT BODY before
+    emission (owner RULINGS 2026-09-13co item 2): a zone vertex standing on
+    pavement is a defect the census names (``check_grade.zone_on_pavement``,
+    CRITICAL over 0.5 m²).
+
+    ``planar/zones.py`` already subtracts every CELL at the zone's own
+    derivation site, so on a patch built before §41 (1) this is a no-op
+    (measured: the owner's 1.0.329 HECA reads 0.0 m² in the solid frame).
+    What can break it is the absorption above: the union of a notch with
+    its host closes a ring around a thin wedge of strip, and the hole
+    dissolve then folds that wedge into the body.  Measured on HECA's
+    §41 arm before this clip: 3 strips over pavement, 52.3 m² in all
+    (35.5 + 8.9 + 7.9), against 586,619 m² of adjacent ground.  The clip
+    is the ruling's own remedy and costs the strips exactly that."""
+    if not faces or not roles:
+        return faces
+    role_set = set(roles)
+    pav = [p for p, r in faces if r.role in role_set]
+    if not pav:
+        return faces
+    tree = STRtree(pav)
+    out: list[tuple[Polygon, Region]] = []
+    for poly, region in faces:
+        if region.source != "zone":
+            out.append((poly, region))
+            continue
+        hits = []
+        for j in tree.query(poly, predicate="intersects"):
+            q = pav[int(j)]
+            try:
+                if poly.intersection(q).area > float(min_area_m2):
+                    hits.append(q)
+            except Exception:                             # pragma: no cover
+                continue
+        if not hits:
+            out.append((poly, region))
+            continue
+        try:
+            g = poly.difference(unary_union(hits))
+        except Exception:                                 # pragma: no cover
+            out.append((poly, region))
+            continue
+        if g.is_empty:
+            continue
+        for part in (shapely.get_parts(g) if g.geom_type != "Polygon" else [g]):
+            if part.geom_type == "Polygon" and not part.is_empty \
+                    and part.area > 0.0:
+                out.append((part, region))
+    return out
 
 
 def _degree_offset(to_xy, lon: float, lat: float, along_lon: bool,

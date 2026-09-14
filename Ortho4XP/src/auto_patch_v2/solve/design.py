@@ -69,12 +69,14 @@ from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
 from .design_report import DesignReport, foot_row_diagnostic, residual, settled_flip
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
-from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _one_matrix,
+from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_free_columns,
+                   _one_matrix,
                    apply_level_belt, _plane_rows, _plane_targets, _reduce, _Reduction, _role_bodies,
                    _role_bodies_faced, _Rows, _shape_bodies,
                    _sheet_components, _Side, _violation, _zone_weights)
 
 __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
+           "stage_split", "airside_stage_roles", "airside_stage_vertices",
            "bend_roles", "pavement_roles", "bend_class", "apron_roles",
            "taxi_body_roles", "datum_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "pad_level_rulings",
@@ -97,7 +99,7 @@ _LAG_OFF = 1.0e9
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
-    bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, cluster_reach_rulings, hard_rulings, ruling_head, is_hard)
+    airside_stage_roles, airside_stage_vertices, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, cluster_reach_rulings, hard_rulings, ruling_head, is_hard)
 
 @_dc.dataclass(frozen=True)
 class _BodyDatum:
@@ -154,14 +156,53 @@ class Base:
     cluster_reach_i: list[int] = _dc.field(default_factory=list)
 
 
+def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
+                ) -> tuple[frozenset[int], dict[int, float]]:
+    """§20b STAGE 1's SPLIT: the vertices whose columns are FOREIGN to the
+    airside problem, and the dummy values they are fixed at.
+
+    A column is AIRSIDE when any vertex mapped to it is a vertex of an
+    airside-pavement face (:func:`airside_stage_vertices`) — the test is on
+    the COLUMN, because a rigid ``Flat`` group welded to an apron vertex is
+    ONE unknown and the airside's own weld decides it.  Every other FREE
+    vertex is foreign: it is fixed (so it carries no column) and every row
+    touching it is dropped (``_Rows.drop``), which is the brief's "every row
+    whose every column is airside".  A vertex already FIXED — a ``Pin``, a
+    threshold, a seam pin (§38) — is never foreign: a constant is not a
+    column, and the rows footed on it belong to stage 1 exactly as the law
+    states them."""
+    red0 = _reduce(planar, cs, {})
+    air_v = airside_stage_vertices(planar, law)
+    air_cols = {int(red0.col[v]) for v in air_v if red0.col[v] >= 0}
+    foreign: dict[int, float] = {}
+    for vid in range(len(planar.vertices)):
+        col = int(red0.col[vid])
+        if col < 0 or col in air_cols:
+            continue
+        dz = planar.vertices[vid].dem_z
+        foreign[vid] = float(dz) if dz is not None else 0.0
+    return frozenset(foreign), foreign
+
+
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
-             rep: DesignReport) -> Base:
+             rep: DesignReport, *,
+             drop: _t.AbstractSet[int] | None = None,
+             fixed: _t.Mapping[int, float] | None = None) -> Base:
     """Sections 1-9 of the module docstring: the sheets and their
     triangulation, the zone ramp, the reduction, and every always-on row
     (bending, road chains, the chord, the zone DEM fit, the law's equalities,
-    the bodies' own datums)."""
+    the bodies' own datums).
+
+    §20b THE STAGED SOLVE adds two arguments and nothing else.  ``fixed``
+    SUBSTITUTES a vertex's value as a constant — stage 1's foreign vertices
+    in stage 1, and every airside vertex stage 1 levelled in stage 2 — by
+    the reduction, exactly as a ``Pin`` is substituted, so a row coupling to
+    it is one-way BY CONSTRUCTION.  ``drop`` removes every row that touches
+    one of its vertices, which is how stage 1 keeps only the rows whose every
+    column is airside.  Both default empty: the single solve is unchanged."""
     d = design_law(law)
     n = len(planar.vertices)
+    drop_f = frozenset(drop or ())
 
     # 1. the sheets and their triangulation
     roles = set(bend_roles(law))
@@ -191,10 +232,11 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
              if any(planar.faces[f].role in rwy_roles for f in vx.incident_faces)}
 
     # 3. the reduction: pins fix, flats merge, the outer ring is the DEM
-    red = _reduce(planar, cs, {})
+    #    (§20b: plus the other stage's substituted values)
+    red = _reduce(planar, cs, {}, fixed)
     rep.unknowns = red.n_cols
     rep.fixed = int((red.col < 0).sum())
-    rows = _Rows(red)
+    rows = _Rows(red, drop=drop_f)
     one: list[_Side] = []
     eqs: list[_Side] = []
     chord_v = road_v = trend_v = apron_trend_v = 0
@@ -373,9 +415,13 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #: equality — so §9 must read it as ANCHORED, or the floor sheet counts
     #: as detached and takes a DEM plane of its own beside that row.
     hard_follow: set[int] = set()
+    stage_dropped = 0
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
+        if vs & drop_f:               # §20b: not this stage's problem
+            stage_dropped += 1
+            continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
             continue
@@ -427,6 +473,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         one.append(side)
     for side in eqs_t:
         vs = {v for v, _c in side[0]}
+        if vs & drop_f:               # §20b: not this stage's problem
+            stage_dropped += 1
+            continue
         if vs & red.dem_fixed and not vs <= red.dem_fixed:
             dropped_bank += 1
             continue
@@ -436,6 +485,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                                else (int(v) for v in fv_e))
         eqs.append(side)
     rep.bank_rows = dropped_bank
+    rep.stage_dropped_rows = stage_dropped
     rep.hard_rows = len(hard)
     rep.one_way_rows = len(one_way)
     for terms, hi, row in eqs:
@@ -591,7 +641,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     ``pad_level_rulings`` row governs is dropped here: its level is
     #     its frontage's, not the ground's.  A pad that fronts NO pavement
     #     mints no such row and keeps its datum, exactly as ruled.
-    body = _Rows(red)
+    body = _Rows(red, drop=drop_f)
     meta: list[_BodyDatum] = []
     for kind, roles_b in datum_roles(law):
         for vs_b in _shape_bodies(planar, red,
@@ -639,15 +689,115 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  size_out: dict | None = None,
                  method: str = DEFAULT_METHOD,
                  low_rank: str = DEFAULT_LOW_RANK) -> tuple[Solution, DesignReport]:
-    """The whole design surface (module docstring).  Returns the solution
-    and the residual report; the solve is never infeasible."""
+    """THE DESIGN SURFACE, in ONE stage or TWO (§20b).
+
+    ``[design] staged_solve`` false is the single solve this module has
+    always been: one problem, one report.  True is §20b THE STAGED SOLVE
+    (owner RULINGS 2026-09-13dh, ordered 14an) — "airside solves first,
+    everything else conforms" as an ARCHITECTURE and not a price:
+
+      stage 1  the AIRSIDE PAVEMENT problem alone (:func:`stage_split`):
+               its columns, every row whose every column is one of them,
+               its own polish and BOTH projections.  What it returns is the
+               certified airside surface.
+      stage 2  the WHOLE problem with every airside column stage 1 LEVELLED
+               substituted as a constant (the reduction eliminates it,
+               exactly as a ``Pin``).  A pad / road / ground row coupling to
+               airside then has a CONSTANT on its airside side: one-way by
+               construction, no lag, no skirt, and airside moved between the
+               stages is zero BY CONSTRUCTION.
+
+    The returned ``z`` is stage 2's (airside values ARE stage 1's), the
+    status the worse of the two, the report stage 2's with stage 1's
+    counters in ``stages`` and the hard set COMBINED (§20b's census table).
+    """
+    if not bool(design_law(law).staged_solve):
+        return _solve_stage(planar, cs, law, options, size_out=size_out,
+                            method=method, low_rank=low_rank)
+    t_all = time.perf_counter()
+    rep1 = DesignReport(method=method)
+    size1: dict = {}
+    drop, foreign = stage_split(planar, cs, law)
+    levels: dict[int, float] = {}
+    t1 = time.perf_counter()
+    sol1, rep1 = _solve_stage(planar, cs, law, options, size_out=size1,
+                              method=method, low_rank=low_rank,
+                              drop=drop, fixed=foreign, levelled_out=levels)
+    w1 = time.perf_counter() - t1
+    t2 = time.perf_counter()
+    sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
+                              method=method, low_rank=low_rank, fixed=levels)
+    w2 = time.perf_counter() - t2
+    rep2.staged = True
+    rep2.stage1_wall_s, rep2.stage2_wall_s = w1, w2
+    rep2.stage1_fixed = len(levels)
+    rep2.stage1_unlevelled = rep1.stage1_unlevelled
+    rep2.stage_dropped_rows = rep1.stage_dropped_rows
+    rep2.stages = {"stage1": dict(rep1.as_dict(), wall_s=round(w1, 3)),
+                   "stage2": {"unknowns": rep2.unknowns, "rows": rep2.rows,
+                              "hard_rows": rep2.hard_rows,
+                              "hard_active": rep2.hard_active,
+                              "hard_max_violation_m": round(rep2.hard_max_violation_m, 6),
+                              "hard_settled": rep2.hard_settled,
+                              "rounds": rep2.rounds, "wall_s": round(w2, 3)}}
+    # THE HARD SET IS THE COMBINATION (§20b's census table): an airside hard
+    # row carries no column in stage 2 — it was enforced and read in stage 1,
+    # where it is scaled to metres — so the shipped surface's hard set is
+    # stage 1's plus stage 2's, and SETTLED is the conjunction.
+    rep2.hard_rows += rep1.hard_rows
+    rep2.hard_active += rep1.hard_active
+    rep2.hard_rounds += rep1.hard_rounds
+    if rep1.hard_max_violation_m > rep2.hard_max_violation_m:
+        rep2.hard_max_violation_m = rep1.hard_max_violation_m
+        rep2.hard_worst = rep1.hard_worst
+    rep2.hard_settled = bool(rep1.hard_settled and rep2.hard_settled)
+    if size_out is not None:
+        size_out.update({"stage1_columns": size1.get("columns", 0),
+                         "stage1_rows": size1.get("rows", 0),
+                         "stage1_fixed_into_stage2": len(levels)})
+    status = (Status.ERROR if Status.ERROR in (sol1.status, sol2.status)
+              else Status.FEASIBLE if Status.FEASIBLE in (sol1.status, sol2.status)
+              else sol2.status)
+    sol = _dc.replace(sol2, status=status,
+                      iterations=sol1.iterations + sol2.iterations,
+                      wall_s=time.perf_counter() - t_all,
+                      message=f"staged design surface (20b): stage 1 {sol1.message}; "
+                              f"stage 2 {sol2.message}")
+    return sol, rep2
+
+
+def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
+                 options: Options | None = None, *,
+                 size_out: dict | None = None,
+                 method: str = DEFAULT_METHOD,
+                 low_rank: str = DEFAULT_LOW_RANK,
+                 drop: _t.AbstractSet[int] | None = None,
+                 fixed: _t.Mapping[int, float] | None = None,
+                 levelled_out: dict[int, float] | None = None
+                 ) -> tuple[Solution, DesignReport]:
+    """ONE solve of the design surface (module docstring) — the whole thing
+    when ``staged_solve`` is off, one stage of §20b when it is not.
+
+    ``drop`` / ``fixed`` are :func:`assemble`'s.  ``levelled_out`` collects
+    §20b (4)'s answer for the next stage: the solved value of every vertex
+    whose column carried an ALWAYS-ON row (bending, chord, trend, datum,
+    level belt) — a column with none has no level here and is left free.
+    """
     opt = options or Options()
     d = design_law(law)
     rep = DesignReport(method=method)
     t0 = time.perf_counter()
     n = len(planar.vertices)
-    base_p = assemble(planar, cs, law, rep)
+    base_p = assemble(planar, cs, law, rep, drop=drop, fixed=fixed)
     rows, red, one, eqs = base_p.rows, base_p.red, base_p.one, base_p.eqs
+    # §20b (4): a column with NO LEVEL is not this stage's answer.  The level
+    # belt (§23.4) normally leaves none — it gives every level-free piece its
+    # own terrain plane or refuses by name — so this reads 0 and is the guard
+    # that keeps a sentinel 0.0 m from being SUBSTITUTED into the next stage.
+    unlevelled: set[int] = set()
+    if levelled_out is not None:
+        unlevelled = set(_level_free_columns(rows, base_p.body, red, one))
+        rep.stage1_unlevelled = len(unlevelled)
     chord_v, road_v = base_p.chord_vertices, base_p.road_fit_vertices
     if red.n_cols == 0:
         z = np.array([float(red.value[v]) for v in range(n)])
@@ -707,6 +857,16 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         A1 = sp.csr_matrix((coo.data[keep], (coo.row[keep], coo.col[keep])),
                            shape=A1.shape)
     hard_i = np.asarray(base_p.hard, dtype=np.int64)
+    if fixed and drop is None and hard_i.size:
+        # §20b STAGE 2's HARD SET (the census table): an AIRSIDE hard row
+        # now carries no column — stage 1 enforced it and read it there, in
+        # its own metre scaling — and its reduced row sum is 0, which the
+        # scaling below cannot divide by.  Reading it here would report a
+        # vertical-curve row in RAW units against ``hard_tol_m``.  Stage 2's
+        # hard set is the rows that still carry a column; the report
+        # COMBINES the two stages.
+        rowsum0 = np.asarray(abs(A1).sum(axis=1)).ravel()
+        hard_i = hard_i[rowsum0[hard_i] > 0.0]
     rep.hard_rows = int(hard_i.size)
     # THE HARD ROWS ARE SCALED TO METRES.  A law row is stated in its own
     # units: a grade cap's row is a Δz (metres), but a VERTICAL CURVE row is a
@@ -926,6 +1086,11 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 lambda k: one[int(hard_i[k])][2].source.ruling[:70])
     if x is not None:
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
+    if levelled_out is not None and x is not None:
+        for vid in range(n):
+            col = int(red.col[vid])
+            if col >= 0 and col not in unlevelled:
+                levelled_out[vid] = float(z[vid])
     rep.solver_wall_s = t_solver
 
     # 11. the residual per family (a missed TARGET, not a demotion)

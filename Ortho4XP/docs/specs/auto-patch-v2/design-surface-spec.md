@@ -11548,3 +11548,87 @@ road edge's level before → after — unchanged); the ramp bottom at the
 building edge unchanged; the pinched grades named; the road-family census
 (`road_cross_section`, `road_ramp`, airside vertices moved 0) before →
 after; no ramp under the terminal shortened or lost.
+
+## §20b THE STAGED SOLVE — AIRSIDE SOLVES FIRST, EVERYTHING ELSE CONFORMS (owner RULINGS 2026-09-13dh, ordered 2026-09-14an) — lane `v2staged`
+
+"Airside is king" has been a POSTURE priced into rows (a one-way ruling, a
+lagged leader, a withdrawn ceiling pair) and measured as a residual every
+round since 13dh: `v2roadcontact` r2 met "no groundside row binds an airside
+column" and still moved 36 airside vertices; `v2padcluster` r4/r5 refuted the
+one-way skirt three times and still shipped 9,573 moved airside vertices,
+the runway 885 of them (worst 0.390 m).  A LAGGED row is not a fixed value:
+a pad bound to airside only by lagged rows has nothing holding it inside a
+round.  The mechanism the posture needs is ARCHITECTURAL, not a price:
+
+1. **STAGE 1 — THE AIRSIDE PROBLEM ALONE.**  The columns are the vertices of
+   AIRSIDE PAVEMENT faces — every role that is `pavement_roles` (a value role
+   that is not a structure), whose `role_side` is `airside`, and that is not
+   RIGID: the runway family, the taxi family and the apron, and nothing else.
+   One derivation site, `solve/design_roles.airside_stage_roles`, read from
+   the law tables; the strip / clearance / boundary family (airside by
+   `role_side` but not pavement) and the pad (`building`, rigid) are stage 2.
+   Every row whose every COLUMN is airside is assembled — the hard rulings,
+   the seam pins (§38), the chords and crowns, within-shape, no-step,
+   taxi_box, junction_mesh, transverse, the apron tiers, EAT — and every row
+   carrying a free column that is not airside is DROPPED.  A row footed on a
+   `Pin` keeps it: a pin is a constant, not a column.  The stage runs the
+   whole solve, its polish and BOTH projections, so what stage 1 returns is
+   the CERTIFIED airside surface.
+2. **STAGE 2 — THE WHOLE PROBLEM WITH AIRSIDE FIXED.**  Every airside column
+   stage 1 gave a LEVEL is SUBSTITUTED as a constant at its stage-1 value —
+   eliminated from the unknowns by the reduction, exactly as a `Pin` is.  A
+   row coupling airside to a pad, a road or the ground then has a CONSTANT on
+   its airside side: it is one-way BY CONSTRUCTION, and neither the `follows=`
+   machinery nor the lag is needed for it (the lag stays for the rows whose
+   leader is itself groundside).  Airside moved between the two stages is
+   zero by construction — not a bound, not a tolerance, not a residual.
+3. **SUBSTITUTION, NOT A ±`hard_tol_m` BOUND, AND WHY.**  The design surface
+   is a least-squares problem with a one-sided ACTIVE SET (`solve/design.py`),
+   not a bounded LP: there is no bound machinery to warm-start, and a
+   ±`hard_tol_m` box would have to be minted as two one-sided rows per airside
+   vertex at `hard_weight` — ~40,000 new hard rows at HECA, added to the very
+   set that already does not settle (13y (B), 13ab), buying a surface that may
+   move every airside vertex by 2 cm.  Elimination costs nothing, removes the
+   columns from the factorisation (stage 2 is SMALLER than today's single
+   solve), and holds exactly.  `hard_tol_m` then bounds nothing here; it is
+   quoted only as the bar the measurement is read against.
+4. **A COLUMN STAGE 1 DID NOT LEVEL IS NOT FIXED** (§23.4's principle).  An
+   airside column reached by no always-on row in stage 1 — no bending, no
+   chord, no trend, no datum, no level belt — has no level there; its
+   least-squares value is the sentinel, and fixing it would pin the crater.
+   Such columns stay FREE in stage 2 and the report counts them
+   (`stage1_unlevelled`).
+
+**THE CONSUMER CENSUS** (owner RULINGS 2026-08-30l), every consumer of the
+solved vertex map and of the assembled design problem, ruled before any was
+edited:
+
+| Consumer | file:site | what it assumes of ONE solve | ruling |
+|---|---|---|---|
+| the pipeline's solve call | `pipeline/build.py:740` | one `solve_design` → one `Solution`, one `DesignReport`, one `wall["solve"]` | **CHANGED**: the call is unchanged (the staging lives inside `solve_design`); `wall["solve"]` stays the WHOLE solve and the two stage clocks are printed from the report (`stage1_wall_s` / `stage2_wall_s`) |
+| the returned `Solution` | `solve/api.py` | `z`, `status`, `iterations`, `wall_s`, `residual` | **CHANGED**: `z` IS stage 2's (airside values are stage 1's, by identity); `status` is the WORSE of the two stages; `iterations` the sum; `residual` is computed once, on the final z over the whole `ConstraintSet` — unchanged |
+| the design REPORT | `solve/design_report.py` | every counter describes one problem | **CHANGED**: the returned report is STAGE 2's, plus a `stages` block carrying stage 1's counters and both clocks; `line()` gains one `staged (§20b)` clause; `as_dict()` gains `stages` (a nested value under the existing `design` sidecar key — no new sidecar key, no `SIDECAR_KEYS` edit) |
+| the HARD SET read | `design.read_hard_set` / `line()` | every hard row carries a column and is scaled to metres (`2/Σ|c|` over the REDUCED row) | **CHANGED**: in stage 2 an airside hard row carries NO column, so its reduced row sum is 0 and the metre scaling would silently read it in raw units. Stage 2's hard read is over the rows that still carry a column; the airside hard rows are read in STAGE 1, where they are enforced; the report's `hard_rows` / `hard_active` / `hard_max_violation_m` are the COMBINATION, and `HARD SET SETTLED` is the conjunction |
+| the LAG | `design.py` phase B, `read_lag_failure` | a one-way row's leader is a free column to be lagged | unchanged in code, narrower in fact: a row whose leader is airside has a CONSTANT leader in stage 2 and never enters the lag (`one_way_rows` falls); §20a's named failure still reports the rows that remain |
+| the RUNWAY projection | `solve/project.py:300 project_runway` | free runway columns exist | unchanged — it runs in stage 1 (where the runway is free) and is a no-op in stage 2 (`if not rep.columns: return x`), which is the certified surface being carried, not a skipped law |
+| the ZONE projection (§32) | `solve/project.py:700 project_zone_bands` | ground columns and §32 (4) purity | unchanged — the ground is stage 2's; a fixed airside vertex carries no column, so it is never "pure" and can never be clamped (§32 (4) holds a fortiori) |
+| `--why-hard` | `tools/v2_solve_replay.py:305` | re-assembles the FULL problem and reads every hard row at the shipped z | unchanged and still correct: the population is the full problem's hard set, read at the final surface; an airside row reads its stage-1 value |
+| `--why-at` / the pressure read | `solve/why.py:82 solve_with_pressure` | re-solves and prices every law row at the final z | unchanged: the re-solve is staged like the pipeline's, and the pressure of a row is read on the FULL row set at the final z |
+| `v2_solve_replay --capture` | `tools/v2_solve_replay.py` | captures load → partition → classify → planar → shape stage | unchanged (nothing captured is solve state) |
+| `v2_solve_replay --replay` | `tools/v2_solve_replay.py:788` | one `solve_design`, one wall, one `rep.line()` | **CHANGED (reporting only)**: both stages replay through the one call and the report line names both; the DISARM arm is `--design-weight staged_solve=0` |
+| the census FRAME | `tools/check_grade.py`, `harness/census.py` | reads the emitted patch and its sidecar | unchanged — no key added, no key changed |
+| `verify` | `verify/frame.py` | reads the shipped surface | unchanged (lane `v2liftedcap` is in that file; nothing here touches it) |
+| the sidecar publication | `pipeline/publication.py` | `pub["design"] = design_rep.as_dict()` | unchanged code (lane `v2liftedcap`'s file); the nested `stages` value rides the existing key |
+| `displacement_by_role`, `joint_steps`, `runway_profile_block`, `taxi_trend_block`, `apron_trend_block`, `road_profile_agreement`, the seam residual read, the flat-site read | `pipeline/build.py:757-830` | read the FINAL z | unchanged — all read stage 2's z, which is the shipped surface |
+| the `size_out` LP size | `pipeline/build.py:739` | one problem's columns/rows | **CHANGED**: it reports stage 2's size with `stage1_columns` / `stage1_rows` beside it |
+| the twins that call `solve_design` | `tests/auto_patch_v2/*` | one solve of a synthetic map | unchanged where the map is all-airside (stage 2 fixes what stage 1 solved: the same surface); a twin whose map mixes a pad or a road with airside is a §20b case and reads the new law |
+| `law/emit.toml [design]` | `law/design_schema.py` | the weights and limits | **CHANGED**: one new value `staged_solve` (bool, default true) — the arm switch a measurement needs, never an env gate |
+
+BARS (HECA, ONE build on `claude/v2padcluster` + the staged solve, against
+`v2padclusterHECAdisarm` AND the r5 shipped arm `a602bba1b858`): airside
+vertices moved vs DISARM 0 by construction and measured (today 9,573; the
+runway 885, worst 0.390 m); the terminal body on `building298` at 72.6 ±
+0.02; `pad_airside_weld` before → after; `pad_cluster_mismatch` unchanged at
+14; stage-2 airside values equal stage 1's to 1e-9 (twin and build); every
+hard airside ruling settled; solve wall ≤ 1.5× the single solve, both stages
+named; CYXY byte-identical or the diff named; suite twice.

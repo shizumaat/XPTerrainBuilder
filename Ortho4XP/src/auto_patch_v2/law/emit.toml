@@ -642,7 +642,18 @@ runway_projection = true
 # the infeasibility the refuted hard-set attempt bought (zones.py docstrings).
 # ``false`` is the DIAGNOSTIC ARM only.
 zone_projection = true
-hard_tol_m      = 0.02     # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
+# §20b THE STAGED SOLVE — AIRSIDE SOLVES FIRST, EVERYTHING ELSE CONFORMS
+# (owner RULINGS 2026-09-13dh, ordered 2026-09-14an).  Stage 1 assembles and
+# solves the AIRSIDE PAVEMENT problem alone (the runway family, the taxi
+# family and the apron, and every row whose every column is one of theirs);
+# stage 2 assembles the whole problem with every airside column stage 1
+# levelled SUBSTITUTED as a constant, so a pad / road / ground row coupling
+# to airside is one-way BY CONSTRUCTION and airside cannot move.  Priced as
+# a posture instead (a one-way ruling, a lagged leader), "airside is king"
+# left 9,573 moved airside vertices at HECA, 885 of them runway (13an).
+# ``false`` is the DIAGNOSTIC ARM — the single solve, for the matched pair.
+staged_solve    = true
+hard_tol_m      = 0.02    # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
 # THE ADJACENT GROUND FOLLOWS THE PAVEMENT AND NEVER PULLS IT (09-09b
 # (2)/(3)): a row whose ruling head is listed here is priced ONE-WAY — the
 # row's `follows` vertex (the GROUND) keeps its column, and the pavement

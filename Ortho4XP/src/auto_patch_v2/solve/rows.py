@@ -84,8 +84,15 @@ class _Reduction:
             self.col[v] = c
 
 
-def _reduce(pm: PlanarMap, cs: ConstraintSet, fixed_dem: _t.Mapping[int, float]
-            ) -> _Reduction:
+def _reduce(pm: PlanarMap, cs: ConstraintSet, fixed_dem: _t.Mapping[int, float],
+            fixed: _t.Mapping[int, float] | None = None) -> _Reduction:
+    """The reduction.  ``fixed`` is §20b's STAGE SUBSTITUTION: a vertex whose
+    value another stage has already decided, fixed exactly as a ``Pin`` is —
+    its column eliminated — but NOT entered in ``dem_fixed``, because it is
+    not the terrain beyond the zone ring and the BANK filter in
+    ``solve/design`` must not drop the rows footed on it (those rows are the
+    one-way coupling the staged solve exists to make exact).  A ``Pin``
+    outranks it: a pin's value is the law's own."""
     red = _Reduction(len(pm.vertices))
     for f in cs.flats:
         g = f.group
@@ -97,6 +104,8 @@ def _reduce(pm: PlanarMap, cs: ConstraintSet, fixed_dem: _t.Mapping[int, float]
     for p in cs.pins:                       # a pin outranks a DEM fixing
         red.fixed[p.v] = float(p.z)
         red.dem_fixed.discard(p.v)
+    for v, z in (fixed or {}).items():      # §20b: the other stage's value
+        red.fixed.setdefault(int(v), float(z))
     red.finish()
     return red
 
@@ -161,6 +170,11 @@ class _Rows:
     v: list[float] = _dc.field(default_factory=list)
     b: list[float] = _dc.field(default_factory=list)
     owner: list[_t.Any] = _dc.field(default_factory=list)
+    #: §20b THE STAGE'S FOREIGN VERTICES: a row that touches one is not in
+    #: this stage's problem at all and is DROPPED, never folded into the
+    #: right-hand side — its value is not decided here (a field at the END
+    #: so no positional call shifts; memory ``pack_partition`` precedent).
+    drop: frozenset[int] = frozenset()
 
     @property
     def n(self) -> int:
@@ -168,9 +182,12 @@ class _Rows:
 
     def add(self, terms: _t.Sequence[tuple[int, float]], rhs: float, w: float,
             owner: _t.Any = None) -> bool:
-        """One row; ``False`` when every term is fixed (nothing to solve)."""
+        """One row; ``False`` when every term is fixed (nothing to solve) or
+        when a term is a foreign vertex of this stage (§20b ``drop``)."""
         s = math.sqrt(w)
         k = self.n
+        if self.drop and any(vid in self.drop for vid, _c in terms):
+            return False
         acc: dict[int, float] = {}
         for vid, coef in terms:
             col = int(self.red.col[vid])

@@ -169,6 +169,22 @@ class DesignReport:
     #: 13ac the cap was a silent stop at three rounds and the polish ran
     #: inside a lag that had not converged.
     one_way_failure: dict[str, _t.Any] = _dc.field(default_factory=dict)
+    #: §20b THE STAGED SOLVE (owner RULINGS 2026-09-13dh, ordered
+    #: 2026-09-14an).  ``staged`` says the two-stage form ran; ``stages``
+    #: carries stage 1's own counters (rows, columns, hard set, lag,
+    #: projections, wall) beside stage 2's, which are this report's own
+    #: fields; ``stage_dropped_rows`` is how many law rows this assembly
+    #: refused as foreign to its stage; ``stage1_fixed`` how many airside
+    #: vertices stage 2 substituted as constants and ``stage1_unlevelled``
+    #: how many airside columns stage 1 left with NO always-on row (§20b
+    #: (4)) and therefore did NOT fix.
+    staged: bool = False
+    stages: dict[str, _t.Any] = _dc.field(default_factory=dict)
+    stage_dropped_rows: int = 0
+    stage1_fixed: int = 0
+    stage1_unlevelled: int = 0
+    stage1_wall_s: float = 0.0
+    stage2_wall_s: float = 0.0
     bend_rows_by_class: dict[str, int] = _dc.field(default_factory=dict)
     #: THE MISSED TARGETS (sidecar ``design_target``, RULINGS 2026-09-08t/v):
     #: one record per law row the design surface did not reach — its family,
@@ -290,6 +306,12 @@ class DesignReport:
                 "one_way_settled": self.one_way_settled,
                 "one_way_move_m": round(self.one_way_move_m, 6),
                 "one_way_failure": self.one_way_failure,
+                "staged": self.staged, "stages": self.stages,
+                "stage_dropped_rows": self.stage_dropped_rows,
+                "stage1_fixed": self.stage1_fixed,
+                "stage1_unlevelled": self.stage1_unlevelled,
+                "stage1_wall_s": round(self.stage1_wall_s, 3),
+                "stage2_wall_s": round(self.stage2_wall_s, 3),
                 "bend_rows_by_class": self.bend_rows_by_class,
                 "targets": len(self.targets),
                 "solver_wall_s": round(self.solver_wall_s, 3),
@@ -329,9 +351,29 @@ class DesignReport:
             f"level {r['residual_m']:+.2f} / tilt {(r.get('tilt_m') or 0.0):+.2f} m"
             for r in bs) + ")")
 
+    def staged_line(self) -> str:
+        """§20b: what the two stages were, in one clause — stage 1's airside
+        problem and its hard set, stage 2's size, the substitution, both
+        clocks.  Empty when the single solve ran (the DISARM arm)."""
+        if not self.staged:
+            return ""
+        s1 = self.stages.get("stage1") or {}
+        return (f"staged (20b): stage 1 AIRSIDE {s1.get('unknowns', 0)} unknowns / "
+                f"{s1.get('rows', 0)} rows, {s1.get('hard_active', 0)}/"
+                f"{s1.get('hard_rows', 0)} hard violated (max "
+                f"{float(s1.get('hard_max_violation_m') or 0.0):.4f} m"
+                f"{', SETTLED' if s1.get('hard_settled') else ', NOT SETTLED'}), "
+                f"{s1.get('rounds', 0)} round(s), {self.stage1_wall_s:.2f} s; "
+                f"{self.stage1_fixed} airside vertices SUBSTITUTED into stage 2 "
+                f"({self.stage1_unlevelled} unlevelled columns left free, "
+                f"{self.stage_dropped_rows} rows foreign to stage 1), stage 2 "
+                f"{self.unknowns} unknowns / {self.rows} rows, "
+                f"{self.stage2_wall_s:.2f} s; ")
+
     def line(self) -> str:
         worst = sorted(self.families.items(), key=lambda kv: -kv[1]["max_m"])[:6]
-        return (f"design (08t): {self.rounds} active-set round(s)"
+        return (self.staged_line()
+                + f"design (08t): {self.rounds} active-set round(s)"
                 f"{'' if self.converged else f' (SET NOT SETTLED: {self.set_flips} rows flipped, worst {self.set_flip_max_m:.3f} m)'}, {self.method}, "
                 f"{self.unknowns} unknowns / {self.fixed} fixed, {self.rows} rows, "
                 f"{self.triangles} triangles in {self.components} complexes "

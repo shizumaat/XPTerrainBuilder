@@ -254,6 +254,13 @@ class Design:
     #: per-vertex projection against feet the solve has already fixed,
     #: no LP.  ``false`` is the diagnostic arm and is never shipped.
     zone_projection: bool
+    #: §20b THE STAGED SOLVE (owner RULINGS 2026-09-13dh, ordered
+    #: 2026-09-14an): stage 1 solves the AIRSIDE PAVEMENT problem alone,
+    #: stage 2 the whole problem with every airside column stage 1
+    #: levelled substituted as a CONSTANT — so "airside is king" is an
+    #: architecture, not a price.  ``false`` is the single solve, the
+    #: DIAGNOSTIC ARM the staged arm is matched against.
+    staged_solve: bool
     active_set_max_rounds: int
     active_set_tol_m: float
     solver_tol: float

@@ -13,11 +13,12 @@ from ..law import Law
 from ..law.design_schema import BEND_CLASSES
 from ..law.tables import (apron_roles as _apron_roles,
                           bend_class as _bend_class,
-                          design as design_law, is_structure_role, is_value_role,
-                          pavement_roles as _pavement_roles, zone_class)
+                          design as design_law, is_rigid_role, is_structure_role,
+                          is_value_role, pavement_roles as _pavement_roles,
+                          role_side, zone_class)
 from ..model.constraints import Row
 
-__all__ = ['bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'cluster_reach_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
+__all__ = ['airside_stage_roles', 'airside_stage_vertices', 'bend_roles', 'pavement_roles', 'bend_class', 'apron_roles', 'taxi_body_roles', 'datum_roles', 'one_way_rulings', 'foot_row_rulings', 'pad_flat_rulings', 'pad_level_rulings', 'cluster_reach_rulings', 'hard_rulings', 'ruling_head', 'is_hard']
 
 def bend_roles(law: Law) -> tuple[str, ...]:
     """The roles whose faces form the SHEETS the bending term shapes: every
@@ -58,6 +59,35 @@ def taxi_body_roles(law: Law) -> frozenset[str]:
     (the report and the twins name it)."""
     return frozenset(r for r in pavement_roles(law)
                      if bend_class(law, r) == "taxi")
+
+
+def airside_stage_roles(law: Law) -> frozenset[str]:
+    """§20b STAGE 1's ROLES — AIRSIDE PAVEMENT (owner RULINGS 2026-09-13dh,
+    ordered 2026-09-14an): the runway family, the taxi family and the apron.
+
+    ONE derivation from the law tables, never a hand list: every
+    :func:`pavement_roles` role (a VALUE role that is not a structure) whose
+    ``role_side`` is ``airside`` and that is not RIGID.  The rigid exclusion
+    is the PAD (``building``): a pad is airside by ``role_side`` and is
+    exactly what must conform in stage 2.  The strip / clearance / boundary
+    family is airside too and is not pavement, so it conforms as well — the
+    ground blends to an airside that is already fixed."""
+    return frozenset(r for r in pavement_roles(law)
+                     if role_side(law, r) == "airside"
+                     and not is_rigid_role(law, r))
+
+
+def airside_stage_vertices(planar: _t.Any, law: Law) -> frozenset[int]:
+    """Every vertex of an :func:`airside_stage_roles` face — §20b stage 1's
+    own population, read off the planar map's faces (rings and holes)."""
+    roles = airside_stage_roles(law)
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if f.role not in roles:
+            continue
+        for ring in (f.ring, *f.holes):
+            out.update(planar.ring_vertices(ring))
+    return frozenset(out)
 
 
 def datum_roles(law: Law) -> tuple[tuple[str, frozenset[str]], ...]:

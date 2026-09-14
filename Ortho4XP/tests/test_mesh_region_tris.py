@@ -320,42 +320,33 @@ def test_edge_audit_refuses_an_unbounded_read(tmp_path):
         MRT.main(["--mesh", str(mesh), "--edge-audit"])
 
 
-# ── THE NODE -> MESH CROSS-REFERENCE (owner RULINGS 2026-09-13cp) ──────
+# ── THE PATCH EDGE STEP (owner request 2026-09-13, the OMIT arm) ──────
 #
-# A hand-built pair the numbers can be read off by eye: a unit square
-# PATCH RING at 600 m whose four corners the mesh honours exactly, one
-# bare-INTERP_ALT ROAD RIBBON node the ``.node`` carries at 589 m and the
-# mesh emits at 568 (the LEMD canyon, 21 m), and one DUMMY node the mesh
-# moved 0.4 m.  The identity join is verified, never trusted.
+# A hand-built pair: a unit-square PATCH RING at 600 m and one mesher
+# vertex OUTSIDE it at 588 — the 12 m one-triangle cliff §8.4 measured
+# and the bank exists to grade.
 
-def _write_xref_inputs(tmp_path, ribbon_mesh_z):
-    """``(prefix, mesh_path)`` — a 6-node .node/.poly and its mesh."""
+def _write_edge_step_inputs(tmp_path, outside_z):
     import mesh_region_tris as MRT
 
     ring = [(0.000, 0.000), (0.001, 0.000), (0.001, 0.001), (0.000, 0.001)]
-    ribbon = [(0.0004, 0.0005), (0.0006, 0.0005)]
-    nodes = ring + ribbon
-    z_node = [600.0] * 4 + [589.0, 589.0]
+    outside = (0.0015, 0.0005)
     prefix = tmp_path / "Data+40-004"
+    nodes = ring + [outside]
+    z_node = [600.0] * 4 + [outside_z]
     (prefix.with_suffix(".node")).write_text(
-        "6 2 1 0\n" + "".join(
+        "5 2 1 0\n" + "".join(
             f"{i + 1} {x:.9f} {y:.9f} {z:.9f}\n"
             for i, ((x, y), z) in enumerate(zip(nodes, z_node))))
     segments = [(i + 1, (i + 1) % 4 + 1, MRT.PATCH_RING_MARKER)
                 for i in range(4)]
-    segments.append((5, 6, MRT.INTERP_ALT_BIT))
     (prefix.with_suffix(".poly")).write_text(
         "0 2 1 0\n\n" + f"{len(segments)} 1\n"
         + "".join(f"{k + 1} {a} {b} {m}\n"
                   for k, (a, b, m) in enumerate(segments))
         + "\n0\n\n0\n")
-    # the MESH: input vertices FIRST and in order (Triangle's own rule),
-    # then one Steiner vertex OUTSIDE the ring standing 12 m low — the
-    # cliff at the patch edge.
-    z_mesh = [600.0] * 4 + [ribbon_mesh_z, ribbon_mesh_z] + [588.0]
-    verts = [(x - 4.0, y + 40.0, z)
-             for (x, y), z in zip(nodes + [(0.0015, 0.0005)], z_mesh)]
-    faces = [(1, 2, 5), (2, 3, 6), (3, 4, 5), (2, 6, 7), (3, 7, 6)]
+    verts = [(x - 4.0, y + 40.0, z) for (x, y), z in zip(nodes, z_node)]
+    faces = [(1, 2, 3), (1, 3, 4), (2, 3, 5)]
     lines = ["MeshVersionFormatted 1", "Dimension 3", "Vertices",
              str(len(verts))]
     lines += [f"{lo:.9f} {la:.9f} {z / 100000.0:.12f} 0"
@@ -368,42 +359,33 @@ def _write_xref_inputs(tmp_path, ribbon_mesh_z):
     return (str(prefix), str(mesh))
 
 
-def test_node_xref_splits_the_ribbons_from_the_rings(tmp_path, capsys):
-    """The 1.0.329 signature: PATCH_RING exact, the ribbons 21 m off."""
+def test_patch_edge_step_reads_the_one_triangle_cliff(tmp_path, capsys):
     import mesh_region_tris as MRT
 
-    (prefix, mesh) = _write_xref_inputs(tmp_path, 568.0)
-    payload = MRT.node_mesh_xref(mesh, prefix, 40, -4, bar_m=2.0)
-    out = capsys.readouterr().out
-    ring = payload["classes"]["PATCH_RING"]
-    assert ring["n"] == 4 and ring["over_bar"] == 0 and ring["max"] == 0.0
-    ribbon = payload["classes"]["INTERP_ALT"]
-    assert ribbon["n"] == 2 and ribbon["over_bar"] == 2
-    assert ribbon["max"] == pytest.approx(21.0)
-    assert "PATCH_RING" in out and "INTERP_ALT" in out
+    (prefix, mesh) = _write_edge_step_inputs(tmp_path, 588.0)
+    payload = MRT.patch_edge_step(prefix, mesh, 40, -4)
+    assert payload["n"] == 2               # two ring vertices see it
+    assert payload["max"] == pytest.approx(12.0)
+    assert payload["over_3m"] == 2 and payload["over_1m"] == 2
+    assert "patch edge step" in capsys.readouterr().out
 
 
-def test_node_xref_reads_the_patch_edge_step(tmp_path):
-    """THE CLIFF the bank exists to grade: a ring vertex at 600 m beside
-    an OUTSIDE mesh vertex at 588 is a 12 m step, and it is reported."""
+def test_patch_edge_step_is_zero_when_the_edge_is_graded(tmp_path):
     import mesh_region_tris as MRT
 
-    (prefix, mesh) = _write_xref_inputs(tmp_path, 589.0)
-    payload = MRT.node_mesh_xref(mesh, prefix, 40, -4)
-    step = payload["patch_edge_step"]
-    assert step["n"] >= 1
-    assert step["max"] == pytest.approx(12.0)
-    assert step["over_3m"] >= 1
+    (prefix, mesh) = _write_edge_step_inputs(tmp_path, 600.0)
+    payload = MRT.patch_edge_step(prefix, mesh, 40, -4)
+    assert payload["max"] == pytest.approx(0.0)
+    assert payload["over_1m"] == 0
 
 
-def test_node_xref_REFUSES_when_the_identity_join_is_broken(tmp_path):
-    """A cross-reference with no identity join prints coincidences."""
+def test_patch_edge_step_says_so_when_there_is_no_patch_ring(tmp_path,
+                                                             capsys):
     import mesh_region_tris as MRT
 
-    (prefix, mesh) = _write_xref_inputs(tmp_path, 589.0)
-    text = open(mesh).read().replace("-4.000000000 40.000000000",
-                                     "-3.900000000 40.000000000")
-    open(mesh, "w").write(text)
-    with pytest.raises(SystemExit) as caught:
-        MRT.node_mesh_xref(mesh, prefix, 40, -4)
-    assert "did not preserve the input vertex order" in str(caught.value)
+    (prefix, mesh) = _write_edge_step_inputs(tmp_path, 588.0)
+    text = open(prefix + ".poly").read().replace(
+        f" {MRT.PATCH_RING_MARKER}\n", " 0\n")
+    open(prefix + ".poly", "w").write(text)
+    assert MRT.patch_edge_step(prefix, mesh, 40, -4)["n"] == 0
+    assert "no PATCH_RING_MARKER segment" in capsys.readouterr().out

@@ -4052,3 +4052,84 @@ the 19 road refs' deepest cuts are `bridge_deck:` refs §37 (6) excludes).
 * Not verified: no 1.0.327 tile/patch survives (the `.dsf.bak` was not
   decoded); the log carries no version marker; the split branch's firing
   count.
+
+## 2026-09-13cq Owner: "try completely omitting the bank_foot shapes altogether to confirm they're necessary" — OMIT arm added to lane `v2bankfoot`
+
+Owner, verbatim: "Can we please try completely omitting the 'bank_foot'
+shapes altogether to confirm they're necessary?" (standing reservations
+about the class: 13ce, 13cm).
+
+* Lane `v2bankfoot` runs an OMIT arm FIRST (emitter writes no `bank_foot`
+  ways; everything else main), ONE LEMD tile-mesh run on the fix arm's
+  frame, and reports the two arms side by side: the site profile and the
+  node→mesh cross-reference by attr; the annulus / harmonic counters; THE
+  PATCH EDGE — per ring vertex the step to the nearest free vertex outside
+  the coverage (max, p95, > 1 m, > 3 m), the same at the zone-band edges
+  (the cliff the 1:3 bank existed to grade); the census families
+  `bank_across_seam` / `adjacent_ground_step` / zone edge; mesh wall time.
+* Deleting the class is the owner's ruling on those numbers, not the
+  lane's.
+
+## 2026-09-13cr v2hairline round 2 MERGED (f602376b): one shore witness, sub-spacing merge, the crossing mint's identity join; the weld refuted a second time; the 13cp split-branch suspect REFUTED by count
+
+Lane `v2hairline` r2, branch `claude/v2hairline` @ f8637188, merged
+f602376b; twins 395 passed on merged main.
+
+* SHIPPED: (i) ONE WITNESS — `O4_Vector_Map.cached_constrained_shore`
+  is the single derivation of the shore the mesh constrains; LEMD weld
+  moves 95 → 0 vertices; SEAWALL joins via `seawall_breaklines`; a third
+  weld branch projects in the degree frame (VMMC stranded 6 → 0). (iii)
+  `merge_sub_spacing` at the ring writer (senior vertex keeps its
+  coordinate). (iv) the crossing mint: the named LEMD pair was the
+  ORTHOGRID line at lon −3.581542969 crossed by two ring edges 0.8 mm
+  apart and `insert_node` deduping on float equality — cured at the mint
+  (`_node_near`, O(1) hash). Instrument promoted:
+  `mesh_region_tris.py --z-xref` (the scout's node→mesh cross-reference).
+* BARS: LEMD `hairline_pair` 24 → 0; segments < 0.5 m 385 → 6 (triangle
+  floor); pre-flight UNMESHABLE 47 → 7, none patch-marked; KCLT pairs 2 →
+  0, short segments 799 → 11; VMMC UNMESHABLE 419 → 50, stranded 6 → 0;
+  VMMC box slivers 677,820 → 406,393 NOT MET — driver: `bank:1`'s foot
+  node 2.5 µm from a SEA edge; `write_node_file`'s `{x:.9f}` is a 0.11 mm
+  grid, so PROJECTION cannot survive the `.poly` write (snap/drop do).
+  Closable only at the `.poly` (snap-rounding) — owed.
+* REFUTED: (ii) the vector-map weld + re-node — identical refusal,
+  `_renode_at` 0 splits, attempt cap; ships OFF. (v) pre-flight stays
+  `report`: LEMD's 7 refusals are all core road/land/water geometry.
+* 13cp's second suspect REFUTED: the `insert_edge` split branch fires
+  TWICE on the LEMD tile; WATER over-2 m 10,337 → 10,338 with the carry.
+  The 10,338 water rows are a different, unattributed mechanism — the
+  OMIT/fix arms of `v2bankfoot` will show whether the bank mechanism
+  (13cp) owns them too (WATER is also inside the coverage at LEMD).
+* Not done: KCLT tile (owner's `--refresh-data dem` still pending);
+  orthogrid projection deliberately not done (would move authored geometry
+  up to 0.5 m onto a 21 m grid).
+
+## 2026-09-13cs HECA eight items attributed (scout `v2heca329`): none is the 13cp mesh regression; §40, §41, §37 (10) written; lanes `v2roles`, `v2zonehole`, `v2roadcontact`
+
+Scout on the owner's 1.0.329 +30+031 tile, read-only. Tile-wide node→mesh
+cross-reference: PATCH_RING 27,673 vertices 0 off; road ribbons 271,698, 2
+off (both ~100 km from HECA); at every owner site mesh = patch to 0.000 m.
+The 13cp condition IS present (128 open `bank_foot` ways vs 9 closed;
+annulus seeds 252 → 3, valued vertices 84,631 → 0, INTERP_ALT 629,054 →
+369,060, harmonic "kept own" 374) but landed on no authored HECA vertex.
+
+| # | class | ruling |
+|---|---|---|
+| 1 shape 44 | PATCH-ROLE: 585 m along runway 05L/23R, 73 % apron cover, still a corridor (no rung refuses it) | §40 (1) runway shoulder joins the runway body; §40 (2) apron cover refuses the corridor kind |
+| 2 dip | PATCH-SOLVE: zone2#7 strip and `cross_connector:pav77` (100 % inside pav73) emitted over the taxiway; 8.6 % climb-out, verify blind | §41: inner face = hole; zones clipped out of pavement; `zone_on_pavement` census; `role_overlap_read.py` repaired |
+| 3 hill | PATCH-SOLVE: route7 holds the DEM 1.5 m above the cut ground beside pav131 | §37 (10) (1) contact within reach |
+| 4 road step | PATCH-SOLVE: two route frames on one ribbon → `NOT_A_PAIR`, 42.6 % never priced | §37 (10) (2) pairs by geometry |
+| 5 cliff | PATCH-SOLVE: taxiway not in the contact set → road targets the DEM, 33 % step | §37 (10) (1) taxiways are airside contacts |
+| 6 shape 93/478 | PATCH-ROLE: corridor (width 27.8, apron 13 %); 478 is its zone strip | §40 (2)/(3) |
+| 7 floating building | OBJECT, NOT REPRODUCED: pad 88.88–88.98 = mesh 88.955; `T3_60.obj` in `unit:41` (36 members, anchor 1.7 km away, 19.47 m higher) but no seating row > 0.5 m within 70 m | owner asked for the object / a screenshot; standing HECA object debt noted: +19.70 m at 30.120503,31.402651 (`feet:20`, 1,144 m diameter), `Airport/T23` median −4.04 worst −11.71, 83 of 359 over 0.5 m |
+| 8 missing apron | MISSING-SOURCE: 0 rings; nearest OSM apron 60.5 m, apt.dat pavement 110.6 m; the pavement seen is the pack's draped `.pol` page; the "feeder" is `apron:pav132` | INTENT QUESTION to the owner: admit the pack's DSF draped-pavement pages as source polygons (`dsf_pavements` admits one today)? |
+
+* Lanes: `v2roles` (§40, `classify/roles.py` + `rules.toml`), `v2zonehole`
+  (§41, planar zones + `role_overlap_read.py`), `v2roadcontact` (§37 (10),
+  `constraints/road_ramp.py`, `airport/road_ramp.py`). HECA is the closing
+  airport for each; dry arms first on the 1.0.329 products.
+* Chips: `role_overlap_read.py` `KeyError: 'anchor'`; `auto_patch_v2 explain`
+  defaults to the engine-tree patch (Sep 9) — must take `--patch`, and
+  `--shape` only before the ICAO.
+* Not verified: item 7; the `apron_named=1` token on cells 58/191 (source
+  description matches no token — untraced); no registered HECA frame.

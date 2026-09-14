@@ -1212,6 +1212,9 @@ def build_poly_file(tile):
             vector_map.seeds["SEA"] = [numpy.array([1000, 1000])]
         else:
             vector_map.seeds["SEA"] = [numpy.array([0.5, 0.5])]
+    UI.vprint(1, "   Crossing identity (§39 (iv), RULINGS 13cp): "
+                 f"{vector_map.split_z_carried} crossing(s) resolved to an "
+                 "existing node and took the crossed chain's altitude.")
     vector_map.snap_to_grid(9)
     # §39 (i) THE HAIRLINE WELD (owner RULINGS 2026-09-13bu), at the LAST
     # site every pass's output has arrived: two constrained nodes closer
@@ -2039,6 +2042,73 @@ def cached_tile_water(tile):
     out = (sea, inland)
     try:
         tile._water_datum_layers = out
+    except Exception:                                      # pragma: no cover
+        pass
+    return out
+
+
+def cached_constrained_shore(tile):
+    """§39 (i) THE ONE WITNESS (owner RULINGS 2026-09-13cg) — the SHORE
+    GEOMETRY THE MESH WILL ACTUALLY CONSTRAIN, from cached data only.
+
+    ``cached_tile_water`` answers "where is water" as POLYGONS, and its
+    sea limb is :func:`sea_area_from_coastline`'s polygonisation.  That is
+    the right witness for a point sample (is this vertex wet?) and the
+    WRONG one for a hairline: the mesh does not constrain that polygon.
+    :func:`include_sea` encodes ``cut_to_tile(coastline,
+    strictly_inside=True)`` — the RAW coastline lines — under ``SEA``, and
+    :func:`include_water` encodes :func:`cached_water_multipolygon`'s own
+    rings under ``WATER`` (``water_simplification`` defaults to 0, so
+    verbatim).  The two sea derivations differ by micrometres, and
+    micrometres are exactly what §39 is about: VMMC's emit-side weld,
+    reading the polygon, left a ``bank_foot`` vertex 0.0025 mm from the
+    SEA line the mesh constrained (13cg), slenderness 4,004,066.
+
+    So THIS is the derivation site the emitter's ``shore_edges`` and the
+    mesh's own ``.poly`` both read, and there is no second one.
+
+    Returns a list of ``(N, 2)`` float arrays in TILE-RELATIVE degrees
+    (``lon - tile.lon``, ``lat - tile.lat``), open chains and closed rings
+    alike.  Empty when nothing is cached — "no data" is not "no water",
+    and the caller says so.  Memoised on the tile.
+    """
+    cached = getattr(tile, "_constrained_shore", "unset")
+    if cached != "unset":
+        return cached
+    out = []
+
+    def _add(geom):
+        if geom is None or getattr(geom, "is_empty", True):
+            return
+        parts = getattr(geom, "geoms", None)
+        if parts is not None:
+            for g in parts:
+                _add(g)
+            return
+        if geom.geom_type == "Polygon":
+            _add(geom.exterior)
+            for ring in geom.interiors:
+                _add(ring)
+            return
+        try:
+            coords = numpy.asarray(geom.coords, dtype=float)
+        except (AttributeError, ValueError):
+            return
+        if len(coords) >= 2:
+            out.append(coords)
+
+    coastline, _custom = cached_coastline_multilinestring(tile)
+    if coastline is not None and not coastline.is_empty:
+        try:
+            _add(VECT.cut_to_tile(coastline, strictly_inside=True))
+        except Exception:                                  # pragma: no cover
+            pass
+    try:
+        _add(cached_water_multipolygon(tile))
+    except Exception:                                      # pragma: no cover
+        pass
+    try:
+        tile._constrained_shore = out
     except Exception:                                      # pragma: no cover
         pass
     return out

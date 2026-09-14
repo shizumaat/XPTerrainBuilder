@@ -73,7 +73,7 @@ from .surface import GradedSurface
 
 __all__ = ["SIDECAR_KEYS", "PatchPaths", "write_patch", "render_patch",
            "render_sidecar", "tile_of_face", "write_tile_pieces",
-           "WeldReport", "shore_edges_of", "weld_to_shore"]
+           "WeldReport", "shore_edges_of", "weld_to_shore", "merge_sub_spacing"]
 
 #: A lat/lon pair, as everything emit-side spells it.
 LL_T = _t.Tuple[float, float]
@@ -301,7 +301,9 @@ class WeldReport:
     candidates: int = 0
     snapped: int = 0
     dropped: int = 0
+    projected: int = 0
     stranded: int = 0
+    merged: int = 0
     worst_mm_before: float = 0.0
     worst_at: tuple[float, float] | None = None
 
@@ -312,7 +314,9 @@ class WeldReport:
         return (f"[{icao}] shore weld (§39 (1)): {self.shore_edges} foreign water "
                 f"edges, {self.candidates} vertices inside the spacing — "
                 f"{self.snapped} snapped onto a water vertex, {self.dropped} "
-                f"dropped off the shore line, {self.stranded} left beside it"
+                f"dropped off the shore line, {self.projected} projected onto "
+                f"it, {self.stranded} left beside it; {self.merged} "
+                f"sub-spacing segment(s) merged"
                 + at)
 
 
@@ -327,21 +331,33 @@ def _local_metres(origin: LL_T) -> tuple[float, float]:
             _M_PER_DEG_LAT * max(math.cos(math.radians(lat0)), 1.0e-6))
 
 
-def shore_edges_of(dem, surface: GradedSurface, pad_m: float = 5.0
-                   ) -> list[tuple[LL_T, LL_T]]:
-    """THE FOREIGN CONSTRAINED EDGES the patch can run beside: the tile's
-    WATER boundary, in lat/lon, as the mesh will constrain it.
+def shore_edges_of(dem, surface: GradedSurface, pad_m: float = 5.0,
+                   seawall: bool = True) -> list[tuple[LL_T, LL_T]]:
+    """§39 (i) THE ONE WITNESS (owner RULINGS 2026-09-13cg): the FOREIGN
+    constrained edges THE MESH WILL CONSTRAIN near this patch, in lat/lon.
 
-    The witness is not ours (``water-datum-spec``): ``dem.water(lat, lon)``
-    → :class:`airport.dem_production.TileWater`, whose ``polys`` are the
-    core's own cached water/coastline polygons in TILE-RELATIVE degrees —
-    exactly the coordinates ``O4_Vector_Map.include_water`` encodes.  Only
-    the edges within ``pad_m`` of the surface's bounding box are returned:
-    the rest cannot be within the identity spacing of anything emitted.
+    Round 1 read ``dem.water(...)`` — ``TileWater``, whose sea limb is
+    :func:`sea_area_from_coastline`'s POLYGONISATION.  That is the right
+    witness for "is this vertex wet" and the wrong one for a hairline: the
+    mesh constrains ``include_sea``'s raw coastline LINES instead, and the
+    two differ by micrometres.  VMMC measured the cost — a ``bank_foot``
+    vertex left 0.0025 mm from the SEA line, slenderness 4,004,066, box A's
+    slivers 137,718 -> 296,037 (13cg).  So the sea and inland limbs now come
+    from ``O4_Vector_Map.cached_constrained_shore`` through
+    ``dem.shore(...)``: ONE derivation, shared with the mesh, cache-only.
+
+    THE SEAWALL LIMB joins them (``seawall=True``): ``insert_seawalls``
+    writes a ``SEAWALL_MARKER`` breakline 0.5 m outside the patch coverage
+    wherever it meets water (``O4_Vector_Map.seawall_breaklines``), and six
+    VMMC bank stations sat 481-501 mm from it — astride the identity bar,
+    invisible to a weld that could not see the wall.  It is derived here
+    from the SAME function, over this surface's own face union.
+
+    Only edges within ``pad_m`` of the surface's bounding box are
+    returned: nothing further out can be inside the identity spacing.
+    ``dem`` without the accessor falls back to ``dem.water(...)``'s
+    polygons, which is what a pre-13cg caller had.
     """
-    fn = getattr(dem, "water", None)
-    if not callable(fn):
-        return []
     lats = [v.ll[0] for v in surface.vertices]
     lons = [v.ll[1] for v in surface.vertices]
     if not lats:
@@ -350,33 +366,100 @@ def shore_edges_of(dem, surface: GradedSurface, pad_m: float = 5.0
     dla, dlo = pad_m / mlat, pad_m / mlon
     la0, la1 = min(lats) - dla, max(lats) + dla
     lo0, lo1 = min(lons) - dlo, max(lons) + dlo
-    out: list[tuple[LL_T, LL_T]] = []
-    seen: set[tuple[LL_T, LL_T]] = set()
-    tiles = {(int(math.floor(la)), int(math.floor(lo)))
-             for la, lo in zip(lats, lons)}
-    for (tla, tlo) in sorted(tiles):
+    tiles = sorted({(int(math.floor(la)), int(math.floor(lo)))
+                    for la, lo in zip(lats, lons)})
+    chains: list[list[LL_T]] = []
+    shore_fn = getattr(dem, "shore", None)
+    water_fn = getattr(dem, "water", None)
+    for (tla, tlo) in tiles:
+        if callable(shore_fn):
+            try:
+                lines = shore_fn(tla, tlo)
+            except Exception:                            # pragma: no cover
+                lines = []
+            for coords in lines or ():
+                chains.append([(float(c[1]) + tla, float(c[0]) + tlo)
+                               for c in coords])
+            if lines:
+                continue
+        if not callable(water_fn):
+            continue
         try:
-            w = fn(tla, tlo)
+            w = water_fn(tla, tlo)
         except Exception:                                # pragma: no cover
             w = None
-        if w is None or not getattr(w, "polys", None):
-            continue
-        for poly in w.polys:
+        for poly in (getattr(w, "polys", None) or ()):
             for ring in [poly.exterior, *poly.interiors]:
-                cs = list(ring.coords)
-                for i in range(len(cs) - 1):
-                    a = (cs[i][1] + w.lat, cs[i][0] + w.lon)
-                    b = (cs[i + 1][1] + w.lat, cs[i + 1][0] + w.lon)
-                    if max(a[0], b[0]) < la0 or min(a[0], b[0]) > la1:
-                        continue
-                    if max(a[1], b[1]) < lo0 or min(a[1], b[1]) > lo1:
-                        continue
-                    key = (a, b) if a <= b else (b, a)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    out.append((a, b))
+                chains.append([(c[1] + w.lat, c[0] + w.lon)
+                               for c in ring.coords])
+    if seawall:
+        chains.extend(_seawall_chains(surface, chains, tiles))
+    out: list[tuple[LL_T, LL_T]] = []
+    seen: set[tuple[LL_T, LL_T]] = set()
+    for chain in chains:
+        for i in range(len(chain) - 1):
+            a, b = chain[i], chain[i + 1]
+            if a == b:
+                continue
+            if max(a[0], b[0]) < la0 or min(a[0], b[0]) > la1:
+                continue
+            if max(a[1], b[1]) < lo0 or min(a[1], b[1]) > lo1:
+                continue
+            key = (a, b) if a <= b else (b, a)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((a, b))
     return out
+
+
+def _seawall_chains(surface: GradedSurface, water_chains: list[list[LL_T]],
+                    tiles: list[tuple[int, int]]) -> list[list[LL_T]]:
+    """THE SEAWALL LIMB (§39 (i)): ``O4_Vector_Map.seawall_breaklines``
+    over this surface's own face union, so the wall the mesh will insert
+    is a foreign edge the weld can see.  ``insert_seawalls`` runs the same
+    function on ``include_patches``' role-scoped union; the full face union
+    used here is its documented superset (``seawall_admission_area``'s own
+    fallback), which can only place the wall FURTHER out — never nearer,
+    so no station is left astride the bar by this approximation.  Any
+    failure returns nothing: the wall is a refinement of a refinement."""
+    try:
+        from shapely.geometry import MultiLineString, Polygon
+        from shapely.ops import unary_union
+        import O4_Vector_Map as VMAP
+    except Exception:                                    # pragma: no cover
+        return []
+    if not tiles or not water_chains:
+        return []
+    tla, tlo = tiles[0]
+    vs = {v.id: v for v in surface.vertices}
+    faces = []
+    for f in surface.faces:
+        pts = [(vs[i].ll[1] - tlo, vs[i].ll[0] - tla) for i in f.ring
+               if i in vs]
+        if len(pts) >= 3:
+            try:
+                poly = Polygon(pts)
+                if poly.is_valid and not poly.is_empty:
+                    faces.append(poly)
+            except Exception:                            # pragma: no cover
+                continue
+    if not faces:
+        return []
+    water_lines = []
+    for chain in water_chains:
+        if len(chain) >= 2:
+            water_lines.append([(lo - tlo, la - tla) for la, lo in chain])
+    try:
+        coverage = unary_union(faces)
+        water_area = MultiLineString(water_lines).buffer(0.0)
+        if water_area.is_empty:
+            water_area = MultiLineString(water_lines)
+        walls = VMAP.seawall_breaklines(coverage, water_area, tla)
+    except Exception:                                    # pragma: no cover
+        return []
+    return [[(float(c[1]) + tla, float(c[0]) + tlo) for c in coords]
+            for coords in (walls or ()) if len(coords) >= 2]
 
 
 def _seg_reading(p: tuple[float, float], a: tuple[float, float],
@@ -458,6 +541,7 @@ def weld_to_shore(surface: GradedSurface, law: Law,
     new_ll: dict[int, LL_T] = {}
     on_shore: set[int] = set()          # within the spacing of a foreign edge
     interior: set[int] = set()          # ... of its INTERIOR, not its vertices
+    nearest_seg: dict[int, int] = {}    # ... and WHICH edge, for the projection
     for v in surface.vertices:
         p = xy(v.ll)
         cx, cy = int(p[0] // CELL), int(p[1] // CELL)
@@ -483,6 +567,7 @@ def weld_to_shore(surface: GradedSurface, law: Law,
                 rep.snapped += 1
             continue
         interior.add(v.id)
+        nearest_seg[v.id] = best[1]
 
     if not on_shore:
         return surface
@@ -532,7 +617,32 @@ def weld_to_shore(surface: GradedSurface, law: Law,
     kept_any: set[int] = set()
     for what, oid, ids in seqs:
         kept_any.update(dropped_from.get((what, oid), ids))
-    rep.stranded = len(interior & kept_any)
+    stranded = interior & kept_any
+    # THE THIRD BRANCH (owner RULINGS 2026-09-13bt (5') / 13cg (i)): a
+    # vertex that could be neither snapped onto a foreign vertex nor
+    # dropped is PROJECTED ONTO the foreign edge and adopted as a point of
+    # it.  It lands ON the line the mesh constrains, so the mesher splits
+    # that segment there and no wedge exists — where standing 0.48 m
+    # BESIDE it (VMMC's six seawall-adjacent stations, 481-501 mm) leaves
+    # exactly the pair §39 forbids.  The projection is taken in the
+    # emitted DEGREE frame, which is the frame the ``.poly`` is straight
+    # in: taking it in the tmerc metres frame is the LEMD defect itself.
+    vll = {v.id: v.ll for v in surface.vertices}
+    for i in sorted(stranded):
+        k = nearest_seg.get(i)
+        if k is None:
+            continue
+        (ax, ay), (bx, by), a_ll, b_ll = segs[k]
+        px, py = xy(vll[i])
+        dx, dy = bx - ax, by - ay
+        L = dx * dx + dy * dy
+        if L <= 0.0:
+            continue
+        t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L))
+        new_ll[i] = (a_ll[0] + (b_ll[0] - a_ll[0]) * t,
+                     a_ll[1] + (b_ll[1] - a_ll[1]) * t)
+        rep.projected += 1
+    rep.stranded = len(stranded) - rep.projected
 
     if not new_ll and not dropped_from:
         return surface
@@ -553,6 +663,116 @@ def weld_to_shore(surface: GradedSurface, law: Law,
         {i for b in breaks for i in b.vertices}
     verts = tuple(_dc.replace(v, ll=new_ll[v.id]) if v.id in new_ll else v
                   for v in surface.vertices if v.id in live)
+    return _dc.replace(surface, vertices=verts, faces=tuple(faces),
+                       breaklines=tuple(breaks))
+
+
+def merge_sub_spacing(surface: GradedSurface, law: Law,
+                      report: "WeldReport | None" = None) -> GradedSurface:
+    """§39 (iii) THE IDENTITY JOIN MERGES, IT NEVER WRITES, A SUB-SPACING
+    SEGMENT (owner RULINGS 2026-09-13cg (iii)).
+
+    ``emit.identity.min_distinct_spacing_m`` says two DISTINCT vertices are
+    never closer than 0.5 m, and the emitter was writing them anyway:
+    measured on the round-1 arms, LEMD 932 constrained segments under the
+    spacing, KCLT 1,635, VMMC 1,631, the shortest **5.6 micrometres** at
+    35.2153165, -80.9285365.  Every one is a segment Triangle4XP must
+    recover and cascades off — KCLT's 2.7913 mm water sliver carried
+    481,602 triangles under 0.1 m^2 (13bu) — and every one is the law's own
+    identity join not having been applied.
+
+    THE MERGE, at the one site the ring writer is: two vertices adjacent in
+    an emitted sequence and closer than the spacing are ONE vertex.  The
+    SENIOR keeps its coordinate and nothing moves: seniority is (1) the
+    vertex more sequences share — merging away a junction would tear the
+    rings that meet there — then (2) the lower id, so the choice is
+    deterministic and replay-stable.  A ring that would fall below three
+    vertices keeps them all: a triangle is the smallest thing the mesh can
+    constrain, and collapsing it would delete a face.
+
+    Runs AFTER :func:`weld_to_shore`, whose projection can itself bring two
+    vertices together on the shore line.
+    """
+    rep = report if report is not None else WeldReport()
+    spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
+    if spacing <= 0.0 or not surface.vertices:
+        return surface
+    mlat, mlon = _local_metres(surface.origin)
+    la0, lo0 = float(surface.origin[0]), float(surface.origin[1])
+    vll = {v.id: v.ll for v in surface.vertices}
+
+    def xy(ll: _t.Sequence[float]) -> tuple[float, float]:
+        return ((float(ll[1]) - lo0) * mlon, (float(ll[0]) - la0) * mlat)
+
+    seqs: list[tuple[str, int, list[int], bool]] = []
+    for f in surface.faces:
+        seqs.append(("ring", f.id, list(f.ring), True))
+        for hi, h in enumerate(f.holes):
+            seqs.append((f"hole{hi}", f.id, list(h), True))
+    for b in surface.breaklines:
+        seqs.append(("break", b.id, list(b.vertices), False))
+    degree: dict[int, int] = {}
+    for _w, _o, ids, _c in seqs:
+        for i in set(ids):
+            degree[i] = degree.get(i, 0) + 1
+
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        while parent.get(x, x) != x:
+            parent[x] = parent.get(parent[x], parent[x])
+            x = parent[x]
+        return x
+
+    pxy = {i: xy(ll) for i, ll in vll.items()}
+    for _w, _o, ids, closed in seqs:
+        n = len(ids)
+        if n < 2:
+            continue
+        span = n if closed else n - 1
+        for k in range(span):
+            a, b = find(ids[k]), find(ids[(k + 1) % n])
+            if a == b:
+                continue
+            pa, pb = pxy[a], pxy[b]
+            if math.hypot(pa[0] - pb[0], pa[1] - pb[1]) >= spacing:
+                continue
+            keep, drop = ((a, b) if (degree.get(a, 0), -a) >= (degree.get(b, 0), -b)
+                          else (b, a))
+            parent[drop] = keep
+    remap = {i: find(i) for i in vll}
+    if all(t == i for i, t in remap.items()):
+        return surface
+
+    def collapse(ids: list[int], closed: bool) -> list[int]:
+        out: list[int] = []
+        for i in ids:
+            t = remap[i]
+            if out and out[-1] == t:
+                continue
+            out.append(t)
+        if closed and len(out) > 1 and out[0] == out[-1]:
+            out.pop()
+        if len(out) < (3 if closed else 2):
+            return ids                     # never collapse a face away
+        return out
+
+    faces = []
+    for f in surface.faces:
+        ring = tuple(collapse(list(f.ring), True))
+        holes = tuple(tuple(collapse(list(h), True)) for h in f.holes)
+        faces.append(_dc.replace(f, ring=ring, holes=holes)
+                     if ring != f.ring or holes != f.holes else f)
+    breaks = []
+    for b in surface.breaklines:
+        run = collapse(list(b.vertices), False)
+        breaks.append(_dc.replace(b, vertices=tuple(run))
+                      if tuple(run) != b.vertices else b)
+    live = {i for f in faces for i in f.ring} | \
+        {i for f in faces for h in f.holes for i in h} | \
+        {i for b in breaks for i in b.vertices}
+    verts = tuple(v for v in surface.vertices if v.id in live)
+    rep.merged = len(surface.vertices) - len(verts)
     return _dc.replace(surface, vertices=verts, faces=tuple(faces),
                        breaklines=tuple(breaks))
 

@@ -127,6 +127,16 @@ class Vector_Map:
         self.dico_nodes = {}
         # keys are tuples of 2 floats (in our case (lon-base_lon), lat-base_lat)
         # and values are ints (ids)
+        #: §39 (iv): a coarse spatial hash of the node coordinates, so the
+        #: CROSSING mint can ask "is there already a node here" in O(1).
+        #: ``insert_node``'s own dedupe stays exact — this is consulted
+        #: only where ``insert_edge`` would MINT a node.
+        self._node_cells: dict = {}
+        #: §39 (iv) / owner RULINGS 2026-09-13cp: how many times a crossing
+        #: resolved to an EXISTING node and that node took the crossed
+        #: chain's interpolated altitude.  Reported by the tile build so
+        #: the branch's reach is a number, not an assumption.
+        self.split_z_carried = 0
         self.dico_edges = {}
         # keys are tuples of 2 ints (end-points ids) and values are ints (ids).
         # An egde id is needed for the index (bbox)
@@ -166,7 +176,49 @@ class Vector_Map:
             self.nodes_dico[node_id] = key
             self.data_nodes[node_id] = z
             self.next_node_id += 1
+            cells = self._node_cells
+            if cells is not None:
+                cells.setdefault(self._node_cell(x, y), []).append(node_id)
         return node_id
+
+    #: §39 (iv) (owner RULINGS 2026-09-13cg/13cj): the cell size of the
+    #: node hash the CROSSING mint consults, in tile-relative degrees.
+    #: One cell per weld radius, so a query reads nine cells.
+    _NODE_CELL_DEG = 1.0e-5                       # ~1.1 m
+
+    def _node_cell(self, x, y):
+        c = self._NODE_CELL_DEG
+        return (int(x // c), int(y // c))
+
+    def _node_near(self, x, y, radius_m, m_lat, m_lon):
+        """THE MINT'S OWN IDENTITY JOIN (§39 (iv)).  ``insert_node`` dedupes
+        on EXACT float equality (owner RULINGS 2026-09-13bu named it), so
+        two crossings of the SAME line by two different edges mint two
+        nodes however close they fall — and the segment between them is a
+        constrained sliver nobody authored.  MEASURED at LEMD: the
+        orthogrid line at lon −3.581542969 was crossed by two patch ring
+        edges 0.8 MILLIMETRES apart, and the 0.0008 m grid segment that
+        left is the tile's worst remaining ``short_segments`` /
+        ``bent_chords`` pair (40.497989, −3.581543, slenderness 79 —
+        13cj).  So before a crossing node is minted, an existing node
+        within ``radius_m`` of it IS that node.
+
+        Nothing is ever MOVED: the authored vertex keeps its coordinate and
+        the crossing simply resolves to it.  Returns the id or ``None``.
+        """
+        best = None
+        cx, cy = self._node_cell(x, y)
+        for ax in (cx - 1, cx, cx + 1):
+            for ay in (cy - 1, cy, cy + 1):
+                for nid in self._node_cells.get((ax, ay), ()):
+                    p = self.nodes_dico.get(nid)
+                    if p is None:
+                        continue
+                    d = sqrt(((p[0] - x) * m_lon) ** 2
+                             + ((p[1] - y) * m_lat) ** 2)
+                    if d <= radius_m and (best is None or d < best[0]):
+                        best = (d, nid)
+        return None if best is None else best[1]
 
     def update_edge(self, nodeid0, nodeid1, marker):
         if nodeid0 == nodeid1:
@@ -203,17 +255,28 @@ class Vector_Map:
     #: segments under 0.5 m and only 28 under 10 mm).  An assumption, and
     #: a DEVIATION from the ruling's letter, recorded as one.
     split_spacing_m = float(os.environ.get("O4_VECTOR_SPLIT_M", "0.010"))
-    #: THE POST-SNAP WELD's radius — 0.0 = OFF.  MEASURED AND WITHDRAWN
-    #: (LEMD tile, 2026-09-13, this lane): welding one node onto its senior
-    #: at 10 mm produced a ``.poly`` Triangle4XP refuses — "Internal error
-    #: in segmentintersection(): Topological inconsistency after splitting a
-    #: segment ... at (0.715087891, 0.111688666)", i.e. a subsegment split
-    #: AT its own endpoint.  Moving a node re-nodes nothing: an edge that
-    #: passed BESIDE the junior node now passes THROUGH the senior one and
-    #: the arrangement is no longer noded.  The weld therefore needs a
-    #: re-noding pass it does not have, and ships OFF; the metric split test
-    #: above (which never MOVES anything) carries §39 (i) on its own.
-    #: ``O4_VECTOR_WELD_M`` arms it for the lane that finishes it.
+    #: THE POST-SNAP WELD's radius — 0.0 = OFF.  Round 1 shipped it OFF:
+    #: welding one node onto its senior at 10 mm produced a ``.poly``
+    #: Triangle4XP refused outright ("Internal error in
+    #: segmentintersection(): Topological inconsistency after splitting a
+    #: segment ... at (0.715087891, 0.111688666)" — a subsegment split AT
+    #: its own endpoint), because MOVING a node re-nodes nothing: an edge
+    #: that passed BESIDE the junior now passes THROUGH the senior and the
+    #: arrangement is no longer noded.  RE-ARMED under owner RULINGS
+    #: 2026-09-13cg (ii) as weld + RE-NODE (:meth:`_renode_at`) — and
+    #: WITHDRAWN AGAIN, second attempt, on the measurement.  With the
+    #: re-noding pass in place (which provably restores the invariant on
+    #: the twin's fixture, in BOTH directions) the LEMD tile STILL refuses
+    #: with the IDENTICAL message and coordinates, and ``_renode_at``
+    #: reports 0 splits — so whatever the one welded node does to
+    #: Triangle4XP is not the un-noded arrangement this pass repairs.  The
+    #: matched control settles it: the same tree with ``O4_VECTOR_WELD_M=0``
+    #: builds (rc 0, 2,745,898 triangles, 1,636 sub-0.1 m^2 in the LEMD
+    #: box), and with it armed refuses at "Splitting subsegment
+    #: (0.715087891, 0.111688666) (0.715087891, 0.103639220544) at
+    #: (0.715087891, 0.111688666)".  Ships OFF; the code and its twins stay
+    #: for the lane that attributes the refusal itself.  ``O4_VECTOR_WELD_M``
+    #: arms it.
     weld_spacing_m = float(os.environ.get("O4_VECTOR_WELD_M", "0.0"))
 
     def _near_endpoint(self, c_x, c_y, ids):
@@ -303,8 +366,23 @@ class Vector_Map:
                     # the crossing is at one of the NEW edge's endpoints —
                     # split the old edge THERE and share that node, so the
                     # arrangement stays planar and no sub-spacing segment is
-                    # born (this is KCLT's cure)
+                    # born (this is KCLT's cure).
+                    #
+                    # AND THE SHARED NODE CARRIES THE OLD CHAIN'S ALTITUDE
+                    # (owner RULINGS 2026-09-13cp).  The rule is the one
+                    # stated three lines below and as old as this function
+                    # — "important to rely on the old id2 id3 for the z
+                    # value" — and shipping the branch without it put the
+                    # NEW way's z into the OLD chain: measured at LEMD on
+                    # app 1.0.329, 10,438 of 56,830 WATER input nodes
+                    # emitted more than 2 m off their own ``.node`` z, the
+                    # worst -25.1 m at 40.9122564, -3.4733278.  A node is
+                    # ONE altitude; where a crossing makes two ways share
+                    # one, the crossed chain's interpolated value is it.
                     c_id = near
+                    self.data_nodes[c_id] = (1 - beta) * self.data_nodes[id2] \
+                        + beta * self.data_nodes[id3]
+                    self.split_z_carried += 1
                     del self.dico_edges[(id2, id3)]
                     del self.edges_dico[edge_id]
                     del self.data_edges[edge_id]
@@ -317,7 +395,19 @@ class Vector_Map:
                     c_z = (1 - beta) * self.data_nodes[
                         id2
                     ] + beta * self.data_nodes[id3]
-                    c_id = self.insert_node(c_x, c_y, c_z)
+                    # §39 (iv): an existing node within the radius of the
+                    # crossing IS the crossing — never a second node 0.8 mm
+                    # from the first (:meth:`_node_near`).
+                    c_id = self._node_near(
+                        c_x, c_y, self.split_spacing_m, GEO.lat_to_m,
+                        GEO.lon_to_m(self.nodes_dico[id0][1] + 0.5))
+                    if c_id is None:
+                        c_id = self.insert_node(c_x, c_y, c_z)
+                    else:
+                        # 13cp again: the reused node now belongs to the
+                        # OLD chain too, so it carries the old chain's z.
+                        self.data_nodes[c_id] = c_z
+                        self.split_z_carried += 1
                     # destroy old edge
                     del self.dico_edges[(id2, id3)]
                     del self.edges_dico[edge_id]
@@ -754,13 +844,131 @@ class Vector_Map:
                 next_edge_id += 1
         self.dico_edges, self.edges_dico, self.data_edges = (
             dico_edges, edges_dico, data_edges)
+        # THE RE-NODING PASS (§39 (ii), owner RULINGS 2026-09-13cg).
+        # MOVING a node re-nodes nothing: an edge that passed BESIDE the
+        # junior now passes THROUGH the senior, the arrangement is no
+        # longer noded, and Triangle4XP refuses the whole tile — "Internal
+        # error in segmentintersection(): Topological inconsistency after
+        # splitting a segment", measured on the LEMD arm-2 ``.poly``
+        # (13cd), from ONE welded node.  So every edge that now passes
+        # within the radius of a senior is SPLIT AT that senior.
+        seniors = {tgt for nid, tgt in remap.items() if tgt != nid}
+        split = self._renode_at(seniors, radius_m, m_lat, m_lon)
         if report is not None:
             report.update({"welded": welded, "degenerate_edges": dropped,
-                           "radius_m": radius_m})
-        UI.vprint(1, f"   Hairline weld (§39 (i)): {welded} constrained "
+                           "renoded": split, "radius_m": radius_m})
+        UI.vprint(1, f"   Hairline weld (§39 (i)/(ii)): {welded} constrained "
                      f"node(s) inside {radius_m * 1000:g} mm welded onto the "
-                     f"senior node, {dropped} degenerate segment(s) dropped.")
+                     f"senior node, {dropped} degenerate segment(s) dropped, "
+                     f"{split} edge(s) re-noded.")
         return welded
+
+    def _rebuild_edge_index(self):
+        """The r-tree after a wholesale edge rebuild.  ``snap_to_grid`` can
+        leave it stale because it runs last and nothing queries it again;
+        the re-noding pass DOES query it, so the weld rebuilds it."""
+        self.ebbox = Edge_Index()
+        for edge_id, (n0, n1) in self.edges_dico.items():
+            self.ebbox.insert(edge_id, self.bbox_from_node_ids(n0, n1))
+
+    def _renode_at(self, seniors, radius_m, m_lat, m_lon, rounds=6):
+        """Restore the NODED invariant around every welded node: no node
+        may stand in the INTERIOR of a constrained edge it is not an
+        endpoint of, closer than ``radius_m``.  Returns the split count.
+
+        BOTH DIRECTIONS have to be swept, because a weld changes two
+        things at once.  An edge that passed BESIDE the junior now passes
+        THROUGH the senior (split it at the senior); and every edge the
+        junior CARRIED has been re-routed to the senior, so it now sweeps
+        past nodes it never came near (split it at those).  The twin's
+        fixture fails on the second alone.
+
+        Bounded iteration: a split only shortens edges, so the fixed point
+        comes in a round or two; ``rounds`` caps a pathological input.
+        """
+        if not seniors:
+            return 0
+        self._rebuild_edge_index()
+        r_lon = radius_m / m_lon
+        r_lat = radius_m / m_lat
+        total = 0
+
+        def _split(edge_id, nid):
+            """Split ``edge_id`` at node ``nid``; the two halves' ids."""
+            (n0, n1) = self.edges_dico[edge_id]
+            marker = self.data_edges[edge_id]
+            del self.dico_edges[(n0, n1)]
+            del self.edges_dico[edge_id]
+            del self.data_edges[edge_id]
+            self.ebbox.delete(edge_id, self.bbox_from_node_ids(n0, n1))
+            self.create_edge(n0, nid, marker)
+            self.create_edge(nid, n1, marker)
+
+        def _inside(nid, edge_id):
+            """``True`` when ``nid`` stands in ``edge_id``'s interior within
+            the radius (metres, the frame the ``.poly`` is straight in)."""
+            (n0, n1) = self.edges_dico[edge_id]
+            if nid in (n0, n1):
+                return False
+            (x0, y0) = self.nodes_dico[n0]
+            (x1, y1) = self.nodes_dico[n1]
+            (x, y) = self.nodes_dico[nid]
+            ax, ay = x0 * m_lon, y0 * m_lat
+            bx, by = x1 * m_lon, y1 * m_lat
+            px, py = x * m_lon, y * m_lat
+            dx, dy = bx - ax, by - ay
+            L = dx * dx + dy * dy
+            if L <= 0.0:
+                return False
+            t = ((px - ax) * dx + (py - ay) * dy) / L
+            if not (0.0 < t < 1.0):
+                return False
+            return sqrt((px - (ax + t * dx)) ** 2
+                        + (py - (ay + t * dy)) ** 2) <= radius_m
+
+        from scipy.spatial import cKDTree
+        for _round in range(rounds):
+            split_here = 0
+            # (a) an edge that now passes THROUGH a senior
+            for nid in sorted(seniors):
+                if nid not in self.nodes_dico:
+                    continue
+                x, y = self.nodes_dico[nid]
+                box = (x - r_lon, y - r_lat, x + r_lon, y + r_lat)
+                for edge_id in list(self.ebbox.intersection_ids(box)):
+                    if edge_id in self.edges_dico and _inside(nid, edge_id):
+                        _split(edge_id, nid)
+                        split_here += 1
+            # (b) an edge the weld RE-ROUTED, now sweeping past other nodes
+            touched = [e for e, (n0, n1) in self.edges_dico.items()
+                       if n0 in seniors or n1 in seniors]
+            if touched:
+                ids = sorted(self.nodes_dico)
+                tree = cKDTree(numpy.array(
+                    [(self.nodes_dico[i][0] * m_lon,
+                      self.nodes_dico[i][1] * m_lat) for i in ids]))
+                for edge_id in touched:
+                    if edge_id not in self.edges_dico:
+                        continue
+                    (n0, n1) = self.edges_dico[edge_id]
+                    (x0, y0) = self.nodes_dico[n0]
+                    (x1, y1) = self.nodes_dico[n1]
+                    a = numpy.array([x0 * m_lon, y0 * m_lat])
+                    b = numpy.array([x1 * m_lon, y1 * m_lat])
+                    mid = 0.5 * (a + b)
+                    reach = 0.5 * float(numpy.linalg.norm(b - a)) + radius_m
+                    for k in tree.query_ball_point(mid, reach):
+                        nid = ids[k]
+                        if edge_id not in self.edges_dico:
+                            break
+                        if _inside(nid, edge_id):
+                            _split(edge_id, nid)
+                            split_here += 1
+                            break
+            total += split_here
+            if not split_here:
+                break
+        return total
 
     def snap_to_grid(self, digits):
         next_node_id = 1

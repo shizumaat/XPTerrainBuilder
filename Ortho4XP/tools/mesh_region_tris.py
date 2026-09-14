@@ -800,53 +800,104 @@ def hairline_audit(prefix, tile_lat, tile_lon, spacing_m, slenderness,
             "refused": bad[:500]}
 
 
-# ── THE NODE -> MESH CROSS-REFERENCE (owner RULINGS 2026-09-13cp) ──────
-#
-# THE QUESTION no census can answer: the PATCH is right and the MESH is
-# wrong.  Scout ``v2lemd329`` read the owner's 1.0.329 +40-004 tile this
-# way and found it — road ribbons the ``.node`` carries at 588-590 m
-# emitted at 568 (a 20.7 m canyon), 1,400 of 278,177 bare-INTERP_ALT
-# input nodes off by more than 2 m, worst -24.3 m, while every one of the
-# 29,186 PATCH_RING nodes was exact.  That SPLIT BY CLASS is the whole
-# instrument: "the mesh moved" is not attribution, "the mesh moved the
-# ribbons and not the rings" is.
-#
-# THE IDENTITY IS VERIFIED, NEVER TRUSTED: Triangle writes the input
-# vertices first and in order, so input node ``i`` is mesh vertex ``i``;
-# the coordinates are compared and a mismatch REFUSES (the same rule
-# ``O4_Mesh_Utils.patch_valued_vertex_indices`` states).
-#
-# Promoted here rather than forked into a new tool (RULINGS ``7e90032``):
-# the MEDIT parse, the ``.node``/``.poly`` reading, the tile-origin
-# resolution and the JSON stamping are this tool's already.
+def z_xref(prefix, mesh_path, tile_lat, tile_lon, bbox, flag_m, attr_mask=None):
+    """WHO OWNS THIS NODE'S ALTITUDE — the vector map's ``.node`` z against
+    the altitude the built mesh carries at the SAME coordinate, per
+    ``.poly`` attribute (owner RULINGS 2026-09-13cp).
 
-#: The marker CLASS of an input node, by precedence over its incident
-#: constrained segments.  A node wearing several markers is named by the
-#: strongest authority on it, which is the one whose altitude it carries.
-_XREF_CLASSES = (("PATCH_RING", lambda m: m == PATCH_RING_MARKER),
-                 ("WATER", lambda m: m & 7 and not m & INTERP_ALT_BIT),
-                 ("WATER|INTERP_ALT", lambda m: m & 7 and m & INTERP_ALT_BIT),
-                 ("INTERP_ALT", lambda m: m == INTERP_ALT_BIT),
-                 ("OTHER", lambda m: m > 0),
-                 ("DUMMY", lambda m: m == 0))
+    THE QUESTION IT ANSWERS: a pass that makes two ways SHARE a node makes
+    them share ONE altitude, and if it picks the wrong one the crossed
+    chain is silently re-levelled.  Measured at LEMD on app 1.0.329:
+    10,438 of 56,830 WATER (attr 1) input nodes emitted more than 2 m off
+    their own ``.node`` z, worst −25.1 m at 40.9122564, −3.4733278.
 
+    Promoted from the scout's ``xref.py`` on its second use (13cp's
+    attribution, then this lane's before/after), extended not forked: the
+    disc becomes the tool's own ``--bbox``, and the MEDIT parse, the
+    tile-origin resolution and the JSON stamping are this tool's already.
+    """
+    la0, la1, lo0, lo1 = bbox
 
-def _read_node_altitudes(prefix):
-    """``{1-based id: (x, y, z)}`` of a Triangle ``.node`` — the CARRIED
-    altitude the vector map authored, column 4."""
-    out = {}
-    with open(prefix + ".node") as handle:
-        count = int(handle.readline().split()[0])
-        for _ in range(count):
-            c = handle.readline().split()
-            out[int(c[0])] = (float(c[1]), float(c[2]),
-                              float(c[3]) if len(c) > 3 else float("nan"))
-    return out
+    def toks(handle):
+        for line in handle:
+            parts = line.split()
+            if parts and not parts[0].startswith("#"):
+                yield parts
+
+    nodes = {}
+    with open(prefix + ".node") as fh:
+        gen = toks(fh)
+        n = int(next(gen)[0])
+        for _ in range(n):
+            q = next(gen)
+            lon, lat = float(q[1]) + tile_lon, float(q[2]) + tile_lat
+            if la0 <= lat <= la1 and lo0 <= lon <= lo1:
+                nodes[int(q[0])] = (lon, lat,
+                                    float(q[3]) if len(q) > 3 else 0.0)
+    attrs = {}
+    with open(prefix + ".poly") as fh:
+        gen = toks(fh)
+        next(gen)
+        m = int(next(gen)[0])
+        for _ in range(m):
+            q = next(gen)
+            at = int(q[3]) if len(q) > 3 else 0
+            for k in (int(q[1]), int(q[2])):
+                if k in nodes:
+                    attrs.setdefault(k, 0)
+                    attrs[k] |= at
+    key = {(round(v[0], 9), round(v[1], 9)): i for i, v in nodes.items()}
+    mesh_z = {}
+    with open(mesh_path) as fh:
+        line = fh.readline()
+        while line and not line.startswith("Vertices"):
+            line = fh.readline()
+        nv = int(fh.readline())
+        for _ in range(nv):
+            q = fh.readline().split()
+            k = (round(float(q[0]), 9), round(float(q[1]), 9))
+            if k in key:
+                mesh_z[key[k]] = float(q[2]) * 100000.0
+    by_attr = {}
+    worst = None
+    for i, (lon, lat, z) in nodes.items():
+        mz = mesh_z.get(i)
+        if mz is None:
+            continue
+        at = attrs.get(i, 0)
+        if attr_mask is not None and not (at & attr_mask):
+            continue
+        d = abs(mz - z)
+        rec = by_attr.setdefault(at, {"matched": 0, "over": 0, "worst": 0.0,
+                                      "at": None})
+        rec["matched"] += 1
+        if d > flag_m:
+            rec["over"] += 1
+        if d > abs(rec["worst"]):
+            rec["worst"], rec["at"] = mz - z, (lat, lon)
+        if worst is None or d > abs(worst[0]):
+            worst = (mz - z, lat, lon, at)
+    print(f"z cross-reference — {prefix}.node vs {mesh_path}")
+    print(f"  bbox lat {la0:.4f}..{la1:.4f} lon {lo0:.4f}..{lo1:.4f}; "
+          f"{len(nodes):,} vector node(s) in it, {len(mesh_z):,} matched in "
+          f"the mesh; flag |dz| > {flag_m} m")
+    for at in sorted(by_attr):
+        r = by_attr[at]
+        where = "" if r["at"] is None else \
+            f"  worst {r['worst']:+.3f} m at {r['at'][0]:.7f},{r['at'][1]:.7f}"
+        print(f"  attr {at:<5d} matched {r['matched']:>8,}  over the flag "
+              f"{r['over']:>8,}{where}")
+    if worst is not None:
+        print(f"  WORST overall {worst[0]:+.3f} m at {worst[1]:.7f},"
+              f"{worst[2]:.7f} (attr {worst[3]})")
+    return {"bbox": list(bbox), "flag_m": flag_m,
+            "by_attr": {str(k): v for k, v in by_attr.items()},
+            "nodes_in_bbox": len(nodes), "matched": len(mesh_z)}
 
 
 def _stats(values):
     if not values:
-        return {"n": 0, "max": 0.0, "p95": 0.0}
+        return {"n": 0, "max": 0.0, "p95": 0.0, "median": 0.0}
     import statistics
     sv = sorted(values)
     k = min(len(sv) - 1, int(round(0.95 * (len(sv) - 1))))
@@ -854,102 +905,57 @@ def _stats(values):
             "median": float(statistics.median(sv))}
 
 
-def node_mesh_xref(mesh_path, prefix, tile_lat, tile_lon, bar_m=2.0,
-                   edge_step=True):
-    """Print, and return, the per-class ``|z_node - z_mesh|`` reading and
-    the PATCH EDGE STEP (the cliff the bank exists to grade)."""
-    import collections
+def patch_edge_step(prefix, mesh_path, tile_lat, tile_lon):
+    """THE CLIFF THE BANK EXISTS TO GRADE (owner request 2026-09-13, the
+    bank_foot OMIT arm; spec §8.4).
 
-    nodes = _read_node_altitudes(prefix)
-    (_n2, segments, _seeds) = read_poly_inputs(prefix)
-    (nv, lon, lat, zed, tri, _att) = _read_mesh_attributed(mesh_path)
-    if nv < len(nodes):
-        raise SystemExit(f"REFUSING: the mesh has {nv:,} vertices against "
-                         f"{len(nodes):,} input nodes — not this build's")
-    best = {}
-    for (a, b, m) in segments:
-        for i in (a, b):
-            best[i] = best.get(i, 0) | m
-    payload = {"mesh": mesh_path, "inputs": prefix, "bar_m": bar_m,
-               "tile": [tile_lat, tile_lon], "classes": {}}
-    per_class = collections.defaultdict(list)
-    worst = {}
-    checked = 0
-    for i in range(1, len(nodes) + 1):
-        (x, y, z) = nodes[i]
-        if abs(lon[i - 1] - (x + tile_lon)) > 1e-7 \
-                or abs(lat[i - 1] - (y + tile_lat)) > 1e-7:
-            raise SystemExit(
-                f"REFUSING: the mesher did not preserve the input vertex "
-                f"order at node {i} — this cross-reference has no identity "
-                "join and every number it printed would be a coincidence")
-        checked += 1
-        if z != z:                                  # NaN: no carried alt
-            continue
-        marker = best.get(i)
-        name = "UNCONSTRAINED"
-        if marker is not None:
-            for (label, test) in _XREF_CLASSES:
-                if test(marker):
-                    name = label
-                    break
-        d = abs(float(zed[i - 1]) - z)
-        per_class[name].append(d)
-        if d > worst.get(name, (-1.0,))[0]:
-            worst[name] = (d, lat[i - 1], lon[i - 1], z, float(zed[i - 1]))
-    print(f"node->mesh xref: {checked:,} input nodes joined by index "
-          f"(coordinates verified), bar {bar_m} m")
-    for name in sorted(per_class, key=lambda k: -len(per_class[k])):
-        vals = per_class[name]
-        st = _stats(vals)
-        over = sum(1 for v in vals if v > bar_m)
-        (dw, wlat, wlon, zn, zm) = worst[name]
-        print(f"  {name:16s} {st['n']:>8,} nodes  off>|{bar_m}| "
-              f"{over:>6,}  median {st['median']:.3f}  p95 {st['p95']:.3f}  "
-              f"max {dw:.3f} m at {wlat:.7f},{wlon:.7f} "
-              f"(node {zn:.2f} -> mesh {zm:.2f})")
-        payload["classes"][name] = dict(
-            st, over_bar=over,
-            worst=[dw, wlat, wlon, zn, zm])
-    if edge_step:
-        payload["patch_edge_step"] = _patch_edge_step(
-            nodes, segments, nv, lon, lat, zed, tri, tile_lat, tile_lon)
-    return payload
+    §8.4 measured that Ortho4XP's mesh does NOT blend from the patch
+    boundary to the DEM — it drapes the raw DEM right outside the
+    constrained ring, so a patch whose outer ring stands 16.6 m off the
+    terrain builds a 16.8 m cliff ONE TRIANGLE wide, and the BANK is the
+    owner's answer to it.  So: for every ``PATCH_RING_MARKER`` mesh
+    vertex, the altitude STEP to a triangulation neighbour that is NOT on
+    a patch ring and stands OUTSIDE the patch coverage — median, p95,
+    max with its coordinate, and the counts over 1 m and 3 m.  That is
+    the number an arm which omits the bank altogether has to be judged
+    on: ``--z-xref`` says the ribbons are right, THIS says whether the
+    edge is a bank or a wall.
 
-
-def _patch_edge_step(nodes, segments, nv, lon, lat, zed, tri,
-                     tile_lat, tile_lon):
-    """THE CLIFF THE BANK EXISTS TO GRADE (owner request 2026-09-13): for
-    every PATCH_RING mesh vertex, the biggest altitude step to a
-    triangulation neighbour that is NOT on a patch ring and stands
-    OUTSIDE the patch coverage."""
+    Reads the same three artifacts this tool already parses; writes
+    nothing.
+    """
     from shapely import geometry
     from shapely.prepared import prep
 
+    (nodes, segments, _seeds) = read_poly_inputs(prefix)
+    (nv, lon, lat, zed, tri, _att) = _read_mesh_attributed(mesh_path)
     ring_ids = set()
     for (a, b, m) in segments:
         if m == PATCH_RING_MARKER:
             ring_ids.add(a - 1)
             ring_ids.add(b - 1)
     if not ring_ids:
-        print("patch edge step: no PATCH_RING segment in this .poly — "
-              "nothing to measure")
+        print("patch edge step: no PATCH_RING_MARKER segment in this .poly "
+              "— nothing to measure")
         return {"n": 0}
-    (_faces, coverage) = _arrangement(
-        {i: (nodes[i][0], nodes[i][1]) for i in nodes}, segments,
-        lambda m: m == PATCH_RING_MARKER)
-    covered = prep(coverage) if not coverage.is_empty else None
-    outside = {}
-    steps, worst = [], (-1.0, 0.0, 0.0)
+    (_faces, coverage) = _arrangement(nodes, segments,
+                                      lambda m: m == PATCH_RING_MARKER)
+    if coverage.is_empty:
+        print("patch edge step: the ring segments bound no face — nothing "
+              "to measure")
+        return {"n": 0}
+    covered = prep(coverage)
+    outside, steps = {}, []
+    worst = (-1.0, 0.0, 0.0)
     for k in range(0, len(tri), 3):
         (v1, v2, v3) = tri[k], tri[k + 1], tri[k + 2]
-        for (p, q) in ((v1, v2), (v2, v3), (v3, v1), (v2, v1), (v3, v2),
-                       (v1, v3)):
+        for (p, q) in ((v1, v2), (v2, v3), (v3, v1),
+                       (v2, v1), (v3, v2), (v1, v3)):
             if p not in ring_ids or q in ring_ids:
                 continue
             if q not in outside:
-                outside[q] = (covered is not None and not covered.covers(
-                    geometry.Point(lon[q] - tile_lon, lat[q] - tile_lat)))
+                outside[q] = not covered.covers(geometry.Point(
+                    lon[q] - tile_lon, lat[q] - tile_lat))
             if not outside[q]:
                 continue
             d = abs(float(zed[p]) - float(zed[q]))
@@ -959,11 +965,13 @@ def _patch_edge_step(nodes, segments, nv, lon, lat, zed, tri,
     st = _stats(steps)
     over1 = sum(1 for v in steps if v > 1.0)
     over3 = sum(1 for v in steps if v > 3.0)
-    print(f"patch edge step: {st['n']:,} ring->outside pair(s), median "
-          f"{st.get('median', 0.0):.3f}  p95 {st['p95']:.3f}  max "
-          f"{st['max']:.3f} m at {worst[1]:.7f},{worst[2]:.7f}; "
-          f">1 m {over1:,}  >3 m {over3:,}")
+    print(f"patch edge step — {prefix}.poly vs {mesh_path}")
+    print(f"  {len(ring_ids):,} patch-ring vertex(es); {st['n']:,} "
+          f"ring->outside pair(s): median {st['median']:.3f}  p95 "
+          f"{st['p95']:.3f}  max {st['max']:.3f} m at "
+          f"{worst[1]:.7f},{worst[2]:.7f};  > 1 m {over1:,}   > 3 m {over3:,}")
     return dict(st, over_1m=over1, over_3m=over3,
+                ring_vertices=len(ring_ids),
                 worst=[worst[0], worst[1], worst[2]])
 
 
@@ -974,6 +982,22 @@ def main(argv=None):
     ap.add_argument("--mesh", default=None,
                     help="path to a .mesh file (not needed for "
                          "--hairline-audit, which reads the .poly)")
+    ap.add_argument("--patch-edge-step", action="store_true",
+                    help="THE CLIFF THE BANK EXISTS TO GRADE: for every "
+                         "PATCH_RING mesh vertex, the altitude step to a "
+                         "neighbour outside the patch coverage (owner "
+                         "2026-09-13, the bank_foot OMIT arm). Needs "
+                         "--inputs PREFIX and --mesh.")
+    ap.add_argument("--z-xref", action="store_true",
+                    help="WHO OWNS THIS NODE'S ALTITUDE (owner RULINGS "
+                         "2026-09-13cp): every vector .node z against the "
+                         "altitude the built mesh carries at the SAME "
+                         "coordinate, counted per .poly attribute, with the "
+                         "worst offender named.  Needs --mesh and --inputs "
+                         "(or a .mesh path the inputs sit beside) and a "
+                         "--bbox.  Promoted from the scout's xref.py.")
+    ap.add_argument("--z-flag", type=float, default=2.0, metavar="M",
+                    help="|mesh z - node z| over this is counted (default 2)")
     ap.add_argument("--hairline-audit", action="store_true",
                     help="§39 (3), ANGLE-FREE: report every constrained "
                          "NODE PAIR, SHORT SEGMENT, BENT CHORD and "
@@ -1114,15 +1138,6 @@ def main(argv=None):
                     help="at most this many WALL polygons in the KML, worst "
                          "first (default 2000 — a fold can mint tens of "
                          "thousands and a KML no viewer opens is no evidence)")
-    ap.add_argument("--node-xref", action="store_true",
-                    help="cross-reference every INPUT node's carried "
-                         "altitude against its own MESH vertex, split by "
-                         "the node's marker class, and read the PATCH EDGE "
-                         "STEP beside it (owner RULINGS 2026-09-13cp). "
-                         "Needs --inputs PREFIX and --mesh.")
-    ap.add_argument("--node-xref-bar", type=float, default=2.0, metavar="M",
-                    help="the off-by bar the per-class counts are taken at "
-                         "(default 2.0 m — the scout's own reading)")
     ap.add_argument("--json", default=None, metavar="OUT.json",
                     help="also write the counts here, with the bbox and "
                          "band edges stamped alongside")
@@ -1157,16 +1172,41 @@ def main(argv=None):
             print(f"JSON -> {args.json}")
         return 0
 
-    if args.node_xref:
+    if args.patch_edge_step:
         prefix = args.inputs
         if prefix is None and (args.mesh or "").endswith(".mesh"):
             prefix = args.mesh[:-len(".mesh")]
         if prefix is None:
-            raise SystemExit("REFUSING: --node-xref needs --inputs PREFIX")
+            raise SystemExit("REFUSING: --patch-edge-step needs --inputs "
+                             "PREFIX")
         (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
                                 else _tile_origin(prefix + ".poly"))
-        payload = node_mesh_xref(args.mesh, prefix, tile_lat, tile_lon,
-                                 bar_m=args.node_xref_bar)
+        payload = patch_edge_step(prefix, args.mesh, tile_lat, tile_lon)
+        payload.update({"inputs": prefix, "mesh": args.mesh,
+                        "tile": [tile_lat, tile_lon]})
+        if args.json:
+            import json
+            with open(args.json, "w") as fh:
+                json.dump(payload, fh, indent=1)
+            print(f"JSON -> {args.json}")
+        return 0
+
+    if args.z_xref:
+        if not args.bbox:
+            raise SystemExit("REFUSING: --z-xref needs --bbox lat0,lat1,lon0,lon1")
+        prefix = args.inputs
+        if prefix is None:
+            if not (args.mesh or "").endswith(".mesh"):
+                raise SystemExit("REFUSING: --inputs PREFIX is required when "
+                                 "no --mesh path ending in .mesh is given")
+            prefix = args.mesh[:-len(".mesh")]
+        (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
+                                else _tile_origin(prefix + ".poly"))
+        box = tuple(float(x) for x in args.bbox.split(","))
+        payload = z_xref(prefix, args.mesh, tile_lat, tile_lon, box,
+                         args.z_flag)
+        payload.update({"inputs": prefix, "mesh": args.mesh,
+                        "tile": [tile_lat, tile_lon]})
         if args.json:
             import json
             with open(args.json, "w") as fh:

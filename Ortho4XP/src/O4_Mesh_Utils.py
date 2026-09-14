@@ -126,6 +126,15 @@ HAIRLINE_SLENDERNESS = 1.0e4
 #: it separates SPLP's 23.7 mm from the harmless 444 mm land segments
 #: every tile carries beside its border.
 HAIRLINE_BOUNDARY_GAP_M = 0.1
+#: §39 (2) as amended here: a vertex CLOSER than this to a constrained edge
+#: is ON it, not beside it — the emitted identity is 11 decimal places of a
+#: degree, so a point that lies exactly on a line is written up to half a
+#: quantum off (0.6 um).  A coincident vertex is what the mesher SPLITS the
+#: segment at, cleanly; there is no wedge to fill.  ``check_grade``'s
+#: ``HAIRLINE_ON_EDGE_M`` is the same number on the patch side.  It hides
+#: none of the four measured sites: the nearest, VMMC, is 0.0124 mm — 5,600
+#: times this.
+HAIRLINE_ON_EDGE_M = 2.0 * 111_320.0 * 1.0e-11
 
 
 def _hairline_read_poly(poly_file):
@@ -349,7 +358,8 @@ def _hairline_on_boundary(nodes, seg, tol=1.0e-9):
 
 def hairline_refusals(findings, *, slenderness=HAIRLINE_SLENDERNESS,
                       boundary_gap_m=HAIRLINE_BOUNDARY_GAP_M,
-                      degenerate_m=HAIRLINE_DEGENERATE_M):
+                      degenerate_m=HAIRLINE_DEGENERATE_M,
+                      on_edge_m=HAIRLINE_ON_EDGE_M):
     """The UNMESHABLE subset of :func:`hairline_findings`, tagged by kind.
 
     Two floors, both ASSUMPTIONS calibrated on the four measured sites and
@@ -380,11 +390,18 @@ def hairline_refusals(findings, *, slenderness=HAIRLINE_SLENDERNESS,
         for r in findings.get(kind, ()):
             if r["gap_m"] < degenerate_m:
                 out.append(dict(r, kind=kind))
+    # ... and a vertex ON the edge within the identity quantum is not
+    # BESIDE it (``on_edge_m``): the mesher splits the segment at a
+    # coincident point and no wedge exists.  Measured: LEMD's five
+    # survivors read exactly 0.000 m and its box meshes at 1,617 slivers,
+    # CYXY's class; VMMC's real triples are 0.0124 mm, 5,600x the quantum.
     for r in findings.get("bent_chords", ()):
-        if r["gap_m"] < degenerate_m and r["slenderness"] >= slenderness:
+        if (on_edge_m < r["gap_m"] < degenerate_m
+                and r["slenderness"] >= slenderness):
             out.append(dict(r, kind="bent_chords"))
     for r in findings.get("vertex_edges", ()):
-        if ((r["gap_m"] < degenerate_m and r["slenderness"] >= slenderness)
+        if ((on_edge_m < r["gap_m"] < degenerate_m
+             and r["slenderness"] >= slenderness)
                 or (r.get("on_boundary") and r["gap_m"] < boundary_gap_m)):
             out.append(dict(r, kind="vertex_edges"))
     out.sort(key=lambda r: r["gap_m"])

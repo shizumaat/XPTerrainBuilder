@@ -24,7 +24,9 @@ from ..solve import Options
 from .build import Config, build
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The CLI, separable from :func:`main` so its namespace can be built
+    and read in a twin without running a build."""
     ap = argparse.ArgumentParser(prog="auto_patch_v2")
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build one airport's v2 patch")
@@ -38,7 +40,6 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--law-dir", help="an ALTERNATIVE law-table directory (a "
                    "labelled measurement arm; the shipped tables are law/)")
     b.add_argument("--no-verify", action="store_true")
-    b.add_argument("--no-iis", action="store_true")
     b.add_argument("--verbose", action="store_true")
     e = sub.add_parser("explain", help="the classification verdict at a shapeID or coordinate")
     e.add_argument("icao")
@@ -82,7 +83,21 @@ def main(argv: list[str] | None = None) -> int:
     y.add_argument("--data-root")
     y.add_argument("--law-dir", help="an ALTERNATIVE law-table directory (a labelled arm)")
     add_dem_frame_args(y)
-    args = ap.parse_args(argv)
+    return ap
+
+
+def options_from_args(args: argparse.Namespace) -> Options:
+    """The solver :class:`Options` the ``build`` namespace asks for.  ONE
+    place reads the namespace into the frozen dataclass, and the twin
+    (``tests/auto_patch_v2/test_pipeline_cli.py``) constructs it from a
+    parsed namespace — the LP's ``diagnose_iis`` outlived the LP here
+    (RULINGS 2026-09-08t deleted the IIS with the ladder) and every
+    ``auto_patch_v2 build`` died on ``Options.__init__()`` until it did."""
+    return Options(verbose=bool(getattr(args, "verbose", False)))
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     os.chdir(ENGINE_DIR)   # the core's resource/data contract (production DEM frame)
     if args.cmd == "explain":
         return explain_main(args)
@@ -90,8 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         return why_main(args)
     inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
                             args.feather_m, args.dem_frame, args.allow_degraded_dem)
-    cfg = Config(options=Options(diagnose_iis=not args.no_iis,
-                                 verbose=args.verbose),
+    cfg = Config(options=options_from_args(args),
                  verify=not args.no_verify, feather_m=args.feather_m)
     law = Law.for_airport(args.icao.upper(), law_dir=args.law_dir) if args.law_dir else None
     with shared_repo_guard() as guard:

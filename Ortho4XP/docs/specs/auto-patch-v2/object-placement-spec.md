@@ -4302,6 +4302,87 @@ verdicts printed (~574 pairs); LEMD and KCLT byte-identical; ONE OTHH build;
 suite twice. Owed: a `Flat` row at every station of a curving ramp (the
 kerbs separate past `_STATION_CLUSTER_M` and the monotone chain zig-zags).
 
+MEASURED (lane `v2cutfeet`, branch `claude/v2cutfeet`; a MATCHED replay
+pair on the registered OTHH capture `v2othh327/OTHH.pkl`, both arms
+resumed at `constraints` under `a0f65165` — the base arm cut with
+`git archive a0f65165`, never a live checkout).
+
+THE ROLE SET IS ONE LIST, not the prose tuple above: `_FaceIndex` reads
+`law.tables.is_structure_role` (`precedence.toml` `structure = true`),
+which at OTHH resolves to `tunnel_ramp`, `tunnel_trench` (the role a
+basin floor's face carries — `verify/structures._basin_floors` reads
+`tunnel_trench` + ref `basin_floor:`), `wall_corridor_ramp`, `door_ramp`,
+`garage_ramp`, `retaining_wall`, `bridge_trench`, `bridge_causeway`. The
+last two are the register's, not the ruling's prose: a bridge cut states
+its surface exactly as a tunnel's does, and taking the register whole is
+what keeps a role added tomorrow covered the day it lands.
+
+OTHH, base → cut arm: the owner's point 25.253869, 51.603365 (63
+vertices within 60 m) z − DEM mean **0.42 → −0.04**, max **3.31 → 0.02**,
+max step over a short edge 0.10 → 0.01; the site vertex v5266 z 3.54 →
+0.23 against DEM 0.23. The ramp `tunnel-object:tunnel south west
+2.obj@0` (face 697, 22 station groups) runs **−1.138 → 3.962 MONOTONE at
++3.52 … +3.88 % at every station**, z == its target to 3 dp (worst
+|z − target| 0.017 m at the crest station), zero cross-fall — against 12
+of 21 monotone rows violated and +3.31 m off the design line at base.
+`off_dem_by_role`: `tunnel_ramp` **5.09 (99 of 361 over 0.5 m) → 1.16 (8
+of 361)**, `wall_corridor_ramp` **1.39 (20/692) → 0.15 (0/692)**,
+`retaining_wall` **1.42 (14/1705) → 0.09 (0/1705)**, `tunnel_trench`
+13.64 either arm (§34's own floor, not a ground reading). The verify
+census on the solved surface: **336 → 41 rows**, `within_shape` **281 →
+3** — in-scope `tunnel_ramp` **19 → 0** and `wall_corridor_ramp` **257 →
+0**, the 3 left `building|building`; `basin_floor_at_declaration` 10 → 0;
+DEFECT families ALL ZERO both arms. THE SOLVE: `feasible`, 91 active-set
+rounds, **SET NOT SETTLED (833 flips, worst 0.052 m)**, **HARD SET NOT
+SETTLED, 2 of 78,238 violated (max 0.0255 m)**, LAG NOT SETTLED after 3
+rounds (2 rows over 0.01 m, worst 0.0305 m) → **OPTIMAL, 37 rounds, SET
+SETTLED, HARD SET SETTLED 0 of 78,238 (max 0.0130 m), LAG settled in 2
+rounds (worst leader move 0.008 m)**; solver 6.63 → 2.76 s. THE COUNT:
+foot rows **771 → 197 pairs — exactly the 574 pairs 13bs predicted** —
+over `foot_rows.cut` **485 bodies** / `foot_rows.cut_feet` 10,216 feet
+(the feet of those bodies; most carried no row before, being off-sheet).
+`bare` 357 → 60.
+
+LEMD AND KCLT ARE NOT BYTE-IDENTICAL — the premise is REFUTED, and the
+count is the answer. KCLT (registered capture `scratchpad/cap/KCLT.pkl`,
+base 70646dc8, both arms): `foot_rows.cut` **64 bodies**, fired pairs
+**135 → 9**; `tunnel_ramp` off-DEM 6.71 (160/385) → 6.00 (100/385),
+`retaining_wall` 0.26 → 0.18. KCLT's solve is `feasible` and NOT settled
+in EITHER arm, and its hard set moves the wrong way by a hundredth (11 of
+131,714 violated, max 0.0302 m → 19, max 0.0440 m; flips 351 → 922) —
+REPORTED, not iterated on: no KCLT bar was set and the base is already
+unsettled. LEMD: every registered LEMD capture PREDATES the `PlanarMap`
+fields `road_ramp_z` / `road_route_frame` and is refused at replay on
+`a0f65165` (`AttributeError` in `_dc.replace`), so the count was read
+OFFLINE by running `foot_targets` over `v2settle/armA.solved.pkl` under
+both source trees: `foot_rows.cut` **29 bodies**, fired pairs **608 →
+591** (17 suppressed). LEMD's 7a remains `source osm` with zero foot
+rows (13bs); the 29 are elsewhere.
+
+THE OBJECT STAGE NEEDS NO CHANGE (static confirmation, §16 (2)): a
+body's zero is compared with `ground_under_geometry` —
+`placement_census.ground_at_box` over the DESIGN SURFACE, never the DEM —
+so the tunnel object is seated on the solved cut the day the cut is
+solved, and nothing in the object stage reads a `BodyVerdict`.
+
+THE CLOSING BUILD: `OTHH_20260913T171324`, rc 0, 968.0 s, ways 1,097,
+nodes 25,707, `body_sha 0ff85d1a7bff`, artifact ledger `86493fdab68b`;
+`[guard] shared repo UNCHANGED` (16 lock-file churn operations, the
+allowed class). Its design solve carries **HARD SET SETTLED, 0 of
+155,709 violated**, `foot_rows` 394 (the same 197 pairs), SET NOT SETTLED
+568 flips worst 0.015 m — a LARGER problem than the capture (23,286
+unknowns against 19,238: the tile build carries OTBH and the rest of the
+frame), and no matched base build exists in the artifact ledger at
+`a0f65165`, so the build stands as the closing test, not as a bar arm.
+Suite twice from `Ortho4XP/`: 1,265 passed, 1 skipped, both runs. Twin:
+`tests/auto_patch_v2/test_v2cutfeet.py` (three readings — the cut
+verdict, the register-not-a-literal role set, and the neighbour on bare
+ground that still fires every foot).
+
+STILL OWED, unchanged: the cross-kerb monotone chain
+(`planar/structures.py:116, 375, 439`) — it cost no bar here, and the
+ramp reads monotone at every station in the cut arm.
+
 ### §16g (4) COMPONENTS APART ARE SEPARATE BODIES (Fable 2026-09-13; RULINGS 2026-09-13bu item 4) — lane `v2clusterpad`
 
 KCLT's `Charlotte_Airport_001_ALB.obj` is a pure roof resource over the whole

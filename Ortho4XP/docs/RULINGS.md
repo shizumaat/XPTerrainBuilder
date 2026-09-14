@@ -4809,3 +4809,26 @@ stays). Twins 402 on main.
 * Lane `v2slivers`: §41 (4) + the hole suppression. Scout readers
   `site.py` (coordinate → faces + bodies + unit/datum/float) and
   `padspan.py` (per-unit pad span) → promote on second use.
+
+## 2026-09-14h v2connector round 2 MERGED (24682f53): OTHH `plan_units_and_connectors` > 42 min → 20.0 s; HECA object stage 898 → 80 s; identity byte-equal
+
+Lane `v2connector` @ 5633a502. `cluster_topology` (one iterative
+Hopcroft–Tarjan pass per cluster over the FULL contact graph — the
+coordinator's premise corrected: `_clusters._adj` is a spanning FOREST
+(61,604 edges over 62,406 bodies; the 43,334-body unit's real graph has
+869,789), so `contact_graph` is rebuilt per cluster for the 17 that hold
+a long body); `_connector_ends` asks only the body's own neighbours;
+free-end test bisects a lat-sorted index; `_components` DELETED (twin
+witness only); `boxes_touch` sweep predicate (contact graph 7.4 → 5.4 s;
+`_clusters` itself is 7.2 s today — the brief's "485 s" was stale, 14b
+paid it). Identity byte-equal on SPJC/KCLT/HECA (with the `_m_per_deg`
+memo disarmed — the chip's fragility again); OTHH 185 units / 19
+connectors = round 1's dry read. HECA `plan stage` 898.22 → 80.26 s,
+reports identical but timing lines. Suite 1,411 twice on main.
+
+* `placement_family.py` 1,058 lines (warn, not split — urgent round).
+* Round 3 (law, 14c/14g): §16g (7) (1) polygon footprints in
+  `_clusters`/`_bind` (hull as cheap reject), the deck guard, (7) (2)
+  connector seated low; bar = the 17 pad-spanning units → ≤ 1 pad each.
+* APP 1.0.332 next: 14f (VHHH seal), 14d (partition), 14h (object
+  stage).

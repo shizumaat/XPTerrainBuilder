@@ -5735,3 +5735,37 @@ split pieces gone; road edges unchanged; the mouth move stops firing
   where the road edge is 5 m from the building. "Whatever grade is
   needed" as ruled; if a minimum pinched span (a longer ramp eating
   into the road's far side) is wanted, say so.
+
+## 2026-09-14an v2padcluster round 5 STOPPED (not merged): the one-way skirt refuted a third time — a pad bound to airside only by LAGGED rows is not stable inside a round; the staged solve (13dh) is the mechanism — lane `v2staged`
+
+Lane `v2padcluster` @ a3185dbb (three HECA arms vs DISARM; shipped
+arm `pad_skirt_m = 0`, ledger a602bba1b858; suite 1,476 twice). The
+rigid core stops the collapse but a one-way-bound pad still drifts
+(§28's own frontage row moved it 0.12 m; CYXY `mid_edge_step` census
+77 vs verify 14 — lag residuals the two readers do not share); the 25
+m band is WORSE on every airside bar (runway 1,021 → 1,394); what
+helps is withdrawing the two-sided ceiling row over a pair of two
+airside-shared vertices (4,008 dropped): airside 10,048 → 9,573
+moved, runway 1,021 → 885, worst 0.410 → 0.390; the terminal on
+`building298` at 72.60 (+0.07); `pad_cluster_mismatch` 14 = ONE
+class (the cluster piece and the emitted pad ref cut in different
+places — `geom.cluster_outlines` vs `classify/evidence._pads`'s
+re-cut and the fallback footprints; fix = mint a cluster piece as ONE
+part, absorb a fallback footprint inside it); constraints +31 % (the
+pad population, not the skirt); 30 pads wholly in the band.
+
+* RULING: the mechanism "airside is king" needs is the STAGED SOLVE
+  (13dh, owed since): stage 1 solves the AIRSIDE families alone
+  (runway, taxi, apron and the rows among them, hard rulings, the
+  seam pins); stage 2 solves everything with every airside vertex
+  BOUNDED to its stage-1 value ± `hard_tol_m`; rows that couple
+  airside to pads / roads / groundside become one-way by construction
+  (the airside side is a constant). No lag, no one-way skirt: the pad
+  meets the airside because the airside is fixed. Lane `v2staged`
+  (fresh context) on top of `claude/v2padcluster` (a3185dbb) so the
+  derived pads are the test: HECA airside moved vs DISARM's airside
+  = 0 by construction (measure it), the terminal on its pad, runway 0;
+  cost named (two LPs; stage 1 is a subset — expected < 1.5× solve).
+* `v2padcluster` r5 stands as the branch to merge WITH the staged
+  solve; KCLT/SPJC re-reads owed at that tree; the 14-row mismatch
+  class named for the round after.

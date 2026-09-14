@@ -5078,3 +5078,120 @@ caught it (INDEX.md loses rows in merges; only per-tool twins notice).
   not the shape). §34 (8) a climb stopped by airside pavement ends AT
   the pavement with a portal/rim face taking the residual step; the
   refusal is a RAMP refusal, never a corridor refusal. Lane `v2othhfix`.
+
+## 2026-09-14q "what is still taking so much time" attributed (scout `v2partcost2`): the patch stage is 73–79 % of both tiles; seven cuts named, all law-neutral — lanes `v2cost2` and `v2gradecache` r3
+
+The two tiles ran CONCURRENTLY (contended). OTHH 19m14 = patch 841 s
+(73 %) + mesh 13 + object 268 + masks 12 + DSF 17; VHHH 18m35 = patch
+882 s (79 %) + mesh 57 + object 84 + masks 27 + DSF 64. The object
+stage is no longer the problem (14h holds; the split writer 2 s).
+cProfile inflation ×1.3 (scaled below).
+
+| stage | app s | the sink |
+|---|---|---|
+| OTHH partition | 298 | `contact._narrow_rows` 2.78 M Python calls (89 s), `skirt._plan_union` 6,462 `unary_union` (33 s), `read_objects` 43 (`deck_signature.classify` 336 k `np.unique`); `partition_pack` is a PURE function of (pack, dump, law, version, frame) — cacheable like `o4_object_footprints` |
+| OTHH constraints | 169 | `apron_within_shape` 110 s builds 1.67 M Row objects then discards 1.44 M (`chords_outside_face`) |
+| OTHH verify | 133 | `verify/within.chords_outside_face` re-enumerates the SAME chord population the constraints pass just ran (code-attributed; no per-family verify clock exists) |
+| OTHH object stage | 268 | `anchor_rule.pad_majority` recomputes the pads' bounding boxes on every one of 191,661 calls (656 M `max()`), `_inside` 20.4 M Python ray casts; `comp_cluster` 107 M `box_gap_m` |
+| VHHH planar | 366 | `basins._rim_index` 120.8 M per-object `.is_empty` PROPERTY calls (137 s profiled) — one line; `door_wells.read_door_wells` 93 s (163 k `union_all` in `obj8_clip`); `wall_corridors._bands_of` 53 |
+| VHHH rebake_plan | 168 | `pack_partition.extend_partition` → `_contact.extend` over 71 plate objects (OTHH: 17 plates, 2 s) — located, not measured |
+| unattributed | OTHH 105, VHHH 26 | uninstrumented code after `wall["verify"]`: a SECOND `Patch.of` + `road_law_caps` for `apron_over_preference` (`build.py:932-934`) |
+
+* Lane `v2cost2` (byte-identity bars): (1) CACHE `partition_pack` +
+  `derive_clusters` in the mod cache keyed by the footprint-cache
+  fingerprint (`airport/dsf.py:15` pattern; `derive_groups` reads the
+  DEM and is NOT cached); (2) batch `_narrow_rows`' screen like
+  `_narrow_pass.flush`, `skirt._plan_union` → one `union_all`; (3)
+  `apron_within_shape`: pre-reject by chord midpoint with one
+  vectorised `contains_xy`, build rows last — identical row set; (4)
+  publish the constraints pass's per-face outside-chord set and let
+  verify read it (per-family verify clocks added); (5) `pad_majority`
+  boxes hoisted once per plan, `_inside` → prepared `contains_xy`; (6)
+  measure `extend_partition` at VHHH and cut it; (7) clock the second
+  `Patch.of`/`road_law_caps` and remove the duplication.
+* Lane `v2gradecache` r3 (RESUME, its own code): `_rim_index` is_empty
+  vectorised (`parts[~shapely.is_empty(parts)]`), `obj8_clip` unions
+  batched per component; VHHH planar 366 → ≤ 230 s, byte-identical.
+* Expected after both: OTHH patch ~840 → ~350 s warm-cache; VHHH ~880
+  → ~550 s.
+
+## 2026-09-14r v2bankfoot round 4 MERGED: the seed floor is REFUTED as the VHHH tunnel cause (14m withdrawn); seeding hardened (no width drop; encoding-survival test); the tunnel regression is unattributed and needs the owner's coordinate
+
+Lane `v2bankfoot` @ 345cf11b. Dry re-seed of the shipped 1.0.332 VHHH
+patch set: 84 faces dropped by the 0.5 m floor — 14 tunnel-family, ALL
+`tunnel_trench:basin_floor` slivers of 0.3–1.9 m² beside basin floors;
+NO `tunnel_ramp` face dropped. On the shipped mesh every tunnel ring is
+100 % INTERP_ALT (62/62 ramps, 72/72 trenches), the twelve largest ramps
+at dz_med 0.00 vs their authored alt; interventionally, removing the
+floor leaves the tunnel table identical. Fix anyway: every face seeds
+at its pole with clearance min(0.5 m, inradius/2); a face is dropped
+only under the 10 mm hairline floor (one constant with
+`HAIRLINE_DEGENERATE_M`) or when the seed does not survive the 1e-9°
+encoding grid (`_survives_encoding`); VHHH run: all 4,057 seeds
+enclosed, skipped faces 132 → 4 (three hairlines at 22.29193, 113.8971).
+
+* Left unexplained: 24 of 62 `tunnel_ramp` rings and 4 of 72 trenches
+  carry mesh > 0.5 m off their authored alt somewhere (`basin_floor:5#1`
+  2,794 m² with 4 interior vertices; `:83` +2.46). And the PATCH may
+  itself have changed 1.0.330 → 1.0.332 (apron-neck, slivers, contacts,
+  connector) — no 1.0.330 VHHH artefact survives; a faithful mesh of a
+  worse patch reads as perfect. OWNER: a coordinate and what is wrong
+  (shallow? walls gone? a step at the mouth?).
+* Chip candidate: the lane's `tunfast.py` (per tunnel ring: mesh vs
+  patch alt, attr share) on its second use.
+
+## 2026-09-14s VHHH tunnel regression attributed (scout `v2vhhhtunnel`): §40's shoulder re-role grew the RUNWAY strip keep-out and refused the big road tunnel; the basin pass took the vacated ground — a 30l consumer-census miss; §40 (4) written; lanes `v2roles` r3 + `v2othhfix`
+
+Old arm = v2gradecache's VHHH patch (51c4666b, 2026-09-13 22:04) vs
+the owner's 1.0.332 patch: every matched tunnel-family ring z-identical
+(70 trenches, 30 ramps, 103 rims; only decimation differs). ONE site
+changed, 22.30368, 113.92917 (`tunnel/tunnel1_done.obj`): the 62-node
+`tunnel_ramp` (6,310 m², 7.31 → 2.22) and its OPEN wall are GONE;
+instead `basin:5` — a CLOSED 25-node rim at 7.31 (4,057 m²) and two
+floors to −0.13 (2.35 m below the old ramp's bottom); the descent
+carried by 4 interior vertices (1.4 / 1,000 m² vs 22 in the pavement);
+a 42 % mouth cliff (7.25 → 0.91 in 15 m). Reports: tunnels 28 → 27,
+refused 44 → 45, basins 70 → 71 (`basin:5` new). Mechanism: f19e2226
+(§40) re-roled three faces beside 07R/25L to `runway` (83,999 + 8,040 +
+6,228 m²; VHHH runway area 780 k → 1,273 k m²); `planar/structures.py:
+292-298` builds the strip keep-out from every `RUNWAY_FAMILY` cell ⊕
+75 m (`zone2_half_width_m`, code 4) — the shoulders stand 60–69 m from
+the tunnel footprint (old nearest runway face 221 m) → `:593-597`
+"the wall would stand inside the runway strip keep-out"; then
+`planar/build.py` runs structures before basins, `basins.py:711-719`'s
+"overlaps a tunnel structure" guard no longer fires, region 5 is
+admitted as a pit. Collateral: `zones.py:96-99` keys on `RUNWAY_FAMILY`
+too → the shoulders mint 75 m zone-2 bands (`graded_strip` +587,849
+m²; `junction dsf:pol406` 7.11 → 5.98 beside the tunnel) —
+contradicting rules.toml's own "a shoulder manufactures no zone strip".
+The 14r "24 ramps > 0.5 m" population dissolves under a per-vertex
+envelope reading (100 of 101 rings at 0.00; one −2.00 m ramp byte-
+identical across patches). The mesh is innocent.
+
+* RULING §40 (4): a runway shoulder is PAVEMENT OF THE RUNWAY, not the
+  runway's STRIP: it carries the runway's datum, crown and lateral law
+  and manufactures NO region — it is excluded at the two region
+  derivation sites (`structures.py` strip keep-out; `zones.py` zone
+  band — it inherits the host runway's band), and every `RUNWAY_FAMILY`
+  reader is censused in one table (the 30l miss). Lane `v2roles` r3.
+* §24 (8): a basin's ramp corridor is RE-NODED at `ramp_station_m`
+  before emission so §24 (5)'s per-station profile has vertices (today
+  `constraints/structures.py:779-783` only pins existing planar
+  vertices — a 4-triangle fan). Lane `v2othhfix` (basins.py).
+* Open: whether an 84,000 m² face beside 07R/25L is a shoulder at all
+  (`runway_shoulder_max_depth_m` 50 admitted it) — the owner's eye on
+  the 1.0.333 VHHH read.
+
+## 2026-09-14t v2gradecache round 3 MERGED: VHHH structures stage 400.7 → 306.7 s (−23 %), byte-identical on every `structures.json` key
+
+Lane `v2gradecache` @ 6196113c. Per-geometry PROPERTY reads (`is_empty`
+/ `is_valid` / `area` / `geom_type`) over every part → array predicates
+(`shapely.is_empty` etc.) at `basins._rim_index` and `obj8_clip`
+(`_union_rings` gate; shared `_polygon_parts()`). VHHH/LEMD
+`structures.json` identical on every key. Suite 1,413 twice.
+`wall_corridors._bands_of` vectorisation REFUTED (334 vs 307 s) and
+deleted — its residual is not the property class. Bar `planar` ≤ 230 s
+NOT MET (predicted ≈ 272). Left for a ruling: the trailing
+`unary_union(parts)` over already-disjoint parts (3 sites) →
+`shapely.multipolygons` would skip a GEOS overlay but may reorder
+members — needs a patch-level identity gate, not `structures.json`.

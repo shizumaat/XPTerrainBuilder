@@ -2613,54 +2613,108 @@ INTERP_ALT_SEED_CLEARANCE_DEG = (
     INTERP_ALT_SEED_CLEARANCE_M / 111320.0
 )
 
+#: The vector map's own coordinate quantum — ``snap_to_grid(9)``, 1e-9
+#: degrees, 0.11 mm.  A seed is only real if it is still inside its face
+#: AFTER the map rounds it onto this grid.
+INTERP_ALT_SEED_SNAP_DEG = 1.0e-9
+
+#: THE ONLY FLOOR THAT DROPS A FACE (owner request 2026-09-14, via the
+#: round's coordinator; RULINGS 2026-09-14m): the HAIRLINE degenerate
+#: bar, ``O4_Mesh_Utils.HAIRLINE_DEGENERATE_M`` = 10 mm — a face narrower
+#: than that is a noding artifact of two near-coincident ways and nothing
+#: can hold a vertex in it.  Spelled here against the mesh module's own
+#: constant rather than re-typed; the twin asserts they agree.
+INTERP_ALT_SEED_DEGENERATE_M = 0.010
+INTERP_ALT_SEED_DEGENERATE_DEG = INTERP_ALT_SEED_DEGENERATE_M / 111320.0
+
 
 def interp_alt_seed_point(face):
-    """The point to seed ``face`` at, or ``None`` when the face cannot
-    hold one — too small to hold a mesh vertex, or so thin that no point
-    of it stands :data:`INTERP_ALT_SEED_CLEARANCE_M` clear of its own
-    boundary.  Either way it is a noding artifact of two near-coincident
-    ways, not a region to seed.
+    """The point to seed ``face`` at, or ``None`` when nothing can hold a
+    seed there.
 
-    THE REPRESENTATIVE POINT IS NOT THE DEEPEST POINT (2026-09-14).
-    ``representative_point`` is a horizontal-scanline construction: on an
-    ample but re-entrant face it can graze the boundary, and at VHHH it
-    grazed a 5.2 km graded strip's boundary by 0.856 mm.  Dropping the
-    face on that alone would throw away a real region, so the short
-    representative point falls back to the POLE OF INACCESSIBILITY — the
-    interior point farthest from the boundary.  Only a face whose
-    INSCRIBED RADIUS is under the clearance is dropped, and such a face is
-    under a metre wide: it holds no mesh vertex and the mesh's own
-    interpolation carries it.
+    A NARROW FACE IS STILL A FACE (owner 2026-09-14).  The round-3 form
+    of this function DROPPED any face whose inscribed radius was under
+    :data:`INTERP_ALT_SEED_CLEARANCE_M`, and a dropped face gets no
+    INTERP_ALT seed, so its triangles keep the RAW DEM — at VHHH that
+    silently returned 132 sub-metre faces to the terrain, among them 14
+    slivers against tunnel trench floors.  Narrow is not degenerate: the
+    cut faces of a tunnel — the wall strips, the pieces between a ramp
+    and its wall — are exactly the sub-metre faces that floor threw away.
+
+    THE LAW: every face is seeded at its POLE OF INACCESSIBILITY (the
+    interior point farthest from the boundary), with the clearance it can
+    actually afford — ``min(INTERP_ALT_SEED_CLEARANCE_M, inradius / 2)``.
+    A face is dropped for exactly two reasons, both of them about whether
+    a point can EXIST there at all rather than about width:
+
+    * its inscribed radius is under the HAIRLINE floor
+      (:data:`INTERP_ALT_SEED_DEGENERATE_M`, 10 mm), or
+    * the seed does not survive the encoding — the vector map rounds
+      every coordinate onto a 1e-9 degree grid, and a seed that lands
+      outside its own face after that rounding is the VHHH +22+113
+      unsealed-seed class (a build that dies in the mesh step).
     """
     if face.area < INTERP_ALT_MIN_FACE_AREA_DEG2:
         return None
     # ``boundary``, not ``exterior``: a seed grazing a HOLE's edge is as
-    # unreliable as one grazing the outer ring.
+    # unreliable as one grazing the rim.
     boundary = face.boundary
     seed_point = face.representative_point()
-    if boundary.distance(seed_point) >= INTERP_ALT_SEED_CLEARANCE_DEG:
+    if (boundary.distance(seed_point) >= INTERP_ALT_SEED_CLEARANCE_DEG
+            and _survives_encoding(face, seed_point)):
         return seed_point
-    deepest = _pole_of_inaccessibility(face)
-    if (deepest is not None
-            and boundary.distance(deepest) >= INTERP_ALT_SEED_CLEARANCE_DEG):
-        return deepest
-    return None
+    # ``representative_point`` is a horizontal-scanline construction: on
+    # an ample but re-entrant face it can graze the boundary (VHHH, by
+    # 0.856 mm).  The pole of inaccessibility is the face's own best
+    # point, and for a narrow face it is the ONLY one.
+    (deepest, inradius) = _pole_of_inaccessibility(face)
+    if deepest is None:
+        return None
+    if inradius < INTERP_ALT_SEED_DEGENERATE_DEG:
+        return None
+    needed = min(INTERP_ALT_SEED_CLEARANCE_DEG, inradius / 2.0)
+    if boundary.distance(deepest) < needed:
+        return None
+    if not _survives_encoding(face, deepest):
+        return None
+    return deepest
+
+
+def _survives_encoding(face, point):
+    """True when ``point`` is still strictly inside ``face`` after the
+    vector map rounds it onto its own 1e-9 degree grid.  That rounding is
+    what put the VHHH seed outside its face and killed the tile build, so
+    it is checked HERE, where the seed is chosen, and not left to the
+    audit to refuse."""
+    try:
+        snapped = geometry.Point(
+            round(point.x / INTERP_ALT_SEED_SNAP_DEG) * INTERP_ALT_SEED_SNAP_DEG,
+            round(point.y / INTERP_ALT_SEED_SNAP_DEG) * INTERP_ALT_SEED_SNAP_DEG)
+        return bool(face.contains(snapped))
+    except Exception:
+        return False
 
 
 def _pole_of_inaccessibility(face):
-    """The interior point of ``face`` farthest from its boundary, or
-    ``None`` when it cannot be computed.  A refinement, never a build
-    stopper — every failure returns ``None`` and the caller drops the
-    face, which is the conservative direction."""
+    """``(point, inscribed_radius)`` — the interior point of ``face``
+    farthest from its boundary, or ``(None, 0.0)`` when it cannot be
+    computed.  A refinement, never a build stopper: every failure returns
+    ``None`` and the caller drops the face, the conservative direction.
+
+    The tolerance is the ENCODING GRID, not a fraction of the clearance:
+    a coarse tolerance answers "0.49 m" for a 0.503 m face and the
+    decision flips on the approximation rather than on the geometry.
+    """
     try:
         import shapely as _sh
 
-        spoke = _sh.maximum_inscribed_circle(
-            face, INTERP_ALT_SEED_CLEARANCE_DEG / 10.0)
+        spoke = _sh.maximum_inscribed_circle(face, INTERP_ALT_SEED_SNAP_DEG)
         point = geometry.Point(spoke.coords[0])
-        return point if face.contains(point) else None
+        if not face.contains(point):
+            return (None, 0.0)
+        return (point, float(spoke.length))
     except Exception:
-        return None
+        return (None, 0.0)
 
 
 def is_degenerate_interp_alt_face(face):

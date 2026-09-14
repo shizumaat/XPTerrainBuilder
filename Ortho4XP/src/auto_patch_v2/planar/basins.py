@@ -273,11 +273,20 @@ def _rim_index(geom):
     """One member's at-grade linework as an index over its PARTS: a point
     against a whole multi-part rim is an O(parts) GEOS distance (VHHH's
     96 rings cost 549,207 of them, 1,196 s of a 3,580 s build), and the
-    rim reading is a REPORTED DIAGNOSTIC that refuses nothing."""
+    rim reading is a REPORTED DIAGNOSTIC that refuses nothing.
+
+    THE EMPTY TEST IS VECTORISED (owner RULINGS 2026-09-14q, scout
+    ``v2partcost2``): ``g.is_empty`` is a PROPERTY read per part, and
+    VHHH's 336 calls of ~370 k parts each made 120,820,793 of them — 137 s
+    profiled, ~105 s shipped, to filter a list that is almost never
+    filtered.  ``shapely.is_empty`` over the array is one C call and
+    yields the same parts in the same order."""
     if geom is None:
         return None
-    parts = [g for g in shapely.get_parts(geom) if not g.is_empty]
-    return STRtree(parts) if parts else None
+    parts = shapely.get_parts(geom)
+    if parts.size:
+        parts = parts[~shapely.is_empty(parts)]
+    return STRtree(parts) if parts.size else None
 
 
 def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:

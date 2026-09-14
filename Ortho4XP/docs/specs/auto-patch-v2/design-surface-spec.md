@@ -11445,3 +11445,38 @@ the portal rule for the next one.  BARS: the corridor under the terminal at
 25.26621, 51.61134 CUT (trench + both mouths), the portal faces named with
 their heights; the five `Terminal_Base_2_1` corridors unchanged; no airside
 vertex moves.
+
+### §40 (4) A SHOULDER IS PAVEMENT OF THE RUNWAY, NOT THE RUNWAY'S STRIP (Fable 2026-09-14; RULINGS 2026-09-14s) — lane `v2roles`
+
+MEASURED (VHHH 1.0.332): three faces beside 07R/25L re-roled `runway` by §40
+(84,000 / 8,040 / 6,228 m²) entered `planar/structures.py`'s strip keep-out
+(every `RUNWAY_FAMILY` cell ⊕ 75 m) and `planar/zones.py`'s zone-band
+derivation; the big road tunnel at 22.30368, 113.92917 was refused ("the
+wall would stand inside the runway strip keep-out") and the basin pass cut a
+4,057 m² pit with a closed 7.3 m rim in its place; the shoulders minted
+587,849 m² of 75 m zone-2 band.  A 30l consumer-census miss: §40 changed a
+role literal and two REGION derivations keyed on it were never ruled.
+
+1. A cell of `kind = "runway_shoulder"` carries the runway's datum, crown
+   and lateral law (§40 (2)) and MANUFACTURES NO REGION: it is excluded
+   where `strip_u` (the runway strip keep-out) and the zone bands are
+   derived; it inherits its host runway's band.
+2. Every reader of `RUNWAY_FAMILY` is censused in ONE table (surface
+   readers keep the shoulder; region derivations exclude it) before either
+   site is edited.
+
+BARS: VHHH the 1.0.332 frame dry (`planar --stage structures`): tunnels
+27 → 28 (the `tunnel1_done.obj` tunnel admitted, its 62-node ramp and open
+wall back), basins 71 → 70 (`basin:5` gone), `graded_strip` area back to the
+old arm's within 5 %; HECA shape 44 still a shoulder with the runway datum
+(13dg's bars hold); the `RUNWAY_FAMILY` census table in the spec.
+
+### §24 (8) A BASIN'S RAMP CORRIDOR IS RE-NODED AT ITS STATIONS (Fable 2026-09-14; RULINGS 2026-09-14s) — lane `v2othhfix`
+
+§24 (5)'s "the floor under a ramp corridor follows the deck per station"
+has no vertices to land on: `constraints/structures.py` pins EXISTING
+planar vertices only, so VHHH's `basin_floor:5#1` (2,794 m², 6.9 m of drop)
+carried 4 interior vertices and a 42 % mouth step.  The basin pass re-nodes
+the ramp corridor at `ramp_station_m` before emission (the structures pass's
+stationed ramp is the model).  BAR: any basin ramp corridor ≥ 1 vertex per
+`ramp_station_m` along its axis; the mouth grade within the ramp cap.

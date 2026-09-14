@@ -25,7 +25,7 @@ from auto_patch_v2.emit.bank import (BANK_KIND, BankReport, FOOT_KINDS,
                                      daylight_feet, smooth_along, smooth_runs,
                                      with_bank)
 from auto_patch_v2.emit.graded import graded_surface
-from tests.auto_patch_v2.test_v2smooth import law  # noqa: F401
+from tests.auto_patch_v2.test_v2bank import _shipped_law, law  # noqa: F401  (the ARMED bank; owner 13cy ships bank_omit true)
 
 _K_MIN, _K_DAY, _K_MAX = 0, 1, 2
 

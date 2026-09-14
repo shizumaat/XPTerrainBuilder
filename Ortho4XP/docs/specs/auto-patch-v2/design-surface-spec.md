@@ -8631,6 +8631,67 @@ touching pads.  Round 4's union-spread bar (4.30 → 1.07) is therefore
 WITHDRAWN here: it was measuring the lift of a building that does not
 belong to the terminal.
 
+### §37 (3) AMENDED — THE COVERAGE CLOSES AT THE EMITTER; AN OPEN LOAD-BEARING RUN IS A BREAKLINE (owner RULINGS 2026-09-13cp) — lane `v2bankfoot`
+
+§37 (3) emitted ONE OPEN CHAIN PER LOAD-BEARING RUN and nothing over the
+immaterial stretches, so the banked region stopped having a CLOSED
+boundary in the patch at all — LEMD 1.0.329: **105 open `bank_foot` ways,
+0 closed**.  The mesh step's whole bank machinery is a REGION reading, so
+that is not a smaller bank, it is no bank:
+
+* `O4_Vector_Map.include_patches:3007/3040` gives `PATCH_RING_MARKER`
+  only to a CLOSED way and inserts every open one as `DUMMY` (attr 0) —
+  the foot stops being the INTERP_ALT flood barrier and R18-1b's
+  Dirichlet datum and drops out of `patches_area`;
+* `patch_coverage_polygon` polygonizes marker-15 segments, so the annulus
+  leaves the R18-1c domain and its triangles are dropped;
+* `bank_annulus_blend_values` was fed a ribbon `_close_open_foot`
+  reconstructed by `nearest_points`: **15 valued vertices against
+  33,377** the run before;
+* the R18-1b harmonic extension then interpolated the vacated corridor
+  from remote data — road ribbons authored at 588–590 m emitted at 568
+  (a 20.7 m canyon at 40.465414,−3.5531888; 1,400 INTERP_ALT nodes off by
+  > 2 m tile-wide, worst −24.3 m).
+
+**THE AMENDMENT.** (a) The boundary ring of the banked region is emitted
+WHOLE and CLOSED; the load-bearing test governs which stretches are
+RESOLVED (chord-split at `bank_chord_max_m`, mid-chord within
+`split_tol_m` of the DEM) and NEVER whether the coverage closes.  Every
+station carries the DEM either way — which is what an immaterial station
+means.  (b) An OPEN load-bearing run (a ring a tile seam split, §9.4)
+wears `PATCH_RING_MARKER`, never `DUMMY`.  (c) The mesh step never closes
+a foot itself: `_close_open_foot` is DELETED and an open chain is foot
+LINEWORK.  (d) A collapsed annulus REFUSES.  (e) Interim belt: a
+bare-INTERP_ALT input node is Dirichlet data.
+
+#### THE CONSUMER CENSUS (owner RULINGS 2026-08-30l) — every reader of `PATCH_RING_MARKER` and of the foot geometry, ruled in ONE table
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| B1 | `O4_Vector_Map.include_patches` closed branch (`:3007`) | closed ways | **UNCHANGED.** The emitter's ring is closed again, so it takes this branch exactly as before §37 (3). |
+| B2 | `O4_Vector_Map.include_patches` open branch (`:3040`) | open ways | **EDITED**, the one new site: `o4_feature` in `OPEN_BREAKLINE_FEATURES` (`bank_foot`, `structure_rim` — the two the emitter may SPLIT, `osm_adapter`) takes `PATCH_RING_MARKER`; everything else still `DUMMY`. `crown_spine` / `terrain_edge` are ALWAYS open and never wore the marker: widening to them would be a new law, separately measured. |
+| B3 | `patches_area` (the LAND cutter, R4) | closed ring polygons | **RESTORED, not widened.** The banked region is back in it because the ring is closed again — the pre-§37 (3) state. No new polygon source; an open chain still contributes no area (it bounds nothing). |
+| B4 | `seawall_admission_area` / `graded_area` (R17-3) | `GRADED_COVERAGE_ROLES` rings | **UNAFFECTED.** A `bank_foot` way is role-less, so it was never in the admission set and is not now. |
+| B5 | `include_sea` / `include_water` floods | the WATER/SEA/SEA_EQUIV bits of the marker | **RESTORED to the pre-§37 (3) state** for the same reason as B3. An OPEN chain wearing the marker is a new barrier SEGMENT, but an open chain closes no region, so a flood goes round it — no water is fenced out. |
+| B6 | `interp_alt_patch_polygons` → the per-FACE INTERP_ALT seeding | closed ring polygons | **RESTORED.** This is the load-bearing one: with no closed foot the annulus was not a face, got no seed, and its triangles were not INTERP_ALT at all (tile INTERP_ALT triangles 1,670,705 → 371,965). |
+| B7 | `O4_Mesh_Utils.patch_coverage_polygon` (R18-1c domain) | marker-15 `.poly` segments, polygonized | **UNCHANGED CODE, restored meaning.** Dangling open chains are ignored by `polygonize`, so B2 cannot widen the coverage; the closed ring is what closes the annulus faces. |
+| B8 | `patch_valued_vertex_indices` / `_patch_ring_edges` (the Dirichlet set) | marker-15 edge endpoints | **UNCHANGED CODE.** B2 puts an open run's nodes back in it — which is the ruling's "the Dirichlet datum its closed predecessor was". |
+| B9 | `patch_segment_split_values` (R18-1b amendment) | the same edges | **UNCHANGED.** A mesher-inserted vertex on an open run's segment now takes the run's own value there, as on any ring. |
+| B10 | `bank_annulus_polygon` / `_bank_rings_from_patches` | the patch `.osm` rings | **EDITED**: returns `(feet, design, open_foot_lines)`; open chains are LINEWORK and never enter the region. `_close_open_foot` and `BANK_OPEN_CHAIN_AREA_WIDTHS` are DELETED. |
+| B11 | `bank_annulus_blend_values`' `on_foot` classification | `boundary(feet)` | **EDITED, additive**: the open foot LINES join the foot linework, so a `.poly` edge on a seam-split run is an OUTER segment carrying the foot's own z. |
+| B12 | `bank_annulus_regions` (09x triangle sizing) | `_bank_rings_from_patches` | **UNCHANGED** but for the tuple unpack. |
+| B13 | `interpolate_free_interior_altitudes` | the Dirichlet set | **UNCHANGED CODE**; its free set shrinks by the ribbon belt (e) and by B8. Its report now names the isolated COMPONENTS (371 at LEMD on 1.0.329) and not only the vertex count. |
+| B14 | `hairline_preflight` / `hairline_findings` (`on_boundary`) — lane `v2hairline`'s file region, NOT edited here | every constrained segment, marker-blind | **UNAFFECTED BY DESIGN.** It prices segments, not rings, and never asks whether a way is closed. The node COUNT it sees changes (the ring is whole again), which is a measurement, not a law interaction. |
+| B15 | `tools/mesh_region_tris.py` (`PATCH_RING_MARKER = 15`) | the same segments | **UNAFFECTED**; `tests/test_r18c_interp_alt_domain.py` still twin-asserts the three spellings agree. |
+| B16 | `tools/patch_seed_seal.py` | inserts marker-15 rings | **UNAFFECTED** (an independent reproduction of the seeding). |
+| B17 | `check_grade` `bank_foot` register (`:391`, `:1501`, `bank_across_seam`, `:10427` open features) | the patch's `bank_foot` channel | **UNAFFECTED CODE**; the OPEN-feature branch simply finds nothing at a single-tile airport now. The bank stays role-less and censused as articulation geometry (§9.2). |
+| B18 | `verify/frame.Patch.of`, `tools/undulation` | the skip register | **UNAFFECTED.** |
+
+The one region trimmed at its single derivation site (the ruling's
+preference over per-consumer vetoes) is the EMITTER's `banked` polygon:
+it is where closure happens, and every consumer above reads the closed
+ring rather than reconstructing one.
+
 ## §40 A PAVEMENT ALONG A RUNWAY IS THE RUNWAY'S; APRON EVIDENCE REFUSES THE CORRIDOR KIND (owner RULINGS 2026-09-13co items 1/6; Fable 2026-09-13; RULINGS 2026-09-13cs) — lane `v2roles`
 
 **THE DEFECT (scout `v2heca329`, HECA 1.0.329).**  Shape 44 (`primary_parallel:pav73`,
@@ -8860,3 +8921,78 @@ Build census (harness): LAW-TRUE 38,441, ADJUDICATED 12,771 (airside 12,446
 `road_coverage_join` 0; v2 verify 16,589 rows, DEFECT families ALL ZERO.
 The build's frame is not the replay pair's, so the before → after reading
 is the REPLAY PAIR above; the build is the acceptance arm.
+
+## §42 OBJECT-BASED PAVEMENT IS A SOURCE (owner RULINGS 2026-09-13cv; Fable 2026-09-13) — lane `v2drapedsrc`
+
+**THE DEFECT (RULINGS 2026-09-13cu, HECA).**  `Airport/ground/Concrete_Polygon_1.obj`
+is a draped OBJ8 ground polygon (`TEXTURE_DRAPED`, 1,137 vertices all at local
+Y = 0, 379 triangles, 29 disjoint bodies, 580,331 m²) placed once at the pack
+origin.  X-Plane drapes it correctly; the LAYOUT never sees it — pavement
+sources are apt.dat 110 polygons and `.pol` POLYGON_DEF pages only
+(`airport/load.py:309-381`), object footprints enter only as `building` pads.
+The owner's apron at 30.1235047, 31.4160956 (body 6, 25,012 m²) drapes on raw
+mesh at 95.09 while the mapped apron `pav132` is graded 82 m away.
+
+1. **IDENTIFICATION.**  A placed OBJ8 whose draped geometry (a `TRIS` block
+   under `TEXTURE_DRAPED` / `ATTR_draped`, every vertex within `draped_y_tol_m`
+   (0.05) of Y = 0) covers ≥ `object_pavement_min_m2` (200) is OBJECT-BASED
+   PAVEMENT.  Its footprint is the union of its draped triangles, transformed
+   by the placement (origin, heading), split into DISJOINT BODIES; each body
+   is one source polygon with `source = "dsf:object_pavement"`, the object's
+   resource path as its description, and the pack's texture name as
+   evidence.  A body that is also a solid object's footprint (`building` pad)
+   is not double-counted: pads win where they overlap.
+2. **CLASSIFICATION.**  An object-pavement body enters `classify/sources.py`
+   as a `lot`/`open` source exactly like a `.pol` page and is kinded by the
+   same evidence rules (§40's apron-cover refusal, corridor width, taxi
+   length, runway shoulder); it carries no privileged role.  Where it
+   overlaps an apt.dat or `.pol` page, the mapped page's evidence governs and
+   the object body extends it (union), never a second surface (§41).
+3. **THE CENSUS.**  `load` reports `object_pavements` (bodies, m², per
+   resource) beside `dsf_pavements`; `explain --shape` names the resource for
+   a cell born of one; the object-footprints cache gains the draped bodies
+   under a separate key so the `building` pad path is untouched.
+
+BARS: HECA the 1.0.329 frame dry: 29 bodies / ~580 k m² admitted from
+`Concrete_Polygon_1.obj`, body 6 classified (apron by evidence, named); the
+cell census before → after (no `building` pad lost, no cell duplicated);
+CYXY/SPJC/KCLT/OTHH/LEMD dry from registered frames: every admitted object
+pavement named with its resource and m² (a pack with none stays byte-identical);
+ONE HECA build: the ground under body 6 graded, `pav132` and body 6 one apron
+surface, no step at their seam; load stage not worse than +5 %; suite twice.
+
+### §37 (3) AMENDED — THE COVERAGE CLOSES; LOAD-BEARING GOVERNS RESOLUTION ONLY (Fable 2026-09-13; RULINGS 2026-09-13cw) — lane `v2bankfoot`
+
+The banked region's boundary ring is emitted WHOLE and CLOSED. §37 (3)'s
+load-bearing test decides which stretches of it are chord-RESOLVED
+(`split_chain(..., mask)`, `BankReport.load_bearing`), never whether the
+coverage closes: the mesh's bank machinery is a REGION reading
+(`patches_area`, `patch_coverage_polygon`, the INTERP_ALT seed needs a marker
+segment all the way round — 61,604 INTERP_ALT triangles in coverage with no
+ring vs 283,247 closed), and an open way in the vector map is a `DUMMY`
+edge (13cp).  An OPEN way of a class whose closed form wears the marker
+(`OPEN_BREAKLINE_FEATURES = ("bank_foot", "structure_rim")`) wears
+`PATCH_RING_MARKER`; `crown_spine` / `terrain_edge` stay `DUMMY`.
+`audit_bank_annulus` refuses a patch with a bank foot that values under 10 %
+of its annulus candidates.  Bare INTERP_ALT input nodes are Dirichlet, never
+free.  `[design] bank_omit` (default false) is the owner's OMIT arm (13cq).
+
+### §41 (1) AMENDED — A NOTCH IS ABSORBED; AN ISLAND AND A NARROW-MOUTHED BODY ARE NOT (Fable 2026-09-13; RULINGS 2026-09-13da) — lane `v2zonehole`
+
+MEASURED: the arrangement is a PARTITION — `cross_connector:pav77` sits in a
+HOLE of `primary_parallel:pav73#45`, hole-aware intersection 0.000 m²; the
+defect is the NOTCH pinned 3 m below its host, which the host ramps to at 11 %
+inside its own face (65.7 → 68.05 over 21 m at 30.1312203, 31.3983896).  So
+the containment frame is the host's EXTERIOR RING (`--contains`, ring fraction
+≥ 0.95), and two narrowings hold, both measured:
+1. A contained face sharing NO boundary with its host is an ISLAND in a loop
+   (`apron:pav5`, 2,362 m², 12.97 m off `pav67`) — not absorbed.
+2. A contained face reached through a mouth narrower than
+   `emit.terrace.narrow_mouth_max_m` (12.0) is a SEPARATE BODY under the
+   owner's body law (RULINGS 2026-09-08k) — not absorbed.  Absorbing CYXY's
+   `apron:pav21#204` (9.31 m mouth) moved the control 39 → 54
+   `airside_no_step`; with the gate CYXY is byte-identical.
+`absorb_enclosed_pavement` runs smallest-first with union-find between
+`merge_slivers` and `dissolve_degenerate_holes`; HECA 39 → 4 contained faces
+(the 4 are ~80 m² `junction:pav8` notches minted by the merge geometry itself
+— a second pass, owed).

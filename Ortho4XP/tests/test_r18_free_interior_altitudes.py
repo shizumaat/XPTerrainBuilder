@@ -81,7 +81,8 @@ class TestPlanarReproduction:
         # asserted item by item so a future key is a decision here, not
         # a surprise failure.
         assert {k: v for k, v in report.items() if k != "changed_indices"} \
-            == {"free": 1, "solved": 1, "isolated": 0, "non_finite": 0}
+            == {"free": 1, "solved": 1, "isolated": 0, "non_finite": 0,
+                "isolated_components": 0}
         assert list(report["changed_indices"]) == [4]
 
     def test_a_TILTED_face_is_reproduced_exactly(self):

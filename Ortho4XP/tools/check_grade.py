@@ -2807,6 +2807,122 @@ def _check_adjacent_ground_steps(ways: List[Way],
     return out
 
 
+# ── §41 (2) THE ZONE STANDING ON PAVEMENT ─────────────────────────
+#: The family key of the adjacent-ground zone strip standing on aircraft
+#: pavement (spec §41 (2); owner RULINGS 2026-09-13co item 2).
+ZONE_ON_PAVEMENT_FAMILY = "zone_on_pavement"
+
+#: The area of overlap above which a strip on pavement is CRITICAL and not
+#: emit rounding (spec §41 (2)).
+ZONE_ON_PAVEMENT_MIN_AREA_M2 = 0.5
+
+#: The AIRCRAFT-pavement roles a zone strip may never stand on — the
+#: emitter's own ``emit.terrace.shape_roles``.  NOTE (blast role-literal
+#: hazard): renaming a role VALUE in the v2 role register silently empties
+#: this set.  Roads, pads, buildings and groundside are NOT here: a zone
+#: band's stand-off from those is a different law (``zones.toml
+#: groundside_cutback_m``), already priced.
+_ZONE_ON_PAVEMENT_ROLES = frozenset({
+    "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
+    "stub", "cross_connector", "junction", "apron",
+})
+
+
+def _zone_on_pavement_area(strip, pavement) -> float:
+    """The m² of ``strip`` standing on the SOLID of the ``pavement``
+    polygons — the frame the law is stated in.
+
+    THE FRAME IS THE SOLID, AND THAT IS THE WHOLE READING.  A pavement
+    face's ring may enclose a large HOLE (HECA's ``primary_parallel:pav73``
+    is a loop: a 202,427 m² ring around a 162,110 m² hole), and the ground
+    inside that loop is LAWFUL adjacent ground.  Read ring-blind, HECA's
+    1.0.329 patch reports 74 strips / 586,619 m² "on pavement"; read in the
+    solid frame, which is what the ruling means, it reports 0.0 m².  A
+    ring-frame census here would demand the deletion of every band inside
+    a taxiway loop."""
+    from shapely.ops import unary_union
+    if strip is None or strip.is_empty or not pavement:
+        return 0.0
+    try:
+        return float(strip.intersection(unary_union(list(pavement))).area)
+    except Exception:                                     # pragma: no cover
+        return 0.0
+
+
+def _check_zone_on_pavement(ways: List[Way],
+                            nodes: Dict[str, Tuple[float, float]],
+                            ll_to_m,
+                            face_holes_m: Optional[dict] = None,
+                            min_area_m2: float = ZONE_ON_PAVEMENT_MIN_AREA_M2
+                            ) -> List[Violation]:
+    """§41 (2) — ZONES ARE CLIPPED OUT OF PAVEMENT (owner RULINGS
+    2026-09-13co item 2; spec §41 (2)): an ``adjacent_ground:*`` strip
+    standing on an aircraft-pavement face's solid is a defect the census
+    names, CRITICAL over ``min_area_m2``.
+
+    ONE ROW PER STRIP, its metric (``de_m``) the OVERLAP AREA in m² and no
+    grade priced — the defect is that two authorities own one patch of
+    ground, which breaks no pair law (``harness/census.py`` prices PAIRS OF
+    VALUES: a face lying flat on another reports zero rows however wrong
+    it is).  The face's HOLES come from the sidecar (``face_holes``), so
+    the reading is the solid frame; see :func:`_zone_on_pavement_area`.
+
+    Measured on the owner's 1.0.329 HECA patch: 0 rows — v2's
+    ``planar/zones.py`` already subtracts every cell at the zone's own
+    derivation site.  The family is the GUARD on that, and the instrument
+    the ruling is stated in."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    pav = []
+    for w in ways:
+        if w.role not in _ZONE_ON_PAVEMENT_ROLES:
+            continue
+        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        if len(pts) < 4:
+            continue
+        holes = (face_holes_m or {}).get(str(w.tags.get("shapeID"))) or []
+        try:
+            g = Polygon(pts, [h for h in holes if len(h) >= 4])
+            if not g.is_valid:
+                g = g.buffer(0)
+        except Exception:                                 # pragma: no cover
+            continue
+        if not g.is_empty:
+            pav.append(g)
+    if not pav:
+        return []
+    out: List[Violation] = []
+    for w in ways:
+        if not str(w.ref or "").startswith(V2_ADJACENT_GROUND_REF_PREFIX):
+            continue
+        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        if len(pts) < 4:
+            continue
+        try:
+            s = Polygon(pts)
+            if not s.is_valid:
+                s = s.buffer(0)
+        except Exception:                                 # pragma: no cover
+            continue
+        area = _zone_on_pavement_area(s, pav)
+        if area <= float(min_area_m2):
+            continue
+        try:
+            c = s.intersection(unary_union(pav)).representative_point()
+        except Exception:                                 # pragma: no cover
+            c = s.representative_point()
+        # the row's own site, in the row's own frame (RULINGS 2026-09-12aj (a))
+        lat, lon = _rate_row_site(ll_to_m, (c.x, c.y), (c.x, c.y))
+        v = Violation(
+            grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+            de_m=area, way_a=w, way_b=w,
+            pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
+        v.lat, v.lon = lat, lon
+        out.append(v)
+    out.sort(key=lambda v: -v.de_m)
+    return out
+
+
 # ── THE RUNWAY-EDGE TIE (RULINGS 2026-09-06p (1)/(3)) ─────────────
 #: The key of the geometric runway-edge tie family — the SAME key the v2
 #: verify reports under (``auto_patch_v2.verify.strips.FAMILY_STRIP_
@@ -7974,6 +8090,11 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     # bound — keyed on v2's ``adjacent_ground:*`` refs (``_check_runway_
     # edge_tie``); the v2 verify's family of the same key.
     ("strip_transverse", "RUNWAY-EDGE TIE (any vertex abeam a runway edge)", "within"),
+    # spec §41 (2): an adjacent-ground zone strip standing on aircraft
+    # pavement — an AREA row (``de_m`` is m²), read in the SOLID frame
+    # (``_check_zone_on_pavement``).
+    (ZONE_ON_PAVEMENT_FAMILY,
+     "ADJACENT-GROUND zone strip STANDING ON pavement", "within"),
     ("transverse", "TRANSVERSE (cross-corridor) grade", "within"),
     ("drainage_spine", "DRAINAGE SPINE at or above its LOWER pavement",
      "within"),
@@ -10497,6 +10618,17 @@ def run_checks(
         f"adjacent_ground face; spec §34 (4))",
         ag_steps, top_n)
     within = within + ag_steps
+
+    # spec §41 (2): the zone strip standing on aircraft pavement — an AREA
+    # row read in the SOLID frame (the face's sidecar holes applied)
+    zone_pav = _fam(ZONE_ON_PAVEMENT_FAMILY,
+                    _check_zone_on_pavement(ways, nodes, ll_to_m,
+                                            face_holes_m))
+    _pv(f"ADJACENT-GROUND zone strip STANDING ON pavement "
+        f"(> {ZONE_ON_PAVEMENT_MIN_AREA_M2:g} m2 of a strip over an "
+        f"aircraft-pavement face's SOLID; spec §41 (2))",
+        zone_pav, top_n)
+    within = within + zone_pav
 
     strip_seam_tears = _fam("strip_seam_tear",
                             _check_strip_seam_tears(vertices, ways, nodes))

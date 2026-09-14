@@ -4454,3 +4454,28 @@ HECA `concrete_3.obj` b1 (1,149 m) 73.83 → 95.55 on the T3 road deck
   knife-edge on float — `anchor_rule._m_per_deg` memoises on
   `int(lat·1e4)`, a midpoint sample poisons the key, the 50 m arc flips
   serially. Round the memo key or move the fixture.
+
+## 2026-09-13dg v2roles MERGED (a914cb64): shape 44 a runway shoulder, shape 93 an apron; shoulder cross-slope 2.5 % beyond the half-width; HECA ADJUDICATED +2,026 — the residual quoted for the owner
+
+Lane `v2roles` r2 @ 4cc18b3c. HECA build `v2roles_HECA_r2b` (ledger
+09ca36ca6c1a): `runway_transverse` DEFECT 2 → 0, no DEFECT family; suite
+1,349 twice. One accessor `law.tables.runway_transverse_cap` (runway cap
+inside the half-width, `rulesets.<authority>.runway.shoulder_transverse_max`
+0.025 beyond) priced by the generator, verify and the census; the sidecar
+publishes `runway_axes` + `shoulder_transverse_max`; the crown stops at the
+runway edge on all three channels.
+
+* MERGED UNGATED (29e/f), residual quoted: law-true 38,612 → 33,265
+  (−5,347) but ADJUDICATED 12,844 → 14,870 (+2,026): `airside_no_step`
+  +2,175 of which +1,442 (66 %) are pairs with the runway role — rows
+  moved into scope at the runway's no-step law because the runway GREW by
+  20 shoulder ways / 1,222 vertices (`runway|runway` 7 → 825, the
+  shoulder's inner edge against the slab) — the expected class; +733 touch
+  no runway (`junction|junction` +538 …) = §40 (2)'s re-kinded apron cells
+  + the merged v2zonehole/v2bankfoot, UNSEPARATED (the base arm predates
+  both; one build was the instruction). `within_shape` −1,921.
+* The owner may refuse: `git revert` of the merge. The 1.0.331 HECA read
+  of shape 44/93 is the acceptance.
+* Owed: `runway_shoulder` as a distinct role (`precedence.toml` + six
+  `RUNWAY_FAMILY` tuples); the hole-ring chip; a matched base at a5bb6be3
+  to split the +733.

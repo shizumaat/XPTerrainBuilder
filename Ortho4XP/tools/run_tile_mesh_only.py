@@ -26,7 +26,15 @@ carries (2026-09-10): a write the guard blocked and the engine swallowed
 is accepted KNOWINGLY, on the record, for this run only — it authorises
 NO write, and an unauthorised write that landed anyway still fails the
 run.  Use it when the blocked write is a manifest the frame did not
-depend on (the run's own log says what the frame actually resolved).  ``--patches-as-is`` (2026-09-04, v2 M2 mesh
+depend on (the run's own log says what the frame actually resolved).
+THE WINDOW IS NOT THE AUTHOR (2026-09-14, RULINGS 2026-09-01): the
+run passes its INPUT SET — ``shared_repo_guard.tile_input_scope``, the
+same ``BuildInputScope`` the build entry uses — so a delta a concurrent
+lane wrote OUTSIDE it (another tile's DEM / OSM / masks, another
+airport's road feed, a mod-cache PACK that has cached nothing for this
+tile or its neighbours) while this run's own guard blocked nothing is
+NAMED as an EXTERNAL CANDIDATE and does not fail the run; an in-scope
+delta still refuses (rc 1, CONTAMINATED).  ``--patches-as-is`` (2026-09-04, v2 M2 mesh
 A/B): step 1 does NOT resolve the X-Plane install paths, so auto_patch
 generation is skipped and the ``Patches/`` files ALREADY ON DISK are meshed
 exactly as they are — the deliberate measurement of a given patch's
@@ -87,7 +95,8 @@ if __name__ == "__main__":
     from shared_repo_guard import (SharedRepoWriteGuard, shared_repo_snapshot,
                                    snapshot_diff, report_unauthorised_writes,
                                    require_no_swallowed_write_block,
-                                   require_no_unauthorised_writes)
+                                   require_no_unauthorised_writes,
+                                   tile_input_scope)
     from build_airport import apply_xplane_install_paths
 
     IMG.initialize_extents_dict()
@@ -149,6 +158,34 @@ if __name__ == "__main__":
               "- steps 1-2 need no provider, continuing")
     print("build directory:", tile.build_dir)
 
+    # THE RUN'S INPUT SET (2026-09-14, RULINGS 2026-09-01 "the window is
+    # not the author"): the SAME ``BuildInputScope`` the build entry
+    # passes, derived for a whole tile through the one shared factory —
+    # this tile and its seam neighbours in both spellings, the road feeds
+    # of the airports the engine's own per-tile dictionary names (read
+    # off the CACHED airports layer, network-free; ``None`` when there
+    # is no cache, which keeps every road feed in scope), and the mod-
+    # cache packs that have cached anything for those tiles.  Measured
+    # 2026-09-13: a +40-004 LEMD run with ``guard.blocked`` EMPTY failed
+    # rc 1 as CONTAMINATED on 117 hash-keyed HECA-pack sidecars + 1 OTHH
+    # path a concurrent lane's object stage wrote — none of them a path
+    # this run reads.  With the scope they are named as EXTERNAL
+    # CANDIDATES (rc 0); an in-scope write still refuses.
+    def _tile_icaos():
+        from auto_patch import flat_site_mode as _fsm
+        return _fsm.tile_icao_candidates(
+            _fsm._dico_airports_from_cache(tile)) or None
+    try:
+        tile_icaos = _tile_icaos()
+    except Exception as exc:                # noqa: BLE001 — scope, not law
+        print(f"tile airports NOT enumerated ({exc!r}): every road feed "
+              f"stays in scope", flush=True)
+        tile_icaos = None
+    input_scope = tile_input_scope(
+        latitude, longitude, tile_icaos,
+        label=f"mesh-only {latitude:+03d}{longitude:+04d}")
+    print("build input set:", input_scope.record(), flush=True)
+
     # Nothing is authorised: this entry has no --refresh-data of its own.
     before = shared_repo_snapshot()
     guard = SharedRepoWriteGuard(set(), os.getcwd())
@@ -172,7 +209,11 @@ if __name__ == "__main__":
         # The audit runs even when a step raised — a build that died
         # halfway has still changed the corpus every other lane reads.
         changes = snapshot_diff(before, shared_repo_snapshot())
-        offenders = report_unauthorised_writes(changes, set(), None)
+        # ``blocked`` MUST ride along: a run whose own guard blocked
+        # anything externalises NOTHING (the whole-run veto).
+        offenders = report_unauthorised_writes(
+            changes, set(), None, blocked=guard.blocked,
+            input_scope=input_scope)
     if allow_degraded:
         print("--allow-degraded-dem: a guard-blocked write is ACCEPTED as a "
               "degraded frame for this run (it authorises no write)")

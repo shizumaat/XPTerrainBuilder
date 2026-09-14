@@ -4479,3 +4479,32 @@ runway edge on all three channels.
 * Owed: `runway_shoulder` as a distinct role (`precedence.toml` + six
   `RUNWAY_FAMILY` tuples); the hole-ring chip; a matched base at a5bb6be3
   to split the +733.
+
+## 2026-09-13dh v2roadcontact round 2: no groundside row binds an airside column (met, twinned); the objective residual accepted; closing build ordered before merge
+
+Lane `v2roadcontact` @ 9eaebbf8 (main 38dd98be). Matched replay pair,
+both arms at 38dd98be: ADJUDICATED airside 12,052 → 12,088 (+36),
+groundside 322 → 280, `road_cross_section` 40 → 30, `transverse` 777 →
+744; `route0` end +1.460 → +0.054 m; item-4 pair 1.30 → 0.04 m (1.3 %).
+KCLT (pair at a621b491): airside +71 (r1 +132), groundside 1,549 → 1,470,
+`road_cross_section` 373 → 304. Disarm arm byte-identical to base (md5
+210dfeb0…). The worst airside mover (0.610 m, apron at 30.1014237,
+31.3933314) is bound by NO row — the objective holds it; each law key
+moves airside alone in different places; +36 vs +1 for the same code on
+two bases; KCLT's own lag is unsettled at 0.24–0.32 m (13y (B)/13ab), three
+times the bar.
+
+* Mechanism closed: 8 of the 24 newly priced pairs came from the route
+  MERGE (not the ribbon rule) and touched airside — `road_route_merged`
+  published; a pair on a fused route or across the ribbon that touches a
+  mouth is minted one-way on the road vertex (`RIBBON_RULING`,
+  `[design] one_way_rulings`, never hard); a cross-ribbon pair with both
+  vertices airside is not minted; the §37 (6) target governs road-owned
+  vertices only (544 targets / 66 withdrawn, 0 airside).
+* RULING: "airside is king" for a road law = no groundside row binds an
+  airside column — MET. Surface invariance under a groundside change is
+  the STAGED SOLVE ("airside solves first, groundside conforms"), an
+  architecture item owed to the campaign, not this lane. +36/+71 accepted
+  and quoted.
+* ONE closing HECA build ordered on 9eaebbf8 (the one-way change was
+  never built); merge after.

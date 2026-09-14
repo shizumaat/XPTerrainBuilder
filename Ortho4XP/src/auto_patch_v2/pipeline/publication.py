@@ -10,11 +10,12 @@ vertices' canonical lat/lon identity so the census joins exactly.
   ``constraints.stretches``) as ``[[[lat, lon]…], cL, letter, ref]`` —
   the per-stretch pair law v2 verify re-composes (v1's oracle reads the
   stretch caps through ``axes``);
+* ``face_holes`` is NOT published here (RULINGS 2026-09-13da residual):
+  the emit's shore weld and sub-spacing merge reshape rings AFTER this
+  publication, so the patch writer derives the key from the surface it
+  writes (``emit/osm_adapter.face_holes_ll``) — the oracle's visibility
+  polygon is the face with the holes its EMITTED rings bound;
 * ``mesh_edges``: every junction-mesh face's triangle-mesh edges
-* ``face_holes``: every face's holes as ``[[lat, lon], ...]`` rings by
-  face id — the way's ``shapeID`` — so the v1 oracle's visibility polygon
-  is the face WITH its holes (RULINGS 2026-09-05ae(1)); a covered hole
-  ships no way of its own, so this is the oracle's only sight of it
   (RULINGS 2026-09-04y, ``constraints.junction_mesh``) as
   ``[[lat, lon], [lat, lon]]`` — the v1 oracle's JUNCTION MESH RULE
   consumes them 1:1 (``MeshEdgesExact``) and v2 verify prices exactly
@@ -124,24 +125,6 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
 
 
 
-def face_holes_ll(planar: PlanarMap) -> dict[str, list[list[list[float]]]]:
-    """Sidecar ``face_holes``: ``{face id: [hole ring [[lat, lon], ...], ...]}``
-    for every face that has a hole (module docstring; RULINGS
-    2026-09-05ae(1))."""
-    out: dict[str, list[list[list[float]]]] = {}
-    for fid, f in sorted(planar.faces.items()):
-        if not f.holes:
-            continue
-        rings = []
-        for h in f.holes:
-            ids = list(planar.ring_vertices(h))
-            if len(ids) >= 3:
-                rings.append([[planar.vertices[v].key[0], planar.vertices[v].key[1]]
-                              for v in ids])
-        if rings:
-            out[str(fid)] = rings
-    return out
-
 def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                  z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
     """§30 (4): one record per TERMINAL CLUSTER — its id, its members, the
@@ -153,11 +136,16 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
 
     Read off the SAME derivations the rows were priced from
     (``constraints.cluster_pad``), never a second reading of the law."""
-    from ..constraints.cluster_pad import (YIELDED, cluster_apron_faces,
-                                           cluster_pad_faces, plane_groups)
+    from ..constraints.cluster_pad import (DERIVED, OFFSET_SPREAD, REFERENCE,
+                                           YIELDED, cluster_apron_faces,
+                                           cluster_offsets, cluster_pad_faces,
+                                           plane_groups)
     faces = cluster_pad_faces(planar, law, airport)
     if not faces:
         return []
+    # §16g (8): fill REFERENCE / DERIVED / OFFSET_SPREAD for the report —
+    # the SAME call the rows were priced from, never a second reading
+    cluster_offsets(planar, law, airport)
     reach = cluster_apron_faces(planar, law, airport)
     vs_of = {ref.split("cluster:", 1)[1]: group
              for _f, ref, group, _q in plane_groups(planar, law, airport)
@@ -187,7 +175,22 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                     # plane and the report names them
                     "yielded_pads": sorted(
                         {planar.faces[q].ref for q in YIELDED.get(cid, ())
-                         if q in planar.faces})})
+                         if q in planar.faces}),
+                    # §16g (8) (owner RULINGS 2026-09-14u): the pads this
+                    # cluster DERIVED from its reference, by the bodies'
+                    # authored floor offsets, and the reference itself
+                    "reference_pad": (
+                        planar.faces[REFERENCE[cid]].ref
+                        if cid in REFERENCE and REFERENCE[cid] in planar.faces
+                        else None),
+                    "derived_pads": {
+                        planar.faces[f].ref: d
+                        for f, d in sorted(DERIVED.get(cid, {}).items())
+                        if f in planar.faces and d},
+                    "pad_offset_spread": {
+                        planar.faces[f].ref: OFFSET_SPREAD[f]
+                        for f in sorted(OFFSET_SPREAD)
+                        if f in fids and f in planar.faces}})
     return out
 
 
@@ -285,7 +288,6 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "terrace_joints": terrace_joints_ll(planar, law, z),
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh,
-            "face_holes": face_holes_ll(planar),
             "airside_no_step_edges": edges,
             "pad_pavement_no_step_edges": pad_edges,
             # §38 (1)/(5): ``[lat, lon, the vertex's OWN tile's baked DEM

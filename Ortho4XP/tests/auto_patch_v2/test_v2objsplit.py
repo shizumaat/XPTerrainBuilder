@@ -2694,6 +2694,57 @@ def test_a_member_standing_in_the_pit_is_a_floor_body_not_a_rim_one():
     assert BR.member_kind(0.08, 0.0, tol) == BR.RING
 
 
+def _m_per_deg_cold(lat: float) -> tuple[float, float]:
+    """The formula behind ``anchor_rule._m_per_deg``, unmemoised."""
+    import math
+    r = math.radians(lat)
+    return (111_132.954 - 559.822 * math.cos(2 * r) + 1.175 * math.cos(4 * r),
+            111_412.84 * math.cos(r) - 93.5 * math.cos(3 * r))
+
+
+def test_m_per_deg_memo_is_exact_and_order_independent():
+    """RULINGS 2026-09-13df chip (lane ``memokey``): ``_m_per_deg`` used to
+    key on ``int(lat * 1e4)`` and store the FIRST caller's value, so
+    ``union_area_m2`` sampling a slab midpoint at 40.00009 N left key
+    400000 holding 85393.88093 where a cold call at 40.0 gives
+    85393.93697 — and ``test_a_basin_wall_follows_its_ring_...`` flipped
+    serially after ``test_v2connector``.  Now the value under a key is
+    the formula AT THE KEY'S LATITUDE: whoever asks first, every caller
+    that lands on a key reads the same number, and the number is what a
+    cold call at that latitude reads."""
+    memo = AR._MPD
+    saved = dict(memo)
+    try:
+        # the same key (round(lat * 1e4) == 400000), asked in both orders,
+        # and a neighbour key: every reading is the cold formula at the
+        # key's own latitude, never at the caller's.
+        pairs = [(40.0, 40.00004), (40.00004, 40.0), (40.0, 40.00009),
+                 (40.00009, 40.0), (-12.0322, -12.03215)]
+        for first, second in pairs:
+            memo.clear()
+            a1 = AR._m_per_deg(first)
+            b1 = AR._m_per_deg(second)
+            memo.clear()
+            b2 = AR._m_per_deg(second)
+            a2 = AR._m_per_deg(first)
+            assert a1 == a2 and b1 == b2, (first, second, a1, a2, b1, b2)
+            for lat, got in ((first, a1), (second, b1)):
+                key_lat = round(lat * AR._MPD_KEYS_PER_DEG) / AR._MPD_KEYS_PER_DEG
+                assert got == _m_per_deg_cold(key_lat), (lat, got, key_lat)
+        # the precedent, verbatim: the midpoint caller first, then 40.0 —
+        # the fixture's 50 m ring node reads 50.0 either way.
+        memo.clear()
+        AR._m_per_deg(40.00009)
+        _ml, mo = AR._m_per_deg(40.0)
+        memo.clear()
+        assert (_ml, mo) == AR._m_per_deg(40.0)
+        assert mo == _m_per_deg_cold(40.0)[1]
+        assert not ((50.0 / mo) * mo < 50.0)
+    finally:
+        memo.clear()
+        memo.update(saved)
+
+
 def _ring_fixture(tmp_path):
     """A pit whose CUT RING follows a stepped apron (§24 (1)): a 112 x 18 m
     rectangle whose western half stands at 100.0 and eastern half 1.5 m

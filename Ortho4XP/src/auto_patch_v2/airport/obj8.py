@@ -344,6 +344,37 @@ class ResourceCache:
         #: the pack is read once, not twice).
         self.placed: dict[str, object] = {}
 
+    # ── the SMALL derived readings, carried across a cached partition ──
+    #    (lane ``v2cost2``, owner RULINGS 2026-09-14v).  The parsed
+    #    geometry is never cached — it is the 985 MB the recipe rule
+    #    refuses — but the per-resource READINGS derived from it are
+    #    kilobytes and are what classify would otherwise re-derive: the
+    #    skirt readings (each one a plan ``union_all`` over the
+    #    resource's triangles) and the two numpy summaries.  Pure in the
+    #    pack and the law, which is exactly what the partition cache's
+    #    fingerprint pins.
+    def derived_state(self) -> dict:
+        """The per-resource readings worth storing (note above).  Never
+        ``_geom`` / ``_comps`` (the parse) and never ``placed`` (the
+        caller holds those objects itself)."""
+        return {"skirt": dict(self.skirt), "range": dict(self._range),
+                "bounds": dict(self._bounds)}
+
+    def restore_derived(self, state: dict | None) -> int:
+        """Put :meth:`derived_state` back on a fresh cache; returns how
+        many readings were restored.  Unknown keys are ignored, so an
+        older payload restores what it has."""
+        if not state:
+            return 0
+        n = 0
+        for key, memo in (("skirt", self.skirt), ("range", self._range),
+                          ("bounds", self._bounds)):
+            got = state.get(key)
+            if got:
+                memo.update(got)
+                n += len(got)
+        return n
+
     def geometry(self, path: str) -> ObjGeometry | None:
         if path not in self._geom:
             try:

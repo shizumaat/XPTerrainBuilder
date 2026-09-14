@@ -112,7 +112,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "seam_half_width_m",
     "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
-    "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon (``publication.face_holes_ll``)
+    "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon.  Derived by ``write_patch`` from the surface IT WRITES (``face_holes_ll``), never from the planar map (RULINGS 2026-09-13da residual: 782 sub-spacing merges after publication left stale hole rings that minted ``zone_on_pavement`` slivers)
     "design",         # RULINGS 2026-09-08t/v: the design surface's residual per family (replaces ``law_tiers``)
     "design_target",  # RULINGS 2026-09-08t/v: one record per law row the surface missed — the census's ``design_target`` heading
     "pad_relief",  # owner RULINGS 2026-09-11j (spec §11a (2)/(4)): per pad vertex, the metres the terrain stands above the pad's LEVEL — the relief a body's authored feet ask for.  The pad's flatness READER measures on the level plane with these subtracted (``verify/pads.relief_offsets``); without them every relief pad reads as a plane-residual row.
@@ -898,6 +898,36 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
                        breaklines=tuple(breaks))
 
 
+def face_holes_ll(surface: GradedSurface) -> dict[str, list[list[list[float]]]]:
+    """Sidecar ``face_holes``: ``{face id: [hole ring [[lat, lon], ...], ...]}``
+    for every face of ``surface`` that has a hole — the way's ``shapeID``
+    is the face id, and the coordinates are the vertices' own ``ll``, the
+    identity the nodes are written at (RULINGS 2026-09-05ae(1)).
+
+    READ OFF THE EMITTED SURFACE, NOT THE PLANAR MAP, and that is the
+    whole point.  Until RULINGS 2026-09-13da the key was published by
+    ``pipeline/publication`` from the planar map, BEFORE ``weld_to_shore``
+    and ``merge_sub_spacing`` reshaped the rings: a hole-ring vertex the
+    merge folded into its 0.4996 m neighbour stayed in the sidecar while
+    every emitted ring (the host's, the zone strip's that shares the hole
+    boundary) had lost it, and the census's solid frame — exterior minus
+    the STALE hole — gained a 0.5 m-wide sliver the strip "stood on":
+    HECA ``primary_parallel:pav73#45`` over ``adjacent_ground:taxi:F:
+    zone1#5``, 35.5 m² of the 52.3 m² / 3 rows the family reported, with
+    the arrangement a clean partition and the patch's own rings
+    consistent.  A covered hole ships no way of its own, so this is the
+    oracle's only sight of it: it has to be the hole the rings bound."""
+    ll = {v.id: v.ll for v in surface.vertices}
+    out: dict[str, list[list[list[float]]]] = {}
+    for f in sorted(surface.faces, key=lambda f: f.id):
+        rings = [[[float(ll[i][0]), float(ll[i][1])] for i in h if i in ll]
+                 for h in f.holes]
+        rings = [r for r in rings if len(r) >= 3]
+        if rings:
+            out[str(f.id)] = rings
+    return out
+
+
 def render_sidecar(law: Law, sidecar: _t.Mapping[str, _t.Any] | None) -> dict:
     """The sidecar document: the given keys (⊆ ``SIDECAR_KEYS``) plus
     ``ruleset`` and the always-empty declarations."""
@@ -925,7 +955,14 @@ def write_patch(surface: GradedSurface, law: Law, out_dir: str | Path,
     patch = out / f"{surface.icao}_auto.patch.osm"
     patch.write_text(text)
     side = Path(str(patch) + ".axes.json")
-    side.write_text(json.dumps(render_sidecar(law, sidecar), separators=(",", ":")))
+    # THE HOLES ARE THE HOLES OF THE RINGS THIS WRITER WRITES (RULINGS
+    # 2026-09-13da residual; spec §41 (2)): derived here from ``surface``,
+    # after every pass that reshapes a ring (``weld_to_shore``,
+    # ``merge_sub_spacing``), so the census's solid frame is the emitted
+    # frame.  A ``face_holes`` the caller published earlier is superseded.
+    doc = dict(sidecar or {})
+    doc["face_holes"] = face_holes_ll(surface)
+    side.write_text(json.dumps(render_sidecar(law, doc), separators=(",", ":")))
     graded = out / f"{surface.icao}.graded.json"
     graded.write_text(surface.to_json(z_dp=z_decimals(law)))
     return PatchPaths(patch, side, graded, n_ways, n_nodes,

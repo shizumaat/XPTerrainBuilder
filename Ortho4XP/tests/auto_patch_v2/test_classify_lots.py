@@ -442,3 +442,50 @@ def test_a_metre_of_road_is_noise_not_evidence(law):
     src, rules = _ribbon_source(law, road_m=4.0)
     assert src.road_m < rules.osm_roads.min_len_m, src.road_m
     assert src.cls != "strip", (src.cls, src.reason)
+
+
+# ── a remainder keeps its page's description ────────────────────────────
+# ``evidence._dsf_pavements`` admits a DSF page mostly on apt.dat pavement
+# as its remainder pieces ``<id>#k``; ``classify_sources`` looks the
+# description up by the PAGE id (the ``#k`` stripped at that one site).
+# §42 (3) ruled it for ``dsf:objpav`` (RULINGS 2026-09-13cv); the ``.pol``
+# gap (RULINGS 2026-09-13dc chip) is repaired by lane polremainder — before
+# it every ``.pol`` remainder classified with an EMPTY description: no
+# apron-name match, no taxi name.
+
+def _split_page_airport(pid: str, description: str):
+    """A 420 x 40 m DSF page ``pid`` lying 95 % on the synthetic apron
+    (>= ``dsf_pavement.overlay_fraction``): an overlay whose difference is
+    TWO 10 x 40 m remainder pieces (400 m2 each, >= ``remainder_min_m2``),
+    one off each end of the apron."""
+    a = _synthetic(gate=True)
+    page = Pavement(pid, Surface.ASPHALT, _rect(290.0, 380.0, 710.0, 420.0), (),
+                    description)
+    return _dc.replace(a, pavements=a.pavements + (page,))
+
+
+@pytest.mark.parametrize("pid", ["dsf:pol0", "dsf:objpav0"])
+def test_a_split_page_keeps_its_description_on_every_piece(law, pid):
+    rules = load_rules()
+    a = _split_page_airport(pid, "Taxiway Q")
+    ev = build_evidence(a, rules, law.tables.structures.building_pad.min_area_m2)
+    pieces = {i: g for i, g in ev.pavement_polys if i.startswith(pid)}
+    assert set(pieces) == {f"{pid}#0", f"{pid}#1"}, sorted(pieces)      # split, not kept whole
+    assert all(g.area == pytest.approx(400.0, rel=0.01) for g in pieces.values())
+    recs = {r.id: r for r in classify_sources(a, ev, rules)[0]}
+    for sid in pieces:
+        assert recs[sid].description == "Taxiway Q", (sid, recs[sid].description)
+        assert recs[sid].taxi_name == "taxiway" and recs[sid].taxi_designator == "Q", sid
+    # the page's own id is NOT a source: the remainder pieces are
+    assert pid not in recs
+
+
+def test_an_apt_page_is_still_read_under_its_own_id(law):
+    """The strip never touches an id without ``#``: an apt.dat 110 page
+    keeps its own description, and a page with none reads as ''."""
+    rules = load_rules()
+    a = _named_apron_airport("GA Apron")
+    ev = build_evidence(a, rules, law.tables.structures.building_pad.min_area_m2)
+    recs = {r.id: r for r in classify_sources(a, ev, rules)[0]}
+    assert recs["named"].description == "GA Apron"
+    assert recs["apron"].description == ""

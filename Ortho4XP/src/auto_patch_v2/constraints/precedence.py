@@ -19,7 +19,7 @@ import typing as _t
 from ..law import Law
 from ..law.tables import role_cap, role_family, role_side
 from ..model.constraints import Diff, Flat, Linear, Offset, Pin, Row
-from ..model.planar import Face, PlanarMap, vertex_tier
+from ..model.planar import Face, PlanarMap, face_vertex_ids, vertex_tier
 from .geometry import ring_vertex_ids
 
 __all__ = ["face_cap", "View", "view", "row_tier"]
@@ -39,7 +39,7 @@ class View:
     pm: PlanarMap
     law: Law
     xy: dict[int, tuple[float, float]]
-    rings: dict[int, list[int]]                 # face -> outer ring ids (open)
+    rings: dict[int, list[int]]                 # face -> outer ring ids (open) — RING CHORDS only; a per-vertex law reads ``face_vertices``
     holes: dict[int, list[list[int]]]           # face -> hole rings (open)
     caps: dict[int, tuple[float, float] | None]  # face -> (cL, cT) | None
     vertex_faces: dict[int, tuple[int, ...]]
@@ -54,6 +54,13 @@ class View:
 
     def face_ring_xy(self, fid: int) -> list[tuple[float, float]]:
         return [self.xy[v] for v in self.rings[fid]]
+
+    def face_vertices(self, fid: int) -> list[int]:
+        """THE face's vertex set — its outer ring AND its hole rings, each
+        vertex once (``model.planar.face_vertex_ids``, the one accessor the
+        verifier's ``Shape.vertex_ids`` shares).  A law stated per VERTEX of
+        a face reads this; ``rings[fid]`` alone is the outer ring's CHORDS."""
+        return face_vertex_ids(self.rings[fid], self.holes[fid])
 
     def faces_of_role(self, roles: _t.Container[str]) -> list[Face]:
         return [f for f in self.pm.faces.values() if f.role in roles]

@@ -4662,3 +4662,61 @@ datum ± `hard_tol_m`); the terminal at 30.1279552, 31.403143 on its pad, not
 the deck; the elevated rail seated at its low end, named; KCLT/OTHH/LEMD/SPJC
 unit censuses before → after (units up, bodies per unit down, every
 per-unit zero spread 0.00); the SPJC viaduct (13df) unchanged at 19.56.
+
+### §16g (8) THE PADS UNDER A CONNECTED UNIT FOLLOW THE SEATED BODIES (owner RULINGS 2026-09-14u; Fable 2026-09-14) — lane `v2connector`
+
+MEASURED (14o): with true outlines HECA's T3 district still chains across
+23 pads spanning 29.99 m because its footprints genuinely touch end to end
+— lawful under (7) (1).  One datum for a district whose pads span 30 m
+floats its bodies against their own pads.
+
+1. For a unit whose members stand on several `building` pads, each pad's
+   level is DERIVED from the unit: pad = unit datum + the authored floor
+   offset of the bodies standing on that pad (the cluster pad, §30 (4)–(5),
+   is the datum plane at the reference pad — the pad the datum body stands
+   on).  The design surface takes the pads from the objects: the pad rows
+   for those pads become targets at the derived level (hard, `hard_tol_m`),
+   the ground between pads terraces by the ground law (§23, declared
+   joints), and no body floats.  The pack author's terracing wins.
+2. A pad shared by bodies with DIFFERENT authored floor offsets (a split-
+   level building on one pad) takes the LOWEST offset and the census names
+   the spread (`pad_offset_spread`).
+3. The seat stays 13cb's invariant: unit datum + authored offset per body.
+
+BARS (HECA, the r4 frame): the 17 pad-spanning units → every member body
+within `hard_tol_m` of its own pad (bodies > 0.02 m off their pad: count
+before → after, per unit); `fu:38:23` (23 pads / 579 bodies) all members on
+their pads; the seven buildings + the terminal at 30.1279552, 31.403143 on
+their pads; declared terrace joints between derived pads named with their
+steps; airside vertices moved 0; SPJC viaduct 19.56 unchanged; ONE HECA build.
+
+### §16g (9) ONE POPULATION; (10) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x; Fable 2026-09-14) — lane `v2connector`
+
+(9) ONE POPULATION.  The design-surface cluster IS the object-stage unit:
+one derivation (`plan_clusters` adopts §16g (7)'s relation, footprint
+outlines at `footprint_touch_m`); the FAMILY_* gates go; `cluster_pad_min_m2`
+stays only as the threshold for emitting a cluster pad.
+
+(10) THE PAD IS THE CLUSTER.  "Pads must match building clusters … they
+should match exactly."
+1. A CLUSTER is ONE BUILDING: bodies chain only if their footprints touch
+   (7) AND their authored floor levels agree within `floor_split_m` (0.5 m).
+   A touching body at a different authored floor is a different building —
+   its own cluster, its own pad — and the difference is a declared terrace
+   step between the two pads.
+2. The design surface's `building` PAD is DERIVED from the cluster: one pad
+   per cluster, its footprint = the cluster's outline union, one level.  The
+   footprint-cache pads are the fallback only where the plan has no cluster
+   (a resource the object stage skips).
+3. A pad spanning two clusters, or a cluster spanning two pads, is
+   `pad_cluster_mismatch` (CRITICAL): a misidentified shape, never seated
+   over.  (8)'s derived offsets within a unit are narrowed to the steps
+   between touching clusters' pads.
+
+BARS (HECA, ONE build): `pad_cluster_mismatch` 0; every body within
+`hard_tol_m` of its own pad (bodies > 0.02 m off: count before → after); the
+T3 district resolved into N clusters = its distinct floor levels, each on its
+own pad (named); the seven buildings + the terminal at 30.1279552, 31.403143
+on their pads; terrace steps between touching clusters named; KCLT dry:
+the terminal's cluster pad and its members' seats unchanged (13bo, the
+control); SPJC 19.56 dry; airside 0; suite twice.

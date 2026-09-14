@@ -31,7 +31,7 @@ __all__ = [
     "pair_is_transverse", "station_indices", "longitudinal_runs",
     "rect_ring", "point_in_ring", "point_in_rect_ring", "project_to_chain",
     "TransectShape", "TransectAxis", "Transect", "walk_transects",
-    "polyline_length", "face_cover", "chords_covered",
+    "polyline_length", "face_cover", "chords_covered", "chord_midpoints_hit",
 ]
 
 
@@ -78,6 +78,36 @@ def chords_covered(poly, segments: _t.Sequence[tuple[XY, XY]]) -> list[bool]:
     lines = shapely.linestrings(np.asarray(segments, float))
     shapely.prepare(poly)
     return [bool(b) for b in shapely.covered_by(lines, poly)]
+
+
+def chord_midpoints_hit(poly, segments: _t.Sequence[tuple[XY, XY]]):
+    """The SOUND PRE-SCREEN for :func:`chords_covered`: which of
+    ``segments`` have their MIDPOINT touching ``poly``, as one vectorised
+    ``intersects_xy`` over the midpoint coordinates.
+
+    A segment ``poly`` covers holds EVERY point of itself, its midpoint
+    included, so a midpoint that misses REFUTES the cover — the screen
+    can only reject chords :func:`chords_covered` would reject, and the
+    survivors are still judged by the full predicate.  ``intersects_xy``
+    (not ``contains_xy``) is the right half: a midpoint ON the boundary
+    belongs to a chord the cover may still hold, and ``contains_xy``
+    would call it a miss.
+
+    Returns a numpy bool array (all ``True`` when ``poly`` is ``None``),
+    so the caller can defer building anything for the rejected chords —
+    which at OTHH is 1.44 M of 1.67 M (RULINGS 2026-09-14q)."""
+    import numpy as np
+    import shapely
+    n = len(segments)
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+    if poly is None:
+        return np.ones(n, dtype=bool)
+    seg = np.asarray(segments, float)
+    mx = 0.5 * (seg[:, 0, 0] + seg[:, 1, 0])
+    my = 0.5 * (seg[:, 0, 1] + seg[:, 1, 1])
+    shapely.prepare(poly)
+    return np.asarray(shapely.intersects_xy(poly, mx, my), dtype=bool)
 
 
 # ── ring walks ───────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import typing as _t
 from ..emit.surface import GradedSurface
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap, role_side
+from ..model.planar import face_vertex_ids
 
 __all__ = ["R_EARTH", "Shape", "Patch", "Row", "row", "noise_m"]
 
@@ -47,10 +48,23 @@ class Shape:
     #: a ``structure_rim`` feature: a closed ring (True) or an open chain
     #: whose ends stand on the ramp's top corners (a U void)
     feature_closed: bool = True
+    #: a face shape's HOLE rings (open vertex ids) — the face's own
+    #: vertices, read by the per-vertex runway laws through ``vertex_ids``
+    holes: tuple[tuple[int, ...], ...] = ()
 
     @property
     def closed_ring(self) -> tuple[tuple[float, float, float], ...]:
         return tuple((x, y, zz) for (x, y), zz in zip(self.xy, self.z))
+
+    @property
+    def vertex_ids(self) -> tuple[int, ...]:
+        """THE face's vertex set — outer ring AND hole rings, each vertex
+        once, through ``model.planar.face_vertex_ids`` (the generators'
+        own ``View.face_vertices``; lane ``rwyholes``).  A law stated per
+        VERTEX of a face (the runway crown, the transverse maximum) prices
+        THESE; ``ids`` / ``xy`` / ``z`` remain the outer ring's CHORDS for
+        the ring-pair readers.  Coordinates: ``Patch.xy`` / ``Patch.z``."""
+        return tuple(face_vertex_ids(self.ids, self.holes))
 
 
 @_dc.dataclass(frozen=True)
@@ -122,7 +136,8 @@ class Patch:
                                 tuple(z[i] for i in f.ring), None,
                                 f.code_letter, f.code_number,
                                 f.role == "runway",
-                                (law_caps or {}).get(f.id)))
+                                (law_caps or {}).get(f.id),
+                                holes=tuple(tuple(h) for h in f.holes)))
             for h in f.holes:
                 k += 1
                 feats.append(Shape(-k, "", f.ref, tuple(h),

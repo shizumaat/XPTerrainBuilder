@@ -5195,3 +5195,222 @@ NOT MET (predicted ≈ 272). Left for a ruling: the trailing
 `unary_union(parts)` over already-disjoint parts (3 sites) →
 `shapely.multipolygons` would skip a GEOS overlay but may reorder
 members — needs a patch-level identity gate, not `structures.json`.
+
+## 2026-09-14u Owner rulings: (1) the OTHH under-building tunnel — push the MOUTH away from airside so the ramp holds the cap and reaches full depth; (2) "the pads under a connected unit take their level from the seated bodies … the pack author's terracing wins" APPROVED
+
+Owner, verbatim: "1. For the OTHH under building tunnel, when the ramp
+can't reach airside, push the mouth away from airside enough to
+maintain grade cap, allowing ramp to reach full depth under the
+building. 2. 'the pads under a connected unit take their level from the
+seated bodies so nothing floats and the pack author's terracing wins'
+approved"
+
+* §34 (8) AMENDED (supersedes the portal rule of 14p): when
+  `stop_and_steepen` cannot reach the ground inside `max_ramp_grade`
+  before airside pavement, the MOUTH MOVES AWAY from the airside edge
+  (toward / under the building) by the length the cap needs — the
+  trench lengthens, the ramp runs at the cap from the moved mouth and
+  reaches full depth under the building; no portal step; airside never
+  pulled. Lane `v2othhfix`.
+* §16g (8) / §30 (6): for a unit whose members stand on several pads,
+  each pad's level is DERIVED from the seated unit — pad = unit datum +
+  the authored floor offset of the bodies on that pad (the cluster pad
+  is the datum plane at the reference pad); the ground between pads
+  terraces by the ground law; no body floats. The design surface takes
+  the pads from the objects, not the objects from the pads. Lane
+  `v2connector` r5.
+
+## 2026-09-14v v2cost2 MERGED (55cf0fe3): OTHH patch 632 → 328 s, byte-identical; the 1.05 GB partition cache REFUSED for the shared mod cache — round 2 stores the recipe
+
+Lane `v2cost2` @ 12b29e6c. Matched OTHH triple (base / cold / warm), one
+tree: patch body sha `72d4ec0e08f2`, rebake `54dec648b384`, graded
+`2edde5f05242` identical on all three; CYXY `018092d831df` identical;
+suite 1,415 on main. Cuts: (1) `airport/partition_cache.py` —
+`read_objects` + `partition_pack` + `clusters` keyed on the dump stat,
+every pack `.obj`, law digest + ruleset, frame, radius AND the source
+bytes of the 14 producing modules: partition 313.6 → 8.4 s warm (cold
+288.9); the write is the `o4_object_footprints` class (a derived,
+self-invalidating cache in the pack's mod-cache folder), not a
+`--refresh-data` act — BUT the file is 1.05 GB (985 MB = the placed pack
+geometry `extend_partition` indexes) and `classify` 7.9 → 75.8 s on a
+hit (the parse moved); net partition+classify 321 → 84 s. (2) `contact`
+screens in place (cold −25 s); `skirt._plan_union` premise REFUTED (272
+calls, already one `union_all`, the time is GEOS). (3)
+`apron_within_shape` chords reserved and minted after the cover, midpoint
+pre-screen by `intersects_xy`: constraints 94 → 73 s warm. (4) verify:
+`chords_outside_face` memoised per `Patch` (the same patch was asked
+twice, 45.6 s); per-family `verify.wall_s` in the report (`within_shape`
+50.9); the PlanarMap-publication route was unsound (different
+populations) — not taken. (5) `pad_majority` boxes hoisted (plan stage
+223 → 206 s); the 14q attribution does not reproduce in the dry frame —
+the sinks there are `placement_contact._seg_gap2` (53 s),
+`comp_cluster` (57), `split_obj8` (96) — owed; `_inside` → `contains_xy`
+not byte-identical (ray cast vs GEOS boundary), not done. (6) VHHH
+`extend_partition` located (`contact.extend:781-783`, a full base-part
+scan per new part), NOT measured — owed. (7) the unclocked 105 s =
+`road_law_caps` + a second `Patch.of` + `apron_over_preference` after
+the verify clock: `census_frame` hands the pipeline its `Patch`;
+`wall["total"]` is the run's wall; `unclocked` 38.8 → 1.24 s.
+
+* RULING: 1.05 GB per pack-tile in the shared mod cache is REFUSED —
+  the cache stores the RECIPE (resource id + placement + part index)
+  and re-places the few members `extend` touches; ≤ 60 MB; and the
+  `classify` regression closed (warm partition+classify ≤ 40 s). Lane
+  `v2cost2` r2 BEFORE app 1.0.333 ships the cache.
+
+## 2026-09-14w v2connector round 5: §16g (8) implemented and INERT at HECA — the design-surface CLUSTER and the object-stage UNIT are two populations; `airport.clusters` is EMPTY at HECA solve time — ruled: one population; lane r6
+
+Lane `v2connector` @ 2e97d822 (HECA build `HECA_20260914T104957`, rc
+0, byte-for-byte round 4's pad census). `PlanCluster.floors` (authored
+`base_y` per box), `cluster_pad.cluster_offsets` (reference = the
+plurality pad, the one `pad_plurality` hands the unit; lowest floor on
+a shared pad; `pad_offset_spread`), `pads._pad_rows` folds the offsets
+into the existing `rel=` channel (no new row kind), publication
+reports `reference_pad` / `derived_pads`. Suite 1,415 twice. BUT
+`pad_flats.cluster_cross_links = 0` at HECA — no §30 (4) cluster-pad
+group forms, so the derivation is unreachable. Two causes: (a)
+`cluster_pad.py`'s docstring ("the same relation the object stage
+binds with") is FALSE — `plan_clusters` uses part BOXES at
+`contact_eps_m` 0.002 m with the FAMILY_MIN_MEMBERS / FAMILY_SHARE_MIN
+/ `cluster_pad_min_m2` gates; the object stage uses footprint OUTLINES
+at `footprint_touch_m` 0.5 m with no gates (§16g (7)); (b)
+`airport.clusters` is EMPTY at HECA solve time although
+`plan_clusters` on the same plan returns 2 clusters (largest 926,525
+m²) — a load/planar wiring gap in `planar/cluster.py` / `load.py`
+(possibly the partition cache path — v2cost2 merged after the lane's
+base). The lane owns the census miss (a docstring read, not a
+measurement — `comment-prose-may-describe-unlanded-state`).
+
+* RULING §16g (9): ONE POPULATION. The design-surface cluster IS the
+  object-stage unit: `plan_clusters` adopts the §16g (7) relation
+  (footprint outlines at `footprint_touch_m`), one derivation for
+  both; the family gates go; `cluster_pad_min_m2` (5,000 m²) stays as
+  the threshold for emitting a cluster PAD (§30 (4)–(5): the touching
+  component's plane, now the reference pad + the §16g (8) derived
+  pads). Consumer census of every cluster reader in ONE table first —
+  KCLT's load-bearing cluster pad (the passengers on the terminal
+  floor, 13bo) is the control that must not move.
+* The wiring gap (b) is measured FIRST (why `airport.clusters` is
+  empty at HECA — is it the gates, the cache, or the load path) — it
+  may alone be why HECA has no cluster pads; lane granted
+  `planar/cluster.py` and the cluster wiring in `airport/load.py` /
+  `pipeline/build.py` (coordinate with v2cost2 r2 on `load.py`).
+
+## 2026-09-14x Owner: "pads must match building clusters, no building, or cluster can span multiple pads, if it does, it means we didn't identify the building shape or cluster correctly. They should match exactly." — §16g (10) THE PAD IS THE CLUSTER; §16g (8) narrowed
+
+Owner, verbatim: "Agreed, pads must match building clusters, no
+building, or cluster can span multiple pads, if it does, it means we
+didn't identify the building shape or cluster correctly. They should
+match exactly."
+
+* RULING §16g (10): the design surface's `building` PAD IS the
+  cluster's footprint — one pad per cluster, exactly its outline
+  union, one level; and a cluster is ONE BUILDING: bodies chain into a
+  cluster only if their footprints touch (§16g (7)) AND they share one
+  authored floor level (within `floor_split_m`, 0.5 m — a body
+  touching at a different authored floor is a different building, its
+  own cluster, its own pad, joined by a declared terrace step). A pad
+  spanning two clusters, or a cluster spanning two pads, is a census
+  CRITICAL (`pad_cluster_mismatch`) — a misidentified shape, never
+  seated over. §16g (8)'s "derived pads within a unit" is NARROWED to
+  this: the offsets between touching clusters ARE the steps between
+  their pads. HECA's 23-pad T3 district must resolve into as many
+  clusters as it has floor levels, each on its own pad.
+* Lane `v2connector` r6 (brief amended): the pad geometry is DERIVED
+  from the cluster (the pad stage reads `airport.clusters`; the
+  footprint-cache pads are the fallback where no cluster exists);
+  consumer census of every pad reader; KCLT control.
+
+## 2026-09-14y v2roles round 3 MERGED: the VHHH tunnel is back (§40 (4) — a shoulder manufactures no region); a THIRD region site found by the census
+
+Lane `v2roles` @ e69c0d31. The one table (§40 (4) MEASURED): every
+`RUNWAY_FAMILY` reader ruled SURFACE or REGION; region sites =
+`structures.py` `strip_u`, `zones.py` band groups, AND
+`shapes.py:138-150 strip_keepout` (the joint keep-out — not named by
+the VHHH read); one predicate `is_runway_shoulder(cell)` at those
+three. VHHH structures, matched arms: tunnels 27 → 28 (`tunnel:-3365+
+-532@0`, decks `dsf:obj5950/5951`, 30 stations), basins 71 → 70
+(`basin:5` gone at 22.30367635, 113.92917437). VHHH closing build
+(registered; no ledger key — an external-candidate delta from
+v2othhfix's window): the `tunnel_ramp` way −10488 back with 62 nodes
+2.22 → 7.31 and the open wall −11230 (69 nodes); `graded_strip` −2.0 %
+vs the pre-§40 arm; runway area 780 k → 1,274 k m² (the shoulders ARE
+runway body). Five-frame regions: HECA zone band −1.87 M m², strip
+keep-out −3.17 M m²; SPJC (no shoulders) byte-identical = the null
+control; HECA structures identical (no tunnel/basin appears or
+disappears). Suite 1,430 twice (one non-reproducing `test_v2objsplit`
+flake — the memo-key chip).
+
+* 13dg's "shape 44" is no longer addressable (the 1.0.332 HECA patch
+  re-cut its pages under §42): the owner's SITE is still absorbed —
+  four shoulders along 05L/23R, the largest 55,524 m² sharing 3,491 m
+  of the runway ring (`dsf:objpav103`); HECA 32 shoulders / 575 k m².
+  Bars henceforth at coordinates, not shapeIDs.
+
+## 2026-09-14z v2connector round 6 MERGED (instrumentation only): `airport.clusters` is NOT empty — the §30 (4) yield gate `_touching_component` collapses each cluster to one pad face; (10)'s floor level = the body's GROUND floor; lane `v2padcluster` takes §16g (9)–(10) from a fresh context
+
+Lane `v2connector` @ f4998176 (HECA build `HECA_20260914T110528`, rc
+0, 479 s, cache WROTE — cold, the partition cache not implicated).
+`[clusters] 2 terminal cluster(s) (partition units 44, touch 0.5 m,
+min 5000.0 m2)`: `unit:42#0` 404,118 m² / 84 members hits 22 pad faces
+spanning 29.30 m; `unit:43#8` 929,155 m² / 149 members hits 73 pad
+faces spanning 18.84 m — yet `cluster_cross_links = 0`, because
+`cluster_pad._touching_component` (13ch/13ci's yield gate) keeps ONE
+face per cluster, `plane_groups` never merges, and §16g (8)'s
+`cluster_offsets` bails on `len(floor) < 2`. Round 5's "empty
+clusters" inference was wrong; the lane's own instrumentation says so.
+The (8) plumbing (`PlanCluster.floors`, `cluster_offsets`, the `rel=`
+channel) is in place and twinned, inert only because the gate starves
+it. The lane is at the end of its useful context and hands over.
+
+* RULING: (10)'s "authored floor level" is the body's GROUND FLOOR —
+  the lowest ground-contact component's `base_y` — never per
+  component (a cluster's per-component range at HECA is −6.46 … 112.90
+  m; a tall building must not split per storey). `PlanCluster.floors`
+  becomes per body at that reading.
+* RULING: under (10) the yield gate is REPLACED — a cluster no longer
+  picks one existing pad face; its pad IS its outline (one pad per
+  cluster, and with the floor split a 73-pad cluster becomes N
+  clusters each with its own derived pad); 13ci's union gate stays only
+  for the cluster-APRON reach, which is disarmed (13ce).
+* Lane `v2padcluster` (fresh, brief pack): the handover list — read
+  `YIELDED` at HECA dry; the consumer census of every reader of
+  `airport.clusters` / `PlanCluster` / `cluster_pad_faces` / `building`
+  pads in one table; `floor_split_m`; the pad-from-cluster derivation;
+  `pad_cluster_mismatch`; KCLT control; the HECA bars.
+
+## 2026-09-14aa The six owner chips MERGED into main (c5c4576a): meshscope, polremainder, zonemint, memokey, rwyholes, toolfix
+
+All six chip branches carried finished commits (09:10–09:27 today;
+toolfix 21:43 yesterday) and are now ancestors of main: `meshscope`
+(run_tile_mesh_only passes the run's input set — external candidates,
+not contamination), `polremainder` (a `.pol` remainder keeps its page's
+description), `zonemint` (sidecar `face_holes` derived from the
+EMITTED rings by `write_patch`, per tile piece — the 13da residual),
+`memokey` (`_m_per_deg` answers at the key's latitude, exact and
+order-independent), `rwyholes` (a runway face's vertex set is its
+outer AND hole rings, one accessor for generators and verifier; the
+`auto_patch_v2 build` CLI repaired), `toolfix` (explain resolves the
+data-root patch and prints its provenance; `--shape` either side of
+the ICAO; its anchor half had landed via v2zonehole — main's `_frame`
+kept). Conflicts: frames (union), DEFERRED_VERIFICATION (both
+entries), `pipeline/__main__.py` (both: `options_from_args` +
+toolfix's patch resolution), INDEX (main's rows). Suite 1,459 passed
+with ONE non-reproducing failure on the first run (the
+`test_v2objsplit` basin-wall twin again — still flaky after memokey;
+re-attribution owed).
+
+## 2026-09-14ab v2cost2 round 2 MERGED: the partition cache is 31 MB (recipes, deflated), partition+classify warm 321 → 18 s, OTHH patch 632 → 299 s, byte-identical
+
+Lane `v2cost2` @ 7bc09ea7. `MemberRecipe` / `MemberGeometries` (re-place
+on demand from the `ResourceCache`, pickle as recipes; bound at the
+hit site and in `extend_partition`): 1,047 → 31.3 MB (deflate level 1,
+lossless). `ResourceCache.derived_state()`/`restore_derived()` carry
+the small per-resource readings (0.3 MB, never the parse): partition
+8.07 s warm, classify 10.2; `planar` 63 → 84 s on a hit (the parse
+lands there) — partition+classify+planar 389 → 103 s. Identity held
+(patch sha, rebake, graded, body_sha equal base/cold/warm; CYXY
+equal). Suite 1,426 twice. Left named: VHHH `extend_partition`
+(`contact.extend:781-783`, needs a VHHH capture); the object-stage
+sinks (`_seg_gap2`, `comp_cluster`, `split_obj8`); OTHH exercises no
+`extend_partition` (0 plate objects) — the rebuild path is twin-proved.

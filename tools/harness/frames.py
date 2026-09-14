@@ -28,7 +28,10 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 REGISTRY = os.path.join(ROOT, "docs", "frames.jsonl")
-KINDS = ("capture", "rebake", "patch", "graded", "mesh")
+#: ``structures``: a dry ``planar --stage structures`` structures.json
+#: (lane osmids, 2026-09-13) — the DRY frame a replay-only round produces,
+#: registered like any other so the next lane does not re-run the replay.
+KINDS = ("capture", "rebake", "patch", "graded", "mesh", "structures")
 
 
 def _load() -> list[dict]:

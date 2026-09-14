@@ -383,11 +383,22 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # ``plan_clusters`` on the same plan returned 2, and nothing in the
     # build named the difference — an empty derivation must say why.
     from ..planar.cluster import WHY as _cwhy
-    _say(f"  [clusters] {len(_clusters)} terminal cluster(s)"
+    # §16g (9)/(10) (owner RULINGS 2026-09-14x): the population is now
+    # EVERY footprint chain split at its ground floor, not the two
+    # families §16f's gates left, so the count is the airport's buildings
+    # and the say-line names what the PAD derivation will get: how many
+    # carry an outline (a pre-14o plan carries none and the pads then
+    # fall back to the footprint cache) and how many clear the cluster
+    # PAD PLANE threshold.
+    _say(f"  [clusters] {len(_clusters)} cluster(s)"
          + (f"  -- {_cwhy['gate']}" if not _clusters and _cwhy.get("gate")
             else "")
          + (f"  (partition units {_cwhy.get('units')}, touch "
-            f"{_cwhy.get('touch_m')} m, min {_cwhy.get('min_m2')} m2)"), out)
+            f"{_cwhy.get('touch_m')} m, floor split "
+            f"{_cwhy.get('floor_split_m')} m, "
+            f"{_cwhy.get('with_rings')} with an outline, "
+            f"{sum(1 for _c in _clusters if _c.area_m2 >= _cwhy.get('min_m2', 0.0))} "
+            f"over the cluster-pad threshold {_cwhy.get('min_m2')} m2)"), out)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
          f"members {_part.counts['members']}  parts {_part.counts['parts']}  "

@@ -456,3 +456,32 @@ def test_16g_10_3_pad_cluster_mismatch_names_a_cluster_spanning_two_pads(law):
     assert [r["kind"] for r in rows] == ["pad_spans_clusters"], rows
     assert rows[0]["ref"] == "padA"
     assert sorted(rows[0]["others"]) == ["unit:1#0", "unit:2#0"]
+
+
+def test_16g_10_2_a_cluster_with_no_OUTLINE_gets_no_cluster_pad(law):
+    """§16g (10) (2): a plan written before §16g (7) (1)'s ring field
+    carries no footprint outline, and a PART-BOX union is not a
+    footprint — so such a cluster gets NO cluster pad at all and the
+    airport keeps the pre-14x derivation.
+
+    This is the KCLT control's own mechanism.  13ci measured what
+    pricing a box union costs there (`building91`, a separate building
+    65.81 m from the terminal, lifted 3.63 m and 2,406 taxi-family
+    vertices moved, worst 2.07 m) and answered it with a gate; (10)
+    answers it by never reading a box as a footprint.  The registered
+    KCLT frame's plan carries no rings on any of its 355 clusters, so
+    this path is exactly what that control exercises."""
+    import dataclasses as _d
+
+    from auto_patch_v2.constraints.cluster_pad import (NO_OUTLINE,
+                                                       cluster_polys)
+    airport = _airport(law)
+    stale = _Cluster(airport, (PAD_A, PAD_B, PAD_FAR))
+    stale.rings = ()                       # a pre-14o plan
+    airport = _d.replace(airport, clusters=(stale,))
+    pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
+    assert cluster_polys(airport) == []
+    assert NO_OUTLINE == ["unit:1#0"]
+    assert cluster_pad_faces(pm, law, airport) == {}
+    assert [q for q in plane_groups(pm, law, airport)
+            if q[1].startswith("cluster:")] == []

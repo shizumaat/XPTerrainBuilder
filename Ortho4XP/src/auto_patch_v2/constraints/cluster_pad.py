@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import typing as _t
 
-from shapely.geometry import Point, Polygon, box as _box
+from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
 from ..law import Law
@@ -45,7 +45,7 @@ from .pads import GEN_LEVEL, _pad_groups, _pad_polys, _two_sided
 from .precedence import view
 
 __all__ = ["cluster_reach_m", "cluster_polys", "cluster_pad_faces",
-           "YIELDED", "TOUCHING_STEPS", "pad_cluster_mismatch",
+           "YIELDED", "TOUCHING_STEPS", "NO_OUTLINE", "pad_cluster_mismatch",
            "plane_groups", "cluster_apron_faces", "cluster_apron_level",
            "CLUSTER_REACH_RULING"]
 
@@ -56,6 +56,13 @@ def cluster_reach_m(law: Law) -> float:
     target (owner RULINGS 2026-09-13bj item 1).  ONE derivation site; 0
     disables the reach."""
     return float(design_law(law).cluster_apron_reach_m)
+
+
+#: §16g (10) (2): the clusters :func:`cluster_polys` dropped for carrying
+#: no footprint outline (a plan written before §16g (7) (1)'s ring field).
+#: Read by the build's say-line so a stale frame is never mistaken for an
+#: airport with no terminal.
+NO_OUTLINE: list[str] = []
 
 
 def cluster_polys(airport: Airport | None, min_m2: float = 0.0
@@ -70,8 +77,15 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0
     never of its part BOXES.  The box union is what put a pad 66 m
     outside KCLT's terminal inside its cluster and cost §30 (4) (5) a
     whole yield gate (13ci) — a rotated building's lat/lon box is not its
-    footprint.  A cluster whose plan predates the ring field falls back
-    to the boxes and the caller counts it.
+    footprint.  A cluster whose plan predates the ring field carries NO
+    outline and is DROPPED, counted in :data:`NO_OUTLINE` — there is no
+    box fallback, and that is deliberate: 13ci measured exactly what
+    pricing a box union costs (KCLT's `building91`, a separate building
+    65.81 m from the terminal, lifted 3.63 m onto the terminal's plane
+    and 2,406 taxi-family vertices moved with it, worst 2.07 m).  13ci
+    answered that with a touching-component gate; (10) answers it by
+    never reading a box as a footprint at all, so a stale plan simply
+    gets no cluster pad and the airport keeps the pre-14x derivation.
 
     ``min_m2`` (``[placement] cluster_pad_min_m2``, §16g (9)'s one
     remaining job for that key) keeps only the clusters big enough for a
@@ -81,6 +95,7 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0
     is why the derivation travels on the airport and only its GEOMETRY
     is taken here."""
     cl = getattr(airport, "clusters", None) or ()
+    NO_OUTLINE.clear()
     if not cl or airport is None:
         return []
     from shapely.ops import unary_union
@@ -99,12 +114,7 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0
             if not g.is_empty and g.area > 0.0:
                 ps.append(g)
         if not ps:
-            for la0, lo0, la1, lo1 in c.boxes:     # pre-ring plan
-                x0, y0 = to_xy(lo0, la0)
-                x1, y1 = to_xy(lo1, la1)
-                if x1 > x0 and y1 > y0:
-                    ps.append(_box(x0, y0, x1, y1))
-        if not ps:
+            NO_OUTLINE.append(c.id)            # a box union is NOT a pad
             continue
         u = unary_union(ps)
         if not u.is_empty:

@@ -5538,3 +5538,48 @@ placement shares one anchor (25.265161, 51.611794; 30 members).
 refused in 1.0.332 (13db: the 11 % climb-out) and is cut in 1.0.333
 (14ac: mouths moved 1.78 m under the terminal). The 1.0.333 OTHH read
 is its acceptance.
+
+## 2026-09-14ah v2padcluster round 1–2 STOPPED, NOT merged: derived pads as hard flat regions moved 13,637 airside vertices and made the terminal WORSE; the T3 district stays ONE 9,334-body cluster — the chain runs through SLABS; §16g (10) (4) written; round 3
+
+Lane `v2padcluster` @ 6fdcb593 (HECA matched pair, law-value disarm:
+`v2padclusterHECAdisarm` vs `v2padclusterHECA2`, ledger beb3e32ab119).
+`geom/cluster_outline.py` (one outline derivation shared by classify
+and constraints), `pad_from_cluster`, `floor_split_m`,
+`pad_cluster_mismatch` family, `obj8_split_report --rows-near`.
+Numbers: `pad_cluster_mismatch` 369 (r1) → 44 (41 clusters in > 1
+piece, 3 pads spanning clusters); clusters on exactly one pad 206 →
+322 of 1,400; building pad area 867 k → 1,370 k m² (652 faces);
+**airside vertices moved > 0.02 m: 13,637 of 21,534, worst 10.14 m;
+the runway itself 1,110 of 3,426, worst 4.38 m**; the terminal at
+30.1279552, 31.403143 72.07 → 82.90 (+10.83; `T3_49.obj b4` 7.66 m
+above its feet); constraints +57 %. Mechanism: 502,561 m² of new hard
+flat pad (94,795 m² from apron, ~370,000 m² from faceless ground)
+welded to the apron by 09-01g — the solve, not the map. Refuted by
+measurement: (i) the T3 district does NOT resolve by floor level — its
+footed bodies stand at 0.00 and −1.00 and genuinely touch → ONE
+cluster of 9,334 bodies / 541,200 m²; (ii) reading the floor per
+component splits tall buildings per storey (2,677 → 20,203). KCLT
+control unchanged BY CONSTRUCTION (its plan carries no outlines).
+
+* RULING §16g (10) (4) — WHAT CHAINS: a cluster chains only through
+  bodies that have WALLS. A thin body — a floor slab, plate, deck,
+  canopy, road, apron object, anything whose solid height is under
+  `chain_min_height_m` (2.5 m) or that the object stage already
+  classes as a deck/plate/pavement — is a LEAF: it is seated (on its
+  own ground or its carrier) but is never a link between two walled
+  bodies. HECA's T3 district chains through its authored ground
+  slabs (`floor_more_yellow`, `T3_concrete_Yellow`, the 1,144 m
+  "body" of 13cs); with slabs as leaves the district resolves into
+  its buildings.
+* RULING §16g (10) (5) — A DERIVED PAD NEVER TAKES AIRSIDE GROUND: the
+  pad polygon is the cluster's outline CLIPPED by every airside face
+  (runway family, taxi family, apron): airside is king, §30 (4)'s own
+  clause. A cluster whose outline lies wholly on airside pavement gets
+  no pad (its bodies seat on the pavement).
+* Round 3 (RESUME): (4) and (5) at the derivation; bars: HECA airside
+  vertices moved 0; the terminal at 72.50; `pad_cluster_mismatch`
+  → 0 (a cluster in > 1 piece splits at its outline's connected
+  components — the named lever, now ARMED); the seven buildings by
+  coordinate (14g's table: 138 ≈ `building_texture_4 b7`, etc. — the
+  lane reads `site.py`); constraints ≤ +10 %; KCLT: a BUILD carrying
+  outlines is owed (dry is inert); SPJC 19.56 dry.

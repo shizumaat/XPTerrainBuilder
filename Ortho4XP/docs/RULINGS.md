@@ -4230,3 +4230,50 @@ Two LEMD tile-mesh arms on one frame (registered `frames.py list LEMD`):
   CONTAMINATED) — the external-candidate downgrade.
 * Lane discipline: `v2zonehole` wrote the MAIN tree's `tools/INDEX.md`
   (reverted, saved to the session scratchpad; its worktree copy intact).
+
+## 2026-09-13cx v2gradecache round 2 MERGED (fb7cd9e5): VHHH planar 2,845 → 483 s, build 3,580 → 921 s, peak RSS 77.8 → 8.62 GB
+
+Lane `v2gradecache` @ 51c4666b, merged fb7cd9e5. One instrument, one
+tree: `rim_geom = unary_union(lines)` cost 979.5 s over 96 rings to answer
+a distance query a union cannot change — removed; `basin:0`'s `_rim_open`
+materialised 60,402,378 LineStrings in one list (a transient, 12.4 → 34.9
+GB) — members indexed lazily, a closed station never re-asked. Byte-identity
+at LEMD/OTHH (every basin rim/region/floor/ramp/refusal identical; the known
+1 cm `covered_fraction` quantum at LEMD basin:0). Suite 1,307 twice.
+
+* Bars: `wall_s.planar` ≤ 120 s NOT MET (483.4 s; attempt cap on the rim
+  site); RSS ≤ 8 GB missed by 8 % (8.62; the extra is constraints/rebake/
+  verify, not basins). Residual named with seconds: `_rim_open` ~150,
+  `door_wells` 123.8 (172 windowed `at_grade_geometry` calls, distinct
+  windows — a memo would never hit), `wall_corridors` 53.1, `sunken_roads`
+  24.7, `read_placed_objects` ~61. Owed as its own lane when the campaign
+  turns to cost.
+
+## 2026-09-13cy Owner: "turn off bank foot emission for the next build so i can see output" — `bank_omit = true` shipped in app 1.0.330
+
+* `[design] bank_omit = true` on main for the 1.0.330 build (the OMIT arm
+  of 13cw as the shipped setting); the twin asserts true with this
+  ruling. The owner's sim read of 1.0.330 is the bank class's
+  adjudication: keep (flip back false, then the edge-grading law the
+  census can measure) or delete.
+* Every airport's patch edge in 1.0.330 is the design ring meeting the raw
+  DEM over one triangle (LEMD: 2,584 steps > 3 m, worst 19.9 m) — expected,
+  not a regression to report.
+
+## 2026-09-13cz APP 1.0.330 BUILT (engine 1.50.1776): bank feet OFF, the canyon fix, hairline r2, gradecache r2
+
+Main 5718891f + version bump. Carries: 13cp/13cw (open feet as breaklines,
+ribbons Dirichlet, the annulus loud bar, `structure_rim` breaklines),
+13cy `bank_omit = true` (NO bank_foot ways in any patch), 13cr (one shore
+witness, sub-spacing merge, crossing-mint join; pre-flight stays report),
+13cx (VHHH planar 483 s / 8.6 GB), the §16g (6)/§40/§41/§37 (10)/§42 LAW
+but NOT their lanes (`v2connector`, `v2roles`, `v2zonehole`,
+`v2roadcontact`, `v2drapedsrc` still running — the SPJC viaduct, HECA
+items 1–6 and 8 are unchanged in this build).
+
+* What to read: LEMD 40.465414,−3.5531888 (the canyon: expect the road at
+  588–590); every airport's patch EDGE with no bank (the design ring
+  meets the raw DEM over one triangle); LEMD `hairline_pair` sites; the
+  whole-airport look at HECA/LEMD versus 1.0.327.
+* Not in this build: the SPJC viaduct seat (13cn), HECA 1–6/8 (13cs/13cv),
+  the KCLT tile (owner's `--refresh-data dem` still pending).

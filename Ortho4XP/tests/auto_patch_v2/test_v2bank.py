@@ -34,7 +34,21 @@ from auto_patch_v2.solve.design import assemble, DesignReport, hard_rulings, \
     pad_flat_rulings, ruling_head
 from auto_patch_v2.verify.pads import plane_fit
 from tests.auto_patch_v2.test_crown import HALF_WIDTH, _rect, _rot
-from tests.auto_patch_v2.test_v2smooth import RUN_LEN, _airport, law  # noqa: F401
+from tests.auto_patch_v2.test_v2smooth import RUN_LEN, _airport
+from tests.auto_patch_v2.test_v2smooth import law as _shipped_law  # noqa: F401
+
+
+@pytest.fixture(scope="module")
+def law(_shipped_law):
+    """The bank twins read the EMITTER, so they arm it whatever the shipped
+    ``[design] bank_omit`` says (owner RULINGS 2026-09-13cy ships it TRUE for
+    the 1.0.330 read; the class's own law is what these twins prove)."""
+    import dataclasses as _dc
+    emit = _shipped_law.tables.emit
+    if not getattr(emit.design, "bank_omit", False):
+        return _shipped_law
+    emit = _dc.replace(emit, design=_dc.replace(emit.design, bank_omit=False))
+    return _dc.replace(_shipped_law, tables=_dc.replace(_shipped_law.tables, emit=emit))
 
 
 class _FlatDem:

@@ -5219,3 +5219,41 @@ approved"
   terraces by the ground law; no body floats. The design surface takes
   the pads from the objects, not the objects from the pads. Lane
   `v2connector` r5.
+
+## 2026-09-14v v2cost2 MERGED (55cf0fe3): OTHH patch 632 → 328 s, byte-identical; the 1.05 GB partition cache REFUSED for the shared mod cache — round 2 stores the recipe
+
+Lane `v2cost2` @ 12b29e6c. Matched OTHH triple (base / cold / warm), one
+tree: patch body sha `72d4ec0e08f2`, rebake `54dec648b384`, graded
+`2edde5f05242` identical on all three; CYXY `018092d831df` identical;
+suite 1,415 on main. Cuts: (1) `airport/partition_cache.py` —
+`read_objects` + `partition_pack` + `clusters` keyed on the dump stat,
+every pack `.obj`, law digest + ruleset, frame, radius AND the source
+bytes of the 14 producing modules: partition 313.6 → 8.4 s warm (cold
+288.9); the write is the `o4_object_footprints` class (a derived,
+self-invalidating cache in the pack's mod-cache folder), not a
+`--refresh-data` act — BUT the file is 1.05 GB (985 MB = the placed pack
+geometry `extend_partition` indexes) and `classify` 7.9 → 75.8 s on a
+hit (the parse moved); net partition+classify 321 → 84 s. (2) `contact`
+screens in place (cold −25 s); `skirt._plan_union` premise REFUTED (272
+calls, already one `union_all`, the time is GEOS). (3)
+`apron_within_shape` chords reserved and minted after the cover, midpoint
+pre-screen by `intersects_xy`: constraints 94 → 73 s warm. (4) verify:
+`chords_outside_face` memoised per `Patch` (the same patch was asked
+twice, 45.6 s); per-family `verify.wall_s` in the report (`within_shape`
+50.9); the PlanarMap-publication route was unsound (different
+populations) — not taken. (5) `pad_majority` boxes hoisted (plan stage
+223 → 206 s); the 14q attribution does not reproduce in the dry frame —
+the sinks there are `placement_contact._seg_gap2` (53 s),
+`comp_cluster` (57), `split_obj8` (96) — owed; `_inside` → `contains_xy`
+not byte-identical (ray cast vs GEOS boundary), not done. (6) VHHH
+`extend_partition` located (`contact.extend:781-783`, a full base-part
+scan per new part), NOT measured — owed. (7) the unclocked 105 s =
+`road_law_caps` + a second `Patch.of` + `apron_over_preference` after
+the verify clock: `census_frame` hands the pipeline its `Patch`;
+`wall["total"]` is the run's wall; `unclocked` 38.8 → 1.24 s.
+
+* RULING: 1.05 GB per pack-tile in the shared mod cache is REFUSED —
+  the cache stores the RECIPE (resource id + placement + part index)
+  and re-places the few members `extend` touches; ≤ 60 MB; and the
+  `classify` regression closed (warm partition+classify ≤ 40 s). Lane
+  `v2cost2` r2 BEFORE app 1.0.333 ships the cache.

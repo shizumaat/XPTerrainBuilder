@@ -5399,3 +5399,18 @@ toolfix's patch resolution), INDEX (main's rows). Suite 1,459 passed
 with ONE non-reproducing failure on the first run (the
 `test_v2objsplit` basin-wall twin again — still flaky after memokey;
 re-attribution owed).
+
+## 2026-09-14ab v2cost2 round 2 MERGED: the partition cache is 31 MB (recipes, deflated), partition+classify warm 321 → 18 s, OTHH patch 632 → 299 s, byte-identical
+
+Lane `v2cost2` @ 7bc09ea7. `MemberRecipe` / `MemberGeometries` (re-place
+on demand from the `ResourceCache`, pickle as recipes; bound at the
+hit site and in `extend_partition`): 1,047 → 31.3 MB (deflate level 1,
+lossless). `ResourceCache.derived_state()`/`restore_derived()` carry
+the small per-resource readings (0.3 MB, never the parse): partition
+8.07 s warm, classify 10.2; `planar` 63 → 84 s on a hit (the parse
+lands there) — partition+classify+planar 389 → 103 s. Identity held
+(patch sha, rebake, graded, body_sha equal base/cold/warm; CYXY
+equal). Suite 1,426 twice. Left named: VHHH `extend_partition`
+(`contact.extend:781-783`, needs a VHHH capture); the object-stage
+sinks (`_seg_gap2`, `comp_cluster`, `split_obj8`); OTHH exercises no
+`extend_partition` (0 plate objects) — the rebuild path is twin-proved.

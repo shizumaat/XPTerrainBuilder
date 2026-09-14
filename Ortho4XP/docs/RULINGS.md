@@ -5769,3 +5769,29 @@ pad population, not the skirt); 30 pads wholly in the band.
 * `v2padcluster` r5 stands as the branch to merge WITH the staged
   solve; KCLT/SPJC re-reads owed at that tree; the 14-row mismatch
   class named for the round after.
+
+## 2026-09-14ao v2liftedcap MERGED (670a692a): the census takes the lift on a pinched ramp by PRESENCE (`o4_grade_law_cap_lifted`), 19 rows → 0, everything else exact; `Patch.cap` deliberately unchanged
+
+Lane `v2liftedcap` @ 670a692a (OTHH build `v2liftedcap`, ledger
+5c0c2ded14c5; matched pair = the same patch with the two tags
+stripped; `census_rows_diff`: EXACT 4,507, MOVED 0, NEW 0, GONE 19 —
+all `within_shape tunnel_ramp|tunnel_ramp` on the two pinched shapes;
+ADJUDICATED 3,223 → 3,204; suite 1,465 on main). Deviations, both
+accepted: (1) the lift is the PRESENCE of the tag, not a cap value —
+the pinch's ring carries a 1.118 m chord holding 0.96 m (85.8 %) that
+a designed-grade cap (36.98 %) would still price; the designed grade
+rides on the sidecar `lifted_caps` record; (2) `Patch.cap` unchanged
+because three readers give `None`/a lifted number another meaning
+(`verify/strips._pavement_ids`, `verify/steps`) — the lift is read
+through `Patch.lifted(sh)`, within-shape only, `road_cross_section`
+untouched, twinned both ways. `Tunnel.pinched` recorded. The
+unpinched sibling half `-10858` keeps its one 10.19 % row by design.
+
+* Noted, not chased: the `route7` ramp puts 0.96 m of its 1.89 m drop
+  into the first 1.118 m of a 4.93 m edge (node −20716 at 3.03 vs the
+  constant-grade line 2.48) — a profile/solve question, lawful now.
+* Session note: the OAuth token expired mid-afternoon (the `v2staged`
+  lane died with a 401 while editing `solve/design.py`; its worktree
+  keeps the uncommitted edits in 8 files) and the bash classifier was
+  unavailable for one call (this entry's first append was lost and is
+  re-recorded here). Nothing merged was lost: `670a692a` is on main.

@@ -59,6 +59,11 @@ vertices' canonical lat/lon identity so the census joins exactly.
 * ``station_caps``: ``[lat, lon, cap]`` per road station
   (``constraints.contiguity``) — the lateral-contiguity fourth reader
   (2026-08-28 Amendment 2);
+* ``lifted_caps`` (§34 (9), owner RULINGS 2026-09-14ak/14am): ``[shapeID,
+  corridor, road ref, span m, designed grade]`` per PINCHED RAMP face —
+  the report record, never law input.  The LIFT itself rides on the way as
+  ``o4_grade_law_cap_lifted`` (:data:`LIFTED_CAP_TAG`) for the v1 census
+  and through ``Patch.of(lifted_caps=…)`` for v2 verify;
 * ``terrace_joints`` (owner RULINGS 2026-09-08k): one record per shape
   joint (``planar/shapes.py``), v1's record shape — the joint line, the
   emitted step — ``terrace_joints_ll``;
@@ -98,7 +103,88 @@ from ..constraints.pad_relief import pad_relief_offsets
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
-__all__ = ["publication", "face_tags"]
+__all__ = ["publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
+           "RAMP_ROLES"]
+
+#: §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak; the census read
+#: RULED in 2026-09-14am): the way tag whose PRESENCE lifts the shape's
+#: WITHIN-SHAPE LONGITUDINAL cap, and whose value names the grade the
+#: pinched run was DESIGNED at (§34 (9) (3) reports it by name).
+#:
+#: THE LIFT IS THE PRESENCE, NOT THE VALUE.  The ruling is verbatim
+#: "whatever grade the span requires is lawful", and the requirement is
+#: not the axis average: OTHH's ``route7`` pinch is 5.1 m of axis at
+#: 36.98 %, but its ramp's two long edges are 4.93 m and 3.81 m and its
+#: emitted ring carries a 1.12 m chord at 85.8 % — a cap set to the axis
+#: grade would leave rows the ruling calls lawful.  The value rides so a
+#: report (and an attribution) can name the design; no reader prices it.
+LIFTED_CAP_TAG = "o4_grade_law_cap_lifted"
+
+#: The ramp roles a corridor emits (``planar/structure_geometry.
+#: ramp_targets``'s own set — one list, two readers).
+RAMP_ROLES = ("tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp")
+
+
+def lifted_caps(planar: PlanarMap) -> dict[int, float]:
+    """§34 (9): face id -> the DESIGNED grade of the pinched run, for every
+    RAMP face of a corridor whose ``Tunnel.pinched`` record the structures
+    pass wrote.  An empty map where nothing pinched.
+
+    The face -> corridor join is the SAME one ``planar/structure_geometry.
+    ramp_targets`` aims each ramp vertex with — the nearest tunnel AXIS to
+    the face's centroid — so the face judged at the lifted cap is exactly
+    the face built at the lifted grade.  A ramp face of an unpinched
+    corridor, and every neighbour of a pinched one, is absent: the lift
+    never leaves the faces the ruling named."""
+    pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
+    if not pin:
+        return {}
+    from shapely.geometry import LineString, Point
+    axes = {tn.id: LineString(tn.axis) for tn in planar.structures
+            if len(tn.axis) >= 2}
+    if not axes:
+        return {}
+    out: dict[int, float] = {}
+    for fid, f in planar.faces.items():
+        if f.role not in RAMP_ROLES:
+            continue
+        vs = planar.ring_vertices(f.ring)
+        if not vs:
+            continue
+        cx = sum(planar.vertices[v].xy[0] for v in vs) / len(vs)
+        cy = sum(planar.vertices[v].xy[1] for v in vs) / len(vs)
+        pt = Point(cx, cy)
+        tid = min(axes, key=lambda k: axes[k].distance(pt))
+        rec = pin.get(tid)
+        if rec is not None:
+            out[fid] = float(rec[2])
+    return out
+
+
+def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
+    """§34 (9) (3)'s report record per LIFTED ramp face: ``[shapeID,
+    corridor id, road ref, span m, designed grade]``, off the SAME
+    ``Tunnel.pinched`` record and the SAME face join :func:`lifted_caps`
+    uses."""
+    pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
+    if not pin:
+        return []
+    caps = lifted_caps(planar)
+    if not caps:
+        return []
+    from shapely.geometry import LineString, Point
+    axes = {tn.id: LineString(tn.axis) for tn in planar.structures
+            if len(tn.axis) >= 2}
+    out: list[list[_t.Any]] = []
+    for fid in sorted(caps):
+        vs = planar.ring_vertices(planar.faces[fid].ring)
+        cx = sum(planar.vertices[v].xy[0] for v in vs) / len(vs)
+        cy = sum(planar.vertices[v].xy[1] for v in vs) / len(vs)
+        tid = min(axes, key=lambda k: axes[k].distance(Point(cx, cy)))
+        road, span, grade = pin[tid]
+        out.append([int(fid), str(tid), str(road), round(float(span), 3),
+                    round(float(grade), 6)])
+    return out
 
 
 def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
@@ -117,6 +203,13 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
     out: dict[int, dict[str, str]] = {
         fid: {"o4_grade_law_cap_t": f"{cap:g}"}
         for fid, cap in road_law_caps(planar, law, airport).items()}
+    # §34 (9) THE PINCHED RAMP (RULINGS 2026-09-14ak/14am): the shape whose
+    # within-shape LONGITUDINAL cap is LIFTED, and the designed grade it is
+    # lifted for.  The v1 census reads THIS tag (``check_grade.
+    # _lifted_cap_tag``); v2 verify reads the same map through
+    # ``Patch.of(lifted_caps=…)`` — one derivation, two readers.
+    for fid, g in lifted_caps(planar).items():
+        out.setdefault(fid, {})[LIFTED_CAP_TAG] = f"{g:g}"
     kinds = getattr(planar, "edge_kind_of_ref", None) or {}
     for fid, f in planar.faces.items():
         kind = kinds.get(f.ref)
@@ -333,6 +426,15 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # under and never from a constant of its own
             "seam_half_width_m": float(law.tables.emit.seam.half_width_m),
             "station_caps": stations,
+            # §34 (9) THE PINCHED RAMP (RULINGS 2026-09-14ak/14am):
+            # ``[shapeID, corridor, road ref, span m, designed grade]`` per
+            # ramp face whose within-shape longitudinal cap is LIFTED — the
+            # report record §34 (9) (3) asks for ("the report names each
+            # pinched ramp: corridor, road, span, grade").  EVIDENCE, not
+            # law input: the census reads the LIFT off the way tag
+            # (``check_grade.LIFTED_CAP_TAG``) and prices nothing from this
+            # list.
+            "lifted_caps": _lifted_records(planar),
             # §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av;
             # ``airport/road_ramp.road_route_frame``, published through
             # ``PlanarMap.road_route_frame``): ``[lat, lon, route id,

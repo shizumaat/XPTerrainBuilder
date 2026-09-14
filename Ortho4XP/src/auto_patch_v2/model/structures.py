@@ -279,6 +279,16 @@ class Tunnel:
     #: A door ramp's ground at the top station and the climb's reach
     #: (``top_s − wall_length_m``: the "small ramp" the owner asked for).
     top_ground_z: float | None = None
+    #: §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak/14am;
+    #: ``planar/wall_corridor_ramps.stop_and_steepen``): ``(road ref, span
+    #: m, grade)`` when this corridor's climb ENDED at an airside-locked
+    #: service road's edge and its cap was LIFTED for that run, else
+    #: ``None``.  THE RECORD, never re-derived: the lifted-cap publication
+    #: (``pipeline/publication.lifted_caps``) reads THIS, so the judged cap
+    #: and the built one are one law (RULINGS 2026-09-12m's class — "a
+    #: build steeper than the judged cap mints a violation by
+    #: construction").
+    pinched: tuple[str, float, float] | None = None
 
 
 @_dc.dataclass(frozen=True)

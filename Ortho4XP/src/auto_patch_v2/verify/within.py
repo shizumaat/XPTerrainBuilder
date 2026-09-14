@@ -307,6 +307,12 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
         cap_t = p.cap_t(sh)
         if cap_t is None:
             cap_t = cap
+        # §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak; the census
+        # read RULED in 14am): this shape's within-shape LONGITUDINAL cap
+        # is LIFTED — "whatever grade the span requires is lawful".  The
+        # TRANSVERSE reading (``road_cross_section``) is untouched: the
+        # ruling lifts the run's grade, not the road's cross-section.
+        lift = p.lifted(sh)
         q = noise_m(law, sh.role)
         n = len(sh.ids)
         if n < 3:
@@ -382,6 +388,8 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                     allowance += joints.allowance(sh.xy[i], sh.xy[j])
                 if de <= allowance:
                     continue
+                if lift is not None and not transverse:
+                    continue                           # §34 (9): LIFTED
                 grade = de / d
                 r = row("road_cross_section" if transverse else "within_shape",
                         (sh.role, sh.role), p.side(sh.role), de, 100 * grade,

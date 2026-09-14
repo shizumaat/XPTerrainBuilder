@@ -43,6 +43,13 @@ class Shape:
     #: §37 (1): the TRANSVERSE binding of lateral contiguity
     #: (``o4_grade_law_cap_t``) — never the longitudinal cap
     law_cap: float | None = None
+    #: §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak; the census
+    #: read RULED in 14am): this shape's within-shape LONGITUDINAL cap is
+    #: LIFTED — "whatever grade the span requires is lawful" — and the
+    #: value names the grade the pinched run was DESIGNED at.  Set only on
+    #: the ramp faces of a pinched corridor (``pipeline/publication.
+    #: lifted_caps``), never on a neighbour.
+    lifted_cap: float | None = None
     #: a hole feature's host face id (``key`` of the shape it is cut from)
     host: int | None = None
     #: a ``structure_rim`` feature: a closed ring (True) or an open chain
@@ -90,9 +97,32 @@ class Patch:
         """The within-shape LONGITUDINAL cap the census judges at — the
         role's own.  §37 (1) (RULINGS 2026-09-13q item 5): the
         lateral-contiguity cap no longer enters here; it binds the
-        TRANSVERSE cap only (:meth:`cap_t`)."""
+        TRANSVERSE cap only (:meth:`cap_t`).
+
+        §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak/14am) is read
+        through :meth:`lifted`, NOT by returning ``None`` here.  A
+        consumer census of this method (30l) found three readers for which
+        ``None`` means something else entirely: ``verify/strips.
+        _pavement_ids`` reads "a shape with a cap" as THE PAVEMENT
+        population, ``verify/steps`` skips a shape with no cap from
+        ``cross_shape`` / ``vertex_to_edge`` / ``mid_edge`` altogether, and
+        its ``cap = min(ca, cb)`` would take a lifted value as the pair's
+        law.  Lifting here would have deleted the ramp from three families
+        that §34 (9) says nothing about."""
         rc = role_cap(self.law, sh.role, sh.code_number, sh.code_letter)
         return None if rc is None else rc.longitudinal
+
+    def lifted(self, sh: Shape) -> float | None:
+        """§34 (9): the DESIGNED grade of this shape's pinched run when its
+        within-shape LONGITUDINAL cap is LIFTED, else ``None``.
+
+        The LIFT is the presence, not the value — the ruling is "whatever
+        grade the span requires is lawful", and the requirement is not the
+        axis average the value names (OTHH's ``route7`` pinch: 5.1 m of
+        axis at 36.98 %, a 1.12 m ring chord at 85.8 %).  The value rides
+        so a report can name the design; :mod:`verify.within` prices
+        nothing from it."""
+        return sh.lifted_cap
 
     def cap_t(self, sh: Shape) -> float | None:
         """The TRANSVERSE cap: the role's, tightened by the shape's
@@ -114,7 +144,8 @@ class Patch:
     @classmethod
     def of(cls, surface: GradedSurface, law: Law,
            publication: _t.Mapping[str, _t.Any] | None = None,
-           law_caps: _t.Mapping[int, float] | None = None) -> "Patch":
+           law_caps: _t.Mapping[int, float] | None = None,
+           lifted_caps: _t.Mapping[int, float] | None = None) -> "Patch":
         verts = surface.vertices
         lat0 = sum(v.ll[0] for v in verts) / max(1, len(verts))
         lon0 = sum(v.ll[1] for v in verts) / max(1, len(verts))
@@ -137,6 +168,7 @@ class Patch:
                                 f.code_letter, f.code_number,
                                 f.role == "runway",
                                 (law_caps or {}).get(f.id),
+                                (lifted_caps or {}).get(f.id),
                                 holes=tuple(tuple(h) for h in f.holes)))
             for h in f.holes:
                 k += 1

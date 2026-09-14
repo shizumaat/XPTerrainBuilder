@@ -983,7 +983,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             # clock stopped, which is where OTHH's 105 unattributed
             # seconds were.  Same rows, one frame, inside the clock.
             _caps = road_law_caps(pm, law, airport)
-            _vpatch, vrows = census_frame(surf, law, pub, _caps)
+            # §34 (9) (RULINGS 2026-09-14ak/14am): the PINCHED RAMP faces
+            # whose within-shape longitudinal cap is LIFTED — the same map
+            # ``face_tags`` stamps on the ways for the v1 census.
+            from .publication import lifted_caps as _lifted_caps
+            _vpatch, vrows = census_frame(surf, law, pub, _caps,
+                                          _lifted_caps(pm))
             # RULINGS 2026-09-08t: every row is counted LAW-TRUE — there is
             # no relaxed / yielded scope any more.  A row here is a DESIGN
             # TARGET the surface missed; the census reports, never blocks.

@@ -199,7 +199,8 @@ def mark_yielded(p: Patch, rows: dict[str, list[Row]]) -> dict[str, list[Row]]:
 
 def census(surface: GradedSurface, law: Law,
            publication: _t.Mapping[str, _t.Any] | None = None,
-           law_caps: _t.Mapping[int, float] | None = None
+           law_caps: _t.Mapping[int, float] | None = None,
+           lifted_caps: _t.Mapping[int, float] | None = None
            ) -> dict[str, list[Row]]:
     """Rows per family over the emitted product; rows on relaxed vertices
     carry :data:`RELAXED_KEY` (:func:`mark_relaxed`).
@@ -207,13 +208,19 @@ def census(surface: GradedSurface, law: Law,
     ``law_caps`` is ``constraints.roads.road_law_caps`` — since §37 (1)
     (RULINGS 2026-09-13q item 5) the TRANSVERSE binding of lateral
     contiguity, read through ``Patch.cap_t``; a road's longitudinal cap is
-    its role's own."""
-    return census_frame(surface, law, publication, law_caps)[1]
+    its role's own.
+
+    ``lifted_caps`` is ``pipeline.publication.lifted_caps`` — §34 (9)'s
+    PINCHED RAMP faces, whose within-shape LONGITUDINAL cap is LIFTED
+    (owner RULINGS 2026-09-14ak/14am).  Absent, every shape reads exactly
+    as before."""
+    return census_frame(surface, law, publication, law_caps, lifted_caps)[1]
 
 
 def census_frame(surface: GradedSurface, law: Law,
                  publication: _t.Mapping[str, _t.Any] | None = None,
-                 law_caps: _t.Mapping[int, float] | None = None
+                 law_caps: _t.Mapping[int, float] | None = None,
+                 lifted_caps: _t.Mapping[int, float] | None = None
                  ) -> tuple[Patch, dict[str, list[Row]]]:
     """:func:`census` WITH THE FRAME IT READ (lane ``v2cost2``).
 
@@ -223,5 +230,5 @@ def census_frame(surface: GradedSurface, law: Law,
     UNCLOCKED after ``wall["verify"]`` — OTHH's 105 unattributed seconds
     (RULINGS 2026-09-14q).  Same rows, same order; the caller reuses ``p``
     for ``apron_over_preference``."""
-    p = Patch.of(surface, law, publication, law_caps)
+    p = Patch.of(surface, law, publication, law_caps, lifted_caps)
     return p, mark_yielded(p, mark_relaxed(p, census_patch(p)))

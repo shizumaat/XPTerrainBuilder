@@ -4523,3 +4523,35 @@ road arm); the attribution is the matched pair in 13dh.
 
 * Owed to the campaign (13dh): the staged solve — airside first,
   groundside conforms — as the mechanism behind "airside is king".
+
+## 2026-09-13dj v2drapedsrc MERGED (0edacb3d): object-based pavement classified; HECA has three times the pavement under law — the 1.0.331 sim read is the acceptance
+
+Lane `v2drapedsrc` r2 @ 8994391f; matched pair at 38dd98be (base
+`v2ds_base38` 85edce09e12a / lane `v2ds_lane38` 3eec5bf2bd6a, both
+registered). `classify/sources.object_body_cuts`: an object body cuts the
+slice at its own boundary like a strip or lot and is kinded by the
+ordinary evidence ladder (§40 included); §41 (1)'s union only ≥ 95 %
+inside a page, one constant `ENCLOSED_MIN_FRAC` (classify owns it,
+planar re-exports). The owner's site 30.1235047, 31.4160956: 0 rings →
+inside `apron:dsf:objpav33` (24,688 m², cover 90 %), `pav132` a separate
+face 82.9 m away. Max apron-face span 27.15 m/2,328 m (base) → 60.96 m /
+8,489 m at 0.72 % (`dsf:objpav0`, the authored perimeter asphalt, 8.5 km
+across); over-cap apron faces `objpav406` 1.63 %, `objpav100` 1.50 %
+(base: `pav131` 1.60 %). Roles: apron 74 → 282, junction 60 → 338,
+runway 33 → 43 (object pavement beside a runway reaches §40), building
+413 → 414. Declared terraces 7 → 22, max 1.38 → **7.10 m apron|apron
+(25 m seam, shapes 5/7)**. Off-DEM > 0.5 m: apron max 8.65 → 12.95,
+**runway max 12.01 → 18.66**, stub 7.65 → 15.42. Census ADJUDICATED
+14,870 → 24,338 (+9,468): p50 grade 1.909 % BOTH arms, p95 4.10 → 4.51,
+worst 165.88 → 37.49 % — more surface at the same quality. CYXY
+byte-identical (`53e787b3ab0f` both arms). Suite 1,350 twice.
+
+* MERGED for the sim read (the owner asked for classification; the
+  surface it produces is the 1.0.331 read). Three items for the owner's
+  eye at HECA: the 7.10 m apron|apron terrace wall (shapes 5/7); the
+  runway shoulder face 18.66 m off the DEM; the 8.5 km perimeter body as
+  one apron face.
+* INTENT (owner): narrow §42 admission further (bodies with no
+  taxi/apron evidence stay out)? split an authored body at some extent?
+  Both wait on the read.
+* Load +0.25–0.40 s stands (13dc).

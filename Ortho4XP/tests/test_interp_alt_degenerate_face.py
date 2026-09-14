@@ -80,12 +80,19 @@ def test_two_nanometre_apart_ways_node_into_a_sliver_face():
     assert areas[-1] > 1000.0     # the real face
 
 
-def test_a_needle_over_the_area_floor_is_refused_on_CLEARANCE():
+def test_a_needle_over_the_area_floor_MOVES_its_seed_off_the_line():
     """The area is only a proxy.  MEASURED on a second arm of the same
     patch (level rings 5 m apart instead of 10): a NEEDLE of 1.14 m^2 —
     four corners spanning 50 m, a couple of centimetres wide — put its
     representative point on the map's own line and the audit refused
-    again.  Its own coordinates, from that arm's patch."""
+    again.  Its own coordinates, from that arm's patch.
+
+    AMENDED 2026-09-14 (owner: the tunnel cuts): the answer is to MOVE
+    the seed, not to throw the face away.  A face this size is a tunnel
+    wall strip's size, and a face with no seed keeps the RAW DEM — which
+    is the tunnel filling back in.  The needle's own pole of
+    inaccessibility stands 0.2475 m clear of its boundary and survives
+    the map's 1e-9 degree grid, so it is a perfectly good seed."""
     needle = geometry.Polygon([
         (0.41822324592771959, 0.12614235266942569),
         (0.41823185575000110, 0.12611145576000027),
@@ -93,9 +100,14 @@ def test_a_needle_over_the_area_floor_is_refused_on_CLEARANCE():
         (0.41817944277000052, 0.12613129950999991),
     ])
     assert needle.area * VMAP._SQ_M_PER_SQ_DEG > 1.0    # over the area floor
-    seed = needle.representative_point()
-    assert needle.exterior.distance(seed) < VMAP.INTERP_ALT_SEED_CLEARANCE_DEG
-    assert VMAP.interp_alt_seed_point(needle) is None
+    graze = needle.representative_point()
+    assert needle.exterior.distance(graze) < VMAP.INTERP_ALT_SEED_CLEARANCE_DEG
+    seed = VMAP.interp_alt_seed_point(needle)
+    assert seed is not None and needle.contains(seed)
+    assert seed != graze
+    # clear of the line, and still inside after the map rounds it
+    assert needle.boundary.distance(seed) > 100.0 * VMAP.INTERP_ALT_SEED_SNAP_DEG
+    assert VMAP._survives_encoding(needle, seed)
 
 
 def test_a_real_face_keeps_its_seed():
@@ -204,19 +216,55 @@ def test_a_seed_grazing_its_own_boundary_MOVES_to_the_deepest_point():
     assert not VMAP.is_degenerate_interp_alt_face(face)
 
 
-def test_a_face_thinner_than_the_clearance_EVERYWHERE_is_dropped():
-    """A 0.4 m-wide, 1 km-long strip holds no mesh vertex: its inscribed
-    radius is under the floor, so it is a noding artifact, not a region.
-    (Its AREA is 400 m^2 — far over the area floor, which is why the
-    area alone was never the criterion.)"""
-    w = 0.2 / 111320.0                       # half-width 0.2 m
-    strip = geometry.Polygon([
+def test_a_TUNNEL_WALL_WIDTH_face_keeps_its_seed():
+    """NARROW IS NOT DEGENERATE (owner 2026-09-14, the VHHH tunnels).
+
+    A 0.6 m-wide, 60 m-long strip is a tunnel WALL face — the piece
+    between a ramp and its wall.  The round-3 floor dropped every face
+    whose inscribed radius was under 0.5 m, and a dropped face gets no
+    INTERP_ALT seed, so its triangles keep the RAW DEM: the cut fills
+    back in.  It is seeded, at its pole, with the clearance it can
+    afford."""
+    w = 0.3 / 111320.0                       # half-width 0.3 m
+    wall = geometry.Polygon([
+        (0.100, 0.100 - w), (0.1006, 0.100 - w),
+        (0.1006, 0.100 + w), (0.100, 0.100 + w),
+    ])
+    (_pole, inradius) = VMAP._pole_of_inaccessibility(wall)
+    assert inradius * 111320.0 < VMAP.INTERP_ALT_SEED_CLEARANCE_M
+    seed = VMAP.interp_alt_seed_point(wall)
+    assert seed is not None and wall.contains(seed)
+    assert not VMAP.is_degenerate_interp_alt_face(wall)
+    assert VMAP._survives_encoding(wall, seed)
+
+
+def test_only_the_HAIRLINE_floor_drops_a_face():
+    """The one width that drops a face is the hairline degenerate bar
+    (10 mm), and it is the mesh module's own constant, not a second
+    spelling."""
+    import O4_Mesh_Utils as MESH
+
+    assert VMAP.INTERP_ALT_SEED_DEGENERATE_M == MESH.HAIRLINE_DEGENERATE_M
+    w = 0.004 / 111320.0                     # 8 mm wide, under the bar
+    hair = geometry.Polygon([
         (0.100, 0.100 - w), (0.109, 0.100 - w),
         (0.109, 0.100 + w), (0.100, 0.100 + w),
     ])
-    assert strip.area * VMAP._SQ_M_PER_SQ_DEG > 100.0
-    assert VMAP.interp_alt_seed_point(strip) is None
-    assert VMAP.is_degenerate_interp_alt_face(strip)
+    assert hair.area * VMAP._SQ_M_PER_SQ_DEG > 1.0   # over the AREA floor
+    assert VMAP.interp_alt_seed_point(hair) is None
+    assert VMAP.is_degenerate_interp_alt_face(hair)
+
+
+def test_a_seed_that_the_ENCODING_GRID_pushes_out_is_refused():
+    """The VHHH +22+113 class, checked where the seed is CHOSEN: the map
+    rounds every coordinate onto a 1e-9 degree grid, and a seed that is
+    not inside its own face after that rounding kills the tile build in
+    the mesh step."""
+    inside = geometry.Point(0.1000000004, 0.1000000004)
+    tiny = inside.buffer(0.3e-9, quad_segs=32)
+    assert tiny.contains(inside)
+    assert not VMAP._survives_encoding(tiny, inside)   # snaps to a corner
+    assert VMAP.interp_alt_seed_point(tiny) is None
 
 
 def test_a_seed_grazing_a_HOLE_is_as_unreliable_as_one_grazing_the_rim():

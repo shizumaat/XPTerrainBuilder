@@ -6,11 +6,25 @@ install paths exactly as ``auto_patch_v2.planar`` resolves them (M1); no
 environment reads.
 
 ``python -m auto_patch_v2 explain ICAO --shape N [--patch P] | --at
-LAT,LON`` (owner 2026-09-04j): the classification verdict at a shipped
-patch's ``shapeID`` (default patch: the engine tree's
-``Patches/<block>/<tile>/<ICAO>_auto.patch.osm``) or at a coordinate —
-role, the evidence record, the source polygons under it with their own
-records, the centrelines that touch it (``classify/explain.py``).
+LAT,LON`` (owner 2026-09-04j; ``--shape`` before or after the ICAO, argparse
+accepts either): the classification verdict at a shipped patch's
+``shapeID`` or at a coordinate — role, the evidence record, the source
+polygons under it with their own records, the centrelines that touch it
+(``classify/explain.py``).
+
+THE DEFAULT PATCH (RULINGS 2026-09-13cs chip): without ``--patch`` the
+shapeIDs are read from the patch the DATA-ROOT RESOLUTION lands a tile
+build's product at — ``<root>/Patches/<block>/<tile>/<ICAO>_auto.patch.osm``
+with ``<root>`` the first of ``--data-root``, the engine's own data root
+when one is chosen (``O4_File_Names.current_data_root``: the
+``ORTHO4XP_DATA_ROOT`` the app hands every engine process), the default
+data root (``O4_File_Names.default_data_root``, ``~/XPTerrainBuilderData``
+— the shared corpus the app's products land in) and, last, the engine
+tree — that HOLDS the patch.  Before 09-13 the engine tree was the only
+default, and a lane's ``Patches/`` clone is days stale (the scout read
+Sep 9 shapeIDs against a Sep 13 sim).  Every run prints the patch it
+resolved, where it came from and its mtime, so a shapeID is never read
+off an unnamed product.
 """
 from __future__ import annotations
 
@@ -25,8 +39,9 @@ from .build import Config, build
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """The CLI, separable from :func:`main` so its namespace can be built
-    and read in a twin without running a build."""
+    """The CLI's parser (a factory so the twins parse without running).
+    Options and the positional ICAO may come in either order — ``explain
+    --shape N ICAO`` and ``explain ICAO --shape N`` are the same call."""
     ap = argparse.ArgumentParser(prog="auto_patch_v2")
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build one airport's v2 patch")
@@ -46,7 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--shape", type=int, help="shapeID of a way in the shipped patch")
     e.add_argument("--at", help="LAT,LON (WGS84)")
     e.add_argument("--patch", help="the patch to read --shape from (default: "
-                   "Patches/<block>/<tile>/<ICAO>_auto.patch.osm in the engine tree)")
+                   "<root>/Patches/<block>/<tile>/<ICAO>_auto.patch.osm for the "
+                   "first of --data-root, the engine's chosen data root "
+                   "(ORTHO4XP_DATA_ROOT), the default data root and the engine "
+                   "tree that holds it; the resolved path and its mtime are "
+                   "printed on every run)")
     e.add_argument("--sources", action="store_true",
                    help="ALSO list every source polygon's record (id, class, the "
                         "reason, width, road/taxi metres, OSM apron and parking "
@@ -96,8 +115,68 @@ def options_from_args(args: argparse.Namespace) -> Options:
     return Options(verbose=bool(getattr(args, "verbose", False)))
 
 
+def _patch_rel(icao: str, blat: int, blon: int) -> str:
+    """``Patches/<block>/<tile>/<ICAO>_auto.patch.osm`` — the tile build's
+    own spelling (``O4_File_Names.patch_dir`` / ``long_latlon``)."""
+    from O4_File_Names import long_latlon
+    return os.path.join("Patches", long_latlon(blat, blon), f"{icao.upper()}_auto.patch.osm")
+
+
+def default_patch_candidates(icao: str, blat: int, blon: int,
+                             data_root: str | None = None
+                             ) -> list[tuple[str, str]]:
+    """``[(source, path), …]`` in precedence order — the roots a tile
+    build's product can land under, most specific instruction first
+    (the accessor's own rule: an explicitly chosen root beats the
+    implicit one).  An explicit ``--data-root`` is the ONLY candidate."""
+    import O4_File_Names as FNAMES
+    rel = _patch_rel(icao.upper(), blat, blon)
+    engine = os.path.realpath(str(ENGINE_DIR))
+    if data_root:
+        return [("--data-root", os.path.join(os.path.abspath(data_root), rel))]
+    out: list[tuple[str, str]] = []
+    cur = os.path.realpath(FNAMES.current_data_root())
+    if cur != engine:
+        out.append(("the engine's data root (O4_File_Names.current_data_root: ORTHO4XP_DATA_ROOT)",
+                    os.path.join(cur, rel)))
+    default = os.path.realpath(FNAMES.default_data_root())
+    if default not in (cur, engine):
+        out.append(("the default data root (O4_File_Names.default_data_root)",
+                    os.path.join(default, rel)))
+    out.append(("the engine tree", os.path.join(engine, rel)))
+    return out
+
+
+def resolve_default_patch(icao: str, blat: int, blon: int,
+                          data_root: str | None = None
+                          ) -> tuple[str, str, bool]:
+    """``(path, source, exists)``: the first candidate that HOLDS the
+    patch; when none does, the first candidate with ``exists=False``."""
+    cands = default_patch_candidates(icao, blat, blon, data_root)
+    for source, path in cands:
+        if os.path.isfile(path):
+            return path, source, True
+    return cands[0][1], cands[0][0], False
+
+
+def patch_provenance_line(path: str, source: str) -> str:
+    """One line naming the patch a shapeID is read from and how old it is."""
+    import datetime as _dt
+    if not os.path.isfile(path):
+        return f"explain: patch {path} (from {source}) — DOES NOT EXIST"
+    mtime = os.path.getmtime(path)
+    when = _dt.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+    age_h = (_dt.datetime.now().timestamp() - mtime) / 3600.0
+    age = f"{age_h * 60:.0f} min" if age_h < 1 else (
+        f"{age_h:.1f} h" if age_h < 48 else f"{age_h / 24:.1f} days")
+    return f"explain: patch {path} (from {source}; modified {when}, {age} ago)"
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    ap = build_parser()
+    args = ap.parse_args(argv)
+    ap = build_parser()
+    args = ap.parse_args(argv)
     os.chdir(ENGINE_DIR)   # the core's resource/data contract (production DEM frame)
     if args.cmd == "explain":
         return explain_main(args)
@@ -145,6 +224,17 @@ def explain_main(args) -> int:
           + ", ".join(f"{k} {v}" for k, v in sorted(
               {c: sum(1 for r in cl.sources if r.cls == c) for c in ("strip", "lot", "open")}.items())))
     print(f"[{icao}] OSM relations (spec 25): {load_rep.osm_relations}")
+    # THE PATCH THE SHAPE IDS BELONG TO — resolved and named on EVERY run
+    # (RULINGS 2026-09-13cs chip), whether or not --shape reads it.
+    import math
+    lat0, lon0 = airport.frame.origin
+    blat, blon = int(math.floor(lat0)), int(math.floor(lon0))
+    if args.patch is not None:
+        patch, patch_src = str(args.patch), "--patch"
+    else:
+        patch, patch_src, _exists = resolve_default_patch(
+            icao, blat, blon, args.data_root)
+    print(patch_provenance_line(patch, patch_src))
     if args.sources:
         print(f"{'source':<12} {'cls':<5} {'area_m2':>9} {'width':>6} {'road':>7} "
               f"{'osm':>7} {'taxi':>6} {'strt':>4} {'apron%':>6} {'park%':>6}  "
@@ -163,13 +253,12 @@ def explain_main(args) -> int:
         return 0
     if args.shape is None:
         return 0
-    patch = args.patch
-    if patch is None:
-        lat0, lon0 = airport.frame.origin
-        import math
-        blat, blon = int(math.floor(lat0)), int(math.floor(lon0))
-        patch = str(ENGINE_DIR / "Patches" / f"{(blat // 10) * 10:+03d}{(blon // 10) * 10:+04d}"
-                    / f"{blat:+03d}{blon:+04d}" / f"{icao}_auto.patch.osm")
+    if not os.path.isfile(patch):
+        print(f"explain: no patch to read shapeID={args.shape} from — none of "
+              + "; ".join(f"{p} ({s})" for s, p in
+                          default_patch_candidates(icao, blat, blon, args.data_root))
+              + " exists (build the tile, or name one with --patch)")
+        return 1
     found = shape_polygon(patch, args.shape, airport)
     if found is None:
         print(f"explain: no way with shapeID={args.shape} and a role in {patch}")

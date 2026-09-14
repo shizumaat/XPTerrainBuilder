@@ -265,6 +265,10 @@ class ProductionDem:
                                            "query": "bilinear on the baked working grid"}
         self._tiles: dict[tuple[int, int], _BakedTile | None] = {}
         self._water: dict[tuple[int, int], TileWater | None] = {}
+        #: §39 (i) (owner RULINGS 2026-09-13cg): the SHORE LINEWORK the
+        #: mesh constrains, per tile — a different question from
+        #: _water ("is this point wet") and a different product.
+        self._shore: dict[tuple[int, int], list] = {}
         from pyproj import Transformer  # local: geodesy stays in the loaders
         self._inv = Transformer.from_crs(frame.crs, "EPSG:4326", always_xy=True)
         self._fwd = Transformer.from_crs("EPSG:4326", frame.crs, always_xy=True)
@@ -487,6 +491,34 @@ class ProductionDem:
             w = None
         self._water[key] = w
         return w
+
+    def shore(self, lat: int, lon: int) -> list:
+        """§39 (i) THE ONE WITNESS (owner RULINGS 2026-09-13cg): the SHORE
+        LINEWORK the mesh will constrain on this tile, in tile-relative
+        degrees — ``O4_Vector_Map.cached_constrained_shore``, the same
+        products ``include_sea`` / ``include_water`` encode, never a
+        second derivation.  Read once; ``[]`` when the core cannot be
+        reached or nothing is cached (never a download)."""
+        key = (int(lat), int(lon))
+        if key in self._shore:
+            return self._shore[key]
+        lines: list = []
+        try:
+            if not self.core_hosted:
+                self._ensure_core_path()
+            import O4_Config_Utils as CFG
+            import O4_Vector_Map as VMAP
+            t = CFG.Tile(key[0], key[1], "")
+            t.read_from_config()
+            lines = list(VMAP.cached_constrained_shore(t))
+            self._out(f"  [dem] shore witness {hgt_name(*key)}: "
+                      f"{len(lines)} constrained chain(s) (§39 (i))")
+        except Exception as error:                          # pragma: no cover
+            self._out(f"  [dem] shore witness {hgt_name(*key)} UNAVAILABLE "
+                      f"({type(error).__name__}: {error}) — no shore claimed")
+            lines = []
+        self._shore[key] = lines
+        return lines
 
     def water_state(self) -> dict:
         """Provenance: what the witness read, per tile."""

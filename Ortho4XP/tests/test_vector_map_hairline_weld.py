@@ -146,3 +146,184 @@ def test_the_weld_leaves_ordinary_geometry_alone():
     n_before = len(vm.nodes_dico)
     assert vm.weld_hairlines(0.010, LAT) == 0
     assert len(vm.nodes_dico) == n_before
+
+
+# ── §39 (ii) THE RE-NODING PASS (owner RULINGS 2026-09-13cg) ────────────
+# Round 1's weld moved ONE node on the LEMD tile and Triangle4XP refused
+# the whole `.poly`: "Internal error in segmentintersection(): Topological
+# inconsistency after splitting a segment.  Splitting subsegment
+# (0.715087891, 0.111688666) (0.715087891, 0.103639220544) at
+# (0.715087891, 0.111688666)" — a subsegment split AT its own endpoint,
+# because an edge that passed BESIDE the junior now passed THROUGH the
+# senior with nothing noding it there.
+
+def _noding_violations(vm, radius_m):
+    """Nodes standing in the INTERIOR of an edge they are no endpoint of —
+    the invariant whose absence Triangle4XP reports as a topological
+    inconsistency."""
+    out = []
+    for nid, (x, y) in vm.nodes_dico.items():
+        px, py = x * M_LON, y * M_LAT
+        for (n0, n1) in vm.edges_dico.values():
+            if nid in (n0, n1):
+                continue
+            (x0, y0), (x1, y1) = vm.nodes_dico[n0], vm.nodes_dico[n1]
+            ax, ay, bx, by = x0 * M_LON, y0 * M_LAT, x1 * M_LON, y1 * M_LAT
+            dx, dy = bx - ax, by - ay
+            L = dx * dx + dy * dy
+            if L <= 0.0:
+                continue
+            t = ((px - ax) * dx + (py - ay) * dy) / L
+            if not (0.0 < t < 1.0):
+                continue
+            if math.hypot(px - (ax + t * dx), py - (ay + t * dy)) <= radius_m:
+                out.append((nid, n0, n1))
+    return out
+
+
+def _renode_map():
+    """The LEMD arm-2 failure in miniature.  A 10 m WATER edge ``E``; a
+    senior stub whose foot ``S`` stands 6 mm above E without crossing it;
+    a junior stub whose foot ``J`` stands 8 mm above S.  J welds onto S,
+    and E then runs 6 mm past a node it does not share — which is exactly
+    what Triangle4XP reports as a topological inconsistency."""
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    _insert(vm, (X - _dlon(5.0), Y), (X + _dlon(5.0), Y), "WATER")
+    s_foot = (X, Y + _dlat(0.006))
+    _insert(vm, s_foot, (X, Y + _dlat(20.0)), "WATER")
+    j_foot = (X, Y + _dlat(0.014))
+    _insert(vm, j_foot, (X + _dlon(20.0), Y + _dlat(0.014)), "INTERP_ALT")
+    return vm, s_foot, j_foot
+
+
+def test_the_weld_leaves_the_arrangement_NODED():
+    vm, s_foot, j_foot = _renode_map()
+    assert _noding_violations(vm, 0.010), (
+        "the fixture must start with the violation the weld has to fix")
+    report = {}
+    assert vm.weld_hairlines(0.010, LAT, report=report) == 1
+    assert report["renoded"] >= 1, "the passing edge must be split at the senior"
+    assert s_foot in set(vm.nodes_dico.values())
+    assert j_foot not in set(vm.nodes_dico.values())
+    assert _noding_violations(vm, 0.010) == [], (
+        "a node inside an edge it is no endpoint of is exactly what "
+        "Triangle4XP calls a topological inconsistency")
+
+
+def test_the_renoding_pass_preserves_the_marker():
+    vm, _s, _j = _renode_map()
+    water = vm.dico_attributes["WATER"]
+    before = sum(1 for mk in vm.data_edges.values() if mk & water)
+    vm.weld_hairlines(0.010, LAT)
+    after = sum(1 for mk in vm.data_edges.values() if mk & water)
+    assert after >= before, "a split makes two WATER edges of one, never none"
+
+
+def test_a_map_with_nothing_to_weld_is_untouched():
+    vm = _map()
+    a = (0.0692, 0.2181530)
+    _insert(vm, a, (a[0] + _dlon(20.0), a[1]), "WATER")
+    before = dict(vm.edges_dico)
+    assert vm.weld_hairlines(0.010, LAT) == 0
+    assert vm.edges_dico == before
+
+
+# ── §39 (iv) THE CROSSING MINT'S OWN IDENTITY JOIN (RULINGS 13cg/13cj) ──
+# LEMD, measured on this lane's own tile arm: the ORTHOGRID line at lon
+# −3.581542969 is crossed by two patch ring edges whose crossings fall 0.8
+# MILLIMETRES apart, and `insert_node` dedupes on exact float equality, so
+# it minted both — leaving a 0.0008 m constrained grid segment nobody
+# authored.  That pair (`short_segments` 0/0 plus its `bent_chords` 15/0,
+# slenderness 79, at 40.497989, −3.581543) is the tile's worst remaining
+# finding and the one the owner's 1.0.328 pre-flight refused on.
+
+def _grid_crossing_map():
+    """A vertical grid line crossed by two near-parallel ring edges whose
+    crossings fall 0.8 mm apart — LEMD's geometry, to scale."""
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    _insert(vm, (X, Y - _dlat(20.0)), (X, Y + _dlat(20.0)), "DUMMY")
+    for dy in (0.0, _dlat(0.0008)):
+        _insert(vm, (X - _dlon(15.0), Y + dy), (X + _dlon(15.0), Y + dy),
+                "INTERP_ALT")
+    return vm
+
+
+def test_two_crossings_a_millimetre_apart_mint_one_node():
+    vm = _grid_crossing_map()
+    shortest = _shortest_segment_m(vm)
+    assert shortest > 0.01, (
+        f"a {shortest * 1000:.4f} mm constrained segment survived — that is "
+        f"LEMD's orthogrid sliver at 40.497989, -3.581543")
+
+
+def test_the_crossing_dedupe_moves_nothing():
+    """The authored vertices keep their coordinates; only the MINT is
+    refused."""
+    vm = _grid_crossing_map()
+    X, Y = 0.0692, 0.2181530
+    coords = set(vm.nodes_dico.values())
+    for dy in (0.0, _dlat(0.0008)):
+        assert (X - _dlon(15.0), Y + dy) in coords
+        assert (X + _dlon(15.0), Y + dy) in coords
+
+
+def test_a_genuine_second_crossing_still_mints():
+    """Two crossings a metre apart are two nodes: the join is METRIC, not
+    a licence to collapse the grid."""
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    _insert(vm, (X, Y - _dlat(20.0)), (X, Y + _dlat(20.0)), "DUMMY")
+    before = len(vm.nodes_dico)
+    for dy in (0.0, _dlat(1.0)):
+        _insert(vm, (X - _dlon(15.0), Y + dy), (X + _dlon(15.0), Y + dy),
+                "INTERP_ALT")
+    assert len(vm.nodes_dico) == before + 6, (
+        "four ring endpoints and TWO distinct crossings")
+
+
+# ── RULINGS 13cp: THE SHARED NODE CARRIES THE CROSSED CHAIN'S ALTITUDE ──
+# Shipping the metric split branch without it put the NEW way's z into the
+# OLD chain: measured at LEMD on app 1.0.329, 10,438 of 56,830 WATER input
+# nodes emitted more than 2 m off their own .node z, worst −25.1 m at
+# 40.9122564, −3.4733278.
+
+def _z_of(vm, coord):
+    for nid, p in vm.nodes_dico.items():
+        if p == coord:
+            return vm.data_nodes[nid]
+    raise AssertionError(f"no node at {coord}")
+
+
+def _insert_z(vm, p, q, marker, zp, zq):
+    vm.insert_way(numpy.array([[p[0], p[1], zp], [q[0], q[1], zq]]),
+                  marker, check=True)
+
+
+def test_the_shared_node_takes_the_crossed_chains_altitude():
+    """A WATER edge at z 0 crossed 3 mm from a bank node at z 40: the
+    shared node is the water's level, not the bank's."""
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    bank_end = (X, Y)
+    off = _dlon(0.003)
+    # the WATER chain first, so it is the OLD edge the bank crosses
+    _insert_z(vm, (bank_end[0] - off, Y - _dlat(10.0)),
+              (bank_end[0] - off, Y + _dlat(10.0)), "WATER", 0.0, 0.0)
+    _insert_z(vm, (X - _dlon(20.0), Y), bank_end, "INTERP_ALT", 40.0, 40.0)
+    assert vm.split_z_carried >= 1
+    assert _z_of(vm, bank_end) == pytest.approx(0.0, abs=1e-6), (
+        "the crossed WATER chain's interpolated z, not the bank's 40 m")
+
+
+def test_nothing_is_carried_when_no_crossing_resolves_to_a_node():
+    vm = _map()
+    X, Y = 0.0692, 0.2181530
+    _insert_z(vm, (X, Y - _dlat(10.0)), (X, Y + _dlat(10.0)),
+              "WATER", 0.0, 0.0)
+    _insert_z(vm, (X - _dlon(20.0), Y), (X + _dlon(20.0), Y),
+              "INTERP_ALT", 40.0, 40.0)
+    assert vm.split_z_carried == 0, (
+        "a crossing in the true interior mints its own node with the "
+        "interpolated z, as it always did")

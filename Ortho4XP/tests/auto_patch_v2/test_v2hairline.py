@@ -105,9 +105,12 @@ def test_a_vertex_near_a_water_vertex_is_snapped_onto_it(law):
     assert out.vertices[0].ll == A
 
 
-def test_a_shared_vertex_is_never_dropped(law):
+def test_a_shared_vertex_is_projected_not_dropped(law):
     """Dropping a vertex two sequences share would leave a T-junction —
-    the same defect one dimension down.  It is left and COUNTED."""
+    the same defect one dimension down.  It is PROJECTED ONTO the chord
+    instead (owner RULINGS 2026-09-13bt (5') / 13cg (i)): it lands on the
+    line the mesh constrains, so the mesher splits that segment there and
+    no wedge exists."""
     verts = tuple(SurfaceVertex(i, ll, 600.0)
                   for i, ll in enumerate([A, S1, S2, B, (40.4757, -3.5470)]))
     surf = GradedSurface(
@@ -119,8 +122,12 @@ def test_a_shared_vertex_is_never_dropped(law):
     rep = WeldReport()
     out = weld_to_shore(surf, law, [(A, B)], rep)
     assert rep.dropped == 0
-    assert rep.stranded == 2
-    assert [v.ll for v in out.vertices][1:3] == [S1, S2]
+    assert rep.projected == 2 and rep.stranded == 0
+    moved = [v.ll for v in out.vertices][1:3]
+    assert moved != [S1, S2]
+    for ll in moved:
+        assert _dist_to_AB(ll) < 1.0e-9, (
+            "a projected vertex stands ON the mesh's own straight segment")
 
 
 def test_a_lawful_run_a_metre_away_is_untouched(law):
@@ -160,3 +167,69 @@ def test_shore_edges_of_reads_the_tile_witness_in_lat_lon():
            for a, b in edges}
     want = (tuple(round(c, 7) for c in A), tuple(round(c, 7) for c in B))
     assert want in got or want[::-1] in got
+
+
+# ── §39 (iii) THE IDENTITY JOIN MERGES A SUB-SPACING SEGMENT ────────────
+# (owner RULINGS 2026-09-13cg (iii)).  Measured on the round-1 arms: LEMD
+# 932 emitted constrained segments under the 0.5 m spacing, KCLT 1,635,
+# VMMC 1,631, the shortest 5.6 micrometres at 35.2153165, −80.9285365.
+
+def _square(law, *extra):
+    """A 40 m apron ring, plus whatever extra vertices are given."""
+    base = [(40.4760, -3.5460), (40.4760, -3.5455),
+            (40.4763, -3.5455), (40.4763, -3.5460)]
+    pts = list(base) + list(extra)
+    verts = tuple(SurfaceVertex(i, ll, 600.0) for i, ll in enumerate(pts))
+    ring = tuple(range(len(pts)))
+    return GradedSurface(icao="TEST", ruleset="icao", origin=base[0],
+                         crs="+proj=tmerc", identity_dp=11, vertices=verts,
+                         faces=(SurfaceFace(1, "apron", "pav1", ring, (), "airside"),),
+                         breaklines=(), provenance={})
+
+
+def test_a_sub_spacing_segment_is_merged_away(law):
+    """A 5.6 micrometre neighbour — KCLT's own shortest — is not a vertex."""
+    from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
+    tiny = (40.4763 + 5.6e-6 / M_LAT, -3.5460)
+    rep = WeldReport()
+    out = merge_sub_spacing(_square(law, tiny), law, rep)
+    assert rep.merged == 1
+    assert len(out.faces[0].ring) == 4
+    assert tiny not in [v.ll for v in out.vertices]
+
+
+def test_the_senior_vertex_keeps_its_coordinate(law):
+    """Nothing MOVES: the junior disappears, the senior stands where it
+    stood — the shared vertex (higher degree) is always the senior."""
+    from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
+    tiny = (40.4763 + 0.2 / M_LAT, -3.5460)
+    surf = _square(law, tiny)
+    surf = type(surf)(**{**surf.__dict__,
+                         "breaklines": (SurfaceBreakline(1, "bank_foot", "b",
+                                                         (4, 0)),)})
+    out = merge_sub_spacing(surf, law, WeldReport())
+    kept = [v.ll for v in out.vertices]
+    assert tiny in kept, "the vertex the breakline shares is the senior"
+    assert (40.4763, -3.5460) not in kept
+
+
+def test_a_lawful_ring_is_untouched(law):
+    from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
+    rep = WeldReport()
+    surf = _square(law)
+    out = merge_sub_spacing(surf, law, rep)
+    assert rep.merged == 0 and out is surf
+
+
+def test_a_triangle_is_never_collapsed_away(law):
+    """Three vertices are the smallest thing the mesh can constrain."""
+    from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
+    d = 0.1 / M_LAT
+    pts = [(40.4760, -3.5460), (40.4760 + d, -3.5460), (40.4760, -3.5460 + d)]
+    verts = tuple(SurfaceVertex(i, ll, 600.0) for i, ll in enumerate(pts))
+    surf = GradedSurface(icao="TEST", ruleset="icao", origin=pts[0],
+                         crs="+proj=tmerc", identity_dp=11, vertices=verts,
+                         faces=(SurfaceFace(1, "apron", "p", (0, 1, 2), (), "airside"),),
+                         breaklines=(), provenance={})
+    out = merge_sub_spacing(surf, law, WeldReport())
+    assert len(out.faces[0].ring) == 3

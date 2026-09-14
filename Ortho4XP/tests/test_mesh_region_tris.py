@@ -318,3 +318,74 @@ def test_edge_audit_refuses_an_unbounded_read(tmp_path):
                          [_flat_tri(0.0, 0.0, 10.0, 700.0)])
     with pytest.raises(SystemExit, match="AREA read"):
         MRT.main(["--mesh", str(mesh), "--edge-audit"])
+
+
+# ── THE PATCH EDGE STEP (owner request 2026-09-13, the OMIT arm) ──────
+#
+# A hand-built pair: a unit-square PATCH RING at 600 m and one mesher
+# vertex OUTSIDE it at 588 — the 12 m one-triangle cliff §8.4 measured
+# and the bank exists to grade.
+
+def _write_edge_step_inputs(tmp_path, outside_z):
+    import mesh_region_tris as MRT
+
+    ring = [(0.000, 0.000), (0.001, 0.000), (0.001, 0.001), (0.000, 0.001)]
+    outside = (0.0015, 0.0005)
+    prefix = tmp_path / "Data+40-004"
+    nodes = ring + [outside]
+    z_node = [600.0] * 4 + [outside_z]
+    (prefix.with_suffix(".node")).write_text(
+        "5 2 1 0\n" + "".join(
+            f"{i + 1} {x:.9f} {y:.9f} {z:.9f}\n"
+            for i, ((x, y), z) in enumerate(zip(nodes, z_node))))
+    segments = [(i + 1, (i + 1) % 4 + 1, MRT.PATCH_RING_MARKER)
+                for i in range(4)]
+    (prefix.with_suffix(".poly")).write_text(
+        "0 2 1 0\n\n" + f"{len(segments)} 1\n"
+        + "".join(f"{k + 1} {a} {b} {m}\n"
+                  for k, (a, b, m) in enumerate(segments))
+        + "\n0\n\n0\n")
+    verts = [(x - 4.0, y + 40.0, z) for (x, y), z in zip(nodes, z_node)]
+    faces = [(1, 2, 3), (1, 3, 4), (2, 3, 5)]
+    lines = ["MeshVersionFormatted 1", "Dimension 3", "Vertices",
+             str(len(verts))]
+    lines += [f"{lo:.9f} {la:.9f} {z / 100000.0:.12f} 0"
+              for lo, la, z in verts]
+    lines += ["Triangles", str(len(faces))]
+    lines += [f"{a} {b} {c} 8" for a, b, c in faces]
+    lines += ["End", ""]
+    mesh = tmp_path / "Data+40-004.mesh"
+    mesh.write_text("\n".join(lines))
+    return (str(prefix), str(mesh))
+
+
+def test_patch_edge_step_reads_the_one_triangle_cliff(tmp_path, capsys):
+    import mesh_region_tris as MRT
+
+    (prefix, mesh) = _write_edge_step_inputs(tmp_path, 588.0)
+    payload = MRT.patch_edge_step(prefix, mesh, 40, -4)
+    assert payload["n"] == 2               # two ring vertices see it
+    assert payload["max"] == pytest.approx(12.0)
+    assert payload["over_3m"] == 2 and payload["over_1m"] == 2
+    assert "patch edge step" in capsys.readouterr().out
+
+
+def test_patch_edge_step_is_zero_when_the_edge_is_graded(tmp_path):
+    import mesh_region_tris as MRT
+
+    (prefix, mesh) = _write_edge_step_inputs(tmp_path, 600.0)
+    payload = MRT.patch_edge_step(prefix, mesh, 40, -4)
+    assert payload["max"] == pytest.approx(0.0)
+    assert payload["over_1m"] == 0
+
+
+def test_patch_edge_step_says_so_when_there_is_no_patch_ring(tmp_path,
+                                                             capsys):
+    import mesh_region_tris as MRT
+
+    (prefix, mesh) = _write_edge_step_inputs(tmp_path, 588.0)
+    text = open(prefix + ".poly").read().replace(
+        f" {MRT.PATCH_RING_MARKER}\n", " 0\n")
+    open(prefix + ".poly", "w").write(text)
+    assert MRT.patch_edge_step(prefix, mesh, 40, -4)["n"] == 0
+    assert "no PATCH_RING_MARKER segment" in capsys.readouterr().out

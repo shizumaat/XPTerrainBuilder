@@ -764,10 +764,24 @@ def interpolate_free_interior_altitudes(
     good = _np.isfinite(solution)
     changed = good & ~isolated
     vertices[6 * free[changed] + 5] = solution[changed]
+    isolated_components = 0
+    if report is not None and isolated.any():
+        # RULINGS 2026-09-13cp: the report NAMES the components with no
+        # authored vertex, not only the vertex count — 371 of them at
+        # LEMD on 1.0.329 was the signature nobody could see.
+        from scipy.sparse.csgraph import connected_components as _cc
+        adj = coo_matrix(
+            (_np.ones(int(both.sum()) * 2),
+             (_np.concatenate([position[a[both]], position[b[both]]]),
+              _np.concatenate([position[b[both]], position[a[both]]]))),
+            shape=(free.size, free.size)).tocsr()
+        n_comp, labels = _cc(adj, directed=False)
+        isolated_components = int(len(set(labels[isolated].tolist())))
     if report is not None:
         report.update({"free": int(free.size),
                        "solved": int(changed.sum()),
                        "isolated": int(isolated.sum()),
+                       "isolated_components": isolated_components,
                        "non_finite": int((~good).sum()),
                        # The vertices this call MOVED, for the leak
                        # detector below: a containment claim has to be
@@ -1051,62 +1065,53 @@ BANK_FOOT_FEATURE = "bank_foot"
 #: to be impossible.
 BANK_RING_MATCH_TOLERANCE = 1.0e-6
 
-#: §37 (3) (owner RULINGS 2026-09-13q item 8): a ``bank_foot`` way may now
-#: be an OPEN chain — the bank is emitted only where it is load-bearing,
-#: so one boundary ring becomes one chain per load-bearing run.  An open
-#: chain is closed here into its RIBBON (the chain and its own projection
-#: onto the design coverage), which is the strip of ground the bank
-#: occupies.  The ribbon is accepted only when its area is plausible for a
-#: bank of that length — at most this many ``bank_max_width_m`` — so any
-#: failure of the closure leaves those vertices to the harmonic extension
-#: instead of writing a wrong field, which is this module's standing rule.
-BANK_OPEN_CHAIN_AREA_WIDTHS = 1.0
 #: ``emit.design.bank_max_width_m``, in metres (converted per call: the
 #: degree scale constant is defined further down this module).
 BANK_MAX_WIDTH_M = 200.0
 
+#: WHAT THE LAST :func:`_bank_rings_from_patches` READ — a report figure
+#: and the input of the LOUD BAR below: ``foot_closed`` / ``foot_open``
+#: ``bank_foot`` ways and ``design`` rings.  RULINGS 2026-09-13cp: the
+#: 1.0.329 defect was 105 open feet and 0 closed, and NOTHING said so.
+BANK_RINGS_STATS = {}
 
-def _close_open_foot(chain, design_cov):
-    """§37 (3): the RIBBON of an open ``bank_foot`` chain — the polygon
-    between the chain and its nearest-point projection onto the design
-    coverage.  ``None`` when it cannot be built or its area is not
-    plausible for a bank of that length."""
-    from shapely import geometry, ops
+#: THE LOUD BAR (owner RULINGS 2026-09-13cp).  An airport that HAS a bank
+#: foot and whose annulus comes out valued below this fraction of its own
+#: candidate vertices is not a quiet no-op: it is the collapse the owner
+#: read as a 20 m canyon.  The mesh step REFUSES with the counts.
+#: ``O4_BANK_ANNULUS_BAR=warn`` downgrades it to a loud line for a
+#: deliberate investigation (the ``O4_INTERP_ALT_LEAK`` precedent);
+#: anything else (or unset) refuses.
+BANK_ANNULUS_BAR_FRACTION = 0.10
+BANK_ANNULUS_BAR_ENV = "O4_BANK_ANNULUS_BAR"
 
-    if design_cov.is_empty or len(chain) < 2:
-        return None
-    try:
-        line = geometry.LineString(chain)
-        proj = [ops.nearest_points(design_cov, geometry.Point(c))[0]
-                for c in chain]
-        poly = geometry.Polygon(list(chain) + [(q.x, q.y) for q in reversed(proj)])
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if poly.is_empty or poly.geom_type not in ("Polygon", "MultiPolygon"):
-            return None
-        max_w = BANK_MAX_WIDTH_M / BANK_METRES_PER_DEGREE
-        if poly.area > (BANK_OPEN_CHAIN_AREA_WIDTHS * max_w * line.length):
-            return None
-        return poly
-    except Exception:
-        return None
+
+class BankAnnulusCollapse(Exception):
+    """The bank annulus was not valued — the bank is not in the mesh."""
 
 
 def _bank_rings_from_patches(tile):
     """The tile's patch rings, split into FOOT rings and DESIGN rings.
 
-    Returns ``(foot_polygons, design_polygons)`` as shapely polygons in
-    the isotropic tile-relative frame, or ``None`` when the patch
-    directory cannot be read.  Both lists are empty for a tile with no
-    patch, and ``foot_polygons`` is empty for a v1 or manual patch — the
-    caller then does nothing at all.
+    Returns ``(foot_polygons, design_polygons, open_foot_lines)`` in the
+    isotropic tile-relative frame, or ``None`` when the patch directory
+    cannot be read.  All three are empty for a tile with no patch, and
+    ``foot_polygons`` is empty for a v1 or manual patch — the caller then
+    does nothing at all.
+
+    ``open_foot_lines`` (RULINGS 2026-09-13cp) are the ``bank_foot`` ways
+    that are OPEN — a ring straddling a tile seam.  They are LINEWORK, not
+    a region: an open chain bounds nothing, so it never enters the annulus
+    polygon, and it is never closed here by projection.  The closed
+    coverage is the EMITTER's job.
     """
     from shapely import geometry, ops
 
     import O4_Vector_Map as VMAP          # late: no cycle, see the note
     patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
     if not os.path.exists(patch_dir):
-        return ([], [])
+        BANK_RINGS_STATS.clear()
+        return ([], [], [])
     all_files = [f for f in os.listdir(patch_dir) if f[-10:] == ".patch.osm"]
     manual = [f for f in all_files if "_auto.patch.osm" not in f]
     auto = [f for f in all_files if "_auto.patch.osm" in f]
@@ -1152,7 +1157,13 @@ def _bank_rings_from_patches(tile):
             except Exception:
                 continue
             if not closed:
-                open_feet.append(ring)
+                # RULINGS 2026-09-13cp: an OPEN chain is a BREAKLINE, and
+                # it is carried as LINEWORK.  It is not closed here by a
+                # ``nearest_points`` projection any more — that ribbon
+                # (the 09-13q-era ``_close_open_foot``) fed the blend 15
+                # vertices where the closed ring fed it 33,377.  The
+                # closed coverage is the EMITTER's (``emit/bank.py``).
+                open_feet.append(geometry.LineString(ring))
                 continue
             polygon = geometry.Polygon(ring)
             if not polygon.is_valid:
@@ -1163,13 +1174,11 @@ def _bank_rings_from_patches(tile):
                 feet.append(polygon)
             else:
                 design.append(polygon)
-    if open_feet:
-        design_cov = ops.unary_union(design) if design else geometry.Polygon()
-        for chain in open_feet:
-            ribbon = _close_open_foot(chain, design_cov)
-            if ribbon is not None:
-                feet.append(ribbon)
-    return (feet, design)
+    BANK_RINGS_STATS.clear()
+    BANK_RINGS_STATS.update({"foot_closed": len(feet),
+                             "foot_open": len(open_feet),
+                             "design": len(design)})
+    return (feet, design, open_feet)
 
 
 #: A patch way is PAVEMENT — a surface with a profile of its own that
@@ -1315,7 +1324,7 @@ def bank_annulus_polygon(tile):
     rings = _bank_rings_from_patches(tile)
     if rings is None:
         return None
-    (feet, design) = rings
+    (feet, design, _open_lines) = rings
     if not feet:
         return geometry.Polygon()
     design_cov = ops.unary_union(design) if design else geometry.Polygon()
@@ -1328,6 +1337,105 @@ def bank_annulus_polygon(tile):
         banked = banked.difference(ops.unary_union(holes))
     annulus = banked.difference(design_cov)
     return annulus if not annulus.is_empty else geometry.Polygon()
+
+
+def audit_bank_annulus(tile, vertices, triangles, blend):
+    """THE LOUD BAR (owner RULINGS 2026-09-13cp): REFUSE when an airport
+    that HAS a bank foot comes out with a collapsed annulus.
+
+    The 1.0.329 defect was silent by construction — ``feet`` came back
+    empty, :func:`bank_annulus_blend_values` returned ``{}`` on its
+    ``not feet`` line, and the mesh built a 20 m canyon while every log
+    line read normal.  So the check is stated on the two numbers that
+    disagree: the tile carries ``bank_foot`` ways, and fewer than
+    :data:`BANK_ANNULUS_BAR_FRACTION` of the vertices standing INSIDE the
+    annulus were valued by the blend.  An empty annulus with feet present
+    is the same failure with the denominator gone, and refuses too.
+
+    Returns the ``(valued, candidates)`` pair it judged.  Never raises for
+    a tile with no bank foot at all (a v1 or manual patch, or an airport
+    whose rings are all immaterial).
+    """
+    stats = dict(BANK_RINGS_STATS)
+    n_open = int(stats.get("foot_open", 0))
+    n_closed = int(stats.get("foot_closed", 0))
+    if not (n_open or n_closed):
+        return (0, 0)
+    try:
+        annulus = bank_annulus_polygon(tile)
+    except Exception:
+        annulus = None
+    valued = len(blend or {})
+    candidates = 0
+    if annulus is not None and not annulus.is_empty and triangles:
+        import numpy as _np
+        import shapely as _sh
+        scalx = cos((tile.lat + 0.5) * pi / 180)
+        touched = _np.unique(_np.asarray(sorted(triangles), dtype=_np.int64))
+        candidates = int(_np.count_nonzero(_sh.contains_xy(
+            annulus, vertices[6 * touched] * scalx,
+            vertices[6 * touched + 1])))
+    enough = (candidates > 0
+              and valued >= BANK_ANNULUS_BAR_FRACTION * candidates)
+    if enough:
+        UI.vprint(
+            1,
+            f"   Bank annulus bar: {valued} of {candidates} annulus "
+            f"vertex(es) valued ({n_closed} closed + {n_open} open "
+            "bank_foot way(s)) — over the "
+            f"{BANK_ANNULUS_BAR_FRACTION:.0%} floor (RULINGS 2026-09-13cp).")
+        return (valued, candidates)
+    message = (
+        "THE BANK ANNULUS COLLAPSED (RULINGS 2026-09-13cp): the patch "
+        f"carries {n_closed} closed and {n_open} open bank_foot way(s) "
+        f"and {stats.get('design', 0)} design ring(s), yet only {valued} "
+        f"of {candidates} annulus vertex(es) took the bank field "
+        f"(floor {BANK_ANNULUS_BAR_FRACTION:.0%}). The bank is NOT in "
+        "this mesh: the harmonic extension will interpolate the annulus "
+        "from remote data (the 1.0.329 LEMD 20.7 m canyon). Refusing "
+        "before the mesh is written; set "
+        f"{BANK_ANNULUS_BAR_ENV}=warn to investigate deliberately.")
+    if os.environ.get(BANK_ANNULUS_BAR_ENV, "") == "warn":
+        UI.lvprint(1, "WARNING:", message)
+        return (valued, candidates)
+    UI.lvprint(0, "ERROR:", message)
+    raise BankAnnulusCollapse(message)
+
+
+#: BARE ``INTERP_ALT`` (attr 8) — a levelled ROAD RIBBON, a seawall band
+#: or an OBJ8 patch object edge.  RULINGS 2026-09-13cp, THE INTERIM BELT:
+#: R18-1b's own docstring promises "that is also what leaves a road ribbon
+#: outside any patch byte-unchanged", and the LEMD canyon is that promise
+#: broken INSIDE the coverage — ribbon nodes authored at 588-590 m were
+#: FREE, so the harmonic extension moved them to 568.  A node the vector
+#: map wrote a bare-INTERP_ALT edge on carries an authored altitude: it is
+#: Dirichlet data, never an unknown.
+def interp_alt_ribbon_vertex_indices(tile):
+    """The 0-based vertex indices that are an endpoint of a ``.poly`` edge
+    marked EXACTLY ``INTERP_ALT`` (8).  Empty set on any read failure (the
+    conservative direction: the belt is a refinement, never a build
+    stopper)."""
+    bare = VECT.Vector_Map.dico_attributes["INTERP_ALT"]
+    indices = set()
+    try:
+        with open(FNAMES.input_poly_file(tile)) as handle:
+            line = handle.readline()
+            while line.strip() == "" or line.startswith("0 2"):
+                line = handle.readline()
+            nbr_edges = int(line.split()[0])
+            for _ in range(nbr_edges):
+                columns = handle.readline().split()
+                if len(columns) < 4 or int(columns[3]) != bare:
+                    continue
+                indices.add(int(columns[1]) - 1)
+                indices.add(int(columns[2]) - 1)
+    except Exception as error:
+        UI.lvprint(
+            1, "WARNING: could not read the bare-INTERP_ALT ribbon edges; "
+               "road ribbon nodes stay in the free set (RULINGS "
+               "2026-09-13cp):", str(error))
+        return set()
+    return indices
 
 
 def bank_annulus_blend_values(tile, vertices, triangles, patch_valued,
@@ -1355,7 +1463,7 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued,
     try:
         annulus = bank_annulus_polygon(tile)
         edges = _patch_ring_edges(tile)
-        feet = _bank_rings_from_patches(tile)[0]
+        (feet, _design_r, open_foot_lines) = _bank_rings_from_patches(tile)
     except Exception as error:
         UI.lvprint(
             1, "WARNING: could not read the bank rings — the bank annulus "
@@ -1447,7 +1555,12 @@ def bank_annulus_blend_values(tile, vertices, triangles, patch_valued,
     # NOT on a foot ring it is an INNER one.  An edge strictly inside the
     # design coverage (a face-to-face rim) is neither, and must not be:
     # the inner end of a bank ray is the coverage's outer boundary.
-    foot_lines = _sh.union_all([_sh.boundary(p) for p in feet])
+    # RULINGS 2026-09-13cp: an OPEN foot chain (a ring split at a tile
+    # seam) is foot LINEWORK too — it bounds no region, so it is not in
+    # the annulus polygon, but a ``.poly`` edge lying on it IS an OUTER
+    # segment and carries the foot's own z.
+    foot_lines = _sh.union_all([_sh.boundary(p) for p in feet]
+                               + list(open_foot_lines))
     mids = _sh.points(_np.stack([(ax + bx) / 2.0, (ay + by) / 2.0], axis=1))
     on_foot = _sh.distance(mids, foot_lines) <= BANK_RING_MATCH_TOLERANCE
     ann_bnd = _sh.boundary(annulus)
@@ -1788,7 +1901,7 @@ def bank_annulus_region_areas(tile, seeds):
         return {}
     if not divisions >= 1.0:
         return {}
-    (feet, design) = rings
+    (feet, design, _open_lines) = rings
     design_cov = _ops.unary_union(design) if design else _geom.Polygon()
     if design_cov.is_empty:
         return {}
@@ -2252,6 +2365,22 @@ def post_process_nodes_altitudes(tile):
                 f"   Patch rings: {len(split)} mesher-inserted vertex(es) "
                 "lie on a patch ring segment and take the ring's value "
                 "there (R18-1b amendment 2026-09-06).")
+        # THE INTERIM BELT (owner RULINGS 2026-09-13cp): a node the
+        # vector map wrote a BARE INTERP_ALT edge on — a levelled road
+        # ribbon, a seawall band, an OBJ8 patch object — carries an
+        # AUTHORED altitude and leaves the free set.  R18-1b's docstring
+        # already promises road ribbons come out byte-unchanged; the LEMD
+        # canyon is that promise broken inside the coverage.
+        if patch_valued is not None:
+            ribbon = interp_alt_ribbon_vertex_indices(tile)
+            ribbon -= set(patch_valued)
+            if ribbon:
+                patch_valued = set(patch_valued) | ribbon
+                UI.vprint(
+                    1,
+                    f"   Road ribbons: {len(ribbon)} bare-INTERP_ALT input "
+                    "node(s) keep their authored altitude and join the "
+                    "Dirichlet set (RULINGS 2026-09-13cp).")
         # THE ENGINE BLENDS THE BANK (owner RULINGS 2026-09-09p (1) /
         # 2026-09-09t): a free vertex inside a BANK ANNULUS takes its
         # altitude LINEAR IN PLAN DISTANCE between the design ring and
@@ -2289,6 +2418,10 @@ def post_process_nodes_altitudes(tile):
                 "vertex(es) stand on PAVEMENT and kept their own profile, "
                 f"{BANK_BLEND_STATS.get('boundary_datum_kept', 0)} are the "
                 "field's own ring/foot datum (RULINGS 2026-09-09ad).")
+        # THE LOUD BAR (RULINGS 2026-09-13cp): a collapsed annulus is not
+        # a quiet no-op.  It runs whether or not the blend returned
+        # anything — the 1.0.329 defect returned ``{}``.
+        audit_bank_annulus(tile, vertices, _interp_alt_only_tris, blend)
         try:
             n_interpolated = interpolate_free_interior_altitudes(
                 vertices, _interp_alt_only_tris, patch_valued, report=report)
@@ -2305,8 +2438,9 @@ def post_process_nodes_altitudes(tile):
                 f"   Patch/road interiors: {n_interpolated} free interior "
                 f"vertex(es) of {report.get('free', 0)} took their face's "
                 "interpolated altitude instead of the DEM"
-                + (f"; {report['isolated']} kept their own value (no "
-                   "authored vertex in their component)"
+                + (f"; {report['isolated']} kept their own value in "
+                   f"{report.get('isolated_components', 0)} component(s) "
+                   "with no authored vertex"
                    if report.get("isolated") else "")
                 + ".")
         # R18-1c detector (spec item 3): loud refusal, never a silent

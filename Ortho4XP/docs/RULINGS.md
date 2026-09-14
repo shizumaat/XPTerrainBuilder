@@ -4133,3 +4133,257 @@ annulus seeds 252 → 3, valued vertices 84,631 → 0, INTERP_ALT 629,054 →
   `--shape` only before the ICAO.
 * Not verified: item 7; the `apron_named=1` token on cells 58/191 (source
   description matches no token — untraced); no registered HECA frame.
+
+## 2026-09-13ct Owner on HECA item 8: the apron is the pack object `Concrete_Polygon_1.obj`
+
+Owner, verbatim: "The apron area for item 8 is covered by
+'Concrete_Polygon_1.obj' in the airport package, which is large and has
+concrete at other parts of the airport, so I assume we are cutting this
+object into smaller pieces so they can be seated on the ground?"
+
+* The 13cs item-8 reading ("the pack's draped `.pol` page") is corrected:
+  the pavement is an OBJECT. Law that applies: §16g (4) components apart
+  are separate bodies, each seated on its own unit datum; §16b terrain cut
+  for a footed body. Suspect: the +19.70 m body at 30.120503, 31.402651
+  (`feet:20`, diameter 1,143.8 m) IS this object, unsplit.
+* Scout `v2heca329` resumed: bodies, seats, mesh under each piece, and
+  whether an object-pavement footprint enters the layout as a source
+  polygon (`o4_object_footprints_+30+031.cache` exists in the mod cache).
+
+## 2026-09-13cu `Concrete_Polygon_1.obj` read: a DRAPED ground polygon, correctly NOT cut; 580,331 m² of HECA's concrete has no route into the layout
+
+Scout `v2heca329` (resumed), read-only. The object: OBJ8 `TEXTURE_DRAPED`,
+1,137 vertices ALL at local Y = 0.000, 379 triangles, 29 disjoint bodies,
+580,331 m² total, authored extent 2,962 × 4,032 m; ONE `OBJECT` seat at the
+pack origin (30.1121147, 31.4120270, mesh 108.443, shared with 199 other
+placements); ground under its corners 45.0–130.9 m. The rebake plan lists
+it `skipped: no genuine solid component: nothing to seat` (one of 50 of 90
+skips) — no `__bN.obj` pieces, correctly: X-Plane drapes it onto the mesh,
+it cannot float. The owner's point 30.1235047, 31.4160956 is inside body 6
+(25,012 m², 182 × 217 m), drawn on the raw mesh at 95.09; the mapped apron
+`pav132` is graded 82 m away — the seam is the "missing apron". The
++19.70 m body at 30.120503, 31.402651 is NOT this object: it is `unit:43`,
+the Terminal 3 hangar/tower complex (`T3_concrete_Yellow`,
+`floor_more_yellow`, `titles_1`, `building`), 597 m outside the concrete.
+No route into the layout: object footprints enter only as `building` pads
+(930 at HECA, the concrete not among them); pavement sources are apt.dat
+110 polygons and `.pol` POLYGON_DEF pages only (`airport/load.py:309-381`,
+1 admitted at HECA); `classify/sources.py` has no object-footprint source.
+
+* Answer to the owner: we are NOT cutting it and need not — it is draped.
+  The defect is source evidence: the layout is blind to the pack's draped
+  OBJ ground polygons.
+* INTENT QUESTION (recommended YES): admit a pack's draped OBJ ground
+  polygons (`TEXTURE_DRAPED`, all vertices at Y = 0, per disjoint body) as
+  pavement source geometry beside `.pol` pages, classified by the same
+  rules (apron/lot/corridor by evidence), so the design surface grades the
+  ground under them. At HECA that is 29 bodies / 580 k m². Awaits the
+  owner's ruling; then a lane `v2drapedsrc`.
+* Standing HECA object debt carried (13cs): `unit:43` +19.70 m.
+
+## 2026-09-13cv Owner: "Yes, lets try and identify object based pavement so we can classify it correctly" — §42 written, lane `v2drapedsrc`
+
+* §42 OBJECT-BASED PAVEMENT IS A SOURCE: a placed OBJ8's draped, Y = 0
+  geometry ≥ 200 m², per disjoint body, is a `dsf:object_pavement` source
+  polygon classified by the same evidence rules as a `.pol` page; pads win
+  on overlap; a mapped page's evidence governs where they meet (union,
+  never a second surface). Census `object_pavements` in load; `explain`
+  names the resource.
+* Lane `v2drapedsrc` (Opus, brief pack), HECA closing build; the other
+  frames dry.
+
+## 2026-09-13cw v2bankfoot MERGED (128aeb16): the canyons are gone in BOTH arms; the bank buys the patch edge only partly — the owner's bank ruling is now a numbers question
+
+Lane `v2bankfoot` @ 6b3a57cb, merged 128aeb16; twins 520 passed on main.
+Two LEMD tile-mesh arms on one frame (registered `frames.py list LEMD`):
+
+| reading | 1.0.329 | OMIT (no bank) | FIX |
+|---|---|---|---|
+| owner's site mesh z (ribbon 588–590) | 568.3 | 589.00 | 589.00 |
+| road ribbons off > 2 m (of ~278 k) | 1,400 (−24.3) | 4 (−2.5) | 3 (−2.4) |
+| annulus valued | 15 | — | 39,105 / 58,555 |
+| harmonic moved / no-authored components | 2,729 / 371 | 987 / 0 | 491 / 0 |
+| patch-edge step median / p95 / max | — | 0.74 / 5.68 / 19.9 | 0.42 / 4.94 / 22.1 |
+| edge pairs > 1 m / > 3 m | — | 6,610 / 2,584 | 5,078 / 1,924 |
+| PATCH_RING off > 2 m | 0 | 2 | 337 (worst −9.22: 09ad (b) pre-valued rings inside the annulus taking the bank field — pre-§37 (3) behaviour restored, bar NOT met, not weakened) |
+| WATER off > 2 m | 10,438 | 10,448 | 10,262 (unattributed either way) |
+| census ADJUDICATED | — | 1,143 | 1,143 |
+
+* THE ANSWER to 13cq: the bank was NOT carrying the ribbons — OMIT restores
+  them. What the bank still buys is the patch edge, partly: > 3 m steps
+  2,584 → 1,924, median 0.74 → 0.42, worst unchanged ~20 m; 1,924 steps over
+  3 m remain WITH the bank, and `adjacent_ground_step` sees 1 in both arms
+  (§8.4's one-triangle cliff is invisible to every family). The bank class
+  stays; deleting it is the owner's ruling on these numbers. Note the FIX
+  arm's own cost: 337 coverage/graded-strip ring nodes moved up to 9.22 m
+  by the bank field (09ad (b)).
+* RULING on the lane's deviation: §37 (3) AMENDED — the coverage closes,
+  load-bearing governs resolution only. Not attempted: narrowing the
+  banked REGION to a min-width collar at immaterial stations (same
+  closure, fewer nodes) — owed if the owner keeps the bank.
+* ALSO load-bearing independently of the bank: 65 OPEN `structure_rim`
+  ways at LEMD entered as DUMMY too; now breaklines.
+* HECA not measured (no registered frame; the on-disk HECA patches predate
+  §37 (3)) — the 1.0.330 build is the HECA read.
+* Chip: `run_tile_mesh_only.py` audits with no input scope (a concurrent
+  HECA/OTHH lane's 118 mod-cache writes failed the LEMD run as
+  CONTAMINATED) — the external-candidate downgrade.
+* Lane discipline: `v2zonehole` wrote the MAIN tree's `tools/INDEX.md`
+  (reverted, saved to the session scratchpad; its worktree copy intact).
+
+## 2026-09-13cx v2gradecache round 2 MERGED (fb7cd9e5): VHHH planar 2,845 → 483 s, build 3,580 → 921 s, peak RSS 77.8 → 8.62 GB
+
+Lane `v2gradecache` @ 51c4666b, merged fb7cd9e5. One instrument, one
+tree: `rim_geom = unary_union(lines)` cost 979.5 s over 96 rings to answer
+a distance query a union cannot change — removed; `basin:0`'s `_rim_open`
+materialised 60,402,378 LineStrings in one list (a transient, 12.4 → 34.9
+GB) — members indexed lazily, a closed station never re-asked. Byte-identity
+at LEMD/OTHH (every basin rim/region/floor/ramp/refusal identical; the known
+1 cm `covered_fraction` quantum at LEMD basin:0). Suite 1,307 twice.
+
+* Bars: `wall_s.planar` ≤ 120 s NOT MET (483.4 s; attempt cap on the rim
+  site); RSS ≤ 8 GB missed by 8 % (8.62; the extra is constraints/rebake/
+  verify, not basins). Residual named with seconds: `_rim_open` ~150,
+  `door_wells` 123.8 (172 windowed `at_grade_geometry` calls, distinct
+  windows — a memo would never hit), `wall_corridors` 53.1, `sunken_roads`
+  24.7, `read_placed_objects` ~61. Owed as its own lane when the campaign
+  turns to cost.
+
+## 2026-09-13cy Owner: "turn off bank foot emission for the next build so i can see output" — `bank_omit = true` shipped in app 1.0.330
+
+* `[design] bank_omit = true` on main for the 1.0.330 build (the OMIT arm
+  of 13cw as the shipped setting); the twin asserts true with this
+  ruling. The owner's sim read of 1.0.330 is the bank class's
+  adjudication: keep (flip back false, then the edge-grading law the
+  census can measure) or delete.
+* Every airport's patch edge in 1.0.330 is the design ring meeting the raw
+  DEM over one triangle (LEMD: 2,584 steps > 3 m, worst 19.9 m) — expected,
+  not a regression to report.
+
+## 2026-09-13cz APP 1.0.330 BUILT (engine 1.50.1776): bank feet OFF, the canyon fix, hairline r2, gradecache r2
+
+Main 5718891f + version bump. Carries: 13cp/13cw (open feet as breaklines,
+ribbons Dirichlet, the annulus loud bar, `structure_rim` breaklines),
+13cy `bank_omit = true` (NO bank_foot ways in any patch), 13cr (one shore
+witness, sub-spacing merge, crossing-mint join; pre-flight stays report),
+13cx (VHHH planar 483 s / 8.6 GB), the §16g (6)/§40/§41/§37 (10)/§42 LAW
+but NOT their lanes (`v2connector`, `v2roles`, `v2zonehole`,
+`v2roadcontact`, `v2drapedsrc` still running — the SPJC viaduct, HECA
+items 1–6 and 8 are unchanged in this build).
+
+* What to read: LEMD 40.465414,−3.5531888 (the canyon: expect the road at
+  588–590); every airport's patch EDGE with no bank (the design ring
+  meets the raw DEM over one triangle); LEMD `hairline_pair` sites; the
+  whole-airport look at HECA/LEMD versus 1.0.327.
+* Not in this build: the SPJC viaduct seat (13cn), HECA 1–6/8 (13cs/13cv),
+  the KCLT tile (owner's `--refresh-data dem` still pending).
+
+## 2026-09-13da v2zonehole MERGED (4fe1d8a1): the HECA dip was a NOTCH, not a stack; §41 (1) amended (island and narrow mouth stay separate)
+
+Lane `v2zonehole` @ 4fe1d8a1. HECA closing arm (base 13431931, registered):
+contained faces 39 / 65,772 m² → 4 / 245 m²; `pav77` absorbed into
+`pav73#45`; law-true census 40,067 → 38,151; rows within 100 m of the site
+615 → 551 (worst within-shape 5.80 → 4.59 %); CYXY control byte-identical;
+suite 1,324 twice. `zone_on_pavement` family registered (cockpit `keepout`).
+`role_overlap_read.py`: `--contains` census; anchor read `side.get` with
+the census's mean-of-nodes frame — coordinate with the owner's `toolfix` chip
+on `_frame` only.
+
+* RULINGS on the two narrowings: BOTH ACCEPTED (§41 (1) amended). An
+  island is not a notch; a narrow-mouthed body is 08k's separate body.
+* Residual, chip-sized: `zone_on_pavement` 3 rows / 52.3 m² at HECA are
+  minted BETWEEN the arrangement and the emitted patch (`pav73#45` carries
+  1 sidecar hole and still covers `zone1#5`) — the lane's clip in the
+  arrangement was byte-identical (fires on nothing) and was deleted.
+  `build_shapes` or emit's identity collapse. Chip.
+* Owed: a second absorption pass for the 4 merge-minted junction notches.
+
+## 2026-09-13db v2roadcontact round 1 reported, NOT merged: items 4/5 met, item 3's mechanism refuted, airside moved — round 2 ordered
+
+Lane `v2roadcontact` @ bb7a0b03 (HECA build `v2roadcontactHECA2`, ledger
+96f569b01af9). Item 5: `route0`'s end 108.09 → 106.66 vs the taxiway edge
+106.606 (+1.474 → +0.054, step 33 % → 1.2 %). Item 4: 1.30 m → 0.05 m over
+3.05 m (42.6 % → 1.6 %). HECA `road_cross_section` 21 → 28 priced,
+`not_a_pair` 9,092 → 9,065; KCLT dry `road_cross_section` 373 → 280.
+
+* REFUTED, item 3: `route7` has 8 airside mouths among its 15 vertices
+  (on `pav115`/`pav131`, all at 0.00) and its 6 owned vertices sit 0.6–1.0
+  m over them inside its 8 % cap — no contact law moves it. The "hill" at
+  30.1116052, 31.4066985 is `apron:pav131`'s own datum (108.43) against
+  ground cut to 107.85 and the road on the DEM at 109.14: an AIRSIDE datum
+  question (§23), not a road one. Owner intent: "we just need this area
+  lowered" — a separate read of what holds pav131 at 108.43.
+* NOT MERGED: airside moved — HECA 115 airside vertices > 0.1 m (worst
+  0.770 m, an apron), KCLT airside rows 3,524 → 3,656. Mechanism: the LP
+  re-solve after 66 mouth targets are withdrawn + ribbon pairs priced on
+  road rings that include mouth vertices. Round 2: every row involving a
+  mouth/airside vertex is one-way on that vertex; withdrawing a target
+  releases no airside vertex; bar = 0 airside moves > 0.1 m, KCLT airside
+  ≤ 3,524.
+* FINDING for a ruling: hard + one-way is not expressible in
+  `solve/design` (one `shift` vector — the augmented Lagrangian's
+  `shift[hard_i]` overwrites the one-way lag); the contact row is priced at
+  `[design] law`, not hard. Accepted for now; owed a second shift vector
+  if a hard one-way row is ever needed.
+* §37 (10) (3)'s "4 rows → every ribbon" conflated violation rows with
+  priced rows (15 of 18 refs were already priced) — spec text to correct
+  at merge.
+
+## 2026-09-13dc v2drapedsrc round 1 reported, held for round 2: the discriminator is ruled in; the field-wide apron union is ruled OUT
+
+Lane `v2drapedsrc` @ c8cb0bb4 (HECA build `v2drapedsrc_heca`, ledger
+302ca060e48e). The owner's site 30.1235047, 31.4160956: 0 rings → inside
+`apron:pav132` (one face). `Concrete_Polygon_1.obj` 29 bodies / 580,331 m²
+reproduced exactly; body 6 `dsf:objpav62` 25,011 m², apron cover 90 %.
+The other five airports admit 0 object pavements (no other pack ships
+draped ground pages) — byte-identity structural.
+
+* RULED IN (§42 (1) amended): the layer-group discriminator — §42 as I
+  wrote it admitted 31.9 M m² of shadows, decals and markings; pavement
+  must declare `ATTR_layer_group_draped` in a pavement group. Solid
+  triangles do not disqualify a resource.
+* RULED OUT (§42 (2) amended): my "union into the mapped page" clause —
+  it made `pav132` a 2,687-node apron over 91 m of DEM relief (HECA IS
+  NOT FLAT), off-DEM max 11.73 m, joint steps 5.38 m, and shifted the
+  role census (apron 48 → 120, cross_connector 130 → 76). An adjacent
+  object body is its own face; union only under §41 (1). Round 2 with a
+  BASE ARM at the lane's base sha (the round-1 deltas were cross-tree
+  against 1.0.329 — indicative only).
+* Chip: `.pol` remainders (`<id>#k`) classify with an EMPTY description
+  (`evidence._dsf_pavements` splits, `classify/sources.py` looks up the
+  whole id) — repairing it moves KCLT/LEMD evidence, a measured change of
+  its own.
+* Load cost +0.25–0.40 s (+6.6–11.5 % of a 3.8 s stage; 0.4 % of the
+  60 s budget) — accepted, under the 1 % review floor.
+
+## 2026-09-13dd v2roles round 1 reported: shape 44 → runway shoulder of 05L/23R, shape 93 → apron; §40 amended (ribbon, datum, shoulder cap); round 2 before a below-bar merge
+
+Lane `v2roles` @ 6dd7c0dd; matched HECA pair (base `v2roles_HECA_base` at
+1a7a7158 / lane `v2roles_HECA`, both registered). Shape 44: `runway`
+kind `runway_shoulder` ref 05L/23R, `shoulder_shared_m` 592 (23,393 m² of
+pav73; a 7,548 m² piece stays parallel); shape 93: `apron`
+(`apron_cover_refused_corridor`, cell cover 0.269); zone strips on 44's
+ground 5 → 0; `within_shape` pav73/pav74 2,026/196 → 830/92; classify
+stage inside noise. Five-frame dry census: shoulders CYXY 1, HECA 24,
+KCLT 1, OTHH 3, SPJC 0 — every one a ribbon 3.3–49.8 m deep.
+
+* RULED (§40 amended): the depth floor 50 m (the lane's deviation) is
+  law; the centroid clause withdrawn; apron cover per CELL; the shoulder
+  keeps the runway's datum and takes ICAO's shoulder cross-slope 2.5 %
+  beyond the runway's half-width — HECA's 2 new `runway_transverse` rows
+  (1.53 %, 3–5 cm) are shoulder rows and pass under it.
+* BELOW BAR, held: matched census law-true 38,609 → 34,488 (−4,121) but
+  ADJUDICATED 12,841 → 15,352 (+2,511: `airside_no_step` +2,312,
+  `transverse` +796, `taxi_box` +584, `strip_transverse` +569;
+  `within_shape` −8,372) — a shoulder read under the runway's tighter
+  law. Round 2 with the shoulder cap and the no-step datum, re-census; the
+  owner signs the residual with numbers.
+* Trace closed: `apron_named=1` on cells 58/191 = `roles._apron_named`'s
+  second branch, `apron_cover ≥ parking_cover_fraction` (0.5; pav73 0.726)
+  — the PARKING knob used for an APRON test, the one place 11ac item 6
+  did not separate. Left alone (§40 (2) dominates below 0.5); owed.
+* Chips: `constraints/runway_profile.py` crown/transverse read outer
+  rings only while the census prices hole-ring vertices (8 of 33 runway
+  faces have holes on the §40 arm, 490 vertices); `auto_patch_v2 build`
+  CLI broken at head (`Options.__init__() … 'diagnose_iis'`,
+  `pipeline/__main__.py:93`).

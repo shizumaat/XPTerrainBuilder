@@ -151,3 +151,60 @@ def test_the_region_loop_retains_a_bounded_window():
     lru.get("o7")                                       # a hit renews it
     lru.put("o10", (10,))
     assert lru.get("o7") == (7,) and lru.get("o8") is None
+
+
+# ── round 2: the rim diagnostic never unions, and never materialises ─────
+# every member's linework at once (owner 2026-09-13; measured at VHHH:
+# `unary_union` over 96 rings' member linework 979.5 s, and basin:0's
+# 60,402,378 LineStrings 96.4 s and 12.4 -> 34.9 GB).
+
+def _sq(x0, y0, s):
+    from shapely.geometry import Polygon as _P
+    return _P([(x0, y0), (x0 + s, y0), (x0 + s, y0 + s), (x0, y0 + s)])
+
+
+def test_the_rim_reading_is_the_minimum_over_the_members_not_their_union():
+    """The predicate is unchanged: a station is closed when SOME member's
+    linework lies within reach.  Three members, each covering one side of
+    a square ring, close the same stations their union would."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+    ring = _sq(0.0, 0.0, 100.0)
+    sides = [LineString([(0, 0), (100, 0)]), LineString([(100, 0), (100, 100)]),
+             LineString([(100, 100), (0, 100)])]          # the west side is OPEN
+    per_member = _basins._rim_open(ring, [_basins._rim_index(s) for s in sides], 5.0, 0.5)
+    unioned = _basins._rim_open(ring, [_basins._rim_index(unary_union(sides))], 5.0, 0.5)
+    assert per_member == unioned
+    open_n, n, first = per_member
+    assert 0 < open_n < n and first is not None
+    assert first[0] == pytest.approx(0.0, abs=1e-6)        # on the open west side
+
+
+def test_the_rim_indexes_are_built_lazily_one_member_at_a_time():
+    """A member's index is built only when the walk reaches it, and never
+    at all once every station is closed — the 60 M-object peak."""
+    from shapely.geometry import LineString
+    ring = _sq(0.0, 0.0, 100.0)
+    closed = _basins._rim_index(LineString(list(ring.exterior.coords)))
+    built = []
+
+    def trees():
+        for i in range(50):
+            built.append(i)
+            yield closed if i == 0 else _basins._rim_index(LineString([(1e6, 1e6), (1e6, 1e6 + 1)]))
+
+    open_n, n, _first = _basins._rim_open(ring, trees(), 5.0, 0.5)
+    assert open_n == 0 and n > 0
+    assert built == [0], "the walk stopped as soon as every station was closed"
+
+
+def test_the_region_loop_names_the_seconds_of_each_union_site():
+    """The per-site union clock (owner 2026-09-13 round 2): 634 unions in
+    `build_basins` cost VHHH 1,038 s under an aggregate no report named."""
+    st: dict = {}
+    n: dict = {}
+    uu = _basins._UnionClock(st, n)
+    u = uu("cover", [_sq(0.0, 0.0, 10.0), _sq(5.0, 0.0, 10.0)])
+    assert u.area == pytest.approx(150.0)
+    uu("cover", [_sq(0.0, 0.0, 1.0)])
+    assert n == {"cover": 2} and st["cover"] >= 0.0

@@ -5667,3 +5667,44 @@ the building edge is allowed."
   road. Lane `v2othhfix` r2 (same code: `wall_corridor_ramps.
   stop_and_steepen`). The OTHH read otherwise stands as the acceptance
   of 14ac.
+
+## 2026-09-14al v2padcluster round 4 STOPPED (not merged): the terminal is on its pad (72.60, body +0.08), the runway's worst pull 3.14 → 0.41 m, but 14,263 airside vertices still move (worst 4.55) — the skirt is two-sided; ruled: rigid core + one-way skirt band; round 5
+
+Lane `v2padcluster` @ 16da0f22 (HECA `v2padclusterHECA5` ledger
+85c18b3071e6; KCLT `v2padclusterKCLT4` ledger dca6d7449633; SPJC
+`v2padclusterSPJC4`; suite 1,474 twice). (7): 359,152 m² in 1,518
+leaf pads + 175,708 m² walled-under-threshold removed (39 % of the
+pad area beside the apron); emitted pad area 1.21 → 1.09 M m². Bars:
+terminal SURFACE 72.60 (bar 72.50, DISARM 72.07) — MET; the body
+`T3_concrete_white b4` on walled cluster pad `building298` via
+`fu:38:96@cluster_pad` (18 members), own ground +0.08; the pad +0.55 m
+fill vs the DISARM ground; `T3_38 b1` (building 160) −6.70 → +0.04,
+`b3` (147) −2.45 → −0.33, `b4` (170) −0.02 both arms — the other four
+of the seven not readable by body index (indices renumber under the
+cut). Airside moved 14,263 / 29,783 (worst 4.55; runway 1,021, worst
+0.41); `pad_cluster_mismatch` 14; `pad_airside_weld` 16 (worst
+1.135); constraints +15.7 % (the pad population, `pad_flats` 10.6 →
+2.5 s). (8)'s whole-plate one-way form REFUTED (the plate has no
+rigid relation in the first lag round — the §30 twin's pad collapsed
+703.56 → 640.89); what shipped is the airside-sharing pair priced at
+the pad's slope CEILING (8,967 skirt rows, two-sided) — that alone
+took the runway's worst 3.14 → 0.41. Twins re-founded and named; the
+weld family re-read at "within the pad's own slope cap". KCLT: the
+terminal pad 221.46 → 220.93 IS the weld (743 nodes shared with
+`pav14`, step 0 by construction, spread = the apron's fall) — the
+owner's KCLT read is the acceptance. SPJC with heights: the viaduct
+`xp11_007__b0` on pad `building7` at 20.07 in a 6-member unit (13df:
+19.56 in the 24-member unit) — the owner's SPJC read.
+
+* RULING §16g (10) (8) refined — RIGID CORE + ONE-WAY SKIRT: the pad's
+  non-airside vertices form a cap-0 rigid core (the plate keeps a
+  rigid relation); only the SKIRT BAND — vertices within
+  `pad_skirt_m` (25 m) of an airside-sharing edge — follows the
+  airside ONE-WAY (airside leads, never pulled) within the pad slope
+  ceiling; beyond the band the pad is flat. The two-sided ceiling row
+  is withdrawn (it is what still pulls 14,263 airside vertices).
+* Round 5: the rigid-core/one-way-skirt form; bars: airside moved 0
+  (the runway 0.41 → 0); the terminal stays at its pad; `pad_airside_
+  weld` → 0 or named; `pad_cluster_mismatch` 14 attributed; constraints
+  ≤ +20 % accepted (the population); KCLT/SPJC re-read on the same
+  frames.

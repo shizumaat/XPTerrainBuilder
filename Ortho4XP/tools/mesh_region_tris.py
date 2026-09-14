@@ -895,6 +895,86 @@ def z_xref(prefix, mesh_path, tile_lat, tile_lon, bbox, flag_m, attr_mask=None):
             "nodes_in_bbox": len(nodes), "matched": len(mesh_z)}
 
 
+def _stats(values):
+    if not values:
+        return {"n": 0, "max": 0.0, "p95": 0.0, "median": 0.0}
+    import statistics
+    sv = sorted(values)
+    k = min(len(sv) - 1, int(round(0.95 * (len(sv) - 1))))
+    return {"n": len(sv), "max": float(sv[-1]), "p95": float(sv[k]),
+            "median": float(statistics.median(sv))}
+
+
+def patch_edge_step(prefix, mesh_path, tile_lat, tile_lon):
+    """THE CLIFF THE BANK EXISTS TO GRADE (owner request 2026-09-13, the
+    bank_foot OMIT arm; spec §8.4).
+
+    §8.4 measured that Ortho4XP's mesh does NOT blend from the patch
+    boundary to the DEM — it drapes the raw DEM right outside the
+    constrained ring, so a patch whose outer ring stands 16.6 m off the
+    terrain builds a 16.8 m cliff ONE TRIANGLE wide, and the BANK is the
+    owner's answer to it.  So: for every ``PATCH_RING_MARKER`` mesh
+    vertex, the altitude STEP to a triangulation neighbour that is NOT on
+    a patch ring and stands OUTSIDE the patch coverage — median, p95,
+    max with its coordinate, and the counts over 1 m and 3 m.  That is
+    the number an arm which omits the bank altogether has to be judged
+    on: ``--z-xref`` says the ribbons are right, THIS says whether the
+    edge is a bank or a wall.
+
+    Reads the same three artifacts this tool already parses; writes
+    nothing.
+    """
+    from shapely import geometry
+    from shapely.prepared import prep
+
+    (nodes, segments, _seeds) = read_poly_inputs(prefix)
+    (nv, lon, lat, zed, tri, _att) = _read_mesh_attributed(mesh_path)
+    ring_ids = set()
+    for (a, b, m) in segments:
+        if m == PATCH_RING_MARKER:
+            ring_ids.add(a - 1)
+            ring_ids.add(b - 1)
+    if not ring_ids:
+        print("patch edge step: no PATCH_RING_MARKER segment in this .poly "
+              "— nothing to measure")
+        return {"n": 0}
+    (_faces, coverage) = _arrangement(nodes, segments,
+                                      lambda m: m == PATCH_RING_MARKER)
+    if coverage.is_empty:
+        print("patch edge step: the ring segments bound no face — nothing "
+              "to measure")
+        return {"n": 0}
+    covered = prep(coverage)
+    outside, steps = {}, []
+    worst = (-1.0, 0.0, 0.0)
+    for k in range(0, len(tri), 3):
+        (v1, v2, v3) = tri[k], tri[k + 1], tri[k + 2]
+        for (p, q) in ((v1, v2), (v2, v3), (v3, v1),
+                       (v2, v1), (v3, v2), (v1, v3)):
+            if p not in ring_ids or q in ring_ids:
+                continue
+            if q not in outside:
+                outside[q] = not covered.covers(geometry.Point(
+                    lon[q] - tile_lon, lat[q] - tile_lat))
+            if not outside[q]:
+                continue
+            d = abs(float(zed[p]) - float(zed[q]))
+            steps.append(d)
+            if d > worst[0]:
+                worst = (d, lat[p], lon[p])
+    st = _stats(steps)
+    over1 = sum(1 for v in steps if v > 1.0)
+    over3 = sum(1 for v in steps if v > 3.0)
+    print(f"patch edge step — {prefix}.poly vs {mesh_path}")
+    print(f"  {len(ring_ids):,} patch-ring vertex(es); {st['n']:,} "
+          f"ring->outside pair(s): median {st['median']:.3f}  p95 "
+          f"{st['p95']:.3f}  max {st['max']:.3f} m at "
+          f"{worst[1]:.7f},{worst[2]:.7f};  > 1 m {over1:,}   > 3 m {over3:,}")
+    return dict(st, over_1m=over1, over_3m=over3,
+                ring_vertices=len(ring_ids),
+                worst=[worst[0], worst[1], worst[2]])
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -902,6 +982,12 @@ def main(argv=None):
     ap.add_argument("--mesh", default=None,
                     help="path to a .mesh file (not needed for "
                          "--hairline-audit, which reads the .poly)")
+    ap.add_argument("--patch-edge-step", action="store_true",
+                    help="THE CLIFF THE BANK EXISTS TO GRADE: for every "
+                         "PATCH_RING mesh vertex, the altitude step to a "
+                         "neighbour outside the patch coverage (owner "
+                         "2026-09-13, the bank_foot OMIT arm). Needs "
+                         "--inputs PREFIX and --mesh.")
     ap.add_argument("--z-xref", action="store_true",
                     help="WHO OWNS THIS NODE'S ALTITUDE (owner RULINGS "
                          "2026-09-13cp): every vector .node z against the "
@@ -1079,6 +1165,25 @@ def main(argv=None):
             dem_slope_factor=args.dem_slope_factor,
             dem_bar_m=args.dem_bar, kml_path=args.kml,
             kml_cap=args.kml_cap)
+        if args.json:
+            import json
+            with open(args.json, "w") as fh:
+                json.dump(payload, fh, indent=1)
+            print(f"JSON -> {args.json}")
+        return 0
+
+    if args.patch_edge_step:
+        prefix = args.inputs
+        if prefix is None and (args.mesh or "").endswith(".mesh"):
+            prefix = args.mesh[:-len(".mesh")]
+        if prefix is None:
+            raise SystemExit("REFUSING: --patch-edge-step needs --inputs "
+                             "PREFIX")
+        (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
+                                else _tile_origin(prefix + ".poly"))
+        payload = patch_edge_step(prefix, args.mesh, tile_lat, tile_lon)
+        payload.update({"inputs": prefix, "mesh": args.mesh,
+                        "tile": [tile_lat, tile_lon]})
         if args.json:
             import json
             with open(args.json, "w") as fh:

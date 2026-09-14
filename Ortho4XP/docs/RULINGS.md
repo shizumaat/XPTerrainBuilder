@@ -4191,3 +4191,140 @@ No route into the layout: object footprints enter only as `building` pads
   names the resource.
 * Lane `v2drapedsrc` (Opus, brief pack), HECA closing build; the other
   frames dry.
+
+## 2026-09-13cw v2bankfoot MERGED (128aeb16): the canyons are gone in BOTH arms; the bank buys the patch edge only partly — the owner's bank ruling is now a numbers question
+
+Lane `v2bankfoot` @ 6b3a57cb, merged 128aeb16; twins 520 passed on main.
+Two LEMD tile-mesh arms on one frame (registered `frames.py list LEMD`):
+
+| reading | 1.0.329 | OMIT (no bank) | FIX |
+|---|---|---|---|
+| owner's site mesh z (ribbon 588–590) | 568.3 | 589.00 | 589.00 |
+| road ribbons off > 2 m (of ~278 k) | 1,400 (−24.3) | 4 (−2.5) | 3 (−2.4) |
+| annulus valued | 15 | — | 39,105 / 58,555 |
+| harmonic moved / no-authored components | 2,729 / 371 | 987 / 0 | 491 / 0 |
+| patch-edge step median / p95 / max | — | 0.74 / 5.68 / 19.9 | 0.42 / 4.94 / 22.1 |
+| edge pairs > 1 m / > 3 m | — | 6,610 / 2,584 | 5,078 / 1,924 |
+| PATCH_RING off > 2 m | 0 | 2 | 337 (worst −9.22: 09ad (b) pre-valued rings inside the annulus taking the bank field — pre-§37 (3) behaviour restored, bar NOT met, not weakened) |
+| WATER off > 2 m | 10,438 | 10,448 | 10,262 (unattributed either way) |
+| census ADJUDICATED | — | 1,143 | 1,143 |
+
+* THE ANSWER to 13cq: the bank was NOT carrying the ribbons — OMIT restores
+  them. What the bank still buys is the patch edge, partly: > 3 m steps
+  2,584 → 1,924, median 0.74 → 0.42, worst unchanged ~20 m; 1,924 steps over
+  3 m remain WITH the bank, and `adjacent_ground_step` sees 1 in both arms
+  (§8.4's one-triangle cliff is invisible to every family). The bank class
+  stays; deleting it is the owner's ruling on these numbers. Note the FIX
+  arm's own cost: 337 coverage/graded-strip ring nodes moved up to 9.22 m
+  by the bank field (09ad (b)).
+* RULING on the lane's deviation: §37 (3) AMENDED — the coverage closes,
+  load-bearing governs resolution only. Not attempted: narrowing the
+  banked REGION to a min-width collar at immaterial stations (same
+  closure, fewer nodes) — owed if the owner keeps the bank.
+* ALSO load-bearing independently of the bank: 65 OPEN `structure_rim`
+  ways at LEMD entered as DUMMY too; now breaklines.
+* HECA not measured (no registered frame; the on-disk HECA patches predate
+  §37 (3)) — the 1.0.330 build is the HECA read.
+* Chip: `run_tile_mesh_only.py` audits with no input scope (a concurrent
+  HECA/OTHH lane's 118 mod-cache writes failed the LEMD run as
+  CONTAMINATED) — the external-candidate downgrade.
+* Lane discipline: `v2zonehole` wrote the MAIN tree's `tools/INDEX.md`
+  (reverted, saved to the session scratchpad; its worktree copy intact).
+
+## 2026-09-13cx v2gradecache round 2 MERGED (fb7cd9e5): VHHH planar 2,845 → 483 s, build 3,580 → 921 s, peak RSS 77.8 → 8.62 GB
+
+Lane `v2gradecache` @ 51c4666b, merged fb7cd9e5. One instrument, one
+tree: `rim_geom = unary_union(lines)` cost 979.5 s over 96 rings to answer
+a distance query a union cannot change — removed; `basin:0`'s `_rim_open`
+materialised 60,402,378 LineStrings in one list (a transient, 12.4 → 34.9
+GB) — members indexed lazily, a closed station never re-asked. Byte-identity
+at LEMD/OTHH (every basin rim/region/floor/ramp/refusal identical; the known
+1 cm `covered_fraction` quantum at LEMD basin:0). Suite 1,307 twice.
+
+* Bars: `wall_s.planar` ≤ 120 s NOT MET (483.4 s; attempt cap on the rim
+  site); RSS ≤ 8 GB missed by 8 % (8.62; the extra is constraints/rebake/
+  verify, not basins). Residual named with seconds: `_rim_open` ~150,
+  `door_wells` 123.8 (172 windowed `at_grade_geometry` calls, distinct
+  windows — a memo would never hit), `wall_corridors` 53.1, `sunken_roads`
+  24.7, `read_placed_objects` ~61. Owed as its own lane when the campaign
+  turns to cost.
+
+## 2026-09-13cy Owner: "turn off bank foot emission for the next build so i can see output" — `bank_omit = true` shipped in app 1.0.330
+
+* `[design] bank_omit = true` on main for the 1.0.330 build (the OMIT arm
+  of 13cw as the shipped setting); the twin asserts true with this
+  ruling. The owner's sim read of 1.0.330 is the bank class's
+  adjudication: keep (flip back false, then the edge-grading law the
+  census can measure) or delete.
+* Every airport's patch edge in 1.0.330 is the design ring meeting the raw
+  DEM over one triangle (LEMD: 2,584 steps > 3 m, worst 19.9 m) — expected,
+  not a regression to report.
+
+## 2026-09-13cz APP 1.0.330 BUILT (engine 1.50.1776): bank feet OFF, the canyon fix, hairline r2, gradecache r2
+
+Main 5718891f + version bump. Carries: 13cp/13cw (open feet as breaklines,
+ribbons Dirichlet, the annulus loud bar, `structure_rim` breaklines),
+13cy `bank_omit = true` (NO bank_foot ways in any patch), 13cr (one shore
+witness, sub-spacing merge, crossing-mint join; pre-flight stays report),
+13cx (VHHH planar 483 s / 8.6 GB), the §16g (6)/§40/§41/§37 (10)/§42 LAW
+but NOT their lanes (`v2connector`, `v2roles`, `v2zonehole`,
+`v2roadcontact`, `v2drapedsrc` still running — the SPJC viaduct, HECA
+items 1–6 and 8 are unchanged in this build).
+
+* What to read: LEMD 40.465414,−3.5531888 (the canyon: expect the road at
+  588–590); every airport's patch EDGE with no bank (the design ring
+  meets the raw DEM over one triangle); LEMD `hairline_pair` sites; the
+  whole-airport look at HECA/LEMD versus 1.0.327.
+* Not in this build: the SPJC viaduct seat (13cn), HECA 1–6/8 (13cs/13cv),
+  the KCLT tile (owner's `--refresh-data dem` still pending).
+
+## 2026-09-13da v2zonehole MERGED (4fe1d8a1): the HECA dip was a NOTCH, not a stack; §41 (1) amended (island and narrow mouth stay separate)
+
+Lane `v2zonehole` @ 4fe1d8a1. HECA closing arm (base 13431931, registered):
+contained faces 39 / 65,772 m² → 4 / 245 m²; `pav77` absorbed into
+`pav73#45`; law-true census 40,067 → 38,151; rows within 100 m of the site
+615 → 551 (worst within-shape 5.80 → 4.59 %); CYXY control byte-identical;
+suite 1,324 twice. `zone_on_pavement` family registered (cockpit `keepout`).
+`role_overlap_read.py`: `--contains` census; anchor read `side.get` with
+the census's mean-of-nodes frame — coordinate with the owner's `toolfix` chip
+on `_frame` only.
+
+* RULINGS on the two narrowings: BOTH ACCEPTED (§41 (1) amended). An
+  island is not a notch; a narrow-mouthed body is 08k's separate body.
+* Residual, chip-sized: `zone_on_pavement` 3 rows / 52.3 m² at HECA are
+  minted BETWEEN the arrangement and the emitted patch (`pav73#45` carries
+  1 sidecar hole and still covers `zone1#5`) — the lane's clip in the
+  arrangement was byte-identical (fires on nothing) and was deleted.
+  `build_shapes` or emit's identity collapse. Chip.
+* Owed: a second absorption pass for the 4 merge-minted junction notches.
+
+## 2026-09-13db v2roadcontact round 1 reported, NOT merged: items 4/5 met, item 3's mechanism refuted, airside moved — round 2 ordered
+
+Lane `v2roadcontact` @ bb7a0b03 (HECA build `v2roadcontactHECA2`, ledger
+96f569b01af9). Item 5: `route0`'s end 108.09 → 106.66 vs the taxiway edge
+106.606 (+1.474 → +0.054, step 33 % → 1.2 %). Item 4: 1.30 m → 0.05 m over
+3.05 m (42.6 % → 1.6 %). HECA `road_cross_section` 21 → 28 priced,
+`not_a_pair` 9,092 → 9,065; KCLT dry `road_cross_section` 373 → 280.
+
+* REFUTED, item 3: `route7` has 8 airside mouths among its 15 vertices
+  (on `pav115`/`pav131`, all at 0.00) and its 6 owned vertices sit 0.6–1.0
+  m over them inside its 8 % cap — no contact law moves it. The "hill" at
+  30.1116052, 31.4066985 is `apron:pav131`'s own datum (108.43) against
+  ground cut to 107.85 and the road on the DEM at 109.14: an AIRSIDE datum
+  question (§23), not a road one. Owner intent: "we just need this area
+  lowered" — a separate read of what holds pav131 at 108.43.
+* NOT MERGED: airside moved — HECA 115 airside vertices > 0.1 m (worst
+  0.770 m, an apron), KCLT airside rows 3,524 → 3,656. Mechanism: the LP
+  re-solve after 66 mouth targets are withdrawn + ribbon pairs priced on
+  road rings that include mouth vertices. Round 2: every row involving a
+  mouth/airside vertex is one-way on that vertex; withdrawing a target
+  releases no airside vertex; bar = 0 airside moves > 0.1 m, KCLT airside
+  ≤ 3,524.
+* FINDING for a ruling: hard + one-way is not expressible in
+  `solve/design` (one `shift` vector — the augmented Lagrangian's
+  `shift[hard_i]` overwrites the one-way lag); the contact row is priced at
+  `[design] law`, not hard. Accepted for now; owed a second shift vector
+  if a hard one-way row is ever needed.
+* §37 (10) (3)'s "4 rows → every ribbon" conflated violation rows with
+  priced rows (15 of 18 refs were already priced) — spec text to correct
+  at merge.

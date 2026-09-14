@@ -82,6 +82,11 @@ class BuildStats:
     shapes: ShapeStats = _dc.field(default_factory=ShapeStats)   # owner RULINGS 2026-09-08k (``planar/shapes.py``)
     slivers_merged: int = 0      # RULINGS 2026-09-08d (4a): same-region sliver faces merged (``overlay.merge_slivers``)
     holes_dissolved: int = 0     # RULINGS 2026-09-10h (1): degenerate hole rings dissolved (``overlay.dissolve_degenerate_holes``)
+    #: §41 (1): pavement faces enclosed by another pavement face's ring and
+    #: absorbed into it, and the enclosed-but-detached ones left alone
+    #: (``overlay.absorb_enclosed_pavement``)
+    enclosed_absorbed: int = 0
+    enclosed_detached: int = 0
     #: RULINGS 2026-09-08m/08n Law C: the kerb-wall corridors read
     wall_corridors: WallCorridorStats = _dc.field(default_factory=WallCorridorStats)
     #: owner RULINGS 2026-09-10b/10c (spec §19): the terrain edge's trim
@@ -140,6 +145,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,
                        holes_dissolved=arr.holes_dissolved,
+                       enclosed_absorbed=arr.enclosed_absorbed,
+                       enclosed_detached=arr.enclosed_detached,
                        door_wells=dstats, sunken_roads=rstats, wall_corridors=wstats,
                        terrain_edge=arr.edge_report)
     frame = airport.frame

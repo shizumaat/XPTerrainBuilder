@@ -214,6 +214,17 @@ ruling    = "2026-09-13i item 8 (spec §34 (4))"
 solver    = "construction"
 cockpit   = "step"
 
+[zone_on_pavement]
+measures  = "square metres of an adjacent_ground:* zone strip standing on the SOLID of an aircraft-pavement face (spec §41 (2)): two authorities own one patch of ground, which breaks no pair law and so was priced by nothing. The frame is the pavement face's SOLID and not its ring — a taxiway loop's ring encloses lawful adjacent ground (HECA pav73: a 202,427 m2 ring around a 162,110 m2 hole; ring-blind the same patch reads 74 strips / 586,619 m2, in the solid frame 0.0 m2). The row's metric de_m is an AREA in m2, not a height"
+parameter = "emit.terrace.shape_roles"
+roles     = ["graded_strip"]
+pairs     = "within"
+ruling    = "2026-09-13co item 2 (spec §41 (2))"
+solver    = "construction"
+# "keepout": the family measures PRESENCE in a region, not a height — a
+# strip over pavement IS the defect at whatever elevation it holds.
+cockpit   = "keepout"
+
 [strip_seam_tear]
 measures  = "an adjacent-ground strip seam tear (wall straddle exempt)"
 parameter = "zones.adjacent_ground.lip_width_m"

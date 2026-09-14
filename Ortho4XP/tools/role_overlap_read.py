@@ -79,6 +79,36 @@ def _selector(spec: str):
     return _match
 
 
+def _frame(path):
+    """``(nodes, ways, anchor, frame_name, sidecar)`` for one patch.
+
+    THE ANCHOR REPAIR (chip RULINGS 2026-09-13cs; lane ``v2zonehole``).
+    This read used to do ``side["anchor"]`` and died with ``KeyError:
+    'anchor'`` on every v2 patch — v2's sidecar register
+    (``emit/osm_adapter.SIDECAR_KEYS``) publishes NO anchor, deliberately,
+    and the harness library itself falls back to the MEAN OF NODES
+    (``check_grade._ll_to_m_factory`` with ``anchor=None``), which is the
+    frame the census and every pytest fixture then read the same patch in.
+    Refusing or crashing there measured the patch in no frame at all.  So:
+    the sidecar is still REQUIRED (no sidecar, no census context — the
+    original refusal stands), the anchor is used WHEN THE PATCH CARRIES
+    ONE, and the frame in force is named in the report and carried in the
+    JSON (``frame``) so two reads can never be quoted across frames."""
+    p = Path(path)
+    side_path = Path(str(p) + ".axes.json")
+    if not side_path.exists():
+        raise SystemExit(
+            f"REFUSING: {p} has no .axes.json sidecar — without the census "
+            f"context there is no metre frame to measure areas in.")
+    import check_grade as CG
+    nodes, ways = CG._parse_osm(p)
+    side = json.loads(side_path.read_text())
+    a = side.get("anchor")
+    anchor = (float(a[0]), float(a[1])) if a else None
+    return nodes, ways, anchor, ("builder anchor" if anchor
+                                 else "mean-of-nodes"), side
+
+
 def read(path, *, over: str, on: str,
          min_area_m2: float = DEFAULT_MIN_AREA_M2,
          pad_m: float = 0.0, beyond: bool = False, sites=()):
@@ -95,16 +125,9 @@ def read(path, *, over: str, on: str,
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
 
-    path = Path(path)
-    side_path = Path(str(path) + ".axes.json")
-    if not side_path.exists():
-        raise SystemExit(
-            f"REFUSING: {path} has no .axes.json sidecar — without the "
-            f"anchor there is no metre frame to measure areas in.")
-    nodes, ways = CG._parse_osm(path)
-    side = json.loads(side_path.read_text())
-    anchor = tuple(side["anchor"])
+    nodes, ways, anchor, frame, _side = _frame(path)
     to_m = CG._ll_to_m_factory(nodes, anchor)
+    path = Path(path)
 
     over_match = _selector(over)
     on_matches = [_selector(s) for s in str(on).split(",") if s.strip()]
@@ -237,7 +260,8 @@ def read(path, *, over: str, on: str,
                      "over_frac": round(a / p.area, 4) if p.area else None,
                      "on": hits})
     rows.sort(key=lambda r: -r["over_area_m2"])
-    return {"patch": str(path), "anchor": list(anchor),
+    return {"patch": str(path),
+            "anchor": list(anchor) if anchor else None, "frame": frame,
             "over": over, "on": on, "min_area_m2": float(min_area_m2),
             "pad_m": float(pad_m),
             "over_ways": len(over_ways), "on_ways": len(on_ways),
@@ -251,6 +275,163 @@ def read(path, *, over: str, on: str,
             "beyond_rows": beyond_rows,
             "sites": site_rows,
             "rows": rows}
+
+
+#: §41 (1)'s own floor: the fraction of its OWN area a pavement face must
+#: have inside another pavement face's exterior ring to be its hole.  The
+#: ONE spelling of it outside the engine (``planar.overlay.
+#: ENCLOSED_MIN_FRAC``); the twin asserts the two agree.
+CONTAINED_MIN_FRAC = 0.95
+
+#: ``emit.terrace.narrow_mouth_max_m``: a contact no wider than this does
+#: not join two bodies (owner RULINGS 2026-09-08k), so a notch reached only
+#: through it keeps its own law and its lawful step — the gate
+#: ``planar.overlay.absorb_enclosed_pavement`` applies.
+CONTAINED_MOUTH_M = 12.0
+
+#: The aircraft-pavement roles the containment census reads — the emitter's
+#: own ``emit.terrace.shape_roles``, mirrored in
+#: ``check_grade._ZONE_ON_PAVEMENT_ROLES``.
+CONTAINED_ROLES = ("runway", "runway_crossing", "primary_parallel",
+                   "secondary_parallel", "stub", "cross_connector",
+                   "junction", "apron")
+
+
+def contained(path, *, min_frac: float = CONTAINED_MIN_FRAC,
+              roles: tuple = CONTAINED_ROLES,
+              mouth_m: float = CONTAINED_MOUTH_M):
+    """THE CONTAINMENT CENSUS (spec §41 (1); owner RULINGS 2026-09-13co
+    item 2) — which pavement faces lie inside another pavement face.
+
+    ``--contains`` is a DIFFERENT question from ``--over/--on`` and the
+    difference is the frame.  The overlap sweep asks how many m² of one
+    class stand ON another, which is a SOLID-frame question and reads 0
+    here by construction: the arrangement is a partition, so an enclosed
+    face sits in the host's HOLE and never overlaps its solid.  This asks
+    whether a face is INSIDE another face's EXTERIOR RING — the frame §41
+    (1) is stated in ("a cross-connector inside a parallel is the
+    parallel") and the only one in which the defect is visible at all.
+
+    Per row: the inner face and its area, the host, the RING fraction and
+    the SOLID fraction (which is what says the two readings are not the
+    same question), whether the two share a boundary run, and the distance
+    from the inner face to the host's solid.  A face that touches its host
+    is a NOTCH cut into a body and is absorbed by ``planar.overlay.
+    absorb_enclosed_pavement``; one that does not is an ISLAND in the
+    middle of a loop and is left alone.
+
+    Measured basis (the owner's 1.0.329 HECA patch, mean-of-nodes frame):
+    22 contained faces, every one at solid fraction 0.000, 21 of them
+    touching; the largest are ``apron:pav5`` 2,362 m² in
+    ``cross_connector:pav67`` (12.97 m off: an island) and
+    ``cross_connector:pav77`` 895 m² in ``primary_parallel:pav73`` (the
+    owner's dip site, touching).
+
+    It measures no law and counts no defects — geometry, the metre frame
+    and the rings come from the harness library (``check_grade``), and
+    defect counts come from ``harness/census.py`` and nowhere else."""
+    import check_grade as CG
+    from shapely.geometry import Polygon
+    from shapely.strtree import STRtree
+
+    nodes, ways, anchor, frame, side = _frame(path)
+    to_m = CG._ll_to_m_factory(nodes, anchor)
+    holes_ll = side.get("face_holes") or {}
+    role_set = set(roles)
+
+    faces = []
+    for w in ways:
+        if w.role not in role_set:
+            continue
+        pts = [to_m(*nodes[n]) for n in w.nids if n in nodes]
+        if len(pts) < 4:
+            continue
+        try:
+            ring = Polygon(pts)
+            if not ring.is_valid:
+                ring = ring.buffer(0)
+            hs = [[to_m(*pt) for pt in r]
+                  for r in holes_ll.get(str(w.tags.get("shapeID")), [])]
+            solid = Polygon(pts, [h for h in hs if len(h) >= 4])
+            if not solid.is_valid:
+                solid = solid.buffer(0)
+        except Exception:                                 # pragma: no cover
+            continue
+        if ring.is_empty or ring.area <= 0.0:
+            continue
+        faces.append((w, ring, solid))
+
+    tree = STRtree([r for _w, r, _s in faces]) if faces else None
+    rows = []
+    for i, (w, ring, _solid) in enumerate(faces):
+        best = None
+        for j in (tree.query(ring) if tree is not None else ()):
+            j = int(j)
+            if j == i:
+                continue
+            w2, ring2, solid2 = faces[j]
+            if ring2.area <= ring.area:
+                continue
+            try:
+                f_ring = ring.intersection(ring2).area / ring.area
+            except Exception:                             # pragma: no cover
+                continue
+            if f_ring < float(min_frac):
+                continue
+            if best is None or ring2.area < best[1].area:
+                best = (w2, ring2, solid2, f_ring)
+        if best is None:
+            continue
+        w2, ring2, solid2, f_ring = best
+        try:
+            f_solid = ring.intersection(solid2).area / ring.area
+            shared = ring.boundary.intersection(solid2.boundary).length
+            dist = ring.distance(solid2)
+        except Exception:                                 # pragma: no cover
+            f_solid, shared, dist = 0.0, 0.0, 0.0
+        c = ring.representative_point()
+        lat, lon = CG._ll_to_m_factory(nodes, anchor).inverse(c.x, c.y)
+        rows.append({"way": w.wid, "shapeID": w.tags.get("shapeID"),
+                     "role": w.role, "ref": w.ref,
+                     "area_m2": round(ring.area, 1),
+                     "in_way": w2.wid, "in_shapeID": w2.tags.get("shapeID"),
+                     "in_role": w2.role, "in_ref": w2.ref,
+                     "in_area_m2": round(ring2.area, 1),
+                     "ring_frac": round(f_ring, 4),
+                     "solid_frac": round(f_solid, 4),
+                     "shared_edge_m": round(shared, 2),
+                     "dist_to_solid_m": round(dist, 2),
+                     "touches": shared > 0.0,
+                     "kind": ("notch" if shared > float(mouth_m)
+                              else ("mouth" if shared > 0.0 else "island")),
+                     "lat": round(lat, 7), "lon": round(lon, 7)})
+    rows.sort(key=lambda r: -r["area_m2"])
+    return {"patch": str(path), "anchor": list(anchor) if anchor else None,
+            "frame": frame, "min_frac": float(min_frac),
+            "mouth_m": float(mouth_m),
+            "pavement_ways": len(faces), "contained": len(rows),
+            "notches": sum(1 for r in rows if r["kind"] == "notch"),
+            "mouths": sum(1 for r in rows if r["kind"] == "mouth"),
+            "islands": sum(1 for r in rows if r["kind"] == "island"),
+            "area_m2": round(sum(r["area_m2"] for r in rows), 1),
+            "rows": rows}
+
+
+def _report_contained(res: dict, top: int) -> None:
+    print(f"=== {res['patch']}  [{res['frame']} frame]")
+    print(f"  pavement faces {res['pavement_ways']}: {res['contained']} lie "
+          f"at >= {100.0 * res['min_frac']:.0f} % inside another pavement "
+          f"face's RING ({res['notches']} notch = absorbed, "
+          f"{res['mouths']} through a mouth <= {res['mouth_m']:g} m = a "
+          f"separate body (08k), {res['islands']} island), "
+          f"{res['area_m2']:,.0f} m2 total")
+    for r in res["rows"][:top]:
+        print(f"    {r['role']}:{r['ref']}#{r['shapeID']:>5} "
+              f"{r['area_m2']:9,.0f} m2  ring {r['ring_frac']:.3f}  solid "
+              f"{r['solid_frac']:.3f}  {r['kind'].upper():>6} shared "
+              f"{r['shared_edge_m']:8.2f} m  in "
+              f"{r['in_role']}:{r['in_ref']}#{r['in_shapeID']}  at "
+              f"{r['lat']},{r['lon']}")
 
 
 def _report(res: dict, top: int) -> None:
@@ -294,10 +475,22 @@ def main(argv=None) -> int:
                     "another, per patch.")
     ap.add_argument("files", nargs="+", help="emitted patch .osm "
                                              "(its .axes.json is required)")
-    ap.add_argument("--over", required=True,
+    ap.add_argument("--over",
                     help="the class that STANDS ON, as ROLE or ROLE:REF")
-    ap.add_argument("--on", required=True,
+    ap.add_argument("--on",
                     help="the class STOOD ON, comma list of ROLE[:REF]")
+    ap.add_argument("--contains", action="store_true",
+                    help="the CONTAINMENT census instead (spec §41 (1)): "
+                         "which pavement faces lie inside another pavement "
+                         "face's exterior RING, with the solid fraction "
+                         "beside it and whether the two touch")
+    ap.add_argument("--mouth", type=float, default=CONTAINED_MOUTH_M,
+                    help="--contains: the narrow-mouth width (RULINGS "
+                         "2026-09-08k, emit.terrace.narrow_mouth_max_m) "
+                         "below which a contact does not join two bodies")
+    ap.add_argument("--min-frac", type=float, default=CONTAINED_MIN_FRAC,
+                    help="--contains: the fraction of its own area a face "
+                         "must have inside the other's ring (§41 (1): 0.95)")
     ap.add_argument("--min-area", type=float, default=DEFAULT_MIN_AREA_M2)
     ap.add_argument("--pad", type=float, default=0.0,
                     help="grow the ON union by M metres before reading "
@@ -315,9 +508,23 @@ def main(argv=None) -> int:
     ap.add_argument("--top", type=int, default=12)
     ap.add_argument("--json")
     a = ap.parse_args(argv)
+    if a.contains:
+        if a.over or a.on:
+            print("role_overlap_read: --contains is its own read; it takes "
+                  "neither --over nor --on")
+            return 2
+    elif not (a.over and a.on):
+        print("role_overlap_read: --over and --on are required (or "
+              "--contains for the containment census)")
+        return 2
     sites = [tuple(float(v) for v in s.split(",")) for s in a.site]
     out = []
     for f in a.files:
+        if a.contains:
+            res = contained(f, min_frac=a.min_frac, mouth_m=a.mouth)
+            _report_contained(res, a.top)
+            out.append(res)
+            continue
         res = read(f, over=a.over, on=a.on, min_area_m2=a.min_area,
                    pad_m=a.pad, beyond=a.beyond, sites=sites)
         _report(res, a.top)

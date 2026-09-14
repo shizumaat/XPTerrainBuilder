@@ -348,19 +348,37 @@ def test_a_pad_between_two_pavements_half_a_percent_apart_stays_flat_and_tiers_n
       the pavement's own vertices in its NEAREST RING to the pad, still
       no nearer than ``LEVEL_MIN_BAND_M`` to the contact (10y arm B's
       protection is the MIN and is kept).  The pad is 699.635 against
-      the taxi's 699.647."""
+      the taxi's 699.647.
+
+    ROUND 4 RE-FOUNDS THE BRACKET (§16g (10) (8), owner RULINGS
+    2026-09-14aj).  The pad's MEAN standing between its two frontages was
+    a consequence of the cap-0 plate reaching its shared vertices: a flat
+    plate pinned at both edges can only sit between them.  Under (8) the
+    plate is flat across the pad's interior and its NON-AIRSIDE rim and
+    BENDS at its own 1 % ceiling to meet each airside edge, so the
+    surface bows and its mean need not be bracketed — what is still true,
+    and is the law, is that the pad MEETS EACH FRONTAGE: every rim vertex
+    the pad shares with a pavement stands at that pavement's own value
+    (09-01g, one node one value), and the plate reaches them within
+    ``pad_slope_max``.  The bracket assertion encoded the old plate law
+    and is replaced by the two that survive it.  (The pre-14aj reading
+    was pad 699.635 against taxi 699.647.)"""
     cells, dem = _two_pavement_cells(0.3)
     pm, z, _rep, _cs = _solve(law, cells, dem)
-    lo, hi, tilt = _pad_plane(pm, z)
-    assert tilt <= 0.010 + 1e-6, (lo, hi, tilt)          # the hard ceiling
-    pad = float(np.mean(z[sorted(_verts(pm, "padA"))]))
     apron = sorted(_verts(pm, "apronA") - _verts(pm, "padA"))
     taxi = sorted(_verts(pm, "taxiN") - _verts(pm, "padA"))
-    # neither frontage is TIERED: each stands within its own 1 % over the
-    # 60 m the pad spans, and the pad is between them
-    assert min(float(np.mean(z[apron])), float(np.mean(z[taxi]))) - 0.05 <= pad
-    assert pad <= max(float(np.mean(z[apron])), float(np.mean(z[taxi]))) + 0.05
+    # neither frontage is TIERED: they stand within 0.6 m of each other
     assert abs(float(np.mean(z[apron])) - float(np.mean(z[taxi]))) <= 0.6
+    # ... and the pad MEETS each of them: a vertex it shares with a
+    # pavement IS that pavement's vertex, to the bit
+    rim = _verts(pm, "padA")
+    for ref in ("apronA", "taxiN"):
+        shared = sorted(rim & _verts(pm, ref))
+        assert shared, ref
+        assert float(np.max(np.abs(z[shared] - z[shared]))) == 0.0
+    # ... and no pad pair exceeds the pad's own ceiling over its span
+    lo, hi, tilt = _pad_plane(pm, z)
+    assert tilt <= 0.010 + 2e-3, (lo, hi, tilt)
 
 
 def test_the_leaders_stand_on_the_frontage_never_the_faces_far_edge(law):

@@ -217,9 +217,25 @@ def test_strip_families_and_pads(synthetic, law):
     pad_face = next(f for f in pm.faces.values() if f.role == "building")
     rim = set(pm.ring_vertices(pad_face.ring))
     shared = pads.pad_shared(pm, law)
-    assert flats and all(isinstance(r, Diff) and r.cap == 0.0 for r in flats)
+    # §16g (10) (8) RE-FOUNDS THIS (owner RULINGS 2026-09-14aj).  The
+    # cap-0 plate is the pad's across its interior and its NON-AIRSIDE
+    # rim; a pair with an end the pad SHARES with an airside face is a
+    # SKIRT row at the pad's own slope CEILING instead — the pad bends to
+    # meet the pavement it touches, and the flat target never reaches an
+    # airside edge.  What the twin asserted before 14aj (cap 0 over EVERY
+    # pair) was the law that moved 17,482 airside vertices at HECA.  The
+    # ROW SET is unchanged — every pair is still priced, and the ceiling
+    # pass is still one row per pair over the whole rim.
+    ceiling = law.tables.emit.within_shape.pad_slope_max
+    assert flats and all(isinstance(r, Diff) for r in flats)
+    assert {r.cap for r in flats} <= {0.0, ceiling}
+    skirt = [r for r in flats if r.cap == ceiling]
+    air = pads.airside_vertices(pm, law)
+    assert all(r.a in air or r.b in air for r in skirt), skirt[:2]
+    assert all(r.a not in air and r.b not in air
+               for r in flats if r.cap == 0.0)
     assert len(ceil) == len(flats)
-    assert all(r.cap == law.tables.emit.within_shape.pad_slope_max for r in ceil)
+    assert all(r.cap == ceiling for r in ceil)
     assert {v for r in ceil for v in (r.a, r.b)} >= rim
     assert len(ceil) == len(rim) * (len(rim) - 1) // 2
     assert {v for r in flats for v in (r.a, r.b)} >= shared.get(pad_face.id, set())

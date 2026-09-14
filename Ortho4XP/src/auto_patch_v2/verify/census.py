@@ -73,6 +73,13 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
 #: Families in the tables with no v2 reader (vacuous on v2's product or
 #: an M3+ family) — listed, never dropped.
 NOT_IMPLEMENTED: tuple[str, ...] = (
+    # §16g (10) (3)/(6) (owner RULINGS 2026-09-14x / 14ai): both families
+    # are the CENSUS's, not the design surface's — one is declared in the
+    # sidecar from the pack's clusters (which no emitted patch carries)
+    # and the other is a plane residual read off the patch's own rings.
+    # ``verify`` reads the DESIGN SURFACE and has no reader for either,
+    # so the lockstep twin must not expect one.
+    "pad_cluster_mismatch", "pad_airside_weld",
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
     "drainage_spine", "apron_lattice_membrane", "drainage_minimum",
     # §39 (2) (owner RULINGS 2026-09-13bk/13bt/13bu): the hairline needs the

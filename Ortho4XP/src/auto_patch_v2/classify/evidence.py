@@ -492,7 +492,10 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
         return []
     to_xy, _to_ll = airport.frame.transformers()
     got, counts = cluster_outlines(cl, to_xy, float(st.footprint_touch_m),
-                                   airside=airside)
+                                   airside=airside,
+                                   # §16g (10) (7): LEAVES GET NO PAD
+                                   walled_only=True,
+                                   min_m2=float(st.cluster_pad_min_m2))
     CLUSTER_PADS.update(counts)
     CLUSTER_PADS["area_m2"] = round(sum(g.area for _i, _c, g in got), 1)
     return [g for _i, _c, g in got]

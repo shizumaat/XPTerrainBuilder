@@ -42,6 +42,8 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      touch_m: float,
                      simplify_m: float = OUTLINE_SIMPLIFY_M,
                      airside=None,
+                     walled_only: bool = False,
+                     min_m2: float = 0.0,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -91,11 +93,26 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        4.38 m.  Airside is king, and §30 (4)'s own owner clause is "as
        long as it remains feasible with grade laws and taxiways".
 
+    5. LEAVES GET NO PAD (§16g (10) (7), owner RULINGS 2026-09-14aj).  A
+       derived pad is minted for a WALLED cluster only — one holding a
+       body whose solid height reaches ``chain_min_height_m`` — and only
+       where its footprint union reaches ``min_m2``
+       (``cluster_pad_min_m2``).  A LEAF (a slab, a plate, a deck, a
+       canopy, a road) seats on its own ground and mints nothing; a
+       walled cluster under the threshold keeps the footprint cache's
+       pad, which is `cluster_pad_min_m2`'s one remaining job (§16g (9)).
+       MEASURED at HECA: of 1,380,739 m2 of outline, **359,152 m2 in
+       1,518 pads are LEAVES** and 175,708 m2 in 821 more are walled but
+       under the threshold — together 39 % of the new pad area that sat
+       beside the apron.  Counted ``leaf_dropped`` / ``under_min_m2``.
+
     ``touch_m <= 0`` disarms the close (rule 2); ``airside=None``
-    disarms the clip (rule 4).
+    disarms the clip (rule 4); ``walled_only=False`` and ``min_m2=0``
+    disarm (7).
     """
     counts = {"clusters": len(clusters), "no_rings": 0, "over_another": 0,
-              "still_in_pieces": 0, "on_airside": 0, "clipped": 0, "pads": 0}
+              "still_in_pieces": 0, "on_airside": 0, "clipped": 0,
+              "leaf_dropped": 0, "under_min_m2": 0, "pads": 0}
     if not clusters:
         return [], counts
     order = sorted(
@@ -107,6 +124,12 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
     taken: list[Polygon] = []
     for i in order:
         c = clusters[i]
+        if walled_only and not int(getattr(c, "walled", 0) or 0):
+            counts["leaf_dropped"] += 1          # (7): it seats on its ground
+            continue
+        if min_m2 > 0.0 and float(getattr(c, "area_m2", 0.0)) < min_m2:
+            counts["under_min_m2"] += 1          # the cache's pad stands
+            continue
         ps: list[Polygon] = []
         for r in (getattr(c, "rings", ()) or ()):
             if len(r) < 3:

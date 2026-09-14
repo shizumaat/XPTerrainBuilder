@@ -148,25 +148,26 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
         return []
     touch = float(law_touch) if law_touch is not None else 0.0
     got = counts = None
-    akey = id(airside)
+    akey = (id(airside), min_m2)
     for k, ap, t0, cached in _POLY_MEMO:
         if k == id(airport) and ap is airport and t0 == (touch, akey):
             got, counts = cached, {}
             break
     if got is None:
         to_xy, _to_ll = airport.frame.transformers()
-        got, counts = cluster_outlines(cl, to_xy, touch, airside=airside)
+        got, counts = cluster_outlines(
+            cl, to_xy, touch, airside=airside,
+            # §16g (10) (7): the pad population is the WALLED clusters
+            # over the threshold — the same one ``classify`` minted from,
+            # so the census cannot report a mismatch for a cluster that
+            # was never given a pad
+            walled_only=True, min_m2=min_m2)
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
     if counts.get("no_rings"):
         NO_OUTLINE.extend(str(c.id) for c in cl
                           if not (getattr(c, "rings", ()) or ()))
-    out: list[tuple[str, _t.Any, Polygon]] = []
-    for cid, c, g in got:
-        if min_m2 > 0.0 and float(getattr(c, "area_m2", 0.0)) < min_m2:
-            continue
-        out.append((cid, c, g))
-    return out
+    return list(got)
 
 
 def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport | None
@@ -277,7 +278,9 @@ def pad_cluster_mismatch(planar: PlanarMap, law: Law,
     the counterparties and a representative point, which is what the
     census needs to place it."""
     out: list[dict[str, _t.Any]] = []
-    by_cluster, by_ref, _clipped = _face_map(planar, law, airport, 0.0)
+    by_cluster, by_ref, _clipped = _face_map(
+        planar, law, airport,
+        float(law.tables.structures.placement.cluster_pad_min_m2))
     if not by_cluster:
         return out
     _to_xy, to_ll = (airport.frame.transformers() if airport is not None
@@ -630,7 +633,9 @@ def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
         return {}
     touch = float(law.tables.structures.placement.footprint_touch_m)
     split = float(law.tables.structures.placement.floor_split_m)
-    pairs = cluster_polys(airport, 0.0, touch, airside_union(planar, law))
+    pairs = cluster_polys(
+        airport, float(law.tables.structures.placement.cluster_pad_min_m2),
+        touch, airside_union(planar, law))
     if len(pairs) < 2:
         return {}
     floor_of: dict[str, float] = {}

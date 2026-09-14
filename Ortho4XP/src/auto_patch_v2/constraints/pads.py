@@ -76,7 +76,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
-                          role_cap, senior_role)
+                          role_cap, rolled_on_roles, senior_role)
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -104,6 +104,14 @@ GEN_LEVEL = "pad_level"
 #: The ruling HEAD ``[design] pad_flat_rulings`` names (everything before
 #: the first parenthesis, ``solve.design.ruling_head``).
 FLAT_RULING = "structures.building_pad flat"
+#: §16g (10) (8) THE PAD IS DROPPED AT THE RIM (owner RULINGS
+#: 2026-09-14aj): the head a pad row carries when ONE of its two vertices
+#: belongs to an AIRSIDE face.  It is in ``[design] one_way_rulings`` —
+#: the airside vertex is the LEADER and never moves for a pad — and in
+#: ``hard_rulings``, because what the row states is the pad's own SLOPE
+#: CEILING (``pad_slope_max``, 1 %) reaching down to a pinned edge: a
+#: BENT SKIRT, not a step and not a free edge.
+AIRSIDE_RULING = "structures.building_pad airside skirt"
 #: The ruling HEAD ``[design] hard_rulings`` names for the 1 % tilt ceiling.
 CEILING_RULING = "structures.building_pad pad_slope_max ceiling"
 #: THE SENIOR CLAUSE (owner 2026-09-10y): the ONE one-way row per fronting
@@ -137,6 +145,26 @@ def rigid_roles(law: Law) -> tuple[str, ...]:
     """Every role the register marks rigid (data, never a list here)."""
     return tuple(sorted(r for r in law.tables.precedence.roles
                         if is_rigid_role(law, r)))
+
+
+#: §16g (10) (8): how many SKIRT rows the pass minted (one-way, at the
+#: pad's slope ceiling, against an airside leader) and how many pairs it
+#: dropped for having both ends on the airside.  The generator publishes
+#: them as ``pads.pad_flats.*``.
+AIRSIDE_LED: dict[str, int] = {}
+
+
+def airside_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
+    """§16g (10) (8): every vertex an AIRSIDE face carries —
+    ``law.tables.rolled_on_roles`` (the runway family, the taxi family and
+    the apron), so a new pavement role joins with no code change.  ONE
+    derivation, read by :func:`_pad_rows`."""
+    vw = view(planar, law)
+    out: set[int] = set()
+    for f in vw.faces_of_role(tuple(sorted(rolled_on_roles(law)))):
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            out.update(ring)
+    return frozenset(out)
 
 
 def _pad_groups(planar: PlanarMap, law: Law) -> list[tuple[int, str, list[int]]]:
@@ -470,10 +498,45 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # §30 (4) (RULINGS 2026-09-13cc/13ce): a CLUSTER's plane is priced
     # per-face-complete PLUS cross-links, never over the concatenated rim
     # — the merged reading was measured inert (see ``cluster_pairs``).
+    # §16g (10) (8) THE PLATE IS DROPPED AT AN AIRSIDE RIM (owner RULINGS
+    # 2026-09-14aj, resolving the trilemma this lane measured in round 3:
+    # a derived pad cannot be one hard plane AND welded to the apron AND
+    # forbidden to move it).  A vertex the pad SHARES with an airside face
+    # is ONE unknown (09-01g, contact = value), so a TWO-SIDED pad row
+    # touching it moves the airside: MEASURED, 345,016 m2 of new pad
+    # beside the apron moved 17,482 of 29,465 airside vertices, worst
+    # 12.15 m, with the pads already clipped out of airside ground.
+    #
+    # So along an airside-sharing edge the pad's rim vertices are ONE-WAY
+    # FOLLOWERS of the airside — the airside leads and never moves — and
+    # what binds them to the plate is the pad's own SLOPE CEILING
+    # (``pad_slope_max``), not the cap-0 flat target.  The pad is FLAT
+    # across its interior and its non-airside rim and BENDS to meet the
+    # pavement it touches: a skirt.  ``pad_airside_weld`` (14ai) then
+    # fires only where even the ceiling cannot reach.
+    air = airside_vertices(planar, law)
+    ceiling = float(law.tables.emit.within_shape.pad_slope_max)
+    AIRSIDE_LED.clear()
+    _led = _dropped = _whole = 0
     per_face = {q: g for q, _r, g in _pad_groups(planar, law)}
     n_cross = 0
     for fid, ref, group, fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
+        # §16g (10) (8): the SKIRT row carries the SAME face inputs as the
+        # plate it belongs to — every reader that asks "which rows are
+        # this pad's" (the twins, the report, ``pad_flat``) must find them
+        src_air = Source(GEN, AIRSIDE_RULING
+                         + " (owner 2026-09-14aj; spec §16g (10) (8))",
+                         (f"face:{fid}", ref))
+        # A PAD WHOLLY INSIDE PAVEMENT HAS NO RIM OF ITS OWN and the
+        # skirt would leave it with no law at all: every pair would have
+        # both ends on the airside.  That is the OSM pad-in-an-apron
+        # class (09-01g's own shape), not the derived pad (5) mints, so
+        # it keeps the two-sided plate it has always had and is COUNTED.
+        skirt = air
+        if len([v for v in group if v not in air]) < 2:
+            skirt = frozenset()
+            _whole += 1
         if len(fids) > 1:
             prs, k = cluster_pairs(planar, [per_face[q] for q in fids
                                             if q in per_face])
@@ -486,9 +549,38 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
             if d <= 0.0:
                 continue
+            if a in skirt or b in skirt:
+                # §16g (10) (8): the SKIRT row.  A pair with an end on the
+                # airside is priced at the pad's own SLOPE CEILING
+                # however this call was asked, never at the cap-0 flat
+                # target: the pad is FLAT across its interior and its
+                # non-airside rim and BENDS to meet the pavement it
+                # touches.  At ``cap == ceiling`` it is the row the
+                # ceiling pass would have minted anyway, so the ceiling
+                # is unchanged and only the FLAT target is dropped here.
+                #
+                # THE ONE-WAY FORM WAS MEASURED AND REFUTED (round 4): a
+                # plate whose every binding is one-way has no rigid
+                # relation to anything in the first lag round and does not
+                # chase back — the §30 twin's pad collapsed from 703.56 to
+                # 640.89 m.  09-10l's one-way precedent is a LEVEL row (a
+                # mean against a leader band), not a whole plate, and the
+                # difference is that a level row leaves the plate holding
+                # the pad rigid while this would leave nothing.
+                _led += 1
+                if cap >= ceiling:
+                    rows.append(Diff(a, b, cap, d, src,
+                                     rel=off.get(a, 0.0) - off.get(b, 0.0)))
+                else:
+                    rows.append(Diff(a, b, ceiling, d, src_air,
+                                     rel=off.get(a, 0.0) - off.get(b, 0.0)))
+                continue
             rows.append(Diff(a, b, cap, d, src,
                              rel=off.get(a, 0.0) - off.get(b, 0.0)))
     STATS.setdefault("pad_flats", {})["cluster_cross_links"] = n_cross
+    AIRSIDE_LED.update(airside_skirt_rows=_led, both_airside_dropped=_dropped,
+                       pads_wholly_on_airside=_whole)
+    STATS.setdefault("pad_flats", {}).update(AIRSIDE_LED)
     return rows
 
 

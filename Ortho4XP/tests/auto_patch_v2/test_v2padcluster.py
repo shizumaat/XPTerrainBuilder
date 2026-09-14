@@ -153,7 +153,7 @@ class _Frame:
 
 
 class _Cl:
-    def __init__(self, cid, rings, area=20000.0, floors=(0.0,)):
+    def __init__(self, cid, rings, area=20000.0, floors=(0.0,), walled=None):
         self.id = cid
         self.rings = tuple(rings)
         self.area_m2 = area
@@ -161,6 +161,9 @@ class _Cl:
         self.boxes = ()
         self.bodies = len(self.floors)
         self.footed = len(self.floors)
+        #: §16g (10) (7): how many member bodies are WALLED.  A cluster
+        #: with none is a LEAF and mints no pad at all.
+        self.walled = self.bodies if walled is None else int(walled)
 
 
 def _sq(x0, y0, x1, y1):

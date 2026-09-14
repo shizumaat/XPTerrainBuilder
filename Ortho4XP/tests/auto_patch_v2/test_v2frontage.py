@@ -196,14 +196,27 @@ def test_the_only_channel_left_is_the_two_way_apron_edge_ramp_law(law):
     Those are PRE-EXISTING two-way law rows, not a new §28 pull — the twin
     above proves the §28 row itself moves nothing.  Making them one-way is
     outside 09-12r's text and is a deviation for the owner, never a
-    lane's."""
+    lane's.
+
+    ROUND 4 RE-STATES THE MAGNITUDE (§16g (10) (8), owner RULINGS
+    2026-09-14aj).  The measured figure was 0.05 m when the pad was a
+    cap-0 plate across its WHOLE rim: pinned flat at every contact, the
+    apron-edge ramp's lift could only move it a few centimetres.  Under
+    (8) the plate is flat across the pad's interior and its non-airside
+    rim and BENDS at its own 1 % ceiling to meet each airside edge, so
+    the same two-way ramp row now moves the pad **0.172 m** — a looser
+    pad, the same channel.  The CLAIM is unchanged and is what the twin
+    exists for: the movement is the ramp's, it is DOWNWARD, and §28's own
+    row still moves nothing (the twin above).  The number is the
+    fixture's, re-measured, and is still reported rather than decided."""
     _pm_a, z_a, _r = _solve(law, _cells())
     pm_b, z_b, _r2 = _solve(law, _cells(), drop={GEN_GS})
     pad = sorted(_verts(pm_b, "padA"))
     moved = float(np.max(np.abs(z_a[pad] - z_b[pad])))
     # the fixture's measured magnitude: small, DOWNWARD, and entirely the
-    # apron-edge ramp's lift going away
-    assert 0.0 < moved < 0.05, moved
+    # apron-edge ramp's lift going away (0.05 before §16g (10) (8)'s
+    # skirt loosened the plate at the pad's airside rim; 0.172 after)
+    assert 0.0 < moved < 0.25, moved
     assert float(np.mean(z_a[pad])) < float(np.mean(z_b[pad]))
 
 

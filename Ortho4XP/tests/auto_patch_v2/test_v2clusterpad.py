@@ -105,6 +105,8 @@ class _Cluster:
         self.floors = tuple(floors)
         self.bodies = len(self.floors)
         self.footed = len(self.floors)
+        #: §16g (10) (7): a cluster with no WALLED body mints no pad
+        self.walled = len(self.floors)
         self.area_m2 = 20000.0
         self.hull = (min(b[0] for b in boxes), min(b[1] for b in boxes),
                      max(b[2] for b in boxes), max(b[3] for b in boxes))

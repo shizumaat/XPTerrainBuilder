@@ -191,7 +191,17 @@ def declared_step_allowance(joints, a, b) -> float:
 
 
 def _step_rows(p: Patch, family: str, probes, edges, search: float,
-               ctol: float, step_m: float) -> list[Row]:
+               ctol: float, step_m: float, roles=None, allow_of=None) -> list[Row]:
+    """``roles`` (§40 (5) (4), lane ``v2shoulderband``): when given, BOTH
+    the probe's shape and the edge's shape must carry a role in it — the
+    family is the law of that pair, not of every pair.  ``allow_of(d)``
+    replaces the flat ``step_m`` allowance with a per-row one over the
+    probe-to-foot separation ``d`` (the runway's transverse cap over the
+    edge length, floored at ``materiality.runway_step_m``).  Both are
+    OPTIONS on this one reader rather than a second copy of it (owner
+    RULINGS `7e90032`: extend a near-fit, never fork it) — with neither,
+    the function is byte-for-byte the reading the three existing step
+    families have always had, which is what the twin asserts."""
     exempt_pad = p.law.tables.structures.building_pad.step_exemption_pad_to_pad
     joints = joint_index(p)
     cell = max(search, 1.0)
@@ -204,6 +214,8 @@ def _step_rows(p: Patch, family: str, probes, edges, search: float,
                 g.setdefault((gx, gy), []).append(k)
     out: list[Row] = []
     for (sv, (x, y), z) in probes:
+        if roles is not None and sv.role not in roles:
+            continue
         if p.cap(sv) is None:
             continue
         cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
@@ -211,6 +223,8 @@ def _step_rows(p: Patch, family: str, probes, edges, search: float,
         for k in g.get((cx, cy), ()):
             se, a, b, za, zb = edges[k]
             if se.key == sv.key or p.cap(se) is None:
+                continue
+            if roles is not None and se.role not in roles:
                 continue
             if _designed_separation(p, sv.role, se.role):
                 continue
@@ -232,7 +246,8 @@ def _step_rows(p: Patch, family: str, probes, edges, search: float,
         # APRON TERRACE LOCKSTEP (RULINGS 2026-09-06n; v1 ``_declared_step_
         # allowance``): a probe and its foot on opposite sides of a declared
         # joint have the declared step between them — lawful geometry
-        allow = step_m + (joints.allowance((x, y), (px, py)) if joints else 0.0)
+        base = step_m if allow_of is None else allow_of(math.sqrt(_d2))
+        allow = base + (joints.allowance((x, y), (px, py)) if joints else 0.0)
         if step > allow + 1e-5:
             out.append(row(family, (sv.role, se.role), pair_side(p, sv.role, se.role),
                            step, None, None, math.sqrt(_d2), (x, y), (px, py),

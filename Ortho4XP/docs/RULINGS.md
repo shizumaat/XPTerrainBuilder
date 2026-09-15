@@ -8105,3 +8105,15 @@ UNCHANGED. And from the concurrent session (15bj): `airport_small_roads`
 is never schema-invalidated (chip task_7e4c5a02, running in the owner's
 session); 20 of 26 cached big_roads feeds still carry 2026-07-16 and now
 refuse a production-frame dry load too.
+
+## 2026-09-15bl v2shoulderband MERGED (a8138464): §40 (5) the shoulder is a band — LEMD's 111,648 m² cell → 49,515 m² within 75 m + 46,764 m² apron; runway vertices beyond the strip 609 → 1; the 0.95 m step gone (`runway_step` family, 3 → 0); the owner's item-7 site 1.552 → 0.554 % under the junction law; ADJUDICATED 2,011 → 1,709; every DEFECT family zero on a real LEMD build; HECA's worst "shoulder" reached 1,717 m (218,797 m²) → 83,655 m² of band; RULED the band takes the strip's end extension (r2 with the VHHH capture)
+
+Lane @ a8138464; suite 1,668 passed, 0 FAILED; consumer census of 31
+readers committed BEFORE the code (ea770ec9), two hazards predicted and
+both landed as predicted. Functions: `classify/roles.shoulder_band`
+(new) + the §40 (1) branch, `rules.Corridor.runway_shoulder_band`,
+`verify/steps._step_rows(roles=, allow_of=)`, `verify/runway.runway_
+step` (new), census READERS/DEFECT_KEYS, `Materiality.runway_step_m`,
+families.toml, check_grade, `v2_solve_replay --rule` (INDEX row).
+Details in §40 (5) MEASURED AND RULED. Owed: VHHH/CYXY/SPJC/KCLT/OTHH
+captures (one each) to measure the band there; the end-cap line (r2).

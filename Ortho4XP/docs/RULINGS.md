@@ -7174,3 +7174,33 @@ NAMED, not fixed (chip): the auto-mode merged `airport_small_roads` cache
 has NO schema gate (`O4_Vector_Map.py` ~:768 recycles on `isfile` alone,
 `write_to_file` stamps no `o4_tag_schema`, `OSM_query_to_OSM_layer` takes no
 `cache_schema`) — a pre-existing cache keeps serving four-key ways silently.
+
+## 2026-09-15j VHHH 15g + LEMD 15e items 1/3/4/6 ATTRIBUTED (scouts, 1.0.340): three authoring signatures for one intent, none read as geometry — RULED §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY, lane v2objcut
+
+VHHH (scout): five tunnel placements, each a SHELL (`tunnelN_done.obj`,
+y −6.01/−6.54/−8.95/−9.01 … 0, largest plate = the FLOOR, 733–16,759
+m²) + a COVER (`_TN`, `HARD_DECK` plate at y 0, 427–11,254 m², with a
+descending ramp profile 0.00 → −0.91 → −1.71 → −6.01 at tunnel5); the
+engine builds OSM-bore mouth-and-ramp only: floor DEM − 5.1 (2.21–3.27)
+against the authored 1.31 / 0.77 / −1.63 / −1.69 (0.92–3.91 m too
+shallow), 62–83 % of each ramp inside the shell's hull but 10–19 ring
+vertices per tunnel OUTSIDE it (median 6.6–68 m). Owner site
+22.3038632,113.9088362 = face 1108 inside `tunnel5_done` (245.9 × 73.2
+m). EGLL (the owner's reference): the same author convention (`N.obj`
+cover + `Na.obj` shell, HARD_DECK covers, floors −4 … −7); no EGLL
+capture exists. Why unread: `tunnel_objects.py:717` sends any floor
+witness to basins.py; the crest-plate rule needs a plate ≥ 2 m ABOVE
+zero; `thin_plates` takes 1.0–1.5 m only; LAW C (`wall_corridors`) is
+gated by `kerb_wall_corridors = true` under `[OTHH]` alone
+(`law/airports.toml:15-18`) and refuses walls with floors. OTHH's walls
+(−15 … +5, −10 … +9.55) are the crested class. LEMD (15h): parapets
+0.91–1.03 m refused at the skirt gate; Bridge3's pair read as a plate
+width; Bridge4's ring a 9-station chord cut. RULED §33 (6): signatures
+A (crested), B (shell + flush hard cover: floor plate = depth, cover =
+covered extent + stations), C (thin surface walls: pair = trench top
+edges, full length, mouths at the ends; single U = inner-face polyline
+to the wall's end; parapet pair = the deck's extent) → ONE reader, ONE
+record class, basins see none; the per-airport affordance retired;
+§33 (2)'s plate reading and (2) (a)'s clamp superseded for C; two new
+verify families. Lane v2objcut (owner sites: VHHH tunnel5; LEMD items
+1/3/4/6; OTHH 14av unchanged by replay pair).

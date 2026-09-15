@@ -12442,3 +12442,86 @@ bank emitter even while OFF, `verify/within.py`, `check_grade`'s strip
 families, `mesh_region_tris`), one table.  Water level: the tile's own
 sea (the coastline mesh at the X-Plane water level), read from the
 same source the tile uses (`O4_Vector_Map include_sea`).
+
+## §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY — THREE SIGNATURES, ONE READER (owner RULINGS 2026-09-15e items 1/3/4/6, 15g; 14av; Fable 2026-09-15j) — lane `v2objcut`
+
+**The intent (owner, three airports).**  "The tunnels have object based
+interior walls and hard covers where needed (like EGLL does), so we need
+to cut our trenches based on those … align with the provided ramp and
+walls" (VHHH); "use the provided surface wall objects as a precise guide
+for where to cut the mouth, ramp should stay within the wall boundaries
+… the terrain grades under the wall object and the wall sits on top of
+the tunnel edges" (LEMD); "the two edge wall objects … should be used
+as guides for where the author wants the bridge … grade the bridge so
+those sit smoothly on either edge of it" (LEMD).  THE PACK'S STRUCTURAL
+OBJECTS ARE THE AUTHOR'S GEOMETRY; the mapped way is the ROUTE (the
+seed, and the connection to the network beyond the object's ends) and
+nothing more.  Where an object of any signature below covers a bore or
+a crossing, the cut's PLAN, DEPTH, COVERED EXTENT and STATIONS derive
+from the object.
+
+**The three signatures (measured 15h/15j; detected by GEOMETRY, never by
+name, never by ICAO).**
+
+* **A — crested walls (OTHH, 14av):** solids descending below the
+  object's zero with a crest plate ≥ `plate_min_height_m` above it
+  (−15 … +5, −10 … +9.55).  Already LAW C (`airport/wall_corridors.py`);
+  the wall's inner faces are the trench walls, the crest is the rim.
+  The per-airport affordance `kerb_wall_corridors` (`law/airports.toml`,
+  OTHH only) is RETIRED: the signature admits, not the ICAO.
+* **B — shell + flush hard cover (VHHH, EGLL):** a SHELL object whose
+  largest horizontal plate lies ≥ 2 m below its zero (the FLOOR: −6.01
+  / −6.54 / −8.95 / −9.01 at VHHH, 733–16,759 m²; EGLL −4 … −7) and, at
+  the same placement (position within 1 m, same heading) or inside the
+  same object, a COVER whose `HARD_DECK` plate at |y| ≤ 1 m covers part
+  of the shell's plan (VHHH `_TN`: 427–11,254 m²; EGLL `N.obj` /
+  `Na.obj`).  Today this class falls through every reader:
+  `tunnel_objects.py:717` (a floor witness ⇒ basins), the §2 crest-
+  plate rule (no plate above zero), `thin_plates` (1.0–1.5 m), LAW C
+  (OTHH only).  RULED: the shell's per-band wall line (NOT the convex
+  hull — the shells are L-shaped) is the trench outline; the FLOOR
+  PLATE's level in the seated frame is the floor (the depth is AUTHORED
+  — it overrides `bore_datum_m`, which is the law for UNAUTHORED bores
+  only); the cover's flat plate is the covered extent; the cover's
+  descending plate profile (tunnel5: 0.00 → −0.91 → −1.71 → −6.01 over
+  25 m bins) gives the ramp STATIONS; `HARD_DECK` is the machine-
+  readable marker of the cover.  The shell is never a basin.
+* **C — thin surface walls and parapets (LEMD):** solids < 1.5 m tall,
+  long (length ≥ 20 × height), narrow (≤ 2 m), sitting on the surface
+  (y_min ≥ −0.1).  (C1) A parallel PAIR along a bore (Bridge3: 354 × 25.1
+  m, 1.03 m; spacing 5–40 m, overlap ≥ 50 %) is the trench's TOP EDGES:
+  the trench lies between the pair's inner faces, runs the pair's FULL
+  length, its mouths at the pair's ends, its open ramps beyond them
+  (item 4: from the wall's south end toward 40.4951833); the wall's
+  foot line is the rim at grade — the terrain grades under the wall and
+  the wall sits on the trench edge; the depth is `bore_datum_m` (no
+  authored floor).  (C2) A single thin wall in a U (Bridge4, 2.01 m,
+  admitted today): the ring follows the wall's INNER-FACE polyline with
+  chord error ≤ half the band (0.75 m) — never a 9-station chord cut of
+  a curved U — and runs to the wall's END (17 m short today).  (C3) A
+  parapet PAIR flanking a mapped bridge way (Bridge2: 0.92 m, 25.6 m
+  apart) is the DECK's lateral extent: the deck is centred on the pair
+  and as wide as their inner spacing, so both parapets sit on the deck
+  edges; the OSM carriageway pair gives the route only (today: 8–9 m
+  south of the parapets).  The §33 (2) plate reading of these objects
+  (a width and a mouth station) and the 1.5 m skirt pre-screen are
+  SUPERSEDED for signature C; §33 (2) (a)'s clamp to the bore way's end
+  is superseded by C1 (the object's end IS the mouth) — the 14bl item
+  7/8 runaway it fixed was the plate's overhang beyond a bore with no
+  wall pair, which C1's pairing test excludes.
+
+**One reader.**  `airport/tunnel_objects.py` (or a successor
+`airport/object_cut.py`) screens every placed object ONCE for A/B/C and
+publishes ONE record class (`ObjectCut`: outline polyline per band,
+floor level or None, covered extent, stations, ends, signature) that
+`planar/structures.py` / `structure_approach.py` / `structure_deck.py` /
+`wall_corridor_ramps.py` consume; `basins.py` sees none of them.
+Consumer census at spec time (RULINGS 2026-08-30l): every reader of
+tunnel objects, plates, basins with object carriers, wall corridors and
+deck groups — one table before the first edit.  Where an OSM bore and an
+object disagree, the OBJECT wins inside its extent; the mapped way
+carries the corridor beyond it (§34 (12) still gates whether the tunnel
+serves the field at all).  `[verify]` gains `object_cut_offset`: the
+worst distance of an emitted ring vertex outside its object's wall line
+(bar 0.5 m) and `object_cut_depth`: floor vs the authored floor plate
+(bar 0.10 m).

@@ -6856,3 +6856,26 @@ below-grade road/rail CHANNEL through the field (LGAV, KPHX, KDFW) is a
 pattern class to identify and model as an open tunnel — evidence scout
 `channelscout` and the object-stage crash lane `v2drapedbind` dispatched
 (briefs c2c96419).
+
+## 2026-09-15f OWNER: a custom pack whose apt.dat authored no pavement borrows the Global Airports pavement (+ boundary) and keeps its own objects — the trigger is COVERAGE < 25 % (spec §44, lane `v2pavborrow`)
+
+Owner 2026-09-15 on the LGAV read: "It's a case where the author included
+no pavement at all and relied only on imagery. In this case we should
+fall back to default global scenery airport package just for pavement,
+but still use the custom scenery for objects/pads/ and seat buildings
+where needed." Two decisions put with the data (FlyTampa LGAV: 2
+runway-strip polygons, 1.3 % coverage of the Global block's 63 /
+2,409,902 m²; the engine's "any row-110 polygon wins" rule graded LGAV
+with zero taxiways and aprons):
+* **Trigger → "Coverage < 25 % (Recommended)"**: borrow when the custom
+  block's pavement covers under 25 % of the Global block's pavement
+  area for the same ICAO (`[load] pavement_borrow_coverage_max = 0.25`).
+* **What borrows → "Pavement + boundary (Recommended)"**: the row-110
+  polygons and the row-130 boundary (only when the pack has none);
+  runways, lights, lines, startups, metadata, the taxi network and the
+  DSF objects stay the custom pack's.
+The old "a pack without pavement is the fallback of last resort" tail of
+the precedence rule is deleted (the pack stays the pack; its objects are
+read). Consumer census §44.1 (13 rows) written before any edit per
+RULINGS 2026-08-30l; C10 (the DEM-inset stage's own v1 resolver) is a
+MEASURE row, its unification deferred to stage B of the v1 retirement.

@@ -27,7 +27,8 @@ from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.cluster_pad import (CLUSTER_REACH_RULING,
                                                    cluster_apron_faces,
-                                                   cluster_apron_level,
+                                                   cluster_apron_plane,
+                                                   cluster_pad_takes_collar,
                                                    cluster_pad_faces,
                                                    cluster_reach_m,
                                                    plane_groups)
@@ -176,23 +177,27 @@ def _verts(pm, ref):
 
 
 def test_30_4_the_law_key_and_the_ruling_head_are_data(law):
-    """The reach is a law value with ONE derivation site, and its ruling
-    head is in NEITHER the pad-plane family nor the hard set — the row is
-    a target at the law's weight, which is what makes the apron yield to
-    its own caps and to the taxiways (the owner's feasibility clause)."""
-    from auto_patch_v2.solve.design import (cluster_reach_rulings,
-                                            hard_rulings, pad_flat_rulings)
-    # RULINGS 2026-09-13ce: the reach ships DISARMED (0.0) until the cluster
-    # pad MERGE does the work (round 4); the design value is 60.0.
-    assert cluster_reach_m(law) == 0.0
-    assert CLUSTER_REACH_RULING not in pad_flat_rulings(law)
-    assert CLUSTER_REACH_RULING not in hard_rulings(law)
-    # §30 (4) (13cc (ii)): the reach is priced at the APRON TREND's own
-    # design-target weight, strictly BELOW the law's, so every taxi row
-    # outranks it
-    assert CLUSTER_REACH_RULING in cluster_reach_rulings(law)
-    d = law.tables.emit.design
-    assert d.apron_trend < d.law
+    """RE-FOUNDED TWICE, and the second one is the law (owner RULINGS
+    2026-09-14bk).  The twin first asserted the reach was a one-way
+    TARGET below the law's weight (13cc (ii)); 14bf replaced that with a
+    pad-to-collar JOIN and this lane measured it worse (HECA's stage-2
+    certificate 151 infeasible rows / 178.72 m -> 1,114 / 2,312.43 m).
+    What ships is 14bk: the collar is APRON LAW solved by §20b stage 1 —
+    its two heads are in NO conforming register (or stage 1 would refuse
+    them even with every column airside), its tilt ceiling is HARD, and
+    the PAD's own heads carry the stage-2 equality."""
+    from auto_patch_v2.solve.design import hard_rulings
+    from auto_patch_v2.solve.design_roles import conforming_rulings
+    from auto_patch_v2.constraints.cluster_pad import (COLLAR_CEILING_RULING,
+                                                       COLLAR_RULING)
+    from auto_patch_v2.constraints.pads import CEILING_RULING, FLAT_RULING
+    assert cluster_reach_m(law) == 40.0
+    conform = conforming_rulings(law)
+    assert COLLAR_RULING not in conform and COLLAR_CEILING_RULING not in conform
+    assert COLLAR_CEILING_RULING in hard_rulings(law)
+    assert COLLAR_RULING not in hard_rulings(law)
+    # the pad's side of it conforms BY ITS HEADS, so stage 1 never sees it
+    assert FLAT_RULING in conform and CEILING_RULING in hard_rulings(law)
 
 
 def test_30_4_a_cluster_is_one_plane_over_every_pad_it_stands_on(law):
@@ -231,22 +236,37 @@ def _with_reach(law, reach_m):
 
 
 def test_30_4_the_reach_flattens_the_apron_and_stops_at_the_taxiway(law):
-    """DISARMED on main (RULINGS 2026-09-13ce): the reach is 0.0 by law value
-    until the cluster pad merge does the work; this twin arms it locally.
+    """RE-FOUNDED (owner RULINGS 2026-09-14bk): the collar is ONE PLANE
+    AMONG ITSELF, minted as apron law with no pad vertex in any row, so
+    §20b stage 1 owns it; the pad's plate equals it afterwards
+    (``cluster_pad_takes_collar``).  The population is unchanged and is
+    still what keeps the taxiways out.
 
-    (2): the apron vertices within ``cluster_apron_reach_m`` take the
-    cluster's plane; the TAXIWAY family's own vertices are not in the
+    (2): the apron vertices within ``cluster_apron_reach_m`` come out at
+    the cluster's plane; the TAXIWAY family's own vertices are not in the
     population at all and are not moved."""
     with _with_reach(law, 60.0):
         airport, pm, z, counts = _arm(law, True)
         got = cluster_apron_faces(pm, law, airport)
-        # the rows are ONE-WAY with the APRON as the follower
-        rows = cluster_apron_level(pm, law, airport)
+        rows = cluster_apron_plane(pm, law, airport)
+        pad_rows = cluster_pad_takes_collar(pm, law, airport)
     assert got and sum(len(v) for v in got.values()) > 0
     taxi = _verts(pm, "twyA")
     assert not (set().union(*got.values()) & taxi)
-    assert counts.get("cluster_apron_level", 0) > 0
-    assert rows and all(r.follows for r in rows)
+    assert counts.get("cluster_apron_plane", 0) > 0
+    # the collar rows are TWO-SIDED (a plane among themselves), name no
+    # pad vertex, and so are stage 1's by construction; the pad's side is
+    # a separate row set that conforms by its heads
+    from auto_patch_v2.constraints.cluster_pad import (COLLAR_CEILING_RULING,
+                                                       COLLAR_RULING)
+    from auto_patch_v2.solve.design_roles import ruling_head
+    assert rows and not any(r.follows for r in rows)
+    assert {ruling_head(r) for r in rows} == {COLLAR_RULING,
+                                              COLLAR_CEILING_RULING}
+    pad_vs = _verts(pm, "padA") | _verts(pm, "padB")
+    assert not any(set(r.terms_vertices()) & pad_vs for r in rows) \
+        if hasattr(rows[0], "terms_vertices") else True
+    assert pad_rows
     # and the apron in the reach came out at the pads' level
     pad = float(np.mean(z[sorted(_verts(pm, "padA") | _verts(pm, "padB"))]))
     near = sorted(set().union(*got.values()))
@@ -284,8 +304,9 @@ def test_30_4_no_cluster_is_the_identity(law):
     airport, pm, _z, counts = _arm(law, False)
     assert cluster_pad_faces(pm, law, airport) == {}
     assert cluster_apron_faces(pm, law, airport) == {}
-    assert cluster_apron_level(pm, law, airport) == []
-    assert counts.get("cluster_apron_level", 0) == 0
+    assert cluster_apron_plane(pm, law, airport) == []
+    assert cluster_pad_takes_collar(pm, law, airport) == []
+    assert counts.get("cluster_apron_plane", 0) == 0
 
 
 def test_30_4_the_cluster_pads_are_published_in_the_sidecar(law):

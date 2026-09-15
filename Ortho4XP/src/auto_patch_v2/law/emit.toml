@@ -780,6 +780,18 @@ one_way_rulings = [
 one_way_max_rounds = 3     # the lag rounds, each one damped active-set solve (measured HECA: the leader move falls 0.29 m -> under the materiality by round 3; more rounds bought 0.00 m of surface and 12 s.  LEMD 2026-09-13: 20 rounds do not converge either and cost +90 % — see the §20a block above)
 one_way_relax      = 0.5   # UNDER-RELAXATION of the lag: the plain fixed point does not contract (measured HECA: the worst leader move sat at 0.25-0.29 m over six rounds)
 one_way_tol_m      = 0.01  # the lag has settled when no leader foot moved this far (the elevation materiality)
+# §20c THE ONE-SIDED PROBLEM IS SOLVED AS A CONVEX QP (Fable 2026-09-14,
+# RULINGS 2026-09-14bw; lane `v2qp`).  `fixed_point` is the damped
+# active-set iteration this file's `set_stall_tol` block describes — which
+# MEASURABLY does not reach the minimum of its own objective (CYXY: it
+# returns F 193499.2357 where the minimum is 190617.9104, +1.489 %, with
+# 707 of 4,437 columns more than 0.02 m off it), and a point that is not
+# the minimum has no reason to be stable under perturbation (14bw's 959
+# moved vertices, 953 of them beyond 500 m).  `qp` solves the SAME convex
+# QP exactly — the same subproblem PROXIMALLY damped instead of
+# line-searched along a ray out of it (`solve/design_qp.py`, which carries
+# the measurement and the HiGHS deviation).
+solver = "fixed_point"
 active_set_max_rounds = 200    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)
 active_set_tol_m      = 0.001  # a row inside this of its bound is not counted as a set change (a tenth of the 0.01 m elevation materiality)
 solver_tol            = 1e-8   # the linear solver's relative residual tolerance per round

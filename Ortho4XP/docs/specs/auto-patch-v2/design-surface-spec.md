@@ -11849,3 +11849,149 @@ settled or named; the census by family at HECA/KCLT/CYXY/SPJC/OTHH before →
 after with no family worse by > 5 % unexplained; solve wall ≤ 2× (named);
 stage 1 / stage 2 of §20b both through the QP; the shipped patch diff named
 (a converged solve differs by construction).
+
+### §20c MEASURED (lane `v2qp`, branch `claude/v2qp` off main `63258868`)
+
+**THE DIAGNOSIS IS CONFIRMED INTERVENTIONALLY, AND IT IS WORSE THAN
+"UNSETTLED": THE SHIPPED SURFACE IS NOT THE MINIMUM OF ITS OWN
+OBJECTIVE.**  F is convex, C¹ and piecewise quadratic, so accelerated
+proximal gradient (FISTA with function restart) converges to its global
+minimum from anywhere.  Run FROM the fixed point's own returned iterate on
+the registered CYXY capture, with the one-way lag and the hard multipliers
+FROZEN at what that solve returned — i.e. on exactly the problem it claims
+to have solved — it drops F from **193 499.2357 to 190 618.15 in 9 s** and
+moves **703 of 4 437 columns more than 0.02 m, worst 0.52 m**.  §20c's own
+solver reaches **190 617.9104** (below FISTA's, from the other side), so
+the two independent methods agree on the minimum and the fixed point stands
+**1.489 % above it**.  A point that is not the minimum has no reason to be
+stable, and that is 14bw's far field.
+
+**§20c's SOLVER, AND THE DEVIATION (reported, not decided).**  The spec
+names `highspy`'s QP.  MEASURED, in both textbook forms of this QP — the
+epigraph form (a residual variable per row, diagonal Hessian) and the
+normal-equation form (Hessian `A₀ᵀA₀` over the columns, L2 slacks for the
+one-sided rows, L1-elastic slacks for the hard rows): HiGHS's QP is a
+DENSE-NULLSPACE active-set solver.  It refuses at once — `ERROR: QP solver
+has exceeded nullspace limit of 4000`, model status `Large nullspace`,
+`Solve error` — because this problem's nullspace dimension IS its free
+column count (4 437 at CYXY, 31 558 at HECA) and the limit's cost is
+quadratic in it.  Raised to 200 000 it ran **630 s at CYXY without
+terminating** (objective flat from ~230 s, nullspace dimension still
+climbing) against the **3.2 s** solve it replaces.  The projections stay on
+HiGHS because their QPs are small by construction (`project_runway`: 993
+free columns at CYXY, nearly every row active); the whole-airport design
+problem is not that shape.  What ships behind `solver = "qp"` is the SAME
+convex QP solved exactly by the module's own linear algebra: the active
+set's own subproblem PROXIMALLY damped (`min ‖A₀x−b₀‖² + Σ_active w(a·x−b̃)²
++ λ‖x−x_k‖²`, one extra diagonal block on the same stack, through the same
+`_linear_solve`), λ ÷ 4 on an accepted step and × 6 on a rejected one.
+`highspy` is imported at MODULE TOP in `solve/design_qp.py` and a twin
+asserts it on the AST (memory `frozen-engine-lazy-imports`).
+
+**WHY THE SHIPPED STEP FAILS, in one number.**  The fixed point takes the
+UNDAMPED minimiser of the active set's subproblem and line-searches along
+the ray from the previous iterate.  At CYXY that subproblem minimiser sits
+at **F = 7.6e8** against F = 1.9e5 at the iterate it was taken from: the
+ray is useless, the backtracking collapses to `_ALPHA_FLOOR`, and the
+iteration exits `line_search_stalled` / `objective_stalled` — never
+`same_set`, on every solve, exactly as 14bw measured.  Damping the
+SUBPROBLEM instead of searching a ray out of it converges in **52
+iterations / 94 linear solves / 1.2 s** at CYXY — LESS than the 3.2 s the
+stalling iteration costs.
+
+**THE ONE-VERTEX PROBE — THE BAR, MET.**  Matched pair on lane `v2settle`
+r2's registered HECA stability frame (`scratchpad/v2settle/r2/heca.solved.pkl`,
+base main `12400580`), the ONLY variable `[design] solver`; one extra 0.30 m
+ceiling row at v9968 (30.12795521596, 31.4031429808), through
+`v2_solve_replay --probe-site` (promoted there from `probe3.py`/`probe4.py`):
+
+| arm | moved > 0.02 m | ≥ 100 m | ≥ 250 m | ≥ 500 m | worst | hard set under the probe |
+|---|---|---|---|---|---|---|
+| `fixed_point` | **959** / 31 820 | 959 | 959 | **953** | 0.5206 m | 39 → 25 rows |
+| `qp` | **0** | 0 | 0 | 0 | **0.0043 m** (whole field) | 18 → **18** |
+
+The bar was "moved only within 250 m"; the QP moves nothing anywhere by
+more than 4.3 mm — under the elevation materiality — and its hard set does
+not change under the perturbation either.  The same capture solved twice is
+BITWISE identical on both arms (sha `cef4f5c8a773` / `01c2f08e40b1`).
+
+**THE AIRSIDE SOLVE SETTLES — the campaign's first-ranked standing debt
+(13y (B) / 13ab / 14as, owner-ranked first at 12s) closes.**  §20b staged,
+HECA, one tree, the only variable `solver`:
+
+| arm | stage 1 (AIRSIDE) hard | worst | SETTLED | stage 1 wall | stage 2 hard | worst | total |
+|---|---|---|---|---|---|---|---|
+| `fixed_point` | 35 / 174 500 | 0.0961 m | **no** | 87.6 s | 586 / 155 275 | 4.4203 m | 97.7 s |
+| `qp` | **0** / 174 500 | **0.0200 m** | **YES** | 110.5 s | 572 / 155 275 | 4.4244 m | 119.8 s |
+
+Stage 2 is the conforming side's own infeasibility (the pads) and is
+unchanged; §20b (2)'s stage-2 substitution and both projections run on the
+QP arm exactly as on the fixed point — ONE dispatch inside `_solve_stage`,
+so the lag, the multiplier polish, both projections and every counter are
+the same code on either arm.
+
+**THE SINGLE SOLVE, three captures, matched replay pairs (`--emit` = the
+build's own emit half; census by `harness/census.py`):**
+
+| capture | wall | hard rows over 0.02 m | worst | lag worst leader | ADJUDICATED | law-true |
+|---|---|---|---|---|---|---|
+| CYXY (`12400580`) | 3.2 → 4.2 s (**1.31×**) | 17 → **12** (6 an infeasible set, both arms) | 0.5627 → 0.5627 | 0.319 → **0.162 m** | 427 → **379** (−11.2 %) | 1 396 → 1 350 |
+| HECA (`b1b7704c`) | 127.4 → 131.0 s (**1.03×**) | 39 → **18** (4 → 3 infeasible) | 1.2595 → 1.2595 | 0.709 → 0.708 m | 26 634 → **26 607** | 63 824 → 63 816 |
+| KCLT (`b1b7704c`) | 67.8 → 82.1 s (**1.21×**) | 29 → **19** (certificate FEASIBLE both) | 0.1100 → 0.1099 | 0.300 → 0.302 m | 6 607 → **6 515** | 17 975 → 17 675 |
+
+NO FAMILY IS WORSE BY MORE THAN 5 % anywhere.  The largest backward moves
+are HECA `airside_no_step` 7 735 → 7 745 (+0.13 %) and `taxi_box` 3 397 →
+3 404 (+0.21 %), KCLT `transverse` 327 → 331 (+1.2 %) and
+`drainage_minimum` 1 461 → 1 465 (+0.27 %, version-deferred).  Forward:
+CYXY `airside_no_step` 46 → 31, `taxi_box` 24 → 17, `road_cross_section`
+18 → 13; KCLT `within_shape` 11 448 → 11 179, `airside_no_step` 874 → 850,
+`strip_arc` 6 → 2; HECA `strip_transverse` 357 → 348, `transverse` 1 320 →
+1 314, `strip_arc` 28 → 26, `pad_airside_weld` 3 → 2.  The runway
+projection's own read improves at CYXY (worst hard row 0.0044 → 0.0002 m).
+The shipped patch DIFFERS by construction — a converged solve is a
+different surface — and the diff above is the naming §20c asks for.
+SPJC and OTHH have NO registered capture, so their censuses are NOT
+measured (the frames registry carries patches, not captures, for both).
+
+**THE CLOSING BUILD** — `build_airport.py HECA --tag v2qpHECA` with
+`[design] solver = "qp"`: rc 0, **449.1 s**, `body_sha 73b5bdecfd98`,
+artifact ledger `2f4e1c4f8717`, status `optimal`, v2-verify 30 592 rows,
+`shared repo UNCHANGED by this build (full-surface before/after snapshot)`.
+Its design line reads `QP (§20c): 6 exact solve(s), optimal x6, 197
+round(s) / 358 linear solves, 50.09 s, worst |grad| 537.7` and
+`18/329337 hard rows violated (max violation 1.2595 m ... 3 of them are an
+INFEASIBLE SET ... min total shortfall 3.1661 m)`; census law-true 61 845,
+ADJUDICATED 26 348.
+
+**WHAT DOES NOT CHANGE, AND IS OWED.**  (a) The LAG: §20c says "no lag
+rounds, no `follows` machinery", and this lane kept both — the one-way
+split is a bilevel relation, not a term of one convex QP, and removing it
+means either pulling the pavement toward the ground it shapes (a two-way
+penalty) or making ~15 700 soft rows hard (the §20a/13ac refutation).  The
+lag is measurably better under an exact inner solve at CYXY (worst leader
+move 0.319 → 0.162 m) and unmoved at HECA (0.709 → 0.708), still NOT
+SETTLED on both.  (b) The HARD ROWS stay `hard_weight` penalties under a
+2-round augmented-Lagrangian polish, not QP CONSTRAINTS: made constraints,
+the QP is INFEASIBLE at CYXY on the first try (HiGHS presolve, 0.0 s) —
+which is the certificate's own reading (6 CYXY rows are a proven infeasible
+set, min total shortfall 1.5889 m), so the elastic treatment is the law's,
+not a solver convenience.  What is left is NAMED on all three captures.
+(c) `hard_worst` / `read_hard_failure` / both projections / `set_exits`
+are untouched; `set_exits` is simply EMPTY on the QP arm and `qp_solves`
+(status, rounds, linear solves, objective, |grad|, wall) is what replaces
+it in `line()` and `as_dict()` — a nested value under the existing `design`
+sidecar key, no `SIDECAR_KEYS` edit.
+
+**SHIPPED OFF: `[design] solver = "fixed_point"`.**  Every bar in the
+brief holds, and the lane does not flip the default for two reasons, both
+for the spec author's ruling: the SOLVER IS A DEVIATION from §20c's text
+(HiGHS, measured and refuted at this scale — above), and with the key
+flipped the suite reads **2 failed, 1 563 passed** where the two failures
+are this lane's own `test_the_shipped_default_is_the_fixed_point` and
+`test_v2taxidatum::test_a_chain_touching_a_runway_keeps_the_contact`, whose
+runway contact stands **0.24564 m** under its ridge against a bar of
+`crown × |off| + hard_tol` = **0.245 m** — 0.6 mm over, an order under the
+0.01 m elevation materiality, and the QP's surface is the one that
+MINIMISES the objective those rows are priced into.  With the key at
+`fixed_point` the suite is **1 565 passed / 1 skipped twice**, and the
+flip is one `sed` on `law/emit.toml`.

@@ -69,6 +69,7 @@ from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
 from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds,
                             residual, settled_flip)
+from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_free_columns,
                    _one_matrix,
@@ -85,7 +86,8 @@ __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "ground_roles", "ground_datum_vertices", "foot_row_rulings",
            "cluster_reach_rulings",
            "is_hard", "ruling_head",
-           "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK"]
+           "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK",
+           "SOLVERS", "DEFAULT_SOLVER"]
 
 #: The backtracking line search's smallest step (a numeric floor of the
 #: solver, not a law value): below it the Newton direction buys nothing and
@@ -1047,7 +1049,32 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     def _settled(x_):    # §30 (3c): ONE derivation, ``design_report.settled_flip``
         return settled_flip(A1 @ x_ - (b1 - shift), tol, active)
 
-    def _inner(x0: np.ndarray | None) -> np.ndarray:
+    def _inner_qp(x0: np.ndarray | None) -> np.ndarray:
+        """§20c: the SAME one-sided problem at the CURRENT multipliers,
+        solved to its unique optimum (``solve/design_qp.py``) instead of
+        iterated to a stall.  ``set_exits`` is the fixed point's instrument
+        and stays empty here (the brief's item 3); the QP's own status,
+        rounds, solves and wall are what the report prints."""
+        nonlocal A, b, active, active_i, t_solver
+        t1 = time.perf_counter()
+        res = solve_one_sided(A0f, b0f, A1, b1, w_row, shift, x0, Ub, cb,
+                              method=method, solver_tol=float(d.solver_tol),
+                              solver_max_iter=int(d.solver_max_iter),
+                              low_rank=low_rank, active_tol=0.0,
+                              verbose=opt.verbose)
+        t_solver += time.perf_counter() - t1
+        active_i = np.flatnonzero(A1 @ res.x - (b1 - shift) > tol)
+        active = set(active_i.tolist())
+        A, b = _stack(active_i)
+        rep.rows = int(A.shape[0]) + (0 if Ub is None else int(Ub.shape[0]))
+        rep.note_qp(res.status, res.rounds, res.solves, res.objective,
+                    res.grad_norm, res.wall_s)
+        rep.rounds += res.rounds
+        rep.converged = bool(res.status == "optimal" or res.status == "no_descent")
+        rep.record_flip(_settled(res.x))
+        return res.x
+
+    def _inner_fixed_point(x0: np.ndarray | None) -> np.ndarray:
         """One damped active-set solve at the CURRENT multipliers."""
         nonlocal A, b, active, active_i, t_solver
         x_ = x0
@@ -1109,6 +1136,11 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rep.record_flip(_settled(x_) if x_ is not None else (False, 0, 0.0))
         rep.rounds += int(d.active_set_max_rounds)
         return x_ if x_ is not None else np.zeros(red.n_cols)
+
+    #: §20c ``[design] solver``: ONE dispatch, so the lag, the multiplier
+    #: polish, both projections and every counter below are the same code
+    #: on either arm and the pair is matched by construction.
+    _inner = (_inner_qp if str(d.solver) == "qp" else _inner_fixed_point)
 
     # THE WARM-UP: the one-way rows are OFF for the first solve (their
     # leaders have no value yet), then lagged from the surface it gives.

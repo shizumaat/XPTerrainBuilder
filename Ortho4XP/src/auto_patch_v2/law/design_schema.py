@@ -271,6 +271,14 @@ class Design:
     #: architecture, not a price.  ``false`` is the single solve, the
     #: DIAGNOSTIC ARM the staged arm is matched against.
     staged_solve: bool
+    #: §20c THE ONE-SIDED PROBLEM IS SOLVED AS A CONVEX QP (Fable
+    #: 2026-09-14, RULINGS 2026-09-14bw): ``"fixed_point"`` is the damped
+    #: active-set iteration (``set_stall_tol`` above describes how it
+    #: ends), ``"qp"`` solves the same convex QP to its unique optimum
+    #: (``solve/design_qp.py``).  The solver is not a weight and buys no
+    #: law: it decides whether the surface IS the minimum of the objective
+    #: every law row is priced into, or a point 1.5 % above it.
+    solver: str
     active_set_max_rounds: int
     active_set_tol_m: float
     solver_tol: float
@@ -407,6 +415,9 @@ def check_design(d: Design, err: type[Exception],
     if not d.hard_weight > d.law:
         raise err(f"emit.design.hard_weight {d.hard_weight}: heavier than the "
                   f"law's target weight {d.law} — a constraint, not a target")
+    if d.solver not in ("fixed_point", "qp"):
+        raise err(f"emit.design.solver {d.solver!r}: 'fixed_point' (the "
+                  "damped active set) or 'qp' (§20c's exact convex QP)")
     if d.active_set_max_rounds < 1:
         raise err(f"emit.design.active_set_max_rounds {d.active_set_max_rounds}: at least 1")
     if not d.active_set_tol_m > 0.0:

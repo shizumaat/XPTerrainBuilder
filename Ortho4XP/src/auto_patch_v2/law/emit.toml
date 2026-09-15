@@ -445,7 +445,7 @@ pad_frontage_m = 3.0
 # reach stops at any taxiway band.  60 m is a stand depth: a widebody
 # stand at KCLT runs ~55 m from the gate line to the taxilane.  0 disables
 # the reach.
-cluster_apron_reach_m = 0.0    # DISARMED (RULINGS 2026-09-13ce): at 60 the reach moved 2,651 KCLT taxi vertices (worst 1.45 m) through the apron welds while the cluster-pad MERGE was inert (the `_pairs` decimation defect); re-armed only when the merge does the work and the taxi family moves <= hard_tol_m (round 4). Design value 60.0.
+cluster_apron_reach_m = 40.0   # RE-ARMED as a PLANE JOIN (owner RULINGS 2026-09-14ay/bf): within this distance of a cluster pad the apron is BOUND INTO the pad's plate (constraints.cluster_pad.cluster_apron_join), bounded to the touching component and never across a taxi-family face. 13ce disarmed it at 60 while it was a one-way PREFERENCE at apron_trend, which moved 2,651 KCLT taxi vertices and still left the pad welded to an apron that never came. 0 disarms.
 # §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS 2026-09-13o,
 # refined 13p; Fable 2026-09-13).  A pad-face PAIR whose median DEM step —
 # the median over the face's frontage vertices of ``dem_z`` minus the pad

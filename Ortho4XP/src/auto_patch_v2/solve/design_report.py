@@ -263,6 +263,13 @@ class DesignReport:
     #: 500 m, max 0.52 m — RULINGS 2026-09-14br's field-wide shift,
     #: reproduced offline with no pads involved).
     set_exits: list[tuple[str, int, int]] = _dc.field(default_factory=list)
+    #: §20c (3) THE QP's OWN RECORD (``[design] solver = "qp"``, RULINGS
+    #: 2026-09-14bw): one entry per exact solve — its status, its rounds,
+    #: the linear solves it paid, the objective it reached, the gradient
+    #: norm there and its wall.  ``set_exits`` is the fixed point's
+    #: instrument and stays EMPTY on this arm; these are what replaces it.
+    qp_solves: list[tuple[str, int, int, float, float, float]] = _dc.field(
+        default_factory=list)
     #: THE FOOT ROWS (owner RULINGS 2026-09-11q, repriced 11ab; spec
     #: §11b (2)): the per-foot placement targets of every bare-ground
     #: body, priced at ``pad_flat`` (``constraints/foot_rows.py``)
@@ -369,6 +376,35 @@ class DesignReport:
         ``line_search_stalled`` are the two early exits, ``round_cap`` the
         ceiling."""
         self.set_exits.append((why, int(rounds), int(size)))
+
+    def note_qp(self, status: str, rounds: int, solves: int, objective: float,
+                grad_norm: float, wall_s: float) -> None:
+        """One §20c exact solve ended (``solve/design_qp.solve_one_sided``).
+        ``optimal`` is the objective's own convergence floor, ``no_descent``
+        the linear solve's precision floor — both are the minimum;
+        ``round_cap`` is a NAMED failure."""
+        self.qp_solves.append((str(status), int(rounds), int(solves),
+                               float(objective), float(grad_norm),
+                               round(float(wall_s), 3)))
+
+    def qp_line(self) -> str:
+        """The QP arm's own line: how each solve ended, what it paid, and
+        the worst gradient norm left (empty on the fixed-point arm)."""
+        if not self.qp_solves:
+            return ""
+        by: dict[str, int] = {}
+        for st, *_ in self.qp_solves:
+            by[st] = by.get(st, 0) + 1
+        rounds = sum(r for _s, r, *_ in self.qp_solves)
+        solves = sum(s for _s, _r, s, *_ in self.qp_solves)
+        wall = sum(w for *_r, w in self.qp_solves)
+        worst_g = max(g for *_r, g, _w in self.qp_solves)
+        cap = sum(1 for st, *_ in self.qp_solves if st == "round_cap")
+        return (f"QP (§20c): {len(self.qp_solves)} exact solve(s), "
+                + ", ".join(f"{k} x{v}" for k, v in sorted(by.items()))
+                + f", {rounds} round(s) / {solves} linear solves, {wall:.2f} s, "
+                f"worst |grad| {worst_g:.4g}"
+                + (f" — {cap} HIT THE ROUND CAP" if cap else ""))
 
     def set_exit_line(self) -> str:
         """The exits by kind, worst first — empty when every solve reached
@@ -540,6 +576,7 @@ class DesignReport:
                 "detached": self.detached,
                 "level_belt_rows": self.level_belt_rows,
                 "set_exits": [list(e) for e in self.set_exits],
+                "qp_solves": [list(e) for e in self.qp_solves],
                 "body_datum_rows": self.body_datum_rows,
                 "body_datum_bodies": self.body_datum_bodies,
                 "body_datums": self.body_datums,
@@ -642,6 +679,7 @@ class DesignReport:
                 + (f", {self.level_belt_rows} LEVEL-BELT vertices"
                    if self.level_belt_rows else "")
                 + (f", {self.set_exit_line()}" if self.set_exit_line() else "")
+                + (f", {self.qp_line()}" if self.qp_line() else "")
                 + f"), {self.body_datum_bodies} apron bodies on "
                 f"their own DEM PLANE ({self.body_datum_rows} rows)"
                 + self._body_plane_line()

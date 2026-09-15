@@ -688,6 +688,94 @@ def bank_from(pkl: Path, emit_dir: Path | None, walk: bool,
     return 0
 
 
+def stability_probe(pkl: Path, site: tuple[float, float], drop_m: float,
+                    arms: list[dict], json_out: Path | None,
+                    tol_m: float = 0.02) -> int:
+    """§20a/§20c THE STABILITY PROBE, off a ``--solved-out`` pickle.
+
+    Is the design surface's optimum LOCALLY STABLE?  A perturbation
+    confined to one apron vertex must not move the far field.  One extra
+    ``Band`` ceiling ``drop_m`` under where the ARM's own base solve put
+    that vertex, re-solved, and the moved set binned by distance from it.
+
+    Promoted (tool discipline, RULINGS ``7e90032``) from lane
+    ``v2settle`` r2's ``scratchpad/v2settle/probe3.py`` / ``probe4.py``,
+    which measured RULINGS 2026-09-14bw's headline at HECA — 959 vertices
+    moved by one 0.30 m row, 953 of them beyond 500 m, zero within 100 m —
+    on its SECOND use, by lane ``v2qp`` measuring §20c's own bar.  Each
+    ``arms`` entry is a ``[design]`` override dict, so the pair
+    ``{"solver": "fixed_point"}`` / ``{"solver": "qp"}`` is one run.
+    """
+    import dataclasses as _dcl
+
+    import numpy as np
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.constraints import Band, Source
+    from auto_patch_v2.solve.design import solve_design
+
+    with pkl.open("rb") as fh:
+        sv = pickle.load(fh)
+    icao, pm, airport, cs = sv["icao"], sv["pm"], sv["airport"], sv["cs"]
+    law0 = Law.for_airport(icao)
+    to_xy, _from = airport.frame.transformers()
+    sx, sy = to_xy(site[1], site[0])
+    n = len(pm.vertices)
+    xy = np.array([pm.vertices[i].xy for i in range(n)], float)
+    vid = int(np.argmin(np.hypot(xy[:, 0] - sx, xy[:, 1] - sy)))
+    dist = np.hypot(xy[:, 0] - xy[vid, 0], xy[:, 1] - xy[vid, 1])
+    print(f"[{icao}] probe v{vid} at {pm.vertices[vid].key}, "
+          f"{float(np.hypot(xy[vid,0]-sx, xy[vid,1]-sy)):.1f} m from the site; "
+          f"ceiling {drop_m:g} m under its own base surface", flush=True)
+    out: dict = {"icao": icao, "vertex": vid, "site": list(site),
+                 "drop_m": drop_m, "arms": []}
+    for over in arms:
+        d0 = law0.tables.emit.design
+        law = _dc.replace(law0, tables=_dc.replace(
+            law0.tables, emit=_dc.replace(law0.tables.emit,
+                                          design=_dc.replace(d0, **over))))
+        t = time.perf_counter()
+        sol0, rep0 = solve_design(pm, cs, law)
+        w0 = time.perf_counter() - t
+        z0 = np.asarray(sol0.z, float)
+        src = Source("stability_probe", "§20a/§20c stability probe", ())
+        cs2 = _dcl.replace(cs, bands=tuple(cs.bands)
+                           + (Band(vid, None, float(z0[vid]) - drop_m, src),))
+        t = time.perf_counter()
+        sol1, rep1 = solve_design(pm, cs2, law)
+        w1 = time.perf_counter() - t
+        dz = np.abs(np.asarray(sol1.z, float) - z0)
+        moved = dz > tol_m
+        bins = {}
+        for lo, hi in ((0, 40), (40, 100), (100, 250), (250, 500), (500, 10 ** 9)):
+            bins[f"{lo}-{hi:g}"] = int((moved & (dist >= lo) & (dist < hi)).sum())
+        far = moved & (dist >= 250.0)
+        rec = {"arm": over, "moved": int(moved.sum()), "of": n,
+               "max_m": round(float(dz.max()), 4), "bins": bins,
+               "beyond_100m": int((moved & (dist >= 100)).sum()),
+               "beyond_250m": int(far.sum()),
+               "beyond_500m": int((moved & (dist >= 500)).sum()),
+               "worst_beyond_250m": round(float(dz[far].max()) if far.any() else 0.0, 4),
+               "base_wall_s": round(w0, 1), "pert_wall_s": round(w1, 1),
+               "base_hard": [rep0.hard_active, rep0.hard_rows,
+                             round(rep0.hard_max_violation_m, 4), rep0.hard_settled],
+               "pert_hard": [rep1.hard_active, rep1.hard_rows,
+                             round(rep1.hard_max_violation_m, 4), rep1.hard_settled],
+               "base_exit": rep0.set_exit_line() or rep0.qp_line(),
+               "pert_exit": rep1.set_exit_line() or rep1.qp_line()}
+        out["arms"].append(rec)
+        print(f"  {over}: moved>{tol_m:g} {rec['moved']}/{n} max {rec['max_m']} m; "
+              f"beyond 100 m {rec['beyond_100m']}, 250 m {rec['beyond_250m']} "
+              f"(worst {rec['worst_beyond_250m']} m), 500 m {rec['beyond_500m']}; "
+              f"bins {bins}; base {rec['base_wall_s']} s / pert "
+              f"{rec['pert_wall_s']} s; hard {rec['base_hard']} -> {rec['pert_hard']}",
+              flush=True)
+        print(f"     base [{rec['base_exit']}]\n     pert [{rec['pert_exit']}]",
+              flush=True)
+    if json_out is not None:
+        json_out.write_text(json.dumps(out, indent=1, default=str))
+    return 0
+
+
 def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            z_out: Path | None, method: str = "normal",
            design_weights: dict[str, float] | None = None, verbose: bool = False,
@@ -940,6 +1028,18 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     return 0
 
 
+def _design_value(v: str):
+    """One ``--design-weight TERM=V`` value.  Every ``[design]`` term was a
+    NUMBER until §20c added ``solver = "fixed_point" | "qp"`` (RULINGS
+    2026-09-14bw), so a value that does not parse as a float is passed to
+    ``dataclasses.replace`` as the string it is — which is how an arm says
+    ``--design-weight solver=qp``."""
+    try:
+        return float(v)
+    except ValueError:
+        return v.strip()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--capture", metavar="ICAO")
@@ -954,7 +1054,7 @@ def main() -> int:
     ap.add_argument("--drop-generator", action="append", default=[])
     ap.add_argument("--json", type=Path)
     ap.add_argument("--z-out", type=Path)
-    ap.add_argument("--design-weight", action="append", default=[], metavar="TERM=W",
+    ap.add_argument("--design-weight", action="append", default=[], metavar="TERM=V",
                     help="MEASUREMENT ARM: override an emit.toml [design] weight for this "
                          "replay only (never a build); TERM in law/design_schema.DESIGN_TERMS")
     ap.add_argument("--design-verbose", action="store_true",
@@ -1004,7 +1104,26 @@ def main() -> int:
     ap.add_argument("--bank-walk", action="store_true",
                     help="§37 (3): the per-station adjacent-ground zone-2 walk "
                          "(|z_ring - DEM(foot)| and the feet emitted)")
+    ap.add_argument("--probe-site", metavar="LAT,LON",
+                    help="§20a/§20c THE STABILITY PROBE off a --solved-out "
+                         "pickle (--why-from): one extra ceiling row --probe-drop "
+                         "under the base surface at the vertex nearest this point, "
+                         "re-solved, the moved set binned by distance")
+    ap.add_argument("--probe-drop", type=float, default=0.30, metavar="M",
+                    help="the probe's ceiling, metres under the base surface (default 0.30)")
+    ap.add_argument("--probe-arm", action="append", default=[], metavar="TERM=V",
+                    help="one probe ARM as a [design] override; repeat for a "
+                         "matched pair (e.g. --probe-arm solver=fixed_point "
+                         "--probe-arm solver=qp).  Default: the shipped law alone")
     a = ap.parse_args()
+    if a.probe_site:
+        if not a.why_from:
+            ap.error("--probe-site needs --why-from PKL (a --solved-out pickle)")
+        lat, lon = (float(v) for v in a.probe_site.split(","))
+        arms = ([{k.strip(): _design_value(v)}
+                 for k, v in (it.split("=") for it in a.probe_arm)]
+                if a.probe_arm else [{}])
+        return stability_probe(a.why_from, (lat, lon), a.probe_drop, arms, a.json)
     if a.bank_from:
         return bank_from(a.bank_from, a.emit, a.bank_walk, a.json)
     if a.capture:
@@ -1043,7 +1162,7 @@ def main() -> int:
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else None
         return replay(a.replay, a.resume, a.drop_generator, a.json, a.z_out,
                       method=a.method,
-                      design_weights={k.strip(): float(v)
+                      design_weights={k.strip(): _design_value(v)
                                       for k, v in (it.split("=") for it in a.design_weight)},
                       verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
                       emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,

@@ -7547,3 +7547,4 @@ landed (`RAW_PAIR_RULING`/`RAW_PAIR_CONTACT_RULING` in
 cap) → RULED §34 (13) (3) on the measurement: an object's foot never
 holds airside pavement (r4 names the 14 objects and flips the rows);
 the mesh row's far end at a contact is the raw-pair partner.
+15ad addendum: suite ON MAIN after the v2lemdstruct2 r3 merge (777c6607): 1632 passed, 1 skipped, 42 warnings in 42.90s.

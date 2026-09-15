@@ -286,11 +286,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     pad_tree = STRtree([p for p, _r in pads]) if pads else None
     # what a DOOR ramp stops at (spec othh-terminal-ramps §2/§4): every
     # governed cell beyond the well but the ones the well itself stands in
-    # §34 (10) THE ROAD MARGIN IS GENERAL (owner RULINGS 2026-09-14bd): a
-    # ramp arriving at a ROAD ends at the road's TRUE edge, never at the
-    # emitted half-carriageway face's edge (which IS the centreline where
-    # the road is emitted as two ribbons).  ONE derivation,
-    # ``road_true_edge``; its docstring carries the consumer census.
+    # §34 (10) (owner RULINGS 2026-09-14bd): a ramp arriving at a ROAD
+    # ends at the road's TRUE edge — ``road_true_edge``, whose docstring
+    # carries this law's consumer census.
     _roads = [(p, c) for p, c in zip(polys, cells)
               if c.kind != "structure" and c.role in ROAD_ROLES]
     stops = [(road_true_edge(p, c, _roads) if c.role in ROAD_ROLES else p, c.ref)
@@ -474,16 +472,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             climb_from = max(climb_from, g.climb_from_s)
         covered_from = None
         # ── §34 (9) (5): FULL DEPTH AT THE BUILDING WALL ──────────────
-        # (owner RULINGS 2026-09-14aq, CORRECTED by 14be: "the ramps still
-        # reached flat bottom at the edge walls, rather than grading along
-        # them down to the building. We should not reach full depth until
-        # the building wall itself".)  The corridor's full-depth point is
-        # where it becomes COVERED — the edge of the COVERING PLATE, the
-        # roof/deck that gives it its headroom — never the outer end of
-        # the wall bands that protrude from it, and never the building
-        # PAD (14at read the pad and the owner still saw the walls).  The
-        # protruding stretch is RAMP, and the run it adds is what takes
-        # the pinched grade down.
+        # (owner RULINGS 2026-09-14aq, CORRECTED by 14be.)  The corridor's
+        # full-depth point is where it becomes COVERED — the edge of the
+        # COVERING PLATE that gives it its headroom — never the outer end
+        # of the wall bands protruding from it, and never the building PAD
+        # (14at read the pad and the owner still saw the walls).  The
+        # uncovered stretch is RAMP, and the run it adds is what takes the
+        # pinched grade down; see ``structure_geometry.covered_start``.
         if g.kind == WALL_KIND and c is not None and g.climbs:
             covered_from = _covered_start(axis_fn, g.hull_s,
                                           getattr(c, "plate_plan", None), grid)

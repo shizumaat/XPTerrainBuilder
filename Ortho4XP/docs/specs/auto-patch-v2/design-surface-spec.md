@@ -15245,3 +15245,129 @@ profile) if that is the mechanism, or name the other. Bar: `channel_floor_at_
 declaration` 0 rows at KDFW on the lidar datum (after the owner's `--refresh-data dem
 --warm-insets KDFW` if (a) says the inset must be re-cut), the four necks at the taxiway
 grade, the corridor floor at the lidar 170.9–173.3, the median fill kept.
+
+### §33 (6) B AMENDED — THE BARS ARE **NOT MET**, AND THE PULL IS ATTRIBUTED TO A DIFFERENT MECHANISM (lane `v2shellwall`, branch `claude/v2shellwall`, base main `0f0c1b6c`)
+
+**(1) THE WALL LANDED AND IS MEASURED.**  `structure_geometry.geometry_from
+_trench` now states the floor ring as the object's trench ∩ its footprint
+ERODED by the corridor's own `rim_standoff` (of its walls' MEASURED plan
+thickness, read off `object_corridor.rim_fn` — the value the axis-offset
+path already applies per station) plus one identity grid step (09-01e: the
+gap is never on the weld tolerance, and neither ring is snapped).  On the
+five VHHH shells, run through the emitter itself on the objects' own
+polygons (dry `planar --stage structures`, base `0f0c1b6c`):
+
+| object | trench | r3 rim↔floor gap | WALLED gap | floor kept | wall band |
+|---|---|---|---|---|---|
+| `TUNNEL2_DONE` | 28,663 m² | **0.00 m** | **1.20 m** | 28,111 m² (98.1 %) | 4,062 m² |
+| `tunnel1_done` | 4,021 | **0.00** | **1.20** | 3,866 (96.1 %) | 719 |
+| `tunnel3_done` | 9,430 | **0.00** | **1.20** | 9,260 (98.2 %) | 640 |
+| `tunnel4_done` | 7,435 | **0.00** | **1.20** | 7,309 (98.3 %) | 637 |
+| `tunnel5_done` | 9,335 | **0.00** | **1.20** | 9,040 (96.8 %) | 1,190 |
+
+Every shell's floor ring stays ONE part, and the rim ring is published as
+`left_rim`, so `Tunnel.wall_path` is the object's own CLOSED rim ring
+instead of the axis-offset lines (on a hairpin those run across the
+trench).  **The r3 emitter's rim and floor rings were coincident on all
+five shells** — the wall the ruling asks for did not exist.
+
+**(2) AND IT DOES NOT MOVE THE AIRSIDE BAR.**  ONE closing VHHH
+airport-path build (`VHHH_20260915T133241`, rc 0, 932.8 s, status optimal),
+read against the registered CONTROL `VHHH_20260915T120714` with
+`arm_site_read.py --airside-near-cuts 200`:
+
+| bar | control | r3 arm (1.0.341) | this lane |
+|---|---|---|---|
+| airside vertices within 200 m of the cuts MOVED > 0.02 m | — | **633** / 1,079 joined | **525** / 1,079 |
+| worst mover | — | **−6.460 m** at 22.30772370921,113.92337437951 | **−6.460 m**, the SAME vertex, 7.31 → 0.85 |
+| off-DEM > 0.5 m max: junction / primary_parallel / cross_connector / apron | 1.45 / 1.55 / 0.96 / 2.57 | 6.22 / 6.46 / 6.47 / 6.48 | **6.22 / 6.46 / 6.44 / 5.37** |
+| LAW-TRUE / ADJUDICATED (one census invocation, three patches) | 1,531 / 121 | 4,845 / 1,472 | **4,959 / 1,496** |
+| `within_shape` / `airside_no_step` | 168 / 8 | 2,482 / 625 | 2,579 / 631 |
+| `object_cut_offset` / `object_cut_depth` | 1 / 0 | 4 / 0 | **4 / 0** |
+
+(The control→lane delta is NOT single-variable: main moved from the arm's
+`118d2c40` to `0f0c1b6c` over `structures.py`, `structure_deck.py`,
+`structure_service.py`, `foot_rows.py` and three law tables, so the +114
+law-true rows are not attributable to this lane alone.)
+
+**(3) THE PULL, ATTRIBUTED — IT IS NOT THE MISSING WALL.**  `v2_solve_replay
+--capture VHHH` + `--why-at 22.30772370921,113.92337437951` names the chain
+in one line, on the lane tree, with the wall standing:
+
+    ridge vertex v20738  z 0.85  DEM 7.32 (z-DEM -6.46)
+    binding rows on v20738 by family:
+      taxi_centreline  1  34.16   cap 1.50% x 1.1 m = 0.017 m
+    chain: terminal v16996[retaining_wall#495,tunnel_ramp#1158…] z 0.78
+           [PIN: tunnel.object.mouth_depth = floor_slab …
+            ('object-cut:TUNNEL2_DONE.obj@0', …)]; 2 hops; sum dz +0.07 m
+      1. v20738[junction#810,primary_parallel#803,retaining_wall#1024…]
+         -> v22252[retaining_wall#1024,tunnel_ramp#1155…] z 0.78
+         dz +0.07  taxi_centreline  cap 1.50% x 1.1 m
+      2. v22252 -> v16996  dz +0.00  structures Flat (the authored floor)
+
+The binding row is a **TAXI CENTRELINE** row (`constraints/taxi.taxi_
+centerlines`, over `planar.breaklines` of kind `taxi_centerline`): the
+taxiway's own painted centreline runs ACROSS `TUNNEL2_DONE`'s trench, one
+of its vertices stands on the trench's floor ring, and the 1.5 % taxi cap
+over the 1.1 m edge then drags the junction vertex beside it down 6.46 m.
+A wall between the rim and the floor does not touch that row — the
+centreline is INSIDE the trench, not beside it.
+
+**(4) WHY THE CENTRELINE IS INSIDE THE TRENCH — the geometry, measured on
+the control's own patch.**  Control airside vertices standing INSIDE each
+cut's published `outline_ll`:
+
+| object | trench | control airside vertices inside | their z |
+|---|---|---|---|
+| `TUNNEL2_DONE` | 32,173 m² | **21** | **7.30 … 7.32 m** |
+| `tunnel1_done` | 4,585 | 2 | 7.31 |
+| `tunnel3_done` | 9,900 | 0 | — |
+| `tunnel4_done` | 7,947 | 0 | — |
+| `tunnel5_done` | 10,230 | 0 | — |
+
+`TUNNEL2_DONE` is a 1,110 m corridor that runs **LENGTHWISE UNDER THE
+TAXIWAY SYSTEM**; `tunnel1/3/4` — the three cuts the CONTROL already built,
+with no regression — carry no airside over them at all.  Of the 1,591
+movers in the lane's build only **6** stand inside a cut outline; the other
+1,585 are the taxi network propagating those few seeds outward (60 within
+10 m of a cut, the rest spread past 100 m).  So the regression is ONE
+shell, and its mechanism is that a heightfield cannot carry the taxiway at
+7.31 and the tunnel floor at 0.78 at one plan point.
+
+**(5) WHY THE EXISTING LAW DOES NOT CATCH IT, NAMED.**  §34 (12) (3)'s
+`structure_service.airside_stops` is deliberately NOT applied to a
+pack-stated corridor — "a PACK-STATED corridor (§33 (6) signatures A/B/C)
+is authored geometry and its crossing of airside IS an underpass by
+authorship" (RULINGS 2026-09-15w; applying it at OTHH refused three
+terminal tunnels).  But nothing then MAKES the crossed pavement a deck for
+a signature-B shell: `structure_deck.pavement_deck_intervals` is reached
+only under `c is not None and g.climbs`, and `TUNNEL2_DONE` reads
+`flat = True` (bores at BOTH portals ⇒ "the trench is flat at the AUTHORED
+floor"), so the branch never runs — the closing build reports `decks 0
+cells cut 17`.  Its own test would refuse anyway: it asks for a cell that
+SPANS the corridor and cuts the corridor strip in two, which is a pavement
+CROSSING a corridor, not a corridor running LENGTHWISE under a pavement.
+The pavement over `TUNNEL2_DONE` is therefore neither protected nor decked
+— it is cut, and dropped to the authored floor.
+
+**THE INTENT QUESTION (owner), with its measurement.**  A signature-B shell
+whose trench runs under live airside pavement is COVERED by that pavement.
+Is the cut then (a) suppressed under the pavement, the pavement keeping its
+solved surface and only the open mouths and ramps emitted (the owner's own
+standing reading, RULINGS 2026-09-12r: "we should never emit anything for
+actual tunnels, only the tunnel mouths and entrance/exit ramps"), or (b)
+emitted as an UNDERPASS with the pavement above as a §34 (5) DECK — which
+needs a deck class for a pavement lying ALONG a corridor, not across it?
+The two shells that need it are `TUNNEL2_DONE` (78 % of its outline under
+control airside pavement by plan; 21 control airside vertices inside it)
+and, at the owner's site, `tunnel5_done` (0 control vertices inside, so it
+is (a)'s cheap case).  The cover's own flat plate is NOT the answer on its
+own: it covers 12,445 of 28,525 m² at TUNNEL2 and 2,231 of 9,290 at
+tunnel5.
+
+**NOT DONE.**  The OTHH byte-identity arm (the base-arm dry replay was set
+up and not completed; `geometry()` — the path every OTHH corridor takes —
+is not edited by one line, and the VHHH dry replay reads `object cuts 0 B`
+at OTHH, so no OTHH corridor reaches the edited function at all).  The LEMD
+dry pair.  Any deck or suppression mechanism for (3)/(4) — the attempt cap
+stands at one fix, and the remedy is an owner reading, not a lane's guess.

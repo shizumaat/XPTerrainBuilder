@@ -223,6 +223,24 @@ def _basin_polygon(b):
         return None
 
 
+def _classified_land(classification):
+    """§37 (11) (4) THE AIRPORT'S OWN SURFACES ARE LAND BY DECLARATION
+    (owner RULINGS 2026-09-15f item 2; Fable 2026-09-15i) — the union of
+    every classified cell, for the flat-site datum region's water cut.
+
+    It is the SAME declaration ``planar/zones.shore_region`` makes for
+    the zone trim and ``constraints/water.water_pins`` has always made
+    ("an apron over water is a deck, not water"); read from the
+    classification so there is one source and not three."""
+    from shapely.geometry import Polygon as _P
+    from shapely.ops import unary_union as _u
+    cells = list(getattr(classification, "cells", ()) or ())
+    if not cells:
+        return None
+    land = _u([_P(c.ring, c.holes) for c in cells])
+    return None if land.is_empty else land
+
+
 def _say(msg: str, out: _t.Callable[[str], None]) -> None:
     out(msg)
 
@@ -586,7 +604,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # on the production raster already in memory; the datum is a
     # preference the generator below prices, the runway keeps its pins
     t = time.perf_counter()
-    fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else ())
+    # §37 (11) (4) (owner RULINGS 2026-09-15f item 2): the airport's OWN
+    # classified surfaces are LAND by declaration, so the datum region's
+    # water cut cannot call a reclaimed apron sea (``_cut_water``'s own
+    # docstring carries the VMMC measurement).
+    fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else (),
+                      land=_classified_land(cl))
     airport = _dc.replace(airport, flat_site=fv)
     wall["flat_site"] = time.perf_counter() - t
     lrep.flat_site = _flat.record(fv)

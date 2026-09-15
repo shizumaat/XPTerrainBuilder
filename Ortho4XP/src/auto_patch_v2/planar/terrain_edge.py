@@ -71,12 +71,22 @@ class EdgeReport:
     area_cut_m2: float = 0.0
     edge_length_m: float = 0.0
     roads_governing: int = 0
+    #: §37 (11) (1) THE SHORE TRIMS THE ZONES (owner RULINGS 2026-09-15f
+    #: item 2): how much zone region the WATER cut away, and how much of
+    #: the trimmed boundary is the coastline itself — the SEA WALL line.
+    shore_cut_m2: float = 0.0
+    shore_edge_m: float = 0.0
+    shore_regions: int = 0
 
     def line(self) -> str:
+        shore = "" if self.shore_regions == 0 else (
+            f"; THE SHORE (§37 (11) (1)) cut {self.shore_cut_m2:,.0f} m² off "
+            f"{self.shore_regions} region(s), {self.shore_edge_m:,.0f} m of sea wall")
         return (f"terrain edge: {self.trimmed_crest} region(s) cut at a CREST, "
                 f"{self.trimmed_road} at a ROAD ({self.roads_governing} road run(s)), "
                 f"{self.emptied} emptied; {self.area_cut_m2:,.0f} m² beyond the "
-                f"edge given back to the DEM, {self.edge_length_m:,.0f} m of edge")
+                f"edge given back to the DEM, {self.edge_length_m:,.0f} m of edge"
+                + shore)
 
 
 def road_lines(osm_ways=()) -> tuple[LineString, ...]:

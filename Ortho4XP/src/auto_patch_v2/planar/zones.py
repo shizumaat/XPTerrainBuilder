@@ -27,10 +27,48 @@ from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
-__all__ = ["ZoneRegion", "zone_regions"]
+__all__ = ["ZoneRegion", "zone_regions", "shore_region"]
 
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
+
+
+def shore_region(cells: tuple[Cell, ...], dem):
+    """§37 (11) (1) THE WATER REGION THE SHORE TRIMS THE ZONES WITH (owner
+    RULINGS 2026-09-15f item 2; Fable 2026-09-15i).
+
+    ONE WITNESS, and it is not this module's: ``dem.water_geometry`` —
+    the production frame's ``TileWater``, built from the tile's cached
+    coastline and water layers (``O4_Vector_Map.cached_tile_water``), the
+    same product the mesh constrains and the same object the flat-site
+    datum region is already cut with (owner 2026-09-09m (3)) and §39 (i)
+    (RULINGS 2026-09-13cg) named as the emitter's shore witness.  Nothing
+    here re-derives a coastline from the OSM ways.
+
+    THE AIRPORT'S OWN SURFACES ARE LAND BY DECLARATION, and this is not a
+    nicety: at VMMC **110,826 m² — 24.5 % — of the runway/taxi union lies
+    INSIDE the coastline partition's sea**, because the field stands on
+    reclaimed land OSM's coastline does not follow.  Clipping the zones
+    by the raw witness would cut the band away from the pavement it
+    serves.  The same reading is already law elsewhere: ``constraints/
+    water.water_pins`` pins only GROUND vertices and never a pavement one
+    ("an apron over water is a deck, not water").  So the water region is
+    the witness MINUS every classified cell.
+
+    ``None`` where there is no witness (every synthetic fixture) or no
+    water beside the field — and the regions are then what they were."""
+    fn = getattr(dem, "water_geometry", None)
+    if not callable(fn) or not cells:
+        return None
+    land = unary_union([Polygon(c.ring, c.holes) for c in cells])
+    try:
+        w = fn(land.buffer(500.0).bounds)
+    except Exception:                                   # pragma: no cover
+        return None
+    if w is None or w.is_empty:
+        return None
+    w = w.difference(land)
+    return None if w.is_empty else w
 
 
 @_dc.dataclass(frozen=True)
@@ -112,6 +150,19 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                                 cn, cl) or 0.0
         return (0 if fam == "runway" else 1, -hw)
 
+    # §37 (11) (1) THE SHORE TRIMS THE ZONES, at this single derivation
+    # site and never as a per-consumer veto (owner RULINGS 2026-08-30l).
+    # No zone ring, lip or band is emitted seaward of the coastline, so no
+    # patch vertex stands on the water: VMMC 1.0.340 emitted 13 zone faces
+    # ACROSS the coastline (3–195 m) whose rings stood at exactly 0.00 up
+    # to 42 m seaward — the second, translucent water plane in the owner's
+    # screenshot, and 193 ground vertices the water datum then pinned to
+    # sea level.  Where the pavement edge IS the coastline the zone simply
+    # has nowhere to go: the pavement edge is the SEA WALL (§37 (11) (2)),
+    # and the mesh's own Round 7 / R17-3 sea-wall breaklines
+    # (``O4_Vector_Map.seawall_breaklines``, authored for this airport)
+    # make the vertical face from the ring the patch ends at.
+    water = shore_region(cells, dem)
     claimed = everything
     out: list[ZoneRegion] = []
     for key in sorted(groups, key=rank):
@@ -127,6 +178,16 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         z2 = outer.difference(inner).difference(claimed)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
+            if water is not None and not geom.is_empty:
+                wet = geom.intersection(water)
+                if not wet.is_empty and wet.area > 0.0:
+                    geom = geom.difference(water)
+                    if edge_report is not None:
+                        edge_report.shore_cut_m2 += float(wet.area)
+                        edge_report.shore_regions += 1
+                        edge_report.shore_edge_m += float(
+                            geom.boundary.intersection(
+                                water.boundary.buffer(snap_margin_m(law))).length)
             # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19):
             # the extent ends at the physical edge, HERE, so every reader
             # downstream sees one trimmed polygon

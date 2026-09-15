@@ -182,7 +182,7 @@ def test_a_v2_sidecar_with_no_anchor_reads_in_the_node_mean_frame(tmp_path):
     r = ROR.read(p, over="graded_strip:gap_fill_spine",
                  on="groundside_pavement")
     assert r["anchor"] is None
-    assert r["frame"] == "node mean (v2 frame)"
+    assert r["frame"] == "mean-of-nodes"   # the string v2zonehole shipped (14bh)
     assert r["stacked"] == 1 and r["rows"][0]["shapeID"] == "3190"
     assert 1590.0 < r["area_m2"] < 1610.0
     # ... and a v1 sidecar still reads about ITS anchor.

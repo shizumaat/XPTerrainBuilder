@@ -378,7 +378,7 @@ def test_the_object_cut_ring_is_the_objects_own_trench_polygon(law):
     from auto_patch_v2.planar import structure_geometry as sg
     trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
     foot = Polygon([(-2, -2), (102, -2), (102, 22), (-2, 22)])
-    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.5,
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.0, 0.5,
                                 trench, foot)
     assert g is not None
     assert g.ramp.area == pytest.approx(2000.0)
@@ -396,10 +396,68 @@ def test_a_footprint_that_does_not_contain_the_trench_is_unioned(law):
     from auto_patch_v2.planar import structure_geometry as sg
     trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
     small = Polygon([(0, 0), (50, 0), (50, 5), (0, 5)])
-    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.5,
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.7, 0.5,
                                 trench, small)
     assert g is not None and g.outer.contains(g.ramp)
-    assert g.wall.area == pytest.approx(0.0, abs=1e-6)
+    # …and the union'd rim still carries the §33 (6) B AMENDED wall band
+    assert g.wall.area > 0.0
+    assert g.ramp.exterior.distance(g.outer.exterior) == pytest.approx(0.7, abs=1e-6)
+
+
+def test_a_shells_trench_is_walled_the_floor_ring_stands_inside_the_rim(law):
+    """§33 (6) B AMENDED (RULINGS 2026-09-15bh).  With the stand-off the
+    floor ring is the trench ∩ the footprint ERODED by it, so a wall band
+    of at least the stand-off stands between the floor ring and the rim
+    EVERYWHERE — including the runs where the shell's own wall faces do
+    not stand on the ring (its portals).  Wall-less, the floor ring IS
+    the surrounding surface's ring and ``constraints/structures.on_floor``
+    hands the airside vertices standing on it the FLOOR row: measured at
+    VHHH, 1,362 of 3,815 airside vertices within 200 m of the five shells
+    pulled up to 6.46 m."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_geometry as sg
+    trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
+    # the footprint carries a wall band on three sides only — the x = 100
+    # end is a PORTAL, where the r3 emitter left ramp and rim coincident
+    foot = Polygon([(-2, -2), (100, -2), (100, 22), (-2, 22)])
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.7, 0.5,
+                                trench, foot)
+    assert g is not None
+    # the floor ring stands 0.7 m inside the rim on EVERY side, portal too
+    assert g.ramp.exterior.distance(g.outer.exterior) == pytest.approx(0.7, abs=1e-6)
+    assert g.wall.area > 0.0
+    # a vertex can only move INWARD: the cut never leaves its object
+    assert g.outer.buffer(1e-9).contains(g.ramp)
+    assert g.ramp.area < trench.area
+
+
+def test_the_walled_rim_ring_is_the_corridors_wall_path(law):
+    """§33 (6) B AMENDED (2): the rim ring is published as ``left_rim``
+    (``right_rim`` empty), so ``planar/structures``' ``wall_path`` is the
+    closed rim ring itself — what ``_rim_rows`` projects the rim's
+    vertices onto — and not the axis-offset lines, which on a hairpin run
+    across the trench."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_geometry as sg
+    trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
+    foot = Polygon([(-2, -2), (102, -2), (102, 22), (-2, 22)])
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.7, 0.5,
+                                trench, foot)
+    assert g is not None and g.right_rim == []
+    assert list(g.left_rim) == list(g.outer.exterior.coords)
+    assert g.left_rim[0] == g.left_rim[-1]          # a CLOSED ring
+
+
+def test_a_shell_with_no_room_for_its_own_walls_is_refused(law):
+    """A stand-off that would eat the trench is a refusal by name, never
+    a wall-less trench emitted anyway (the attempt this lane exists to
+    stop)."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_geometry as sg
+    trench = Polygon([(0, 0), (100, 0), (100, 1.2), (0, 1.2)])
+    foot = Polygon([(0, 0), (100, 0), (100, 1.2), (0, 1.2)])
+    assert sg.geometry_from_trench(lambda s: (s, 0.6), [0.0, 50.0, 100.0], 0.6, 0.7, 0.5,
+                                   trench, foot) is None
 
 
 def test_ring_for_leaves_an_ordinary_corridor_to_the_axis_offset(law):

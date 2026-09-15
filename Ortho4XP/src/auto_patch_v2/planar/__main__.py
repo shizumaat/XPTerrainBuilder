@@ -357,6 +357,19 @@ def structure_records(airport, cl, law) -> dict:
                        "inner_a_ll": [ll(q) for q in c.stations_inner()[0]],
                        "inner_b_ll": [ll(q) for q in c.stations_inner()[1]],
                        "axis_ll": [ll(q) for q in c.axis],
+                       # §33 (6) B AMENDED (RULINGS 2026-09-15bh, lane
+                       # v2shellwall): the object's own TRENCH and
+                       # FOOTPRINT, so the WALL BAND the emitter must
+                       # stand between the floor ring and the rim is
+                       # measurable on a dry replay — the wall-less
+                       # trench that pulled VHHH's airside down 6.5 m was
+                       # invisible in every record this file wrote
+                       "trench_ll": [ll(q) for q in c.trench.exterior.coords]
+                       if getattr(c, "trench", None) is not None
+                       and c.trench.geom_type == "Polygon" else [],
+                       "footprint_ll": [ll(q) for q in c.footprint.exterior.coords]
+                       if getattr(c, "footprint", None) is not None
+                       and c.footprint.geom_type == "Polygon" else [],
                        "notes": list(c.notes)} for c in corridors],
         "corridor_refused": list(tstats.refused),
         # spec §33 (2): the THIN-PLATE wall objects read
@@ -407,6 +420,11 @@ def structure_records(airport, cl, law) -> dict:
                      "width_m": t.hull_width_m, "depth_m": t.depth_m, "clipped_by": t.clipped_by,
                      "top_ground_z": t.top_ground_z, "profile": list(t.profile),
                      "mouth_ll": ll(t.axis[0]), "top_ll": ll(t.axis[-1]),
+                     # §33 (6) B AMENDED: the RIM RING itself (a basin's
+                     # has been dumped since 09-08n) — for a signature-B
+                     # cut it is the object's own closed rim, not the
+                     # axis offset that ran across a hairpin's trench
+                     "rim_ll": [list(ll(p)) for p in t.wall_path],
                      "trench_outside_max_m": t.trench_outside_max_m}
                     for t in tunnels],
         # RULINGS 2026-09-08b/c: the door wells and sunken roads read

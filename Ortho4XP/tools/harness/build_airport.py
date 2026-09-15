@@ -787,12 +787,16 @@ def schema_stale_osm_layers(root, lat, lon) -> list:
       neighbourhood, so a NEIGHBOUR tile's stale cache still degrades the
       read silently.  Widening the net would refuse until nine tiles are
       refreshed — an owner call, not a harness one.
-    * The auto-mode merged ``airport_small_roads`` cache is NOT judged:
-      it carries no schema at all (``O4_Vector_Map.py`` ~:768 recycles on
-      ``isfile`` alone and ``write_to_file`` stamps nothing there), so it
-      is never re-downloaded — and judging it against the road schema
-      would refuse every build that has one.  That missing gate is the
-      chip RULINGS 2026-09-15r already names.
+    * The auto-mode merged ``airport_small_roads`` cache IS judged (the
+      chip RULINGS 2026-09-15r named): since that chip the engine stamps
+      it with ``ROAD_CACHE_TAG_SCHEMA`` on write and re-derives it when
+      the stamp differs (``O4_Vector_Map._airport_auto_roads_layer``,
+      through the same ``_layer_cache_is_current`` predicate the
+      tile-wide layers pass).  A cache written BEFORE stamping existed
+      carries no marker and is stale by the same rule — every such
+      cache in the corpus refuses once, until ``--refresh-data
+      osm_layers`` re-derives it; that is the intent, not a nuisance:
+      it is a four-key cache, missing every depth witness.
 
     An ABSENT cache is deliberately not named here: absence is the
     caller's business above (the airports layer) and lawful for the rest.
@@ -815,9 +819,14 @@ def schema_stale_osm_layers(root, lat, lon) -> list:
     except Exception as exc:
         print(f"  [harness] OSM layer-schema check skipped ({exc!r})")
         return []
+    judged = [(specification[0], specification[4])
+              for specification in specifications]
+    # The merged auto-mode cache: no prefetch specification (it is not a
+    # tile-wide layer) but the same schema constant and the same gate.
+    judged.append((VMAP.AIRPORT_SMALL_ROADS_SUFFIX,
+                   VMAP.ROAD_CACHE_TAG_SCHEMA))
     out = []
-    for specification in specifications:
-        cached_suffix, cache_schema = specification[0], specification[4]
+    for cached_suffix, cache_schema in judged:
         if not cache_schema:
             continue            # stamps nothing, so nothing can be stale
         path = FNAMES.osm_cached(int(lat), int(lon), cached_suffix)
@@ -1134,12 +1143,21 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     — lawful under the authorised scope, guarded, and hash-stamped into
     the refresh ledger with everything else.
 
+    The merged ``airport_small_roads`` cache has no prefetch
+    specification (it is derived inside the vector step, per inset
+    bbox), so when it is among the stale layers the refresh calls ITS
+    derivation site — ``O4_Vector_Map._airport_auto_roads_layer`` —
+    which, seeing the cache moved aside, re-derives it from the local
+    extracts or Overpass and writes it stamped.  Still the engine's own
+    code, still no copy here.
+
     Returns a summary for the frame record.  Raises ``SystemExit`` when a
     layer did not come back schema-current — a refresh that silently
     achieved nothing is the defect this function was written for, and it
     must never exit 0 twice in a row.
     """
     import O4_Config_Utils as CFG                          # noqa: E402
+    import O4_File_Names as FNAMES                         # noqa: E402
     import O4_Vector_Map as VMAP                           # noqa: E402
 
     stale = schema_stale_osm_layers(root, lat, lon)
@@ -1171,6 +1189,15 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     try:
         VMAP.start_background_osm_prefetch(tile)
         VMAP.wait_for_background_osm_prefetch()
+        merged = os.path.abspath(FNAMES.osm_cached(
+            int(lat), int(lon), VMAP.AIRPORT_SMALL_ROADS_SUFFIX))
+        if any(os.path.abspath(str(p)) == merged for _a, p, _t in aside):
+            try:
+                VMAP._airport_auto_roads_layer(tile)
+            except Exception as exc:       # verdict read off disk below
+                prog.note(f"refresh osm_layers: the engine's "
+                          f"airport_small_roads derivation raised "
+                          f"{exc!r}")
     finally:
         # The verdict is read off the FILESYSTEM, never off the prefetch:
         # it runs in a daemon thread, so an exception inside it never

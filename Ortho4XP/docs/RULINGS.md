@@ -8030,3 +8030,82 @@ proof wants a tile with a current DEM index and a per-tile cfg. Known
 limit (peer): `pack_rebake` install entries are ledgered but not
 hash-stamped. The LEMD/VHHH install packs still carry the two lane
 rebakes (15bb) until the owner says restore.
+
+## 2026-09-15be The merged `airport_small_roads` cache is SCHEMA-GATED (the 15r chip): stamped with `ROAD_CACHE_TAG_SCHEMA` on write, treated as ABSENT when the stamp differs, named as a REFRESH by the harness — all 18 caches in the corpus are unstamped and refuse once until `--refresh-data osm_layers`
+
+MECHANISM (branch `claude/jovial-cerf-026683`, base 7b69adff). The
+auto-mode merged per-tile road cache (`O4_Vector_Map.
+_airport_auto_roads_layer`, one `airport_small_roads` file per tile
+built from the inset bboxes) had NO schema gate: it recycled on
+`os.path.isfile` alone and `write_to_file` stamped no `o4_tag_schema`,
+so after 15r's bump ("2026-07-16" → "2026-09-15") a pre-existing cache
+kept serving four-key ways — `layer` / `cutting` / `covered` /
+`embankment` silently absent from every airport-area road the tile
+build levels, forever, while the tile-wide `big_roads` / `small_roads`
+layers re-derived. Three sites, one predicate:
+
+1. ENGINE READ. `_airport_auto_roads_layer` recycles only when
+   `_layer_cache_is_current(lat, lon, AIRPORT_SMALL_ROADS_SUFFIX,
+   ROAD_CACHE_TAG_SCHEMA)` — the SAME predicate the tile-wide layers and
+   the parallel scheduler's fetch admission pass (presence AND the
+   marker, `O4_OSM_Utils._cached_osm_schema_matches`). A present-but-
+   stale cache is re-derived like an absent one, with a vprint naming
+   the cache and the schema expected. An UNSTAMPED cache (every one
+   written before this change) is stale by the same rule — a marker-
+   less file matches only the empty schema.
+2. ENGINE WRITE. The re-derived cache is written with
+   `header_attributes={"o4_tag_schema": ROAD_CACHE_TAG_SCHEMA}` — the
+   tile-wide layers' own stamping. `OSM_query_to_OSM_layer` (the per-
+   bbox entry the merged path's Overpass fallback and the insets use)
+   gains `cache_schema=""` with `OSM_queries_to_OSM_layer`'s meaning:
+   stamp on write, refuse-and-refetch a cache whose stamp differs, any
+   cache accepted when empty (the legacy callers in `O4_Mask_Utils` and
+   `O4_Airport_Elevation_Insets` pass nothing and are unchanged).
+3. HARNESS. `build_airport.schema_stale_osm_layers` now judges the
+   merged cache beside the engine's specification list (it has no
+   prefetch specification — it is not a tile-wide layer — so it is
+   appended explicitly under `VMAP.ROAD_CACHE_TAG_SCHEMA`): a stale or
+   unstamped one is named `osm_layers`, the plain build refuses with
+   `--refresh-data osm_layers`, exactly as `big_roads` does (15r + u).
+   `refresh_stale_osm_layers` re-derives it under the authorised scope
+   by calling the engine's OWN derivation, `_airport_auto_roads_layer`
+   (the prefetch cannot — no specification), after the prefetch pass,
+   with the stale file moved aside as for every other layer; the
+   verdict is read off disk through the same naming function, and a
+   derivation that brings nothing back restores the stale file and
+   raises (15ak's never-rc-0-twice law).
+
+WHY NOT a prefetch specification: the merged cache is derived per inset
+bbox inside the vector step from the inset sidecars, not tile-wide; a
+5-tuple would make the background prefetch download it without the
+boxes. The gate lives at the cache's single derivation site instead.
+
+CONSEQUENCE, MEASURED (read-only census of the shared corpus): 18
+`airport_small_roads` caches, 0 stamped (+16-097 +17-097 +25+051
++22+113 +37+023 +30+031 +38-010 +35-081 +39-105 +39-106 +33-112
++33-113 +40-004 +60-136 +61-133 -13-077 -13-078 -46+168). Every
+harness TILE build on one of those tiles now refuses BEFORE the build,
+naming the file, until `--refresh-data osm_layers` re-derives it
+(locked, ledgered, snapshotted — the owner's act). That is the intent:
+each is a four-key cache missing the depth witnesses §45 (9) added.
+Airport-path builds are unaffected (the merged cache is a tile-build
+artefact). The owner's app re-derives a stale cache once on its next
+tile build (the 15r intent for the tile-wide layers, now uniform). No
+download, build, or shared-repo write was made by this lane.
+
+TWINS `tests/test_road_tag_schema.py` (+7): stamped on write; old-stamp
+AND unstamped caches not recycled, re-derived once (extract path,
+Overpass forbidden), rewrite stamped; a current cache recycled byte-
+untouched with the witnesses on the way; the bbox entry's cold /
+current / other-schema / legacy behaviours; the harness names the stale
+merged cache under `osm_layers` (stale, unstamped, current, absent);
+the authorised refresh re-derives via the engine's function with the
+tile-wide prefetch idle, and restores-and-refuses when it re-derives
+nothing. `tests/test_road_level_auto.py`: the recycle twin now writes a
+STAMPED fixture (an unstamped `b"cached"` would be re-derived, by
+design) and the fake layers accept `header_attributes`. Prescribed
+suite from `Ortho4XP/`: `1705 passed, 1 skipped, 42 warnings in
+70.15s`, 0 FAILED; the other files touching the changed entries
+(`test_airport_elevation_insets`, `test_implied_tunnel_level_crossing`,
+`test_osm_extracts_store`, `test_artifact_ledger`,
+`test_road_level_auto`): `313 passed`, 0 FAILED.

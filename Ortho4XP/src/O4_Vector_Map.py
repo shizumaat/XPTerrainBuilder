@@ -719,6 +719,15 @@ def auto_patch_runs(tile):
     return resolved_auto_patch_mode(tile) != "None"
 
 
+#: The auto-mode merged per-tile road cache (``FNAMES.osm_cached(lat,
+#: lon, AIRPORT_SMALL_ROADS_SUFFIX)``).  Stamped with
+#: ``ROAD_CACHE_TAG_SCHEMA`` like the tile-wide road layers and judged
+#: by the same predicate on read (``_layer_cache_is_current``): a cache
+#: written under another schema — or before stamping existed — is
+#: treated as ABSENT and re-derived (RULINGS 2026-09-15r chip: it used
+#: to recycle on ``isfile`` alone and kept serving four-key ways).
+AIRPORT_SMALL_ROADS_SUFFIX = "airport_small_roads"
+
 # Rail classes added on top of ``small_roads_queries(5)`` inside the
 # airport-inset regions in auto mode: the tile-wide big_roads layer
 # already levels ``rail``/``narrow_gauge`` mainlines, but airport rail
@@ -775,12 +784,23 @@ def _airport_auto_roads_layer(tile):
             target_tags[osm_type].append((tag, ""))
     layer = OSM.OSM_layer()
     cache_path = FNAMES.osm_cached(tile.lat, tile.lon,
-                                   "airport_small_roads")
-    if os.path.isfile(cache_path):
+                                   AIRPORT_SMALL_ROADS_SUFFIX)
+    # THE SCHEMA GATE: the same test the tile-wide road layers pass
+    # before recycling — presence AND the ``o4_tag_schema`` marker.  A
+    # present-but-stale cache is re-derived exactly like an absent one
+    # (the owner's app re-downloads once; a harness build names it as a
+    # REFRESH before it starts, ``--refresh-data osm_layers``).
+    if _layer_cache_is_current(tile.lat, tile.lon,
+                               AIRPORT_SMALL_ROADS_SUFFIX,
+                               ROAD_CACHE_TAG_SCHEMA):
         UI.vprint(1, "    * Recycling airport-area road data from",
                   cache_path)
         layer.update_dicosm(cache_path, input_tags, target_tags)
         return layer
+    if os.path.isfile(cache_path):
+        UI.vprint(1, "    * Cached airport-area road data at", cache_path,
+                  "was written under another tag schema (expected",
+                  ROAD_CACHE_TAG_SCHEMA + "): re-deriving it.")
     got_any = False
     # Regional-extract backend first, all inset boxes batched into ONE
     # filtering pass (the pbf filtering cost is dominated by reading the
@@ -811,7 +831,9 @@ def _airport_auto_roads_layer(tile):
     if not got_any:
         return None
     try:
-        layer.write_to_file(cache_path)
+        layer.write_to_file(
+            cache_path,
+            header_attributes={"o4_tag_schema": ROAD_CACHE_TAG_SCHEMA})
     except OSError:
         pass
     return layer
@@ -835,7 +857,8 @@ def _osm_layer_prefetch_specifications(tile):
              ROAD_NODE_TAGS_OF_INTEREST, ROAD_CACHE_TAG_SCHEMA))
     # Auto mode's per-airport-inset road fetch uses bbox queries with its
     # own merged cache (``airport_small_roads``) — not a tile-wide layer,
-    # so it has no prefetch specification here.
+    # so it has no prefetch specification here; its schema gate is
+    # ``_airport_auto_roads_layer``'s own (same predicate, same schema).
     if not (os.path.isfile(FNAMES.custom_coastline(tile.lat, tile.lon))
             or os.path.isdir(FNAMES.custom_coastline_dir(tile.lat,
                                                          tile.lon))):

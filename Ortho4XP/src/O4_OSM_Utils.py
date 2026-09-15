@@ -657,8 +657,14 @@ def OSM_query_to_OSM_layer(
     osm_layer,
     tags_of_interest=[],
     cached_file_name="",
+    cache_schema="",
 ):
-    # this one is simpler and does not depend on the notion of tile
+    # this one is simpler and does not depend on the notion of tile.
+    # ``cache_schema`` is the SAME gate ``OSM_queries_to_OSM_layer``
+    # applies to the tile-wide caches (RULINGS 2026-09-15r chip): a
+    # cache is recycled only when its ``o4_tag_schema`` header matches,
+    # and a fresh download is stamped with it.  Empty = the legacy
+    # any-cache behaviour, which the callers that stamp nothing keep.
     target_tags = {"n": [], "w": [], "r": []}
     input_tags = {"n": [], "w": [], "r": []}
     for tag in [query] if isinstance(query, str) else query:
@@ -675,10 +681,15 @@ def OSM_query_to_OSM_layer(
                 target_tags[osm_type].append((tag, ""))
             else:
                 target_tags[osm_type].append(tag)
-    if cached_file_name and os.path.isfile(cached_file_name):
+    if (cached_file_name and os.path.isfile(cached_file_name)
+            and _cached_osm_schema_matches(cached_file_name, cache_schema)):
         UI.vprint(1, "    * Recycling OSM data from", cached_file_name)
         osm_layer.update_dicosm(cached_file_name, input_tags, target_tags)
     else:
+        if cached_file_name and os.path.isfile(cached_file_name):
+            UI.vprint(1, "    * Cached OSM data at", cached_file_name,
+                      "was written under another tag schema (expected",
+                      cache_schema + "): re-downloading.")
         response = get_overpass_data(query, bbox)
         if UI.red_flag:
             return 0
@@ -694,7 +705,10 @@ def OSM_query_to_OSM_layer(
             return 0
         osm_layer.update_dicosm(response, input_tags, target_tags)
         if cached_file_name:
-            osm_layer.write_to_file(cached_file_name)
+            osm_layer.write_to_file(
+                cached_file_name,
+                header_attributes=({"o4_tag_schema": cache_schema}
+                                   if cache_schema else None))
     return 1
 
 

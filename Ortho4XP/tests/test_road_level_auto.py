@@ -114,7 +114,7 @@ def test_auto_layer_queries_each_inset_bbox_and_caches(
         def update_dicosm(self, *a, **k):
             raise AssertionError("no cache exists yet — must query")
 
-        def write_to_file(self, path):
+        def write_to_file(self, path, header_attributes=None):
             written.append(path)
             Path(path).write_bytes(b"x")
 
@@ -176,7 +176,7 @@ def test_auto_layer_serves_all_boxes_from_extracts_in_one_pass(
         def update_dicosm(self, data, input_tags, target_tags):
             fed.append(data)
 
-        def write_to_file(self, path):
+        def write_to_file(self, path, header_attributes=None):
             written.append(path)
             Path(path).write_bytes(b"x")
 
@@ -206,7 +206,14 @@ def test_auto_layer_recycles_merged_cache(tmp_path, monkeypatch):
         lambda lat, lon, provider_codes=None: [
             str(inset_dir / "A_usgs3dep.tif")])
     cache_path = tmp_path / "+35-081_airport_small_roads.osm.bz2"
-    cache_path.write_bytes(b"cached")
+    # A recyclable cache carries the CURRENT tag schema on its ``<osm``
+    # root (the merged cache is schema-gated since RULINGS 2026-09-15r's
+    # chip; an unstamped one is re-derived — tests/test_road_tag_schema).
+    import bz2
+    with bz2.open(str(cache_path), "wt", encoding="utf-8") as handle:
+        handle.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                     '<osm version="0.6" o4_tag_schema="%s">\n</osm>\n'
+                     % VMAP.ROAD_CACHE_TAG_SCHEMA)
     monkeypatch.setattr(
         FNAMES, "osm_cached",
         lambda lat, lon, suffix: str(cache_path))
@@ -217,7 +224,7 @@ def test_auto_layer_recycles_merged_cache(tmp_path, monkeypatch):
         def update_dicosm(self, path, input_tags, target_tags):
             recycled.append(path)
 
-        def write_to_file(self, path):        # pragma: no cover
+        def write_to_file(self, path, header_attributes=None):  # pragma: no cover
             raise AssertionError("cache hit must not re-write")
 
     monkeypatch.setattr(VMAP.OSM, "OSM_layer", _FakeLayer)

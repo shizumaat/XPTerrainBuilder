@@ -4987,3 +4987,66 @@ def test_two_placements_with_the_same_offset_still_share_one_file(tmp_path):
     assert len(rows) == 2
     per_row = [{f.resource for f in s.files} for s in rows]
     assert per_row[0] and per_row[0] == per_row[1], per_row
+
+
+def test_16d_1_written_components_reads_a_draped_page_beside_a_solid_body(
+        tmp_path):
+    """§16d (1) REGRESSION (owner's LGAV tile build 2026-09-14 23:14,
+    engine 1.50.1785): ``[v2 rebake] LGAV: placement failed
+    ('_LineCutter' object has no attribute '_draped_components');
+    continuing`` — the WHOLE object stage skipped, the build exited 0.
+
+    ``written_components`` moved out of ``placement_cut._LineCutter``
+    into ``placement_geom`` with three of the four readings re-bound as
+    delegating methods; the fourth, ``_draped_components``, was left
+    unbound while the mover's own ``self._draped_components(drp)`` call
+    stayed behind.  Every placement whose written geometry carries
+    DRAPED triangles beside solid ones raised there, and no twin drove
+    that path: the campaign suite was green with the bug in it.
+
+    The fixture is the shape that raises — one solid box AND a draped
+    page at Y = 0 — and it also pins the MILLIMETRE key the docstring
+    names: two draped quads meeting at DUPLICATE vertices — the same
+    coordinates on different indices, which is how an exporter writes a
+    ground page — are ONE component, while a third quad a centimetre
+    away is its own.  (An OBJ8 ``VT`` row is written to three decimals,
+    so a millimetre IS the file's own resolution.)"""
+    v, t = _box(0.0, 0.0)
+    drp: list[tuple[int, int, int]] = []
+
+    def _quad(x0, z0, side=4.0):
+        i = len(v)
+        v.extend([(x0, 0.0, z0), (x0 + side, 0.0, z0),
+                  (x0 + side, 0.0, z0 + side), (x0, 0.0, z0 + side)])
+        drp.extend([(i, i + 1, i + 2), (i, i + 2, i + 3)])
+
+    _quad(20.0, 0.0)
+    _quad(24.0, 0.0)             # DUPLICATE vertices -> the same mm key
+    _quad(40.01, 0.0)            # a centimetre off -> its own component
+    path = _write_obj(tmp_path / "draped.obj", v,
+                      [("", t), ("ATTR_draped", drp)])
+    # the reader sees the page as DRAPED and keeps it out of ``solid``
+    geom = obj8.parse_obj8(str(path))
+    assert geom.solid.shape[0] == len(t) and geom.draped.shape[0] == len(drp)
+
+    plan = _member_plan(path, [(0, 0.0, 0.0, 0.0)])
+    m = plan.units[0].members[0]
+    cutter = _CUT._LineCutter(m, 0.0, 0, 0.3, 4.0, 3.0, 40.0, -3.0)
+    comps = cutter.written_components()          # raised before the fix
+
+    solid = [c for c in comps if c[0] >= 0]
+    draped = [c for c in comps if c[0] == -1]
+    assert len(solid) == 1 and solid[0][0] == 0
+    assert solid[0][1].shape[0] == len(t)
+    # the welded pair is ONE component of four triangles; the centimetre
+    # gap is its own of two
+    assert sorted(int(c[1].shape[0]) for c in draped) == [2, 4]
+    # every component carries a plan box, and the draped boxes lie where
+    # the page was authored (east of the box, the member heading 0)
+    for _ci, tris, box in comps:
+        assert box is not None and len(box) == 4
+        assert box[0] <= box[2] and box[1] <= box[3]
+        assert tris.shape[0] > 0
+    _ml, mo = AR._m_per_deg(40.0)
+    wide = max(draped, key=lambda c: c[1].shape[0])
+    assert wide[2][3] - wide[2][1] == pytest.approx(8.0 / mo, rel=1e-6)

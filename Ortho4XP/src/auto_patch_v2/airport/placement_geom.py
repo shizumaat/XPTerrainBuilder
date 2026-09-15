@@ -154,7 +154,7 @@ def written_components(self) -> "list[tuple[int, tuple, tuple]]":
 
         solk = np.unique(_keys(sol)) if sol.shape[0] else \
             np.zeros(0, dtype=np.int64)
-        for t in self._draped_components(drp):
+        for t in _draped_components(self, drp):
             if solk.shape[0]:
                 t = t[~np.isin(_keys(t), solk)]
             if t.shape[0] == 0:

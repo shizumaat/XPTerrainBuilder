@@ -546,10 +546,23 @@ def test_16g_10_8_THE_SKIRT_IS_WITHDRAWN_the_pad_is_one_plate(law):
     assert rows and {r.cap for r in rows} == {0.0}
     # the plate reaches the airside-shared vertices — that IS the weld
     assert any(r.a in air or r.b in air for r in rows)
-    # the ceiling pass is the same pairs at 1 %, nothing withdrawn
-    assert len(ceil) == len(rows) and {r.cap for r in ceil} == {ceiling}
-    # NO PAD ROW IS ONE-WAY (14al's clause, refuted three times and never
-    # shipped), and none carries the withdrawn skirt's head
+    # the CEILING pass is still every pair at 1 %, nothing withdrawn and
+    # nothing one-way: the hard cap is the pad's own tilt and says nothing
+    # about which side yields
+    assert {r.cap for r in ceil} == {ceiling}
+    assert all(r.follows is None for r in ceil)
+    assert len(ceil) == len(rows)      # this fixture's pads are exempt
+    # §16g (10) (11) (a) (owner RULINGS 2026-09-15z) POINTS THE PLATE'S
+    # AIRSIDE PAIRS ONE WAY — and this fixture is the class it EXEMPTS.
+    # Each of these pads carries 8 rim vertices of which exactly ONE is
+    # not the apron's, so it has no plane of its own (three points make a
+    # plane) and keeps the two-sided weld that is then its only law: the
+    # pad-in-an-apron class, measured here as the §30 (4) cluster coming
+    # apart 0.86 m when the pairs were withdrawn anyway.  The DIRECTION
+    # itself is twinned on a mixed rim in ``test_v2padlevel``.
+    from auto_patch_v2.constraints.pads import _PLANE_MIN_OWN
+    for ref in ("padA", "padB"):
+        assert len(_verts(pm, ref) - air) < _PLANE_MIN_OWN
     assert all(r.follows is None for r in rows)
     assert not any("airside skirt" in r.source.ruling for r in rows + ceil)
     # and the law keys are gone, so no reader can arm a band again

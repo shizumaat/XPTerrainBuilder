@@ -464,6 +464,7 @@ cluster_reach_rulings = [
 ]
 pad_flat_rulings = [
   "structures.building_pad flat",                        # 09-09c: the pad's flatness target, priced on the PLANE'S TILT (10y)
+  "structures.building_pad flat airside-led",            # §16g (10) (11) (a): the SAME plate at the SAME price over a pair with one airside end, priced ONE-WAY toward the pad
   "structures.building_pad frontage_level",              # 09-10l/10y: the SENIOR fronting pavement's edge mean IS the pad's level where one plane cannot meet every frontage
   "structures.building_pad groundside_frontage",         # 09-12r / spec §28: the SENIOR pad's edge level IS the level of the parking / service-road face fronting it ("grade frontages only"); the junior head below stays at ``law`` so the senior wins and the junior step is reported
 ]
@@ -778,6 +779,7 @@ hard_tol_m      = 0.02    # a hard row is HELD at this residual: under the censu
 one_way_rulings = [
   "zones.adjacent_ground",                                  # the zone-1 lip / zone-2 corridor bands
   "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)
+  "structures.building_pad flat airside-led",               # §16g (10) (11) (a) / RULINGS 2026-09-15z: the pad's own FLATNESS row over a pair with ONE end on airside - the AIRSIDE vertex leads and never moves for a pad.  ATTRIBUTED at HECA's worst airside mover (+3.61 m, roles apron+building): `--why-at` named this plate, two-sided at cap 0 with dual 3.61, as the ONE row binding it; a shared vertex is one unknown (09-01g) and the plate outweighs the apron's own target there
   "structures.building_pad frontage_level",                 # 09-10l: the pad FOLLOWS the pavement edge it fronts and never pulls it (the apron must not tier down into the terminal)
   "structures.building_pad frontage_level junior",
   "structures.structure_rim frontage_level",                # 09-10an: a structure RIM is flush with the pavement it sits in — the crest rises to the apron, it never pulls the apron down into the pit

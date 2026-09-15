@@ -7233,3 +7233,46 @@ inside the corridor (§45 (11)); the LGAV bar restated as the Trench
 family with the attribution first (§45 (12)). Round 2 resumes the lane
 (no fresh startup); merge after the concurrent session's four structure
 lanes (v2padqp, v2lemdstruct2, v2vmmcshore, v2objcut) land, rebased.
+
+## 2026-09-15t v2channel ROUND 2 (89396540): LGAV's trench is ONE channel — three attributed mechanisms, the §45 (12) bar met bar one reporting line; `min_decks_without_depth = 2` RATIFIED; merge waits on the concurrent session's four lanes
+
+ATTRIBUTED before any change (read-only probes, quoted): (1) the pack
+witness read `below_grade or plan_bbox` — nine of twelve Trench
+placements carry no `below_grade` and fell through to `plan_bbox`
+(`Trench_03` 7,984,284 m², `Trench_06` 8,800,700 m²: the resource's plan
+EXTENT, 2.5 × 3.2 km), so every band on the field matched; (2) round 1's
+"floor 63.43" was `train_powercable.obj` — a zero-area `below_grade` with
+the family's lowest `solid_min_z`; (3) `object_min_depth_m` was judged
+against the MEAN DEM of a 1,954 m axis with 12.6 m of relief (67.48
+against 64.32…76.96) — `Trench_07` at −11.03 m scored 1.02 and was
+refused; (4) the 404.7 m spread was `LineString.project`'s end clamp on
+two overhanging rail ways. Fixed: the witness reads the below-grade
+footprint only, the depth is judged against the LOCAL ground at the
+station, the merge is bounded by the cap. LGAV after: `channel:0` ways
+−1343/−7021/−2914/−4017, witnesses bridge + pack, floor 66.47 (`Trench_07`
+'s own deepest genuine solid, 3 placements), half-width 62.8 m from the
+pack walls (§45 (10)(i); (iii) reads 33.9 m), 4 decks (`Trench_06`'s
+roofed pieces + TWY H −379), basins 2 → 2, tunnels 8 → 8. Round 1's
+`channel:0` (way −4003, `highway=service`, 37.9454668,23.9599033 →
+37.9459659,23.9645912, one 40 m neck under §44-borrowed `pav8`/`pav18`)
+REFUSED: a single neck with no depth witness is a crossing, not a
+channel — the lane's knob `[channel] min_decks_without_depth = 2` is
+RATIFIED as §45 (1)'s clause (a pack-wall or lidar witness is never
+subject to it). NOT MET, and accepted as a REPORTING line: the 15 Trench
+refusals in the basin / sunken-road / tunnel-object passes stand because
+those passes run BEFORE `identify_channels` and 13 name objects with no
+below-grade footprint; the fix is a reorder in `planar/build.py`
+(channels first, the three readers handed the reduced object list) —
+OWED, round 3 or after the owner's read. Suite 1592/0, twins 13. Also
+recorded: §45 (1)(b) fires NOWHERE at LGAV (no way has an apt.dat neck —
+the trench runs BETWEEN pavement polygons, not through a hole of one:
+the neck test's `_hole_region` should be the hole of the pavement UNION,
+owed); OSM way ids are NOT unique across feed layers (−4017 is a 48 m
+track AND a 559 m motorway) — chip. Owed from round 1 unchanged: C9's
+§19 structure edge, C12's `road_profile._osm_levelled`,
+`channel_crest_at_edge` never fired on real data. MERGE: after the
+concurrent session's v2padqp / v2lemdstruct2 / v2vmmcshore / v2objcut
+land on main (rebase; expect additive conflicts in planar/structures.py,
+basins.py, census/check_grade/families); KDFW build + KPHX replay after
+the owner's `--refresh-data` acts; app 1.0.342; the owner's LGAV trench
+read is the acceptance.

@@ -66,7 +66,37 @@ REFRESH_SCOPES = (
     ("masks", "Masks", "water/coastline mask rasters"),
     ("orthophotos", "Orthophotos", "downloaded imagery tiles"),
     ("geotiffs", "Geotiffs", "user-supplied geotiff sources"),
+    # NOT in the data repo: the owner's X-Plane INSTALL.  The object
+    # stage's write half (``auto_patch_v2.airport.placement_write.
+    # apply_plan``) rewrites the serving pack's DSF, re-bakes its
+    # ``.obj`` bodies and leaves ``.anchor_bak`` backups — in
+    # ``<install>/Custom Scenery/<pack>/``, which no data-repo prefix
+    # could ever match, so neither this guard nor the cache redirects
+    # covered it until 2026-09-15.  THE MEASURED CASE: lane
+    # v2vmmcshore's harness TILE build of +22+113 rewrote the OWNER'S
+    # live VHHH pack (6,390 placements) at 11:49 and re-dumped it at
+    # 11:52 (RULINGS 2026-09-15av).  The repo has no ``Custom Scenery``
+    # directory, so this prefix can only ever match an install path —
+    # ``_violation`` spells one that way deliberately.
+    ("pack_rebake", "Custom Scenery",
+     "the owner's X-Plane install: scenery-pack DSF rewrites, re-baked "
+     ".obj bodies and .anchor_bak backups written by the object stage.  "
+     "A LANE NEVER WRITES THE INSTALL — the app on the owner's machine "
+     "is the only writer of his packs (owner ruling e9daef5 + the lane "
+     "protocol); authorising this scope is HIS act"),
 )
+
+
+def install_relpath(path) -> str:
+    """How an install write is NAMED in a refusal: ``Custom Scenery/...``
+    when it is under one (so :func:`scope_of` maps it to ``pack_rebake``
+    — the repo has no such directory, so the prefix cannot collide), and
+    the absolute path otherwise, which belongs to no scope and is
+    therefore unauthorisable."""
+    p = os.path.abspath(os.fspath(path)).replace(os.sep, "/")
+    marker = "/Custom Scenery/"
+    i = p.find(marker)
+    return ("Custom Scenery/" + p[i + len(marker):]) if i >= 0 else p
 
 
 def scope_of(relpath: str):
@@ -86,6 +116,59 @@ def scope_description(name: str) -> str:
     return "(unknown scope)"
 
 
+def pack_roots_for_tile(lat, lon, install_root) -> tuple:
+    """Every scenery pack under ``<install>/Custom Scenery`` that carries
+    THIS tile's DSF — i.e. every pack a build of this tile reads, and so
+    every pack its object stage could write.
+
+    Cheap by construction: one ``isfile`` per pack directory, no walk.
+    Measured on the owner's install — 18 packs carry ``+22+113``, 15
+    carry ``+40-004``, and the probe costs 0.03 s.
+    """
+    block = f"{(int(lat) // 10) * 10:+03d}{(int(lon) // 10) * 10:+04d}"
+    stem = f"{int(lat):+03d}{int(lon):+04d}.dsf"
+    custom = Path(install_root) / "Custom Scenery"
+    try:
+        names = sorted(os.listdir(custom))
+    except OSError:
+        return ()
+    out = []
+    for name in names:
+        pack = custom / name
+        if (pack / "Earth nav data" / block / stem).is_file():
+            out.append(str(pack))
+    return tuple(out)
+
+
+def install_snapshot(pack_roots) -> dict:
+    """The before/after snapshot of the owner's PACKS, keyed the way
+    :func:`install_relpath` names them (``Custom Scenery/<pack>/...``) so
+    :func:`scope_of` maps every entry to ``pack_rebake``.
+
+    WHY IT EXISTS (2026-09-15, RULINGS 2026-09-15av + 15bb).  TWO lane
+    tile builds rewrote the owner's live packs — VHHH's DSF at 11:49:11,
+    LEMD's DSF plus ``o4_placement_provenance.json`` plus 2,694 split
+    body ``.obj`` files at 12:21:43 — and BOTH runs printed "shared repo
+    UNCHANGED", because the snapshot walked the data repo only and the
+    install is not in it.  The whole pack is walked, not just ``Earth
+    nav data``: the split bodies land at the resource paths the plan
+    names (``Airport/Cargo_Terminal/CG10__b0_….obj``), anywhere in the
+    pack.  Measured on the owner's install: 108 k files across the 18
+    packs carrying +22+113 in 0.13 s, 128 k across LEMD's 15 in 0.19 s.
+    """
+    snap = {}
+    for root in pack_roots or ():
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for fn in filenames:
+                p = os.path.join(dirpath, fn)
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                snap[install_relpath(p)] = (st.st_size, st.st_mtime_ns)
+    return snap
+
+
 def shared_repo_snapshot(repo=None) -> dict:
     """``{relative path: (size, mtime_ns)}`` for every file in the shared
     repo's data directories.
@@ -95,6 +178,10 @@ def shared_repo_snapshot(repo=None) -> dict:
     a coarse tripwire missed.  Completeness is the point — the guarantee is
     "this build wrote nothing into the shared repo", and a partial snapshot
     cannot make it.
+
+    The owner's INSTALL is snapshotted beside it, by the caller, through
+    :func:`install_snapshot` — the two dicts merge, because their keys
+    cannot collide (the repo has no ``Custom Scenery``).
     """
     repo = Path(repo or DATA_REPO)
     snap = {}
@@ -367,7 +454,8 @@ def record_refresh(scope: str, changes: dict, meta: dict,
     """
     repo = Path(repo or DATA_REPO)
     stamps = [_file_stamp(repo, rel)
-              for rel in (changes["added"] + changes["modified"])]
+              for rel in (changes["added"] + changes["modified"])
+              if not str(rel).startswith("Custom Scenery/")]
     record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "scope": scope,
               "added": len(changes["added"]),
               "modified": len(changes["modified"]),
@@ -550,7 +638,8 @@ class SharedRepoWriteGuard:
 
     def __init__(self, requested, root, repo=None, enabled: bool = True,
                  record_only: bool = False,
-                 allow_library_index: bool = True):
+                 allow_library_index: bool = True,
+                 install_roots=()):
         self.requested = set(requested or ())
         self.repo = Path(repo or DATA_REPO)
         self.enabled = bool(enabled)
@@ -560,6 +649,17 @@ class SharedRepoWriteGuard:
         #: keep it; the suite's per-test guard turns it off
         #: (suite-corpus-clean spec §8.2 R-e).
         self.allow_library_index = bool(allow_library_index)
+        #: ABSOLUTE roots of the owner's X-Plane install(s) this guard
+        #: defends under scope ``pack_rebake``.  EMPTY by default, so a
+        #: caller that names none behaves exactly as before — the suite's
+        #: own install guard (``tests/conftest.py``, 2026-08-09) is a
+        #: SUBCLASS that overrides ``_violation`` outright and is
+        #: untouched either way.  The harness build entry passes the
+        #: install it builds against.
+        self._install_roots = tuple(sorted({
+            p for r in (install_roots or ())
+            for p in (os.path.abspath(os.fspath(r)),
+                      os.path.realpath(os.fspath(r)))}))
         self.blocked: list = []
         #: Every lock-file operation the allowance let through, recorded so
         #: "the repo was untouched apart from the ruled lock churn" is a
@@ -589,6 +689,35 @@ class SharedRepoWriteGuard:
         self._saved_bz2 = None
 
     # ── the predicate ────────────────────────────────────────────────
+    def _install_violation(self, abspath):
+        """``(rel, scope)`` when ``abspath`` is a write into the owner's
+        X-Plane install, else ``None``.
+
+        THE HOLE THIS CLOSES (2026-09-15, RULINGS 2026-09-15av).  The
+        object stage's write half rewrites the SERVING PACK — its DSF,
+        its re-baked ``.obj`` bodies, its ``.anchor_bak`` backups — in
+        ``<install>/Custom Scenery/<pack>/``, which is outside the data
+        repo, so every prefix this class had missed it.  Lane
+        v2vmmcshore's harness TILE build of +22+113 rewrote the OWNER'S
+        live VHHH pack (6,390 placements) at 11:49; the contamination
+        flag then surfaced on a DIFFERENT lane's concurrent build.
+
+        A path under ``Custom Scenery`` is named that way so
+        :func:`scope_of` maps it to ``pack_rebake`` (the data repo has no
+        such directory, so the prefix cannot collide); anything else in
+        the install belongs to no scope and is therefore unauthorisable
+        — which is correct, since no ``--refresh-data`` flag should ever
+        let a build write the user's CIFP or Global Scenery.
+        """
+        for root in self._install_roots:
+            if abspath == root or abspath.startswith(root + os.sep):
+                rel = install_relpath(abspath)
+                scope = scope_of(rel)
+                if scope is not None and scope in self.requested:
+                    return None
+                return rel, scope
+        return None
+
     def _violation(self, path, op=None):
         """``(rel, scope)`` if writing ``path`` is forbidden, else None.
 
@@ -630,6 +759,15 @@ class SharedRepoWriteGuard:
             except OSError:
                 return None
             if real_s == ap or not real_s.startswith(self._prefixes):
+                # THE OWNER'S X-PLANE INSTALL (2026-09-15, RULINGS
+                # 2026-09-15av).  Outside the data repo by construction,
+                # so every prefix above misses it — and the object
+                # stage's write half rewrites packs THERE.  Judged with
+                # the ENGINE's own live-install predicate and named
+                # ``Custom Scenery/...`` so the scope resolves.
+                hit = self._install_violation(real_s)
+                if hit is not None:
+                    return hit
                 return None                    # genuinely outside the repo
             ap = real_s
         try:                                   # follow the lane's symlinks
@@ -659,9 +797,12 @@ class SharedRepoWriteGuard:
         self.blocked.append({"path": rel, "scope": scope, "via": how})
         if self.record_only:
             return                             # observe, let the call run
+        where = ("the OWNER'S X-PLANE INSTALL"
+                 if scope == "pack_rebake" or not str(rel).startswith(SHARED_DATA_DIRS)
+                 else f"the SHARED data repo ({self.repo})")
         raise SharedRepoWriteBlocked(
-            f"BLOCKED: this build tried to {how} '{rel}' in the SHARED data "
-            f"repo ({self.repo}), which no --refresh-data scope authorises.\n"
+            f"BLOCKED: this build tried to {how} '{rel}' in {where}, "
+            f"which no --refresh-data scope authorises.\n"
             f"  scope: {scope or '<outside every named scope>'}"
             + (f"\n  {scope_description(scope)}" if scope else "")
             + f"\nOwner ruling e9daef5: a cache regeneration is an EXPLICIT, "

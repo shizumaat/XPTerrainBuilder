@@ -1754,13 +1754,27 @@ def test_a_mounted_corpus_passes(build_mod, tmp_path, monkeypatch):
 
 def test_every_refresh_scope_prefix_is_a_shared_data_dir(build_mod):
     """A scope pointing at a directory the harness does not snapshot would
-    authorise writes it cannot see."""
+    authorise writes it cannot see.
+
+    ``pack_rebake`` is the one scope outside the data repo — it covers
+    the owner's X-Plane install — and it is SNAPSHOTTED too, by
+    ``install_snapshot`` over the packs carrying the tile (RULINGS
+    2026-09-15av + 15bb: two lane tile builds rewrote live packs and
+    both runs printed "shared repo UNCHANGED").  So the law is
+    unchanged: every scope's writes are visible to the audit.
+    """
     for scope, prefix, why in build_mod.REFRESH_SCOPES:
         top = prefix.split("/")[0]
-        assert top in build_mod.SHARED_DATA_DIRS, (
+        assert (top in build_mod.SHARED_DATA_DIRS
+                or (scope == "pack_rebake" and top == "Custom Scenery")), (
             f"scope {scope!r} covers {prefix!r}, which is outside the "
             f"snapshotted data dirs — its writes would be invisible")
         assert why.strip(), f"scope {scope!r} has no explanation"
+    # ...and the install half is really walked, with keys the scope map
+    # understands.
+    assert build_mod.scope_of(
+        "Custom Scenery/P/Earth nav data/+20+110/+22+113.dsf") \
+        == "pack_rebake"
 
 
 def test_the_road_feed_scope_is_the_named_precedent(build_mod):
@@ -2187,6 +2201,219 @@ def test_a_REDIRECTED_scope_cannot_be_this_builds_contamination(
     offenders = guard_mod.report_unauthorised_writes(
         changes, set(), blocked=[{"path": "Masks/x.png", "scope": "masks"}])
     assert len(guard_mod.contaminating_writes(offenders)) == 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE OWNER'S X-PLANE INSTALL (RULINGS 2026-09-15av)
+# ══════════════════════════════════════════════════════════════════════
+
+def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
+    """ATTRIBUTION, pinned as a twin.
+
+    ``placement_write.apply_plan`` is the call that rewrites the serving
+    pack's DSF, re-bakes its ``.obj`` bodies and leaves the
+    ``.anchor_bak`` backups — in the OWNER'S install.  Its only engine
+    caller is ``auto_patch.engine_v2._place_objects``, reached only from
+    ``rebake_after_mesh``, which only ``O4_Mesh_Utils.build_mesh`` calls:
+    a TILE build.  The v2 AIRPORT pipeline reaches none of it — its
+    rebake stage writes ``<out>/<ICAO>.rebake.json`` and nothing else.
+    If a later change gives the airport path a pack write, this twin is
+    where it must be argued.
+    """
+    src = ROOT / "src"
+    callers = {p.relative_to(src).as_posix() for p in src.rglob("*.py")
+               if "apply_plan(" in p.read_text(errors="replace")
+               and "def apply_plan(" not in p.read_text(errors="replace")}
+    assert callers == {"auto_patch/engine_v2.py"}, callers
+    rebake_callers = {
+        p.relative_to(src).as_posix() for p in src.rglob("*.py")
+        if "AUTO_PATCH_ENGINE_V2.rebake_after_mesh(" in p.read_text(
+            errors="replace")}
+    assert rebake_callers == {"O4_Mesh_Utils.py"}, rebake_callers
+    for p in (src / "auto_patch_v2" / "pipeline").rglob("*.py"):
+        body = p.read_text(errors="replace")
+        assert "placement_write" not in body and "apply_plan" not in body, (
+            f"{p.name}: the v2 AIRPORT pipeline must write no pack file")
+
+
+def test_a_lane_build_STANDS_DOWN_the_pack_write_half(
+        build_mod, tmp_path, monkeypatch):
+    """A lane never mutates the owner's X-Plane install.
+
+    THE MEASURED CASE: lane v2vmmcshore's harness TILE build of +22+113
+    rewrote the owner's live VHHH pack DSF (6,390 placements) at
+    2026-09-15 11:49 and re-dumped it at 11:52 — the pack is outside the
+    data repo, so neither the write guard nor the cache redirects
+    covered it, and the flag surfaced on a DIFFERENT lane's concurrent
+    build (RULINGS 2026-09-15ar, re-attributed by 2026-09-15av).
+    """
+    monkeypatch.delenv("O4_PACK_WRITES", raising=False)
+    monkeypatch.setattr(build_mod, "DATA_REPO", tmp_path / "repo")
+    (tmp_path / "repo" / "Airport_mod_cache").mkdir(parents=True)
+    (tmp_path / "repo" / "Masks").mkdir(parents=True)
+
+    redirects = build_mod.redirect_engine_caches(
+        tmp_path / "out", "tag", lane_root=tmp_path / "lane",
+        persistent=False)
+    assert os.environ["O4_PACK_WRITES"] == "measure_only"
+    assert "measure_only" in redirects["pack_writes"]
+    assert "install is never written" in redirects["pack_writes"]
+
+    # The owner's authorisation leaves the write half enabled, exactly as
+    # an authorised cache scope is left SHARED.
+    redirects = build_mod.redirect_engine_caches(
+        tmp_path / "out", "tag2", authorised={"pack_rebake"},
+        lane_root=tmp_path / "lane", persistent=False)
+    assert "O4_PACK_WRITES" not in os.environ
+    assert "pack_rebake" in redirects["left_shared_for_refresh"]
+    assert "AUTHORISED" in redirects["pack_writes"]
+
+
+def test_the_engine_reads_the_same_stand_down_flag_the_harness_sets():
+    """THE CROSS-FILE CONTRACT, like the JSONL wire names: the harness
+    WRITES ``O4_PACK_WRITES=measure_only`` and the engine's rebake READS
+    it; the string appears in two files and nowhere else, so a rename on
+    one side is silent.  This twin is the only thing that would say so.
+    """
+    engine = (ROOT / "src" / "auto_patch" / "engine_v2.py").read_text()
+    harness = (ROOT / "tools" / "harness"
+               / "build_airport.py").read_text()
+    assert 'os.environ.get("O4_PACK_WRITES") == "measure_only"' in engine, (
+        "the engine must read the harness's stand-down flag")
+    assert 'os.environ["O4_PACK_WRITES"] = "measure_only"' in harness
+    # and it must set ``measure_only``, the engine's OWN no-write path —
+    # the placement plan is still built and reported.
+    i = engine.index('os.environ.get("O4_PACK_WRITES")')
+    assert "measure_only = True" in engine[i:i + 200]
+
+
+def test_the_guard_REFUSES_a_write_into_the_owners_xplane_install(
+        build_mod, tmp_path):
+    """Half two: the Python writes of the object stage — the ``.obj``
+    re-bakes, the ``.anchor_bak`` copies, the provenance JSON and the
+    ``os.replace`` that moves the encoded DSF into the pack — are refused
+    at the call when ``pack_rebake`` is not authorised.
+
+    STRUCTURALLY INVISIBLE, stated: a subprocess that writes INSIDE the
+    pack directly (never ``os.replace``-ing from a work dir) passes no
+    Python call and cannot be refused here; the engine-side stand-down
+    above is what covers that, and the install is far too large to
+    snapshot the way the data repo is.
+    """
+    repo = tmp_path / "repo"
+    (repo / "OSM_data").mkdir(parents=True)
+    pack = tmp_path / "X-Plane 12" / "Custom Scenery" / "TestPack"
+    (pack / "Earth nav data" / "+20+110").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    target = pack / "Earth nav data" / "+20+110" / "+22+113.dsf"
+
+    install = (tmp_path / "X-Plane 12",)
+    with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+        with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo,
+                                            install_roots=install):
+            open(target, "wb").write(b"rewritten by a lane")
+    msg = str(exc.value)
+    assert ("Custom Scenery/TestPack/Earth nav data/+20+110/+22+113.dsf" in msg)
+    assert "pack_rebake" in msg and "OWNER'S X-PLANE INSTALL" in msg
+    assert not target.exists(), "the guard must PREVENT, not just report"
+
+    # The .anchor_bak backup and the os.replace of the encoded DSF are
+    # the same law.
+    with pytest.raises(build_mod.SharedRepoWriteBlocked):
+        with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo,
+                                            install_roots=install):
+            os.replace(str(tmp_path / "nope.dsf"), str(target))
+
+    # Authorised (the owner's act), it proceeds.
+    with build_mod.SharedRepoWriteGuard({"pack_rebake"}, lane, repo=repo,
+                                        install_roots=install):
+        open(target, "wb").write(b"authorised")
+    assert target.read_bytes() == b"authorised"
+
+    # A path outside both the repo and any install is untouched, and an
+    # install root NOBODY named is not defended (the default: a caller
+    # that names none behaves exactly as before).
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo,
+                                        install_roots=install):
+        open(lane / "product.osm", "w").write("lane product")
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
+        open(target, "wb").write(b"undefended")
+    assert build_mod.xplane_install_roots(), (
+        "the build entry must hand the guard a real install root")
+
+
+def test_the_snapshot_NAMES_an_install_write_the_guard_could_not_see(
+        build_mod, guard_mod, tmp_path):
+    """THE BELT (RULINGS 2026-09-15av + 15bb).
+
+    Both lane tile builds that rewrote the owner's packs printed "shared
+    repo UNCHANGED": the before/after walk covered the data repo only,
+    and the install is not in it.  A subprocess write inside a pack
+    passes no Python call and so cannot be refused — it must at least be
+    NAMED and mark the run, exactly like a corpus write.
+
+    The whole pack is walked, not just ``Earth nav data``: the split
+    bodies land at the resource paths the plan names (LEMD's run wrote
+    2,694 of them), anywhere in the pack.
+    """
+    install = tmp_path / "X-Plane 12"
+    pack = install / "Custom Scenery" / "TestPack"
+    nav = pack / "Earth nav data" / "+20+110"
+    nav.mkdir(parents=True)
+    (nav / "+22+113.dsf").write_bytes(b"original")
+    (pack / "Airport").mkdir()
+    (pack / "Airport" / "T1.obj").write_text("authored")
+    other = install / "Custom Scenery" / "NotOnThisTile"
+    (other / "Earth nav data" / "+30+030").mkdir(parents=True)
+
+    roots = guard_mod.pack_roots_for_tile(22, 113, install)
+    assert roots == (str(pack),), (
+        "only packs carrying THIS tile's DSF are walked")
+
+    before = guard_mod.install_snapshot(roots)
+    assert "Custom Scenery/TestPack/Airport/T1.obj" in before
+
+    # what the object stage's write half did, in both incidents
+    (nav / "+22+113.dsf").write_bytes(b"rewritten by a lane build")
+    (nav / "+22+113.dsf.anchor_bak").write_bytes(b"original")
+    (nav / "o4_placement_provenance.json").write_text("{}")
+    (pack / "Airport" / "T1__b0_abc.obj").write_text("split body")
+
+    changes = guard_mod.snapshot_diff(before,
+                                      guard_mod.install_snapshot(roots))
+    assert changes["modified"] == [
+        "Custom Scenery/TestPack/Earth nav data/+20+110/+22+113.dsf"]
+    assert set(changes["added"]) == {
+        "Custom Scenery/TestPack/Airport/T1__b0_abc.obj",
+        "Custom Scenery/TestPack/Earth nav data/+20+110/"
+        "+22+113.dsf.anchor_bak",
+        "Custom Scenery/TestPack/Earth nav data/+20+110/"
+        "o4_placement_provenance.json"}
+
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, set(), types.SimpleNamespace(note=lambda m: None),
+        redirected=())
+    assert len(guard_mod.contaminating_writes(offenders)) == 4
+    assert {o["scope"] for o in offenders} == {"pack_rebake"}
+    # authorised, it is a recorded refresh instead of contamination
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, {"pack_rebake"}, types.SimpleNamespace(note=lambda m: None),
+        redirected=())
+    assert offenders == []
+
+
+def test_pack_rebake_is_a_named_refresh_scope(build_mod, guard_mod):
+    """``--refresh-data pack_rebake`` must be spellable, and it must say
+    whose act it is."""
+    scopes = {s for s, _p, _w in guard_mod.REFRESH_SCOPES}
+    assert "pack_rebake" in scopes
+    assert guard_mod.scope_of(
+        "Custom Scenery/TestPack/Earth nav data/+22+113.dsf") == "pack_rebake"
+    # the data repo has no such directory, so nothing in it can collide
+    assert "Custom Scenery" not in guard_mod.SHARED_DATA_DIRS
+    why = guard_mod.scope_description("pack_rebake")
+    assert "LANE NEVER WRITES THE INSTALL" in why
 
 
 def test_the_write_guard_REFUSES_a_bz2_layer_write(build_mod, tmp_path):
@@ -10004,3 +10231,36 @@ def test_a_curved_ramp_is_priced_along_its_axis_not_its_chord(cg, tmp_path):
         f"the reported span is the AXIS run: max "
         f"{max(r.distance_m for r in over):.1f} m vs chord {chord:.1f} m")
     assert max(r.distance_m for r in over) == pytest.approx(route, rel=0.02)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §34 (13) (3) (a) AN OBJECT'S FOOT NEVER HOLDS AIRSIDE PAVEMENT
+# (Fable 2026-09-15; RULINGS 2026-09-15ad) — the REGISTERS
+# ══════════════════════════════════════════════════════════════════════
+# The mechanism itself is twinned in `tests/auto_patch_v2/test_v2feet.py`;
+# what belongs HERE is that the two registers stay consistent, because
+# r4 lost one of them to a careless law toggle and every foot row in the
+# tree was silently re-priced from `pad_flat` (3000) to `law` (3) until
+# the four §11b twins caught it.
+
+def test_the_foot_row_head_is_in_both_registers():
+    """`foot_row_rulings` prices a foot row at `pad_flat` (11ab); the NEW
+    `one_way_rulings` entry (§34 (13) (3) (a)) points it at the object.
+    They are different registers and a foot row needs BOTH — losing the
+    first re-prices every foot row in the tree by three orders of
+    magnitude, silently."""
+    from auto_patch_v2.law import tables as _T
+    from auto_patch_v2.solve.design_roles import (conforming_rulings,
+                                                  foot_row_rulings,
+                                                  one_way_rulings)
+    law = _T.load_default()
+    head = "structures.placement foot_row"
+    assert head in foot_row_rulings(law), (
+        "the foot row's PRICE register — without it every foot row falls "
+        "back to `law` and a body's placement becomes the cheapest row "
+        "in the sheet")
+    assert head in one_way_rulings(law), (
+        "§34 (13) (3) (a): a foot row touching airside pavement follows it")
+    # `conforming_rulings` is the union of the two, so the head is in it
+    # either way — which is exactly why the union cannot be the guard
+    assert head in conforming_rulings(law)

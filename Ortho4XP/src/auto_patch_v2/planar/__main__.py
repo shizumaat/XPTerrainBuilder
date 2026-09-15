@@ -400,7 +400,12 @@ def structure_records(airport, cl, law) -> dict:
         # spec §34 (5): the crossings an aeroway bridge stated
         "underpasses": list(sstats.underpasses),
         # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNELS
-        "channels": [{"id": c.id, "ways": list(c.ways), "witnesses": list(c.witnesses),
+        "channels": [{"id": c.id, "ways": list(c.ways),
+                      # the JOIN identity (owner addendum 2026-09-15): the
+                      # feeds' negative ids collide, so a reader comparing
+                      # `ways` across passes compares the wrong thing
+                      "way_keys": [list(k) for k in c.way_keys],
+                      "witnesses": list(c.witnesses),
                       "datum_source": c.datum_source, "crest": c.crest,
                       "bank_slope": c.bank_slope, "ends": list(c.ends),
                       "decks": [{"ref": d.ref, "way": d.way, "s0": d.s0, "s1": d.s1,

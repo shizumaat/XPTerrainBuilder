@@ -56,7 +56,8 @@ from . import obj8 as _obj8
 __all__ = ["ObjectCut", "SHELL", "CRESTED", "THIN", "shell_reading", "read_shells",
            "thin_bands", "band_pair", "band_pairs", "wall_polyline",
            "chord_error_m", "cut_placement_ids", "ObjectCutStats",
-           "valid_polygon", "largest_polygon"]
+           "valid_polygon", "largest_polygon", "placement_key",
+           "placement_order"]
 
 #: The three signatures, by name (the record's ``signature`` field).
 CRESTED, SHELL, THIN = "A", "B", "C"
@@ -411,6 +412,36 @@ def _cover_stations(geom: _obj8.ObjGeometry, axis: LineString, mat, law
                  for k, y in sorted(lo.items()))
 
 
+def placement_key(o: _obj8.PlacedObject) -> tuple:
+    """A TOTAL ORDER over placements that is INTRINSIC to the placement —
+    its resource, its plan position, its heading, its id — and therefore
+    independent of the order the DSF rows were READ in.
+
+    THE ONE DERIVATION SITE for every object reader's placement order
+    (lane ``v2othhdet``).  Every reader that labels a corridor
+    ``<resource>@k`` used to take ``k`` from the INPUT position, so the
+    same id named a different placement whenever the read order moved (a
+    pack rebake, a re-dump, a split renaming — 14av): measured on the
+    signature fixture, six of eight shuffles re-bound
+    ``tunnel-object:wall_long.obj@0`` to another placement while the
+    corridor SET stayed identical.  An id that is not a function of the
+    geometry cannot join two arms.  The cover search in ``read_shells``
+    takes the largest plate with a strict ``>``, so its TIE-break was
+    input order too; one sorted intake fixes both.
+
+    ``xy`` and ``heading_deg`` are rounded to 1 mm / 1 mdeg so a float
+    that differs in its last bit between two builds cannot reorder the
+    labels; ``id`` breaks a genuine coincident-placement tie."""
+    return (str(o.path), round(float(o.xy[0]), 3), round(float(o.xy[1]), 3),
+            round(float(o.heading_deg), 3), str(o.id))
+
+
+def placement_order(objects: _t.Sequence[_obj8.PlacedObject]
+                    ) -> list[_obj8.PlacedObject]:
+    """``objects`` in ``placement_key`` order (see it for why)."""
+    return sorted(objects, key=placement_key)
+
+
 def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
                 cache: _obj8.ResourceCache, law,
                 taken: _t.AbstractSet[str] = frozenset()
@@ -427,7 +458,9 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
     covers: dict[str, tuple[object | None, float]] = {}
     counts: dict[str, int] = {}
     placed: list[_obj8.PlacedObject] = []
-    for o in objects:
+    # THE INTAKE IS SORTED (``placement_key``): ``k`` below and the cover
+    # search's largest-plate tie-break both read this list's order.
+    for o in placement_order(objects):
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
             continue
         counts[o.path] = counts.get(o.path, 0) + 1
@@ -513,9 +546,12 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
                              place(cover), sts, tuple(notes)))
         stats.shells += 1
         stats.covers_paired += 1
-    for path, r in readings.items():
+    for path, r in sorted(readings.items()):
         if isinstance(r, str):
             stats.refused.append(f"{_base(path)} x{counts.get(path, 1)}: {r}")
+    # the report is order-free too: a refusal LIST whose order depends on
+    # the read order cannot be diffed between two arms (lane v2othhdet)
+    stats.refused.sort()
     out.sort(key=lambda c: c.id)
     stats.claimed = len({c.object_id for c in out})
     stats.read_s = _time.perf_counter() - t0

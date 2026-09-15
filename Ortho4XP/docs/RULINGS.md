@@ -7933,3 +7933,175 @@ refreshes done today. The two LEMD decks lost by the deck rule
 (`-5305`, `-15293`) are NOT in 1.0.341 (they still hold their
 trenches there) — a 1.0.342 item.
 15ax addendum: suite ON MAIN after the v2vmmcshore r7 merge (347c4552): 1652 passed, 1 skipped, 42 warnings in 66.05s (0:01:06).
+
+## 2026-09-15az v2lemdstruct2 r4+r5 MERGED (1da0faeb): r4's 5.687 m "runway movement" was a CROSS-TREE comparison (main moved between the arms); on one tree/one capture/one variable the one-way-feet flip costs `within_shape` +62 and gains airside ADJUDICATED −112, motion 7 → 5, the owner's raw pair 4.313 → 1.529 % (1.542 % in a real build); the moving "runway" vertices sit on a §40 SHOULDER cell of 111,648 m² reaching 914 m off the centreline — RULED §40 (5): a shoulder is a band, the runway role ends at the strip, every runway vertex carries a level, `runway_step` DEFECT
+
+Lane @ 1da0faeb; suite 1,658 passed, 0 FAILED. Matched pair (flip
+OFF/ON): verify 1,711 → 1,554, ADJUDICATED 1,505 → 1,393 (airside 1,370
+→ 1,258), motion 7 → 5; the 0.95 m `mid_edge_step`, the 18 `ramp_in_
+strip` rows and the 20 cliffs are on BOTH arms (r4 charged them to the
+flip — withdrawn); the flip's price `within_shape` 3,497 → 3,559,
+`strip_transverse` worst 13.86 → 17.70 m. `--why-vertex` v902 (the
+worst mover): only `foot_rows` bind (dual 48,669), "no terminal
+reached — the objective holds it", on BOTH arms; the pressure solve
+moves it 10.265 m. v902/v906/v940 are 452–496 m from 14R/32L's ridge on
+face 5 = cell 15 `runway_shoulder` 111,648 m² (276/306 vertices beyond
+the 30.5 m half-width). `runway_transverse` is the crown reading and
+cannot see a step 490 m off-axis; no `runway_step` was added (it
+would endorse the role it should dispute). Closing build (`--tile
+40 -4` — a TILE build, run before the 15av order reached this lane;
+the LEMD pack's newest dump is 07:23, no pack file newer than 12:00 —
+no rebake write observed; the lane asked to confirm): rc 0, 980 s,
+`shared repo UNCHANGED`; the owner's raw pair 0.280 m / 18.16 m =
+1.542 %; item 5 5.07 m; item 7 rim 31.06 m; 3 mouth roads. RULED §40
+(5) (consumer census first, then the classifier cut): the shoulder
+band, the runway ref dropped beyond the strip, level rows across the
+band, `runway_step`. Memory rule re-founded by this round: cross-tree
+comparisons are not evidence (14bk, r4) — a lane's before/after must
+be one tree, one capture, one variable, registers asserted per arm.
+
+## 2026-09-15bb LANE TILE BUILDS WROTE THE OWNER'S X-PLANE INSTALL: VHHH (v2vmmcshore r4 tile, +22+113.dsf 11:49:11 + provenance) and LEMD (v2lemdstruct2 r5 tile, +40-004.dsf 12:21:43 + provenance + 2,694 split-body .obj files) — the engine's rebake_after_mesh convention run by a lane; originals preserved as .anchor_bak (+40-004.dsf.anchor_bak 2026-08-26; +22+113.dsf.anchor_bak; 322 LEMD .obj.anchor_bak); the harness's "shared repo UNCHANGED" snapshot covers the DATA repo only — the install was never in its scope. Restore = the owner's decision (destructive on the install); NO lane --tile builds stands (15av). Suite on main after the v2lemdstruct2 r4+r5 merge (78b745b4): 1658 passed, 1 skipped, 42 warnings in 119.41s (0:01:59)
+
+Lane v2lemdstruct2's own words: "[v2 placement] LEMD: 0/322 object(s)
+restored from .anchor_bak … 323 split into 2695 body file(s) … DSF
+rewritten (backup +40-004.dsf.anchor_bak, round trip ok), dump cache
+refreshed … [v2 rebake] pack Aerosoft - LEMD Madrid - 1 - Airport was
+modified"; log mtime 12:21:44 = the build's exit. The shared mod cache
+is clean at LEMD (newest dump 07:23). At VHHH the install DSF and the
+mod-cache dump (15av) both date from the v2vmmcshore tile. The 2,694
+LEMD bodies are ADDED files (`…__b37_bce09652.obj`), not overwrites;
+the pack holds 3,501 .obj of which 2,694 are the lane's. Clean revert:
+restore +40-004.dsf and the 322 objects from .anchor_bak, delete the
+`*__b*_*.obj` bodies and o4_placement_provenance.json (same at VHHH).
+The owner's own app build rebakes the pack anyway from its plan (that
+is the shipping convention), so a restore is about the owner testing
+1.0.341 on a pack that carries a lane's r5 rebake rather than the
+app's. The peer's v2schemarefuse r4 (running) makes the harness tile
+path lane-local for the object stage and refuses install writes.
+
+## 2026-09-15ao v2schemarefuse ROUND 4 MERGED (6f6c28ed): a lane's harness build NEVER writes the owner's X-Plane install — pack writes STAND DOWN (measure-only), a Python write under `Custom Scenery/` refuses outside the new `pack_rebake` scope, and every pack a tile build reads is under the before/after snapshot
+
+The defect (15av/15bb): two lane TILE builds rewrote the owner's live
+packs — v2vmmcshore4tile → the VHHH pack's +22+113.dsf (11:49:11, 6,390
+placements) and v2lemdstruct2 r5 `--tile 40 -4` → the Aerosoft LEMD
+pack's +40-004.dsf (12:21:43) + o4_placement_provenance.json + 2,694
+split-body .obj files — through `rebake_after_mesh` →
+`engine_v2._place_objects` → `placement_write.apply_plan`, whose
+`allow_live_install` is a CONSTANT True (the engine cannot tell an app
+run from a lane's), and both runs reported "shared repo UNCHANGED"
+because the snapshot never covered the install. ATTRIBUTED and pinned as
+a twin: the write half is reachable ONLY from the tile path
+(`O4_Mesh_Utils.build_mesh` → `rebake_after_mesh`); the v2 airport
+pipeline writes `<out>/<ICAO>.rebake.json` and nothing else. THREE
+HALVES (lane `v2schemarefuse` r4, 6cb7cbf2): (a) `O4_PACK_WRITES=
+measure_only` — set by `redirect_engine_caches` for every lane build
+(env, inherited by subprocesses), cleared under `--refresh-data
+pack_rebake`, recorded in frame.json: the engine's OWN measure-only path
+builds, classifies and reports the placement plan and only the writes
+stand down; the app sets nothing and writes as before. DEVIATION,
+accepted by the session: the brief asked for a lane-local MIRROR of the
+pack; measure-only ships instead — a mirror is GB-scale per build and an
+empty mirror has no `.anchor_bak` files, so `restore_pack_objects` would
+restore 0 and silently change the measurement. (b) `SharedRepoWriteGuard
+(install_roots=…)`, an explicit root: `Custom Scenery/<pack>/…` maps to
+the new `pack_rebake` scope; anything else in the install is
+unauthorisable (CIFP, Global Scenery); a subprocess write without an
+`os.replace` is structurally invisible — (a) and (c) cover it. (c)
+`pack_roots_for_tile` + `install_snapshot`: every pack carrying the tile
+(the WHOLE pack — split bodies land at the plan's resource paths) joins
+the before/after walk in `build_airport` AND `run_tile_mesh_only` (the
+one caller of `rebake_after_mesh`); 108 k files over 18 packs at
++22+113 in 2.1 s cold / 0.13 s warm. Suite ON MAIN: `1698 passed, 1
+skipped`, 0 failed. NOT DONE: `pack_rebake` install entries are counted
+and named in the ledger but not hash-stamped (`record_refresh` hashes
+repo-relative paths); no end-to-end tile build (that is the act under
+investigation) — the next lane tile build must print `pack writes STOOD
+DOWN` and a pack count in its snapshot line, and that print is its
+proof. The `.anchor_bak` restore of the VHHH and LEMD packs is the
+owner's decision (asked by the other session). Lane tile builds may
+resume after this merge.
+
+## 2026-09-15bd The tile-path pack-write guard PROVED end to end (peer's v2schemarefuse r4, 6f6c28ed / 15ao): `build_airport.py CYXY --tile 60 -136 --no-ledger` on main ba47b52d prints "pack writes STOOD DOWN (O4_PACK_WRITES=measure_only) … writes NO file into the owner's X-Plane install" and "shared-repo snapshot: 103289 file(s) across 7 data dir(s) and 15 X-Plane pack(s) carrying this tile"; the CYXY install DSF untouched (Jul 8) — the lane tile ban (15av) is LIFTED for lanes on main ≥ 6f6c28ed. The build itself exited rc 1 on an unrelated, correctly refused DEM write (CYXY's inset index; `--refresh-data dem` is the owner's act) and its tile step stood down (no per-tile cfg, 2026-08-31d)
+
+The proof is of the object stage's stand-down and the install's
+presence in the before/after snapshot, not of a completed tile
+(imagery stands down for a tile without a per-tile cfg). A fuller
+proof wants a tile with a current DEM index and a per-tile cfg. Known
+limit (peer): `pack_rebake` install entries are ledgered but not
+hash-stamped. The LEMD/VHHH install packs still carry the two lane
+rebakes (15bb) until the owner says restore.
+
+## 2026-09-15bf The tile-path guard PROVED THROUGH rebake_after_mesh at LEMD (main ba47b52d): `build_airport.py LEMD --tile 40 -4 --no-ledger` rc 0, 748.1 s; the install DSF byte-identical before/after (mtime 12:21:43, sha256 6bf37ff1…e1f8); "[v2 placement] LEMD: MEASURE ONLY — 0 conversion(s), 323 split(s) into 2710 body file(s), 4 kept; nothing written"; no `[v2 rebake]` write line; "shared repo UNCHANGED"
+
+The lane tile ban (15av) is lifted for lanes on main ≥ 6f6c28ed (peer's
+v2schemarefuse r4 / 15ao): the object stage measures, the install and
+the packs are in the snapshot, install writes refuse outside the
+`pack_rebake` scope. The LEMD and VHHH install packs still carry the
+two earlier lane rebakes (15bb) — the owner's restore decision stands
+open.
+
+## 2026-09-15bh v2vhhhctl (measurement, two clean airport-path builds, frames registered): the VHHH census rise is ONE mechanism — v2objcut r3's two hairpin trenches (TUNNEL2_DONE 1,110 m, tunnel5 413 m) pull the connected airside down up to 6.5 m (LAW-TRUE 1,531 → 4,845, ADJUDICATED 121 → 1,472; the sea wall 4 → 4 identical) — a 1.0.341 REGRESSION at VHHH → RULED §33 (6) B AMENDED: a shell's trench is WALLED (rim at the surface, vertical walls, floor inside); lane v2shellwall; owner notified
+
+Control f912ba81 (VHHH_20260915T120714, 1,108.6 s, body 8c8ef471eaab)
+→ arm 118d2c40 (VHHH_20260915T122604, 1,182.9 s, body 38e3a2678b5c =
+r3's closing build bit for bit), both `shared repo UNCHANGED`, both in
+the artifact ledger; `git log --first-parent` between them = ONE
+source merge (d94db789). Numbers in §33 (6) B AMENDED. Row join: EXACT
+1,287 / MOVED 0 / GONE 244 / NEW 3,558; 3,084 of the NEW within 500 m
+of TUNNEL2. The brief's premise (the sea wall would dominate) REFUTED
+by the numbers. Cockpit: CRITICAL motion 0 → 1 (the 0.670 m
+`object_cut_offset` cliff at 22.3080218,113.9225398), visual +67 (all
+unmeshable hairline). The shells themselves: `object_cut_depth` 0
+rows; offsets 0 bar TUNNEL2's four (0.897/0.842/0.812/0.670). The
+lane's worktree taken down; frames committed. The owner (testing
+1.0.341) push-notified: VHHH near the tunnels is a known regression;
+LEMD/VMMC reads valid.
+
+## 2026-09-15bj v2othhdet (24f60ca1) MERGED: the OTHH "nondeterminism" (15ar) was NOT the reader — the session's own OTHH road-layer refresh (11:45:43) landed between v2objcut's base runs e0 (11:39:00, stale feed: bores 8, 7/42) and e2 (11:45:23, refreshed: bores 16, 9/44); six runs on one corpus are identical on every non-timing key (a structures.json sha is never a determinism instrument — it embeds wall clocks). Two real fixes beside it: corridor ids were input-ORDER keyed (6 of 8 shuffles re-bound `@0`) → `object_cut.placement_key` (resource, xy 1 mm, heading, id); the dry replay now REFUSES a schema-stale road feed by name (as build_airport does), gated on the production frame. Two live gaps named: `read_wall_corridors` IS read-order dependent at OTHH (sorting → 73 → 75 corridors, different pairs — the band-pair choice needs a ruling; xfail placeholder); `airport_small_roads` is never schema-invalidated (`O4_Vector_Map._airport_auto_roads_layer`, no `cache_schema`) — §45 (9)'s depth witnesses are still dropped for every airport's service roads (the peer's chip task_7e4c5a02)
+
+Suite on the lane 1,672 passed / 1 xpassed, 0 FAILED. Dry pairs base
+118d2c40 → lane: OTHH byte-identical ignoring id (the one change:
+`tunnel-object:tunnel1.obj@0` ↔ `@1` swap placements 14051/14052 —
+14av's pair, two id strings, no geometry); LEMD and VHHH byte-identical
+(refusal lists sorted). 8 twins (`test_v2othhdet.py`; the shuffle twins
+FAIL pre-fix). Corpus: of 26 cached `big_roads` feeds the six campaign
+tiles carry 2026-09-15, the other 20 carry 2026-07-16 and now refuse a
+production-frame dry load until refreshed (the owner's act per tile).
+LESSON (recorded): never compare two runs across a corpus refresh —
+the refresh ledger's timestamps are part of every A/B frame.
+15bj addendum: suite ON MAIN after the v2othhdet merge: 1672 passed, 1 skipped, 1 xpassed, 42 warnings in 41.41s.
+
+## 2026-09-15aq OWNER INTERVIEW (eight answers): the refreshes are this session's act; both packs RESTORED from `.anchor_bak`; no stale-OSM override; capability-free negatives re-probed once per app version; feed tags stay; §45 ships ON after KDFW/KPHX replay clean; measure-only accepted; C9/C12 after the reads — and the LEMD tile proof of 15ao
+
+Owner 2026-09-15 ("Interview me to resolve open questions"), answers
+with the data beside them: (1) "Yes, run all three now" — the LGAV
+osm_layers, KDFW osm_layers + the +32-097 neighbour's osm_layers,dem,
+and KPHX osm_layers,airport_mod_cache,dem --warm-insets refreshes are
+THIS session's authorised act (ledgered as they run). (2) "Restore both
+from .anchor_bak now" — DONE: `restore_pack_objects(allow_live_install=
+True, dsf_path=…)` then the authored DSF copied back over the bake and
+`o4_placement_provenance.json` removed: LEMD (322 object backups, the
+2,694 split bodies removed, live DSF sha 747ee558… = backup), VHHH (41
+backups, 606 bodies removed, sha 7fbeaa79… = backup); the next app build
+re-bakes both as every app build does. (3) "No override; refresh per
+tile" — stale-vs-fresh arms are not comparable; no `--allow-stale-osm`.
+(4) "Re-probe once per app version" — a capability-free provider's
+`no-coverage` is re-asked once per engine version (one TNM query per
+airport per version); lane `v2insetreprobe`; clears the 20 Phoenix
+records on the next 1.0.341 build. (5) "Leave it for now" — the
+per-airport feed's `_ROAD_FEED_WAY_TAGS` stays (it carries `layer`).
+(6) "ON everywhere once KDFW/KPHX replay clean" — v2channel merges after
+round 5 + the two refreshed replays; the owner's LGAV/KDFW/KPHX reads
+adjudicate. (7) "Accept measure-only" for lane tile builds (15ao's
+deviation ratified). (8) "After your LGAV/KDFW reads" — C9 (§19
+structure edge) and C12 (`road_profile._osm_levelled`) open a round only
+if the reads show the rim or the road wrong. ALSO RECORDED: the 15ao
+end-to-end proof by the concurrent session (its 15bf): `build_airport.py
+LEMD --tile 40 -4 --no-ledger` rc 0, 748 s — the pack DSF byte-identical
+before/after (sha 6bf37ff1…, mtime 12:21:43 both), `[v2 placement] LEMD:
+MEASURE ONLY — 0 conversion(s), 323 split(s) into 2710 body file(s), 4
+kept; nothing written`, no `[v2 rebake]` write line, shared repo
+UNCHANGED. And from the concurrent session (15bj): `airport_small_roads`
+is never schema-invalidated (chip task_7e4c5a02, running in the owner's
+session); 20 of 26 cached big_roads feeds still carry 2026-07-16 and now
+refuse a production-frame dry load too.

@@ -14076,6 +14076,142 @@ measure the crossfall; if the raw pair then binds and the site reads
 ≤ 1.985 %, done; if `no_step_pairs` bind next, name them and stop —
 the residual joins 15y-1 for the owner.
 
+### §34 (13) (3) (a) **MEASURED — r4** (lane `v2lemdstruct2`, branch `claude/v2lemdstruct2`, base main `848bf35e`)
+
+Same registered LEMD capture, matched `v2_solve_replay` arms, harness
+census on each `--emit`.  **NO BUILD** — the refresh ledger's last
+`osm_layers` entry is still **2026-09-08T11:33:30 (SPJC)**.  Suite
+**1,638 passed / 1 skipped / 0 FAILED**.
+
+#### (a) THE 14 OBJECTS, NAMED — THEY ARE TWO BODIES OF ONE PLACEMENT
+
+`foot_targets` on the capture: **8 foot targets touch v6622, from exactly
+2 bodies** (the 14 the `--why-vertex` dual named are the binding subset of
+their 16 one-sided rows).
+
+| body | span | feet | verdict | target z | DEM under it | relief | `y_zero` | anchor |
+|---|---|---|---|---|---|---|---|---|
+| `LEMD_OBJ-Airport_Munoza-LEMD69#b2` | **2.232 m** | 4 | `bare` | 577.02 | 577.01–577.03 | 0.001 m | −1.198 | 40.4609886,−3.5450515 |
+| `LEMD_OBJ-Airport_Munoza-LEMD69#b4` | **2.231 m** | 4 | `bare` | 576.85 | 576.80–576.91 | 0.001 m | −1.200 | 40.4609892,−3.5449556 |
+
+**RESOURCE / CLASS.**  One pack placement, `Airport_Munoza` /
+`LEMD69.obj`, cut by §6 into **27 rigid bodies** — b1…b22 and b24/b25 are
+all **2.23 m** square with 4 feet, relief 0.001 m and `y_zero` −1.18…−1.21,
+strung down the taxiway edge; b0 is the 28.0 m run and b23 the 71.3 m one
+with 140 feet.  That signature — a 2.2 m flat square sitting 1.2 m under
+its own origin, repeated in a line along a kerb — is the taxiway's own
+**edge furniture** (sign boards / guidance panels on their plinths), and
+b2 and b4 are two of them.
+
+**ITS OWN GROUND, and why the row reaches AIRSIDE.**  Every one of the 8
+feet stands on `graded_strip` — none on pavement — and the bodies sit on
+their DEM to the centimetre (`fit_residual` 0.010 / 0.112 m).  The row
+reaches the junction because a foot row is stated over the TRIANGLE the
+foot stands in, and the graded strip SHARES its kerb vertices with the
+junction it borders: **one node, one value** (09-01g).  v6622 carries
+`graded_strip#94` AND `junction#86`, so two pieces of taxiway furniture
+standing on the verge were holding a taxiway junction's crossfall through
+a shared kerb column — the heaviest family on the vertex, `sum |dual|`
+**42,656**, an order of magnitude over everything else.
+
+**WHAT LANDED.**  `constraints/foot_rows.foot_rows`: a foot row whose
+triangle touches an AIRSIDE VALUE ROLE keeps every term and sets
+`follows` to its BARE-GROUND columns — the pavement's are GIVEN.  The
+head `structures.placement foot_row` is registered in `[design]
+one_way_rulings` beside its existing `foot_row_rulings` price entry.  A
+triangle with NO free column stays two-sided (11x (1): all or nothing per
+body).  `STATS["foot_rows"]["one_way_at_airside"]` reports the count —
+**LEMD 184**, **HECA 3**.
+
+**THE SCOPE IS THE RULING'S, AND THE NARROWING WAS MEASURED AND
+REJECTED.**  Excluding the runway family (taxi + apron only) halves the
+runway movement but never reaches zero and LOSES the law:
+
+| scope | owner's raw pair | runway vertices moved > 0.02 m | worst |
+|---|---|---|---|
+| every airside value role (RULED) | **1.160 %** | 394 | 5.086 m |
+| taxi family + apron only | **2.585 %** (over the 1.985 % cap) | 196 | 3.277 m |
+
+#### (b) THE `junction_mesh` ROW — DISSOLVED BY (a), NOT EDITED
+
+`--why-vertex 6622` after (a): `junction_mesh` **1 row, sum |dual| 0.07**
+— it holds nothing, and its far end is v904/v903, both `junction#86` +
+`runway#5`, not a DEM-held zone vertex.  The premise of (b) was r3's
+measurement of a sheet the feet were distorting; with the feet one-way it
+is gone.  **No change was made to the 04y mesh population**, because
+rewriting a triangulation edge to a different pair on the strength of a
+dissolved symptom is the opposite of mechanism-before-fix.  What binds
+v6622 now: `foot_rows` 8 (26,950, still in the row as GIVEN terms),
+`rim_level` 1 (117), `junction_mesh` 1 (**0.07**); the chain runs 6 hops
+to the F-6 trench's own pinned ramp top.
+
+#### (c) THE CROSSFALL, RE-MEASURED — BAR MET; THE RUNWAY MOVED, AND IT IS THE PRICE
+
+Read BY COORDINATE on the two closing planar arms (the vertex ids differ:
+the mouth-road cells renumber the map).
+
+| | r3 closing (`c6`) | r4 closing (`d5`) |
+|---|---|---|
+| contact vertex at 40.4611623,−3.5444804 | 579.068 | 582.586 |
+| the junction's far edge, 18.12 m out | 579.850 | 582.309 |
+| **THE RAW PAIR** | **4.313 %** | **1.529 %** — **MET** (junction cap 1.985 %) |
+| census rows within 20 m of the owner's point | 8 | **0** |
+| the row that binds | — | none at the site; the pair is inside its cap and the census prices nothing there |
+
+| census family | r3 (`c6`) | r4 (`d5`) |
+|---|---|---|
+| `transverse` | 98 | **90** |
+| `airside_no_step` | 460 | **377** |
+| `taxi_box` | 171 | **163** |
+| `within_shape` | 3,415 | **3,585** |
+| `strip_transverse` (worst) | 81 (13.864 m) | **89 (17.700 m)** |
+| `ramp_in_strip` | 8 | **18** |
+| LAW-TRUE / ADJUDICATED | 5,692 / 1,344 | 5,791 / **1,357** (airside 1,251 → 1,215) |
+| CRITICAL motion | 4 | **6** |
+| CRITICAL visual (cliffs) | 1,438 (10) | 1,456 (**20**) |
+| v2 verify rows | 1,564 | **1,547**; DEFECT families ALL ZERO, solve optimal |
+
+**THE RUNWAY-IMMOBILITY BAR IS NOT MET AND CANNOT BE BY THIS MECHANISM.**
+Joined by identity key over 4,031 shared runway-family vertices,
+**354 moved more than 0.02 m, worst 5.687 m**, 8 of them over 2 m — all
+at the F-6 crossing.  That is not a one-way leak: the feet WERE holding
+the runway, so removing a hold necessarily moves what it wrongly held,
+and even the taxi-only narrowing leaves 196 moving.  The knock-on is
+named: `ramp_in_strip` 8 → 18, `strip_transverse` worst 13.864 → 17.700 m,
+cliffs 10 → 20, and a **new `mid_edge_step` 0.950 m over 1 m between two
+RUNWAY faces at 40.4613609,−3.5446852** — a welded step on rolled-on
+pavement, the kind of row the pilot feels, at the owner's own site.
+Against that: the crossfall is fixed, airside ADJUDICATED falls 1,251 →
+1,215, `airside_no_step` 460 → 377 and the site prices nothing.  **The
+trade is the owner's to see beside 15y-1.**
+
+#### THE CONTROL — HECA, matched pair, ONE variable
+
+The law toggle alone (`one_way_rulings` entry in / out), one tree, one
+capture (`HECA.off3.pkl`).  Only **3 of HECA's 4 foot targets** touch
+airside pavement, and the change is nearly inert:
+
+| | flip OFF | flip ON |
+|---|---|---|
+| v2 verify rows | 30,459 | **30,500** (+41, +0.13 %) |
+| `airside_no_step` | 7,794 | 7,823 |
+| runway-family vertices moved > 0.02 m | — | **8 of 3,753**, worst **0.064 m** |
+| whole surface max \|off − on\| | — | **0.822 m**, 2 vertices over 0.5 m |
+
+LEMD's 5 m is therefore a SITE property — two bodies of edge furniture on
+a junction↔runway contact — not the law's general cost.
+
+#### A DEFECT THIS ROUND MADE AND CAUGHT, RECORDED
+
+Disarming the flip for the HECA control by deleting every line matching
+the head's prefix deleted the `foot_row_rulings` entry as well, which
+silently re-priced **every foot row in the tree** from `pad_flat` (3000)
+to `law` (3).  The four §11b twins caught it; the first HECA control arm
+was run under it and was DISCARDED and re-run with a single-variable
+toggle.  `tests/test_harness.py::test_the_foot_row_head_is_in_both_
+registers` now twins the two registers apart — `conforming_rulings` is
+their union and so could never have been the guard.
+
 ### §45 (13)(d) A BASIN'S OWN SHELL IS NEVER A CHANNEL'S WALL (Fable 2026-09-15; RULINGS 2026-09-15ac) — lane `v2channel` round 5
 
 Round 4 (90708ba1): OTHH / HECA / KCLT / CYXY / SPJC byte-identical, LGAV's one channel
@@ -14091,6 +14227,158 @@ shell (its rim tops out at grade, §24 (1)) and is NEVER a channel's (1)(c) witn
 channel left without a depth witness then faces (13)(c) (LEMD's `channel:5`: neck + one
 deck → refused). BAR: the six dry replays byte-identical in `Tunnel` AND `Basin` records
 (LEMD basins 1 → 1); LGAV unchanged; the suite; then the merge.
+
+### §34 (13) (3) **MEASURED — r5: WHAT HOLDS 14R/32L THERE, AND THE ANSWER IS THAT IT IS NOT 14R/32L** (lane `v2lemdstruct2`, base main `d803147a`)
+
+#### 0. THE FRAME r4 GOT WRONG, AND THE CORRECTION
+
+r4's runway figures compared `c6` (r3's closing arm) with `d5` (r4's) —
+and **main moved between them** (`v2vmmcshore` added
+`planar/structure_service.py`, `v2objcut` landed).  That is a cross-tree
+comparison and it is not evidence (memory
+``cross-tree-comparisons-are-not-evidence``).  r5 rebuilt the pair on ONE
+tree, ONE capture, ONE variable — the `emit.toml one_way_rulings` entry
+for `structures.placement foot_row`, in and out, registers asserted
+before each arm:
+
+| | flip OFF (`e_off`) | flip ON (`e_on`) |
+|---|---|---|
+| solve | optimal 188.1 s | optimal 174.3 s |
+| v2 verify rows | 1,711 | **1,554** |
+| census LAW-TRUE / ADJUDICATED | 5,782 / 1,505 | **5,712 / 1,393** (airside 1,370 → **1,258**) |
+| CRITICAL motion | **7** | **5** |
+| CRITICAL visual (cliffs) | 1,456 (**20**) | 1,456 (**20**) |
+| `mid_edge_step` | **2, worst 0.950 m** | **2, worst 0.950 m** |
+| `ramp_in_strip` | **18** | **18** |
+| `airside_no_step` | 452 | **357** |
+| `taxi_box` | 152 | **130** |
+| `transverse` | 98 | **90** |
+| `strip_arc` | 9 | **4** |
+| `within_shape` | 3,497 | 3,559 |
+| `strip_transverse` (worst) | 90 (13.864 m) | 89 (**17.700 m**) |
+| the owner's raw pair | **4.313 %** | **1.529 %** |
+
+**THE 0.950 m STEP, THE 18 `ramp_in_strip` ROWS AND THE 20 CLIFFS ARE ON
+BOTH ARMS.**  r4 reported them as the flip's cost; on a matched pair they
+are not.  The flip's real price is `within_shape` +62, `strip_transverse`
+worst 13.864 → 17.700 m and `raoa` 1 → 2; its gains are CRITICAL motion
+7 → 5, airside ADJUDICATED −112, `airside_no_step` −95, `taxi_box` −22,
+`transverse` −8, `strip_arc` −5 and the crossfall.  **Net the flip is
+clearly positive**, and the case for holding r4 was built on a frame
+error this round corrects.
+
+Runway movement, same matched pair: **319 of 4,042 runway-family
+vertices move more than 0.02 m, worst 5.687 m** (r4's 354 / 5.687 m was
+the right magnitude by luck).  That number is real and §1 explains it.
+
+#### 1. `--why-vertex` ON THE WORST MOVER — THE SAME ANSWER ON BOTH ARMS
+
+v902 (40.4610273,−3.5449992), the worst mover, 576.631 → 582.319:
+
+    e_off: binding rows on v902 by family — foot_rows 9, sum|dual| 48,669
+           chain trace: no terminal reached — the objective holds it
+    e_on : binding rows on v902 by family — foot_rows 9, sum|dual| 48,669
+           chain trace: no terminal reached — the objective holds it
+
+**On BOTH arms the ONLY family binding it is `foot_rows`, and on both the
+chain reaches no terminal.**  No §29 profile row, no CIFP threshold pin,
+no lateral-band row, no `runway_crown`, no `runway_transverse`, no
+longitudinal cap binds that vertex on either arm.  (On the OFF arm the
+pressure solve moves the surface by up to **10.265 m** — the OFF
+solution is nowhere near the pressure solution, which is itself the
+signature of a sheet held by weights rather than constraints.)
+
+#### 2. WHY — THE VERTEX IS NOT ON THE RUNWAY
+
+Generator coverage of the 4,033 runway-family vertices, counted offline
+on the capture:
+
+| generator | vertices covered |
+|---|---|
+| `runway_crown` / `runway_transverse` | 3,950 |
+| `runway_within_shape` | 3,720 |
+| **`runway_profile` / `runway_vertical_curve`** | **1,421** |
+
+`runway_profile` and the CIFP threshold pins are the ONLY rows that give
+a runway vertex a LEVEL; everything else bounds a DIFFERENCE.  Their
+population is `ridge_chains` — the `runway_profile` BREAKLINE, i.e. the
+centreline.  And the centreline is perfect: **14R/32L is ONE chain, 365
+vertices, carrying its threshold pins, and it moved at most 0.059 m
+between the two arms.**  All four LEMD runways are one intact pinned
+chain each.
+
+So where is v902?  Measured assumption-free as the distance to the
+nearest 14R/32L ridge vertex:
+
+| vertex | distance to the 14R/32L RIDGE | roles |
+|---|---|---|
+| v902 | **451.6 m** | `graded_strip` + `runway` |
+| v903 | 453.9 m | `graded_strip` + `junction` + `runway` |
+| v906 (the owner's own point) | **495.8 m** | `junction` + `runway` |
+| v940 (a face of the 0.95 m step) | 491.8 m | `runway` |
+
+14R/32L is **61.1 m** wide — a half-width of 30.5 m.  These vertices are
+**fifteen times** that off its centreline, and they all sit on ONE face:
+
+| face | ring | area | lateral offset from the ridge (min / median / max) | beyond the 30.5 m half-width |
+|---|---|---|---|---|
+| 0 | 538 | 133,118 m² | 0.0 / 0.0 / **30.9 m** | 115 of 538 |
+| 7 | 555 | 133,106 m² | 0.0 / 0.0 / **31.0 m** | 118 of 555 |
+| **5** | 306 | **111,308 m²** | 30.2 / **58.1** / **914.3 m** | **276 of 306** |
+
+Faces 0 and 7 are the runway.  **Face 5 is not**, and the classification
+says what it is: **cell 15, `kind = runway_shoulder`, 111,648 m², code
+4/F** — a §40 (1) SHOULDER, admitted as a runway cell with the runway's
+ref, code number and code letter.
+
+**THE MECHANISM, STATED PLAINLY.**  14R/32L's level at that station is
+derived from NEITHER the runway's own law nor honestly from neighbours:
+the station is not on the runway.  A 111,648 m² §40 (1) shoulder reaching
+**914 m** from the centreline carries the runway's role, ref and code, so
+`runway_crown` and `runway_transverse` are minted over it — but those
+price a CROWN across a 30.5 m half-width, and over 58–914 m they bound
+nothing a five-metre move could violate (which is why the DEFECT families
+read ALL ZERO on both arms throughout r3, r4 and r5).  `runway_profile`
+never reaches it.  The shoulder's level was therefore held by the
+objective, and — until r4 — by two object feet: `LEMD_OBJ-Airport_
+Munoza-LEMD69` b2 and b4.
+
+#### 3. WHY TWO "RUNWAY FACES" STEP 0.95 m OVER 1 m WITHOUT A DEFECT
+
+`runway_transverse` IS the DEFECT family that would price it, and it is
+the CROWN reading: a pair judged against the runway's own axis and half
+width.  A pair 490 m off-axis is not a crown pair, so the family never
+sees it, and no other DEFECT family prices a step between two faces of
+one role.  The census sees it only as `mid_edge_step` — a geometric
+within-face welded step with no axis notion — and the cockpit block
+classes it a CLIFF because it is steeper than the design surface's own
+bank.  Both rows are REPORT, not DEFECT.
+
+**A `runway_step` DEFECT FAMILY WAS NOT ADDED, and that is deliberate.**
+On this geometry it would fire on 111,648 m² that is not a runway, making
+the instrument agree with a role it should be disputing.  The family is
+worth having — but after the role is right, not instead of it.
+
+#### 4. THE FIX IS NOT AT THE RUNWAY LAW'S DERIVATION SITE
+
+15an asked for it there ("the runway holds itself: its profile/threshold
+rows must be present and binding at every runway vertex incl. shared
+kerb nodes").  The measurement says the runway already holds itself
+perfectly — one pinned chain per runway, ≤ 0.059 m of movement — and that
+extending `runway_profile`'s level rows to "every runway vertex" would
+spread the runway's own profile law across a **111,648 m²** shoulder
+lobe reaching 914 m off the centreline.  That is a §40 question (what a
+shoulder is, and whether a shoulder 914 m from its runway is one at all),
+it lives in `classify/roles` beside §40 (1)/(4), and it is the shape of
+change owner RULINGS 2026-08-30l requires a consumer census for.  This
+lane STOPS at the attribution rather than improvising it — which is what
+"mechanism before fix" is for.
+
+**What r5 recommends, with its numbers:** (i) MERGE r4 — on a matched
+pair the flip costs nothing it was held for and buys airside ADJUDICATED
+−112 and CRITICAL motion 7 → 5; (ii) open the §40 shoulder question with
+face 5's table above; (iii) add `runway_step` once a shoulder's extent is
+ruled.
 
 ## §34 (12) (4) AMENDED — A BRIDGE SEVERS THE CLIMB ONLY WHERE THE CORRIDOR IS STILL BELOW GRADE (Fable 2026-09-15; RULINGS 2026-09-15aj; lane v2vmmcshore r3 measurement) — lane `v2vmmcshore` r4
 
@@ -14415,3 +14703,96 @@ rather than a deck; both now carry a 1 m cutting under the span, bounded
 across the corridor so the abutments stand on the ordinary ground the
 comparison is against (`test_m4._PlaneDem`, `test_v2wallplate`'s
 `_Cutting`).
+
+## §40 (5) A SHOULDER IS A BAND, NOT A CELL — THE RUNWAY ROLE ENDS AT THE STRIP (Fable 2026-09-15; RULINGS 2026-09-15az; lane v2lemdstruct2 r5 measurement) — consumer census first, then the cut
+
+**The reading (LEMD, r5).**  Cell 15, `kind = runway_shoulder`, **111,648
+m²**, code 4/F, admitted under §40 (1) with the runway's role, ref and
+code: face 5 has 306 nodes with lateral offsets **30.2 / 58.1 / 914.3 m**
+(min / median / max) from 14R/32L's centreline — 276 of 306 beyond the
+30.5 m half-width — while the runway's own faces 0 and 7 stay ≤ 31.0 m.
+`runway_profile` + the threshold pins give a LEVEL to 1,421 of 4,033
+"runway-family" vertices (the centreline breakline, perfect: one chain,
+365 vertices, moved ≤ 0.059 m); the rest are held by the objective and,
+until r4, by two `LEMD69.obj` sign plinths (dual 48,669).  `runway_
+crown` / `runway_transverse` are minted over the cell but price a crown
+across 30.5 m; 490 m off-axis they bound nothing, so a **0.95 m step
+between two faces of one "runway" role** escapes every DEFECT family.
+The owner's VHHH read (14s: an 84,000 m² shoulder) is the same class.
+
+**RULED.**  (1) A runway shoulder is a BAND: pavement carrying the
+runway's ref is runway-family only within the runway's graded strip
+half-width from the centreline (`[runway] strip_half_width_m` by code —
+ICAO code 3/4: 75 m in the existing law tables; the shoulder itself
+the code's shoulder width beyond the runway edge).  (2) Pavement with
+the runway's ref BEYOND the strip is NOT runway family: the classifier
+gives it the role its geometry earns (junction / taxiway / apron by the
+existing scorer) and the runway's ref is dropped from it — it welds to
+the runway family at the strip line like any airside contact (§37
+(10)).  (3) Within the band, every runway-family vertex carries a
+LEVEL: the profile/threshold rows extend from the centreline breakline
+across the band by the crown law (`runway_crown`), so no runway-family
+vertex is ever "held by the objective".  (4) A step between two faces
+of the runway family of more than the runway's transverse cap over the
+edge length is a DEFECT: family `runway_step` in `[verify]`, materiality
+per §… the 0.10 m floor.  (5) Consumer census FIRST (owner 2026-08-30l):
+every reader of the runway role set, the shoulder kind, `runway_*`
+families, the runway strip / lateral band (§29 (7)), `ramp_in_strip`,
+`wall_in_runway_strip`, `ramp_cuts_runway_family`, the profile
+preserve, the CIFP pins — one table before the cut; the cut at the
+single derivation site in `classify/roles` beside §40 (1)/(4).
+Expected at LEMD: face 5 shrinks to the band; the ex-shoulder ground
+takes junction/apron roles with their own transverse caps (the owner's
+item-7 site then reads under the junction law it already meets, 1.542
+%); the 0.95 m step is either healed by the level rows or named as a
+`runway_step` DEFECT; VHHH's 84,000 m² shoulder shrinks likewise.
+(5) bounds (1), it does not reverse it: a cell that shares ≥ 100 m with
+the runway ring or has its centroid in the strip is STILL the runway's
+— but only the part of it within the strip half-width; the remainder
+beyond the strip keeps the role its geometry earns (HECA shape 44, 101.5
+m wide: the strip part joins 05L/23R, the rest is the apron the owner
+read it as — 13co).  Owner ruling 13co's intent ("a pavement along a
+runway is the runway's") is exactly a band beside the runway.
+
+## §33 (6) B AMENDED — A SHELL'S TRENCH IS WALLED: THE RIM STAYS AT THE SURROUNDING SURFACE, THE OBJECT'S WALLS ARE VERTICAL, AIRSIDE IS NEVER PULLED (Fable 2026-09-15; RULINGS 2026-09-15bh; lane v2vhhhctl measurement) — lane `v2shellwall`
+
+**The measurement (VHHH, matched pair f912ba81 → d94db789, one
+source merge, both builds clean).**  Cutting `TUNNEL2_DONE` (1,109.9 m,
+21.1 m wide, floor 0.777, depth 6.54 m) and `tunnel5_done` (413.2 m,
+22.8 m, floor 1.304, depth 6.01 m — the owner's site) to their authored
+floors was RIGHT at the shells (`object_cut_depth` 0 rows; offsets 0
+bar TUNNEL2's four) and WRONG around them: the solve's active set
+4,177 → 11,253, objective 19,143 → 375,231; off-DEM > 0.5 m maxima
+junction 1.45 → 6.22 m, primary_parallel 1.55 → 6.46, cross_connector
+0.96 → 6.47, apron 2.57 → 6.48; apron bodies' own planes −0.27 → −5.23
+m; design targets missed apron max 1.70 m, taxi 1.35 m; LAW-TRUE 1,531
+→ 4,845, ADJUDICATED 121 → 1,472, 87 % of the new rows within 500 m of
+TUNNEL2 (taxiway-network grade rows: `within_shape` cross_connector /
+primary_parallel, `airside_no_step`).  The trench ring's vertices are
+shared with the airside faces and the floor's rows pull them down —
+the trench has no wall.  §37 (11)'s sea wall contributed nothing (4 →
+4, identical coordinates); the r3 report's "1,713 → 4,845" understated
+the rise (the shipped 1.0.340 patch was worse than the control).
+
+**RULED.**  A signature-B trench is a WALLED cut, emitted as OTHH's
+`retaining_wall` / `tunnel_wall` cells are (§33 (1), 14av): (1) the RIM
+ring is the surrounding design surface — its vertices are the
+airside/ground vertices they already are and carry NO floor row;
+airside beside a shell never moves (§16g (10) (5)'s bar, 0 > 0.02 m
+against the control); (2) the FLOOR ring is a separate ring inside the
+rim by the wall's thickness (the object's inner-face line), at the
+authored floor plate's level along the object's own profile (the
+cover's stations); (3) between them the WALL: a vertical band (the
+breakline pair the sea wall and the OTHH walls already use) — the
+object's interior walls are the retaining walls, the terrain does not
+grade between rim and floor; (4) the ramp portion (the cover's
+descending profile) grades from the mouth station to the floor INSIDE
+the walls; where the object's walls end (the open ramp beyond the
+shell) the ramp's own edges take the §34 (7) ramp law.  Bars at VHHH
+(the control pair's frames): airside vertices within 200 m of the five
+shells moved vs the f912ba81 control ≤ 0.02 m (count named); off-DEM
+maxima by role back to the control's (junction 1.45, apron 2.57);
+ADJUDICATED back to ≤ 121 + the trenches' own rows (named);
+`object_cut_depth` 0 and `object_cut_offset` ≤ r3's (TUNNEL2's four
+named); the cockpit CRITICAL motion 0; OTHH's walled corridors
+byte-identical (the same emission path).

@@ -259,6 +259,7 @@ from shared_repo_guard import (                          # noqa: E402,F401
     DATA_REPO, HARNESS_STATE, LOCK_DIR, REFRESH_LEDGER, SHARED_DATA_DIRS,
     REFRESH_SCOPES, scope_of, scope_description, shared_repo_snapshot,
     snapshot_diff, _file_stamp, RefreshLock, record_refresh,
+    install_snapshot, install_relpath, pack_roots_for_tile,
     LOCK_ARTIFACT_SUFFIX, LOCK_FILE_OPS, is_lock_artifact,
     LIB_INDEX_ARTIFACT_RE, LIB_INDEX_FILE_OPS, is_library_index_artifact,
     SharedRepoWriteBlocked, SharedRepoWriteGuard,
@@ -690,6 +691,26 @@ def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
              f"exactly what happened to the VHHH pack on 2026-09-15 "
              f"(RULINGS 2026-09-15ar).  A DSFTool dump is a SUBPROCESS "
              f"write, so no Python guard can refuse it at the call")]
+
+
+def xplane_install_roots() -> tuple:
+    """The X-Plane install(s) this harness process could write.
+
+    Handed to :class:`SharedRepoWriteGuard` so a write into the owner's
+    install REFUSES at the call under scope ``pack_rebake`` (RULINGS
+    2026-09-15av).  An explicit root, never a name-substring test: a
+    fixture install under ``tmp_path`` must stay writable, and the
+    suite's own install guard (``tests/conftest.py``) pins its root the
+    same way.  Empty when the root cannot be resolved — the guard then
+    defends the data repo only, which is the pre-2026-09-15 behaviour.
+    """
+    try:
+        root = _owner_xplane_root()
+    except Exception as exc:
+        print(f"  [harness] X-Plane install guard root unresolved ({exc!r}) "
+              f"— the install is NOT defended by the write guard this run")
+        return ()
+    return (root,) if root else ()
 
 
 def _owner_xplane_root() -> str:
@@ -1921,6 +1942,23 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
                 masks_seeded[key] += part[key]
         os.environ["O4_MASKS_DIR"] = str(masks_dir)
 
+    # THE OWNER'S X-PLANE INSTALL (2026-09-15, RULINGS 2026-09-15av).
+    # Not a cache and not in the data repo, so nothing above reaches it —
+    # but the object stage's write half rewrites the SERVING PACK there,
+    # and lane v2vmmcshore's tile build of +22+113 rewrote the owner's
+    # live VHHH pack DSF mid-build.  The engine's own measure-only path
+    # is what stands down (``auto_patch.engine_v2.rebake_after_mesh``):
+    # the placement plan is still built and reported — the measurement is
+    # the product — and no pack file is written.  Rides an env variable
+    # for the same reason the cache redirects do: subprocesses inherit
+    # it.  An authorised ``pack_rebake`` leaves the write half enabled,
+    # exactly as an authorised cache scope is left SHARED.
+    if "pack_rebake" in authorised:
+        skipped.append("pack_rebake")
+        os.environ.pop("O4_PACK_WRITES", None)
+    else:
+        os.environ["O4_PACK_WRITES"] = "measure_only"
+
     # THE BELT.  ``build_patch``'s direct callers (oracle.py, who_wrote.py)
     # may already have imported the engine, and ``Default_dsf_cache_dir``
     # is computed at import; ``_apply_data_root`` recomputes it from the
@@ -1938,6 +1976,12 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
                   "specific instruction) — the per-pack sidecar cache and "
                   "the masks stay under that root.")
 
+    if prog is not None and "pack_rebake" not in authorised:
+        prog.note(
+            "pack writes STOOD DOWN (O4_PACK_WRITES=measure_only): the "
+            "object stage builds and reports its placement plan and writes "
+            "NO file into the owner's X-Plane install — a lane never "
+            "mutates it (RULINGS 2026-09-15av)")
     if prog is not None:
         prog.note(
             f"engine derived-cache roots redirected LANE-LOCAL under "
@@ -1977,6 +2021,10 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
         "masks": (str(masks_dir) if masks_dir is not None else None),
         "masks_seeded": masks_seeded,
         "masks_subtrees": mask_overlay_subtrees(tiles),
+        "pack_writes": ("AUTHORISED (--refresh-data pack_rebake)"
+                        if "pack_rebake" in authorised
+                        else "measure_only (the owner's X-Plane install is "
+                             "never written by a lane)"),
         "left_shared_for_refresh": sorted(skipped),
     }
 
@@ -2019,7 +2067,8 @@ def arm_shared_repo_protection(root, out_dir, tag, prog=None,
         out_dir, tag, prog, authorised=getattr(write_guard, "requested", None),
         tiles=tiles, lane_root=root)
     guard = (write_guard if write_guard is not None
-             else SharedRepoWriteGuard(set(), root))
+             else SharedRepoWriteGuard(set(), root,
+                                       install_roots=xplane_install_roots()))
     return guard, redirects
 
 
@@ -3012,9 +3061,23 @@ def main(argv=None) -> int:
     if locks:
         prog.note(f"holding shared-repo refresh lock(s): "
                   f"{[lk.scope for lk in locks]}")
+    # THE OWNER'S PACKS ARE IN THE SNAPSHOT TOO (RULINGS 2026-09-15av +
+    # 15bb).  Two lane tile builds rewrote live packs — VHHH's DSF at
+    # 11:49:11, LEMD's DSF + provenance + 2,694 split body .obj files at
+    # 12:21:43 — and BOTH runs printed "shared repo UNCHANGED", because
+    # the walk covered the data repo only.  The keys are spelled
+    # ``Custom Scenery/...``, which ``scope_of`` maps to ``pack_rebake``,
+    # so an install write NAMES itself and marks the run exactly like a
+    # corpus write.  Belt to the guard's braces: the guard refuses the
+    # Python writes at the call, this catches whatever a subprocess does
+    # without passing through one.
+    pack_roots = (pack_roots_for_tile(lat, lon, xplane_install_roots()[0])
+                  if lat is not None and xplane_install_roots() else ())
     before = shared_repo_snapshot()
+    before.update(install_snapshot(pack_roots))
     prog.note(f"shared-repo snapshot: {len(before)} file(s) across "
-              f"{len(SHARED_DATA_DIRS)} data dir(s)")
+              f"{len(SHARED_DATA_DIRS)} data dir(s) and "
+              f"{len(pack_roots)} X-Plane pack(s) carrying this tile")
 
     # THE BUILD'S INPUT SET (2026-09-01, H6 item 6): what this run has a
     # reason to touch, so the audit below can tell a delta this build
@@ -3030,7 +3093,8 @@ def main(argv=None) -> int:
     prog.note(f"build input set: {input_scope.record()}")
 
     guard = SharedRepoWriteGuard(requested, root,
-                                 enabled=not args.allow_shared_repo_writes)
+                                 enabled=not args.allow_shared_repo_writes,
+                                 install_roots=xplane_install_roots())
     if guard.enabled:
         prog.note(f"shared-repo write GUARD armed: writes outside "
                   f"{sorted(requested) or 'any authorised scope'} are "
@@ -3098,7 +3162,9 @@ def main(argv=None) -> int:
         # The audit runs even when the build raised: a build that died
         # half-way through a download has still mutated the shared repo,
         # and that is precisely when nobody would think to look.
-        changes = snapshot_diff(before, shared_repo_snapshot())
+        after = shared_repo_snapshot()
+        after.update(install_snapshot(pack_roots))
+        changes = snapshot_diff(before, after)
         # ``redirected=None``: the audit asks the ENGINE's own accessors
         # now, in the process that did the building, which scopes this run
         # pointed outside the repo — a delta in one of those has no

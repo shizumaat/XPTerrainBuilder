@@ -7438,3 +7438,24 @@ face (r3). No build: the ledger's last `osm_layers` refresh is
 2026-09-08 (SPJC) — the owner's 15u act has not run. Shipping arm b2:
 item 5 floor 597.09 (5.07 m), item 7 mouth 31.06/33.43 m, LAW-TRUE
 5,712, ADJUDICATED 1,360.
+15y addendum: suite ON MAIN after the v2lemdstruct2 r2 merge (6d25b68c): 1611 passed, 1 skipped, 42 warnings in 63.77s (0:01:03).
+
+## 2026-09-15z v2padqp r1 MERGED OFF (2039b3c0 → main): the garage seats on its cluster's pad when armed (building45, 615.35, +4.33 m fill; the basement pit gone); three pad-ref defects fixed; mismatch HECA 16 → 10; the far-field mover GONE under §20c — but arming moves the AIRSIDE (5,915 vertices, worst 3.61 m; runway 231, worst 0.140 m) → keys stay OFF, r2 attributes
+
+Lane @ 2039b3c0 (main merged twice); suite 1,612 passed, 0 FAILED;
+closing LEMD build rc 0, 346.3 s, optimal, `shared repo UNCHANGED`
+(no schema refusal: +40-004 big_roads is current). Bars: garage MET on
+the design surface (float owed to an app build); mismatch HECA 16 → 10
+(per-face share test — ref-area lever untried, attempt cap), LEMD 1 →
+1; probe 0 moved (r5 arm) / 16 beyond 500 m worst 0.103 m (arrangement
+clip) — the residual far field is the pad/airside rim geometry;
+census HECA ADJUDICATED 26,608 → 26,285 (−1.2 %), LEMD 1,371 → 1,376;
+`pad_airside_weld` 2 → 7 / 1 → 2 MISSED; airside movement 5,915 / 3.61
+m, runway 231 / 0.140 m MISSED (§16g (10) (5)) — r5 read 9,573 / 0.390
+m. `pad_from_cluster` / `pad_airside_clip` ship FALSE. New replay arm
+`--placement KEY=V` (the pad keys are read upstream of a capture);
+`arm_shared_repo_protection` on `--capture`. RULED §16g (10) (11) RULED
+ON THE MEASUREMENT: r2 attributes the airside movement by `--why-at`
+before any lever; the pad's rows are one-way toward the pad; the flag
+flips only at 0 airside movement and 0 new welds.
+15z addendum: suite ON MAIN after the v2padqp merge: 1612 passed, 1 skipped, 42 warnings in 39.71s. Three of the four lanes are on main (v2lemdstruct2 287f9b5b + r2 6d25b68c, v2objcut 3b35df96, v2padqp 2039b3c0); v2vmmcshore r1 (a57abc47) is HELD for r2 (15w).

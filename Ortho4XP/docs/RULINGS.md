@@ -8237,3 +8237,61 @@ not mine: the SUITE's session detector has no external-candidate
 downgrade (unlike the build audit's `BuildInputScope`), so a concurrent
 authorised refresh lands as teardown ERRORs in any suite running at the
 time (18 today, twice) — chip-worthy.
+
+## 2026-09-15ba v2schemarefuse ROUND 5 MERGED (306b68f6): 15as's "superseded per-airport feed" was a MISATTRIBUTION — the loader's road feeds are the tile-wide layers over the 3 × 3 NEIGHBOURHOOD (scope `osm_layers`); the refresh now warms absent layers, neighbour tiles and a cold tile's DEM/insets, and `--refresh-only` refreshes without building
+
+Attribution (lane `v2schemarefuse` r5, a0e90a20): `auto_patch_v2/airport/
+osm.py` `ROAD_FEEDS = ("airport_small_roads", "big_roads")`, resolved by
+`feed_path` to `OSM_data/<block>/<tile>/<tile>_<feed>.osm.bz2` — the TILE
+layers, merged over the 3 × 3 square by `load_feed`; the KDFW traceback
+named `+33-098_big_roads` (a neighbour) and KPHX's `+33-112`. Round 1's
+`schema_stale_osm_layers` judged the build's own tile only (its stated
+limit — the defect). `OSM_data/_airport_road_feed` (`osm_roadfeed`) has
+no loader refusal; 15as (9)'s re-cut is NOT needed (the owner's
+authorisation is unused; the whitelist chip of 15r stands). FIVE parts,
+one mechanism: (1) `superseded_road_feeds` judges what the reader judges
+(its own `ROAD_FEEDS`/`feed_path`/`feed_tag_schema`, the 3 × 3 square) as
+a PRE-FLIGHT refusal — untagged feeds (`airport_small_roads`, no schema
+anywhere) deliberately not named; live corpus read-only: KDFW names
++33-098, KPHX +33-112, LGAV/HECA 0. (2) `require_dem_frame(requested=)`
+— an authorised scope is named as something this run derives, the run
+proceeds, the frame is RE-JUDGED afterwards with nothing authorised. (3)
+`refresh_stale_osm_layers` derives ABSENT layers and runs once per named
+tile; the airports layer (not in the prefetch specs) via the engine's
+own `OSM_queries_to_OSM_layer`. (4) `refresh_tile_dem` beside
+`warm_airport_insets`: the base raster via `O4_DEM_Utils.DEM(info_only)`
+and the insets via `ensure_insets_for_tile(refresh=True)` over the
+by-then-present airports layer; runs second; raises if still cold. (5)
+`--refresh-only`: the refreshes for the named tile, ledgered, rc 0
+without entering any build stage (rc 0 only because the re-judged
+pre-flight passed; refuses with no scope). Suite ON MAIN: `1723 passed,
+1 skipped, 1 xpassed`, 0 failed. NOT DONE: no live exercise of
+`--refresh-only` (this session's KDFW/KPHX neighbour warms are the first
+proof); a cold bathymetry band still refuses inside `build_tile`.
+
+## 2026-09-15bc KDFW's and KPHX's NEIGHBOUR TILES WARMED with `--refresh-only` (this session, owner-authorised 15aq (1)): +32-097 cold → 74 insets + 11 layers ledgered; +33-098 and +33-112 big_roads re-derived — and two defects in the new path: a derivation without its ledger line, and a leaked scope lock
+
+`build_airport.py KDFW --tile 32 -97 --refresh-only --refresh-data
+osm_layers,dem` (13:47): `REFRESH dem … deriving the AIRPORT INSETS of
+N32W097 for 37 airport(s) through the engine's own tile-prelude hook`;
+`REFRESH RECORDED [dem]: +74 ~0`, `[osm_layers]: +11 ~1` (the 3 × 3 pass
+re-derived `+33-098_big_roads` as well); `EXIT rc=0 REFRESH-ONLY`. Then
+`KDFW --tile 33 -98 --refresh-only --refresh-data osm_layers`: the
+pre-flight REFUSED with 31 `[dem]` items — 15ay's version-stale USGS3DEP
+negatives on N33W098 — rc 1, and the run LEFT `.harness/locks/
+osm_layers.lock` behind (holder pid 46331, dead). `KPHX --tile 33 -112
+--refresh-only --refresh-data osm_layers --break-stale-lock`: broke the
+stale lock, moved `+33-112_big_roads` aside, the engine re-derived it
+(file 13:48), then the re-judged pre-flight refused on 3 `[dem]` items
+(KCHD, Superior, Superstition — version-stale negatives), rc 1, with NO
+`REFRESH RECORDED [osm_layers]` line: the corpus changed and the ledger
+does not carry it (the class the ledger exists to prevent), and the lock
+leaked again. Both defects are round 6 of `v2schemarefuse`: the ledger
+stamped for every derived scope BEFORE any later refusal; the lock
+released on every exit path; a refresh-only run refuses only when a
+REQUESTED scope is still stale (other scopes' cold items informational,
+rc 0); and a reconciliation that ledgers a derived-but-unrecorded
+artefact's current hash. Net state: KDFW's 3 × 3 road layers and its
++32-097 neighbour's airports layer + insets are current; KPHX's +33-113
+(15au) and +33-112 layers are current; the `+33-112_big_roads` write of
+13:48 is UNLEDGERED until the reconciliation runs.

@@ -1055,9 +1055,74 @@ class _PrintNotes:
         print("  [guard] " + msg)
 
 
+#: The redirectable scopes and the ENGINE accessor that answers "where
+#: does this family of files actually live for this process?".  Asked,
+#: never re-derived: each accessor owns its own precedence rule
+#: (``O4_*_DIR`` overrides the IMPLICIT root only — an explicitly chosen
+#: data root, ``set_data_root`` / ``ORTHO4XP_DATA_ROOT``, wins and makes
+#: the override INERT), and a copy of that rule here would answer
+#: "redirected" for a process the engine is about to write SHARED from.
+_REDIRECTABLE_SCOPES = (
+    ("airport_mod_cache", "airport_mod_cache_root"),
+    ("masks", "masks_root"),
+    ("dsf_cache", "Default_dsf_cache_dir"),
+)
+
+
+def redirected_scopes(repo=None) -> set:
+    """The scopes whose root THIS PROCESS has pointed OUTSIDE the shared
+    repo — so no writer in it, Python or subprocess, can reach the shared
+    copy of that family.
+
+    WHY THE AUDIT NEEDS THIS (measured 2026-09-15, lane ``v2objcut``'s
+    closing VHHH build).  That run was flagged CONTAMINATED on two
+    ``airport_mod_cache`` paths — a new-hash DSFTool dump of the VHHH
+    pack and its ``o4_dsf_object_positions`` companion, both stamped
+    11:52:31 — while its own frame recorded
+    ``airport_mod_cache -> <lane>/tmp/engine_caches/Airport_mod_cache``
+    and its guard blocked NOTHING.  Both facts cannot be true of one
+    author: a Python write of the shared path would have been REFUSED at
+    the call (the guard resolves symlinks since 2026-08-12), and the
+    DSFTool SUBPROCESS inherits the redirect environment, so it writes
+    lane-local too.  The author was another process in the window — the
+    same cross-attribution the ``library-index churn`` allowance was
+    written for in 2026-08-07, and the same one ``input_scope`` fixed for
+    paths OUTSIDE the build's input set; this build's input set names the
+    VHHH pack, so that test could not fire.
+
+    A REDIRECTED SCOPE IS A SECOND, INDEPENDENT REASON TO EXTERNALISE.
+    It is not an excuse and nothing is hidden: the delta is still named,
+    still in the returned list and still in the frame — only the
+    attribution changes, exactly as for an out-of-scope path.
+
+    The predicate is the ENGINE's own accessor per scope, asked at audit
+    time in the process that did the building, so a redirect the engine
+    considers INERT (an explicit data root outranks ``O4_*_DIR``) reads
+    as NOT redirected and the contamination verdict stands.
+    """
+    repo = Path(repo or DATA_REPO).resolve()
+    try:
+        import O4_File_Names as FNAMES
+    except Exception:
+        return set()                     # engine not importable: no claim
+    out = set()
+    for scope, accessor in _REDIRECTABLE_SCOPES:
+        try:
+            value = getattr(FNAMES, accessor)
+            root = value() if callable(value) else value
+            if not root:
+                continue
+            Path(root).resolve().relative_to(repo)
+        except ValueError:
+            out.add(scope)               # resolves OUTSIDE the repo
+        except Exception:
+            continue
+    return out
+
+
 def report_unauthorised_writes(changes: dict, requested: set,
                                prog=None, *, blocked=(),
-                               input_scope=None) -> list:
+                               input_scope=None, redirected=None) -> list:
     """Every shared-repo write this build made outside an authorised scope.
 
     THE BACKSTOP.  :class:`SharedRepoWriteGuard` refuses these at the call
@@ -1098,7 +1163,17 @@ def report_unauthorised_writes(changes: dict, requested: set,
     # A guard that blocked something is a whole-run veto on the label:
     # this build's code DID reach for the corpus, so nothing appearing in
     # its window may be handed to a hypothetical other process.
-    may_externalise = bool(input_scope) and not list(blocked or ())
+    any_blocked = bool(list(blocked or ()))
+    may_externalise = bool(input_scope) and not any_blocked
+    # THE SECOND, INDEPENDENT REASON (2026-09-15, the VHHH mis-attribution
+    # — see :func:`redirected_scopes`): a scope this process pointed
+    # OUTSIDE the repo has no writer that could reach the shared copy,
+    # Python or subprocess.  ``None`` asks the engine now; pass an
+    # explicit set (``()`` included) to fix the answer.
+    redirected = (redirected_scopes() if redirected is None
+                  else set(redirected))
+    if any_blocked:
+        redirected = set()
     offenders, lock_churn, index_churn = [], [], []
     for kind in ("added", "modified", "removed"):
         for rel in changes[kind]:
@@ -1111,9 +1186,15 @@ def report_unauthorised_writes(changes: dict, requested: set,
             scope = scope_of(rel)
             if scope in requested:
                 continue
-            external = may_externalise and not input_scope.covers(rel)
+            off_scope = may_externalise and not input_scope.covers(rel)
+            off_redirect = scope in redirected
             offenders.append({"path": rel, "kind": kind, "scope": scope,
-                              "external_candidate": external})
+                              "external_candidate": bool(off_scope
+                                                         or off_redirect),
+                              "external_reason": ("redirected"
+                                                  if off_redirect else
+                                                  "out_of_scope"
+                                                  if off_scope else None)})
     for lc in lock_churn:
         prog.note(f"   lock churn (coordination state, NOT corpus data): "
                   f"{lc['kind']} {lc['path']} — a lock file outliving the "
@@ -1131,6 +1212,19 @@ def report_unauthorised_writes(changes: dict, requested: set,
     # printed BEFORE the verdict, because a reader who sees "UNCHANGED"
     # under a list of paths must be able to see why the paths are there.
     for o in external:
+        if o.get("external_reason") == "redirected":
+            prog.note(
+                f"   external-candidate delta (NAMED, not attributed to "
+                f"this build): {o['kind']} {o['path']} — this run "
+                f"REDIRECTED the '{o['scope']}' root outside the shared "
+                f"repo, so no writer in this process could reach the "
+                f"shared copy: a Python write would have been refused at "
+                f"the call (the guard blocked nothing) and a subprocess "
+                f"inherits the redirect.  Another process in this window "
+                f"is the author; this run is NOT flagged CONTAMINATED on "
+                f"it.  (Measured: the VHHH pack dump of 2026-09-15 "
+                f"11:52:31, RULINGS 2026-09-15ar.)")
+            continue
         prog.note(f"   external-candidate delta (NAMED, not attributed to "
                   f"this build): {o['kind']} {o['path']} — outside this "
                   f"build's input set {input_scope.record()['tiles'] or ''}"

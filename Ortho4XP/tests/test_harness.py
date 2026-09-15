@@ -2055,6 +2055,140 @@ def test_a_refresh_that_re_derived_NOTHING_refuses_and_restores(
     assert list(cache.parent.glob("*.stale-*")) == []
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE PACK DSF TEXT DUMP (RULINGS 2026-09-15ar)
+# ══════════════════════════════════════════════════════════════════════
+
+def _pack_fixture(tmp_path, monkeypatch, build_mod):
+    """A tmp X-Plane pack holding one tile DSF, with both mod-cache roots
+    (shared + lane overlay) pointed at empty tmp dirs."""
+    import types
+    import O4_File_Names as FNAMES
+    import auto_patch_v2.airport.pack as _pack
+
+    pack = tmp_path / "install" / "Custom Scenery" / "TestPack"
+    nav = pack / "Earth nav data" / "+20+110"
+    nav.mkdir(parents=True)
+    dsf = nav / "+22+113.dsf"
+    dsf.write_bytes(b"binary dsf bytes")
+    shared = tmp_path / "repo" / "Airport_mod_cache"
+    overlay = tmp_path / "lane" / "tmp" / "engine_caches" / "Airport_mod_cache"
+    shared.mkdir(parents=True)
+    overlay.mkdir(parents=True)
+    monkeypatch.setenv("XPLANE_ROOT", str(tmp_path / "install"))
+    monkeypatch.setattr(_pack, "select_pack",
+                        lambda root, icao: types.SimpleNamespace(
+                            root=str(pack), name="TestPack"))
+    monkeypatch.setattr(FNAMES, "airport_mod_cache_root", lambda: str(shared))
+    monkeypatch.setattr(build_mod, "lane_cache_root",
+                        lambda lane_root=None: tmp_path / "lane" / "tmp"
+                        / "engine_caches")
+    return dsf, shared, overlay
+
+
+def _write_dump_for(dsf, root):
+    """The dump the engine's cache would have written for this DSF."""
+    from auto_patch_v2.airport import dsf as _dsf
+    d = Path(root) / "TestPack"
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"{dsf.name}.{_dsf.text_dump_tag(str(dsf))}.text"
+    out.write_text("# dump\n")
+    return out
+
+
+def test_a_pack_dsf_with_no_cached_dump_refuses_and_names_the_mod_cache(
+        build_mod, tmp_path, monkeypatch):
+    """A DSFTool dump is a cache regeneration, not a build side effect.
+
+    The dump's name carries the DSF's CONTENT sha, so the moment the pack
+    is rebaked every cached dump stops matching and the build makes a new
+    one — through a SUBPROCESS, which no Python write guard can refuse at
+    the call.  Lane v2objcut's VHHH build of 2026-09-15 is the measured
+    case (RULINGS 2026-09-15ar), so the check is up front.
+    """
+    from auto_patch_v2.airport import dsf as _dsf
+
+    dsf, shared, overlay = _pack_fixture(tmp_path, monkeypatch, build_mod)
+    tag = _dsf.text_dump_tag(str(dsf))
+
+    # 1. NEITHER root has a dump for this sha -> named and refused.
+    missing = build_mod.missing_pack_dsf_dumps(tmp_path, 22, 113, "VHHH")
+    assert len(missing) == 1, missing
+    scope, artifact, why = missing[0]
+    assert scope == "airport_mod_cache"
+    assert artifact == f"Airport_mod_cache/TestPack/+22+113.dsf.{tag}.text"
+    assert tag in why and "SUBPROCESS" in why
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data airport_mod_cache" in str(exc.value)
+    build_mod.require_no_implicit_refresh(missing, {"airport_mod_cache"})
+
+    # 2. The SHARED corpus has it -> nothing is named (the overlay is
+    #    seeded copy-on-write FROM there, so the build will find it).
+    dump = _write_dump_for(dsf, shared)
+    assert build_mod.missing_pack_dsf_dumps(tmp_path, 22, 113, "VHHH") == []
+
+    # 3. Only this LANE's overlay has it -> also nothing (that is where
+    #    the redirected build reads and writes).
+    dump.unlink()
+    _write_dump_for(dsf, overlay)
+    assert build_mod.missing_pack_dsf_dumps(tmp_path, 22, 113, "VHHH") == []
+
+    # 4. A --tile run names no airport: the check stands down rather than
+    #    guess which packs cover the tile.
+    assert build_mod.missing_pack_dsf_dumps(tmp_path, 22, 113, None) == []
+
+
+def test_a_REDIRECTED_scope_cannot_be_this_builds_contamination(
+        build_mod, guard_mod, tmp_path, monkeypatch):
+    """THE VHHH MIS-ATTRIBUTION (2026-09-15, RULINGS 2026-09-15ar).
+
+    That run was flagged CONTAMINATED on two ``airport_mod_cache`` paths
+    while its own frame recorded the mod-cache root redirected to
+    ``<lane>/tmp/engine_caches/Airport_mod_cache`` and its guard had
+    blocked NOTHING.  Both cannot be true of one author: a Python write
+    of the shared path would have been REFUSED at the call, and the
+    DSFTool subprocess inherits the redirect.  A redirected scope is
+    therefore a second, independent reason to name a delta EXTERNAL —
+    named, never hidden, and never silently dropped from the audit.
+    """
+    import O4_File_Names as FNAMES
+
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache").mkdir(parents=True)
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
+    changes = {"added": ["Airport_mod_cache/TestPack/+22+113.dsf.abc.text"],
+               "modified": [], "removed": []}
+
+    # REDIRECTED: the engine's own accessor resolves outside the repo.
+    monkeypatch.setattr(FNAMES, "airport_mod_cache_root",
+                        lambda: str(tmp_path / "lane" / "Airport_mod_cache"))
+    assert "airport_mod_cache" in guard_mod.redirected_scopes(repo=repo)
+    offenders = guard_mod.report_unauthorised_writes(changes, set())
+    assert len(offenders) == 1
+    assert offenders[0]["external_candidate"] is True
+    assert offenders[0]["external_reason"] == "redirected"
+    assert guard_mod.contaminating_writes(offenders) == [], (
+        "a redirected scope has no author in this process")
+
+    # NOT REDIRECTED (an authorised refresh leaves the scope SHARED, and
+    # so does an inert override): the contamination verdict stands.
+    monkeypatch.setattr(FNAMES, "airport_mod_cache_root",
+                        lambda: str(repo / "Airport_mod_cache"))
+    assert "airport_mod_cache" not in guard_mod.redirected_scopes(repo=repo)
+    offenders = guard_mod.report_unauthorised_writes(changes, set())
+    assert len(guard_mod.contaminating_writes(offenders)) == 1
+
+    # AND THE WHOLE-RUN VETO HOLDS: a guard that blocked anything means
+    # this build's code DID reach for the corpus, so nothing in its
+    # window may be handed to a hypothetical other process.
+    monkeypatch.setattr(FNAMES, "airport_mod_cache_root",
+                        lambda: str(tmp_path / "lane" / "Airport_mod_cache"))
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, set(), blocked=[{"path": "Masks/x.png", "scope": "masks"}])
+    assert len(guard_mod.contaminating_writes(offenders)) == 1
+
+
 def test_the_write_guard_REFUSES_a_bz2_layer_write(build_mod, tmp_path):
     """THE bz2 HOLE (measured 2026-09-15).
 
@@ -3499,7 +3633,7 @@ def test_a_delta_outside_the_input_set_is_named_but_NOT_contamination(
     scope = build_mod.BuildInputScope(tiles=[(30, 31)], icaos=["HECA"])
     offenders = build_mod.report_unauthorised_writes(
         {"added": [_H6_OTHER_TILE], "modified": [], "removed": []},
-        set(), prog, blocked=[], input_scope=scope)
+        set(), prog, blocked=[], input_scope=scope, redirected=())
     assert [o["path"] for o in offenders] == [_H6_OTHER_TILE], (
         "the delta must still be NAMED — nothing is dropped")
     assert offenders[0]["external_candidate"] is True
@@ -3522,7 +3656,7 @@ def test_a_delta_INSIDE_the_input_set_still_CONTAMINATES(build_mod):
     mine = "OSM_data/_airport_road_feed/KCLT_road_feed.cache"
     offenders = build_mod.report_unauthorised_writes(
         {"added": [mine], "modified": [], "removed": []},
-        set(), prog, blocked=[], input_scope=scope)
+        set(), prog, blocked=[], input_scope=scope, redirected=())
     assert offenders[0]["external_candidate"] is False
     assert build_mod.contaminating_writes(offenders) == offenders
     assert "CONTAMINATED" in "\n".join(notes)
@@ -3537,7 +3671,7 @@ def test_a_GUARD_BLOCKED_run_externalises_NOTHING(build_mod):
     offenders = build_mod.report_unauthorised_writes(
         {"added": [_H6_OTHER_TILE], "modified": [], "removed": []},
         set(), prog, blocked=[{"path": _H6_MY_TILE, "scope": "dem"}],
-        input_scope=scope)
+        input_scope=scope, redirected=())
     assert offenders[0]["external_candidate"] is False
     assert build_mod.contaminating_writes(offenders) == offenders
 
@@ -3550,7 +3684,7 @@ def test_no_input_scope_keeps_the_old_whole_window_strictness(build_mod):
     changes = {"added": [_H6_OTHER_TILE], "modified": [], "removed": []}
     for scope in (None, build_mod.BuildInputScope()):
         offenders = build_mod.report_unauthorised_writes(
-            changes, set(), prog, input_scope=scope)
+            changes, set(), prog, input_scope=scope, redirected=())
         assert build_mod.contaminating_writes(offenders) == offenders, (
             "an absent or empty input set must not downgrade anything")
 
@@ -3656,7 +3790,7 @@ def test_an_IN_scope_path_in_the_window_still_CONTAMINATES(build_mod):
         offenders = build_mod.report_unauthorised_writes(
             {"added": [mine], "modified": [], "removed": []},
             set(), types.SimpleNamespace(note=lambda m: None),
-            blocked=[], input_scope=scope)
+            blocked=[], input_scope=scope, redirected=())
         assert offenders[0]["external_candidate"] is False, mine
         with pytest.raises(SystemExit):
             build_mod.require_no_unauthorised_writes(offenders,
@@ -3674,7 +3808,7 @@ def test_a_scope_that_names_NO_packs_keeps_the_old_strictness(build_mod):
         {"added": [_MS_OTHER_PACK_HASHED], "modified": [], "removed": []},
         set(), types.SimpleNamespace(note=lambda m: None),
         blocked=[{"path": _MS_MY_TILE, "via": "open", "scope": "dem"}],
-        input_scope=_mesh_scope(build_mod))
+        input_scope=_mesh_scope(build_mod), redirected=())
     assert offenders[0]["external_candidate"] is False
 
 

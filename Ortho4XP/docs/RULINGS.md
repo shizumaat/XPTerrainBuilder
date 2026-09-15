@@ -7803,3 +7803,88 @@ refresh at 11:46, ledgered). OWNER: `--refresh-data airport_mod_cache`
 for the VHHH pack's new-hash dump is yours to authorise (not covered
 by the road-layer word). `planar/structures.py` at exactly 1,000
 lines.
+
+## 2026-09-15at v2objcut r3 proved on main (suite 1,649 passed, 0 FAILED after d94db789); v2vmmcshore r6 (b10168d9) MET at VMMC on a real build and keeps 5 of LEMD's 7 approved decks under §34 (12) (4) — `-5305` and `-15293` LOST (DEM −0.57 / −1.46, spans over the untagged approach) — accepted as the rule's own words and named for the owner's LEMD read; the doubled-plane check DONE (no second plane); r6's merge CONFLICTS with v2objcut r3 in structure_deck.py / structures.py → the lane resolves on its branch (r7)
+
+r6 (suite 1,689, 0 FAILED): `structure_service.deck_witness_for` +
+`structure_deck._witnessed`, `[bridge] deck_cut_witness_m` 0.5 /
+`deck_abutment_m` 40.0 (no Python defaults); both station limbs and
+`grade_reach_for` deleted; the alongside pre-filter stays;
+`deck_witness_notes` on every tunnel. Closing VMMC build rc 0, 16.8 s,
+optimal, body_sha ecc616c4bba5, ledger 3cd89005e24c, `shared repo
+UNCHANGED`: probe covered by nothing (ramp 188 m), 0.00 m² on the sea,
+0 nodes ≤ 0.5 m, pav5 5.09…6.12 (39.0 m clear), tunnels 13 / decks 1
+(`-2088` on `-4787@1` at s 0–9.1 by (i): `tunnel=yes` on the bore it
+stands over), `sea_wall` 27 / tears 0 / steps 0, ADJUDICATED 55; the
+five Macau LRT viaducts never sever (tag none, cut 0.00; the 11:05 feed
+refresh does not make (i) fire — those decks stand over the untagged
+approach). OTHH 44 / 1. LEMD: `-6288` +2.03, `-11828` +1.34, `-14230`
++0.81, `-516` +2.33, `-1378` +1.79 sever by (ii); `-5305` (−0.57) and
+`-15293` (−1.46) do NOT — their bores carry layer −1 tunnel=yes but the
+spans stand at s 103.3 / 146.2 of the approach walk beyond the bore
+chains; reading (i) as "any way of the corridor" would keep both AND
+sever every VMMC deck. ACCEPTED as ruled; OWNER READ ITEMS for the next
+LEMD build: the ramps under `-5305` (`-1581+-1568@1`) and `-15293`
+(`-1341+-1339@1`, 180 → 24 m) — if the sim shows those bridges over a
+real cutting, the DEM witness there is wrong and the rule takes a
+third witness (the pack? the deck's own height above the road?).
+Fixtures corrected: two pre-existing twins asserted "severs" over FLAT
+synthetic ground (the VMMC defect) — now carry a 1 m cutting. DOUBLED
+PLANE: the r4 tile (`v2vmmcshore4tile`, finished 11:47) — `mesh_region_
+tris --z-xref` 22,393 nodes all matched; attr 15 (PATCH_RING) 253 rows
+over 2 m, worst −6.100 m at 22.1611209,113.5790349 = the SEA WALL
+itself (patch ring 6.10 vs mesh water 0.00, = the `sea_wall` family's
+27 rows); no patch node at sea level seaward — there is no second
+plane; the worst overall (+51.8 m, attr 1) is a non-patch marker class,
+not this lane's. MERGE: r6 conflicts with v2objcut r3 (d94db789:
+`deck_intervals(+plates)`, `flanking_pair`, the `_ring` closure,
+`seed_wall_stations`) in structure_deck.py and structures.py; aborted
+on main; r7 = the lane merges main, keeps both behaviours, re-proves
+(VMMC 1 / LEMD 5 of 7 with `-6288` centred on Bridge2's pair / OTHH
+44 / 1), suite. VHHH: v2objcut r3's closing build census
+(law-true 1,713 → 4,845 vs the 1.0.340 patch) is being attributed by
+lane v2vhhhctl (control at f912ba81 + arm at main). OTHH
+nondeterminism: lane v2othhdet.
+
+## 2026-09-15am v2schemarefuse ROUND 3 MERGED (a5ac5a85): the VHHH "new-hash dump" was a CROSS-ATTRIBUTION — another process rewrote the live pack DSF; a redirected scope's deltas are now named external, and a pack DSF with no cached dump REFUSES before the build
+
+Measured (lane `v2schemarefuse` r3, acab060c), against 15ar's flagged
+run (`build_airport.py VHHH`, tag v2objcutVHHHr3, 11:41:45→11:53:00, rc
+0): its frame records `engine_cache_redirects.airport_mod_cache =
+<lane>/tmp/engine_caches/Airport_mod_cache` — the redirect WAS armed —
+and `write_guard_blocked` empty; the shared paths are stamped 11:52:31
+(`+22+113.dsf.d18b5903.text` added, `o4_dsf_object_positions_+22+113.
+cache` modified); the LIVE pack DSF was rewritten at 11:49 with
+`written_sha256 = d18b5903…` by `placement_write.apply_plan` (its
+`o4_placement_provenance.json`, 6,390 placements), whose only reachable
+caller is the TILE build's `rebake_after_mesh` — the v2 airport pipeline
+never calls it. A Python write of the shared path would have been
+refused at the call (the guard resolves symlinks), and DSFTool inherits
+the redirect: the flagged build could not have been the author. Another
+process in the window rebaked the pack (a concurrent +22+113 tile build,
+or the app — its engine log last wrote 07:53); `input_scope` cannot
+catch it because the VHHH pack IS in the build's input set. TWO HALVES:
+(1) `shared_repo_guard.redirected_scopes()` + `report_unauthorised_
+writes(..., redirected=)` — a scope whose root THIS process pointed
+outside the repo has no writer here, so its deltas are named as external
+candidates (`external_reason: "redirected"`), never hidden, never a
+CONTAMINATED verdict; the predicate is the engine's own accessor per
+scope at audit time (an inert override reads as not redirected; an
+authorised refresh leaves the scope shared and is recorded; a guard that
+blocked anything vetoes the externalisation). (2) `build_airport.
+missing_pack_dsf_dumps` inside `missing_shared_artifacts` (now takes the
+ICAO): the serving pack's PRISTINE tile DSF with no content-keyed dump in
+the shared corpus or the lane overlay REFUSES up front under
+`airport_mod_cache` with the sha8 — a DSFTool dump is a subprocess write
+no Python guard can refuse at the call, so the pre-build refusal is the
+only defence (the redirect is the defence at the write). Predicates the
+engine's own (`find_text_dump`, `text_dump_tag`, `pristine_dsf_path`,
+`select_pack`). Live corpus read-only: VHHH/HECA/LEMD/CYXY/OTHH name 0
+today. `--refresh-data airport_mod_cache` needs no new derivation site:
+the scope is left shared and the loader's own dump is the derivation,
+ledgered by the diff. Suite ON MAIN: `1685 passed, 1 skipped`, 0 failed.
+NOT DONE: the author process is not identified (needs the other
+session's shell history); `missing_pack_dsf_dumps` not widened to
+`--tile`. CHIP: `tools/obj8_split_report.py` arms the guard by hand but
+not `redirect_engine_caches` — the one `apply_plan` caller missing from
+`arm_shared_repo_protection` (the 2026-08-11 `classify_report` shape).

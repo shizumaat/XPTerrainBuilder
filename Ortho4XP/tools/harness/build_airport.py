@@ -576,7 +576,7 @@ def require_shared_data(mounts: dict, *, allow_private: bool = False) -> None:
               f"{mounts[n]['realpath']}")
 
 
-def missing_shared_artifacts(root, lat, lon) -> list:
+def missing_shared_artifacts(root, lat, lon, icao=None) -> list:
     """Named artifacts this build NEEDS that the shared repo does not have.
 
     Each one is something the engine would silently download or regenerate
@@ -609,7 +609,97 @@ def missing_shared_artifacts(root, lat, lon) -> list:
                     "smoothing masks"))
     out.extend(unverified_inset_negatives(state, lat, lon))
     out.extend(schema_stale_osm_layers(root, lat, lon))
+    out.extend(missing_pack_dsf_dumps(root, lat, lon, icao))
     return out
+
+
+def missing_pack_dsf_dumps(root, lat, lon, icao) -> list:
+    """THE PACK DSF TEXT-DUMP REFUSAL (RULINGS 2026-09-15ar).
+
+    v2's read frame is the serving pack's PRISTINE tile DSF
+    (``airport/dsf_write.pristine_dsf_path`` — the ``.dsf.anchor_bak``
+    once the object stage has written the pack, RULINGS 2026-09-11m), and
+    the loader reads it through a DSFTool ``--dsf2text`` dump cached in
+    ``Airport_mod_cache/<pack>/<dsf>.<sha8>.text``.  The tag is the DSF's
+    own CONTENT hash, so the moment the pack's DSF changes — the owner
+    rebakes it, the object stage rewrites it — EVERY cached dump stops
+    matching and the build makes a new one.
+
+    That dump is written by a SUBPROCESS, which no Python-level write
+    guard can intercept: the harness's only defence at the write is the
+    lane-local ``O4_AIRPORT_MOD_CACHE_DIR`` redirect the subprocess
+    inherits.  So the pre-build check is the honest one — if no dump for
+    this exact DSF exists in EITHER the shared corpus or the lane-local
+    overlay this run will use, the build is going to run DSFTool, and
+    that is a cache regeneration, not a build side effect (ruling
+    e9daef5).  Named under ``airport_mod_cache``, refused up front.
+
+    BOTH ROOTS are asked, because the answer is "will a dump be made",
+    not "is the corpus warm": ``redirect_engine_caches`` seeds the
+    lane-local overlay copy-on-write FROM the shared corpus, so a dump
+    present in either one is a dump the build will find.
+
+    The predicates are the ENGINE's own — ``airport/dsf.find_text_dump``
+    (the 11m naming rule, freshness and the live/pristine split),
+    ``dsf_write.pristine_dsf_path``, ``airport/pack.select_pack`` and
+    ``dsf.text_dump_tag`` — imported, never copied.
+
+    ONE LIMIT, stated: only the NAMED airport's serving pack is judged.
+    A ``--tile`` build's object stage reaches every pack covering the
+    tile, and enumerating those needs the build's own worklist; ``icao``
+    is ``None`` there and this check stands down rather than guess.
+    """
+    if not icao:
+        return []
+    for p in (Path(root) / "src", Path(root), Path(root) / "tests"):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    try:
+        import O4_File_Names as FNAMES
+        from auto_patch_v2.airport import dsf as _dsf
+        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+        from auto_patch_v2.airport.pack import select_pack
+
+        xplane_root = os.environ.get("XPLANE_ROOT") or _owner_xplane_root()
+        sel = select_pack(xplane_root, icao)
+        if sel is None:
+            return []
+        dsf_path = pristine_dsf_path(
+            _dsf.dsf_path_in_pack(sel.root, int(lat), int(lon)))
+        if not os.path.isfile(dsf_path):
+            return []
+        roots = [FNAMES.airport_mod_cache_root(),
+                 str(lane_cache_root(root) / "Airport_mod_cache")]
+        for mod_root in roots:
+            if _dsf.find_text_dump(mod_root, sel.name, int(lat), int(lon),
+                                   dsf_path=dsf_path):
+                return []
+        tag = _dsf.text_dump_tag(dsf_path)
+    except Exception as exc:
+        print(f"  [harness] pack DSF dump check skipped ({exc!r})")
+        return []
+    return [("airport_mod_cache",
+             f"Airport_mod_cache/{sel.name}/"
+             f"{os.path.basename(dsf_path)}.{tag}.text",
+             f"the pack's DSF sha ({tag}) has NO cached text dump in the "
+             f"shared corpus or this lane's overlay — the build would run "
+             f"DSFTool --dsf2text and cache the result, a cache "
+             f"regeneration and NEVER a build side effect (ruling "
+             f"e9daef5).  The pack's DSF changed under the cache (the "
+             f"owner rebaked it, or an object stage rewrote it), which is "
+             f"exactly what happened to the VHHH pack on 2026-09-15 "
+             f"(RULINGS 2026-09-15ar).  A DSFTool dump is a SUBPROCESS "
+             f"write, so no Python guard can refuse it at the call")]
+
+
+def _owner_xplane_root() -> str:
+    """The install the harness builds against — the cfg's own answer,
+    through the same read ``planar.__main__.default_inputs`` uses."""
+    import O4_Config_Utils                                    # noqa: F401
+    from auto_patch_v2.planar.__main__ import _cfg_value
+    custom = _cfg_value("custom_scenery_dir")
+    return (os.path.dirname(custom.rstrip("/")) if custom
+            else os.path.expanduser("~/X-Plane 12"))
 
 
 def _stamped_cache_schema(path) -> str:
@@ -2823,7 +2913,9 @@ def main(argv=None) -> int:
         # A missing artifact is a DOWNLOAD this build would perform as a
         # side effect.  Named and refused unless explicitly authorised.
         require_no_implicit_refresh(
-            missing_shared_artifacts(root, lat, lon), requested)
+            missing_shared_artifacts(root, lat, lon,
+                                     None if args.tile else args.icao),
+            requested)
     else:
         prog.note(f"WARNING: could not resolve the anchor tile for "
                   f"{args.icao} — the DEM cache state is UNKNOWN for this "
@@ -3007,6 +3099,10 @@ def main(argv=None) -> int:
         # half-way through a download has still mutated the shared repo,
         # and that is precisely when nobody would think to look.
         changes = snapshot_diff(before, shared_repo_snapshot())
+        # ``redirected=None``: the audit asks the ENGINE's own accessors
+        # now, in the process that did the building, which scopes this run
+        # pointed outside the repo — a delta in one of those has no
+        # possible author here (2026-09-15, the VHHH mis-attribution).
         offenders = report_unauthorised_writes(changes, requested, prog,
                                                blocked=guard.blocked,
                                                input_scope=input_scope)

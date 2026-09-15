@@ -7487,3 +7487,35 @@ reversed(inner_b))])` on an invalid ring at LGAV's Trench walls) — routed
 to the concurrent session (v2objcut r2); it gates the app's LGAV tile
 build. RULINGS letters ran past `z` today: the next keys are 15ab, 15ac …
 (the `14aa`…`14bw` convention).
+
+## 2026-09-15aa v2vmmcshore r2 MERGED (72642561 → 4c7d7e8a): admission by the mouth restored (12ab twin guards it), the corridor clipped by the shore witness, an OSM corridor STOPS at airside instead of cutting; LEMD 54 → 55 (one refused bore now a shorter portal), OTHH identical; the seafront survivor is bore −2488 (381 m at a flat 1.00 m floor — r3 asks why under (4)); a replay-tool defect fixed; main's LGAV crash is v2objcut's (gates 1.0.341)
+
+Lane @ 72642561; suite 1,624 passed, 0 FAILED. §34 (12) (1) deleted
+(`serves_the_field`/`no_service_bores` gone; `test_admission_is_by_
+the_mouth_and_nothing_else`); (2) implemented as a clip by `zones.
+shore_region` (the same witness as the zone trim — the tile's SEA minus
+the airport's classified surfaces; VMMC's field is reclaimed land the
+OSM coastline does not follow): ramp+rim on the sea 1,543.8 → 1.7 m²;
+(3) a STOP (the `ramp_crosses_pad` truncation loop against airside
+faces that are not the corridor's own deck or mouth pavement), scoped
+to OSM bores. VMMC replay pair: probe covered by nothing; ramps/rims
+11/19 → 8/13; nodes ≤ 0.5 m 284 → 0; `strip_seam_tear` 63 → 0,
+`adjacent_ground_step` 6 → 0, `ramp_in_strip` 18 → 0, `transverse` 11 →
+0; ADJUDICATED 245 → 55; pav5 5.09…6.12 (0.81 m residual accepted).
+LEMD 54 → 55: `tunnel:-5821+-5820@1` (the F-6 bore pair) was refused
+("would cross a runway-family face") and now stops short and builds;
+decks/underpasses unchanged. OTHH 44 → 44 tunnel for tunnel (the three
+terminal tunnels back). OWNER 15w-1 with geometry: the bore the owner
+named (−5508/−5507/−2489) builds NOTHING (refused, overlaps −4787);
+what stands is `tunnel:-2488@0`, mouth 22.1629135,113.5752813, floor
+0.996 m, three faces 207/87/87 m = 381 m of frontage, 39 m from pav5,
+the last face ending AT the coastline (KML in the session scratchpad,
+sent to the owner). r3: why a flat 1.00 m floor for 381 m under (4).
+DEFECT FOUND: `v2_solve_replay` called `flat_site.detect` without §37
+(11) (4)'s land declaration — a replay solved a different problem from
+a build (pav5 1.95 vs 5.09; `within_shape` 327 vs 2); now reads
+`pipeline/build._classified_land`. PEER REPORT: main 46b219d8 crashes
+the LGAV structure replay in v2objcut's reader (`tunnel_objects.
+_bore_ends_at`, GEOS side-location conflict on a self-intersecting
+inner_a/inner_b ring at LGAV's Trench walls) — v2objcut r2 fixes it
+first (make_valid + the LGAV twin); it GATES app 1.0.341.

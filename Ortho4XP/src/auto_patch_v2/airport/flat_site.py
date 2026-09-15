@@ -126,11 +126,26 @@ def region_polygon(airport: Airport, margin_m: float):
     return None if u.is_empty else u
 
 
-def _cut_water(dem, geom):
+def _cut_water(dem, geom, land=None):
     """``(geom − water, m² removed)`` — the datum region's water cut
     (owner RULINGS 2026-09-09m (3)).  The witness is the production
     frame's ``water_geometry``; a sampler without one (the authored
-    ``DemSampler``, a test double) leaves the region as it is."""
+    ``DemSampler``, a test double) leaves the region as it is.
+
+    §37 (11) (4) THE OCEAN BLEED IS NEVER THE GROUND UNDER PAVEMENT
+    (owner RULINGS 2026-09-15f item 2; Fable 2026-09-15i).  ``land`` is
+    the airport's OWN classified surfaces, and they are land by
+    declaration — the same reading ``constraints/water.water_pins``
+    already makes ("an apron over water is a deck, not water") and
+    ``planar/zones.shore_region`` makes for the zone trim.  Without it
+    the cut is taken against the raw coastline partition, which at VMMC
+    calls **110,826 m² — 24.5 % — of the runway/taxi union SEA**: the
+    field stands on reclaimed land OSM's coastline does not follow, the
+    Z0 inset is masked out there (the build's own line: "47.0 % of the
+    synthetic extent is WATER and is CUT OUT of the Z0 raster"), and
+    code-E junction ``pav5`` was left with no datum row over a DEM that
+    reads 1.4–2.5 m — it settled at 1.95 m against the 6.10 m field.
+    One derivation site, no per-consumer veto."""
     fn = getattr(dem, "water_geometry", None)
     if not callable(fn):
         return geom, None
@@ -138,6 +153,8 @@ def _cut_water(dem, geom):
         water = fn(geom.bounds)
     except Exception:                           # pragma: no cover
         return geom, None
+    if water is not None and land is not None and not land.is_empty:
+        water = water.difference(land)
     if water is None or water.is_empty:
         return geom, 0.0
     cut = geom.difference(water)
@@ -306,11 +323,14 @@ def seat_consensus(objects: _t.Iterable, z0: float | None, *,
 
 # ── the detector ─────────────────────────────────────────────────────────
 
-def detect(airport: Airport, law: Law, *, objects: _t.Iterable = ()
-           ) -> FlatVerdict:
+def detect(airport: Airport, law: Law, *, objects: _t.Iterable = (),
+           land=None) -> FlatVerdict:
     """The verdict for ``airport`` under ``law`` (module docstring).
     ``objects`` are the placed objects the planar stage read (S4; empty
-    = ``no_data``, never a fail)."""
+    = ``no_data``, never a fail).  ``land`` is the airport's own
+    classified surfaces as ONE geometry — §37 (11) (4)'s land
+    declaration for the water cut (:func:`_cut_water`); ``None`` leaves
+    the 09-09m (3) behaviour exactly as it was."""
     fs = flat_site(law)
     det = fs.detector
     icao = airport.icao.upper()
@@ -387,7 +407,7 @@ def detect(airport: Airport, law: Law, *, objects: _t.Iterable = ()
     # region untouched.
     water_cut_m2 = None
     if full is not None:
-        full, water_cut_m2 = _cut_water(airport.dem, full)
+        full, water_cut_m2 = _cut_water(airport.dem, full, land)
     core_sig = None if core_rec is None else {
         "verdict": core_rec.get("verdict"), "z0_m": core_rec.get("z0_m")}
     signals = {

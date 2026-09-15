@@ -27,10 +27,61 @@ from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
-__all__ = ["ZoneRegion", "zone_regions"]
+__all__ = ["ZoneRegion", "zone_regions", "shore_region"]
 
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
+
+
+def shore_region(cells: tuple[Cell, ...], dem):
+    """§37 (11) (1) THE WATER REGION THE SHORE TRIMS THE ZONES WITH (owner
+    RULINGS 2026-09-15f item 2; Fable 2026-09-15i).
+
+    ONE WITNESS, and it is not this module's: ``dem.water_geometry`` —
+    the production frame's ``TileWater``, built from the tile's cached
+    coastline and water layers (``O4_Vector_Map.cached_tile_water``), the
+    same product the mesh constrains and the same object the flat-site
+    datum region is already cut with (owner 2026-09-09m (3)) and §39 (i)
+    (RULINGS 2026-09-13cg) named as the emitter's shore witness.  Nothing
+    here re-derives a coastline from the OSM ways.
+
+    THE AIRPORT'S OWN SURFACES ARE LAND BY DECLARATION, and this is not a
+    nicety: at VMMC **110,826 m² — 24.5 % — of the runway/taxi union lies
+    INSIDE the coastline partition's sea**, because the field stands on
+    reclaimed land OSM's coastline does not follow.  Clipping the zones
+    by the raw witness would cut the band away from the pavement it
+    serves.  The same reading is already law elsewhere: ``constraints/
+    water.water_pins`` pins only GROUND vertices and never a pavement one
+    ("an apron over water is a deck, not water").  So the water region is
+    the witness MINUS every classified cell.
+
+    THE SHORE IS THE SEA, NOT EVERY WET POLYGON.  The witness's own
+    partition is read through ``sea_geometry`` where the sampler has one:
+    §37 (11) is the COAST's law (its level is the tile's sea, its wall is
+    the mesh's seawall breakline, the owner's words are "a taxiway in the
+    water"), while an inland canal or retention basin keeps the 09-09m
+    WATER DATUM — the ground stands over it and is PINNED to its median
+    level.  Trimming the zones at an inland body would delete that law's
+    whole population (measured: ``tests/auto_patch_v2/test_water_datum``'s
+    canal), and it would cut the band at LEMD's retention basins, which
+    are §24's region and not this one's.
+
+    ``None`` where there is no witness (every synthetic fixture) or no
+    sea beside the field — and the regions are then what they were."""
+    # THE SEA WITNESS ONLY.  A sampler that answers "is this wet" but not
+    # "is this the SEA" claims NO shore here: no witness, no trim.
+    fn = getattr(dem, "sea_geometry", None)
+    if not callable(fn) or not cells:
+        return None
+    land = unary_union([Polygon(c.ring, c.holes) for c in cells])
+    try:
+        w = fn(land.buffer(500.0).bounds)
+    except Exception:                                   # pragma: no cover
+        return None
+    if w is None or w.is_empty:
+        return None
+    w = w.difference(land)
+    return None if w.is_empty else w
 
 
 @_dc.dataclass(frozen=True)
@@ -49,6 +100,13 @@ class ZoneRegion:
     #: The edge SEGMENTS this region's trim made, in the frame: the
     #: boundary beyond which there is no patch and no bank.
     edge_lines: tuple = ()
+    #: §37 (11) (2) THE QUAY (owner RULINGS 2026-09-15f item 2): this
+    #: region reaches the COASTLINE, so the land between the pavement
+    #: edge and the water ran out before the band did — it is narrower
+    #: than lip + half-width by construction.  Such land is ONE PLANE at
+    #: the pavement edge's level, ending at the coastline in a SEA WALL;
+    #: it takes no zone band (a relaxed band is still a fall).
+    quay: bool = False
 
 
 def zone_regions(cells: tuple[Cell, ...], law: Law,
@@ -112,6 +170,19 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                                 cn, cl) or 0.0
         return (0 if fam == "runway" else 1, -hw)
 
+    # §37 (11) (1) THE SHORE TRIMS THE ZONES, at this single derivation
+    # site and never as a per-consumer veto (owner RULINGS 2026-08-30l).
+    # No zone ring, lip or band is emitted seaward of the coastline, so no
+    # patch vertex stands on the water: VMMC 1.0.340 emitted 13 zone faces
+    # ACROSS the coastline (3–195 m) whose rings stood at exactly 0.00 up
+    # to 42 m seaward — the second, translucent water plane in the owner's
+    # screenshot, and 193 ground vertices the water datum then pinned to
+    # sea level.  Where the pavement edge IS the coastline the zone simply
+    # has nowhere to go: the pavement edge is the SEA WALL (§37 (11) (2)),
+    # and the mesh's own Round 7 / R17-3 sea-wall breaklines
+    # (``O4_Vector_Map.seawall_breaklines``, authored for this airport)
+    # make the vertical face from the ring the patch ends at.
+    water = shore_region(cells, dem)
     claimed = everything
     out: list[ZoneRegion] = []
     for key in sorted(groups, key=rank):
@@ -127,6 +198,16 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         z2 = outer.difference(inner).difference(claimed)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
+            if water is not None and not geom.is_empty:
+                wet = geom.intersection(water)
+                if not wet.is_empty and wet.area > 0.0:
+                    geom = geom.difference(water)
+                    if edge_report is not None:
+                        edge_report.shore_cut_m2 += float(wet.area)
+                        edge_report.shore_regions += 1
+                        edge_report.shore_edge_m += float(
+                            geom.boundary.intersection(
+                                water.boundary.buffer(snap_margin_m(law))).length)
             # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19):
             # the extent ends at the physical edge, HERE, so every reader
             # downstream sees one trimmed polygon
@@ -140,9 +221,12 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                     continue
                 mine = tuple(ln for ln in clip.lines
                              if ln.distance(g) <= snap_margin_m(law))
+                # §37 (11) (2): a part that REACHES the coastline is a QUAY
+                quay = bool(water is not None
+                            and g.distance(water) <= snap_margin_m(law))
                 out.append(ZoneRegion(f"adjacent_ground:{fam}:{cls}:zone{zone}#{k}",
                                       g, zone, fam, cn, cl,
-                                      clip.kind if mine else "none", mine))
+                                      clip.kind if mine else "none", mine, quay))
                 k += 1
         claimed = unary_union([claimed, outer])
     return out

@@ -257,7 +257,10 @@ class Tunnel:
     underpass_min_layer: int
     underpass_min_span_m: float
     object: TunnelObject
-
+    #: §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): how far a
+    #: mapped road's END may stand from a structure MOUTH and still be
+    #: the ROAD BETWEEN TWO MOUTHS (`planar/structure_road`).
+    mouth_pair_m: float
 
 @_dc.dataclass(frozen=True)
 class Bridge:

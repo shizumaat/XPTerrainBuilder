@@ -173,6 +173,8 @@ class _Context:
     abeam: _t.Callable[[int, int], bool]
     member: dict[int, set[tuple]]
     own_law: set[int]
+    #: §37 (11) (2): the QUAY vertices (band bound at exactly zero).
+    quay: set[int]
     wall_vertices: set[int]
     pad_rim: dict[int, int]
     found: _t.Callable[[int, set], list]
@@ -242,7 +244,21 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     done: set[int] = set()
     # the zone classes each strip vertex is a member of (from its faces)
     member: dict[int, set[tuple]] = {}
+    # §37 (11) (2) THE QUAY (owner RULINGS 2026-09-15f item 2): the
+    # vertices of every adjacent-ground region that REACHES the coastline.
+    # Their land is narrower than lip + half-width by construction, so it
+    # is ONE PLANE at the pavement edge's level: they take the band at
+    # exactly zero, not a relaxed band (a relaxed band is still a fall,
+    # and the owner's words are "no adjacent ground at all, the pavement
+    # should drop straight to the water with no slope").  The wall is then
+    # the coastline itself, which the mesh's own Round 7 / R17-3 sea-wall
+    # breaklines make vertical from the ring the patch ends at.
+    quay_refs = frozenset(getattr(planar, "quay_refs", ()) or ())
+    quay: set[int] = set()
     for f in vw.faces_of_role(("graded_strip",)):
+        if f.ref in quay_refs:
+            for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+                quay.update(ring)
         cls = _face_class(f)
         if cls is None:
             continue
@@ -390,7 +406,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         return found
 
     return _Context(vw, edges, by_family, cell, reach, half_of, abeam, member, own_law,
-                    wall_vertices, pad_rim, _found, tie_pop, rigid_rims)
+                    quay, wall_vertices, pad_rim, _found, tie_pop, rigid_rims)
 
 
 def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
@@ -414,6 +430,7 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     if ctx is None:
         return []
     vw, edges, member, own_law = ctx.vw, ctx.edges, ctx.member, ctx.own_law
+    quay = ctx.quay
     wall_vertices, pad_rim, _found = ctx.wall_vertices, ctx.pad_rim, ctx.found
     rows: list[Row] = []
     pad_nearest: dict[int, int] = {}      # rigid face id -> its nearest rim vertex
@@ -449,10 +466,19 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         for rank, (d_eff, k, t, _d) in enumerate(found):
             a, b, fam, cn, cl = edges[k]
             role = "runway" if fam == "runway" else "junction"
-            lo, hi = zone_bounds(law, role, d_eff, cn, cl)
+            if v in quay:
+                # §37 (11) (2): ONE PLANE at the pavement edge's level.
+                # The nearest pavement's foot IS the level; a farther
+                # pavement contributes nothing (a floor would re-open the
+                # fall this clause exists to close).
+                if rank > 0:
+                    continue
+                lo = hi = 0.0
+            else:
+                lo, hi = zone_bounds(law, role, d_eff, cn, cl)
             if lo is None and hi is None:
                 continue
-            if rank > 0:
+            if rank > 0 and v not in quay:
                 hi = None            # a farther pavement: floor only
             if v in pad_rim and pad_nearest.get(pad_rim[v]) != v:
                 continue             # a pad's far rim: no row (the Flat carries the level)

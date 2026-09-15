@@ -102,13 +102,37 @@ def pavement_deck_intervals(axis_ln: LineString, half_outer: float, s_end: float
 
 #: A deck crossing the axis at less than this angle is along it, not over it.
 _DECK_MIN_ANGLE_DEG = 30.0
+#: §34 (12) (4): how many of its own carriageway widths a bridge way may
+#: run INSIDE the corridor and still be an over-crossing.  A mechanism
+#: bound, not a law value: a real crossing of a corridor of half-width
+#: ``h`` at 30° runs 4h through it, and a corridor is at most a few
+#: carriageways wide, so 6 is generous in the direction of KEEPING decks
+#: (the failure mode this guards is a way that follows the corridor for
+#: tens of widths, VMMC's seafront).
+_DECK_ALONGSIDE_MAX = 6.0
 
 
 def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],
-                    lines: list[LineString], tree: STRtree | None, law: Law
+                    lines: list[LineString], tree: STRtree | None, law: Law,
+                    bores: _t.Sequence[LineString] = ()
                     ) -> list[tuple[OsmWay, float, float, Polygon]]:
     """``(way, s0, s1, deck polygon)`` per mapped bridge way crossing the
-    corridor (at ≥ 30° to the axis), ordered by ``s0``."""
+    corridor (at ≥ 30° to the axis), ordered by ``s0``.
+
+    §34 (12) (4) A BRIDGE SEVERS THE CLIMB ONLY WHERE IT CROSSES (owner
+    RULINGS 2026-09-15f item 1; Fable 2026-09-15i).  ``bores`` are this
+    group's own mapped ``tunnel=yes`` chains.  Where the group HAS bores,
+    a bridge way must cross the CORRIDOR — the bore, or the ramp axis
+    within the corridor's own width — in the ordinary sense: its
+    intersection with the corridor must be SHORTER than
+    ``_DECK_ALONGSIDE_MAX`` times its own carriageway width.  A way that
+    runs ALONGSIDE the corridor for tens of metres is not an
+    over-crossing however its centreline happens to meet the axis: at
+    VMMC six mapped ``bridge=yes`` seafront road ways each severed the
+    climb of a 600 m approach walk that follows the same seafront, and
+    the floor stayed 1.06 m flat for six faces.  A corridor with no bore
+    (an object corridor, a door well, a sunken road) keeps §33 (4)
+    exactly as it was."""
     if tree is None:
         return []
     corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
@@ -135,6 +159,12 @@ def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay]
         if ang < _DECK_MIN_ANGLE_DEG:
             continue
         wd = carriageway_width_m(w.tags, law)
+        # §34 (12) (4): an OVER-CROSSING, not a way running alongside
+        if bores:
+            inside = ln.intersection(corridor)
+            if not inside.is_empty and \
+                    inside.length > _DECK_ALONGSIDE_MAX * max(wd, 1.0):
+                continue
         # §33 (4) / §34.5 (6) AMENDED (Fable 2026-09-14; RULINGS
         # 2026-09-14bp item 10; the owner's words: "that's bridge extent to
         # cover the terrain cutting down to the road running under it").

@@ -253,3 +253,113 @@ def test_the_publication_carries_the_object_cut_witness(law):
     assert r["floor_m"] == 1.31 and r["signature"] == "B"
     assert len(r["outline_ll"]) == 4
     assert r["ramp_refs"] == ["tunnel_ramp:object-cut:t5@0"]
+
+
+# ── §33 (6) C1' — the pair marks a MOUTH RAMP (RULINGS 2026-09-15x) ──────
+
+def _band(ax, ay, bx, by, *, comp=0, width=1.0, height=1.0):
+    from shapely.geometry import LineString, Polygon
+    axis = LineString([(ax, ay), (bx, by)])
+    return object_cut.ThinBand(comp, axis.buffer(width / 2.0, cap_style="flat"),
+                               axis, float(axis.length), width, height,
+                               object_cut._bearing(axis))
+
+
+def test_pairs_that_meet_end_to_end_are_ONE_mouth_ramp(law):
+    """MEASURED at LEMD: `Bridge3.obj`'s south end is TWO pairs (27.65 /
+    25.71 m at 164.50 deg and 24.88 / 29.00 m at 174.23 deg) sharing a
+    junction — one bent ramp, not two mouths.  Read apart, the mouth
+    landed at the junction and the ramp climbed the WRONG WAY, 190 m into
+    the covered stretch."""
+    from auto_patch_v2.planar.structure_pair import pair_groups
+    # two pairs meeting at y = 60: (0..60) and (60..110), 10 m apart
+    pairs = [(_band(-5.0, 0.0, -5.0, 60.0), _band(5.0, 0.0, 5.0, 60.0), 9.0),
+             (_band(-5.0, 60.0, -8.0, 110.0), _band(5.0, 60.0, 2.0, 110.0), 9.6)]
+    groups = pair_groups(pairs, law.tables.structures.tunnel.object.merge_gap_m)
+    assert len(groups) == 1, [len(g[0]) for g in groups]
+    chain, inner = groups[0]
+    assert len(chain) == 3, chain
+    assert inner == pytest.approx(9.0), "the NARROWEST inner spacing governs"
+    ends = sorted(q[1] for q in (chain[0], chain[-1]))
+    assert ends[0] == pytest.approx(0.0, abs=1.0)
+    assert ends[1] == pytest.approx(110.0, abs=1.0)
+
+
+def test_pairs_far_apart_are_two_mouth_ramps(law):
+    """…and `Bridge3.obj`'s NORTH pair is 224 m from its south group: two
+    mouths of one covered bore, never one 354 m ramp."""
+    from auto_patch_v2.planar.structure_pair import pair_groups
+    pairs = [(_band(-7.0, 0.0, -7.0, 73.0), _band(7.0, 0.0, 7.0, 73.0), 14.02),
+             (_band(-5.0, 297.0, -5.0, 354.0), _band(5.0, 297.0, 5.0, 354.0), 9.6)]
+    groups = pair_groups(pairs, law.tables.structures.tunnel.object.merge_gap_m)
+    assert len(groups) == 2
+    assert sorted(round(g[1], 2) for g in groups) == [9.6, 14.02]
+
+
+def test_the_pair_reading_survives_bands_drawn_the_other_way_round(law):
+    """A pack draws the two walls of a pair in either order; the midline
+    must not fold."""
+    from auto_patch_v2.planar.structure_pair import _pair_midline
+    fwd = _pair_midline((_band(-5.0, 0.0, -5.0, 60.0), _band(5.0, 0.0, 5.0, 60.0), 9.0))
+    rev = _pair_midline((_band(-5.0, 0.0, -5.0, 60.0), _band(5.0, 60.0, 5.0, 0.0), 9.0))
+    flat = lambda t: [t[0][0], t[0][1], t[1][0], t[1][1]]      # noqa: E731
+    assert flat(fwd) == pytest.approx(flat(rev)) \
+        or flat(fwd) == pytest.approx(flat((rev[1], rev[0])))
+    assert abs(fwd[0][1] - fwd[1][1]) == pytest.approx(60.0, abs=0.01)
+
+
+# ── the LGAV crash: a wall band that crosses itself (2026-09-15) ─────────
+
+def test_a_self_intersecting_wall_ring_is_repaired_not_raised(law):
+    """MAIN CRASHED THE LGAV STRUCTURE REPLAY: `_bore_ends_at` built
+    ``Polygon(inner_a + reversed(inner_b))`` from the wall bands and
+    unioned it, and GEOS raised ``TopologyException: side location
+    conflict at -1286.509 -1775.049`` — the whole replay, and the tile
+    build behind it, died.  A pack's walls are AUTHORED: a band that
+    crosses itself is ordinary input.  Every polygon the reader builds
+    from wall bands is repaired first, and the repair's RESULT TYPE is
+    never assumed (``make_valid`` hands back a MultiPolygon or a
+    GeometryCollection as readily as a Polygon)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    # the classic bow-tie: a ring that crosses itself once
+    bad = Polygon([(0.0, 0.0), (10.0, 10.0), (10.0, 0.0), (0.0, 10.0)])
+    assert not bad.is_valid
+    g = object_cut.valid_polygon(bad)
+    assert g is not None and g.is_valid
+    assert g.geom_type in ("Polygon", "MultiPolygon")
+    assert g.area == pytest.approx(50.0, rel=0.02)
+    one = object_cut.largest_polygon(bad)
+    assert one is not None and one.geom_type == "Polygon" and one.is_valid
+    # …and the union that used to raise now completes
+    other = Polygon([(20.0, 0.0), (30.0, 0.0), (30.0, 10.0), (20.0, 10.0)])
+    u = object_cut.valid_polygon(unary_union([g, other]))
+    assert u is not None and u.is_valid
+
+
+def test_the_bore_end_reader_survives_a_crossing_wall(law):
+    """The same defect through the caller that raised it: two inner faces
+    that cross make a self-intersecting ring, and `_bore_ends_at` must
+    return an answer rather than take the process down."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.airport import tunnel_objects as TO
+    from auto_patch_v2.airport.tunnel_walls import WallLines
+    inner_a = [(0.0, 0.0), (100.0, 20.0)]
+    inner_b = [(0.0, 20.0), (100.0, 0.0)]        # crosses inner_a
+    plate = Polygon([(-2.0, -2.0), (102.0, -2.0), (102.0, 22.0), (-2.0, 22.0)])
+    walls = WallLines(plate, inner_a, inner_b, (False, False), (0.0, 0.0), 1.0, "II")
+    # the expression main ran, unrepaired — the ring IS invalid, which is
+    # the whole defect (both directions, never a one-sided green)
+    assert not Polygon(list(inner_a) + list(reversed(inner_b))).is_valid
+    ends = TO._bore_ends_at(walls, [(0.0, 10.0), (100.0, 10.0)], [], 5.0)
+    assert ends == ([], [])
+
+
+def test_the_repair_drops_a_degenerate_ring_without_raising(law):
+    """A band with no area at all answers ``None``, never an exception."""
+    from shapely.geometry import Polygon
+    assert object_cut.valid_polygon(Polygon()) is None
+    assert object_cut.largest_polygon(Polygon()) is None
+    assert object_cut.valid_polygon(None) is None
+    line = Polygon([(0.0, 0.0), (10.0, 0.0), (0.0, 0.0)])
+    assert object_cut.largest_polygon(line) is None

@@ -54,7 +54,9 @@ from ..model.frame import XY
 from . import obj8 as _obj8
 
 __all__ = ["ObjectCut", "SHELL", "CRESTED", "THIN", "shell_reading", "read_shells",
-           "thin_bands", "band_pair", "cut_placement_ids", "ObjectCutStats"]
+           "thin_bands", "band_pair", "band_pairs", "wall_polyline",
+           "chord_error_m", "cut_placement_ids", "ObjectCutStats",
+           "valid_polygon", "largest_polygon"]
 
 #: The three signatures, by name (the record's ``signature`` field).
 CRESTED, SHELL, THIN = "A", "B", "C"
@@ -166,13 +168,58 @@ def _plan_segments(v: np.ndarray, tris: np.ndarray) -> list[LineString]:
     return out
 
 
-def _largest_part(geom):
-    if geom.is_empty:
+def valid_polygon(geom):
+    """A VALID polygonal geometry, or ``None``.
+
+    THE CRASH THIS EXISTS FOR (main, LGAV, 2026-09-15): a wall-band ring
+    that self-intersects reaches ``shapely.ops.unary_union`` and GEOS
+    raises ``TopologyException: side location conflict at
+    -1286.509 -1775.049`` — the whole structure replay dies, and with it
+    the tile build.  A pack's walls are authored geometry: a band that
+    crosses itself (LGAV's Trench walls) is ordinary input, not a defect
+    to assert on, so EVERY polygon this reader builds from wall bands is
+    repaired first.
+
+    ``make_valid`` returns whatever it can — a Polygon, a MultiPolygon, a
+    GeometryCollection with stray lines — so the polygonal parts are kept
+    and the rest dropped; a caller that needs ONE polygon asks
+    :func:`largest_polygon`.  Never assume the type of what comes back."""
+    if geom is None or geom.is_empty:
+        return None
+    if not geom.is_valid:
+        try:
+            geom = shapely.make_valid(geom)
+        except Exception:                                  # pragma: no cover
+            try:
+                geom = geom.buffer(0)
+            except Exception:
+                return None
+    if geom is None or geom.is_empty:
         return None
     if geom.geom_type == "Polygon":
         return geom
-    parts = [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon"]
-    return max(parts, key=lambda g: g.area) if parts else None
+    parts = [g for g in shapely.get_parts(geom)
+             if g.geom_type in ("Polygon", "MultiPolygon") and not g.is_empty]
+    if not parts:
+        return None
+    out = unary_union(parts)
+    return None if out.is_empty else out
+
+
+def largest_polygon(geom):
+    """The largest POLYGON of :func:`valid_polygon`'s result, or ``None``."""
+    g = valid_polygon(geom)
+    if g is None:
+        return None
+    if g.geom_type == "Polygon":
+        return g
+    parts = [q for q in shapely.get_parts(g) if q.geom_type == "Polygon"]
+    return max(parts, key=lambda q: q.area) if parts else None
+
+
+def _largest_part(geom):
+    """The largest polygon, REPAIRED first (see :func:`valid_polygon`)."""
+    return largest_polygon(geom)
 
 
 # ── signature B: the shell ───────────────────────────────────────────────
@@ -311,9 +358,11 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
     # line"): the wall faces' plan segments widened to the law's own wall
     # thickness, so the stations can read a thickness at every point and
     # ``object_cut_offset`` has a region to measure against.
-    band = unary_union([s.buffer(ob.wall_face_max_thickness_m / 2.0,
-                                 cap_style="flat", join_style="mitre")
-                        for s in segs]).buffer(0)
+    band = valid_polygon(unary_union([
+        s.buffer(ob.wall_face_max_thickness_m / 2.0, cap_style="flat", join_style="mitre")
+        for s in segs]))
+    if band is None:
+        return "the shell's wall band has no valid plan area"
     return ShellReading(floor_y, floor_area, extra, interior, band,
                         tuple(chain_a), tuple(chain_b), ends, float(length),
                         float(interior.area / max(length, 1e-9)))
@@ -578,39 +627,140 @@ def thin_bands(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
     return out
 
 
-def band_pair(bands: _t.Sequence[ThinBand], law
-              ) -> "tuple[ThinBand, ThinBand, float] | None":
-    """The PARALLEL PAIR of thin walls (§33 (6) C1/C3) — two bands within
-    ``parallel_max_deg`` of each other, their axes
-    ``pair_spacing_min_m``..``pair_spacing_max_m`` apart, overlapping
-    ``pair_overlap_min_fraction`` of the shorter along the axis — and the
-    INNER spacing (axis separation less the two half widths).  The
-    widest-overlap pair wins."""
+def _pair_reading(A: ThinBand, B: ThinBand, law
+                  ) -> "tuple[float, float] | None":
+    """``(inner spacing, overlap along the axis)`` for two bands that ARE
+    a §33 (6) C pair, or ``None``."""
     ob = law.tables.structures.tunnel.object
     wc = law.tables.structures.cutout.wall_corridor
-    best = None
+    d = abs(A.bearing_deg - B.bearing_deg) % 180.0
+    if min(d, 180.0 - d) > wc.parallel_max_deg:
+        return None
+    gap = A.axis.distance(B.axis)
+    if gap <= 1e-6:
+        gap = float(np.mean([A.axis.distance(Point(q)) for q in B.axis.coords]))
+    if not (ob.pair_spacing_min_m <= gap <= ob.pair_spacing_max_m):
+        return None
+    brg = math.radians(A.bearing_deg)
+    u = (math.sin(brg), math.cos(brg))
+    sa = sorted(q[0] * u[0] + q[1] * u[1] for q in A.poly.exterior.coords)
+    sb = sorted(q[0] * u[0] + q[1] * u[1] for q in B.poly.exterior.coords)
+    ov = min(sa[-1], sb[-1]) - max(sa[0], sb[0])
+    if ov < ob.pair_overlap_min_fraction * min(A.length_m, B.length_m):
+        return None
+    return gap - (A.width_m + B.width_m) / 2.0, ov
+
+
+def wall_polyline(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
+                  mat, law) -> "list[LineString]":
+    """§33 (6) C2' — A BAND IS A POLYLINE, straight or curved (RULINGS
+    2026-09-15x).  The INNER FACE of each thin surface wall, as a
+    polyline in the AIRPORT frame: the wall's plan band (the union of its
+    vertical faces' plan segments, widened to the measured thickness)
+    reduced to its own centreline by walking its ring's longer side.
+
+    :func:`thin_bands` reads STRAIGHT runs — a bearing cluster — which is
+    exactly what a CURVED wall has none of: LEMD `Bridge4.obj` is one
+    2.016 m U whose vertical faces turn a few degrees per face, so it
+    reads sixteen short runs and no band at all.  This reads the same
+    faces as ONE chain per connected piece, so the ring the cut follows
+    can be the wall's own curve instead of a nine-station chord.
+
+    Returned longest first; a piece shorter than `hull_min_length_m` is
+    dropped (a stub, the same floor the wall readers use)."""
+    from . import wall_geometry as _wg
+    ob = law.tables.structures.tunnel.object
+    out: list[LineString] = []
+    v = geom.vertices
+    for c in genuine:
+        h = c.max_y - c.min_y
+        if h > ob.parapet_max_height_m or c.min_y < ob.parapet_y_min:
+            continue
+        ny = _face_normals_y(v, c.tris)
+        vert = c.tris[ny < ob.plate_normal_y_min]
+        if vert.shape[0] == 0:
+            continue
+        segs = [g for g, _k in _wg._plan_segments_indexed(v, vert, mat)]
+        if not segs:
+            continue
+        band = unary_union([g.buffer(ob.parapet_max_width_m / 2.0, cap_style="flat",
+                                     join_style="mitre") for g in segs]).buffer(0)
+        for part in (shapely.get_parts(band) if band.geom_type != "Polygon" else [band]):
+            if part.geom_type != "Polygon" or part.area <= 0.0:
+                continue
+            ring = list(shapely.simplify(part, 0.10).exterior.coords)[:-1]
+            if len(ring) < 4:
+                continue
+            # the ring of a thin band runs out along one face and back
+            # along the other: cut it at its two ENDS (the two vertices
+            # whose adjacent edges reverse most) and keep the longer side
+            n = len(ring)
+            turn = []
+            for i in range(n):
+                a, b, cc = ring[(i - 1) % n], ring[i], ring[(i + 1) % n]
+                u = (b[0] - a[0], b[1] - a[1])
+                w = (cc[0] - b[0], cc[1] - b[1])
+                lu = math.hypot(*u) or 1.0
+                lw = math.hypot(*w) or 1.0
+                turn.append(((u[0] * w[0] + u[1] * w[1]) / (lu * lw), i))
+            turn.sort()
+            i0, i1 = sorted(t[1] for t in turn[:2])
+            side_a = [ring[k] for k in range(i0, i1 + 1)]
+            side_b = [ring[k % n] for k in range(i1, i0 + n + 1)]
+            best = max((side_a, side_b), key=lambda q: LineString(q).length
+                       if len(q) >= 2 else 0.0)
+            if len(best) < 2:
+                continue
+            ln = LineString(best)
+            if ln.length >= ob.hull_min_length_m:
+                out.append(ln)
+    out.sort(key=lambda g: -g.length)
+    return out
+
+
+def chord_error_m(ring_pts: _t.Sequence[XY], wall: LineString) -> float:
+    """The worst distance from a vertex of an emitted ring to the wall
+    polyline it is supposed to follow — §33 (6) C2''s "chord error"."""
+    if not ring_pts or wall.is_empty:
+        return 0.0
+    return max(wall.distance(Point(q)) for q in ring_pts)
+
+
+def band_pairs(bands: _t.Sequence[ThinBand], law
+               ) -> "list[tuple[ThinBand, ThinBand, float]]":
+    """EVERY parallel PAIR of thin walls the object carries (§33 (6) C1'
+    as RULINGS 2026-09-15x re-founds it), widest overlap first, each band
+    used at most once — ``(A, B, inner spacing)``.
+
+    A pair is two bands within ``parallel_max_deg`` of each other, axes
+    ``pair_spacing_min_m``..``pair_spacing_max_m`` apart, overlapping
+    ``pair_overlap_min_fraction`` of the shorter along the axis.  ALL of
+    them, not the best one: measured LEMD `Bridge3.obj` carries TWO — a
+    73.0 / 73.1 m pair at each end of its 354.2 m box, 14.02 m apart,
+    with 224 m of nothing between — and each marks a MOUTH."""
+    cand = []
     for i in range(len(bands)):
         for j in range(i + 1, len(bands)):
-            A, B = bands[i], bands[j]
-            d = abs(A.bearing_deg - B.bearing_deg) % 180.0
-            if min(d, 180.0 - d) > wc.parallel_max_deg:
-                continue
-            gap = A.axis.distance(B.axis)
-            if gap <= 1e-6:
-                gap = float(np.mean([A.axis.distance(Point(q)) for q in B.axis.coords]))
-            if not (ob.pair_spacing_min_m <= gap <= ob.pair_spacing_max_m):
-                continue
-            brg = math.radians(A.bearing_deg)
-            u = (math.sin(brg), math.cos(brg))
-            sa = sorted(q[0] * u[0] + q[1] * u[1] for q in A.poly.exterior.coords)
-            sb = sorted(q[0] * u[0] + q[1] * u[1] for q in B.poly.exterior.coords)
-            ov = min(sa[-1], sb[-1]) - max(sa[0], sb[0])
-            if ov < ob.pair_overlap_min_fraction * min(A.length_m, B.length_m):
-                continue
-            inner = gap - (A.width_m + B.width_m) / 2.0
-            if best is None or ov > best[3]:
-                best = (A, B, inner, ov)
-    return (best[0], best[1], best[2]) if best is not None else None
+            r = _pair_reading(bands[i], bands[j], law)
+            if r is not None:
+                cand.append((r[1], r[0], i, j))
+    cand.sort(key=lambda t: -t[0])
+    used: set[int] = set()
+    out: list[tuple[ThinBand, ThinBand, float]] = []
+    for _ov, inner, i, j in cand:
+        if i in used or j in used:
+            continue
+        used.add(i)
+        used.add(j)
+        out.append((bands[i], bands[j], inner))
+    return out
+
+
+def band_pair(bands: _t.Sequence[ThinBand], law
+              ) -> "tuple[ThinBand, ThinBand, float] | None":
+    """The widest-overlap pair, or ``None`` — :func:`band_pairs`'s first."""
+    ps = band_pairs(bands, law)
+    return ps[0] if ps else None
 
 
 # ── the claim: what basins.py must not see ───────────────────────────────

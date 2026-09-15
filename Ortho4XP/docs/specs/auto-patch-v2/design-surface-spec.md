@@ -13814,3 +13814,33 @@ and its zones or is excluded per (11) (c).  v2roadtags' tags do not
 reach this site (all 22 ways come from `airport_small_roads`, and
 `TAGS_OF_INTEREST` drops `covered`/`cutting`/`embankment`) — noted for
 the peer's follow-up, not this lane's.
+
+### §45 (13) A CHANNEL NEVER TAKES A MODELLED CROSSING (Fable 2026-09-15; RULINGS 2026-09-15aa) — lane `v2channel` round 4
+
+Round 3's six dry replays (base main 46b219d8 vs the branch) showed the channel pass
+claiming crossings the engine already models: KCLT taxiway U's four bores
+(`tunnel:-14074@0..3`, §34 (5)'s canonical underpass) became a bridge-witness channel;
+LEMD's F-6 service roads and five more bores, and OTHH's `tunnel west 2/3.obj` object
+corridors, lost their ways to neck-witness channels; LEMD's `basin:0` then fell to the
+channel's own cells. RULED, as PRECEDENCE at the channel's admission (one site,
+`planar/channel.identify_channels`):
+
+(a) **A bridge-only witness is §34 (5)'s underpass, not a channel.** A crossing
+witnessed by an aeroway `bridge=yes` way ALONE — no neck, no pack wall/floor object, no
+credible lidar — keeps the existing bore-with-mouths model. §45 (1)(a) is a witness only
+in COMPANY (LGAV: bridge + pack).
+
+(b) **A way already claimed is never a channel's.** A way that a tunnel-object corridor
+(05k-1, `tunnel_objects.read_corridors`) or an OSM `tunnel=yes` bore (`build_structures`)
+claims is excluded from every channel candidate; the channel is the model for crossings
+the engine could NOT otherwise model. A pack-wall or lidar witness does not override
+this: at LGAV the trench ways carry no `tunnel` tag and no object corridor, so nothing
+competes.
+
+(c) **A depth witness or two necks.** With (a) and (b), a channel needs a pack or lidar
+witness, or a neck witness with ≥ `min_decks_without_depth` (2) decks (§45 (12) ratified).
+
+BAR: the six dry replays byte-identical in `Tunnel` / `Basin` records AND in
+`replaced_ways` (OTHH's provenance field included); LGAV unchanged from round 2 once
+main's `shell_corridor` crash (v2objcut's, RULINGS 15aa) is fixed; KDFW and KPHX by
+their witnesses (neck + lidar; neck ×2) after the owner's refreshes.

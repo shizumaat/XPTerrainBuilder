@@ -7459,3 +7459,31 @@ ON THE MEASUREMENT: r2 attributes the airside movement by `--why-at`
 before any lever; the pad's rows are one-way toward the pad; the flag
 flips only at 0 airside movement and 0 new welds.
 15z addendum: suite ON MAIN after the v2padqp merge: 1612 passed, 1 skipped, 42 warnings in 39.71s. Three of the four lanes are on main (v2lemdstruct2 287f9b5b + r2 6d25b68c, v2objcut 3b35df96, v2padqp 2039b3c0); v2vmmcshore r1 (a57abc47) is HELD for r2 (15w).
+
+## 2026-09-15aa v2channel ROUND 3: rebased on the three concurrent merges (1625/0); the six dry replays showed the channel pass TAKING modelled underpasses (KCLT U, LEMD F-6, OTHH object corridors) — §45 (13) precedence RULED; main's LGAV structure replay CRASHES in v2objcut's `shell_corridor` (not the channel's)
+
+Lane `v2channel` round 3 (a10b6a92): merged main 46b219d8 with five
+conflicts, both sides kept (`build_basins(claimed=, channels=)` in
+sequence; sidecar keys `channel_facilities` + `object_cuts`; both family
+pairs in `LAW_FAMILIES`); `planar/structures.py` at exactly 1,000 lines.
+Suite 1625/0. THE SIX DRY REPLAYS (the bar round 1 skipped) were NOT
+byte-identical: LEMD 50 → 44 tunnels (F-6's −5821/−5820 taken by a
+bridge-witness channel with no depth witness — the lane generalised the
+`min_decks_without_depth` gate to every witness kind, f32fb08c, LEMD
+→ 45), KCLT 23 → 19 (`tunnel:-14074@0..3`, taxiway U's underpass, taken
+by a bridge-witness channel), OTHH `tunnel west 2/3.obj` object corridors
+lose `replaced_ways` [−918, −917] to a neck channel, LEMD five more bores
+to neck channels and `basin:0` to the channel's own cells; HECA/CYXY/SPJC
+identical. The lane stopped at its two-attempt cap and asked. RULED §45
+(13): a bridge-only witness is §34 (5)'s underpass; a way an object
+corridor or an OSM bore claims is never a channel's; a channel needs a
+depth witness or two necks. Round 4 implements it; the bar is the six
+replays byte-identical INCLUDING `replaced_ways`. SEPARATELY: the LGAV
+structure replay on MAIN (no channel code, control run) crashes —
+`GEOSException: TopologyException: side location conflict at −1286.509
+−1775.049` in `airport/tunnel_objects.py:472 _bore_ends_at` (v2objcut's
+§33 (6) `shell_corridor`, `unary_union([plate, Polygon(inner_a +
+reversed(inner_b))])` on an invalid ring at LGAV's Trench walls) — routed
+to the concurrent session (v2objcut r2); it gates the app's LGAV tile
+build. RULINGS letters ran past `z` today: the next keys are 15ab, 15ac …
+(the `14aa`…`14bw` convention).

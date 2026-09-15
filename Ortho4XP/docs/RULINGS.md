@@ -6411,3 +6411,41 @@ signature reproduced once more by the lane itself (flags armed →
   back to ≤ 72.62); (3) re-run the HECA triple; (4) KCLT pads-ON via
   `--from classify` or a build. Bars unchanged: infeasible → 0,
   airside moved = the collar only, the terminal at its pad.
+
+## 2026-09-14bo LEMD items 2/3/4/6/9 attributed (scout `v2lemd336o`): ONE mechanism — `Part.height_m` is computed in TWO FRAMES (placed max − authored min = an MSL number), so §16g (10) (4)'s leaf rule is INERT and three giant units (1,673 / 3,073 / 3,301 bodies, 2–2.9 km) weld the airport to three pad planes; item 3 = §16g (5) seating a vehicle at the unit datum — lane `v2leafframe`
+
+`pack_partition.py:672` `round(box_max[1] − base_y)`: `box_max` is the
+PLACED maximum (`contact.py:345`), `base_y` the AUTHORED minimum
+(`:344`) — at LEMD `height_m` reads 580–646 m over all 29,684 parts,
+so `chain_min_height_m` 2.5 passes 9,647 of 9,647 bodies and the leaf
+rule removes NOTHING. The edge-carriers are the AESlite VOR quads
+(4 vertices, authored extent 0.000 m, 2–2.6 M m², 3,300 edges each)
+and the yellow carpets (0.8 m). Result: `fu:1:1@cluster_pad` 602.42
+(`building4`, 2,855 m span), `fu:16:124` 597.08, `fu:10:47` 616.36;
+1,462 of 1,481 `OBJECT_MSL` rows sit at exactly those three
+elevations. Item 2 (cargo, 40.4552): +3.7 … +6.0 m on a pad 766 m
+away; item 4 (ILS shacks/barriers, 40.4982): +4.3 … +5.5 (pad 647 m
+away; the neighbours that fell OUT of the unit sit at −0.01); item 6
+(blast shield): +4.3; item 9 (40.4842): 11ai's roof is FIXED (rides
+its own walls at −0.02) — the CARRIER floats +3.5 on `building12` 439
+m away. Item 3 (40.4615): 7 `OBJECT_MSL` vehicle rows −0.75 … −1.14 —
+the SAME 602.42 plane with the apron 1 m above it; as plain `OBJECT`
+they would drape right. Counterfactual with one frame: chaining
+bodies 9,647 → 4,958; items 2/4/6/9 → clusters of 1/1/1/2 bodies;
+item 3's Old Terminal district stays a genuine 524-body walled chain.
+Census: `OBJECT_MSL` rows > 0.5 m off 677 of 1,481 (460 > 1 m); bodies
+> 0.5 m off own ground 1,132 (663 > 1 m); skipped 73 (72 multi-anchor
++ the stock car); 564 pack rows still on their authored AGL row.
+
+* RULING: (1) `Part.height_m` = the authored extent (`box_max[1] −
+  box_min[1]` in ONE frame) — a one-expression fix that arms §16g (10)
+  (4) at every airport (`pad_from_cluster` stays OFF; the leaf rule is
+  the UNIT derivation's, live today). (2) §16g (5) AMENDED: a
+  per-placement `OBJECT_MSL` row takes the DESIGN SURFACE AT ITS OWN
+  FEET unless the placement's footprint stands on the unit's pad —
+  a vehicle, loader, marker or sign on open apron 44 m from the pad
+  is on the apron; where the surface is not graded there, the row
+  stays plain `OBJECT` (AGL). Lane `v2leafframe`: ONE LEMD build;
+  bars per site + the census (MSL rows off > 0.5 m 677 → ≤ 20, named;
+  bodies off own ground 1,132 → named by class); HECA/OTHH/KCLT unit
+  censuses dry (the leaf rule now live — the T3 district, `unit:43`).

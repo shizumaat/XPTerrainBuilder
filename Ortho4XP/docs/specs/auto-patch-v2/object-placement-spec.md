@@ -5324,3 +5324,21 @@ BARS: KCLT 143 / HECA 124 infeasible skirt rows → 0 (each pad named: the
 apron area flattened within the reach, or its slope and low-side seat);
 the reach never crosses a taxiway; airside moved vs pads-OFF = the
 flattened apron area only.
+
+### §16g (5) AMENDED — A PER-PLACEMENT ROW IS SEATED AT ITS OWN FEET (Fable 2026-09-14; RULINGS 2026-09-14bo) — lane `v2leafframe`
+
+MEASURED (LEMD 1.0.336): 1,462 of 1,481 `OBJECT_MSL` rows sit at three
+elevations — the datums of three airport-wide units welded by zero-height
+quads that §16g (10) (4) should have made leaves but could not, because
+`Part.height_m` mixed a placed maximum with an authored minimum.
+1. `Part.height_m` is the authored extent in one frame.
+2. A multi-anchor placement's `OBJECT_MSL` elevation is the design surface
+   at that placement's own feet (its footprint's ground on the graded
+   surface), unless its footprint stands on the unit's pad — then the pad.
+   Where no graded face covers it, the row stays plain `OBJECT` (AGL).
+BARS (LEMD, ONE build): items 2/4/6/9 each on their own ground (bodies
+within 0.3 m of own ground at 40.4552413,−3.5687453; 40.4981624,−3.5595534;
+40.4980571,−3.5829243; 40.4841856,−3.5854064); item 3's seven rows at their
+apron level (40.461514,−3.5732897); `OBJECT_MSL` rows > 0.5 m off 677 → ≤
+20 named; largest unit span 2,855 m → named; HECA/OTHH/KCLT unit censuses
+dry before → after (the leaf rule live).

@@ -63,6 +63,10 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("road_coverage_join", road_ramp.road_join_rows),
     ("groundside_ramp", groundside.groundside_ramps),
     ("transverse", transverse.transverse),
+    # §34 (13) (3) (Fable 2026-09-15; RULINGS 2026-09-15y): the RAW PAIR
+    # across a junction's width — the reading the census and the cockpit
+    # use, which a satisfied 4-term cross-corridor row does not discharge
+    ("junction_raw_transverse", transverse.junction_raw_transverse),
     ("no_step_pairs", no_step.no_step_pairs),
     ("no_step_rate", no_step.no_step_rate),
     ("cross_shape_pairs", proximity.cross_shape_pairs),

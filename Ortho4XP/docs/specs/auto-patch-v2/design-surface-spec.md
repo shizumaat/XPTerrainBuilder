@@ -14746,3 +14746,10 @@ takes junction/apron roles with their own transverse caps (the owner's
 item-7 site then reads under the junction law it already meets, 1.542
 %); the 0.95 m step is either healed by the level rows or named as a
 `runway_step` DEFECT; VHHH's 84,000 m² shoulder shrinks likewise.
+(5) bounds (1), it does not reverse it: a cell that shares ≥ 100 m with
+the runway ring or has its centroid in the strip is STILL the runway's
+— but only the part of it within the strip half-width; the remainder
+beyond the strip keeps the role its geometry earns (HECA shape 44, 101.5
+m wide: the strip part joins 05L/23R, the rest is the apron the owner
+read it as — 13co).  Owner ruling 13co's intent ("a pavement along a
+runway is the runway's") is exactly a band beside the runway.

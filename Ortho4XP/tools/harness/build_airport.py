@@ -1546,13 +1546,14 @@ def reconcile_refresh_ledger(root, lat, lon, requested, prog,
     predates its mtime gets one ``reconciled`` record carrying the file's
     hash-stamp; one that is already explained is left alone.
     """
+    base = corpus_base(root)
     paths = reconcilable_artifacts(root, lat, lon, requested)
     if not paths:
         prog.note("reconcile-ledger: no artefact of the requested "
                   f"scope(s) {sorted(requested)} on tile "
                   f"{lat:+d}{lon:+d} — nothing to reconcile")
         return {"checked": 0, "reconciled": []}
-    done = record_reconciliation(paths, dict(meta or {}))
+    done = record_reconciliation(paths, dict(meta or {}), repo=base)
     for rel in done:
         prog.note(f"LEDGER RECONCILED: {rel} — it is on disk NEWER than "
                   f"any ledger line that names it; its current hash is "
@@ -1564,9 +1565,34 @@ def reconcile_refresh_ledger(root, lat, lon, requested, prog,
     return {"checked": len(paths), "reconciled": done}
 
 
+def corpus_base(root) -> Path:
+    """The corpus the ledger's paths are relative to, for THIS lane.
+
+    THE MEASURED BUG (2026-09-15, round 7).  ``reconcilable_artifacts``
+    relativised against the LANE ROOT, but a lane's ``OSM_data`` is a
+    SYMLINK into the shared repo, so ``Path(cache).resolve()`` lands in
+    ``/Users/noah/XPTerrainBuilderData/...`` and ``relative_to(lane)``
+    raised ValueError for EVERY artefact.  The list came out empty and
+    ``--reconcile-ledger`` reported "no artefact of the requested
+    scope(s) on tile +33-112" while the very file it exists for
+    (+33-112_big_roads, re-derived 13:48, never ledgered) sat there.  The
+    ledger is keyed on SHARED-REPO-relative paths (``record_refresh`` /
+    ``_file_stamp``), so that is the frame to use — falling back to the
+    lane root only for a corpus that genuinely is not the shared one (a
+    twin's tmp root, ``--allow-private-data``).
+    """
+    root = Path(root)
+    try:
+        (root / "OSM_data").resolve().relative_to(DATA_REPO.resolve())
+        return DATA_REPO.resolve()
+    except (OSError, ValueError):
+        return root.resolve()
+
+
 def reconcilable_artifacts(root, lat, lon, requested) -> list:
-    """The repo-relative artefacts of ``requested`` that this tile's
-    refresh derivations own AND that exist on disk.
+    """The artefacts of ``requested`` that this tile's refresh
+    derivations own AND that exist on disk, relative to
+    :func:`corpus_base` — the same frame the refresh ledger uses.
 
     Same two sources the pre-flight judges (so a reader never has to ask
     which set is meant): the engine's own
@@ -1580,10 +1606,11 @@ def reconcilable_artifacts(root, lat, lon, requested) -> list:
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
     out, seen = [], set()
+    base = corpus_base(root)
 
     def _add(path):
         try:
-            rel = str(Path(path).resolve().relative_to(Path(root).resolve()))
+            rel = str(Path(path).resolve().relative_to(base))
         except (OSError, ValueError):
             return
         if rel in seen or not os.path.isfile(path):

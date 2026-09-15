@@ -2565,31 +2565,84 @@ def test_the_ledger_reconciliation_stamps_only_what_nothing_explains(
     monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
     monkeypatch.setattr(guard_mod, "REFRESH_LEDGER", ledger)
 
-    # nothing in the ledger -> reconciled, once, with the hash
+    # NEVER LEDGERED -> reconciled, once, with the hash, and SAID SO.
+    # (Round 6 got this wrong in the field: KPHX's +33-112_big_roads had
+    # no line naming it AT ALL, and a predicate phrased only as "the
+    # newest line predates its mtime" excluded the very case the
+    # reconciliation exists for.)
+    assert guard_mod.ledger_state(rel, time_now := os.path.getmtime(
+        repo / rel)) == "never-ledgered"
     done = guard_mod.record_reconciliation(
         [rel], {"lane": "twin", "tag": "t"})
     assert done == [rel]
     recs = guard_mod.ledger_lines(ledger)
     assert len(recs) == 1
     assert recs[0]["scope"] == "osm_layers" and recs[0]["reconciled"] is True
+    assert recs[0]["reconciled_paths"] == {rel: "never-ledgered"}
+    assert "another lane's authorised refresh" in recs[0]["why"]
     assert recs[0]["files"][0]["path"] == rel
     assert recs[0]["files"][0].get("sha256")
+    del time_now
 
     # ...and now it IS explained, so a second run records nothing
     assert guard_mod.record_reconciliation(
         [rel], {"lane": "twin", "tag": "t"}) == []
     assert len(guard_mod.ledger_lines(ledger)) == 1
 
-    # a file written AFTER its newest ledger line is unexplained again
+    # a file written AFTER its newest ledger line is a DIFFERENT case,
+    # named as such
     import time as _time
     os.utime(repo / rel, (_time.time() + 120, _time.time() + 120))
+    assert guard_mod.ledger_state(
+        rel, os.path.getmtime(repo / rel)) == "stale-line"
     assert guard_mod.record_reconciliation(
         [rel], {"lane": "twin", "tag": "t"}) == [rel]
+    assert guard_mod.ledger_lines(ledger)[-1]["reconciled_paths"] == {
+        rel: "stale-line"}
 
     # and a malformed ledger line never blinds the reader
     with open(ledger, "a") as fh:
         fh.write("{half written\n")
     assert len(guard_mod.ledger_lines(ledger)) == 2
+
+
+def test_the_reconcilable_set_is_RELATIVE_TO_THE_SHARED_REPO(
+        build_mod, guard_mod, tmp_path, monkeypatch):
+    """THE ROUND-7 BUG, measured live.
+
+    ``--reconcile-ledger`` reported "no artefact of the requested
+    scope(s) ['osm_layers'] on tile +33-112 — nothing to reconcile" while
+    the very file it exists for sat there.  A lane's ``OSM_data`` is a
+    SYMLINK into the shared repo, so ``Path(cache).resolve()`` lands in
+    the repo and ``relative_to(lane_root)`` raised ValueError for EVERY
+    artefact — the list came out empty, silently.  The ledger is keyed on
+    SHARED-REPO-relative paths, so that is the frame.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "+30-120" / "+33-112").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    (lane / "OSM_data").symlink_to(repo / "OSM_data")   # the lane ritual
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(lane / "OSM_data"))
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
+    cache = Path(FNAMES.osm_cached(33, -112, "big_roads"))
+    _write_schema_stamped_layer(cache, VMAP.ROAD_CACHE_TAG_SCHEMA)
+
+    assert build_mod.corpus_base(lane) == repo.resolve()
+    got = build_mod.reconcilable_artifacts(lane, 33, -112, {"osm_layers"})
+    assert "OSM_data/+30-120/+33-112/+33-112_big_roads.osm.bz2" in got, got
+    # ...and those rels resolve against the REPO, which is what the
+    # ledger's stamping does
+    for rel in got:
+        assert (repo / rel).is_file()
+
+    # a corpus that genuinely is NOT the shared one keeps the lane frame
+    monkeypatch.setattr(build_mod, "DATA_REPO", tmp_path / "elsewhere")
+    assert build_mod.corpus_base(lane) == lane.resolve()
 
 
 def test_the_reconcilable_set_is_the_two_the_preflight_judges(

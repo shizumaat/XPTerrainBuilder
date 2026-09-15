@@ -584,28 +584,43 @@ def ledger_lines(path=None) -> list:
     return out
 
 
-def ledger_explains(rel: str, mtime: float, records=None) -> bool:
-    """Is this artefact's CURRENT state explained by a ledger line?
+def ledger_state(rel: str, mtime: float, records=None) -> str:
+    """How the refresh ledger accounts for this artefact's CURRENT state:
+    ``"explained"``, ``"stale-line"`` or ``"never-ledgered"``.
 
-    True when some record that NAMES the path was written at or after the
-    file's mtime.  Records carry ``ts`` as local ``%Y-%m-%dT%H:%M:%S``
-    (``record_refresh``), which is second-resolution, so the compare is
-    deliberately generous by one second — a stamp written in the same
+    ``explained``: some record NAMES the path and was written at or after
+    the file's mtime.  Records carry ``ts`` as local
+    ``%Y-%m-%dT%H:%M:%S`` (``record_refresh``), second-resolution, so the
+    compare is generous by one second — a stamp written in the same
     second as the write explains it.
+
+    ``never-ledgered`` is called out separately because it is the case
+    the reconciliation exists for and the one round 6 got wrong: KPHX's
+    +33-112_big_roads was re-derived at 13:48 and NO line named it at
+    all (the 13:29:33 ``osm_layers`` line is +33-113's), so a predicate
+    phrased only as "the newest line predates its mtime" excluded it.
     """
     records = ledger_lines() if records is None else records
+    named_at_all = False
     for rec in records:
         named = [f.get("path") for f in (rec.get("files") or ())]
         if rel not in named and rel not in (rec.get("removed") or ()):
             continue
+        named_at_all = True
         try:
             when = time.mktime(time.strptime(str(rec.get("ts", "")),
                                              "%Y-%m-%dT%H:%M:%S"))
         except ValueError:
             continue
         if when + 1.0 >= mtime:
-            return True
-    return False
+            return "explained"
+    return "stale-line" if named_at_all else "never-ledgered"
+
+
+def ledger_explains(rel: str, mtime: float, records=None) -> bool:
+    """True when :func:`ledger_state` says ``explained``.  Kept as the
+    one-word question the readers ask."""
+    return ledger_state(rel, mtime, records) == "explained"
 
 
 def record_reconciliation(rels, meta: dict, repo=None) -> list:
@@ -620,30 +635,38 @@ def record_reconciliation(rels, meta: dict, repo=None) -> list:
     """
     repo = Path(repo or DATA_REPO)
     records = ledger_lines()
-    unexplained = []
+    why_by_path: dict = {}
     for rel in rels:
         try:
             mtime = (repo / rel).stat().st_mtime
         except OSError:
             continue
-        if not ledger_explains(rel, mtime, records):
-            unexplained.append(rel)
-    if not unexplained:
+        state = ledger_state(rel, mtime, records)
+        if state != "explained":
+            why_by_path[rel] = state
+    if not why_by_path:
         return []
     by_scope: dict = {}
-    for rel in unexplained:
+    for rel in sorted(why_by_path):
         by_scope.setdefault(scope_of(rel), []).append(rel)
     for scope, rels_in in sorted(by_scope.items(), key=lambda kv: str(kv[0])):
         record_refresh(scope or "<outside every scope>",
                        {"added": [], "modified": sorted(rels_in),
                         "removed": []},
                        {**meta, "reconciled": True,
-                        "why": "the artefact on disk is NEWER than any "
-                               "ledger line naming it; this record stamps "
-                               "its CURRENT hash, it does not claim this "
-                               "run fetched it"},
+                        "reconciled_paths": {r: why_by_path[r]
+                                             for r in sorted(rels_in)},
+                        "why": "NOTHING in this ledger accounts for these "
+                               "artefacts as they stand: each is either "
+                               "NEVER-LEDGERED or newer than the newest "
+                               "line naming it (per path above).  This "
+                               "record stamps their CURRENT hash and "
+                               "claims nothing else — the write may have "
+                               "been another lane's authorised refresh, "
+                               "or a derivation a crash or a later "
+                               "refusal put beyond the audit's reach"},
                        repo=repo)
-    return sorted(unexplained)
+    return sorted(why_by_path)
 
 
 def is_lock_artifact(relpath) -> bool:

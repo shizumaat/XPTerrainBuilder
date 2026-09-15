@@ -6838,7 +6838,7 @@ there is no 1.0.341 flip build. The owner's read of 1.0.340 (LEMD tile
 first, then HECA/OTHH as they choose) is the adjudication of §20c; the
 1.0.339 OTHH customer surface is the fixed-point arm and stays shipped.
 
-## 2026-09-15e OWNER: CYXY and SPJC APPROVED on app 1.0.340 (the §20c converged solver + the DEFECT floor); the other fixtures are still under the owner's read
+## 2026-09-15l OWNER: CYXY and SPJC APPROVED on app 1.0.340 (the §20c converged solver + the DEFECT floor); the other fixtures are still under the owner's read
 
 Owner 2026-09-15: "Document that CYXY and SPJC are both approved with
 app build 1.0.340! I will continue testing the other fixtures." The
@@ -6857,7 +6857,7 @@ pattern class to identify and model as an open tunnel — evidence scout
 `channelscout` and the object-stage crash lane `v2drapedbind` dispatched
 (briefs c2c96419).
 
-## 2026-09-15f OWNER: a custom pack whose apt.dat authored no pavement borrows the Global Airports pavement (+ boundary) and keeps its own objects — the trigger is COVERAGE < 25 % (spec §44, lane `v2pavborrow`)
+## 2026-09-15m OWNER: a custom pack whose apt.dat authored no pavement borrows the Global Airports pavement (+ boundary) and keeps its own objects — the trigger is COVERAGE < 25 % (spec §44, lane `v2pavborrow`)
 
 Owner 2026-09-15 on the LGAV read: "It's a case where the author included
 no pavement at all and relied only on imagery. In this case we should
@@ -6880,7 +6880,7 @@ read). Consumer census §44.1 (13 rows) written before any edit per
 RULINGS 2026-08-30l; C10 (the DEM-inset stage's own v1 resolver) is a
 MEASURE row, its unification deferred to stage B of the v1 retirement.
 
-## 2026-09-15g v2drapedbind MERGED (32f338a3): the object stage no longer dies on a draped page beside a solid body — `placement_geom._draped_components` was never bound to `_LineCutter`
+## 2026-09-15n v2drapedbind MERGED (32f338a3): the object stage no longer dies on a draped page beside a solid body — `placement_geom._draped_components` was never bound to `_LineCutter`
 
 The owner's LGAV tile build (2026-09-14 23:14, engine 1.50.1785; the bug
 is in 1.0.340 too) logged `[v2 rebake] LGAV: placement failed
@@ -6951,7 +6951,7 @@ author's footprint guide for bridges and tunnels — a new law class;
 scout first (consumer census + object inventory at each site), then
 the spec.
 
-## 2026-09-15h v2pavborrow MERGED (3c52d9b4): §44 the pavement borrow — LGAV has taxiways and aprons for the first time
+## 2026-09-15o v2pavborrow MERGED (3c52d9b4): §44 the pavement borrow — LGAV has taxiways and aprons for the first time
 
 Lane `v2pavborrow` (9d8c22d5, base 8b8b2afc). One derivation site
 (`airport/pack.select_pack` → `PackSelection.borrow`), one composition
@@ -6997,7 +6997,7 @@ both lane worktrees down.
 Scout dispatched (attribution of the tunnel line's minting evidence;
 the zone/bank emission at the sea edge) before the law.
 
-## 2026-09-15i OWNER: the OPEN CHANNEL class (LGAV / KPHX / KDFW) — four intent answers; spec §45 written; lanes `v2channel`, `v2roadtags`
+## 2026-09-15p OWNER: the OPEN CHANNEL class (LGAV / KPHX / KDFW) — four intent answers; spec §45 written; lanes `v2channel`, `v2roadtags`
 
 Owner 2026-09-15 (the LGAV read): "LGAV also has a similar pattern to
 KPHX where there's a below grade road/rail channel cut through the center
@@ -7088,7 +7088,7 @@ as the author's cut geometry (15e 1/3/4/6 + 15g VHHH + 14av) is written
 ONCE after the VHHH inventory. Lanes: v2padqp (item 2 + HECA's 14
 mismatches), v2lemdstruct2 (items 5, 7).
 
-## 2026-09-15j v2insetneg MERGED (5202d381): a TNM HTTP 200 error envelope was read as "zero products" and written as a DURABLE no-coverage — 20 false negatives on the two KPHX tiles
+## 2026-09-15q v2insetneg MERGED (5202d381): a TNM HTTP 200 error envelope was read as "zero products" and written as a DURABLE no-coverage — 20 false negatives on the two KPHX tiles
 
 Attributed (lane `v2insetneg`, 755d5cd2), not guessed: the writer is
 `ensure_airport_insets` (`O4_Airport_Elevation_Insets.py` ~:7229, the
@@ -7148,7 +7148,7 @@ verified: the doubled plane needs `mesh_region_tris` on a build; VMMC
 has no structures.json / no placement json (stock pack, 1,925
 placements; no pack object implicated).
 
-## 2026-09-15k v2roadtags MERGED (d4729dfc): the road feed keeps `layer` / `cutting` / `covered` / `embankment` (§45 (9)); schema `2026-09-15`
+## 2026-09-15r v2roadtags MERGED (d4729dfc): the road feed keeps `layer` / `cutting` / `covered` / `embankment` (§45 (9)); schema `2026-09-15`
 
 Lane `v2roadtags` (f6bd825d): `O4_Vector_Map.ROADS_TAGS_OF_INTEREST` gains
 the four depth witnesses, `ROAD_CACHE_TAG_SCHEMA` "2026-07-16" → "2026-09-15";

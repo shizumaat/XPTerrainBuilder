@@ -12046,7 +12046,7 @@ sweep at 1.0.341's build time is the measurement.  The stage-2 hard set
 (586 → 572, worst 4.42 m) is the pads' own infeasibility (§16g (10) /
 §30 (4)), untouched by the solver and the HECA pad line's next item.
 
-## §44 A PACK WITHOUT PAVEMENT BORROWS THE GLOBAL AIRPORT'S (owner 2026-09-15; RULINGS 2026-09-15f; Fable 2026-09-15) — lane `v2pavborrow`
+## §44 A PACK WITHOUT PAVEMENT BORROWS THE GLOBAL AIRPORT'S (owner 2026-09-15; RULINGS 2026-09-15m; Fable 2026-09-15) — lane `v2pavborrow`
 
 **THE DEFECT (LGAV, the owner's tile build 2026-09-14 23:14, engine 1.50.1785).**
 The FlyTampa LGAV pack authored NO taxiway or apron pavement: its apt.dat block
@@ -12075,7 +12075,7 @@ Airports and its objects were never read — is DELETED; §44 (2) does that work
 Among several custom packs the precedence stays as today (the first with row-110
 pavement, else the first).
 
-(2) **THE BORROW TRIGGER — COVERAGE (owner 15f: "Coverage < 25 %").** With the
+(2) **THE BORROW TRIGGER — COVERAGE (owner 15m: "Coverage < 25 %").** With the
 selected custom block parsed, the Global Airports block for the same ICAO is
 parsed too (XP12 `Global Scenery/Global Airports`, then XP11 `Custom
 Scenery/Global Airports`, then the stock default; the first that carries the
@@ -12087,7 +12087,7 @@ borrowed and the custom stands; the key at 0 never borrows, at 1 always does
 when a Global block exists. The number is law (`law/structures.toml [load]`,
 `LoadLaw.pavement_borrow_coverage_max`, validated 0 ≤ x ≤ 1).
 
-(3) **WHAT IS BORROWED (owner 15f: "Pavement + boundary").** The Global block's
+(3) **WHAT IS BORROWED (owner 15m: "Pavement + boundary").** The Global block's
 row-110 pavement polygons, parsed by the same parser, APPENDED to the custom
 block's own (borrowing adds, never removes — LGAV's two runway strips are real
 pavement and §40 classifies them as the runway's; overlaps between polygons are
@@ -12153,7 +12153,7 @@ as in §44 (4); the object stage's pads now stand beside graded aprons (§20);
 the census through `tools/harness/census.py`; NO shared-repo write. Register
 the report with `tools/harness/frames.py`.
 
-## §45 THE OPEN CHANNEL — a road/rail corridor under a STATED CROSSING keeps its own floor through the field (owner 2026-09-15; RULINGS 2026-09-15i; Fable 2026-09-15; scout `channelscout`) — lane `v2channel`
+## §45 THE OPEN CHANNEL — a road/rail corridor under a STATED CROSSING keeps its own floor through the field (owner 2026-09-15; RULINGS 2026-09-15p; Fable 2026-09-15; scout `channelscout`) — lane `v2channel`
 
 **THE PATTERN (owner 2026-09-15).** "A below-grade road/rail channel cut through the
 center of the airport that needs to be handled like an open tunnel" — LGAV (Attiki
@@ -12164,7 +12164,7 @@ report in the session scratchpad; every number cited there):
 
 | | LGAV | KDFW | KPHX |
 |---|---|---|---|
-| channel below grade | ~12 m (pack walls `Trench_03.obj` VT y −12.67…+5.73) | **8.6–9.9 m measured in the 1 m 3DEP DTM** at six bridges; banks ≈ 1:4; floor 170.9→173.3 over 2,790 m (0.09 %) | not measurable: 30 m Copernicus, flat to 0.1 m (the 3DEP fetch failed on a TNM 504, RULINGS 15i) |
+| channel below grade | ~12 m (pack walls `Trench_03.obj` VT y −12.67…+5.73) | **8.6–9.9 m measured in the 1 m 3DEP DTM** at six bridges; banks ≈ 1:4; floor 170.9→173.3 over 2,790 m (0.09 %) | not measurable: 30 m Copernicus, flat to 0.1 m (the 3DEP fetch failed on a TNM 504, RULINGS 15p) |
 | DEM sees it | no | yes | no |
 | pack models walls/floor | **yes** (`Trench_0x.obj`; a 4,077 × 149 m plate roofed 6 % = the decks) | no (network-only roads pack; 0 objects) | no (28 placements, none) |
 | OSM road carries depth | no | no | `tunnel=building_passage` ×6 under the bridges |
@@ -12179,7 +12179,7 @@ from each mouth, wall crest = DEM, RULINGS 09-03b) cannot express a road that ne
 climbs inside the field, and the DEM-relative gates of the basin / sunken-road /
 tunnel-object passes refuse exactly the objects that model it.
 
-**THE LAW (the owner's four answers, RULINGS 15i, in bold).**
+**THE LAW (the owner's four answers, RULINGS 15p, in bold).**
 
 (1) **IDENTIFICATION — "A deck states a crossing."** A channel crossing is stated by
 ANY ONE of: (a) an aeroway way of §34 (5)'s taxied set (`taxiway`, `runway`, `apron`
@@ -12258,7 +12258,7 @@ ribbon follows the channel floor (§37 (8)'s cross-section on the floor). The fl
 region EXCLUDES the corridor — a channel is never flattened. Emittable in a
 heightfield: at every (x, y) exactly one of floor / bank / deck.
 
-(9) **THE WITNESSES OSM CANNOT CARRY — "Bump the schema now."** `ROADS_TAGS_OF_INTEREST`
+(9) **THE WITNESSES OSM CANNOT CARRY — "Bump the schema now."** (owner 15p) `ROADS_TAGS_OF_INTEREST`
 gains `layer`, `cutting`, `covered`, `embankment` and `ROAD_CACHE_TAG_SCHEMA` is bumped
 (lane `v2roadtags`, separate, one commit); a tile's road feed re-downloads ONLY under
 `--refresh-data osm_layers` (the owner's act) — until then the feed is as cached.

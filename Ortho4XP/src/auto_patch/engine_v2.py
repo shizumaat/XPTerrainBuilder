@@ -41,6 +41,28 @@ import urllib.parse
 #: all read.
 ENGINE_V2 = "v2"
 
+
+#: WHAT EACH DEFECT FAMILY'S LAW IS, for the failure the tile build aborts
+#: on (owner 2026-09-14, the +40-004 tile: a LERM ``runway_transverse``
+#: abort read "a building pad is not one flat value" — the template named
+#: ONE family's law for every family).  A family absent here fails with the
+#: generic wording rather than a wrong one.
+_DEFECT_LAW = {
+    "pad_flat": "a building pad is not one flat value, RULINGS 2026-09-03h, "
+                "and no 04t(1) relaxation names it",
+    "runway_transverse": "a runway-family vertex is off its crown ridge by "
+                         "more than its transverse maximum (the runway's "
+                         "inside its half width, the shoulder's beyond it, "
+                         "spec §40 (2))",
+    "runway_crown": "a runway-family vertex does not carry its designed "
+                    "crown drop",
+    "runway_vertical_curve": "the built runway ridge breaks the vertical-"
+                             "curve law",
+    "stacked_nodes": "two emitted nodes share one identity at different "
+                     "elevations",
+    "sentinel_elevation": "an emitted vertex carries a sentinel elevation",
+}
+
 #: The v2 pipeline's stages as the progress window's phases (the driver's
 #: ``BuildProgress`` banner + bar), with rough time shares (OTHH 2026-09-04:
 #: load ~40 %, planar ~20 %, constraints ~5 %, solve ~30 %, emit+verify ~5 %).
@@ -288,10 +310,14 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                           f"{solve_rep.get('failure')}; the report is in "
                           f"{os.path.join(scratch, icao + '.report.json')}"),
                 "traceback": _iis_text(res.report, log_lines)}
-    # A VERIFY DEFECT never ships (lane v2padflat 2026-09-05): a building
-    # pad that is not one flat value (RULINGS 03h) and that no 04t(1)
-    # relaxation names is a solver/emit invariant broken, not a residual
-    # — the airport fails by name, like a non-optimal solve.
+    # A VERIFY DEFECT never ships (lane v2padflat 2026-09-05): a DEFECT
+    # family is a solver/emit invariant broken, not a residual — the
+    # airport fails by name, like a non-optimal solve.  The pad_flat
+    # family (RULINGS 03h) is one member of that set, not the set: the
+    # message used to name it for EVERY defect, and a LERM
+    # `runway_transverse` abort read "a building pad is not one flat
+    # value" (owner, 2026-09-14, the +40-004 tile).  Each family now
+    # states its OWN law.
     defects = (res.report.get("verify") or {}).get("defects") or {}
     if defects:
         rows = (res.report.get("verify") or {}).get("rows") or {}
@@ -299,10 +325,10 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                           for k in defects for r in rows.get(k, []))
         return {"icao": icao, "ok": False, "stage": "verify", "engine": ENGINE_V2,
                 "error": (f"[v2] verify found a structural DEFECT in {icao}: "
-                          + ", ".join(f"{k} {n}" for k, n in defects.items())
-                          + " — a building pad is not one flat value (RULINGS "
-                          "2026-09-03h) and no 04t(1) relaxation names it; the "
-                          f"rows are in {os.path.join(scratch, icao + '.report.json')}"),
+                          + ", ".join(f"{k} {n} ({_DEFECT_LAW.get(k, 'a v2 verify invariant')})"
+                                      for k, n in defects.items())
+                          + "; the rows are in "
+                          f"{os.path.join(scratch, icao + '.report.json')}"),
                 "traceback": text + "\n--- v2 build log ---\n" + "\n".join(log_lines)}
 
     # ── PLACE the current tile's patch where the mesh reads it ────────

@@ -325,3 +325,40 @@ def test_a_shoulder_manufactures_no_region(law, rules):
     # ...and the shoulder really is in the runway family, so only the
     # predicate — not the role — keeps it out
     assert sh[0].role in ZRF
+
+
+# ── 7. a shoulder runs ALONG a runway, it does not enclose one ───────────
+
+def _wrapping_airport():
+    """The synthetic runway (y = -15..15, x = 0..1060) inside ONE paved
+    area that surrounds it — LERM's class: at a small aerodrome the whole
+    apron/hangar pavement wraps the strip."""
+    a = _synthetic(gate=True, island=False)
+    page = Pavement("wrap", Surface.ASPHALT,
+                    _rect(-40.0, -60.0, 1100.0, 60.0), ())
+    return _dc.replace(a, pavements=a.pavements + (page,))
+
+
+def test_a_page_that_wraps_the_runway_is_not_its_shoulder(law, rules):
+    """§40 (1) (owner RULINGS 2026-09-14ba, the +40-004 tile abort): a
+    cell sharing more than `corridor.runway_shoulder_max_wrap` of the
+    RUNWAY RING's own length encloses the runway — it is the ground the
+    strip sits in, not a shoulder — however narrow its mean depth.
+
+    MEASURED at LERM: the 65,655 m2 cell at 40.8665330,-3.2447104 shares
+    2,135 m of a 2,135 m ring (wrap 1.00) at 30.7 m mean depth, passed
+    both other tests, took the runway's datum while its own ground falls
+    7.5 %, and minted 43 `runway_transverse` DEFECT rows that ABORTED the
+    owner's tile.  Real shoulders wrap 0.01-0.55 (HECA 32 cells, VHHH
+    23)."""
+    cl = classify(_wrapping_airport(), law, rules)
+    sh = [c for c in cl.cells if c.kind == "runway_shoulder"]
+    assert not sh, [(c.ref, c.evidence) for c in sh]
+    # the wrapping page is still classified, just not as the runway
+    assert [c for c in cl.cells if c.ref.split("#")[0] == "wrap"]
+    # ...and the plain ribbon beside the same runway still is a shoulder,
+    # so it is the WRAP that refused, not the geometry in general
+    cl2 = classify(_shoulder_airport(300.0), law, rules)
+    keep = [c for c in cl2.cells if c.kind == "runway_shoulder"]
+    assert len(keep) == 1
+    assert keep[0].evidence["shoulder_wrap"] < rules.corridor.runway_shoulder_max_wrap

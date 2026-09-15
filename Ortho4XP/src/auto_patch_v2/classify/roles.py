@@ -474,6 +474,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # letter) BEFORE the §27 pass, so a lot beside a shoulder reads it as
     # the airside pavement it is.  They never passed through `scored`:
     # no corridor ladder, no touch-chain demotion, no open default.
+    # the runway ring lengths, for the census's own `shoulder_wrap`
+    wrap_of = {rw.id: poly.exterior.length for rw, poly in ev.runway_polys}
     stats["runway_shoulders"] = len(shoulders)
     stats["runway_shoulder_m2"] = sum(f.area for f, _rw, _s, _p in shoulders)
     for face, rw, shared, page in shoulders:
@@ -481,6 +483,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             rw.code_letter,
             {"area_m2": face.area, "kind": "runway_shoulder",
              "shoulder_of": rw.id, "shoulder_shared_m": shared,
+             "shoulder_depth_m": face.area / shared if shared > 0 else 0.0,
+             "shoulder_wrap": wrap_of.get(rw.id, 0.0) and shared / wrap_of[rw.id],
              "shoulder_source": page or "-"})
         notes.append(f"runway shoulder: {face.area:,.0f} m2 sharing "
                      f"{shared:,.1f} m with runway {rw.id} (§40 (1))")
@@ -1028,6 +1032,7 @@ def _runway_shoulder(face: Polygon, rw_edges, rules: Rules):
         return None
     tol = rules.cells.on_tol_m
     depth_max = rules.corridor.runway_shoulder_max_depth_m
+    wrap_max = rules.corridor.runway_shoulder_max_wrap
     best: tuple[_t.Any, float] | None = None
     bound = face.boundary
     for rw, poly, band in rw_edges:
@@ -1035,6 +1040,17 @@ def _runway_shoulder(face: Polygon, rw_edges, rules: Rules):
             continue
         shared = bound.intersection(band).length
         if shared < need:
+            continue
+        # A SHOULDER RUNS ALONG A RUNWAY, IT DOES NOT ENCLOSE ONE
+        # (`runway_shoulder_max_wrap`, owner RULINGS 2026-09-14ba): at a
+        # small aerodrome the whole paved area surrounds the strip, and
+        # joined to the runway body it keeps the runway's datum while its
+        # own ground falls — LERM aborted the +40-004 tile with 43
+        # `runway_transverse` rows at the shoulder cap.  MEASURED: HECA
+        # and VHHH shoulders wrap 0.01-0.55 of their runway's ring,
+        # LERM's false one 1.00.
+        ring = poly.exterior.length
+        if wrap_max > 0.0 and ring > 0.0 and shared > wrap_max * ring:
             continue
         # THE SHOULDER IS A RIBBON (`runway_shoulder_max_depth_m`): mean
         # depth off the runway edge = area / shared length, the corridor

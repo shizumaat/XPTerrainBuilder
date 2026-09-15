@@ -8020,3 +8020,13 @@ DOWN` and a pack count in its snapshot line, and that print is its
 proof. The `.anchor_bak` restore of the VHHH and LEMD packs is the
 owner's decision (asked by the other session). Lane tile builds may
 resume after this merge.
+
+## 2026-09-15bd The tile-path pack-write guard PROVED end to end (peer's v2schemarefuse r4, 6f6c28ed / 15ao): `build_airport.py CYXY --tile 60 -136 --no-ledger` on main ba47b52d prints "pack writes STOOD DOWN (O4_PACK_WRITES=measure_only) … writes NO file into the owner's X-Plane install" and "shared-repo snapshot: 103289 file(s) across 7 data dir(s) and 15 X-Plane pack(s) carrying this tile"; the CYXY install DSF untouched (Jul 8) — the lane tile ban (15av) is LIFTED for lanes on main ≥ 6f6c28ed. The build itself exited rc 1 on an unrelated, correctly refused DEM write (CYXY's inset index; `--refresh-data dem` is the owner's act) and its tile step stood down (no per-tile cfg, 2026-08-31d)
+
+The proof is of the object stage's stand-down and the install's
+presence in the before/after snapshot, not of a completed tile
+(imagery stands down for a tile without a per-tile cfg). A fuller
+proof wants a tile with a current DEM index and a per-tile cfg. Known
+limit (peer): `pack_rebake` install entries are ledgered but not
+hash-stamped. The LEMD/VHHH install packs still carry the two lane
+rebakes (15bb) until the owner says restore.

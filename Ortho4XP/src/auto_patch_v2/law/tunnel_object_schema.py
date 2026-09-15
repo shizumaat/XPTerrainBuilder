@@ -39,3 +39,16 @@ class TunnelObject:
     bore_end_tolerance_m: float        # 2026-09-08o: a bore END within this of the plate is that object's mouth
     thin_plate_min_m: float            # spec §33 (2) (RULINGS 2026-09-13i): THE THIN-PLATE WALL CLASS — solids spanning at least this over a mapped bore / deck are an AUTHORED CORRIDOR
     merge_gap_m: float
+    # ── spec §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY
+    # (owner RULINGS 2026-09-15e/15g, Fable 2026-09-15j; lane v2objcut)
+    shell_floor_min_m: float           # B: the SHELL's largest horizontal plate stands at least this far below the object's zero — that plate IS the floor and its level is the AUTHORED depth
+    cover_flush_m: float               # B: the COVER's HARD_DECK plate is FLUSH — |y| at most this
+    cover_placement_tol_m: float       # B: the cover stands at the SAME placement — position within this, same heading
+    cover_station_m: float             # B: the cover's descending profile is binned this fine along the axis; each bin's LOWEST y is a ramp station
+    parapet_max_height_m: float        # C: a thin surface wall is shorter than this
+    parapet_max_width_m: float         # C: …and narrower than this in plan
+    parapet_min_aspect: float          # C: …and at least this many times longer than it is high
+    parapet_y_min: float               # C: …and sits ON the surface (its lowest authored vertex is no deeper than this)
+    pair_spacing_min_m: float          # C: a PAIR's axes stand this far apart at least
+    pair_spacing_max_m: float          # C: …and this far at most
+    pair_overlap_min_fraction: float   # C: …and overlap this share of the shorter band along the axis

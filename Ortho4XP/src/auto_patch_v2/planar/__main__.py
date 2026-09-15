@@ -329,7 +329,8 @@ def structure_records(airport, cl, law) -> dict:
         + wall_corridor_groups(walls_c, law)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
                                             plates)
-    cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep)
+    cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,
+                                       claimed=frozenset(tstats.shell_claimed))
 
     def ll(p):
         la, lo = to_ll(p[0], p[1])

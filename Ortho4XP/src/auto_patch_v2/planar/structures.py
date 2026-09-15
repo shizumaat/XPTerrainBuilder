@@ -294,8 +294,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # ...and at a SERVICE ROAD LOCKED TO AIRSIDE (§34 (9), owner RULINGS
     # 2026-09-14ak): a road whose level is an airside contact cannot yield
     # to the ramp, so the ramp ends at its edge with the cap lifted
+    locked_half: dict = {}
     locked = locked_road_stops(cells, polys, law, RUNWAY_FAMILY,
-                               law.tables.emit.road_contact.contact_reach_m)
+                               law.tables.emit.road_contact.contact_reach_m, locked_half)
     locked_refs = {ref for _p, ref in locked}
     #: §34 (9) (4): the pack's `markings` bodies, parsed at most once and
     #: only where a ramp is actually pinched (they are refused at load)
@@ -809,6 +810,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                         f"{tid}: pinched against {pinched[0]} — {pinched[1]:.1f} m from the road "
                         f"edge down to the building edge at {100.0 * pinched[2]:.1f} % "
                         f"(cap lifted, §34 (9)); the road edge is {road_witness or 'the face edge'}"
+                        + f" stood out by the road's {locked_half.get(pinched[0], 0.0):.2f} m "
+                          f"half-width (§34 (9) (6))"
                         + (f"; full depth at the building wall, s {covered_from:.1f} "
                            f"(+{g.hull_s - covered_from:.1f} m of run, §34 (9) (5))"
                            if covered_from is not None and covered_from < g.hull_s - 1e-6 else ""))

@@ -125,3 +125,107 @@ def test_brief_pack_assembles_from_the_tools(tmp_path):
     assert "### §37 (6) " in out and "## 2026-09-13aj " in out
     assert "road_terrain_conformance.py" in out
     assert "Standing discipline" in out
+
+
+# ── git conflict markers in the law docs ─────────────────────────────────
+#
+# RULINGS 2026-09-15af: docs/frames.jsonl carried three conflict-marker lines
+# after a union; the design-spec §40 (5) hunk repaired at acbe3035 was left by
+# a concurrent commit that completed a conflicted merge WITH its markers — and
+# the suite passed.  These twins make that structurally impossible for the
+# documents a lane reads as law: a marker line is a named FAILED line, file
+# and line number quoted.
+#
+# Marker law: a line starting with `<<<<<<< ` or `>>>>>>> ` is a marker; a
+# bare `=======` is a marker only while an open `<<<<<<< ` awaits its
+# `>>>>>>> ` (so a setext H1 underline is never one).  Lines inside a fenced
+# code block (``` / ~~~) are not markers — a doc may QUOTE the precedent.
+
+DOCS_ROOT = os.path.join(ROOT, "docs")
+LAW_DOCS = sorted(
+    [
+        os.path.join(ROOT, "Ortho4XP", "docs", "RULINGS.md"),
+        os.path.join(ROOT, "Ortho4XP", "docs", "specs", "auto-patch-v2", "design-surface-spec.md"),
+        os.path.join(ROOT, "Ortho4XP", "docs", "specs", "auto-patch-v2", "object-placement-spec.md"),
+        os.path.join(DOCS_ROOT, "frames.jsonl"),
+    ]
+    + [
+        os.path.join(DOCS_ROOT, "briefs", name)
+        for name in os.listdir(os.path.join(DOCS_ROOT, "briefs"))
+        if name.endswith(".md")
+    ]
+)
+_FENCE = re.compile(r"^\s{0,3}(```|~~~)")
+
+
+def conflict_marker_lines(text: str, *, fenced: bool = True):
+    """Return [(lineno, line)] for every git conflict-marker line in `text`.
+
+    `fenced=True` honours Markdown code fences (a quoted marker is not a
+    marker); pass `fenced=False` for line formats with no fences (JSONL).
+    """
+    hits, in_fence, open_head = [], False, None
+    for n, line in enumerate(text.split("\n"), 1):
+        if fenced and _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith("<<<<<<< "):
+            hits.append((n, line)); open_head = n
+        elif line.startswith(">>>>>>> "):
+            hits.append((n, line)); open_head = None
+        elif line == "=======" and open_head is not None:
+            hits.append((n, line))
+    return hits
+
+
+def _fmt(path, hits):
+    rel = os.path.relpath(path, ROOT)
+    return "git conflict markers in %s:\n%s" % (
+        rel, "\n".join("  %s:%d: %s" % (rel, n, ln.rstrip()) for n, ln in hits))
+
+
+@pytest.mark.parametrize("path", LAW_DOCS, ids=lambda p: os.path.relpath(p, ROOT))
+def test_law_doc_carries_no_git_conflict_markers(path):
+    assert os.path.isfile(path), "law doc missing: %s" % os.path.relpath(path, ROOT)
+    text = open(path, encoding="utf-8").read()
+    hits = conflict_marker_lines(text, fenced=path.endswith(".md"))
+    assert not hits, _fmt(path, hits)
+
+
+def test_frames_registry_every_line_is_json():
+    path = os.path.join(DOCS_ROOT, "frames.jsonl")
+    bad = []
+    for n, line in enumerate(open(path, encoding="utf-8").read().split("\n"), 1):
+        if not line.strip():
+            continue
+        try:
+            json.loads(line)
+        except ValueError as e:
+            bad.append("  docs/frames.jsonl:%d: %s  (%s)" % (n, line[:80], e))
+    assert not bad, "non-JSON lines in docs/frames.jsonl:\n" + "\n".join(bad)
+
+
+def test_conflict_marker_detector_twin():
+    # the detector itself: markers named, fenced quotes and setext ignored
+    doc = "\n".join([
+        "Title",
+        "=======",                       # setext underline — not a marker
+        "```",
+        "<<<<<<< HEAD",                  # quoted inside a fence — not a marker
+        "=======",
+        ">>>>>>> theirs",
+        "```",
+        "<<<<<<< HEAD",                  # line 8 — the real thing
+        "ours",
+        "=======",                       # line 10
+        "theirs",
+        ">>>>>>> claude/peer",           # line 12
+        "=======",                       # after the close — not a marker
+    ])
+    assert [n for n, _ in conflict_marker_lines(doc)] == [8, 10, 12]
+    # an unterminated head is still a marker
+    assert [n for n, _ in conflict_marker_lines("a\n<<<<<<< HEAD\nb")] == [2]
+    # JSONL: fences are not honoured
+    assert [n for n, _ in conflict_marker_lines("```\n<<<<<<< x\n", fenced=False)] == [2]

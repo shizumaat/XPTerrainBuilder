@@ -6722,3 +6722,27 @@ unconverged solve is sand.
   infeasible pairs named by the certificate); solve wall ≤ 2× the
   fixed point at HECA (name it; HiGHS QP on ~160 k rows / 32 k
   columns); the owner's sim read of the next app is the acceptance.
+
+## 2026-09-14bx Owner: "Looks like LEMD tile failed again" — one `runway_transverse` row (1.653 % vs 1.5 % over 30.0 m = 4.6 cm of excess fall) ABORTS the +40-004 tile on 1.0.339; ruled: a structural DEFECT aborts only when MATERIAL — lane `v2defectfloor`
+
+Log (engine 1.50.1785): `FAILED LEMD (verify): runway_transverse 1 …
+The tile build is ABORTED`. The row: `runway|runway` face 35,
+`grade_pct` 1.6527 vs `cap_pct` 1.5, `distance_m` 29.977, `magnitude_
+m` 0.4954 — the transverse fall exceeds the cap by 0.15 pp = 4.6 cm
+over 30 m. The class: the unconverged fixed-point solve (14bw — one
+hard row left 0.05 m unsettled; the problem changed under the leaf
+rule 14bs so a different row is the one left short). The DEFECT gate
+(`engine_v2` :327 / `verify/census.py` :135) aborts the whole tile on
+ANY row of a structural family regardless of magnitude.
+
+* RULING: a structural DEFECT ABORTS the tile only when MATERIAL —
+  `[verify] defect_min_excess_m` (0.10 m of excess beyond the cap
+  over the pair's span, i.e. magnitude − cap × distance) per row; a
+  row under the floor stays a census VIOLATION (counted, reported,
+  named in the log as "under the materiality floor") and never
+  aborts. The 13y/§20c fix removes the class; the floor is the gate's
+  own sense of proportion, not a relaxation of the law.
+* Lane `v2defectfloor` (urgent, small): the floor in the DEFECT gate
+  (one site, both families' readers), a twin (a 4 cm row does not
+  abort, a 40 cm row does), LEMD verify re-read from the 1.0.339
+  report (the row under the floor → no abort); app 1.0.340.

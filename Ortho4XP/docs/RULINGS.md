@@ -6038,3 +6038,34 @@ lockstep twin: 2 `runway_transverse` rows at 0.38 m on the runway).
 * CHIP: `v2_solve_replay.capture` never sets `airport.clusters`, so
   pads-ON is inert in every replay of a registered capture — the
   capture must carry the clusters (or derive them on replay).
+
+## 2026-09-14ay Owner: "If a pad is close enough to touch an apron, then it should be set at the same elevation, therefore it should not require more than even 1% slope right?" — right; the 5 % skirt is an artefact of a rigid plane meeting a CURVED apron edge; the mechanism is the cluster pad's APRON REACH (re-armed), not a skirt
+
+Why 5 % appeared: a `building` pad is ONE PLANE (cap 0 inside its 1 %
+ceiling) while a long apron edge under 1 % still CURVES with the
+terrain — KCLT `building80` shares 743 nodes with `pav14` over 3.77 m
+of fall; no tilted plane can meet a curved edge exactly, so the
+difference had to go somewhere: a skirt (14al/14au) or an infeasible
+row (v2settle's certificate). The owner is right that touching means
+the same elevation. Then the APRON must be planar where it meets the
+pad — which is exactly §30 (4)'s cluster-pad APRON REACH ("it's
+acceptable to flatten large apron areas around big terminals", owner
+2026-09-13 KCLT item 1) that 13ce DISARMED (`cluster_apron_reach_m =
+0.0`) when the reach was measured swallowing whole aprons.
+
+* RULING §16g (10) (8) SUPERSEDED — NO SKIRT: a pad sharing an edge
+  with an apron takes the apron's level along the shared edge (step
+  0) and stays one plane within its 1 % ceiling; the APRON within
+  `cluster_apron_reach_m` of that pad joins the pad's plane (the
+  cluster pad reach, RE-ARMED at 40 m, bounded to the touching
+  component §30 (5) and never crossing a taxi-family face); beyond the
+  reach the apron returns to its own law within its 1 % cap. Airside
+  is king stands: the reach is the APRON LAW's own flattening at a
+  terminal, ruled by the owner on 2026-09-13, not a pull by the pad.
+  `pad_skirt_max_slope` is WITHDRAWN (5 % skirts never ship);
+  `pad_airside_weld` fires where even the reach cannot meet (a pad
+  between two aprons at different levels — a real step, CRITICAL).
+* Lane `v2padvert` r2 amended: arm the reach at 40 m in the pads-ON
+  arm; bar: KCLT's 143 / HECA's 124 infeasible skirt rows → 0 with the
+  apron re-flattened within the reach, named per pad; the reach never
+  crosses a taxiway.

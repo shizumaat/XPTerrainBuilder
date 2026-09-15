@@ -8435,3 +8435,23 @@ credible/read) and the floor rows (prime suspect C12's
 `_osm_levelled` core-levelling the channel's road — a measured 12.6 m
 conflict is a defect, not a read) BEFORE the merge; fix C12 if it is
 the mechanism. Not merged; app 1.0.342 waits.
+
+## 2026-09-15bp v2shellwall r1 NOT MERGED (c4e64230): the wall was built (rim↔floor gap 1.20 m on all five shells) and the airside bar MISSED unchanged (525 movers, worst −6.460 m) — ATTRIBUTED by `--why-at`: TUNNEL2_DONE runs 1,110 m lengthwise UNDER the taxiway system; a `taxi_centreline` row reaches a floor-ring vertex pinned to the floor slab and the taxi network propagates it; no wall can touch that → RULED §33 (6) B AMENDED (2): a shell's trench is OPEN only where nothing covers it — the cover plate and live airside pavement are its deck; r2
+
+Suite on the lane 1,776 passed, 0 FAILED. The control → lane delta was
+not single-variable (main moved 118d2c40 → 0f0c1b6c across
+structures/deck/service/foot_rows + three law tables) — the +114
+law-true rows are unattributed. Landed on the branch (kept for r2):
+`structure_geometry.ring_for` / `geometry_from_trench` (the floor ring
+= trench ∩ footprint eroded by `rim_standoff` + one grid step; the rim
+ring published as `left_rim`, `Tunnel.wall_path` = the object's closed
+rim); `arm_site_read --airside-near-cuts`; twins. The closing VHHH
+build (VHHH_20260915T133241, rc 0, 932.8 s) was flagged CONTAMINATED
+for 11 writes under `OSM_data/_regional_extracts/clips/clip_+032-0097_*`
+— Texas, outside the build's input set [[22,113]]: the peer's KDFW
+refresh in that window (ledgered by the peer; cross-attribution, not
+this lane's). OWNER INTENT applied, not asked: "hard covers where
+needed" (15g) + airside is king → (b) with the pavement as the deck,
+generalised to any cover. r2 implements the subtraction and the
+mouths at the transitions; `object_cut_depth` measures the open floor
+only.

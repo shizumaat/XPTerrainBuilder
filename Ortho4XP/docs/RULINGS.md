@@ -6382,3 +6382,32 @@ foreign edges — a standing OTHH population, owed). The road-WIDTH read
 
 * App 1.0.337 next (the OTHH read). The owner's inset answer would
   still move the tops further; at 17 % the ramp is plausible.
+
+## 2026-09-14bn v2padjoin round 2 MERGED (b6113d38, all flags OFF): the stage-1 collar plane is LAWFUL (stage 1 feasible in every arm) but the acceptance is missed — the skirt rows still weld every other pad to the moving apron; round 3 = the skirt withdrawal + the low-side datum
+
+Lane `v2padjoin` @ 747eaf91 (suite 1,526 twice; 1,539 on main).
+`cluster_apron_plane` (the collar: cap-0 target + hard 1 % tilt
+ceiling over its own pairs under apron-law heads that conform to
+nothing — stage 1 owns it) + `cluster_pad_takes_collar` (stage 2: the
+pad's plate equals the fixed collar under the pad's conforming heads).
+The §30 (4) twin PASSES as written with both halves (round 1's attempt
+2 lacked the second half — 14bk's re-founding withdrawn). HECA
+triple (pads+clip+staged ON): stage 1 feasible (min shortfall 0.0000)
+in every arm — the ruling's own claim vindicated; but stage-2
+infeasible 151 → 1,626 → 1,318 (welds of OTHER pads struck), airside
+moved 11,847 (runway 837, worst 1.23 m) where the collar is 266
+vertices, the terminal 72.62 → 75.92 (the collar plane sits at the
+mean of a sloping edge — the LOW-SIDE datum (9)(2) not implemented);
+the worst stage-2 rows in every collar arm are `building_pad airside
+skirt` (7.07 → 8.58 m) — the rows 14ay WITHDRAWS and this round did
+not. `cluster_apron_reach_m` ships 0 (design value 40 in the comment).
+KCLT with pads ON unmeasured (a build or `--from classify`). The 14bg
+signature reproduced once more by the lane itself (flags armed →
+14 red).
+
+* Round 3: (1) withdraw the `building_pad airside skirt` rows (14ay)
+  and re-found the 10 skirt twins; (2) (9)(2)'s two-apron ≤ 1 % plane
+  and the datum at the pad's LOWEST shared-edge level (the terminal
+  back to ≤ 72.62); (3) re-run the HECA triple; (4) KCLT pads-ON via
+  `--from classify` or a build. Bars unchanged: infeasible → 0,
+  airside moved = the collar only, the terminal at its pad.

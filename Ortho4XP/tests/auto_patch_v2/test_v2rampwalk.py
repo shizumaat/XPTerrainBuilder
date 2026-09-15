@@ -37,6 +37,7 @@ from auto_patch_v2.model.airport import (Airport, OsmWay, Runway, RunwayEnd,
                                          SceneryPack)
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar import structure_approach as _sa
+from auto_patch_v2.planar import structure_deck as _sd
 from auto_patch_v2.planar import structure_underpass as _su
 from auto_patch_v2.planar.terrain_edge import road_lines
 from auto_patch_v2.planar.zones import zone_regions
@@ -388,12 +389,12 @@ def test_a_deck_end_takes_the_governed_cell_within_reach(law):
     airport = _airport(law, dem=_Ramp(z0=700.0, slope=0.0))
     w = OsmWay(-6288, "big_roads", ((0.0, 0.0), (100.0, 0.0)), False,
                {"highway": "service", "bridge": "yes", "lanes": "4"})
-    zs, refs, pts = _sa.deck_ends(airport, w, cells, polys, tree, law)
+    zs, refs, pts = _sd.deck_ends(airport, w, cells, polys, tree, law)
     assert refs[0] == "" and refs[1] == "pav92"
     assert zs[0] == pytest.approx(700.0) and pts[1] == (100.0, 0.0)
     # ...and a cell beyond the reach is NOT that end's ground
     far = Cell(2, "apron", "pav99", _rect(100.0 + reach * 2.0, -50.0, 400.0, 50.0),
                (), None, "D", "airside", "pavement", {})
     fp = [Polygon(far.ring, far.holes)]
-    _z2, refs2, _p2 = _sa.deck_ends(airport, w, [far], fp, STRtree(fp), law)
+    _z2, refs2, _p2 = _sd.deck_ends(airport, w, [far], fp, STRtree(fp), law)
     assert refs2 == ("", "")

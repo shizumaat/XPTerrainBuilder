@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Polygon
 
 from ..law import Law
 from ..model.airport import Airport, OsmWay
@@ -159,7 +159,9 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                                       _ln.interpolate(min(s, _ln.length)).y))
         # §34 (5) NARROWED (RULINGS 2026-09-13bm (i)): the cell may only
         # widen the deck up to DECK_CELL_MAX_RATIO × the carriageway.
-        cell_half, n_read, n_refused = _deck_half_width(
+        # §34 (5) (a) (RULINGS 2026-09-14bp item 1): ONE derivation — the
+        # deck CELL's own footprint — read here and by ``_deck_half_width``.
+        offs, cell_half, n_read, n_refused = _deck_cell(
             axis_fn, ss, cells, polys, half,
             DECK_CELL_MAX_RATIO * 2.0 * half)
         half = max(half, cell_half)
@@ -172,7 +174,27 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         rim_off = tn.wall_gap_m + tn.wall_band_width_m
         grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
         half_clip = max(grid, half - rim_off - grid)
-        ribbon = ln.buffer(half_clip, **_MITRE)
+        # §34 (5) (a) THE UNDERPASS CLIP IS THE DECK CELL'S (Fable
+        # 2026-09-14; RULINGS 2026-09-14bp item 1).  The ribbon was
+        # SYMMETRIC about the aeroway's OSM centreline, and a centreline is
+        # not a pavement's middle: LEMD F-6's way -1230 runs 0.25 m from
+        # ``pav157``'s NORTH kerb and 16.3 m from its south edge, so a
+        # 5.6 m half-ribbon put the south mouth 10.0 m INSIDE the 16.6 m
+        # taxiway - the trench floor 5.48 m under the pavement with the
+        # grade break inside it.  The clip is the deck CELL's own footprint
+        # ACROSS THE AXIS - its two kerbs per station - eroded by the rim
+        # stand-off and one identity step (the room 13ai's cure needs, so
+        # the end cap still lands ON the cell).  The centreline ribbon
+        # stands only where no cell states the deck.
+        #
+        # ACROSS THE AXIS, not the cell's whole plan: measured on the first
+        # arm, ``pav157`` is a 200,195 m2 junction BLOB and clipping to it
+        # bored 7 roads instead of 2 (bores 70 -> 75, tunnels 50 -> 53).
+        # The cell states where the crossing is COVERED, which is the
+        # footprint between its kerbs at each station of the way.
+        ribbon, from_cell = _cell_ribbon(axis_fn, ss, offs, rim_off + grid, grid)
+        if ribbon is None:
+            ribbon = ln.buffer(half_clip, **_MITRE)
         n = 0
         for r in roads:
             piece = LineString(r.points).intersection(ribbon)
@@ -187,8 +209,13 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                 parents[id(sw)] = LineString(r.points)
                 n += 1
         notes.append(f"underpass {w.tags.get('aeroway')} {w.id} (layer {w.tags.get('layer')}, "
-                     f"deck half-width {half:.1f} m, clip {half_clip:.1f} m, "
-                     f"cell {n_read} read / {n_refused} refused over "
+                     f"deck half-width {half:.1f} m, clip "
+                     + (f"the deck CELL's footprint across the axis eroded by "
+                        f"{rim_off + grid:.1f} m ({ribbon.area:.0f} m2 over {n_read} "
+                        f"station(s), §34 (5) (a))" if from_cell
+                        else f"the centreline ribbon {half_clip:.1f} m (no cell states "
+                             f"the deck, §34 (5) (a))")
+                     + f", cell {n_read} read / {n_refused} refused over "
                      f"{DECK_CELL_MAX_RATIO:g}x carriageway): "
                      f"{n} road(s) bored")
     return out, parents, notes
@@ -276,9 +303,31 @@ DECK_CELL_MAX_RATIO = 4.0
 
 def _deck_half_width(axis_fn, ss, cells, polys, half_default: float,
                      max_half: float | None = None) -> tuple[float, int, int]:
-    """THE DECK'S HALF-WIDTH ACROSS THE ROAD (spec §34 (5)): the MEDIAN
-    half-width of the governed pavement cell the aeroway's axis stands in,
-    measured perpendicular to the axis at each station.
+    """The half-width alone of :func:`_deck_cell` — ONE derivation (spec
+    §34 (5) (a)), kept as a name because the twins and the reports read
+    it."""
+    _offs, half, n_read, n_refused = _deck_cell(axis_fn, ss, cells, polys,
+                                                half_default, max_half)
+    return half, n_read, n_refused
+
+
+def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
+               max_half: float | None = None):
+    """THE DECK CELL AND ITS HALF-WIDTH ACROSS THE ROAD (spec §34 (5),
+    §34 (5) (a)): ``(the admitted cells' union or None, the MEDIAN
+    half-width, stations read, stations REFUSED)``.
+
+``(the per-station offsets, the MEDIAN half-width,
+    stations read, stations REFUSED)``.
+
+    Per station the governed pavement cell the aeroway's axis stands in is
+    measured perpendicular to the axis: ``(s, left, right)`` are its two
+    kerbs' distances from the axis on either side — the DECK CELL's own
+    footprint across the crossing, which is what §34 (5) (a) clips the
+    bored road to — and the half-width is their median mean.  One
+    derivation, two readers (RULINGS 2026-09-14bp item 1: "the
+    centreline-symmetric ribbon only where no cell states the deck;
+    ``_deck_half_width`` reads the same derivation").
 
     Returns ``(half, stations read, stations REFUSED)`` — a station whose
     cell half-width exceeds ``max_half`` (§34 (5) as narrowed: 4× the
@@ -295,10 +344,11 @@ def _deck_half_width(axis_fn, ss, cells, polys, half_default: float,
     road, and a junction blob's across-axis centre is metres off the
     taxiway centreline it contains."""
     if not polys:
-        return half_default, 0, 0
+        return [], half_default, 0, 0
     tree = STRtree(polys)
     reach = 200.0
     vals: list[float] = []
+    offs: list[tuple[float, float, float]] = []
     refused = 0
     for i, s in enumerate(ss):
         p = axis_fn(s)
@@ -328,17 +378,52 @@ def _deck_half_width(axis_fn, ss, cells, polys, half_default: float,
                 hs.append(min(math.hypot(g.x - p[0], g.y - p[1]) for g in pts))
             if len(hs) == 2:
                 h = (hs[0] + hs[1]) / 2.0
-                if best is None or h < best:
-                    best = h
+                if best is None or h < best[0]:
+                    best = (h, hs[0], hs[1])
         if best is None:
             continue
         # §34 (5) NARROWED: the cell the axis stands in states the deck
         # only while it is plausibly the way's own pavement.
-        if max_half is not None and best > max_half:
+        if max_half is not None and best[0] > max_half:
             refused += 1
             continue
-        vals.append(best)
+        vals.append(best[0])
+        offs.append((s, best[1], best[2]))
     if not vals:
-        return half_default, 0, refused
+        return offs, half_default, 0, refused
     vals.sort()
-    return vals[len(vals) // 2], len(vals), refused
+    return offs, vals[len(vals) // 2], len(vals), refused
+
+
+def _cell_ribbon(axis_fn, ss, offs: list[tuple[float, float, float]], erode: float,
+                 grid: float):
+    """THE DECK CELL'S FOOTPRINT ACROSS THE AXIS, ERODED (§34 (5) (a)):
+    the band between the cell's two kerbs at each station read, each side
+    brought in by ``erode`` (the rim stand-off and one identity step), as
+    one polygon — ``(the ribbon, True)``, or ``(None, False)`` where no
+    station's cell states the deck.  Asymmetric by construction: the OSM
+    centreline is not the pavement's middle, which is the whole point."""
+    if len(offs) < 2:
+        return None, False
+    left: list[XY] = []
+    right: list[XY] = []
+    for s, hl, hr in offs:
+        p = axis_fn(s)
+        a, b = axis_fn(max(0.0, s - 1.0)), axis_fn(s + 1.0)
+        u = unit(a, b)
+        nv = (-u[1], u[0])
+        dl, dr = max(grid, hl - erode), max(grid, hr - erode)
+        left.append((p[0] + nv[0] * dl, p[1] + nv[1] * dl))
+        right.append((p[0] - nv[0] * dr, p[1] - nv[1] * dr))
+    ring = left + list(reversed(right))
+    poly = Polygon(ring)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    if poly.is_empty:
+        return None, False
+    if poly.geom_type != "Polygon":
+        parts = [g for g in poly.geoms if g.geom_type == "Polygon"]
+        if not parts:
+            return None, False
+        poly = max(parts, key=lambda g: g.area)
+    return poly, True

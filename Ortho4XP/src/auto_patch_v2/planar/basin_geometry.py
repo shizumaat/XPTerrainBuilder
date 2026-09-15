@@ -22,13 +22,14 @@ from __future__ import annotations
 import math
 import typing as _t
 
+import numpy as _np
 import shapely
 from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import unary_union
+from shapely.ops import nearest_points, unary_union
 
 from ..model.frame import XY
 
-__all__ = ["shell_thickness_m"]
+__all__ = ["shell_thickness_m", "rim_wall_report"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -247,6 +248,50 @@ def _rim(region: Polygon, inset: float, grid: float) -> Polygon | None:
     than by pushing the cut away from the object it is cutting for.
     ``None`` when the ring does not survive the grid."""
     return _snap_ring(region.buffer(-inset, **_MITRE) if inset > 1e-9 else region, grid)
+
+
+#: The reaches the rim-snap report quotes beside the one it USED, so the
+#: law's value is chosen against the pack's own numbers rather than
+#: guessed (§24 (1) (a); the LEMD read that forced the rule).
+_SNAP_PROBE_M = (2.0, 4.0, 6.0, 10.0, 15.0, 25.0)
+
+
+def rim_wall_report(rim: Polygon, rim_trees: _t.Iterable, step: float, reach: float
+                    ) -> tuple[list[float], dict]:
+    """HOW FAR THE RIM STANDS OFF THE SHELLS' AT-GRADE GEOMETRY, per
+    station: ``(the distances, the counts within each probe reach)``.
+
+    §24 (1) (a) (Fable 2026-09-14, RULINGS 2026-09-14bp item 5) ruled that
+    a rim station with at-grade shell geometry within ``footprint_close_m``
+    SNAPS onto the shell's outer face.  THAT DERIVATION IS REFUTED BY THIS
+    MEASUREMENT and the snap is not built (lane ``v2lemdstruct``, LEMD dry
+    ``--stage structures`` replay): ``at_grade_geometry``'s linework is
+    each component's shell clipped at ONE plane — the DEM under that
+    component's centroid (``obj8._planes``) — so over LEMD's T4S pit,
+    whose ground runs 593 … 599 across the plate, it is a CONTOUR through
+    the middle of the shell and not the wall's ground trace at all.  Its
+    distance from the region ring reads **median 19.73 m, worst 51.67 m**
+    over 111 stations, with only 24 within 2 m: snapping to it would drag
+    the cut ~20 m into a 28,345 m2 pit.  The region ring itself passes
+    **1.41 m** from the owner's coordinate 40.4910254,−3.5681642, so the
+    "narrow visible canyon" there is not a ring metres off the wall.  What
+    §24 (1) (a) needs is a WALL-FACE reference — the pack's near-vertical
+    solid faces' plan trace — which is the same OWED item RULINGS
+    2026-09-13g left open when ``_rim_open`` read 58 of 69 against this
+    linework.  The report stands so the next reading has its numbers."""
+    ext = rim.exterior
+    n_st = max(4, int(math.ceil(ext.length / max(step, 1e-6))))
+    pts = [ext.interpolate(ext.length * i / n_st) for i in range(n_st)]
+    dists = [float("inf")] * len(pts)
+    # ONE MEMBER AT A TIME (``_rim_open``'s own law, owner 2026-09-13 round
+    # 2): the minimum over the set, each index released as it is walked.
+    for t in rim_trees:
+        if t is None:
+            continue
+        for k, p in enumerate(pts):
+            for i in _np.atleast_1d(t.query_nearest(p, all_matches=False)):
+                dists[k] = min(dists[k], float(t.geometries[int(i)].distance(p)))
+    return dists, {r: sum(1 for x in dists if x <= r) for r in _SNAP_PROBE_M}
 
 
 def _floors_inside(floors: list[Polygon], rim: Polygon, standoff: float, grid: float

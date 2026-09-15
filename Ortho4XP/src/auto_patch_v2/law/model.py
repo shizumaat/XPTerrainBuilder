@@ -269,6 +269,7 @@ class Bridge:
     #: cell that end MEETS may stand (OSM stops a service road at the
     #: apron's edge, not on it).
     deck_end_reach_m: float
+    deck_group_gap_max_m: float
     deck_datum: str
     mapped_deck_cuttable: bool
     terrain_deck_without_object: bool

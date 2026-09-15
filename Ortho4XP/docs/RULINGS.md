@@ -6879,3 +6879,31 @@ the precedence rule is deleted (the pack stays the pack; its objects are
 read). Consumer census §44.1 (13 rows) written before any edit per
 RULINGS 2026-08-30l; C10 (the DEM-inset stage's own v1 resolver) is a
 MEASURE row, its unification deferred to stage B of the v1 retirement.
+
+## 2026-09-15g v2drapedbind MERGED (32f338a3): the object stage no longer dies on a draped page beside a solid body — `placement_geom._draped_components` was never bound to `_LineCutter`
+
+The owner's LGAV tile build (2026-09-14 23:14, engine 1.50.1785; the bug
+is in 1.0.340 too) logged `[v2 rebake] LGAV: placement failed
+('_LineCutter' object has no attribute '_draped_components'); continuing`
+and skipped the whole object stage. Mechanism: the §16d (1) readings
+were moved from `placement_cut._LineCutter` to `placement_geom.py`; three
+were re-bound as delegates, the fourth (`_draped_components(self, drp)`,
+:202) was not, and `written_components` :157 called it as a method. Lane
+`v2drapedbind` (b23a0c6f): the direct module call at :157 (a private
+helper with one caller); reachability census of every `def name(self`
+in the file; twin `test_16d_1_written_components_reads_a_draped_page_
+beside_a_solid_body` (fails with the owner's exact AttributeError when
+reverted). Offline proof on the owner's own LGAV rebake plan through
+`tools/obj8_split_report.py`: main arm rc 1 at the AttributeError; the
+branch rc 0, 184 placements, 166 split into 1,095 files, plan stage
+8.16 s, shared repo UNCHANGED (frames registered). Suite ON MAIN after
+the merge (`venv/bin/python -m pytest tests/auto_patch_v2
+tests/test_harness.py`): `1571 passed, 1 skipped, 42 warnings, 2 errors`
+— the two are `test_harness.py` TEARDOWN errors from the shared-repo
+write detector naming `Airport_mod_cache/Global Airports/o4_v2_partition
+_+33-112.cache`, written by the owner's app worker building KPHX at that
+moment (pid 52401 at 98 % CPU); `tests/test_harness.py` alone: `358
+passed`, 0 errors (the known app-builds-cross-attribute class). NOTE: the
+bare `venv/bin/pytest` entry does not put the cwd on `sys.path` and 23
+modules fail collection with `No module named 'tests'`; the working
+invocation is `venv/bin/python -m pytest`.

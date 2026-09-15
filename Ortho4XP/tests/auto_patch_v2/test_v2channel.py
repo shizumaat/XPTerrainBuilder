@@ -57,7 +57,8 @@ def _rect(x0, y0, x1, y1):
     return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
 
 
-def _pavement_with_corridor(x0=-20.0, x1=20.0, necks=((-40.0, -10.0),)):
+def _pavement_with_corridor(x0=-20.0, x1=20.0,
+                            necks=((-40.0, -10.0), (120.0, 150.0))):
     """The apt.dat airside pavement union: one 900 x 800 m slab with a
     CORRIDOR (``x0 <= x <= x1``, ``|y| <= 350``) cut out of it as a HOLE,
     and a PAVED NECK across the corridor at each ``(y0, y1)``.
@@ -131,7 +132,9 @@ def test_a_hole_and_neck_states_one_channel_with_no_mouths(law):
     assert WITNESS_NECK in c.witnesses
     assert c.crest == CREST_DESIGN
     assert c.bank_slope == pytest.approx(ch.bank_slope)
-    assert len(c.decks) == 1 and c.decks[0].datum == CREST_DESIGN
+    # TWO crossings: §45 (12) refuses a neck-only channel with one
+    # (``min_decks_without_depth``) — a single neck is a CROSSING
+    assert len(c.decks) == 2 and c.decks[0].datum == CREST_DESIGN
     # §45 (3) (iii) CUT THE ROAD DOWN: the DEM is flat at 100, so the
     # floor under the deck is exactly the clearance below it
     assert c.datum_source == DATUM_CLEARANCE
@@ -156,9 +159,10 @@ def test_a_the_channel_emits_a_floor_and_a_bank_and_never_the_deck(law):
     for f in floor:
         for b in bank:
             assert f.intersection(b).area < 1e-6
-    deck = Polygon(chans[0].decks[0].ring)
-    for f in floor + bank:
-        assert f.intersection(deck).area < 1.0
+    for d in chans[0].decks:
+        deck = Polygon(d.ring)
+        for f in floor + bank:
+            assert f.intersection(deck).area < 1.0
 
 
 # ── (b) the same with a 9 m lidar cut ────────────────────────────────────
@@ -176,7 +180,7 @@ def test_b_a_credible_lidar_inset_supplies_the_floor(law, monkeypatch):
     zs = [z for _s, z in c.profile]
     assert min(zs) == pytest.approx(91.0, abs=0.2), zs[:5]
     # and the decks are unchanged by the datum
-    assert len(c.decks) == 1
+    assert len(c.decks) == 2
 
 
 # ── (c) the pack's wall / floor objects ──────────────────────────────────
@@ -341,3 +345,41 @@ def test_h_law_families_carries_the_two_channel_families():
     from auto_patch_v2.law.tables import load_default
     fams = set(load_default().tables.families)
     assert {"channel_floor_at_declaration", "channel_crest_at_edge"} <= fams
+
+
+# ── §45 (12): a single neck is a CROSSING, not a channel ─────────────────
+
+def test_a_neck_only_channel_with_one_crossing_is_refused_by_name(law):
+    """§45 (12), the lane's reading of "name it or refuse it" for LGAV's
+    way −4003: a channel witnessed by a paved neck ALONE, whose floor
+    therefore comes from (3) (iii), needs more than one crossing.  With
+    one anchor "Cut the road down" ramps the floor away at
+    ``ramp_max_grade`` for the whole axis — at LGAV that read 80.24…103.44 m
+    under a 416 m ``highway=service`` road crossing a borrowed Global
+    apron."""
+    ch = law.tables.structures.channel
+    assert ch.min_decks_without_depth >= 2
+    ap = _airport(law, [_pavement_with_corridor(necks=((-40.0, -10.0),))], [_road()])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert chans == [], [c.id for c in chans]
+    assert any("a single neck is a CROSSING" in r for r in st.refused), st.refused
+
+
+def test_a_pack_witness_is_judged_against_its_OWN_local_ground(law):
+    """§45 (1) (c) as round 2 measured it: the depth gate reads the
+    placement's own ``solid_min_depth_m`` — the terrain over THAT
+    component — not the mean DEM of the whole axis.  LGAV's axis is
+    1,954 m over 12.6 m of relief, so its mean read 67.48 while
+    ``Trench_07`` (own depth −11.03 m) scored 1.02 and was refused at
+    ``object_min_depth_m`` 3.0."""
+    from auto_patch_v2.planar.channel import _depth_under_crest
+
+    class _O:
+        solid_min_depth_m = -11.03
+        solid_min_z = 66.47
+    assert _depth_under_crest(_O(), 67.48) == pytest.approx(11.03)
+
+    class _NoLocal:
+        solid_min_depth_m = None
+        solid_min_z = 60.0
+    assert _depth_under_crest(_NoLocal(), 67.48) == pytest.approx(7.48)

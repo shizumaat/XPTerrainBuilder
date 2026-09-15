@@ -370,6 +370,17 @@ class Channel:
     ends: tuple[float, float] = (0.0, 0.0)
     witnesses: tuple[str, ...] = ()
     datum_source: str = ""
+    #: §45 (10)/(11): the corridor's CREST estimate (the DEM's own mean
+    #: along the axis) and the pack placements that witnessed it (1) (c).
+    #: The crest estimate is what ``object_min_depth_m`` is measured
+    #: against when a pass asks whether an object is the channel's own —
+    #: a pit BESIDE the corridor keeps its basin (§45 (11)).
+    crest_estimate_m: float = 0.0
+    witness_ids: tuple[str, ...] = ()
+    #: How the width was reached: ``"pack walls (10) (i)"``, ``"lidar
+    #: bank toes (10) (ii)"`` or ``"carriageways ⊕ lane_width_m (10)
+    #: (iii)"`` — the hole states the CROSSING, never the width.
+    width_source: str = ""
     crest: str = CREST_DESIGN
     bank_slope: float = 0.5
     #: The emitted faces' refs (``planar/channel.py`` writes the cells):

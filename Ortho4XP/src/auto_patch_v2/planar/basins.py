@@ -424,10 +424,10 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         stats.buried_named = list(report.buried_named)
     witnessed = [o for o in objects if o.witnesses]
     if channels:
-        from .channel import in_any_corridor
+        from .channel import channel_claiming
         keep = []
         for o in witnessed:
-            cid = in_any_corridor(channels, getattr(o, "plan_bbox", None))
+            cid = channel_claiming(channels, o, law)
             if cid:
                 stats.refused.append(
                     f"{o.id}: stands along the axis of {cid} — the channel's own wall/floor "

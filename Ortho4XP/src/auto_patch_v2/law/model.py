@@ -287,6 +287,10 @@ class Channel:
     #: the corridor never reaches wider than this from the axis.  The
     #: TOML comment carries the measurement.
     corridor_max_half_width_m: float
+    #: §45 (12): a channel witnessed by a NECK alone, whose floor comes
+    #: from (3) (iii), needs this many crossings — one neck is a
+    #: crossing, not a channel.  The TOML comment carries the site.
+    min_decks_without_depth: int
     #: The station spacing the floor profile and the banks are sampled at.
     station_m: float
     #: §45 (1) (c): a pack solid whose plan runs along the axis and whose

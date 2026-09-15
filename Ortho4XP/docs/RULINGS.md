@@ -8209,3 +8209,31 @@ neighbourhood; owner act per tile (question put). Round 5 had earlier
 HUNG 56 min on two whole-tree `pytest tests -q` runs (xdist, 0 % CPU) —
 killed by the session; the whole tree is not the bar. Round 6: the
 ordering, both bars, seven replays identical, then the merge.
+
+## 2026-09-15ay v2insetreprobe MERGED (5b4ea55e): a capability-free provider's `no-coverage` is re-probed ONCE PER ENGINE VERSION (owner 15aq (4)); 19 stale Phoenix negatives named; the harness names them under `dem` and never fetches
+
+Lane `v2insetreprobe` (2811624a). One predicate,
+`negative_is_version_stale(record, code, definition, bbox)`: true only
+for a `no-coverage` of a provider with NO required capability, whose
+declared coverage box reaches the airport, recorded under a version ≠
+the running one (an out-of-box negative is re-derived from the boxes
+and never re-asked, so a release churns no index). `run_capability_
+record` now stamps capability-free providers too (`{"engine": v,
+"capabilities": []}` in the index's existing `capabilities` JSON — no
+new file, no new key; the unstampable record was WHY the negative was
+permanent). The provider loop's third door beside `refresh` and
+`unverified` logs both versions and re-stamps whatever the answer;
+13b's door untouched; `is_cached` is False for a tile carrying one;
+`engine_version()` public. Harness: `unverified_inset_negatives` names
+a version-stale capability-free negative under `dem` with both
+versions and `--refresh-data dem`, never fetching (imported predicate).
+Measured read-only at engine 1.50.1788: +33-113 16, +33-112 3 (the 19 of
+15q's 20 not already cleared by 15au's KPHX refresh). Twins (a)–(f);
+`test_legacy_caches_without_recorded_box_are_reused` re-stamped (its
+unstamped negative was re-asked once — the law working). Merge conflict
+in `tests/test_harness.py` (both sessions append twins; kept both).
+Suite ON MAIN: `1877 passed, 1 skipped, 1 xpassed`, 0 failed. NOTED,
+not mine: the SUITE's session detector has no external-candidate
+downgrade (unlike the build audit's `BuildInputScope`), so a concurrent
+authorised refresh lands as teardown ERRORs in any suite running at the
+time (18 today, twice) — chip-worthy.

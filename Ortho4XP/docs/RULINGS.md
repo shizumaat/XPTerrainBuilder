@@ -7351,3 +7351,37 @@ stale tile is blocked until the owner's act. NOT closed: the merged
 `airport_small_roads` cache carries no schema marker (chip 15r); road
 reads span the 3×3 neighbourhood but only the build's own tile can be
 rewritten by the prefetch — neighbours are not judged (docstring).
+
+## 2026-09-15w v2vmmcshore r1 (a57abc47) MET every VMMC bar — but §34 (12) (1) would remove 38 of LEMD's 54 tunnels (owner 12ab's "Build them" population): (1) WITHDRAWN, (3) scoped to OSM bores, the mouth's pavement is not a cut; r2 re-measures; OWNER QUESTION: the VMMC stub
+
+Lane @ a57abc47 (main merged through 566691dc); suite 1,601 passed, 0
+FAILED. VMMC base b3a8d4c01325 → arm 9c240e89bccc: owner site — no
+face/rim/ramp within 300 m (ramps 11 → 0, rims 19 → 0; 12 bores named
+"no service"); the tear at 22.16232,113.58138 GONE; 0 of 2,318 nodes ≤
+0.5 m, `water_pins` wet 193 → 0 (the doubled plane gone in the patch;
+the mesh check awaits the build); shore trim 98,575 m² off 3 regions,
+6,567 m sea wall, 19 quays; `strip_seam_tear` 61 → 0,
+`adjacent_ground_step` 6 → 0, `transverse` 11 → 0; ADJUDICATED 225 →
+55 (airside 212 → ?), `within_shape` 76 → 2, `airside_no_step` 78 → 32;
+`hairline_pair` 68 → 76 (+8, out of scope: rings now end ON the shore).
+pav5 5.09…6.12 (NOT the 5.9 bar by 0.81 m — the flat-site preference,
+accepted). `sea_wall` family + twins (0 rows at VMMC, proved by twins).
+Closing build REFUSED by the new guard: `+22+113_big_roads.osm.bz2
+SCHEMA-STALE (2026-07-16 vs 2026-09-15)` — correct; the owner's refresh.
+Dry LEMD/OTHH pairs: LEMD tunnels 54 → 16 (38 = 12ab's mouth-only
+population, each named; decks 7 → 1 with them; §34 (12) (4) removed
+zero decks anywhere); OTHH 44 → 41 (three TERMINAL tunnels refused
+against pav32/pav30 by (3) — pack-stated corridors) + 1 wall corridor
+returned. RULED (§34 (12) AMENDED): (1) withdrawn — 12ab stands; (3)
+scoped to OSM bores; the mouth's pavement not a cut. OWNER QUESTION
+15w-1: under (2)–(4) a short mouth + ramp may survive at the VMMC car-
+park entrance (mouth 22.1624758,113.5771169, on the field by 12ab's
+100 m) — wanted, or is a bore that never passes under the field's
+surfaces unwanted when it stands beside airside (which would re-found
+12ab with a distance-to-airside rule)? r2 names the stub's geometry.
+New module `planar/structure_service.py`; functions changed listed in
+the lane report (structures.build_structures, structure_deck.deck_
+intervals, zones.shore_region/zone_regions, terrain_edge, overlay,
+build.quay_refs, constraints/zones+water, flat_site._cut_water,
+dem_production.sea_geometry, pipeline/build._classified_land,
+check_grade additive) — for v2channel's rebase.

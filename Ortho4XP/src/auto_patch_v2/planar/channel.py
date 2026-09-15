@@ -663,11 +663,21 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         packs)
     if profile is None:
         return None
-    # §45 (12): a NECK-ONLY channel with no depth witness needs more than
-    # one crossing — with one, (3) (iii) has a single anchor and the floor
-    # ramps away from it at ``ramp_max_grade`` for the whole axis.
-    if (datum == DATUM_CLEARANCE and set(_wits(grp)) == {WITNESS_NECK}
-            and len(decks) < ch.min_decks_without_depth):
+    # §45 (12): a channel with NO DEPTH WITNESS — no pack walls (3) (i),
+    # no credible lidar (3) (ii), so the floor is (3) (iii)'s "Cut the
+    # road down" — needs more than one crossing, WHATEVER witnessed it.
+    # With one anchor the floor ramps away from it at ``ramp_max_grade``
+    # for the whole axis.
+    #
+    # The clause was written for a NECK-only channel (LGAV way −4003) and
+    # is generalised here by MEASUREMENT, not by preference: the six dry
+    # replays of round 3 found LEMD's `channel:0` claiming ways −5821 /
+    # −5820 on a BRIDGE witness with ONE crossing and no depth — those
+    # are taxiway F-6's service roads, §34 (5)'s own canonical underpass
+    # — and deleting the bore `tunnel:-5821+-5820@0` that the underpass
+    # pass had built.  One crossing with no depth is a CROSSING; §34 (5)
+    # already owns it.
+    if (datum == DATUM_CLEARANCE and len(decks) < ch.min_decks_without_depth):
         stats.refused.append(
             f"{cid}: witnessed by a paved neck alone and with {len(decks)} crossing(s) "
             f"(< [channel] min_decks_without_depth {ch.min_decks_without_depth}) — a single "

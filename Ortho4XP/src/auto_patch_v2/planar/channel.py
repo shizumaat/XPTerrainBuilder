@@ -216,7 +216,8 @@ def _aeroway_bridges(airport: Airport, law: Law) -> list[tuple[OsmWay, LineStrin
 def _pack_witnesses(cand: _Cand, objects: _t.Sequence, half_m: float,
                     crest_est: float, min_depth_m: float,
                     min_area_m2: float = 1.0,
-                    pit_shells: _t.AbstractSet[str] = frozenset()) -> list[str]:
+                    pit_shells: _t.AbstractSet[str] = frozenset(),
+                    dropped: list[str] | None = None) -> list[str]:
     """§45 (1) (c): the pack's wall / floor objects along the axis.
 
     The 05k-1 authority — seat = floor, plate = crest, hull = footprint —
@@ -227,6 +228,7 @@ def _pack_witnesses(cand: _Cand, objects: _t.Sequence, half_m: float,
     crest is the channel's witness.  It is NOT a basin seed, a sunken
     road, a tunnel-object corridor or a door well (§45 (7))."""
     band = cand.line.buffer(half_m, **_MITRE)
+    dropped = dropped if dropped is not None else []
     out: list[str] = []
     for o in objects or ():
         # THE FOOTPRINT, NEVER THE BBOX — the round-1 defect, attributed
@@ -255,8 +257,6 @@ def _pack_witnesses(cand: _Cand, objects: _t.Sequence, half_m: float,
         # ``dsf:obj7`` / ``dsf:obj10`` — two of ``basin:0``'s three
         # members ``Ground-FSX-LEMD36/37/85`` — and §24's owner-accepted
         # T4S basin then fell to "overlaps a tunnel structure".
-        if str(getattr(o, "id", "")) in pit_shells:
-            continue
         bb = getattr(o, "below_grade", None)
         z = getattr(o, "solid_min_z", None)
         if bb is None or z is None or getattr(bb, "area", 0.0) <= min_area_m2:
@@ -268,8 +268,29 @@ def _pack_witnesses(cand: _Cand, objects: _t.Sequence, half_m: float,
             continue
         if _depth_under_crest(o, crest_est) < min_depth_m:
             continue
-        out.append(str(getattr(o, "id", "")))
+        oid = str(getattr(o, "id", ""))
+        if oid in pit_shells:
+            # the test above is (13) (d)'s, and it runs HERE — after the
+            # footprint / band / depth tests — for one reason only: so the
+            # drop is REPORTABLE.  A placement refused before those tests
+            # is a silent nothing, and the LGAV round-5 arm then cost two
+            # full airport loads to learn WHICH object went (the answer:
+            # Trench_07 / Trench_08).  Same rule, named.
+            dropped.append(oid)
+            continue
+        out.append(oid)
     return out
+
+
+def _res_of(o) -> str:
+    """The placement's RESOURCE as the pack names it — ``resource`` when
+    the reading carries one, else the placed ``path`` (``obj8`` states
+    the path; the LGAV round-5 note read ``?`` for all three)."""
+    for k in ("resource", "path"):
+        v = getattr(o, k, None)
+        if v:
+            return str(v)
+    return "?"
 
 
 def _depth_under_crest(o, crest_est: float) -> float:
@@ -513,7 +534,22 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     zs0 = [_dem(airport, axis_fn(s)) for s in ss]
     good0 = [z for z in zs0 if not math.isnan(z)]
     crest_est = (sum(good0) / len(good0)) if good0 else 0.0
-    packs0 = _pack_ids(grp, objects, cap, airport, law, axis_fn, ss, pit_shells)
+    pit_drop: list[str] = []
+    packs0 = _pack_ids(grp, objects, cap, airport, law, axis_fn, ss, pit_shells,
+                       pit_drop)
+    if pit_drop:
+        # §45 (13) (d), NAMED: a candidate that read a wall/floor witness
+        # and lost it to the pit test says WHICH placement it lost, in
+        # the stats every replay publishes — a refused channel keeps no
+        # record of its own, so this is the only place it can be said.
+        _byid = {str(getattr(o, "id", "")): o for o in objects or ()}
+        _seen = list(dict.fromkeys(pit_drop))
+        _res = ", ".join(
+            f"{i} ({_res_of(_byid.get(i))})" for i in _seen)
+        stats.notes.append(
+            f"{cid}: §45 (13) (d) dropped {len(_seen)} pack wall/floor "
+            f"witness(es) — a basin FLOOR WITNESS (airport/basin_witness."
+            f"basin_member_ids) is a pit shell, never a channel's wall: {_res}")
     decks, deck_half = _decks(airport, law, cid, grp, axis_ln, axis_fn, union,
                               objects, packs0)
     # (i) THE PACK'S WALL OBJECTS ALONG THE AXIS.  Searched at the cap —
@@ -677,7 +713,8 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
 
 def _pack_ids(grp: list[_Cand], objects: _t.Sequence, half_m: float,
               airport: Airport, law: Law, axis_fn, ss,
-              pit_shells: _t.AbstractSet[str] = frozenset()) -> list[str]:
+              pit_shells: _t.AbstractSet[str] = frozenset(),
+              dropped: list[str] | None = None) -> list[str]:
     """§45 (1) (c) / (10) (i): the pack placements that witness THIS
     channel — read once, so the width (i), the floor (3) (i), the deck
     pieces (12) and §45 (7)'s exclusion all name the SAME set."""
@@ -688,7 +725,7 @@ def _pack_ids(grp: list[_Cand], objects: _t.Sequence, half_m: float,
     out: list[str] = []
     for c in grp:
         for i in _pack_witnesses(c, objects, half_m, crest, ch.object_min_depth_m,
-                                 pit_shells=pit_shells):
+                                 pit_shells=pit_shells, dropped=dropped):
             if i not in out:
                 out.append(i)
     return out

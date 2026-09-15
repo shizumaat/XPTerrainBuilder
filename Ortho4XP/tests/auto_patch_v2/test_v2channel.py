@@ -492,6 +492,11 @@ def test_13d_a_basin_shell_beside_a_neck_is_no_channel_witness(law):
                                     pit_shell_ids={"dsf:obj7"})
     assert chans2 == [], [c.id for c in chans2]
     assert any("a single neck is a CROSSING" in r for r in st2.refused), st2.refused
+    # and the drop NAMES the placement it lost — a refused channel writes
+    # no record of its own, so without this line the only way to learn
+    # WHICH object the pit test took is a full airport load (the LGAV
+    # round-5 arm paid that twice)
+    assert any("(13) (d) dropped" in n and "dsf:obj7" in n for n in st2.notes), st2.notes
 
 
 def test_13d_reuses_the_basin_passs_own_derivation(law):

@@ -105,7 +105,8 @@ def _placement_override(law, over: dict[str, object]):
 
 
 def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
-                     placement: dict[str, object] | None = None) -> None:
+                     placement: dict[str, object] | None = None,
+                     rule: dict[str, object] | None = None) -> None:
     """:func:`capture` with the shared-repo guard and the lane-local cache
     redirects armed around it (``harness/build_airport.
     arm_shared_repo_protection``, the ONE arming composition).  The
@@ -120,7 +121,7 @@ def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
     _guard, _redirects = _arm(ROOT, out.parent, f"cap_{icao}")
     _guard.__enter__()
     try:
-        capture(icao, out, mod_cache_root, placement)
+        capture(icao, out, mod_cache_root, placement, rule)
     finally:
         _guard.__exit__(None, None, None)
         _churn(_guard)
@@ -128,8 +129,43 @@ def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
               else f"BLOCKED {_guard.blocked}", flush=True)
 
 
+def _rules_override(rules, over: dict[str, object]):
+    """Return ``rules`` with ``classify/rules.toml`` keys replaced (the
+    CAPTURE arm), as :func:`_placement_override` does for ``[placement]``.
+
+    A CLASSIFY-stage key is read UPSTREAM of the capture — the capture
+    holds the classification — so no replay-time override can arm one and
+    a matched pair on a classify law has to be two CAPTURES.  Doing that
+    by EDITING the shipped toml between the arms is exactly the defect
+    RULINGS 2026-09-15az records (disarming a head by prefix also deleted
+    ``foot_row_rulings`` and silently re-priced every foot row); this makes
+    the arm ONE command-line variable instead, on one unedited tree.
+    ``SECTION.KEY=VALUE``, e.g. ``--rule corridor.runway_shoulder_band=false``
+    (lane ``v2shoulderband``, §40 (5))."""
+    import dataclasses as _d
+    for spec, v in over.items():
+        if "." not in spec:
+            raise SystemExit(f"--rule: expected SECTION.KEY=VALUE, got {spec!r}")
+        sec, key = spec.split(".", 1)
+        if not hasattr(rules, sec):
+            raise SystemExit(f"--rule: no such rules section {sec!r}")
+        node = getattr(rules, sec)
+        if not any(f.name == key for f in _d.fields(node)):
+            raise SystemExit(f"--rule: no such [{sec}] key {key!r}")
+        cur = getattr(node, key)
+        if isinstance(cur, bool):
+            val: object = str(v).strip().lower() in ("1", "true", "yes", "on")
+        elif isinstance(cur, (int, float)):
+            val = type(cur)(v)
+        else:
+            val = v
+        rules = _dc.replace(rules, **{sec: _dc.replace(node, **{key: val})})
+    return rules
+
+
 def capture(icao: str, out: Path, mod_cache_root: str | None = None,
-            placement: dict[str, object] | None = None) -> None:
+            placement: dict[str, object] | None = None,
+            rule: dict[str, object] | None = None) -> None:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -240,7 +276,11 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
           f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']}  "
           f"relief {_groups.counts['relief_bodies']}  "
           f"infeasible {_groups.counts['infeasible']}")
-    cl = classify(airport, law, load_rules(), cache=ocache)
+    _rules = load_rules()
+    if rule:
+        _rules = _rules_override(_rules, rule)
+        print(f"[{icao}] CAPTURE ARM [rules] {rule}")
+    cl = classify(airport, law, _rules, cache=ocache)
     objects_out: list = []
     pm, _pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
                                objects=pack_objects, object_report=pack_report)
@@ -1129,6 +1169,13 @@ def main() -> int:
                          "override cannot arm them; e.g. "
                          "--placement pad_from_cluster=true "
                          "--placement pad_airside_clip=true")
+    ap.add_argument("--rule", action="append", default=[], metavar="SECTION.KEY=V",
+                    help="CAPTURE ARM: override one classify/rules.toml key for "
+                         "this capture (repeat).  A CLASSIFY key is read upstream "
+                         "of the capture, so a matched pair on one is two captures "
+                         "\u2014 this makes the arm one command-line variable instead "
+                         "of an edit to the shipped toml; e.g. "
+                         "--rule corridor.runway_shoulder_band=false")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--replay", type=Path, metavar="PKL")
     ap.add_argument("--from", dest="resume", choices=("constraints", "shapes", "planar"),
@@ -1212,7 +1259,8 @@ def main() -> int:
         if a.out is None:
             ap.error("--capture needs --out")
         pl = dict(it.split("=", 1) for it in a.placement)
-        _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl)
+        rl = dict(it.split("=", 1) for it in a.rule)
+        _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl)
         return 0
     if a.why_from:
         from auto_patch_v2.law import Law

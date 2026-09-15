@@ -199,6 +199,19 @@ def read_dsf_road_network(path: str) -> tuple[dict, list]:
     return nodes, ways
 
 
+def _feed_schema_note(path: str) -> str:
+    """The tag-schema stamp a road-feed cache carries, or ``""``.  The
+    feeds are plain OSM XML with the stamp in a comment written by
+    ``O4_Vector_Map``; a file without one predates the stamp."""
+    import bz2
+    try:
+        op = bz2.open if path.endswith(".bz2") else open
+        with op(path, "rt", errors="replace") as fh:
+            return fh.read(4096)
+    except OSError:
+        return ""
+
+
 def read_site_file(path: str) -> tuple[dict, list]:
     """Dispatch on the container: the DSF road-network sidecar, else OSM."""
     if path.endswith(DSF_ROAD_CACHE_SUFFIX):
@@ -521,6 +534,176 @@ def line_stations(start: tuple[float, float], end: tuple[float, float],
     return stations
 
 
+#: §34 (12) (4) (RULINGS 2026-09-15al): the road-feed tags that witness a
+#: CUTTING under a mapped bridge.  ``O4_Vector_Map.ROADS_TAGS_OF_INTEREST``
+#: keeps them since the 2026-09-15 schema (lane `v2roadtags`); a feed
+#: cached before it carries NONE of them, and that ABSENCE is a finding,
+#: never a "no".
+CUTTING_WITNESS_TAGS = ("layer", "cutting", "covered", "tunnel", "embankment")
+#: The feed cache's tag-schema stamp, so a report can say whether a
+#: missing witness means "not mapped" or "this feed predates the schema".
+ROAD_TAG_SCHEMA = "2026-09-15"
+
+
+def deck_witness(structures: dict, feeds: list, schema_ok: dict | None = None
+                 ) -> list[dict]:
+    """§34 (12) (4)'s WITNESS TABLE (RULINGS 2026-09-15al), one row per
+    deck a structures run read, read VERBATIM out of two files.
+
+    ``structures`` is a ``planar --stage structures`` ``structures.json``;
+    ``feeds`` are ``(name, nodes, ways)`` triples from the road feeds the
+    build read.  Per deck: the deck WAY's own tags and mapped length, the
+    §34 (12) (4) reading the structures run recorded (station, the
+    unaided grade-reach, the verdict), and the CUTTING WITNESSES
+    (:data:`CUTTING_WITNESS_TAGS`) on the deck way itself and on the
+    corridor's own bore ways.
+
+    It MEASURES NOTHING and derives no law: every value is a file's own,
+    and a witness the feed cannot carry is reported as
+    ``"schema"`` (the feed predates :data:`ROAD_TAG_SCHEMA`) rather than
+    as absent — the two are different findings and a table that conflated
+    them would read a stale cache as "no cutting mapped"."""
+    # NEGATIVE OSM IDS COLLIDE ACROSS THE FEEDS — the road layers and the
+    # airports layer each mint their own, so ``-374`` is BOTH a motorway
+    # bridge and an ``aeroway=taxiway`` at LEMD.  Every copy is kept and
+    # the ROAD-TAGGED one is chosen (``highway`` / ``railway``), with the
+    # collision reported: a table that silently took the first copy read
+    # five of LEMD's eleven decks as tagless at-grade roads.
+    by_id: dict = {}
+    for name, nodes, ways in feeds:
+        for wid, nds, tags in ways:
+            by_id.setdefault(str(wid).split(":")[-1], []).append(
+                (name, nodes, nds, tags))
+
+    def _pick(wid, want="bridge"):
+        """The copy the STRUCTURE PASS read, among the same-id copies.
+
+        The pass selects its decks with ``is_bridge`` and its bores with
+        ``is_tunnel``, so the witness must select the same way: prefer the
+        copy carrying that tag, then any road-tagged copy, then the
+        first.  At LEMD eight of the eleven deck ids have TWO copies and
+        for five of them the first copy is the AIRPORTS layer's
+        ``aeroway`` way — taking it read a motorway bridge as a
+        taxiway."""
+        copies = by_id.get(str(wid)) or []
+        tagged = [c for c in copies if want in c[3]]
+        roads = [c for c in copies if "highway" in c[3] or "railway" in c[3]]
+        return (tagged or roads or copies or [None])[0], len(copies), len(tagged)
+
+    def _len_m(entry) -> float | None:
+        if entry is None:
+            return None
+        _name, nodes, nds, _tags = entry
+        pts = [(nodes[n][0], nodes[n][1]) for n in nds if n in nodes]
+        return round(sum(metres_between(a, b)
+                         for a, b in zip(pts, pts[1:])), 1) if len(pts) > 1 else None
+
+    def _witness(entry) -> dict:
+        if entry is None:
+            return {k: None for k in CUTTING_WITNESS_TAGS}
+        name, _nodes, _nds, tags = entry
+        stale = schema_ok is not None and not schema_ok.get(name, True)
+        return {k: tags.get(k, "schema" if stale else None)
+                for k in CUTTING_WITNESS_TAGS}
+
+    out: list[dict] = []
+    for t in structures.get("tunnels", []):
+        bore_ids = [b for b in str(t["id"]).split(":")[-1].split("@")[0].split("+")
+                    if b.lstrip("-").isdigit()]
+        for note in (t.get("notes") or []):
+            if "(12) (4): deck " not in note:
+                continue
+            wid = note.split("deck ", 1)[1].split(" ", 1)[0]
+            entry, n_copies, n_roads = _pick(wid, "bridge")
+            row = {"tunnel": t["id"], "deck_way": wid,
+                   "deck_feed": None if entry is None else entry[0],
+                   "deck_tags": None if entry is None else dict(entry[3]),
+                   "deck_length_m": _len_m(entry),
+                   "deck_witness": _witness(entry),
+                   "id_copies": n_copies, "id_road_copies": n_roads,
+                   "bore_ways": bore_ids,
+                   "bore_witness": {b: _witness(_pick(b, "tunnel")[0])
+                                    for b in bore_ids},
+                   "bore_tags": {b: (None if _pick(b, "tunnel")[0] is None
+                                     else dict(_pick(b, "tunnel")[0][3]))
+                                 for b in bore_ids},
+                   "deck_xy": None if entry is None else
+                   [(entry[1][n][0], entry[1][n][1]) for n in entry[2]
+                    if n in entry[1]],
+                   "bore_xy": {b: ([] if _pick(b, "tunnel")[0] is None else
+                                   [(_pick(b, "tunnel")[0][1][n][0],
+                                     _pick(b, "tunnel")[0][1][n][1])
+                                    for n in _pick(b, "tunnel")[0][2]
+                                    if n in _pick(b, "tunnel")[0][1]])
+                               for b in bore_ids},
+                   "reading": note.split("(12) (4): ", 1)[1],
+                   "kept": "BEYOND GRADE" not in note}
+            out.append(row)
+    return out
+
+
+def add_deck_dem(rows: list, icao: str, abutment_m: float = 40.0) -> None:
+    """§34 (12) (4)'s CUTTING PROFILE, added to :func:`deck_witness` rows.
+
+    Per deck: the production DEM where the deck way passes closest to the
+    corridor's own bore ways (``under_m``), and at the two points
+    ``abutment_m`` along the deck way each way from there (``a_m`` /
+    ``b_m``) — the deck's abutments.  ``cut_m`` is
+    ``mean(abutments) − under``: a REAL CUTTING reads positive (the
+    ground under the span is lower than the ground the span lands on),
+    a bridge over flat ground reads ~0.
+
+    It samples the SAME production DEM the structures run read (one
+    witness, ``airport/dem_production``), and derives no law: the number
+    is a terrain reading, and what it means is the rule's to say."""
+    import os
+    import sys as _sys
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if os.path.join(here, "src") not in _sys.path:
+        _sys.path.insert(0, os.path.join(here, "src"))
+    from auto_patch_v2.airport.load import load_with_report
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.__main__ import default_inputs
+    inputs = default_inputs(None, None, None, 60.0, "production", False)
+    law = Law.for_airport(icao)
+    airport, _rep = load_with_report(icao, inputs, law)
+    import pyproj
+    fwd = pyproj.Transformer.from_crs("EPSG:4326", airport.frame.crs,
+                                      always_xy=True)
+    from shapely.geometry import LineString, Point
+
+    def _line(latlons):
+        if len(latlons) < 2:
+            return None
+        return LineString([fwd.transform(lo, la) for la, lo in latlons])
+
+    for r in rows:
+        deck = _line(r.get("deck_xy") or [])
+        bores = [b for b in (_line(v) for v in (r.get("bore_xy") or {}).values())
+                 if b is not None]
+        if deck is None or not bores:
+            r["dem"] = None
+            continue
+        from shapely.ops import nearest_points
+        near = min(bores, key=lambda b: b.distance(deck))
+        on_deck, _on_bore = nearest_points(deck, near)
+        s = deck.project(on_deck)
+        s_a, s_b = max(0.0, s - abutment_m), min(deck.length, s + abutment_m)
+        p_u = deck.interpolate(s)
+        p_a, p_b = deck.interpolate(s_a), deck.interpolate(s_b)
+        z = [float(airport.dem.z(p.x, p.y)) for p in (p_u, p_a, p_b)]
+        r["dem"] = {"under_m": round(z[0], 2), "a_m": round(z[1], 2),
+                    "b_m": round(z[2], 2),
+                    "cut_m": round((z[1] + z[2]) / 2.0 - z[0], 2),
+                    # the offsets ACTUALLY used: a deck shorter than
+                    # 2 x abutment_m, or a crossing near its end, cannot
+                    # give a symmetric pair, and a table that hid that
+                    # would read one abutment as the ground under the span
+                    "a_off_m": round(s - s_a, 1), "b_off_m": round(s_b - s, 1),
+                    "abutment_m": abutment_m, "deck_len_m": round(deck.length, 1),
+                    "deck_to_bore_m": round(near.distance(deck), 1)}
+
+
 def _probe(text: str) -> tuple[float, float]:
     lat, lon = (float(part) for part in text.split(","))
     return (lat, lon)
@@ -553,6 +736,17 @@ def main(argv: list[str] | None = None) -> int:
                              "station along a segment")
     parser.add_argument("--step", type=float, default=2.0,
                         help="--line: station spacing in metres")
+    parser.add_argument("--deck-witness", default=None, metavar="STRUCTURES",
+                        help="a planar --stage structures structures.json: "
+                             "report §34 (12) (4)'s witness table (one row "
+                             "per deck) instead of a point read")
+    parser.add_argument("--dem", default=None, metavar="ICAO",
+                        help="with --deck-witness: load that airport's "
+                             "PRODUCTION DEM and add the cutting profile "
+                             "(the DEM under each deck vs its abutments)")
+    parser.add_argument("--abutment-m", type=float, default=40.0,
+                        help="with --dem: how far along the deck way an "
+                             "abutment is sampled (default 40 m)")
     parser.add_argument("--json", default=None)
     frame = parser.add_mutually_exclusive_group()
     frame.add_argument(
@@ -564,6 +758,35 @@ def main(argv: list[str] | None = None) -> int:
         help="select and rank by the nearest NODE (default for OSM)")
     args = parser.parse_args(argv)
 
+    if args.deck_witness:
+        with open(args.deck_witness) as fh:
+            structures = json.load(fh)
+        feeds, schema_ok = [], {}
+        for path in args.files:
+            nodes, ways = read_site_file(path)
+            feeds.append((path, nodes, ways))
+            schema_ok[path] = ROAD_TAG_SCHEMA in _feed_schema_note(path)
+        rows = deck_witness(structures, feeds, schema_ok)
+        if args.dem:
+            add_deck_dem(rows, args.dem, args.abutment_m)
+        for r in rows:
+            print(f"{r['tunnel']:<34} deck {r['deck_way']:<8} "
+                  f"len {r['deck_length_m']}  tags {r['deck_tags']}"
+                  + ("" if r["id_copies"] < 2 else
+                     f"  [{r['id_copies']} id copies, "
+                     f"{r['id_road_copies']} bridge]"))
+            if r.get("dem") is not None:
+                d = r["dem"]
+                print(f"    DEM under {d['under_m']}  abutments {d['a_m']} "
+                      f"(−{d['a_off_m']} m) / {d['b_m']} (+{d['b_off_m']} m)  "
+                      f"CUT {d['cut_m']} m")
+            print(f"    witness(deck) {r['deck_witness']}")
+            print(f"    witness(bore) {r['bore_witness']}")
+            print(f"    {r['reading']}")
+        if args.json:
+            with open(args.json, "w") as fh:
+                json.dump({"decks": rows}, fh, indent=1)
+        return 0
     if args.dump is None and not args.at and not args.line:
         parser.error("--at is required unless --dump or --line is given")
     if args.line and args.step <= 0.0:

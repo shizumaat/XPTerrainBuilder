@@ -817,7 +817,24 @@ one_way_tol_m      = 0.01  # the lag has settled when no leader foot moved this 
 # QP exactly — the same subproblem PROXIMALLY damped instead of
 # line-searched along a ray out of it (`solve/design_qp.py`, which carries
 # the measurement and the HiGHS deviation).
-solver = "fixed_point"
+#
+# ON, RULED (Fable 2026-09-15, spec §20c RULED (3), RULINGS 2026-09-15b).
+# The deviation was the TOOL, not the law: HiGHS's QP is REFUTED for this
+# problem class (a dense-nullspace active-set solver, `nullspace limit`
+# 4,000, 630 s without terminating at 200,000 on CYXY's 4,437 columns) and
+# the proximally damped subproblem IS the §20c solver — it agrees with an
+# independent FISTA at the minimum (190,617.91 vs 190,618.15 at CYXY).
+# HiGHS stays on the projections, whose QPs are small by construction.
+# The bars that flipped it: the one-vertex HECA probe moves NOTHING by
+# more than 4.3 mm (the fixed point moved 959 vertices, 953 of them beyond
+# 500 m); §20b stage 1 SETTLES at HECA (0 of 174,500 hard rows, worst
+# 0.0200 m — the campaign's first-ranked debt, 13y (B) / 13ab / 14as);
+# hard rows CYXY 17 -> 12, HECA 39 -> 18, KCLT 29 -> 19, every survivor
+# named; adjudicated census CYXY -11.2 %, HECA -0.1 %, KCLT -1.4 % with no
+# family worse by > 5 %; solve wall 1.03x HECA / 1.21x KCLT / 1.31x CYXY
+# against a 2x bar.  `fixed_point` is kept as the DIAGNOSTIC ARM and the
+# matched pair every one of those numbers was read against.
+solver = "qp"
 active_set_max_rounds = 200    # iterations before the solve reports the set it stopped on (measured: CYXY and HECA settle well inside this)
 active_set_tol_m      = 0.001  # a row inside this of its bound is not counted as a set change (a tenth of the 0.01 m elevation materiality)
 solver_tol            = 1e-8   # the linear solver's relative residual tolerance per round

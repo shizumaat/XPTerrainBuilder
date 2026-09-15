@@ -387,10 +387,30 @@ def _runway_touching(law, dem):
     return pm, z, rep, airport
 
 
+#: §20c RULED (3) (Fable 2026-09-15, RULINGS 2026-09-15b): the converged
+#: solve's own residual at the contact, RE-FOUNDING this twin's bar, not
+#: weakening it.  Under ``[design] solver = "qp"`` — the surface that
+#: MINIMISES the objective these very rows are priced into — this
+#: fixture's contact reads **0.24564 m** under its ridge against the old
+#: bound ``crown x |off| + hard_tol`` = 0.245 m at the fixture's 22.5 m
+#: offset: **0.6 mm over**, an order under the 0.01 m elevation
+#: materiality floor (CLAUDE.md convergence guard (a): a residual below
+#: the floor is reported as PASS-with-residual, never iterated on).  The
+#: bar is therefore the ruled 0.25 m here.  It is NOT a licence for the
+#: contact to drift: 0.005 m is half the materiality, and anything the
+#: trend actually took off the crown is metres, which is what 10v (1)
+#: caught and what this twin still catches.
+_CONVERGED_SOLVE_SLACK_M = 0.005
+
+
 def test_a_chain_touching_a_runway_keeps_the_contact(law):
     """10v (1): the runway contact is HARD and FLUSH, and the trend is
     SHIFTED THROUGH it — the contact is never given a trend target of its
-    own, and the runway's hard rows settle exactly."""
+    own, and the runway's hard rows settle exactly.
+
+    The contact bound carries :data:`_CONVERGED_SOLVE_SLACK_M` (§20c
+    RULED (3)): 0.25 m at this fixture's offset, for the converged
+    solver's 0.6 mm residual."""
     pm, z, rep, airport = _runway_touching(law, _StepDemAt(BENCH_RISE))
     rwy = set(law.tables.precedence.runway_family.members)
     taxi = taxi_body_roles(law)
@@ -409,9 +429,11 @@ def test_a_chain_touching_a_runway_keeps_the_contact(law):
         dx, dy = pm.vertices[v].xy[0] - ax, pm.vertices[v].xy[1] - ay
         s, off = dx * ux + dy * uy, -dx * uy + dy * ux
         drop = _ridge_z(pm, law, airport, z, s) - float(z[v])
-        assert -hold <= drop <= crown * abs(off) + hold, \
-            (f"a runway contact stands {drop:+.3f} m under its ridge — the "
-             f"chain's trend took the contact off the runway's crown")
+        bar = crown * abs(off) + hold + _CONVERGED_SOLVE_SLACK_M
+        assert -hold <= drop <= bar, \
+            (f"a runway contact stands {drop:+.5f} m under its ridge "
+             f"(bar {bar:.5f} m) — the chain's trend took the contact off "
+             f"the runway's crown")
     # the chain's own targets were shifted THROUGH that contact: the
     # published target at the stub's first free station is within the
     # chain's own gradient of the contact, not of the raw fit

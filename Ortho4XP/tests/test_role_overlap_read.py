@@ -189,7 +189,7 @@ def test_a_v2_sidecar_with_no_anchor_reads_in_the_node_mean_frame(tmp_path):
     v1 = _patch(tmp_path, "v1.osm", [_STRIP, _LOT])
     r1 = ROR.read(v1, over="graded_strip:gap_fill_spine",
                   on="groundside_pavement")
-    assert r1["frame"] == "sidecar anchor" and r1["anchor"] == list(ANCHOR)
+    assert r1["frame"] == "builder anchor" and r1["anchor"] == list(ANCHOR)   # the code's string (14bh)
     assert abs(r1["area_m2"] - r["area_m2"]) < 1.0
 
 

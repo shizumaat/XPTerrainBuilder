@@ -14118,3 +14118,105 @@ number is the ramp cap itself (`ramp_max_grade`), no new key.  Expected
 longer reaching pav5, ramp+rim on the sea 0.0 m², nearest ramp 188 m
 from the owner's probe; LEMD keeps its 7 decks (each deck's station vs
 its ramp's climb-to-grade station named); OTHH 44 / 1 deck unchanged.
+
+### §34 (12) (4) AS AMENDED **MEASURED — ROUND 4** (lane `v2vmmcshore`, 2026-09-15, branch `claude/v2vmmcshore`, base main `dec0481e`)
+
+Implemented at `structure_deck._below_grade`, fed by `structure_service.
+grade_reach_for` — which is `structure_approach.ramp_top`, the RAMP's own
+derivation, so the deck reading and the ramp it feeds cannot disagree
+about where the trench ends.  No new key (the number is `ramp_max_grade`).
+Every verdict is written into the tunnel's `notes`
+(`structure_deck.below_grade_notes`), so the two stations it compares are
+readable without a rebuild — the tables below are that output.
+
+#### VMMC — THE CLOSING BUILD
+
+`build_airport.py VMMC --tag v2vmmcshore4`: **rc 0, 21.3 s**, `status
+optimal`, `body_sha 2f53c8d2cbb1`, artifact ledger **`14508d4b2d53`**, and
+verbatim:
+
+> `[harness] shared repo UNCHANGED by this build (full-surface before/after snapshot) — no side-effect mutation`
+
+| bar | r1 BASE (`b3a8d4c01325`) | CLOSING BUILD (`14508d4b2d53`) |
+|---|---|---|
+| owner probe 22.1618794, 113.579745 | inside `tunnel_ramp` −10098 | **covered by nothing**; nearest ramp **268 m** away |
+| ramp + rim standing on the sea | 1,543.8 m² | **0.00 m²** |
+| patch nodes at or under 0.5 m | 284 | **0** |
+| `pav5` | 3.58 / 4.28 / 5.43 … 6.16 | **5.09 … 6.12**; nearest ramp 39.0 m clear |
+| lowest airside face | 3.58 m (`pav5#1`) | **5.09 m** |
+| `strip_seam_tear` / `adjacent_ground_step` / `transverse` | 61 / 6 / 11 | **0 / 0 / 1** |
+| `sea_wall` | — | **27 rows**, worst drop 6.100 m (reported, never adjudicated) |
+| census LAW-TRUE / ADJUDICATED | 366 / **225** | 178 / **61** |
+| structures | 11 ramps / 19 rims, tunnels 5 | tunnels **13**, decks **4**, refusals **2**, ramps 16 / rims 19 |
+| the shore trim | — | 98,575 m² off 3 regions, **6,154 m of sea wall** |
+
+`tunnel:-2488@0`, the seafront corridor, reads:
+
+| deck | station s0..s1 | climb runs from | reaches grade at | verdict |
+|---|---|---|---|---|
+| `-1798` | 211.0 … 218.7 | 0.0 | **84.0** | BEYOND GRADE, not a crossing |
+| `-3636` | 302.1 … 315.3 | 0.0 | never | BEYOND GRADE |
+| `-3446` | 489.4 … 502.1 | 0.0 | never | BEYOND GRADE |
+| `-3444` | 545.9 … 558.6 | 0.0 | never | BEYOND GRADE |
+
+— so `climb_from_s` 559.2 → **0.0**, `top_s` 468.0 → **84.0 m** (63.8 m of
+climb plus one station of slack), `clipped_by` `pav5` → **none**: the
+corridor no longer reaches the pavement at all.  **The chained case is
+the owner's own bore** `-5508+-5507+-2489@0`: `-2088` at s 12.2 severs
+(grade at 84.0), the climb RESTARTS at its far edge 19.2, and `-1798` at
+s 69.2 severs again because the restarted climb reaches grade only at
+96.0 — two decks kept, exactly the ruling's chaining.
+
+#### LEMD — THE RULING'S EXPECTATION IS NOT MET, AND HERE IS WHY
+
+Expected: 7 decks kept.  **Measured: 1.**  Every reading, from the
+build's own notes:
+
+| tunnel | deck | station s0..s1 | climb from | reaches grade at | verdict |
+|---|---|---|---|---|---|
+| `-5284@0` | `-11828` | 14.6 … 21.8 | 0.0 | 108.0 | **severs** |
+| `-17265+-5946+-6640+-1359@1` | **`-6288`** | 56.3 … 70.4 | 0.0 | **24.0** | beyond grade |
+| `-1341+-1339@1` | `-15293` | 146.2 … 153.2 | 0.0 | **24.0** | beyond grade |
+| `-1581+-1568@1` | `-5305` | 103.3 … 110.5 | 0.0 | **60.0** | beyond grade |
+| `-1581+-1568@1` | `-1378` / `-1379` | 270.0 / 279.2 | 0.0 | never | beyond grade |
+| `-4928@0` | `-14230` | 107.0 … 124.5 | 0.0 | **84.0** | beyond grade |
+| `-4928@0` | `-374` / `-516` / `-15311` | 125.3 / 158.0 / 162.3 | 0.0 | never | beyond grade |
+| `-1341+-1339@0` | `-639` | 523.4 … 530.4 | 0.0 | **180.0** | beyond grade |
+
+LEMD tunnels **55 → 56** (`tunnel:-1341+-1339@0` returns), decks **7 → 1**,
+basins 0 → 0, underpasses **1 → 1**; the ramp lengths that change:
+`-1341+-1339@1` 180 → 24 m, `-1581+-1568@1` 552 → 60 m,
+`-17265+-5946+-6640+-1359@1` 96 → 24 m, `-4928@0` 252 → 84 m,
+`-5931@0` 96 → 120 m and `-5931@1` 36 → 48 m (no decks either side —
+the §34 (12) (3) stop, not (4)).
+
+**THE RESULT IS INTERNALLY CONSISTENT WITH §34.5 (6)** ("beyond the trench
+the road is ordinary ground"): each of LEMD's six dropped decks stands
+past the station at which its own ramp's climb reaches the DEM, so there
+is no trench under it for a bridge to span — the decks were themselves
+what held those trenches open (their base `climb_from_s` were 71.0 /
+153.8 / 287.1 / 169.9 m, all beyond the 24–180 m at which the ramp
+daylights on its own).  It is the same shape as VMMC's defect, smaller.
+
+**BUT `bridge_deck:-6288` IS RULINGS 2026-09-14bp ITEM 10's OWN BAR**
+(lane `v2lemdstruct` measured its ends to 3 m of 40.4835967,−3.580923),
+and this lane will not delete a ratified §33 (4) deck on its own reading.
+The law is implemented EXACTLY as 15aj states it and the consequence is
+reported rather than tuned: **whether (4) as amended is meant to stand
+where it takes `-6288`, or whether a deck that is a §33 (4) MAPPED-END
+deck is senior to the below-grade test, is the owner's / Fable's call.**
+Nothing here is gated; the attempt cap on (4) is spent (r3's
+crosses-the-bore limb, r4's below-grade limb).
+
+#### OTHH — UNCHANGED
+
+44 tunnels, **1 deck**, 10 basins, 9 object corridors, 4 door wells, 0
+underpasses — identical to the base at main, deck for deck.
+
+#### Twin
+
+`test_a_deck_severs_only_where_the_corridor_is_still_below_grade`: VMMC's
+own numbers (grade at 84.0, decks at 211.0 / 302.1 → none), the chained
+case (12.2 severs, the climb restarts at 19.2, 69.2 severs), the first
+beyond-grade deck stopping the run, and the two null readings (a climb
+that never reaches grade, and no `grade_reach` at all) keeping every deck.

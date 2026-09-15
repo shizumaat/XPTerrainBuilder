@@ -678,7 +678,7 @@ pad_from_cluster    = false
 # the airside problem no longer depends on the pads.  A pad left wholly
 # inside airside mints nothing: its bodies seat on the pavement, exactly
 # as (5) already says of a cluster.  false = the pre-14as derivation.
-pad_airside_clip    = true
+pad_airside_clip    = false
 
 # RULINGS 2026-09-14as (i), the clip's SECOND half: the crossing points
 # the clip leaves on the airside rim are not rim NODES, and noded into

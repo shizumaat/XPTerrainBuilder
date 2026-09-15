@@ -332,8 +332,10 @@ def structure_records(airport, cl, law) -> dict:
         + wall_corridor_groups(walls_c, law)
     from .channel import identify_channels
     from .channel_claims import claimed_crossing_ways
+    from ..airport.basin_witness import basin_member_ids
     channels, chstats = identify_channels(
-        airport, cl, law, objects, claimed_crossing_ways(airport, law, corridors))
+        airport, cl, law, objects, claimed_crossing_ways(airport, law, corridors),
+        basin_member_ids(airport, law, cache))
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
                                             plates, channels)
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,

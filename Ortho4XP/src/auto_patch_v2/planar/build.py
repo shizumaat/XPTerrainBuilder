@@ -37,6 +37,7 @@ from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
+from ..airport.basin_witness import basin_member_ids
 from .channel_claims import claimed_crossing_ways
 from .structures import StructureStats, build_structures, ramp_targets
 from .structure_road import mouth_pair_roads
@@ -151,9 +152,12 @@ def build(airport: Airport, classification: Classification, law: Law,
     # crossing inside a channel from ever becoming a bore with mouths
     # (§45 (1)/(6)), and the basin pass to keep a wall/floor object along
     # the axis from being read a second time as a pit (§45 (7)).
+    # §45 (13) (d): the BASIN PASS's own derivation of a pit shell,
+    # handed in beside (13) (b)'s claimed ways — never re-derived here.
     channels, chstats = identify_channels(
         airport, classification, law, objects,
-        claimed_crossing_ways(airport, law, corridors))
+        claimed_crossing_ways(airport, law, corridors),
+        basin_member_ids(airport, law, cache))
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable

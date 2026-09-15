@@ -215,7 +215,8 @@ def _aeroway_bridges(airport: Airport, law: Law) -> list[tuple[OsmWay, LineStrin
 
 def _pack_witnesses(cand: _Cand, objects: _t.Sequence, half_m: float,
                     crest_est: float, min_depth_m: float,
-                    min_area_m2: float = 1.0) -> list[str]:
+                    min_area_m2: float = 1.0,
+                    pit_shells: _t.AbstractSet[str] = frozenset()) -> list[str]:
     """§45 (1) (c): the pack's wall / floor objects along the axis.
 
     The 05k-1 authority — seat = floor, plate = crest, hull = footprint —
@@ -241,6 +242,21 @@ def _pack_witnesses(cand: _Cand, objects: _t.Sequence, half_m: float,
         # trench was the power cable.  So the witness is the object's
         # own below-grade footprint WITH REAL AREA, and an object that
         # states no footprint states no width and no floor.
+        # §45 (13) (d) A BASIN'S OWN SHELL IS NEVER A CHANNEL'S WALL
+        # (owner RULINGS 2026-09-15ac).  The object side is decided by the
+        # object's own KIND, at the one derivation site the basin pass
+        # already owns — ``airport/basin_witness.basin_member_ids``: a
+        # placement carrying a basin FLOOR WITNESS is a PIT SHELL whose
+        # rim tops out at grade (§24 (1)), not a trench wall running along
+        # an axis.  Basins are built AFTER channels, so (13) (b)'s
+        # "already claimed" set does not exist for objects and the kind
+        # test is what stands in its place.  Measured at LEMD round 4:
+        # ``channel:5`` (way −5989, neck + pack, ONE deck) took
+        # ``dsf:obj7`` / ``dsf:obj10`` — two of ``basin:0``'s three
+        # members ``Ground-FSX-LEMD36/37/85`` — and §24's owner-accepted
+        # T4S basin then fell to "overlaps a tunnel structure".
+        if str(getattr(o, "id", "")) in pit_shells:
+            continue
         bb = getattr(o, "below_grade", None)
         z = getattr(o, "solid_min_z", None)
         if bb is None or z is None or getattr(bb, "area", 0.0) <= min_area_m2:
@@ -307,7 +323,8 @@ def _lidar_credible(airport: Airport, law: Law) -> bool:
 
 def identify_channels(airport: Airport, classification, law: Law,
                       objects: _t.Sequence = (),
-                      claimed_ways: _t.AbstractSet[int] = frozenset()
+                      claimed_ways: _t.AbstractSet[int] = frozenset(),
+                      pit_shell_ids: _t.AbstractSet[str] = frozenset()
                       ) -> tuple[list[Channel], ChannelStats]:
     """THE CHANNEL RECORDS (§45 (1)–(7)), derived ONCE.
 
@@ -337,6 +354,12 @@ def identify_channels(airport: Airport, classification, law: Law,
     (c) otherwise a channel needs a pack or lidar witness, or a neck
         witness with at least ``min_decks_without_depth`` decks (§45
         (12), ratified).
+    (d) ``pit_shell_ids`` is ``airport/basin_witness.basin_member_ids``
+        — the basin pass's OWN derivation of "this placement carries a
+        floor witness", handed IN for the same reason ``claimed_ways``
+        is: a placement in it is a PIT SHELL and is never a (1) (c)
+        wall/floor witness.  A channel left without a depth witness by
+        it then faces (c).
     """
     stats = ChannelStats()
     ch = law.tables.structures.channel
@@ -392,7 +415,8 @@ def identify_channels(airport: Airport, classification, law: Law,
     groups = _merge(live, ch.merge_m, ch.corridor_max_half_width_m)
     channels: list[Channel] = []
     for k, grp in enumerate(groups):
-        c = _build_one(airport, law, f"channel:{k}", grp, union, objects, stats)
+        c = _build_one(airport, law, f"channel:{k}", grp, union, objects, stats,
+                       pit_shell_ids)
         if c is not None:
             channels.append(c)
     stats.channels = len(channels)
@@ -443,7 +467,8 @@ def _merge(cands: list[_Cand], merge_m: float, cap_m: float) -> list[list[_Cand]
 
 
 def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
-               objects: _t.Sequence, stats: ChannelStats) -> Channel | None:
+               objects: _t.Sequence, stats: ChannelStats,
+               pit_shells: _t.AbstractSet[str] = frozenset()) -> Channel | None:
     """One channel's record: the axis, the decks, the corridor's
     half-width, the FLOOR (§45 (3)), the walls (§45 (5)) and the ends."""
     ch = law.tables.structures.channel
@@ -488,7 +513,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     zs0 = [_dem(airport, axis_fn(s)) for s in ss]
     good0 = [z for z in zs0 if not math.isnan(z)]
     crest_est = (sum(good0) / len(good0)) if good0 else 0.0
-    packs0 = _pack_ids(grp, objects, cap, airport, law, axis_fn, ss)
+    packs0 = _pack_ids(grp, objects, cap, airport, law, axis_fn, ss, pit_shells)
     decks, deck_half = _decks(airport, law, cid, grp, axis_ln, axis_fn, union,
                               objects, packs0)
     # (i) THE PACK'S WALL OBJECTS ALONG THE AXIS.  Searched at the cap —
@@ -651,7 +676,8 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
 
 
 def _pack_ids(grp: list[_Cand], objects: _t.Sequence, half_m: float,
-              airport: Airport, law: Law, axis_fn, ss) -> list[str]:
+              airport: Airport, law: Law, axis_fn, ss,
+              pit_shells: _t.AbstractSet[str] = frozenset()) -> list[str]:
     """§45 (1) (c) / (10) (i): the pack placements that witness THIS
     channel — read once, so the width (i), the floor (3) (i), the deck
     pieces (12) and §45 (7)'s exclusion all name the SAME set."""
@@ -661,7 +687,8 @@ def _pack_ids(grp: list[_Cand], objects: _t.Sequence, half_m: float,
     crest = (sum(good) / len(good)) if good else float("nan")
     out: list[str] = []
     for c in grp:
-        for i in _pack_witnesses(c, objects, half_m, crest, ch.object_min_depth_m):
+        for i in _pack_witnesses(c, objects, half_m, crest, ch.object_min_depth_m,
+                                 pit_shells=pit_shells):
             if i not in out:
                 out.append(i)
     return out

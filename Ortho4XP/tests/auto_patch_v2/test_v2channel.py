@@ -462,3 +462,52 @@ def test_channel_claiming_is_callable_from_its_own_module(law):
     class _Shallow(_O):
         solid_min_z = 99.0          # 1 m under the crest, under the 3 m gate
     assert channel_claiming([c], _Shallow(), law) == ""
+
+
+# ── §45 (13) (d) A BASIN'S OWN SHELL IS NEVER A CHANNEL'S WALL ───────────
+
+def test_13d_a_basin_shell_beside_a_neck_is_no_channel_witness(law):
+    """§45 (13) (d) (owner RULINGS 2026-09-15ac).  The SAME placement,
+    at the same place, with the same depth: admitted as a (1) (c)
+    wall/floor witness when it is not a pit, refused when the basin
+    pass's own ``basin_member_ids`` says it carries a floor witness.
+    And with it goes the channel's only depth witness, so (13) (c) then
+    refuses the channel outright — which is what leaves LEMD's T4S
+    ``basin:0`` its three members.
+    """
+    shell = _Placed("dsf:obj7", Polygon(_rect(-8.0, -300.0, 8.0, 300.0)), 88.0)
+    # ONE neck only, so the channel's admission rests on the pack witness
+    ap = _airport(law, [_pavement_with_corridor(necks=((-40.0, -10.0),))], [_road()])
+    cl = Classification(tuple(_cells()), (), {}, ())
+
+    # not a pit: the pack witness carries the channel (datum "pack")
+    chans, _st = identify_channels(ap, cl, law, [shell])
+    assert len(chans) == 1, [c.id for c in chans]
+    assert chans[0].datum_source == DATUM_PACK
+    assert "dsf:obj7" in chans[0].witness_ids
+
+    # a pit shell: no (1) (c) witness, and with no depth witness left the
+    # one-neck channel falls to (13) (c)
+    chans2, st2 = identify_channels(ap, cl, law, [shell],
+                                    pit_shell_ids={"dsf:obj7"})
+    assert chans2 == [], [c.id for c in chans2]
+    assert any("a single neck is a CROSSING" in r for r in st2.refused), st2.refused
+
+
+def test_13d_reuses_the_basin_passs_own_derivation(law):
+    """The pit test is NOT re-derived in the channel pass: the callers
+    hand in ``airport/basin_witness.basin_member_ids``, whose own rule is
+    "the placement carries a basin floor witness".  Asserted here so a
+    future edit cannot quietly grow a second pit test next to it."""
+    import inspect
+    from auto_patch_v2.airport.basin_witness import basin_member_ids
+    from auto_patch_v2.planar import build as _build, channel as _ch
+    assert "o.witnesses" in inspect.getsource(basin_member_ids)
+    assert "basin_member_ids" in inspect.getsource(_build)
+    # the channel pass only CONSUMES the set — it never CALLS the
+    # derivation (the name appears in its citation comment, which is the
+    # point: one site, cited where it is used)
+    src = inspect.getsource(_ch)
+    assert "pit_shells" in src
+    assert "basin_member_ids(" not in src
+    assert "read_objects(" not in src

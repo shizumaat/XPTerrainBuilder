@@ -8070,3 +8070,38 @@ production-frame dry load until refreshed (the owner's act per tile).
 LESSON (recorded): never compare two runs across a corpus refresh —
 the refresh ledger's timestamps are part of every A/B frame.
 15bj addendum: suite ON MAIN after the v2othhdet merge: 1672 passed, 1 skipped, 1 xpassed, 42 warnings in 41.41s.
+
+## 2026-09-15aq OWNER INTERVIEW (eight answers): the refreshes are this session's act; both packs RESTORED from `.anchor_bak`; no stale-OSM override; capability-free negatives re-probed once per app version; feed tags stay; §45 ships ON after KDFW/KPHX replay clean; measure-only accepted; C9/C12 after the reads — and the LEMD tile proof of 15ao
+
+Owner 2026-09-15 ("Interview me to resolve open questions"), answers
+with the data beside them: (1) "Yes, run all three now" — the LGAV
+osm_layers, KDFW osm_layers + the +32-097 neighbour's osm_layers,dem,
+and KPHX osm_layers,airport_mod_cache,dem --warm-insets refreshes are
+THIS session's authorised act (ledgered as they run). (2) "Restore both
+from .anchor_bak now" — DONE: `restore_pack_objects(allow_live_install=
+True, dsf_path=…)` then the authored DSF copied back over the bake and
+`o4_placement_provenance.json` removed: LEMD (322 object backups, the
+2,694 split bodies removed, live DSF sha 747ee558… = backup), VHHH (41
+backups, 606 bodies removed, sha 7fbeaa79… = backup); the next app build
+re-bakes both as every app build does. (3) "No override; refresh per
+tile" — stale-vs-fresh arms are not comparable; no `--allow-stale-osm`.
+(4) "Re-probe once per app version" — a capability-free provider's
+`no-coverage` is re-asked once per engine version (one TNM query per
+airport per version); lane `v2insetreprobe`; clears the 20 Phoenix
+records on the next 1.0.341 build. (5) "Leave it for now" — the
+per-airport feed's `_ROAD_FEED_WAY_TAGS` stays (it carries `layer`).
+(6) "ON everywhere once KDFW/KPHX replay clean" — v2channel merges after
+round 5 + the two refreshed replays; the owner's LGAV/KDFW/KPHX reads
+adjudicate. (7) "Accept measure-only" for lane tile builds (15ao's
+deviation ratified). (8) "After your LGAV/KDFW reads" — C9 (§19
+structure edge) and C12 (`road_profile._osm_levelled`) open a round only
+if the reads show the rim or the road wrong. ALSO RECORDED: the 15ao
+end-to-end proof by the concurrent session (its 15bf): `build_airport.py
+LEMD --tile 40 -4 --no-ledger` rc 0, 748 s — the pack DSF byte-identical
+before/after (sha 6bf37ff1…, mtime 12:21:43 both), `[v2 placement] LEMD:
+MEASURE ONLY — 0 conversion(s), 323 split(s) into 2710 body file(s), 4
+kept; nothing written`, no `[v2 rebake]` write line, shared repo
+UNCHANGED. And from the concurrent session (15bj): `airport_small_roads`
+is never schema-invalidated (chip task_7e4c5a02, running in the owner's
+session); 20 of 26 cached big_roads feeds still carry 2026-07-16 and now
+refuse a production-frame dry load too.

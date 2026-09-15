@@ -7959,3 +7959,22 @@ band, the runway ref dropped beyond the strip, level rows across the
 band, `runway_step`. Memory rule re-founded by this round: cross-tree
 comparisons are not evidence (14bk, r4) — a lane's before/after must
 be one tree, one capture, one variable, registers asserted per arm.
+
+## 2026-09-15bb LANE TILE BUILDS WROTE THE OWNER'S X-PLANE INSTALL: VHHH (v2vmmcshore r4 tile, +22+113.dsf 11:49:11 + provenance) and LEMD (v2lemdstruct2 r5 tile, +40-004.dsf 12:21:43 + provenance + 2,694 split-body .obj files) — the engine's rebake_after_mesh convention run by a lane; originals preserved as .anchor_bak (+40-004.dsf.anchor_bak 2026-08-26; +22+113.dsf.anchor_bak; 322 LEMD .obj.anchor_bak); the harness's "shared repo UNCHANGED" snapshot covers the DATA repo only — the install was never in its scope. Restore = the owner's decision (destructive on the install); NO lane --tile builds stands (15av). Suite on main after the v2lemdstruct2 r4+r5 merge (78b745b4): 1658 passed, 1 skipped, 42 warnings in 119.41s (0:01:59)
+
+Lane v2lemdstruct2's own words: "[v2 placement] LEMD: 0/322 object(s)
+restored from .anchor_bak … 323 split into 2695 body file(s) … DSF
+rewritten (backup +40-004.dsf.anchor_bak, round trip ok), dump cache
+refreshed … [v2 rebake] pack Aerosoft - LEMD Madrid - 1 - Airport was
+modified"; log mtime 12:21:44 = the build's exit. The shared mod cache
+is clean at LEMD (newest dump 07:23). At VHHH the install DSF and the
+mod-cache dump (15av) both date from the v2vmmcshore tile. The 2,694
+LEMD bodies are ADDED files (), not overwrites;
+the pack holds 3,501 .obj of which 2,694 are the lane's. Clean revert:
+restore +40-004.dsf and the 322 objects from .anchor_bak, delete the
+ bodies and o4_placement_provenance.json (same at VHHH).
+The owner's own app build rebakes the pack anyway from its plan (that
+is the shipping convention), so a restore is about the owner testing
+1.0.341 on a pack that carries a lane's r5 rebake rather than the
+app's. The peer's v2schemarefuse r4 (running) makes the harness tile
+path lane-local for the object stage and refuses install writes.

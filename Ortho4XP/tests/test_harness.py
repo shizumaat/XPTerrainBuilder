@@ -9300,3 +9300,155 @@ def test_ramp_in_strip_is_registered_and_keeps_out(cg):
     fams = _T.load_default().tables.families
     assert fams["ramp_in_strip"].cockpit == "keepout"
     assert fams["ramp_in_strip"].pairs == "within"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS (Fable
+# 2026-09-15; RULINGS 2026-09-15u; spec design-surface-spec §34 (13) (1))
+# ══════════════════════════════════════════════════════════════════════
+# ONE derivation, two readers: the engine's
+# `auto_patch_v2.verify.within.ring_route_m` and the census's
+# `_ring_route_m` (imported from it, with a literal no-engine fallback).
+# The reading can only RELAX, so the twin proves both directions: a
+# straight ramp is untouched, a CURVED one is priced along its axis, and
+# a ramp genuinely over cap along that axis still reports.
+
+_RRA_LAT = 40.4947697
+_RRA_LON = -3.5829037
+
+
+def _ramp_axis_patch(tmp_path, *, name, stations, fall_m, half_w=1.75):
+    """A `tunnel_ramp` ribbon whose CENTRELINE follows `stations`
+    (metre offsets from the site) and whose elevation falls `fall_m`
+    linearly from the first station to the last.  The ring is written the
+    way `planar/structure_geometry.geometry` writes one: down the left
+    side, back up the right."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_RRA_LAT))
+
+    def at(dx_m, dy_m):
+        return (_RRA_LAT + dy_m / mlat, _RRA_LON + dx_m / mlon)
+    n = len(stations)
+    left, right, zs = [], [], []
+    for k, (x, y) in enumerate(stations):
+        if k == 0:
+            ux, uy = stations[1][0] - x, stations[1][1] - y
+        else:
+            ux, uy = x - stations[k - 1][0], y - stations[k - 1][1]
+        L = math.hypot(ux, uy) or 1.0
+        nx, ny = -uy / L, ux / L
+        left.append(at(x + nx * half_w, y + ny * half_w))
+        right.append(at(x - nx * half_w, y - ny * half_w))
+        zs.append(600.0 - fall_m * k / (n - 1))
+    ring = left + list(reversed(right))
+    alts = zs + list(reversed(zs))
+    nodes, ids = [], []
+    nid = -1
+    for (lat, lon), z in zip(ring, alts):
+        nodes.append((nid, lat, lon, z))
+        ids.append(nid)
+        nid -= 1
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='ramp-axis-twin'>"]
+    for nd, lat, lon, alt in nodes:
+        out.append(f"  <node id='{nd}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    out.append(f"  <way id='{nid}'>")
+    out += [f"    <nd ref='{i}' />" for i in ids + [ids[0]]]
+    for k, v in (("role", "tunnel_ramp"), ("ref", "tunnel_ramp"),
+                 ("aeroway", "taxiway"), ("shapeID", "RA1")):
+        out.append(f"    <tag k='{k}' v='{v}' />")
+    out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_RRA_LAT, _RRA_LON], "ruleset": "icao"}))
+    return osm
+
+
+def _straight(n, span):
+    return [(span * k / (n - 1), 0.0) for k in range(n)]
+
+
+def _quarter_arc(n, radius):
+    """A quarter circle: route = pi*r/2, chord = r*sqrt(2) — the shape
+    LEMD's -10853 has (143.5 m of axis across a 99.25 m chord)."""
+    return [(radius * math.sin(math.pi / 2 * k / (n - 1)),
+             radius * (1 - math.cos(math.pi / 2 * k / (n - 1))))
+            for k in range(n)]
+
+
+def test_ring_route_m_is_the_walk_and_never_shorter_than_the_chord():
+    """The derivation itself, and the ONE property the whole reading
+    rests on: a polyline between two of its own points is never shorter
+    than the chord, so §34 (13) (1) can only RELAX."""
+    from auto_patch_v2.verify.within import ring_route_m
+    sq = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    assert ring_route_m(sq, 0, 1) == pytest.approx(10.0)
+    assert ring_route_m(sq, 0, 2) == pytest.approx(20.0)   # min of two 20s
+    assert ring_route_m(sq, 0, 3) == pytest.approx(10.0)   # the short way
+    assert ring_route_m(sq, 2, 2) == 0.0
+    for i in range(4):
+        for j in range(4):
+            chord = math.dist(sq[i], sq[j])
+            assert ring_route_m(sq, i, j) >= chord - 1e-9
+
+
+def test_the_census_and_the_engine_read_one_ring_route(cg):
+    """ONE derivation, two readers — never a second spelling (the
+    census-wrapper precedent).  `check_grade._ring_route_m` IS the
+    engine's function unless the engine is absent."""
+    from auto_patch_v2.verify.within import ring_route_m
+    assert cg._ring_route_m is ring_route_m
+    arc = _quarter_arc(9, 60.0)
+    for i in (0, 3, 8):
+        for j in (0, 4, 8):
+            assert cg._ring_route_m(arc, i, j) == pytest.approx(
+                ring_route_m(arc, i, j))
+
+
+def test_a_straight_ramp_is_unchanged_by_the_axis_reading(cg, tmp_path):
+    """The axis of a straight ramp IS its chord, so the reading must not
+    move a single row: a straight ramp over its cap still reports."""
+    fo = _families(cg, _ramp_axis_patch(
+        tmp_path, name="straightover", stations=_straight(9, 100.0),
+        fall_m=12.0))                       # 12 % over 100 m, cap 8 %
+    rows = [r for r in fo["within_shape"]
+            if abs(r.distance_m - 100.0) < 1.0]
+    assert rows, "a straight ramp at 12 % must still report"
+    assert all(r.grade_pct > 8.0 for r in rows)
+
+
+def test_a_curved_ramp_is_priced_along_its_axis_not_its_chord(cg, tmp_path):
+    """LEMD's own shape (owner 15e item 5): ramp way -10853 fell 8.250 m
+    over a 99.25 m PLAN CHORD — 8.31 %, over its 8 % cap — where its axis
+    runs 143.5 m, which is 5.75 % and lawful.  A quarter arc of radius
+    91.4 m has the same ratio (route 143.5 m, chord 129.2 m ... the exact
+    numbers do not matter; the LAW does): the fall that is over cap
+    across the chord and under it along the axis prices NO row."""
+    n, radius = 13, 91.4
+    arc = _quarter_arc(n, radius)
+    route = sum(math.dist(arc[k], arc[k + 1]) for k in range(n - 1))
+    chord = math.dist(arc[0], arc[-1])
+    assert route > chord * 1.05, (route, chord)
+    fall = 0.5 * (0.08 * route + 0.08 * chord)   # over the chord, under the axis
+    assert fall / chord > 0.08 and fall / route < 0.08
+    fo = _families(cg, _ramp_axis_patch(
+        tmp_path, name="curvedlawful", stations=arc, fall_m=fall))
+    long_rows = [r for r in fo["within_shape"] if r.distance_m > chord * 0.9]
+    assert long_rows == [], (
+        "a ramp inside its cap along its own axis prices no mouth-to-top "
+        f"row: {[(r.distance_m, r.grade_pct) for r in long_rows]}")
+    # and the reading never blinds a ramp that IS over cap along the axis
+    fo2 = _families(cg, _ramp_axis_patch(
+        tmp_path, name="curvedover", stations=arc, fall_m=0.12 * route))
+    over = [r for r in fo2["within_shape"] if r.distance_m > chord * 0.9]
+    assert over, "an over-cap axis grade must still report"
+    # the END-TO-END pair is reported over the AXIS run, not the chord
+    # (the other long pairs are between interior stations, whose own
+    # axis runs are legitimately shorter)
+    assert max(r.distance_m for r in over) > chord, (
+        f"the reported span is the AXIS run: max "
+        f"{max(r.distance_m for r in over):.1f} m vs chord {chord:.1f} m")
+    assert max(r.distance_m for r in over) == pytest.approx(route, rel=0.02)

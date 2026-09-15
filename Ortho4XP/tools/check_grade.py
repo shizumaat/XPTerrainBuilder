@@ -2251,6 +2251,34 @@ def iter_shape_grade_constraints(
                                        pts[ib][0] - pts[ia][0],
                                        pts[ib][1] - pts[ia][1])
 
+        _is_ramp_way = law_role(w) in _RAMP_ROLES
+        _ramp_xy = [(q[0], q[1]) for q in pts] if _is_ramp_way else None
+
+        def _ramp_span(ia: int, ib: int, d: float) -> float:
+            """§34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS
+            (Fable 2026-09-15; RULINGS 2026-09-15u; answers this lane's own
+            r1 intent question).
+
+            A ``tunnel_ramp`` is a ROUTE-family shape: its grade is read
+            along its AXIS, exactly as §37 (7) reads the road family and
+            09-05aa the taxi family, and never across the plan chord.  The
+            axis needs no sidecar key here — a ramp face is a RIBBON whose
+            ring walks the axis stations down one side and back up the
+            other, so the walk around its own ring between two vertices IS
+            the run between their stations (``ring_route_m``, ONE
+            derivation with ``auto_patch_v2.verify.within``).
+
+            MEASURED at LEMD (owner 15e item 5): ramp way −10853's worst
+            pair fell 8.250 m over a **99.25 m plan chord** — 8.31 %, over
+            the 8 % cap — where its own axis runs **143.5 m**: 5.75 %,
+            inside the cap.  It reads ``max(chord, route)`` and a polyline
+            between two of its own points is never shorter than the chord,
+            so this can only RELAX; a ramp genuinely over cap along its
+            axis still reports."""
+            if not _is_ramp_way:
+                return d
+            return max(d, _ring_route_m(_ramp_xy, ia, ib))
+
         def _route_read(ia: int, ib: int, cap_l: float):
             """§37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (owner RULINGS
             2026-09-13av; sidecar ``road_route_frame``).
@@ -2421,6 +2449,11 @@ def iter_shape_grade_constraints(
                         crown_by_nid.get(pnids[ib]), ei - ej)
                     if _unk:
                         _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
+                    # §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS
+                    # (Fable 2026-09-15; RULINGS 2026-09-15u): the SPAN is the
+                    # ring walk, the cap the ramp's own.  Applied before the road
+                    # reading, which returns None for a non-road role anyway.
+                    d = _ramp_span(ia, ib, d)
                     _rr = _route_read(ia, ib, cap.flat_cap())
                     if _rr == "skip":
                         continue                       # §37 (7): not a pair
@@ -2470,6 +2503,11 @@ def iter_shape_grade_constraints(
                     ei - ej)
                 if _unk:
                     _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
+                # §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS
+                # (Fable 2026-09-15; RULINGS 2026-09-15u): the SPAN is the
+                # ring walk, the cap the ramp's own.  Applied before the road
+                # reading, which returns None for a non-road role anyway.
+                d = _ramp_span(ia, ib, d)
                 _rr = _route_read(ia, ib, cap.flat_cap())
                 if _rr == "skip":
                     continue                           # §37 (7): not a pair
@@ -2520,6 +2558,11 @@ def iter_shape_grade_constraints(
             xi, yi, ei, _sa = pts[ia]
             xj, yj, ej, _sb = pts[ib]
             d = math.hypot(xi - xj, yi - yj)
+            # §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS
+            # (Fable 2026-09-15; RULINGS 2026-09-15u).  A `tunnel_ramp`
+            # ring reaches the census through the PLANE branch, so the
+            # span is taken here too — one helper, every branch.
+            d = _ramp_span(ia, ib, d)
             _off, _unk = _crown_off_clamped(
                 crown_by_nid.get(pnids[ia]), crown_by_nid.get(pnids[ib]),
                 ei - ej)
@@ -6381,6 +6424,30 @@ try:                                                    # pragma: no cover
 except Exception:                                       # pragma: no cover
     _RAMP_ROLES = frozenset({"tunnel_ramp", "door_ramp", "wall_corridor_ramp",
                              "garage_ramp"})
+
+
+#: §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS (Fable
+#: 2026-09-15; RULINGS 2026-09-15u).  ONE derivation with the engine's own
+#: ``auto_patch_v2.verify.within.ring_route_m`` — imported, never
+#: re-spelled (the census-wrapper precedent).  The literal below is the
+#: no-engine fallback for the bare CLI, and the twin asserts the two agree
+#: on the same ring.
+try:                                                    # pragma: no cover
+    from auto_patch_v2.verify.within import ring_route_m as _ring_route_m
+except Exception:                                       # pragma: no cover
+    def _ring_route_m(xy, i, j):
+        n = len(xy)
+        if n < 3 or i == j:
+            return 0.0
+        tot = []
+        for step in (1, -1):
+            acc, k = 0.0, i
+            while k != j:
+                nx = (k + step) % n
+                acc += math.hypot(xy[nx][0] - xy[k][0], xy[nx][1] - xy[k][1])
+                k = nx
+            tot.append(acc)
+        return min(tot)
 
 
 def _check_ramp_in_road(ways, nodes, ll_to_m) -> List[Violation]:

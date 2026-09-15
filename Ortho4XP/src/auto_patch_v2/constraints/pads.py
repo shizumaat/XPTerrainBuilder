@@ -86,7 +86,8 @@ from .precedence import view
 __all__ = ["pad_flats", "pad_slope_ceiling", "rigid_roles",
            "frontage_near_miss", "frontage_contacts", "pad_frontage_level",
            "pad_shared", "pad_datum_withdrawn", "pad_frontage", "FLAT_RULING",
-           "CEILING_RULING", "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
+           "CEILING_RULING", "FLAT_AIRSIDE_LED_RULING",
+           "pad_frontage_leaders", "LEVEL_MIN_BAND_M",
            "LEVEL_RULING", "LEVEL_JUNIOR_RULING", "GEN_LEVEL",
            "frontage_leaders", "_two_sided", "frontage_radius_m",
            "pad_fronts_airside",
@@ -104,6 +105,15 @@ GEN_LEVEL = "pad_level"
 #: The ruling HEAD ``[design] pad_flat_rulings`` names (everything before
 #: the first parenthesis, ``solve.design.ruling_head``).
 FLAT_RULING = "structures.building_pad flat"
+#: §16g (10) (11) (a) (owner RULINGS 2026-09-15z): the head the pad's own
+#: FLATNESS row carries when ONE of its two vertices belongs to an AIRSIDE
+#: face.  It is in ``[design] one_way_rulings`` — the airside vertex is the
+#: LEADER and never moves for a pad (airside is king, 14ai) — and in
+#: ``pad_flat_rulings``, because what it states is the same plate at the
+#: same price, only pointed the one lawful way.  ATTRIBUTED at HECA's worst
+#: airside mover: ``--why-at`` named exactly one binding row on it, this
+#: plate at cap 0 with dual 3.61, over a vertex the apron owns.
+FLAT_AIRSIDE_LED_RULING = "structures.building_pad flat airside-led"
 #: §16g (10) (8) THE PAD IS DROPPED AT THE RIM (owner RULINGS
 #: 2026-09-14aj): the head a pad row carries when ONE of its two vertices
 #: belongs to an AIRSIDE face.  It is in ``[design] one_way_rulings`` —
@@ -133,6 +143,14 @@ LEVEL_JUNIOR_RULING = "structures.building_pad frontage_level junior"
 #: CONDITIONING guard, not a law value: a pad whose rim is a collinear
 #: sliver has no plane to fit and keeps the pairwise FLAT target instead.
 _PLANE_MIN_SPAN_M = 1.0
+
+#: §16g (10) (11) (a): how many vertices of its OWN (not shared with an
+#: airside face) a pad must carry before its plate's airside pairs are
+#: priced one-way toward the pad.  Three, because a plane has three
+#: degrees of freedom: with fewer the led rows have no plane to hold and
+#: the pad keeps the two-sided weld that is then its only law.  A
+#: conditioning guard like :data:`_PLANE_MIN_SPAN_M`, not a law value.
+_PLANE_MIN_OWN = 3
 
 #: A pad with more rim vertices than this is priced over a DECIMATED
 #: representative set (every k-th vertex) PLUS every consecutive pair,
@@ -452,7 +470,8 @@ def _pairs(group: list[int]) -> list[tuple[int, int]]:
 
 
 def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
-              airport: Airport | None = None, relief: bool = True) -> list[Row]:
+              airport: Airport | None = None, relief: bool = True,
+              airside_led: bool = False) -> list[Row]:
     """One ``Diff`` at ``cap`` over every priced pair of every pad — the
     hard 1 % tilt ceiling's row set (09c).  Over EVERY pair, the contacts
     included: "the plane's tilt" is exactly "no two points of the pad
@@ -501,6 +520,31 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     AIRSIDE_LED.clear()
     per_face = {q: g for q, _r, g in _pad_groups(planar, law)}
     n_cross = 0
+    # §16g (10) (11) (a) THE PAD'S PLATE IS ONE-WAY TOWARD THE PAD (owner
+    # RULINGS 2026-09-15z; lane ``v2padqp`` r2).  ATTRIBUTED FIRST, at the
+    # row: `--why-at` on HECA's worst airside mover between the pads-OFF
+    # and pads-ON arms (+3.610 m at 30.11038632205,31.39574702991, roles
+    # ``apron``+``building``) names ONE binding row — ``pads cap 0.00 % x
+    # 8.7 m`` with dual 3.61 — i.e. THIS plate, two-sided over a vertex
+    # the APRON owns.  A shared vertex is one unknown (09-01g), so the
+    # plate's target and the apron's own target are peers there and the
+    # plate (weight ``pad_flat``, ten times ``law``) wins: the apron rises
+    # to the pad.  That is the defect §16g (10) (5) forbids and 14ai's
+    # "the airside is the datum, the pad never pulls it" names.
+    #
+    # So a pair with ONE end on airside is priced ONE-WAY with the PAD's
+    # own vertex as the follower: the airside column leaves the matrix for
+    # the right-hand side at its own value, the pad's vertex chases it.
+    # A pair with BOTH ends on airside is DROPPED — the pad has no
+    # business pricing a pair the airside already owns (r5 measured that
+    # withdrawal worth 4,008 pairs on its own scope).  The pad's INTERIOR
+    # pairs stay two-sided at cap 0, which is 14al's rigid core and the
+    # form that did not collapse; r4/r5 refuted a WHOLE-plate one-way, not
+    # this one, and their remaining objection — a lagged row has nothing
+    # holding the pad inside a round — was measured under the
+    # non-converging fixed point that §20c has since replaced.
+    air = airside_vertices(planar, law) if airside_led else frozenset()
+    n_led = n_dropped = n_in_pavement = 0
     # §16g (10) (8) IS WITHDRAWN — NO SKIRT (owner RULINGS 2026-09-14ay,
     # confirmed 14bn; lane ``v2padjoin`` round 3).  A pad touching an
     # apron takes the apron's level along the shared edge and stays ONE
@@ -521,23 +565,62 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # the collar armed at HECA the worst stage-2 rows were the skirt's
     # own (``building_pad airside skirt`` 7.07 -> 8.58 m) and they
     # carried most of the certificate's 151 -> 1,318 infeasible rows.
+    led_ruling = (FLAT_AIRSIDE_LED_RULING + ruling[len(FLAT_RULING):]
+                  if ruling.startswith(FLAT_RULING) else ruling)
     for fid, ref, group, fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
+        src_led = Source(GEN, led_ruling, (f"face:{fid}", ref))
         if len(fids) > 1:
             prs, k = cluster_pairs(planar, [per_face[q] for q in fids
-                                            if q in per_face])
+                                            if q in per_face],
+                                   own=(None if not air else
+                                        {v for v in group if v not in air}))
             n_cross += k
         else:
             prs = _pairs(group)
+        # THE PAD WHOLLY INSIDE PAVEMENT KEEPS ITS TWO-SIDED PLATE (r5's
+        # own clause, measured: 30 such pads at HECA — the OSM
+        # pad-in-an-apron class).  Every one of its vertices is airside, so
+        # the rule below would leave it no plate at all and it would be
+        # r3's collapse.  It has no airside to yield to that is not itself.
+        own = [v for v in group if v not in air] if air else group
+        # A PLANE NEEDS THREE POINTS OF ITS OWN.  The pad keeps its
+        # two-sided plate where it has fewer — the OSM pad-in-an-apron
+        # class (r5's 30 HECA pads) and its near neighbour, the pad whose
+        # rim is all weld but for a corner: with one or two own columns
+        # there is no plane for the led rows to hold, and withdrawing the
+        # two-sided pairs leaves the pad with no law at all (r3's
+        # collapse; MEASURED on the §30 (4) twin's 8-vertex pads, 1 own
+        # each: the cluster's two plates came apart 0.86 m).  A SOLVER-
+        # CONDITIONING guard of the same kind as ``_PLANE_MIN_SPAN_M``,
+        # not a law value.
+        led_here = bool(air) and len(own) >= _PLANE_MIN_OWN
+        if air and not led_here:
+            n_in_pavement += 1
         for a, b in prs:
             if a == b:
                 continue
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
             if d <= 0.0:
                 continue
-            rows.append(Diff(a, b, cap, d, src,
-                             rel=off.get(a, 0.0) - off.get(b, 0.0)))
+            follows = None
+            if led_here:
+                aa, bb = a in air, b in air
+                if aa and bb:
+                    n_dropped += 1       # the airside owns both ends
+                    continue
+                if aa or bb:
+                    follows = (b,) if aa else (a,)
+                    n_led += 1
+            rows.append(Diff(a, b, cap, d,
+                             src_led if follows is not None else src,
+                             rel=off.get(a, 0.0) - off.get(b, 0.0),
+                             follows=follows))
 
+    if airside_led:
+        AIRSIDE_LED["airside_led_rows"] = n_led
+        AIRSIDE_LED["both_airside_dropped"] = n_dropped
+        AIRSIDE_LED["pads_without_own_plane"] = n_in_pavement
     STATS.setdefault("pad_flats", {})["cluster_cross_links"] = n_cross
     STATS.setdefault("pad_flats", {}).update(AIRSIDE_LED)
     return rows
@@ -562,7 +645,8 @@ def pad_flats(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     times harder than any level row can answer, and the pad came out
     0.34 m BELOW the round-0 surface.  The plate is soft on purpose."""
     return _pad_rows(planar, law, 0.0, FLAT_RULING + " (2026-09-09c; "
-                     "09-01g weld = value; 03h pads yield)", airport)
+                     "09-01g weld = value; 03h pads yield)", airport,
+                     airside_led=True)
 
 
 #: THE FRONTAGE IS READ IN A BAND (owner RULINGS 2026-09-10y, measured by

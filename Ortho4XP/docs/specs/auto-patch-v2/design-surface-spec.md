@@ -13927,3 +13927,167 @@ to span.**  A deck that severs a climb which has already daylighted is
 what holds a flat floor for 381 m.  Whether (4) should read "a bridge
 severs only where the corridor is still BELOW GRADE at that station" is a
 law number this lane may not author; it is offered with its numbers.
+### §34 (13) **MEASURED — r3** (lane `v2lemdstruct2`, branch `claude/v2lemdstruct2`, base main `539e524e`)
+
+THE FRAME is r1's still: the ONE registered LEMD capture, matched
+`v2_solve_replay` arms, the harness census on each `--emit`.  **NO
+CLOSING BUILD** — checked once, the refresh ledger's last `osm_layers`
+entry is **2026-09-08T11:33:30 (SPJC)**, so RULINGS 15u's owner act has
+not run and LEMD would be measured on the corpus r1's build contaminated.
+Suite `tests/auto_patch_v2 tests/test_harness.py`: **1,619 passed / 1
+skipped / 0 FAILED**.
+
+#### (3) THE RAW PAIR IS THE JUNCTION'S TRANSVERSE LAW — STATED AND MINTED; NOT MET AS A VALUE, AND THE REASON IS MEASURED TWICE
+
+**WHAT LANDED.**  `constraints/transverse.junction_raw_transverse` — a
+new generator beside `transverse`, registered in `constraints/__init__`.
+It walks the SAME stations (`geometry.walk_transects`, the census's own
+walk, never a second one) and, at each, prices the two RING VERTICES the
+transect's two hits fall nearest — real emitted columns, which is what
+makes it a raw pair — over their own plan distance at the axis's
+transverse cap.  Two ruling heads so the halves can be told apart:
+`RAW_PAIR_RULING` and, where one end is a vertex the junction SHARES with
+a runway, `RAW_PAIR_CONTACT_RULING`; both registered in `[design]
+one_way_rulings`, so at a contact the junction's far edge FOLLOWS and no
+runway column ever moves for it (airside is king).  Where BOTH ends are
+runway-shared the runway owns the pair and no row is minted.
+
+**AT THE OWNER'S POINT the row is exactly right and it does not bind.**
+LEMD `pav157` / 40.4611623,−3.5444804: the pair (v906 on the runway edge,
+v6622 the junction's far edge 18.12 m away) is priced at **±0.268 m**,
+`follows=(v6622,)` — and the solve still reads **4.296 % over 18.2 m**,
+unchanged from r2.  1,591 raw-pair rows at LEMD, **62 of them contacts**.
+
+**HARD WAS TRIED TWICE AND IS INFEASIBLE.**
+
+| arm | what | result |
+|---|---|---|
+| c1 | the row as a TARGET (one-way, at `law`) | solve optimal, verify 1,549; `transverse` 115 → 97, `airside_no_step` 457 → 451; **the site unchanged at 5.01 %** |
+| c2 | ALL 1,591 raw pairs in `[design] hard_rulings` | **10,006 of 109,240 hard rows violated, worst 60.48 m** |
+| c5 | ONLY the 62 CONTACT rows hard | **8,548 of 106,182 violated, worst 105.29 m**; verify 179,008 rows, `runway_transverse` 625 and `runway_vertical_curve` 243 — the DEFECT families |
+
+So the raw pair stands as the LAW and as a TARGET, and §34 (13) (3)'s own
+alternative is what r3 reports.  **THE ROWS THAT BEAT IT, NAMED** (r2's
+`--why-vertex`, unchanged): at the far edge v6622 — `foot_rows` **14 rows,
+sum |dual| 42,656** (the object feet), `no_step_pairs` 6 (4,565),
+`junction_mesh` 7 (1,870), `zone_bands` 4; at the contact v906 —
+`no_step_pairs` (3,197), `junction_mesh` **at cap 1.50 % × 43.2 m**
+(2,584) whose chain terminates on a zone-band vertex that is FREE, "held
+by its ground datum".  A junction's far edge is held by four families at
+once; a fifth, however correct, is one voice among them, and hardening it
+over-determines the sheet.  **The residual is 4.296 % / 2.479 % against
+1.985 % / 1.500 %, and it is the owner's to see beside 15y-1.**
+
+| bar | r2 | r3 |
+|---|---|---|
+| the raw pair at 40.4611623,−3.5444804 (18.2 m) | 4.296 % | **4.296 %** — NOT MET |
+| the same over 16.5 m | 2.479 % | **2.479 %** — NOT MET |
+| census `taxi_box` \| `airside_no_step` junction\|runway pairs within 14 m | 5 \| 4 | **0 \| 8** |
+| census `transverse` (the 4-term family) | 107 | **98** |
+| census `airside_no_step` | 475 | **460** |
+| runway vertices moved > 0.02 m by the new rows | — | **0** (every contact row is one-way on the junction end; the registers are twinned) |
+
+#### (4) THE ROAD BETWEEN TWO MOUTHS — LANDED, AND THE PREDICATE THE BRIEF GUESSED IS REFUTED
+
+**THE PREDICATE IS NOT "TWO MOUTHS OF ONE BORE FACING EACH OTHER".**
+Measured at the owner's site: `tunnel:-15327@0` and `tunnel:-5980@0` are
+88.5 m apart and their ramps climb AWAY from one another — dot of each
+outward direction with the line between them **−0.916** and **−0.906**.
+They are the two near portals of a DUAL CARRIAGEWAY whose far ends merge
+at `tunnel:-15327+-5980@0` (−15327 is 2,234 m long, −5980 2,204 m), and
+the 88.5 m between them is the 611 m plateau the bores pass UNDER, not a
+road.  What IS the road between two mouths is the way whose OWN TWO ENDS
+are mouths: **−5944** runs from `tunnel:-5931@1`'s mouth — sharing its
+node exactly, **0.00 m** — to 47.3 m short of `tunnel:-5980@0`.
+
+**WHAT LANDED.**  `planar/structure_road.py` (NEW, its own module because
+`planar/structures.py` is at its 1,000-line budget and because lane
+`v2vmmcshore` r2 is editing it): `mouth_pair_roads(airport,
+classification, law, tunnels)`, called from `planar/build.build`
+immediately after `build_structures` — the seam where the cells must
+exist before the arrangement is built.  Law key `[tunnel] mouth_pair_m`
+(100.0, in `structures.toml`; the model field carries NO default, which
+is what the two `no_numeric_literal_in_law_python` twins enforce).
+`StructureStats.mouth_roads` carries one named line per face and
+`pipeline/build` prints them under the structures line, because the class
+is meant to be a handful and a rising count must be visible.
+
+The predicate, each clause answering a HAZARD r2's 24-reader census named:
+a mapped `highway=*` way, itself **neither `tunnel` nor `bridge`** (the
+census's worst hazard: a face over a bore is graded to the surface over
+it); **each end within `mouth_pair_m` of a structure mouth, the two
+mouths DIFFERENT**; **at least one end joined to the bore by a shared
+NODE** (the canonical identity join) — two node joins reads **0** ways at
+LEMD, none reads **27**, one reads **4**; the face is the way's own
+carriageway width minus every existing cell; its own `mouth_road:<way>`
+ref namespace.
+
+**THE DRY PAIRS — 7 faces across three airports.**
+
+| airport | faces | area | named |
+|---|---|---|---|
+| **LEMD** | **4** | **3,775 m²** | `mouth_road:-5944` 2,085 m² (the owner's), `-3830` 787, `-12917` 541, `-4044` 361 |
+| **OTHH** | **0** | — | the class never fires (39 structures, cells 369 → 369) |
+| **KCLT** | **3** | **3,564 m²** | `-11280` 2,613 m², `-11279` 929, `-9694` 22 |
+
+Against 207 faces / 944,872 m² for the general admission r2 refused.
+
+**THE BARS.**
+
+| bar | before | after |
+|---|---|---|
+| the face exists on way −5944's segment | no road-family way within 60 m | **way −10867 `service_road` / `mouth_road:-5944`, 24 nodes, 605.09–611.00 m**; 4 of the 6 stations along the owner's own line now read it |
+| its grade ≤ the road cap | — | worst edge **8.00 % against the 8 % road cap** — MET at cap; it rides its ground, \|z−DEM\| max **1.70 m** |
+| the ground at 40.4940268,−3.5826498 within 0.10 m of the road profile | no face | **NOT MET** — −5944's own centreline ENDS 47.3 m short of that point; only the rim and the ramp stand there |
+| hole ring −10670 (144,429 m²) closed | cover **0.011** | cover **0.023** — **NOT MET**; rings > 10,000 m² **13 → 13** |
+| census by family | ADJ 1,360 | **ADJ 1,344** (airside 1,279 → 1,251); `transverse` 107 → 98, `airside_no_step` 475 → 460, `road_cross_section` 9 → 11, `taxi_box` 167 → 171, `hairline_pair` 1,423 → 1,428; LAW-TRUE 5,712 → **5,692**; CRITICAL motion 4 → 4, visual 1,433 → 1,438 (10 cliffs both) |
+| the class's own census cost | — | **16 rows** on the four faces, **11 of them `-4044`'s** (a tertiary on a 12 % hillside, worst 10.79 % over 12.0 m); the owner's −5944 carries **one**, a 7.98 % cross-section over a 2.0 m span |
+| solve | optimal | **optimal** |
+
+**WHY THE VOID DOES NOT CLOSE, ARITHMETICALLY.**  One 2,085 m² road in a
+144,254 m² hole is 1.4 %; r2 already measured that closing it takes a
+**10-way, ~1,030 m network** (−5944, −5913, −5958, −5962 and six ~30 m
+stubs), of which −5944 is the only one with a mouth at each end.  §34 (11)
+(c)'s other limb — "or excluded from the graded strip" — is untouched by
+this lane and is where the remaining 98.6 % belongs.
+
+## §34 (13) (3) RULED ON r3's MEASUREMENT — AN OBJECT'S FOOT NEVER HOLDS AIRSIDE PAVEMENT (Fable 2026-09-15; RULINGS 2026-09-15ad) — lane `v2lemdstruct2` r4
+
+r3 minted the raw-pair row (`constraints/transverse.junction_raw_
+transverse`, one-way on the junction end at a runway contact; 1,591
+rows at LEMD, 62 contacts; census `transverse` 107 → 98, junction|
+runway `taxi_box` within 14 m 5 → 0; 0 runway vertices moved) and the
+site still reads 4.296 %.  Hard was infeasible twice (10,006 / 8,548
+violated).  The families that hold pav157's far edge v6622 ABOVE the
+runway contact: `foot_rows` **14 rows, dual 42,656** (object feet),
+`no_step_pairs` 6 (4,565), `junction_mesh` 7 (1,870), `zone_bands` 4;
+at the contact v906 `junction_mesh` at cap 1.50 % × 43.2 m to a FREE
+zone vertex held by its DEM.  RULED: (a) an object's foot row on an
+AIRSIDE vertex is ONE-WAY toward the object — the foot follows the
+pavement, never holds it (airside is king; the object stage re-seats
+on the design surface anyway).  r4 names the 14 objects behind those
+rows (what stands at a taxiway junction's edge 18 m from a runway —
+signs, lights, a fence?) and flips their rows' direction at the
+derivation site; (b) the `junction_mesh` row from the runway contact
+to a free zone vertex terminates on a vertex that carries the
+junction's own transverse law, not on a DEM-held zone vertex — the
+mesh row's far end at a contact is the raw-pair partner; (c) re-
+measure the crossfall; if the raw pair then binds and the site reads
+≤ 1.985 %, done; if `no_step_pairs` bind next, name them and stop —
+the residual joins 15y-1 for the owner.
+
+### §45 (13)(d) A BASIN'S OWN SHELL IS NEVER A CHANNEL'S WALL (Fable 2026-09-15; RULINGS 2026-09-15ac) — lane `v2channel` round 5
+
+Round 4 (90708ba1): OTHH / HECA / KCLT / CYXY / SPJC byte-identical, LGAV's one channel
+unchanged on the current main (`tunnels 11` on both arms), LEMD's tunnels identical
+(51 → 51) — and LEMD's `basin:0` (T4S, §24's owner-accepted basin) lost: `channel:5`
+(way −5989, neck + pack, ONE deck) took `dsf:obj7` / `dsf:obj10` — two of the basin's
+three members `Ground-FSX-LEMD36/37/85` — as its §45 (1)(c) wall witnesses, and the
+basin then fell to "overlaps a tunnel structure". Basins are built AFTER channels, so
+(13)(b)'s "already claimed" set does not exist for objects. RULED: the object side is
+decided by the object's own KIND, at one derivation site the basin pass already owns —
+`airport/basin_witness.basin_member_ids(airport, law)`: a placement in that set is a pit
+shell (its rim tops out at grade, §24 (1)) and is NEVER a channel's (1)(c) witness. A
+channel left without a depth witness then faces (13)(c) (LEMD's `channel:5`: neck + one
+deck → refused). BAR: the six dry replays byte-identical in `Tunnel` AND `Basin` records
+(LEMD basins 1 → 1); LGAV unchanged; the suite; then the merge.

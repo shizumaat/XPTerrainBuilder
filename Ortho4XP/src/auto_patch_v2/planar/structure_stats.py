@@ -54,6 +54,10 @@ class StructureStats:
     #: spanning an object corridor, kept as decks over the ramp.
     pavement_decks: int = 0
     refused: list[str] = _dc.field(default_factory=list)
+    #: §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): one line per
+    #: MOUTH ROAD minted (``planar/structure_road.mouth_pair_roads``) plus
+    #: the class's own tally, for the structures line.
+    mouth_roads: list[str] = _dc.field(default_factory=list)
     #: THE PINCHED RAMPS (spec §34 (9), owner RULINGS 2026-09-14ak): one
     #: line per corridor whose climb-out ended at an airside-locked service
     #: road's edge with the cap lifted — corridor, road, span, grade.

@@ -490,6 +490,68 @@ def discovery_json_payload(response, description):
         )
 
 
+#: Keys a discovery body uses to report its own failure.  A listing that
+#: carries one is degraded, whatever its HTTP status said.
+_DISCOVERY_ERROR_KEYS = ("error", "errors", "fault", "exception")
+
+
+def discovery_listing_items(payload, description, items_key="items",
+                            total_key="total"):
+    """The items of a COMPLETE product listing, or a transient raise.
+
+    The second half of the SQ3 law, and the defect KPHX measured on
+    2026-09-15: a degraded service does not only answer 5xx.  While TNM
+    was 504-ing it also answered **HTTP 200 with a body that is JSON but
+    is not a catalog** -- a gateway error envelope, or a listing that
+    lost its items array -- and ``payload.get("items") or []`` read every
+    one of those as "this provider has no data here".  Twenty airports
+    across ``+33-113`` / ``+33-112`` took a durable ``no-coverage`` for
+    USGS3DEP that way, KPHX among them, while TNM in fact publishes four
+    1 m products over it.
+
+    Only a WELL-FORMED, COMPLETE zero-products answer is no-coverage:
+
+    * not a mapping, or no ``items_key`` LIST   -> transient (an error
+      envelope such as ``{"message": "Internal Server Error"}`` is not a
+      catalog at all);
+    * a truthy error key                        -> transient (the service
+      said it failed inside a 200);
+    * ``total`` > 0 with an EMPTY item list     -> transient (the answer
+      contradicts itself: a truncated listing, never "nothing here");
+    * anything else                             -> the list, empty or not.
+      An empty list from an otherwise intact envelope is the ONE durable
+      negative.
+    """
+    if not isinstance(payload, dict):
+        raise_transient_discovery_failure(
+            description, "a 200 body that is not a product listing"
+        )
+    items = payload.get(items_key)
+    if not isinstance(items, list):
+        raise_transient_discovery_failure(
+            description,
+            "a 200 body carrying no '%s' listing" % items_key,
+        )
+    for key in _DISCOVERY_ERROR_KEYS:
+        if payload.get(key):
+            raise_transient_discovery_failure(
+                description,
+                "a 200 body reporting '%s': %s" % (key, payload[key]),
+            )
+    if not items and total_key is not None:
+        try:
+            total = int(payload.get(total_key, 0))
+        except (TypeError, ValueError):
+            total = 0
+        if total > 0:
+            raise_transient_discovery_failure(
+                description,
+                "a 200 body claiming %d product(s) and listing none"
+                % total,
+            )
+    return items
+
+
 # Detail tier (spec section 3.6).  A definition without an explicit ``role``
 # is an airport inset; ``role=base`` definitions describe tile-wide sources
 # (the Phase A2 legacy refactor) and are ignored by the inset path here.
@@ -1415,7 +1477,9 @@ class TnmCloudOptimizedGeoTiffStrategy:
         payload = discovery_json_payload(response, "TNM discovery")
         if payload is None:
             return None
-        items = payload.get("items") or []
+        # A 200 is not by itself an answer about coverage: only a
+        # COMPLETE listing is (2026-09-15, KPHX).
+        items = discovery_listing_items(payload, "TNM discovery")
         sources = []
         for item in items:
             download_url = item.get("downloadURL") or (
@@ -1433,6 +1497,15 @@ class TnmCloudOptimizedGeoTiffStrategy:
                 }
             )
         if not sources:
+            if items:
+                # The listing named products and none of them carried a
+                # download URL: a listing that lost half its fields, not
+                # a "no data here" answer.
+                raise_transient_discovery_failure(
+                    "TNM discovery",
+                    "a listing of %d product(s) with no download URL"
+                    % len(items),
+                )
             return None
         # Newest project first (spec: prefer the newest publicationDate).
         sources.sort(

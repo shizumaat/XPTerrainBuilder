@@ -146,27 +146,30 @@ def test_the_clip_is_law_gated_and_false_is_the_identity():
                                                          pad.polygon]
 
 
-# ── (au) the skirt's relaxed ceiling is §20b's ──────────────────────────
+# ── (au) THE SKIRT IS WITHDRAWN (14ay/14bn) ────────────────────────────
 
-def test_the_skirt_ceiling_relaxes_only_under_the_staged_solve():
-    """14au relaxes the SKIRT BAND's slope ceiling from ``pad_slope_max``
-    (1 %) to ``pad_skirt_max_slope`` (5 %) because v2settle's certificate
-    PROVED the 1 % skirt and a fixed apron rim mutually infeasible.  The
-    band's rows are TWO-SIDED (round 5), so under the SINGLE solve a 5 %
-    skirt pulls the AIRSIDE harder — MEASURED on CYXY's lockstep census
-    twin, the only variable the cap: 0 ``runway_transverse`` rows at 1 %,
-    2 at 5 % (0.3788 / 0.3852 m ON THE RUNWAY).  Under §20b the airside is
-    a CONSTANT in stage 2 and the same row cannot pull it (RULINGS
-    2026-09-14as's own recorded deviation).  So the relaxation is §20b's.
-    """
-    law = _law()
-    ceiling = law.tables.emit.within_shape.pad_slope_max
-    relaxed = law.tables.emit.within_shape.pad_skirt_max_slope
-    assert relaxed > ceiling
-    from auto_patch_v2.constraints import pads as _pads_mod
+def test_the_skirt_and_its_two_law_keys_are_GONE():
+    """RE-FOUNDED (owner RULINGS 2026-09-14ay, confirmed 14bn; lane
+    ``v2padjoin`` round 3).  This twin asserted 14au's relaxation — the
+    skirt band's ceiling rising from ``pad_slope_max`` (1 %) to
+    ``pad_skirt_max_slope`` (5 %) under §20b and only there.  The skirt
+    itself is withdrawn: a pad touching an apron takes the apron's level
+    along the shared edge and stays ONE PLANE inside its 1 % ceiling, and
+    §30 (4)'s collar makes the apron planar where the pad meets it.  Both
+    keys are deleted, the row head is out of every register, and
+    ``_pad_rows`` no longer mentions either."""
     import inspect
+
+    from auto_patch_v2.constraints import pads as _pads_mod
+    from auto_patch_v2.solve.design_roles import hard_rulings, one_way_rulings
+    law = _law()
+    assert not hasattr(law.tables.emit.within_shape, "pad_skirt_max_slope")
+    assert not hasattr(law.tables.structures.placement, "pad_skirt_m")
     body = inspect.getsource(_pads_mod._pad_rows)
-    assert "staged_solve" in body and "pad_skirt_max_slope" in body
-    # and the gate is the design table's own key, not a literal
-    assert bool(_staged(law).tables.emit.design.staged_solve) is True
-    assert bool(_staged(law, False).tables.emit.design.staged_solve) is False
+    # the names survive only in the WHY (the comment recording what was
+    # deleted and what it cost); no code reads them
+    code = "\n".join(l for l in body.split("\n")
+                     if not l.strip().startswith("#"))
+    assert "pad_skirt" not in code and "skirt_ceiling" not in code
+    head = "structures.building_pad airside skirt"
+    assert head not in hard_rulings(law) and head not in one_way_rulings(law)

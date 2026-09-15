@@ -189,6 +189,10 @@ class Placement:
     #: ~54,000 m2 and the airport's next largest family ~2,000.  0
     #: disarms the clause and leaves 13aq's partition by pad alone.
     cluster_pad_min_m2: float = 5000.0
+    #: §16g (10) (9) (2) (owner RULINGS 2026-09-14az): a unit seated on a
+    #: pad takes the pad's LOW side, never its median — a pad between two
+    #: aprons is a plane and its mean floats every body half the fall.
+    pad_between_aprons: bool = True
 
     #: §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo,
     #: interviewed): "We always want to keep objects covering the same
@@ -272,7 +276,6 @@ class Placement:
     #: what SHIPS — the 25 m band was measured WORSE on every airside bar
     #: at HECA (moved 14,263 -> 15,014, the runway 1,021 -> 1,394, worst
     #: 0.41 -> 0.57 m) for the terminal body +0.08 -> +0.00 m.
-    pad_skirt_m: float = 0.0
 
     #: §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): "very long
     #: connecting pieces like the elevated rail at HECA which would

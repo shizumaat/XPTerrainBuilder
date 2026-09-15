@@ -527,7 +527,7 @@ def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
 
 def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                      surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
-                     cluster_min_m2: float
+                     cluster_min_m2: float, low_side: bool = False
                      ) -> dict[str, tuple[float, str, str]]:
     """§16g (2)'s PRIORITY DATUM, read PLAN-WIDE: ``unit id -> (zero,
     where, source)``.
@@ -566,7 +566,28 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                 continue
             p = pad_plurality(cc, pads)
             if p is not None and p.z:
-                zero, where, src = _median(list(p.z)), p.ref, "pad"
+                # §16g (10) (9) (2) THE BUILDING SEATS AT THE LOW SIDE
+                # (owner RULINGS 2026-09-14az, verbatim: "seat the
+                # building level at the low side so nothing floats and
+                # the high side is slightly buried"; armed by
+                # ``[placement] pad_between_aprons``).  A pad sharing
+                # edges with apron on more than one side is a PLANE
+                # sloping up to 1 % between those levels, so its median
+                # stands half the fall above the low edge and every body
+                # on it floats there: at HECA the terminal read 75.92
+                # against a 72.62 pad because the plane's mean was taken.
+                #
+                # DEVIATION, NAMED: the law says the lowest SHARED-EDGE
+                # level and ``PadRing`` carries no per-vertex airside
+                # flag at this layer (it is ``(ref, ring, z)``), so what
+                # is read is the pad plane's own LOW SIDE — which is that
+                # level whenever the pad is pinned at its apron edges,
+                # the case (9) (2) is about.  Publishing the shared-edge
+                # subset would be a new sidecar channel and its own
+                # consumer census.
+                zero, where, src = (
+                    (min(p.z) if low_side else _median(list(p.z))),
+                    p.ref, "pad")
                 if cluster_min_m2 > 0.0 and un.area_m2 >= cluster_min_m2:
                     src = "cluster_pad"
             else:
@@ -758,7 +779,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     pads: _t.Sequence[_ar.PadRing], touch_m: float,
                     cluster_min_m2: float, counts: dict,
                     connector_span_m: float = 0.0,
-                    chain_min_height_m: float = 0.0
+                    chain_min_height_m: float = 0.0,
+                    low_side: bool = False
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
     where, source, connector ends, the HIGH end's own seat), the units'
@@ -791,7 +813,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
             if p is not None:
                 out.extend(p.feet)
         return out
-    dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
+    dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2,
+                           low_side=low_side)
     out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
     for un in units:

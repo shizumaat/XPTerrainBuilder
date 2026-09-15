@@ -450,7 +450,6 @@ class WithinShape:
     #: at THIS ceiling instead of ``pad_slope_max``: a slope, never a
     #: step.  The pad's CORE keeps the cap-0 plate and the 1 % ceiling.
     #: At or below ``pad_slope_max`` the relaxation is disarmed.
-    pad_skirt_max_slope: float
 
 
 @_dc.dataclass(frozen=True)

@@ -8056,3 +8056,16 @@ rows; offsets 0 bar TUNNEL2's four (0.897/0.842/0.812/0.670). The
 lane's worktree taken down; frames committed. The owner (testing
 1.0.341) push-notified: VHHH near the tunnels is a known regression;
 LEMD/VMMC reads valid.
+
+## 2026-09-15bj v2othhdet (24f60ca1) MERGED: the OTHH "nondeterminism" (15ar) was NOT the reader — the session's own OTHH road-layer refresh (11:45:43) landed between v2objcut's base runs e0 (11:39:00, stale feed: bores 8, 7/42) and e2 (11:45:23, refreshed: bores 16, 9/44); six runs on one corpus are identical on every non-timing key (a structures.json sha is never a determinism instrument — it embeds wall clocks). Two real fixes beside it: corridor ids were input-ORDER keyed (6 of 8 shuffles re-bound `@0`) → `object_cut.placement_key` (resource, xy 1 mm, heading, id); the dry replay now REFUSES a schema-stale road feed by name (as build_airport does), gated on the production frame. Two live gaps named: `read_wall_corridors` IS read-order dependent at OTHH (sorting → 73 → 75 corridors, different pairs — the band-pair choice needs a ruling; xfail placeholder); `airport_small_roads` is never schema-invalidated (`O4_Vector_Map._airport_auto_roads_layer`, no `cache_schema`) — §45 (9)'s depth witnesses are still dropped for every airport's service roads (the peer's chip task_7e4c5a02)
+
+Suite on the lane 1,672 passed / 1 xpassed, 0 FAILED. Dry pairs base
+118d2c40 → lane: OTHH byte-identical ignoring id (the one change:
+`tunnel-object:tunnel1.obj@0` ↔ `@1` swap placements 14051/14052 —
+14av's pair, two id strings, no geometry); LEMD and VHHH byte-identical
+(refusal lists sorted). 8 twins (`test_v2othhdet.py`; the shuffle twins
+FAIL pre-fix). Corpus: of 26 cached `big_roads` feeds the six campaign
+tiles carry 2026-09-15, the other 20 carry 2026-07-16 and now refuse a
+production-frame dry load until refreshed (the owner's act per tile).
+LESSON (recorded): never compare two runs across a corpus refresh —
+the refresh ledger's timestamps are part of every A/B frame.

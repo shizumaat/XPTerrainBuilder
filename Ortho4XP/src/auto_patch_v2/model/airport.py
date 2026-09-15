@@ -97,13 +97,19 @@ class Runway:
 
 @_dc.dataclass(frozen=True)
 class Pavement:
-    """apt.dat row 110 (taxiway / apron polygon), beziers flattened."""
+    """apt.dat row 110 (taxiway / apron polygon), beziers flattened.
+
+    ``source`` is ``""`` for the pack's own row and
+    ``"global_airports"`` for a row §44's PAVEMENT BORROW appended
+    (``airport/borrow.py``); it carries no role and no privilege — it
+    says where the record came from."""
 
     id: str
     surface: Surface
     outer: Ring
     holes: tuple[Ring, ...]
     description: str = ""
+    source: str = ""
 
 
 @_dc.dataclass(frozen=True)
@@ -153,11 +159,13 @@ class GroundRoute:
 
 @_dc.dataclass(frozen=True)
 class Boundary:
-    """apt.dat row 130."""
+    """apt.dat row 130.  ``source`` as on :class:`Pavement` (§44 (3): the
+    Global boundary is borrowed ONLY when the pack authored none)."""
 
     id: str
     outer: Ring
     holes: tuple[Ring, ...]
+    source: str = ""
 
 
 @_dc.dataclass(frozen=True)
@@ -239,13 +247,21 @@ class DsfObject:
 
 @_dc.dataclass(frozen=True)
 class SceneryPack:
-    """The scenery signature: apt.dat + DSF ONLY (RULINGS :75)."""
+    """The scenery signature: apt.dat + DSF ONLY (RULINGS :75).
+
+    §44 (4) (owner RULINGS 2026-09-15f): ``borrowed_apt_dat_path`` /
+    ``borrowed_block_sha256`` name the GLOBAL AIRPORTS block this pack
+    borrowed its pavement from (both ``""`` when nothing was borrowed) —
+    the signature carries them, so a Global Airports update invalidates
+    every cache keyed on it."""
 
     name: str
     apt_dat_path: str
     apt_dat_sha256: str
     dsf_paths: tuple[str, ...]
     dsf_sha256: tuple[str, ...]
+    borrowed_apt_dat_path: str = ""
+    borrowed_block_sha256: str = ""
 
 
 @_dc.dataclass(frozen=True)

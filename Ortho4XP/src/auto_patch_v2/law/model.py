@@ -351,6 +351,12 @@ class LoadLaw:
     object_pavement_max_layer_offset: int
     #: basename tokens that veto a page whatever it declares
     object_pavement_skip_tokens: tuple[str, ...]
+    #: §44 (2) THE PAVEMENT BORROW (owner RULINGS 2026-09-15f): a custom
+    #: pack whose row-110 union covers LESS than this fraction of the
+    #: Global Airports block's borrows Global's pavement (and its row-130
+    #: boundary when it has none) — ``airport/borrow.py``.  0 = off,
+    #: 1 = always where a Global block exists.
+    pavement_borrow_coverage_max: float
 
 
 @_dc.dataclass(frozen=True)
@@ -843,6 +849,13 @@ def _check_cross_refs(t: LawTables) -> None:
             "half width (RULINGS 2026-09-13an; the band is unioned into the "
             "coverage at emit/bank.py, and this keeps the two readings of "
             "the seam from drifting apart)")
+    # §44 (2) (owner RULINGS 2026-09-15f): the borrow key is a COVERAGE
+    # FRACTION — 0 turns the borrow off, 1 fires it wherever a Global
+    # Airports block exists; anything outside is not a coverage.
+    cbm = t.structures.load.pavement_borrow_coverage_max
+    if not (0.0 <= cbm <= 1.0):
+        raise LawError(f"load.pavement_borrow_coverage_max {cbm} is not a "
+                       "coverage fraction in [0, 1] (§44 (2))")
     if len(set(t.precedence.order)) != len(t.precedence.order):
         raise LawError("precedence.authority.order: duplicate role")
     so = t.precedence.structures.datum_order

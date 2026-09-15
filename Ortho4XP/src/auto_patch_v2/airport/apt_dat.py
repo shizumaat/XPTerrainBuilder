@@ -38,7 +38,7 @@ __all__ = [
     "AptRunway", "AptHelipad", "AptPavement", "AptLine", "AptBoundary",
     "AptTaxiNode", "AptTaxiEdge", "AptStartup", "AptAirport",
     "read_airport_block", "parse_airport_block", "find_apt_dat",
-    "file_has_airport", "block_sha256",
+    "global_candidates", "file_has_airport", "block_sha256",
 ]
 
 # Row types (apt.dat 1100 / 1200).
@@ -255,30 +255,49 @@ def _has_pavement(path: str, icao: str) -> bool:
     return bool(block) and any(ln.startswith("110 ") for ln in block)
 
 
+def global_candidates(xplane_root: str) -> tuple[str, ...]:
+    """Where a Global Airports block lives, in precedence order: the XP12
+    ``Global Scenery`` layout, the XP11 ``Custom Scenery`` one, then the
+    stock default apt.dat."""
+    return (os.path.join(xplane_root, "Global Scenery", "Global Airports",
+                         "Earth nav data", "apt.dat"),
+            os.path.join(xplane_root, "Custom Scenery", "Global Airports",
+                         "Earth nav data", "apt.dat"),
+            os.path.join(xplane_root, "Resources", "default scenery",
+                         "default apt dat", "Earth nav data", "apt.dat"))
+
+
 def find_apt_dat(xplane_root: str, icao: str) -> str | None:
-    """The apt.dat that serves ``icao``, in v1's precedence (``find_airport_
-    apt_dat``): a Custom Scenery pack whose apt.dat carries the airport
-    WITH row-110 pavement wins, then Global Airports (XP12 ``Global
-    Scenery`` layout, then the XP11 Custom Scenery one), then the stock
-    default; a pack without pavement is the fallback of last resort."""
+    """The apt.dat that serves ``icao``.
+
+    §44 (1) (owner RULINGS 2026-09-15f): THE PACK IS STILL THE PACK — the
+    first Custom Scenery pack (sorted, ``Global Airports`` excluded) whose
+    apt.dat carries the ICAO is what X-Plane renders, so it is what v2
+    reads: its runways, lights, lines, startups, metadata and its DSF
+    objects.  Among SEVERAL custom packs the precedence stays v1's (the
+    first with row-110 pavement, else the first).  The old tail — "a pack
+    without pavement is the fallback of last resort", under which a
+    pavement-less custom pack LOST the selection to Global Airports and
+    its objects were never read — is DELETED; ``airport/borrow.py``
+    (§44 (2), (3)) does that work by borrowing the PAVEMENT alone.
+
+    With no custom pack the Global Airports block serves, in
+    :func:`global_candidates` order.
+    """
     icao = icao.upper()
-    custom = os.path.join(xplane_root, "Custom Scenery")
+    custom_root = os.path.join(xplane_root, "Custom Scenery")
     cands: list[str] = []
-    if os.path.isdir(custom):
-        for entry in sorted(os.listdir(custom)):
+    if os.path.isdir(custom_root):
+        for entry in sorted(os.listdir(custom_root)):
             if entry == "Global Airports":
                 continue
-            p = os.path.join(custom, entry, "Earth nav data", "apt.dat")
+            p = os.path.join(custom_root, entry, "Earth nav data", "apt.dat")
             if os.path.isfile(p) and file_has_airport(p, icao):
                 cands.append(p)
-    for p in (os.path.join(xplane_root, "Global Scenery", "Global Airports",
-                           "Earth nav data", "apt.dat"),
-              os.path.join(custom, "Global Airports", "Earth nav data",
-                           "apt.dat"),
-              os.path.join(xplane_root, "Resources", "default scenery",
-                           "default apt dat", "Earth nav data", "apt.dat")):
-        if os.path.isfile(p) and file_has_airport(p, icao):
-            cands.append(p)
+    if not cands:
+        for p in global_candidates(xplane_root):
+            if os.path.isfile(p) and file_has_airport(p, icao):
+                cands.append(p)
     for c in cands:
         if _has_pavement(c, icao):
             return c

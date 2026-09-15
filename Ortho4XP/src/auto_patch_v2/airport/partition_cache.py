@@ -152,6 +152,12 @@ def fingerprint(airport, law, *, dump_path: str | None,
              f"{getattr(fr, 'lat0', None)}:{getattr(fr, 'lon0', None)}|".encode())
     h.update(f"icao:{getattr(airport, 'icao', '')}|radius:{radius_deg}|".encode())
     h.update(f"pack:{pack_root}|".encode())
+    # §44 (4) (owner RULINGS 2026-09-15f): the BORROWED Global Airports
+    # block, so a Global update invalidates the cached reading — the pack
+    # walk above cannot see it (the block is not in the pack).
+    pk = getattr(airport, "pack", None)
+    h.update(f"borrowed:{getattr(pk, 'borrowed_apt_dat_path', '')}:"
+             f"{getattr(pk, 'borrowed_block_sha256', '')}|".encode())
     return h.hexdigest()
 
 

@@ -757,3 +757,13 @@ object_pavement_layer_groups     = ["runways", "taxiways"]
 object_pavement_max_layer_offset = 1
 object_pavement_skip_tokens      = ["sign", "line", "marking", "decal", "paint",
                                     "logo", "grunge", "stain", "skid", "crack_line"]
+
+# §44 THE PAVEMENT BORROW (owner RULINGS 2026-09-15f, "Coverage < 25 %
+# (Recommended)").  A custom pack whose apt.dat row-110 union covers LESS
+# than this fraction of the Global Airports block's row-110 union, for the
+# same ICAO in the airport frame, borrows Global's pavement (and its row-130
+# boundary when the pack has none) — `airport/borrow.py`.  FlyTampa LGAV:
+# two runway strips, 369,545 m2, 1.3 % of Global's 63 polygons / 2,409,902 m2
+# — graded with ZERO taxiways and ZERO aprons before §44.  At 0 the borrow is
+# OFF; at 1 it always fires where a Global block exists.
+pavement_borrow_coverage_max = 0.25

@@ -27,6 +27,7 @@ import hashlib
 import os
 
 from ..model.airport import SceneryPack
+from . import borrow as _borrow
 from .apt_dat import block_sha256, find_apt_dat
 
 __all__ = ["PackSelection", "select_pack", "tile_dsf_path", "signature",
@@ -65,16 +66,37 @@ def live_path_of(path: str) -> str:
 class PackSelection:
     """``root`` is the pack directory (the one holding ``Earth nav
     data``); ``name`` its folder name (also the ``Airport_mod_cache``
-    sub-directory); ``custom`` whether it is a Custom Scenery pack."""
+    sub-directory); ``custom`` whether it is a Custom Scenery pack.
+
+    §44 (4)/(5): ``borrow`` is THE PAVEMENT BORROW decided here and
+    nowhere else — ``borrow.apt_dat_path`` is ``""`` when nothing is
+    borrowed.  ``root``/``name`` are ALWAYS the custom pack's: the
+    objects, the pads and the seats resolve there (§44 (1))."""
 
     name: str
     root: str
     apt_dat_path: str
     custom: bool
+    borrow: _borrow.BorrowDecision = _dc.field(
+        default_factory=_borrow.BorrowDecision)
+
+    @property
+    def borrowed_apt_dat_path(self) -> str:
+        return self.borrow.apt_dat_path
+
+    @property
+    def borrow_reason(self) -> str:
+        return self.borrow.reason
 
 
-def select_pack(xplane_root: str, icao: str) -> PackSelection | None:
-    """The pack whose apt.dat serves ``icao`` (see module docstring)."""
+def select_pack(xplane_root: str, icao: str, law=None) -> PackSelection | None:
+    """The pack whose apt.dat serves ``icao`` (see module docstring), and
+    — when ``law`` is given — §44's PAVEMENT BORROW decided for it.
+
+    ``law`` is optional because a caller that needs only the pack's ROOT
+    or NAME (``auto_patch/engine_v2._pack_dump_path``, the DSF dump) has
+    no use for the borrow and should not pay its Global-block read; the
+    production path (``load.load_with_report``) always passes it."""
     apt = find_apt_dat(xplane_root, icao)
     if apt is None:
         return None
@@ -82,7 +104,11 @@ def select_pack(xplane_root: str, icao: str) -> PackSelection | None:
     name = os.path.basename(root)
     custom = os.path.basename(os.path.dirname(root)) == "Custom Scenery" \
         and name != "Global Airports"
-    return PackSelection(name, root, apt, custom)
+    # §44 (5) THE ONE DERIVATION SITE.  A pack that IS Global Airports (or
+    # the stock default) has nothing to borrow from.
+    dec = _borrow.decide(xplane_root, icao, apt, law) if (law and custom) \
+        else _borrow.BorrowDecision(reason="" if custom else "not a custom pack")
+    return PackSelection(name, root, apt, custom, dec)
 
 
 def tile_dsf_path(pack_root: str, lat: int, lon: int) -> str | None:
@@ -104,9 +130,12 @@ def sha256_file(path: str) -> str:
 def signature(sel: PackSelection, block: list[str], lat: int,
               lon: int) -> SceneryPack:
     """The pack signature: the airport's own apt.dat block hash (the
-    whole Global file is hundreds of MB; the block is what is read) and
-    the tile DSF's file hash."""
+    whole Global file is hundreds of MB; the block is what is read), the
+    tile DSF's file hash, and — §44 (4) — the BORROWED block's path and
+    hash (both ``""`` when nothing was borrowed), so a Global Airports
+    update invalidates everything keyed on this signature."""
     dsf = tile_dsf_path(sel.root, lat, lon)
     paths = (dsf,) if dsf else ()
     return SceneryPack(sel.name, sel.apt_dat_path, block_sha256(block),
-                       paths, tuple(sha256_file(p) for p in paths))
+                       paths, tuple(sha256_file(p) for p in paths),
+                       sel.borrow.apt_dat_path, sel.borrow.block_sha256)

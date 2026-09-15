@@ -6807,3 +6807,21 @@ materiality; bar 0.25 m); 1.0.340 ships OFF for the LEMD tile, the flip
 lands in 1.0.341 for the HECA read; the OTHH customer surface stays
 fixed-point until the owner rebuilds and reads it. Lane resumed for the
 flip.
+
+## 2026-09-15c The v2qp merge proved ON MAIN by FAILED lines; the whole-tree run's 8 reds are v1-era suites, pre-existing (freshness ×3 since the v1 retirement 3bf14c5f, pavement_grade ×5 recorded)
+
+Whole-tree `pytest tests` on main d3864680: **8 failed, 2,376 passed,
+6 skipped, 1,490 s**. FAILED: `test_pavement_grade[SPLP|CYXY|SPJC|
+KCLT|HECA]` — recorded PRE-EXISTING (DEFERRED_VERIFICATION "11 PRE-
+EXISTING, identical on both arms: test_pavement_grade x5"); and
+`test_auto_patch_freshness::{test_generate_then_regenerate_reuses,
+test_lazy_inputs_resolved_once_on_rebuild,
+test_no_apt_dat_neighbour_does_not_block_a_buildable_airport}` — the
+fixture's fake airport KFAK has no apt.dat, which v1 tolerated and v2
+refuses ("[v2] KFAK: no apt.dat under xp_root"); red since v1 was
+retired (3bf14c5f, 2026-09-13), reproduced serially in 5.9 s.
+`git diff 63258868 d3864680 -- src/auto_patch/ tests/test_auto_patch_
+freshness.py` = four comment lines (the 14bx floor note). The campaign
+suite (`tests/auto_patch_v2` + `test_harness`, 1,577 on the lane r2)
+is green. Chip: port the three freshness twins to a v2 fixture with an
+apt.dat, or retire them with the v1 driver (owner's call).

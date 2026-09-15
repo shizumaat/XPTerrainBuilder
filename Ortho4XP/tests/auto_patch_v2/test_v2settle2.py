@@ -245,3 +245,49 @@ def _planar(n):
 
 def _flat_map(n):
     return _P(n)
+
+
+# ── 4. the active set names HOW it stopped (lane v2settle r2) ────────────
+
+"""§20a, round 2 (owner RULINGS 2026-09-14br).  ``SET NOT SETTLED`` said
+only THAT the damped active-set iteration did not reach its fixed point.
+There are four ways out of it and they are different failures with
+different cures, and WHICH one fires is what a perturbation changes:
+MEASURED at HECA, one extra ceiling row at ONE apron vertex 0.30 m under
+the base surface moves 959 vertices > 0.02 m — 953 of them BEYOND 500 m and
+NONE within 100 m, worst 0.5206 m — while every damped solve on both arms
+exits ``objective_stalled`` and NONE at ``same_set``.  With the stall exit
+disabled (``set_stall_tol = 0``) they all exit ``line_search_stalled``
+instead and the far field still moves (722 / 721 beyond 500 m).  The
+iteration never reaches its fixed point at HECA, which is the real content
+of RULINGS 13y (B) / 13ab."""
+
+
+def test_an_all_fixed_point_run_names_nothing():
+    rep = DesignReport()
+    rep.note_set_exit("same_set", 12, 0)
+    rep.note_set_exit("same_set", 9, 0)
+    assert rep.set_exit_line() == ""
+
+
+def test_a_stalled_run_names_the_exit_that_fired():
+    rep = DesignReport()
+    for _ in range(6):
+        rep.note_set_exit("objective_stalled", 40, 31)
+    rep.note_set_exit("round_cap", 200, 900)
+    line = rep.set_exit_line()
+    assert line.startswith("active-set exits: ")
+    assert "round_cap x1" in line and "objective_stalled x6" in line
+    # worst first: the cap is a harder failure than a stall
+    assert line.index("round_cap") < line.index("objective_stalled")
+    assert rep.as_dict()["set_exits"][0] == ["objective_stalled", 40, 31]
+
+
+def test_the_stall_exit_is_a_law_value_that_can_be_disarmed():
+    """``set_stall_tol`` exists so the arm is measurable — 0 leaves
+    ``active_set_max_rounds`` as the only ceiling.  The default is the
+    value HECA was measured under."""
+    from auto_patch_v2.law import Law
+    d = Law.for_airport("ZZZZ").tables.emit.design
+    assert d.set_stall_tol == 1e-6
+    assert d.set_stall_tol < 1.0

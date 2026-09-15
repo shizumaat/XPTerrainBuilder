@@ -21,7 +21,7 @@ DESIGN_TERMS: tuple[str, ...] = ("bend_runway", "bend_taxi", "bend_apron",
                                  "bend_strip", "bend_road", "chord", "law",
                                  "taxi_profile", "taxi_trend", "road",
                                  "detached_mean", "body_datum", "apron_trend",
-                                 "ground_datum")
+                                 "ground_datum", "set_stall_tol")
 
 #: The BENDING CLASSES (RULINGS 2026-09-08v), in the seniority order a
 #: vertex touched by two of them is priced under: a vertex of a runway face
@@ -81,6 +81,16 @@ class Design:
     #: not a law value: it bounds which chain may speak for a vertex.
     taxi_trend_face_reach_m: float
     road: float
+    #: §20a THE ACTIVE SET'S STALL EXIT (lane ``v2settle`` r2, owner RULINGS
+    #: 2026-09-14br).  The damped active-set iteration ends when the set
+    #: REPEATS (its fixed point) or when the objective stops falling by this
+    #: RELATIVE amount.  The second is a stall, not a solution, and the
+    #: module's own comment says so — yet at HECA every one of the six
+    #: damped solves exits on it and NONE on the fixed point, which is why a
+    #: perturbation at one vertex lands the far field somewhere else.  A law
+    #: value so the arm is measurable; 0 disables the stall exit and leaves
+    #: ``active_set_max_rounds`` as the only ceiling.
+    set_stall_tol: float
     detached_mean: float
     #: THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t
     #: answer 6): every APRON BODY — a connected group of faces whose

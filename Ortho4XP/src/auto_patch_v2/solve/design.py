@@ -1075,6 +1075,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                     f_new = _objective(A0f, b0f, A1, b1, w_row, shift, x_, Ub, cb)
                 if f_new > f_prev:
                     x_ = x_prev          # the step buys nothing: this is it
+                    rep.note_set_exit("line_search_stalled", rnd, len(active))
                     rep.converged = rep.record_flip(_settled(x_))
                     rep.rounds += rnd
                     return x_
@@ -1089,8 +1090,12 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
             # or a flip every row of which hovers at its own bound.  The
             # objective STALLING is an exit, NOT settlement — it fires with
             # thousands of rows still crossing their bounds by metres.
-            if nxt == active or (f_prev < math.inf and
-                                 abs(f_last - f_prev) <= 1e-6 * max(1.0, f_prev)):
+            same = nxt == active
+            stall = float(d.set_stall_tol)
+            if same or (stall > 0.0 and f_prev < math.inf and
+                        abs(f_last - f_prev) <= stall * max(1.0, f_prev)):
+                rep.note_set_exit("same_set" if same else "objective_stalled",
+                                  rnd, len(nxt ^ active))
                 rep.converged = rep.record_flip(_settled(x_))
                 rep.rounds += rnd
                 return x_
@@ -1100,6 +1105,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
             f_last = f_prev
             active, active_i = nxt, nxt_i
         rep.converged = False            # the round cap: NEVER settlement
+        rep.note_set_exit("round_cap", int(d.active_set_max_rounds), len(active))
         rep.record_flip(_settled(x_) if x_ is not None else (False, 0, 0.0))
         rep.rounds += int(d.active_set_max_rounds)
         return x_ if x_ is not None else np.zeros(red.n_cols)

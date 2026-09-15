@@ -7204,3 +7204,32 @@ record class, basins see none; the per-airport affordance retired;
 §33 (2)'s plate reading and (2) (a)'s clamp superseded for C; two new
 verify families. Lane v2objcut (owner sites: VHHH tunnel5; LEMD items
 1/3/4/6; OTHH 14av unchanged by replay pair).
+
+## 2026-09-15s v2channel round 1 NOT MERGED: the KDFW/KPHX closing tests refused on cold data; LGAV found two channels and not the trench; §45 (10)–(12) AMENDED (the hole is a crossing witness, not a width)
+
+Lane `v2channel` (399d7ecb, base 6dbfa8a3) — suite 1590/0, eleven twins,
+the §45.1 census confirmed with corrections (C9 `terrain_edge` needs an
+EDIT — took the keep-out path, the structure-edge derivation OWED for all
+structures; C12 is four modules, `airport/road_profile._osm_levelled`
+still core-levels a channel's road — OWED; C13's derivation is
+`airport/flat_site.py:389` (subtracted in `constraints/flat_site` because
+the channel exists only at planar time); C6/C7 live in `airport/`, not
+`planar/`; rows missed: `deck_signature`, `thin_plates`,
+`wall_corridor_probe`, `structure_geometry` role gate, `emit/bank`,
+`pipeline/publication`; `layer` is already on the airports feed).
+CLOSING TESTS REFUSED, quoted: KDFW `ColdDemFrame` on N32W097 (no
+airports OSM layer, no insets dir — `--refresh-data osm_layers` / `dem`
+for the NEIGHBOUR tile +32-097); KPHX `+33-113.dsf.anchor_bak` newer than
+every cached dump (`--refresh-data airport_mod_cache`). Both the owner's
+acts. LGAV measured: channels 2 (`channel:2` ways −7021/−4017/−2914/−1343
+bridge+pack, floor 63.43 from 5 placements, spread 404.7 m off axis;
+`channel:0` way −4003 neck-only, cut 5.1 m), tunnels 8 → 8, basins 2 → 0
+(two 20 m² pits refused as witnesses), Trench refusals unchanged — THE
+LGAV BAR NOT MET. DEVIATION RULED (Fable): §45 (1)'s hole-width rule
+deleted — the KDFW hole is 2,518 × 1,150 m against an 84–106 m cut; width
+precedence pack walls → lidar toes → carriageways ⊕ lane width, capped
+120 m (§45 (10)); merge bounded by the cap, §45 (7) scoped to objects
+inside the corridor (§45 (11)); the LGAV bar restated as the Trench
+family with the attribution first (§45 (12)). Round 2 resumes the lane
+(no fresh startup); merge after the concurrent session's four structure
+lanes (v2padqp, v2lemdstruct2, v2vmmcshore, v2objcut) land, rebased.

@@ -8145,3 +8145,13 @@ refresh moves a superseded feed aside and lets the loader's own cut
 re-derive it (raise if nothing re-derived); and the superseded feed is a
 PRE-BUILD refusal, not a loader traceback 54 s in. The KPHX refresh
 (osm_layers, airport_mod_cache, dem, --warm-insets KPHX) is running.
+
+## 2026-09-15bn The LEMD and VHHH install packs RESTORED from .anchor_bak (the peer session on the owner's word, 15aq/15as, ~13:20): LEMD 2,694 split bodies removed, DSF sha 747ee558… = the backup; VHHH 606 bodies removed, sha 7fbeaa79… = the backup; provenance files removed; the next app build re-bakes them — 15bb's owner item CLOSED. A concurrent docs commit (6797d1ca) completed the conflicted v2shoulderband merge WITH markers in design-surface-spec.md (lines 14757–15092); repaired at acbe3035 (both §40 (5) blocks kept); the suite had passed on the marked tree — a marker twin is chipped (task_e28892c3); ONE git-touching task at a time on this tree
+
+Owner interview (peer, 15aq): LGAV/KDFW/KPHX refreshes are the peer's
+(LGAV done); no --allow-stale-osm; capability-free negatives re-probed
+once per app version (lane v2insetreprobe); the per-airport feed
+whitelist stays; §45 ships ON after KDFW/KPHX replay clean; measure-
+only accepted; C9/C12 after the reads; osm_roadfeed re-cut authorised
+for KDFW/LGAV/KPHX; the LEMD tile proof recorded there too. Lanes told
+the pack DSFs changed back.

@@ -112,6 +112,70 @@ _DECK_MIN_ANGLE_DEG = 30.0
 _DECK_ALONGSIDE_MAX = 6.0
 
 
+#: §34 (12) (4) as RULED (owner RULINGS 2026-09-15ap): the last run's
+#: decisions, ``(way id, s0, s1, the tag witness, the DEM cut, severs)`` —
+#: read by ``structures.build_structures`` into the tunnel's own ``notes``
+#: so the reading is visible without a rebuild.
+LAST_DECK_WITNESS: list = []
+
+
+def deck_witness_notes() -> list[str]:
+    """The last :func:`_witnessed` run's reading, one line per candidate
+    deck, for the tunnel record's ``notes`` — so §34 (12) (4)'s verdict
+    and the two witnesses it weighed are visible without a rebuild."""
+    return [f"\u00a734 (12) (4): deck {wid} at s {a:.1f}..{b:.1f} — "
+            f"tag witness {tag or 'none'}; DEM cut {'n/a' if cut is None else format(cut, '.2f')}"
+            f" m — {'SEVERS' if ok else 'no cutting witnessed, not a crossing'}"
+            for wid, a, b, tag, cut, ok in LAST_DECK_WITNESS]
+
+
+def _witnessed(ivals, witness):
+    """§34 (12) (4) AS RULED FROM THE TABLE (owner RULINGS 2026-09-15ap).
+
+    A mapped bridge severs a corridor's climb where the ground beneath
+    its span is WITNESSED BELOW GRADE, by either witness:
+
+    (i) the corridor's way UNDER THE SPAN carries ``tunnel=yes`` or
+        ``layer <= -1``.  It is the way the span actually stands over,
+        never the corridor's whole approach walk: VMMC's seafront decks
+        stand over the untagged approach while the bore 300 m away is
+        tagged, and reading the corridor as one way would sever them all.
+        A tag ABSENT because the road feed predates the 2026-09-15 tag
+        schema is neither yes nor no — the deck is then judged by (ii)
+        alone, which is the same code path, and the note says which feed
+        answered;
+    (ii) the DEM under the span reads at least ``deck_cut_witness_m``
+        below the mean of the DEM at the deck's two abutments.
+
+    Otherwise the deck stands over ordinary ground beyond the trench
+    (§34.5 (6)) and does not sever.  CHAINING is unchanged: the decks
+    are taken in station order, a severing deck extends the covered run
+    and the climb restarts beyond its far edge.  Unlike the two WITHDRAWN
+    station limbs, a later deck is NOT cut off by an earlier non-severing
+    one — the witness is a property of the ground under each span, not of
+    the run, so every candidate is weighed.
+
+    THE MEASUREMENT THAT CHOSE IT (lane v2vmmcshore r5, 11 LEMD decks and
+    5 VMMC ones): the DEM cut separates the two airports by ~2 m (LEMD
+    +0.81 … +2.35, VMMC 0.00 on the field), while the station limbs
+    disagreed with it on 5 of 11.
+
+    ``witness = None`` leaves the list exactly as it was (every synthetic
+    fixture and every caller that cannot answer the ground)."""
+    LAST_DECK_WITNESS.clear()
+    if witness is None or not ivals:
+        return list(ivals)
+    kept = []
+    covered_end = 0.0
+    for rec in ivals:
+        w, s0, s1, dpoly = rec[0], rec[1], rec[2], rec[3]
+        tag, cut, ok = witness(w, dpoly, covered_end)
+        LAST_DECK_WITNESS.append((getattr(w, "id", None), s0, s1, tag, cut, ok))
+        if not ok:
+            continue
+        kept.append(rec)
+        covered_end = max(covered_end, s1)
+    return kept
 def flanking_pair(ln: LineString, plates: _t.Sequence, law: Law):
     """§33 (6) C3' THE PARAPET PAIR IS THE DECK'S LATERAL EXTENT (owner
     RULINGS 2026-09-15e item 1; Fable / RULINGS 2026-09-15x): the pack's
@@ -209,6 +273,7 @@ def _centred_on_pair(ln: LineString, inner: float, mid: LineString) -> Polygon:
 def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],
                     lines: list[LineString], tree: STRtree | None, law: Law,
                     bores: _t.Sequence[LineString] = (),
+                    witness=None,
                     plates: _t.Sequence = ()
                     ) -> list[tuple[OsmWay, float, float, Polygon]]:
     """``(way, s0, s1, deck polygon)`` per mapped bridge way crossing the
@@ -255,8 +320,11 @@ def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay]
             continue
         wd = carriageway_width_m(w.tags, law)
         # §34 (12) (4): an OVER-CROSSING, not a way running alongside.
+        # (The BELOW-GRADE limb is the second pass, after the candidates
+        # are in station order — it is a property of the RUN, not of one
+        # way, so it cannot be decided here.)
         #
-        # THE LITERAL READING — "it must cross the BORE, within the
+        # THE REFUTED LITERAL READING — "it must cross the BORE, within the
         # corridor's own width" — IS MEASURED AND REFUTED, and the code
         # for it is deleted rather than gated (lane v2vmmcshore r3).
         # Armed, ``ln.intersects(bore_band)`` is RIGHT at VMMC (the two
@@ -318,7 +386,7 @@ def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay]
                       min(spans, key=lambda sp: min(abs(sp[0] - s_mid), abs(sp[1] - s_mid))))
         out.append((w, min(s_vals), max(s_vals), dpoly))
     out.sort(key=lambda t: t[1])
-    return out
+    return _witnessed(out, witness)
 
 
 class _GroupWay:

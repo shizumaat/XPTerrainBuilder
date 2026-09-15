@@ -102,9 +102,11 @@ from .structure_approach import (FieldRegion, apply_plates,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
 from .zones import shore_region
-from .structure_service import (airside_cut_roles, osm_stops as _osm_stops,
+from .structure_service import (airside_cut_roles, deck_witness_for,
+                                osm_stops as _osm_stops,
                                 pad_relief_m as _pad_relief_m)
-from .structure_deck import (PavementDeck, deck_intervals, deck_items, emit_decks,
+from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
+                             deck_items, emit_decks,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
@@ -391,15 +393,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     f"overbridge embankment, not the portal's cover (§33 (3))")
                 mouth_dem = cap_z
         mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
-        # decks across the corridor (a first pass over the full reach)
-        # §34 (12) (4): this group's OWN bores, so a bridge severs the
-        # climb only where it CROSSES one (never alongside the approach)
+        # decks across the corridor.  TWO orthogonal readings at one
+        # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the
+        # cutting witness), §33 (6) C3' its LATERAL EXTENT (the pack's
+        # parapet pairs, the SAME plates)
         _bores = [m.bore.line for m in (g.members or ())
                   if getattr(m, "bore", None) is not None]
-        # §33 (6) C3': the parapet pairs govern a deck's LATERAL extent
-        # (``structure_deck.flanking_pair``) — the SAME plates
+        _under = [w for m in (g.members or ()) for w in
+                  (getattr(m.bore, "ways", ()) if getattr(m, "bore", None) else ())]
         deck_ivals = deck_intervals(axis_ln, half + rim_off, bridges, bridge_lines,
-                                     bridge_tree, law, _bores, plates)
+                                     bridge_tree, law, _bores,
+                                     deck_witness_for(airport, law, _under), plates)
+        below_grade_note = deck_witness_notes()
         obj_ivals = object_deck_intervals(axis_ln, half + rim_off, odecks)
         if obj_ivals:
             # the object law governs where an object bridge stands: a
@@ -566,11 +571,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                         if ref not in pad_refs or _pad_relief_m(airport, pad_poly[ref]) <= band_m}
         half_fn = g.half_fn
         traced: list[str] = []
-        # §34 (12) (3) as AMENDED (RULINGS 2026-09-15w): an OSM-derived
-        # corridor's ramp STOPS SHORT of the airside faces that are
-        # neither its own deck nor its own mouth's pavement, on the SAME
-        # truncation loop ``ramp_crosses_pad`` has always used.  A
-        # PACK-STATED corridor is never bound by it (``structure_service``).
+        # §34 (12) (3) as AMENDED (15w): an OSM corridor's ramp STOPS
+        # SHORT of airside (``structure_service.osm_stops``)
         osm_stops, osm_tree = _osm_stops(
             c, g, cells, polys, pads, pad_tree, _cut_roles, deck_ivals,
             obj_ivals, grid, WALL_KIND)
@@ -694,7 +696,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # entry per deck FACE — parallel bridge ways sharing this crossing
         # are ONE deck (``structure_deck.deck_items`` carries the law).
         items = deck_items(deck_ivals, pav_ivals, grid, law)
-        deck_notes: list[str] = []
+        deck_notes: list[str] = list(below_grade_note)
         decks, deck_polys, deck_roles, bridge_faces, dn, npav, nbr, nobj = emit_decks(
             airport, law, items, obj_ivals, outer, s_top, cells, polys, cell_tree)
         deck_notes.extend(dn)
@@ -721,10 +723,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # between a ramp piece and the deck stays unowned (the portal
             # under the bridge the mesh triangulates), never void
             wall_geom = outer.difference(unary_union([ramp, du]))
-        # §34 (12) (2): a corridor reaching the water ENDS AT THE SHORE,
-        # clipped by the SAME region §37 (11) (1) trims the zones with
-        # (``zones.shore_region``).  MEASURED at VMMC: ramp+rim on the
-        # sea 1,544 m² (base) -> 906 (unclipped) -> 1.7 m².
+        # §34 (12) (2): a corridor reaching the water ENDS AT THE SHORE
+        # (``zones.shore_region``, the zone trim's own witness)
         if sea_cut is not None:
             ramp_geom = ramp_geom.difference(sea_cut)
             wall_geom = wall_geom.difference(sea_cut)

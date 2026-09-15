@@ -19,6 +19,7 @@ from .frame import Patch, Row
 from .no_step import no_step_direct, no_step_rate
 from .pads import pad_flat
 from .runway import (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE, runway_crown,
+                     runway_step,
                      runway_end_skirt, runway_transverse, runway_vertical_curve)
 from .steps import cross_shape, mid_edge_step, stacked_nodes, vertex_to_edge_step
 from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_step,
@@ -57,6 +58,9 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "resa_transverse": resa_transverse,
     "raoa": raoa,
     "runway_crown": runway_crown,
+    # §40 (5) (4) (owner RULINGS 2026-09-15az): the step between two
+    # faces of the runway family that the crown reading cannot see
+    "runway_step": runway_step,
     FAMILY_TRANSVERSE: runway_transverse,
     FAMILY_VERTICAL_CURVE: runway_vertical_curve,
     FAMILY_STRIP_TRANSVERSE: strip_transverse,
@@ -151,7 +155,8 @@ def census_patch(p: Patch) -> dict[str, list[Row]]:
 #: same solve as every other law, so a pad standing off its plane is a
 #: census row like any other (``verify/pads.py`` still reads and reports it).
 FAMILY_PAD_FLAT = "pad_flat"
-DEFECT_KEYS: tuple[str, ...] = (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE)
+DEFECT_KEYS: tuple[str, ...] = (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE,
+                                "runway_step")
 
 
 def defect_excess_m(r: Row) -> float:

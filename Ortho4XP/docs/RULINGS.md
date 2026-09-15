@@ -8105,3 +8105,107 @@ UNCHANGED. And from the concurrent session (15bj): `airport_small_roads`
 is never schema-invalidated (chip task_7e4c5a02, running in the owner's
 session); 20 of 26 cached big_roads feeds still carry 2026-07-16 and now
 refuse a production-frame dry load too.
+
+## 2026-09-15bl v2shoulderband MERGED (a8138464): §40 (5) the shoulder is a band — LEMD's 111,648 m² cell → 49,515 m² within 75 m + 46,764 m² apron; runway vertices beyond the strip 609 → 1; the 0.95 m step gone (`runway_step` family, 3 → 0); the owner's item-7 site 1.552 → 0.554 % under the junction law; ADJUDICATED 2,011 → 1,709; every DEFECT family zero on a real LEMD build; HECA's worst "shoulder" reached 1,717 m (218,797 m²) → 83,655 m² of band; RULED the band takes the strip's end extension (r2 with the VHHH capture)
+
+Lane @ a8138464; suite 1,668 passed, 0 FAILED; consumer census of 31
+readers committed BEFORE the code (ea770ec9), two hazards predicted and
+both landed as predicted. Functions: `classify/roles.shoulder_band`
+(new) + the §40 (1) branch, `rules.Corridor.runway_shoulder_band`,
+`verify/steps._step_rows(roles=, allow_of=)`, `verify/runway.runway_
+step` (new), census READERS/DEFECT_KEYS, `Materiality.runway_step_m`,
+families.toml, check_grade, `v2_solve_replay --rule` (INDEX row).
+Details in §40 (5) MEASURED AND RULED. Owed: VHHH/CYXY/SPJC/KCLT/OTHH
+captures (one each) to measure the band there; the end-cap line (r2).
+15bl addendum: suite ON MAIN after the v2shoulderband merge: 1682 passed, 1 skipped, 1 xpassed, 42 warnings in 88.92s (0:01:28).
+
+## 2026-09-15as OWNER (9): the per-airport road feeds of KDFW, LGAV and KPHX may be RE-CUT under `osm_roadfeed`; and the two refresh gaps the KDFW refreshes measured (a cold tile cannot be warmed; a superseded per-airport feed is not re-cut) — lane `v2schemarefuse` round 5
+
+Measured (this session, owner-authorised, 13:30): `build_airport.py LGAV
+--refresh-data osm_layers` rc 0, REFRESH RECORDED +2 ~1 (LGAV builds
+again). `build_airport.py KDFW --refresh-data osm_layers` re-derived
+`+32-098_big_roads` (ledgered, ~1) and then the v2 LOADER raised "1
+cached road feed(s) were written under a SUPERSEDED tag whitelist" — the
+PER-AIRPORT feed (`OSM_data/_airport_road_feed`, scope `osm_roadfeed`),
+present but superseded, which no refresh re-cuts (round 2's class).
+`build_airport.py KDFW --tile 32 -97 --refresh-data osm_layers,dem` (the
+neighbour tile the KDFW pack reaches into) was REFUSED by the cold-frame
+pre-flight BEFORE any refresh: no airports OSM layer, no insets dir —
+`refresh_stale_osm_layers` derives only STALE layers, never ABSENT ones,
+and nothing derives a cold tile's insets under `dem` (only
+`--warm-insets ICAO`, whose ICAOs are unknown until the layer exists).
+Owner answer (9): "Yes, re-cut the three" — KDFW, LGAV and KPHX feeds
+under `osm_roadfeed`, the whitelist unchanged (15aq (5)). Round 5 of
+`v2schemarefuse` gives all three their derivation sites: an authorised
+`osm_layers` refresh derives ABSENT layers (the pre-flight yields to an
+authorised scope and re-judges after), an authorised `dem` refresh
+derives the tile's airport insets via the engine's
+`ensure_insets_for_tile(refresh=True)`, an authorised `osm_roadfeed`
+refresh moves a superseded feed aside and lets the loader's own cut
+re-derive it (raise if nothing re-derived); and the superseded feed is a
+PRE-BUILD refusal, not a loader traceback 54 s in. The KPHX refresh
+(osm_layers, airport_mod_cache, dem, --warm-insets KPHX) is running.
+
+## 2026-09-15bn The LEMD and VHHH install packs RESTORED from .anchor_bak (the peer session on the owner's word, 15aq/15as, ~13:20): LEMD 2,694 split bodies removed, DSF sha 747ee558… = the backup; VHHH 606 bodies removed, sha 7fbeaa79… = the backup; provenance files removed; the next app build re-bakes them — 15bb's owner item CLOSED. A concurrent docs commit (6797d1ca) completed the conflicted v2shoulderband merge WITH markers in design-surface-spec.md (lines 14757–15092); repaired at acbe3035 (both §40 (5) blocks kept); the suite had passed on the marked tree — a marker twin is chipped (task_e28892c3); ONE git-touching task at a time on this tree
+
+Owner interview (peer, 15aq): LGAV/KDFW/KPHX refreshes are the peer's
+(LGAV done); no --allow-stale-osm; capability-free negatives re-probed
+once per app version (lane v2insetreprobe); the per-airport feed
+whitelist stays; §45 ships ON after KDFW/KPHX replay clean; measure-
+only accepted; C9/C12 after the reads; osm_roadfeed re-cut authorised
+for KDFW/LGAV/KPHX; the LEMD tile proof recorded there too. Lanes told
+the pack DSFs changed back.
+15bn addendum: suite ON MAIN after the marker repair (acbe3035), incl. test_docq: 1691 passed, 1 skipped, 1 xpassed, 42 warnings, 6 errors in 63.30s (0:01:03).
+
+## 2026-09-15au KPHX REFRESHED (this session, owner-authorised 15aq (1)): the 1 m 3DEP inset is cached, the false negative is gone, the road layer and the mod-cache dump re-derived — three ledger lines; the build after it died on the superseded per-airport feed (15as), pending round 5
+
+`build_airport.py KPHX --refresh-data osm_layers,airport_mod_cache,dem
+--warm-insets KPHX` (13:28): `Fetching elevation inset for KPHX from
+USGS3DEP` → `Airport inset index CHANGED, rewriting it: KPHX: USGS3DEP,
+probes, probes_for` → `warm-insets done: 1 fetch attempt(s), valid
+fraction(s) {'KPHX_usgs3dep.tif': 1.0, 'KPHX_copernicusglo30.tif':
+1.0}` (`KPHX_usgs3dep.tif` 94,878,600 B; the index's `USGS3DEP` record
+now `ok` — 15q's false `no-coverage` replaced by the real answer);
+`refresh osm_layers done: 1 layer(s) re-derived schema-current` (+33-113
+_big_roads); `REFRESH RECORDED [airport_mod_cache]: +1 ~0`, `[dem]: +2
+~1`, `[osm_layers]: +2 ~1`. Then the loader raised the superseded
+per-airport feed (`osm_roadfeed`, 15as) — the KPHX build waits for
+round 5's re-cut. The owner's next app build of +33-113 grades KPHX on
+the lidar (+33-112 retries its own 3DEP fetch, having recorded no
+negative); its provenance line must read `insets=KPHX:USGS3DEP`. The
+other 16 false negatives on +33-113 and 3 on +33-112 clear under 15aq
+(4) once lane `v2insetreprobe` lands and 1.0.341+ builds them.
+15bn addendum 2: the 6 test_harness ERRORs were transient — the peer's LGAV `--refresh-data` (ledger 13:29:33, scopes dem + osm_layers) wrote the shared corpus while the suite ran (the session detector's cross-attribution class, memory `app-builds-cross-attribute-suite-detector`); `tests/test_harness.py` alone: 392 passed. Main is green (1,691 + 392).
+
+## 2026-09-15aw v2channel ROUND 5 (0531ab07): seven dry replays ALL IDENTICAL (tool `structure_replay_diff.py` promoted); (13)(d) as written took LGAV's trench — AMENDED to a BUILT basin's members with basins built before channels; cross-feed joins now carry the feed (LGAV exclusions 9 → 7 were id collisions); the deck read is §34 (5)'s one derivation
+
+Round 5 measured: (13)(d) via `basin_member_ids` (the CANDIDATE set)
+met the ruling's LEMD site exactly (`channel:5`'s witnesses = built
+`basin:0`'s three members; basins 1 → 1) and removed LGAV's `Trench_07`
+/`Trench_08` (candidates that never build a basin) so the trench channel
+fell to (13)(a) — the lane reported the conflict, did not narrow it.
+AMENDED §45 (13)(d): a member of a BUILT basin; basins run first,
+channels second, §45 (7)/(11) as a post-filter on built basins inside a
+corridor. Addendum (1): `planar/channel.way_key -> (kind, id)`; every
+cross-feed join carries the feed (`Channel.way_keys`; an unqualifiable
+bare id kept as ANY_FEED); twin with id −500 in two feeds; on real data
+LGAV's (13)(b) exclusions 9 → 7 — two were colliding ids. Finding:
+`Corridor.bore_ways` has NO producer in `src` — (13)(b)'s object-
+corridor half is inert; owed to the tunnel-object line. Addendum (2):
+§45 (1)(a) held a verbatim copy of §34 (5)'s loop — extracted to
+`structure_underpass.aeroway_decks(airport, law)`, one derivation for
+both; §34 (12)(4)'s below-grade witness governs road `bridge=*` ways
+severing a bore, a different population, not routed. Seven dry replays
+base 8315f6f8 vs branch: OTHH 44/10, LEMD 52/1, HECA 13/0, KCLT 23/0,
+CYXY 2/0, SPJC 8/0, LGAV 11/2 — `VERDICT: ALL IDENTICAL` whole records
+incl. `replaced_ways`; `tools/structure_replay_diff.py` promoted on its
+4th use with INDEX row + twin. Campaign suite `1698 passed, 1 skipped, 1
+xpassed`, 0 FAILED; 18 teardown errors = the suite detector seeing THIS
+session's authorised KDFW osm_layers refresh (13:26:13, ledgered) — the
+app-builds-cross-attribute class, quoted not silenced. KDFW/KPHX replays
+REFUSE on NEIGHBOUR tiles' superseded road layers (+33-098; +33-112/
++33-113 as read before the 13:28 refresh) — the loader reads the 3 × 3
+neighbourhood; owner act per tile (question put). Round 5 had earlier
+HUNG 56 min on two whole-tree `pytest tests -q` runs (xdist, 0 % CPU) —
+killed by the session; the whole tree is not the bar. Round 6: the
+ordering, both bars, seven replays identical, then the merge.

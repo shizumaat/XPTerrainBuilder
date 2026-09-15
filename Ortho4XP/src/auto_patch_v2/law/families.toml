@@ -489,6 +489,15 @@ ruling    = "2026-08-05"
 solver    = "offset"
 cockpit   = "grade"
 
+[runway_step]
+measures  = "a STEP between two faces of the RUNWAY FAMILY (spec §40 (5) (4)): `runway_transverse` is the CROWN reading and judges a vertex against the runway's own axis at its lateral offset, so a pair 490 m off-axis is not a crown pair and no DEFECT family prices a step between two faces of ONE role. LEMD 40.4613609,-3.5446852 stepped 0.950 m over 1 m between two `runway` faces on rolled-on pavement and every DEFECT family read ZERO; the census saw it only as `mid_edge_step`, a REPORT family with no axis notion"
+parameter = "emit.materiality.runway_step_m"
+roles     = ["runway", "runway_crossing"]
+pairs     = "steps"
+ruling    = "2026-09-15az"
+solver    = "construction"
+cockpit   = "step"
+
 [wall_in_runway_strip]
 measures  = "a retaining wall inside the runway strip keep-out"
 parameter = "structures.retaining_wall.in_runway_strip"

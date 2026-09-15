@@ -48,10 +48,11 @@ from ..constraints.geometry import principal_axis
 from ..constraints.runway_profile import curve_stations
 from ..law.tables import runway_transverse_cap, runway_vertical_curve_bound
 from .frame import Patch, Row, noise_m, row
+from .steps import _edges, _step_rows
 from .within import crown_by_vertex
 
 __all__ = ["runway_crown", "runway_transverse", "runway_vertical_curve",
-           "runway_end_skirt"]
+           "runway_end_skirt", "runway_step"]
 
 FAMILY_TRANSVERSE = "runway_transverse"
 FAMILY_VERTICAL_CURVE = "runway_vertical_curve"
@@ -271,3 +272,72 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                            de, 100 * de / d, 100 * cap, d, sh.xy[i], sh.xy[j],
                            sh.key, sh.key))
     return out
+
+
+def runway_step(p: Patch) -> list[Row]:
+    """§40 (5) (4) A STEP BETWEEN TWO FACES OF THE RUNWAY FAMILY IS A
+    DEFECT (Fable 2026-09-15; owner RULINGS 2026-09-15az) — family
+    ``runway_step``, a ``verify.census.DEFECT_KEYS`` member.
+
+    THE HOLE IT CLOSES.  ``runway_transverse`` is the CROWN reading: it
+    judges a vertex against the runway's own AXIS at its lateral offset,
+    so a pair of vertices 490 m off-axis is not a crown pair and the
+    family never sees it.  No other DEFECT family prices a step between
+    two faces of ONE role.  MEASURED (lane ``v2lemdstruct2`` r5): LEMD
+    40.4613609,-3.5446852 steps **0.950 m over 1 m** between two faces of
+    the same ``runway`` role, on rolled-on pavement, and the census saw
+    it only as ``mid_edge_step`` — a REPORT family with no axis notion —
+    while every DEFECT family read ZERO.
+
+    THE READING is the step readers' own (:func:`steps._step_rows`, with
+    its ``roles`` and ``allow_of`` options, never a second copy): each
+    ring vertex and each edge midpoint of a runway-family face against
+    the nearest edge of ANOTHER runway-family face inside the contact
+    tolerance.  THE ALLOWANCE is the runway's own law over the geometry
+    between them — ``runway_transverse_cap(d, half_width) x d``, the ONE
+    reading the generator and ``tools/check_grade`` price through —
+    floored at ``materiality.runway_step_m`` (0.10 m), because a WELDED
+    pair has d ~ 0 and a cap over zero metres forgives everything.  The
+    cap beyond the runway's own half width is the SHOULDER's (§40 (2)),
+    which is exactly the pair this family exists for.
+
+    Declared terrace joints are forgiven as in every step reader; a pair
+    at a ``runway_crossing`` is NOT exempt here (Annex 14 §3.1.19 exempts
+    the CROSS-FALL at an intersection, not a step in the surface)."""
+    law = p.law
+    floor = float(law.tables.emit.materiality.runway_step_m)
+    ins = law.tables.emit.instrument
+    half_of: dict[str, float] = {}
+    for sh in p.shapes:
+        if sh.role in RUNWAY_FAMILY:
+            half_of.setdefault(sh.ref, 0.0)
+    # the runway's own half width, read off the emitted rings' principal
+    # axis (the census frame has no apt.dat): the largest perpendicular
+    # offset of a ``runway`` face's vertices from its own axis
+    for sh in p.shapes:
+        if sh.role != "runway" or not sh.xy:
+            continue
+        ax = principal_axis(list(sh.xy))
+        if not ax:
+            continue
+        (ox, oy), (ux, uy) = ax[0], ax[1]
+        far = max(abs(-(x - ox) * uy + (y - oy) * ux) for x, y in sh.xy)
+        half_of[sh.ref] = max(half_of.get(sh.ref, 0.0), far)
+    letter = {sh.ref: sh.code_letter for sh in p.shapes if sh.role in RUNWAY_FAMILY}
+    number = {sh.ref: sh.code_number for sh in p.shapes if sh.role in RUNWAY_FAMILY}
+    half = max(half_of.values(), default=0.0)
+    ref = max(half_of, key=lambda r: half_of[r], default=None) if half_of else None
+    cap = runway_transverse_cap(law, half + 1.0, half,
+                                letter.get(ref), number.get(ref)) if ref else None
+
+    def allow_of(d: float) -> float:
+        return max(floor, (cap or 0.0) * d)
+
+    edges = _edges(p)
+    probes = [(sh, sh.xy[k], sh.z[k]) for sh in p.shapes
+              if sh.role in RUNWAY_FAMILY for k in range(len(sh.ids))]
+    probes += [(sh, (0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])), 0.5 * (za + zb))
+               for sh, a, b, za, zb in edges if sh.role in RUNWAY_FAMILY]
+    return _step_rows(p, "runway_step", probes, edges, ins.edge_search_m,
+                      ins.step_contact_tol_m, floor, roles=RUNWAY_FAMILY,
+                      allow_of=allow_of)

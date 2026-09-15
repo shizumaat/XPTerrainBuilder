@@ -1833,6 +1833,116 @@ def test_a_degraded_tier_inset_refuses_and_names_the_scope(
     assert build_mod.unverified_inset_negatives(state, -46, 168) == []
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE SCHEMA-STALE CACHED ROAD LAYER (RULINGS 2026-09-15r + u)
+# ══════════════════════════════════════════════════════════════════════
+
+def _write_schema_stamped_layer(path, schema):
+    """A cached OSM layer in the shape ``OSM_layer.write_to_file`` emits —
+    the marker the engine reads back lives on the ``<osm`` root tag."""
+    import bz2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with bz2.open(str(path), "wt", encoding="utf-8") as handle:
+        handle.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                     '<osm version="0.6" o4_tag_schema="%s">\n'
+                     '</osm>\n' % schema)
+
+
+def test_a_schema_stale_road_layer_refuses_and_names_osm_layers(
+        build_mod, tmp_path, monkeypatch):
+    """A cached road layer written under an OLD tag schema is a REFRESH.
+
+    When ``ROAD_CACHE_TAG_SCHEMA`` moved "2026-07-16" → "2026-09-15"
+    (RULINGS 2026-09-15r), the first guarded build afterwards rewrote
+    ``+40-004_big_roads.osm.bz2`` mid-build (2,197,226 → 2,199,670 bytes)
+    and the run was only marked CONTAMINATED afterwards (RULINGS
+    2026-09-15u).  Under ruling e9daef5 that re-download is an explicit,
+    locked, hash-stamped event — so it is named and refused UP FRONT.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = tmp_path / "lane"
+    osm = root / "OSM_data"
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(osm))
+    # road_level >= 2 so BOTH tile-wide road layers are in the engine's
+    # own specification list (the list this check consumes).
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (2, False))
+    cache = Path(FNAMES.osm_cached(40, -4, "big_roads"))
+
+    # 1. STALE: written under the previous schema.
+    _write_schema_stamped_layer(cache, "2026-07-16")
+    missing = build_mod.schema_stale_osm_layers(root, 40, -4)
+    assert len(missing) == 1, missing
+    scope, artifact, why = missing[0]
+    assert scope == "osm_layers"
+    assert artifact == "OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2"
+    assert "SCHEMA-STALE" in why
+    assert "2026-07-16" in why and VMAP.ROAD_CACHE_TAG_SCHEMA in why, (
+        "the refusal must name the schema on disk AND the one the engine "
+        "wants — otherwise it cannot be acted on")
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data osm_layers" in str(exc.value)
+    # Explicitly authorised, it passes: the locked, ledgered act.
+    build_mod.require_no_implicit_refresh(missing, {"osm_layers"})
+    # And it reaches the build's single pre-flight list, not just its own
+    # function — the airport path and the --tile path share that call.
+    monkeypatch.setattr(build_mod, "dem_cache_state", lambda *a: {
+        "tile_stem": "N40W004", "base_raster": True, "airport_insets": True,
+        "airports_layer": True})
+    monkeypatch.setattr(build_mod, "unverified_inset_negatives",
+                        lambda *a: [])
+    assert build_mod.missing_shared_artifacts(root, 40, -4) == missing
+
+    # 2. CURRENT: the engine's own schema — named by nothing.
+    _write_schema_stamped_layer(cache, VMAP.ROAD_CACHE_TAG_SCHEMA)
+    assert build_mod.schema_stale_osm_layers(root, 40, -4) == []
+
+    # 3. ABSENT: absence is not staleness (the airports layer owns that
+    #    refusal; an absent big_roads cache is lawful).
+    cache.unlink()
+    assert build_mod.schema_stale_osm_layers(root, 40, -4) == []
+
+
+def test_the_write_guard_REFUSES_a_bz2_layer_write(build_mod, tmp_path):
+    """THE bz2 HOLE (measured 2026-09-15).
+
+    ``bz2`` binds ``builtins.open`` at IMPORT time, so patching
+    ``builtins.open`` alone left every ``.osm.bz2`` cache write —
+    i.e. the whole ``osm_layers`` scope — invisible to the preventer.
+    Measured before the fix: this write completed with ``blocked == []``.
+    """
+    import bz2
+
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "+40-010" / "+40-004").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    target = (repo / "OSM_data" / "+40-010" / "+40-004"
+              / "+40-004_big_roads.osm.bz2")
+    before = bz2._builtin_open
+
+    with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+        with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
+            with bz2.open(str(target), "wt", encoding="utf-8") as handle:
+                handle.write("<osm/>")
+    assert "+40-004_big_roads.osm.bz2" in str(exc.value)
+    assert "osm_layers" in str(exc.value)
+    assert not target.exists(), "the guard must PREVENT, not just report"
+    assert bz2._builtin_open is before, (
+        "the guard must restore bz2's captured open on exit")
+
+    # Authorised, the same write proceeds — the refresh this flag exists
+    # to carry.
+    with build_mod.SharedRepoWriteGuard({"osm_layers"}, lane, repo=repo):
+        with bz2.open(str(target), "wt", encoding="utf-8") as handle:
+            handle.write("<osm/>")
+    with bz2.open(str(target), "rt", encoding="utf-8") as handle:
+        assert handle.read() == "<osm/>"
+    assert bz2._builtin_open is before
+
+
 def test_the_snapshot_sees_every_write(build_mod, guard_mod, tmp_path,
                                        monkeypatch):
     """The audit's guarantee is 'this build wrote NOTHING into the shared

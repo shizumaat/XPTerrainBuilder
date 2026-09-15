@@ -608,6 +608,129 @@ def missing_shared_artifacts(root, lat, lon) -> list:
                     "overpass QUERY, and without it the DEM prep has no "
                     "smoothing masks"))
     out.extend(unverified_inset_negatives(state, lat, lon))
+    out.extend(schema_stale_osm_layers(root, lat, lon))
+    return out
+
+
+def _stamped_cache_schema(path) -> str:
+    """The ``o4_tag_schema`` value stamped on a cached layer, or ``""``.
+
+    MESSAGE ONLY — the PREDICATE is the engine's own
+    (``O4_OSM_Utils._cached_osm_schema_matches``, imported never copied);
+    this just reads the marker back so the refusal can say WHICH schema
+    the cache on disk was written under instead of only which one the
+    engine now wants.  Same two-line header read the engine does.
+    """
+    import bz2
+    import re
+    try:
+        if str(path).endswith(".bz2"):
+            handle = bz2.open(str(path), "rt", encoding="utf-8")
+        else:
+            handle = open(str(path), "r", encoding="utf-8")
+        with handle:
+            head = handle.readline() + handle.readline()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    found = re.search(r'o4_tag_schema="([^"]*)"', head)
+    return found.group(1) if found else ""
+
+
+def schema_stale_osm_layers(root, lat, lon) -> list:
+    """THE SCHEMA-STALE CACHED LAYER REFUSAL (RULINGS 2026-09-15r + u).
+
+    A cached OSM layer carries the tag schema it was downloaded under
+    (``o4_tag_schema`` on the ``<osm`` root).  When the engine's schema
+    constant moves — ``O4_Vector_Map.ROAD_CACHE_TAG_SCHEMA`` "2026-07-16"
+    → "2026-09-15" for the four depth witnesses (RULINGS 2026-09-15r) —
+    every cache written under the old one stops matching, and the tile
+    build's background prefetch (``O4_Vector_Map.
+    start_background_osm_prefetch``, which filters the layer
+    specifications through exactly this predicate) RE-DOWNLOADS it and
+    rewrites the shared cache MID-BUILD.  Measured: the first guarded
+    build after that merge rewrote
+    ``OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2``
+    (2,197,226 → 2,199,670 bytes) at 2026-09-15 09:03 and the run was
+    marked CONTAMINATED after the fact (RULINGS 2026-09-15u) — the KCLT
+    2026-08-05 road-feed precedent's exact shape.
+
+    Under ruling e9daef5 that is a REFRESH, not a build side effect, so
+    it is named and refused BEFORE the build, with ``--refresh-data
+    osm_layers``.  An airport build never starts that prefetch, but it
+    READS the same caches through ``auto_patch.osm_load.
+    _load_osm_road_layer``: a stale one is missing every witness the new
+    schema added (``layer`` / ``cutting`` / ``covered`` / ``embankment``,
+    which ``bridges`` and ``pavement_classification`` now read), so it is
+    a degraded measurement frame either way and both paths refuse.
+
+    The layer list is the ENGINE's own
+    (``O4_Vector_Map.osm_layer_warm_specifications`` — the same 5-tuples
+    the prefetch filters, so the road_level gating cannot drift from it)
+    and the staleness predicate is the engine's own
+    (``O4_OSM_Utils._cached_osm_schema_matches``).  Nothing here is a copy.
+
+    TWO LIMITS, stated:
+
+    * Only the BUILD'S OWN tile is judged.  That is the only tile whose
+      caches the prefetch would rewrite; a road read spans the 3x3
+      neighbourhood, so a NEIGHBOUR tile's stale cache still degrades the
+      read silently.  Widening the net would refuse until nine tiles are
+      refreshed — an owner call, not a harness one.
+    * The auto-mode merged ``airport_small_roads`` cache is NOT judged:
+      it carries no schema at all (``O4_Vector_Map.py`` ~:768 recycles on
+      ``isfile`` alone and ``write_to_file`` stamps nothing there), so it
+      is never re-downloaded — and judging it against the road schema
+      would refuse every build that has one.  That missing gate is the
+      chip RULINGS 2026-09-15r already names.
+
+    An ABSENT cache is deliberately not named here: absence is the
+    caller's business above (the airports layer) and lawful for the rest.
+    """
+    for p in (Path(root) / "src", Path(root)):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    try:
+        import O4_Config_Utils as CFG
+        import O4_File_Names as FNAMES
+        import O4_OSM_Utils as OSM
+        import O4_Vector_Map as VMAP
+
+        tile = CFG.Tile(int(lat), int(lon), "")
+        try:
+            tile.read_from_config()
+        except Exception:
+            pass
+        specifications = VMAP.osm_layer_warm_specifications(tile)
+    except Exception as exc:
+        print(f"  [harness] OSM layer-schema check skipped ({exc!r})")
+        return []
+    out = []
+    for specification in specifications:
+        cached_suffix, cache_schema = specification[0], specification[4]
+        if not cache_schema:
+            continue            # stamps nothing, so nothing can be stale
+        path = FNAMES.osm_cached(int(lat), int(lon), cached_suffix)
+        if not os.path.isfile(path):
+            continue
+        if OSM._cached_osm_schema_matches(path, cache_schema):
+            continue
+        try:
+            artifact = "OSM_data/" + str(
+                Path(path).resolve().relative_to(
+                    (Path(root) / "OSM_data").resolve()))
+        except (OSError, ValueError):
+            artifact = path
+        stamped = _stamped_cache_schema(path)
+        out.append((
+            "osm_layers", artifact,
+            f"the cached {cached_suffix} layer is SCHEMA-STALE — written "
+            f"under {stamped or '<no schema marker>'}, the engine expects "
+            f"{cache_schema}.  A tile build's background OSM prefetch "
+            f"re-downloads it and REWRITES this shared file mid-build "
+            f"(measured 2026-09-15 on +40-004_big_roads, RULINGS "
+            f"2026-09-15u); an airport build reads it as-is and every tag "
+            f"the new schema added is simply absent.  Re-cutting it is a "
+            f"REFRESH, not a build side effect"))
     return out
 
 

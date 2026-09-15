@@ -7315,3 +7315,39 @@ osm_layers` (and KCLT, and any airport built before the next
 measurement) so the rewrite is a recorded, hash-stamped event; until
 then LEMD/KCLT measurements are on a mixed corpus. r2 resumed: §34 (13)
 (1)–(4).
+
+## 2026-09-15v v2schemarefuse MERGED (566691dc): the write guard was BLIND to every `.osm.bz2` write (`bz2` binds `builtins.open` at import); a schema-stale road layer now REFUSES before the build — 20 of 21 cached road layers are stale, the owner refreshes per tile
+
+Lane `v2schemarefuse`. ATTRIBUTION (measured in a tmp fixture, not
+guessed): CPython's `Lib/bz2.py` does `from builtins import open as
+_builtin_open` at module level, so `SharedRepoWriteGuard.__enter__`'s
+patch of `builtins.open` never reached `bz2.open(path, "wt")` — every
+cached OSM layer is a `.osm.bz2`, so the whole `osm_layers` scope was
+invisible to the preventer by construction (the 2026-08-12 write-through
+shape; `gzip`/`lzma` resolve `open` at call time and were covered). That
+is why 15u's LEMD build REPORTED a contamination instead of refusing.
+FIX, two halves at their derivation sites: (1) `build_airport.py`
+`schema_stale_osm_layers(root, lat, lon)` inside `missing_shared_
+artifacts` (the one call site of the airport and `--tile` paths) — the
+layer list is the engine's `osm_layer_warm_specifications`, the
+staleness test the engine's `_cached_osm_schema_matches`, nothing copied
+— names a stale layer under `osm_layers` and refuses with the flag; (2)
+`shared_repo_guard.py` patches `bz2._builtin_open` too (restored on
+exit), so a bz2 write REFUSES at the call and the file is never created.
+Twins in `tests/test_harness.py`. Suite ON MAIN: `1623 passed, 1
+skipped`, 0 failed. BLAST RADIUS, censused read-only: 20 of 21 cached
+road layers carry the old schema (only `+40-004_big_roads` is current —
+the rewritten one); LEMD builds, HECA / CYXY / OTHH / KCLT now REFUSE
+until the owner runs `build_airport.py ICAO --refresh-data osm_layers`
+per tile (+30+031, +60−136, +25+051, +35−081; also +37+023 LGAV,
++32−098/−097 KDFW, +33−113/−112 KPHX, +22+113 VMMC/VHHH). RULED (Fable):
+the refusal stands on the AIRPORT path too — the bump made `layer` live
+in four readers (15r), so a build on a stale layer measures a different
+law than one on a fresh layer; two such arms are not comparable, which
+is the harness's founding reason to refuse. OPEN (owner intent): an
+`--allow-stale-osm` provenance-recorded override for airport builds (the
+`--allow-degraded-dem` shape) — a lane cannot refresh, so a lane on a
+stale tile is blocked until the owner's act. NOT closed: the merged
+`airport_small_roads` cache carries no schema marker (chip 15r); road
+reads span the 3×3 neighbourhood but only the build's own tile can be
+rewritten by the prefetch — neighbours are not judged (docstring).

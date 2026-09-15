@@ -7276,3 +7276,42 @@ land on main (rebase; expect additive conflicts in planar/structures.py,
 basins.py, census/check_grade/families); KDFW build + KPHX replay after
 the owner's `--refresh-data` acts; app 1.0.342; the owner's LGAV trench
 read is the acceptance.
+
+## 2026-09-15u v2lemdstruct2 r1 MERGED (287f9b5b): item 5's mouth is 5.07 m deep (an EQUALITY ROW WAS NEVER HARD — `_law_sides` bucketed lo == hi Linears as `eqs` at law weight), item 7's trench is beyond the taxiway strip; the closing LEMD build CONTAMINATED the shared repo (v2roadtags' schema bump rewrote `+40-004_big_roads.osm.bz2`) — owner: `--refresh-data osm_layers`
+
+Lane @ 287f9b5b (base da8e5d7f, main merged twice); suite 1,587 passed
+twice, 0 FAILED; fresh registered LEMD capture (20,608 vertices) +
+matched replay arms; ONE LEMD build rc 0, 551.8 s, optimal. Item 5:
+floor 599.25 → 597.09 under rim 602.16 = 5.07 m (bar 5.10 ± 0.05). ROOT
+CAUSE, general: the planar record was right (`mouth_z` 597.075) but
+`solve/rows._law_sides` routes a `lo == hi` Linear into the `eqs`
+bucket, which `solve/design` adds at the LAW WEIGHT — only the one-sided
+bucket passes through `hard_rulings`; the row sat 2.16 m out while the
+solve reported 0/103,840 hard rows violated; registering the head alone
+was byte-identical (the proof). Fix: two one-sided rows + the head.
+Price: +106 hard rows; `within_shape` 406 → 469 (the plan-chord
+misreading, §34 (13) (1)); `tunnel_mouth_canonical` 32 → 28. Item 5
+road: OSM −5944 identified, NOT admitted (08-30l census first — r2);
+the pull REFUTED as stated (ground ≥ DEM); the DEM's own 611 × 88.7 m
+plateau between the rims is what the owner sees. Hole ring unchanged
+(13 rings > 10,000 m²). Item 7: mouth 12.77/15.46 → 31.06/33.43 m from
+the node (code-E strip 19 m), zones intact, clip 772 → 3,316 m², every
+TAXI `ramp_in_strip` row gone; residual 8 rows against runway 14R/32L's
+75 m strip (`strip_transverse [runway|tunnel_ramp]` 5.59 → 13.87 m) →
+§34 (13) (2); crossfall at pav157 = junction|runway pairs 4.957 % (no
+transverse row) → 4.296 / 2.479 % → §34 (13) (3). `ramp_in_strip` in
+LAW_FAMILIES + families.toml (keepout), 6 twins; holes applied, the
+pavement solid subtracted (the ring-blind form read 52 false rows).
+Census: ADJUDICATED 1,341 → 1,404 (+4.7 %); `road_cross_section` 8 → 9
+the one > 5 % family (groundside, one row). CONTAMINATION: the harness
+flagged the closing build — `OSM_data/+40-010/+40-004/+40-004_big_roads
+.osm.bz2` rewritten 2,197,226 → 2,199,670 bytes (09:03), scope
+`osm_layers`; the lane touched no road code — v2roadtags (d4729dfc,
+peer session) bumped `ROAD_CACHE_TAG_SCHEMA`, so the FIRST build after
+that merge rewrites every cached road layer: the KCLT 2026-08-05
+precedent's shape. The guard reported, it did not refuse (the engine
+write path). OWNER'S ACT: `build_airport.py LEMD --refresh-data
+osm_layers` (and KCLT, and any airport built before the next
+measurement) so the rewrite is a recorded, hash-stamped event; until
+then LEMD/KCLT measurements are on a mixed corpus. r2 resumed: §34 (13)
+(1)–(4).

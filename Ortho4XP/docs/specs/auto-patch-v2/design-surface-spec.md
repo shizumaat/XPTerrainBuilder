@@ -12847,3 +12847,49 @@ elsewhere. `channel:0` (way −4003) is named with its coordinates and its cross
 pavement, or refused with the reason. The KDFW build and the KPHX replay stay the
 closing tests, run AFTER the owner's data acts and AFTER the concurrent session's
 four structure lanes merge (rebase first).
+
+## §34 (13) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS; THE COVERED EXTENT READS EVERY AIRSIDE STRIP THE CROSSING LIES IN (Fable 2026-09-15; RULINGS 2026-09-15u; answers lane v2lemdstruct2's two questions) — lane `v2lemdstruct2` r2
+
+(1) **`tunnel_ramp` is a ROUTE-family shape.**  Its grade is read along
+its AXIS (mouth → top, the §34 (7) stations), as §37 (7) reads the road
+family and 09-05aa the taxi family — never across the plan chord.  The
+item-5 ramp's worst `within_shape` row today is 8.250 m / 8.31 % over a
+99.25 m PLAN CHORD where the axis is 143.5 m (5.75 %); the +63
+`within_shape` rows the §33 (5) fix priced are that misreading.  The
+ramp's own cap is the ramp grade cap; a chord row on a `tunnel_ramp` is
+not minted.
+
+(2) **The covered extent reads EVERY airside strip the crossing lies in.**
+§34 (5) (b) clears the strip of the way the bore passes UNDER; at LEMD
+item 7 the underpass passes under junction pav157 and the trench then
+surfaces inside runway 14R/32L's 75 m strip (8 `ramp_in_strip` rows
+against the runway; `strip_transverse [runway|tunnel_ramp]` 13.87 m).
+RULED: the mouth opens beyond the OUTERMOST airside strip at that
+station — runway strips included (§29 (7) the runway lateral band is
+airside ground) — and the ramp descends outside it.  If the ramp that
+results exceeds its grade cap within `max_ramp_length_m`, the ramp cap
+decides and the residual is named; the strip is never cut.
+`wall_in_runway_strip` / §29 (7) keep their own reading of walls.
+
+(3) **The junction's crossfall at a runway contact.**  No `transverse`
+row exists at pav157's nodes shared with the runway; the crossfall is
+priced only by `taxi_box` / `airside_no_step` junction|runway pairs and
+reads 4.957 % over 18.2 m (cap 1.985 / 1.500 %); after the trench move
+4.296 / 2.479 %.  A junction touching a runway takes the runway's edge
+level at the contact (airside is king) and carries its OWN transverse
+cap across its width: the lane names the rows that pull pav157's far
+edge down (the trench rim? the zone? the bored road's deck?) with
+`--why-at` before the fix — a transverse row set on the junction is the
+expected remedy, the measurement decides.
+
+(4) **§34 (11) (a) road admission — the consumer census is the first
+deliverable of r2**, then the admission: OSM way −5944 (`highway=
+service`, `lanes=2`, 0.14 m from the owner's point) is kept out by
+`classify/evidence._osm_roads` (centrelines ∩ `pavement_union`) and
+`classify/roles` (faces only from `ev.truck_chains`).  The "pull" as
+stated is REFUTED (vertices within 60 m at DEM +0.03 mean, worst +1.41 m
+ABOVE); what the owner sees is the DEM's own 611 m × 88.7 m plateau
+between two rims solving at 602.16 / 601.69 — an unowned 9 m cut in the
+witness.  The road, admitted, grades that ground (§37 (6) its zones);
+the 144,429 m² hole ring (cover 0.011) is closed by the road's faces and
+zones or excluded per §34 (11) (c).

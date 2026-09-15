@@ -6003,3 +6003,38 @@ Bundled law verified: `bank_omit` true, `pad_from_cluster` false,
   reason; the tunnel wall at the coordinate; every other tunnel
   unchanged. The `road_cross_section` +8 rows at 25.268, 51.606–51.610
   (14at) are owed a read.
+
+## 2026-09-14ax v2padvert MERGED (ships OFF): the airside vertex set changes because the AIRSIDE REGION is differenced by the pad union at evidence time (258 of 280 lost vertices are apron∩pad contacts); the clip + rim snap take 280/88 → 28/35; the skirt yields (5 %) gated on §20b — ruled: the clip moves to the arrangement; round 2
+
+Lane `v2padvert` @ 4ec750f9 (suite 1,520 twice; `tools/pad_airside_
+arm.py` promoted — one load, classify+planar twice OFF/ON, diffing
+§20b's own airside population). Mechanism: `classify/roles`
+differences the airside region by the pad UNION while only the derived
+pad was clipped by airside — the fallback footprint pads eat apron and
+the airside polygon is a function of which pads exist. Built:
+`[placement] pad_airside_clip` (every pad clipped by the airside union
+at the one derivation site) + `pad_airside_snap_max_m` 5 (crossing
+points quantised to the rim's own nodes): HECA 280/88 → 28/35 gone/
+new; apron faces equal. SHIPS OFF because at evidence time no role is
+scored — `_airside` is every apt.dat pavement page incl. groundside
+lots and islands, so a shed on a groundside island loses its pad and
+66–96 HECA buildings in pavement lose theirs (two ruled twins). The
+chord-cap hypothesis for the residual REFUTED (station sharing changed
+nothing); the residual vertices stand 0.05–0.42 m off the boundary.
+(au): `pad_skirt_max_slope` 0.05 in `_pad_rows` for skirt pairs; KCLT
+under §20b: stage-2 infeasible 2,410 rows / 1,389.7 m → 313 / 128.2 m;
+HECA 1,428 / 1,015.6 → 124 / 90.4 m; the survivors are pads that
+cannot reach their apron edge even at 5 % — `pad_airside_weld`
+CRITICAL by 14au. GATED on `staged_solve` (deviation ACCEPTED): under
+the single solve the two-sided band rows at 5 % pull the airside (CYXY
+lockstep twin: 2 `runway_transverse` rows at 0.38 m on the runway).
+
+* RULING: the clip belongs where the faces HAVE ROLES —
+  `planar/overlay.build_arrangement` — against the runway family, the
+  taxi family and the apron (§16g (10) (5)'s own set), never every
+  pavement page; a pad on a groundside island keeps its pad. Round 2
+  (same lane): the clip at the arrangement, bar 0/0 gone/new at HECA,
+  the two ruled twins green without an exemption.
+* CHIP: `v2_solve_replay.capture` never sets `airport.clusters`, so
+  pads-ON is inert in every replay of a registered capture — the
+  capture must carry the clusters (or derive them on replay).

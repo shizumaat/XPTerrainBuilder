@@ -28,6 +28,7 @@ must be explicit about what it tests against.
 import json
 import os
 import sys
+import time
 from typing import List, Optional
 
 # No test may reach the network: the parallel-build OpenStreetMap cache
@@ -456,6 +457,49 @@ def unauthorised_shared_writes(changes: dict, scope_of) -> list:
             if scope_of(p) not in _SUITE_MAY_WARM and not is_lock_churn(p)]
 
 
+def classify_shared_writes(changes: dict, scope_of, *, ledgered: dict,
+                           redirected: set) -> tuple:
+    """Split the detector's touched paths into ``(external, unlawful)``.
+
+    ONE walk over the same population :func:`unauthorised_shared_writes`
+    reports (that function is unchanged and keeps its own twin): each
+    ``(relpath, scope)`` becomes EXTERNAL — printed, never a failure —
+    when the observing process can point at another author, and stays
+    UNLAWFUL otherwise, failing the suite with today's message.
+
+    The two external doors, both borrowed from the BUILD audit
+    (``shared_repo_guard.report_unauthorised_writes``'s
+    EXTERNAL-CANDIDATE downgrade), and both taken as ARGUMENTS so this
+    stays pure and twinnable offline:
+
+      * ``ledgered`` — ``{relpath: {"ts", "scope"}}`` from
+        ``shared_repo_guard.ledgered_refresh_paths(window_start,
+        window_end)``: an AUTHORISED, locked, hash-stamped
+        ``--refresh-data`` event by another session inside the suite's
+        own observation window.  The measured case (RULINGS 2026-09-15ay
+        tail): two ledgered ``osm_layers`` writes at 13:26:13 and
+        13:29:27 turned every test of two suites into a teardown ERROR.
+      * ``redirected`` — ``shared_repo_guard.redirected_scopes()``: a
+        scope whose root THIS process pointed outside the repo, so no
+        writer in it could have reached the shared copy.
+
+    Nothing is hidden by either: an external delta is still named, with
+    its path, scope and reason.  Only the attribution changes.
+    """
+    rows = unauthorised_shared_writes(changes, scope_of)
+    external, unlawful = [], []
+    for relpath, scope in rows:
+        hit = ledgered.get(relpath)
+        if hit:
+            external.append((relpath, scope,
+                             f"ledgered {hit.get('ts')} {hit.get('scope')}"))
+        elif scope is not None and scope in redirected:
+            external.append((relpath, scope, "redirected"))
+        else:
+            unlawful.append((relpath, scope))
+    return external, unlawful
+
+
 def is_lock_churn(relpath: str) -> bool:
     """A cross-process ``.lock`` coordination file (the harness's own
     ``is_lock_artifact`` predicate): CHURN, never corpus data.  A guarded
@@ -732,6 +776,24 @@ def _the_shared_data_repo_survives_the_suite():
     test errors the session (exit 1) naming path and scope.  ``O4_ALLOW_SHARED_REPO_WRITES=1`` downgrades it to a printed
     report for the rare deliberate case (a corpus refresh under the
     harness's own ``--refresh-data``, which records its own ledger entry).
+
+    THE EXTERNAL DOWNGRADE (2026-09-15, lane ``suiteexternal``).  A delta
+    another process authored is not the suite's write: this fixture stamps
+    the observation window around its two snapshots and, at teardown,
+    :func:`classify_shared_writes` names as EXTERNAL every touched path a
+    ledgered ``--refresh-data`` wrote inside that window, or whose scope
+    this process redirected out of the repo (the build audit's own
+    EXTERNAL-CANDIDATE doors, ``ledgered_refresh_paths`` and
+    ``redirected_scopes``, imported through the harness module — never
+    copied).  Those are PRINTED, never failed; every other delta fails
+    exactly as before.  The measured case: two ledgered ``osm_layers``
+    writes at 13:26:13 and 13:29:27 on 2026-09-15 made every test of two
+    suites a teardown ERROR (RULINGS 2026-09-15ay tail).
+
+    STATED RESIDUAL, not solved here: ``record_refresh`` appends its
+    record AFTER the refresh's own after-snapshot, so a refresh still
+    RUNNING at this teardown has no ledger record yet and its delta still
+    fails the suite.  The in-flight case only.
     """
     try:
         harness = _harness_build_module()
@@ -743,13 +805,35 @@ def _the_shared_data_repo_survives_the_suite():
     if not os.path.isdir(repo):
         yield
         return
+    window_start = time.strftime(harness.REFRESH_TS_FORMAT)
     before = harness.shared_repo_snapshot(repo)
     try:
         yield
     finally:
         changes = harness.snapshot_diff(
             before, harness.shared_repo_snapshot(repo))
-        unlawful = unauthorised_shared_writes(changes, harness.scope_of)
+        window_end = time.strftime(harness.REFRESH_TS_FORMAT)
+        try:
+            ledgered = harness.ledgered_refresh_paths(window_start,
+                                                      window_end)
+        except Exception as exc:                        # pragma: no cover
+            print(f"[conftest] refresh ledger unreadable: {exc!r}")
+            ledgered = {}
+        try:
+            redirected = harness.redirected_scopes()
+        except Exception:                               # pragma: no cover
+            redirected = set()
+        external, unlawful = classify_shared_writes(
+            changes, harness.scope_of,
+            ledgered=ledgered, redirected=redirected)
+        if external:
+            print(f"\n[conftest] shared-repo EXTERNAL delta(s) during the "
+                  f"suite — NOT the suite's writes, named not hidden "
+                  f"({len(external)}):")
+            for path, scope, reason in external[:20]:
+                print(f"  [{scope or 'unscoped'}] {path} — {reason}")
+            if len(external) > 20:
+                print(f"  … and {len(external) - 20} more")
         churn = sorted(p for k in ("added", "modified", "removed")
                        for p in changes.get(k, ()) if is_lock_churn(p))
         if churn:

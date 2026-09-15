@@ -667,6 +667,20 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 # a sim read (``law/airports.toml``, on at OTHH alone).
                 # Checked FIRST, before (a): no geometry of this pair is
                 # read where the law is off, and every candidate says so.
+                #
+                # §33 (6) A's RETIREMENT OF THIS KEY IS REFUTED (lane
+                # `v2objcut`, 2026-09-15, one dry VHHH replay).  The
+                # crested-wall signature — solids under the object's own
+                # zero WITH a crest plate ``plate_min_height_m`` above it
+                # — admits an ordinary BUILDING, because a building has a
+                # roof: at VHHH it took wall corridors 0 -> 116 (bay 28,
+                # level 88), every one of them inside ``CITY2.obj``, a
+                # city-block object off the field whose foundation walls
+                # descend 6.4-8.5 m.  No depth threshold repairs it:
+                # OTHH's own admitted bays are 1.35 m deep.  This is the
+                # 10ap finding at a THIRD airport, so the honest switch
+                # stands and §33 (6) A is an intent question for the
+                # owner, not a mechanism.
                 if not law.affordances.kerb_wall_corridors:
                     stats.admission.append(
                         f"candidate {name} bands {A.comp}/{B.comp} at {site}: "

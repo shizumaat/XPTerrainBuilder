@@ -209,6 +209,21 @@ def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport | None
     return got
 
 
+def _base_ref(ref: object) -> str:
+    """THE PAD IS ITS BASE REF (§16g (10) (11), lane ``v2padqp``).
+
+    A pad minted in more than one piece carries the tree's own SPLIT
+    SPELLING ``ref#k`` (``classify/roles`` :718, ``classify/evidence``
+    :386), and every other consumer joins on ``ref.split("#")[0]``
+    (``pipeline/publication`` :597/:672, ``constraints/structures``
+    :263/:738, ``verify/structures`` :192/:198).  This reader did not,
+    so ``building38`` and ``building38#1`` — ONE pad by everyone else's
+    reading — counted as two and made their own cluster a
+    ``cluster_spans_pads`` row (LEMD ``unit:25#1581``, measured).  One
+    spelling, one join."""
+    return str(ref).split("#")[0]
+
+
 def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
               min_m2: float
               ) -> "tuple[dict[str, list[int]], dict[str, list[str]], dict[str, tuple[int, ...]]]":
@@ -229,8 +244,28 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
     got: dict[str, list[int]] = {}
     by_ref: dict[str, list[str]] = {}
     yielded: dict[str, tuple[int, ...]] = {}
-    pairs = cluster_polys(airport, min_m2, _touch_m(law),
-                          airside_union(planar, law))
+    # §16g (10) (11) THE CENSUS CUTS THE CLUSTER WHERE THE MINT DOES.
+    # ``classify/evidence._cluster_pads`` no longer pre-splits the outline
+    # at an airside union when the ARRANGEMENT clip is armed (14ax), so
+    # neither does this reader: two cutters disagreeing about where a
+    # cluster ends IS the mismatch family's own false positive (LEMD's T4
+    # cluster read as one 94,301 m2 piece here against three minted refs).
+    # With the clip disarmed the mint still pre-splits, and so does this.
+    pairs = cluster_polys(
+        airport, min_m2, _touch_m(law),
+        None if bool(law.tables.structures.placement.pad_airside_clip)
+        else airside_union(planar, law))
+    # §16g (10) (11) A PIECE THE MINT NEVER PADDED IS NOT A PAD.  The
+    # mint drops every piece under ``[building_pad] min_area_m2``
+    # (``classify/evidence._pads``), so a 7 m2 sliver of a cluster's
+    # outline has no pad and cannot be one — judged here it made its own
+    # building's ref a ``pad_spans_clusters`` row (LEMD ``unit:25#843/1``
+    # and ``/2``, 7 and 3 m2, against a 94,301 m2 ``/0``).  This is the
+    # same rule ``walled_only`` / ``min_m2`` already state at cluster
+    # level: the census judges the population the mint minted.
+    _min_area = float(law.tables.structures.building_pad.min_area_m2)
+    if _min_area > 0.0:
+        pairs = [p for p in pairs if p[2].area >= _min_area]
     if not pairs:
         return got, by_ref, yielded
     polys = _pad_polys(planar, law)
@@ -247,9 +282,10 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
                 continue
             if poly.intersection(u).area >= _OWN_FACE_SHARE * poly.area:
                 keep.append(int(fid))
-                if (cid, str(ref)) not in seen:
-                    seen.add((cid, str(ref)))
-                    by_ref.setdefault(str(ref), []).append(cid)
+                base = _base_ref(ref)
+                if (cid, base) not in seen:
+                    seen.add((cid, base))
+                    by_ref.setdefault(base, []).append(cid)
             else:
                 clipped.append(int(fid))
         if clipped:
@@ -290,7 +326,7 @@ def pad_cluster_mismatch(planar: PlanarMap, law: Law,
         return out
     _to_xy, to_ll = (airport.frame.transformers() if airport is not None
                      else (None, None))
-    polys = {int(q[0]): (str(q[1]), q[3]) for q in _pad_polys(planar, law)}
+    polys = {int(q[0]): (_base_ref(q[1]), q[3]) for q in _pad_polys(planar, law)}
 
     def _at(fid: int) -> tuple[float | None, float | None]:
         q = polys.get(fid)

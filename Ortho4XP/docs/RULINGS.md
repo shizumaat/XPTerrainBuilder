@@ -7385,3 +7385,77 @@ intervals, zones.shore_region/zone_regions, terrain_edge, overlay,
 build.quay_refs, constraints/zones+water, flat_site._cut_water,
 dem_production.sea_geometry, pipeline/build._classified_land,
 check_grade additive) — for v2channel's rebase.
+
+## 2026-09-15x v2objcut r1 MERGED (e178702f → main): signature B reads every VHHH shell at its authored floor (five for five); the hairpins wait on the ring builder (r2); signature A REFUTED by geometry (CITY2.obj roofs, 116 false corridors — the affordance stands); signature C RE-FOUNDED — Bridge3 is two mouth-marking wall pairs, not a 354 m pair
+
+Lane @ e178702f (main merged through 106459fa); suite 1,607 passed
+twice, 0 FAILED; suite ON MAIN after the merge reported below. VHHH dry
+pair: floors 1.30/0.37/0.78/−1.63/−1.69 (bars met ±0.01), corridors
+0 → 5, tunnels 28 → 23, basins identical (10 placements claimed);
+`tunnel5_done` (owner site) + `TUNNEL2_DONE` refused by the ring
+builder's axis offset on hairpins — the reading is right (floor 1.30,
+trench 9,290 m², two portals), the emitter must take the object's
+trench polygon (r2, `planar/structures.py` — after v2vmmcshore r2 lands
+there). OTHH/LEMD six populations BYTE-IDENTICAL (+51/+25 named
+refusals). Before-reading on the owner's 1.0.340 VHHH patch: vertices
+outside the wall line 85/19/111/27/26 (worst 75.8–86.1 m), floor misses
+0.90/1.85/1.44/3.85/3.91 m. A: retiring `kerb_wall_corridors` → VHHH
+wall corridors 0 → 116, all inside `CITY2.obj` (10ap at a third
+airport); predicate deleted, affordance stands. C: the scout's 354.2 ×
+25.1 m box was the OBJECT BOX, not the solids — Bridge3 = two 73 m wall
+pairs 14.02 m apart at its two ends, 224 m empty between (the author
+marks the mouths; the bore is covered); Bridge2 two perpendicular
+bands; Bridge4 no straight band. RULED §33 (6) MEASURED AND RE-FOUNDED
+(C1′ pair = mouth ramp; C2′ band = polyline incl. curved; C3′ measured
+before ruled). New `airport/object_cut.py`; `object_cuts` sidecar key;
+families `object_cut_offset`/`object_cut_depth`; 18 twins. No VHHH
+build (+22+113 road layers stale — the owner's refresh). Lesson (for
+the scout protocol): a bounding box is not the solid — quote the
+components' extents, not the box.
+15x addendum: suite ON MAIN after the v2objcut merge (3b35df96): 1,607 passed, 1 skipped, 0 FAILED lines (40.7 s). After v2lemdstruct2 (287f9b5b): 1,587 passed, 0 FAILED.
+
+## 2026-09-15y v2lemdstruct2 r2 MERGED (1846bb15 → 6d25b68c): the ramp is graded along its axis (−44 invented rows); "every airside strip" WITHDRAWN (moved backwards); the crossfall premise INVERTED — the far edge is ABOVE the runway, the transverse rows are satisfied as 4-term rows while the raw pair reads 4.30 % → the raw pair is the law; the general road admission REFUSED by its 24-reader census → the road between two mouths, one planar face (r3)
+
+Lane @ 1846bb15 (main merged through 0fbc741c); suite 1,611 passed, 0
+FAILED. (1) `verify/within.ring_route_m`: ramp `within_shape` 71 → 27,
+item-5 ramp 10.49 % / 99.3 m chord → 8.29 % / 46.7 m axis; verify 466 →
+422, census 3,464 → 3,420 (both −44); §33 (5)'s price +67 → +29; four
+twins. (2) attempted: `ramp_in_strip` 8 → 19, `strip_transverse` 13.87 →
+19.07 m, `wall_in_runway_strip` 6 → 20, cliffs 10 → 24 — deleted; the
+crossing is 33–43 m from 14R/32L (strip 75 m) so the rule asks a 150 m
+covered extent; residual 8 rows / 13.872 m over 32.49 m at 40.4605950,
+−3.5447694 → OWNER 15y-1 (accept the ramp 33 m off the runway, or cover
+to the strip edge). (3) `--why-vertex`: far edge v6622 +0.78 m ABOVE the
+contact; the runway edge 7.05 m over its DEM (`junction_mesh` at cap
+1.50 % × 43.2 m to a free zone vertex); `foot_rows` dual 42,656; the
+`transverse` rows exist at bound 1.35 % as 4-term cross-corridor rows;
+the raw pair 4.30 % → RULED the raw pair is the junction's transverse
+law (r3). (4) the census (24 readers) HAZARD on five; the gated
+admission 207 faces / 944,872 m² (7.8 % of coverage) for one 297.9 m
+road — reverted; the void needs a 10-way ~1,030 m network → RULED the
+road between two mouths (88.7 m apart, one parent road) as ONE planar
+face (r3). No build: the ledger's last `osm_layers` refresh is
+2026-09-08 (SPJC) — the owner's 15u act has not run. Shipping arm b2:
+item 5 floor 597.09 (5.07 m), item 7 mouth 31.06/33.43 m, LAW-TRUE
+5,712, ADJUDICATED 1,360.
+15y addendum: suite ON MAIN after the v2lemdstruct2 r2 merge (6d25b68c): 1611 passed, 1 skipped, 42 warnings in 63.77s (0:01:03).
+
+## 2026-09-15z v2padqp r1 MERGED OFF (2039b3c0 → main): the garage seats on its cluster's pad when armed (building45, 615.35, +4.33 m fill; the basement pit gone); three pad-ref defects fixed; mismatch HECA 16 → 10; the far-field mover GONE under §20c — but arming moves the AIRSIDE (5,915 vertices, worst 3.61 m; runway 231, worst 0.140 m) → keys stay OFF, r2 attributes
+
+Lane @ 2039b3c0 (main merged twice); suite 1,612 passed, 0 FAILED;
+closing LEMD build rc 0, 346.3 s, optimal, `shared repo UNCHANGED`
+(no schema refusal: +40-004 big_roads is current). Bars: garage MET on
+the design surface (float owed to an app build); mismatch HECA 16 → 10
+(per-face share test — ref-area lever untried, attempt cap), LEMD 1 →
+1; probe 0 moved (r5 arm) / 16 beyond 500 m worst 0.103 m (arrangement
+clip) — the residual far field is the pad/airside rim geometry;
+census HECA ADJUDICATED 26,608 → 26,285 (−1.2 %), LEMD 1,371 → 1,376;
+`pad_airside_weld` 2 → 7 / 1 → 2 MISSED; airside movement 5,915 / 3.61
+m, runway 231 / 0.140 m MISSED (§16g (10) (5)) — r5 read 9,573 / 0.390
+m. `pad_from_cluster` / `pad_airside_clip` ship FALSE. New replay arm
+`--placement KEY=V` (the pad keys are read upstream of a capture);
+`arm_shared_repo_protection` on `--capture`. RULED §16g (10) (11) RULED
+ON THE MEASUREMENT: r2 attributes the airside movement by `--why-at`
+before any lever; the pad's rows are one-way toward the pad; the flag
+flips only at 0 airside movement and 0 new welds.
+15z addendum: suite ON MAIN after the v2padqp merge: 1612 passed, 1 skipped, 42 warnings in 39.71s. Three of the four lanes are on main (v2lemdstruct2 287f9b5b + r2 6d25b68c, v2objcut 3b35df96, v2padqp 2039b3c0); v2vmmcshore r1 (a57abc47) is HELD for r2 (15w).

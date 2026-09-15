@@ -440,3 +440,46 @@ def test_16g_10_6_pad_airside_weld_fires_only_where_the_SKIRT_cannot_reach():
     lone = cg.Way("w3", "building", "building9", "",
                   ["1", "4"], [10.0, 12.0], {"role": "building"})
     assert cg._check_pad_airside_weld([lone], nodes, ll, 0.01, 0.02) == []
+
+
+def test_16g_10_11_a_cluster_piece_is_one_pad_ref_and_the_census_joins_on_it():
+    """§16g (10) (11) (lane ``v2padqp``): ONE cluster piece is ONE pad
+    REF, whatever the mint's own gates cut it into, and every reader of
+    the pad joins on that BASE ref.
+
+    ``_pads`` used to give each piece of a re-cut part its own
+    ``building{N}``, so one cluster stood on two pads — the
+    ``pad_cluster_mismatch`` (10) forbids (11 of HECA's 12 rows and all 3
+    of LEMD's, the T4 terminal that carries the owner's garage among
+    them).  The surplus pieces now take the tree's own split spelling
+    ``ref#k`` (``classify/roles`` :718), and
+    ``constraints.cluster_pad._base_ref`` is the join every other
+    consumer already uses (``publication`` :597/:672)."""
+    from shapely.geometry import Polygon
+
+    from auto_patch_v2.classify.evidence import _pads
+    from auto_patch_v2.constraints.cluster_pad import _base_ref
+    law = _armed(Law.for_airport("ZZZZ"))
+
+    class _R:
+        class buildings:
+            sources = ("osm",)
+
+    class _B:
+        def __init__(self, outer):
+            self.source = "osm"
+            self.outer = outer
+            self.holes = ()
+
+    # ONE admitted footprint, cut in two by the runway difference: one
+    # ref, one `#1`, never two independent pads
+    ring = ((0.0, 0.0), (0.0, 120.0), (60.0, 120.0), (60.0, 0.0))
+    ap = _AP([], buildings=(_B(ring),))
+    runway = Polygon([(-10.0, 55.0), (70.0, 55.0), (70.0, 65.0), (-10.0, 65.0)])
+    gate = Polygon([(-500.0, -500.0), (-500.0, 500.0), (500.0, 500.0), (500.0, -500.0)])
+    pads, _dropped, _sk = _pads(ap, _R, 100.0, gate, runway, runway, law=law)
+    refs = [r for r, _g in pads]
+    assert len(pads) == 2, pads
+    assert refs == ["building1", "building1#1"], refs
+    assert {_base_ref(r) for r in refs} == {"building1"}
+    assert _base_ref("building38") == _base_ref("building38#1") == "building38"

@@ -74,7 +74,62 @@ def capture_has_groups(cap: dict) -> bool:
             and getattr(ap, "groups", None) is not None)
 
 
-def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
+def _placement_override(law, over: dict[str, object]):
+    """Return ``law`` with ``[placement]`` keys replaced (the CAPTURE arm).
+
+    §16g (10)'s pad keys (``pad_from_cluster``, ``pad_airside_clip``) are
+    read in ``classify/evidence._pads`` and ``planar/overlay`` — both
+    UPSTREAM of the capture — so ``--design-weight`` (a ``[design]``
+    override applied at REPLAY) cannot arm them and a replay of a
+    pads-OFF capture silently measures the pads-OFF law however the toml
+    reads.  This is the capture-time twin of that override: one matched
+    pair is two captures of the same tree, not two edits of the shipped
+    law (lane ``v2padqp``, §16g (10) (11)).
+    """
+    import dataclasses as _d
+    fields = {f.name: f.type for f in _d.fields(law.tables.structures.placement)}
+    kw: dict[str, object] = {}
+    for k, v in over.items():
+        if k not in fields:
+            raise SystemExit(f"--placement: no such [placement] key {k!r}")
+        cur = getattr(law.tables.structures.placement, k)
+        if isinstance(cur, bool):
+            kw[k] = str(v).strip().lower() in ("1", "true", "yes", "on")
+        elif isinstance(cur, (int, float)):
+            kw[k] = type(cur)(v)
+        else:
+            kw[k] = v
+    pl = _dc.replace(law.tables.structures.placement, **kw)
+    st = _dc.replace(law.tables.structures, placement=pl)
+    return _dc.replace(law, tables=_dc.replace(law.tables, structures=st)), kw
+
+
+def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
+                     placement: dict[str, object] | None = None) -> None:
+    """:func:`capture` with the shared-repo guard and the lane-local cache
+    redirects armed around it (``harness/build_airport.
+    arm_shared_repo_protection``, the ONE arming composition).  The
+    REDIRECT must happen before the engine is imported, which is why it
+    is here and not inside the capture (lane ``v2padqp``)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    _harness_dir = str(ROOT / "tools" / "harness")
+    if _harness_dir not in sys.path:
+        sys.path.insert(0, _harness_dir)
+    from build_airport import (arm_shared_repo_protection as _arm,
+                               report_guard_churn as _churn)
+    _guard, _redirects = _arm(ROOT, out.parent, f"cap_{icao}")
+    _guard.__enter__()
+    try:
+        capture(icao, out, mod_cache_root, placement)
+    finally:
+        _guard.__exit__(None, None, None)
+        _churn(_guard)
+        print("[guard]", "shared repo UNCHANGED" if not _guard.blocked
+              else f"BLOCKED {_guard.blocked}", flush=True)
+
+
+def capture(icao: str, out: Path, mod_cache_root: str | None = None,
+            placement: dict[str, object] | None = None) -> None:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -86,7 +141,16 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     replay of the shipped LEMD solve could not reproduce the shipped hard
     set until the partition and the groups were captured with it.  ONE
     ``ResourceCache`` for the whole capture, and the same objects handed
-    to ``build_planar`` — the pack is read once, as the build reads it."""
+    to ``build_planar`` — the pack is read once, as the build reads it.
+
+    THE SHARED-REPO GUARD AND THE LANE-LOCAL CACHE REDIRECTS are armed by
+    the CLI around this call (:func:`_capture_guarded`) through
+    ``harness/build_airport.arm_shared_repo_protection`` — the ONE arming
+    composition (CLAUDE.md; the ``classify_report.py`` precedent, ten
+    corpus files written by an unguarded in-process engine call) — and
+    every capture prints ``[guard] shared repo UNCHANGED``.  It is armed
+    OUTSIDE this function because the redirect must precede the engine
+    imports below (lane ``v2padqp``)."""
     from auto_patch_v2.airport import flat_site as _flat
     from auto_patch_v2.airport.load import load_with_report
     from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
@@ -101,6 +165,9 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     from auto_patch_v2.planar.build import build as build_planar
     from auto_patch_v2.planar.group import derive as _derive_groups
     law = Law.for_airport(icao)
+    if placement:
+        law, _kw = _placement_override(law, placement)
+        print(f"[{icao}] CAPTURE ARM [placement] {_kw}")
     inputs = default_inputs()
     if mod_cache_root:
         # AN EXPLICIT OVERRIDE ONLY (lane ``v2roadcap2``, RULINGS
@@ -194,7 +261,7 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as fh:
         pickle.dump({"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
-                     "inputs": inputs}, fh)
+                     "inputs": inputs, "placement": dict(placement or {})}, fh)
     print(f"[{icao}] captured -> {out} in {time.perf_counter() - t:.0f} s "
           f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
 
@@ -1055,6 +1122,13 @@ def main() -> int:
                     help="Airport_mod_cache root for the capture (the harness's "
                          "lane-local copy-on-write overlay); default: the engine "
                          "tree's mount")
+    ap.add_argument("--placement", action="append", default=[], metavar="KEY=V",
+                    help="CAPTURE ARM: override one [placement] law key for this "
+                         "capture (repeat).  The §16g (10) pad keys are read in "
+                         "classify/planar — upstream of the capture — so a replay "
+                         "override cannot arm them; e.g. "
+                         "--placement pad_from_cluster=true "
+                         "--placement pad_airside_clip=true")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--replay", type=Path, metavar="PKL")
     ap.add_argument("--from", dest="resume", choices=("constraints", "shapes", "planar"),
@@ -1137,7 +1211,8 @@ def main() -> int:
     if a.capture:
         if a.out is None:
             ap.error("--capture needs --out")
-        capture(a.capture.upper(), a.out, a.mod_cache_root)
+        pl = dict(it.split("=", 1) for it in a.placement)
+        _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl)
         return 0
     if a.why_from:
         from auto_patch_v2.law import Law

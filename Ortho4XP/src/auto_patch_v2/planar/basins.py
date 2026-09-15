@@ -166,7 +166,8 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.structures import Basin, Tunnel
 from .basin_geometry import (_floors, _floors_inside, _outer, _ramp_axis, _region_floor,
-                             _renode, _rim, _snap_ring, shell_thickness_m)
+                             _renode, _rim, _snap_ring, rim_wall_report,
+                             shell_thickness_m)
 from .structure_geometry import rim_standoff
 
 __all__ = ["BasinStats", "read_objects", "build_basins", "FLOOR_ROLE", "WALL_ROLE"]
@@ -572,6 +573,23 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                     law.tables.structures.tunnel.object.wall_face_max_thickness_m)
         inset, standoff = rim_standoff(shell_t, co, grid)
         rim = _rim(ring, inset, grid)
+        snap_note = "rim vs the shells' at-grade geometry (§24 (1) (a)): not read (no rim)"
+        if rim is not None:
+            # §24 (1) (a) THE RIM IS THE WALL (RULINGS 2026-09-14bp item 5)
+            # — REFUTED AS RULED, and this is the measurement that refutes
+            # it (``basin_geometry.rim_wall_report``'s docstring carries the
+            # reading).  The ring is REPORTED against the reference, never
+            # snapped onto it.
+            d_before, probe = rim_wall_report(rim, (rim_tree_of(o) for o in members),
+                                              bl.rim_sample_step_m, bl.footprint_close_m)
+            fin = sorted(d for d in d_before if d != float('inf'))
+            snap_note = (
+                "rim vs the shells' at-grade geometry (§24 (1) (a), REPORTED — the snap that "
+                "ruling states is refuted: the reference is a per-component contour, not the "
+                "wall's ground trace): "
+                + (f"median {fin[len(fin) // 2]:.2f} m, worst {fin[-1]:.2f} m over {len(fin)} "
+                   f"stations" if fin else "no station had at-grade geometry at all")
+                + "; stations within " + ", ".join(f"{r:g} m: {probe[r]}" for r in sorted(probe)))
         if rim is None:
             stats.refused.append(f"{bid}: the rim (shell {shell_t:.2f} m thick, inset "
                                  f"{inset:.2f}) does not survive the identity grid "
@@ -689,7 +707,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                  f"stand-off {standoff:.2f} m taken out of the floor ({floor_trim_m2:.0f} m2 "
                  f"trimmed, 09-08a)",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
-                 rim_note, buried_note,
+                 rim_note, snap_note, buried_note,
                  f"rendered deepest solid {smin_z:.2f} = the floor",
                  f"datum {datum_z:.2f} stands {datum_drop:+.2f} m under the ring's ground; "
                  f"authored depth {datum_z - smin_z:.2f} of {rest - smin_z:.2f} m below grade "

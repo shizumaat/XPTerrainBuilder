@@ -267,6 +267,16 @@ clearance_minimum_m = 4.2   # BRIDGE_ROAD_CLEARANCE_MINIMUM_M — below this the
 # apron pav92 (solved 606.60 against a DEM of 606.10 at the node); the next
 # governed cell at any LEMD deck end is 72 m away, so 25 sits in the gap.
 deck_end_reach_m    = 25.0
+# ONE DECK FOR PARALLEL CARRIAGEWAYS (spec §33 (4) as amended, Fable
+# 2026-09-14, RULINGS 2026-09-14bp item 10; owner 2026-09-14bl item 10 "should
+# be a single smooth bridge, no small gap here").  Two mapped bridge ways that
+# share a crossing and run parallel are ONE bridge: one transverse plane at
+# each end, and one FACE, the strip between the carriageways closed.  A gap
+# WIDER than this is not a bridge's median but real ground between two
+# separate structures, and each way keeps its own face.  Measured LEMD ways
+# -6288 / -6291 at 40.4835: their 7.0 m carriageway faces stand a few metres
+# apart with a three-node rim sliver between them.
+deck_group_gap_max_m = 12.0
 deck_datum          = "deck_top"   # object seating datum = deck TOP (memory othh-bridge-deck-datum-r12)
 mapped_deck_cuttable = false       # a mapped road bridge over emitted below-grade is a deck, not cuttable (08-28 :1908)
 terrain_deck_without_object = true # no object => terrain deck at road level cutting the ramp (08-28 :1920)

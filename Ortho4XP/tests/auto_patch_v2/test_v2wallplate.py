@@ -116,10 +116,15 @@ def test_the_objects_own_box_is_the_corridor(law):
 
 
 def test_a_thin_plate_moves_the_mouth_to_the_objects_end_at_its_width(law):
-    """§33 (2) / bar 5: a bore mouth inside a plate that SPANS its bore is
-    the object's — it moves to the object's end (the rectangle's short-side
-    midpoint, so the axis is the object's centre) and takes the object's
-    width, and the ramp keeps the mapped road beyond."""
+    """§33 (2) as AMENDED by §33 (2) (a) (Fable 2026-09-14, RULINGS
+    2026-09-14bp items 7/8): a bore mouth inside a plate that spans its
+    bore takes the object's WIDTH and stands on the object's own
+    CENTRELINE, but the move along the axis is CLAMPED to the covered
+    extent — the plate end or the bore way's end, whichever is nearer the
+    mapped mouth.  A mouth IS a mapped end, so the portal keeps its own
+    station: LEMD ``Bridge3.obj`` is a 354 m viaduct over a 223 m bore and
+    it had been taking both mouths 83.9 / 46.6 m past the road's own
+    nodes, which is exactly where the owner said the portals are NOT."""
     # the bore runs x -100..0 (its mapped end at x = 0, 1.0 m off centre);
     # the plate spans x -177..+177 and is 25.1 m wide
     bore = OsmWay(-101, "big_roads", ((-100.0, 1.0), (0.0, 1.0)), False, TAGS_T)
@@ -132,20 +137,42 @@ def test_a_thin_plate_moves_the_mouth_to_the_objects_end_at_its_width(law):
 
     plate = _plate(-177.0, 177.0, 12.55, bore_ways=((-101, 100.0),))
     out, notes = _sa.apply_plates(list(ms), [plate], ways, law, 600.0)
-    moved = [m for m in out if m.xy[0] > 100.0]
-    assert len(moved) == 1, notes
-    m = moved[0]
-    assert m.xy == pytest.approx((177.0, 0.0))          # the object's end
+    assert len(notes) == 2 and all("wall-plate:Fixture.obj@0" in n for n in notes)
+    assert all("CLAMPED to the covered extent" in n for n in notes)
+    e = [m for m in out if m.xy[0] > -50.0]
+    assert len(e) == 1
+    m = e[0]
+    # the station is the bore way's own end, NOT the plate's 177 m
+    assert m.xy[0] == pytest.approx(0.0, abs=0.01)
     assert abs(m.xy[1]) <= 0.3                          # bar: axis on its centre
     assert m.width_m == pytest.approx(25.1)             # bar: the object's width
     assert m.inward[0] < 0.0                            # into the plate
-    # BOTH of the bore's mouths stand inside the plate, so both move —
-    # one to each of the object's ends (Bridge3 governs -5931's two mouths)
-    assert len(notes) == 2 and all("wall-plate:Fixture.obj@0" in n for n in notes)
-    # the west mouth stands outside the plate's bore reach but INSIDE its
-    # plan, and it belongs to the same bore, so it moves to the far end
-    west = [m for m in out if m.xy[0] < 0.0]
-    assert len(west) == 1 and west[0].xy == pytest.approx((-177.0, 0.0))
+    # ...and the west mouth likewise keeps its own end, never -177
+    w = [m for m in out if m.xy[0] < -50.0][0]
+    assert w.xy[0] == pytest.approx(-100.0, abs=0.01) and w.inward[0] > 0.0
+    # the approach walk is unchanged where the station does not move
+    assert list(e[0].approach) == list(east[0].approach)
+
+
+def test_the_clamp_takes_the_plate_end_when_the_plate_ends_first(law):
+    """§33 (2) (a): the clamp is to the NEARER of the two along the axis,
+    so where the PLATE's end stands inside the bore — a plate covering
+    only part of it — the mouth moves to the plate's end: the portal
+    cannot stand where the object's wall has not ended."""
+    from shapely.geometry import LineString, Point
+    ax = LineString([(-177.0, 0.0), (177.0, 0.0)])
+
+    class _M:
+        ways = (-101,)
+
+        class bore:
+            points = [(-400.0, 0.0), (400.0, 0.0)]
+    s_m = ax.project(Point((0.0, 0.0)))
+    # the plate's north end at s = 354 is 177 m away; the bore's own end
+    # projects to the axis END (clamped), 177 m away too — a tie keeps the
+    # plate.  Move the mouth 50 m south and the plate is nearer again.
+    s_end, who = _sa._covered_end(ax, s_m, ax.length, _M(), [])
+    assert who is None and s_end == pytest.approx(ax.length)
 
 
 def test_a_mouth_outside_every_plate_is_untouched(law):

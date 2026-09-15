@@ -97,15 +97,14 @@ from .object_corridor import Group, mouth_covered_by, object_groups, trench_outs
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, airside_stops,
                                   locked_road_stops, road_true_edge, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
-from .structure_approach import (FieldRegion, PavementDeck, apply_plates,
+from .structure_approach import (FieldRegion, apply_plates,
                                  approach_ground as _approach_ground,
-                                 deck_ends as _deck_ends,
                                  carriageway_width_m,
                                  chains, field_region_for, mouth_reports, under_cover,
-                                 deck_intervals,
                                  is_bridge, is_tunnel, merge_duals, mouths,
-                                 object_deck_intervals, pavement_deck_intervals,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
+from .structure_deck import (PavementDeck, deck_intervals, deck_items, emit_decks,
+                             object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
@@ -674,54 +673,27 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                  f"keep-out (retaining_wall.in_runway_strip = false)")
             continue
         # decks sever the ramp (by the gap) and the walls (exactly)
-        decks: list[Deck] = []
-        deck_polys: list[Polygon] = []
-        deck_roles: list[str] = []
-        for w, s0, s1, dp in deck_ivals + pav_ivals:
-            if s0 > s_top:
-                continue
-            dpoly = dp.intersection(outer)
-            if dpoly.is_empty or dpoly.area < 1.0:
-                continue
-            if dpoly.geom_type != "Polygon":
-                dpoly = max(_parts(dpoly), key=lambda g: g.area, default=None)
-                if dpoly is None:
-                    continue
-            dref = f"bridge_deck:{w.id}"
-            pav = isinstance(w, PavementDeck)
-            # A TERRAIN DECK IS TIED TO ITS ENDS (spec §33 (4)): the ground
-            # at the mapped way's two ends — the apron on one side, the road
-            # on the other — read once here and carried on the record (a
-            # pavement deck is the pavement's own surface and needs none).
-            ez, eref, exy = ((), (), ()) if pav \
-                else _deck_ends(airport, w, cells, polys, cell_tree, law)
-            decks.append(Deck(dref, 0 if pav else w.id, s0, s1,
-                              tuple(dpoly.exterior.coords)[:-1],
-                              end_z=ez, end_ref=eref, end_xy=exy))
-            deck_polys.append(dpoly)
-            # a pavement deck keeps the pavement's role (2026-09-06f); a
-            # mapped bridge is road ground (08-30m)
-            deck_roles.append(w.role if pav else "service_road")
-            if pav:
-                stats.pavement_decks += 1
-            else:
-                stats.decks += 1
-        # OBJECT BRIDGES: recorded, never severing (the terrain stays open
-        # under the object; the deck-top clearance is the generator's row)
-        for oid, s0, s1, dp, top_z in obj_ivals:
-            if s0 > s_top:
-                continue
-            dpoly = dp.intersection(outer)
-            if dpoly.is_empty or dpoly.area < 1.0:
-                continue
-            if dpoly.geom_type != "Polygon":
-                dpoly = max(_parts(dpoly), key=lambda g: g.area, default=None)
-                if dpoly is None:
-                    continue
-            decks.append(Deck(f"object_deck:{oid}", 0, s0, s1,
-                              tuple(dpoly.exterior.coords)[:-1], "deck_top", top_z))
-            stats.object_decks += 1
+        # §33 (4) / §34.5 (6) AMENDED (RULINGS 2026-09-14bp item 10): one
+        # entry per deck FACE — parallel bridge ways sharing this crossing
+        # are ONE deck (``structure_deck.deck_items`` carries the law).
+        items = deck_items(deck_ivals, pav_ivals, grid, law)
+        deck_notes: list[str] = []
+        decks, deck_polys, deck_roles, bridge_faces, dn, npav, nbr, nobj = emit_decks(
+            airport, law, items, obj_ivals, outer, s_top, cells, polys, cell_tree)
+        deck_notes.extend(dn)
+        stats.pavement_decks += npav
+        stats.decks += nbr
+        stats.object_decks += nobj
         # the ramp's ref is EXACTLY the oracle's population key too
+        # §33 (4): a deck face spanning THE WAY reaches past the corridor,
+        # so the structure's FOOTPRINT reaches with it — the knife must cut
+        # the pavement under the deck too, or the deck cell would stand on
+        # top of an uncut cell (two faces, one ground).  The void and the
+        # wall are unchanged: the decks are subtracted from both.
+        if bridge_faces:
+            ext = unary_union([outer, *bridge_faces])
+            outer = ext if ext.geom_type == "Polygon" else \
+                max(_parts(ext), key=lambda g: g.area, default=outer)
         ramp_refs: list[str] = []
         ramp_geom = ramp
         wall_geom = wall
@@ -755,7 +727,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         wall_path = list(reversed(geom.left_rim)) + cap_mid + list(geom.right_rim) + far_mid
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
-        notes = []
+        notes = list(deck_notes)
         if collapse_note:
             notes.append(collapse_note)
         if len(members) > 1:

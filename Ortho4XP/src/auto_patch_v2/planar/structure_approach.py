@@ -40,10 +40,10 @@ def _parts(geom) -> list[Polygon]:
         return []
     return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
 
-__all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "object_deck_intervals", "carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
+__all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
            "mouths", "FieldRegion", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
-           "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground", "deck_ends"]
+           "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
 NODE_TOL = 0.05
@@ -649,128 +649,6 @@ def merge_duals(mouths: list[Mouth], law: Law, stats
         out.append((members, axis[0], inward, width, axis))
     return out
 
-
-@_dc.dataclass(frozen=True)
-class PavementDeck:
-    """A pavement cell read as a deck over an object corridor (RULINGS
-    2026-09-06f): ``id`` its cell ref (the deck's ref is
-    ``bridge_deck:<id>``), ``role`` the cell's own role (the deck piece
-    keeps it — the taxiway law governs its surface), ``index`` its cell."""
-
-    id: str
-    role: str
-    index: int
-
-
-def pavement_deck_intervals(axis_ln: LineString, half_outer: float, s_end: float,
-                             cells: list[Cell], polys: list[Polygon], tree: STRtree | None,
-                             law: Law, grid: float
-                             ) -> list[tuple[PavementDeck, float, float, Polygon]]:
-    """``(deck, s0, s1, cell polygon)`` per pavement cell of a
-    ``bridge.pavement_deck_families`` role family that SPANS the corridor
-    within ``s_end`` (an object corridor's walls): its polygon crosses
-    the axis, the corridor strip continues on both sides of it (the cell
-    cuts the strip in two) and neither edge stands at the corridor's
-    ends — a cell holding the mouth is what the ramp cuts, not a deck.
-    Ordered by ``s0``."""
-    if tree is None:
-        return []
-    fams = set(law.tables.structures.bridge.pavement_deck_families)
-    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
-    out = []
-    for j in tree.query(corridor, predicate="intersects"):
-        c, p = cells[int(j)], polys[int(j)]
-        if c.kind == "structure" or role_family(law, c.role) not in fams:
-            continue
-        seg = axis_ln.intersection(p)
-        if seg.is_empty:
-            continue
-        s_vals = [axis_ln.project(Point(q)) for g in shapely.get_parts(seg) for q in g.coords]
-        s0, s1 = min(s_vals), max(s_vals)
-        if s0 <= grid or s1 >= min(s_end, axis_ln.length) - grid:
-            continue
-        rest = corridor.difference(p)
-        if len(_parts(rest)) < 2:
-            continue
-        out.append((PavementDeck(c.ref, c.role, int(j)), s0, s1, p))
-    out.sort(key=lambda t: t[1])
-    return out
-
-
-#: A deck crossing the axis at less than this angle is along it, not over it.
-_DECK_MIN_ANGLE_DEG = 30.0
-
-
-def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],
-                    lines: list[LineString], tree: STRtree | None, law: Law
-                    ) -> list[tuple[OsmWay, float, float, Polygon]]:
-    """``(way, s0, s1, deck polygon)`` per mapped bridge way crossing the
-    corridor (at ≥ 30° to the axis), ordered by ``s0``."""
-    if tree is None:
-        return []
-    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
-    out = []
-    for j in tree.query(corridor, predicate="intersects"):
-        w, ln = bridges[int(j)], lines[int(j)]
-        x = ln.intersection(axis_ln)
-        if x.is_empty:
-            continue
-        pts = [g for g in shapely.get_parts(x) if g.geom_type == "Point"]
-        if not pts:
-            continue
-        s_mid = axis_ln.project(pts[0])
-        # crossing angle
-        a = axis_ln.interpolate(max(0.0, s_mid - 1.0))
-        b = axis_ln.interpolate(min(axis_ln.length, s_mid + 1.0))
-        ux, uy = b.x - a.x, b.y - a.y
-        sb = ln.project(pts[0])
-        c = ln.interpolate(max(0.0, sb - 1.0))
-        d = ln.interpolate(min(ln.length, sb + 1.0))
-        vx, vy = d.x - c.x, d.y - c.y
-        den = (math.hypot(ux, uy) * math.hypot(vx, vy)) or 1.0
-        ang = math.degrees(math.acos(max(-1.0, min(1.0, abs(ux * vx + uy * vy) / den))))
-        if ang < _DECK_MIN_ANGLE_DEG:
-            continue
-        wd = carriageway_width_m(w.tags, law)
-        dpoly = ln.intersection(corridor.buffer(2.0)).buffer(wd / 2, cap_style="flat", **_MITRE)
-        if dpoly.is_empty:
-            continue
-        # the covered stretch along the axis
-        seg = axis_ln.intersection(dpoly)
-        if seg.is_empty:
-            continue
-        s_vals = []
-        for g in shapely.get_parts(seg):
-            for q in g.coords:
-                s_vals.append(axis_ln.project(Point(q)))
-        out.append((w, min(s_vals), max(s_vals), dpoly))
-    out.sort(key=lambda t: t[1])
-    return out
-
-
-def object_deck_intervals(axis_ln: LineString, half_outer: float,
-                           odecks: list[tuple[str, Polygon, float]]
-                           ) -> list[tuple[str, float, float, Polygon, float]]:
-    """``(object id, s0, s1, deck footprint, deck top)`` per hard-deck
-    object footprint crossing the corridor, ordered by ``s0``."""
-    if not odecks:
-        return []
-    corridor = axis_ln.buffer(half_outer, cap_style="flat", **_MITRE)
-    out = []
-    for oid, dp, top in odecks:
-        if not dp.intersects(corridor):
-            continue
-        seg = axis_ln.intersection(dp)
-        if seg.is_empty:
-            continue
-        s_vals = [axis_ln.project(Point(q)) for g in shapely.get_parts(seg) for q in g.coords]
-        if not s_vals:
-            continue
-        out.append((oid, min(s_vals), max(s_vals), dp, top))
-    out.sort(key=lambda t: t[1])
-    return out
-
-
 # ── the ramp's top (moved VERBATIM from planar/structures.py, lane
 #    v2wallplate: that file stands at its 1,000-line budget and §33 grows
 #    it; no behaviour moved with it) ─────────────────────────────────────
@@ -826,59 +704,6 @@ def ramp_top(airport: Airport, law: Law, axis_fn, mouth_z: float, climb_from: fl
     return None, ss
 
 
-# ── §33 (3)/(4): the approach's ground, and a terrain deck's two ends ──
-def deck_ends(airport: Airport, w, cells, polys, cell_tree, law: Law | None = None
-              ) -> tuple[tuple[float, ...], tuple[str, ...], tuple[XY, ...]]:
-    """THE GROUND AT A TERRAIN DECK'S TWO ENDS (spec §33 (4); owner
-    RULINGS 2026-09-13d item 9 "it needs to smoothly connect the road on
-    either end ... the apron on the east end and the road on the west
-    side").  Per mapped end: the DEM there, and the governed cell standing
-    at it (``""`` where the end is bare ground) — the constraint generator
-    reads that cell's own solved value where it has one, so the deck meets
-    the APRON, not the DEM under it.  Measured LEMD way -6288: ends 609.99
-    and 606.10 against a trench floor + clearance of 604.12."""
-    zs: list[float] = []
-    refs: list[str] = []
-    pts: list[XY] = [tuple(w.points[0]), tuple(w.points[-1])]
-    reach = float(law.tables.structures.bridge.deck_end_reach_m) if law is not None else 0.0
-    for e in (w.points[0], w.points[-1]):
-        z = _dem(airport, e)
-        zs.append(float(z) if not math.isnan(z) else float("nan"))
-        ref = ""
-        if cell_tree is not None:
-            pt = Point(e)
-            for j in cell_tree.query(pt, predicate="intersects"):
-                c = cells[int(j)]
-                if c.kind != "structure" and polys[int(j)].contains(pt):
-                    ref = c.ref
-                    break
-            if not ref and reach > 0.0:
-                # THE END'S GROUND IS READ ALONG THE ROAD (spec §34 (6);
-                # RULINGS 2026-09-13r, owed to lane v2rampwalk): the mapped
-                # way STOPS at the surface it runs onto — OSM does not trace
-                # a service road across an apron — so the governed cell the
-                # end meets stands a few metres beyond the last node, not
-                # under it.  Measured LEMD way -6288: its east end reads the
-                # DEM 606.10 with no cell under it while the apron pav92
-                # (solved 606.60) starts 13.3 m away, and the deck was tied
-                # to neither.  The nearest governed cell within
-                # ``bridge.deck_end_reach_m`` IS that end's ground; the
-                # constraint generator then takes its own SOLVED value
-                # (§33 (4)), never the DEM under it.
-                best = None
-                for j in cell_tree.query(pt.buffer(reach), predicate="intersects"):
-                    c = cells[int(j)]
-                    if c.kind == "structure":
-                        continue
-                    d = polys[int(j)].distance(pt)
-                    if d <= reach and (best is None or d < best[0]):
-                        best = (d, c.ref)
-                if best is not None:
-                    ref = best[1]
-        refs.append(ref)
-    return tuple(zs), tuple(refs), tuple(pts)
-
-
 def approach_ground(airport: Airport, axis_fn, band_m: float, spacing: float) -> float:
     """THE APPROACH'S GROUND (spec §33 (3)): the MEDIAN DEM along the
     approach's first stations beyond the mouth's own band — the stations
@@ -930,16 +755,72 @@ def apply_plates(mouth_list: list[Mouth], plates: _t.Sequence, osm: list[OsmWay]
             continue
         # the plate END this mouth belongs to, and the direction INTO the plate
         ax = LineString(p.ends)
-        k = 0 if ax.project(Point(m.xy)) < ax.length / 2.0 else 1
-        end, far = p.ends[k], p.ends[1 - k]
+        s_m = ax.project(Point(m.xy))
+        k = 0 if s_m < ax.length / 2.0 else 1
+        far = p.ends[1 - k]
+        # §33 (2) (a) THE PLATE MOUTH IS CLAMPED TO THE COVERED EXTENT
+        # (Fable 2026-09-14; RULINGS 2026-09-14bp items 7/8).  The move was
+        # UNCONDITIONAL — to the plate's short-side midpoint, wherever that
+        # stands.  A pack's wall object is a VIADUCT, not a portal marker:
+        # LEMD's ``Bridge3.obj`` is a 354.2 x 25.1 m plan rectangle whose
+        # ends run 83.9 m north and 46.6 m south of the 222.8 m bore way
+        # −5931 it covers, so both mouths were built past the road's own
+        # ends — the owner's three points at 40.4988 are that way's own two
+        # nodes to 1.4 / 5.5 m.  The plate governs WIDTH and AXIS (§33 (2)
+        # stands); the PORTAL cannot stand where the bore does not go, so
+        # the move is clamped along the axis to the nearer of the plate's
+        # end and the bore way's own end.
+        s_p = float(ax.project(Point(p.ends[k])))
+        s_end, clamped_to = _covered_end(ax, s_m, s_p, m, osm)
+        q = ax.interpolate(s_end)
+        end = (float(q.x), float(q.y))
         inward = unit(end, far)
-        path = _approach_beyond(end, inward, m.approach, p.plan, osm, law, reach_m, admitted)
+        # THE APPROACH WALK IS UNCHANGED (§33 (2) (a)) where the mouth
+        # keeps its own station: the mapped road out of the portal is what
+        # it always was.  Only a mouth taken to the PLATE's end needs the
+        # stretch that runs under the plate dropped.
+        # ALONG the axis: a mouth projected sideways onto the object's own
+        # centreline has not left its portal, and §33 (2)'s axis takeover is
+        # exactly that projection.
+        near = abs(s_end - s_m) <= law.tables.emit.identity.min_distinct_spacing_m
+        path = list(m.approach) if (clamped_to is not None and near) else (
+            approach(end, inward, osm, reach_m, admitted,
+                     law.tables.structures.tunnel.approach_turn_max_deg)
+            if clamped_to is not None else
+            _approach_beyond(end, inward, m.approach, p.plan, osm, law, reach_m, admitted))
         moved = math.hypot(end[0] - m.xy[0], end[1] - m.xy[1])
         notes.append(f"mouth of bore {'+'.join(str(i) for i in m.ways)} taken by {p.id} "
-                     f"(§33 (2)): moved {moved:.1f} m to the object's end, width "
-                     f"{m.width_m:.1f} -> {p.width_m:.1f} m")
+                     f"(§33 (2)): moved {moved:.1f} m to "
+                     + (f"the object's end" if clamped_to is None else
+                        f"the bore way {clamped_to}'s own end — CLAMPED to the covered extent, "
+                        f"{abs(s_p - s_end):.1f} m inside the object's end (§33 (2) (a))")
+                     + f", width {m.width_m:.1f} -> {p.width_m:.1f} m")
         out.append(Mouth(m.bore, end, inward, p.width_m, path, m.ways))
     return out, notes
+
+
+def _covered_end(ax: LineString, s_m: float, s_p: float, m: Mouth, osm: list[OsmWay]
+                 ) -> tuple[float, int | None]:
+    """THE COVERED EXTENT'S END ALONG THE PLATE'S AXIS (spec §33 (2) (a)):
+    ``(station, the bore way whose end clamped it or None)`` — the plate's
+    end ``s_p`` or the BORE CHAIN's own end on THE SAME SIDE of the mapped
+    mouth, whichever is nearer ``s_m`` along the axis.  The portal is the
+    bore's end; past it the object is a viaduct over ordinary ground and
+    there is nothing bored to let out of.  The chain's ends, never an
+    interior way's: a dual carriageway chain's joints are mid-bore."""
+    d = 1.0 if s_p >= s_m else -1.0
+    pts = list(getattr(m.bore, "points", ()) or ())
+    best = None
+    for q, wid in ((pts[0], m.ways[0] if m.ways else None),
+                   (pts[-1], m.ways[-1] if m.ways else None)) if len(pts) >= 2 else ():
+        s = float(ax.project(Point(q)))
+        if (s - s_m) * d < -1e-6:
+            continue                          # behind the mouth, not beyond it
+        if best is None or abs(s - s_m) < abs(best[0] - s_m):
+            best = (s, wid)
+    if best is None or abs(best[0] - s_m) >= abs(s_p - s_m):
+        return s_p, None
+    return max(0.0, min(ax.length, best[0])), best[1]
 
 
 def _plate_for(m: Mouth, plates: _t.Sequence):

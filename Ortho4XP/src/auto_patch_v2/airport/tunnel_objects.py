@@ -871,7 +871,14 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     #: of them is named with its verdict (the no-bore skip below never
     #: screened its resource and is counted, not enumerated).
     screened: set[str] = set()
-    for o in objects:
+    # THE INTAKE IS SORTED (``object_cut.placement_key``, the one
+    # derivation site): this loop's order decides which placement of a
+    # resource is the one SCREENED (``sigs`` / ``stats.resources``), the
+    # insertion order of every refusal line, and the ``@k`` index below.
+    # Measured on the signature fixture: six of eight input shuffles
+    # re-bound ``tunnel-object:wall_long.obj@0`` to another placement
+    # while the corridor SET stayed identical (lane v2othhdet).
+    for o in _object_cut.placement_order(objects):
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
             continue
         stats.placements += 1
@@ -945,7 +952,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # reader never screened (no skirt under the seat AND no mapped bore in
     # its plan — the 06f cheap gate, OTHH's ~1,100 library resources) is
     # not a verdict and is COUNTED, not enumerated.
-    for path, sig in sigs.items():
+    for path, sig in sorted(sigs.items()):
         if isinstance(sig, str) and path in screened:
             stats.refused.append(f"{os.path.basename(path)} x{counts[path]}: {sig}")
     stats.not_screened = len(no_bore - screened)
@@ -967,6 +974,9 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         out.append(c)
     out.extend(shell_corridors)
     out.sort(key=lambda c: c.id)
+    # the report is order-free too: a refusal LIST whose order depends on
+    # the read order cannot be diffed between two arms (lane v2othhdet)
+    stats.refused.sort()
     stats.corridors = len(out)
     stats.signature_s = time.perf_counter() - t0
     return out, stats

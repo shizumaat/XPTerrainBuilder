@@ -753,6 +753,24 @@ def apply_plates(mouth_list: list[Mouth], plates: _t.Sequence, osm: list[OsmWay]
         if p is None:
             out.append(m)
             continue
+        # §33 (6) C1' THE PAIR MARKS A MOUTH RAMP (owner RULINGS
+        # 2026-09-15e items 3/4; Fable / RULINGS 2026-09-15x).  Where the
+        # object carries a PARALLEL PAIR of thin surface walls near this
+        # mouth, THAT is the author's mouth ramp: the ramp lies between
+        # the pair's inner faces, runs the pair's length, its mouth at
+        # the end nearer the bore's COVERED stretch and its top at the
+        # outer end.  The §33 (2) reading (the object's BOX end, clamped
+        # to the bore) is superseded there — measured LEMD `Bridge3.obj`:
+        # the box is 354.2 x 25.1 m but the solids are two 73 m pairs
+        # 14.02 m apart at its two ends with 224 m of nothing between, so
+        # the box's end is 83.9 m from any wall and its width 11 m too
+        # wide.  Without a pair the §33 (2) (a) clamp stands exactly as
+        # it is (the 14bl item 7/8 runaway it fixed).
+        moved = _pair_mouth(m, p, osm, law, reach_m, admitted)
+        if moved is not None:
+            out.append(moved[0])
+            notes.append(moved[1])
+            continue
         # the plate END this mouth belongs to, and the direction INTO the plate
         ax = LineString(p.ends)
         s_m = ax.project(Point(m.xy))
@@ -821,6 +839,69 @@ def _covered_end(ax: LineString, s_m: float, s_p: float, m: Mouth, osm: list[Osm
     if best is None or abs(best[0] - s_m) >= abs(s_p - s_m):
         return s_p, None
     return max(0.0, min(ax.length, best[0])), best[1]
+
+
+def _pair_mouth(m: Mouth, p, osm: list[OsmWay], law: Law, reach_m: float,
+                admitted) -> "tuple[Mouth, str] | None":
+    """§33 (6) C1': this mouth taken by the plate's nearest WALL PAIR, or
+    ``None`` where the object carries none.
+
+    THE MOUTH IS THE PAIR'S INNER END — the end nearer the bore's covered
+    stretch, which for a plate carrying several pairs is the end nearer
+    the NEXT pair and otherwise the end nearer the bore's midpoint.  The
+    owner named both of LEMD's: 14bl item 7 "the mouth should be here:
+    40.4980461, −3.5850118" is the north pair's inner end (9.4 m), item 8
+    "between 40.4960195 and 40.4960167" the south pairs' (within 6 m).
+    The ramp then climbs between the inner faces to the OUTER end and the
+    mapped road carries it beyond."""
+    pairs = list(getattr(p, "pairs", ()) or ())
+    if not pairs:
+        return None
+    pt = Point(m.xy)
+
+    def mid_of(q):
+        A, B, _inner = q
+        a = ((A.axis.coords[0][0] + B.axis.coords[0][0]) / 2.0,
+             (A.axis.coords[0][1] + B.axis.coords[0][1]) / 2.0)
+        b = ((A.axis.coords[-1][0] + B.axis.coords[-1][0]) / 2.0,
+             (A.axis.coords[-1][1] + B.axis.coords[-1][1]) / 2.0)
+        # the two bands may run opposite ways round the object
+        alt_a = ((A.axis.coords[0][0] + B.axis.coords[-1][0]) / 2.0,
+                 (A.axis.coords[0][1] + B.axis.coords[-1][1]) / 2.0)
+        alt_b = ((A.axis.coords[-1][0] + B.axis.coords[0][0]) / 2.0,
+                 (A.axis.coords[-1][1] + B.axis.coords[0][1]) / 2.0)
+        return (a, b) if math.dist(a, b) >= math.dist(alt_a, alt_b) else (alt_a, alt_b)
+
+    mids = [mid_of(q) for q in pairs]
+    k = min(range(len(pairs)), key=lambda i: LineString(mids[i]).distance(pt))
+    a, b = mids[k]
+    _A, _B, inner = pairs[k]
+    # the INNER end: nearer another pair of the same object, else nearer
+    # the bore's own midpoint (the stretch the object covers)
+    others = [mids[i] for i in range(len(mids)) if i != k]
+    if others:
+        def near_other(q: XY) -> float:
+            return min(LineString(o).distance(Point(q)) for o in others)
+        mouth_xy, top_xy = (a, b) if near_other(a) <= near_other(b) else (b, a)
+    else:
+        bp = list(getattr(m.bore, "points", ()) or ())
+        ref = Point(bp[len(bp) // 2]) if len(bp) >= 2 else pt
+        mouth_xy, top_xy = (a, b) if ref.distance(Point(a)) <= ref.distance(Point(b)) \
+            else (b, a)
+    inward = unit(top_xy, mouth_xy)          # on into the covered stretch
+    outward = (-inward[0], -inward[1])
+    # the approach: the pair's own midline out to its top, then the mapped
+    # road beyond it (the open ramp §33 (6) C1' asks for)
+    beyond = approach(top_xy, outward, osm, reach_m, admitted,
+                      law.tables.structures.tunnel.approach_turn_max_deg)
+    path = [mouth_xy, top_xy] + [q for q in beyond[1:]
+                                 if math.hypot(q[0] - top_xy[0], q[1] - top_xy[1]) > NODE_TOL]
+    d = math.hypot(mouth_xy[0] - m.xy[0], mouth_xy[1] - m.xy[1])
+    note = (f"mouth of bore {'+'.join(str(i) for i in m.ways)} taken by {p.id}'s WALL PAIR "
+            f"(§33 (6) C1'): moved {d:.1f} m to the pair's INNER end, width "
+            f"{m.width_m:.1f} -> {inner:.2f} m (the pair's inner spacing), ramp climbing "
+            f"{math.dist(mouth_xy, top_xy):.1f} m to its outer end and the mapped road beyond")
+    return Mouth(m.bore, mouth_xy, inward, float(inner), path, m.ways), note
 
 
 def _plate_for(m: Mouth, plates: _t.Sequence):

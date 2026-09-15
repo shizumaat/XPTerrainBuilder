@@ -146,6 +146,28 @@ class Corridor:
     agl_m: float
     notes: tuple[str, ...] = ()
 
+    def stations_inner(self) -> "tuple[list[XY], list[XY]]":
+        """The corridor's two INNER FACES as polylines in the airport
+        frame, reconstructed from the axis and its stations — the line
+        §33 (6) C2' asks an emitted ring to follow (the object's own wall
+        curve, never a chord between distant stations)."""
+        import math as _m
+        ln = LineString(self.axis)
+        left: list[XY] = []
+        right: list[XY] = []
+        L = ln.length
+        for st in self.stations:
+            s = min(max(st.s, 0.0), L)
+            p = ln.interpolate(s)
+            a = ln.interpolate(max(0.0, s - 1.0))
+            b = ln.interpolate(min(L, s + 1.0))
+            ux, uy = b.x - a.x, b.y - a.y
+            m = _m.hypot(ux, uy) or 1.0
+            nx, ny = -uy / m, ux / m
+            left.append((p.x + nx * st.half_l, p.y + ny * st.half_l))
+            right.append((p.x - nx * st.half_r, p.y - ny * st.half_r))
+        return left, right
+
     @property
     def ends(self) -> str:
         a = "closed" if self.mouth_closed else "open"

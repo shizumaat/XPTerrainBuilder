@@ -478,6 +478,25 @@ def cluster_apron_faces(planar: PlanarMap, law: Law, airport: Airport
         elif b in struck and a not in struck:
             coupled.add(a)
     struck |= coupled
+    # ... AND IT NEVER MOVES ANOTHER PAD'S WELD (round 2, MEASURED).  A
+    # collar vertex some OTHER ``building`` pad also owns is that pad's
+    # vertex too (09-01g, identity is the weld), so flattening it drags a
+    # pad the cluster has nothing to do with — and that pad's own rows
+    # then cannot reach it: on the first collar arm at HECA the worst
+    # stage-2 rows were exactly those, ``building_pad airside skirt``
+    # 7.07 -> 12.11 m, and the certificate went 151 infeasible rows /
+    # 178.72 m to 1,626 / 3,644.17 m while STAGE 1 STAYED FEASIBLE (min
+    # shortfall 0.0000 m).  The collar's own cluster pads are exempt:
+    # they are what the collar is for, and they take it in stage 2
+    # (:func:`cluster_pad_takes_collar`).
+    own: set[int] = set()
+    for fids in faces.values():
+        for q in fids:
+            own.update(_face_vertices(vw, q))
+    for _f, _ref, grp in _pad_groups(planar, law):
+        for v in grp:
+            if v not in own:
+                struck.add(v)
     apron_vs: list[int] = []
     for f in vw.faces_of_role(("apron",)):
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:

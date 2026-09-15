@@ -214,3 +214,42 @@ def test_bands_too_far_apart_are_not_a_pair(law):
     bands = object_cut.thin_bands(g, _components(g),
                                   [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], law)
     assert object_cut.band_pair(bands, law) is None
+
+
+def test_the_publication_carries_the_object_cut_witness(law):
+    """The census reads `object_cuts` off the sidecar; the emitter must
+    put it there.  One witness, two instruments — a key published under
+    one name and read under another is the silent-break class."""
+    from auto_patch_v2.emit import osm_adapter
+    from auto_patch_v2.model.structures import Tunnel
+    from auto_patch_v2.pipeline import publication
+
+    assert "object_cuts" in osm_adapter.SIDECAR_KEYS
+
+    class _Frame:
+        def transformers(self):
+            return (lambda la, lo: (0.0, 0.0),
+                    lambda x, y: (22.0 + y / 111_320.0, 113.0 + x / 103_000.0))
+
+    class _Airport:
+        frame = _Frame()
+
+    class _Planar:
+        structures = (
+            Tunnel("object-cut:tunnel5_done.obj@0", (), ((0.0, 0.0), (10.0, 0.0)),
+                   5.0, 7.32, 1.31, 100.0, 0.0, ("tunnel_ramp:object-cut:t5@0",),
+                   "tunnel_wall:object-cut:t5@0", (), (), (),
+                   source="object", resource="tunnel/tunnel5_done.obj",
+                   objects=("dsf:obj1",), depth_m=6.011,
+                   footprint=((0.0, 0.0), (10.0, 0.0), (10.0, 5.0), (0.0, 5.0))),
+            Tunnel("tunnel:-5931@0", (), ((0.0, 0.0), (10.0, 0.0)), 5.0, 7.0, 2.0,
+                   100.0, 0.0, (), "", (), (), ()),
+        )
+
+    recs = publication.object_cuts(_Planar(), _Airport())
+    assert len(recs) == 1, "an OSM bore is not an object cut"
+    r = recs[0]
+    assert r["id"] == "object-cut:tunnel5_done.obj@0"
+    assert r["floor_m"] == 1.31 and r["signature"] == "B"
+    assert len(r["outline_ll"]) == 4
+    assert r["ramp_refs"] == ["tunnel_ramp:object-cut:t5@0"]

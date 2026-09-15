@@ -8175,3 +8175,4 @@ the lidar (+33-112 retries its own 3DEP fetch, having recorded no
 negative); its provenance line must read `insets=KPHX:USGS3DEP`. The
 other 16 false negatives on +33-113 and 3 on +33-112 clear under 15aq
 (4) once lane `v2insetreprobe` lands and 1.0.341+ builds them.
+15bn addendum 2: the 6 test_harness ERRORs were transient — the peer's LGAV `--refresh-data` (ledger 13:29:33, scopes dem + osm_layers) wrote the shared corpus while the suite ran (the session detector's cross-attribution class, memory `app-builds-cross-attribute-suite-detector`); `tests/test_harness.py` alone: 392 passed. Main is green (1,691 + 392).

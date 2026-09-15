@@ -23,6 +23,7 @@ from shapely.geometry import LineString, Polygon
 from ..law import Law
 from ..model.airport import Airport, OsmWay
 from ..model.structures import Channel
+from .channel import _depth_under_crest
 from .structure_approach import is_tunnel
 
 __all__ = ['add_channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor']

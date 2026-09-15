@@ -437,3 +437,28 @@ def test_13b_the_claimed_set_is_read_off_the_passes_own_outputs(law):
     got = claimed_crossing_ways(ap, law, [_Cor()])
     assert -701 in got          # the mapped bore, by the tunnel predicate
     assert -702 in got and -999 in got   # the object corridor's own claim
+
+
+def test_channel_claiming_is_callable_from_its_own_module(law):
+    """A REGRESSION TWIN, and the measurement that earned it: splitting
+    ``planar/channel.py`` moved ``channel_claiming`` into
+    ``planar/channel_claims.py`` while its ``_depth_under_crest`` helper
+    stayed behind, and nothing caught it until LEMD's round-4 replay died
+    with ``NameError: name '_depth_under_crest' is not defined`` inside
+    ``build_basins``.  Every other twin reached ``in_any_corridor``
+    instead, so the real basin-intake call had no cover at all."""
+    from shapely.geometry import Polygon as _P
+    from auto_patch_v2.model.structures import Channel as _C
+
+    class _O:
+        below_grade = _P(_rect(0.0, 0.0, 10.0, 10.0))
+        solid_min_z = 80.0
+
+    c = _C(id="channel:0", ways=(), axis=((0.0, 0.0), (1.0, 1.0)),
+           profile=((0.0, 80.0),), region=_rect(-50.0, -50.0, 50.0, 50.0),
+           crest_estimate_m=100.0)
+    assert channel_claiming([c], _O(), law) == "channel:0"
+
+    class _Shallow(_O):
+        solid_min_z = 99.0          # 1 m under the crest, under the 3 m gate
+    assert channel_claiming([c], _Shallow(), law) == ""

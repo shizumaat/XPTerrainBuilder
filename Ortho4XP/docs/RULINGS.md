@@ -7911,3 +7911,24 @@ the z-xref tile was outside the brief and is recorded as the breach;
 a scope the process redirected has its deltas named as external
 candidates, never CONTAMINATED. Chip from the peer: obj8_split_report
 arms the guard but not redirect_engine_caches.
+
+## 2026-09-15ax APP 1.0.341 BUILT (f4bac3d4, engine 1.50.1788, main 7341372b) on the owner's word ("Build 341 for me to test") — bundled: solver qp, defect floor 0.10, bank OFF, pads OFF, mouth_pair_m 100, parapet_max_width_m 3.0; NOT in it: v2vmmcshore r6/r7 (the deck rule §34 (12) (4), merged to main right after at 347c4552), v2channel. v2vmmcshore r7 MERGED: both behaviours kept in structure_deck (`deck_intervals(..., bores, witness, plates)`), structures.py at 1,000 lines, suite 1,696 green twice on the branch; dry pairs VMMC 13 / 1, LEMD 56 / 5, OTHH 44 / 1; `-6288` centred on Bridge2's pair (span 20.6 vs inner 20.37 m, 0.23 ≤ 0.3)
+
+WHAT THE OWNER READS IN 1.0.341 — LEMD: item 5 mouth 5.07 m deep; the
+road between the mouths (−5944) graded at the cap; item 7 trench 31–33
+m from the taxiway kerb (beyond the code-E strip; the runway-strip
+residual stands — 15y-1); ramps graded along their axis; items 3/4
+inside Bridge3's wall pairs (item 4's top 7 m short of the pair's
+outer end); item 1 the deck centred on the parapets (from v2objcut r3);
+item 2 the garage STILL floats (pads OFF — the airside re-noding
+question). VMMC (r1–r3 only): the sea wall / quays, no zone band over
+the sea, no taxiway cut; the seafront corridor STILL carries decks in
+1.0.341 (the witnessed-below-grade rule is in the next build) — read
+the shore, not the tunnel line. VHHH: all five shells cut to their
+authored floors and outlines (tunnel5 the owner's site); the VHHH pack
+in the mod cache carries a lane rebake (15av) — the owner's app tile
+build rebakes from .anchor_bak. Also: LGAV no longer crashes the
+object stage; schema-stale road layers refuse by name; the road-layer
+refreshes done today. The two LEMD decks lost by the deck rule
+(`-5305`, `-15293`) are NOT in 1.0.341 (they still hold their
+trenches there) — a 1.0.342 item.

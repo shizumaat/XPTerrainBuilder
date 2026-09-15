@@ -19,6 +19,7 @@ Covered:
 import json
 import math
 import os
+import types
 
 import numpy
 import pytest
@@ -468,9 +469,16 @@ def test_legacy_caches_without_recorded_box_are_reused(
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         with open(destination, "wb") as handle:
             handle.write(b"legacy-raster")
+        # CYYY's negative carries THIS engine's stamp: the box
+        # grandfathering is what this twin measures, and an UNSTAMPED
+        # capability-free negative is re-asked once per version by law
+        # (owner RULINGS 2026-09-15aq (4)), which would fetch here.
         INSETS._write_index(
             60, -136, {"CYXY": {"BOXLEGACY": "ok"}, "CYYY": {
-                "BOXLEGACY": INSETS.NO_COVERAGE}}
+                "BOXLEGACY": INSETS.NO_COVERAGE,
+                "capabilities": {"BOXLEGACY": {
+                    "engine": INSETS.engine_version(),
+                    "capabilities": []}}}}
         )
 
         index = INSETS.ensure_airport_insets(
@@ -5616,3 +5624,160 @@ def test_a_stamp_that_records_the_MISSING_capability_verifies_nothing():
     record["capabilities"]["LERCPROVIDER"]["capabilities"] = ["lerc"]
     assert not INSETS.negative_is_unverified(record, "LERCPROVIDER",
                                              _LERC_DEFINITION)
+
+
+# =====================================================================
+# A CAPABILITY-FREE NEGATIVE IS RE-ASKED ONCE PER ENGINE VERSION
+# (owner RULINGS 2026-09-15aq (4))
+# =====================================================================
+#
+# The TNM outage of 2026-09-15 answered discovery with an HTTP 200 error
+# envelope; ``items`` was absent, the strategy returned ``None``, and 20
+# durable ``no-coverage`` records landed on the two Phoenix tiles
+# (RULINGS 2026-09-15q fixed the WRITER).  USGS3DEP declares NO required
+# capability, so 13b's re-probe door could never reach them: they were
+# PERMANENT.  The ruling makes the ENGINE VERSION the discriminator —
+# each version re-asks once, and stamps itself whatever the answer.
+_PLAIN_DEFINITION = {
+    "code": "PLAINPROVIDER",
+    "access_strategy": "capability_probe_strategy",
+    "role": INSETS.ROLE_AIRPORT_INSET,
+    "enabled": True,
+    "priority": 90.0,
+    "coverage_bbox": (-180.0, -90.0, 180.0, 90.0),
+}
+_PHOENIX_BOX = {"KPHX": (-112.05, 33.41, -111.98, 33.45)}
+
+
+def _write_phoenix_negative(engine=None):
+    """The record the TNM outage left behind, optionally version-stamped."""
+    record = {"PLAINPROVIDER": INSETS.NO_COVERAGE,
+              "checked": "2026-09-15",
+              "bounding_box": [-112.05, 33.41, -111.98, 33.45]}
+    if engine is not None:
+        record["capabilities"] = {
+            "PLAINPROVIDER": {"engine": engine, "capabilities": []}}
+    index_path = FNAMES.airport_inset_index(33, -112)
+    os.makedirs(os.path.dirname(index_path), exist_ok=True)
+    with open(index_path, "w") as handle:
+        json.dump({"KPHX": record}, handle)
+
+
+def test_a_capability_free_negative_is_re_probed_once_per_version(
+    tmp_path, monkeypatch
+):
+    """(a) An older version's negative is re-asked exactly once."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "_engine_version", lambda: "1.0.341")
+    _write_phoenix_negative(engine="1.0.340")
+    calls = _capability_strategy(lambda: None)   # the provider: still none
+    try:
+        assert INSETS.version_stale_capability_free_negatives(
+            33, -112, [_PLAIN_DEFINITION]) == [
+                ("KPHX", "PLAINPROVIDER", "1.0.340")]
+
+        index = INSETS.ensure_airport_insets(
+            33, -112, _PHOENIX_BOX, [_PLAIN_DEFINITION], 3.0
+        )
+        assert calls["count"] == 1, "the stale negative was not re-probed"
+        record = index["KPHX"]
+        # A genuine empty listing STAYS no-coverage — stamped with the
+        # version that heard it.
+        assert record["PLAINPROVIDER"] == INSETS.NO_COVERAGE
+        assert record["capabilities"]["PLAINPROVIDER"] == {
+            "engine": "1.0.341", "capabilities": []}
+        # EXACTLY ONCE.
+        assert INSETS.version_stale_capability_free_negatives(
+            33, -112, [_PLAIN_DEFINITION]) == []
+        INSETS.ensure_airport_insets(
+            33, -112, _PHOENIX_BOX, [_PLAIN_DEFINITION], 3.0
+        )
+        assert calls["count"] == 1
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+
+
+def test_a_same_version_capability_free_negative_is_never_asked(
+    tmp_path, monkeypatch
+):
+    """(b) This engine already asked.  Nothing asks again."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "_engine_version", lambda: "1.0.341")
+    _write_phoenix_negative(engine="1.0.341")
+    calls = _capability_strategy(lambda: None)
+    try:
+        assert INSETS.version_stale_capability_free_negatives(
+            33, -112, [_PLAIN_DEFINITION]) == []
+        INSETS.ensure_airport_insets(
+            33, -112, _PHOENIX_BOX, [_PLAIN_DEFINITION], 3.0
+        )
+        assert calls["count"] == 0
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
+
+
+def test_the_two_reprobe_doors_never_read_each_others_records():
+    """(c) A capability-GATED negative is 13b's door ONLY.
+
+    Its verification question is the capability stamp, not the version —
+    a LERC negative stamped by an engine that HAD the decoder is settled
+    forever, and no engine release calls it into question again.
+    """
+    gated = dict(_LERC_DEFINITION,
+                 coverage_bbox=(-180.0, -90.0, 180.0, 90.0))
+    record = {"LERCPROVIDER": INSETS.NO_COVERAGE,
+              "bounding_box": [168.70, -45.05, 168.79, -44.99],
+              "capabilities": {"LERCPROVIDER": {"engine": "1.50.1772",
+                                                "capabilities": ["lerc"]}}}
+    assert not INSETS.negative_is_unverified(record, "LERCPROVIDER", gated)
+    assert not INSETS.negative_is_version_stale(record, "LERCPROVIDER", gated)
+    # And an UNSTAMPED capability-free negative is 15aq's door only.
+    plain = {"PLAINPROVIDER": INSETS.NO_COVERAGE,
+             "bounding_box": [-112.05, 33.41, -111.98, 33.45]}
+    assert not INSETS.negative_is_unverified(
+        plain, "PLAINPROVIDER", _PLAIN_DEFINITION)
+    assert INSETS.negative_is_version_stale(
+        plain, "PLAINPROVIDER", _PLAIN_DEFINITION)
+
+
+def test_an_out_of_box_capability_free_negative_is_never_version_stale():
+    """No engine release churns every index on earth: a negative that
+    only says "my declared box does not reach here" is re-derived from
+    the boxes, needs no query, and is short-circuited before any fetch."""
+    elsewhere = dict(_PLAIN_DEFINITION,
+                     coverage_bbox=(-125.0, 24.0, -66.0, 50.0))
+    record = {"PLAINPROVIDER": INSETS.NO_COVERAGE,
+              "bounding_box": [168.70, -45.05, 168.79, -44.99]}
+    assert not INSETS.negative_is_version_stale(
+        record, "PLAINPROVIDER", elsewhere)
+
+
+def test_a_tile_with_a_version_stale_negative_is_not_settled(
+    tmp_path, monkeypatch
+):
+    """``is_cached`` must not call such a tile settled, or the pass that
+    would re-probe never runs."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "_engine_version", lambda: "1.0.341")
+    monkeypatch.setattr(
+        INSETS, "insets_enabled_for_tile", lambda tile: True)
+    monkeypatch.setattr(
+        INSETS, "unverified_capability_negatives",
+        lambda lat, lon, defs=None: [])
+    monkeypatch.setattr(
+        INSETS, "select_provider_definitions",
+        lambda spec, role=None: [_PLAIN_DEFINITION])
+    monkeypatch.setattr(
+        INSETS, "_inset_completion_key",
+        lambda tile: {"airports_layer": "x"})
+    stamp_path = INSETS.inset_completion_stamp_path(33, -112)
+    os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
+    with open(stamp_path, "w") as handle:
+        json.dump({"airports_layer": "x", "insets": []}, handle)
+    _write_phoenix_negative(engine="1.0.340")
+
+    tile = types.SimpleNamespace(lat=33, lon=-112)
+    assert INSETS.is_cached(tile) is False
+    # Stamped by THIS engine, the same tile is settled.
+    _write_phoenix_negative(engine="1.0.341")
+    assert INSETS.is_cached(tile) is True

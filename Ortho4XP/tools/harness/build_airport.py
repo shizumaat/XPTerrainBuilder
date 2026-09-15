@@ -846,7 +846,14 @@ def schema_stale_osm_layers(root, lat, lon) -> list:
 
 
 def unverified_inset_negatives(state, lat, lon) -> list:
-    """The DEGRADED-TIER refusal (owner RULINGS 2026-09-13b (2)).
+    """The DEGRADED-TIER refusal (owner RULINGS 2026-09-13b (2)) and the
+    ONCE-PER-VERSION re-probe refusal (owner RULINGS 2026-09-15aq (4)).
+
+    Two doors, one refusal: both name a ``no-coverage`` record the next
+    pass would RE-PROBE, and a re-probe fetches into the shared data
+    repo.  13b's covers a CAPABILITY-GATED provider whose record carries
+    no capability stamp; 15aq's covers a CAPABILITY-FREE provider whose
+    record carries another engine's version.
 
     A ``no-coverage`` in the inset index recorded for a CAPABILITY-GATED
     provider by a run that did not record its capabilities is UNVERIFIED:
@@ -872,10 +879,32 @@ def unverified_inset_negatives(state, lat, lon) -> list:
     try:
         import O4_Airport_Elevation_Insets as INSETS
         unverified = INSETS.unverified_capability_negatives(lat, lon)
+        version_stale = INSETS.version_stale_capability_free_negatives(
+            lat, lon)
+        running = INSETS.engine_version()
     except Exception as exc:
         print(f"  [harness] unverified-inset check skipped ({exc!r})")
         return []
     out = []
+    for (icao, code, recorded) in version_stale:
+        # THE ONCE-PER-VERSION RE-PROBE (owner RULINGS 2026-09-15aq (4)).
+        # ``code`` declares NO required capability, so 13b's door below
+        # cannot reach it; its negative would be permanent.  The TNM
+        # outage of 2026-09-15 wrote 20 such false negatives across the
+        # two Phoenix tiles (RULINGS 2026-09-15q).  Each engine version
+        # re-asks once — which FETCHES into the shared repo, so the
+        # harness refuses up front and names the flag.  The APP's own
+        # build path takes the re-probe; the harness never does.
+        out.append(("dem",
+                    f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
+                    f"index.json [{icao}:{code}]",
+                    f"a no-coverage negative for {code} recorded by engine "
+                    f"{recorded or 'an unrecorded version'} — this engine is "
+                    f"{running}, and a capability-free provider's negative "
+                    f"is RE-ASKED once per version (a TNM 200 error envelope "
+                    f"minted 20 false ones on the Phoenix tiles on "
+                    f"2026-09-15), so the build would re-probe {code} and "
+                    f"re-cut the inset mid-build"))
     for (icao, code, capabilities) in unverified:
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"

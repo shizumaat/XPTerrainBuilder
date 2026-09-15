@@ -10264,3 +10264,43 @@ def test_the_foot_row_head_is_in_both_registers():
     # `conforming_rulings` is the union of the two, so the head is in it
     # either way — which is exactly why the union cannot be the guard
     assert head in conforming_rulings(law)
+
+
+def test_a_version_stale_capability_free_negative_refuses_and_names_dem(
+        build_mod, monkeypatch):
+    """THE ONCE-PER-VERSION RE-PROBE REFUSAL (owner RULINGS 2026-09-15aq (4)).
+
+    USGS3DEP declares NO required capability, so 13b's door cannot reach
+    its negatives — the 20 the TNM 200-error-envelope outage wrote across
+    the two Phoenix tiles on 2026-09-15 were permanent.  The engine now
+    re-asks each capability-free negative ONCE PER ENGINE VERSION, which
+    FETCHES into the shared data repo — so the harness refuses up front,
+    names the airport, the provider, both versions and ``--refresh-data
+    dem``, and never fetches.  The predicate is the ENGINE's own.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    state = {"tile_stem": "N33W113", "airport_insets": True}
+    monkeypatch.setattr(
+        INSETS, "unverified_capability_negatives", lambda lat, lon: [])
+    monkeypatch.setattr(
+        INSETS, "version_stale_capability_free_negatives",
+        lambda lat, lon: [("KPHX", "USGS3DEP", "1.0.340")])
+    monkeypatch.setattr(INSETS, "engine_version", lambda: "1.0.341")
+    missing = build_mod.unverified_inset_negatives(state, 33, -113)
+    assert len(missing) == 1
+    (scope, artifact, why) = missing[0]
+    assert scope == "dem"
+    assert "N33W113_airport_insets/index.json" in artifact
+    assert "KPHX:USGS3DEP" in artifact
+    assert "1.0.340" in why and "1.0.341" in why
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data dem" in str(exc.value)
+    # Authorised, it passes — the explicit, locked, ledgered act.
+    build_mod.require_no_implicit_refresh(missing, {"dem"})
+    # A record stamped with THIS engine refuses nothing.
+    monkeypatch.setattr(
+        INSETS, "version_stale_capability_free_negatives",
+        lambda lat, lon: [])
+    assert build_mod.unverified_inset_negatives(state, 33, -113) == []

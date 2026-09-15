@@ -254,6 +254,15 @@ class DesignReport:
     #: sentinel 0.0 m — and took their own terrain plane instead.  A non-zero
     #: count is worth reading: it names geometry no law levels.
     level_belt_rows: int = 0
+    #: §20a's tie-break rows (lane ``v2settle`` r2): one per free column
+    #: §20a: HOW each damped active-set solve ENDED, in order (lane
+    #: ``v2settle`` r2).  ``SET NOT SETTLED`` said only that it did not; the
+    #: three exits are different failures with different cures, and a local
+    #: perturbation at ONE HECA vertex flipped the whole field's surface by
+    #: changing WHICH one fires (959 vertices > 0.02 m, 953 of them beyond
+    #: 500 m, max 0.52 m — RULINGS 2026-09-14br's field-wide shift,
+    #: reproduced offline with no pads involved).
+    set_exits: list[tuple[str, int, int]] = _dc.field(default_factory=list)
     #: THE FOOT ROWS (owner RULINGS 2026-09-11q, repriced 11ab; spec
     #: §11b (2)): the per-foot placement targets of every bare-ground
     #: body, priced at ``pad_flat`` (``constraints/foot_rows.py``)
@@ -353,6 +362,28 @@ class DesignReport:
         self.set_flips = max(self.set_flips, int(n))
         self.set_flip_max_m = max(self.set_flip_max_m, round(float(worst), 4))
         return bool(ok)
+
+    def note_set_exit(self, why: str, rounds: int, size: int) -> None:
+        """One damped active-set solve ended: ``same_set`` is the fixed
+        point (the only real convergence), ``objective_stalled`` and
+        ``line_search_stalled`` are the two early exits, ``round_cap`` the
+        ceiling."""
+        self.set_exits.append((why, int(rounds), int(size)))
+
+    def set_exit_line(self) -> str:
+        """The exits by kind, worst first — empty when every solve reached
+        its fixed point."""
+        if not self.set_exits:
+            return ""
+        by: dict[str, list[int]] = {}
+        for why, rnd, _n in self.set_exits:
+            by.setdefault(why, []).append(rnd)
+        if set(by) == {"same_set"}:
+            return ""
+        order = ("round_cap", "line_search_stalled", "objective_stalled",
+                 "same_set")
+        return "active-set exits: " + ", ".join(
+            f"{k} x{len(by[k])}" for k in order if k in by)
 
     def read_hard_set(self, viol: np.ndarray, tol: float,
                       ruling: _t.Callable[[int], str]) -> float:
@@ -508,6 +539,7 @@ class DesignReport:
                 "triangles": self.triangles, "components": self.components,
                 "detached": self.detached,
                 "level_belt_rows": self.level_belt_rows,
+                "set_exits": [list(e) for e in self.set_exits],
                 "body_datum_rows": self.body_datum_rows,
                 "body_datum_bodies": self.body_datum_bodies,
                 "body_datums": self.body_datums,
@@ -609,6 +641,7 @@ class DesignReport:
                 f"({self.detached} detached"
                 + (f", {self.level_belt_rows} LEVEL-BELT vertices"
                    if self.level_belt_rows else "")
+                + (f", {self.set_exit_line()}" if self.set_exit_line() else "")
                 + f"), {self.body_datum_bodies} apron bodies on "
                 f"their own DEM PLANE ({self.body_datum_rows} rows)"
                 + self._body_plane_line()

@@ -340,6 +340,46 @@ taxi_trend_face_reach_m = 250.0
 # guard, and the fit's degree is bounded by what its samples resolve.
 apron_trend   = 30.0
 road          = 3.0    # a road chain's own bending (the second difference along its breakline), welded at its pavement contacts, ramping between levels at its own caps
+# §20a THE OPTIMUM IS UNSTABLE, AND A TIE-BREAK IS NOT THE CURE — MEASURED
+# AND REFUTED (lane `v2settle` round 2; owner RULINGS 2026-09-14br asked for
+# "a regularising tie-break in the objective ... at a weight strictly below
+# every law family, so it decides only among equal-cost optima").
+#
+# THE INSTABILITY REPRODUCES OFFLINE WITH NO PADS.  One extra ceiling row at
+# ONE HECA apron vertex (30.1279552,31.403143), 0.30 m under where the base
+# solve put it, moves 959 vertices by more than 0.02 m — 953 of them BEYOND
+# 500 m from the perturbation and NONE within 100 m, worst 0.5206 m, over a
+# 6.2 x 4.7 km box and every role (143 graded_strip, 142 apron, 81 runway).
+# That is 14br's collar signature (11,363 moved, 2,211 over 500 m) without a
+# collar: the cause is in the SOLVE, not in the pad law.
+#
+# THE TIE-BREAK WAS BUILT AND MEASURED.  One row per free column anchoring
+# it to its DEM, weight swept:
+#     1e-9  un-perturbed surface moves <= 4.8e-6 m (a true tie-break) and
+#           the perturbed far field is IDENTICAL to main's to 13 digits
+#           (0.5205961258 vs 0.5205961255) — it buys NOTHING;
+#     1e-6  moves 1,627 vertices > 0.02 m un-perturbed (max 2.30 m) and
+#           makes the far field WORSE: 1,075 moved, 1,073 beyond 500 m;
+#     1e-3  1,840 moved, and 1e-6 vs 1e-3 disagree by 2.37 m on 1,799
+#           vertices — the displacement is WEIGHT-PROPORTIONAL, i.e. the row
+#           PRICES rather than choosing among equal optima.
+# A quadratic anchor cannot be both free and stabilising: below the law it
+# changes nothing, above it, it is a law.  The code is DELETED (build
+# economy: a refuted mechanism is deleted, not kept gated).
+#
+# THE MECHANISM IS THE ACTIVE SET'S FIXED POINT, NOT THE OBJECTIVE'S NULL
+# SPACE.  In the same pair the BASE problem's damped active-set iteration
+# CONVERGES (289 rounds, `converged True`, 1,713 flips) and the PERTURBED
+# one does NOT (248 rounds, `converged False`, 3,260 flips), and the
+# perturbed arm ends with FEWER violated hard rows (25 vs 39): the two arms
+# stop at different points of a combinatorial iteration, and everything
+# downstream — the lag, both projections — then runs from a different
+# surface.  `DesignReport.set_exits` now NAMES which of the four exits each
+# damped solve took (`same_set` is the only real convergence;
+# `objective_stalled`, `line_search_stalled`, `round_cap` are failures with
+# three different cures), which is the §20a treatment the lag and the hard
+# set already have.
+set_stall_tol = 1e-6   # MEASURED (lane `v2settle` r2): at HECA all six damped active-set solves exit HERE and none at the set's own fixed point — see the §20a block above
 detached_mean = 1.0    # a truly detached body (no route, no touching pavement, no road) sits at its own DEM mean: ONE soft term on the body's mean (owner 08t answer 6)
 # THE PER-BODY DATUM (owner RULINGS 2026-09-09p (3), refining 08t answer 6:
 # taxiway G at CYXY "is not sloping up enough like it was before, resulting in

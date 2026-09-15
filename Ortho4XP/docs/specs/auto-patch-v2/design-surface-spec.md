@@ -13967,3 +13967,28 @@ Against 207 faces / 944,872 m² for the general admission r2 refused.
 stubs), of which −5944 is the only one with a mouth at each end.  §34 (11)
 (c)'s other limb — "or excluded from the graded strip" — is untouched by
 this lane and is where the remaining 98.6 % belongs.
+
+## §34 (13) (3) RULED ON r3's MEASUREMENT — AN OBJECT'S FOOT NEVER HOLDS AIRSIDE PAVEMENT (Fable 2026-09-15; RULINGS 2026-09-15ad) — lane `v2lemdstruct2` r4
+
+r3 minted the raw-pair row (`constraints/transverse.junction_raw_
+transverse`, one-way on the junction end at a runway contact; 1,591
+rows at LEMD, 62 contacts; census `transverse` 107 → 98, junction|
+runway `taxi_box` within 14 m 5 → 0; 0 runway vertices moved) and the
+site still reads 4.296 %.  Hard was infeasible twice (10,006 / 8,548
+violated).  The families that hold pav157's far edge v6622 ABOVE the
+runway contact: `foot_rows` **14 rows, dual 42,656** (object feet),
+`no_step_pairs` 6 (4,565), `junction_mesh` 7 (1,870), `zone_bands` 4;
+at the contact v906 `junction_mesh` at cap 1.50 % × 43.2 m to a FREE
+zone vertex held by its DEM.  RULED: (a) an object's foot row on an
+AIRSIDE vertex is ONE-WAY toward the object — the foot follows the
+pavement, never holds it (airside is king; the object stage re-seats
+on the design surface anyway).  r4 names the 14 objects behind those
+rows (what stands at a taxiway junction's edge 18 m from a runway —
+signs, lights, a fence?) and flips their rows' direction at the
+derivation site; (b) the `junction_mesh` row from the runway contact
+to a free zone vertex terminates on a vertex that carries the
+junction's own transverse law, not on a DEM-held zone vertex — the
+mesh row's far end at a contact is the raw-pair partner; (c) re-
+measure the crossfall; if the raw pair then binds and the site reads
+≤ 1.985 %, done; if `no_step_pairs` bind next, name them and stop —
+the residual joins 15y-1 for the owner.

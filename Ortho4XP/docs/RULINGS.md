@@ -7520,3 +7520,30 @@ _bore_ends_at`, GEOS side-location conflict on a self-intersecting
 inner_a/inner_b ring at LGAV's Trench walls) — v2objcut r2 fixes it
 first (make_valid + the LGAV twin); it GATES app 1.0.341.
 15ab addendum: suite ON MAIN after the v2vmmcshore r2 merge (4c7d7e8a): 1624 passed, 1 skipped, 42 warnings in 46.58s. All four lanes' first rounds are on main. RULINGS key split agreed with the peer session: this session even ordinals (15ab, 15ad …), the peer odd (15ac, 15ae …).
+
+## 2026-09-15ad v2lemdstruct2 r3 MERGED (23de5927 → 777c6607, one spec conflict resolved by keeping both appended blocks): the road between two mouths LANDS (LEMD 4 faces / 3,775 m², KCLT 3, OTHH 0 — vs 207 faces for a general admission); the raw-pair row is minted one-way and the crossfall still reads 4.296 % — held by 14 OBJECT-FOOT rows (dual 42,656) → §34 (13) (3) RULED: a foot never holds airside (r4)
+
+Lane @ 23de5927; suite 1,620 passed, 0 FAILED; no build (ledger's last
+osm_layers refresh 2026-09-08). (4) refuted-and-refounded by the
+measurement: `tunnel:-15327@0` / `-5980@0` do not face each other
+(dual-carriageway portals, dots −0.916/−0.906; the 88.5 m between them
+is the plateau the bores pass UNDER); the road between two mouths is
+the way whose OWN ends are mouths — −5944 (from `-5931@1`'s mouth,
+shared node, to 47.3 m short of `-5980@0`). New `planar/structure_
+road.py` (`mouth_pair_roads`), law `[tunnel] mouth_pair_m` = 100.0
+(no Python default — the `no_numeric_literal_in_law_python` twins),
+`StructureStats.mouth_roads`; each clause answers a census HAZARD
+(tunnel/bridge ways refused, two different mouths, ≥ 1 shared-node
+join, the face cut out of every cell, its own namespace). Bars: the
+face on −5944 MET (way −10867, 605.09–611.00, 4 of 6 stations on the
+owner's line), grade 8.00 % at cap MET; the ground at 40.4940268 NOT
+MET (−5944 ends 47.3 m short); the hole ring cover 0.011 → 0.023, 13
+rings > 10,000 m² unchanged — the void is 98.6 % un-owned; §34 (11)
+(c)'s other limb (exclude it from the graded strip) is where the rest
+belongs. Census ADJUDICATED 1,360 → 1,344; the class's cost 16 rows,
+11 on `-4044` (a tertiary on a 12 % hillside). (3): the raw-pair rows
+landed (`RAW_PAIR_RULING`/`RAW_PAIR_CONTACT_RULING` in
+`one_way_rulings`); 4.296 % remains; hard infeasible twice (attempt
+cap) → RULED §34 (13) (3) on the measurement: an object's foot never
+holds airside pavement (r4 names the 14 objects and flips the rows);
+the mesh row's far end at a contact is the raw-pair partner.

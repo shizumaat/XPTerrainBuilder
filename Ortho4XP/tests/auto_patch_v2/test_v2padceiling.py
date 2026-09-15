@@ -297,9 +297,30 @@ def test_the_capture_runs_every_pre_solve_stage_the_build_runs():
     cap_calls = _calls(inspect.getsource(mod.capture))
     build_calls = _calls(inspect.getsource(build_fn))
     stages = {"load_with_report", "partition_pack", "derive", "read_objects",
-              "classify", "build", "detect", "preferred_road_z", "shape_stage"}
+              "classify", "build", "detect", "preferred_road_z", "shape_stage",
+              # THE CLUSTERS (lane ``v2padjoin``, 2026-09-14): a capture
+              # without them carries an ``Airport`` whose ``clusters`` is
+              # empty, so §30 (4)'s cluster pad, its apron reach and
+              # §16g (10)'s derived pads are INERT in every replay of it
+              # and a pads-ON arm silently measures the pads-OFF law.
+              # Same class as 12u's missing groups.
+              "_derive_clusters"}
     missing = (stages & build_calls) - cap_calls
     assert not missing, f"the capture skips {sorted(missing)}"
+
+
+def test_a_capture_predating_the_clusters_derives_them_at_replay():
+    """A REGISTERED capture written before the clusters were captured is
+    still replayable for them: the replay derives them off the capture's
+    OWN partition and NAMES it, the same rule as the PlanarMap channel
+    backfill (§37 (10)).  Without this an old frame measures the pads-OFF
+    law however the law values are set."""
+    import inspect
+    src = inspect.getsource(_replay_module().replay)
+    assert "capture predates Airport.clusters" in src
+    assert "_derive_clusters(airport, law)" in src
+    # and it is guarded on the capture NOT already carrying them
+    assert 'getattr(airport, "clusters", None)' in src
 
 
 # ── §32 (4) THE INSTRUMENT: ``--why-hard`` ──────────────────────────────

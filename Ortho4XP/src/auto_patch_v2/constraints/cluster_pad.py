@@ -16,14 +16,12 @@ Two rows of law, both on the DESIGN surface:
   frontage level fit, while every GEOMETRIC reader keeps reading
   ``pads._pad_groups``'s per-face derivation (the consumer census in the
   spec's §30 (4) MEASURED block rules each one).
-* THE APRON AROUND IT IS PART OF THAT PLANE (owner RULINGS
-  2026-09-14bf).  :func:`cluster_apron_join` BINDS every apron vertex
-  within ``[design] cluster_apron_reach_m`` of the pad INTO the pad's
-  plate — the same cap-0 ``pad_flat`` target and the same HARD 1 %
-  ceiling the pad's own vertices carry.  The one-way preference this
-  replaces was measured and refuted (the apron yielded to every hard
-  cap it had and the certificate worsened; see the function).  The
-  reach never reaches a taxiway band's own vertices at all.
+* THE APRON AROUND IT TAKES THAT PLANE.  :func:`cluster_apron_level`
+  mints one ONE-WAY target per apron vertex within ``[design]
+  cluster_apron_reach_m`` of the pad, at the LAW's own weight — so the
+  apron's hard caps, the pad's ceiling and every taxi row outrank it and
+  the reach yields wherever one plane cannot be had.  The reach never
+  reaches a taxiway band's own vertices at all.
 
 It lives apart from ``constraints/pads.py`` only because that file is at
 the 1,000-line bar; ``pad_frontage_gs.py`` (§28) stands beside it for
@@ -42,15 +40,14 @@ from ..geom import cluster_outlines
 from ..law import Law
 from ..law.tables import design as design_law, rolled_on_roles
 from ..model.airport import Airport
-from ..model.constraints import Diff, Row, Source
+from ..model.constraints import Row, Source
 from ..model.planar import PlanarMap
 from .pads import GEN_LEVEL, _pad_groups, _pad_polys, _two_sided
 from .precedence import view
 
 __all__ = ["cluster_reach_m", "cluster_polys", "cluster_pad_faces",
            "YIELDED", "TOUCHING_STEPS", "NO_OUTLINE", "pad_cluster_mismatch",
-           "plane_groups", "cluster_apron_faces", "cluster_apron_join",
-           "JOIN_STATS",
+           "plane_groups", "cluster_apron_faces", "cluster_apron_level",
            "CLUSTER_REACH_RULING"]
 
 
@@ -532,112 +529,47 @@ def _face_vertices(vw, fid: int) -> list[int]:
     return out
 
 
-def cluster_apron_join(planar: PlanarMap, law: Law, airport: Airport
-                       ) -> list[Row]:
-    """§30 (4) AS RULED 2026-09-14bf — THE REACH IS A PLANE JOIN, NOT A
-    PREFERENCE.
+def cluster_apron_level(planar: PlanarMap, law: Law, airport: Airport
+                        ) -> list[Row]:
+    """§30 (4) THE APRON AROUND A BIG TERMINAL TAKES THE CLUSTER'S PLANE
+    (owner RULINGS 2026-09-13bj item 1, verbatim: "it's acceptable to
+    flatten large apron areas around big terminals if needed to
+    accommodate a large terminal cluster ... as long as it remains
+    feasible with grade laws and taxiways").
 
-    Owner RULINGS 2026-09-14ay/az/bf: a pad that touches an apron is at
-    the apron's level, so the APRON must be planar where it meets the
-    pad.  Within ``[design] cluster_apron_reach_m`` of a cluster's pad
-    (bounded to the touching component, never across a taxi-family face
-    — :func:`cluster_apron_faces` is the one population) the apron's
-    vertices are BOUND INTO THE PAD'S PLATE: they carry THE SAME TWO
-    PLATE ROWS the pad's own vertices carry, against a well-spread
-    witness set of the pad's plane —
+    One ONE-WAY row per apron vertex in :func:`cluster_apron_faces`: the
+    vertex against THE CLUSTER PAD'S OWN MEAN (every rim vertex at
+    ``1/n``, the same leader shape :func:`pad_frontage_level` uses in the
+    other direction), the APRON as the follower.  So the stands at the
+    terminal come out flat at the terminal's level, and the pad is never
+    pulled by the apron it is flattening — 10l's direction still holds
+    for the pad's own level, which is fitted to its frontage first.
 
-      * the cap-0 ``pads.FLAT_RULING`` target (``[design] pad_flat``,
-        3,000), and
-      * the HARD ``pads.CEILING_RULING`` 1 % tilt ceiling
-        (``[design] hard_rulings``).
-
-    THE PREFERENCE FORM IT REPLACES WAS MEASURED AND REFUTED (lane
-    ``v2padvert`` r2, RULINGS 2026-09-14bf): one ONE-WAY level row per
-    apron vertex against the pad's mean, priced at ``apron_trend`` (30)
-    through ``cluster_reach_rulings``, is a TARGET the apron yields
-    before every hard cap it has — so the pad's cap-0 plate stayed
-    welded to an apron that never came and the stage-2 certificate
-    WORSENED (KCLT 313 -> 1,308 infeasible rows / 732 m; HECA 124 ->
-    794 / 571).  A join is the only form in which "the apron is flat at
-    the terminal" and "the pad meets the apron" are the SAME statement
-    rather than two rows bidding against each other.
-
-    THE POPULATION IS UNCHANGED and is still the thing that keeps the
-    taxiways still: no taxi- or runway-family vertex is ever in it, nor
-    an apron vertex a no-step row couples to one, nor one nearer a taxi
-    face than the pad (13cc (i), 13ce).  What changes is only the ROW
-    FORM over that population."""
+    Priced at the LAW's own weight (:data:`CLUSTER_REACH_RULING` is in
+    no heavier family), so the apron's hard caps, the pad's 1 % ceiling
+    and every taxi row outrank it: where one plane cannot be had the
+    apron stays graded and ``verify`` reports the residual, which is
+    exactly the feasibility clause of §30 (4)."""
     got = cluster_apron_faces(planar, law, airport)
     if not got:
         return []
-    from .pads import CEILING_RULING, FLAT_RULING, GEN as GEN_PADS, _pairs
-    groups = {ref.split("cluster:", 1)[1]: (fid, group)
-              for fid, ref, group, _q in plane_groups(planar, law, airport)
+    groups = {ref.split("cluster:", 1)[1]: group
+              for _f, ref, group, _q in plane_groups(planar, law, airport)
               if ref.startswith("cluster:")}
-    ceiling = float(law.tables.emit.within_shape.pad_slope_max)
-    xy = {v: vx.xy for v, vx in planar.vertices.items()}
     rows: list[Row] = []
-    JOIN_STATS.clear()
-    n_collar = 0
     for cid, vs in sorted(got.items()):
-        got_g = groups.get(cid)
-        if not got_g:
+        group = groups.get(cid)
+        if not group:
             continue
-        fid, group = got_g
-        # THE WITNESS SET: the plate's own decimated representatives —
-        # ``pads._pairs``'s ``group[::step]``, for the reason that
-        # function decimates at all (a well-spread subset witnesses a
-        # plane and the row count stays O(n)).  A collar vertex tied to
-        # them at cap 0 IS a vertex of the plate.
-        step = max(1, (len(group) + _CROSS_MAX - 1) // _CROSS_MAX)
-        witnesses = [w for w in group[::step] if w in xy] or [w for w in group if w in xy]
-        if not witnesses:
-            continue
-        src_flat = Source(GEN_PADS, FLAT_RULING
-                          + " (§30 (4) apron join, owner 2026-09-14bf; "
-                            "the collar is the pad's plate)",
-                          (f"face:{fid}", f"cluster:{cid}",
-                           f"apron_vertices:{len(vs)}"))
-        src_ceil = Source(GEN_PADS, CEILING_RULING
-                          + " (§30 (4) apron join, owner 2026-09-14bf)",
-                          (f"face:{fid}", f"cluster:{cid}",
-                           f"apron_vertices:{len(vs)}"))
-        collar = [v for v in vs if v in xy]
-        n_collar += len(collar)
-        for v in collar:
-            for w in witnesses:
-                if v == w:
-                    continue
-                d = _hypot(xy[v], xy[w])
-                if d <= 0.0:
-                    continue
-                rows.append(Diff(v, w, 0.0, d, src_flat))
-                rows.append(Diff(v, w, ceiling, d, src_ceil))
-        # AND THE COLLAR IS PLANAR WITH ITSELF: without its own pairs a
-        # collar vertex is held only against the pad, and two collar
-        # vertices on opposite sides of one plate could each satisfy the
-        # ceiling while stepping against each other.
-        for a, b in _pairs(sorted(collar)):
-            if a == b or a not in xy or b not in xy:
-                continue
-            d = _hypot(xy[a], xy[b])
-            if d <= 0.0:
-                continue
-            rows.append(Diff(a, b, 0.0, d, src_flat))
-            rows.append(Diff(a, b, ceiling, d, src_ceil))
-    JOIN_STATS.update(clusters=len(got), collar_vertices=n_collar,
-                      join_rows=len(rows))
+        src = Source(GEN_LEVEL, CLUSTER_REACH_RULING
+                     + " (owner 2026-09-13bj item 1; spec §30 (4))",
+                     (f"cluster:{cid}", f"apron_vertices:{len(vs)}"))
+        base = {v: -1.0 / len(group) for v in group}
+        for v in vs:
+            terms = dict(base)
+            terms[v] = terms.get(v, 0.0) + 1.0
+            rows.extend(_two_sided(tuple(terms.items()), src, (v,)))
     return rows
-
-
-def _hypot(p: tuple[float, float], q: tuple[float, float]) -> float:
-    import math
-    return math.hypot(p[0] - q[0], p[1] - q[1])
-
-
-#: What :func:`cluster_apron_join` last minted (the generator's stats
-#: line; ``pipeline/publication`` reads the population itself).
-JOIN_STATS: dict[str, int] = {}
 
 
 #: How many CROSS-LINKS one member face of a cluster contributes at most.

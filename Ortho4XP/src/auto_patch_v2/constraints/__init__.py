@@ -77,14 +77,12 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("pad_flats", pads.pad_flats),
     ("pad_frontage_level", pads.pad_frontage_level),
     ("pad_slope_ceiling", pads.pad_slope_ceiling),
-    # §30 (4) THE CLUSTER PAD'S APRON REACH, AS RULED 2026-09-14bf: the
-    # apron within ``[design] cluster_apron_reach_m`` of a TERMINAL
-    # CLUSTER's pad is BOUND INTO the pad's plate (the same cap-0
-    # ``pad_flat`` target and the same hard 1 % ceiling its own vertices
-    # carry) — a PLANE JOIN, never a preference the apron yields before
-    # every cap it has (measured: the certificate worsened, KCLT 313 ->
-    # 1,308 rows).  The reach never touches a taxiway band's vertices.
-    ("cluster_apron_join", cluster_pad.cluster_apron_join),
+    # §30 (4) THE CLUSTER PAD'S APRON REACH (owner RULINGS 2026-09-13bj
+    # item 1): the apron within ``[design] cluster_apron_reach_m`` of a
+    # TERMINAL CLUSTER's pad takes the pad's plane as its target, at the
+    # law's own weight — the caps and the taxi family still win, and the
+    # reach never touches a taxiway band's own vertices.
+    ("cluster_apron_level", cluster_pad.cluster_apron_level),
     ("frontage_near_miss", pads.frontage_near_miss),
     # §28 THE GROUNDSIDE FRONTAGE TAKES THE PAD'S EDGE LEVEL (owner RULINGS
     # 2026-09-11ai-1 -> 2026-09-12r "grade frontages only"): §20's frontage

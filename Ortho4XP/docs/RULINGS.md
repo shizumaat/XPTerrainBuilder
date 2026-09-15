@@ -7036,3 +7036,15 @@ TNM 504; the +33-112 tile keeps no negative and retries, the +33-113 tile
 recorded `USGS3DEP = "no-coverage"` — a FALSE durable negative the app
 never re-probes (TNM now lists four 1 m AZ_MaricopaPinal_2020 products);
 lane `v2insetneg` attributes and fixes the writer (brief a9bf45fa).
+
+## 2026-09-15g OWNER VHHH READ (app 1.0.340): the tunnels have object-based interior walls, ramps and hard covers — cut the trenches to THOSE — verbatim
+
+1. "The tunnels have object based interior walls and hard covers where
+   needed (like EGLL does), so we need to cut our trenches based on
+   those. The tunnel here: 22.3038632, 113.9088362 needs to align with
+   the provided ramp and walls from the airport package. This applies
+   to most of the other tunnels as well."
+Third airport in one theme with 15e items 1/3/4/6 (LEMD short surface
+walls) and 14av (OTHH deep walls): THE PACK'S STRUCTURAL OBJECTS —
+walls, ramps, covers — ARE THE AUTHOR'S CUT GEOMETRY. Scout dispatched
+for the VHHH inventory before one law is written for all three.

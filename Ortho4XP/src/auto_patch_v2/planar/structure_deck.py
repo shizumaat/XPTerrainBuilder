@@ -112,9 +112,76 @@ _DECK_MIN_ANGLE_DEG = 30.0
 _DECK_ALONGSIDE_MAX = 6.0
 
 
+#: §34 (12) (4) as amended: the last run's decisions, ``(way id, s0, s1,
+#: the covered end the climb ran from, the station it reached grade at,
+#: kept)`` — read by ``structures.build_structures`` into the tunnel's
+#: own ``notes`` so the reading is visible without a rebuild.
+LAST_BELOW_GRADE: list = []
+
+
+def below_grade_notes() -> list[str]:
+    """The last :func:`_below_grade` run's reading, one line per deck, for
+    the tunnel record's ``notes`` — so §34 (12) (4)'s verdict and the two
+    stations it compares are visible without a rebuild."""
+    return [f"\u00a734 (12) (4): deck {wid} at s {a:.1f}..{b:.1f}, the climb "
+            f"from {cov:.1f} reaches grade at "
+            f"{'never' if gr is None else format(gr, '.1f')} — "
+            f"{'severs' if ok else 'BEYOND GRADE, not a crossing'}"
+            for wid, a, b, cov, gr, ok in LAST_BELOW_GRADE]
+
+
+def _below_grade(ivals, grade_reach):
+    """§34 (12) (4) AS AMENDED (Fable 2026-09-15; RULINGS 2026-09-15aj):
+    **a deck severs the climb only where the corridor is still BELOW
+    GRADE at the deck's station.**
+
+    ``ivals`` are the crossings in station order from the mouth.  The
+    climb runs from the LAST COVERED END at ``ramp_max_grade``;
+    ``grade_reach(s)`` answers where that climb reaches the DEM along the
+    route (``structure_approach.ramp_top`` — one derivation, the ramp's
+    own).  A deck whose NEAR edge lies at or before that station extends
+    the covered run, and the climb restarts beyond its FAR edge; the
+    first deck beyond it is not a crossing of THIS corridor, and neither
+    is anything after it (the run only gets shorter).
+
+    The number is the ramp cap itself — no new key.
+
+    WHAT IT SEPARATES, measured (lane v2vmmcshore r3/r4).  VMMC's
+    ``tunnel:-2488@0`` needs **63.8 m** to reach grade (5.10 m at 8 %),
+    and its two "severing" decks ``-1798`` / ``-3636`` stand at
+    s = **214.8 / 308.7 m** — where there is no trench for a bridge to
+    span; they set ``climb_from_s`` 559.2 m on a ramp stopping at 468 m,
+    so the floor stayed flat at 1.00 m for 381 m of seafront.  LEMD's
+    seven decks all stand INSIDE their ramps' climb and are KEPT, which
+    is why the r3 crosses-the-bore limb (which dropped all seven) is
+    deleted and this one replaces it.
+
+    ``grade_reach = None`` leaves the list exactly as it was (every
+    synthetic fixture and every caller that cannot answer the DEM)."""
+    LAST_BELOW_GRADE.clear()
+    if grade_reach is None or not ivals:
+        return list(ivals)
+    kept = []
+    covered_end = 0.0
+    beyond = False
+    for rec in ivals:
+        s0, s1 = rec[1], rec[2]
+        s_grade = None if beyond else grade_reach(covered_end)
+        ok = not beyond and (s_grade is None or s0 <= s_grade)
+        LAST_BELOW_GRADE.append((getattr(rec[0], "id", None), s0, s1,
+                                 covered_end, s_grade, ok))
+        if not ok:
+            beyond = True
+            continue
+        kept.append(rec)
+        covered_end = max(covered_end, s1)
+    return kept
+
+
 def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],
                     lines: list[LineString], tree: STRtree | None, law: Law,
-                    bores: _t.Sequence[LineString] = ()
+                    bores: _t.Sequence[LineString] = (),
+                    grade_reach=None
                     ) -> list[tuple[OsmWay, float, float, Polygon]]:
     """``(way, s0, s1, deck polygon)`` per mapped bridge way crossing the
     corridor (at ≥ 30° to the axis), ordered by ``s0``.
@@ -160,8 +227,11 @@ def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay]
             continue
         wd = carriageway_width_m(w.tags, law)
         # §34 (12) (4): an OVER-CROSSING, not a way running alongside.
+        # (The BELOW-GRADE limb is the second pass, after the candidates
+        # are in station order — it is a property of the RUN, not of one
+        # way, so it cannot be decided here.)
         #
-        # THE LITERAL READING — "it must cross the BORE, within the
+        # THE REFUTED LITERAL READING — "it must cross the BORE, within the
         # corridor's own width" — IS MEASURED AND REFUTED, and the code
         # for it is deleted rather than gated (lane v2vmmcshore r3).
         # Armed, ``ln.intersects(bore_band)`` is RIGHT at VMMC (the two
@@ -214,7 +284,7 @@ def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay]
                       min(spans, key=lambda sp: min(abs(sp[0] - s_mid), abs(sp[1] - s_mid))))
         out.append((w, min(s_vals), max(s_vals), dpoly))
     out.sort(key=lambda t: t[1])
-    return out
+    return _below_grade(out, grade_reach)
 
 
 class _GroupWay:

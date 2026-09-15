@@ -246,6 +246,49 @@ def test_a_bridge_running_ALONGSIDE_the_corridor_does_not_sever_the_climb(law):
                               STRtree([ln]), law, [bore])) == 1
 
 
+def test_a_deck_severs_only_where_the_corridor_is_still_below_grade(law):
+    """§34 (12) (4) AS AMENDED (Fable 2026-09-15; RULINGS 2026-09-15aj):
+    a deck severs the climb only where the corridor is still BELOW GRADE
+    at the deck's station.
+
+    VMMC's ``tunnel:-2488@0`` is the case: 5.10 m of rise at the 8 % cap
+    reaches grade at 63.8 m (``ramp_top`` answers 84.0 m — the climb plus
+    one station of slack), and its decks stand at s = 211.0 / 302.1 /
+    489.4 / 545.9 m.  None of them spans a trench, so none severs, and
+    the floor climbs from the mouth instead of staying flat for 381 m.
+
+    The chained case is the owner's own bore ``-5508+-5507+-2489@0``:
+    ``-2088`` at s 12.2 severs (grade at 84.0), the climb RESTARTS at its
+    far edge 19.2, and ``-1798`` at s 69.2 severs again because the
+    restarted climb reaches grade only at 96.0."""
+    from auto_patch_v2.planar.structure_deck import _below_grade
+
+    # (way, s0, s1, poly) — only the stations matter here
+    def _rec(wid, s0, s1):
+        return (wid, s0, s1, None)
+
+    # the climb from ``c`` reaches grade 84 m on, VMMC's own number
+    reach = lambda c: c + 84.0            # noqa: E731
+
+    # a deck BEFORE grade severs; the next one is priced from its far end
+    chained = [_rec("a", 12.2, 19.2), _rec("b", 69.2, 76.2)]
+    assert [r[0] for r in _below_grade(chained, reach)] == ["a", "b"]
+
+    # every deck BEYOND grade is not a crossing of this corridor
+    beyond = [_rec("x", 211.0, 218.7), _rec("y", 302.1, 315.3)]
+    assert _below_grade(beyond, reach) == []
+
+    # the first beyond-grade deck stops the run: nothing later comes back
+    mixed = [_rec("a", 12.2, 19.2), _rec("x", 211.0, 218.7),
+             _rec("z", 220.0, 227.0)]
+    assert [r[0] for r in _below_grade(mixed, reach)] == ["a"]
+
+    # a climb that never reaches grade keeps every deck (``ramp_top``
+    # answers None) — the pre-amendment reading, and the fixtures' one
+    assert len(_below_grade(beyond, lambda c: None)) == 2
+    assert len(_below_grade(beyond, None)) == 2
+
+
 # ── §34 (12) (2): no structure face, rim or ramp over the water ─────────
 
 def test_no_ramp_or_rim_stands_on_the_water(law):

@@ -35,7 +35,8 @@ from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_side
 from .structure_approach import under_cover
 
-__all__ = ["airside_cut_roles", "airside_stops", "osm_stops", "pad_relief_m"]
+__all__ = ["airside_cut_roles", "airside_stops", "grade_reach_for",
+           "osm_stops", "pad_relief_m"]
 
 
 def pad_relief_m(airport: Airport, poly: Polygon) -> float:
@@ -138,3 +139,24 @@ def osm_stops(corridor, group, cells, polys, pads, pad_tree, cut_roles,
         [Point(m.xy) for m in (group.members or ())] or [Point(group.mouth)],
         grid)
     return stops, (STRtree([p for p, _r in stops]) if stops else None)
+
+
+def grade_reach_for(airport, law: Law, axis_fn, mouth_z: float,
+                    grade: float, spacing: float):
+    """§34 (12) (4) as AMENDED (RULINGS 2026-09-15aj): ``f(covered_end) ->``
+    the station at which the climb from ``covered_end`` reaches the DEM
+    along the route, or ``None`` where it never does.
+
+    It is ``structure_approach.ramp_top`` — the RAMP's own derivation, so
+    the deck reading and the ramp it feeds cannot disagree about where
+    the trench ends — bound to this group's mouth datum, cap and station
+    spacing.
+    """
+    from .structure_approach import ramp_top
+
+    def reach(covered_end: float) -> float | None:
+        s_top, _ss = ramp_top(airport, law, axis_fn, mouth_z, covered_end,
+                              spacing, grade=grade)
+        return s_top
+
+    return reach

@@ -247,9 +247,15 @@ def test_a_mouth_beside_the_runway_is_built(law, ck):
     assert so + 50.0 < half and y - 60.0 > so
     cl2, tunnels, st = _run(law, ((0.0, y), (0.0, y + 30.0)))
     assert st.runway_bands == 1
-    assert st.mouths >= 1 and st.tunnels >= 1
+    assert st.mouths >= 1
     named = " ".join(st.mouths_on_approach_named)
     assert "runway lateral band" in named
+    # AMENDED for §34 (12) (1): the BAND admits the mouth (that is §29
+    # (7), and it is unchanged); a bore under nothing is still not built.
+    # The same bore run UNDER the apron is — one variable, two arms.
+    assert st.tunnels == 0 and st.bores_no_service == 1
+    _cl, t2, st2 = _run(law, ((0.0, y), (0.0, 0.0)))
+    assert st2.bores_no_service == 0 and st2.tunnels >= 1 and t2
 
 
 # ── the mouth gate (§29 (1)) ─────────────────────────────────────────────
@@ -265,8 +271,13 @@ def test_a_mouth_in_the_corridor_far_from_the_cover_is_built(law, ck):
     assert st.approach_corridors == 2
     assert st.mouths == 2 and st.mouths_off_field == 0
     assert st.mouths_on_approach == 2
-    assert st.tunnels == 2 and len(tunnels) == 2
-    assert [c.role for c in cl2.cells].count("tunnel_ramp") == 2
+    # AMENDED for §34 (12) (1) (owner RULINGS 2026-09-15f item 1): the
+    # corridor's admission of the MOUTH is unchanged and is what this
+    # twin measures; the BUILD now also needs the bore to serve the
+    # field, and this one passes under nothing at all.
+    assert st.bores_no_service == 1
+    assert st.tunnels == 0 and tunnels == ()
+    assert [c.role for c in cl2.cells].count("tunnel_ramp") == 0
     # the report names it as in view, with its true distance off the field
     assert st.mouths_on_approach_named
     assert "in view" in st.mouths_on_approach_named[0]
@@ -278,7 +289,9 @@ def test_a_mouth_outside_the_cover_and_every_corridor_is_dropped(law):
     """The other half of the ruling: outside both regions it is raw DEM.
     South of the apron the along-corridor station is negative at BOTH
     thresholds, so no corridor reaches there however wide it is."""
-    cl2, tunnels, st = _run(law, ((0.0, -60.0), (0.0, -3000.0)),
+    # AMENDED for §34 (12) (1): the bore starts UNDER the apron so the
+    # SECOND gate admits it and this twin measures the FIRST one alone.
+    cl2, tunnels, st = _run(law, ((0.0, 0.0), (0.0, -3000.0)),
                             (((0.0, -3000.0), (0.0, -3900.0)),))
     assert st.mouths == 1 and st.mouths_off_field == 1
     assert st.mouths_on_approach == 0

@@ -55,9 +55,22 @@ def shore_region(cells: tuple[Cell, ...], dem):
     ("an apron over water is a deck, not water").  So the water region is
     the witness MINUS every classified cell.
 
+    THE SHORE IS THE SEA, NOT EVERY WET POLYGON.  The witness's own
+    partition is read through ``sea_geometry`` where the sampler has one:
+    §37 (11) is the COAST's law (its level is the tile's sea, its wall is
+    the mesh's seawall breakline, the owner's words are "a taxiway in the
+    water"), while an inland canal or retention basin keeps the 09-09m
+    WATER DATUM — the ground stands over it and is PINNED to its median
+    level.  Trimming the zones at an inland body would delete that law's
+    whole population (measured: ``tests/auto_patch_v2/test_water_datum``'s
+    canal), and it would cut the band at LEMD's retention basins, which
+    are §24's region and not this one's.
+
     ``None`` where there is no witness (every synthetic fixture) or no
-    water beside the field — and the regions are then what they were."""
-    fn = getattr(dem, "water_geometry", None)
+    sea beside the field — and the regions are then what they were."""
+    # THE SEA WITNESS ONLY.  A sampler that answers "is this wet" but not
+    # "is this the SEA" claims NO shore here: no witness, no trim.
+    fn = getattr(dem, "sea_geometry", None)
     if not callable(fn) or not cells:
         return None
     land = unary_union([Polygon(c.ring, c.holes) for c in cells])

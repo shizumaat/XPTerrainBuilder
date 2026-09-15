@@ -14,10 +14,9 @@ crest = DEM; law ``structures.toml [tunnel]``):
   2026-09-12r "we should never emit anything for actual tunnels, only
   the tunnel mouths and entrance/exit ramps"; Fable 2026-09-12t; owner
   2026-09-12ab).  A bore with no on-field mouth emits NOTHING however
-  much of its length runs under a cell (LEMD's rail bores, 4.0 km out);
-  a bore with an on-field mouth is built whether or not it passes under
-  an airport surface — a portal on the field is visible on approach —
-  and is counted and named where the cover test would have refused it;
+  much of its length runs under a cell (LEMD's rail bores, 4.0 km out).
+  §34 (12) (1): the mouth is NECESSARY, NOT SUFFICIENT — the bore must
+  also SERVE THE FIELD (``structure_service.serves_the_field``);
 * the MOUTH is the mapped end of the bore (08-07 ruling 1: "mapped ends
   are preserved unconditionally" — WHERE IT STANDS ON THE FIELD, §29 (1);
   an end outside the governed region is dropped at ``mouths()`` and
@@ -40,11 +39,10 @@ crest = DEM; law ``structures.toml [tunnel]``):
   its exterior IS the rim, emitted as a constrained ring) and the mesh
   makes the wall.  No crest band exists (``emit_wall_band = false``);
 * the structure CUTS every pavement it runs through (08-07 ruling 4)
-  except the runway family and building pads (``ramp_cuts_runway_family
-  = false``, ``ramp_crosses_pad = false``): a ramp that would need to
-  cross either before reaching the DEM is REFUSED loudly, never bent;
-  a wall inside the runway strip keep-out is refused likewise
-  (``retaining_wall.in_runway_strip = false``);
+  except THE WHOLE AIRSIDE ROLE SET (§34 (12) (3), owner 2026-09-15f;
+  ``structure_service``) and building pads (``ramp_crosses_pad``): a ramp
+  that would cross either before reaching the DEM is REFUSED loudly; a
+  wall inside the runway strip keep-out likewise;
 * a mapped ``bridge=*`` way crossing the corridor is a TERRAIN DECK
   (08-30d: no object ⇒ terrain deck at road level): a road face across
   the corridor that severs the ramp and the walls; the cut stays at bore
@@ -103,6 +101,8 @@ from .structure_approach import (FieldRegion, apply_plates,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
+from .structure_service import (airside_cut_refusal, airside_cut_roles,
+                                no_service_bores, pad_relief_m as _pad_relief_m)
 from .structure_deck import (PavementDeck, deck_intervals, deck_items, emit_decks,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
@@ -117,75 +117,13 @@ __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 RUNWAY_FAMILY = ("runway", "runway_crossing")
-#: Two OSM node coordinates closer than this (frame metres) are one node.
-NODE_TOL = 0.05
-#: Approach ways are followed at most this many hops from the mouth.
-MAX_HOPS = 6
-#: Two directions within 30° are parallel (31h's dual test; the approach kink test).
-PARALLEL_COS = math.cos(math.radians(30))
+NODE_TOL = 0.05                    #: two node coords closer than this are one
+MAX_HOPS = 6                       #: hops an approach walk follows from a mouth
+PARALLEL_COS = math.cos(math.radians(30))   #: 31h's dual test / the kink test
 
 
 def _dem(airport: Airport, p: XY) -> float:
     return float(airport.dem.z(p[0], p[1]))
-
-
-def airside_cut_roles(law: Law) -> tuple[str, ...]:
-    """§34 (12) (3) THE AIRSIDE ROLE SET A CORRIDOR NEVER CUTS (owner
-    RULINGS 2026-09-15f item 1; Fable 2026-09-15i).
-
-    Every AIRSIDE role that carries a surface of its own — the runway
-    family, the parallels, the stubs, the cross-connectors, the junctions
-    and the aprons — read from ``precedence.toml`` (``side = "airside"``,
-    ``value = true``, not a structure), never typed out here.  Before
-    §34 (12) only the runway family was exempt from a corridor cut
-    (08-07 ruling 4), so VMMC's seafront car-park bore knifed code-E
-    junction ``pav5`` into six faces at 3.58–4.50 m against the 6.10 m
-    field.  ``ramp_cuts_runway_family = false`` keeps its name and its
-    value; what widened is the population it protects.
-
-    The PAD (``building``) is deliberately NOT here: a pad is protected by
-    ``tunnel.ramp_crosses_pad``, which STOPS the ramp at the pad's edge
-    rather than refusing the corridor, and that machinery
-    (``structure_geometry.pad_hit``) is unchanged."""
-    from ..law.tables import is_structure_role, is_value_role
-    return tuple(r for r in law.tables.precedence.roles
-                 if role_side(law, r) == "airside" and is_value_role(law, r)
-                 and not is_structure_role(law, r) and r != "building")
-
-
-def serves_the_field(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
-    """§34 (12) (1) A TUNNEL IS BUILT ONLY WHERE IT SERVES THE FIELD (owner
-    RULINGS 2026-09-15f item 1; Fable 2026-09-15i).
-
-    ``line`` is the BORE (the mapped ``tunnel=yes`` chain) and ``polys``
-    the §34 (12) (1) COVER CLASSES ONLY — airside pavement, a pad or unit
-    footprint, a deck the pack authored (a plate or a wall corridor,
-    §33).  The bore serves the field when at least a metre of it runs
-    UNDER one of them.
-
-    A mouth inside the cover ⊕ ``mouth_standoff_m`` (§29 (1)) is a
-    NECESSARY condition and never a sufficient one: VMMC's OSM
-    ``highway=service tunnel=yes`` ways −5508/−5507 are a car-park ramp
-    under a building that has nothing to do with the aerodrome, and they
-    were admitted because a mouth stood 36 m from junction ``pav5``.  A
-    bore whose only covers are mapped ``bridge=yes`` roads is not an
-    airport tunnel: a mapped bridge is not a cell of this set, and a
-    ``bridge_deck:*`` face is minted BY a corridor, so it can never be
-    that corridor's own admission evidence.
-
-    The reading is ``structure_approach.under_cover``'s — one
-    implementation of "how much of this line is under these polygons",
-    two cover sets."""
-    return under_cover(line, polys, tree)
-
-
-def _pad_relief_m(airport: Airport, poly: Polygon) -> float:
-    """The DEM relief across a pad's ring (a flat pad is ground; a pad on
-    relief is a levelled plane).  ONE implementation, in
-    ``airport/skirt.ring_relief_m`` (spec §22 C4)."""
-    from ..airport.skirt import ring_relief_m
-    return ring_relief_m(lambda x, y: _dem(airport, (x, y)), poly.exterior.coords)
-
 
 # ── build ────────────────────────────────────────────────────────────────
 
@@ -273,45 +211,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                                      dropped)
     with_mouth = {id(b) for b in bores if any(m.bore is b for m in mouth_list)}
     covered = [b for b in bores if id(b) in with_mouth]
-    # §34 (12) (1) A TUNNEL SERVES THE FIELD OR IS NOT BUILT.  The §29 (1)
-    # mouth gate above is NECESSARY; this is the second, independent
-    # condition, taken at the same single site and reported apart so the
-    # two findings are never read as one (``mouths off-field N`` vs
-    # ``bores no service N``).  The cover set is the ruling's own:
-    # airside pavement, a pad or unit footprint, the pack's authored
-    # corridors and plates.  A groundside road, a lot, or a mapped
-    # ``bridge=yes`` way is NOT cover.
-    service_polys = [p for p, c in zip(polys, cells)
-                     if role_side(law, c.role) == "airside" and c.kind != "structure"]
-    service_polys += [c.footprint for c in corridors]
-    service_polys += [getattr(pl, "footprint", None) for pl in plates]
-    service_polys = [p for p in service_polys
-                     if p is not None and not p.is_empty]
-    service_tree = STRtree(service_polys) if service_polys else None
-    # AN OBJECT CORRIDOR'S BORE IS NEVER GATED HERE.  The pack's wall
-    # objects are the field authority where they stand (§33 (2), the
-    # owner's EGLL exception, keyed on the pack's geometry and never on
-    # OSM), and the precedence below hands such a mouth to the object.
-    # Measured at OTHH: gating before the precedence ran took three
-    # `tunnel-object:*` corridors out (`tunnel middle - east/west`,
-    # `tunnel south west 2`) because their bore LINE runs under the
-    # object rather than under a classified cell.
-    _tol = tn.object.bore_end_tolerance_m
-    claimed = {id(m.bore) for m in mouth_list
-               if corridors and mouth_covered_by(m.xy, corridors, _tol) is not None}
-    served = [b for b in covered
-              if id(b) in claimed
-              or serves_the_field(b.line, service_polys, service_tree)]
-    no_service = [b for b in covered if b not in served]
-    mouth_only = [b for b in served if not under_cover(b.line, polys, cell_tree)]
-    stats.bores_no_mouth = len(bores) - len(covered)
-    stats.bores_no_service = len(no_service)
-    stats.no_service_bores = ["+".join(str(w.id) for w in b.ways)
-                              for b in no_service][:12]
-    if no_service:
-        drop = {id(b) for b in no_service}
-        mouth_list = [m for m in mouth_list if id(m.bore) not in drop]
-        covered = served
+    # §34 (12) (1): the second, independent condition beside §29 (1)'s
+    # mouth gate (``structure_service.no_service_bores``), reported apart
+    served, no_service = no_service_bores(covered, mouth_list, corridors,
+                                          cells, polys, plates, law,
+                                          tn.object.bore_end_tolerance_m)
+    # §29 (2)'s own reading, over what THAT gate admitted (both reported)
+    mouth_only = [b for b in covered if not under_cover(b.line, polys, cell_tree)]
+    stats.bores_no_mouth, stats.bores_no_service = len(bores) - len(covered), len(no_service)
+    stats.no_service_bores = ["+".join(str(w.id) for w in b.ways) for b in no_service][:12]
+    # THE DROP IS OF THE BUILD, NOT OF THE MOUTH: §29 (1)'s own counts
+    # stay what THAT gate found, so the two findings keep reading apart
+    no_service_ids = {id(b) for b in no_service}
     stats.bores_mouth_only = len(mouth_only)
     stats.mouth_only_bores = ["+".join(str(w.id) for w in b.ways) for b in mouth_only][:12]
     if not covered and not corridors and not extra_groups:
@@ -352,8 +263,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                              f"stand")
         mouth_list = kept
     stats.mouths = len(mouth_list)
+    built = [m for m in mouth_list if id(m.bore) not in no_service_ids]
     groups = [Group(list(m), xy, inw, w, list(ax))
-              for m, xy, inw, w, ax in (merge_duals(mouth_list, law, stats) if mouth_list else [])]
+              for m, xy, inw, w, ax in (merge_duals(built, law, stats) if built else [])]
     groups += object_groups(corridors, list(airport.osm_ways), law, reach)
     groups += extra_groups
     stats.object_corridors = len(corridors)
@@ -369,14 +281,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # ``ramp_cuts_runway_family`` are kept; the union is wider.
     runway_u = unary_union([p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
         if any(c.role in RUNWAY_FAMILY for c in cells) else None
-    # §34 (12) (3)'s WIDER union, for an OSM BORE's corridor only.  A
-    # corridor the PACK states — an object corridor, a wall corridor, a
-    # door well — is the §33 (2) authority where it stands: its own plate
-    # IS the deck over the pavement, which is (3)'s first limb, and there
-    # is no terrain deck cell to find.  Measured at OTHH: applied to them
-    # the wider union refused `tunnel middle - east`, `tunnel middle -
-    # west` and `tunnel south west 2` against aprons `pav32` / `pav30` —
-    # the pack's own terminal tunnels.
+    # §34 (12) (3)'s WIDER union, for an OSM BORE's corridor only (the
+    # scoping and its OTHH measurement: ``structure_service``)
     _cut_roles = set(airside_cut_roles(law))
     airside_u = unary_union([p for p, c in zip(polys, cells)
                              if c.role in _cut_roles and c.kind != "structure"]) \
@@ -778,40 +684,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # of an underpass, §34 (5)"): the decks read above are subtracted
         # before the test, so every §34 (5) underpass — LEMD F-6, KCLT
         # taxiway U — passes exactly as it did.
-        _cut_u = airside_u if c is None else runway_u
-        if _cut_u is not None:
-            _decked = [d[3] for d in deck_ivals] + [d[3] for d in pav_ivals] \
-                + [d[3] for d in obj_ivals]
-            # §34 (12) (3) is about a bore CROSSING a pavement — "where a
-            # bore crosses a taxiway, junction, apron, stub or parallel".
-            # A corridor whose MOUTH stands on a pavement does not cross
-            # it, it ENDS in it: that is what a portal is, and 08-07
-            # ruling 4's cut has always been how the portal is opened
-            # (LEMD's and HECA's apron mouths).  The pavement the mouth
-            # itself stands on is therefore exempt; every OTHER airside
-            # face the corridor would knife is the defect — VMMC's bore
-            # reached junction `pav5` 36 m away and split it into six
-            # faces at 3.58–4.50 m against the 6.10 m field.
-            _mouth_pts = [Point(m.xy) for m in (g.members or ())] or [Point(g.mouth)]
-            _decked += [p for p, cc in zip(polys, cells)
-                        if cc.role in _cut_roles and cc.kind != "structure"
-                        and any(p.dwithin(q, grid) for q in _mouth_pts)]
-            _cut = outer
-            if _decked:
-                _cut = outer.difference(
-                    unary_union(_decked).buffer(gap + grid, **_MITRE))
-            if not _cut.is_empty and _cut.intersects(_cut_u) and \
-                    _cut.intersection(_cut_u).area > 1e-6:
-                _hit = sorted({cc.ref for p, cc in zip(polys, cells)
-                               if cc.role in _cut_roles and cc.kind != "structure"
-                               and p.intersects(_cut)
-                               and p.intersection(_cut).area > 1e-6})[:4]
-                stats.refused.append(
-                    f"{tid}: the ramp would cut AIRSIDE pavement "
-                    f"{'+'.join(_hit) or '(unnamed)'} before reaching the DEM, and no "
-                    f"deck of this corridor states the crossing "
-                    f"(§34 (12) (3); ramp_cuts_runway_family = false)")
-                continue
+        # §34 (12) (3): the ONE reading, ``airside_cut_refusal``
+        _why = airside_cut_refusal(
+            outer, airside_u if c is None else runway_u,
+            [d[3] for d in deck_ivals] + [d[3] for d in pav_ivals]
+            + [d[3] for d in obj_ivals],
+            [Point(m.xy) for m in (g.members or ())] or [Point(g.mouth)],
+            cells, polys, _cut_roles, gap, grid)
+        if _why:
+            stats.refused.append(f"{tid}: {_why}")
+            continue
         if strip_u is not None and wall.intersects(strip_u) and \
                 wall.intersection(strip_u).area > 1e-6:
             stats.refused.append(f"{tid}: the wall would stand inside the runway strip "

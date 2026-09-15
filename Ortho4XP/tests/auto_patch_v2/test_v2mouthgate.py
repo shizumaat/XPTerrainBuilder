@@ -100,14 +100,18 @@ def test_an_off_field_mouth_is_dropped_and_counted(law):
     outside the cover ⊕ standoff and outside every approach corridor, so
     that mouth is dropped (counted) and only the on-apron north mouth is
     built."""
-    cl2, tunnels, st = _run(law, ((0.0, -60.0), (0.0, -2000.0)),
+    # AMENDED for §34 (12) (1) (owner RULINGS 2026-09-15f item 1): the
+    # bore starts UNDER the apron, so it SERVES THE FIELD and the second
+    # gate admits it — this twin is the MOUTH gate's, and testing one
+    # gate needs the other satisfied (the 12al amendment's own pattern).
+    cl2, tunnels, st = _run(law, ((0.0, 0.0), (0.0, -2000.0)),
                             (((0.0, -2000.0), (0.0, -2900.0)),))
     assert st.bores == 1 and st.bores_no_mouth == 0
     assert st.mouths == 1 and st.mouths_off_field == 1
     assert st.tunnels == 1 and not st.refused, st.refused
     # the one ramp built stands at the NORTH mouth, on the apron
     assert [c.role for c in cl2.cells].count("tunnel_ramp") == 1
-    assert tunnels[0].axis[0][1] == pytest.approx(-60.0, abs=1.0)
+    assert tunnels[0].axis[0][1] == pytest.approx(0.0, abs=1.0)   # &34 (12) (1): the mouth moved to the apron centre
 
 
 def test_a_bore_admitted_only_by_cover_emits_nothing(law):
@@ -141,19 +145,30 @@ def test_the_gate_is_the_cover_grown_by_the_standoff(law):
 
 
 def test_a_mouth_on_the_field_is_built_though_its_bore_covers_nothing(law):
-    """§29 (2) as the owner ruled it (2026-09-12ab, "Build them"): a bore
-    whose mouth stands on the field is BUILT whether or not the bore
-    passes under an airport surface — a portal on the field is visible on
-    approach — and is counted and named where the retired cover test
-    would have refused it (LEMD: 8 such bores, 9 corridors, +329 census
-    rows, accepted)."""
+    """SUPERSEDED IN PART BY §34 (12) (1) (owner RULINGS 2026-09-15f item
+    1; Fable 2026-09-15i).
+
+    Owner 2026-09-12ab ruled "Build them": a bore whose mouth stands on
+    the field was built whether or not the bore passed under an airport
+    surface.  VMMC 1.0.340 is what that admitted at an airport by the
+    sea — an OSM ``highway=service tunnel=yes`` CAR PARK ramp whose mouth
+    stood 36 m from code-E junction ``pav5``, carried 600 m along the
+    seafront and knifed the junction into six faces.  §34 (12) (1)
+    therefore makes the mouth NECESSARY and NOT SUFFICIENT: the bore must
+    also pass under a cover class.
+
+    What §29 still finds is unchanged, and this twin now pins BOTH: the
+    mouth is admitted and counted exactly as before, and the BUILD is
+    withheld."""
     so = law.tables.structures.tunnel.mouth_standoff_m
     y = -(60.0 + 0.5 * so)                    # on the field, under nothing
     cl2, tunnels, st = _run(law, ((0.0, y), (0.0, y - 6.0 * so)))
     assert st.mouths == 1 and st.mouths_off_field == 1 and st.bores_no_mouth == 0
     assert st.bores_mouth_only == 1 and st.mouth_only_bores == ["-101"]
-    assert st.tunnels == 1 and len(tunnels) == 1
-    assert [c.role for c in cl2.cells].count("tunnel_ramp") == 1
+    # §34 (12) (1): admitted by §29, NOT BUILT, and named under its own head
+    assert st.bores_no_service == 1 and st.no_service_bores == ["-101"]
+    assert st.tunnels == 0 and tunnels == ()
+    assert [c.role for c in cl2.cells].count("tunnel_ramp") == 0
     # a bore that IS under the cover is built too, and is not counted there
     _cl, t2, st2 = _run(law, ((-80.0, -6.0), (80.0, -6.0)))
     assert st2.bores_mouth_only == 0 and st2.bores_no_mouth == 0

@@ -40,13 +40,14 @@ class _PlaneDem:
 
 
 class _SeaDem(_PlaneDem):
-    """A DEM that also answers the WATER question: everything south of
-    ``y = -40`` is sea (the frame's own metres)."""
+    """A DEM that also answers the SEA question (``sea_geometry``, the
+    coastline partition's own product): everything south of
+    ``y = y_shore`` is sea, in the frame's own metres."""
 
     def __init__(self, y_shore: float = -30.0) -> None:
         self.y_shore = float(y_shore)
 
-    def water_geometry(self, bounds=None):
+    def sea_geometry(self, bounds=None):
         return Polygon(((-5000.0, -5000.0), (5000.0, -5000.0),
                         (5000.0, self.y_shore), (-5000.0, self.y_shore)))
 
@@ -200,7 +201,7 @@ def test_no_zone_ring_is_emitted_seaward_of_the_coastline(law):
     dry = zone_regions(_zone_cells(), law, (), None, ())
     wet = zone_regions(_zone_cells(), law, (), water, ())
     assert dry and wet
-    sea = water.water_geometry()
+    sea = water.sea_geometry()
     assert any(r.polygon.intersects(sea) for r in dry), "the fixture must be wet"
     for r in wet:
         assert r.polygon.intersection(sea).area < 1e-6, r.ref

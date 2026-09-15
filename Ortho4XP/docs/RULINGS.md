@@ -7488,7 +7488,7 @@ to the concurrent session (v2objcut r2); it gates the app's LGAV tile
 build. RULINGS letters ran past `z` today: the next keys are 15ab, 15ac …
 (the `14aa`…`14bw` convention).
 
-## 2026-09-15aa v2vmmcshore r2 MERGED (72642561 → 4c7d7e8a): admission by the mouth restored (12ab twin guards it), the corridor clipped by the shore witness, an OSM corridor STOPS at airside instead of cutting; LEMD 54 → 55 (one refused bore now a shorter portal), OTHH identical; the seafront survivor is bore −2488 (381 m at a flat 1.00 m floor — r3 asks why under (4)); a replay-tool defect fixed; main's LGAV crash is v2objcut's (gates 1.0.341)
+## 2026-09-15ab v2vmmcshore r2 MERGED (72642561 → 4c7d7e8a): admission by the mouth restored (12ab twin guards it), the corridor clipped by the shore witness, an OSM corridor STOPS at airside instead of cutting; LEMD 54 → 55 (one refused bore now a shorter portal), OTHH identical; the seafront survivor is bore −2488 (381 m at a flat 1.00 m floor — r3 asks why under (4)); a replay-tool defect fixed; main's LGAV crash is v2objcut's (gates 1.0.341)
 
 Lane @ 72642561; suite 1,624 passed, 0 FAILED. §34 (12) (1) deleted
 (`serves_the_field`/`no_service_bores` gone; `test_admission_is_by_

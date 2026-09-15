@@ -201,9 +201,19 @@ class AirsideRim:
     answer "which rim vertex is nearest".
     """
 
-    __slots__ = ("airside", "boundary", "_coords", "_pts", "_segs", "band")
+    __slots__ = ("airside", "boundary", "_coords", "_pts", "_segs", "band",
+                 "snap_max")
 
-    def __init__(self, airside, band_m: float = 0.0):
+    def __init__(self, airside, band_m: float = 0.0, snap_max_m: float = 0.0):
+        #: HOW FAR A PAD MAY BE MOVED TO REACH A RIM NODE
+        #: (``[placement] pad_airside_snap_max_m``).  Quantising a
+        #: crossing point to the rim's nearest node moves the pad ALONG
+        #: the rim by whatever that rim's own vertex spacing is — at HECA
+        #: p50 4.3 m but up to 66 m, and on a coarse synthetic rectangle
+        #: a 40 m shed's corner travelled 30 m.  Beyond this the pad
+        #: keeps its crossing point and is COUNTED: a minted airside
+        #: vertex is a smaller defect than a pad dragged across the
+        #: apron.  0 disarms the quantisation entirely.
         #: THE IDENTITY GRID's own spacing (``emit.identity.
         #: min_distinct_spacing_m``).  The arrangement snap-ROUNDS the
         #: noded set to it, so a pad coordinate within it of an airside
@@ -214,6 +224,7 @@ class AirsideRim:
         #: 0.42 m off the airside boundary, every one inside the 0.5 m
         #: grid.  0 disarms the band and only exact contacts are quantised.
         self.band = float(band_m)
+        self.snap_max = float(snap_max_m)
         self.airside = airside
         self.boundary = None if airside is None or airside.is_empty \
             else airside.boundary
@@ -285,7 +296,7 @@ def _nearest_on(geom, p):
     return (float(q.x), float(q.y))
 
 
-def _snap_ring(ring, rim: AirsideRim, moved: list[float]):
+def _snap_ring(ring, rim: AirsideRim, moved: list[float], far: list[float]):
     out: list[tuple[float, float]] = []
     for c in list(ring)[:-1]:
         c = (float(c[0]), float(c[1]))
@@ -300,8 +311,12 @@ def _snap_ring(ring, rim: AirsideRim, moved: list[float]):
                 # EDGE: retreat clear of it, keeping the welded run intact
                 q = rim.push_out(c, d)
             if q is not None:
-                moved.append(((q[0] - c[0]) ** 2 + (q[1] - c[1]) ** 2) ** 0.5)
-                c = q
+                m = ((q[0] - c[0]) ** 2 + (q[1] - c[1]) ** 2) ** 0.5
+                if rim.snap_max <= 0.0 or m > rim.snap_max:
+                    far.append(m)
+                else:
+                    moved.append(m)
+                    c = q
         if not out or out[-1] != c:
             out.append(c)
     while len(out) > 1 and out[0] == out[-1]:
@@ -309,13 +324,13 @@ def _snap_ring(ring, rim: AirsideRim, moved: list[float]):
     return out
 
 
-def _snap_once(poly, rim, moved):
-    ext = _snap_ring(poly.exterior.coords, rim, moved)
+def _snap_once(poly, rim, moved, far):
+    ext = _snap_ring(poly.exterior.coords, rim, moved, far)
     if len(ext) < 3:
         return None
     ints = []
     for h in poly.interiors:
-        r = _snap_ring(h.coords, rim, moved)
+        r = _snap_ring(h.coords, rim, moved, far)
         if len(r) >= 3:
             ints.append(r)
     try:
@@ -358,7 +373,12 @@ def airside_vertex_snap(poly: Polygon, rim: "AirsideRim", counts: dict):
     if rim.boundary is None or poly is None or poly.is_empty:
         return poly
     moved: list[float] = []
-    g = _snap_once(poly, rim, moved)
+    far: list[float] = []
+    g = _snap_once(poly, rim, moved, far)
+    if far:
+        counts["snap_too_far"] = counts.get("snap_too_far", 0) + len(far)
+        counts["snap_too_far_max_m"] = round(
+            max(counts.get("snap_too_far_max_m", 0.0), max(far)), 3)
     if not moved:
         return poly
     if g is not None and g.intersection(rim.airside).area > 1e-6 * max(g.area, 1.0):
@@ -369,7 +389,7 @@ def airside_vertex_snap(poly: Polygon, rim: "AirsideRim", counts: dict):
         if parts:
             again: list = []
             for q in parts:
-                r = _snap_once(q, rim, moved)
+                r = _snap_once(q, rim, moved, far)
                 again.append(r if r is not None else q)
             g = unary_union(again)
         else:

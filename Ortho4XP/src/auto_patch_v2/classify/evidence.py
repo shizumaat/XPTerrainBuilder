@@ -599,18 +599,35 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # Quantise them to the rim's own nodes — the pad yields.
     _grid = (float(law.tables.emit.identity.min_distinct_spacing_m)
              if law is not None else 0.0)
-    _rim = (AirsideRim(_clip, _grid) if (_clip is not runway_union
-                                         and not _clip.is_empty) else None)
+    _snap_max = (float(law.tables.structures.placement.pad_airside_snap_max_m)
+                 if law is not None else 0.0)
+    _rim = (AirsideRim(_clip, _grid, _snap_max)
+            if (_clip is not runway_union and not _clip.is_empty) else None)
     PAD_AIRSIDE.clear()
     out: list[tuple[str, Polygon]] = []
     dropped = 0
     for part in sorted(parts,
                        key=lambda g: (round(g.bounds[1]), round(g.bounds[0]))):
         if not _clip.is_empty and part.intersects(_clip):
-            part = part.difference(_clip)
-            if _rim is not None and not part.is_empty:
-                part = unary_union([airside_vertex_snap(q, _rim, PAD_AIRSIDE)
-                                    for q in polygon_parts(part)])
+            cut = part.difference(_clip)
+            # THE CLIP TRIMS A PAD, IT NEVER DELETES ONE.  A pad the clip
+            # would erase — the building standing INSIDE an apron, r5's
+            # "30 pads wholly in the band", the OSM pad-in-an-apron class
+            # that keeps its own two-sided plate — keeps the pre-14as
+            # footprint: dropping it is a product change §16g (10) (5)
+            # makes only for a DERIVED pad (whose cluster then seats on
+            # the pavement), and this half of the rule is the FALLBACK's.
+            # Counted, because such a pad is the one kind that can still
+            # make the airside region depend on the pad set.
+            if cut.is_empty or cut.area < min_area:
+                PAD_AIRSIDE["kept_inside_airside"] = \
+                    int(PAD_AIRSIDE.get("kept_inside_airside", 0)) + 1
+            else:
+                part = cut
+                if _rim is not None:
+                    part = unary_union(
+                        [airside_vertex_snap(q, _rim, PAD_AIRSIDE)
+                         for q in polygon_parts(part)])
         for piece in polygon_parts(part):
             if piece.area < min_area:
                 dropped += 1

@@ -238,6 +238,14 @@ class Placement:
     #: airside vertices out and minted 88.
     pad_airside_clip: bool = True
 
+    #: RULINGS 2026-09-14as (i): how far a pad may be moved to put a clip
+    #: CROSSING POINT on a rim NODE instead of minting an airside vertex.
+    #: Quantising moves the pad along the rim by that rim's own vertex
+    #: spacing (HECA p50 4.3 m, max 66 m; a 40 m synthetic shed's corner
+    #: travelled 30 m).  Beyond this the crossing point stands and is
+    #: counted.  0 disarms the quantisation.
+    pad_airside_snap_max_m: float = 5.0
+
     #: §16g (10) (4) WHAT CHAINS (owner RULINGS 2026-09-14ah): only a
     #: WALLED body links a cluster.  A body whose tallest component's
     #: SOLID HEIGHT (``Part.height_m``) is under this — a floor slab, a

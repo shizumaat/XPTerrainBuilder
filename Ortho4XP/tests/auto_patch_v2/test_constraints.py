@@ -226,16 +226,38 @@ def test_strip_families_and_pads(synthetic, law):
     # pair) was the law that moved 17,482 airside vertices at HECA.  The
     # ROW SET is unchanged — every pair is still priced, and the ceiling
     # pass is still one row per pair over the whole rim.
+    # RULINGS 2026-09-14au RE-FOUNDS THE SKIRT'S CAP: v2settle's stage-2
+    # certificate PROVED the 1 % skirt ceiling and a fixed apron rim
+    # mutually infeasible (KCLT 143 rows, 26.4 m over 179 columns), and
+    # the airside never yields — so the SKIRT row is priced at
+    # ``pad_skirt_max_slope`` (5 %) while the CORE keeps cap 0 and the
+    # ceiling pass keeps ``pad_slope_max``.
     ceiling = law.tables.emit.within_shape.pad_slope_max
+    # ... AND THE RELAXATION IS §20b's (lane v2padvert, measured): armed
+    # under the SINGLE solve the two-sided skirt pulls the airside — the
+    # CYXY lockstep twin reads 2 ``runway_transverse`` rows at 5 % and 0
+    # at 1 % — so ``skirt_ceiling`` is ``pad_slope_max`` unless
+    # ``[design] staged_solve`` makes the airside a constant.  Both arms
+    # are asserted here; the fixture's law is the shipped one.
+    staged = bool(law.tables.emit.design.staged_solve)
+    skirt_ceiling = (max(ceiling,
+                         law.tables.emit.within_shape.pad_skirt_max_slope)
+                     if staged else ceiling)
+    import dataclasses as _dcx
+    _on = _dcx.replace(law.tables.emit.design, staged_solve=True)
+    _law_on = _dcx.replace(law, tables=_dcx.replace(
+        law.tables, emit=_dcx.replace(law.tables.emit, design=_on)))
+    _caps = {r.cap for r in pads.pad_flats(pm, _law_on, airport)}
+    assert _caps <= {0.0, law.tables.emit.within_shape.pad_skirt_max_slope}, _caps
     assert flats and all(isinstance(r, Diff) for r in flats)
-    assert {r.cap for r in flats} <= {0.0, ceiling}
+    assert {r.cap for r in flats} <= {0.0, skirt_ceiling}
     # §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): the ceiling-
     # capped flat rows are the SKIRT BAND's — every pad vertex within
     # ``[placement] pad_skirt_m`` of a vertex the pad SHARES with an
     # airside face, the shared ones included — and the cap-0 rows are
     # the RIGID CORE beyond it.  (Before 14al the band was the shared
     # vertices alone; the band is what 14al widened it to.)
-    skirt = [r for r in flats if r.cap == ceiling]
+    skirt = [r for r in flats if r.cap == skirt_ceiling]
     air = pads.airside_vertices(pm, law)
     # the band ships at 0 — the shared vertices ALONE (round 4's scope,
     # measured the better of the two on every airside bar); a positive
@@ -260,7 +282,10 @@ def test_strip_families_and_pads(synthetic, law):
     else:
         assert all(r.cap == 0.0 for r in flats)
     assert len(ceil) == len(flats)
-    assert all(r.cap == ceiling for r in ceil)
+    # 14au: the ceiling pass prices the SKIRT at ``pad_skirt_max_slope``
+    # too — it asks the same function, so the two passes can never
+    # disagree about which pairs are the skirt's
+    assert all(r.cap in (ceiling, skirt_ceiling) for r in ceil)
     assert {v for r in ceil for v in (r.a, r.b)} >= rim
     # §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): the two-sided
     # ceiling row over a pair of two AIRSIDE-SHARED vertices is

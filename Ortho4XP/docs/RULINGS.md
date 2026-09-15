@@ -6318,3 +6318,40 @@ pads-OFF replay cannot measure the reach.
   that refused attempt 2 encodes the SUPERSEDED law (one plane over
   MANY pads); under §16g (10) one cluster = one pad = one collar —
   RE-FOUND it. Lane `v2padjoin` r2.
+
+## 2026-09-14bl Owner read of 1.0.336 LEMD ("very close, good work") — ten items; scouts `v2lemd336s` (structures) and `v2lemd336o` (objects)
+
+Owner, verbatim: "LEMD is looking very close, good work. Bug reports:
+1. There's a tunnel mouth here: 40.4614416, -3.5447633 that we are
+not emitting, but looks correct because the DEM is already low there
+and we are correctly setting the taxiway elevation on this side.
+However the otherside where we do create a tunnel ramp it's cutting
+deep into the taxiway and also distorting it. The mouth should stop
+back about here: 40.4609913, -3.5445335 2. The buildings and various
+cargo objects are floating here: 40.4552413, -3.5687453. They should
+be separate buildings each seating on the ground. 3. In this area:
+40.461514, -3.5732897 there's some object submerged about 1m
+underground. 4. Barriers and small buildings around these two runway
+ends are floating: 40.4981624, -3.5595534 5. The basin edge here:
+40.4910254, -3.5681642 is allow a small gap between the outside wall
+and the apron leaving a narrow visible canyon 6. The blast shield
+object here 40.4980571, -3.5829243 is floating 7. The tunnel here is
+placed way short of the mouth for some reason: 40.4987722, -3.584993.
+The mouth should be here: 40.4980461, -3.5850118 8. The other side of
+that tunnel's mouth should be between 40.4960195, -3.585058 and
+40.4960167, -3.5849289 9. Building over here 40.4841856, -3.5854064 is
+floating again 10. The bridge deck here: 40.4835044, -3.5801638 should
+be a single smooth bridge, no small gap here, and it's two end points
+are: 40.4835967, -3.580923 and 40.4835412, -3.5799114, that's bridge
+extent to cover the terrain cutting down to the road running under it."
+
+* Scout `v2lemd336s`: items 1, 5, 7, 8, 10 (the tunnel at 40.4614 —
+  its ramp cutting into the taxiway, the mouth station vs the owner's
+  40.4609913; the basin edge gap at 40.4910; the tunnel at 40.4988
+  placed short of its mouth and the far mouth between the owner's two
+  points; the bridge deck at 40.4835 — the gap, the two end points as
+  the deck extent). Scout `v2lemd336o`: items 2, 3, 4, 6, 9 (units /
+  pads / seats at each coordinate — separate buildings each on the
+  ground = §16g (10)'s line; the submerged object; the barriers and
+  small buildings at the runway ends; the blast shield; the building
+  at 40.4842 "floating again" — 11ah's site).

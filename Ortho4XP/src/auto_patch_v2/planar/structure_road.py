@@ -96,7 +96,7 @@ def mouth_pair_roads(airport: Airport, classification, law: Law,
     existing cell so it never overlaps pavement, a pad or a corridor —
     the 1206 corridor mint's own construction."""
     tn = law.tables.structures.tunnel
-    pair_m = float(getattr(tn, "mouth_pair_m", 0.0) or 0.0)
+    pair_m = float(tn.mouth_pair_m)
     notes: list[str] = []
     if pair_m <= 0.0:
         return classification, notes

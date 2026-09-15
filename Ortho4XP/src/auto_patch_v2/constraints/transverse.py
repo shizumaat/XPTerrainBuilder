@@ -53,14 +53,23 @@ GEN = "transverse"
 RAW_PAIR_RULING = ("rulesets.taxi.transverse raw pair "
                    "(Fable 2026-09-15; RULINGS 2026-09-15y; spec §34 (13) (3))")
 #: §34 (13) (3), THE CONTACT ROW: the raw pair one of whose ends is a
-#: vertex the junction SHARES WITH A RUNWAY.  Its own head because it is
-#: the only half of the law that is a CONSTRAINT — "the runway's edge
-#: level at the contact per airside-is-king" — and because hardening the
-#: whole family is INFEASIBLE: measured at LEMD, 1,591 raw-pair rows hard
-#: leave **10,006 of 109,240 hard rows violated, worst 60.48 m**, while
-#: the contact subset is **62 rows**.  Registered in BOTH ``[design]
-#: hard_rulings`` and ``one_way_rulings``: hard on the junction's own
-#: column, and the runway's column never moves for it.
+#: vertex the junction SHARES WITH A RUNWAY — "the runway's edge level at
+#: the contact per airside-is-king".  Its own head so the two halves of
+#: the law can be told apart in a report and in the registers.
+#:
+#: IT IS NOT A HARD ROW, AND THAT WAS MEASURED TWICE, NOT ARGUED.  The
+#: row is minted correctly and ONE-WAY (LEMD pav157: ±0.268 m over
+#: 18.12 m, ``follows`` the junction's far edge v6622) and as a TARGET it
+#: LOSES — the site still reads 5.01 % against ``foot_rows`` (dual
+#: 42,656, the object feet), ``junction_mesh`` at cap 1.50 % × 43.2 m and
+#: ``no_step_pairs``.  Hardening the whole family (1,591 rows) leaves
+#: **10,006 of 109,240 hard rows violated, worst 60.48 m**; hardening
+#: only this CONTACT subset (**62 rows**) leaves **8,548 of 106,182
+#: violated, worst 105.29 m**.  A junction's far edge is over-determined
+#: — the feet, the zone band, the mesh and the no-step pairs all hold it
+#: — so the raw pair stands as the LAW and as a target, and §34 (13) (3)'s
+#: own alternative ("or the residual named with the row that binds and
+#: the object feet that yield") is what r3 reports.
 RAW_PAIR_CONTACT_RULING = (
     "rulesets.taxi.transverse raw pair at a runway contact "
     "(Fable 2026-09-15; RULINGS 2026-09-15y; spec §34 (13) (3))")

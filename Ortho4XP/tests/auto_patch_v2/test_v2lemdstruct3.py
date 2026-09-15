@@ -162,18 +162,20 @@ def test_the_face_never_overlaps_an_existing_cell(law):
 
 # ── §34 (13) (3) the raw pair ───────────────────────────────────────────
 
-def test_the_contact_row_has_its_own_hard_head(law):
-    """Only the RUNWAY-CONTACT rows are constraints.  MEASURED: hardening
-    all 1,591 LEMD raw pairs leaves 10,006 of 109,240 hard rows violated,
-    worst 60.48 m; the contact subset is 62 rows."""
+def test_the_raw_pair_is_one_way_and_is_not_a_hard_row(law):
+    """Both halves are ONE-WAY (airside is king at the contact) and
+    NEITHER is hard, and that was measured twice: hardening all 1,591
+    LEMD raw pairs leaves 10,006 of 109,240 hard rows violated (worst
+    60.48 m), and hardening only the 62 CONTACT rows leaves 8,548 of
+    106,182 (worst 105.29 m).  A junction's far edge is over-determined,
+    so the raw pair is the law AS A TARGET and the residual is named."""
     from auto_patch_v2.constraints.transverse import (RAW_PAIR_CONTACT_RULING,
                                                       RAW_PAIR_RULING)
     from auto_patch_v2.solve.design_roles import hard_rulings, one_way_rulings
     plain = RAW_PAIR_RULING.split(" (")[0]
     contact = RAW_PAIR_CONTACT_RULING.split(" (")[0]
     assert plain != contact
-    assert contact in hard_rulings(law) and contact in one_way_rulings(law)
-    assert plain not in hard_rulings(law), (
-        "hardening every raw pair is infeasible — only the contact is a "
-        "constraint")
-    assert plain in one_way_rulings(law)
+    for head in (plain, contact):
+        assert head in one_way_rulings(law), head
+        assert head not in hard_rulings(law), (
+            f"{head} as a constraint is INFEASIBLE — measured")

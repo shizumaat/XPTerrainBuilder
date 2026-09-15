@@ -19,11 +19,26 @@ filter (``eat_anchor_rect`` drops the pins and their reach together).
 ``--capture`` runs load → PACK PARTITION + GROUPS (owner RULINGS
 2026-09-11j; folded in 2026-09-12u after a replay off a capture without
 them silently solved a different problem — no foot rows, no pad relief)
-→ classify → planar (which labels the SHAPES, owner RULINGS 2026-09-08k)
-→ flat site → road profile → shape stage exactly as ``pipeline/build.py``
-does and pickles the airport, the classification, the planar map and the
-stage.  A capture predating that is REFUSED BY NAME at replay
-(:func:`capture_has_groups`).  ``--replay`` resumes from
+→ THE TERMINAL CLUSTERS (``planar/cluster.clusters``, carried on
+``airport.clusters`` BEFORE classify exactly as ``build.py`` carries them
+— lane ``capclusters`` 2026-09-14, RULINGS 14ax chip: without them every
+cluster-pad reader — ``classify/evidence``'s pad minting and
+``constraints/cluster_pad.cluster_polys`` — read pads-OFF off a replay,
+silently) → classify → planar (which labels the SHAPES, owner RULINGS
+2026-09-08k) → flat site → road profile → shape stage exactly as
+``pipeline/build.py`` does and pickles the airport, the classification,
+the planar map and the stage.  A capture predating the partition is
+REFUSED BY NAME at replay (:func:`capture_has_groups`); one predating the
+clusters REPLAYS with them RE-DERIVED from its own partition under the
+current tree and a WARNING naming the gap (:func:`restore_clusters` —
+the derivation is a pure function of the partition and the law, so an
+unchanged cluster law reproduces the build's clusters; a changed one does
+not, which is why a registered frame is re-captured, never patched).
+``--guarded DIR`` arms the harness's lane-local engine caches (DSFTool
+dump + mod-cache overlay under the lane's ``tmp/engine_caches``) and the
+shared-repo write guard around the run and prints the blocked set — the
+wrapper lane ``v2settle`` kept in its scratchpad, folded in on its
+second use (owner ruling 7e90032).  ``--replay`` resumes from
 the named stage (``constraints``: generators + joint filter + solve, the
 default; ``shapes``: the shape stage too; ``planar``: the planar build
 too — for a change in the map or the shapes) and
@@ -74,6 +89,49 @@ def capture_has_groups(cap: dict) -> bool:
             and getattr(ap, "groups", None) is not None)
 
 
+def capture_has_clusters(cap: dict) -> bool:
+    """Does the capture carry ``airport.clusters`` as the build carries
+    them?  ``None`` is the model's default and what a pre-fix capture
+    unpickles to (lane ``capclusters``, RULINGS 2026-09-14ax chip); an
+    EMPTY tuple is a MEASUREMENT (the derivation ran and found none —
+    a disarmed law, a pack with no unit) and counts as carried."""
+    ap = cap.get("airport")
+    return getattr(ap, "clusters", None) is not None
+
+
+def restore_clusters(cap: dict, law, say=print):
+    """The captured ``Airport`` with its clusters AS THE BUILD HAD THEM.
+
+    A capture that carries them is returned untouched — the frame is
+    byte-faithful.  A pre-fix capture (no ``clusters``) is NOT silently
+    pads-OFF: the clusters are re-derived here by the SAME call
+    ``pipeline/build.py`` makes (``planar/cluster.clusters`` over the
+    carried partition) and a WARNING names the gap, because the
+    derivation is a pure function of the partition and the law and the
+    replay claims the build's problem.  Where even the partition is
+    missing there is nothing to derive from and the WARNING says so
+    (``capture_has_groups`` refuses that capture anyway)."""
+    airport = cap["airport"]
+    icao = cap.get("icao", getattr(airport, "icao", "?"))
+    if capture_has_clusters(cap):
+        return airport
+    part = getattr(airport, "partition", None)
+    if part is None:
+        say(f"[{icao}] WARNING: capture predates airport.clusters AND carries no "
+            "partition to derive them from — every cluster-pad reader "
+            "(pad_from_cluster, cluster_polys) reads pads-OFF off this replay; "
+            f"re-capture: venv/bin/python tools/v2_solve_replay.py --capture {icao}")
+        return airport
+    from auto_patch_v2.planar.cluster import clusters as _derive_clusters
+    got = _derive_clusters(airport, law)
+    say(f"[{icao}] WARNING: capture predates airport.clusters (lane capclusters, "
+        f"RULINGS 2026-09-14ax chip) — {len(got)} cluster(s) RE-DERIVED from the "
+        "captured partition under the CURRENT tree's cluster law, not carried "
+        "from the build: the frame is not byte-faithful for a cluster-law "
+        "change; re-capture before registering a pads-ON reading")
+    return _dc.replace(airport, clusters=got)
+
+
 def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
@@ -99,6 +157,8 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     from auto_patch_v2.pipeline.shapes import shape_stage
     from auto_patch_v2.planar.basins import read_objects as _read_objects
     from auto_patch_v2.planar.build import build as build_planar
+    from auto_patch_v2.planar.cluster import WHY as _cwhy
+    from auto_patch_v2.planar.cluster import clusters as _derive_clusters
     from auto_patch_v2.planar.group import derive as _derive_groups
     law = Law.for_airport(icao)
     inputs = default_inputs()
@@ -156,11 +216,26 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     _bank = float(law.tables.emit.design.bank_slope)
     _groups = _derive_groups(_part, _span_max(law), _bank,
                              dem_at=_dem_at, bank_slope=_bank)
-    airport = _dc.replace(airport, partition=_part, groups=_groups)
+    # §16g / §30 (4) THE TERMINAL CLUSTERS, BEFORE classify (build.py's
+    # ``_derive_clusters`` line, verbatim in kind — lane ``capclusters``,
+    # RULINGS 2026-09-14ax chip).  ``classify/evidence`` mints the cluster
+    # pads off ``airport.clusters`` and ``constraints/cluster_pad`` reads
+    # the same field at constraint time, so a capture without them is
+    # pads-OFF in every replay whatever ``pad_from_cluster`` says.  The
+    # build may take these from the partition cache; the capture derives
+    # them, which is the same pure function of the partition and the law.
+    _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
+    airport = _dc.replace(airport, partition=_part, groups=_groups,
+                          clusters=_clusters)
     print(f"[{icao}] pack partition {time.perf_counter() - t:.0f} s  "
           f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']}  "
           f"relief {_groups.counts['relief_bodies']}  "
-          f"infeasible {_groups.counts['infeasible']}")
+          f"infeasible {_groups.counts['infeasible']}  "
+          f"clusters {len(_clusters)}"
+          + (f" (gate: {_cwhy['gate']})" if not _clusters and _cwhy.get("gate")
+             else f" ({_cwhy.get('with_rings')} with an outline, "
+                  f"{sum(1 for _c in _clusters if _c.area_m2 >= _cwhy.get('min_m2', 0.0))} "
+                  f"over the cluster-pad threshold {_cwhy.get('min_m2')} m2)"))
     cl = classify(airport, law, load_rules(), cache=ocache)
     objects_out: list = []
     pm, _pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
@@ -704,6 +779,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             "relief targets, no basin bodies) — the trap owner RULINGS 2026-09-12u names, "
             "spec \u00a730 (3a).  Re-capture with the current tool: "
             f"venv/bin/python tools/v2_solve_replay.py --capture {icao} --out {pkl}")
+    law = Law.for_airport(icao)
+    airport = restore_clusters(cap, law)
     # A CAPTURE PREDATING A TARGET CHANNEL REPLAYS WITH THAT CHANNEL
     # EMPTY, and says which (lane ``v2roadcontact``, §37 (10)).  A
     # ``PlanarMap`` field added since the pickle was written is simply
@@ -720,7 +797,6 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     if missing:
         print(f"[{icao}] capture predates {len(missing)} PlanarMap channel(s), "
               f"backfilled at their defaults: {', '.join(f.name for f in missing)}")
-    law = Law.for_airport(icao)
     t0 = time.perf_counter()
     if resume == "planar":
         pm, _ps = build_planar(airport, cl, law)
@@ -916,6 +992,12 @@ def main() -> int:
                          "lane-local copy-on-write overlay); default: the engine "
                          "tree's mount")
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--guarded", type=Path, metavar="DIR",
+                    help="arm the harness's LANE-LOCAL engine caches (DSFTool dump + "
+                         "Airport_mod_cache copy-on-write overlay, persistent under the "
+                         "lane's tmp/engine_caches; per-run products under DIR) and the "
+                         "shared-repo WRITE GUARD around the run, and print the blocked "
+                         "set — the ritual a registered capture is made under")
     ap.add_argument("--replay", type=Path, metavar="PKL")
     ap.add_argument("--from", dest="resume", choices=("constraints", "shapes", "planar"),
                     default="constraints")
@@ -973,6 +1055,48 @@ def main() -> int:
                     help="§37 (3): the per-station adjacent-ground zone-2 walk "
                          "(|z_ring - DEM(foot)| and the feet emitted)")
     a = ap.parse_args()
+    if a.guarded is not None:
+        return guarded(a.guarded, a.capture or (a.replay and a.replay.stem) or "run",
+                       lambda: _dispatch(ap, a))
+    return _dispatch(ap, a)
+
+
+def guarded(out_dir: Path, tag: str, run) -> int:
+    """``--guarded DIR``: the harness's own two halves around ``run()`` —
+    ``build_airport.redirect_engine_caches`` (the DSFTool dump cache and
+    the per-pack mod cache pointed lane-local, copy-on-write seeded from
+    the shared corpus, so a warm read stays warm and a write never lands
+    in the shared repo) and ``SharedRepoWriteGuard`` (a Python-level
+    write into the shared repo refuses at the call, naming the path).
+    One implementation, the build entry's; the blocked set is printed
+    last so a registration note can quote it."""
+    import os
+    _harness = str(ROOT / "tools" / "harness")
+    if _harness not in sys.path:
+        sys.path.insert(0, _harness)
+    import build_airport as _ba
+    from shared_repo_guard import SharedRepoWriteGuard
+    tag = str(tag).upper()
+    tiles = ()
+    try:
+        _tile = _ba.resolve_tile_for(tag, ROOT)
+        if _tile is not None:
+            tiles = (_tile,)
+    except Exception:
+        tiles = ()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _ba.redirect_engine_caches(out_dir, tag, lane_root=ROOT, tiles=tiles)
+    print(f"[guard] lane-local caches: DSF={os.environ.get('O4_DSF_CACHE_DIR')} "
+          f"MOD={os.environ.get('O4_AIRPORT_MOD_CACHE_DIR')}")
+    guard = SharedRepoWriteGuard(set(), ROOT)
+    with guard:
+        rc = run()
+    print(f"[guard] shared repo {'UNCHANGED' if not guard.blocked else 'BLOCKED WRITES'}: "
+          f"blocked {guard.blocked}")
+    return rc
+
+
+def _dispatch(ap, a) -> int:
     if a.bank_from:
         return bank_from(a.bank_from, a.emit, a.bank_walk, a.json)
     if a.capture:

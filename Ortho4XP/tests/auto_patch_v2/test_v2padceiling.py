@@ -297,6 +297,8 @@ def test_the_capture_runs_every_pre_solve_stage_the_build_runs():
     cap_calls = _calls(inspect.getsource(mod.capture))
     build_calls = _calls(inspect.getsource(build_fn))
     stages = {"load_with_report", "partition_pack", "derive", "read_objects",
+              # the terminal clusters (lane ``capclusters``, RULINGS 14ax chip)
+              "_derive_clusters",
               "classify", "build", "detect", "preferred_road_z", "shape_stage"}
     missing = (stages & build_calls) - cap_calls
     assert not missing, f"the capture skips {sorted(missing)}"

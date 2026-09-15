@@ -9,6 +9,7 @@ means the readers downstream accept it, not that the text looks right.
 """
 from __future__ import annotations
 
+import re as _re
 import math
 import os
 import sys
@@ -111,8 +112,13 @@ def test_two_bodies_two_files_lod_and_anim_whole(tmp_path):
                         "objects/twobox.obj")
     assert res.kept_whole == "", res.kept_whole
     assert len(res.files) == 2
-    assert [f.resource for f in res.files] == ["objects/twobox__b0.obj",
-                                               "objects/twobox__b1.obj"]
+    # 14at: the name carries the OFFSET THE FILE BAKES beside the body id
+    assert [f.resource for f in res.files] == [
+        OS.body_resource_name("objects/twobox.obj", 0, (1.0, 2.0, 3.0)),
+        OS.body_resource_name("objects/twobox.obj", 1, (-5.0, 0.0, 7.0))]
+    assert [f.resource for f in res.files] == [
+        f"objects/twobox__b0_{OS.offset_tag((1.0, 2.0, 3.0))}.obj",
+        f"objects/twobox__b1_{OS.offset_tag((-5.0, 0.0, 7.0))}.obj"]
     assert sum(f.tris for f in res.files) == total
     # body 0 is the box the ANIM door belongs to: 12 box triangles + 2 door
     a, b = res.files
@@ -128,12 +134,12 @@ def test_two_bodies_two_files_lod_and_anim_whole(tmp_path):
         assert g.vertices.shape[0] == f.vertices
 
     # §4.3: every vertex a body uses OUTSIDE an animation is translated
-    ga = obj8.parse_obj8(str(tmp_path / "objects_twobox__b0.obj"))
+    ga = obj8.parse_obj8(str(tmp_path / res.files[0].resource.replace("/", "_")))
     xs = sorted({round(float(x), 3) for x in ga.vertices[:, 0]})
     # box A spans x 0..4 authored, minus dx = 1  ->  -1 .. 3, and the four
     # door vertices stay AUTHORED (rule 4) at 0 and 4
     assert -1.0 in xs and 3.0 in xs and 0.0 in xs and 4.0 in xs
-    gb = obj8.parse_obj8(str(tmp_path / "objects_twobox__b1.obj"))
+    gb = obj8.parse_obj8(str(tmp_path / res.files[1].resource.replace("/", "_")))
     assert round(float(gb.vertices[:, 0].min()), 3) == 105.0     # 100 - (-5)
 
     # rule 4: the block is whole and carries its compensating translation
@@ -1664,7 +1670,8 @@ def test_a_carried_placement_is_actually_written_as_one_file(tmp_path):
     bridge = [s for s in ss.splits if s.resource == "objects/bridge.obj"]
     assert bridge, "the carried placement was returned to the datum as kept"
     assert len(bridge[0].files) == 1
-    assert bridge[0].files[0].resource == "objects/bridge__b0.obj"
+    assert bridge[0].files[0].resource == OS.body_resource_name(
+        "objects/bridge.obj", 0, bridge[0].files[0].offset)
     assert "one_body" not in [k.reason for k in ss.kept]
     # and the single cut file still parses through the engine's own reader
     p = tmp_path / "cut.obj"
@@ -2155,7 +2162,7 @@ def _stepped(levels):
 def _carrier_of(b):
     """The body a carried file rides, named without its body suffix (a
     carrier KEPT WHOLE keeps its own resource name)."""
-    return b.merged_into.replace("__b0.obj", ".obj")
+    return _re.sub(r"__b\d+(?:_[0-9a-f]{8})?\.obj$", ".obj", b.merged_into)
 
 
 def test_a_carried_roof_over_two_buildings_is_cut_into_one_piece_per_carrier(tmp_path):
@@ -4892,3 +4899,88 @@ def test_16g_5_a_multi_anchor_placement_is_seated_by_its_dsf_row():
     seats = FU.msl_seats_for_dump(dump, plan, unit, lambda la, lo: 222.28,
                                   "", frozenset(), authored_ground=295.0)
     assert [round(m.elevation, 2) for m in seats] == [227.28]
+
+
+# ── 14at: THE SPLIT FILE IS KEYED ON THE OFFSET IT BAKES ────────────────
+# (owner RULINGS 2026-09-14at; the owner's missing OTHH tunnel wall at
+# 25.2697569, 51.6055534).  ``body_resource_name`` named the written file
+# on resource + body id ONLY, while ``authored_offset`` is per PLACEMENT:
+# OTHH's ``tunnels/tunnel1.obj`` stands at two anchors 38.7 m apart, both
+# placements wrote ``tunnels/tunnel1__b0.obj``, the file baked the first
+# placement's translation and the second wall rendered 38.7 m from its
+# own DSF row.
+
+def test_the_split_file_name_is_a_function_of_the_baked_offset_alone():
+    """The tag is computed from the three doubles and NOTHING else — not
+    from the placement's position among its siblings.  That is why it is
+    a hash: an index over "the resource's distinct offsets" is a function
+    of the POPULATION, so an unrelated placement appearing or going away
+    would rename another placement's file (and strand the previous
+    write's own body files, which provenance names)."""
+    a = (9.048629, 9.549746, -50.10389)
+    b = (-8.884837, 9.549746, -84.422043)
+    assert OS.offset_tag(a) == OS.offset_tag(tuple(a))
+    assert OS.offset_tag(a) == OS.offset_tag([9.048629, 9.549746, -50.10389])
+    assert OS.offset_tag(a) != OS.offset_tag(b)
+    # the exact doubles: the file bakes them exactly, so a micron is a
+    # different file (the §16e memo trap moved 94 offsets by ~8 microns)
+    assert OS.offset_tag(a) != OS.offset_tag((a[0] + 1e-9, a[1], a[2]))
+    res = "Objects/tunnels/tunnel1.obj"
+    assert OS.body_resource_name(res, 0, a) != OS.body_resource_name(res, 0, b)
+    assert OS.body_resource_name(res, 0, a) == \
+        f"Objects/tunnels/tunnel1__b0_{OS.offset_tag(a)}.obj"
+    # ``offset=None`` is the untagged BODY SLOT id — never a file name
+    assert OS.body_resource_name(res, 0) == "Objects/tunnels/tunnel1__b0.obj"
+    assert OS.body_resource_name(res, 1, a) != OS.body_resource_name(res, 0, a)
+
+
+def _tunnel_pair(tmp_path, *, same_offset):
+    """Two placements of ONE resource, the OTHH shape: the same object
+    file placed twice, at two anchors (or at one)."""
+    path, _total = _two_boxes(tmp_path, with_anim=False)
+    res = "objects/tunnel1.obj"
+    d = 0.0 if same_offset else 40.0
+    plan = _unit_plan([
+        (path, [(0, 0.0, 0.0, 0.0, 0.0, 8.0),
+                (1, 0.0, 0.0, 100.0, 0.0, 8.0)], res),
+        (path, [(0, 0.0, d, 0.0, 0.0, 8.0),
+                (1, 0.0, d, 100.0, 0.0, 8.0)], res),
+    ])
+    surface = _stepped([(-12.0, 12.0, 600.0), (88.0, 112.0, 610.0)])
+    return PP.build_splits(plan, surface, write=True, **_elev_args())
+
+
+def test_two_placements_of_one_resource_at_two_offsets_get_two_files(tmp_path):
+    """14at: each placement's file bakes ITS OWN offset and its DSF row
+    points at that file.  Before the fix both wrote one name and the
+    second placement rendered on the first's translation."""
+    ss = _tunnel_pair(tmp_path, same_offset=False)
+    rows = [s for s in ss.all if s.resource == "objects/tunnel1.obj"]
+    assert len(rows) == 2, [s.resource for s in ss.all]
+    names = set()
+    for s in rows:
+        assert s.files, f"placement {s.index} wrote no file"
+        for f in s.files:
+            body = [b for b in s.bodies if b.body_id == f.body_id][0]
+            # the row's name IS the file's name IS the offset it bakes
+            assert body.new_resource == f.resource
+            assert f.resource == OS.body_resource_name(
+                "objects/tunnel1.obj", f.body_id, body.anchor.offset)
+            assert tuple(f.offset) == tuple(body.anchor.offset)
+            names.add(f.resource)
+    # two placements x their bodies, every file distinct
+    assert len(names) == sum(len(s.files) for s in rows)
+    # ...and the two placements' b0 files are NOT the same file
+    b0 = {s.index: [f.resource for f in s.files if f.body_id == 0][0]
+          for s in rows}
+    assert len(set(b0.values())) == 2, b0
+
+
+def test_two_placements_with_the_same_offset_still_share_one_file(tmp_path):
+    """No file explosion: the name is the offset, so placements that bake
+    the SAME translation keep ONE file between them."""
+    ss = _tunnel_pair(tmp_path, same_offset=True)
+    rows = [s for s in ss.all if s.resource == "objects/tunnel1.obj"]
+    assert len(rows) == 2
+    per_row = [{f.resource for f in s.files} for s in rows]
+    assert per_row[0] and per_row[0] == per_row[1], per_row

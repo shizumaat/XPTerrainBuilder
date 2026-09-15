@@ -522,14 +522,17 @@ def _write_pack(a, plan, ss, sampler) -> None:
     from auto_patch_v2.airport import footprint_unit as _fu
     from auto_patch_v2.law import Law as _L2
     _flat = getattr(plan, "flat", None)
+    _msl_counts: dict = {}
     msl = _fu.msl_seats_for_dump(
         dump, plan, ss.unit_seats, sampler, root, split_idx,
         tol_m=float(_L2.load().tables.emit.design.hard_tol_m),
-        authored_ground=(None if _flat is None else _flat.z0_m))
+        authored_ground=(None if _flat is None else _flat.z0_m),
+        counts=_msl_counts)
     _mi = frozenset(m.index for m in msl)
     conversions = tuple(c for c in conversions if c.index not in _mi)
     counts = dict(ss.counts)
     counts["conversions"] = len(conversions)
+    counts.update(_msl_counts)
     counts.update(_fu.multi_anchor_census(dump, plan, msl, split_idx,
                                           ss.unit_seats))
     pl = PlacementPlan(icao=plan.icao, pack_name=os.path.basename(root),

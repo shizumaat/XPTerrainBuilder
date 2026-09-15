@@ -104,7 +104,11 @@ class Part:
     rings: tuple[tuple[tuple[float, float], ...], ...] = ()
     #: §16g (10) (4) WHAT CHAINS (owner RULINGS 2026-09-14ah): this
     #: component's own SOLID HEIGHT — the authored ``y`` extent of its
-    #: geometry, ``box_max[y] - base_y``.  A body whose tallest component
+    #: geometry, ``box_max[y] - box_min[y]`` in ONE frame (the placed box;
+    #: placement is a rigid y-translation, so the placed extent IS the
+    #: authored one).  Written as ``box_max[y] - base_y`` until RULINGS
+    #: 2026-09-14bo, which mixed a PLACED maximum with an AUTHORED minimum
+    #: and made this an MSL number.  A body whose tallest component
     #: is under ``[placement] chain_min_height_m`` is a THIN body (a floor
     #: slab, a plate, a deck, a canopy, an apron object) and is a LEAF of
     #: the cluster chain: it is seated, but it never links two walled

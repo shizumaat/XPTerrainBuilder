@@ -878,7 +878,8 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
                        surface: _ar.Surface, pack_root: str,
                        split_idx: _t.AbstractSet[int], *,
                        tol_m: float = 0.02,
-                       authored_ground: "float | None" = None) -> tuple:
+                       authored_ground: "float | None" = None,
+                       counts: "dict[str, int] | None" = None) -> tuple:
     """§16g (5): the placements to seat by their DSF ROW —
     ``OBJECT_MSL lat lon heading elevation``.
 
@@ -892,18 +893,34 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
     2026-09-11a/b instruction.
 
     THE FAMILY RELATION IS THE INVARIANT (owner RULINGS 2026-09-13cb,
-    correcting 13by).  A placement standing in a footprint unit is seated
-    at THE UNIT'S DATUM PLUS ITS AUTHORED OFFSET, wherever its anchor
-    happens to fall — so a second-floor passenger floats where the author
-    put them and never drops to the actual ground.
+    correcting 13by), AS AMENDED BY 2026-09-14bo: A ROW IS SEATED AT ITS
+    OWN FEET UNLESS IT STANDS ON THE UNIT'S PAD.
 
-    "ON GROUND" is only the case where the terrain at the anchor ALREADY
-    equals the unit's datum within ``tol_m`` (``[emit] hard_tol_m``,
-    0.02 m) — the cluster pad under the terminal — and there the row is
-    left exactly as it is and X-Plane's own drape does the work.
-    Everywhere else (an anchor over apron, a road, a sunken pier area, a
-    deck, a terraced pad) the row is written ``OBJECT_MSL`` at
-    ``unit datum + authored offset``.
+    13cb seated every placement of a unit at the unit's DATUM plus its
+    authored offset, wherever its anchor fell.  Measured at LEMD (1.0.336,
+    scout ``v2lemd336o``) that put 1,462 of 1,481 rows at exactly three
+    elevations — the datums of three airport-wide units — including the
+    owner's item 3: seven vehicles on apron 1 m ABOVE the 602.42 plane,
+    sunk 0.75–1.14 m into it.  The family relation reaches a placement
+    through THE PAD IT SHARES, not through the unit's bounding box: a
+    vehicle, loader, marker or sign on open apron 44 m from the pad is on
+    the apron.
+
+    So the base is:
+      * THE UNIT'S DATUM where the placement STANDS ON IT — the design
+        surface at its own feet already equals the datum within ``tol_m``
+        (the cluster pad under the terminal: second-floor passengers keep
+        their floor), or the unit's datum is a DECK, which the graded
+        sheet does not carry at all (13cb's road-under-the-deck case);
+      * otherwise THE DESIGN SURFACE AT ITS OWN FEET.
+    Plus the authored offset in both cases.
+
+    WHERE NO GRADED FACE COVERS THE PLACEMENT the row is left alone and
+    stays plain ``OBJECT`` / ``OBJECT_AGL``: the DEM governs there, X-Plane
+    drapes, and an elevation written from a surface nobody emitted would
+    be a guess.  A row whose base IS the surface at its own feet and whose
+    authored offset is 0 is likewise left alone — the drape puts it in
+    exactly that place and a written row would only freeze it.
 
     THE AUTHORED OFFSET: an ``OBJECT_AGL`` row's elevation column IS the
     offset; an ``OBJECT_MSL`` row's is an ABSOLUTE against the ground the
@@ -919,6 +936,7 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
     two edits would collide, and ``dsf_write.edit_dump`` refuses it."""
     from ..model.placement import MslSeat
     from . import obj8 as _obj8
+    c = counts if counts is not None else {}
     have = {m.resource for u in getattr(plan, "units", ()) for m in u.members}
     rows = list(getattr(dump, "placements", ()) or ())
     if not rows:
@@ -945,12 +963,33 @@ def msl_seats_for_dump(dump: _t.Any, plan: _t.Any,
         zero, src = seat
         off = authored_offset(p, authored_ground)
         if off is None:
+            c["msl_offset_unrecoverable"] = c.get("msl_offset_unrecoverable", 0) + 1
             continue                      # an MSL row with no known ground
         z = surface(p.lat, p.lon)
-        if z is not None and abs(float(z) - zero) <= tol_m and off == 0.0:
+        if z is None:
+            # §16g (5) as amended (14bo): no graded face at its feet —
+            # the row stays plain OBJECT / AGL and X-Plane drapes it
+            c["msl_off_sheet_left_draped"] = c.get("msl_off_sheet_left_draped", 0) + 1
+            continue
+        z = float(z)
+        if src == "deck":
+            base, why = zero, src        # a deck is not on the graded sheet
+            c["msl_base_deck"] = c.get("msl_base_deck", 0) + 1
+        elif abs(z - zero) <= tol_m:
+            base, why = zero, src        # it STANDS ON the unit's pad
+            c["msl_base_unit_pad"] = c.get("msl_base_unit_pad", 0) + 1
+        else:
+            base, why = z, "own_feet"    # §16g (5) amended: its own feet
+            c["msl_base_own_feet"] = c.get("msl_base_own_feet", 0) + 1
+        if why == "own_feet" and off == 0.0:
+            # the drape lands it exactly here; a written row freezes it
+            c["msl_left_to_the_drape"] = c.get("msl_left_to_the_drape", 0) + 1
+            c["msl_base_own_feet"] -= 1
+            continue
+        if base == zero and off == 0.0 and abs(z - zero) <= tol_m:
             continue                      # the terrain IS the datum: leave it
         out.append(MslSeat(i, p.def_path, float(p.lon), float(p.lat),
-                           float(p.heading_deg), float(zero) + off, src))
+                           float(p.heading_deg), base + off, why))
     return tuple(out)
 
 

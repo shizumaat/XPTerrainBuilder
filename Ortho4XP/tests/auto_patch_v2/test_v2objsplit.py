@@ -4874,15 +4874,18 @@ def test_16g_5_a_multi_anchor_placement_is_seated_by_its_dsf_row():
     c = FU.multi_anchor_census(dump, plan, (), frozenset(), unit)
     assert c["multi_anchor_rows"] == 2 and c["multi_anchor_on_ground"] == 2
     assert c["multi_anchor_dropped"] == 0 and c["multi_anchor_in_a_unit"] == 1
-    # THE ANCHOR STANDS OVER APRON BESIDE THE PAD (owner 13cb): the unit
-    # datum is 222.28 and the terrain there 219.10, so the row is written
-    # at the DATUM — the family relation, not the ground under the foot.
+    # THE ANCHOR STANDS OVER APRON BESIDE THE PAD — RE-FOUNDED at owner
+    # RULINGS 2026-09-14bo.  13cb wrote the row at the unit's DATUM
+    # (222.28) wherever the anchor fell; measured at LEMD that sank seven
+    # vehicles 0.75-1.14 m into an apron 1 m above the unit plane.  A row
+    # is now seated AT ITS OWN FEET unless it stands ON the unit's pad —
+    # and with no authored offset the drape already puts it there, so the
+    # row is LEFT ALONE.
     seats = FU.msl_seats_for_dump(dump, plan, unit, lambda la, lo: 219.10,
                                   "", frozenset())
-    assert {m.index: (round(m.elevation, 2), m.why) for m in seats} \
-        == {0: (222.28, "cluster_pad")}
+    assert seats == ()
     c = FU.multi_anchor_census(dump, plan, seats, frozenset(), unit)
-    assert c["multi_anchor_object_msl"] == 1 and c["multi_anchor_on_ground"] == 1
+    assert c["multi_anchor_object_msl"] == 0 and c["multi_anchor_on_ground"] == 2
     # AND THE AUTHORED OFFSET RIDES: a second-floor passenger authored
     # +4.20 m AGL floats at the unit plane + 4.20, never on the ground
     rows[0].kind = "OBJECT_AGL"

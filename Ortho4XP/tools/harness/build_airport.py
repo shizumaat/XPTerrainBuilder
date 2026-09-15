@@ -980,6 +980,122 @@ def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════
+# THE AUTHORISED OSM-LAYER REFRESH (--refresh-data osm_layers)
+# ══════════════════════════════════════════════════════════════════════
+
+def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
+    """Re-derive the SCHEMA-STALE layers :func:`schema_stale_osm_layers`
+    names, under the authorisation the caller already holds.
+
+    THE GAP THIS CLOSES (measured 2026-09-15, VMMC): ``build_airport.py
+    VMMC --refresh-data osm_layers`` exited 0 in 23 s, printed "refresh
+    AUTHORISED (osm_layers): …+22+113_big_roads.osm.bz2", then "refresh
+    scope 'osm_layers' was authorised but wrote NOTHING — the artifact
+    was already present", and the next plain build REFUSED on the same
+    file.  Authorising a refresh was a no-op, because nothing in the run
+    actually re-derived a PRESENT-but-stale layer: the airport path never
+    starts the background prefetch at all, and where the prefetch does
+    run it would have rewritten the file MID-BUILD, which is the
+    contamination this whole mechanism exists to stop.  So the refresh
+    gets its own derivation site, here — before the build, inside the
+    scope lock, the snapshot and the armed guard, exactly like
+    :func:`warm_airport_insets`.
+
+    MOVE ASIDE, NOT DELETE, and put back on failure.  The stale file is
+    renamed to ``<name>.stale-<schema>`` in its own directory, the engine
+    re-derives, and then: the aside copy is removed if a schema-current
+    layer came back, or renamed BACK if it did not.  Deleting outright
+    would trade a stale corpus for an ABSENT one the moment a download
+    fails (and this runs against Overpass), which is strictly worse —
+    every later build would then refuse for a missing artifact instead of
+    a stale one, with the bytes gone.  Nothing is left behind either way,
+    so the corpus never accumulates ``.stale-*`` litter.
+
+    THE DERIVATION IS THE ENGINE'S OWN.  ``O4_Vector_Map.
+    start_background_osm_prefetch`` + ``wait_for_background_osm_prefetch``
+    — the same pair the tile prelude
+    (``prepare_tile_airports_and_dem``) calls, filtering the same
+    specification 5-tuples through the same ``_layer_cache_is_current``
+    predicate.  With the stale file moved aside the filter sees it
+    absent and downloads it.  No copy of the download loop lives here.
+    Consequence, stated: that pass also fetches any OTHER layer of this
+    tile the specifications name and the corpus lacks (coastline, water)
+    — lawful under the authorised scope, guarded, and hash-stamped into
+    the refresh ledger with everything else.
+
+    Returns a summary for the frame record.  Raises ``SystemExit`` when a
+    layer did not come back schema-current — a refresh that silently
+    achieved nothing is the defect this function was written for, and it
+    must never exit 0 twice in a row.
+    """
+    import O4_Config_Utils as CFG                          # noqa: E402
+    import O4_Vector_Map as VMAP                           # noqa: E402
+
+    stale = schema_stale_osm_layers(root, lat, lon)
+    if not stale:
+        prog.note("refresh osm_layers: no schema-stale cached layer on "
+                  f"tile {lat:+d}{lon:+d} — nothing to re-derive")
+        return {"tile": [int(lat), int(lon)], "layers": [], "refetched": []}
+
+    aside = []
+    for _scope, artifact, _why in stale:
+        path = Path(root) / artifact
+        target = Path(str(path) + ".stale-"
+                      + (_stamped_cache_schema(path) or "unstamped"))
+        os.replace(str(path), str(target))
+        aside.append((artifact, path, target))
+    prog.note(f"REFRESH osm_layers (authorised, locked, ledgered): "
+              f"{len(aside)} schema-stale layer(s) moved aside on tile "
+              f"{lat:+d}{lon:+d} — "
+              f"{[p.name for _a, p, _t in aside]}; the engine's own prefetch "
+              f"re-derives them now, which is the POINT of this run, not "
+              f"a side effect")
+
+    tile = CFG.Tile(int(lat), int(lon), "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    failures = []
+    try:
+        VMAP.start_background_osm_prefetch(tile)
+        VMAP.wait_for_background_osm_prefetch()
+    finally:
+        # The verdict is read off the FILESYSTEM, never off the prefetch:
+        # it runs in a daemon thread, so an exception inside it never
+        # reaches this frame (the swallowed-degradation class again).
+        # And it is read through the SAME function that named the layers,
+        # so each one is judged against its own schema constant (roads
+        # and water do not share one) and the refusal this refresh must
+        # clear is literally the one re-asked.
+        still_stale = {a for _s, a, _w in
+                       schema_stale_osm_layers(root, lat, lon)}
+        for artifact, path, target in aside:
+            if path.is_file() and artifact not in still_stale:
+                target.unlink()
+            else:
+                os.replace(str(target), str(path))
+                failures.append(str(path))
+    if failures:
+        raise SystemExit(
+            f"REFUSING: --refresh-data osm_layers re-derived NOTHING for "
+            f"{len(failures)} layer(s):\n  "
+            + "\n  ".join(failures)
+            + f"\nThe stale cache(s) were put back, so the corpus is "
+              f"exactly as it was.  A refresh that exits 0 having "
+              f"achieved nothing is the VMMC defect this refuses (the "
+              f"next plain build would refuse on the same artifact "
+              f"again).  Check the engine's OSM download path — Overpass "
+              f"reachability, the local regional extracts — and re-run.")
+    refetched = [a for a, _p, _t in aside]
+    prog.note(f"refresh osm_layers done: {len(refetched)} layer(s) "
+              f"re-derived schema-current "
+              f"({VMAP.ROAD_CACHE_TAG_SCHEMA}) — {refetched}")
+    return {"tile": [int(lat), int(lon)],
+            "layers": [a for _s, a, _w in stale], "refetched": refetched}
+
+
+# ══════════════════════════════════════════════════════════════════════
 # THE SWALLOWED-DEGRADATION REFUSALS (2026-08-07) — DETECTOR 2
 # ══════════════════════════════════════════════════════════════════════
 # Detector 1 (``require_no_swallowed_write_block``) reads the write
@@ -2846,6 +2962,21 @@ def main(argv=None) -> int:
             warm_summary = warm_airport_insets(warm_insets, root, lat, lon,
                                                prog)
 
+    # THE OSM-LAYER REFRESH, in the same place and for the same reason:
+    # the scope lock is held, ``before`` is snapshotted and the guard is
+    # armed with ``osm_layers`` authorised.  Before the build, so a
+    # schema-stale layer is re-derived as an EXPLICIT event instead of
+    # being rewritten mid-build (the contamination of RULINGS
+    # 2026-09-15u) — and so this run's re-derivation lands in the
+    # before/after diff the ledger stamps.  Outside the try/finally
+    # below for the warm's reason: a failed refresh must not be swallowed
+    # into a quietly stale build.
+    osm_refresh_summary = None
+    if "osm_layers" in requested and lat is not None:
+        with guard:
+            osm_refresh_summary = refresh_stale_osm_layers(
+                root, lat, lon, prog)
+
     t0 = time.time()
     try:
         if args.tile:
@@ -2915,6 +3046,7 @@ def main(argv=None) -> int:
     frame["write_guard_lock_churn"] = guard.lock_churn
     frame["write_guard_library_index_churn"] = guard.library_index_churn
     frame["warm_insets"] = warm_summary
+    frame["refresh_osm_layers"] = osm_refresh_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)
     frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["synthetic_dem"] = result.get("synthetic_dem")

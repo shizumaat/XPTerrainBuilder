@@ -6581,6 +6581,169 @@ def _check_ramp_in_road(ways, nodes, ll_to_m) -> List[Violation]:
     return out
 
 
+#: §34 (5) (b) THE COVERED EXTENT OF AN UNDERPASS INCLUDES THE TAXIWAY'S
+#: STRIP (Fable 2026-09-15; RULINGS 2026-09-15h): the AIRCRAFT-pavement
+#: families whose graded STRIP a structure ramp may not stand in.  The
+#: apron is NOT here and neither is any groundside role: ``planar/zones``
+#: builds a zone band around the RUNWAY and TAXI families and nothing
+#: else, so nothing else declares a strip.  NOTE (blast role-literal
+#: hazard): renaming a role VALUE in the v2 role register silently empties
+#: this set, exactly as for ``_ZONE_ON_PAVEMENT_ROLES``.
+_RAMP_IN_STRIP_RUNWAY_ROLES = frozenset({"runway", "runway_crossing"})
+_RAMP_IN_STRIP_TAXI_ROLES = frozenset({
+    "primary_parallel", "secondary_parallel", "stub", "cross_connector",
+    "junction",
+})
+
+#: The zone-2 half width by class — ``zones.toml adjacent_ground.*
+#: half_width_m``, read from the LAW so the census and the engine cannot
+#: drift; the literals are the no-engine fallback for the bare CLI only
+#: and they are what the twin asserts against.
+try:                                                    # pragma: no cover
+    from auto_patch_v2.law import tables as _V2_STRIP_T
+    _V2_STRIP_LAW = _V2_STRIP_T.load_default()
+    _STRIP_LIP_M = float(_V2_STRIP_LAW.tables.zones.adjacent_ground.lip_width_m)
+
+    def _strip_half_width_m(role: str, code_number, code_letter) -> float:
+        if role in _RAMP_IN_STRIP_RUNWAY_ROLES:
+            key = "runway"
+        elif role in _RAMP_IN_STRIP_TAXI_ROLES:
+            key = "junction"
+        else:
+            return 0.0
+        hw = _V2_STRIP_T.zone2_half_width_m(_V2_STRIP_LAW, key,
+                                            code_number, code_letter)
+        return float(hw) if hw and hw > 0.0 else _STRIP_LIP_M
+except Exception:                                       # pragma: no cover
+    _STRIP_LIP_M = 3.0
+    _STRIP_TAXI_M = {"A": 10.25, "B": 11.0, "C": 12.5, "D": 18.5,
+                     "E": 19.0, "F": 22.0}
+    _STRIP_RUNWAY_M = {1: 30.0, 2: 40.0, 3: 75.0, 4: 75.0}
+
+    def _strip_half_width_m(role: str, code_number, code_letter) -> float:
+        if role in _RAMP_IN_STRIP_RUNWAY_ROLES:
+            return _STRIP_RUNWAY_M.get(code_number, 75.0)
+        if role in _RAMP_IN_STRIP_TAXI_ROLES:
+            return _STRIP_TAXI_M.get(str(code_letter or "").upper(), 12.5)
+        return 0.0
+
+
+def _check_ramp_in_strip(ways, nodes, ll_to_m,
+                         face_holes_m: Optional[dict] = None) -> List[Violation]:
+    """§34 (5) (b) NO STRUCTURE RAMP INSIDE THE STRIP OF THE WAY IT PASSES
+    UNDER (Fable 2026-09-15; RULINGS 2026-09-15h; owner 15e item 7).
+
+    The covered extent of an underpass beneath a taxiway or runway spans
+    the pavement AND its graded strip: the mouth opens beyond the strip,
+    the ramp descends outside it, and the rim between is the strip's own
+    surface.  This is the reading of that — a vertex of a RAMP face
+    (``_RAMP_ROLES``, the same law-read set ``ramp_in_road`` prices)
+    standing inside, or welded to, the strip region of a runway- or
+    taxi-family face: the pavement's own solid grown by its class's
+    zone-2 half width (``zones.toml``, one derivation with
+    ``planar/zones.zone_regions`` and with
+    ``planar/structure_underpass.strip_half_width_m``).
+
+    CRITICAL, and a PRESENCE family (``cockpit = "keepout"``) like
+    ``ramp_in_road``: one trench vertex inside the strip is the whole
+    defect whatever its elevation — the strip is the ground an aircraft
+    leaving the pavement runs out onto, and a 5 m trench face in it is
+    the owner's "hole in the taxiway" (LEMD 40.4611623,-3.5444804:
+    ramp face 961 at 15.5 m from a kerb whose code-E strip is 19.0 m,
+    a 5.42 m unbanked drop, and the airport's worst CRITICAL VISUAL row).
+
+    A vertex WELDED to the strip's outer edge is OUTSIDE it: the ramp
+    beginning exactly where the strip ends is what the law asks for, and
+    the line is the census's own weld tolerance (``SHARED_VERTEX_TOL_M``),
+    never a proximity semantic invented here.
+
+    THE FRAME IS THE SOLID AND THE REGION IS THE BAND, and both halves
+    were MEASURED, not chosen.  Read ring-blind and disc-shaped (the
+    pavement's buffer, holes ignored) the first arm reported 52 rows at
+    LEMD, every one of them inside ``cross_connector:pav61``'s own
+    144,429 m² HOLE — a road tunnel in a void the taxiway merely encloses,
+    up to **220 m** from any kerb, which is not a graded strip by any
+    reading.  The face's sidecar HOLES are therefore applied (the
+    ``zone_on_pavement`` frame, :func:`_zone_on_pavement_area`) and the
+    pavement's own SOLID is subtracted: the region is exactly the band
+    ``planar/zones`` grades, so ``de_m`` can never exceed the class's own
+    half width.
+    """
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+    solids, bands = [], []
+    for w in ways:
+        role = law_role(w)
+        hw = _strip_half_width_m(role, _code_number_of(w), _code_letter_of(w))
+        if hw <= 0.0:
+            continue
+        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        if len(pts) < 4:
+            continue
+        holes = (face_holes_m or {}).get(str(w.tags.get("shapeID"))) or []
+        try:
+            g = Polygon(pts, [h for h in holes if len(h) >= 4])
+            if not g.is_valid:
+                g = g.buffer(0)
+            band = g.buffer(hw, join_style="mitre", mitre_limit=2.0).difference(g)
+        except Exception:                                 # pragma: no cover
+            continue
+        if not g.is_empty:
+            solids.append(g)
+        if not band.is_empty:
+            bands.append((band, w))
+    if not bands:
+        return []
+    # a band the PAVEMENT itself covers is that pavement's, never a strip
+    # (the senior-claim order ``planar/zones`` already applies)
+    try:
+        pav_u = unary_union(solids)
+        bands = [(b.difference(pav_u), w) for b, w in bands]
+        bands = [(b, w) for b, w in bands if not b.is_empty]
+    except Exception:                                     # pragma: no cover
+        pass
+    if not bands:
+        return []
+    out: List[Violation] = []
+    for w in ways:
+        if law_role(w) not in _RAMP_ROLES:
+            continue
+        for nid in dict.fromkeys(w.nids):
+            if nid not in nodes:
+                continue
+            lat, lon = nodes[nid]
+            p = Point(ll_to_m(lat, lon))
+            for g, pw in bands:
+                if not g.contains(p):
+                    continue
+                depth = min((p.distance(part.exterior)
+                             for part in getattr(g, "geoms", [g])
+                             if part.geom_type == "Polygon"
+                             and part.covers(p)), default=0.0)
+                if depth <= SHARED_VERTEX_TOL_M:
+                    continue
+                v = Violation(
+                    grade_pct=0.0, excess_pct=0.0, distance_m=depth,
+                    de_m=depth, way_a=w, way_b=pw,
+                    pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
+                v.lat, v.lon = lat, lon
+                out.append(v)
+                break
+    return out
+
+
+def _code_number_of(w):
+    try:
+        return int(str(w.tags.get("code_number")).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _code_letter_of(w):
+    c = w.tags.get("code_letter")
+    return str(c).strip().upper() if c else None
+
+
 #: §39 (2): the DEGENERATE FLOOR - a gap under this is unmeshable
 #: whatever its neighbourhood (owner RULINGS 2026-09-13bu's own bar,
 #: "constrained segments under 10 mm 28 -> 0"); one over it is ordinary
@@ -8597,6 +8760,15 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     # vertex INSIDE a road ribbon is a cut lane — CRITICAL, presence.
     ("ramp_in_road",
      "RAMP vertex INSIDE a road ribbon (the road margin is general)",
+     "within"),
+    # §34 (5) (b) THE COVERED EXTENT INCLUDES THE STRIP (Fable
+    # 2026-09-15; RULINGS 2026-09-15h; owner 15e item 7).  The sibling of
+    # ``ramp_in_road`` on the AIRSIDE: a ramp vertex inside the graded
+    # strip of the runway or taxiway it passes under is a trench in the
+    # ground an aircraft runs out onto — CRITICAL, presence.
+    ("ramp_in_strip",
+     "RAMP vertex INSIDE a runway/taxiway GRADED STRIP (the covered "
+     "extent spans the strip)",
      "within"),
     # §39 (2) THE HAIRLINE LAW (owner RULINGS 2026-09-13bk; spec §39).
     # Sidecar-declared like ``seam_residual``: ``shore_edges`` = the tile's
@@ -11216,6 +11388,17 @@ def run_checks(
         "edge — centreline + half width — and the ribbon is never cut)",
         ramp_road, top_n)
     within = within + ramp_road
+
+    # §34 (5) (b): the covered extent of an underpass spans the pavement
+    # AND its graded strip, so no ramp vertex stands inside that strip
+    ramp_strip = _fam("ramp_in_strip",
+                      _check_ramp_in_strip(ways, nodes, ll_to_m, face_holes_m))
+    _pv("RAMP vertex INSIDE a runway/taxiway GRADED STRIP (RULINGS "
+        "2026-09-15h §34 (5) (b): the covered extent of an underpass "
+        "beneath a taxiway or runway spans the pavement AND its strip — "
+        "the mouth opens beyond the strip and the ramp descends outside "
+        "it)", ramp_strip, top_n)
+    within = within + ramp_strip
 
     # §39 (2): every emitted edge — pavement ring AND role-less feature
     # way — against the tile's foreign constrained edges

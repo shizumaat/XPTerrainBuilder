@@ -482,8 +482,26 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             if tn.source in ("object", "door", "sunken_road"):
                 pin(group[0], tn.mouth_z, src_mouth, senior=True)
             elif len(cap_reps) == 1:
-                rows.append(Linear(((group[0], 1.0), (cap_reps[0], -1.0)),
-                                   -tn_law.bore_datum_m, -tn_law.bore_datum_m, src_mouth))
+                # §33 (5) THE MOUTH'S FLOOR IS THE BORE DATUM, HOWEVER ITS
+                # STATION WAS TAKEN (Fable 2026-09-15; RULINGS 2026-09-15h;
+                # owner 15e item 5).  TWO ONE-SIDED rows, not one ``lo ==
+                # hi`` Linear: ``solve/rows._law_sides`` routes an equality
+                # into the ``eqs`` bucket, which ``solve/design`` adds at
+                # the ``law`` WEIGHT — so the datum was a soft least-squares
+                # row in a contest it could lose, and at LEMD
+                # ``tunnel:-15327@0`` it lost 2.17 m (floor 599.25 against
+                # its own 597.08, under a rim solving 602.16 = the DEM it is
+                # pinned at; ``--why-at`` on the base capture names this row
+                # and the rim's PIN as the whole chain).  Stated as a
+                # two-sided PAIR the rows enter the one-sided bucket, where
+                # the head ``tunnel.bore_datum_m`` — registered in
+                # ``[design] hard_rulings`` — makes them CONSTRAINTS of the
+                # active set.  The value is unchanged: z_mouth − z_cap =
+                # −bore_datum_m.
+                terms = ((group[0], 1.0), (cap_reps[0], -1.0))
+                rows.append(Linear(terms, None, -tn_law.bore_datum_m, src_mouth))
+                rows.append(Linear(tuple((v, -c) for v, c in terms), None,
+                                   tn_law.bore_datum_m, src_mouth))
             else:
                 pin(group[0], tn.mouth_z, src_mouth)
         # ── decks ───────────────────────────────────────────────────

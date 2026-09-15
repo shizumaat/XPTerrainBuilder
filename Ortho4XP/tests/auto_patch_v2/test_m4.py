@@ -228,11 +228,23 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     assert min(zs) == pytest.approx(east.mouth_z, abs=0.05)
     lin = [r for r in rows if isinstance(r, Linear) and r.source.ruling.startswith("tunnel.bore_datum")]
     assert lin
+    # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth datum is
+    # stated as a TWO-SIDED PAIR of ONE-SIDED rows, never one ``lo == hi``
+    # equality — ``solve/rows._law_sides`` routes an equality into the
+    # ``eqs`` bucket, which ``solve/design`` adds at the LAW WEIGHT, so the
+    # datum was a soft least-squares row and at LEMD ``tunnel:-15327@0`` it
+    # LOST 2.17 m.  One-sided, the head ``tunnel.bore_datum_m`` is read
+    # from ``[design] hard_rulings`` and the rows are CONSTRAINTS.
+    assert len(lin) % 2 == 0 and len(lin) >= 2
+    assert all(r.lo is None and r.hi is not None for r in lin), (
+        "an lo == hi Linear never reaches [design] hard_rulings")
+    assert {r.hi for r in lin} == {-tn.bore_datum_m, tn.bore_datum_m}
     for r in lin:
-        # 08t: the bore datum is a TARGET of the least-squares solve — met to
-        # the solve's own tolerance, not to the LP's exact equality
-        assert sum(c * sol.z[v] for v, c in r.terms) == pytest.approx(
-            -tn.bore_datum_m, abs=law.tables.emit.materiality.elevation_m)
+        # each row, in its own sense, is MET (a constraint now, not a target)
+        assert sum(c * sol.z[v] for v, c in r.terms) <= (
+            r.hi + law.tables.emit.materiality.elevation_m)
+        assert abs(sum(c * sol.z[v] for v, c in r.terms)) == pytest.approx(
+            tn.bore_datum_m, abs=law.tables.emit.materiality.elevation_m)
     wz = [sol.z[v] for f in walls[east.id] for v in pm.ring_vertices(f.ring)]
     assert max(wz) - min(zs) >= tn.bore_datum_m - 1e-6
     # the deck stands the clearance above the ramp beneath

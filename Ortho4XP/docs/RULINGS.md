@@ -6218,3 +6218,26 @@ proved by the suite ON MAIN before the RULINGS entry, never by the
 lane's number. The clip work (14bf) is on `claude/v2padvert` and
 re-lands through lane `v2padjoin`, whose FIRST bar is the suite green
 on a merge of main.
+
+## 2026-09-14bh v2roles round 4 MERGED (8724b735): LERM's false shoulder (a page that ENCLOSES the runway) refused by the wrap rung; the +40-004 tile builds again; the mis-keyed DEFECT text fixed; the standing red twin was a one-string merge casualty
+
+Lane `v2roles` @ 64eefca5. LERM: the field's single open pavement
+page (65,655 m², 7 hangars, 148 m of taxi centreline) shared 2,135 m
+of a 2,135 m runway ring — wrap 1.00 — and became a shoulder holding
+the runway datum over 7.5 % of ground: all 43 rows on face 5 (41 at
+the 2.5 % shoulder cap). New rung `corridor.runway_shoulder_max_wrap`
+0.75 (HECA shoulders 0.01–0.54, VHHH 0.01–0.55; runners-up recorded).
+LERM PRE reproduces the abort in 7.4 s; POST rc 0, optimal, verify
+rows 562 → 127, `runway_transverse` 43 → 0, ways 34 → 68 (the apron
+and taxi faces back). Five-frame shoulder census identical (HECA 32 /
+575 k m², OTHH 6, KCLT 1, CYXY 1, SPJC 0; VHHH by arithmetic, max wrap
+0.55). `engine_v2._DEFECT_LAW` names each family's own law. §40 (1)
+amended in the spec. Suite 1,539 on the lane.
+
+* The "flaky basin-wall" of 14aa was misnamed (memory
+  `suite-failure-named-by-narrative`): the deterministic red on main
+  was `test_role_overlap_read::…node_mean_frame` — two strings from
+  the toolfix/v2zonehole double-merge (`"mean-of-nodes"` /
+  `"builder anchor"` in the code vs the toolfix twin's wording). Twin
+  aligned to the shipped reader. Chip `objsplitflake` (task_e97fecda)
+  may find nothing — it stands.

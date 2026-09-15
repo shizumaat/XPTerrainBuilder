@@ -81,15 +81,23 @@ def channel_yields(channels: _t.Sequence[Channel], tunnel_ways: _t.Sequence[OsmW
     road or a door well.  LGAV measured the alternative: 60 Trench
     refusals, four passes each refusing the same geometry against a DEM
     it stands 12 m under."""
+    # §45 (13) (b) SUPERSEDES THE GEOMETRIC DROP (owner RULINGS
+    # 2026-09-15aa).  Round 2 dropped a bore seed whose LINE merely lay
+    # inside a channel's corridor as well as one the channel OWNED.  Under
+    # (13) (b) a way the engine already models is never a channel
+    # candidate at all, so a way inside a corridor that the channel does
+    # NOT own is a modelled crossing and KEEPS its bore — dropping it
+    # anyway contradicts the ruling that admitted it.  Measured at LEMD:
+    # the geometric half still deleted five bores (`tunnel:-15327@0`,
+    # `-5980@0`, `-15327+-5980@0`, `-17265+-5946+-6640+-1359@0/@1`) whose
+    # ways (13) (b) had already excluded from every candidate.
     owned = channel_ways(channels)
     kept: list[OsmWay] = []
     for w in tunnel_ways:
-        cid = "" if int(w.id) in owned else in_any_corridor(channels, LineString(w.points))
-        if int(w.id) in owned or cid:
+        if int(w.id) in owned:
             refused.append(
-                f"osm:{w.id}: inside {cid or 'its own'} channel corridor — the channel's "
-                f"floor governs it and a crossing inside a channel is NEVER a bore with "
-                f"mouths (§45 (1)/(6))")
+                f"osm:{w.id}: the channel's own way — its floor governs the crossing and a "
+                f"crossing inside a channel is NEVER a bore with mouths (§45 (1)/(6))")
             continue
         kept.append(w)
     # §45 (11): an object pass yields ONLY where its footprint lies

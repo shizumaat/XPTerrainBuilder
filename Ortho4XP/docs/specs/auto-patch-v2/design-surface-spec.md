@@ -13992,3 +13992,139 @@ mesh row's far end at a contact is the raw-pair partner; (c) re-
 measure the crossfall; if the raw pair then binds and the site reads
 ≤ 1.985 %, done; if `no_step_pairs` bind next, name them and stop —
 the residual joins 15y-1 for the owner.
+
+### §34 (13) (3) (a) **MEASURED — r4** (lane `v2lemdstruct2`, branch `claude/v2lemdstruct2`, base main `848bf35e`)
+
+Same registered LEMD capture, matched `v2_solve_replay` arms, harness
+census on each `--emit`.  **NO BUILD** — the refresh ledger's last
+`osm_layers` entry is still **2026-09-08T11:33:30 (SPJC)**.  Suite
+**1,638 passed / 1 skipped / 0 FAILED**.
+
+#### (a) THE 14 OBJECTS, NAMED — THEY ARE TWO BODIES OF ONE PLACEMENT
+
+`foot_targets` on the capture: **8 foot targets touch v6622, from exactly
+2 bodies** (the 14 the `--why-vertex` dual named are the binding subset of
+their 16 one-sided rows).
+
+| body | span | feet | verdict | target z | DEM under it | relief | `y_zero` | anchor |
+|---|---|---|---|---|---|---|---|---|
+| `LEMD_OBJ-Airport_Munoza-LEMD69#b2` | **2.232 m** | 4 | `bare` | 577.02 | 577.01–577.03 | 0.001 m | −1.198 | 40.4609886,−3.5450515 |
+| `LEMD_OBJ-Airport_Munoza-LEMD69#b4` | **2.231 m** | 4 | `bare` | 576.85 | 576.80–576.91 | 0.001 m | −1.200 | 40.4609892,−3.5449556 |
+
+**RESOURCE / CLASS.**  One pack placement, `Airport_Munoza` /
+`LEMD69.obj`, cut by §6 into **27 rigid bodies** — b1…b22 and b24/b25 are
+all **2.23 m** square with 4 feet, relief 0.001 m and `y_zero` −1.18…−1.21,
+strung down the taxiway edge; b0 is the 28.0 m run and b23 the 71.3 m one
+with 140 feet.  That signature — a 2.2 m flat square sitting 1.2 m under
+its own origin, repeated in a line along a kerb — is the taxiway's own
+**edge furniture** (sign boards / guidance panels on their plinths), and
+b2 and b4 are two of them.
+
+**ITS OWN GROUND, and why the row reaches AIRSIDE.**  Every one of the 8
+feet stands on `graded_strip` — none on pavement — and the bodies sit on
+their DEM to the centimetre (`fit_residual` 0.010 / 0.112 m).  The row
+reaches the junction because a foot row is stated over the TRIANGLE the
+foot stands in, and the graded strip SHARES its kerb vertices with the
+junction it borders: **one node, one value** (09-01g).  v6622 carries
+`graded_strip#94` AND `junction#86`, so two pieces of taxiway furniture
+standing on the verge were holding a taxiway junction's crossfall through
+a shared kerb column — the heaviest family on the vertex, `sum |dual|`
+**42,656**, an order of magnitude over everything else.
+
+**WHAT LANDED.**  `constraints/foot_rows.foot_rows`: a foot row whose
+triangle touches an AIRSIDE VALUE ROLE keeps every term and sets
+`follows` to its BARE-GROUND columns — the pavement's are GIVEN.  The
+head `structures.placement foot_row` is registered in `[design]
+one_way_rulings` beside its existing `foot_row_rulings` price entry.  A
+triangle with NO free column stays two-sided (11x (1): all or nothing per
+body).  `STATS["foot_rows"]["one_way_at_airside"]` reports the count —
+**LEMD 184**, **HECA 3**.
+
+**THE SCOPE IS THE RULING'S, AND THE NARROWING WAS MEASURED AND
+REJECTED.**  Excluding the runway family (taxi + apron only) halves the
+runway movement but never reaches zero and LOSES the law:
+
+| scope | owner's raw pair | runway vertices moved > 0.02 m | worst |
+|---|---|---|---|
+| every airside value role (RULED) | **1.160 %** | 394 | 5.086 m |
+| taxi family + apron only | **2.585 %** (over the 1.985 % cap) | 196 | 3.277 m |
+
+#### (b) THE `junction_mesh` ROW — DISSOLVED BY (a), NOT EDITED
+
+`--why-vertex 6622` after (a): `junction_mesh` **1 row, sum |dual| 0.07**
+— it holds nothing, and its far end is v904/v903, both `junction#86` +
+`runway#5`, not a DEM-held zone vertex.  The premise of (b) was r3's
+measurement of a sheet the feet were distorting; with the feet one-way it
+is gone.  **No change was made to the 04y mesh population**, because
+rewriting a triangulation edge to a different pair on the strength of a
+dissolved symptom is the opposite of mechanism-before-fix.  What binds
+v6622 now: `foot_rows` 8 (26,950, still in the row as GIVEN terms),
+`rim_level` 1 (117), `junction_mesh` 1 (**0.07**); the chain runs 6 hops
+to the F-6 trench's own pinned ramp top.
+
+#### (c) THE CROSSFALL, RE-MEASURED — BAR MET; THE RUNWAY MOVED, AND IT IS THE PRICE
+
+Read BY COORDINATE on the two closing planar arms (the vertex ids differ:
+the mouth-road cells renumber the map).
+
+| | r3 closing (`c6`) | r4 closing (`d5`) |
+|---|---|---|
+| contact vertex at 40.4611623,−3.5444804 | 579.068 | 582.586 |
+| the junction's far edge, 18.12 m out | 579.850 | 582.309 |
+| **THE RAW PAIR** | **4.313 %** | **1.529 %** — **MET** (junction cap 1.985 %) |
+| census rows within 20 m of the owner's point | 8 | **0** |
+| the row that binds | — | none at the site; the pair is inside its cap and the census prices nothing there |
+
+| census family | r3 (`c6`) | r4 (`d5`) |
+|---|---|---|
+| `transverse` | 98 | **90** |
+| `airside_no_step` | 460 | **377** |
+| `taxi_box` | 171 | **163** |
+| `within_shape` | 3,415 | **3,585** |
+| `strip_transverse` (worst) | 81 (13.864 m) | **89 (17.700 m)** |
+| `ramp_in_strip` | 8 | **18** |
+| LAW-TRUE / ADJUDICATED | 5,692 / 1,344 | 5,791 / **1,357** (airside 1,251 → 1,215) |
+| CRITICAL motion | 4 | **6** |
+| CRITICAL visual (cliffs) | 1,438 (10) | 1,456 (**20**) |
+| v2 verify rows | 1,564 | **1,547**; DEFECT families ALL ZERO, solve optimal |
+
+**THE RUNWAY-IMMOBILITY BAR IS NOT MET AND CANNOT BE BY THIS MECHANISM.**
+Joined by identity key over 4,031 shared runway-family vertices,
+**354 moved more than 0.02 m, worst 5.687 m**, 8 of them over 2 m — all
+at the F-6 crossing.  That is not a one-way leak: the feet WERE holding
+the runway, so removing a hold necessarily moves what it wrongly held,
+and even the taxi-only narrowing leaves 196 moving.  The knock-on is
+named: `ramp_in_strip` 8 → 18, `strip_transverse` worst 13.864 → 17.700 m,
+cliffs 10 → 20, and a **new `mid_edge_step` 0.950 m over 1 m between two
+RUNWAY faces at 40.4613609,−3.5446852** — a welded step on rolled-on
+pavement, the kind of row the pilot feels, at the owner's own site.
+Against that: the crossfall is fixed, airside ADJUDICATED falls 1,251 →
+1,215, `airside_no_step` 460 → 377 and the site prices nothing.  **The
+trade is the owner's to see beside 15y-1.**
+
+#### THE CONTROL — HECA, matched pair, ONE variable
+
+The law toggle alone (`one_way_rulings` entry in / out), one tree, one
+capture (`HECA.off3.pkl`).  Only **3 of HECA's 4 foot targets** touch
+airside pavement, and the change is nearly inert:
+
+| | flip OFF | flip ON |
+|---|---|---|
+| v2 verify rows | 30,459 | **30,500** (+41, +0.13 %) |
+| `airside_no_step` | 7,794 | 7,823 |
+| runway-family vertices moved > 0.02 m | — | **8 of 3,753**, worst **0.064 m** |
+| whole surface max \|off − on\| | — | **0.822 m**, 2 vertices over 0.5 m |
+
+LEMD's 5 m is therefore a SITE property — two bodies of edge furniture on
+a junction↔runway contact — not the law's general cost.
+
+#### A DEFECT THIS ROUND MADE AND CAUGHT, RECORDED
+
+Disarming the flip for the HECA control by deleting every line matching
+the head's prefix deleted the `foot_row_rulings` entry as well, which
+silently re-priced **every foot row in the tree** from `pad_flat` (3000)
+to `law` (3).  The four §11b twins caught it; the first HECA control arm
+was run under it and was DISCARDED and re-run with a single-variable
+toggle.  `tests/test_harness.py::test_the_foot_row_head_is_in_both_
+registers` now twins the two registers apart — `conforming_rulings` is
+their union and so could never have been the guard.

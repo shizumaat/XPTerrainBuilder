@@ -7978,3 +7978,45 @@ is the shipping convention), so a restore is about the owner testing
 1.0.341 on a pack that carries a lane's r5 rebake rather than the
 app's. The peer's v2schemarefuse r4 (running) makes the harness tile
 path lane-local for the object stage and refuses install writes.
+
+## 2026-09-15ao v2schemarefuse ROUND 4 MERGED (6f6c28ed): a lane's harness build NEVER writes the owner's X-Plane install — pack writes STAND DOWN (measure-only), a Python write under `Custom Scenery/` refuses outside the new `pack_rebake` scope, and every pack a tile build reads is under the before/after snapshot
+
+The defect (15av/15bb): two lane TILE builds rewrote the owner's live
+packs — v2vmmcshore4tile → the VHHH pack's +22+113.dsf (11:49:11, 6,390
+placements) and v2lemdstruct2 r5 `--tile 40 -4` → the Aerosoft LEMD
+pack's +40-004.dsf (12:21:43) + o4_placement_provenance.json + 2,694
+split-body .obj files — through `rebake_after_mesh` →
+`engine_v2._place_objects` → `placement_write.apply_plan`, whose
+`allow_live_install` is a CONSTANT True (the engine cannot tell an app
+run from a lane's), and both runs reported "shared repo UNCHANGED"
+because the snapshot never covered the install. ATTRIBUTED and pinned as
+a twin: the write half is reachable ONLY from the tile path
+(`O4_Mesh_Utils.build_mesh` → `rebake_after_mesh`); the v2 airport
+pipeline writes `<out>/<ICAO>.rebake.json` and nothing else. THREE
+HALVES (lane `v2schemarefuse` r4, 6cb7cbf2): (a) `O4_PACK_WRITES=
+measure_only` — set by `redirect_engine_caches` for every lane build
+(env, inherited by subprocesses), cleared under `--refresh-data
+pack_rebake`, recorded in frame.json: the engine's OWN measure-only path
+builds, classifies and reports the placement plan and only the writes
+stand down; the app sets nothing and writes as before. DEVIATION,
+accepted by the session: the brief asked for a lane-local MIRROR of the
+pack; measure-only ships instead — a mirror is GB-scale per build and an
+empty mirror has no `.anchor_bak` files, so `restore_pack_objects` would
+restore 0 and silently change the measurement. (b) `SharedRepoWriteGuard
+(install_roots=…)`, an explicit root: `Custom Scenery/<pack>/…` maps to
+the new `pack_rebake` scope; anything else in the install is
+unauthorisable (CIFP, Global Scenery); a subprocess write without an
+`os.replace` is structurally invisible — (a) and (c) cover it. (c)
+`pack_roots_for_tile` + `install_snapshot`: every pack carrying the tile
+(the WHOLE pack — split bodies land at the plan's resource paths) joins
+the before/after walk in `build_airport` AND `run_tile_mesh_only` (the
+one caller of `rebake_after_mesh`); 108 k files over 18 packs at
++22+113 in 2.1 s cold / 0.13 s warm. Suite ON MAIN: `1698 passed, 1
+skipped`, 0 failed. NOT DONE: `pack_rebake` install entries are counted
+and named in the ledger but not hash-stamped (`record_refresh` hashes
+repo-relative paths); no end-to-end tile build (that is the act under
+investigation) — the next lane tile build must print `pack writes STOOD
+DOWN` and a pack count in its snapshot line, and that print is its
+proof. The `.anchor_bak` restore of the VHHH and LEMD packs is the
+owner's decision (asked by the other session). Lane tile builds may
+resume after this merge.

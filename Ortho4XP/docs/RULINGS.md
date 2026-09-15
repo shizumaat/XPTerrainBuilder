@@ -8237,3 +8237,34 @@ not mine: the SUITE's session detector has no external-candidate
 downgrade (unlike the build audit's `BuildInputScope`), so a concurrent
 authorised refresh lands as teardown ERRORs in any suite running at the
 time (18 today, twice) — chip-worthy.
+
+## 2026-09-15ba v2schemarefuse ROUND 5 MERGED (306b68f6): 15as's "superseded per-airport feed" was a MISATTRIBUTION — the loader's road feeds are the tile-wide layers over the 3 × 3 NEIGHBOURHOOD (scope `osm_layers`); the refresh now warms absent layers, neighbour tiles and a cold tile's DEM/insets, and `--refresh-only` refreshes without building
+
+Attribution (lane `v2schemarefuse` r5, a0e90a20): `auto_patch_v2/airport/
+osm.py` `ROAD_FEEDS = ("airport_small_roads", "big_roads")`, resolved by
+`feed_path` to `OSM_data/<block>/<tile>/<tile>_<feed>.osm.bz2` — the TILE
+layers, merged over the 3 × 3 square by `load_feed`; the KDFW traceback
+named `+33-098_big_roads` (a neighbour) and KPHX's `+33-112`. Round 1's
+`schema_stale_osm_layers` judged the build's own tile only (its stated
+limit — the defect). `OSM_data/_airport_road_feed` (`osm_roadfeed`) has
+no loader refusal; 15as (9)'s re-cut is NOT needed (the owner's
+authorisation is unused; the whitelist chip of 15r stands). FIVE parts,
+one mechanism: (1) `superseded_road_feeds` judges what the reader judges
+(its own `ROAD_FEEDS`/`feed_path`/`feed_tag_schema`, the 3 × 3 square) as
+a PRE-FLIGHT refusal — untagged feeds (`airport_small_roads`, no schema
+anywhere) deliberately not named; live corpus read-only: KDFW names
++33-098, KPHX +33-112, LGAV/HECA 0. (2) `require_dem_frame(requested=)`
+— an authorised scope is named as something this run derives, the run
+proceeds, the frame is RE-JUDGED afterwards with nothing authorised. (3)
+`refresh_stale_osm_layers` derives ABSENT layers and runs once per named
+tile; the airports layer (not in the prefetch specs) via the engine's
+own `OSM_queries_to_OSM_layer`. (4) `refresh_tile_dem` beside
+`warm_airport_insets`: the base raster via `O4_DEM_Utils.DEM(info_only)`
+and the insets via `ensure_insets_for_tile(refresh=True)` over the
+by-then-present airports layer; runs second; raises if still cold. (5)
+`--refresh-only`: the refreshes for the named tile, ledgered, rc 0
+without entering any build stage (rc 0 only because the re-judged
+pre-flight passed; refuses with no scope). Suite ON MAIN: `1723 passed,
+1 skipped, 1 xpassed`, 0 failed. NOT DONE: no live exercise of
+`--refresh-only` (this session's KDFW/KPHX neighbour warms are the first
+proof); a cold bathymetry band still refuses inside `build_tile`.

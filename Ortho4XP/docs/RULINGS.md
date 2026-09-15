@@ -6764,3 +6764,18 @@ imported (layering). The 1.0.339 LEMD report replayed: excess 0.0458
 m, `defects {}`. App 1.0.340 next (queued behind the owner's engine —
 a Greek tile since 23:11; the suite's teardown ERRORs were that
 build's writes seen by the session detector, the known class).
+
+## 2026-09-15a The app-build gate counted the app's IDLE JSONL server as "the owner's engine running" — 55 min waited on nothing; gate refined: a build is a worker with CPU or children
+
+The bounded waiter for app 1.0.340 timed out at 3,301 s with "engine
+procs: 1". The one match was PID 21319 `Ortho4XP --engine-jsonl`, the
+app's resident engine SERVER: 0.0 % CPU, no child processes, elapsed
+1h30, and `engine-stderr.log` ends "Tile +37+023 completed in
+10m7sec. [worker 0] Engine process exiting" at 23:22 — the Greek tile
+the gate was protecting had finished 1.5 h earlier; no data-repo file
+was newer than 3 min. RULED: the anchored pattern stays (14i/14bq),
+but "running" means a BUILD — any anchored match with %CPU > 0 or a
+child process (tile workers fork), or a data-repo write in the last
+minutes. An idle resident server never holds the gate; the owner
+relaunches the app to pick up the new bundle regardless. Built
+1.0.340 under this reading.

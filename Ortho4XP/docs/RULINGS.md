@@ -7932,3 +7932,4 @@ object stage; schema-stale road layers refuse by name; the road-layer
 refreshes done today. The two LEMD decks lost by the deck rule
 (`-5305`, `-15293`) are NOT in 1.0.341 (they still hold their
 trenches there) — a 1.0.342 item.
+15ax addendum: suite ON MAIN after the v2vmmcshore r7 merge (347c4552): 1652 passed, 1 skipped, 42 warnings in 66.05s (0:01:06).

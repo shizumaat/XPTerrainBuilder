@@ -6355,3 +6355,30 @@ extent to cover the terrain cutting down to the road running under it."
   ground = §16g (10)'s line; the submerged object; the barriers and
   small buildings at the runway ends; the blast shield; the building
   at 40.4842 "floating again" — 11ah's site).
+
+## 2026-09-14bm v2othhramp MERGED: the three coupled ramp items landed together — the east OTHH ramp 54 % → 17 %, tops in by the half-width, full depth at the covering plate, §34 (10) general, `ramp_in_road` registered; airside 0
+
+Lane `v2othhramp` @ 7ae5c578 (OTHH build `/tmp/harness/v2othhramp.
+osm` vs a matched control at the same tree, ledger cc0ead55f1f2;
+suite 1,530 twice, 1,539 on main, no FAILED lines). East mouth
+stations: wall-band end 38.89, pad edge 36.50, COVERING PLATE edge
+29.00 — 9.9 m of uncovered corridor is ramp (the owner's ~4 m
+estimate was the wall; the plate stands 7.5 m further in). `_headroom`
+publishes the witness plate's plan; `covered_start` reads it; on the
+other two under-terminal corridors the plate covers everything so the
+climb starts at the wall end (`@2` 6.00 → 6.30). Half-width margin:
+tops in 4.00 / 4.89 m. Grades: east route7 53.95 → 17.17 % (run 3.5
+→ 11.0 m); route9 17.39 → 18.06 %. `road_true_edge` one derivation;
+consumer census: the pinched climb and the §34 (8)/tunnel-object/
+door-ramp stop set are the only readers (basin/approach read no
+role); r1 and r2 byte-identical at OTHH. `ramp_in_road` CRITICAL:
+HECA/KCLT/SPJC/LERM/OTHH all 0 — a guard. The three Law C twins
+re-founded and named. Build: verify defects {}, tunnels 40 → 42 (four
+climbs now reach the ground), airside 0 of 20,001 > 0.1 m (22 > 0.02,
+worst 0.06), road edges 0 > 0.02, ADJUDICATED 7,623 → 7,620,
+`hairline_pair` 1,316 → 1,337 (+21, the new ramp stations near
+foreign edges — a standing OTHH population, owed). The road-WIDTH read
+(§42 painted road) not needed at 17 %.
+
+* App 1.0.337 next (the OTHH read). The owner's inset answer would
+  still move the tops further; at 17 % the ramp is plausible.

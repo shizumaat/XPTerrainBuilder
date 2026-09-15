@@ -111,7 +111,8 @@ from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
                                  covered_start as _covered_start, geometry,
-                                 pad_hit as _pad_hit, ramp_targets)
+                                 pad_hit as _pad_hit, ramp_targets,
+                                 reseat_expect as _reseat_expect)
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -612,7 +613,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             moved_m, climb_from = climb_from - moved_to, moved_to
             top_pinned = True
             if pinched:
+                # §34 (9) (4)'s witness rides BESIDE ``Tunnel.pinched``, which
+                # stays the (road, span, grade) triple 34 (9) (3) unpacks
                 road_witness = pinched[3] or "the road face edge (the pack paints no line here)"
+                pinched = pinched[:3]
         # ── §34 (7): THE STATIONS ARE THE SAMPLING, NOT THE EMITTED SHAPE
         # (owner RULINGS 2026-09-14n item 2 / 2026-09-14p).  The profile is
         # solved above; now a straight constant-grade run collapses to its
@@ -973,17 +977,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "bores_replaced_by_object": stats.bores_replaced_by_object,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
-
-
-def _reseat_expect(c, mouth_z: float, grade: float, s_top: float, airport: Airport
-                   ) -> tuple[float, ...]:
-    """The re-seat the DESIGN implies for the corridor's placement(s)
-    (05n-4): ``ground(anchor) − (floor at the anchor's station + agl +
-    plate)`` — the post-mesh seat measures the real one."""
-    ln = LineString(c.axis)
-    s = ln.project(Point(c.anchor_xy))
-    floor = min(mouth_z + grade * min(s, s_top), c.anchor_dem_z) if grade > 0 else mouth_z
-    return (round(c.anchor_dem_z - (floor + c.agl_m + c.plate_y), 3),)
 
 
 def _owner_kept(cell: tuple, tunnels: list[Tunnel], keep: list[bool]) -> bool:

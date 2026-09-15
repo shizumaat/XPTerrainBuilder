@@ -72,7 +72,7 @@ def _unit(a: XY, b: XY) -> XY:
 
 __all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
            "rim_standoff", "corner_distance", "beyond_strip",
-           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start"]
+           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start", "reseat_expect"]
 
 
 def rim_standoff(thickness_m: float, cutout, spacing_m: float) -> tuple[float, float]:
@@ -272,6 +272,17 @@ def collapse_stations(ss: _t.Sequence[float], pts: list[tuple[XY, ...]], zs: lis
         out.append(ss[j])
         i = j
     return out
+
+
+def reseat_expect(c, mouth_z: float, grade: float, s_top: float, airport: Airport
+                   ) -> tuple[float, ...]:
+    """The re-seat the DESIGN implies for the corridor's placement(s)
+    (05n-4): ``ground(anchor) − (floor at the anchor's station + agl +
+    plate)`` — the post-mesh seat measures the real one."""
+    ln = LineString(c.axis)
+    s = ln.project(Point(c.anchor_xy))
+    floor = min(mouth_z + grade * min(s, s_top), c.anchor_dem_z) if grade > 0 else mouth_z
+    return (round(c.anchor_dem_z - (floor + c.agl_m + c.plate_y), 3),)
 
 
 def covered_start(axis_fn, hull_s: float, pads, pad_tree, step: float) -> float | None:

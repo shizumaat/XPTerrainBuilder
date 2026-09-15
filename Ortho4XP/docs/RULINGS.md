@@ -7548,3 +7548,47 @@ cap) → RULED §34 (13) (3) on the measurement: an object's foot never
 holds airside pavement (r4 names the 14 objects and flips the rows);
 the mesh row's far end at a contact is the raw-pair partner.
 15ad addendum: suite ON MAIN after the v2lemdstruct2 r3 merge (777c6607): 1632 passed, 1 skipped, 42 warnings in 42.90s.
+
+## 2026-09-15af v2objcut LGAV crash FIXED and MERGED (07347a65 → 1a12c94a) — `object_cut.valid_polygon` / `largest_polygon` repair every wall-band polygon, result type never assumed; v2objcut r2 MERGED (bfbfaa93 → 32615dd9): signature C1′ wired — LEMD items 3/4 inside their wall pairs; C2′/C3′ measured, wiring waits on structures.py; frames.jsonl markers
+
+The crash: `tunnel_objects._bore_ends_at` unioned `Polygon(inner_a +
+reversed(inner_b))`; LGAV's Trench walls self-intersect → GEOS side-
+location conflict. Fix at every polygon the reader builds from bands
+(`_bore_ends_at`, `shell_corridor`, `shell_reading`); three twins
+asserting the unrepaired ring IS invalid. LGAV dry replay: corridors 3
+(B), door wells 1, tunnels 11, basins 2, zero tracebacks. r2 (suite
+1,638, 0 FAILED): C1′ — Bridge3's north pair 72.98/73.15 m at 179.66°
+inner 14.02 m; the south end is TWO pairs (27.65/25.71 m, 24.88/29.00
+m, inner 9.74/9.63) meeting at 40.49584 — one bent ramp. Item 3: ramp
+902 was 3.07–15.73 m off the inner faces (worst +8.72 m OUTSIDE, rim
++10.72) → mouth at the pair's inner end 40.4981314,−3.5850408 (9.5 m
+from the owner's 14bl item-7 point), width 7.0 → 13.42 m, both edges
+0.30 m inside by construction. Item 4: worst +12.69 m outside, flat →
+mouth 40.4960910,−3.5850297 (inside the owner's 14bl item-8 band, 8 m),
+53.6 m ramp over two pair segments, width 9.03 m; RESIDUAL: the top
+lands 7.3 m short of the pair's outer end (meets the DEM under
+`ramp_max_grade`); the owner's 40.4951833 is 56.2 m further along the
+open road. Two refuted attempts recorded (pairs read apart climbed 190
+m the wrong way; a kink at the top folded the ring). LEMD 48/50
+tunnels byte-identical; OTHH tunnels/wall corridors/basins/door wells
+byte-identical; VHHH corridors 0 → 5, same floors. `parapet_max_width_m`
+2.0 → 3.0 (Bridge2's parapets are 2.57/2.37 m thick — the reader
+refused the walls the law was written on). C2′ (Bridge4): the ring's
+20/23 vertices sit 0.46–4.09 m (ramp) / 0.51–11.53 m (rim) off the
+inner faces with station gaps to 23.8 m — `collapse_stations` (§34
+(7)); it does reach the wall ends (0.5–2.0 m; "17 m short" was the
+object-box reading). C3′ (Bridge2): FOUR bands — a flanking pair
+130.53/92.08 m at 94.5°, inner 20.37 m (the deck 879 worst +9.33 m
+OUTSIDE it — the owner's 8–9 m); a second flanking pair `LEMD50.obj`
+inner 22.39 m (the deck within it, +0.75); comp2's two perpendicular
+bands are an L corner 30–99 m away. RULED for the wiring: FLANKING →
+the deck centred on the pair, as wide as its inner spacing; where
+several pairs flank one way the NARROWEST governs (the wider is the
+embankment's edge wall). Both wirings need `planar/structures.py`
+(held for v2vmmcshore r3). The wall's §7 float and the VHHH build
+await the owner's +22+113 refresh. MERGE LESSON: my frames.jsonl
+"union" (`awk '!seen'`) kept three conflict-marker lines from the r3
+merge and `frames.py list` crashed on them (the lane caught it); the
+union now strips `^<<<<<<< |^=======$|^>>>>>>> ` first. The lane's
+object_cut.py and its twins taken whole at the r2 merge (the fix
+branch was a subset).

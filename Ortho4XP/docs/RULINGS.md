@@ -6111,3 +6111,16 @@ template is keyed wrong. Lane `v2roles` r4: read face 5, fix at the
 cause (a shoulder is the runway's own page or a page whose only
 neighbour is the runway), ONE LERM build, the shoulder census before
 → after, the template. Then app 1.0.336 for the LEMD read.
+
+## 2026-09-14bb Owner on 1.0.335 OTHH: "the ramps are coming to the centerline of the road, so increase the road margin by a half-width and that should do it." — §34 (9) (6)
+
+* RULING §34 (9) (6): the "road edge" a pinched ramp ends at is the
+  road's TRUE EDGE — the road's centreline offset by its half-width
+  (the ribbon width the road carries: the emitted `service_road` face's
+  width / the route frame's `t` extent / `road_width_m`), never the
+  centreline chain. The stop set's road geometry moves out by the
+  half-width on the ramp's side. Lane `v2othhfix` r4 (urgent, with
+  the LERM fix into app 1.0.336): measure which geometry the stop
+  read (the centreline?), apply the half-width, ONE OTHH build, the
+  two pinched ramps' top stations before → after (each moved out by
+  the road's half-width, named), road edges unchanged, airside 0.

@@ -253,3 +253,58 @@ def test_the_publication_carries_the_object_cut_witness(law):
     assert r["floor_m"] == 1.31 and r["signature"] == "B"
     assert len(r["outline_ll"]) == 4
     assert r["ramp_refs"] == ["tunnel_ramp:object-cut:t5@0"]
+
+
+# ── the LGAV crash: a wall band that crosses itself (2026-09-15) ─────────
+
+def test_a_self_intersecting_wall_ring_is_repaired_not_raised(law):
+    """MAIN CRASHED THE LGAV STRUCTURE REPLAY: `_bore_ends_at` built
+    ``Polygon(inner_a + reversed(inner_b))`` from the wall bands and
+    unioned it, and GEOS raised ``TopologyException: side location
+    conflict at -1286.509 -1775.049`` — the whole replay, and the tile
+    build behind it, died.  A pack's walls are AUTHORED: a band that
+    crosses itself is ordinary input.  Every polygon the reader builds
+    from wall bands is repaired first, and the repair's RESULT TYPE is
+    never assumed (``make_valid`` hands back a MultiPolygon or a
+    GeometryCollection as readily as a Polygon)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    bad = Polygon([(0.0, 0.0), (10.0, 10.0), (10.0, 0.0), (0.0, 10.0)])
+    assert not bad.is_valid
+    g = object_cut.valid_polygon(bad)
+    assert g is not None and g.is_valid
+    assert g.geom_type in ("Polygon", "MultiPolygon")
+    assert g.area == pytest.approx(50.0, rel=0.02)
+    one = object_cut.largest_polygon(bad)
+    assert one is not None and one.geom_type == "Polygon" and one.is_valid
+    other = Polygon([(20.0, 0.0), (30.0, 0.0), (30.0, 10.0), (20.0, 10.0)])
+    u = object_cut.valid_polygon(unary_union([g, other]))
+    assert u is not None and u.is_valid
+
+
+def test_the_bore_end_reader_survives_a_crossing_wall(law):
+    """The same defect through the caller that raised it: two inner faces
+    that cross make a self-intersecting ring, and `_bore_ends_at` must
+    return an answer rather than take the process down."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.airport import tunnel_objects as TO
+    from auto_patch_v2.airport.tunnel_walls import WallLines
+    inner_a = [(0.0, 0.0), (100.0, 20.0)]
+    inner_b = [(0.0, 20.0), (100.0, 0.0)]        # crosses inner_a
+    plate = Polygon([(-2.0, -2.0), (102.0, -2.0), (102.0, 22.0), (-2.0, 22.0)])
+    walls = WallLines(plate, inner_a, inner_b, (False, False), (0.0, 0.0), 1.0, "II")
+    # the expression main ran, unrepaired — the ring IS invalid, which is
+    # the whole defect (both directions, never a one-sided green)
+    assert not Polygon(list(inner_a) + list(reversed(inner_b))).is_valid
+    ends = TO._bore_ends_at(walls, [(0.0, 10.0), (100.0, 10.0)], [], 5.0)
+    assert ends == ([], [])
+
+
+def test_the_repair_drops_a_degenerate_ring_without_raising(law):
+    """A band with no area at all answers ``None``, never an exception."""
+    from shapely.geometry import Polygon
+    assert object_cut.valid_polygon(Polygon()) is None
+    assert object_cut.largest_polygon(Polygon()) is None
+    assert object_cut.valid_polygon(None) is None
+    line = Polygon([(0.0, 0.0), (10.0, 0.0), (0.0, 0.0)])
+    assert object_cut.largest_polygon(line) is None

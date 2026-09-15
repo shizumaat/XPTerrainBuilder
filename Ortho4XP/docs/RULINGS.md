@@ -6837,3 +6837,22 @@ into main. App 1.0.340 = the converged solver + the DEFECT floor;
 there is no 1.0.341 flip build. The owner's read of 1.0.340 (LEMD tile
 first, then HECA/OTHH as they choose) is the adjudication of §20c; the
 1.0.339 OTHH customer surface is the fixed-point arm and stays shipped.
+
+## 2026-09-15e OWNER: CYXY and SPJC APPROVED on app 1.0.340 (the §20c converged solver + the DEFECT floor); the other fixtures are still under the owner's read
+
+Owner 2026-09-15: "Document that CYXY and SPJC are both approved with
+app build 1.0.340! I will continue testing the other fixtures." The
+first two sim reads of the converged design solver (`[design] solver =
+"qp"`, RULINGS 15b/15d) are accepted: CYXY (the hillside fixture) and
+SPJC (the gentle fixture, unmeasured by capture — this read is its
+measurement). LEMD / HECA / OTHH / KCLT and the rest stay open until the
+owner reads them; the 1.0.339 OTHH customer surface (fixed-point arm)
+stays shipped. Same day, two new lines opened from the owner's LGAV read
+(1.0.338/1785 build of 2026-09-14 23:14): a custom pack whose apt.dat
+carries no taxiway/apron pavement (FlyTampa LGAV: two runway-strip
+polygons, 1.3 % coverage of the Global Airports block's 63) must borrow
+the Global Airports pavement while keeping its own objects; and the
+below-grade road/rail CHANNEL through the field (LGAV, KPHX, KDFW) is a
+pattern class to identify and model as an open tunnel — evidence scout
+`channelscout` and the object-stage crash lane `v2drapedbind` dispatched
+(briefs c2c96419).

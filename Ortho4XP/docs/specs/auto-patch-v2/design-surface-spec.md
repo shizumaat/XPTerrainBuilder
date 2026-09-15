@@ -14856,3 +14856,192 @@ ramps, knives and basins stops being protected.  Both are the ruling's own
 content ("the remainder beyond the strip keeps the role its geometry
 earns"), not side effects of the implementation, and both are measured as
 bars rather than vetoed.
+
+### §40 (5) **MEASURED — THE CUT** (lane `v2shoulderband`, branch `claude/v2shoulderband`, base main `e856ce64`)
+
+**THE FRAME.**  ONE tree, ONE airport, ONE variable, registers asserted per
+arm (RULINGS 2026-09-15az's own lesson).  A classify change is invisible to
+a `--from planar` replay — the capture HOLDS the classification — so the
+pair is TWO CAPTURES, taken through the new `v2_solve_replay --rule
+SECTION.KEY=V` (the capture-time classify arm, beside `--placement`) rather
+than by editing the shipped toml between the arms, which is exactly the
+register-deletion defect 15az records.  Both arms print their arm line —
+`[LEMD] CAPTURE ARM [rules] {'corridor.runway_shoulder_band': 'false'}` /
+`'true'` — and both print `[guard] shared repo UNCHANGED`.
+
+| | OFF (§40 (1)) | ON (§40 (5)) |
+|---|---|---|
+| capture | `sb/cap_off/LEMD.pkl`, 236 s, 21,376 vertices / 1,059 faces | `sb/cap_on/LEMD.pkl`, 351 s, 21,883 / 1,099 |
+| emit | `sb/emit_off/LEMD_auto.patch.osm` | `sb/emit_on/LEMD_auto.patch.osm` |
+| solve | optimal, **169.9 s** | optimal, **70.9 s** |
+
+#### 1. THE ROLE — 49.9 % OF THE "SHOULDER" WAS NOT THE RUNWAY'S
+
+`runway_shoulder` **545,036 → 271,086 m²** (17 cells → 19 band pieces, 17
+cut); the remainder is **273,949 m²** in 28 faces, and the runway BODY
+itself is untouched (1,023,880 m² both arms).  Every square metre is
+accounted for:
+
+| the remainder's earned role | faces | m² |
+|---|---|---|
+| `primary_parallel` | 6 | 154,604 |
+| `apron` | 2 | 46,809 |
+| `stub` | 8 | 40,602 |
+| `junction` | 11 | 29,354 |
+| `cross_connector` | 1 | 2,579 |
+
+**The owner's cell.**  Cell 15 (`pav159`, 14R/32L, **111,648 m²**, lateral
+offsets 30.5 / 341.3 / **914.6 m**) → cell 16, **49,515 m²**, offsets 30.5 /
+54.3 / **75.0 m**; its remainder is **46,764 m² of APRON** (`pav188`) plus
+the smaller pieces — which is 13co's reading of exactly this class of
+pavement.  The other big cuts: `pav154` (18R/36L) 93,521 → 19,327 m² with
+74,194 m² becoming `primary_parallel`; `pav158` (18L/36R) 65,911 → 38,661.
+The genuine ribbons are barely touched: `pav153` 39,506 → 37,848 (95.8 %),
+`pav155` 32,208 → 29,749 (92.4 %).
+
+#### 2. NO RUNWAY-FAMILY VERTEX BEYOND THE STRIP; AND WHAT HOLDS THE RUNWAY
+
+Measured on both captures with the generators' own `ridge_chains` /
+`project_to_chain`:
+
+| | OFF | ON |
+|---|---|---|
+| runway-family vertices | 4,044 | **3,458** |
+| worst lateral off its own ridge | **914.3 m** | **75.5 m** |
+| vertices beyond the 75 m strip | **609** | **1** (75.5 m — the band line's own weld) |
+| `runway_crown` / `runway_transverse` coverage | 3,962 | 3,325 (96.2 %) |
+| LEVEL rows (`runway_profile` + CIFP pins + `runway_vertical_curve`) | **1,421** (35.1 %) | **1,421** (41.1 %) |
+
+**THE RUNWAY PROJECTION IS THE INSTRUMENT, AND IT INVERTS.**  On the OFF
+arm the §09y runway projection does not solve at all —
+`Solve error [rc HighsStatus.kError, 25006 rows x 4034 columns]`.  On the
+ON arm: `22,734 hard rows (2,718 coupled to fixed feet) over 3,451 free
+columns / 3,459 runway vertices, worst hard row 0.0023 → 0.002263 m, max
+move 0.000 m, 0.01 s — **held by the solve (nothing to settle)**`.  The
+whole-problem hard set improves with it: **20 → 14** rows violated, worst
+**1.8043 → 0.4148 m**, and the OFF arm's two worst violations stand at
+40.46131/40.46144, −3.5445/−3.5446 — the owner's own site.
+
+**§40 (5) (3) IS MET IN SUBSTANCE AND NOT IN ITS LITERAL WORDS, AND THE
+DIFFERENCE IS DELIBERATE.**  The LEVEL-giving population is still the
+centreline breakline's 1,421 vertices — unchanged, exactly as r5 measured —
+because extending `runway_profile` across the band is the fix r5 argued
+against and this round did not attempt.  What changed is the DOMAIN the
+bounding rows act over: a `runway_transverse` row at 914 m bounded the
+vertex to ±0.025 × 914 = **±22.9 m** of the ridge, which is no bound at
+all; at 75 m it bounds it to **±1.88 m**, and the projection then reports
+the runway held to **2.3 mm** with nothing to settle.  "No runway-family
+vertex is ever held by the objective" is therefore TRUE of the solve's own
+reading on the ON arm and was not true on the OFF arm, while the row
+population §40 (5) (3) names is unchanged.  A tighter level row was NOT
+minted: the measurement says the band alone closes it, and r3/r4 measured
+twice that hardening a runway row set over-determines the sheet (10,006 and
+8,548 violations).
+
+#### 3. THE 0.95 m STEP — CAUGHT BY THE NEW FAMILY, THEN HEALED BY THE CUT
+
+`runway_step` (§40 (5) (4)) on the OFF arm reads **3 rows, ALL THREE AT
+40.4613609,−3.5446852** — **0.950 / 0.633 / 0.317 m**, roles
+`runway|runway`, the owner's own site and the exact row r5 attributed.  On
+the ON arm: **0**.  `mid_edge_step` 2 → 0 at the same coordinate.  The
+family is neither vacuous nor endorsing: it fires on the geometry §40 (5)
+disputes and reads zero once the role is right.
+
+#### 4. THE OWNER'S ITEM-7 SITE, 40.4611623,−3.5444804
+
+| | OFF | ON |
+|---|---|---|
+| roles on the node | `junction` + **`runway`** | `apron` + `junction` (**the runway ref is gone**) |
+| z | 582.59 | **576.22** (6.37 m lower — it is no longer lifted to a runway's datum 496 m off that runway's centreline) |
+| the raw pair over 18.05 m | 1.552 % | **0.554 %** (junction cap 1.985 %) |
+
+The bar was "still ≤ 1.985 %".  It reads 0.554 %, under the law its
+geometry earns, which is §40 (5)'s own expectation in its own words.
+
+#### 5. THE CENSUS BY FAMILY (harness `census.py`, both arms, one tree)
+
+| family | OFF | ON | Δ |
+|---|---|---|---|
+| `within_shape` | 4,176 | 3,842 | −334 |
+| `hairline_pair` | 1,898 | 1,793 | −105 |
+| `airside_no_step` | 362 | 319 | −43 |
+| `taxi_box` | 129 | 127 | −2 |
+| `strip_transverse` | 93 | **34** | −59 |
+| `transverse` | 92 | **34** | −58 |
+| **`ramp_in_strip`** | **18** | **9** | **−9** |
+| `road_cross_section` | 9 | 9 | 0 |
+| `frontage_near_miss` | 8 | 8 | 0 |
+| `strip_arc` | 6 | **0** | −6 |
+| `resa_transverse` | 4 | 4 | 0 |
+| **`runway_step`** | **3** | **0** | −3 |
+| `strip_longitudinal` | 3 | 1 | −2 |
+| `mid_edge_step` | 2 | 0 | −2 |
+| `raoa` | 2 | 1 | −1 |
+| `pad_airside_weld` | 2 | 2 | 0 |
+| **`adjacent_ground_step`** | **0** | **2** | **+2** |
+| LAW-TRUE | 6,807 | **6,185** | −622 |
+| ADJUDICATED | 2,011 | **1,709** | −302 (airside 1,880 → **1,627**) |
+| CRITICAL MOTION | **12** (worst 1.32 m) | **6** (worst **0.09 m**) | −6 |
+| CRITICAL VISUAL (cliffs) | 1,918 (**20**) | 1,804 (**10**) | −114 (−10) |
+| worst cliff | **26.881 m** `runway\|tunnel_ramp` | **4.52 m** `cross_connector\|tunnel_ramp` | |
+
+**NO FAMILY IS WORSE BY MORE THAN 5 % UNNAMED, AND THE ONE RISER IS NAMED:**
+`adjacent_ground_step` **0 → 2**, worst **0.580 m**, both CRITICAL VISUAL
+cliffs.  Mechanism: the remainder is now taxi family, so it MINTS its own
+code-F zone band (22 m) where a shoulder minted none — census row 5 of the
+§40 (5) (5) table, predicted there before the edit and priced here.  It is
+two within-face welded steps in a NEW adjacent-ground face, against the
+twenty cliffs and the 26.9 m worst that the cut removed.
+
+**`ramp_in_strip` 18 → 9, and WHICH 9.**  The nine that went are the
+`runway|tunnel_ramp` rows at 40.4606–40.4620, −3.5445…−3.5448 — the F-6
+trench, judged against the 75 m RUNWAY strip of a 914 m lobe.  The nine
+that stay are `cross_connector|tunnel_ramp` / `junction|tunnel_ramp`, worst
+**4.52 m** (was 26.88 m): the same trench against the TAXI strip the ground
+actually carries.  §34 (13) (2)'s residual therefore shrinks by a factor of
+six without §34 (13) (2) being re-attempted.
+
+#### 6. HECA — THE CONTROL, SAME VARIABLE, DRY
+
+`classify` re-run on the registered `HECA capture base 2117c48c lane
+v2padqp` (`HECA.off3.pkl`), one tree, the law key the only variable:
+`runway_shoulder` **574,991 → 243,104 m²** (32 cells → 37 band pieces, 22
+cut, **331,887 m²** beyond); the remainder earns `stub` +210,192,
+`primary_parallel` +92,417, `junction` +26,730, `apron` +3,774 m².  The
+runway BODY is unchanged at 701,407 m² on both arms.
+
+**HECA's worst is worse than LEMD's.**  Cell 8, `dsf:objpav93` on
+**05R/23L**, **218,797 m²**, lateral offsets 30.0 / 307.4 / **1,717.2 m** —
+more than half again LEMD cell 15's reach, carrying the runway's role, ref
+and code — becomes five band pieces totalling **83,655 m²**, none past
+75.0 m.  Owner ruling 13co's shape 44 is `dsf:objpav103` on **05L/23R** in
+this capture's page numbering (the 1.0.329 shape ids do not survive the
+re-slice): **108,065 m²** in three cells reaching 319.3 m → **41,561 m²**
+of band (cells 3 and 4, max 75.0 m), the rest re-roled on its own evidence
+— the strip part joins 05L/23R and the remainder takes the apron/parallel
+roles 13co reads it as.  The ribbons that were always ribbons are
+untouched: `dsf:objpav441` 10,058 → 10,058, `objpav460` 9,323 → 9,323,
+`objpav459` 13,987 → 13,987, `objpav461` 9,251 → 9,251 (all ≤ 44.2 m deep).
+
+**NOT MEASURED, NAMED.**  VHHH's 84,000 m² shoulder (14s), and
+CYXY / SPJC / KCLT / OTHH's shoulder sets: there is no registered capture
+for any of them, and a classify change cannot be read off a `--from planar`
+replay or off an emitted patch.  An emitted-patch proxy for VHHH (the
+`v2roles` §40 (4) closing patch, runway-role area against each ref's
+principal axis ⊕ 75 m) returned **3.7 % within the band** — which would put
+the runway SLAB outside its own strip — so it was DISCARDED rather than
+quoted (the implausible-numbers rule).  Those airports want a capture each
+and are owed.
+
+#### 7. THE CLOSING BUILD — LEMD, THE AIRPORT PATH (RULINGS 2026-09-15av)
+
+`build_airport.py LEMD --tag v2shoulderband`: **rc 0, 351.4 s**, status
+**optimal**, ways 1,123, nodes 21,660, `body_sha 42241995fdaf`, artifact
+ledger `874c7aee6b0d`, v2-verify **1,797 rows** with **every DEFECT family
+ZERO** (`runway_transverse`, `runway_vertical_curve`, `runway_step`), and
+**`[harness] shared repo UNCHANGED by this build (full-surface
+before/after snapshot)`** — 18 lock-churn operations, the allowed class.
+The runway projection line on the build is the ON arm's: *held by the solve
+(nothing to settle)*.  No `--tile` build was run.
+
+**Suite** `tests/auto_patch_v2 tests/test_harness.py`: **0 FAILED**.

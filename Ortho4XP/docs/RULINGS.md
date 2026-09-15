@@ -8268,3 +8268,30 @@ pre-flight passed; refuses with no scope). Suite ON MAIN: `1723 passed,
 1 skipped, 1 xpassed`, 0 failed. NOT DONE: no live exercise of
 `--refresh-only` (this session's KDFW/KPHX neighbour warms are the first
 proof); a cold bathymetry band still refuses inside `build_tile`.
+
+## 2026-09-15bc KDFW's and KPHX's NEIGHBOUR TILES WARMED with `--refresh-only` (this session, owner-authorised 15aq (1)): +32-097 cold → 74 insets + 11 layers ledgered; +33-098 and +33-112 big_roads re-derived — and two defects in the new path: a derivation without its ledger line, and a leaked scope lock
+
+`build_airport.py KDFW --tile 32 -97 --refresh-only --refresh-data
+osm_layers,dem` (13:47): `REFRESH dem … deriving the AIRPORT INSETS of
+N32W097 for 37 airport(s) through the engine's own tile-prelude hook`;
+`REFRESH RECORDED [dem]: +74 ~0`, `[osm_layers]: +11 ~1` (the 3 × 3 pass
+re-derived `+33-098_big_roads` as well); `EXIT rc=0 REFRESH-ONLY`. Then
+`KDFW --tile 33 -98 --refresh-only --refresh-data osm_layers`: the
+pre-flight REFUSED with 31 `[dem]` items — 15ay's version-stale USGS3DEP
+negatives on N33W098 — rc 1, and the run LEFT `.harness/locks/
+osm_layers.lock` behind (holder pid 46331, dead). `KPHX --tile 33 -112
+--refresh-only --refresh-data osm_layers --break-stale-lock`: broke the
+stale lock, moved `+33-112_big_roads` aside, the engine re-derived it
+(file 13:48), then the re-judged pre-flight refused on 3 `[dem]` items
+(KCHD, Superior, Superstition — version-stale negatives), rc 1, with NO
+`REFRESH RECORDED [osm_layers]` line: the corpus changed and the ledger
+does not carry it (the class the ledger exists to prevent), and the lock
+leaked again. Both defects are round 6 of `v2schemarefuse`: the ledger
+stamped for every derived scope BEFORE any later refusal; the lock
+released on every exit path; a refresh-only run refuses only when a
+REQUESTED scope is still stale (other scopes' cold items informational,
+rc 0); and a reconciliation that ledgers a derived-but-unrecorded
+artefact's current hash. Net state: KDFW's 3 × 3 road layers and its
++32-097 neighbour's airports layer + insets are current; KPHX's +33-113
+(15au) and +33-112 layers are current; the `+33-112_big_roads` write of
+13:48 is UNLEDGERED until the reconciliation runs.

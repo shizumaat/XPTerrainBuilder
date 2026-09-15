@@ -6982,3 +6982,17 @@ needed. C13: no sidecar or census key names the apt.dat path. Load stage
 figure for the final profiling round). Suite ON MAIN after the merge:
 `1579 passed, 1 skipped, 42 warnings` — 0 failed. Frames registered;
 both lane worktrees down.
+
+## 2026-09-15f OWNER VMMC READ (app 1.0.340): no tunnels into the water; a taxiway in the water drops straight to it — verbatim
+
+1. "Should not be any tunnel here: 22.1618794, 113.579745, this whole
+   long line of tunnels going out into the water and cutting the
+   taxiway is an error and shouldn't be there."
+2. Screenshot: a taxiway running along the sea, its edge falling as a
+   long dark bank onto a pale sloped strip that then meets the water,
+   with a second, translucent water plane offset from the shore. "With
+   a taxiway in the water, I don't think we want any adjacent ground
+   at all, the pavement should drop straight to the water with no
+   slope."
+Scout dispatched (attribution of the tunnel line's minting evidence;
+the zone/bank emission at the sea edge) before the law.

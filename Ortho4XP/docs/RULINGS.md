@@ -8117,3 +8117,4 @@ step` (new), census READERS/DEFECT_KEYS, `Materiality.runway_step_m`,
 families.toml, check_grade, `v2_solve_replay --rule` (INDEX row).
 Details in §40 (5) MEASURED AND RULED. Owed: VHHH/CYXY/SPJC/KCLT/OTHH
 captures (one each) to measure the band there; the end-cap line (r2).
+15bl addendum: suite ON MAIN after the v2shoulderband merge: 1682 passed, 1 skipped, 1 xpassed, 42 warnings in 88.92s (0:01:28).

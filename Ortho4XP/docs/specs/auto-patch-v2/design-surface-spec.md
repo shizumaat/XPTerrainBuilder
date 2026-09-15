@@ -12046,7 +12046,7 @@ sweep at 1.0.341's build time is the measurement.  The stage-2 hard set
 (586 → 572, worst 4.42 m) is the pads' own infeasibility (§16g (10) /
 §30 (4)), untouched by the solver and the HECA pad line's next item.
 
-## §44 A PACK WITHOUT PAVEMENT BORROWS THE GLOBAL AIRPORT'S (owner 2026-09-15; RULINGS 2026-09-15f; Fable 2026-09-15) — lane `v2pavborrow`
+## §44 A PACK WITHOUT PAVEMENT BORROWS THE GLOBAL AIRPORT'S (owner 2026-09-15; RULINGS 2026-09-15m; Fable 2026-09-15) — lane `v2pavborrow`
 
 **THE DEFECT (LGAV, the owner's tile build 2026-09-14 23:14, engine 1.50.1785).**
 The FlyTampa LGAV pack authored NO taxiway or apron pavement: its apt.dat block
@@ -12075,7 +12075,7 @@ Airports and its objects were never read — is DELETED; §44 (2) does that work
 Among several custom packs the precedence stays as today (the first with row-110
 pavement, else the first).
 
-(2) **THE BORROW TRIGGER — COVERAGE (owner 15f: "Coverage < 25 %").** With the
+(2) **THE BORROW TRIGGER — COVERAGE (owner 15m: "Coverage < 25 %").** With the
 selected custom block parsed, the Global Airports block for the same ICAO is
 parsed too (XP12 `Global Scenery/Global Airports`, then XP11 `Custom
 Scenery/Global Airports`, then the stock default; the first that carries the
@@ -12087,7 +12087,7 @@ borrowed and the custom stands; the key at 0 never borrows, at 1 always does
 when a Global block exists. The number is law (`law/structures.toml [load]`,
 `LoadLaw.pavement_borrow_coverage_max`, validated 0 ≤ x ≤ 1).
 
-(3) **WHAT IS BORROWED (owner 15f: "Pavement + boundary").** The Global block's
+(3) **WHAT IS BORROWED (owner 15m: "Pavement + boundary").** The Global block's
 row-110 pavement polygons, parsed by the same parser, APPENDED to the custom
 block's own (borrowing adds, never removes — LGAV's two runway strips are real
 pavement and §40 classifies them as the runway's; overlaps between polygons are
@@ -12153,7 +12153,7 @@ as in §44 (4); the object stage's pads now stand beside graded aprons (§20);
 the census through `tools/harness/census.py`; NO shared-repo write. Register
 the report with `tools/harness/frames.py`.
 
-## §45 THE OPEN CHANNEL — a road/rail corridor under a STATED CROSSING keeps its own floor through the field (owner 2026-09-15; RULINGS 2026-09-15i; Fable 2026-09-15; scout `channelscout`) — lane `v2channel`
+## §45 THE OPEN CHANNEL — a road/rail corridor under a STATED CROSSING keeps its own floor through the field (owner 2026-09-15; RULINGS 2026-09-15p; Fable 2026-09-15; scout `channelscout`) — lane `v2channel`
 
 **THE PATTERN (owner 2026-09-15).** "A below-grade road/rail channel cut through the
 center of the airport that needs to be handled like an open tunnel" — LGAV (Attiki
@@ -12164,7 +12164,7 @@ report in the session scratchpad; every number cited there):
 
 | | LGAV | KDFW | KPHX |
 |---|---|---|---|
-| channel below grade | ~12 m (pack walls `Trench_03.obj` VT y −12.67…+5.73) | **8.6–9.9 m measured in the 1 m 3DEP DTM** at six bridges; banks ≈ 1:4; floor 170.9→173.3 over 2,790 m (0.09 %) | not measurable: 30 m Copernicus, flat to 0.1 m (the 3DEP fetch failed on a TNM 504, RULINGS 15i) |
+| channel below grade | ~12 m (pack walls `Trench_03.obj` VT y −12.67…+5.73) | **8.6–9.9 m measured in the 1 m 3DEP DTM** at six bridges; banks ≈ 1:4; floor 170.9→173.3 over 2,790 m (0.09 %) | not measurable: 30 m Copernicus, flat to 0.1 m (the 3DEP fetch failed on a TNM 504, RULINGS 15p) |
 | DEM sees it | no | yes | no |
 | pack models walls/floor | **yes** (`Trench_0x.obj`; a 4,077 × 149 m plate roofed 6 % = the decks) | no (network-only roads pack; 0 objects) | no (28 placements, none) |
 | OSM road carries depth | no | no | `tunnel=building_passage` ×6 under the bridges |
@@ -12179,7 +12179,7 @@ from each mouth, wall crest = DEM, RULINGS 09-03b) cannot express a road that ne
 climbs inside the field, and the DEM-relative gates of the basin / sunken-road /
 tunnel-object passes refuse exactly the objects that model it.
 
-**THE LAW (the owner's four answers, RULINGS 15i, in bold).**
+**THE LAW (the owner's four answers, RULINGS 15p, in bold).**
 
 (1) **IDENTIFICATION — "A deck states a crossing."** A channel crossing is stated by
 ANY ONE of: (a) an aeroway way of §34 (5)'s taxied set (`taxiway`, `runway`, `apron`
@@ -12258,7 +12258,7 @@ ribbon follows the channel floor (§37 (8)'s cross-section on the floor). The fl
 region EXCLUDES the corridor — a channel is never flattened. Emittable in a
 heightfield: at every (x, y) exactly one of floor / bank / deck.
 
-(9) **THE WITNESSES OSM CANNOT CARRY — "Bump the schema now."** `ROADS_TAGS_OF_INTEREST`
+(9) **THE WITNESSES OSM CANNOT CARRY — "Bump the schema now."** (owner 15p) `ROADS_TAGS_OF_INTEREST`
 gains `layer`, `cutting`, `covered`, `embankment` and `ROAD_CACHE_TAG_SCHEMA` is bumped
 (lane `v2roadtags`, separate, one commit); a tile's road feed re-downloads ONLY under
 `--refresh-data osm_layers` (the owner's act) — until then the feed is as cached.
@@ -12354,3 +12354,222 @@ taxiway cap; the lane names the transverse row (or its absence) that
 permits it and whether the runway's cross-section is carrying the
 junction's crown — the fix follows the measurement (§29 (7) lateral
 band / §37 (10) taxiway contacts).
+
+## §34 (12) A TUNNEL SERVES THE FIELD OR IS NOT BUILT; NO STRUCTURE CROSSES THE WATER; A CORRIDOR NEVER CUTS AIRSIDE PAVEMENT (owner RULINGS 2026-09-15f item 1; Fable 2026-09-15i) — lane `v2vmmcshore`
+
+**The reading (VMMC 1.0.340).**  Eleven `tunnel_ramp` faces and 19 rims
+run 600 m along the Taipa seafront from an OSM `highway=service,
+tunnel=yes` bore (ways −5508/−5507, no layer, no bridge) — a car-park
+ramp under a building that has nothing to do with the aerodrome.  It was
+admitted because its mouth stands inside cover ⊕ `mouth_standoff_m` 150
+(§29 (1); pav5 is 36 m away); its floor is 6.16 − 5.1 = 1.06 m flat for
+six faces because six mapped `bridge=yes` seafront road ways each sever
+the climb (§33 (4)/§34.5 (6)) and the approach walk runs to
+`max_ramp_length_m` 600; face −10098 contains 35.9 m of coastline −687;
+and the corridor knifes code-E taxiway pav5 into six faces at 3.58–4.50
+m against the 6.10 field, because only the runway family and pads are
+exempt from a corridor cut (08-07 ruling 4).  "Should not be any tunnel
+here … cutting the taxiway is an error."
+
+**RULED.**  (1) **A tunnel is built only where it SERVES THE FIELD**: its
+bore way, or the covered stretch it derives, passes UNDER a classified
+cover element — airside pavement, a pad or unit footprint, a deck the
+pack authored (a plate or wall corridor, §33) — inside the classified
+cover.  A mouth within `mouth_standoff_m` of the cover is a necessary
+condition, never a sufficient one; a bore whose only covers are mapped
+`bridge=yes` roads is not an airport tunnel and is NOT built.  (2) **No
+structure face, rim or ramp crosses the water**: tunnels, decks and
+basins are clipped by the WATER region (the flat-site pass's water mask
+— "47.0 % of the synthetic extent is WATER … the mask edge is the sea
+wall" — and the coastline ways); a corridor reaching the water ends at
+the shore.  (3) **A corridor never cuts airside pavement.**  Where a bore
+crosses a taxiway, junction, apron, stub or parallel, the pavement is
+the DECK of an underpass (§34 (5), the covered extent incl. the strip
+per (5) (b)) or the corridor stops short of it; the pavement's surface
+is never lowered by the trench.  `ramp_cuts_runway_family = false`
+generalises to the airside role set; the exception list is empty.
+(4) A mapped bridge severs the climb only when its way CROSSES the bore
+(an over-crossing within the corridor's own width); parallel or
+oblique seafront bridges do not extend the covered extent.  Consumer
+census at spec time (RULINGS 2026-08-30l): the lane tables every reader
+of the corridor region, the water mask and the airside-cut exemption
+before editing (`planar/structures.py`, `structure_approach.py`,
+`deck_signature.py`, `structure_deck.py`, `zones.py`, `emit/osm_adapter`,
+`verify/*`), one table, one derivation site each.
+
+## §37 (11) THE SHORE TRIMS THE ZONES; A PAVEMENT AT THE WATER IS A SEA WALL (owner RULINGS 2026-09-15f item 2; Fable 2026-09-15i) — lane `v2vmmcshore`
+
+**The reading.**  There is no WATER role in the patch and no bank (bank
+OFF).  Between the taxiway edge (6.10) and the sea (DEM 0.00, GLO30
+ocean) the engine emits the ordinary adjacent-ground band — a 3 m lip
+(zone 1) and the code-E 19 m band (zone 2), `beyond_zone2 = "dem"` — so
+the 6.10 m fall is taken as 26–32 % across zone 2 and 100–1,124 % across
+the lip: the pale sloped strip and the dark face in the screenshot are
+that band.  Thirteen zone faces cross the coastline by 3–195 m; the
+rings stand at exactly 0.00 up to 42 m seaward of it — the second,
+translucent water plane is the patch's own terrain at sea level beside
+the tile's water.  Census: `strip_seam_tear` 61 (worst 6.110 m, 238 %),
+`adjacent_ground_step` 6.  "With a taxiway in the water, I don't think we
+want any adjacent ground at all, the pavement should drop straight to
+the water with no slope."
+
+**RULED — one region trim at the zone derivation site (`planar/zones.py`),
+never per-consumer vetoes.**  (1) The zone region is CLIPPED by the WATER
+region: the coastline/water polygons (OSM `natural=coastline` / water
+ways, the flat-site water mask) — no zone ring, lip or band is emitted
+seaward of the coastline, and no patch vertex stands on the water.
+(2) Where the land between a pavement edge and the coastline is
+NARROWER than zone 1 + zone 2 (lip + half-width), that land is a QUAY:
+one plane at the pavement edge's level (the pavement's own edge rows
+carry it), ending at the coastline in a SEA WALL — a vertical drop from
+the quay level to the water level, emitted as a breakline pair (the
+quay edge at Z, the coincident shore vertex at the water level); where
+the pavement edge IS the coastline (within the lip width) the sea wall
+is the pavement edge itself, no slope, no strip.  (3) Where the land is
+wider, the zones apply in full, bounded by the coastline, and the sea
+wall stands at the coastline at whatever level zone 2 reaches there
+(zones never drop to the DEM's ocean zero).  (4) The DEM's one-post
+ocean bleed (GLO30 0.00 up to a post inland of the mapped coastline) is
+NEVER the ground: on the quay the level is the pavement's; in the
+zones the DEM witness is the nearest on-land post.  (5) The census
+names sea-wall edges as their own family (`sea_wall`: the drop, the
+level, the length) and `strip_seam_tear` / `adjacent_ground_step` EXCLUDE
+them — the tear IS the wall.  (6) The weld to shore (§39, `weld_to_
+shore`) stays a hairline fix on the vertices that remain; it is not the
+trim.  Consumer census first: every reader of the zone region and of
+`beyond_zone2` (zones.py, cluster/pad clips, road ribbons §34 (4), the
+bank emitter even while OFF, `verify/within.py`, `check_grade`'s strip
+families, `mesh_region_tris`), one table.  Water level: the tile's own
+sea (the coastline mesh at the X-Plane water level), read from the
+same source the tile uses (`O4_Vector_Map include_sea`).
+
+## §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY — THREE SIGNATURES, ONE READER (owner RULINGS 2026-09-15e items 1/3/4/6, 15g; 14av; Fable 2026-09-15j) — lane `v2objcut`
+
+**The intent (owner, three airports).**  "The tunnels have object based
+interior walls and hard covers where needed (like EGLL does), so we need
+to cut our trenches based on those … align with the provided ramp and
+walls" (VHHH); "use the provided surface wall objects as a precise guide
+for where to cut the mouth, ramp should stay within the wall boundaries
+… the terrain grades under the wall object and the wall sits on top of
+the tunnel edges" (LEMD); "the two edge wall objects … should be used
+as guides for where the author wants the bridge … grade the bridge so
+those sit smoothly on either edge of it" (LEMD).  THE PACK'S STRUCTURAL
+OBJECTS ARE THE AUTHOR'S GEOMETRY; the mapped way is the ROUTE (the
+seed, and the connection to the network beyond the object's ends) and
+nothing more.  Where an object of any signature below covers a bore or
+a crossing, the cut's PLAN, DEPTH, COVERED EXTENT and STATIONS derive
+from the object.
+
+**The three signatures (measured 15h/15j; detected by GEOMETRY, never by
+name, never by ICAO).**
+
+* **A — crested walls (OTHH, 14av):** solids descending below the
+  object's zero with a crest plate ≥ `plate_min_height_m` above it
+  (−15 … +5, −10 … +9.55).  Already LAW C (`airport/wall_corridors.py`);
+  the wall's inner faces are the trench walls, the crest is the rim.
+  The per-airport affordance `kerb_wall_corridors` (`law/airports.toml`,
+  OTHH only) is RETIRED: the signature admits, not the ICAO.
+* **B — shell + flush hard cover (VHHH, EGLL):** a SHELL object whose
+  largest horizontal plate lies ≥ 2 m below its zero (the FLOOR: −6.01
+  / −6.54 / −8.95 / −9.01 at VHHH, 733–16,759 m²; EGLL −4 … −7) and, at
+  the same placement (position within 1 m, same heading) or inside the
+  same object, a COVER whose `HARD_DECK` plate at |y| ≤ 1 m covers part
+  of the shell's plan (VHHH `_TN`: 427–11,254 m²; EGLL `N.obj` /
+  `Na.obj`).  Today this class falls through every reader:
+  `tunnel_objects.py:717` (a floor witness ⇒ basins), the §2 crest-
+  plate rule (no plate above zero), `thin_plates` (1.0–1.5 m), LAW C
+  (OTHH only).  RULED: the shell's per-band wall line (NOT the convex
+  hull — the shells are L-shaped) is the trench outline; the FLOOR
+  PLATE's level in the seated frame is the floor (the depth is AUTHORED
+  — it overrides `bore_datum_m`, which is the law for UNAUTHORED bores
+  only); the cover's flat plate is the covered extent; the cover's
+  descending plate profile (tunnel5: 0.00 → −0.91 → −1.71 → −6.01 over
+  25 m bins) gives the ramp STATIONS; `HARD_DECK` is the machine-
+  readable marker of the cover.  The shell is never a basin.
+* **C — thin surface walls and parapets (LEMD):** solids < 1.5 m tall,
+  long (length ≥ 20 × height), narrow (≤ 2 m), sitting on the surface
+  (y_min ≥ −0.1).  (C1) A parallel PAIR along a bore (Bridge3: 354 × 25.1
+  m, 1.03 m; spacing 5–40 m, overlap ≥ 50 %) is the trench's TOP EDGES:
+  the trench lies between the pair's inner faces, runs the pair's FULL
+  length, its mouths at the pair's ends, its open ramps beyond them
+  (item 4: from the wall's south end toward 40.4951833); the wall's
+  foot line is the rim at grade — the terrain grades under the wall and
+  the wall sits on the trench edge; the depth is `bore_datum_m` (no
+  authored floor).  (C2) A single thin wall in a U (Bridge4, 2.01 m,
+  admitted today): the ring follows the wall's INNER-FACE polyline with
+  chord error ≤ half the band (0.75 m) — never a 9-station chord cut of
+  a curved U — and runs to the wall's END (17 m short today).  (C3) A
+  parapet PAIR flanking a mapped bridge way (Bridge2: 0.92 m, 25.6 m
+  apart) is the DECK's lateral extent: the deck is centred on the pair
+  and as wide as their inner spacing, so both parapets sit on the deck
+  edges; the OSM carriageway pair gives the route only (today: 8–9 m
+  south of the parapets).  The §33 (2) plate reading of these objects
+  (a width and a mouth station) and the 1.5 m skirt pre-screen are
+  SUPERSEDED for signature C; §33 (2) (a)'s clamp to the bore way's end
+  is superseded by C1 (the object's end IS the mouth) — the 14bl item
+  7/8 runaway it fixed was the plate's overhang beyond a bore with no
+  wall pair, which C1's pairing test excludes.
+
+**One reader.**  `airport/tunnel_objects.py` (or a successor
+`airport/object_cut.py`) screens every placed object ONCE for A/B/C and
+publishes ONE record class (`ObjectCut`: outline polyline per band,
+floor level or None, covered extent, stations, ends, signature) that
+`planar/structures.py` / `structure_approach.py` / `structure_deck.py` /
+`wall_corridor_ramps.py` consume; `basins.py` sees none of them.
+Consumer census at spec time (RULINGS 2026-08-30l): every reader of
+tunnel objects, plates, basins with object carriers, wall corridors and
+deck groups — one table before the first edit.  Where an OSM bore and an
+object disagree, the OBJECT wins inside its extent; the mapped way
+carries the corridor beyond it (§34 (12) still gates whether the tunnel
+serves the field at all).  `[verify]` gains `object_cut_offset`: the
+worst distance of an emitted ring vertex outside its object's wall line
+(bar 0.5 m) and `object_cut_depth`: floor vs the authored floor plate
+(bar 0.10 m).
+
+### §45 (10)–(12) AMENDED after lane `v2channel` round 1 (Fable 2026-09-15; RULINGS 2026-09-15s)
+
+Round 1 (branch `claude/v2channel` 399d7ecb) measured LGAV only: KDFW refused on the
+COLD neighbour tile N32W097 (its pack reaches into it), KPHX on a stale pack dump
+(`+33-113.dsf.anchor_bak` newer than every cached text dump) — both are the owner's
+`--refresh-data` acts (osm_layers + dem for +32-097; airport_mod_cache for KPHX). At
+LGAV the pass found two channels, neither the trench: `channel:2` (ways −7021 −4017
+−2914 −1343, witnesses bridge + pack, floor 63.43 from "5 placements") and
+`channel:0` (way −4003, neck only, cut down 5.1 m); the `Trench_0x` family did not
+fire as a witness, the 75 tunnel-object refusals stand, and LGAV's two 20 m²
+covered pits were refused as channel witnesses. The lane also found §45 (1)'s width
+rule wrong at the one measured site and reported it instead of deciding it. RULED:
+
+(10) **THE HOLE IS A CROSSING WITNESS, NOT A WIDTH.** At KDFW the apt.dat hole is
+2,518 × ~1,150 m — the whole gap between the terminal horseshoes, groundside roads
+and garages included — while the 1 m DTM measures the cut 84–106 m wall to wall.
+§45 (1)'s "the hole's two edges are the corridor edges" is DELETED. The hole and its
+necks state that a crossing exists and where the decks are; the corridor WIDTH takes
+its own precedence: (i) the pack's wall objects along the axis (LGAV: the outer faces
+of `Trench_0x`); (ii) credible lidar — the bank toes on the axis normal (KDFW); (iii)
+the carriageways ⊕ `lane_width_m`, with (5)'s bank beyond; all capped by `[channel]
+corridor_max_half_width_m` (120 m — the widest bridge span measured is 148 m across).
+The lane's implementation of (iii) + the cap stands; (i) and (ii) are round 2.
+
+(11) **A CHANNEL IS ONE CORRIDOR, NOT A TRANSITIVE CHAIN.** Ways merge into a channel
+only while the merged group's spread across the axis stays under
+`corridor_max_half_width_m`; union-find over "within `merge_m`" with no diameter bound
+chained `channel:2` 404.7 m off its axis. §45 (7)'s exclusion applies ONLY to objects
+whose below-grade footprint lies INSIDE the corridor of (10) and reaches
+`object_min_depth_m` under the crest; a pit beside the corridor keeps its basin
+(LGAV's `basin:2`/`basin:3` return).
+
+(12) **THE LGAV BAR IS THE TRENCH.** The pack witness (1)(c) must read the `Trench_0x`
+family: `Trench_03.obj` (VT y −12.67…+5.73, 7,012 vertices), `Trench_06.obj` (the
+4,077 × 149 m plate roofed 6 % — its roofed pieces ARE the decks, (4)), `Trench_01/07/
+08.obj` (the wall bands LAW C saw as 16/20/8-band candidates). Round 2 attributes WHY
+they did not fire in round 1 (the below-grade-footprint read, the `object_min_depth_m`
+gate, the axis they are tested against — all placed at the pack origin 37.936563,
+23.940627 with the geometry 2 km long) before changing anything, then meets the bar:
+ONE channel along the motorway + rail through the field (entry/exit where the corridor
+leaves the airside pavement union), floor from the Trench floors (3)(i), width from
+the Trench walls (10)(i), decks = the roofed pieces + the `-379` TWY H bridge, zero
+Trench refusals in the basin / sunken-road / tunnel-object passes, tunnels 8 → 8
+elsewhere. `channel:0` (way −4003) is named with its coordinates and its crossing
+pavement, or refused with the reason. The KDFW build and the KPHX replay stay the
+closing tests, run AFTER the owner's data acts and AFTER the concurrent session's
+four structure lanes merge (rebase first).

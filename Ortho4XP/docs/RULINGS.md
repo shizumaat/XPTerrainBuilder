@@ -7748,3 +7748,23 @@ HECA control clean (+41 verify rows, 8 runway vertices ≤ 0.064 m).
 Register defect caught by the §11b twins (`foot_row_rulings` deleted
 by a prefix match; every foot row re-priced 3000 → 3; the control arm
 discarded and re-run) — the two registers twinned apart.
+
+## 2026-09-15ap v2vmmcshore r5 (1edb0fc0, measurement): the deck table — the DEM cut under the span discriminates LEMD (real cuttings +0.81…+2.35 m) from VMMC (0.00 on the field); the bore beneath LEMD's decks reads layer −1/−2 tunnel=yes where the feed is current; tags `cutting`/`covered`/`embankment` appear nowhere → RULED §34 (12) (4) FROM THE TABLE (witnessed below grade, two witnesses); the station limbs withdrawn; r6 implements. Negative-id collision found (8 of 11 deck ids carry two ways) — chip
+
+Suite 1,689 passed, 0 FAILED. New `osm_site.py --deck-witness` (INDEX
+row, twins; reports `schema` for a stale feed, the id-copy count, no
+verdict). Findings: (1) the road layers and the airports layer each
+mint negative ids — a first-copy read presented `-6288` (`bridge=yes
+service lanes=4`) as `highway=secondary` and five decks as tagless;
+the structure pass selects by tag and was right; every id-join reader
+is at risk. (2) `+40-004_airport_small_roads` (Aug 31) and both VMMC
+feeds predate the schema — for those ways the witness is `schema`,
+not absent (the +22+113 feed was refreshed today at 11:05 — r6 re-
+reads it). The 1.0.340-approved LEMD deck set = v2lemdstruct's closing
+build (Sep 14 21:57): 7 decks `-6288 -11828 -14230 -516 -5305 -1378
+-15293` (the v2leafframe build had 11; 14bp item 10 grouped 4 away).
+The VMMC tile build (`v2vmmcshore4tile`) still running (~2 h) — z-xref
+unmeasured. r6: implement (i)+(ii) with `deck_cut_witness_m` 0.5 /
+`abutment_m` 40 in `[bridge]`; twins (a LEMD cut deck, a LEMD tag-only
+deck, a VMMC 0.00 deck, a stale-feed `schema` deck); dry pairs LEMD
+7 kept / VMMC 0 / OTHH 44 / 1; suite; then merge.

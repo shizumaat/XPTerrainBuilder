@@ -14183,3 +14183,40 @@ recorded: a register-deletion defect this round (disarming a head by
 prefix also deleted `foot_row_rulings`, re-pricing every foot row 3000
 → 3) was caught by the §11b twins; the two registers are now twinned
 apart.
+
+## §34 (12) (4) RULED FROM THE TABLE — A DECK SEVERS THE CLIMB WHERE THE GROUND BENEATH IT IS WITNESSED BELOW GRADE (Fable 2026-09-15; RULINGS 2026-09-15ap) — lane `v2vmmcshore` r6
+
+The 16-deck table (r5, `osm_site --deck-witness`): at LEMD the DEM under
+the span reads a CUTTING at 8 of 11 decks (+0.81 … +2.35 m below the
+mean of the abutments) and the bore beneath every approved deck whose
+feed is schema-current carries `layer −1/−2, tunnel=yes`; at VMMC every
+deck on the field reads 0.00 m (two at sea level +0.15/+0.17, one
+embankment −1.77) and the ways beneath the decks are the untagged
+seafront approach.  The station limbs (crosses-the-bore, below-grade)
+disagree with the cut on 5 of 11 and are WITHDRAWN.  RULED:
+
+A mapped `bridge=yes` way crossing a corridor SEVERS the climb (extends
+the covered run; the climb restarts beyond its far edge; chaining as
+r4) where the ground beneath its span is WITNESSED below grade, by
+either witness:
+  (i) the corridor's way beneath the deck's span carries `tunnel=yes`
+      or `layer ≤ −1` in a SCHEMA-CURRENT road feed (a stale feed
+      reports `schema`, which is neither yes nor no — the deck is then
+      judged by (ii) alone);
+  (ii) the DEM under the span reads at least `deck_cut_witness_m`
+      (0.5 m; VMMC's maximum on the field is +0.17, LEMD's minimum
+      positive +0.81) below the mean of the DEM at the deck's two
+      abutments (`abutment_m` 40, or the deck end when shorter).
+Otherwise the deck stands over ordinary ground beyond the trench
+(§34.5 (6)) and does not sever.  The alongside limb (r3) stays as a
+pre-filter.  Expected: LEMD keeps its 7 approved decks (`-6288` by (i)
+layer −2; `-11828`, `-14230`, `-516` by (ii); `-5305`, `-1378`, `-15293`
+by (i) layer −1 — note `-5305` −0.57 and `-15293` −1.46 read NEGATIVE
+under (ii) and are kept by (i) alone); VMMC keeps none (`-2088`'s 0.00
+included); OTHH 44 / 1 unchanged; the Macau LRT viaducts (`bridge=
+viaduct railway=light_rail`, cut 0.00) never sever.  Law keys
+`[bridge] deck_cut_witness_m`, `abutment_m` — no Python defaults.
+The negative-id collision the round found (the road layers and the
+airports layer each mint negative ids; 8 of 11 deck ids carry two
+ways, five with an `aeroway=taxiway` first copy) is a reader hazard
+for every tool that joins on a way id — chip.

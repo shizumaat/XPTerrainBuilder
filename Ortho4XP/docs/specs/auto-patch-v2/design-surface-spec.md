@@ -11781,3 +11781,17 @@ every ramp emitter; no per-airport key.  Census `ramp_in_road` (CRITICAL): a
 ramp vertex inside a road ribbon.  BARS: OTHH's two pinched ramps' tops move
 in by the road's half-width (named); `ramp_in_road` 0 on the five registered
 frames (each airport's count before → after); road ribbons uncut; airside 0.
+
+### §40 (1) AMENDED — A SHOULDER DOES NOT ENCLOSE THE RUNWAY (Fable 2026-09-14; RULINGS 2026-09-14bh) — lane `v2roles`
+
+MEASURED (LERM, the +40-004 tile abort): the aerodrome's single open
+pavement page (65,655 m², fronting seven hangars) shared 2,135 m of a
+2,135 m runway ring — it ENCLOSED the runway — passed the 100 m shared floor
+and the 50 m depth cap, took the runway datum while its ground falls 7.5 %,
+and minted 43 `runway_transverse` DEFECT rows at the shoulder cap.  New
+rung `corridor.runway_shoulder_max_wrap` (0.75): the shared boundary is at
+most that fraction of the runway slab's own perimeter — a shoulder runs
+ALONG a runway, it does not wrap one.  Separation measured over every
+shoulder cell: HECA 0.01–0.54, VHHH 0.01–0.55, LERM's false shoulder 1.00
+(runners-up recorded: area ratio ≤ 0.88 vs 1.09; pads touching 0 vs 7).
+`shoulder_wrap` and `shoulder_depth_m` ride in the cell evidence.

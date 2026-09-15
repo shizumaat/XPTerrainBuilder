@@ -12903,6 +12903,63 @@ precedent — the spec text yields to the measurement):
    `sea_X.obj` + `sea.obj` (a 112,376 m² flush hard deck — the SEA SURFACE)
    still read as a corridor 177 m off the north shore.
 
+**THE MATCHED DRY REPLAY PAIRS** (`planar --stage structures`, ONE tree per
+arm, one machine, the shared corpus, the lane-local mod-cache overlay; base =
+main `106459fa` in its own ritual worktree, lane = `claude/v2objcut`).
+
+* **OTHH — NOTHING MOVES.**  `corridors`, `tunnels`, `wall_corridors`,
+  `basins`, `plates` and `door_wells` all **BYTE-IDENTICAL** (9 / 44 / 73 / 10
+  / 2 / 4); the only difference is **+51 named §33 (6) refusals** (28 "no
+  near-horizontal solid face stands 2.0 m under the object's zero", 9 "not a
+  tunnel floor", 6 "the trench ring has 0 open ends", 3 shells with no flush
+  cover, each by resource).  The §33 (1) discipline holds for the new reader.
+* **LEMD — NOTHING MOVES.**  The same six arrays BYTE-IDENTICAL (1 / 50 / 0 /
+  1 / 3 / 0), **+25 named refusals**.  `plate_mouths` 2 → 2,
+  `crest_from_approach` 2 → 2, `underpasses` 1 → 1.
+* **VHHH — five object cuts read, three built.**  `corridors` **0 → 5** with
+  the AUTHORED floors: `TUNNEL2_DONE` **0.78**, `tunnel1_done` **0.37**,
+  `tunnel3_done` **−1.63**, `tunnel4_done` **−1.69**, `tunnel5_done`
+  **1.30** — against the bar's 0.77 / 0.36 / −1.63 / −1.69 / 1.31, every one
+  inside the 0.10 m bar.  `wall_corridors` **0 → 0** (the affordance stands),
+  `basins` **70 → 70 and the population IDENTICAL** by (objects, area) — the
+  five shells and their five covers were never separate pits, and the claim
+  (`shell_claimed`: 10 placements) keeps it that way.  `tunnels` 28 → 23: nine
+  OSM bore tunnels at those sites are replaced by the objects (05n-3), which
+  read **mouth_z 2.22 = DEM − `bore_datum_m`** on the base arm against the
+  objects' own 0.37 / −1.63 / −1.69.
+
+**THE VHHH MISS, NAMED.**  Two of the five cuts — `tunnel5_done` (THE OWNER'S
+SITE 22.3038632, 113.9088362) and `TUNNEL2_DONE` — are refused DOWNSTREAM by
+`planar/structures.py`'s ramp-ring builder: *"the approach bends tighter than
+the corridor (ramp or wall ring self-intersects)"*.  Both are HAIRPINS —
+`tunnel5` is a U-turn ramp whose 413 m axis reverses on itself, `TUNNEL2` a
+1,110 m multi-portal corridor — and a ring built by OFFSETTING such an axis by
+its half widths folds.  The reading is right (floor 1.30 against the authored
+1.31, trench 9,290 m², two portals) and the corridor is refused for a reason
+that has nothing to do with §33 (6): the emitter must follow the OBJECT'S OWN
+trench polygon rather than offset an axis.  That is a `planar/structures.py`
+change, which this lane's brief reserves to another lane, so it is REPORTED,
+not attempted.
+
+**THE BEFORE READING ON THE OWNER'S OWN 1.0.340 VHHH PRODUCTS** (the shipped
+patch under `Patches/+20+110/+22+113/`, read against each object's published
+wall line — no build, nothing written).  Per shell: emitted `tunnel_ramp` /
+`structure_rim` vertices standing outside the object's wall line, and the
+emitted floor against the authored one:
+
+| object | vertices | outside (> 0.5 m) | worst | emitted floor | authored | miss |
+|---|---|---|---|---|---|---|
+| `tunnel5_done` | 147 | **85** | 75.80 m | 2.21 | 1.31 | **0.90 m** |
+| `tunnel1_done` | 25 | **19** | 81.48 m | 2.22 | 0.37 | **1.85 m** |
+| `TUNNEL2_DONE` | 171 | **111** | 83.74 m | 2.22 | 0.78 | **1.44 m** |
+| `tunnel3_done` | 46 | **27** | 86.12 m | 2.22 | −1.63 | **3.85 m** |
+| `tunnel4_done` | 40 | **26** | 79.67 m | 2.22 | −1.69 | **3.91 m** |
+
+That is `object_cut_offset` 268 rows / worst 86.12 m and `object_cut_depth`
+0.90–3.91 m on the shipped build, and it reproduces the 15j scout's
+"0.92–3.91 m too shallow" exactly.  The AFTER numbers are the closing VHHH
+build's, which this lane could not run (see below).
+
 **(A) THE AFFORDANCE'S RETIREMENT IS REFUTED — one dry VHHH replay.**  The
 crested-wall predicate (solids under the object's own zero WITH a crest plate
 `plate_min_area_m2` standing `plate_min_height_m` above it) admits an ordinary
@@ -12915,6 +12972,14 @@ is RULINGS 2026-09-10ap's seven rounds at a THIRD airport.  The predicate is
 DELETED (not kept gated); `kerb_wall_corridors` STANDS in `law/airports.toml`
 with the refutation recorded beside the gate, and §33 (6) A is an INTENT
 QUESTION for the owner, not a mechanism.
+
+**NO CLOSING BUILD.**  RULINGS 2026-09-15u: `+22+113`'s cached road layers
+predate the `ROAD_CACHE_TAG_SCHEMA` bump, so the first harness build on that
+tile REWRITES the shared repo's road layer (the LEMD `+40-004` build was
+flagged CONTAMINATED) and, since `v2schemarefuse`, REFUSES by name.  The
+refresh ledger carries NO `osm_layers` refresh for `+22+113` at all.  The
+build AWAITS the owner's `--refresh-data osm_layers` on that tile; the lane
+ran no build and no `--refresh-data`.
 
 **(C) SIGNATURE C IS NOT DONE, and the measurement that stopped it.**  The
 BAND READING landed (`object_cut.thin_bands` / `band_pair`, over LAW C's own

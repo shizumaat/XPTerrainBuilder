@@ -154,9 +154,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.kml:
             write_kml(rec, Path(args.kml))
             print(f"  KML -> {args.kml}")
+        _ts = rec.get("tunnel_object_stats", {})
         print(f"{airport.icao} structures: corridors {len(rec['corridors'])} "
-              f"(object cuts {tstats.shells} B, basin placements claimed "
-              f"{len(tstats.shell_claimed)})  door wells "
+              f"(object cuts {_ts.get('shells', 0)} B, basin placements claimed "
+              f"{len(_ts.get('shell_claimed', ()))})  door wells "
               f"{len(rec['door_wells'])} (refused {len(rec['door_refused'])})  sunken roads "
               f"{len(rec['sunken_roads'])} (refused {len(rec['sunken_refused'])})  tunnels "
               f"{len(rec['tunnels'])}  basins {len(rec['basins'])}  corridor refusals "

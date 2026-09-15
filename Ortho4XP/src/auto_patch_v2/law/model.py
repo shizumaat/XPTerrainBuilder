@@ -410,6 +410,7 @@ class Materiality:
     elevation_m: float
     grade: float
     step_m: float
+    runway_step_m: float
 
 
 @_dc.dataclass(frozen=True)

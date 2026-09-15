@@ -5067,6 +5067,156 @@ def test_tnm_discovery_404_stays_durable_none(monkeypatch):
     )
 
 
+# =====================================================================
+# A 200 IS NOT AN ANSWER ABOUT COVERAGE (KPHX, 2026-09-15)
+# =====================================================================
+#
+# The measured defect: while TNM answered 504 for 28 of 48 discovery
+# requests across the owner's +33-113 / +33-112 build, it answered the
+# other 20 with an HTTP 200 whose body was JSON but was NOT a product
+# listing.  ``payload.get("items") or []`` read each of those as a
+# complete "zero products here" catalog, ``discover`` returned ``None``
+# with no log line at all, and ``ensure_airport_insets`` wrote a DURABLE
+# ``USGS3DEP: no-coverage`` -- KPHX among them, where TNM in fact
+# publishes four 1 m products (AZ_MaricopaPinal_2020_B20).  The bytes
+# below are the response classes; none of these tests touch a network.
+_KPHX_BOX = (-112.0554376825878, 33.40368279431761,
+             -111.9586439174122, 33.46186130568239)
+
+
+def _fake_byte_response(status_code, body):
+    """A requests-shaped response over FIXTURE BYTES (json parsed here)."""
+    import types
+
+    def _json():
+        return json.loads(body.decode("utf-8"))
+
+    return types.SimpleNamespace(status_code=status_code, json=_json)
+
+
+def _tnm_discover_with_body(monkeypatch, body, status_code=200):
+    import requests
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda url, timeout=None: _fake_byte_response(status_code, body),
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    return strategy.discover(_tnm_definition(), _KPHX_BOX)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # The gateway's own error envelope, served with a 200.
+        b'{"message": "Internal Server Error"}',
+        # A listing that reports its failure inside the 200.
+        b'{"total": 0, "items": [], "errors": "backend request timed out"}',
+        # A truncated listing: it says there are products and lists none.
+        b'{"total": 4, "items": []}',
+        # Not a mapping at all.
+        b'["Service Unavailable"]',
+        # Products with no download URL: a listing that lost its fields.
+        b'{"total": 1, "items": [{"title": "AZ_MaricopaPinal_2020_B20"}]}',
+    ],
+)
+def test_tnm_degraded_200_body_is_transient_not_no_coverage(
+    monkeypatch, body
+):
+    """None of these may become a durable negative for KPHX."""
+    with pytest.raises(INSETS.TransientFetchError):
+        _tnm_discover_with_body(monkeypatch, body)
+
+
+def test_tnm_complete_empty_listing_is_still_no_coverage(monkeypatch):
+    """CONTROL: a genuine, well-formed zero-products answer is durable."""
+    assert _tnm_discover_with_body(
+        monkeypatch, b'{"total": 0, "items": []}'
+    ) is None
+
+
+def test_tnm_complete_listing_with_products_is_discovered(monkeypatch):
+    """CONTROL: the real shape still parses into sources."""
+    body = json.dumps(
+        {
+            "total": 1,
+            "items": [
+                {
+                    "title": "USGS 1 Meter x40y370 AZ_MaricopaPinal_2020_B20",
+                    "sourceId": "abc",
+                    "publicationDate": "2020-01-01",
+                    "downloadURL": "https://prd-tnm.test/x40y370.tif",
+                }
+            ],
+        }
+    ).encode("utf-8")
+    sources = _tnm_discover_with_body(monkeypatch, body)
+    assert [source["download_url"] for source in sources] == [
+        "https://prd-tnm.test/x40y370.tif"
+    ]
+
+
+def test_degraded_tnm_200_leaves_the_index_record_absent(
+    tmp_path, monkeypatch
+):
+    """The index-level twin: nothing durable is written, so the next run
+    asks again (the +33-113 record carried ``USGS3DEP: no-coverage``)."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+
+    class _DiscoveryOnlyTnm:
+        """tnm_cog's discovery, with the warp cut off after it."""
+
+        supports_wide_area = True
+
+        def discover(self, definition, bounding_box_wgs84):
+            return INSETS.ACCESS_STRATEGIES["tnm_cog"]().discover(
+                definition, bounding_box_wgs84
+            )
+
+        def fetch(self, definition, bounding_box_wgs84,
+                  target_resolution_m, destination_path):
+            sources = self.discover(definition, bounding_box_wgs84)
+            if not sources:
+                return None
+            raise AssertionError("the fixture never reaches a warp")
+
+    INSETS.ACCESS_STRATEGIES["tnm_cog_discovery_only"] = _DiscoveryOnlyTnm
+    try:
+        definition = dict(
+            _box_definition("USGS3DEP", "tnm_cog_discovery_only"),
+            discovery_url_template="https://tnm.test/search?bbox={west}",
+        )
+        import requests
+
+        monkeypatch.setattr(
+            requests,
+            "get",
+            lambda url, timeout=None: _fake_byte_response(
+                200, b'{"message": "Internal Server Error"}'
+            ),
+        )
+        index = INSETS.ensure_airport_insets(
+            33, -113, {"KPHX": _KPHX_BOX}, [definition], 3.0
+        )
+        assert "USGS3DEP" not in index["KPHX"]
+
+        # CONTROL: the well-formed empty answer DOES record no-coverage.
+        monkeypatch.setattr(
+            requests,
+            "get",
+            lambda url, timeout=None: _fake_byte_response(
+                200, b'{"total": 0, "items": []}'
+            ),
+        )
+        index = INSETS.ensure_airport_insets(
+            33, -113, {"KPHX": _KPHX_BOX}, [definition], 3.0
+        )
+        assert index["KPHX"]["USGS3DEP"] == INSETS.NO_COVERAGE
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("tnm_cog_discovery_only", None)
+
+
 def _wfs_definition():
     return {
         "code": "WFSTEST",

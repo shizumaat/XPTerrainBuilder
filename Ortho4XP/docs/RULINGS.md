@@ -6950,3 +6950,35 @@ THEME (items 1/3/4/6): the pack's SURFACE WALL objects are the
 author's footprint guide for bridges and tunnels — a new law class;
 scout first (consumer census + object inventory at each site), then
 the spec.
+
+## 2026-09-15h v2pavborrow MERGED (3c52d9b4): §44 the pavement borrow — LGAV has taxiways and aprons for the first time
+
+Lane `v2pavborrow` (9d8c22d5, base 8b8b2afc). One derivation site
+(`airport/pack.select_pack` → `PackSelection.borrow`), one composition
+site (`airport/load.py` at the parse, after the custom block's reference
+point is taken), the coverage trigger and the append in the new
+`airport/borrow.py` (270 lines; `find_global_block` memoised over the
+383 MB file), the "last resort" tail of `find_apt_dat` deleted (a custom
+pack carrying the ICAO is the pack and Global is no longer scanned for
+the selection), `SceneryPack.borrowed_apt_dat_path/borrowed_block_sha256`
+in the signature and the partition-cache fingerprint,
+`o4_apt_dat_borrowed` on the patch header, `report.load.pavement_source`,
+`[load] pavement_borrow_coverage_max = 0.25` validated 0 ≤ x ≤ 1. Twins
+§44.2 (a)–(e) + partition key + law range + "a pavement-less pack is
+still the pack". Closing build: ONE LGAV patch (`--patch-only`, rc 0,
+53.0 s, body 88db87c72b4c, shared repo UNCHANGED): `pavement_source =
+{coverage 0.0135, custom 2, borrowed 63, boundary true}`;
+`faces_by_role` runway 4→7, graded_strip 4→158, junction 15→35, and NEW
+primary_parallel 47, apron 14, stub 13, cross_connector 28,
+secondary_parallel 2, service_road 2, building 38; patch 39 ways / 1,988
+nodes → 393 / 8,790. Census: 2,287 adjudicated airside rows (the FIRST
+census of a layout that did not exist; worst `within_shape
+primary_parallel|runway` |de| 6.3 m at 1.51 % vs the 1.50 % cap —
+LGAV's real relief on a 30 m DEM, a follow-up for the owner's read, not a
+§44 regression). C10 measured: the 2026-09-14 inset covers the borrowed
+layout 100 % (8,790/8,790 nodes, tightest slack 698 m) — no refresh
+needed. C13: no sidecar or census key names the apt.dat path. Load stage
+2.43 → 6.17 s (inherent: Global's 63 polygons read and projected; a
+figure for the final profiling round). Suite ON MAIN after the merge:
+`1579 passed, 1 skipped, 42 warnings` — 0 failed. Frames registered;
+both lane worktrees down.

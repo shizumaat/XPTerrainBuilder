@@ -34,7 +34,8 @@ from .within import FAMILY_TAXI_BOX, plane_gradient, taxi_box, within_shape
 
 __all__ = ["FAMILIES", "READERS", "NOT_IMPLEMENTED", "RELAXED_KEY", "RELAXED_RULING",
            "YIELDED_KEY", "YIELDED_RULING", "mark_yielded",
-           "DEFECT_KEYS", "FAMILY_PAD_FLAT", "FAMILY_TRANSVERSE", "FAMILY_VERTICAL_CURVE",
+           "DEFECT_KEYS", "defect_excess_m", "defect_gate", "under_floor_text",
+           "FAMILY_PAD_FLAT", "FAMILY_TRANSVERSE", "FAMILY_VERTICAL_CURVE",
            "FAMILY_STRIP_TRANSVERSE", "FAMILY_TAXI_BOX", "mark_relaxed",
            "census", "census_patch"]
 
@@ -147,6 +148,85 @@ def census_patch(p: Patch) -> dict[str, list[Row]]:
 #: census row like any other (``verify/pads.py`` still reads and reports it).
 FAMILY_PAD_FLAT = "pad_flat"
 DEFECT_KEYS: tuple[str, ...] = (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE)
+
+
+def defect_excess_m(r: Row) -> float:
+    """THE EXCESS a DEFECT row carries beyond its OWN cap over its OWN span,
+    in metres (owner RULINGS 2026-09-14bx).
+
+    Derived from the row's own fields.  A row that states a grade, a cap and
+    a distance is read as ``(|grade_pct| - cap_pct) / 100 * distance_m`` --
+    for ``runway_transverse`` that is exactly ``magnitude_m - cap_pct/100 *
+    distance_m`` (its ``magnitude_m`` is the raw ``|fall|``), and for
+    ``runway_vertical_curve`` it is exactly its ``magnitude_m``, which the
+    reader already publishes as ``(|change| - bound) * span``.  Reading the
+    grades rather than subtracting the cap from ``magnitude_m`` is what makes
+    ONE arithmetic right for both families; subtracting twice would put every
+    curve row under any floor.
+
+    A family whose rows state no cap/distance pair, or whose span is zero,
+    has nothing to price the excess over, so its ``magnitude_m`` IS the
+    excess.
+
+    THE TWIN IS THE v1 HARNESS RULE (``tools/check_grade.py``
+    ``MATERIALITY_ACCUMULATION_RULE`` / ``row_excess_m``, over the v1 row
+    OBJECT — a different shape this layer may not import): same arithmetic,
+    same two guards — floored at 0, and never more than the row's whole
+    magnitude, because a row can never be more unlawful than its own
+    elevation difference.
+    """
+    mag = abs(float(r.get("magnitude_m") or 0.0))
+    g, c, d = r.get("grade_pct"), r.get("cap_pct"), r.get("distance_m")
+    if g is None or c is None or d is None or float(d) <= 0.0:
+        return mag
+    return max(0.0, min(mag, (abs(float(g)) - float(c)) / 100.0 * float(d)))
+
+
+def defect_gate(law: Law, rows: dict[str, list[Row]]) -> tuple[dict[str, int],
+                                                               dict[str, object]]:
+    """THE ONE READING OF THE STRUCTURAL-DEFECT GATE (owner RULINGS
+    2026-09-14bx) -- the engine's abort and the report's ``defects`` are the
+    same dict, computed here and nowhere else.
+
+    Returns ``(defects, under_floor)``:
+
+    * ``defects`` -- family -> count of MATERIAL rows, the rows whose
+      :func:`defect_excess_m` is at or over ``law.tables.emit.verify.
+      defect_min_excess_m``.  Non-empty means the airport fails by name,
+      exactly as before the floor.
+    * ``under_floor`` -- family -> ``{"rows": N, "worst_excess_m": X}`` for
+      the rows under the floor.  Those rows stay census VIOLATIONS: they are
+      untouched in ``rows``, counted in ``by_family``, read by the cockpit.
+      They are only excluded from the ABORT, and named in the log.
+
+    On 1.0.339 the +40-004 tile died on one LEMD ``runway_transverse`` row
+    with 0.0458 m of excess -- 4.6 cm of fall over 30 m.
+    """
+    floor = law.tables.emit.verify.defect_min_excess_m
+    defects: dict[str, int] = {}
+    under: dict[str, object] = {}
+    for k in DEFECT_KEYS:
+        fam = rows.get(k) or []
+        if not fam:
+            continue
+        small = [defect_excess_m(r) for r in fam if defect_excess_m(r) < floor]
+        n_material = len(fam) - len(small)
+        if n_material:
+            defects[k] = n_material
+        if small:
+            under[k] = {"rows": len(small),
+                        "worst_excess_m": round(max(small), 4),
+                        "floor_m": floor}
+    return defects, under
+
+
+def under_floor_text(under: dict[str, object]) -> str:
+    """The engine-log sentence naming the rows the floor spared (14bx)."""
+    return "; ".join(
+        f"{k} under the materiality floor "
+        f"({v['rows']} rows, worst {v['worst_excess_m']} m"  # type: ignore[index]
+        f" against a floor of {v['floor_m']} m)"  # type: ignore[index]
+        for k, v in sorted(under.items()))
 
 
 #: The key a row carries when it sits on a vertex the last resort relaxed

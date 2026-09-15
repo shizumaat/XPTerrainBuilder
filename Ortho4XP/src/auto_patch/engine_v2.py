@@ -318,6 +318,10 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
     # `runway_transverse` abort read "a building pad is not one flat
     # value" (owner, 2026-09-14, the +40-004 tile).  Each family now
     # states its OWN law.
+    # THE MATERIALITY FLOOR IS ALREADY APPLIED (owner RULINGS 2026-09-14bx,
+    # ``auto_patch_v2/verify/census.py`` ``defect_gate``): ``defects`` holds
+    # the MATERIAL rows only — a row under ``emit.verify.defect_min_excess_m``
+    # of excess is a census violation named in the build log, never an abort.
     defects = (res.report.get("verify") or {}).get("defects") or {}
     if defects:
         rows = (res.report.get("verify") or {}).get("rows") or {}

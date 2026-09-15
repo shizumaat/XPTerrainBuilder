@@ -47,7 +47,7 @@ __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "
     "ZoneClass", "AdjacentGround", "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge",
     "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Placement",
     "Structures", "ReliefFloor",
-    "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality",
+    "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Verify",
     "NoStep", "Transect", "WithinShape", "Instrument", "Cockpit", "Terrace", "Design",
     "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
     "Law", "Affordances", "NO_AFFORDANCES", "TABLE_FILES", "load_tables",
@@ -515,6 +515,19 @@ class RoadContact:
 
 
 @_dc.dataclass(frozen=True)
+class Verify:
+    """``emit.toml [verify]``: how the VERIFY stage's structural-DEFECT
+    gate reads a row (owner RULINGS 2026-09-14bx)."""
+
+    #: THE DEFECT MATERIALITY FLOOR: a DEFECT row whose EXCESS beyond its
+    #: own cap over its own span is under this many metres stays a census
+    #: violation and is NAMED in the engine log, but never aborts the
+    #: tile.  0.15 pp over 30 m -- the LEMD row that killed the +40-004
+    #: tile on 1.0.339 -- is 4.6 cm.
+    defect_min_excess_m: float
+
+
+@_dc.dataclass(frozen=True)
 class EmitLaw:
     """emit.toml."""
 
@@ -533,6 +546,8 @@ class EmitLaw:
     #: [road_contact]: §37 (10) (RULINGS 2026-09-13cs)
     road_contact: RoadContact
     terrace: Terrace
+    #: [verify]: the structural-DEFECT gate's materiality floor (14bx)
+    verify: Verify
     #: [design]: THE DESIGN SURFACE's objective weights (RULINGS 2026-09-08t) —
     #: replaces [relaxation] and [yield], deleted with the tier / IIS /
     #: relaxation / yield machinery they priced.

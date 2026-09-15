@@ -894,20 +894,28 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             from auto_patch_v2.emit.graded import graded_surface
             from auto_patch_v2.pipeline.publication import publication
             from auto_patch_v2.verify import census as run_census
-            from auto_patch_v2.verify.census import DEFECT_KEYS
+            from auto_patch_v2.verify.census import (DEFECT_KEYS, defect_gate,
+                                                      under_floor_text)
             t = time.perf_counter()
             surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                                   {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
             vrows = run_census(surf, law, publication(pm, law, airport, sol.z, cs),
                                road_law_caps(pm, law, airport))
             summary = {k: len(v) for k, v in vrows.items() if v}
-            result["verify"] = {"by_family": summary,
-                                "defects": {k: len(vrows[k]) for k in DEFECT_KEYS if vrows.get(k)}}
+            # ONE READING OF THE GATE (RULINGS 2026-09-14bx): the same
+            # ``defect_gate`` the build and the app driver use — a row under
+            # the materiality floor is a census violation, never an abort
+            _defects, _under = defect_gate(law, vrows)
+            result["verify"] = {"by_family": summary, "defects": _defects,
+                                "defects_under_floor": _under}
             print(f"    verify {time.perf_counter() - t:.1f} s: {sum(summary.values())} rows  "
                   + ", ".join(f"{k} {n}" for k, n in sorted(summary.items())))
             print(f"    verify DEFECT families ({', '.join(DEFECT_KEYS)}): "
                   + (", ".join(f"{k} {n}" for k, n in result["verify"]["defects"].items())
                      or "ALL ZERO"))
+            if _under:
+                print(f"      {under_floor_text(_under)} — a census violation, "
+                      "not an abort (RULINGS 2026-09-14bx)")
             for k in DEFECT_KEYS:
                 for r in (vrows.get(k) or [])[:6]:
                     print(f"      {k}: {r}")

@@ -2105,6 +2105,14 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         # on it; the harness measures and says so on every line
         prog.note("v2-verify DEFECT (the app build would fail this airport): "
                   + ", ".join(f"{k} {n}" for k, n in verify_defects.items()))
+    _under = (res.report.get("verify") or {}).get("defects_under_floor") or {}
+    if _under:
+        # RULINGS 2026-09-14bx: DEFECT rows the materiality floor spared —
+        # census violations counted in ``by_family``, never an abort
+        prog.note("v2-verify DEFECT rows under the materiality floor (counted, "
+                  "not fatal): " + ", ".join(
+                      f"{k} {v['rows']} rows, worst {v['worst_excess_m']} m"
+                      for k, v in sorted(_under.items())))
     return {
         "_layout": None,
         "icao": icao, "tag": tag, "patch": str(osm), "sidecar": str(side),

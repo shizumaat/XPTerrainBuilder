@@ -222,6 +222,32 @@ strip_min_width_m  = 3.0    # ... or narrower than this at its WIDEST place (the
 hole_cover_eps     = 0.02   # inner faces covering >= 1 - this of the hole's area ARE the hole's constraint
 groundside_ramp_max = 0.05    # 08d change 4 (b): the apron edge RAMPS to the groundside ring across the stand-off at this grade (v1 GROUNDSIDE_MAX_GRADE, config.py:1519), never a step
 
+[verify]
+# THE DEFECT MATERIALITY FLOOR (owner RULINGS 2026-09-14bx).  A row of a
+# structural DEFECT family (``verify/census.py`` ``DEFECT_KEYS``) ABORTS the
+# whole tile — regardless of how far past the cap it sits.  On 1.0.339 the
+# +40-004 tile died on ONE LEMD ``runway_transverse`` row reading 1.6527 %
+# against a 1.5 % cap over 29.977 m: 0.15 pp = 4.6 cm of excess fall over
+# 30 m, the unconverged fixed point's last unsettled row (14bw).  Owner:
+# "a structural DEFECT aborts the tile only when MATERIAL".
+#
+# The EXCESS of a row is what it carries beyond its own cap over its own
+# span -- ``(|grade_pct| - cap_pct) / 100 x distance_m`` where the row
+# states a cap, a grade and a distance (the transverse row's
+# ``magnitude_m - cap_pct/100 x distance_m``, and for
+# ``runway_vertical_curve`` -- whose ``magnitude_m`` is ALREADY
+# ``(|change| - bound) x span`` -- the same metres, read from the row's own
+# grade fields rather than double-subtracting the cap); a family whose rows
+# state no cap/distance pair falls back to ``magnitude_m`` itself.
+#
+# A row UNDER this floor stays a census VIOLATION in every instrument --
+# counted in ``by_family``, present in the rows, read by the cockpit -- and
+# is named in the engine log as "under the materiality floor"; it never
+# aborts.  A row at or over it aborts exactly as before.  This is the
+# gate's sense of proportion, not a relaxation of the law: the 13y/§20c
+# solver fix is what removes the class.
+defect_min_excess_m = 0.10
+
 [design]
 # THE DESIGN SURFACE (owner RULINGS 2026-09-08t; spec ``auto-patch-v2/
 # design-surface-spec.md``): pavement is a DESIGNED surface — minimum

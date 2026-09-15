@@ -997,12 +997,23 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _say(f"[{icao}] verify {_v_census_s:.2f} s  rows "
                  f"{sum(summary.values())}  " + ", ".join(
                      f"{k} {n}" for k, n in summary.items() if n), out)
-            from ..verify.census import DEFECT_KEYS
-            defects = {k: len(vrows[k]) for k in DEFECT_KEYS if vrows.get(k)}
+            # THE STRUCTURAL-DEFECT GATE, ONE READING (owner RULINGS
+            # 2026-09-14bx): a DEFECT row aborts the tile only when
+            # MATERIAL — ``emit.verify.defect_min_excess_m`` of excess
+            # beyond its own cap over its own span.  A row under the floor
+            # stays a census VIOLATION (it is untouched in ``vrows`` and so
+            # counted in ``by_family`` above, in ``rows`` below and in the
+            # cockpit) and is NAMED here instead of killing the tile.
+            from ..verify.census import defect_gate, under_floor_text
+            defects, under_floor = defect_gate(law, vrows)
             for k, n in defects.items():
                 _say(f"[{icao}] verify: DEFECT {k} {n} — " + "; ".join(
                     f"{r.get('way_a')} {r.get('reading')} {r.get('magnitude_m')} m"
                     for r in vrows[k][:10]) + (" ..." if n > 10 else ""), out)
+            if under_floor:
+                _say(f"[{icao}] verify: {under_floor_text(under_floor)} — "
+                     "a census violation, not an abort (RULINGS 2026-09-14bx)",
+                     out)
             from ..verify.within import apron_over_preference as _v_pref
             v_pref = _v_pref(_vpatch)
             from ..verify.census import WALL_S as _VWALL
@@ -1014,6 +1025,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             report["verify"] = {"by_family": summary,
                                 "apron_over_preference": v_pref,
                                 "defects": defects,
+                                # the DEFECT rows the materiality floor
+                                # spared (14bx) — still rows, still counted
+                                "defects_under_floor": under_floor,
                                 # THE PER-FAMILY VERIFY CLOCK (14q): which
                                 # reader the stage's seconds went to
                                 "wall_s": dict({"census": round(_v_census_s, 3),

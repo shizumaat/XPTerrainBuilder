@@ -6281,3 +6281,40 @@ the HECA pad line (flags OFF). Flags verified: `bank_omit` true,
 `pad_from_cluster` false, `staged_solve` false. The owner's LEMD read
 on 1.0.336 is the first read of the whole 09-14 batch at LEMD (the
 1.0.335 tile never built).
+
+## 2026-09-14bk v2padjoin MERGED (cc71e237): the 14 red twins were ONE cause — c9787d1e shipped `staged_solve = true` (and `pad_airside_clip = true`) against 14as; the plane join as a stage-2 row set REFUTED (HECA infeasible 151 → 1,114 rows; the airside moved); captures now carry clusters — ruled: the collar is an APRON-LAW row set in stage 1
+
+Lane `v2padjoin` @ 45655af6 (suite 1,525 twice; 1,533 on main with
+all three flags OFF). Bar 0: `git revert d21b407c` reproduced 14bg's
+14 failures; one flip (`staged_solve` false) → 1,524 — v2padvert's own
+number: its report was NOT mislabeled, the arm flag shipped with the
+commit (14bg's suspicion withdrawn). The join (14bf) in stage 2:
+HECA pair (pads+clip+staged ON): infeasible 151 / 178.7 m → 1,114 /
+2,312 m; stage 1 (airside) 4 → 8 rows, worst 0.033 → 0.108 — under
+§20b the collar IS airside: stage 1 solves it without the pad and
+substitutes it as a constant, so the plate must equal a collar
+already fixed, and the all-airside collar pairs leak into stage 1 and
+move the airside. Attempt 2 — the collar as one plane WITH ITSELF in
+stage 1, the pad meeting it through its weld — refused before a
+build by the §30 (4) twin ("a cluster is one plane over every pad it
+stands on": the two pads came apart 0.86 m). The join deleted;
+`cluster_apron_reach_m` stays 0.0. Chip `capclusters` landed here:
+`--capture` derives `Airport.clusters`; a pre-fix capture backfills
+at replay and says so; twins. Finding: with `pad_from_cluster` OFF
+the §30 (4) cluster pad is structurally INERT (KCLT's six outlines
+cover 5–6 % of `building80`'s face against `_OWN_FACE_SHARE` 0.5) — a
+pads-OFF replay cannot measure the reach.
+
+* RULING (the intent question — (i)): the reach is an APRON-LAW ROW
+  SET INSIDE STAGE 1: the apron vertices within `cluster_apron_reach_m`
+  (40 m) of a cluster's OUTLINE (known pre-solve from the plan, §16g
+  (9)–(10)) form ONE PLANE among themselves (cap 0, tilt ≤ 1 %) in the
+  airside solve — the airside deliberately flattens itself at a
+  terminal (the owner, 2026-09-13; 14ay); bounded to the touching
+  component, never across a taxi-family face; in stage 2 the pad's
+  plate EQUALS that fixed collar plane (the pad takes the collar; the
+  datum = the collar plane, the low side per (9)(2)). "Airside moved
+  vs pads-OFF = the collar only" is the acceptance. The §30 (4) twin
+  that refused attempt 2 encodes the SUPERSEDED law (one plane over
+  MANY pads); under §16g (10) one cluster = one pad = one collar —
+  RE-FOUND it. Lane `v2padjoin` r2.

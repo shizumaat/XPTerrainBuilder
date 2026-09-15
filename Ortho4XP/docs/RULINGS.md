@@ -7617,3 +7617,31 @@ Suite 1655/0, twins 17. RULED §45 (13)(d): a placement in
 implements it; bar: six replays identical in Tunnel AND Basin records,
 then the merge (after which the concurrent session's follow-up lanes
 rebase). KDFW/KPHX still wait on the owner's refreshes.
+
+## 2026-09-15ah v2padqp r2 MERGED OFF (b2294797 → 348f80a4): the airside movement ATTRIBUTED — ¾ of it is the ARRANGEMENT CLIP re-noding the airside vertex set (clip alone 4,474 / 1.39 m), not a pad row; the pad plate row pointed one-way improves the SHIPPED surface (HECA ADJUDICATED −4.1 %, LEMD −35 %); mismatch HECA 10 → 0 by the ref-area share; keys stay OFF — the clip is a spec question. OWNER (away): "no need to rebuild that app yet … complete the open lanes first"; the app killed and the road-layer refreshes run by the session on the owner's word
+
+Lane @ b2294797; suite 1,639 passed, 0 FAILED. `--why-at` on HECA's
+worst mover (+3.610 m at 30.11038632205,31.39574702991, apron+building):
+ONE binding row — the pad's cap-0 plate (`pads cap 0.00 % × 8.7 m`,
+dual 3.61), two-sided over an apron-owned vertex → pointed one-way
+(§16g (10) (11) (a)); the next worst mover carries NO pad row; 5,600 of
+5,868 moved airside vertices touch no pad. Third arm (clip alone, no
+derived pads): 4,474 moved / 1.39 m, runway 17 / 0.100 m — the
+arrangement clip deletes 1,082 solve-owned airside vertices and mints
+235; 14as (i) made the airside REGION pad-independent, not its VERTEX
+SET. Bar 1 MISSED (HECA 5,973 / 3.28 m; LEMD 1,651 / 2.36 m) and cannot
+be met at a pad row. The direction fix ships (pads OFF): HECA
+ADJUDICATED 26,608 → 25,521, `airside_no_step` 7,747 → 7,344, `taxi_box`
+3,411 → 3,169, `within_shape` −726; `pad_airside_weld` 2 → 8 on that arm
+(the pad now yields — the family's job). Welds OFF → ON 8 → 7 HECA
+(MET), LEMD 2 → 3. Ref-area share: HECA mismatch 10 → 0 (shipped
+fallback reads 15), LEMD 2 → 1. Census final: HECA 25,521 → 25,612,
+LEMD 2,118 → 1,377; `strip_seam_tear` closed; `plane_gradient` 8 → 12
+(derived pads' own planes). NEXT (spec, Fable): whether a pad may
+re-node the airside at all — §16g (10) (12): the arrangement clip must
+preserve the airside vertex set (the pad polygon is clipped BY the
+airside cells, the airside cells are never re-cut by a pad). Owner
+away: the app quit by the session (engine idle: 0 % CPU, no children,
+workers exited), NO 1.0.341 build per the owner; `--refresh-data
+osm_layers` per tile started on the owner's explicit word (VMMC/+22+113
+first, then LEMD, HECA, KCLT, OTHH, CYXY), one task per tile.

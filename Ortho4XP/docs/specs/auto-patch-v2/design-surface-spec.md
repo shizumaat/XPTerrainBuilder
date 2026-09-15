@@ -15371,3 +15371,48 @@ is not edited by one line, and the VHHH dry replay reads `object cuts 0 B`
 at OTHH, so no OTHH corridor reaches the edited function at all).  The LEMD
 dry pair.  Any deck or suppression mechanism for (3)/(4) — the attempt cap
 stands at one fix, and the remedy is an owner reading, not a lane's guess.
+## §33 (6) B AMENDED (2) — A SHELL'S TRENCH IS OPEN ONLY WHERE NOTHING COVERS IT: THE COVER PLATE AND LIVE AIRSIDE PAVEMENT ARE ITS DECK (Fable 2026-09-15; RULINGS 2026-09-15bp; lane v2shellwall r1 attribution) — lane `v2shellwall` r2
+
+**The measurement (r1 c4e64230, VHHH capture with the wall standing).**
+The wall was built (rim↔floor gap 0.00 → 1.20 m on all five shells,
+floor kept 96–98 %) and the bar was MISSED unchanged: 525 of 1,079
+airside vertices within 200 m still move, worst −6.460 m at the same
+vertex (22.30772370921, 113.9233744, `TUNNEL2_DONE`).  `--why-at` names
+the chain: `v20738[junction, primary_parallel]` z 0.85 → `v22252
+[retaining_wall, tunnel_ramp]` z 0.78 by a `taxi_centreline` row (cap
+1.50 % × 1.1 m) → `v16996` PIN `tunnel.object.mouth_depth = floor_slab`
+(`object-cut:TUNNEL2_DONE.obj@0`).  TUNNEL2 runs 1,110 m LENGTHWISE
+under the taxiway system; the taxiway's painted centreline crosses its
+trench and one centreline vertex sits on the floor ring; of 1,591
+movers only 6 stand inside a cut outline — the rest is the taxi network
+propagating those seeds.  No law caught it: §34 (12) (3)'s stop is not
+applied to pack corridors (15w), and `pavement_deck_intervals` runs
+only for climbing corridors crossed by pavement — TUNNEL2 is `flat`,
+lying ALONG the pavement ("decks 0, cells cut 17").  `tunnel5_done`
+(the owner's site) has 0 control airside vertices inside its cut and
+is not where the regression lives.  The object's cover plate covers
+12,445 of TUNNEL2's 28,525 m² and 2,231 of tunnel5's 9,290.
+
+**RULED.**  A signature-B trench is OPEN only where nothing covers it.
+The cut emitted for a shell is the trench MINUS the union of (i) the
+object's own cover plate (the `_TN` HARD_DECK plate at grade — "hard
+covers where needed", 15g) and (ii) every live airside pavement, pad
+and unit footprint lying over the trench (airside is king; the
+pavement IS the cover).  Over the covered stretch the SURFACE holds
+its own law (the pavement's, the pad's, the plate's) and the floor pin
+is an INTERIOR datum applied to no surface vertex — no floor ring, no
+wall, no `tunnel_ramp` face; `taxi_centreline` and every airside row
+see only surface vertices.  Along the open parts the walled cut of B
+AMENDED (1) stands (rim ring, vertical walls, floor ring at the
+authored plate) with the ramps at the object's stations; MOUTHS stand
+at every open↔covered transition (a portal face, the §33 mouth law).
+A shell entirely covered emits mouths and ramps only (the owner's
+12r reading of the mouth-only population).  Bars at VHHH (the control
+pair's frames): airside within 200 m of the cuts moved vs the
+f912ba81 control ≤ 0.02 m (named survivors); off-DEM maxima by role
+back to the control's; ADJUDICATED back to ≤ 121 + the open cuts'
+own rows; `object_cut_depth` 0 on the OPEN parts (the family measures
+the open floor only — amend its region); each shell's open / covered
+m² named (TUNNEL2's open area under no pavement, tunnel5's 413 m
+U-turn expected almost entirely open); OTHH 0 signature-B cuts (dry
+pair byte-identical); LEMD dry pair byte-identical.

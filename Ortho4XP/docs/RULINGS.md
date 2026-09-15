@@ -6146,3 +6146,20 @@ neighbour is the runway), ONE LERM build, the shoulder census before
   `ramp_in_road` (a ramp vertex inside a road ribbon, CRITICAL). No
   per-airport key. Lane `v2othhfix` r4 (amended): implement at the
   one site and census it on the five registered frames.
+
+## 2026-09-14be Owner on 1.0.335 OTHH: "the ramps still reached flat bottom at the edge walls, rather than grading along them down to the building. We should not reach full depth until the building wall itself." — §34 (9) (5) corrected: the covered start is the COVERING PLATE's edge, not the pad's
+
+14at implemented "full depth at the building wall" as `covered_start`
+= where the corridor axis leaves the building PAD polygon (+2.4 m at
+the east mouth); the owner still sees full depth at the outer end of
+the retaining walls. The pad polygon is not the building's wall face:
+the footprint includes the protruding wall bands (or the pad edge
+stands short of the roof). RULING: the full-depth point is where the
+corridor becomes COVERED — the edge of the covering plate (the
+roof/deck that gives the corridor its headroom — the object stage's
+`plate` component of the building, `at_grade_geometry`'s cover), read
+along the axis from the mouth; everything between the road edge and
+that plate edge — the retaining walls included — is RAMP. Lane
+`v2othhfix` r4 (amended): measure at the east mouth the pad edge vs
+the plate edge along the axis (the owner's ~4 m), derive `covered_
+start` from the plate, name the metres, ONE OTHH build.

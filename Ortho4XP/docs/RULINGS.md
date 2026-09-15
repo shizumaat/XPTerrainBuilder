@@ -7519,3 +7519,4 @@ the LGAV structure replay in v2objcut's reader (`tunnel_objects.
 _bore_ends_at`, GEOS side-location conflict on a self-intersecting
 inner_a/inner_b ring at LGAV's Trench walls) — v2objcut r2 fixes it
 first (make_valid + the LGAV twin); it GATES app 1.0.341.
+15ab addendum: suite ON MAIN after the v2vmmcshore r2 merge (4c7d7e8a): 1624 passed, 1 skipped, 42 warnings in 46.58s. All four lanes' first rounds are on main. RULINGS key split agreed with the peer session: this session even ordinals (15ab, 15ad …), the peer odd (15ac, 15ae …).

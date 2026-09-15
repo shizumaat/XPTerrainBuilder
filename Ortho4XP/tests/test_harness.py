@@ -1833,6 +1833,116 @@ def test_a_degraded_tier_inset_refuses_and_names_the_scope(
     assert build_mod.unverified_inset_negatives(state, -46, 168) == []
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE SCHEMA-STALE CACHED ROAD LAYER (RULINGS 2026-09-15r + u)
+# ══════════════════════════════════════════════════════════════════════
+
+def _write_schema_stamped_layer(path, schema):
+    """A cached OSM layer in the shape ``OSM_layer.write_to_file`` emits —
+    the marker the engine reads back lives on the ``<osm`` root tag."""
+    import bz2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with bz2.open(str(path), "wt", encoding="utf-8") as handle:
+        handle.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                     '<osm version="0.6" o4_tag_schema="%s">\n'
+                     '</osm>\n' % schema)
+
+
+def test_a_schema_stale_road_layer_refuses_and_names_osm_layers(
+        build_mod, tmp_path, monkeypatch):
+    """A cached road layer written under an OLD tag schema is a REFRESH.
+
+    When ``ROAD_CACHE_TAG_SCHEMA`` moved "2026-07-16" → "2026-09-15"
+    (RULINGS 2026-09-15r), the first guarded build afterwards rewrote
+    ``+40-004_big_roads.osm.bz2`` mid-build (2,197,226 → 2,199,670 bytes)
+    and the run was only marked CONTAMINATED afterwards (RULINGS
+    2026-09-15u).  Under ruling e9daef5 that re-download is an explicit,
+    locked, hash-stamped event — so it is named and refused UP FRONT.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = tmp_path / "lane"
+    osm = root / "OSM_data"
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(osm))
+    # road_level >= 2 so BOTH tile-wide road layers are in the engine's
+    # own specification list (the list this check consumes).
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (2, False))
+    cache = Path(FNAMES.osm_cached(40, -4, "big_roads"))
+
+    # 1. STALE: written under the previous schema.
+    _write_schema_stamped_layer(cache, "2026-07-16")
+    missing = build_mod.schema_stale_osm_layers(root, 40, -4)
+    assert len(missing) == 1, missing
+    scope, artifact, why = missing[0]
+    assert scope == "osm_layers"
+    assert artifact == "OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2"
+    assert "SCHEMA-STALE" in why
+    assert "2026-07-16" in why and VMAP.ROAD_CACHE_TAG_SCHEMA in why, (
+        "the refusal must name the schema on disk AND the one the engine "
+        "wants — otherwise it cannot be acted on")
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data osm_layers" in str(exc.value)
+    # Explicitly authorised, it passes: the locked, ledgered act.
+    build_mod.require_no_implicit_refresh(missing, {"osm_layers"})
+    # And it reaches the build's single pre-flight list, not just its own
+    # function — the airport path and the --tile path share that call.
+    monkeypatch.setattr(build_mod, "dem_cache_state", lambda *a: {
+        "tile_stem": "N40W004", "base_raster": True, "airport_insets": True,
+        "airports_layer": True})
+    monkeypatch.setattr(build_mod, "unverified_inset_negatives",
+                        lambda *a: [])
+    assert build_mod.missing_shared_artifacts(root, 40, -4) == missing
+
+    # 2. CURRENT: the engine's own schema — named by nothing.
+    _write_schema_stamped_layer(cache, VMAP.ROAD_CACHE_TAG_SCHEMA)
+    assert build_mod.schema_stale_osm_layers(root, 40, -4) == []
+
+    # 3. ABSENT: absence is not staleness (the airports layer owns that
+    #    refusal; an absent big_roads cache is lawful).
+    cache.unlink()
+    assert build_mod.schema_stale_osm_layers(root, 40, -4) == []
+
+
+def test_the_write_guard_REFUSES_a_bz2_layer_write(build_mod, tmp_path):
+    """THE bz2 HOLE (measured 2026-09-15).
+
+    ``bz2`` binds ``builtins.open`` at IMPORT time, so patching
+    ``builtins.open`` alone left every ``.osm.bz2`` cache write —
+    i.e. the whole ``osm_layers`` scope — invisible to the preventer.
+    Measured before the fix: this write completed with ``blocked == []``.
+    """
+    import bz2
+
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "+40-010" / "+40-004").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    target = (repo / "OSM_data" / "+40-010" / "+40-004"
+              / "+40-004_big_roads.osm.bz2")
+    before = bz2._builtin_open
+
+    with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+        with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
+            with bz2.open(str(target), "wt", encoding="utf-8") as handle:
+                handle.write("<osm/>")
+    assert "+40-004_big_roads.osm.bz2" in str(exc.value)
+    assert "osm_layers" in str(exc.value)
+    assert not target.exists(), "the guard must PREVENT, not just report"
+    assert bz2._builtin_open is before, (
+        "the guard must restore bz2's captured open on exit")
+
+    # Authorised, the same write proceeds — the refresh this flag exists
+    # to carry.
+    with build_mod.SharedRepoWriteGuard({"osm_layers"}, lane, repo=repo):
+        with bz2.open(str(target), "wt", encoding="utf-8") as handle:
+            handle.write("<osm/>")
+    with bz2.open(str(target), "rt", encoding="utf-8") as handle:
+        assert handle.read() == "<osm/>"
+    assert bz2._builtin_open is before
+
+
 def test_the_snapshot_sees_every_write(build_mod, guard_mod, tmp_path,
                                        monkeypatch):
     """The audit's guarantee is 'this build wrote NOTHING into the shared
@@ -9140,3 +9250,163 @@ def test_ramp_in_road_is_registered_and_keeps_out(cg):
     law = _T.load_default()
     assert set(cg._RAMP_ROLES) == {r for r in _T.governed_roles(law)
                                    if _T.is_structure_role(law, r)}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §34 (5) (b) THE COVERED EXTENT OF AN UNDERPASS INCLUDES THE TAXIWAY'S
+# STRIP — the ``ramp_in_strip`` guard (Fable 2026-09-15; RULINGS
+# 2026-09-15h; owner 15e item 7; spec design-surface-spec §34 (5) (b))
+# ══════════════════════════════════════════════════════════════════════
+# The airside sibling of ``ramp_in_road``.  It must prove itself in BOTH
+# directions on a patch that carries the defect, and it must prove the
+# two readings that were MEASURED rather than chosen: the face's HOLES
+# (without them LEMD's ``pav61`` blob reported 52 rows up to 220 m from
+# any kerb, inside its own 144,429 m2 void) and the PAVEMENT SOLID's
+# subtraction (the region is the BAND, so ``de_m`` can never exceed the
+# class's own half width).
+
+_RIS_LAT = 40.4611623
+_RIS_LON = -3.5444804
+
+
+def _ramp_strip_patch(tmp_path, *, name, ramp_gap_m, code_letter="E",
+                      hole=False):
+    """A 40 x 20 m code-E ``junction`` with a ``tunnel_ramp`` whose near
+    edge stands ``ramp_gap_m`` out from the taxiway's south kerb.  The
+    code-E graded strip is 19.0 m, so a gap under 19 m puts the ramp's
+    two near vertices inside the strip.  With ``hole`` the taxiway ring
+    is a LOOP around a 60 x 60 m void and the ramp stands in the middle
+    of it — LEMD ``pav61``'s class, which is NOT a graded strip."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_RIS_LAT))
+
+    def at(dx_m, dy_m):
+        return (_RIS_LAT + dy_m / mlat, _RIS_LON + dx_m / mlon)
+    if hole:
+        pav = [at(-40.0, -40.0), at(40.0, -40.0), at(40.0, 40.0), at(-40.0, 40.0)]
+        holes = [[at(-30.0, -30.0), at(30.0, -30.0), at(30.0, 30.0), at(-30.0, 30.0)]]
+        ramp = [at(-5.0, -5.0), at(5.0, -5.0), at(5.0, 5.0), at(-5.0, 5.0)]
+    else:
+        pav = [at(0.0, 0.0), at(40.0, 0.0), at(40.0, 20.0), at(0.0, 20.0)]
+        holes = []
+        y = -ramp_gap_m
+        ramp = [at(5.0, y - 30.0), at(35.0, y - 30.0), at(35.0, y), at(5.0, y)]
+    nodes, ways = [], []
+    nid = -1
+
+    def add(ring, tags):
+        nonlocal nid
+        ids = []
+        for lat, lon in ring:
+            nodes.append((nid, lat, lon, 577.80))
+            ids.append(nid)
+            nid -= 1
+        ways.append((nid, ids + [ids[0]], tags))
+        nid -= 1
+    add(pav, {"role": "junction", "aeroway": "taxiway",
+              "code_letter": code_letter, "shapeID": "T1"})
+    add(ramp, {"role": "tunnel_ramp", "aeroway": "taxiway",
+               "ref": "tunnel_ramp", "shapeID": "P1"})
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='ramp-in-strip-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    side = {"anchor": [_RIS_LAT, _RIS_LON], "ruleset": "icao"}
+    if holes:
+        side["face_holes"] = {"T1": [[[lat, lon] for lat, lon in holes[0]]]}
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    return osm
+
+
+def test_a_ramp_beyond_the_strip_prices_no_ramp_in_strip(cg, tmp_path):
+    """The lawful case §34 (5) (b) asks for: the mouth opens BEYOND the
+    strip and the ramp descends outside it."""
+    fo = _families(cg, _ramp_strip_patch(tmp_path, name="beyondstrip",
+                                         ramp_gap_m=21.0))
+    assert fo["ramp_in_strip"] == [], (
+        "a ramp descending outside the strip is the law, not a defect")
+
+
+def test_a_ramp_inside_the_strip_is_a_defect(cg, tmp_path):
+    """The owner's LEMD class (15e item 7): the trench opened 15.5 m from
+    a kerb whose code-E strip is 19.0 m."""
+    fo = _families(cg, _ramp_strip_patch(tmp_path, name="instrip",
+                                         ramp_gap_m=15.5))
+    rows = fo["ramp_in_strip"]
+    assert len(rows) == 2, (
+        f"the ramp's two near vertices stand 15.5 m from a 19.0 m strip's "
+        f"kerb; the family priced {len(rows)} row(s)")
+    # the band is 19.0 m wide and the vertex sits 15.5 m into it, so it is
+    # 3.5 m short of the band's OUTER edge
+    assert all(abs(r.de_m - 3.5) < 0.05 for r in rows), [r.de_m for r in rows]
+
+
+def test_the_strip_half_width_is_the_zone_law_s_own(cg, tmp_path):
+    """ONE derivation with ``planar/zones`` and with
+    ``planar/structure_underpass.strip_half_width_m`` — never a number
+    spelled twice.  A code-C taxiway's strip is 12.5 m, so the same
+    15.5 m gap is LAWFUL there and a defect at code E."""
+    from auto_patch_v2.law import tables as _T
+    from auto_patch_v2.planar.structure_underpass import strip_half_width_m
+    from auto_patch_v2.classify.roles import Cell
+    law = _T.load_default()
+    for cl in ("A", "B", "C", "D", "E", "F"):
+        cell = Cell(0, "junction", "x", (), (), None, cl, "airside", "pav", {})
+        assert (cg._strip_half_width_m("junction", None, cl)
+                == strip_half_width_m(law, cell)
+                == _T.zone2_half_width_m(law, "junction", None, cl))
+    assert cg._strip_half_width_m("junction", None, "E") == 19.0
+    assert cg._strip_half_width_m("junction", None, "C") == 12.5
+    # a role no zone band is built around declares no strip at all
+    assert cg._strip_half_width_m("apron", None, None) == 0.0
+    assert cg._strip_half_width_m("service_road", None, None) == 0.0
+    fo = _families(cg, _ramp_strip_patch(tmp_path, name="codec",
+                                         ramp_gap_m=15.5, code_letter="C"))
+    assert fo["ramp_in_strip"] == [], (
+        "15.5 m clears a code-C taxiway's 12.5 m strip")
+
+
+def test_a_ramp_in_a_taxiway_loop_s_void_is_not_in_its_strip(cg, tmp_path):
+    """THE FRAME IS THE SOLID (the ``zone_on_pavement`` frame).  The
+    first arm read ring-blind and reported 52 LEMD rows, every one inside
+    ``cross_connector:pav61``'s own 144,429 m2 HOLE and up to 220 m from
+    any kerb — the ground inside a taxiway loop is lawful adjacent
+    ground, not that taxiway's graded strip."""
+    fo = _families(cg, _ramp_strip_patch(tmp_path, name="loopvoid",
+                                         ramp_gap_m=0.0, hole=True))
+    assert fo["ramp_in_strip"] == [], (
+        "a ramp 25 m inside a taxiway loop's void is not in its strip")
+
+
+def test_a_ramp_vertex_within_the_weld_tolerance_is_on_the_strip_edge(cg, tmp_path):
+    """The line is the census's OWN weld tolerance, exactly as for
+    ``ramp_in_road`` — never a proximity semantic invented here."""
+    hw = 19.0
+    fo = _families(cg, _ramp_strip_patch(
+        tmp_path, name="stripweld",
+        ramp_gap_m=hw - cg.SHARED_VERTEX_TOL_M * 0.5))
+    assert fo["ramp_in_strip"] == []
+    fo2 = _families(cg, _ramp_strip_patch(
+        tmp_path, name="strippast",
+        ramp_gap_m=hw - cg.SHARED_VERTEX_TOL_M * 2.0))
+    assert len(fo2["ramp_in_strip"]) == 2
+
+
+def test_ramp_in_strip_is_registered_and_keeps_out(cg):
+    """A family absent from ``LAW_FAMILIES`` or from ``families.toml``
+    does not load; and §34 (5) (b) prices PRESENCE, so the cockpit class
+    is ``keepout``."""
+    from auto_patch_v2.law import tables as _T
+    assert "ramp_in_strip" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    fams = _T.load_default().tables.families
+    assert fams["ramp_in_strip"].cockpit == "keepout"
+    assert fams["ramp_in_strip"].pairs == "within"

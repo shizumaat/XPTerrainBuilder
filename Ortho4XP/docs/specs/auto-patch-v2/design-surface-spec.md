@@ -12309,6 +12309,73 @@ is `rim − bore_datum_m` unless the pack AUTHORED a depth (deep walls,
 §33 (1) / 14av); a shallower mouth is a `tunnel_mouth_canonical` row at
 that mouth, named.
 
+### §33 (5) **MEASURED** (lane `v2lemdstruct2`, branch `claude/v2lemdstruct2`, base main `da8e5d7f`)
+
+**THE FRAME.**  ONE fresh LEMD capture, registered
+(`docs/frames.jsonl`, `LEMD capture base da8e5d7f lane v2lemdstruct2`,
+20,608 vertices / 1,024 faces, 286 s), and matched `v2_solve_replay`
+arms off it — the base arm reproduces the shipped read EXACTLY: mouth
+floor **599.25** under a rim at **602.16** at 40.4947697, −3.5829037
+(the ruling's own numbers), `tunnel_mouth_canonical` **32**.
+
+**THE MECHANISM, MEASURED BEFORE THE FIX — THE DATUM WAS NEVER A LAW,
+IT WAS A WEIGHT.**  The PLANAR record was already right:
+`tunnel:-15327@0` carries `mouth_dem_z` **602.175** and `mouth_z`
+**597.075** — exactly `rim − bore_datum_m`.  `--why-at
+40.4947697,−3.5829037 --site-radius 6` on the base solved arm names the
+whole chain in one line:
+
+    ridge vertex v18710  z 599.25  DEM 597.08 (z−DEM +2.17)
+    binding rows: structures 3, sum|dual| 1295.49
+    chain: terminal v18748[retaining_wall#848] z 602.19
+           [PIN: tunnel.crest = dem ...]; 1 hop; sum dz −2.94
+      v18710 -> v18748  dz −2.94  structures Linear tunnel.bore_datum_m
+
+The row EXISTS, it names the right two vertices, and it is **2.16 m out**
+while the solve reports `0/103840 hard rows violated, HARD SET SETTLED`.
+The reason is `solve/rows._law_sides`: a `Linear` with `lo == hi` is
+routed into the **`eqs`** bucket, and `solve/design` adds those with
+`rows.add(terms, hi, d.law, ...)` — the LAW TARGET WEIGHT.  Only the
+one-sided bucket is filtered through `is_hard(hard_rulings(law), row)`.
+So the mouth datum was a soft least-squares row in a contest it could
+lose, and at this mouth it lost by 2.17 m.
+
+**ARM 1 (a no-op, and it is the proof).**  Registering the head
+`tunnel.bore_datum_m` in `[design] hard_rulings` ALONE changed **nothing**
+— hard rows 103,840 → 103,840, every emitted altitude byte-identical,
+`tunnel_mouth_canonical` 32 → 32.  An equality never reaches the test.
+
+**THE FIX.**  `constraints/structures.py` states the datum as TWO
+ONE-SIDED `Linear` rows (`z_m − z_cap ≤ −bore_datum_m` and
+`z_cap − z_m ≤ +bore_datum_m`) instead of one `lo == hi` equality — the
+same value, in the bucket where the register is read — and
+`law/emit.toml [design] hard_rulings` names the head.
+
+**ARM 2 (matched, same capture, constraints-stage replay).**
+
+| bar | base | §33 (5) |
+|---|---|---|
+| mouth 40.4947697,−3.5829037 floor | **599.25** | **597.09** |
+| its rim | 602.16 | 602.16 |
+| **depth vs `bore_datum_m` 5.10** | **2.91 m** | **5.07 m** — MET (bar ± 0.05) |
+| hard rows / violated | 103,840 / 0 | **103,946** / 0, HARD SET SETTLED |
+| status | optimal | optimal |
+| v2 verify rows | 1,562 | 1,626 |
+| `tunnel_mouth_canonical` | **32** | **28** |
+| `within_shape` (v2 verify) | 406 | **469** |
+| DEFECT families | ALL ZERO | ALL ZERO |
+
+**THE PRICE, NAMED.**  +106 hard rows (two per OSM-bore mouth, 53 of
+them) and **+63 `within_shape` verify rows**: a mouth 2.17 m deeper is a
+ramp 2.17 m steeper over the same route, and at this mouth the ramp was
+already the airport's worst within-shape row — `8.250 m / 8.31 % over a
+99.25 m PLAN CHORD` on way −10853, whose own axis is **143.5 m** long
+(`top_s` 144).  The ramp is inside its 8 % cap ALONG ITS ROUTE and over
+cap ACROSS ITS CHORD; §37 (7) states the route reading for the ROAD
+family and 09-05aa for the TAXI family, and neither covers the STRUCTURE
+RAMP family.  That is the intent question this lane leaves with its
+numbers, not a mechanism it refuted.
+
 ## §34 (11) THE ROAD BETWEEN TWO MOUTHS IS A ROAD; A RIM NEVER PULLS THE GROUND BESIDE IT (Fable 2026-09-15; RULINGS 2026-09-15h) — lane `v2lemdstruct2`
 
 Same site: between mouth 886 (599.25) and ramp 898 (603.32 at
@@ -12332,6 +12399,87 @@ either covers it with faces of the owning roles or excludes it from the
 graded strip.  The lane measures the pull first (`--why-at` on a fresh
 capture) and names the rows that lowered the ground.
 
+### §34 (11) **MEASURED — THE ROAD IS NAMED, THE "PULL" IS REFUTED AS STATED, AND THE VOID IS THE 9 m CUT** (lane `v2lemdstruct2`, base main `da8e5d7f`)
+
+Same registered capture and the same matched replay arms as §33 (5).
+The base arm REPRODUCES the scout's read station for station: along the
+owner's own segment 40.494628,−3.5832911 → 40.4943869,−3.5823239, all
+twelve stations read `cross_connector:pav61` + `feature:
+gap_interior_ring:` + `graded_strip:adjacent_ground:taxi:F:zone2#18` and
+nothing else; the hole-ring census (`role_overlap_read --hole-rings`)
+reports the ring as **way −10671, 144,429.5 m², cover 0.011, inscribed
+width 362.39 m, VOID at 40.4946503,−3.5835473** — the ruling's own
+figures, in this tree's own ids.  LEMD carries **25** `gap_interior_ring`
+rings (1,310,382 m²), **13 of them over 10,000 m²**.
+
+**(a) THE ROAD IS OSM WAY −5944** — `highway=service`, `lanes=2`, 11
+nodes, in `OSM_data/+40-010/+40-004/+40-004_airport_small_roads.osm.bz2`.
+Its polyline passes **0.14 m** from the owner's first point and its long
+segment runs 40.4948064,−3.5838872 → 40.4944780,−3.5827984, the owner's
+own line; the second point is 1.13 m from `−15332` (`highway=service`)
+and 5.41 m from `−5980` (`highway=service tunnel=yes`), the south bore.
+**It is in the feed and it is not in the patch, and the two gates are
+named:**
+
+1. `classify/evidence._osm_roads` intersects every OSM road centreline
+   with `ev.pavement_union` before it becomes a `Chain` — an OSM road is
+   admitted as EVIDENCE for a page's class (strip / lot), never as
+   geometry of its own.  −5944 runs through pav61's 144,429 m² HOLE, so
+   the intersection is empty and no chain exists.
+2. `classify/roles` mints road-family FACES from `ev.truck_chains` alone
+   — the authored 1206 routes — differenced against the pavement, pad and
+   runway unions.  There is no 1206 route here, so no face, so no §37
+   row of any kind.
+
+**(b) NO RIM PULLS ANYTHING HERE — THERE IS NOTHING TO PULL.**
+`--why-at 40.4940268,−3.5826498 --site-radius 60` on the base solved arm:
+16 vertices within 60 m, roles `['retaining_wall', 'tunnel_ramp']` ONLY,
+z−DEM mean **+0.03**, min −1.41, **max +1.41**.  The worst vertex is
+v18924 at **z 603.32, DEM 601.91 — 1.41 m ABOVE its own ground**, held by
+one `structures` FLAT row and, in the tool's own words, "no terminal
+reached — the objective holds it".  Nothing lowers the ground at the
+owner's point; the rim is pinned at its own DEM by station
+(`tunnel.crest = dem`).  Read on the emitted patch, the nearest emitted
+way to the VOID point 40.4946503,−3.5835473 is **48.45 m** away.
+
+**WHAT THE OWNER IS SEEING, MEASURED ON THE DEM.**  The ground between
+the two mouths is a **611 m plateau**, and the two mouths stand at the
+bottom of a real cutting:
+
+| along mouth −15327@0 → mouth −5980@0 (88.7 m) | DEM |
+|---|---|
+| 40.4947815,−3.5829176 (the north mouth) | **602.02** |
+| 7.4 m | 602.64 |
+| 14.8 m | **607.61** |
+| 22.2 m | 610.30 |
+| 29.6 – 66.5 m | **611.00** (the plateau) |
+| 81.2 m | 610.32 |
+| 40.4940096,−3.5826576 (the south mouth) | 607.79 |
+
+and the owner's road line reads **610.98 … 611.06 … 610.09** over its
+whole 86 m.  So: the patch owns the two corridor rings (rims at 602.16
+and 601.69) and **NOTHING** in the 88.7 m between them, where the ground
+rises to 611 — an unowned 9 m cut, 144,429 m² of it, with no zone band
+(the corridor keepout subtracts it at `zones.groundside_cutback_m`) and
+no bank (this arm reports `0 rings banked`).  That is "the ground is
+getting pulled down": not a row pulling a vertex, but a **plateau with no
+owner between two 9 m-deep cuts**, which is exactly the shape clause (c)
+names and exactly what the owner's own remedy — "provide a smooth sloping
+road grade for the road here" — would give it, since way −5944 stands ON
+the plateau at 610–611.
+
+**WHAT THIS LANE DID NOT DO, AND WHY.**  Clause (a) is a NEW SHAPE CLASS
+in the layout — a road-family face population that does not exist today —
+and owner RULINGS 2026-08-30l requires the consumer census of every pass
+that reads road-family geometry (§37 (1) caps, the cross-section, §37 (6)
+the ramp, §37 (7) the route pricing, §27's flip, `road_law_caps`, the
+bank, `zone_regions`' groundside cutback, `emit/osm_adapter`) in ONE table
+BEFORE any consumer is edited.  That census is the next round's first
+work, and it now starts from a named way, two named gates and the DEM
+profile above rather than from a coordinate.  Clause (b) is REFUTED AS
+STATED at this site (no pull row exists) and clause (c)'s remedy is
+clause (a)'s: the void is covered by giving the plateau its road.
+
 ## §34 (5) (b) THE COVERED EXTENT OF AN UNDERPASS INCLUDES THE TAXIWAY'S STRIP (Fable 2026-09-15; RULINGS 2026-09-15h; 14bl item 1 residual) — lane `v2lemdstruct2`
 
 LEMD taxiway 40.4611623, −3.5444804 (owner 15e item 7, screenshot 2):
@@ -12354,6 +12502,132 @@ taxiway cap; the lane names the transverse row (or its absence) that
 permits it and whether the runway's cross-section is carrying the
 junction's crown — the fix follows the measurement (§29 (7) lateral
 band / §37 (10) taxiway contacts).
+
+### §34 (5) (b) **MEASURED** (lane `v2lemdstruct2`, branch `claude/v2lemdstruct2`, base main `da8e5d7f`)
+
+Same registered capture and the same matched `v2_solve_replay` arms as
+§33 (5); §34 (5) (b) needs the PLANAR stage, so its arms are
+`--from planar`.  The base arm reproduces the ruling's read exactly:
+`tunnel:-5821+-5820@0` (note `underpass under aeroway -1230`), rim way
+−10987 at **577.84** against ramp way −10911 at **572.02…572.42**,
+**12.77 m / 15.46 m** from the owner's node — a **5.42 m** face inside
+`adjacent_ground:taxi:E:zone1#69`, which begins at 16.2 m.  Read on the
+planar map, ramp face 961 carried **2 of its 12** ring vertices inside
+the code-E strip and rim face 356 **9 of 25**, its nearest vertex 0.00 m
+from the pavement.  In the harness census that face is the airport's
+**worst CRITICAL VISUAL row**: `strip_transverse [runway|tunnel_ramp]
+5.589 m over 13.72 m at 40.4605077,−3.5446406`.
+
+**THE FIX — ONE DERIVATION, NO NEW CONSTANT.**
+`planar/structure_underpass.strip_half_width_m(law, cell)` is the zone
+law's own `zone2_half_width_m` for the cell's class (code NUMBER for the
+runway family, code LETTER for the taxi family), falling back to
+`zones.adjacent_ground.lip_width_m` where the class declares no strip —
+the ruling's own words.  `_deck_cell` adds it to each station's two kerb
+offsets, so `_cell_ribbon` (§34 (5) (a)'s asymmetric clip) erodes from
+pavement-edge **plus strip**.  The DECK's own half width is untouched:
+`_deck_half_width` passes no `law`, so a 19 m strip never becomes 19 m of
+deck.  The census family `ramp_in_strip` reads the same derivation from
+the other side.
+
+| bar | BASE | §34 (5) (b) |
+|---|---|---|
+| trench mouth from the owner's node 40.4611623,−3.5444804 | **12.77 m** (rim) / **15.46 m** (ramp) | **31.06 m** / **33.43 m** — BEYOND the 19.0 m code-E strip |
+| the ramp's floor there | 572.02…572.42 | **564.90**…572.70 (its own `mouth_z`) |
+| the kerb above it | 577.84 | 581.12 |
+| `adjacent_ground:taxi:E:zone1#69` | reaches 16.2 m, cut by the corridor | **intact, 18.15 m** |
+| `adjacent_ground:taxi:E:zone2#59` | 19.2 m | **20.93 m** |
+| `ramp_in_strip` (new family) | **11** | **8** — every TAXI-family row gone; the 8 are RUNWAY-strip rows |
+| `wall_in_runway_strip` (v2 verify) | 10 | **6** |
+| lateral pair `junction\|runway` over 18.2 m at the site | **4.957 %** (\|de\| 0.900 m) | **4.296 %** (0.780 m) |
+| the same over 16.5 m | **4.957 %** (0.820 m) | **2.479 %** (0.410 m) |
+| `taxi_box` rows within 120 m of the site | **8** | **0** |
+| solve | optimal | optimal |
+
+**THE RESIDUAL, NAMED.**  The 8 surviving `ramp_in_strip` rows are
+against **runway 14R/32L's own 75 m strip** (code 4), not the taxiway's,
+and with them `strip_transverse [runway|tunnel_ramp]` moves **5.589 m
+over 13.72 m → 13.872 m over 32.49 m** (40.7 % → 42.7 %): the trench is
+now deeper AND further out, so the face it presents to the RUNWAY strip
+is bigger even though the face it presents to the TAXIWAY is gone.  This
+is NOT a gap in the implementation, and the alternative was BUILT AND
+MEASURED rather than argued: a "widest strip standing at this station"
+reading (arm 4, a second full planar replay) is **byte-identical** to
+this one at LEMD — the classification's cells are a PARTITION, so exactly
+one cell contains each station, and along way −1230 that is
+`junction/pav157` for 36 of its 48 m with the last station in a
+`runway_shoulder` cell the `DECK_CELL_MAX_RATIO` gate refuses outright.
+That reading is therefore DELETED, not parked.  The runway-strip
+residual is a different law — a structure surfacing inside a runway
+strip, §29 (7)'s lateral band / `wall_in_runway_strip` — and it wants
+the owner's reading.
+
+**THE LATERAL SLOPE (the separate half of the bar), MEASURED AND
+NAMED.**  There is **NO `transverse` family row at `pav157`'s shared
+runway nodes** — zero `transverse` rows within 120 m of the owner's
+point, on either arm.  What prices the crossfall there is `taxi_box`
+and `airside_no_step`, both `junction|runway` between way −10006
+(runway 14R/32L) and way −10094 (`pav157`):
+
+| span | BASE grade | cap | BASE \|de\| | after |
+|---|---|---|---|---|
+| 18.2 m | **4.957 %** | 1.985 % | 0.900 m | 4.296 % / 0.780 m |
+| 16.5 m | **4.957 %** | 1.500 % | 0.820 m | 2.479 % / 0.410 m |
+
+So the junction's crossfall at the site is **4.96 %**, not the 1.9 % the
+attribution read (1.9851 is the CAP, not the grade), and **the runway IS
+carrying the junction's crown**: every one of those pairs has one foot on
+the runway ring and one on the junction ring, which share their nodes
+there.  §34 (5) (b) improves it (4.957 → 4.296 % / 2.479 %) as a side
+effect of taking the trench out of the strip, and it does NOT reach the
+1.5 % taxiway cap.  The residual is quoted and the fix is not this
+lane's: it is §29 (7) / §37 (10), a taxi-family cap over a pair whose
+other foot is a runway vertex.
+
+### THE CLOSING TEST — ONE LEMD TILE BUILD (lane `v2lemdstruct2`)
+
+`tools/harness/build_airport.py LEMD --tag v2lemdstruct2 --tile 40 -4`,
+branch `claude/v2lemdstruct2` @ `5ed9b083` (base main `da8e5d7f`),
+**rc 0, 551.8 s** (vector 491.5 + mesh 59.5), solve **optimal** 40.4 s,
+ledger tree `3e3e13880a2a`.  Structures line:
+
+    underpass taxiway -1230 (layer 1, deck half-width 7.7 m, clip the deck
+    CELL's footprint across the axis PLUS its graded strip (§34 (5) (b))
+    eroded by 2.1 m (3316 m2 over 50 station(s), §34 (5) (a)), cell 50 read
+    / 0 refused over 4x carriageway): 2 road(s) bored
+
+— the clip area **772 m² → 3,316 m²** with the SAME 2 roads bored and the
+same 50 stations read, 0 refused.
+
+**THE OWNER'S SITES IN THE BUILT PATCH** (`Patches/+40-010/+40-004/
+LEMD_auto.patch.osm`), which reproduce the replay arm exactly:
+
+| site | built |
+|---|---|
+| 40.4947697,−3.5829037 | rim −11032 **602.16**, ramp −10891 floor **597.09** — **5.07 m** |
+| 40.4611623,−3.5444804 | rim −11085 at **31.06 m** (570.00–573.77), ramp −10945 at **33.43 m** (564.90–572.70); `zone1#69` **18.15 m**, `zone2#59` **20.93 m** |
+
+Harness census of the built patch: LAW-TRUE 5,498, ADJUDICATED 1,428
+(airside 1,303 / gs 113 / mixed 12), CRITICAL motion 5, CRITICAL visual
+1,183 (10 cliffs); `ramp_in_strip` **8**, `strip_transverse` 82 (worst
+13.872), `within_shape` 3,453, `transverse` 107, `taxi_box` 169,
+`hairline_pair` 1,173.  It is NOT a matched pair — no base BUILD exists
+at this sha — and it is not quoted as one; the matched numbers are the
+replay pair above.  Suite `tests/auto_patch_v2 tests/test_harness.py`
+**1,587 passed / 1 skipped / 0 FAILED**, run twice.
+
+**`[harness] !! SHARED-REPO SIDE EFFECT` — THE RUN IS FLAGGED
+CONTAMINATED, AND THE AUTHOR IS NAMED.**  The build rewrote
+`OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2` (2,197,226 →
+2,199,670 bytes, mtime 09:03 = this build's start) under scope
+`osm_layers`.  This lane changed nothing in the road feed: `v2roadtags`
+(`d4729dfc`, merged into main the same morning) bumps
+`ROAD_CACHE_TAG_SCHEMA` so that the first build after it REWRITES every
+cached road layer.  It is the KCLT 2026-08-05 precedent's exact shape and
+it wants `--refresh-data osm_layers` run once, deliberately, before the
+next LEMD or KCLT measurement.  Every number in the matched REPLAY PAIR
+above is unaffected: both arms ran off the ONE registered capture, before
+the build, with no shared-repo write.
 
 ## §34 (12) A TUNNEL SERVES THE FIELD OR IS NOT BUILT; NO STRUCTURE CROSSES THE WATER; A CORRIDOR NEVER CUTS AIRSIDE PAVEMENT (owner RULINGS 2026-09-15f item 1; Fable 2026-09-15i) — lane `v2vmmcshore`
 
@@ -12573,3 +12847,49 @@ elsewhere. `channel:0` (way −4003) is named with its coordinates and its cross
 pavement, or refused with the reason. The KDFW build and the KPHX replay stay the
 closing tests, run AFTER the owner's data acts and AFTER the concurrent session's
 four structure lanes merge (rebase first).
+
+## §34 (13) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS; THE COVERED EXTENT READS EVERY AIRSIDE STRIP THE CROSSING LIES IN (Fable 2026-09-15; RULINGS 2026-09-15u; answers lane v2lemdstruct2's two questions) — lane `v2lemdstruct2` r2
+
+(1) **`tunnel_ramp` is a ROUTE-family shape.**  Its grade is read along
+its AXIS (mouth → top, the §34 (7) stations), as §37 (7) reads the road
+family and 09-05aa the taxi family — never across the plan chord.  The
+item-5 ramp's worst `within_shape` row today is 8.250 m / 8.31 % over a
+99.25 m PLAN CHORD where the axis is 143.5 m (5.75 %); the +63
+`within_shape` rows the §33 (5) fix priced are that misreading.  The
+ramp's own cap is the ramp grade cap; a chord row on a `tunnel_ramp` is
+not minted.
+
+(2) **The covered extent reads EVERY airside strip the crossing lies in.**
+§34 (5) (b) clears the strip of the way the bore passes UNDER; at LEMD
+item 7 the underpass passes under junction pav157 and the trench then
+surfaces inside runway 14R/32L's 75 m strip (8 `ramp_in_strip` rows
+against the runway; `strip_transverse [runway|tunnel_ramp]` 13.87 m).
+RULED: the mouth opens beyond the OUTERMOST airside strip at that
+station — runway strips included (§29 (7) the runway lateral band is
+airside ground) — and the ramp descends outside it.  If the ramp that
+results exceeds its grade cap within `max_ramp_length_m`, the ramp cap
+decides and the residual is named; the strip is never cut.
+`wall_in_runway_strip` / §29 (7) keep their own reading of walls.
+
+(3) **The junction's crossfall at a runway contact.**  No `transverse`
+row exists at pav157's nodes shared with the runway; the crossfall is
+priced only by `taxi_box` / `airside_no_step` junction|runway pairs and
+reads 4.957 % over 18.2 m (cap 1.985 / 1.500 %); after the trench move
+4.296 / 2.479 %.  A junction touching a runway takes the runway's edge
+level at the contact (airside is king) and carries its OWN transverse
+cap across its width: the lane names the rows that pull pav157's far
+edge down (the trench rim? the zone? the bored road's deck?) with
+`--why-at` before the fix — a transverse row set on the junction is the
+expected remedy, the measurement decides.
+
+(4) **§34 (11) (a) road admission — the consumer census is the first
+deliverable of r2**, then the admission: OSM way −5944 (`highway=
+service`, `lanes=2`, 0.14 m from the owner's point) is kept out by
+`classify/evidence._osm_roads` (centrelines ∩ `pavement_union`) and
+`classify/roles` (faces only from `ev.truck_chains`).  The "pull" as
+stated is REFUTED (vertices within 60 m at DEM +0.03 mean, worst +1.41 m
+ABOVE); what the owner sees is the DEM's own 611 m × 88.7 m plateau
+between two rims solving at 602.16 / 601.69 — an unowned 9 m cut in the
+witness.  The road, admitted, grades that ground (§37 (6) its zones);
+the 144,429 m² hole ring (cover 0.011) is closed by the road's faces and
+zones or excluded per §34 (11) (c).

@@ -520,7 +520,10 @@ class SharedRepoWriteGuard:
     ``numpy.memmap``) does not pass through these, which is exactly why the
     before/after snapshot audit STAYS: prevent what can be prevented,
     detect the remainder.  Defence in depth, not one mechanism claimed to
-    be complete.
+    be complete.  A stdlib module that CAPTURED ``builtins.open`` at import
+    time is the same blindness in Python (``bz2``, and every ``.osm.bz2``
+    layer cache with it — measured 2026-09-15); ``__enter__`` patches that
+    binding too.
 
     THE PATH IT JUDGES IS THE RESOLVED ONE (2026-08-12).  A write is a
     shared-repo write when it REACHES the shared repo, whatever the string
@@ -580,6 +583,10 @@ class SharedRepoWriteGuard:
             [self.repo.resolve() / d for d in SHARED_DATA_DIRS]
             + [lane / d for d in SHARED_DATA_DIRS])
         self._saved: dict = {}
+        #: ``bz2._builtin_open`` as it was before arming — see the note in
+        #: ``__enter__``; kept apart from ``_saved`` because that dict is
+        #: restored onto the ``os`` module.
+        self._saved_bz2 = None
 
     # ── the predicate ────────────────────────────────────────────────
     def _violation(self, path, op=None):
@@ -690,6 +697,28 @@ class SharedRepoWriteGuard:
 
         builtins.open, os.open = _open, _os_open
 
+        # THE bz2 HOLE (measured 2026-09-15, lane v2schemarefuse).
+        # ``bz2`` binds the builtin AT IMPORT TIME —
+        # ``from builtins import open as _builtin_open`` — so every
+        # ``bz2.open(path, "wt")`` calls the ORIGINAL open and never
+        # reaches the wrapper above.  EVERY cached OSM layer in the repo
+        # is a ``.osm.bz2``, so the whole ``osm_layers`` scope was
+        # invisible to the preventer by construction: when v2roadtags
+        # bumped ``ROAD_CACHE_TAG_SCHEMA`` the next guarded build
+        # rewrote ``+40-004_big_roads.osm.bz2`` through
+        # ``O4_OSM_Utils.OSM_layer.write_to_file`` and the guard could
+        # only REPORT it afterwards, from the snapshot diff (RULINGS
+        # 2026-09-15u).  Patching the module attribute closes it for
+        # every bz2 writer at once — a road-layer special case would
+        # leave the same hole open for the water and coastline caches.
+        # ``gzip`` and ``lzma`` look ``builtins.open`` up at CALL time
+        # (``builtins.open(...)``) and are already covered; verified
+        # against the stdlib source, not assumed.
+        import bz2
+        if getattr(bz2, "_builtin_open", None) is not None:
+            self._saved_bz2 = bz2._builtin_open
+            bz2._builtin_open = _open
+
         # The mutating path operations.  ``src``-side arguments are checked
         # too for the two-path calls: a rename OUT of the repo destroys the
         # cached artifact just as surely as one into it.
@@ -730,6 +759,10 @@ class SharedRepoWriteGuard:
         if not self.enabled:
             return False
         import builtins
+        if self._saved_bz2 is not None:
+            import bz2
+            bz2._builtin_open = self._saved_bz2
+            self._saved_bz2 = None
         if "open" in self._saved:
             builtins.open = self._saved.pop("open")
         if "os_open" in self._saved:

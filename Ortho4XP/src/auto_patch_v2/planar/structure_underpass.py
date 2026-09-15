@@ -32,7 +32,9 @@ import typing as _t
 
 from shapely.geometry import LineString, Polygon
 
+from ..classify.roles import TAXI_FAMILY
 from ..law import Law
+from ..law.tables import zone2_half_width_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import UNDERPASS_NOTE as _UNDERPASS_NOTE
@@ -44,7 +46,41 @@ from .structure_approach import carriageway_width_m, is_bridge, is_tunnel_way, u
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["underpass_bores", "approach_along", "is_aeroway_bridge",
-           "UNDERPASS_TAG", "UNDERPASS_NOTE"]
+           "strip_half_width_m", "UNDERPASS_TAG", "UNDERPASS_NOTE"]
+
+#: §34 (5) (b) (Fable 2026-09-15; RULINGS 2026-09-15h): the RUNWAY family
+#: for the strip derivation — the same two role names ``planar/zones``
+#: keys its own zone regions by, so the covered extent and the graded
+#: strip are ONE derivation and cannot drift.
+_RUNWAY_FAMILY = ("runway", "runway_crossing")
+
+
+def strip_half_width_m(law: Law, cell) -> float:
+    """§34 (5) (b) THE COVERED EXTENT INCLUDES THE GRADED STRIP (Fable
+    2026-09-15; RULINGS 2026-09-15h) — how far beyond ``cell``'s own kerb
+    the ground it passes over is GRADED, in metres.
+
+    ONE derivation with ``planar/zones.zone_regions``: the zone-2 half
+    width for the cell's class (``zones.toml
+    adjacent_ground.{runway,taxi}.half_width_m``, keyed by code NUMBER for
+    the runway family and by code LETTER for the taxi family), falling
+    back to the zone-1 LIP width where the class declares no strip — the
+    ruling's own words, "the zone-1 width where no strip is declared".
+
+    The strip is measured from the PAVEMENT EDGE, which is exactly what
+    :func:`_deck_cell`'s per-station offsets are, so it adds to them."""
+    lip = float(law.tables.zones.adjacent_ground.lip_width_m)
+    if cell.role in _RUNWAY_FAMILY:
+        role = "runway"
+    elif cell.role in TAXI_FAMILY:
+        role = "junction"
+    else:
+        # no zone band is built around it at all (``planar/zones``
+        # groups the RUNWAY and TAXI families and nothing else), so the
+        # strip it declares is the LIP the ruling names.
+        return lip
+    hw = zone2_half_width_m(law, role, cell.code_number, cell.code_letter)
+    return float(hw) if hw and hw > 0.0 else lip
 
 #: Re-exported from the RECORD (``model/structures``), where both the
 #: planar stage and the constraint generator may read it.
@@ -163,7 +199,7 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         # deck CELL's own footprint — read here and by ``_deck_half_width``.
         offs, cell_half, n_read, n_refused = _deck_cell(
             axis_fn, ss, cells, polys, half,
-            DECK_CELL_MAX_RATIO * 2.0 * half)
+            DECK_CELL_MAX_RATIO * 2.0 * half, law=law)
         half = max(half, cell_half)
         # THE MOUTH STANDS INSIDE THE DECK (spec §34 (5) as amended,
         # RULINGS 2026-09-13ai): the clip ribbon is the deck's own
@@ -210,7 +246,8 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                 n += 1
         notes.append(f"underpass {w.tags.get('aeroway')} {w.id} (layer {w.tags.get('layer')}, "
                      f"deck half-width {half:.1f} m, clip "
-                     + (f"the deck CELL's footprint across the axis eroded by "
+                     + (f"the deck CELL's footprint across the axis PLUS its graded "
+                        f"strip (§34 (5) (b)) eroded by "
                         f"{rim_off + grid:.1f} m ({ribbon.area:.0f} m2 over {n_read} "
                         f"station(s), §34 (5) (a))" if from_cell
                         else f"the centreline ribbon {half_clip:.1f} m (no cell states "
@@ -305,20 +342,32 @@ def _deck_half_width(axis_fn, ss, cells, polys, half_default: float,
                      max_half: float | None = None) -> tuple[float, int, int]:
     """The half-width alone of :func:`_deck_cell` — ONE derivation (spec
     §34 (5) (a)), kept as a name because the twins and the reports read
-    it."""
+    it.
+
+    The DECK's width is the PAVEMENT's (§34 (5) (a)); the graded strip
+    §34 (5) (b) adds is carried in the per-station offsets alone and
+    never widens the deck, so this reader passes no ``law``."""
     _offs, half, n_read, n_refused = _deck_cell(axis_fn, ss, cells, polys,
                                                 half_default, max_half)
     return half, n_read, n_refused
 
 
 def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
-               max_half: float | None = None):
+               max_half: float | None = None, law: Law | None = None):
     """THE DECK CELL AND ITS HALF-WIDTH ACROSS THE ROAD (spec §34 (5),
     §34 (5) (a)): ``(the admitted cells' union or None, the MEDIAN
     half-width, stations read, stations REFUSED)``.
 
 ``(the per-station offsets, the MEDIAN half-width,
     stations read, stations REFUSED)``.
+
+    §34 (5) (b) (Fable 2026-09-15; RULINGS 2026-09-15h): with a ``law``
+    the two offsets carry the cell's own GRADED STRIP beyond its kerbs
+    (:func:`strip_half_width_m`) — the covered extent of an underpass
+    beneath a taxiway or runway spans the pavement AND its strip, so the
+    mouth opens beyond the strip and the ramp descends outside it.
+    Without a ``law`` the offsets are the kerbs alone, which is what the
+    DECK's own half-width is read from (``_deck_half_width``).
 
     Per station the governed pavement cell the aeroway's axis stands in is
     measured perpendicular to the axis: ``(s, left, right)`` are its two
@@ -358,6 +407,7 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
         nv = (-u[1], u[0])
         pt = Point(p)
         best = None
+        best_cell = None
         for j in tree.query(pt, predicate="intersects"):
             c = cells[int(j)]
             if c.kind == "structure" or not polys[int(j)].contains(pt):
@@ -380,6 +430,7 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
                 h = (hs[0] + hs[1]) / 2.0
                 if best is None or h < best[0]:
                     best = (h, hs[0], hs[1])
+                    best_cell = c
         if best is None:
             continue
         # §34 (5) NARROWED: the cell the axis stands in states the deck
@@ -388,7 +439,20 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
             refused += 1
             continue
         vals.append(best[0])
-        offs.append((s, best[1], best[2]))
+        # §34 (5) (b): the covered extent is the pavement AND its graded
+        # strip.  The DECK's own width (``vals``) is the pavement's alone.
+        #
+        # THE DECK CELL'S OWN STRIP, and the alternative is DELETED, not
+        # parked: a "widest strip standing at this station" reading was
+        # built and measured (arm 4, a second full planar replay) and is
+        # BYTE-IDENTICAL to this one at LEMD — the classification's cells
+        # are a PARTITION, so exactly one cell contains each station, and
+        # at F-6 that is ``junction/pav157`` (code E, 19.0 m) for 36 of the
+        # way's 48 m with the last station in a 14R/32L ``runway_shoulder``
+        # cell the ``DECK_CELL_MAX_RATIO`` gate refuses outright.  The
+        # widest reading can therefore never differ from this one.
+        strip = strip_half_width_m(law, best_cell) if law is not None else 0.0
+        offs.append((s, best[1] + strip, best[2] + strip))
     if not vals:
         return offs, half_default, 0, refused
     vals.sort()
@@ -397,9 +461,10 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
 
 def _cell_ribbon(axis_fn, ss, offs: list[tuple[float, float, float]], erode: float,
                  grid: float):
-    """THE DECK CELL'S FOOTPRINT ACROSS THE AXIS, ERODED (§34 (5) (a)):
-    the band between the cell's two kerbs at each station read, each side
-    brought in by ``erode`` (the rim stand-off and one identity step), as
+    """THE DECK CELL'S FOOTPRINT ACROSS THE AXIS, ERODED (§34 (5) (a)),
+    WITH ITS GRADED STRIP (§34 (5) (b)): the band between the cell's two
+    kerbs at each station read — already carrying the strip where
+    :func:`_deck_cell` was given the law — each side brought in by ``erode`` (the rim stand-off and one identity step), as
     one polygon — ``(the ribbon, True)``, or ``(None, False)`` where no
     station's cell states the deck.  Asymmetric by construction: the OSM
     centreline is not the pavement's middle, which is the whole point."""

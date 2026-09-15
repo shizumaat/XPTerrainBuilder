@@ -5295,3 +5295,14 @@ the two-sided withdrawal changes the design surface, so the KCLT weld
 and the SPJC viaduct (20.07 on `building7` in a 6-member unit against
 13df's 19.56) are as round 4 measured them and were NOT re-built this
 round — **owed**.
+
+### §16g (10) (8) AMENDED — THE SKIRT YIELDS, NEVER THE AIRSIDE (Fable 2026-09-14; RULINGS 2026-09-14au)
+
+MEASURED (lane v2settle): with the airside fixed, 143 `building_pad airside
+skirt` rows at KCLT (26.4 m of shortfall) and 1,428 conforming rows at HECA
+under §20b are INFEASIBLE BY LAW — a welded pad's 1 % ceiling and a fixed
+apron rim cannot both hold.  RULING: the pad's skirt band takes whatever
+slope the weld requires up to `pad_skirt_max_slope` (5 %) — a slope, never a
+step; the core stays a cap-0 plate; the airside never moves.  Beyond 5 % the
+pad is `pad_airside_weld` (CRITICAL).  BAR: KCLT's 143 infeasible skirt rows
+→ 0 with each pad's skirt slope named; HECA's certificate re-read.

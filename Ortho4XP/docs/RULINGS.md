@@ -5932,3 +5932,36 @@ build, guarded by a twin.
   it once); (b) a coordinate on the line from the owner → we derive
   the inset; (c) accept the face edge. The east ramp ends at the face
   edge today.
+
+## 2026-09-14au v2settle MERGED: the "unsettled hard set" was mostly CONSTANT rows (footed on pins, no column) and the projection's own 0.02 bar; the real residual is 6 rows / 0.0445 m, NAMED and certified FEASIBLE; shipped patches byte-identical; the stage-2 certificate PROVES the conforming side infeasible by law — ruled: the pad's skirt yields
+
+Lane `v2settle` @ b129f97d (fresh HECA + KCLT captures registered;
+suite 1,515 twice). HECA stage 1's 33 unsettled rows: 9 `road_ramp`
+ceilings footed on a `Pin` with NO column (constants — `assemble`
+tested only `dem_fixed`; 142 such rows; phase C pinned `best_worst`
+on a constant it could never beat and RETURNED ROUND 1's ITERATE), 6
+`runway_profile` at 0.0200000 (the projection's own held bar), 18
+real (`pavement_ceiling` 11, `pads` 7, worst 0.1025). Fixed:
+`_carries_a_column` on the REDUCED row; one settle derivation
+(`hard_exceeds`/`HARD_READ_EPS`); §20a's named hard failure with a
+min-Σ-slack FEASIBILITY CERTIFICATE (`read_hard_failure`); `v2_solve_
+replay --why-hard-stage`. After: HECA stage 1 6 rows / 0.0445 m, all
+named, certificate FEASIBLE (a solve residual, not the law); shipped
+single-solve patches BYTE-IDENTICAL at HECA and KCLT; KCLT's 406
+survivors: 143 PROVED an infeasible set (26.4 m over 179 columns, all
+`building_pad airside skirt` at 35.2097, −80.9327); §20b stage 2 at
+HECA: 1,428 of 2,548 survivors proved infeasible, 1,015.6 m. 13db's
+shared `shift` REFUTED as the limit (0 rows both hard and one-way).
+Not met: the last 6 rows (both levers refuted, 12u/13ac; the
+un-built candidate is a per-family post-solve projection for
+`pavement_ceiling`, §30 (3)'s pattern); KCLT's lag 0.317 m.
+
+* RULING (the intent question "which row yields when a welded pad's
+  1 % ceiling and a fixed apron rim cannot both hold"): the AIRSIDE
+  never yields; the PAD's flatness yields — its skirt band's slope
+  ceiling relaxes from 1 % up to `pad_skirt_max_slope` (5 %) as the
+  weld requires (a slope, never a step: the owner's "weld smoothly");
+  only beyond 5 % is it `pad_airside_weld` CRITICAL. §16g (10) (8)
+  amended accordingly; lane `v2padvert`'s successor (or the same
+  lane) applies it in `constraints/pads.py` with the KCLT 143-row set
+  as the bar (→ 0 infeasible, each pad's skirt slope named).

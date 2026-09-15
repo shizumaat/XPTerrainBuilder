@@ -6449,3 +6449,56 @@ Census: `OBJECT_MSL` rows > 0.5 m off 677 of 1,481 (460 > 1 m); bodies
   bars per site + the census (MSL rows off > 0.5 m 677 → ≤ 20, named;
   bodies off own ground 1,132 → named by class); HECA/OTHH/KCLT unit
   censuses dry (the leaf rule now live — the T3 district, `unit:43`).
+
+## 2026-09-14bp LEMD items 1/5/7/8/10 attributed (scout `v2lemd336s`): four derivations, four rulings — lane `v2lemdstruct`
+
+* ITEM 1 (F-6 underpass, 40.4614): `structure_underpass.underpass_bores`
+  clips the bored road to a ribbon SYMMETRIC about the OSM aeroway
+  CENTRELINE (`half_clip` 5.6 m); way −1230's two nodes lie 0.25 m from
+  `pav157`'s NORTH kerb and 16.3 m from its south edge, so the mouth
+  lands 10.0 m inside the 16.6 m taxiway: the trench floor 572.28 sits
+  5.48 m below the taxiway with the break inside the pavement; the
+  owner's stop point is 13.0 m south along the axis (3 m past the
+  pavement's south edge). RULING §34 (5) (a): the clip is derived from
+  the DECK CELL's own footprint (`deck_cell_polygon.buffer(−(wall_gap
+  + wall_band + grid))`), the centreline ribbon only where no cell
+  states the deck; one derivation shared with `_deck_half_width`.
+* ITEM 5 (basin edge, 40.4910): `basin:0` (T4S, 27,630 m², shell
+  0.00 m thick → `inset` 0 → the rim IS the REGION — the union of
+  below-DEM footprints, grid-snapped, not the wall trace); the
+  engine's own note: "rim stations beyond 2.0 m of the shells'
+  at-grade geometry: 58 of 69 (575 of 684 m)" — diagnosed, never
+  enforced. The mesh has a clean 7.7 m wall; the gap is between the
+  pack's wall and OUR ring. RULING §24 (1) as derivation: where a rim
+  station has at-grade shell geometry within `footprint_close_m`, the
+  station SNAPS onto the shell's outer face; the region boundary only
+  where no wall exists (11 of 69 here).
+* ITEMS 7/8 (40.4988 tunnel): `structure_approach.apply_plates` moves
+  the mouth unconditionally to the PLATE's short-side midpoint
+  (`Bridge3.obj`, 354.2 × 25.1 m plan rectangle) — a viaduct whose
+  rectangle runs 83.9 m north and 46.6 m south of the 222.8 m bore way
+  −5931; the owner's three points are that way's own two nodes to
+  1.4 / 5.5 m. RULING §33 (2) (a): the move is CLAMPED to the covered
+  extent — the plate end or the bore way's end, whichever is nearer
+  the mapped mouth along the axis; width takeover and approach walk
+  unchanged.
+* ITEM 10 (bridge, 40.4835): `structure_approach.deck_intervals` clips
+  the mapped bridge way to the tunnel CORRIDOR (§34.5 (6)'s refusal
+  "beyond the trench the road is ordinary ground") — the two decks
+  end 15–21 m short of way −6288's own nodes (the owner's end points
+  to 1.8 / 3.5 m) and a 2.2 m-deep, 6 m-wide notch daylights into the
+  DEM's cutting 16 m past the deck end; the two parallel carriageways
+  are clipped and end-equalised INDEPENDENTLY (east levels 606.91 vs
+  608.40, a 3-node rim sliver between). RULING §33 (4) / §34.5 (6)
+  AMENDED (the owner's words): a mapped bridge way's deck face spans
+  THE WAY, end equality at each mapped end; decks of parallel bridge
+  ways sharing a crossing are ONE group (one transverse plane, no
+  sliver). The 34.5 (6) refusal is withdrawn — the cutting the DEM
+  carries beyond the trench is what a bridge spans.
+* Lane `v2lemdstruct` (fresh): the four derivations, ONE LEMD build;
+  bars per site: F-6 mouth within 3 m of 40.4609913,−3.5445335 and
+  the taxiway pavement uncut; basin:0 rim stations within 0.5 m of
+  the shell where a shell exists (58 → ≤ 11 beyond 2 m); the 40.4988
+  mouths within 3 m of the owner's points; the deck ends within 3 m
+  of the owner's, one plane, no notch (the profile past the east end
+  monotone), no rim sliver; airside 0; verify defects {}.

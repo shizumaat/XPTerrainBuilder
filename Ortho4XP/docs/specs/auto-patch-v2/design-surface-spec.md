@@ -11795,3 +11795,32 @@ ALONG a runway, it does not wrap one.  Separation measured over every
 shoulder cell: HECA 0.01–0.54, VHHH 0.01–0.55, LERM's false shoulder 1.00
 (runners-up recorded: area ratio ≤ 0.88 vs 1.09; pads touching 0 vs 7).
 `shoulder_wrap` and `shoulder_depth_m` ride in the cell evidence.
+
+### §34 (5) (a), §24 (1) (a), §33 (2) (a), §33 (4)/§34.5 (6) AMENDED — FOUR DERIVATIONS FROM THE LEMD 1.0.336 READ (Fable 2026-09-14; RULINGS 2026-09-14bp) — lane `v2lemdstruct`
+
+1. §34 (5) (a) THE UNDERPASS CLIP IS THE DECK CELL'S: the bored road is
+   clipped to the deck cell's own footprint eroded by `wall_gap_m +
+   wall_band_width_m + grid`; the centreline-symmetric ribbon only where no
+   cell states the deck; `_deck_half_width` reads the same derivation.
+2. §24 (1) (a) THE RIM IS THE WALL: a rim station with at-grade shell
+   geometry within `footprint_close_m` snaps onto the shell's outer face;
+   the region boundary stands only where no wall exists; `_rim_open`'s
+   count becomes the derivation's own report (stations off the shell).
+3. §33 (2) (a) THE PLATE MOUTH IS CLAMPED TO THE COVERED EXTENT: the mouth
+   moves to the plate end or the bore way's end, whichever is nearer the
+   mapped mouth along the axis; width takeover and the approach walk as
+   before.
+4. §33 (4) / §34.5 (6) AMENDED: a mapped bridge way's deck spans THE WAY
+   (`ln.buffer(wd/2)` over its full length), the end equality at each
+   mapped end (the governed cell within `deck_end_reach_m`); decks of
+   parallel bridge ways sharing a crossing are one group — one transverse
+   plane, no rim sliver.  §34.5 (6)'s refusal is withdrawn.
+BARS (LEMD, ONE build): F-6 mouth within 3 m of 40.4609913,−3.5445335,
+`pav157` uncut north of it; basin:0 stations beyond 2 m of the shell 58 →
+≤ 11; the 40.4988 mouths within 3 m of 40.4980461,−3.5850118 and of the
+segment 40.4960195,−3.585058 → 40.4960167,−3.5849289; the deck ends within
+3 m of 40.4835967,−3.580923 / 40.4835412,−3.5799114, one plane across both
+carriageways, the profile past the east end monotone (no notch), no rim
+sliver; `road_cross_section` / `within_shape` on the approaches before →
+after; airside 0; verify defects {}; five-frame dry: tunnels / basins /
+plate mouths / decks before → after named.

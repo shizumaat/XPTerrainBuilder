@@ -7458,3 +7458,4 @@ m. `pad_from_cluster` / `pad_airside_clip` ship FALSE. New replay arm
 ON THE MEASUREMENT: r2 attributes the airside movement by `--why-at`
 before any lever; the pad's rows are one-way toward the pad; the flag
 flips only at 0 airside movement and 0 new welds.
+15z addendum: suite ON MAIN after the v2padqp merge: 1612 passed, 1 skipped, 42 warnings in 39.71s. All four r1 lanes are on main (v2lemdstruct2 287f9b5b, v2objcut 3b35df96, v2lemdstruct2 r2 6d25b68c, v2padqp 2039b3c0).

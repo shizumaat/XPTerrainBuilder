@@ -6463,6 +6463,10 @@ OBJECT_CUT_OFFSET_M = 0.5
 #: …and how far the emitted floor may stand off the AUTHORED floor plate
 #: (spec §33 (6): bar 0.10 m).
 OBJECT_CUT_DEPTH_M = 0.10
+#: The ROLE-LESS feature classes an object cut's own geometry wears
+#: beside its ramp faces: the corridor RIM (``structure_rim``, ref
+#: ``tunnel_wall``).  A role literal, flagged for ``blast.py``.
+_OBJECT_CUT_RIM_CLASSES = frozenset({"structure_rim"})
 
 
 def _object_cut_regions(object_cuts_ll, ll_to_m):
@@ -6496,20 +6500,25 @@ def _check_object_cut_offset(object_cuts_ll, ways, feature_ways, nodes,
     """§33 (6) THE CUT NEVER LEAVES ITS OBJECT — the ``object_cut_offset``
     family (owner RULINGS 2026-09-15e/15g; spec §33 (6)).
 
-    Where the pack authored the trench (a shell and its flush hard cover,
-    a crested wall pair, a thin surface wall), "the cut's PLAN, DEPTH,
-    COVERED EXTENT and STATIONS derive from the object".  This is the
-    reading of the PLAN half: a vertex of that corridor's own emitted
-    geometry — its ramp faces and its rim — standing outside the object's
-    WALL LINE.  Measured at VHHH before §33 (6): 25 of the 42 vertices of
-    ramp way −11078 and 10 of way −10711's 20 stood outside
+    Where the pack authored the trench (a shell and its flush hard cover),
+    "the cut's PLAN, DEPTH, COVERED EXTENT and STATIONS derive from the
+    object".  This is the reading of the PLAN half: a vertex of a ramp or
+    rim face that STANDS PARTLY INSIDE the object's wall line, standing
+    outside it.  Measured at VHHH before §33 (6): 25 of the 42 vertices of
+    ramp way -11078 and 10 of way -10711's 20 stood outside
     ``tunnel5_done.obj``, the worst 76.25 m away, because the corridor was
     the OSM bore's and the object was read as a basin.
 
+    THE SELECTION IS BY OVERLAP, not by ref: the emitted ramp face's
+    ``ref`` is its ROLE (``tunnel_ramp``), the same string for every
+    corridor in the patch, so a ref join would price every ramp of the
+    airport against every object.  A face with at least one vertex inside
+    the wall line is THAT object's cut; a face wholly outside is another
+    corridor's and is not read here.
+
     A vertex within the census's own weld tolerance of the outline's edge
-    is ON it (the same line ``ramp_in_road`` draws), and only the
-    corridor's OWN refs are priced — a neighbouring ramp that merely
-    passes the object is not this object's cut.
+    is ON it (the same line ``ramp_in_road`` draws), and the spec's 0.5 m
+    bar is the emitter's own snap.
 
     CRITICAL and a PRESENCE family: a trench outside the walls the author
     drew is wrong whatever its elevation."""
@@ -6517,27 +6526,30 @@ def _check_object_cut_offset(object_cuts_ll, ways, feature_ways, nodes,
     regions = _object_cut_regions(object_cuts_ll, ll_to_m)
     if not regions:
         return []
+    tol = max(SHARED_VERTEX_TOL_M, OBJECT_CUT_OFFSET_M)
     out: List[Violation] = []
     for w in list(ways) + list(feature_ways):
-        ref = str(getattr(w, "tags", {}).get("ref", "") or "")
-        for cid, g, _floor, refs in regions:
-            if ref not in refs:
-                continue
-            for nid in dict.fromkeys(w.nids):
-                if nid not in nodes:
-                    continue
-                lat, lon = nodes[nid]
-                p = Point(ll_to_m(lat, lon))
+        role = law_role(w) or str(getattr(w, "tags", {}).get("o4_feature", "") or "")
+        if role not in _RAMP_ROLES and role not in _OBJECT_CUT_RIM_CLASSES:
+            continue
+        pts = [(nid, nodes[nid]) for nid in dict.fromkeys(w.nids) if nid in nodes]
+        if not pts:
+            continue
+        P = [(nid, Point(ll_to_m(la, lo))) for nid, (la, lo) in pts]
+        for _cid, g, _floor, _refs in regions:
+            if not any(g.contains(p) for _n, p in P):
+                continue                      # another corridor's face
+            for nid, p in P:
                 if g.contains(p):
                     continue
                 d = p.distance(g)
-                if d <= max(SHARED_VERTEX_TOL_M, OBJECT_CUT_OFFSET_M):
+                if d <= tol:
                     continue
+                lat, lon = nodes[nid]
                 v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=d, de_m=d,
                               way_a=w, way_b=w, pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
                               elev_a=0.0, elev_b=0.0)
                 v.lat, v.lon = lat, lon
-                v.out_of_scope = None
                 out.append(v)
             break
     return out
@@ -6548,29 +6560,32 @@ def _check_object_cut_depth(object_cuts_ll, ways, nodes, ll_to_m) -> List[Violat
 
     "The FLOOR PLATE's level in the seated frame is the floor (the depth
     is AUTHORED — it overrides ``bore_datum_m``, which is the law for
-    UNAUTHORED bores only)."  The emitted floor of an object cut's ramp
-    faces — their lowest vertex — against the floor the OBJECT states,
-    published as ``object_cuts[].floor_m``.  Measured at VHHH before
-    §33 (6): the owner's site read 2.23 against the authored 1.31,
-    0.92 m too shallow, because the bore law's ``bore_datum_m`` 5.10 was
-    subtracted from the DEM instead.
+    UNAUTHORED bores only)."  The emitted floor INSIDE an object cut — the
+    lowest ramp vertex standing in its wall line — against the floor the
+    OBJECT states, published as ``object_cuts[].floor_m``.  Measured at
+    VHHH before §33 (6): the owner's site read 2.23 against the authored
+    1.31, 0.92 m too shallow, because the bore law's ``bore_datum_m`` 5.10
+    was subtracted from the DEM instead.
 
-    One row per cut that misses by more than the spec's 0.10 m bar, at
-    the offending vertex."""
+    One row per cut that misses the spec's 0.10 m bar, at the offending
+    vertex.  A cut with no emitted ramp vertex inside it prices nothing —
+    absence is the §29 / §34 (12) gates' business, not this family's."""
+    from shapely.geometry import Point
     regions = _object_cut_regions(object_cuts_ll, ll_to_m)
     if not regions:
         return []
     out: List[Violation] = []
-    for cid, _g, floor, refs in regions:
+    for _cid, g, floor, _refs in regions:
         if floor is None:
             continue
         best = None
         for w in ways:
-            ref = str(getattr(w, "tags", {}).get("ref", "") or "")
-            if ref not in refs or law_role(w) not in _RAMP_ROLES:
+            if law_role(w) not in _RAMP_ROLES:
                 continue
             for nid, z in zip(w.nids, w.elevs):
                 if z is None or nid not in nodes:
+                    continue
+                if not g.contains(Point(ll_to_m(*nodes[nid]))):
                     continue
                 if best is None or z < best[0]:
                     best = (float(z), nid, w)

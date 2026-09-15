@@ -6560,3 +6560,39 @@ rules); `building{N}` renumbered — the 13bo site's pad median 220.34.
 * Owed: the collar m² (extend `pad_airside_arm.py`), KCLT members'
   seats on the new build, the HECA terminal body seat with the
   low-side datum.
+
+## 2026-09-14bs v2leafframe MERGED (4e849799): `Part.height_m` in one frame — the leaf rule live everywhere; LEMD `OBJECT_MSL` rows 1,481 → 0 (left to the drape); items 2/4/6/9 on their own ground; the deck-datum deviation ACCEPTED; a 2-row carried-float regression owed
+
+Lane `v2leafframe` @ f2e91747 (LEMD build `/tmp/harness/v2leafframe
+LEMD.osm`, rc 0, guard UNCHANGED, no ledger key — 38 external Masks/
+OTHH deltas from another lane; suite 1,546 twice; 1,552 on main).
+`height_m` = `box_max[1] − box_min[1]` (both placed = the authored
+extent, since placement is a rigid y-translation + rotation about y):
+LEMD 29,684 → 12,325 walled parts; units 22 / 536 → 20 / 206 bodies;
+largest 2,855 → 1,670 m; items 2/4/6/9 every body out of a unit on
+its own ground. §16g (5): the seat lives in `footprint_unit.msl_seats
+_for_dump` (not `placement_plan.py` — the brief's map was wrong): base
+= the unit datum where the placement STANDS on it, or where the datum
+is a DECK (13cb's road-under-the-deck — the lane's reading, ACCEPTED
+as the ruling's intent, twinned, empty at LEMD), else the surface at
+its own feet; base == feet with authored offset 0 → left to the drape.
+LEMD: 1,481 → 0 `OBJECT_MSL` rows (1,466 draped, 196 on their pad at
+offset 0, 5 off-sheet) — item 3 answers itself. §17 feet > 0.5 m
+3,359 → 1,910, > 1 m 2,427 → 918; §7 feet > 3 m 1,818 → 360. Dry
+arms: HECA walled 55,626 → 16,304, units 135 → 92; OTHH walled
+142,824 → 29,090 but its 156-member 2,355 m unit does NOT resolve
+(a genuine walled chain — the (10) floor split / the owner's call);
+KCLT inert dry; SPJC viaduct byte-identical (20.07 — v2padcluster
+r4's residual). Tools: `obj8_split_report --dsf-dump` (pass the
+PRISTINE `.anchor_bak` dump — a written pack's dump reads the app's
+absolute elevations back as offsets: 1,055 phantom rows), `tools/site
+_read.py` promoted (third use).
+
+* REGRESSION owed (chip): §15 carried float > 0.5 m 0 → 2
+  (`Terminal4SAT_green-LEMD12 b16` +2.12 over `LEMD13 b4`;
+  `Cargo-LEMD64 b13` +1.55 over `Cargo-EAT b0`): the carrier left a
+  giant unit and dropped to its own ground while the carried piece
+  kept a higher contact; §16b carried piece float 150 → 168 (worst
+  6.38 → 3.63). The carried body follows its carrier (§16a) — re-read
+  after the carrier's new seat.
+* App 1.0.338 (LEMD) after lane `v2lemdstruct` lands.

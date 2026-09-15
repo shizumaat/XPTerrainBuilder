@@ -6825,3 +6825,15 @@ freshness.py` = four comment lines (the 14bx floor note). The campaign
 suite (`tests/auto_patch_v2` + `test_harness`, 1,577 on the lane r2)
 is green. Chip: port the three freshness twins to a v2 fixture with an
 apt.dat, or retire them with the v1 driver (owner's call).
+
+## 2026-09-15d OWNER: the customer OTHH shipped on 1.0.339 last night; the §20c flip MERGES NOW and app 1.0.340 carries it — the owner reads the converged solver on the next build (supersedes §20c RULED (4)'s two-app sequencing)
+
+Owner 2026-09-15: "Customer OTHH shipped last night, so go ahead and
+merge the flip now and I will verify the new model to see if it's
+valid." Merged `claude/v2qp` r2 (5e9efa73: `solver = "qp"`,
+`DEFAULT_SOLVER = "qp"`, the taxidatum twin re-founded at 0.25 m via
+`_CONVERGED_SOLVE_SLACK_M = 0.005` with the 0.24564 m residual quoted)
+into main. App 1.0.340 = the converged solver + the DEFECT floor;
+there is no 1.0.341 flip build. The owner's read of 1.0.340 (LEMD tile
+first, then HECA/OTHH as they choose) is the adjudication of §20c; the
+1.0.339 OTHH customer surface is the fixed-point arm and stays shipped.

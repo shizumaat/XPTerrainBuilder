@@ -9143,6 +9143,166 @@ def test_ramp_in_road_is_registered_and_keeps_out(cg):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# §34 (5) (b) THE COVERED EXTENT OF AN UNDERPASS INCLUDES THE TAXIWAY'S
+# STRIP — the ``ramp_in_strip`` guard (Fable 2026-09-15; RULINGS
+# 2026-09-15h; owner 15e item 7; spec design-surface-spec §34 (5) (b))
+# ══════════════════════════════════════════════════════════════════════
+# The airside sibling of ``ramp_in_road``.  It must prove itself in BOTH
+# directions on a patch that carries the defect, and it must prove the
+# two readings that were MEASURED rather than chosen: the face's HOLES
+# (without them LEMD's ``pav61`` blob reported 52 rows up to 220 m from
+# any kerb, inside its own 144,429 m2 void) and the PAVEMENT SOLID's
+# subtraction (the region is the BAND, so ``de_m`` can never exceed the
+# class's own half width).
+
+_RIS_LAT = 40.4611623
+_RIS_LON = -3.5444804
+
+
+def _ramp_strip_patch(tmp_path, *, name, ramp_gap_m, code_letter="E",
+                      hole=False):
+    """A 40 x 20 m code-E ``junction`` with a ``tunnel_ramp`` whose near
+    edge stands ``ramp_gap_m`` out from the taxiway's south kerb.  The
+    code-E graded strip is 19.0 m, so a gap under 19 m puts the ramp's
+    two near vertices inside the strip.  With ``hole`` the taxiway ring
+    is a LOOP around a 60 x 60 m void and the ramp stands in the middle
+    of it — LEMD ``pav61``'s class, which is NOT a graded strip."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_RIS_LAT))
+
+    def at(dx_m, dy_m):
+        return (_RIS_LAT + dy_m / mlat, _RIS_LON + dx_m / mlon)
+    if hole:
+        pav = [at(-40.0, -40.0), at(40.0, -40.0), at(40.0, 40.0), at(-40.0, 40.0)]
+        holes = [[at(-30.0, -30.0), at(30.0, -30.0), at(30.0, 30.0), at(-30.0, 30.0)]]
+        ramp = [at(-5.0, -5.0), at(5.0, -5.0), at(5.0, 5.0), at(-5.0, 5.0)]
+    else:
+        pav = [at(0.0, 0.0), at(40.0, 0.0), at(40.0, 20.0), at(0.0, 20.0)]
+        holes = []
+        y = -ramp_gap_m
+        ramp = [at(5.0, y - 30.0), at(35.0, y - 30.0), at(35.0, y), at(5.0, y)]
+    nodes, ways = [], []
+    nid = -1
+
+    def add(ring, tags):
+        nonlocal nid
+        ids = []
+        for lat, lon in ring:
+            nodes.append((nid, lat, lon, 577.80))
+            ids.append(nid)
+            nid -= 1
+        ways.append((nid, ids + [ids[0]], tags))
+        nid -= 1
+    add(pav, {"role": "junction", "aeroway": "taxiway",
+              "code_letter": code_letter, "shapeID": "T1"})
+    add(ramp, {"role": "tunnel_ramp", "aeroway": "taxiway",
+               "ref": "tunnel_ramp", "shapeID": "P1"})
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='ramp-in-strip-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    side = {"anchor": [_RIS_LAT, _RIS_LON], "ruleset": "icao"}
+    if holes:
+        side["face_holes"] = {"T1": [[[lat, lon] for lat, lon in holes[0]]]}
+    Path(str(osm) + ".axes.json").write_text(json.dumps(side))
+    return osm
+
+
+def test_a_ramp_beyond_the_strip_prices_no_ramp_in_strip(cg, tmp_path):
+    """The lawful case §34 (5) (b) asks for: the mouth opens BEYOND the
+    strip and the ramp descends outside it."""
+    fo = _families(cg, _ramp_strip_patch(tmp_path, name="beyondstrip",
+                                         ramp_gap_m=21.0))
+    assert fo["ramp_in_strip"] == [], (
+        "a ramp descending outside the strip is the law, not a defect")
+
+
+def test_a_ramp_inside_the_strip_is_a_defect(cg, tmp_path):
+    """The owner's LEMD class (15e item 7): the trench opened 15.5 m from
+    a kerb whose code-E strip is 19.0 m."""
+    fo = _families(cg, _ramp_strip_patch(tmp_path, name="instrip",
+                                         ramp_gap_m=15.5))
+    rows = fo["ramp_in_strip"]
+    assert len(rows) == 2, (
+        f"the ramp's two near vertices stand 15.5 m from a 19.0 m strip's "
+        f"kerb; the family priced {len(rows)} row(s)")
+    # the band is 19.0 m wide and the vertex sits 15.5 m into it, so it is
+    # 3.5 m short of the band's OUTER edge
+    assert all(abs(r.de_m - 3.5) < 0.05 for r in rows), [r.de_m for r in rows]
+
+
+def test_the_strip_half_width_is_the_zone_law_s_own(cg, tmp_path):
+    """ONE derivation with ``planar/zones`` and with
+    ``planar/structure_underpass.strip_half_width_m`` — never a number
+    spelled twice.  A code-C taxiway's strip is 12.5 m, so the same
+    15.5 m gap is LAWFUL there and a defect at code E."""
+    from auto_patch_v2.law import tables as _T
+    from auto_patch_v2.planar.structure_underpass import strip_half_width_m
+    from auto_patch_v2.classify.roles import Cell
+    law = _T.load_default()
+    for cl in ("A", "B", "C", "D", "E", "F"):
+        cell = Cell(0, "junction", "x", (), (), None, cl, "airside", "pav", {})
+        assert (cg._strip_half_width_m("junction", None, cl)
+                == strip_half_width_m(law, cell)
+                == _T.zone2_half_width_m(law, "junction", None, cl))
+    assert cg._strip_half_width_m("junction", None, "E") == 19.0
+    assert cg._strip_half_width_m("junction", None, "C") == 12.5
+    # a role no zone band is built around declares no strip at all
+    assert cg._strip_half_width_m("apron", None, None) == 0.0
+    assert cg._strip_half_width_m("service_road", None, None) == 0.0
+    fo = _families(cg, _ramp_strip_patch(tmp_path, name="codec",
+                                         ramp_gap_m=15.5, code_letter="C"))
+    assert fo["ramp_in_strip"] == [], (
+        "15.5 m clears a code-C taxiway's 12.5 m strip")
+
+
+def test_a_ramp_in_a_taxiway_loop_s_void_is_not_in_its_strip(cg, tmp_path):
+    """THE FRAME IS THE SOLID (the ``zone_on_pavement`` frame).  The
+    first arm read ring-blind and reported 52 LEMD rows, every one inside
+    ``cross_connector:pav61``'s own 144,429 m2 HOLE and up to 220 m from
+    any kerb — the ground inside a taxiway loop is lawful adjacent
+    ground, not that taxiway's graded strip."""
+    fo = _families(cg, _ramp_strip_patch(tmp_path, name="loopvoid",
+                                         ramp_gap_m=0.0, hole=True))
+    assert fo["ramp_in_strip"] == [], (
+        "a ramp 25 m inside a taxiway loop's void is not in its strip")
+
+
+def test_a_ramp_vertex_within_the_weld_tolerance_is_on_the_strip_edge(cg, tmp_path):
+    """The line is the census's OWN weld tolerance, exactly as for
+    ``ramp_in_road`` — never a proximity semantic invented here."""
+    hw = 19.0
+    fo = _families(cg, _ramp_strip_patch(
+        tmp_path, name="stripweld",
+        ramp_gap_m=hw - cg.SHARED_VERTEX_TOL_M * 0.5))
+    assert fo["ramp_in_strip"] == []
+    fo2 = _families(cg, _ramp_strip_patch(
+        tmp_path, name="strippast",
+        ramp_gap_m=hw - cg.SHARED_VERTEX_TOL_M * 2.0))
+    assert len(fo2["ramp_in_strip"]) == 2
+
+
+def test_ramp_in_strip_is_registered_and_keeps_out(cg):
+    """A family absent from ``LAW_FAMILIES`` or from ``families.toml``
+    does not load; and §34 (5) (b) prices PRESENCE, so the cockpit class
+    is ``keepout``."""
+    from auto_patch_v2.law import tables as _T
+    assert "ramp_in_strip" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    fams = _T.load_default().tables.families
+    assert fams["ramp_in_strip"].cockpit == "keepout"
+    assert fams["ramp_in_strip"].pairs == "within"
+
+
+# ══════════════════════════════════════════════════════════════════════
 # §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY — the
 # ``object_cut_offset`` / ``object_cut_depth`` guards (owner RULINGS
 # 2026-09-15e items 1/3/4/6 and 2026-09-15g; Fable 2026-09-15j; lane

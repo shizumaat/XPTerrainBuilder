@@ -253,6 +253,29 @@ ruling    = "2026-09-15e; 2026-09-15g; 2026-09-15j"
 solver    = "construction"
 cockpit   = "step"
 
+# §34 (5) (b) THE COVERED EXTENT OF AN UNDERPASS INCLUDES THE TAXIWAY'S
+# STRIP (Fable 2026-09-15; RULINGS 2026-09-15h; owner 15e item 7).  The
+# airside sibling of `ramp_in_road`: an underpass beneath a taxiway or
+# runway is covered over the pavement AND its graded strip, so the mouth
+# opens beyond the strip and the ramp descends outside it.  A ramp vertex
+# INSIDE the strip is a trench in the ground an aircraft leaving the
+# pavement runs out onto — LEMD 40.4611623,-3.5444804, where a code-E
+# strip is 19.0 m and the trench face stood at 15.5 m under a 5.42 m
+# unbanked drop (the airport's worst CRITICAL VISUAL row).  The strip
+# region is ONE derivation with `planar/zones.zone_regions` and
+# `planar/structure_underpass.strip_half_width_m`: the pavement's own
+# solid grown by its class's zone-2 half width.
+[ramp_in_strip]
+measures  = "a RAMP face's vertex standing inside the graded STRIP of the runway or taxiway the structure passes under"
+parameter = "zones.adjacent_ground.taxi.half_width_m"
+roles     = ["tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp"]
+pairs     = "within"
+ruling    = "2026-09-15h"
+solver    = "construction"
+# "keepout": PRESENCE in a region, not a height — one ramp vertex inside
+# the strip is the whole defect whatever its elevation.
+cockpit   = "keepout"
+
 [bank_across_seam]
 measures  = "a `bank_foot` node inside a tile-seam band — the bank is never derived at a seam (the coverage edge there is a pin line already at the DEM)"
 parameter = "emit.seam.half_width_m"

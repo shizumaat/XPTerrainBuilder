@@ -39,11 +39,25 @@ def law():
 
 
 class _C:
-    """A governed pavement cell, as ``_deck_cell`` reads one."""
+    """A governed pavement cell, as ``_deck_cell`` reads one.
+
+    ``role`` is deliberately NOT a registered taxi-family role, so
+    §34 (5) (b)'s strip derivation falls back to the zone-1 LIP — the
+    ruling's own "the zone-1 width where no strip is declared".
+    ``_CE`` below is the code-E junction that declares one."""
 
     kind = "pavement"
     role = "taxiway"
     ref = "pav157"
+    code_number = None
+    code_letter = None
+
+
+class _CE(_C):
+    """LEMD's own ``junction/pav157``: code E, graded strip 19.0 m."""
+
+    role = "junction"
+    code_letter = "E"
 
 
 # ── (1) the underpass clip is the deck cell's ────────────────────────────
@@ -56,10 +70,16 @@ def test_the_clip_follows_an_asymmetric_deck_cell(law):
     the pavement with the grade break in it.  The clip is the CELL's own
     footprint across the axis, eroded by the rim stand-off and one
     identity step — so the bore leaves the pavement at the pavement's own
-    south edge."""
+    south edge.
+
+    AMENDED §34 (5) (b) (Fable 2026-09-15; RULINGS 2026-09-15h; owner 15e
+    item 7): the covered extent spans the pavement AND its graded strip,
+    so each kerb offset carries the cell's own strip before the erosion.
+    ``_C`` declares none, so the strip is the zone-1 LIP."""
     tn = law.tables.structures.tunnel
     grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
     erode = tn.wall_gap_m + tn.wall_band_width_m + grid
+    strip = float(law.tables.zones.adjacent_ground.lip_width_m)
     # the deck runs along +x; the cell spans y in [-0.25, +16.3]
     deck = OsmWay(-1230, "airport", ((-60.0, 0.0), (60.0, 0.0)), False,
                   {"aeroway": "taxiway", "bridge": "yes", "layer": "1"})
@@ -73,10 +93,56 @@ def test_the_clip_follows_an_asymmetric_deck_cell(law):
     # ribbon centred on y = 0
     # the south kerb, brought in by the erosion; the north side has less
     # room than the erosion needs and floors at one identity step
-    assert ys[-1] == pytest.approx(16.3 - erode, abs=0.05)
-    assert ys[0] == pytest.approx(-grid, abs=0.05)
+    assert ys[-1] == pytest.approx(16.3 + strip - erode, abs=0.05)
+    assert ys[0] == pytest.approx(-(0.25 + strip - erode), abs=0.05)
     assert abs(ys[0]) < abs(ys[-1]) - 5.0, "the clip must not be symmetric"
     assert "the deck CELL's footprint across the axis" in notes[0]
+    assert "graded strip" in notes[0], notes[0]
+
+
+def test_the_covered_extent_spans_the_cell_s_graded_strip(law):
+    """§34 (5) (b) THE COVERED EXTENT INCLUDES THE TAXIWAY'S STRIP (Fable
+    2026-09-15; RULINGS 2026-09-15h; owner 15e item 7, screenshot 2).
+
+    LEMD 40.4611623,−3.5444804: with §34 (5) (a) alone the trench opened
+    **12.8–15.5 m** from the pavement node — inside
+    ``adjacent_ground:taxi:E:zone1`` — and the census read a **5.42 m**
+    unbanked face, the airport's worst CRITICAL VISUAL row.  The mouth
+    must open BEYOND the strip: the same cell, read as code E, extends
+    the clip by the class's own 19.0 m and by nothing else."""
+    from auto_patch_v2.law.tables import zone2_half_width_m
+    tn = law.tables.structures.tunnel
+    grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
+    erode = tn.wall_gap_m + tn.wall_band_width_m + grid
+    strip = zone2_half_width_m(law, "junction", None, "E")
+    assert strip == 19.0
+    deck = OsmWay(-1230, "airport", ((-60.0, 0.0), (60.0, 0.0)), False,
+                  {"aeroway": "taxiway", "bridge": "yes", "layer": "1"})
+    road = OsmWay(-5820, "big_roads", ((0.0, -200.0), (0.0, 200.0)), False, TAGS_R)
+    cell = Polygon([(-200.0, -0.25), (200.0, -0.25), (200.0, 16.3), (-200.0, 16.3)])
+    airport = _airport(law, ways=[deck, road])
+    ways, _parents, notes = _su.underpass_bores(airport, law, [_CE()], [cell])
+    assert len(ways) == 1, notes
+    ys = sorted(q[1] for q in ways[0].points)
+    assert ys[-1] == pytest.approx(16.3 + strip - erode, abs=0.05)
+    assert ys[0] == pytest.approx(-(0.25 + strip - erode), abs=0.05)
+    # the asymmetry §34 (5) (a) bought is UNCHANGED: the strip is the same
+    # both sides, so the two kerbs still differ by the cell's own offset
+    assert (ys[-1] - (16.3 + strip - erode)) == pytest.approx(
+        ys[0] + (0.25 + strip - erode), abs=0.05)
+
+
+def test_the_deck_s_own_width_is_the_pavement_s_not_the_strip_s(law):
+    """§34 (5) (b) extends the COVERED EXTENT and nothing else: the DECK's
+    half width — what ``_deck_half_width`` reads and what the reports and
+    the mouth geometry use — stays the pavement's own, or a 19 m strip
+    would become 19 m of deck."""
+    half, n_read, _ref = _su._deck_half_width(
+        lambda s: (s - 60.0, 0.0), [0.0, 60.0, 120.0], [_CE()],
+        [Polygon([(-200.0, -0.25), (200.0, -0.25),
+                  (200.0, 16.3), (-200.0, 16.3)])], 3.5)
+    assert n_read == 3
+    assert half == pytest.approx((0.25 + 16.3) / 2.0, abs=0.05)
 
 
 def test_a_blob_cells_whole_plan_never_becomes_the_clip(law):

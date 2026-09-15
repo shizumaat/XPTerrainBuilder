@@ -8069,3 +8069,4 @@ tiles carry 2026-09-15, the other 20 carry 2026-07-16 and now refuse a
 production-frame dry load until refreshed (the owner's act per tile).
 LESSON (recorded): never compare two runs across a corpus refresh —
 the refresh ledger's timestamps are part of every A/B frame.
+15bj addendum: suite ON MAIN after the v2othhdet merge: 1672 passed, 1 skipped, 1 xpassed, 42 warnings in 41.41s.

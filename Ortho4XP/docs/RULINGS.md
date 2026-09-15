@@ -6907,3 +6907,46 @@ passed`, 0 errors (the known app-builds-cross-attribute class). NOTE: the
 bare `venv/bin/pytest` entry does not put the cwd on `sys.path` and 23
 modules fail collection with `No module named 'tests'`; the working
 invocation is `venv/bin/python -m pytest`.
+
+## 2026-09-15e OWNER LEMD READ of app 1.0.340 (§20c solver ON): "Excellent work, most issues resolved … nearly ready for a beta release" — seven polish items, verbatim
+
+1. Terrain bridge at 40.483644, -3.580382 (screenshot 1): "much better,
+   but can you identify the proximity of the two edge wall objects in
+   the scenery package to the bridge edges as indicating they should
+   be used as guides for where the author wants the bridge? Ideally we
+   should grade the bridge so those sit smoothly on either edge of it."
+2. "Why is there no pad emitted for the large parking garage here:
+   40.4892214, -3.5944287? It has to stay anchored to the terminal, so
+   now it's floating and we should be raising the terrain under it so
+   it can blend smoothly with the rest of the area."
+3. Tunnels, e.g. 40.4980338, -3.585152: "we should identify when
+   there's walls very close to it, they provide a guide for where the
+   author expects the tunnel. When they're deep like at OTHH then the
+   walls descend into the tunnel, when they're short like this one at
+   LEMD they are intended to just sit on the surface so the tunnel
+   ramp needs to be inside them so the terrain grades under the wall
+   object and the wall sits on top of the tunnel edges."
+4. Tunnel 40.4957014, -3.5849565 "should be curving and extending out
+   closer to 40.4951833, -3.5846052 like it used to. Again there's
+   surface walls to mark the shape."
+5. Tunnel mouth 40.4947697, -3.5829037 "doesn't seem to be providing
+   the right depth, and the ground is getting pulled down between
+   there and 40.4940268, -3.5826498. We may need to provide a smooth
+   sloping road grade for the road here: 40.494628, -3.5832911 to
+   40.4943869, -3.5823239 to keep the ground from being pulled down."
+6. Tunnel 40.4861895, -3.5663473 "should also use the provided surface
+   wall objects as a precise guide for where to cut the mouth, ramp
+   should stay within the wall boundaries."
+7. Screenshot 2: "the lateral slope and hole in the taxiway here:
+   40.4611623, -3.5444804. It's better, but still not fixed." (14bl
+   item 1 residual.)
+
+"Everything else at LEMD looks great." Screenshot 1: the bridge deck
+with a white edge-wall object floating beside its left edge, a second
+one lying on the far side; the deck's near ramp drapes over dark
+cut terrain. Screenshot 2: a taxiway crowned across its width with a
+dark hole at its left edge and red/white barriers along both edges.
+THEME (items 1/3/4/6): the pack's SURFACE WALL objects are the
+author's footprint guide for bridges and tunnels — a new law class;
+scout first (consumer census + object inventory at each site), then
+the spec.

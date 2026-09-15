@@ -11768,3 +11768,16 @@ outright; KCLT and SPJC on this tree; the terminal BODY's own-ground delta
    `Terminal_Base_2_5@0/a` full depth at the building wall (the ~4 m of
    protruding wall added to the run — the pinched grade before → after);
    airside 0; road edges unchanged.
+
+### §34 (10) THE ROAD MARGIN IS GENERAL (owner RULINGS 2026-09-14bb/bc/bd) — lane `v2othhfix`
+
+Every ramp arriving at a road — a pinched corridor climb (§34 (9)), a §34
+(8) climb-out, a basin ramp (§24 (8)), a structure approach, a
+tunnel-object ramp — ends at the road's TRUE EDGE: the centreline offset by
+the road's half-width toward the ramp; the road ribbon is never cut by a
+ramp.  One derivation, `road_true_edge(road, side)`, reading the road's own
+width (the emitted ribbon / route-frame extent / `road_width_m`), used by
+every ramp emitter; no per-airport key.  Census `ramp_in_road` (CRITICAL): a
+ramp vertex inside a road ribbon.  BARS: OTHH's two pinched ramps' tops move
+in by the road's half-width (named); `ramp_in_road` 0 on the five registered
+frames (each airport's count before → after); road ribbons uncut; airside 0.

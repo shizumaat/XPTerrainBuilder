@@ -6133,3 +6133,16 @@ neighbour is the runway), ONE LERM build, the shoulder census before
   so each pinched ramp's top station moves IN by the road's half-width
   and the pinched run shortens (the grade steepens by that much; the
   cap is lifted, §34 (9)). The road keeps its full width.
+
+## 2026-09-14bd Owner: "we should generalize this to allow this margin for ramps arriving at a road, not special case it for OTHH" — §34 (10) THE ROAD MARGIN IS GENERAL
+
+* RULING §34 (10): EVERY ramp that arrives at a road — a pinched
+  corridor climb (§34 (9)), a §34 (8) mouth climb-out, a basin ramp
+  (§24 (8)), a structure approach, a tunnel-object ramp — ends at the
+  road's TRUE EDGE (centreline ± the road's half-width on the ramp's
+  side), never at the centreline; the road ribbon is never cut by a
+  ramp. One derivation (`road_true_edge(road, side)` reading the
+  road's own width) used by every ramp emitter; a census family
+  `ramp_in_road` (a ramp vertex inside a road ribbon, CRITICAL). No
+  per-airport key. Lane `v2othhfix` r4 (amended): implement at the
+  one site and census it on the five registered frames.

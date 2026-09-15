@@ -6636,3 +6636,26 @@ floor 605.13 / ramp 36 m — the crest cap did not fire; open.
   pack's wall object and our cut — a coordinate ON the visible gap and
   its width would let a wall-face read be targeted.
 * App 1.0.338 (LEMD: 14bs + 14bt) next.
+
+## 2026-09-14bu Owner: "I'm trying to build an OTHH tile with default x-plane textures, but I keep getting errors saying it can't find the defaults" — two errors: the Global Scenery path one level high (fixed by the owner), then DSFTool SIGSEGV on the 7z-COMPRESSED default DSF — lane `v2dsf7z`
+
+Engine log +25+051: first `no default Global Scenery DSF found for
+tile +25+051 under custom_overlay_src ('/Users/noah/X-Plane 12/Global
+Scenery')` (the dir must be `…/Global Scenery/X-Plane 12 Global
+Scenery` — the owner corrected it); then `[dsf-reader] WARN: DSFTool
+failed on +25+051.dsf: … died with SIGSEGV` and `texture_mode=
+'default_xplane' requires the default Global Scenery base-mesh DSF …
+none could be read`. The file `…/Earth nav data/+20+050/+25+051.dsf`
+(4.1 MB) begins `37 7a bc af 27 1c` — a 7z archive: X-Plane 12's
+Global Scenery DSFs are 7z-compressed and DSFTool segfaults on them.
+`O4_Overlay_Utils` already extracts overlay DSFs with the bundled
+`Utils/mac/7zz` before DSFTool; `src/auto_patch/dsf_reader.py` (the
+`default_xplane` base-mesh reader) does not.
+
+* Lane `v2dsf7z`: in `dsf_reader.py`'s dump path, detect the 7z magic
+  and extract with `O4_Overlay_Utils.unzip_cmd` to a temp file before
+  DSFTool (one derivation shared with the overlay path if it can be —
+  extend, never fork); a clear error naming the 7z case if extraction
+  fails; the first error's text names the expected subdirectory. Twin:
+  a 7z-wrapped DSF fixture dumps; a plain one dumps unchanged. Then the
+  owner's build: OTHH with `texture_mode = default_xplane`.

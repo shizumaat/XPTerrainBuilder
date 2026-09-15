@@ -8455,3 +8455,5 @@ needed" (15g) + airside is king → (b) with the pavement as the deck,
 generalised to any cover. r2 implements the subtraction and the
 mouths at the transitions; `object_cut_depth` measures the open floor
 only.
+
+## 2026-09-15br OWNER: "if an object provides a hard deck then we just leave an open trench, since the object spans it. The only time we would need to stop a trench at a bridge is if there is NO object covering it, and we need the terrain to provide the hard land area for the bridge. So I think all the cases at VHHH are open trench right?" — YES: §33 (6) B AMENDED (3) supersedes (2)'s cover/pavement subtraction; surface elements over an object-decked trench ride the object and are excluded from the terrain solve inside the outline (the 15bp mechanism); every VHHH shell is an open walled trench for its authored extent; v2shellwall r2 redirected

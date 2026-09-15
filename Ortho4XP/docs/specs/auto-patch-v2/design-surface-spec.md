@@ -15231,3 +15231,41 @@ the open floor only — amend its region); each shell's open / covered
 m² named (TUNNEL2's open area under no pavement, tunnel5's 413 m
 U-turn expected almost entirely open); OTHH 0 signature-B cuts (dry
 pair byte-identical); LEMD dry pair byte-identical.
+
+## §33 (6) B AMENDED (3) — OWNER: AN OBJECT'S HARD DECK SPANS AN OPEN TRENCH; A TRENCH STOPS AT A BRIDGE ONLY WHEN NO OBJECT COVERS IT; SURFACE ELEMENTS OVER AN OBJECT-DECKED TRENCH RIDE THE OBJECT (owner RULINGS 2026-09-15br; supersedes (2)'s (i)–(ii)) — lane `v2shellwall` r2
+
+Owner 2026-09-15: "if an object provides a hard deck then we just
+leave an open trench, since the object spans it.  The only time we
+would need to stop a trench at a bridge is if there is NO object
+covering it, and we need the terrain to provide the hard land area for
+the bridge.  So I think all the cases at VHHH are open trench."
+
+RULED accordingly.  (a) A signature-B shell's trench is OPEN for its
+whole authored extent — the cover plate (`_TN`, HARD_DECK) is the
+object's own deck spanning the open trench, never a reason to fill it;
+(2)'s subtraction of the cover plate and of airside pavement is
+WITHDRAWN.  (b) A trench stops (the covered run of §34 (12) (4) / a
+mapped `bridge=yes` deck) only where NO object covers the crossing and
+the terrain must provide the bridge's land — the LEMD case; where an
+object covers, the mapped bridge is the object and severs nothing.
+(c) Surface elements lying over an object-decked open trench — apt.dat
+pavement polygons, the taxi centreline network, roads — RIDE THE
+OBJECT'S DECK: inside the trench outline they are EXCLUDED from the
+terrain solve (no row of theirs touches a trench vertex; the taxi/road
+network's rows end at the rim on each side, the pavement faces inside
+the outline are not terrain faces), so no centreline vertex ever sits
+on the floor ring and nothing propagates the floor into the network —
+the mechanism 15bp attributed.  (d) The walled cut of B AMENDED (1)
+stands along the whole trench (rim ring at the surrounding surface,
+vertical walls, floor ring at the authored plate), mouths and ramps at
+the object's own stations.  Bars at VHHH (the f912ba81 control pair):
+every shell's trench open for its authored extent (m² named); airside
+OUTSIDE the trench outlines within 200 m moved vs the control ≤ 0.02
+m; surface elements inside each outline named (pavement m², centreline
+m, roads m) and shown excluded from the solve (0 rows crossing the
+rim); off-DEM maxima by role outside the outlines back to the
+control's; ADJUDICATED ≤ 121 + the trenches' own rows; `object_cut_
+depth` 0, `object_cut_offset` ≤ 4; OTHH / LEMD dry pairs byte-identical.
+For the owner's read: the pavement inside each outline is expected to
+sit on the object's deck in the sim — if a taxiway texture renders in
+a trench, the apt.dat pavement over that shell is the next question.

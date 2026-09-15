@@ -6241,3 +6241,33 @@ amended in the spec. Suite 1,539 on the lane.
   `"builder anchor"` in the code vs the toolfix twin's wording). Twin
   aligned to the shipped reader. Chip `objsplitflake` (task_e97fecda)
   may find nothing — it stands.
+
+## 2026-09-14bi v2othhfix round 4 STOPPED (not merged): the road margin alone makes the east ramp a 54 % wall; the plate-edge full depth (14be) breaks three Law C fixtures and was reverted; the engine's route7 is 7.54 m wide where the owner's road is wider — lane `v2othhramp` (fresh) takes all three coupled items
+
+Lane `v2othhfix` @ fe0a5b33 (near its context limit; hands over).
+§34 (9) (6) landed: the emitted `service_road` faces are HALF-
+carriageway ribbons (route7 2 × 3.77 m, route9 2 × 3.15 m) sharing
+their long edge = the centreline; `locked_road_stops` buffers the face
+by the half-width; tops move IN 4.00 m / 4.89 m — but with 14be
+reverted the east grade goes 25.18 → 53.95 %, `@2` 10.80 → 17.39 %.
+MEASURED: ramp vertices inside a road ribbon were 0 in 1.0.335 and the
+tops stood 1.37 / 1.08 m OUTSIDE the engine's road edge — the engine's
+route7 carriageway is 7.54 m total; the road the owner sees is wider
+(the pack's painted road). 14be built and REVERTED: the plate edge
+moves the climb start on EVERY wall corridor (correctly) and three
+Law C twins encode the wall-end law (`climb_from_s` 40 → 30 on a
+fixture whose deck covers 30 of 40 m — the twin is wrong, not the
+law); the fixture repair was not done. 14bd not started; `ramp_in_
+road` reads 0 at OTHH before and after (a guard, not a defect count).
+
+* RULING: the three are ONE change and land together: (1) 14be's
+  plate edge with the three Law C fixtures RE-FOUNDED (the deck's
+  cover is the physics; the apron rectangles move with it); (2) the
+  half-width margin on top; (3) §34 (10)'s single derivation +
+  `ramp_in_road`. Then ONE OTHH build and the east ramp's grade named
+  — if still steep, the lever is the ROAD WIDTH the engine carries
+  (7.54 m vs the pack's) — a §37 road-width read from the pack's
+  draped road objects (§42's class) or `road_width_m` per OSM tag,
+  owed to the next read.
+* App 1.0.336 ships NOW with the LERM fix only (the LEMD tile); OTHH
+  = 1.0.335's surface; the ramp round → 1.0.337.

@@ -85,6 +85,14 @@ class ObjectCut:
     id: str
     resource: str
     object_id: str
+    #: The COVER placement's id and resource (signature B).  BOTH
+    #: placements are the tunnel's own geometry — the shell is its walls
+    #: and floor, the cover its roof — so both are claimed out of the
+    #: basin intake; a cover left behind is a pit the size of the tunnel
+    #: (measured VHHH: ``tunnel2_done_TN.obj``, a 27,749 m2 "pit" at
+    #: floor 0.78 standing exactly on its own shell).
+    cover_object_id: str
+    cover_resource: str
     signature: str
     outline: Polygon
     wall_line: object                     # Polygon | MultiPolygon | LineString union
@@ -449,7 +457,8 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
         if sts:
             notes.append("ramp stations from the cover's profile: "
                          + " -> ".join(f"{y:+.2f}" for _s, y in sts))
-        out.append(ObjectCut(f"object-cut:{_base(o.path)}@{k}", o.path, o.id, SHELL,
+        out.append(ObjectCut(f"object-cut:{_base(o.path)}@{k}", o.path, o.id,
+                             cov_obj.id, cov_obj.path, SHELL,
                              outline, place(r.wall_line), chain_a, chain_b, ends,
                              (True, True), zero + r.floor_y, r.floor_y, zero,
                              place(cover), sts, tuple(notes)))
@@ -612,4 +621,9 @@ def cut_placement_ids(cuts: _t.Sequence[ObjectCut]) -> frozenset[str]:
     that used to ask ``o.witnesses`` — ``planar/basins.build_basins``'s
     intake and ``basin_witness.basin_member_ids``'s exemption set — reads
     this, and no second spelling of it exists."""
-    return frozenset(c.object_id for c in cuts)
+    out: set[str] = set()
+    for c in cuts:
+        out.add(c.object_id)
+        if c.cover_object_id:
+            out.add(c.cover_object_id)
+    return frozenset(out)

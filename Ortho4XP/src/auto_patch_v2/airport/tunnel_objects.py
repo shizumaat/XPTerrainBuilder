@@ -731,6 +731,15 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
         return "the shell's inner faces leave no station"
     bores = _bore_ends_at(walls, axis, tunnel_ways, ob.bore_end_tolerance_m)
     notes = list(cut.notes)
+    if not (bores[0] or bores[1]):
+        # the bore may pass THROUGH without ending at a portal (a covered
+        # stretch): the trench holding a mapped tunnel way is the same
+        # evidence, read the way ``_road_through`` reads it
+        through = [w.id for w in tunnel_ways
+                   if LineString(w.points).intersects(cut.outline)]
+        if through:
+            bores = ([through[0]], [])
+            notes.append(f"mapped tunnel way(s) {through} run through the trench")
     if bores[0] and bores[1]:
         mouth, flat, kind = 0, True, "bore"
         notes.append(f"bores at both portals ({bores[0]} / {bores[1]}): the trench is flat "
@@ -739,12 +748,16 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
         mouth, flat, kind = (0 if bores[0] else 1), False, "bore"
         notes.append(f"mouth = the portal the bore reaches (ways {bores[0] or bores[1]})")
     else:
-        # A shell states its own portals; with no mapped bore at either
-        # the corridor is still the author's cut, flat at its floor (the
-        # §29 / §34 (12) gates decide whether it is BUILT at all).
-        mouth, flat, kind = 0, True, "object"
-        notes.append("no mapped bore at either portal: the shell's own two ends, flat at "
-                     "the AUTHORED floor")
+        # §33 (6) OPENS WITH "WHERE AN OBJECT … COVERS A BORE OR A
+        # CROSSING": an object that covers neither is not a cut, whatever
+        # its floor plate says.  MEASURED at VHHH — without this gate the
+        # sea barrier ``sea_X.obj`` (a 402 m2 plate 28.20 m under its
+        # zero) paired with ``sea.obj``'s 112,376 m2 flush hard deck (the
+        # SEA SURFACE) and read as a 104.9 m wide, 22.88 m deep "tunnel"
+        # 177 m long off the north shore.
+        return ("a SHELL with a flush hard cover but no mapped bore at either portal and no "
+                "mapped tunnel way through its trench: §33 (6) reads an object that covers a "
+                "BORE or a CROSSING, and this covers neither")
     axis2, sts2 = _oriented(walls, axis, sts, mouth,
                             law.tables.structures.cutout.floor_overlap_m, ob.wall_sample_m)
     if len(axis2) < 2:
@@ -798,6 +811,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # (``object_cut.cut_placement_ids``).
     cuts, cstats = _object_cut.read_shells(airport, objects, cache, law)
     shell_ids: set[str] = set()
+    claimed_ids: set[str] = set()
     shell_corridors: list[Corridor] = []
     for cut in cuts:
         c = shell_corridor(cut, airport, tunnel_ways, law)
@@ -807,8 +821,11 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         shell_corridors.append(c)
         shell_ids.add(cut.object_id)
+        claimed_ids.add(cut.object_id)
+        if cut.cover_object_id:
+            claimed_ids.add(cut.cover_object_id)
     stats.shells = len(shell_corridors)
-    stats.shell_claimed = tuple(sorted(shell_ids))
+    stats.shell_claimed = tuple(sorted(claimed_ids))
     stats.refused.extend(cstats.refused)
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}

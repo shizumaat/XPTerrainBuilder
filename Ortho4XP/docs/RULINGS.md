@@ -6271,3 +6271,13 @@ road` reads 0 at OTHH before and after (a guard, not a defect count).
   owed to the next read.
 * App 1.0.336 ships NOW with the LERM fix only (the LEMD tile); OTHH
   = 1.0.335's surface; the ramp round → 1.0.337.
+
+## 2026-09-14bj APP 1.0.336 BUILT (engine 1.50.1782): the +40-004 tile builds again (LERM's false shoulder refused, 14bh); OTHH = 1.0.335's surface
+
+Main d9c5e593 + version bump. Over 1.0.335: §40 (1)'s wrap rung and
+the DEFECT text (14bh); the `test_role_overlap_read` twin aligned.
+NOT in it: the OTHH ramp round (14bi — lane `v2othhramp`, → 1.0.337);
+the HECA pad line (flags OFF). Flags verified: `bank_omit` true,
+`pad_from_cluster` false, `staged_solve` false. The owner's LEMD read
+on 1.0.336 is the first read of the whole 09-14 batch at LEMD (the
+1.0.335 tile never built).

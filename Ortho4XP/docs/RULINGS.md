@@ -8519,3 +8519,36 @@ Standing: ONE git-touching task at a time on this tree (15bn); never
 compare runs across a corpus refresh (15bj); brief packs via
 brief_pack.py; lanes on Opus; suites by FAILED lines ON MAIN.
 15bt addendum: lane v2shellwall's checkpoint = branch `claude/v2shellwall` @ 07cb9794 ("§33 (6) B AMENDED (2): a shell's trench is OPEN only where nothing covers it" — its worktree was clean, its build stopped, no processes left; this tip predates the owner's (3) correction, so r3 starts from (3): the (2) subtraction on the branch is to be REMOVED; r1's walled-cut geometry (`structure_geometry.ring_for` / `geometry_from_trench`, rim↔floor 1.20 m) and `arm_site_read --airside-near-cuts` are kept). Tree clean at shutdown; no locks; the app closed; no builds running.
+
+## 2026-09-15bm v2channel ROUND 7 CHECKPOINT (b0a86405, shutdown): §45 (14) written but NOT wired (it regresses everywhere — a notch corridor needs ENDS at its crossings); the KDFW datum is a MANIFEST defect (08-15 sidecars lack `native_resolution_m`); C12 REFUTED — the floor rows are `pavement_ceiling` on vertices SHARED between the channel floor and airside cells
+
+(14) `channel_geometry._field_region` + `_hole_region(union, field)` exist,
+twinned, call site `field=None`: wired in, KPHX 0 → 1 channel but KCLT
+tunnels 23 → 19 (four §34 (5) SYNTHESISED underpass bores that (13)(b)'s
+claimed set does not cover), LGAV channels 1 → 4, LEMD 3 → 6, HECA a
+14,562 m channel, CYXY 5,646 m, KPHX 5,750 m with a (3)(iii) floor
+332.76–563.14 m, CYXY planar twins red (6,856 vs 6,660 vertices). §45
+(2)'s ends do not bound a notch corridor — OWNER/Fable ruling needed: a
+corridor ENDS at its outermost crossings (plus one deck-width), never at
+the field boundary; and (13)(b)'s claimed set must include synthesised
+underpass bores. (15)(a) the 1 m inset IS composed (`insets=…,KDFW:
+USGS3DEP`) but the tile's `inset_provenance` entry reads `native_
+resolution_m: null` with no `resolution_m` (all 55 N32W098 sidecars of
+08-15; LEMD/LGAV's newer writer carries it) → `ProductionDem.source_
+pixel_m` → `coarse/base_tier` → `_lidar_credible` False. Fix at the
+manifest READER (fall back to the inset's own sidecar `resolution_m`) or
+the owner re-warms KDFW if today's writer stamps it — a lane, not a
+refresh. (15)(b) C12 REFUTED (`road_fit_vertices: 0`; `--why-vertex
+14070`: the only binding row is the channel's own pin, held to 0.000):
+the fight is `pavement_ceiling` (`pavement_max_grade`) on vertices
+SHARED between the channel floor and airside cells (v14070 roles
+cross_connector/retaining_wall/tunnel_trench: 169.40 vs 182.28 over
+~23 m = 13.41 m; 131 of 482 violated hard rows an infeasible set) — the
+floor and the airside surface must NOT share vertices (the wall band /
+weld spacing between them, as bores have); and `verify/channel._
+declared_at` compares a 2-D floor region to a 1-D axis profile. Suite
+1729/0; LGAV byte-identical to round 6. KDFW capture + solved pickle and
+the KPHX (14)-wired arm registered in frames. NEXT (fresh lane after
+resume): rule the ends + the synthesised-bore claims, wire (14), the
+floor/airside vertex separation, the manifest reader; seven replays;
+ONE KDFW build; merge; app 1.0.342.

@@ -7888,3 +7888,26 @@ session's shell history); `missing_pack_dsf_dumps` not widened to
 `--tile`. CHIP: `tools/obj8_split_report.py` arms the guard by hand but
 not `redirect_engine_caches` — the one `apply_plan` caller missing from
 `arm_shared_repo_protection` (the 2026-08-11 `classify_report` shape).
+
+## 2026-09-15av 15ar's CONTAMINATED verdict on v2objcut WITHDRAWN (peer measurement 15am + timestamps): the VHHH pack's live DSF was rewritten at 11:49 by `placement_write.apply_plan` (rebake_after_mesh) from lane v2vmmcshore's TILE build `v2vmmcshore4tile` (+22+113, mesh at 11:47:08, dump 11:52:31); v2objcut's airport build had its redirect ARMED; v2vhhhctl launched after — A LANE TILE BUILD REWROTE THE OWNER'S PACK IN THE SHARED MOD CACHE (6,390 placements at r4's tree): the tile path's rebake is not redirected lane-local — the peer's guard; the owner restores/refreshes the pack
+
+Peer (v2schemarefuse r3, a5ac5a85 / 15am): the dump `+22+113.dsf.
+d18b5903.text` followed a rewrite of the LIVE pack DSF
+(`o4_placement_provenance.json`, sha d18b5903, 6,390 placements) that
+only a TILE build's rebake reaches; v2objcut's frame.json records its
+mod-cache redirect armed. Timestamps here: /tmp/harness/tile_
+v2vmmcshore4tile/ Data+22+113.node/.poly 11:47:08 (the lane's z-xref
+tile, started ~09:58 — its .progress files 09:40/09:58); v2vhhhctl
+launched ~12:05. CONSEQUENCES: (1) the shared mod-cache copy of the
+owner's VHHH pack now carries a lane's rebake (r4 tree) — the owner's
+next VHHH tile build from the app will rebake again from .anchor_bak
+originals (Sep 13 19:44) per the engine's own convention, so the
+scenery is recoverable; the OWNER decides whether to `--refresh-data
+airport_mod_cache` (bless the new dump) or restore; (2) lane TILE
+builds are OFF LIMITS for lanes until the tile path redirects rebake
+writes lane-local (the peer's guard) — briefs say "ONE airport build";
+the z-xref tile was outside the brief and is recorded as the breach;
+(3) now on main: an unauthorised new-hash dump refuses at the write;
+a scope the process redirected has its deltas named as external
+candidates, never CONTAMINATED. Chip from the peer: obj8_split_report
+arms the guard but not redirect_engine_caches.

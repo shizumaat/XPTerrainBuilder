@@ -563,6 +563,89 @@ LOCK_ARTIFACT_SUFFIX = ".lock"
 LOCK_FILE_OPS = frozenset({"os_open", "remove", "unlink"})
 
 
+def ledger_lines(path=None) -> list:
+    """Every refresh-ledger record, oldest first.  A malformed line is
+    skipped rather than fatal: the ledger is append-only across sessions
+    and a half-written line from a killed run must not blind the reader."""
+    path = Path(path or REFRESH_LEDGER)
+    out = []
+    try:
+        with open(path, "r") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        return []
+    return out
+
+
+def ledger_explains(rel: str, mtime: float, records=None) -> bool:
+    """Is this artefact's CURRENT state explained by a ledger line?
+
+    True when some record that NAMES the path was written at or after the
+    file's mtime.  Records carry ``ts`` as local ``%Y-%m-%dT%H:%M:%S``
+    (``record_refresh``), which is second-resolution, so the compare is
+    deliberately generous by one second — a stamp written in the same
+    second as the write explains it.
+    """
+    records = ledger_lines() if records is None else records
+    for rec in records:
+        named = [f.get("path") for f in (rec.get("files") or ())]
+        if rel not in named and rel not in (rec.get("removed") or ()):
+            continue
+        try:
+            when = time.mktime(time.strptime(str(rec.get("ts", "")),
+                                             "%Y-%m-%dT%H:%M:%S"))
+        except ValueError:
+            continue
+        if when + 1.0 >= mtime:
+            return True
+    return False
+
+
+def record_reconciliation(rels, meta: dict, repo=None) -> list:
+    """Stamp the CURRENT hash of each artefact in ``rels`` whose newest
+    ledger line predates its mtime.  Returns the paths recorded.
+
+    ONE record per reconciliation run, marked ``reconciled`` so no reader
+    mistakes it for a refresh that fetched something: it says "this is
+    what is on disk NOW, and nothing in the ledger explained it".  The
+    measured case is KPHX's +33-112_big_roads (2026-09-15 13:48) — the
+    engine re-derived it and the run exited before the audit.
+    """
+    repo = Path(repo or DATA_REPO)
+    records = ledger_lines()
+    unexplained = []
+    for rel in rels:
+        try:
+            mtime = (repo / rel).stat().st_mtime
+        except OSError:
+            continue
+        if not ledger_explains(rel, mtime, records):
+            unexplained.append(rel)
+    if not unexplained:
+        return []
+    by_scope: dict = {}
+    for rel in unexplained:
+        by_scope.setdefault(scope_of(rel), []).append(rel)
+    for scope, rels_in in sorted(by_scope.items(), key=lambda kv: str(kv[0])):
+        record_refresh(scope or "<outside every scope>",
+                       {"added": [], "modified": sorted(rels_in),
+                        "removed": []},
+                       {**meta, "reconciled": True,
+                        "why": "the artefact on disk is NEWER than any "
+                               "ledger line naming it; this record stamps "
+                               "its CURRENT hash, it does not claim this "
+                               "run fetched it"},
+                       repo=repo)
+    return sorted(unexplained)
+
+
 def is_lock_artifact(relpath) -> bool:
     """True for a cross-process LOCK FILE (never corpus data).
 

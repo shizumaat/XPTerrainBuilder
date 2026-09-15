@@ -67,6 +67,23 @@ def flat_datum(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     geom = region_geometry(fv.region)
     if geom is None:
         return []
+    # §45 (8): THE FLAT-SITE REGION EXCLUDES THE CORRIDOR — "a channel is
+    # never flattened".  Subtracted HERE and not at the region's own
+    # derivation (``airport/flat_site.region_polygon``) because the
+    # verdict is measured at LOAD and a channel is identified at PLANAR
+    # time: the region cannot subtract a corridor that does not exist
+    # yet.  The channel's own floor and bank faces are already out by
+    # ``is_structure_role`` below; this takes the ADJACENT ground
+    # standing inside the corridor with them.
+    corridors = [Polygon(c.crest_ring or c.region)
+                 for c in getattr(planar, "channels", ())
+                 if len(c.crest_ring or c.region) >= 3]
+    if corridors:
+        cut = unary_union([p if p.is_valid else p.buffer(0) for p in corridors])
+        if not cut.is_empty:
+            geom = geom.difference(cut)
+            if geom.is_empty:
+                return []
     fs = law.tables.flat_site
     vw = view(planar, law)
     group = flat_datum_group(law)

@@ -36,6 +36,7 @@ from .overlay import Arrangement, build_arrangement
 from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
+from .channel import ChannelStats, identify_channels
 from .structures import StructureStats, build_structures, ramp_targets
 from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
 from ..airport.thin_plates import read_plates
@@ -98,6 +99,8 @@ class BuildStats:
     wall_corridors: WallCorridorStats = _dc.field(default_factory=WallCorridorStats)
     #: owner RULINGS 2026-09-10b/10c (spec §19): the terrain edge's trim
     terrain_edge: EdgeReport = _dc.field(default_factory=EdgeReport)
+    #: spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNELS identified
+    channels: ChannelStats = _dc.field(default_factory=ChannelStats)
 
 
 def build(airport: Airport, classification: Classification, law: Law,
@@ -141,10 +144,17 @@ def build(airport: Airport, classification: Classification, law: Law,
     walls_c, wstats = read_wall_corridors(airport, objects, cache, law, classification)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
+    # ── THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i) ──────
+    # DERIVED FIRST (§45.1 C1): the structure pass reads them to keep a
+    # crossing inside a channel from ever becoming a bore with mouths
+    # (§45 (1)/(6)), and the basin pass to keep a wall/floor object along
+    # the axis from being read a second time as a pit (§45 (7)).
+    channels, chstats = identify_channels(airport, classification, law, objects)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
-                                                       corridors, extra, plates)
+                                                       corridors, extra, plates, channels)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
-                                                  objects, cache, report=orep)
+                                                  objects, cache, report=orep,
+                                                  channels=channels)
     bstats.objects = orep
     bstats.object_read_s = read_s
     arr = build_arrangement(airport, classification, law, grid_m)
@@ -159,6 +169,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                        zone_sliver_area_m2=arr.zone_sliver_area_m2,
                        zone_sliver_rows=arr.zone_sliver_rows,
                        door_wells=dstats, sunken_roads=rstats, wall_corridors=wstats,
+                       channels=chstats,
                        terrain_edge=arr.edge_report)
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
@@ -227,6 +238,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     seam = _seam_vertices(arr, vertices_xy)
     pm = PlanarMap(airport.icao, vertices, {e.id: e for e in edge_list},
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
+                   channels=tuple(channels),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),

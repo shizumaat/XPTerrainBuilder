@@ -47,6 +47,12 @@ class StructureStats:
     #: the field region carries — one per runway axis.
     runway_bands: int = 0
     duals_merged: int = 0
+    #: THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i) the map
+    #: carries, and how many faces they put in it (floor + bank).  The
+    #: records themselves travel on ``PlanarMap.channels``; these two are
+    #: what the structures line prints.
+    channels: int = 0
+    channel_faces: int = 0
     tunnels: int = 0
     decks: int = 0
     object_decks: int = 0

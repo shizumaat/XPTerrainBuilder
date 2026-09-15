@@ -5978,6 +5978,151 @@ _BASIN_FACILITY_WAY = Way("basin_facility", "tunnel_trench",
                           {"role": "tunnel_trench"})
 
 
+#: §45 (owner RULINGS 2026-09-15i) — THE OPEN CHANNEL's materiality.
+#: The spec states both families at +/- 0.01 m.
+_CHANNEL_TOL_M = 0.01
+
+
+def _channel_facilities_declared(channel_facilities) -> list:
+    """Sidecar rows -> ``[(id, [(lat, lon, floor z), ...], floor_ref,
+    wall_ref), ...]``.
+
+    The profile is the RECORD's own ``Channel.floor_z(s)`` per axis
+    station, published by ``pipeline/publication.channel_facilities`` —
+    the same call ``constraints/channel.channels`` stated the pin with, so
+    the family judges the emitted floor against the stated row and never
+    against a second arithmetic.  A patch built before §45 carries no key,
+    reads ``None``, and every count below is byte-identical on it."""
+    out = []
+    for rec in (channel_facilities or []):
+        if not isinstance(rec, dict):
+            continue
+        prof = []
+        for item in rec.get("floor_profile") or ():
+            try:
+                prof.append((float(item[0]), float(item[1]), float(item[2])))
+            except (TypeError, ValueError, IndexError):
+                continue
+        if not prof:
+            continue
+        cid = str(rec.get("id") or "")
+        out.append((cid, prof,
+                    "channel_floor:" + cid.split(":")[-1],
+                    "channel_wall:" + cid.split(":")[-1]))
+    return out
+
+
+def _channel_declared_at(prof, lat: float, lon: float) -> Optional[float]:
+    """The record's floor over a point: the two NEAREST stations,
+    interpolated.  The stations ARE the axis's own, so "nearest two" is
+    "the segment this vertex stands over"."""
+    if not prof:
+        return None
+    d = sorted(((_hav_m(lat, lon, la, lo), z) for la, lo, z in prof))
+    if len(d) == 1 or d[0][0] <= 1e-9:
+        return d[0][1]
+    (d0, z0), (d1, z1) = d[0], d[1]
+    return z0 + (z1 - z0) * (d0 / max(d0 + d1, 1e-9))
+
+
+def _hav_m(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
+    cos0 = math.cos(math.radians(lat0))
+    return math.hypot(math.radians(lon1 - lon0) * 6378137.0 * cos0,
+                      math.radians(lat1 - lat0) * 6378137.0)
+
+
+def _check_channel_floor_at_declaration(ways, nodes, channel_declared) -> List[Violation]:
+    """§45 (3): every emitted channel-floor vertex stands at the record's
+    own declared profile, within ``_CHANNEL_TOL_M``.
+
+    A row means the solve moved the floor off the datum the channel
+    DECLARED — the pack's floor plate (i), a credible lidar inset's DTM
+    floor (ii), or the deck top less ``bridge.clearance_m`` (iii).  A
+    ``tunnel_trench`` way whose ref is a BASIN's (``basin_floor:``) is not
+    in this population at all: §24's own family judges it."""
+    out: List[Violation] = []
+    if not channel_declared:
+        return out
+    for cid, prof, floor_ref, _wall_ref in channel_declared:
+        for w in ways:
+            if w.role != "tunnel_trench" or not w.ref.startswith(floor_ref):
+                continue
+            for nid, z in zip(w.nids, w.elevs):
+                if z is None or nid not in nodes:
+                    continue
+                lat, lon = nodes[nid]
+                want = _channel_declared_at(prof, lat, lon)
+                if want is None or abs(z - want) <= _CHANNEL_TOL_M:
+                    continue
+                v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                              de_m=abs(z - want), way_a=w, way_b=w,
+                              pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                              elev_a=z, elev_b=want)
+                v.lat, v.lon = lat, lon
+                out.append(v)
+    return out
+
+
+def _check_channel_crest_at_edge(ways, nodes, channel_declared,
+                                 tol_m: float) -> List[Violation]:
+    """§45 (5): a channel's crest IS the governed cell's emitted level at
+    the corridor edge -- ``crest = "design"``, never ``DEM(x, y)``, which
+    at LGAV stands 2-4 m under the real rim.
+
+    A crest node the governed ground SHARES is one node and one value by
+    construction and is skipped.  The population judged is the crest node
+    standing within ``tol_m`` of a governed non-structure node WITHOUT
+    sharing its id -- where the weld did not join them and a step could
+    hide.  A crest node on bare adjacent ground has no governed
+    neighbour: it is not judged, because (5) forbids pinning it at the
+    DEM and the zone laws govern it."""
+    out: List[Violation] = []
+    if not channel_declared:
+        return out
+    wall_refs = tuple(wr for _c, _p, _f, wr in channel_declared)
+    crest = [w for w in ways
+             if w.role == "retaining_wall" and w.ref.startswith(wall_refs)]
+    if not crest:
+        return out
+    crest_ids = {nid for w in crest for nid in w.nids}
+    ground = []
+    for w in ways:
+        if w.role in _CHANNEL_STRUCTURE_ROLES:
+            continue
+        for nid, z in zip(w.nids, w.elevs):
+            if z is None or nid in crest_ids or nid not in nodes:
+                continue
+            ground.append((nodes[nid][0], nodes[nid][1], z, w))
+    if not ground:
+        return out
+    for w in crest:
+        for nid, z in zip(w.nids, w.elevs):
+            if z is None or nid not in nodes:
+                continue
+            lat, lon = nodes[nid]
+            best = None
+            for gla, glo, gz, gw in ground:
+                d = _hav_m(lat, lon, gla, glo)
+                if d <= tol_m and (best is None or d < best[0]):
+                    best = (d, gz, gw)
+            if best is None or abs(z - best[1]) <= _CHANNEL_TOL_M:
+                continue
+            v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=best[0],
+                          de_m=abs(z - best[1]), way_a=w, way_b=best[2],
+                          pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                          elev_a=z, elev_b=best[1])
+            v.lat, v.lon = lat, lon
+            out.append(v)
+    return out
+
+
+#: The roles a channel crest may NOT take its value from: every structure
+#: role (its own bank, its own floor, and any tunnel / door / wall-corridor
+#: ramp beside it).  The crest reads the GOVERNED GROUND at the edge.
+_CHANNEL_STRUCTURE_ROLES = ("tunnel_trench", "retaining_wall", "tunnel_ramp",
+                            "door_ramp", "wall_corridor_ramp", "garage_ramp")
+
+
 def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
     """THE DECLARATION ITSELF, judged (spec §1.1 + §2.2).
 
@@ -8529,6 +8674,15 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     ("runway_crown", "RUNWAY CROWN below its DECLARED drop", "within"),
     ("wall_in_runway_strip", "RETAINING WALL inside a RUNWAY STRIP", "within"),
+    # THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i).  Both
+    # families judge the emitted surface against the channel's OWN
+    # published record (`channel_facilities`): the floor against the
+    # profile the generator pinned it at, and the crest against the
+    # governed cell it edges — `crest = "design"`, never DEM(x, y).
+    ("channel_floor_at_declaration",
+     "CHANNEL FLOOR off its own declared profile", "within"),
+    ("channel_crest_at_edge",
+     "CHANNEL CREST off the governed cell it edges", "within"),
     ("stacked_nodes", "STACKED NODES (one coordinate, values disagree)",
      "within"),
     # THE SENTINEL FLOOR (RULINGS 2026-09-13, lane ``v2zerocrater``): an
@@ -9193,6 +9347,10 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # family — so a census without this key would judge a law the build
     # never ran under, in both directions.
     "basin_facilities": "basin_facilities",
+    # THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i).  LAW
+    # INPUT: the floor datum a channel declares is what its own floor is
+    # judged against, and no patch carries it — the record does.
+    "channel_facilities": "channel_facilities",
     # THE ACCEPTED END-AROUND TAXIWAY RECTS (spec §36; owner RULINGS
     # 2026-09-13j item 2).  LAW INPUT: recognition needs the apt.dat route
     # network and the runway ends, which no patch carries, so the rects the
@@ -9544,6 +9702,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["interior_zones_ll"] = data.get("interior_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["basin_facilities"] = data.get("basin_facilities") or None
+    ctx["channel_facilities"] = data.get("channel_facilities") or None
     ctx["eat_rects"] = data.get("eat_rects") or None
     ctx["pad_cluster_mismatch"] = data.get("pad_cluster_mismatch") or None
     ctx["ruleset"] = data.get("ruleset") or None
@@ -10600,6 +10759,7 @@ def run_checks(
     interior_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     basin_facilities: Optional[list] = None,
+    channel_facilities: Optional[list] = None,
     eat_rects: Optional[list] = None,
     pad_cluster_mismatch: Optional[list] = None,
     ruleset: Optional[str] = None,
@@ -10812,6 +10972,13 @@ def run_checks(
     # each open pit declares, which its own trench contacts are priced
     # against.  Empty for every patch built without the basin law, so
     # every count below is byte-identical on one.
+    channel_declared = _channel_facilities_declared(channel_facilities)
+    if channel_declared and not quiet:
+        print(f"  open channels: {len(channel_declared)} declared "
+              f"({', '.join(c for c, *_r in channel_declared[:6])}"
+              f"{' …' if len(channel_declared) > 6 else ''}); the floor is judged "
+              f"against each channel's OWN profile and the crest against the "
+              f"governed cell it edges (§45)")
     basin_declared = _basin_facilities_declared(basin_facilities)
     if basin_declared and not quiet:
         print(f"  basin facilities: {len(basin_declared)} declared "
@@ -11335,6 +11502,22 @@ def run_checks(
         "2026-08-01: walls are never lawful at a runway edge — cap 0)",
         wall_in_strip, top_n)
     within = within + wall_in_strip
+
+    channel_floor = _fam(
+        "channel_floor_at_declaration",
+        _check_channel_floor_at_declaration(ways, nodes, channel_declared))
+    _pv("CHANNEL FLOOR off its own declared profile (§45 (3): the pack's "
+        "floor plate, a credible lidar inset's DTM floor, or the deck top "
+        "less bridge.clearance_m — whichever the record declares)",
+        channel_floor, top_n)
+    within = within + channel_floor
+    channel_crest = _fam(
+        "channel_crest_at_edge",
+        _check_channel_crest_at_edge(ways, nodes, channel_declared, proximity_m))
+    _pv("CHANNEL CREST off the governed cell it edges (§45 (5): crest = "
+        "\"design\" — the SOLVED surface at the corridor edge, never DEM)",
+        channel_crest, top_n)
+    within = within + channel_crest
 
     stacked = _fam("stacked_nodes", _check_stacked_nodes(vertices, ways))
     _pv("STACKED NODES (distinct node ids at one coordinate, values "

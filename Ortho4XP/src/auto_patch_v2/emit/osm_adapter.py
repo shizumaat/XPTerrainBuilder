@@ -100,6 +100,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # from the runway RINGS, which a shoulder fattens.
     "runway_axes", "shoulder_transverse_max",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
+    # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
+    # the floor datum each channel declares per station and the crest
+    # law, which the two §45 C14 families judge the emitted surface
+    # against.  Empty at every airport with no channel.
+    "channel_facilities",
     "road_coverage_join",  # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each coverage exit
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
@@ -941,6 +946,7 @@ def render_sidecar(law: Law, sidecar: _t.Mapping[str, _t.Any] | None) -> dict:
     ``ruleset`` and the always-empty declarations."""
     doc: dict[str, _t.Any] = {"ruleset": law.ruleset_key,
                               "terrace_joints": [], "basin_facilities": [],
+                              "channel_facilities": [],
                               "road_bridge_decks": []}
     for k, v in (sidecar or {}).items():
         if k not in SIDECAR_KEYS:

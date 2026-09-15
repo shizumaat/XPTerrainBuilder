@@ -478,7 +478,15 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # invented) when the caller hands no constraint set.
             "eat_rects": ([] if cs is None
                           else _eat_rects(planar, cs)),
-            "tunnel_objects": tunnel_objects(planar, airport)}
+            "tunnel_objects": tunnel_objects(planar, airport),
+            # THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i):
+            # one record per channel the map carries — the FLOOR the
+            # record declares per station and the CREST the design
+            # surface, in longitude / latitude, so the census can judge
+            # the emitted surface against exactly what the generator
+            # stated.  Empty at every airport with no channel, which is
+            # every airport but the three the class was measured over.
+            "channel_facilities": channel_facilities(planar, law, z)}
 
 
 def apron_tier(law: Law) -> dict[str, float | None]:
@@ -582,6 +590,60 @@ def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any
             "top_ground_m": None if tn.top_ground_z is None else round(tn.top_ground_z, 3),
             "ramp_length_m": round(max(0.0, tn.top_s - tn.climb_from_s), 1),
         })
+    return out
+
+
+def channel_facilities(planar: PlanarMap, law: Law,
+                       z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+    """THE OPEN CHANNEL RECORDS (spec §45; owner RULINGS 2026-09-15i).
+
+    ``floor_profile`` is ``[[lat, lon, the DECLARED floor], ...]`` — the
+    record's own ``floor_z(s)`` per axis station, the SAME call
+    ``constraints/channel.channels`` states the pin with, so
+    ``channel_floor_at_declaration`` judges the emitted floor against the
+    stated row and not against a second arithmetic.  ``emitted_floor_*``
+    and ``crest_parts_m`` are what the solve actually produced.
+    ``datum_source`` names which of §45 (3)'s three the floor came from,
+    so a ``--refresh-data dem`` moving a site from (iii) to (ii) shows up
+    in the sidecar with no law change."""
+    out: list[dict[str, _t.Any]] = []
+    chans = getattr(planar, "channels", ())
+    if not chans:
+        return out
+    from ..constraints.channel import floor_faces_of, wall_faces_of
+    floors = floor_faces_of(planar)
+    walls = wall_faces_of(planar)
+    for c in chans:
+        fvs = sorted({v for f in floors.get(c.id, ()) for v in planar.ring_vertices(f.ring)})
+        wvs = sorted({v for f in walls.get(c.id, ()) for v in planar.ring_vertices(f.ring)}
+                     - set(fvs))
+        f_zs = [float(z[v]) for v in fvs] if (z is not None and fvs) else []
+        c_zs = [float(z[v]) for v in wvs] if (z is not None and wvs) else []
+        out.append({
+            "id": c.id,
+            "ways": list(c.ways),
+            "witnesses": list(c.witnesses),
+            "datum_source": c.datum_source,
+            "crest": c.crest,
+            "bank_slope": round(float(c.bank_slope), 4),
+            "floor_profile": [[la, lo, round(float(zz), 3)]
+                              for la, lo, zz in c.profile_ll],
+            "corridor_longitude_latitude": [[lo, la] for la, lo in c.region_ll],
+            "decks": [{"ref": d.ref, "way": d.way, "datum": d.datum,
+                       "s0": round(float(d.s0), 2), "s1": round(float(d.s1), 2)}
+                      for d in c.decks],
+            "walls": [{"side": w.side, "shape": w.shape, "crest": w.crest,
+                       "witness": w.witness} for w in c.walls],
+            "floor_declared_min_m": round(min((zz for _a, _b, zz in c.profile_ll),
+                                              default=0.0), 3),
+            "floor_declared_max_m": round(max((zz for _a, _b, zz in c.profile_ll),
+                                              default=0.0), 3),
+            "emitted_floor_min_m": round(min(f_zs), 3) if f_zs else None,
+            "emitted_floor_max_m": round(max(f_zs), 3) if f_zs else None,
+            "emitted_floor_count": len(fvs),
+            "crest_parts_m": sorted({round(v, 2) for v in c_zs}),
+            "crest_count": len(wvs),
+            "notes": list(c.notes)})
     return out
 
 

@@ -260,6 +260,46 @@ class Tunnel:
 
 
 @_dc.dataclass(frozen=True)
+class Channel:
+    """THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i) — a road /
+    rail corridor under a STATED CROSSING that keeps its own floor
+    through the field.  Its identification, its merge and its default
+    bank; the depth comes from ``[tunnel] bridge.clearance_m`` and the
+    grade from ``[tunnel] ramp_max_grade`` — a channel invents no second
+    copy of either."""
+
+    #: §45 (1): the road/rail ways sharing the corridor within this are
+    #: ONE channel.  Ruled EQUAL to ``dual_carriageway_max_separation_m``
+    #: (40 m) — stated here so the two can be read apart if they ever part.
+    merge_m: float
+    #: §45 (5): the default bank where no witness states its shape —
+    #: 1:2, i.e. rise/run = 0.5.
+    bank_slope: float
+    #: §45 (1) (b): a paved NECK of the pavement union across the
+    #: corridor is a deck only while it is plausibly a crossing and not
+    #: the field itself — a run longer than this along the road is
+    #: pavement the road runs UNDER for its whole length, not a deck.
+    deck_max_width_m: float
+    #: §45 (1): a neck whose UNPAVED flank on either side is shorter than
+    #: this is a road crossing a taxiway, not a deck over a channel.
+    corridor_min_length_m: float
+    #: §45 (1), the lane's MEASURED DEVIATION (reported, never decided):
+    #: the corridor never reaches wider than this from the axis.  The
+    #: TOML comment carries the measurement.
+    corridor_max_half_width_m: float
+    #: The station spacing the floor profile and the banks are sampled at.
+    station_m: float
+    #: §45 (1) (c): a pack solid whose plan runs along the axis and whose
+    #: deepest genuine solid stands at least this far under the corridor's
+    #: crest is a WALL/FLOOR witness (the 05k-1 authority: seat = floor).
+    object_min_depth_m: float
+    #: §45 (3) (ii): the DTM floor is read as the MINIMUM over a window
+    #: this wide across the axis at each station (the bank toes are in the
+    #: corridor; the floor is what lies between them).
+    lidar_floor_window_m: float
+
+
+@_dc.dataclass(frozen=True)
 class Bridge:
     """Bridge deck law (RULINGS 2026-08-28; memory othh-bridge-deck-datum-r12)."""
 
@@ -364,6 +404,7 @@ class Structures:
     """structures.toml."""
 
     tunnel: Tunnel
+    channel: Channel
     bridge: Bridge
     building_pad: BuildingPad
     skirt: Skirt
@@ -669,7 +710,11 @@ _SIDES = ("airside", "groundside")
 _PAIRS = ("within", "cross", "steps")
 _SOLVERS = ("edge", "pin", "flat", "band", "offset", "construction",
             "diagnostic")
-_DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem",),
+#: ``crest`` gains ``"design"`` (spec §45 (5); owner RULINGS 2026-09-15i):
+#: a CHANNEL's wall crest is the SOLVED surface of the governed cell at the
+#: corridor edge, never ``DEM(x, y)`` — which at LGAV stands 2–4 m under the
+#: real rim.  Bores keep ``"dem"`` (09-03b, no change to any tunnel).
+_DATUMS = {"beyond_zone2": ("dem",), "crest": ("dem", "design"),
            "plate_datum": ("ground",), "mouth_depth": ("floor_slab", "wall_bottom"),
            "ramp_end": ("wall_end",), "trench": ("inner_walls",),
            "mouth_end": ("bore",),

@@ -393,12 +393,22 @@ def _record_grade(stats: BasinStats, cache: obj8.ResourceCache, bl) -> None:
 def build_basins(airport: Airport, classification: Classification, law: Law,
                  tunnels: _t.Sequence[Tunnel], objects: _t.Sequence[obj8.PlacedObject],
                  cache: obj8.ResourceCache | None = None,
-                 report: obj8.ObjReport | None = None
+                 report: obj8.ObjReport | None = None,
+                 channels: _t.Sequence = ()
                  ) -> tuple[Classification, tuple[Basin, ...], BasinStats]:
     """The classification with the basins applied (cells cut, floor and
     wall cells added, the footprints as keep-outs), the records, and the
     stats.  Nothing below grade comes back unchanged; nothing is refused
-    without its reason."""
+    without its reason.
+
+    ``channels`` are the OPEN CHANNELS (spec §45 (7); owner RULINGS
+    2026-09-15i).  INSIDE an identified corridor the DEM is not a witness
+    against the channel: a wall/floor object standing along the axis is
+    the channel's witness (1) (c) — "never a basin seed, a sunken road, a
+    tunnel-object corridor or a door well" — so its placement is dropped
+    here BEFORE the region pass reads it, with its reason.  LGAV measured
+    the cost of the alternative: 60 Trench refusals, five passes each
+    refusing the same geometry against the DEM it stands 12 m under."""
     stats = BasinStats()
     uu = _UnionClock(stats.union_s, stats.union_n)
     bl = law.tables.structures.basin
@@ -413,6 +423,19 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     if report is not None:
         stats.buried_named = list(report.buried_named)
     witnessed = [o for o in objects if o.witnesses]
+    if channels:
+        from .channel import in_any_corridor
+        keep = []
+        for o in witnessed:
+            cid = in_any_corridor(channels, getattr(o, "plan_bbox", None))
+            if cid:
+                stats.refused.append(
+                    f"{o.id}: stands along the axis of {cid} — the channel's own wall/floor "
+                    f"witness (§45 (1) (c)), never a basin seed; inside an identified "
+                    f"corridor the ground reference is the CREST, not the DEM (§45 (7))")
+                continue
+            keep.append(o)
+        witnessed = keep
     if not witnessed:
         return classification, (), stats
     u = uu("regions", [_outer(w) for o in witnessed for w in o.witnesses])

@@ -142,6 +142,29 @@ ruling    = "2026-09-14ai"
 solver    = "edge"
 cockpit   = "step"
 
+# THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i).  Two families,
+# both stated against the channel's OWN published record
+# (`channel_facilities`) and not against a second arithmetic: the floor
+# against the profile the generator pinned it at, and the crest against
+# the governed cell it edges — `crest = "design"`, never DEM(x, y).
+[channel_floor_at_declaration]
+measures  = "a channel floor vertex off the record's own declared profile"
+parameter = "structures.channel.station_m"
+roles     = ["tunnel_trench"]
+pairs     = "within"
+ruling    = "2026-09-15i"
+solver    = "pin"
+cockpit   = "step"
+
+[channel_crest_at_edge]
+measures  = "a channel crest off the governed cell's emitted level at the corridor edge"
+parameter = "structures.channel.bank_slope"
+roles     = ["retaining_wall"]
+pairs     = "within"
+ruling    = "2026-09-15i"
+solver    = "offset"
+cockpit   = "step"
+
 [basin_floor_declaration]
 measures  = "a basin facility floor disagreeing with its own body depth"
 parameter = "structures.basin.floor"

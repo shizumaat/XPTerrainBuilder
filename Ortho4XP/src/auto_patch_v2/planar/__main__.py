@@ -327,9 +327,12 @@ def structure_records(airport, cl, law) -> dict:
                                           measure=True)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
+    from .channel import identify_channels
+    channels, chstats = identify_channels(airport, cl, law, objects)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
-                                            plates)
-    cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep)
+                                            plates, channels)
+    cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,
+                                       channels=channels)
 
     def ll(p):
         la, lo = to_ll(p[0], p[1])
@@ -364,6 +367,26 @@ def structure_records(airport, cl, law) -> dict:
         "crest_from_approach": list(sstats.crest_from_approach),
         # spec §34 (5): the crossings an aeroway bridge stated
         "underpasses": list(sstats.underpasses),
+        # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNELS
+        "channels": [{"id": c.id, "ways": list(c.ways), "witnesses": list(c.witnesses),
+                      "datum_source": c.datum_source, "crest": c.crest,
+                      "bank_slope": c.bank_slope, "ends": list(c.ends),
+                      "decks": [{"ref": d.ref, "way": d.way, "s0": d.s0, "s1": d.s1,
+                                 "datum": d.datum} for d in c.decks],
+                      "walls": [{"side": w.side, "shape": w.shape, "crest": w.crest,
+                                 "witness": w.witness} for w in c.walls],
+                      "axis_m": (c.profile[-1][0] - c.profile[0][0]) if c.profile else 0.0,
+                      "floor_min": min((z for _s, z in c.profile), default=None),
+                      "floor_max": max((z for _s, z in c.profile), default=None),
+                      "half_width_m": c.half_width(c.ends[0]),
+                      "entry_ll": ll(c.axis[0]) if c.axis else None,
+                      "exit_ll": ll(c.axis[-1]) if c.axis else None,
+                      "notes": list(c.notes)} for c in channels],
+        "channel_refused": list(chstats.refused),
+        "channel_notes": list(chstats.notes),
+        "channel_witnesses": list(chstats.witnesses),
+        "channel_stats": {k: v for k, v in _dc.asdict(chstats).items()
+                          if not isinstance(v, list)},
         "tunnel_object_stats": {k: v for k, v in _dc.asdict(tstats).items()
                                 if not isinstance(v, list)},
         "tunnels": [{"id": t.id, "source": t.source, "mouth_z": t.mouth_z,

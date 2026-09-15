@@ -50,6 +50,8 @@ __all__ = ["wall_corridor_groups", "RAMP_ROLE", "GARAGE_ROLE", "KIND", "airside_
 #: lot is not a road (it is a place, and §24's pad law governs it).
 ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
 
+_MITRE = dict(join_style="mitre", mitre_limit=2.0)
+
 KIND = "wall_corridor"
 RAMP_ROLE = "wall_corridor_ramp"
 GARAGE_ROLE = "garage_ramp"
@@ -126,7 +128,8 @@ def airside_stops(cells, polys, law: Law, runway_family) -> list:
             and (role_side(law, c.role) == "airside" or c.role == "building")]
 
 
-def locked_road_stops(cells, polys, law: Law, runway_family, airside_reach_m: float) -> list:
+def locked_road_stops(cells, polys, law: Law, runway_family, airside_reach_m: float,
+                      half_out: dict | None = None) -> list:
     """THE SERVICE ROADS LOCKED TO AIRSIDE (spec §34 (9), owner RULINGS
     2026-09-14ak) — ``[(polygon, ref)]``, the stops a corridor's climb-out
     may be PINCHED against.
@@ -148,15 +151,52 @@ def locked_road_stops(cells, polys, law: Law, runway_family, airside_reach_m: fl
     if not air:
         return []
     tree = shapely.STRtree(air)
+    roads = [(p, c) for p, c in zip(polys, cells)
+             if c.kind != "structure" and c.role in ROAD_ROLES]
     out = []
-    for p, c in zip(polys, cells):
-        if c.kind == "structure" or c.role not in ROAD_ROLES:
-            continue
+    for p, c in roads:
         near = p.buffer(airside_reach_m)
-        if any(air[int(j)].distance(p) <= airside_reach_m + 1e-9
-               for j in tree.query(near, predicate="intersects")):
-            out.append((p, c.ref))
+        if not any(air[int(j)].distance(p) <= airside_reach_m + 1e-9
+                   for j in tree.query(near, predicate="intersects")):
+            continue
+        # §34 (9) (6) (owner RULINGS 2026-09-14bb: "the ramps are coming to
+        # the centerline of the road, so increase the road margin by a
+        # half-width"): the edge a pinched ramp ends at is the road's TRUE
+        # edge, so the stop geometry stands the road's HALF-WIDTH outside
+        # its face.  Measured at OTHH: route7 and route9 each emit TWO
+        # ribbons sharing their long edge — that shared edge IS the
+        # centreline and each face is one half-carriageway (3.77 m / 3.15 m
+        # wide), so the ramp stopping at a face edge stops a half-width
+        # short of where the road really ends.
+        half = _road_half_width_m(p, c, roads)
+        if half_out is not None:
+            half_out[c.ref] = half
+        out.append((p.buffer(half, **_MITRE), c.ref))
     return out
+
+
+def _road_half_width_m(poly, cell, roads) -> float:
+    """THE ROAD'S HALF-WIDTH (spec §34 (9) (6)) from the geometry the road
+    ACTUALLY carries: the emitted face's ribbon width — the short side of
+    its minimum rotated rectangle.
+
+    A carriageway emitted as TWO ribbons sharing their long edge (the
+    centreline) gives each face one HALF of the road, so the face's own
+    width is the half-width; a carriageway emitted whole gives the full
+    width, and the half-width is half of it.  Which one this is, is read
+    from the layout: a sibling face of the SAME road that shares a long
+    edge with this one."""
+    mrr = poly.minimum_rotated_rectangle
+    cs = list(mrr.exterior.coords)[:-1]
+    if len(cs) < 4:
+        return 0.0
+    w = min(math.dist(cs[i], cs[(i + 1) % 4]) for i in range(4))
+    base = str(cell.ref).split("#")[0]
+    halved = any(q is not poly and str(d.ref).split("#")[0] == base
+                 and q.distance(poly) <= 1e-6
+                 and q.intersection(poly.buffer(1e-3)).length > w
+                 for q, d in roads)
+    return w if halved else 0.5 * w
 
 
 def road_edge_witness(airport, road_poly, at: XY, wc, cache: dict) -> tuple[object, str]:

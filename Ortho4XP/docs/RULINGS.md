@@ -8370,3 +8370,29 @@ case — round 7. NOT DONE: a `dem` artefact derived-but-unrecorded has no
 reconcilable set; a cold bathymetry band is neither warmed nor reported
 by `--refresh-only`. Keys: the owner's chip session took 15bc
 concurrently and re-keyed itself to 15be (0fd65736); mine stands.
+
+## 2026-09-15bi v2schemarefuse ROUND 7 MERGED (0134dbe8): the reconciliation relativised against the LANE root (a symlinked `OSM_data` resolves into the shared repo → every candidate skipped) and needed a prior ledger line; now keyed on the corpus base with `never-ledgered` — live: the +33-112 write and five older caches ledgered in one record. THE GUARD LINE IS CLOSED (rounds 1–7)
+
+Attribution (lane r7, f6936b6f): `reconcilable_artifacts` did
+`Path(cache).resolve().relative_to(lane)` — a lane's `OSM_data` is a
+symlink into `/Users/noah/XPTerrainBuilderData`, so `ValueError` for
+every artefact, caught, skipped, "nothing to reconcile"; the ledger is
+keyed on shared-repo-relative paths, so `corpus_base` is the frame (the
+lane root only for a genuinely private corpus). And `ledger_state`
+replaces the boolean: `explained` / `stale-line` / `never-ledgered`;
+`reconciled_paths` names which; the `why` keeps the caveat (claims no
+fetch; the write may be another lane's). Suite ON MAIN: `1734 passed, 1
+skipped, 1 xpassed`, 0 failed. LIVE (this session, owner-authorised):
+`KPHX --tile 33 -112 --refresh-only --refresh-data osm_layers
+--reconcile-ledger` rc 0 — ONE record 14:03:57 `reconciled: true`
+naming `+33-112_airport_small_roads/_airports/_big_roads/_coastline/
+_water` and `+33-113_airport_small_roads` (never-ledgered), `+33-113_
+big_roads` left alone (explained by 15au's line); no lock left. Rounds
+1–7 in sum: bz2 guard hole (15v), stale-layer re-derivation (15ak),
+redirected-scope external naming + missing-dump refusal (15am), lane
+builds never write the install (15ao), neighbour tiles / absent layers /
+tile insets / refresh-only (15ba), try-finally ledger+lock + scope-
+limited re-judge + reconcile flag (15bg), corpus-base reconciliation
+(this). STILL NAMED, not fixed: `dem` artefacts have no reconcilable
+set; `--refresh-only` never reaches `bathymetry_band_admission`; the
+merged `airport_small_roads` cache carries no schema (owner chip).

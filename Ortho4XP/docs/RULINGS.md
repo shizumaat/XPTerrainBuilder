@@ -8030,3 +8030,12 @@ proof wants a tile with a current DEM index and a per-tile cfg. Known
 limit (peer): `pack_rebake` install entries are ledgered but not
 hash-stamped. The LEMD/VHHH install packs still carry the two lane
 rebakes (15bb) until the owner says restore.
+
+## 2026-09-15bf The tile-path guard PROVED THROUGH rebake_after_mesh at LEMD (main ba47b52d): `build_airport.py LEMD --tile 40 -4 --no-ledger` rc 0, 748.1 s; the install DSF byte-identical before/after (mtime 12:21:43, sha256 6bf37ff1…e1f8); "[v2 placement] LEMD: MEASURE ONLY — 0 conversion(s), 323 split(s) into 2710 body file(s), 4 kept; nothing written"; no `[v2 rebake]` write line; "shared repo UNCHANGED"
+
+The lane tile ban (15av) is lifted for lanes on main ≥ 6f6c28ed (peer's
+v2schemarefuse r4 / 15ao): the object stage measures, the install and
+the packs are in the snapshot, install writes refuse outside the
+`pack_rebake` scope. The LEMD and VHHH install packs still carry the
+two earlier lane rebakes (15bb) — the owner's restore decision stands
+open.

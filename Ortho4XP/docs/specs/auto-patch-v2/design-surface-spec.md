@@ -13164,3 +13164,100 @@ The lane's r2 re-measures VMMC, LEMD (54 → 54 expected) and OTHH
 (44 → 44 + the returned wall corridor) under the amendment.  The pav5
 residual 0.81 m (the flat-site preference losing to its neighbours,
 `flat_site 826/1240 unmet, max 0.692 m`) is accepted and named.
+
+### §34 (12) AMENDED / §37 (11) **MEASURED — ROUND 2** (lane `v2vmmcshore`, 2026-09-15, branch `claude/v2vmmcshore`, base main `847fa1a1`)
+
+**(1) IS DELETED, NOT GATED** (`serves_the_field` / `no_service_bores` and
+their stats fields are gone; `structures.py`'s docstring says the mouth
+admits again).  The §29 twins r1 amended are RESTORED to their own
+assertions, and `test_v2mouthgate.py::test_a_mouth_on_the_field_is_built_
+though_its_bore_covers_nothing` carries the supersession's own history so
+the reversal cannot come back unnoticed.
+
+**THE CLOSING BUILD STILL REFUSES** (checked once, on the merged tree):
+
+> `REFUSING: … [osm_layers] OSM_data/+20+110/+22+113/+22+113_big_roads.osm.bz2`
+> `— the cached big_roads layer is SCHEMA-STALE — written under 2026-07-16,`
+> `the engine expects 2026-09-15 … --refresh-data osm_layers`
+
+and the refresh ledger holds NO `osm_layers` entry covering `+22+113`.
+The arm is therefore a **MATCHED REPLAY PAIR**, one corpus, two trees,
+one instrument: a `v2_solve_replay --capture` (14 s) per tree and its
+`--emit` patch, censused by `harness/census.py`.  BASE = the ritual
+worktree at `079197eb`; ARM = this branch.
+
+| bar | BASE (replay-emitted) | ARM (replay-emitted) |
+|---|---|---|
+| owner site 22.1618794, 113.579745 | **INSIDE `tunnel_ramp` way −10098** | **covered by NOTHING** (`osm_site --contains`: 0 ring groups) |
+| `tunnel_ramp` faces / `structure_rim` | 11 / 19 | **8 / 13** |
+| ramp + rim standing ON THE SEA | **1,543.8 m²** | **1.7 m²** — §34 (12) (2) (unclipped, once (1) was withdrawn, it read 905.7 m²) |
+| `pav5` | 4 faces **3.58 / 4.28 / 5.43 … 6.16 m** | 4 faces **5.09 … 6.12 m**; lowest airside face 3.58 → **5.09** — bar (≥ 5.9) **NOT MET by 0.81 m**, the accepted flat-site residual |
+| patch nodes at or under 0.5 m | **284** | **0** |
+| `strip_seam_tear` / `adjacent_ground_step` | **63 / 6** | **0 / 0** |
+| `transverse` / `strip_transverse` / `road_cross_section` | 11 / 0 / 6 | **0 / 0 / 0** |
+| `ramp_in_strip` | **18** (worst 9.103 m) | **0** |
+| `airside_no_step` / `within_shape` / `taxi_box` | 76 / 76 / 62 | **32 / 2 / 22** |
+| `hairline_pair` | 138 (worst 0.331 m) | **108** (worst 0.186 m) |
+| census **LAW-TRUE / ADJUDICATED** | **456 / 245** (airside 213, gs 9, mixed 23) | **165 / 55** (airside 55, gs 0, mixed 0) |
+| the shore trim (dry, same tree) | — | `THE SHORE (§37 (11) (1)) cut 98,575 m² off 3 region(s), 6,567 m of sea wall`; 44 zone regions, **19 QUAYS** — unchanged from r1 |
+
+**A DEFECT THE REPLAY PAIR FOUND, AND THE FIX.**  `tools/v2_solve_replay.py`
+called `flat_site.detect` WITHOUT §37 (11) (4)'s land declaration, so a
+replay solved a different problem from a build: `pav5` 1.95 m against the
+build's 5.09, `within_shape` 327 against 2.  The replay now reads
+`pipeline/build._classified_land` — ONE derivation, two callers — and the
+arm above reproduces the r1 harness build exactly (ADJUDICATED 55,
+`within_shape` 2, `airside_no_step` 32).
+
+#### LEMD AND OTHH — MATCHED DRY `planar --stage structures` PAIRS
+
+| | LEMD base | LEMD arm | OTHH base | OTHH arm |
+|---|---|---|---|---|
+| tunnels | 54 | **55** | 44 | **44** |
+| decks / basins / underpasses | 7 / 0 / 1 | **7 / 0 / 1** | 1 / 10 / 0 | **1 / 10 / 0** |
+| corridors / door wells / sunken roads | 1 / 0 / 0 | 1 / 0 / 0 | 9 / 4 / 0 | 9 / 4 / 0 |
+
+**OTHH IS IDENTICAL, tunnel for tunnel** — the three terminal tunnels (3)
+refused in r1 are back (the scoping), and the `VCN_004` wall corridor does
+NOT "return" because the bore it overlapped (`tunnel:-11191@0`) is itself
+back under (1)'s withdrawal.
+
+**LEMD IS 54 → 55, AND THE ONE DIFFERENCE IS NAMED**: `tunnel:-5821+-5820@1`.
+The base REFUSED it — `the ramp would cross a runway-family face before
+reaching the DEM (ramp_cuts_runway_family = false)` — and under (3) as
+amended it STOPS SHORT and is built instead.  That is the ruling's own
+words ("otherwise it STOPS SHORT of the pavement") turning a refusal into
+a shorter portal; it is the F-6 underpass's own bore pair, and the
+underpass count is unchanged at 1.  Nine refusal MESSAGES change wording
+(a pad hit that is now also an airside hit names the pavement:
+`-17028@0` `pav70`, `-17037@0` `pav54`, `-17037@1` `pav12`); the verdicts
+are the same.
+
+#### THE VMMC STUB — OWNER QUESTION 15w-1, WITH ITS GEOMETRY
+
+**The bore the owner named builds nothing**: `−5508+−5507+−2489` is
+refused at BOTH ends (`its corridor overlaps tunnel:-4787@1 (not a dual
+under 31h's separation test)`).  What stands on the seafront is a
+DIFFERENT bore, `tunnel:-2488@0` — mouth **22.1629135, 113.5752813**,
+floor **0.996 m**, design grade 8 %, approach walk `top_s` **468 m** —
+emitting three ramp faces, 381 m of frontage in all:
+
+| face | area | length | floor | centroid | → owner's probe | → `pav5` | → the shore |
+|---|---|---|---|---|---|---|---|
+| `−10085` | 1,522 m² | 207 m | 1.00 m | 22.1626813, 113.5762528 | 263 m | **38.8 m** | 127.2 m |
+| `−10086` | 568 m² | 87 m | 1.00 m | 22.1623307, 113.5777243 | 169 m | **38.9 m** | 63.3 m |
+| `−10087` | 454 m² | 87 m | 1.00 m | 22.1621281, 113.5785729 | **74 m** | **38.9 m** | **0.0 m** (it ENDS at the coastline — (2)) |
+
+The line no longer reaches the owner's probe, never touches `pav5`
+(38.8 m clear at its nearest) and no longer goes out into the water.
+KML for the owner's read:
+`<scratchpad>/vs/VMMC_r2.kml` (`planar --stage structures --kml`).
+The 1.7 m² residual on the sea is one rim sliver at the clip line, under
+the identity spacing.
+
+#### What round 2 did NOT do
+
+The closing VMMC build (refused above — the owner's `--refresh-data
+osm_layers`) and therefore `mesh_region_tris --z-xref`; `pav5`'s last
+0.81 m (accepted by 15w); any `--refresh-data`; the five-airport sweep;
+any LEMD / OTHH BUILD; any merge; any RULINGS entry; any new tool.

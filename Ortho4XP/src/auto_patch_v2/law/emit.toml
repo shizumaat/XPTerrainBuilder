@@ -701,7 +701,7 @@ zone_projection = true
 # a pad welded to a fixed rim and a road pinched under its ramp ceiling
 # cannot meet their caps when airside cannot yield a centimetre).  Turned
 # ON by the owner's ruling, not by a lane.  ``true`` is the staged arm.
-staged_solve    = false
+staged_solve    = true
 hard_tol_m      = 0.02    # a hard row is HELD at this residual: under the census's own per-node rounding envelope (instrument.rounding_noise_m 0.03), so a held row can mint no defect row.  The multiplier rounds stop here
 # THE ADJACENT GROUND FOLLOWS THE PAVEMENT AND NEVER PULLS IT (09-09b
 # (2)/(3)): a row whose ruling head is listed here is priced ONE-WAY — the

@@ -253,3 +253,151 @@ def test_parse_work_package_0_excerpt(tmp_path, monkeypatch):
     (lon0, lat0), _b, _c = terrain_map._triangles[0]
     idx = terrain_map.terrain_index_at(lon0, lat0)
     assert 0 <= idx < len(terrain_map.terrain_paths)
+
+
+# ── RULINGS 2026-09-14bu: the 'default_xplane' DSF read ─────────────────
+#
+# Two defects, one owner report ("it can't find the defaults"):
+#   1. ``custom_overlay_src`` set one level HIGH — the parent 'Global
+#      Scenery' folder instead of the 'X-Plane 12 Global Scenery' pack;
+#   2. DSFTool "died with SIGSEGV" on the default DSF inside the engine
+#      build while the SAME binary converted the SAME file fine from a
+#      shell.  Attributed from the crash report
+#      (``Ortho4XP-2026-09-14-221801.ips``): the faulting frames are
+#      ``fork`` child -> PROJ ``SQLiteHandle::~SQLiteHandle`` ->
+#      ``sqlite3SysLog`` -> ``os_log_preferences_refresh``, i.e. the
+#      2026-07-16 PROJ ``pthread_atfork`` crash that
+#      ``UI.external_tool_keyword_arguments()`` (``close_fds=False`` ->
+#      ``posix_spawn``) exists to avoid.  The DSFTool launch in
+#      ``dsf_reader.ensure_dsf_text_path`` was the last external-tool
+#      launch in the engine not passing those kwargs.  7z compression was
+#      NOT the cause: DSFTool decompresses 7z DSFs itself (measured on
+#      X-Plane 12's +25+051.dsf with both the repo and the app-bundled
+#      binary, rc 0).
+
+def test_dsftool_launch_uses_external_tool_kwargs(tmp_path, monkeypatch):
+    """Every DSFTool launch must carry ``close_fds=False`` + the tool env.
+
+    Without it the fork()ed child segfaults in PROJ's atfork handler once
+    the build has warped anything with GDAL, and the failure surfaces as
+    "DSFTool died with SIGSEGV"."""
+    import subprocess as _sp
+    import O4_UI_Utils as UI
+
+    dsf = tmp_path / "+00+000.dsf"
+    dsf.write_bytes(b"\x37\x7a\xbc\xaf\x27\x1c" + b"\x00" * 32)
+    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+
+    seen = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append((cmd, kwargs))
+        # Materialise the output file the caller expects.
+        open(cmd[3], "w").close()
+        return _sp.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr(D.subprocess, "run", fake_run)
+    out = D.ensure_dsf_text_path(str(dsf), cache_dir=str(tmp_path / "cache"))
+    assert out is not None
+    assert seen, "DSFTool was never launched"
+    expected = UI.external_tool_keyword_arguments()
+    for cmd, kwargs in seen:
+        assert kwargs.get("close_fds") is False, (
+            f"DSFTool launched without close_fds=False: {cmd}")
+        assert kwargs.get("env") == expected["env"], (
+            f"DSFTool launched without the tool env: {cmd}")
+
+
+def test_dsftool_fallback_launch_also_uses_external_tool_kwargs(
+        tmp_path, monkeypatch):
+    """The /tmp fallback launch (unwritable cache dir) carries them too."""
+    import subprocess as _sp
+
+    dsf = tmp_path / "+00+000.dsf"
+    dsf.write_bytes(b"not-really-a-dsf")
+    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        if len(calls) == 1:
+            raise _sp.CalledProcessError(-11, cmd)
+        open(cmd[3], "w").close()
+        return _sp.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr(D.subprocess, "run", fake_run)
+    out = D.ensure_dsf_text_path(str(dsf), cache_dir=str(tmp_path / "cache"))
+    assert out is not None
+    assert len(calls) == 2, "expected a primary launch and the /tmp fallback"
+    for cmd, kwargs in calls:
+        assert kwargs.get("close_fds") is False, (
+            f"DSFTool launched without close_fds=False: {cmd}")
+        assert "env" in kwargs
+
+
+def test_from_tile_accepts_parent_of_the_scenery_pack(tmp_path, monkeypatch):
+    """``custom_overlay_src`` one level HIGH still finds the tile.
+
+    The owner had ``…/X-Plane 12/Global Scenery`` configured; the DSF
+    lives at ``…/Global Scenery/X-Plane 12 Global Scenery/Earth nav
+    data/+00+000/+00+000.dsf``."""
+    parent = tmp_path / "Global Scenery"
+    end = parent / "X-Plane 12 Global Scenery" / "Earth nav data" / "+00+000"
+    end.mkdir(parents=True)
+    dsf = end / "+00+000.dsf"
+    dsf.write_bytes(b"fake-dsf")
+    text = end / "+00+000.dsf.text"
+    with open(SYNTHETIC_TERRAIN, "r", encoding="utf-8") as src:
+        text.write_text(src.read())
+    now = os.path.getmtime(text)
+    os.utime(str(dsf), (now - 100, now - 100))
+
+    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+    monkeypatch.setattr(DTM.FNAMES, "Default_dsf_cache_dir", str(end))
+    monkeypatch.setattr(OVL, "custom_overlay_src", str(parent))
+    monkeypatch.setattr(OVL, "custom_overlay_src_alternate", "")
+    D._DSF_LINES_CACHE.clear()
+
+    tmap = DefaultTerrainMap.from_tile(0, 0)
+    assert tmap is not None
+    assert tmap.terrain_paths
+
+
+def test_from_tile_error_names_the_expected_layout(tmp_path, monkeypatch,
+                                                   capsys):
+    """The not-found error must name the layout the setting should point
+    at — the opaque original sent the owner looking in the wrong place."""
+    empty = tmp_path / "Global Scenery"
+    empty.mkdir()
+    monkeypatch.setattr(OVL, "custom_overlay_src", str(empty))
+    monkeypatch.setattr(OVL, "custom_overlay_src_alternate", "")
+    assert DefaultTerrainMap.from_tile(25, 51) is None
+    printed = capsys.readouterr().out
+    assert "X-Plane 12 Global Scenery" in printed
+    assert "Earth nav data" in printed
+    assert "+20+050/+25+051.dsf" in printed.replace(os.sep, "/")
+
+
+_REAL_DEFAULT_DSF = (
+    "/Users/noah/X-Plane 12/Global Scenery/X-Plane 12 Global Scenery/"
+    "Earth nav data/+20+050/+25+051.dsf")
+
+
+@pytest.mark.skipif(
+    not os.path.isfile(_REAL_DEFAULT_DSF)
+    or D._dsftool_path() is None,
+    reason="X-Plane 12 Global Scenery / DSFTool not present")
+def test_real_7z_compressed_default_dsf_dumps(tmp_path):
+    """The refutation record: X-Plane 12's default DSFs ARE 7z archives
+    and DSFTool reads them directly.  Any future 'DSFTool cannot read 7z'
+    fix is unnecessary — look at the launch kwargs instead."""
+    with open(_REAL_DEFAULT_DSF, "rb") as fh:
+        assert fh.read(6) == b"\x37\x7a\xbc\xaf\x27\x1c"
+    D._DSF_LINES_CACHE.clear()
+    out = D.ensure_dsf_text_path(_REAL_DEFAULT_DSF, cache_dir=str(tmp_path))
+    assert out is not None and os.path.getsize(out) > 1_000_000
+    with open(out, "r", encoding="utf-8", errors="replace") as fh:
+        head = [next(fh) for _ in range(3)]
+    assert head[0].strip() == "A"
+    assert "DSF2TEXT" in head[2]

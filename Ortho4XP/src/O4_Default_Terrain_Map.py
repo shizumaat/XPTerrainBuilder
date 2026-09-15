@@ -54,6 +54,16 @@ _Triangle = "tuple[tuple[float, float], tuple[float, float], tuple[float, float]
 # decorative border blend, not the exactly-once base coverage this map needs.
 _PHYSICAL_FLAG_BIT = 1
 
+#: Scenery-pack folders to look for ONE LEVEL DOWN from a configured
+#: ``custom_overlay_src`` that does not itself hold ``Earth nav data``
+#: (RULINGS 2026-09-14bu: the owner had ``…/X-Plane 12/Global Scenery``
+#: configured — the parent of the pack).  X-Plane's own installer names.
+_GLOBAL_SCENERY_SUBDIRS = (
+    "X-Plane 12 Global Scenery",
+    "X-Plane 11 Global Scenery",
+    "X-Plane 12 Demo Areas",
+)
+
 
 def _dump_cache_dir() -> str:
     """Directory for DSFTool text dumps of default Global Scenery DSFs.
@@ -104,8 +114,9 @@ class DefaultTerrainMap:
 
     @classmethod
     def from_dsf(cls, dsf_path: str) -> "DefaultTerrainMap":
-        """Parse the DSFTool text dump of ``dsf_path`` (7z handled by
-        DSFTool) into a terrain-type lookup.
+        """Parse the DSFTool text dump of ``dsf_path`` (a 7z-compressed
+        DSF is extracted first, RULINGS 2026-09-14bu) into a terrain-type
+        lookup.
 
         Raises ``FileNotFoundError`` if the DSF (or its DSFTool text dump)
         cannot be produced; callers wanting a soft failure use
@@ -138,11 +149,18 @@ class DefaultTerrainMap:
         relative = os.path.join(
             "Earth nav data", FNAMES.long_latlon(lat, lon) + ".dsf")
         candidates = []
-        if OVL.custom_overlay_src:
-            candidates.append(os.path.join(OVL.custom_overlay_src, relative))
-        if OVL.custom_overlay_src_alternate:
-            candidates.append(
-                os.path.join(OVL.custom_overlay_src_alternate, relative))
+        for root in (OVL.custom_overlay_src, OVL.custom_overlay_src_alternate):
+            if not root:
+                continue
+            candidates.append(os.path.join(root, relative))
+            # RULINGS 2026-09-14bu: the owner had the setting one level
+            # HIGH — ``…/X-Plane 12/Global Scenery`` instead of
+            # ``…/Global Scenery/X-Plane 12 Global Scenery``.  A
+            # configured root that is the PARENT of the scenery pack is
+            # accepted by looking one level down for the pack that owns
+            # the tile, rather than failing with an opaque "not found".
+            for sub in _GLOBAL_SCENERY_SUBDIRS:
+                candidates.append(os.path.join(root, sub, relative))
 
         dsf_path = next(
             (c for c in candidates if os.path.isfile(c)), None)
@@ -152,8 +170,14 @@ class DefaultTerrainMap:
                 "   ERROR: no default Global Scenery DSF found for tile "
                 f"{FNAMES.short_latlon(lat, lon)} under custom_overlay_src"
                 f" ({OVL.custom_overlay_src!r}) or custom_overlay_src_alternate"
-                f" ({OVL.custom_overlay_src_alternate!r}); set the Global"
-                " Scenery directory in the config window first.")
+                f" ({OVL.custom_overlay_src_alternate!r}).  The expected"
+                " layout is <Global Scenery>/X-Plane 12 Global Scenery/"
+                f"Earth nav data/{FNAMES.long_latlon(lat, lon)}.dsf — the"
+                " setting must name the SCENERY PACK ('… /Global Scenery/"
+                "X-Plane 12 Global Scenery'), not its parent 'Global"
+                " Scenery' folder; set the Global Scenery directory in the"
+                " config window first.  Tried: "
+                + ", ".join(repr(c) for c in candidates))
             return None
 
         text_path = ensure_dsf_text_path(dsf_path, cache_dir=_dump_cache_dir())

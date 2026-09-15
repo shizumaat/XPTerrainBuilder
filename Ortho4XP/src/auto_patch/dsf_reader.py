@@ -515,12 +515,29 @@ def ensure_dsf_text_path(dsf_path: str,
     if needs_convert:
         try:
             os.makedirs(cache_dir, exist_ok=True)
+            # ``UI.external_tool_keyword_arguments()`` is LOAD-BEARING,
+            # not decoration (RULINGS 2026-09-14bu; the underlying
+            # diagnosis is 2026-07-16).  ``close_fds=False`` is what makes
+            # CPython take ``posix_spawn()`` instead of ``fork()`` +
+            # ``exec()``: once GDAL has warped anything in this process,
+            # PROJ's ``pthread_atfork`` child handler closes the
+            # ``proj.db`` sqlite handles in the forked child and
+            # segfaults in ``os_log`` BEFORE ``exec`` runs.  The child
+            # dies with SIGSEGV and Python reports it as "DSFTool died
+            # with SIGSEGV" — which is what a ``texture_mode =
+            # 'default_xplane'`` tile build hit on +25+051.dsf while the
+            # very same DSFTool converted the very same DSF fine from a
+            # shell.  Every other external-tool launch in the engine
+            # already passes these kwargs; this call was the last one
+            # that did not.
+            tool_kwargs = UI.external_tool_keyword_arguments()
             # Some platforms don't allow writing into Custom Scenery;
             # fall back to a temp file in /tmp if the cache write fails.
             try:
                 subprocess.run(
                     [tool, "--dsf2text", dsf_path, text_path],
                     check=True, capture_output=True, timeout=120,
+                    **tool_kwargs,
                 )
             except (PermissionError, subprocess.CalledProcessError):
                 fallback = tempfile.NamedTemporaryFile(
@@ -530,6 +547,7 @@ def ensure_dsf_text_path(dsf_path: str,
                 subprocess.run(
                     [tool, "--dsf2text", dsf_path, text_path],
                     check=True, capture_output=True, timeout=120,
+                    **tool_kwargs,
                 )
         except (OSError, subprocess.SubprocessError) as exc:
             UI.vprint(1,

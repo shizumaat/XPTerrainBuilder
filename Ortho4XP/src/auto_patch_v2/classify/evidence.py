@@ -494,8 +494,23 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
         CLUSTER_PADS.update(disarmed=True, clusters=len(cl))
         return []
     to_xy, _to_ll = airport.frame.transformers()
+    # §16g (10) (11) ONE CUTTER, AND IT IS THE ARRANGEMENT'S (lane
+    # ``v2padqp``; RULINGS 2026-09-14ax already ruled the CLIP belongs to
+    # ``planar/overlay.airside_clip``, where the faces have ROLES).  The
+    # ``airside`` handed here is the only union available at evidence time
+    # — every apt.dat pavement page — and it does not merely clip: rule 4
+    # SPLITS the outline at it, so one cluster came out as several pads
+    # while the census (which clips with the PLANAR role faces) saw one
+    # piece.  MEASURED at LEMD: the T4 cluster ``unit:25#843/0`` is ONE
+    # census piece of 94,301 m2 against the mint's ``building34`` /
+    # ``35`` / ``36`` — and that row is the owner's own garage.  With the
+    # arrangement clip armed the outline is therefore NOT pre-cut here;
+    # with it disarmed this union is still the only guard against a
+    # derived pad eating the apron (14ah: 94,795 m2, 13,637 airside
+    # vertices), so it stands.
+    _mint_airside = None if bool(st.pad_airside_clip) else airside
     got, counts = cluster_outlines(cl, to_xy, float(st.footprint_touch_m),
-                                   airside=airside,
+                                   airside=_mint_airside,
                                    # §16g (10) (7): LEAVES GET NO PAD
                                    walled_only=True,
                                    min_m2=float(st.cluster_pad_min_m2))

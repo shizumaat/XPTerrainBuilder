@@ -244,8 +244,28 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
     got: dict[str, list[int]] = {}
     by_ref: dict[str, list[str]] = {}
     yielded: dict[str, tuple[int, ...]] = {}
-    pairs = cluster_polys(airport, min_m2, _touch_m(law),
-                          airside_union(planar, law))
+    # §16g (10) (11) THE CENSUS CUTS THE CLUSTER WHERE THE MINT DOES.
+    # ``classify/evidence._cluster_pads`` no longer pre-splits the outline
+    # at an airside union when the ARRANGEMENT clip is armed (14ax), so
+    # neither does this reader: two cutters disagreeing about where a
+    # cluster ends IS the mismatch family's own false positive (LEMD's T4
+    # cluster read as one 94,301 m2 piece here against three minted refs).
+    # With the clip disarmed the mint still pre-splits, and so does this.
+    pairs = cluster_polys(
+        airport, min_m2, _touch_m(law),
+        None if bool(law.tables.structures.placement.pad_airside_clip)
+        else airside_union(planar, law))
+    # §16g (10) (11) A PIECE THE MINT NEVER PADDED IS NOT A PAD.  The
+    # mint drops every piece under ``[building_pad] min_area_m2``
+    # (``classify/evidence._pads``), so a 7 m2 sliver of a cluster's
+    # outline has no pad and cannot be one — judged here it made its own
+    # building's ref a ``pad_spans_clusters`` row (LEMD ``unit:25#843/1``
+    # and ``/2``, 7 and 3 m2, against a 94,301 m2 ``/0``).  This is the
+    # same rule ``walled_only`` / ``min_m2`` already state at cluster
+    # level: the census judges the population the mint minted.
+    _min_area = float(law.tables.structures.building_pad.min_area_m2)
+    if _min_area > 0.0:
+        pairs = [p for p in pairs if p[2].area >= _min_area]
     if not pairs:
         return got, by_ref, yielded
     polys = _pad_polys(planar, law)

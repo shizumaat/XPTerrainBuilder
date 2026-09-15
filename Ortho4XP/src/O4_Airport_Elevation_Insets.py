@@ -798,12 +798,15 @@ def run_capability_record(definition):
 
     ``{"engine": <version>, "capabilities": [...]}`` -- the engine that
     wrote the status and which of the provider's required capabilities
-    that engine HAD.  ``None`` for a provider that requires none (no
-    record is needed; nothing about it can be capability-degraded).
+    that engine HAD.  A provider that requires NONE still gets the
+    engine stamp with an empty capability list (owner RULINGS
+    2026-09-15aq (4)): nothing about it can be capability-degraded, but
+    the VERSION is what decides whether its durable negative is re-asked
+    once on the next engine.
     """
     required = provider_required_capabilities(definition)
     if not required:
-        return None
+        return {"engine": _engine_version(), "capabilities": []}
     have = []
     for capability in required:
         if capability == CAPABILITY_LERC and lerc_decode_available():
@@ -818,6 +821,15 @@ def _engine_version():
         return str(O4_Version.version)
     except Exception:
         return "unknown"
+
+
+def engine_version():
+    """The running engine's version string (``"unknown"`` if unreadable).
+
+    Public because the harness's pre-build refusal names it beside the
+    version a negative was recorded under.
+    """
+    return _engine_version()
 
 
 def _record_run_capabilities(airport_record, code, definition):
@@ -878,6 +890,60 @@ def negative_is_unverified(airport_record, code, definition,
         capability not in recorded
         for capability in provider_required_capabilities(definition)
     )
+
+
+def recorded_engine_version(airport_record, code):
+    """The engine version stamped beside ``code``'s status, or ``None``."""
+    if not isinstance(airport_record, dict):
+        return None
+    capabilities = airport_record.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return None
+    stamp = capabilities.get(code)
+    if not isinstance(stamp, dict):
+        return None
+    engine = stamp.get("engine")
+    return str(engine) if engine is not None else None
+
+
+def negative_is_version_stale(airport_record, code, definition,
+                              bounding_box=None):
+    """Is this ``no-coverage`` a CAPABILITY-FREE one from another engine?
+
+    Owner RULINGS 2026-09-15aq (4).  The 13b door above
+    (:func:`negative_is_unverified`) can only reach a provider that
+    DECLARES a required capability -- USGS3DEP declares none, so the 20
+    false negatives the TNM outage of 2026-09-15 wrote across the two
+    Phoenix tiles (RULINGS 2026-09-15q attributed the writer) were
+    PERMANENT: nothing in the index could ever call them into question.
+
+    The ruling makes the ENGINE VERSION the discriminator: each version
+    re-asks every capability-free negative once (one discovery query per
+    airport per version, ~0.4 s when the service is up).  The re-probe
+    stamps the running version whatever the answer, so a genuine empty
+    listing stays no-coverage and is not asked again until the next
+    version.
+
+    False for a capability-GATED provider (13b's door owns those,
+    unchanged), for any status but ``no-coverage``, and -- so no engine
+    release churns every index on earth -- for a negative that only says
+    "this provider's own declared box does not reach here".  That one is
+    re-derived from the boxes, needs no query, and is short-circuited
+    before any fetch.
+    """
+    if not isinstance(airport_record, dict):
+        return False
+    if airport_record.get(code) != NO_COVERAGE:
+        return False
+    if provider_required_capabilities(definition):
+        return False
+    if bounding_box is None:
+        bounding_box = airport_record.get("bounding_box")
+    if bounding_box is not None and not _coverage_bbox_intersects(
+        definition, bounding_box
+    ):
+        return False
+    return recorded_engine_version(airport_record, code) != _engine_version()
 
 
 def _parse_boolean(value):
@@ -7127,11 +7193,15 @@ def ensure_airport_insets(
             unverified = negative_is_unverified(
                 airport_record, code, definition, bounding_box
             )
+            version_stale = negative_is_version_stale(
+                airport_record, code, definition, bounding_box
+            )
             if (
                 not refresh
                 and not negatives_are_stale
                 and airport_record.get(code) == NO_COVERAGE
                 and not unverified
+                and not version_stale
             ):
                 continue
             if not _coverage_bbox_intersects(definition, bounding_box):
@@ -7159,6 +7229,24 @@ def ensure_airport_insets(
                     % (icao, code,
                        "/".join(provider_required_capabilities(definition))
                        .upper()),
+                )
+            elif version_stale:
+                # ONCE PER ENGINE VERSION (owner RULINGS 2026-09-15aq (4)).
+                # This provider declares no capability, so 13b's door
+                # above cannot reach it and the negative on disk would
+                # otherwise be permanent -- as the 20 the TNM outage of
+                # 2026-09-15 wrote across the Phoenix tiles were.  The
+                # probe below stamps THIS version whatever it answers, so
+                # a genuine empty listing is not asked again until the
+                # next one.
+                UI.vprint(
+                    1,
+                    "    [insets] %s: re-probing %s (no-coverage recorded "
+                    "by engine %s, this is %s) - once per version"
+                    % (icao, code,
+                       recorded_engine_version(airport_record, code)
+                       or "an unrecorded version",
+                       _engine_version()),
                 )
             if not has_gdal:
                 airport_record[code] = unavailable_status(
@@ -8299,6 +8387,45 @@ def unverified_capability_negatives(lat, lon, provider_definitions=None):
     return out
 
 
+def version_stale_capability_free_negatives(lat, lon,
+                                            provider_definitions=None):
+    """Every CAPABILITY-FREE no-coverage negative from another engine.
+
+    ``[(icao, provider code, recorded version or None), ...]`` -- the
+    records a next pass would RE-PROBE under owner RULINGS 2026-09-15aq
+    (4), sorted.  Cheap: one JSON read, no network, no raster.
+
+    THE ONE PREDICATE for that question, exactly as
+    :func:`unverified_capability_negatives` is for 13b's door: the
+    engine's fetch loop asks it per provider
+    (:func:`negative_is_version_stale`), ``is_cached`` asks it to refuse
+    to call such a tile settled, and the harness asks it to REFUSE a
+    build up front -- the re-probe fetches into the shared data repo, and
+    a build never writes it as a side effect.
+    """
+    if provider_definitions is None:
+        provider_definitions = select_provider_definitions(
+            "auto", role=ROLE_AIRPORT_INSET
+        )
+    free = [
+        definition
+        for definition in provider_definitions
+        if not provider_required_capabilities(definition)
+    ]
+    if not free:
+        return []
+    out = []
+    for (icao, airport_record) in sorted(_read_index(lat, lon).items()):
+        for definition in free:
+            code = definition["code"]
+            if negative_is_version_stale(airport_record, code, definition):
+                out.append(
+                    (icao, code,
+                     recorded_engine_version(airport_record, code))
+                )
+    return out
+
+
 def is_cached(tile) -> bool:
     """True when this tile's airport-inset pass would fetch nothing.
 
@@ -8327,13 +8454,21 @@ def is_cached(tile) -> bool:
         for name in stamp.get("insets") or ():
             if _file_size_or_zero(os.path.join(directory, name)) <= 0:
                 return False
+        tile_definitions = select_provider_definitions(
+            getattr(tile, "airport_elevation_providers", "auto"),
+            role=ROLE_AIRPORT_INSET,
+        )
+        if version_stale_capability_free_negatives(
+            tile.lat, tile.lon, tile_definitions
+        ):
+            # ONCE PER ENGINE VERSION (owner RULINGS 2026-09-15aq (4)):
+            # a capability-free provider's negative -- the 20 the TNM
+            # outage wrote on the Phoenix tiles -- is re-asked by each
+            # new engine, so a stamp from another version does not mean
+            # "nothing left to fetch".
+            return False
         if unverified_capability_negatives(
-            tile.lat,
-            tile.lon,
-            select_provider_definitions(
-                getattr(tile, "airport_elevation_providers", "auto"),
-                role=ROLE_AIRPORT_INSET,
-            ),
+            tile.lat, tile.lon, tile_definitions,
         ):
             # The stamp says "nothing left to fetch", and it was written
             # by the engine that could not ASK (owner RULINGS

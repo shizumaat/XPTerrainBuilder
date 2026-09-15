@@ -407,23 +407,11 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
         nv = (-u[1], u[0])
         pt = Point(p)
         best = None
-        strip = 0.0
+        best_cell = None
         for j in tree.query(pt, predicate="intersects"):
             c = cells[int(j)]
             if c.kind == "structure" or not polys[int(j)].contains(pt):
                 continue
-            # §34 (5) (b): the STRIP is the WIDEST any pavement standing
-            # at this station declares, never the deck cell's alone.  At
-            # LEMD F-6 the axis stands in BOTH `junction/pav157` (code E,
-            # strip 19.0 m) and runway 14R/32L (code 4, strip 75.0 m):
-            # clearing only pav157's took the taxiway rows to zero and
-            # left 8 `ramp_in_strip` rows against the RUNWAY's strip with
-            # the `strip_transverse [runway|tunnel_ramp]` worst reading
-            # 5.589 -> 13.872 m — a deeper trench surfacing in the ground
-            # an aircraft leaving the RUNWAY runs out onto, which is the
-            # ground §34 (5) (b) is about.
-            if law is not None:
-                strip = max(strip, strip_half_width_m(law, c))
             poly = polys[int(j)]
             hs = []
             for sgn in (1.0, -1.0):
@@ -442,6 +430,7 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
                 h = (hs[0] + hs[1]) / 2.0
                 if best is None or h < best[0]:
                     best = (h, hs[0], hs[1])
+                    best_cell = c
         if best is None:
             continue
         # §34 (5) NARROWED: the cell the axis stands in states the deck
@@ -452,6 +441,17 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
         vals.append(best[0])
         # §34 (5) (b): the covered extent is the pavement AND its graded
         # strip.  The DECK's own width (``vals``) is the pavement's alone.
+        #
+        # THE DECK CELL'S OWN STRIP, and the alternative is DELETED, not
+        # parked: a "widest strip standing at this station" reading was
+        # built and measured (arm 4, a second full planar replay) and is
+        # BYTE-IDENTICAL to this one at LEMD — the classification's cells
+        # are a PARTITION, so exactly one cell contains each station, and
+        # at F-6 that is ``junction/pav157`` (code E, 19.0 m) for 36 of the
+        # way's 48 m with the last station in a 14R/32L ``runway_shoulder``
+        # cell the ``DECK_CELL_MAX_RATIO`` gate refuses outright.  The
+        # widest reading can therefore never differ from this one.
+        strip = strip_half_width_m(law, best_cell) if law is not None else 0.0
         offs.append((s, best[1] + strip, best[2] + strip))
     if not vals:
         return offs, half_default, 0, refused

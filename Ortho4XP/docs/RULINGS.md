@@ -7385,3 +7385,30 @@ intervals, zones.shore_region/zone_regions, terrain_edge, overlay,
 build.quay_refs, constraints/zones+water, flat_site._cut_water,
 dem_production.sea_geometry, pipeline/build._classified_land,
 check_grade additive) — for v2channel's rebase.
+
+## 2026-09-15x v2objcut r1 MERGED (e178702f → main): signature B reads every VHHH shell at its authored floor (five for five); the hairpins wait on the ring builder (r2); signature A REFUTED by geometry (CITY2.obj roofs, 116 false corridors — the affordance stands); signature C RE-FOUNDED — Bridge3 is two mouth-marking wall pairs, not a 354 m pair
+
+Lane @ e178702f (main merged through 106459fa); suite 1,607 passed
+twice, 0 FAILED; suite ON MAIN after the merge reported below. VHHH dry
+pair: floors 1.30/0.37/0.78/−1.63/−1.69 (bars met ±0.01), corridors
+0 → 5, tunnels 28 → 23, basins identical (10 placements claimed);
+`tunnel5_done` (owner site) + `TUNNEL2_DONE` refused by the ring
+builder's axis offset on hairpins — the reading is right (floor 1.30,
+trench 9,290 m², two portals), the emitter must take the object's
+trench polygon (r2, `planar/structures.py` — after v2vmmcshore r2 lands
+there). OTHH/LEMD six populations BYTE-IDENTICAL (+51/+25 named
+refusals). Before-reading on the owner's 1.0.340 VHHH patch: vertices
+outside the wall line 85/19/111/27/26 (worst 75.8–86.1 m), floor misses
+0.90/1.85/1.44/3.85/3.91 m. A: retiring `kerb_wall_corridors` → VHHH
+wall corridors 0 → 116, all inside `CITY2.obj` (10ap at a third
+airport); predicate deleted, affordance stands. C: the scout's 354.2 ×
+25.1 m box was the OBJECT BOX, not the solids — Bridge3 = two 73 m wall
+pairs 14.02 m apart at its two ends, 224 m empty between (the author
+marks the mouths; the bore is covered); Bridge2 two perpendicular
+bands; Bridge4 no straight band. RULED §33 (6) MEASURED AND RE-FOUNDED
+(C1′ pair = mouth ramp; C2′ band = polyline incl. curved; C3′ measured
+before ruled). New `airport/object_cut.py`; `object_cuts` sidecar key;
+families `object_cut_offset`/`object_cut_depth`; 18 twins. No VHHH
+build (+22+113 road layers stale — the owner's refresh). Lesson (for
+the scout protocol): a bounding box is not the solid — quote the
+components' extents, not the box.

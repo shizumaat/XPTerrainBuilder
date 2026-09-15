@@ -13127,3 +13127,53 @@ The lane's r2 re-measures VMMC, LEMD (54 → 54 expected) and OTHH
 (44 → 44 + the returned wall corridor) under the amendment.  The pav5
 residual 0.81 m (the flat-site preference losing to its neighbours,
 `flat_site 826/1240 unmet, max 0.692 m`) is accepted and named.
+
+## §33 (6) MEASURED AND RE-FOUNDED (lane v2objcut r1 e178702f; Fable 2026-09-15; RULINGS 2026-09-15x) — B reads; A refuted by geometry alone; C re-founded on the objects as they are
+
+**B — READS.**  All five VHHH shells admitted with their AUTHORED floors
+(1.30 / 0.37 / 0.78 / −1.63 / −1.69 against bars 1.31 / 0.36 / 0.77 /
+−1.63 / −1.69; the OSM arm 2.22 for all), corridors 0 → 5, tunnels 28 →
+23 (nine OSM bores replaced), basins identical by (object, area) — 10
+placements claimed.  OTHH and LEMD byte-identical on six populations.
+MISS: `tunnel5_done` (the owner's site, a 413 m U-turn) and `TUNNEL2_
+DONE` are refused by the RING BUILDER (`planar/structures.py`: "the
+approach bends tighter than the corridor — ramp or wall ring self-
+intersects") — a ring built by OFFSETTING AN AXIS folds on a hairpin.
+RULED (r2): for a signature-B corridor the emitter takes the object's
+OWN trench polygon (the shell's per-band wall line, closed by the
+cover's ends) as the ring — no axis offset; the stations from the
+cover's profile.  `object_cut_offset` / `object_cut_depth` families
+land (select by overlap, not by ref).
+
+**A — REFUTED by geometry alone.**  Retiring `kerb_wall_corridors` for
+the crested signature admitted 116 corridors at VHHH, every one inside
+`CITY2.obj` (a city-block object: a building has a roof) — RULINGS 10ap
+at a third airport; no depth threshold separates them (OTHH's admitted
+bays are 1.35 m deep).  RULED: the predicate is deleted; the per-airport
+affordance STANDS as the gate for A until a discriminator is MEASURED
+(candidates for a later scout: a roof plate spanning the walls; the
+object's footprint on airside vs off-field; the pack's placement on a
+pad).  Not an owner question.
+
+**C — RE-FOUNDED on the measured objects.**  `Bridge3.obj` is NOT a
+354 m wall pair: its 280 triangles sit in two components at its two
+ENDS (z −354.2…−281.0 and −57.6…0), each a pair of 73.0 / 73.1 m walls
+**14.02 m** apart; 224 m of the box carries no solid.  The author marked
+the two MOUTHS; the bore between them is COVERED.  `Bridge2.obj` reads
+two perpendicular bands (no pair); `Bridge4.obj` no straight band (a
+curved U).  RULED: (C1′) a thin-wall PAIR (parallel straight bands,
+spacing 5–40 m, overlap ≥ 50 %) marks a MOUTH RAMP: the ramp lies
+between the pair's inner faces, runs the pair's length, its mouth at
+the end nearer the bore's covered stretch and its top at the outer end;
+the bore between two such pairs (or between a pair and an authored
+deck) is covered; the walls sit on the ramp's top edges (the foot line
+is the rim at grade).  Item 3's ramp lies inside the north pair; item
+4's inside the south pair, its top at the pair's outer end (toward
+40.4951833).  (C2′) a band is a POLYLINE of contiguous vertical faces,
+straight or curved (Bridge4's U): the ring follows its inner face with
+chord error ≤ 0.75 m and runs to its end.  (C3′) parapets: the lane
+reports Bridge2's two bands with coordinates and headings against the
+deck before any rule — if they flank the deck (parallel, each side)
+the deck is centred on them; if perpendicular they are abutment walls
+at the deck's ENDS and mark its span.  Every C rule is measured on the
+three LEMD objects by dry pair before it is wired.

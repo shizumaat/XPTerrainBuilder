@@ -7845,3 +7845,46 @@ on main; r7 = the lane merges main, keeps both behaviours, re-proves
 (law-true 1,713 → 4,845 vs the 1.0.340 patch) is being attributed by
 lane v2vhhhctl (control at f912ba81 + arm at main). OTHH
 nondeterminism: lane v2othhdet.
+
+## 2026-09-15am v2schemarefuse ROUND 3 MERGED (a5ac5a85): the VHHH "new-hash dump" was a CROSS-ATTRIBUTION — another process rewrote the live pack DSF; a redirected scope's deltas are now named external, and a pack DSF with no cached dump REFUSES before the build
+
+Measured (lane `v2schemarefuse` r3, acab060c), against 15ar's flagged
+run (`build_airport.py VHHH`, tag v2objcutVHHHr3, 11:41:45→11:53:00, rc
+0): its frame records `engine_cache_redirects.airport_mod_cache =
+<lane>/tmp/engine_caches/Airport_mod_cache` — the redirect WAS armed —
+and `write_guard_blocked` empty; the shared paths are stamped 11:52:31
+(`+22+113.dsf.d18b5903.text` added, `o4_dsf_object_positions_+22+113.
+cache` modified); the LIVE pack DSF was rewritten at 11:49 with
+`written_sha256 = d18b5903…` by `placement_write.apply_plan` (its
+`o4_placement_provenance.json`, 6,390 placements), whose only reachable
+caller is the TILE build's `rebake_after_mesh` — the v2 airport pipeline
+never calls it. A Python write of the shared path would have been
+refused at the call (the guard resolves symlinks), and DSFTool inherits
+the redirect: the flagged build could not have been the author. Another
+process in the window rebaked the pack (a concurrent +22+113 tile build,
+or the app — its engine log last wrote 07:53); `input_scope` cannot
+catch it because the VHHH pack IS in the build's input set. TWO HALVES:
+(1) `shared_repo_guard.redirected_scopes()` + `report_unauthorised_
+writes(..., redirected=)` — a scope whose root THIS process pointed
+outside the repo has no writer here, so its deltas are named as external
+candidates (`external_reason: "redirected"`), never hidden, never a
+CONTAMINATED verdict; the predicate is the engine's own accessor per
+scope at audit time (an inert override reads as not redirected; an
+authorised refresh leaves the scope shared and is recorded; a guard that
+blocked anything vetoes the externalisation). (2) `build_airport.
+missing_pack_dsf_dumps` inside `missing_shared_artifacts` (now takes the
+ICAO): the serving pack's PRISTINE tile DSF with no content-keyed dump in
+the shared corpus or the lane overlay REFUSES up front under
+`airport_mod_cache` with the sha8 — a DSFTool dump is a subprocess write
+no Python guard can refuse at the call, so the pre-build refusal is the
+only defence (the redirect is the defence at the write). Predicates the
+engine's own (`find_text_dump`, `text_dump_tag`, `pristine_dsf_path`,
+`select_pack`). Live corpus read-only: VHHH/HECA/LEMD/CYXY/OTHH name 0
+today. `--refresh-data airport_mod_cache` needs no new derivation site:
+the scope is left shared and the loader's own dump is the derivation,
+ledgered by the diff. Suite ON MAIN: `1685 passed, 1 skipped`, 0 failed.
+NOT DONE: the author process is not identified (needs the other
+session's shell history); `missing_pack_dsf_dumps` not widened to
+`--tile`. CHIP: `tools/obj8_split_report.py` arms the guard by hand but
+not `redirect_engine_caches` — the one `apply_plan` caller missing from
+`arm_shared_repo_protection` (the 2026-08-11 `classify_report` shape).

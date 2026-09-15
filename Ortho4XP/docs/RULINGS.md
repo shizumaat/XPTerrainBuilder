@@ -5895,3 +5895,40 @@ airside cannot yield a centimetre — which §20b forbids. Stage clocks
   row 14al withdrew can return, since under §20b it cannot pull).
 * The OTHH customer line is untouched: OTHH on main = 1.0.334's
   surface (both flags off).
+
+## 2026-09-14at v2othhfix round 3 MERGED (76518d99): full depth at the building wall (25 % from 37 %); the pack paints NO road-edge line as geometry at OTHH; the missing tunnel wall is a split-file NAME COLLISION — lane `v2splitname`
+
+Lane `v2othhfix` @ a4b7801d (OTHH build `v2othhfix_r3b`, ledger
+4afb62b3f6a1, verify defects {}, ADJUDICATED 3,204 → 3,174; suite
+1,495 on main). §34 (9) (5) `covered_start`: the climb-from moves back
+to where the axis leaves the building pad — `@0/a` +2.4 m of run
+(the pad edge measures 2.4 m, not the owner's ~4), grade 36.98 →
+25.18 %; `@2` 11.05 → 10.80 %; mouth_z unchanged. §34 (9) (4)
+`road_edge_witness` landed (lazy read of the pack's `markings` draped
+objects; keys `road_edge_line_reach_m` 6 / `_parallel_deg` 15) — and
+OTHH HAS NO WITNESS: no `markings` object within 60 m of the east
+mouth and no thin pavement source within 40 m; the only markings near
+the other two are `StopLine1_*` bars 32–54 m away across the taxiway.
+The white edge line the owner sees is baked into the road texture or
+the orthophoto, not geometry. Road edges unchanged (route7
+byte-identical); airside 2 of 16,810 moved > 0.1 m (pad-edge corner
+joints, +0.10/+0.12); corridors 40 → 40; `road_cross_section` 6 → 14
+(+8 rows 500 m away at 25.268, 51.606–51.610 — not the pinch, owed a
+look). A publication crash (the pinched record's arity) caught by the
+build, guarded by a twin.
+
+* THE MISSING TUNNEL WALL (25.2697569, 51.6055534): `tunnel1.obj` is
+  the only OTHH tunnel resource placed TWICE (idx 14051 and 14052,
+  anchors 38.7 m apart in plan); `obj8_split.body_resource_name`
+  keys the split file on resource + body id only, so both placements
+  write `Objects/tunnels/tunnel1__b0.obj` and the file bakes 14051's
+  offset — placement 14052 renders its wall 38.7 m from its DSF row.
+  The layout is innocent (`tunnel_wall` −10948 and a ramp are at the
+  coordinate). Same class as the LEMD `__b0` note at
+  `obj8_split.py:649`. Lane `v2splitname` BEFORE app 1.0.335.
+* OWNER (intent, the painted line): the engine reads no white line at
+  OTHH's east mouth. Options: (a) a per-airport `road_edge_inset_m`
+  (the line's offset inside the road face edge — the owner measures
+  it once); (b) a coordinate on the line from the owner → we derive
+  the inset; (c) accept the face edge. The east ramp ends at the face
+  edge today.

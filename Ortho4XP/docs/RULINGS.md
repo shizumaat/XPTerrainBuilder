@@ -7803,3 +7803,45 @@ refresh at 11:46, ledgered). OWNER: `--refresh-data airport_mod_cache`
 for the VHHH pack's new-hash dump is yours to authorise (not covered
 by the road-layer word). `planar/structures.py` at exactly 1,000
 lines.
+
+## 2026-09-15at v2objcut r3 proved on main (suite 1,649 passed, 0 FAILED after d94db789); v2vmmcshore r6 (b10168d9) MET at VMMC on a real build and keeps 5 of LEMD's 7 approved decks under §34 (12) (4) — `-5305` and `-15293` LOST (DEM −0.57 / −1.46, spans over the untagged approach) — accepted as the rule's own words and named for the owner's LEMD read; the doubled-plane check DONE (no second plane); r6's merge CONFLICTS with v2objcut r3 in structure_deck.py / structures.py → the lane resolves on its branch (r7)
+
+r6 (suite 1,689, 0 FAILED): `structure_service.deck_witness_for` +
+`structure_deck._witnessed`, `[bridge] deck_cut_witness_m` 0.5 /
+`deck_abutment_m` 40.0 (no Python defaults); both station limbs and
+`grade_reach_for` deleted; the alongside pre-filter stays;
+`deck_witness_notes` on every tunnel. Closing VMMC build rc 0, 16.8 s,
+optimal, body_sha ecc616c4bba5, ledger 3cd89005e24c, `shared repo
+UNCHANGED`: probe covered by nothing (ramp 188 m), 0.00 m² on the sea,
+0 nodes ≤ 0.5 m, pav5 5.09…6.12 (39.0 m clear), tunnels 13 / decks 1
+(`-2088` on `-4787@1` at s 0–9.1 by (i): `tunnel=yes` on the bore it
+stands over), `sea_wall` 27 / tears 0 / steps 0, ADJUDICATED 55; the
+five Macau LRT viaducts never sever (tag none, cut 0.00; the 11:05 feed
+refresh does not make (i) fire — those decks stand over the untagged
+approach). OTHH 44 / 1. LEMD: `-6288` +2.03, `-11828` +1.34, `-14230`
++0.81, `-516` +2.33, `-1378` +1.79 sever by (ii); `-5305` (−0.57) and
+`-15293` (−1.46) do NOT — their bores carry layer −1 tunnel=yes but the
+spans stand at s 103.3 / 146.2 of the approach walk beyond the bore
+chains; reading (i) as "any way of the corridor" would keep both AND
+sever every VMMC deck. ACCEPTED as ruled; OWNER READ ITEMS for the next
+LEMD build: the ramps under `-5305` (`-1581+-1568@1`) and `-15293`
+(`-1341+-1339@1`, 180 → 24 m) — if the sim shows those bridges over a
+real cutting, the DEM witness there is wrong and the rule takes a
+third witness (the pack? the deck's own height above the road?).
+Fixtures corrected: two pre-existing twins asserted "severs" over FLAT
+synthetic ground (the VMMC defect) — now carry a 1 m cutting. DOUBLED
+PLANE: the r4 tile (`v2vmmcshore4tile`, finished 11:47) — `mesh_region_
+tris --z-xref` 22,393 nodes all matched; attr 15 (PATCH_RING) 253 rows
+over 2 m, worst −6.100 m at 22.1611209,113.5790349 = the SEA WALL
+itself (patch ring 6.10 vs mesh water 0.00, = the `sea_wall` family's
+27 rows); no patch node at sea level seaward — there is no second
+plane; the worst overall (+51.8 m, attr 1) is a non-patch marker class,
+not this lane's. MERGE: r6 conflicts with v2objcut r3 (d94db789:
+`deck_intervals(+plates)`, `flanking_pair`, the `_ring` closure,
+`seed_wall_stations`) in structure_deck.py and structures.py; aborted
+on main; r7 = the lane merges main, keeps both behaviours, re-proves
+(VMMC 1 / LEMD 5 of 7 with `-6288` centred on Bridge2's pair / OTHH
+44 / 1), suite. VHHH: v2objcut r3's closing build census
+(law-true 1,713 → 4,845 vs the 1.0.340 patch) is being attributed by
+lane v2vhhhctl (control at f912ba81 + arm at main). OTHH
+nondeterminism: lane v2othhdet.

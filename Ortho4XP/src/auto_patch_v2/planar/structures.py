@@ -102,10 +102,10 @@ from .structure_approach import (FieldRegion, apply_plates,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
 from .zones import shore_region
-from .structure_service import (airside_cut_roles, grade_reach_for,
+from .structure_service import (airside_cut_roles, deck_witness_for,
                                 osm_stops as _osm_stops,
                                 pad_relief_m as _pad_relief_m)
-from .structure_deck import (PavementDeck, below_grade_notes, deck_intervals,
+from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
                              deck_items, emit_decks,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
@@ -398,11 +398,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         _bores = [m.bore.line for m in (g.members or ())
                   if getattr(m, "bore", None) is not None]
 
-        _grade_reach = grade_reach_for(airport, law, axis_fn, mouth_z,
-                                       grade_g, spacing_g)
+        _under = [w for m in (g.members or ()) for w in
+                  (getattr(m.bore, "ways", ()) if getattr(m, "bore", None) else ())]
         deck_ivals = deck_intervals(axis_ln, half + rim_off, bridges, bridge_lines,
-                                     bridge_tree, law, _bores, _grade_reach)
-        below_grade_note = below_grade_notes()
+                                     bridge_tree, law, _bores,
+                                     deck_witness_for(airport, law, _under))
+        below_grade_note = deck_witness_notes()
         obj_ivals = object_deck_intervals(axis_ln, half + rim_off, odecks)
         if obj_ivals:
             # the object law governs where an object bridge stands: a

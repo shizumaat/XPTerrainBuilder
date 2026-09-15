@@ -112,66 +112,66 @@ _DECK_MIN_ANGLE_DEG = 30.0
 _DECK_ALONGSIDE_MAX = 6.0
 
 
-#: §34 (12) (4) as amended: the last run's decisions, ``(way id, s0, s1,
-#: the covered end the climb ran from, the station it reached grade at,
-#: kept)`` — read by ``structures.build_structures`` into the tunnel's
-#: own ``notes`` so the reading is visible without a rebuild.
-LAST_BELOW_GRADE: list = []
+#: §34 (12) (4) as RULED (owner RULINGS 2026-09-15ap): the last run's
+#: decisions, ``(way id, s0, s1, the tag witness, the DEM cut, severs)`` —
+#: read by ``structures.build_structures`` into the tunnel's own ``notes``
+#: so the reading is visible without a rebuild.
+LAST_DECK_WITNESS: list = []
 
 
-def below_grade_notes() -> list[str]:
-    """The last :func:`_below_grade` run's reading, one line per deck, for
-    the tunnel record's ``notes`` — so §34 (12) (4)'s verdict and the two
-    stations it compares are visible without a rebuild."""
-    return [f"\u00a734 (12) (4): deck {wid} at s {a:.1f}..{b:.1f}, the climb "
-            f"from {cov:.1f} reaches grade at "
-            f"{'never' if gr is None else format(gr, '.1f')} — "
-            f"{'severs' if ok else 'BEYOND GRADE, not a crossing'}"
-            for wid, a, b, cov, gr, ok in LAST_BELOW_GRADE]
+def deck_witness_notes() -> list[str]:
+    """The last :func:`_witnessed` run's reading, one line per candidate
+    deck, for the tunnel record's ``notes`` — so §34 (12) (4)'s verdict
+    and the two witnesses it weighed are visible without a rebuild."""
+    return [f"\u00a734 (12) (4): deck {wid} at s {a:.1f}..{b:.1f} — "
+            f"tag witness {tag or 'none'}; DEM cut {'n/a' if cut is None else format(cut, '.2f')}"
+            f" m — {'SEVERS' if ok else 'no cutting witnessed, not a crossing'}"
+            for wid, a, b, tag, cut, ok in LAST_DECK_WITNESS]
 
 
-def _below_grade(ivals, grade_reach):
-    """§34 (12) (4) AS AMENDED (Fable 2026-09-15; RULINGS 2026-09-15aj):
-    **a deck severs the climb only where the corridor is still BELOW
-    GRADE at the deck's station.**
+def _witnessed(ivals, witness):
+    """§34 (12) (4) AS RULED FROM THE TABLE (owner RULINGS 2026-09-15ap).
 
-    ``ivals`` are the crossings in station order from the mouth.  The
-    climb runs from the LAST COVERED END at ``ramp_max_grade``;
-    ``grade_reach(s)`` answers where that climb reaches the DEM along the
-    route (``structure_approach.ramp_top`` — one derivation, the ramp's
-    own).  A deck whose NEAR edge lies at or before that station extends
-    the covered run, and the climb restarts beyond its FAR edge; the
-    first deck beyond it is not a crossing of THIS corridor, and neither
-    is anything after it (the run only gets shorter).
+    A mapped bridge severs a corridor's climb where the ground beneath
+    its span is WITNESSED BELOW GRADE, by either witness:
 
-    The number is the ramp cap itself — no new key.
+    (i) the corridor's way UNDER THE SPAN carries ``tunnel=yes`` or
+        ``layer <= -1``.  It is the way the span actually stands over,
+        never the corridor's whole approach walk: VMMC's seafront decks
+        stand over the untagged approach while the bore 300 m away is
+        tagged, and reading the corridor as one way would sever them all.
+        A tag ABSENT because the road feed predates the 2026-09-15 tag
+        schema is neither yes nor no — the deck is then judged by (ii)
+        alone, which is the same code path, and the note says which feed
+        answered;
+    (ii) the DEM under the span reads at least ``deck_cut_witness_m``
+        below the mean of the DEM at the deck's two abutments.
 
-    WHAT IT SEPARATES, measured (lane v2vmmcshore r3/r4).  VMMC's
-    ``tunnel:-2488@0`` needs **63.8 m** to reach grade (5.10 m at 8 %),
-    and its two "severing" decks ``-1798`` / ``-3636`` stand at
-    s = **214.8 / 308.7 m** — where there is no trench for a bridge to
-    span; they set ``climb_from_s`` 559.2 m on a ramp stopping at 468 m,
-    so the floor stayed flat at 1.00 m for 381 m of seafront.  LEMD's
-    seven decks all stand INSIDE their ramps' climb and are KEPT, which
-    is why the r3 crosses-the-bore limb (which dropped all seven) is
-    deleted and this one replaces it.
+    Otherwise the deck stands over ordinary ground beyond the trench
+    (§34.5 (6)) and does not sever.  CHAINING is unchanged: the decks
+    are taken in station order, a severing deck extends the covered run
+    and the climb restarts beyond its far edge.  Unlike the two WITHDRAWN
+    station limbs, a later deck is NOT cut off by an earlier non-severing
+    one — the witness is a property of the ground under each span, not of
+    the run, so every candidate is weighed.
 
-    ``grade_reach = None`` leaves the list exactly as it was (every
-    synthetic fixture and every caller that cannot answer the DEM)."""
-    LAST_BELOW_GRADE.clear()
-    if grade_reach is None or not ivals:
+    THE MEASUREMENT THAT CHOSE IT (lane v2vmmcshore r5, 11 LEMD decks and
+    5 VMMC ones): the DEM cut separates the two airports by ~2 m (LEMD
+    +0.81 … +2.35, VMMC 0.00 on the field), while the station limbs
+    disagreed with it on 5 of 11.
+
+    ``witness = None`` leaves the list exactly as it was (every synthetic
+    fixture and every caller that cannot answer the ground)."""
+    LAST_DECK_WITNESS.clear()
+    if witness is None or not ivals:
         return list(ivals)
     kept = []
     covered_end = 0.0
-    beyond = False
     for rec in ivals:
-        s0, s1 = rec[1], rec[2]
-        s_grade = None if beyond else grade_reach(covered_end)
-        ok = not beyond and (s_grade is None or s0 <= s_grade)
-        LAST_BELOW_GRADE.append((getattr(rec[0], "id", None), s0, s1,
-                                 covered_end, s_grade, ok))
+        w, s0, s1, dpoly = rec[0], rec[1], rec[2], rec[3]
+        tag, cut, ok = witness(w, dpoly, covered_end)
+        LAST_DECK_WITNESS.append((getattr(w, "id", None), s0, s1, tag, cut, ok))
         if not ok:
-            beyond = True
             continue
         kept.append(rec)
         covered_end = max(covered_end, s1)
@@ -181,7 +181,7 @@ def _below_grade(ivals, grade_reach):
 def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],
                     lines: list[LineString], tree: STRtree | None, law: Law,
                     bores: _t.Sequence[LineString] = (),
-                    grade_reach=None
+                    witness=None
                     ) -> list[tuple[OsmWay, float, float, Polygon]]:
     """``(way, s0, s1, deck polygon)`` per mapped bridge way crossing the
     corridor (at ≥ 30° to the axis), ordered by ``s0``.
@@ -284,7 +284,7 @@ def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay]
                       min(spans, key=lambda sp: min(abs(sp[0] - s_mid), abs(sp[1] - s_mid))))
         out.append((w, min(s_vals), max(s_vals), dpoly))
     out.sort(key=lambda t: t[1])
-    return _below_grade(out, grade_reach)
+    return _witnessed(out, witness)
 
 
 class _GroupWay:

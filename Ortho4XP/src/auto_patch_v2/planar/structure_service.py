@@ -35,7 +35,7 @@ from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_side
 from .structure_approach import under_cover
 
-__all__ = ["airside_cut_roles", "airside_stops", "grade_reach_for",
+__all__ = ["airside_cut_roles", "airside_stops", "deck_witness_for",
            "osm_stops", "pad_relief_m"]
 
 
@@ -141,22 +141,65 @@ def osm_stops(corridor, group, cells, polys, pads, pad_tree, cut_roles,
     return stops, (STRtree([p for p, _r in stops]) if stops else None)
 
 
-def grade_reach_for(airport, law: Law, axis_fn, mouth_z: float,
-                    grade: float, spacing: float):
-    """§34 (12) (4) as AMENDED (RULINGS 2026-09-15aj): ``f(covered_end) ->``
-    the station at which the climb from ``covered_end`` reaches the DEM
-    along the route, or ``None`` where it never does.
+def deck_witness_for(airport, law: Law, under_ways):
+    """§34 (12) (4) AS RULED (owner RULINGS 2026-09-15ap): the witness
+    ``f(deck_way, deck_polygon, covered_end) -> (tag, cut_m, severs)``
+    one corridor's decks are weighed with.
 
-    It is ``structure_approach.ramp_top`` — the RAMP's own derivation, so
-    the deck reading and the ramp it feeds cannot disagree about where
-    the trench ends — bound to this group's mouth datum, cap and station
-    spacing.
+    ``under_ways`` are the corridor's OWN ways — its mapped ``tunnel=yes``
+    bore chain.  Witness (i) asks whether the deck's SPAN stands over one
+    of them carrying ``tunnel=yes`` or ``layer <= -1``: the span, never
+    the approach walk, because VMMC's seafront decks stand over untagged
+    road while the bore 300 m away is tagged.  Witness (ii) reads the
+    production DEM — the SAME sampler the structures run reads — under the
+    span and at the deck's two abutments ``[bridge] deck_abutment_m``
+    along the deck each way (the deck end where it is shorter), and asks
+    whether the ground under the span is ``deck_cut_witness_m`` below
+    their mean.  Either witness severs; neither, and the deck stands over
+    ordinary ground beyond the trench (§34.5 (6)).
+
+    A tag absent because the road feed predates the 2026-09-15 tag schema
+    is neither yes nor no, and needs no special case: (i) is simply not
+    satisfied and (ii) decides alone, which is what the ruling says.
     """
-    from .structure_approach import ramp_top
+    from shapely.geometry import LineString, Point
+    from shapely.ops import nearest_points
+    br = law.tables.structures.bridge
+    reach, floor = br.deck_abutment_m, br.deck_cut_witness_m
+    lines = [(LineString(w.points), w) for w in under_ways
+             if len(getattr(w, "points", ()) or ()) >= 2]
 
-    def reach(covered_end: float) -> float | None:
-        s_top, _ss = ramp_top(airport, law, axis_fn, mouth_z, covered_end,
-                              spacing, grade=grade)
-        return s_top
+    def _tag_of(w) -> str | None:
+        tags = w.tags or {}
+        if str(tags.get("tunnel", "")).lower() in ("yes", "building_passage",
+                                                   "covered"):
+            return "tunnel=yes"
+        try:
+            if int(str(tags.get("layer"))) <= -1:
+                return f"layer={tags.get('layer')}"
+        except (TypeError, ValueError):
+            pass
+        return None
 
-    return reach
+    def witness(deck_way, dpoly, _covered_end):
+        tag = None
+        for ln, w in lines:
+            if dpoly is not None and not dpoly.is_empty and ln.intersects(dpoly):
+                tag = _tag_of(w)
+                if tag:
+                    break
+        cut = None
+        pts = list(getattr(deck_way, "points", ()) or ())
+        if len(pts) >= 2 and lines:
+            deck = LineString(pts)
+            near = min((ln for ln, _w in lines), key=lambda b: b.distance(deck))
+            on_deck, _on = nearest_points(deck, near)
+            st = deck.project(on_deck)
+            a, b = max(0.0, st - reach), min(deck.length, st + reach)
+            z = [float(airport.dem.z(p.x, p.y)) for p in
+                 (deck.interpolate(st), deck.interpolate(a), deck.interpolate(b))]
+            if all(v == v for v in z):                    # no NaN
+                cut = (z[1] + z[2]) / 2.0 - z[0]
+        return tag, cut, bool(tag) or (cut is not None and cut >= floor)
+
+    return witness

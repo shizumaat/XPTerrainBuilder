@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 import dataclasses as _dc
 
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
 from auto_patch_v2.classify.roles import Cell, Classification
@@ -246,47 +246,83 @@ def test_a_bridge_running_ALONGSIDE_the_corridor_does_not_sever_the_climb(law):
                               STRtree([ln]), law, [bore])) == 1
 
 
-def test_a_deck_severs_only_where_the_corridor_is_still_below_grade(law):
-    """§34 (12) (4) AS AMENDED (Fable 2026-09-15; RULINGS 2026-09-15aj):
-    a deck severs the climb only where the corridor is still BELOW GRADE
-    at the deck's station.
+def test_a_deck_severs_only_where_a_CUTTING_is_witnessed(law):
+    """§34 (12) (4) AS RULED FROM THE TABLE (owner RULINGS 2026-09-15ap).
 
-    VMMC's ``tunnel:-2488@0`` is the case: 5.10 m of rise at the 8 % cap
-    reaches grade at 63.8 m (``ramp_top`` answers 84.0 m — the climb plus
-    one station of slack), and its decks stand at s = 211.0 / 302.1 /
-    489.4 / 545.9 m.  None of them spans a trench, so none severs, and
-    the floor climbs from the mouth instead of staying flat for 381 m.
+    A mapped bridge severs the climb only where the ground beneath its
+    span is WITNESSED below grade — (i) the corridor's way under the span
+    carries ``tunnel=yes`` / ``layer <= -1``, or (ii) the DEM under the
+    span is ``[bridge] deck_cut_witness_m`` below the mean of the
+    abutments.  Both numbers are the law's; nothing here is typed.
 
-    The chained case is the owner's own bore ``-5508+-5507+-2489@0``:
-    ``-2088`` at s 12.2 severs (grade at 84.0), the climb RESTARTS at its
-    far edge 19.2, and ``-1798`` at s 69.2 severs again because the
-    restarted climb reaches grade only at 96.0."""
-    from auto_patch_v2.planar.structure_deck import _below_grade
+    The four cases are the measured ones (lane v2vmmcshore r5):
+    LEMD `-11828` (+1.34 m of DEM cut, no tag) severs by (ii); LEMD
+    `-15293` (−1.46 m, so (ii) says no) severs by (i) where its bore runs
+    UNDER the span; VMMC `-2088` (0.00 m on the flat field, no tag) does
+    not sever; and a deck whose feed predates the 2026-09-15 tag schema
+    carries no tag at all and is judged by (ii) alone — the same path,
+    which is why the ruling needs no special case for it."""
+    from auto_patch_v2.planar.structure_deck import _witnessed
+    from auto_patch_v2.planar.structure_service import deck_witness_for
 
-    # (way, s0, s1, poly) — only the stations matter here
-    def _rec(wid, s0, s1):
-        return (wid, s0, s1, None)
+    br = law.tables.structures.bridge
+    floor = br.deck_cut_witness_m
 
-    # the climb from ``c`` reaches grade 84 m on, VMMC's own number
-    reach = lambda c: c + 84.0            # noqa: E731
+    class _Way:
+        def __init__(self, wid, pts, tags):
+            self.id, self.points, self.tags = wid, tuple(pts), dict(tags)
 
-    # a deck BEFORE grade severs; the next one is priced from its far end
-    chained = [_rec("a", 12.2, 19.2), _rec("b", 69.2, 76.2)]
-    assert [r[0] for r in _below_grade(chained, reach)] == ["a", "b"]
+    class _Dem:
+        """Flat at 100 m but for a trench along ``x = 0``."""
 
-    # every deck BEYOND grade is not a crossing of this corridor
-    beyond = [_rec("x", 211.0, 218.7), _rec("y", 302.1, 315.3)]
-    assert _below_grade(beyond, reach) == []
+        def __init__(self, depth):
+            self.depth = depth
 
-    # the first beyond-grade deck stops the run: nothing later comes back
-    mixed = [_rec("a", 12.2, 19.2), _rec("x", 211.0, 218.7),
-             _rec("z", 220.0, 227.0)]
-    assert [r[0] for r in _below_grade(mixed, reach)] == ["a"]
+        def z(self, x, y):
+            return 100.0 - (self.depth if abs(x) <= 5.0 else 0.0)
 
-    # a climb that never reaches grade keeps every deck (``ramp_top``
-    # answers None) — the pre-amendment reading, and the fixtures' one
-    assert len(_below_grade(beyond, lambda c: None)) == 2
-    assert len(_below_grade(beyond, None)) == 2
+    class _Airport:
+        def __init__(self, dem):
+            self.dem = dem
+
+    bore_tagged = _Way(-1568, [(0.0, -50.0), (0.0, 50.0)],
+                       {"tunnel": "yes", "layer": "-1", "highway": "motorway"})
+    bore_plain = _Way(-2488, [(0.0, -50.0), (0.0, 50.0)], {"highway": "service"})
+    deck = _Way(-11828, [(-60.0, 0.0), (60.0, 0.0)],
+                {"bridge": "yes", "highway": "tertiary"})
+    span = LineString(deck.points).buffer(4.0, cap_style="flat")
+
+    def _run(airport, unders, dpoly=span):
+        w = deck_witness_for(airport, law, unders)
+        return _witnessed([(deck, 10.0, 20.0, dpoly)], w)
+
+    # (ii) alone: a real cutting, no tag on the way beneath — LEMD -11828
+    cut = _Dem(1.34)
+    assert 1.34 >= floor
+    assert _run(_Airport(cut), [bore_plain]), "a witnessed cutting severs"
+
+    # (i) alone: the ground is HIGHER under the span (LEMD -15293 reads
+    # -1.46) but the way beneath carries layer -1
+    hump = _Dem(-1.46)
+    assert _run(_Airport(hump), [bore_tagged]), "the tag alone severs"
+    assert not _run(_Airport(hump), [bore_plain]), "neither witness: no sever"
+
+    # VMMC -2088: flat field, no tag — does not sever
+    assert not _run(_Airport(_Dem(0.0)), [bore_plain])
+
+    # A STALE FEED carries no tag, and is judged by (ii) alone — the same
+    # path.  Under the same flat ground it does not sever; over a cutting
+    # it does, whatever the feed could not say.
+    stale = _Way(-9, [(0.0, -50.0), (0.0, 50.0)], {"highway": "service"})
+    assert not _run(_Airport(_Dem(0.0)), [stale])
+    assert _run(_Airport(_Dem(floor + 0.01)), [stale])
+
+    # (i) IS THE WAY UNDER THE SPAN, NOT THE CORRIDOR: a tagged bore the
+    # span does not reach witnesses nothing — VMMC's seafront decks stand
+    # over the untagged approach while the bore is 300 m away.
+    far = LineString([(200.0, -30.0), (200.0, 30.0)]).buffer(4.0,
+                                                             cap_style="flat")
+    assert not _run(_Airport(_Dem(0.0)), [bore_tagged], far)
 
 
 # ── §34 (12) (2): no structure face, rim or ramp over the water ─────────

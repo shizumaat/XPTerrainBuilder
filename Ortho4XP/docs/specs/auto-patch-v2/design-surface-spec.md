@@ -12575,6 +12575,84 @@ prove untouched.
 | 33 | `emit/osm_adapter` sidecar `road_bridge_decks` | always empty in v2 | UNCHANGED. |
 | 34 | `planar/zones.py`, `planar/structure_underpass.py`, `constraints/cluster_pad.py`, `solve/design*.py` | other lanes' files this round | NOT TOUCHED. |
 
+**CENSUS ROWS THE MEASUREMENT CORRECTED.**  Rows 3 / 24 / 25 ruled that the
+skirt and re-seat exemption set would grow to `witnesses ∪ object_cut`.  It
+does not need to: a signature-B shell already carries a floor witness, so it
+is already in `basin_member_ids`, and §33 (6) removes it from the basin
+**intake** only (row 4).  `airport/skirt.py` and `airport/rebake_plan.py` are
+therefore UNCHANGED, and `cut_placement_ids` has exactly one consumer.  Row 8
+/ 9 (the affordance's retirement) is REFUTED — see (A) below.  Rows 10 / 11 /
+19 (signature C) are NOT DONE this round — see (C).
+
+**(B) THE SHELL + FLUSH HARD COVER — DONE.**  `airport/object_cut.py` (NEW,
+440 lines) screens every placement once and publishes `ObjectCut`;
+`tunnel_objects.shell_corridor` turns one into the SAME `Corridor` every other
+object corridor is, so `planar/structures.py` is not edited at all and the
+05n-3 per-mouth precedence, `object_groups` and `trench_outside_m` read it
+unchanged.  Three readings are the object's and not the law's:
+
+* **The trench outline is the plan union of the shell's NON-VERTICAL faces**
+  (floor plates and ramps alike), never a hull: VHHH `tunnel5_done.obj` is a
+  U-turn ramp whose 9,290 m² trench sits in a 245.9 × 73.2 m box.
+* **The wall line is the plan segments of its VERTICAL faces**, and a run of
+  the trench ring with no wall face standing on it is a PORTAL.  `tunnel5`
+  reads exactly two open runs of its 29 ring edges (22.2 m and 17.0 m) and 27
+  walled ones; `tunnel3` reads one portal spanning TWO ring edges (44.4 m +
+  2.5 m), which is why the open edges are joined into RUNS before they are
+  counted; `tunnel2` reads FIVE portals (a 28,525 m² multi-portal shell) and
+  takes its two longest as its ends, the others standing inside a wall chain.
+* **The floor is the DEEPEST plate-worthy bin, not the largest-area one.**  A
+  shell's RAMPS are near-horizontal too (`tunnel5`'s read |n_y| = 0.998 over
+  100 m), so the largest bin of horizontal faces is a ramp's mid-height:
+  measured `tunnel1` a 1,514 m² ramp bin at −2.50 against the 733 m² floor at
+  −6.95, `tunnel4` 2,672 m² at −5.25 against 454 m² at −9.01.
+
+**TWO DEVIATIONS from §33 (6) B's text, both forced by measurement** (the 13r
+precedent — the spec text yields to the measurement):
+
+1. **The cover is a SECOND PLACEMENT, never the shell itself.**  §33 (6) B
+   allows "or inside the same object"; that form admitted VHHH's `sea_X.obj`
+   — a sea barrier whose own flush hard deck covers its own −28.20 m plate —
+   as a 104.9 m wide, 22.88 m deep "tunnel".
+2. **The object must COVER A BORE OR A CROSSING**, which is §33 (6)'s own
+   opening clause read as a GATE: a mapped tunnel way ending at a portal
+   (`bore_end_tolerance_m`) or running through the trench.  Without it
+   `sea_X.obj` + `sea.obj` (a 112,376 m² flush hard deck — the SEA SURFACE)
+   still read as a corridor 177 m off the north shore.
+
+**(A) THE AFFORDANCE'S RETIREMENT IS REFUTED — one dry VHHH replay.**  The
+crested-wall predicate (solids under the object's own zero WITH a crest plate
+`plate_min_area_m2` standing `plate_min_height_m` above it) admits an ordinary
+BUILDING, because a building has a roof.  Measured at VHHH: wall corridors
+**0 → 116** (bay 28, level 88), **every one of them inside `CITY2.obj`** — a
+city-block object off the field whose foundation walls descend 6.4–8.5 m under
+their ground — plus 75 narrow-cut candidates and three `CITY1.obj` families.
+No depth threshold repairs it: OTHH's own admitted bays are 1.35 m deep.  This
+is RULINGS 2026-09-10ap's seven rounds at a THIRD airport.  The predicate is
+DELETED (not kept gated); `kerb_wall_corridors` STANDS in `law/airports.toml`
+with the refutation recorded beside the gate, and §33 (6) A is an INTENT
+QUESTION for the owner, not a mechanism.
+
+**(C) SIGNATURE C IS NOT DONE, and the measurement that stopped it.**  The
+BAND READING landed (`object_cut.thin_bands` / `band_pair`, over LAW C's own
+`wall_geometry` machinery — a band is a STRAIGHT RUN of vertical faces, never
+a component: LEMD `Bridge3.obj`'s two components read 73 × 16 m and 58 × 15 m
+convex hulls and are not walls by any gate, while comp 0's vertical faces
+split into the PAIR, two 73.0 / 73.1 m runs 1.00 m thick 14.02 m apart).  It
+is NOT wired into `apply_plates` or `structure_deck` because the reading
+contradicts C1's premise: **`Bridge3.obj` carries 280 triangles in two
+components at its two ENDS (z −354.2…−281.0 and z −57.6…0); 224 m of its
+354.2 m box carry no solid at all.**  So "a parallel PAIR along a bore …
+[whose] trench … runs the pair's FULL length" does not describe this object —
+its walls are two short MOUTH pieces, and 25.1 m is its authored BOX, not its
+wall spacing (the pair's inner faces are 14.02 m apart).  `Bridge2.obj` reads
+two 42.0 / 39.5 m bands at 157.5° and 67.1° — perpendicular, no pair;
+`Bridge4.obj` reads no band at all under the surface gates (2.016 m tall).
+Rather than guess the owner's geometry a third time, the reading is published
+and measured and the INTENT goes to the owner (the standing "mechanisms get
+measured, INTENT gets asked" law).
+
+
 
 ### §45 (10)–(12) AMENDED after lane `v2channel` round 1 (Fable 2026-09-15; RULINGS 2026-09-15s)
 

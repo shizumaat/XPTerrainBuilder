@@ -302,7 +302,8 @@ def _worst_vertex_at(pm, airport, z, at: tuple, radius_m: float):
     return None if best is None else best[1]
 
 
-def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print) -> dict:
+def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
+             stage: int | None = None) -> dict:
     """EVERY VIOLATED HARD ROW OF A SOLVED SURFACE (spec §32 (4) instrument;
     promoted from scout ``v2unsettled2``'s ``hardrows.py`` on its second use).
 
@@ -318,11 +319,27 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print) -> dict:
     ``solve.design.assemble`` the solve runs — and applies design.py's own
     row scaling (``2 / Σ|c|``, so every violation reads in METRES of surface,
     the units ``hard_tol_m`` is stated in).  Read-only: no solve, no write.
+
+    ``stage=1`` reads §20b STAGE 1's OWN ASSEMBLY instead of the full
+    problem (``solve.design.stage_split``'s drop + fixed): the AIRSIDE hard
+    set, in the same rows and the same metre scaling stage 1 enforced them
+    under.  The full read cannot answer this — the airside rows are a
+    subset of 325k whose scaling and population the stage's own drop
+    changes — and "the airside solve does not settle" (RULINGS 13y (B) /
+    13ab / 14as) is a claim about exactly that set (lane ``v2settle``).
     """
     from auto_patch_v2.law.tables import design as design_law
-    from auto_patch_v2.solve.design import assemble
-    from auto_patch_v2.solve.design_report import DesignReport
-    base = assemble(pm, cs, law, DesignReport())
+    from auto_patch_v2.solve.design import assemble, stage_split
+    from auto_patch_v2.solve.design_report import DesignReport, hard_exceeds
+    if stage == 1:
+        drop, fixed = stage_split(pm, cs, law)
+        base = assemble(pm, cs, law, DesignReport(), drop=drop, fixed=fixed)
+    elif stage is not None:
+        raise SystemExit(f"--why-hard-stage {stage}: only stage 1 is readable "
+                         "off a shipped surface (stage 2 IS the full problem "
+                         "with airside substituted, which the full read gives)")
+    else:
+        base = assemble(pm, cs, law, DesignReport())
     tol = float(design_law(law).hard_tol_m)
     rows = []
     for k in sorted(base.hard):
@@ -331,13 +348,18 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print) -> dict:
         sc = 2.0 / s if s > 0 else 1.0
         val = sum(c * float(z[v]) for v, c in terms)
         v = (val - float(bound)) * sc
-        if v > tol:
+        # ONE settle derivation with the report (``design_report.hard_exceeds``):
+        # the runway projection lands its own rows AT the bar, and a strict
+        # ``>`` on a 2e-14 m solver residual reported 6 HELD runway rows as
+        # violations (lane ``v2settle``).
+        if hard_exceeds(v, tol):
             rows.append((v, k, terms, float(bound), val, row))
     rows.sort(key=lambda r: -r[0])
     by_gen: dict[str, int] = {}
     for v, _k, _t, _b, _val, row in rows:
         by_gen[row.source.generator] = by_gen.get(row.source.generator, 0) + 1
-    out(f"[{icao}] why-hard: {len(rows)} / {len(base.hard)} hard rows violated over "
+    tag = "why-hard" if stage is None else f"why-hard stage {stage}"
+    out(f"[{icao}] {tag}: {len(rows)} / {len(base.hard)} hard rows violated over "
         f"hard_tol_m {tol} m"
         + (f"; worst {rows[0][0]:.6f} m" if rows else " — HARD SET SETTLED"))
     if by_gen:
@@ -361,7 +383,8 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print) -> dict:
                      "generator": row.source.generator, "ruling": row.source.ruling,
                      "demanded": round(val, 6), "allowed": round(bound, 6),
                      "vertices": vs})
-    return {"icao": icao, "hard_rows": len(base.hard), "violated": len(rows),
+    return {"icao": icao, "stage": stage,
+            "hard_rows": len(base.hard), "violated": len(rows),
             "hard_tol_m": tol, "settled": not rows,
             "worst_m": round(rows[0][0], 6) if rows else 0.0,
             "by_generator": by_gen, "rows": recs}
@@ -659,7 +682,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            sites: list[tuple[float, float]] | None = None, emit_dir: Path | None = None,
            why_hump: tuple[str, float, float] | None = None, verify: bool = False,
            solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
-           site_radius_m: float = 12.0, why_hard_limit: int | None = None) -> int:
+           site_radius_m: float = 12.0, why_hard_limit: int | None = None,
+           why_hard_stage: int | None = None) -> int:
     import numpy as np
     from auto_patch_v2.airport.road_profile import preferred_road_z
     from auto_patch_v2.law import Law
@@ -871,7 +895,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm, "cs": cs,
                              "z": z}, fh)
         if why_hard_limit is not None:
-            result["why_hard"] = why_hard(icao, pm, law, cs, z, why_hard_limit)
+            result["why_hard"] = why_hard(icao, pm, law, cs, z, why_hard_limit,
+                                          stage=why_hard_stage)
         if why_hump is not None:
             result["why_hump"] = _why_hump(icao, pm, law, airport, cs, z, *why_hump)
         if z_out is not None:
@@ -933,6 +958,10 @@ def main() -> int:
                          "id, coefficient, z, DEM, lat/lon and roles; N caps the printed rows "
                          "(default 40, the counts and the JSON cover them all).  Works on a "
                          "--replay arm and on a --why-from PKL")
+    ap.add_argument("--why-hard-stage", type=int, default=None, metavar="N",
+                    help="read §20b STAGE N's own hard set instead of the full "
+                         "problem's (N=1: the AIRSIDE problem alone, the set "
+                         "RULINGS 13y (B)/13ab/14as call unsettled)")
     ap.add_argument("--why-relax", nargs="+", default=[], metavar="FAMILY",
                     help="relax-one-family arms (solve.why family labels) over the hump's ridge vertices")
     ap.add_argument("--why-hump", nargs=3, metavar=("RUNWAY", "S0", "S1"),
@@ -957,7 +986,8 @@ def main() -> int:
             sv = pickle.load(fh)
         law = Law.for_airport(sv["icao"])
         if a.why_hard is not None:
-            res = why_hard(sv["icao"], sv["pm"], law, sv["cs"], sv["z"], a.why_hard)
+            res = why_hard(sv["icao"], sv["pm"], law, sv["cs"], sv["z"], a.why_hard,
+                           stage=a.why_hard_stage)
             if a.json:
                 a.json.write_text(json.dumps(res, indent=1, default=str))
             return 0
@@ -985,7 +1015,8 @@ def main() -> int:
                                       for k, v in (it.split("=") for it in a.design_weight)},
                       verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
                       emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
-                      chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard)
+                      chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
+                      why_hard_stage=a.why_hard_stage)
     ap.error("one of --capture / --replay")
     return 2
 

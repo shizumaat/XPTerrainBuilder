@@ -18,7 +18,147 @@ from .api import Residual
 from .project import ProjectionReport, ZoneClampReport
 from .linear import DEFAULT_METHOD
 
-__all__ = ["DesignReport", "residual", "settled_flip"]
+__all__ = ["DesignReport", "residual", "settled_flip", "hard_exceeds",
+           "HARD_READ_EPS"]
+
+#: THE SETTLE TEST'S NUMERICAL FLOOR (lane ``v2settle``, spec §20a).  The
+#: runway projection is a QP that solves its own rows TO ``hard_tol_m``, so
+#: it lands them AT the bar — and a strict ``> tol`` on a solver residual
+#: 2e-14 to 6e-13 m above its own target reports a HELD row as a violation.
+#: MEASURED at HECA (staged, capture off b1b7704c): 6 of stage 1's 33
+#: "unsettled" rows were ``runway_profile`` rows at 0.020000000000023 ..
+#: 0.020000000000583 m — the projection's certificate read as its own
+#: failure.  RULINGS 2026-09-13ac named this class cosmetic and left the two
+#: readers rounding opposite ways; ONE derivation ends that.  Absolute, not
+#: relative to the row: it is the solver's floor, not the surface's.
+HARD_READ_EPS = 1e-9
+
+
+def _infeasible_set(hard_i: np.ndarray, bad: np.ndarray, one: list,
+                    red: _t.Any, z: np.ndarray, limit: int = 12,
+                    max_rows: int = 4000) -> dict[str, _t.Any]:
+    """IS THE LAW SATISFIABLE WHERE THE HARD SET DID NOT SETTLE? (lane
+    ``v2settle``, spec §20a.)
+
+    Around the surviving rows, flood over the hard rows that SHARE A COLUMN
+    with them (``limit`` hops, capped at ``max_rows`` rows so a pathological
+    component cannot turn a report into a second solve).  Every column the
+    component does not contain is held at its shipped value and folded into
+    the right-hand side; then
+
+        min Σ s   s.t.   A x - s <= b,   s >= 0
+
+    over the component's own columns.  ``Σ s`` is the SMALLEST total
+    shortfall any surface can leave on those rows.  Zero means they can all
+    hold and the residual belongs to the solve (a multiplier that did not
+    close, an active set that did not settle); positive is a PROOF of
+    infeasibility, and the rows carrying slack at the optimum are the
+    infeasible set — the rows the law makes impossible together, named
+    instead of silently traded.
+
+    Returns ``{}`` when the certificate could not be taken (no solver, no
+    free column, the cap hit), which the line reports as neither.
+    """
+    # 1. the rows, by column adjacency
+    cols_of: list[frozenset[int]] = []
+    for k in hard_i:
+        terms = one[int(k)][0]
+        acc: dict[int, float] = {}
+        for v, c in terms:
+            col = int(red.col[v])
+            if col >= 0:
+                acc[col] = acc.get(col, 0.0) + c
+        cols_of.append(frozenset(c for c, w in acc.items() if w != 0.0))
+    by_col: dict[int, list[int]] = {}
+    for i, cs_ in enumerate(cols_of):
+        for c in cs_:
+            by_col.setdefault(c, []).append(i)
+    seen = set(int(i) for i in bad)
+    frontier = set(seen)
+    for _hop in range(max(1, int(limit))):
+        nxt: set[int] = set()
+        for i in frontier:
+            for c in cols_of[i]:
+                nxt.update(by_col.get(c, ()))
+        nxt -= seen
+        if not nxt or len(seen) + len(nxt) > max_rows:
+            break
+        seen |= nxt
+        frontier = nxt
+    idx = sorted(seen)
+    comp_cols = sorted({c for i in idx for c in cols_of[i]})
+    if not comp_cols or not idx:
+        return {}
+    pos = {c: j for j, c in enumerate(comp_cols)}
+
+    # 2. the rows, reduced onto the component's columns; everything else at z
+    import numpy as _np
+    rowsA: list[list[tuple[int, float]]] = []
+    rhs: list[float] = []
+    for i in idx:
+        terms, hi, _r = one[int(hard_i[i])]
+        acc: dict[int, float] = {}
+        b = float(hi)
+        for v, c in terms:
+            col = int(red.col[v])
+            if col < 0:
+                b -= c * float(red.value[v])
+            elif col in pos:
+                acc[pos[col]] = acc.get(pos[col], 0.0) + c
+            else:                       # outside the component: held at z
+                b -= c * float(z[v])
+        acc = {j: w for j, w in acc.items() if w != 0.0}
+        if not acc:
+            continue
+        # the metre scaling design.py applies to every hard row
+        sc = 2.0 / sum(abs(w) for w in acc.values())
+        rowsA.append([(j, w * sc) for j, w in acc.items()])
+        rhs.append(b * sc)
+    if not rowsA:
+        return {}
+
+    # 3. min Sum s  s.t.  A x - s <= b,  s >= 0
+    try:
+        import highspy
+    except Exception:
+        return {}
+    inf = highspy.kHighsInf
+    nx, ns = len(comp_cols), len(rowsA)
+    h = highspy.Highs()
+    h.setOptionValue("output_flag", False)
+    h.addVars(nx, _np.full(nx, -inf), _np.full(nx, inf))
+    h.addVars(ns, _np.zeros(ns), _np.full(ns, inf))
+    h.changeColsCost(ns, _np.arange(nx, nx + ns, dtype=_np.int32),
+                     _np.ones(ns))
+    starts, index, value = [], [], []
+    for r, terms in enumerate(rowsA):
+        starts.append(len(index))
+        for j, w in terms:
+            index.append(j); value.append(w)
+        index.append(nx + r); value.append(-1.0)
+    h.addRows(ns, _np.full(ns, -inf), _np.asarray(rhs, float),
+              len(index), _np.asarray(starts, _np.int32),
+              _np.asarray(index, _np.int32), _np.asarray(value, float))
+    h.run()
+    if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+        return {}
+    sol = _np.asarray(h.getSolution().col_value, float)
+    slack = sol[nx:]
+    total = float(slack.sum())
+    tight = int(_np.count_nonzero(slack > 1e-7))
+    return {"rows_considered": len(rowsA), "columns": nx,
+            "total_slack_m": round(total, 6),
+            "rows_in_set": tight,
+            "infeasible": bool(total > 1e-6),
+            "feasible": bool(total <= 1e-6)}
+
+
+def hard_exceeds(viol, tol: float):
+    """Is this hard-row residual a VIOLATION, or the solver's own floor at
+    the bar?  ``viol`` is metres of surface over the row's bound (positive
+    is a violation), ``tol`` is ``hard_tol_m``.  Works on a scalar or an
+    array."""
+    return viol > tol + HARD_READ_EPS
 
 
 def settled_flip(viol: np.ndarray, tol: float,
@@ -169,6 +309,10 @@ class DesignReport:
     #: 13ac the cap was a silent stop at three rounds and the polish ran
     #: inside a lag that had not converged.
     one_way_failure: dict[str, _t.Any] = _dc.field(default_factory=dict)
+    #: §20a's named HARD failure and its feasibility certificate (lane
+    #: ``v2settle``): which rows are left over ``hard_tol_m``, where, and
+    #: whether the law is satisfiable there at all
+    hard_failure: dict[str, _t.Any] = _dc.field(default_factory=dict)
     #: §20b THE STAGED SOLVE (owner RULINGS 2026-09-13dh, ordered
     #: 2026-09-14an).  ``staged`` says the two-stage form ran; ``stages``
     #: carries stage 1's own counters (rows, columns, hard set, lag,
@@ -222,10 +366,87 @@ class DesignReport:
         instrument.  Returns the worst violation."""
         worst = float(np.max(viol)) if viol.size else 0.0
         self.hard_max_violation_m = worst
-        self.hard_settled = worst <= tol
-        self.hard_active = int(np.count_nonzero(viol > tol))
+        self.hard_settled = not hard_exceeds(worst, tol)
+        self.hard_active = int(np.count_nonzero(hard_exceeds(viol, tol)))
         self.hard_worst = "" if self.hard_settled else ruling(int(np.argmax(viol)))
         return worst
+
+    def read_hard_failure(self, hard_i: np.ndarray, viol: np.ndarray,
+                          one: list, planar: _t.Any, red: _t.Any,
+                          tol: float, z: np.ndarray,
+                          limit: int = 12) -> dict[str, _t.Any]:
+        """§20a: NAME THE HARD SET'S FAILURE, AND SAY WHETHER THE LAW IS
+        INFEASIBLE THERE (lane ``v2settle``; the first-ranked standing debt,
+        RULINGS 13y (B) / 13ab / 14as; the brief's (b) "name the pair as a
+        CRITICAL and do NOT trade them silently").
+
+        ``HARD SET NOT SETTLED`` named ONE row, by a 70-character slice of
+        its ruling.  That is the same instrument §20a already replaced for
+        the lag: it cannot say WHICH rows are left, WHERE they are, or —
+        the question that decides what to do about them — whether they are a
+        residual the solve could still close or a set of rows NO SURFACE
+        SATISFIES.  A residual is the solve's problem; an infeasible set is
+        the LAW's, and trading one of its rows silently against another is
+        exactly what the owner ruled out.
+
+        THE CERTIFICATE.  Around the surviving rows the hard rows that share
+        their columns are collected (a bounded flood, ``limit`` hops of
+        rows), every column outside that component is held at its shipped
+        value, and the small LP ``min Σ s  s.t.  A x - s <= b,  s >= 0`` is
+        solved over what is left.  ``Σ s > 0`` at the optimum is a PROOF
+        that those rows cannot all hold — the rows carrying slack are the
+        infeasible set, named — and ``Σ s = 0`` is a proof that they can,
+        which makes the residual the solve's and not the law's.  HiGHS, the
+        same solver the projections use.
+        """
+        bad = np.flatnonzero(hard_exceeds(viol, tol))
+        if not bad.size:
+            self.hard_failure = {}
+            return self.hard_failure
+
+        def _row(i: int) -> dict[str, _t.Any]:
+            terms, hi, r = one[int(hard_i[i])]
+            val = sum(c * float(z[v]) for v, c in terms)
+            return {"row": int(hard_i[i]), "violation_m": round(float(viol[i]), 6),
+                    "generator": r.source.generator,
+                    "ruling": r.source.ruling[:120],
+                    "demanded": round(val, 6), "allowed": round(float(hi), 6),
+                    "vertices": [{"v": int(v), "c": float(c),
+                                  "lat": planar.vertices[v].key[0],
+                                  "lon": planar.vertices[v].key[1]}
+                                 for v, c in terms]}
+
+        order = bad[np.argsort(-viol[bad])]
+        rows = [_row(int(i)) for i in order[:limit]]
+        cert = _infeasible_set(hard_i, bad, one, red, z, limit)
+        self.hard_failure = {
+            "rows_violated": int(bad.size), "rows": int(hard_i.size),
+            "tol_m": tol, "worst_m": round(float(viol[bad].max()), 6),
+            "rows_named": rows, "certificate": cert}
+        return self.hard_failure
+
+    def hard_failure_line(self) -> str:
+        """The named failure, one line (empty where the hard set settled)."""
+        f = self.hard_failure
+        if not f:
+            return ""
+        cert = f.get("certificate") or {}
+        head = (f"HARD SET NOT SETTLED: {f['rows_violated']} of {f['rows']} hard "
+                f"rows over {f['tol_m']} m, worst {f['worst_m']:.4f} m")
+        if cert.get("infeasible"):
+            head += (f"; CRITICAL — {cert['rows_in_set']} of them are an "
+                     f"INFEASIBLE SET: no surface satisfies them together "
+                     f"(min total shortfall {cert['total_slack_m']:.4f} m over "
+                     f"{cert['columns']} free column(s))")
+        elif cert.get("feasible"):
+            head += ("; the law IS satisfiable there (min total shortfall "
+                     "0.0000 m) — the residual is the solve's, not the law's")
+        for r in f["rows_named"][:4]:
+            vs = ", ".join(f"v{t['v']} at {t['lat']:.11f},{t['lon']:.11f}"
+                           for t in r["vertices"][:3])
+            head += (f"; {r['violation_m']:.4f} m on row {r['row']} "
+                     f"({r['generator']}: {r['ruling']}) at {vs}")
+        return head
 
     def read_lag_failure(self, ow_i: np.ndarray, move: np.ndarray, tol: float,
                          cap: int, one: list, one_way: dict, planar: _t.Any
@@ -306,6 +527,7 @@ class DesignReport:
                 "one_way_settled": self.one_way_settled,
                 "one_way_move_m": round(self.one_way_move_m, 6),
                 "one_way_failure": self.one_way_failure,
+                "hard_failure": self.hard_failure,
                 "staged": self.staged, "stages": self.stages,
                 "stage_dropped_rows": self.stage_dropped_rows,
                 "stage1_fixed": self.stage1_fixed,
@@ -362,7 +584,8 @@ class DesignReport:
                 f"{s1.get('rows', 0)} rows, {s1.get('hard_active', 0)}/"
                 f"{s1.get('hard_rows', 0)} hard violated (max "
                 f"{float(s1.get('hard_max_violation_m') or 0.0):.4f} m"
-                f"{', SETTLED' if s1.get('hard_settled') else ', NOT SETTLED'}), "
+                + (', SETTLED' if s1.get('hard_settled')
+                   else ', ' + (s1.get('hard_line') or 'NOT SETTLED')) + "), "
                 f"{s1.get('rounds', 0)} round(s), {self.stage1_wall_s:.2f} s, "
                 f"{s1.get('one_way_rows', 0)} one-way rows in "
                 f"{s1.get('one_way_rounds', 0)} lag round(s) (worst leader move "
@@ -397,7 +620,9 @@ class DesignReport:
                 f"terrain edge, {self.hard_active}/{self.hard_rows} hard rows violated "
                 f"(max violation {self.hard_max_violation_m:.4f} m in "
                 f"{self.hard_rounds} polish round(s)"
-                f"{', HARD SET SETTLED' if self.hard_settled else ', HARD SET NOT SETTLED'}), "
+                + (', HARD SET SETTLED' if self.hard_settled
+                   else ', ' + (self.hard_failure_line() or 'HARD SET NOT SETTLED'))
+                + "), "
                 f"{self.one_way_rows} one-way rows in {self.one_way_rounds} lag "
                 f"round(s) (worst leader move {self.one_way_move_m:.3f} m"
                 + ('' if self.one_way_settled

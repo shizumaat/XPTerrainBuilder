@@ -6206,3 +6206,15 @@ shapes/ground) — the collateral the skirt was holding back.
   vs OFF = the collar only, the terminal at its pad, suite green.
 * The two HECA builds `/tmp/harness/v2padvertHECAon/off.osm` are
   registered by the next lane as the pair.
+
+## 2026-09-14bg The v2padvert c9787d1e merge REVERTED (d21b407c): on main it fails 14 twins — the very set the lane reported red only at its HEAD (skirt withdrawal collateral: `test_v2smooth`, `test_why`, chord/ridge/shapes/ground/frontage/padlevel, `test_v2bank` pad twins, `test_m3b`, `taxi_route_pairs`, `test_v2clusterpad` §30 (4))
+
+The lane reported c9787d1e green 1,524 twice; merged into main
+11f373f0 the suite reads 14 failed / 1,503 passed. Either the shas
+were mislabeled in the report or the lane's suite ran on a different
+tree; not attributed — the merge is reverted and main is green again
+(1,516). `suite-failure-named-by-narrative` applies: a merge is
+proved by the suite ON MAIN before the RULINGS entry, never by the
+lane's number. The clip work (14bf) is on `claude/v2padvert` and
+re-lands through lane `v2padjoin`, whose FIRST bar is the suite green
+on a merge of main.

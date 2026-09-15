@@ -7768,3 +7768,4 @@ unmeasured. r6: implement (i)+(ii) with `deck_cut_witness_m` 0.5 /
 `abutment_m` 40 in `[bridge]`; twins (a LEMD cut deck, a LEMD tag-only
 deck, a VMMC 0.00 deck, a stale-feed `schema` deck); dry pairs LEMD
 7 kept / VMMC 0 / OTHH 44 / 1; suite; then merge.
+15ap addendum — THE OWNER'S ROAD-LAYER REFRESHES, DONE (owner-authorised by message while away; one task per tile; all `shared repo UNCHANGED` by the builds themselves, the writes ledgered): +22+113 (VMMC/VHHH) 11:05:34; +40-004 (LEMD) nothing stale (its big_roads was re-derived by the 09:03 contamination); +30+031 (HECA) 11:26:53 (+2 regional clips); +35-081 (KCLT) 11:35:05; +25+051 (OTHH) 11:45:43; +60-136 (CYXY) 11:46:18. Every closing build on those tiles is unblocked. Not refreshed (the peer's airports, their own authorisation): LGAV +37+023, KDFW +32-098/+32-097, KPHX +33-112.

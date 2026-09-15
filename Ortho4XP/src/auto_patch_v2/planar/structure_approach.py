@@ -753,6 +753,25 @@ def apply_plates(mouth_list: list[Mouth], plates: _t.Sequence, osm: list[OsmWay]
         if p is None:
             out.append(m)
             continue
+        # §33 (6) C1' THE PAIR MARKS A MOUTH RAMP (owner RULINGS
+        # 2026-09-15e items 3/4; Fable / RULINGS 2026-09-15x).  Where the
+        # object carries a PARALLEL PAIR of thin surface walls near this
+        # mouth, THAT is the author's mouth ramp: the ramp lies between
+        # the pair's inner faces, runs the pair's length, its mouth at
+        # the end nearer the bore's COVERED stretch and its top at the
+        # outer end.  The §33 (2) reading (the object's BOX end, clamped
+        # to the bore) is superseded there — measured LEMD `Bridge3.obj`:
+        # the box is 354.2 x 25.1 m but the solids are two 73 m pairs
+        # 14.02 m apart at its two ends with 224 m of nothing between, so
+        # the box's end is 83.9 m from any wall and its width 11 m too
+        # wide.  Without a pair the §33 (2) (a) clamp stands exactly as
+        # it is (the 14bl item 7/8 runaway it fixed).
+        from .structure_pair import pair_mouth
+        moved = pair_mouth(m, p, osm, law, reach_m, admitted)
+        if moved is not None:
+            out.append(moved[0])
+            notes.append(moved[1])
+            continue
         # the plate END this mouth belongs to, and the direction INTO the plate
         ax = LineString(p.ends)
         s_m = ax.project(Point(m.xy))

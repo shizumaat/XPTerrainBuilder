@@ -1905,6 +1905,156 @@ def test_a_schema_stale_road_layer_refuses_and_names_osm_layers(
     assert build_mod.schema_stale_osm_layers(root, 40, -4) == []
 
 
+class _Notes:
+    """A ``Progress`` stand-in: the refresh narrates through ``.note``."""
+
+    def __init__(self):
+        self.lines = []
+
+    def note(self, msg):
+        self.lines.append(msg)
+
+
+def _osm_layer_fixture(tmp_path, monkeypatch, schema):
+    """A tmp data root whose tile +40-004 holds one road layer stamped
+    with ``schema``.  Returns ``(root, cache_path)``."""
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = tmp_path / "lane"
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(root / "OSM_data"))
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
+    cache = Path(FNAMES.osm_cached(40, -4, "big_roads"))
+    _write_schema_stamped_layer(cache, schema)
+    return root, cache
+
+
+def _mock_engine_fetch(monkeypatch, calls):
+    """Stand in for the ENGINE's one download entry, at the engine's own
+    function — ``O4_OSM_Utils.OSM_queries_to_OSM_layer``, which is what
+    ``start_background_osm_prefetch``'s worker calls.  Writes a cache
+    stamped with the schema it was asked for, exactly as the real one
+    does, and records the call.  No network anywhere in this file."""
+    import O4_File_Names as FNAMES
+    import O4_OSM_Utils as OSM
+
+    def _fetch(queries, layer, lat, lon, tags_of_interest,
+               cached_suffix=None, node_tags_of_interest=None,
+               cache_schema="", **kw):
+        calls.append((cached_suffix, cache_schema))
+        _write_schema_stamped_layer(
+            Path(FNAMES.osm_cached(lat, lon, cached_suffix)), cache_schema)
+        return 1
+
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer", _fetch)
+
+
+def test_an_authorised_osm_refresh_RE_DERIVES_a_present_but_stale_layer(
+        build_mod, tmp_path, monkeypatch):
+    """THE VMMC GAP (measured 2026-09-15, owner-authorised run).
+
+    ``build_airport.py VMMC --refresh-data osm_layers`` exited 0 in 23 s
+    reporting "refresh scope 'osm_layers' was authorised but wrote
+    NOTHING — the artifact was already present", and the next plain build
+    REFUSED on the same schema-stale file: authorising the refresh was a
+    no-op, because the engine's recycle path keeps a file that is
+    PRESENT, and the airport path never starts the prefetch at all.  The
+    refresh therefore gets its own derivation site — move the stale layer
+    aside, let the ENGINE re-derive it, verify, and put it back if it did
+    not.
+    """
+    import O4_Vector_Map as VMAP
+
+    root, cache = _osm_layer_fixture(tmp_path, monkeypatch, "2026-07-16")
+    stale_bytes = cache.read_bytes()
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+    prog = _Notes()
+
+    summary = build_mod.refresh_stale_osm_layers(root, 40, -4, prog)
+
+    assert [c for c in calls if c[0] == "big_roads"] == [
+        ("big_roads", VMAP.ROAD_CACHE_TAG_SCHEMA)], (
+        "the ENGINE's fetch entry must be invoked exactly once for the "
+        "stale layer, with the schema the engine now wants")
+    assert summary["refetched"] == [
+        "OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2"]
+    assert cache.read_bytes() != stale_bytes, "the layer was re-derived"
+    assert list(cache.parent.glob("*.stale-*")) == [], (
+        "the moved-aside copy must not be left behind as corpus litter")
+    assert any("moved aside" in line for line in prog.lines)
+
+    # THE POINT: the plain build that refused now passes its pre-flight.
+    monkeypatch.setattr(build_mod, "dem_cache_state", lambda *a: {
+        "tile_stem": "N40W004", "base_raster": True, "airport_insets": True,
+        "airports_layer": True})
+    monkeypatch.setattr(build_mod, "unverified_inset_negatives",
+                        lambda *a: [])
+    assert build_mod.missing_shared_artifacts(root, 40, -4) == []
+    build_mod.require_no_implicit_refresh(
+        build_mod.missing_shared_artifacts(root, 40, -4), set())
+
+
+def test_a_current_schema_layer_is_not_touched_by_the_refresh(
+        build_mod, tmp_path, monkeypatch):
+    """A refresh re-derives what is STALE and nothing else — the corpus is
+    not re-downloaded because a flag was passed."""
+    import O4_Vector_Map as VMAP
+
+    root, cache = _osm_layer_fixture(
+        tmp_path, monkeypatch, VMAP.ROAD_CACHE_TAG_SCHEMA)
+    before = cache.read_bytes()
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+
+    summary = build_mod.refresh_stale_osm_layers(root, 40, -4, _Notes())
+    assert summary["refetched"] == [] and calls == []
+    assert cache.read_bytes() == before
+
+
+def test_an_UNAUTHORISED_run_refuses_and_leaves_the_stale_layer_untouched(
+        build_mod, tmp_path, monkeypatch):
+    """Without ``--refresh-data osm_layers`` nothing is moved, nothing is
+    fetched, and the build refuses — the refresh is the ONLY thing that
+    may re-derive a shared artifact (ruling e9daef5)."""
+    root, cache = _osm_layer_fixture(tmp_path, monkeypatch, "2026-07-16")
+    before = cache.read_bytes()
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+
+    missing = build_mod.schema_stale_osm_layers(root, 40, -4)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data osm_layers" in str(exc.value)
+    assert calls == [], "an unauthorised run must fetch NOTHING"
+    assert cache.read_bytes() == before
+    assert list(cache.parent.glob("*.stale-*")) == []
+
+
+def test_a_refresh_that_re_derived_NOTHING_refuses_and_restores(
+        build_mod, tmp_path, monkeypatch):
+    """The VMMC failure mode must never exit 0 again.
+
+    When the engine's pass brings no schema-current layer back (Overpass
+    unreachable, no covering extract), the stale cache is put back —
+    leaving the corpus exactly as it was, rather than trading a stale
+    artifact for an ABSENT one — and the run refuses.
+    """
+    import O4_OSM_Utils as OSM
+
+    root, cache = _osm_layer_fixture(tmp_path, monkeypatch, "2026-07-16")
+    before = cache.read_bytes()
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer",
+                        lambda *a, **kw: 0)          # every fetch fails
+
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_stale_osm_layers(root, 40, -4, _Notes())
+    assert "re-derived NOTHING" in str(exc.value)
+    assert "+40-004_big_roads.osm.bz2" in str(exc.value)
+    assert cache.read_bytes() == before, "the stale cache must be restored"
+    assert list(cache.parent.glob("*.stale-*")) == []
+
+
 def test_the_write_guard_REFUSES_a_bz2_layer_write(build_mod, tmp_path):
     """THE bz2 HOLE (measured 2026-09-15).
 

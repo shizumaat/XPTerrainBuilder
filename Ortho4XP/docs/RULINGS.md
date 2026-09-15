@@ -7548,3 +7548,187 @@ cap) → RULED §34 (13) (3) on the measurement: an object's foot never
 holds airside pavement (r4 names the 14 objects and flips the rows);
 the mesh row's far end at a contact is the raw-pair partner.
 15ad addendum: suite ON MAIN after the v2lemdstruct2 r3 merge (777c6607): 1632 passed, 1 skipped, 42 warnings in 42.90s.
+
+## 2026-09-15af v2objcut LGAV crash FIXED and MERGED (07347a65 → 1a12c94a) — `object_cut.valid_polygon` / `largest_polygon` repair every wall-band polygon, result type never assumed; v2objcut r2 MERGED (bfbfaa93 → 32615dd9): signature C1′ wired — LEMD items 3/4 inside their wall pairs; C2′/C3′ measured, wiring waits on structures.py; frames.jsonl markers
+
+The crash: `tunnel_objects._bore_ends_at` unioned `Polygon(inner_a +
+reversed(inner_b))`; LGAV's Trench walls self-intersect → GEOS side-
+location conflict. Fix at every polygon the reader builds from bands
+(`_bore_ends_at`, `shell_corridor`, `shell_reading`); three twins
+asserting the unrepaired ring IS invalid. LGAV dry replay: corridors 3
+(B), door wells 1, tunnels 11, basins 2, zero tracebacks. r2 (suite
+1,638, 0 FAILED): C1′ — Bridge3's north pair 72.98/73.15 m at 179.66°
+inner 14.02 m; the south end is TWO pairs (27.65/25.71 m, 24.88/29.00
+m, inner 9.74/9.63) meeting at 40.49584 — one bent ramp. Item 3: ramp
+902 was 3.07–15.73 m off the inner faces (worst +8.72 m OUTSIDE, rim
++10.72) → mouth at the pair's inner end 40.4981314,−3.5850408 (9.5 m
+from the owner's 14bl item-7 point), width 7.0 → 13.42 m, both edges
+0.30 m inside by construction. Item 4: worst +12.69 m outside, flat →
+mouth 40.4960910,−3.5850297 (inside the owner's 14bl item-8 band, 8 m),
+53.6 m ramp over two pair segments, width 9.03 m; RESIDUAL: the top
+lands 7.3 m short of the pair's outer end (meets the DEM under
+`ramp_max_grade`); the owner's 40.4951833 is 56.2 m further along the
+open road. Two refuted attempts recorded (pairs read apart climbed 190
+m the wrong way; a kink at the top folded the ring). LEMD 48/50
+tunnels byte-identical; OTHH tunnels/wall corridors/basins/door wells
+byte-identical; VHHH corridors 0 → 5, same floors. `parapet_max_width_m`
+2.0 → 3.0 (Bridge2's parapets are 2.57/2.37 m thick — the reader
+refused the walls the law was written on). C2′ (Bridge4): the ring's
+20/23 vertices sit 0.46–4.09 m (ramp) / 0.51–11.53 m (rim) off the
+inner faces with station gaps to 23.8 m — `collapse_stations` (§34
+(7)); it does reach the wall ends (0.5–2.0 m; "17 m short" was the
+object-box reading). C3′ (Bridge2): FOUR bands — a flanking pair
+130.53/92.08 m at 94.5°, inner 20.37 m (the deck 879 worst +9.33 m
+OUTSIDE it — the owner's 8–9 m); a second flanking pair `LEMD50.obj`
+inner 22.39 m (the deck within it, +0.75); comp2's two perpendicular
+bands are an L corner 30–99 m away. RULED for the wiring: FLANKING →
+the deck centred on the pair, as wide as its inner spacing; where
+several pairs flank one way the NARROWEST governs (the wider is the
+embankment's edge wall). Both wirings need `planar/structures.py`
+(held for v2vmmcshore r3). The wall's §7 float and the VHHH build
+await the owner's +22+113 refresh. MERGE LESSON: my frames.jsonl
+"union" (`awk '!seen'`) kept three conflict-marker lines from the r3
+merge and `frames.py list` crashed on them (the lane caught it); the
+union now strips `^<<<<<<< |^=======$|^>>>>>>> ` first. The lane's
+object_cut.py and its twins taken whole at the r2 merge (the fix
+branch was a subset).
+15af addendum: suite ON MAIN after the v2objcut r2 merge (32615dd9): 1638 passed, 1 skipped, 42 warnings in 46.22s. LGAV structure replay on main: rc 0, zero tracebacks, corridors 3 / tunnels 11 / basins 2.
+
+## 2026-09-15ac v2channel ROUND 4 (90708ba1): five airports byte-identical, LGAV's channel inert on the current main, LEMD's T4S basin taken by a one-deck channel — §45 (13)(d) RULED (a basin member is never a channel wall witness)
+
+Round 4 implemented §45 (13)(a)–(c) at the one admission site and moved
+the channel's cross-pass interface into `planar/channel_claims.py`
+(structures.py back to 999 lines; `owner_kept`/`parts` moved verbatim to
+`structure_geometry.py`). Two findings committed with their measurement:
+(13)(b) supersedes round 2's geometric bore drop (a bore whose line lies
+inside a corridor the channel does not OWN keeps its bore — LEMD 46 →
+51 identical); a split defect (`_depth_under_crest` left behind by the
+module move, caught only by LEMD's replay — a twin now calls the real
+entry point). Six dry replays (base main 848bf35e vs branch,
+`replaced_ways` included): OTHH 44/10 IDENTICAL (24 ways excluded by
+(13)(b)), HECA 13/0, KCLT 23/0 (taxiway U's four bores restored by
+(13)(a)), CYXY 2/0, SPJC 8/0 IDENTICAL; LEMD tunnels 51 → 51 identical,
+basins 1 → 0 — `channel:5` (way −5989, neck + pack, 1 deck) claimed
+`dsf:obj7`/`obj10` (T4S basin members) as wall witnesses. LGAV on the
+fixed main: ONE channel (−1343/−7021/−2914/−4017, floor 66.47, half 62.8,
+4 decks, basins 2), tunnels 11 on BOTH arms (the 8 was an older main).
+Suite 1655/0, twins 17. RULED §45 (13)(d): a placement in
+`basin_witness.basin_member_ids` is never a (1)(c) witness. Round 5
+implements it; bar: six replays identical in Tunnel AND Basin records,
+then the merge (after which the concurrent session's follow-up lanes
+rebase). KDFW/KPHX still wait on the owner's refreshes.
+
+## 2026-09-15ah v2padqp r2 MERGED OFF (b2294797 → 348f80a4): the airside movement ATTRIBUTED — ¾ of it is the ARRANGEMENT CLIP re-noding the airside vertex set (clip alone 4,474 / 1.39 m), not a pad row; the pad plate row pointed one-way improves the SHIPPED surface (HECA ADJUDICATED −4.1 %, LEMD −35 %); mismatch HECA 10 → 0 by the ref-area share; keys stay OFF — the clip is a spec question. OWNER (away): "no need to rebuild that app yet … complete the open lanes first"; the app killed and the road-layer refreshes run by the session on the owner's word
+
+Lane @ b2294797; suite 1,639 passed, 0 FAILED. `--why-at` on HECA's
+worst mover (+3.610 m at 30.11038632205,31.39574702991, apron+building):
+ONE binding row — the pad's cap-0 plate (`pads cap 0.00 % × 8.7 m`,
+dual 3.61), two-sided over an apron-owned vertex → pointed one-way
+(§16g (10) (11) (a)); the next worst mover carries NO pad row; 5,600 of
+5,868 moved airside vertices touch no pad. Third arm (clip alone, no
+derived pads): 4,474 moved / 1.39 m, runway 17 / 0.100 m — the
+arrangement clip deletes 1,082 solve-owned airside vertices and mints
+235; 14as (i) made the airside REGION pad-independent, not its VERTEX
+SET. Bar 1 MISSED (HECA 5,973 / 3.28 m; LEMD 1,651 / 2.36 m) and cannot
+be met at a pad row. The direction fix ships (pads OFF): HECA
+ADJUDICATED 26,608 → 25,521, `airside_no_step` 7,747 → 7,344, `taxi_box`
+3,411 → 3,169, `within_shape` −726; `pad_airside_weld` 2 → 8 on that arm
+(the pad now yields — the family's job). Welds OFF → ON 8 → 7 HECA
+(MET), LEMD 2 → 3. Ref-area share: HECA mismatch 10 → 0 (shipped
+fallback reads 15), LEMD 2 → 1. Census final: HECA 25,521 → 25,612,
+LEMD 2,118 → 1,377; `strip_seam_tear` closed; `plane_gradient` 8 → 12
+(derived pads' own planes). NEXT (spec, Fable): whether a pad may
+re-node the airside at all — §16g (10) (12): the arrangement clip must
+preserve the airside vertex set (the pad polygon is clipped BY the
+airside cells, the airside cells are never re-cut by a pad). Owner
+away: the app quit by the session (engine idle: 0 % CPU, no children,
+workers exited), NO 1.0.341 build per the owner; `--refresh-data
+osm_layers` per tile started on the owner's explicit word (VMMC/+22+113
+first, then LEMD, HECA, KCLT, OTHH, CYXY), one task per tile.
+15ah addendum: suite ON MAIN after the v2padqp r2 merge (348f80a4): 1639 passed, 1 skipped, 42 warnings in 75.63s (0:01:15). The first refresh chain (six tiles in one 600 s task) was stopped before it wrote anything; it left its own `osm_layers.lock` (pid 49618, dead) which the session removed — one refresh task per tile from here.
+
+## 2026-09-15aj v2vmmcshore r3 MERGED (39bb0288 → ac3699a1): (4)'s crosses-the-bore limb REFUTED (it dropped all 7 LEMD decks — a deck crosses the TRENCH, not the bore) and deleted; the alongside limb stands with its twin; RULED §34 (12) (4) AMENDED: a deck severs only where the corridor is still BELOW GRADE at its station (r4). The osm_layers refresh WROTE NOTHING — a schema-stale layer is "present"; the peer's refuse-guard follow-up
+
+Lane @ 39bb0288; suite 1,640 passed, 0 FAILED. (a) as shipped, `bores`
+only armed the alongside limb; the bore's geometry was never tested.
+`tunnel:-2488@0` (bore −2488, 36.6 m; approach walk 604.2 m): decks
+`-1798` (137.2 m from the bore, s = 214.8) and `-3636` (46.7 m, s =
+308.7) both "sever" → `climb_from_s` 559.2 on `top_s` 468 → flat 1.00 m
+for 381 m (5.10 m at 8 % = 63.8 m). (b) with the literal limb: VMMC
+decks none, `top_s` 84 m, `clipped_by` none, tunnels 5 → 13 (short
+ramps stop overlapping), ramp+rim on the sea 0.0 m², nearest ramp 74 →
+188 m from the probe; ADJUDICATED 53 → 57. (c) LEMD decks 7 → 0 (every
+ramp named: `-6288`'s 96 → 24 m …), OTHH 44 / 1 unchanged → the limb
+deleted, base-identical dry arms (VMMC 5/10, LEMD 55/7, OTHH 44/1);
+twin pins the limb's ABSENCE. RULED (Fable): a deck severs only where
+the corridor is still below grade at its station — the ramp cap is the
+number; r4 implements. REFRESH: `build_airport.py VMMC --refresh-data
+osm_layers` on main: rc 0 in 23 s, "refresh AUTHORISED … wrote NOTHING
+— the artifact was already present"; the layer's mtime unchanged (Aug
+10, schema 2026-07-16); a plain build REFUSES again. The refresh path
+does not regenerate a present-but-stale layer while the engine no
+longer rewrites it — reported to the peer (v2schemarefuse's owner);
+until it lands, no closing build on any tile but +40-004. The owner
+(away) authorised the session to quit the app and run the refreshes;
+no 1.0.341 build ("complete the open lanes first").
+15aj addendum: suite ON MAIN after the v2vmmcshore r3 merge (ac3699a1): 1640 passed, 1 skipped, 42 warnings in 44.57s.
+
+## 2026-09-15ak v2schemarefuse ROUND 2 MERGED (dec0481e): `--refresh-data osm_layers` now RE-DERIVES a present-but-stale road layer — it had no derivation site of its own (the VMMC refresh "wrote NOTHING")
+
+Measured by the concurrent session (owner-authorised): `build_airport.py
+VMMC --refresh-data osm_layers` on main after 15v ran rc 0 in 23 s,
+"authorised but wrote NOTHING — the artifact was already present", the
+layer's mtime stayed Aug 10 (schema 2026-07-16) and a plain build refused
+again. ATTRIBUTED (lane `v2schemarefuse` r2, 177f4c2a): the engine's
+prefetch admission (`_layer_cache_is_current`) downloads only an ABSENT
+or stale layer, and the AIRPORT path never starts the prefetch at all
+(`dem_production` calls `compose_tile_dem_from_disk` directly; only the
+tile prelude `prepare_tile_airports_and_dem` starts it) — so the refresh
+scope authorised a write that nothing in the run could make, and on the
+tile path the only re-deriver was the mid-build prefetch 15v exists to
+stop. FIX at the refresh's own derivation site: `refresh_stale_osm_
+layers(root, lat, lon, prog)` in `build_airport.py`, beside
+`warm_airport_insets` — inside the scope lock and the guard, before the
+build, so the write lands in the before/after diff `record_refresh`
+hash-stamps into the ledger: every layer `schema_stale_osm_layers` names
+is MOVED ASIDE (`<name>.stale-<schema>`, restored byte-identical on
+failure, removed on success — never deleted outright, so an unreachable
+Overpass cannot turn a stale corpus into an absent one), then the
+engine's own `start_background_osm_prefetch(tile)` +
+`wait_for_background_osm_prefetch()` re-derive it (the tile prelude's
+pair, the same 5-tuple specifications); the verdict is re-read through
+`schema_stale_osm_layers`, and a refresh that re-derived nothing RAISES
+after restoring the corpus (never rc 0 twice on the same stale layer).
+Stated consequence: the pass also fetches any other layer of that tile
+the specifications name and the corpus lacks (coastline, water) — lawful
+under the scope, guarded, ledgered; `--tile` runs take the same path
+(before-build, not mid-build). Twins on a tmp root with the engine's
+fetch mocked at `OSM_queries_to_OSM_layer`: stale + authorised → aside
+gone, one fetch, bytes changed, `missing_shared_artifacts` then empty;
+current → untouched; unauthorised → refused, byte-identical; every fetch
+failing → refused, stale restored. Suite ON MAIN: `1678 passed, 1
+skipped`, 0 failed. The first real refresh is the owner's (or his
+authorised session's): it will now write, and the ledger records it.
+
+## 2026-09-15al v2vmmcshore r4 NOT MERGED (5b30cf9d): VMMC MET on a real build (probe covered by nothing, 0.00 m² on the sea, 0 nodes ≤ 0.5 m, tears 61 → 0, `sea_wall` 27 rows, ADJUDICATED 225 → 61, `shared repo UNCHANGED`) — but the below-grade limb drops LEMD's decks 7 → 1 incl. `-6288` (14bp item 10); both limbs refuted as discriminators; r5 measures the cutting witnesses (road-feed tags + DEM under each of the 11 decks) before the rule
+
+Lane @ 5b30cf9d; suite 1,645 passed, 0 FAILED. Closing VMMC build rc 0,
+21.3 s, optimal, ledger 14508d4b2d53: pav5 5.09…6.12 (nearest ramp
+39.0 m clear), tunnels 13 / decks 4 / refusals 2, shore trim 98,575 m²
+/ 6,154 m sea wall, `transverse` 11 → 1. `-2488@0`: `climb_from_s`
+559.2 → 0.0, `top_s` 468 → 84, `clipped_by` none. LEMD table (all
+"beyond grade" bar `-5284@0`/`-11828` at s 14.6 vs grade 108): `-6288`
+s 56.3 vs grade 24.0; `-15293` 146 vs 24; `-5305`/`-1378`/`-1379` vs
+60/never; `-14230`/`-374`/`-516`/`-15311` vs 84/never; `-639` 523 vs
+180; ramp lengths 180 → 24, 552 → 60, 96 → 24, 252 → 84 m. OTHH 44 / 1
+identical. RULED (§34 (12) (4) MEASURED AT LEMD): the discriminator is
+a WITNESSED CUTTING under the deck — r5 tables the 11 decks' witnesses
+(road-feed `layer`/`cutting`/`covered`/`tunnel`/`embankment`, the DEM
+under the deck vs its abutments, the deck's tags/length, the station)
+before any rule; the session writes the rule from the table. The
+mesh `--z-xref` (doubled plane) is unmeasured: the lane's VMMC TILE
+build (`v2vmmcshore4tile`) was still running after ~100 min (13cg's
+3,845 s class) — left running under its tag; the patch proves 0 nodes
+≤ 0.5 m. Refreshes so far (owner-authorised, ledgered): +22+113
+(11:05:34, 1 layer), +40-004 (nothing stale), +30+031 (11:26:53, 1
+layer + 2 clips), +35-081 (11:35:05, 1 layer); OTHH running, CYXY next.

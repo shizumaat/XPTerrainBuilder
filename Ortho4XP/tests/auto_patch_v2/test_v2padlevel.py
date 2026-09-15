@@ -426,3 +426,53 @@ def test_beyond_one_percent_the_pad_follows_the_senior_pavement(law):
     fam = rep.families.get(GEN_LEVEL)
     assert fam and fam["rows"] > 0
     assert fam["missed"] > 0 and fam["max_m"] > 0.0, fam
+
+
+def test_16g_10_11_a_the_plate_is_one_way_toward_the_pad_at_an_airside_pair(law):
+    """§16g (10) (11) (a) (owner RULINGS 2026-09-15z; lane ``v2padqp``
+    r2): THE PAD'S PLATE NEVER MOVES THE AIRSIDE.
+
+    ATTRIBUTED, not assumed: ``v2_solve_replay --why-at`` on HECA's worst
+    airside mover between the pads-OFF and pads-ON arms (+3.610 m at
+    30.11038632205, 31.39574702991, roles ``apron`` + ``building``) named
+    exactly ONE binding row on it — this plate, ``pads cap 0.00 % x 8.7
+    m``, dual 3.61.  A shared vertex is one unknown (09-01g), so the
+    plate's cap-0 target and the apron's own target are peers there, and
+    the plate is priced ten times the law: the apron rose to the pad.
+
+    So a pair with ONE end on airside is priced ONE-WAY with the PAD's
+    vertex as follower, and a pair the airside owns at BOTH ends is not
+    the pad's to price.  The pad's own interior pairs stay two-sided —
+    14al's rigid core, the form that did not collapse — and the HARD 1 %
+    ceiling is untouched on every pair."""
+    from auto_patch_v2.constraints.pads import (_PLANE_MIN_OWN,
+                                                airside_vertices, pad_flats,
+                                                pad_slope_ceiling)
+    airport = _airport(law, _Dem())
+    pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
+    air = airside_vertices(pm, law)
+    rim = _verts(pm, "padA")
+    own = rim - air
+    assert len(own) >= _PLANE_MIN_OWN and rim & air, (len(own), len(rim))
+    pad_fid = _face(pm, "padA").id
+    flats = [r for r in pad_flats(pm, law, airport)
+             if f"face:{pad_fid}" in r.source.inputs]
+    ceil = [r for r in pad_slope_ceiling(pm, law, airport)
+            if f"face:{pad_fid}" in r.source.inputs]
+    led = [r for r in flats if r.follows is not None]
+    assert led
+    for r in led:
+        aa, bb = r.a in air, r.b in air
+        assert aa != bb                                  # exactly one airside end
+        assert r.follows == ((r.b,) if aa else (r.a,))   # the PAD follows
+        assert r.source.ruling.startswith("structures.building_pad flat "
+                                          "airside-led")
+    # no plate row is left with both ends on airside ...
+    assert not any(r.a in air and r.b in air for r in flats)
+    # ... the interior pairs are still two-sided at cap 0 ...
+    core = [r for r in flats if r.follows is None]
+    assert core and all(r.a in own and r.b in own for r in core)
+    assert {r.cap for r in flats} == {0.0}
+    # ... and the hard ceiling still prices every pair, two-sided
+    assert all(r.follows is None for r in ceil)
+    assert len(ceil) == len(rim) * (len(rim) - 1) // 2 >= len(flats)

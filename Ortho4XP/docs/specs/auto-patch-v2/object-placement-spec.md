@@ -5538,3 +5538,98 @@ ref-area lever for the ten survivors; (c) the seven welds named.  The
 keys flip ON only when airside movement is 0 (> 0.02 m) and the welds
 are 0 new; the object-stage FLOAT at the garage (body zero vs its own
 ground) is read on the next app build, not in the harness.
+
+### §16g (10) (11) MEASURED, ROUND 2 (lane `v2padqp` r2, 2026-09-15; branch `claude/v2padqp`)
+
+**(1) THE AIRSIDE MOVEMENT IS ATTRIBUTED, AND IT IS NOT A ROW OF THE PAD
+LAW.**  `--why-at` on HECA's worst airside mover between the pads-OFF and
+pads-ON arms (+3.610 m at 30.11038632205, 31.39574702991, roles `apron` +
+`building`) named exactly ONE binding row on it: **the pad's own cap-0
+plate**, `pads cap 0.00 % × 8.7 m`, dual **3.61**, over a vertex the
+apron owns.  So the plate was pointed the one lawful way (below) and the
+site re-read: the new worst mover (+3.28 m) carries **no binding pad row
+at all** — its chain ends on an apron vertex `FREE: no binding row blocks
+it … held by bending alone`.  The decisive count, by node identity
+between the two emitted patches: of the **5,868** airside vertices that
+moved, only **268** are SHARED with a pad at all; **5,600 touch no pad**
+and still move up to 2.77 m.
+
+**THE CHANNEL IS THE ARRANGEMENT CLIP, MEASURED INTERVENTIONALLY.**  A
+third arm with `pad_airside_clip = true` and `pad_from_cluster = FALSE` —
+the clip alone, no derived pad anywhere — against the same OFF arm:
+
+| arm (vs pads-OFF) | airside moved > 0.02 m | worst | runway | runway worst |
+|---|---|---|---|---|
+| **clip ALONE** | **4,474** | **1.39 m** | 17 | 0.100 m |
+| clip + derived pads | 5,973 | 3.28 m | 189 | 0.200 m |
+
+Three quarters of the moved vertices and nearly half the worst move are
+bought by the CLIP, which re-cuts the airside faces around every pad
+(1,082 solve-owned airside vertices gone, 235 new) — a different
+arrangement, a different triangulation, a different smoothness optimum
+over the whole field.  14as (i) armed the clip to make the airside
+REGION independent of the pads (area-null, and it is); the airside
+VERTEX SET is not, and that is what moves the surface.  §16g (10) (5)'s
+bar of 0 cannot be reached at the pad's rows: it is a question about
+whether the airside may be re-noded by a pad at all, and that is the
+spec's to rule, not this lane's.
+
+**WHAT THE ROW-LEVEL FIX DID BUY, ON THE SHIPPED SURFACE.**  A plate pair
+with ONE end on airside is now priced ONE-WAY toward the pad (new head
+`structures.building_pad flat airside-led`, in `one_way_rulings` and
+`pad_flat_rulings` — same plate, same price, one lawful direction); a
+pair the airside owns at BOTH ends is withdrawn; a pad with fewer than
+three vertices of its OWN keeps its two-sided plate (three points make a
+plane — the pad-in-an-apron class, measured on the §30 (4) twin at 0.86 m
+when the pairs were withdrawn anyway), and a cluster's cross-links are
+built from own vertices.  Measured on the PADS-OFF arm, the same capture,
+the only variable this code: ADJUDICATED **26,608 → 25,521 (−4.1 %)**,
+`airside_no_step` 7,747 → **7,344**, `taxi_box` 3,411 → **3,169**,
+`within_shape` 47,927 → **47,201**, `transverse` −5 — the shipped
+fallback pads stop dragging the apron too.  The price is
+`pad_airside_weld` **2 → 8**: where the pad now yields instead of pulling,
+the census says so, which is the family's whole job (14ai).
+
+**(2) `pad_airside_weld`: NO NEW ROW.**  HECA OFF → ON **8 → 7**
+(r1: 2 → 7); LEMD **2 → 3**.  The bar's "0 new" holds at HECA; LEMD's one
+row is `building7`-class (a pad that cannot reach its non-apron airside
+edge) and is named in the census rows.
+
+**(3) THE REF-AREA LEVER CLOSES THE MISMATCH.**  `_OWN_FACE_SHARE` now
+asks the share of the REF's whole area, not one face's — a pad IS a ref,
+and asked per face one sliver face of a neighbour listed the whole ref.
+**HECA `pad_cluster_mismatch` 10 → 0** (pads OFF, the shipped fallback
+derivation: **15**), LEMD 2 → **1** (`unit:27#341/8` over `building25` /
+`building26`, the OldTerminal chain).  (10)'s own bar — "pads must match
+building clusters … exactly" — is MET at HECA with the pads derived and
+MISSED by the shipped derivation.
+
+**(4) THE CENSUS PAIRS (matched replay arms, one tree, final code).**
+
+| | HECA OFF → ON | LEMD OFF → ON |
+|---|---|---|
+| ADJUDICATED | 25,521 → 25,612 (+0.4 %) | 2,118 → **1,377** (−35 %) |
+| law-true | 62,456 → 62,592 | 6,911 → **5,606** |
+| `pad_cluster_mismatch` | 15 → **0** | 0 → 1 |
+| `pad_airside_weld` | 8 → **7** | 2 → 3 |
+| `airside_no_step` | 7,344 → **7,280** | 444 → **440** |
+| `transverse` | 1,315 → **1,277** | 117 → **109** |
+| `frontage_near_miss` | 28 → **20** | 8 → **2** |
+| `plane_gradient` | 8 → 12 | 0 → 0 |
+| `strip_seam_tear` | 28 → **28** | 0 → 0 |
+| `hairline_pair` | 2,749 → 2,795 | 1,882 → **1,388** |
+
+`strip_seam_tear` is CLOSED (r1's 28 → 30 is gone: +0).  `plane_gradient`
+8 → 12 is the residual, named: four more rows on the derived pads'
+own planes, the class r1 also carried.  LEMD `strip_longitudinal` 4 → 5,
+`strip_arc` 7 → 8 and `strip_transverse` 84 → 87 are the same order.
+
+**(5) THE KEYS STAY FALSE.**  Deliverable (1)'s bar — airside movement 0
+— is MISSED (HECA 5,973 / 3.28 m, runway 189 / 0.200 m; LEMD 1,651 /
+2.36 m, runway 43 / 0.070 m) and the attribution says why it cannot be
+met by a pad row: three quarters of it is the arrangement clip's own
+re-noding.  Deliverable (2) is MET at HECA and +1 at LEMD; (3) is MET at
+HECA.  Suite **1,613 passed / 1 skipped**, 0 FAILED.  No closing build:
+the keys did not flip.  The owner's garage still seats on `building45`
+(93-node face, median **615.09**, z − DEM **+4.06 m** of fill) on the
+armed arm.

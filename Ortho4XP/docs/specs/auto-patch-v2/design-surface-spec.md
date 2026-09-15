@@ -12893,3 +12893,35 @@ between two rims solving at 602.16 / 601.69 — an unowned 9 m cut in the
 witness.  The road, admitted, grades that ground (§37 (6) its zones);
 the 144,429 m² hole ring (cover 0.011) is closed by the road's faces and
 zones or excluded per §34 (11) (c).
+
+## §34 (12) AMENDED — (1) WITHDRAWN (owner 12ab STANDS: admission is by the mouth); (3) scoped to OSM bores; a mouth's own pavement is not a cut (Fable 2026-09-15; RULINGS 2026-09-15w) — lane `v2vmmcshore` r2
+
+Lane r1 (a57abc47) met every VMMC bar (0 ramps / 0 rims, the tear gone,
+0 of 2,318 nodes at or under 0.5 m, 98,575 m² trimmed off three
+regions, 6,567 m of sea wall, 19 quays, ADJUDICATED 225 → 55) and then
+measured (1) at LEMD by dry pair: **54 → 16 tunnels** — the 38 lost are
+owner 12ab's population ("Build them": a mapped tunnel whose mouth
+stands on the field is built, mouth and ramp, whether or not its bore
+passes under an airport surface; visible on approach).  (1) as written
+REVERSED an owner ruling by the side door.  RULED:
+
+(1) is WITHDRAWN.  Admission stays BY THE MOUTH (12ab, `mouth_standoff_m`).
+What stops the VMMC seafront line is (2)–(4): no structure face over the
+water (the corridor ends at the shore); a corridor never CUTS airside
+pavement (it becomes an underpass where the pavement is authored as a
+deck or a pack corridor covers it, otherwise it STOPS SHORT of the
+pavement — at VMMC the OSM car-park bore stops at pav5); a mapped bridge
+severs the climb only where it crosses the bore.  (3) is SCOPED to OSM-
+derived corridors: a PACK-STATED corridor (§33 (6) signatures A/B/C, the
+OTHH terminal tunnels under pav32/pav30) is authored geometry and its
+crossing of airside IS an underpass by authorship — never refused.  The
+pavement a corridor's own MOUTH stands on is not "cut": a portal ends in
+it.  What remains at VMMC under this reading — a short mouth + ramp at
+the car-park entrance beside the seafront, if the mouth is on the field
+— is an OWNER QUESTION (15w): the owner objected to "the whole long line
+… going out into the water and cutting the taxiway"; whether the stub
+that survives is wanted is theirs to say, with its geometry named by r2.
+The lane's r2 re-measures VMMC, LEMD (54 → 54 expected) and OTHH
+(44 → 44 + the returned wall corridor) under the amendment.  The pav5
+residual 0.81 m (the flat-site preference losing to its neighbours,
+`flat_site 826/1240 unmet, max 0.692 m`) is accepted and named.

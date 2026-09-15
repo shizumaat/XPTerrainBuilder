@@ -493,7 +493,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"door ramps {ss.door_ramps}  sunken roads "
              f"{ss.sunken_roads}  wall corridors {ss.wall_corridors}  tunnels {ss.tunnels}  "
              f"decks {ss.decks}  "
-             f"cells cut {ss.cells_cut}  refused {len(ss.refused) + len(ts.refused)}", out)
+             f"cells cut {ss.cells_cut}  mouth roads {len(ss.mouth_roads)}  "
+             f"refused {len(ss.refused) + len(ts.refused)}", out)
+    # §34 (13) (4): every MOUTH ROAD named — the class is meant to be a
+    # handful (LEMD 4, KCLT 3, OTHH 0), so a rising count is visible
+    for _mr in ss.mouth_roads:
+        _say(f"    [{icao}]     {_mr}", out)
         for r in ts.refused:
             _say(f"    refused object {r}", out)
         for r in ss.refused:

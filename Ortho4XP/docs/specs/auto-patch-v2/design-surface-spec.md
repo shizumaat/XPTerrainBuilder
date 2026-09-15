@@ -12800,6 +12800,208 @@ worst distance of an emitted ring vertex outside its object's wall line
 (bar 0.5 m) and `object_cut_depth`: floor vs the authored floor plate
 (bar 0.10 m).
 
+**MEASURED** (lane `v2objcut`, branch `claude/v2objcut` off main `bf518d0c`;
+ONE tree, the shared corpus.  Synthetic-first: dry `planar --stage structures`
+replays at VHHH / LEMD / OTHH and a direct OBJ8 inventory of the VHHH tunnel
+pair before the one VHHH build.)
+
+**§33 (6) CONSUMER CENSUS (RULINGS 2026-08-30l), one table, written BEFORE the
+first code edit.**  Every reader of the pack's tunnel objects, thin plates,
+floor-witness basins, wall corridors and deck groups, and what §33 (6) does to
+it.  The column "Ruled" is the decision this lane implements at that site; a
+row marked UNCHANGED is a site the lane does not edit and the measurement must
+prove untouched.
+
+| # | Reader (file · symbol) | What it reads | Ruled |
+|---|---|---|---|
+| 1 | `airport/obj8.read_placed_objects` · `_witness` | every placement → `PlacedObject.witnesses` (the FLOOR PLATE `admission_depth_m` under the local ground) | UNCHANGED as a reading. The signature screen runs AFTER it and SUBTRACTS its own placements from the witnessed set; the witness itself is still what signature B's floor plate is found through (one parse, never a second). |
+| 2 | `airport/basin_witness.read_objects` | the pack, memoised on `ResourceCache` | UNCHANGED — one parse for the whole build. |
+| 3 | `airport/basin_witness.basin_member_ids` | `o.witnesses` → the placements exempt from the skirt reader and the re-seat below-grade skip (10ax (2)) | **CHANGED**: a placement the object-cut screen claims (A/B/C) is NOT a basin member. It is still exempt at both sites — it is a trench, not a foundation — so the exemption set is `witnesses ∪ object_cut`, one derivation (`airport/object_cut.cut_placement_ids`). |
+| 4 | `planar/basins.build_basins` · `witnessed = [o for o in objects if o.witnesses]` | the basin REGION, rim, floor, cut | **CHANGED, one derivation site**: the intake filters out every placement the object-cut screen claims. "The shell is never a basin" (§33 (6) B). Bar: signature-A/B/C objects reaching `build_basins` = 0, count named per airport. |
+| 5 | `planar/basins.object_decks` | `o.hard_deck` / `deck_top_z` → object bridges | UNCHANGED in code. A signature-B COVER is a `HARD_DECK` plate at `|y| ≤ 1 m`; it is the tunnel's covered extent, not a bridge deck over open ground — it is excluded with its shell (row 4's same set), and the count is named. |
+| 6 | `airport/tunnel_objects.read_corridors` | OBJ8 → `Corridor` (crest plate + skirt, LAW A/B) | **CHANGED**: the `o.witnesses` hand-off at `:726` no longer sends a floor-witness placement straight to basins — it is screened for signature B first (shell + flush hard cover). Signature A/C readings are unchanged; every refusal still named (§33 (1)). |
+| 7 | `airport/tunnel_walls.read_wall_lines` / `midline` / `stations_along` | a crest plate → inner faces, axis, stations | **CHANGED for C2 only**: the station spacing along a CURVED inner face is bounded so the emitted chord error stays ≤ half the band (0.75 m); a straight corridor's stations are unmoved (bit-identical at OTHH). |
+| 8 | `airport/wall_corridors.read_wall_corridors` (LAW C bands/pairs) | vertical-only bands → kerb corridors + garage ramps | **CHANGED**: the per-airport affordance `kerb_wall_corridors` is RETIRED; the admission is signature A read on the pair's OWN resource (solids descending `min_wall_depth_m` below the object's zero WITH a crest plate `plate_min_height_m` above it). Bar: OTHH's corridor set identical OFF→ON, every difference named. |
+| 9 | `law/airports.toml` · `airports_schema.Affordances.kerb_wall_corridors` | the ICAO switch | **DELETED** (key and field). `group_span_max_m` stays. |
+| 10 | `airport/thin_plates.read_plates` | 1.0–1.5 m solids over a mapped way → `WallPlate` (a width + an axis) | **CHANGED**: signature C. A plate whose own solids read as a parallel PAIR of thin bands publishes the pair's INNER faces (C1 axis + inner spacing), not the authored box; a parapet pair flanking a mapped bridge way publishes the DECK extent (C3). The 1.5 m skirt pre-screen is superseded for C, so a C object is admitted whether or not `read_corridors` refused it for a skirt. |
+| 11 | `planar/structure_approach.apply_plates` | `Mouth` ← `WallPlate` (§33 (2)) | **CHANGED**: for a C1 pair the §33 (2) (a) clamp is SUPERSEDED — the object's end IS the mouth and the ramp runs open beyond it; the mouth takes the pair's INNER spacing as its width and the pair's midline as its axis. For a plate with no pair (the 14bl item 7/8 runaway) the clamp stands exactly as it is. |
+| 12 | `planar/structure_approach.mouths()` / `merge_duals` | bore ends → `Mouth` | UNCHANGED (lane `v2vmmcshore` owns `mouths()`; `apply_plates` runs after it and rewrites `xy` / `inward` / `width_m` / `approach` only). |
+| 13 | `planar/structure_approach.field_region_for` (§29 gate) | cover ∪ corridors ⊕ standoff | UNCHANGED and runs FIRST — the gate judges the MAPPED end, never the moved one. §34 (12) (lane `v2vmmcshore`) still decides whether a tunnel is built at all. |
+| 14 | `planar/object_corridor.mouth_covered_by` | mouth xy vs corridor footprints (05n-3 precedence) | UNCHANGED in code; a signature-B shell now HAS a footprint here, so its OSM mouths are replaced by the object's — that is §33 (6)'s "the OBJECT wins inside its extent", measured as `mouths_replaced_by_object`. |
+| 15 | `planar/object_corridor.object_groups` / `climb_path` / `_interp` | `Corridor` → `Group` (half-width and rim per station) | UNCHANGED — a signature-B corridor is a `Corridor` like any other; its stations come from the shell's own wall line. |
+| 16 | `planar/object_corridor.trench_outside_m` | emitted ramp rings vs the corridor's trench | UNCHANGED; it is the existing instrument the new `object_cut_offset` family generalises (ring vertex vs the object's WALL LINE, every signature). |
+| 17 | `planar/structures.build_structures` | `corridors`, `plates`, `objects`, cells | UNCHANGED (another lane's file this round): every §33 (6) reading reaches it through the existing `corridors=` / `plates=` / `objects=` arguments. No new argument, no re-ordering. |
+| 18 | `planar/structures` ramp geometry (`geometry`, `_pad_hit`, `beyond_strip`) | the mouth's width / inward | UNCHANGED; it reads the width `apply_plates` hands it, so a C1 ramp is the pair's inner spacing by construction. |
+| 19 | `planar/structure_deck.deck_intervals` / `deck_groups` / `deck_items` | mapped bridge ways crossing a corridor → `Deck` | **CHANGED (C3 only)**: where a parapet PAIR flanks the deck's mapped way, the deck face is centred on the pair and as wide as their inner spacing; with no pair the carriageway width stands exactly as today. |
+| 20 | `planar/structure_deck.deck_ends` (§33 (4)) | the way's two ends → the deck's end levels | UNCHANGED — C3 changes the deck's LATERAL extent only, never its profile. |
+| 21 | `planar/structure_deck.object_deck_intervals` | `object_decks` (hard-deck objects) over a corridor | UNCHANGED in code; row 5's exclusion keeps a signature-B cover out of it (it is the tunnel's own roof, not a deck over it). |
+| 22 | `planar/wall_corridor_ramps.wall_corridor_groups` / `wall_corridor_profile` / `stop_and_steepen` | LAW C records → ramp groups and profiles | UNCHANGED in code; row 8's admission change is the only thing that can alter what reaches it. Bar: OTHH ramps identical. |
+| 23 | `planar/wall_corridor_ramps.road_true_edge` / `airside_stops` / `locked_road_stops` | where a ramp stops (§34 (9)/(10)) | UNCHANGED. |
+| 24 | `airport/skirt.skirted_placements` (10ag) | basin members exempt from the skirt drop | **CHANGED through row 3's one derivation** — the exemption set grows by the object-cut placements; no second spelling. |
+| 25 | `airport/rebake_plan` below-grade skip (09w (1)) | basin members exempt | **CHANGED through row 3's one derivation**; a tunnel shell's below-zero geometry is not a foundation. |
+| 26 | `airport/rebake_plan` / `emit/rebake` `ATTR_hard_deck` re-seat | hard-deck objects | UNCHANGED — the shell and its cover keep the seats the object stage gives them; this lane re-seats nothing (13r's "a draped deck plate rides the terrain deck the mesh gives it"). |
+| 27 | `airport/deck_signature.classify` / `is_bridge_way` / `is_tunnel_way` | the deck families and the two way predicates | REUSED UNCHANGED by every signature — one predicate, never a second (the 13r rule). |
+| 28 | `pipeline/publication.tunnel_objects` | `tn.source != "osm"` | UNCHANGED: a C1/C3 mouth stays `source = "osm"` (it IS an OSM bore, the object only placed and sized its portal); a B shell is an object corridor and reads `object` as every corridor does today. |
+| 29 | `pipeline/build` / `planar/__main__ --stage structures` structures line + KML | the stats | **CHANGED, reporting only**: `object cuts N (A n / B n / C n)`, `basin placements claimed by a cut N`, and one named line per refusal — every screened resource still named (§33 (1)). |
+| 30 | `verify/structures.tunnel_mouth_canonical` | cap crest − ramp mouth = `bore_datum_m` | **READ, NOT CHANGED**: signature B's floor is AUTHORED and overrides `bore_datum_m`, so a B mouth is legitimately deeper; the family is quoted before → after and every new row named. §33 (5) (lane `v2lemdstruct2`) owns the shallow case. |
+| 31 | `verify/structures.tunnel_deck_clearance` | min(deck) − max(ramp) ≥ `clearance_m` | UNCHANGED. |
+| 32 | `verify/*` + `tools/check_grade.LAW_FAMILIES` | the emitted roles | **NEW families** `object_cut_offset` (worst emitted ring vertex outside its object's wall line, bar 0.5 m) and `object_cut_depth` (emitted floor vs the authored floor plate, bar 0.10 m), registered in `LAW_FAMILIES` with twins in `tests/test_harness.py` — the census cannot omit a family (the twin fails). |
+| 33 | `emit/osm_adapter` sidecar `road_bridge_decks` | always empty in v2 | UNCHANGED. |
+| 34 | `planar/zones.py`, `planar/structure_underpass.py`, `constraints/cluster_pad.py`, `solve/design*.py` | other lanes' files this round | NOT TOUCHED. |
+
+**THE TWO FAMILIES SELECT BY OVERLAP, NOT BY REF.**  An emitted ramp face's
+`ref` is its ROLE (`tunnel_ramp`), the same string for every corridor in the
+patch (`planar/structures.py:713`), so a ref join would price every ramp of the
+airport against every object.  A face with at least one vertex INSIDE the wall
+line is that object's cut; a face wholly outside is another corridor's and is
+not read.  The published `outline_ll` is the walls ∪ trench EXTERIOR ring, so
+for a hairpin shell (VHHH `tunnel5`) the region is slightly LOOSER than the
+trench — the family can under-report, never over-report.
+
+**CENSUS ROWS THE MEASUREMENT CORRECTED.**  Rows 3 / 24 / 25 ruled that the
+skirt and re-seat exemption set would grow to `witnesses ∪ object_cut`.  It
+does not need to: a signature-B shell already carries a floor witness, so it
+is already in `basin_member_ids`, and §33 (6) removes it from the basin
+**intake** only (row 4).  `airport/skirt.py` and `airport/rebake_plan.py` are
+therefore UNCHANGED, and `cut_placement_ids` has exactly one consumer.  Row 8
+/ 9 (the affordance's retirement) is REFUTED — see (A) below.  Rows 10 / 11 /
+19 (signature C) are NOT DONE this round — see (C).
+
+**(B) THE SHELL + FLUSH HARD COVER — DONE.**  `airport/object_cut.py` (NEW,
+440 lines) screens every placement once and publishes `ObjectCut`;
+`tunnel_objects.shell_corridor` turns one into the SAME `Corridor` every other
+object corridor is, so `planar/structures.py` is not edited at all and the
+05n-3 per-mouth precedence, `object_groups` and `trench_outside_m` read it
+unchanged.  Three readings are the object's and not the law's:
+
+* **The trench outline is the plan union of the shell's NON-VERTICAL faces**
+  (floor plates and ramps alike), never a hull: VHHH `tunnel5_done.obj` is a
+  U-turn ramp whose 9,290 m² trench sits in a 245.9 × 73.2 m box.
+* **The wall line is the plan segments of its VERTICAL faces**, and a run of
+  the trench ring with no wall face standing on it is a PORTAL.  `tunnel5`
+  reads exactly two open runs of its 29 ring edges (22.2 m and 17.0 m) and 27
+  walled ones; `tunnel3` reads one portal spanning TWO ring edges (44.4 m +
+  2.5 m), which is why the open edges are joined into RUNS before they are
+  counted; `tunnel2` reads FIVE portals (a 28,525 m² multi-portal shell) and
+  takes its two longest as its ends, the others standing inside a wall chain.
+* **The floor is the DEEPEST plate-worthy bin, not the largest-area one.**  A
+  shell's RAMPS are near-horizontal too (`tunnel5`'s read |n_y| = 0.998 over
+  100 m), so the largest bin of horizontal faces is a ramp's mid-height:
+  measured `tunnel1` a 1,514 m² ramp bin at −2.50 against the 733 m² floor at
+  −6.95, `tunnel4` 2,672 m² at −5.25 against 454 m² at −9.01.
+
+**TWO DEVIATIONS from §33 (6) B's text, both forced by measurement** (the 13r
+precedent — the spec text yields to the measurement):
+
+1. **The cover is a SECOND PLACEMENT, never the shell itself.**  §33 (6) B
+   allows "or inside the same object"; that form admitted VHHH's `sea_X.obj`
+   — a sea barrier whose own flush hard deck covers its own −28.20 m plate —
+   as a 104.9 m wide, 22.88 m deep "tunnel".
+2. **The object must COVER A BORE OR A CROSSING**, which is §33 (6)'s own
+   opening clause read as a GATE: a mapped tunnel way ending at a portal
+   (`bore_end_tolerance_m`) or running through the trench.  Without it
+   `sea_X.obj` + `sea.obj` (a 112,376 m² flush hard deck — the SEA SURFACE)
+   still read as a corridor 177 m off the north shore.
+
+**THE MATCHED DRY REPLAY PAIRS** (`planar --stage structures`, ONE tree per
+arm, one machine, the shared corpus, the lane-local mod-cache overlay; base =
+main `106459fa` in its own ritual worktree, lane = `claude/v2objcut`).
+
+* **OTHH — NOTHING MOVES.**  `corridors`, `tunnels`, `wall_corridors`,
+  `basins`, `plates` and `door_wells` all **BYTE-IDENTICAL** (9 / 44 / 73 / 10
+  / 2 / 4); the only difference is **+51 named §33 (6) refusals** (28 "no
+  near-horizontal solid face stands 2.0 m under the object's zero", 9 "not a
+  tunnel floor", 6 "the trench ring has 0 open ends", 3 shells with no flush
+  cover, each by resource).  The §33 (1) discipline holds for the new reader.
+* **LEMD — NOTHING MOVES.**  The same six arrays BYTE-IDENTICAL (1 / 50 / 0 /
+  1 / 3 / 0), **+25 named refusals**.  `plate_mouths` 2 → 2,
+  `crest_from_approach` 2 → 2, `underpasses` 1 → 1.
+* **VHHH — five object cuts read, three built.**  `corridors` **0 → 5** with
+  the AUTHORED floors: `TUNNEL2_DONE` **0.78**, `tunnel1_done` **0.37**,
+  `tunnel3_done` **−1.63**, `tunnel4_done` **−1.69**, `tunnel5_done`
+  **1.30** — against the bar's 0.77 / 0.36 / −1.63 / −1.69 / 1.31, every one
+  inside the 0.10 m bar.  `wall_corridors` **0 → 0** (the affordance stands),
+  `basins` **70 → 70 and the population IDENTICAL** by (objects, area) — the
+  five shells and their five covers were never separate pits, and the claim
+  (`shell_claimed`: 10 placements) keeps it that way.  `tunnels` 28 → 23: nine
+  OSM bore tunnels at those sites are replaced by the objects (05n-3), which
+  read **mouth_z 2.22 = DEM − `bore_datum_m`** on the base arm against the
+  objects' own 0.37 / −1.63 / −1.69.
+
+**THE VHHH MISS, NAMED.**  Two of the five cuts — `tunnel5_done` (THE OWNER'S
+SITE 22.3038632, 113.9088362) and `TUNNEL2_DONE` — are refused DOWNSTREAM by
+`planar/structures.py`'s ramp-ring builder: *"the approach bends tighter than
+the corridor (ramp or wall ring self-intersects)"*.  Both are HAIRPINS —
+`tunnel5` is a U-turn ramp whose 413 m axis reverses on itself, `TUNNEL2` a
+1,110 m multi-portal corridor — and a ring built by OFFSETTING such an axis by
+its half widths folds.  The reading is right (floor 1.30 against the authored
+1.31, trench 9,290 m², two portals) and the corridor is refused for a reason
+that has nothing to do with §33 (6): the emitter must follow the OBJECT'S OWN
+trench polygon rather than offset an axis.  That is a `planar/structures.py`
+change, which this lane's brief reserves to another lane, so it is REPORTED,
+not attempted.
+
+**THE BEFORE READING ON THE OWNER'S OWN 1.0.340 VHHH PRODUCTS** (the shipped
+patch under `Patches/+20+110/+22+113/`, read against each object's published
+wall line — no build, nothing written).  Per shell: emitted `tunnel_ramp` /
+`structure_rim` vertices standing outside the object's wall line, and the
+emitted floor against the authored one:
+
+| object | vertices | outside (> 0.5 m) | worst | emitted floor | authored | miss |
+|---|---|---|---|---|---|---|
+| `tunnel5_done` | 147 | **85** | 75.80 m | 2.21 | 1.31 | **0.90 m** |
+| `tunnel1_done` | 25 | **19** | 81.48 m | 2.22 | 0.37 | **1.85 m** |
+| `TUNNEL2_DONE` | 171 | **111** | 83.74 m | 2.22 | 0.78 | **1.44 m** |
+| `tunnel3_done` | 46 | **27** | 86.12 m | 2.22 | −1.63 | **3.85 m** |
+| `tunnel4_done` | 40 | **26** | 79.67 m | 2.22 | −1.69 | **3.91 m** |
+
+That is `object_cut_offset` 268 rows / worst 86.12 m and `object_cut_depth`
+0.90–3.91 m on the shipped build, and it reproduces the 15j scout's
+"0.92–3.91 m too shallow" exactly.  The AFTER numbers are the closing VHHH
+build's, which this lane could not run (see below).
+
+**(A) THE AFFORDANCE'S RETIREMENT IS REFUTED — one dry VHHH replay.**  The
+crested-wall predicate (solids under the object's own zero WITH a crest plate
+`plate_min_area_m2` standing `plate_min_height_m` above it) admits an ordinary
+BUILDING, because a building has a roof.  Measured at VHHH: wall corridors
+**0 → 116** (bay 28, level 88), **every one of them inside `CITY2.obj`** — a
+city-block object off the field whose foundation walls descend 6.4–8.5 m under
+their ground — plus 75 narrow-cut candidates and three `CITY1.obj` families.
+No depth threshold repairs it: OTHH's own admitted bays are 1.35 m deep.  This
+is RULINGS 2026-09-10ap's seven rounds at a THIRD airport.  The predicate is
+DELETED (not kept gated); `kerb_wall_corridors` STANDS in `law/airports.toml`
+with the refutation recorded beside the gate, and §33 (6) A is an INTENT
+QUESTION for the owner, not a mechanism.
+
+**NO CLOSING BUILD.**  RULINGS 2026-09-15u: `+22+113`'s cached road layers
+predate the `ROAD_CACHE_TAG_SCHEMA` bump, so the first harness build on that
+tile REWRITES the shared repo's road layer (the LEMD `+40-004` build was
+flagged CONTAMINATED) and, since `v2schemarefuse`, REFUSES by name.  The
+refresh ledger carries NO `osm_layers` refresh for `+22+113` at all.  The
+build AWAITS the owner's `--refresh-data osm_layers` on that tile; the lane
+ran no build and no `--refresh-data`.
+
+**(C) SIGNATURE C IS NOT DONE, and the measurement that stopped it.**  The
+BAND READING landed (`object_cut.thin_bands` / `band_pair`, over LAW C's own
+`wall_geometry` machinery — a band is a STRAIGHT RUN of vertical faces, never
+a component: LEMD `Bridge3.obj`'s two components read 73 × 16 m and 58 × 15 m
+convex hulls and are not walls by any gate, while comp 0's vertical faces
+split into the PAIR, two 73.0 / 73.1 m runs 1.00 m thick 14.02 m apart).  It
+is NOT wired into `apply_plates` or `structure_deck` because the reading
+contradicts C1's premise: **`Bridge3.obj` carries 280 triangles in two
+components at its two ENDS (z −354.2…−281.0 and z −57.6…0); 224 m of its
+354.2 m box carry no solid at all.**  So "a parallel PAIR along a bore …
+[whose] trench … runs the pair's FULL length" does not describe this object —
+its walls are two short MOUTH pieces, and 25.1 m is its authored BOX, not its
+wall spacing (the pair's inner faces are 14.02 m apart).  `Bridge2.obj` reads
+two 42.0 / 39.5 m bands at 157.5° and 67.1° — perpendicular, no pair;
+`Bridge4.obj` reads no band at all under the surface gates (2.016 m tall).
+Rather than guess the owner's geometry a third time, the reading is published
+and measured and the INTENT goes to the owner (the standing "mechanisms get
+measured, INTENT gets asked" law).
+
+
+
 ### §45 (10)–(12) AMENDED after lane `v2channel` round 1 (Fable 2026-09-15; RULINGS 2026-09-15s)
 
 Round 1 (branch `claude/v2channel` 399d7ecb) measured LGAV only: KDFW refused on the
@@ -13141,3 +13343,85 @@ LEMD --refresh-data osm_layers` — has not happened: the refresh ledger
 build contaminated, so this round stops at the replay pair, as instructed.
 Suite `tests/auto_patch_v2 tests/test_harness.py`: **1,591 passed / 1
 skipped / 0 FAILED**.
+
+## §34 (12) AMENDED — (1) WITHDRAWN (owner 12ab STANDS: admission is by the mouth); (3) scoped to OSM bores; a mouth's own pavement is not a cut (Fable 2026-09-15; RULINGS 2026-09-15w) — lane `v2vmmcshore` r2
+
+Lane r1 (a57abc47) met every VMMC bar (0 ramps / 0 rims, the tear gone,
+0 of 2,318 nodes at or under 0.5 m, 98,575 m² trimmed off three
+regions, 6,567 m of sea wall, 19 quays, ADJUDICATED 225 → 55) and then
+measured (1) at LEMD by dry pair: **54 → 16 tunnels** — the 38 lost are
+owner 12ab's population ("Build them": a mapped tunnel whose mouth
+stands on the field is built, mouth and ramp, whether or not its bore
+passes under an airport surface; visible on approach).  (1) as written
+REVERSED an owner ruling by the side door.  RULED:
+
+(1) is WITHDRAWN.  Admission stays BY THE MOUTH (12ab, `mouth_standoff_m`).
+What stops the VMMC seafront line is (2)–(4): no structure face over the
+water (the corridor ends at the shore); a corridor never CUTS airside
+pavement (it becomes an underpass where the pavement is authored as a
+deck or a pack corridor covers it, otherwise it STOPS SHORT of the
+pavement — at VMMC the OSM car-park bore stops at pav5); a mapped bridge
+severs the climb only where it crosses the bore.  (3) is SCOPED to OSM-
+derived corridors: a PACK-STATED corridor (§33 (6) signatures A/B/C, the
+OTHH terminal tunnels under pav32/pav30) is authored geometry and its
+crossing of airside IS an underpass by authorship — never refused.  The
+pavement a corridor's own MOUTH stands on is not "cut": a portal ends in
+it.  What remains at VMMC under this reading — a short mouth + ramp at
+the car-park entrance beside the seafront, if the mouth is on the field
+— is an OWNER QUESTION (15w): the owner objected to "the whole long line
+… going out into the water and cutting the taxiway"; whether the stub
+that survives is wanted is theirs to say, with its geometry named by r2.
+The lane's r2 re-measures VMMC, LEMD (54 → 54 expected) and OTHH
+(44 → 44 + the returned wall corridor) under the amendment.  The pav5
+residual 0.81 m (the flat-site preference losing to its neighbours,
+`flat_site 826/1240 unmet, max 0.692 m`) is accepted and named.
+
+## §33 (6) MEASURED AND RE-FOUNDED (lane v2objcut r1 e178702f; Fable 2026-09-15; RULINGS 2026-09-15x) — B reads; A refuted by geometry alone; C re-founded on the objects as they are
+
+**B — READS.**  All five VHHH shells admitted with their AUTHORED floors
+(1.30 / 0.37 / 0.78 / −1.63 / −1.69 against bars 1.31 / 0.36 / 0.77 /
+−1.63 / −1.69; the OSM arm 2.22 for all), corridors 0 → 5, tunnels 28 →
+23 (nine OSM bores replaced), basins identical by (object, area) — 10
+placements claimed.  OTHH and LEMD byte-identical on six populations.
+MISS: `tunnel5_done` (the owner's site, a 413 m U-turn) and `TUNNEL2_
+DONE` are refused by the RING BUILDER (`planar/structures.py`: "the
+approach bends tighter than the corridor — ramp or wall ring self-
+intersects") — a ring built by OFFSETTING AN AXIS folds on a hairpin.
+RULED (r2): for a signature-B corridor the emitter takes the object's
+OWN trench polygon (the shell's per-band wall line, closed by the
+cover's ends) as the ring — no axis offset; the stations from the
+cover's profile.  `object_cut_offset` / `object_cut_depth` families
+land (select by overlap, not by ref).
+
+**A — REFUTED by geometry alone.**  Retiring `kerb_wall_corridors` for
+the crested signature admitted 116 corridors at VHHH, every one inside
+`CITY2.obj` (a city-block object: a building has a roof) — RULINGS 10ap
+at a third airport; no depth threshold separates them (OTHH's admitted
+bays are 1.35 m deep).  RULED: the predicate is deleted; the per-airport
+affordance STANDS as the gate for A until a discriminator is MEASURED
+(candidates for a later scout: a roof plate spanning the walls; the
+object's footprint on airside vs off-field; the pack's placement on a
+pad).  Not an owner question.
+
+**C — RE-FOUNDED on the measured objects.**  `Bridge3.obj` is NOT a
+354 m wall pair: its 280 triangles sit in two components at its two
+ENDS (z −354.2…−281.0 and −57.6…0), each a pair of 73.0 / 73.1 m walls
+**14.02 m** apart; 224 m of the box carries no solid.  The author marked
+the two MOUTHS; the bore between them is COVERED.  `Bridge2.obj` reads
+two perpendicular bands (no pair); `Bridge4.obj` no straight band (a
+curved U).  RULED: (C1′) a thin-wall PAIR (parallel straight bands,
+spacing 5–40 m, overlap ≥ 50 %) marks a MOUTH RAMP: the ramp lies
+between the pair's inner faces, runs the pair's length, its mouth at
+the end nearer the bore's covered stretch and its top at the outer end;
+the bore between two such pairs (or between a pair and an authored
+deck) is covered; the walls sit on the ramp's top edges (the foot line
+is the rim at grade).  Item 3's ramp lies inside the north pair; item
+4's inside the south pair, its top at the pair's outer end (toward
+40.4951833).  (C2′) a band is a POLYLINE of contiguous vertical faces,
+straight or curved (Bridge4's U): the ring follows its inner face with
+chord error ≤ 0.75 m and runs to its end.  (C3′) parapets: the lane
+reports Bridge2's two bands with coordinates and headings against the
+deck before any rule — if they flank the deck (parallel, each side)
+the deck is centred on them; if perpendicular they are abutment walls
+at the deck's ENDS and mark its span.  Every C rule is measured on the
+three LEMD objects by dry pair before it is wired.

@@ -1833,6 +1833,116 @@ def test_a_degraded_tier_inset_refuses_and_names_the_scope(
     assert build_mod.unverified_inset_negatives(state, -46, 168) == []
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE SCHEMA-STALE CACHED ROAD LAYER (RULINGS 2026-09-15r + u)
+# ══════════════════════════════════════════════════════════════════════
+
+def _write_schema_stamped_layer(path, schema):
+    """A cached OSM layer in the shape ``OSM_layer.write_to_file`` emits —
+    the marker the engine reads back lives on the ``<osm`` root tag."""
+    import bz2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with bz2.open(str(path), "wt", encoding="utf-8") as handle:
+        handle.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                     '<osm version="0.6" o4_tag_schema="%s">\n'
+                     '</osm>\n' % schema)
+
+
+def test_a_schema_stale_road_layer_refuses_and_names_osm_layers(
+        build_mod, tmp_path, monkeypatch):
+    """A cached road layer written under an OLD tag schema is a REFRESH.
+
+    When ``ROAD_CACHE_TAG_SCHEMA`` moved "2026-07-16" → "2026-09-15"
+    (RULINGS 2026-09-15r), the first guarded build afterwards rewrote
+    ``+40-004_big_roads.osm.bz2`` mid-build (2,197,226 → 2,199,670 bytes)
+    and the run was only marked CONTAMINATED afterwards (RULINGS
+    2026-09-15u).  Under ruling e9daef5 that re-download is an explicit,
+    locked, hash-stamped event — so it is named and refused UP FRONT.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = tmp_path / "lane"
+    osm = root / "OSM_data"
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(osm))
+    # road_level >= 2 so BOTH tile-wide road layers are in the engine's
+    # own specification list (the list this check consumes).
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (2, False))
+    cache = Path(FNAMES.osm_cached(40, -4, "big_roads"))
+
+    # 1. STALE: written under the previous schema.
+    _write_schema_stamped_layer(cache, "2026-07-16")
+    missing = build_mod.schema_stale_osm_layers(root, 40, -4)
+    assert len(missing) == 1, missing
+    scope, artifact, why = missing[0]
+    assert scope == "osm_layers"
+    assert artifact == "OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2"
+    assert "SCHEMA-STALE" in why
+    assert "2026-07-16" in why and VMAP.ROAD_CACHE_TAG_SCHEMA in why, (
+        "the refusal must name the schema on disk AND the one the engine "
+        "wants — otherwise it cannot be acted on")
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data osm_layers" in str(exc.value)
+    # Explicitly authorised, it passes: the locked, ledgered act.
+    build_mod.require_no_implicit_refresh(missing, {"osm_layers"})
+    # And it reaches the build's single pre-flight list, not just its own
+    # function — the airport path and the --tile path share that call.
+    monkeypatch.setattr(build_mod, "dem_cache_state", lambda *a: {
+        "tile_stem": "N40W004", "base_raster": True, "airport_insets": True,
+        "airports_layer": True})
+    monkeypatch.setattr(build_mod, "unverified_inset_negatives",
+                        lambda *a: [])
+    assert build_mod.missing_shared_artifacts(root, 40, -4) == missing
+
+    # 2. CURRENT: the engine's own schema — named by nothing.
+    _write_schema_stamped_layer(cache, VMAP.ROAD_CACHE_TAG_SCHEMA)
+    assert build_mod.schema_stale_osm_layers(root, 40, -4) == []
+
+    # 3. ABSENT: absence is not staleness (the airports layer owns that
+    #    refusal; an absent big_roads cache is lawful).
+    cache.unlink()
+    assert build_mod.schema_stale_osm_layers(root, 40, -4) == []
+
+
+def test_the_write_guard_REFUSES_a_bz2_layer_write(build_mod, tmp_path):
+    """THE bz2 HOLE (measured 2026-09-15).
+
+    ``bz2`` binds ``builtins.open`` at IMPORT time, so patching
+    ``builtins.open`` alone left every ``.osm.bz2`` cache write —
+    i.e. the whole ``osm_layers`` scope — invisible to the preventer.
+    Measured before the fix: this write completed with ``blocked == []``.
+    """
+    import bz2
+
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "+40-010" / "+40-004").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    target = (repo / "OSM_data" / "+40-010" / "+40-004"
+              / "+40-004_big_roads.osm.bz2")
+    before = bz2._builtin_open
+
+    with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+        with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
+            with bz2.open(str(target), "wt", encoding="utf-8") as handle:
+                handle.write("<osm/>")
+    assert "+40-004_big_roads.osm.bz2" in str(exc.value)
+    assert "osm_layers" in str(exc.value)
+    assert not target.exists(), "the guard must PREVENT, not just report"
+    assert bz2._builtin_open is before, (
+        "the guard must restore bz2's captured open on exit")
+
+    # Authorised, the same write proceeds — the refresh this flag exists
+    # to carry.
+    with build_mod.SharedRepoWriteGuard({"osm_layers"}, lane, repo=repo):
+        with bz2.open(str(target), "wt", encoding="utf-8") as handle:
+            handle.write("<osm/>")
+    with bz2.open(str(target), "rt", encoding="utf-8") as handle:
+        assert handle.read() == "<osm/>"
+    assert bz2._builtin_open is before
+
+
 def test_the_snapshot_sees_every_write(build_mod, guard_mod, tmp_path,
                                        monkeypatch):
     """The audit's guarantee is 'this build wrote NOTHING into the shared
@@ -9300,6 +9410,164 @@ def test_ramp_in_strip_is_registered_and_keeps_out(cg):
     fams = _T.load_default().tables.families
     assert fams["ramp_in_strip"].cockpit == "keepout"
     assert fams["ramp_in_strip"].pairs == "within"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY — the
+# ``object_cut_offset`` / ``object_cut_depth`` guards (owner RULINGS
+# 2026-09-15e items 1/3/4/6 and 2026-09-15g; Fable 2026-09-15j; lane
+# `v2objcut`)
+# ══════════════════════════════════════════════════════════════════════
+# Both families are GUARDS on ``airport/object_cut.py``'s reading and are
+# meant to read 0 on a lawful build, so they must prove themselves on a
+# patch that DOES carry each defect — both directions, or the zero means
+# nothing (the §B3 blind-walk lesson, the ``ramp_in_road`` precedent
+# above).
+
+_OC_LAT = 22.3030675
+_OC_LON = 113.9070568
+
+
+def _object_cut_patch(tmp_path, *, name, ramp_out_m, floor_z, authored_floor):
+    """A 30 x 120 m object WALL LINE published in the sidecar, with a
+    ``tunnel_ramp`` face inside it whose two far vertices stand
+    ``ramp_out_m`` OUTSIDE the wall line (negative = inside), emitted at
+    ``floor_z`` against the object's ``authored_floor``."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_OC_LAT))
+
+    def at(dx_m, dy_m):
+        return (_OC_LAT + dy_m / mlat, _OC_LON + dx_m / mlon)
+    outline = [at(0.0, 0.0), at(120.0, 0.0), at(120.0, 30.0), at(0.0, 30.0)]
+    # the ramp: x 10..110, y 5 .. 25 + ramp_out_m (25 + 5 = the wall line)
+    top = 25.0 + ramp_out_m
+    ramp = [at(10.0, 5.0), at(110.0, 5.0), at(110.0, top), at(10.0, top)]
+    nodes, ways = [], []
+    nid = -1
+    ids = []
+    for lat, lon in ramp:
+        nodes.append((nid, lat, lon, floor_z))
+        ids.append(nid)
+        nid -= 1
+    ways.append((nid, ids + [ids[0]],
+                 {"role": "tunnel_ramp", "ref": "tunnel_ramp:object-cut:t5@0",
+                  "aeroway": "taxiway", "shapeID": "OC1"}))
+    nid -= 1
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='object-cut-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_OC_LAT, _OC_LON], "ruleset": "icao",
+        "object_cuts": [{
+            "id": "object-cut:t5@0", "signature": "B",
+            "resource": "tunnel/tunnel5_done.obj", "objects": ["1"],
+            "floor_m": authored_floor, "depth_m": 6.011,
+            "outline_ll": [[la, lo] for la, lo in outline],
+            "ramp_refs": ["tunnel_ramp:object-cut:t5@0"],
+            "wall_ref": "tunnel_wall:object-cut:t5@0"}]}))
+    return osm
+
+
+def test_a_cut_inside_its_object_prices_no_object_cut_offset(cg, tmp_path):
+    """The lawful case §33 (6) asks for: the emitted trench lies inside
+    the wall line the pack's object drew."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="inside",
+                                         ramp_out_m=-3.0, floor_z=1.31,
+                                         authored_floor=1.31))
+    assert fo["object_cut_offset"] == [], (
+        "a cut inside its object's wall line is the law, not a defect")
+    assert fo["object_cut_depth"] == []
+
+
+def test_a_cut_outside_its_object_is_a_defect(cg, tmp_path):
+    """The VHHH class the ruling was written on: 25 of ramp way −11078's
+    42 vertices stood outside ``tunnel5_done.obj``, the worst 76.25 m
+    away, because the corridor was the OSM bore's."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="outside",
+                                         ramp_out_m=9.0, floor_z=1.31,
+                                         authored_floor=1.31))
+    rows = fo["object_cut_offset"]
+    assert len(rows) == 2, (
+        f"the ramp's two far vertices stand 4 m outside the wall line; the "
+        f"family priced {len(rows)} row(s)")
+    assert all(abs(r.de_m - 4.0) < 0.05 for r in rows), [r.de_m for r in rows]
+
+
+def test_the_offset_bar_is_the_spec_bar(cg, tmp_path):
+    """0.5 m is the spec's own bar for ``object_cut_offset``; a vertex
+    inside it is the emitter's snap, not a cut leaving its object."""
+    fo = _families(cg, _object_cut_patch(
+        tmp_path, name="snap", ramp_out_m=5.0 + cg.OBJECT_CUT_OFFSET_M * 0.5,
+        floor_z=1.31, authored_floor=1.31))
+    assert fo["object_cut_offset"] == []
+    fo2 = _families(cg, _object_cut_patch(
+        tmp_path, name="past", ramp_out_m=5.0 + cg.OBJECT_CUT_OFFSET_M * 3.0,
+        floor_z=1.31, authored_floor=1.31))
+    assert len(fo2["object_cut_offset"]) == 2
+
+
+def test_a_shallow_cut_is_an_object_cut_depth_row(cg, tmp_path):
+    """The owner's VHHH site: the floor came out at DEM − ``bore_datum_m``
+    = 2.23 against the object's AUTHORED 1.31, 0.92 m too shallow.  The
+    authored depth overrides ``bore_datum_m``."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="shallow",
+                                         ramp_out_m=-3.0, floor_z=2.23,
+                                         authored_floor=1.31))
+    rows = fo["object_cut_depth"]
+    assert len(rows) == 1, f"one row per cut that misses the bar, not {len(rows)}"
+    assert abs(rows[0].de_m - 0.92) < 0.02, rows[0].de_m
+    assert fo["object_cut_offset"] == [], "the plan half is unaffected"
+
+
+def test_the_depth_bar_is_the_spec_bar(cg, tmp_path):
+    fo = _families(cg, _object_cut_patch(
+        tmp_path, name="atbar", ramp_out_m=-3.0,
+        floor_z=1.31 + cg.OBJECT_CUT_DEPTH_M * 0.5, authored_floor=1.31))
+    assert fo["object_cut_depth"] == []
+
+
+def test_a_patch_with_no_object_cuts_prices_neither_family(cg, tmp_path):
+    """Every airport whose pack authors no cut geometry reads exactly as
+    it did before §33 (6): the sidecar key is absent and both families
+    are empty, never a crash and never a fabricated row."""
+    osm = _object_cut_patch(tmp_path, name="nokey", ramp_out_m=9.0,
+                            floor_z=9.99, authored_floor=1.31)
+    side = Path(str(osm) + ".axes.json")
+    data = json.loads(side.read_text())
+    data.pop("object_cuts")
+    side.write_text(json.dumps(data))
+    fo = _families(cg, osm)
+    assert fo["object_cut_offset"] == []
+    assert fo["object_cut_depth"] == []
+
+
+def test_the_object_cut_families_are_registered(cg):
+    """A family absent from ``LAW_FAMILIES`` or from ``families.toml``
+    does not load (the census cannot omit a family); §33 (6)'s plan half
+    prices PRESENCE outside a region, so its cockpit class is
+    ``keepout``."""
+    from auto_patch_v2.law import tables as _T
+    names = {k for k, _t, _b in cg.LAW_FAMILIES}
+    assert "object_cut_offset" in names
+    assert "object_cut_depth" in names
+    fams = _T.load_default().tables.families
+    assert fams["object_cut_offset"].cockpit == "keepout"
+    assert fams["object_cut_depth"].cockpit == "step"
+    # the sidecar key is declared on BOTH sides — the emitter publishes it
+    # and the census reads it under the same name
+    from auto_patch_v2.emit import osm_adapter as _oa
+    assert "object_cuts" in _oa.SIDECAR_KEYS
+    assert cg.SIDECAR_LAW_KEYS["object_cuts"] == "object_cuts_ll"
 
 
 # ══════════════════════════════════════════════════════════════════════

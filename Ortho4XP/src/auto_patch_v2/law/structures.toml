@@ -119,6 +119,42 @@ thin_plate_min_m    = 1.0
 hull_min_length_m   = 10.0          # the plan hull's long side; shorter is a stub, refused loudly
 end_cap_open_m      = 2.0           # a hull end with no solid within this of the end line is an OPEN end (a mouth); a closed end is a dead wall; also the tolerance for a bore end standing at a wall end
 merge_gap_m         = 3.0           # two corridors whose ground ends face within this are reported as one site (they are refused as overlapping structures, never merged into a hull)
+# THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY (spec §33 (6); owner
+# RULINGS 2026-09-15e items 1/3/4/6 and 2026-09-15g; 14av; Fable
+# 2026-09-15j; lane v2objcut).  THREE signatures, detected by GEOMETRY,
+# never by name and never by ICAO.
+#
+# B — SHELL + FLUSH HARD COVER (VHHH, EGLL).  A SHELL object whose largest
+# horizontal plate lies shell_floor_min_m or more below its zero is the
+# tunnel's FLOOR — and that level is the AUTHORED depth, which overrides
+# tunnel.bore_datum_m (the law for UNAUTHORED bores only).  Measured VHHH:
+# tunnel1..5_done.obj floors -6.01 / -6.54 / -8.95 / -9.01, 733-16,759 m2;
+# EGLL -4 … -7.  The COVER is the placement at the SAME position
+# (cover_placement_tol_m, same heading) whose HARD_DECK plate stands flush
+# (cover_flush_m): VHHH's *_TN files, 427-11,254 m2.  HARD_DECK is the
+# machine-readable marker of the cover; the cover's plate binned every
+# cover_station_m along the axis gives the ramp STATIONS (tunnel5:
+# 0.00 -> -0.91 -> -1.71 -> -6.01).
+shell_floor_min_m    = 2.0
+cover_flush_m        = 1.0
+cover_placement_tol_m = 1.0
+cover_station_m      = 25.0
+# C — THIN SURFACE WALLS AND PARAPETS (LEMD).  Solids under
+# parapet_max_height_m tall (LEMD's walls are 0.91-2.01 m and SIT on the
+# surface; OTHH's descend 10-15 m below their zero), at least
+# parapet_min_aspect times longer than high, no wider than
+# parapet_max_width_m in plan, their lowest authored vertex no deeper
+# than parapet_y_min.  A parallel PAIR (axes pair_spacing_min_m..
+# pair_spacing_max_m apart, overlapping pair_overlap_min_fraction of the
+# shorter) is the trench's TOP EDGES (C1: Bridge3, 354 x 25.1 m) or a
+# mapped bridge way's DECK EXTENT (C3: Bridge2's parapets 25.6 m apart).
+parapet_max_height_m = 2.2
+parapet_max_width_m  = 2.0
+parapet_min_aspect   = 20.0
+parapet_y_min        = -0.10
+pair_spacing_min_m   = 5.0
+pair_spacing_max_m   = 40.0
+pair_overlap_min_fraction = 0.5
 
 [cutout]                            # RULINGS 2026-09-06b (1) + 2026-09-08a: every below-grade OBJECT's trench = floor + at-grade rim INSIDE the wall, NO wall band
 # The owner's law: the trench floor slightly OVERLAPS the object's inner

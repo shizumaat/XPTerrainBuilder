@@ -6038,3 +6038,23 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
 
 - NO closing HECA build (the brief: dry only, no builds).  The generator half was measured on a §40 HECA CAPTURE cut at main 22134e4f from a ritual-mounted control worktree (registered, lane `rwyholes`): 308 hole vertices on 4 of 43 runway-family faces, `crown_drops` 3,419 → 3,727, `runway_crown` 2,441 → 2,749, `runway_transverse` 2,441 → 2,749 rows (every hole vertex priced once); the verifier half on the registered `v2roles_HECA` / `v2roles_HECA_r2b` graded frames (population read 5,133 → 5,623 / 5,587 vertices; row counts unchanged there because those frames were BUILT before the fix and declare no drop on a hole vertex, and every hole vertex's built fall is within the transverse cap).  The first build after the merge is the first patch whose sidecar declares the hole vertices' drops; its census reads them then.
 - The v1 census (`tools/check_grade.py`) cannot read a runway hole ring on these frames at all: every hole is COVERED by its inner faces' rings, so `osm_adapter` emits no `shape_interior_ring` way for it (0 of 0 on `v2roles_HECA`), and the vertices are judged only under the inner faces' roles (`graded_strip` / `cross_connector` / `apron`).  The brief's premise "the census prices hole-ring vertices carrying the same role" holds for the v2 verifier after this lane and for v1 only where a hole ring is emitted; a v1 reader of the face's own vertex set would need the sidecar's `face_holes`, owed.
+
+## lane v2objcut (2026-09-15, §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY)
+
+- **NO closing VHHH build.**  RULINGS 2026-09-15u: a peer merge (`v2roadtags`)
+  bumped `ROAD_CACHE_TAG_SCHEMA`, and the first harness build on a tile whose
+  cached road layers predate it REWRITES the shared repo's road layer (the LEMD
+  `+40-004` build was flagged CONTAMINATED).  The refresh ledger
+  (`/Users/noah/XPTerrainBuilderData/.harness/refresh_ledger.jsonl`) carries NO
+  `osm_layers` refresh for `+22+113` at all, so the closing build AWAITS the
+  owner's `--refresh-data osm_layers` on that tile.  Everything this lane
+  measured is therefore a DRY `planar --stage structures` replay pair (matched
+  base / lane arms on one tree, one machine, one corpus) plus a read of the
+  owner's own shipped 1.0.340 VHHH products.  What the build alone can answer
+  and this lane could not: the EMITTED `object_cut_offset` / `object_cut_depth`
+  rows (the design values are measured, the solved surface's are not), the
+  harness census by family, and `tunnel_mouth_canonical` before → after.
+- LEMD items 1/3/4/6 (signature C) are NOT DONE — the reading is published and
+  twinned, the application is an intent question (spec §33 (6) MEASURED, (C)).
+- §33 (6) A (the affordance's retirement) is REFUTED and reverted; no OFF→ON
+  pair was needed beyond the one dry VHHH replay that refuted it.

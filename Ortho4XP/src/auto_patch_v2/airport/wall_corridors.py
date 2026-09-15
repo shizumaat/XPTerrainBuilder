@@ -168,6 +168,14 @@ class WallCorridorRecord:
     max_authored_grade: float
     sibling: str = ""
     notes: tuple[str, ...] = ()
+    #: THE COVERING PLATE'S PLAN (spec §34 (9) (5) as corrected by owner
+    #: RULINGS 2026-09-14be): the plan union of the witness plate's own
+    #: near-horizontal faces — the roof/deck component that gives this
+    #: corridor its ``headroom_m``.  ``None`` = open air, no cover.  Its
+    #: edge along the axis is the corridor's FULL-DEPTH point; everything
+    #: from the ramp's top down to it, the protruding retaining-wall
+    #: bands included, is ramp.
+    plate_plan: Polygon | None = None
 
     @property
     def floor_z(self) -> float:
@@ -463,16 +471,26 @@ def _trench(axis: _t.Sequence[XY], sts: _t.Sequence[Station]) -> Polygon:
 
 def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
               trench: Polygon, floor_max: float, normal_min: float, grid: float, dem_z
-              ) -> tuple[float | None, str]:
+              ) -> tuple[float | None, str, Polygon | None]:
     """Rule 5: the lowest rendered near-horizontal family face OVER the
     trench (a plan overlap of a grid cell at least, inside the trench
     shrunk by the identity spacing — the kerbs' own top caps touch the
     inner-face line and are not a ceiling) above its floor, minus the
     floor — and the WITNESS plate (RULINGS 2026-09-10w (c)): the placement
-    and component that lowest face belongs to (``(None, "")`` = open air,
-    no deck)."""
+    and component that lowest face belongs to (``(None, "", None)`` = open
+    air, no deck).
+
+    THE WITNESS PLATE'S PLAN (spec §34 (9) (5) as corrected by owner
+    RULINGS 2026-09-14be) is returned with it: the union in the airport
+    frame of that component's own near-horizontal faces — UNCLIPPED by the
+    trench, because the question it answers is where the cover ENDS.  The
+    covering plate is what gives the corridor its headroom, so the plate
+    whose edge is the corridor's full-depth point is this one, read here
+    once and never re-derived downstream (``planar/structure_geometry.
+    covered_start``)."""
     lowest: float | None = None
     witness = ""
+    plate_polys = None
     inner = trench.buffer(-grid, **_MITRE)
     if inner.is_empty:
         inner = trench
@@ -522,7 +540,15 @@ def _headroom(members: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
                         and polys[k].intersection(inner).area >= min_area:
                     lowest = z
                     witness = f"plate comp {ci} of {os.path.basename(o.path)} ({o.id})"
-    return (None, "") if lowest is None else (lowest - floor_max, witness)
+                    plate_polys = polys[shapely.is_valid(polys)]
+    if lowest is None:
+        return None, "", None
+    plan = None
+    if plate_polys is not None and len(plate_polys):
+        plan = shapely.union_all(plate_polys)
+        if plan.is_empty:
+            plan = None
+    return lowest - floor_max, witness, plan
 
 
 def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
@@ -853,8 +879,8 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 # RULE 5: headroom over the trench (a MEASUREMENT plus the
                 # covered-slot gate; OPEN AIR PASSES — 10z deleted the deck
                 # clause: seven OTHH corridors carry no plate of their own).
-                headroom, deck_w = _headroom(members, cache, trench0, zmax,
-                                             ob.plate_normal_y_min, grid, dem_z)
+                headroom, deck_w, plate_plan = _headroom(members, cache, trench0, zmax,
+                                                         ob.plate_normal_y_min, grid, dem_z)
                 if headroom is not None and headroom < wc.min_headroom_m:
                     msg = (f"{name} at {site}: headroom {headroom:.2f} m over the floor "
                            f"(< min_headroom_m {wc.min_headroom_m}): a covered slot, "
@@ -906,7 +932,8 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                         *anchor, headroom, max_grade, "",
                         notes_common + (f"garage ramp (2026-09-08n): the wall bottom descends "
                                         f"{zmax - zmin:.2f} m from the grade end to the garage, cut as "
-                                        f"authored; the deep end closed by the garage",)))
+                                        f"authored; the deep end closed by the garage",),
+                        plate_plan=plate_plan))
                 elif closed[0] or closed[1]:
                     m = 0 if closed[0] else 1
                     s_a, s_b = (orig_s[0], orig_s[-1]) if m == 0 else (orig_s[-1], orig_s[0])
@@ -918,7 +945,8 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                         thick, 0.0, plate, _trench(ax2, st2), unary_union([plate, trench0]),
                         *anchor, headroom, max_grade, "",
                         notes_common + (f"closed bay: end {m} closed by a family face "
-                                        f"({covers[m]:.0%} covered), a ramp beyond the open end",)))
+                                        f"({covers[m]:.0%} covered), a ramp beyond the open end",),
+                        plate_plan=plate_plan))
                 else:
                     # two capless halves meeting at the midpoint, each
                     # climbing beyond its own end
@@ -935,7 +963,8 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                             False, False, 0.0, 0.0, plate, _trench(ax2, st2),
                             unary_union([plate, trench0]), *anchor, headroom, max_grade, other,
                             notes_common + (f"level corridor open at both ends: half {tag} from the "
-                                            f"midpoint, a ramp beyond its end",)))
+                                            f"midpoint, a ramp beyond its end",),
+                            plate_plan=plate_plan))
                 for r in recs:
                     out.append(r)
                     stats.by_class[r.cls] = stats.by_class.get(r.cls, 0) + 1

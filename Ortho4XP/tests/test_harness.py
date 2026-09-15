@@ -924,6 +924,15 @@ def test_every_role_a_census_WALK_names_is_a_role_the_engine_EMITS(cg):
     emitted = {getattr(LAY, n) for n in dir(LAY) if n.startswith("ROLE_")
                and isinstance(getattr(LAY, n), str)}
     emitted |= _READABLE_NON_ROLE_LITERALS
+    # ...AND THE ROLES v2 EMITS (v2 is the only engine, RULINGS
+    # 2026-09-13au).  ``layout``'s ROLE_ constants are v1's vocabulary and
+    # do not name v2's structure roles (``wall_corridor_ramp``,
+    # ``garage_ramp``, ``door_ramp``), which the emitter writes and
+    # ``ramp_in_road`` walks.  Read from v2's own law register, so this
+    # stays the emitted-role JOIN the twin is about and never a
+    # hand-written exemption list.
+    from auto_patch_v2.law import tables as _V2T
+    emitted |= set(_V2T.governed_roles(_V2T.load_default()))
     unreachable = {}
     for name in sorted(_census_walk_set_names(cg)):
         roles = getattr(cg, name, None)
@@ -9017,3 +9026,117 @@ def test_the_join_family_is_registered_and_law_declared(cg):
     fam = Law.load().tables.families["road_coverage_join"]
     assert fam.cockpit == "step" and fam.solver == "pin"
     assert set(fam.roles) == {"service_road", "service_junction"}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §34 (10) THE ROAD MARGIN IS GENERAL — the ``ramp_in_road`` guard
+# (owner RULINGS 2026-09-14bb / 14bc / 14bd; spec design-surface-spec
+# §34 (10))
+# ══════════════════════════════════════════════════════════════════════
+# The family is a GUARD on ``planar/wall_corridor_ramps.road_true_edge``
+# and reads 0 at OTHH before and after, so it must prove itself on a
+# patch that DOES carry the defect: both directions, or the zero means
+# nothing (the §B3 blind-walk lesson).
+
+_RIR_LAT = 25.2660000
+_RIR_LON = 51.6110000
+
+
+def _ramp_road_patch(tmp_path, *, name, ramp_inset_m):
+    """A 8 x 40 m ``service_road`` ribbon with a ``wall_corridor_ramp``
+    beside it whose near edge stands ``ramp_inset_m`` INSIDE the ribbon
+    (negative = short of it).  Two nodes of the ramp ring are the ones
+    §34 (10) prices."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_RIR_LAT))
+
+    def at(dx_m, dy_m):
+        return (_RIR_LAT + dy_m / mlat, _RIR_LON + dx_m / mlon)
+    # the road: x 0..40, y 0..8
+    r = [at(0.0, 0.0), at(40.0, 0.0), at(40.0, 8.0), at(0.0, 8.0)]
+    # the ramp: x 5..35, from y = -20 up to y = ramp_inset_m
+    top = ramp_inset_m
+    p = [at(5.0, -20.0), at(35.0, -20.0), at(35.0, top), at(5.0, top)]
+    nodes, ways = [], []
+    nid = -1
+    for ring, tags in ((r, {"role": "service_road", "shapeID": "R1"}),
+                       (p, {"role": "wall_corridor_ramp", "shapeID": "P1"})):
+        ids = []
+        for lat, lon in ring:
+            nodes.append((nid, lat, lon, 3.96))
+            ids.append(nid)
+            nid -= 1
+        ways.append((nid, ids + [ids[0]], tags))
+        nid -= 1
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='ramp-in-road-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_RIR_LAT, _RIR_LON], "ruleset": "icao"}))
+    return osm
+
+
+def test_a_ramp_stopping_at_the_road_edge_prices_no_ramp_in_road(cg, tmp_path):
+    """The lawful case §34 (10) asks for: the ramp ends AT the road's
+    edge.  Its top vertices are welded onto the ribbon's boundary, which
+    is not inside it."""
+    fo = _families(cg, _ramp_road_patch(tmp_path, name="attheedge",
+                                        ramp_inset_m=0.0))
+    assert fo["ramp_in_road"] == [], (
+        "a ramp ending at the road edge is the law, not a defect")
+
+
+def test_a_ramp_stopping_short_of_the_road_prices_nothing_either(cg, tmp_path):
+    fo = _families(cg, _ramp_road_patch(tmp_path, name="short",
+                                        ramp_inset_m=-2.0))
+    assert fo["ramp_in_road"] == []
+
+
+def test_a_ramp_reaching_the_road_centreline_is_a_defect(cg, tmp_path):
+    """The OTHH class the ruling was written on: the ramp's top reached
+    the CENTRELINE of an 8 m road — one lane of carriageway cut away."""
+    fo = _families(cg, _ramp_road_patch(tmp_path, name="centreline",
+                                        ramp_inset_m=4.0))
+    rows = fo["ramp_in_road"]
+    assert len(rows) == 2, (
+        f"the ramp's two top vertices stand 4 m inside the ribbon; the "
+        f"family priced {len(rows)} row(s)")
+    assert all(abs(r.de_m - 4.0) < 0.05 for r in rows), (
+        [r.de_m for r in rows])
+
+
+def test_a_ramp_vertex_within_the_weld_tolerance_is_on_the_edge(cg, tmp_path):
+    """The line is the census's OWN weld tolerance — the law's "these two
+    vertices are one node" predicate — never a proximity semantic
+    invented for this family."""
+    fo = _families(cg, _ramp_road_patch(
+        tmp_path, name="welded", ramp_inset_m=cg.SHARED_VERTEX_TOL_M * 0.5))
+    assert fo["ramp_in_road"] == []
+    fo2 = _families(cg, _ramp_road_patch(
+        tmp_path, name="past", ramp_inset_m=cg.SHARED_VERTEX_TOL_M * 2.0))
+    assert len(fo2["ramp_in_road"]) == 2
+
+
+def test_ramp_in_road_is_registered_and_keeps_out(cg):
+    """A family absent from ``LAW_FAMILIES`` or from ``families.toml``
+    does not load; and §34 (10) prices PRESENCE, so the cockpit class is
+    ``keepout`` — one vertex inside the ribbon is the whole defect."""
+    from auto_patch_v2.law import tables as _T
+    assert "ramp_in_road" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    fams = _T.load_default().tables.families
+    assert fams["ramp_in_road"].cockpit == "keepout"
+    # the RAMP family the walk reads is the LAW's structure roles, never a
+    # second spelling of them
+    law = _T.load_default()
+    assert set(cg._RAMP_ROLES) == {r for r in _T.governed_roles(law)
+                                   if _T.is_structure_role(law, r)}

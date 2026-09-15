@@ -285,25 +285,28 @@ def reseat_expect(c, mouth_z: float, grade: float, s_top: float, airport: Airpor
     return (round(c.anchor_dem_z - (floor + c.agl_m + c.plate_y), 3),)
 
 
-def covered_start(axis_fn, hull_s: float, pads, pad_tree, step: float) -> float | None:
-    """THE CORRIDOR'S COVERED START (spec §34 (9) (5), owner RULINGS
-    2026-09-14aq): the station where the axis leaves the BUILDING it runs
-    under — the building wall — walking out from the mouth.  ``None`` when
-    the axis never stands under a pad (nothing protrudes, the wall end is
-    already the covered start).
+def covered_start(axis_fn, hull_s: float, plate, step: float) -> float | None:
+    """THE CORRIDOR'S COVERED START (spec §34 (9) (5) as CORRECTED by owner
+    RULINGS 2026-09-14be): the last station, walking out from the mouth,
+    at which the axis still stands under the COVERING PLATE — the
+    roof/deck component that gives the corridor its headroom
+    (``airport/wall_corridors._headroom``'s witness plate, published as
+    ``WallCorridorRecord.plate_plan``).  ``None`` when the corridor carries
+    no cover, or when the cover reaches the wall end (nothing protrudes).
 
-    The building PAD is the covering plate's own footprint in the layout,
-    which is why it is read here and not re-derived from the headroom
-    plate: one region, one reading.  At OTHH ``Terminal_Base_2_5``'s
-    retaining walls protrude ~4 m past the terminal, and taking full depth
-    at their outer end spent that run on nothing."""
+    14at read the BUILDING PAD instead and the owner still saw full depth
+    at the outer end of the retaining walls: the pad polygon is not the
+    building's wall face — at OTHH's east mouth it stands only 2.4 m
+    inside the wall end where the cover stands farther in still.  The
+    corridor is a trench only where it is COVERED; everything from the
+    ramp's top down to the plate edge — the protruding retaining-wall
+    bands included — is RAMP."""
+    if plate is None or getattr(plate, "is_empty", True):
+        return None
     inside = None
     s = 0.0
     while s <= hull_s + 1e-9:
-        p = Point(axis_fn(s))
-        hit = any(pads[int(j)][0].covers(p)
-                  for j in pad_tree.query(p, predicate="intersects"))
-        if hit:
+        if plate.covers(Point(axis_fn(s))):
             inside = s
         elif inside is not None:
             break

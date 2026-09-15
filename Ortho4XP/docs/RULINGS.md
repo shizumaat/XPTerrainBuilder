@@ -7969,10 +7969,10 @@ refreshed … [v2 rebake] pack Aerosoft - LEMD Madrid - 1 - Airport was
 modified"; log mtime 12:21:44 = the build's exit. The shared mod cache
 is clean at LEMD (newest dump 07:23). At VHHH the install DSF and the
 mod-cache dump (15av) both date from the v2vmmcshore tile. The 2,694
-LEMD bodies are ADDED files (), not overwrites;
+LEMD bodies are ADDED files (`…__b37_bce09652.obj`), not overwrites;
 the pack holds 3,501 .obj of which 2,694 are the lane's. Clean revert:
 restore +40-004.dsf and the 322 objects from .anchor_bak, delete the
- bodies and o4_placement_provenance.json (same at VHHH).
+`*__b*_*.obj` bodies and o4_placement_provenance.json (same at VHHH).
 The owner's own app build rebakes the pack anyway from its plan (that
 is the shipping convention), so a restore is about the owner testing
 1.0.341 on a pack that carries a lane's r5 rebake rather than the

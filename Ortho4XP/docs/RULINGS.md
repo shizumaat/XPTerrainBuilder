@@ -7147,3 +7147,30 @@ the zones; quay + sea wall; `sea_wall` family; tears exempt). Not
 verified: the doubled plane needs `mesh_region_tris` on a build; VMMC
 has no structures.json / no placement json (stock pack, 1,925
 placements; no pack object implicated).
+
+## 2026-09-15k v2roadtags MERGED (d4729dfc): the road feed keeps `layer` / `cutting` / `covered` / `embankment` (§45 (9)); schema `2026-09-15`
+
+Lane `v2roadtags` (f6bd825d): `O4_Vector_Map.ROADS_TAGS_OF_INTEREST` gains
+the four depth witnesses, `ROAD_CACHE_TAG_SCHEMA` "2026-07-16" → "2026-09-15";
+node tags untouched. Reader census: every road-way tag access in `src/` and
+`tools/` is name-addressed; no four-key or positional assumption anywhere.
+Twins `tests/test_road_tag_schema.py` (7): the tags, the schema, an
+old-schema cache stops matching, a fixture way `cutting=yes layer=-1
+covered=no embankment=yes` survives production's own target-tags derivation
+(`maxspeed` still dropped). Suite ON MAIN after the merge: `1613 passed, 1
+skipped` (schema + fetch-cache + campaign), 0 failed. A harness build never
+re-downloads on a stale schema (the shared-repo guard refuses under
+`osm_roadfeed`/`osm_layers`); the owner's app builds re-download a
+schema-stale TILE road cache on their next run — the intent. TWO
+CONSEQUENCES NAMED: (1) `layer` goes live on the tile-cache path —
+`bridges._has_tunnel_tag_evidence`, `osm_crossing_level`,
+`pavement_classification._is_below_grade` already read it and now see it
+(the correct behaviour change). (2) The PER-AIRPORT road feed has its OWN
+whitelist `auto_patch/osm_load._ROAD_FEED_WAY_TAGS` (hashes itself into the
+sidecar fingerprint): it carries `layer` but NOT `cutting`/`covered`/
+`embankment`; widening it re-cuts every airport's feed — a shared-repo
+write under scope `osm_roadfeed`, the OWNER's act (question below). DEFECT
+NAMED, not fixed (chip): the auto-mode merged `airport_small_roads` cache
+has NO schema gate (`O4_Vector_Map.py` ~:768 recycles on `isfile` alone,
+`write_to_file` stamps no `o4_tag_schema`, `OSM_query_to_OSM_layer` takes no
+`cache_schema`) — a pre-existing cache keeps serving four-key ways silently.

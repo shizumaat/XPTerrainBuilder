@@ -5984,3 +5984,22 @@ wall) → `tunnel1__b0_8b16464a.obj` baking its own [9.05, 9.55,
 unchanged. Suite 1,518 twice. Not done: a `--write-pack` round trip
 at OTHH (the DSF re-encode on the new names end to end) — the app
 build is that round trip.
+
+## 2026-09-14aw APP 1.0.335 BUILT (engine 1.50.1781) — the OTHH test build: full depth at the building wall, split files per offset (the tunnel wall), the painted-line reader (no witness at OTHH); pads = clusters and the staged solve still OFF
+
+Main f960f53e + version bump (built after a 50-min-bounded wait for
+the owner's engine to exit). Over 1.0.334: 14at (§34 (9) (5)
+`covered_start` — the east pinched ramp 37 → 25 %; §34 (9) (4)
+`road_edge_witness`, inert at OTHH), 14av (split files per distinct
+offset — the OTHH tunnel wall at 25.2697569, 51.6055534 on its own
+file; VHHH 6 collisions → 0), 14au (the settle fixes — shipped
+patches byte-identical), 14as (§20b + derived pads merged OFF).
+Bundled law verified: `bank_omit` true, `pad_from_cluster` false,
+`staged_solve` false.
+
+* OTHH read items for the owner: the east ramp now ends at the road
+  FACE edge (no painted-line witness — the owner's inset or a
+  coordinate closes it); the west could go further for the same
+  reason; the tunnel wall at the coordinate; every other tunnel
+  unchanged. The `road_cross_section` +8 rows at 25.268, 51.606–51.610
+  (14at) are owed a read.

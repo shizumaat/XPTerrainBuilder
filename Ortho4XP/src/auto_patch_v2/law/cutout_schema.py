@@ -80,6 +80,13 @@ class WallCorridor:
     max_ramp_grade: float        # ...steepened up to this at an airside stop (= the wall_corridor_ramp cap)
     max_authored_grade: float    # a descending wall bottom steeper than this is refused (= the garage_ramp cap)
     station_m: float             # ramp station spacing beyond the walls
+    # §34 (9) (4) (owner RULINGS 2026-09-14aq): THE ROAD EDGE IS THE PAINTED
+    # LINE.  A pinched ramp ends at a `markings` draped line running along
+    # the road within `road_edge_line_reach_m` of the road face's edge and
+    # within `road_edge_line_parallel_deg` of its direction; without one the
+    # face edge stands.
+    road_edge_line_reach_m: float
+    road_edge_line_parallel_deg: float
     seat: str                    # "none": the family never re-seats
 
 

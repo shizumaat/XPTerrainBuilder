@@ -236,6 +236,20 @@ corridor_floor_slab_cover_min       = 0.5   # ...over at least this share of the
 min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
 ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m
 max_ramp_grade     = 0.10           # ...steepened up to this where the climb stops at airside pavement (08m (a): site 1's NE ramp 18.9 m); refused loudly above; = the wall_corridor_ramp role's cap (rulesets.toml), checked at load
+# §34 (9) (4) THE ROAD EDGE IS THE PAINTED LINE (owner RULINGS 2026-09-14aq:
+# "detect the white line marking from the scenery package that marks the road
+# edge").  Where a pinched ramp (§34 (9)) meets an airside-locked service
+# road, the road edge it ends at is the pack's own road-edge MARKING — a
+# draped object in the `markings` layer group (the class §42 refuses as
+# pavement: HECA's `Airport/ground/asphalt_white.obj`) whose line runs along
+# the road within road_edge_line_reach_m of the road face's edge and within
+# road_edge_line_parallel_deg of its direction.  Without such a witness the
+# FACE edge stands, which is what OTHH does: measured 2026-09-14, the only
+# `markings` objects within 60 m of the three terminal mouths are aircraft
+# StopLine bars (1.6-3.2 m2, 32-54 m away) and the east mouth has none at
+# all, so no OTHH pinched ramp takes a painted witness.
+road_edge_line_reach_m     = 6.0
+road_edge_line_parallel_deg = 15.0
 max_authored_grade = 0.25           # a descending wall bottom steeper than this between stations is refused loudly (08n: a sanity cap, never a ramp law); = the garage_ramp role's cap, checked at load
 station_m          = 2.0            # ramp station spacing beyond the walls (the walls' own stations are tunnel.object.wall_sample_m)
 seat               = "none"         # the family is NEVER re-seated by its trench (the terminal's 399 members)

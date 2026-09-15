@@ -25,12 +25,17 @@ import typing as _t
 
 import math
 
+import os
+
 import shapely
-from shapely.geometry import LineString
+from shapely import affinity as _affinity
+from shapely.geometry import LineString, Point
 
 from ..law import Law
+from ..airport import obj8
 from ..law.cutout_schema import WALL_BOTTOM
 from ..law.tables import role_side
+from ..model.frame import XY
 from ..model.structures import profile_z
 from ..airport.wall_corridors import CLASS_GARAGE
 from .object_corridor import Group
@@ -38,8 +43,8 @@ from .structure_approach import unit
 from .structure_geometry import pad_hit as _pad_hit, rim_standoff
 
 __all__ = ["wall_corridor_groups", "RAMP_ROLE", "GARAGE_ROLE", "KIND", "airside_stops",
-           "locked_road_stops", "ROAD_ROLES", "stop_and_steepen", "wall_corridor_profile",
-           "wall_corridor_note"]
+           "locked_road_stops", "ROAD_ROLES", "road_edge_witness", "stop_and_steepen",
+           "wall_corridor_profile", "wall_corridor_note"]
 
 #: The groundside ROAD family §34 (9) can pinch a ramp against.  A parking
 #: lot is not a road (it is a place, and §24's pad law governs it).
@@ -154,9 +159,80 @@ def locked_road_stops(cells, polys, law: Law, runway_family, airside_reach_m: fl
     return out
 
 
+def road_edge_witness(airport, road_poly, at: XY, wc, cache: dict) -> tuple[object, str]:
+    """THE ROAD EDGE IS THE PAINTED LINE (spec §34 (9) (4), owner RULINGS
+    2026-09-14aq: "detect the white line marking from the scenery package
+    that marks the road edge").
+
+    ``(line geometry, name)`` for the pack's own road-edge marking beside
+    ``at`` — a DRAPED object in the ``markings`` layer group (the class §42
+    refuses as pavement, ``airport/object_pavement.py``: at HECA
+    ``Airport/ground/asphalt_white.obj``) whose body lies within
+    ``road_edge_line_reach_m`` of ``road_poly``'s edge and whose principal
+    direction is within ``road_edge_line_parallel_deg`` of the road edge's
+    there.  ``(None, "")`` when the pack paints no such line — then the
+    FACE edge stands, which is §34 (9) (4)'s own provision.
+
+    Read HERE, lazily, and only where a ramp is actually pinched: the
+    markings are refused at load (they are not pavement) and a pack carries
+    thousands of them (OTHH 5,906 placements over 20 resources).  The
+    header screen is the whole pre-filter and each resource is parsed at
+    most once, into ``cache``."""
+    from ..airport import object_pavement as _objpav
+    reach = wc.road_edge_line_reach_m
+    edge = road_poly.exterior
+    near = Point(at).buffer(reach + 20.0)
+    best = None
+    for o in getattr(airport, "dsf_objects", ()):
+        path = getattr(o, "resolved_path", None)
+        if not path or not near.contains(Point(o.xy)):
+            continue
+        if path not in cache:
+            grp = _objpav.header_facts(path)[0]
+            fp = None
+            if grp and grp[0].lower() == "markings":
+                geom = obj8.parse_obj8(path)
+                fp = _objpav.draped_footprint(geom, 1.0)
+            cache[path] = fp
+        fp = cache[path]
+        if fp is None:
+            continue
+        g = _affinity.affine_transform(fp, list(obj8.placement_affine(o.xy, o.heading_deg)))
+        if g.is_empty or g.distance(edge) > reach:
+            continue
+        if _parallel_deg(g, edge, Point(at)) > wc.road_edge_line_parallel_deg:
+            continue
+        d = g.distance(Point(at))
+        if best is None or d < best[0]:
+            best = (d, g, os.path.basename(path))
+    if best is None:
+        return None, ""
+    return best[1], best[2]
+
+
+def _parallel_deg(line_body, edge, at: Point) -> float:
+    """The angle between a marking body's principal direction and the road
+    edge's direction at ``at``, in degrees (0..90)."""
+    mrr = line_body.minimum_rotated_rectangle
+    cs = list(mrr.exterior.coords)[:-1]
+    if len(cs) < 4:
+        return 90.0
+    sides = sorted(((math.dist(cs[i], cs[(i + 1) % 4]), cs[i], cs[(i + 1) % 4])
+                    for i in range(4)), key=lambda t: -t[0])
+    (_L, a, b) = sides[0]
+    p = edge.interpolate(edge.project(at))
+    q = edge.interpolate(min(edge.length, edge.project(at) + 2.0))
+    v1 = (b[0] - a[0], b[1] - a[1])
+    v2 = (q.x - p.x, q.y - p.y)
+    n1 = math.hypot(*v1) or 1.0
+    n2 = math.hypot(*v2) or 1.0
+    c = abs(v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2)
+    return math.degrees(math.acos(max(0.0, min(1.0, c))))
+
+
 def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,
                      stop_list, stop_tree, host, beyond, grid, spacing, regeom,
-                     locked_roads=()):
+                     locked_roads=(), mark_cache=None):
     """RULINGS 2026-09-08m (a): a climb STOPPED at airside pavement (or a
     pad) runs to the pavement EDGE — the exact station one grid step
     short of where the axis enters the cell (the stations' granularity
@@ -198,7 +274,15 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     ground as it stands), ``pinched`` the ``(road ref, span m, grade)`` of a
     §34 (9) pinch or ``None``."""
     geom = regeom(ss)
+    witness = ""
     stop_poly = next((p for p, ref in stop_list if ref == clipped_by), None)
+    if stop_poly is not None and clipped_by in locked_roads and mark_cache is not None:
+        # §34 (9) (4): the PAINTED line is the road edge where the pack
+        # paints one; otherwise the face edge stands
+        line, witness = road_edge_witness(airport, stop_poly, axis_fn(s_top), wc, mark_cache)
+        if line is not None:
+            stop_poly = stop_poly.union(line).convex_hull if line.disjoint(stop_poly) \
+                else stop_poly.union(line)
     if stop_poly is not None and s_top + spacing <= axis_ln.length:
         tail = LineString([axis_fn(s_top), axis_fn(min(axis_ln.length, s_top + spacing * 2))])
         x = tail.intersection(stop_poly.boundary)
@@ -223,7 +307,7 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
                 f"the climb pinched against the locked service road {clipped_by} at s "
                 f"{s_top:.1f} runs the wrong way: {run:.1f} m of run for {rise:.2f} m of rise "
                 f"to the road edge {top_ground:.2f} (§34 (9))"), climb_from, None
-        return ss, geom, s_top, g2, None, climb_from, (clipped_by, run, g2)
+        return ss, geom, s_top, g2, None, climb_from, (clipped_by, run, g2, witness)
     if g2 < 0.0 or math.isinf(g2) or math.isnan(g2):
         return ss, geom, s_top, g2, (
             f"the climb stopped by {clipped_by} at s {s_top:.1f} runs the wrong way: "
@@ -278,7 +362,8 @@ def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, a
 
 
 def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, top_ground,
-                       clipped_by, moved_m: float = 0.0, pinched=None) -> str:
+                       clipped_by, moved_m: float = 0.0, pinched=None,
+                       covered_from=None, witness: str = "") -> str:
     """The per-site line the report quotes."""
     tg = float("nan") if top_ground is None else top_ground
     return (f"wall corridor (2026-09-08m/n Law C, {c.cls}) of {c.resource}: floor = the wall "
@@ -297,4 +382,9 @@ def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, 
                f"service road {pinched[0]} — the road keeps its level and is never pulled — and "
                f"runs {pinched[1]:.1f} m from that edge down to the ramp bottom at the building "
                f"edge at {100.0 * pinched[2]:.1f} %, the cap LIFTED for the pinched run"
-               if pinched else ""))
+               + (f"; the road edge is {witness}" if witness else "")
+               if pinched else "")
+            + (f"; full depth at the BUILDING WALL (§34 (9) (5)): the covered start is s "
+               f"{covered_from:.1f}, so the {g.hull_s - covered_from:.1f} m of retaining wall "
+               f"protruding past the building is RAMP, not trench"
+               if covered_from is not None and covered_from < g.hull_s - 1e-6 else ""))

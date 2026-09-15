@@ -5895,3 +5895,73 @@ airside cannot yield a centimetre — which §20b forbids. Stage clocks
   row 14al withdrew can return, since under §20b it cannot pull).
 * The OTHH customer line is untouched: OTHH on main = 1.0.334's
   surface (both flags off).
+
+## 2026-09-14at v2othhfix round 3 MERGED (76518d99): full depth at the building wall (25 % from 37 %); the pack paints NO road-edge line as geometry at OTHH; the missing tunnel wall is a split-file NAME COLLISION — lane `v2splitname`
+
+Lane `v2othhfix` @ a4b7801d (OTHH build `v2othhfix_r3b`, ledger
+4afb62b3f6a1, verify defects {}, ADJUDICATED 3,204 → 3,174; suite
+1,495 on main). §34 (9) (5) `covered_start`: the climb-from moves back
+to where the axis leaves the building pad — `@0/a` +2.4 m of run
+(the pad edge measures 2.4 m, not the owner's ~4), grade 36.98 →
+25.18 %; `@2` 11.05 → 10.80 %; mouth_z unchanged. §34 (9) (4)
+`road_edge_witness` landed (lazy read of the pack's `markings` draped
+objects; keys `road_edge_line_reach_m` 6 / `_parallel_deg` 15) — and
+OTHH HAS NO WITNESS: no `markings` object within 60 m of the east
+mouth and no thin pavement source within 40 m; the only markings near
+the other two are `StopLine1_*` bars 32–54 m away across the taxiway.
+The white edge line the owner sees is baked into the road texture or
+the orthophoto, not geometry. Road edges unchanged (route7
+byte-identical); airside 2 of 16,810 moved > 0.1 m (pad-edge corner
+joints, +0.10/+0.12); corridors 40 → 40; `road_cross_section` 6 → 14
+(+8 rows 500 m away at 25.268, 51.606–51.610 — not the pinch, owed a
+look). A publication crash (the pinched record's arity) caught by the
+build, guarded by a twin.
+
+* THE MISSING TUNNEL WALL (25.2697569, 51.6055534): `tunnel1.obj` is
+  the only OTHH tunnel resource placed TWICE (idx 14051 and 14052,
+  anchors 38.7 m apart in plan); `obj8_split.body_resource_name`
+  keys the split file on resource + body id only, so both placements
+  write `Objects/tunnels/tunnel1__b0.obj` and the file bakes 14051's
+  offset — placement 14052 renders its wall 38.7 m from its DSF row.
+  The layout is innocent (`tunnel_wall` −10948 and a ramp are at the
+  coordinate). Same class as the LEMD `__b0` note at
+  `obj8_split.py:649`. Lane `v2splitname` BEFORE app 1.0.335.
+* OWNER (intent, the painted line): the engine reads no white line at
+  OTHH's east mouth. Options: (a) a per-airport `road_edge_inset_m`
+  (the line's offset inside the road face edge — the owner measures
+  it once); (b) a coordinate on the line from the owner → we derive
+  the inset; (c) accept the face edge. The east ramp ends at the face
+  edge today.
+
+## 2026-09-14au v2settle MERGED: the "unsettled hard set" was mostly CONSTANT rows (footed on pins, no column) and the projection's own 0.02 bar; the real residual is 6 rows / 0.0445 m, NAMED and certified FEASIBLE; shipped patches byte-identical; the stage-2 certificate PROVES the conforming side infeasible by law — ruled: the pad's skirt yields
+
+Lane `v2settle` @ b129f97d (fresh HECA + KCLT captures registered;
+suite 1,515 twice). HECA stage 1's 33 unsettled rows: 9 `road_ramp`
+ceilings footed on a `Pin` with NO column (constants — `assemble`
+tested only `dem_fixed`; 142 such rows; phase C pinned `best_worst`
+on a constant it could never beat and RETURNED ROUND 1's ITERATE), 6
+`runway_profile` at 0.0200000 (the projection's own held bar), 18
+real (`pavement_ceiling` 11, `pads` 7, worst 0.1025). Fixed:
+`_carries_a_column` on the REDUCED row; one settle derivation
+(`hard_exceeds`/`HARD_READ_EPS`); §20a's named hard failure with a
+min-Σ-slack FEASIBILITY CERTIFICATE (`read_hard_failure`); `v2_solve_
+replay --why-hard-stage`. After: HECA stage 1 6 rows / 0.0445 m, all
+named, certificate FEASIBLE (a solve residual, not the law); shipped
+single-solve patches BYTE-IDENTICAL at HECA and KCLT; KCLT's 406
+survivors: 143 PROVED an infeasible set (26.4 m over 179 columns, all
+`building_pad airside skirt` at 35.2097, −80.9327); §20b stage 2 at
+HECA: 1,428 of 2,548 survivors proved infeasible, 1,015.6 m. 13db's
+shared `shift` REFUTED as the limit (0 rows both hard and one-way).
+Not met: the last 6 rows (both levers refuted, 12u/13ac; the
+un-built candidate is a per-family post-solve projection for
+`pavement_ceiling`, §30 (3)'s pattern); KCLT's lag 0.317 m.
+
+* RULING (the intent question "which row yields when a welded pad's
+  1 % ceiling and a fixed apron rim cannot both hold"): the AIRSIDE
+  never yields; the PAD's flatness yields — its skirt band's slope
+  ceiling relaxes from 1 % up to `pad_skirt_max_slope` (5 %) as the
+  weld requires (a slope, never a step: the owner's "weld smoothly");
+  only beyond 5 % is it `pad_airside_weld` CRITICAL. §16g (10) (8)
+  amended accordingly; lane `v2padvert`'s successor (or the same
+  lane) applies it in `constraints/pads.py` with the KCLT 143-row set
+  as the bar (→ 0 infeasible, each pad's skirt slope named).

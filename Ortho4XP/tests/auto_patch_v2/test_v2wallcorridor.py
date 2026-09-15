@@ -416,6 +416,12 @@ def test_a_ramp_meeting_airside_pavement_stops_and_steepens(objs, law):
     mx, my = m.axis[-1]
     assert profile_z(m.profile, m.top_s) == pytest.approx(airport.dem.z(mx, my), abs=1e-6)
     assert any("MOUTH MOVED" in n and "apron2" in n for n in m.notes), m.notes
+    # §34 (9) (3)/(4): `Tunnel.pinched` is the (road, span, grade) TRIPLE the
+    # lifted-cap publication unpacks — the §34 (9) (4) witness rides beside it,
+    # never inside it (a fourth element crashed `_lifted_records` on an OTHH
+    # build, measured 2026-09-14)
+    for t in tunnels2:
+        assert t.pinched is None or len(t.pinched) == 3, t.pinched
 
 
 def test_a_descending_wall_bottom_is_a_garage_ramp_cut_as_authored(objs, law):

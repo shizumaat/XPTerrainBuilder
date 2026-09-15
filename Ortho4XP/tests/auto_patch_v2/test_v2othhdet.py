@@ -219,3 +219,38 @@ def test_a_superseded_road_feed_is_refused_by_name(tmp_path, monkeypatch):
     assert "--refresh-data osm_layers" in body
     assert "ROAD_CACHE_TAG_SCHEMA" in body
     assert "osm_road_feeds_untagged" in body
+
+
+def test_the_stale_feed_refusal_is_gated_on_the_production_frame():
+    """A FROZEN frame is exempt and only it: the checked-in CYXY fixture
+    reads its own 2026-07-16 ``big_roads`` and must keep reading it (a
+    twin's frame is not the shared corpus), and ``--allow-degraded-dem``
+    is the standing recorded override.  Both still NAME the feed."""
+    import importlib
+    import inspect
+    from pathlib import Path
+    from auto_patch_v2.airport import osm as _osm
+    _load = importlib.import_module("auto_patch_v2.airport.load")
+    body = inspect.getsource(_load.load_with_report)
+    assert ('if stale and inputs.dem_frame == "production" '
+            "and not inputs.allow_degraded_dem:") in body
+    assert "rep.osm_road_feeds_stale = tuple(sorted(stale))" in body
+    # the fixture really is the stale case the exemption exists for
+    fix = (Path(_load.__file__).resolve().parents[3] / "tests" / "auto_patch_v2"
+           / "fixtures" / "CYXY" / "OSM_data" / "+60-140" / "+60-136"
+           / "+60-136_big_roads.osm.bz2")
+    if fix.is_file():
+        s = _osm.feed_tag_schema(str(fix))
+        assert s is not None and s != _osm.ROAD_CACHE_TAG_SCHEMA
+
+
+def test_the_cyxy_fixture_reports_its_stale_feed_by_name():
+    from tests.auto_patch_v2.test_airport_load import fixture_inputs
+    from auto_patch_v2.airport.load import load_with_report
+    from auto_patch_v2.law import Law
+    inp = fixture_inputs()
+    assert inp.dem_frame == "authored"          # the exemption's condition
+    _apt, rep = load_with_report("CYXY", inp, Law.for_airport("CYXY"))
+    assert any("big_roads" in p for p in rep.osm_road_feeds_stale), \
+        rep.osm_road_feeds_stale
+    assert any("airport_small_roads" in p for p in rep.osm_road_feeds_untagged)

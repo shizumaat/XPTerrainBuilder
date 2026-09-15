@@ -146,6 +146,9 @@ class LoadReport:
     #: invalidated it — OTHH's is from 2026-07-27 and carries none of
     #: ``layer`` / ``cutting`` / ``covered`` / ``embankment``.
     osm_road_feeds_untagged: tuple[str, ...] = ()
+    #: road feeds carrying a SUPERSEDED ``o4_tag_schema`` — a refusal in
+    #: the production frame, a named degradation in a frozen one
+    osm_road_feeds_stale: tuple[str, ...] = ()
     dem_provenance: dict[str, str] = _dc.field(default_factory=dict)
     notes: list[str] = _dc.field(default_factory=list)
     #: The flat-site verdict record (``airport/flat_site.record``; set by
@@ -346,7 +349,16 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             elif schema != _osm.ROAD_CACHE_TAG_SCHEMA:
                 stale.append(f"{path} (o4_tag_schema {schema})")
     rep.osm_road_feeds_untagged = tuple(untagged)
-    if stale:
+    rep.osm_road_feeds_stale = tuple(sorted(stale))
+    # THE FROZEN FRAMES ARE EXEMPT, and only they.  ``dem_frame
+    # "authored"`` is a pinned corpus a caller chose deliberately (the
+    # checked-in ``tests/auto_patch_v2/fixtures/CYXY`` reads its own
+    # 2026-07-16 feed and MUST keep reading it — a twin's frame is not
+    # the shared corpus), and ``--allow-degraded-dem`` is the standing,
+    # recorded "measure in the worse frame KNOWINGLY" override that
+    # authorises no write (CLAUDE.md).  Either way the stale feeds are
+    # NAMED on the report, never silent.
+    if stale and inputs.dem_frame == "production" and not inputs.allow_degraded_dem:
         raise RuntimeError(
             f"{icao}: {len(stale)} cached road feed(s) were written under a "
             f"SUPERSEDED tag whitelist — the reading would be missing the "

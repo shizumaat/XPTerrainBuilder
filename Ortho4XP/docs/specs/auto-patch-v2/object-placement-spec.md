@@ -5500,3 +5500,41 @@ converged solver the pads-ON far field is nothing at all, or 16 vertices
 at 0.10 m once the clip moves to the arrangement.  The owner's site is
 fixed on the armed arm and the numbers above are the read it is
 adjudicated on.
+
+### §16g (10) (11) RULED ON THE MEASUREMENT (lane v2padqp r1 2039b3c0; Fable 2026-09-15; RULINGS 2026-09-15z) — the garage seats on its cluster's pad; the keys stay OFF until the AIRSIDE MOVEMENT is attributed
+
+The garage (40.4892214, −3.5944287) with the keys armed: INSIDE
+`building45` (the walled cluster `unit:25#843`'s own outline — 421,940
+m², 761 walled bodies; the chain rule was never widened), one level
+615.35 over the terminal and garage together, z − DEM +4.33 m of fill,
+no short-edge step; the spurious basement pit refused as "a BASEMENT,
+not a pit".  Three defects fixed at their derivation sites: `_pads`
+re-cutting one cluster piece into separate `building{N}` refs (one ref
++ `ref#k` now); `_face_map` joining on the raw ref (`building38` vs
+`building38#1`); the mint (apt.dat union) and the census (planar role
+faces) cutting the airside differently.  `pad_cluster_mismatch` HECA
+16 → 10, LEMD 1 → 1; the ten survivors are ONE class — `_OWN_FACE_SHARE`
+is a per-FACE test, one sliver face of a neighbour lists the whole ref
+(2 % / 8 % shares) — the untried lever: weigh the REF's area.  The one-
+vertex probe with the pads as r5 left them: 0 of 32,262 moved > 0.02 m
+— 14bk's far-field mover is GONE under §20c; with the clip moved to the
+arrangement 16 vertices beyond 500 m, worst 0.103 m — the residual far
+field is the pad/airside rim geometry, not the solver.
+
+**MISSED, and why the keys stay OFF:** the AIRSIDE moved between the
+OFF and ON arms — 5,915 vertices > 0.02 m, worst 3.61 m; runway 231,
+worst 0.140 m (§16g (10) (5): a derived pad never takes airside ground;
+airside is king) — r5's arm read 9,573 / 885 at 0.390 m, so this lane
+halved it and did not close it; `pad_airside_weld` 2 → 7 HECA, 1 → 2
+LEMD; HECA `plane_gradient` 8 → 13, `strip_seam_tear` 28 → 30; LEMD
+`strip_transverse` 83 → 87.  RULED (r2): (a) ATTRIBUTE the airside
+movement interventionally — `--why-at` on the worst airside mover
+(3.61 m) and on the worst runway mover (0.140 m): which row set on the
+ON arm reaches the airside (a pad weld row with the wrong direction? a
+zone re-cut? the arrangement clip changing airside cells?) — the pad's
+rows must be ONE-WAY toward the pad; an airside vertex that moves
+because a pad exists is a defect at the row that moved it; (b) the
+ref-area lever for the ten survivors; (c) the seven welds named.  The
+keys flip ON only when airside movement is 0 (> 0.02 m) and the welds
+are 0 new; the object-stage FLOAT at the garage (body zero vs its own
+ground) is read on the next app build, not in the harness.

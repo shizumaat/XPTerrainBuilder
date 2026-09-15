@@ -7048,3 +7048,42 @@ Third airport in one theme with 15e items 1/3/4/6 (LEMD short surface
 walls) and 14av (OTHH deep walls): THE PACK'S STRUCTURAL OBJECTS —
 walls, ramps, covers — ARE THE AUTHOR'S CUT GEOMETRY. Scout dispatched
 for the VHHH inventory before one law is written for all three.
+
+## 2026-09-15h LEMD 15e ATTRIBUTED (scout, one build 1.0.340): items 2/5/7 RULED (§16g (10) (11), §33 (5), §34 (11), §34 (5) (b)); items 1/3/4/6 are ONE law with 15g/14av — held for the VHHH inventory
+
+Scout (read-only, engine 1.50.1787 products under Patches/+40-010/
++40-004, the pack's 3,186 split bodies, the DSF dump): NO DEFECT and no
+floor line — the verify census (1,592 rows) has no `runway_transverse`
+family at all under the converged solver. Item 1: the deck is centred
+on OSM bridge ways −6288/−6291 (§33 (4)); the pack's parapets Bridge2
+b3/b4 (S, 0.92 m) and b0/b2 (N, 0.93 m), 25.6 m apart, are REFUSED as
+walls at the 1.5 m skirt gate (13r: draped plates) — the 24.5 m deck
+sits ~8–9 m south of the parapet pair (S walls 6.8 m INSIDE the deck, N
+wall 8.6–10.6 m OUTSIDE). Item 2: garage PKT4 b0 seated on pad
+building12 (616.10) by unit membership; the pad polygon ends 55.28 m
+short; 3.63 m of air over raw DEM; crest plate + basin both refused on
+the flat render datum → RULED §16g (10) (11): re-arm `pad_from_cluster`
+under qp (lane v2padqp). Items 3/4: ONE wall pair Bridge3 b0 (354.2 ×
+25.1 m, H 1.03 m, class basin) consumed by §33 (2) as a WIDTH and a
+mouth station only — the cut lies 1.4–2.4 m outside the W wall and
+7.6–8.6 m outside the E wall; the §33 (2) (a) clamp ends the corridor at
+bore way −5931 (83.9 m / 46.6 m inside the wall's ends), leaving 220 m
+of wall with no trench and the wall floating 7.13 m at item 4; "like it
+used to" = 14bl items 7/8 pre-clamp (mouth at the plate end); the
+owner's 40.4951833 is 46.5 m beyond the wall's S end = the open ramp.
+Item 6: Bridge4 (2.01 m) IS the edge-wall corridor, but the emitted
+ring is a 9-station chord polyline cutting the curved U's corners 0.5–
+2.0 m OUTSIDE the wall line at 8/24 stations and stopping 17 m short of
+the wall's N end. Item 5: the "road" is not a road in the patch (every
+station `cross_connector:pav61` + `gap_interior_ring` + zone2; no road
+way within 60 m); hole ring −10689 144,429 m² cover 0.011; mouth floor
+2.91 m under its rim vs `bore_datum_m` 5.10 → RULED §33 (5) + §34 (11).
+Item 7: §34 (5) (a) IS applied; the trench (face 993, 572.42) opens
+12.8–15.5 m from the kerb (577.80) inside zone 1 — a 5.38 m unbanked
+face; junction pav157 shares the runway's nodes, 1.9 % over 18.2 m →
+RULED §34 (5) (b). THE WALL THEME: LEMD walls 0.91–2.01 m (sit on the
+surface) vs OTHH 19.6–20 m (descend 10–15 m below their zero) — the
+1.5 m skirt gate is what makes LEMD's walls plates; the law for walls
+as the author's cut geometry (15e 1/3/4/6 + 15g VHHH + 14av) is written
+ONCE after the VHHH inventory. Lanes: v2padqp (item 2 + HECA's 14
+mismatches), v2lemdstruct2 (items 5, 7).

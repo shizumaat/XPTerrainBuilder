@@ -12296,3 +12296,61 @@ then a fourth identification witness (1)(d), with the (3)(iii) depth.
 ### §45.3 Closing test
 
 The structure replay (`python -m auto_patch_v2.planar ICAO --stage structures`, ~25 s) on LGAV, KDFW and KPHX BEFORE and AFTER, each record and refusal quoted (KPHX on the owner's 30 m frame today; after his `--refresh-data dem` the same replay must move KPHX from (3)(iii) to (3)(ii) with no code change). ONE build: **KDFW** (the lidar + the hole + six bridges; its last build was v1's 2026-08-15 `BandInversionError`, so the v2 baseline is itself a measurement — quote the refusal if the harness refuses cold data and stop). Bars: LGAV — the 5 `tunnel_trench` faces become the whole corridor (~4 km × ~100 m, one channel, `Trench_0x` as witnesses, zero Trench refusals); KPHX — the two necks at the airside surface with the road 5.1 m under them, the eight refusals gone; KDFW — four necks at the taxiway grade, the corridor floor at the lidar (170.9–173.3), the median fill kept, no fill in the cut; OTHH / LEMD / HECA / KCLT / CYXY / SPJC structure replays byte-identical in their `Tunnel` / `Basin` records (dry, no build). The owner reads LGAV's trench and KDFW in the sim; that read is the acceptance.
+
+## §33 (5) THE MOUTH'S FLOOR IS THE BORE DATUM, HOWEVER ITS STATION WAS TAKEN (Fable 2026-09-15; RULINGS 2026-09-15h) — lane `v2lemdstruct2`
+
+LEMD 1.0.340, owner 15e item 5: the mouth at 40.4947697, −3.5829037
+(ramp way −10892 / shape 886, floor 599.25) sits **2.91 m** under its own
+rim (−11034 at 602.16) where the law's `bore_datum_m` is 5.10 — the depth
+Bridge4's admitted corridor got.  The floor came from the approach, not
+the datum.  RULED: whether a mouth's station comes from the bore way, a
+plate takeover (§33 (2)), the clamp ((2) (a)) or the approach, its floor
+is `rim − bore_datum_m` unless the pack AUTHORED a depth (deep walls,
+§33 (1) / 14av); a shallower mouth is a `tunnel_mouth_canonical` row at
+that mouth, named.
+
+## §34 (11) THE ROAD BETWEEN TWO MOUTHS IS A ROAD; A RIM NEVER PULLS THE GROUND BESIDE IT (Fable 2026-09-15; RULINGS 2026-09-15h) — lane `v2lemdstruct2`
+
+Same site: between mouth 886 (599.25) and ramp 898 (603.32 at
+40.4940268, −3.5826498) the owner names a road (40.494628, −3.5832911 →
+40.4943869, −3.5823239) whose ground "is getting pulled down".  In the
+patch that line is NOT a road: every station reads `cross_connector:
+pav61` + `gap_interior_ring` + `graded_strip:adjacent_ground:taxi:F:
+zone2`, no road-family way within 60 m, and the two ramps meet across
+hole ring −10689 — **144,429 m², cover 0.011**, VOID at 40.4946503,
+−3.5835473 — where no family owns a vertex.  RULED: (a) the lane
+IDENTIFIES the road (an OSM `highway=*` way, or the pack's draped road
+net — the source 14bi named for road width) and admits it as a road-
+family way with §37 road rows: a smooth profile between the two mouths'
+ground levels within the road cap, its zones per §37 (6); (b) a
+`structure_rim` is a one-way CEILING on the ground it borders (the
+ground may not rise above the rim's crest), never a pull — the ground
+between two structures across an unowned void keeps the design surface;
+(c) a `gap_interior_ring` of that size (> 10 × the largest lawful sliver,
+§41) with cover < 0.5 is itself the defect at its VOID point: the layout
+either covers it with faces of the owning roles or excludes it from the
+graded strip.  The lane measures the pull first (`--why-at` on a fresh
+capture) and names the rows that lowered the ground.
+
+## §34 (5) (b) THE COVERED EXTENT OF AN UNDERPASS INCLUDES THE TAXIWAY'S STRIP (Fable 2026-09-15; RULINGS 2026-09-15h; 14bl item 1 residual) — lane `v2lemdstruct2`
+
+LEMD taxiway 40.4611623, −3.5444804 (owner 15e item 7, screenshot 2):
+§34 (5) (a) IS in force (the deck CELL's footprint, eroded 2.1 m, 772 m²
+over 50 stations), and the trench now opens **12.8–15.5 m from the
+pavement node**: ramp face 993 (`tunnel_ramp`, floor 572.42) against the
+kerb at 577.80 — a **5.38 m** face inside `adjacent_ground:taxi:E:zone1`
+with no bank (bank OFF) — the "hole".  The deck cell covers the
+PAVEMENT only.  RULED: (a) the covered extent of an underpass beneath a
+taxiway or runway spans the pavement AND its graded strip (the
+`strip_transverse` band the law already prices, 165 rows at LEMD; the
+zone-1 width where no strip is declared) — the mouth opens beyond the
+strip, the ramp descends outside it, and the rim between is the strip's
+own surface; (b) no `tunnel_ramp` face may share a vertex with, or lie
+inside, the strip of the way it passes under (a `zone_on_pavement`-class
+check, named `ramp_in_strip`).  The LATERAL slope is separate: junction
+`pav157` (173 vertices, 566.31…580.14) shares its nodes with runway
+face 5 at the site and reads 1.9 % over 18.2 m against the 1.5 %
+taxiway cap; the lane names the transverse row (or its absence) that
+permits it and whether the runway's cross-section is carrying the
+junction's crown — the fix follows the measurement (§29 (7) lateral
+band / §37 (10) taxiway contacts).

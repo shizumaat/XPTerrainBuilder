@@ -14220,3 +14220,30 @@ own numbers (grade at 84.0, decks at 211.0 / 302.1 → none), the chained
 case (12.2 severs, the climb restarts at 19.2, 69.2 severs), the first
 beyond-grade deck stopping the run, and the two null readings (a climb
 that never reaches grade, and no `grade_reach` at all) keeping every deck.
+## §34 (12) (4) MEASURED AT LEMD — THE BELOW-GRADE LIMB HOLDS AT VMMC AND FAILS AT LEMD; THE DISCRIMINATOR IS A WITNESSED CUTTING (Fable 2026-09-15; RULINGS 2026-09-15al) — lane `v2vmmcshore` r5 (measurement first)
+
+r4 (5b30cf9d) implemented (4) AMENDED exactly (`structure_deck._below_
+grade` fed by `structure_service.grade_reach_for` = `ramp_top`, the
+ramp's own derivation).  VMMC on a real build: `-2488@0` decks at s 211 /
+302 / 489 / 546 against grade at 84.0 — none severs; the owner's bore
+`-5508+…` keeps two chained decks (12.2 → 19.2 → 69.2 against 84 / 96)
+— the rule as ruled.  LEMD: decks 7 → **1**.  Every dropped deck stands
+past where its ramp daylights UNAIDED (grade at 24–180 m; decks at 56–
+530 m) — and those decks were what held the trench open (base
+`climb_from_s` 71 / 154 / 287 / 170 m).  `bridge_deck:-6288` (14bp item
+10, the owner's screenshot-1 bridge, "much better") is among them.  The
+two limbs tried (crosses-the-bore, below-grade) are both refuted as
+DISCRIMINATORS between VMMC and LEMD; the attempt cap on blind limbs is
+spent.  RULED: the next round MEASURES before any rule — for each of
+the 11 decks (LEMD 7, VMMC 4): the crossed road's own tags in the road
+feed (`layer`, `cutting`, `covered`, `tunnel`, `embankment` — the
+witnesses v2roadtags now keeps, §45 (9)), the DEM profile along the
+road under the deck (the road's DEM beneath the deck vs the deck way's
+DEM at its abutments — a real cutting reads lower), the deck's own
+`layer`/`bridge` tags and length, and the distance from the mouth.  The
+expected discriminator: a deck severs the climb where the road beneath
+it is WITNESSED as a cutting (a negative `layer`, `cutting=yes`, or a
+DEM depression under the deck of ≥ 1 m relative to its abutments)
+regardless of station; a deck over a road at grade beyond the ramp's
+daylight station is not a crossing.  The rule is written after the
+table, by the session.

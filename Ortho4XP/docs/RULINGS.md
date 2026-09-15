@@ -7709,3 +7709,26 @@ current → untouched; unauthorised → refused, byte-identical; every fetch
 failing → refused, stale restored. Suite ON MAIN: `1678 passed, 1
 skipped`, 0 failed. The first real refresh is the owner's (or his
 authorised session's): it will now write, and the ledger records it.
+
+## 2026-09-15al v2vmmcshore r4 NOT MERGED (5b30cf9d): VMMC MET on a real build (probe covered by nothing, 0.00 m² on the sea, 0 nodes ≤ 0.5 m, tears 61 → 0, `sea_wall` 27 rows, ADJUDICATED 225 → 61, `shared repo UNCHANGED`) — but the below-grade limb drops LEMD's decks 7 → 1 incl. `-6288` (14bp item 10); both limbs refuted as discriminators; r5 measures the cutting witnesses (road-feed tags + DEM under each of the 11 decks) before the rule
+
+Lane @ 5b30cf9d; suite 1,645 passed, 0 FAILED. Closing VMMC build rc 0,
+21.3 s, optimal, ledger 14508d4b2d53: pav5 5.09…6.12 (nearest ramp
+39.0 m clear), tunnels 13 / decks 4 / refusals 2, shore trim 98,575 m²
+/ 6,154 m sea wall, `transverse` 11 → 1. `-2488@0`: `climb_from_s`
+559.2 → 0.0, `top_s` 468 → 84, `clipped_by` none. LEMD table (all
+"beyond grade" bar `-5284@0`/`-11828` at s 14.6 vs grade 108): `-6288`
+s 56.3 vs grade 24.0; `-15293` 146 vs 24; `-5305`/`-1378`/`-1379` vs
+60/never; `-14230`/`-374`/`-516`/`-15311` vs 84/never; `-639` 523 vs
+180; ramp lengths 180 → 24, 552 → 60, 96 → 24, 252 → 84 m. OTHH 44 / 1
+identical. RULED (§34 (12) (4) MEASURED AT LEMD): the discriminator is
+a WITNESSED CUTTING under the deck — r5 tables the 11 decks' witnesses
+(road-feed `layer`/`cutting`/`covered`/`tunnel`/`embankment`, the DEM
+under the deck vs its abutments, the deck's tags/length, the station)
+before any rule; the session writes the rule from the table. The
+mesh `--z-xref` (doubled plane) is unmeasured: the lane's VMMC TILE
+build (`v2vmmcshore4tile`) was still running after ~100 min (13cg's
+3,845 s class) — left running under its tag; the patch proves 0 nodes
+≤ 0.5 m. Refreshes so far (owner-authorised, ledgered): +22+113
+(11:05:34, 1 layer), +40-004 (nothing stale), +30+031 (11:26:53, 1
+layer + 2 clips), +35-081 (11:35:05, 1 layer); OTHH running, CYXY next.

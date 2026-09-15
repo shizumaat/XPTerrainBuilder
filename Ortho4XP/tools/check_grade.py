@@ -2251,6 +2251,34 @@ def iter_shape_grade_constraints(
                                        pts[ib][0] - pts[ia][0],
                                        pts[ib][1] - pts[ia][1])
 
+        _is_ramp_way = law_role(w) in _RAMP_ROLES
+        _ramp_xy = [(q[0], q[1]) for q in pts] if _is_ramp_way else None
+
+        def _ramp_span(ia: int, ib: int, d: float) -> float:
+            """§34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS
+            (Fable 2026-09-15; RULINGS 2026-09-15u; answers this lane's own
+            r1 intent question).
+
+            A ``tunnel_ramp`` is a ROUTE-family shape: its grade is read
+            along its AXIS, exactly as §37 (7) reads the road family and
+            09-05aa the taxi family, and never across the plan chord.  The
+            axis needs no sidecar key here — a ramp face is a RIBBON whose
+            ring walks the axis stations down one side and back up the
+            other, so the walk around its own ring between two vertices IS
+            the run between their stations (``ring_route_m``, ONE
+            derivation with ``auto_patch_v2.verify.within``).
+
+            MEASURED at LEMD (owner 15e item 5): ramp way −10853's worst
+            pair fell 8.250 m over a **99.25 m plan chord** — 8.31 %, over
+            the 8 % cap — where its own axis runs **143.5 m**: 5.75 %,
+            inside the cap.  It reads ``max(chord, route)`` and a polyline
+            between two of its own points is never shorter than the chord,
+            so this can only RELAX; a ramp genuinely over cap along its
+            axis still reports."""
+            if not _is_ramp_way:
+                return d
+            return max(d, _ring_route_m(_ramp_xy, ia, ib))
+
         def _route_read(ia: int, ib: int, cap_l: float):
             """§37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (owner RULINGS
             2026-09-13av; sidecar ``road_route_frame``).
@@ -2421,6 +2449,11 @@ def iter_shape_grade_constraints(
                         crown_by_nid.get(pnids[ib]), ei - ej)
                     if _unk:
                         _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
+                    # §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS
+                    # (Fable 2026-09-15; RULINGS 2026-09-15u): the SPAN is the
+                    # ring walk, the cap the ramp's own.  Applied before the road
+                    # reading, which returns None for a non-road role anyway.
+                    d = _ramp_span(ia, ib, d)
                     _rr = _route_read(ia, ib, cap.flat_cap())
                     if _rr == "skip":
                         continue                       # §37 (7): not a pair
@@ -2470,6 +2503,11 @@ def iter_shape_grade_constraints(
                     ei - ej)
                 if _unk:
                     _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
+                # §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS
+                # (Fable 2026-09-15; RULINGS 2026-09-15u): the SPAN is the
+                # ring walk, the cap the ramp's own.  Applied before the road
+                # reading, which returns None for a non-road role anyway.
+                d = _ramp_span(ia, ib, d)
                 _rr = _route_read(ia, ib, cap.flat_cap())
                 if _rr == "skip":
                     continue                           # §37 (7): not a pair
@@ -2520,6 +2558,11 @@ def iter_shape_grade_constraints(
             xi, yi, ei, _sa = pts[ia]
             xj, yj, ej, _sb = pts[ib]
             d = math.hypot(xi - xj, yi - yj)
+            # §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS
+            # (Fable 2026-09-15; RULINGS 2026-09-15u).  A `tunnel_ramp`
+            # ring reaches the census through the PLANE branch, so the
+            # span is taken here too — one helper, every branch.
+            d = _ramp_span(ia, ib, d)
             _off, _unk = _crown_off_clamped(
                 crown_by_nid.get(pnids[ia]), crown_by_nid.get(pnids[ib]),
                 ei - ej)
@@ -6251,6 +6294,135 @@ _SEAM_RESIDUAL_TOL_M = 0.01
 _ROAD_JOIN_TOL_M = 0.05
 
 
+#: §37 (11) (5): the ``out_of_scope`` stamp of a ``sea_wall`` row.  The
+#: wall is the LAW, not a defect — the family NAMES it (the drop, the
+#: level, the length) and never adjudicates it.
+SEA_WALL_OUT_OF_SCOPE = "sea_wall_is_the_law"
+#: §37 (11) (5): the stamp a ``strip_seam_tear`` / ``adjacent_ground_step``
+#: row wears when BOTH its vertices stand on the shore — "the tear IS the
+#: wall".
+SEA_WALL_TEAR_OUT_OF_SCOPE = "sea_wall"
+#: How far from a shore segment a vertex may stand and still BE on it.
+#: The identity quantum, so this is the 11-dp join and not a proximity
+#: match (``SHARED_VERTEX_TOL_M`` is the census's own weld tolerance).
+SEA_WALL_ON_SHORE_M = 0.5
+
+
+def _shore_index(shore_edges_ll, ll_to_m):
+    """The shore segments in the layout metre frame, for the two §37 (11)
+    (5) readings.  ``None`` when the patch declares no ``shore_edges``
+    (every patch built before §39 (1))."""
+    if not shore_edges_ll:
+        return None
+    segs = []
+    for e in shore_edges_ll:
+        if len(e) < 4:
+            continue
+        try:
+            a = ll_to_m(float(e[0]), float(e[1]))
+            b = ll_to_m(float(e[2]), float(e[3]))
+        except (TypeError, ValueError):
+            continue
+        segs.append((a, b))
+    return segs or None
+
+
+def _on_shore(pt, segs, tol_m: float) -> bool:
+    """``pt`` (metres) lies ON one of ``segs`` within ``tol_m``."""
+    x, y = pt
+    for (ax, ay), (bx, by) in segs:
+        vx, vy = bx - ax, by - ay
+        l2 = vx * vx + vy * vy
+        t = 0.0 if l2 < 1e-18 else max(0.0, min(
+            1.0, ((x - ax) * vx + (y - ay) * vy) / l2))
+        dx, dy = x - (ax + t * vx), y - (ay + t * vy)
+        if dx * dx + dy * dy <= tol_m * tol_m:
+            return True
+    return False
+
+
+def _check_sea_wall(shore_edges_ll, nodes, ways, ll_to_m,
+                    water_level_m: float = 0.0) -> List[Violation]:
+    """§37 (11) (2)/(3)/(5) A PAVEMENT AT THE WATER IS A SEA WALL (owner
+    RULINGS 2026-09-15f item 2; Fable 2026-09-15i).
+
+    Every emitted ring EDGE whose BOTH vertices stand ON the shore
+    linework the patch declares (sidecar ``shore_edges``, the SAME
+    witness the §39 (1) weld ran against and the same product the mesh
+    constrains) is a sea wall: the patch's land ends there at its own
+    level and the tile's water stands at ``water_level_m`` beside it, so
+    the mesh's Round 7 / R17-3 seawall breaklines make the face vertical.
+
+    The row NAMES the wall — ``de_m`` the DROP to the water,
+    ``distance_m`` the wall's LENGTH, ``elev_a`` the quay LEVEL — and is
+    stamped :data:`SEA_WALL_OUT_OF_SCOPE`, because a wall is what the
+    owner asked for ("the pavement should drop straight to the water with
+    no slope"), not a defect.  Its companion :func:`stamp_sea_wall_tears`
+    takes the same edges out of ``strip_seam_tear`` and
+    ``adjacent_ground_step``: the tear IS the wall.
+    """
+    segs = _shore_index(shore_edges_ll, ll_to_m)
+    if segs is None:
+        return []
+    out: List[Violation] = []
+    for w in ways:
+        n = len(w.nids)
+        if n < 2:
+            continue
+        for k in range(n - 1):
+            na, nb = w.nids[k], w.nids[k + 1]
+            za, zb = w.elevs[k], w.elevs[k + 1]
+            if za is None or zb is None or na not in nodes or nb not in nodes:
+                continue
+            pa = ll_to_m(*nodes[na])
+            pb = ll_to_m(*nodes[nb])
+            if not (_on_shore(pa, segs, SEA_WALL_ON_SHORE_M)
+                    and _on_shore(pb, segs, SEA_WALL_ON_SHORE_M)):
+                continue
+            length = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
+            if length <= 0.0:
+                continue
+            level = (float(za) + float(zb)) / 2.0
+            drop = level - float(water_level_m)
+            if drop <= 0.0:
+                continue
+            v = Violation(
+                grade_pct=0.0, excess_pct=0.0, distance_m=length,
+                de_m=drop, way_a=w, way_b=w,
+                pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                elev_a=level, elev_b=float(water_level_m))
+            v.lat, v.lon = nodes[na]
+            v.out_of_scope = SEA_WALL_OUT_OF_SCOPE
+            out.append(v)
+    return out
+
+
+def stamp_sea_wall_tears(rows, shore_edges_ll, nodes, ll_to_m) -> int:
+    """§37 (11) (5): stamp ``out_of_scope`` on every ``strip_seam_tear`` /
+    ``adjacent_ground_step`` row whose BOTH vertices stand on the shore —
+    "the tear IS the wall".  Returns how many were stamped.
+
+    One reading of "on the shore" for both the family and the exclusion
+    (:func:`_on_shore`), so the two can never drift — the census-wrapper
+    precedent.  The exclusion is keyed on the patch's own DECLARED shore
+    linework, never on a height guess."""
+    segs = _shore_index(shore_edges_ll, ll_to_m)
+    if segs is None:
+        return 0
+    n = 0
+    for r in rows:
+        if getattr(r, "out_of_scope", None) is not None:
+            continue
+        lat, lon = getattr(r, "lat", None), getattr(r, "lon", None)
+        if lat is None or lon is None:
+            continue
+        if _on_shore(ll_to_m(float(lat), float(lon)), segs,
+                     SEA_WALL_ON_SHORE_M):
+            r.out_of_scope = SEA_WALL_TEAR_OUT_OF_SCOPE
+            n += 1
+    return n
+
+
 def _check_road_coverage_join(road_join_ll, nodes, ways) -> List[Violation]:
     """§37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): a road
     vertex where the patch's road meets the CORE's levelled ribbon stands
@@ -6381,6 +6553,30 @@ try:                                                    # pragma: no cover
 except Exception:                                       # pragma: no cover
     _RAMP_ROLES = frozenset({"tunnel_ramp", "door_ramp", "wall_corridor_ramp",
                              "garage_ramp"})
+
+
+#: §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS (Fable
+#: 2026-09-15; RULINGS 2026-09-15u).  ONE derivation with the engine's own
+#: ``auto_patch_v2.verify.within.ring_route_m`` — imported, never
+#: re-spelled (the census-wrapper precedent).  The literal below is the
+#: no-engine fallback for the bare CLI, and the twin asserts the two agree
+#: on the same ring.
+try:                                                    # pragma: no cover
+    from auto_patch_v2.verify.within import ring_route_m as _ring_route_m
+except Exception:                                       # pragma: no cover
+    def _ring_route_m(xy, i, j):
+        n = len(xy)
+        if n < 3 or i == j:
+            return 0.0
+        tot = []
+        for step in (1, -1):
+            acc, k = 0.0, i
+            while k != j:
+                nx = (k + step) % n
+                acc += math.hypot(xy[nx][0] - xy[k][0], xy[nx][1] - xy[k][1])
+                k = nx
+            tot.append(acc)
+        return min(tot)
 
 
 def _check_ramp_in_road(ways, nodes, ll_to_m) -> List[Violation]:
@@ -8817,6 +9013,15 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("road_coverage_join",
      "ROAD at the COVERAGE EDGE off the core ribbon it joins",
      "within"),
+    # §37 (11) (5) THE SEA WALL (owner RULINGS 2026-09-15f item 2): the
+    # emitted edges standing ON the declared shore, named with their
+    # drop, level and length.  Reported, NEVER adjudicated — a wall is
+    # the law here (``SEA_WALL_OUT_OF_SCOPE``), and the same reading
+    # takes the matching ``strip_seam_tear`` / ``adjacent_ground_step``
+    # rows out of the acceptance count.
+    ("sea_wall",
+     "SEA WALL (a pavement or quay edge standing ON the shore)",
+     "within"),
     ("adjacent_ground_tear", "ADJACENT-GROUND graded-strip TEAR", "within"),
     # spec §34 (4): the WITHIN-FACE welded step on a v2 adjacent-ground
     # face — the reading no family had (``_check_adjacent_ground_steps``).
@@ -9028,6 +9233,18 @@ HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE = "above_degenerate_floor"
 #: within the 11-dp identity quantum (:data:`HAIRLINE_ON_EDGE_M`).
 HAIRLINE_ON_EDGE_OUT_OF_SCOPE = "on_the_edge"
 OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
+    SEA_WALL_OUT_OF_SCOPE:
+        "THE WALL IS THE LAW (spec 37 (11) (2)/(3)/(5), owner RULINGS "
+        "2026-09-15f item 2): the row NAMES a sea wall — an emitted edge "
+        "standing on the declared shore, with its drop to the water, its "
+        "level and its length.  A vertical drop from the quay to the "
+        "water is what the owner asked for, so the family reports it and "
+        "never adjudicates it",
+    SEA_WALL_TEAR_OUT_OF_SCOPE:
+        "THE TEAR IS THE WALL (spec 37 (11) (5)): both vertices of this "
+        "adjacent-ground row stand ON the declared shore, so the step it "
+        "prices is the sea wall the law states, not a graded-band "
+        "defect.  Counted in its family, reported here, never adjudicated",
     HAIRLINE_ON_EDGE_OUT_OF_SCOPE:
         "ON the foreign edge, not beside it (spec 39 (1)/(2)): the "
         "emitted vertex is within the 11-dp identity quantum of the "
@@ -11363,6 +11580,14 @@ def run_checks(
         "2026-09-13j item 2, spec §36)", eat_rows, top_n)
     within = within + eat_rows
 
+    sea_wall = _fam("sea_wall",
+                    _check_sea_wall(shore_edges_ll, nodes, ways, ll_to_m))
+    _pv("SEA WALL: an emitted edge standing ON the declared shore, named "
+        "with its drop to the water, its level and its length (owner "
+        "RULINGS 2026-09-15f item 2, spec 37 (11) (2)/(3)/(5)) — reported, "
+        "never adjudicated", sea_wall, top_n)
+    within = within + sea_wall
+
     road_join = _fam("road_coverage_join",
                      _check_road_coverage_join(road_coverage_join_ll, nodes, ways))
     _pv("ROAD at the COVERAGE EDGE off the core ribbon it joins (owner "
@@ -11480,6 +11705,13 @@ def run_checks(
         f"> {STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M:.0f}m at the OPEN "
         f"graded→DEM boundary — PROVISIONAL, owner 2026-08-01)",
         strip_seam_tears, top_n)
+    # §37 (11) (5): THE TEAR IS THE WALL.  Both adjacent-ground families
+    # are stamped from the SAME shore reading the ``sea_wall`` family
+    # uses, here in ``run_checks`` so the CLI, the census and the pytest
+    # fixtures share one code path (the census-wrapper precedent).
+    stamp_sea_wall_tears(list(ag_steps) + list(strip_seam_tears),
+                         shore_edges_ll, nodes, ll_to_m)
+
     within = within + strip_seam_tears
 
     runway_edge_tie = _fam(RUNWAY_EDGE_TIE_FAMILY,

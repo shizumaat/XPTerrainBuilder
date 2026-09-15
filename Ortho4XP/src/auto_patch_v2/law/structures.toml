@@ -4,7 +4,8 @@
 # "dem" = the DEM sample at that vertex, "deck_top" = the object's deck).
 
 [tunnel]
-bore_datum_m      = 5.1     # the mouth wall node stands this above the ramp's mouth node (BRIDGE_ROAD_CLEARANCE_M; 09-03b)
+bore_datum_m      = 5.1
+mouth_pair_m      = 100.0   # §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): a mapped road whose two ENDS are each within this of a structure mouth (the two mouths different, at least one end joined to the bore by a shared NODE) is THE ROAD BETWEEN TWO MOUTHS and mints one road face.  100 m because a MERGED dual carriageway reports its mouth at the pair's CENTRE: LEMD -5944 ends 0.00 m from tunnel:-5931@1 (a node join) and 47.3 m from tunnel:-5980@0.  Measured at LEMD: 4 ways / 616.5 m at 100 m; 0 if two node joins are demanded, 27 if none is     # the mouth wall node stands this above the ramp's mouth node (BRIDGE_ROAD_CLEARANCE_M; 09-03b)
 wall_gap_m        = 0.6     # an OSM BORE's ramp edge -> its at-grade rim, together with wall_band_width_m (09-01c/e; superseded for OBJECT corridors by [cutout], 2026-09-06)
 crest             = "dem"   # wall crest = DEM all the way round the ramp, one corridor-top value per station (09-03b L1)
 admitted_values   = ["yes"]   # spec 26 (RULINGS 2026-09-11aq item A): the ONLY `tunnel` values that seed a bore. `building_passage` (a road under a building — LEMD's old terminal, 10 of 33 covered bores), `culvert`, `avalanche_protector`, `flooded` and `no` are NOT bores; the passage belongs to the building's pad

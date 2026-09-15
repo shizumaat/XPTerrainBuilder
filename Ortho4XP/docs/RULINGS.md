@@ -7413,3 +7413,110 @@ build (+22+113 road layers stale — the owner's refresh). Lesson (for
 the scout protocol): a bounding box is not the solid — quote the
 components' extents, not the box.
 15x addendum: suite ON MAIN after the v2objcut merge (3b35df96): 1,607 passed, 1 skipped, 0 FAILED lines (40.7 s). After v2lemdstruct2 (287f9b5b): 1,587 passed, 0 FAILED.
+
+## 2026-09-15y v2lemdstruct2 r2 MERGED (1846bb15 → 6d25b68c): the ramp is graded along its axis (−44 invented rows); "every airside strip" WITHDRAWN (moved backwards); the crossfall premise INVERTED — the far edge is ABOVE the runway, the transverse rows are satisfied as 4-term rows while the raw pair reads 4.30 % → the raw pair is the law; the general road admission REFUSED by its 24-reader census → the road between two mouths, one planar face (r3)
+
+Lane @ 1846bb15 (main merged through 0fbc741c); suite 1,611 passed, 0
+FAILED. (1) `verify/within.ring_route_m`: ramp `within_shape` 71 → 27,
+item-5 ramp 10.49 % / 99.3 m chord → 8.29 % / 46.7 m axis; verify 466 →
+422, census 3,464 → 3,420 (both −44); §33 (5)'s price +67 → +29; four
+twins. (2) attempted: `ramp_in_strip` 8 → 19, `strip_transverse` 13.87 →
+19.07 m, `wall_in_runway_strip` 6 → 20, cliffs 10 → 24 — deleted; the
+crossing is 33–43 m from 14R/32L (strip 75 m) so the rule asks a 150 m
+covered extent; residual 8 rows / 13.872 m over 32.49 m at 40.4605950,
+−3.5447694 → OWNER 15y-1 (accept the ramp 33 m off the runway, or cover
+to the strip edge). (3) `--why-vertex`: far edge v6622 +0.78 m ABOVE the
+contact; the runway edge 7.05 m over its DEM (`junction_mesh` at cap
+1.50 % × 43.2 m to a free zone vertex); `foot_rows` dual 42,656; the
+`transverse` rows exist at bound 1.35 % as 4-term cross-corridor rows;
+the raw pair 4.30 % → RULED the raw pair is the junction's transverse
+law (r3). (4) the census (24 readers) HAZARD on five; the gated
+admission 207 faces / 944,872 m² (7.8 % of coverage) for one 297.9 m
+road — reverted; the void needs a 10-way ~1,030 m network → RULED the
+road between two mouths (88.7 m apart, one parent road) as ONE planar
+face (r3). No build: the ledger's last `osm_layers` refresh is
+2026-09-08 (SPJC) — the owner's 15u act has not run. Shipping arm b2:
+item 5 floor 597.09 (5.07 m), item 7 mouth 31.06/33.43 m, LAW-TRUE
+5,712, ADJUDICATED 1,360.
+15y addendum: suite ON MAIN after the v2lemdstruct2 r2 merge (6d25b68c): 1611 passed, 1 skipped, 42 warnings in 63.77s (0:01:03).
+
+## 2026-09-15z v2padqp r1 MERGED OFF (2039b3c0 → main): the garage seats on its cluster's pad when armed (building45, 615.35, +4.33 m fill; the basement pit gone); three pad-ref defects fixed; mismatch HECA 16 → 10; the far-field mover GONE under §20c — but arming moves the AIRSIDE (5,915 vertices, worst 3.61 m; runway 231, worst 0.140 m) → keys stay OFF, r2 attributes
+
+Lane @ 2039b3c0 (main merged twice); suite 1,612 passed, 0 FAILED;
+closing LEMD build rc 0, 346.3 s, optimal, `shared repo UNCHANGED`
+(no schema refusal: +40-004 big_roads is current). Bars: garage MET on
+the design surface (float owed to an app build); mismatch HECA 16 → 10
+(per-face share test — ref-area lever untried, attempt cap), LEMD 1 →
+1; probe 0 moved (r5 arm) / 16 beyond 500 m worst 0.103 m (arrangement
+clip) — the residual far field is the pad/airside rim geometry;
+census HECA ADJUDICATED 26,608 → 26,285 (−1.2 %), LEMD 1,371 → 1,376;
+`pad_airside_weld` 2 → 7 / 1 → 2 MISSED; airside movement 5,915 / 3.61
+m, runway 231 / 0.140 m MISSED (§16g (10) (5)) — r5 read 9,573 / 0.390
+m. `pad_from_cluster` / `pad_airside_clip` ship FALSE. New replay arm
+`--placement KEY=V` (the pad keys are read upstream of a capture);
+`arm_shared_repo_protection` on `--capture`. RULED §16g (10) (11) RULED
+ON THE MEASUREMENT: r2 attributes the airside movement by `--why-at`
+before any lever; the pad's rows are one-way toward the pad; the flag
+flips only at 0 airside movement and 0 new welds.
+15z addendum: suite ON MAIN after the v2padqp merge: 1612 passed, 1 skipped, 42 warnings in 39.71s. Three of the four lanes are on main (v2lemdstruct2 287f9b5b + r2 6d25b68c, v2objcut 3b35df96, v2padqp 2039b3c0); v2vmmcshore r1 (a57abc47) is HELD for r2 (15w).
+
+## 2026-09-15aa v2channel ROUND 3: rebased on the three concurrent merges (1625/0); the six dry replays showed the channel pass TAKING modelled underpasses (KCLT U, LEMD F-6, OTHH object corridors) — §45 (13) precedence RULED; main's LGAV structure replay CRASHES in v2objcut's `shell_corridor` (not the channel's)
+
+Lane `v2channel` round 3 (a10b6a92): merged main 46b219d8 with five
+conflicts, both sides kept (`build_basins(claimed=, channels=)` in
+sequence; sidecar keys `channel_facilities` + `object_cuts`; both family
+pairs in `LAW_FAMILIES`); `planar/structures.py` at exactly 1,000 lines.
+Suite 1625/0. THE SIX DRY REPLAYS (the bar round 1 skipped) were NOT
+byte-identical: LEMD 50 → 44 tunnels (F-6's −5821/−5820 taken by a
+bridge-witness channel with no depth witness — the lane generalised the
+`min_decks_without_depth` gate to every witness kind, f32fb08c, LEMD
+→ 45), KCLT 23 → 19 (`tunnel:-14074@0..3`, taxiway U's underpass, taken
+by a bridge-witness channel), OTHH `tunnel west 2/3.obj` object corridors
+lose `replaced_ways` [−918, −917] to a neck channel, LEMD five more bores
+to neck channels and `basin:0` to the channel's own cells; HECA/CYXY/SPJC
+identical. The lane stopped at its two-attempt cap and asked. RULED §45
+(13): a bridge-only witness is §34 (5)'s underpass; a way an object
+corridor or an OSM bore claims is never a channel's; a channel needs a
+depth witness or two necks. Round 4 implements it; the bar is the six
+replays byte-identical INCLUDING `replaced_ways`. SEPARATELY: the LGAV
+structure replay on MAIN (no channel code, control run) crashes —
+`GEOSException: TopologyException: side location conflict at −1286.509
+−1775.049` in `airport/tunnel_objects.py:472 _bore_ends_at` (v2objcut's
+§33 (6) `shell_corridor`, `unary_union([plate, Polygon(inner_a +
+reversed(inner_b))])` on an invalid ring at LGAV's Trench walls) — routed
+to the concurrent session (v2objcut r2); it gates the app's LGAV tile
+build. RULINGS letters ran past `z` today: the next keys are 15ab, 15ac …
+(the `14aa`…`14bw` convention).
+
+## 2026-09-15ab v2vmmcshore r2 MERGED (72642561 → 4c7d7e8a): admission by the mouth restored (12ab twin guards it), the corridor clipped by the shore witness, an OSM corridor STOPS at airside instead of cutting; LEMD 54 → 55 (one refused bore now a shorter portal), OTHH identical; the seafront survivor is bore −2488 (381 m at a flat 1.00 m floor — r3 asks why under (4)); a replay-tool defect fixed; main's LGAV crash is v2objcut's (gates 1.0.341)
+
+Lane @ 72642561; suite 1,624 passed, 0 FAILED. §34 (12) (1) deleted
+(`serves_the_field`/`no_service_bores` gone; `test_admission_is_by_
+the_mouth_and_nothing_else`); (2) implemented as a clip by `zones.
+shore_region` (the same witness as the zone trim — the tile's SEA minus
+the airport's classified surfaces; VMMC's field is reclaimed land the
+OSM coastline does not follow): ramp+rim on the sea 1,543.8 → 1.7 m²;
+(3) a STOP (the `ramp_crosses_pad` truncation loop against airside
+faces that are not the corridor's own deck or mouth pavement), scoped
+to OSM bores. VMMC replay pair: probe covered by nothing; ramps/rims
+11/19 → 8/13; nodes ≤ 0.5 m 284 → 0; `strip_seam_tear` 63 → 0,
+`adjacent_ground_step` 6 → 0, `ramp_in_strip` 18 → 0, `transverse` 11 →
+0; ADJUDICATED 245 → 55; pav5 5.09…6.12 (0.81 m residual accepted).
+LEMD 54 → 55: `tunnel:-5821+-5820@1` (the F-6 bore pair) was refused
+("would cross a runway-family face") and now stops short and builds;
+decks/underpasses unchanged. OTHH 44 → 44 tunnel for tunnel (the three
+terminal tunnels back). OWNER 15w-1 with geometry: the bore the owner
+named (−5508/−5507/−2489) builds NOTHING (refused, overlaps −4787);
+what stands is `tunnel:-2488@0`, mouth 22.1629135,113.5752813, floor
+0.996 m, three faces 207/87/87 m = 381 m of frontage, 39 m from pav5,
+the last face ending AT the coastline (KML in the session scratchpad,
+sent to the owner). r3: why a flat 1.00 m floor for 381 m under (4).
+DEFECT FOUND: `v2_solve_replay` called `flat_site.detect` without §37
+(11) (4)'s land declaration — a replay solved a different problem from
+a build (pav5 1.95 vs 5.09; `within_shape` 327 vs 2); now reads
+`pipeline/build._classified_land`. PEER REPORT: main 46b219d8 crashes
+the LGAV structure replay in v2objcut's reader (`tunnel_objects.
+_bore_ends_at`, GEOS side-location conflict on a self-intersecting
+inner_a/inner_b ring at LGAV's Trench walls) — v2objcut r2 fixes it
+first (make_valid + the LGAV twin); it GATES app 1.0.341.
+15ab addendum: suite ON MAIN after the v2vmmcshore r2 merge (4c7d7e8a): 1624 passed, 1 skipped, 42 warnings in 46.58s. All four lanes' first rounds are on main. RULINGS key split agreed with the peer session: this session even ordinals (15ab, 15ad …), the peer odd (15ac, 15ae …).

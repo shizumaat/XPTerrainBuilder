@@ -5372,3 +5372,169 @@ otherwise); the terrain rises to it through the one-way skirt, and
 moves with the converged solver, the probe names WHERE and the flag
 stays OFF with that number — the mechanism is not re-litigated by
 narrative.
+
+### §16g (10) (11) MEASURED (lane `v2padqp`, 2026-09-15; branch `claude/v2padqp`)
+
+**THE OWNER'S SITE IS FIXED, AND IT IS THE FIRST NUMBER.**  The T4
+garage `LEMD_OBJ-Airport_Terminal4_green-PKT4.obj` at 40.4892214,
+−3.5944287 stands, pads OFF (the shipped law, = 1.0.340), 55.3 m OUTSIDE
+the nearest `building` pad — `building12`, 581 nodes, median 616.35 —
+which reproduces 15h's "the pad polygon ends 55.28 m short" exactly.
+With `pad_from_cluster` + `pad_airside_clip` armed the garage point is
+INSIDE its pad: in the closing build `building45`, a 93-node face of a
+ref whose EVERY face reads median **615.35** (spread 0.05 within the
+containing face), i.e. ONE level over the terminal and the garage
+together.  PKT4 is a member of the walled cluster `unit:25#843` (421,940
+m², 761 walled bodies, 23 resources incl. `Airport_Terminal4-LEMD01`) —
+so the chain rule of (6)–(8) already reaches the terminal and **was not
+widened**; the pad is that cluster's own outline.  The terrain under the
+garage is now the pad, not raw DEM: z − DEM at the site **+5.14 → +4.33
+m of FILL** (replay arms), no step over a short edge (0.0 m) either arm.
+The `float` bar (body zero vs its own ground) is the OBJECT stage's
+reading and is NOT measured here — a harness patch build emits the
+design surface only; it is owed to an app build.  What is measured is
+the thing 15h attributed: the seat's pad now CONTAINS the member.
+
+**THE ONE-VERTEX PROBE — AND (11) (d) FIRES.**  Registered HECA
+stability frame, `v2_solve_replay --why-from … --probe-site
+30.1279552,31.403143 --probe-arm solver=qp`, one 0.30 m ceiling row:
+
+| pads-ON arm | moved > 0.02 m | ≥ 250 m | ≥ 500 m | worst | hard under the probe |
+|---|---|---|---|---|---|
+| clip at MINT (14ah's pre-split) | **0** / 32,262 | 0 | 0 | 0.0192 m (whole field) | 27 → 27 |
+| clip at the ARRANGEMENT (this lane's (a)) | **16** / 32,182 | 16 | **16** | **0.1031 m** | 27 → 27 |
+
+14bk's far-field mover is GONE under the converged solver with the pads
+armed as `v2padcluster` r5 left them — nothing moves anywhere by more
+than 4.3 cm, under the elevation materiality.  It COMES BACK, 16
+vertices ALL beyond 500 m and worst 0.1031 m, when the mint stops
+pre-splitting the outline and the arrangement's clip alone shapes the
+pad — an interventional attribution of the residual far field to the
+PAD/AIRSIDE RIM GEOMETRY, not to the solver.  Per (11) (d) the flag
+stays OFF with that number.
+
+**`pad_cluster_mismatch`, ATTRIBUTED AND PART-CLOSED.**  r5 left 14 and
+named the cause ("the cluster piece and the emitted pad ref are cut in
+different places").  Matched replay arms on ONE tree (census by
+`harness/census.py`): HECA **16 → 10**, LEMD **1 → 1** (direct read of
+`constraints.cluster_pad.pad_cluster_mismatch`: HECA 12 → 10, LEMD 3 →
+2), and the owner's own T4 cluster LEFT the list — it was
+`cluster_spans_pads unit:25#843/0 → building34/35/36`.  Three causes,
+all at their single derivation site:
+
+1. `_pads` cut the cluster polygon a SECOND time (the runway difference,
+   `polygon_parts`) and gave each piece its own `building{N}`.  A part
+   now takes ONE ref, its surplus pieces the tree's own `ref#k`.
+2. `_face_map` joined on the RAW ref, so `building38` and `building38#1`
+   — one pad to `publication` :597/:672 and `constraints/structures` —
+   counted as two (LEMD `unit:25#1581`).  It joins on the base ref now.
+3. The MINT pre-split the outline at the apt.dat airside union while the
+   CENSUS split it at the PLANAR role faces — two cutters, and LEMD's T4
+   cluster read as ONE 94,301 m² census piece against three minted refs.
+   RULINGS 14ax already ruled the clip is `planar/overlay.airside_clip`'s;
+   with that clip armed neither side pre-cuts now (with it disarmed both
+   still do — 14ah's guard stands).  A piece under `[building_pad]
+   min_area_m2` is also no longer judged: the mint drops it, so LEMD's 7
+   m² and 3 m² slivers cannot make their building's ref a row.
+
+**THE 10 HECA SURVIVORS ARE ONE CLASS, NAMED.**  Every one is
+`cluster_spans_pads` over a NEIGHBOURING pad, and the instrument's own
+per-FACE test is why: `_OWN_FACE_SHARE` asks whether a FACE is mostly
+inside the cluster, so one sliver face of a big neighbouring pad puts
+that whole ref on the list.  Measured: `unit:43#204` holds 94 % of
+`building254`'s area and **2 %** of `building253`'s (8 faces, 4,373 m²);
+`unit:43#612/0` 96 % of `building110` and **8 %** of `building107`;
+`unit:43#844` 100 % of `building75` and 48 % of `building73`.  The
+un-tried lever, named (the round's attempts are spent): weigh the REF's
+own area inside the cluster, not one face's.  Survivors:
+`unit:42#515/0`, `/2`, `unit:43#204`, `#267/0`, `#447/0`, `#612/0`,
+`#687/1`, `#784/3`, `#844` and `pad_spans_clusters building281`; LEMD:
+`unit:27#341/8` and `building25`.
+
+**THE CENSUS PAIRS (matched replay arms, ONE tree, the only variable the
+two `[placement]` keys).**
+
+| | HECA OFF → ON | LEMD OFF → ON |
+|---|---|---|
+| ADJUDICATED | 26,608 → **26,285** (−1.2 %) | 1,371 → **1,376** (+0.4 %) |
+| law-true total | 63,829 → 63,456 | 6,187 → 5,683 |
+| `airside_no_step` | 7,747 → **7,487** | 455 → **445** |
+| `within_shape` | 47,927 → **47,836** | 3,441 → 3,443 |
+| `taxi_box` | 3,411 → **3,358** | 182 → 183 |
+| `hairline_pair` | 2,749 → 2,795 (+1.7 %) | 1,882 → **1,388** |
+| `pad_cluster_mismatch` | 16 → **10** | 1 → 1 |
+| `pad_airside_weld` | 2 → **7** | 1 → **2** |
+| `zone_on_pavement` | 0 → **0** | 0 → **0** |
+
+WORSE BY MORE THAN 5 %, each named: HECA `pad_airside_weld` 2 → 7 and
+`plane_gradient` 8 → 13 and `strip_seam_tear` 28 → 30; LEMD
+`pad_airside_weld` 1 → 2, `strip_longitudinal` 4 → 5 and
+`strip_transverse` 83 → 87.  `pad_airside_weld` is the bar's own
+"0 new" clause and it is MISSED on both airports.
+
+**THE AIRSIDE STILL MOVES, AND BY HOW MUCH.**  `airside_value_delta`
+(canonical identity join, solve-owned frame, roles ∩
+`law.tables.rolled_on_roles`) between the two HECA arms: **5,915**
+airside vertices moved > 0.02 m, worst **3.61 m**; the RUNWAY **231**,
+worst **0.140 m** (r5's shipped arm, a different frame: 9,573 and 885 /
+0.390 m).  §16g (10) (5)'s bar is 0 and is MISSED; the runway is within
+a tenth of a metre of quiet.
+
+**THE CLOSING BUILD** — `build_airport.py LEMD --tag v2padqpLEMD2` with
+both keys armed, on merged main: rc 0, **346.3 s**, ways 1,048, nodes
+20,304, status `optimal`, `body_sha e5d30cf207a8`, artifact ledger
+`50546224d866`, v2-verify 1,633 rows, and verbatim `[harness] shared
+repo UNCHANGED by this build (full-surface before/after snapshot) — no
+side-effect mutation`.  Its object stage reports the pad law defeating a
+spurious pit at the garage: `refused basin:1 … 96 % under its own
+objects' solids … a BASEMENT, not a pit: the terrain there is the
+building's pad (building45) under the pad law`.  Suite **1,579 passed /
+1 skipped** by FAILED lines.
+
+**SHIPS OFF: `pad_from_cluster = false`, `pad_airside_clip = false`.**
+Bar 6 is "flipped only if EVERY bar holds".  Three do not: the airside
+moves (5,915 / 3.61 m), `pad_airside_weld` gains 5 rows at HECA and 1 at
+LEMD, and `pad_cluster_mismatch` is 10 / 1 rather than 0.  The probe —
+the reason 14bk shipped it OFF — is the bar that MOVED: under the
+converged solver the pads-ON far field is nothing at all, or 16 vertices
+at 0.10 m once the clip moves to the arrangement.  The owner's site is
+fixed on the armed arm and the numbers above are the read it is
+adjudicated on.
+
+### §16g (10) (11) RULED ON THE MEASUREMENT (lane v2padqp r1 2039b3c0; Fable 2026-09-15; RULINGS 2026-09-15z) — the garage seats on its cluster's pad; the keys stay OFF until the AIRSIDE MOVEMENT is attributed
+
+The garage (40.4892214, −3.5944287) with the keys armed: INSIDE
+`building45` (the walled cluster `unit:25#843`'s own outline — 421,940
+m², 761 walled bodies; the chain rule was never widened), one level
+615.35 over the terminal and garage together, z − DEM +4.33 m of fill,
+no short-edge step; the spurious basement pit refused as "a BASEMENT,
+not a pit".  Three defects fixed at their derivation sites: `_pads`
+re-cutting one cluster piece into separate `building{N}` refs (one ref
++ `ref#k` now); `_face_map` joining on the raw ref (`building38` vs
+`building38#1`); the mint (apt.dat union) and the census (planar role
+faces) cutting the airside differently.  `pad_cluster_mismatch` HECA
+16 → 10, LEMD 1 → 1; the ten survivors are ONE class — `_OWN_FACE_SHARE`
+is a per-FACE test, one sliver face of a neighbour lists the whole ref
+(2 % / 8 % shares) — the untried lever: weigh the REF's area.  The one-
+vertex probe with the pads as r5 left them: 0 of 32,262 moved > 0.02 m
+— 14bk's far-field mover is GONE under §20c; with the clip moved to the
+arrangement 16 vertices beyond 500 m, worst 0.103 m — the residual far
+field is the pad/airside rim geometry, not the solver.
+
+**MISSED, and why the keys stay OFF:** the AIRSIDE moved between the
+OFF and ON arms — 5,915 vertices > 0.02 m, worst 3.61 m; runway 231,
+worst 0.140 m (§16g (10) (5): a derived pad never takes airside ground;
+airside is king) — r5's arm read 9,573 / 885 at 0.390 m, so this lane
+halved it and did not close it; `pad_airside_weld` 2 → 7 HECA, 1 → 2
+LEMD; HECA `plane_gradient` 8 → 13, `strip_seam_tear` 28 → 30; LEMD
+`strip_transverse` 83 → 87.  RULED (r2): (a) ATTRIBUTE the airside
+movement interventionally — `--why-at` on the worst airside mover
+(3.61 m) and on the worst runway mover (0.140 m): which row set on the
+ON arm reaches the airside (a pad weld row with the wrong direction? a
+zone re-cut? the arrangement clip changing airside cells?) — the pad's
+rows must be ONE-WAY toward the pad; an airside vertex that moves
+because a pad exists is a defect at the row that moved it; (b) the
+ref-area lever for the ten survivors; (c) the seven welds named.  The
+keys flip ON only when airside movement is 0 (> 0.02 m) and the welds
+are 0 new; the object-stage FLOAT at the garage (body zero vs its own
+ground) is read on the next app build, not in the harness.

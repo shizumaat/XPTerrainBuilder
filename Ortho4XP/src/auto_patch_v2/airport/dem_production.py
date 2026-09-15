@@ -429,7 +429,23 @@ class ProductionDem:
             level[m] = sub_l
         return wet, level
 
-    def water_geometry(self, bounds: tuple[float, float, float, float] | None = None):
+    def sea_geometry(self, bounds: tuple[float, float, float, float] | None = None):
+        """§37 (11) (1) / §34 (12) (2) THE SHORE (owner RULINGS 2026-09-15f
+        item 2): the SEA polygons alone, as frame geometry — the
+        coastline partition's own product (``TileWater.kinds == "sea"``),
+        never an inland body.
+
+        The shore law is about THE COAST: its level is the tile's sea
+        (``SEAWALL_SEA_LEVEL_M``), its wall is the mesh's Round 7 / R17-3
+        seawall breakline, and the owner's words are "a taxiway in the
+        water".  An inland canal or retention basin keeps the 09-09m
+        WATER DATUM instead — the ground stands over it and is PINNED to
+        its own median level — so the two laws never contend for one
+        polygon."""
+        return self.water_geometry(bounds, sea_only=True)
+
+    def water_geometry(self, bounds: tuple[float, float, float, float] | None = None,
+                       sea_only: bool = False):
         """The water polygons AS FRAME GEOMETRY (metres), unioned — for
         the passes that cut a REGION rather than sample points (the
         flat-site datum region, and next round's level rings).  ``None``
@@ -445,7 +461,9 @@ class ProductionDem:
             w = self.water(*key)
             if w is None or not w.polys:
                 continue
-            for p in w.polys:
+            for p, kind in zip(w.polys, w.kinds):
+                if sea_only and kind != "sea":
+                    continue
                 q = shapely.transform(
                     p, lambda c: np.column_stack(
                         self._fwd.transform(c[:, 0] + w.lon, c[:, 1] + w.lat)))

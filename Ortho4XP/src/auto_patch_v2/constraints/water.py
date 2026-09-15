@@ -58,6 +58,22 @@ GROUND_ROLES = ("graded_strip",)
 STATS: dict[str, dict] = {}
 
 
+def _quay_vertices(vw, planar: PlanarMap) -> set[int]:
+    """§37 (11) (2): every vertex of an adjacent-ground region that
+    REACHES the coastline (``PlanarMap.quay_refs``, published by
+    ``planar/zones.zone_regions`` at the ONE zone derivation site)."""
+    refs = frozenset(getattr(planar, "quay_refs", ()) or ())
+    if not refs:
+        return set()
+    out: set[int] = set()
+    for f in vw.faces_of_role(GROUND_ROLES):
+        if f.ref in refs:
+            out.update(vw.rings[f.id])
+            for h in vw.holes[f.id]:
+                out.update(h)
+    return out
+
+
 def water_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """One hard pin per ground vertex standing on water (docstring)."""
     STATS["water_pins"] = {"candidates": 0, "wet": 0}
@@ -73,6 +89,18 @@ def water_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         return []
     # a pavement or structure vertex keeps its own law
     keep_out = set(vw.pavement_vertices)
+    # §37 (11) (2)/(4) THE QUAY IS THE PAVEMENT'S LEVEL (owner RULINGS
+    # 2026-09-15f item 2; Fable 2026-09-15i).  A quay is the strip of land
+    # between a pavement edge and the coastline too narrow for the band —
+    # ONE PLANE at the pavement edge's level, ending at the coastline in a
+    # SEA WALL.  Its ring vertices stand ON the coastline, so the witness
+    # reads them wet and the pin would put them at 0.00; the post-pass
+    # ``constraints/__init__.water_exempt`` would then drop the quay's own
+    # band row, and the 6.10 m fall would come back as a 3 m lip slope
+    # (measured at VMMC: 10 pinned quay vertices, 11 ``adjacent_ground_
+    # step`` rows at 6.10 m).  The DEM's ocean bleed is never the ground
+    # on a quay — this is (4) at the pin's own single site.
+    keep_out.update(_quay_vertices(vw, planar))
     for fid, f in planar.faces.items():
         if is_structure_role(law, f.role):
             keep_out.update(vw.rings[fid])

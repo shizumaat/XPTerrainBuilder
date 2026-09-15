@@ -394,7 +394,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                  tunnels: _t.Sequence[Tunnel], objects: _t.Sequence[obj8.PlacedObject],
                  cache: obj8.ResourceCache | None = None,
                  report: obj8.ObjReport | None = None,
-                 channels: _t.Sequence = ()
+                 channels: _t.Sequence = (),
+                 claimed: _t.AbstractSet[str] = frozenset()
                  ) -> tuple[Classification, tuple[Basin, ...], BasinStats]:
     """The classification with the basins applied (cells cut, floor and
     wall cells added, the footprints as keep-outs), the records, and the
@@ -422,7 +423,26 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     stats.refused.extend(_no_floor_refusals(report, bl))
     if report is not None:
         stats.buried_named = list(report.buried_named)
-    witnessed = [o for o in objects if o.witnesses]
+    # THE SHELL IS NEVER A BASIN (spec §33 (6); owner RULINGS 2026-09-15g).
+    # ``claimed`` is ``airport/object_cut.cut_placement_ids`` — the ONE
+    # derivation of "this placement is the author's CUT GEOMETRY" — and a
+    # claimed placement's floor witness is the tunnel's own floor plate,
+    # not a pit's.  Before §33 (6) every VHHH tunnel shell arrived here as
+    # a basin (``tunnel_objects.py``'s witness hand-off sent it), which is
+    # why no reader could see the class at all.
+    witnessed = [o for o in objects if o.witnesses and o.id not in claimed]
+    stats.refused.extend(
+        f"{o.id} {o.path.rsplit('/', 1)[-1]}: claimed by the §33 (6) object cut — the pack's "
+        f"own trench geometry, not a pit"
+        for o in objects if o.witnesses and o.id in claimed)
+    # ...AND A CHANNEL'S OWN WALL/FLOOR OBJECT IS NEVER A BASIN EITHER
+    # (spec §45 (7), scoped by §45 (11); owner RULINGS 2026-09-15s).  Two
+    # independent claims on the same intake, applied in sequence and each
+    # naming its own refusals: §33 (6) claims the author's cut geometry,
+    # §45 (7) claims what stands INSIDE an identified channel corridor
+    # and reaches ``object_min_depth_m`` under its crest.  A pit beside
+    # the corridor keeps its basin (§45 (11)) — LGAV's ``basin:2`` and
+    # ``basin:3``, two 20 m2 covered pits, are that sentence.
     if channels:
         from .channel import channel_claiming
         keep = []

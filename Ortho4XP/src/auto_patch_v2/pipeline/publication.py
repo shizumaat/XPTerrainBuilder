@@ -486,7 +486,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the emitted surface against exactly what the generator
             # stated.  Empty at every airport with no channel, which is
             # every airport but the three the class was measured over.
-            "channel_facilities": channel_facilities(planar, law, z)}
+            "channel_facilities": channel_facilities(planar, law, z),
+            "object_cuts": object_cuts(planar, airport)}
 
 
 def apron_tier(law: Law) -> dict[str, float | None]:
@@ -644,6 +645,38 @@ def channel_facilities(planar: PlanarMap, law: Law,
             "crest_parts_m": sorted({round(v, 2) for v in c_zs}),
             "crest_count": len(wvs),
             "notes": list(c.notes)})
+    return out
+
+
+def object_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
+    """THE §33 (6) OBJECT CUTS the emitted patch must answer to (spec
+    §33 (6); lane `v2objcut`): per SIGNATURE-B corridor its id, the
+    object's own WALL LINE as a ring in lat/lon (the outer face of the
+    walls ∪ trench — what an emitted ring vertex may not stand outside)
+    and the AUTHORED FLOOR the object states (the floor plate's level in
+    the seated frame, which overrides ``bore_datum_m``).
+
+    Published so the two census families read the OBJECT'S OWN numbers
+    and never re-derive them from the pack: ``object_cut_offset`` prices
+    every emitted ramp / rim vertex against ``outline_ll``,
+    ``object_cut_depth`` the emitted floor against ``floor_m``.  One
+    witness, two instruments — the ``shore_edges`` / ``hairline_pair``
+    pattern."""
+    _to_xy, to_ll = airport.frame.transformers()
+    out: list[dict[str, _t.Any]] = []
+    for tn in planar.structures:
+        if not tn.id.startswith("object-cut:") or not tn.footprint:
+            continue
+        out.append({
+            "id": tn.id, "signature": "B", "resource": tn.resource,
+            "objects": list(tn.objects),
+            "floor_m": round(float(tn.mouth_z), 3),
+            "depth_m": round(float(tn.depth_m), 3),
+            "outline_ll": [[round(la, 8), round(lo, 8)] for la, lo in
+                           (to_ll(x, y) for x, y in tn.footprint)],
+            "ramp_refs": list(tn.ramp_refs),
+            "wall_ref": tn.wall_ref,
+        })
     return out
 
 

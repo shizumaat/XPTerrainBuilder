@@ -154,7 +154,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        corridors, extra, plates, channels)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
                                                   objects, cache, report=orep,
-                                                  channels=channels)
+                                                  channels=channels,
+                                                  claimed=frozenset(tstats.shell_claimed))
     bstats.objects = orep
     bstats.object_read_s = read_s
     arr = build_arrangement(airport, classification, law, grid_m)

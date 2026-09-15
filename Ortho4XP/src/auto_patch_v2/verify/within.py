@@ -54,9 +54,51 @@ from .frame import Patch, Row, Shape, noise_m, row
 from .steps import joint_index
 
 __all__ = ["apron_over_preference", "within_shape", "plane_gradient", "crown_by_vertex", "taxi_box",
-           "FAMILY_TAXI_BOX", "published_axis_index"]
+           "FAMILY_TAXI_BOX", "published_axis_index", "ring_route_m"]
 
 FAMILY_TAXI_BOX = "taxi_box"
+
+
+def ring_route_m(xy, i: int, j: int) -> float:
+    """§34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS (Fable
+    2026-09-15; RULINGS 2026-09-15u) — the ROUTE between two vertices of
+    one closed ring: the shorter of the two walks around it, in metres.
+
+    THE DERIVATION IS THE RING ITSELF, and that is why it needs no
+    sidecar key the way the taxi route (``taxi_route_pairs``) and the
+    road frame (``road_route_frame``) do.  A ``tunnel_ramp`` face is a
+    RIBBON: ``planar/structure_geometry.geometry`` walks the axis
+    stations down one side and back up the other, so two vertices on the
+    SAME side are separated, along the ring, by exactly the axis run
+    between their stations; two vertices ACROSS the ribbon are separated
+    by the short walk round the nearer end.  ``min`` of the two
+    directions picks the right one in both cases without asking which
+    side a vertex is on.
+
+    It can only ever RELAX: a polyline between two of its own points is
+    never shorter than the chord between them.  Measured at LEMD, ramp
+    way -10853 (owner 15e item 5): chord **99.25 m** against a ring route
+    of the axis's own **143.5 m**, so an 8.25 m fall read 8.31 % across
+    the chord and **5.75 %** along the axis the aircraft — or here the
+    lorry — actually drives.  ONE derivation, two readers: the v2 verify
+    below and ``tools/check_grade`` (which imports this, with a literal
+    fallback for the no-engine CLI that the twin asserts against)."""
+    n = len(xy)
+    if n < 3 or i == j:
+        return 0.0
+    fwd = 0.0
+    k = i
+    while k != j:
+        nx = (k + 1) % n
+        fwd += math.hypot(xy[nx][0] - xy[k][0], xy[nx][1] - xy[k][1])
+        k = nx
+    back = 0.0
+    k = i
+    while k != j:
+        nx = (k - 1) % n
+        back += math.hypot(xy[nx][0] - xy[k][0], xy[nx][1] - xy[k][1])
+        k = nx
+    return min(fwd, back)
 
 
 def crown_by_vertex(p: Patch) -> dict[int, float]:
@@ -276,6 +318,13 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     spine = spine_vertices(p)
     lines = stretch_lines(p)
     taxi = set(law.tables.precedence.taxi_family.members)
+    # §34 (13) (1) (Fable 2026-09-15; RULINGS 2026-09-15u): a `tunnel_ramp`
+    # is a ROUTE-family shape — its grade is read along its AXIS, which for a
+    # ramp ribbon is the walk around its own ring (`ring_route_m`), never
+    # across the plan chord.  Read from the LAW's structure roles, so the
+    # instrument and the emitter cannot drift.
+    from ..law.tables import governed_roles as _gr, is_structure_role as _isr
+    ramp_roles = {r for r in _gr(law) if _isr(law, r)}
     pad_cap = law.tables.common.roles["building"].longitudinal
     mesh_roles = set(ws.junction_mesh_roles)
     mesh = mesh_pairs(p)
@@ -383,6 +432,14 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
                 if route is not None:                  # the route reading (05ab)
                     budget, d = route
                     pair_cap = budget / d
+                elif sh.role in ramp_roles:
+                    # §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS
+                    # AXIS (Fable 2026-09-15; RULINGS 2026-09-15u): the
+                    # cap is the ramp's own and only the SPAN changes —
+                    # the ring walk, which can only LENGTHEN, so this
+                    # never hides a genuinely over-cap ramp; it stops the
+                    # instrument reading a curved ramp as a cliff.
+                    d = max(d, ring_route_m(sh.xy, i, j))
                 allowance = pair_cap * d + q
                 if joints:
                     allowance += joints.allowance(sh.xy[i], sh.xy[j])

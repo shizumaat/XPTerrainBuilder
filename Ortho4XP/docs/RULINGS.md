@@ -7233,3 +7233,229 @@ inside the corridor (§45 (11)); the LGAV bar restated as the Trench
 family with the attribution first (§45 (12)). Round 2 resumes the lane
 (no fresh startup); merge after the concurrent session's four structure
 lanes (v2padqp, v2lemdstruct2, v2vmmcshore, v2objcut) land, rebased.
+
+## 2026-09-15t v2channel ROUND 2 (89396540): LGAV's trench is ONE channel — three attributed mechanisms, the §45 (12) bar met bar one reporting line; `min_decks_without_depth = 2` RATIFIED; merge waits on the concurrent session's four lanes
+
+ATTRIBUTED before any change (read-only probes, quoted): (1) the pack
+witness read `below_grade or plan_bbox` — nine of twelve Trench
+placements carry no `below_grade` and fell through to `plan_bbox`
+(`Trench_03` 7,984,284 m², `Trench_06` 8,800,700 m²: the resource's plan
+EXTENT, 2.5 × 3.2 km), so every band on the field matched; (2) round 1's
+"floor 63.43" was `train_powercable.obj` — a zero-area `below_grade` with
+the family's lowest `solid_min_z`; (3) `object_min_depth_m` was judged
+against the MEAN DEM of a 1,954 m axis with 12.6 m of relief (67.48
+against 64.32…76.96) — `Trench_07` at −11.03 m scored 1.02 and was
+refused; (4) the 404.7 m spread was `LineString.project`'s end clamp on
+two overhanging rail ways. Fixed: the witness reads the below-grade
+footprint only, the depth is judged against the LOCAL ground at the
+station, the merge is bounded by the cap. LGAV after: `channel:0` ways
+−1343/−7021/−2914/−4017, witnesses bridge + pack, floor 66.47 (`Trench_07`
+'s own deepest genuine solid, 3 placements), half-width 62.8 m from the
+pack walls (§45 (10)(i); (iii) reads 33.9 m), 4 decks (`Trench_06`'s
+roofed pieces + TWY H −379), basins 2 → 2, tunnels 8 → 8. Round 1's
+`channel:0` (way −4003, `highway=service`, 37.9454668,23.9599033 →
+37.9459659,23.9645912, one 40 m neck under §44-borrowed `pav8`/`pav18`)
+REFUSED: a single neck with no depth witness is a crossing, not a
+channel — the lane's knob `[channel] min_decks_without_depth = 2` is
+RATIFIED as §45 (1)'s clause (a pack-wall or lidar witness is never
+subject to it). NOT MET, and accepted as a REPORTING line: the 15 Trench
+refusals in the basin / sunken-road / tunnel-object passes stand because
+those passes run BEFORE `identify_channels` and 13 name objects with no
+below-grade footprint; the fix is a reorder in `planar/build.py`
+(channels first, the three readers handed the reduced object list) —
+OWED, round 3 or after the owner's read. Suite 1592/0, twins 13. Also
+recorded: §45 (1)(b) fires NOWHERE at LGAV (no way has an apt.dat neck —
+the trench runs BETWEEN pavement polygons, not through a hole of one:
+the neck test's `_hole_region` should be the hole of the pavement UNION,
+owed); OSM way ids are NOT unique across feed layers (−4017 is a 48 m
+track AND a 559 m motorway) — chip. Owed from round 1 unchanged: C9's
+§19 structure edge, C12's `road_profile._osm_levelled`,
+`channel_crest_at_edge` never fired on real data. MERGE: after the
+concurrent session's v2padqp / v2lemdstruct2 / v2vmmcshore / v2objcut
+land on main (rebase; expect additive conflicts in planar/structures.py,
+basins.py, census/check_grade/families); KDFW build + KPHX replay after
+the owner's `--refresh-data` acts; app 1.0.342; the owner's LGAV trench
+read is the acceptance.
+
+## 2026-09-15u v2lemdstruct2 r1 MERGED (287f9b5b): item 5's mouth is 5.07 m deep (an EQUALITY ROW WAS NEVER HARD — `_law_sides` bucketed lo == hi Linears as `eqs` at law weight), item 7's trench is beyond the taxiway strip; the closing LEMD build CONTAMINATED the shared repo (v2roadtags' schema bump rewrote `+40-004_big_roads.osm.bz2`) — owner: `--refresh-data osm_layers`
+
+Lane @ 287f9b5b (base da8e5d7f, main merged twice); suite 1,587 passed
+twice, 0 FAILED; fresh registered LEMD capture (20,608 vertices) +
+matched replay arms; ONE LEMD build rc 0, 551.8 s, optimal. Item 5:
+floor 599.25 → 597.09 under rim 602.16 = 5.07 m (bar 5.10 ± 0.05). ROOT
+CAUSE, general: the planar record was right (`mouth_z` 597.075) but
+`solve/rows._law_sides` routes a `lo == hi` Linear into the `eqs`
+bucket, which `solve/design` adds at the LAW WEIGHT — only the one-sided
+bucket passes through `hard_rulings`; the row sat 2.16 m out while the
+solve reported 0/103,840 hard rows violated; registering the head alone
+was byte-identical (the proof). Fix: two one-sided rows + the head.
+Price: +106 hard rows; `within_shape` 406 → 469 (the plan-chord
+misreading, §34 (13) (1)); `tunnel_mouth_canonical` 32 → 28. Item 5
+road: OSM −5944 identified, NOT admitted (08-30l census first — r2);
+the pull REFUTED as stated (ground ≥ DEM); the DEM's own 611 × 88.7 m
+plateau between the rims is what the owner sees. Hole ring unchanged
+(13 rings > 10,000 m²). Item 7: mouth 12.77/15.46 → 31.06/33.43 m from
+the node (code-E strip 19 m), zones intact, clip 772 → 3,316 m², every
+TAXI `ramp_in_strip` row gone; residual 8 rows against runway 14R/32L's
+75 m strip (`strip_transverse [runway|tunnel_ramp]` 5.59 → 13.87 m) →
+§34 (13) (2); crossfall at pav157 = junction|runway pairs 4.957 % (no
+transverse row) → 4.296 / 2.479 % → §34 (13) (3). `ramp_in_strip` in
+LAW_FAMILIES + families.toml (keepout), 6 twins; holes applied, the
+pavement solid subtracted (the ring-blind form read 52 false rows).
+Census: ADJUDICATED 1,341 → 1,404 (+4.7 %); `road_cross_section` 8 → 9
+the one > 5 % family (groundside, one row). CONTAMINATION: the harness
+flagged the closing build — `OSM_data/+40-010/+40-004/+40-004_big_roads
+.osm.bz2` rewritten 2,197,226 → 2,199,670 bytes (09:03), scope
+`osm_layers`; the lane touched no road code — v2roadtags (d4729dfc,
+peer session) bumped `ROAD_CACHE_TAG_SCHEMA`, so the FIRST build after
+that merge rewrites every cached road layer: the KCLT 2026-08-05
+precedent's shape. The guard reported, it did not refuse (the engine
+write path). OWNER'S ACT: `build_airport.py LEMD --refresh-data
+osm_layers` (and KCLT, and any airport built before the next
+measurement) so the rewrite is a recorded, hash-stamped event; until
+then LEMD/KCLT measurements are on a mixed corpus. r2 resumed: §34 (13)
+(1)–(4).
+
+## 2026-09-15v v2schemarefuse MERGED (566691dc): the write guard was BLIND to every `.osm.bz2` write (`bz2` binds `builtins.open` at import); a schema-stale road layer now REFUSES before the build — 20 of 21 cached road layers are stale, the owner refreshes per tile
+
+Lane `v2schemarefuse`. ATTRIBUTION (measured in a tmp fixture, not
+guessed): CPython's `Lib/bz2.py` does `from builtins import open as
+_builtin_open` at module level, so `SharedRepoWriteGuard.__enter__`'s
+patch of `builtins.open` never reached `bz2.open(path, "wt")` — every
+cached OSM layer is a `.osm.bz2`, so the whole `osm_layers` scope was
+invisible to the preventer by construction (the 2026-08-12 write-through
+shape; `gzip`/`lzma` resolve `open` at call time and were covered). That
+is why 15u's LEMD build REPORTED a contamination instead of refusing.
+FIX, two halves at their derivation sites: (1) `build_airport.py`
+`schema_stale_osm_layers(root, lat, lon)` inside `missing_shared_
+artifacts` (the one call site of the airport and `--tile` paths) — the
+layer list is the engine's `osm_layer_warm_specifications`, the
+staleness test the engine's `_cached_osm_schema_matches`, nothing copied
+— names a stale layer under `osm_layers` and refuses with the flag; (2)
+`shared_repo_guard.py` patches `bz2._builtin_open` too (restored on
+exit), so a bz2 write REFUSES at the call and the file is never created.
+Twins in `tests/test_harness.py`. Suite ON MAIN: `1623 passed, 1
+skipped`, 0 failed. BLAST RADIUS, censused read-only: 20 of 21 cached
+road layers carry the old schema (only `+40-004_big_roads` is current —
+the rewritten one); LEMD builds, HECA / CYXY / OTHH / KCLT now REFUSE
+until the owner runs `build_airport.py ICAO --refresh-data osm_layers`
+per tile (+30+031, +60−136, +25+051, +35−081; also +37+023 LGAV,
++32−098/−097 KDFW, +33−113/−112 KPHX, +22+113 VMMC/VHHH). RULED (Fable):
+the refusal stands on the AIRPORT path too — the bump made `layer` live
+in four readers (15r), so a build on a stale layer measures a different
+law than one on a fresh layer; two such arms are not comparable, which
+is the harness's founding reason to refuse. OPEN (owner intent): an
+`--allow-stale-osm` provenance-recorded override for airport builds (the
+`--allow-degraded-dem` shape) — a lane cannot refresh, so a lane on a
+stale tile is blocked until the owner's act. NOT closed: the merged
+`airport_small_roads` cache carries no schema marker (chip 15r); road
+reads span the 3×3 neighbourhood but only the build's own tile can be
+rewritten by the prefetch — neighbours are not judged (docstring).
+
+## 2026-09-15w v2vmmcshore r1 (a57abc47) MET every VMMC bar — but §34 (12) (1) would remove 38 of LEMD's 54 tunnels (owner 12ab's "Build them" population): (1) WITHDRAWN, (3) scoped to OSM bores, the mouth's pavement is not a cut; r2 re-measures; OWNER QUESTION: the VMMC stub
+
+Lane @ a57abc47 (main merged through 566691dc); suite 1,601 passed, 0
+FAILED. VMMC base b3a8d4c01325 → arm 9c240e89bccc: owner site — no
+face/rim/ramp within 300 m (ramps 11 → 0, rims 19 → 0; 12 bores named
+"no service"); the tear at 22.16232,113.58138 GONE; 0 of 2,318 nodes ≤
+0.5 m, `water_pins` wet 193 → 0 (the doubled plane gone in the patch;
+the mesh check awaits the build); shore trim 98,575 m² off 3 regions,
+6,567 m sea wall, 19 quays; `strip_seam_tear` 61 → 0,
+`adjacent_ground_step` 6 → 0, `transverse` 11 → 0; ADJUDICATED 225 →
+55 (airside 212 → ?), `within_shape` 76 → 2, `airside_no_step` 78 → 32;
+`hairline_pair` 68 → 76 (+8, out of scope: rings now end ON the shore).
+pav5 5.09…6.12 (NOT the 5.9 bar by 0.81 m — the flat-site preference,
+accepted). `sea_wall` family + twins (0 rows at VMMC, proved by twins).
+Closing build REFUSED by the new guard: `+22+113_big_roads.osm.bz2
+SCHEMA-STALE (2026-07-16 vs 2026-09-15)` — correct; the owner's refresh.
+Dry LEMD/OTHH pairs: LEMD tunnels 54 → 16 (38 = 12ab's mouth-only
+population, each named; decks 7 → 1 with them; §34 (12) (4) removed
+zero decks anywhere); OTHH 44 → 41 (three TERMINAL tunnels refused
+against pav32/pav30 by (3) — pack-stated corridors) + 1 wall corridor
+returned. RULED (§34 (12) AMENDED): (1) withdrawn — 12ab stands; (3)
+scoped to OSM bores; the mouth's pavement not a cut. OWNER QUESTION
+15w-1: under (2)–(4) a short mouth + ramp may survive at the VMMC car-
+park entrance (mouth 22.1624758,113.5771169, on the field by 12ab's
+100 m) — wanted, or is a bore that never passes under the field's
+surfaces unwanted when it stands beside airside (which would re-found
+12ab with a distance-to-airside rule)? r2 names the stub's geometry.
+New module `planar/structure_service.py`; functions changed listed in
+the lane report (structures.build_structures, structure_deck.deck_
+intervals, zones.shore_region/zone_regions, terrain_edge, overlay,
+build.quay_refs, constraints/zones+water, flat_site._cut_water,
+dem_production.sea_geometry, pipeline/build._classified_land,
+check_grade additive) — for v2channel's rebase.
+
+## 2026-09-15x v2objcut r1 MERGED (e178702f → main): signature B reads every VHHH shell at its authored floor (five for five); the hairpins wait on the ring builder (r2); signature A REFUTED by geometry (CITY2.obj roofs, 116 false corridors — the affordance stands); signature C RE-FOUNDED — Bridge3 is two mouth-marking wall pairs, not a 354 m pair
+
+Lane @ e178702f (main merged through 106459fa); suite 1,607 passed
+twice, 0 FAILED; suite ON MAIN after the merge reported below. VHHH dry
+pair: floors 1.30/0.37/0.78/−1.63/−1.69 (bars met ±0.01), corridors
+0 → 5, tunnels 28 → 23, basins identical (10 placements claimed);
+`tunnel5_done` (owner site) + `TUNNEL2_DONE` refused by the ring
+builder's axis offset on hairpins — the reading is right (floor 1.30,
+trench 9,290 m², two portals), the emitter must take the object's
+trench polygon (r2, `planar/structures.py` — after v2vmmcshore r2 lands
+there). OTHH/LEMD six populations BYTE-IDENTICAL (+51/+25 named
+refusals). Before-reading on the owner's 1.0.340 VHHH patch: vertices
+outside the wall line 85/19/111/27/26 (worst 75.8–86.1 m), floor misses
+0.90/1.85/1.44/3.85/3.91 m. A: retiring `kerb_wall_corridors` → VHHH
+wall corridors 0 → 116, all inside `CITY2.obj` (10ap at a third
+airport); predicate deleted, affordance stands. C: the scout's 354.2 ×
+25.1 m box was the OBJECT BOX, not the solids — Bridge3 = two 73 m wall
+pairs 14.02 m apart at its two ends, 224 m empty between (the author
+marks the mouths; the bore is covered); Bridge2 two perpendicular
+bands; Bridge4 no straight band. RULED §33 (6) MEASURED AND RE-FOUNDED
+(C1′ pair = mouth ramp; C2′ band = polyline incl. curved; C3′ measured
+before ruled). New `airport/object_cut.py`; `object_cuts` sidecar key;
+families `object_cut_offset`/`object_cut_depth`; 18 twins. No VHHH
+build (+22+113 road layers stale — the owner's refresh). Lesson (for
+the scout protocol): a bounding box is not the solid — quote the
+components' extents, not the box.
+15x addendum: suite ON MAIN after the v2objcut merge (3b35df96): 1,607 passed, 1 skipped, 0 FAILED lines (40.7 s). After v2lemdstruct2 (287f9b5b): 1,587 passed, 0 FAILED.
+
+## 2026-09-15y v2lemdstruct2 r2 MERGED (1846bb15 → 6d25b68c): the ramp is graded along its axis (−44 invented rows); "every airside strip" WITHDRAWN (moved backwards); the crossfall premise INVERTED — the far edge is ABOVE the runway, the transverse rows are satisfied as 4-term rows while the raw pair reads 4.30 % → the raw pair is the law; the general road admission REFUSED by its 24-reader census → the road between two mouths, one planar face (r3)
+
+Lane @ 1846bb15 (main merged through 0fbc741c); suite 1,611 passed, 0
+FAILED. (1) `verify/within.ring_route_m`: ramp `within_shape` 71 → 27,
+item-5 ramp 10.49 % / 99.3 m chord → 8.29 % / 46.7 m axis; verify 466 →
+422, census 3,464 → 3,420 (both −44); §33 (5)'s price +67 → +29; four
+twins. (2) attempted: `ramp_in_strip` 8 → 19, `strip_transverse` 13.87 →
+19.07 m, `wall_in_runway_strip` 6 → 20, cliffs 10 → 24 — deleted; the
+crossing is 33–43 m from 14R/32L (strip 75 m) so the rule asks a 150 m
+covered extent; residual 8 rows / 13.872 m over 32.49 m at 40.4605950,
+−3.5447694 → OWNER 15y-1 (accept the ramp 33 m off the runway, or cover
+to the strip edge). (3) `--why-vertex`: far edge v6622 +0.78 m ABOVE the
+contact; the runway edge 7.05 m over its DEM (`junction_mesh` at cap
+1.50 % × 43.2 m to a free zone vertex); `foot_rows` dual 42,656; the
+`transverse` rows exist at bound 1.35 % as 4-term cross-corridor rows;
+the raw pair 4.30 % → RULED the raw pair is the junction's transverse
+law (r3). (4) the census (24 readers) HAZARD on five; the gated
+admission 207 faces / 944,872 m² (7.8 % of coverage) for one 297.9 m
+road — reverted; the void needs a 10-way ~1,030 m network → RULED the
+road between two mouths (88.7 m apart, one parent road) as ONE planar
+face (r3). No build: the ledger's last `osm_layers` refresh is
+2026-09-08 (SPJC) — the owner's 15u act has not run. Shipping arm b2:
+item 5 floor 597.09 (5.07 m), item 7 mouth 31.06/33.43 m, LAW-TRUE
+5,712, ADJUDICATED 1,360.
+15y addendum: suite ON MAIN after the v2lemdstruct2 r2 merge (6d25b68c): 1611 passed, 1 skipped, 42 warnings in 63.77s (0:01:03).
+
+## 2026-09-15z v2padqp r1 MERGED OFF (2039b3c0 → main): the garage seats on its cluster's pad when armed (building45, 615.35, +4.33 m fill; the basement pit gone); three pad-ref defects fixed; mismatch HECA 16 → 10; the far-field mover GONE under §20c — but arming moves the AIRSIDE (5,915 vertices, worst 3.61 m; runway 231, worst 0.140 m) → keys stay OFF, r2 attributes
+
+Lane @ 2039b3c0 (main merged twice); suite 1,612 passed, 0 FAILED;
+closing LEMD build rc 0, 346.3 s, optimal, `shared repo UNCHANGED`
+(no schema refusal: +40-004 big_roads is current). Bars: garage MET on
+the design surface (float owed to an app build); mismatch HECA 16 → 10
+(per-face share test — ref-area lever untried, attempt cap), LEMD 1 →
+1; probe 0 moved (r5 arm) / 16 beyond 500 m worst 0.103 m (arrangement
+clip) — the residual far field is the pad/airside rim geometry;
+census HECA ADJUDICATED 26,608 → 26,285 (−1.2 %), LEMD 1,371 → 1,376;
+`pad_airside_weld` 2 → 7 / 1 → 2 MISSED; airside movement 5,915 / 3.61
+m, runway 231 / 0.140 m MISSED (§16g (10) (5)) — r5 read 9,573 / 0.390
+m. `pad_from_cluster` / `pad_airside_clip` ship FALSE. New replay arm
+`--placement KEY=V` (the pad keys are read upstream of a capture);
+`arm_shared_repo_protection` on `--capture`. RULED §16g (10) (11) RULED
+ON THE MEASUREMENT: r2 attributes the airside movement by `--why-at`
+before any lever; the pad's rows are one-way toward the pad; the flag
+flips only at 0 airside movement and 0 new welds.
+15z addendum: suite ON MAIN after the v2padqp merge: 1612 passed, 1 skipped, 42 warnings in 39.71s. Three of the four lanes are on main (v2lemdstruct2 287f9b5b + r2 6d25b68c, v2objcut 3b35df96, v2padqp 2039b3c0); v2vmmcshore r1 (a57abc47) is HELD for r2 (15w).

@@ -154,7 +154,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.kml:
             write_kml(rec, Path(args.kml))
             print(f"  KML -> {args.kml}")
-        print(f"{airport.icao} structures: corridors {len(rec['corridors'])}  door wells "
+        _ts = rec.get("tunnel_object_stats", {})
+        print(f"{airport.icao} structures: corridors {len(rec['corridors'])} "
+              f"(object cuts {_ts.get('shells', 0)} B, basin placements claimed "
+              f"{len(_ts.get('shell_claimed', ()))})  door wells "
               f"{len(rec['door_wells'])} (refused {len(rec['door_refused'])})  sunken roads "
               f"{len(rec['sunken_roads'])} (refused {len(rec['sunken_refused'])})  tunnels "
               f"{len(rec['tunnels'])}  basins {len(rec['basins'])}  corridor refusals "
@@ -332,7 +335,8 @@ def structure_records(airport, cl, law) -> dict:
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
                                             plates, channels)
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,
-                                       channels=channels)
+                                       channels=channels,
+                                       claimed=frozenset(tstats.shell_claimed))
 
     def ll(p):
         la, lo = to_ll(p[0], p[1])

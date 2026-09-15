@@ -75,11 +75,12 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
+from . import object_cut as _object_cut
 from .deck_signature import is_tunnel_way
 from .tunnel_walls import Station, WallLines, midline, read_wall_lines, stations_along
 
 __all__ = ["WallSignature", "Corridor", "TunnelObjectStats", "signature",
-           "read_corridors", "ID_PREFIX"]
+           "read_corridors", "shell_corridor", "ID_PREFIX"]
 
 ID_PREFIX = "tunnel-object"
 #: Facing test for the family rule: the other placement lies within this
@@ -184,6 +185,11 @@ class TunnelObjectStats:
     not_screened: int = 0
     #: spec §33 (2): THIN-PLATE wall objects read (``airport/thin_plates``).
     plates: int = 0
+    #: spec §33 (6) B: SHELL + flush hard cover object cuts admitted, and
+    #: the placements they CLAIM out of the basin intake ("the shell is
+    #: never a basin").
+    shells: int = 0
+    shell_claimed: tuple[str, ...] = ()
     refused: list[str] = _dc.field(default_factory=list)
     signature_s: float = 0.0
 
@@ -695,6 +701,91 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
                     tuple(sorted(set(bores[0]) | set(bores[1]))))
 
 
+def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | str":
+    """A SIGNATURE-B object cut (spec §33 (6) B; ``airport/object_cut.py``)
+    as a :class:`Corridor` — the SAME product every other object corridor
+    enters, so ``planar/object_corridor.object_groups`` and the 05n-3
+    per-mouth precedence read it unchanged (the §33 (6) consumer census,
+    rows 14/15: no new argument, no re-ordering, no edit in
+    ``planar/structures.py``).
+
+    Three things are the OBJECT'S and not the law's: the TRENCH is the
+    shell's own interior (never a hull, never the chords between the wall
+    lines); the two inner chains are its ring cut at its two portals; and
+    the DEPTH IS AUTHORED — ``floor_z`` is the floor plate's level in the
+    SEATED frame, which overrides ``bore_datum_m`` (the law for
+    UNAUTHORED bores only)."""
+    ob = law.tables.structures.tunnel.object
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    band = cut.wall_line
+    if getattr(band, "is_empty", True):
+        return "the shell's wall band has no plan area"
+    mean_t = 2.0 * band.area / max(band.length, 1e-9)
+    walls = WallLines(band, list(cut.inner_a), list(cut.inner_b), (False, False),
+                      (0.0, 0.0), float(mean_t), "II")
+    axis = midline(walls, ob.wall_sample_m)
+    if len(axis) < 2:
+        return "the shell's inner faces leave no axis"
+    sts = stations_along(axis, walls, ob.wall_sample_m, grid)
+    if len(sts) < 2:
+        return "the shell's inner faces leave no station"
+    bores = _bore_ends_at(walls, axis, tunnel_ways, ob.bore_end_tolerance_m)
+    notes = list(cut.notes)
+    if not (bores[0] or bores[1]):
+        # the bore may pass THROUGH without ending at a portal (a covered
+        # stretch): the trench holding a mapped tunnel way is the same
+        # evidence, read the way ``_road_through`` reads it
+        through = [w.id for w in tunnel_ways
+                   if LineString(w.points).intersects(cut.outline)]
+        if through:
+            bores = ([through[0]], [])
+            notes.append(f"mapped tunnel way(s) {through} run through the trench")
+    if bores[0] and bores[1]:
+        mouth, flat, kind = 0, True, "bore"
+        notes.append(f"bores at both portals ({bores[0]} / {bores[1]}): the trench is flat "
+                     f"at the AUTHORED floor")
+    elif bores[0] or bores[1]:
+        mouth, flat, kind = (0 if bores[0] else 1), False, "bore"
+        notes.append(f"mouth = the portal the bore reaches (ways {bores[0] or bores[1]})")
+    else:
+        # §33 (6) OPENS WITH "WHERE AN OBJECT … COVERS A BORE OR A
+        # CROSSING": an object that covers neither is not a cut, whatever
+        # its floor plate says.  MEASURED at VHHH — without this gate the
+        # sea barrier ``sea_X.obj`` (a 402 m2 plate 28.20 m under its
+        # zero) paired with ``sea.obj``'s 112,376 m2 flush hard deck (the
+        # SEA SURFACE) and read as a 104.9 m wide, 22.88 m deep "tunnel"
+        # 177 m long off the north shore.
+        return ("a SHELL with a flush hard cover but no mapped bore at either portal and no "
+                "mapped tunnel way through its trench: §33 (6) reads an object that covers a "
+                "BORE or a CROSSING, and this covers neither")
+    axis2, sts2 = _oriented(walls, axis, sts, mouth,
+                            law.tables.structures.cutout.floor_overlap_m, ob.wall_sample_m)
+    if len(axis2) < 2:
+        return "the shell is shorter than one station"
+    far = 1 - mouth
+    a_end, b_end = walls.end_line(mouth)
+    samples = [z for z in (float(airport.dem.z(*q)) for q in (a_end, b_end))
+               if not math.isnan(z)]
+    if not samples:
+        return "no DEM at the shell's mouth"
+    mouth_dem = float(np.median(samples))
+    trench = cut.outline
+    footprint = unary_union([band, trench])
+    if footprint.geom_type != "Polygon":
+        footprint = max((g for g in footprint.geoms if g.geom_type == "Polygon"),
+                        key=lambda g: g.area)
+    depth = float(mouth_dem - cut.floor_z)
+    width = 2.0 * sum((s.half_l + s.half_r) / 2.0 for s in sts2) / len(sts2)
+    notes.append(f"depth {depth:.2f} m = ground {mouth_dem:.2f} − the AUTHORED floor "
+                 f"{cut.floor_z:.2f} (§33 (6) B: it overrides bore_datum_m "
+                 f"{law.tables.structures.tunnel.bore_datum_m})")
+    return Corridor(cut.id, cut.resource, (cut.object_id,), 0.0, tuple(axis2), tuple(sts2),
+                    float(sts2[-1].s), width, False, False, mean_t, mean_t, kind, flat,
+                    mouth_dem, float(cut.floor_z), band, trench, footprint,
+                    cut.ends[mouth], mouth_dem, 0.0, tuple(notes), depth, False,
+                    cut.floor_y, tuple(sorted(set(bores[0]) | set(bores[1]))))
+
+
 def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                    cache: _obj8.ResourceCache, law: Law
                    ) -> tuple[list[Corridor], TunnelObjectStats]:
@@ -710,6 +801,32 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                    if is_tunnel_way(w.tags, law.tables.structures.tunnel.admitted_values)
                    and len(w.points) >= 2]
     bore_tree = STRtree([LineString(w.points) for w in tunnel_ways]) if tunnel_ways else None
+    # THE SHELL + FLUSH HARD COVER (spec §33 (6) B; owner RULINGS
+    # 2026-09-15g).  Read FIRST, because this class falls through every
+    # reader below it: the witness hand-off further down sends any floor
+    # witness straight to basins.py, the crest-plate rule needs a plate
+    # ABOVE the seat and ``thin_plates`` takes 1.0-1.5 m of solids only.
+    # Its placements are then skipped here AND claimed out of the basin
+    # intake ("the shell is never a basin"), one derivation
+    # (``object_cut.cut_placement_ids``).
+    cuts, cstats = _object_cut.read_shells(airport, objects, cache, law)
+    shell_ids: set[str] = set()
+    claimed_ids: set[str] = set()
+    shell_corridors: list[Corridor] = []
+    for cut in cuts:
+        c = shell_corridor(cut, airport, tunnel_ways, law)
+        if isinstance(c, str):
+            stats.refused.append(f"{cut.object_id} {os.path.basename(cut.resource)}: "
+                                 f"a signature-B shell, but {c}")
+            continue
+        shell_corridors.append(c)
+        shell_ids.add(cut.object_id)
+        claimed_ids.add(cut.object_id)
+        if cut.cover_object_id:
+            claimed_ids.add(cut.cover_object_id)
+    stats.shells = len(shell_corridors)
+    stats.shell_claimed = tuple(sorted(claimed_ids))
+    stats.refused.extend(cstats.refused)
     sigs: dict[str, WallSignature | str] = {}
     counts: dict[str, int] = {}
     admitted: list[tuple[WallSignature, _obj8.PlacedObject]] = []
@@ -723,6 +840,9 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             continue
         stats.placements += 1
         counts[o.path] = counts.get(o.path, 0) + 1
+        if o.id in shell_ids:
+            sigs.setdefault(o.path, "a signature-B SHELL (§33 (6) B): its own cut geometry")
+            continue
         if o.witnesses:
             sigs.setdefault(o.path, "the basin pass witnessed a floor in it (basins.py owns it)")
             continue
@@ -809,6 +929,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             stats.refused.append(f"{o.id} {os.path.basename(o.path)}: {c}")
             continue
         out.append(c)
+    out.extend(shell_corridors)
     out.sort(key=lambda c: c.id)
     stats.corridors = len(out)
     stats.signature_s = time.perf_counter() - t0

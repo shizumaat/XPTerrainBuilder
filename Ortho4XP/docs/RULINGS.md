@@ -7087,3 +7087,35 @@ surface) vs OTHH 19.6–20 m (descend 10–15 m below their zero) — the
 as the author's cut geometry (15e 1/3/4/6 + 15g VHHH + 14av) is written
 ONCE after the VHHH inventory. Lanes: v2padqp (item 2 + HECA's 14
 mismatches), v2lemdstruct2 (items 5, 7).
+
+## 2026-09-15j v2insetneg MERGED (5202d381): a TNM HTTP 200 error envelope was read as "zero products" and written as a DURABLE no-coverage — 20 false negatives on the two KPHX tiles
+
+Attributed (lane `v2insetneg`, 755d5cd2), not guessed: the writer is
+`ensure_airport_insets` (`O4_Airport_Elevation_Insets.py` ~:7229, the
+`provenance is None and not fetch_raised` branch); the cause is
+`TnmCloudOptimizedGeoTiffStrategy.discover` (~:1419): `items =
+payload.get("items") or []` on a 2xx body that was NOT a product listing
+(a gateway error envelope during the 504 outage) → `return None` with no
+log line → recorded `no-coverage`. Counts match per tile: +33-113 33
+attempts / 16 transient / 17 `no-coverage`; +33-112 15 / 12 / 3; zero
+`USGS3DEP: ok` anywhere (TNM degraded for the whole pass). Ruled out:
+the warp path (`gdal.UseExceptions()` on), `_coverage_bbox_intersects`,
+`ProviderUnavailable`, the probe/`checked` stamps. The 13b re-probe door
+(`unverified_capability_negatives`) cannot reach it — USGS3DEP declares
+no required capability. FIX: `discovery_listing_items(...)` — only a
+well-formed, complete zero-products answer is durable; a non-mapping
+body, a body without an `items` LIST, an `error`/`errors`/`fault`/
+`exception` key, or `total > 0` with no items raises
+`TransientFetchError` (nothing recorded, retried next run); a listing
+whose items carry no download URL likewise transient. Twins on fixture
+bytes (five response classes, two controls, an index-level twin through
+`ensure_airport_insets(33, -113, {"KPHX": …})`). Suite ON MAIN after the
+merge: `1768 passed, 1 skipped` (inset file + campaign suite), 0 failed.
+NOT retro-scrubbed: the 20 stale `no-coverage` records on
+`Elevation_data/+30-120/N33W113_airport_insets/index.json` and
+`N33W112_…` stay until the owner's `--refresh-data dem --warm-insets`
+(KPHX only) or his deletion of the two index files (all 20 airports).
+OPEN (owner intent): should an existing `no-coverage` for a CAPABILITY-
+FREE provider ever be re-probed (13b's door covers capability-gated
+providers only)? Today such a record is permanent. Chip-worthy: the
+transient WARN cannot name its airport (the strategy is handed no ICAO).

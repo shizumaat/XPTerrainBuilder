@@ -7412,3 +7412,4 @@ families `object_cut_offset`/`object_cut_depth`; 18 twins. No VHHH
 build (+22+113 road layers stale — the owner's refresh). Lesson (for
 the scout protocol): a bounding box is not the solid — quote the
 components' extents, not the box.
+15x addendum: suite ON MAIN after the v2objcut merge (3b35df96): 1,607 passed, 1 skipped, 0 FAILED lines (40.7 s). After v2lemdstruct2 (287f9b5b): 1,587 passed, 0 FAILED.

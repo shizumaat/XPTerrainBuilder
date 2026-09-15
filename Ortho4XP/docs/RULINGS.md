@@ -5965,3 +5965,22 @@ un-built candidate is a per-family post-solve projection for
   amended accordingly; lane `v2padvert`'s successor (or the same
   lane) applies it in `constraints/pads.py` with the KCLT 143-row set
   as the bar (→ 0 infeasible, each pad's skirt slope named).
+
+## 2026-09-14av v2splitname MERGED (f960f53e): split files are named per distinct baked offset — the OTHH tunnel wall at 25.2697569, 51.6055534 gets its own file; VHHH 6 collisions → 0
+
+Lane `v2splitname` @ 4b13e977. `body_resource_name(resource, k,
+offset)` → `<stem>__b<k>_<tag>.obj`, tag = 8 hex of blake2s over the
+offset triple (a HASH, not an index among the resource's offsets — an
+index renames other placements' files when the population changes);
+threaded through the three file-naming sites + `SplitFile`; the
+carrier `Candidate` keeps the untagged slot id and `merged_into`
+resolves through `file_of[(member, group)]` to the real file. OTHH
+rebake replay, matched pair on the 1.0.334 products: 705 splits /
+1,857 bodies both arms; names 1,856 → 1,857; collisions 1 → 0;
+every row byte-identical but the tag; placement 14052 (the owner's
+wall) → `tunnel1__b0_8b16464a.obj` baking its own [9.05, 9.55,
+−50.10], 14051 → `__b0_c057eb1e`. VHHH 6 → 0 (two jetway frames,
+`seabarier3__b0..b3`, +48 files); HECA/KCLT/LEMD/SPJC 0. Plan stage
+unchanged. Suite 1,518 twice. Not done: a `--write-pack` round trip
+at OTHH (the DSF re-encode on the new names end to end) — the app
+build is that round trip.

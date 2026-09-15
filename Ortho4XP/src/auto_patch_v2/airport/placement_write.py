@@ -157,16 +157,19 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     # row, because this is the one place the DUMP and the plan are seen
     # together.
     _flat = getattr(rebake_plan, "flat", None)
+    _msl_counts: dict[str, int] = {}
     msl = _fu.msl_seats_for_dump(dump, rebake_plan, ss.unit_seats, surface,
                                  pack_root, split_idx,
                                  tol_m=hard_tol_m,
                                  authored_ground=(None if _flat is None
-                                                  else _flat.z0_m))
+                                                  else _flat.z0_m),
+                                 counts=_msl_counts)
     # a row seated by §16g (5) is NOT also converted to on-ground: the
     # whole point is that it keeps an elevation column
     _mi = frozenset(m.index for m in msl)
     conversions = tuple(c for c in conversions if c.index not in _mi)
     counts_extra = {"msl_seats": len(msl)}
+    counts_extra.update(_msl_counts)
     counts_extra.update(_fu.multi_anchor_census(dump, rebake_plan, msl,
                                                 split_idx, ss.unit_seats))
     files = tuple(f for s in ss.splits for f in s.files)

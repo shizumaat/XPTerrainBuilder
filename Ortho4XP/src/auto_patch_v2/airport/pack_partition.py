@@ -663,13 +663,18 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
                  (round(float(min(a0, a1)), 8), round(float(min(o0, o1)), 8),
                   round(float(max(a0, a1)), 8), round(float(max(o0, o1)), 8)),
                  feet, bool(p.line), rings,
-                 # §16g (10) (4) (owner RULINGS 2026-09-14ah): the
-                 # component's own SOLID HEIGHT, which is what says
-                 # whether it has WALLS.  Already measured here —
-                 # ``PlacedPart.box_max`` is the authored xyz maximum —
-                 # and written so the design surface can read it off the
-                 # plan without opening the pack.
-                 round(float(p.box_max[1]) - float(p.base_y), 3)))
+                 # §16g (10) (4) (owner RULINGS 2026-09-14ah, frame fixed
+                 # by 2026-09-14bo): the component's own SOLID HEIGHT,
+                 # which is what says whether it has WALLS.  BOTH ends are
+                 # ``PlacedPart``'s own PLACED box (``contact._place``
+                 # writes ``y = anchor_z + agl_m + authored y``), so the
+                 # difference is the AUTHORED component extent exactly —
+                 # placement is a rigid translation in y and a rotation
+                 # about it.  ``base_y`` is the AUTHORED minimum and
+                 # mixing it in here made ``height_m`` an MSL number
+                 # (LEMD read 580–646 m over all 29,684 parts and the
+                 # leaf rule passed every body as walled).
+                 round(float(p.box_max[1]) - float(p.box_min[1]), 3)))
     return out
 
 

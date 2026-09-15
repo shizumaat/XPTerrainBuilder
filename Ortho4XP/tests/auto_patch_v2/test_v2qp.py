@@ -115,11 +115,18 @@ def arms(law, built):
 
 # ── 0. the law key ───────────────────────────────────────────────────────
 
-def test_the_shipped_default_is_the_fixed_point(law):
-    """§20c (2): the old solver stays behind the key for the measured pair.
-    The default flips only when every bar holds — an owner's ruling, not a
-    lane's."""
-    assert law.tables.emit.design.solver == DEFAULT_SOLVER == "fixed_point"
+def test_the_shipped_solver_is_the_qp(law):
+    """§20c RULED (3) (Fable 2026-09-15, RULINGS 2026-09-15b): the key
+    SHIPS ON.  Every bar held — the one-vertex HECA probe moves nothing by
+    more than 4.3 mm where the fixed point moved 959 vertices (953 beyond
+    500 m), §20b stage 1 SETTLES at HECA (0 of 174,500 hard rows), the hard
+    set falls on all three captures and no census family is worse by > 5 %.
+    ``fixed_point`` stays behind the key as the DIAGNOSTIC ARM the whole
+    measurement was read against (§20c (2)'s matched pair, and the only way
+    to reproduce a pre-flip surface), and ``DEFAULT_SOLVER`` NAMES the
+    shipped value — a constant saying something else would read as a
+    second authority beside the law table."""
+    assert law.tables.emit.design.solver == DEFAULT_SOLVER == "qp"
     assert SOLVERS == ("fixed_point", "qp")
 
 

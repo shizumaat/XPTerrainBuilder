@@ -83,9 +83,14 @@ from .linear import _linear_solve, _objective
 __all__ = ["SOLVERS", "DEFAULT_SOLVER", "QPResult", "solve_one_sided"]
 
 #: ``[design] solver``: the damped active-set fixed point this module
-#: replaces, and §20c's exact convex QP.
+#: replaces, and §20c's exact convex QP.  ``qp`` SHIPS (§20c RULED (3),
+#: Fable 2026-09-15, RULINGS 2026-09-15b); ``fixed_point`` is kept as the
+#: DIAGNOSTIC ARM — the matched pair every §20c number was read against,
+#: and the only way to reproduce a pre-flip surface.  ``DEFAULT_SOLVER``
+#: NAMES the shipped value: the law table is the authority, and a constant
+#: here saying something else would read as a second one.
 SOLVERS: tuple[str, ...] = ("fixed_point", "qp")
-DEFAULT_SOLVER = "fixed_point"
+DEFAULT_SOLVER = "qp"
 
 #: The proximal term's starting weight, its growth on a rejected step and
 #: its decay on an accepted one.  Solver constants, not law values (the

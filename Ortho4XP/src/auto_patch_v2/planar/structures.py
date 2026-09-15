@@ -101,7 +101,8 @@ from .structure_approach import (FieldRegion, apply_plates,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
-from .structure_service import (airside_cut_roles, airside_stops as _airside_stops,
+from .zones import shore_region
+from .structure_service import (airside_cut_roles, osm_stops as _osm_stops,
                                 pad_relief_m as _pad_relief_m)
 from .structure_deck import (PavementDeck, deck_intervals, deck_items, emit_decks,
                              object_deck_intervals, pavement_deck_intervals)
@@ -274,6 +275,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # §34 (12) (3)'s protected set (``structure_service``); an OSM bore's
     # ramp STOPS SHORT of these, a pack-stated corridor is never bound
     _cut_roles = set(airside_cut_roles(law))
+    # §34 (12) (2): the water a structure may not stand on (one witness)
+    sea_cut = shore_region(tuple(cells), getattr(airport, "dem", None))
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
     pad_refs = {ref for _p, ref in pads}
     pad_poly = {ref: p for p, ref in pads}
@@ -560,25 +563,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                         if ref not in pad_refs or _pad_relief_m(airport, pad_poly[ref]) <= band_m}
         half_fn = g.half_fn
         traced: list[str] = []
-        # §34 (12) (3) A CORRIDOR NEVER CUTS AIRSIDE PAVEMENT (owner
-        # RULINGS 2026-09-15f item 1 as AMENDED by Fable 2026-09-15 /
-        # RULINGS 2026-09-15w): an OSM-derived corridor's ramp STOPS
-        # SHORT of every airside face that is not its own deck and not
-        # the pavement its own mouth stands on.  It rides the SAME
-        # station-truncation loop ``ramp_crosses_pad`` has always used,
-        # so a corridor with no room left refuses by that loop's own
-        # message.  A PACK-STATED corridor (§33 (6) signatures — the
-        # OTHH terminal tunnels under pav32/pav30) is authored geometry
-        # and is never bound by it.
-        osm_stops = pads
-        osm_tree = pad_tree
-        if c is None and g.kind != WALL_KIND:
-            osm_stops = pads + _airside_stops(
-                cells, polys, _cut_roles,
-                [d[3] for d in deck_ivals] + [d[3] for d in obj_ivals],
-                [Point(m.xy) for m in (g.members or ())] or [Point(g.mouth)],
-                grid)
-            osm_tree = STRtree([p for p, _r in osm_stops]) if osm_stops else None
+        # §34 (12) (3) as AMENDED (RULINGS 2026-09-15w): an OSM-derived
+        # corridor's ramp STOPS SHORT of the airside faces that are
+        # neither its own deck nor its own mouth's pavement, on the SAME
+        # truncation loop ``ramp_crosses_pad`` has always used.  A
+        # PACK-STATED corridor is never bound by it (``structure_service``).
+        osm_stops, osm_tree = _osm_stops(
+            c, g, cells, polys, pads, pad_tree, _cut_roles, deck_ivals,
+            obj_ivals, grid, WALL_KIND)
         if c is None:
             # THE RAMP WIDTH FROM THE PAVEMENT (2026-09-06b (2)): a pavement
             # tracing the road sets the ramp's edges per station
@@ -615,7 +607,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if len(ss) <= 2:
                 stats.refused.append(
                     f"{tid}: the mouth stands against "
-                    f"{'pavement' if g.stop_at_pavement or c is None else 'building pad'} {hit}")
+                    f"{'building pad' if hit in pad_refs else 'pavement'} {hit}")
                 geom = None
                 break
             ss = ss[:-1]
@@ -728,7 +720,19 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # between a ramp piece and the deck stays unowned (the portal
             # under the bridge the mesh triangulates), never void
             wall_geom = outer.difference(unary_union([ramp, du]))
+        # §34 (12) (2): a corridor reaching the water ENDS AT THE SHORE,
+        # clipped by the SAME region §37 (11) (1) trims the zones with
+        # (``zones.shore_region``).  MEASURED at VMMC: ramp+rim on the
+        # sea 1,544 m² (base) -> 906 (unclipped) -> 1.7 m².
+        if sea_cut is not None:
+            ramp_geom = ramp_geom.difference(sea_cut)
+            wall_geom = wall_geom.difference(sea_cut)
+            deck_polys = [dp.difference(sea_cut) for dp in deck_polys]
         ramp_parts = _parts(ramp_geom)
+        if sea_cut is not None and not ramp_parts:
+            stats.refused.append(f"{tid}: the whole ramp stands on the WATER — "
+                                 f"the corridor ends at the shore (§34 (12) (2))")
+            continue
         # a door ramp is its own role (09-08b/c; since 09-12m both face caps
         # are the road 8 %, but the generation and oracle law differ); a
         # wall corridor names its own (Law C: wall_corridor_ramp / garage_ramp)

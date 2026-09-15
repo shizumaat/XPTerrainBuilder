@@ -19,7 +19,10 @@ One synthetic airport per case; law values are read from the tables.
 from __future__ import annotations
 
 import pytest
+import dataclasses as _dc
+
 from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.law import Law
@@ -27,6 +30,8 @@ from auto_patch_v2.model.airport import Airport, OsmWay, Runway, RunwayEnd, Scen
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.structures import airside_cut_roles, build_structures
 from auto_patch_v2.planar.zones import shore_region, zone_regions
+
+_dc_replace = _dc.replace
 
 
 class _PlaneDem:
@@ -159,12 +164,71 @@ def test_a_pack_stated_corridor_is_never_bound_by_clause_3(law):
     its crossing of airside IS an underpass by authorship.  Measured at
     OTHH: bound by (3) it refused three terminal tunnels
     (``tunnel middle - east`` / ``- west``, ``tunnel south west 2``)
-    against aprons ``pav32`` / ``pav30``.  The scoping is the caller's —
-    asserted here at the site that reads it."""
-    import inspect
-    from auto_patch_v2.planar import structures as _s
-    src = inspect.getsource(_s.build_structures)
-    assert "if c is None and g.kind != WALL_KIND:" in src
+    against aprons ``pav32`` / ``pav30``.
+
+    Asserted at the ONE site that reads the scoping: a corridor record
+    (or a wall corridor) keeps the building pads alone; an OSM bore adds
+    the airside faces."""
+    from auto_patch_v2.planar.structure_service import osm_stops
+
+    class _G:
+        kind, members, mouth = "bore", (), (0.0, 0.0)
+
+    cells = _cells()
+    polys = [Polygon(c.ring, c.holes) for c in cells]
+    pads = [(polys[1], "building1")]
+    roles = set(airside_cut_roles(law))
+    packed, _t = osm_stops(object(), _G(), cells, polys, pads, None, roles,
+                           (), (), 0.5, "wall")
+    assert packed == pads          # a pack-stated corridor: pads alone
+    osm, _t2 = osm_stops(None, _G(), cells, polys, pads, None, roles,
+                         (), (), 0.5, "wall")
+    assert len(osm) > len(pads)
+    assert any(ref == "pav5" for _p, ref in osm)
+
+
+# ── §34 (12) (2): no structure face, rim or ramp over the water ─────────
+
+def test_no_ramp_or_rim_stands_on_the_water(law):
+    """§34 (12) (2) — "a corridor reaching the water ends at the shore".
+    The bore runs under the apron and its ramp walks SOUTH, out over the
+    sea.  Every emitted structure face is clipped at the coastline.
+
+    ONE WITNESS, and it is the zone trim's: ``zones.shore_region`` (the
+    tile's SEA minus the airport's own classified surfaces).  MEASURED at
+    VMMC: ramp + rim standing on the sea 1,544 m² (base) -> 906
+    (unclipped, once (1) was withdrawn) -> 1.7 m²."""
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 522.5), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
+            RunwayEnd("27", (600.0, 522.5), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"))
+    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    ways = [OsmWay(-101, "big_roads", ((0.0, 0.0), (0.0, -600.0)), False, TAGS_T)]
+    # (the apron is x -80..80, y -60..60, so the mouth at (0, 0) is on it)
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    cells = tuple(_cells())
+    dry = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
+                  (), (), (), tuple(ways), (), (), pack, _PlaneDem(), law.ruleset_key)
+    # the ramp is built OUTWARD from the mouth at (0, 0), so it runs
+    # NORTH, past the apron's own edge at y = 60; the sea lies beyond it
+    # (the AIRPORT'S OWN SURFACES ARE LAND, so a sea that overlapped the
+    # apron would correctly clip nothing — that is the reclaimed-land
+    # reading `shore_region` exists for)
+    class _NorthSea(_PlaneDem):
+        def sea_geometry(self, bounds=None):
+            return Polygon(((-5000.0, 70.0), (5000.0, 70.0),
+                            (5000.0, 5000.0), (-5000.0, 5000.0)))
+
+    wet = _dc_replace(dry, dem=_NorthSea())
+    out = {}
+    for tag, ap in (("dry", dry), ("wet", wet)):
+        cl2, _t, _st = build_structures(ap, Classification(cells, (), {}, ()), law)
+        out[tag] = unary_union([Polygon(c.ring, c.holes) for c in cl2.cells
+                                if c.role in ("tunnel_ramp", "retaining_wall")] or [Polygon()])
+    sea = Polygon(((-5000.0, 70.0), (5000.0, 70.0),
+                   (5000.0, 5000.0), (-5000.0, 5000.0)))
+    assert out["dry"].intersection(sea).area > 10.0, "the fixture must reach the water"
+    assert out["wet"].intersection(sea).area < 1.0
+    assert not out["wet"].is_empty, "the dry half of the corridor survives"
 
 
 # ── §37 (11) (1)/(2): the shore trims the zones; the quay ────────────────

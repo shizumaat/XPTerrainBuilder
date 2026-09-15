@@ -177,7 +177,15 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     objects_out: list = []
     pm, _pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
                                objects=pack_objects, object_report=pack_report)
-    fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else ())
+    # §37 (11) (4) (owner RULINGS 2026-09-15f item 2): the airport's OWN
+    # classified surfaces are LAND, so the datum region's water cut cannot
+    # call a reclaimed apron sea.  ONE derivation
+    # (``pipeline/build._classified_land``), read here too — without it a
+    # replay solves a DIFFERENT problem from the build (measured at VMMC:
+    # pav5 1.95 m against the build's 5.09, within_shape 327 against 2).
+    from auto_patch_v2.pipeline.build import _classified_land
+    fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else (),
+                      land=_classified_land(cl))
     airport = _dc.replace(airport, flat_site=fv)
     road_pref, _rep, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
                                            inputs.lane_width_m)

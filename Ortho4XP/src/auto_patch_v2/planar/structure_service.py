@@ -35,7 +35,7 @@ from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_side
 from .structure_approach import under_cover
 
-__all__ = ["airside_cut_roles", "airside_stops", "pad_relief_m"]
+__all__ = ["airside_cut_roles", "airside_stops", "osm_stops", "pad_relief_m"]
 
 
 def pad_relief_m(airport: Airport, poly: Polygon) -> float:
@@ -114,3 +114,27 @@ def airside_stops(cells, polys, cut_roles, decked, mouth_pts, grid: float):
             continue                      # this corridor's own deck
         out.append((p, c.ref))
     return out
+
+
+def osm_stops(corridor, group, cells, polys, pads, pad_tree, cut_roles,
+              deck_ivals, obj_ivals, grid: float, wall_kind: str):
+    """``(stops, tree)`` for ``structure_geometry.pad_hit`` — what ONE
+    corridor's ramp must stop short of (§34 (12) (3) as amended).
+
+    A PACK-STATED corridor (``corridor is not None``) or a wall corridor
+    keeps the building pads alone, exactly as before: it is authored
+    geometry and its crossing of airside IS an underpass by authorship
+    (measured at OTHH — bound by (3) it refused three terminal tunnels
+    against aprons ``pav32`` / ``pav30``).  An OSM-derived corridor adds
+    :func:`airside_stops`.
+    """
+    from shapely.geometry import Point
+    from shapely.strtree import STRtree
+    if corridor is not None or group.kind == wall_kind:
+        return pads, pad_tree
+    stops = pads + airside_stops(
+        cells, polys, cut_roles,
+        [d[3] for d in deck_ivals] + [d[3] for d in obj_ivals],
+        [Point(m.xy) for m in (group.members or ())] or [Point(group.mouth)],
+        grid)
+    return stops, (STRtree([p for p, _r in stops]) if stops else None)

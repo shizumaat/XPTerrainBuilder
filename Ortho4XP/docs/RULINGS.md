@@ -7672,3 +7672,40 @@ until it lands, no closing build on any tile but +40-004. The owner
 (away) authorised the session to quit the app and run the refreshes;
 no 1.0.341 build ("complete the open lanes first").
 15aj addendum: suite ON MAIN after the v2vmmcshore r3 merge (ac3699a1): 1640 passed, 1 skipped, 42 warnings in 44.57s.
+
+## 2026-09-15ak v2schemarefuse ROUND 2 MERGED (dec0481e): `--refresh-data osm_layers` now RE-DERIVES a present-but-stale road layer — it had no derivation site of its own (the VMMC refresh "wrote NOTHING")
+
+Measured by the concurrent session (owner-authorised): `build_airport.py
+VMMC --refresh-data osm_layers` on main after 15v ran rc 0 in 23 s,
+"authorised but wrote NOTHING — the artifact was already present", the
+layer's mtime stayed Aug 10 (schema 2026-07-16) and a plain build refused
+again. ATTRIBUTED (lane `v2schemarefuse` r2, 177f4c2a): the engine's
+prefetch admission (`_layer_cache_is_current`) downloads only an ABSENT
+or stale layer, and the AIRPORT path never starts the prefetch at all
+(`dem_production` calls `compose_tile_dem_from_disk` directly; only the
+tile prelude `prepare_tile_airports_and_dem` starts it) — so the refresh
+scope authorised a write that nothing in the run could make, and on the
+tile path the only re-deriver was the mid-build prefetch 15v exists to
+stop. FIX at the refresh's own derivation site: `refresh_stale_osm_
+layers(root, lat, lon, prog)` in `build_airport.py`, beside
+`warm_airport_insets` — inside the scope lock and the guard, before the
+build, so the write lands in the before/after diff `record_refresh`
+hash-stamps into the ledger: every layer `schema_stale_osm_layers` names
+is MOVED ASIDE (`<name>.stale-<schema>`, restored byte-identical on
+failure, removed on success — never deleted outright, so an unreachable
+Overpass cannot turn a stale corpus into an absent one), then the
+engine's own `start_background_osm_prefetch(tile)` +
+`wait_for_background_osm_prefetch()` re-derive it (the tile prelude's
+pair, the same 5-tuple specifications); the verdict is re-read through
+`schema_stale_osm_layers`, and a refresh that re-derived nothing RAISES
+after restoring the corpus (never rc 0 twice on the same stale layer).
+Stated consequence: the pass also fetches any other layer of that tile
+the specifications name and the corpus lacks (coastline, water) — lawful
+under the scope, guarded, ledgered; `--tile` runs take the same path
+(before-build, not mid-build). Twins on a tmp root with the engine's
+fetch mocked at `OSM_queries_to_OSM_layer`: stale + authorised → aside
+gone, one fetch, bytes changed, `missing_shared_artifacts` then empty;
+current → untouched; unauthorised → refused, byte-identical; every fetch
+failing → refused, stale restored. Suite ON MAIN: `1678 passed, 1
+skipped`, 0 failed. The first real refresh is the owner's (or his
+authorised session's): it will now write, and the ledger records it.

@@ -15123,3 +15123,27 @@ code 3/4) beyond each threshold, and so does the shoulder band; a
 shoulder lobe within that extension stays the runway's, beyond it is
 re-roled.  One line at `classify/roles.shoulder_band` (r2, with the
 VHHH capture).
+
+### §45 (13)(d) AMENDED — a member of a BUILT basin, basins before channels (Fable 2026-09-15; RULINGS 2026-09-15aw) — lane `v2channel` round 6
+
+Round 5 (0531ab07) implemented (13)(d) with `basin_witness.basin_member_ids`, which is
+basin rule 1's CANDIDATE set, not "a basin's own shell": at LEMD it removed `channel:5`'s
+witnesses (`Ground-FSX-LEMD36/37/85`, members of the BUILT `basin:0`) — the ruling's own
+site, met exactly — and at LGAV it removed `Trench_07.obj` / `Trench_08.obj` (candidates
+that never build a basin: LGAV's built basins on both arms are the two 20 m² Fence1 pits)
+and the trench channel fell to (13)(a). The lane reported the conflict instead of
+narrowing it. RULED: (13)(d) keys on membership of a BUILT basin. ORDER: the basin pass
+runs FIRST on the unfiltered objects (it needs nothing from channels), channels second
+with the built basins' member ids as the (13)(d) exclusion, and §45 (7)/(11)'s "inside
+the corridor" exclusion becomes a POST-FILTER on built basins whose region lies inside a
+channel corridor of (10) and whose members are that channel's witnesses (expected empty
+at LGAV and LEMD; reported by name when it fires). The `claimed=` / `channels=` intake
+of `build_basins` stays for the post-filter's site. BAR (both): LGAV ONE channel (ways
+−1343/−7021/−2914/−4017, floor 66.47 from `Trench_07`, half-width 62.8 from the Trench
+walls, 4 decks, basins 2, tunnels = base); LEMD basins 1 → 1, tunnels identical,
+`channel:5` refused; the seven dry replays `ALL IDENTICAL` (`tools/structure_replay_diff.py`,
+promoted in round 5). Also RULED from round 5's findings: `Corridor.bore_ways` has no
+producer — (13)(b)'s object-corridor half is inert until 05k-1's reader publishes its
+claimed ways (owed to the tunnel-object line, not this lane); the KDFW / KPHX replays
+refuse on NEIGHBOUR tiles' superseded road layers (the loader reads the 3 × 3
+neighbourhood: KDFW +33-098, KPHX +33-112/+33-113) — the owner's refresh act per tile.

@@ -8176,3 +8176,36 @@ negative); its provenance line must read `insets=KPHX:USGS3DEP`. The
 other 16 false negatives on +33-113 and 3 on +33-112 clear under 15aq
 (4) once lane `v2insetreprobe` lands and 1.0.341+ builds them.
 15bn addendum 2: the 6 test_harness ERRORs were transient — the peer's LGAV `--refresh-data` (ledger 13:29:33, scopes dem + osm_layers) wrote the shared corpus while the suite ran (the session detector's cross-attribution class, memory `app-builds-cross-attribute-suite-detector`); `tests/test_harness.py` alone: 392 passed. Main is green (1,691 + 392).
+
+## 2026-09-15aw v2channel ROUND 5 (0531ab07): seven dry replays ALL IDENTICAL (tool `structure_replay_diff.py` promoted); (13)(d) as written took LGAV's trench — AMENDED to a BUILT basin's members with basins built before channels; cross-feed joins now carry the feed (LGAV exclusions 9 → 7 were id collisions); the deck read is §34 (5)'s one derivation
+
+Round 5 measured: (13)(d) via `basin_member_ids` (the CANDIDATE set)
+met the ruling's LEMD site exactly (`channel:5`'s witnesses = built
+`basin:0`'s three members; basins 1 → 1) and removed LGAV's `Trench_07`
+/`Trench_08` (candidates that never build a basin) so the trench channel
+fell to (13)(a) — the lane reported the conflict, did not narrow it.
+AMENDED §45 (13)(d): a member of a BUILT basin; basins run first,
+channels second, §45 (7)/(11) as a post-filter on built basins inside a
+corridor. Addendum (1): `planar/channel.way_key -> (kind, id)`; every
+cross-feed join carries the feed (`Channel.way_keys`; an unqualifiable
+bare id kept as ANY_FEED); twin with id −500 in two feeds; on real data
+LGAV's (13)(b) exclusions 9 → 7 — two were colliding ids. Finding:
+`Corridor.bore_ways` has NO producer in `src` — (13)(b)'s object-
+corridor half is inert; owed to the tunnel-object line. Addendum (2):
+§45 (1)(a) held a verbatim copy of §34 (5)'s loop — extracted to
+`structure_underpass.aeroway_decks(airport, law)`, one derivation for
+both; §34 (12)(4)'s below-grade witness governs road `bridge=*` ways
+severing a bore, a different population, not routed. Seven dry replays
+base 8315f6f8 vs branch: OTHH 44/10, LEMD 52/1, HECA 13/0, KCLT 23/0,
+CYXY 2/0, SPJC 8/0, LGAV 11/2 — `VERDICT: ALL IDENTICAL` whole records
+incl. `replaced_ways`; `tools/structure_replay_diff.py` promoted on its
+4th use with INDEX row + twin. Campaign suite `1698 passed, 1 skipped, 1
+xpassed`, 0 FAILED; 18 teardown errors = the suite detector seeing THIS
+session's authorised KDFW osm_layers refresh (13:26:13, ledgered) — the
+app-builds-cross-attribute class, quoted not silenced. KDFW/KPHX replays
+REFUSE on NEIGHBOUR tiles' superseded road layers (+33-098; +33-112/
++33-113 as read before the 13:28 refresh) — the loader reads the 3 × 3
+neighbourhood; owner act per tile (question put). Round 5 had earlier
+HUNG 56 min on two whole-tree `pytest tests -q` runs (xdist, 0 % CPU) —
+killed by the session; the whole tree is not the bar. Round 6: the
+ordering, both bars, seven replays identical, then the merge.

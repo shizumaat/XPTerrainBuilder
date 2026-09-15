@@ -7593,3 +7593,27 @@ union now strips `^<<<<<<< |^=======$|^>>>>>>> ` first. The lane's
 object_cut.py and its twins taken whole at the r2 merge (the fix
 branch was a subset).
 15af addendum: suite ON MAIN after the v2objcut r2 merge (32615dd9): 1638 passed, 1 skipped, 42 warnings in 46.22s. LGAV structure replay on main: rc 0, zero tracebacks, corridors 3 / tunnels 11 / basins 2.
+
+## 2026-09-15ac v2channel ROUND 4 (90708ba1): five airports byte-identical, LGAV's channel inert on the current main, LEMD's T4S basin taken by a one-deck channel — §45 (13)(d) RULED (a basin member is never a channel wall witness)
+
+Round 4 implemented §45 (13)(a)–(c) at the one admission site and moved
+the channel's cross-pass interface into `planar/channel_claims.py`
+(structures.py back to 999 lines; `owner_kept`/`parts` moved verbatim to
+`structure_geometry.py`). Two findings committed with their measurement:
+(13)(b) supersedes round 2's geometric bore drop (a bore whose line lies
+inside a corridor the channel does not OWN keeps its bore — LEMD 46 →
+51 identical); a split defect (`_depth_under_crest` left behind by the
+module move, caught only by LEMD's replay — a twin now calls the real
+entry point). Six dry replays (base main 848bf35e vs branch,
+`replaced_ways` included): OTHH 44/10 IDENTICAL (24 ways excluded by
+(13)(b)), HECA 13/0, KCLT 23/0 (taxiway U's four bores restored by
+(13)(a)), CYXY 2/0, SPJC 8/0 IDENTICAL; LEMD tunnels 51 → 51 identical,
+basins 1 → 0 — `channel:5` (way −5989, neck + pack, 1 deck) claimed
+`dsf:obj7`/`obj10` (T4S basin members) as wall witnesses. LGAV on the
+fixed main: ONE channel (−1343/−7021/−2914/−4017, floor 66.47, half 62.8,
+4 decks, basins 2), tunnels 11 on BOTH arms (the 8 was an older main).
+Suite 1655/0, twins 17. RULED §45 (13)(d): a placement in
+`basin_witness.basin_member_ids` is never a (1)(c) witness. Round 5
+implements it; bar: six replays identical in Tunnel AND Basin records,
+then the merge (after which the concurrent session's follow-up lanes
+rebase). KDFW/KPHX still wait on the owner's refreshes.

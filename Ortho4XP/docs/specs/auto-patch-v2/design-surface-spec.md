@@ -13992,3 +13992,19 @@ mesh row's far end at a contact is the raw-pair partner; (c) re-
 measure the crossfall; if the raw pair then binds and the site reads
 ≤ 1.985 %, done; if `no_step_pairs` bind next, name them and stop —
 the residual joins 15y-1 for the owner.
+
+### §45 (13)(d) A BASIN'S OWN SHELL IS NEVER A CHANNEL'S WALL (Fable 2026-09-15; RULINGS 2026-09-15ac) — lane `v2channel` round 5
+
+Round 4 (90708ba1): OTHH / HECA / KCLT / CYXY / SPJC byte-identical, LGAV's one channel
+unchanged on the current main (`tunnels 11` on both arms), LEMD's tunnels identical
+(51 → 51) — and LEMD's `basin:0` (T4S, §24's owner-accepted basin) lost: `channel:5`
+(way −5989, neck + pack, ONE deck) took `dsf:obj7` / `dsf:obj10` — two of the basin's
+three members `Ground-FSX-LEMD36/37/85` — as its §45 (1)(c) wall witnesses, and the
+basin then fell to "overlaps a tunnel structure". Basins are built AFTER channels, so
+(13)(b)'s "already claimed" set does not exist for objects. RULED: the object side is
+decided by the object's own KIND, at one derivation site the basin pass already owns —
+`airport/basin_witness.basin_member_ids(airport, law)`: a placement in that set is a pit
+shell (its rim tops out at grade, §24 (1)) and is NEVER a channel's (1)(c) witness. A
+channel left without a depth witness then faces (13)(c) (LEMD's `channel:5`: neck + one
+deck → refused). BAR: the six dry replays byte-identical in `Tunnel` AND `Basin` records
+(LEMD basins 1 → 1); LGAV unchanged; the suite; then the merge.

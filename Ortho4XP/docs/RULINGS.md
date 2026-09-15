@@ -6093,3 +6093,21 @@ high side is slightly buried. Make sense?"
   ≤ 1 %; the cluster datum = the pad's lowest edge; bar: the KCLT/HECA
   pads between two aprons named with slope and the low-side seat;
   `pad_airside_weld` 0 except a non-apron airside step.
+
+## 2026-09-14ba Owner: "What happened with LEMD? I built it, and the patch looks new, but it didn't actually update the tile?" — the +40-004 tile ABORTED on LERM: 43 `runway_transverse` DEFECT rows at the SHOULDER cap — lane `v2roles` r4 (urgent)
+
+The app log (engine 1.50.1781): `Auto-patch: FAILED LERM (verify):
+runway_transverse 43 … The tile build is ABORTED — no mesh is built
+on a patch set this build did not write.` LEMD's patch was written
+(19:04) but `Data+40-004.mesh` / the DSF date from Sep 13 19:52 —
+the owner's sim shows the old tile. LERM's rows: `runway|runway`,
+`cap_pct 2.5` (§40 (2)'s shoulder cap), grades 3.5–7.5 % over 32–54
+m on face 5 — a cell at a small aerodrome re-roled as a runway
+shoulder (§40 (1), the 50 m depth floor) whose ground falls 7 % while
+the shoulder keeps the runway datum; or the rwyholes/accessor pricing
+non-shoulder vertices. The abort text says "a building pad is not
+one flat value" for a `runway_transverse` defect — the DEFECT
+template is keyed wrong. Lane `v2roles` r4: read face 5, fix at the
+cause (a shoulder is the runway's own page or a page whose only
+neighbour is the runway), ONE LERM build, the shoulder census before
+→ after, the template. Then app 1.0.336 for the LEMD read.

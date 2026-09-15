@@ -658,6 +658,10 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         # links a unit — a floor slab, a plate, a deck or a canopy is a
         # LEAF, seated on its own ground and never a link.
         chain_min_height_m=law.tables.structures.placement.chain_min_height_m,
+        # §16g (10) (9) (2) (owner RULINGS 2026-09-14az): the unit seated
+        # on a pad takes the pad's LOW side, not its median
+        low_side=bool(getattr(law.tables.structures.placement,
+                              'pad_between_aprons', False)),
         # §16g (5) (owner RULINGS 2026-09-13cb): "on ground" is only where
         # the terrain at the anchor already IS the unit's datum
         hard_tol_m=law.tables.emit.design.hard_tol_m,

@@ -518,77 +518,40 @@ def test_16g_10_2_a_cluster_with_no_OUTLINE_gets_no_cluster_pad(law):
             if q[1].startswith("cluster:")] == []
 
 
-def test_16g_10_8_the_band_is_the_skirt_and_beyond_it_the_core_is_rigid(law):
-    """§16g (10) (8) REFINED (owner RULINGS 2026-09-14al): the pad's
-    vertices within ``[placement] pad_skirt_m`` of a vertex it SHARES
-    with an airside face are the SKIRT BAND — priced at the pad's slope
-    CEILING so the pad bends to meet the pavement — and everything
-    farther is the cap-0 RIGID CORE, which is what keeps the pad a plate.
+def test_16g_10_8_THE_SKIRT_IS_WITHDRAWN_the_pad_is_one_plate(law):
+    """RE-FOUNDED (owner RULINGS 2026-09-14ay, confirmed 14bn; lane
+    ``v2padjoin`` round 3), replacing
+    ``test_16g_10_8_the_band_is_the_skirt_and_beyond_it_the_core_is_rigid``
+    and ``…_pad_skirt_m_zero_is_the_SHARED_VERTICES_ALONE``.
 
-    A pad whose core is not itself a plate (fewer than three vertices, or
-    under a quarter of the pad's) keeps the two-sided plate it has always
-    had: MEASURED, without that guard eight ruled pad twins go red,
-    because a 20 m pad on an apron edge is ALL band and the cap-0 plate
-    disappears."""
-    from auto_patch_v2.constraints.pads import (AIRSIDE_LED,
-                                                airside_vertices, pad_flats)
+    Those two asserted the band: the pad's vertices within
+    ``[placement] pad_skirt_m`` of an airside-shared vertex priced at the
+    slope CEILING (``pad_skirt_max_slope``, 5 % under §20b) and a cap-0
+    rigid core beyond.  The skirt is WITHDRAWN and both keys are deleted:
+    a pad touching an apron takes the apron's level along the shared edge
+    and stays one plane inside its own 1 % ceiling, so EVERY pair is the
+    plate's again.  The curved-edge difference the skirt absorbed is
+    answered on the apron's side by §30 (4)'s collar.
+
+    MEASURED (this lane, round 2, why it had to go): with the collar
+    armed at HECA the worst stage-2 rows were the skirt's own
+    (``building_pad airside skirt`` 7.07 -> 8.58 m)."""
+    from auto_patch_v2.constraints.pads import (airside_vertices, pad_flats,
+                                                pad_slope_ceiling)
     airport, pm, _z, _c = _arm(law, True)
     rows = pad_flats(pm, law, airport)
+    ceil = pad_slope_ceiling(pm, law, airport)
     ceiling = law.tables.emit.within_shape.pad_slope_max
-    band = float(law.tables.structures.placement.pad_skirt_m)
     air = airside_vertices(pm, law)
-    xy = {v: q.xy for v, q in pm.vertices.items()}
-    near = {v for v in xy
-            if any((xy[v][0] - xy[w][0]) ** 2 + (xy[v][1] - xy[w][1]) ** 2
-                   <= band * band for w in air if w in xy)}
-    assert rows and {r.cap for r in rows} <= {0.0, ceiling}
-    # every ceiling-capped FLAT row reaches the band ...
-    assert all(r.a in near or r.b in near
-               for r in rows if r.cap == ceiling)
-    # ... and the law's two states are the only ones (a pad with no
-    # plate left falls back and nothing is a skirt)
-    if any(r.cap == ceiling for r in rows):
-        assert all(r.a not in near and r.b not in near
-                   for r in rows if r.cap == 0.0)
-    assert set(AIRSIDE_LED) >= {"airside_skirt_rows", "both_skirt_dropped",
-                                "pads_wholly_in_the_band", "pads_core_only"}
-    # NO PAD ROW IS ONE-WAY.  14al asks the band to FOLLOW the airside;
-    # built that way it was refuted for the THIRD time (round 5): §28's
-    # own frontage row, which its twin proves moves nothing, moved the
-    # pad 0.12 m, and at CYXY the census and the engine's verify came
-    # apart on ``mid_edge_step`` (77 against 14).  A one-way row is
-    # LAGGED and a pad bound to the airside only by lagged rows has
-    # nothing holding it inside a round.
+    assert rows and {r.cap for r in rows} == {0.0}
+    # the plate reaches the airside-shared vertices — that IS the weld
+    assert any(r.a in air or r.b in air for r in rows)
+    # the ceiling pass is the same pairs at 1 %, nothing withdrawn
+    assert len(ceil) == len(rows) and {r.cap for r in ceil} == {ceiling}
+    # NO PAD ROW IS ONE-WAY (14al's clause, refuted three times and never
+    # shipped), and none carries the withdrawn skirt's head
     assert all(r.follows is None for r in rows)
-
-
-def test_16g_10_8_pad_skirt_m_zero_is_the_SHARED_VERTICES_ALONE(law):
-    """``pad_skirt_m = 0`` is NOT "no skirt": it is round 4's scope, the
-    airside-SHARED vertices alone — and it is what ships, because the
-    25 m band was MEASURED WORSE on every airside bar at HECA (moved
-    14,263 -> 15,014, the runway 1,021 -> 1,394 and its worst 0.41 ->
-    0.57 m) for the terminal body +0.08 -> +0.00 m.
-
-    A wider band is still the law's own value and the key carries it;
-    what the twin pins is that 0 does not throw the skirt away."""
-    import dataclasses as _d
-
-    from auto_patch_v2.constraints.pads import airside_vertices, pad_flats
-    airport, pm, _z, _c = _arm(law, True)
-    pl = _d.replace(law.tables.structures.placement, pad_skirt_m=0.0)
-    st = _d.replace(law.tables.structures, placement=pl)
-    zero = _d.replace(law, tables=_d.replace(law.tables, structures=st))
-    ceiling = law.tables.emit.within_shape.pad_slope_max
-    air = airside_vertices(pm, law)
-    rows = pad_flats(pm, zero, airport)
-    skirt = [r for r in rows if r.cap == ceiling]
-    # every ceiling-capped flat row reaches a SHARED vertex and nothing
-    # wider — that is the whole of "0 is round 4's scope"
-    assert all(r.a in air or r.b in air for r in skirt)
-    # ... and the two lawful states are the only ones: a pad with a core
-    # skirts its shared vertices, a pad without one falls back whole
-    if skirt:
-        assert all(r.a not in air and r.b not in air
-                   for r in rows if r.cap == 0.0)
-    else:
-        assert all(r.cap == 0.0 for r in rows)
+    assert not any("airside skirt" in r.source.ruling for r in rows + ceil)
+    # and the law keys are gone, so no reader can arm a band again
+    assert not hasattr(law.tables.structures.placement, "pad_skirt_m")
+    assert not hasattr(law.tables.emit.within_shape, "pad_skirt_max_slope")

@@ -258,15 +258,26 @@ def test_a_pad_welded_to_two_pavements_takes_the_airsides_own_drop(law):
     * with the single solve the pad holds its 1 % ceiling (0.0079) because
       the two pavements YIELD toward it;
     * staged, ten of the pad's fourteen vertices are vertices of an airside
-      face, so stage 1 fixes them and the pad's plane is the AIRSIDE'S OWN
-      drop, 3 % — the weld is exact and the pad's own ceiling is unreachable.
+      face, so stage 1 fixes them; with the SKIRT the pad's plane was the
+      AIRSIDE'S OWN drop, 3 %, and its ceiling was unreachable.  With the
+      skirt WITHDRAWN (round 3) every pair is the plate's again and the
+      pad HOLDS ITS 1 % CEILING under §20b too — 0.0100 — at the price of
+      a residual against the fixed rim, which is the `pad_airside_weld`
+      census's business and what §30 (4)'s collar removes on the APRON's
+      side.
 
-    Nothing holds that ceiling because 14al withdrew the two-sided ceiling
-    row over a pair of two airside-shared vertices (``constraints/pads.py``,
-    `pad_skirt_m = 0`) — a withdrawal whose whole purpose was to stop such a
-    row PULLING the airside, which under §20b it cannot do.  Reversing it is
-    the spec author's call, not this lane's; the twin holds both numbers so
-    the ruling has something to rule on.
+    RE-FOUNDED (lane ``v2padjoin`` round 3, owner RULINGS 2026-09-14ay /
+    14bn).  When this twin was written nothing held the pad's ceiling,
+    because 14al had withdrawn the two-sided ceiling row over a pair of
+    two airside-shared vertices.  The SKIRT and that withdrawal are gone:
+    every pair of the pad is the plate's again, so under §20b the pad's
+    own 1 % ceiling is now a HARD row between two constants where both
+    ends are airside — it cannot pull the airside and it cannot be met
+    either.  What the numbers say is unchanged and that is the point of
+    keeping them: single solve the pavements yield and the pad holds 1 %;
+    staged, the pad's plane IS the airside's own 3 % drop.  §30 (4)'s
+    collar is the mechanism that removes the 3 % on the APRON's side, and
+    it is disarmed by law value here.
     """
     from tests.auto_patch_v2.test_v2padlevel import (_two_pavement_cells,
                                                      _airport as _pad_airport,
@@ -282,4 +293,6 @@ def test_a_pad_welded_to_two_pavements_takes_the_airsides_own_drop(law):
         sol, _rep = solve_design(pm, cs, lw)
         tilts[staged] = _pad_plane(pm, np.asarray(sol.z, float))[2]
     assert tilts[False] <= 0.012, tilts          # the 1 % ceiling holds
-    assert 0.029 <= tilts[True] <= 0.031, tilts  # the airside's own 3 %
+    # RE-FOUNDED with the skirt's withdrawal: 0.0300 (the airside's drop)
+    # -> 0.0100 (the pad's own ceiling).  Both arms now hold 1 %.
+    assert tilts[True] <= 0.012, tilts

@@ -624,6 +624,19 @@ rigid_reach_m       = 2.0
 # not a hangar: KCLT's complex covers ~54,000 m2.  0 disarms the clause.
 cluster_pad_min_m2  = 5000.0
 
+# §16g (10) (9) (2) A PAD BETWEEN APRONS SLOPES WITH THEM AND THE BUILDING
+# SEATS AT THE LOW SIDE (owner RULINGS 2026-09-14az, verbatim: "we allow
+# the pad to slope at 1% to match the apron, and seat the building level
+# at the low side so nothing floats and the high side is slightly
+# buried").  The SLOPE half needs no key — with the skirt withdrawn
+# (14ay/14bn) a pad's shared vertices ARE the apron's, so the pad is
+# already a plane taking each apron's level inside its own 1 % ceiling.
+# This key arms the DATUM half: the unit seated on a pad takes the pad's
+# LOW side instead of its median.  MEASURED at HECA (lane v2padjoin round
+# 2): the terminal read 75.92 on a 72.62 pad because the plane's mean was
+# taken over a sloping edge.  false = the pre-(9) median.
+pad_between_aprons  = true
+
 # §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed).
 # Two bodies whose plan footprints overlap or come within this are ONE
 # unit, chained transitively; a body touching nothing seats alone.
@@ -699,21 +712,6 @@ pad_airside_snap_max_m = 5.0
 # carrying 3,594 of its 9,333 touch edges.  2.5 m is a storey.  0 disarms.
 chain_min_height_m  = 2.5
 
-# §16g (10) (8) REFINED (owner RULINGS 2026-09-14al) THE SKIRT BAND: a
-# pad's vertices within this of an edge it SHARES with an airside face
-# follow the airside ONE-WAY within the pad's slope ceiling; everything
-# farther is the cap-0 RIGID CORE and stays flat.  The core is what keeps
-# the plate a plate — a wholly one-way plate collapsed 703.56 -> 640.89 m
-# in the §30 twin.  25 m is a building's own depth from its frontage.
-# 0 disarms the band: the whole pad is core.
-# SHIPPED AT 0 — which is NOT "no skirt" but the airside-SHARED vertices
-# alone (round 4's scope).  MEASURED at HECA, 25 m against 0: airside
-# moved 14,263 -> 15,014, the runway 1,021 -> 1,394 and its worst 0.41 ->
-# 0.57 m, `pad_airside_weld` 16 -> 21 (worst 1.135 -> 2.42), law-true
-# 63,904 -> 66,771, for the terminal body +0.08 -> +0.00 m.  AIRSIDE IS
-# KING: a wider band softens more of the pad and a softer pad moves more
-# of the apron inside the same ceiling.  The design value is 25.0.
-pad_skirt_m         = 0.0
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two

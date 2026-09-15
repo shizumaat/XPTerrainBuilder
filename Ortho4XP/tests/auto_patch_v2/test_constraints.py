@@ -217,84 +217,27 @@ def test_strip_families_and_pads(synthetic, law):
     pad_face = next(f for f in pm.faces.values() if f.role == "building")
     rim = set(pm.ring_vertices(pad_face.ring))
     shared = pads.pad_shared(pm, law)
-    # §16g (10) (8) RE-FOUNDS THIS (owner RULINGS 2026-09-14aj).  The
-    # cap-0 plate is the pad's across its interior and its NON-AIRSIDE
-    # rim; a pair with an end the pad SHARES with an airside face is a
-    # SKIRT row at the pad's own slope CEILING instead — the pad bends to
-    # meet the pavement it touches, and the flat target never reaches an
-    # airside edge.  What the twin asserted before 14aj (cap 0 over EVERY
-    # pair) was the law that moved 17,482 airside vertices at HECA.  The
-    # ROW SET is unchanged — every pair is still priced, and the ceiling
-    # pass is still one row per pair over the whole rim.
-    # RULINGS 2026-09-14au RE-FOUNDS THE SKIRT'S CAP: v2settle's stage-2
-    # certificate PROVED the 1 % skirt ceiling and a fixed apron rim
-    # mutually infeasible (KCLT 143 rows, 26.4 m over 179 columns), and
-    # the airside never yields — so the SKIRT row is priced at
-    # ``pad_skirt_max_slope`` (5 %) while the CORE keeps cap 0 and the
-    # ceiling pass keeps ``pad_slope_max``.
+    # RE-FOUNDED AGAIN, AND BACK TO 09c (owner RULINGS 2026-09-14ay,
+    # confirmed 14bn; lane ``v2padjoin`` round 3).  The skirt is
+    # WITHDRAWN: a pad touching an apron takes the apron's level along
+    # the shared edge and stays ONE PLANE within its 1 % ceiling, so the
+    # cap-0 plate is the pad's over EVERY pair again — the vertices it
+    # shares with airside included, which is what 09c/10y always said and
+    # what 14aj/14al/14au had carved out.  What made the carve-out
+    # necessary was a rigid plane meeting a CURVED apron edge; §30 (4)'s
+    # collar answers that on the APRON's side instead, and with a collar
+    # there is nothing for a skirt to absorb.
     ceiling = law.tables.emit.within_shape.pad_slope_max
-    # ... AND THE RELAXATION IS §20b's (lane v2padvert, measured): armed
-    # under the SINGLE solve the two-sided skirt pulls the airside — the
-    # CYXY lockstep twin reads 2 ``runway_transverse`` rows at 5 % and 0
-    # at 1 % — so ``skirt_ceiling`` is ``pad_slope_max`` unless
-    # ``[design] staged_solve`` makes the airside a constant.  Both arms
-    # are asserted here; the fixture's law is the shipped one.
-    staged = bool(law.tables.emit.design.staged_solve)
-    skirt_ceiling = (max(ceiling,
-                         law.tables.emit.within_shape.pad_skirt_max_slope)
-                     if staged else ceiling)
-    import dataclasses as _dcx
-    _on = _dcx.replace(law.tables.emit.design, staged_solve=True)
-    _law_on = _dcx.replace(law, tables=_dcx.replace(
-        law.tables, emit=_dcx.replace(law.tables.emit, design=_on)))
-    _caps = {r.cap for r in pads.pad_flats(pm, _law_on, airport)}
-    assert _caps <= {0.0, law.tables.emit.within_shape.pad_skirt_max_slope}, _caps
     assert flats and all(isinstance(r, Diff) for r in flats)
-    assert {r.cap for r in flats} <= {0.0, skirt_ceiling}
-    # §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): the ceiling-
-    # capped flat rows are the SKIRT BAND's — every pad vertex within
-    # ``[placement] pad_skirt_m`` of a vertex the pad SHARES with an
-    # airside face, the shared ones included — and the cap-0 rows are
-    # the RIGID CORE beyond it.  (Before 14al the band was the shared
-    # vertices alone; the band is what 14al widened it to.)
-    skirt = [r for r in flats if r.cap == skirt_ceiling]
-    air = pads.airside_vertices(pm, law)
-    # the band ships at 0 — the shared vertices ALONE (round 4's scope,
-    # measured the better of the two on every airside bar); a positive
-    # value widens it to every pad vertex within it of a shared one
-    band = float(law.tables.structures.placement.pad_skirt_m)
-    xy = {v: q.xy for v, q in pm.vertices.items()}
-    near = set(air) if band <= 0.0 else {
-        v for v in xy
-        if v in air or any((xy[v][0] - xy[w][0]) ** 2
-                           + (xy[v][1] - xy[w][1]) ** 2 <= band * band
-                           for w in air if w in xy)}
-    assert all(r.a in near or r.b in near for r in skirt), skirt[:2]
-    # ... and where the band leaves no PLATE — a pad smaller than
-    # ``pad_skirt_m``, which is most of them and is this fixture's — the
-    # pad FALLS BACK to the two-sided cap-0 plate it has always had and
-    # nothing is a skirt.  The two states are the law; a pad in neither
-    # would be one whose core is a plate AND whose cap-0 rows reach the
-    # band, which is what the assertion below forbids.
-    if skirt:
-        assert all(r.a not in near and r.b not in near
-                   for r in flats if r.cap == 0.0)
-    else:
-        assert all(r.cap == 0.0 for r in flats)
+    assert {r.cap for r in flats} == {0.0}, {r.cap for r in flats}
+    # the ceiling pass is the SAME pair set at the 1 % cap — one row per
+    # pair over the whole rim, nothing withdrawn
     assert len(ceil) == len(flats)
-    # 14au: the ceiling pass prices the SKIRT at ``pad_skirt_max_slope``
-    # too — it asks the same function, so the two passes can never
-    # disagree about which pairs are the skirt's
-    assert all(r.cap in (ceiling, skirt_ceiling) for r in ceil)
+    assert {r.cap for r in ceil} == {ceiling}
     assert {v for r in ceil for v in (r.a, r.b)} >= rim
-    # §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): the two-sided
-    # ceiling row over a pair of two AIRSIDE-SHARED vertices is
-    # WITHDRAWN — the airside has already fixed both ends and the row
-    # only let the pad pull them.  So the ceiling pass prices every pair
-    # BUT those; before 14al it was every pair without exception.
-    n_shared = len([v for v in rim if v in air])
-    withdrawn = n_shared * (n_shared - 1) // 2 if skirt else 0
-    assert len(ceil) == len(rim) * (len(rim) - 1) // 2 - withdrawn
+    assert len(ceil) == len(rim) * (len(rim) - 1) // 2
+    # and no row anywhere carries the withdrawn skirt's head
+    assert not any("airside skirt" in r.source.ruling for r in flats + ceil)
     assert {v for r in flats for v in (r.a, r.b)} >= shared.get(pad_face.id, set())
 
 

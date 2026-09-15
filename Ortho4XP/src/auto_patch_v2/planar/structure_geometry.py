@@ -469,6 +469,90 @@ def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: 
                         left_rim, right_rim)
 
 
+#: §33 (6) B: the id prefix ``airport/tunnel_objects.shell_corridor`` mints
+#: for a signature-B corridor.  An id literal, flagged for ``blast.py``.
+OBJECT_CUT_PREFIX = "object-cut:"
+
+
+def seed_wall_stations(ss: list[float], c) -> list[float]:
+    """§33 (6) C2' A BAND IS A POLYLINE (RULINGS 2026-09-15x): where the
+    pack's wall CURVES, the station set keeps the WALL'S OWN vertices.
+
+    ``emit.chords.station_spacing_m`` is 12 m, and a 12-24 m chord across
+    a curved inner face cuts the corner — measured LEMD `Bridge4.obj`
+    (owner 15e item 6): the emitted ramp stood 0.46-4.09 m off the
+    corridor's own inner faces (4 vertices over 0.75 m) and the rim
+    0.51-11.53 m (21 over), on a corridor whose record carries 63
+    stations at 2 m.  Seeding them costs a STRAIGHT corridor nothing:
+    §34 (7)'s collapse takes the redundant ones straight back out."""
+    if c is None or not getattr(c, "stations", ()):
+        return ss
+    return sorted(set(ss) | {float(st.s) for st in c.stations})
+
+
+def ring_for(c, axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,
+             grid: float, g, half_fn=None) -> "RampGeometry | None":
+    """The corridor's ring: the OBJECT'S OWN TRENCH POLYGON for a
+    signature-B object cut (§33 (6) B — see
+    :func:`geometry_from_trench`), else :func:`geometry`'s axis offset."""
+    if c is not None and str(getattr(c, "id", "")).startswith(OBJECT_CUT_PREFIX):
+        gm = geometry_from_trench(axis_fn, ss, half, grid, c.trench, c.footprint, half_fn)
+        if gm is not None:
+            return gm
+    return geometry(axis_fn, ss, half, rim_off, inward, grid, g.capped, g.far_capped,
+                    half_fn, g.rim_fn, g.cap_off, g.far_off)
+
+
+def geometry_from_trench(axis_fn, ss: list[float], half: float, grid: float,
+                         trench, footprint, half_fn=None) -> "RampGeometry | None":
+    """§33 (6) B: THE RING IS THE OBJECT'S OWN TRENCH POLYGON (owner
+    RULINGS 2026-09-15g; Fable / RULINGS 2026-09-15x), not an axis offset.
+
+    :func:`_geometry_at` builds a corridor's ramp by offsetting its AXIS
+    by the half widths.  That folds on a HAIRPIN and the whole corridor
+    is refused — measured at VHHH, where `tunnel5_done` (the owner's site
+    22.3038632, 113.9088362: a 413 m U-turn ramp) and `TUNNEL2_DONE` (a
+    1,110 m multi-portal shell) were both lost that way, their readings
+    correct (floor 1.30 against the authored 1.31, trench 9,290 m²).  A
+    shell STATES its trench: the plan union of its non-vertical faces,
+    bounded by its own per-band wall line.  So the ramp face IS that
+    polygon and the rim ring IS the object's footprint — no offset, no
+    fold, and the cut cannot leave the object by construction.
+
+    The per-station ``axis`` / ``left`` / ``right`` arrays are still the
+    offsets: the profile is pinned per station and the mouth strip reads
+    the first pair, and a folded RING never made those numbers wrong."""
+    axis = [axis_fn(s) for s in ss]
+    if len(axis) < 2:
+        return None
+    nrm = normals(axis)
+    hl = [half_fn(s)[0] for s in ss] if half_fn is not None else [half] * len(ss)
+    hr = [half_fn(s)[1] for s in ss] if half_fn is not None else [half] * len(ss)
+    left = [snap_out((p[0] + nv[0] * h, p[1] + nv[1] * h), p, grid)
+            for p, nv, h in zip(axis, nrm, hl)]
+    right = [snap_out((p[0] - nv[0] * h, p[1] - nv[1] * h), p, grid)
+             for p, nv, h in zip(axis, nrm, hr)]
+    ramp = _one_polygon(trench)
+    outer = _one_polygon(footprint)
+    if ramp is None or outer is None:
+        return None
+    if not outer.contains(ramp):
+        outer = _one_polygon(unary_union([outer, ramp]))
+        if outer is None:
+            return None
+    wall = outer.difference(ramp)
+    return RampGeometry(axis, nrm, left, right, ramp, wall, outer, [], [], [], [],
+                        list(left), list(right))
+
+
+def _one_polygon(geom):
+    """One valid Polygon, or ``None`` — the same repair the object reader
+    makes (``airport/object_cut.valid_polygon``), never a second
+    spelling."""
+    from ..airport import object_cut as _oc
+    return _oc.largest_polygon(geom)
+
+
 def geometry(axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,
              grid: float, capped: bool = True, far_capped: bool = False, half_fn=None,
              rim_fn=None, cap_off: float | None = None, far_off: float | None = None

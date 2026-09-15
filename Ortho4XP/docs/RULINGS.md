@@ -7646,3 +7646,28 @@ workers exited), NO 1.0.341 build per the owner; `--refresh-data
 osm_layers` per tile started on the owner's explicit word (VMMC/+22+113
 first, then LEMD, HECA, KCLT, OTHH, CYXY), one task per tile.
 15ah addendum: suite ON MAIN after the v2padqp r2 merge (348f80a4): 1639 passed, 1 skipped, 42 warnings in 75.63s (0:01:15). The first refresh chain (six tiles in one 600 s task) was stopped before it wrote anything; it left its own `osm_layers.lock` (pid 49618, dead) which the session removed — one refresh task per tile from here.
+
+## 2026-09-15aj v2vmmcshore r3 MERGED (39bb0288 → ac3699a1): (4)'s crosses-the-bore limb REFUTED (it dropped all 7 LEMD decks — a deck crosses the TRENCH, not the bore) and deleted; the alongside limb stands with its twin; RULED §34 (12) (4) AMENDED: a deck severs only where the corridor is still BELOW GRADE at its station (r4). The osm_layers refresh WROTE NOTHING — a schema-stale layer is "present"; the peer's refuse-guard follow-up
+
+Lane @ 39bb0288; suite 1,640 passed, 0 FAILED. (a) as shipped, `bores`
+only armed the alongside limb; the bore's geometry was never tested.
+`tunnel:-2488@0` (bore −2488, 36.6 m; approach walk 604.2 m): decks
+`-1798` (137.2 m from the bore, s = 214.8) and `-3636` (46.7 m, s =
+308.7) both "sever" → `climb_from_s` 559.2 on `top_s` 468 → flat 1.00 m
+for 381 m (5.10 m at 8 % = 63.8 m). (b) with the literal limb: VMMC
+decks none, `top_s` 84 m, `clipped_by` none, tunnels 5 → 13 (short
+ramps stop overlapping), ramp+rim on the sea 0.0 m², nearest ramp 74 →
+188 m from the probe; ADJUDICATED 53 → 57. (c) LEMD decks 7 → 0 (every
+ramp named: `-6288`'s 96 → 24 m …), OTHH 44 / 1 unchanged → the limb
+deleted, base-identical dry arms (VMMC 5/10, LEMD 55/7, OTHH 44/1);
+twin pins the limb's ABSENCE. RULED (Fable): a deck severs only where
+the corridor is still below grade at its station — the ramp cap is the
+number; r4 implements. REFRESH: `build_airport.py VMMC --refresh-data
+osm_layers` on main: rc 0 in 23 s, "refresh AUTHORISED … wrote NOTHING
+— the artifact was already present"; the layer's mtime unchanged (Aug
+10, schema 2026-07-16); a plain build REFUSES again. The refresh path
+does not regenerate a present-but-stale layer while the engine no
+longer rewrites it — reported to the peer (v2schemarefuse's owner);
+until it lands, no closing build on any tile but +40-004. The owner
+(away) authorised the session to quit the app and run the refreshes;
+no 1.0.341 build ("complete the open lanes first").

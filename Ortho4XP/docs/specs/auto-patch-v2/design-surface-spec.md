@@ -14091,3 +14091,30 @@ shell (its rim tops out at grade, §24 (1)) and is NEVER a channel's (1)(c) witn
 channel left without a depth witness then faces (13)(c) (LEMD's `channel:5`: neck + one
 deck → refused). BAR: the six dry replays byte-identical in `Tunnel` AND `Basin` records
 (LEMD basins 1 → 1); LGAV unchanged; the suite; then the merge.
+
+## §34 (12) (4) AMENDED — A BRIDGE SEVERS THE CLIMB ONLY WHERE THE CORRIDOR IS STILL BELOW GRADE (Fable 2026-09-15; RULINGS 2026-09-15aj; lane v2vmmcshore r3 measurement) — lane `v2vmmcshore` r4
+
+r3 measured the two limbs of (4).  The ALONGSIDE limb (a `bridge=yes`
+way whose run inside the corridor exceeds `_DECK_ALONGSIDE_MAX` × its
+carriageway width is not an over-crossing) stands.  The CROSSES-THE-BORE
+limb is REFUTED and deleted: a LEMD deck crosses the TRENCH the ramp
+digs, not the short mapped bore (`bridge_deck:-6288` — the §33 (4) deck
+of 14bp item 10 — is 137 m from a 36.6 m bore), so the literal limb
+dropped all seven LEMD decks (7 → 0); it reversed §33 (4) by the side
+door.  What separates VMMC from LEMD, measured: VMMC's `tunnel:-2488@0`
+needs 63.8 m to reach grade (5.10 m at 8 %) and its two "severing" decks
+stand at s = 214.8 / 308.7 m — beyond the station where the climb would
+already have reached grade, where there is no trench for a bridge to
+span; they set `climb_from_s` = 559.2 m on a ramp whose stop is 468 m,
+so the floor stayed at 1.00 m for 381 m.  RULED: **a deck severs the
+climb only where the corridor is still BELOW GRADE at the deck's
+station**.  Decks are taken in station order from the mouth: the climb
+runs from the last covered end at the ramp cap; a deck whose near edge
+lies at or before the station where that climb reaches grade extends
+the covered run (the climb restarts beyond its far edge); a deck beyond
+that station is not a crossing of this corridor and is ignored.  The
+number is the ramp cap itself (`ramp_max_grade`), no new key.  Expected
+(r3's arm): VMMC `-2488@0` decks none, `top_s` 84 m, the corridor no
+longer reaching pav5, ramp+rim on the sea 0.0 m², nearest ramp 188 m
+from the owner's probe; LEMD keeps its 7 decks (each deck's station vs
+its ramp's climb-to-grade station named); OTHH 44 / 1 deck unchanged.

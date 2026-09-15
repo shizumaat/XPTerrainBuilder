@@ -55,7 +55,8 @@ from . import obj8 as _obj8
 
 __all__ = ["ObjectCut", "SHELL", "CRESTED", "THIN", "shell_reading", "read_shells",
            "thin_bands", "band_pair", "band_pairs", "wall_polyline",
-           "chord_error_m", "cut_placement_ids", "ObjectCutStats"]
+           "chord_error_m", "cut_placement_ids", "ObjectCutStats",
+           "valid_polygon", "largest_polygon"]
 
 #: The three signatures, by name (the record's ``signature`` field).
 CRESTED, SHELL, THIN = "A", "B", "C"
@@ -167,13 +168,58 @@ def _plan_segments(v: np.ndarray, tris: np.ndarray) -> list[LineString]:
     return out
 
 
-def _largest_part(geom):
-    if geom.is_empty:
+def valid_polygon(geom):
+    """A VALID polygonal geometry, or ``None``.
+
+    THE CRASH THIS EXISTS FOR (main, LGAV, 2026-09-15): a wall-band ring
+    that self-intersects reaches ``shapely.ops.unary_union`` and GEOS
+    raises ``TopologyException: side location conflict at
+    -1286.509 -1775.049`` — the whole structure replay dies, and with it
+    the tile build.  A pack's walls are authored geometry: a band that
+    crosses itself (LGAV's Trench walls) is ordinary input, not a defect
+    to assert on, so EVERY polygon this reader builds from wall bands is
+    repaired first.
+
+    ``make_valid`` returns whatever it can — a Polygon, a MultiPolygon, a
+    GeometryCollection with stray lines — so the polygonal parts are kept
+    and the rest dropped; a caller that needs ONE polygon asks
+    :func:`largest_polygon`.  Never assume the type of what comes back."""
+    if geom is None or geom.is_empty:
+        return None
+    if not geom.is_valid:
+        try:
+            geom = shapely.make_valid(geom)
+        except Exception:                                  # pragma: no cover
+            try:
+                geom = geom.buffer(0)
+            except Exception:
+                return None
+    if geom is None or geom.is_empty:
         return None
     if geom.geom_type == "Polygon":
         return geom
-    parts = [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon"]
-    return max(parts, key=lambda g: g.area) if parts else None
+    parts = [g for g in shapely.get_parts(geom)
+             if g.geom_type in ("Polygon", "MultiPolygon") and not g.is_empty]
+    if not parts:
+        return None
+    out = unary_union(parts)
+    return None if out.is_empty else out
+
+
+def largest_polygon(geom):
+    """The largest POLYGON of :func:`valid_polygon`'s result, or ``None``."""
+    g = valid_polygon(geom)
+    if g is None:
+        return None
+    if g.geom_type == "Polygon":
+        return g
+    parts = [q for q in shapely.get_parts(g) if q.geom_type == "Polygon"]
+    return max(parts, key=lambda q: q.area) if parts else None
+
+
+def _largest_part(geom):
+    """The largest polygon, REPAIRED first (see :func:`valid_polygon`)."""
+    return largest_polygon(geom)
 
 
 # ── signature B: the shell ───────────────────────────────────────────────
@@ -312,9 +358,11 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
     # line"): the wall faces' plan segments widened to the law's own wall
     # thickness, so the stations can read a thickness at every point and
     # ``object_cut_offset`` has a region to measure against.
-    band = unary_union([s.buffer(ob.wall_face_max_thickness_m / 2.0,
-                                 cap_style="flat", join_style="mitre")
-                        for s in segs]).buffer(0)
+    band = valid_polygon(unary_union([
+        s.buffer(ob.wall_face_max_thickness_m / 2.0, cap_style="flat", join_style="mitre")
+        for s in segs]))
+    if band is None:
+        return "the shell's wall band has no valid plan area"
     return ShellReading(floor_y, floor_area, extra, interior, band,
                         tuple(chain_a), tuple(chain_b), ends, float(length),
                         float(interior.area / max(length, 1e-9)))

@@ -491,8 +491,21 @@ def _bore_ends_at(walls: WallLines, axis: list[XY], tunnel_ways, tol: float
     2026-09-08o: ``tol`` = ``bore_end_tolerance_m``), or — for a bore
     with NO end inside, one passing through — whose LINE crosses that
     end's line (a box on the bore)."""
-    region = unary_union([walls.plate, Polygon(list(walls.inner_a) + list(reversed(walls.inner_b)))
-                          ]).buffer(tol)
+    # EVERY POLYGON BUILT FROM WALL BANDS IS REPAIRED FIRST (the LGAV
+    # crash, 2026-09-15): the inner faces are AUTHORED polylines, and a
+    # wall that crosses itself makes this ring self-intersecting — GEOS
+    # then raises ``TopologyException: side location conflict`` inside
+    # ``unary_union`` and the whole structure replay dies.
+    inner = _object_cut.valid_polygon(
+        Polygon(list(walls.inner_a) + list(reversed(walls.inner_b))))
+    plate = _object_cut.valid_polygon(walls.plate)
+    parts = [g for g in (plate, inner) if g is not None]
+    if not parts:
+        return ([], [])
+    region = _object_cut.valid_polygon(unary_union(parts))
+    if region is None:
+        return ([], [])
+    region = region.buffer(tol)
     ln = LineString(axis)
     out: tuple[list[int], list[int]] = ([], [])
     for w in tunnel_ways:
@@ -739,9 +752,9 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
     UNAUTHORED bores only)."""
     ob = law.tables.structures.tunnel.object
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    band = cut.wall_line
-    if getattr(band, "is_empty", True):
-        return "the shell's wall band has no plan area"
+    band = _object_cut.valid_polygon(cut.wall_line)
+    if band is None:
+        return "the shell's wall band has no valid plan area"
     mean_t = 2.0 * band.area / max(band.length, 1e-9)
     walls = WallLines(band, list(cut.inner_a), list(cut.inner_b), (False, False),
                       (0.0, 0.0), float(mean_t), "II")
@@ -791,11 +804,12 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
     if not samples:
         return "no DEM at the shell's mouth"
     mouth_dem = float(np.median(samples))
-    trench = cut.outline
-    footprint = unary_union([band, trench])
-    if footprint.geom_type != "Polygon":
-        footprint = max((g for g in footprint.geoms if g.geom_type == "Polygon"),
-                        key=lambda g: g.area)
+    trench = _object_cut.largest_polygon(cut.outline)
+    if trench is None:
+        return "the shell's trench has no valid plan area"
+    footprint = _object_cut.largest_polygon(unary_union([band, trench]))
+    if footprint is None:
+        return "the shell's footprint has no valid plan area"
     depth = float(mouth_dem - cut.floor_z)
     width = 2.0 * sum((s.half_l + s.half_r) / 2.0 for s in sts2) / len(sts2)
     notes.append(f"depth {depth:.2f} m = ground {mouth_dem:.2f} − the AUTHORED floor "

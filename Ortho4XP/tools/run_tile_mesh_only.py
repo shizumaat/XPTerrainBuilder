@@ -187,8 +187,25 @@ if __name__ == "__main__":
     print("build input set:", input_scope.record(), flush=True)
 
     # Nothing is authorised: this entry has no --refresh-data of its own.
+    # THE OWNER'S PACKS (RULINGS 2026-09-15av + 15bb).  This entry runs
+    # step 2, and ``O4_Mesh_Utils.build_mesh`` is the ONE caller of
+    # ``rebake_after_mesh`` — the object stage whose write half rewrote
+    # two live packs on 2026-09-15.  ``redirect_engine_caches`` above
+    # already set ``O4_PACK_WRITES=measure_only`` for it; the guard and
+    # the snapshot are the other two halves, and both come from the
+    # build entry's own implementation, never a second arrangement.
+    from build_airport import xplane_install_roots        # noqa: E402
+    from shared_repo_guard import (install_snapshot,       # noqa: E402
+                                   pack_roots_for_tile)
+    _install = xplane_install_roots()
+    pack_roots = (pack_roots_for_tile(latitude, longitude, _install[0])
+                  if _install else ())
+    print(f"X-Plane pack(s) carrying this tile, snapshotted: "
+          f"{len(pack_roots)}", flush=True)
     before = shared_repo_snapshot()
-    guard = SharedRepoWriteGuard(set(), os.getcwd())
+    before.update(install_snapshot(pack_roots))
+    guard = SharedRepoWriteGuard(set(), os.getcwd(),
+                                 install_roots=_install)
     try:
         with guard:
             for step_name, step in (
@@ -208,7 +225,9 @@ if __name__ == "__main__":
     finally:
         # The audit runs even when a step raised — a build that died
         # halfway has still changed the corpus every other lane reads.
-        changes = snapshot_diff(before, shared_repo_snapshot())
+        _after = shared_repo_snapshot()
+        _after.update(install_snapshot(pack_roots))
+        changes = snapshot_diff(before, _after)
         # ``blocked`` MUST ride along: a run whose own guard blocked
         # anything externalises NOTHING (the whole-run veto).
         offenders = report_unauthorised_writes(

@@ -82,7 +82,13 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # TERMINAL CLUSTER's pad takes the pad's plane as its target, at the
     # law's own weight — the caps and the taxi family still win, and the
     # reach never touches a taxiway band's own vertices.
-    ("cluster_apron_level", cluster_pad.cluster_apron_level),
+    # §30 (4) AS RULED 2026-09-14bk: the COLLAR is flattened by the
+    # AIRSIDE solve (apron law, stage 1's own rows, no pad vertex in
+    # any of them) and the pad's plate then EQUALS that fixed plane in
+    # stage 2.  The one-way preference (13cc) and the pad-to-collar
+    # join (14bf) were both measured and refuted — see the functions.
+    ("cluster_apron_plane", cluster_pad.cluster_apron_plane),
+    ("cluster_pad_takes_collar", cluster_pad.cluster_pad_takes_collar),
     ("frontage_near_miss", pads.frontage_near_miss),
     # §28 THE GROUNDSIDE FRONTAGE TAKES THE PAD'S EDGE LEVEL (owner RULINGS
     # 2026-09-11ai-1 -> 2026-09-12r "grade frontages only"): §20's frontage

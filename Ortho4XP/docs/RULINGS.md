@@ -6659,3 +6659,28 @@ Global Scenery DSFs are 7z-compressed and DSFTool segfaults on them.
   fails; the first error's text names the expected subdirectory. Twin:
   a 7z-wrapped DSF fixture dumps; a plain one dumps unchanged. Then the
   owner's build: OTHH with `texture_mode = default_xplane`.
+
+## 2026-09-14bv v2dsf7z MERGED (e82e533f): 7z REFUTED — DSFTool decompresses 7z DSFs itself; the SIGSEGV is the 2026-07-16 PROJ `pthread_atfork` fork crash (the child dies before exec) at the last external-tool launch in the engine not passing `external_tool_keyword_arguments()`; the Global Scenery path accepts the pack's parent
+
+Lane `v2dsf7z` @ e82e533f (85 twins on the covering files; 1,595 on
+main). Both DSFTool binaries (repo universal, app arm64 — the one in
+the log line) dump the owner's 7z default DSF with rc 0 (43.4 MB text)
+from a shell. The crash report (`~/Library/Logs/DiagnosticReports/
+Ortho4XP-2026-09-14-221801.ips`): `_os_log_preferences_refresh` ←
+`sqlite3 unixClose` ← `osgeo::proj VFSClose` — the frozen engine's
+`fork()` child dying in PROJ's atfork handler before `exec`, so Python
+reports "DSFTool died with SIGSEGV". `dsf_reader.ensure_dsf_text_path`
+now passes `UI.external_tool_keyword_arguments()` on both launches
+(the fix every other tool launch carries since 07-16). Also
+`O4_Default_Terrain_Map.from_tile` tries `<root>/X-Plane 12 Global
+Scenery` (and the XP11 / Demo Areas names) one level down and the
+error names the expected layout — the owner's one-level-high setting
+now works (47 terrains, 91,825 triangles). The drafted 7z extractor
+was reverted — a refuted mechanism is not shipped (14bu's attribution
+withdrawn). Not proved by a tile build: the crash is frozen-app and
+fork-path dependent (a venv arm cannot reproduce it) — the owner's
+1.0.339 default-texture tile IS the closing test: the `[dsf-reader]
+WARN … SIGSEGV` and `ERROR during DSF construction` lines gone.
+
+* Chip: `src/auto_patch/provenance.py:81,95` launch `git` with bare
+  `subprocess.run` — the same latent class (silent provenance loss).

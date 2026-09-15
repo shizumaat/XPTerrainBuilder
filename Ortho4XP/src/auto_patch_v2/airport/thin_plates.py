@@ -51,7 +51,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..model.airport import Airport
+from ..model.airport import Airport, WayId
 from ..model.frame import XY
 from . import obj8 as _obj8
 from . import object_cut as _object_cut
@@ -81,8 +81,8 @@ class WallPlate:
     top_y_m: float
     top_z: float | None
     #: the mapped ways this plate governs, and the metres of each under it
-    bore_ways: tuple[tuple[int, float], ...] = ()
-    bridge_ways: tuple[tuple[int, float], ...] = ()
+    bore_ways: tuple[tuple[WayId, float], ...] = ()
+    bridge_ways: tuple[tuple[WayId, float], ...] = ()
     #: §33 (6) C RE-FOUNDED (RULINGS 2026-09-15x): the object's own THIN
     #: SURFACE BANDS in the airport frame (``object_cut.ThinBand``) and
     #: the parallel PAIRS among them (``(A, B, inner spacing m)``).  A
@@ -164,7 +164,7 @@ def _under(plan: Polygon, ways, lines, tree, axis: LineString | None = None
     bore under a corridor has and a road merely CROSSING a slab has not
     (measured LEMD ``STRT4.obj``, a 750 x 89 m ground slab: seven bores
     cross its 89 m width for ~86 m each, none of them along it)."""
-    out: list[tuple[int, float]] = []
+    out: list[tuple[WayId, float]] = []
     for j in (tree.query(plan, predicate="intersects") if tree is not None else ()):
         w, inter = ways[int(j)], lines[int(j)].intersection(plan)
         if inter.is_empty or inter.length <= 0.0:
@@ -173,7 +173,7 @@ def _under(plan: Polygon, ways, lines, tree, axis: LineString | None = None
         if axis is not None:
             ss = [axis.project(Point(q)) for g in _lines(inter) for q in g.coords]
             run = (max(ss) - min(ss)) if ss else 0.0
-        out.append((int(w.id), run))
+        out.append((w.id, run))
     out.sort(key=lambda t: -t[1])
     return out
 

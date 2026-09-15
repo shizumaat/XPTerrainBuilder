@@ -545,6 +545,56 @@ CUTTING_WITNESS_TAGS = ("layer", "cutting", "covered", "tunnel", "embankment")
 ROAD_TAG_SCHEMA = "2026-09-15"
 
 
+#: The cached layer names the engine reads (``auto_patch_v2.airport.osm.
+#: FEEDS`` plus the coastline), as they appear in a cache file's name:
+#: ``+40-004_big_roads.osm.bz2`` -> ``big_roads``.
+FEED_NAMES = ("airport_small_roads", "big_roads", "airports", "coastline")
+
+
+def feed_name_of(path: str) -> str | None:
+    """Which cached LAYER a file is, from its name (``+40-004_big_roads.
+    osm.bz2`` -> ``big_roads``), or ``None`` for a file that is not one
+    (an emitted patch, a DSF road sidecar) — the name the engine's
+    feed-qualified way ids carry (``big_roads:+40-004:-6288``)."""
+    base = os.path.basename(path)
+    for name in FEED_NAMES:              # longest first: small_roads before roads
+        if f"_{name}.osm" in base:
+            return name
+    return None
+
+
+#: A cached tile's name, ``+40-004`` (``{lat:+03d}{lon:+04d}``).
+_TILE = r"[+-]\d{2}[+-]\d{3}"
+_TILE_RE = re.compile(_TILE)
+#: One member of a ``tunnel:<a>+<b>@<k>`` id: an optional feed, an optional
+#: tile, the export's own id (a §25 stitched ring keeps ``#k``).
+_MEMBER = rf"(?:[A-Za-z_]+:)?(?:{_TILE}:)?-?\d+(?:#\d+)?"
+_TUNNEL_MEMBER = re.compile(_MEMBER)
+#: The whole member list of an OSM-bore tunnel id; an OBJECT corridor's
+#: id (``tunnel-object:<resource>@k``) never matches and names no bore.
+_TUNNEL_MEMBERS = re.compile(rf"{_MEMBER}(?:\+{_MEMBER})*")
+
+
+def tile_of(path: str) -> str | None:
+    """The tile a cache file is named for (``+40-004_big_roads.osm.bz2``
+    -> ``+40-004``), or ``None``."""
+    m = re.match(rf"({_TILE})_", os.path.basename(path))
+    return m.group(1) if m else None
+
+
+def split_way_id(way_id) -> tuple[str | None, str | None, str]:
+    """``(feed, tile, raw id)`` of a way id in any of the shapes this repo
+    writes — the engine's feed-qualified ``big_roads:+40-004:-6288``, a
+    tile-namespaced ``+40-004:-6288`` or the bare ``-6288`` — with
+    ``None`` for a field the id does not carry.  The feed is the first
+    field only when it names a cached layer; the tile a field of the
+    tile shape."""
+    parts = str(way_id).split(":")
+    feed = parts[0] if len(parts) >= 2 and parts[0] in FEED_NAMES else None
+    tile = next((q for q in parts[:-1] if _TILE_RE.fullmatch(q)), None)
+    return feed, tile, parts[-1]
+
+
 def deck_witness(structures: dict, feeds: list, schema_ok: dict | None = None
                  ) -> list[dict]:
     """§34 (12) (4)'s WITNESS TABLE (RULINGS 2026-09-15al), one row per
@@ -565,28 +615,46 @@ def deck_witness(structures: dict, feeds: list, schema_ok: dict | None = None
     them would read a stale cache as "no cutting mapped"."""
     # NEGATIVE OSM IDS COLLIDE ACROSS THE FEEDS — the road layers and the
     # airports layer each mint their own, so ``-374`` is BOTH a motorway
-    # bridge and an ``aeroway=taxiway`` at LEMD.  Every copy is kept and
-    # the ROAD-TAGGED one is chosen (``highway`` / ``railway``), with the
-    # collision reported: a table that silently took the first copy read
-    # five of LEMD's eleven decks as tagless at-grade roads.
+    # bridge and an ``aeroway=taxiway`` at LEMD.  Every copy is kept,
+    # KEYED BY ITS FEED (the file's own layer name, ``feed_name_of``) as
+    # well as by the bare id; a structures run written since the engine
+    # qualified its way ids (``big_roads:+40-004:-6288``) names the feed
+    # and the witness reads THAT copy — no tag preference needed.  For an
+    # older run (a bare ``-6288``) the ROAD-TAGGED copy is chosen
+    # (``highway`` / ``railway``), with the collision reported: a table
+    # that silently took the first copy read five of LEMD's eleven decks
+    # as tagless at-grade roads.
     by_id: dict = {}
+    by_feed_id: dict = {}
     for name, nodes, ways in feeds:
+        feed, tile = feed_name_of(name), tile_of(name)
         for wid, nds, tags in ways:
-            by_id.setdefault(str(wid).split(":")[-1], []).append(
-                (name, nodes, nds, tags))
+            _f, _t, raw = split_way_id(wid)
+            entry = (name, nodes, nds, tags)
+            by_id.setdefault(raw, []).append(entry)
+            if feed is not None:
+                by_feed_id.setdefault((feed, tile, raw), []).append(entry)
+                by_feed_id.setdefault((feed, None, raw), []).append(entry)
 
     def _pick(wid, want="bridge"):
         """The copy the STRUCTURE PASS read, among the same-id copies.
 
-        The pass selects its decks with ``is_bridge`` and its bores with
-        ``is_tunnel``, so the witness must select the same way: prefer the
-        copy carrying that tag, then any road-tagged copy, then the
-        first.  At LEMD eight of the eleven deck ids have TWO copies and
-        for five of them the first copy is the AIRPORTS layer's
-        ``aeroway`` way — taking it read a motorway bridge as a
-        taxiway."""
-        copies = by_id.get(str(wid)) or []
+        A FEED-QUALIFIED id (``big_roads:+40-004:-6288``) names its copy
+        exactly: the file of that layer, that raw id.  A bare id falls
+        back to the tag: the pass selects its decks with ``is_bridge`` and
+        its bores with ``is_tunnel``, so the witness prefers the copy
+        carrying that tag, then any road-tagged copy, then the first.  At
+        LEMD eight of the eleven deck ids have TWO copies and for five of
+        them the first copy is the AIRPORTS layer's ``aeroway`` way —
+        taking it read a motorway bridge as a taxiway.  Returns ``(copy,
+        copies of the raw id across every feed, copies carrying the tag)``
+        — the collision count is reported either way."""
+        feed, tile, raw = split_way_id(wid)
+        copies = by_id.get(raw) or []
         tagged = [c for c in copies if want in c[3]]
+        exact = by_feed_id.get((feed, tile, raw)) or by_feed_id.get((feed, None, raw))
+        if feed is not None and exact:
+            return exact[0], len(copies), len(tagged)
         roads = [c for c in copies if "highway" in c[3] or "railway" in c[3]]
         return (tagged or roads or copies or [None])[0], len(copies), len(tagged)
 
@@ -608,8 +676,13 @@ def deck_witness(structures: dict, feeds: list, schema_ok: dict | None = None
 
     out: list[dict] = []
     for t in structures.get("tunnels", []):
-        bore_ids = [b for b in str(t["id"]).split(":")[-1].split("@")[0].split("+")
-                    if b.lstrip("-").isdigit()]
+        # ``tunnel:<members>@<k>``, members joined by ``+``; a member is a
+        # way id in any shape ``split_way_id`` reads — and a feed-qualified
+        # one carries the TILE (``big_roads:+22+113:-101``), whose own
+        # ``+`` signs a plain split on ``+`` would cut, so members are
+        # matched by shape.
+        body = str(t["id"]).split(":", 1)[-1].split("@")[0]
+        bore_ids = _TUNNEL_MEMBER.findall(body) if _TUNNEL_MEMBERS.fullmatch(body) else []
         for note in (t.get("notes") or []):
             if "(12) (4): deck " not in note:
                 continue
@@ -617,6 +690,7 @@ def deck_witness(structures: dict, feeds: list, schema_ok: dict | None = None
             entry, n_copies, n_roads = _pick(wid, "bridge")
             row = {"tunnel": t["id"], "deck_way": wid,
                    "deck_feed": None if entry is None else entry[0],
+                   "deck_feed_named": split_way_id(wid)[0] is not None,
                    "deck_tags": None if entry is None else dict(entry[3]),
                    "deck_length_m": _len_m(entry),
                    "deck_witness": _witness(entry),

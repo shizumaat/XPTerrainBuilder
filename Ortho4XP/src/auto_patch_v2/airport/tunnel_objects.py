@@ -72,7 +72,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..model.airport import Airport
+from ..model.airport import Airport, WayId
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
 from . import object_cut as _object_cut
@@ -188,7 +188,7 @@ class Corridor:
     floor_y: float | None = None
     #: The OSM tunnel way ids whose END stands at a mouth of this corridor
     #: (08o: those mouths PAIR with the corridor in ``planar/structures``).
-    bore_ways: tuple[int, ...] = ()
+    bore_ways: tuple[WayId, ...] = ()
 
 
 @_dc.dataclass
@@ -483,7 +483,7 @@ def _bore_near(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, tree: STRtree 
 
 
 def _bore_ends_at(walls: WallLines, axis: list[XY], tunnel_ways, tol: float
-                  ) -> tuple[list[int], list[int]]:
+                  ) -> tuple[list[WayId], list[WayId]]:
     """Per end ``(0, 1)``: the ids of the OSM tunnel ways whose mapped END
     stands inside the corridor ⊕ ``tol`` nearer that end (the bore dips
     under the ground there: OTHH's bores end 3–20 m inside the closed
@@ -507,7 +507,7 @@ def _bore_ends_at(walls: WallLines, axis: list[XY], tunnel_ways, tol: float
         return ([], [])
     region = region.buffer(tol)
     ln = LineString(axis)
-    out: tuple[list[int], list[int]] = ([], [])
+    out: tuple[list[WayId], list[WayId]] = ([], [])
     for w in tunnel_ways:
         line = LineString(w.points)
         inside = [e for e in (w.points[0], w.points[-1]) if region.contains(Point(e))]
@@ -616,7 +616,7 @@ def _oriented(walls: WallLines, axis: list[XY], sts: list[Station], mouth: int,
     return out_axis, out_st
 
 
-def _road_through(trench: Polygon, ways) -> list[int]:
+def _road_through(trench: Polygon, ways) -> list[WayId]:
     """The mapped highway / railway ways (tunnel or not) whose line runs
     through the trench — a closed-end fallback needs one (2026-09-08o)."""
     out = []

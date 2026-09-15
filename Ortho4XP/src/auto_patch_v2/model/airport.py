@@ -178,14 +178,25 @@ class Startup:
     kind: str
 
 
+#: An OSM way's key as the loader mints it (``airport/osm.qualified_id``):
+#: ``<feed>:<tile>:<raw>``, e.g. ``big_roads:+40-004:-6288``.  The feed IS
+#: part of the key because every cached layer mints its own negative ids
+#: (RULINGS 2026-09-15ap): keyed on the bare ``-6288``, a dict holds one
+#: of the taxiway and the bridge and drops the other.  Synthetic fixtures
+#: may still pass a bare int; no consumer casts the id — it is a key.
+WayId = str
+
+
 @_dc.dataclass(frozen=True)
 class OsmWay:
     """An OSM way with the TAGS OF INTEREST only: ``highway``,
     ``bridge``, ``tunnel``, ``layer``, ``aeroway``, ``building``,
     ``service``, ``access``, ``name``.  Roads (big/small feeds) and
-    airport-area ways share this type; ``kind`` says which feed."""
+    airport-area ways share this type; ``kind`` says which feed and
+    ``id`` is the feed-qualified :data:`WayId` (never the bare export
+    id: three layers mint the same negatives)."""
 
-    id: int
+    id: WayId
     kind: str
     points: tuple[XY, ...]
     closed: bool

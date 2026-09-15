@@ -687,3 +687,50 @@ def test_the_deck_witness_prices_no_law_and_names_the_bores():
     assert rows[0]["bore_witness"]["-5507"]["tunnel"] == "yes"
     assert rows[0]["bore_witness"]["-5507"]["layer"] == "-1"
     assert rows[0]["bore_witness"]["-5508"]["tunnel"] is None
+
+
+def test_a_feed_qualified_deck_id_reads_ITS_layer_not_the_tagged_copy(tmp_path):
+    """Since the engine keys its ways ``<feed>:<tile>:<raw>`` (RULINGS
+    2026-09-15ap), a structures note names the layer the pass read.  Two
+    ROAD layers both carrying a ``bridge=yes`` ``-5`` are indistinguishable
+    by tag; the feed in the id picks the copy, the collision count is
+    still reported, and an old bare-id note keeps the tag fallback."""
+    small = str(tmp_path / "+40-004_airport_small_roads.osm")
+    big = str(tmp_path / "+40-004_big_roads.osm")
+    nodes = {"1": (40.0, -3.0, None, {}), "2": (40.0, -3.001, None, {}),
+             "3": (40.001, -3.0, None, {}), "4": (40.001, -3.001, None, {})}
+    feeds = [(small, nodes, [("-5", ["1", "2"], {"bridge": "yes", "highway": "service",
+                                                  "lanes": "1"})]),
+             (big, nodes, [("-5", ["3", "4"], {"bridge": "yes", "highway": "secondary",
+                                                "lanes": "4"}),
+                           ("-101", ["1", "3"], {"tunnel": "yes", "highway": "secondary"})])]
+    assert osm_site.feed_name_of(small) == "airport_small_roads"
+    assert osm_site.feed_name_of(big) == "big_roads"
+    assert osm_site.feed_name_of("patch.osm") is None
+    assert osm_site.split_way_id("big_roads:+40-004:-5") == ("big_roads", "+40-004", "-5")
+    assert osm_site.split_way_id("+40-004:-5") == (None, "+40-004", "-5")
+    assert osm_site.split_way_id(-5) == (None, None, "-5")
+    assert osm_site.tile_of(big) == "+40-004" and osm_site.tile_of("patch.osm") is None
+    note = "§34 (12) (4): deck {} at s 1.0..2.0 — tag witness bridge; DEM cut 0.80 m — SEVERS"
+    rows = osm_site.deck_witness(
+        {"tunnels": [{"id": "tunnel:big_roads:+40-004:-101+big_roads:+40-004:-102@1",
+                      "notes": [note.format("big_roads:+40-004:-5")]}]}, feeds)
+    r = rows[0]
+    assert r["deck_feed"] == big and r["deck_tags"]["lanes"] == "4"
+    assert r["id_copies"] == 2 and r["deck_feed_named"] is True
+    assert r["bore_ways"] == ["big_roads:+40-004:-101", "big_roads:+40-004:-102"]
+    assert r["bore_witness"]["big_roads:+40-004:-101"]["tunnel"] == "yes"
+    assert r["bore_tags"]["big_roads:+40-004:-102"] is None
+    small_row = osm_site.deck_witness(
+        {"tunnels": [{"id": "tunnel:-101@0",
+                      "notes": [note.format("airport_small_roads:+40-004:-5")]}]}, feeds)[0]
+    assert small_row["deck_feed"] == small and small_row["deck_tags"]["lanes"] == "1"
+    bare = osm_site.deck_witness(
+        {"tunnels": [{"id": "tunnel:-101@0", "notes": [note.format("-5")]}]}, feeds)[0]
+    assert bare["deck_feed_named"] is False and bare["id_copies"] == 2
+    assert bare["deck_tags"]["bridge"] == "yes"       # the tag fallback, first bridge copy
+    # an OBJECT corridor's id names no OSM bore — its resource name is not digits
+    assert osm_site.deck_witness(
+        {"tunnels": [{"id": "tunnel-object:tunnel west 1/3.obj@0",
+                      "notes": [note.format("big_roads:+40-004:-5")]}]}, feeds
+    )[0]["bore_ways"] == []

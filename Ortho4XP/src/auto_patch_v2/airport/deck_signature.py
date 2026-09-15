@@ -73,6 +73,7 @@ from shapely import affinity as _affinity
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
+from ..model.airport import WayId
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
 
@@ -184,7 +185,7 @@ def is_tunnel_way(tags: _t.Mapping[str, str],
     return bool(b) and b in admitted and ("highway" in tags or "railway" in tags)
 
 
-def bridge_lines(osm_ways) -> list[tuple[int, LineString]]:
+def bridge_lines(osm_ways) -> list[tuple[WayId, LineString]]:
     out = []
     for w in osm_ways:
         if is_bridge_way(w.tags) and len(w.points) >= 2:
@@ -311,7 +312,7 @@ def _profile(f: _Faces, near: np.ndarray, origin: XY, unit: XY, length: float,
 # ── the signature ────────────────────────────────────────────────────────
 
 def classify(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache, law,
-             bridges: _t.Sequence[tuple[int, LineString]] = (),
+             bridges: _t.Sequence[tuple[WayId, LineString]] = (),
              below_grade: _t.Sequence = ()) -> tuple[list[_obj8.PlacedObject], DeckReport]:
     """The objects with the signature applied (see module doc) and the
     report.  ``bridges`` are ``(way id, LineString)`` in the frame;

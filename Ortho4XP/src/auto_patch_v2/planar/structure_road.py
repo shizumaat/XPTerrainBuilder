@@ -69,7 +69,7 @@ from shapely.ops import unary_union
 from ..classify.roles import Cell
 from ..law import Law
 from ..law.tables import role_side
-from ..model.airport import Airport
+from ..model.airport import Airport, WayId
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel_way
 
 __all__ = ["MOUTH_ROAD_REF", "mouth_pair_roads"]
@@ -104,7 +104,7 @@ def mouth_pair_roads(airport: Airport, classification, law: Law,
               for t in tunnels if getattr(t, "axis", None)]
     if not mouths:
         return classification, notes
-    bore_ends: dict[int, tuple] = {}
+    bore_ends: dict[WayId, tuple] = {}
     for w in airport.osm_ways:
         tags = getattr(w, "tags", None) or {}
         if tags.get("highway") is None or len(w.points) < 2:
@@ -142,7 +142,7 @@ def mouth_pair_roads(airport: Airport, classification, law: Law,
                             None, None, role_side(law, "service_road"),
                             "service_road",
                             {"mouth_road": 1.0, "area_m2": part.area,
-                             "way": float(w.id)}))
+                             "way": str(w.id)}))
         notes.append(
             f"mouth road {w.id} ({tags.get('highway')}, width "
             f"{2 * half:.1f} m, {LineString(w.points).length:.0f} m): "

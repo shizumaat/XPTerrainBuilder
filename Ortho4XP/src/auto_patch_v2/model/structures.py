@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
+from .airport import WayId
 from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "Basin", "profile_z", "deck_z_on_faces"]
@@ -154,7 +155,8 @@ class Deck:
     a hard-deck object deck being ``"deck_top"``)."""
 
     ref: str
-    way: int
+    #: the mapped bridge way's key (``OsmWay.id``); ``0`` for a pavement deck
+    way: WayId | int
     s0: float
     s1: float
     ring: tuple[XY, ...]
@@ -189,7 +191,7 @@ class Tunnel:
     way ids (both carriageways of a dual, 2026-08-31h)."""
 
     id: str
-    ways: tuple[int, ...]
+    ways: tuple[WayId, ...]
     axis: tuple[XY, ...]
     half_width_m: float
     mouth_dem_z: float
@@ -236,7 +238,7 @@ class Tunnel:
     hull_length_m: float = 0.0
     hull_width_m: float = 0.0
     ends: str = ""
-    replaced_ways: tuple[int, ...] = ()
+    replaced_ways: tuple[WayId, ...] = ()
     #: The band closes across s = 0 (``capped``) and across the far end
     #: (``far_capped``, a corridor closed at both ends); an open+open
     #: corridor is two capless halves meeting at its midpoint.

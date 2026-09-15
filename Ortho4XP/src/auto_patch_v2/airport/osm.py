@@ -26,6 +26,18 @@ ONE derivation site — every consumer of ``OsmDoc.ways`` (``classify/
 evidence.py``, ``classify/sources.py``, ``planar/structures.py``,
 ``airport/deck_signature.py``, ``airport/tunnel_objects.py``) sees the
 same ``RawWay`` shape it always did.
+
+ONE ID NAMESPACE ACROSS THE FEEDS (RULINGS 2026-09-15ap).  Every cached
+layer — ``airports``, ``airport_small_roads``, ``big_roads`` — is its
+own Overpass export and MINTS ITS OWN NEGATIVE IDS, so the bare id
+``-6288`` names an ``aeroway=taxiway`` in one layer and a ``bridge=yes``
+service road in another (LEMD: 8 of 11 bridge-deck ids carry two ways).
+A reader that keys on the bare id keeps whichever copy it met first.
+:func:`qualified_id` is THE ONE SITE that mints the id every consumer
+sees (``model.airport.OsmWay.id``): ``<feed>:<tile>:<raw>``, e.g.
+``big_roads:+40-004:-6288`` — feed, tile and the export's own id, all
+kept verbatim, so two ways from two layers (or two tiles) can never
+share a key and a dict keyed on ``OsmWay.id`` cannot be first-copy.
 """
 from __future__ import annotations
 
@@ -37,7 +49,8 @@ import typing as _t
 import xml.etree.ElementTree as ET
 
 __all__ = ["OsmDoc", "RawWay", "RelationReport", "read_osm_file", "feed_path",
-           "load_feed", "TAGS_OF_INTEREST", "FEEDS", "RELATION_TYPES"]
+           "load_feed", "qualified_id", "raw_id", "TAGS_OF_INTEREST", "FEEDS",
+           "RELATION_TYPES"]
 
 TAGS_OF_INTEREST = frozenset((
     "highway", "railway", "bridge", "tunnel", "layer", "aeroway",
@@ -105,6 +118,27 @@ class OsmDoc:
     ways: tuple[RawWay, ...]
     sources: tuple[str, ...]
     relations: RelationReport = _dc.field(default_factory=RelationReport)
+
+
+def qualified_id(feed: str, raw_way_id: str) -> str:
+    """THE way id every consumer sees: ``<feed>:<tile-namespaced raw id>``.
+
+    ``raw_way_id`` is :attr:`RawWay.id` as :func:`load_feed` namespaced
+    it (``+40-004:-6288``; a §25 stitched ring ``+40-004:-2#0``), so the
+    result is ``big_roads:+40-004:-6288``.  Nothing is folded, hashed or
+    stripped: the feed that minted the id, the tile it was cached under
+    and the export's own id are all in the key, and two layers that mint
+    the same negative id yield two different keys.  A reader that wants
+    the export's own id back reads :func:`raw_id`."""
+    return f"{feed}:{raw_way_id}"
+
+
+def raw_id(way_id: str) -> str:
+    """The export's own id (``-6288``) out of a :func:`qualified_id`
+    (``big_roads:+40-004:-6288``) — or out of a bare / tile-namespaced
+    id.  The last ``:``-separated field, which is the one the cache file
+    carries; for display and for joining a witness back to the file."""
+    return str(way_id).rsplit(":", 1)[-1]
 
 
 def tile_dir(osm_root: str, lat: int, lon: int) -> str:

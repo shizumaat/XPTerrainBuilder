@@ -29,7 +29,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..law.tables import role_family
-from ..model.airport import Airport, OsmWay
+from ..model.airport import Airport, OsmWay, WayId
 from ..model.frame import XY
 from ..model.structures import Deck
 from .structure_approach import PARALLEL_COS, carriageway_width_m, unit
@@ -397,7 +397,7 @@ class _GroupWay:
 
     __slots__ = ("points", "id", "tags", "ids")
 
-    def __init__(self, points, wid: int, ids: tuple[int, ...]):
+    def __init__(self, points, wid: WayId, ids: tuple[WayId, ...]):
         self.points = list(points)
         self.id = wid
         self.ids = ids

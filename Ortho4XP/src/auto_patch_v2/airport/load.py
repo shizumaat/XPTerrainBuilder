@@ -12,7 +12,6 @@ import dataclasses as _dc
 import math
 import os
 import typing as _t
-import zlib
 
 from ..law import Law
 from ..law.tables import identity_dp
@@ -289,24 +288,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                      for s in apt.startups)
 
     # ── OSM ────────────────────────────────────────────────────────
-    osm_ways: list[OsmWay] = []
-    buildings: list[Building] = []
-    sources: list[str] = []
-    osm_relations = _osm.RelationReport()
-    if inputs.osm_root:
-        for feed in _osm.FEEDS:
-            doc = _osm.load_feed(inputs.osm_root, feed, lat0, lon0,
-                                 inputs.radius_deg)
-            sources.extend(doc.sources)
-            osm_relations = osm_relations.merge(doc.relations)
-            for w in doc.ways:
-                pts = tuple(to_xy(lo, la) for la, lo in w.points)
-                osm_ways.append(OsmWay(_osm_id(w.id), feed, pts, w.closed, w.tags))
-                if w.closed and _is_building(w.tags):
-                    buildings.append(Building(
-                        f"osm:{w.id}", pts[:-1], (), "osm",
-                        _float_or_none(w.tags.get("height")),
-                        _int_or_none(w.tags.get("building:levels"))))
+    osm_ways, buildings, sources, osm_relations = load_osm_ways(
+        inputs.osm_root, lat0, lon0, inputs.radius_deg, to_xy)
     rep.osm_sources = tuple(sources)
     rep.osm_relations = osm_relations.line()
     rep.buildings_by_source["osm"] = len(buildings)
@@ -511,18 +494,39 @@ def _is_building(tags: _t.Mapping[str, str]) -> bool:
     return tags.get("aeroway") in BUILDING_AEROWAY_TAGS
 
 
-def _osm_id(wid: str) -> int:
-    """Namespaced way id -> a stable int (tile prefix folded in).
-
-    A non-numeric id — §25's stitched relation rings, ``-2#0`` — folds
-    through CRC32, never ``hash()``: ``hash(str)`` is salted per process
-    (PYTHONHASHSEED), so the same extract would name the same ring a
-    different way on every run."""
-    tail = wid.rsplit(":", 1)[-1]
-    try:
-        return int(tail)
-    except ValueError:
-        return -(zlib.crc32(wid.encode("utf-8")) % (1 << 31)) - 1
+def load_osm_ways(osm_root: str, lat0: float, lon0: float, radius_deg: float,
+                  to_xy: _t.Callable[[float, float], XY]
+                  ) -> tuple[list[OsmWay], list[Building], list[str],
+                             _osm.RelationReport]:
+    """THE ONE LOADING SITE of ``Airport.osm_ways`` / the OSM buildings:
+    every feed in :data:`osm.FEEDS`, each way keyed by
+    :func:`osm.qualified_id` — ``<feed>:<tile>:<raw>`` — so the three
+    layers' colliding negative ids (RULINGS 2026-09-15ap: LEMD ``-6288``
+    is a taxiway in ``airports`` and a bridge in ``big_roads``) arrive as
+    distinct keys and no consumer dict can keep one copy and drop the
+    other.  An OSM building's id is ``osm:<that key>``.  Returns
+    ``(ways, buildings, source paths, relation report)``; an empty
+    ``osm_root`` yields four empties (no download, ever)."""
+    osm_ways: list[OsmWay] = []
+    buildings: list[Building] = []
+    sources: list[str] = []
+    osm_relations = _osm.RelationReport()
+    if not osm_root:
+        return osm_ways, buildings, sources, osm_relations
+    for feed in _osm.FEEDS:
+        doc = _osm.load_feed(osm_root, feed, lat0, lon0, radius_deg)
+        sources.extend(doc.sources)
+        osm_relations = osm_relations.merge(doc.relations)
+        for w in doc.ways:
+            pts = tuple(to_xy(lo, la) for la, lo in w.points)
+            wid = _osm.qualified_id(feed, w.id)
+            osm_ways.append(OsmWay(wid, feed, pts, w.closed, w.tags))
+            if w.closed and _is_building(w.tags):
+                buildings.append(Building(
+                    f"osm:{wid}", pts[:-1], (), "osm",
+                    _float_or_none(w.tags.get("height")),
+                    _int_or_none(w.tags.get("building:levels"))))
+    return osm_ways, buildings, sources, osm_relations
 
 
 def _float_or_none(s: str | None) -> float | None:

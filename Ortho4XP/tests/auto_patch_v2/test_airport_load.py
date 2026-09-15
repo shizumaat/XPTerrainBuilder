@@ -604,3 +604,26 @@ def test_pavement_less_custom_pack_is_still_the_pack(tmp_path):
     assert rep.pavement_source["coverage"] == 0.0
     assert rep.pavement_source["custom_pavements"] == 0
     assert len([p for p in a.pavements if p.id.startswith("pav")]) == 4
+
+
+def test_osm_way_ids_are_feed_qualified_where_the_raw_ids_collide(cyxy):
+    """RULINGS 2026-09-15ap: the three cached layers each mint their own
+    negative ids — the CYXY fixture itself carries 13 raw ids present in
+    two or three layers (``-36`` is a parking position, an unclassified
+    road and a secondary road).  Keyed by ``<feed>:<tile>:<raw>`` every
+    way is its own key."""
+    a, _rep = cyxy
+    raw_by_kind: dict[str, set[str]] = {}
+    for w in a.osm_ways:
+        raw_by_kind.setdefault(w.kind, set()).add(O.raw_id(w.id))
+    kinds = list(raw_by_kind)
+    collisions = set.union(*(raw_by_kind[x] & raw_by_kind[y]
+                             for i, x in enumerate(kinds) for y in kinds[i + 1:]))
+    assert collisions, "the fixture's raw ids DO collide across layers"
+    ids = [w.id for w in a.osm_ways]
+    assert len(set(ids)) == len(ids)
+    assert all(w.id == f"{w.kind}:+60-136:{O.raw_id(w.id)}" for w in a.osm_ways)
+    assert all(b.id.startswith("osm:airports:+60-136:") or
+               b.id.startswith("osm:airport_small_roads:+60-136:") or
+               b.id.startswith("osm:big_roads:+60-136:")
+               for b in a.buildings if b.source == "osm")

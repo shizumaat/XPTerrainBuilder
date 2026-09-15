@@ -20,7 +20,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..law.approach_corridor import ApproachCorridor, RunwayViewBand
 from ..law.tables import role_family
-from ..model.airport import Airport, OsmWay
+from ..model.airport import Airport, OsmWay, WayId
 from ..model.frame import XY
 from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
                                       is_tunnel_way)
@@ -295,7 +295,7 @@ class Mouth:
     inward: XY               # unit vector INTO the bore
     width_m: float
     approach: list[XY]
-    ways: tuple[int, ...]
+    ways: tuple[WayId, ...]
 
 
 def unit(a: XY, b: XY) -> XY:

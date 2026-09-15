@@ -87,7 +87,7 @@ from shapely.strtree import STRtree
 from ..classify.roles import Cell, Classification, is_runway_shoulder
 from ..law import Law
 from ..law.tables import role_family, role_side, zone2_half_width_m
-from ..model.airport import Airport, OsmWay
+from ..model.airport import Airport, OsmWay, WayId
 from ..model.frame import XY
 from ..model.structures import Deck, Tunnel
 from .basins import object_decks
@@ -227,7 +227,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # keeps its ramp exactly as before.  A bore covered at both mouths is
     # replaced; one covered at one end ships an object ramp there and an
     # OSM ramp at the other.
-    replaced_ways: dict[str, list[int]] = {}
+    replaced_ways: dict[str, list[WayId]] = {}
     if corridors and tn.object.source_precedence[0] == "object":
         tol = tn.object.bore_end_tolerance_m    # 2026-09-08o: a bore end within it PAIRS
         kept = []

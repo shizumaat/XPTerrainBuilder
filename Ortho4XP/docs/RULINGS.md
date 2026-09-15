@@ -6124,3 +6124,12 @@ neighbour is the runway), ONE LERM build, the shoulder census before
   read (the centreline?), apply the half-width, ONE OTHH build, the
   two pinched ramps' top stations before → after (each moved out by
   the road's half-width, named), road edges unchanged, airside 0.
+
+## 2026-09-14bc Owner correction to 14bb: "The ramps top stations should move IN toward the building, as they are currently cutting into the road by one lane"
+
+* 14bb's direction corrected: the ramp's top today reaches the road's
+  CENTRELINE (one lane of road is cut); the true edge on the ramp's
+  side is the centreline offset by the half-width TOWARD THE BUILDING,
+  so each pinched ramp's top station moves IN by the road's half-width
+  and the pinched run shortens (the grade steepens by that much; the
+  cap is lifted, §34 (9)). The road keeps its full width.

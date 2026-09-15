@@ -468,6 +468,68 @@ def record_refresh(scope: str, changes: dict, meta: dict,
     return record
 
 
+#: The timestamp format :func:`record_refresh` writes into every ledger
+#: record.  Fixed-width and zero-padded, so a plain STRING comparison is a
+#: chronological one — which is why the window test below needs no parsing.
+REFRESH_TS_FORMAT = "%Y-%m-%dT%H:%M:%S"
+
+
+def ledgered_refresh_paths(window_start: str, window_end: str,
+                           *, ledger=None) -> dict:
+    """Every shared-repo relpath an AUTHORISED ``--refresh-data`` wrote
+    between ``window_start`` and ``window_end`` (both ``REFRESH_TS_FORMAT``
+    stamps, both inclusive), as ``{relpath: {"ts", "scope"}}``.
+
+    WHY (RULINGS 2026-09-15ay tail).  A concurrent session's authorised,
+    ledgered refresh is a shared-repo delta that the observing process did
+    not author — the same cross-attribution :func:`redirected_scopes` and
+    :class:`BuildInputScope` answer for the build audit.  The suite's
+    session detector had no such door, so on 2026-09-15 two ledgered
+    ``osm_layers`` writes (13:26:13 and 13:29:27) turned every test of two
+    suites into a teardown ERROR.  The ledger is the authorisation record:
+    a path named in it inside the observation window was written by an
+    explicit, locked, hash-stamped event, not by the observer.
+
+    Pure and read-only: it opens the ledger, never writes it, tolerates a
+    missing file (``{}``) and skips a malformed or record-shaped-wrong
+    line rather than raising — a detector that crashes on a truncated
+    concurrent append is worse than one that misses a downgrade.
+
+    Both ``files[].path`` (added/modified) and ``removed[]`` entries count:
+    a removal is a delta the snapshot diff reports exactly like a write.
+
+    STATED RESIDUAL, not solved here: :func:`record_refresh` appends the
+    record AFTER the refresh's own after-snapshot, so a refresh whose file
+    write landed inside the window but which is still RUNNING at the
+    observer's teardown has no record yet, and its delta is still judged
+    unlawful.  That is the in-flight case only.
+    """
+    path = Path(ledger) if ledger is not None else REFRESH_LEDGER
+    out: dict = {}
+    try:
+        text = path.read_text()
+    except OSError:
+        return out
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+            ts = record["ts"]
+            if not (window_start <= ts <= window_end):
+                continue
+            scope = record.get("scope")
+            rels = [str(e["path"]) for e in record.get("files") or ()
+                    if isinstance(e, dict) and e.get("path")]
+            rels += [str(r) for r in record.get("removed") or () if r]
+        except Exception:
+            continue                     # malformed line: skip, never raise
+        for rel in rels:
+            out[rel] = {"ts": ts, "scope": scope}
+    return out
+
+
 #: THE LOCK-FILE ALLOWANCE (2026-08-07).
 #:
 #: ``O4_File_Lock.hold_file_lock`` is the engine's ONE cross-process lock
@@ -499,6 +561,112 @@ LOCK_ARTIFACT_SUFFIX = ".lock"
 #: The guard's operation tokens for the calls
 #: :func:`O4_File_Lock.hold_file_lock` makes on its lock file.
 LOCK_FILE_OPS = frozenset({"os_open", "remove", "unlink"})
+
+
+def ledger_lines(path=None) -> list:
+    """Every refresh-ledger record, oldest first.  A malformed line is
+    skipped rather than fatal: the ledger is append-only across sessions
+    and a half-written line from a killed run must not blind the reader."""
+    path = Path(path or REFRESH_LEDGER)
+    out = []
+    try:
+        with open(path, "r") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        return []
+    return out
+
+
+def ledger_state(rel: str, mtime: float, records=None) -> str:
+    """How the refresh ledger accounts for this artefact's CURRENT state:
+    ``"explained"``, ``"stale-line"`` or ``"never-ledgered"``.
+
+    ``explained``: some record NAMES the path and was written at or after
+    the file's mtime.  Records carry ``ts`` as local
+    ``%Y-%m-%dT%H:%M:%S`` (``record_refresh``), second-resolution, so the
+    compare is generous by one second — a stamp written in the same
+    second as the write explains it.
+
+    ``never-ledgered`` is called out separately because it is the case
+    the reconciliation exists for and the one round 6 got wrong: KPHX's
+    +33-112_big_roads was re-derived at 13:48 and NO line named it at
+    all (the 13:29:33 ``osm_layers`` line is +33-113's), so a predicate
+    phrased only as "the newest line predates its mtime" excluded it.
+    """
+    records = ledger_lines() if records is None else records
+    named_at_all = False
+    for rec in records:
+        named = [f.get("path") for f in (rec.get("files") or ())]
+        if rel not in named and rel not in (rec.get("removed") or ()):
+            continue
+        named_at_all = True
+        try:
+            when = time.mktime(time.strptime(str(rec.get("ts", "")),
+                                             "%Y-%m-%dT%H:%M:%S"))
+        except ValueError:
+            continue
+        if when + 1.0 >= mtime:
+            return "explained"
+    return "stale-line" if named_at_all else "never-ledgered"
+
+
+def ledger_explains(rel: str, mtime: float, records=None) -> bool:
+    """True when :func:`ledger_state` says ``explained``.  Kept as the
+    one-word question the readers ask."""
+    return ledger_state(rel, mtime, records) == "explained"
+
+
+def record_reconciliation(rels, meta: dict, repo=None) -> list:
+    """Stamp the CURRENT hash of each artefact in ``rels`` whose newest
+    ledger line predates its mtime.  Returns the paths recorded.
+
+    ONE record per reconciliation run, marked ``reconciled`` so no reader
+    mistakes it for a refresh that fetched something: it says "this is
+    what is on disk NOW, and nothing in the ledger explained it".  The
+    measured case is KPHX's +33-112_big_roads (2026-09-15 13:48) — the
+    engine re-derived it and the run exited before the audit.
+    """
+    repo = Path(repo or DATA_REPO)
+    records = ledger_lines()
+    why_by_path: dict = {}
+    for rel in rels:
+        try:
+            mtime = (repo / rel).stat().st_mtime
+        except OSError:
+            continue
+        state = ledger_state(rel, mtime, records)
+        if state != "explained":
+            why_by_path[rel] = state
+    if not why_by_path:
+        return []
+    by_scope: dict = {}
+    for rel in sorted(why_by_path):
+        by_scope.setdefault(scope_of(rel), []).append(rel)
+    for scope, rels_in in sorted(by_scope.items(), key=lambda kv: str(kv[0])):
+        record_refresh(scope or "<outside every scope>",
+                       {"added": [], "modified": sorted(rels_in),
+                        "removed": []},
+                       {**meta, "reconciled": True,
+                        "reconciled_paths": {r: why_by_path[r]
+                                             for r in sorted(rels_in)},
+                        "why": "NOTHING in this ledger accounts for these "
+                               "artefacts as they stand: each is either "
+                               "NEVER-LEDGERED or newer than the newest "
+                               "line naming it (per path above).  This "
+                               "record stamps their CURRENT hash and "
+                               "claims nothing else — the write may have "
+                               "been another lane's authorised refresh, "
+                               "or a derivation a crash or a later "
+                               "refusal put beyond the audit's reach"},
+                       repo=repo)
+    return sorted(why_by_path)
 
 
 def is_lock_artifact(relpath) -> bool:

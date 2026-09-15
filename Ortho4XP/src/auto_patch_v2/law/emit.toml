@@ -17,6 +17,7 @@ weld_spacing_m          = 1.0    # THE SLIVER WELD (RULINGS 2026-09-04u): two sa
 elevation_m             = 0.01   # a residual below this is PASS-with-residual, never iterated (owner 2026-08-02 convergence guards)
 grade                   = 0.0001 # 0.01 pp for grade residuals (same ruling)
 step_m                  = 0.5    # an elevation disagreement at one coordinate ≥ this is a STEP (06-20; LAW_TRUE_KNOBS edge_step_m)
+runway_step_m           = 0.10   # §40 (5) (4) THE MATERIALITY FLOOR OF `runway_step` (Fable 2026-09-15; owner RULINGS 2026-09-15az; the 0.10 m floor of 14bx). A step between two faces of the RUNWAY FAMILY is a DEFECT when it exceeds the runway’s own transverse cap over the separation between them, and never below this. The general `step_m` (0.5) is the cockpit’s VISUAL threshold on any surface; rolled-on runway pavement is judged far tighter — §31 (1)’s own motion threshold there is 0.05 m — and a welded step has a separation of ~0, so the cap term is ~0 and this floor is what decides. MEASURED: LEMD 40.4613609,−3.5446852 reads 0.950 m over 1 m between two faces of one "runway" role and escaped every DEFECT family, because `runway_transverse` is the CROWN reading and cannot see a pair 490 m off-axis (lane v2lemdstruct2 r5 §3).
 
 [no_step]
 # RULINGS 2026-09-04o (clarifying 08-27): "feasible elevations propagate out

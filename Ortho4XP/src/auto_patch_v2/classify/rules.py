@@ -41,6 +41,7 @@ class Corridor:
     runway_shoulder_shared_m: float
     runway_shoulder_max_depth_m: float
     runway_shoulder_max_wrap: float
+    runway_shoulder_band: bool
 
 
 @_dc.dataclass(frozen=True)

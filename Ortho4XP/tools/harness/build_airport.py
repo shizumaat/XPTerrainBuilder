@@ -259,6 +259,8 @@ from shared_repo_guard import (                          # noqa: E402,F401
     DATA_REPO, HARNESS_STATE, LOCK_DIR, REFRESH_LEDGER, SHARED_DATA_DIRS,
     REFRESH_SCOPES, scope_of, scope_description, shared_repo_snapshot,
     snapshot_diff, _file_stamp, RefreshLock, record_refresh,
+    REFRESH_TS_FORMAT, ledgered_refresh_paths, redirected_scopes,
+    record_reconciliation,
     install_snapshot, install_relpath, pack_roots_for_tile,
     LOCK_ARTIFACT_SUFFIX, LOCK_FILE_OPS, is_lock_artifact,
     LIB_INDEX_ARTIFACT_RE, LIB_INDEX_FILE_OPS, is_library_index_artifact,
@@ -479,7 +481,8 @@ def _short_latlon(lat: int, lon: int) -> str:
     return f"{int(lat):+03d}{int(lon):+04d}"
 
 
-def require_dem_frame(state: dict, *, allow_degraded: bool = False) -> None:
+def require_dem_frame(state: dict, *, allow_degraded: bool = False,
+                     requested=()) -> None:
     """The zero-DEM and cold-cache refusals.
 
     * NO base raster ⇒ the loader either downloads mid-measurement or hands
@@ -489,17 +492,32 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False) -> None:
     * NO cached airports layer ⇒ no smoothing masks, so the surface stays
       unsmoothed and diverges from production.
     * NO cached insets ⇒ the base surface only, when production insets here.
+
+    AN AUTHORISED REFRESH OF THE NAMING SCOPE IS NOT A REFUSAL (measured
+    2026-09-15: ``build_airport.py KDFW --tile 32 -97 --refresh-data
+    osm_layers,dem`` — the neighbour tile KDFW's pack reaches into — was
+    refused HERE, before any refresh could run, naming the very two
+    scopes the command had authorised).  Each problem carries the scope
+    that fixes it; when that scope is authorised the problem is NAMED as
+    something this run will DERIVE, the run proceeds to the derivation
+    (:func:`refresh_stale_osm_layers`, :func:`refresh_tile_dem`) and the
+    frame is RE-JUDGED afterwards with nothing authorised — so a refresh
+    that failed to warm the frame still refuses, just later and with the
+    reason known.
     """
-    problems = []
+    requested = set(requested or ())
+    problems, deferred = [], []
+    def _name(scope, text):
+        (deferred if scope in requested else problems).append((scope, text))
     if not state["base_raster"]:
-        problems.append(
+        _name("dem",
             f"NO base raster for {state['tile_stem']} in Elevation_data — "
             f"the DEM loader would DOWNLOAD it mid-measurement (a "
             f"shared-repo write as a build side effect, which owner ruling "
             f"e9daef5 forbids) or hand back an ALL-ZERO surface.  "
             f"Deliberate fetch: --refresh-data dem")
     if not state["airports_layer"]:
-        problems.append(
+        _name("osm_layers",
             f"NO cached airports OSM layer for tile "
             f"{state['tile'][0]:+d}{state['tile'][1]:+d} — airport smoothing "
             f"masks are unavailable and the surface stays UNSMOOTHED "
@@ -507,22 +525,25 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False) -> None:
             f"would run an overpass QUERY to fill it.  Deliberate fetch: "
             f"--refresh-data osm_layers")
     if not state["airport_insets"]:
-        problems.append(
+        _name("dem",
             f"NO cached airport elevation insets for {state['tile_stem']} — "
             f"the build would grade against the BASE surface while "
             f"production grades against the inset-baked one.  Deliberate "
             f"fetch: --refresh-data dem  (or "
             f"tools/fetch_airport_elevation_insets.py, which writes the "
             f"same shared cache).")
+    for scope, text in deferred:
+        print(f"  [harness] COLD, and this run's --refresh-data {scope} "
+              f"DERIVES it before the build (re-judged afterwards): {text}")
     if problems and not allow_degraded:
         raise SystemExit(
             "REFUSING: the DEM frame is COLD, and a cold frame degrades "
             "SILENTLY (log line only) into a different surface:\n  - "
-            + "\n  - ".join(problems)
+            + "\n  - ".join(t for _s, t in problems)
             + "\nWarm the cache, or pass --allow-degraded-dem to measure in "
               "the degraded frame KNOWINGLY (it is recorded either way).  "
               "Never quote a DEM elevation from a degraded frame.")
-    for p in problems:
+    for _s, p in problems:
         print(f"  [harness] DEGRADED DEM FRAME (accepted by flag): {p}")
 
 
@@ -747,6 +768,72 @@ def _stamped_cache_schema(path) -> str:
     return found.group(1) if found else ""
 
 
+def superseded_road_feeds(root, lat, lon) -> list:
+    """The road feeds THE v2 LOADER would refuse, named before the build.
+
+    THE MEASURED DEFECT (2026-09-15).  ``build_airport.py KDFW
+    --refresh-data osm_layers`` re-derived ``+32-098_big_roads``
+    (ledgered) and then DIED 54 s in, inside
+    ``auto_patch_v2/airport/load.py``: "KDFW: 1 cached road feed(s) were
+    written under a SUPERSEDED tag whitelist … +30-100/+33-098/
+    +33-098_big_roads.osm.bz2 (o4_tag_schema 2026-07-16)".  A NEIGHBOUR
+    TILE — and :func:`schema_stale_osm_layers` judged the build's own
+    tile only, a limit its docstring stated and this closes.  The loader
+    merges the 3x3 neighbourhood (``airport/osm.load_feed``), so the
+    pre-flight must judge the same square, or a refusal the loader will
+    raise is paid for with a whole build.
+
+    EVERYTHING HERE IS THE LOADER'S OWN — ``ROAD_FEEDS`` (which feeds
+    carry a whitelist), ``feed_path`` (where each lives, ``.osm.bz2``
+    then ``.osm``), ``feed_tag_schema`` (the root-tag read) and
+    ``ROAD_CACHE_TAG_SCHEMA`` (the version it wants).  Imported, never
+    copied: a second spelling would refuse a different set than the
+    loader raises on, which is worse than not checking.
+
+    An UNTAGGED feed is deliberately not named: the loader lists it on
+    the report and does NOT raise (``airport_small_roads`` carries no
+    schema at any tile — its writer stamps none), so refusing it here
+    would refuse every build in the corpus.
+    """
+    for p in (Path(root) / "src", Path(root)):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    try:
+        from auto_patch_v2.airport import osm as _v2osm
+    except Exception as exc:
+        print(f"  [harness] road-feed schema check skipped ({exc!r})")
+        return []
+    osm_root = str(Path(root) / "OSM_data")
+    out = []
+    for dlat in (-1, 0, 1):
+        for dlon in (-1, 0, 1):
+            tlat, tlon = int(lat) + dlat, int(lon) + dlon
+            for feed in _v2osm.ROAD_FEEDS:
+                path = _v2osm.feed_path(osm_root, tlat, tlon, feed)
+                if not os.path.isfile(path):
+                    continue
+                schema = _v2osm.feed_tag_schema(path)
+                if schema is None or schema == _v2osm.ROAD_CACHE_TAG_SCHEMA:
+                    continue
+                try:
+                    artifact = "OSM_data/" + str(Path(path).resolve()
+                                                 .relative_to(Path(osm_root)
+                                                              .resolve()))
+                except (OSError, ValueError):
+                    artifact = path
+                out.append((
+                    "osm_layers", artifact,
+                    f"the v2 LOADER refuses this feed: written under "
+                    f"o4_tag_schema {schema}, it wants "
+                    f"{_v2osm.ROAD_CACHE_TAG_SCHEMA} — the structure "
+                    f"readers would silently see fewer bores (OTHH: 8 "
+                    f"against 16, RULINGS 2026-09-15ar).  It is on tile "
+                    f"{tlat:+d}{tlon:+d}, which this build READS: the "
+                    f"loader merges the 3x3 neighbourhood.  Measured "
+                    f"2026-09-15: KDFW died 54 s in on exactly this"))
+    return out
+
+
 def schema_stale_osm_layers(root, lat, lon) -> list:
     """THE SCHEMA-STALE CACHED LAYER REFUSAL (RULINGS 2026-09-15r + u).
 
@@ -815,7 +902,8 @@ def schema_stale_osm_layers(root, lat, lon) -> list:
     except Exception as exc:
         print(f"  [harness] OSM layer-schema check skipped ({exc!r})")
         return []
-    out = []
+    out = list(superseded_road_feeds(root, lat, lon))
+    named = {a for _s, a, _w in out}
     for specification in specifications:
         cached_suffix, cache_schema = specification[0], specification[4]
         if not cache_schema:
@@ -832,6 +920,8 @@ def schema_stale_osm_layers(root, lat, lon) -> list:
         except (OSError, ValueError):
             artifact = path
         stamped = _stamped_cache_schema(path)
+        if artifact in named:
+            continue                    # already named by the reader's own
         out.append((
             "osm_layers", artifact,
             f"the cached {cached_suffix} layer is SCHEMA-STALE — written "
@@ -846,7 +936,14 @@ def schema_stale_osm_layers(root, lat, lon) -> list:
 
 
 def unverified_inset_negatives(state, lat, lon) -> list:
-    """The DEGRADED-TIER refusal (owner RULINGS 2026-09-13b (2)).
+    """The DEGRADED-TIER refusal (owner RULINGS 2026-09-13b (2)) and the
+    ONCE-PER-VERSION re-probe refusal (owner RULINGS 2026-09-15aq (4)).
+
+    Two doors, one refusal: both name a ``no-coverage`` record the next
+    pass would RE-PROBE, and a re-probe fetches into the shared data
+    repo.  13b's covers a CAPABILITY-GATED provider whose record carries
+    no capability stamp; 15aq's covers a CAPABILITY-FREE provider whose
+    record carries another engine's version.
 
     A ``no-coverage`` in the inset index recorded for a CAPABILITY-GATED
     provider by a run that did not record its capabilities is UNVERIFIED:
@@ -872,10 +969,32 @@ def unverified_inset_negatives(state, lat, lon) -> list:
     try:
         import O4_Airport_Elevation_Insets as INSETS
         unverified = INSETS.unverified_capability_negatives(lat, lon)
+        version_stale = INSETS.version_stale_capability_free_negatives(
+            lat, lon)
+        running = INSETS.engine_version()
     except Exception as exc:
         print(f"  [harness] unverified-inset check skipped ({exc!r})")
         return []
     out = []
+    for (icao, code, recorded) in version_stale:
+        # THE ONCE-PER-VERSION RE-PROBE (owner RULINGS 2026-09-15aq (4)).
+        # ``code`` declares NO required capability, so 13b's door below
+        # cannot reach it; its negative would be permanent.  The TNM
+        # outage of 2026-09-15 wrote 20 such false negatives across the
+        # two Phoenix tiles (RULINGS 2026-09-15q).  Each engine version
+        # re-asks once — which FETCHES into the shared repo, so the
+        # harness refuses up front and names the flag.  The APP's own
+        # build path takes the re-probe; the harness never does.
+        out.append(("dem",
+                    f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
+                    f"index.json [{icao}:{code}]",
+                    f"a no-coverage negative for {code} recorded by engine "
+                    f"{recorded or 'an unrecorded version'} — this engine is "
+                    f"{running}, and a capability-free provider's negative "
+                    f"is RE-ASKED once per version (a TNM 200 error envelope "
+                    f"minted 20 false ones on the Phoenix tiles on "
+                    f"2026-09-15), so the build would re-probe {code} and "
+                    f"re-cut the inset mid-build"))
     for (icao, code, capabilities) in unverified:
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
@@ -1094,6 +1213,19 @@ def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
 # THE AUTHORISED OSM-LAYER REFRESH (--refresh-data osm_layers)
 # ══════════════════════════════════════════════════════════════════════
 
+def _tile_of_osm_path(path):
+    """``(lat, lon)`` from an ``OSM_data/<block>/<tile>/<tile>_<feed>``
+    path — the tile DIRECTORY name, which is how the corpus is laid out
+    (``O4_File_Names.short_latlon``).  ``None`` when it does not parse."""
+    name = Path(path).parent.name
+    try:
+        if len(name) != 7 or name[0] not in "+-" or name[3] not in "+-":
+            return None
+        return int(name[:3]), int(name[3:])
+    except ValueError:
+        return None
+
+
 def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     """Re-derive the SCHEMA-STALE layers :func:`schema_stale_osm_layers`
     names, under the authorisation the caller already holds.
@@ -1140,12 +1272,22 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     must never exit 0 twice in a row.
     """
     import O4_Config_Utils as CFG                          # noqa: E402
+    import O4_File_Names as FNAMES                         # noqa: E402
+    import O4_OSM_Utils as OSM                             # noqa: E402
     import O4_Vector_Map as VMAP                           # noqa: E402
 
     stale = schema_stale_osm_layers(root, lat, lon)
-    if not stale:
-        prog.note("refresh osm_layers: no schema-stale cached layer on "
-                  f"tile {lat:+d}{lon:+d} — nothing to re-derive")
+    # AN ABSENT LAYER IS DERIVED TOO (2026-09-15, the cold KDFW neighbour
+    # +32-097: `--refresh-data osm_layers,dem` could not warm it, because
+    # only STALE layers were ever derived).  The engine's own prefetch
+    # filter is "absent OR stale" already; what was missing was a REASON
+    # to run it, so an absent airports layer is one.
+    state = dem_cache_state(root, lat, lon)
+    cold_airports = not state["airports_layer"]
+    if not stale and not cold_airports:
+        prog.note("refresh osm_layers: no schema-stale and no absent "
+                  f"cached layer on tile {lat:+d}{lon:+d} or its 3x3 "
+                  f"neighbourhood — nothing to re-derive")
         return {"tile": [int(lat), int(lon)], "layers": [], "refetched": []}
 
     aside = []
@@ -1162,15 +1304,38 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
               f"re-derives them now, which is the POINT of this run, not "
               f"a side effect")
 
-    tile = CFG.Tile(int(lat), int(lon), "")
-    try:
-        tile.read_from_config()
-    except Exception:
-        pass
+    # EVERY TILE NAMED, not just this one: the v2 loader merges the 3x3
+    # neighbourhood, so a neighbour's superseded feed is named above and
+    # must be derived HERE (KDFW died 54 s in on +33-098's).  The engine
+    # derives per TILE, so the pass runs once per named tile.
+    tiles = {(int(lat), int(lon))}
+    for _a, path, _t in aside:
+        named = _tile_of_osm_path(path)
+        if named is not None:
+            tiles.add(named)
     failures = []
     try:
-        VMAP.start_background_osm_prefetch(tile)
-        VMAP.wait_for_background_osm_prefetch()
+        for tlat, tlon in sorted(tiles):
+            tile = CFG.Tile(tlat, tlon, "")
+            try:
+                tile.read_from_config()
+            except Exception:
+                pass
+            # the tile build's own prelude creates the tile's OSM cache
+            # directory before its first query; a tile never built has none
+            os.makedirs(FNAMES.osm_dir(tlat, tlon), exist_ok=True)
+            # THE AIRPORTS LAYER is NOT in the prefetch specifications
+            # (the tile prelude downloads it inline, then starts the
+            # prefetch for the rest), so a COLD tile needs this call or
+            # its airports layer stays absent and the frame stays cold.
+            if not os.path.isfile(FNAMES.osm_cached(tlat, tlon, "airports")):
+                prog.note(f"refresh osm_layers: deriving the ABSENT "
+                          f"airports layer of tile {tlat:+d}{tlon:+d}")
+                OSM.OSM_queries_to_OSM_layer(
+                    VMAP.AIRPORTS_QUERIES, OSM.OSM_layer(), tlat, tlon,
+                    ["all"], cached_suffix="airports")
+            VMAP.start_background_osm_prefetch(tile)
+            VMAP.wait_for_background_osm_prefetch()
     finally:
         # The verdict is read off the FILESYSTEM, never off the prefetch:
         # it runs in a daemon thread, so an exception inside it never
@@ -1198,12 +1363,285 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
               f"next plain build would refuse on the same artifact "
               f"again).  Check the engine's OSM download path — Overpass "
               f"reachability, the local regional extracts — and re-run.")
+    if cold_airports and not dem_cache_state(root, lat, lon)["airports_layer"]:
+        raise SystemExit(
+            f"REFUSING: --refresh-data osm_layers did not derive the "
+            f"airports layer of tile {lat:+d}{lon:+d} — the frame is "
+            f"still COLD, so the build would run an overpass query "
+            f"mid-measurement.  Check Overpass reachability and re-run.")
     refetched = [a for a, _p, _t in aside]
     prog.note(f"refresh osm_layers done: {len(refetched)} layer(s) "
               f"re-derived schema-current "
               f"({VMAP.ROAD_CACHE_TAG_SCHEMA}) — {refetched}")
     return {"tile": [int(lat), int(lon)],
             "layers": [a for _s, a, _w in stale], "refetched": refetched}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE AUTHORISED DEM REFRESH (--refresh-data dem)
+# ══════════════════════════════════════════════════════════════════════
+
+def refresh_tile_dem(root, lat, lon, prog) -> dict:
+    """Warm a COLD tile's DEM frame — base raster and airport insets —
+    under the ``dem`` authorisation the caller already holds.
+
+    THE GAP THIS CLOSES (measured 2026-09-15): ``build_airport.py KDFW
+    --tile 32 -97 --refresh-data osm_layers,dem`` on the neighbour tile
+    KDFW's pack reaches into was REFUSED by the cold-frame pre-flight
+    before any refresh could run, naming the two scopes the command had
+    just authorised — because nothing in the run derived a tile's insets
+    at all.  ``--warm-insets ICAO`` existed, but its ICAOs must be
+    airports OF THE TILE, which cannot be known until the airports layer
+    exists; on a cold tile it does not.  So the per-ICAO entry stays for
+    the airport a human names, and the TILE entry lives here.
+
+    THE DERIVATIONS ARE THE ENGINE'S OWN, in the tile prelude's order:
+    ``O4_DEM_Utils.DEM(..., info_only=True)`` (what
+    ``compose_tile_dem_from_disk`` calls, and what downloads a missing
+    base raster) and ``O4_Airport_Elevation_Insets.ensure_insets_for_tile
+    (tile, dico_airports, refresh=True)`` — the step-1 download hook,
+    over the airport dictionary built from the tile's (by now present)
+    airports layer, exactly as ``prepare_tile_airports_and_dem`` does.
+    Neither is copied.
+
+    Runs AFTER :func:`refresh_stale_osm_layers` for that reason: the
+    inset boxes come from the airports layer, which that pass derives.
+    Raises ``SystemExit`` when the frame is still cold afterwards — a
+    refresh that achieved nothing must not exit 0 (round-2's rule).
+    """
+    import O4_Config_Utils as CFG                          # noqa: E402
+    import O4_File_Names as FNAMES                         # noqa: E402
+    import O4_OSM_Utils as OSM                             # noqa: E402
+    import O4_Vector_Map as VMAP                           # noqa: E402
+    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+
+    lat, lon = int(lat), int(lon)
+    state = dem_cache_state(root, lat, lon)
+    if state["base_raster"] and state["airport_insets"]:
+        prog.note(f"refresh dem: tile {lat:+d}{lon:+d} already has its "
+                  f"base raster and its airport insets — nothing to derive")
+        return {"tile": [lat, lon], "derived": []}
+
+    tile = CFG.Tile(lat, lon, "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    derived = []
+    if not state["base_raster"]:
+        prog.note(f"REFRESH dem (authorised, locked, ledgered): deriving "
+                  f"the BASE RASTER of {state['tile_stem']} through the "
+                  f"engine's own loader — a fetch here is the POINT of "
+                  f"this run, not a side effect")
+        import O4_DEM_Utils as DEM                          # noqa: E402
+        DEM.DEM(lat, lon, getattr(tile, "custom_dem", "") or "",
+                info_only=True)
+        derived.append(f"Elevation_data/**/{state['tile_stem']}.hgt")
+
+    if not state["airport_insets"]:
+        airports_cache = FNAMES.osm_cached(lat, lon, "airports")
+        if not os.path.isfile(airports_cache):
+            raise SystemExit(
+                f"REFUSING --refresh-data dem: tile {lat:+d}{lon:+d} has no "
+                f"cached airports OSM layer, so the inset bounding boxes "
+                f"would come from an overpass QUERY — a second, "
+                f"unauthorised fetch.  Authorise osm_layers in the SAME "
+                f"run (--refresh-data osm_layers,dem): that pass derives "
+                f"the airports layer first, which is why it runs first.")
+        layer = OSM.OSM_layer()
+        OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
+                                     ["all"], cached_suffix="airports")
+        dico = VMAP.build_airports_dico(tile, layer)
+        prog.note(f"REFRESH dem (authorised, locked, ledgered): deriving "
+                  f"the AIRPORT INSETS of {state['tile_stem']} for "
+                  f"{len(dico)} airport(s) through the engine's own "
+                  f"tile-prelude hook (ensure_insets_for_tile, refresh)")
+        INSETS.ensure_insets_for_tile(tile, dico, refresh=True)
+        derived.append(
+            f"Elevation_data/**/{state['tile_stem']}_airport_insets/")
+
+    after = dem_cache_state(root, lat, lon)
+    still = [k for k in ("base_raster", "airport_insets") if not after[k]]
+    if still:
+        raise SystemExit(
+            f"REFUSING: --refresh-data dem derived NOTHING for "
+            f"{still} on tile {lat:+d}{lon:+d} — the frame is still COLD, "
+            f"so the build would fetch mid-measurement or grade on an "
+            f"all-zero surface.  A refresh that exits 0 having achieved "
+            f"nothing is the defect this refuses.  Check provider "
+            f"reachability (and, for the insets, that a provider covers "
+            f"this tile at all) and re-run.")
+    prog.note(f"refresh dem done: {derived}")
+    return {"tile": [lat, lon], "derived": derived}
+
+
+def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
+                            refresh_only: bool = False,
+                            allow_degraded: bool = False) -> None:
+    """THE RE-JUDGE, after this run's authorised refreshes.
+
+    A refresh that did not warm what it was asked to warm must still
+    refuse — just later, and with the reason known.  So the frame is
+    re-asked with NOTHING authorised.
+
+    ON A ``--refresh-only`` RUN, ONLY THE REQUESTED SCOPES DECIDE THE
+    EXIT CODE (measured 2026-09-15 on the owner's own warms):
+    ``KPHX --tile 33 -112 --refresh-only --refresh-data osm_layers``
+    re-derived +33-112_big_roads and then exited rc 1 on three ``dem``
+    items — version-stale USGS3DEP negatives nobody had asked this run
+    to touch.  A tile warmed for what was ASKED is a success; a cold
+    artefact in a scope this run was not authorised for is INFORMATION,
+    printed with the flag that would fix it.  A normal build keeps the
+    old strictness to the letter: everything must be current, because
+    the build is about to read it.
+    """
+    missing = missing_shared_artifacts(root, lat, lon, icao)
+    if not refresh_only:
+        require_dem_frame(dem_cache_state(root, lat, lon),
+                          allow_degraded=allow_degraded)
+        require_no_implicit_refresh(missing, requested)
+        return
+    requested = set(requested or ())
+    mine = [m for m in missing if m[0] in requested]
+    others = [m for m in missing if m[0] not in requested]
+    for scope, artifact, why in others:
+        print(f"  [harness] still cold, in a scope this run did NOT "
+              f"request — informational, not a failure: [{scope}] "
+              f"{artifact}\n      {why}\n      warm it with "
+              f"--refresh-only --refresh-data {scope}")
+    if mine:
+        raise SystemExit(
+            f"REFUSING: --refresh-only was authorised for "
+            f"{sorted(requested)} and {len(mine)} artifact(s) in those "
+            f"scopes are STILL not current afterwards:\n  "
+            + "\n  ".join(f"[{s}] {a}\n      {w}" for s, a, w in mine)
+            + "\nWhatever this run DID derive is already recorded in "
+              f"{REFRESH_LEDGER} (the audit runs on every exit path).  "
+              f"Check provider/Overpass reachability and re-run.")
+
+
+def reconcile_refresh_ledger(root, lat, lon, requested, prog,
+                             meta=None) -> dict:
+    """``--reconcile-ledger``: stamp the CURRENT state of artefacts a
+    refresh derived but never recorded.
+
+    THE MEASURED HOLE (2026-09-15, KPHX): the refresh moved
+    +33-112_big_roads aside, the engine re-derived it (file mtime 13:48),
+    and the run then exited on an unrelated refusal BEFORE the audit — so
+    the corpus carries a file no ledger line explains.  Round 6's first
+    fix makes that impossible going forward (the audit now runs in the
+    ``finally``); this is the RECONCILIATION for the ones already on
+    disk, and for any future write a crash puts beyond the audit's reach.
+
+    A FLAG, not automatic, and deliberately so: an artefact whose newest
+    ledger line predates its mtime may equally have been written by
+    ANOTHER lane's authorised refresh seconds earlier, and stamping that
+    silently would put this run's name on someone else's write.  The flag
+    is the human saying "I know what happened here, record it".
+
+    Scope: every artefact of the REQUESTED scopes that this tile's
+    derivations own and that EXISTS — the layer caches
+    ``osm_layer_warm_specifications`` names for this tile, and the 3x3
+    road feeds the v2 loader reads.  Each one whose newest ledger line
+    predates its mtime gets one ``reconciled`` record carrying the file's
+    hash-stamp; one that is already explained is left alone.
+    """
+    base = corpus_base(root)
+    paths = reconcilable_artifacts(root, lat, lon, requested)
+    if not paths:
+        prog.note("reconcile-ledger: no artefact of the requested "
+                  f"scope(s) {sorted(requested)} on tile "
+                  f"{lat:+d}{lon:+d} — nothing to reconcile")
+        return {"checked": 0, "reconciled": []}
+    done = record_reconciliation(paths, dict(meta or {}), repo=base)
+    for rel in done:
+        prog.note(f"LEDGER RECONCILED: {rel} — it is on disk NEWER than "
+                  f"any ledger line that names it; its current hash is "
+                  f"now recorded in {REFRESH_LEDGER}")
+    if not done:
+        prog.note(f"reconcile-ledger: all {len(paths)} artefact(s) of "
+                  f"{sorted(requested)} are already explained by a ledger "
+                  f"line at or after their mtime — nothing to reconcile")
+    return {"checked": len(paths), "reconciled": done}
+
+
+def corpus_base(root) -> Path:
+    """The corpus the ledger's paths are relative to, for THIS lane.
+
+    THE MEASURED BUG (2026-09-15, round 7).  ``reconcilable_artifacts``
+    relativised against the LANE ROOT, but a lane's ``OSM_data`` is a
+    SYMLINK into the shared repo, so ``Path(cache).resolve()`` lands in
+    ``/Users/noah/XPTerrainBuilderData/...`` and ``relative_to(lane)``
+    raised ValueError for EVERY artefact.  The list came out empty and
+    ``--reconcile-ledger`` reported "no artefact of the requested
+    scope(s) on tile +33-112" while the very file it exists for
+    (+33-112_big_roads, re-derived 13:48, never ledgered) sat there.  The
+    ledger is keyed on SHARED-REPO-relative paths (``record_refresh`` /
+    ``_file_stamp``), so that is the frame to use — falling back to the
+    lane root only for a corpus that genuinely is not the shared one (a
+    twin's tmp root, ``--allow-private-data``).
+    """
+    root = Path(root)
+    try:
+        (root / "OSM_data").resolve().relative_to(DATA_REPO.resolve())
+        return DATA_REPO.resolve()
+    except (OSError, ValueError):
+        return root.resolve()
+
+
+def reconcilable_artifacts(root, lat, lon, requested) -> list:
+    """The artefacts of ``requested`` that this tile's refresh
+    derivations own AND that exist on disk, relative to
+    :func:`corpus_base` — the same frame the refresh ledger uses.
+
+    Same two sources the pre-flight judges (so a reader never has to ask
+    which set is meant): the engine's own
+    ``O4_Vector_Map.osm_layer_warm_specifications`` for this tile, and
+    the v2 loader's own 3x3 ``ROAD_FEEDS`` square.
+    """
+    requested = set(requested or ())
+    if "osm_layers" not in requested:
+        return []
+    for p in (Path(root) / "src", Path(root)):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    out, seen = [], set()
+    base = corpus_base(root)
+
+    def _add(path):
+        try:
+            rel = str(Path(path).resolve().relative_to(base))
+        except (OSError, ValueError):
+            return
+        if rel in seen or not os.path.isfile(path):
+            return
+        seen.add(rel)
+        out.append(rel)
+
+    try:
+        import O4_Config_Utils as CFG
+        import O4_File_Names as FNAMES
+        import O4_Vector_Map as VMAP
+        tile = CFG.Tile(int(lat), int(lon), "")
+        try:
+            tile.read_from_config()
+        except Exception:
+            pass
+        for spec in VMAP.osm_layer_warm_specifications(tile):
+            _add(FNAMES.osm_cached(int(lat), int(lon), spec[0]))
+    except Exception as exc:
+        print(f"  [harness] reconcile: layer list unavailable ({exc!r})")
+    try:
+        from auto_patch_v2.airport import osm as _v2osm
+        osm_root = str(Path(root) / "OSM_data")
+        for dlat in (-1, 0, 1):
+            for dlon in (-1, 0, 1):
+                for feed in _v2osm.ROAD_FEEDS:
+                    _add(_v2osm.feed_path(osm_root, int(lat) + dlat,
+                                          int(lon) + dlon, feed))
+    except Exception as exc:
+        print(f"  [harness] reconcile: feed list unavailable ({exc!r})")
+    return sorted(out)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -2752,6 +3190,21 @@ def main(argv=None) -> int:
                          "(locked, hash-stamped, recorded).  'all' "
                          "authorises every scope.  Scopes: "
                          + ", ".join(s for s, _p, _w in REFRESH_SCOPES))
+    ap.add_argument("--reconcile-ledger", action="store_true",
+                    help="record the CURRENT hash of every artefact of the "
+                         "--refresh-data scope(s) on this tile whose newest "
+                         "refresh-ledger line predates its mtime — the "
+                         "reconciliation for a derivation a crash or a "
+                         "later refusal put beyond the audit's reach.  "
+                         "Explicit on purpose: another lane's authorised "
+                         "refresh looks the same from the outside.")
+    ap.add_argument("--refresh-only", action="store_true",
+                    help="perform the --refresh-data scopes for the named "
+                         "tile and EXIT without building.  For warming a "
+                         "NEIGHBOUR tile: the v2 loader reads road layers "
+                         "over the 3x3 neighbourhood, and warming one used "
+                         "to mean a whole --tile build.  rc 0 only when "
+                         "the frame re-judges CURRENT afterwards.")
     ap.add_argument("--warm-insets", default="",
                     help="comma-separated ICAOs whose airport elevation "
                          "INSET this run fetches/refreshes before the build "
@@ -2937,6 +3390,11 @@ def main(argv=None) -> int:
                   f"this run may write into the SHARED repo, under lock, "
                   f"hash-stamped into {REFRESH_LEDGER}")
 
+    if args.refresh_only and not requested:
+        raise SystemExit(
+            "REFUSING --refresh-only: no --refresh-data scope is "
+            "authorised, so there is nothing to refresh and nothing to "
+            "record.  Name the scope(s): --refresh-data osm_layers[,dem].")
     if args.tile:
         lat, lon = args.tile
     else:
@@ -2953,18 +3411,35 @@ def main(argv=None) -> int:
                   f"{state['base_raster']} insets={state['airport_insets']} "
                   f"airports_layer={state['airports_layer']} "
                   f"overlay={state['tile_overlay']}")
-        if args.dem is None:
-            require_dem_frame(state, allow_degraded=args.allow_degraded_dem)
+        if args.refresh_only:
+            # A WARM RUN IS NOT A MEASUREMENT (2026-09-15, round 6).  The
+            # pre-flight exists to stop a BUILD reading a cold or stale
+            # frame; a ``--refresh-only`` run reads nothing and builds
+            # nothing.  Refusing here is what stopped
+            # ``KDFW --tile 33 -98 --refresh-only --refresh-data
+            # osm_layers`` before it could warm anything — 31 ``dem``
+            # items (15ay's version-stale USGS3DEP negatives) nobody had
+            # asked that run to touch.  Everything is judged AFTER the
+            # derivations instead, by ``require_refreshed_frame``, which
+            # decides the exit code on the REQUESTED scopes alone.
+            prog.note("--refresh-only: the pre-flight stands down (this "
+                      "run reads nothing and builds nothing); the frame "
+                      "is judged AFTER the derivations, on the requested "
+                      "scope(s) alone")
+        elif args.dem is None:
+            require_dem_frame(state, allow_degraded=args.allow_degraded_dem,
+                              requested=requested)
         else:
             prog.note("constant-DEM oracle build: the real DEM frame is "
                       "SUBSTITUTED, so its cache warmth cannot confound "
                       "this run (checked and recorded, not enforced)")
         # A missing artifact is a DOWNLOAD this build would perform as a
         # side effect.  Named and refused unless explicitly authorised.
-        require_no_implicit_refresh(
-            missing_shared_artifacts(root, lat, lon,
-                                     None if args.tile else args.icao),
-            requested)
+        if not args.refresh_only:
+            require_no_implicit_refresh(
+                missing_shared_artifacts(root, lat, lon,
+                                         None if args.tile else args.icao),
+                requested)
     else:
         prog.note(f"WARNING: could not resolve the anchor tile for "
                   f"{args.icao} — the DEM cache state is UNKNOWN for this "
@@ -3103,39 +3578,96 @@ def main(argv=None) -> int:
         prog.note("shared-repo write guard DISARMED by flag — writes are "
                   "detected after the fact only (the pre-fix behaviour)")
 
-    # THE WARM, before the build's DEM prep and inside everything that
-    # makes a shared-repo write lawful: the scope lock is held, ``before``
-    # is snapshotted, and the guard is armed with ``dem`` authorised.  A
-    # failure here must not be swallowed into a quietly inset-less build,
-    # so it is deliberately outside the try/finally that follows.
     warm_summary = None
-    if warm_insets:
-        if lat is None:
-            raise SystemExit(
-                f"REFUSING --warm-insets: the anchor tile for {args.icao} "
-                f"did not resolve, so there is no inset cache to warm.")
-        with guard:
-            warm_summary = warm_airport_insets(warm_insets, root, lat, lon,
-                                               prog)
-
-    # THE OSM-LAYER REFRESH, in the same place and for the same reason:
-    # the scope lock is held, ``before`` is snapshotted and the guard is
-    # armed with ``osm_layers`` authorised.  Before the build, so a
-    # schema-stale layer is re-derived as an EXPLICIT event instead of
-    # being rewritten mid-build (the contamination of RULINGS
-    # 2026-09-15u) — and so this run's re-derivation lands in the
-    # before/after diff the ledger stamps.  Outside the try/finally
-    # below for the warm's reason: a failed refresh must not be swallowed
-    # into a quietly stale build.
-    osm_refresh_summary = None
-    if "osm_layers" in requested and lat is not None:
-        with guard:
-            osm_refresh_summary = refresh_stale_osm_layers(
-                root, lat, lon, prog)
-
+    osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
     t0 = time.time()
+    # EVERYTHING FROM HERE IS INSIDE THE AUDIT'S ``finally`` (2026-09-15,
+    # round 6).  It used not to be, and two things leaked, both measured
+    # on the owner's own KDFW/KPHX warms:
+    #   * KPHX: the refresh MOVED +33-112_big_roads aside, the engine
+    #     re-derived it ("1 layer(s) re-derived", 13:48) — and the
+    #     RE-JUDGE below then refused on unrelated ``dem`` items, so the
+    #     run exited before the audit ever ran and there is no
+    #     ``REFRESH RECORDED [osm_layers]`` line for a write that
+    #     happened.  A corpus that changed without a ledger line is
+    #     exactly what the ledger exists to prevent.
+    #   * KDFW +33-098: the pre-flight refusal left
+    #     ``.harness/locks/osm_layers.lock`` behind (holder pid 46331,
+    #     dead), because the release lived only on the success path.
+    # So the derivation, the re-judge and the build all sit inside one
+    # try; the ``finally`` snapshots, reports, STAMPS THE LEDGER and
+    # releases every lock on every exit path, refusal included.  Nothing
+    # is swallowed: the finally re-raises whatever came through it.
     try:
-        if args.tile:
+        # THE WARM, inside everything that makes a shared-repo write
+        # lawful: the scope lock is held, ``before`` is snapshotted, and
+        # the guard is armed with ``dem`` authorised.
+        if warm_insets:
+            if lat is None:
+                raise SystemExit(
+                    f"REFUSING --warm-insets: the anchor tile for "
+                    f"{args.icao} did not resolve, so there is no inset "
+                    f"cache to warm.")
+            with guard:
+                warm_summary = warm_airport_insets(warm_insets, root, lat,
+                                                   lon, prog)
+
+        # THE OSM-LAYER REFRESH, in the same place and for the same
+        # reason.  Before the build, so a schema-stale layer is
+        # re-derived as an EXPLICIT event instead of being rewritten
+        # mid-build (the contamination of RULINGS 2026-09-15u) — and so
+        # this run's re-derivation lands in the before/after diff the
+        # ledger stamps.
+        if "osm_layers" in requested and lat is not None:
+            with guard:
+                osm_refresh_summary = refresh_stale_osm_layers(
+                    root, lat, lon, prog)
+        # THE DEM REFRESH runs SECOND, deliberately: the inset bounding
+        # boxes come from the tile's airports layer, which the pass above
+        # derives when it is absent (the cold-neighbour case, +32-097).
+        if "dem" in requested and lat is not None:
+            with guard:
+                dem_refresh_summary = refresh_tile_dem(root, lat, lon, prog)
+        # THE LEDGER RECONCILIATION (--reconcile-ledger), before the
+        # re-judge for the same reason the audit moved: it is a RECORD of
+        # what is on disk, and a later refusal must not lose it.
+        if args.reconcile_ledger and lat is not None:
+            with guard:
+                reconcile_summary = reconcile_refresh_ledger(
+                    root, lat, lon, requested, prog,
+                    meta={"lane": str(root), "tag": tag,
+                          "argv": sys.argv[1:]})
+
+        # RE-JUDGED with NOTHING authorised: a refresh that did not warm
+        # the frame still refuses, just later and with the reason known.
+        if requested and lat is not None and args.dem is None:
+            require_refreshed_frame(
+                root, lat, lon, requested,
+                icao=None if args.tile else args.icao,
+                refresh_only=args.refresh_only,
+                allow_degraded=args.allow_degraded_dem)
+
+        if args.refresh_only:
+            # THE WARM-ONLY RUN (2026-09-15).  The v2 loader reads road
+            # layers over the 3x3 NEIGHBOURHOOD, so warming a neighbour
+            # meant ``--tile LAT LON --refresh-data osm_layers`` — a
+            # WHOLE tile build (minutes to an hour) that refuses a cold
+            # DEM frame before it gets there.  This performs exactly the
+            # authorised refreshes above, lets the audit below stamp the
+            # ledger, and never enters a build stage.  Everything that
+            # makes a shared-repo write lawful has already happened: the
+            # scope lock, the snapshot, the armed guard, the re-judged
+            # pre-flight.
+            result = {"refresh_only": True,
+                      "tile": [lat, lon] if lat is not None else None,
+                      "refresh_authorised": sorted(requested),
+                      "refresh_osm_layers": osm_refresh_summary,
+                      "refresh_dem": dem_refresh_summary,
+                      "wall_seconds": round(time.time() - t0, 1)}
+            prog.note(f"REFRESH-ONLY: the authorised refresh(es) "
+                      f"{sorted(requested)} are done and the frame is "
+                      f"re-judged CURRENT; no build stage was entered")
+        elif args.tile:
             # ``build_patch`` redirects the engine's cache roots itself;
             # the tile path never goes through it, so it does it here.
             redirects = redirect_engine_caches(out_dir, tag, prog,
@@ -3209,6 +3741,8 @@ def main(argv=None) -> int:
     frame["write_guard_library_index_churn"] = guard.library_index_churn
     frame["warm_insets"] = warm_summary
     frame["refresh_osm_layers"] = osm_refresh_summary
+    frame["refresh_dem"] = dem_refresh_summary
+    frame["reconcile_ledger"] = reconcile_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)
     frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["synthetic_dem"] = result.get("synthetic_dem")
@@ -3242,6 +3776,19 @@ def main(argv=None) -> int:
     (out_dir / f"{tag}.result.json").write_text(json.dumps(
         {k: v for k, v in result.items() if not k.startswith("_")},
         indent=1, default=str))
+    if args.refresh_only:
+        # NOTHING WAS BUILT, so there is no artifact to store, no census
+        # to point at and no patch to report — only the refresh record.
+        # rc 0 depends on the RE-JUDGED pre-flight above having passed:
+        # a refresh that left the frame cold or stale raised there.
+        prog.note(f"EXIT {tag} rc=0 REFRESH-ONLY wall="
+                  f"{result['wall_seconds']}s")
+        print(f"\n  [harness] refreshed {sorted(requested)} for tile "
+              f"{lat:+d}{lon:+d}; frame re-judged CURRENT; NO build ran.")
+        print(f"  [harness] record: {out_dir / (tag + '.frame.json')} "
+              f"(ledger lines in {REFRESH_LEDGER})")
+        return 0
+
     # ── THE ARTIFACT LEDGER: store this arm ──────────────────────────
     # Every successful patch build pays it forward; only a request to serve
     # (--base-arm) ever reads it back, so a plain build is unchanged apart

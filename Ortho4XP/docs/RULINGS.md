@@ -8056,3 +8056,382 @@ rows; offsets 0 bar TUNNEL2's four (0.897/0.842/0.812/0.670). The
 lane's worktree taken down; frames committed. The owner (testing
 1.0.341) push-notified: VHHH near the tunnels is a known regression;
 LEMD/VMMC reads valid.
+
+## 2026-09-15bj v2othhdet (24f60ca1) MERGED: the OTHH "nondeterminism" (15ar) was NOT the reader — the session's own OTHH road-layer refresh (11:45:43) landed between v2objcut's base runs e0 (11:39:00, stale feed: bores 8, 7/42) and e2 (11:45:23, refreshed: bores 16, 9/44); six runs on one corpus are identical on every non-timing key (a structures.json sha is never a determinism instrument — it embeds wall clocks). Two real fixes beside it: corridor ids were input-ORDER keyed (6 of 8 shuffles re-bound `@0`) → `object_cut.placement_key` (resource, xy 1 mm, heading, id); the dry replay now REFUSES a schema-stale road feed by name (as build_airport does), gated on the production frame. Two live gaps named: `read_wall_corridors` IS read-order dependent at OTHH (sorting → 73 → 75 corridors, different pairs — the band-pair choice needs a ruling; xfail placeholder); `airport_small_roads` is never schema-invalidated (`O4_Vector_Map._airport_auto_roads_layer`, no `cache_schema`) — §45 (9)'s depth witnesses are still dropped for every airport's service roads (the peer's chip task_7e4c5a02)
+
+Suite on the lane 1,672 passed / 1 xpassed, 0 FAILED. Dry pairs base
+118d2c40 → lane: OTHH byte-identical ignoring id (the one change:
+`tunnel-object:tunnel1.obj@0` ↔ `@1` swap placements 14051/14052 —
+14av's pair, two id strings, no geometry); LEMD and VHHH byte-identical
+(refusal lists sorted). 8 twins (`test_v2othhdet.py`; the shuffle twins
+FAIL pre-fix). Corpus: of 26 cached `big_roads` feeds the six campaign
+tiles carry 2026-09-15, the other 20 carry 2026-07-16 and now refuse a
+production-frame dry load until refreshed (the owner's act per tile).
+LESSON (recorded): never compare two runs across a corpus refresh —
+the refresh ledger's timestamps are part of every A/B frame.
+15bj addendum: suite ON MAIN after the v2othhdet merge: 1672 passed, 1 skipped, 1 xpassed, 42 warnings in 41.41s.
+
+## 2026-09-15aq OWNER INTERVIEW (eight answers): the refreshes are this session's act; both packs RESTORED from `.anchor_bak`; no stale-OSM override; capability-free negatives re-probed once per app version; feed tags stay; §45 ships ON after KDFW/KPHX replay clean; measure-only accepted; C9/C12 after the reads — and the LEMD tile proof of 15ao
+
+Owner 2026-09-15 ("Interview me to resolve open questions"), answers
+with the data beside them: (1) "Yes, run all three now" — the LGAV
+osm_layers, KDFW osm_layers + the +32-097 neighbour's osm_layers,dem,
+and KPHX osm_layers,airport_mod_cache,dem --warm-insets refreshes are
+THIS session's authorised act (ledgered as they run). (2) "Restore both
+from .anchor_bak now" — DONE: `restore_pack_objects(allow_live_install=
+True, dsf_path=…)` then the authored DSF copied back over the bake and
+`o4_placement_provenance.json` removed: LEMD (322 object backups, the
+2,694 split bodies removed, live DSF sha 747ee558… = backup), VHHH (41
+backups, 606 bodies removed, sha 7fbeaa79… = backup); the next app build
+re-bakes both as every app build does. (3) "No override; refresh per
+tile" — stale-vs-fresh arms are not comparable; no `--allow-stale-osm`.
+(4) "Re-probe once per app version" — a capability-free provider's
+`no-coverage` is re-asked once per engine version (one TNM query per
+airport per version); lane `v2insetreprobe`; clears the 20 Phoenix
+records on the next 1.0.341 build. (5) "Leave it for now" — the
+per-airport feed's `_ROAD_FEED_WAY_TAGS` stays (it carries `layer`).
+(6) "ON everywhere once KDFW/KPHX replay clean" — v2channel merges after
+round 5 + the two refreshed replays; the owner's LGAV/KDFW/KPHX reads
+adjudicate. (7) "Accept measure-only" for lane tile builds (15ao's
+deviation ratified). (8) "After your LGAV/KDFW reads" — C9 (§19
+structure edge) and C12 (`road_profile._osm_levelled`) open a round only
+if the reads show the rim or the road wrong. ALSO RECORDED: the 15ao
+end-to-end proof by the concurrent session (its 15bf): `build_airport.py
+LEMD --tile 40 -4 --no-ledger` rc 0, 748 s — the pack DSF byte-identical
+before/after (sha 6bf37ff1…, mtime 12:21:43 both), `[v2 placement] LEMD:
+MEASURE ONLY — 0 conversion(s), 323 split(s) into 2710 body file(s), 4
+kept; nothing written`, no `[v2 rebake]` write line, shared repo
+UNCHANGED. And from the concurrent session (15bj): `airport_small_roads`
+is never schema-invalidated (chip task_7e4c5a02, running in the owner's
+session); 20 of 26 cached big_roads feeds still carry 2026-07-16 and now
+refuse a production-frame dry load too.
+
+## 2026-09-15bl v2shoulderband MERGED (a8138464): §40 (5) the shoulder is a band — LEMD's 111,648 m² cell → 49,515 m² within 75 m + 46,764 m² apron; runway vertices beyond the strip 609 → 1; the 0.95 m step gone (`runway_step` family, 3 → 0); the owner's item-7 site 1.552 → 0.554 % under the junction law; ADJUDICATED 2,011 → 1,709; every DEFECT family zero on a real LEMD build; HECA's worst "shoulder" reached 1,717 m (218,797 m²) → 83,655 m² of band; RULED the band takes the strip's end extension (r2 with the VHHH capture)
+
+Lane @ a8138464; suite 1,668 passed, 0 FAILED; consumer census of 31
+readers committed BEFORE the code (ea770ec9), two hazards predicted and
+both landed as predicted. Functions: `classify/roles.shoulder_band`
+(new) + the §40 (1) branch, `rules.Corridor.runway_shoulder_band`,
+`verify/steps._step_rows(roles=, allow_of=)`, `verify/runway.runway_
+step` (new), census READERS/DEFECT_KEYS, `Materiality.runway_step_m`,
+families.toml, check_grade, `v2_solve_replay --rule` (INDEX row).
+Details in §40 (5) MEASURED AND RULED. Owed: VHHH/CYXY/SPJC/KCLT/OTHH
+captures (one each) to measure the band there; the end-cap line (r2).
+15bl addendum: suite ON MAIN after the v2shoulderband merge: 1682 passed, 1 skipped, 1 xpassed, 42 warnings in 88.92s (0:01:28).
+
+## 2026-09-15as OWNER (9): the per-airport road feeds of KDFW, LGAV and KPHX may be RE-CUT under `osm_roadfeed`; and the two refresh gaps the KDFW refreshes measured (a cold tile cannot be warmed; a superseded per-airport feed is not re-cut) — lane `v2schemarefuse` round 5
+
+Measured (this session, owner-authorised, 13:30): `build_airport.py LGAV
+--refresh-data osm_layers` rc 0, REFRESH RECORDED +2 ~1 (LGAV builds
+again). `build_airport.py KDFW --refresh-data osm_layers` re-derived
+`+32-098_big_roads` (ledgered, ~1) and then the v2 LOADER raised "1
+cached road feed(s) were written under a SUPERSEDED tag whitelist" — the
+PER-AIRPORT feed (`OSM_data/_airport_road_feed`, scope `osm_roadfeed`),
+present but superseded, which no refresh re-cuts (round 2's class).
+`build_airport.py KDFW --tile 32 -97 --refresh-data osm_layers,dem` (the
+neighbour tile the KDFW pack reaches into) was REFUSED by the cold-frame
+pre-flight BEFORE any refresh: no airports OSM layer, no insets dir —
+`refresh_stale_osm_layers` derives only STALE layers, never ABSENT ones,
+and nothing derives a cold tile's insets under `dem` (only
+`--warm-insets ICAO`, whose ICAOs are unknown until the layer exists).
+Owner answer (9): "Yes, re-cut the three" — KDFW, LGAV and KPHX feeds
+under `osm_roadfeed`, the whitelist unchanged (15aq (5)). Round 5 of
+`v2schemarefuse` gives all three their derivation sites: an authorised
+`osm_layers` refresh derives ABSENT layers (the pre-flight yields to an
+authorised scope and re-judges after), an authorised `dem` refresh
+derives the tile's airport insets via the engine's
+`ensure_insets_for_tile(refresh=True)`, an authorised `osm_roadfeed`
+refresh moves a superseded feed aside and lets the loader's own cut
+re-derive it (raise if nothing re-derived); and the superseded feed is a
+PRE-BUILD refusal, not a loader traceback 54 s in. The KPHX refresh
+(osm_layers, airport_mod_cache, dem, --warm-insets KPHX) is running.
+
+## 2026-09-15bn The LEMD and VHHH install packs RESTORED from .anchor_bak (the peer session on the owner's word, 15aq/15as, ~13:20): LEMD 2,694 split bodies removed, DSF sha 747ee558… = the backup; VHHH 606 bodies removed, sha 7fbeaa79… = the backup; provenance files removed; the next app build re-bakes them — 15bb's owner item CLOSED. A concurrent docs commit (6797d1ca) completed the conflicted v2shoulderband merge WITH markers in design-surface-spec.md (lines 14757–15092); repaired at acbe3035 (both §40 (5) blocks kept); the suite had passed on the marked tree — a marker twin is chipped (task_e28892c3); ONE git-touching task at a time on this tree
+
+Owner interview (peer, 15aq): LGAV/KDFW/KPHX refreshes are the peer's
+(LGAV done); no --allow-stale-osm; capability-free negatives re-probed
+once per app version (lane v2insetreprobe); the per-airport feed
+whitelist stays; §45 ships ON after KDFW/KPHX replay clean; measure-
+only accepted; C9/C12 after the reads; osm_roadfeed re-cut authorised
+for KDFW/LGAV/KPHX; the LEMD tile proof recorded there too. Lanes told
+the pack DSFs changed back.
+15bn addendum: suite ON MAIN after the marker repair (acbe3035), incl. test_docq: 1691 passed, 1 skipped, 1 xpassed, 42 warnings, 6 errors in 63.30s (0:01:03).
+
+## 2026-09-15au KPHX REFRESHED (this session, owner-authorised 15aq (1)): the 1 m 3DEP inset is cached, the false negative is gone, the road layer and the mod-cache dump re-derived — three ledger lines; the build after it died on the superseded per-airport feed (15as), pending round 5
+
+`build_airport.py KPHX --refresh-data osm_layers,airport_mod_cache,dem
+--warm-insets KPHX` (13:28): `Fetching elevation inset for KPHX from
+USGS3DEP` → `Airport inset index CHANGED, rewriting it: KPHX: USGS3DEP,
+probes, probes_for` → `warm-insets done: 1 fetch attempt(s), valid
+fraction(s) {'KPHX_usgs3dep.tif': 1.0, 'KPHX_copernicusglo30.tif':
+1.0}` (`KPHX_usgs3dep.tif` 94,878,600 B; the index's `USGS3DEP` record
+now `ok` — 15q's false `no-coverage` replaced by the real answer);
+`refresh osm_layers done: 1 layer(s) re-derived schema-current` (+33-113
+_big_roads); `REFRESH RECORDED [airport_mod_cache]: +1 ~0`, `[dem]: +2
+~1`, `[osm_layers]: +2 ~1`. Then the loader raised the superseded
+per-airport feed (`osm_roadfeed`, 15as) — the KPHX build waits for
+round 5's re-cut. The owner's next app build of +33-113 grades KPHX on
+the lidar (+33-112 retries its own 3DEP fetch, having recorded no
+negative); its provenance line must read `insets=KPHX:USGS3DEP`. The
+other 16 false negatives on +33-113 and 3 on +33-112 clear under 15aq
+(4) once lane `v2insetreprobe` lands and 1.0.341+ builds them.
+15bn addendum 2: the 6 test_harness ERRORs were transient — the peer's LGAV `--refresh-data` (ledger 13:29:33, scopes dem + osm_layers) wrote the shared corpus while the suite ran (the session detector's cross-attribution class, memory `app-builds-cross-attribute-suite-detector`); `tests/test_harness.py` alone: 392 passed. Main is green (1,691 + 392).
+
+## 2026-09-15aw v2channel ROUND 5 (0531ab07): seven dry replays ALL IDENTICAL (tool `structure_replay_diff.py` promoted); (13)(d) as written took LGAV's trench — AMENDED to a BUILT basin's members with basins built before channels; cross-feed joins now carry the feed (LGAV exclusions 9 → 7 were id collisions); the deck read is §34 (5)'s one derivation
+
+Round 5 measured: (13)(d) via `basin_member_ids` (the CANDIDATE set)
+met the ruling's LEMD site exactly (`channel:5`'s witnesses = built
+`basin:0`'s three members; basins 1 → 1) and removed LGAV's `Trench_07`
+/`Trench_08` (candidates that never build a basin) so the trench channel
+fell to (13)(a) — the lane reported the conflict, did not narrow it.
+AMENDED §45 (13)(d): a member of a BUILT basin; basins run first,
+channels second, §45 (7)/(11) as a post-filter on built basins inside a
+corridor. Addendum (1): `planar/channel.way_key -> (kind, id)`; every
+cross-feed join carries the feed (`Channel.way_keys`; an unqualifiable
+bare id kept as ANY_FEED); twin with id −500 in two feeds; on real data
+LGAV's (13)(b) exclusions 9 → 7 — two were colliding ids. Finding:
+`Corridor.bore_ways` has NO producer in `src` — (13)(b)'s object-
+corridor half is inert; owed to the tunnel-object line. Addendum (2):
+§45 (1)(a) held a verbatim copy of §34 (5)'s loop — extracted to
+`structure_underpass.aeroway_decks(airport, law)`, one derivation for
+both; §34 (12)(4)'s below-grade witness governs road `bridge=*` ways
+severing a bore, a different population, not routed. Seven dry replays
+base 8315f6f8 vs branch: OTHH 44/10, LEMD 52/1, HECA 13/0, KCLT 23/0,
+CYXY 2/0, SPJC 8/0, LGAV 11/2 — `VERDICT: ALL IDENTICAL` whole records
+incl. `replaced_ways`; `tools/structure_replay_diff.py` promoted on its
+4th use with INDEX row + twin. Campaign suite `1698 passed, 1 skipped, 1
+xpassed`, 0 FAILED; 18 teardown errors = the suite detector seeing THIS
+session's authorised KDFW osm_layers refresh (13:26:13, ledgered) — the
+app-builds-cross-attribute class, quoted not silenced. KDFW/KPHX replays
+REFUSE on NEIGHBOUR tiles' superseded road layers (+33-098; +33-112/
++33-113 as read before the 13:28 refresh) — the loader reads the 3 × 3
+neighbourhood; owner act per tile (question put). Round 5 had earlier
+HUNG 56 min on two whole-tree `pytest tests -q` runs (xdist, 0 % CPU) —
+killed by the session; the whole tree is not the bar. Round 6: the
+ordering, both bars, seven replays identical, then the merge.
+
+## 2026-09-15ay v2insetreprobe MERGED (5b4ea55e): a capability-free provider's `no-coverage` is re-probed ONCE PER ENGINE VERSION (owner 15aq (4)); 19 stale Phoenix negatives named; the harness names them under `dem` and never fetches
+
+Lane `v2insetreprobe` (2811624a). One predicate,
+`negative_is_version_stale(record, code, definition, bbox)`: true only
+for a `no-coverage` of a provider with NO required capability, whose
+declared coverage box reaches the airport, recorded under a version ≠
+the running one (an out-of-box negative is re-derived from the boxes
+and never re-asked, so a release churns no index). `run_capability_
+record` now stamps capability-free providers too (`{"engine": v,
+"capabilities": []}` in the index's existing `capabilities` JSON — no
+new file, no new key; the unstampable record was WHY the negative was
+permanent). The provider loop's third door beside `refresh` and
+`unverified` logs both versions and re-stamps whatever the answer;
+13b's door untouched; `is_cached` is False for a tile carrying one;
+`engine_version()` public. Harness: `unverified_inset_negatives` names
+a version-stale capability-free negative under `dem` with both
+versions and `--refresh-data dem`, never fetching (imported predicate).
+Measured read-only at engine 1.50.1788: +33-113 16, +33-112 3 (the 19 of
+15q's 20 not already cleared by 15au's KPHX refresh). Twins (a)–(f);
+`test_legacy_caches_without_recorded_box_are_reused` re-stamped (its
+unstamped negative was re-asked once — the law working). Merge conflict
+in `tests/test_harness.py` (both sessions append twins; kept both).
+Suite ON MAIN: `1877 passed, 1 skipped, 1 xpassed`, 0 failed. NOTED,
+not mine: the SUITE's session detector has no external-candidate
+downgrade (unlike the build audit's `BuildInputScope`), so a concurrent
+authorised refresh lands as teardown ERRORs in any suite running at the
+time (18 today, twice) — chip-worthy.
+
+## 2026-09-15ba v2schemarefuse ROUND 5 MERGED (306b68f6): 15as's "superseded per-airport feed" was a MISATTRIBUTION — the loader's road feeds are the tile-wide layers over the 3 × 3 NEIGHBOURHOOD (scope `osm_layers`); the refresh now warms absent layers, neighbour tiles and a cold tile's DEM/insets, and `--refresh-only` refreshes without building
+
+Attribution (lane `v2schemarefuse` r5, a0e90a20): `auto_patch_v2/airport/
+osm.py` `ROAD_FEEDS = ("airport_small_roads", "big_roads")`, resolved by
+`feed_path` to `OSM_data/<block>/<tile>/<tile>_<feed>.osm.bz2` — the TILE
+layers, merged over the 3 × 3 square by `load_feed`; the KDFW traceback
+named `+33-098_big_roads` (a neighbour) and KPHX's `+33-112`. Round 1's
+`schema_stale_osm_layers` judged the build's own tile only (its stated
+limit — the defect). `OSM_data/_airport_road_feed` (`osm_roadfeed`) has
+no loader refusal; 15as (9)'s re-cut is NOT needed (the owner's
+authorisation is unused; the whitelist chip of 15r stands). FIVE parts,
+one mechanism: (1) `superseded_road_feeds` judges what the reader judges
+(its own `ROAD_FEEDS`/`feed_path`/`feed_tag_schema`, the 3 × 3 square) as
+a PRE-FLIGHT refusal — untagged feeds (`airport_small_roads`, no schema
+anywhere) deliberately not named; live corpus read-only: KDFW names
++33-098, KPHX +33-112, LGAV/HECA 0. (2) `require_dem_frame(requested=)`
+— an authorised scope is named as something this run derives, the run
+proceeds, the frame is RE-JUDGED afterwards with nothing authorised. (3)
+`refresh_stale_osm_layers` derives ABSENT layers and runs once per named
+tile; the airports layer (not in the prefetch specs) via the engine's
+own `OSM_queries_to_OSM_layer`. (4) `refresh_tile_dem` beside
+`warm_airport_insets`: the base raster via `O4_DEM_Utils.DEM(info_only)`
+and the insets via `ensure_insets_for_tile(refresh=True)` over the
+by-then-present airports layer; runs second; raises if still cold. (5)
+`--refresh-only`: the refreshes for the named tile, ledgered, rc 0
+without entering any build stage (rc 0 only because the re-judged
+pre-flight passed; refuses with no scope). Suite ON MAIN: `1723 passed,
+1 skipped, 1 xpassed`, 0 failed. NOT DONE: no live exercise of
+`--refresh-only` (this session's KDFW/KPHX neighbour warms are the first
+proof); a cold bathymetry band still refuses inside `build_tile`.
+
+## 2026-09-15bc KDFW's and KPHX's NEIGHBOUR TILES WARMED with `--refresh-only` (this session, owner-authorised 15aq (1)): +32-097 cold → 74 insets + 11 layers ledgered; +33-098 and +33-112 big_roads re-derived — and two defects in the new path: a derivation without its ledger line, and a leaked scope lock
+
+`build_airport.py KDFW --tile 32 -97 --refresh-only --refresh-data
+osm_layers,dem` (13:47): `REFRESH dem … deriving the AIRPORT INSETS of
+N32W097 for 37 airport(s) through the engine's own tile-prelude hook`;
+`REFRESH RECORDED [dem]: +74 ~0`, `[osm_layers]: +11 ~1` (the 3 × 3 pass
+re-derived `+33-098_big_roads` as well); `EXIT rc=0 REFRESH-ONLY`. Then
+`KDFW --tile 33 -98 --refresh-only --refresh-data osm_layers`: the
+pre-flight REFUSED with 31 `[dem]` items — 15ay's version-stale USGS3DEP
+negatives on N33W098 — rc 1, and the run LEFT `.harness/locks/
+osm_layers.lock` behind (holder pid 46331, dead). `KPHX --tile 33 -112
+--refresh-only --refresh-data osm_layers --break-stale-lock`: broke the
+stale lock, moved `+33-112_big_roads` aside, the engine re-derived it
+(file 13:48), then the re-judged pre-flight refused on 3 `[dem]` items
+(KCHD, Superior, Superstition — version-stale negatives), rc 1, with NO
+`REFRESH RECORDED [osm_layers]` line: the corpus changed and the ledger
+does not carry it (the class the ledger exists to prevent), and the lock
+leaked again. Both defects are round 6 of `v2schemarefuse`: the ledger
+stamped for every derived scope BEFORE any later refusal; the lock
+released on every exit path; a refresh-only run refuses only when a
+REQUESTED scope is still stale (other scopes' cold items informational,
+rc 0); and a reconciliation that ledgers a derived-but-unrecorded
+artefact's current hash. Net state: KDFW's 3 × 3 road layers and its
++32-097 neighbour's airports layer + insets are current; KPHX's +33-113
+(15au) and +33-112 layers are current; the `+33-112_big_roads` write of
+13:48 is UNLEDGERED until the reconciliation runs.
+
+## 2026-09-15be suiteexternal MERGED (26dac84c): the pytest session detector names a ledgered or redirected shared-repo delta EXTERNAL (printed, never an ERROR); every other delta still fails the suite
+
+The defect (15ay tail, 15n): `tests/conftest.py`'s session-scope
+before/after snapshot failed the WHOLE session on ANY shared-repo delta,
+so another session's authorised, ledgered `--refresh-data` — today
+`OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2` (ledger 13:26:13)
+and `+33-113_big_roads.osm.bz2` (write 13:29:27, ledger 13:29:33) —
+turned every test of two suites into a teardown ERROR. The build audit
+already had the door (`report_unauthorised_writes(..., input_scope=,
+redirected=)`, 15ar); the suite had none. Lane `suiteexternal`
+(26dac84c), ONE mechanism: `shared_repo_guard.ledgered_refresh_paths(
+window_start, window_end, *, ledger=None)` — pure, read-only, every
+`files[].path` AND `removed[]` of a ledger record whose `ts` lies inside
+the window (`REFRESH_TS_FORMAT` is fixed-width, string compare is
+chronological); missing ledger `{}`, malformed line skipped. Re-exported
+through `build_airport.py`'s existing import list (with
+`redirected_scopes`, not previously re-exported). conftest:
+`classify_shared_writes(changes, scope_of, *, ledgered, redirected) ->
+(external, unlawful)` walks the unchanged `unauthorised_shared_writes`
+population once — ledger hit → `ledgered <ts> <scope>`; scope in
+`redirected_scopes()` → `redirected`; else UNLAWFUL on the byte-identical
+`pytest.fail` path. The fixture stamps the window around its two
+snapshots and asks the real ledger/engine; externals PRINT under their
+own heading (path, scope, reason). Five twins on tmp ledgers + tmp roots
+(in/out-of-window incl. a removed path; explicit `redirected=` never
+asking the engine; lock churn still churn; source twin that conftest
+IMPORTS the predicate and defines no copy; missing/broken ledger).
+Offline replay of the peer's real N32W097 `dem` refresh through the new
+code: window closing before its record → UNLAWFUL 3; window covering
+the record (13:47:17) → EXTERNAL 3, UNLAWFUL 0. Suite on the merged tree
+(main d67b5b75 merged in): `1694 passed, 1 skipped, 1 xpassed`, 0
+failed, 0 errors. STATED RESIDUALS, both documented in the docstrings,
+neither solved: (1) IN-FLIGHT — `record_refresh` appends after the
+refresh's own after-snapshot, so a refresh still running at the suite's
+teardown has no record and still fails it (the lane's own closing run
+hit exactly this: 18 ERRORs on three N32W097 inset paths landing
+13:42–13:43, ledgered 13:47:17); a held `RefreshLock` for the scope is
+the natural second door if the owner wants it. (2) `redirected_scopes()`
+does NOT cover the suite's OSM regional-extract overlay
+(`O4_OSM_Extracts.STORE_DIRECTORY`, scope `osm_layers`, no
+`O4_File_Names` accessor) — and adding `osm_layers` would externalise all
+of `OSM_data`, so it needs a narrower scope or a path-level test, not an
+entry in `_REDIRECTABLE_SCOPES`. No builds, no downloads, no shared-repo
+writes; no INDEX row (library function of an indexed module).
+
+## 2026-09-15bg v2schemarefuse ROUND 6 MERGED (1ac10885): the refresh's derivations, ledger and lock release are ONE try/finally; a refresh-only run fails only on a REQUESTED scope; `--reconcile-ledger` — live proof rc 0 twice, and one residual (a never-ledgered artefact is not reconciled)
+
+Attribution (lane r6, e60d8917): 15bc's two defects are one root cause —
+the warm, the derivations and the re-judge sat OUTSIDE the `try` whose
+`finally` snapshots, stamps the ledger and releases the locks (the old
+"deliberately outside so a failure is not swallowed" comment was stale:
+the `finally` audits and re-raises). Now one `try`, one `finally`, every
+exit path. The third: a warm run was judged as a measurement —
+`require_dem_frame` and `require_no_implicit_refresh` stand down for
+`--refresh-only`, and `require_refreshed_frame` decides rc AFTER the
+derivations: rc 1 only if a REQUESTED scope is still stale/absent;
+unrequested cold items print with their flag, informational. (4)
+`--reconcile-ledger` (a FLAG, not automatic — an artefact newer than
+its ledger line may be another lane's authorised write; the record is
+`reconciled: true` with a `why` that claims no fetch); covers
+`osm_layers` artefacts (the warm specs + the 3 × 3 ROAD_FEEDS square).
+Merge conflict: one import line in `build_airport.py` (both kept).
+Suite ON MAIN: `1733 passed, 1 skipped, 1 xpassed`, 0 failed. LIVE PROOF
+(this session): `KPHX --tile 33 -112 --refresh-only --refresh-data
+osm_layers --reconcile-ledger` rc 0, lock released, 3 `dem` items
+informational; `KDFW --tile 33 -98 --refresh-only --refresh-data
+osm_layers` rc 0, 31 `dem` items informational. RESIDUAL: the
+reconciliation said "no artefact … nothing to reconcile" for
+`+33-112_big_roads` (mtime 13:48, NO ledger line at all) — its predicate
+needs an existing older line; a never-ledgered artefact is exactly the
+case — round 7. NOT DONE: a `dem` artefact derived-but-unrecorded has no
+reconcilable set; a cold bathymetry band is neither warmed nor reported
+by `--refresh-only`. Keys: the owner's chip session took 15bc
+concurrently and re-keyed itself to 15be (0fd65736); mine stands.
+
+## 2026-09-15bi v2schemarefuse ROUND 7 MERGED (0134dbe8): the reconciliation relativised against the LANE root (a symlinked `OSM_data` resolves into the shared repo → every candidate skipped) and needed a prior ledger line; now keyed on the corpus base with `never-ledgered` — live: the +33-112 write and five older caches ledgered in one record. THE GUARD LINE IS CLOSED (rounds 1–7)
+
+Attribution (lane r7, f6936b6f): `reconcilable_artifacts` did
+`Path(cache).resolve().relative_to(lane)` — a lane's `OSM_data` is a
+symlink into `/Users/noah/XPTerrainBuilderData`, so `ValueError` for
+every artefact, caught, skipped, "nothing to reconcile"; the ledger is
+keyed on shared-repo-relative paths, so `corpus_base` is the frame (the
+lane root only for a genuinely private corpus). And `ledger_state`
+replaces the boolean: `explained` / `stale-line` / `never-ledgered`;
+`reconciled_paths` names which; the `why` keeps the caveat (claims no
+fetch; the write may be another lane's). Suite ON MAIN: `1734 passed, 1
+skipped, 1 xpassed`, 0 failed. LIVE (this session, owner-authorised):
+`KPHX --tile 33 -112 --refresh-only --refresh-data osm_layers
+--reconcile-ledger` rc 0 — ONE record 14:03:57 `reconciled: true`
+naming `+33-112_airport_small_roads/_airports/_big_roads/_coastline/
+_water` and `+33-113_airport_small_roads` (never-ledgered), `+33-113_
+big_roads` left alone (explained by 15au's line); no lock left. Rounds
+1–7 in sum: bz2 guard hole (15v), stale-layer re-derivation (15ak),
+redirected-scope external naming + missing-dump refusal (15am), lane
+builds never write the install (15ao), neighbour tiles / absent layers /
+tile insets / refresh-only (15ba), try-finally ledger+lock + scope-
+limited re-judge + reconcile flag (15bg), corpus-base reconciliation
+(this). STILL NAMED, not fixed: `dem` artefacts have no reconcilable
+set; `--refresh-only` never reaches `bathymetry_band_admission`; the
+merged `airport_small_roads` cache carries no schema (owner chip).
+
+## 2026-09-15bk v2channel ROUND 6 (da91d7d8): LGAV and LEMD bars MET under the amended (13)(d); KPHX reads ZERO channels (its corridor is a NOTCH, not a hole) and the KDFW build emits four channels on the clearance datum with 378 `channel_floor_at_declaration` rows (worst 12.6 m) — §45 (14)/(15) RULED, NOT MERGED
+
+Round 6: `planar/build.channels_after_basins` — channels identified
+with no exclusion; only where one took a pack witness does the basin
+pass decide first (a structure pass with no channels + `build_basins`),
+its BUILT basins' `member_ids` the (13)(d) exclusion (the cycle is
+real: `build_basins` needs the structure pass's cut cells and tunnel
+union; the decision pair costs one extra run at LGAV/LEMD/HECA only);
+§45 (7)/(11) a post-filter on a built basin before the knife, firing
+nowhere. LGAV: ONE channel −1343/−7021/−2914/−4017, pack datum, floor
+66.467, half-width 62.768, 4 decks, basins 2 → 2, tunnels 11 → 11;
+LEMD basins 1 → 1, tunnels 52 → 52, `channel:5` refused. Replays OTHH
+44/10, LEMD 52/1, HECA 13/0, KCLT 23/0, CYXY 2/0 IDENTICAL; LGAV differs
+by ONE field as the bar requires (`object-cut:Trench_01.obj@0
+replaced_ways [−4017, −2914] → []` — the channel owns those ways; the
+object cut's claim lives in `Tunnel.replaced_ways`, not the unproduced
+`Corridor.bore_ways`, so (13)(b) cannot see it — owed to the tunnel-
+object line); SPJC REFUSES on BOTH arms (neighbour big_roads −13-077/
+−13-078 superseded — the owner's refresh). Suite 1710/0 (18 teardown
+errors = another session's live refresh, the 15be class). KPHX replay:
+tunnels 14 → 14, basins 0 → 0, ZERO channels — decks read, the six
+`building_passage` ways candidates, every one `necks = 0`: the E Sky
+Harbor corridor is a NOTCH in the pavement union, and (1)(b)'s
+`_hole_region` sees interior holes only — RULED §45 (14): the corridor
+is the union's complement INSIDE THE FIELD (boundary polygon, else
+convex hull ⊕ standoff). KDFW build rc 0, 355 s, UNCHANGED, ledger
+ec73a1c42e98: FOUR channels (−959/−1499; six ways; −22284/−1553;
+−27284/−3436), all bridge + neck, 2 decks each, half-widths 41.5–70.6 m
+from (10)(iii), datum CLEARANCE — the engine read `DEM coarse[base_
+tier]` (the 1 m inset present since 08-15 was not the frame) — floors
+165.45–181.90 against the lidar's 170.9–173.3; census 8,733 rows FAIL
+with `channel_floor_at_declaration` 378 rows, worst 12.626 m at
+32.8849810, −97.0398638 — the channel verify family's first firing on
+real data. RULED §45 (15): attribute the datum (why the inset is not
+credible/read) and the floor rows (prime suspect C12's
+`_osm_levelled` core-levelling the channel's road — a measured 12.6 m
+conflict is a defect, not a read) BEFORE the merge; fix C12 if it is
+the mechanism. Not merged; app 1.0.342 waits.

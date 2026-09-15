@@ -1891,7 +1891,10 @@ def test_a_schema_stale_road_layer_refuses_and_names_osm_layers(
     scope, artifact, why = missing[0]
     assert scope == "osm_layers"
     assert artifact == "OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2"
-    assert "SCHEMA-STALE" in why
+    # ``big_roads`` is one of the v2 loader's own ROAD_FEEDS, so the
+    # reader's wording is what a reader gets (r5: the pre-flight judges
+    # what the loader judges, over the same 3x3 square).
+    assert "SCHEMA-STALE" in why or "the v2 LOADER refuses" in why
     assert "2026-07-16" in why and VMAP.ROAD_CACHE_TAG_SCHEMA in why, (
         "the refusal must name the schema on disk AND the one the engine "
         "wants — otherwise it cannot be acted on")
@@ -2017,6 +2020,10 @@ def test_a_current_schema_layer_is_not_touched_by_the_refresh(
 
     root, cache = _osm_layer_fixture(
         tmp_path, monkeypatch, VMAP.ROAD_CACHE_TAG_SCHEMA)
+    # ...and the tile's airports layer is present, so nothing is ABSENT
+    # either (r5: an absent layer is derived too).
+    import O4_File_Names as _FN
+    _write_schema_stamped_layer(Path(_FN.osm_cached(40, -4, "airports")), "")
     before = cache.read_bytes()
     calls = []
     _mock_engine_fetch(monkeypatch, calls)
@@ -2206,6 +2213,467 @@ def test_a_REDIRECTED_scope_cannot_be_this_builds_contamination(
 # ══════════════════════════════════════════════════════════════════════
 # THE OWNER'S X-PLANE INSTALL (RULINGS 2026-09-15av)
 # ══════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════
+# AN AUTHORISED REFRESH WARMS A COLD TILE (measured 2026-09-15, KDFW)
+# ══════════════════════════════════════════════════════════════════════
+
+def test_an_authorised_scope_is_not_a_COLD_FRAME_refusal(build_mod):
+    """``build_airport.py KDFW --tile 32 -97 --refresh-data
+    osm_layers,dem`` was refused HERE, before any refresh could run,
+    naming the two scopes the command had just authorised.  A problem
+    whose scope IS authorised is something this run will derive."""
+    cold = {"tile": [32, -97], "tile_stem": "N32W097", "base_raster": False,
+            "airports_layer": False, "airport_insets": False}
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_dem_frame(cold)
+    assert "NO cached airports OSM layer" in str(exc.value)
+    # both scopes authorised -> no refusal at all
+    build_mod.require_dem_frame(cold, requested={"osm_layers", "dem"})
+    # one authorised -> the OTHER still refuses, and only it
+    with pytest.raises(SystemExit) as exc2:
+        build_mod.require_dem_frame(cold, requested={"osm_layers"})
+    msg = str(exc2.value)
+    assert "NO base raster" in msg and "NO cached airport elevation" in msg
+    assert "NO cached airports OSM layer" not in msg
+
+
+def _cold_tile_root(tmp_path, monkeypatch, build_mod, lat=32, lon=-97):
+    """A tmp corpus whose tile has no airports layer and no insets."""
+    import O4_File_Names as FNAMES
+
+    root = tmp_path / "lane"
+    (root / "OSM_data").mkdir(parents=True)
+    (root / "Elevation_data" / "N30W100").mkdir(parents=True)
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(root / "OSM_data"))
+    monkeypatch.setattr(FNAMES, "Elevation_dir",
+                        str(root / "Elevation_data"))
+    return root
+
+
+def test_an_authorised_osm_refresh_DERIVES_AN_ABSENT_layer(
+        build_mod, tmp_path, monkeypatch):
+    """The KDFW-neighbour case: nothing was ever derived for a COLD tile,
+    because only SCHEMA-STALE layers were.  The engine's own prefetch
+    filter is "absent OR stale"; what was missing was a reason to run
+    it, and the airports layer (which the prefetch does NOT carry — the
+    tile prelude fetches it inline) needs its own call."""
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (0, False))
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+    prefetched = []
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch",
+                        lambda tile: prefetched.append((tile.lat, tile.lon)))
+    monkeypatch.setattr(VMAP, "wait_for_background_osm_prefetch",
+                        lambda: None)
+
+    assert build_mod.dem_cache_state(root, 32, -97)["airports_layer"] is False
+    summary = build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
+    assert [c[0] for c in calls] == ["airports"], (
+        "the ABSENT airports layer must be derived through the engine's "
+        "own fetch entry")
+    assert prefetched == [(32, -97)]
+    assert build_mod.dem_cache_state(root, 32, -97)["airports_layer"] is True
+    assert summary["tile"] == [32, -97]
+
+    # and a refresh that derives nothing REFUSES rather than exit 0
+    os.remove(FNAMES.osm_cached(32, -97, "airports"))
+    monkeypatch.setattr(
+        __import__("O4_OSM_Utils"), "OSM_queries_to_OSM_layer",
+        lambda *a, **kw: 0)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
+    assert "did not derive the airports layer" in str(exc.value)
+
+
+def test_a_NEIGHBOUR_tiles_superseded_feed_is_named_and_derived(
+        build_mod, tmp_path, monkeypatch):
+    """THE KDFW DEATH, 54 s in (2026-09-15).
+
+    ``--refresh-data osm_layers`` re-derived +32-098_big_roads, and the
+    v2 LOADER then raised on ``+30-100/+33-098/+33-098_big_roads.osm.bz2``
+    — a NEIGHBOUR tile.  The loader merges the 3x3 neighbourhood; the
+    pre-flight judged the build's own tile only (a limit its docstring
+    stated).  The predicate here is the LOADER's own.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+    from auto_patch_v2.airport import osm as _v2osm
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(32, -97, "airports")), "")
+    nbr = Path(FNAMES.osm_cached(33, -98, "big_roads"))
+    _write_schema_stamped_layer(nbr, "2026-07-16")
+
+    named = build_mod.superseded_road_feeds(root, 32, -97)
+    assert len(named) == 1, named
+    scope, artifact, why = named[0]
+    assert scope == "osm_layers"
+    assert artifact == "OSM_data/+30-100/+33-098/+33-098_big_roads.osm.bz2"
+    assert "the v2 LOADER refuses this feed" in why and "3x3" in why
+    # it reaches the build's single pre-flight list
+    assert named[0] in build_mod.schema_stale_osm_layers(root, 32, -97)
+
+    # CURRENT schema -> not named; UNTAGGED -> not named (the loader
+    # lists it and does not raise; airport_small_roads carries none).
+    _write_schema_stamped_layer(nbr, _v2osm.ROAD_CACHE_TAG_SCHEMA)
+    assert build_mod.superseded_road_feeds(root, 32, -97) == []
+    _write_schema_stamped_layer(nbr, "2026-07-16")
+
+    # AND THE REFRESH DERIVES IT, on the NEIGHBOUR's tile.
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (0, False))
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+    prefetched = []
+
+    def _prefetch(tile):
+        prefetched.append((tile.lat, tile.lon))
+        if (tile.lat, tile.lon) == (33, -98):
+            _write_schema_stamped_layer(nbr, _v2osm.ROAD_CACHE_TAG_SCHEMA)
+
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch", _prefetch)
+    monkeypatch.setattr(VMAP, "wait_for_background_osm_prefetch",
+                        lambda: None)
+    summary = build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
+    assert (33, -98) in prefetched, "the NEIGHBOUR tile must be derived"
+    assert summary["refetched"] == [artifact]
+    assert list(nbr.parent.glob("*.stale-*")) == []
+    assert build_mod.superseded_road_feeds(root, 32, -97) == []
+
+
+def test_an_authorised_dem_refresh_DERIVES_the_tiles_insets(
+        build_mod, tmp_path, monkeypatch):
+    """``--warm-insets ICAO`` needs airports OF THE TILE, which a cold
+    tile cannot name — so the TILE entry lives in the refresh.  Both
+    derivations are the engine's own tile-prelude calls."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_DEM_Utils as DEM
+    import O4_File_Names as FNAMES
+    import O4_OSM_Utils as OSM
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(32, -97, "airports")), "")
+    elev = root / "Elevation_data" / "N30W100"
+
+    made = []
+    monkeypatch.setattr(DEM, "DEM", lambda lat, lon, src, info_only=False:
+                        made.append(("dem", lat, lon))
+                        or (elev / "N32W097.hgt").write_bytes(b"raster"))
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer",
+                        lambda *a, **kw: 1)
+    monkeypatch.setattr(VMAP, "build_airports_dico",
+                        lambda tile, layer: {"KDFW": object()})
+    monkeypatch.setattr(INSETS, "ensure_insets_for_tile",
+                        lambda tile, dico, refresh=False:
+                        made.append(("insets", refresh, len(dico)))
+                        or (elev / "N32W097_airport_insets").mkdir())
+
+    summary = build_mod.refresh_tile_dem(root, 32, -97, _Notes())
+    assert made == [("dem", 32, -97), ("insets", True, 1)], made
+    assert summary["derived"] == [
+        "Elevation_data/**/N32W097.hgt",
+        "Elevation_data/**/N32W097_airport_insets/"]
+    state = build_mod.dem_cache_state(root, 32, -97)
+    assert state["base_raster"] and state["airport_insets"]
+    # a second run has nothing to do
+    assert build_mod.refresh_tile_dem(root, 32, -97, _Notes())["derived"] == []
+
+    # STILL COLD afterwards -> refuses, never exits 0
+    (elev / "N32W097.hgt").unlink()
+    (elev / "N32W097_airport_insets").rmdir()
+    monkeypatch.setattr(DEM, "DEM",
+                        lambda lat, lon, src, info_only=False: None)
+    monkeypatch.setattr(INSETS, "ensure_insets_for_tile",
+                        lambda tile, dico, refresh=False: None)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_tile_dem(root, 32, -97, _Notes())
+    assert "derived NOTHING" in str(exc.value)
+
+
+def test_a_dem_refresh_without_an_airports_layer_REFUSES(
+        build_mod, tmp_path, monkeypatch):
+    """The inset boxes come from the airports layer; without it they
+    would come from an overpass query the run never authorised."""
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_tile_dem(root, 32, -97, _Notes())
+    assert "--refresh-data osm_layers,dem" in str(exc.value)
+
+
+def test_refresh_only_refreshes_and_NEVER_ENTERS_A_BUILD(
+        build_mod, tmp_path, monkeypatch, capsys):
+    """``--refresh-only``: warm ONE tile and exit.
+
+    The v2 loader reads road layers over the 3x3 neighbourhood, so
+    warming a neighbour meant ``--tile LAT LON --refresh-data
+    osm_layers`` — a whole tile build (minutes to an hour) that refuses a
+    cold DEM frame before it gets there.  This run does the authorised
+    refreshes, lets the audit stamp the ledger, and enters NO build
+    stage.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 33, -98)
+    stale = Path(FNAMES.osm_cached(33, -98, "big_roads"))
+    _write_schema_stamped_layer(stale, "2026-07-16")
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(33, -98, "airports")), "")
+
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (0, False))
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+
+    def _prefetch(tile):
+        _write_schema_stamped_layer(stale, VMAP.ROAD_CACHE_TAG_SCHEMA)
+
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch", _prefetch)
+    monkeypatch.setattr(VMAP, "wait_for_background_osm_prefetch",
+                        lambda: None)
+
+    # NO build entry may be called.
+    for name in ("build_patch_v2", "build_patch", "build_tile"):
+        monkeypatch.setattr(build_mod, name, _never_called(name))
+
+    summary = build_mod.refresh_stale_osm_layers(root, 33, -98, _Notes())
+    assert summary["refetched"] == [
+        "OSM_data/+30-100/+33-098/+33-098_big_roads.osm.bz2"]
+    assert build_mod.superseded_road_feeds(root, 33, -98) == []
+    assert list(stale.parent.glob("*.stale-*")) == []
+
+    # the flag exists, is documented as the neighbour-warming entry, and
+    # the build stages are behind it in ``main``
+    src = (ROOT / "tools" / "harness" / "build_airport.py").read_text()
+    assert '"--refresh-only"' in src
+    assert "if args.refresh_only:" in src
+    i = src.index("if args.refresh_only:\n            # THE WARM-ONLY RUN")
+    assert "elif args.tile:" in src[i:i + 2500], (
+        "every build stage must be behind the refresh-only branch")
+    assert "REFUSING --refresh-only" in src, (
+        "--refresh-only with no authorised scope must refuse")
+
+
+def test_the_audit_and_the_lock_release_are_on_EVERY_exit_path(build_mod):
+    """MEASURED on the owner's own warms (2026-09-15, round 6).
+
+    * KPHX: the refresh moved +33-112_big_roads aside, the engine
+      re-derived it (mtime 13:48), and the RE-JUDGE then refused on
+      unrelated ``dem`` items — so the run exited before the audit and
+      there is no ``REFRESH RECORDED [osm_layers]`` line for a write that
+      happened.
+    * KDFW +33-098: the refusal left ``.harness/locks/osm_layers.lock``
+      behind (holder pid 46331, dead).
+
+    Both because the derivation and the re-judge sat OUTSIDE the try
+    whose ``finally`` stamps the ledger and releases the locks.  A source
+    twin, because the alternative is a whole guarded build: what must
+    hold is an ORDERING inside ``main``.
+    """
+    src = inspect.getsource(build_mod.main)
+    i_lock = src.index("locks = [RefreshLock(")
+    i_try = src.index("\n    try:\n", i_lock)
+    for call in ("warm_airport_insets(", "refresh_stale_osm_layers(",
+                 "refresh_tile_dem(", "reconcile_refresh_ledger(",
+                 "require_refreshed_frame("):
+        assert src.index(call, i_lock) > i_try, (
+            f"{call} must sit INSIDE the try whose finally stamps the "
+            f"ledger and releases the locks — a refusal after it "
+            f"otherwise loses the record (KPHX) and leaks the lock (KDFW)")
+    i_finally = src.index("\n    finally:\n", i_try)
+    for must in ("record_refresh(", "lk.release()"):
+        assert src.index(must, i_finally) > i_finally, must
+
+
+def test_refresh_only_exits_0_for_a_scope_it_was_not_asked_to_warm(
+        build_mod, tmp_path, monkeypatch):
+    """``KPHX --tile 33 -112 --refresh-only --refresh-data osm_layers``
+    re-derived its layer and then exited rc 1 on three ``dem`` items
+    nobody had asked this run to touch.  A tile warmed for what was ASKED
+    is a success; the rest is information, with the flag that fixes it.
+    A normal BUILD keeps the old strictness — it is about to read them.
+    """
+    missing = [("dem", "Elevation_data/**/N33W112_airport_insets/index.json",
+                "a version-stale USGS3DEP negative"),
+               ("osm_layers", "OSM_data/x/y/y_big_roads.osm.bz2",
+                "schema-stale")]
+    monkeypatch.setattr(build_mod, "missing_shared_artifacts",
+                        lambda *a, **kw: missing)
+    monkeypatch.setattr(build_mod, "dem_cache_state", lambda *a: {
+        "tile": [33, -112], "tile_stem": "N33W112", "base_raster": True,
+        "airports_layer": True, "airport_insets": True})
+
+    # refresh-only, osm_layers requested and STILL stale -> refuses
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_refreshed_frame(tmp_path, 33, -112, {"osm_layers"},
+                                          refresh_only=True)
+    assert "STILL not current" in str(exc.value)
+    assert "osm_layers" in str(exc.value)
+
+    # ...the dem item alone does NOT fail a run that asked for osm_layers
+    monkeypatch.setattr(build_mod, "missing_shared_artifacts",
+                        lambda *a, **kw: [missing[0]])
+    build_mod.require_refreshed_frame(tmp_path, 33, -112, {"osm_layers"},
+                                      refresh_only=True)
+
+    # a normal BUILD still refuses on it, unchanged
+    with pytest.raises(SystemExit) as exc2:
+        build_mod.require_refreshed_frame(tmp_path, 33, -112, {"osm_layers"},
+                                          refresh_only=False)
+    assert "--refresh-data dem" in str(exc2.value)
+
+
+def test_refresh_only_is_not_blocked_by_the_PRE_FLIGHT_either(build_mod):
+    """``KDFW --tile 33 -98 --refresh-only --refresh-data osm_layers`` was
+    refused UP FRONT on 31 ``dem`` items (version-stale USGS3DEP
+    negatives) and warmed nothing.  The pre-flight exists to stop a BUILD
+    reading a cold frame; a warm run reads nothing and builds nothing, so
+    it stands down there and is judged AFTER its derivations instead —
+    on the requested scopes alone.  A source twin: the ordering inside
+    ``main`` is what must hold."""
+    src = inspect.getsource(build_mod.main)
+    i = src.index("if args.refresh_only:\n            # A WARM RUN IS NOT")
+    assert "elif args.dem is None:" in src[i:i + 1400], (
+        "the cold-frame pre-flight must sit behind the refresh-only branch")
+    assert "if not args.refresh_only:\n            require_no_implicit_refresh(" \
+        in src, ("the missing-artifact refusal must stand down for a "
+                 "refresh-only run too — that is what blocked KDFW +33-098")
+    # ...and the post-derivation judge is the one that decides
+    assert src.index("require_refreshed_frame(") > i
+
+
+def test_the_ledger_reconciliation_stamps_only_what_nothing_explains(
+        build_mod, guard_mod, tmp_path, monkeypatch):
+    """THE KPHX RECONCILIATION (2026-09-15).
+
+    A file the corpus carries that no ledger line explains — because the
+    run that derived it exited before the audit — is recorded with its
+    CURRENT hash, marked ``reconciled`` so no reader mistakes it for a
+    fetch this run made.  One already explained is left alone.
+    """
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "+30-120" / "+33-112").mkdir(parents=True)
+    rel = "OSM_data/+30-120/+33-112/+33-112_big_roads.osm.bz2"
+    (repo / rel).write_bytes(b"re-derived, never recorded")
+    ledger = tmp_path / "ledger.jsonl"
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(guard_mod, "REFRESH_LEDGER", ledger)
+
+    # NEVER LEDGERED -> reconciled, once, with the hash, and SAID SO.
+    # (Round 6 got this wrong in the field: KPHX's +33-112_big_roads had
+    # no line naming it AT ALL, and a predicate phrased only as "the
+    # newest line predates its mtime" excluded the very case the
+    # reconciliation exists for.)
+    assert guard_mod.ledger_state(rel, time_now := os.path.getmtime(
+        repo / rel)) == "never-ledgered"
+    done = guard_mod.record_reconciliation(
+        [rel], {"lane": "twin", "tag": "t"})
+    assert done == [rel]
+    recs = guard_mod.ledger_lines(ledger)
+    assert len(recs) == 1
+    assert recs[0]["scope"] == "osm_layers" and recs[0]["reconciled"] is True
+    assert recs[0]["reconciled_paths"] == {rel: "never-ledgered"}
+    assert "another lane's authorised refresh" in recs[0]["why"]
+    assert recs[0]["files"][0]["path"] == rel
+    assert recs[0]["files"][0].get("sha256")
+    del time_now
+
+    # ...and now it IS explained, so a second run records nothing
+    assert guard_mod.record_reconciliation(
+        [rel], {"lane": "twin", "tag": "t"}) == []
+    assert len(guard_mod.ledger_lines(ledger)) == 1
+
+    # a file written AFTER its newest ledger line is a DIFFERENT case,
+    # named as such
+    import time as _time
+    os.utime(repo / rel, (_time.time() + 120, _time.time() + 120))
+    assert guard_mod.ledger_state(
+        rel, os.path.getmtime(repo / rel)) == "stale-line"
+    assert guard_mod.record_reconciliation(
+        [rel], {"lane": "twin", "tag": "t"}) == [rel]
+    assert guard_mod.ledger_lines(ledger)[-1]["reconciled_paths"] == {
+        rel: "stale-line"}
+
+    # and a malformed ledger line never blinds the reader
+    with open(ledger, "a") as fh:
+        fh.write("{half written\n")
+    assert len(guard_mod.ledger_lines(ledger)) == 2
+
+
+def test_the_reconcilable_set_is_RELATIVE_TO_THE_SHARED_REPO(
+        build_mod, guard_mod, tmp_path, monkeypatch):
+    """THE ROUND-7 BUG, measured live.
+
+    ``--reconcile-ledger`` reported "no artefact of the requested
+    scope(s) ['osm_layers'] on tile +33-112 — nothing to reconcile" while
+    the very file it exists for sat there.  A lane's ``OSM_data`` is a
+    SYMLINK into the shared repo, so ``Path(cache).resolve()`` lands in
+    the repo and ``relative_to(lane_root)`` raised ValueError for EVERY
+    artefact — the list came out empty, silently.  The ledger is keyed on
+    SHARED-REPO-relative paths, so that is the frame.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "+30-120" / "+33-112").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    (lane / "OSM_data").symlink_to(repo / "OSM_data")   # the lane ritual
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(lane / "OSM_data"))
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
+    cache = Path(FNAMES.osm_cached(33, -112, "big_roads"))
+    _write_schema_stamped_layer(cache, VMAP.ROAD_CACHE_TAG_SCHEMA)
+
+    assert build_mod.corpus_base(lane) == repo.resolve()
+    got = build_mod.reconcilable_artifacts(lane, 33, -112, {"osm_layers"})
+    assert "OSM_data/+30-120/+33-112/+33-112_big_roads.osm.bz2" in got, got
+    # ...and those rels resolve against the REPO, which is what the
+    # ledger's stamping does
+    for rel in got:
+        assert (repo / rel).is_file()
+
+    # a corpus that genuinely is NOT the shared one keeps the lane frame
+    monkeypatch.setattr(build_mod, "DATA_REPO", tmp_path / "elsewhere")
+    assert build_mod.corpus_base(lane) == lane.resolve()
+
+
+def test_the_reconcilable_set_is_the_two_the_preflight_judges(
+        build_mod, tmp_path, monkeypatch):
+    """Which artefacts ``--reconcile-ledger`` covers: the engine's own
+    layer list for this tile and the v2 loader's own 3x3 road feeds —
+    exactly the two sets the pre-flight judges, and only ones that
+    EXIST.  ``osm_layers`` unrequested -> nothing."""
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 33, -112)
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
+    own = Path(FNAMES.osm_cached(33, -112, "big_roads"))
+    _write_schema_stamped_layer(own, VMAP.ROAD_CACHE_TAG_SCHEMA)
+    nbr = Path(FNAMES.osm_cached(34, -112, "big_roads"))
+    _write_schema_stamped_layer(nbr, VMAP.ROAD_CACHE_TAG_SCHEMA)
+
+    got = build_mod.reconcilable_artifacts(root, 33, -112, {"osm_layers"})
+    assert "OSM_data/+30-120/+33-112/+33-112_big_roads.osm.bz2" in got
+    assert "OSM_data/+30-120/+34-112/+34-112_big_roads.osm.bz2" in got, (
+        "the 3x3 square the v2 loader reads is covered too")
+    assert all(os.path.isfile(Path(root) / g) for g in got)
+    assert build_mod.reconcilable_artifacts(root, 33, -112, {"dem"}) == []
+
+
+def _never_called(name):
+    def _boom(*a, **kw):
+        raise AssertionError(f"{name} must not run under --refresh-only")
+    return _boom
+
 
 def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     """ATTRIBUTION, pinned as a twin.
@@ -5568,6 +6036,136 @@ def test_the_shared_repo_detector_flags_a_test_written_cache(build_mod):
         build_mod.scope_of) == []
     assert conftest.is_lock_churn("Elevation_data/dem.lock")
     assert not conftest.is_lock_churn("Elevation_data/N30E031.hgt")
+
+
+def _ledger_file(tmp_path, records):
+    """Write a hand-made refresh ledger (one JSON record per line) into
+    ``tmp_path`` — NEVER the shared repo's own."""
+    p = tmp_path / "refresh_ledger.jsonl"
+    p.write_text("".join(json.dumps(r) + "\n" for r in records))
+    return p
+
+
+def test_a_ledgered_refresh_inside_the_window_is_external(build_mod,
+                                                          tmp_path):
+    """(a) KNOWN-ANSWER TWIN: the ledger's own records, on a tmp ledger.
+
+    THE MEASURED CASE (RULINGS 2026-09-15ay tail): a peer session's
+    authorised ``--refresh-data osm_layers`` wrote two big-road extracts
+    at 13:26:13 and 13:29:27 and every test of two suites got a teardown
+    ERROR.  In-window paths — the ``files[]`` stamps AND the ``removed[]``
+    entries — are the other author's; an out-of-window record's path is
+    not covered and stays unlawful.
+    """
+    conftest = _conftest()
+    ledger = _ledger_file(tmp_path, [
+        {"ts": "2026-09-15T13:00:00", "scope": "dem",
+         "files": [{"path": "Elevation_data/N30E031.hgt"}], "removed": []},
+        {"ts": "2026-09-15T13:26:13", "scope": "osm_layers",
+         "files": [{"path": "OSM_data/+30-100/+32-098/"
+                            "+32-098_big_roads.osm.bz2"}],
+         "removed": ["OSM_data/+30-110/+33-113/stale.osm.bz2"]},
+        {"ts": "2026-09-15T14:30:00", "scope": "masks",
+         "files": [{"path": "Masks/+30+031/late.png"}], "removed": []},
+    ])
+    ledgered = build_mod.ledgered_refresh_paths(
+        "2026-09-15T13:20:00", "2026-09-15T13:40:00", ledger=ledger)
+    assert set(ledgered) == {
+        "OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2",
+        "OSM_data/+30-110/+33-113/stale.osm.bz2",
+    }, ("both halves of an in-window record count — a removal is a delta "
+        "the snapshot diff reports exactly like a write — and the records "
+        "before and after the window do not")
+    assert ledgered["OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2"] \
+        == {"ts": "2026-09-15T13:26:13", "scope": "osm_layers"}
+
+    changes = {
+        "added": ["OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2"],
+        "modified": ["Elevation_data/N30E031.hgt"],
+        "removed": ["OSM_data/+30-110/+33-113/stale.osm.bz2"],
+    }
+    external, unlawful = conftest.classify_shared_writes(
+        changes, build_mod.scope_of, ledgered=ledgered, redirected=set())
+    assert sorted(external) == [
+        ("OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2", "osm_layers",
+         "ledgered 2026-09-15T13:26:13 osm_layers"),
+        ("OSM_data/+30-110/+33-113/stale.osm.bz2", "osm_layers",
+         "ledgered 2026-09-15T13:26:13 osm_layers"),
+    ]
+    assert unlawful == [("Elevation_data/N30E031.hgt", "dem")], (
+        "the out-of-window refresh's path is NOT an alibi for a delta "
+        "inside the suite's window — it still fails the suite")
+
+
+def test_a_redirected_scope_is_external_without_asking_the_engine(
+        build_mod):
+    """(b) The second external door, twinned offline: the redirected set
+    is an ARGUMENT, so the twin never asks the running engine where its
+    caches point."""
+    conftest = _conftest()
+    changes = {
+        "added": ["Airport_mod_cache/somepack/o4_object_footprints.cache",
+                  "Elevation_data/N30E031.hgt"],
+        "modified": [], "removed": [],
+    }
+    external, unlawful = conftest.classify_shared_writes(
+        changes, build_mod.scope_of, ledgered={},
+        redirected={"airport_mod_cache"})
+    assert external == [
+        ("Airport_mod_cache/somepack/o4_object_footprints.cache",
+         "airport_mod_cache", "redirected")]
+    assert unlawful == [("Elevation_data/N30E031.hgt", "dem")]
+    # and with nothing redirected both are the suite's problem again
+    _ext, unlawful = conftest.classify_shared_writes(
+        changes, build_mod.scope_of, ledgered={}, redirected=set())
+    assert len(unlawful) == 2 and _ext == []
+
+
+def test_lock_churn_is_still_churn_under_the_external_downgrade(build_mod):
+    """(c) ``.lock`` coordination state is neither external nor unlawful —
+    it never reaches the classification at all."""
+    conftest = _conftest()
+    changes = {"added": ["Elevation_data/dem.lock"], "modified": [],
+               "removed": ["Airport_mod_cache/.harness/refresh.lock"]}
+    external, unlawful = conftest.classify_shared_writes(
+        changes, build_mod.scope_of,
+        ledgered={"Elevation_data/dem.lock": {"ts": "x", "scope": "dem"}},
+        redirected={"airport_mod_cache"})
+    assert external == [] and unlawful == []
+
+
+def test_the_detector_imports_the_ledger_predicate_never_copies_it():
+    """(d) ONE mechanism: conftest reaches the predicate through the
+    harness module and defines no second copy (the census-wrapper law)."""
+    conftest_src = (Path(__file__).parent / "conftest.py").read_text()
+    assert "harness.ledgered_refresh_paths(" in conftest_src and \
+        "harness.redirected_scopes()" in conftest_src, (
+        "the external doors must be the harness module's own objects")
+    assert "def ledgered_refresh_paths" not in conftest_src and \
+        "def redirected_scopes" not in conftest_src, (
+        "a private copy of either predicate is the census-wrapper defect")
+    assert "refresh_ledger.jsonl" not in conftest_src, (
+        "conftest must not reach for the ledger path itself")
+
+
+def test_the_ledger_predicate_tolerates_a_missing_or_broken_ledger(
+        build_mod, tmp_path):
+    """(e) A detector that crashes on a truncated concurrent append is
+    worse than one that misses a downgrade."""
+    missing = tmp_path / "nope" / "refresh_ledger.jsonl"
+    assert build_mod.ledgered_refresh_paths(
+        "2026-09-15T00:00:00", "2026-09-15T23:59:59", ledger=missing) == {}
+    broken = tmp_path / "broken.jsonl"
+    broken.write_text(
+        "not json at all\n"
+        "\n"
+        + json.dumps({"scope": "dem", "files": []}) + "\n"      # no ts
+        + json.dumps({"ts": "2026-09-15T13:26:13", "scope": "dem",
+                      "files": [{"path": "Elevation_data/ok.hgt"}]}) + "\n")
+    assert build_mod.ledgered_refresh_paths(
+        "2026-09-15T13:00:00", "2026-09-15T14:00:00",
+        ledger=broken) == {"Elevation_data/ok.hgt":
+                           {"ts": "2026-09-15T13:26:13", "scope": "dem"}}
 
 
 def test_the_suite_has_no_standing_write_allowance(build_mod):
@@ -10264,3 +10862,90 @@ def test_the_foot_row_head_is_in_both_registers():
     # `conforming_rulings` is the union of the two, so the head is in it
     # either way — which is exactly why the union cannot be the guard
     assert head in conforming_rulings(law)
+
+
+def test_the_runway_step_floor_is_one_number_in_both_instruments(cg):
+    """§40 (5) (4) (Fable 2026-09-15; owner RULINGS 2026-09-15az).  The v2
+    verify reader states the ruled allowance ``max(runway_step_m,
+    runway_transverse_cap x d)``; the harness runs the SAME two step
+    readers at a flat ``runway_step_m``.  They are the same number because
+    a step row exists only within the contact tolerance, where the cap term
+    is always under the floor — asserted here so a later change to either
+    knob cannot silently split the two instruments (the census-wrapper
+    precedent)."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(cg.__file__).resolve().parents[1] / "src"))
+    from auto_patch_v2.law import Law
+    law = Law.for_airport("CYXY")
+    floor = float(law.tables.emit.materiality.runway_step_m)
+    assert cg._RUNWAY_STEP_M == pytest.approx(floor), (
+        f"check_grade._RUNWAY_STEP_M {cg._RUNWAY_STEP_M} vs the law's "
+        f"emit.materiality.runway_step_m {floor}")
+    cap = law.ruleset.runway.shoulder_transverse_max
+    tol = law.tables.emit.instrument.step_contact_tol_m
+    assert cap * tol < floor, (
+        f"the cap term {cap * tol} can now exceed the floor {floor} inside "
+        f"the contact tolerance — the harness's flat reading and v2 verify's "
+        f"max(floor, cap x d) no longer agree; give the harness the same "
+        f"per-row allowance or re-ground the floor")
+    assert cg._STEP_CONTACT_TOL_M == pytest.approx(tol)
+
+
+def test_runway_step_is_a_defect_family_in_both_registers(cg):
+    """It is registered in ``LAW_FAMILIES`` (the harness) AND in
+    ``verify.census.DEFECT_KEYS`` (the engine's gate), and carries a
+    ``families.toml`` entry — the three registers the §40 (5) round adds
+    it to, twinned apart so a prefix edit cannot drop one (the 15az
+    register-deletion defect)."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(cg.__file__).resolve().parents[1] / "src"))
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.verify.census import DEFECT_KEYS, READERS
+    assert "runway_step" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    assert "runway_step" in READERS
+    assert "runway_step" in DEFECT_KEYS
+    fam = Law.for_airport("CYXY").tables.families["runway_step"]
+    assert fam.parameter == "emit.materiality.runway_step_m"
+    assert set(fam.roles) == {"runway", "runway_crossing"}
+
+
+def test_a_version_stale_capability_free_negative_refuses_and_names_dem(
+        build_mod, monkeypatch):
+    """THE ONCE-PER-VERSION RE-PROBE REFUSAL (owner RULINGS 2026-09-15aq (4)).
+
+    USGS3DEP declares NO required capability, so 13b's door cannot reach
+    its negatives — the 20 the TNM 200-error-envelope outage wrote across
+    the two Phoenix tiles on 2026-09-15 were permanent.  The engine now
+    re-asks each capability-free negative ONCE PER ENGINE VERSION, which
+    FETCHES into the shared data repo — so the harness refuses up front,
+    names the airport, the provider, both versions and ``--refresh-data
+    dem``, and never fetches.  The predicate is the ENGINE's own.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+
+    state = {"tile_stem": "N33W113", "airport_insets": True}
+    monkeypatch.setattr(
+        INSETS, "unverified_capability_negatives", lambda lat, lon: [])
+    monkeypatch.setattr(
+        INSETS, "version_stale_capability_free_negatives",
+        lambda lat, lon: [("KPHX", "USGS3DEP", "1.0.340")])
+    monkeypatch.setattr(INSETS, "engine_version", lambda: "1.0.341")
+    missing = build_mod.unverified_inset_negatives(state, 33, -113)
+    assert len(missing) == 1
+    (scope, artifact, why) = missing[0]
+    assert scope == "dem"
+    assert "N33W113_airport_insets/index.json" in artifact
+    assert "KPHX:USGS3DEP" in artifact
+    assert "1.0.340" in why and "1.0.341" in why
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data dem" in str(exc.value)
+    # Authorised, it passes — the explicit, locked, ledgered act.
+    build_mod.require_no_implicit_refresh(missing, {"dem"})
+    # A record stamped with THIS engine refuses nothing.
+    monkeypatch.setattr(
+        INSETS, "version_stale_capability_free_negatives",
+        lambda lat, lon: [])
+    assert build_mod.unverified_inset_negatives(state, 33, -113) == []

@@ -9083,6 +9083,14 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "cross"),
     ("vertex_to_edge_step", "VERTEX-TO-EDGE step", "steps"),
     ("mid_edge_step", "MID-EDGE step", "steps"),
+    # §40 (5) (4) A STEP BETWEEN TWO FACES OF THE RUNWAY FAMILY (Fable
+    # 2026-09-15; owner RULINGS 2026-09-15az).  ``runway_transverse`` is
+    # the CROWN reading — a vertex against the runway's own AXIS at its
+    # lateral offset — so a pair 490 m off-axis is not a crown pair and
+    # nothing priced a step between two faces of ONE role.  LEMD
+    # 40.4613609,-3.5446852: 0.950 m over 1 m between two ``runway``
+    # faces, every DEFECT family ZERO, seen only as ``mid_edge_step``.
+    ("runway_step", "STEP between two faces of the RUNWAY FAMILY", "steps"),
 )
 
 
@@ -9479,6 +9487,17 @@ MATERIALITY_SHARP_GRADE_CAP_MULTIPLE = 2.0
 MATERIALITY_RUNWAY_FAMILY_ROLES: FrozenSet[str] = frozenset({
     "runway", "runway_crossing",
 })
+
+#: §40 (5) (4) THE ``runway_step`` MATERIALITY FLOOR — the v2 law's own
+#: ``emit.materiality.runway_step_m`` where the v2 tables are importable,
+#: with the literal fallback the no-engine census keeps (the twin asserts
+#: the two are the same number).
+try:                                                   # pragma: no cover
+    from auto_patch_v2.law import Law as _RW_STEP_LAW_CLS
+    _RUNWAY_STEP_M = float(
+        _RW_STEP_LAW_CLS.for_airport("ZZZZ").tables.emit.materiality.runway_step_m)
+except Exception:                                      # pragma: no cover
+    _RUNWAY_STEP_M = 0.10
 
 #: THE SUB-FLOOR LABEL — the counted-never-dropped register for sites the
 #: floor takes out of the actionable count.  Same shape as
@@ -11988,6 +12007,40 @@ def run_checks(
         f"nearest other-shape edge)",
         mid_steps, top_n, edge_step_m)
 
+    # §40 (5) (4) ``runway_step``: THE SAME TWO READERS, restricted to
+    # RUNWAY-FAMILY pairs and run at the runway's own floor
+    # (``emit.materiality.runway_step_m``, 0.10 m) instead of the
+    # cockpit's general 0.5 m VISUAL threshold — ``pair_ok`` and
+    # ``edge_step_m`` are the two options these readers already carry, so
+    # no third step reader is written (owner RULINGS `7e90032`).
+    #
+    # THE TWO INSTRUMENTS AGREE EXACTLY.  v2's ``verify.runway.runway_
+    # step`` states the ruling's own allowance, ``max(runway_step_m,
+    # runway_transverse_cap x d)``; a step row exists only within the
+    # CONTACT TOLERANCE (1.0 m, ``_STEP_CONTACT_TOL_M`` =
+    # ``instrument.step_contact_tol_m``), where the cap term is at most
+    # 0.025 x 1.0 = 0.025 m — always under the 0.10 m floor — so the
+    # floor governs every row on both sides and this flat reading is the
+    # same number.  ``tests/test_harness.py`` twins it.
+    def _rw_pair(wa, wb) -> bool:
+        return (effective_role(wa) in MATERIALITY_RUNWAY_FAMILY_ROLES
+                and effective_role(wb) in MATERIALITY_RUNWAY_FAMILY_ROLES)
+
+    _rw_step_m = _RUNWAY_STEP_M
+    rw_steps = _fam("runway_step",
+                    _check_vertex_to_edge_step(
+                        vertices, edges, ways, edge_search_m, _rw_step_m,
+                        pair_ok=_rw_pair,
+                        terrace_joints_m=terrace_joints_m,
+                        basin_declared=basin_declared)
+                    + _check_edge_midpoint_step(
+                        edges, ways, edge_search_m, _rw_step_m,
+                        pair_ok=_rw_pair,
+                        terrace_joints_m=terrace_joints_m,
+                        basin_declared=basin_declared))
+    _ps(f"RUNWAY STEP (two faces of the runway family, floor "
+        f"{_rw_step_m:g} m — §40 (5) (4))", rw_steps, top_n, _rw_step_m)
+
     # Attach a geographic location (lat, lon) to each finding so callers
     # can point a user at the spot in their apt.dat / DSF.  nodes maps
     # nid -> (lat, lon); use the centroid of the offending way's ring.
@@ -12005,7 +12058,7 @@ def run_checks(
         # fallback for a row whose location genuinely is a whole shape.
         if v.lat is None:
             v.lat, v.lon = _way_latlon(v.way_a)
-    for s in steps + mid_steps:
+    for s in steps + mid_steps + rw_steps:
         s.lat, s.lon = _way_latlon(s.way_v)
 
     # ── THE FACES ON EACH SIDE OF EVERY PAIR (owner RULINGS 2026-09-12aj
@@ -12044,7 +12097,7 @@ def run_checks(
     if _senior_at:
         for _row, _pa, _pb in (
                 [(v, v.pt_a, v.pt_b) for v in within + cross]
-                + [(q, q.vert_pt, q.proj_pt) for q in steps + mid_steps]):
+                + [(q, q.vert_pt, q.proj_pt) for q in steps + mid_steps + rw_steps]):
             for _pt, _attr in ((_pa, "role_a"), (_pb, "role_b")):
                 if _pt is None:
                     continue
@@ -12072,7 +12125,7 @@ def run_checks(
     # the worst-row lists; ``adjudication`` carries it under its own
     # heading, the same treatment the version-deferred family gets.
     if disconnected_rings_m:
-        _mark_disconnected(within + cross, steps + mid_steps,
+        _mark_disconnected(within + cross, steps + mid_steps + rw_steps,
                            disconnected_rings_m)
 
     # ── OUT OF SCOPE: THE LAST RESORT's RELAXED ROWS (04x-2) ─────────
@@ -12101,11 +12154,11 @@ def run_checks(
     # in every worst-row list, and ``adjudication`` carries it under its own
     # heading, exactly as the disconnected rings above.
     if _feature_hosts:
-        for _r in within + cross + steps + mid_steps:
+        for _r in within + cross + steps + mid_steps + rw_steps:
             if _r.out_of_scope is None and role_less_host_duplicate(_r):
                 _r.out_of_scope = "role_less_host_duplicate"
 
-    return within, cross, steps + mid_steps
+    return within, cross, steps + mid_steps + rw_steps
 
 
 def main(argv=None) -> int:

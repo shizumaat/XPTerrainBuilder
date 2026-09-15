@@ -88,7 +88,8 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import is_value_role, role_side, snap_margin_m
+from ..law.tables import (is_value_role, role_side, snap_margin_m,
+                          zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.frame import XY
 from .airside_edge import airside_edge_flip
@@ -288,9 +289,56 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # §40 (1): pavement running along a runway ring IS the runway's
         # shoulder — decided before every other rung, and out of the
         # corridor ladder, the demotion and the §27 pass entirely
-        sh = _runway_shoulder(face, rw_edges, rules)
+        # §40 (5): a piece already cut OUT of a shoulder band is not a
+        # shoulder candidate again — it is the remainder, here to earn
+        # the role its geometry earns (and its `neck_ev` says so).
+        sh = (None if neck_ev.get("shoulder_beyond_band")
+              else _runway_shoulder(face, rw_edges, rules))
         if sh is not None:
-            shoulders.append((face, sh[0], sh[1], _ref_for(face, pav_tree, ev)))
+            # §40 (5) (1)/(2) THE SHOULDER IS A BAND, NOT A CELL: the cell
+            # is the runway's only within the runway's graded strip half
+            # width of its centreline; the remainder goes BACK ON THIS
+            # WORKLIST (the §43 mechanism, one re-scoring path) with the
+            # runway's ref dropped.  MEASURED (the registered LEMD capture
+            # da8e5d7f): 17 shoulder cells, 541,035 m2, 49.9 % inside the
+            # band — cell 15 reaches 914.6 m off 14R/32L's centreline
+            # while `runway_crown` / `runway_transverse` price a crown
+            # across 30.5 m, so 490 m off-axis they bound nothing and a
+            # 0.95 m step between two faces of one "runway" role escaped
+            # every DEFECT family (RULINGS 2026-09-15az; lane
+            # v2lemdstruct2 r5 §2).
+            band = (shoulder_band(sh[0], law)
+                    if rules.corridor.runway_shoulder_band else None)
+            if band is None:
+                shoulders.append((face, sh[0], sh[1],
+                                  _ref_for(face, pav_tree, ev)))
+                continue
+            inside = face.intersection(band)
+            outside = face.difference(band)
+            kept = [p for p in polygon_parts(inside)
+                    if p.area >= rules.cells.min_area_m2]
+            beyond = [p for p in polygon_parts(outside)
+                      if p.area >= rules.cells.min_area_m2]
+            if kept:
+                page = _ref_for(face, pav_tree, ev)
+                for p in kept:
+                    shoulders.append((p, sh[0], sh[1], page))
+                stats["shoulder_band_cuts"] = \
+                    stats.get("shoulder_band_cuts", 0) + int(bool(beyond))
+                stats["shoulder_band_beyond_m2"] = \
+                    stats.get("shoulder_band_beyond_m2", 0.0) \
+                    + sum(p.area for p in beyond)
+                for p in beyond:
+                    queue.append((p, dict(neck_ev, shoulder_beyond_band=1.0,
+                                          shoulder_band_of=sh[0].id)))
+                continue
+            # NOTHING of the cell is inside the band: it was never the
+            # runway's at all.  The whole face goes back on the worklist
+            # rather than being admitted as a shoulder with no band.
+            queue.append((face, dict(neck_ev, shoulder_beyond_band=1.0,
+                                     shoulder_band_of=sh[0].id)))
+            stats["shoulder_band_refused"] = \
+                stats.get("shoulder_band_refused", 0) + 1
             continue
         is_neck = bool(neck_ev and neck_ev.get("neck_cut"))
         src = _source_for(face, cut_tree, cut_ids, cut_polys, src_of)
@@ -498,6 +546,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
              "shoulder_of": rw.id, "shoulder_shared_m": shared,
              "shoulder_depth_m": face.area / shared if shared > 0 else 0.0,
              "shoulder_wrap": wrap_of.get(rw.id, 0.0) and shared / wrap_of[rw.id],
+             # §40 (5): this face is the BAND part of the admitted cell —
+             # `shoulder_shared_m` / `_depth_m` / `_wrap` are the CELL's
+             # §40 (1) evidence (what admitted it), `shoulder_band_m2` the
+             # piece's own area inside the runway's graded strip
+             "shoulder_band_m2": face.area,
              "shoulder_source": page or "-"})
         notes.append(f"runway shoulder: {face.area:,.0f} m2 sharing "
                      f"{shared:,.1f} m with runway {rw.id} (§40 (1))")
@@ -1074,6 +1127,33 @@ def _runway_shoulder(face: Polygon, rw_edges, rules: Rules):
         if best is None or shared > best[1]:
             best = (rw, shared)
     return best
+
+
+def shoulder_band(rw, law: Law):
+    """§40 (5) (1) THE RUNWAY'S GRADED STRIP AS A BAND about its
+    CENTRELINE (Fable 2026-09-15; owner RULINGS 2026-09-15az) — the
+    region a pavement cell must lie inside to be the runway's, or
+    ``None`` where the law states no strip for the class.
+
+    ONE derivation, ONE number: the axis is the apt.dat ends (the same
+    two points ``constraints/strips`` and ``law/approach_corridor`` read,
+    never the emitted rings), and the half width is
+    ``law.tables.zone2_half_width_m("runway", code)`` — ICAO Annex 14's
+    graded strip by code number, the FAA RSA table under an FAA ruleset,
+    read through the same function ``planar/zones``, ``planar/structures``
+    and ``tools/check_grade`` read.  A FLAT cap: the band ends at the
+    thresholds, so a lobe past the runway end is not inside it.
+
+    §40 (5) bounds §40 (1), it does not reverse it: a cell that shares
+    ``runway_shoulder_shared_m`` with the runway ring is STILL the
+    runway's — but only the part of it in here."""
+    hw = zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter)
+    if not hw or hw <= 0.0:
+        return None
+    a, b = rw.ends[0].xy, rw.ends[1].xy
+    if a == b:
+        return None
+    return LineString([a, b]).buffer(hw, cap_style="flat")
 
 
 def _kind(face: Polygon, taxi: list[Chain], rules: Rules

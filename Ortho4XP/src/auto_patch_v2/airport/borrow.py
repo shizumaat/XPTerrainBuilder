@@ -50,7 +50,7 @@ from ..model.frame import Frame
 from . import apt_dat as _apt
 
 __all__ = ["BorrowDecision", "BorrowResult", "decide", "compose",
-           "BORROWED_SOURCE"]
+           "global_block", "find_global_block", "BORROWED_SOURCE"]
 
 #: what a borrowed :class:`~..model.airport.Pavement` /
 #: :class:`~..model.airport.Boundary` says of itself (§44 (3))
@@ -136,6 +136,23 @@ def global_block(path: str, icao: str) -> list[str] | None:
     return list(lines) if lines else None
 
 
+def find_global_block(xplane_root: str, icao: str,
+                      exclude: str = "") -> tuple[str, list[str] | None]:
+    """``(path, block)`` of the first Global Airports candidate carrying
+    ``icao`` (``apt_dat.global_candidates`` order), ``("", None)`` when
+    none does.  The has-check and the read are the SAME walk — asking
+    twice would scan 383 MB twice (single-pass principle)."""
+    for p in _apt.global_candidates(xplane_root):
+        if not os.path.isfile(p):
+            continue
+        if exclude and os.path.realpath(p) == os.path.realpath(exclude):
+            continue
+        b = global_block(p, icao)
+        if b:
+            return p, b
+    return "", None
+
+
 # ── (2) the trigger ──────────────────────────────────────────────────────
 
 def _to_xy(frame: Frame) -> _t.Callable[[float, float], tuple[float, float]]:
@@ -194,11 +211,8 @@ def decide(xplane_root: str, icao: str, custom_apt_path: str,
     if cmax <= 0.0:
         return BorrowDecision(reason="coverage_max 0: the borrow is off",
                               coverage_max=cmax)
-    gpath = _apt.find_global_apt_dat(xplane_root, icao)
-    if not gpath or os.path.realpath(gpath) == os.path.realpath(custom_apt_path):
-        return BorrowDecision(reason="no Global Airports block",
-                              coverage_max=cmax)
-    gblock = global_block(gpath, icao)
+    gpath, gblock = find_global_block(xplane_root, icao,
+                                      exclude=custom_apt_path)
     if not gblock:
         return BorrowDecision(reason="no Global Airports block",
                               coverage_max=cmax)

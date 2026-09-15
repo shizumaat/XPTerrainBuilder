@@ -38,7 +38,7 @@ __all__ = [
     "AptRunway", "AptHelipad", "AptPavement", "AptLine", "AptBoundary",
     "AptTaxiNode", "AptTaxiEdge", "AptStartup", "AptAirport",
     "read_airport_block", "parse_airport_block", "find_apt_dat",
-    "find_global_apt_dat", "file_has_airport", "block_sha256",
+    "global_candidates", "file_has_airport", "block_sha256",
 ]
 
 # Row types (apt.dat 1100 / 1200).
@@ -255,7 +255,7 @@ def _has_pavement(path: str, icao: str) -> bool:
     return bool(block) and any(ln.startswith("110 ") for ln in block)
 
 
-def _global_candidates(xplane_root: str) -> tuple[str, ...]:
+def global_candidates(xplane_root: str) -> tuple[str, ...]:
     """Where a Global Airports block lives, in precedence order: the XP12
     ``Global Scenery`` layout, the XP11 ``Custom Scenery`` one, then the
     stock default apt.dat."""
@@ -265,16 +265,6 @@ def _global_candidates(xplane_root: str) -> tuple[str, ...]:
                          "Earth nav data", "apt.dat"),
             os.path.join(xplane_root, "Resources", "default scenery",
                          "default apt dat", "Earth nav data", "apt.dat"))
-
-
-def find_global_apt_dat(xplane_root: str, icao: str) -> str | None:
-    """The GLOBAL AIRPORTS apt.dat carrying ``icao`` (§44 (2)): the first
-    of :func:`_global_candidates` that has the airport."""
-    icao = icao.upper()
-    for p in _global_candidates(xplane_root):
-        if os.path.isfile(p) and file_has_airport(p, icao):
-            return p
-    return None
 
 
 def find_apt_dat(xplane_root: str, icao: str) -> str | None:
@@ -292,7 +282,7 @@ def find_apt_dat(xplane_root: str, icao: str) -> str | None:
     (§44 (2), (3)) does that work by borrowing the PAVEMENT alone.
 
     With no custom pack the Global Airports block serves, in
-    :func:`_global_candidates` order.
+    :func:`global_candidates` order.
     """
     icao = icao.upper()
     custom_root = os.path.join(xplane_root, "Custom Scenery")
@@ -305,7 +295,7 @@ def find_apt_dat(xplane_root: str, icao: str) -> str | None:
             if os.path.isfile(p) and file_has_airport(p, icao):
                 cands.append(p)
     if not cands:
-        for p in _global_candidates(xplane_root):
+        for p in global_candidates(xplane_root):
             if os.path.isfile(p) and file_has_airport(p, icao):
                 cands.append(p)
     for c in cands:

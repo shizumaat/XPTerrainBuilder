@@ -14321,3 +14321,97 @@ The negative-id collision the round found (the road layers and the
 airports layer each mint negative ids; 8 of 11 deck ids carry two
 ways, five with an `aeroway=taxiway` first copy) is a reader hazard
 for every tool that joins on a way id — chip.
+
+### §34 (12) (4) AS RULED **MEASURED — ROUND 6** (lane `v2vmmcshore`, 2026-09-15, branch `claude/v2vmmcshore`, base main `2c8a34a1`)
+
+Implemented at `structure_service.deck_witness_for` (the two witnesses)
+and `structure_deck._witnessed` (the chaining), keyed on `[bridge]
+deck_cut_witness_m` = 0.5 and `deck_abutment_m` = 40.0 — **no Python
+defaults**.  BOTH station limbs are DELETED: r3's crosses-the-bore and
+r4's below-grade are gone with their helper (`grade_reach_for`), and
+every verdict is written into the tunnel's own `notes`
+(`deck_witness_notes`), which is the table below.
+
+#### THE CLOSING VMMC BUILD
+
+`build_airport.py VMMC --tag v2vmmcshore6`: **rc 0, 16.8 s**, `status
+optimal`, `body_sha ecc616c4bba5`, artifact ledger **`3cd89005e24c`**,
+and verbatim:
+
+> `[harness] shared repo UNCHANGED by this build (full-surface before/after snapshot) — no side-effect mutation`
+
+| bar | r4 closing build | r6 closing build |
+|---|---|---|
+| owner probe 22.1618794, 113.579745 | covered by nothing, nearest ramp 268 m | **covered by nothing**, nearest ramp **188 m** |
+| ramp + rim on the sea | 0.00 m² | **0.00 m²** |
+| patch nodes at or under 0.5 m | 0 | **0** |
+| `pav5` | 5.09 … 6.12, ramp 39.0 m clear | **5.09 … 6.12**, ramp **39.0 m** clear |
+| structures | tunnels 13 / decks 4 / refused 2 | tunnels 13 / **decks 1** / refused 2 |
+| `sea_wall` / `strip_seam_tear` / `adjacent_ground_step` | 27 / 0 / 0 | **27 / 0 / 0** |
+| census LAW-TRUE / ADJUDICATED | 178 / 61 | 172 / **55** |
+
+**VMMC's bars are MET**: `-2488@0` and `-5508+-5507+-2489@0` build **0
+decks**.  The ONE deck left anywhere at VMMC is `-2088` on `-4787@1` at
+**s 0.0–9.1**, kept by witness (i) — `tunnel=yes` on the bore it actually
+stands over, at the mouth.  Every other candidate reads `tag witness
+none; DEM cut 0.00 m` (the field is flat at Z0 6.10) and does not sever,
+**including all five Macau LRT viaduct crossings** (`-5188`, `-4244`,
+`-2898`, `-2736`) and the two 0.15–0.17 m sea-level readings.  The
++22+113 feed refreshed at 11:05 does NOT make (i) fire for them: the
+decks stand over the untagged seafront approach, not over the tagged
+bore, which is the distinction the ruling drew.
+
+#### OTHH — UNCHANGED
+
+44 tunnels, **1 deck** (`object_deck:dsf:obj269`), 10 basins, 9 object
+corridors, 4 door wells — identical to the base at main.
+
+#### LEMD — 5 OF THE 7 APPROVED DECKS, AND THE TWO LOST ARE NAMED
+
+| deck | tag witness | DEM cut | verdict | approved 7? |
+|---|---|---|---|---|
+| `-6288` | none | **+2.03 m** | SEVERS by (ii) | yes |
+| `-11828` | none | **+1.34 m** | SEVERS by (ii) | yes |
+| `-14230` | none | **+0.81 m** | SEVERS by (ii) | yes |
+| `-516` | none | **+2.33 m** | SEVERS by (ii) | yes |
+| `-1378` | none | **+1.79 m** | SEVERS by (ii) | yes |
+| `-374` | none | +0.92 m | SEVERS by (ii) | no — grouped into its partner |
+| `-15311` | none | +2.35 m | SEVERS by (ii) | no — grouped |
+| `-1379` | none | +1.60 m | SEVERS by (ii) | no — grouped |
+| **`-5305`** | **none** | **−0.57 m** | **does not sever** | **YES — LOST** |
+| **`-15293`** | **none** | **−1.46 m** | **does not sever** | **YES — LOST** |
+| `-639` | none | −1.01 m | does not sever | no (its tunnel is unbuilt at base) |
+
+LEMD emits **5 decks** (`-6288`, `-11828`, `-14230`, `-516`, `-1378`)
+against the approved 7; tunnels 55 → 56, basins 0 → 0, underpasses
+1 → 1.  The ramp lengths that change: `-1341+-1339@1` `top_s` 180 → 24 m
+(`-15293` lost), `-1581+-1568@1` keeps `top_s` 552 m and `climb_from_s`
+287.1 (it still has `-1378`), `-5931@0` 96 → 120 m and `-5931@1`
+36 → 48 m (deckless — §34 (12) (3)'s stop, not (4)).
+
+**WHY THE TWO ARE LOST, AND IT IS THE RULING'S OWN WORDS.**  The ruling
+expected `-5305`, `-1378` and `-15293` to be kept by (i) `layer −1`.
+Their bores DO carry `layer=-1 tunnel=yes` — but (i) as ruled is "the
+corridor's way beneath the deck's SPAN", and **neither span stands over
+its bore**: `-5305` crosses at s 103.3 m and `-15293` at s 146.2 m of the
+approach walk, while the bore chains `-1581+-1568` and `-1341+-1339` end
+far short of them.  `-1378` is kept only because its DEM cut is +1.79 m.
+Reading (i) as "any way of the corridor carries the tag" would keep both
+— and would also sever **every** VMMC deck, since VMMC's bores are
+`tunnel=yes` too; that is the defect the whole section exists to remove.
+So the two readings cannot both hold, and this lane implemented the one
+the ruling states.  **`-5305` and `-15293` are REPORTED as lost, not
+tuned around.**
+
+#### Twins and fixtures
+
+`test_a_deck_severs_only_where_a_CUTTING_is_witnessed` pins all four
+cases the ruling names — a cut deck (+1.34), a tag-only deck (cut −1.46
+with `layer −1`), a VMMC 0.00 deck, a stale-feed deck judged by (ii)
+alone — plus the one the LEMD loss turns on: **a tagged bore the span
+does not reach witnesses nothing**.  Two pre-existing fixtures asserted
+"the deck severs" over FLAT synthetic ground, which is the VMMC defect
+rather than a deck; both now carry a 1 m cutting under the span, bounded
+across the corridor so the abutments stand on the ordinary ground the
+comparison is against (`test_m4._PlaneDem`, `test_v2wallplate`'s
+`_Cutting`).

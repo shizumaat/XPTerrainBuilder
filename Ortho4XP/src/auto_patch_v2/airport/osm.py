@@ -37,7 +37,8 @@ import typing as _t
 import xml.etree.ElementTree as ET
 
 __all__ = ["OsmDoc", "RawWay", "RelationReport", "read_osm_file", "feed_path",
-           "load_feed", "TAGS_OF_INTEREST", "FEEDS", "RELATION_TYPES"]
+           "load_feed", "TAGS_OF_INTEREST", "FEEDS", "RELATION_TYPES",
+           "ROAD_FEEDS", "ROAD_CACHE_TAG_SCHEMA", "feed_tag_schema"]
 
 TAGS_OF_INTEREST = frozenset((
     "highway", "railway", "bridge", "tunnel", "layer", "aeroway",
@@ -46,6 +47,50 @@ TAGS_OF_INTEREST = frozenset((
     "amenity", "parking",   # amenity=parking lots (owner 2026-09-04j evidence)
 ))
 FEEDS = ("airports", "airport_small_roads", "big_roads")
+
+#: The feeds written under a TAG WHITELIST — ``O4_Vector_Map``'s
+#: ``ROADS_TAGS_OF_INTEREST``.  The airports feed keeps ``["all"]`` and
+#: carries no schema.
+ROAD_FEEDS = ("airport_small_roads", "big_roads")
+
+#: THE WHITELIST'S VERSION, mirrored from ``O4_Vector_Map.
+#: ROAD_CACHE_TAG_SCHEMA`` (which this package must not import: it pulls
+#: the whole v1 tile pipeline).  ``tests/auto_patch_v2/test_v2othhdet.py``
+#: twin-asserts the two are equal, the same drift guard the JSONL wire
+#: names use — a bump on one side and not the other is silent otherwise.
+ROAD_CACHE_TAG_SCHEMA = "2026-09-15"
+
+#: The root attribute an Ortho4XP-written road cache carries.
+_SCHEMA_ATTR = "o4_tag_schema"
+
+
+def feed_tag_schema(path: str) -> str | None:
+    """The ``o4_tag_schema`` of a cached feed, or ``None`` when the file
+    carries none (every cache written before the attribute existed, and
+    ``airport_small_roads`` at every tile today — its writer,
+    ``O4_Vector_Map._airport_auto_roads_layer``, passes no
+    ``cache_schema`` and recycles the file unconditionally).
+
+    Read from the ROOT TAG ALONE — the first two lines of the XML — so
+    checking a 3 MB bz2 costs a single small decompression block, not a
+    parse."""
+    opener = bz2.open if path.endswith(".bz2") else open
+    try:
+        with opener(path, "rb") as fh:
+            head = fh.read(4096).decode("utf-8", "replace")
+    except OSError:
+        return None
+    i = head.find("<osm")
+    if i < 0:
+        return None
+    j = head.find(">", i)
+    root = head[i:j if j > 0 else len(head)]
+    k = root.find(_SCHEMA_ATTR + '="')
+    if k < 0:
+        return None
+    k += len(_SCHEMA_ATTR) + 2
+    e = root.find('"', k)
+    return root[k:e] if e > 0 else None
 
 #: The relation types whose outer ways carry the relation's tags (§25 (1)).
 #: ``type=route`` / ``type=boundary`` and the rest are NOT areas and never
@@ -105,6 +150,8 @@ class OsmDoc:
     ways: tuple[RawWay, ...]
     sources: tuple[str, ...]
     relations: RelationReport = _dc.field(default_factory=RelationReport)
+    #: ``(source path, o4_tag_schema or None)`` per file actually read
+    tag_schemas: tuple[tuple[str, str | None], ...] = ()
 
 
 def tile_dir(osm_root: str, lat: int, lon: int) -> str:
@@ -259,6 +306,7 @@ def load_feed(osm_root: str, feed: str, lat: float, lon: float,
     blat, blon = int(math.floor(lat)), int(math.floor(lon))
     out: list[RawWay] = []
     sources: list[str] = []
+    schemas: list[tuple[str, str | None]] = []
     rep = RelationReport()
     for dlat in (-1, 0, 1):
         for dlon in (-1, 0, 1):
@@ -267,6 +315,7 @@ def load_feed(osm_root: str, feed: str, lat: float, lon: float,
             if not os.path.isfile(path):
                 continue
             sources.append(path)
+            schemas.append((path, feed_tag_schema(path)))
             ns = f"{tlat:+03d}{tlon:+04d}:"
             nodes, ways, frep = read_osm_file(path, ns)
             rep = rep.merge(frep)
@@ -278,4 +327,4 @@ def load_feed(osm_root: str, feed: str, lat: float, lon: float,
                            and abs(p[1] - lon) <= radius_deg for p in pts):
                     continue
                 out.append(RawWay(wid, pts, tags))
-    return OsmDoc(feed, tuple(out), tuple(sources), rep)
+    return OsmDoc(feed, tuple(out), tuple(sources), rep, tuple(schemas))

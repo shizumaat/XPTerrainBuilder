@@ -123,7 +123,6 @@ from .wall_geometry import (WallBand, _DENSIFY_M, _seat_base, _MITRE, _MIN_SEG_M
                             _plan_polys, _plan_segments, _plan_segments_indexed,
                             _rect_axis, _rect_sides, _straight_runs, _tri_normals_y)
 from .deck_signature import family_key
-from .object_cut import placement_order
 from .tunnel_walls import Station, WallLines, midline, read_wall_lines, stations_along
 
 __all__ = ["WallBand", "WallCorridorRecord", "WallCorridorStats", "read_wall_corridors",
@@ -584,10 +583,18 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
     #: the per-placement below-zero walk, memoised across candidates
     bz_store: dict = {}
     fams: dict[tuple, list[_obj8.PlacedObject]] = {}
-    # THE INTAKE IS SORTED (``object_cut.placement_key``, the one
-    # derivation site — lane v2othhdet): the family members' order and
-    # the ``@k`` index below are read order otherwise.
-    for o in placement_order(objects):
+    # MEASURED ORDER-DEPENDENT AND NOT FIXED HERE (lane v2othhdet, dry
+    # OTHH pair): this intake's order decides the family members' order,
+    # which decides which band of a pair is A (and so which RESOURCE
+    # names the corridor) and which pairs are admitted at all.  Sorting
+    # it by ``object_cut.placement_key`` moved OTHH's reading
+    # 73 -> 75 wall corridors (Bridge_02 ids replacing Bridge_06 ids at
+    # the same sites, ``OTHH_Terminal_Parking_006@0`` admitted,
+    # ``..._VCN_004@0/a,b,@2/a,b,@3`` gone) — a GEOMETRY change, not a
+    # relabelling, and neither order is more right than the other until
+    # the band-pair choice is ruled.  Reported, not attempted: the sorted
+    # intake is arbitrary in exactly the way the DSF order is.
+    for o in objects:
         if o.resolved is None or _obj8.is_stock_library_resource(o.path):
             continue
         stats.placements += 1

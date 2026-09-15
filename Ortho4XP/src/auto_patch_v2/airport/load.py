@@ -138,6 +138,14 @@ class LoadReport:
     #: §25 (RULINGS 2026-09-11aq item B): relations read, outer ways given
     #: the relation's tags, rings stitched, unclosable outers, inners dropped
     osm_relations: str = ""
+    #: road feeds carrying NO ``o4_tag_schema`` at all — grandfathered
+    #: (``airport_small_roads``'s writer has never stamped one), NAMED so
+    #: the gap is not invisible.  Lane ``v2othhdet``: that writer,
+    #: ``O4_Vector_Map._airport_auto_roads_layer``, recycles its cache on
+    #: existence alone, so the 2026-09-15 whitelist bump never
+    #: invalidated it — OTHH's is from 2026-07-27 and carries none of
+    #: ``layer`` / ``cutting`` / ``covered`` / ``embankment``.
+    osm_road_feeds_untagged: tuple[str, ...] = ()
     dem_provenance: dict[str, str] = _dc.field(default_factory=dict)
     notes: list[str] = _dc.field(default_factory=list)
     #: The flat-site verdict record (``airport/flat_site.record``; set by
@@ -293,11 +301,13 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     buildings: list[Building] = []
     sources: list[str] = []
     osm_relations = _osm.RelationReport()
+    feed_schemas: dict[str, tuple[tuple[str, str | None], ...]] = {}
     if inputs.osm_root:
         for feed in _osm.FEEDS:
             doc = _osm.load_feed(inputs.osm_root, feed, lat0, lon0,
                                  inputs.radius_deg)
             sources.extend(doc.sources)
+            feed_schemas[feed] = doc.tag_schemas
             osm_relations = osm_relations.merge(doc.relations)
             for w in doc.ways:
                 pts = tuple(to_xy(lo, la) for la, lo in w.points)
@@ -309,6 +319,45 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                         _int_or_none(w.tags.get("building:levels"))))
     rep.osm_sources = tuple(sources)
     rep.osm_relations = osm_relations.line()
+    # A ROAD FEED WRITTEN UNDER A SUPERSEDED TAG WHITELIST IS REFUSED BY
+    # NAME (lane ``v2othhdet``; the ``dsf_dump_stale`` refusal below is
+    # the precedent).  THE MEASUREMENT: main ``f6bd825d`` (owner 15i,
+    # §45 (9)) added ``layer`` / ``cutting`` / ``covered`` / ``embankment``
+    # to ``ROADS_TAGS_OF_INTEREST`` and bumped ``ROAD_CACHE_TAG_SCHEMA``
+    # 2026-07-16 -> 2026-09-15, so every cache written before it carries
+    # NEITHER those tags nor the ways they qualify.  Lane ``v2objcut``'s
+    # two OTHH dry replays at one tree, 11:39 and 11:45 on 2026-09-15,
+    # straddled the orchestrator's ``OTHH --refresh-data osm_layers``
+    # (ledger ``OTHH_20260915T113518``) and read 8 bores against 16 —
+    # ``corridors 7 / tunnels 42`` against ``9 / 44``, with ``tunnel west
+    # 1.obj`` and ``tunnel west 3.obj`` refused "the mouth is
+    # undetermined: no bore at either end" on the stale arm.  That was
+    # reported as a READER nondeterminism (RULINGS 2026-09-15ar) and
+    # invalidated a lane's byte-identity claim.  ``build_airport.py``
+    # refuses a stale road layer (RULINGS 2026-09-15u); a DRY
+    # ``planar --stage structures`` replay had no such gate, so the
+    # refusal stands HERE, where every reader's input is loaded.
+    stale: list[str] = []
+    untagged: list[str] = []
+    for feed in _osm.ROAD_FEEDS:
+        for path, schema in feed_schemas.get(feed, ()):
+            if schema is None:
+                untagged.append(f"{path} ({feed})")
+            elif schema != _osm.ROAD_CACHE_TAG_SCHEMA:
+                stale.append(f"{path} (o4_tag_schema {schema})")
+    rep.osm_road_feeds_untagged = tuple(untagged)
+    if stale:
+        raise RuntimeError(
+            f"{icao}: {len(stale)} cached road feed(s) were written under a "
+            f"SUPERSEDED tag whitelist — the reading would be missing the "
+            f"tags the current one keeps (ROADS_TAGS_OF_INTEREST / "
+            f"ROAD_CACHE_TAG_SCHEMA {_osm.ROAD_CACHE_TAG_SCHEMA}), and the "
+            f"structure readers would silently see fewer bores (measured at "
+            f"OTHH: 8 against 16, corridors 7 against 9 — RULINGS "
+            f"2026-09-15ar, attributed by lane v2othhdet): "
+            + "; ".join(sorted(stale))
+            + ". Refresh them explicitly: build_airport.py <ICAO> "
+              "--refresh-data osm_layers (never a build side effect).")
     rep.buildings_by_source["osm"] = len(buildings)
 
     # ── DSF: facades, object footprints, placements ────────────────

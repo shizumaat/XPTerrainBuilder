@@ -18,6 +18,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..geom import cluster_outlines
+from ..geom.cluster_outline import AirsideRim, airside_vertex_snap
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
@@ -445,6 +446,13 @@ def _trim_leadins(chains: list[Chain], airport: Airport, rules: Rules
 #: build's own say-line and the sidecar (``pipeline/publication``).
 CLUSTER_PADS: dict[str, object] = {}
 
+#: RULINGS 2026-09-14as (i): what the AIRSIDE CLIP + the VERTEX SNAP did
+#: this pass — pads snapped to the airside rim's own nodes, the vertices
+#: moved, the worst move, and every snap REFUSED.  One publication; the
+#: report and the census read it and never re-derive it.
+PAD_AIRSIDE: dict[str, object] = {}
+
+
 
 def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     """§16g (10) (2): ONE pad polygon per CLUSTER — the union of its
@@ -570,12 +578,39 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     if polys:
         parts.extend(polygon_parts(unary_union(polys)))
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
+    # RULINGS 2026-09-14as (i): THE PAD YIELDS, THE AIRSIDE NEVER DOES.
+    # §16g (10) (5) clipped the DERIVED pad out of airside above; the
+    # FALLBACK footprint pads reached here clipped by the RUNWAY SLABS
+    # alone, so they ate apron — and ``roles.classify`` differences the
+    # airside region by the pad union, which made the airside POLYGON a
+    # function of which pads exist.  MEASURED (lane v2padvert's
+    # classify+planar arm on HECA, one load, two arms): arming
+    # ``pad_from_cluster`` took 280 airside vertices away and minted 88
+    # (258 of the 280 were apron/pad contacts of a footprint pad the
+    # cluster derivation displaced), apron faces 290 -> 288.  Clipping
+    # EVERY pad by the airside union here makes that subtraction
+    # area-null, and the airside stops depending on the pads.
+    _clip = (_airside if (law is not None
+                          and bool(law.tables.structures.placement.pad_airside_clip)
+                          and not _airside.is_empty)
+             else runway_union)
+    # (i)'s SECOND half: the clip's own crossing points are NOT airside
+    # vertices, and noded into the arrangement they SPLIT an airside edge.
+    # Quantise them to the rim's own nodes — the pad yields.
+    _grid = (float(law.tables.emit.identity.min_distinct_spacing_m)
+             if law is not None else 0.0)
+    _rim = (AirsideRim(_clip, _grid) if (_clip is not runway_union
+                                         and not _clip.is_empty) else None)
+    PAD_AIRSIDE.clear()
     out: list[tuple[str, Polygon]] = []
     dropped = 0
     for part in sorted(parts,
                        key=lambda g: (round(g.bounds[1]), round(g.bounds[0]))):
-        if not runway_union.is_empty and part.intersects(runway_union):
-            part = part.difference(runway_union)
+        if not _clip.is_empty and part.intersects(_clip):
+            part = part.difference(_clip)
+            if _rim is not None and not part.is_empty:
+                part = unary_union([airside_vertex_snap(q, _rim, PAD_AIRSIDE)
+                                    for q in polygon_parts(part)])
         for piece in polygon_parts(part):
             if piece.area < min_area:
                 dropped += 1

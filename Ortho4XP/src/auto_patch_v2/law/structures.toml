@@ -633,6 +633,21 @@ floor_split_m       = 0.5
 # derivation, and the matched BASE ARM.
 pad_from_cluster    = false
 
+# RULINGS 2026-09-14as (i) THE PAD DERIVATION LEAVES THE AIRSIDE VERTEX
+# SET ALONE.  §16g (10) (5) clipped the DERIVED pad out of airside; the
+# FALLBACK (footprint-cache) pad was still only differenced by the runway
+# slabs, so it ate apron — and `classify/roles` differences the airside
+# region by the pad union.  The airside polygon was therefore a function
+# of WHICH pads exist, and arming `pad_from_cluster` at HECA took 280
+# airside vertices away and minted 88 (apron faces 290 -> 288, the lane's
+# own classify+planar arm).  With this true EVERY pad — derived or
+# fallback — is clipped by the airside union at the ONE derivation site
+# (`classify/evidence._pads`), the region subtraction is area-null, and
+# the airside problem no longer depends on the pads.  A pad left wholly
+# inside airside mints nothing: its bodies seat on the pavement, exactly
+# as (5) already says of a cluster.  false = the pre-14as derivation.
+pad_airside_clip    = true
+
 # §16g (10) (4) WHAT CHAINS (owner RULINGS 2026-09-14ah): only a WALLED
 # body links a cluster.  A body whose tallest component's solid height is
 # under this is a LEAF — seated on its own ground or carrier, never a

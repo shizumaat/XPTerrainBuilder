@@ -15147,3 +15147,41 @@ producer — (13)(b)'s object-corridor half is inert until 05k-1's reader publis
 claimed ways (owed to the tunnel-object line, not this lane); the KDFW / KPHX replays
 refuse on NEIGHBOUR tiles' superseded road layers (the loader reads the 3 × 3
 neighbourhood: KDFW +33-098, KPHX +33-112/+33-113) — the owner's refresh act per tile.
+
+### §45 (14) A NOTCH IS A CORRIDOR TOO; the KDFW datum and floor rows are ATTRIBUTED before the merge (Fable 2026-09-15; RULINGS 2026-09-15bk) — lane `v2channel` round 7
+
+Round 6 (da91d7d8) met the LGAV and LEMD bars under (13)(d) as amended (basins decide
+first, only where a channel took a pack witness; §45 (7)/(11) a post-filter on a built
+basin, firing nowhere) and five replays identical. Two closing tests were not clean:
+
+(14) **THE NOTCH.** At KPHX the two decks are read (`-206`, `-111`), the six E Sky Harbor
+ways are road candidates (`tunnel=building_passage` is rightly not a bore), and every one
+reads `necks = 0`: the corridor is a NOTCH — an indentation of the airside pavement union
+from its outer edge — not an interior ring, and (1)(b)'s `_hole_region` sees interior
+holes only. RULED: the unpaved corridor of (1)(b) is the complement of the airside
+pavement union INSIDE THE FIELD — the field being the union's boundary polygon (§44's
+row-130 boundary where the pack has one, else the union's convex hull ⊕ `mouth_standoff_m`)
+— so a notch and a hole are one class; the neck test is unchanged (an unpaved flank of
+`corridor_min_length_m` on both sides of a paved neck, along the way). Bar: KPHX ONE
+channel through the two necks (23.0 / 22.4 m, 58 m apart), floor by (3)(ii) if the lidar
+is credible else (3)(iii); OTHH / HECA / KCLT / CYXY / LEMD / LGAV replays unchanged from
+round 6.
+
+(15) **THE KDFW DATUM AND THE FLOOR ROWS ARE ATTRIBUTED, NOT SHIPPED.** The KDFW build
+(rc 0, 355 s, shared repo UNCHANGED) emitted four channels, all on (3)(iii) — the
+engine's own `[flat-site] KDFW: … DEM coarse[base_tier]` says the 1 m 3DEP inset
+(`N32W098_airport_insets/KDFW_usgs3dep.tif`, present since 08-15) was NOT the frame the
+replay read — and `channel_floor_at_declaration` fired 378 rows, worst 12.626 m at
+32.8849810, −97.0398638: the solved surface does not hold the declared floor. Mechanism
+before fix (memory `mechanism-before-fix`): (a) WHY is the KDFW inset not credible /
+not read — the inset tier chosen, `lidar_credible`'s predicate, the index record's
+version (15ay), quoted from the run; (b) WHICH rows fight the floor — the prime suspect
+is C12, `airport/road_profile._osm_levelled` core-levelling the channel's road inside
+the field (owed since round 1, deferred by the owner to "after the reads"; a measured
+12.6 m conflict is not a read, it is a defect): prove it by `v2_solve_replay --probe-site
+32.8849810,-97.0398638` on the KDFW capture with the road rows named, then fix C12 as
+§45 (2)/(8) state (the channel's ways inside the ends take the channel floor as their
+profile) if that is the mechanism, or name the other. Bar: `channel_floor_at_
+declaration` 0 rows at KDFW on the lidar datum (after the owner's `--refresh-data dem
+--warm-insets KDFW` if (a) says the inset must be re-cut), the four necks at the taxiway
+grade, the corridor floor at the lidar 170.9–173.3, the median fill kept.

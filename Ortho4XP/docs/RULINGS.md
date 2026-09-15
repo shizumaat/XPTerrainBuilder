@@ -8396,3 +8396,42 @@ limited re-judge + reconcile flag (15bg), corpus-base reconciliation
 (this). STILL NAMED, not fixed: `dem` artefacts have no reconcilable
 set; `--refresh-only` never reaches `bathymetry_band_admission`; the
 merged `airport_small_roads` cache carries no schema (owner chip).
+
+## 2026-09-15bk v2channel ROUND 6 (da91d7d8): LGAV and LEMD bars MET under the amended (13)(d); KPHX reads ZERO channels (its corridor is a NOTCH, not a hole) and the KDFW build emits four channels on the clearance datum with 378 `channel_floor_at_declaration` rows (worst 12.6 m) — §45 (14)/(15) RULED, NOT MERGED
+
+Round 6: `planar/build.channels_after_basins` — channels identified
+with no exclusion; only where one took a pack witness does the basin
+pass decide first (a structure pass with no channels + `build_basins`),
+its BUILT basins' `member_ids` the (13)(d) exclusion (the cycle is
+real: `build_basins` needs the structure pass's cut cells and tunnel
+union; the decision pair costs one extra run at LGAV/LEMD/HECA only);
+§45 (7)/(11) a post-filter on a built basin before the knife, firing
+nowhere. LGAV: ONE channel −1343/−7021/−2914/−4017, pack datum, floor
+66.467, half-width 62.768, 4 decks, basins 2 → 2, tunnels 11 → 11;
+LEMD basins 1 → 1, tunnels 52 → 52, `channel:5` refused. Replays OTHH
+44/10, LEMD 52/1, HECA 13/0, KCLT 23/0, CYXY 2/0 IDENTICAL; LGAV differs
+by ONE field as the bar requires (`object-cut:Trench_01.obj@0
+replaced_ways [−4017, −2914] → []` — the channel owns those ways; the
+object cut's claim lives in `Tunnel.replaced_ways`, not the unproduced
+`Corridor.bore_ways`, so (13)(b) cannot see it — owed to the tunnel-
+object line); SPJC REFUSES on BOTH arms (neighbour big_roads −13-077/
+−13-078 superseded — the owner's refresh). Suite 1710/0 (18 teardown
+errors = another session's live refresh, the 15be class). KPHX replay:
+tunnels 14 → 14, basins 0 → 0, ZERO channels — decks read, the six
+`building_passage` ways candidates, every one `necks = 0`: the E Sky
+Harbor corridor is a NOTCH in the pavement union, and (1)(b)'s
+`_hole_region` sees interior holes only — RULED §45 (14): the corridor
+is the union's complement INSIDE THE FIELD (boundary polygon, else
+convex hull ⊕ standoff). KDFW build rc 0, 355 s, UNCHANGED, ledger
+ec73a1c42e98: FOUR channels (−959/−1499; six ways; −22284/−1553;
+−27284/−3436), all bridge + neck, 2 decks each, half-widths 41.5–70.6 m
+from (10)(iii), datum CLEARANCE — the engine read `DEM coarse[base_
+tier]` (the 1 m inset present since 08-15 was not the frame) — floors
+165.45–181.90 against the lidar's 170.9–173.3; census 8,733 rows FAIL
+with `channel_floor_at_declaration` 378 rows, worst 12.626 m at
+32.8849810, −97.0398638 — the channel verify family's first firing on
+real data. RULED §45 (15): attribute the datum (why the inset is not
+credible/read) and the floor rows (prime suspect C12's
+`_osm_levelled` core-levelling the channel's road — a measured 12.6 m
+conflict is a defect, not a read) BEFORE the merge; fix C12 if it is
+the mechanism. Not merged; app 1.0.342 waits.

@@ -9140,3 +9140,161 @@ def test_ramp_in_road_is_registered_and_keeps_out(cg):
     law = _T.load_default()
     assert set(cg._RAMP_ROLES) == {r for r in _T.governed_roles(law)
                                    if _T.is_structure_role(law, r)}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY — the
+# ``object_cut_offset`` / ``object_cut_depth`` guards (owner RULINGS
+# 2026-09-15e items 1/3/4/6 and 2026-09-15g; Fable 2026-09-15j; lane
+# `v2objcut`)
+# ══════════════════════════════════════════════════════════════════════
+# Both families are GUARDS on ``airport/object_cut.py``'s reading and are
+# meant to read 0 on a lawful build, so they must prove themselves on a
+# patch that DOES carry each defect — both directions, or the zero means
+# nothing (the §B3 blind-walk lesson, the ``ramp_in_road`` precedent
+# above).
+
+_OC_LAT = 22.3030675
+_OC_LON = 113.9070568
+
+
+def _object_cut_patch(tmp_path, *, name, ramp_out_m, floor_z, authored_floor):
+    """A 30 x 120 m object WALL LINE published in the sidecar, with a
+    ``tunnel_ramp`` face inside it whose two far vertices stand
+    ``ramp_out_m`` OUTSIDE the wall line (negative = inside), emitted at
+    ``floor_z`` against the object's ``authored_floor``."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_OC_LAT))
+
+    def at(dx_m, dy_m):
+        return (_OC_LAT + dy_m / mlat, _OC_LON + dx_m / mlon)
+    outline = [at(0.0, 0.0), at(120.0, 0.0), at(120.0, 30.0), at(0.0, 30.0)]
+    # the ramp: x 10..110, y 5 .. 25 + ramp_out_m (25 + 5 = the wall line)
+    top = 25.0 + ramp_out_m
+    ramp = [at(10.0, 5.0), at(110.0, 5.0), at(110.0, top), at(10.0, top)]
+    nodes, ways = [], []
+    nid = -1
+    ids = []
+    for lat, lon in ramp:
+        nodes.append((nid, lat, lon, floor_z))
+        ids.append(nid)
+        nid -= 1
+    ways.append((nid, ids + [ids[0]],
+                 {"role": "tunnel_ramp", "ref": "tunnel_ramp:object-cut:t5@0",
+                  "aeroway": "taxiway", "shapeID": "OC1"}))
+    nid -= 1
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='object-cut-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_OC_LAT, _OC_LON], "ruleset": "icao",
+        "object_cuts": [{
+            "id": "object-cut:t5@0", "signature": "B",
+            "resource": "tunnel/tunnel5_done.obj", "objects": ["1"],
+            "floor_m": authored_floor, "depth_m": 6.011,
+            "outline_ll": [[la, lo] for la, lo in outline],
+            "ramp_refs": ["tunnel_ramp:object-cut:t5@0"],
+            "wall_ref": "tunnel_wall:object-cut:t5@0"}]}))
+    return osm
+
+
+def test_a_cut_inside_its_object_prices_no_object_cut_offset(cg, tmp_path):
+    """The lawful case §33 (6) asks for: the emitted trench lies inside
+    the wall line the pack's object drew."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="inside",
+                                         ramp_out_m=-3.0, floor_z=1.31,
+                                         authored_floor=1.31))
+    assert fo["object_cut_offset"] == [], (
+        "a cut inside its object's wall line is the law, not a defect")
+    assert fo["object_cut_depth"] == []
+
+
+def test_a_cut_outside_its_object_is_a_defect(cg, tmp_path):
+    """The VHHH class the ruling was written on: 25 of ramp way −11078's
+    42 vertices stood outside ``tunnel5_done.obj``, the worst 76.25 m
+    away, because the corridor was the OSM bore's."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="outside",
+                                         ramp_out_m=9.0, floor_z=1.31,
+                                         authored_floor=1.31))
+    rows = fo["object_cut_offset"]
+    assert len(rows) == 2, (
+        f"the ramp's two far vertices stand 4 m outside the wall line; the "
+        f"family priced {len(rows)} row(s)")
+    assert all(abs(r.de_m - 4.0) < 0.05 for r in rows), [r.de_m for r in rows]
+
+
+def test_the_offset_bar_is_the_spec_bar(cg, tmp_path):
+    """0.5 m is the spec's own bar for ``object_cut_offset``; a vertex
+    inside it is the emitter's snap, not a cut leaving its object."""
+    fo = _families(cg, _object_cut_patch(
+        tmp_path, name="snap", ramp_out_m=5.0 + cg.OBJECT_CUT_OFFSET_M * 0.5,
+        floor_z=1.31, authored_floor=1.31))
+    assert fo["object_cut_offset"] == []
+    fo2 = _families(cg, _object_cut_patch(
+        tmp_path, name="past", ramp_out_m=5.0 + cg.OBJECT_CUT_OFFSET_M * 3.0,
+        floor_z=1.31, authored_floor=1.31))
+    assert len(fo2["object_cut_offset"]) == 2
+
+
+def test_a_shallow_cut_is_an_object_cut_depth_row(cg, tmp_path):
+    """The owner's VHHH site: the floor came out at DEM − ``bore_datum_m``
+    = 2.23 against the object's AUTHORED 1.31, 0.92 m too shallow.  The
+    authored depth overrides ``bore_datum_m``."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="shallow",
+                                         ramp_out_m=-3.0, floor_z=2.23,
+                                         authored_floor=1.31))
+    rows = fo["object_cut_depth"]
+    assert len(rows) == 1, f"one row per cut that misses the bar, not {len(rows)}"
+    assert abs(rows[0].de_m - 0.92) < 0.02, rows[0].de_m
+    assert fo["object_cut_offset"] == [], "the plan half is unaffected"
+
+
+def test_the_depth_bar_is_the_spec_bar(cg, tmp_path):
+    fo = _families(cg, _object_cut_patch(
+        tmp_path, name="atbar", ramp_out_m=-3.0,
+        floor_z=1.31 + cg.OBJECT_CUT_DEPTH_M * 0.5, authored_floor=1.31))
+    assert fo["object_cut_depth"] == []
+
+
+def test_a_patch_with_no_object_cuts_prices_neither_family(cg, tmp_path):
+    """Every airport whose pack authors no cut geometry reads exactly as
+    it did before §33 (6): the sidecar key is absent and both families
+    are empty, never a crash and never a fabricated row."""
+    osm = _object_cut_patch(tmp_path, name="nokey", ramp_out_m=9.0,
+                            floor_z=9.99, authored_floor=1.31)
+    side = Path(str(osm) + ".axes.json")
+    data = json.loads(side.read_text())
+    data.pop("object_cuts")
+    side.write_text(json.dumps(data))
+    fo = _families(cg, osm)
+    assert fo["object_cut_offset"] == []
+    assert fo["object_cut_depth"] == []
+
+
+def test_the_object_cut_families_are_registered(cg):
+    """A family absent from ``LAW_FAMILIES`` or from ``families.toml``
+    does not load (the census cannot omit a family); §33 (6)'s plan half
+    prices PRESENCE outside a region, so its cockpit class is
+    ``keepout``."""
+    from auto_patch_v2.law import tables as _T
+    names = {k for k, _t, _b in cg.LAW_FAMILIES}
+    assert "object_cut_offset" in names
+    assert "object_cut_depth" in names
+    fams = _T.load_default().tables.families
+    assert fams["object_cut_offset"].cockpit == "keepout"
+    assert fams["object_cut_depth"].cockpit == "step"
+    # the sidecar key is declared on BOTH sides — the emitter publishes it
+    # and the census reads it under the same name
+    from auto_patch_v2.emit import osm_adapter as _oa
+    assert "object_cuts" in _oa.SIDECAR_KEYS
+    assert cg.SIDECAR_LAW_KEYS["object_cuts"] == "object_cuts_ll"

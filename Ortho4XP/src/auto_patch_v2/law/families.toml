@@ -227,6 +227,32 @@ solver    = "construction"
 # the ribbon is the whole defect whatever its elevation.
 cockpit   = "keepout"
 
+# §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY (owner
+# RULINGS 2026-09-15e items 1/3/4/6 and 2026-09-15g; Fable 2026-09-15j).
+# Sidecar-declared: `object_cuts` carries, per signature-B corridor, the
+# OBJECT'S OWN wall line as a lat/lon ring and the AUTHORED floor its
+# floor plate states — so the law and the instrument read ONE reading of
+# the pack, never two (the `shore_edges` / `hairline_pair` pattern).
+[object_cut_offset]
+measures  = "a vertex of an OBJECT CUT's own emitted geometry (its ramp faces and its rim) standing outside the pack object's WALL LINE — the trench leaving the walls the author drew"
+parameter = "structures.tunnel.object.wall_face_max_thickness_m"
+roles     = ["tunnel_ramp", "retaining_wall"]
+pairs     = "within"
+ruling    = "2026-09-15e; 2026-09-15g; 2026-09-15j"
+solver    = "construction"
+# "keepout": PRESENCE outside a region, not a height — one vertex outside
+# the object's wall line is the whole defect whatever its elevation.
+cockpit   = "keepout"
+
+[object_cut_depth]
+measures  = "an OBJECT CUT's emitted floor (its ramp faces' lowest vertex) standing off the AUTHORED floor the object states — the depth is the floor plate's, and it overrides bore_datum_m"
+parameter = "structures.tunnel.object.shell_floor_min_m"
+roles     = ["tunnel_ramp"]
+pairs     = "within"
+ruling    = "2026-09-15e; 2026-09-15g; 2026-09-15j"
+solver    = "construction"
+cockpit   = "step"
+
 [bank_across_seam]
 measures  = "a `bank_foot` node inside a tile-seam band — the bank is never derived at a seam (the coverage edge there is a pin line already at the DEM)"
 parameter = "emit.seam.half_width_m"

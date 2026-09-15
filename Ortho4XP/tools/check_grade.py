@@ -6452,6 +6452,142 @@ def _check_ramp_in_road(ways, nodes, ll_to_m) -> List[Violation]:
     return out
 
 
+# ── §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY ────────────
+#: The worst distance an emitted ring vertex may stand OUTSIDE its
+#: object's wall line (spec §33 (6): "`object_cut_offset`: the worst
+#: distance of an emitted ring vertex outside its object's wall line
+#: (bar 0.5 m)").  A REPORTING bar, read from the spec, not a law key:
+#: the law is "the cut is the object's", and this is how far the emitter's
+#: own snap may carry a vertex off it.
+OBJECT_CUT_OFFSET_M = 0.5
+#: …and how far the emitted floor may stand off the AUTHORED floor plate
+#: (spec §33 (6): bar 0.10 m).
+OBJECT_CUT_DEPTH_M = 0.10
+
+
+def _object_cut_regions(object_cuts_ll, ll_to_m):
+    """``(id, outline polygon in metres, authored floor, refs)`` per
+    published object cut.  The outline is the OBJECT'S OWN wall line
+    (``pipeline/publication.object_cuts``), never re-derived here — one
+    witness, two instruments (the ``shore_edges`` precedent)."""
+    from shapely.geometry import Polygon
+    out = []
+    for rec in (object_cuts_ll or []):
+        ring = [ll_to_m(float(la), float(lo)) for la, lo in (rec.get("outline_ll") or [])]
+        if len(ring) < 3:
+            continue
+        try:
+            g = Polygon(ring)
+            if not g.is_valid:
+                g = g.buffer(0)
+        except Exception:                                 # pragma: no cover
+            continue
+        if g.is_empty:
+            continue
+        refs = set(rec.get("ramp_refs") or ())
+        if rec.get("wall_ref"):
+            refs.add(str(rec["wall_ref"]))
+        out.append((str(rec.get("id") or ""), g, rec.get("floor_m"), refs))
+    return out
+
+
+def _check_object_cut_offset(object_cuts_ll, ways, feature_ways, nodes,
+                             ll_to_m) -> List[Violation]:
+    """§33 (6) THE CUT NEVER LEAVES ITS OBJECT — the ``object_cut_offset``
+    family (owner RULINGS 2026-09-15e/15g; spec §33 (6)).
+
+    Where the pack authored the trench (a shell and its flush hard cover,
+    a crested wall pair, a thin surface wall), "the cut's PLAN, DEPTH,
+    COVERED EXTENT and STATIONS derive from the object".  This is the
+    reading of the PLAN half: a vertex of that corridor's own emitted
+    geometry — its ramp faces and its rim — standing outside the object's
+    WALL LINE.  Measured at VHHH before §33 (6): 25 of the 42 vertices of
+    ramp way −11078 and 10 of way −10711's 20 stood outside
+    ``tunnel5_done.obj``, the worst 76.25 m away, because the corridor was
+    the OSM bore's and the object was read as a basin.
+
+    A vertex within the census's own weld tolerance of the outline's edge
+    is ON it (the same line ``ramp_in_road`` draws), and only the
+    corridor's OWN refs are priced — a neighbouring ramp that merely
+    passes the object is not this object's cut.
+
+    CRITICAL and a PRESENCE family: a trench outside the walls the author
+    drew is wrong whatever its elevation."""
+    from shapely.geometry import Point
+    regions = _object_cut_regions(object_cuts_ll, ll_to_m)
+    if not regions:
+        return []
+    out: List[Violation] = []
+    for w in list(ways) + list(feature_ways):
+        ref = str(getattr(w, "tags", {}).get("ref", "") or "")
+        for cid, g, _floor, refs in regions:
+            if ref not in refs:
+                continue
+            for nid in dict.fromkeys(w.nids):
+                if nid not in nodes:
+                    continue
+                lat, lon = nodes[nid]
+                p = Point(ll_to_m(lat, lon))
+                if g.contains(p):
+                    continue
+                d = p.distance(g)
+                if d <= max(SHARED_VERTEX_TOL_M, OBJECT_CUT_OFFSET_M):
+                    continue
+                v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=d, de_m=d,
+                              way_a=w, way_b=w, pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                              elev_a=0.0, elev_b=0.0)
+                v.lat, v.lon = lat, lon
+                v.out_of_scope = None
+                out.append(v)
+            break
+    return out
+
+
+def _check_object_cut_depth(object_cuts_ll, ways, nodes, ll_to_m) -> List[Violation]:
+    """§33 (6) THE DEPTH IS AUTHORED — the ``object_cut_depth`` family.
+
+    "The FLOOR PLATE's level in the seated frame is the floor (the depth
+    is AUTHORED — it overrides ``bore_datum_m``, which is the law for
+    UNAUTHORED bores only)."  The emitted floor of an object cut's ramp
+    faces — their lowest vertex — against the floor the OBJECT states,
+    published as ``object_cuts[].floor_m``.  Measured at VHHH before
+    §33 (6): the owner's site read 2.23 against the authored 1.31,
+    0.92 m too shallow, because the bore law's ``bore_datum_m`` 5.10 was
+    subtracted from the DEM instead.
+
+    One row per cut that misses by more than the spec's 0.10 m bar, at
+    the offending vertex."""
+    regions = _object_cut_regions(object_cuts_ll, ll_to_m)
+    if not regions:
+        return []
+    out: List[Violation] = []
+    for cid, _g, floor, refs in regions:
+        if floor is None:
+            continue
+        best = None
+        for w in ways:
+            ref = str(getattr(w, "tags", {}).get("ref", "") or "")
+            if ref not in refs or law_role(w) not in _RAMP_ROLES:
+                continue
+            for nid, z in zip(w.nids, w.elevs):
+                if z is None or nid not in nodes:
+                    continue
+                if best is None or z < best[0]:
+                    best = (float(z), nid, w)
+        if best is None:
+            continue
+        de = abs(best[0] - float(floor))
+        if de <= OBJECT_CUT_DEPTH_M:
+            continue
+        lat, lon = nodes[best[1]]
+        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=de, de_m=de,
+                      way_a=best[2], way_b=best[2], pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                      elev_a=float(best[0]), elev_b=float(floor))
+        v.lat, v.lon = lat, lon
+        out.append(v)
+    return out
+
+
 #: §39 (2): the DEGENERATE FLOOR - a gap under this is unmeshable
 #: whatever its neighbourhood (owner RULINGS 2026-09-13bu's own bar,
 #: "constrained segments under 10 mm 28 -> 0"); one over it is ordinary
@@ -8469,6 +8605,17 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("ramp_in_road",
      "RAMP vertex INSIDE a road ribbon (the road margin is general)",
      "within"),
+    # §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY (owner
+    # RULINGS 2026-09-15e/15g; spec §33 (6)).  Sidecar-declared like
+    # ``shore_edges``: ``object_cuts`` = the object's own wall line and
+    # its AUTHORED floor, so the law and its instrument read ONE reading
+    # of the pack.
+    ("object_cut_offset",
+     "EMITTED cut vertex OUTSIDE its object's wall line (§33 (6))",
+     "within"),
+    ("object_cut_depth",
+     "EMITTED cut floor OFF the object's AUTHORED floor plate (§33 (6))",
+     "within"),
     # §39 (2) THE HAIRLINE LAW (owner RULINGS 2026-09-13bk; spec §39).
     # Sidecar-declared like ``seam_residual``: ``shore_edges`` = the tile's
     # FOREIGN water edges as ``[lat1, lon1, lat2, lon2]``, the same witness
@@ -9114,6 +9261,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # shore weld ran against — so ``hairline_pair`` prices the population
     # the law ran on and never a second water witness
     "shore_edges": "shore_edges_ll",
+    # §33 (6): the object cuts the emitted patch must answer to
+    "object_cuts": "object_cuts_ll",
     "mesh_edges": "mesh_edges_ll",
     # RULINGS 2026-09-05ae(1): a soft face's holes by ``shapeID`` — an apron
     # chord crossing one is no pair (``grade_graph._visibility_predicate``)
@@ -9516,6 +9665,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["seam_half_width_m"] = data.get("seam_half_width_m")
     # §39 (1)/(2): the emitter's own foreign-water population
     ctx["shore_edges_ll"] = data.get("shore_edges") or None
+    # §33 (6) (owner RULINGS 2026-09-15e/15g): the object cuts
+    ctx["object_cuts_ll"] = data.get("object_cuts") or None
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
     ctx["face_holes_ll"] = data.get("face_holes") or None
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
@@ -10584,6 +10735,9 @@ def run_checks(
     runway_axes_ll: Optional[list] = None,
     shoulder_transverse_max: Optional[float] = None,
     shore_edges_ll: Optional[list] = None,
+    # §33 (6): per signature-B corridor, the object's wall line (lat/lon
+    # ring) and its AUTHORED floor — the witness both new families price
+    object_cuts_ll: Optional[list] = None,
     mesh_edges_ll: Optional[list] = None,
     face_holes_ll: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
@@ -11058,6 +11212,22 @@ def run_checks(
         "edge — centreline + half width — and the ribbon is never cut)",
         ramp_road, top_n)
     within = within + ramp_road
+
+    # §33 (6): the cut is the pack object's — plan and depth alike
+    obj_off = _fam("object_cut_offset",
+                   _check_object_cut_offset(
+                       object_cuts_ll, ways,
+                       [w for v in open_features.values() for w in v],
+                       nodes, ll_to_m))
+    _pv("EMITTED cut vertex OUTSIDE its object's WALL LINE (owner RULINGS "
+        "2026-09-15e/15g §33 (6): where the pack authored the trench, the "
+        "cut's plan is the object's)", obj_off, top_n)
+    within = within + obj_off
+    obj_dep = _fam("object_cut_depth",
+                   _check_object_cut_depth(object_cuts_ll, ways, nodes, ll_to_m))
+    _pv("EMITTED cut floor OFF the object's AUTHORED floor plate (§33 (6): "
+        "the authored depth overrides bore_datum_m)", obj_dep, top_n)
+    within = within + obj_dep
 
     # §39 (2): every emitted edge — pavement ring AND role-less feature
     # way — against the tile's foreign constrained edges

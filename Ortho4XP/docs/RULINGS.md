@@ -6596,3 +6596,43 @@ _read.py` promoted (third use).
   6.38 → 3.63). The carried body follows its carrier (§16a) — re-read
   after the carrier's new seat.
 * App 1.0.338 (LEMD) after lane `v2lemdstruct` lands.
+
+## 2026-09-14bt v2lemdstruct MERGED (2bbd3206): the 40.4988 tunnel's mouths on the owner's points (0.00 m), the bridge one deck to the way's ends, the F-6 mouth back 7.5 m; the basin rim-on-the-wall REFUTED as ruled (a wall-face reference is needed); §33 (3)'s crest at the clamped portal re-opened
+
+Lane `v2lemdstruct` @ d630ffa3 (LEMD tile build `v2lemdstruct1`, rc 0,
+verify defects {}, suite 1,540 twice; 1,560 on main). Landed: §34 (5)
+(a) `_deck_cell` one derivation, the clip asymmetric across the axis;
+§33 (2) (a) `_covered_end` clamps the plate move (both 40.4988
+mouths 0.00 m from the owner's points; width 25.1 m; approach walk
+verbatim); §33 (4)/§34.5 (6) `planar/structure_deck.py` (new):
+`deck_intervals` over the way's full length, parallel ways sharing a
+crossing one face (`[bridge] deck_group_gap_max_m` 12) — the bridge
+ends 3.29 / 0.00 m from the owner's points, one face, east levels
+within 0.02 m of the apron, rim `-11036` gone, no ≥ 0.5 m step past
+the east end; decks 11 → 7 (four pairs merged, none lost). Census
+ADJUDICATED 2,094 → 1,924, `road_cross_section` 14 → 8. F-6: the
+ramp's north extent back 7.5 m (rim 40.4611264 → 40.4610588), the
+taxiway `pav157` never cut in either arm, the profile monotone — but
+the owner's stop point stays 7.6 m south of the rim and 11.9 m WEST
+of the corridor axis (the bore is a merged dual carriageway, the
+reported mouth is the pair's centre; the OSM centreline sits 0.25 m
+from the north kerb so the eroded cell still reaches ~14 m south).
+§24 (1) (a) REFUTED as ruled: `obj8.at_grade_geometry` clips each
+component at ONE plane (a CONTOUR over the 28,345 m² pit — median
+19.2 m / worst 51 m from the region ring); snapping would drag the
+cut 20 m inward; the region ring passes 1.41 m from the owner's point
+— the canyon is not a ring metres off the wall. `rim_wall_report`
+(per-station) stands; the rule needs the pack's near-vertical solid
+faces' plan trace (13g's open item, `obj8`'s to build). §33 (3): with
+the mouth clamped back, `tunnel:-5931@1` returns to crest 610.23 /
+floor 605.13 / ramp 36 m — the crest cap did not fire; open.
+
+* OWNER (item 1, F-6): the mouth is 7.5 m further back; your point
+  is off the axis by 12 m (the dual carriageway's centre is reported)
+  — say whether the west carriageway's mouth should go further back
+  still, or whether this reads right in the sim.
+* OWNER (item 5, the basin canyon): the ring is 1.4 m from your point
+  and the mesh has a clean 7.7 m wall; what you see is between the
+  pack's wall object and our cut — a coordinate ON the visible gap and
+  its width would let a wall-face read be targeted.
+* App 1.0.338 (LEMD: 14bs + 14bt) next.

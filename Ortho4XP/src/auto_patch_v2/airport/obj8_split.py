@@ -86,7 +86,9 @@ this writer applies.
 from __future__ import annotations
 
 import dataclasses as _dc
+import hashlib
 import os
+import struct
 import typing as _t
 
 import numpy as np
@@ -189,8 +191,6 @@ def offset_tag(offset: _t.Sequence[float]) -> str:
     ``o4_placement_provenance.json`` names) then go stale in the pack.
     The hash renames a file only when the file's own contents move.
     """
-    import hashlib
-    import struct
     x, y, z = (float(v) for v in offset)
     return hashlib.blake2s(struct.pack("<3d", x, y, z),
                            digest_size=4).hexdigest()

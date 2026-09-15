@@ -7645,3 +7645,4 @@ away: the app quit by the session (engine idle: 0 % CPU, no children,
 workers exited), NO 1.0.341 build per the owner; `--refresh-data
 osm_layers` per tile started on the owner's explicit word (VMMC/+22+113
 first, then LEMD, HECA, KCLT, OTHH, CYXY), one task per tile.
+15ah addendum: suite ON MAIN after the v2padqp r2 merge (348f80a4): 1639 passed, 1 skipped, 42 warnings in 75.63s (0:01:15). The first refresh chain (six tiles in one 600 s task) was stopped before it wrote anything; it left its own `osm_layers.lock` (pid 49618, dead) which the session removed — one refresh task per tile from here.

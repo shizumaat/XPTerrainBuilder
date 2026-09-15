@@ -7732,3 +7732,19 @@ build (`v2vmmcshore4tile`) was still running after ~100 min (13cg's
 ≤ 0.5 m. Refreshes so far (owner-authorised, ledgered): +22+113
 (11:05:34, 1 layer), +40-004 (nothing stale), +30+031 (11:26:53, 1
 layer + 2 clips), +35-081 (11:35:05, 1 layer); OTHH running, CYXY next.
+
+## 2026-09-15an v2lemdstruct2 r4 HELD (96c1208f): the crossfall bar MET (4.313 → 1.529 %) by making foot rows one-way at airside — the 14 feet were `LEMD69.obj` sign plinths on the kerb — but LEMD's runway moves 354 vertices / 5.687 m and a 0.95 m step appears between two runway faces at the owner's site (HECA control 0.064 m) → r5 attributes what holds 14R/32L there before the merge
+
+Lane @ 96c1208f; suite 1,650 passed, 0 FAILED; no build (the lane
+read the ledger before the 11:05–11:35 refreshes; +40-004 needed none).
+Details in §34 (13) (3) MEASURED. The direction (a foot never holds
+airside) is RIGHT and is not re-litigated; what is wrong is that the
+runway's level at that station depended on it — the runway's own rows
+must hold the runway. r5: `--why-at` on the worst runway mover and on
+the 0.95 m step's two faces on BOTH arms; name the runway-family rows
+present/absent; then the fix at the runway law's derivation site, and
+a DEFECT family for a step between runway faces if none prices it.
+HECA control clean (+41 verify rows, 8 runway vertices ≤ 0.064 m).
+Register defect caught by the §11b twins (`foot_row_rulings` deleted
+by a prefix match; every foot row re-priced 3000 → 3; the control arm
+discarded and re-run) — the two registers twinned apart.

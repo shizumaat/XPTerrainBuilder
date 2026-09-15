@@ -14282,3 +14282,40 @@ DEM depression under the deck of ≥ 1 m relative to its abutments)
 regardless of station; a deck over a road at grade beyond the ramp's
 daylight station is not a crossing.  The rule is written after the
 table, by the session.
+
+## §34 (13) (3) MEASURED (lane v2lemdstruct2 r4 96c1208f; Fable 2026-09-15; RULINGS 2026-09-15an) — the feet were `Airport_Munoza/LEMD69.obj`'s 27 plinth bodies on the kerb; one-way at airside meets the crossfall (1.529 %) — and the RUNWAY moves 5.687 m at LEMD (HECA control 0.064 m): what held 14R/32L there was the furniture, not the runway's law → r5 attributes the runway's own rows before the merge
+
+The 14 binding foot rows at v6622 belong to TWO bodies of ONE
+placement (`LEMD69#b2`, `#b4`: 2.23 m square, 4 feet, relief 0.001 m,
+`y_zero` −1.2 — sign panels on plinths strung along the kerb, 27 bodies
+in all); their feet sit on `graded_strip` at their own DEM, and the row
+is stated over the TRIANGLE while the strip shares its kerb vertices
+with the junction (one node, one value, 09-01g) — so verge furniture
+held a junction's crossfall at dual 42,656.  LANDED: `constraints/foot_
+rows.foot_rows` — a foot row touching an airside value role keeps its
+terms and sets `follows` to its bare-ground columns (head in
+`one_way_rulings`; an all-pavement triangle stays two-sided, 11x (1));
+LEMD 184 rows one-way, HECA 3.  The `junction_mesh` row dissolved (dual
+0.07, far end on junction+runway vertices) — NOT edited.  Crossfall at
+the site 4.313 % → **1.529 %** (cap 1.985), census rows within 20 m 8 →
+0; `transverse` 98 → 90, `airside_no_step` 460 → 377.  THE PRICE: 354 of
+4,031 runway vertices moved > 0.02 m, worst **5.687 m**; the contact
+rose 579.07 → 582.59; `ramp_in_strip` 8 → 18, `strip_transverse` worst
+13.86 → 17.70 m, cliffs 10 → 20, and a NEW `mid_edge_step` 0.950 m over
+1 m between two RUNWAY faces at 40.4613609, −3.5446852.  HECA control
+(one variable): 8 of 3,753 runway vertices, worst 0.064 m.  RULED: the
+direction is right and stays; the runway movement is a SITE property —
+at that station 14R/32L's level was being held by the sign feet, which
+means the runway's own rows (§29 the profile preserve / the CIFP
+thresholds / the lateral band, the runway crown) were slack or absent
+there.  r5 ATTRIBUTES before the merge: `--why-at` on the worst runway
+mover and on both faces of the 0.95 m step — which runway-family rows
+exist at those vertices, what holds the runway's level there on the r3
+arm (with the feet) and on the r4 arm (without), and why two runway
+faces can step 0.95 m over 1 m without a structural DEFECT.  The fix
+follows the attribution (the runway's own law must hold the runway; a
+step between runway faces is a DEFECT family if it is not one).  Also
+recorded: a register-deletion defect this round (disarming a head by
+prefix also deleted `foot_row_rulings`, re-pricing every foot row 3000
+→ 3) was caught by the §11b twins; the two registers are now twinned
+apart.

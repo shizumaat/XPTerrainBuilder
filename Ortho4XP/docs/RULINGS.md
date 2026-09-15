@@ -7592,3 +7592,4 @@ merge and `frames.py list` crashed on them (the lane caught it); the
 union now strips `^<<<<<<< |^=======$|^>>>>>>> ` first. The lane's
 object_cut.py and its twins taken whole at the r2 merge (the fix
 branch was a subset).
+15af addendum: suite ON MAIN after the v2objcut r2 merge (32615dd9): 1638 passed, 1 skipped, 42 warnings in 46.22s. LGAV structure replay on main: rc 0, zero tracebacks, corridors 3 / tunnels 11 / basins 2.

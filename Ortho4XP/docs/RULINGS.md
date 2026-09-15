@@ -7769,3 +7769,37 @@ unmeasured. r6: implement (i)+(ii) with `deck_cut_witness_m` 0.5 /
 deck, a VMMC 0.00 deck, a stale-feed `schema` deck); dry pairs LEMD
 7 kept / VMMC 0 / OTHH 44 / 1; suite; then merge.
 15ap addendum — THE OWNER'S ROAD-LAYER REFRESHES, DONE (owner-authorised by message while away; one task per tile; all `shared repo UNCHANGED` by the builds themselves, the writes ledgered): +22+113 (VMMC/VHHH) 11:05:34; +40-004 (LEMD) nothing stale (its big_roads was re-derived by the 09:03 contamination); +30+031 (HECA) 11:26:53 (+2 regional clips); +35-081 (KCLT) 11:35:05; +25+051 (OTHH) 11:45:43; +60-136 (CYXY) 11:46:18. Every closing build on those tiles is unblocked. Not refreshed (the peer's airports, their own authorisation): LGAV +37+023, KDFW +32-098/+32-097, KPHX +33-112.
+
+## 2026-09-15ar v2objcut r3 MERGED (5cc3e7bc → d94db789): VHHH tunnel5 MET (ring vertices outside the wall line 85 → 0, floor 1.30 = authored; all five shells 0 outside bar TUNNEL2_DONE 4 / 0.90 m; `object_cut_depth` 0 rows), LEMD item 1 MET (both parapets on the deck edges within 0.06 m; six other decks byte-identical), item 6 stations 9 → 13 (`trench_outside_max_m` 0.139); TWO MAIN-TREE FINDINGS: the OTHH object-corridor reader is NONDETERMINISTIC (7/42 vs 9/44 on one tree, `tunnel west 1/3.obj` flipping) — lane v2othhdet; the VHHH closing build CONTAMINATED the mod cache (a new-hash DSF dump of the owner's rebaked pack past the lane-local redirect) — the peer's guard; the VHHH census vs the 1.0.340 patch (law-true 1,713 → 4,845, ADJUDICATED 272 → 1,472) is UNATTRIBUTED — a control pair at f912ba81 is owed (lane v2vhhhctl)
+
+Lane @ 5cc3e7bc (main f912ba81 merged); suite 1,649 passed, 0 FAILED;
+22 twins. Closing VHHH build rc 0, 672.4 s, optimal, body_sha
+38e3a2678b5c, 1,970 verify rows, `object corridors 5 (0 refused)`,
+`tunnels 26 cells cut 17` — the hairpins no longer fold (B's ring =
+the object's trench polygon, `structure_geometry.geometry_from_trench`
+/ `ring_for` / `seed_wall_stations` — only stations whose inner-face
+point stands > 0.5 m off the chord are seeded; seeding EVERY station
+moved nine straight OTHH corridors and was withdrawn). Per shell,
+1.0.340 → build: tunnel5 85/147 (worst 75.8 m) → 0/107, floor miss
+0.90 → 0.00; tunnel1 19/25 → 0/62; TUNNEL2 111/171 → 4/389 (0.90 m —
+the 1,110 m five-portal shell, named, over the 0.5 m bar); tunnel3
+27/46 → 0/45; tunnel4 26/40 → 0/37. C3′: `structure_deck.flanking_pair`
+/ `_centred_on_pair` — `-6288`'s lateral extent −11.81…+2.29 →
+−10.23…+10.24 m against inner faces ±10.185 (worst excess +1.62 →
++0.06 m); `mouth_z` unchanged, only `climb_from_s`. C2′: Bridge4
+stations 12 → 17, collapsed 9 → 13; per-vertex numbers await a LEMD
+build. LEMD 49/51 tunnels identical (the two named); OTHH six
+populations identical — BUT two base runs at f912ba81 differ (7/42 vs
+9/44; arms e0_OTHH / e2_OTHH), `tunnel_objects.py` byte-identical
+between branch and main: a main-tree nondeterminism that invalidates
+any single-run "byte-identical" claim at OTHH and may vary the
+CUSTOMER'S OTHH build run to run. CONTAMINATION (quoted): "SHARED-REPO
+SIDE EFFECT: this build wrote 2 path(s) NOBODY authorised … [airport_
+mod_cache] … added Airport_mod_cache/c_HKG - 100_airport - VHHH_…/
++22+113.dsf.d18b5903.text … Re-run with --refresh-data
+airport_mod_cache … artifact ledger: NOT stored"; the harness also
+named `+60-136_big_roads.osm.bz2` as an external candidate (my CYXY
+refresh at 11:46, ledgered). OWNER: `--refresh-data airport_mod_cache`
+for the VHHH pack's new-hash dump is yours to authorise (not covered
+by the road-layer word). `planar/structures.py` at exactly 1,000
+lines.

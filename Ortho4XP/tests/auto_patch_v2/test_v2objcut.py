@@ -363,3 +363,82 @@ def test_the_repair_drops_a_degenerate_ring_without_raising(law):
     assert object_cut.valid_polygon(None) is None
     line = Polygon([(0.0, 0.0), (10.0, 0.0), (0.0, 0.0)])
     assert object_cut.largest_polygon(line) is None
+
+
+# ── §33 (6) B r3: the ring IS the object's trench polygon ────────────────
+
+def test_the_object_cut_ring_is_the_objects_own_trench_polygon(law):
+    """A hairpin corridor's ring cannot be an AXIS OFFSET: at VHHH
+    `tunnel5_done` (the owner's site, a 413 m U-turn) and `TUNNEL2_DONE`
+    were both REFUSED by `_geometry_at` — "the approach bends tighter
+    than the corridor" — with their readings correct.  The shell STATES
+    its trench, so the ramp face is that polygon and the rim ring the
+    object's footprint."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_geometry as sg
+    trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
+    foot = Polygon([(-2, -2), (102, -2), (102, 22), (-2, 22)])
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.5,
+                                trench, foot)
+    assert g is not None
+    assert g.ramp.area == pytest.approx(2000.0)
+    assert g.outer.area == pytest.approx(2496.0)
+    assert g.outer.contains(g.ramp)
+    assert len(g.left) == len(g.right) == 3
+    assert g.cap_in == [] and g.cap_out == []
+
+
+def test_a_footprint_that_does_not_contain_the_trench_is_unioned(law):
+    """The footprint is the walls ∪ trench exterior; where the repair has
+    trimmed it, the ramp is folded back in rather than left outside its
+    own rim."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_geometry as sg
+    trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
+    small = Polygon([(0, 0), (50, 0), (50, 5), (0, 5)])
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.5,
+                                trench, small)
+    assert g is not None and g.outer.contains(g.ramp)
+    assert g.wall.area == pytest.approx(0.0, abs=1e-6)
+
+
+def test_ring_for_leaves_an_ordinary_corridor_to_the_axis_offset(law):
+    """Only an ``object-cut:`` corridor takes the polygon path; every
+    other corridor is `geometry()`'s axis offset exactly as before."""
+    from auto_patch_v2.planar import structure_geometry as sg
+    assert sg.OBJECT_CUT_PREFIX == "object-cut:"
+
+
+def test_only_the_stations_that_carry_the_curve_are_seeded(law):
+    """§33 (6) C2': seeding EVERY wall station was measured and withdrawn
+    — it moved nine STRAIGHT OTHH object corridors (one's ramp top
+    240 -> 246 m) for nothing.  A straight corridor's set is unchanged; a
+    curved one gains the stations that carry the bend."""
+    from auto_patch_v2.planar import structure_geometry as sg
+    from auto_patch_v2.airport.tunnel_walls import Station
+
+    class _C:
+        def __init__(self, sts, left, right):
+            self.stations = sts
+            self._l, self._r = left, right
+
+        def stations_inner(self):
+            return self._l, self._r
+
+    sts = [Station(float(s), 5.0, 5.0, 1.0, 1.0) for s in range(0, 25, 2)]
+    straight_l = [(float(st.s), 5.0) for st in sts]
+    straight_r = [(float(st.s), -5.0) for st in sts]
+    ss = [0.0, 12.0, 24.0]
+    assert sg.seed_wall_stations(list(ss), _C(sts, straight_l, straight_r), 0.5) == ss
+    import math as _m
+    bent_l = [(float(st.s), 5.0 + 4.0 * _m.sin(_m.pi * st.s / 24.0)) for st in sts]
+    bent_r = [(float(st.s), -5.0 + 4.0 * _m.sin(_m.pi * st.s / 24.0)) for st in sts]
+    got = sg.seed_wall_stations(list(ss), _C(sts, bent_l, bent_r), 0.5)
+    assert len(got) > len(ss), got
+    assert set(ss) <= set(got)
+
+
+def test_seeding_is_inert_without_a_corridor(law):
+    from auto_patch_v2.planar import structure_geometry as sg
+    ss = [0.0, 12.0, 24.0]
+    assert sg.seed_wall_stations(list(ss), None, 0.5) == ss

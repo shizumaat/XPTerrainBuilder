@@ -8457,3 +8457,64 @@ mouths at the transitions; `object_cut_depth` measures the open floor
 only.
 
 ## 2026-09-15br OWNER: "if an object provides a hard deck then we just leave an open trench, since the object spans it. The only time we would need to stop a trench at a bridge is if there is NO object covering it, and we need the terrain to provide the hard land area for the bridge. So I think all the cases at VHHH are open trench right?" — YES: §33 (6) B AMENDED (3) supersedes (2)'s cover/pavement subtraction; surface elements over an object-decked trench ride the object and are excluded from the terrain solve inside the outline (the 15bp mechanism); every VHHH shell is an open walled trench for its authored extent; v2shellwall r2 redirected
+
+## 2026-09-15bt SHUTDOWN RECORD (owner: machine off in ~15 min) — RESUME HERE. Main 476e63ae (mine) + the peer's eae7c7c2; suite on main green (1,691 + 392, 15bn); APP 1.0.341 built (f4bac3d4, engine 1.50.1788) and in the owner's hands; lane v2shellwall r2 checkpointed on `claude/v2shellwall` (sha in the addendum); no lane builds running; no locks; the app closed; the LEMD/VHHH install packs restored (15bn)
+
+MERGED TODAY (all suite-proved on main, RULINGS 15e–15br): the three
+1.0.340 reads (LEMD 15e, VMMC 15f, VHHH 15g) → v2lemdstruct2 r1–r5
+(§33 (5) mouth = bore datum, the equality-row bug; §34 (5) (b); §34
+(13) axis ramps, mouth-pair road, raw-pair transverse, one-way object
+feet), v2objcut r1–r3 + the LGAV crash fix (§33 (6) signatures A/B/C:
+B reads every VHHH shell; C1′ Bridge3 pairs; C3′ parapets centre the
+deck; C2′ Bridge4 stations), v2padqp r1–r2 OFF (§16g (10) (11); the
+airside movement = the arrangement clip re-noding airside — §16g (10)
+(12) TO WRITE), v2vmmcshore r1–r7 (§37 (11) sea wall/quays; §34 (12)
+(1) withdrawn — 12ab stands, (3) stop-short, (4) a deck severs only
+where the ground beneath is WITNESSED below grade: LEMD keeps 5 of 7
+approved decks, `-5305`/`-15293` lost — owner read item), v2othhdet
+(the "nondeterminism" was my OTHH refresh between runs; ids now
+geometry-keyed; the replay refuses stale feeds), v2shoulderband (§40
+(5) the shoulder is a band: LEMD 111,648 m² → 49,515 within 75 m; the
+0.95 m runway step gone; the owner's item-7 site 0.554 %; band end cap
+= the strip's 60 m extension — r2 owed with the VHHH capture). Peer
+(xpterrainbuilder-7f, shares this tree and main; RULINGS letters even
+mine / odd theirs): v2drapedbind, v2pavborrow §44, v2insetneg,
+v2roadtags, v2schemarefuse r1–r5 (refuse guards: stale road layers,
+new-hash dumps, install writes; lane builds measure-only — PROVED at
+LEMD 15bf; tile builds lawful on main ≥ 6f6c28ed; `--refresh-only`,
+`--break-stale-lock`), v2insetreprobe; v2channel (§45) round 7
+checkpointed on `claude/v2channel`, NOT merged.
+
+IN FLIGHT AT SHUTDOWN: v2shellwall r2 (§33 (6) B AMENDED (3), owner
+15br: every VHHH shell an OPEN walled trench for its authored extent;
+surface elements over an object-decked trench ride the object and are
+excluded from the terrain solve inside the outline — the 15bp
+mechanism (`taxi_centreline` row → floor pin); bars = the f912ba81
+VHHH control pair frames) — the 1.0.341 VHHH REGRESSION (taxiways
+pulled down 6.5 m near TUNNEL2/tunnel5) is FIXED ONLY WHEN THIS LANDS
+→ then app 1.0.342. Owner chips running in their sessions:
+task_de21f3fb (negative-id collision across OSM layers),
+task_e28892c3 (conflict-marker twin), task_dfad5ff5 (freshness
+tests), plus older ones (6e755fe1, cf2b291a, e97fecda, 35732789).
+
+OWNER OWES: the read of 1.0.341 (LEMD items 1–7 states in 15ax; VMMC
+shore; VHHH shells — the trench regression known); 15y-1 (LEMD road
+ramp inside the runway 75 m strip: accept, or a 150 m tunnel); 15w-1
+(VMMC's remaining 84 m ramp 188 m from the probe — after r6 it may be
+moot); the two LEMD decks `-5305`/`-15293` on the next build; the KPHX
+inset scrub; `--refresh-data dem` for CYXY (15bd) and KCLT.
+
+NEXT SESSION, IN ORDER: (1) read the memory handover + this entry +
+`tools/docq.py ruling 15br 15bp 15bl 15bj`; (2) `git log --oneline -20`
+for the peer's overnight commits; grep both specs and frames.jsonl for
+`^<<<<<<<`; (3) resume lane v2shellwall from its checkpoint (SendMessage
+to the agent is gone after a restart — start a NEW lane `v2shellwall`
+r3 from the brief pack `docs/briefs/v2shellwall.md` + §33 (6) B
+AMENDED (3), branch `claude/v2shellwall`, worktree may need
+`lane_worktree.sh up v2shellwall claude/v2shellwall`); (4) merge it,
+suite on main, app 1.0.342, notify the owner; (5) v2shoulderband r2
+(end cap + VHHH/HECA/KCLT/OTHH/CYXY captures); (6) §16g (10) (12) the
+arrangement clip preserves the airside vertex set, then pads ON.
+Standing: ONE git-touching task at a time on this tree (15bn); never
+compare runs across a corpus refresh (15bj); brief packs via
+brief_pack.py; lanes on Opus; suites by FAILED lines ON MAIN.

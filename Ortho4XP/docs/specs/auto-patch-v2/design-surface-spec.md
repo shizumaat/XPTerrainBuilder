@@ -12954,3 +12954,182 @@ between two rims solving at 602.16 / 601.69 — an unowned 9 m cut in the
 witness.  The road, admitted, grades that ground (§37 (6) its zones);
 the 144,429 m² hole ring (cover 0.011) is closed by the road's faces and
 zones or excluded per §34 (11) (c).
+
+### §34 (12) / §37 (11) **MEASURED** (lane `v2vmmcshore`, 2026-09-15, branch `claude/v2vmmcshore`, base main `6fecb62b` + the day's merges)
+
+**THE CLOSING BUILD REFUSES, BY NAME, AND THE LANE DID NOT WORK AROUND IT.**
+On the final merged tree `build_airport.py VMMC` exits 1 at the shared-repo
+guard (v2schemarefuse, RULINGS 2026-09-15u):
+
+> `[osm_layers] OSM_data/+20+110/+22+113/+22+113_big_roads.osm.bz2 — the
+> cached big_roads layer is SCHEMA-STALE — written under 2026-07-16, the
+> engine expects 2026-09-15` … `--refresh-data osm_layers`
+
+The refresh is the OWNER's act.  The MATCHED PAIR below is therefore the
+BASE control `v2vmmcshoreBASE` (artifact ledger `b3a8d4c01325`, body
+`f328f77e1639`) against arm `v2vmmcA5` (body `9c240e89bccc`) — one tree,
+one corpus, both `[harness] shared repo UNCHANGED` with an EMPTY
+`write_guard_blocked` and only `.lock` churn, both registered.  The arm
+stands ONE MERGE BEFORE the final tree; what moved after it is named at
+the end, and the final tree's own dry read reproduces every shore number.
+
+| bar | BASE `b3a8d4c01325` | arm `9c240e89bccc` |
+|---|---|---|
+| owner site 22.1618794, 113.579745 | **0.00 m INSIDE `tunnel_ramp` way −10098** | **no face, rim or ramp within 300 m — none exists at all** |
+| `tunnel_ramp` faces / `structure_rim` | **11 / 19** | **0 / 0** |
+| the corridor count, NAMED | 12 bores admitted, 5 tunnels | **`bores no service 12 (§34 (12) (1))`** — every one named in the structures line; **no survivor, so no covered element to quote** |
+| `pav5` (code E, junction) | 4 faces, **3.58 / 4.28 / 4.50 … 6.16 m** | 4 faces, **5.09 … 6.12 m** — bar (no vertex below 5.9) **NOT MET by 0.81 m**, attributed below |
+| patch vertices at or under 0.5 m (the doubled water plane) | the rings stand at 0.00 up to 42 m seaward | **0 of 2,318 nodes** |
+| `water_pins` wet (ground vertices standing on water) | **193** | **0** |
+| `strip_seam_tear` | **61** (worst 6.110 m, 238 %) | **0** |
+| `adjacent_ground_step` | **6** | **0** |
+| `strip_transverse` / `transverse` | 0 / 11 | **0 / 0** |
+| `airside_no_step` | 78 (worst 1.640 m) | **32** (worst 0.310 m) |
+| `within_shape` / `taxi_box` | 76 / 61 | **2 / 22** |
+| `hairline_pair` | 68 (45 above the degenerate floor) | 76 — **WORSE by 8, all out of scope**, named below |
+| census **LAW-TRUE / ADJUDICATED** | **366 / 225** (airside 212, verdict FAIL) | **133 / 55** (airside 55, verdict FAIL) |
+| the shore trim | — | `THE SHORE (§37 (11) (1)) cut 98,575 m² off 3 region(s), 6,567 m of sea wall`; 44 zone regions, **19 QUAYS** |
+
+**THE TEAR AT 22.16232, 113.58138 IS GONE**: the base's worst row
+(`strip_seam_tear graded_strip|junction`, 6.110 m at 238 %) has no
+successor in any family on the arm.
+
+**WHY `pav5` STILL READS 5.09 AND NOT 6.10.**  It is not the corridor and
+it never was: with the tunnel withdrawn the junction came back whole and
+sat at **1.95 m**, because `airport/flat_site._cut_water` cut the DATUM
+REGION by the raw coastline partition, which calls **110,826 m² — 24.5 %
+— of VMMC's runway/taxi union SEA** (the field is reclaimed land OSM's
+coastline does not follow; the build's own line reads "47.0 % of the
+synthetic extent is WATER and is CUT OUT of the Z0 raster", and the DEM
+under those vertices reads 1.38–2.50 m).  §37 (11) (4)'s land
+declaration — the airport's own classified surfaces are LAND — restores
+the datum rows (1,083 → 1,240) and takes `pav5` to 5.09 … 6.12.  The
+residual 0.81 m is the flat-site PREFERENCE losing to its neighbours
+(`flat_site 826/1240 unmet, max 0.692 m`), not a row: **reported, not
+fixed**, under the attempt cap.
+
+**`hairline_pair` 68 → 76, and it is named rather than papered over.**
+Every row is out of scope (45 `above_degenerate_floor`, 31
+`on_the_edge`); none is adjudicated on either arm.  The rise is the
+zone rings now ENDING at the coastline instead of crossing it, so more
+of the patch boundary lies on the shore linework — which is what §37
+(11) (1) asks for and what §39 (1)'s weld is for.  It is not measured in
+the MESH (no tile build: see the refusal above).
+
+#### LEMD AND OTHH — MATCHED DRY `planar --stage structures` PAIRS (no build)
+
+Base arm cut in its own ritual worktree at `079197eb`; lane arm on this
+branch; same corpus, same mod cache.
+
+| | LEMD base | LEMD arm | OTHH base | OTHH arm |
+|---|---|---|---|---|
+| tunnels | **54** | **16** | **44** | **41** |
+| decks (over all tunnels) | 7 | **1** | — | — |
+| underpasses (§34 (5)) | **1** | **1** | 0 | 0 |
+| corridors / door wells / sunken roads | 1 / 0 / 0 | 1 / 0 / 0 | 9 / 4 / 0 | 9 / 4 / 0 |
+| basins | 0 | **1** | 10 | 10 |
+
+* **LEMD loses 38 tunnels, and every one is the SAME CLASS**: a bore with
+  an on-field mouth that passes under NO cover — owner 2026-09-12ab's
+  "Build them" population, which §34 (12) (1) narrows in as many words
+  ("a necessary condition, never a sufficient one").  Named:
+  `-12795, -12918, -1293, -1321, -1341+-1339, -15336, -1581+-1568, -3231,
+  -3829, -3958, -4043(+-3922), -4054+-4052, -4439, -473, -4928, -5284,
+  -5388+-5383, -5821+-5820, -5970, -6339, -7847` (both ends where both
+  were built).  **The 16 that remain are the ones that serve the field**,
+  including `Bridge4`, `-6028` (12al's approach portal) and the
+  `-5938+-26709+-8677+-26708+-22223` chain.
+* **The 6 lost decks are those tunnels' own** — attributed row by row: of
+  the base's five deck-bearing tunnels, four are in the no-service set and
+  the one that survives (`-17265+-5946+-6640+-1359@1`) **keeps its deck**.
+  **§34 (12) (4) removed ZERO decks at LEMD and ZERO at OTHH** — it is a
+  no-op on both, and its only measured effect is at VMMC, where the
+  corridor it would have applied to is not built at all.
+* **The §34 (5) UNDERPASS IS UNTOUCHED** (1 → 1): its bore is the road
+  centreline clipped to the aeroway's own deck ribbon, so it runs under
+  airside pavement by construction and the deck states the crossing.
+* **LEMD GAINS `basin:0`** — the 14bp bar.  Its base refusal reads
+  `28345 m² overlaps a tunnel structure (a bore ramp; structures are never
+  cut) at 40.491741, −3.569263`; the bore ramp is a no-service one, and
+  with it gone the basin is built.
+* **OTHH loses 4 tunnels** (`-11191@0/@1`, `-8342@0/@1`, all no-service)
+  and **gains `wall-corridor:OTHH_Terminal_Parking_VCN_004.obj@1`**, which
+  the base refused for overlapping `tunnel:-11191@0`.  Its 9 object
+  corridors, 4 door wells and 10 basins are unchanged.
+
+#### TWO SCOPINGS THE CENSUS FOUND, BOTH MEASURED, NEITHER IN THE RULING'S TEXT
+
+1. **§34 (12) (3) APPLIES TO AN OSM BORE'S CORRIDOR, NOT TO ONE THE PACK
+   STATES.**  Applied to object and wall corridors the widened union
+   refused three OTHH terminal tunnels — `tunnel middle - east`,
+   `tunnel middle - west`, `tunnel south west 2` — against aprons
+   `pav32` / `pav30`.  An object corridor's own plate IS the deck over
+   the pavement, which is (3)'s first limb, and there is no terrain deck
+   cell to find.  The runway family alone binds there, as before.
+2. **THE PAVEMENT A CORRIDOR'S OWN MOUTH STANDS ON IS NOT "CUT".**  (3)
+   speaks of a bore that CROSSES a pavement; a corridor whose mouth
+   stands on an apron does not cross it, it ENDS in it — that is what a
+   portal is, and 08-07 ruling 4's cut is how the portal is opened.
+   Without the exemption the twin's own baseline (a bore under an apron
+   with both mouths on it) was refused.  VMMC's bore reached `pav5`
+   **36 m from its mouth**, which is the defect the clause is for.
+
+   Both want Fable's ruling; both are named in `structure_service.py`.
+
+#### §34 (12) (1) ADMITS THE MOUTH, IT WITHHOLDS THE BUILD
+
+`stats.mouths` / `mouths_off_field` / `mouths_on_approach` stay what §29
+(1) found; `bores_no_service` / `no_service_bores` are (12) (1)'s own
+report, and the structures line carries both.  The §29 twins were amended
+accordingly (`test_v2mouthgate.py`, `test_v2approachcorridor.py`): where
+they measure the MOUTH gate their fixture bores now run under the apron so
+the second gate is satisfied, and
+`test_a_mouth_on_the_field_is_built_though_its_bore_covers_nothing` is
+RESTATED — the mouth is still admitted and counted, the build is withheld,
+and 12ab's supersession is written into it.
+
+#### THE SHORE WITNESS IS THE SEA, NOT EVERY WET POLYGON
+
+`shore_region` reads `ProductionDem.sea_geometry` — the coastline
+partition's SEA polygons alone (VMMC: 6 sea, 14,678 inland).  Trimming at
+an inland body would delete the 09-09m WATER DATUM's whole population
+(measured: `tests/auto_patch_v2/test_water_datum`'s canal went from a
+pinned strip to no strip at all) and would cut the band at LEMD's
+retention basins, which are §24's region.  A sampler with no
+`sea_geometry` claims NO shore: no witness, no trim.
+
+#### WHAT IS NOT DONE, NAMED
+
+* **The closing VMMC build** (refused above) and therefore `mesh_region_
+  tris.py --z-xref` on a built tile: the doubled water plane is proven
+  GONE in the PATCH (0 nodes at or under 0.5 m, `water_pins` wet 0) and
+  NOT in the mesh.
+* **The sea wall's own geometry is the MESH's, and this lane did not
+  re-author it.**  `O4_Vector_Map`'s Round 7 / R17-3 seawall breaklines
+  (authored FOR VMMC on 2026-08-10) already offset every
+  graded-coverage ring segment bordering water outward by
+  `SEAWALL_OFFSET_M` at `SEAWALL_SEA_LEVEL_M` — which IS §37 (11) (2)'s
+  breakline pair.  The patch's job is to END at the coastline, and the
+  `sea_wall` census family is how the census sees that it did.  A second
+  emit-side pair would be a second authority and a §39 hairline.
+* **`sea_wall` reports 0 rows at VMMC** — the quay rings end ON the shore
+  and the ADJACENT-GROUND families they used to tear against report 0, so
+  there is nothing left for the exclusion to take.  The family and the
+  exclusion are proved by TWINS, not by the airport, and that is stated
+  rather than hidden.
+* `pav5`'s last 0.81 m (the flat-site preference, above); any
+  `--refresh-data`; the five-airport sweep; any LEMD / OTHH / CYXY BUILD;
+  any merge into main; any RULINGS entry; any new tool (no `tools/INDEX.md`
+  row — the readings are `osm_site.py`, `harness/census.py`,
+  `planar --stage structures` and `frames.py`).
+
+#### Build-time impact statement
+
+`serves_the_field` is one STRtree query per admitted bore (VMMC 12, LEMD
+54, OTHH 44); `airside_cut_roles` is one pass over `precedence.toml`;
+`shore_region` is one `sea_geometry` call plus one `difference` per
+build, and the per-region clip is one `intersection` on the regions that
+touch the sea (VMMC: 3 of 44).  Measured whole-build wall at VMMC: base
+21.6 s, arm 18.8 s — the arm builds LESS (no corridors, smaller zone
+region, 2,854 → 2,321 unknowns, 10,406 → 6,845 rows).  Nothing here is
+within 1 % of either budget on the wrong side.

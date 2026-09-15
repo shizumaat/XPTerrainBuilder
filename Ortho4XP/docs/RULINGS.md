@@ -7933,3 +7933,29 @@ refreshes done today. The two LEMD decks lost by the deck rule
 (`-5305`, `-15293`) are NOT in 1.0.341 (they still hold their
 trenches there) — a 1.0.342 item.
 15ax addendum: suite ON MAIN after the v2vmmcshore r7 merge (347c4552): 1652 passed, 1 skipped, 42 warnings in 66.05s (0:01:06).
+
+## 2026-09-15az v2lemdstruct2 r4+r5 MERGED (1da0faeb): r4's 5.687 m "runway movement" was a CROSS-TREE comparison (main moved between the arms); on one tree/one capture/one variable the one-way-feet flip costs `within_shape` +62 and gains airside ADJUDICATED −112, motion 7 → 5, the owner's raw pair 4.313 → 1.529 % (1.542 % in a real build); the moving "runway" vertices sit on a §40 SHOULDER cell of 111,648 m² reaching 914 m off the centreline — RULED §40 (5): a shoulder is a band, the runway role ends at the strip, every runway vertex carries a level, `runway_step` DEFECT
+
+Lane @ 1da0faeb; suite 1,658 passed, 0 FAILED. Matched pair (flip
+OFF/ON): verify 1,711 → 1,554, ADJUDICATED 1,505 → 1,393 (airside 1,370
+→ 1,258), motion 7 → 5; the 0.95 m `mid_edge_step`, the 18 `ramp_in_
+strip` rows and the 20 cliffs are on BOTH arms (r4 charged them to the
+flip — withdrawn); the flip's price `within_shape` 3,497 → 3,559,
+`strip_transverse` worst 13.86 → 17.70 m. `--why-vertex` v902 (the
+worst mover): only `foot_rows` bind (dual 48,669), "no terminal
+reached — the objective holds it", on BOTH arms; the pressure solve
+moves it 10.265 m. v902/v906/v940 are 452–496 m from 14R/32L's ridge on
+face 5 = cell 15 `runway_shoulder` 111,648 m² (276/306 vertices beyond
+the 30.5 m half-width). `runway_transverse` is the crown reading and
+cannot see a step 490 m off-axis; no `runway_step` was added (it
+would endorse the role it should dispute). Closing build (`--tile
+40 -4` — a TILE build, run before the 15av order reached this lane;
+the LEMD pack's newest dump is 07:23, no pack file newer than 12:00 —
+no rebake write observed; the lane asked to confirm): rc 0, 980 s,
+`shared repo UNCHANGED`; the owner's raw pair 0.280 m / 18.16 m =
+1.542 %; item 5 5.07 m; item 7 rim 31.06 m; 3 mouth roads. RULED §40
+(5) (consumer census first, then the classifier cut): the shoulder
+band, the runway ref dropped beyond the strip, level rows across the
+band, `runway_step`. Memory rule re-founded by this round: cross-tree
+comparisons are not evidence (14bk, r4) — a lane's before/after must
+be one tree, one capture, one variable, registers asserted per arm.

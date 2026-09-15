@@ -14703,3 +14703,46 @@ rather than a deck; both now carry a 1 m cutting under the span, bounded
 across the corridor so the abutments stand on the ordinary ground the
 comparison is against (`test_m4._PlaneDem`, `test_v2wallplate`'s
 `_Cutting`).
+
+## §40 (5) A SHOULDER IS A BAND, NOT A CELL — THE RUNWAY ROLE ENDS AT THE STRIP (Fable 2026-09-15; RULINGS 2026-09-15az; lane v2lemdstruct2 r5 measurement) — consumer census first, then the cut
+
+**The reading (LEMD, r5).**  Cell 15, `kind = runway_shoulder`, **111,648
+m²**, code 4/F, admitted under §40 (1) with the runway's role, ref and
+code: face 5 has 306 nodes with lateral offsets **30.2 / 58.1 / 914.3 m**
+(min / median / max) from 14R/32L's centreline — 276 of 306 beyond the
+30.5 m half-width — while the runway's own faces 0 and 7 stay ≤ 31.0 m.
+`runway_profile` + the threshold pins give a LEVEL to 1,421 of 4,033
+"runway-family" vertices (the centreline breakline, perfect: one chain,
+365 vertices, moved ≤ 0.059 m); the rest are held by the objective and,
+until r4, by two `LEMD69.obj` sign plinths (dual 48,669).  `runway_
+crown` / `runway_transverse` are minted over the cell but price a crown
+across 30.5 m; 490 m off-axis they bound nothing, so a **0.95 m step
+between two faces of one "runway" role** escapes every DEFECT family.
+The owner's VHHH read (14s: an 84,000 m² shoulder) is the same class.
+
+**RULED.**  (1) A runway shoulder is a BAND: pavement carrying the
+runway's ref is runway-family only within the runway's graded strip
+half-width from the centreline (`[runway] strip_half_width_m` by code —
+ICAO code 3/4: 75 m in the existing law tables; the shoulder itself
+the code's shoulder width beyond the runway edge).  (2) Pavement with
+the runway's ref BEYOND the strip is NOT runway family: the classifier
+gives it the role its geometry earns (junction / taxiway / apron by the
+existing scorer) and the runway's ref is dropped from it — it welds to
+the runway family at the strip line like any airside contact (§37
+(10)).  (3) Within the band, every runway-family vertex carries a
+LEVEL: the profile/threshold rows extend from the centreline breakline
+across the band by the crown law (`runway_crown`), so no runway-family
+vertex is ever "held by the objective".  (4) A step between two faces
+of the runway family of more than the runway's transverse cap over the
+edge length is a DEFECT: family `runway_step` in `[verify]`, materiality
+per §… the 0.10 m floor.  (5) Consumer census FIRST (owner 2026-08-30l):
+every reader of the runway role set, the shoulder kind, `runway_*`
+families, the runway strip / lateral band (§29 (7)), `ramp_in_strip`,
+`wall_in_runway_strip`, `ramp_cuts_runway_family`, the profile
+preserve, the CIFP pins — one table before the cut; the cut at the
+single derivation site in `classify/roles` beside §40 (1)/(4).
+Expected at LEMD: face 5 shrinks to the band; the ex-shoulder ground
+takes junction/apron roles with their own transverse caps (the owner's
+item-7 site then reads under the junction law it already meets, 1.542
+%); the 0.95 m step is either healed by the level rows or named as a
+`runway_step` DEFECT; VHHH's 84,000 m² shoulder shrinks likewise.

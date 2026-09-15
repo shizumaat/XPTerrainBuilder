@@ -7671,3 +7671,4 @@ longer rewrites it — reported to the peer (v2schemarefuse's owner);
 until it lands, no closing build on any tile but +40-004. The owner
 (away) authorised the session to quit the app and run the refreshes;
 no 1.0.341 build ("complete the open lanes first").
+15aj addendum: suite ON MAIN after the v2vmmcshore r3 merge (ac3699a1): 1640 passed, 1 skipped, 42 warnings in 44.57s.

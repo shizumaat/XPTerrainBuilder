@@ -755,6 +755,28 @@ def rebake_after_mesh(tile) -> dict:
         # every pack byte-identical"; function-local import so tests drive
         # it): the placement plan is still built and reported — the
         # measurement is the product — but nothing is written.
+        # THE LANE STAND-DOWN (owner ruling e9daef5 + the lane protocol;
+        # measured 2026-09-15, RULINGS 2026-09-15av).  The write half
+        # below targets the SERVING PACK, which lives in the owner's
+        # X-Plane install — outside the shared data repo, so neither the
+        # shared-repo write guard nor the harness's cache redirects ever
+        # covered it.  Lane v2vmmcshore's harness TILE build of +22+113
+        # rewrote the OWNER'S live VHHH pack DSF (6,390 placements) at
+        # 11:49 and re-dumped it at 11:52, and the flag surfaced on a
+        # DIFFERENT lane's concurrent build.  The harness sets
+        # ``O4_PACK_WRITES=measure_only`` on every lane build; the APP
+        # sets nothing and writes exactly as before, and an owner-
+        # authorised ``--refresh-data pack_rebake`` clears it.  Measure-
+        # only keeps the MEASUREMENT whole — the placement plan is still
+        # built, classified and reported; only the writes stand down.
+        if os.environ.get("O4_PACK_WRITES") == "measure_only":
+            measure_only = True
+            UI.vprint(0,
+                "  [v2 rebake] LANE BUILD (O4_PACK_WRITES=measure_only): the "
+                "placement plan is measured and recorded and NO pack file is "
+                "written — a lane never mutates the owner's X-Plane install "
+                "(RULINGS 2026-09-15av).  --refresh-data pack_rebake is the "
+                "owner's act.")
         from .config import DSF_OBJECT_REANCHOR
         write_enabled = bool(DSF_OBJECT_REANCHOR)
         if not write_enabled:

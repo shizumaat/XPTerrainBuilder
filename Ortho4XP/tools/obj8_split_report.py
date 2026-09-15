@@ -483,6 +483,58 @@ def admit_skipped(plan, pack_root: str, dsftool: str | None,
                         skipped=skipped), rows, res_n
 
 
+def msl_census_rows(dump, plan, ss, sampler, tol_m: float):
+    """§16g (5) as amended (owner RULINGS 2026-09-14bo), read DRY: the
+    per-placement ``OBJECT_MSL`` seats the writer would emit, and how far
+    each one stands off the DESIGN SURFACE AT ITS OWN FEET.
+
+    Returns ``(seats, counts, offs)`` — ``offs`` being ``elevation −
+    surface(lat, lon)`` per seat, which is the number 14bo's bar is stated
+    in (677 rows over 0.5 m at LEMD 1.0.336).  It is NOT zero by
+    construction even under the amended law: a row standing on the unit's
+    pad, on a deck, or carrying an authored offset is lawfully off its own
+    feet by exactly that offset."""
+    from auto_patch_v2.airport import footprint_unit as _fu
+    from auto_patch_v2.law import Law as _L2
+    _flat = getattr(plan, "flat", None)
+    counts: dict = {}
+    seats = _fu.msl_seats_for_dump(
+        dump, plan, ss.unit_seats, sampler, "", frozenset(),
+        tol_m=tol_m, authored_ground=(None if _flat is None else _flat.z0_m),
+        counts=counts)
+    offs = []
+    for m in seats:
+        z = sampler(m.lat, m.lon)
+        offs.append(None if z is None else float(m.elevation) - float(z))
+    counts.update(_fu.multi_anchor_census(dump, plan, seats, frozenset(),
+                                          ss.unit_seats))
+    return seats, counts, offs
+
+
+def _msl_census(a, plan, ss, sampler) -> None:
+    from auto_patch_v2.airport import dsf as _dsf
+    from auto_patch_v2.law import Law as _L2
+    dump = _dsf.read_dump(a.dsf_dump)
+    tol = float(_L2.load().tables.emit.design.hard_tol_m)
+    seats, counts, offs = msl_census_rows(dump, plan, ss, sampler, tol)
+    print("\n§16g (5) PER-PLACEMENT OBJECT_MSL (RULINGS 2026-09-14bo), "
+          f"from {os.path.basename(a.dsf_dump)}")
+    print(f"  rows written: {len(seats)}")
+    for k in sorted(counts):
+        print(f"    {k}: {counts[k]}")
+    have = [o for o in offs if o is not None]
+    if have:
+        over = [(abs(o), s) for o, s in zip(offs, seats) if o is not None
+                and abs(o) > 0.5]
+        over.sort(key=lambda t: -t[0])
+        print(f"  |elevation − the surface at its own feet| > 0.5 m: "
+              f"{len(over)} of {len(have)} (> 1 m: "
+              f"{sum(1 for o in have if abs(o) > 1.0)})")
+        for d, s in over[:15]:
+            print(f"    {d:+7.2f} m  {s.resource.split('/')[-1][:46]:46s} "
+                  f"{s.lat:.7f},{s.lon:.7f}  why={s.why}")
+
+
 def _write_pack(a, plan, ss, sampler) -> None:
     """THE WRITE HALF into a pack COPY (11e (3)) — the same order the
     engine runs (``airport/placement_write.apply_plan``), never a second
@@ -689,6 +741,13 @@ def _main() -> int:
                     "reason and every ground-contact foot (lat/lon/authored "
                     "y/surface z/face role/on-pavement/float) — the rows "
                     "``census_motion`` itself reads, never a second census")
+    ap.add_argument("--dsf-dump", default="", help="an EXISTING DSFTool text "
+                    "dump of the pack's DSF: print §16g (5)'s per-placement "
+                    "OBJECT_MSL census (RULINGS 2026-09-14bo) from the same "
+                    "``footprint_unit.msl_seats_for_dump`` call the writer "
+                    "makes — where each row's base came from and how far its "
+                    "elevation stands off the design surface at its own feet. "
+                    "READ-ONLY: nothing is written and no DSF is decoded")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     a = ap.parse_args()
@@ -986,6 +1045,9 @@ def _main() -> int:
 
     if a.write_pack:
         _write_pack(a, plan, ss, sampler)
+
+    if a.dsf_dump:
+        _msl_census(a, plan, ss, sampler)
 
     rows_of = tuple(n.strip() for n in a.rows.split(",") if n.strip())
     near = None

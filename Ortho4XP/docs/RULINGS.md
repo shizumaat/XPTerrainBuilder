@@ -8296,7 +8296,7 @@ artefact's current hash. Net state: KDFW's 3 × 3 road layers and its
 (15au) and +33-112 layers are current; the `+33-112_big_roads` write of
 13:48 is UNLEDGERED until the reconciliation runs.
 
-## 2026-09-15bc suiteexternal MERGED (26dac84c): the pytest session detector names a ledgered or redirected shared-repo delta EXTERNAL (printed, never an ERROR); every other delta still fails the suite
+## 2026-09-15be suiteexternal MERGED (26dac84c): the pytest session detector names a ledgered or redirected shared-repo delta EXTERNAL (printed, never an ERROR); every other delta still fails the suite
 
 The defect (15ay tail, 15n): `tests/conftest.py`'s session-scope
 before/after snapshot failed the WHOLE session on ANY shared-repo delta,

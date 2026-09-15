@@ -209,6 +209,21 @@ def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport | None
     return got
 
 
+def _base_ref(ref: object) -> str:
+    """THE PAD IS ITS BASE REF (§16g (10) (11), lane ``v2padqp``).
+
+    A pad minted in more than one piece carries the tree's own SPLIT
+    SPELLING ``ref#k`` (``classify/roles`` :718, ``classify/evidence``
+    :386), and every other consumer joins on ``ref.split("#")[0]``
+    (``pipeline/publication`` :597/:672, ``constraints/structures``
+    :263/:738, ``verify/structures`` :192/:198).  This reader did not,
+    so ``building38`` and ``building38#1`` — ONE pad by everyone else's
+    reading — counted as two and made their own cluster a
+    ``cluster_spans_pads`` row (LEMD ``unit:25#1581``, measured).  One
+    spelling, one join."""
+    return str(ref).split("#")[0]
+
+
 def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
               min_m2: float
               ) -> "tuple[dict[str, list[int]], dict[str, list[str]], dict[str, tuple[int, ...]]]":
@@ -247,9 +262,10 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
                 continue
             if poly.intersection(u).area >= _OWN_FACE_SHARE * poly.area:
                 keep.append(int(fid))
-                if (cid, str(ref)) not in seen:
-                    seen.add((cid, str(ref)))
-                    by_ref.setdefault(str(ref), []).append(cid)
+                base = _base_ref(ref)
+                if (cid, base) not in seen:
+                    seen.add((cid, base))
+                    by_ref.setdefault(base, []).append(cid)
             else:
                 clipped.append(int(fid))
         if clipped:
@@ -290,7 +306,7 @@ def pad_cluster_mismatch(planar: PlanarMap, law: Law,
         return out
     _to_xy, to_ll = (airport.frame.transformers() if airport is not None
                      else (None, None))
-    polys = {int(q[0]): (str(q[1]), q[3]) for q in _pad_polys(planar, law)}
+    polys = {int(q[0]): (_base_ref(q[1]), q[3]) for q in _pad_polys(planar, law)}
 
     def _at(fid: int) -> tuple[float | None, float | None]:
         q = polys.get(fid)

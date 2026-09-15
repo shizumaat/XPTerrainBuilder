@@ -582,12 +582,29 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # the apron.  The clip now runs in ``planar/overlay.build_arrangement``
     # against the FACES, which have roles.  The runway difference below is
     # the shipped pre-14as one and is unchanged.
+    # §16g (10) (11) A CLUSTER PIECE IS ONE PAD REF, NEVER RE-CUT (lane
+    # ``v2padqp``; RULINGS 2026-09-15h, attributed by ``v2padcluster`` r5).
+    # The cluster is cut ONCE by ``geom.cluster_outlines`` (the closed
+    # outline's components, then the airside clip — the ``/k`` ids).  This
+    # loop then cut the SAME polygon a second time — the runway difference,
+    # ``polygon_parts`` — and gave each piece its OWN ``building{N}``, so
+    # one cluster stood on two pads and the census read it as the
+    # ``pad_cluster_mismatch`` (10) forbids: 11 of HECA's 12 rows and all
+    # 3 of LEMD's, the T4 terminal (the owner's garage cluster) among them.
+    # A part therefore takes ONE ref and its surplus pieces the tree's own
+    # SPLIT SPELLING ``ref#k`` (``classify/roles`` :718, read back by
+    # ``publication`` :597/:672 and ``constraints/structures``), which every
+    # consumer already groups by base ref.  Pricing is unchanged: the pad
+    # rows are per FACE (``constraints/pads._pad_groups``), not per ref.
     out: list[tuple[str, Polygon]] = []
     dropped = 0
+    minted = 0
     for part in sorted(parts,
                        key=lambda g: (round(g.bounds[1]), round(g.bounds[0]))):
         if not runway_union.is_empty and part.intersects(runway_union):
             part = part.difference(runway_union)
+        k = 0
+        ref = f"building{minted + 1}"
         for piece in polygon_parts(part):
             if piece.area < min_area:
                 dropped += 1
@@ -595,7 +612,10 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             if not gate.contains(piece.representative_point()):
                 dropped += 1
                 continue
-            out.append((f"building{len(out) + 1}", piece))
+            out.append((ref if k == 0 else f"{ref}#{k}", piece))
+            k += 1
+        if k:
+            minted += 1
     # THE BARE-GROUND BODY PAD IS WITHDRAWN (owner RULINGS 2026-09-11q;
     # spec §11b (1)).  Round 5 minted a pad here from each bare-ground
     # body's own plan footprint (LEMD pads 123 -> 503) and MEASURED it

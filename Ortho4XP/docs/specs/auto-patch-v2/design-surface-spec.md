@@ -12584,6 +12584,51 @@ effect of taking the trench out of the strip, and it does NOT reach the
 lane's: it is §29 (7) / §37 (10), a taxi-family cap over a pair whose
 other foot is a runway vertex.
 
+### THE CLOSING TEST — ONE LEMD TILE BUILD (lane `v2lemdstruct2`)
+
+`tools/harness/build_airport.py LEMD --tag v2lemdstruct2 --tile 40 -4`,
+branch `claude/v2lemdstruct2` @ `5ed9b083` (base main `da8e5d7f`),
+**rc 0, 551.8 s** (vector 491.5 + mesh 59.5), solve **optimal** 40.4 s,
+ledger tree `3e3e13880a2a`.  Structures line:
+
+    underpass taxiway -1230 (layer 1, deck half-width 7.7 m, clip the deck
+    CELL's footprint across the axis PLUS its graded strip (§34 (5) (b))
+    eroded by 2.1 m (3316 m2 over 50 station(s), §34 (5) (a)), cell 50 read
+    / 0 refused over 4x carriageway): 2 road(s) bored
+
+— the clip area **772 m² → 3,316 m²** with the SAME 2 roads bored and the
+same 50 stations read, 0 refused.
+
+**THE OWNER'S SITES IN THE BUILT PATCH** (`Patches/+40-010/+40-004/
+LEMD_auto.patch.osm`), which reproduce the replay arm exactly:
+
+| site | built |
+|---|---|
+| 40.4947697,−3.5829037 | rim −11032 **602.16**, ramp −10891 floor **597.09** — **5.07 m** |
+| 40.4611623,−3.5444804 | rim −11085 at **31.06 m** (570.00–573.77), ramp −10945 at **33.43 m** (564.90–572.70); `zone1#69` **18.15 m**, `zone2#59` **20.93 m** |
+
+Harness census of the built patch: LAW-TRUE 5,498, ADJUDICATED 1,428
+(airside 1,303 / gs 113 / mixed 12), CRITICAL motion 5, CRITICAL visual
+1,183 (10 cliffs); `ramp_in_strip` **8**, `strip_transverse` 82 (worst
+13.872), `within_shape` 3,453, `transverse` 107, `taxi_box` 169,
+`hairline_pair` 1,173.  It is NOT a matched pair — no base BUILD exists
+at this sha — and it is not quoted as one; the matched numbers are the
+replay pair above.  Suite `tests/auto_patch_v2 tests/test_harness.py`
+**1,587 passed / 1 skipped / 0 FAILED**, run twice.
+
+**`[harness] !! SHARED-REPO SIDE EFFECT` — THE RUN IS FLAGGED
+CONTAMINATED, AND THE AUTHOR IS NAMED.**  The build rewrote
+`OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2` (2,197,226 →
+2,199,670 bytes, mtime 09:03 = this build's start) under scope
+`osm_layers`.  This lane changed nothing in the road feed: `v2roadtags`
+(`d4729dfc`, merged into main the same morning) bumps
+`ROAD_CACHE_TAG_SCHEMA` so that the first build after it REWRITES every
+cached road layer.  It is the KCLT 2026-08-05 precedent's exact shape and
+it wants `--refresh-data osm_layers` run once, deliberately, before the
+next LEMD or KCLT measurement.  Every number in the matched REPLAY PAIR
+above is unaffected: both arms ran off the ONE registered capture, before
+the build, with no shared-repo write.
+
 ## §34 (12) A TUNNEL SERVES THE FIELD OR IS NOT BUILT; NO STRUCTURE CROSSES THE WATER; A CORRIDOR NEVER CUTS AIRSIDE PAVEMENT (owner RULINGS 2026-09-15f item 1; Fable 2026-09-15i) — lane `v2vmmcshore`
 
 **The reading (VMMC 1.0.340).**  Eleven `tunnel_ramp` faces and 19 rims

@@ -12152,3 +12152,147 @@ LGAV's production frame). Expected: `planar.faces_by_role` gains `taxiway` /
 as in §44 (4); the object stage's pads now stand beside graded aprons (§20);
 the census through `tools/harness/census.py`; NO shared-repo write. Register
 the report with `tools/harness/frames.py`.
+
+## §45 THE OPEN CHANNEL — a road/rail corridor under a STATED CROSSING keeps its own floor through the field (owner 2026-09-15; RULINGS 2026-09-15i; Fable 2026-09-15; scout `channelscout`) — lane `v2channel`
+
+**THE PATTERN (owner 2026-09-15).** "A below-grade road/rail channel cut through the
+center of the airport that needs to be handled like an open tunnel" — LGAV (Attiki
+Odos + Proastiakos rail between the runways), KPHX (E Sky Harbor Blvd under the
+terminal taxiway bridges; never completed), KDFW (International Parkway between the
+terminal horseshoes). One class, three WITNESS PROFILES (scout `channelscout`,
+report in the session scratchpad; every number cited there):
+
+| | LGAV | KDFW | KPHX |
+|---|---|---|---|
+| channel below grade | ~12 m (pack walls `Trench_03.obj` VT y −12.67…+5.73) | **8.6–9.9 m measured in the 1 m 3DEP DTM** at six bridges; banks ≈ 1:4; floor 170.9→173.3 over 2,790 m (0.09 %) | not measurable: 30 m Copernicus, flat to 0.1 m (the 3DEP fetch failed on a TNM 504, RULINGS 15i) |
+| DEM sees it | no | yes | no |
+| pack models walls/floor | **yes** (`Trench_0x.obj`; a 4,077 × 149 m plate roofed 6 % = the decks) | no (network-only roads pack; 0 objects) | no (28 placements, none) |
+| OSM road carries depth | no | no | `tunnel=building_passage` ×6 under the bridges |
+| OSM crossing `bridge=yes` + `layer` | 1 taxiway (`-379`) | **6 taxiway ways** A/B/Z/Y (layer 1–2, spans 84–106 m) | **2 taxiway ways** (layer 3, 148 m span, 87 m apart) |
+| apt.dat pavement HOLE with paved NECKS | not read | **2,518 m corridor hole, exactly 4 necks 29.1 / 29.9 / 30.3 / 35.0 m** | unpaved corridor, **2 necks 23.0 / 22.4 m, 58 m apart** (Global reads them 42 / 64 m) |
+| the engine today | 5 `tunnel_trench` faces (3,885 m²) + 1 basin; every Trench object refused (basin "shell rises 4.46 m above the ground"; sunken road "roofed 6 %"; tunnel object "roofed along its axis"; LAW C "law off") | not built on v2 (last build 2026-08-15 v1: `BandInversionError` 650 nodes) | §34 (5) bored 4 ways, then **all 8 mouths refused "against building pad building16"**: the airfield is paved FLAT at 342.2–342.9 m across a 147 m road crossing |
+
+The one thing the three share: **the CROSSING is witnessed and the CHANNEL is not.**
+The road feed keeps four tags (`bridge`, `tunnel`, `width`, `lanes`); the airports
+feed keeps every tag. The mouth-centric tunnel model (one ramp climbing to the DEM
+from each mouth, wall crest = DEM, RULINGS 09-03b) cannot express a road that never
+climbs inside the field, and the DEM-relative gates of the basin / sunken-road /
+tunnel-object passes refuse exactly the objects that model it.
+
+**THE LAW (the owner's four answers, RULINGS 15i, in bold).**
+
+(1) **IDENTIFICATION — "A deck states a crossing."** A channel crossing is stated by
+ANY ONE of: (a) an aeroway way of §34 (5)'s taxied set (`taxiway`, `runway`, `apron`
+mapped as a bridge) carrying `bridge=yes` over a road/rail way; (b) a PAVED NECK of
+the apt.dat airside pavement union across an UNPAVED CORRIDOR that a road/rail way
+follows (the hole's two edges are the corridor edges, the neck is the deck and its
+plan width the deck width — KDFW 4 necks, KPHX 2); (c) the pack's wall/floor objects
+along the way (the 05k-1 authority: seat = floor, plate = crest, hull = footprint).
+Each witness is recorded on the record by name. The road/rail ways sharing the
+corridor — both carriageways, the frontage roads, the rail — within
+`[channel] merge_m` (= `dual_carriageway_max_separation_m`, 40) form ONE channel; the
+corridor width is the hole's (b), else the pack walls' (c), else the lidar bank toes,
+else the carriageways ⊕ `lane_width_m`. A crossing inside a channel is NEVER a bore
+with mouths: §45 (6).
+
+(2) **THE RECORD.** `Channel` beside `Tunnel` in `model/structures.py` (data only):
+`ways`, `axis` (the merged centreline through the field; `s` from the field entry),
+`profile` (`(s, z)` stations, the floor), `half_width(s)`, `decks` (`Deck` records:
+`s0 < s1`, the neck ring, `datum = "design"`), `walls` (per side: `shape ∈ {face,
+lidar, bank}`, the crest reference), `ends` (the two stations where the corridor
+leaves the airside pavement union ⊕ `mouth_standoff_m`; beyond them the road law §37
+governs and the floor rejoins the road's own profile at ≤ `ramp_max_grade`),
+`witnesses`. The generator and the verifier read the record, never re-derive it.
+
+(3) **THE FLOOR DATUM — precedence, then "Cut the road down."** (i) pack floor plates
+along the axis (05k-1; LGAV); (ii) a CREDIBLE lidar inset (the inset's own
+`lidar_credible` class; the DTM floor at each station; KDFW); (iii) neither: under
+each deck the floor is the deck top − `bridge.clearance_m` (5.1 m, the existing bore
+datum), and between decks the road's own longitudinal law (§37) clamped ≤ that datum
+and ≤ `ramp_max_grade` — two decks closer than 2 × clearance / `ramp_max_grade` (KPHX,
+58 m) keep the floor down between them. The datum source is on the record and in the
+report; a lidar refresh (`--refresh-data dem`, the owner's act) moves a site from
+(iii) to (ii) with no law change.
+
+(4) **THE DECK IS AIRSIDE.** The neck's faces keep their airside role and law — the
+taxiway surface runs across at the airside design surface; §34 (5)'s deck read is the
+NECK itself (the "cell ≤ 4 × carriageway" test yields to a neck witness). Under the
+deck the road is a BORE under cover: not emitted, the covering surface keeps its own
+law (09-03b), `deck_z_on_faces` answers the deck, the existing `tunnel_deck_clearance`
+family judges the soffit.
+
+(5) **THE WALL CREST IS THE DESIGN SURFACE; the shape is "Witness first, 1:2
+default."** `[tunnel] crest` gains the value `"design"`, used by channels: the crest at
+each wall station is the solved surface of the governed cell at the corridor edge (the
+airside pavement, or the adjacent-ground row) — never `DEM(x, y)`, which at LGAV stands
+2–4 m under the real rim. Bores keep `"dem"` (no change to any existing tunnel). Shape:
+where a pack wall face stands, the bank hides behind it at the identity spacing (§24
+(1), near-vertical at the face); where the inset is credible lidar, the lidar bank
+between crest and floor is KEPT (clamped monotone crest→floor); otherwise `[channel]
+bank_slope = 0.5` (1:2) from crest to floor. The bank is emitted as the channel's own
+faces (`retaining_wall` at a face, the bank's role otherwise); a heightfield cannot be
+vertical and does not pretend to be.
+
+(6) **NO MOUTH INSIDE THE FIELD.** A channel has no mouths at its decks: the
+`mouth_standoff_m` field test, the approach-corridor / runway-lateral-band cockpit
+tests (§29) and the "the mouth stands against building pad" refusal
+(`ramp_crosses_pad`) are MOUTH rules for bores and are not applied to a channel's
+decks (KPHX's eight refusals vanish by construction — `building16`, Terminal 4's
+pad, abuts the corridor and takes the crest as its edge level, §20). The channel's
+ends (2) lie outside the pavement union; §37 resumes there.
+
+(7) **THE DEM IS NOT A WITNESS AGAINST A CHANNEL.** Inside an identified corridor the
+ground reference of the object gates — `contact_band_m`, `rim_protrusion_max_fraction`,
+the "buried" test, `authored_depth_min_m`, the sunken road's `roof_min_fraction` — is
+the crest of (5), not the DEM; a wall/floor object standing along the axis is the
+channel's witness (1)(c) and is never a basin seed, a sunken road, a tunnel-object
+corridor or a door well (LGAV's 60 Trench refusals become one channel). Where the DEM
+DOES see the cut (KDFW) it is the floor witness (3)(ii) and the bank witness (5); the
+mesh never fills a witnessed cut and never digs an unwitnessed one wider than (1)'s
+corridor.
+
+(8) **EMISSION AND THE MESH.** Floor faces: `tunnel_trench` (already a `FLOOR_ROLE`);
+walls: `retaining_wall` / the bank; decks: unchanged airside faces. The road ribbons
+under a deck are the bore's (`O4_Vector_Map` deck-pinned ways); between decks the
+ribbon follows the channel floor (§37 (8)'s cross-section on the floor). The flat-site
+region EXCLUDES the corridor — a channel is never flattened. Emittable in a
+heightfield: at every (x, y) exactly one of floor / bank / deck.
+
+(9) **THE WITNESSES OSM CANNOT CARRY — "Bump the schema now."** `ROADS_TAGS_OF_INTEREST`
+gains `layer`, `cutting`, `covered`, `embankment` and `ROAD_CACHE_TAG_SCHEMA` is bumped
+(lane `v2roadtags`, separate, one commit); a tile's road feed re-downloads ONLY under
+`--refresh-data osm_layers` (the owner's act) — until then the feed is as cached.
+`cutting=yes` or `layer < 0` on a road/rail way crossing the airside pavement union is
+then a fourth identification witness (1)(d), with the (3)(iii) depth.
+
+### §45.1 CONSUMER CENSUS (owner RULINGS 2026-08-30l) — every pass that reads the corridor geometry, ruled BEFORE any edit; the lane confirms each row by grep and records any row it finds missing before editing
+
+| # | Consumer | Reads | Ruling |
+|---|---|---|---|
+| C1 | `planar/structures.build_structures` (bores, mouths, tunnels) | OSM `tunnel` ways, crossings | EDIT: derive the `Channel` records (1)–(2) FIRST; a way inside a channel corridor is the channel's, never a bore seed; existing bores untouched (twin (e)). |
+| C2 | `planar/structure_underpass` (§34 (5)) | `bridge=yes` aeroways, the 4× cell test | EDIT: the neck (1)(b) is the deck; a crossing that identifies a channel hands its deck to C1's record and mints no mouths (6). |
+| C3 | `planar/structure_deck` / `model.Deck` | deck datum `dem` / `deck_top` | EDIT: datum `"design"` (4); `deck_z_on_faces` unchanged. |
+| C4 | `planar/structure_approach` (§29 mouth field / cockpit tests), `ramp_crosses_pad`, `mouth_standoff_m` | mouths | UNAFFECTED for bores; NOT APPLIED to channel decks (6). |
+| C5 | `planar/basins` (§24) + `basin_witness` | below-grade objects, the DEM under them | EDIT: inside a corridor the reference is the crest (7); a wall/floor object along the axis is a (1)(c) witness, not a seed. OTHH's 10 basins, LEMD's T4S unchanged (dry replays). |
+| C6 | sunken roads (Law B) / door wells (Law A) in `planar/door_ramps` etc. | roofed plates, sills | EDIT (7): objects along a channel axis excluded from these passes by the channel's corridor; otherwise UNAFFECTED. |
+| C7 | `planar/object_corridor` (05k-1 tunnel wall objects) | wall skirts, crest plates | EDIT: wall objects along a channel feed (1)(c)/(5), never a tunnel-object corridor; OTHH's object corridors unchanged. |
+| C8 | `planar/wall_corridor_ramps` (LAW C, `law/airports.toml`) | kerb-wall pairs | UNAFFECTED (off everywhere but OTHH). |
+| C9 | `planar/terrain_edge` (§19) | rim roads, crests | MEASURE: a channel crest is a terrain edge for the adjacent ground beside it; state whether §19's derivation already reads a structure edge; edit only if it does not. |
+| C10 | `planar/zones`, `planar/shapes` | zone bands, shapes | UNAFFECTED (the corridor is not a zone; a deck stays in its shape). |
+| C11 | `constraints/structures.structures()` (ramp/wall/deck rows), `wall_faces_of`, `ramp_faces_of` | `Tunnel` records | EDIT: channel rows — floor stations from (3), crest rows from (5) (`"design"` reads the governed cell's variable, not a constant), deck rows as today. |
+| C12 | `constraints` road law §37 (6)–(10) | the road's profile through the field | EDIT: the channel's ways inside the ends take the channel floor as their profile; beyond the ends unchanged; the ramp cap is the join at each end. |
+| C13 | `constraints/flat_site` (`FlatVerdict.region`) | pavement ∪ boundary ⊕ margin | EDIT: minus the corridor (8). |
+| C14 | `verify/structures` (`tunnel_mouth_canonical`, `tunnel_deck_clearance`, `wall_in_runway_strip`, `basin_floor_at_declaration`) | the sidecar's structure shapes | EDIT: `tunnel_mouth_canonical` not judged on channels; `tunnel_deck_clearance` applies; NEW `channel_floor_at_declaration` (the floor equals the record's profile ± 0.01) and `channel_crest_at_edge` (crest = the adjacent cell's emitted level ± 0.01), registered in `LAW_FAMILIES` (the harness twin fails otherwise). |
+| C15 | `emit/graded` roles (`FLOOR_ROLES`, `VOID_ROLE`) | roles | UNAFFECTED (roles exist); the bank role named by the lane if a new one is needed (prefer none). |
+| C16 | the object stage (§16e decks, carried bodies, pads: LGAV `TowerTerm_Aera-Train*`/`Platform*` station objects in the trench; KPHX `building16`) | the design surface, structure rims | MEASURE on the replays: the station objects sit on the channel floor (their own seats), the T4 pad's edge takes the crest; edit only what the measurement names. |
+| C17 | `O4_Vector_Map` / `O4_Vector_Utils` deck-pinned ways; `O4_Mesh_Utils` road ribbons, patch rings | the levelled road network | MEASURE: the ribbons under a deck at the bore datum, between decks on the floor; the mesh under a deck IS the deck (8). |
+| C18 | the DSF road network under the deck | `tunnel`/layer rendering | UNAFFECTED (existing bore law). |
+| C19 | the tile seam (§38), the Swift app | — | UNAFFECTED. |
+
+### §45.2 Twins (synthetic, `tests/auto_patch_v2/test_v2channel.py`; `test_model.py` keeps `model/structures.py` data-only)
+
+(a) a hole-and-neck fixture (apt.dat pavement with an unpaved corridor and two paved necks, a road way along it, no DEM relief): one channel, two decks at the airside surface, floor = deck top − 5.1 m, bank 1:2, no mouths, no `tunnel_mouth_canonical` rows; (b) the same with a 9 m lidar cut: floor = the DTM floor, bank = the DTM bank, decks unchanged; (c) pack wall/floor objects along the axis: floor = seat, crest = the adjacent cell's solved level, no basin seed, no sunken road, no tunnel-object corridor; (d) two decks 58 m apart: the floor stays at the datum between them; (e) the existing bore fixtures (a `tunnel=yes` way with two mouths) produce byte-identical `Tunnel` records; (f) beyond an end the road rejoins its §37 profile at ≤ `ramp_max_grade`; (g) the flat-site region excludes the corridor; (h) `LAW_FAMILIES` carries the two new families (harness twin).
+
+### §45.3 Closing test
+
+The structure replay (`python -m auto_patch_v2.planar ICAO --stage structures`, ~25 s) on LGAV, KDFW and KPHX BEFORE and AFTER, each record and refusal quoted (KPHX on the owner's 30 m frame today; after his `--refresh-data dem` the same replay must move KPHX from (3)(iii) to (3)(ii) with no code change). ONE build: **KDFW** (the lidar + the hole + six bridges; its last build was v1's 2026-08-15 `BandInversionError`, so the v2 baseline is itself a measurement — quote the refusal if the harness refuses cold data and stop). Bars: LGAV — the 5 `tunnel_trench` faces become the whole corridor (~4 km × ~100 m, one channel, `Trench_0x` as witnesses, zero Trench refusals); KPHX — the two necks at the airside surface with the road 5.1 m under them, the eight refusals gone; KDFW — four necks at the taxiway grade, the corridor floor at the lidar (170.9–173.3), the median fill kept, no fill in the cut; OTHH / LEMD / HECA / KCLT / CYXY / SPJC structure replays byte-identical in their `Tunnel` / `Basin` records (dry, no build). The owner reads LGAV's trench and KDFW in the sim; that read is the acceptance.

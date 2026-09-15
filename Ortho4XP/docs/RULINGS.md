@@ -6996,3 +6996,43 @@ both lane worktrees down.
    slope."
 Scout dispatched (attribution of the tunnel line's minting evidence;
 the zone/bank emission at the sea edge) before the law.
+
+## 2026-09-15i OWNER: the OPEN CHANNEL class (LGAV / KPHX / KDFW) — four intent answers; spec §45 written; lanes `v2channel`, `v2roadtags`
+
+Owner 2026-09-15 (the LGAV read): "LGAV also has a similar pattern to
+KPHX where there's a below grade road/rail channel cut through the center
+of the airport that needs to be handled like an open tunnel." … "KPHX was
+never completed, I haven't tested it in a long time, but it is a similar
+pattern we need to be able to identify and model. KDFW also." Scout
+`channelscout` (brief c2c96419) measured the three side by side — LGAV
+(pack walls only, 30 m DEM blind), KDFW (8.6–9.9 m in 1 m lidar, six
+`bridge=yes` taxiways, a 2,518 m apt.dat pavement hole with exactly four
+paved necks 29–35 m), KPHX (`tunnel=building_passage` ×6, two `bridge=yes
+layer=3` taxiways, two necks 23 m / 58 m apart; 30 m DEM; 1.0.340 paves
+the crossing FLAT at 342.2–342.9 m because all eight mouths were refused
+"against building pad building16") — and one feed fact: the road feed
+drops `layer`/`cutting`/`covered`/`embankment` at download. Four
+questions put with the data; the answers:
+* Class rule → **"A deck states a crossing (Recommended)"** — a
+  `bridge=yes` taxied aeroway over a road/rail way, or a paved neck across
+  an unpaved corridor in the apt.dat pavement, IS a channel crossing; the
+  depth comes from whichever witness exists (pack walls, credible lidar),
+  else the clearance under the deck. KPHX is in.
+* No-witness rule → **"Cut the road down (Recommended)"** — deck top −
+  `bridge.clearance_m` (5.1 m) under the deck, the road's own grade beyond;
+  the deck stays on the airside surface; the owner refreshes KPHX's 1 m
+  3DEP (`--refresh-data dem --warm-insets KPHX`) and the lidar then
+  supplies the real depth.
+* Wall shape → **"Witness first, 1:2 default (Recommended)"** — a pack
+  wall hides the bank behind it, credible lidar keeps its bank, otherwise
+  1:2; the crest is the airside DESIGN SURFACE at the edge, never the DEM.
+* Feed schema → **"Bump the schema now (Recommended)"** — keep
+  `layer`/`cutting`/`covered`/`embankment` for every future road-feed
+  download; existing tiles refresh only under `--refresh-data osm_layers`.
+Spec §45 (nine clauses, §45.1 census of 19 consumers ruled before any
+edit, §45.2 eight twins, §45.3 the three structure replays + ONE KDFW
+build). Also recorded on the KPHX side: the 3DEP fetch failed on a USGS
+TNM 504; the +33-112 tile keeps no negative and retries, the +33-113 tile
+recorded `USGS3DEP = "no-coverage"` — a FALSE durable negative the app
+never re-probes (TNM now lists four 1 m AZ_MaricopaPinal_2020 products);
+lane `v2insetneg` attributes and fixes the writer (brief a9bf45fa).

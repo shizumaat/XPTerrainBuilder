@@ -531,6 +531,36 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # could not reach.
     air = airside_vertices(planar, law)
     ceiling = float(law.tables.emit.within_shape.pad_slope_max)
+    # RULINGS 2026-09-14au: THE PAD'S SKIRT YIELDS, THE AIRSIDE NEVER
+    # DOES.  v2settle's stage-2 certificate PROVED the 1 % skirt ceiling
+    # and the fixed apron rim mutually infeasible — KCLT 143
+    # ``building_pad airside skirt`` rows, 26.4 m over 179 columns, all
+    # at 35.2097, -80.9327; HECA 1,428 of 2,548 stage-2 survivors.  The
+    # answer is NOT to let the airside move and NOT to step: the SKIRT's
+    # own ceiling relaxes to ``pad_skirt_max_slope`` (5 %) as the weld
+    # requires.  The CORE is untouched — it keeps the cap-0 plate and the
+    # 1 % ceiling, which is what keeps the pad a plate at all (round 4's
+    # collapse).  Beyond 5 % the pad still cannot reach and 14ai's
+    # ``pad_airside_weld`` fires CRITICAL, which is the whole point of
+    # that census.
+    # ... AND IT IS §20b's, MEASURED.  Two-sided at 5 % under the SINGLE
+    # solve the pad pulls the AIRSIDE harder, which is r5's own finding
+    # ("a softer pad moves more of the apron inside the same ceiling") and
+    # is what "the airside never yields" forbids: MATCHED ARMS on CYXY's
+    # lockstep census twin (``test_cyxy_verify_matches_v1_census``, the
+    # only variable the skirt cap) read 0 `runway_transverse` rows at 1 %
+    # and 2 at 5 % — 0.3788 and 0.3852 m ON THE RUNWAY.  Under §20b the
+    # airside is a CONSTANT in stage 2 and the same row cannot pull it —
+    # which is exactly the deviation RULINGS 2026-09-14as recorded for
+    # the spec author ("a welded pad's 1 % ceiling is unreachable under
+    # §20b; the two-sided row 14al withdrew can return, since under §20b
+    # it cannot pull").  So the relaxation is armed WITH the staged solve
+    # and only there.  DEVIATION FROM 14au, which states it
+    # unconditionally: reported, not decided (lane v2padvert).
+    staged = bool(law.tables.emit.design.staged_solve)
+    skirt_ceiling = (max(ceiling,
+                         float(law.tables.emit.within_shape.pad_skirt_max_slope))
+                     if staged else ceiling)
     # §16g (10) (8) REFINED: the BAND's width.  0 is round 4's scope —
     # the airside-SHARED vertices alone — and is what ships, because the
     # 25 m band was MEASURED WORSE on every airside bar at HECA (moved
@@ -668,9 +698,9 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
                 # ceiling rather than by a cap-0 weld.  Measured in round
                 # 4 at the narrower scope (airside-sharing pairs only):
                 # the runway's worst move 3.14 -> 0.41 m.
-                if cap < ceiling:
+                if cap < skirt_ceiling:
                     _led += 1
-                rows.append(Diff(a, b, ceiling, d, src_air,
+                rows.append(Diff(a, b, skirt_ceiling, d, src_air,
                                  rel=off.get(a, 0.0) - off.get(b, 0.0)))
                 continue
             rows.append(Diff(a, b, cap, d, src,
@@ -678,7 +708,8 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     STATS.setdefault("pad_flats", {})["cluster_cross_links"] = n_cross
     AIRSIDE_LED.update(airside_skirt_rows=_led, both_skirt_dropped=_dropped,
                        pads_wholly_in_the_band=_whole,
-                       pads_core_only=_core_only)
+                       pads_core_only=_core_only,
+                       skirt_ceiling=round(skirt_ceiling, 6))
     STATS.setdefault("pad_flats", {}).update(AIRSIDE_LED)
     return rows
 

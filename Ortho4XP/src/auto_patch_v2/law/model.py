@@ -441,6 +441,17 @@ class WithinShape:
     #: plane's own residual tolerance is ``materiality.elevation_m``.
     pad_slope_max: float
 
+    #: RULINGS 2026-09-14au: THE PAD'S SKIRT YIELDS, THE AIRSIDE NEVER
+    #: DOES.  v2settle's stage-2 feasibility CERTIFICATE proved a welded
+    #: pad's 1 % ceiling and a fixed apron rim mutually infeasible (KCLT
+    #: 143 ``building_pad airside skirt`` rows, 26.4 m over 179 columns,
+    #: all at 35.2097, −80.9327).  The SKIRT BAND's pairs — those with an
+    #: airside end, ``constraints/pads._pad_rows`` — are therefore priced
+    #: at THIS ceiling instead of ``pad_slope_max``: a slope, never a
+    #: step.  The pad's CORE keeps the cap-0 plate and the 1 % ceiling.
+    #: At or below ``pad_slope_max`` the relaxation is disarmed.
+    pad_skirt_max_slope: float
+
 
 @_dc.dataclass(frozen=True)
 class Instrument:

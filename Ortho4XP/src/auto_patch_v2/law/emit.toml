@@ -75,6 +75,7 @@ junction_mesh_roles = ["junction"]
 withdrawn_chord_min_m = 30.0
 
 pad_slope_max            = 0.01  # RULINGS 2026-09-05f (moved here from the deleted [relaxation] table, 08t): a rigid pad is ONE level and its EMITTED plane may slope at most this (m/m) — steeper is a ``pad_flat`` DEFECT (verify/pads.py). Owner: "a 2.27 % floor is a visible tilt"
+pad_skirt_max_slope      = 0.05  # RULINGS 2026-09-14au: THE PAD'S SKIRT YIELDS, THE AIRSIDE NEVER DOES.  v2settle's stage-2 feasibility CERTIFICATE proved that a welded pad's 1 % ceiling and a fixed apron rim cannot both hold — KCLT 143 `building_pad airside skirt` rows PROVED infeasible (26.4 m over 179 columns, all at 35.2097,-80.9327).  So the SKIRT BAND's slope ceiling (`[placement] pad_skirt_m`; the pairs with an airside end) relaxes from `pad_slope_max` up to this as the weld requires — a SLOPE, never a step ("weld smoothly").  The CORE stays a cap-0 plate at 1 %.  Beyond this the pad still cannot reach and is `pad_airside_weld` CRITICAL.  Set at or below `pad_slope_max` to disarm the relaxation.
 
 [seam]
 # THE TILE-SEAM CUT (user 2026-05-10; v1 tile_cut.py TILE_CUT_HALF_WIDTH_M): every

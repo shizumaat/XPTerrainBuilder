@@ -225,6 +225,27 @@ class Placement:
     #: the matched BASE ARM of this law's measurement.
     pad_from_cluster: bool = True
 
+    #: RULINGS 2026-09-14as (i): THE PAD DERIVATION LEAVES THE AIRSIDE
+    #: VERTEX SET ALONE.  Every pad — the DERIVED one of §16g (10) (5)
+    #: and the footprint-cache FALLBACK alike — is clipped by the airside
+    #: union (the runway slabs and every apt.dat pavement page) at the one
+    #: derivation site, so ``classify/roles``'s subtraction of the pad
+    #: union from the airside region is area-null and the airside polygon
+    #: stops being a function of which pads exist.  A pad left wholly
+    #: inside airside mints nothing (its bodies seat on the pavement).
+    #: ``false`` is the pre-14as derivation, where only the DERIVED half
+    #: was clipped and arming ``pad_from_cluster`` at HECA moved 280
+    #: airside vertices out and minted 88.
+    pad_airside_clip: bool = True
+
+    #: RULINGS 2026-09-14as (i): how far a pad may be moved to put a clip
+    #: CROSSING POINT on a rim NODE instead of minting an airside vertex.
+    #: Quantising moves the pad along the rim by that rim's own vertex
+    #: spacing (HECA p50 4.3 m, max 66 m; a 40 m synthetic shed's corner
+    #: travelled 30 m).  Beyond this the crossing point stands and is
+    #: counted.  0 disarms the quantisation.
+    pad_airside_snap_max_m: float = 5.0
+
     #: §16g (10) (4) WHAT CHAINS (owner RULINGS 2026-09-14ah): only a
     #: WALLED body links a cluster.  A body whose tallest component's
     #: SOLID HEIGHT (``Part.height_m``) is under this — a floor slab, a

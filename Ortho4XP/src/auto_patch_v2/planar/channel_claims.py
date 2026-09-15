@@ -26,7 +26,7 @@ from ..model.structures import Channel
 from .channel import ANY_FEED, _depth_under_crest, WayKey, way_key
 from .structure_approach import is_tunnel
 
-__all__ = ['add_channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor', 'way_key', 'WayKey', 'ANY_FEED']
+__all__ = ['add_channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor', 'way_key', 'WayKey', 'ANY_FEED', 'channel_swallowing']
 
 
 def claimed_crossing_ways(airport: Airport, law: Law,
@@ -189,6 +189,46 @@ def channel_claiming(channels: _t.Sequence[Channel], obj, law: Law) -> str:
         if _depth_under_crest(obj, float(c.crest_estimate_m or 0.0)) < min_depth:
             continue
         return c.id
+    return ""
+
+
+def channel_swallowing(channels: _t.Sequence[Channel], region, member_ids) -> str:
+    """§45 (7)/(11) AS A POST-FILTER ON A *BUILT* BASIN (amended (13) (d),
+    owner RULINGS 2026-09-15aw): the id of the channel this basin IS —
+    its region lies INSIDE that channel's corridor AND every one of its
+    members is one of that channel's own (1) (c) witnesses — or ``""``.
+
+    Why the members and not the geometry alone: a pit BESIDE the corridor
+    keeps its basin (§45 (11)), and a pit that happens to lie inside one
+    but is made of placements the channel never witnessed is a pit inside
+    a channel, not the channel's wall.  Both conditions together are the
+    only case where the same objects would otherwise be read twice — once
+    as the channel's floor, once as a pit.
+
+    It replaces round 5's PLACEMENT drop, which ran before the region
+    pass and so could not know whether a basin would be built at all;
+    keying on the built basin is what the amendment asks for, and it
+    refuses BEFORE the cut, so a swallowed basin cuts no cells."""
+    ids = {str(i) for i in (member_ids or ())}
+    if not ids or region is None or getattr(region, "is_empty", True):
+        return ""
+    for c in channels:
+        wits = {str(i) for i in (getattr(c, "witness_ids", ()) or ())}
+        if not wits or not ids <= wits:
+            continue
+        ring = c.region or c.crest_ring
+        if len(ring) < 3:
+            continue
+        poly = Polygon(ring)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if poly.is_empty:
+            continue
+        try:
+            if region.within(poly):
+                return c.id
+        except Exception:                     # pragma: no cover - shapely edge
+            continue
     return ""
 
 

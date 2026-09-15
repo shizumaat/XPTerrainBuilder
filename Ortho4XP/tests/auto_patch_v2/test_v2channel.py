@@ -557,16 +557,55 @@ def test_13d_a_basin_shell_beside_a_neck_is_no_channel_witness(law):
     assert any("(13) (d) dropped" in n and "dsf:obj7" in n for n in st2.notes), st2.notes
 
 
-def test_13d_reuses_the_basin_passs_own_derivation(law):
-    """The pit test is NOT re-derived in the channel pass: the callers
-    hand in ``airport/basin_witness.basin_member_ids``, whose own rule is
-    "the placement carries a basin floor witness".  Asserted here so a
-    future edit cannot quietly grow a second pit test next to it."""
+def test_13d_the_decision_pass_is_skipped_when_no_channel_has_a_pack_witness(law):
+    """The ordering costs an extra structure+basin pass, so it is only
+    paid where it can matter: with no pack wall/floor witness anywhere,
+    no pit test can change the reading and the decision pair is not run
+    (OTHH, KCLT, CYXY, SPJC)."""
     import inspect
-    from auto_patch_v2.airport.basin_witness import basin_member_ids
-    from auto_patch_v2.planar import build as _build, channel as _ch
-    assert "o.witnesses" in inspect.getsource(basin_member_ids)
-    assert "basin_member_ids" in inspect.getsource(_build)
+    from auto_patch_v2.planar.build import channels_after_basins
+    src = inspect.getsource(channels_after_basins)
+    # the short circuit precedes the decision pair in the source
+    assert src.index("if not any(c.witness_ids") < src.index("build_structures(")
+
+
+def test_45_7_is_a_post_filter_on_a_built_basin(law):
+    """§45 (7)/(11) AMENDED: a basin is swallowed only when its region
+    lies inside the corridor AND every member is one of that channel's
+    own witnesses — and a pit BESIDE the corridor, or one inside it made
+    of placements the channel never witnessed, keeps its basin."""
+    from shapely.geometry import Polygon as _P
+    from auto_patch_v2.planar.channel_claims import channel_swallowing
+
+    class _C:
+        id = "channel:0"
+        region = tuple(_rect(-60.0, -300.0, 60.0, 300.0))
+        crest_ring = ()
+        witness_ids = ("dsf:objA", "dsf:objB")
+
+    inside = _P(_rect(-10.0, -10.0, 10.0, 10.0))
+    beside = _P(_rect(200.0, -10.0, 220.0, 10.0))
+    assert channel_swallowing([_C()], inside, ["dsf:objA"]) == "channel:0"
+    assert channel_swallowing([_C()], beside, ["dsf:objA"]) == ""      # §45 (11)
+    assert channel_swallowing([_C()], inside, ["dsf:objZ"]) == ""      # not its wall
+    assert channel_swallowing([_C()], inside, ["dsf:objA", "dsf:objZ"]) == ""
+    assert channel_swallowing([], inside, ["dsf:objA"]) == ""
+
+
+def test_13d_reuses_the_basin_passs_own_derivation(law):
+    """The pit test is NOT re-derived in the channel pass: the exclusion
+    is handed in, and under §45 (13) (d) AMENDED (RULINGS 2026-09-15aw)
+    it comes from the BASIN PASS ITSELF — the ``member_ids`` of the
+    basins ``build_basins`` actually built, never a second pit test."""
+    import inspect
+    from auto_patch_v2.planar import channel as _ch
+    # NB ``from auto_patch_v2.planar import build`` is the FUNCTION
+    # (re-exported by the package), not this module
+    from auto_patch_v2.planar.build import channels_after_basins
+    src_b = inspect.getsource(channels_after_basins)
+    assert "build_basins(" in src_b and "member_ids" in src_b
+    # the candidate set is NOT what keys it any more
+    assert "basin_member_ids(" not in src_b   # the CALL, not the citation
     # the channel pass only CONSUMES the set — it never CALLS the
     # derivation (the name appears in its citation comment, which is the
     # point: one site, cited where it is used)

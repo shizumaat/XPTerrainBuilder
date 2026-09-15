@@ -572,8 +572,8 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
             f"{i} ({_res_of(_byid.get(i))})" for i in _seen)
         stats.notes.append(
             f"{cid}: §45 (13) (d) dropped {len(_seen)} pack wall/floor "
-            f"witness(es) — a basin FLOOR WITNESS (airport/basin_witness."
-            f"basin_member_ids) is a pit shell, never a channel's wall: {_res}")
+            f"witness(es) — a member of a BUILT basin is a pit shell, never a "
+            f"channel's wall (AMENDED, RULINGS 2026-09-15aw): {_res}")
     decks, deck_half = _decks(airport, law, cid, grp, axis_ln, axis_fn, union,
                               objects, packs0)
     # (i) THE PACK'S WALL OBJECTS ALONG THE AXIS.  Searched at the cap —

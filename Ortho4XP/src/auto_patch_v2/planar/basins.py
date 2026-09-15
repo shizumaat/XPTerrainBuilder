@@ -436,26 +436,14 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         f"own trench geometry, not a pit"
         for o in objects if o.witnesses and o.id in claimed)
     # ...AND A CHANNEL'S OWN WALL/FLOOR OBJECT IS NEVER A BASIN EITHER
-    # (spec §45 (7), scoped by §45 (11); owner RULINGS 2026-09-15s).  Two
-    # independent claims on the same intake, applied in sequence and each
-    # naming its own refusals: §33 (6) claims the author's cut geometry,
-    # §45 (7) claims what stands INSIDE an identified channel corridor
-    # and reaches ``object_min_depth_m`` under its crest.  A pit beside
-    # the corridor keeps its basin (§45 (11)) — LGAV's ``basin:2`` and
-    # ``basin:3``, two 20 m2 covered pits, are that sentence.
-    if channels:
-        from .channel_claims import channel_claiming
-        keep = []
-        for o in witnessed:
-            cid = channel_claiming(channels, o, law)
-            if cid:
-                stats.refused.append(
-                    f"{o.id}: stands along the axis of {cid} — the channel's own wall/floor "
-                    f"witness (§45 (1) (c)), never a basin seed; inside an identified "
-                    f"corridor the ground reference is the CREST, not the DEM (§45 (7))")
-                continue
-            keep.append(o)
-        witnessed = keep
+    # (spec §45 (7), scoped by §45 (11)) — but NOT HERE ANY MORE.  Under
+    # §45 (13) (d) AMENDED (owner RULINGS 2026-09-15aw) the channels are
+    # identified AFTER this pass has built its basins, so the claim is a
+    # POST-FILTER on a BUILT basin (``channel_swallowing`` below, applied
+    # before the cut): a pit beside the corridor keeps its basin (§45
+    # (11)) — LGAV's ``basin:2``/``basin:3`` — and a pit that never gets
+    # built cannot be a channel's wall, which is the round-5 defect the
+    # amendment names.
     if not witnessed:
         return classification, (), stats
     u = uu("regions", [_outer(w) for o in witnessed for w in o.witnesses])
@@ -720,6 +708,20 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                  f"{standoff:.2f} m stand-off, §24 (7)) does not survive the "
                                  f"identity grid ({grid} m) at {site}")
             continue
+        # §45 (7)/(11) ON THE BUILT BASIN (amended (13) (d)): this basin
+        # IS a channel's own wall/floor only if its region lies inside
+        # that channel's corridor AND every member is one of its (1) (c)
+        # witnesses.  Refused HERE — before the knife and the cells — so
+        # a swallowed basin cuts nothing.
+        if channels:
+            from .channel_claims import channel_swallowing
+            _cid = channel_swallowing(channels, ring, [o.id for o in members])
+            if _cid:
+                stats.refused.append(
+                    f"{bid}: {ring.area:.0f} m2 at {site} lies inside {_cid} and every member "
+                    f"is one of its §45 (1) (c) wall/floor witnesses — the channel's own "
+                    f"trench, never a pit (§45 (7)/(11))")
+                continue
         all_floors = floors + ramp_floors
         void = rim.difference(uu("void", all_floors))
         floor_ref, wall_ref = f"basin_floor:{k}", f"basin_wall:{k}"

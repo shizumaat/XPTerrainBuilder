@@ -37,7 +37,6 @@ from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
-from ..airport.basin_witness import basin_member_ids
 from .channel_claims import claimed_crossing_ways
 from .structures import StructureStats, build_structures, ramp_targets
 from .structure_road import mouth_pair_roads
@@ -106,6 +105,56 @@ class BuildStats:
     channels: ChannelStats = _dc.field(default_factory=ChannelStats)
 
 
+def channels_after_basins(airport, classification, law, objects, corridors, extra,
+                         plates, cache, orep, claimed_ways, shell_claimed):
+    """§45 (13) (d) AMENDED — A MEMBER OF A *BUILT* BASIN, BASINS BEFORE
+    CHANNELS (owner RULINGS 2026-09-15aw).  THE ONE ORDERING SITE; the
+    ``--stage structures`` replay calls this same function.
+
+    Round 5 keyed (13) (d) on ``basin_witness.basin_member_ids``, which
+    is basin rule 1's CANDIDATE set: it met the ruling's LEMD site
+    exactly and it also took LGAV's ``Trench_07``/``Trench_08`` — pit
+    CANDIDATES that never build a basin (LGAV's built basins are two
+    20 m2 Fence1 pits) — so the trench channel fell to (13) (a).  The
+    amendment keys on membership of a BUILT basin, which means the basin
+    pass must have run.
+
+    THE CYCLE, AND HOW IT IS BROKEN.  ``build_basins`` needs the
+    structure pass's own output (the cells it cut, and the tunnel
+    structures rule 5 refuses a basin against), and ``build_structures``
+    needs the channels — so "basins first" cannot be a simple swap.  The
+    basin pass therefore runs ONCE AS A DECISION, over a structure pass
+    carried out with NO channels, and nothing from that pair is
+    published: it exists to answer "which placements are members of a
+    basin the engine actually builds".  The published passes follow in
+    their usual order with the channels in hand.
+
+    AND IT IS SKIPPED WHEN IT CANNOT MATTER.  The channels are first
+    identified with NO exclusion; if no channel took a pack wall/floor
+    witness at all, no pit test can change the outcome and the decision
+    pair is not run (OTHH, KCLT, CYXY and SPJC identify no channel with
+    a pack witness, and pay nothing for this ordering).
+    """
+    ch0, st0 = identify_channels(airport, classification, law, objects, claimed_ways)
+    if not any(c.witness_ids for c in ch0):
+        st0.notes.append("§45 (13) (d): no channel took a pack wall/floor witness — "
+                         "the BUILT-basin exclusion cannot change this airport's reading "
+                         "and the basin decision pass was not run")
+        return ch0, st0
+    cl_s, tun0, _s0 = build_structures(airport, classification, law, objects,
+                                       corridors, extra, plates, ())
+    _cl_b, basins0, _b0 = build_basins(airport, cl_s, law, tun0, objects, cache,
+                                       report=orep, claimed=shell_claimed)
+    pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ()))
+    channels, stats = identify_channels(airport, classification, law, objects,
+                                        claimed_ways, pit)
+    stats.notes.append(
+        f"§45 (13) (d): the basin pass ran FIRST and built {len(basins0)} basin(s); their "
+        f"{len(pit)} member placement(s) are the exclusion (a pit CANDIDATE that never "
+        f"builds a basin is not a pit shell — RULINGS 2026-09-15aw)")
+    return channels, stats
+
+
 def build(airport: Airport, classification: Classification, law: Law,
           grid_m: float | None = None, objects_out: list | None = None,
           cache=None, objects=None, object_report=None) -> tuple[PlanarMap, BuildStats]:
@@ -148,16 +197,15 @@ def build(airport: Airport, classification: Classification, law: Law,
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
     # ── THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i) ──────
-    # DERIVED FIRST (§45.1 C1): the structure pass reads them to keep a
-    # crossing inside a channel from ever becoming a bore with mouths
-    # (§45 (1)/(6)), and the basin pass to keep a wall/floor object along
-    # the axis from being read a second time as a pit (§45 (7)).
-    # §45 (13) (d): the BASIN PASS's own derivation of a pit shell,
-    # handed in beside (13) (b)'s claimed ways — never re-derived here.
-    channels, chstats = identify_channels(
-        airport, classification, law, objects,
+    # The structure pass reads them to keep a crossing inside a channel
+    # from ever becoming a bore with mouths (§45 (1)/(6)), and the basin
+    # pass to refuse a built basin that IS the channel's own wall (§45
+    # (7)/(11)).  §45 (13) (d) AMENDED (RULINGS 2026-09-15aw) puts the
+    # BASIN PASS FIRST — see :func:`channels_after_basins`.
+    channels, chstats = channels_after_basins(
+        airport, classification, law, objects, corridors, extra, plates, cache, orep,
         claimed_crossing_ways(airport, law, corridors),
-        basin_member_ids(airport, law, cache))
+        frozenset(tstats.shell_claimed))
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable

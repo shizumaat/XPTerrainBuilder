@@ -191,7 +191,11 @@ def test_30_4_the_law_key_and_the_ruling_head_are_data(law):
     from auto_patch_v2.constraints.cluster_pad import (COLLAR_CEILING_RULING,
                                                        COLLAR_RULING)
     from auto_patch_v2.constraints.pads import CEILING_RULING, FLAT_RULING
-    assert cluster_reach_m(law) == 40.0
+    # SHIPS DISARMED: the collar form is built and its HECA pair is in
+    # the spec's MEASURED block, but its acceptance is missed (11,847
+    # airside vertices moved against a 266-vertex collar), so the law
+    # value is 0 and the arms arm it.  Design value 40.0.
+    assert cluster_reach_m(law) == 0.0
     conform = conforming_rulings(law)
     assert COLLAR_RULING not in conform and COLLAR_CEILING_RULING not in conform
     assert COLLAR_CEILING_RULING in hard_rulings(law)

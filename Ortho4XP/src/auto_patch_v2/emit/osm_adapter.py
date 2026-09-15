@@ -130,6 +130,13 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # census prices every emitted ring edge against, so the instrument and
     # the law read one water witness and never two.
     "shore_edges",
+    # §33 (6) THE OBJECT CUTS (owner RULINGS 2026-09-15e/15g; lane
+    # `v2objcut`): per signature-B corridor, the PACK OBJECT'S own wall
+    # line as a lat/lon ring and the AUTHORED floor its floor plate
+    # states — the witness the ``object_cut_offset`` and
+    # ``object_cut_depth`` families price the emitted patch against, so
+    # the law and its instrument read ONE reading of the object.
+    "object_cuts",
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
     "pad_cluster_mismatch",  # §16g (10) (3) (owner RULINGS 2026-09-14x): the CRITICAL defect set — a pad more than half claimed by two clusters, or a cluster that is more than half of two pads.  "Pads must match building clusters ... exactly"; empty is the bar (``pipeline/publication`` off ``constraints.cluster_pad.pad_cluster_mismatch``)
     "cluster_pads",  # §30 (4) (owner RULINGS 2026-09-13bj item 1): one record per TERMINAL CLUSTER — its members, the emitted `building` faces its footprint union stands on, the ONE level the solve gave that plane, and the apron vertices the reach targeted (with how many reached it).  The object stage's §16g seats the cluster on this level (``pipeline/publication.cluster_pads``)

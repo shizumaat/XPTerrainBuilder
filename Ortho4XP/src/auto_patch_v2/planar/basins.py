@@ -393,7 +393,8 @@ def _record_grade(stats: BasinStats, cache: obj8.ResourceCache, bl) -> None:
 def build_basins(airport: Airport, classification: Classification, law: Law,
                  tunnels: _t.Sequence[Tunnel], objects: _t.Sequence[obj8.PlacedObject],
                  cache: obj8.ResourceCache | None = None,
-                 report: obj8.ObjReport | None = None
+                 report: obj8.ObjReport | None = None,
+                 claimed: _t.AbstractSet[str] = frozenset()
                  ) -> tuple[Classification, tuple[Basin, ...], BasinStats]:
     """The classification with the basins applied (cells cut, floor and
     wall cells added, the footprints as keep-outs), the records, and the
@@ -412,7 +413,18 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     stats.refused.extend(_no_floor_refusals(report, bl))
     if report is not None:
         stats.buried_named = list(report.buried_named)
-    witnessed = [o for o in objects if o.witnesses]
+    # THE SHELL IS NEVER A BASIN (spec §33 (6); owner RULINGS 2026-09-15g).
+    # ``claimed`` is ``airport/object_cut.cut_placement_ids`` — the ONE
+    # derivation of "this placement is the author's CUT GEOMETRY" — and a
+    # claimed placement's floor witness is the tunnel's own floor plate,
+    # not a pit's.  Before §33 (6) every VHHH tunnel shell arrived here as
+    # a basin (``tunnel_objects.py``'s witness hand-off sent it), which is
+    # why no reader could see the class at all.
+    witnessed = [o for o in objects if o.witnesses and o.id not in claimed]
+    stats.refused.extend(
+        f"{o.id} {o.path.rsplit('/', 1)[-1]}: claimed by the §33 (6) object cut — the pack's "
+        f"own trench geometry, not a pit"
+        for o in objects if o.witnesses and o.id in claimed)
     if not witnessed:
         return classification, (), stats
     u = uu("regions", [_outer(w) for o in witnessed for w in o.witnesses])

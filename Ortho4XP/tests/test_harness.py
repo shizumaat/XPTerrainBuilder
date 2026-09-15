@@ -9410,3 +9410,313 @@ def test_ramp_in_strip_is_registered_and_keeps_out(cg):
     fams = _T.load_default().tables.families
     assert fams["ramp_in_strip"].cockpit == "keepout"
     assert fams["ramp_in_strip"].pairs == "within"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY — the
+# ``object_cut_offset`` / ``object_cut_depth`` guards (owner RULINGS
+# 2026-09-15e items 1/3/4/6 and 2026-09-15g; Fable 2026-09-15j; lane
+# `v2objcut`)
+# ══════════════════════════════════════════════════════════════════════
+# Both families are GUARDS on ``airport/object_cut.py``'s reading and are
+# meant to read 0 on a lawful build, so they must prove themselves on a
+# patch that DOES carry each defect — both directions, or the zero means
+# nothing (the §B3 blind-walk lesson, the ``ramp_in_road`` precedent
+# above).
+
+_OC_LAT = 22.3030675
+_OC_LON = 113.9070568
+
+
+def _object_cut_patch(tmp_path, *, name, ramp_out_m, floor_z, authored_floor):
+    """A 30 x 120 m object WALL LINE published in the sidecar, with a
+    ``tunnel_ramp`` face inside it whose two far vertices stand
+    ``ramp_out_m`` OUTSIDE the wall line (negative = inside), emitted at
+    ``floor_z`` against the object's ``authored_floor``."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_OC_LAT))
+
+    def at(dx_m, dy_m):
+        return (_OC_LAT + dy_m / mlat, _OC_LON + dx_m / mlon)
+    outline = [at(0.0, 0.0), at(120.0, 0.0), at(120.0, 30.0), at(0.0, 30.0)]
+    # the ramp: x 10..110, y 5 .. 25 + ramp_out_m (25 + 5 = the wall line)
+    top = 25.0 + ramp_out_m
+    ramp = [at(10.0, 5.0), at(110.0, 5.0), at(110.0, top), at(10.0, top)]
+    nodes, ways = [], []
+    nid = -1
+    ids = []
+    for lat, lon in ramp:
+        nodes.append((nid, lat, lon, floor_z))
+        ids.append(nid)
+        nid -= 1
+    ways.append((nid, ids + [ids[0]],
+                 {"role": "tunnel_ramp", "ref": "tunnel_ramp:object-cut:t5@0",
+                  "aeroway": "taxiway", "shapeID": "OC1"}))
+    nid -= 1
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='object-cut-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_OC_LAT, _OC_LON], "ruleset": "icao",
+        "object_cuts": [{
+            "id": "object-cut:t5@0", "signature": "B",
+            "resource": "tunnel/tunnel5_done.obj", "objects": ["1"],
+            "floor_m": authored_floor, "depth_m": 6.011,
+            "outline_ll": [[la, lo] for la, lo in outline],
+            "ramp_refs": ["tunnel_ramp:object-cut:t5@0"],
+            "wall_ref": "tunnel_wall:object-cut:t5@0"}]}))
+    return osm
+
+
+def test_a_cut_inside_its_object_prices_no_object_cut_offset(cg, tmp_path):
+    """The lawful case §33 (6) asks for: the emitted trench lies inside
+    the wall line the pack's object drew."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="inside",
+                                         ramp_out_m=-3.0, floor_z=1.31,
+                                         authored_floor=1.31))
+    assert fo["object_cut_offset"] == [], (
+        "a cut inside its object's wall line is the law, not a defect")
+    assert fo["object_cut_depth"] == []
+
+
+def test_a_cut_outside_its_object_is_a_defect(cg, tmp_path):
+    """The VHHH class the ruling was written on: 25 of ramp way −11078's
+    42 vertices stood outside ``tunnel5_done.obj``, the worst 76.25 m
+    away, because the corridor was the OSM bore's."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="outside",
+                                         ramp_out_m=9.0, floor_z=1.31,
+                                         authored_floor=1.31))
+    rows = fo["object_cut_offset"]
+    assert len(rows) == 2, (
+        f"the ramp's two far vertices stand 4 m outside the wall line; the "
+        f"family priced {len(rows)} row(s)")
+    assert all(abs(r.de_m - 4.0) < 0.05 for r in rows), [r.de_m for r in rows]
+
+
+def test_the_offset_bar_is_the_spec_bar(cg, tmp_path):
+    """0.5 m is the spec's own bar for ``object_cut_offset``; a vertex
+    inside it is the emitter's snap, not a cut leaving its object."""
+    fo = _families(cg, _object_cut_patch(
+        tmp_path, name="snap", ramp_out_m=5.0 + cg.OBJECT_CUT_OFFSET_M * 0.5,
+        floor_z=1.31, authored_floor=1.31))
+    assert fo["object_cut_offset"] == []
+    fo2 = _families(cg, _object_cut_patch(
+        tmp_path, name="past", ramp_out_m=5.0 + cg.OBJECT_CUT_OFFSET_M * 3.0,
+        floor_z=1.31, authored_floor=1.31))
+    assert len(fo2["object_cut_offset"]) == 2
+
+
+def test_a_shallow_cut_is_an_object_cut_depth_row(cg, tmp_path):
+    """The owner's VHHH site: the floor came out at DEM − ``bore_datum_m``
+    = 2.23 against the object's AUTHORED 1.31, 0.92 m too shallow.  The
+    authored depth overrides ``bore_datum_m``."""
+    fo = _families(cg, _object_cut_patch(tmp_path, name="shallow",
+                                         ramp_out_m=-3.0, floor_z=2.23,
+                                         authored_floor=1.31))
+    rows = fo["object_cut_depth"]
+    assert len(rows) == 1, f"one row per cut that misses the bar, not {len(rows)}"
+    assert abs(rows[0].de_m - 0.92) < 0.02, rows[0].de_m
+    assert fo["object_cut_offset"] == [], "the plan half is unaffected"
+
+
+def test_the_depth_bar_is_the_spec_bar(cg, tmp_path):
+    fo = _families(cg, _object_cut_patch(
+        tmp_path, name="atbar", ramp_out_m=-3.0,
+        floor_z=1.31 + cg.OBJECT_CUT_DEPTH_M * 0.5, authored_floor=1.31))
+    assert fo["object_cut_depth"] == []
+
+
+def test_a_patch_with_no_object_cuts_prices_neither_family(cg, tmp_path):
+    """Every airport whose pack authors no cut geometry reads exactly as
+    it did before §33 (6): the sidecar key is absent and both families
+    are empty, never a crash and never a fabricated row."""
+    osm = _object_cut_patch(tmp_path, name="nokey", ramp_out_m=9.0,
+                            floor_z=9.99, authored_floor=1.31)
+    side = Path(str(osm) + ".axes.json")
+    data = json.loads(side.read_text())
+    data.pop("object_cuts")
+    side.write_text(json.dumps(data))
+    fo = _families(cg, osm)
+    assert fo["object_cut_offset"] == []
+    assert fo["object_cut_depth"] == []
+
+
+def test_the_object_cut_families_are_registered(cg):
+    """A family absent from ``LAW_FAMILIES`` or from ``families.toml``
+    does not load (the census cannot omit a family); §33 (6)'s plan half
+    prices PRESENCE outside a region, so its cockpit class is
+    ``keepout``."""
+    from auto_patch_v2.law import tables as _T
+    names = {k for k, _t, _b in cg.LAW_FAMILIES}
+    assert "object_cut_offset" in names
+    assert "object_cut_depth" in names
+    fams = _T.load_default().tables.families
+    assert fams["object_cut_offset"].cockpit == "keepout"
+    assert fams["object_cut_depth"].cockpit == "step"
+    # the sidecar key is declared on BOTH sides — the emitter publishes it
+    # and the census reads it under the same name
+    from auto_patch_v2.emit import osm_adapter as _oa
+    assert "object_cuts" in _oa.SIDECAR_KEYS
+    assert cg.SIDECAR_LAW_KEYS["object_cuts"] == "object_cuts_ll"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §34 (13) (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS (Fable
+# 2026-09-15; RULINGS 2026-09-15u; spec design-surface-spec §34 (13) (1))
+# ══════════════════════════════════════════════════════════════════════
+# ONE derivation, two readers: the engine's
+# `auto_patch_v2.verify.within.ring_route_m` and the census's
+# `_ring_route_m` (imported from it, with a literal no-engine fallback).
+# The reading can only RELAX, so the twin proves both directions: a
+# straight ramp is untouched, a CURVED one is priced along its axis, and
+# a ramp genuinely over cap along that axis still reports.
+
+_RRA_LAT = 40.4947697
+_RRA_LON = -3.5829037
+
+
+def _ramp_axis_patch(tmp_path, *, name, stations, fall_m, half_w=1.75):
+    """A `tunnel_ramp` ribbon whose CENTRELINE follows `stations`
+    (metre offsets from the site) and whose elevation falls `fall_m`
+    linearly from the first station to the last.  The ring is written the
+    way `planar/structure_geometry.geometry` writes one: down the left
+    side, back up the right."""
+    mlat = 111_320.0
+    mlon = 111_320.0 * math.cos(math.radians(_RRA_LAT))
+
+    def at(dx_m, dy_m):
+        return (_RRA_LAT + dy_m / mlat, _RRA_LON + dx_m / mlon)
+    n = len(stations)
+    left, right, zs = [], [], []
+    for k, (x, y) in enumerate(stations):
+        if k == 0:
+            ux, uy = stations[1][0] - x, stations[1][1] - y
+        else:
+            ux, uy = x - stations[k - 1][0], y - stations[k - 1][1]
+        L = math.hypot(ux, uy) or 1.0
+        nx, ny = -uy / L, ux / L
+        left.append(at(x + nx * half_w, y + ny * half_w))
+        right.append(at(x - nx * half_w, y - ny * half_w))
+        zs.append(600.0 - fall_m * k / (n - 1))
+    ring = left + list(reversed(right))
+    alts = zs + list(reversed(zs))
+    nodes, ids = [], []
+    nid = -1
+    for (lat, lon), z in zip(ring, alts):
+        nodes.append((nid, lat, lon, z))
+        ids.append(nid)
+        nid -= 1
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='ramp-axis-twin'>"]
+    for nd, lat, lon, alt in nodes:
+        out.append(f"  <node id='{nd}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    out.append(f"  <way id='{nid}'>")
+    out += [f"    <nd ref='{i}' />" for i in ids + [ids[0]]]
+    for k, v in (("role", "tunnel_ramp"), ("ref", "tunnel_ramp"),
+                 ("aeroway", "taxiway"), ("shapeID", "RA1")):
+        out.append(f"    <tag k='{k}' v='{v}' />")
+    out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [_RRA_LAT, _RRA_LON], "ruleset": "icao"}))
+    return osm
+
+
+def _straight(n, span):
+    return [(span * k / (n - 1), 0.0) for k in range(n)]
+
+
+def _quarter_arc(n, radius):
+    """A quarter circle: route = pi*r/2, chord = r*sqrt(2) — the shape
+    LEMD's -10853 has (143.5 m of axis across a 99.25 m chord)."""
+    return [(radius * math.sin(math.pi / 2 * k / (n - 1)),
+             radius * (1 - math.cos(math.pi / 2 * k / (n - 1))))
+            for k in range(n)]
+
+
+def test_ring_route_m_is_the_walk_and_never_shorter_than_the_chord():
+    """The derivation itself, and the ONE property the whole reading
+    rests on: a polyline between two of its own points is never shorter
+    than the chord, so §34 (13) (1) can only RELAX."""
+    from auto_patch_v2.verify.within import ring_route_m
+    sq = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    assert ring_route_m(sq, 0, 1) == pytest.approx(10.0)
+    assert ring_route_m(sq, 0, 2) == pytest.approx(20.0)   # min of two 20s
+    assert ring_route_m(sq, 0, 3) == pytest.approx(10.0)   # the short way
+    assert ring_route_m(sq, 2, 2) == 0.0
+    for i in range(4):
+        for j in range(4):
+            chord = math.dist(sq[i], sq[j])
+            assert ring_route_m(sq, i, j) >= chord - 1e-9
+
+
+def test_the_census_and_the_engine_read_one_ring_route(cg):
+    """ONE derivation, two readers — never a second spelling (the
+    census-wrapper precedent).  `check_grade._ring_route_m` IS the
+    engine's function unless the engine is absent."""
+    from auto_patch_v2.verify.within import ring_route_m
+    assert cg._ring_route_m is ring_route_m
+    arc = _quarter_arc(9, 60.0)
+    for i in (0, 3, 8):
+        for j in (0, 4, 8):
+            assert cg._ring_route_m(arc, i, j) == pytest.approx(
+                ring_route_m(arc, i, j))
+
+
+def test_a_straight_ramp_is_unchanged_by_the_axis_reading(cg, tmp_path):
+    """The axis of a straight ramp IS its chord, so the reading must not
+    move a single row: a straight ramp over its cap still reports."""
+    fo = _families(cg, _ramp_axis_patch(
+        tmp_path, name="straightover", stations=_straight(9, 100.0),
+        fall_m=12.0))                       # 12 % over 100 m, cap 8 %
+    rows = [r for r in fo["within_shape"]
+            if abs(r.distance_m - 100.0) < 1.0]
+    assert rows, "a straight ramp at 12 % must still report"
+    assert all(r.grade_pct > 8.0 for r in rows)
+
+
+def test_a_curved_ramp_is_priced_along_its_axis_not_its_chord(cg, tmp_path):
+    """LEMD's own shape (owner 15e item 5): ramp way -10853 fell 8.250 m
+    over a 99.25 m PLAN CHORD — 8.31 %, over its 8 % cap — where its axis
+    runs 143.5 m, which is 5.75 % and lawful.  A quarter arc of radius
+    91.4 m has the same ratio (route 143.5 m, chord 129.2 m ... the exact
+    numbers do not matter; the LAW does): the fall that is over cap
+    across the chord and under it along the axis prices NO row."""
+    n, radius = 13, 91.4
+    arc = _quarter_arc(n, radius)
+    route = sum(math.dist(arc[k], arc[k + 1]) for k in range(n - 1))
+    chord = math.dist(arc[0], arc[-1])
+    assert route > chord * 1.05, (route, chord)
+    fall = 0.5 * (0.08 * route + 0.08 * chord)   # over the chord, under the axis
+    assert fall / chord > 0.08 and fall / route < 0.08
+    fo = _families(cg, _ramp_axis_patch(
+        tmp_path, name="curvedlawful", stations=arc, fall_m=fall))
+    long_rows = [r for r in fo["within_shape"] if r.distance_m > chord * 0.9]
+    assert long_rows == [], (
+        "a ramp inside its cap along its own axis prices no mouth-to-top "
+        f"row: {[(r.distance_m, r.grade_pct) for r in long_rows]}")
+    # and the reading never blinds a ramp that IS over cap along the axis
+    fo2 = _families(cg, _ramp_axis_patch(
+        tmp_path, name="curvedover", stations=arc, fall_m=0.12 * route))
+    over = [r for r in fo2["within_shape"] if r.distance_m > chord * 0.9]
+    assert over, "an over-cap axis grade must still report"
+    # the END-TO-END pair is reported over the AXIS run, not the chord
+    # (the other long pairs are between interior stations, whose own
+    # axis runs are legitimately shorter)
+    assert max(r.distance_m for r in over) > chord, (
+        f"the reported span is the AXIS run: max "
+        f"{max(r.distance_m for r in over):.1f} m vs chord {chord:.1f} m")
+    assert max(r.distance_m for r in over) == pytest.approx(route, rel=0.02)

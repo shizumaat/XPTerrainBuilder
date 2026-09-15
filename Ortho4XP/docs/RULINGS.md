@@ -8118,3 +8118,30 @@ families.toml, check_grade, `v2_solve_replay --rule` (INDEX row).
 Details in §40 (5) MEASURED AND RULED. Owed: VHHH/CYXY/SPJC/KCLT/OTHH
 captures (one each) to measure the band there; the end-cap line (r2).
 15bl addendum: suite ON MAIN after the v2shoulderband merge: 1682 passed, 1 skipped, 1 xpassed, 42 warnings in 88.92s (0:01:28).
+
+## 2026-09-15as OWNER (9): the per-airport road feeds of KDFW, LGAV and KPHX may be RE-CUT under `osm_roadfeed`; and the two refresh gaps the KDFW refreshes measured (a cold tile cannot be warmed; a superseded per-airport feed is not re-cut) — lane `v2schemarefuse` round 5
+
+Measured (this session, owner-authorised, 13:30): `build_airport.py LGAV
+--refresh-data osm_layers` rc 0, REFRESH RECORDED +2 ~1 (LGAV builds
+again). `build_airport.py KDFW --refresh-data osm_layers` re-derived
+`+32-098_big_roads` (ledgered, ~1) and then the v2 LOADER raised "1
+cached road feed(s) were written under a SUPERSEDED tag whitelist" — the
+PER-AIRPORT feed (`OSM_data/_airport_road_feed`, scope `osm_roadfeed`),
+present but superseded, which no refresh re-cuts (round 2's class).
+`build_airport.py KDFW --tile 32 -97 --refresh-data osm_layers,dem` (the
+neighbour tile the KDFW pack reaches into) was REFUSED by the cold-frame
+pre-flight BEFORE any refresh: no airports OSM layer, no insets dir —
+`refresh_stale_osm_layers` derives only STALE layers, never ABSENT ones,
+and nothing derives a cold tile's insets under `dem` (only
+`--warm-insets ICAO`, whose ICAOs are unknown until the layer exists).
+Owner answer (9): "Yes, re-cut the three" — KDFW, LGAV and KPHX feeds
+under `osm_roadfeed`, the whitelist unchanged (15aq (5)). Round 5 of
+`v2schemarefuse` gives all three their derivation sites: an authorised
+`osm_layers` refresh derives ABSENT layers (the pre-flight yields to an
+authorised scope and re-judges after), an authorised `dem` refresh
+derives the tile's airport insets via the engine's
+`ensure_insets_for_tile(refresh=True)`, an authorised `osm_roadfeed`
+refresh moves a superseded feed aside and lets the loader's own cut
+re-derive it (raise if nothing re-derived); and the superseded feed is a
+PRE-BUILD refusal, not a loader traceback 54 s in. The KPHX refresh
+(osm_layers, airport_mod_cache, dem, --warm-insets KPHX) is running.

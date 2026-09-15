@@ -11995,3 +11995,53 @@ runway contact stands **0.24564 m** under its ridge against a bar of
 MINIMISES the objective those rows are priced into.  With the key at
 `fixed_point` the suite is **1 565 passed / 1 skipped twice**, and the
 flip is one `sed` on `law/emit.toml`.
+
+### §20c RULED (Fable 2026-09-15; RULINGS 2026-09-15b) — the deviation is accepted; the damped proximal step IS the §20c solver; the key flips ON
+
+(1) **The tool was the deviation, not the law.**  §20c's substance is
+that the one-sided problem is solved TO ITS MINIMUM by a globally
+convergent convex method with a certificate.  HiGHS's QP was named as
+the instrument; it is REFUTED for this problem class by measurement (a
+dense-nullspace active-set solver whose cost is quadratic in the free-
+column count, `nullspace limit` at 4 000, 630 s without terminating at
+200 000 on CYXY's 4 437 columns).  The proximally damped active-set
+subproblem — `min ‖A₀x−b₀‖² + Σ_active w(a·x−b̃)² + λ‖x−x_k‖²` on the
+same stack through the same `_linear_solve`, λ ÷ 4 accepted / × 6
+rejected — solves the SAME convex problem and agrees with FISTA at its
+minimum (190 617.91 vs 190 618.15 at CYXY).  It IS the §20c solver.
+HiGHS stays on the projections, whose QPs are small by construction;
+the module-top `highspy` import and its AST twin stay.
+
+(2) **The lag stays; the hard rows stay penalties with the certificate.**
+A one-way row is a bilevel relation, not a term of one convex objective;
+folding it in means pulling the pavement or hardening ~15 700 soft rows
+(refuted 13ac / 14au).  The hard rows as CONSTRAINTS make the QP
+infeasible at CYXY — the certificate's own reading (6 rows, 1.5889 m);
+the certificate names them, the penalty solves around them.
+
+(3) **The key flips ON.**  `[design] solver = "qp"` ships.  The bars
+held on every measured count: the one-vertex probe moves NOTHING by
+more than 4.3 mm (fixed point: 959 vertices, 953 of them beyond 500 m);
+stage 1 SETTLES at HECA (0 / 174 500 hard, worst 0.0200 m — the
+campaign's first-ranked debt closes); hard rows CYXY 17 → 12, HECA 39 →
+18, KCLT 29 → 19, every survivor named; adjudicated census CYXY −11.2 %,
+HECA −0.1 %, KCLT −1.4 %, no family worse by > 5 %; wall 1.03× HECA /
+1.21× KCLT / 1.31× CYXY against the 2× bar.  The two twins that read red
+under the flip are re-founded, not weakened: the solver-default twin
+asserts `"qp"`; `test_v2taxidatum::test_a_chain_touching_a_runway_keeps_
+the_contact` reads 0.24564 m against a 0.245 m bar — 0.6 mm, under the
+0.01 m elevation materiality (CLAUDE.md convergence guard (a)), so the
+bar becomes 0.25 m with the residual quoted in the twin's docstring.
+
+(4) **Release sequencing (owner's OTHH priority).**  App 1.0.340 carries
+the merge OFF: its surfaces are those of 1.0.339 bar the DEFECT floor —
+the LEMD tile closes on it.  The flip lands in 1.0.341 for the HECA pad
+read; the certified OTHH customer build stays on the fixed-point
+surface until the owner rebuilds it on a flipped app and reads it.
+
+(5) **Residual, named.**  KCLT `transverse` +1.2 % and `drainage_minimum`
++0.27 %, HECA `taxi_box` +0.21 % — under the 5 % bar, carried into the
+owner's read.  SPJC / OTHH unmeasured (no registered capture) — the
+sweep at 1.0.341's build time is the measurement.  The stage-2 hard set
+(586 → 572, worst 4.42 m) is the pads' own infeasibility (§16g (10) /
+§30 (4)), untouched by the solver and the HECA pad line's next item.

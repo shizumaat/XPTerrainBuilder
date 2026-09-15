@@ -6779,3 +6779,31 @@ child process (tile workers fork), or a data-repo write in the last
 minutes. An idle resident server never holds the gate; the owner
 relaunches the app to pick up the new bundle regardless. Built
 1.0.340 under this reading.
+
+## 2026-09-15b v2qp MERGED OFF (d3864680): the design solver converges — HiGHS's QP refuted for the whole-airport problem, the damped proximal step ruled AS the §20c solver; the key flips ON in a follow-up (app 1.0.341)
+
+Lane `v2qp` @ 682d1810, merged d3864680 (frames 7692adb3); suite on
+the lane 1,565 passed twice as shipped (`solver = "fixed_point"`); the
+suite ON MAIN reported below by FAILED lines. MEASURED (§20c MEASURED):
+the shipped fixed point is NOT the minimum of its own objective — FISTA
+from its own iterate with the lag and multipliers frozen drops F
+193,499.24 → 190,618.15 (1.489 % above the minimum) and moves 703 / 4,437
+CYXY columns (worst 0.52 m); the cause is the UNDAMPED active-set
+subproblem minimiser (F = 7.6e8 against 1.9e5) whose ray line-search
+collapses to the floor — `objective_stalled` on every solve, exactly
+14bw. HiGHS's QP (both textbook forms) refuses on the nullspace limit
+and runs 630 s untermininated at CYXY when raised; a proximally damped
+subproblem on the same `_linear_solve` converges in 52 iterations /
+1.2 s (the stall cost 3.2 s). The one-vertex HECA probe: fixed point
+959 moved (953 beyond 500 m, worst 0.52 m); QP 0 moved, worst 4.3 mm,
+hard set 18 → 18. §20b stage 1 SETTLES at HECA (0 / 174,500 hard, worst
+0.0200 m). Hard rows CYXY 17→12 HECA 39→18 KCLT 29→19; census CYXY
+427→379, HECA 26,634→26,607, KCLT 6,607→6,515; wall ≤ 1.31×; closing
+HECA build rc 0 449 s, shared repo UNCHANGED. RULED (§20c RULED (1)–(5)):
+the deviation is ACCEPTED — the tool, not the law, was wrong; the lag
+and the hard-row penalties stay; the key FLIPS ON with the two twins
+re-founded (the 0.6 mm taxidatum residual is under the 0.01 m
+materiality; bar 0.25 m); 1.0.340 ships OFF for the LEMD tile, the flip
+lands in 1.0.341 for the HECA read; the OTHH customer surface stays
+fixed-point until the owner rebuilds and reads it. Lane resumed for the
+flip.

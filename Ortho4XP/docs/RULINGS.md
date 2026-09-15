@@ -6502,3 +6502,25 @@ Census: `OBJECT_MSL` rows > 0.5 m off 677 of 1,481 (460 > 1 m); bodies
   mouths within 3 m of the owner's points; the deck ends within 3 m
   of the owner's, one plane, no notch (the profile past the east end
   monotone), no rim sliver; airside 0; verify defects {}.
+
+## 2026-09-14bq APP 1.0.337 BUILT (engine 1.50.1783) — the OTHH ramps (14bm); the build gate's second false positive fixed
+
+Main 87bb9f38 + version bump (21a49929). The queued build waited 14
+min on "the owner's engine" that did not exist: the gate `pgrep -fl
+'Resources/Engine/Ortho4XP' | grep -v pgrep` matched the WAITER's own
+zsh (its command line carries the pattern) — the earlier 35 were the
+owner's real +40-004 build, which ended 19:54. Gate restated, third
+form: `pgrep -fl '^/…/dist.nosync/XPTerrainBuilder.app/Contents/
+Resources/Engine/Ortho4XP'` — anchored at the start of the command
+line, so no shell matches. Flags verified: bank OFF, pads OFF, staged
+OFF. Over 1.0.336: the plate-edge full depth, the half-width road
+margin, §34 (10) + `ramp_in_road` — OTHH only in effect (the census
+family is a guard elsewhere).
+
+* The owner asked about a GitHub conflict on `docs/frames.jsonl`:
+  local main is clean (no markers; 693 ahead of origin/main, which is
+  still at 97d332ae, 09-11 — main has not been pushed in three days
+  and the file does not exist there); the owner then withdrew the
+  question. `frames.jsonl` is append-only and conflicts on every
+  non-union merge — pushing main with it is fine; a GitHub PR of a
+  lane branch against a stale origin/main will always show it.

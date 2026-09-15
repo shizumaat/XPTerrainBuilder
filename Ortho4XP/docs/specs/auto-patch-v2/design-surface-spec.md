@@ -12849,6 +12849,15 @@ prove untouched.
 | 33 | `emit/osm_adapter` sidecar `road_bridge_decks` | always empty in v2 | UNCHANGED. |
 | 34 | `planar/zones.py`, `planar/structure_underpass.py`, `constraints/cluster_pad.py`, `solve/design*.py` | other lanes' files this round | NOT TOUCHED. |
 
+**THE TWO FAMILIES SELECT BY OVERLAP, NOT BY REF.**  An emitted ramp face's
+`ref` is its ROLE (`tunnel_ramp`), the same string for every corridor in the
+patch (`planar/structures.py:713`), so a ref join would price every ramp of the
+airport against every object.  A face with at least one vertex INSIDE the wall
+line is that object's cut; a face wholly outside is another corridor's and is
+not read.  The published `outline_ll` is the walls ∪ trench EXTERIOR ring, so
+for a hairpin shell (VHHH `tunnel5`) the region is slightly LOOSER than the
+trench — the family can under-report, never over-report.
+
 **CENSUS ROWS THE MEASUREMENT CORRECTED.**  Rows 3 / 24 / 25 ruled that the
 skirt and re-seat exemption set would grow to `witnesses ∪ object_cut`.  It
 does not need to: a signature-B shell already carries a floor witness, so it

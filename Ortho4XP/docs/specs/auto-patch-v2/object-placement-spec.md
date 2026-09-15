@@ -5306,3 +5306,21 @@ slope the weld requires up to `pad_skirt_max_slope` (5 %) — a slope, never a
 step; the core stays a cap-0 plate; the airside never moves.  Beyond 5 % the
 pad is `pad_airside_weld` (CRITICAL).  BAR: KCLT's 143 infeasible skirt rows
 → 0 with each pad's skirt slope named; HECA's certificate re-read.
+
+### §16g (10) (9) A PAD BETWEEN APRONS SLOPES WITH THEM; THE BUILDING SEATS AT THE LOW SIDE (owner RULINGS 2026-09-14ay/az; supersedes (8))
+
+1. A pad touching an apron takes the apron's level along the shared edge;
+   the apron within `cluster_apron_reach_m` (40 m, re-armed, bounded to the
+   touching component, never across a taxi-family face) joins the pad's
+   plane (§30 (4)); no skirt.
+2. A pad sharing edges with apron on more than one side is a plane sloping
+   up to 1 % between them (the apron law's own cap — always feasible, since
+   the aprons across that span hold it); the cluster's datum is the pad's
+   LOWEST shared-edge level: nothing floats, the high side is buried by at
+   most 1 % × the span.
+3. `pad_airside_weld` (CRITICAL) fires only for a shared edge with a
+   non-apron airside face that cannot be met.
+BARS: KCLT 143 / HECA 124 infeasible skirt rows → 0 (each pad named: the
+apron area flattened within the reach, or its slope and low-side seat);
+the reach never crosses a taxiway; airside moved vs pads-OFF = the
+flattened apron area only.

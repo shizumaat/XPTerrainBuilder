@@ -6069,3 +6069,27 @@ acceptable to flatten large apron areas around big terminals", owner
   arm; bar: KCLT's 143 / HECA's 124 infeasible skirt rows → 0 with the
   apron re-flattened within the reach, named per pad; the reach never
   crosses a taxiway.
+
+## 2026-09-14az Owner: a pad between aprons at different levels slopes at ≤ 1 % to match them, and the building seats at the LOW side — §16g (10) (9)
+
+Owner, verbatim: "If two sides of a pad are legitimately surrounded by
+apron at different levels, it can't be more than 1%, since that's
+apron law, so we allow the pad to slope at 1% to match the apron, and
+seat the building level at the low side so nothing floats and the
+high side is slightly buried. Make sense?"
+
+* RULING §16g (10) (9): a `building` pad sharing edges with apron on
+  more than one side takes each apron's level along each shared edge
+  (step 0) and is a plane SLOPING up to 1 % between them — the apron
+  law's own cap, which the aprons across that span already satisfy,
+  so the pad plane is always feasible at 1 % (a difference larger than
+  1 % across the pad is an APRON violation, priced on the aprons, never
+  a pad step). The cluster seated on that pad takes its datum at the
+  pad's LOWEST shared-edge level: nothing floats, the high side is
+  slightly buried (≤ 1 % × the pad's span). `pad_airside_weld` fires
+  only where a shared edge cannot be met at all (a non-apron airside
+  step). This closes 14ay's "pad between two aprons" CRITICAL case.
+* Lane `v2padvert` r2 amended: the pad plane between apron edges at
+  ≤ 1 %; the cluster datum = the pad's lowest edge; bar: the KCLT/HECA
+  pads between two aprons named with slope and the low-side seat;
+  `pad_airside_weld` 0 except a non-apron airside step.

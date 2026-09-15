@@ -7119,3 +7119,31 @@ OPEN (owner intent): should an existing `no-coverage` for a CAPABILITY-
 FREE provider ever be re-probed (13b's door covers capability-gated
 providers only)? Today such a record is permanent. Chip-worthy: the
 transient WARN cannot name its airport (the strategy is handed no ICAO).
+
+## 2026-09-15i VMMC 15f ATTRIBUTED (scout, 1.0.340): the seafront tunnel is an OSM car-park bore admitted by the 150 m standoff and carried 600 m by six mapped bridges, cutting taxiway pav5; the zone band is emitted over the sea — RULED §34 (12) + §37 (11), lane v2vmmcshore
+
+Item 1: probe 22.1618794,113.579745 is 0.00 m inside `tunnel_ramp`
+−10098 (contains 35.9 m of coastline −687); one 492.9 m corridor of 6
+ramps / 11 rims from OSM `highway=service tunnel=yes` −5508/−5507 (no
+layer, no bridge; `tunnel_objects []`); admitted by
+`deck_signature.is_tunnel_way` + the §29 (1) gate (cover ⊕
+`mouth_standoff_m` 150, pav5 36 m away); floor 1.06 = 6.16 − 5.1 flat for
+six faces because `bridge_deck` −3636/−3446/−3444/−1798/−2898/−5188 each
+sever the climb; approach walk to `max_ramp_length_m` 600; taxiway pav5
+(code E, junction) split into six faces at 3.58/4.28/4.50 m — the
+corridor cuts every pavement bar runway family + pads (08-07 ruling 4).
+VMMC totals: 11 ramps, 19 rims, three corridor groups (shore; 578–782
+m; 1,132–1,182 m from the coast). Item 2: no WATER role, no bank; zone
+1 lip 3 m + zone 2 code-E 19 m, `beyond_zone2 = dem` = 0.00 (GLO30
+ocean): the 6.10 m drop as 26–32 % (zone 2) and 100–1,124 % (lip); 13
+zone faces cross the coastline (3–195 m), rings at 0.00 up to 42 m
+seaward — the second water plane; `strip_seam_tear` 61 (6.110 m, 238 %),
+`adjudicated 225 FAIL`. Z0 6.10 is CIFP thresholds (apt.dat 5.79). The
+flat-site pass already reads the water mask ("47.0 % … WATER … the
+mask edge is the sea wall") — the zone derivation does not. RULED §34
+(12) (serves the field; clipped by water; never cuts airside; a bridge
+severs only when it crosses the bore) and §37 (11) (the shore trims
+the zones; quay + sea wall; `sea_wall` family; tears exempt). Not
+verified: the doubled plane needs `mesh_region_tris` on a build; VMMC
+has no structures.json / no placement json (stock pack, 1,925
+placements; no pack object implicated).

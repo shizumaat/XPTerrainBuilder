@@ -12354,3 +12354,91 @@ taxiway cap; the lane names the transverse row (or its absence) that
 permits it and whether the runway's cross-section is carrying the
 junction's crown — the fix follows the measurement (§29 (7) lateral
 band / §37 (10) taxiway contacts).
+
+## §34 (12) A TUNNEL SERVES THE FIELD OR IS NOT BUILT; NO STRUCTURE CROSSES THE WATER; A CORRIDOR NEVER CUTS AIRSIDE PAVEMENT (owner RULINGS 2026-09-15f item 1; Fable 2026-09-15i) — lane `v2vmmcshore`
+
+**The reading (VMMC 1.0.340).**  Eleven `tunnel_ramp` faces and 19 rims
+run 600 m along the Taipa seafront from an OSM `highway=service,
+tunnel=yes` bore (ways −5508/−5507, no layer, no bridge) — a car-park
+ramp under a building that has nothing to do with the aerodrome.  It was
+admitted because its mouth stands inside cover ⊕ `mouth_standoff_m` 150
+(§29 (1); pav5 is 36 m away); its floor is 6.16 − 5.1 = 1.06 m flat for
+six faces because six mapped `bridge=yes` seafront road ways each sever
+the climb (§33 (4)/§34.5 (6)) and the approach walk runs to
+`max_ramp_length_m` 600; face −10098 contains 35.9 m of coastline −687;
+and the corridor knifes code-E taxiway pav5 into six faces at 3.58–4.50
+m against the 6.10 field, because only the runway family and pads are
+exempt from a corridor cut (08-07 ruling 4).  "Should not be any tunnel
+here … cutting the taxiway is an error."
+
+**RULED.**  (1) **A tunnel is built only where it SERVES THE FIELD**: its
+bore way, or the covered stretch it derives, passes UNDER a classified
+cover element — airside pavement, a pad or unit footprint, a deck the
+pack authored (a plate or wall corridor, §33) — inside the classified
+cover.  A mouth within `mouth_standoff_m` of the cover is a necessary
+condition, never a sufficient one; a bore whose only covers are mapped
+`bridge=yes` roads is not an airport tunnel and is NOT built.  (2) **No
+structure face, rim or ramp crosses the water**: tunnels, decks and
+basins are clipped by the WATER region (the flat-site pass's water mask
+— "47.0 % of the synthetic extent is WATER … the mask edge is the sea
+wall" — and the coastline ways); a corridor reaching the water ends at
+the shore.  (3) **A corridor never cuts airside pavement.**  Where a bore
+crosses a taxiway, junction, apron, stub or parallel, the pavement is
+the DECK of an underpass (§34 (5), the covered extent incl. the strip
+per (5) (b)) or the corridor stops short of it; the pavement's surface
+is never lowered by the trench.  `ramp_cuts_runway_family = false`
+generalises to the airside role set; the exception list is empty.
+(4) A mapped bridge severs the climb only when its way CROSSES the bore
+(an over-crossing within the corridor's own width); parallel or
+oblique seafront bridges do not extend the covered extent.  Consumer
+census at spec time (RULINGS 2026-08-30l): the lane tables every reader
+of the corridor region, the water mask and the airside-cut exemption
+before editing (`planar/structures.py`, `structure_approach.py`,
+`deck_signature.py`, `structure_deck.py`, `zones.py`, `emit/osm_adapter`,
+`verify/*`), one table, one derivation site each.
+
+## §37 (11) THE SHORE TRIMS THE ZONES; A PAVEMENT AT THE WATER IS A SEA WALL (owner RULINGS 2026-09-15f item 2; Fable 2026-09-15i) — lane `v2vmmcshore`
+
+**The reading.**  There is no WATER role in the patch and no bank (bank
+OFF).  Between the taxiway edge (6.10) and the sea (DEM 0.00, GLO30
+ocean) the engine emits the ordinary adjacent-ground band — a 3 m lip
+(zone 1) and the code-E 19 m band (zone 2), `beyond_zone2 = "dem"` — so
+the 6.10 m fall is taken as 26–32 % across zone 2 and 100–1,124 % across
+the lip: the pale sloped strip and the dark face in the screenshot are
+that band.  Thirteen zone faces cross the coastline by 3–195 m; the
+rings stand at exactly 0.00 up to 42 m seaward of it — the second,
+translucent water plane is the patch's own terrain at sea level beside
+the tile's water.  Census: `strip_seam_tear` 61 (worst 6.110 m, 238 %),
+`adjacent_ground_step` 6.  "With a taxiway in the water, I don't think we
+want any adjacent ground at all, the pavement should drop straight to
+the water with no slope."
+
+**RULED — one region trim at the zone derivation site (`planar/zones.py`),
+never per-consumer vetoes.**  (1) The zone region is CLIPPED by the WATER
+region: the coastline/water polygons (OSM `natural=coastline` / water
+ways, the flat-site water mask) — no zone ring, lip or band is emitted
+seaward of the coastline, and no patch vertex stands on the water.
+(2) Where the land between a pavement edge and the coastline is
+NARROWER than zone 1 + zone 2 (lip + half-width), that land is a QUAY:
+one plane at the pavement edge's level (the pavement's own edge rows
+carry it), ending at the coastline in a SEA WALL — a vertical drop from
+the quay level to the water level, emitted as a breakline pair (the
+quay edge at Z, the coincident shore vertex at the water level); where
+the pavement edge IS the coastline (within the lip width) the sea wall
+is the pavement edge itself, no slope, no strip.  (3) Where the land is
+wider, the zones apply in full, bounded by the coastline, and the sea
+wall stands at the coastline at whatever level zone 2 reaches there
+(zones never drop to the DEM's ocean zero).  (4) The DEM's one-post
+ocean bleed (GLO30 0.00 up to a post inland of the mapped coastline) is
+NEVER the ground: on the quay the level is the pavement's; in the
+zones the DEM witness is the nearest on-land post.  (5) The census
+names sea-wall edges as their own family (`sea_wall`: the drop, the
+level, the length) and `strip_seam_tear` / `adjacent_ground_step` EXCLUDE
+them — the tear IS the wall.  (6) The weld to shore (§39, `weld_to_
+shore`) stays a hairline fix on the vertices that remain; it is not the
+trim.  Consumer census first: every reader of the zone region and of
+`beyond_zone2` (zones.py, cluster/pad clips, road ribbons §34 (4), the
+bank emitter even while OFF, `verify/within.py`, `check_grade`'s strip
+families, `mesh_region_tris`), one table.  Water level: the tile's own
+sea (the coastline mesh at the X-Plane water level), read from the
+same source the tile uses (`O4_Vector_Map include_sea`).

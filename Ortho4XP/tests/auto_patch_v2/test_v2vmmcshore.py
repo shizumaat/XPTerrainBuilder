@@ -96,47 +96,24 @@ def _run(law, bore_pts, approaches=(), cells=None):
     return build_structures(airport, cl, law)
 
 
-# ── §34 (12) (1): a tunnel serves the field or is not built ──────────────
+# ── §34 (12) (1) IS WITHDRAWN: admission is by the mouth ────────────────
 
-def test_a_bore_under_airside_pavement_is_built(law):
-    """The baseline, and the clause's own first limb: the bore runs UNDER
-    the apron, so it serves the field and both its on-apron mouths build
-    their ramps.  The approaches run NORTH and SOUTH, away from junction
-    ``pav5`` — a ramp that walked into it would be the next test's
-    defect, not this one's baseline."""
-    _cl2, _t, st = _run(law, ((0.0, -60.0), (0.0, 60.0)),
-                        (((0.0, 60.0), (0.0, 460.0)),
-                         ((0.0, -60.0), (0.0, -460.0))))
-    assert st.bores == 1 and st.bores_no_service == 0
-    assert st.mouths == 2 and st.tunnels == 2, st.refused
+def test_admission_is_by_the_mouth_and_nothing_else(law):
+    """§34 (12) (1) WITHDRAWN (Fable 2026-09-15; RULINGS 2026-09-15w).
 
-
-def test_a_car_park_bore_with_an_on_field_mouth_is_NOT_built(law):
-    """§34 (12) (1) — THE VMMC SITE.  The bore runs entirely through the
-    GROUNDSIDE lot, never under airside pavement, a pad or an authored
-    deck; its east mouth stands well inside the apron's cover ⊕
-    ``mouth_standoff_m``, so §29 (1) admits it.  The mouth gate is
-    NECESSARY and NOT SUFFICIENT: nothing is built, and the bore is
-    counted and named under its own heading."""
+    Round 1 read (1) as "a tunnel is built only where its bore passes
+    under a cover class" and measured the price at LEMD by dry pair:
+    **54 tunnels → 16**, the 38 lost being owner 2026-09-12ab's "Build
+    them" population.  A mapped bore whose mouth stands on the field is
+    BUILT whether or not it passes under an airport surface — here the
+    bore runs entirely through the GROUNDSIDE lot and is built, because
+    its mouth is on the field.  What stops VMMC's seafront line is
+    (2)-(4), and this twin is what forbids the reversal coming back."""
     _cl2, tunnels, st = _run(law, ((-600.0, -200.0), (-200.0, -200.0)),
                              (((-200.0, -200.0), (-100.0, -100.0)),))
-    assert st.bores == 1
-    assert st.bores_no_service == 1
-    assert st.no_service_bores == ["-101"]
-    assert st.tunnels == 0 and tunnels == ()
-    # and the two gates are reported APART — this bore had a mouth
-    assert st.bores_no_mouth == 0
-
-
-def test_the_no_service_gate_never_counts_a_mapped_bridge_as_cover(law):
-    """§34 (12) (1): "a bore whose only covers are mapped ``bridge=yes``
-    roads is not an airport tunnel".  A bridge way is not a classified
-    cell at all, so the cover set cannot see one — asserted through the
-    cover set's own membership, which is what the gate reads."""
-    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
-    assert frame is not None
-    roles = set(airside_cut_roles(law))
-    assert "bridge_deck" not in roles and "service_road" not in roles
+    assert st.bores == 1 and st.bores_no_mouth == 0
+    assert st.tunnels >= 1 and tunnels
+    assert not hasattr(st, "bores_no_service")
 
 
 # ── §34 (12) (3): a corridor never cuts airside pavement ─────────────────
@@ -156,18 +133,38 @@ def test_the_airside_cut_set_is_the_whole_airside_role_set(law):
     assert "parking_lot" not in roles and "graded_strip" not in roles
 
 
-def test_a_corridor_that_would_cut_a_junction_is_refused_by_name(law):
-    """§34 (12) (3) — THE VMMC DEFECT.  The bore runs under the apron (so
-    it serves the field) and its ramp then walks east into code-E
-    junction ``pav5``.  No deck states that crossing, so the corridor is
-    REFUSED and the refusal NAMES the pavement it would have cut."""
-    _cl2, _t, st = _run(law, ((-80.0, 0.0), (80.0, 0.0)),
-                        (((80.0, 0.0), (400.0, 0.0)),))
-    assert st.bores_no_service == 0
-    hit = [r for r in st.refused if "AIRSIDE pavement" in r]
-    assert hit, st.refused
-    assert "pav5" in hit[0]
-    assert "§34 (12) (3)" in hit[0]
+def test_a_ramp_walking_at_a_junction_STOPS_SHORT_of_it(law):
+    """§34 (12) (3) AS AMENDED — THE VMMC DEFECT.  The bore runs under the
+    apron and its ramp then walks east toward code-E junction ``pav5``.
+    The corridor is NOT refused: the ramp STOPS SHORT of the pavement
+    (the ruling's own words), so ``pav5`` keeps its own surface and no
+    ramp face stands on it."""
+    cl2, tunnels, st = _run(law, ((-80.0, 0.0), (80.0, 0.0)),
+                            (((80.0, 0.0), (400.0, 0.0)),))
+    assert tunnels, st.refused
+    pav5 = next(p for p in (Polygon(_rect(120, -60, 320, 60)),))
+    ramps = [Polygon(c.ring, c.holes) for c in cl2.cells
+             if c.role == "tunnel_ramp"]
+    assert ramps, "the corridor is built, not refused"
+    for r in ramps:
+        assert r.intersection(pav5).area < 1e-6
+    # and pav5 is still ONE face, uncut
+    assert sum(1 for c in cl2.cells if c.ref.startswith("pav5")) == 1
+
+
+def test_a_pack_stated_corridor_is_never_bound_by_clause_3(law):
+    """§34 (12) (3) is SCOPED TO OSM-DERIVED CORRIDORS (RULINGS
+    2026-09-15w).  A pack-stated corridor (§33 (6) signatures — an
+    object corridor, a wall corridor, a plate) is authored geometry and
+    its crossing of airside IS an underpass by authorship.  Measured at
+    OTHH: bound by (3) it refused three terminal tunnels
+    (``tunnel middle - east`` / ``- west``, ``tunnel south west 2``)
+    against aprons ``pav32`` / ``pav30``.  The scoping is the caller's —
+    asserted here at the site that reads it."""
+    import inspect
+    from auto_patch_v2.planar import structures as _s
+    src = inspect.getsource(_s.build_structures)
+    assert "if c is None and g.kind != WALL_KIND:" in src
 
 
 # ── §37 (11) (1)/(2): the shore trims the zones; the quay ────────────────

@@ -15,8 +15,8 @@ crest = DEM; law ``structures.toml [tunnel]``):
   the tunnel mouths and entrance/exit ramps"; Fable 2026-09-12t; owner
   2026-09-12ab).  A bore with no on-field mouth emits NOTHING however
   much of its length runs under a cell (LEMD's rail bores, 4.0 km out).
-  §34 (12) (1): the mouth is NECESSARY, NOT SUFFICIENT — the bore must
-  also SERVE THE FIELD (``structure_service.serves_the_field``);
+  a bore with an on-field mouth is built whether or not it passes under
+  an airport surface (owner 2026-09-12ab; §34 (12) (1) WITHDRAWN, 15w);
 * the MOUTH is the mapped end of the bore (08-07 ruling 1: "mapped ends
   are preserved unconditionally" — WHERE IT STANDS ON THE FIELD, §29 (1);
   an end outside the governed region is dropped at ``mouths()`` and
@@ -101,8 +101,8 @@ from .structure_approach import (FieldRegion, apply_plates,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
-from .structure_service import (airside_cut_refusal, airside_cut_roles,
-                                no_service_bores, pad_relief_m as _pad_relief_m)
+from .structure_service import (airside_cut_roles, airside_stops as _airside_stops,
+                                pad_relief_m as _pad_relief_m)
 from .structure_deck import (PavementDeck, deck_intervals, deck_items, emit_decks,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
@@ -211,18 +211,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                                      dropped)
     with_mouth = {id(b) for b in bores if any(m.bore is b for m in mouth_list)}
     covered = [b for b in bores if id(b) in with_mouth]
-    # §34 (12) (1): the second, independent condition beside §29 (1)'s
-    # mouth gate (``structure_service.no_service_bores``), reported apart
-    served, no_service = no_service_bores(covered, mouth_list, corridors,
-                                          cells, polys, plates, law,
-                                          tn.object.bore_end_tolerance_m)
     # §29 (2)'s own reading, over what THAT gate admitted (both reported)
     mouth_only = [b for b in covered if not under_cover(b.line, polys, cell_tree)]
-    stats.bores_no_mouth, stats.bores_no_service = len(bores) - len(covered), len(no_service)
-    stats.no_service_bores = ["+".join(str(w.id) for w in b.ways) for b in no_service][:12]
-    # THE DROP IS OF THE BUILD, NOT OF THE MOUTH: §29 (1)'s own counts
-    # stay what THAT gate found, so the two findings keep reading apart
-    no_service_ids = {id(b) for b in no_service}
+    stats.bores_no_mouth = len(bores) - len(covered)
     stats.bores_mouth_only = len(mouth_only)
     stats.mouth_only_bores = ["+".join(str(w.id) for w in b.ways) for b in mouth_only][:12]
     if not covered and not corridors and not extra_groups:
@@ -263,9 +254,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                              f"stand")
         mouth_list = kept
     stats.mouths = len(mouth_list)
-    built = [m for m in mouth_list if id(m.bore) not in no_service_ids]
     groups = [Group(list(m), xy, inw, w, list(ax))
-              for m, xy, inw, w, ax in (merge_duals(built, law, stats) if built else [])]
+              for m, xy, inw, w, ax in (merge_duals(mouth_list, law, stats) if mouth_list else [])]
     groups += object_groups(corridors, list(airport.osm_ways), law, reach)
     groups += extra_groups
     stats.object_corridors = len(corridors)
@@ -281,12 +271,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # ``ramp_cuts_runway_family`` are kept; the union is wider.
     runway_u = unary_union([p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
         if any(c.role in RUNWAY_FAMILY for c in cells) else None
-    # §34 (12) (3)'s WIDER union, for an OSM BORE's corridor only (the
-    # scoping and its OTHH measurement: ``structure_service``)
+    # §34 (12) (3)'s protected set (``structure_service``); an OSM bore's
+    # ramp STOPS SHORT of these, a pack-stated corridor is never bound
     _cut_roles = set(airside_cut_roles(law))
-    airside_u = unary_union([p for p, c in zip(polys, cells)
-                             if c.role in _cut_roles and c.kind != "structure"]) \
-        if any(c.role in _cut_roles and c.kind != "structure" for c in cells) else None
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
     pad_refs = {ref for _p, ref in pads}
     pad_poly = {ref: p for p, ref in pads}
@@ -573,6 +560,25 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                         if ref not in pad_refs or _pad_relief_m(airport, pad_poly[ref]) <= band_m}
         half_fn = g.half_fn
         traced: list[str] = []
+        # §34 (12) (3) A CORRIDOR NEVER CUTS AIRSIDE PAVEMENT (owner
+        # RULINGS 2026-09-15f item 1 as AMENDED by Fable 2026-09-15 /
+        # RULINGS 2026-09-15w): an OSM-derived corridor's ramp STOPS
+        # SHORT of every airside face that is not its own deck and not
+        # the pavement its own mouth stands on.  It rides the SAME
+        # station-truncation loop ``ramp_crosses_pad`` has always used,
+        # so a corridor with no room left refuses by that loop's own
+        # message.  A PACK-STATED corridor (§33 (6) signatures — the
+        # OTHH terminal tunnels under pav32/pav30) is authored geometry
+        # and is never bound by it.
+        osm_stops = pads
+        osm_tree = pad_tree
+        if c is None and g.kind != WALL_KIND:
+            osm_stops = pads + _airside_stops(
+                cells, polys, _cut_roles,
+                [d[3] for d in deck_ivals] + [d[3] for d in obj_ivals],
+                [Point(m.xy) for m in (g.members or ())] or [Point(g.mouth)],
+                grid)
+            osm_tree = STRtree([p for p, _r in osm_stops]) if osm_stops else None
         if c is None:
             # THE RAMP WIDTH FROM THE PAVEMENT (2026-09-06b (2)): a pavement
             # tracing the road sets the ramp's edges per station
@@ -601,14 +607,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             elif g.stop_at_pavement:
                 hit = _pad_hit(probe, stop_list, stop_tree_g, stop_gap, host)
             else:
-                hit = _pad_hit(probe, pads, pad_tree, gap)
+                hit = _pad_hit(probe, osm_stops, osm_tree, gap)
             if hit is None:
                 break
             clipped_by = hit
             top_pinned = False
             if len(ss) <= 2:
-                stats.refused.append(f"{tid}: the mouth stands against "
-                                     f"{'pavement' if g.stop_at_pavement else 'building pad'} {hit}")
+                stats.refused.append(
+                    f"{tid}: the mouth stands against "
+                    f"{'pavement' if g.stop_at_pavement or c is None else 'building pad'} {hit}")
                 geom = None
                 break
             ss = ss[:-1]
@@ -684,16 +691,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # of an underpass, §34 (5)"): the decks read above are subtracted
         # before the test, so every §34 (5) underpass — LEMD F-6, KCLT
         # taxiway U — passes exactly as it did.
-        # §34 (12) (3): the ONE reading, ``airside_cut_refusal``
-        _why = airside_cut_refusal(
-            outer, airside_u if c is None else runway_u,
-            [d[3] for d in deck_ivals] + [d[3] for d in pav_ivals]
-            + [d[3] for d in obj_ivals],
-            [Point(m.xy) for m in (g.members or ())] or [Point(g.mouth)],
-            cells, polys, _cut_roles, gap, grid)
-        if _why:
-            stats.refused.append(f"{tid}: {_why}")
-            continue
         if strip_u is not None and wall.intersects(strip_u) and \
                 wall.intersection(strip_u).area > 1e-6:
             stats.refused.append(f"{tid}: the wall would stand inside the runway strip "

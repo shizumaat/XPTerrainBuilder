@@ -54,6 +54,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
 from . import obj8 as _obj8
+from . import object_cut as _object_cut
 from .deck_signature import is_bridge_way, is_tunnel_way
 
 __all__ = ["WallPlate", "PlateStats", "read_plates", "authored_axis_ends", "ID_PREFIX"]
@@ -82,6 +83,14 @@ class WallPlate:
     #: the mapped ways this plate governs, and the metres of each under it
     bore_ways: tuple[tuple[int, float], ...] = ()
     bridge_ways: tuple[tuple[int, float], ...] = ()
+    #: §33 (6) C RE-FOUNDED (RULINGS 2026-09-15x): the object's own THIN
+    #: SURFACE BANDS in the airport frame (``object_cut.ThinBand``) and
+    #: the parallel PAIRS among them (``(A, B, inner spacing m)``).  A
+    #: pair marks a MOUTH RAMP (C1'); a lone curved band is a wall the
+    #: ring follows (C2'); two bands flanking or ending a mapped deck are
+    #: the deck's extent or its abutments (C3').
+    bands: tuple = ()
+    pairs: tuple = ()
     notes: tuple[str, ...] = ()
 
     @property
@@ -276,11 +285,30 @@ def read_plates(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                 f"DRAPED placement: the authored top {y1:+.3f} m is an OFFSET over the solved "
                 f"ground (anchor {o.anchor_z:.2f} is the DEM there), not a datum — the deck's "
                 f"ENDS govern (§33 (4))")
+        # §33 (6) C (RULINGS 2026-09-15x): the object's own THIN SURFACE
+        # BANDS, read over LAW C's band machinery in the AIRPORT frame —
+        # one derivation (``airport/object_cut.thin_bands``), never a
+        # second spelling.  The 354.2 x 25.1 m "pair" of 15h was the
+        # object BOX; the solids are two 73 m pairs 14.02 m apart at the
+        # object's two ends with 224 m of nothing between them.
+        mat = _obj8.placement_affine(o.xy, o.heading_deg)
+        bands = _object_cut.thin_bands(geom, cache.genuine(o.resolved), mat, law)
+        pairs = _object_cut.band_pairs(bands, law)
+        if bands:
+            notes.append(f"§33 (6) C: {len(bands)} thin surface band(s), {len(pairs)} "
+                         f"parallel pair(s) — "
+                         + "; ".join(f"{b.length_m:.1f} x {b.width_m:.2f} m at "
+                                     f"{b.bearing_deg:.1f} deg" for b in bands[:8]))
+            for A, B, inner in pairs:
+                notes.append(f"§33 (6) C1' pair: comps {A.comp}/{B.comp}, "
+                             f"{A.length_m:.1f} / {B.length_m:.1f} m at "
+                             f"{A.bearing_deg:.1f} deg, inner spacing {inner:.2f} m")
         k = k_by_res.get(o.path, 0)
         k_by_res[o.path] = k + 1
         out.append(WallPlate(f"{ID_PREFIX}:{name}@{k}", o.path, o.id, plan, (e0, e1),
                              length, width, float(vmax - vmin), float(y1), top_z,
-                             tuple(b_ok), tuple(d_ok), tuple(notes)))
+                             tuple(b_ok), tuple(d_ok), tuple(bands), tuple(pairs),
+                             tuple(notes)))
     out.sort(key=lambda p: p.id)
     stats.plates = len(out)
     stats.bore_plates = sum(1 for p in out if p.bore_ways)

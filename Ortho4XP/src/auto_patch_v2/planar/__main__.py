@@ -355,6 +355,13 @@ def structure_records(airport, cl, law) -> dict:
                        "length_m": c.length_m, "width_m": c.width_m, "depth_m": c.depth_m,
                        "plate_y": c.plate_y, "mouth_dem_z": c.mouth_dem_z, "floor_z": c.floor_z,
                        "mouth_ll": ll(c.axis[0]), "far_ll": ll(c.axis[-1]),
+                       # §33 (6) C2' (RULINGS 2026-09-15x): the corridor's
+                       # own inner faces and stations, so the ring a build
+                       # emits can be measured against the wall polyline
+                       # the object states (Bridge4's curved U)
+                       "inner_a_ll": [ll(q) for q in c.stations_inner()[0]],
+                       "inner_b_ll": [ll(q) for q in c.stations_inner()[1]],
+                       "axis_ll": [ll(q) for q in c.axis],
                        "notes": list(c.notes)} for c in corridors],
         "corridor_refused": list(tstats.refused),
         # spec §33 (2): the THIN-PLATE wall objects read
@@ -365,6 +372,23 @@ def structure_records(airport, cl, law) -> dict:
                     "bridge_ways": [list(t) for t in p.bridge_ways],
                     "end0_ll": ll(p.ends[0]), "end1_ll": ll(p.ends[1]),
                     "plan_ll": [ll(q) for q in p.plan.exterior.coords],
+                    # §33 (6) C RE-FOUNDED (RULINGS 2026-09-15x): the
+                    # object's own thin surface BANDS and their PAIRS, so
+                    # the C rules are measured on a dry pair before they
+                    # are wired
+                    "bands": [{"comp": b.comp, "length_m": round(b.length_m, 2),
+                               "width_m": round(b.width_m, 3),
+                               "height_m": round(b.height_m, 3),
+                               "bearing_deg": round(b.bearing_deg, 2),
+                               "a_ll": ll(b.axis.coords[0]),
+                               "b_ll": ll(b.axis.coords[-1])} for b in p.bands],
+                    "pairs": [{"comps": [A.comp, B.comp],
+                               "inner_spacing_m": round(inner, 3),
+                               "lengths_m": [round(A.length_m, 2), round(B.length_m, 2)],
+                               "bearing_deg": round(A.bearing_deg, 2),
+                               "a_ll": [ll(A.axis.coords[0]), ll(A.axis.coords[-1])],
+                               "b_ll": [ll(B.axis.coords[0]), ll(B.axis.coords[-1])]}
+                              for A, B, inner in p.pairs],
                     "notes": list(p.notes)} for p in plates],
         "plate_refused": list(pstats.refused),
         "plate_stats": {k: v for k, v in _dc.asdict(pstats).items()

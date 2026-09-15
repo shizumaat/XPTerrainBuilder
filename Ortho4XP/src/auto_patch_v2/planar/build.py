@@ -39,6 +39,7 @@ from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
 from .channel_claims import claimed_crossing_ways
 from .structures import StructureStats, build_structures, ramp_targets
+from .structure_road import mouth_pair_roads
 from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
 from ..airport.thin_plates import read_plates
 from ..airport.door_wells import DoorStats, read_door_wells
@@ -155,6 +156,15 @@ def build(airport: Airport, classification: Classification, law: Law,
         claimed_crossing_ways(airport, law, corridors))
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels)
+    # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
+    # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the
+    # structures stage mints — a mapped way whose two ENDS are mouths.
+    # Here rather than inside ``build_structures`` because that file is at
+    # its 1,000-line budget and because the cells must exist before the
+    # arrangement is built, which is exactly this seam.
+    classification, mroad_notes = mouth_pair_roads(airport, classification,
+                                                   law, tunnels)
+    sstats.mouth_roads.extend(mroad_notes)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
                                                   objects, cache, report=orep,
                                                   channels=channels,

@@ -319,3 +319,63 @@ def test_a_missing_decoder_raises_instead_of_answering_no_coverage(
         strategy._decode_lerc_sources(
             {"code": "NEWZEALAND1M", "asset_compression": "lerc"},
             [{"href": "https://example.invalid/a.tif"}], "/tmp/unused")
+
+
+# ── the worker launches carry the external-tool kwargs (RULINGS 14bv) ──
+def test_the_selftest_launch_carries_the_external_tool_kwargs(monkeypatch):
+    """``close_fds=False`` + the tool env, no ``cwd=``: CPython then spawns
+    the worker via posix_spawn.  A bare fork() child dies in PROJ's
+    pthread_atfork handler inside the frozen engine once GDAL has warped
+    (the 2026-07-16 class; the DSFTool SIGSEGV of 2026-09-14bv)."""
+    import O4_UI_Utils as UI
+
+    seen = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    INSETS._LERC_CAPABILITY[0] = None
+    try:
+        assert INSETS.lerc_decode_available() is True
+    finally:
+        INSETS._LERC_CAPABILITY[0] = None
+    assert len(seen) == 1, seen
+    (cmd, kwargs), = seen
+    assert cmd == INSETS.lerc_selftest_argv()
+    expected = UI.external_tool_keyword_arguments()
+    assert kwargs.get("close_fds") is False
+    assert kwargs.get("env") == expected["env"]
+    assert "cwd" not in kwargs
+
+
+def test_EVERY_worker_launch_carries_the_external_tool_kwargs():
+    """Static twin over the fetchers too (their launches sit behind HTTP):
+    every ``subprocess.run(lerc_*_argv(...))`` in the insets module passes
+    ``**UI.external_tool_keyword_arguments()``."""
+    import ast
+
+    source = open(os.path.join(ENGINE_DIR, "src",
+                               "O4_Airport_Elevation_Insets.py")).read()
+    launches = []
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "run"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "subprocess"):
+            continue
+        first = node.args[0] if node.args else None
+        if not (isinstance(first, ast.Call)
+                and isinstance(first.func, ast.Name)
+                and first.func.id in ("lerc_worker_argv",
+                                      "lerc_selftest_argv")):
+            continue
+        carries = any(
+            kw.arg is None
+            and ast.unparse(kw.value) == "UI.external_tool_keyword_arguments()"
+            for kw in node.keywords)
+        launches.append((node.lineno, carries))
+    assert len(launches) == 3, launches
+    assert all(carries for _, carries in launches), launches

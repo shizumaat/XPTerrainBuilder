@@ -265,3 +265,38 @@ def test_the_dsftool_stand_in_restores_subprocess_run(tmp_path):
         assert DW.subprocess.run is not real
     assert DW.subprocess.run is real
     assert subprocess.run is real
+
+
+# ── 6. THE DSFTool LAUNCH CARRIES THE EXTERNAL-TOOL KWARGS (14bv) ────────
+
+def test_the_dsftool_launch_carries_the_external_tool_kwargs(
+        tmp_path, monkeypatch):
+    """Both ``dsf_write`` launches (dump / encode) pass ``close_fds=False``
+    + the tool env and no ``cwd=``, so CPython spawns DSFTool via
+    posix_spawn: the bare fork() child dies in PROJ's pthread_atfork
+    handler inside the frozen engine (RULINGS 2026-09-14bv)."""
+    import os
+    import sys
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import dsf_write as DW
+
+    tool = sys.executable  # an existing absolute file; never launched
+    seen = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append((cmd, kwargs))
+        open(cmd[3], "w").close()
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(DW.subprocess, "run", fake_run)
+    src = tmp_path / "in.dsf"
+    src.write_bytes(b"x")
+    text = DW.dump(str(src), str(tmp_path / "out.txt"), tool)
+    DW.encode(text, str(tmp_path / "out.dsf"), tool)
+    assert [cmd[1] for cmd, _ in seen] == ["--dsf2text", "--text2dsf"]
+    expected = UI.external_tool_keyword_arguments()
+    for cmd, kwargs in seen:
+        assert kwargs.get("close_fds") is False, cmd
+        assert kwargs.get("env") == expected["env"], cmd
+        assert "cwd" not in kwargs, cmd
+        assert os.path.dirname(cmd[0]), cmd

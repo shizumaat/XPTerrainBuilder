@@ -281,3 +281,42 @@ def test_v2_provenance_line_shares_the_source_label():
         ruleset="icao", dem_prov={}, status="optimal")
     assert line.startswith("  [provenance] CYXY patch: engine=v2 sha=absent version=")
     assert P.engine_version() in line
+
+
+# ── git launches carry the external-tool kwargs (RULINGS 2026-09-14bv) ────────
+def test_git_launches_use_external_tool_kwargs(tmp_path, monkeypatch):
+    """Both git launches must be posix_spawn-eligible: ``close_fds=False`` +
+    the tool env, an ABSOLUTE argv[0], ``-C <dir>`` and NO ``cwd=``.
+
+    A bare fork() child dies in PROJ's atfork handler inside the frozen
+    engine (the DSFTool SIGSEGV of 14bv); here the failure would be silent
+    -- the patch stamped ``sha=absent``."""
+    import O4_UI_Utils as UI
+
+    monkeypatch.setattr(P.shutil, "which", lambda name: "/usr/bin/git")
+    seen = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append((cmd, kwargs))
+        out = "abcdef12\n" if "rev-parse" in cmd else " M x.py\n"
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+
+    monkeypatch.setattr(P.subprocess, "run", fake_run)
+    got = P.git_provenance(cwd=str(tmp_path))
+    assert got == {"sha": "abcdef12", "dirty": True}
+    assert [cmd[3] for cmd, _ in seen] == ["rev-parse", "status"]
+    expected = UI.external_tool_keyword_arguments()
+    for cmd, kwargs in seen:
+        assert kwargs.get("close_fds") is False, (
+            f"git launched without close_fds=False: {cmd}")
+        assert kwargs.get("env") == expected["env"], (
+            f"git launched without the tool env: {cmd}")
+        # The remaining posix_spawn preconditions (CPython _execute_child).
+        assert "cwd" not in kwargs, f"git launched with cwd= (fork path): {cmd}"
+        assert os.path.dirname(cmd[0]), f"git launched by bare name: {cmd}"
+        assert cmd[1:3] == ["-C", str(tmp_path)]
+
+
+def test_git_provenance_absent_without_a_git_binary(tmp_path, monkeypatch):
+    monkeypatch.setattr(P.shutil, "which", lambda name: None)
+    assert P.git_provenance(cwd=str(tmp_path)) == {"sha": None, "dirty": None}

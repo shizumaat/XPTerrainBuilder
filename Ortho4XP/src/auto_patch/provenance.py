@@ -47,6 +47,7 @@ import datetime
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import urllib.parse
 
@@ -62,6 +63,26 @@ def provenance_enabled() -> bool:
 # ──────────────────────────────────────────────────────────────────────────────
 # Facet 1 — source tree (git)
 # ──────────────────────────────────────────────────────────────────────────────
+def git_launch_arguments(cwd: str, *git_args: str) -> tuple[list[str], dict]:
+    """``(argv, kwargs)`` for one ``git`` launch against the tree at ``cwd``.
+
+    argv[0] is the ABSOLUTE git binary (``shutil.which``; raises
+    ``FileNotFoundError`` when there is none, which the callers swallow to
+    the absent value) and the tree is selected with ``-C <cwd>`` rather
+    than ``cwd=``; kwargs are ``O4_UI_Utils.external_tool_keyword_arguments()``
+    (``close_fds=False`` + the tool env).  Together these are exactly the
+    preconditions under which CPython launches via ``posix_spawn`` instead
+    of ``fork``+``exec`` -- the fork path is the frozen-engine SIGSEGV of
+    RULINGS 2026-09-14bv / the 2026-07-16 PROJ ``pthread_atfork`` crash.
+    """
+    import O4_UI_Utils as UI
+
+    git = shutil.which("git")
+    if not git:
+        raise FileNotFoundError("git")
+    return ([git, "-C", cwd, *git_args], UI.external_tool_keyword_arguments())
+
+
 def git_provenance(cwd: str | None = None) -> dict:
     """Return ``{"sha": str | None, "dirty": bool | None}`` for the source tree.
 
@@ -78,12 +99,20 @@ def git_provenance(cwd: str | None = None) -> dict:
     sha: str | None = None
     dirty: bool | None = None
     try:
+        # Both launches go through ``git_launch_arguments``: an ABSOLUTE git,
+        # ``-C <dir>`` instead of ``cwd=``, and the external-tool kwargs.
+        # CPython only takes ``posix_spawn`` when argv[0] has a dirname,
+        # ``cwd`` is None and ``close_fds`` is False; a bare fork() child
+        # dies in PROJ's ``pthread_atfork`` handler inside the frozen engine
+        # (RULINGS 2026-09-14bv), which here would silently stamp
+        # ``sha=absent`` -- provenance loss, not a crash.
+        argv, kwargs = git_launch_arguments(cwd, "rev-parse", "--short=8", "HEAD")
         sha = subprocess.run(
-            ["git", "rev-parse", "--short=8", "HEAD"],
-            cwd=cwd,
+            argv,
             capture_output=True,
             text=True,
             timeout=5,
+            **kwargs,
         ).stdout.strip() or None
     except Exception:
         return {"sha": None, "dirty": None}
@@ -92,12 +121,13 @@ def git_provenance(cwd: str | None = None) -> dict:
         # not claim a dirty state we cannot determine.
         return {"sha": None, "dirty": None}
     try:
+        argv, kwargs = git_launch_arguments(cwd, "status", "--porcelain")
         status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=cwd,
+            argv,
             capture_output=True,
             text=True,
             timeout=5,
+            **kwargs,
         )
         dirty = bool(status.stdout.strip())
     except Exception:

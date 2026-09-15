@@ -705,6 +705,7 @@ def lerc_decode_available():
                 capture_output=True,
                 text=True,
                 timeout=120,
+                **UI.external_tool_keyword_arguments(),
             )
             _LERC_CAPABILITY[0] = completed.returncode == 0
         except Exception:
@@ -2846,6 +2847,7 @@ class StaticStacCatalogStrategy:
                     capture_output=True,
                     text=True,
                     timeout=600,
+                    **UI.external_tool_keyword_arguments(),
                 )
                 if completed.returncode != 0:
                     raise RuntimeError(
@@ -3642,6 +3644,7 @@ class ArcgisLercTileStrategy:
                 capture_output=True,
                 text=True,
                 timeout=600,
+                **UI.external_tool_keyword_arguments(),
             )
             if completed.returncode != 0:
                 # The blobs ARRIVED and we could not read them: our

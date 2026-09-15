@@ -403,7 +403,15 @@ def edit_dump(text: str, plan: PlacementPlan) -> str:
 # ── DSFTool ─────────────────────────────────────────────────────────────
 
 def _run(args: list[str]) -> None:
-    proc = subprocess.run(args, capture_output=True, text=True)
+    # ``close_fds=False`` + the tool env (every external-tool launch in the
+    # engine carries them): CPython then launches DSFTool via posix_spawn
+    # instead of fork()+exec(), whose child dies in PROJ's pthread_atfork
+    # handler inside the frozen engine (RULINGS 2026-09-14bv).  Lazy import:
+    # auto_patch_v2 reaches O4_* modules only at call time.
+    import O4_UI_Utils as UI
+
+    proc = subprocess.run(args, capture_output=True, text=True,
+                          **UI.external_tool_keyword_arguments())
     if proc.returncode != 0:
         raise RuntimeError(f"{' '.join(args[:2])} failed (rc {proc.returncode}): "
                            f"{(proc.stderr or proc.stdout).strip()[:400]}")

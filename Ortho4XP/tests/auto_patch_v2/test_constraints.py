@@ -232,10 +232,25 @@ def test_strip_families_and_pads(synthetic, law):
     assert {r.cap for r in flats} == {0.0}, {r.cap for r in flats}
     # the ceiling pass is the SAME pair set at the 1 % cap — one row per
     # pair over the whole rim, nothing withdrawn
-    assert len(ceil) == len(flats)
     assert {r.cap for r in ceil} == {ceiling}
     assert {v for r in ceil for v in (r.a, r.b)} >= rim
     assert len(ceil) == len(rim) * (len(rim) - 1) // 2
+    assert all(r.follows is None for r in ceil)
+    # §16g (10) (11) (a) (owner RULINGS 2026-09-15z) points the PLATE's
+    # airside pairs one way — the airside vertex leads and never moves
+    # for a pad — and withdraws the pairs the airside owns at BOTH ends.
+    # The CEILING pass is untouched (a hard cap on the pad's own tilt
+    # says nothing about which side yields), so the two row sets are the
+    # same size only where no pad pair touches airside.
+    air = pads.airside_vertices(pm, law)
+    for r in flats:
+        aa, bb = r.a in air, r.b in air
+        if r.follows is not None:
+            assert aa != bb and r.follows == ((r.b,) if aa else (r.a,))
+            assert "airside-led" in r.source.ruling
+    assert len(flats) + sum(1 for r in ceil
+                            if r.a in air and r.b in air) >= len(ceil) \
+        or len({v for r in flats for v in (r.a, r.b)} - air) < 3
     # and no row anywhere carries the withdrawn skirt's head
     assert not any("airside skirt" in r.source.ruling for r in flats + ceil)
     assert {v for r in flats for v in (r.a, r.b)} >= shared.get(pad_face.id, set())

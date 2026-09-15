@@ -272,22 +272,40 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
     if not polys:
         return got, by_ref, yielded
     tree = STRtree([p[3] for p in polys])
+    # §16g (10) (11) (b) THE SHARE IS THE REF'S, NOT ONE FACE'S (owner
+    # RULINGS 2026-09-15z; r1 named this class and left the lever untried).
+    # A PAD IS A REF (the planar map splits one minted pad into several
+    # faces), so "is this pad this cluster's" must be asked of the REF's
+    # whole area.  Asked per FACE it took one SLIVER face of a big
+    # neighbouring pad to list that whole ref: MEASURED at HECA,
+    # ``unit:43#204`` holds 94 % of ``building254`` and 2 % of
+    # ``building253`` (8 faces, 4,373 m2), ``unit:43#612/0`` 96 % and 8 %,
+    # ``unit:43#844`` 100 % and 48 % — nine of the ten survivors.
+    ref_area: dict[str, float] = {}
+    for _fid, ref, _grp, poly in polys:
+        ref_area[_base_ref(ref)] = ref_area.get(_base_ref(ref), 0.0) + poly.area
     seen: set[tuple[str, str]] = set()
     for cid, c, u in pairs:
         keep: list[int] = []
         clipped: list[int] = []
+        share: dict[str, float] = {}
+        hits: dict[str, list[int]] = {}
         for i in tree.query(u, predicate="intersects"):
             fid, ref, _grp, poly = polys[int(i)]
             if poly.area <= 0.0:
                 continue
-            if poly.intersection(u).area >= _OWN_FACE_SHARE * poly.area:
-                keep.append(int(fid))
-                base = _base_ref(ref)
+            base = _base_ref(ref)
+            share[base] = share.get(base, 0.0) + poly.intersection(u).area
+            hits.setdefault(base, []).append(int(fid))
+        for base, inside in share.items():
+            tot = ref_area.get(base, 0.0)
+            if tot > 0.0 and inside >= _OWN_FACE_SHARE * tot:
+                keep.extend(hits[base])
                 if (cid, base) not in seen:
                     seen.add((cid, base))
                     by_ref.setdefault(base, []).append(cid)
             else:
-                clipped.append(int(fid))
+                clipped.extend(hits[base])
         if clipped:
             yielded[cid] = tuple(sorted(set(yielded.get(cid, ())) | set(clipped)))
         if keep:
@@ -830,7 +848,8 @@ def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
 
 
 def cluster_pairs(planar: PlanarMap,
-                  faces: _t.Sequence[_t.Sequence[int]]
+                  faces: _t.Sequence[_t.Sequence[int]],
+                  own: _t.Optional[_t.Set[int]] = None
                   ) -> "tuple[list[tuple[int, int]], int]":
     """§30 (4): THE PAIRS A CLUSTER'S PLANE IS PRICED OVER — each member
     face's OWN complete set, as if it stood alone, PLUS explicit
@@ -868,12 +887,30 @@ def cluster_pairs(planar: PlanarMap,
         senior = max(live, key=len)
         xy = {v: planar.vertices[v].xy for vs in live for v in vs
               if v in planar.vertices}
-        sen = [(v, xy[v]) for v in senior if v in xy]
+        # §16g (10) (11) (a) (owner RULINGS 2026-09-15z): A CROSS-LINK IS
+        # BUILT FROM THE PAD'S OWN VERTICES WHERE IT HAS THEM.  The link
+        # is what makes a cluster ONE plane (§30 (4)), and it must not be
+        # the channel through which the plate moves the apron: a link
+        # between two AIRSIDE-SHARED vertices is a two-sided row on two
+        # columns the airside owns.  ``own`` (the non-airside vertices) is
+        # preferred per face and the whole face is the fallback — a face
+        # wholly inside pavement has no own vertex and keeps its links as
+        # before, which is the same clause ``pads._pad_rows`` applies to
+        # its plate.  MEASURED without it: the §30 (4) twin's two pads
+        # came apart 0.86 m.
+        def _pick(vs: list[int]) -> list[int]:
+            if not own:
+                return vs
+            q = [v for v in vs if v in own]
+            return q if len(q) >= 2 else vs
+        sen_vs = _pick(senior)
+        sen = [(v, xy[v]) for v in sen_vs if v in xy]
         for vs in live:
             if vs is senior:
                 continue
-            step = max(1, len(vs) // _CROSS_MAX)
-            for v in vs[::step]:
+            vs_l = _pick(vs)
+            step = max(1, len(vs_l) // _CROSS_MAX)
+            for v in vs_l[::step]:
                 q = xy.get(v)
                 if q is None or not sen:
                     continue

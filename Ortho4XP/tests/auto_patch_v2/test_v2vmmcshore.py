@@ -187,6 +187,65 @@ def test_a_pack_stated_corridor_is_never_bound_by_clause_3(law):
     assert any(ref == "pav5" for _p, ref in osm)
 
 
+# ── §34 (12) (4): a bridge severs the climb only where it crosses ───────
+
+def test_a_bridge_running_ALONGSIDE_the_corridor_does_not_sever_the_climb(law):
+    """§34 (12) (4).  A mapped ``bridge=yes`` way that runs ALONGSIDE the
+    approach the ramp walks does not sever the climb; one that CROSSES it
+    does.
+
+    The shipped test is the ALONGSIDE limb: a bridge whose run inside the
+    corridor exceeds ``_DECK_ALONGSIDE_MAX`` times its own carriageway
+    width is not an over-crossing.  It is armed only for a group that has
+    BORES (an OSM corridor), never for a pack-stated one.
+
+    THE OTHER LIMB — "it must cross the BORE, within the corridor's own
+    width" — is MEASURED AND REFUTED (lane v2vmmcshore r3): right at VMMC,
+    where the two decks holding ``tunnel:-2488@0``'s floor flat stand
+    137.2 m and 46.7 m from a 36.6 m bore; wrong at LEMD, where it dropped
+    ALL SEVEN decks including ``bridge_deck:-6288`` (§33 (4) / RULINGS
+    2026-09-14bp item 10).  Its absence is what this twin's second half
+    pins, so the reversal cannot arrive unnoticed."""
+    from auto_patch_v2.planar.structure_deck import (_DECK_ALONGSIDE_MAX,
+                                                     deck_intervals)
+    from shapely.geometry import LineString
+    from shapely.strtree import STRtree
+
+    axis = LineString([(0.0, 0.0), (0.0, 400.0)])
+    bore = LineString([(0.0, -40.0), (0.0, 0.0)])
+    wd = 7.0
+
+    class _W:
+        def __init__(self, pts):
+            self.points, self.id, self.tags = pts, -9, {"bridge": "yes",
+                                                        "width": str(wd)}
+
+    across = _W([(-60.0, 200.0), (60.0, 200.0)])          # a real crossing
+    # VMMC's shape: a seafront way that FOLLOWS the winding approach,
+    # clipping the corridor again and again — each clip is steep enough
+    # to pass the 30-degree gate, and together they run far more than the
+    # way's own width through the corridor
+    beside = _W([(-30.0, 20.0), (30.0, 60.0), (-30.0, 100.0), (30.0, 140.0),
+                 (-30.0, 180.0), (30.0, 220.0), (-30.0, 260.0)])
+    for way, want in ((across, 1), (beside, 0)):
+        ln = LineString(way.points)
+        got = deck_intervals(axis, wd / 2 + 2.0, [way], [ln],
+                             STRtree([ln]), law, [bore])
+        assert len(got) == want, (way.points, got)
+    # the alongside bar is the way's OWN width, read from the law's tag
+    assert _DECK_ALONGSIDE_MAX * wd == 42.0
+    # ...and with NO bores (a pack-stated corridor) the limb is disarmed
+    ln = LineString(beside.points)
+    assert len(deck_intervals(axis, wd / 2 + 2.0, [beside], [ln],
+                              STRtree([ln]), law, ())) == 1
+    # THE REFUTED LIMB IS ABSENT: a bridge crossing the APPROACH far from
+    # the bore still severs (LEMD's seven decks are exactly this shape)
+    ln = LineString(across.points)
+    assert across.points[0][1] - bore.coords[0][1] > 200.0
+    assert len(deck_intervals(axis, wd / 2 + 2.0, [across], [ln],
+                              STRtree([ln]), law, [bore])) == 1
+
+
 # ── §34 (12) (2): no structure face, rim or ramp over the water ─────────
 
 def test_no_ramp_or_rim_stands_on_the_water(law):

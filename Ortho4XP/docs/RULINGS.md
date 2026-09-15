@@ -7617,3 +7617,155 @@ Suite 1655/0, twins 17. RULED §45 (13)(d): a placement in
 implements it; bar: six replays identical in Tunnel AND Basin records,
 then the merge (after which the concurrent session's follow-up lanes
 rebase). KDFW/KPHX still wait on the owner's refreshes.
+
+## 2026-09-15ah v2padqp r2 MERGED OFF (b2294797 → 348f80a4): the airside movement ATTRIBUTED — ¾ of it is the ARRANGEMENT CLIP re-noding the airside vertex set (clip alone 4,474 / 1.39 m), not a pad row; the pad plate row pointed one-way improves the SHIPPED surface (HECA ADJUDICATED −4.1 %, LEMD −35 %); mismatch HECA 10 → 0 by the ref-area share; keys stay OFF — the clip is a spec question. OWNER (away): "no need to rebuild that app yet … complete the open lanes first"; the app killed and the road-layer refreshes run by the session on the owner's word
+
+Lane @ b2294797; suite 1,639 passed, 0 FAILED. `--why-at` on HECA's
+worst mover (+3.610 m at 30.11038632205,31.39574702991, apron+building):
+ONE binding row — the pad's cap-0 plate (`pads cap 0.00 % × 8.7 m`,
+dual 3.61), two-sided over an apron-owned vertex → pointed one-way
+(§16g (10) (11) (a)); the next worst mover carries NO pad row; 5,600 of
+5,868 moved airside vertices touch no pad. Third arm (clip alone, no
+derived pads): 4,474 moved / 1.39 m, runway 17 / 0.100 m — the
+arrangement clip deletes 1,082 solve-owned airside vertices and mints
+235; 14as (i) made the airside REGION pad-independent, not its VERTEX
+SET. Bar 1 MISSED (HECA 5,973 / 3.28 m; LEMD 1,651 / 2.36 m) and cannot
+be met at a pad row. The direction fix ships (pads OFF): HECA
+ADJUDICATED 26,608 → 25,521, `airside_no_step` 7,747 → 7,344, `taxi_box`
+3,411 → 3,169, `within_shape` −726; `pad_airside_weld` 2 → 8 on that arm
+(the pad now yields — the family's job). Welds OFF → ON 8 → 7 HECA
+(MET), LEMD 2 → 3. Ref-area share: HECA mismatch 10 → 0 (shipped
+fallback reads 15), LEMD 2 → 1. Census final: HECA 25,521 → 25,612,
+LEMD 2,118 → 1,377; `strip_seam_tear` closed; `plane_gradient` 8 → 12
+(derived pads' own planes). NEXT (spec, Fable): whether a pad may
+re-node the airside at all — §16g (10) (12): the arrangement clip must
+preserve the airside vertex set (the pad polygon is clipped BY the
+airside cells, the airside cells are never re-cut by a pad). Owner
+away: the app quit by the session (engine idle: 0 % CPU, no children,
+workers exited), NO 1.0.341 build per the owner; `--refresh-data
+osm_layers` per tile started on the owner's explicit word (VMMC/+22+113
+first, then LEMD, HECA, KCLT, OTHH, CYXY), one task per tile.
+15ah addendum: suite ON MAIN after the v2padqp r2 merge (348f80a4): 1639 passed, 1 skipped, 42 warnings in 75.63s (0:01:15). The first refresh chain (six tiles in one 600 s task) was stopped before it wrote anything; it left its own `osm_layers.lock` (pid 49618, dead) which the session removed — one refresh task per tile from here.
+
+## 2026-09-15aj v2vmmcshore r3 MERGED (39bb0288 → ac3699a1): (4)'s crosses-the-bore limb REFUTED (it dropped all 7 LEMD decks — a deck crosses the TRENCH, not the bore) and deleted; the alongside limb stands with its twin; RULED §34 (12) (4) AMENDED: a deck severs only where the corridor is still BELOW GRADE at its station (r4). The osm_layers refresh WROTE NOTHING — a schema-stale layer is "present"; the peer's refuse-guard follow-up
+
+Lane @ 39bb0288; suite 1,640 passed, 0 FAILED. (a) as shipped, `bores`
+only armed the alongside limb; the bore's geometry was never tested.
+`tunnel:-2488@0` (bore −2488, 36.6 m; approach walk 604.2 m): decks
+`-1798` (137.2 m from the bore, s = 214.8) and `-3636` (46.7 m, s =
+308.7) both "sever" → `climb_from_s` 559.2 on `top_s` 468 → flat 1.00 m
+for 381 m (5.10 m at 8 % = 63.8 m). (b) with the literal limb: VMMC
+decks none, `top_s` 84 m, `clipped_by` none, tunnels 5 → 13 (short
+ramps stop overlapping), ramp+rim on the sea 0.0 m², nearest ramp 74 →
+188 m from the probe; ADJUDICATED 53 → 57. (c) LEMD decks 7 → 0 (every
+ramp named: `-6288`'s 96 → 24 m …), OTHH 44 / 1 unchanged → the limb
+deleted, base-identical dry arms (VMMC 5/10, LEMD 55/7, OTHH 44/1);
+twin pins the limb's ABSENCE. RULED (Fable): a deck severs only where
+the corridor is still below grade at its station — the ramp cap is the
+number; r4 implements. REFRESH: `build_airport.py VMMC --refresh-data
+osm_layers` on main: rc 0 in 23 s, "refresh AUTHORISED … wrote NOTHING
+— the artifact was already present"; the layer's mtime unchanged (Aug
+10, schema 2026-07-16); a plain build REFUSES again. The refresh path
+does not regenerate a present-but-stale layer while the engine no
+longer rewrites it — reported to the peer (v2schemarefuse's owner);
+until it lands, no closing build on any tile but +40-004. The owner
+(away) authorised the session to quit the app and run the refreshes;
+no 1.0.341 build ("complete the open lanes first").
+15aj addendum: suite ON MAIN after the v2vmmcshore r3 merge (ac3699a1): 1640 passed, 1 skipped, 42 warnings in 44.57s.
+
+## 2026-09-15ak v2schemarefuse ROUND 2 MERGED (dec0481e): `--refresh-data osm_layers` now RE-DERIVES a present-but-stale road layer — it had no derivation site of its own (the VMMC refresh "wrote NOTHING")
+
+Measured by the concurrent session (owner-authorised): `build_airport.py
+VMMC --refresh-data osm_layers` on main after 15v ran rc 0 in 23 s,
+"authorised but wrote NOTHING — the artifact was already present", the
+layer's mtime stayed Aug 10 (schema 2026-07-16) and a plain build refused
+again. ATTRIBUTED (lane `v2schemarefuse` r2, 177f4c2a): the engine's
+prefetch admission (`_layer_cache_is_current`) downloads only an ABSENT
+or stale layer, and the AIRPORT path never starts the prefetch at all
+(`dem_production` calls `compose_tile_dem_from_disk` directly; only the
+tile prelude `prepare_tile_airports_and_dem` starts it) — so the refresh
+scope authorised a write that nothing in the run could make, and on the
+tile path the only re-deriver was the mid-build prefetch 15v exists to
+stop. FIX at the refresh's own derivation site: `refresh_stale_osm_
+layers(root, lat, lon, prog)` in `build_airport.py`, beside
+`warm_airport_insets` — inside the scope lock and the guard, before the
+build, so the write lands in the before/after diff `record_refresh`
+hash-stamps into the ledger: every layer `schema_stale_osm_layers` names
+is MOVED ASIDE (`<name>.stale-<schema>`, restored byte-identical on
+failure, removed on success — never deleted outright, so an unreachable
+Overpass cannot turn a stale corpus into an absent one), then the
+engine's own `start_background_osm_prefetch(tile)` +
+`wait_for_background_osm_prefetch()` re-derive it (the tile prelude's
+pair, the same 5-tuple specifications); the verdict is re-read through
+`schema_stale_osm_layers`, and a refresh that re-derived nothing RAISES
+after restoring the corpus (never rc 0 twice on the same stale layer).
+Stated consequence: the pass also fetches any other layer of that tile
+the specifications name and the corpus lacks (coastline, water) — lawful
+under the scope, guarded, ledgered; `--tile` runs take the same path
+(before-build, not mid-build). Twins on a tmp root with the engine's
+fetch mocked at `OSM_queries_to_OSM_layer`: stale + authorised → aside
+gone, one fetch, bytes changed, `missing_shared_artifacts` then empty;
+current → untouched; unauthorised → refused, byte-identical; every fetch
+failing → refused, stale restored. Suite ON MAIN: `1678 passed, 1
+skipped`, 0 failed. The first real refresh is the owner's (or his
+authorised session's): it will now write, and the ledger records it.
+
+## 2026-09-15al v2vmmcshore r4 NOT MERGED (5b30cf9d): VMMC MET on a real build (probe covered by nothing, 0.00 m² on the sea, 0 nodes ≤ 0.5 m, tears 61 → 0, `sea_wall` 27 rows, ADJUDICATED 225 → 61, `shared repo UNCHANGED`) — but the below-grade limb drops LEMD's decks 7 → 1 incl. `-6288` (14bp item 10); both limbs refuted as discriminators; r5 measures the cutting witnesses (road-feed tags + DEM under each of the 11 decks) before the rule
+
+Lane @ 5b30cf9d; suite 1,645 passed, 0 FAILED. Closing VMMC build rc 0,
+21.3 s, optimal, ledger 14508d4b2d53: pav5 5.09…6.12 (nearest ramp
+39.0 m clear), tunnels 13 / decks 4 / refusals 2, shore trim 98,575 m²
+/ 6,154 m sea wall, `transverse` 11 → 1. `-2488@0`: `climb_from_s`
+559.2 → 0.0, `top_s` 468 → 84, `clipped_by` none. LEMD table (all
+"beyond grade" bar `-5284@0`/`-11828` at s 14.6 vs grade 108): `-6288`
+s 56.3 vs grade 24.0; `-15293` 146 vs 24; `-5305`/`-1378`/`-1379` vs
+60/never; `-14230`/`-374`/`-516`/`-15311` vs 84/never; `-639` 523 vs
+180; ramp lengths 180 → 24, 552 → 60, 96 → 24, 252 → 84 m. OTHH 44 / 1
+identical. RULED (§34 (12) (4) MEASURED AT LEMD): the discriminator is
+a WITNESSED CUTTING under the deck — r5 tables the 11 decks' witnesses
+(road-feed `layer`/`cutting`/`covered`/`tunnel`/`embankment`, the DEM
+under the deck vs its abutments, the deck's tags/length, the station)
+before any rule; the session writes the rule from the table. The
+mesh `--z-xref` (doubled plane) is unmeasured: the lane's VMMC TILE
+build (`v2vmmcshore4tile`) was still running after ~100 min (13cg's
+3,845 s class) — left running under its tag; the patch proves 0 nodes
+≤ 0.5 m. Refreshes so far (owner-authorised, ledgered): +22+113
+(11:05:34, 1 layer), +40-004 (nothing stale), +30+031 (11:26:53, 1
+layer + 2 clips), +35-081 (11:35:05, 1 layer); OTHH running, CYXY next.
+
+## 2026-09-15an v2lemdstruct2 r4 HELD (96c1208f): the crossfall bar MET (4.313 → 1.529 %) by making foot rows one-way at airside — the 14 feet were `LEMD69.obj` sign plinths on the kerb — but LEMD's runway moves 354 vertices / 5.687 m and a 0.95 m step appears between two runway faces at the owner's site (HECA control 0.064 m) → r5 attributes what holds 14R/32L there before the merge
+
+Lane @ 96c1208f; suite 1,650 passed, 0 FAILED; no build (the lane
+read the ledger before the 11:05–11:35 refreshes; +40-004 needed none).
+Details in §34 (13) (3) MEASURED. The direction (a foot never holds
+airside) is RIGHT and is not re-litigated; what is wrong is that the
+runway's level at that station depended on it — the runway's own rows
+must hold the runway. r5: `--why-at` on the worst runway mover and on
+the 0.95 m step's two faces on BOTH arms; name the runway-family rows
+present/absent; then the fix at the runway law's derivation site, and
+a DEFECT family for a step between runway faces if none prices it.
+HECA control clean (+41 verify rows, 8 runway vertices ≤ 0.064 m).
+Register defect caught by the §11b twins (`foot_row_rulings` deleted
+by a prefix match; every foot row re-priced 3000 → 3; the control arm
+discarded and re-run) — the two registers twinned apart.
+
+## 2026-09-15ap v2vmmcshore r5 (1edb0fc0, measurement): the deck table — the DEM cut under the span discriminates LEMD (real cuttings +0.81…+2.35 m) from VMMC (0.00 on the field); the bore beneath LEMD's decks reads layer −1/−2 tunnel=yes where the feed is current; tags `cutting`/`covered`/`embankment` appear nowhere → RULED §34 (12) (4) FROM THE TABLE (witnessed below grade, two witnesses); the station limbs withdrawn; r6 implements. Negative-id collision found (8 of 11 deck ids carry two ways) — chip
+
+Suite 1,689 passed, 0 FAILED. New `osm_site.py --deck-witness` (INDEX
+row, twins; reports `schema` for a stale feed, the id-copy count, no
+verdict). Findings: (1) the road layers and the airports layer each
+mint negative ids — a first-copy read presented `-6288` (`bridge=yes
+service lanes=4`) as `highway=secondary` and five decks as tagless;
+the structure pass selects by tag and was right; every id-join reader
+is at risk. (2) `+40-004_airport_small_roads` (Aug 31) and both VMMC
+feeds predate the schema — for those ways the witness is `schema`,
+not absent (the +22+113 feed was refreshed today at 11:05 — r6 re-
+reads it). The 1.0.340-approved LEMD deck set = v2lemdstruct's closing
+build (Sep 14 21:57): 7 decks `-6288 -11828 -14230 -516 -5305 -1378
+-15293` (the v2leafframe build had 11; 14bp item 10 grouped 4 away).
+The VMMC tile build (`v2vmmcshore4tile`) still running (~2 h) — z-xref
+unmeasured. r6: implement (i)+(ii) with `deck_cut_witness_m` 0.5 /
+`abutment_m` 40 in `[bridge]`; twins (a LEMD cut deck, a LEMD tag-only
+deck, a VMMC 0.00 deck, a stale-feed `schema` deck); dry pairs LEMD
+7 kept / VMMC 0 / OTHH 44 / 1; suite; then merge.
+15ap addendum — THE OWNER'S ROAD-LAYER REFRESHES, DONE (owner-authorised by message while away; one task per tile; all `shared repo UNCHANGED` by the builds themselves, the writes ledgered): +22+113 (VMMC/VHHH) 11:05:34; +40-004 (LEMD) nothing stale (its big_roads was re-derived by the 09:03 contamination); +30+031 (HECA) 11:26:53 (+2 regional clips); +35-081 (KCLT) 11:35:05; +25+051 (OTHH) 11:45:43; +60-136 (CYXY) 11:46:18. Every closing build on those tiles is unblocked. Not refreshed (the peer's airports, their own authorisation): LGAV +37+023, KDFW +32-098/+32-097, KPHX +33-112.

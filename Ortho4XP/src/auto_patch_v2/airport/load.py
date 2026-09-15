@@ -22,6 +22,7 @@ from ..model.airport import (Airport, Boundary, Building, DsfObject,
                              TaxiNode)
 from ..model.frame import XY, Frame
 from . import apt_dat as _apt
+from . import borrow as _borrow
 from . import cifp as _cifp
 from . import dem as _dem
 from . import dsf as _dsf
@@ -103,6 +104,14 @@ class LoadReport:
 
     apt_dat_path: str = ""
     pack_name: str = ""
+    #: §44 (4) (owner RULINGS 2026-09-15f): THE PAVEMENT BORROW —
+    #: ``{"pack", "borrowed_from", "coverage", "custom_pavements",
+    #: "borrowed_pavements", "borrowed_boundary", "reason",
+    #: "coverage_max"}``.  ``borrowed_from`` is ``None`` when the pack's
+    #: own pavement stood.
+    pavement_source: dict = _dc.field(default_factory=dict)
+    #: THE ONE §44 log line (``""`` when nothing was borrowed)
+    pavement_borrow_line: str = ""
     helipads: tuple[str, ...] = ()
     cifp_path: str | None = None
     cifp_missing_ends: tuple[str, ...] = ()
@@ -201,7 +210,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             or "fixture", os.path.dirname(os.path.dirname(inputs.apt_dat_path)),
             inputs.apt_dat_path, False)
     else:
-        sel = _pack.select_pack(inputs.xplane_root, icao)
+        sel = _pack.select_pack(inputs.xplane_root, icao, law)
         if sel is None:
             raise FileNotFoundError(f"{icao}: no apt.dat under {inputs.xplane_root}")
     block = _apt.read_airport_block(sel.apt_dat_path, icao)
@@ -211,7 +220,21 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.apt_dat_path, rep.pack_name = sel.apt_dat_path, sel.name
     rep.helipads = tuple(h.name for h in apt.helipads)
 
+    # THE FRAME IS THE CUSTOM BLOCK'S — taken BEFORE the borrow composes,
+    # because §44 (2) is explicit that borrowing pavement does not move
+    # the airport's reference point.
     lat0, lon0 = apt.reference_point()
+    # ── §44 (3) THE PAVEMENT BORROW, composed HERE and nowhere else ────
+    # (owner RULINGS 2026-09-15f; decided in ``pack.select_pack``).  The
+    # Global Airports block's row-110 polygons are APPENDED to the pack's
+    # own and its row-130 boundary taken only when the pack authored
+    # none; everything else below reads the composed block exactly as it
+    # reads an authored one.
+    bres = _borrow.compose(sel.borrow, icao, apt)
+    apt = bres.airport
+    n_own_pav = bres.custom_pavements
+    rep.pavement_source = bres.record(sel.name)
+    rep.pavement_borrow_line = bres.line(icao)
     frame = Frame(icao, (lat0, lon0), identity_dp(law))
     to_xy = _vector_to_xy(frame)
     tile = (int(math.floor(lat0)), int(math.floor(lon0)))
@@ -241,15 +264,17 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     pavements = tuple(
         Pavement(f"pav{p.index}", normalise_surface(p.surface),
                  _ring(p.rings[0], to_xy),
-                 tuple(_ring(h, to_xy) for h in p.rings[1:]), p.description)
-        for p in apt.pavements)
+                 tuple(_ring(h, to_xy) for h in p.rings[1:]), p.description,
+                 _borrow.BORROWED_SOURCE if i >= n_own_pav else "")
+        for i, p in enumerate(apt.pavements))
     lines = tuple(
         LinearFeature(f"line{ln.index}", ln.line_type,
                       tuple(to_xy(lo, la) for lo, la in ln.points), ln.closed)
         for ln in apt.lines)
     boundaries = tuple(
         Boundary(f"boundary{b.index}", _ring(b.rings[0], to_xy),
-                 tuple(_ring(h, to_xy) for h in b.rings[1:]))
+                 tuple(_ring(h, to_xy) for h in b.rings[1:]),
+                 _borrow.BORROWED_SOURCE if bres.borrowed_boundary else "")
         for b in apt.boundaries)
     taxi_nodes = {n.id: TaxiNode(n.id, to_xy(n.lon, n.lat), n.usage)
                   for n in apt.taxi_nodes.values()}

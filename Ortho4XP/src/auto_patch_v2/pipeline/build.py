@@ -274,6 +274,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["load"] = time.perf_counter() - t
     _say(f"[{icao}] load {wall['load']:.2f} s  runways {len(airport.runways)}  "
          f"pavements {len(airport.pavements)}  buildings {len(airport.buildings)}", out)
+    # §44 (4) THE PAVEMENT BORROW (owner RULINGS 2026-09-15f): ONE line,
+    # only when the pack's own pavement did not stand.
+    if lrep.pavement_borrow_line:
+        _say(f"[load] {lrep.pavement_borrow_line}", out)
     # §42 (3) THE CENSUS (RULINGS 2026-09-13cv): the pack's draped OBJ8
     # ground polygons admitted as source polygons, per resource.
     if lrep.object_pavements.line():
@@ -873,7 +877,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                  + (f"; TOO SHORT (at the cap): " + ", ".join(f"#{r['face']} {r['ref']}" for r in short)
                     if short else "; none at the cap"), out)
         header = {"o4_apt_dat": airport.pack.apt_dat_path,
-                  "o4_pack": airport.pack.name}
+                  "o4_pack": airport.pack.name,
+                  # §44 (4): the Global Airports apt.dat this patch
+                  # borrowed its pavement from ("" = nothing borrowed)
+                  "o4_apt_dat_borrowed": airport.pack.borrowed_apt_dat_path}
         header.update(cfg.header_extra or {})
         # THE BANK (owner RULINGS 2026-09-09e; ``emit/bank.py``, spec §9):
         # the mesh does not blend, so the patch emits its own 1:3 bank out

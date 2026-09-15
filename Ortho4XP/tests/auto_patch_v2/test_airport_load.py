@@ -405,3 +405,202 @@ def test_find_text_dump_never_crosses_the_live_and_pristine_names(tmp_path):
     written_dump.unlink()
     assert S.find_text_dump(str(root), "LEMD Pack", 40, -4,
                             dsf_path=str(dsf)) is None
+
+
+# ── §44 THE PAVEMENT BORROW (owner RULINGS 2026-09-15f) ──────────────────
+#
+# A custom pack whose apt.dat row-110 union covers less than
+# ``structures.load.pavement_borrow_coverage_max`` of the Global Airports
+# block's borrows Global's pavement, and its row-130 boundary when the pack
+# authored none — FlyTampa LGAV: two runway strips, 1.3 % of Global's 63,
+# graded with ZERO taxiways and ZERO aprons before §44.
+
+import dataclasses as _dcx
+
+from auto_patch_v2.airport import borrow as B
+
+_BORROW_ICAO = "ZZQQ"
+#: the fixture's frame origin, and the corner every square is placed from
+_LA, _LO = 37.90, 23.90
+
+
+def _sq(la: float, lo: float, d: float) -> str:
+    """One row-110 square of side ``d`` degrees with its corner at
+    ``(la, lo)`` — four node rows, the last closing the contour."""
+    return ("110 1 0.25 0 pav\n"
+            f"111 {la:.6f} {lo:.6f}\n"
+            f"111 {la:.6f} {lo + d:.6f}\n"
+            f"111 {la + d:.6f} {lo + d:.6f}\n"
+            f"113 {la + d:.6f} {lo:.6f}\n")
+
+
+def _bnd(la: float, lo: float, d: float) -> str:
+    return ("130 boundary\n"
+            f"111 {la:.6f} {lo:.6f}\n"
+            f"111 {la:.6f} {lo + d:.6f}\n"
+            f"111 {la + d:.6f} {lo + d:.6f}\n"
+            f"113 {la + d:.6f} {lo:.6f}\n")
+
+
+def _apt_file(path: Path, body: str) -> None:
+    """One airport block for ``_BORROW_ICAO`` with a single runway (the
+    frame's reference point) and ``body``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rw = (f"100 45.00 1 0 0.25 0 0 0 09 {_LA:.6f} {_LO:.6f} 0 0 3 0 0 0 "
+          f"27 {_LA + 0.01:.6f} {_LO + 0.01:.6f} 0 0 3 0 0 0\n")
+    path.write_text("I\n1100 Generated\n"
+                    f"1 100 0 0 {_BORROW_ICAO} Borrow Fixture\n"
+                    + rw + body + "99\n")
+
+
+def _borrow_root(tmp_path: Path, custom_body: str,
+                 global_body: str | None) -> Path:
+    root = tmp_path / "XP"
+    _apt_file(root / "Custom Scenery" / "AAA Pack" / "Earth nav data" / "apt.dat",
+              custom_body)
+    if global_body is not None:
+        _apt_file(root / "Global Scenery" / "Global Airports" / "Earth nav data"
+                  / "apt.dat", global_body)
+    return root
+
+
+def _borrow_law(coverage_max: float | None = None):
+    law = Law.for_airport(_BORROW_ICAO)
+    if coverage_max is None:
+        return law
+    t = law.tables
+    st = _dcx.replace(t.structures, load=_dcx.replace(
+        t.structures.load, pavement_borrow_coverage_max=coverage_max))
+    return _dcx.replace(law, tables=_dcx.replace(t, structures=st))
+
+
+def _borrow_inputs(root: Path) -> Inputs:
+    return Inputs(xplane_root=str(root), cifp_dir="", osm_root="",
+                  elevation_root="", mod_cache_root="")
+
+
+#: TWO runway strips, 1.3 % of Global's — the LGAV shape
+_CUSTOM_THIN = _sq(_LA, _LO, 0.0005) + _sq(_LA + 0.002, _LO, 0.0005)
+#: FOUR Global squares, an order of magnitude bigger
+_GLOBAL_FOUR = "".join(_sq(_LA + 0.004 * k, _LO, 0.004) for k in range(4)) \
+    + _bnd(_LA - 0.001, _LO - 0.001, 0.02)
+
+
+def test_borrow_fires_under_the_coverage_key(tmp_path):
+    """(a) coverage < 25 %: pavement + boundary borrowed, the pack kept."""
+    root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)
+    law = _borrow_law()
+    sel = P.select_pack(str(root), _BORROW_ICAO, law)
+    assert sel is not None and sel.name == "AAA Pack" and sel.custom
+    assert sel.borrow_reason == "coverage"
+    assert sel.borrowed_apt_dat_path.endswith("Global Airports/Earth nav data/apt.dat")
+    assert 0.0 <= sel.borrow.coverage < 0.25
+
+    a, rep = load_with_report(_BORROW_ICAO, _borrow_inputs(root), law)
+    ps = rep.pavement_source
+    assert ps["pack"] == "AAA Pack"
+    assert ps["borrowed_from"] == sel.borrowed_apt_dat_path
+    assert (ps["custom_pavements"], ps["borrowed_pavements"]) == (2, 4)
+    assert ps["borrowed_boundary"] is True and ps["coverage"] < 0.25
+    # borrowing ADDS, never removes: the pack's own two strips stand
+    apt_pav = [p for p in a.pavements if p.id.startswith("pav")]
+    assert len(apt_pav) == 6
+    assert [p.source for p in apt_pav] == [""] * 2 + ["global_airports"] * 4
+    assert [p.id for p in apt_pav] == [f"pav{i}" for i in range(6)]
+    assert len(a.boundaries) == 1 and a.boundaries[0].source == "global_airports"
+    # the taxi network, runways and the pack root stay the CUSTOM pack's
+    assert len(a.runways) == 1 and sel.root.endswith("AAA Pack")
+    # §44 (4): the signature and the partition key carry the borrowed sha
+    assert a.pack.borrowed_apt_dat_path == sel.borrowed_apt_dat_path
+    assert len(a.pack.borrowed_block_sha256) == 64
+    assert rep.pavement_borrow_line.startswith(
+        f"{_BORROW_ICAO}: the pack's apt.dat carries 2 pavement(s) covering ")
+    assert "pavement + boundary BORROWED from" in rep.pavement_borrow_line
+
+
+def test_borrow_sha_is_in_the_partition_key(tmp_path):
+    """§44 (4) C5: a Global Airports update invalidates the cache."""
+    from auto_patch_v2.airport import partition_cache as PC
+    root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)
+    a, _ = load_with_report(_BORROW_ICAO, _borrow_inputs(root), _borrow_law())
+    dump = tmp_path / "dump.text"
+    dump.write_text("OBJECT_DEF objects/a.obj\n")
+    (Path(a.pack.apt_dat_path).parent.parent / "x.obj").write_text("A\n800\nOBJ\n")
+    law = _borrow_law()
+    fp = PC.fingerprint(a, law, dump_path=str(dump), radius_deg=0.05)
+    other = _dcx.replace(a.pack, borrowed_block_sha256="0" * 64)
+    fp2 = PC.fingerprint(_dcx.replace(a, pack=other), law,
+                         dump_path=str(dump), radius_deg=0.05)
+    assert fp and fp2 and fp != fp2
+
+
+def test_borrow_holds_at_or_above_the_coverage_key(tmp_path):
+    """(b) coverage >= 25 %: nothing borrowed, the pack's pavement stands."""
+    body = "".join(_sq(_LA + 0.004 * k, _LO, 0.004) for k in range(2))
+    root = _borrow_root(tmp_path, body, _GLOBAL_FOUR)
+    law = _borrow_law()
+    sel = P.select_pack(str(root), _BORROW_ICAO, law)
+    assert sel is not None and sel.borrowed_apt_dat_path == ""
+    assert sel.borrow.coverage >= 0.25
+    a, rep = load_with_report(_BORROW_ICAO, _borrow_inputs(root), law)
+    assert len([p for p in a.pavements if p.id.startswith("pav")]) == 2
+    assert rep.pavement_source["borrowed_from"] is None
+    assert rep.pavement_source["borrowed_pavements"] == 0
+    assert rep.pavement_borrow_line == ""
+    assert a.boundaries == () and a.pack.borrowed_block_sha256 == ""
+
+
+def test_borrow_without_a_global_block(tmp_path):
+    """(c) no Global Airports file: nothing borrowed, no exception."""
+    root = _borrow_root(tmp_path, _CUSTOM_THIN, None)
+    law = _borrow_law()
+    sel = P.select_pack(str(root), _BORROW_ICAO, law)
+    assert sel is not None and sel.borrowed_apt_dat_path == ""
+    assert sel.borrow_reason == "no Global Airports block"
+    a, rep = load_with_report(_BORROW_ICAO, _borrow_inputs(root), law)
+    assert len(a.pavements) == 2 and rep.pavement_source["borrowed_from"] is None
+
+
+def test_borrow_keeps_the_packs_own_boundary(tmp_path):
+    """(d) the pack authored a row-130: the boundary is NOT borrowed."""
+    root = _borrow_root(tmp_path, _CUSTOM_THIN + _bnd(_LA, _LO, 0.001),
+                        _GLOBAL_FOUR)
+    law = _borrow_law()
+    a, rep = load_with_report(_BORROW_ICAO, _borrow_inputs(root), law)
+    assert rep.pavement_source["borrowed_pavements"] == 4
+    assert rep.pavement_source["borrowed_boundary"] is False
+    assert len(a.boundaries) == 1 and a.boundaries[0].source == ""
+    assert "pavement BORROWED from" in rep.pavement_borrow_line
+
+
+def test_borrow_key_at_zero_never_borrows(tmp_path):
+    """(e) the key at 0 is the borrow switched OFF."""
+    root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)
+    law = _borrow_law(0.0)
+    sel = P.select_pack(str(root), _BORROW_ICAO, law)
+    assert sel is not None and sel.borrowed_apt_dat_path == ""
+    a, _ = load_with_report(_BORROW_ICAO, _borrow_inputs(root), law)
+    assert len(a.pavements) == 2
+
+
+def test_borrow_key_is_a_coverage_fraction():
+    """The key is law, validated 0 <= x <= 1 (§44 (2))."""
+    from auto_patch_v2.law import model as LM
+    law = _borrow_law()
+    assert law.tables.structures.load.pavement_borrow_coverage_max == 0.25
+    with pytest.raises(LM.LawError):
+        LM._check_cross_refs(_borrow_law(1.5).tables)
+
+
+def test_pavement_less_custom_pack_is_still_the_pack(tmp_path):
+    """§44 (1): the 'last resort' tail is DELETED — a custom pack with NO
+    row-110 wins the selection (and borrows everything)."""
+    root = _borrow_root(tmp_path, "", _GLOBAL_FOUR)
+    law = _borrow_law()
+    assert A.find_apt_dat(str(root), _BORROW_ICAO) == str(
+        root / "Custom Scenery" / "AAA Pack" / "Earth nav data" / "apt.dat")
+    a, rep = load_with_report(_BORROW_ICAO, _borrow_inputs(root), law)
+    assert rep.pack_name == "AAA Pack"
+    assert rep.pavement_source["coverage"] == 0.0
+    assert rep.pavement_source["custom_pavements"] == 0
+    assert len([p for p in a.pavements if p.id.startswith("pav")]) == 4

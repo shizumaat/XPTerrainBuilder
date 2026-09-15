@@ -14753,3 +14753,46 @@ beyond the strip keeps the role its geometry earns (HECA shape 44, 101.5
 m wide: the strip part joins 05L/23R, the rest is the apron the owner
 read it as — 13co).  Owner ruling 13co's intent ("a pavement along a
 runway is the runway's") is exactly a band beside the runway.
+
+## §33 (6) B AMENDED — A SHELL'S TRENCH IS WALLED: THE RIM STAYS AT THE SURROUNDING SURFACE, THE OBJECT'S WALLS ARE VERTICAL, AIRSIDE IS NEVER PULLED (Fable 2026-09-15; RULINGS 2026-09-15bh; lane v2vhhhctl measurement) — lane `v2shellwall`
+
+**The measurement (VHHH, matched pair f912ba81 → d94db789, one
+source merge, both builds clean).**  Cutting `TUNNEL2_DONE` (1,109.9 m,
+21.1 m wide, floor 0.777, depth 6.54 m) and `tunnel5_done` (413.2 m,
+22.8 m, floor 1.304, depth 6.01 m — the owner's site) to their authored
+floors was RIGHT at the shells (`object_cut_depth` 0 rows; offsets 0
+bar TUNNEL2's four) and WRONG around them: the solve's active set
+4,177 → 11,253, objective 19,143 → 375,231; off-DEM > 0.5 m maxima
+junction 1.45 → 6.22 m, primary_parallel 1.55 → 6.46, cross_connector
+0.96 → 6.47, apron 2.57 → 6.48; apron bodies' own planes −0.27 → −5.23
+m; design targets missed apron max 1.70 m, taxi 1.35 m; LAW-TRUE 1,531
+→ 4,845, ADJUDICATED 121 → 1,472, 87 % of the new rows within 500 m of
+TUNNEL2 (taxiway-network grade rows: `within_shape` cross_connector /
+primary_parallel, `airside_no_step`).  The trench ring's vertices are
+shared with the airside faces and the floor's rows pull them down —
+the trench has no wall.  §37 (11)'s sea wall contributed nothing (4 →
+4, identical coordinates); the r3 report's "1,713 → 4,845" understated
+the rise (the shipped 1.0.340 patch was worse than the control).
+
+**RULED.**  A signature-B trench is a WALLED cut, emitted as OTHH's
+`retaining_wall` / `tunnel_wall` cells are (§33 (1), 14av): (1) the RIM
+ring is the surrounding design surface — its vertices are the
+airside/ground vertices they already are and carry NO floor row;
+airside beside a shell never moves (§16g (10) (5)'s bar, 0 > 0.02 m
+against the control); (2) the FLOOR ring is a separate ring inside the
+rim by the wall's thickness (the object's inner-face line), at the
+authored floor plate's level along the object's own profile (the
+cover's stations); (3) between them the WALL: a vertical band (the
+breakline pair the sea wall and the OTHH walls already use) — the
+object's interior walls are the retaining walls, the terrain does not
+grade between rim and floor; (4) the ramp portion (the cover's
+descending profile) grades from the mouth station to the floor INSIDE
+the walls; where the object's walls end (the open ramp beyond the
+shell) the ramp's own edges take the §34 (7) ramp law.  Bars at VHHH
+(the control pair's frames): airside vertices within 200 m of the five
+shells moved vs the f912ba81 control ≤ 0.02 m (count named); off-DEM
+maxima by role back to the control's (junction 1.45, apron 2.57);
+ADJUDICATED back to ≤ 121 + the trenches' own rows (named);
+`object_cut_depth` 0 and `object_cut_offset` ≤ r3's (TUNNEL2's four
+named); the cockpit CRITICAL motion 0; OTHH's walled corridors
+byte-identical (the same emission path).

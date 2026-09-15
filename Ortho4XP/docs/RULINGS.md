@@ -8039,3 +8039,20 @@ the packs are in the snapshot, install writes refuse outside the
 `pack_rebake` scope. The LEMD and VHHH install packs still carry the
 two earlier lane rebakes (15bb) — the owner's restore decision stands
 open.
+
+## 2026-09-15bh v2vhhhctl (measurement, two clean airport-path builds, frames registered): the VHHH census rise is ONE mechanism — v2objcut r3's two hairpin trenches (TUNNEL2_DONE 1,110 m, tunnel5 413 m) pull the connected airside down up to 6.5 m (LAW-TRUE 1,531 → 4,845, ADJUDICATED 121 → 1,472; the sea wall 4 → 4 identical) — a 1.0.341 REGRESSION at VHHH → RULED §33 (6) B AMENDED: a shell's trench is WALLED (rim at the surface, vertical walls, floor inside); lane v2shellwall; owner notified
+
+Control f912ba81 (VHHH_20260915T120714, 1,108.6 s, body 8c8ef471eaab)
+→ arm 118d2c40 (VHHH_20260915T122604, 1,182.9 s, body 38e3a2678b5c =
+r3's closing build bit for bit), both `shared repo UNCHANGED`, both in
+the artifact ledger; `git log --first-parent` between them = ONE
+source merge (d94db789). Numbers in §33 (6) B AMENDED. Row join: EXACT
+1,287 / MOVED 0 / GONE 244 / NEW 3,558; 3,084 of the NEW within 500 m
+of TUNNEL2. The brief's premise (the sea wall would dominate) REFUTED
+by the numbers. Cockpit: CRITICAL motion 0 → 1 (the 0.670 m
+`object_cut_offset` cliff at 22.3080218,113.9225398), visual +67 (all
+unmeshable hairline). The shells themselves: `object_cut_depth` 0
+rows; offsets 0 bar TUNNEL2's four (0.897/0.842/0.812/0.670). The
+lane's worktree taken down; frames committed. The owner (testing
+1.0.341) push-notified: VHHH near the tunnels is a known regression;
+LEMD/VMMC reads valid.

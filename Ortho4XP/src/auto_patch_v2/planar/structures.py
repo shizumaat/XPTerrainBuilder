@@ -288,8 +288,20 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     service_polys = [p for p in service_polys
                      if p is not None and not p.is_empty]
     service_tree = STRtree(service_polys) if service_polys else None
+    # AN OBJECT CORRIDOR'S BORE IS NEVER GATED HERE.  The pack's wall
+    # objects are the field authority where they stand (§33 (2), the
+    # owner's EGLL exception, keyed on the pack's geometry and never on
+    # OSM), and the precedence below hands such a mouth to the object.
+    # Measured at OTHH: gating before the precedence ran took three
+    # `tunnel-object:*` corridors out (`tunnel middle - east/west`,
+    # `tunnel south west 2`) because their bore LINE runs under the
+    # object rather than under a classified cell.
+    _tol = tn.object.bore_end_tolerance_m
+    claimed = {id(m.bore) for m in mouth_list
+               if corridors and mouth_covered_by(m.xy, corridors, _tol) is not None}
     served = [b for b in covered
-              if serves_the_field(b.line, service_polys, service_tree)]
+              if id(b) in claimed
+              or serves_the_field(b.line, service_polys, service_tree)]
     no_service = [b for b in covered if b not in served]
     mouth_only = [b for b in served if not under_cover(b.line, polys, cell_tree)]
     stats.bores_no_mouth = len(bores) - len(covered)
@@ -355,9 +367,19 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # list is the whole AIRSIDE ROLE SET (``airside_cut_roles``), not the
     # runway family alone.  The name ``runway_u`` and the law key
     # ``ramp_cuts_runway_family`` are kept; the union is wider.
+    runway_u = unary_union([p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
+        if any(c.role in RUNWAY_FAMILY for c in cells) else None
+    # §34 (12) (3)'s WIDER union, for an OSM BORE's corridor only.  A
+    # corridor the PACK states — an object corridor, a wall corridor, a
+    # door well — is the §33 (2) authority where it stands: its own plate
+    # IS the deck over the pavement, which is (3)'s first limb, and there
+    # is no terrain deck cell to find.  Measured at OTHH: applied to them
+    # the wider union refused `tunnel middle - east`, `tunnel middle -
+    # west` and `tunnel south west 2` against aprons `pav32` / `pav30` —
+    # the pack's own terminal tunnels.
     _cut_roles = set(airside_cut_roles(law))
-    runway_u = unary_union([p for p, c in zip(polys, cells)
-                            if c.role in _cut_roles and c.kind != "structure"]) \
+    airside_u = unary_union([p for p, c in zip(polys, cells)
+                             if c.role in _cut_roles and c.kind != "structure"]) \
         if any(c.role in _cut_roles and c.kind != "structure" for c in cells) else None
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
     pad_refs = {ref for _p, ref in pads}
@@ -474,8 +496,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 mouth_dem = cap_z
         mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
         # decks across the corridor (a first pass over the full reach)
+        # §34 (12) (4): this group's OWN bores, so a bridge severs the
+        # climb only where it CROSSES one (never alongside the approach)
+        _bores = [m.bore.line for m in (g.members or ())
+                  if getattr(m, "bore", None) is not None]
         deck_ivals = deck_intervals(axis_ln, half + rim_off, bridges, bridge_lines,
-                                     bridge_tree, law)
+                                     bridge_tree, law, _bores)
         obj_ivals = object_deck_intervals(axis_ln, half + rim_off, odecks)
         if obj_ivals:
             # the object law governs where an object bridge stands: a
@@ -752,17 +778,32 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # of an underpass, §34 (5)"): the decks read above are subtracted
         # before the test, so every §34 (5) underpass — LEMD F-6, KCLT
         # taxiway U — passes exactly as it did.
-        if runway_u is not None:
+        _cut_u = airside_u if c is None else runway_u
+        if _cut_u is not None:
             _decked = [d[3] for d in deck_ivals] + [d[3] for d in pav_ivals] \
                 + [d[3] for d in obj_ivals]
+            # §34 (12) (3) is about a bore CROSSING a pavement — "where a
+            # bore crosses a taxiway, junction, apron, stub or parallel".
+            # A corridor whose MOUTH stands on a pavement does not cross
+            # it, it ENDS in it: that is what a portal is, and 08-07
+            # ruling 4's cut has always been how the portal is opened
+            # (LEMD's and HECA's apron mouths).  The pavement the mouth
+            # itself stands on is therefore exempt; every OTHER airside
+            # face the corridor would knife is the defect — VMMC's bore
+            # reached junction `pav5` 36 m away and split it into six
+            # faces at 3.58–4.50 m against the 6.10 m field.
+            _mouth_pts = [Point(m.xy) for m in (g.members or ())] or [Point(g.mouth)]
+            _decked += [p for p, cc in zip(polys, cells)
+                        if cc.role in _cut_roles and cc.kind != "structure"
+                        and any(p.dwithin(q, grid) for q in _mouth_pts)]
             _cut = outer
             if _decked:
                 _cut = outer.difference(
                     unary_union(_decked).buffer(gap + grid, **_MITRE))
-            if not _cut.is_empty and _cut.intersects(runway_u) and \
-                    _cut.intersection(runway_u).area > 1e-6:
-                _hit = sorted({c.ref for p, c in zip(polys, cells)
-                               if c.role in _cut_roles and c.kind != "structure"
+            if not _cut.is_empty and _cut.intersects(_cut_u) and \
+                    _cut.intersection(_cut_u).area > 1e-6:
+                _hit = sorted({cc.ref for p, cc in zip(polys, cells)
+                               if cc.role in _cut_roles and cc.kind != "structure"
                                and p.intersects(_cut)
                                and p.intersection(_cut).area > 1e-6})[:4]
                 stats.refused.append(

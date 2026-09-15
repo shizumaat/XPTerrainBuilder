@@ -169,6 +169,22 @@ ruling    = "2026-09-13j item 2 / 13q item 2"
 solver    = "pin"
 cockpit   = "keepout"
 
+[sea_wall]
+measures  = "an emitted ring EDGE standing ON the shore the patch declares (sidecar `shore_edges`, the same witness the §39 (1) weld ran against and the same product the mesh constrains): the DROP to the water (`de_m`), the quay LEVEL (`elev_a`) and the wall's LENGTH (`distance_m`). A vertical drop from the quay to the water is the LAW here (owner 2026-09-15f: 'the pavement should drop straight to the water with no slope'), so every row is stamped `sea_wall_is_the_law` — named, never adjudicated — and the same reading takes the matching `strip_seam_tear` / `adjacent_ground_step` rows out of the acceptance count (`sea_wall`: the tear IS the wall)"
+parameter = "emit.identity.min_distinct_spacing_m"
+roles     = []
+pairs     = "within"
+ruling    = "2026-09-15f"
+solver    = "diagnostic"
+cockpit   = "step"
+# The wall itself is the MESH's: `O4_Vector_Map`'s Round 7 / R17-3 seawall
+# breaklines offset every graded-coverage ring segment bordering water
+# outward by `SEAWALL_OFFSET_M` at `SEAWALL_SEA_LEVEL_M`, which is exactly
+# §37 (11) (2)'s breakline pair (the quay edge at Z, the coincident shore
+# vertex at the water level).  The patch's job is to END at the coastline
+# — §37 (11) (1)'s trim, taken at `planar/zones.zone_regions` — and this
+# family is how the census SEES that it did.
+
 [road_coverage_join]
 measures  = "a road vertex where the patch's road meets the CORE's levelled ribbon standing off the ribbon's own altitude there (published per pinned vertex in the sidecar `road_coverage_join`)"
 parameter = "emit.road_profile.station_m"

@@ -8155,3 +8155,4 @@ whitelist stays; §45 ships ON after KDFW/KPHX replay clean; measure-
 only accepted; C9/C12 after the reads; osm_roadfeed re-cut authorised
 for KDFW/LGAV/KPHX; the LEMD tile proof recorded there too. Lanes told
 the pack DSFs changed back.
+15bn addendum: suite ON MAIN after the marker repair (acbe3035), incl. test_docq: 1691 passed, 1 skipped, 1 xpassed, 42 warnings, 6 errors in 63.30s (0:01:03).

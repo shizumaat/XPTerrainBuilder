@@ -65,6 +65,8 @@ class Region:
     #: THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19.3 C12):
     #: which rule ended this region — ``"crest"``, ``"road"``, ``"none"``.
     edge_kind: str = "none"
+    #: §37 (11) (2): this region reaches the coastline — a QUAY.
+    quay: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -256,7 +258,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                           road_lines(getattr(airport, "osm_ways", ())), erep):
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
-                              "zone", z.zone, z.edge_kind))
+                              "zone", z.zone, z.edge_kind, z.quay))
         edge_lines.extend(z.edge_lines)
 
     # §16g (10) (5) AT THE ARRANGEMENT (owner RULINGS 2026-09-14ax)

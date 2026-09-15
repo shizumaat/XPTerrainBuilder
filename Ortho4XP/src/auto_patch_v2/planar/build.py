@@ -37,6 +37,7 @@ from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
+from .channel_claims import claimed_crossing_ways
 from .structures import StructureStats, build_structures, ramp_targets
 from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
 from ..airport.thin_plates import read_plates
@@ -149,7 +150,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     # crossing inside a channel from ever becoming a bore with mouths
     # (§45 (1)/(6)), and the basin pass to keep a wall/floor object along
     # the axis from being read a second time as a pit (§45 (7)).
-    channels, chstats = identify_channels(airport, classification, law, objects)
+    channels, chstats = identify_channels(
+        airport, classification, law, objects,
+        claimed_crossing_ways(airport, law, corridors))
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels)
     classification, basins, bstats = build_basins(airport, classification, law, tunnels,
@@ -244,7 +247,9 @@ def build(airport: Airport, classification: Classification, law: Law,
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),
                    edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
-                                     if r.edge_kind != "none"})
+                                     if r.edge_kind != "none"},
+                   quay_refs=frozenset(r.ref for r in arr.regions
+                                       if getattr(r, "quay", False)))
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps

@@ -56,8 +56,6 @@ from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 from .structure_underpass import is_aeroway_bridge
 
 __all__ = ["ChannelStats", "identify_channels", "channel_cells",
-           "channel_ways", "channel_yields", "in_any_corridor",
-           "channel_claiming",
            "FLOOR_ROLE", "WALL_ROLE",
            "WITNESS_BRIDGE", "WITNESS_NECK", "WITNESS_PACK"]
 
@@ -104,148 +102,6 @@ def _is_road_or_rail(w: OsmWay, law: Law) -> bool:
     if is_bridge(w):
         return False           # a bridge way is the CROSSING, not the channel
     return bool(tags.get("highway") or tags.get("railway"))
-
-
-def channel_ways(channels: _t.Sequence[Channel]) -> set[int]:
-    """Every OSM way id any channel owns — the set ``build_structures``
-    subtracts from its bore seeds (§45 (1): "A crossing inside a channel
-    is NEVER a bore with mouths")."""
-    return {int(i) for c in channels for i in c.ways}
-
-
-def channel_claiming(channels: _t.Sequence[Channel], obj, law: Law) -> str:
-    """§45 (7) AS SCOPED BY §45 (11) (owner RULINGS 2026-09-15s): the id
-    of the channel that CLAIMS this placement as its own wall/floor
-    witness, or ``""``.
-
-    Two conditions, both required, and both narrower than round 1's:
-
-    * the placement's BELOW-GRADE FOOTPRINT — never its ``plan_bbox`` —
-      lies INSIDE the corridor (``within``, not merely intersecting);
-    * its deepest genuine solid stands ``[channel] object_min_depth_m``
-      under the channel's crest.
-
-    Round 1 tested "``plan_bbox`` intersects the crest ring", and LGAV's
-    two 20 m2 covered pits (``basin:2``/``basin:3``,
-    ``TowerTerm_Aera-Fence1.obj``) were swallowed by a corridor they
-    merely stood beside.  "A pit beside the corridor keeps its basin"
-    (§45 (11)) — this is that sentence."""
-    bg = getattr(obj, "below_grade", None)
-    z = getattr(obj, "solid_min_z", None)
-    if bg is None or z is None or getattr(bg, "is_empty", True):
-        return ""
-    if getattr(bg, "area", 0.0) <= 1.0:
-        return ""
-    min_depth = float(law.tables.structures.channel.object_min_depth_m)
-    for c in channels:
-        ring = c.region or c.crest_ring
-        if len(ring) < 3:
-            continue
-        poly = Polygon(ring)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if poly.is_empty:
-            continue
-        try:
-            if not bg.within(poly):
-                continue
-        except Exception:                     # pragma: no cover - shapely edge
-            continue
-        if _depth_under_crest(obj, float(c.crest_estimate_m or 0.0)) < min_depth:
-            continue
-        return c.id
-    return ""
-
-
-def in_any_corridor(channels: _t.Sequence[Channel], geom) -> str:
-    """The id of the channel whose CREST RING contains ``geom`` (any
-    overlap), or ``""``.
-
-    §45 (7) THE DEM IS NOT A WITNESS AGAINST A CHANNEL: a wall/floor
-    object standing along the axis is the channel's witness (1) (c) and
-    "is never a basin seed, a sunken road, a tunnel-object corridor or a
-    door well" — this is the ONE test every one of those passes asks, so
-    LGAV's 60 Trench refusals become one channel and not five readings of
-    the same geometry."""
-    if geom is None or getattr(geom, "is_empty", False):
-        return ""
-    for c in channels:
-        ring = c.crest_ring or c.region
-        if len(ring) < 3:
-            continue
-        poly = Polygon(ring)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if poly.is_empty:
-            continue
-        try:
-            if poly.intersects(geom):
-                return c.id
-        except Exception:                     # pragma: no cover - shapely edge
-            continue
-    return ""
-
-
-def channel_yields(channels: _t.Sequence[Channel], tunnel_ways: _t.Sequence[OsmWay],
-                   corridors: _t.Sequence, extra_groups: _t.Sequence,
-                   refused: list[str]):
-    """WHAT THE CHANNEL TAKES OUT OF THE TUNNEL PASS (§45 (1)/(6)/(7)).
-
-    ``(the bore seeds that remain, the object corridors, the extra
-    groups)`` — every input the structure pass would otherwise read a
-    SECOND time inside an identified corridor, with its reason appended
-    to ``refused``.
-
-    Both halves of the bore test, because both populations exist at the
-    three measured sites: a MAPPED bore way the channel owns (its id is
-    on the record), and a bore the §34 (5) underpass pass SYNTHESISED
-    under a deck that is a channel's neck — KPHX's four, whose eight
-    mouths were then ALL refused "the mouth stands against building pad
-    building16".  A channel has no mouth (§45 (6)), so neither way
-    reaches ``mouths()`` at all and those eight refusals vanish by
-    construction rather than by relaxing the pad rule.
-
-    And §45 (7): a wall/floor object standing along the axis is the
-    channel's witness (1) (c) — never a tunnel-object corridor, a sunken
-    road or a door well.  LGAV measured the alternative: 60 Trench
-    refusals, four passes each refusing the same geometry against a DEM
-    it stands 12 m under."""
-    owned = channel_ways(channels)
-    kept: list[OsmWay] = []
-    for w in tunnel_ways:
-        cid = "" if int(w.id) in owned else in_any_corridor(channels, LineString(w.points))
-        if int(w.id) in owned or cid:
-            refused.append(
-                f"osm:{w.id}: inside {cid or 'its own'} channel corridor — the channel's "
-                f"floor governs it and a crossing inside a channel is NEVER a bore with "
-                f"mouths (§45 (1)/(6))")
-            continue
-        kept.append(w)
-    # §45 (11): an object pass yields ONLY where its footprint lies
-    # INSIDE the corridor — a structure beside it keeps its own reading
-    cors = [c for c in corridors
-            if not _within_corridor(channels, getattr(c, "footprint", None))]
-    grps = [g for g in extra_groups
-            if not _within_corridor(channels,
-                                    getattr(getattr(g, "corridor", None), "footprint", None))]
-    return kept, cors, grps
-
-
-def _within_corridor(channels: _t.Sequence[Channel], geom) -> str:
-    """The channel whose corridor CONTAINS ``geom`` (§45 (11)'s
-    ``within``), or ``""``."""
-    if geom is None or getattr(geom, "is_empty", False):
-        return ""
-    for c in channels:
-        ring = c.region or c.crest_ring
-        if len(ring) < 3:
-            continue
-        poly = Polygon(ring)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if not poly.is_empty and geom.within(poly):
-            return c.id
-    return ""
 
 
 # ── (1) IDENTIFICATION ───────────────────────────────────────────────────
@@ -450,14 +306,38 @@ def _lidar_credible(airport: Airport, law: Law) -> bool:
 # ── the derivation ───────────────────────────────────────────────────────
 
 def identify_channels(airport: Airport, classification, law: Law,
-                      objects: _t.Sequence = ()) -> tuple[list[Channel], ChannelStats]:
+                      objects: _t.Sequence = (),
+                      claimed_ways: _t.AbstractSet[int] = frozenset()
+                      ) -> tuple[list[Channel], ChannelStats]:
     """THE CHANNEL RECORDS (§45 (1)–(7)), derived ONCE.
 
     Order, exactly as the brief's ORDER OF WORK ruled it: the
     hole-and-neck read of the apt.dat pavement union (1) (b) is the FIRST
     witness — it is free at all three airports and depends on neither
     OSM's tags, the DEM nor a pack — then ``bridge=yes`` (1) (a), then the
-    pack's wall / floor objects (1) (c)."""
+    pack's wall / floor objects (1) (c).
+
+    §45 (13) A CHANNEL NEVER TAKES A MODELLED CROSSING (owner RULINGS
+    2026-09-15aa) is applied HERE and nowhere else — three clauses, in
+    precedence:
+
+    (b) ``claimed_ways`` is the set of OSM way ids the engine ALREADY
+        models: the mapped ``tunnel=yes`` bores ``build_structures``
+        seeds from and the bore ways every 05k-1 object corridor claims
+        (``tunnel_objects.read_corridors``).  It is handed IN, never
+        re-derived — two derivations of "what is already modelled" is
+        how a channel came to delete KCLT taxiway U's four bores.  A
+        pack-wall or lidar witness does NOT override it: at LGAV the
+        trench ways carry no ``tunnel`` tag and no object corridor, so
+        nothing competes.
+    (a) a crossing witnessed by an aeroway ``bridge=yes`` way ALONE — no
+        neck, no pack, no lidar — is §34 (5)'s underpass and keeps the
+        bore-with-mouths model; (1) (a) is a witness only in COMPANY
+        (LGAV: bridge + pack).
+    (c) otherwise a channel needs a pack or lidar witness, or a neck
+        witness with at least ``min_decks_without_depth`` decks (§45
+        (12), ratified).
+    """
     stats = ChannelStats()
     ch = law.tables.structures.channel
     tn = law.tables.structures.tunnel
@@ -465,8 +345,14 @@ def identify_channels(airport: Airport, classification, law: Law,
     union = _pavement_union(airport)
     holes = _hole_region(union)
     cands: list[_Cand] = []
+    claimed = {int(i) for i in (claimed_ways or ())}
+    n_claimed = 0
     for w in airport.osm_ways:
         if not _is_road_or_rail(w, law):
+            continue
+        if int(w.id) in claimed:
+            # §45 (13) (b): the engine already models this crossing
+            n_claimed += 1
             continue
         c = _read_way(w, law, union, holes)
         if c is None:
@@ -474,6 +360,10 @@ def identify_channels(airport: Airport, classification, law: Law,
         if c.necks:
             c.witnesses.add(WITNESS_NECK)
         cands.append(c)
+    if n_claimed:
+        stats.notes.append(
+            f"§45 (13) (b): {n_claimed} way(s) excluded from every channel candidate — a "
+            f"mapped `tunnel=yes` bore or a 05k-1 object corridor already models them")
     stats.candidates = len(cands)
     # (1) (a) A DECK STATES A CROSSING: a taxied aeroway bridge over the way
     for w, bln in _aeroway_bridges(airport, law):
@@ -663,6 +553,21 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         packs)
     if profile is None:
         return None
+    # §45 (13) (a) A BRIDGE-ONLY WITNESS IS §34 (5)'s UNDERPASS (owner
+    # RULINGS 2026-09-15aa).  Measured by round 3's six dry replays: on a
+    # bridge witness ALONE the pass took KCLT taxiway U's crossing (ways
+    # -14074 -3590 -4356 -4359) and deleted the four bores
+    # `tunnel:-14074@0..3` the §34 (5) underpass had built, and did the
+    # same to LEMD's F-6 service roads -5821/-5820.  §45 (1) (a) is a
+    # witness only in COMPANY — at LGAV the bridge stands beside the
+    # Trench walls.
+    if set(_wits(grp)) == {WITNESS_BRIDGE}:
+        stats.refused.append(
+            f"{cid}: witnessed by an aeroway bridge ALONE (no neck, no pack wall/floor "
+            f"object, no credible lidar) — that is §34 (5)'s UNDERPASS and keeps its "
+            f"bore-with-mouths model; §45 (1) (a) is a witness only in company "
+            f"(§45 (13) (a)). Ways {'+'.join(str(int(c.way.id)) for c in grp)}")
+        return None
     # §45 (12): a channel with NO DEPTH WITNESS — no pack walls (3) (i),
     # no credible lidar (3) (ii), so the floor is (3) (iii)'s "Cut the
     # road down" — needs more than one crossing, WHATEVER witnessed it.
@@ -677,7 +582,9 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # — and deleting the bore `tunnel:-5821+-5820@0` that the underpass
     # pass had built.  One crossing with no depth is a CROSSING; §34 (5)
     # already owns it.
-    if (datum == DATUM_CLEARANCE and len(decks) < ch.min_decks_without_depth):
+    if (datum == DATUM_CLEARANCE
+            and (WITNESS_NECK not in _wits(grp)
+                 or len(decks) < ch.min_decks_without_depth)):
         stats.refused.append(
             f"{cid}: witnessed by a paved neck alone and with {len(decks)} crossing(s) "
             f"(< [channel] min_decks_without_depth {ch.min_decks_without_depth}) — a single "

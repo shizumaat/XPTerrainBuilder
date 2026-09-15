@@ -146,7 +146,12 @@ def test_a_mouth_on_the_field_is_built_though_its_bore_covers_nothing(law):
     passes under an airport surface — a portal on the field is visible on
     approach — and is counted and named where the retired cover test
     would have refused it (LEMD: 8 such bores, 9 corridors, +329 census
-    rows, accepted)."""
+    rows, accepted).
+
+    §34 (12) (1) briefly reversed this and was WITHDRAWN for it (Fable
+    2026-09-15; RULINGS 2026-09-15w): the price, measured at LEMD by dry
+    pair, was 54 tunnels → 16 — these 38.  What stops VMMC's seafront
+    line is §34 (12) (2)-(4), not the admission."""
     so = law.tables.structures.tunnel.mouth_standoff_m
     y = -(60.0 + 0.5 * so)                    # on the field, under nothing
     cl2, tunnels, st = _run(law, ((0.0, y), (0.0, y - 6.0 * so)))

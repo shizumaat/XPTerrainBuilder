@@ -527,3 +527,21 @@ def beyond_strip(axis_fn, s_end: float, length: float) -> Polygon:
                     (e[0] - nx * length, e[1] - ny * length),
                     (e[0] - nx * length + ux * length, e[1] - ny * length + uy * length),
                     (e[0] + nx * length + ux * length, e[1] + ny * length + uy * length)])
+
+
+def owner_kept(cell: tuple, tunnels, keep) -> bool:
+    """Whether a pending cell's owning tunnel survived the overlap
+    resolution — MOVED VERBATIM from ``planar/structures.py`` (its
+    1,000-line budget), no behaviour with it."""
+    ids = {t.id for t, k in zip(tunnels, keep) if k}
+    return cell[3] in ids
+
+
+def parts(geom) -> list:
+    """A geometry's non-degenerate POLYGON parts — MOVED VERBATIM from
+    ``planar/structures.py``, which imports it back as ``_parts``."""
+    import shapely
+    if geom is None or geom.is_empty:
+        return []
+    return [g for g in shapely.get_parts(geom)
+            if g.geom_type == "Polygon" and g.area > 1e-6]

@@ -23,6 +23,9 @@ from auto_patch_v2.model.structures import CREST_DESIGN
 from auto_patch_v2.planar.channel import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                                           WITNESS_NECK, WITNESS_PACK,
                                           channel_cells, identify_channels)
+from auto_patch_v2.planar.channel_claims import (channel_claiming,
+                                                 claimed_crossing_ways,
+                                                 in_any_corridor)
 from auto_patch_v2.planar.structures import build_structures
 
 
@@ -215,7 +218,6 @@ def test_c_a_pack_wall_object_along_the_axis_is_the_witness_not_a_seed(law):
 
 
 def test_c_the_object_is_dropped_from_the_basin_seeds(law):
-    from auto_patch_v2.planar.channel import in_any_corridor
     obj = _Placed("dsf:obj1", Polygon(_rect(-8.0, -300.0, 8.0, 300.0)), 88.0)
     ap = _airport(law, [_pavement_with_corridor()], [_road()])
     chans, _st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()),
@@ -383,3 +385,55 @@ def test_a_pack_witness_is_judged_against_its_OWN_local_ground(law):
         solid_min_depth_m = None
         solid_min_z = 60.0
     assert _depth_under_crest(_NoLocal(), 67.48) == pytest.approx(7.48)
+
+
+# ── §45 (13) A CHANNEL NEVER TAKES A MODELLED CROSSING ───────────────────
+
+def test_13a_a_bridge_only_witness_is_an_underpass_not_a_channel(law):
+    """§45 (13) (a) (owner RULINGS 2026-09-15aa): a crossing witnessed by
+    an aeroway ``bridge=yes`` way ALONE keeps §34 (5)'s bore-with-mouths
+    model.  Measured at KCLT — on a bridge witness alone the pass took
+    taxiway U's crossing and deleted the four bores
+    ``tunnel:-14074@0..3`` the underpass pass had built."""
+    # a real corridor but NO neck anywhere, so nothing but the taxiway
+    # bridge can witness the crossing
+    bridge = OsmWay(-900, "airports", ((-60.0, 0.0), (60.0, 0.0)), False,
+                    {"aeroway": "taxiway", "bridge": "yes", "layer": "1"})
+    ap = _airport(law, [_pavement_with_corridor(necks=())], [_road(), bridge])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert chans == [], [c.id for c in chans]
+    assert any("witnessed by an aeroway bridge ALONE" in r for r in st.refused), st.refused
+
+
+def test_13b_a_way_the_engine_already_models_is_never_a_channel_candidate(law):
+    """§45 (13) (b): a way a mapped ``tunnel=yes`` bore or a 05k-1 object
+    corridor claims is excluded from EVERY channel candidate, and a pack
+    witness does not override it."""
+    obj = _Placed("dsf:obj1", Polygon(_rect(-8.0, -300.0, 8.0, 300.0)), 88.0)
+    ap = _airport(law, [_pavement_with_corridor()], [_road()])
+    # unclaimed: the channel stands
+    chans, _st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()),
+                                   law, [obj])
+    assert len(chans) == 1 and chans[0].datum_source == DATUM_PACK
+    # claimed: nothing is left to witness, pack witness notwithstanding
+    chans2, st2 = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()),
+                                    law, [obj], claimed_ways={-500})
+    assert chans2 == [], [c.id for c in chans2]
+    assert any("already models them" in n for n in st2.notes), st2.notes
+
+
+def test_13b_the_claimed_set_is_read_off_the_passes_own_outputs(law):
+    """§45 (13) (b): ``claimed_crossing_ways`` is the ONE derivation and
+    it reads the existing outputs — the mapped bores' own predicate and
+    each object corridor's ``bore_ways`` — never a second rule."""
+    bore = OsmWay(-701, "big_roads", ((0.0, -50.0), (0.0, 50.0)), False,
+                  {"highway": "secondary", "tunnel": "yes"})
+    plain = OsmWay(-702, "big_roads", ((5.0, -50.0), (5.0, 50.0)), False,
+                   {"highway": "secondary"})
+    ap = _airport(law, [], [bore, plain])
+
+    class _Cor:
+        bore_ways = (-702, -999)
+    got = claimed_crossing_ways(ap, law, [_Cor()])
+    assert -701 in got          # the mapped bore, by the tunnel predicate
+    assert -702 in got and -999 in got   # the object corridor's own claim

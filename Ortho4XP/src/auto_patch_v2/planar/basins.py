@@ -444,7 +444,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     # the corridor keeps its basin (§45 (11)) — LGAV's ``basin:2`` and
     # ``basin:3``, two 20 m2 covered pits, are that sentence.
     if channels:
-        from .channel import channel_claiming
+        from .channel_claims import channel_claiming
         keep = []
         for o in witnessed:
             cid = channel_claiming(channels, o, law)

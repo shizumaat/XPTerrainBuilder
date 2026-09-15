@@ -85,41 +85,65 @@ def test_snap_max_zero_disarms_the_quantisation_entirely():
     assert counts.get("snap_too_far") == 2 and "snapped_pads" not in counts
 
 
-# ── (i) the clip trims, it never deletes ────────────────────────────────
+# ── (ax) the clip is the ARRANGEMENT's, and it trims, never deletes ────
 
-def test_the_clip_trims_a_pad_and_never_deletes_one():
-    """A pad half on the pavement is CLIPPED out of it; a pad WHOLLY
-    inside keeps its footprint (the OSM pad-in-an-apron class, r5's "30
-    pads wholly in the band", which keeps its own two-sided plate).
-    Deleting that class is §16g (10) (5)'s rule for a DERIVED pad, whose
-    cluster then seats on the pavement — it is not this half's."""
-    from auto_patch_v2.classify.evidence import PAD_AIRSIDE, _pads
-    from auto_patch_v2.classify.rules import load_rules
+def test_the_arrangement_clips_a_pad_by_the_ROLLED_ON_faces_only():
+    """RULINGS 2026-09-14ax: the clip runs where the faces HAVE ROLES.
+    Its set is ``law.tables.rolled_on_roles`` — the runway family, the
+    taxi family and the airside, non-rigid apron roles — so a groundside
+    lot, island or service pavement never clips a pad.  Round 1 ran it at
+    ``classify/evidence`` against every apt.dat page and took the pad off
+    a groundside island's shed (``test_round3``)."""
+    from auto_patch_v2.law.tables import is_rigid_role, rolled_on_roles
+    from auto_patch_v2.planar.overlay import Region, airside_clip
     law = _armed(_law())
-    apron = Polygon([(0, 0), (200, 0), (200, 200), (0, 200)])
+    rolled = rolled_on_roles(law)
+    assert "apron" in rolled and "runway" in rolled
+    assert not any(r in rolled for r in
+                   ("groundside_pavement", "parking_lot", "service_road",
+                    "building"))
 
-    class _B:
-        def __init__(self, ring):
-            self.outer, self.holes, self.source = ring, (), "osm"
+    def _reg(role, ref, poly):
+        return Region(role, ref, poly, None, None, "airside", "cell")
 
-    class _AP:
-        buildings = (
-            _B(((150.0, 150.0), (190.0, 150.0), (190.0, 190.0),
-                (150.0, 190.0))),                       # wholly inside
-            _B(((20.0, 190.0), (120.0, 190.0), (120.0, 260.0),
-                (20.0, 260.0))),                        # straddling
-        )
-        clusters = ()
-        frame = None
+    apron = _reg("apron", "pav1", Polygon([(0, 0), (200, 0), (200, 200),
+                                           (0, 200)]))
+    lot = _reg("groundside_pavement", "lot1",
+               Polygon([(0, 200), (200, 200), (200, 400), (0, 400)]))
+    on_apron = _reg("building", "b_in", Polygon([(150, 150), (190, 150),
+                                                 (190, 190), (150, 190)]))
+    straddle = _reg("building", "b_cut", Polygon([(20, 190), (120, 190),
+                                                  (120, 260), (20, 260)]))
+    on_lot = _reg("building", "b_lot", Polygon([(20, 300), (60, 300),
+                                                (60, 340), (20, 340)]))
+    assert is_rigid_role(law, "building")
+    out, counts = airside_clip([apron, lot, on_apron, straddle, on_lot], law)
+    by = {r.ref: r.polygon for r in out if r.role == "building"}
+    assert set(by) == {"b_in", "b_cut", "b_lot"}, sorted(by)
+    # the GROUNDSIDE lot clips nothing: the shed on it is untouched
+    assert by["b_lot"].equals(on_lot.polygon)
+    # the straddling pad is TRIMMED out of the apron and takes none of it
+    assert by["b_cut"].intersection(apron.polygon).area == 0.0
+    assert round(by["b_cut"].area) == 6000   # 100 x 70 less the 100 x 10 in the apron
+    # ... and the pad WHOLLY on the apron is KEPT, not erased: it is §30 /
+    # 14ai's pad-in-an-apron class, which welds to the apron around it
+    assert by["b_in"].equals(on_apron.polygon)
+    assert counts["kept_wholly_on_airside"] == 1
+    assert counts["clipped"] == 1
 
-    out, _dropped, _notes = _pads(_AP(), load_rules(), 100.0, None, apron,
-                                 Polygon(), law=law)
-    got = dict(out)
-    assert len(got) == 2, got
-    assert PAD_AIRSIDE.get("kept_inside_airside") == 1
-    # the straddling pad no longer takes any apron; the inside one is whole
-    assert min(g.intersection(apron).area for g in got.values()) == 0.0
-    assert round(max(g.intersection(apron).area for g in got.values())) == 1600
+
+def test_the_clip_is_law_gated_and_false_is_the_identity():
+    from auto_patch_v2.planar.overlay import Region, airside_clip
+    law = _armed(_law(), clip=False)
+    apron = Region("apron", "pav1", Polygon([(0, 0), (200, 0), (200, 200),
+                                             (0, 200)]),
+                   None, None, "airside", "cell")
+    pad = Region("building", "b", Polygon([(20, 190), (120, 190),
+                                           (120, 260), (20, 260)]),
+                 None, None, "airside", "cell")
+    out, counts = airside_clip([apron, pad], law)
+    assert counts == {} and [r.polygon for r in out] == [apron.polygon,
+                                                         pad.polygon]
 
 
 # ── (au) the skirt's relaxed ceiling is §20b's ──────────────────────────

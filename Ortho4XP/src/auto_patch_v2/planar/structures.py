@@ -102,7 +102,7 @@ from .structure_approach import (FieldRegion, apply_plates,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
 from .zones import shore_region
-from .structure_service import (airside_cut_roles, deck_witness_for,
+from .structure_service import (airside_cut_roles, cover_region, deck_witness_for,
                                 osm_stops as _osm_stops,
                                 pad_relief_m as _pad_relief_m)
 from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
@@ -127,6 +127,23 @@ PARALLEL_COS = math.cos(math.radians(30))   #: 31h's dual test / the kink test
 
 def _dem(airport: Airport, p: XY) -> float:
     return float(airport.dem.z(p[0], p[1]))
+
+
+def _join_rim(outer, extra):
+    """``outer`` ∪ ``extra``, KEEPING the parts.
+
+    A corridor's rim has always been ONE polygon, so a union that came
+    back multi-part was a self-touching repair artefact and the hull was
+    the right answer.  §33 (6) B AMENDED (2) makes a signature-B rim
+    legitimately several rings — one per OPEN part the cover leaves — and
+    a hull over those would swallow the covered stretch whole, which is
+    the very surface the ruling protects.  So: hull a multi-part result
+    ONLY when the rim it came from was a single polygon (every corridor
+    class but an open-cut shell, bit for bit as before)."""
+    joined = unary_union([outer, extra])
+    if joined.geom_type == "Polygon" or outer.geom_type != "Polygon":
+        return joined
+    return joined.convex_hull
 
 # ── build ────────────────────────────────────────────────────────────────
 
@@ -583,14 +600,33 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if pav_hw:
                 def half_fn(s: float, _hw=pav_hw, _h=half) -> tuple[float, float]:
                     return _hw.get(s, (_h, _h))
+        # §33 (6) B AMENDED (2): what COVERS this shell's trench (RULINGS
+        # 2026-09-15bp) — the object's own cover plate ∪ the live airside
+        # pavement, pads and unit footprints standing over it.  Composed
+        # HERE because this is the only place that can see both halves.
+        covered_region = cover_region(c, cells, polys, cell_tree, pads, pad_tree, _cut_roles)
+        cover_note = ""
+        if covered_region is not None and c is not None:
+            open_m2 = c.trench.difference(covered_region).area
+            cover_note = (f"§33 (6) B AMENDED (2): trench {c.trench.area:.0f} m2 = OPEN "
+                          f"{open_m2:.0f} m2 + COVERED {c.trench.area - open_m2:.0f} m2 "
+                          f"(the object's own cover plate and the live airside pavement / "
+                          f"pads standing over it); the covered stretch keeps its own "
+                          f"surface and carries no floor row")
+
         # §33 (6) B: an OBJECT CUT's ring is its OWN trench polygon
-        def _ring(ss_try):
-            return ring_for(c, axis_fn, ss_try, half, rim_off, inward, grid, g, half_fn)
+        def _ring(ss_try, _cov=covered_region):
+            return ring_for(c, axis_fn, ss_try, half, rim_off, inward, grid, g, half_fn,
+                            covered=_cov)
         while True:
             geom = _ring(ss)
             if geom is None:
-                stats.refused.append(f"{tid}: the approach bends tighter than the corridor "
-                                     f"(ramp or wall ring self-intersects)")
+                stats.refused.append(
+                    (f"{tid}: {cover_note} — nothing of the trench is OPEN, so the shell "
+                     f"emits mouths and ramps only (§33 (6) B AMENDED (2))")
+                    if cover_note else
+                    (f"{tid}: the approach bends tighter than the corridor "
+                     f"(ramp or wall ring self-intersects)"))
                 break
             if c is not None and g.kind == WALL_KIND:
                 # Law C (08m (a)): the RAMP stops at the pavement EDGE — the
@@ -669,9 +705,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # so the mouth edge shares no vertex with it (09-01c/e; 09-08a)
             a, b = left[0], right[0]
             strip_m = LineString([a, b]).buffer(grid, cap_style="flat", **_MITRE)
-            outer = unary_union([outer, strip_m])
-            if outer.geom_type != "Polygon":
-                outer = outer.convex_hull
+            outer = _join_rim(outer, strip_m)
         # THE VOID between the ramp and the rim (2026-09-06b): one face
         # whose exterior is the rim and whose hole is the ramp — never a
         # surface, the mesh triangulates the wall inside it
@@ -757,6 +791,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
         notes = list(deck_notes)
+        if cover_note:
+            notes.append(cover_note)
         if collapse_note:
             notes.append(collapse_note)
         if len(members) > 1:
@@ -859,9 +895,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             a = (left[-1][0] - dx / L * ext, left[-1][1] - dy / L * ext)
             b = (right[-1][0] + dx / L * ext, right[-1][1] + dy / L * ext)
             top = LineString([a, b]).buffer(gap + grid, cap_style="flat", **_MITRE)
-            outer = unary_union([outer, top])
-            if outer.geom_type != "Polygon":
-                outer = outer.convex_hull
+            outer = _join_rim(outer, top)
         footprints.append(outer)
         keepouts.append(outer)
         if c is not None:

@@ -532,10 +532,16 @@ def seed_wall_stations(ss: list[float], c, grid: float) -> list[float]:
 
 
 def ring_for(c, axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,
-             grid: float, g, half_fn=None) -> "RampGeometry | None":
+             grid: float, g, half_fn=None, covered=None) -> "RampGeometry | None":
     """The corridor's ring: the OBJECT'S OWN TRENCH POLYGON for a
     signature-B object cut (§33 (6) B — see
-    :func:`geometry_from_trench`), else :func:`geometry`'s axis offset."""
+    :func:`geometry_from_trench`), else :func:`geometry`'s axis offset.
+
+    ``covered`` is §33 (6) B AMENDED (2)'s COVER REGION for a signature-B
+    cut — the object's own cover plate ∪ the live airside pavement, pads
+    and unit footprints standing over its trench, composed by
+    ``planar/structures.build_structures`` (the only caller that can see
+    the second half).  It is ignored by every other corridor class."""
     if c is not None and str(getattr(c, "id", "")).startswith(OBJECT_CUT_PREFIX):
         # §33 (6) B AMENDED: the WALL's own width, by the law the axis
         # offset already applies per station (``object_corridor.rim_fn``
@@ -544,16 +550,19 @@ def ring_for(c, axis_fn, ss: list[float], half: float, rim_off: float, inward: X
         want = rim_off
         if g is not None and getattr(g, "rim_fn", None) is not None and ss:
             want = min(min(g.rim_fn(s)) for s in ss)
-        gm = geometry_from_trench(axis_fn, ss, half, want, grid,
-                                  c.trench, c.footprint, half_fn)
-        if gm is not None:
-            return gm
+        # NO FALL-THROUGH for a signature-B cut (§33 (6) r2's ruling: the
+        # emitter takes the object's OWN trench polygon, never an axis
+        # offset — which is what folded on the hairpins).  ``None`` here
+        # is a refusal the caller NAMES, not a licence to offset an axis.
+        return geometry_from_trench(axis_fn, ss, half, want, grid,
+                                    c.trench, c.footprint, half_fn, covered=covered)
     return geometry(axis_fn, ss, half, rim_off, inward, grid, g.capped, g.far_capped,
                     half_fn, g.rim_fn, g.cap_off, g.far_off)
 
 
 def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float, grid: float,
-                         trench, footprint, half_fn=None) -> "RampGeometry | None":
+                         trench, footprint, half_fn=None, covered=None
+                         ) -> "RampGeometry | None":
     """§33 (6) B: THE RING IS THE OBJECT'S OWN TRENCH POLYGON (owner
     RULINGS 2026-09-15g; Fable / RULINGS 2026-09-15x), not an axis offset.
 
@@ -615,6 +624,29 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float,
         outer = _one_polygon(unary_union([outer, ramp]))
         if outer is None:
             return None
+    if covered is not None:
+        # §33 (6) B AMENDED (2): THE TRENCH IS OPEN ONLY WHERE NOTHING
+        # COVERS IT.  Over the covered stretch the SURFACE holds its own
+        # law and the object's floor is an INTERIOR datum applied to no
+        # surface vertex — so the cut is not emitted there at all: no
+        # rim, no wall, no floor ring, no ``tunnel_ramp`` face, and
+        # therefore no vertex for ``taxi_centreline`` or any airside row
+        # to reach (measured r1: TUNNEL2_DONE's floor ring carried a taxi
+        # centreline vertex and the 1.5 % cap over 1.1 m pulled the
+        # junction beside it down 6.46 m; no wall can touch that row).
+        # What remains is one OPEN PART per piece the cover leaves, each
+        # with the walled cut of B AMENDED (1) all round it — and the
+        # wall standing at an open↔covered transition IS that transition's
+        # portal face.
+        cut = _valid(covered)
+        if cut is not None:
+            outer = _open_parts(outer.difference(cut), standoff + grid)
+            if outer is None:
+                # ENTIRELY COVERED: the shell emits mouths and ramps only
+                return None
+            ramp = _valid(ramp.difference(cut))
+            if ramp is None:
+                return None
     if standoff > 0.0:
         # THE GAP IS NEVER ON A WELD TOLERANCE (09-01e, this file's own
         # law): the arrangement snap-rounds to ``grid``, and two points
@@ -624,11 +656,12 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float,
         # diagonal toward the other, and the stand-off is widened by one
         # grid step to keep the rings at least the identity spacing apart
         # after the round.
-        inside = _one_polygon(outer.buffer(-(standoff + grid), join_style="mitre"))
+        want = ramp.area
+        inside = _valid(outer.buffer(-(standoff + grid), join_style="mitre"))
         if inside is None:
             return None
-        walled = _one_polygon(ramp.intersection(inside))
-        if walled is None or walled.area < ramp.area * _MIN_WALLED_FRACTION:
+        walled = _valid(ramp.intersection(inside))
+        if walled is None or walled.area < want * _MIN_WALLED_FRACTION:
             # the object leaves no room for its own walls: refused by
             # name upstream rather than emitted as a wall-less trench
             return None
@@ -637,7 +670,57 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float,
     if wall.is_empty:
         return None
     return RampGeometry(axis, nrm, left, right, ramp, wall, outer, [], [], [], [],
-                        list(outer.exterior.coords), [])
+                        _rim_path(outer), [])
+
+
+def _rim_path(outer) -> list[XY]:
+    """The rim ring(s) as ONE polyline — every open part's exterior in
+    turn.  ``planar/structures`` lays it into ``Tunnel.wall_path``, which
+    ``constraints/structures._rim_rows`` uses ONLY as the station frame it
+    clusters the rim's vertices along and ``pipeline/build.plate_stations``
+    as a line to keep stations off; with several open parts (§33 (6) B
+    AMENDED (2)) it is several closed rings laid end to end, and a
+    projection onto it is still nearest-point on the nearest ring."""
+    out: list[XY] = []
+    for part in _polys(outer):
+        out.extend((float(x), float(y)) for x, y in part.exterior.coords)
+    return out
+
+
+def _polys(geom) -> list:
+    """Every Polygon part of ``geom`` (one for a Polygon)."""
+    import shapely as _sh
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "Polygon":
+        return [geom]
+    return [p for p in _sh.get_parts(geom) if p.geom_type == "Polygon" and not p.is_empty]
+
+
+def _open_parts(geom, min_side: float):
+    """§33 (6) B AMENDED (2): the OPEN parts the cover leaves, as one
+    geometry, and ``None`` when nothing open is left (the shell is
+    entirely covered — it emits mouths and ramps only).
+
+    A part that cannot hold a FLOOR RING inside its own wall band — its
+    interior eroded by ``min_side`` is empty — is dropped, not emitted:
+    all wall and no floor is a HOLE in the surface, which is the defect
+    this ruling exists to close, not a trench."""
+    from shapely.geometry import MultiPolygon
+    parts = [p for p in _polys(_valid(geom))
+             if not p.buffer(-min_side, join_style="mitre").is_empty]
+    if not parts:
+        return None
+    return parts[0] if len(parts) == 1 else MultiPolygon(parts)
+
+
+def _valid(geom):
+    """The valid polygonal geometry of ``geom`` — EVERY part, not just the
+    largest — repaired the way the object reader repairs a pack's own
+    geometry (``airport/object_cut.valid_polygon``), never a second
+    spelling."""
+    from ..airport import object_cut as _oc
+    return _oc.valid_polygon(geom)
 
 
 def _one_polygon(geom):

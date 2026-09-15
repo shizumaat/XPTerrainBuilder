@@ -189,6 +189,13 @@ class Corridor:
     #: The OSM tunnel way ids whose END stands at a mouth of this corridor
     #: (08o: those mouths PAIR with the corridor in ``planar/structures``).
     bore_ways: tuple[int, ...] = ()
+    #: §33 (6) B AMENDED (2) (RULINGS 2026-09-15bp): the object's OWN
+    #: COVER — the signature-B ``_TN`` flush ``HARD_DECK`` plate ("hard
+    #: covers where needed", 15g) in the airport frame.  A PUBLISHED
+    #: READING, nothing else: the region the trench is NOT open under is
+    #: composed in ``planar/structures.build_structures``, which is the
+    #: only place that can see the live airside pavement half of it.
+    cover: object | None = None
 
 
 @_dc.dataclass
@@ -819,7 +826,8 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
                     float(sts2[-1].s), width, False, False, mean_t, mean_t, kind, flat,
                     mouth_dem, float(cut.floor_z), band, trench, footprint,
                     cut.ends[mouth], mouth_dem, 0.0, tuple(notes), depth, False,
-                    cut.floor_y, tuple(sorted(set(bores[0]) | set(bores[1]))))
+                    cut.floor_y, tuple(sorted(set(bores[0]) | set(bores[1]))),
+                    _object_cut.valid_polygon(cut.covered))
 
 
 def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],

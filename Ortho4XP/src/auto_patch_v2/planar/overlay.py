@@ -29,11 +29,10 @@ from shapely.strtree import STRtree
 
 from ..classify.roles import Classification
 from ..law import Law
-from ..law.tables import chord_cap_m, is_rigid_role, role_side, rolled_on_roles
+from ..law.tables import chord_cap_m, role_side
 from ..model.airport import Airport
 from .chords import densify, ring_lines, stations
 from .terrain_edge import EdgeReport, road_lines
-from ..geom.cluster_outline import AirsideRim, airside_vertex_snap
 from .weld import WeldStats, weld_cells
 from .zones import zone_regions
 
@@ -129,113 +128,6 @@ class Arrangement:
     zone_sliver_rows: tuple = ()
 
 
-#: RULINGS 2026-09-14ax: what the ARRANGEMENT's pad clip did this build —
-#: the pads trimmed, the crossing points quantised to the airside rim's
-#: own nodes, the ones too far to move, every refusal by reason, and the
-#: pads the clip would have erased.  ONE publication (``classify.evidence``
-#: re-exports it); the report and the census read it, never re-derive it.
-PAD_AIRSIDE: dict[str, object] = {}
-
-
-def airside_clip(regions, law) -> tuple[list, dict]:
-    """§16g (10) (5) AT THE SITE WHERE THE FACES HAVE ROLES (owner RULINGS
-    2026-09-14ax): every RIGID (``building``) region clipped out of the
-    airside faces — ``law.tables.rolled_on_roles``: the runway family, the
-    taxi family and the airside, non-rigid apron roles, which is the one
-    derivation of "what an aircraft rolls on" and excludes the groundside
-    lots, islands and service pavement by construction.
-
-    Round 1 (lane ``v2padvert``, RULINGS 2026-09-14as (i)) ran this at
-    ``classify/evidence._pads`` and MEASURED why it cannot live there: at
-    evidence time no role is scored, so the only union available is every
-    apt.dat pavement page, and armed it took the pad off a groundside
-    island's shed.  Here the roles exist.
-
-    Two halves, both round 1's, both measured at HECA (pads ON vs OFF,
-    airside vertices gone/new: 280/88 unclipped):
-
-    * THE CLIP.  The pad is differenced out of the airside union, so
-      ``classify/roles``'s subtraction of the pad union from the airside
-      region is area-null and the airside polygon stops being a function
-      of which pads exist (59/79).
-    * THE RIM SNAP.  The clip's own CROSSING POINTS are not rim NODES, and
-      noded here they SPLIT an airside edge and mint a vertex that exists
-      only because the pad does; within ``[placement]
-      pad_airside_snap_max_m`` they move to the rim's nearest node — the
-      pad yields, the airside never does (28/35).
-
-    A pad the clip would ERASE is counted and dropped: it stands wholly
-    on what an aircraft rolls on, and §16g (10) (5)'s own clause is that
-    its bodies seat on the pavement.
-    """
-    counts: dict = {}
-    if not bool(law.tables.structures.placement.pad_airside_clip):
-        return list(regions), counts
-    rolled = rolled_on_roles(law)
-    pad_ix = [i for i, r in enumerate(regions) if is_rigid_role(law, r.role)]
-    if not pad_ix:
-        return list(regions), counts
-    air = unary_union([r.polygon for r in regions
-                       if r.source == "cell" and r.role in rolled])
-    counts["pads"] = len(pad_ix)
-    if air.is_empty:
-        return list(regions), counts
-    # THE HOT-PIXEL BAND IS ONE AND A HALF GRID CELLS, MEASURED.  The
-    # noding snap-ROUNDS to ``min_distinct_spacing_m``: a pad coordinate
-    # and an airside edge each move up to half a cell diagonally, so two
-    # things within ~1.4 cells of each other can round together and the
-    # pad's point becomes a hot pixel the airside edge is SPLIT at.  At
-    # one cell HECA still minted 29 airside vertices, every one standing
-    # 0.02 .. 0.50 m off the boundary — inside the band a single cell
-    # leaves open.
-    rim = AirsideRim(air,
-                     1.5 * float(law.tables.emit.identity.min_distinct_spacing_m),
-                     float(law.tables.structures.placement.pad_airside_snap_max_m))
-    out = list(regions)
-    drop: set[int] = set()
-    for i in pad_ix:
-        r = out[i]
-        if not r.polygon.intersects(air):
-            continue
-        g = r.polygon.difference(air)
-        if g.is_empty or g.area <= 0.0:
-            # THE CLIP TRIMS A PAD, IT NEVER DELETES ONE.  A pad WHOLLY on
-            # what an aircraft rolls on is the §30 / 14ai PAD-IN-AN-APRON
-            # class — the pad that welds to the apron around it and keeps
-            # its own two-sided plate (r5's "30 pads wholly in the band").
-            # §16g (10) (5)'s "a cluster wholly on airside pavement gets
-            # no pad" is the DERIVED pad's rule and is applied at its own
-            # derivation (``geom.cluster_outlines``); erasing the general
-            # pad here takes three ruled twins with it
-            # (``test_v2bank``'s pad on a 3 % apron and its two
-            # neighbours).  It is COUNTED, because it is the one class
-            # that can still make the airside depend on the pad set.
-            counts["kept_wholly_on_airside"] = \
-                int(counts.get("kept_wholly_on_airside", 0)) + 1
-            continue
-        counts["clipped"] = int(counts.get("clipped", 0)) + 1
-        parts = [airside_vertex_snap(q, rim, counts)
-                 for q in _polys(g)]
-        g = unary_union(parts)
-        ps = _polys(g)
-        if not ps:
-            drop.add(i)
-            continue
-        out[i] = _dc.replace(r, polygon=max(ps, key=lambda q: q.area))
-        for extra in sorted(ps, key=lambda q: -q.area)[1:]:
-            out.append(_dc.replace(r, polygon=extra))
-    return [r for i, r in enumerate(out) if i not in drop], counts
-
-
-def _polys(g) -> list[Polygon]:
-    if g is None or g.is_empty:
-        return []
-    if isinstance(g, Polygon):
-        return [g] if g.area > 0.0 else []
-    return [q for q in getattr(g, "geoms", ())
-            if isinstance(q, Polygon) and q.area > 0.0]
-
-
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement."""
@@ -258,11 +150,6 @@ def build_arrangement(airport: Airport, classification: Classification,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone, z.edge_kind))
         edge_lines.extend(z.edge_lines)
-
-    # §16g (10) (5) AT THE ARRANGEMENT (owner RULINGS 2026-09-14ax)
-    regions, _pad_clip = airside_clip(regions, law)
-    PAD_AIRSIDE.clear()
-    PAD_AIRSIDE.update(_pad_clip)
 
     lines: list[LineString] = []
     for r in regions:

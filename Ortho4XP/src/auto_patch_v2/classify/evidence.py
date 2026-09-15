@@ -18,6 +18,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..geom import cluster_outlines
+from ..geom.cluster_outline import AirsideRim, airside_vertex_snap
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
@@ -445,7 +446,11 @@ def _trim_leadins(chains: list[Chain], airport: Airport, rules: Rules
 #: build's own say-line and the sidecar (``pipeline/publication``).
 CLUSTER_PADS: dict[str, object] = {}
 
-
+#: RULINGS 2026-09-14as (i): what the AIRSIDE CLIP + the VERTEX SNAP did
+#: this pass — pads snapped to the airside rim's own nodes, the vertices
+#: moved, the worst move, and every snap REFUSED.  One publication; the
+#: report and the census read it and never re-derive it.
+PAD_AIRSIDE: dict[str, object] = {}
 
 
 
@@ -573,21 +578,56 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     if polys:
         parts.extend(polygon_parts(unary_union(polys)))
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
-    # RULINGS 2026-09-14ax: THE PAD CLIP IS THE ARRANGEMENT'S, NOT THIS
-    # SITE'S.  Round 1 clipped every pad here by ``runway_union |
-    # pavement_union`` and MEASURED the reason it cannot live here: at
-    # EVIDENCE time no role has been scored, so that union is every
-    # apt.dat pavement page — the groundside lots and islands included —
-    # where §16g (10) (5) names the runway family, the taxi family and
-    # the apron.  The clip now runs in ``planar/overlay.build_arrangement``
-    # against the FACES, which have roles.  The runway difference below is
-    # the shipped pre-14as one and is unchanged.
+    # RULINGS 2026-09-14as (i): THE PAD YIELDS, THE AIRSIDE NEVER DOES.
+    # §16g (10) (5) clipped the DERIVED pad out of airside above; the
+    # FALLBACK footprint pads reached here clipped by the RUNWAY SLABS
+    # alone, so they ate apron — and ``roles.classify`` differences the
+    # airside region by the pad union, which made the airside POLYGON a
+    # function of which pads exist.  MEASURED (lane v2padvert's
+    # classify+planar arm on HECA, one load, two arms): arming
+    # ``pad_from_cluster`` took 280 airside vertices away and minted 88
+    # (258 of the 280 were apron/pad contacts of a footprint pad the
+    # cluster derivation displaced), apron faces 290 -> 288.  Clipping
+    # EVERY pad by the airside union here makes that subtraction
+    # area-null, and the airside stops depending on the pads.
+    _clip = (_airside if (law is not None
+                          and bool(law.tables.structures.placement.pad_airside_clip)
+                          and not _airside.is_empty)
+             else runway_union)
+    # (i)'s SECOND half: the clip's own crossing points are NOT airside
+    # vertices, and noded into the arrangement they SPLIT an airside edge.
+    # Quantise them to the rim's own nodes — the pad yields.
+    _grid = (float(law.tables.emit.identity.min_distinct_spacing_m)
+             if law is not None else 0.0)
+    _snap_max = (float(law.tables.structures.placement.pad_airside_snap_max_m)
+                 if law is not None else 0.0)
+    _rim = (AirsideRim(_clip, _grid, _snap_max)
+            if (_clip is not runway_union and not _clip.is_empty) else None)
+    PAD_AIRSIDE.clear()
     out: list[tuple[str, Polygon]] = []
     dropped = 0
     for part in sorted(parts,
                        key=lambda g: (round(g.bounds[1]), round(g.bounds[0]))):
-        if not runway_union.is_empty and part.intersects(runway_union):
-            part = part.difference(runway_union)
+        if not _clip.is_empty and part.intersects(_clip):
+            cut = part.difference(_clip)
+            # THE CLIP TRIMS A PAD, IT NEVER DELETES ONE.  A pad the clip
+            # would erase — the building standing INSIDE an apron, r5's
+            # "30 pads wholly in the band", the OSM pad-in-an-apron class
+            # that keeps its own two-sided plate — keeps the pre-14as
+            # footprint: dropping it is a product change §16g (10) (5)
+            # makes only for a DERIVED pad (whose cluster then seats on
+            # the pavement), and this half of the rule is the FALLBACK's.
+            # Counted, because such a pad is the one kind that can still
+            # make the airside region depend on the pad set.
+            if cut.is_empty or cut.area < min_area:
+                PAD_AIRSIDE["kept_inside_airside"] = \
+                    int(PAD_AIRSIDE.get("kept_inside_airside", 0)) + 1
+            else:
+                part = cut
+                if _rim is not None:
+                    part = unary_union(
+                        [airside_vertex_snap(q, _rim, PAD_AIRSIDE)
+                         for q in polygon_parts(part)])
         for piece in polygon_parts(part):
             if piece.area < min_area:
                 dropped += 1

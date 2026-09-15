@@ -234,20 +234,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     region = ev.pavement_union
     if not ev.runway_union.is_empty:
         region = region.difference(ev.runway_union)
-    # RULINGS 2026-09-14ax: THE PAD YIELDS TO AIRSIDE, AIRSIDE NEVER YIELDS
-    # TO THE PAD.  Differencing the airside region by the pad union made
-    # the airside POLYGON a function of which pads exist — MEASURED at
-    # HECA (lane v2padvert's ``tools/pad_airside_arm.py``), arming
-    # ``pad_from_cluster`` took 280 airside vertices away and minted 88,
-    # 258 of them apron/pad contacts of a footprint pad the cluster
-    # derivation displaced.  With ``[placement] pad_airside_clip`` the PAD
-    # is clipped out of the airside FACES instead, at the one site where
-    # the faces have roles (``planar/overlay.airside_clip``), so this
-    # subtraction would be area-null and is not made at all.  The
-    # GROUNDSIDE subtractions below (the service-road corridors, §22.2's
-    # set-back) are untouched: a pad does cut the landside it stands on.
-    if not ev.pad_union.is_empty and not bool(
-            law.tables.structures.placement.pad_airside_clip):
+    if not ev.pad_union.is_empty:
         region = region.difference(ev.pad_union)
     taxi_parts, truck_parts, prox, spurs, src_cuts = _cut_lines(
         ev, region, rules, cut_polys)

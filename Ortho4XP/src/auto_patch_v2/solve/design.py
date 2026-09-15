@@ -67,7 +67,8 @@ from ..model.planar import PlanarMap
 from .api import Options, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
-from .design_report import DesignReport, foot_row_diagnostic, residual, settled_flip
+from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds,
+                            residual, settled_flip)
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .rows import (_cotangent_laplacian, _face_triangles, _law_sides, _level_free_columns,
                    _one_matrix,
@@ -155,6 +156,25 @@ class Base:
     #: cluster_reach_rulings``, owner RULINGS 2026-09-13cc (ii)): priced
     #: at ``apron_trend``, so the taxi family's law rows outrank them
     cluster_reach_i: list[int] = _dc.field(default_factory=list)
+
+
+def _carries_a_column(red: _t.Any, terms: _t.Sequence[tuple[int, float]]) -> bool:
+    """Does this law row have anything the solve can MOVE? (lane
+    ``v2settle``, spec §20a.)
+
+    The reduced row, not the raw terms: a foot on a fixed vertex (a ``Pin``,
+    a threshold, a DEM fix, a §20b stage substitution) folds into the
+    right-hand side, and two feet of one rigid ``Flat`` group share a
+    column — so a ±1 pair over that group cancels to nothing.  Either way
+    the row's residual is a CONSTANT of the surface: it can be reported,
+    never enforced.  Same accumulation as :meth:`_Rows.add`, which is what
+    decides whether the row reaches the matrix at all."""
+    acc: dict[int, float] = {}
+    for vid, coef in terms:
+        col = int(red.col[vid])
+        if col >= 0:
+            acc[col] = acc.get(col, 0.0) + coef
+    return any(c != 0.0 for c in acc.values())
 
 
 def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
@@ -453,7 +473,27 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # foot is fixed carries no column and constrains nothing — it stays a
         # reported target.  A PREFERENCE among them is hard AT ITS CEILING and
         # keeps its preferred bound as the target: two sides, one row.
-        if is_hard(heads, row) and not vs <= red.dem_fixed:
+        #
+        # "CARRIES NO COLUMN" IS THE TEST, NOT "IS DEM-FIXED" (lane
+        # ``v2settle``, spec §20a; the first-ranked standing debt 13y (B) /
+        # 13ab / 14as).  The sentence above states the law and the code
+        # tested one WAY of being fixed: a foot held by a ``Pin`` — a road
+        # profile pin, a threshold — is fixed and is NOT in ``dem_fixed``,
+        # so its row entered the hard set carrying nothing the solve can
+        # move.  MEASURED at HECA (staged, capture off b1b7704c): 142 of
+        # stage 1's 161,780 hard rows carry no column at all, 9 of them
+        # violated — INCLUDING THE WORST ROW OF THE WHOLE AIRSIDE SET
+        # (0.1794 m, ``roads.groundside_road ramp ceiling`` on a pinned
+        # service-road vertex at 30.13717041421,31.4124359031).  A constant
+        # row cannot settle, and its cost is not only the report: phase C
+        # keeps ``best_worst`` pinned at that constant, so ``worst <
+        # best_worst`` never fires and the polish RETURNS ROUND 1's
+        # iterate, discarding what the later rounds bought.  The row stays
+        # a reported target exactly as the comment above says.
+        # The test is the REDUCED row's, not the raw terms': two feet of one
+        # rigid ``Flat`` group share a column and a ±1 pair cancels to
+        # nothing, which is the same constant by another route.
+        if is_hard(heads, row) and _carries_a_column(red, terms):
             hi_hard = hi
             ceil = getattr(row, "ceiling", None)
             if getattr(row, "soft", None) is not None and ceil is not None:
@@ -763,7 +803,9 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep2.stages = {"stage1": dict(rep1.as_dict(), wall_s=round(w1, 3),
                                   projection_line=rep1.runway_projection.line(),
                                   lag_line=(rep1.lag_failure_line()
-                                            if not rep1.one_way_settled else "")),
+                                            if not rep1.one_way_settled else ""),
+                                  hard_line=(rep1.hard_failure_line()
+                                             if not rep1.hard_settled else "")),
                    "stage2": {"unknowns": rep2.unknowns, "rows": rep2.rows,
                               "hard_rows": rep2.hard_rows,
                               "hard_active": rep2.hard_active,
@@ -1116,7 +1158,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         worst = float(np.max(np.maximum(Ah @ x - bh, 0.0)))
         best_x, best_worst = x, worst
         for pr in range(1, int(d.polish_rounds_max) + 1):
-            if worst <= tol_h:
+            if not hard_exceeds(worst, tol_h):
                 break
             rep.hard_rounds = pr
             mu = np.maximum(0.0, mu + rho * (Ah @ x - bh))
@@ -1129,14 +1171,14 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 print(f"    [design/hard] multiplier round {pr}: "
                       f"{int(np.count_nonzero(mu > 0.0))} hard rows carry a "
                       f"multiplier, max hard violation {worst:.5f} m")
-            if worst <= tol_h:
+            if not hard_exceeds(worst, tol_h):
                 break
         if best_worst < worst:
             x, worst = best_x, best_worst      # never return a worse surface
         rep.hard_active = int(np.count_nonzero(mu > 0.0))
         rep.hard_max_violation_m = worst
-        rep.hard_settled = worst <= tol_h
-        if worst > tol_h:
+        rep.hard_settled = not hard_exceeds(worst, tol_h)
+        if hard_exceeds(worst, tol_h):
             k = int(np.argmax(Ah @ x - bh))
             rep.hard_worst = one[int(hard_i[k])][2].source.ruling[:70]
     # PHASE D — THE FINAL PROJECTION (owner RULINGS 2026-09-09y, closing
@@ -1151,9 +1193,20 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # RE-READ AFTER THE PROJECTION (§30 (3b), ``rep.read_hard_set``): its
         # own rows are held exactly now; what is left is what it does not own.
         if hard_i.size:
+            viol_h = np.maximum(A1[hard_i] @ x - b1[hard_i], 0.0)
             worst = rep.read_hard_set(
-                np.maximum(A1[hard_i] @ x - b1[hard_i], 0.0), float(d.hard_tol_m),
+                viol_h, float(d.hard_tol_m),
                 lambda k: one[int(hard_i[k])][2].source.ruling[:70])
+            # §20a: a cap's hit is a NAMED failure, never a silent stop —
+            # and for the HARD set the name must say whether what is left
+            # is a residual the solve owes or a set of rows NO SURFACE
+            # satisfies (lane ``v2settle``; the brief's (b), owner
+            # RULINGS 13y (B) / 13ab / 14as).
+            if not rep.hard_settled:
+                z_now = np.where(red.col >= 0, x[np.clip(red.col, 0, None)],
+                                 red.value)
+                rep.read_hard_failure(hard_i, viol_h, one, planar, red,
+                                      float(d.hard_tol_m), z_now)
     if x is not None:
         z = np.where(red.col >= 0, x[np.clip(red.col, 0, None)], red.value)
     if levelled_out is not None and x is not None:

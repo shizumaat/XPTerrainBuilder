@@ -6746,3 +6746,21 @@ ANY row of a structural family regardless of magnitude.
   (one site, both families' readers), a twin (a 4 cm row does not
   abort, a 40 cm row does), LEMD verify re-read from the 1.0.339
   report (the row under the floor → no abort); app 1.0.340.
+
+## 2026-09-14by v2defectfloor MERGED (850b37de): a structural DEFECT aborts only when material — `[verify] defect_min_excess_m` 0.10; the LEMD row (4.58 cm) reads under the floor, `defects {}`
+
+Lane `v2defectfloor` @ 850b37de (12 twins; suite 1,600 twice on the
+lane, 1,576 on main). ONE site `verify/census.defect_gate(law, rows)
+→ (defects, under_floor)`; `report["verify"]["defects"]` is material-
+only with the sibling `defects_under_floor`; `by_family` and `rows`
+untouched (the row stays a census violation); the log names "under
+the materiality floor (N rows, worst X m)". Judgement accepted: the
+excess is `(|grade_pct| − cap_pct)/100 × distance_m` (= the ruling's
+expression on transverse rows; `runway_vertical_curve` already
+publishes its excess as `magnitude_m`, so subtracting the cap twice
+would retire that family's abort), floored at 0, capped at
+`magnitude_m` — the v1 harness's `row_excess_m` rule, cited not
+imported (layering). The 1.0.339 LEMD report replayed: excess 0.0458
+m, `defects {}`. App 1.0.340 next (queued behind the owner's engine —
+a Greek tile since 23:11; the suite's teardown ERRORs were that
+build's writes seen by the session detector, the known class).

@@ -12058,7 +12058,7 @@ def run_checks(
         # fallback for a row whose location genuinely is a whole shape.
         if v.lat is None:
             v.lat, v.lon = _way_latlon(v.way_a)
-    for s in steps + mid_steps:
+    for s in steps + mid_steps + rw_steps:
         s.lat, s.lon = _way_latlon(s.way_v)
 
     # ── THE FACES ON EACH SIDE OF EVERY PAIR (owner RULINGS 2026-09-12aj
@@ -12097,7 +12097,7 @@ def run_checks(
     if _senior_at:
         for _row, _pa, _pb in (
                 [(v, v.pt_a, v.pt_b) for v in within + cross]
-                + [(q, q.vert_pt, q.proj_pt) for q in steps + mid_steps]):
+                + [(q, q.vert_pt, q.proj_pt) for q in steps + mid_steps + rw_steps]):
             for _pt, _attr in ((_pa, "role_a"), (_pb, "role_b")):
                 if _pt is None:
                     continue
@@ -12125,7 +12125,7 @@ def run_checks(
     # the worst-row lists; ``adjudication`` carries it under its own
     # heading, the same treatment the version-deferred family gets.
     if disconnected_rings_m:
-        _mark_disconnected(within + cross, steps + mid_steps,
+        _mark_disconnected(within + cross, steps + mid_steps + rw_steps,
                            disconnected_rings_m)
 
     # ── OUT OF SCOPE: THE LAST RESORT's RELAXED ROWS (04x-2) ─────────
@@ -12154,11 +12154,11 @@ def run_checks(
     # in every worst-row list, and ``adjudication`` carries it under its own
     # heading, exactly as the disconnected rings above.
     if _feature_hosts:
-        for _r in within + cross + steps + mid_steps:
+        for _r in within + cross + steps + mid_steps + rw_steps:
             if _r.out_of_scope is None and role_less_host_duplicate(_r):
                 _r.out_of_scope = "role_less_host_duplicate"
 
-    return within, cross, steps + mid_steps
+    return within, cross, steps + mid_steps + rw_steps
 
 
 def main(argv=None) -> int:

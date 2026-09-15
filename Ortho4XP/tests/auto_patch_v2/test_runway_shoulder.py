@@ -81,9 +81,16 @@ def _page_cells(cl):
 
 # ── 1. the shoulder joins the runway body ────────────────────────────────
 
+def _band_off(rules):
+    """§40 (5)'s own disarm clause: §40 (1)'s whole-cell admission."""
+    return _dc.replace(rules, corridor=_dc.replace(rules.corridor,
+                                                   runway_shoulder_band=False))
+
+
 def test_a_page_running_along_the_runway_is_its_shoulder(law, rules):
+    """§40 (1) with §40 (5) DISARMED: the whole page joins the runway body."""
     need = rules.corridor.runway_shoulder_shared_m
-    cl = classify(_shoulder_airport(2 * need), law, rules)
+    cl = classify(_shoulder_airport(2 * need), law, _band_off(rules))
     # the page is no longer a page: it is the runway, at the RUNWAY's ref
     assert not _page_cells(cl)
     sh = [c for c in cl.cells if c.kind == "runway_shoulder"]
@@ -94,6 +101,40 @@ def test_a_page_running_along_the_runway_is_its_shoulder(law, rules):
     assert c.evidence["shoulder_of"] == "09/27"
     assert c.evidence["shoulder_shared_m"] == pytest.approx(2 * need, rel=0.02)
     assert Polygon(c.ring, c.holes).area == pytest.approx(2 * need * 40.0, rel=0.05)
+
+
+def test_the_shoulder_is_a_band_the_runway_role_ends_at_the_strip(law, rules):
+    """§40 (5) (1)/(2) (Fable 2026-09-15; owner RULINGS 2026-09-15az).
+
+    The runway is code 2, so its graded strip half width is 40 m
+    (``zones.toml`` ``adjacent_ground.runway.half_width_m``) and the page
+    runs 15–55 m off the centreline: 25 m of it is the runway's, 15 m of
+    it is not.  ONE variable against the twin above — the law key."""
+    from auto_patch_v2.law.tables import zone2_half_width_m
+    hw = zone2_half_width_m(law, "runway", 2, "C")
+    assert hw == 40.0, hw
+    need = rules.corridor.runway_shoulder_shared_m
+    cl = classify(_shoulder_airport(2 * need), law, rules)
+    sh = [c for c in cl.cells if c.kind == "runway_shoulder"]
+    assert len(sh) == 1, [(c.role, c.ref, c.kind) for c in cl.cells]
+    c = sh[0]
+    # (1) the band part is STILL the runway's, at the runway's own class
+    assert c.role == "runway" and c.ref == "09/27" and c.side == "airside"
+    assert (c.code_number, c.code_letter) == (2, "C")
+    assert Polygon(c.ring, c.holes).area == pytest.approx(2 * need * 25.0, rel=0.05)
+    # NO runway-family vertex beyond the strip half width
+    assert max(abs(y) for _x, y in c.ring) == pytest.approx(hw, abs=0.01)
+    # (2) the remainder is NOT runway family, and the runway's ref is gone
+    rest = _page_cells(cl)
+    assert rest, [(x.role, x.ref, x.kind) for x in cl.cells]
+    assert all(x.role not in ("runway", "runway_crossing") for x in rest)
+    assert all(x.ref.split("#")[0] == "page" for x in rest)
+    assert sum(Polygon(x.ring, x.holes).area for x in rest) == \
+        pytest.approx(2 * need * 15.0, rel=0.05)
+    # ...and it earned its role on its own evidence, marked as the remainder
+    assert any(x.evidence.get("shoulder_beyond_band") for x in rest), \
+        [dict(x.evidence) for x in rest]
+    assert cl.stats["shoulder_band_cuts"] == 1
     # §40 (3): no taxi-family face on that ground, so no zone strip is
     # manufactured around it
     ring = Polygon(_rect(300.0, -55.0, 300.0 + 2 * need, -15.0))

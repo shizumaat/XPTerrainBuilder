@@ -10037,3 +10037,50 @@ def test_the_foot_row_head_is_in_both_registers():
     # `conforming_rulings` is the union of the two, so the head is in it
     # either way — which is exactly why the union cannot be the guard
     assert head in conforming_rulings(law)
+
+
+def test_the_runway_step_floor_is_one_number_in_both_instruments(cg):
+    """§40 (5) (4) (Fable 2026-09-15; owner RULINGS 2026-09-15az).  The v2
+    verify reader states the ruled allowance ``max(runway_step_m,
+    runway_transverse_cap x d)``; the harness runs the SAME two step
+    readers at a flat ``runway_step_m``.  They are the same number because
+    a step row exists only within the contact tolerance, where the cap term
+    is always under the floor — asserted here so a later change to either
+    knob cannot silently split the two instruments (the census-wrapper
+    precedent)."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(cg.__file__).resolve().parents[1] / "src"))
+    from auto_patch_v2.law import Law
+    law = Law.for_airport("CYXY")
+    floor = float(law.tables.emit.materiality.runway_step_m)
+    assert cg._RUNWAY_STEP_M == pytest.approx(floor), (
+        f"check_grade._RUNWAY_STEP_M {cg._RUNWAY_STEP_M} vs the law's "
+        f"emit.materiality.runway_step_m {floor}")
+    cap = law.ruleset.runway.shoulder_transverse_max
+    tol = law.tables.emit.instrument.step_contact_tol_m
+    assert cap * tol < floor, (
+        f"the cap term {cap * tol} can now exceed the floor {floor} inside "
+        f"the contact tolerance — the harness's flat reading and v2 verify's "
+        f"max(floor, cap x d) no longer agree; give the harness the same "
+        f"per-row allowance or re-ground the floor")
+    assert cg._STEP_CONTACT_TOL_M == pytest.approx(tol)
+
+
+def test_runway_step_is_a_defect_family_in_both_registers(cg):
+    """It is registered in ``LAW_FAMILIES`` (the harness) AND in
+    ``verify.census.DEFECT_KEYS`` (the engine's gate), and carries a
+    ``families.toml`` entry — the three registers the §40 (5) round adds
+    it to, twinned apart so a prefix edit cannot drop one (the 15az
+    register-deletion defect)."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(cg.__file__).resolve().parents[1] / "src"))
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.verify.census import DEFECT_KEYS, READERS
+    assert "runway_step" in {k for k, _t, _b in cg.LAW_FAMILIES}
+    assert "runway_step" in READERS
+    assert "runway_step" in DEFECT_KEYS
+    fam = Law.for_airport("CYXY").tables.families["runway_step"]
+    assert fam.parameter == "emit.materiality.runway_step_m"
+    assert set(fam.roles) == {"runway", "runway_crossing"}

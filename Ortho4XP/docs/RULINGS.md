@@ -8156,3 +8156,22 @@ only accepted; C9/C12 after the reads; osm_roadfeed re-cut authorised
 for KDFW/LGAV/KPHX; the LEMD tile proof recorded there too. Lanes told
 the pack DSFs changed back.
 15bn addendum: suite ON MAIN after the marker repair (acbe3035), incl. test_docq: 1691 passed, 1 skipped, 1 xpassed, 42 warnings, 6 errors in 63.30s (0:01:03).
+
+## 2026-09-15au KPHX REFRESHED (this session, owner-authorised 15aq (1)): the 1 m 3DEP inset is cached, the false negative is gone, the road layer and the mod-cache dump re-derived — three ledger lines; the build after it died on the superseded per-airport feed (15as), pending round 5
+
+`build_airport.py KPHX --refresh-data osm_layers,airport_mod_cache,dem
+--warm-insets KPHX` (13:28): `Fetching elevation inset for KPHX from
+USGS3DEP` → `Airport inset index CHANGED, rewriting it: KPHX: USGS3DEP,
+probes, probes_for` → `warm-insets done: 1 fetch attempt(s), valid
+fraction(s) {'KPHX_usgs3dep.tif': 1.0, 'KPHX_copernicusglo30.tif':
+1.0}` (`KPHX_usgs3dep.tif` 94,878,600 B; the index's `USGS3DEP` record
+now `ok` — 15q's false `no-coverage` replaced by the real answer);
+`refresh osm_layers done: 1 layer(s) re-derived schema-current` (+33-113
+_big_roads); `REFRESH RECORDED [airport_mod_cache]: +1 ~0`, `[dem]: +2
+~1`, `[osm_layers]: +2 ~1`. Then the loader raised the superseded
+per-airport feed (`osm_roadfeed`, 15as) — the KPHX build waits for
+round 5's re-cut. The owner's next app build of +33-113 grades KPHX on
+the lidar (+33-112 retries its own 3DEP fetch, having recorded no
+negative); its provenance line must read `insets=KPHX:USGS3DEP`. The
+other 16 false negatives on +33-113 and 3 on +33-112 clear under 15aq
+(4) once lane `v2insetreprobe` lands and 1.0.341+ builds them.

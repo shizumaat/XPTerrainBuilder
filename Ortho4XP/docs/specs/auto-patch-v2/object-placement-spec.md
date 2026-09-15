@@ -5342,3 +5342,33 @@ within 0.3 m of own ground at 40.4552413,−3.5687453; 40.4981624,−3.5595534;
 apron level (40.461514,−3.5732897); `OBJECT_MSL` rows > 0.5 m off 677 → ≤
 20 named; largest unit span 2,855 m → named; HECA/OTHH/KCLT unit censuses
 dry before → after (the leaf rule live).
+
+### §16g (10) (11) THE PAD COVERS EVERY SEATED MEMBER — RE-ARMED UNDER THE CONVERGED SOLVER (Fable 2026-09-15; RULINGS 2026-09-15h) — lane `v2padqp`
+
+**The reading (LEMD 1.0.340, owner 15e item 2).**  The T4 garage
+`LEMD_OBJ-Airport_Terminal4_green-PKT4.obj` b0 (H 12.5 m, bbox 667 × 118 m)
+is seated by unit membership (`fu:25:983@cluster_pad`, 8 members) on pad
+`building12` at 616.10, but that pad's POLYGON (way −10157) ends 55.28 m
+short of the garage; its own ground is 612.47 → **3.63 m of air over raw
+DEM** (no graded face within 45 m).  Both other pad-minting paths refuse
+on the pack's flat render datum (no crest plate; basin depth 0.58 m <
+2.5).  This is exactly the mismatch (10) forbids — "no building or
+cluster can span multiple pads … they should match exactly" (14x) — and
+the mechanism that closes it, `pad_from_cluster`, ships OFF because its
+far field moved under the non-converging fixed point (14bk).  §20c now
+converges (the one-vertex probe: nothing beyond 4.3 mm).
+
+**RULED.**  (a) A unit member seated on a pad whose polygon does not
+contain the member's footprint is the `pad_cluster_mismatch` defect at
+that member — never a silent seat over air.  (b) `pad_from_cluster =
+true` and `pad_airside_clip = true` are RE-MEASURED under `solver =
+"qp"` on ONE tree: the owner's site (the garage) and HECA's 14 mismatch
+residual, with (4)–(9) unchanged (leaves get no pad; the skirt yields,
+never the airside; between aprons ≤ 1 %, low side).  (c) The pad under
+the garage is the cluster outline through PKT4 b0/b1 at the terminal's
+datum (616.10, one plane per (9) unless an apron on the far side says
+otherwise); the terrain rises to it through the one-way skirt, and
+`cluster_apron_reach_m` stays 0 (14bk).  (d) If the far field still
+moves with the converged solver, the probe names WHERE and the flag
+stays OFF with that number — the mechanism is not re-litigated by
+narrative.

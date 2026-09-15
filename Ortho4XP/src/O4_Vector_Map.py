@@ -45,7 +45,16 @@ BIG_ROADS_QUERIES = [
 # ``width`` / ``lanes`` size the auto-patch tunnel ramps from the mapped
 # carriageway instead of the per-type width table (user 2026-07-16,
 # EGPB: the table's 18 m ``primary`` default tripled the A970's width).
-ROADS_TAGS_OF_INTEREST = ["bridge", "tunnel", "width", "lanes"]
+# ``layer`` / ``cutting`` / ``covered`` / ``embankment`` are the DEPTH
+# WITNESSES the feed used to throw away at download (spec §45 (9), owner
+# 2026-09-15 "Bump the schema now").  A below-grade road/rail channel cut
+# through an airport (LGAV, KPHX, KDFW) is stated by ``cutting=yes`` or
+# ``layer < 0`` on a way crossing the airside pavement union — §45 (1)(d)'s
+# fourth identification witness — and ``covered`` / ``embankment``
+# separate a roofed span and a raised causeway from a true cut.  The
+# airports layer already keeps ["all"]; the road layers did not.
+ROADS_TAGS_OF_INTEREST = ["bridge", "tunnel", "width", "lanes",
+                          "layer", "cutting", "covered", "embankment"]
 # Node tags retained on the road ways' child nodes: at-grade
 # level-crossing evidence for the implied-crossing-tunnel veto (user
 # 2026-07-16, EGPB/Gibraltar — the world's few public roads that cross
@@ -56,7 +65,7 @@ ROAD_NODE_TAGS_OF_INTEREST = ["aeroway", "crossing:aircraft", "barrier"]
 # the retained-tag whitelists above grow: caches written under an older
 # schema are re-downloaded once instead of silently recycled without
 # the new tags.
-ROAD_CACHE_TAG_SCHEMA = "2026-07-16"
+ROAD_CACHE_TAG_SCHEMA = "2026-09-15"
 COASTLINE_QUERIES = ['way["natural"="coastline"]']
 AIRPORTS_QUERIES = [('node["aeroway"]', 'way["aeroway"]', 'rel["aeroway"]')]
 WATER_QUERIES = [

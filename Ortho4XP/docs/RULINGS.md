@@ -6838,7 +6838,7 @@ there is no 1.0.341 flip build. The owner's read of 1.0.340 (LEMD tile
 first, then HECA/OTHH as they choose) is the adjudication of §20c; the
 1.0.339 OTHH customer surface is the fixed-point arm and stays shipped.
 
-## 2026-09-15e OWNER: CYXY and SPJC APPROVED on app 1.0.340 (the §20c converged solver + the DEFECT floor); the other fixtures are still under the owner's read
+## 2026-09-15l OWNER: CYXY and SPJC APPROVED on app 1.0.340 (the §20c converged solver + the DEFECT floor); the other fixtures are still under the owner's read
 
 Owner 2026-09-15: "Document that CYXY and SPJC are both approved with
 app build 1.0.340! I will continue testing the other fixtures." The
@@ -6857,7 +6857,7 @@ pattern class to identify and model as an open tunnel — evidence scout
 `channelscout` and the object-stage crash lane `v2drapedbind` dispatched
 (briefs c2c96419).
 
-## 2026-09-15f OWNER: a custom pack whose apt.dat authored no pavement borrows the Global Airports pavement (+ boundary) and keeps its own objects — the trigger is COVERAGE < 25 % (spec §44, lane `v2pavborrow`)
+## 2026-09-15m OWNER: a custom pack whose apt.dat authored no pavement borrows the Global Airports pavement (+ boundary) and keeps its own objects — the trigger is COVERAGE < 25 % (spec §44, lane `v2pavborrow`)
 
 Owner 2026-09-15 on the LGAV read: "It's a case where the author included
 no pavement at all and relied only on imagery. In this case we should
@@ -6880,7 +6880,7 @@ read). Consumer census §44.1 (13 rows) written before any edit per
 RULINGS 2026-08-30l; C10 (the DEM-inset stage's own v1 resolver) is a
 MEASURE row, its unification deferred to stage B of the v1 retirement.
 
-## 2026-09-15g v2drapedbind MERGED (32f338a3): the object stage no longer dies on a draped page beside a solid body — `placement_geom._draped_components` was never bound to `_LineCutter`
+## 2026-09-15n v2drapedbind MERGED (32f338a3): the object stage no longer dies on a draped page beside a solid body — `placement_geom._draped_components` was never bound to `_LineCutter`
 
 The owner's LGAV tile build (2026-09-14 23:14, engine 1.50.1785; the bug
 is in 1.0.340 too) logged `[v2 rebake] LGAV: placement failed
@@ -6951,7 +6951,7 @@ author's footprint guide for bridges and tunnels — a new law class;
 scout first (consumer census + object inventory at each site), then
 the spec.
 
-## 2026-09-15h v2pavborrow MERGED (3c52d9b4): §44 the pavement borrow — LGAV has taxiways and aprons for the first time
+## 2026-09-15o v2pavborrow MERGED (3c52d9b4): §44 the pavement borrow — LGAV has taxiways and aprons for the first time
 
 Lane `v2pavborrow` (9d8c22d5, base 8b8b2afc). One derivation site
 (`airport/pack.select_pack` → `PackSelection.borrow`), one composition
@@ -6997,7 +6997,7 @@ both lane worktrees down.
 Scout dispatched (attribution of the tunnel line's minting evidence;
 the zone/bank emission at the sea edge) before the law.
 
-## 2026-09-15i OWNER: the OPEN CHANNEL class (LGAV / KPHX / KDFW) — four intent answers; spec §45 written; lanes `v2channel`, `v2roadtags`
+## 2026-09-15p OWNER: the OPEN CHANNEL class (LGAV / KPHX / KDFW) — four intent answers; spec §45 written; lanes `v2channel`, `v2roadtags`
 
 Owner 2026-09-15 (the LGAV read): "LGAV also has a similar pattern to
 KPHX where there's a below grade road/rail channel cut through the center
@@ -7048,3 +7048,188 @@ Third airport in one theme with 15e items 1/3/4/6 (LEMD short surface
 walls) and 14av (OTHH deep walls): THE PACK'S STRUCTURAL OBJECTS —
 walls, ramps, covers — ARE THE AUTHOR'S CUT GEOMETRY. Scout dispatched
 for the VHHH inventory before one law is written for all three.
+
+## 2026-09-15h LEMD 15e ATTRIBUTED (scout, one build 1.0.340): items 2/5/7 RULED (§16g (10) (11), §33 (5), §34 (11), §34 (5) (b)); items 1/3/4/6 are ONE law with 15g/14av — held for the VHHH inventory
+
+Scout (read-only, engine 1.50.1787 products under Patches/+40-010/
++40-004, the pack's 3,186 split bodies, the DSF dump): NO DEFECT and no
+floor line — the verify census (1,592 rows) has no `runway_transverse`
+family at all under the converged solver. Item 1: the deck is centred
+on OSM bridge ways −6288/−6291 (§33 (4)); the pack's parapets Bridge2
+b3/b4 (S, 0.92 m) and b0/b2 (N, 0.93 m), 25.6 m apart, are REFUSED as
+walls at the 1.5 m skirt gate (13r: draped plates) — the 24.5 m deck
+sits ~8–9 m south of the parapet pair (S walls 6.8 m INSIDE the deck, N
+wall 8.6–10.6 m OUTSIDE). Item 2: garage PKT4 b0 seated on pad
+building12 (616.10) by unit membership; the pad polygon ends 55.28 m
+short; 3.63 m of air over raw DEM; crest plate + basin both refused on
+the flat render datum → RULED §16g (10) (11): re-arm `pad_from_cluster`
+under qp (lane v2padqp). Items 3/4: ONE wall pair Bridge3 b0 (354.2 ×
+25.1 m, H 1.03 m, class basin) consumed by §33 (2) as a WIDTH and a
+mouth station only — the cut lies 1.4–2.4 m outside the W wall and
+7.6–8.6 m outside the E wall; the §33 (2) (a) clamp ends the corridor at
+bore way −5931 (83.9 m / 46.6 m inside the wall's ends), leaving 220 m
+of wall with no trench and the wall floating 7.13 m at item 4; "like it
+used to" = 14bl items 7/8 pre-clamp (mouth at the plate end); the
+owner's 40.4951833 is 46.5 m beyond the wall's S end = the open ramp.
+Item 6: Bridge4 (2.01 m) IS the edge-wall corridor, but the emitted
+ring is a 9-station chord polyline cutting the curved U's corners 0.5–
+2.0 m OUTSIDE the wall line at 8/24 stations and stopping 17 m short of
+the wall's N end. Item 5: the "road" is not a road in the patch (every
+station `cross_connector:pav61` + `gap_interior_ring` + zone2; no road
+way within 60 m); hole ring −10689 144,429 m² cover 0.011; mouth floor
+2.91 m under its rim vs `bore_datum_m` 5.10 → RULED §33 (5) + §34 (11).
+Item 7: §34 (5) (a) IS applied; the trench (face 993, 572.42) opens
+12.8–15.5 m from the kerb (577.80) inside zone 1 — a 5.38 m unbanked
+face; junction pav157 shares the runway's nodes, 1.9 % over 18.2 m →
+RULED §34 (5) (b). THE WALL THEME: LEMD walls 0.91–2.01 m (sit on the
+surface) vs OTHH 19.6–20 m (descend 10–15 m below their zero) — the
+1.5 m skirt gate is what makes LEMD's walls plates; the law for walls
+as the author's cut geometry (15e 1/3/4/6 + 15g VHHH + 14av) is written
+ONCE after the VHHH inventory. Lanes: v2padqp (item 2 + HECA's 14
+mismatches), v2lemdstruct2 (items 5, 7).
+
+## 2026-09-15q v2insetneg MERGED (5202d381): a TNM HTTP 200 error envelope was read as "zero products" and written as a DURABLE no-coverage — 20 false negatives on the two KPHX tiles
+
+Attributed (lane `v2insetneg`, 755d5cd2), not guessed: the writer is
+`ensure_airport_insets` (`O4_Airport_Elevation_Insets.py` ~:7229, the
+`provenance is None and not fetch_raised` branch); the cause is
+`TnmCloudOptimizedGeoTiffStrategy.discover` (~:1419): `items =
+payload.get("items") or []` on a 2xx body that was NOT a product listing
+(a gateway error envelope during the 504 outage) → `return None` with no
+log line → recorded `no-coverage`. Counts match per tile: +33-113 33
+attempts / 16 transient / 17 `no-coverage`; +33-112 15 / 12 / 3; zero
+`USGS3DEP: ok` anywhere (TNM degraded for the whole pass). Ruled out:
+the warp path (`gdal.UseExceptions()` on), `_coverage_bbox_intersects`,
+`ProviderUnavailable`, the probe/`checked` stamps. The 13b re-probe door
+(`unverified_capability_negatives`) cannot reach it — USGS3DEP declares
+no required capability. FIX: `discovery_listing_items(...)` — only a
+well-formed, complete zero-products answer is durable; a non-mapping
+body, a body without an `items` LIST, an `error`/`errors`/`fault`/
+`exception` key, or `total > 0` with no items raises
+`TransientFetchError` (nothing recorded, retried next run); a listing
+whose items carry no download URL likewise transient. Twins on fixture
+bytes (five response classes, two controls, an index-level twin through
+`ensure_airport_insets(33, -113, {"KPHX": …})`). Suite ON MAIN after the
+merge: `1768 passed, 1 skipped` (inset file + campaign suite), 0 failed.
+NOT retro-scrubbed: the 20 stale `no-coverage` records on
+`Elevation_data/+30-120/N33W113_airport_insets/index.json` and
+`N33W112_…` stay until the owner's `--refresh-data dem --warm-insets`
+(KPHX only) or his deletion of the two index files (all 20 airports).
+OPEN (owner intent): should an existing `no-coverage` for a CAPABILITY-
+FREE provider ever be re-probed (13b's door covers capability-gated
+providers only)? Today such a record is permanent. Chip-worthy: the
+transient WARN cannot name its airport (the strategy is handed no ICAO).
+
+## 2026-09-15i VMMC 15f ATTRIBUTED (scout, 1.0.340): the seafront tunnel is an OSM car-park bore admitted by the 150 m standoff and carried 600 m by six mapped bridges, cutting taxiway pav5; the zone band is emitted over the sea — RULED §34 (12) + §37 (11), lane v2vmmcshore
+
+Item 1: probe 22.1618794,113.579745 is 0.00 m inside `tunnel_ramp`
+−10098 (contains 35.9 m of coastline −687); one 492.9 m corridor of 6
+ramps / 11 rims from OSM `highway=service tunnel=yes` −5508/−5507 (no
+layer, no bridge; `tunnel_objects []`); admitted by
+`deck_signature.is_tunnel_way` + the §29 (1) gate (cover ⊕
+`mouth_standoff_m` 150, pav5 36 m away); floor 1.06 = 6.16 − 5.1 flat for
+six faces because `bridge_deck` −3636/−3446/−3444/−1798/−2898/−5188 each
+sever the climb; approach walk to `max_ramp_length_m` 600; taxiway pav5
+(code E, junction) split into six faces at 3.58/4.28/4.50 m — the
+corridor cuts every pavement bar runway family + pads (08-07 ruling 4).
+VMMC totals: 11 ramps, 19 rims, three corridor groups (shore; 578–782
+m; 1,132–1,182 m from the coast). Item 2: no WATER role, no bank; zone
+1 lip 3 m + zone 2 code-E 19 m, `beyond_zone2 = dem` = 0.00 (GLO30
+ocean): the 6.10 m drop as 26–32 % (zone 2) and 100–1,124 % (lip); 13
+zone faces cross the coastline (3–195 m), rings at 0.00 up to 42 m
+seaward — the second water plane; `strip_seam_tear` 61 (6.110 m, 238 %),
+`adjudicated 225 FAIL`. Z0 6.10 is CIFP thresholds (apt.dat 5.79). The
+flat-site pass already reads the water mask ("47.0 % … WATER … the
+mask edge is the sea wall") — the zone derivation does not. RULED §34
+(12) (serves the field; clipped by water; never cuts airside; a bridge
+severs only when it crosses the bore) and §37 (11) (the shore trims
+the zones; quay + sea wall; `sea_wall` family; tears exempt). Not
+verified: the doubled plane needs `mesh_region_tris` on a build; VMMC
+has no structures.json / no placement json (stock pack, 1,925
+placements; no pack object implicated).
+
+## 2026-09-15r v2roadtags MERGED (d4729dfc): the road feed keeps `layer` / `cutting` / `covered` / `embankment` (§45 (9)); schema `2026-09-15`
+
+Lane `v2roadtags` (f6bd825d): `O4_Vector_Map.ROADS_TAGS_OF_INTEREST` gains
+the four depth witnesses, `ROAD_CACHE_TAG_SCHEMA` "2026-07-16" → "2026-09-15";
+node tags untouched. Reader census: every road-way tag access in `src/` and
+`tools/` is name-addressed; no four-key or positional assumption anywhere.
+Twins `tests/test_road_tag_schema.py` (7): the tags, the schema, an
+old-schema cache stops matching, a fixture way `cutting=yes layer=-1
+covered=no embankment=yes` survives production's own target-tags derivation
+(`maxspeed` still dropped). Suite ON MAIN after the merge: `1613 passed, 1
+skipped` (schema + fetch-cache + campaign), 0 failed. A harness build never
+re-downloads on a stale schema (the shared-repo guard refuses under
+`osm_roadfeed`/`osm_layers`); the owner's app builds re-download a
+schema-stale TILE road cache on their next run — the intent. TWO
+CONSEQUENCES NAMED: (1) `layer` goes live on the tile-cache path —
+`bridges._has_tunnel_tag_evidence`, `osm_crossing_level`,
+`pavement_classification._is_below_grade` already read it and now see it
+(the correct behaviour change). (2) The PER-AIRPORT road feed has its OWN
+whitelist `auto_patch/osm_load._ROAD_FEED_WAY_TAGS` (hashes itself into the
+sidecar fingerprint): it carries `layer` but NOT `cutting`/`covered`/
+`embankment`; widening it re-cuts every airport's feed — a shared-repo
+write under scope `osm_roadfeed`, the OWNER's act (question below). DEFECT
+NAMED, not fixed (chip): the auto-mode merged `airport_small_roads` cache
+has NO schema gate (`O4_Vector_Map.py` ~:768 recycles on `isfile` alone,
+`write_to_file` stamps no `o4_tag_schema`, `OSM_query_to_OSM_layer` takes no
+`cache_schema`) — a pre-existing cache keeps serving four-key ways silently.
+
+## 2026-09-15j VHHH 15g + LEMD 15e items 1/3/4/6 ATTRIBUTED (scouts, 1.0.340): three authoring signatures for one intent, none read as geometry — RULED §33 (6) THE PACK'S STRUCTURE OBJECTS ARE THE CUT GEOMETRY, lane v2objcut
+
+VHHH (scout): five tunnel placements, each a SHELL (`tunnelN_done.obj`,
+y −6.01/−6.54/−8.95/−9.01 … 0, largest plate = the FLOOR, 733–16,759
+m²) + a COVER (`_TN`, `HARD_DECK` plate at y 0, 427–11,254 m², with a
+descending ramp profile 0.00 → −0.91 → −1.71 → −6.01 at tunnel5); the
+engine builds OSM-bore mouth-and-ramp only: floor DEM − 5.1 (2.21–3.27)
+against the authored 1.31 / 0.77 / −1.63 / −1.69 (0.92–3.91 m too
+shallow), 62–83 % of each ramp inside the shell's hull but 10–19 ring
+vertices per tunnel OUTSIDE it (median 6.6–68 m). Owner site
+22.3038632,113.9088362 = face 1108 inside `tunnel5_done` (245.9 × 73.2
+m). EGLL (the owner's reference): the same author convention (`N.obj`
+cover + `Na.obj` shell, HARD_DECK covers, floors −4 … −7); no EGLL
+capture exists. Why unread: `tunnel_objects.py:717` sends any floor
+witness to basins.py; the crest-plate rule needs a plate ≥ 2 m ABOVE
+zero; `thin_plates` takes 1.0–1.5 m only; LAW C (`wall_corridors`) is
+gated by `kerb_wall_corridors = true` under `[OTHH]` alone
+(`law/airports.toml:15-18`) and refuses walls with floors. OTHH's walls
+(−15 … +5, −10 … +9.55) are the crested class. LEMD (15h): parapets
+0.91–1.03 m refused at the skirt gate; Bridge3's pair read as a plate
+width; Bridge4's ring a 9-station chord cut. RULED §33 (6): signatures
+A (crested), B (shell + flush hard cover: floor plate = depth, cover =
+covered extent + stations), C (thin surface walls: pair = trench top
+edges, full length, mouths at the ends; single U = inner-face polyline
+to the wall's end; parapet pair = the deck's extent) → ONE reader, ONE
+record class, basins see none; the per-airport affordance retired;
+§33 (2)'s plate reading and (2) (a)'s clamp superseded for C; two new
+verify families. Lane v2objcut (owner sites: VHHH tunnel5; LEMD items
+1/3/4/6; OTHH 14av unchanged by replay pair).
+
+## 2026-09-15s v2channel round 1 NOT MERGED: the KDFW/KPHX closing tests refused on cold data; LGAV found two channels and not the trench; §45 (10)–(12) AMENDED (the hole is a crossing witness, not a width)
+
+Lane `v2channel` (399d7ecb, base 6dbfa8a3) — suite 1590/0, eleven twins,
+the §45.1 census confirmed with corrections (C9 `terrain_edge` needs an
+EDIT — took the keep-out path, the structure-edge derivation OWED for all
+structures; C12 is four modules, `airport/road_profile._osm_levelled`
+still core-levels a channel's road — OWED; C13's derivation is
+`airport/flat_site.py:389` (subtracted in `constraints/flat_site` because
+the channel exists only at planar time); C6/C7 live in `airport/`, not
+`planar/`; rows missed: `deck_signature`, `thin_plates`,
+`wall_corridor_probe`, `structure_geometry` role gate, `emit/bank`,
+`pipeline/publication`; `layer` is already on the airports feed).
+CLOSING TESTS REFUSED, quoted: KDFW `ColdDemFrame` on N32W097 (no
+airports OSM layer, no insets dir — `--refresh-data osm_layers` / `dem`
+for the NEIGHBOUR tile +32-097); KPHX `+33-113.dsf.anchor_bak` newer than
+every cached dump (`--refresh-data airport_mod_cache`). Both the owner's
+acts. LGAV measured: channels 2 (`channel:2` ways −7021/−4017/−2914/−1343
+bridge+pack, floor 63.43 from 5 placements, spread 404.7 m off axis;
+`channel:0` way −4003 neck-only, cut 5.1 m), tunnels 8 → 8, basins 2 → 0
+(two 20 m² pits refused as witnesses), Trench refusals unchanged — THE
+LGAV BAR NOT MET. DEVIATION RULED (Fable): §45 (1)'s hole-width rule
+deleted — the KDFW hole is 2,518 × 1,150 m against an 84–106 m cut; width
+precedence pack walls → lidar toes → carriageways ⊕ lane width, capped
+120 m (§45 (10)); merge bounded by the cap, §45 (7) scoped to objects
+inside the corridor (§45 (11)); the LGAV bar restated as the Trench
+family with the attribution first (§45 (12)). Round 2 resumes the lane
+(no fresh startup); merge after the concurrent session's four structure
+lanes (v2padqp, v2lemdstruct2, v2vmmcshore, v2objcut) land, rebased.

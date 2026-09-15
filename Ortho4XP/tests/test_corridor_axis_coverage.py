@@ -979,3 +979,90 @@ def test_open_feature_breaklines_are_visible_to_the_profile(tmp_path):
     assert got["n_stations"] == 5
     assert got["alt_min"] == pytest.approx(100.0)
     assert got["alt_max"] == pytest.approx(100.4)
+
+
+class TestAirsideNearCuts:
+    """``--airside-near-cuts`` — spec §33 (6) B AMENDED's own bar (owner
+    RULINGS 2026-09-15bh, lane `v2shellwall`): *airside beside a shell
+    never moves*, read across two arms."""
+
+    @staticmethod
+    def _arm(tmp_path, name, alts, *, cuts=True):
+        """One taxiway way of three nodes beside a published object cut."""
+        p = tmp_path / name
+        def _node(nid, lat, lon, alt):
+            return (f"  <node id='{nid}' lat='{lat:.11f}' lon='{lon:.11f}'>\n"
+                    f"    <tag k='alt_abs' v='{alt}'/>\n  </node>\n")
+        body = "".join(_node(f"-{k + 1}", LAT0 + 1e-4 * k, LON0, a)
+                       for k, a in enumerate(alts))
+        p.write_text(
+            "<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"
+            + body
+            + "  <way id='-10'>\n"
+            + "".join(f"    <nd ref='-{k + 1}'/>\n" for k in range(len(alts)))
+            + "    <tag k='aeroway' v='taxiway'/>\n"
+              "    <tag k='role' v='junction'/>\n"
+              "    <tag k='ref' v='pav1'/>\n  </way>\n</osm>\n")
+        side = {"anchor": [LAT0, LON0]}
+        if cuts:
+            # a 20 m box AT the first node: only what stands within the
+            # halo of THIS ring is in the population
+            side["object_cuts"] = [{"id": "object-cut:t.obj@0",
+                                    "outline_ll": [[LAT0, LON0],
+                                                   [LAT0, _east(20.0)],
+                                                   [LAT0 + 1.8e-4, _east(20.0)],
+                                                   [LAT0 + 1.8e-4, LON0],
+                                                   [LAT0, LON0]]}]
+        (tmp_path / (name + ".axes.json")).write_text(json.dumps(side))
+        return p
+
+    def test_the_movers_are_counted_named_and_split_by_role(self, tmp_path):
+        cg = ASR._check_grade()
+        ctl = self._arm(tmp_path, "ctl.osm", [7.31, 7.30, 7.29])
+        arm = self._arm(tmp_path, "arm.osm", [0.85, 7.30, 7.29])
+        res = ASR.airside_near_cuts(cg, ctl, arm, near_m=200.0)
+        assert res["cuts"] == 1 and res["joined"] == 3 and res["movers"] == 1
+        assert res["worst"]["dz_m"] == pytest.approx(-6.46, abs=1e-3)
+        assert res["worst"]["roles"] == ["junction"]
+        assert res["by_role"] == {"junction": 1}
+        # …and the floor is a knob that MOVES the answer, never a default
+        # two runs could be compared across silently
+        assert ASR.airside_near_cuts(cg, ctl, arm, floor_m=10.0)["movers"] == 0
+
+    def test_the_halo_is_the_frame_and_it_moves_the_population(self, tmp_path):
+        cg = ASR._check_grade()
+        ctl = self._arm(tmp_path, "c2.osm", [7.31, 7.30, 7.29])
+        arm = self._arm(tmp_path, "a2.osm", [0.85, 7.30, 7.29])
+        near = ASR.airside_near_cuts(cg, ctl, arm, near_m=1.0)
+        assert near["joined"] < 3 and near["movers"] == 1
+
+    def test_a_vertex_only_one_arm_carries_is_UNJOINED_never_zero(self, tmp_path):
+        cg = ASR._check_grade()
+        ctl = self._arm(tmp_path, "c3.osm", [7.31, 7.30, 7.29])
+        arm = self._arm(tmp_path, "a3.osm", [7.31, 7.30, 7.29, 7.28])
+        res = ASR.airside_near_cuts(cg, ctl, arm)
+        assert res["joined"] == 3 and res["unjoined"] == 1 and res["movers"] == 0
+
+    def test_no_published_cut_is_a_refusal_never_an_empty_answer(self, tmp_path):
+        cg = ASR._check_grade()
+        ctl = self._arm(tmp_path, "c4.osm", [7.31, 7.30, 7.29], cuts=False)
+        arm = self._arm(tmp_path, "a4.osm", [7.31, 7.30, 7.29], cuts=False)
+        with pytest.raises(ASR.SiteReadRefusal):
+            ASR.airside_near_cuts(cg, ctl, arm)
+
+    def test_the_cli_prints_the_library_result(self, tmp_path, capsys):
+        ctl = self._arm(tmp_path, "c5.osm", [7.31, 7.30, 7.29])
+        arm = self._arm(tmp_path, "a5.osm", [0.85, 7.30, 7.29])
+        out_json = tmp_path / "out.json"
+        rc = ASR.main([str(ctl), str(arm), "--airside-near-cuts", "200",
+                       "--json", str(out_json)])
+        assert rc == 0
+        got = json.loads(out_json.read_text())["airside_near_cuts"]
+        cg = ASR._check_grade()
+        assert got == json.loads(json.dumps(
+            ASR.airside_near_cuts(cg, ctl, arm, near_m=200.0)))
+        assert "AIRSIDE NEAR THE OBJECT CUTS" in capsys.readouterr().out
+
+    def test_the_index_row_names_the_option(self):
+        idx = (ROOT.parent / "tools" / "INDEX.md").read_text()
+        assert "--airside-near-cuts" in idx

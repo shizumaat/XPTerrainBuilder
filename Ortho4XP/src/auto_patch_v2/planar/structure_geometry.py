@@ -474,7 +474,7 @@ def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: 
 OBJECT_CUT_PREFIX = "object-cut:"
 
 
-def seed_wall_stations(ss: list[float], c) -> list[float]:
+def seed_wall_stations(ss: list[float], c, grid: float) -> list[float]:
     """§33 (6) C2' A BAND IS A POLYLINE (RULINGS 2026-09-15x): where the
     pack's wall CURVES, the station set keeps the WALL'S OWN vertices.
 
@@ -483,11 +483,46 @@ def seed_wall_stations(ss: list[float], c) -> list[float]:
     (owner 15e item 6): the emitted ramp stood 0.46-4.09 m off the
     corridor's own inner faces (4 vertices over 0.75 m) and the rim
     0.51-11.53 m (21 over), on a corridor whose record carries 63
-    stations at 2 m.  Seeding them costs a STRAIGHT corridor nothing:
-    §34 (7)'s collapse takes the redundant ones straight back out."""
-    if c is None or not getattr(c, "stations", ()):
+    stations at 2 m.
+
+    ONLY THE STATIONS THAT CARRY THE CURVE ARE SEEDED — a corridor
+    station is added when an inner-face point there stands more than
+    ``grid`` (``emit.identity.min_distinct_spacing_m``, §34 (7)'s own
+    lateral floor) off the chord between the surviving stations either
+    side of it.  Seeding them ALL was measured and withdrawn: it moved
+    nine STRAIGHT OTHH object corridors (and one's ramp top 240 -> 246 m)
+    for nothing, because the denser set also re-steps the clip loop."""
+    S = [float(st.s) for st in (getattr(c, "stations", ()) or ())] if c is not None else []
+    if len(S) < 3 or not ss:
         return ss
-    return sorted(set(ss) | {float(st.s) for st in c.stations})
+    try:
+        left, right = c.stations_inner()
+    except Exception:                                      # pragma: no cover
+        return ss
+    if len(left) != len(S) or len(right) != len(S):
+        return ss
+    base = sorted(ss)
+    keep = set(base)
+
+    def at(chain, s: float) -> XY:
+        k = min(range(len(S)), key=lambda i: abs(S[i] - s))
+        return chain[k]
+
+    for i, s in enumerate(S):
+        if any(abs(s - t) <= 1e-9 for t in base):
+            continue
+        lo = max((t for t in base if t <= s), default=None)
+        hi = min((t for t in base if t >= s), default=None)
+        if lo is None or hi is None or hi - lo <= 1e-9:
+            continue
+        for chain in (left, right):
+            a, b, p = at(chain, lo), at(chain, hi), chain[i]
+            if a == b:
+                continue
+            if LineString([a, b]).distance(Point(p)) > grid:
+                keep.add(s)
+                break
+    return sorted(keep)
 
 
 def ring_for(c, axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,

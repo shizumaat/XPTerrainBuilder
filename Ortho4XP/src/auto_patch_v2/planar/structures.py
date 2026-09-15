@@ -543,7 +543,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         pinched = None
         road_witness = ""
         # §33 (6) C2': the station set keeps the WALL'S OWN vertices
-        ss = [s for s in seed_wall_stations(ss, c) if s <= s_top + 1e-9]
+        ss = [s for s in seed_wall_stations(ss, c, grid) if s <= s_top + 1e-9]
         beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         # a door ramp's HOST cells: the ones its well stands in (cut like
         # any structure); every other cell beyond the well stops the ramp

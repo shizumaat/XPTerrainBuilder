@@ -8340,3 +8340,98 @@ does NOT cover the suite's OSM regional-extract overlay
 of `OSM_data`, so it needs a narrower scope or a path-level test, not an
 entry in `_REDIRECTABLE_SCOPES`. No builds, no downloads, no shared-repo
 writes; no INDEX row (library function of an indexed module).
+
+## 2026-09-15bg v2schemarefuse ROUND 6 MERGED (1ac10885): the refresh's derivations, ledger and lock release are ONE try/finally; a refresh-only run fails only on a REQUESTED scope; `--reconcile-ledger` — live proof rc 0 twice, and one residual (a never-ledgered artefact is not reconciled)
+
+Attribution (lane r6, e60d8917): 15bc's two defects are one root cause —
+the warm, the derivations and the re-judge sat OUTSIDE the `try` whose
+`finally` snapshots, stamps the ledger and releases the locks (the old
+"deliberately outside so a failure is not swallowed" comment was stale:
+the `finally` audits and re-raises). Now one `try`, one `finally`, every
+exit path. The third: a warm run was judged as a measurement —
+`require_dem_frame` and `require_no_implicit_refresh` stand down for
+`--refresh-only`, and `require_refreshed_frame` decides rc AFTER the
+derivations: rc 1 only if a REQUESTED scope is still stale/absent;
+unrequested cold items print with their flag, informational. (4)
+`--reconcile-ledger` (a FLAG, not automatic — an artefact newer than
+its ledger line may be another lane's authorised write; the record is
+`reconciled: true` with a `why` that claims no fetch); covers
+`osm_layers` artefacts (the warm specs + the 3 × 3 ROAD_FEEDS square).
+Merge conflict: one import line in `build_airport.py` (both kept).
+Suite ON MAIN: `1733 passed, 1 skipped, 1 xpassed`, 0 failed. LIVE PROOF
+(this session): `KPHX --tile 33 -112 --refresh-only --refresh-data
+osm_layers --reconcile-ledger` rc 0, lock released, 3 `dem` items
+informational; `KDFW --tile 33 -98 --refresh-only --refresh-data
+osm_layers` rc 0, 31 `dem` items informational. RESIDUAL: the
+reconciliation said "no artefact … nothing to reconcile" for
+`+33-112_big_roads` (mtime 13:48, NO ledger line at all) — its predicate
+needs an existing older line; a never-ledgered artefact is exactly the
+case — round 7. NOT DONE: a `dem` artefact derived-but-unrecorded has no
+reconcilable set; a cold bathymetry band is neither warmed nor reported
+by `--refresh-only`. Keys: the owner's chip session took 15bc
+concurrently and re-keyed itself to 15be (0fd65736); mine stands.
+
+## 2026-09-15bi v2schemarefuse ROUND 7 MERGED (0134dbe8): the reconciliation relativised against the LANE root (a symlinked `OSM_data` resolves into the shared repo → every candidate skipped) and needed a prior ledger line; now keyed on the corpus base with `never-ledgered` — live: the +33-112 write and five older caches ledgered in one record. THE GUARD LINE IS CLOSED (rounds 1–7)
+
+Attribution (lane r7, f6936b6f): `reconcilable_artifacts` did
+`Path(cache).resolve().relative_to(lane)` — a lane's `OSM_data` is a
+symlink into `/Users/noah/XPTerrainBuilderData`, so `ValueError` for
+every artefact, caught, skipped, "nothing to reconcile"; the ledger is
+keyed on shared-repo-relative paths, so `corpus_base` is the frame (the
+lane root only for a genuinely private corpus). And `ledger_state`
+replaces the boolean: `explained` / `stale-line` / `never-ledgered`;
+`reconciled_paths` names which; the `why` keeps the caveat (claims no
+fetch; the write may be another lane's). Suite ON MAIN: `1734 passed, 1
+skipped, 1 xpassed`, 0 failed. LIVE (this session, owner-authorised):
+`KPHX --tile 33 -112 --refresh-only --refresh-data osm_layers
+--reconcile-ledger` rc 0 — ONE record 14:03:57 `reconciled: true`
+naming `+33-112_airport_small_roads/_airports/_big_roads/_coastline/
+_water` and `+33-113_airport_small_roads` (never-ledgered), `+33-113_
+big_roads` left alone (explained by 15au's line); no lock left. Rounds
+1–7 in sum: bz2 guard hole (15v), stale-layer re-derivation (15ak),
+redirected-scope external naming + missing-dump refusal (15am), lane
+builds never write the install (15ao), neighbour tiles / absent layers /
+tile insets / refresh-only (15ba), try-finally ledger+lock + scope-
+limited re-judge + reconcile flag (15bg), corpus-base reconciliation
+(this). STILL NAMED, not fixed: `dem` artefacts have no reconcilable
+set; `--refresh-only` never reaches `bathymetry_band_admission`; the
+merged `airport_small_roads` cache carries no schema (owner chip).
+
+## 2026-09-15bk v2channel ROUND 6 (da91d7d8): LGAV and LEMD bars MET under the amended (13)(d); KPHX reads ZERO channels (its corridor is a NOTCH, not a hole) and the KDFW build emits four channels on the clearance datum with 378 `channel_floor_at_declaration` rows (worst 12.6 m) — §45 (14)/(15) RULED, NOT MERGED
+
+Round 6: `planar/build.channels_after_basins` — channels identified
+with no exclusion; only where one took a pack witness does the basin
+pass decide first (a structure pass with no channels + `build_basins`),
+its BUILT basins' `member_ids` the (13)(d) exclusion (the cycle is
+real: `build_basins` needs the structure pass's cut cells and tunnel
+union; the decision pair costs one extra run at LGAV/LEMD/HECA only);
+§45 (7)/(11) a post-filter on a built basin before the knife, firing
+nowhere. LGAV: ONE channel −1343/−7021/−2914/−4017, pack datum, floor
+66.467, half-width 62.768, 4 decks, basins 2 → 2, tunnels 11 → 11;
+LEMD basins 1 → 1, tunnels 52 → 52, `channel:5` refused. Replays OTHH
+44/10, LEMD 52/1, HECA 13/0, KCLT 23/0, CYXY 2/0 IDENTICAL; LGAV differs
+by ONE field as the bar requires (`object-cut:Trench_01.obj@0
+replaced_ways [−4017, −2914] → []` — the channel owns those ways; the
+object cut's claim lives in `Tunnel.replaced_ways`, not the unproduced
+`Corridor.bore_ways`, so (13)(b) cannot see it — owed to the tunnel-
+object line); SPJC REFUSES on BOTH arms (neighbour big_roads −13-077/
+−13-078 superseded — the owner's refresh). Suite 1710/0 (18 teardown
+errors = another session's live refresh, the 15be class). KPHX replay:
+tunnels 14 → 14, basins 0 → 0, ZERO channels — decks read, the six
+`building_passage` ways candidates, every one `necks = 0`: the E Sky
+Harbor corridor is a NOTCH in the pavement union, and (1)(b)'s
+`_hole_region` sees interior holes only — RULED §45 (14): the corridor
+is the union's complement INSIDE THE FIELD (boundary polygon, else
+convex hull ⊕ standoff). KDFW build rc 0, 355 s, UNCHANGED, ledger
+ec73a1c42e98: FOUR channels (−959/−1499; six ways; −22284/−1553;
+−27284/−3436), all bridge + neck, 2 decks each, half-widths 41.5–70.6 m
+from (10)(iii), datum CLEARANCE — the engine read `DEM coarse[base_
+tier]` (the 1 m inset present since 08-15 was not the frame) — floors
+165.45–181.90 against the lidar's 170.9–173.3; census 8,733 rows FAIL
+with `channel_floor_at_declaration` 378 rows, worst 12.626 m at
+32.8849810, −97.0398638 — the channel verify family's first firing on
+real data. RULED §45 (15): attribute the datum (why the inset is not
+credible/read) and the floor rows (prime suspect C12's
+`_osm_levelled` core-levelling the channel's road — a measured 12.6 m
+conflict is a defect, not a read) BEFORE the merge; fix C12 if it is
+the mechanism. Not merged; app 1.0.342 waits.

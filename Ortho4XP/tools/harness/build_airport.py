@@ -260,6 +260,7 @@ from shared_repo_guard import (                          # noqa: E402,F401
     REFRESH_SCOPES, scope_of, scope_description, shared_repo_snapshot,
     snapshot_diff, _file_stamp, RefreshLock, record_refresh,
     REFRESH_TS_FORMAT, ledgered_refresh_paths, redirected_scopes,
+    record_reconciliation,
     install_snapshot, install_relpath, pack_roots_for_tile,
     LOCK_ARTIFACT_SUFFIX, LOCK_FILE_OPS, is_lock_artifact,
     LIB_INDEX_ARTIFACT_RE, LIB_INDEX_FILE_OPS, is_library_index_artifact,
@@ -1472,6 +1473,175 @@ def refresh_tile_dem(root, lat, lon, prog) -> dict:
             f"this tile at all) and re-run.")
     prog.note(f"refresh dem done: {derived}")
     return {"tile": [lat, lon], "derived": derived}
+
+
+def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
+                            refresh_only: bool = False,
+                            allow_degraded: bool = False) -> None:
+    """THE RE-JUDGE, after this run's authorised refreshes.
+
+    A refresh that did not warm what it was asked to warm must still
+    refuse — just later, and with the reason known.  So the frame is
+    re-asked with NOTHING authorised.
+
+    ON A ``--refresh-only`` RUN, ONLY THE REQUESTED SCOPES DECIDE THE
+    EXIT CODE (measured 2026-09-15 on the owner's own warms):
+    ``KPHX --tile 33 -112 --refresh-only --refresh-data osm_layers``
+    re-derived +33-112_big_roads and then exited rc 1 on three ``dem``
+    items — version-stale USGS3DEP negatives nobody had asked this run
+    to touch.  A tile warmed for what was ASKED is a success; a cold
+    artefact in a scope this run was not authorised for is INFORMATION,
+    printed with the flag that would fix it.  A normal build keeps the
+    old strictness to the letter: everything must be current, because
+    the build is about to read it.
+    """
+    missing = missing_shared_artifacts(root, lat, lon, icao)
+    if not refresh_only:
+        require_dem_frame(dem_cache_state(root, lat, lon),
+                          allow_degraded=allow_degraded)
+        require_no_implicit_refresh(missing, requested)
+        return
+    requested = set(requested or ())
+    mine = [m for m in missing if m[0] in requested]
+    others = [m for m in missing if m[0] not in requested]
+    for scope, artifact, why in others:
+        print(f"  [harness] still cold, in a scope this run did NOT "
+              f"request — informational, not a failure: [{scope}] "
+              f"{artifact}\n      {why}\n      warm it with "
+              f"--refresh-only --refresh-data {scope}")
+    if mine:
+        raise SystemExit(
+            f"REFUSING: --refresh-only was authorised for "
+            f"{sorted(requested)} and {len(mine)} artifact(s) in those "
+            f"scopes are STILL not current afterwards:\n  "
+            + "\n  ".join(f"[{s}] {a}\n      {w}" for s, a, w in mine)
+            + "\nWhatever this run DID derive is already recorded in "
+              f"{REFRESH_LEDGER} (the audit runs on every exit path).  "
+              f"Check provider/Overpass reachability and re-run.")
+
+
+def reconcile_refresh_ledger(root, lat, lon, requested, prog,
+                             meta=None) -> dict:
+    """``--reconcile-ledger``: stamp the CURRENT state of artefacts a
+    refresh derived but never recorded.
+
+    THE MEASURED HOLE (2026-09-15, KPHX): the refresh moved
+    +33-112_big_roads aside, the engine re-derived it (file mtime 13:48),
+    and the run then exited on an unrelated refusal BEFORE the audit — so
+    the corpus carries a file no ledger line explains.  Round 6's first
+    fix makes that impossible going forward (the audit now runs in the
+    ``finally``); this is the RECONCILIATION for the ones already on
+    disk, and for any future write a crash puts beyond the audit's reach.
+
+    A FLAG, not automatic, and deliberately so: an artefact whose newest
+    ledger line predates its mtime may equally have been written by
+    ANOTHER lane's authorised refresh seconds earlier, and stamping that
+    silently would put this run's name on someone else's write.  The flag
+    is the human saying "I know what happened here, record it".
+
+    Scope: every artefact of the REQUESTED scopes that this tile's
+    derivations own and that EXISTS — the layer caches
+    ``osm_layer_warm_specifications`` names for this tile, and the 3x3
+    road feeds the v2 loader reads.  Each one whose newest ledger line
+    predates its mtime gets one ``reconciled`` record carrying the file's
+    hash-stamp; one that is already explained is left alone.
+    """
+    base = corpus_base(root)
+    paths = reconcilable_artifacts(root, lat, lon, requested)
+    if not paths:
+        prog.note("reconcile-ledger: no artefact of the requested "
+                  f"scope(s) {sorted(requested)} on tile "
+                  f"{lat:+d}{lon:+d} — nothing to reconcile")
+        return {"checked": 0, "reconciled": []}
+    done = record_reconciliation(paths, dict(meta or {}), repo=base)
+    for rel in done:
+        prog.note(f"LEDGER RECONCILED: {rel} — it is on disk NEWER than "
+                  f"any ledger line that names it; its current hash is "
+                  f"now recorded in {REFRESH_LEDGER}")
+    if not done:
+        prog.note(f"reconcile-ledger: all {len(paths)} artefact(s) of "
+                  f"{sorted(requested)} are already explained by a ledger "
+                  f"line at or after their mtime — nothing to reconcile")
+    return {"checked": len(paths), "reconciled": done}
+
+
+def corpus_base(root) -> Path:
+    """The corpus the ledger's paths are relative to, for THIS lane.
+
+    THE MEASURED BUG (2026-09-15, round 7).  ``reconcilable_artifacts``
+    relativised against the LANE ROOT, but a lane's ``OSM_data`` is a
+    SYMLINK into the shared repo, so ``Path(cache).resolve()`` lands in
+    ``/Users/noah/XPTerrainBuilderData/...`` and ``relative_to(lane)``
+    raised ValueError for EVERY artefact.  The list came out empty and
+    ``--reconcile-ledger`` reported "no artefact of the requested
+    scope(s) on tile +33-112" while the very file it exists for
+    (+33-112_big_roads, re-derived 13:48, never ledgered) sat there.  The
+    ledger is keyed on SHARED-REPO-relative paths (``record_refresh`` /
+    ``_file_stamp``), so that is the frame to use — falling back to the
+    lane root only for a corpus that genuinely is not the shared one (a
+    twin's tmp root, ``--allow-private-data``).
+    """
+    root = Path(root)
+    try:
+        (root / "OSM_data").resolve().relative_to(DATA_REPO.resolve())
+        return DATA_REPO.resolve()
+    except (OSError, ValueError):
+        return root.resolve()
+
+
+def reconcilable_artifacts(root, lat, lon, requested) -> list:
+    """The artefacts of ``requested`` that this tile's refresh
+    derivations own AND that exist on disk, relative to
+    :func:`corpus_base` — the same frame the refresh ledger uses.
+
+    Same two sources the pre-flight judges (so a reader never has to ask
+    which set is meant): the engine's own
+    ``O4_Vector_Map.osm_layer_warm_specifications`` for this tile, and
+    the v2 loader's own 3x3 ``ROAD_FEEDS`` square.
+    """
+    requested = set(requested or ())
+    if "osm_layers" not in requested:
+        return []
+    for p in (Path(root) / "src", Path(root)):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    out, seen = [], set()
+    base = corpus_base(root)
+
+    def _add(path):
+        try:
+            rel = str(Path(path).resolve().relative_to(base))
+        except (OSError, ValueError):
+            return
+        if rel in seen or not os.path.isfile(path):
+            return
+        seen.add(rel)
+        out.append(rel)
+
+    try:
+        import O4_Config_Utils as CFG
+        import O4_File_Names as FNAMES
+        import O4_Vector_Map as VMAP
+        tile = CFG.Tile(int(lat), int(lon), "")
+        try:
+            tile.read_from_config()
+        except Exception:
+            pass
+        for spec in VMAP.osm_layer_warm_specifications(tile):
+            _add(FNAMES.osm_cached(int(lat), int(lon), spec[0]))
+    except Exception as exc:
+        print(f"  [harness] reconcile: layer list unavailable ({exc!r})")
+    try:
+        from auto_patch_v2.airport import osm as _v2osm
+        osm_root = str(Path(root) / "OSM_data")
+        for dlat in (-1, 0, 1):
+            for dlon in (-1, 0, 1):
+                for feed in _v2osm.ROAD_FEEDS:
+                    _add(_v2osm.feed_path(osm_root, int(lat) + dlat,
+                                          int(lon) + dlon, feed))
+    except Exception as exc:
+        print(f"  [harness] reconcile: feed list unavailable ({exc!r})")
+    return sorted(out)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -3020,6 +3190,14 @@ def main(argv=None) -> int:
                          "(locked, hash-stamped, recorded).  'all' "
                          "authorises every scope.  Scopes: "
                          + ", ".join(s for s, _p, _w in REFRESH_SCOPES))
+    ap.add_argument("--reconcile-ledger", action="store_true",
+                    help="record the CURRENT hash of every artefact of the "
+                         "--refresh-data scope(s) on this tile whose newest "
+                         "refresh-ledger line predates its mtime — the "
+                         "reconciliation for a derivation a crash or a "
+                         "later refusal put beyond the audit's reach.  "
+                         "Explicit on purpose: another lane's authorised "
+                         "refresh looks the same from the outside.")
     ap.add_argument("--refresh-only", action="store_true",
                     help="perform the --refresh-data scopes for the named "
                          "tile and EXIT without building.  For warming a "
@@ -3233,7 +3411,22 @@ def main(argv=None) -> int:
                   f"{state['base_raster']} insets={state['airport_insets']} "
                   f"airports_layer={state['airports_layer']} "
                   f"overlay={state['tile_overlay']}")
-        if args.dem is None:
+        if args.refresh_only:
+            # A WARM RUN IS NOT A MEASUREMENT (2026-09-15, round 6).  The
+            # pre-flight exists to stop a BUILD reading a cold or stale
+            # frame; a ``--refresh-only`` run reads nothing and builds
+            # nothing.  Refusing here is what stopped
+            # ``KDFW --tile 33 -98 --refresh-only --refresh-data
+            # osm_layers`` before it could warm anything — 31 ``dem``
+            # items (15ay's version-stale USGS3DEP negatives) nobody had
+            # asked that run to touch.  Everything is judged AFTER the
+            # derivations instead, by ``require_refreshed_frame``, which
+            # decides the exit code on the REQUESTED scopes alone.
+            prog.note("--refresh-only: the pre-flight stands down (this "
+                      "run reads nothing and builds nothing); the frame "
+                      "is judged AFTER the derivations, on the requested "
+                      "scope(s) alone")
+        elif args.dem is None:
             require_dem_frame(state, allow_degraded=args.allow_degraded_dem,
                               requested=requested)
         else:
@@ -3242,10 +3435,11 @@ def main(argv=None) -> int:
                       "this run (checked and recorded, not enforced)")
         # A missing artifact is a DOWNLOAD this build would perform as a
         # side effect.  Named and refused unless explicitly authorised.
-        require_no_implicit_refresh(
-            missing_shared_artifacts(root, lat, lon,
-                                     None if args.tile else args.icao),
-            requested)
+        if not args.refresh_only:
+            require_no_implicit_refresh(
+                missing_shared_artifacts(root, lat, lon,
+                                         None if args.tile else args.icao),
+                requested)
     else:
         prog.note(f"WARNING: could not resolve the anchor tile for "
                   f"{args.icao} — the DEM cache state is UNKNOWN for this "
@@ -3384,53 +3578,75 @@ def main(argv=None) -> int:
         prog.note("shared-repo write guard DISARMED by flag — writes are "
                   "detected after the fact only (the pre-fix behaviour)")
 
-    # THE WARM, before the build's DEM prep and inside everything that
-    # makes a shared-repo write lawful: the scope lock is held, ``before``
-    # is snapshotted, and the guard is armed with ``dem`` authorised.  A
-    # failure here must not be swallowed into a quietly inset-less build,
-    # so it is deliberately outside the try/finally that follows.
     warm_summary = None
-    if warm_insets:
-        if lat is None:
-            raise SystemExit(
-                f"REFUSING --warm-insets: the anchor tile for {args.icao} "
-                f"did not resolve, so there is no inset cache to warm.")
-        with guard:
-            warm_summary = warm_airport_insets(warm_insets, root, lat, lon,
-                                               prog)
-
-    # THE OSM-LAYER REFRESH, in the same place and for the same reason:
-    # the scope lock is held, ``before`` is snapshotted and the guard is
-    # armed with ``osm_layers`` authorised.  Before the build, so a
-    # schema-stale layer is re-derived as an EXPLICIT event instead of
-    # being rewritten mid-build (the contamination of RULINGS
-    # 2026-09-15u) — and so this run's re-derivation lands in the
-    # before/after diff the ledger stamps.  Outside the try/finally
-    # below for the warm's reason: a failed refresh must not be swallowed
-    # into a quietly stale build.
-    osm_refresh_summary = dem_refresh_summary = None
-    if "osm_layers" in requested and lat is not None:
-        with guard:
-            osm_refresh_summary = refresh_stale_osm_layers(
-                root, lat, lon, prog)
-    # THE DEM REFRESH runs SECOND, deliberately: the inset bounding boxes
-    # come from the tile's airports layer, which the pass above derives
-    # when it is absent (the cold-neighbour case, KDFW +32-097).
-    if "dem" in requested and lat is not None:
-        with guard:
-            dem_refresh_summary = refresh_tile_dem(root, lat, lon, prog)
-    # RE-JUDGED with NOTHING authorised: a refresh that did not warm the
-    # frame still refuses, just later and with the reason known.
-    if requested and lat is not None and args.dem is None:
-        require_dem_frame(dem_cache_state(root, lat, lon),
-                          allow_degraded=args.allow_degraded_dem)
-        require_no_implicit_refresh(
-            missing_shared_artifacts(root, lat, lon,
-                                     None if args.tile else args.icao),
-            requested)
-
+    osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
     t0 = time.time()
+    # EVERYTHING FROM HERE IS INSIDE THE AUDIT'S ``finally`` (2026-09-15,
+    # round 6).  It used not to be, and two things leaked, both measured
+    # on the owner's own KDFW/KPHX warms:
+    #   * KPHX: the refresh MOVED +33-112_big_roads aside, the engine
+    #     re-derived it ("1 layer(s) re-derived", 13:48) — and the
+    #     RE-JUDGE below then refused on unrelated ``dem`` items, so the
+    #     run exited before the audit ever ran and there is no
+    #     ``REFRESH RECORDED [osm_layers]`` line for a write that
+    #     happened.  A corpus that changed without a ledger line is
+    #     exactly what the ledger exists to prevent.
+    #   * KDFW +33-098: the pre-flight refusal left
+    #     ``.harness/locks/osm_layers.lock`` behind (holder pid 46331,
+    #     dead), because the release lived only on the success path.
+    # So the derivation, the re-judge and the build all sit inside one
+    # try; the ``finally`` snapshots, reports, STAMPS THE LEDGER and
+    # releases every lock on every exit path, refusal included.  Nothing
+    # is swallowed: the finally re-raises whatever came through it.
     try:
+        # THE WARM, inside everything that makes a shared-repo write
+        # lawful: the scope lock is held, ``before`` is snapshotted, and
+        # the guard is armed with ``dem`` authorised.
+        if warm_insets:
+            if lat is None:
+                raise SystemExit(
+                    f"REFUSING --warm-insets: the anchor tile for "
+                    f"{args.icao} did not resolve, so there is no inset "
+                    f"cache to warm.")
+            with guard:
+                warm_summary = warm_airport_insets(warm_insets, root, lat,
+                                                   lon, prog)
+
+        # THE OSM-LAYER REFRESH, in the same place and for the same
+        # reason.  Before the build, so a schema-stale layer is
+        # re-derived as an EXPLICIT event instead of being rewritten
+        # mid-build (the contamination of RULINGS 2026-09-15u) — and so
+        # this run's re-derivation lands in the before/after diff the
+        # ledger stamps.
+        if "osm_layers" in requested and lat is not None:
+            with guard:
+                osm_refresh_summary = refresh_stale_osm_layers(
+                    root, lat, lon, prog)
+        # THE DEM REFRESH runs SECOND, deliberately: the inset bounding
+        # boxes come from the tile's airports layer, which the pass above
+        # derives when it is absent (the cold-neighbour case, +32-097).
+        if "dem" in requested and lat is not None:
+            with guard:
+                dem_refresh_summary = refresh_tile_dem(root, lat, lon, prog)
+        # THE LEDGER RECONCILIATION (--reconcile-ledger), before the
+        # re-judge for the same reason the audit moved: it is a RECORD of
+        # what is on disk, and a later refusal must not lose it.
+        if args.reconcile_ledger and lat is not None:
+            with guard:
+                reconcile_summary = reconcile_refresh_ledger(
+                    root, lat, lon, requested, prog,
+                    meta={"lane": str(root), "tag": tag,
+                          "argv": sys.argv[1:]})
+
+        # RE-JUDGED with NOTHING authorised: a refresh that did not warm
+        # the frame still refuses, just later and with the reason known.
+        if requested and lat is not None and args.dem is None:
+            require_refreshed_frame(
+                root, lat, lon, requested,
+                icao=None if args.tile else args.icao,
+                refresh_only=args.refresh_only,
+                allow_degraded=args.allow_degraded_dem)
+
         if args.refresh_only:
             # THE WARM-ONLY RUN (2026-09-15).  The v2 loader reads road
             # layers over the 3x3 NEIGHBOURHOOD, so warming a neighbour
@@ -3526,6 +3742,7 @@ def main(argv=None) -> int:
     frame["warm_insets"] = warm_summary
     frame["refresh_osm_layers"] = osm_refresh_summary
     frame["refresh_dem"] = dem_refresh_summary
+    frame["reconcile_ledger"] = reconcile_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)
     frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["synthetic_dem"] = result.get("synthetic_dem")

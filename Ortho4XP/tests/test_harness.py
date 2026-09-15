@@ -2460,6 +2460,215 @@ def test_refresh_only_refreshes_and_NEVER_ENTERS_A_BUILD(
         "--refresh-only with no authorised scope must refuse")
 
 
+def test_the_audit_and_the_lock_release_are_on_EVERY_exit_path(build_mod):
+    """MEASURED on the owner's own warms (2026-09-15, round 6).
+
+    * KPHX: the refresh moved +33-112_big_roads aside, the engine
+      re-derived it (mtime 13:48), and the RE-JUDGE then refused on
+      unrelated ``dem`` items — so the run exited before the audit and
+      there is no ``REFRESH RECORDED [osm_layers]`` line for a write that
+      happened.
+    * KDFW +33-098: the refusal left ``.harness/locks/osm_layers.lock``
+      behind (holder pid 46331, dead).
+
+    Both because the derivation and the re-judge sat OUTSIDE the try
+    whose ``finally`` stamps the ledger and releases the locks.  A source
+    twin, because the alternative is a whole guarded build: what must
+    hold is an ORDERING inside ``main``.
+    """
+    src = inspect.getsource(build_mod.main)
+    i_lock = src.index("locks = [RefreshLock(")
+    i_try = src.index("\n    try:\n", i_lock)
+    for call in ("warm_airport_insets(", "refresh_stale_osm_layers(",
+                 "refresh_tile_dem(", "reconcile_refresh_ledger(",
+                 "require_refreshed_frame("):
+        assert src.index(call, i_lock) > i_try, (
+            f"{call} must sit INSIDE the try whose finally stamps the "
+            f"ledger and releases the locks — a refusal after it "
+            f"otherwise loses the record (KPHX) and leaks the lock (KDFW)")
+    i_finally = src.index("\n    finally:\n", i_try)
+    for must in ("record_refresh(", "lk.release()"):
+        assert src.index(must, i_finally) > i_finally, must
+
+
+def test_refresh_only_exits_0_for_a_scope_it_was_not_asked_to_warm(
+        build_mod, tmp_path, monkeypatch):
+    """``KPHX --tile 33 -112 --refresh-only --refresh-data osm_layers``
+    re-derived its layer and then exited rc 1 on three ``dem`` items
+    nobody had asked this run to touch.  A tile warmed for what was ASKED
+    is a success; the rest is information, with the flag that fixes it.
+    A normal BUILD keeps the old strictness — it is about to read them.
+    """
+    missing = [("dem", "Elevation_data/**/N33W112_airport_insets/index.json",
+                "a version-stale USGS3DEP negative"),
+               ("osm_layers", "OSM_data/x/y/y_big_roads.osm.bz2",
+                "schema-stale")]
+    monkeypatch.setattr(build_mod, "missing_shared_artifacts",
+                        lambda *a, **kw: missing)
+    monkeypatch.setattr(build_mod, "dem_cache_state", lambda *a: {
+        "tile": [33, -112], "tile_stem": "N33W112", "base_raster": True,
+        "airports_layer": True, "airport_insets": True})
+
+    # refresh-only, osm_layers requested and STILL stale -> refuses
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_refreshed_frame(tmp_path, 33, -112, {"osm_layers"},
+                                          refresh_only=True)
+    assert "STILL not current" in str(exc.value)
+    assert "osm_layers" in str(exc.value)
+
+    # ...the dem item alone does NOT fail a run that asked for osm_layers
+    monkeypatch.setattr(build_mod, "missing_shared_artifacts",
+                        lambda *a, **kw: [missing[0]])
+    build_mod.require_refreshed_frame(tmp_path, 33, -112, {"osm_layers"},
+                                      refresh_only=True)
+
+    # a normal BUILD still refuses on it, unchanged
+    with pytest.raises(SystemExit) as exc2:
+        build_mod.require_refreshed_frame(tmp_path, 33, -112, {"osm_layers"},
+                                          refresh_only=False)
+    assert "--refresh-data dem" in str(exc2.value)
+
+
+def test_refresh_only_is_not_blocked_by_the_PRE_FLIGHT_either(build_mod):
+    """``KDFW --tile 33 -98 --refresh-only --refresh-data osm_layers`` was
+    refused UP FRONT on 31 ``dem`` items (version-stale USGS3DEP
+    negatives) and warmed nothing.  The pre-flight exists to stop a BUILD
+    reading a cold frame; a warm run reads nothing and builds nothing, so
+    it stands down there and is judged AFTER its derivations instead —
+    on the requested scopes alone.  A source twin: the ordering inside
+    ``main`` is what must hold."""
+    src = inspect.getsource(build_mod.main)
+    i = src.index("if args.refresh_only:\n            # A WARM RUN IS NOT")
+    assert "elif args.dem is None:" in src[i:i + 1400], (
+        "the cold-frame pre-flight must sit behind the refresh-only branch")
+    assert "if not args.refresh_only:\n            require_no_implicit_refresh(" \
+        in src, ("the missing-artifact refusal must stand down for a "
+                 "refresh-only run too — that is what blocked KDFW +33-098")
+    # ...and the post-derivation judge is the one that decides
+    assert src.index("require_refreshed_frame(") > i
+
+
+def test_the_ledger_reconciliation_stamps_only_what_nothing_explains(
+        build_mod, guard_mod, tmp_path, monkeypatch):
+    """THE KPHX RECONCILIATION (2026-09-15).
+
+    A file the corpus carries that no ledger line explains — because the
+    run that derived it exited before the audit — is recorded with its
+    CURRENT hash, marked ``reconciled`` so no reader mistakes it for a
+    fetch this run made.  One already explained is left alone.
+    """
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "+30-120" / "+33-112").mkdir(parents=True)
+    rel = "OSM_data/+30-120/+33-112/+33-112_big_roads.osm.bz2"
+    (repo / rel).write_bytes(b"re-derived, never recorded")
+    ledger = tmp_path / "ledger.jsonl"
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(guard_mod, "REFRESH_LEDGER", ledger)
+
+    # NEVER LEDGERED -> reconciled, once, with the hash, and SAID SO.
+    # (Round 6 got this wrong in the field: KPHX's +33-112_big_roads had
+    # no line naming it AT ALL, and a predicate phrased only as "the
+    # newest line predates its mtime" excluded the very case the
+    # reconciliation exists for.)
+    assert guard_mod.ledger_state(rel, time_now := os.path.getmtime(
+        repo / rel)) == "never-ledgered"
+    done = guard_mod.record_reconciliation(
+        [rel], {"lane": "twin", "tag": "t"})
+    assert done == [rel]
+    recs = guard_mod.ledger_lines(ledger)
+    assert len(recs) == 1
+    assert recs[0]["scope"] == "osm_layers" and recs[0]["reconciled"] is True
+    assert recs[0]["reconciled_paths"] == {rel: "never-ledgered"}
+    assert "another lane's authorised refresh" in recs[0]["why"]
+    assert recs[0]["files"][0]["path"] == rel
+    assert recs[0]["files"][0].get("sha256")
+    del time_now
+
+    # ...and now it IS explained, so a second run records nothing
+    assert guard_mod.record_reconciliation(
+        [rel], {"lane": "twin", "tag": "t"}) == []
+    assert len(guard_mod.ledger_lines(ledger)) == 1
+
+    # a file written AFTER its newest ledger line is a DIFFERENT case,
+    # named as such
+    import time as _time
+    os.utime(repo / rel, (_time.time() + 120, _time.time() + 120))
+    assert guard_mod.ledger_state(
+        rel, os.path.getmtime(repo / rel)) == "stale-line"
+    assert guard_mod.record_reconciliation(
+        [rel], {"lane": "twin", "tag": "t"}) == [rel]
+    assert guard_mod.ledger_lines(ledger)[-1]["reconciled_paths"] == {
+        rel: "stale-line"}
+
+    # and a malformed ledger line never blinds the reader
+    with open(ledger, "a") as fh:
+        fh.write("{half written\n")
+    assert len(guard_mod.ledger_lines(ledger)) == 2
+
+
+def test_the_reconcilable_set_is_RELATIVE_TO_THE_SHARED_REPO(
+        build_mod, guard_mod, tmp_path, monkeypatch):
+    """THE ROUND-7 BUG, measured live.
+
+    ``--reconcile-ledger`` reported "no artefact of the requested
+    scope(s) ['osm_layers'] on tile +33-112 — nothing to reconcile" while
+    the very file it exists for sat there.  A lane's ``OSM_data`` is a
+    SYMLINK into the shared repo, so ``Path(cache).resolve()`` lands in
+    the repo and ``relative_to(lane_root)`` raised ValueError for EVERY
+    artefact — the list came out empty, silently.  The ledger is keyed on
+    SHARED-REPO-relative paths, so that is the frame.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "+30-120" / "+33-112").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    (lane / "OSM_data").symlink_to(repo / "OSM_data")   # the lane ritual
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(lane / "OSM_data"))
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
+    cache = Path(FNAMES.osm_cached(33, -112, "big_roads"))
+    _write_schema_stamped_layer(cache, VMAP.ROAD_CACHE_TAG_SCHEMA)
+
+    assert build_mod.corpus_base(lane) == repo.resolve()
+    got = build_mod.reconcilable_artifacts(lane, 33, -112, {"osm_layers"})
+    assert "OSM_data/+30-120/+33-112/+33-112_big_roads.osm.bz2" in got, got
+    # ...and those rels resolve against the REPO, which is what the
+    # ledger's stamping does
+    for rel in got:
+        assert (repo / rel).is_file()
+
+    # a corpus that genuinely is NOT the shared one keeps the lane frame
+    monkeypatch.setattr(build_mod, "DATA_REPO", tmp_path / "elsewhere")
+    assert build_mod.corpus_base(lane) == lane.resolve()
+
+
+def test_the_reconcilable_set_is_the_two_the_preflight_judges(
+        build_mod, tmp_path, monkeypatch):
+    """Which artefacts ``--reconcile-ledger`` covers: the engine's own
+    layer list for this tile and the v2 loader's own 3x3 road feeds —
+    exactly the two sets the pre-flight judges, and only ones that
+    EXIST.  ``osm_layers`` unrequested -> nothing."""
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 33, -112)
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (1, False))
+    own = Path(FNAMES.osm_cached(33, -112, "big_roads"))
+    _write_schema_stamped_layer(own, VMAP.ROAD_CACHE_TAG_SCHEMA)
+    nbr = Path(FNAMES.osm_cached(34, -112, "big_roads"))
+    _write_schema_stamped_layer(nbr, VMAP.ROAD_CACHE_TAG_SCHEMA)
+
+    got = build_mod.reconcilable_artifacts(root, 33, -112, {"osm_layers"})
+    assert "OSM_data/+30-120/+33-112/+33-112_big_roads.osm.bz2" in got
+    assert "OSM_data/+30-120/+34-112/+34-112_big_roads.osm.bz2" in got, (
+        "the 3x3 square the v2 loader reads is covered too")
+    assert all(os.path.isfile(Path(root) / g) for g in got)
+    assert build_mod.reconcilable_artifacts(root, 33, -112, {"dem"}) == []
+
+
 def _never_called(name):
     def _boom(*a, **kw):
         raise AssertionError(f"{name} must not run under --refresh-only")

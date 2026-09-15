@@ -6163,3 +6163,46 @@ that plate edge — the retaining walls included — is RAMP. Lane
 `v2othhfix` r4 (amended): measure at the east mouth the pad edge vs
 the plate edge along the axis (the owner's ~4 m), derive `covered_
 start` from the plate, name the metres, ONE OTHH build.
+
+## 2026-09-14bf v2padvert round 2: the arrangement-level clip MERGED (c9787d1e, ships OFF: HECA 280/88 → 44/26, KCLT 0/3); the re-armed reach as a weak preference REGRESSES (KCLT 313 → 1,308 infeasible) — ruled: the reach is a PLANE JOIN; lane `v2padjoin`
+
+Lane `v2padvert` @ 99d795ef (HEAD not mergeable — 20 twins red; the
+mergeable state c9787d1e merged). `planar/overlay.airside_clip` clips
+every rigid region out of the `rolled_on_roles` faces (runway + taxi
++ airside apron; a groundside lot never clips a pad) with the rim
+snap; `classify/roles` no longer differences the airside region by
+the pad union at all. HECA gone/new 280/88 → 44/26 (the 26 new are
+0.02–0.36 m off the boundary — the identity grid's snap-rounding; the
+un-tried lever: the rim carries the CELL boundary, not the breakline
+sources noded into airside edges), KCLT 0/3, apron faces equal; the
+two ruled twins green with no exemption; a pad wholly on airside is
+KEPT (§30 / 14ai's class). HECA build pair (pads+staged+clip ON vs
+OFF): airside nodes 39 gone / 27 new, 2,978 of 16,058 moved > 0.02
+(worst 3.88 m apron; runway 358, worst 0.27) — the vertex SET fixed,
+the VALUES still move because the pad's rows pull the apron. 14ay/az
+built: the skirt withdrawn, `cluster_apron_reach_m` 40 re-armed with
+the touching-component bound, (9)(2) behind `pad_between_aprons`
+(off): the certificate WORSENS (KCLT 313 → 1,308 rows / 732 m; HECA
+124 → 794 / 571) — the reach is a ONE-WAY TARGET at law weight: the
+apron PREFERS the pad's plane and yields to every hard cap before it;
+the pad's cap-0 plate is welded to an apron that never came. 20
+twins red: 10 encode the withdrawn skirt, 9 assert no pad law
+(`test_v2smooth` active set, `test_why` relax arms, chord/ridge/
+shapes/ground) — the collateral the skirt was holding back.
+
+* RULING §30 (4) row form: within the reach the apron vertices are
+  BOUND INTO the pad's plate (a plane JOIN — equality rows at hard
+  weight, the same plate rows the pad's own vertices carry), not a
+  preference; bounded to the touching component, never across a
+  taxi-family face; beyond the reach the apron returns to its own law.
+  With the join the pad and its apron collar are ONE plate and the
+  skirt is unnecessary by construction. (9)(2)'s two-run plane and
+  the low-side datum stay as ruled.
+* Lane `v2padjoin` (fresh): the join at `constraints/cluster_pad.py`
+  (§30 (4)'s row site), the datum at the pad's lowest shared edge,
+  the 9 no-pad-law twins re-read (which encode the skirt's
+  collateral, which a real regression); bars: KCLT/HECA certificate
+  → 0 infeasible (each pad named with its collar area), airside moved
+  vs OFF = the collar only, the terminal at its pad, suite green.
+* The two HECA builds `/tmp/harness/v2padvertHECAon/off.osm` are
+  registered by the next lane as the pair.

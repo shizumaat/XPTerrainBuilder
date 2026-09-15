@@ -647,21 +647,23 @@ floor_split_m       = 0.5
 # derivation, and the matched BASE ARM.
 pad_from_cluster    = false
 
-# SHIPS FALSE, STOP-AND-REPORT (lane v2padvert, 2026-09-14).  The rule is
-# BUILT and MEASURED and it is one flag from armed, but it is not yet the
-# rule the owner ruled: `_airside` here is EVERY apt.dat pavement page —
-# the groundside lots and islands included — because at EVIDENCE time no
-# role has been scored yet, and §16g (10) (5) names "the runway family,
-# the taxi family and the apron".  Armed, a shed on a groundside island
-# loses its pad (`test_round3`) and a building standing in an apron loses
-# its pad unless the never-delete exemption below keeps it; keeping it
-# costs 142-151 minted airside vertices, and dropping it costs two ruled
-# twins.  THE LEVER, named: the clip belongs where the faces HAVE ROLES —
-# `planar/overlay.build_arrangement`, the brief's own second site — not
-# at evidence time.  MEASURED at HECA (classify+planar arm, pads ON vs
-# OFF, airside vertices gone/new): main 280/88; clip only 59/79; clip +
-# vertex snap 28/35 (two ruled twins red, 96 pads deleted); clip + snap +
-# the never-delete exemption 41/151.
+# SHIPS FALSE (lane v2padvert ROUND 2, 2026-09-14; RULINGS 2026-09-14ax's
+# bar was 0/0 and it is MISSED).  The clip now runs where the faces HAVE
+# ROLES — `planar/overlay.airside_clip`, against `law.tables.
+# rolled_on_roles` (the runway family, the taxi family and the airside
+# non-rigid apron roles), so a groundside lot, island or service pavement
+# never clips a pad — and `classify/roles` no longer differences the
+# airside region by the pad union at all.  MEASURED at HECA
+# (`tools/pad_airside_arm.py`, pads ON vs OFF, airside vertices
+# gone/new): main 280/88 -> 44/26, apron faces 290/288 -> 289/288.  The
+# residual is ONE class: every minted vertex stands 0.02 .. 0.36 m off
+# the airside boundary — inside the identity grid — so it is the noding's
+# snap-ROUNDING, not a shared vertex; widening the hot-pixel band to 1.5
+# cells (37/26) and lifting the snap bound entirely (27/24) each moved it
+# a little and neither reached 0.  The un-tried lever, named: the rim
+# this clip snaps to is the airside CELLS' boundary, while the
+# arrangement also nodes the BREAKLINE sources (taxi / road centrelines,
+# runway stations) into airside edges the rim does not carry.
 #
 # RULINGS 2026-09-14as (i) THE PAD DERIVATION LEAVES THE AIRSIDE VERTEX
 # SET ALONE.  §16g (10) (5) clipped the DERIVED pad out of airside; the
@@ -676,7 +678,7 @@ pad_from_cluster    = false
 # the airside problem no longer depends on the pads.  A pad left wholly
 # inside airside mints nothing: its bodies seat on the pavement, exactly
 # as (5) already says of a cluster.  false = the pre-14as derivation.
-pad_airside_clip    = false
+pad_airside_clip    = true
 
 # RULINGS 2026-09-14as (i), the clip's SECOND half: the crossing points
 # the clip leaves on the airside rim are not rim NODES, and noded into

@@ -159,7 +159,24 @@ def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay]
         if ang < _DECK_MIN_ANGLE_DEG:
             continue
         wd = carriageway_width_m(w.tags, law)
-        # §34 (12) (4): an OVER-CROSSING, not a way running alongside
+        # §34 (12) (4): an OVER-CROSSING, not a way running alongside.
+        #
+        # THE LITERAL READING — "it must cross the BORE, within the
+        # corridor's own width" — IS MEASURED AND REFUTED, and the code
+        # for it is deleted rather than gated (lane v2vmmcshore r3).
+        # Armed, ``ln.intersects(bore_band)`` is RIGHT at VMMC (the two
+        # decks holding ``tunnel:-2488@0``'s floor flat stand 137.2 m and
+        # 46.7 m from a 36.6 m bore and cross only the 604 m approach
+        # WALK) and WRONG at LEMD, where it dropped ALL SEVEN decks —
+        # ``bridge_deck:-6288`` (the §33 (4) / RULINGS 14bp item 10 deck
+        # of ``-17265+-5946+-6640+-1359@1``), ``-15293``, ``-5305``,
+        # ``-1378``, ``-14230``, ``-516``, ``-11828``.  A LEMD deck
+        # crosses the TRENCH the ramp digs, not the short mapped bore, so
+        # the test reverses §33 (4) by the same side door §34 (12) (1)
+        # reversed 12ab.  What separates the two cases is measured in the
+        # spec's §34 (12) (4) block and is an INTENT QUESTION, not a test
+        # this lane may author.  ``bores`` therefore arms the ALONGSIDE
+        # limb alone, which is the limb VMMC's parallel seafront needs.
         if bores:
             inside = ln.intersection(corridor)
             if not inside.is_empty and \

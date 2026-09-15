@@ -13844,3 +13844,86 @@ BAR: the six dry replays byte-identical in `Tunnel` / `Basin` records AND in
 `replaced_ways` (OTHH's provenance field included); LGAV unchanged from round 2 once
 main's `shell_corridor` crash (v2objcut's, RULINGS 15aa) is fixed; KDFW and KPHX by
 their witnesses (neck + lidar; neck ×2) after the owner's refreshes.
+
+### §34 (12) (4) **MEASURED — ROUND 3** (lane `v2vmmcshore`, 2026-09-15, branch `claude/v2vmmcshore`, base main `14031e00`)
+
+**(a) WHAT (4) IS IMPLEMENTED WITH, AND WHAT IT IS NOT — r2 did not say.**
+The shipped test is ONE limb of the ruling: a bridge way whose run INSIDE
+THE CORRIDOR exceeds `_DECK_ALONGSIDE_MAX` (6) × its own carriageway width
+is not an over-crossing and does not sever.  The ruling's other limb —
+"it CROSSES the bore (an over-crossing within the corridor's own width)"
+— was **NOT implemented**: `bores` was read as a flag arming the alongside
+limb and the bore's geometry was never tested.
+
+Measured on `tunnel:-2488@0` (bore way **−2488**, length **36.6 m**,
+carriageway 7.0 m; approach walk **604.2 m**; corridor half-width
+3.5 + 2.1 m):
+
+| deck | own length | run INSIDE the ramp corridor | alongside bar | shipped verdict | CROSSES the bore? | distance to the bore | crossing station |
+|---|---|---|---|---|---|---|---|
+| `bridge_deck:-1798` | 239.1 m | **11.8 m** | 42.0 m | SEVERS | **NO** | **137.2 m** | s = 214.8 m |
+| `bridge_deck:-3636` | 462.2 m | **19.3 m** | 42.0 m | SEVERS | **NO** | **46.7 m** | s = 308.7 m |
+
+Both are genuine steep crossings of the 604 m APPROACH WALK — the
+alongside limb correctly passes them — and NEITHER comes within 46 m of a
+36.6 m bore.  They set `climb_from_s = 559.2 m` on a ramp that ends at
+`top_s = 468.0` (the §34 (12) (3) stop at `pav5`), so the climb never
+starts and the floor stays **flat at 1.00 m for 381 m of frontage**
+against a rise of 6.096 − 0.996 = **5.10 m**, which at the 8 % design
+grade needs **63.8 m**.
+
+**(b) THE CORRIDOR WITH (4) APPLIED AS RULED** (`ln.intersects(bore ⊕
+half_outer)`), dry `--stage structures` and a matched VMMC replay pair
+against a base arm at the same main:
+
+| | BASE (main `14031e00`) | (4) as ruled |
+|---|---|---|
+| `tunnel:-2488@0` decks | `bridge_deck:-1798` + `-3636` | **none** |
+| `tunnel:-2488@0` `climb_from_s` / `top_s` | 559.2 / 468.0 m | **0.0 / 84.0 m** |
+| `tunnel:-2488@0` `clipped_by` | `pav5` | **none** — it no longer reaches the pavement at all |
+| every VMMC corridor's `top_s` | 36 … 576 m | **24 … 108 m** (one deck survives anywhere: `bridge_deck:-2088` on `-4787@1`, climb from 9.7 m) |
+| VMMC tunnels / tunnel refusals | 5 / 10 | **13 / 2** — short ramps stop overlapping, so the 31h refusals fall away and MORE corridors are built |
+| emitted ramp faces / area | 8 / 8,975 m² | **14 / 8,485 m²** |
+| ramp + rim standing on the sea | 1.7 m² | **0.0 m²** |
+| nearest ramp to the owner's probe | 74 m | **188 m** |
+| nearest ramp to `pav5` | 38.8 m | 39.0 m |
+| census LAW-TRUE / ADJUDICATED | 163 / **53** | 157 / **57** (`airside_no_step` 30 → 35) |
+
+**(c) AND IT IS REFUTED AT LEMD.**  Same instrument, same main:
+
+| | LEMD base | LEMD with (4) as ruled | OTHH base | OTHH with (4) as ruled |
+|---|---|---|---|---|
+| tunnels | 55 | 56 | 44 | **44** |
+| **decks** | **7** | **0** | 1 | **1** |
+| basins / underpasses | 0 / 1 | 0 / 1 | 10 / 0 | 10 / 0 |
+
+Every LEMD deck is dropped, with the ramp length that changes named:
+
+| tunnel | `top_s` | `climb_from_s` | decks lost |
+|---|---|---|---|
+| `-1341+-1339@1` | 180.0 → **24.0** | 153.8 → 0.0 | `bridge_deck:-15293` |
+| `-1581+-1568@1` | 552.0 → **60.0** | 287.1 → 0.0 | `-5305`, `-1378` |
+| `-17265+-5946+-6640+-1359@1` | 96.0 → **24.0** | 71.0 → 0.0 | **`-6288`** |
+| `-4928@0` | 252.0 → **84.0** | 169.9 → 0.0 | `-14230`, `-516` |
+| `-5284@0` | 72.0 → 72.0 | 22.4 → 0.0 | `-11828` |
+
+`bridge_deck:-6288` is the §33 (4) deck RULINGS 2026-09-14bp item 10 was
+written for and lane `v2lemdstruct` measured to 3 m.  **A LEMD deck
+crosses the TRENCH the ramp digs, not the short mapped bore**, so the
+literal limb reverses §33 (4) by exactly the side door §34 (12) (1)
+reversed 12ab.  It is DELETED, not gated; the alongside limb — the one
+VMMC's parallel seafront needs — stands, and the dry arms at VMMC (5 /
+10), LEMD (55, 7 decks) and OTHH (44, 1 deck) are identical to the base
+at main.  Twin: `test_a_bridge_running_ALONGSIDE_the_corridor_does_not_
+sever_the_climb`, whose last assertion pins the refuted limb's ABSENCE.
+
+**THE INTENT QUESTION (attempt cap reached on (4)).**  A distance-to-bore
+test does not separate the two cases: VMMC's decks are 46.7 / 137.2 m out,
+LEMD's cross at stations 22.4–287.1 m of a ramp whose bore is also short.
+What DOES separate them, measured: **VMMC's corridor needs 63.8 m and its
+decks stand at s = 214.8 / 308.7 m — beyond the station at which the climb
+would already have reached grade, so there is no trench there for a bridge
+to span.**  A deck that severs a climb which has already daylighted is
+what holds a flat floor for 381 m.  Whether (4) should read "a bridge
+severs only where the corridor is still BELOW GRADE at that station" is a
+law number this lane may not author; it is offered with its numbers.

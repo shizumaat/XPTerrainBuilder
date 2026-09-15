@@ -23,7 +23,8 @@ from auto_patch_v2.model.structures import CREST_DESIGN
 from auto_patch_v2.planar.channel import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                                           WITNESS_NECK, WITNESS_PACK,
                                           channel_cells, identify_channels)
-from auto_patch_v2.planar.channel_claims import (channel_claiming,
+from auto_patch_v2.planar.channel_claims import (channel_claiming, channel_ways,
+                                                 channel_yields,
                                                  claimed_crossing_ways,
                                                  in_any_corridor)
 from auto_patch_v2.planar.structures import build_structures
@@ -422,6 +423,59 @@ def test_13b_a_way_the_engine_already_models_is_never_a_channel_candidate(law):
     assert any("already models them" in n for n in st2.notes), st2.notes
 
 
+def test_a_colliding_negative_id_in_two_feeds_is_two_ways(law):
+    """THE FEEDS' NEGATIVE IDS COLLIDE (owner addendum 2026-09-15,
+    measured by the schema session: 8 of 11 LEMD deck ids carry two
+    ways — one from a road feed, one from the airports feed).  So every
+    cross-pass join carries the FEED.  Here the SAME id ``-500`` names
+    the channel's motorway (``big_roads``) and an unrelated airports-feed
+    way tagged ``tunnel=yes``: under a bare-id join the airports way's
+    claim would delete the road's channel.
+    """
+    obj = _Placed("dsf:obj1", Polygon(_rect(-8.0, -300.0, 8.0, 300.0)), 88.0)
+    twin = OsmWay(-500, "airports", ((200.0, -50.0), (200.0, 50.0)), False,
+                  {"highway": "service", "tunnel": "yes"})
+    ap = _airport(law, [_pavement_with_corridor()], [_road(), twin])
+    cl = Classification(tuple(_cells()), (), {}, ())
+
+    # the claimed set is the airports way ALONE …
+    claimed = claimed_crossing_ways(ap, law, ())
+    assert ("airports", -500) in claimed
+    assert ("big_roads", -500) not in claimed
+
+    # … so the road-feed way of the same id keeps its channel
+    chans, st = identify_channels(ap, cl, law, [obj], claimed)
+    assert len(chans) == 1, [c.id for c in chans]
+    assert chans[0].way_keys == (("big_roads", -500),)
+    # the airports way IS excluded (it is the claimed one) — exactly one,
+    # and not the road that shares its id
+    assert any("1 way(s) excluded" in n for n in st.notes), st.notes
+
+    # and the channel's OWN way, joined by key, never yields the other
+    # feed's bore: channel_ways is keys, so -500@airports is not owned
+    assert channel_ways(chans) == {("big_roads", -500)}
+    refused: list[str] = []
+    kept, _c, _g = channel_yields(chans, [twin], (), (), refused)
+    assert [w.kind for w in kept] == ["airports"], refused
+    assert refused == []
+
+
+def test_1a_reads_decks_through_section_34s_own_deck_read(law):
+    """§45 (1) (a) asks §34 (5)'s question, so it calls §34 (5)'s
+    function (owner addendum 2026-09-15).  The channel pass holds no
+    copy of the tag predicate or the layer parse — which is what lets
+    §34 (12) (4)'s below-grade witness reach the channel the day
+    ``v2vmmcshore`` r6 lands it in ``aeroway_decks``."""
+    import inspect
+    from auto_patch_v2.planar import channel as _ch
+    from auto_patch_v2.planar.structure_underpass import aeroway_decks
+    src = inspect.getsource(_ch._aeroway_bridges)
+    assert "aeroway_decks(" in src
+    body = src.split('"""')[-1]            # the code, not the citation
+    assert "is_aeroway_bridge(" not in body and "underpass_min_layer" not in body
+    assert "underpass_min_layer" in inspect.getsource(aeroway_decks)
+
+
 def test_13b_the_claimed_set_is_read_off_the_passes_own_outputs(law):
     """§45 (13) (b): ``claimed_crossing_ways`` is the ONE derivation and
     it reads the existing outputs — the mapped bores' own predicate and
@@ -435,8 +489,12 @@ def test_13b_the_claimed_set_is_read_off_the_passes_own_outputs(law):
     class _Cor:
         bore_ways = (-702, -999)
     got = claimed_crossing_ways(ap, law, [_Cor()])
-    assert -701 in got          # the mapped bore, by the tunnel predicate
-    assert -702 in got and -999 in got   # the object corridor's own claim
+    # EVERY claim carries its FEED (owner addendum 2026-09-15: the feeds'
+    # negative ids collide), so the set is ``(feed, id)`` keys
+    assert ("big_roads", -701) in got   # the mapped bore, by the tunnel predicate
+    assert ("big_roads", -702) in got   # the object corridor's own claim, qualified
+    assert ("*", -999) in got           # …and one no feed carries, kept as ANY_FEED
+    assert all(isinstance(k, tuple) for k in got), got
 
 
 def test_channel_claiming_is_callable_from_its_own_module(law):

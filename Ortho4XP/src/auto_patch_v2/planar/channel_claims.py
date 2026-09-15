@@ -23,14 +23,14 @@ from shapely.geometry import LineString, Polygon
 from ..law import Law
 from ..model.airport import Airport, OsmWay
 from ..model.structures import Channel
-from .channel import _depth_under_crest
+from .channel import ANY_FEED, _depth_under_crest, WayKey, way_key
 from .structure_approach import is_tunnel
 
-__all__ = ['add_channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor']
+__all__ = ['add_channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor', 'way_key', 'WayKey', 'ANY_FEED']
 
 
 def claimed_crossing_ways(airport: Airport, law: Law,
-                          corridors: _t.Sequence = ()) -> frozenset[int]:
+                          corridors: _t.Sequence = ()) -> frozenset[WayKey]:
     """§45 (13) (b): THE WAYS THE ENGINE ALREADY MODELS, read off the
     passes' OWN outputs and never re-derived.
 
@@ -43,18 +43,39 @@ def claimed_crossing_ways(airport: Airport, law: Law,
     test inside the channel pass: a second reading of "what is already
     modelled" is exactly what let a channel delete four KCLT bores."""
     tn = law.tables.structures.tunnel
-    out = {int(w.id) for w in airport.osm_ways
+    out = {way_key(w) for w in airport.osm_ways
            if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2}
-    for c in corridors or ():
-        out.update(int(i) for i in (getattr(c, "bore_ways", ()) or ()))
+    # A corridor states its bore ways as BARE ids (``Corridor.bore_ways``
+    # is ``tuple[int, ...]``), so they are qualified here against the
+    # ways themselves.  MEASURED 2026-09-15: no producer sets that field
+    # — ``bore_ways=`` appears nowhere in ``src`` — so this half of (13)
+    # (b) contributes nothing today and the exclusions all come from the
+    # mapped ``tunnel=yes`` half above.  A bare id is resolved to every
+    # feed that carries it (the collision is exactly what cannot be
+    # resolved from an int), which is why the field should carry the way.
+    bare = {int(i) for c in (corridors or ())
+            for i in (getattr(c, "bore_ways", ()) or ())}
+    if bare:
+        seen = {int(w.id) for w in airport.osm_ways if int(w.id) in bare}
+        out.update(way_key(w) for w in airport.osm_ways if int(w.id) in bare)
+        # a claimed id no feed carries is kept as ANY_FEED rather than
+        # dropped: the claim is the pass's output and this function must
+        # not lose it just because the id cannot be qualified
+        out.update((ANY_FEED, i) for i in bare - seen)
     return frozenset(out)
 
 
-def channel_ways(channels: _t.Sequence[Channel]) -> set[int]:
-    """Every OSM way id any channel owns — the set ``build_structures``
-    subtracts from its bore seeds (§45 (1): "A crossing inside a channel
-    is NEVER a bore with mouths")."""
-    return {int(i) for c in channels for i in c.ways}
+def channel_ways(channels: _t.Sequence[Channel]) -> set[WayKey]:
+    """Every OSM way any channel owns, as ``(feed, id)`` keys — the set
+    ``build_structures`` subtracts from its bore seeds (§45 (1): "A
+    crossing inside a channel is NEVER a bore with mouths").  The record
+    carries ``way_keys`` for exactly this join; ``ways`` stays the plain
+    id list the citations and the sidecar print."""
+    out: set[WayKey] = set()
+    for c in channels:
+        keys = tuple(getattr(c, "way_keys", ()) or ())
+        out.update((str(k), int(i)) for k, i in keys)
+    return out
 
 
 def channel_yields(channels: _t.Sequence[Channel], tunnel_ways: _t.Sequence[OsmWay],
@@ -94,7 +115,7 @@ def channel_yields(channels: _t.Sequence[Channel], tunnel_ways: _t.Sequence[OsmW
     owned = channel_ways(channels)
     kept: list[OsmWay] = []
     for w in tunnel_ways:
-        if int(w.id) in owned:
+        if way_key(w) in owned:
             refused.append(
                 f"osm:{w.id}: the channel's own way — its floor governs the crossing and a "
                 f"crossing inside a channel is NEVER a bore with mouths (§45 (1)/(6))")

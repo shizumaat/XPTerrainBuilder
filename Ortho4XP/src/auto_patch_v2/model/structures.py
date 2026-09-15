@@ -370,6 +370,12 @@ class Channel:
     ends: tuple[float, float] = (0.0, 0.0)
     witnesses: tuple[str, ...] = ()
     datum_source: str = ""
+    #: THE MEMBER WAYS AS ``(feed, id)`` KEYS — what every cross-pass
+    #: join uses (``planar/channel_claims.way_key``).  ``ways`` above is
+    #: the same ways' plain ids, for the citations and the sidecar; it is
+    #: NOT an identity, because the feeds' negative ids collide (owner
+    #: addendum 2026-09-15: 8 of 11 LEMD deck ids carry two ways).
+    way_keys: tuple[tuple[str, int], ...] = ()
     #: §45 (10)/(11): the corridor's CREST estimate (the DEM's own mean
     #: along the axis) and the pack placements that witnessed it (1) (c).
     #: The crest estimate is what ``object_min_depth_m`` is measured

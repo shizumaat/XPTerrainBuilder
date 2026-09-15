@@ -53,11 +53,12 @@ from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
                                _poly, _runs, _sides, _span, _spread_m,
                                _walls_half)
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
-from .structure_underpass import is_aeroway_bridge
+from .structure_underpass import aeroway_decks
 
 __all__ = ["ChannelStats", "identify_channels", "channel_cells",
            "FLOOR_ROLE", "WALL_ROLE",
-           "WITNESS_BRIDGE", "WITNESS_NECK", "WITNESS_PACK"]
+           "WITNESS_BRIDGE", "WITNESS_NECK", "WITNESS_PACK",
+           "WayKey", "way_key", "ANY_FEED"]
 
 FLOOR_ROLE = CHANNEL_FLOOR_ROLE
 WALL_ROLE = CHANNEL_WALL_ROLE
@@ -94,6 +95,27 @@ class ChannelStats:
 
 
 # ── the road / rail candidates ───────────────────────────────────────────
+
+WayKey = tuple[str, int]
+
+#: A claim that could not be qualified to a feed (see
+#: ``channel_claims.claimed_crossing_ways``): it matches the id in EVERY
+#: feed.  Never minted from a way — a way always knows its feed.
+ANY_FEED = "*"
+
+
+def way_key(w) -> WayKey:
+    """THE IDENTITY OF AN OSM WAY ACROSS PASSES: ``(feed, id)``, never the
+    bare id (owner addendum 2026-09-15, measured by the schema session:
+    the NEGATIVE ids the feeds mint COLLIDE — 8 of 11 LEMD deck ids carry
+    two ways, one from a road feed and one from the airports feed).  A
+    bare-id join between the aeroway half of §45 (1) (a) and the road /
+    rail half of (1) (b)/(c) or (13) (b) therefore matches ways that are
+    not the same way.  ``OsmWay.kind`` is the feed
+    (``airport/load``: ``OsmWay(_osm_id(w.id), feed, ...)``), so it is
+    the qualifier — one derivation, here."""
+    return (str(getattr(w, "kind", "") or ""), int(w.id))
+
 
 def _is_road_or_rail(w: OsmWay, law: Law) -> bool:
     tags = getattr(w, "tags", None) or {}
@@ -195,22 +217,15 @@ def _read_way(w: OsmWay, law: Law, union, holes) -> _Cand | None:
 
 def _aeroway_bridges(airport: Airport, law: Law) -> list[tuple[OsmWay, LineString]]:
     """§45 (1) (a): every taxied aeroway tagged ``bridge`` at or above
-    ``[tunnel] underpass_min_layer`` — ONE predicate with §34 (5)'s
-    (:func:`structure_underpass.is_aeroway_bridge`), never a second copy."""
-    tn = law.tables.structures.tunnel
-    out = []
-    for w in airport.osm_ways:
-        tags = getattr(w, "tags", None) or {}
-        if not is_aeroway_bridge(tags) or len(w.points) < 2:
-            continue
-        try:
-            layer = int(float(str(tags.get("layer", "0")).strip()))
-        except ValueError:
-            layer = 0
-        if layer < tn.underpass_min_layer:
-            continue
-        out.append((w, LineString(w.points)))
-    return out
+    ``[tunnel] underpass_min_layer``.
+
+    THE DECK READ IS §34 (5)'s OWN (:func:`structure_underpass.
+    aeroway_decks`), not a second copy — this function only pairs each
+    deck with its line.  Until the owner's 2026-09-15 addendum it shared
+    the tag predicate but repeated the loop and the layer parse verbatim,
+    which is a second site for §34 (12) (4)'s below-grade witness to miss
+    when ``v2vmmcshore`` r6 lands it."""
+    return [(w, LineString(w.points)) for w in aeroway_decks(airport, law)]
 
 
 def _pack_witnesses(cand: _Cand, objects: _t.Sequence, half_m: float,
@@ -389,12 +404,21 @@ def identify_channels(airport: Airport, classification, law: Law,
     union = _pavement_union(airport)
     holes = _hole_region(union)
     cands: list[_Cand] = []
-    claimed = {int(i) for i in (claimed_ways or ())}
+    # §45 (13) (b) JOINED BY FEED, NEVER BY THE BARE ID (owner addendum
+    # 2026-09-15): ``claimed_ways`` is a set of ``(feed, id)`` keys from
+    # ``channel_claims.claimed_crossing_ways``.  A bare-int set is still
+    # accepted — the twins that predate the key and any caller that
+    # hands one in — but it is qualified against the way itself, because
+    # a negative id alone names a road-feed way AND an airports-feed way
+    # at 8 of LEMD's 11 decks.
+    claimed = {i for i in (claimed_ways or ()) if isinstance(i, tuple)}
+    claimed_bare = {int(i) for i in (claimed_ways or ()) if not isinstance(i, tuple)}
     n_claimed = 0
     for w in airport.osm_ways:
         if not _is_road_or_rail(w, law):
             continue
-        if int(w.id) in claimed:
+        if (way_key(w) in claimed or (ANY_FEED, int(w.id)) in claimed
+                or int(w.id) in claimed_bare):
             # §45 (13) (b): the engine already models this crossing
             n_claimed += 1
             continue
@@ -689,6 +713,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     return Channel(
         id=cid,
         ways=tuple(int(c.way.id) for c in grp),
+        way_keys=tuple(way_key(c.way) for c in grp),
         axis=tuple(axis_fn(s) for s in ss),
         profile=profile,
         widths=widths,

@@ -110,9 +110,9 @@ from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
-                                 covered_start as _covered_start, geometry,
-                                 pad_hit as _pad_hit, ramp_targets,
-                                 reseat_expect as _reseat_expect)
+                                 covered_start as _covered_start, pad_hit as _pad_hit,
+                                 ramp_targets, reseat_expect as _reseat_expect,
+                                 ring_for, seed_wall_stations)
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 
@@ -396,8 +396,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # climb only where it CROSSES one (never alongside the approach)
         _bores = [m.bore.line for m in (g.members or ())
                   if getattr(m, "bore", None) is not None]
+        # §33 (6) C3': the parapet pairs govern a deck's LATERAL extent
+        # (``structure_deck.flanking_pair``) — the SAME plates
         deck_ivals = deck_intervals(axis_ln, half + rim_off, bridges, bridge_lines,
-                                     bridge_tree, law, _bores)
+                                     bridge_tree, law, _bores, plates)
         obj_ivals = object_deck_intervals(axis_ln, half + rim_off, odecks)
         if obj_ivals:
             # the object law governs where an object bridge stands: a
@@ -540,7 +542,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         moved_m = 0.0
         pinched = None
         road_witness = ""
-        ss = [s for s in ss if s <= s_top + 1e-9]
+        # §33 (6) C2': the station set keeps the WALL'S OWN vertices
+        ss = [s for s in seed_wall_stations(ss, c, grid) if s <= s_top + 1e-9]
         beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         # a door ramp's HOST cells: the ones its well stands in (cut like
         # any structure); every other cell beyond the well stops the ramp
@@ -578,9 +581,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if pav_hw:
                 def half_fn(s: float, _hw=pav_hw, _h=half) -> tuple[float, float]:
                     return _hw.get(s, (_h, _h))
+        # §33 (6) B: an OBJECT CUT's ring is its OWN trench polygon
+        def _ring(ss_try):
+            return ring_for(c, axis_fn, ss_try, half, rim_off, inward, grid, g, half_fn)
         while True:
-            geom = geometry(axis_fn, ss, half, rim_off, inward, grid, g.capped, g.far_capped,
-                            half_fn, g.rim_fn, g.cap_off, g.far_off)
+            geom = _ring(ss)
             if geom is None:
                 stats.refused.append(f"{tid}: the approach bends tighter than the corridor "
                                      f"(ramp or wall ring self-intersects)")
@@ -619,9 +624,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             ss, geom, s_top, design_grade, why, moved_to, pinched = stop_and_steepen(
                 airport, wc_law, axis_fn, axis_ln, ss, s_top, climb_from, mouth_z, clipped_by,
                 stop_list, stop_tree_g, host, beyond, grid, spacing_g,
-                lambda ss_try: geometry(axis_fn, ss_try, half, rim_off, inward, grid, g.capped,
-                                        g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off),
-                locked_refs, mark_cache)
+                _ring, locked_refs, mark_cache)
             if why:
                 stats.refused.append(f"{tid}: {why}")
                 continue
@@ -651,9 +654,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 mouth_z=mouth_z, design_grade=design_grade, top_pinned=top_pinned,
                 wall_kind=g.kind == WALL_KIND, dem_z=airport.dem.z, grid=grid,
                 z_tol=law.tables.emit.materiality.elevation_m)
-            geom_c = geometry(axis_fn, ss_c, half, rim_off, inward, grid, g.capped,
-                              g.far_capped, half_fn, g.rim_fn, g.cap_off, g.far_off) \
-                if len(ss_c) < len(ss) else None
+            geom_c = _ring(ss_c) if len(ss_c) < len(ss) else None
             if geom_c is not None:
                 collapse_note = (f"stations collapsed {len(ss)} -> {len(ss_c)} (§34 (7): a "
                                  f"cross-chord only where the route bends or the profile breaks)")

@@ -36,7 +36,7 @@ from .structure_approach import PARALLEL_COS, carriageway_width_m, unit
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
-__all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals",
+__all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "flanking_pair",
            "object_deck_intervals", "deck_groups", "group_way", "deck_ends",
            "deck_items", "emit_decks"]
 
@@ -112,9 +112,104 @@ _DECK_MIN_ANGLE_DEG = 30.0
 _DECK_ALONGSIDE_MAX = 6.0
 
 
+def flanking_pair(ln: LineString, plates: _t.Sequence, law: Law):
+    """§33 (6) C3' THE PARAPET PAIR IS THE DECK'S LATERAL EXTENT (owner
+    RULINGS 2026-09-15e item 1; Fable / RULINGS 2026-09-15x): the pack's
+    two edge walls flanking this mapped bridge way — ``(inner spacing,
+    the pair's midline)`` — or ``None``.
+
+    FLANKING means parallel to the way (within ``parallel_max_deg``), one
+    band each side of it, and overlapping it along its own direction.
+    WHERE SEVERAL PAIRS FLANK ONE WAY THE NARROWEST GOVERNS: measured at
+    LEMD's `bridge_deck:-6288`, `Bridge2.obj`'s parapets are 20.37 m
+    apart and `…green-LEMD50.obj`'s 22.39 m, and the deck stands 8-9 m
+    off the Bridge2 pair while already lying inside the LEMD50 one — the
+    inner pair is the parapet the owner sees on the deck's edges, the
+    outer one the embankment's own edge wall (1.0 m outside each deck
+    edge once the deck is centred)."""
+    wc = law.tables.structures.cutout.wall_corridor
+    best = None
+    for p in plates:
+        for q in (getattr(p, "pairs", ()) or ()):
+            A, B, inner = q
+            if inner <= 0.0:
+                continue
+            brg = _bearing_of(ln)
+            d = abs(brg - A.bearing_deg) % 180.0
+            if min(d, 180.0 - d) > wc.parallel_max_deg:
+                continue
+            # one band each side, and they overlap the way
+            off_a = _signed_offsets(ln, A.axis)
+            off_b = _signed_offsets(ln, B.axis)
+            if not off_a or not off_b:
+                continue
+            ma, mb = _median(off_a), _median(off_b)
+            if ma * mb > 0.0:
+                continue                       # both on the same side
+            if min(A.axis.distance(ln), B.axis.distance(ln)) > inner:
+                continue
+            mid = _pair_mid(A.axis, B.axis)
+            if best is None or inner < best[0]:
+                best = (float(inner), mid)
+    return best
+
+
+def _bearing_of(ln: LineString) -> float:
+    (x0, y0), (x1, y1) = ln.coords[0], ln.coords[-1]
+    return (math.degrees(math.atan2(x1 - x0, y1 - y0)) + 360.0) % 180.0
+
+
+def _median(vals: list[float]) -> float:
+    v = sorted(vals)
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2.0
+
+
+def _signed_offsets(ln: LineString, band: LineString) -> list[float]:
+    """The band's vertices' SIGNED lateral offsets from ``ln``'s own
+    direction (left positive)."""
+    (x0, y0), (x1, y1) = ln.coords[0], ln.coords[-1]
+    L = math.hypot(x1 - x0, y1 - y0)
+    if L <= 0.0:
+        return []
+    ux, uy = (x1 - x0) / L, (y1 - y0) / L
+    return [(-(q[0] - x0) * uy + (q[1] - y0) * ux) for q in band.coords]
+
+
+def _pair_mid(a: LineString, b: LineString) -> LineString:
+    """The midline of two bands, read the same way round."""
+    a0, a1 = a.coords[0], a.coords[-1]
+    b0, b1 = b.coords[0], b.coords[-1]
+    same = (((a0[0] + b0[0]) / 2.0, (a0[1] + b0[1]) / 2.0),
+            ((a1[0] + b1[0]) / 2.0, (a1[1] + b1[1]) / 2.0))
+    flip = (((a0[0] + b1[0]) / 2.0, (a0[1] + b1[1]) / 2.0),
+            ((a1[0] + b0[0]) / 2.0, (a1[1] + b0[1]) / 2.0))
+    p = same if math.dist(*same) >= math.dist(*flip) else flip
+    return LineString(p)
+
+
+def _centred_on_pair(ln: LineString, inner: float, mid: LineString) -> Polygon:
+    """The way's own carriageway CENTRED on the pair and as wide as its
+    inner spacing: the way's line shifted laterally by its median offset
+    from the pair's midline, then buffered by half that spacing.  The
+    way keeps its own length and curvature — §33 (4) as amended still
+    says the deck SPANS THE WAY; only its lateral extent is the
+    object's."""
+    off = _signed_offsets(mid, ln)
+    if not off:
+        return ln.buffer(inner / 2.0, cap_style="flat", **_MITRE)
+    (x0, y0), (x1, y1) = mid.coords[0], mid.coords[-1]
+    L = math.hypot(x1 - x0, y1 - y0) or 1.0
+    ux, uy = (x1 - x0) / L, (y1 - y0) / L
+    d = _median(off)                       # the way stands this far off the pair
+    shifted = shapely.affinity.translate(ln, xoff=uy * d, yoff=-ux * d)
+    return shifted.buffer(inner / 2.0, cap_style="flat", **_MITRE)
+
+
 def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay],
                     lines: list[LineString], tree: STRtree | None, law: Law,
-                    bores: _t.Sequence[LineString] = ()
+                    bores: _t.Sequence[LineString] = (),
+                    plates: _t.Sequence = ()
                     ) -> list[tuple[OsmWay, float, float, Polygon]]:
     """``(way, s0, s1, deck polygon)`` per mapped bridge way crossing the
     corridor (at ≥ 30° to the axis), ordered by ``s0``.
@@ -193,7 +288,16 @@ def deck_intervals(axis_ln: LineString, half_outer: float, bridges: list[OsmWay]
         # deep, 6 m wide notch daylighted into the cutting 16 m past the
         # deck end.  The refusal is WITHDRAWN: the face is the way's own
         # carriageway over its full mapped length.
-        dpoly = ln.buffer(wd / 2, cap_style="flat", **_MITRE)
+        # §33 (6) C3' (owner RULINGS 2026-09-15e item 1): where the pack
+        # flanks this way with a PARAPET PAIR, the deck is CENTRED on the
+        # pair and as wide as its inner spacing — "grade the bridge so
+        # those sit smoothly on either edge of it".  With no pair the
+        # carriageway width stands exactly as it did.
+        fp = flanking_pair(ln, plates, law)
+        if fp is not None:
+            dpoly = _centred_on_pair(ln, fp[0], fp[1])
+        else:
+            dpoly = ln.buffer(wd / 2, cap_style="flat", **_MITRE)
         if dpoly.is_empty:
             continue
         # the covered stretch along the axis — the CROSSING's own part of

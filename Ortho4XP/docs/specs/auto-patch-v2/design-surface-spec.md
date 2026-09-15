@@ -14796,3 +14796,64 @@ ADJUDICATED back to ≤ 121 + the trenches' own rows (named);
 `object_cut_depth` 0 and `object_cut_offset` ≤ r3's (TUNNEL2's four
 named); the cockpit CRITICAL motion 0; OTHH's walled corridors
 byte-identical (the same emission path).
+
+### §33 (6) B AMENDED — **MEASURED** (lane `v2shellwall`, branch `claude/v2shellwall` off main `0f0c1b6c`; ONE tree, the shared corpus, the registered v2vhhhctl control/arm pair)
+
+**THE DEFECT, READ OFF THE TWO REGISTERED PATCHES BEFORE ANY EDIT** (control
+`VHHH_20260915T120714` @ f912ba81, arm `VHHH_20260915T122604` @ 118d2c40; the
+canonical 11-dp lat/lon identity join, no build):
+
+* **airside within 200 m of the five shells: 3,815 joined vertices, 1,362
+  moved > 0.02 m, worst 6.460 m** (22.30772370921, 113.92337437951 —
+  `pav68` junction / `primary_parallel`, 7.31 → 0.85, standing **1.12 m**
+  from a `tunnel_ramp` vertex at TUNNEL2's authored floor 0.78).
+* **the trench has no wall, and the patch says so in one line**: the void
+  ring at that site (`tunnel_wall` way −11372, 11 nodes) spans **0.78 …
+  7.32 m** — ONE ring carrying the floor ring's vertices AND the airside
+  rim's, because `structure_geometry.geometry_from_trench` takes the
+  ramp = the object's trench and the rim = its footprint (`band ∪ trench`)
+  and nothing guarantees a band between them: where the shell's wall
+  faces do not stand on the ring (its portals, and every run the reader
+  reads as open) `outer.difference(ramp)` is a SLIVER of zero width.
+  **9 emitted airside vertices lie on a `tunnel_ramp` ring, 3 of them AT
+  0.78 m**, and `constraints/structures.on_floor` then gives those
+  vertices the FLOOR row instead of the rim's ground row.
+* the arm's airside pieces at the site stand at **0.85 … 4.73 m**
+  (`pav68#1/#2`, apron / primary_parallel / junction); the control has no
+  such pieces at all.
+* second defect at the same site: for a signature-B corridor
+  `RampGeometry.left_rim` / `right_rim` are the AXIS-OFFSET lines, so
+  `Tunnel.wall_path` — the rim path `constraints/structures._rim_rows`
+  projects the rim's vertices onto and `wall_faces_of` joins the void
+  faces by — is not the rim ring at all; on a hairpin it runs across the
+  trench.
+
+**§33 (6) B AMENDED CONSUMER CENSUS (RULINGS 2026-08-30l), one table,
+written BEFORE the first code edit.**  Every reader of the trench ring, the
+`tunnel_ramp` faces, the `retaining_wall` void / `structure_rim` ring, the
+`object_cut_*` families and `ramp_in_strip`.  UNCHANGED = a site this lane
+does not edit and the measurement must prove untouched.
+
+| # | Reader (file · symbol) | What it reads | Ruled |
+|---|---|---|---|
+| 1 | `planar/structure_geometry.geometry_from_trench` | the object's `trench` / `footprint` → ramp, void, rim | **EDITED — THE ONE DERIVATION SITE.** The floor ring is the trench ∩ the footprint ERODED by the corridor's own rim stand-off (`rim_standoff` of the wall's measured thickness, the law `geometry()` already applies by station), so a wall band of at least that width stands between the floor ring and the rim EVERYWHERE, portals included; the rim ring is published as `left_rim` so `wall_path` is the ring itself. Where the object's walls are already thicker than the stand-off the floor ring is the object's own inner face, unchanged. |
+| 2 | `planar/structure_geometry.ring_for` | dispatch on `OBJECT_CUT_PREFIX` | EDITED, signature only: it hands the stand-off (`g.rim_fn`'s own minimum over the stations, the law's value per station) to row 1. No other corridor class reaches it. |
+| 3 | `planar/structure_geometry.geometry` / `_geometry_at` / `_clear` / `rim_standoff` | the axis-offset path (OSM bores, OTHH/LEMD object corridors, doors, Law C) | **UNCHANGED** — not one line. OTHH's `retaining_wall` / `tunnel_wall` corridors come out of this path, which is why the OTHH bar is a byte-identity bar. |
+| 4 | `planar/structures.build_structures` (`_ring`, the stop loop, `wall = outer.difference(ramp)`, the cells) | the `RampGeometry` | UNCHANGED in code: the ramp/void/rim it emits are row 1's, through the same three fields. |
+| 5 | `planar/structures` `wall_path` (`reversed(left_rim) + cap + right_rim + far`) | the rim by station | UNCHANGED in code; for a signature-B cut it now reads the object's CLOSED rim ring (caps empty, `right_rim` empty), which is what a basin's `wall_path` already is (`constraints/structures:828`). |
+| 6 | `constraints/structures.wall_faces_of` / `_rim_rows` / `on_floor` / `shared_with_ground` | the void faces, the rim path, which vertices are floor | UNCHANGED in code, and this is the point: with a real band no vertex is both a ramp vertex and an airside vertex, so `on_floor` stops handing airside the floor row, and `_rim_rows` projects onto the true rim. Bar: airside movers 1,362 → 0 > 0.02 m. |
+| 7 | `constraints/structures.ramp_groups` + the ramp rows / pins | `tunnel_ramp` face ring vertices, grouped along the axis | UNCHANGED — a slightly smaller floor ring is the same population minus the vertices that were the SURFACE's. |
+| 8 | `planar/object_corridor.trench_outside_m` | emitted ramp rings vs the corridor's trench | UNCHANGED; an INSET floor ring can only move vertices further inside the object, never outside (the family under-reports by construction, §33 (6)). |
+| 9 | `planar/object_corridor.object_groups` / `half_fn` / `rim_fn` | the corridor's stations, half widths, stand-offs | UNCHANGED — row 2 READS `rim_fn`, it does not change it. |
+| 10 | `tools/check_grade._check_object_cut_offset` / `_check_object_cut_depth` (`object_cut_offset` / `object_cut_depth`) | emitted ring vertices vs the object's wall line; the emitted floor vs the authored plate | UNCHANGED in code. The floor LEVEL is untouched (the ring's plan shrinks, never its z), so `object_cut_depth` stays 0; `object_cut_offset` can only fall. Bar: ≤ r3's (TUNNEL2's four named). |
+| 11 | `tools/check_grade._check_ramp_in_strip` | `tunnel_ramp` ways vs the runway strips | UNCHANGED; a smaller ramp is a subset of the population it already judged. |
+| 12 | `emit/graded.py` (`VOID_ROLE`, `RIM_KIND`, `FLOOR_ROLES`) | the void face → the `structure_rim` ring and the floor edges | UNCHANGED — the void is still one face whose exterior is the rim and whose hole is the floor; this lane gives it a width, not a new kind. |
+| 13 | `emit/osm_adapter` `structure_rim` feature / breaklines | the rim ring as a constrained ring | UNCHANGED — the wall stays the breakline PAIR (rim ring + floor ring) the sea wall and the OTHH walls already emit (§37 (11), 14av); no new feature name, no new role. |
+| 14 | `verify/structures` (`structure_rim_gap`, `tunnel_wall_top_flat`, `tunnel_ramp_wall_gap`, `tunnel_mouth_canonical`, `tunnel_deck_clearance`) | the ramp role and the rim feature | UNCHANGED in code; `structure_rim_gap` / `tunnel_ramp_wall_gap` are the instruments that PRICE the new band and are quoted before → after. |
+| 15 | `verify/within.py` / `verify/strips.py` / `constraints/strips.py` (`retaining_wall` vertices, `structure_rim` shapes) | the emitted faces | UNCHANGED — role and feature vocabulary unchanged. |
+| 16 | `constraints/zones.py` (`retaining_wall` vertices), `constraints/groundside.py` | the void's vertices | UNCHANGED. |
+| 17 | `pipeline/build.plate_stations(tn.footprint, …, tn.wall_path, …)` (the re-seat stations) | the rim path + the footprint | UNCHANGED in code; for a signature-B cut `wall_path` becomes the object's real rim ring instead of an axis offset that could run across the trench — a correction at the reader's own input, named here because it changes the stations a shell's placements re-seat on. |
+| 18 | `pipeline/publication.py` `RAMP_ROLES`, `planar/__main__ --stage structures` KML | the records | UNCHANGED. |
+| 19 | `airport/object_cut.py` (`shell_reading`, `read_shells`, `ObjectCut`), `airport/tunnel_objects.shell_corridor` | the object → the trench, the wall band, the authored floor | **UNCHANGED this round.** The reading was right (RULINGS 15ar: floors 0 rows); what was wrong was the EMITTER. The brief's "publish the inner-face line and wall thickness" is not needed: `Corridor.trench` / `.footprint` / `.stations` already carry both, and a second publication would be a second spelling. |
+| 20 | `planar/basins.py`, `airport/skirt.py`, `airport/rebake_plan.py` | the claimed placements | UNCHANGED (§33 (6)'s own census rows 3/4/24/25, already settled). |
+| 21 | `airport/tunnel_objects.py`, `airport/wall_corridors.py` (lane `v2othhdet`); `classify/roles.py`, `airport/runway_profile.py`, `check_grade` `runway_step` (lane `v2shoulderband`); `solve/design*.py` | other lanes' files this round | NOT TOUCHED. |

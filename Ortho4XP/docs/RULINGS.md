@@ -8295,3 +8295,48 @@ artefact's current hash. Net state: KDFW's 3 × 3 road layers and its
 +32-097 neighbour's airports layer + insets are current; KPHX's +33-113
 (15au) and +33-112 layers are current; the `+33-112_big_roads` write of
 13:48 is UNLEDGERED until the reconciliation runs.
+
+## 2026-09-15bc suiteexternal MERGED (26dac84c): the pytest session detector names a ledgered or redirected shared-repo delta EXTERNAL (printed, never an ERROR); every other delta still fails the suite
+
+The defect (15ay tail, 15n): `tests/conftest.py`'s session-scope
+before/after snapshot failed the WHOLE session on ANY shared-repo delta,
+so another session's authorised, ledgered `--refresh-data` — today
+`OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2` (ledger 13:26:13)
+and `+33-113_big_roads.osm.bz2` (write 13:29:27, ledger 13:29:33) —
+turned every test of two suites into a teardown ERROR. The build audit
+already had the door (`report_unauthorised_writes(..., input_scope=,
+redirected=)`, 15ar); the suite had none. Lane `suiteexternal`
+(26dac84c), ONE mechanism: `shared_repo_guard.ledgered_refresh_paths(
+window_start, window_end, *, ledger=None)` — pure, read-only, every
+`files[].path` AND `removed[]` of a ledger record whose `ts` lies inside
+the window (`REFRESH_TS_FORMAT` is fixed-width, string compare is
+chronological); missing ledger `{}`, malformed line skipped. Re-exported
+through `build_airport.py`'s existing import list (with
+`redirected_scopes`, not previously re-exported). conftest:
+`classify_shared_writes(changes, scope_of, *, ledgered, redirected) ->
+(external, unlawful)` walks the unchanged `unauthorised_shared_writes`
+population once — ledger hit → `ledgered <ts> <scope>`; scope in
+`redirected_scopes()` → `redirected`; else UNLAWFUL on the byte-identical
+`pytest.fail` path. The fixture stamps the window around its two
+snapshots and asks the real ledger/engine; externals PRINT under their
+own heading (path, scope, reason). Five twins on tmp ledgers + tmp roots
+(in/out-of-window incl. a removed path; explicit `redirected=` never
+asking the engine; lock churn still churn; source twin that conftest
+IMPORTS the predicate and defines no copy; missing/broken ledger).
+Offline replay of the peer's real N32W097 `dem` refresh through the new
+code: window closing before its record → UNLAWFUL 3; window covering
+the record (13:47:17) → EXTERNAL 3, UNLAWFUL 0. Suite on the merged tree
+(main d67b5b75 merged in): `1694 passed, 1 skipped, 1 xpassed`, 0
+failed, 0 errors. STATED RESIDUALS, both documented in the docstrings,
+neither solved: (1) IN-FLIGHT — `record_refresh` appends after the
+refresh's own after-snapshot, so a refresh still running at the suite's
+teardown has no record and still fails it (the lane's own closing run
+hit exactly this: 18 ERRORs on three N32W097 inset paths landing
+13:42–13:43, ledgered 13:47:17); a held `RefreshLock` for the scope is
+the natural second door if the owner wants it. (2) `redirected_scopes()`
+does NOT cover the suite's OSM regional-extract overlay
+(`O4_OSM_Extracts.STORE_DIRECTORY`, scope `osm_layers`, no
+`O4_File_Names` accessor) — and adding `osm_layers` would externalise all
+of `OSM_data`, so it needs a narrower scope or a path-level test, not an
+entry in `_REDIRECTABLE_SCOPES`. No builds, no downloads, no shared-repo
+writes; no INDEX row (library function of an indexed module).

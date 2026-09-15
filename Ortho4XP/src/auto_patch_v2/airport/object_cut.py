@@ -9,16 +9,15 @@ wall object and the wall sits on top of the tunnel edges" (LEMD); "the two
 edge wall objects … should be used as guides for where the author wants
 the bridge" (LEMD).  Detected by GEOMETRY, never by name, never by ICAO:
 
-* **A — crested walls** (OTHH, 14av): solids descending
-  ``min_wall_depth_m`` below the object's own zero WITH a crest plate
-  ``plate_min_height_m`` above it.  Read by ``airport/wall_corridors.py``
-  (LAW C); this module owns only the ADMISSION predicate
-  (:func:`crested_wall_resources`), which replaces the retired per-airport
-  affordance ``kerb_wall_corridors``: the signature admits, not the ICAO.
+* **A — crested walls** (OTHH, 14av): read by ``airport/wall_corridors.py``
+  (LAW C), on the per-airport affordance ``kerb_wall_corridors`` as
+  before.  §33 (6) A's retirement of that key is REFUTED by measurement —
+  see the section below, which is the record.
 * **B — shell + flush hard cover** (VHHH, EGLL): a SHELL whose largest
   horizontal plate lies ``shell_floor_min_m`` or more below its zero (the
-  FLOOR) and, at the same placement or inside the same object, a COVER
-  whose ``HARD_DECK`` plate stands at ``|y| <= cover_flush_m``.  Read
+  FLOOR) and, at the SAME PLACEMENT (a second object, position within
+  ``cover_placement_tol_m``, same heading), a COVER whose ``HARD_DECK``
+  plate stands at ``|y| <= cover_flush_m``.  Read
   here, end to end (:func:`read_shells`), because no other reader can see
   it: ``tunnel_objects``'s witness hand-off sends any floor witness to
   ``basins.py``, its crest-plate rule needs a plate ABOVE zero, and
@@ -55,8 +54,7 @@ from ..model.frame import XY
 from . import obj8 as _obj8
 
 __all__ = ["ObjectCut", "SHELL", "CRESTED", "THIN", "shell_reading", "read_shells",
-           "crested_wall_resources", "thin_bands", "band_pair", "cut_placement_ids",
-           "ObjectCutStats"]
+           "thin_bands", "band_pair", "cut_placement_ids", "ObjectCutStats"]
 
 #: The three signatures, by name (the record's ``signature`` field).
 CRESTED, SHELL, THIN = "A", "B", "C"
@@ -401,10 +399,19 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
         cov_area = 0.0
         cov_obj = None
         for p in placed:
-            if p is not o and (math.hypot(p.xy[0] - o.xy[0], p.xy[1] - o.xy[1])
-                               > ob.cover_placement_tol_m
-                               or abs(((p.heading_deg - o.heading_deg + 180.0) % 360.0) - 180.0)
-                               > 1.0):
+            # THE COVER IS A SECOND PLACEMENT, never the shell itself.
+            # §33 (6) B allows "or inside the same object"; MEASURED at
+            # VHHH that self-cover form admits ``sea_X.obj`` — a 92.2 m
+            # wide sea barrier whose own flush hard deck covers its own
+            # -20.88 m floor — as a tunnel.  The pack's convention is a
+            # PAIR (VHHH ``tunnelN_done`` + ``tunnelN_done_TN``, EGLL
+            # ``Na.obj`` + ``N.obj``), so the pair is the signature and
+            # the spec text yields to the measurement (the 13r precedent).
+            if p is o or p.path == o.path:
+                continue
+            if (math.hypot(p.xy[0] - o.xy[0], p.xy[1] - o.xy[1])
+                    > ob.cover_placement_tol_m
+                    or abs(((p.heading_deg - o.heading_deg + 180.0) % 360.0) - 180.0) > 1.0):
                 continue
             if p.path not in covers:
                 g2 = cache.geometry(p.resolved)
@@ -473,45 +480,23 @@ def _resample(pts: _t.Sequence[XY], n: int) -> list[XY]:
                                  for k in range(n))]
 
 
-# ── signature A: the admission predicate (the retired affordance) ────────
-
-def crested_wall_resources(objects: _t.Sequence[_obj8.PlacedObject],
-                           cache: _obj8.ResourceCache, law) -> dict[str, bool]:
-    """Per resource: is it a CRESTED WALL (§33 (6) A) — solids descending
-    ``cutout.wall_corridor.min_wall_depth_m`` below the object's OWN zero
-    WITH a near-horizontal crest plate of ``plate_min_area_m2`` standing
-    ``plate_min_height_m`` above it?
-
-    This is the ADMISSION the per-airport affordance ``kerb_wall_
-    corridors`` used to stand in for (RULINGS 2026-09-10ap; retired by
-    §33 (6) A: "the signature admits, not the ICAO").  OTHH's terminal
-    kerb walls read -15 … +5 and -10 … +9.55; LEMD's cargo-dock
-    foundations carry no crest above their zero at all."""
-    ob = law.tables.structures.tunnel.object
-    wc = law.tables.structures.cutout.wall_corridor
-    out: dict[str, bool] = {}
-    for o in objects:
-        if o.resolved is None or o.resolved in out \
-                or _obj8.is_stock_library_resource(o.path):
-            continue
-        vmin, vmax, _x0, _x1, _z0, _z1 = cache.y_range(o.resolved)
-        if vmin > -wc.min_wall_depth_m or vmax < ob.plate_min_height_m:
-            out[o.resolved] = False
-            continue
-        g = cache.geometry(o.resolved)
-        genuine = cache.genuine(o.resolved)
-        if g is None or not genuine:
-            out[o.resolved] = False
-            continue
-        tris = np.concatenate([c.tris for c in genuine])
-        v = g.vertices
-        ny = _face_normals_y(v, tris)
-        area = _plan_area(v, tris)
-        cy = (v[tris[:, 0], 1] + v[tris[:, 1], 1] + v[tris[:, 2], 1]) / 3.0
-        crest = (ny >= ob.plate_normal_y_min) & (cy >= ob.plate_min_height_m)
-        out[o.resolved] = bool(float(area[crest].sum()) >= ob.plate_min_area_m2)
-    return out
-
+# ── signature A: REFUTED, and why nothing stands here ────────────────────
+#
+# §33 (6) A rules that the CRESTED-WALL signature — solids descending
+# below the object's own zero WITH a crest plate ``plate_min_height_m``
+# above it — should replace the per-airport affordance
+# ``kerb_wall_corridors`` ("the signature admits, not the ICAO").
+# MEASURED and REFUTED in one dry VHHH `--stage structures` replay (lane
+# `v2objcut`, 2026-09-15): the predicate admits an ordinary BUILDING,
+# because a building has a roof.  VHHH wall corridors went 0 -> 116 (bay
+# 28, level 88), every one of them inside ``CITY2.obj`` — a city-block
+# object off the field whose foundation walls descend 6.4-8.5 m under
+# their ground — and no depth threshold repairs it, since OTHH's own
+# admitted bays are 1.35 m deep.  That is RULINGS 2026-09-10ap's seven
+# rounds at a THIRD airport.  The predicate is DELETED rather than kept
+# gated (the standing law on refuted mechanisms); the affordance gate in
+# ``airport/wall_corridors.py`` stands with this refutation recorded
+# beside it, and §33 (6) A is an intent question for the owner.
 
 # ── signature C: the thin surface bands ──────────────────────────────────
 
@@ -538,37 +523,49 @@ def _bearing(ln: LineString) -> float:
 
 def thin_bands(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
                mat, law) -> list[ThinBand]:
-    """The resource's thin surface walls, in the AIRPORT frame.  The
-    components are the author's own bodies — LEMD's ``Bridge3.obj``
-    carries its two 354 m walls as two components of one object."""
-    from ..model.frame import rotated_rectangle
+    """The resource's thin surface walls, in the AIRPORT frame.
+
+    THE BAND IS A STRAIGHT RUN, NOT A COMPONENT.  A pack welds a whole
+    structure into one solid component — measured LEMD ``Bridge3.obj``:
+    280 triangles in TWO components (z -354.2…-281.0 and z -57.6…0, with
+    224 m of the object's 354.2 m box carrying no solid at all), whose
+    convex hulls read 73 x 16 m and 58 x 15 m and are not walls by any
+    gate.  Its walls are inside those components: comp 0's vertical faces
+    split into two 73.0 / 73.1 m runs 1.00 m thick at one bearing — the
+    PAIR.  So the reading is LAW C's own band machinery
+    (``wall_geometry._plan_segments_indexed`` / ``_straight_runs`` /
+    ``_band_polygon`` / ``_rect_axis``, ONE derivation, never a second
+    spelling) under signature C's surface gates."""
+    from . import wall_geometry as _wg
     ob = law.tables.structures.tunnel.object
+    wc = law.tables.structures.cutout.wall_corridor
     out: list[ThinBand] = []
     v = geom.vertices
     for k, c in enumerate(genuine):
         h = c.max_y - c.min_y
         if h > ob.parapet_max_height_m or c.min_y < ob.parapet_y_min:
             continue
-        pts = v[np.unique(c.tris.reshape(-1))]
-        hull = Polygon([(float(x), float(z))
-                        for x, z in zip(pts[:, 0], pts[:, 2])]).convex_hull
-        if hull.geom_type != "Polygon" or hull.area <= 0.0:
+        ny = _face_normals_y(v, c.tris)
+        vert = c.tris[ny < ob.plate_normal_y_min]
+        if vert.shape[0] == 0:
             continue
-        rect = rotated_rectangle(hull)
-        if rect.geom_type != "Polygon":
+        segs = _wg._plan_segments_indexed(v, vert, mat)
+        if not segs:
             continue
-        cs = list(rect.exterior.coords)[:4]
-        lens = [math.dist(cs[i], cs[(i + 1) % 4]) for i in range(4)]
-        length, width = max(lens), min(lens)
-        if width > ob.parapet_max_width_m or length < ob.parapet_min_aspect * max(h, 0.05):
-            continue
-        li = max(range(4), key=lambda i: lens[i])
-        shorts = [(cs[(li + 1) % 4], cs[(li + 2) % 4]), (cs[(li + 3) % 4], cs[li])]
-        mids = [((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0) for p, q in shorts]
-        poly = shapely.affinity.affine_transform(hull, mat)
-        axis = LineString([_apply(mat, mids[0]), _apply(mat, mids[1])])
-        out.append(ThinBand(k, poly, axis, float(length), float(width), float(h),
-                            _bearing(axis)))
+        for run in _wg._straight_runs(segs, wc.parallel_max_deg,
+                                      ob.wall_face_max_thickness_m):
+            poly, thick = _wg._band_polygon([segs[i][0] for i in run])
+            if poly is None:
+                continue
+            ra = _wg._rect_axis(poly)
+            if ra is None:
+                continue
+            axis, length, brg = ra
+            if thick > ob.parapet_max_width_m \
+                    or length < ob.parapet_min_aspect * max(h, 0.05):
+                continue
+            out.append(ThinBand(k, poly, axis, float(length), float(thick), float(h),
+                                float(brg)))
     return out
 
 

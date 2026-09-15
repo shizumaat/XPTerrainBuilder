@@ -7438,3 +7438,4 @@ face (r3). No build: the ledger's last `osm_layers` refresh is
 2026-09-08 (SPJC) — the owner's 15u act has not run. Shipping arm b2:
 item 5 floor 597.09 (5.07 m), item 7 mouth 31.06/33.43 m, LAW-TRUE
 5,712, ADJUDICATED 1,360.
+15y addendum: suite ON MAIN after the v2lemdstruct2 r2 merge (6d25b68c): 1611 passed, 1 skipped, 42 warnings in 63.77s (0:01:03).

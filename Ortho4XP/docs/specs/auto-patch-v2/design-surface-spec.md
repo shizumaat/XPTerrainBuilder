@@ -13425,3 +13425,57 @@ deck before any rule — if they flank the deck (parallel, each side)
 the deck is centred on them; if perpendicular they are abutment walls
 at the deck's ENDS and mark its span.  Every C rule is measured on the
 three LEMD objects by dry pair before it is wired.
+
+## §34 (13) MEASURED AND AMENDED (lane v2lemdstruct2 r2 1846bb15; Fable 2026-09-15; RULINGS 2026-09-15y) — (1) landed; (2) WITHDRAWN; (3) the raw pair IS the junction's transverse law; (4) the road between two mouths is minted at the planar stage
+
+**(1) LANDED.**  `verify/within.ring_route_m` — a ramp ribbon's ring IS
+its axis down one side and back; `within_shape` reads `max(chord,
+route)`, so it can only relax.  Ramp rows 71 → 27; the item-5 ramp 10.49
+% over a 99.3 m chord → 8.29 % over a 46.7 m axis run; verify and
+census both lose exactly 44 rows.  Residual: 27 rows, worst 8.29 %
+against the 8.0 % cap — named, under the 0.5 pp attempt floor of
+interest.
+
+**(2) WITHDRAWN.**  "Beyond the outermost strip" at item 7 asks for a
+~150 m covered extent (the crossing stands 33–43 m from 14R/32L, whose
+strip is 75 m) — a different structure; the attempt moved backwards
+(`ramp_in_strip` 8 → 19, `strip_transverse` 13.87 → 19.07 m, cliffs 10
+→ 24) and was deleted.  The residual STANDS and is the owner's to see:
+8 `ramp_in_strip` rows, the trench 13.87 m deep over 32.49 m at
+40.4605950, −3.5447694, inside the runway's 75 m strip.  Two honest
+options for the owner: accept a road ramp 33 m off the runway edge
+(the real road IS there), or cover the bore to the strip edge (a ~150
+m tunnel the pack did not author).
+
+**(3) THE RAW PAIR IS THE TRANSVERSE LAW.**  `--why-vertex`: the far edge
+v6622 is 0.78 m ABOVE the runway contact (579.86 vs 579.08) — nothing
+pulls it down; the RUNWAY edge is held 7.05 m over its own DEM by
+`junction_mesh` stretched at cap 1.50 % × 43.2 m to a free zone-band
+vertex, and the heaviest family at the far edge is `foot_rows` (dual
+42,656 — object feet).  `transverse` rows exist and are AT THEIR BOUND
+(1.35 % of 1.5 %) — as 4-term cross-corridor rows; the census prices
+the raw pair across the junction at 4.30 %, and the raw pair is what
+the owner sees from the cockpit ("lateral slope … still not fixed").
+RULED: a junction's transverse law is the RAW PAIR across its width at
+every station (the census's reading); the 4-term cross-corridor row is
+not a transverse cap and does not satisfy it.  r3 sets raw-pair
+transverse rows on junctions (≤ the taxiway cap, the runway's edge
+level at the contact per airside-is-king) and names the object feet
+that then yield or the row that then binds.
+
+**(4) THE ROAD BETWEEN TWO MOUTHS — planar-stage, one face.**  The 24-
+reader census (in the MEASURED block) returned HAZARD on five for a
+general road-face admission (`airside_edge_flip` turning road into
+apron inside a runway strip; §37 (1) contiguity handing a runway cap;
+`road_ramp.deck_refs` grading a face to the surface OVER A BORE; the
+lot ladder; the `route{i}` namespace) and the gated population is 207
+faces / 944,872 m² (7.8 % of LEMD's coverage) to fix one 297.9 m road —
+reverted.  RULED: §34 (11) (a) is re-founded on its own words — at the
+PLANAR stage, two mouths of the same parent road within `mouth_pair_m`
+(the LEMD pair is 88.7 m apart) mint ONE road face between them (the
+road's own width, the §37 road rows, its zones), never a general
+admission; the void (144,254 m², cover 0.011) then closes by that face
+and its zones or is excluded per (11) (c).  v2roadtags' tags do not
+reach this site (all 22 ways come from `airport_small_roads`, and
+`TAGS_OF_INTEREST` drops `covered`/`cutting`/`embankment`) — noted for
+the peer's follow-up, not this lane's.

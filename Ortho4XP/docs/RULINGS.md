@@ -7413,3 +7413,28 @@ build (+22+113 road layers stale — the owner's refresh). Lesson (for
 the scout protocol): a bounding box is not the solid — quote the
 components' extents, not the box.
 15x addendum: suite ON MAIN after the v2objcut merge (3b35df96): 1,607 passed, 1 skipped, 0 FAILED lines (40.7 s). After v2lemdstruct2 (287f9b5b): 1,587 passed, 0 FAILED.
+
+## 2026-09-15y v2lemdstruct2 r2 MERGED (1846bb15 → 6d25b68c): the ramp is graded along its axis (−44 invented rows); "every airside strip" WITHDRAWN (moved backwards); the crossfall premise INVERTED — the far edge is ABOVE the runway, the transverse rows are satisfied as 4-term rows while the raw pair reads 4.30 % → the raw pair is the law; the general road admission REFUSED by its 24-reader census → the road between two mouths, one planar face (r3)
+
+Lane @ 1846bb15 (main merged through 0fbc741c); suite 1,611 passed, 0
+FAILED. (1) `verify/within.ring_route_m`: ramp `within_shape` 71 → 27,
+item-5 ramp 10.49 % / 99.3 m chord → 8.29 % / 46.7 m axis; verify 466 →
+422, census 3,464 → 3,420 (both −44); §33 (5)'s price +67 → +29; four
+twins. (2) attempted: `ramp_in_strip` 8 → 19, `strip_transverse` 13.87 →
+19.07 m, `wall_in_runway_strip` 6 → 20, cliffs 10 → 24 — deleted; the
+crossing is 33–43 m from 14R/32L (strip 75 m) so the rule asks a 150 m
+covered extent; residual 8 rows / 13.872 m over 32.49 m at 40.4605950,
+−3.5447694 → OWNER 15y-1 (accept the ramp 33 m off the runway, or cover
+to the strip edge). (3) `--why-vertex`: far edge v6622 +0.78 m ABOVE the
+contact; the runway edge 7.05 m over its DEM (`junction_mesh` at cap
+1.50 % × 43.2 m to a free zone vertex); `foot_rows` dual 42,656; the
+`transverse` rows exist at bound 1.35 % as 4-term cross-corridor rows;
+the raw pair 4.30 % → RULED the raw pair is the junction's transverse
+law (r3). (4) the census (24 readers) HAZARD on five; the gated
+admission 207 faces / 944,872 m² (7.8 % of coverage) for one 297.9 m
+road — reverted; the void needs a 10-way ~1,030 m network → RULED the
+road between two mouths (88.7 m apart, one parent road) as ONE planar
+face (r3). No build: the ledger's last `osm_layers` refresh is
+2026-09-08 (SPJC) — the owner's 15u act has not run. Shipping arm b2:
+item 5 floor 597.09 (5.07 m), item 7 mouth 31.06/33.43 m, LAW-TRUE
+5,712, ADJUDICATED 1,360.

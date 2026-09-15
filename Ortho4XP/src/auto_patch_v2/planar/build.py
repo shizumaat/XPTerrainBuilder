@@ -231,7 +231,9 @@ def build(airport: Airport, classification: Classification, law: Law,
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),
                    edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
-                                     if r.edge_kind != "none"})
+                                     if r.edge_kind != "none"},
+                   quay_refs=frozenset(r.ref for r in arr.regions
+                                       if getattr(r, "quay", False)))
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps

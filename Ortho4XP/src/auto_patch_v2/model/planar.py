@@ -306,6 +306,12 @@ class PlanarMap:
     #: each region, by region ref (``crest`` / ``road``).
     terrain_edges: tuple[tuple[tuple[float, float], ...], ...] = ()
     edge_kind_of_ref: _t.Mapping[str, str] = _dc.field(default_factory=dict)
+    #: §37 (11) (2) THE QUAY (owner RULINGS 2026-09-15f item 2): the refs
+    #: of the adjacent-ground regions that REACH the coastline.  Their
+    #: land is narrower than lip + half-width by construction, so it is
+    #: one plane at the pavement edge's level (``constraints/zones``
+    #: prices their band at exactly zero) ending in a SEA WALL.
+    quay_refs: frozenset = frozenset()
     #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
     #: frame polygon rings — the SINGLE derivation is
     #: ``planar/overlay.seam_bands``, recorded here so every downstream

@@ -87,6 +87,13 @@ class ZoneRegion:
     #: The edge SEGMENTS this region's trim made, in the frame: the
     #: boundary beyond which there is no patch and no bank.
     edge_lines: tuple = ()
+    #: §37 (11) (2) THE QUAY (owner RULINGS 2026-09-15f item 2): this
+    #: region reaches the COASTLINE, so the land between the pavement
+    #: edge and the water ran out before the band did — it is narrower
+    #: than lip + half-width by construction.  Such land is ONE PLANE at
+    #: the pavement edge's level, ending at the coastline in a SEA WALL;
+    #: it takes no zone band (a relaxed band is still a fall).
+    quay: bool = False
 
 
 def zone_regions(cells: tuple[Cell, ...], law: Law,
@@ -201,9 +208,12 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                     continue
                 mine = tuple(ln for ln in clip.lines
                              if ln.distance(g) <= snap_margin_m(law))
+                # §37 (11) (2): a part that REACHES the coastline is a QUAY
+                quay = bool(water is not None
+                            and g.distance(water) <= snap_margin_m(law))
                 out.append(ZoneRegion(f"adjacent_ground:{fam}:{cls}:zone{zone}#{k}",
                                       g, zone, fam, cn, cl,
-                                      clip.kind if mine else "none", mine))
+                                      clip.kind if mine else "none", mine, quay))
                 k += 1
         claimed = unary_union([claimed, outer])
     return out

@@ -8518,3 +8518,4 @@ arrangement clip preserves the airside vertex set, then pads ON.
 Standing: ONE git-touching task at a time on this tree (15bn); never
 compare runs across a corpus refresh (15bj); brief packs via
 brief_pack.py; lanes on Opus; suites by FAILED lines ON MAIN.
+15bt addendum: lane v2shellwall's checkpoint = branch `claude/v2shellwall` @ 07cb9794 ("§33 (6) B AMENDED (2): a shell's trench is OPEN only where nothing covers it" — its worktree was clean, its build stopped, no processes left; this tip predates the owner's (3) correction, so r3 starts from (3): the (2) subtraction on the branch is to be REMOVED; r1's walled-cut geometry (`structure_geometry.ring_for` / `geometry_from_trench`, rim↔floor 1.20 m) and `arm_site_read --airside-near-cuts` are kept). Tree clean at shutdown; no locks; the app closed; no builds running.

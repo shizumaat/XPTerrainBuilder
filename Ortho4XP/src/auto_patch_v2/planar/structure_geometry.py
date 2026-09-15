@@ -616,7 +616,15 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float,
         if outer is None:
             return None
     if standoff > 0.0:
-        inside = _one_polygon(outer.buffer(-standoff, join_style="mitre"))
+        # THE GAP IS NEVER ON A WELD TOLERANCE (09-01e, this file's own
+        # law): the arrangement snap-rounds to ``grid``, and two points
+        # 0.85 m apart have been measured rounding to ONE 0.5 m grid
+        # point.  Neither of these rings is snapped — they are the
+        # OBJECT'S own vertices — so each can move up to half a grid
+        # diagonal toward the other, and the stand-off is widened by one
+        # grid step to keep the rings at least the identity spacing apart
+        # after the round.
+        inside = _one_polygon(outer.buffer(-(standoff + grid), join_style="mitre"))
         if inside is None:
             return None
         walled = _one_polygon(ramp.intersection(inside))

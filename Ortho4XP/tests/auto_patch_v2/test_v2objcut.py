@@ -401,7 +401,7 @@ def test_a_footprint_that_does_not_contain_the_trench_is_unioned(law):
     assert g is not None and g.outer.contains(g.ramp)
     # …and the union'd rim still carries the §33 (6) B AMENDED wall band
     assert g.wall.area > 0.0
-    assert g.ramp.exterior.distance(g.outer.exterior) == pytest.approx(0.7, abs=1e-6)
+    assert g.ramp.exterior.distance(g.outer.exterior) == pytest.approx(1.2, abs=1e-6)
 
 
 def test_a_shells_trench_is_walled_the_floor_ring_stands_inside_the_rim(law):
@@ -423,8 +423,10 @@ def test_a_shells_trench_is_walled_the_floor_ring_stands_inside_the_rim(law):
     g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.7, 0.5,
                                 trench, foot)
     assert g is not None
-    # the floor ring stands 0.7 m inside the rim on EVERY side, portal too
-    assert g.ramp.exterior.distance(g.outer.exterior) == pytest.approx(0.7, abs=1e-6)
+    # the floor ring stands the stand-off PLUS one grid step (09-01e: the
+    # gap is never on the weld tolerance) inside the rim on EVERY side,
+    # the portal included
+    assert g.ramp.exterior.distance(g.outer.exterior) == pytest.approx(1.2, abs=1e-6)
     assert g.wall.area > 0.0
     # a vertex can only move INWARD: the cut never leaves its object
     assert g.outer.buffer(1e-9).contains(g.ramp)

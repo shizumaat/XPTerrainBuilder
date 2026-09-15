@@ -12442,3 +12442,65 @@ bank emitter even while OFF, `verify/within.py`, `check_grade`'s strip
 families, `mesh_region_tris`), one table.  Water level: the tile's own
 sea (the coastline mesh at the X-Plane water level), read from the
 same source the tile uses (`O4_Vector_Map include_sea`).
+
+### §34 (12) CONSUMER CENSUS (owner RULINGS 2026-08-30l), completed BEFORE any consumer was edited — lane `v2vmmcshore`
+
+Every clause of §34 (12) is a REGION SHRINK at a SINGLE derivation site —
+fewer bores admitted (1), fewer corridors built (3), a corridor clipped at
+the shore (2), fewer decks severing a climb (4).  No consumer gains a new
+shape class, so the table's job is to prove that each reader is
+COUNT-SENSITIVE ONLY: it reads the same kinds of record, fewer of them.
+
+**A. THE CORRIDOR REGION (the bore admission, the cut, `Classification.keepouts`).**
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| T1 | `planar/structures.build_structures` — the admission line (`mouth_only = …`) | `under_cover(b.line, polys, cell_tree)` over EVERY cell | **EDITED, the ONE derivation site of (1).** The retired cover test's count becomes the GATE, and its cover set is NARROWED to the §34 (12) (1) classes (airside pavement by `role_side`, `building` pads/unit footprints, the pack's authored corridor footprints and plates). A bore with an on-field mouth and no such cover is not built and is NAMED (`bores_no_service`). Mapped `bridge=yes` roads are not in the set and never were — a bridge deck is minted BY a corridor, so it can never be that corridor's own admission evidence. |
+| T2 | `planar/structure_approach.mouths()` — the §29 (1) gate | `FieldRegion.holds` | **UNCHANGED CODE.** §29 (1) stays a NECESSARY condition; (1) adds a second, independent one at T1. Keeping them apart keeps the two reports apart (`mouths off-field N` vs `bores no service N`) — 12al's corridor and 13bm's band were once read as one region for exactly the opposite reason. |
+| T3 | `planar/structures` the airside-cut refusal (`runway_u`) | cells whose `role in RUNWAY_FAMILY` | **EDITED, the ONE site of (3):** the union is the AIRSIDE ROLE SET — every role with `side = "airside"` in `precedence.toml` that carries a surface of its own (taxiway, junction, apron, stub, parallel, runway, runway_crossing) — so `ramp_cuts_runway_family = false` generalises and the exception list is empty. The key keeps its name and its `false`; what widened is the population it protects. |
+| T4 | `planar/structure_deck.deck_intervals` (the bridge severance) | mapped `bridge=*` ways crossing the RAMP AXIS at ≥ 30° | **EDITED, the ONE site of (4):** the crossing must be of the BORE (the mapped `tunnel=yes` chain), inside the corridor's own width, not of the approach axis the ramp walks. A seafront bridge running parallel to the shore crosses a 600 m approach walk six times and the bore never. |
+| T5 | `planar/zones.zone_regions` `keepouts` | the corridors' outer rings | UNAFFECTED CODE. Fewer corridors ⇒ fewer keepouts ⇒ the band spreads where a corridor is no longer built, which is the pre-corridor state and is what (1) intends. |
+| T6 | `planar/basins.py:788` `classification.keepouts` | the same tuple | UNAFFECTED — same shape, fewer entries. |
+| T7 | `planar/overlay.build_arrangement` | `Classification.cells` | UNAFFECTED — a structure cell that is not built is simply absent; no role, ref or ordering changes. |
+| T8 | `constraints/structures.py`, `constraints/foot_rows.py`, `constraints/groundside.py` | `model.structures` (`Tunnel` / `Deck` records) | UNAFFECTED — they iterate the records; the list is shorter. |
+| T9 | `verify/structures.py` (`tunnel_mouth_canonical`, `tunnel_deck_clearance`) | the same records | UNAFFECTED — a withdrawn corridor withdraws its own rows with it. |
+| T10 | `emit/osm_adapter` (`tunnel_ramp`, `structure_rim`, `bridge_deck:*`) | the cells / records | UNAFFECTED — nothing new is emitted; 11 ramps and 19 rims become N. |
+| T11 | `check_grade` (`tunnel_ramp` role, `ramp_in_road`, `ramp_in_strip`, `LAW_FAMILIES`) | the emitted patch | UNAFFECTED — no family added, no sidecar key added by §34 (12). |
+| T12 | `pipeline/publication`, `classify/airside_edge`, `solve/project` | roles / channels | UNAFFECTED — `side` stays a pure function of `role`; no role moves. |
+| T13 | `airport/deck_signature.is_tunnel_way` | the OSM tags | **UNCHANGED, deliberately.** WHICH ways are bores is not what the owner's site is about: `−5508/−5507` really is `tunnel=yes`. What (1) refuses is BUILDING it. Narrowing the tag reading instead would have moved every airport's bore set for one VMMC car park. |
+
+**B. THE WATER REGION (clause (2)).**
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| W1 | `airport/dem_production.ProductionDem.water_geometry` | the tile's cached coastline/water layers (`O4_Vector_Map.cached_tile_water`) | **THE ONE WITNESS, UNCHANGED CODE** — the same object `airport/flat_site._cut_water` already cuts the datum region with (owner 2026-09-09m (3)) and §39 (i) (13cg) named as the emitter's shore witness. §34 (12) (2) and §37 (11) (1) both ask THIS function and neither re-derives a coastline. |
+| W2 | `planar/structures` — the corridor's `outer` / `ramp` / `wall` | the cells | **EDITED, one site:** the corridor footprint is clipped by the water region before the void and the refusals are taken; a corridor whose ramp would reach the sea ends at the shore, and one left with no dry ramp is refused and named. |
+| W3 | `constraints/water.water_pins` | `airport.dem.water_many` over `graded_strip` rings | UNAFFECTED CODE, and it is the INSTRUMENT of both clauses: with the regions trimmed, the count of ground vertices standing on water falls to zero (VMMC base: 193). It is kept armed precisely so the trim is provable rather than asserted. |
+| W4 | `emit/bank.py` (the water clip at `:838`) / `emit/osm_adapter.weld_to_shore` (§39) | the same witness | UNAFFECTED — the bank is OFF at VMMC and the weld is a hairline fix on the vertices that REMAIN (§37 (11) (6)); it is not the trim. |
+
+### §37 (11) CONSUMER CENSUS (owner RULINGS 2026-08-30l), completed BEFORE any consumer was edited — lane `v2vmmcshore`
+
+The zone region has ONE production derivation (`planar/zones.zone_regions`,
+called once from `planar/overlay.build_arrangement:254`) and `beyond_zone2`
+has ONE reader (`law/model.py`'s datum enum — it is a DECLARATION that zone
+3 is the DEM, not a geometry channel).  The trim (1) is taken there.  The
+QUAY (2) and the SEA WALL (5) are the two NEW classes, and they are what
+this table is for.
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| Z1 | `planar/zones.zone_regions` | the cells, the law | **EDITED — THE ONE DERIVATION SITE.** `z1`/`z2` are differenced by the WATER region before they are split into parts, so no ring, lip or band exists seaward of the coastline. The QUAY is derived here too, from the same water geometry, so there is one region producer and not two. |
+| Z2 | `planar/overlay.build_arrangement` | `ZoneRegion.polygon` / `.ref` / `.zone` | UNAFFECTED CODE for the trim (a smaller polygon); the QUAY enters as a `ZoneRegion` of its own zone class so no new `Region` kind is invented. |
+| Z3 | `constraints/zones.zone_bands` / `zone_bounds` | the zone number + the class | **UNAFFECTED for zones 1 and 2.** A QUAY region is EXEMPT from the band ladder — its level is the pavement edge's, stated by the pavement's own edge rows — so it mints no band row rather than a relaxed one (a relaxed band is still a fall). |
+| Z4 | `constraints/water.water_pins` | `graded_strip` ring vertices on water | UNAFFECTED CODE. Its count is the trim's proof (W3). |
+| Z5 | `constraints/strips.py`, `constraints/structures.py`, `constraints/runway_chord.py` | `graded_strip` faces | UNAFFECTED — role and ref vocabulary unchanged. |
+| Z6 | `constraints/cluster_pad.py` / `constraints/pads.py` (the pad clips) | pad geometry, never the zone region | UNAFFECTED — a pad clip is taken against pavement and pad footprints; no pad reads a zone ring. (Lane `v2padqp` owns that file; nothing here touches it.) |
+| Z7 | `airport/road_ramp.py` (road ribbons, §34 (4)) | road-family faces | UNAFFECTED — a road ribbon is priced on its own route frame; the zone band is not in its population. |
+| Z8 | `emit/bank.py` (the bank emitter, bank OFF) | the graded rings as coverage | UNAFFECTED BY CONSTRUCTION — a trimmed ring is a smaller coverage. §37 (3) as amended (13cw) closes the coverage at the emitter whatever the ring's extent; the SEA WALL edge is a breakline, never a bank foot, so the two never compete for the same station. |
+| Z9 | `verify/within.py` / `verify/strips.py` | the emitted faces | UNAFFECTED — the sea-wall pair is not a within-shape pair (the two vertices are one breakline, not two stations of one face). |
+| Z10 | `check_grade` `strip_seam_tear` / `adjacent_ground_step` | emitted `graded_strip` rings | **EDITED per (5):** an edge whose two vertices are a declared sea-wall pair is EXCLUDED from both families — the tear IS the wall. The exclusion is keyed on the sidecar's own `sea_wall` declaration, never on a height guess. |
+| Z11 | `check_grade.LAW_FAMILIES` + `law/families.toml` | the register | **EDITED, additive:** the new family `sea_wall` (the drop, the level, the length) with its twins in `tests/test_harness.py`. Registering it in the same commit as the check is what `test_harness.py` twin-asserts. |
+| Z12 | `tools/mesh_region_tris.py --z-xref` | the `.poly` markers and the mesh | UNAFFECTED — it reads the built tile; the sea wall is an ordinary constrained pair to it, which is the point of emitting it as a breakline. |
+| Z13 | `emit/osm_adapter` breaklines / `OPEN_BREAKLINE_FEATURES` | the feature name | **EDITED, additive:** `sea_wall` is an OPEN breakline feature so the vector map gives it `PATCH_RING_MARKER` rather than `DUMMY` (13cp's B2 rule, and for its reason: a wall that is a `DUMMY` edge is not a wall). |
+| Z14 | `law/model.py` `beyond_zone2` | the datum enum | UNCHANGED — zone 3 is still the DEM. (4) does not change what zone 3 IS; it changes which DEM POST is the witness where the sea has bled one post inland. |
+| Z15 | v1 `auto_patch/` | its own zone law | UNTOUCHED — §37 is v2 law. |

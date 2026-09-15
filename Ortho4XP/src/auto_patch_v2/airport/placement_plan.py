@@ -190,7 +190,7 @@ def _group_bodies(raw: _t.Sequence[_Raw], merged: _t.Sequence[_t.Sequence[int]],
         cut_comps = tuple(sorted({p.comp for i in grp if not raw[i][5]
                                   for p in raw[i][0]}))
         bodies.append(Body(k, a.body_class, tuple(sorted(p.comp for p in parts)),
-                           a, _split.body_resource_name(m.resource, k),
+                           a, _split.body_resource_name(m.resource, k, off),
                            tuple(sorted(p.pid for p in parts)), feet=feet,
                            cut_components=cut_comps, tris=tris,
                            elevated=n_elev == len(grp),
@@ -271,7 +271,7 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
     cut_comps = tuple(sorted({p.comp for i in grp if not raw[i][5]
                               for p in raw[i][0]}))
     return Body(body_id, cls, tuple(sorted(p.comp for p in parts)), a,
-                _split.body_resource_name(m.resource, body_id),
+                _split.body_resource_name(m.resource, body_id, off),
                 tuple(sorted(p.pid for p in parts)), feet=(),
                 merged_into=carrier_res, merged_into_written=written,
                 cut_components=cut_comps, tris=tris, elevated=True,
@@ -329,7 +329,7 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
     cut_comps = tuple(sorted({p.comp for i in grp if not raw[i][5]
                               for p in raw[i][0]}))
     return Body(body_id, cls, tuple(sorted(p.comp for p in parts)), a,
-                _split.body_resource_name(m.resource, body_id),
+                _split.body_resource_name(m.resource, body_id, off),
                 tuple(sorted(p.pid for p in parts)), feet=(),
                 cut_components=cut_comps, tris=tris, elevated=True,
                 elevated_members=len(grp), plan_box=box,
@@ -665,6 +665,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 # over" nothing.  What a body covers in plan is its
                 # PARTS' boxes (a SEGMENT's is its own station span).
                 cands.append(_pc.Candidate(
+                    # 14at: a candidate names a body SLOT, not a file —
+                    # pass 3 may still replace this anchor, so the
+                    # offset the file will bake is not known yet.  Pass
+                    # 4 resolves the carrier's real file from
+                    # ``file_of``; this spelling survives as its
+                    # fallback and in the reasons that quote it.
                     st.mi, _split.body_resource_name(st.m.resource, gi),
                     _anc, frozenset(p.pid for p in parts), len(feet),
                     _hull, part_boxes=_fb, ground_off=_off,
@@ -866,6 +872,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # ── PASS 4: the cut, carriers first ──────────────────────────
         by_mi = {st.mi: st for st in staged}
         written_of: dict[int, bool] = {}
+        # 14at: the FILE a carrier group was actually written as.  A
+        # candidate's own ``resource`` is a body SLOT's id — it is
+        # spelled in PASS 2, and pass 3 replaces anchors (the cluster
+        # bind, the family bind), so the offset the carrier's file bakes
+        # is not known until its bodies are formed HERE.  ``cut_order``
+        # puts a carrier before whatever rides it, so this map is
+        # populated by the time the carried body asks.
+        file_of: dict[tuple[int, int], str] = {}
         deps = {st.mi: {c.member for _g, c, _w in st.carried
                         if c.member != st.mi} for st in staged}
         for mi in _pc.cut_order(deps):
@@ -896,6 +910,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                          by_class, st.part_boxes,
                                          st.ground_off, st.bridge,
                                          st.geom_boxes))
+            # 14at: the GROUP bodies are this member's candidates, in
+            # candidate order — what a body riding one of them is
+            # ``merged_into``
+            for _gi, _b in enumerate(bodies):
+                file_of[(st.mi, _gi)] = _b.new_resource
             for grp in st.own_ground:
                 bodies.append(_own_ground_file(st.raw, grp, m, u, surface,
                                                len(bodies), counts, by_class,
@@ -905,7 +924,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 cw = written_of.get(c.member, True)
                 bodies.append(_carried_file(
                     st.raw, grp, m, u, c, why,
-                    c.resource if cw else by_mi[c.member].m.resource, cw,
+                    (file_of.get((c.member, c.group), c.resource) if cw
+                     else by_mi[c.member].m.resource), cw,
                     len(bodies), counts, by_class, st.part_boxes, st.bridge,
                     st.geom_boxes))
             counts["bodies"] += len(bodies)

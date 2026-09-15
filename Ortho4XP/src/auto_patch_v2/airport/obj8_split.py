@@ -93,7 +93,8 @@ import numpy as np
 
 from . import obj8 as _obj8
 
-__all__ = ["BodyCut", "SplitFile", "SplitResult", "split_obj8", "body_resource_name"]
+__all__ = ["BodyCut", "SplitFile", "SplitResult", "split_obj8",
+           "body_resource_name", "offset_tag"]
 
 #: The commands that carry a POSITION in the authored frame and must be
 #: translated with the vertices: keyword -> index of the first of the
@@ -175,10 +176,52 @@ class SplitResult:
     counts: _t.Mapping[str, int]
 
 
-def body_resource_name(resource: str, k: int) -> str:
-    """``objects/<stem>__b<k>.obj`` beside the original (§4.5)."""
+def offset_tag(offset: _t.Sequence[float]) -> str:
+    """THE BAKED OFFSET, AS EIGHT HEX CHARACTERS (RULINGS 2026-09-14at).
+
+    The tag is a pure function of the three doubles the cut SUBTRACTS
+    from every vertex it keeps — ``blake2s`` over their IEEE-754 bytes —
+    and of nothing else.  That is the whole reason it is a hash and not
+    "the index of this offset among the resource's distinct offsets":
+    an index is a function of the POPULATION, so adding or removing an
+    unrelated placement of the same resource renames another
+    placement's file, and the previous write's own body files (the ones
+    ``o4_placement_provenance.json`` names) then go stale in the pack.
+    The hash renames a file only when the file's own contents move.
+    """
+    import hashlib
+    import struct
+    x, y, z = (float(v) for v in offset)
+    return hashlib.blake2s(struct.pack("<3d", x, y, z),
+                           digest_size=4).hexdigest()
+
+
+def body_resource_name(resource: str, k: int,
+                       offset: "_t.Sequence[float] | None" = None) -> str:
+    """``objects/<stem>__b<k>_<tag>.obj`` beside the original (§4.5).
+
+    THE FILE IS KEYED ON WHAT IT CONTAINS (owner RULINGS 2026-09-14at;
+    the owner's missing OTHH tunnel wall at 25.2697569, 51.6055534).
+    ``resource`` and ``body_id`` name a body SLOT — a member's k-th
+    group — but ``authored_offset`` is per PLACEMENT, and a pack may
+    place one resource twice: OTHH's ``tunnels/tunnel1.obj`` stands at
+    two anchors 38.7 m apart, both placements wrote
+    ``tunnels/tunnel1__b0.obj``, the file baked the FIRST placement's
+    offset and the second wall rendered 38.7 m from its own DSF row.
+    The offset therefore belongs in the name: two placements whose
+    bodies bake different offsets get two files, and two that bake the
+    SAME offset still share one (the tag is equal, so nothing is
+    duplicated).
+
+    ``offset`` None spells the UNTAGGED name — a body SLOT's id, used
+    where no file is being named (a carrier candidate before pass 3 has
+    replaced its anchor, and the prose that quotes it).  Every caller
+    that names a FILE passes the offset the cut will bake.
+    """
     stem, _ext = os.path.splitext(resource)
-    return f"{stem}__b{k}.obj"
+    if offset is None:
+        return f"{stem}__b{k}.obj"
+    return f"{stem}__b{k}_{offset_tag(offset)}.obj"
 
 
 # ── the file, as text ────────────────────────────────────────────────────
@@ -648,7 +691,11 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         # carried the NEXT body's geometry at this body's zero.  Measured
         # at LEMD: `OldTerminal_FSX-DCNEUN`, whose ``__b0`` row held
         # ``b1``'s object 254 m from ``b0``'s own box.
-        files.append(SplitFile(bid, body_resource_name(rel, bid),
+        # 14at: ...and the file is keyed on the OFFSET IT BAKES beside
+        # its body id, so two placements of one resource at two anchors
+        # write two files instead of one that holds the first
+        # placement's translation (OTHH's ``tunnel1``, 38.7 m).
+        files.append(SplitFile(bid, body_resource_name(rel, bid, b.offset),
                                "\n".join(body_text) + "\n",
                                len(vt_out[bid]), tri_count[bid], b.offset,
                                tuple(lods_seen[bid]), anim_count[bid]))

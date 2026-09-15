@@ -8030,3 +8030,49 @@ proof wants a tile with a current DEM index and a per-tile cfg. Known
 limit (peer): `pack_rebake` install entries are ledgered but not
 hash-stamped. The LEMD/VHHH install packs still carry the two lane
 rebakes (15bb) until the owner says restore.
+
+## 2026-09-15aq `tools/obj8_split_report.py` ARMS THE ONE COMPOSITION (15am's chip, branch claude/bold-fermat-de99ad): `main` runs `harness/build_airport.arm_shared_repo_protection` — the lane-local engine-cache REDIRECT + the refuse-mode GUARD — instead of a hand-armed guard alone; the last `placement_write.apply_plan` caller outside it; a DSFTool dump the pack read triggers now lands in `<lane>/tmp/engine_caches/Airport_mod_cache`, never the shared mod cache
+
+Done (no build, no download, the shared data repo untouched — `find
+-mmin` over `/Users/noah/XPTerrainBuilderData` names 0 files after the
+suite).  THE HOLE (15am): the entry's `main` built
+`SharedRepoWriteGuard(set(), cwd)` by hand and never called
+`redirect_engine_caches`, so a Python write of the shared repo was
+refused at the call while the mod-cache root the ENGINE resolves
+(`O4_File_Names.airport_mod_cache_root`, read at call time) still pointed
+at the shared `Airport_mod_cache` — and a DSFTool text dump is a
+SUBPROCESS write no Python guard sees (the 2026-08-11 `classify_report`
+precedent, ten corpus files).  THE FIX: `main(out_dir=None)` imports the
+harness build entry (`_harness_build_module`, `classify_report`'s shape —
+imported, never copied) and arms `arm_shared_repo_protection(root,
+out_dir, "obj8_split_report")` around `_main`; the redirect re-applies
+`O4_File_Names` on the already-imported engine, so arming inside `main`
+after the module's own engine imports is sound; the audit passes
+`blocked=guard.blocked` and leaves `redirected` to the engine's own
+accessors (15am's externalisation); `require_no_swallowed_write_block` and
+`report_guard_churn` run as in the other seven callers; every run prints
+`[guard] engine caches redirected lane-local: mod cache=… dump cache=…`
+from the redirect record and `[guard] shared repo UNCHANGED`.
+`--write-pack` (a pack COPY) is UNAFFECTED: `O4_PACK_WRITES=measure_only`
+is read only by `engine_v2.py`'s tile-path `rebake_after_mesh`, never by
+`placement_write.apply_plan`.  TWINS: `tests/test_harness.py` §6e —
+source (arms the composition, defines none of it, no bare
+`SharedRepoWriteGuard(`, the index row names it) and behavioural (a fake
+corpus; `main` run with nothing authorised — the tool has no
+`--refresh-data`; asserted from inside the run: the guard is live, the
+env var is set, THE ENGINE'S OWN `airport_mod_cache_root()` resolves to
+`<O4_LANE_CACHE_ROOT>/Airport_mod_cache` and not into the repo, the dump
+cache to `<O4_LANE_CACHE_ROOT>/Default_DSF_cache`, the overlay is a real
+dir with copy-on-write files — a rewrite of the seeded file leaves the
+corpus byte-identical); `tests/auto_patch_v2/test_v2objsplit.py::
+test_the_report_tool_arms_the_shared_repo_write_guard` (12j) repointed
+from the bare guard to the composition (it FAILED on the first suite run
+as written — the one red, pinning the retired arrangement).  Index row
+amended.  Suite from Ortho4XP/ (`venv/bin/python -m pytest
+tests/test_harness.py tests/auto_patch_v2 -q`): `1666 passed, 1 skipped,
+42 warnings in 54.92s`, 0 FAILED.  Worktree mounted through
+`lane_worktree.sh up bold-fermat-de99ad` (the app-created worktree had no
+venv/OSM_data and the bash guard refused the suite until it did).  NOT
+DONE: no real plan replay — no `<ICAO>.rebake.json` exists outside a
+build and builds were out of scope; the first lane replay after the merge
+should quote the two `[guard]` lines.

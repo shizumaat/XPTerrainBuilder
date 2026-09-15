@@ -60,8 +60,8 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))), "src"))
+_ENGINE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_ENGINE_ROOT, "src"))
 # THE SHARED-REPO WRITE LAW (CLAUDE.md; owner ruling e9daef5), ONE
 # implementation — ``tools/harness/shared_repo_guard.py``, the same module
 # ``harness/build_airport.py`` and ``run_tile_mesh_only.py`` arm.  A lane
@@ -72,6 +72,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 # and rewrote ``o4_dsf_object_positions_+25+051.cache`` in the shared repo
 # with BOTH lane-local cache env vars exported (measured, lane v2atom
 # round 2; RULINGS 2026-09-12j).
+# Since RULINGS 2026-09-15am's chip ``main`` arms THE ONE composition
+# (``harness/build_airport.arm_shared_repo_protection``: redirect + guard)
+# — the hand-armed guard alone left the DSFTool dump, a subprocess write,
+# resolving to the shared mod cache.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "harness"))
 
@@ -649,30 +653,73 @@ def _write_pack(a, plan, ss, sampler) -> None:
           f"rest are a defect)")
 
 
-def main() -> int:
-    """The entry, under the SHARED-REPO WRITE GUARD (see the import
-    block): nothing this tool does is authorised to write the shared
-    data repo, so the guard refuses at the call site and the before /
-    after snapshot backstops what no Python-level guard can see."""
-    from shared_repo_guard import (SharedRepoWriteGuard,  # noqa: E402
-                                   report_unauthorised_writes,
+def _harness_build_module():
+    """The harness build entry, imported (never copied): it owns THE ONE
+    arming composition ``arm_shared_repo_protection`` and re-exports the
+    write law's own objects.  ``tools/classify_report.py``'s shape."""
+    import importlib
+    return importlib.import_module("build_airport")
+
+
+def main(out_dir: str | None = None) -> int:
+    """The entry, under THE ONE ARMING COMPOSITION (``harness/build_airport.
+    arm_shared_repo_protection``: the lane-local engine-cache REDIRECT and
+    the refuse-mode SHARED-REPO WRITE GUARD, together, in that order).
+
+    Until RULINGS 2026-09-15am's chip this entry armed the guard BY HAND
+    and never the redirect — the one ``placement_write.apply_plan`` caller
+    outside the composition.  A Python write of the shared repo was
+    refused at the call, but a DSFTool DUMP the pack read triggers is a
+    SUBPROCESS write no Python guard can see: with the mod cache still
+    resolving to the shared ``Airport_mod_cache`` it landed there (the
+    2026-08-11 ``classify_report`` precedent, ten corpus files).  The
+    redirect rides env variables the subprocess inherits and re-applies
+    ``O4_File_Names`` on an engine already imported, so it is armed here,
+    inside ``main``, after this module's own engine imports.  Nothing this
+    tool does is authorised to write the shared data repo; the before /
+    after snapshot backstops what the guard cannot see, and a redirected
+    scope's deltas are named external, never this run's (15am).
+    ``--write-pack`` writes a pack COPY the tool itself refuses to place
+    under a live install; the redirect's ``O4_PACK_WRITES=measure_only`` is
+    read only by the tile path's ``rebake_after_mesh``, so that half is
+    unaffected.  ``out_dir`` (default ``<engine>/tmp/obj8_split_report``)
+    is where the per-run mask overlay lands; the derived caches are
+    lane-persistent under ``lane_cache_root``.  Owner ruling e9daef5.
+    """
+    from shared_repo_guard import (report_unauthorised_writes,  # noqa: E402
                                    require_no_unauthorised_writes,
                                    shared_repo_snapshot, snapshot_diff)
+    build_mod = _harness_build_module()
+    root = _ENGINE_ROOT
+    out_dir = out_dir or os.path.join(root, "tmp", "obj8_split_report")
+    os.makedirs(out_dir, exist_ok=True)
     before = shared_repo_snapshot()
-    guard = SharedRepoWriteGuard(set(), os.getcwd())
+    guard, redirects = build_mod.arm_shared_repo_protection(
+        root, out_dir, "obj8_split_report")
     try:
         with guard:
             rc = _main()
     finally:
         # the audit runs even when the run raised: a replay that died
-        # halfway has still changed the corpus every other lane reads
+        # halfway has still changed the corpus every other lane reads.
+        # ``redirected`` is left to the audit: it asks the engine's own
+        # accessors which scopes THIS process pointed outside the repo.
         changes = snapshot_diff(before, shared_repo_snapshot())
-        offenders = report_unauthorised_writes(changes, set(), None)
+        offenders = report_unauthorised_writes(changes, set(), None,
+                                               blocked=guard.blocked)
     if guard.blocked:
         print(f"\n  shared-repo writes REFUSED at the call site: "
               f"{len(guard.blocked)}")
         for b in list(guard.blocked)[:10]:
             print(f"    {b}")
+    print("[guard] engine caches redirected lane-local: "
+          f"mod cache={redirects.get('airport_mod_cache')} "
+          f"dump cache={redirects.get('dsf_dump_cache')}")
+    print("[guard] shared repo UNCHANGED" if not offenders
+          else f"[guard] shared repo WRITTEN: {offenders}")
+    # a refusal the engine swallowed is itself the finding (classify shape)
+    build_mod.require_no_swallowed_write_block(guard.blocked)
+    build_mod.report_guard_churn(guard)
     require_no_unauthorised_writes(offenders, entry="obj8_split_report")
     return rc
 

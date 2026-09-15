@@ -3301,7 +3301,15 @@ def test_the_report_tool_arms_the_shared_repo_write_guard():
     reported it.  What is twinned is the WIRING — that the entry runs
     inside `shared_repo_guard`'s guard and its before/after audit, from
     the ONE implementation `harness/build_airport.py` arms (a second copy
-    is the census-wrapper defect)."""
+    is the census-wrapper defect).
+
+    RULINGS 2026-09-15aq (15am's chip): the hand-armed guard ALONE was the
+    second arrangement at one remove — it refused a Python write but the
+    DSFTool dump the pack read triggers is a SUBPROCESS write that still
+    resolved to the shared mod cache.  `main` now arms THE ONE composition
+    `harness/build_airport.arm_shared_repo_protection` (redirect + guard),
+    so the name pinned here is the composition, never the bare guard;
+    the harness twins (`tests/test_harness.py` §6e) assert the behaviour."""
     import ast
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[2]
@@ -3313,11 +3321,16 @@ def test_the_report_tool_arms_the_shared_repo_write_guard():
     # the guard, its snapshot audit and the refusal report all come from
     # shared_repo_guard, and main() is the entry that arms them
     assert "shared_repo_guard" in ast.dump(tree)
-    for name in ("SharedRepoWriteGuard", "shared_repo_snapshot",
+    for name in ("arm_shared_repo_protection", "shared_repo_snapshot",
                  "snapshot_diff", "report_unauthorised_writes",
-                 "require_no_unauthorised_writes"):
+                 "require_no_unauthorised_writes",
+                 "require_no_swallowed_write_block"):
         assert name in body, name
-    # nothing here is authorised: the guard is built with an EMPTY scope
+    assert "SharedRepoWriteGuard" not in body, (
+        "a bare guard beside the composition is the hand-armed arrangement "
+        "15aq retired")
+    # nothing here is authorised: the composition's default guard has an
+    # EMPTY scope, and the run sits inside it
     assert "With(" in body and "Try(" in body
     # and the real work is one level down, so the audit wraps all of it
     assert any(isinstance(n, ast.FunctionDef) and n.name == "_main"

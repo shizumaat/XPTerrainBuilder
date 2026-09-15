@@ -4672,6 +4672,133 @@ def test_the_classify_from_json_path_ARMS_NOTHING(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# §6e THE OBJ8 SPLIT REPORT ARMS THE COMPOSITION (RULINGS 2026-09-15am)
+# ══════════════════════════════════════════════════════════════════════
+# Until 2026-09-15 ``tools/obj8_split_report.py::main`` armed the write
+# guard BY HAND (RULINGS 2026-09-12j) and never ``redirect_engine_caches``
+# — the one ``placement_write.apply_plan`` caller outside
+# ``arm_shared_repo_protection``.  The guard refuses a PYTHON write of the
+# shared repo at the call; a DSFTool DUMP the pack read triggers is a
+# SUBPROCESS write no Python guard can see, and with the mod cache still
+# resolving to the shared ``Airport_mod_cache`` it landed there (the
+# 2026-08-11 ``classify_report`` shape, §6d).  These twins pin that the
+# tool arms THE ONE composition and that, run as a lane runs it (nothing
+# authorised — the tool has no ``--refresh-data``), the mod-cache root THE
+# ENGINE resolves is lane-local.
+
+OBJ8_SPLIT = ROOT / "tools" / "obj8_split_report.py"
+
+
+@pytest.fixture(scope="module")
+def obj8_split_mod():
+    return _load("harness_twin_obj8_split", OBJ8_SPLIT)
+
+
+def test_the_obj8_split_entry_ARMS_the_composition_and_defines_none_of_it():
+    """SOURCE twin, §6c's own test applied to the obj8 split entry."""
+    src = OBJ8_SPLIT.read_text()
+    assert "arm_shared_repo_protection" in src, (
+        "the obj8 split entry must arm the harness's OWN composition — it "
+        "reads a pack through the engine, and the DSFTool dump that read "
+        "triggers is a subprocess write the hand-armed guard never saw")
+    assert "SharedRepoWriteGuard(" not in src, (
+        "a hand-assembled guard beside the composition is the second "
+        "arrangement the composition exists to remove")
+    assert "require_no_swallowed_write_block" in src, (
+        "a refusal the engine swallowed is itself the finding")
+    for definition in ("class SharedRepoWriteGuard",
+                       "def arm_shared_repo_protection",
+                       "def redirect_engine_caches",
+                       "def require_no_swallowed_write_block",
+                       "def mirror_tree_as_overlay",
+                       "def mirror_tree_as_symlinks",
+                       "os.environ[\"O4_DSF_CACHE_DIR\"]",
+                       "os.environ[\"O4_AIRPORT_MOD_CACHE_DIR\"]",
+                       "os.environ[\"O4_MASKS_DIR\"]"):
+        assert definition not in src, (
+            f"{definition} is a SECOND copy of the write law / the redirect")
+    assert "e9daef5" in src, "the guarded path must cite its ruling"
+    row = [ln for ln in INDEX.read_text().splitlines()
+           if "tools/obj8_split_report.py`" in ln]
+    assert row and "arm_shared_repo_protection" in row[0], (
+        "the index row must state that this tool arms the composition — "
+        "'does it touch the corpus' is what the next lane needs to know "
+        "before running it")
+
+
+def test_the_obj8_split_mod_cache_root_resolves_LANE_LOCAL_by_default(
+        obj8_split_mod, guard_mod, tmp_path, monkeypatch):
+    """BEHAVIOURAL twin: run with nothing authorised (the tool has no
+    ``--refresh-data``), the mod-cache root THE ENGINE resolves — its own
+    ``airport_mod_cache_root`` accessor, the one the DSFTool dump path and
+    ``apply_plan`` go through — is under the lane cache root, seeded
+    copy-on-write from the corpus, and the guard is live around the run.
+
+    Asserted from inside the entry's own run: a redirect installed only in
+    the caller's imagination is the class the session detector kept
+    catching, and an env variable that the engine's accessor does not
+    honour (``ORTHO4XP_DATA_ROOT`` set) is exactly as inert.
+    """
+    import builtins
+    import O4_File_Names as FNAMES
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache" / "packA").mkdir(parents=True)
+    (repo / "Airport_mod_cache" / "packA" / "warm.cache").write_bytes(b"warm")
+    (repo / "Elevation_data").mkdir(parents=True)
+    # the guard and the snapshot read the law's global; the overlay is
+    # seeded from the BUILD ENTRY's — the instance the tool itself imports
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(obj8_split_mod._harness_build_module(),
+                        "DATA_REPO", repo)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+    monkeypatch.delenv("O4_PACK_WRITES", raising=False)
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    lane_cache = tmp_path / "lanecache"
+    monkeypatch.setenv("O4_LANE_CACHE_ROOT", str(lane_cache))
+    outer_open = builtins.open
+    seen = {}
+
+    def _probe():
+        seen["guard_live"] = builtins.open is not outer_open
+        seen["mod_env"] = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
+        seen["mod_root"] = str(FNAMES.airport_mod_cache_root())
+        seen["dump_dir"] = str(FNAMES.Default_dsf_cache_dir)
+        return 0
+
+    monkeypatch.setattr(obj8_split_mod, "_main", _probe)
+    entry = _cache_env_entry_values()
+    try:
+        rc = obj8_split_mod.main(out_dir=str(tmp_path / "out"))
+    finally:
+        _restore_cache_env(entry)
+
+    assert rc == 0
+    assert seen["guard_live"], (
+        "the run went OUTSIDE the write guard — the overlay alone does not "
+        "save you (writers wrote THROUGH seeded symlinks on 2026-08-11)")
+    overlay = lane_cache / "Airport_mod_cache"
+    assert seen["mod_env"] == str(overlay), (
+        "the DSFTool SUBPROCESS inherits the environment; that is the only "
+        "handle on a write no Python-level guard can see")
+    resolved = Path(seen["mod_root"]).resolve()
+    assert resolved == overlay.resolve(), (
+        "the engine's OWN accessor must resolve the redirect — the dump "
+        "cache and apply_plan read the root through it, not the env var")
+    assert not resolved.is_relative_to(repo.resolve()), (
+        "the mod-cache root still resolves INTO the shared repo")
+    assert seen["dump_dir"] == str(lane_cache / "Default_DSF_cache")
+    # REAL directories, COPY-ON-WRITE files (§6d item 2): a symlinked
+    # entry sends the writer straight back into the shared corpus.
+    assert overlay.is_dir() and not overlay.is_symlink()
+    seeded = overlay / "packA" / "warm.cache"
+    shared = repo / "Airport_mod_cache" / "packA" / "warm.cache"
+    assert seeded.exists() and not seeded.is_symlink()
+    with open(seeded, "wb") as handle:
+        handle.write(b"rewritten by the dump's own pattern")
+    assert shared.read_bytes() == b"warm"
+
+
+# ══════════════════════════════════════════════════════════════════════
 # §7 THE MAGNITUDE BANDS (census --magnitude-bands)
 # ══════════════════════════════════════════════════════════════════════
 # Promoted 2026-08-06 (RULINGS 7e90032, promote-on-reuse): two lanes had

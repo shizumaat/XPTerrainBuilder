@@ -143,6 +143,31 @@ class Anchor:
     connector_of: str = ""
 
 
+#: §16g (2): the prefix of every anchor reason the FOOTPRINT UNIT seat
+#: writes — what ``placement_record`` publishes as ``unit_of``.  Declared
+#: here, below every reader, so the law (``placement_carrier``) and the
+#: census (``placement_census``) ask :func:`is_unit_seat` and never a
+#: second spelling of the string (``footprint_unit.UNIT_REASON`` is this
+#: value re-exported).
+UNIT_REASON = "§16g unit"
+
+
+def is_unit_seat(a: "Anchor") -> bool:
+    """§16g (2): is this anchor a FOOTPRINT UNIT's datum seat?
+
+    A unit member's zero is the unit's one datum BY LAW — "a member whose
+    own contacts sit more than ``visual_m`` off the unit plane is
+    REPORTED, never re-seated" — so its distance from the ground under its
+    own feet is the design surface's debt (§16f (7) / §30 (4)), not a
+    mis-anchoring.  §16a (2)'s carrier refusal reads it as one (RULINGS
+    2026-09-14bs: LEMD's ``LEMD13__b4`` on its cluster pad, own ground
+    +1.83 m, refused; the roof over it rode a body 57 m away and read
+    +2.12 m), and §16a (1) says the carried body rides its carrier WHERE
+    THE LAW SEATED IT.  Published per body as ``unit_of`` (non-empty),
+    which is exactly this predicate."""
+    return bool(a.family) and str(a.reason).startswith(UNIT_REASON)
+
+
 # ── geometry helpers (plan, in degrees scaled to metres) ─────────────────
 
 #: metres per degree, MEMOISED at 1e-4 deg of latitude (11 m): the value

@@ -50,7 +50,7 @@ __all__ = ["UNIT_REASON", "bind_footprint_units", "PlanConnector",
 
 #: §16g's own counts key prefix, so the census can tell a §16g unit from
 #: a §16f family in a plan written by either tree.
-UNIT_REASON = "§16g unit"
+UNIT_REASON = _ar.UNIT_REASON      # one spelling: ``anchor_rule.is_unit_seat``
 
 
 def _is_deck_member(st: _t.Any) -> bool:

@@ -276,6 +276,11 @@ def _v15_rows(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> list[dict]:
                 # ``footless_own_ground``) reads the terrain like a
                 # footed body and is judged like one
                 "carried": bool(b.get("merged_into")),
+                # §16a (2) as amended (14bs): a body seated by its
+                # FOOTPRINT UNIT is never in the refusal set — its zero
+                # is the unit's datum by law, and the census reads the
+                # law's own candidate set or it counts the disagreement
+                "unit_seat": bool(b.get("unit_of")),
                 # 11ak (1): THE CARRIER THE LAW CHOSE — the file this
                 # body was merged into.  The carried-body bar is read
                 # against THIS body's zero, never against whatever the
@@ -381,7 +386,17 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     refused = {id(g) for g in ground
                if ground_tol_m > 0.0 and g["ground_off"] is not None
                and g["ground_off"] > ground_tol_m
-               and g["cls"] != _ar.BASIN}
+               and g["cls"] != _ar.BASIN
+               and not g["unit_seat"]}
+    # §16a (2) as amended (14bs): the UNIT-SEATED bodies the old reading
+    # would have refused — counted so the report says what the exemption
+    # kept in the carrier pool, worst-first and never truncated
+    unit_seat_kept = sorted(
+        ((g["ground_off"], g["res"]) for g in ground
+         if ground_tol_m > 0.0 and g["ground_off"] is not None
+         and g["ground_off"] > ground_tol_m
+         and g["cls"] != _ar.BASIN and g["unit_seat"]),
+        reverse=True)
     basin_cands = [g for g in ground if g["cls"] == _ar.BASIN]
     basin_exempt = sorted(((g["ground_off"], g["res"]) for g in basin_cands
                            if ground_tol_m > 0.0 and g["ground_off"] is not None
@@ -453,6 +468,8 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                 ((g["ground_off"], g["res"]) for g in ground
                  if id(g) in refused and g["ground_off"] is not None),
                 reverse=True),
+            "unit_seated_carriers_kept": len(unit_seat_kept),
+            "unit_seated_carriers_kept_worst": unit_seat_kept[:10],
             "basin_carriers": len(basin_cands),
             "basin_carriers_exempt": len(basin_exempt),
             "basin_carriers_exempt_worst": basin_exempt[:10],
@@ -487,6 +504,15 @@ def census_v15_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
             f"are authored below it")
         for off, res in c.get("basin_carriers_exempt_worst", ()):
             out.append(f"      basin exempt (feet off by {off:.2f} m)  {res}")
+    if c.get("unit_seated_carriers_kept"):
+        out.append(
+            f"   §16a (2) unit-seated carriers KEPT (14bs: a §16g unit seat is "
+            f"the law's datum, never a mis-anchoring): "
+            f"{c['unit_seated_carriers_kept']} unit member(s) more than the "
+            f"tolerance off the ground under their own feet stay in the "
+            f"carrier pool")
+        for off, res in c.get("unit_seated_carriers_kept_worst", ()):
+            out.append(f"      unit seat kept (feet off by {off:.2f} m)  {res}")
     if c.get("refused_as_carrier"):
         out.append(
             f"   §15 carried over a REFUSED body (counted separately, not "
@@ -767,6 +793,16 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     # is the pit floor 7 m below).  Both are counted and named apart.
     cls_of = {str(b.get("new_resource") or ""): str(b.get("class") or "")
               for s in splits for b in s.get("bodies", ())}
+    # 14bs (lane ``carriedreseat``): INFORMATION, not a re-scope of the
+    # bar.  A carried piece riding a §16g UNIT-SEATED carrier stands
+    # where the unit's datum is, and the unit law holds that datum off
+    # the raw ground on purpose (§16g (2): a member off the plane is
+    # REPORTED, never re-seated; the design surface owes the pad, §16f
+    # (7) / §30 (4)).  The bar still counts it; this says how many of
+    # the bar's rows are that class, so the ruling can read them apart.
+    unit_of = {str(b.get("new_resource") or ""): str(b.get("unit_of") or "")
+               for s in splits for b in s.get("bodies", ())}
+    on_unit_seat = 0
     basin_wide = basin_carried = footed_carried = 0
     n = off_sheet = no_geom = 0
     span_sum = 0.0
@@ -825,6 +861,8 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                         basin_carried += 1
                     else:
                         carried.append((d, res))
+                        if unit_of.get(str(b.get("merged_into"))):
+                            on_unit_seat += 1
             elif b.get("merged_into"):
                 footed_carried += 1
     carried.sort(key=lambda q: -abs(q[0]))
@@ -835,6 +873,7 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "geom_span_gt": len(wide), "geom_span_worst": wide[:10],
             "geom_span_gt_by_class": dict(sorted(by_class.items())),
             "basin_wide": basin_wide, "basin_carried": basin_carried,
+            "carried_on_unit_seat": on_unit_seat,
             "footed_carried_excluded": footed_carried,
             "geom_span_max_m": span_sum,
             "float_tol_m": float_tol_m, "split_tol_m": split_tol_m,
@@ -858,6 +897,12 @@ def census_v16b_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            + ")"
            + ("" if not c["geom_span_gt"]
               else "   *** §16b (4) VIOLATED (bar 0) ***")]
+    if c.get("carried_on_unit_seat"):
+        out.append(
+            f"   §16b of the carried floats above, {c['carried_on_unit_seat']} "
+            f"ride a §16g UNIT-SEATED carrier (14bs: the piece stands on the "
+            f"unit's datum, which the unit law holds off the raw ground — "
+            f"counted IN the bar, named apart)")
     if c.get("footed_carried_excluded"):
         out.append(
             f"   §16c (3): {c['footed_carried_excluded']} FOOTED body(ies) "

@@ -715,6 +715,21 @@ def carriers_for(pids: _t.AbstractSet[int],
             return True
         if c.ground_off <= tol_m:
             return True
+        # §16a (2) as amended (RULINGS 2026-09-14bs, lane
+        # ``carriedreseat``): A UNIT-SEATED CARRIER IS NOT MIS-ANCHORED.
+        # Its zero is its footprint unit's datum by §16g (2) — the pad or
+        # the median ground the whole unit stands on — and how far that
+        # stands from the ground under its own feet is the design
+        # surface's debt (§16f (7) / §30 (4)), reported, never a reason
+        # to send the body standing on it elsewhere.  Refusing it did
+        # exactly that at LEMD: ``LEMD13__b4`` on its cluster pad (own
+        # ground +1.83 m) refused, and the roof over it took the nearest
+        # footed body 57 m away, 2.12 m above the walls it stands on.
+        # §16a (1): the carried body rides its carrier WHERE THE LAW
+        # SEATED IT.  The census reads the same predicate (``unit_of``).
+        if _ar.is_unit_seat(c.anchor):
+            _bump("zero_off_ground_yielded_unit_seat")
+            return True
         _bump("zero_off_ground")
         return False
 

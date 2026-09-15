@@ -1723,6 +1723,99 @@ cut files, 1,367/1,367 new `OBJECT_DEF`s, 1,368 rows, 0 rows carrying an elevati
 duplicate rows surviving 0.  Twin:
 `test_a_basin_body_is_never_refused_as_a_carrier`.  Suite 1,097.
 
+**MEASURED (lane `carriedreseat`, 2026-09-14; branch `claude/carriedreseat`; RULINGS
+2026-09-14bs's owed regression).**  The brief's mechanism — "the carried piece kept the
+zero it had computed against the old unit datum while the carrier left the unit and
+dropped" — was TESTED FIRST and REFUTED: on the registered v2leafframe LEMD frame
+(`/tmp/harness/v2leafframeLEMD.v2`, base main `7064f936`) every one of the 446 carried
+bodies stands at exactly its chosen carrier's FINAL zero (0 differ by more than 0.01 m,
+both arms).  What the two rows actually are:
+
+* `Terminal4SAT_green-LEMD12__b16` stands over `LEMD13__b4`, a §16g unit member seated
+  on cluster pad `building14` at 597.04 with own ground +1.83 m.  §16a (2)'s
+  `zero_off_ground` refusal read that unit seat as a mis-anchoring, the search fell to
+  the nearest footed body 57 m away (`LEMD13__b5`, on its own median foot at 599.16,
+  OUT of the unit under the leaf rule) and the roof rode it, 2.12 m above the walls
+  it stands on.  `Cargo-LEMD64__b13` the same shape over `Cargo-EAT__b0` (§16c (7)
+  bound, own feet +0.34 m, refused at 0.3), riding `NEWCO__b1` +1.55 m over it.
+* And the census could not SEE either as what it was: both rows' `merged_into` named
+  the untagged SLOT (`LEMD13__b5.obj`, no offset tag — 13 LEMD rows), because pass 4
+  names a carrier's file only once that carrier is cut and `cut_order` breaks a
+  carry CYCLE at its first member.  `by_res` found nothing, `no_law_carrier` fell back
+  to the geometric "beneath", and the refused-body class (11ak (1)) could not fire.
+
+TWO EDITS, one law and one instrument, and their effects separated by a monkeypatched
+instrument-only arm:
+
+1. **§16a (2) AS AMENDED — A UNIT-SEATED CARRIER IS NOT MIS-ANCHORED**
+   (`anchor_rule.is_unit_seat`, ONE predicate: `family` set and the reason
+   `anchor_rule.UNIT_REASON`, which `footprint_unit` now re-exports and
+   `placement_record` publishes as `unit_of`).  `carriers_for._ok` accepts it
+   (refusal counter `zero_off_ground_yielded_unit_seat`); `census_v15`'s refusal set
+   skips it and prints the kept members as `§16a (2) unit-seated carriers KEPT`,
+   worst-first.  Its zero is the unit's datum by §16g (2) — a member off the plane is
+   REPORTED, never re-seated, and the distance is the design surface's debt (§16f (7)
+   / §30 (4)) — so §16a (1) puts the carried body ON it, where the law seated it.
+   **This is a deviation from §16a (2) as written and is reported for ratification**
+   (the amendment is one clause; `git revert` is the rollback).
+2. **THE CARRIER'S FILE IS NAMED FROM ITS FINAL ANCHOR BEFORE ANY MEMBER IS CUT**
+   (`placement_plan.build_splits` pass 4: `file_of` for every footed group, the same
+   `body_resource_name(resource, gi, authored_offset(senior anchor))` `_group_bodies`
+   bakes).  `merged_into` no longer depends on `cut_order`; the base arm's 14
+   unresolved carriers become 1 (the lawful kept-whole member resource, 11ak (3)).
+
+Matched dry arms, `obj8_split_report.py --json`, identical inputs both sides (frames
+registry, lane `carriedreseat`):
+
+| bar | LEMD base | instrument only | LEMD fix | HECA base → fix | OTHH base → fix |
+|---|---|---|---|---|---|
+| §15 carried `stands-over float > 0.5 m` (bar 0) | **2** | 0 | **0** | **63 → 0** | 0 → 0 |
+| §15 carried over a REFUSED body (not barred) | 26 | 11 | 10 | 159 → 100 | 14 → 12 |
+| §16a (2) unit-seated carriers KEPT (new) | — | — | 126 | — → 503 | — → 98 |
+| `zero_off_ground` refusals per search | 2,072 | 2,072 | 376 (+1,902 yielded to the unit seat) | | |
+| §16b carried piece float over own ground (bar 0) | 168 (worst 3.63, `TEJ3__b1`) | 168 | **180** (worst 3.63, same body; 64 of them ride a unit seat) | 498 → **548** (worst 11.79 `T23/Plastic`, both; 314 ride a unit seat) | 105 → **114** (worst 12.21 `DutyFree_Clutter_005`, both; 32 ride a unit seat) |
+| `merged_into` unresolved by the census | 14 (13 untagged) | 1 | 1 | 136 → 0 | |
+| files | 2,553 | 2,553 | **2,493** | 4,794 → **3,286** | 2,365 → **2,218** |
+| plan stage (one run each, ±25 %) | 33.4 s | 49.6 s | 31.7 s | 58.1 → 52.7 s | 184.6 → 154.1 s |
+
+* **§15 CARRIED 2 → 0 is closed by EITHER edit alone**; the instrument alone closes it
+  by naming the rows correctly (`carried over a refused body`), the law closes it by
+  putting the roof on its walls.  With both, `LEMD12__b16` rides `LEMD13__b4` at 597.04
+  (float 0) and `Cargo-LEMD64__b13` is the §16c (7) case, reported: a contact-BOUND
+  carrier is not a unit seat and is still refused between 0.3 and 0.5 m — the same
+  question, out of this lane's scope, named.
+* **§16b MISSES ITS BAR IN THE OTHER DIRECTION (168 → 180, bar ≤ 150), and the reason is
+  the amendment working.**  The rows that ENTER are carried pieces now riding a
+  unit-seated carrier held off the raw ground by the unit law — `LEMD15__b3` on
+  `LEMD13__b4` at −1.83 m is the carrier's own `ground_off` verbatim — and the rows that
+  LEAVE are pieces that used to float over a far fallback body or their own ground.
+  Bucketed by what seated the carrier (base → fix): §16g unit 47 → 64, own surface 46 →
+  46, low-side foot 36 → 34, median foot 25 → 26, §16c (7) 9 → 10, basin 5 → 5,
+  unresolved 5 → 0.  The bar as written cannot tell "floats because its carrier was
+  mischosen" from "sits on its carrier, which §16g holds off the raw ground"; the
+  census now prints the second class beside the bar (`N ride a §16g UNIT-SEATED
+  carrier`), counted IN the bar, so the ruling can read them apart.  Whether §16b (4)
+  should exempt that class the way it exempts a basin's carried bodies is the owner's
+  question, not this lane's; the 150 → 168 the leaf rule added is NOT this mechanism
+  (the same 46 own-surface and ~35 low-side-foot carriers float their pieces either
+  side) and is not closed here.
+* HECA's 1,508 fewer files and 63 → 0 carried floats are the same edit at scale: 503
+  unit members kept in the pool, and the pieces that used to take a fallback body or
+  an own-ground file each join their carrier's file instead.  Its §16b rows by carrier
+  seat (base → fix): §16g unit 183 → 314, own surface 94 → 135, low-side foot 73 → 86,
+  UNRESOLVED 136 → 0 — the base census could not name the carrier of a quarter of them.
+* Twins: `test_16a_2_a_unit_seated_carrier_is_not_refused_for_its_own_ground` (the law
+  and the census, one predicate),
+  `test_14bs_a_footless_roof_rides_the_unit_datum_its_walls_were_seated_on` (the
+  brief's twin end to end: a carrier the unit law seats 3 m off its own ground takes its
+  roof with it, float 0, in its file) and
+  `test_14bs_merged_into_names_the_carrier_file_whatever_the_cut_order` (a carry cycle;
+  every `merged_into` names a written body at the same zero).  Covering test files
+  once: 157 passed.
+* NAMED, NOT CHANGED: `keep_off_row` compares SURFACES, not zeros, so a one-body unit
+  member seated N m off its own ground is KEPT on its row and drapes N m under the datum
+  its carried bodies now stand on (`docs/DEFERRED_VERIFICATION.md`).
+
 ## §16b The own-geometry cut is PRIOR; a rigid body is never wider than its terrain (Fable, 2026-09-11; RULINGS 2026-09-11ap)
 
 The owner's read of 1.0.319 (RULINGS 11an/11ao, scout `v2lemd319`) found five of

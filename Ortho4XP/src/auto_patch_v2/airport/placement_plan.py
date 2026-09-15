@@ -882,6 +882,29 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # puts a carrier before whatever rides it, so this map is
         # populated by the time the carried body asks.
         file_of: dict[tuple[int, int], str] = {}
+        # 14bs (lane ``carriedreseat``): EVERY carrier's file is named
+        # HERE, from its FINAL anchor, before any member is cut.  Pass 3
+        # is over, so the senior anchor of each group is the one
+        # ``_group_bodies`` will bake — the same name by the same rule.
+        # ``cut_order`` still puts a carrier before what rides it (that
+        # is what ``written_of`` reads), but a CYCLE it breaks at its
+        # first member used to cut a carried body before its carrier
+        # and leave ``merged_into`` on the untagged SLOT name, which the
+        # census could not resolve: 13 LEMD rows fell back to the
+        # geometric "beneath" and two of them were the whole §15
+        # carried-float regression of 2026-09-14bs.
+        for st in staged:
+            if st.footless:
+                continue
+            for _gi, _grp in enumerate(st.groups):
+                if not _grp:
+                    continue
+                _a = st.raw[_pc.senior_of(st.raw, _grp)][2]
+                _off = authored_offset(_a.lat, _a.lon, _a.y_zero,
+                                       u.anchor[0], u.anchor[1],
+                                       st.m.heading_deg)
+                file_of[(st.mi, _gi)] = _split.body_resource_name(
+                    st.m.resource, _gi, _off)
         deps = {st.mi: {c.member for _g, c, _w in st.carried
                         if c.member != st.mi} for st in staged}
         for mi in _pc.cut_order(deps):

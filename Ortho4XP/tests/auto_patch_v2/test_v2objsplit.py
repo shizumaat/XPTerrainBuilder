@@ -4987,3 +4987,171 @@ def test_two_placements_with_the_same_offset_still_share_one_file(tmp_path):
     assert len(rows) == 2
     per_row = [{f.resource for f in s.files} for s in rows]
     assert per_row[0] and per_row[0] == per_row[1], per_row
+
+
+# ── 14bs: THE CARRIED BODY RIDES ITS CARRIER'S FINAL SEAT (lane carriedreseat) ──
+# (RULINGS 2026-09-14bs; spec §16a (1)/(2) as amended, §16g (2))
+
+def test_16a_2_a_unit_seated_carrier_is_not_refused_for_its_own_ground():
+    """§16a (2) as amended (RULINGS 2026-09-14bs, lane ``carriedreseat``):
+    a candidate SEATED BY ITS FOOTPRINT UNIT is never refused for the
+    ground under its own feet — its zero is the unit's datum by §16g (2),
+    a member off the plane is REPORTED and never re-seated, and the
+    distance is the design surface's debt (§16f (7) / §30 (4)), not a
+    mis-anchoring.
+
+    The LEMD case in miniature: ``LEMD13__b4`` on its cluster pad at
+    597.04, own ground +1.83 m, refused; the roof over it
+    (``LEMD12__b16``) took the nearest footed body 57 m away at 599.16
+    and read +2.12 m above the walls it stands on.  The SAME candidate
+    with a plain anchor is refused exactly as before, and the census
+    reads the same predicate (``unit_of``): the unit-seated body is out
+    of the refusal set and counted as KEPT."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    box = (40.0040, -3.0010, 40.0050, -3.0000)
+    roof = (40.0042, -3.0008, 40.0048, -3.0002)
+
+    def _cand(reason, family):
+        a = AR.Anchor(AR.BUILDING, 40.0045, -3.0005, 1.82, reason, 598.86,
+                      family=family)
+        return _PC.Candidate(2, "objects/c2.obj", a, frozenset({2}), 248,
+                             box, part_boxes=[box], group=0,
+                             body_class=AR.BUILDING, fill=1.0,
+                             ground_off=1.83)
+
+    assert FU.UNIT_REASON == AR.UNIT_REASON            # one spelling
+    seated = _cand(f"{FU.UNIT_REASON} fu:25@cluster_pad of 9 member(s) on "
+                   f"pad building14 at 597.04 (own ground +1.83 m)",
+                   "fu:25@cluster_pad")
+    plain = _cand("low-side foot (terrain spread 2.08 m)", "")
+    assert AR.is_unit_seat(seated.anchor) and not AR.is_unit_seat(plain.anchor)
+    refusals: dict = {}
+    c, why = _PC.carrier_for(frozenset({9}), roof, [seated], {}, [roof],
+                             tol_m=0.3, refusals=refusals)
+    assert c is seated and "stands over" in why
+    assert refusals == {"zero_off_ground_yielded_unit_seat": 1}, refusals
+    refusals2: dict = {}
+    c2, _w = _PC.carrier_for(frozenset({9}), roof, [plain], {}, [roof],
+                             tol_m=0.3, refusals=refusals2)
+    assert c2 is None and refusals2 == {"zero_off_ground": 1}, refusals2
+
+    # THE CENSUS READS THE SAME PREDICATE.  The walls are unit-seated and
+    # 1.83 m off their own feet; the roof rides them at the unit's zero.
+    def _body(res, sz, y0, off, unit, feet, carrier=None):
+        return {"new_resource": res, "plan_box": list(box if feet else roof),
+                "foot_boxes": [list(box if feet else roof)], "fill": 1.0,
+                "surface_z": sz, "y_zero": y0, "class": AR.BUILDING,
+                "feet": feet, "ground_off": off, "unit_of": unit,
+                "merged_into": carrier, "elevated": not feet}
+    walls = _body("w.obj", 598.86, 1.82, 1.83, "fu:25@cluster_pad", 248)
+    rides = _body("r.obj", 598.86, 1.82, None, "", 0, carrier="w.obj")
+    splits = [{"placement": {"index": 1, "lat": 40.0, "lon": -3.0},
+               "bodies": [walls]},
+              {"placement": {"index": 2, "lat": 40.0, "lon": -3.0},
+               "bodies": [rides]}]
+    c15 = _PC.census_v15(splits, (), ground_tol_m=0.3)
+    assert c15["refused_as_carrier"] == 0
+    assert c15["unit_seated_carriers_kept"] == 1
+    assert c15["unit_seated_carriers_kept_worst"] == [(1.83, "w.obj")]
+    assert c15["carried_float_gt"] == 0 and c15["bars_ok"] is True
+    lines = "\n".join(_PC.census_v15_lines(c15))
+    assert "unit-seated carriers KEPT" in lines and "feet off by 1.83 m" in lines
+    # ... and the same walls with NO unit seat are refused, as before
+    bare = [dict(s, bodies=[dict(b, unit_of="") for b in s["bodies"]])
+            for s in splits]
+    c15b = _PC.census_v15(bare, (), ground_tol_m=0.3)
+    assert c15b["refused_as_carrier"] == 1
+    assert c15b["unit_seated_carriers_kept"] == 0
+
+
+def test_14bs_a_footless_roof_rides_the_unit_datum_its_walls_were_seated_on(tmp_path):
+    """§16a (1) + §16g (2), end to end: a carrier the unit law seats N m
+    off its own ground TAKES ITS CARRIED BODY WITH IT.
+
+    Four touching walled members on a step — one on ground at 600, three
+    at 603 — are one footprint unit whose datum is the median ground,
+    603; the low member is seated 3 m above its own feet by §16g (2).  A
+    footless roof stands over THAT member and nothing else.  Before
+    14bs the refusal sent the roof past its walls (the nearest footed
+    body fails §16b (3)'s bound, so it landed on its own ground at 600,
+    three metres under the walls holding it up); now it rides the walls
+    at the unit's zero, in the walls' file."""
+    # ONE box per file: a second component would be an orphan body
+    # (§16d (1)) and ask a carrier question of its own
+    v, t = _box(0.0, 0.0)
+    walls = _write_obj(tmp_path / "walls.obj", v, [("", t)])
+    roof = _write_obj(tmp_path / "roof.obj", v, [("", t)])
+    # the LOW member has a second box 100 m east on the HIGH ground, so
+    # §9 gives it two groups and it is SPLIT (a one-body placement is
+    # KEPT on its row, ``keep_off_row``)
+    low, _n = _two_boxes(tmp_path, with_anim=False)
+    plan = _unit_plan([
+        (low, [(0, 0.0, 0.0, 0.0, 0.0, 12.0),
+               (1, 0.0, 30.0, 100.0, 0.0, 2.0)], "objects/low.obj"),
+        (walls, [(0, 0.0, 24.0, 0.0, 0.0, 12.0)], "objects/mid.obj"),
+        (walls, [(0, 0.0, 48.0, 0.0, 0.0, 12.0)], "objects/high.obj"),
+        (walls, [(0, 0.0, 72.0, 0.0, 0.0, 12.0)], "objects/higher.obj"),
+        # the roof: one body, 6 m up, inside the LOW member's footprint
+        (roof, [(0, 6.0, 0.0, 0.0, 6.0, 5.0)], "objects/roof.obj"),
+    ])
+
+    def surface(lat, lon):
+        return 600.0 if (lat - 40.0) * 111_000.0 < 18.0 else 603.0
+
+    ss = PP.build_splits(plan, surface, write=False,
+                         **_elev_args(touch_m=0.5))
+    low = [s for s in ss.splits if s.resource == "objects/low.obj"][0]
+    lz = low.bodies[0].anchor
+    assert AR.is_unit_seat(lz) and round(lz.surface_z - lz.y_zero, 3) == 603.0
+    assert ss.counts.get("unit_members_off_the_plane", 0) >= 1
+    r = [s for s in ss.all if s.resource == "objects/roof.obj"][0]
+    assert len(r.bodies) == 1
+    b = r.bodies[0]
+    assert b.merged_into == low.bodies[0].new_resource, b.anchor.reason
+    assert round(b.anchor.surface_z - b.anchor.y_zero, 3) == 603.0
+    assert "stands over" in b.anchor.reason
+    assert ss.counts.get("carrier_refused_zero_off_ground_yielded_unit_seat", 0) >= 1
+    assert ss.counts.get("footless_own_ground", 0) == 0
+
+
+def test_14bs_merged_into_names_the_carrier_file_whatever_the_cut_order(tmp_path):
+    """14bs, the INSTRUMENT half: ``merged_into`` is the carrier's TAGGED
+    file name, resolved from the carrier's FINAL anchor before any member
+    is cut — never the untagged slot a carrier cut LATER used to leave
+    behind.
+
+    Two members each carry the other's roof, so ``cut_order`` has a
+    cycle and breaks it at its first member: that member's carried body
+    was filed before its carrier and named ``<carrier>__b0.obj`` with no
+    offset tag, a file nothing wrote.  The census could not resolve it,
+    fell back to the geometric "beneath", and two such rows were the
+    whole of 14bs's §15 regression (13 rows at LEMD).  Every carried body
+    now names a body that exists and stands at its zero."""
+    (tmp_path / "b").mkdir()
+    a_path, _n = _two_boxes(tmp_path, with_anim=False)
+    b_path, _n2 = _two_boxes(tmp_path / "b", with_anim=False)
+    plan = _unit_plan([
+        # A: walls at x=0 (comp 0), a roof 4 m up over B's walls (comp 1)
+        (a_path, [(0, 0.0, 0.0, 0.0, 0.0, 3.0),
+                  (1, 4.0, 0.0, 100.0, 4.0, 3.0)], "objects/a.obj"),
+        # B: walls at x=100 (comp 1), a roof 4 m up over A's walls (comp 0)
+        (b_path, [(1, 0.0, 0.0, 100.0, 0.0, 3.0),
+                  (0, 4.0, 0.0, 0.0, 4.0, 3.0)], "objects/b.obj"),
+    ])
+
+    def surface(lat, lon):
+        # a 3 m step between the two buildings, so neither roof's carrier
+        # stands at its own walls' zero (§9 would file it at home)
+        return 600.0 if (lon + 3.0) * 85_000.0 < 50.0 else 603.0
+
+    ss = PP.build_splits(plan, surface, write=False, **_elev_args())
+    assert ss.counts.get("elevated_ride_other_file", 0) == 2, ss.counts
+    written = {b.new_resource: b for s in ss.splits for b in s.bodies}
+    carried = [b for s in ss.splits for b in s.bodies if b.merged_into]
+    assert len(carried) == 2
+    for b in carried:
+        assert b.merged_into in written, (b.merged_into, sorted(written))
+        c = written[b.merged_into]
+        assert b.merged_into != c.new_resource.rsplit("_", 1)[0] + ".obj"
+        assert round(b.anchor.surface_z - b.anchor.y_zero, 3) \
+            == round(c.anchor.surface_z - c.anchor.y_zero, 3)

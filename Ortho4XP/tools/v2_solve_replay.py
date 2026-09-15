@@ -157,6 +157,18 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None) -> None:
     _groups = _derive_groups(_part, _span_max(law), _bank,
                              dem_at=_dem_at, bank_slope=_bank)
     airport = _dc.replace(airport, partition=_part, groups=_groups)
+    # THE CLUSTERS, beside the partition and the groups (``pipeline/
+    # build.py:370-380``, the same call on the same input).  Without them
+    # ``Airport.clusters`` is empty in every replay of the capture, so
+    # §30 (4)'s CLUSTER PAD and its apron reach — and §16g (10)'s derived
+    # pads — are INERT and a pads-ON arm silently measures the pads-OFF
+    # law (lane ``v2padvert`` 2026-09-14: "pads-ON was NOT measurable off
+    # this capture").  Same trap as 12u's missing groups, same answer.
+    from auto_patch_v2.planar.cluster import clusters as _derive_clusters
+    _cl_t = time.perf_counter()
+    airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
+    print(f"[{icao}] clusters {len(airport.clusters)} "
+          f"({time.perf_counter() - _cl_t:.0f} s)")
     print(f"[{icao}] pack partition {time.perf_counter() - t:.0f} s  "
           f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']}  "
           f"relief {_groups.counts['relief_bodies']}  "
@@ -721,6 +733,18 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         print(f"[{icao}] capture predates {len(missing)} PlanarMap channel(s), "
               f"backfilled at their defaults: {', '.join(f.name for f in missing)}")
     law = Law.for_airport(icao)
+    # A CAPTURE PREDATING THE CLUSTERS derives them HERE, off its own
+    # partition, and says so — the same "the publisher derives the
+    # channel in the replay anyway" rule as the PlanarMap backfill above.
+    # A replay whose ``Airport.clusters`` is empty solves the pads-OFF
+    # problem however the law values are set (§30 (4) / §16g (10)).
+    if not (getattr(airport, "clusters", None) or ()):
+        from auto_patch_v2.planar.cluster import clusters as _derive_clusters
+        _ct = time.perf_counter()
+        airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
+        print(f"[{icao}] capture predates Airport.clusters — derived "
+              f"{len(airport.clusters)} off its own partition "
+              f"({time.perf_counter() - _ct:.0f} s)")
     t0 = time.perf_counter()
     if resume == "planar":
         pm, _ps = build_planar(airport, cl, law)

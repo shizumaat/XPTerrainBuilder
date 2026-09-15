@@ -28,6 +28,13 @@ class StructureStats:
     #: population the owner ruled in stays visible without a rebuild.
     bores_mouth_only: int = 0
     mouth_only_bores: list[str] = _dc.field(default_factory=list)
+    #: spec §34 (12) (1) (owner RULINGS 2026-09-15f item 1): bores with an
+    #: on-field MOUTH that pass under NO §34 (12) (1) cover class — not
+    #: airport tunnels, so nothing is built for them.  Counted and named
+    #: apart from ``bores_no_mouth`` (§29 (1)'s finding) so the two gates
+    #: are never read as one.
+    bores_no_service: int = 0
+    no_service_bores: list[str] = _dc.field(default_factory=list)
     mouths: int = 0
     #: spec §29 (1): mapped ends DROPPED for standing off the field —
     #: neither the mouth point nor its ramp reach inside the classified

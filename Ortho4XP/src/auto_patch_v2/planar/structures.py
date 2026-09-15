@@ -129,6 +129,56 @@ def _dem(airport: Airport, p: XY) -> float:
     return float(airport.dem.z(p[0], p[1]))
 
 
+def airside_cut_roles(law: Law) -> tuple[str, ...]:
+    """§34 (12) (3) THE AIRSIDE ROLE SET A CORRIDOR NEVER CUTS (owner
+    RULINGS 2026-09-15f item 1; Fable 2026-09-15i).
+
+    Every AIRSIDE role that carries a surface of its own — the runway
+    family, the parallels, the stubs, the cross-connectors, the junctions
+    and the aprons — read from ``precedence.toml`` (``side = "airside"``,
+    ``value = true``, not a structure), never typed out here.  Before
+    §34 (12) only the runway family was exempt from a corridor cut
+    (08-07 ruling 4), so VMMC's seafront car-park bore knifed code-E
+    junction ``pav5`` into six faces at 3.58–4.50 m against the 6.10 m
+    field.  ``ramp_cuts_runway_family = false`` keeps its name and its
+    value; what widened is the population it protects.
+
+    The PAD (``building``) is deliberately NOT here: a pad is protected by
+    ``tunnel.ramp_crosses_pad``, which STOPS the ramp at the pad's edge
+    rather than refusing the corridor, and that machinery
+    (``structure_geometry.pad_hit``) is unchanged."""
+    from ..law.tables import is_structure_role, is_value_role
+    return tuple(r for r in law.tables.precedence.roles
+                 if role_side(law, r) == "airside" and is_value_role(law, r)
+                 and not is_structure_role(law, r) and r != "building")
+
+
+def serves_the_field(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
+    """§34 (12) (1) A TUNNEL IS BUILT ONLY WHERE IT SERVES THE FIELD (owner
+    RULINGS 2026-09-15f item 1; Fable 2026-09-15i).
+
+    ``line`` is the BORE (the mapped ``tunnel=yes`` chain) and ``polys``
+    the §34 (12) (1) COVER CLASSES ONLY — airside pavement, a pad or unit
+    footprint, a deck the pack authored (a plate or a wall corridor,
+    §33).  The bore serves the field when at least a metre of it runs
+    UNDER one of them.
+
+    A mouth inside the cover ⊕ ``mouth_standoff_m`` (§29 (1)) is a
+    NECESSARY condition and never a sufficient one: VMMC's OSM
+    ``highway=service tunnel=yes`` ways −5508/−5507 are a car-park ramp
+    under a building that has nothing to do with the aerodrome, and they
+    were admitted because a mouth stood 36 m from junction ``pav5``.  A
+    bore whose only covers are mapped ``bridge=yes`` roads is not an
+    airport tunnel: a mapped bridge is not a cell of this set, and a
+    ``bridge_deck:*`` face is minted BY a corridor, so it can never be
+    that corridor's own admission evidence.
+
+    The reading is ``structure_approach.under_cover``'s — one
+    implementation of "how much of this line is under these polygons",
+    two cover sets."""
+    return under_cover(line, polys, tree)
+
+
 def _pad_relief_m(airport: Airport, poly: Polygon) -> float:
     """The DEM relief across a pad's ring (a flat pad is ground; a pad on
     relief is a levelled plane).  ONE implementation, in
@@ -223,8 +273,33 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                                      dropped)
     with_mouth = {id(b) for b in bores if any(m.bore is b for m in mouth_list)}
     covered = [b for b in bores if id(b) in with_mouth]
-    mouth_only = [b for b in covered if not under_cover(b.line, polys, cell_tree)]
+    # §34 (12) (1) A TUNNEL SERVES THE FIELD OR IS NOT BUILT.  The §29 (1)
+    # mouth gate above is NECESSARY; this is the second, independent
+    # condition, taken at the same single site and reported apart so the
+    # two findings are never read as one (``mouths off-field N`` vs
+    # ``bores no service N``).  The cover set is the ruling's own:
+    # airside pavement, a pad or unit footprint, the pack's authored
+    # corridors and plates.  A groundside road, a lot, or a mapped
+    # ``bridge=yes`` way is NOT cover.
+    service_polys = [p for p, c in zip(polys, cells)
+                     if role_side(law, c.role) == "airside" and c.kind != "structure"]
+    service_polys += [c.footprint for c in corridors]
+    service_polys += [getattr(pl, "footprint", None) for pl in plates]
+    service_polys = [p for p in service_polys
+                     if p is not None and not p.is_empty]
+    service_tree = STRtree(service_polys) if service_polys else None
+    served = [b for b in covered
+              if serves_the_field(b.line, service_polys, service_tree)]
+    no_service = [b for b in covered if b not in served]
+    mouth_only = [b for b in served if not under_cover(b.line, polys, cell_tree)]
     stats.bores_no_mouth = len(bores) - len(covered)
+    stats.bores_no_service = len(no_service)
+    stats.no_service_bores = ["+".join(str(w.id) for w in b.ways)
+                              for b in no_service][:12]
+    if no_service:
+        drop = {id(b) for b in no_service}
+        mouth_list = [m for m in mouth_list if id(m.bore) not in drop]
+        covered = served
     stats.bores_mouth_only = len(mouth_only)
     stats.mouth_only_bores = ["+".join(str(w.id) for w in b.ways) for b in mouth_only][:12]
     if not covered and not corridors and not extra_groups:
@@ -275,9 +350,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.wall_corridors = sum(1 for g in extra_groups if g.kind == WALL_KIND)
     wc_law = co.wall_corridor
 
-    # what a ramp may not cross
-    runway_u = unary_union([p for p, c in zip(polys, cells) if c.role in RUNWAY_FAMILY]) \
-        if any(c.role in RUNWAY_FAMILY for c in cells) else None
+    # what a ramp may not cross — §34 (12) (3) A CORRIDOR NEVER CUTS
+    # AIRSIDE PAVEMENT (owner RULINGS 2026-09-15f item 1): the exemption
+    # list is the whole AIRSIDE ROLE SET (``airside_cut_roles``), not the
+    # runway family alone.  The name ``runway_u`` and the law key
+    # ``ramp_cuts_runway_family`` are kept; the union is wider.
+    _cut_roles = set(airside_cut_roles(law))
+    runway_u = unary_union([p for p, c in zip(polys, cells)
+                            if c.role in _cut_roles and c.kind != "structure"]) \
+        if any(c.role in _cut_roles and c.kind != "structure" for c in cells) else None
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
     pad_refs = {ref for _p, ref in pads}
     pad_poly = {ref: p for p, ref in pads}
@@ -661,12 +742,35 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # whose exterior is the rim and whose hole is the ramp — never a
         # surface, the mesh triangulates the wall inside it
         wall = outer.difference(ramp)
-        # refusals: a runway-family crossing, the runway strip keep-out
-        if runway_u is not None and outer.intersects(runway_u) and \
-                outer.intersection(runway_u).area > 1e-6:
-            stats.refused.append(f"{tid}: the ramp would cross a runway-family face "
-                                 f"before reaching the DEM (ramp_cuts_runway_family = false)")
-            continue
+        # refusals: an AIRSIDE crossing, the runway strip keep-out.
+        # §34 (12) (3) (owner RULINGS 2026-09-15f item 1): the exemption is
+        # the whole airside role set (``airside_cut_roles``), NOT the
+        # runway family alone — VMMC's seafront bore knifed code-E
+        # junction ``pav5`` into six faces because a junction was not on
+        # the list.  WHERE THE PAVEMENT IS THE CORRIDOR'S OWN DECK it is
+        # not a cut but the ruling's first limb ("the pavement is the DECK
+        # of an underpass, §34 (5)"): the decks read above are subtracted
+        # before the test, so every §34 (5) underpass — LEMD F-6, KCLT
+        # taxiway U — passes exactly as it did.
+        if runway_u is not None:
+            _decked = [d[3] for d in deck_ivals] + [d[3] for d in pav_ivals] \
+                + [d[3] for d in obj_ivals]
+            _cut = outer
+            if _decked:
+                _cut = outer.difference(
+                    unary_union(_decked).buffer(gap + grid, **_MITRE))
+            if not _cut.is_empty and _cut.intersects(runway_u) and \
+                    _cut.intersection(runway_u).area > 1e-6:
+                _hit = sorted({c.ref for p, c in zip(polys, cells)
+                               if c.role in _cut_roles and c.kind != "structure"
+                               and p.intersects(_cut)
+                               and p.intersection(_cut).area > 1e-6})[:4]
+                stats.refused.append(
+                    f"{tid}: the ramp would cut AIRSIDE pavement "
+                    f"{'+'.join(_hit) or '(unnamed)'} before reaching the DEM, and no "
+                    f"deck of this corridor states the crossing "
+                    f"(§34 (12) (3); ramp_cuts_runway_family = false)")
+                continue
         if strip_u is not None and wall.intersects(strip_u) and \
                 wall.intersection(strip_u).area > 1e-6:
             stats.refused.append(f"{tid}: the wall would stand inside the runway strip "

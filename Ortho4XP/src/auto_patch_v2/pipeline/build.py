@@ -478,6 +478,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     if ss.bores or ss.object_corridors or ss.door_ramps or ss.sunken_roads or ss.wall_corridors \
             or ts.refused:
         _say(f"[{icao}] structures: bores {ss.bores} (no on-field mouth {ss.bores_no_mouth}, "
+             f"no service {ss.bores_no_service} (§34 (12) (1)), "
              f"mouth-only built {ss.bores_mouth_only}, replaced by "
              f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths} (off-field "
              f"{ss.mouths_off_field}, on approach {ss.mouths_on_approach} of "

@@ -1891,7 +1891,10 @@ def test_a_schema_stale_road_layer_refuses_and_names_osm_layers(
     scope, artifact, why = missing[0]
     assert scope == "osm_layers"
     assert artifact == "OSM_data/+40-010/+40-004/+40-004_big_roads.osm.bz2"
-    assert "SCHEMA-STALE" in why
+    # ``big_roads`` is one of the v2 loader's own ROAD_FEEDS, so the
+    # reader's wording is what a reader gets (r5: the pre-flight judges
+    # what the loader judges, over the same 3x3 square).
+    assert "SCHEMA-STALE" in why or "the v2 LOADER refuses" in why
     assert "2026-07-16" in why and VMAP.ROAD_CACHE_TAG_SCHEMA in why, (
         "the refusal must name the schema on disk AND the one the engine "
         "wants — otherwise it cannot be acted on")
@@ -2017,6 +2020,10 @@ def test_a_current_schema_layer_is_not_touched_by_the_refresh(
 
     root, cache = _osm_layer_fixture(
         tmp_path, monkeypatch, VMAP.ROAD_CACHE_TAG_SCHEMA)
+    # ...and the tile's airports layer is present, so nothing is ABSENT
+    # either (r5: an absent layer is derived too).
+    import O4_File_Names as _FN
+    _write_schema_stamped_layer(Path(_FN.osm_cached(40, -4, "airports")), "")
     before = cache.read_bytes()
     calls = []
     _mock_engine_fetch(monkeypatch, calls)
@@ -2206,6 +2213,258 @@ def test_a_REDIRECTED_scope_cannot_be_this_builds_contamination(
 # ══════════════════════════════════════════════════════════════════════
 # THE OWNER'S X-PLANE INSTALL (RULINGS 2026-09-15av)
 # ══════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════
+# AN AUTHORISED REFRESH WARMS A COLD TILE (measured 2026-09-15, KDFW)
+# ══════════════════════════════════════════════════════════════════════
+
+def test_an_authorised_scope_is_not_a_COLD_FRAME_refusal(build_mod):
+    """``build_airport.py KDFW --tile 32 -97 --refresh-data
+    osm_layers,dem`` was refused HERE, before any refresh could run,
+    naming the two scopes the command had just authorised.  A problem
+    whose scope IS authorised is something this run will derive."""
+    cold = {"tile": [32, -97], "tile_stem": "N32W097", "base_raster": False,
+            "airports_layer": False, "airport_insets": False}
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_dem_frame(cold)
+    assert "NO cached airports OSM layer" in str(exc.value)
+    # both scopes authorised -> no refusal at all
+    build_mod.require_dem_frame(cold, requested={"osm_layers", "dem"})
+    # one authorised -> the OTHER still refuses, and only it
+    with pytest.raises(SystemExit) as exc2:
+        build_mod.require_dem_frame(cold, requested={"osm_layers"})
+    msg = str(exc2.value)
+    assert "NO base raster" in msg and "NO cached airport elevation" in msg
+    assert "NO cached airports OSM layer" not in msg
+
+
+def _cold_tile_root(tmp_path, monkeypatch, build_mod, lat=32, lon=-97):
+    """A tmp corpus whose tile has no airports layer and no insets."""
+    import O4_File_Names as FNAMES
+
+    root = tmp_path / "lane"
+    (root / "OSM_data").mkdir(parents=True)
+    (root / "Elevation_data" / "N30W100").mkdir(parents=True)
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(root / "OSM_data"))
+    monkeypatch.setattr(FNAMES, "Elevation_dir",
+                        str(root / "Elevation_data"))
+    return root
+
+
+def test_an_authorised_osm_refresh_DERIVES_AN_ABSENT_layer(
+        build_mod, tmp_path, monkeypatch):
+    """The KDFW-neighbour case: nothing was ever derived for a COLD tile,
+    because only SCHEMA-STALE layers were.  The engine's own prefetch
+    filter is "absent OR stale"; what was missing was a reason to run
+    it, and the airports layer (which the prefetch does NOT carry — the
+    tile prelude fetches it inline) needs its own call."""
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (0, False))
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+    prefetched = []
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch",
+                        lambda tile: prefetched.append((tile.lat, tile.lon)))
+    monkeypatch.setattr(VMAP, "wait_for_background_osm_prefetch",
+                        lambda: None)
+
+    assert build_mod.dem_cache_state(root, 32, -97)["airports_layer"] is False
+    summary = build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
+    assert [c[0] for c in calls] == ["airports"], (
+        "the ABSENT airports layer must be derived through the engine's "
+        "own fetch entry")
+    assert prefetched == [(32, -97)]
+    assert build_mod.dem_cache_state(root, 32, -97)["airports_layer"] is True
+    assert summary["tile"] == [32, -97]
+
+    # and a refresh that derives nothing REFUSES rather than exit 0
+    os.remove(FNAMES.osm_cached(32, -97, "airports"))
+    monkeypatch.setattr(
+        __import__("O4_OSM_Utils"), "OSM_queries_to_OSM_layer",
+        lambda *a, **kw: 0)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
+    assert "did not derive the airports layer" in str(exc.value)
+
+
+def test_a_NEIGHBOUR_tiles_superseded_feed_is_named_and_derived(
+        build_mod, tmp_path, monkeypatch):
+    """THE KDFW DEATH, 54 s in (2026-09-15).
+
+    ``--refresh-data osm_layers`` re-derived +32-098_big_roads, and the
+    v2 LOADER then raised on ``+30-100/+33-098/+33-098_big_roads.osm.bz2``
+    — a NEIGHBOUR tile.  The loader merges the 3x3 neighbourhood; the
+    pre-flight judged the build's own tile only (a limit its docstring
+    stated).  The predicate here is the LOADER's own.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+    from auto_patch_v2.airport import osm as _v2osm
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(32, -97, "airports")), "")
+    nbr = Path(FNAMES.osm_cached(33, -98, "big_roads"))
+    _write_schema_stamped_layer(nbr, "2026-07-16")
+
+    named = build_mod.superseded_road_feeds(root, 32, -97)
+    assert len(named) == 1, named
+    scope, artifact, why = named[0]
+    assert scope == "osm_layers"
+    assert artifact == "OSM_data/+30-100/+33-098/+33-098_big_roads.osm.bz2"
+    assert "the v2 LOADER refuses this feed" in why and "3x3" in why
+    # it reaches the build's single pre-flight list
+    assert named[0] in build_mod.schema_stale_osm_layers(root, 32, -97)
+
+    # CURRENT schema -> not named; UNTAGGED -> not named (the loader
+    # lists it and does not raise; airport_small_roads carries none).
+    _write_schema_stamped_layer(nbr, _v2osm.ROAD_CACHE_TAG_SCHEMA)
+    assert build_mod.superseded_road_feeds(root, 32, -97) == []
+    _write_schema_stamped_layer(nbr, "2026-07-16")
+
+    # AND THE REFRESH DERIVES IT, on the NEIGHBOUR's tile.
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (0, False))
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+    prefetched = []
+
+    def _prefetch(tile):
+        prefetched.append((tile.lat, tile.lon))
+        if (tile.lat, tile.lon) == (33, -98):
+            _write_schema_stamped_layer(nbr, _v2osm.ROAD_CACHE_TAG_SCHEMA)
+
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch", _prefetch)
+    monkeypatch.setattr(VMAP, "wait_for_background_osm_prefetch",
+                        lambda: None)
+    summary = build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
+    assert (33, -98) in prefetched, "the NEIGHBOUR tile must be derived"
+    assert summary["refetched"] == [artifact]
+    assert list(nbr.parent.glob("*.stale-*")) == []
+    assert build_mod.superseded_road_feeds(root, 32, -97) == []
+
+
+def test_an_authorised_dem_refresh_DERIVES_the_tiles_insets(
+        build_mod, tmp_path, monkeypatch):
+    """``--warm-insets ICAO`` needs airports OF THE TILE, which a cold
+    tile cannot name — so the TILE entry lives in the refresh.  Both
+    derivations are the engine's own tile-prelude calls."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_DEM_Utils as DEM
+    import O4_File_Names as FNAMES
+    import O4_OSM_Utils as OSM
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(32, -97, "airports")), "")
+    elev = root / "Elevation_data" / "N30W100"
+
+    made = []
+    monkeypatch.setattr(DEM, "DEM", lambda lat, lon, src, info_only=False:
+                        made.append(("dem", lat, lon))
+                        or (elev / "N32W097.hgt").write_bytes(b"raster"))
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer",
+                        lambda *a, **kw: 1)
+    monkeypatch.setattr(VMAP, "build_airports_dico",
+                        lambda tile, layer: {"KDFW": object()})
+    monkeypatch.setattr(INSETS, "ensure_insets_for_tile",
+                        lambda tile, dico, refresh=False:
+                        made.append(("insets", refresh, len(dico)))
+                        or (elev / "N32W097_airport_insets").mkdir())
+
+    summary = build_mod.refresh_tile_dem(root, 32, -97, _Notes())
+    assert made == [("dem", 32, -97), ("insets", True, 1)], made
+    assert summary["derived"] == [
+        "Elevation_data/**/N32W097.hgt",
+        "Elevation_data/**/N32W097_airport_insets/"]
+    state = build_mod.dem_cache_state(root, 32, -97)
+    assert state["base_raster"] and state["airport_insets"]
+    # a second run has nothing to do
+    assert build_mod.refresh_tile_dem(root, 32, -97, _Notes())["derived"] == []
+
+    # STILL COLD afterwards -> refuses, never exits 0
+    (elev / "N32W097.hgt").unlink()
+    (elev / "N32W097_airport_insets").rmdir()
+    monkeypatch.setattr(DEM, "DEM",
+                        lambda lat, lon, src, info_only=False: None)
+    monkeypatch.setattr(INSETS, "ensure_insets_for_tile",
+                        lambda tile, dico, refresh=False: None)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_tile_dem(root, 32, -97, _Notes())
+    assert "derived NOTHING" in str(exc.value)
+
+
+def test_a_dem_refresh_without_an_airports_layer_REFUSES(
+        build_mod, tmp_path, monkeypatch):
+    """The inset boxes come from the airports layer; without it they
+    would come from an overpass query the run never authorised."""
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_tile_dem(root, 32, -97, _Notes())
+    assert "--refresh-data osm_layers,dem" in str(exc.value)
+
+
+def test_refresh_only_refreshes_and_NEVER_ENTERS_A_BUILD(
+        build_mod, tmp_path, monkeypatch, capsys):
+    """``--refresh-only``: warm ONE tile and exit.
+
+    The v2 loader reads road layers over the 3x3 neighbourhood, so
+    warming a neighbour meant ``--tile LAT LON --refresh-data
+    osm_layers`` — a whole tile build (minutes to an hour) that refuses a
+    cold DEM frame before it gets there.  This run does the authorised
+    refreshes, lets the audit stamp the ledger, and enters NO build
+    stage.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 33, -98)
+    stale = Path(FNAMES.osm_cached(33, -98, "big_roads"))
+    _write_schema_stamped_layer(stale, "2026-07-16")
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(33, -98, "airports")), "")
+
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (0, False))
+    calls = []
+    _mock_engine_fetch(monkeypatch, calls)
+
+    def _prefetch(tile):
+        _write_schema_stamped_layer(stale, VMAP.ROAD_CACHE_TAG_SCHEMA)
+
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch", _prefetch)
+    monkeypatch.setattr(VMAP, "wait_for_background_osm_prefetch",
+                        lambda: None)
+
+    # NO build entry may be called.
+    for name in ("build_patch_v2", "build_patch", "build_tile"):
+        monkeypatch.setattr(build_mod, name, _never_called(name))
+
+    summary = build_mod.refresh_stale_osm_layers(root, 33, -98, _Notes())
+    assert summary["refetched"] == [
+        "OSM_data/+30-100/+33-098/+33-098_big_roads.osm.bz2"]
+    assert build_mod.superseded_road_feeds(root, 33, -98) == []
+    assert list(stale.parent.glob("*.stale-*")) == []
+
+    # the flag exists, is documented as the neighbour-warming entry, and
+    # the build stages are behind it in ``main``
+    src = (ROOT / "tools" / "harness" / "build_airport.py").read_text()
+    assert '"--refresh-only"' in src
+    assert "if args.refresh_only:" in src
+    i = src.index("if args.refresh_only:\n            # THE WARM-ONLY RUN")
+    assert "elif args.tile:" in src[i:i + 2500], (
+        "every build stage must be behind the refresh-only branch")
+    assert "REFUSING --refresh-only" in src, (
+        "--refresh-only with no authorised scope must refuse")
+
+
+def _never_called(name):
+    def _boom(*a, **kw):
+        raise AssertionError(f"{name} must not run under --refresh-only")
+    return _boom
+
 
 def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     """ATTRIBUTION, pinned as a twin.

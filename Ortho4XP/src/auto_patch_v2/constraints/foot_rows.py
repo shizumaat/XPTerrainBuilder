@@ -111,6 +111,7 @@ from shapely.strtree import STRtree
 
 from ..geom import face_triangles
 from ..law import Law
+from ..law.tables import is_value_role, role_side
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.ground_fit import GroundFit, ground_fit
@@ -126,6 +127,26 @@ BASIN_WALL_REF = "basin_wall:"
 #: ``[design] foot_row_rulings`` prices at ``pad_flat`` (11ab)
 GEN = "foot_rows"
 RULING = "structures.placement foot_row (RULINGS 2026-09-11q, spec §11b)"
+#: §34 (13) (3) (a) AN OBJECT'S FOOT NEVER HOLDS AIRSIDE PAVEMENT (Fable
+#: 2026-09-15; RULINGS 2026-09-15ad; owner 15e item 7).  A foot row is
+#: stated over the TRIANGLE the foot stands in, and a triangle on the
+#: adjacent ground reaches the pavement's own kerb columns — one node,
+#: one value (09-01g), so the graded strip SHARES its kerb vertices with
+#: the junction it borders.  At LEMD ``pav157``'s far edge v6622 that put
+#: **14 binding rows, sum |dual| 42,656** — the heaviest family on the
+#: vertex, an order of magnitude over everything else — from TWO 2.23 m
+#: bodies of ONE pack placement (``LEMD_OBJ-Airport_Munoza-LEMD69`` b2
+#: and b4, 4 feet each, relief 0.001 m, y_zero −1.198 / −1.200: the
+#: taxiway's own edge furniture) onto the junction's crossfall.
+#:
+#: RULED: such a row is ONE-WAY toward the object.  The foot FOLLOWS the
+#: pavement — airside is king — and the object stage re-seats the body on
+#: the solved design surface afterwards anyway, so nothing is lost by
+#: letting the pavement move first.  The row keeps its bare-ground
+#: columns as followers and treats the airside ones as GIVEN.  The head
+#: is registered in ``[design] one_way_rulings``; ``follows`` is set only
+#: on the rows that touch airside pavement, so every other foot row is
+#: two-sided exactly as §11b states it.
 
 #: the generator's own statistics, published beside its row count by
 #: ``constraints.generate`` as ``foot_rows.<stat>``
@@ -145,6 +166,23 @@ def foot_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     targets, verdicts, counts = foot_targets(planar, law, airport)
     STATS["foot_rows"] = dict(counts)
     VERDICTS[:] = verdicts
+    # §34 (13) (3) (a): the AIRSIDE PAVEMENT columns — a value role on the
+    # airside (runway / taxi / apron families).  The graded strip is
+    # airside but is NOT a value role: it traces a lawful bound and owns
+    # no level, so a foot row over it stays two-sided.
+    # EVERY AIRSIDE VALUE ROLE, the runway family included — the ruling's
+    # own words, and the narrowing was MEASURED AND REJECTED.  Excluding
+    # the runway family (taxi + apron only) halves the runway movement
+    # (394 → 196 vertices, 5.086 → 3.277 m) but does NOT reach the bar of
+    # zero, and it LOSES the law: the owner's raw pair reads **2.585 %**
+    # against the 1.985 % junction cap instead of **1.160 %**.  It gives
+    # up the fix without buying the bar, so the scope stays as ruled and
+    # the runway movement is reported as the price.
+    airside = {v for v, vx in planar.vertices.items()
+               if any(is_value_role(law, planar.faces[f].role)
+                      and role_side(law, planar.faces[f].role) == "airside"
+                      for f in vx.incident_faces if f in planar.faces)}
+    n_one_way = 0
     out: list[Row] = []
     for t in targets:
         # TWO ONE-SIDED ROWS, never a ``lo == hi`` Linear: ``solve/rows.
@@ -152,8 +190,24 @@ def foot_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         # equality, and a foot row is a DATUM (``constraints/pads.
         # _two_sided``, the same reasoning at the pad's weight).
         src = Source(GEN, RULING, (t.gid,))
-        out.append(Linear(t.terms, None, t.z, src))
-        out.append(Linear(tuple((v, -c) for v, c in t.terms), None, -t.z, src))
+        # §34 (13) (3) (a): a foot row touching AIRSIDE PAVEMENT governs
+        # only its bare-ground columns; the pavement's are GIVEN.
+        fv = None
+        if any(v in airside for v, _c in t.terms):
+            free = tuple(v for v, _c in t.terms if v not in airside)
+            # ALL-OR-NOTHING PER BODY STILL HOLDS (owner RULINGS
+            # 2026-09-11x (1)): a triangle EVERY corner of which is
+            # pavement has nothing left to follow, so its row stays
+            # two-sided rather than vanishing — dropping it would fire
+            # some of a body's feet and not others, which §11b forbids.
+            if free:
+                fv = free
+                n_one_way += 1
+        out.append(Linear(t.terms, None, t.z, src, follows=fv))
+        out.append(Linear(tuple((v, -c) for v, c in t.terms), None, -t.z, src,
+                          follows=fv))
+    STATS["foot_rows"] = {**STATS.get("foot_rows", {}),
+                          "one_way_at_airside": n_one_way}
     return out
 
 

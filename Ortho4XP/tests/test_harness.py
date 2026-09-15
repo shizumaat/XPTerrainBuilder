@@ -9720,3 +9720,36 @@ def test_a_curved_ramp_is_priced_along_its_axis_not_its_chord(cg, tmp_path):
         f"the reported span is the AXIS run: max "
         f"{max(r.distance_m for r in over):.1f} m vs chord {chord:.1f} m")
     assert max(r.distance_m for r in over) == pytest.approx(route, rel=0.02)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §34 (13) (3) (a) AN OBJECT'S FOOT NEVER HOLDS AIRSIDE PAVEMENT
+# (Fable 2026-09-15; RULINGS 2026-09-15ad) — the REGISTERS
+# ══════════════════════════════════════════════════════════════════════
+# The mechanism itself is twinned in `tests/auto_patch_v2/test_v2feet.py`;
+# what belongs HERE is that the two registers stay consistent, because
+# r4 lost one of them to a careless law toggle and every foot row in the
+# tree was silently re-priced from `pad_flat` (3000) to `law` (3) until
+# the four §11b twins caught it.
+
+def test_the_foot_row_head_is_in_both_registers():
+    """`foot_row_rulings` prices a foot row at `pad_flat` (11ab); the NEW
+    `one_way_rulings` entry (§34 (13) (3) (a)) points it at the object.
+    They are different registers and a foot row needs BOTH — losing the
+    first re-prices every foot row in the tree by three orders of
+    magnitude, silently."""
+    from auto_patch_v2.law import tables as _T
+    from auto_patch_v2.solve.design_roles import (conforming_rulings,
+                                                  foot_row_rulings,
+                                                  one_way_rulings)
+    law = _T.load_default()
+    head = "structures.placement foot_row"
+    assert head in foot_row_rulings(law), (
+        "the foot row's PRICE register — without it every foot row falls "
+        "back to `law` and a body's placement becomes the cheapest row "
+        "in the sheet")
+    assert head in one_way_rulings(law), (
+        "§34 (13) (3) (a): a foot row touching airside pavement follows it")
+    # `conforming_rulings` is the union of the two, so the head is in it
+    # either way — which is exactly why the union cannot be the guard
+    assert head in conforming_rulings(law)

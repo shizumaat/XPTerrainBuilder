@@ -8340,3 +8340,33 @@ does NOT cover the suite's OSM regional-extract overlay
 of `OSM_data`, so it needs a narrower scope or a path-level test, not an
 entry in `_REDIRECTABLE_SCOPES`. No builds, no downloads, no shared-repo
 writes; no INDEX row (library function of an indexed module).
+
+## 2026-09-15bg v2schemarefuse ROUND 6 MERGED (1ac10885): the refresh's derivations, ledger and lock release are ONE try/finally; a refresh-only run fails only on a REQUESTED scope; `--reconcile-ledger` — live proof rc 0 twice, and one residual (a never-ledgered artefact is not reconciled)
+
+Attribution (lane r6, e60d8917): 15bc's two defects are one root cause —
+the warm, the derivations and the re-judge sat OUTSIDE the `try` whose
+`finally` snapshots, stamps the ledger and releases the locks (the old
+"deliberately outside so a failure is not swallowed" comment was stale:
+the `finally` audits and re-raises). Now one `try`, one `finally`, every
+exit path. The third: a warm run was judged as a measurement —
+`require_dem_frame` and `require_no_implicit_refresh` stand down for
+`--refresh-only`, and `require_refreshed_frame` decides rc AFTER the
+derivations: rc 1 only if a REQUESTED scope is still stale/absent;
+unrequested cold items print with their flag, informational. (4)
+`--reconcile-ledger` (a FLAG, not automatic — an artefact newer than
+its ledger line may be another lane's authorised write; the record is
+`reconciled: true` with a `why` that claims no fetch); covers
+`osm_layers` artefacts (the warm specs + the 3 × 3 ROAD_FEEDS square).
+Merge conflict: one import line in `build_airport.py` (both kept).
+Suite ON MAIN: `1733 passed, 1 skipped, 1 xpassed`, 0 failed. LIVE PROOF
+(this session): `KPHX --tile 33 -112 --refresh-only --refresh-data
+osm_layers --reconcile-ledger` rc 0, lock released, 3 `dem` items
+informational; `KDFW --tile 33 -98 --refresh-only --refresh-data
+osm_layers` rc 0, 31 `dem` items informational. RESIDUAL: the
+reconciliation said "no artefact … nothing to reconcile" for
+`+33-112_big_roads` (mtime 13:48, NO ledger line at all) — its predicate
+needs an existing older line; a never-ledgered artefact is exactly the
+case — round 7. NOT DONE: a `dem` artefact derived-but-unrecorded has no
+reconcilable set; a cold bathymetry band is neither warmed nor reported
+by `--refresh-only`. Keys: the owner's chip session took 15bc
+concurrently and re-keyed itself to 15be (0fd65736); mine stands.

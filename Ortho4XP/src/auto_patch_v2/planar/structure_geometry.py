@@ -34,6 +34,7 @@ import math
 import typing as _t
 
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
+from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..model.frame import XY

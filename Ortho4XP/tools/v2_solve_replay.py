@@ -104,6 +104,30 @@ def _placement_override(law, over: dict[str, object]):
     return _dc.replace(law, tables=_dc.replace(law.tables, structures=st)), kw
 
 
+def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
+                     placement: dict[str, object] | None = None) -> None:
+    """:func:`capture` with the shared-repo guard and the lane-local cache
+    redirects armed around it (``harness/build_airport.
+    arm_shared_repo_protection``, the ONE arming composition).  The
+    REDIRECT must happen before the engine is imported, which is why it
+    is here and not inside the capture (lane ``v2padqp``)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    _harness_dir = str(ROOT / "tools" / "harness")
+    if _harness_dir not in sys.path:
+        sys.path.insert(0, _harness_dir)
+    from build_airport import (arm_shared_repo_protection as _arm,
+                               report_guard_churn as _churn)
+    _guard, _redirects = _arm(ROOT, out.parent, f"cap_{icao}")
+    _guard.__enter__()
+    try:
+        capture(icao, out, mod_cache_root, placement)
+    finally:
+        _guard.__exit__(None, None, None)
+        _churn(_guard)
+        print("[guard]", "shared repo UNCHANGED" if not _guard.blocked
+              else f"BLOCKED {_guard.blocked}", flush=True)
+
+
 def capture(icao: str, out: Path, mod_cache_root: str | None = None,
             placement: dict[str, object] | None = None) -> None:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
@@ -119,32 +143,14 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     ``ResourceCache`` for the whole capture, and the same objects handed
     to ``build_planar`` — the pack is read once, as the build reads it.
 
-    THE SHARED-REPO GUARD AND THE LANE-LOCAL CACHE REDIRECTS are armed
-    through ``harness/build_airport.arm_shared_repo_protection`` — the ONE
-    arming composition (CLAUDE.md; the ``classify_report.py`` precedent,
-    ten corpus files written by an unguarded in-process engine call) — and
-    every capture prints ``[guard] shared repo UNCHANGED``.  The redirect
-    runs BEFORE the engine imports below, which is why it is the first
-    statement of this function (lane ``v2padqp``)."""
-    out.parent.mkdir(parents=True, exist_ok=True)
-    _harness_dir = str(ROOT / "tools" / "harness")
-    if _harness_dir not in sys.path:
-        sys.path.insert(0, _harness_dir)
-    from build_airport import (arm_shared_repo_protection as _arm,
-                               report_guard_churn as _churn)
-    _guard, _redirects = _arm(ROOT, out.parent, f"cap_{icao}")
-    _guard.__enter__()
-    try:
-        _capture(icao, out, mod_cache_root, placement)
-    finally:
-        _guard.__exit__(None, None, None)
-        _churn(_guard)
-        print("[guard]", "shared repo UNCHANGED" if not _guard.blocked
-              else f"BLOCKED {_guard.blocked}", flush=True)
-
-
-def _capture(icao: str, out: Path, mod_cache_root: str | None = None,
-             placement: dict[str, object] | None = None) -> None:
+    THE SHARED-REPO GUARD AND THE LANE-LOCAL CACHE REDIRECTS are armed by
+    the CLI around this call (:func:`_capture_guarded`) through
+    ``harness/build_airport.arm_shared_repo_protection`` — the ONE arming
+    composition (CLAUDE.md; the ``classify_report.py`` precedent, ten
+    corpus files written by an unguarded in-process engine call) — and
+    every capture prints ``[guard] shared repo UNCHANGED``.  It is armed
+    OUTSIDE this function because the redirect must precede the engine
+    imports below (lane ``v2padqp``)."""
     from auto_patch_v2.airport import flat_site as _flat
     from auto_patch_v2.airport.load import load_with_report
     from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
@@ -1198,7 +1204,7 @@ def main() -> int:
         if a.out is None:
             ap.error("--capture needs --out")
         pl = dict(it.split("=", 1) for it in a.placement)
-        capture(a.capture.upper(), a.out, a.mod_cache_root, pl)
+        _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl)
         return 0
     if a.why_from:
         from auto_patch_v2.law import Law

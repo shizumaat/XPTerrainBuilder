@@ -189,3 +189,20 @@ def test_a_gap_wider_than_the_law_keeps_two_faces(law):
     ivals = _sd.deck_intervals(axis, 10.0, ws, lines, STRtree(lines), law)
     items = _sd.deck_items(ivals, [], 0.5, law)
     assert len(items) == 2 and all(not it[4] for it in items)
+
+
+def test_a_group_that_cannot_close_keeps_one_face_per_way(law):
+    """§33 (4) as amended, the transitive case: ``deck_groups`` unions by
+    PAIRS, so three ways each within ``deck_group_gap_max_m`` of the next
+    land in ONE group that spans more than the cap.  ``_deck_face`` then
+    cannot close it — and must hand the members back one face each, never
+    the largest piece alone (which would DELETE two decks silently)."""
+    axis = LineString([(0.0, -200.0), (0.0, 200.0)])
+    cap = law.tables.structures.bridge.deck_group_gap_max_m
+    ws = [_bridge(-1, 0.0), _bridge(-2, cap * 0.9 + 7.0), _bridge(-3, 2 * (cap * 0.9 + 7.0))]
+    lines = [LineString(w.points) for w in ws]
+    ivals = _sd.deck_intervals(axis, 10.0, ws, lines, STRtree(lines), law)
+    assert len(_sd.deck_groups(ivals, law)) == 1, "the three chain into one group"
+    items = _sd.deck_items(ivals, [], 0.5, law)
+    assert len(items) == 3, "no deck may be dropped when the group cannot close"
+    assert {it[0].id for it in items} == {-1, -2, -3}

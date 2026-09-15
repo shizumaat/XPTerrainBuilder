@@ -341,7 +341,13 @@ def _deck_face(polys: list[Polygon], grid: float, law: Law) -> tuple[Polygon | N
     ``(face, the gap closed in metres)``; the gap is closed only up to
     ``[bridge] deck_group_gap_max_m``, past which the two ways are a
     dual carriageway with real ground between and each keeps its own
-    face."""
+    face — ``(None, 0.0)``, and the caller falls back to one face per
+    member.  NEVER the largest part alone: ``deck_groups`` unions
+    TRANSITIVELY, so a chain of three ways each within the cap of the
+    next can span more than it, and returning the biggest piece would
+    DELETE the others\' decks silently.  (Not reached at LEMD — all four
+    of its groups are two-member and closed at 0.0-1.7 m — so the build
+    measured on this branch is unaffected either way.)"""
     u = unary_union(polys)
     if u.is_empty:
         return None, 0.0
@@ -354,12 +360,12 @@ def _deck_face(polys: list[Polygon], grid: float, law: Law) -> tuple[Polygon | N
             gap = max(gap, float(parts[i].distance(parts[j])))
     cap = float(law.tables.structures.bridge.deck_group_gap_max_m)
     if gap <= 0.0 or gap > cap:
-        return max(parts, key=lambda g: g.area), 0.0
+        return None, 0.0
     c = gap / 2.0 + grid
     closed = u.buffer(c, **_MITRE).buffer(-c, **_MITRE)
     cp = _parts(closed)
     if len(cp) != 1:
-        return max(parts, key=lambda g: g.area), 0.0
+        return None, 0.0
     return cp[0], gap
 
 
@@ -376,6 +382,12 @@ def deck_items(deck_ivals: list[tuple], pav_ivals: list[tuple], grid: float,
         ms = [deck_ivals[i] for i in grp]
         face, closed = _deck_face([m[3] for m in ms], grid, law)
         if face is None:
+            # the members do not close into one face: each keeps its own,
+            # exactly as an ungrouped deck does (never a silent drop)
+            for w, s0, s1, dp in ms:
+                one, _c = _deck_face([dp], grid, law)
+                if one is not None:
+                    items.append((w, s0, s1, one, False, [w], 0.0))
             continue
         items.append((ms[0][0], min(m[1] for m in ms), max(m[2] for m in ms),
                       face, False, [m[0] for m in ms], closed))

@@ -968,10 +968,16 @@ AIRPORT_ROAD_FEED_CACHE_VERSION = 1
 # the tile cache never had; consumers narrow by tag afterwards.
 _ROAD_FEED_STATEMENTS = ('way["highway"]', 'way["railway"]')
 
-# Way / node tag whitelists, deliberately a SUPERSET of the road caches'
+# Way / node tag whitelists, historically a SUPERSET of the road caches'
 # (``O4_Vector_Map.ROADS_TAGS_OF_INTEREST`` / ``ROAD_NODE_TAGS_OF_INTEREST``)
 # so a feed way carries everything a tile-cache way would, plus the class
 # tags themselves and the name/access tags classification will want.
+# NOT a superset since the §45 (9) schema bump of 2026-09-15: the tile
+# road caches gained ``cutting`` / ``covered`` / ``embankment`` and this
+# list has not, because growing it changes the sidecar FINGERPRINT below
+# and so re-cuts every airport's feed (a shared-repo write, scope
+# ``osm_roadfeed``).  Adding them here is the owner's act, not a build's
+# side effect; ``layer`` — the witness §45 (1)(d) reads — is here already.
 _ROAD_FEED_WAY_TAGS = (
     "highway", "railway", "bridge", "tunnel", "width", "lanes",
     "name", "ref", "service", "access", "oneway", "surface", "layer",

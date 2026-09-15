@@ -524,10 +524,12 @@ def _has_tunnel_tag_evidence(tags9: dict) -> bool:
     The R4 evidence test (owner spec round4-othh-fixes, 2026-08-10):
     ``tunnel`` in :data:`TUNNEL_VALUES`, or ``layer`` < 0.  ``layer`` is
     carried by the airport ROAD FEED's tag whitelist
-    (``osm_load._ROAD_FEED_WAY_TAGS``); the tile road caches
-    (``O4_Vector_Map.ROADS_TAGS_OF_INTEREST``) do not retain it, so on a
-    tile-cache way the ``tunnel`` half is the whole test — absence of the
-    key is never read as evidence either way.
+    (``osm_load._ROAD_FEED_WAY_TAGS``) and, since the §45 (9) schema bump
+    of 2026-09-15, by the tile road caches
+    (``O4_Vector_Map.ROADS_TAGS_OF_INTEREST``) as well — but only in a
+    cache written under ``ROAD_CACHE_TAG_SCHEMA`` "2026-09-15" or later;
+    on an older tile-cache way the ``tunnel`` half is still the whole
+    test.  Absence of the key is never read as evidence either way.
     """
     if tags9.get("tunnel") in TUNNEL_VALUES:
         return True

@@ -272,6 +272,11 @@ class Bridge:
     #: cell that end MEETS may stand (OSM stops a service road at the
     #: apron's edge, not on it).
     deck_end_reach_m: float
+    #: §34 (12) (4) (owner RULINGS 2026-09-15ap): the DEM drop under a
+    #: deck's span, against the mean of its abutments, that witnesses a
+    #: cutting; and how far along the deck an abutment is sampled.
+    deck_cut_witness_m: float
+    deck_abutment_m: float
     deck_group_gap_max_m: float
     deck_datum: str
     mapped_deck_cuttable: bool

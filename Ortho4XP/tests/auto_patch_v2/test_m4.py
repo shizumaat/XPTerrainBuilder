@@ -28,10 +28,25 @@ from auto_patch_v2.verify import census
 
 
 class _PlaneDem:
-    provenance = {"synthetic": "plane 0.5 % up-slope in x"}
+    """The 0.5 % plane, WITH A CUTTING under the deck at x = 150.
+
+    §34 (12) (4) as RULED (owner RULINGS 2026-09-15ap) severs a climb only
+    where the ground beneath a bridge's span is witnessed below grade, so
+    a fixture that asserts "the deck severs the ramp" must put a trench
+    there — a bridge over open ground is the VMMC defect, not a deck.
+    The bore `-101` ends at x = 80 and the deck `-301` crosses at x = 150,
+    so the TAG witness cannot reach it and the DEM witness is the fixture's
+    own: 1 m, twice ``[bridge] deck_cut_witness_m``, and shallow enough to
+    leave the deck its ``[bridge] clearance_m`` over the ramp."""
+
+    provenance = {"synthetic": "plane 0.5 % up-slope in x, cutting at x=150"}
 
     def z(self, x: float, y: float) -> float:
-        return 700.0 + 0.005 * x
+        # the trench runs ALONG the corridor (x), so the deck way — which
+        # runs across it in y — reads it under its span and not at its
+        # abutments 40 m out, which is what witness (ii) compares
+        cut = 1.0 if 140.0 <= x <= 160.0 and abs(y) <= 10.0 else 0.0
+        return 700.0 + 0.005 * x - cut
 
     def bounds(self):
         return (-5000.0, -5000.0, 5000.0, 5000.0)

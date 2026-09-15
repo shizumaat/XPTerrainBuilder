@@ -251,7 +251,28 @@ def test_a_terrain_deck_carries_the_ground_at_its_two_mapped_ends(law):
     bore = OsmWay(-101, "big_roads", ((-200.0, 0.0), (0.0, 0.0)), False, TAGS_T)
     road = OsmWay(-201, "big_roads", ((0.0, 0.0), (400.0, 0.0)), False, TAGS_R)
     deck = OsmWay(-301, "big_roads", ((60.0, -40.0), (60.0, 40.0)), False, TAGS_B)
-    tunnels, _stats = _one_tunnel(law, _Dem(), [bore, road, deck])
+
+    class _Cutting:
+        """Flat 700 m with a 1 m CUTTING along the corridor under the deck.
+
+        §34 (12) (4) as RULED (owner RULINGS 2026-09-15ap) makes a mapped
+        bridge sever a climb only where the ground beneath its span is
+        witnessed below grade.  The bore ends at x = 0 and this deck
+        crosses at x = 60, so the TAG witness cannot reach it; the trench
+        is the fixture's DEM witness, twice ``[bridge] deck_cut_witness_m``
+        and bounded in y so the deck's abutments 40 m out stand on the
+        ordinary ground the comparison is against."""
+
+        provenance = {"synthetic": "flat 700 m, 1 m cutting under the deck"}
+
+        def z(self, x: float, y: float) -> float:
+            cut = 1.0 if abs(x - 60.0) <= 10.0 and abs(y) <= 10.0 else 0.0
+            return 700.0 - cut
+
+        def bounds(self):
+            return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+    tunnels, _stats = _one_tunnel(law, _Cutting(), [bore, road, deck])
     decks = [d for t in tunnels for d in t.decks if d.datum == "dem"]
     assert decks, "the mapped bridge way makes a terrain deck"
     for d in decks:

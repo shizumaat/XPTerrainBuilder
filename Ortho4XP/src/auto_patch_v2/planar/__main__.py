@@ -425,6 +425,11 @@ def structure_records(airport, cl, law) -> dict:
                      "mouth_dem_z": t.mouth_dem_z, "top_s": t.top_s,
                      "climb_from_s": t.climb_from_s, "design_grade": t.design_grade,
                      "wall_length_m": t.wall_length_m, "decks": [d.ref for d in t.decks],
+                     # §33 (6) C3' (RULINGS 2026-09-15x): each deck's own
+                     # ring, so the parapet pair's inner faces can be
+                     # measured against the DESIGNED deck face without a
+                     # build
+                     "deck_rings_ll": [[ll(q) for q in (d.ring or ())] for d in t.decks],
                      "replaced_ways": list(t.replaced_ways), "notes": list(t.notes),
                      "width_m": t.hull_width_m, "depth_m": t.depth_m, "clipped_by": t.clipped_by,
                      "top_ground_z": t.top_ground_z, "profile": list(t.profile),

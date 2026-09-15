@@ -330,6 +330,19 @@ clearance_minimum_m = 4.2   # BRIDGE_ROAD_CLEARANCE_MINIMUM_M — below this the
 # apron pav92 (solved 606.60 against a DEM of 606.10 at the node); the next
 # governed cell at any LEMD deck end is 72 m away, so 25 sits in the gap.
 deck_end_reach_m    = 25.0
+# §34 (12) (4) AS RULED FROM THE TABLE (owner RULINGS 2026-09-15ap): a
+# mapped bridge severs a corridor's climb only where the ground beneath
+# its span is WITNESSED below grade — either the corridor's way under the
+# span carries `tunnel=yes` / `layer <= -1`, or the DEM under the span
+# reads at least `deck_cut_witness_m` below the mean of the DEM at the
+# deck's two abutments, sampled `deck_abutment_m` along the deck each way
+# (or the deck end where it is shorter).  0.5 m sits in the measured gap:
+# VMMC's maximum on the field is +0.17 m (the field is flat at Z0 6.10
+# and its decks stand over the untagged seafront approach), LEMD's
+# smallest positive cutting is +0.81 m.  40 m is a carriageway-scale
+# abutment: LEMD's deck ways run 35-467 m and the crossings 7-24 m.
+deck_cut_witness_m  = 0.5
+deck_abutment_m     = 40.0
 # ONE DECK FOR PARALLEL CARRIAGEWAYS (spec §33 (4) as amended, Fable
 # 2026-09-14, RULINGS 2026-09-14bp item 10; owner 2026-09-14bl item 10 "should
 # be a single smooth bridge, no small gap here").  Two mapped bridge ways that

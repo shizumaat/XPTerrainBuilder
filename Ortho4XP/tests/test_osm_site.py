@@ -616,3 +616,74 @@ class TestRelate:
         index = (Path(__file__).resolve().parent.parent.parent
                  / "tools" / "INDEX.md").read_text()
         assert "--relate" in index
+
+
+# ── §34 (12) (4)'s WITNESS TABLE (RULINGS 2026-09-15al) ──────────────────
+
+def _feed(ways):
+    """``(name, nodes, ways)`` in ``read_osm``'s own shape."""
+    nodes = {"1": (40.0, -3.0, None, {}), "2": (40.0, -3.001, None, {}),
+             "3": (40.001, -3.0, None, {}), "4": (40.001, -3.001, None, {})}
+    return ("feed", nodes, ways)
+
+
+def test_the_deck_witness_picks_the_BRIDGE_copy_of_a_colliding_id():
+    """THE COLLISION IS THE TRAP.  The road layers and the airports layer
+    each mint their own NEGATIVE ids, so one id is both a motorway bridge
+    and an ``aeroway=taxiway``: at LEMD eight of the eleven deck ids have
+    two copies and five of them read as a taxiway if the first is taken.
+    The witness picks the copy the structure pass read — the BRIDGE."""
+    ways = [("-6288", ["1", "2"], {"aeroway": "taxiway"}),
+            ("-6288", ["3", "4"], {"bridge": "yes", "highway": "service"})]
+    structures = {"tunnels": [{
+        "id": "tunnel:-17265@1",
+        "notes": ["§34 (12) (4): deck -6288 at s 56.3..70.4, the climb "
+                  "from 0.0 reaches grade at 24.0 — BEYOND GRADE, not a "
+                  "crossing"]}]}
+    rows = osm_site.deck_witness(structures, [_feed(ways)])
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["deck_tags"]["bridge"] == "yes"
+    assert r["id_copies"] == 2 and r["id_road_copies"] == 1
+    assert r["kept"] is False
+    assert "reaches grade at 24.0" in r["reading"]
+
+
+def test_a_witness_the_feed_CANNOT_carry_reads_schema_not_absent():
+    """A road feed cached before the 2026-09-15 tag schema carries NONE of
+    the cutting witnesses.  "Not mapped" and "this cache cannot say" are
+    different findings, and a table that conflated them would read a
+    stale cache as "no cutting here"."""
+    ways = [("-1", ["1", "2"], {"bridge": "yes", "highway": "service"})]
+    fresh = osm_site.deck_witness(
+        {"tunnels": [{"id": "tunnel:-9@0",
+                      "notes": ["§34 (12) (4): deck -1 at s 1.0..2.0, the "
+                                "climb from 0.0 reaches grade at 9.0 — severs"]}]},
+        [_feed(ways)], {"feed": True})
+    stale = osm_site.deck_witness(
+        {"tunnels": [{"id": "tunnel:-9@0",
+                      "notes": ["§34 (12) (4): deck -1 at s 1.0..2.0, the "
+                                "climb from 0.0 reaches grade at 9.0 — severs"]}]},
+        [_feed(ways)], {"feed": False})
+    assert fresh[0]["deck_witness"]["cutting"] is None
+    assert stale[0]["deck_witness"]["cutting"] == "schema"
+    assert fresh[0]["kept"] is True
+
+
+def test_the_deck_witness_prices_no_law_and_names_the_bores():
+    """It MEASURES NOTHING: the verdict is the structures run's own note,
+    read verbatim, and the bore ways come from the tunnel id."""
+    ways = [("-1", ["1", "2"], {"bridge": "yes", "highway": "service"}),
+            ("-5507", ["3", "4"], {"tunnel": "yes", "highway": "service",
+                                   "layer": "-1"})]
+    rows = osm_site.deck_witness(
+        {"tunnels": [{"id": "tunnel:-5508+-5507@0",
+                      "notes": ["§34 (12) (4): deck -1 at s 1.0..2.0, the "
+                                "climb from 0.0 reaches grade at 9.0 — severs",
+                                "stations collapsed 40 -> 2"]}]},
+        [_feed(ways)])
+    assert len(rows) == 1, "only the (12) (4) notes are rows"
+    assert rows[0]["bore_ways"] == ["-5508", "-5507"]
+    assert rows[0]["bore_witness"]["-5507"]["tunnel"] == "yes"
+    assert rows[0]["bore_witness"]["-5507"]["layer"] == "-1"
+    assert rows[0]["bore_witness"]["-5508"]["tunnel"] is None

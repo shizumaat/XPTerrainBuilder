@@ -7769,3 +7769,167 @@ unmeasured. r6: implement (i)+(ii) with `deck_cut_witness_m` 0.5 /
 deck, a VMMC 0.00 deck, a stale-feed `schema` deck); dry pairs LEMD
 7 kept / VMMC 0 / OTHH 44 / 1; suite; then merge.
 15ap addendum — THE OWNER'S ROAD-LAYER REFRESHES, DONE (owner-authorised by message while away; one task per tile; all `shared repo UNCHANGED` by the builds themselves, the writes ledgered): +22+113 (VMMC/VHHH) 11:05:34; +40-004 (LEMD) nothing stale (its big_roads was re-derived by the 09:03 contamination); +30+031 (HECA) 11:26:53 (+2 regional clips); +35-081 (KCLT) 11:35:05; +25+051 (OTHH) 11:45:43; +60-136 (CYXY) 11:46:18. Every closing build on those tiles is unblocked. Not refreshed (the peer's airports, their own authorisation): LGAV +37+023, KDFW +32-098/+32-097, KPHX +33-112.
+
+## 2026-09-15ar v2objcut r3 MERGED (5cc3e7bc → d94db789): VHHH tunnel5 MET (ring vertices outside the wall line 85 → 0, floor 1.30 = authored; all five shells 0 outside bar TUNNEL2_DONE 4 / 0.90 m; `object_cut_depth` 0 rows), LEMD item 1 MET (both parapets on the deck edges within 0.06 m; six other decks byte-identical), item 6 stations 9 → 13 (`trench_outside_max_m` 0.139); TWO MAIN-TREE FINDINGS: the OTHH object-corridor reader is NONDETERMINISTIC (7/42 vs 9/44 on one tree, `tunnel west 1/3.obj` flipping) — lane v2othhdet; the VHHH closing build CONTAMINATED the mod cache (a new-hash DSF dump of the owner's rebaked pack past the lane-local redirect) — the peer's guard; the VHHH census vs the 1.0.340 patch (law-true 1,713 → 4,845, ADJUDICATED 272 → 1,472) is UNATTRIBUTED — a control pair at f912ba81 is owed (lane v2vhhhctl)
+
+Lane @ 5cc3e7bc (main f912ba81 merged); suite 1,649 passed, 0 FAILED;
+22 twins. Closing VHHH build rc 0, 672.4 s, optimal, body_sha
+38e3a2678b5c, 1,970 verify rows, `object corridors 5 (0 refused)`,
+`tunnels 26 cells cut 17` — the hairpins no longer fold (B's ring =
+the object's trench polygon, `structure_geometry.geometry_from_trench`
+/ `ring_for` / `seed_wall_stations` — only stations whose inner-face
+point stands > 0.5 m off the chord are seeded; seeding EVERY station
+moved nine straight OTHH corridors and was withdrawn). Per shell,
+1.0.340 → build: tunnel5 85/147 (worst 75.8 m) → 0/107, floor miss
+0.90 → 0.00; tunnel1 19/25 → 0/62; TUNNEL2 111/171 → 4/389 (0.90 m —
+the 1,110 m five-portal shell, named, over the 0.5 m bar); tunnel3
+27/46 → 0/45; tunnel4 26/40 → 0/37. C3′: `structure_deck.flanking_pair`
+/ `_centred_on_pair` — `-6288`'s lateral extent −11.81…+2.29 →
+−10.23…+10.24 m against inner faces ±10.185 (worst excess +1.62 →
++0.06 m); `mouth_z` unchanged, only `climb_from_s`. C2′: Bridge4
+stations 12 → 17, collapsed 9 → 13; per-vertex numbers await a LEMD
+build. LEMD 49/51 tunnels identical (the two named); OTHH six
+populations identical — BUT two base runs at f912ba81 differ (7/42 vs
+9/44; arms e0_OTHH / e2_OTHH), `tunnel_objects.py` byte-identical
+between branch and main: a main-tree nondeterminism that invalidates
+any single-run "byte-identical" claim at OTHH and may vary the
+CUSTOMER'S OTHH build run to run. CONTAMINATION (quoted): "SHARED-REPO
+SIDE EFFECT: this build wrote 2 path(s) NOBODY authorised … [airport_
+mod_cache] … added Airport_mod_cache/c_HKG - 100_airport - VHHH_…/
++22+113.dsf.d18b5903.text … Re-run with --refresh-data
+airport_mod_cache … artifact ledger: NOT stored"; the harness also
+named `+60-136_big_roads.osm.bz2` as an external candidate (my CYXY
+refresh at 11:46, ledgered). OWNER: `--refresh-data airport_mod_cache`
+for the VHHH pack's new-hash dump is yours to authorise (not covered
+by the road-layer word). `planar/structures.py` at exactly 1,000
+lines.
+
+## 2026-09-15at v2objcut r3 proved on main (suite 1,649 passed, 0 FAILED after d94db789); v2vmmcshore r6 (b10168d9) MET at VMMC on a real build and keeps 5 of LEMD's 7 approved decks under §34 (12) (4) — `-5305` and `-15293` LOST (DEM −0.57 / −1.46, spans over the untagged approach) — accepted as the rule's own words and named for the owner's LEMD read; the doubled-plane check DONE (no second plane); r6's merge CONFLICTS with v2objcut r3 in structure_deck.py / structures.py → the lane resolves on its branch (r7)
+
+r6 (suite 1,689, 0 FAILED): `structure_service.deck_witness_for` +
+`structure_deck._witnessed`, `[bridge] deck_cut_witness_m` 0.5 /
+`deck_abutment_m` 40.0 (no Python defaults); both station limbs and
+`grade_reach_for` deleted; the alongside pre-filter stays;
+`deck_witness_notes` on every tunnel. Closing VMMC build rc 0, 16.8 s,
+optimal, body_sha ecc616c4bba5, ledger 3cd89005e24c, `shared repo
+UNCHANGED`: probe covered by nothing (ramp 188 m), 0.00 m² on the sea,
+0 nodes ≤ 0.5 m, pav5 5.09…6.12 (39.0 m clear), tunnels 13 / decks 1
+(`-2088` on `-4787@1` at s 0–9.1 by (i): `tunnel=yes` on the bore it
+stands over), `sea_wall` 27 / tears 0 / steps 0, ADJUDICATED 55; the
+five Macau LRT viaducts never sever (tag none, cut 0.00; the 11:05 feed
+refresh does not make (i) fire — those decks stand over the untagged
+approach). OTHH 44 / 1. LEMD: `-6288` +2.03, `-11828` +1.34, `-14230`
++0.81, `-516` +2.33, `-1378` +1.79 sever by (ii); `-5305` (−0.57) and
+`-15293` (−1.46) do NOT — their bores carry layer −1 tunnel=yes but the
+spans stand at s 103.3 / 146.2 of the approach walk beyond the bore
+chains; reading (i) as "any way of the corridor" would keep both AND
+sever every VMMC deck. ACCEPTED as ruled; OWNER READ ITEMS for the next
+LEMD build: the ramps under `-5305` (`-1581+-1568@1`) and `-15293`
+(`-1341+-1339@1`, 180 → 24 m) — if the sim shows those bridges over a
+real cutting, the DEM witness there is wrong and the rule takes a
+third witness (the pack? the deck's own height above the road?).
+Fixtures corrected: two pre-existing twins asserted "severs" over FLAT
+synthetic ground (the VMMC defect) — now carry a 1 m cutting. DOUBLED
+PLANE: the r4 tile (`v2vmmcshore4tile`, finished 11:47) — `mesh_region_
+tris --z-xref` 22,393 nodes all matched; attr 15 (PATCH_RING) 253 rows
+over 2 m, worst −6.100 m at 22.1611209,113.5790349 = the SEA WALL
+itself (patch ring 6.10 vs mesh water 0.00, = the `sea_wall` family's
+27 rows); no patch node at sea level seaward — there is no second
+plane; the worst overall (+51.8 m, attr 1) is a non-patch marker class,
+not this lane's. MERGE: r6 conflicts with v2objcut r3 (d94db789:
+`deck_intervals(+plates)`, `flanking_pair`, the `_ring` closure,
+`seed_wall_stations`) in structure_deck.py and structures.py; aborted
+on main; r7 = the lane merges main, keeps both behaviours, re-proves
+(VMMC 1 / LEMD 5 of 7 with `-6288` centred on Bridge2's pair / OTHH
+44 / 1), suite. VHHH: v2objcut r3's closing build census
+(law-true 1,713 → 4,845 vs the 1.0.340 patch) is being attributed by
+lane v2vhhhctl (control at f912ba81 + arm at main). OTHH
+nondeterminism: lane v2othhdet.
+
+## 2026-09-15am v2schemarefuse ROUND 3 MERGED (a5ac5a85): the VHHH "new-hash dump" was a CROSS-ATTRIBUTION — another process rewrote the live pack DSF; a redirected scope's deltas are now named external, and a pack DSF with no cached dump REFUSES before the build
+
+Measured (lane `v2schemarefuse` r3, acab060c), against 15ar's flagged
+run (`build_airport.py VHHH`, tag v2objcutVHHHr3, 11:41:45→11:53:00, rc
+0): its frame records `engine_cache_redirects.airport_mod_cache =
+<lane>/tmp/engine_caches/Airport_mod_cache` — the redirect WAS armed —
+and `write_guard_blocked` empty; the shared paths are stamped 11:52:31
+(`+22+113.dsf.d18b5903.text` added, `o4_dsf_object_positions_+22+113.
+cache` modified); the LIVE pack DSF was rewritten at 11:49 with
+`written_sha256 = d18b5903…` by `placement_write.apply_plan` (its
+`o4_placement_provenance.json`, 6,390 placements), whose only reachable
+caller is the TILE build's `rebake_after_mesh` — the v2 airport pipeline
+never calls it. A Python write of the shared path would have been
+refused at the call (the guard resolves symlinks), and DSFTool inherits
+the redirect: the flagged build could not have been the author. Another
+process in the window rebaked the pack (a concurrent +22+113 tile build,
+or the app — its engine log last wrote 07:53); `input_scope` cannot
+catch it because the VHHH pack IS in the build's input set. TWO HALVES:
+(1) `shared_repo_guard.redirected_scopes()` + `report_unauthorised_
+writes(..., redirected=)` — a scope whose root THIS process pointed
+outside the repo has no writer here, so its deltas are named as external
+candidates (`external_reason: "redirected"`), never hidden, never a
+CONTAMINATED verdict; the predicate is the engine's own accessor per
+scope at audit time (an inert override reads as not redirected; an
+authorised refresh leaves the scope shared and is recorded; a guard that
+blocked anything vetoes the externalisation). (2) `build_airport.
+missing_pack_dsf_dumps` inside `missing_shared_artifacts` (now takes the
+ICAO): the serving pack's PRISTINE tile DSF with no content-keyed dump in
+the shared corpus or the lane overlay REFUSES up front under
+`airport_mod_cache` with the sha8 — a DSFTool dump is a subprocess write
+no Python guard can refuse at the call, so the pre-build refusal is the
+only defence (the redirect is the defence at the write). Predicates the
+engine's own (`find_text_dump`, `text_dump_tag`, `pristine_dsf_path`,
+`select_pack`). Live corpus read-only: VHHH/HECA/LEMD/CYXY/OTHH name 0
+today. `--refresh-data airport_mod_cache` needs no new derivation site:
+the scope is left shared and the loader's own dump is the derivation,
+ledgered by the diff. Suite ON MAIN: `1685 passed, 1 skipped`, 0 failed.
+NOT DONE: the author process is not identified (needs the other
+session's shell history); `missing_pack_dsf_dumps` not widened to
+`--tile`. CHIP: `tools/obj8_split_report.py` arms the guard by hand but
+not `redirect_engine_caches` — the one `apply_plan` caller missing from
+`arm_shared_repo_protection` (the 2026-08-11 `classify_report` shape).
+
+## 2026-09-15av 15ar's CONTAMINATED verdict on v2objcut WITHDRAWN (peer measurement 15am + timestamps): the VHHH pack's live DSF was rewritten at 11:49 by `placement_write.apply_plan` (rebake_after_mesh) from lane v2vmmcshore's TILE build `v2vmmcshore4tile` (+22+113, mesh at 11:47:08, dump 11:52:31); v2objcut's airport build had its redirect ARMED; v2vhhhctl launched after — A LANE TILE BUILD REWROTE THE OWNER'S PACK IN THE SHARED MOD CACHE (6,390 placements at r4's tree): the tile path's rebake is not redirected lane-local — the peer's guard; the owner restores/refreshes the pack
+
+Peer (v2schemarefuse r3, a5ac5a85 / 15am): the dump `+22+113.dsf.
+d18b5903.text` followed a rewrite of the LIVE pack DSF
+(`o4_placement_provenance.json`, sha d18b5903, 6,390 placements) that
+only a TILE build's rebake reaches; v2objcut's frame.json records its
+mod-cache redirect armed. Timestamps here: /tmp/harness/tile_
+v2vmmcshore4tile/ Data+22+113.node/.poly 11:47:08 (the lane's z-xref
+tile, started ~09:58 — its .progress files 09:40/09:58); v2vhhhctl
+launched ~12:05. CONSEQUENCES: (1) the shared mod-cache copy of the
+owner's VHHH pack now carries a lane's rebake (r4 tree) — the owner's
+next VHHH tile build from the app will rebake again from .anchor_bak
+originals (Sep 13 19:44) per the engine's own convention, so the
+scenery is recoverable; the OWNER decides whether to `--refresh-data
+airport_mod_cache` (bless the new dump) or restore; (2) lane TILE
+builds are OFF LIMITS for lanes until the tile path redirects rebake
+writes lane-local (the peer's guard) — briefs say "ONE airport build";
+the z-xref tile was outside the brief and is recorded as the breach;
+(3) now on main: an unauthorised new-hash dump refuses at the write;
+a scope the process redirected has its deltas named as external
+candidates, never CONTAMINATED. Chip from the peer: obj8_split_report
+arms the guard but not redirect_engine_caches.
+
+## 2026-09-15ax APP 1.0.341 BUILT (f4bac3d4, engine 1.50.1788, main 7341372b) on the owner's word ("Build 341 for me to test") — bundled: solver qp, defect floor 0.10, bank OFF, pads OFF, mouth_pair_m 100, parapet_max_width_m 3.0; NOT in it: v2vmmcshore r6/r7 (the deck rule §34 (12) (4), merged to main right after at 347c4552), v2channel. v2vmmcshore r7 MERGED: both behaviours kept in structure_deck (`deck_intervals(..., bores, witness, plates)`), structures.py at 1,000 lines, suite 1,696 green twice on the branch; dry pairs VMMC 13 / 1, LEMD 56 / 5, OTHH 44 / 1; `-6288` centred on Bridge2's pair (span 20.6 vs inner 20.37 m, 0.23 ≤ 0.3)
+
+WHAT THE OWNER READS IN 1.0.341 — LEMD: item 5 mouth 5.07 m deep; the
+road between the mouths (−5944) graded at the cap; item 7 trench 31–33
+m from the taxiway kerb (beyond the code-E strip; the runway-strip
+residual stands — 15y-1); ramps graded along their axis; items 3/4
+inside Bridge3's wall pairs (item 4's top 7 m short of the pair's
+outer end); item 1 the deck centred on the parapets (from v2objcut r3);
+item 2 the garage STILL floats (pads OFF — the airside re-noding
+question). VMMC (r1–r3 only): the sea wall / quays, no zone band over
+the sea, no taxiway cut; the seafront corridor STILL carries decks in
+1.0.341 (the witnessed-below-grade rule is in the next build) — read
+the shore, not the tunnel line. VHHH: all five shells cut to their
+authored floors and outlines (tunnel5 the owner's site); the VHHH pack
+in the mod cache carries a lane rebake (15av) — the owner's app tile
+build rebakes from .anchor_bak. Also: LGAV no longer crashes the
+object stage; schema-stale road layers refuse by name; the road-layer
+refreshes done today. The two LEMD decks lost by the deck rule
+(`-5305`, `-15293`) are NOT in 1.0.341 (they still hold their
+trenches there) — a 1.0.342 item.
+15ax addendum: suite ON MAIN after the v2vmmcshore r7 merge (347c4552): 1652 passed, 1 skipped, 42 warnings in 66.05s (0:01:06).

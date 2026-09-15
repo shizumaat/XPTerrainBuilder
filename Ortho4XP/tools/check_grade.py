@@ -6367,6 +6367,91 @@ def _check_bank_across_seam(seam_half_width_m, seam_pins_ll, nodes,
     return out
 
 
+#: §34 (10) THE ROAD MARGIN IS GENERAL (owner RULINGS 2026-09-14bd): the
+#: RAMP family a ramp-in-road row prices.  Read from the LAW — v2's
+#: structure roles ARE the ramp roles (``tunnel_ramp``, ``door_ramp``,
+#: ``wall_corridor_ramp``, ``garage_ramp``) — so the census and the
+#: emitter cannot drift; the literal is the no-engine fallback for the
+#: bare-patch CLI only, and it is what the twin asserts against.
+try:                                                    # pragma: no cover
+    from auto_patch_v2.law import tables as _V2_RAMP_T
+    _V2_RAMP_LAW = _V2_RAMP_T.load_default()
+    _RAMP_ROLES = frozenset(r for r in _V2_RAMP_T.governed_roles(_V2_RAMP_LAW)
+                            if _V2_RAMP_T.is_structure_role(_V2_RAMP_LAW, r))
+except Exception:                                       # pragma: no cover
+    _RAMP_ROLES = frozenset({"tunnel_ramp", "door_ramp", "wall_corridor_ramp",
+                             "garage_ramp"})
+
+
+def _check_ramp_in_road(ways, nodes, ll_to_m) -> List[Violation]:
+    """§34 (10) NO RAMP VERTEX INSIDE A ROAD RIBBON (owner RULINGS
+    2026-09-14bd: "we should generalize this to allow this margin for
+    ramps arriving at a road, not special case it for OTHH").
+
+    Every ramp that arrives at a road ends at the road's TRUE EDGE — the
+    centreline offset by the road's half-width toward the ramp — so the
+    road ribbon is never cut.  This is the reading of that: a vertex of a
+    RAMP face standing INSIDE a road face.
+
+    CRITICAL, and a PRESENCE family (``cockpit = "keepout"``): one vertex
+    inside the ribbon is the whole defect whatever its elevation — the
+    road it cuts is a lane of carriageway, and the pinch the ramp is in
+    does not license taking it.
+
+    A vertex WELDED to the ribbon's edge is not inside it: the ramp ending
+    AT the road edge is exactly what the law asks for, and the emitted
+    identity puts that vertex on the boundary.  The line is the census's
+    own weld tolerance (``SHARED_VERTEX_TOL_M``, the law's "these two
+    vertices are one node" predicate), never a proximity semantic
+    invented here.
+
+    Measured at OTHH: 0 in the owner's 1.0.335 patch and 0 after — the
+    family is the GUARD on the derivation (``planar/wall_corridor_ramps.
+    road_true_edge``), not a defect count.
+    """
+    from shapely.geometry import Point, Polygon
+    roads = []
+    for w in ways:
+        if law_role(w) not in _ROAD_FAMILY_ROLES:
+            continue
+        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        if len(pts) < 4:
+            continue
+        try:
+            g = Polygon(pts)
+            if not g.is_valid:
+                g = g.buffer(0)
+        except Exception:                                 # pragma: no cover
+            continue
+        if not g.is_empty:
+            roads.append((g, w))
+    if not roads:
+        return []
+    out: List[Violation] = []
+    for w in ways:
+        if law_role(w) not in _RAMP_ROLES:
+            continue
+        for nid in dict.fromkeys(w.nids):
+            if nid not in nodes:
+                continue
+            lat, lon = nodes[nid]
+            p = Point(ll_to_m(lat, lon))
+            for g, rw in roads:
+                if not g.contains(p):
+                    continue
+                depth = p.distance(g.exterior)
+                if depth <= SHARED_VERTEX_TOL_M:
+                    continue
+                v = Violation(
+                    grade_pct=0.0, excess_pct=0.0, distance_m=depth,
+                    de_m=depth, way_a=w, way_b=rw,
+                    pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
+                v.lat, v.lon = lat, lon
+                out.append(v)
+                break
+    return out
+
+
 #: §39 (2): the DEGENERATE FLOOR - a gap under this is unmeshable
 #: whatever its neighbourhood (owner RULINGS 2026-09-13bu's own bar,
 #: "constrained segments under 10 mm 28 -> 0"); one over it is ordinary
@@ -8377,6 +8462,12 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     ("bank_across_seam",
      "BANK FOOT node INSIDE a tile-seam band (no bank along a seam)",
+     "within"),
+    # §34 (10) THE ROAD MARGIN IS GENERAL (owner RULINGS 2026-09-14bd;
+    # spec §34 (10)).  A ramp ends at the road's TRUE edge, so a ramp
+    # vertex INSIDE a road ribbon is a cut lane — CRITICAL, presence.
+    ("ramp_in_road",
+     "RAMP vertex INSIDE a road ribbon (the road margin is general)",
      "within"),
     # §39 (2) THE HAIRLINE LAW (owner RULINGS 2026-09-13bk; spec §39).
     # Sidecar-declared like ``seam_residual``: ``shore_edges`` = the tile's
@@ -10958,6 +11049,15 @@ def run_checks(
         "already at the DEM — 13an, the chain Triangle4XP split 16,298 "
         "times against the tile border)", bank_seam, top_n)
     within = within + bank_seam
+
+    # §34 (10): every ramp ends at the road's TRUE edge; a ramp vertex
+    # inside a road ribbon is a lane of carriageway cut away
+    ramp_road = _fam("ramp_in_road", _check_ramp_in_road(ways, nodes, ll_to_m))
+    _pv("RAMP vertex INSIDE a road ribbon (owner RULINGS 2026-09-14bd "
+        "§34 (10): every ramp arriving at a road ends at the road's TRUE "
+        "edge — centreline + half width — and the ribbon is never cut)",
+        ramp_road, top_n)
+    within = within + ramp_road
 
     # §39 (2): every emitted edge — pavement ring AND role-less feature
     # way — against the tile's foreign constrained edges

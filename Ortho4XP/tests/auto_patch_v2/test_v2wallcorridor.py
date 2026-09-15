@@ -68,8 +68,20 @@ def _vwall(vt, tris, x0, x1, z0, z1, y_z0, y_z1, top):
         tris += [(i, i + 1, j + 1), (i, j + 1, j)]
 
 
+#: The synthetic corridor's own geometry, named because §34 (9) (5) reads
+#: it: the walls run ``DECK_HALF_LEN_M`` each way from the midpoint and the
+#: deck slab over them stops ``DECK_END_INSET_M`` short of each wall end,
+#: so each half is COVERED for ``DECK_HALF_LEN_M − DECK_END_INSET_M`` of
+#: its length and the rest of its wall stands in the open.
+DECK_HALF_LEN_M = 40.0
+DECK_END_INSET_M = 10.0
+#: The covered start is walked at the group's station grid, so it lands
+#: within one grid step of the plate's true edge.
+STATION_TOL_M = 1.0
+
+
 def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, end_wall=False,
-                  drop=0.0, half_len=40.0, one_band=False):
+                  drop=0.0, half_len=DECK_HALF_LEN_M, one_band=False):
     """Two kerb bands ``width`` apart between their inner faces, ``depth``
     under the seat, ``top`` above it, under a deck slab at ``deck_y``
     (``None`` = open air); ``end_wall`` closes the +z end; ``drop`` makes
@@ -83,7 +95,8 @@ def _corridor_obj(path, width=10.0, depth=1.9, top=0.5, thick=0.3, deck_y=2.6, e
     if end_wall:
         _vwall(vt, tris, -hw, hw, half_len, half_len + thick, -depth - drop, -depth - drop, top)
     if deck_y is not None:
-        _slab(vt, tris, -hw - 2.0, hw + 2.0, -half_len + 10.0, half_len - 10.0, deck_y, deck_y + 0.3)
+        _slab(vt, tris, -hw - 2.0, hw + 2.0, -half_len + DECK_END_INSET_M,
+              half_len - DECK_END_INSET_M, deck_y, deck_y + 0.3)
     return _write(path, vt, tris)
 
 
@@ -334,14 +347,26 @@ def test_two_bands_under_a_deck_are_a_level_corridor_of_two_halves(objs, law):
     assert sst.wall_corridors == 2 and len(tunnels) == 2
     for t in tunnels:
         assert t.source == KIND and t.design_grade == pytest.approx(wc.ramp_grade)
-        assert t.climb_from_s == pytest.approx(t.wall_length_m)
+        # §34 (9) (5) as CORRECTED by owner RULINGS 2026-09-14be: the climb
+        # starts at the COVERING PLATE's edge, not at the wall end.  This
+        # fixture's deck slab spans z −30..+30 (``_corridor_obj``:
+        # ``half_len − 10``) over walls running to ±40, so each half is
+        # COVERED for 30 of its 40 m and the last 10 m of wall stands in
+        # the open — that stretch is RAMP.  The twin asserted the wall end
+        # (40) and encoded the superseded wall-end law; it now asserts the
+        # deck's own cover, which is what the physics says.
+        cover_s = DECK_HALF_LEN_M - DECK_END_INSET_M
+        assert t.climb_from_s == pytest.approx(cover_s, abs=STATION_TOL_M)
+        assert t.climb_from_s < t.wall_length_m - 1e-6
         assert t.top_pinned and not t.clipped_by
         climb = t.top_s - t.climb_from_s
-        assert 1.9 / wc.ramp_grade <= climb <= 1.9 / wc.ramp_grade + 2.0 * wc.station_m + 1e-6
-        # the published profile: the wall bottom inside the walls, the design
-        # line to the ground beyond
+        assert 1.9 / wc.ramp_grade <= climb <= 1.9 / wc.ramp_grade + 2.0 * wc.station_m \
+            + (t.wall_length_m - t.climb_from_s) + 1e-6
+        # the published profile: the wall bottom to the plate edge, the design
+        # line to the ground beyond (the uncovered wall stretch included)
         assert profile_z(t.profile, 0.0) == pytest.approx(t.mouth_z)
-        assert profile_z(t.profile, t.wall_length_m) == pytest.approx(t.mouth_z, abs=1e-6)
+        assert profile_z(t.profile, t.climb_from_s) == pytest.approx(t.mouth_z, abs=1e-6)
+        assert profile_z(t.profile, t.wall_length_m) > t.mouth_z + 1e-6
         x, y = t.axis[-1]
         assert profile_z(t.profile, t.top_s) == pytest.approx(airport.dem.z(x, y), abs=1e-6)
     roles = {c.role for c in cl2.cells}
@@ -379,13 +404,25 @@ def test_a_crossing_family_face_closes_the_end_into_a_bay(objs, law):
 
 
 def test_a_ramp_meeting_airside_pavement_stops_and_steepens(objs, law):
-    """08m (a): an apron 22 m beyond one end stops that half's ramp at the
-    pavement edge and the climb steepens to ≤ ``max_ramp_grade``; the
-    groundside road under the corridor is cut, never a stop."""
+    """08m (a): an apron 22 m beyond the CLIMB'S START stops that half's
+    ramp at the pavement edge and the climb steepens to ≤
+    ``max_ramp_grade``; the groundside road under the corridor is cut,
+    never a stop.
+
+    THE APRONS MOVED WITH THE PHYSICS (§34 (9) (5) as corrected by owner
+    RULINGS 2026-09-14be): the climb now starts at the COVERING PLATE's
+    edge (s 30, ``DECK_HALF_LEN_M − DECK_END_INSET_M``) instead of the
+    wall end (s 40), so an apron pinned to the old wall end tested
+    nothing — the ramp reached the ground 10 m before it.  Both
+    rectangles are restated as the same RUNS measured from the climb's
+    own start: 22 m (steepens, inside the cap) and 12 m (too short for
+    the cap — the mouth moves).  What each asserts is unchanged."""
     wc = law.tables.structures.cutout.wall_corridor
     airport, cache, objects, recs, st = _corridors(objs, law, "level")
     groups = wall_corridor_groups(recs, law)
-    apron = Cell(2, "apron", "apron1", _rect(-60, 62, 60, 200), (), None, None, "airside", "apron", {})
+    stop1 = DECK_HALF_LEN_M - DECK_END_INSET_M + 22.0        # 22 m of run
+    apron = Cell(2, "apron", "apron1", _rect(-60, stop1, 60, 200), (), None, None,
+                 "airside", "apron", {})
     cl = Classification(tuple(_cells((apron,))), (), {}, ())
     _cl2, tunnels, sst = build_structures(airport, cl, law, objects, (), groups)
     assert not sst.refused, sst.refused
@@ -402,7 +439,9 @@ def test_a_ramp_meeting_airside_pavement_stops_and_steepens(objs, law):
     # MOUTH away from airside, back under the building, by the run the cap
     # needs (spec §34 (8) as amended, owner RULINGS 2026-09-14u): no step,
     # the corridor still CUT with both its mouths, the airside cell unpulled
-    near = Cell(2, "apron", "apron2", _rect(-60, 50, 60, 200), (), None, None, "airside", "apron", {})
+    stop2 = DECK_HALF_LEN_M - DECK_END_INSET_M + 12.0        # 12 m: short of the cap
+    near = Cell(2, "apron", "apron2", _rect(-60, stop2, 60, 200), (), None, None,
+                "airside", "apron", {})
     cl = Classification(tuple(_cells((near,))), (), {}, ())
     _cl3, tunnels2, sst2 = build_structures(airport, cl, law, objects, (), groups)
     assert not [r for r in sst2.refused if "max_ramp_grade" in r], sst2.refused
@@ -538,6 +577,9 @@ def test_a_host_pad_is_cut_by_the_ramp_beyond_the_walls(objs, law):
     after = sum(Polygon(c.ring).area - sum(Polygon(h).area for h in c.holes)
                 for c in kept)
     assert after < before - 1.0, (before, after)          # the ramp took its bite
+    # the bite is the RAMP's: the pad is open beyond the wall end no more
+    on_ramp = Point(0.0, DECK_HALF_LEN_M + 5.0)          # 5 m past the wall end, on the axis
+    assert not any(Polygon(c.ring).covers(on_ramp) for c in kept)
     # ...and NO pad flat may grip a wall-corridor FLOOR vertex (the OTHH row)
     pm, _stats = build(airport, cl, law)
     cs, _c, _w = generate(pm, law, airport)
@@ -548,10 +590,65 @@ def test_a_host_pad_is_cut_by_the_ramp_beyond_the_walls(objs, law):
             assert not (set(f.group) & floor), (f.source.inputs, set(f.group) & floor)
 
     # ON RELIEF (1.5 m over 300 m) => NOT a host: it STOPS the ramp
-    # (tunnel.ramp_crosses_pad — the LEMD Cargo-NEWCO@5/a demotion)
+    # (tunnel.ramp_crosses_pad — the LEMD Cargo-NEWCO@5/a demotion).
+    #
+    # RE-FOUNDED with §34 (9) (5) as corrected by owner RULINGS
+    # 2026-09-14be: the climb now starts at the COVERING PLATE's edge
+    # (s 30) rather than the wall end (s 40), so the 10 m of UNCOVERED
+    # wall is ramp and the stopped climb has somewhere to go — the §34
+    # (8) moved mouth finds a lawful ramp where the wall-end law left
+    # zero run and the corridor was refused outright.  The refusal was
+    # collateral; what this block was written to test is HOST vs STOP,
+    # and that is asserted directly: the relief pad stops the ramp and
+    # is NOT bitten, where the flat pad above hosts it and is cut.
     relief = _pad("relief_pad", -150.0, 150.0)
     assert _pad_relief(airport, Polygon(relief.ring)) > band
     cl = Classification(tuple(_cells((relief,))), (), {}, ())
-    _cl3, tunnels3, sst3 = build_structures(airport, cl, law, objects, (), groups)
-    assert not tunnels3, [(t.id, t.clipped_by) for t in tunnels3]
-    assert sst3.refused and all("relief_pad" in r for r in sst3.refused), sst3.refused
+    cl3, tunnels3, sst3 = build_structures(airport, cl, law, objects, (), groups)
+    assert tunnels3 and all(t.clipped_by == "relief_pad" for t in tunnels3), \
+        [(t.id, t.clipped_by) for t in tunnels3]
+    kept3 = [c for c in cl3.cells if c.ref.startswith("relief_pad")]
+    # the TRENCH is still senior to any pad (08-26) so the walls' own
+    # footprint is taken either way; what separates a stop from a host is
+    # the RAMP BEYOND THE WALLS — at the same point the host pad lost, the
+    # relief pad stands whole
+    assert any(Polygon(c.ring).covers(on_ramp) for c in kept3)
+
+
+# ── §34 (10) THE ROAD MARGIN IS GENERAL ─────────────────────────────────
+
+def test_the_road_true_edge_is_the_centreline_plus_the_roads_own_half_width():
+    """§34 (10) (owner RULINGS 2026-09-14bb/14bc/14bd): ONE derivation,
+    read from the road's OWN emitted geometry, both ways.
+
+    A carriageway emitted as TWO ribbons sharing their long edge (OTHH's
+    route7: 2 x 3.77 m) gives each face one HALF of the road, so the
+    face's own width IS the half-width and the true edge stands that far
+    outside it.  A carriageway emitted WHOLE gives the full width, and the
+    true edge stands half of it outside — the same physical line either
+    way, which is the point of having one derivation.
+    """
+    from auto_patch_v2.planar.wall_corridor_ramps import road_true_edge
+
+    def _cell(ref):
+        return Cell(9, "service_road", ref, (), (), None, None, "groundside",
+                    "pavement", {})
+
+    # TWO ribbons sharing the long edge at y = 0: each 4 m wide, 100 m long
+    left = Polygon([(0.0, -4.0), (100.0, -4.0), (100.0, 0.0), (0.0, 0.0)])
+    right = Polygon([(0.0, 0.0), (100.0, 0.0), (100.0, 4.0), (0.0, 4.0)])
+    roads = [(left, _cell("route9#0")), (right, _cell("route9#1"))]
+    got = road_true_edge(left, _cell("route9#0"), roads)
+    # the half-width IS the ribbon's own 4 m: the true edge reaches the far
+    # kerb at +4 and stands 4 m outside every other edge
+    assert got.bounds == pytest.approx((-4.0, -8.0, 104.0, 4.0), abs=1e-6)
+
+    # the SAME road emitted whole: 8 m across, the true edge half of it out
+    whole = Polygon([(0.0, -4.0), (100.0, -4.0), (100.0, 4.0), (0.0, 4.0)])
+    one = [(whole, _cell("route9"))]
+    got2 = road_true_edge(whole, _cell("route9"), one)
+    assert got2.bounds == pytest.approx((-4.0, -8.0, 104.0, 8.0), abs=1e-6)
+    # ...and the kerb the ramp arrives at moved OUT by the half width in
+    # both readings: 4 m beyond the face's own edge
+    assert got.bounds[3] - left.bounds[3] == pytest.approx(4.0, abs=1e-6)
+    assert got2.bounds[3] - whole.bounds[3] == pytest.approx(4.0, abs=1e-6)

@@ -12,8 +12,11 @@ edges, the rim ``rim_standoff`` of each band's measured thickness
 inside the wall (09-08a); the FLOOR is the wall bottom per station
 (``Group.profile``, pinned by the generator — level or descending, cut
 as authored); a LEVEL corridor / a BAY climbs beyond its open end at
-``ramp_grade`` (``Group.climb_from_s`` = the wall end) and STOPS at
-airside pavement, steepening to ``max_ramp_grade`` (``stop_side``); a
+``ramp_grade`` (``Group.climb_from_s`` = the wall end, moved back to the
+COVERING PLATE's edge by §34 (9) (5) where the walls protrude past the
+building — owner RULINGS 2026-09-14be) and STOPS at airside pavement,
+steepening to ``max_ramp_grade`` (``stop_side``) or, at a road, at the
+road's TRUE edge (§34 (9)/(10), :func:`road_true_edge`); a
 GARAGE RAMP has no climb (its own floor meets the ground at the open
 end).  Roles: ``wall_corridor_ramp`` (level / bay), ``garage_ramp``
 (descending).  ``seat = "none"``: never plate-seated, the family excluded
@@ -43,7 +46,8 @@ from .structure_approach import unit
 from .structure_geometry import pad_hit as _pad_hit, rim_standoff
 
 __all__ = ["wall_corridor_groups", "RAMP_ROLE", "GARAGE_ROLE", "KIND", "airside_stops",
-           "locked_road_stops", "ROAD_ROLES", "road_edge_witness", "stop_and_steepen",
+           "locked_road_stops", "ROAD_ROLES", "road_edge_witness", "road_true_edge",
+           "stop_and_steepen",
            "wall_corridor_profile", "wall_corridor_note"]
 
 #: The groundside ROAD family §34 (9) can pinch a ramp against.  A parking
@@ -171,8 +175,46 @@ def locked_road_stops(cells, polys, law: Law, runway_family, airside_reach_m: fl
         half = _road_half_width_m(p, c, roads)
         if half_out is not None:
             half_out[c.ref] = half
-        out.append((p.buffer(half, **_MITRE), c.ref))
+        out.append((road_true_edge(p, c, roads), c.ref))
     return out
+
+
+def road_true_edge(poly, cell, roads):
+    """THE ROAD'S TRUE EDGE (spec §34 (10), owner RULINGS 2026-09-14bb /
+    14bc / 14bd: "we should generalize this to allow this margin for ramps
+    arriving at a road, not special case it for OTHH") — THE ONE
+    DERIVATION every ramp emitter that arrives at a road reads.
+
+    The road as a ramp must see it: its own emitted face grown to the
+    carriageway the road actually carries — the centreline offset by
+    :func:`_road_half_width_m` on EVERY side.  A ramp arriving from any
+    side therefore ends at the true edge on ITS side and the road ribbon
+    is never cut; the "side" of §34 (10) is where the ramp meets this
+    region, not a parameter, so there is nothing per-consumer to get
+    wrong and no per-airport key anywhere.
+
+    THE CONSUMER CENSUS (owner RULINGS 2026-08-30l) that ruled this ONE
+    site, over every ramp emitter §34 (10) names:
+
+    * the PINCHED corridor climb (§34 (9), :func:`locked_road_stops` ->
+      :func:`stop_and_steepen`) — reads road cells: HERE;
+    * the §34 (8) mouth CLIMB-OUT and the tunnel-object / door ramp
+      (``planar/object_corridor``'s ``stop_at_pavement``) — they consume
+      the stop set ``planar/structures.build_structures`` assembles from
+      every governed cell, ROAD_ROLES included: HERE, at that one list;
+    * the Law C airside stop set (:func:`airside_stops`) — airside faces
+      and building pads only; a road reaches it solely through
+      :func:`locked_road_stops`, so it inherits this and needs nothing;
+    * the BASIN ramp (§24 (8), ``planar/basin_geometry``) and
+      ``planar/structure_approach`` — neither reads a role or a road: the
+      first is the plan geometry of the object's OWN rim/floor/ramp
+      corridors, the second computes mouths, chains and deck intervals
+      off mapped WAYS.  Nothing to rule.
+
+    So: one derivation, two call sites, both in ``planar/structures.py``.
+    """
+    half = _road_half_width_m(poly, cell, roads)
+    return poly if half <= 0.0 else poly.buffer(half, **_MITRE)
 
 
 def _road_half_width_m(poly, cell, roads) -> float:
@@ -424,7 +466,8 @@ def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, 
                f"edge at {100.0 * pinched[2]:.1f} %, the cap LIFTED for the pinched run"
                + (f"; the road edge is {witness}" if witness else "")
                if pinched else "")
-            + (f"; full depth at the BUILDING WALL (§34 (9) (5)): the covered start is s "
-               f"{covered_from:.1f}, so the {g.hull_s - covered_from:.1f} m of retaining wall "
-               f"protruding past the building is RAMP, not trench"
+            + (f"; full depth at the BUILDING WALL (§34 (9) (5) as corrected by 14be): the "
+               f"COVERING PLATE's edge is s {covered_from:.1f}, so the "
+               f"{g.hull_s - covered_from:.1f} m of uncovered corridor — the retaining wall "
+               f"protruding past the building included — is RAMP, not trench"
                if covered_from is not None and covered_from < g.hull_s - 1e-6 else ""))

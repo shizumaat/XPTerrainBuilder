@@ -201,6 +201,32 @@ solver    = "pin"
 # -> pavement, a ~12 % dip and rise across the runway width.
 cockpit   = "step"
 
+# §34 (10) THE ROAD MARGIN IS GENERAL (owner RULINGS 2026-09-14bb /
+# 14bc / 14bd): every ramp arriving at a road — a pinched corridor climb
+# (§34 (9)), a §34 (8) mouth climb-out, a basin ramp, a structure
+# approach, a tunnel-object ramp — ends at the road's TRUE edge (the
+# centreline offset by the road's half width toward the ramp), never at
+# the emitted half-carriageway face's edge, which IS the centreline where
+# a road is emitted as two ribbons sharing their long edge.  One
+# derivation, `planar/wall_corridor_ramps.road_true_edge`; no per-airport
+# key.  Measured 0 at OTHH before and after: the family is the GUARD on
+# that derivation, not a defect count.
+[ramp_in_road]
+measures  = "a RAMP face's vertex standing inside a road ribbon — the road the ramp arrived at, cut by a lane"
+# The road's TRUE edge is read from the road's OWN emitted geometry (the
+# half-carriageway ribbon's width), so §34 (10) mints no key of its own —
+# this names the law the road's width falls back to when the way carries
+# no `width` tag, which is the only number in the tables the family's
+# region depends on.
+parameter = "structures.tunnel.lane_width_m"
+roles     = ["tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp"]
+pairs     = "within"
+ruling    = "2026-09-14bb; 2026-09-14bc; 2026-09-14bd"
+solver    = "construction"
+# "keepout": PRESENCE in a region, not a height — one ramp vertex inside
+# the ribbon is the whole defect whatever its elevation.
+cockpit   = "keepout"
+
 [bank_across_seam]
 measures  = "a `bank_foot` node inside a tile-seam band — the bank is never derived at a seam (the coverage edge there is a pin line already at the DEM)"
 parameter = "emit.seam.half_width_m"

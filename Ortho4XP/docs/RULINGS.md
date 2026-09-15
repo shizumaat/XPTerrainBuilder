@@ -6524,3 +6524,39 @@ family is a guard elsewhere).
   question. `frames.jsonl` is append-only and conflicts on every
   non-union merge — pushing main with it is fine; a GitHub PR of a
   lane branch against a stale origin/main will always show it.
+
+## 2026-09-14br v2padjoin round 3 MERGED (2808b6ac, flags OFF): the skirt WITHDRAWN — stage-2 infeasible 151 → 92, `pad_airside_weld` 42 → 18 with nothing armed; the low-side datum in; the collar's residual is the UNSETTLED STAGE-1 OPTIMUM, not the collar — ruled: settle first
+
+Lane `v2padjoin` @ dde728a8 (suite 1,531 twice; 1,538 on main).
+`_pad_rows`: the band, rigid core, skirt row and both-ends
+withdrawal deleted with their two law keys and the head; five twins
+re-founded and named (the §20b two-pavement twin: the pad now holds
+its own 1 % under the staged solve — tilt 0.030 → 0.010). §16g (10)
+(9)(2): `pad_between_aprons = true` — `plan_unit_datums` takes the
+pad's LOW side (the shared-edge subset is not published — a deviation
+named). HECA pair (pads+clip+staged ON): base 151 / 178.7 m → 92 /
+138.7 m infeasible, weld 42 → 18, adjudicated 26,708 → 24,770; the
+collar arm 1,511 / 3,148 m and the terminal 72.92 → 75.90 — of the
+11,363 vertices that move, 2,211 stand > 500 m from any pad: a
+FIELD-WIDE shift of an unsettled stage-1 optimum (14as (ii), 13y
+(B)/13ab), which no row added to stage 1 can hold to "the collar
+only"; the collar plane's own LEVEL is picked by stage 1 (the low-side
+datum cannot fix a lifted collar). KCLT pads ON (one build): 5
+cluster pads, the terminal cluster 55,695 m² over `building80` +
+`building89` at 220.859 — NOT inert; the collar there is 5 vertices
+(the terminal apron is struck by the taxi-band/no-step/other-pad
+rules); `building{N}` renumbered — the 13bo site's pad median 220.34.
+
+* RULING (the lane's decision): 13y (B)/13ab goes FIRST — the stage-1
+  optimum must be UNIQUE and STABLE: a perturbation local to one
+  terminal must not move vertices 500 m away. Lane `v2settle` r2: the
+  remaining 6 rows (the un-built per-family post-solve projection for
+  `pavement_ceiling`, §30 (3)'s pattern) AND the uniqueness — a
+  regularising tie-break in the objective (the DEM/the previous
+  iterate as the least-change anchor among equal-cost optima, at a
+  weight below every law) so the same problem ± a collar yields the
+  same far field; bar: the HECA collar pair's moved-vertex set within
+  the reach + 100 m only. The collar stays disarmed until then.
+* Owed: the collar m² (extend `pad_airside_arm.py`), KCLT members'
+  seats on the new build, the HECA terminal body seat with the
+  low-side datum.

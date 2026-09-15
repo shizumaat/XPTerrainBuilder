@@ -6684,3 +6684,41 @@ WARN … SIGSEGV` and `ERROR during DSF construction` lines gone.
 
 * Chip: `src/auto_patch/provenance.py:81,95` launch `git` with bare
   `subprocess.run` — the same latent class (silent provenance loss).
+
+## 2026-09-14bw v2settle round 2 MERGED (a7e88329, instrument only): the far-field instability is the SOLVER — the damped active-set fixed point never converges (`objective_stalled` on all six HECA solves); the tie-break REFUTED (weight-proportional, it prices); ruled: §20c THE ONE-SIDED PROBLEM IS SOLVED AS A QP — lane `v2qp`
+
+Lane `v2settle` @ 16725245 (suite 1,534 twice; 1,549 on main;
+shipped patches byte-identical at HECA/KCLT/CYXY). One extra ceiling
+row at ONE HECA apron vertex (0.30 m) moves 959 vertices > 0.02 m —
+953 beyond 500 m, ZERO within 100 m, worst 0.52 m, over a 6.2 × 4.7 km
+box and every role: 14br's collar signature with no collar. The
+tie-break (a DEM anchor per free column): at 1e-9 identical to main
+to 13 digits; at 1e-6/1e-3 WORSE and weight-proportional — it prices,
+it does not choose among equal optima; deleted. `DesignReport.set_
+exits` (new): all six damped active-set solves exit `objective_
+stalled`, none at `same_set` — the iteration never reaches its fixed
+point on either arm; with `set_stall_tol = 0` they exit `line_search_
+stalled` and the far field still moves. The default design solver is
+`splu` on the normal equations (HiGHS options do not apply). Item
+(2): 35 surviving stage-1 rows, worst 0.083 m, FEASIBLE; 25 sit on
+vertices carrying another family's hard row — a per-family projection
+would trade rows (§32 (4)); a full residual projection on an
+unconverged solve is sand.
+
+* RULING §20c: the design's ONE-SIDED problem (the min-curvature
+  objective with hard equality rows, one-way ≤ rows, caps and bounds)
+  is a CONVEX QP and is solved AS ONE — HiGHS QP (`highspy`, the
+  projections already use it) replaces the hand-rolled damped
+  active-set fixed point; no lag rounds, no `follows` machinery; the
+  optimum is unique for a strictly convex objective and locally
+  stable under perturbation by construction. The old solver stays
+  behind `[design] solver = "fixed_point" | "qp"` for the measured
+  pair, ships `qp` when the bars hold. Lane `v2qp` (fresh).
+* Bars: the one-vertex probe 959 → moved vertices only within 250 m
+  (name the count); the census ADJUDICATED before → after at HECA,
+  KCLT, CYXY, SPJC, OTHH (a converged solve WILL differ — the diff is
+  named by family, and no family may worsen by > 5 % without a
+  reason); every hard row settled (0 over `hard_tol_m` + 0.01, or the
+  infeasible pairs named by the certificate); solve wall ≤ 2× the
+  fixed point at HECA (name it; HiGHS QP on ~160 k rows / 32 k
+  columns); the owner's sim read of the next app is the acceptance.

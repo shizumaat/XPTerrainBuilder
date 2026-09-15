@@ -11824,3 +11824,28 @@ carriageways, the profile past the east end monotone (no notch), no rim
 sliver; `road_cross_section` / `within_shape` on the approaches before →
 after; airside 0; verify defects {}; five-frame dry: tunnels / basins /
 plate mouths / decks before → after named.
+
+## §20c THE ONE-SIDED PROBLEM IS SOLVED AS A QP (Fable 2026-09-14; RULINGS 2026-09-14bw) — lane `v2qp`
+
+MEASURED (lane v2settle r2, HECA): one 0.30 m ceiling row at one apron vertex
+moves 959 vertices, 953 of them more than 500 m away — the damped active-set
+fixed-point iteration (`splu` on the normal equations, lag rounds for the
+one-way rows) exits `objective_stalled` on every solve and never reaches a
+fixed point, so any perturbation lands on a different far field; a DEM-anchor
+tie-break prices instead of choosing (weight-proportional) and is refuted.
+1. The design problem — min Σ curvature (the smoothness objective as
+   assembled) subject to hard EQUALITY rows, one-way INEQUALITY rows (§20a's
+   `follows`), caps and DEM bounds — is a convex QP.  It is solved as one by
+   HiGHS QP (`highspy`), the same solver §30 (3)/§32 (4)'s projections use.
+   No lag rounds, no `follows` machinery, no damping: the optimum is unique
+   (strictly convex objective) and locally stable.
+2. `[design] solver = "fixed_point" | "qp"`: the old solver is kept behind
+   the key for the matched pair and deleted when `qp` ships.
+3. The certificate (§20a, `read_hard_failure`) reads the QP's own status:
+   infeasible → the named infeasible set, never a traded row.
+BARS: the one-vertex probe: moved vertices only within 250 m of the
+perturbation (count named; today 959 with 953 beyond 500 m); every hard row
+settled or named; the census by family at HECA/KCLT/CYXY/SPJC/OTHH before →
+after with no family worse by > 5 % unexplained; solve wall ≤ 2× (named);
+stage 1 / stage 2 of §20b both through the QP; the shipped patch diff named
+(a converged solve differs by construction).

@@ -28,7 +28,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from .structure_approach import unit
 
-__all__ = ['_hole_region', '_runs', '_in_hole', '_across', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts']
+__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts']
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -37,18 +37,32 @@ def _dem(airport: Airport, p: XY) -> float:
     return float(airport.dem.z(p[0], p[1]))
 
 
-def _hole_region(union):
-    """THE HOLE IN THE AIRSIDE PAVEMENT (§45 (1) (b)) — the pavement
-    union's own interiors: the filled outline LESS the pavement.
+def _hole_region(union, field=None):
+    """THE UNPAVED CORRIDOR OF §45 (1) (b) — the complement of the
+    AIRSIDE PAVEMENT UNION **inside the field** (spec §45 (14), owner
+    RULINGS 2026-09-15bk).
 
-    This is what separates a CHANNEL from a service road that merely
-    crosses a taxiway spur.  KDFW's corridor IS a hole — ``ring69`` of
-    the single 339-node outer pavement, 2,518 m x ~1,150 m, with the four
-    taxiway necks bridging it (scout `channelscout` §4a).  A road running
-    OUTSIDE the field and crossing one taxiway leaves the pavement into
-    open ground, not into a hole the airfield cut for it.  Measured at
-    LGAV on the first arm: without this clause the neck test read five
-    channels, four of them service roads."""
+    A NOTCH AND A HOLE ARE ONE CLASS.  The first reading was the union's
+    own INTERIORS (the filled outline less the pavement), which sees a
+    corridor only where the airfield closes around it.  KDFW's does
+    (``ring69`` of the 339-node outer, 2,518 x ~1,150 m).  KPHX's does
+    NOT: E Sky Harbor Blvd runs in from the edge, so the corridor is an
+    INDENTATION of the outer boundary, ``holes`` was empty and every
+    candidate read ``necks = 0`` — no channel at a site with two taxiway
+    decks over it (round 6 measurement).  So the region is the field
+    MINUS the pavement, and ``field`` is:
+
+    * the apt.dat row-130 boundary where one exists (``Airport.
+      boundaries``, §44 (3)'s own borrow rule already applied at load —
+      never re-derived here), else
+    * the union's convex hull grown by ``[tunnel] mouth_standoff_m``, the
+      same "how far off the pavement is still the field" length §29 (1)
+      uses.
+
+    The interiors are a SUBSET of this (a hole is complement-inside-field
+    too), so KDFW, LGAV and LEMD read exactly what they read before.
+    ``field = None`` falls back to the interiors alone — the fixtures
+    that state no boundary and no hull."""
     if union is None:
         return None
     shells = []
@@ -59,8 +73,31 @@ def _hole_region(union):
     if not shells:
         return None
     filled = unary_union(shells)
-    holes = filled.difference(union)
+    region = filled if field is None else unary_union([filled, field])
+    holes = region.difference(union)
     return None if holes.is_empty else holes
+
+
+def _field_region(airport, union, law):
+    """§45 (14)'s FIELD: the row-130 boundary, else the pavement union's
+    convex hull ⊕ ``[tunnel] mouth_standoff_m``.  ``None`` when there is
+    no union to grow and no boundary to read."""
+    rings = []
+    for b in (getattr(airport, "boundaries", ()) or ()):
+        try:
+            poly = Polygon(b.outer, [h for h in (b.holes or ()) if len(h) >= 3])
+        except Exception:                      # pragma: no cover - fixture rings
+            continue
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if not poly.is_empty:
+            rings.append(poly)
+    if rings:
+        return unary_union(rings)
+    if union is None or getattr(union, "is_empty", True):
+        return None
+    grow = float(law.tables.structures.tunnel.mouth_standoff_m)
+    return union.convex_hull.buffer(grow, **_MITRE)
 
 
 def _runs(flags: _t.Sequence[bool]) -> list[tuple[bool, int, int]]:

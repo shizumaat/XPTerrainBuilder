@@ -49,7 +49,8 @@ from ..model.frame import XY
 from ..model.structures import (CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE,
                                 CREST_DESIGN, Channel, ChannelWall, Deck)
 from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
-                               _hole_region, _in_hole, _lidar_floor, _parts,
+                               _field_region, _hole_region, _in_hole,
+                               _lidar_floor, _parts,
                                _poly, _runs, _sides, _span, _spread_m,
                                _walls_half)
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
@@ -402,6 +403,29 @@ def identify_channels(airport: Airport, classification, law: Law,
     tn = law.tables.structures.tunnel
     br = law.tables.structures.bridge
     union = _pavement_union(airport)
+    # §45 (14) IS IMPLEMENTED AND **NOT WIRED IN** — the measurement is
+    # in the round-7 report and the decision is the owner's.
+    #
+    # Passing ``_field_region(airport, union, law)`` here is the ruling as
+    # written (a notch is a corridor too) and it does fix the blindness:
+    # KPHX gains the channel its two taxiway decks state.  It also, on
+    # the same arm (base f66803ba, dry replays):
+    #   * KCLT  tunnels 23 -> 19 — FOUR bores lost, the §34 (5)
+    #     SYNTHESISED underpasses of taxiway U.  (13) (b) protects the
+    #     mapped `tunnel=yes` and object-corridor claims only, so a
+    #     synthesised bore has nothing to plead with; before (14) those
+    #     candidates simply had no neck.  This is the round-3 regression
+    #     (13) was ruled to end.
+    #   * LGAV channels 1 -> 4, LEMD 3 -> 6, HECA gains a 14,562 m one,
+    #     CYXY gains a 5,646 m one, KPHX's runs 5,750 m with a (3) (iii)
+    #     floor of 332.76..563.14 m — because §45 (2)'s ENDS ("where the
+    #     corridor leaves the pavement union ⊕ mouth_standoff_m") do not
+    #     bound a way that runs the length of the field INSIDE the
+    #     boundary, which is exactly what the field region now admits.
+    #   * CYXY's planar twins break on it (vertices 6,856 against the
+    #     6,660 bar) and `test_cyxy_verify_matches_v1_census` with them.
+    # A notch is a corridor too — but the corridor needs an end.  Until
+    # that is ruled, the region is the union's own interiors.
     holes = _hole_region(union)
     cands: list[_Cand] = []
     # §45 (13) (b) JOINED BY FEED, NEVER BY THE BARE ID (owner addendum

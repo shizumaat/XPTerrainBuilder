@@ -557,6 +557,29 @@ def test_13d_a_basin_shell_beside_a_neck_is_no_channel_witness(law):
     assert any("(13) (d) dropped" in n and "dsf:obj7" in n for n in st2.notes), st2.notes
 
 
+def test_14_a_notch_is_a_corridor_too(law):
+    """§45 (14) (owner RULINGS 2026-09-15bk).  The SAME corridor, once
+    closed by the airfield (an interior hole) and once open to the edge
+    (a notch): both are the complement of the pavement union inside the
+    field, so both carry necks.  KPHX measured the difference — two
+    taxiway decks over E Sky Harbor Blvd and ``necks = 0`` because the
+    corridor reaches the boundary."""
+    from shapely.geometry import Polygon as _P
+    from auto_patch_v2.planar.channel_geometry import _field_region, _hole_region
+
+    # a slab with a corridor cut IN FROM THE EDGE: |y| >= 350 is open
+    notched = _P(_rect(-400.0, -400.0, 400.0, 400.0)).difference(
+        _P(_rect(-40.0, -400.0, 40.0, 350.0)))
+    assert _hole_region(notched) is None            # no interior ring at all
+    field = _field_region(_airport(law, [], []), notched, law)
+    reg = _hole_region(notched, field)
+    assert reg is not None and not reg.is_empty
+    # the corridor itself is in the region …
+    assert reg.contains(_P(_rect(-20.0, -100.0, 20.0, 100.0)).centroid)
+    # … and the pavement is not
+    assert not reg.intersects(_P(_rect(100.0, -100.0, 200.0, 100.0)))
+
+
 def test_13d_the_decision_pass_is_skipped_when_no_channel_has_a_pack_witness(law):
     """The ordering costs an extra structure+basin pass, so it is only
     paid where it can matter: with no pack wall/floor witness anywhere,

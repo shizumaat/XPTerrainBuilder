@@ -259,6 +259,7 @@ from shared_repo_guard import (                          # noqa: E402,F401
     DATA_REPO, HARNESS_STATE, LOCK_DIR, REFRESH_LEDGER, SHARED_DATA_DIRS,
     REFRESH_SCOPES, scope_of, scope_description, shared_repo_snapshot,
     snapshot_diff, _file_stamp, RefreshLock, record_refresh,
+    REFRESH_TS_FORMAT, ledgered_refresh_paths, redirected_scopes,
     install_snapshot, install_relpath, pack_roots_for_tile,
     LOCK_ARTIFACT_SUFFIX, LOCK_FILE_OPS, is_lock_artifact,
     LIB_INDEX_ARTIFACT_RE, LIB_INDEX_FILE_OPS, is_library_index_artifact,

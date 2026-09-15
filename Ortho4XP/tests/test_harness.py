@@ -5570,6 +5570,136 @@ def test_the_shared_repo_detector_flags_a_test_written_cache(build_mod):
     assert not conftest.is_lock_churn("Elevation_data/N30E031.hgt")
 
 
+def _ledger_file(tmp_path, records):
+    """Write a hand-made refresh ledger (one JSON record per line) into
+    ``tmp_path`` — NEVER the shared repo's own."""
+    p = tmp_path / "refresh_ledger.jsonl"
+    p.write_text("".join(json.dumps(r) + "\n" for r in records))
+    return p
+
+
+def test_a_ledgered_refresh_inside_the_window_is_external(build_mod,
+                                                          tmp_path):
+    """(a) KNOWN-ANSWER TWIN: the ledger's own records, on a tmp ledger.
+
+    THE MEASURED CASE (RULINGS 2026-09-15ay tail): a peer session's
+    authorised ``--refresh-data osm_layers`` wrote two big-road extracts
+    at 13:26:13 and 13:29:27 and every test of two suites got a teardown
+    ERROR.  In-window paths — the ``files[]`` stamps AND the ``removed[]``
+    entries — are the other author's; an out-of-window record's path is
+    not covered and stays unlawful.
+    """
+    conftest = _conftest()
+    ledger = _ledger_file(tmp_path, [
+        {"ts": "2026-09-15T13:00:00", "scope": "dem",
+         "files": [{"path": "Elevation_data/N30E031.hgt"}], "removed": []},
+        {"ts": "2026-09-15T13:26:13", "scope": "osm_layers",
+         "files": [{"path": "OSM_data/+30-100/+32-098/"
+                            "+32-098_big_roads.osm.bz2"}],
+         "removed": ["OSM_data/+30-110/+33-113/stale.osm.bz2"]},
+        {"ts": "2026-09-15T14:30:00", "scope": "masks",
+         "files": [{"path": "Masks/+30+031/late.png"}], "removed": []},
+    ])
+    ledgered = build_mod.ledgered_refresh_paths(
+        "2026-09-15T13:20:00", "2026-09-15T13:40:00", ledger=ledger)
+    assert set(ledgered) == {
+        "OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2",
+        "OSM_data/+30-110/+33-113/stale.osm.bz2",
+    }, ("both halves of an in-window record count — a removal is a delta "
+        "the snapshot diff reports exactly like a write — and the records "
+        "before and after the window do not")
+    assert ledgered["OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2"] \
+        == {"ts": "2026-09-15T13:26:13", "scope": "osm_layers"}
+
+    changes = {
+        "added": ["OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2"],
+        "modified": ["Elevation_data/N30E031.hgt"],
+        "removed": ["OSM_data/+30-110/+33-113/stale.osm.bz2"],
+    }
+    external, unlawful = conftest.classify_shared_writes(
+        changes, build_mod.scope_of, ledgered=ledgered, redirected=set())
+    assert sorted(external) == [
+        ("OSM_data/+30-100/+32-098/+32-098_big_roads.osm.bz2", "osm_layers",
+         "ledgered 2026-09-15T13:26:13 osm_layers"),
+        ("OSM_data/+30-110/+33-113/stale.osm.bz2", "osm_layers",
+         "ledgered 2026-09-15T13:26:13 osm_layers"),
+    ]
+    assert unlawful == [("Elevation_data/N30E031.hgt", "dem")], (
+        "the out-of-window refresh's path is NOT an alibi for a delta "
+        "inside the suite's window — it still fails the suite")
+
+
+def test_a_redirected_scope_is_external_without_asking_the_engine(
+        build_mod):
+    """(b) The second external door, twinned offline: the redirected set
+    is an ARGUMENT, so the twin never asks the running engine where its
+    caches point."""
+    conftest = _conftest()
+    changes = {
+        "added": ["Airport_mod_cache/somepack/o4_object_footprints.cache",
+                  "Elevation_data/N30E031.hgt"],
+        "modified": [], "removed": [],
+    }
+    external, unlawful = conftest.classify_shared_writes(
+        changes, build_mod.scope_of, ledgered={},
+        redirected={"airport_mod_cache"})
+    assert external == [
+        ("Airport_mod_cache/somepack/o4_object_footprints.cache",
+         "airport_mod_cache", "redirected")]
+    assert unlawful == [("Elevation_data/N30E031.hgt", "dem")]
+    # and with nothing redirected both are the suite's problem again
+    _ext, unlawful = conftest.classify_shared_writes(
+        changes, build_mod.scope_of, ledgered={}, redirected=set())
+    assert len(unlawful) == 2 and _ext == []
+
+
+def test_lock_churn_is_still_churn_under_the_external_downgrade(build_mod):
+    """(c) ``.lock`` coordination state is neither external nor unlawful —
+    it never reaches the classification at all."""
+    conftest = _conftest()
+    changes = {"added": ["Elevation_data/dem.lock"], "modified": [],
+               "removed": ["Airport_mod_cache/.harness/refresh.lock"]}
+    external, unlawful = conftest.classify_shared_writes(
+        changes, build_mod.scope_of,
+        ledgered={"Elevation_data/dem.lock": {"ts": "x", "scope": "dem"}},
+        redirected={"airport_mod_cache"})
+    assert external == [] and unlawful == []
+
+
+def test_the_detector_imports_the_ledger_predicate_never_copies_it():
+    """(d) ONE mechanism: conftest reaches the predicate through the
+    harness module and defines no second copy (the census-wrapper law)."""
+    conftest_src = (Path(__file__).parent / "conftest.py").read_text()
+    assert "harness.ledgered_refresh_paths(" in conftest_src and \
+        "harness.redirected_scopes()" in conftest_src, (
+        "the external doors must be the harness module's own objects")
+    assert "def ledgered_refresh_paths" not in conftest_src and \
+        "def redirected_scopes" not in conftest_src, (
+        "a private copy of either predicate is the census-wrapper defect")
+    assert "refresh_ledger.jsonl" not in conftest_src, (
+        "conftest must not reach for the ledger path itself")
+
+
+def test_the_ledger_predicate_tolerates_a_missing_or_broken_ledger(
+        build_mod, tmp_path):
+    """(e) A detector that crashes on a truncated concurrent append is
+    worse than one that misses a downgrade."""
+    missing = tmp_path / "nope" / "refresh_ledger.jsonl"
+    assert build_mod.ledgered_refresh_paths(
+        "2026-09-15T00:00:00", "2026-09-15T23:59:59", ledger=missing) == {}
+    broken = tmp_path / "broken.jsonl"
+    broken.write_text(
+        "not json at all\n"
+        "\n"
+        + json.dumps({"scope": "dem", "files": []}) + "\n"      # no ts
+        + json.dumps({"ts": "2026-09-15T13:26:13", "scope": "dem",
+                      "files": [{"path": "Elevation_data/ok.hgt"}]}) + "\n")
+    assert build_mod.ledgered_refresh_paths(
+        "2026-09-15T13:00:00", "2026-09-15T14:00:00",
+        ledger=broken) == {"Elevation_data/ok.hgt":
+                           {"ts": "2026-09-15T13:26:13", "scope": "dem"}}
+
+
 def test_the_suite_has_no_standing_write_allowance(build_mod):
     """THE REGISTER IS EMPTY, and that is the assertion.
 

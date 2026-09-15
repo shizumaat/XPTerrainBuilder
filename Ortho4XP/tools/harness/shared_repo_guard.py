@@ -468,6 +468,68 @@ def record_refresh(scope: str, changes: dict, meta: dict,
     return record
 
 
+#: The timestamp format :func:`record_refresh` writes into every ledger
+#: record.  Fixed-width and zero-padded, so a plain STRING comparison is a
+#: chronological one — which is why the window test below needs no parsing.
+REFRESH_TS_FORMAT = "%Y-%m-%dT%H:%M:%S"
+
+
+def ledgered_refresh_paths(window_start: str, window_end: str,
+                           *, ledger=None) -> dict:
+    """Every shared-repo relpath an AUTHORISED ``--refresh-data`` wrote
+    between ``window_start`` and ``window_end`` (both ``REFRESH_TS_FORMAT``
+    stamps, both inclusive), as ``{relpath: {"ts", "scope"}}``.
+
+    WHY (RULINGS 2026-09-15ay tail).  A concurrent session's authorised,
+    ledgered refresh is a shared-repo delta that the observing process did
+    not author — the same cross-attribution :func:`redirected_scopes` and
+    :class:`BuildInputScope` answer for the build audit.  The suite's
+    session detector had no such door, so on 2026-09-15 two ledgered
+    ``osm_layers`` writes (13:26:13 and 13:29:27) turned every test of two
+    suites into a teardown ERROR.  The ledger is the authorisation record:
+    a path named in it inside the observation window was written by an
+    explicit, locked, hash-stamped event, not by the observer.
+
+    Pure and read-only: it opens the ledger, never writes it, tolerates a
+    missing file (``{}``) and skips a malformed or record-shaped-wrong
+    line rather than raising — a detector that crashes on a truncated
+    concurrent append is worse than one that misses a downgrade.
+
+    Both ``files[].path`` (added/modified) and ``removed[]`` entries count:
+    a removal is a delta the snapshot diff reports exactly like a write.
+
+    STATED RESIDUAL, not solved here: :func:`record_refresh` appends the
+    record AFTER the refresh's own after-snapshot, so a refresh whose file
+    write landed inside the window but which is still RUNNING at the
+    observer's teardown has no record yet, and its delta is still judged
+    unlawful.  That is the in-flight case only.
+    """
+    path = Path(ledger) if ledger is not None else REFRESH_LEDGER
+    out: dict = {}
+    try:
+        text = path.read_text()
+    except OSError:
+        return out
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+            ts = record["ts"]
+            if not (window_start <= ts <= window_end):
+                continue
+            scope = record.get("scope")
+            rels = [str(e["path"]) for e in record.get("files") or ()
+                    if isinstance(e, dict) and e.get("path")]
+            rels += [str(r) for r in record.get("removed") or () if r]
+        except Exception:
+            continue                     # malformed line: skip, never raise
+        for rel in rels:
+            out[rel] = {"ts": ts, "scope": scope}
+    return out
+
+
 #: THE LOCK-FILE ALLOWANCE (2026-08-07).
 #:
 #: ``O4_File_Lock.hold_file_lock`` is the engine's ONE cross-process lock

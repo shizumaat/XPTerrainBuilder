@@ -14753,3 +14753,106 @@ beyond the strip keeps the role its geometry earns (HECA shape 44, 101.5
 m wide: the strip part joins 05L/23R, the rest is the apron the owner
 read it as — 13co).  Owner ruling 13co's intent ("a pavement along a
 runway is the runway's") is exactly a band beside the runway.
+
+### §40 (5) (5) **MEASURED — THE CONSUMER CENSUS, BEFORE THE CUT** (lane `v2shoulderband`, branch `claude/v2shoulderband`, base main `e856ce64`; owner RULINGS 2026-08-30l)
+
+**WHAT THE CUT CHANGES, STATED FIRST** — because it decides every verdict
+below.  §40 (5) does NOT change the runway ROLE SET, the shoulder KIND, or
+any predicate a consumer tests.  It changes ONE thing at ONE derivation
+site (`classify/roles`, the §40 (1) shoulder branch): the EXTENT of the
+cell that is admitted as the shoulder.  A shoulder cell is cut by its host
+runway's strip band (the runway axis ⊕ `zone2_half_width_m("runway", code)`
+— 75 m at ICAO code 3/4, the `zones.toml` table §40 (5) (1) names); the
+part inside keeps `role = "runway"`, `kind = "runway_shoulder"`, the
+runway's `ref`, code number and letter; the part outside goes BACK ON THE
+`_slice` WORKLIST (the §43 neck mechanism, already in this loop) and is
+scored on its own evidence with NO runway ref.  So the census's question
+for every reader is not "does it keep the shoulder?" (§40 (4) ruled that)
+but **"is it correct against a SMALLER runway region and a NEW taxi/apron
+face where runway used to be?"**
+
+**THE POPULATION AT LEMD** (the registered capture `LEMD capture base
+da8e5d7f lane v2lemdstruct2`, read-only, offline): **17** shoulder cells,
+**541,035 m²**, all code 4/F.  Within the 75 m band **270,086 m² (49.9 %)**;
+beyond it **270,949 m²** in 22 parts.
+
+| cell | ref | area m² | lateral off the axis min/med/max | depth | wrap | within 75 m | beyond |
+|---|---|---|---|---|---|---|---|
+| **15** | 14R/32L | **111,648** | 30.5 / **341.3** / **914.6** | 47.8 | 0.26 | 49,515 (44.3 %) | **62,133** (3 parts) |
+| 5 | 18R/36L | 93,521 | 30.0 / 140.0 / 192.9 | 46.1 | 0.22 | 19,327 (20.7 %) | 74,194 |
+| 9 | 18L/36R | 65,911 | 30.0 / 94.6 / 252.7 | 27.2 | 0.30 | 38,692 (58.7 %) | 27,218 (4) |
+| 4 | 18R/36L | 45,460 | 30.0 / 140.0 / 194.6 | 41.8 | 0.12 | 8,704 (19.1 %) | 36,756 |
+| 8 | 18R/36L | 39,506 | 30.0 / 41.2 / 165.2 | 10.8 | 0.40 | 37,848 (**95.8 %**) | 1,658 |
+| 20 | 14L/32R | 32,208 | 30.0 / 37.6 / 302.2 | 8.2 | 0.47 | 29,749 (92.4 %) | 2,460 (2) |
+| 19 | 18L/36R | 31,970 | 30.8 / 135.9 / 252.9 | 7.9 | 0.50 | 30,474 (95.3 %) | 1,495 (2) |
+| 6 | 18R/36L | 22,703 | 30.0 / 125.6 / 193.1 | 47.2 | 0.05 | 7,661 (33.7 %) | 15,042 |
+| 10 | 18L/36R | 19,600 | 30.0 / 126.2 / 188.4 | 49.9 | 0.05 | 7,352 (37.5 %) | 12,247 |
+| 18 | 14R/32L | 18,666 | 30.6 / 139.0 / 176.8 | 48.7 | 0.04 | 8,051 (43.1 %) | 10,615 (2) |
+| 14 | 14L/32R | 17,915 | 30.0 / 73.6 / 190.2 | 48.2 | 0.04 | 6,880 (38.4 %) | 11,035 (2) |
+| 11 | 18L/36R | 15,820 | 30.0 / 49.3 / 160.8 | 31.0 | 0.06 | 9,862 (62.3 %) | 5,958 |
+| 7 | 18R/36L | 10,226 | 30.0 / 49.1 / 106.1 | 11.0 | 0.10 | 7,576 (74.1 %) | 2,650 |
+| 16 | 14R/32L | 8,547 | 30.5 / 60.6 / 188.0 | 16.2 | 0.06 | 935 (10.9 %) | 7,612 |
+| 17 | 14R/32L | 5,190 | 30.5 / 60.1 / 139.4 | 48.4 | 0.01 | 2,611 (50.3 %) | 2,579 |
+| 12 / 13 | 14L/32R | 3,095 / 3,049 | 30.0 / 50-64 / 86 | 23 | 0.02 | 2,947 / 2,902 (95.2 %) | 148 / 148 |
+
+Cells **8, 19, 20, 12, 13** are what §40 (1) meant — ribbons 8–23 m deep,
+92–96 % inside the band; the cut barely touches them.  Cells **15, 5, 4,
+6, 10** are the defect: mean depths at the 50 m cap and lobes reaching
+190–915 m, of which four fifths is not a shoulder.
+
+**THE TABLE.**  Classes: SURFACE reader (asks "is this pavement the
+runway's?"), REGION derivation (buffers runway cells into a zone of
+influence), CLASSIFY (runs before/beside the cut), CENSUS (prices the
+emitted patch).  Verdicts: **CORRECT-BY-CONSTRUCTION** (the reader sees a
+runway region that is now truthful and needs no edit), **CHANGED-report-
+only** (its numbers move and the round names them), **NEEDS-A-RULE**,
+**HAZARD**.
+
+| # | consumer | what it reads | class | verdict under §40 (5) |
+|---|---|---|---|---|
+| 1 | `classify/roles._runway_shoulder` + the shoulder branch (`roles.py:288-292`, `:485-502`) | the §40 (1) predicate and the `add("runway", …)` of the whole face | CLASSIFY | **THE CUT SITE** — one derivation, per 30l's "trim at the derivation, never per consumer" |
+| 2 | `classify/roles` the `_slice` WORKLIST (`queue`, §43) | apron-neck pieces re-scored on their own evidence | CLASSIFY | **REUSED** — the beyond-band remainder is pushed back on the SAME queue; no second scoring path is written |
+| 3 | `classify/roles._ref_for` / `_source_for` / `_kind` / `open_pavement_role` | the remainder's own evidence (taxi chains, apron cover, source page) | CLASSIFY | CORRECT-BY-CONSTRUCTION — this is §40 (5) (2)'s "the role its geometry earns"; the runway ref is dropped because `_ref_for` reads the PAVEMENT PAGE, never the runway |
+| 4 | `classify/airside_edge.airside_edge_flip` (`roles.py:506`) | roles + `lot.road_airside_edge_frac`, to fixpoint | CLASSIFY | **CHANGED-report-only** — the remainder faces enter the §27 pass (shoulders never did: they are added after `scored` and before the flip). A lot beside a runway shoulder still reads airside pavement: the remainder is airside too (junction/apron), so the flip's inputs are the same class |
+| 5 | `classify/roles` zone-strip mint / `planar/zones.zone_regions:159-169` | `RUNWAY_FAMILY and not is_runway_shoulder` → runway band; `TAXI_FAMILY` → taxi band | REGION | **CHANGED-report-only, AND THE ONE REAL CONSEQUENCE**: the remainder is now taxi family, so it MINTS its own 22 m (code F) zone band where a shoulder minted none. Bounded by construction — 22 m, not the runway's 75 m, and against 270,949 m² of LEMD remainder. Named in the round's `graded_strip` figure |
+| 6 | `planar/structures.py:322-326` `strip` / `strip_u` | runway cells ⊕ 75 m, minus shoulders | REGION | CORRECT-BY-CONSTRUCTION — already excludes shoulders (§40 (4)); a smaller shoulder cannot grow it. The remainder is NOT runway, so it adds none either |
+| 7 | `planar/shapes.strip_keepout:138-155` | runway cell long axis ⊕ strip half width, minus shoulders | REGION | CORRECT-BY-CONSTRUCTION — same; and §40 (4)'s finding ("an 84,000 m² shoulder has a long axis of its own") is retired by the cut, not merely vetoed |
+| 8 | `constraints/strips.py:121,139,387` `runway_groups` | `Runway.slab_corners`, apt.dat ends and width | REGION | UNAFFECTED — never reads the role's rings (§40 (1) round 1) |
+| 9 | `planar/structures.py:275-278` `runway_u` (what a ramp may not cross), `:296` door-ramp stops, `:299` `airside_stops`, `:950` the object knife | `c.role in RUNWAY_FAMILY` | surface | **CHANGED-report-only** — the protected pavement shrinks to the band. A ramp/knife may now cut the ex-shoulder remainder. That is the RULING: beyond the strip it is not the runway's pavement. Counted (LEMD `cells cut`, object corridors) |
+| 10 | `planar/basins.py:438-439,779` `runway_u` / `cuts_runway_family` | `RUNWAY_FAMILY` | surface | **CHANGED-report-only** — same shrink; a basin refused for reaching a 914 m lobe is now judged against the band. VHHH's §40 (4) regression came from the opposite direction and is not re-opened |
+| 11 | `planar/structure_underpass.strip_half_width_m:58-82` | the cell's own class half width (runway 75 / taxi 22) | surface | **CHANGED-report-only** — the ex-shoulder's covered extent falls 75 → 22 m. This is the mechanism behind the `ramp_in_strip` bar |
+| 12 | `planar/weld.weld_cells` | value roles, non-rigid | surface | CORRECT-BY-CONSTRUCTION — the band line is a new shared edge between two VALUE faces; §37 (10) welds them, which is §40 (5) (2)'s own words ("it welds to the runway family at the strip line like any airside contact") |
+| 13 | `planar/shapes.py:218-226` network roots | the runway-connected face network | surface | CORRECT-BY-CONSTRUCTION — the remainder is still reachable pavement, reached through the band face |
+| 14 | `constraints/runway_profile.crown_drops` / `runway_crown` / `runway_transverse` (`:242,283,337`) | every runway-family FACE vertex vs the ridge, capped by `runway_transverse_cap(d, half)` | surface | **THE SECOND CUT SITE (§40 (5) (3))** — with the band at 75 m the transverse bound falls from `0.025 × 914 = 22.9 m` to `0.025 × 75 = 1.88 m`, and §40 (5) (3) asks for a LEVEL. Ruled below the table |
+| 15 | `constraints/runway_profile.threshold_pins` / `runway_profile` / `runway_vertical_curve` / `curve_stations` | `ridge_chains` = the `runway_profile` BREAKLINE only | surface | UNAFFECTED by the cut (the ridge is the centreline; r5 measured all four LEMD runways as one intact pinned chain each, ≤ 0.059 m) — and it is exactly why the level must come from (14), not from widening this population |
+| 16 | `constraints/runway_chord.py:559-562` the §29 chord target | `faces_of_role(RUNWAY_FAMILY)` | surface | **CHANGED-report-only** — the chord surface stops at the band. §40 (1)'s "the runway's chord surface reaches the shoulder" is honoured within the band and withdrawn beyond it, per §40 (5) |
+| 17 | `constraints/zones.py:198-206,96-99,326-346` | which runway face an edge's band belongs to; the tie population's runway exclusion | surface | **CHANGED-report-only** — the remainder's edges now carry the JUNCTION band, not the runway's. Its `ref` is no longer the runway's, so the §40 (4) inheritance argument no longer applies to it and must not |
+| 18 | `constraints/transverse.py:79,243` `_RUNWAY_FAMILY`, `junction_raw_transverse`'s contact test | is this junction vertex shared with a runway? | surface | **CHANGED-report-only, AND THE OWNER'S ITEM-7 SITE** — v906 (40.4611623,−3.5444804) is `junction#86` + `runway#5`; face 5 beyond the band stops being runway, so the contact set moves. §34 (13) (3)'s raw-pair row is unchanged in law; the round re-reads the pair |
+| 19 | `constraints/no_step.py:113,293` / `reach_bands` | `no_step_roles`, the threshold pins | surface | **CHANGED-report-only** — an ex-shoulder/runway pair becomes a junction\|runway or junction\|junction pair with its own cap |
+| 20 | `constraints/eat.py:280`, `apron_trend.py:170`, `taxi_trend.py:115`, `flat_site.py:80`, `junction_mesh.py`, `taxi.py` | role-set membership | surface | CORRECT-BY-CONSTRUCTION — mechanical and role-keyed; the remainder simply joins the taxi/apron populations it geometrically belongs to |
+| 21 | `solve/project.py:158-161` `runway_family_vertices`, `solve/design.py:188` | the projection's runway vertex set | surface | **CHANGED-report-only** — this set shrinks to the band. It is the set r5 measured "held by the objective" on (2,612 of 4,033); shrinking it is the point |
+| 22 | `verify/runway.py:59-169` (`runway_crown`, `runway_transverse`, `runway_vertical_curve`, `runway_intersection`) | `sh.role in RUNWAY_FAMILY` on the emitted patch | CENSUS | **CHANGED-report-only** — prices the band, at the band's cap. The families stop being vacuous 490 m off-axis |
+| 23 | `verify/strips.py:56,106-192,477-504`, `verify/structures.wall_in_runway_strip:84-109` | `RUNWAY_FAMILY` shapes ⊕ `zone2_half_width_m` | CENSUS/REGION | **CHANGED-report-only** — the wall/strip region shrinks with the shoulder. A wall refused for standing in a 914 m lobe's 75 m band is re-judged. Bar: `wall_in_runway_strip` before → after |
+| 24 | `tools/check_grade._check_ramp_in_strip:6849-6900` (+ `_strip_half_width_m:6825`) | each emitted way's own solid ⊕ its class half width | CENSUS | **CHANGED-report-only — THE `ramp_in_strip` BAR.** LEMD's 18 rows are minted against the runway band of the ex-shoulder; beyond the cut the same ground is junction (22 m). Bar: 18 → named |
+| 25 | `tools/check_grade` `_CROWN_RUNWAY_ROLES:3990`, `MATERIALITY_RUNWAY_FAMILY_ROLES:9479`, `:295/2544/2907/3360/8207/8822` | `law_role(way) in {runway, runway_crossing}` | CENSUS | **CHANGED-report-only** — the runway materiality floor and the crown reader follow the role, which is now truthful |
+| 26 | `law/tables.role_family` / `role_words` / `precedence`, `precedence.toml:116` `runway_family.members` | the role register | surface | UNAFFECTED — no role is added or renamed; §40 (5) needs no `precedence.toml` entry (unlike §40 (1)'s owed distinct role) |
+| 27 | `law/tables.runway_transverse_cap:227-249` | runway cap inside the half width, shoulder cap beyond | surface | UNAFFECTED as a function; its DOMAIN is now bounded by the band. `d ≤ 75` so the shoulder cap prices ≤ 1.88 m instead of 22.9 m |
+| 28 | `law/structures.toml:14` `ramp_cuts_runway_family`, `:494` `cuts_runway_family` | booleans over `RUNWAY_FAMILY` | surface | UNAFFECTED as law; their protected set shrinks with the region (rows 9, 10) |
+| 29 | `law/approach_corridor.py` + `emit.cockpit.runway_view_half_width_m` (250 m), §29 (7) | each runway's AXIS from apt.dat, ⊕ 250 m | REGION | UNAFFECTED — built from the apt.dat axes, never from the role's rings. The §29 (7) lateral band is NOT the strip and is untouched by this cut |
+| 30 | `pipeline/build.py:32` + `pipeline.publication` (`runway_half_widths`, `crown_drops`) | the sidecar's runway half widths and built drops | CENSUS | **CHANGED-report-only** — fewer runway vertices declare a drop; the sidecar line the v1 census reads stays one derivation |
+| 31 | `src/auto_patch/*` (v1) | v1 role sets | — | UNAFFECTED — not on the v2 pipeline |
+
+**THE ONE DERIVATION SITE CHOSEN.**  Row 1 — `classify/roles`, the §40 (1)
+shoulder branch — with row 2's existing worklist as the re-scoring path and
+row 14 as the (§40 (5) (3)) level rows.  No per-consumer veto is added
+anywhere: rows 6, 7 and 8 keep the §40 (4) exclusions they already have,
+and every "CHANGED" row changes because the REGION it reads is now
+truthful, which is what 30l asks a derivation-site trim to do.
+
+**THE TWO HAZARDS NAMED, AND WHY NEITHER BLOCKS.**  (a) Row 5: the
+remainder mints zone bands a shoulder did not — bounded at the taxi class's
+22 m and reported.  (b) Rows 9/10/11: pavement that was protected from
+ramps, knives and basins stops being protected.  Both are the ruling's own
+content ("the remainder beyond the strip keeps the role its geometry
+earns"), not side effects of the implementation, and both are measured as
+bars rather than vetoed.

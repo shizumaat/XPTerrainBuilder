@@ -8573,3 +8573,26 @@ then stands on lidar with no re-warm. Round 8 is a FRESH lane (the
 round-7 agent died with the session) on the branch at b0a86405.
 
 ## 2026-09-16b RESUMED after the shutdown (main 756785ca clean, no markers, no locks, the app closed): lane v2shellwall r3 launched from the regenerated pack (revert 07cb9794, keep r1's walled trench, implement §33 (6) B AMENDED (3)); §16g (10) (12) WRITTEN (the arrangement clip preserves the airside vertex set; `pad_airside_renode` family; pads ship ON only at 0 airside movement) → lane v2padclip; v2shoulderband r2 (the end cap + one capture each at VHHH/CYXY/SPJC/KCLT/OTHH) → launched. 145 lane worktrees under .claude/worktrees (1.6 TB) — cleanup chipped for the owner (only v2shellwall, v2padclip, v2shoulderband and the peer's v2channel are live)
+
+## 2026-09-16a v2insetmanifest MERGED (0f92fd0d): §45 (18) — the manifest reader falls back to the inset's own sidecar; the writer stamps both keys; KDFW's 1 m lidar now reads `(1.0, 'inset')` / `lidar` with no re-warm
+
+Lane `v2insetmanifest` (a5b13d50): `ProductionDem._entry_pixel_m` —
+`native_resolution_m`, else the entry's `resolution_m` (already on
+main), else the inset's OWN `<path>.json` (`resolution_m`, then
+`native_resolution_m`), else `None`; ONE log line per distinct source
+when the fallback fires. Writer `O4_Airport_Elevation_Insets._inset_
+bake_provenance_entry` stamps BOTH keys (the USGS3DEP fetch writes
+`resolution_m`, the writer read only `native_resolution_m` — that minted
+the 08-15 N32W098 manifests). Replayed read-only on the real KDFW 08-15
+entry: `source_pixel_m()` `(None,'base_tier')` → `(1.0,'inset')`,
+`flat_source_class` `coarse` → `lidar`. Consumer census by grep: the
+only caller is `flat_site._source_class`; `law/tables.flat_source_
+class`, `tools/flat_site_sweep`, v1 `flat_site`, `O4_Bathymetry_Band`
+and `_inset_effective_pixel_m` unaffected (the last reads provider
+definitions). 16 twins. Suite ON MAIN: `1941 passed, 1 skipped, 1
+xpassed` (campaign + insets + flat-site), 0 failed. FLAGGED, not fixed:
+`_inset_effective_pixel_m` (~:10023) reads the sidecar for
+`native_resolution_m` only and survives via the provider `.elv`
+declaration — a non-declaring provider's inset would take its stored
+pixel at face value for the smoothing radius (chip). v2channel r8's
+KDFW build now stands on the lidar datum by itself.

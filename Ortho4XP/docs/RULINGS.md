@@ -8824,3 +8824,23 @@ absorbed into `bores_no_mouth`); `-1341+-1339@0` refused loudly by
 (i′) (`-639` severs, the climb cannot reach the DEM in 600 m — not one
 of the approved seven).
 16p addendum: v2vmmcbore MERGED (faa6f78b → 31716692; the lane resolved structure_service.py's `__all__` and the frames union on its branch; VMMC build byte-identical 420018b72b91, LEMD 47 / 7 decks = the approved seven). Suite ON MAIN after the merge: 1742 passed, 1 skipped, 1 xpassed, 0 FAILED. Now on main for 1.0.343: the shoulder end cap (16n), no building bores + the corridor deck witness (16p); pending: v2padclip, the peer's v2channel.
+
+## 2026-09-16r v2padclip r1 (104c7b43) MEASURED, merge held for the shipped-arm identity check: the arrangement clip no longer re-nodes airside (`pad_airside_renode` deleted 0; the garage on `building45` at one level; HECA mismatch 15 → 0) — but the airside VALUE still moves with pads (HECA 6,031 / 3.09 m) because the design problem is solved JOINTLY; the interventional arm names §20b: with `staged_solve = true` the runway's movement is 3 / 0.020 m → RULED (§16g (10) (12) MEASURED AND AMENDED): staged solve ships ON under §20c, pads ON with it if the bars hold; r2
+
+Lane @ 104c7b43 (base 7f80dc71); suite 1,711 / 0 FAILED; keys ship
+FALSE. Functions: `planar/overlay.build_arrangement` (two passes),
+`airside_union`, `build_rim`, `_node_coords`, `_drop_rim_midpoints`,
+`_renode_counts`, `airside_clip(regions, law, air=, nodes=, rim=)`
+un-gated + drops a pad wholly on airside; `geom/cluster_outline.
+AirsideRim(nodes=, node_tol_m=)`; `pipeline/publication._renode_rows`
+(absent key = NOT MEASURED, empty = MEASURED ZERO); `check_grade
+_check_pad_airside_renode`; `pad_airside_arm --arm-a/--arm-b`;
+`v2_solve_replay` captures carry the re-node reading. Refuted:
+retreating an unsnappable crossing off the rim (takes the weld). Twins
+re-founded: a building standing in an apron IS a hole in that apron
+(`test_v2bank` pad 40 m; `test_constraints`; `test_v2padvert`). Census
+OFF → ON: HECA ADJUDICATED 19,456 → 18,686, LEMD 2,121 → 1,004; worse
+by > 5 % named (HECA `plane_gradient` 9 → 14, `strip_seam_tear` 28 →
+33). NOT done: the `classify/roles.classify` `if` (the OFF arm's
+airside region still pad-dependent: LEMD apron faces 180 vs 106); the
+OFF-arm identity vs main (r2's first deliverable, before the merge).

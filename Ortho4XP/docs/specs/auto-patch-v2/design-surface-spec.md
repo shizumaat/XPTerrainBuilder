@@ -16280,3 +16280,76 @@ the untried `pad_airside_snap_max_m` lever) stays named.  The staged
 solve's own shipped-surface change (16t: HECA ADJUDICATED −3.8 %, LEMD
 +1.9 %) is part of what the owner reads.  If the read refuses, the
 keys come back OFF by one `git revert`.
+
+### §20b (3) AMENDED — MEASURED, ROUND 2: THE THREE KEYS SHIP TRUE (lane `v2stagepop` r2, 2026-09-16; branch `claude/v2stagepop`, base main `acb0d79e`)
+
+`[placement] pad_from_cluster = true`, `[placement] pad_airside_clip =
+true` and `[design] staged_solve = true` ship TOGETHER, under `solver =
+"qp"`.  Matched replay pairs on the registered v2padclip r2 captures, ONE
+tree, the only variable the arm's own capture (the two `[placement]`
+keys), everything else the shipped law.
+
+| bar (§20b (3) AMENDED) | HECA | LEMD | verdict |
+|---|---|---|---|
+| (a) no PAD ROW binds an airside vertex | the worst mover (+2.40 m, `apron`, 30.12632731816,31.41842378505) is bound by `apron_preference` ALONE — 5 rows, Σ\|dual\| 148.03; `pads` appears only along its 16-hop chain, at a `building` vertex, +0.26 m of +31.82 m | the worst mover (+0.56 m, 40.49950870094,−3.55964774944) is bound by `zone_bands` alone | **MET** (and by construction: §20b (1b) refuses every pad ruling in stage 1, stage 2 has no airside column) |
+| (b) stage 2 references airside only as constants | `test_v2staged::test_stage_two_carries_no_airside_column` | same twin | **MET** |
+| (c) the one-vertex probe (0.30 m ceiling at 30.1279552,31.403143) | **0 of 32,575** moved > 0.02 m, **max 0.0013 m**, nothing beyond 250 m, hard set 932 → 932 unchanged | — | **MET** (r2 of v2padclip read max 0.0167 m) |
+| (d) the runway | **2** vertices, both **at 0.020 m** (the elevation materiality — PASS-with-residual, CLAUDE.md convergence guard (a)) | **0** | **MET** |
+| (e) census pairs OFF → ON, every family worse by > 5 % named | ADJUDICATED 18,407 → **19,105** (+3.8 %), law-true 58,089 → 59,468 | ADJUDICATED 1,013 → **1,093** (+7.9 %), law-true 5,126 → 5,223 | reported |
+| (f) the owner's SIM READ | the LEMD build below | | the acceptance |
+
+Solve-owned airside moved OFF → ON (no longer a bar — the pads-OFF arm is
+not the reference): HECA **2,077** vertices worst **2.40 m**, LEMD **603**
+worst **0.56 m**.
+
+WORSE BY MORE THAN 5 %, each named — HECA: `hairline_pair` 2,230 → 2,781,
+`pad_airside_renode` 40 → 43, `pad_airside_weld` 18 → 19,
+`plane_gradient` 7 → 11, `vertex_to_edge_step` 5 → 7, `cross_shape`
+0 → 1, `terrace_actual_step` 0 → 1.  LEMD: `pad_airside_renode` 12 → 32
+(§16g (10) (12)'s own named residual, one class — the unsnappable
+crossing; the untried lever is `pad_airside_snap_max_m`),
+`pad_cluster_mismatch` 0 → 1 (`unit:27#341/8`, r2 of v2padqp's own named
+survivor), `strip_transverse` 82 → 89.  FORWARD: HECA
+`pad_cluster_mismatch` **15 → 0**, `road_cross_section` 152 → 140,
+`frontage_near_miss` 26 → 22, `strip_arc` 1 → 0.
+
+**THE CLOSING BUILD** — `build_airport.py LEMD --tag v2stagepopLEMD2` on
+the shipped law: rc 0, **301.0 s**, ways 1,092, nodes 21,336, status
+`optimal`, `body_sha edeebd0de1ff`, artifact ledger `39336a1007c1`,
+v2-verify 1,262 rows, verbatim `[harness] shared repo UNCHANGED by this
+build (full-surface before/after snapshot) — no side-effect mutation`.
+**THE OWNER'S SITE**: the T4 garage `LEMD_OBJ-Airport_Terminal4_green-
+PKT4.obj` at 40.4892214,−3.5944287 is INSIDE **`building45`**, a 93-node
+face (way −11001) at **615.22 … 615.45 — ONE LEVEL, spread 0.23 m**; the
+fill under it is **+4.26 m** over raw DEM (the matched replay arm's own
+site read).  Census of the build: law-true 4,952, ADJUDICATED 1,316,
+cockpit **CRITICAL motion 0**.
+
+**EIGHT TWINS RE-FOUNDED ON BOTH ARMS, NONE WEAKENED — AND THEY ARE ALL
+`staged_solve`'s.**  Interventionally attributed: with the two pad keys
+ON and `staged_solve` OFF the whole suite is green, so the pad keys cost
+ZERO twins; all eight reds are the staged solve's, on synthetic fixtures
+where the airside can no longer yield.  Each twin now pins the SHIPPED
+(staged) arm with its own number and keeps its joint-problem claim under
+`test_v2staged.unstaged(law)`:
+
+| twin | the joint problem | the shipped (staged) arm |
+|---|---|---|
+| `test_v2bank::…a_pad_on_a_three_percent_apron_stays_flat_and_welds` | spread ≤ 0.01 m | **0.4003 m** = the apron's own 3 % across the weld; tilt 0.0100 HELD |
+| `test_v2bank::…no_flat_solution_tilts_within_one_percent` | tilt ≤ 0.0101 | **0.010308** (0.0002 over, 2× the grade materiality) |
+| `test_v2ground::…zone_ring_follows_the_pavement_not_the_terrain` | strip filled ≥ +0.70 m | **−2.88 m**: §20b (1c)'s named deviation — the airside sheet takes NO level from the ground across its own boundary; INERT at HECA (off-DEM by role identical to two decimals) |
+| `test_v2chord::…two_pin_ridge…` (the chord-less CONTROL) | on the ground, < 2 m | **+4.08 m** over the valley floor — the same deviation |
+| `test_v2clusterpad::…one_plane_over_every_pad…` | padA/padB within 0.30 m | **0.8625 m**; still ONE priced group on both arms |
+| `test_m3b::…round_trip…` | `frontage_near_miss` ≤ 1 | **2** rows (0.53 / 0.39 m, both under the family's own 0.60 m) |
+| `test_v2frontage::…two_way_apron_edge_ramp_law` | the pad moves 0.172 m | **1.3e-8 m** — the channel is CLOSED, the strongest form of that twin's claim |
+| `test_v2qp::…local_perturbation_is_local…` | 21 vs 22 movers — the pair cannot separate the solvers once §20b confines the perturbation | the arm is now named `staged_solve=False`; the staged locality is (c) above |
+
+**REPORTED, NOT DECIDED (the round's one open item).**  Two of those
+eight — `test_v2ground`'s valley and `test_v2chord`'s control — are the
+SAME mechanism: §20b (1c)'s "a stage triangulates only the faces it owns"
+means an airside sheet with no level of its own no longer borrows the
+ground's across its boundary.  Lane `v2staged` reported it and it has
+never been ruled; at HECA and LEMD it is inert (a real taxi family carries
+its own trend), on a fixture with none it is 3–4 m.  It is now twinned on
+both arms rather than hidden.  Suite **1,781 passed / 1 skipped /
+1 xpassed, 0 FAILED** with the keys ON.

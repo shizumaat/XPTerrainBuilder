@@ -89,6 +89,26 @@ import typing as _t
 
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
+
+
+def _renode_rows(airport) -> list:
+    """§16g (10) (12) (2): the airside nodes the PAD STAGE minted or
+    deleted, as ``[lat, lon, kind]``, read verbatim out of the
+    arrangement's own publication (``planar/overlay.PAD_AIRSIDE``) and
+    converted in the airport's own frame.  Never re-derived: the only
+    place the two node sets both exist is inside the arrangement."""
+    from ..planar.overlay import PAD_AIRSIDE
+    out: list = []
+    if not PAD_AIRSIDE:
+        return out
+    _to_xy, to_ll = airport.frame.transformers()
+    for key, kind in (("renode_deleted_xy", "deleted"),
+                      ("renode_minted_xy", "minted")):
+        for x, y in (PAD_AIRSIDE.get(key) or ()):
+            lat, lon = to_ll(float(x), float(y))
+            out.append([round(float(lat), 11), round(float(lon), 11), kind])
+    return out
+
 from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
@@ -426,6 +446,16 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # under and never from a constant of its own
             "seam_half_width_m": float(law.tables.emit.seam.half_width_m),
             "station_caps": stations,
+            # §16g (10) (12) (2) THE RE-NODE (Fable 2026-09-16; RULINGS
+            # 2026-09-16b): ``[lat, lon, "minted"|"deleted"]`` per airside
+            # node the PAD STAGE added to or removed from the arrangement's
+            # airside cells.  Published from the ONE derivation site that
+            # can know it — ``planar/overlay.build_arrangement`` compares
+            # its own pass A (no pad in the line set) with its pass B — so
+            # the census family ``pad_airside_renode`` prices exactly what
+            # the build did and never re-derives it.  The bar is an EMPTY
+            # list; a patch with no key reads exactly as before.
+            "pad_airside_renode": _renode_rows(airport),
             # §34 (9) THE PINCHED RAMP (RULINGS 2026-09-14ak/14am):
             # ``[shapeID, corridor, road ref, span m, designed grade]`` per
             # ramp face whose within-shape longitudinal cap is LIFTED — the

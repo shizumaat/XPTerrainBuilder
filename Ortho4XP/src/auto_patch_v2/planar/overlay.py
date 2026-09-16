@@ -340,6 +340,13 @@ def _renode_counts(before, after, air) -> dict:
     # (``snap_too_far``); INSIDE the airside it is a pad that STANDS on
     # airside ground — the ``kept_wholly_on_airside`` / refused class,
     # whose ring cuts the face it sits in.
+    #: THE NODES THEMSELVES, in the frame — the census family
+    #: ``pad_airside_renode`` emits ONE ROW PER NODE off this list
+    #: (``pipeline/publication`` converts to lat/lon).  A count alone
+    #: cannot be sited, and a family that cannot be sited cannot be read
+    #: in the cockpit block.
+    out["renode_deleted_xy"] = sorted(b - a)[:4000]
+    out["renode_minted_xy"] = sorted(minted)[:4000]
     if minted:
         cs = sorted(minted)
         pts = shapely.points(np.asarray(cs, dtype=float))

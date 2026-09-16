@@ -142,6 +142,33 @@ ruling    = "2026-09-14ai"
 solver    = "edge"
 cockpit   = "step"
 
+# §16g (10) (12) (2) THE ARRANGEMENT CLIP PRESERVES THE AIRSIDE VERTEX SET
+# (Fable 2026-09-16; RULINGS 2026-09-16b).  The airside cells' geometry and
+# vertex set are computed BEFORE any pad exists and are never modified by
+# the pad stage: a pad polygon is the cluster outline MINUS the airside
+# union, clipped BY the airside cells, and where a pad edge meets an
+# airside edge the pad takes the airside's EXISTING boundary vertices and
+# adds none.  This family is a PRESENCE family and a GUARD on that
+# derivation, never a grade count: one row per airside node the pad stage
+# minted or deleted, read from the sidecar's `pad_airside_renode` (the
+# build's own pass A against its pass B — the only place both node sets
+# exist).  It is the instrument 15ah's attribution needed and had none:
+# with the clip alone at HECA the pad stage deleted 1,082 solve-owned
+# airside vertices and minted 235, which re-noded the whole airside
+# problem, and no family could see it because the emitted surface breaks
+# no grade law by carrying an extra vertex.
+[pad_airside_renode]
+measures  = "an airside cell vertex MINTED or DELETED by the pad stage — the airside re-noded because a pad exists"
+parameter = "structures.placement.pad_airside_clip"
+roles     = ["all"]
+pairs     = "within"
+ruling    = "2026-09-16b"
+solver    = "pin"
+# THE COCKPIT CLASS is "keepout": one node is the whole defect (the
+# `bank_across_seam` shape), there is no magnitude to threshold, and a
+# re-noded airside is a changed PROBLEM rather than a changed height.
+cockpit   = "keepout"
+
 [basin_floor_declaration]
 measures  = "a basin facility floor disagreeing with its own body depth"
 parameter = "structures.basin.floor"

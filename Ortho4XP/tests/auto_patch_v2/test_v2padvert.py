@@ -194,3 +194,124 @@ def test_the_skirt_and_its_two_law_keys_are_GONE():
     assert "pad_skirt" not in code and "skirt_ceiling" not in code
     head = "structures.building_pad airside skirt"
     assert head not in hard_rulings(law) and head not in one_way_rulings(law)
+
+
+# ── §16g (10) (12) THE ARRANGEMENT CLIP PRESERVES THE AIRSIDE VERTEX SET
+# (Fable 2026-09-16; RULINGS 2026-09-16b) ──────────────────────────────
+
+def _renode_scene(law, pad_ring):
+    """One apron, one runway strip's worth of breakline, and ONE pad —
+    built through the real ``build_arrangement`` so the twin reads the
+    noding itself and not a re-spelling of it."""
+    from auto_patch_v2.classify.roles import Cell, Classification
+    from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
+                                             SceneryPack)
+    from auto_patch_v2.model.frame import Frame
+    from auto_patch_v2.planar.overlay import build_arrangement
+
+    class _Flat:
+        provenance = {"synthetic": "flat"}
+
+        def z(self, x, y):
+            return 700.0
+
+        def bounds(self):
+            return (-9000.0, -9000.0, 9000.0, 9000.0)
+
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0,
+                      "fixture"),
+            RunwayEnd("27", (600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0,
+                      "fixture"))
+    rw = Runway("09/27", 45.0, 1, ends, 3, "D")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {},
+                      (), (), (), (), (), (), (), pack, _Flat(),
+                      law.ruleset_key)
+    cells = (
+        Cell(0, "runway", "09/27",
+             ((-600, -22.5), (600, -22.5), (600, 22.5), (-600, 22.5)), (),
+             3, "D", "airside", "runway", {}),
+        Cell(1, "apron", "apron1",
+             ((-200, 100), (200, 100), (200, 300), (-200, 300)), (), None,
+             "D", "airside", "apron", {}),
+        Cell(2, "building", "pad1", pad_ring, (), None, None, "airside",
+             "pad", {}),
+    )
+    cl = Classification(cells, (), {}, ())
+    return build_arrangement(airport, cl, law)
+
+
+def test_the_airside_vertex_set_barely_depends_on_whether_a_pad_exists():
+    """§16g (10) (12) (1)/(2): the airside cells are noded BEFORE any pad
+    exists, so adding a pad MINTS and DELETES no airside node.
+
+    MEASURED at HECA (lane ``v2padclip``, ``tools/pad_airside_arm.py``,
+    one tree one variable) before the rule: the clip alone took 1,008
+    airside vertices away and minted 283, 228 of the minted ones over 1 m
+    from ANY airside vertex of the other arm — the whole line set was
+    noded in ONE snap-rounding union and a pad ring both split airside
+    edges outright and moved unrelated airside nodes by half a grid cell.
+    """
+    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+    law = _armed(_law())
+    # a pad hanging off the apron's north edge: it CROSSES the rim, which
+    # is the case that used to split an airside edge at each crossing
+    _renode_scene(law, ((-60, 260), (60, 260), (60, 380), (-60, 380)))
+    assert PAD_AIRSIDE["renode_deleted"] == 0, dict(PAD_AIRSIDE)
+    # THE RESIDUAL, NAMED AND MEASURED (attempt cap, RULINGS 2026-09-16b):
+    # this fixture's apron edge runs 400 m with its own nodes 57 m apart,
+    # so NEITHER crossing point can reach one inside
+    # ``pad_airside_snap_max_m`` and each stands on the rim and splits the
+    # apron's edge — 2 minted nodes here, 5 at HECA.  The second attempt,
+    # making such a crossing RETREAT off the rim by the hot-pixel band
+    # instead, IS REFUTED: it takes the WELD with it (09-01g / §16g (10)
+    # (6), "a vertex the pad shares with a pavement IS that pavement's
+    # vertex") — ``test_v2padlevel::test_a_pad_between_two_pavements_...``
+    # read ZERO shared vertices on both its frontages.  The un-tried lever
+    # is the law value ``pad_airside_snap_max_m`` (5.0 m today), which
+    # trades pad distortion along the rim for these nodes.
+    assert PAD_AIRSIDE["renode_minted"] == 2, dict(PAD_AIRSIDE)
+    assert PAD_AIRSIDE["renode_minted_on_rim"] == 2
+    assert PAD_AIRSIDE["snap_too_far"] == 2
+    # the rim the crossing points quantise to is the ARRANGEMENT's own
+    # node set, not the region ring's — which is what made the snap
+    # reachable (HECA: 6,272 ring nodes against 8,775 arrangement ones)
+    assert PAD_AIRSIDE["rim_nodes_arrangement"] >= PAD_AIRSIDE["rim_nodes_ring"]
+
+
+def test_a_pad_wholly_on_airside_is_dropped_and_mints_nothing():
+    """§16g (10) (12) (1) / §16g (10) (5): a pad standing wholly on what an
+    aircraft rolls on gets NO pad — its bodies seat on the pavement.  It
+    was KEPT until (12) (the §30 / 14ai pad-in-an-apron class), and
+    MEASURED at HECA those 8 pads were the ONLY re-node class left once
+    the airside was noded first: 548 of 553 minted airside nodes, every
+    one STRICTLY INSIDE the airside union."""
+    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+    law = _armed(_law())
+    arr = _renode_scene(law, ((-60, 150), (60, 150), (60, 250), (-60, 250)))
+    assert PAD_AIRSIDE.get("dropped_wholly_on_airside") == 1, dict(PAD_AIRSIDE)
+    assert PAD_AIRSIDE["renode_minted"] == 0 and PAD_AIRSIDE["renode_deleted"] == 0
+    assert not any(r.role == "building" for _p, r in arr.faces)
+
+
+def test_the_densifier_may_not_node_the_rim_but_a_pad_corner_survives():
+    """§16g (10) (12) (1): ``ring_lines`` densifies every ring at its own
+    role's chord cap, so the `building` cap's midpoints would land on
+    airside edges the airside cap spaced differently and SPLIT them — they
+    are dropped.  A pad CORNER standing on the rim is the pad's own
+    geometry and is never dropped: doing that collapsed the three
+    ``test_v2padlevel`` fixtures whose pad merely touches its apron."""
+    from shapely.geometry import LineString, Polygon
+    from auto_patch_v2.planar.overlay import _drop_rim_midpoints, build_rim
+    law = _armed(_law())
+    air = Polygon([(0, 0), (400, 0), (400, 100), (0, 100)])
+    rim = build_rim(air, law, nodes=[(0.0, 100.0), (400.0, 100.0)])
+    # a pad edge running ALONG the rim: its two ends are the pad's own
+    # corners, the point between is a densifier midpoint
+    line = LineString([(100.0, 100.0), (200.0, 100.0), (300.0, 100.0)])
+    own = {(100.0, 100.0), (300.0, 100.0)}
+    out, gone = _drop_rim_midpoints([line], rim, {(0.0, 100.0), (400.0, 100.0)},
+                                    own)
+    assert gone == 1
+    assert list(out[0].coords) == [(100.0, 100.0), (300.0, 100.0)]

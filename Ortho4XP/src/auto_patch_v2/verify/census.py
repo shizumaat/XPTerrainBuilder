@@ -85,6 +85,12 @@ NOT_IMPLEMENTED: tuple[str, ...] = (
     # ``verify`` reads the DESIGN SURFACE and has no reader for either,
     # so the lockstep twin must not expect one.
     "pad_cluster_mismatch", "pad_airside_weld",
+    # §16g (10) (12) (2) (Fable 2026-09-16; RULINGS 2026-09-16b): the
+    # re-node family is the CENSUS's too — it prices the sidecar witness
+    # the ARRANGEMENT published (its own pass A against its pass B), and
+    # ``verify`` reads the solved design surface, which by then carries
+    # one vertex set and cannot see which of them a pad minted.
+    "pad_airside_renode",
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
     "drainage_spine", "apron_lattice_membrane", "drainage_minimum",
     # §39 (2) (owner RULINGS 2026-09-13bk/13bt/13bu): the hairline needs the

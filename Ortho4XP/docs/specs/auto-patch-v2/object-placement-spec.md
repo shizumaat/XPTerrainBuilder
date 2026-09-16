@@ -5888,3 +5888,42 @@ Bar 6 is "flipped only if EVERY bar holds".  The re-node bar HOLDS on
 32); the AIRSIDE MOVEMENT bar is missed by 6,031 vertices and is now
 attributed, interventionally, to §20b rather than to the pad law.  No
 closing airport build: the keys did not flip.
+### §16g (10) (12) MEASURED AND AMENDED (lane v2padclip r1 104c7b43; Fable 2026-09-16; RULINGS 2026-09-16r) — the vertex set is invariant now; the VALUE still moves because the problem is solved jointly → §20b staged solve ON under §20c; (2) reworded to the invariance reading
+
+**Measured.**  `build_arrangement` in two passes (A: every non-pad line;
+B: pads on that result), `airside_clip` un-gated and dropping a pad
+wholly on airside, `AirsideRim` noded on the arrangement (HECA 6,272
+ring nodes → 8,775): `pad_airside_renode` deleted **0** on every arm
+(was 1,008 at HECA with the clip alone), minted 40–43 HECA / 32 LEMD
+(one class: an unsnappable crossing, `snap_too_far` 68 — the untried
+lever is `pad_airside_snap_max_m` 5.0; RETREATING the point took the
+weld with it and is refuted).  The owner's garage: inside `building45`,
+615.05…615.11, one level.  `pad_cluster_mismatch` HECA 15 → 0;
+`pad_airside_weld` HECA 9 → 8.  AND the airside VALUE still moves OFF →
+ON: HECA 6,031 vertices, worst 3.09 m, runway 180 / 0.130 m — as much
+as 15ah read.  The interventional arm (clip+pads, the ONLY variable
+`staged_solve`): runway 157 / 0.110 m → **3 / 0.020 m**, airside 3,875
+→ 2,018.  The pads' rows reach the airside because the design problem
+is solved JOINTLY; the re-noding of 15ah was real, is closed, and was
+not what moved the surface.
+
+**RULED.**  (a) (12) (2) is reworded to the invariance reading the
+lane implemented: airside vertices deleted ∪ minted by the pad stage,
+measured against the pad-free airside per arm, = 0 — the OFF arm was
+the polluted one and cannot be the reference.  (b) §16g (10) (5)'s
+bar (a derived pad never takes airside ground) is met by §20b, not by a
+pad row: `staged_solve = true` ships with `solver = "qp"` — stage 1
+(AIRSIDE) SETTLES under §20c (15b: 0 / 174,500 hard, worst 0.0200 m),
+stage 2 conforms with the airside FIXED.  r2 measures the remaining
+2,018 movers under the staged solve interventionally (`--why-at`: which
+stage, which rows — a stage-2 substitution touching a shared weld
+vertex is a §20b (2) defect) with the bar 0 > 0.02 m on solve-owned
+airside, HECA and LEMD; then `pad_from_cluster`, `pad_airside_clip` and
+`staged_solve` ship TRUE together if every bar holds.  (c) The last
+piece of (12) (1): `classify/roles.classify` (:244–251) still subtracts
+the pad union from the airside REGION when the clip is off — the `if`
+goes (v2shoulderband r2 is merged; the file is free).  (d) Before the
+merge of r1, the SHIPPED arm's identity: the two-pass arrangement and
+the un-gated clip run on the OFF arm too — HECA and LEMD OFF-arm replay
+pairs main-before vs branch must be byte-identical or each difference
+named (the lane reported OFF → ON pairs only).

@@ -31,6 +31,7 @@ airport (``test_classify._synthetic``):
 """
 from __future__ import annotations
 
+import json
 import dataclasses as _dc
 import sys
 from pathlib import Path
@@ -403,3 +404,159 @@ def test_a_page_that_wraps_the_runway_is_not_its_shoulder(law, rules):
     keep = [c for c in cl2.cells if c.kind == "runway_shoulder"]
     assert len(keep) == 1
     assert keep[0].evidence["shoulder_wrap"] < rules.corridor.runway_shoulder_max_wrap
+
+
+# ── 6. §40 (5) THE BAND TAKES THE STRIP'S OWN END EXTENSION ──────────────
+#    (owner RULINGS 2026-09-15bl, the lane's own question RULED; r2)
+
+def _end_lobe_airport(depth_m: float = 20.0):
+    """A 400 x ``depth_m`` page on the runway's SOUTH edge running from
+    x = 800 THROUGH the 27 threshold (x = 1000) to x = 1200.
+
+    200 m of it shares the runway ring (over the floor); 200 m of it
+    stands off the runway END, inside the runway's own end corridor
+    (``end_skirt.corridor_length_m`` = 90 m at code 2) for its first
+    90 m and beyond it for the last 110 m.  Mean depth 8,000 / 200 =
+    40 m, under the ribbon cap."""
+    a = _synthetic(gate=True, island=False)
+    page = Pavement("lobe", Surface.ASPHALT,
+                    _rect(800.0, -15.0 - depth_m, 1200.0, -15.0), ())
+    return _dc.replace(a, pavements=a.pavements + (page,))
+
+
+def _end_len(law) -> float:
+    cl = law.ruleset.end_skirt.corridor_length_m
+    return cl.value(2, "C")
+
+
+def _no_end_cap(rules):
+    return _dc.replace(rules, corridor=_dc.replace(
+        rules.corridor, runway_shoulder_band_end_cap=False))
+
+
+def test_the_shoulder_band_runs_the_strip_s_end_corridor_beyond_the_threshold(law):
+    """The band's GEOMETRY, read straight off the derivation: the axis is
+    extended by ``end_skirt.corridor_length_m`` at BOTH ends before the
+    flat cap, so the band spans -90..1090 instead of 0..1000."""
+    from auto_patch_v2.classify.roles import shoulder_band
+    rw = _synthetic(gate=True).runways[0]
+    ext = _end_len(law)
+    assert ext == 90.0, ext                      # ICAO code 2 (Annex 14 §3.5.3)
+    on = shoulder_band(rw, law)
+    off = shoulder_band(rw, law, end_cap=False)
+    x0, y0, x1, y1 = on.bounds
+    assert (x0, x1) == pytest.approx((-ext, 1000.0 + ext), abs=0.01)
+    assert (y0, y1) == pytest.approx((-40.0, 40.0), abs=0.01)   # the strip half width
+    bx0, _by0, bx1, _by1 = off.bounds
+    assert (bx0, bx1) == pytest.approx((0.0, 1000.0), abs=0.01)
+    # the extension is the STRIP's own number, not a second one: the same
+    # law key `constraints/strips.runway_groups` reads for its end rings
+    assert x1 - bx1 == pytest.approx(ext, abs=0.01)
+    assert bx0 - x0 == pytest.approx(ext, abs=0.01)
+
+
+def test_a_shoulder_lobe_inside_the_end_corridor_stays_the_runway_s(law, rules):
+    """§40 (5) as ruled 15bl: the lobe standing off the 27 threshold is
+    the runway's for the 90 m the strip runs beyond it, and re-roled only
+    past that.  ONE variable against the twin below — the law key."""
+    ext = _end_len(law)
+    cl = classify(_end_lobe_airport(), law, rules)
+    sh = [c for c in cl.cells if c.kind == "runway_shoulder"]
+    assert len(sh) == 1, [(c.role, c.ref, c.kind) for c in cl.cells]
+    c = sh[0]
+    assert c.role == "runway" and c.ref == "09/27"
+    # it reaches the END of the end corridor and no further
+    assert max(x for x, _y in c.ring) == pytest.approx(1000.0 + ext, abs=0.01)
+    assert Polygon(c.ring, c.holes).area == pytest.approx(
+        (200.0 + ext) * 20.0, rel=0.02)
+    # the ground beyond the end corridor is NOT the runway's
+    rest = [x for x in cl.cells if x.ref.split("#")[0] == "lobe"]
+    assert rest and all(x.role not in ("runway", "runway_crossing") for x in rest)
+    assert sum(Polygon(x.ring, x.holes).area for x in rest) == \
+        pytest.approx((200.0 - ext) * 20.0, rel=0.02)
+    assert cl.stats["shoulder_band_cuts"] == 1
+
+
+def test_without_the_end_cap_the_band_stops_dead_at_the_threshold(law, rules):
+    """The disarm clause, the single variable of r2's matched pair: the
+    same lobe, flat-capped at the apt.dat end — 4,000 m2 of the runway's
+    own end corridor loses the runway's ref while `runway_end_skirt` and
+    `resa_transverse` still price that ground."""
+    ext = _end_len(law)
+    cl = classify(_end_lobe_airport(), law, _no_end_cap(rules))
+    sh = [c for c in cl.cells if c.kind == "runway_shoulder"]
+    assert len(sh) == 1
+    c = sh[0]
+    assert max(x for x, _y in c.ring) == pytest.approx(1000.0, abs=0.01)
+    assert Polygon(c.ring, c.holes).area == pytest.approx(200.0 * 20.0, rel=0.02)
+    rest = [x for x in cl.cells if x.ref.split("#")[0] == "lobe"]
+    assert sum(Polygon(x.ring, x.holes).area for x in rest) == \
+        pytest.approx(200.0 * 20.0, rel=0.02)
+    # ...and the difference between the two arms is exactly the law number
+    on = classify(_end_lobe_airport(), law, rules)
+    on_sh = [x for x in on.cells if x.kind == "runway_shoulder"][0]
+    assert Polygon(on_sh.ring, on_sh.holes).area \
+        - Polygon(c.ring, c.holes).area == pytest.approx(ext * 20.0, rel=0.02)
+
+
+def test_the_end_cap_does_not_touch_a_shoulder_that_never_reaches_an_end(law, rules):
+    """A ribbon in the middle of the runway reads IDENTICALLY on both
+    arms: the end cap extends the band only past the thresholds."""
+    need = rules.corridor.runway_shoulder_shared_m
+    on = classify(_shoulder_airport(2 * need), law, rules)
+    off = classify(_shoulder_airport(2 * need), law, _no_end_cap(rules))
+    def _sh(cl):
+        return sorted(round(Polygon(c.ring, c.holes).area, 6)
+                      for c in cl.cells if c.kind == "runway_shoulder")
+    assert _sh(on) == _sh(off)
+    assert on.stats.get("shoulder_band_cuts") == off.stats.get("shoulder_band_cuts")
+
+
+# ── 7. THE DRY BAND READER (`v2_solve_replay --reclassify`) ─────────────
+
+def test_the_dry_band_reader_is_the_classifier_s_own_verdict(law, rules, tmp_path):
+    """`--reclassify` re-runs CLASSIFY ALONE over a capture's own
+    ``Airport`` with ``--rule`` as the only variable — the §40 (5) band
+    table at seconds instead of a capture's minutes (promoted r2; r1
+    hand-rolled it for the HECA control).
+
+    The twin asserts it reports the CLASSIFIER's verdict and not a second
+    derivation: the same two arms as the twins above, read through the
+    tool, come back with the areas the classifier itself produces."""
+    import importlib.util
+    import pickle
+    tool = Path(__file__).resolve().parents[2] / "tools" / "v2_solve_replay.py"
+    spec = importlib.util.spec_from_file_location("_v2_solve_replay", tool)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    cap = tmp_path / "SYNT.pkl"
+    with cap.open("wb") as fh:
+        pickle.dump({"icao": "SYNT", "airport": _end_lobe_airport()}, fh)
+
+    ext = _end_len(law)
+    out_on, out_off = tmp_path / "on.json", tmp_path / "off.json"
+    assert mod.reclassify(cap, {}, out_on) == 0
+    assert mod.reclassify(
+        cap, {"corridor.runway_shoulder_band_end_cap": "false"}, out_off) == 0
+    on = json.loads(out_on.read_text())
+    off = json.loads(out_off.read_text())
+
+    # the band table IS the classifier's (the twins above, through the tool)
+    assert on["runway_shoulder"]["cells"] == off["runway_shoulder"]["cells"] == 1
+    assert on["runway_shoulder"]["m2"] == pytest.approx((200.0 + ext) * 20.0, rel=0.02)
+    assert off["runway_shoulder"]["m2"] == pytest.approx(200.0 * 20.0, rel=0.02)
+    assert on["runway_shoulder"]["m2"] - off["runway_shoulder"]["m2"] == \
+        pytest.approx(ext * 20.0, rel=0.02)
+    # the remainder and the band PARTITION the cell on both arms
+    for arm in (on, off):
+        assert arm["runway_shoulder"]["m2"] + arm["remainder"]["m2"] == \
+            pytest.approx(400.0 * 20.0, rel=0.02)
+        assert sum(v["m2"] for v in arm["remainder_by_role"].values()) == \
+            pytest.approx(arm["remainder"]["m2"], rel=1e-6)
+        # §40 (5) (1)'s own bar: no shoulder vertex stands beyond the band
+        assert arm["vertices_beyond_band"] == 0
+        assert arm["worst_lateral_m"] <= 40.0 + 0.01     # the strip half width
+    # the arm is recorded in the dump, so no reading is frame-less
+    assert off["rule"] == {"corridor.runway_shoulder_band_end_cap": "false"}
+    assert on["rule"] == {}

@@ -85,3 +85,16 @@ class StructureStats:
     #: spec §34 (5): the UNDERPASSES stated by an aeroway bridge — one line
     #: per deck way naming the roads bored under it.
     underpasses: list[str] = _dc.field(default_factory=list)
+    #: §33 (6) B AMENDED (3) (c) (owner RULINGS 2026-09-15br): the SURFACE
+    #: ELEMENTS excluded from the terrain solve inside an object-decked
+    #: trench outline — one line per outline (its open m², the pavement m²
+    #: the knife took, the centreline and road metres trimmed), plus the
+    #: totals the report and the twins read.
+    decked_excluded: list[str] = _dc.field(default_factory=list)
+    decked_outlines: int = 0
+    decked_centreline_m: float = 0.0
+    decked_road_m: float = 0.0
+    decked_pavement_m2: float = 0.0
+    #: the runway-family cells standing inside an object-decked outline —
+    #: the knife's 08-07 ruling 4 exemption, MEASURED rather than widened.
+    decked_runway_family: list[str] = _dc.field(default_factory=list)

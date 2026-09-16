@@ -31,7 +31,12 @@ native_resolution_m=1
 # (Bay of Fundy verified). select_bathymetry_definitions() returns every
 # covering provider priority-sorted and the band fetch falls through where a
 # provider yields no cells, so this broad claim never starves the fallbacks.
-coverage_bbox=-141.0,41.0,-52.0,84.0
+# Coverage boxes copied from the parent (Canada-only; owner RULINGS
+# 2026-09-16c split the old -141,41,-52,84 box, which reached most of
+# the northern United States, along the border).
+coverage_bbox=-141.0,48.9,-95.15,84.0
+coverage_bbox=-95.15,41.6,-74.0,84.0
+coverage_bbox=-74.0,43.0,-52.0,84.0
 
 # Vertical datum: CGVD2013, the Canadian geodetic vertical datum -- an
 # MSL-family datum, appropriate for water rendering.

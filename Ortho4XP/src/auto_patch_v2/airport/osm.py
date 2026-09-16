@@ -45,6 +45,13 @@ TAGS_OF_INTEREST = frozenset((
     "building", "building:part", "service", "access", "name", "surface",
     "width", "lanes", "oneway", "height", "building:levels", "area",
     "amenity", "parking",   # amenity=parking lots (owner 2026-09-04j evidence)
+    # §34 (12) (5) (a) (owner RULINGS 2026-09-16d, lane `v2vmmcbore`): a
+    # `covered=yes` structure is an ENCLOSURE a bore may END in, and this
+    # whitelist dropped the tag, so the witness could not be read at all.
+    # `O4_Vector_Map.ROADS_TAGS_OF_INTEREST` has kept it since the
+    # 2026-09-15 schema (§45 (9)); every consumer reads tags BY KEY, so
+    # one more key changes no existing reading.
+    "covered",
 ))
 FEEDS = ("airports", "airport_small_roads", "big_roads")
 

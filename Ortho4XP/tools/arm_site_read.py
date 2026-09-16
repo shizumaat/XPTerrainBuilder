@@ -406,6 +406,116 @@ def seam_welds(cg, patch, lat=None, lon=None, radius_m=None) -> dict:
     }
 
 
+
+def airside_near_cuts(cg, ctl_patch, arm_patch, *, near_m: float = 200.0,
+                      floor_m: float = 0.02, roles=AIRSIDE_SEAM_ROLES) -> dict:
+    """AIRSIDE BESIDE A STRUCTURE OBJECT'S CUT, ARM TO ARM — spec §33 (6)
+    B AMENDED's own bar (owner RULINGS 2026-09-15bh, lane `v2shellwall`):
+    *"airside beside a shell never moves"*, stated as the emitted airside
+    vertices within ``near_m`` of the pack's object cuts whose altitude
+    moved more than ``floor_m`` between two arms.
+
+    The REGION is the sidecar's own ``object_cuts`` ``outline_ll`` (the
+    arm's, else the control's — a cut that did not exist in the control is
+    exactly the case this is asked about), never a radius a caller typed:
+    the family `object_cut_offset` is priced against the same outlines, so
+    the two readings cannot drift apart.  The JOIN is the canonical 11-dp
+    lat/lon identity join — node ids are per-build and a proximity join
+    would pair a moved vertex with its neighbour.
+
+    It measures NO LAW and counts NO defects: it reports the joined
+    population, the movers, the worst mover with its coordinate and its
+    ways' roles, and the movers by role.  A vertex present in one arm only
+    is counted as UNJOINED and named, never as zero motion (the case a
+    cut's own new geometry falls into)."""
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.strtree import STRtree
+    roles = set(roles)
+
+    def cuts_of(patch):
+        side = Path(str(patch) + ".axes.json")
+        if not side.exists():
+            return []
+        try:
+            return json.loads(side.read_text()).get("object_cuts") or []
+        except Exception:                                  # pragma: no cover
+            return []
+    cuts = cuts_of(arm_patch) or cuts_of(ctl_patch)
+    if not cuts:
+        raise SiteReadRefusal(
+            f"neither {Path(arm_patch).name} nor {Path(ctl_patch).name} "
+            f"publishes `object_cuts` in its sidecar: there is no cut to "
+            f"read airside beside (a patch with no sidecar is refused by "
+            f"the harness before it gets here)")
+
+    def frame(patch):
+        nodes, ways, to_m = _patch_frame(cg, patch)
+        by_node: dict = {}
+        for w in ways:
+            if w.role not in roles:
+                continue
+            for nid in w.nids:
+                by_node.setdefault(nid, set()).add(w.role)
+        alt: dict = {}
+        for w in ways:
+            for nid, a in zip(w.nids, (w.elevs or [None] * len(w.nids))):
+                if a is not None:
+                    alt[nid] = float(a)
+        return nodes, by_node, alt, to_m
+    c_nodes, c_roles, c_alt, _c_to_m = frame(ctl_patch)
+    a_nodes, a_roles, a_alt, a_to_m = frame(arm_patch)
+    polys = []
+    for cut in cuts:
+        ring = cut.get("outline_ll") or []
+        if len(ring) < 4:
+            continue
+        try:
+            p = Polygon([a_to_m(float(q[0]), float(q[1])) for q in ring])
+        except Exception:                                  # pragma: no cover
+            continue
+        if not p.is_valid:
+            p = p.buffer(0)
+        if not p.is_empty:
+            polys.append(p.buffer(near_m))
+    if not polys:
+        raise SiteReadRefusal("every published object cut has an empty outline")
+    region = unary_union(polys)
+    tree = STRtree([region])
+
+    def key(ll):
+        return (round(float(ll[0]), 11), round(float(ll[1]), 11))
+    ctl_by_key = {key(v): n for n, v in c_nodes.items()}
+    joined = movers = unjoined = 0
+    worst = None
+    by_role: dict = {}
+    for nid, ll in a_nodes.items():
+        rs = a_roles.get(nid)
+        if not rs:
+            continue
+        x, y = a_to_m(float(ll[0]), float(ll[1]))
+        if not len(tree.query(Point(x, y), predicate="intersects")):
+            continue
+        cn = ctl_by_key.get(key(ll))
+        if cn is None or cn not in c_alt or nid not in a_alt:
+            unjoined += 1
+            continue
+        joined += 1
+        dz = a_alt[nid] - c_alt[cn]
+        if abs(dz) > floor_m:
+            movers += 1
+            for r in rs:
+                by_role[r] = by_role.get(r, 0) + 1
+            if worst is None or abs(dz) > abs(worst["dz_m"]):
+                worst = {"dz_m": round(dz, 3), "lat": float(ll[0]),
+                         "lon": float(ll[1]), "roles": sorted(rs),
+                         "control_alt_m": round(c_alt[cn], 3),
+                         "arm_alt_m": round(a_alt[nid], 3)}
+    return {"cuts": len(cuts), "near_m": near_m, "floor_m": floor_m,
+            "joined": joined, "unjoined": unjoined, "movers": movers,
+            "worst": worst, "by_role": dict(sorted(by_role.items()))}
+
+
 def _fmt(v, nd=2):
     """A missing reading prints as ``—``, never as 0.00."""
     return "—" if v is None else f"{v:.{nd}f}"
@@ -762,6 +872,17 @@ def main(argv=None) -> int:
                          "the groundside is decided by the patch, not the "
                          "caller. Repeatable.")
     ap.add_argument("--behind-depth-m", type=float, default=150.0)
+    ap.add_argument("--airside-near-cuts", type=float, default=None,
+                    metavar="M",
+                    help="AIRSIDE BESIDE A STRUCTURE OBJECT'S CUT: the "
+                         "emitted airside vertices within M metres of the "
+                         "sidecar's own `object_cuts` outlines whose "
+                         "altitude moved between the two arms (spec §33 (6) "
+                         "B AMENDED's bar: airside beside a shell never "
+                         "moves).  Joined 11-dp lat/lon, never by node id")
+    ap.add_argument("--airside-move-floor-m", type=float, default=0.02,
+                    help="the motion this read calls a MOVE (default 0.02 m, "
+                         "§16g (10) (5)'s own bar)")
     ap.add_argument("--json", dest="json_out")
     args = ap.parse_args(argv)
 
@@ -826,6 +947,28 @@ def main(argv=None) -> int:
                       f"({r['mouths_ge2_nodes']} with ≥2)  max seam |Δalt| "
                       f"{r['max_seam_dalt_m']:6.3f} m  nearest unwelded "
                       f"{gap:>9s}  walls {r['walls']:3d}")
+    if args.airside_near_cuts is not None:
+        cg = _check_grade()
+        try:
+            anc = airside_near_cuts(cg, args.control, args.arm,
+                                    near_m=args.airside_near_cuts,
+                                    floor_m=args.airside_move_floor_m)
+        except SiteReadRefusal as exc:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+            return 2
+        out["airside_near_cuts"] = anc
+        w = anc["worst"]
+        print(f"  AIRSIDE NEAR THE OBJECT CUTS ({anc['cuts']} cuts, "
+              f"{anc['near_m']:g} m, move > {anc['floor_m']:g} m; "
+              f"{'/'.join(AIRSIDE_SEAM_ROLES)})")
+        print(f"    joined {anc['joined']:5d}   MOVED {anc['movers']:5d}   "
+              f"unjoined (arm-only) {anc['unjoined']:5d}")
+        if w:
+            print(f"    worst {w['dz_m']:+.3f} m at {w['lat']:.11f},"
+                  f"{w['lon']:.11f}  {w['control_alt_m']:.2f} -> "
+                  f"{w['arm_alt_m']:.2f}  {'/'.join(w['roles'])}")
+            print("    by role: " + ", ".join(f"{k} {v}"
+                                              for k, v in anc["by_role"].items()))
     if args.profile and sites:
         cg = _check_grade()
         roles = tuple(r.strip() for r in args.profile_roles.split(",")

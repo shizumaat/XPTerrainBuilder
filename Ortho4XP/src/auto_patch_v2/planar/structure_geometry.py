@@ -474,6 +474,11 @@ def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: 
 #: for a signature-B corridor.  An id literal, flagged for ``blast.py``.
 OBJECT_CUT_PREFIX = "object-cut:"
 
+#: §33 (6) B AMENDED: a walled floor ring under this fraction of the
+#: object's own trench is not a trench with walls, it is a shell whose
+#: walls eat it — the corridor is refused by name instead.
+_MIN_WALLED_FRACTION = 0.25
+
 
 def seed_wall_stations(ss: list[float], c, grid: float) -> list[float]:
     """§33 (6) C2' A BAND IS A POLYLINE (RULINGS 2026-09-15x): where the
@@ -532,14 +537,22 @@ def ring_for(c, axis_fn, ss: list[float], half: float, rim_off: float, inward: X
     signature-B object cut (§33 (6) B — see
     :func:`geometry_from_trench`), else :func:`geometry`'s axis offset."""
     if c is not None and str(getattr(c, "id", "")).startswith(OBJECT_CUT_PREFIX):
-        gm = geometry_from_trench(axis_fn, ss, half, grid, c.trench, c.footprint, half_fn)
+        # §33 (6) B AMENDED: the WALL's own width, by the law the axis
+        # offset already applies per station (``object_corridor.rim_fn``
+        # = :func:`rim_standoff` of the wall's MEASURED thickness); the
+        # narrowest station's is the one the whole ring must clear.
+        want = rim_off
+        if g is not None and getattr(g, "rim_fn", None) is not None and ss:
+            want = min(min(g.rim_fn(s)) for s in ss)
+        gm = geometry_from_trench(axis_fn, ss, half, want, grid,
+                                  c.trench, c.footprint, half_fn)
         if gm is not None:
             return gm
     return geometry(axis_fn, ss, half, rim_off, inward, grid, g.capped, g.far_capped,
                     half_fn, g.rim_fn, g.cap_off, g.far_off)
 
 
-def geometry_from_trench(axis_fn, ss: list[float], half: float, grid: float,
+def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float, grid: float,
                          trench, footprint, half_fn=None) -> "RampGeometry | None":
     """§33 (6) B: THE RING IS THE OBJECT'S OWN TRENCH POLYGON (owner
     RULINGS 2026-09-15g; Fable / RULINGS 2026-09-15x), not an axis offset.
@@ -557,7 +570,33 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, grid: float,
 
     The per-station ``axis`` / ``left`` / ``right`` arrays are still the
     offsets: the profile is pinned per station and the mouth strip reads
-    the first pair, and a folded RING never made those numbers wrong."""
+    the first pair, and a folded RING never made those numbers wrong.
+
+    §33 (6) B AMENDED — A SHELL'S TRENCH IS WALLED (Fable 2026-09-15;
+    RULINGS 2026-09-15bh; lane ``v2vhhhctl``'s matched VHHH pair).  The
+    ramp = the trench and the rim = the footprint left NOTHING BETWEEN
+    THEM where the shell's wall faces do not stand on the ring — its
+    portals, and every run the reader reads as open: ``outer.difference
+    (ramp)`` is then a sliver of zero width, the floor ring IS the
+    surrounding surface's ring, and ``constraints/structures.on_floor``
+    gives the AIRSIDE vertices standing on it the FLOOR row.  Measured on
+    the 1.0.341 VHHH products: the void ring at 22.30772,113.92337
+    (``tunnel_wall`` way −11372, 11 nodes) spanning 0.78 … 7.32 m, nine
+    airside vertices on a ``tunnel_ramp`` ring (three at TUNNEL2's
+    authored floor 0.78), and 1,362 of 3,815 airside vertices within
+    200 m of the five shells pulled up to 6.46 m under the control.
+
+    So the FLOOR RING IS INSIDE THE RIM BY THE WALL'S THICKNESS: the
+    trench ∩ the footprint eroded by ``standoff`` (the corridor's own
+    :func:`rim_standoff` of its walls' measured thickness — the value the
+    axis-offset path applies per station).  Where the object's walls are
+    already thicker than the stand-off the floor ring is the object's own
+    inner face, untouched; where they are thinner, or absent, the law's
+    stand-off makes the wall.  A vertex can only move INWARD, so
+    ``object_cut_offset`` can only fall.  The RIM RING is published as
+    ``left_rim`` (``right_rim`` empty), so the corridor's ``wall_path`` is
+    the closed rim ring itself — a basin's already is — and not the
+    axis-offset lines, which on a hairpin run across the trench."""
     axis = [axis_fn(s) for s in ss]
     if len(axis) < 2:
         return None
@@ -576,9 +615,29 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, grid: float,
         outer = _one_polygon(unary_union([outer, ramp]))
         if outer is None:
             return None
+    if standoff > 0.0:
+        # THE GAP IS NEVER ON A WELD TOLERANCE (09-01e, this file's own
+        # law): the arrangement snap-rounds to ``grid``, and two points
+        # 0.85 m apart have been measured rounding to ONE 0.5 m grid
+        # point.  Neither of these rings is snapped — they are the
+        # OBJECT'S own vertices — so each can move up to half a grid
+        # diagonal toward the other, and the stand-off is widened by one
+        # grid step to keep the rings at least the identity spacing apart
+        # after the round.
+        inside = _one_polygon(outer.buffer(-(standoff + grid), join_style="mitre"))
+        if inside is None:
+            return None
+        walled = _one_polygon(ramp.intersection(inside))
+        if walled is None or walled.area < ramp.area * _MIN_WALLED_FRACTION:
+            # the object leaves no room for its own walls: refused by
+            # name upstream rather than emitted as a wall-less trench
+            return None
+        ramp = walled
     wall = outer.difference(ramp)
+    if wall.is_empty:
+        return None
     return RampGeometry(axis, nrm, left, right, ramp, wall, outer, [], [], [], [],
-                        list(left), list(right))
+                        list(outer.exterior.coords), [])
 
 
 def _one_polygon(geom):

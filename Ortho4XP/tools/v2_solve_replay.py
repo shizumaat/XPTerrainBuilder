@@ -781,6 +781,127 @@ def bank_walk(icao, pm, law, airport, surf_out, out=print) -> dict:
     return res
 
 
+def reclassify(pkl: Path, rule: dict[str, object],
+               json_out: Path | None, top: int = 12) -> int:
+    """THE §40 SHOULDER-BAND READING, DRY, OFF A REGISTERED CAPTURE
+    (lane ``v2shoulderband`` r2; promoted on its second use per RULINGS
+    ``7e90032`` — r1 hand-rolled it in a scratchpad for the HECA control
+    and r2 needs it at five airports).
+
+    A CLASSIFY law key cannot be armed at replay (the capture HOLDS the
+    classification, which is why ``--rule`` is a CAPTURE arm), but the
+    capture also carries the ``Airport`` the classifier ran on — so the
+    CLASSIFY STAGE ALONE can be re-run over it on the CURRENT tree with
+    the law key as the only variable, at seconds instead of a capture's
+    minutes.  That is a DRY read and says so: it re-runs no planar build,
+    no solve and no emit, so it prices no law and counts no defects
+    (defect counts come from ``harness/census.py`` and nowhere else) and
+    it cannot answer anything downstream of classify.  What it answers is
+    exactly §40 (5)'s own table:
+
+    * the ``runway_shoulder`` population — cells and m², each named;
+    * what the band KEPT and what the remainder earned, by role;
+    * the worst lateral offset of a runway-family cell vertex off its own
+      runway's apt.dat axis, and how many stand beyond the strip half
+      width (§40 (5) (1)'s own bar, "→ 0");
+    * the classifier's own ``shoulder_band_*`` stats.
+
+    The axis and the half width are the DERIVATION's own
+    (``classify/roles.shoulder_band``), imported and never re-spelled.
+    """
+    from auto_patch_v2.classify import classify, load_rules
+    from auto_patch_v2.classify.roles import shoulder_band
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import zone2_half_width_m
+    from shapely.geometry import Point, Polygon
+
+    with pkl.open("rb") as fh:
+        cap = pickle.load(fh)
+    icao, airport = cap["icao"], cap["airport"]
+    law = Law.for_airport(icao)
+    rules = load_rules()
+    if rule:
+        rules = _rules_override(rules, rule)
+    print(f"[{icao}] RECLASSIFY ARM [rules] {rule or '(shipped)'}  <- {pkl}")
+    t0 = time.perf_counter()
+    cl = classify(airport, law, rules)
+    print(f"[{icao}] classify {time.perf_counter() - t0:.1f} s, "
+          f"{len(cl.cells)} cells")
+
+    rw_of = {rw.id: rw for rw in airport.runways}
+    def _lat_off(ring, rw) -> float:
+        (ax, ay), (bx, by) = rw.ends[0].xy, rw.ends[1].xy
+        L = math.hypot(bx - ax, by - ay) or 1.0
+        ux, uy = (bx - ax) / L, (by - ay) / L
+        return max(abs(-(x - ax) * uy + (y - ay) * ux) for x, y in ring)
+
+    sh = [c for c in cl.cells if c.kind == "runway_shoulder"]
+    body = [c for c in cl.cells
+            if c.role == "runway" and c.kind != "runway_shoulder"]
+    rest = [c for c in cl.cells if c.evidence.get("shoulder_beyond_band")]
+    def _area(c):
+        return Polygon(c.ring, c.holes).area
+    sh_m2 = sum(_area(c) for c in sh)
+    res: dict = {
+        "icao": icao, "capture": str(pkl), "rule": {k: str(v) for k, v in rule.items()},
+        "cells": len(cl.cells),
+        "runway_shoulder": {"cells": len(sh), "m2": sh_m2},
+        "runway_body_m2": sum(_area(c) for c in body),
+        "remainder": {"faces": len(rest), "m2": sum(_area(c) for c in rest)},
+        "stats": {k: v for k, v in cl.stats.items() if k.startswith("shoulder_band")},
+    }
+    by_role: dict[str, list[float]] = {}
+    for c in rest:
+        by_role.setdefault(c.role, []).append(_area(c))
+    res["remainder_by_role"] = {r: {"faces": len(v), "m2": sum(v)}
+                                for r, v in sorted(by_role.items(),
+                                                   key=lambda kv: -sum(kv[1]))}
+    worst = 0.0
+    beyond = 0
+    cellrows = []
+    for c in sh:
+        rw = rw_of.get(c.ref)
+        if rw is None:
+            continue
+        hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter) or 0.0
+        off = _lat_off(c.ring, rw)
+        worst = max(worst, off)
+        band = shoulder_band(
+            rw, law, end_cap=rules.corridor.runway_shoulder_band_end_cap)
+        out_m2 = (Polygon(c.ring, c.holes).difference(band).area
+                  if band is not None else 0.0)
+        keep = band.buffer(0.05) if band is not None else None
+        n_out = (sum(1 for x, y in c.ring if not keep.covers(Point(x, y)))
+                 if keep is not None else 0)
+        beyond += n_out
+        cellrows.append({"ref": c.ref, "of": c.evidence.get("shoulder_of", ""),
+                         "m2": _area(c), "lateral_max_m": off,
+                         "strip_half_m": hw, "vertices_beyond_band": n_out,
+                         "m2_outside_band": out_m2})
+    cellrows.sort(key=lambda r: -r["m2"])
+    res["worst_lateral_m"] = worst
+    res["vertices_beyond_band"] = beyond
+    res["cells_detail"] = cellrows
+
+    print(f"[{icao}] runway_shoulder {len(sh)} cell(s) {sh_m2:,.0f} m2 "
+          f"(runway BODY {res['runway_body_m2']:,.0f} m2)")
+    print(f"[{icao}] remainder {len(rest)} face(s) "
+          f"{res['remainder']['m2']:,.0f} m2 by role: "
+          + ", ".join(f"{r} {v['faces']}/{v['m2']:,.0f}"
+                      for r, v in res["remainder_by_role"].items()))
+    print(f"[{icao}] worst lateral off its own axis {worst:,.1f} m; "
+          f"shoulder vertices beyond the band {beyond}")
+    print(f"[{icao}] stats {res['stats']}")
+    for r in cellrows[:top]:
+        print(f"    {r['ref']:<12} {r['m2']:>12,.0f} m2  lateral max "
+              f"{r['lateral_max_m']:>8.1f} m  (strip half {r['strip_half_m']:.0f})")
+    if json_out:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(json.dumps(res, indent=1, default=str))
+        print(f"[{icao}] -> {json_out}")
+    return 0
+
+
 def bank_from(pkl: Path, emit_dir: Path | None, walk: bool,
               json_out: Path | None) -> int:
     """THE EMIT HALF ALONE, off a ``--solved-out`` pickle: the bank stage
@@ -1198,6 +1319,14 @@ def main() -> int:
                          "of an edit to the shipped toml; e.g. "
                          "--rule corridor.runway_shoulder_band=false")
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--reclassify", type=Path, metavar="PKL",
+                    help="DRY \u00a740 SHOULDER-BAND READ off a registered capture: "
+                         "re-run the CLASSIFY stage alone over the capture's own "
+                         "Airport on the current tree, with --rule as the only "
+                         "variable, and print the band table (shoulder m2, the "
+                         "remainder by earned role, the worst lateral offset and "
+                         "the vertices beyond the band).  Prices no law and counts "
+                         "no defects.")
     ap.add_argument("--replay", type=Path, metavar="PKL")
     ap.add_argument("--from", dest="resume", choices=("constraints", "shapes", "planar"),
                     default="constraints")
@@ -1283,6 +1412,9 @@ def main() -> int:
         rl = dict(it.split("=", 1) for it in a.rule)
         _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl)
         return 0
+    if a.reclassify:
+        rl = dict(it.split("=", 1) for it in a.rule)
+        return reclassify(a.reclassify, rl, a.json)
     if a.why_from:
         from auto_patch_v2.law import Law
         with a.why_from.open("rb") as fh:

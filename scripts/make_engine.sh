@@ -51,7 +51,13 @@ fi
 # heavyweight site-packages out of synced folders (iCloud Documents).
 VENV="${ENGINE_FREEZE_VENV:-${TMPDIR:-/tmp}/xptb-freeze-venv}"
 PYTHON_BOOT="${PYTHON:-python3}"
-if [[ ! -x "$VENV/bin/python" ]]; then
+# A venv whose pyvenv.cfg is gone is not a venv: macOS purges old files under
+# ${TMPDIR} at reboot but leaves the bin/ symlinks, and the bare interpreter they
+# point at is Homebrew's externally-managed python (PEP 668) — the freeze then
+# fails at the first pip call and make_app.sh bundles the PREVIOUS engine under
+# a new version label (2026-09-16, "1.0.342" shipped 1.0.341's engine).
+if [[ ! -x "$VENV/bin/python" || ! -f "$VENV/pyvenv.cfg" ]]; then
+  rm -rf "$VENV"
   "$PYTHON_BOOT" -m venv "$VENV"
 fi
 PY="$VENV/bin/python"

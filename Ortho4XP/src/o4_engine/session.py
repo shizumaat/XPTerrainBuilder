@@ -33,6 +33,7 @@ from .events import (
     AutoPatchBegin, AutoPatchFailed, AutoPatchProgress, BuildDone,
     EngineEvent, EngineHello,
     ImageryDownloadsDone,
+    Log,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     StepProgress,
     TileClocks,
@@ -1279,6 +1280,10 @@ class EngineSession:
         self._emit(AutoPatchFailed(
             airport=record["airport"], stage=record["stage"],
             error=record["error"], lat=tile[0], lon=tile[1]))
+
+    def log_warning(self, text: str):
+        """Emit a warning-level build Log line (UI.loud_warning hook)."""
+        self._emit(Log(level="warning", text=text))
 
     def _take_autopatch_failure_text(self):
         """The accumulated per-airport failure sentence, cleared as read.

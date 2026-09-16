@@ -8553,3 +8553,21 @@ resume): rule the ends + the synthesised-bore claims, wire (14), the
 floor/airside vertex separation, the manifest reader; seven replays;
 ONE KDFW build; merge; app 1.0.342.
 15bt addendum 2 (the lane's own checkpoint report, verbatim resume points): revert 07cb9794 (the (2) cover subtraction: `structure_service.cover_region`, `Corridor.cover`, the `covered=` path, the two twin classes); KEEP r1's walled trench (4382c4a7 + 3ba0a4d1) = (3)(a). (3)(b) — the exclusion of surface elements over an object-decked trench — lives where airside faces and rows are MADE, not in structure_geometry: `planar/structures.build_structures` (the knife / `new_cells`) and the row sites `constraints/taxi.taxi_centerlines` (walks `planar.breaklines` kind `taxi_centerline` — the generator in the attributed chain) + `constraints/taxi.taxi_chain` (`routes()`); reuse `planar/structure_underpass.py` + `structure_deck.emit_decks` / `deck_witness_for` (they already exclude decked pavement from a trench) — do not fork. Consumer census first. Cheap arm: the registered VHHH capture `scratchpad/v2shellwall/cap/VHHH.pkl` (+ `.solved.pkl`) reproduces the regression and carries the `--why-at` chain; the dry structures dump publishes `trench_ll`/`footprint_ll`/`rim_ll`. OTHH reads 0 signature-B cuts; the OTHH/LEMD byte-identity base arm (`scratchpad/v2shellwall/basesrc`, `dry_base.py`) is set up, not completed. Note the scratchpad is session-local (/private/tmp/claude-501/…/3fc455a9…) — the next session re-registers or re-cuts those arms.
+
+## 2026-09-15bo RESUME 2026-09-16 (PM line): §45 (16)–(18) RULED from the round-7 checkpoint — a channel ends at its outermost crossings (synthesised bores join the claimed set), the floor never shares a vertex with airside (its own wall band, as a bore), the inset manifest reader falls back to the inset's sidecar — lanes `v2channel` r8 (fresh) and `v2insetmanifest`
+
+Resumed on main 756785ca (clean; no locks; no builds; the peer's
+shutdown record 15bt read: app 1.0.341 in the owner's hands, VHHH
+regression known, v2shellwall r2 checkpointed). From 15bm: (16) ENDS —
+the outermost crossings ⊕ one deck width, extended by a depth witness;
+(14) wired with them; (13)(b)'s claimed set includes §34 (5) synthesised
+bores; bars: seven replays identical, KPHX ONE bounded channel, CYXY
+twins green. (17) SEPARATION — the channel emits a bore-style wall band
+between floor and airside (`wall_gap_m` + `wall_band_width_m`); floor
+faces never share a vertex with a pavement cell; verify reads the
+profile at the station over floor faces only; bars: 0 floor rows, crest
+≤ 0.01 m, hard set feasible at KDFW. (18) MANIFEST — `source_pixel_m`
+falls back to `resolution_m`, then the inset's own sidecar; the writer
+stamps both keys; twin on a 08-15-shaped manifest; the owner's KDFW read
+then stands on lidar with no re-warm. Round 8 is a FRESH lane (the
+round-7 agent died with the session) on the branch at b0a86405.

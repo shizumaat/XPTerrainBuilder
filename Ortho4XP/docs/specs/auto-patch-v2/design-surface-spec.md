@@ -15269,3 +15269,49 @@ depth` 0, `object_cut_offset` ≤ 4; OTHH / LEMD dry pairs byte-identical.
 For the owner's read: the pavement inside each outline is expected to
 sit on the object's deck in the sim — if a taxiway texture renders in
 a trench, the apt.dat pavement over that shell is the next question.
+
+### §45 (16)–(18) THE ENDS, THE SEPARATION, THE MANIFEST (Fable 2026-09-16; RULINGS 2026-09-15bo) — lane `v2channel` round 8, lane `v2insetmanifest`
+
+Round 7's checkpoint (b0a86405, RULINGS 15bm) attributed three things; each is ruled here.
+
+(16) **A CHANNEL ENDS AT ITS OUTERMOST CROSSINGS.** §45 (2)'s "where the corridor leaves
+the airside pavement union ⊕ standoff" was written for a hole; a notch has no such exit
+and (14) wired as written ran corridors to the field boundary (KPHX 5,750 m, HECA
+14,562 m, CYXY 5,646 m). RULED: the corridor's two ENDS are its outermost crossings
+(decks by (1)(a)/(b)) each extended by ONE deck width along the axis — and where a depth
+witness ((1)(c) pack walls, (3)(ii) lidar) reaches further along the way, to the end of
+that witness. Beyond the ends §37 governs as before. A candidate with fewer than two
+crossings and no depth witness is refused by (13)(c) unchanged. With the ends so bounded
+(14) is WIRED (`field=` at the one call site). And the CLAIMED SET of (13)(b) includes the
+§34 (5) SYNTHESISED underpass bores (the four at KCLT taxiway U) — every way a bore of
+any provenance names — so a channel never takes what §34 (5) already built. Bar: the
+seven replays byte-identical (KCLT tunnels 23, LGAV channels 1, LEMD 3 → the round-6
+count, HECA/CYXY no new channel), KPHX ONE channel through its two necks bounded by
+them (~150 m of corridor, not 5,750), CYXY's planar twins green.
+
+(17) **THE FLOOR AND THE AIRSIDE SURFACE NEVER SHARE A VERTEX.** The KDFW floor rows
+(378, worst 12.626 m) are `pavement_ceiling` on vertices shared between the channel floor
+and airside cells (v14070: roles cross_connector / retaining_wall / tunnel_trench, 169.40
+vs 182.28 over ~23 m) — an infeasible set by construction, not a solver failure. RULED:
+the channel emits its own WALL BAND between the floor and every airside or adjacent-
+ground cell, exactly as a bore does (`[tunnel] wall_gap_m` + `wall_band_width_m`: the
+floor's ring stands `wall_gap_m` inside the corridor edge, the band's outer ring IS the
+corridor edge and carries the crest rows of (5)); the floor faces share vertices only
+with the band, never with a pavement cell; a deck's faces are airside and meet the band's
+crest, not the floor. And `verify/channel._declared_at` reads the floor's declaration
+the way the floor was STATED: the profile z(s) at the vertex's axis station, over the
+floor faces only (never the band). Bar: `channel_floor_at_declaration` 0 rows and
+`channel_crest_at_edge` ≤ 0.01 m at KDFW; the hard set feasible (0 violated hard rows
+in the channel's families).
+
+(18) **THE INSET MANIFEST READER FALLS BACK TO THE INSET'S OWN SIDECAR.** KDFW's 1 m
+3DEP inset is composed and present, yet the tile's `inset_provenance` entry carries
+`native_resolution_m: null` and no `resolution_m` (every N32W098 sidecar of 08-15; the
+newer writer stamps it), so `ProductionDem.source_pixel_m` reads `(None, 'base_tier')`,
+`_source_class` says `coarse`, `_lidar_credible` is False and every channel falls to
+(3)(iii). RULED (lane `v2insetmanifest`, engine side, independent of the channel):
+the reader takes `native_resolution_m`, else `resolution_m`, else the inset's OWN
+`<inset>.json` `resolution_m` / `native_resolution_m` (the file the provenance entry
+names), else `None` as today — one derivation, twinned on a 08-15-shaped manifest;
+and the WRITER stamps both keys on every new entry. No re-warm needed; the owner's
+KDFW read then stands on the lidar datum with no law change.

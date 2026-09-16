@@ -8954,3 +8954,20 @@ problem architecture (stage 1 over PASS A; ~96 s at HECA; still misses
 until `renode_minted` = 0). The 08-25 vs §20b (3) conflict is resolved
 by 08-25 (the owner's ruling stands; mine is amended) — no owner
 question needed.
+
+## 2026-09-16z v2stagepop r2 MERGED (b7949a15 → dc5f8266): PADS = CLUSTERS AND THE STAGED SOLVE SHIP ON — `pad_from_cluster`, `pad_airside_clip`, `staged_solve` TRUE under `solver = "qp"` (§16g (10) (11)–(12), §20b (3) AMENDED, 16x); bars: (a) no pad row binds an airside vertex (HECA's worst mover bound by `apron_preference` alone; LEMD's by `zone_bands`), (b) stage 2 sees airside only as constants (twin), (c) the one-vertex probe 0 of 32,575 moved, max 0.0013 m, (d) runway HECA 2 at 0.020 m / LEMD 0, (e) census OFF → ON HECA ADJUDICATED 18,407 → 19,105 (+3.8 %), LEMD 1,013 → 1,093 (+7.9 %) — every family worse by > 5 % named; (f) the owner's sim read on app 1.0.344. Suite ON MAIN 1781 passed, 0 FAILED (8 twins re-founded on both arms via `test_v2staged.unstaged(law)`; the pad keys cost zero twins — all eight reds were the staged solve's)
+
+Owner site (LEMD airport-path build v2stagepopLEMD2, rc 0, 301.0 s,
+body edeebd0de1ff, ledger 39336a1007c1, `shared repo UNCHANGED`, v2-
+verify 1,262 rows, cockpit CRITICAL motion 0): the T4 garage INSIDE
+`building45` (93-node face), 615.22…615.45 (spread 0.23 m), +4.26 m
+fill over raw DEM. Named residuals: LEMD `pad_airside_renode` 12 → 32
+(§16g (10) (12)'s residual; lever `pad_airside_snap_max_m` untried),
+`pad_cluster_mismatch` LEMD 0 → 1 (`unit:27#341/8`), HECA `hairline_
+pair` 2,230 → 2,781, `pad_airside_weld` 18 → 19; forward HECA
+`pad_cluster_mismatch` 15 → 0. OPEN RULING (reported by v2staged and
+v2stagepop, never ruled): §20b (1c) — an airside sheet with no level
+of its own no longer borrows the ground's across its boundary (3–4 m
+on the `test_v2ground` / `test_v2chord` fixtures; inert at HECA/LEMD
+where a real taxi family carries its own trend) — twinned on both
+arms. Revert path: one `git revert` of the keys commit.

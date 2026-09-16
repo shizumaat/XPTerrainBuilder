@@ -8685,3 +8685,23 @@ NEWZEALAND1M/TIDAL (LINZ publishes Chatham 1 m lidar) — keep, or revert
 to mainland-only?
 
 ## 2026-09-16h v2usgsbox on main (peer, 23049f59 / 16e): USGS3DEP US-only (8 boxes), HRDEM Canada-only, NZ + Chathams — CYXY's negatives are out-of-box and inert, its builds pass the `dem` pre-flight (lanes merge main first). My 16d premise about HECA's 468 records CORRECTED by the peer's measurement: they were already out-of-box (NZ's box never reached Egypt); the in-box version-stale residual is legitimate providers (USGS3DEP 59 Phoenix/Portland, FRANCE50CM 22, ITALY10M 11, SWISSALTI3D 8, COPERNICUS 3) that re-ask once per version. The new .elv files ship with the next make_engine.sh.
+
+## 2026-09-16j v2shellwall r3 MERGED (7aee2b23 → 48a2afda): the 1.0.341 VHHH REGRESSION FIXED — §33 (6) B AMENDED (1)+(3): every shell an OPEN walled trench (rim at the surrounding surface: the owner's site reads rim 7.31–7.32 over a floor 1.30), surface elements over an object-decked trench excluded from the terrain solve (`structure_service.decked_exclusion`, one derivation site; TUNNEL2: 10,766 m² pavement + 97.2 m centreline excluded); off-DEM maxima back to the control (junction 6.23 → 1.45, apron 5.39 → 2.58), verify rows 1,904 → 105, 885 of 1,284 airside vertices restored; OTHH/LEMD dry pairs identical; suite 1,708 / 0 FAILED on the lane; residuals named: 42 vertices beside TUNNEL2 ≤ 0.32 m (the exclusion's own consequence), 3 `object_cut_offset` cliffs 0.81–0.90 m (v2objcut r3's emitter, unchanged) — ACCEPTED; app 1.0.342 next
+
+Fresh VHHH capture on the merged tree (423 s, guard UNCHANGED);
+matched pair BASE (git archive e0363dcc) vs ARM, one variable;
+`--why-at` the 15bp vertex: BASE reproduces the chain verbatim (z −
+DEM −6.47), ARM "no row binds the vertex" (−0.00). Closing build
+v2shellwallr3 rc 0, 800.1 s, body d873efc07694, ledger 54b8c1ada3cc,
+`shared repo UNCHANGED`: LAW-TRUE 1,629, ADJUDICATED 148 (airside 46 vs
+the control's 89; the rise = 95 mixed `ramp_in_strip` trench rows);
+five open trenches TUNNEL2 32,026 m² / tunnel5 10,181 / tunnel3 9,856
+/ tunnel4 7,915 / tunnel1 4,571; `decks 0`, `object_cut_depth 0`,
+`object_cut_offset 3`; no runway-family cell inside any outline.
+Three-way join (849 vertices): BASE 372 movers (5.77 m) → ARM 96, of
+which 54 never moved base→arm (main's day) and 42 carry this edit
+(worst 0.320 m, 15–30 m beside TUNNEL2). `owner_kept`/`parts` moved
+verbatim out of structures.py (the 1,000-line budget). Lane trap for
+the record: a symlinked `tools/` in a git-archive base tree resolves
+`__file__` back to the branch and silently runs the ARM's code —
+caught and rerun. Merge clean, no markers; suite on main below.

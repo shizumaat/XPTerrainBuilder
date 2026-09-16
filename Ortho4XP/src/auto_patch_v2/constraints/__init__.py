@@ -19,6 +19,7 @@ from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
                junction_mesh,
                no_step, pad_frontage_gs, pads,
                proximity, road_ramp, roads, routes, runway_chord, runway_profile, seams, strips,
+               channel,
                structures,
                taxi, transverse, water, zones)
 
@@ -114,6 +115,12 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("structures", structures.structures),
     ("rim_level", structures.rim_level),
     ("basins", structures.basins),
+    # THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i): the floor
+    # at the record's own profile and the crest at the governed cell's
+    # SOLVED surface — after the pavement families whose value the crest
+    # takes, and beside the other structure generators whose senior-datum
+    # reconciliation it shares.
+    ("channels", channel.channels),
 )
 
 

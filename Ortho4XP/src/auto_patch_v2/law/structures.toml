@@ -312,6 +312,26 @@ max_authored_grade = 0.25           # a descending wall bottom steeper than this
 station_m          = 2.0            # ramp station spacing beyond the walls (the walls' own stations are tunnel.object.wall_sample_m)
 seat               = "none"         # the family is NEVER re-seated by its trench (the terminal's 399 members)
 
+# ── THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i) ─────────────
+# A road/rail corridor under a STATED CROSSING that keeps its own floor
+# through the field — LGAV (Attiki Odos + the rail between the runways),
+# KDFW (International Parkway between the terminal horseshoes), KPHX
+# (E Sky Harbor Blvd under the terminal taxiway bridges).  The DEPTH is
+# `bridge.clearance_m` and the grade `tunnel.ramp_max_grade`: a channel
+# invents no second copy of either.
+[channel]
+merge_m               = 40.0   # §45 (1): road/rail ways within this share ONE channel — the same number as tunnel.dual_carriageway_max_separation_m, stated apart so the two can part
+bank_slope            = 0.5    # §45 (5) "Witness first, 1:2 default": rise/run of the bank where no pack wall and no credible lidar states its shape
+deck_max_width_m      = 120.0  # §45 (1) (b): a paved NECK longer than this ALONG the road is the field, not a crossing.  KDFW's necks read 29.1-35.0 m and KPHX's 22.4-23.0 m (scout `channelscout` §4a/§4b); the widest taxiway-bridge SPAN measured anywhere in the three packs is 148 m ACROSS the road, which is the corridor width, not this
+corridor_min_length_m = 50.0   # §45 (1): the unpaved run ON EACH SIDE of a neck — under this the paved run is a road crossing a taxiway, not a deck over a channel.  KDFW's corridor is 2,518 m and KPHX's gap between its two 22-23 m necks is 58 m (scout `channelscout` §4a/§4b), so the floor sits between them
+corridor_max_half_width_m = 120.0  # §45 (1): the corridor never reaches wider than this from the axis.  MEASURED DEVIATION, reported to the owner: §45 (1) reads the corridor width off the HOLE ("the hole's two edges are the corridor edges"), and at KDFW the hole is 2,518 x ~1,150 m — the whole gap between the terminal horseshoes — while the cut the 1 m DTM actually measures is 84.3-105.8 m wall to wall at the six bridges (scout `channelscout` §2a/§4a).  The hole over-reads by an order of magnitude at the ONE site where the cut is measured, so the width here is the carriageways (+) lane_width_m with the banks beyond, capped at this; it can only ever UNDER-cut
+min_decks_without_depth = 2    # §45 (12) (the lane names or refuses `channel:0`): a channel whose ONLY witness is a paved neck and whose floor therefore comes from §45 (3) (iii) alone needs this many crossings.  With one deck "Cut the road down" has a single anchor and the floor ramps away from it at ramp_max_grade for the whole axis — LGAV way -4003 (highway=service, 416 m, ends 37.9454668,23.9599033 -> 37.9459659,23.9645912, one 40 m neck at 37.9458237,23.9631716 on the borrowed Global pavements pav8 + pav18) read a floor 80.24..103.44 m, a 23 m ramp under a service road that crosses an apron.  A single neck is a CROSSING; a channel runs between crossings.  A pack-wall or lidar witness states the depth itself and is never subject to this
+station_m             = 10.0   # the floor profile and the banks are sampled this far apart along the axis
+object_min_depth_m    = 3.0    # §45 (1) (c): a pack solid along the axis whose deepest genuine solid stands this far under the crest is a wall/floor WITNESS (the 05k-1 authority: seat = floor).  Reuses tunnel.object.skirt_min_depth_m's reading of "a real wall", stated here because a channel wall need not carry a skirt
+lidar_floor_window_m  = 20.0   # §45 (3) (ii): the DTM floor per station is the MINIMUM across this window on the axis normal — the bank toes lie inside the corridor and the floor is what stands between them (KDFW's banks run 1:4 over ~35-45 m)
+toe_rise_m            = 0.5    # §45 (19) (owner RULINGS 2026-09-16g): the BANK TOE on the axis normal is the FIRST offset where the DTM stands this far above the station's own DTM floor.  The same reading as (7)'s "does the DEM see the cut" test, at the resolution a 1 m DTM answers: KDFW's banks run ~1:4, so 0.5 m is 2 m out of the floor and the toe lands where the bank starts, not where it ends
+toe_confirm_m         = 10.0   # §45 (19): ...and STAYS above it for this far outward (or to the backstop).  Without the confirmation a kerb, a sign gantry or one noisy DTM pixel inside the cut reads as the bank top
+
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)
 clearance_minimum_m = 4.2   # BRIDGE_ROAD_CLEARANCE_MINIMUM_M — below this the deck is unlawful

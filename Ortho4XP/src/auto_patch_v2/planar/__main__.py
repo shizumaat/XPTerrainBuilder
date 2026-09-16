@@ -330,9 +330,18 @@ def structure_records(airport, cl, law) -> dict:
                                           measure=True)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
+    from .channel_claims import crossing_claims
+    # §45 (13) (d) AMENDED (RULINGS 2026-09-15aw): the basin pass decides
+    # first — THE ONE ordering site, shared with ``planar.build.build``
+    from .build import channels_after_basins
+    hard_claims, synth_claims = crossing_claims(airport, law, corridors, cl)
+    channels, chstats = channels_after_basins(
+        airport, cl, law, objects, corridors, extra, plates, cache, orep,
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
-                                            plates)
+                                            plates, channels)
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,
+                                       channels=channels,
                                        claimed=frozenset(tstats.shell_claimed))
 
     def ll(p):
@@ -405,6 +414,31 @@ def structure_records(airport, cl, law) -> dict:
         "crest_from_approach": list(sstats.crest_from_approach),
         # spec §34 (5): the crossings an aeroway bridge stated
         "underpasses": list(sstats.underpasses),
+        # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNELS
+        "channels": [{"id": c.id, "ways": list(c.ways),
+                      # the JOIN identity (owner addendum 2026-09-15): the
+                      # feeds' negative ids collide, so a reader comparing
+                      # `ways` across passes compares the wrong thing
+                      "way_keys": [list(k) for k in c.way_keys],
+                      "witnesses": list(c.witnesses),
+                      "datum_source": c.datum_source, "crest": c.crest,
+                      "bank_slope": c.bank_slope, "ends": list(c.ends),
+                      "decks": [{"ref": d.ref, "way": d.way, "s0": d.s0, "s1": d.s1,
+                                 "datum": d.datum} for d in c.decks],
+                      "walls": [{"side": w.side, "shape": w.shape, "crest": w.crest,
+                                 "witness": w.witness} for w in c.walls],
+                      "axis_m": (c.profile[-1][0] - c.profile[0][0]) if c.profile else 0.0,
+                      "floor_min": min((z for _s, z in c.profile), default=None),
+                      "floor_max": max((z for _s, z in c.profile), default=None),
+                      "half_width_m": c.half_width(c.ends[0]),
+                      "entry_ll": ll(c.axis[0]) if c.axis else None,
+                      "exit_ll": ll(c.axis[-1]) if c.axis else None,
+                      "notes": list(c.notes)} for c in channels],
+        "channel_refused": list(chstats.refused),
+        "channel_notes": list(chstats.notes),
+        "channel_witnesses": list(chstats.witnesses),
+        "channel_stats": {k: v for k, v in _dc.asdict(chstats).items()
+                          if not isinstance(v, list)},
         # §33 (6) B AMENDED (3) (c): the object-decked trenches and what
         # rides the object inside each (the dry arm's own reading)
         "decked_excluded": list(sstats.decked_excluded),

@@ -134,6 +134,35 @@ def is_aeroway_bridge(tags: _t.Mapping[str, str]) -> bool:
 UNDERPASS_TAG = "o4_underpass"
 
 
+def aeroway_decks(airport: Airport, law: Law) -> list[OsmWay]:
+    """THE DECK READ (§34 (5)) — THE ONE DERIVATION: every taxied aeroway
+    tagged ``bridge`` standing at or above ``[tunnel]
+    underpass_min_layer``.
+
+    It is a function because §45 (1) (a) asks the SAME question — "does a
+    deck state this crossing?" — and asked it with a verbatim copy of
+    this loop until the owner's 2026-09-15 addendum (RULINGS 15al/15an/
+    15ap).  Two copies of a deck read is how one site gets a rule the
+    other never gets: §34 (12) (4)'s below-grade witness (the DEM cut
+    under the span, or the way beneath tagged ``tunnel`` / ``layer <=
+    -1`` in a schema-current feed) lands HERE when lane ``v2vmmcshore``
+    r6 implements it, and the channel pass inherits it by calling this."""
+    tn = law.tables.structures.tunnel
+    out: list[OsmWay] = []
+    for w in airport.osm_ways:
+        tags = getattr(w, "tags", None) or {}
+        if not is_aeroway_bridge(tags) or len(w.points) < 2:
+            continue
+        try:
+            layer = int(float(str(tags.get("layer", "0")).strip()))
+        except ValueError:
+            layer = 0
+        if layer < tn.underpass_min_layer:
+            continue
+        out.append(w)
+    return out
+
+
 def underpass_bores(airport: Airport, law: Law, cells, polys
                     ) -> tuple[list[OsmWay], dict[int, LineString], list[str]]:
     """A BRIDGE STATES THE CROSSING (spec §34 (5); Fable 2026-09-13i,
@@ -169,18 +198,7 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
     out: list[OsmWay] = []
     parents: dict[int, LineString] = {}
     notes: list[str] = []
-    decks = []
-    for w in airport.osm_ways:
-        tags = getattr(w, "tags", None) or {}
-        if not is_aeroway_bridge(tags) or len(w.points) < 2:
-            continue
-        try:
-            layer = int(float(str(tags.get("layer", "0")).strip()))
-        except ValueError:
-            layer = 0
-        if layer < tn.underpass_min_layer:
-            continue
-        decks.append(w)
+    decks = aeroway_decks(airport, law)
     if not decks:
         return out, parents, notes
     roads = [w for w in airport.osm_ways

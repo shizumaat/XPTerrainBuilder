@@ -36,7 +36,7 @@ import enum
 import typing as _t
 
 from .frame import XY, Key
-from .structures import Basin, Tunnel
+from .structures import Basin, Channel, Tunnel
 
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier"]
@@ -223,6 +223,13 @@ class PlanarMap:
     structures: tuple[Tunnel, ...] = ()
     #: The basin facilities (M4b, additive): floor + wall faces per record.
     basins: tuple[Basin, ...] = ()
+    #: THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i, additive):
+    #: the road/rail corridors under a stated crossing that keep their own
+    #: floor through the field.  Derived ONCE by ``planar/channel.py``;
+    #: ``constraints/channel.py`` states the rows from the record and
+    #: ``verify/channel.py`` judges the emitted surface against the SAME
+    #: record — neither re-derives the corridor (§45 (2)).
+    channels: tuple[Channel, ...] = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled

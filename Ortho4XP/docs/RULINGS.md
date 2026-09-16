@@ -8844,3 +8844,80 @@ by > 5 % named (HECA `plane_gradient` 9 → 14, `strip_seam_tear` 28 →
 33). NOT done: the `classify/roles.classify` `if` (the OFF arm's
 airside region still pad-dependent: LEMD apron faces 180 vs 106); the
 OFF-arm identity vs main (r2's first deliverable, before the merge).
+
+## 2026-09-16g v2channel ROUND 8 (5a2c4efc): (16) MET — seven replays ALL IDENTICAL, KPHX ONE bounded channel, KDFW on lidar with the hard set feasible; floor rows 378 → 149 (12.6 → 1.9 m) attributed to the (10)(ii) bank-toe cap; §45 (19)–(20) RULED (the toe, the three narrowings ratified, a synthesised bore yields); round 9 then the merge
+
+Round 8 on main 28b4b451: ends at the outermost crossings ⊕ one deck
+width, (14) wired, synthesised underpass bores in the claimed set (read
+from `structure_underpass.underpass_bores`). Replays OTHH 43/10, LEMD
+47/1, HECA 9/0, KCLT 17/0, CYXY 2/0, LGAV 11/2 — ALL IDENTICAL (counts
+moved with main's own merges, identical on both arms); SPJC refuses on
+both arms (−13-077/−13-078 stale; owner refresh). KPHX `channel:0` ways
+−9378/−14705, necks 50/30 m (the engine's neck read; the scout's 23 m
+was the pack's), 410 m corridor, tunnels 14 unchanged, ZERO `building16`
+refusals; datum (3)(iii) — the lidar is credible but reads no cut there.
+CYXY planar twins green; suite 1773/0 (`-n0`). KDFW build
+`KDFW_20260916T094915` rc 0, 441 s, UNCHANGED, ledger c3dbe3dada2b:
+`[flat-site] KDFW: lidar_credible — DEM lidar[inset]` (16a working),
+(3)(ii) datum, `channel_crest_at_edge` 0, hard set 48/146,790 over
+0.02 m (worst 0.0849 `runway_profile`), `channel_floor_at_declaration`
+149 / 1.886 m — ATTRIBUTED: the half-width read 120 m (the cap) from
+(10)(ii)'s bank toes against an 84–106 m cut, so the floor face rides
+the banks. Deviations reported, now RATIFIED (§45 (19)): the notch
+flank tested beside the neck with pavement on both sides; a credible
+inset is a depth witness only where it reads a cut; a neck has a plan
+width. Counts after: OTHH/KCLT/CYXY 0, LEMD 3, KPHX 1, LGAV 1 on TWO
+ways (−2914/−4017 claimed by §34 (5)'s synthesised TWY H bores — RULED
+§45 (20): a synthesised bore yields to a channel with a depth witness),
+HECA 1 (`channel:2`, −13192, neck + pack, lawful; named for the owner's
+read). Housekeeping: `owner_kept`/`parts` resolved to the peer's
+`structure_service.py`; `structures.py` at 1,000. Frames registered.
+Round 9: (19) the toe, (20) the yield; bars: KDFW floor rows 0,
+half-widths 42–53 m, LGAV one channel on four ways; then the merge for
+app 1.0.343 with the peer's lanes.
+
+## 2026-09-16i v2channel MERGED (782a50d6) — §45 THE OPEN CHANNEL ships ON: nine rounds, (10)–(20) measured; LGAV one channel on four ways, KPHX one bounded channel, KDFW three on the lidar; six airports byte-identical; the floor family's residual 59 rows / 0.854 m is NAMED for the sim read
+
+Round 9 (25e5e197, main 74090011 merged): §45 (19) `_bank_toe_half`
+returns (toe, top) — the toe the first confirmed rise (`toe_rise_m`
+0.5 / `toe_confirm_m` 10), the crest ring at the top, the cap a logged
+backstop never a width; (19)(a)–(c) carry their law comments; §45 (20)
+`crossing_claims` splits hard claims (mapped bores, object corridors)
+from §34 (5) synthesised ones — a channel that states the depth takes
+the synthesised bore's ways and the bore is not built, reported by name.
+LGAV: `channel:0` on −1343/−7021/−2914/−4017, 4 decks, pack datum,
+half-width 62.8, "the §34 (5) SYNTHESISED bore(s) over −2914+−4017
+YIELD"; KCLT 0 channels, its four taxiway-U bores kept. Replays vs main
+74090011: OTHH 43/10, LEMD 47/1, HECA 9/0, KCLT 17/0, CYXY 2/0
+IDENTICAL; LGAV tunnels 9 = base, one field (`object-cut:Trench_01.obj@0
+replaced_ways` → [], the channel owns the ways) + the lane's two named
+refusals; SPJC refuses on both arms (stale neighbours). Channels: OTHH/
+KCLT/CYXY 0, LEMD 3, KPHX 1, LGAV 1, HECA 1 (`channel:2`, −13192, neck +
+pack, one deck — the owner's read). KDFW ONE build `KDFW_20260916T102720`
+rc 0, 301 s, UNCHANGED, ledger 4baf0953372f: three channels ALL on the
+(3)(ii) lidar datum, half-widths 43.5 / 43.2 / 13.1 m from the toes
+(round 8: the 120 m cap), floors 172.87–173.72 / 172.77–174.85 /
+170.11–171.81, `channel_crest_at_edge` 0, hard set 55/147,548 over
+0.02 m all `runway_profile` (0 in the channel families),
+`channel_floor_at_declaration` 59 rows / worst 0.854 m (r7 378 / 12.626
+→ r8 149 / 1.886 → r9 59 / 0.854; `channel:3` 40 rows ≤ 0.508,
+`channel:1` 19 rows ≤ 0.854 — its floor emits flat at 173.721 against
+a declared 172.866–173.721; `channel:2` 0). Also fixed: `tools/
+check_grade.py::_channel_declared_at` carried the superseded two-station
+reading (census 85 → 59 vs verify 55 — one law, two instruments).
+Suite ON MAIN after the merge: `1781 passed, 1 skipped, 1 xpassed`, 0
+failed (`docs/frames.jsonl` append conflict resolved both sides; the
+peer's v2padclip registrations were committed by this session in
+cf578baa under a v2channel message — a registry append, nothing else).
+DECISION (this session, under owner 15aq (6)): the KDFW and KPHX
+REPLAYS are clean and the KDFW build's residual is attributed and
+bounded (≤ 0.85 m on two channels' floors), so §45 ships ON for app
+1.0.343 and the owner's sim reads adjudicate: LGAV's trench (one
+channel, four decks), KDFW's three channels (channel:1's 13.1 m width and
+flat floor), KPHX's bounded corridor (the road cut 5.1 m under the decks
+— the lidar reads no cut there), HECA's channel:2. OWED after the reads:
+the floor family to 0 (channel:1's flat floor; the 2-D floor vs 1-D
+profile reading), C9 (§19 structure edge), `Corridor.bore_ways` (the
+object-corridor half of (13)(b) is inert), the reorder of
+`identify_channels` ahead of the corridor/sunken-road/door readers,
+SPJC's neighbour refresh, the Chatham box question (16e).

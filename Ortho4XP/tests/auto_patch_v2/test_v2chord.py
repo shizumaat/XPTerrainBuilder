@@ -144,6 +144,23 @@ def test_a_two_pin_ridge_over_a_valley_sits_on_its_target_profile(valley, law):
     assert sol.z[mid] > 694.0 + 1.0                    # and it still FILLS the valley
     # the DEM-fit control: the same set without the chord sags into the valley
     cs0, _c, _w = generate(pm, law, airport)
+    # (4) RE-FOUNDED, NOT WEAKENED (lane ``v2stagepop`` r2, §20b (3)
+    # AMENDED).  The control's claim — a chord-less runway sheet lands on
+    # the ground its strip stands on — is the ONE JOINT PROBLEM's: the
+    # level comes across the airside boundary through the bending stencil
+    # the runway shares with its strip.  Under §20b's STAGED solve (the
+    # shipped law since r2) stage 1 triangulates only the faces it OWNS
+    # (§20b (1c)), so that stencil does not cross and the chord-less sheet
+    # keeps no level from the ground at all: MEASURED 698.08 over a valley
+    # floor at 694.00, +4.08 m.  That is §20b MEASURED's second named
+    # deviation, and it is INERT at HECA (off-DEM by role identical to two
+    # decimals on every role) because a real taxi family carries its own
+    # trend.  Both arms are pinned.
+    from tests.auto_patch_v2.test_v2staged import unstaged
+    sol_s = solve_design(pm, cs0, law)[0]                 # the SHIPPED (staged) arm
+    assert sol_s.status in (Status.OPTIMAL, Status.FEASIBLE)
+    assert 3.9 < sol_s.z[mid] - pm.vertices[mid].dem_z < 4.2, sol_s.z[mid]
+    law = unstaged(law)                                   # the joint problem
     sol0 = solve_design(pm, cs0, law)[0]
     # RE-SCOPED TWICE.  (1) RULINGS 2026-09-09b (3), lane v2ground: with NO
     # DEM term in the patch the control cannot "sag onto the terrain" — a

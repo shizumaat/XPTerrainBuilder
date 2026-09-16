@@ -208,7 +208,22 @@ def test_the_only_channel_left_is_the_two_way_apron_edge_ramp_law(law):
     pad, the same channel.  The CLAIM is unchanged and is what the twin
     exists for: the movement is the ramp's, it is DOWNWARD, and §28's own
     row still moves nothing (the twin above).  The number is the
-    fixture's, re-measured, and is still reported rather than decided."""
+    fixture's, re-measured, and is still reported rather than decided.
+
+    RE-FOUNDED, NOT WEAKENED (lane ``v2stagepop`` r2, §20b (3) AMENDED):
+    the channel is a GROUNDSIDE-to-AIRSIDE one, so under §20b's staged
+    solve — the shipped law since r2 — the apron-edge ramp's lift cannot
+    reach the airside at all and the pad moves by **1.3e-8 m**: the
+    channel is CLOSED, which is the strongest form of this twin's own
+    claim, and the sign it asserted is meaningless at that size (the
+    reading is nine orders under the 0.01 m elevation materiality).  The
+    joint-problem arm below keeps the 0.172 m reading verbatim."""
+    from tests.auto_patch_v2.test_v2staged import unstaged
+    _pm_s, z_s, _rs = _solve(law, _cells())              # the SHIPPED (staged) arm
+    _pm_sb, z_sb, _rsb = _solve(law, _cells(), drop={GEN_GS})
+    pad_s = sorted(_verts(_pm_sb, "padA"))
+    assert float(np.max(np.abs(z_s[pad_s] - z_sb[pad_s]))) < 1e-6
+    law = unstaged(law)                                  # the joint problem
     _pm_a, z_a, _r = _solve(law, _cells())
     pm_b, z_b, _r2 = _solve(law, _cells(), drop={GEN_GS})
     pad = sorted(_verts(pm_b, "padA"))

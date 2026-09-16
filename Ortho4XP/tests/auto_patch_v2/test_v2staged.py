@@ -99,6 +99,21 @@ def _law_arm(law, **design):
                                      design=_dc.replace(d0, **design))))
 
 
+def unstaged(law):
+    """THE SINGLE SOLVE, as an explicit arm (§20b: "every §20b twin sets the
+    flag explicitly, so both arms stay pinned").
+
+    ``[design] staged_solve`` ships TRUE since lane ``v2stagepop`` r2
+    (§20b (3) AMENDED, RULINGS 2026-09-16x), so a twin whose CLAIM is
+    about the one joint problem — the §20c solver comparison, a pad that
+    yields where the apron can yield back, a strip that borrows its level
+    across the airside boundary — must now say which arm it measures.
+    Every caller of this helper also reads the STAGED arm and pins what it
+    finds there, so the flip is twinned on both sides and hidden on
+    neither."""
+    return _law_arm(law, staged_solve=False)
+
+
 @pytest.fixture(scope="module")
 def law():
     return Law.for_airport("ZZZZ")

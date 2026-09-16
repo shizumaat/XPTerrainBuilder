@@ -759,7 +759,15 @@ floor_split_m       = 0.5
 # per cluster, its outline union); the footprint-cache pads are the
 # fallback where the plan has no cluster.  false = the pre-14x
 # derivation, and the matched BASE ARM.
-pad_from_cluster    = false
+# SHIPS TRUE (owner RULINGS 2026-08-25 as read by §20b (3) AMENDED /
+# RULINGS 2026-09-16x, lane ``v2stagepop`` r2): the three keys
+# ``pad_from_cluster`` / ``pad_airside_clip`` / ``[design] staged_solve``
+# flip TOGETHER for the owner's sim read — the pads-OFF arm is NOT the
+# reference, and the bars that express airside-is-king inside the pads-ON
+# arm (no pad row binds an airside vertex; stage 2 sees airside only as
+# constants; the one-vertex probe; the runway at the materiality) are met.
+# ``false`` is the pre-14x derivation and the matched BASE ARM.
+pad_from_cluster    = true
 
 # SHIPS FALSE (lane v2padvert ROUND 2, 2026-09-14; RULINGS 2026-09-14ax's
 # bar was 0/0 and it is MISSED).  The clip now runs where the faces HAVE
@@ -803,7 +811,12 @@ pad_from_cluster    = false
 # `tools/pad_airside_arm.py`, HECA, the clip arm against the shipped one
 # before the rule): 1,008 airside vertices deleted and 283 minted; after
 # it, deleted 0 on every arm and minted 40 (HECA) / 32 (LEMD armed).
-pad_airside_clip    = false
+# SHIPS TRUE with ``pad_from_cluster`` and ``[design] staged_solve``
+# (§20b (3) AMENDED, RULINGS 2026-09-16x).  Its named residual stays
+# named: ``renode_minted`` 40/43 at HECA and 32 at LEMD, one class (an
+# unsnappable crossing, ``snap_too_far``), whose untried lever is
+# ``pad_airside_snap_max_m``.
+pad_airside_clip    = true
 
 # RULINGS 2026-09-14as (i), the clip's SECOND half: the crossing points
 # the clip leaves on the airside rim are not rim NODES, and noded into

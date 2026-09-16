@@ -207,7 +207,22 @@ def test_30_4_the_law_key_and_the_ruling_head_are_data(law):
 def test_30_4_a_cluster_is_one_plane_over_every_pad_it_stands_on(law):
     """(1): the cluster's two ``building`` faces are ONE priced group, and
     the solved surface puts them at ONE level though the DEM falls 4 m
-    between them.  Without the cluster they are two planes."""
+    between them.  Without the cluster they are two planes.
+
+    RE-FOUNDED, NOT WEAKENED (lane ``v2stagepop`` r2, §20b (3) AMENDED):
+    the ONE-LEVEL reading is the joint problem's.  Under §20b's staged
+    solve — the shipped law since r2 — each pad is welded to airside
+    vertices that are CONSTANTS by the time the cluster is solved, so the
+    cluster's plane is held apart by the airside's own fall: MEASURED
+    0.8625 m between padA and padB against 0.30 m jointly.  The cluster is
+    still ONE PRICED GROUP (the claim, asserted on the shipped arm too);
+    what the airside fixes, the group cannot equalise."""
+    from tests.auto_patch_v2.test_v2staged import unstaged
+    a_s, pm_s, _z_s, _c_s = _arm(law, True)              # the SHIPPED (staged) arm
+    one_s = [q for q in plane_groups(pm_s, law, a_s)
+             if q[1].startswith("cluster:")]
+    assert len(one_s) == 1 and len(one_s[0][3]) == 2, one_s
+    law = unstaged(law)                                  # the joint problem
     a0, pm0, z0, _c0 = _arm(law, False)
     a1, pm1, z1, _c1 = _arm(law, True)
     groups0 = plane_groups(pm0, law, a0)

@@ -173,8 +173,18 @@ def test_the_qp_arm_is_a_solved_surface(arms):
 def _probe(pm, cs, law, solver):
     """14bw's HECA probe on a fixture: one extra ceiling row 0.30 m under
     the base surface at ONE apron vertex, and the moved set binned by
-    distance from it."""
-    lw = _arm(law, solver=solver)
+    distance from it.
+
+    THE ARM IS THE SINGLE SOLVE, NAMED (lane ``v2stagepop`` r2): §20c's
+    question is which SOLVER finds the minimum of one problem, and
+    ``staged_solve`` ships TRUE since r2 — which would answer a different
+    question (§20b already confines an apron perturbation to stage 1, so
+    both solvers then move ~20 vertices and the pair cannot separate
+    them: MEASURED 21 under the QP against 22 under the fixed point).
+    The staged arm's own locality is §20b's bar and is measured on the
+    airport, not here: RULINGS 2026-09-16t's one-vertex probe reads 0 of
+    32,575 vertices moved, max 0.0167 m, nothing beyond 250 m."""
+    lw = _arm(law, solver=solver, staged_solve=False)
     base, _r = solve_design(pm, cs, lw)
     z0 = np.asarray(base.z, float)
     apron = next(f for f in pm.faces.values() if f.ref == "apronA")

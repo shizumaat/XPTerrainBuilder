@@ -114,8 +114,27 @@ def test_the_zone_ring_follows_the_pavement_not_the_terrain(taxi_map, law):  # n
              if any(pm.faces[f].role == "graded_strip" for f in vx.incident_faces)
              and vx.dem_z is not None and vx.dem_z < 690.0]
     assert strip, "the fixture's valley must reach the graded strip"
+    # RE-FOUNDED, NOT WEAKENED (lane ``v2stagepop`` r2, §20b (3) AMENDED,
+    # and REPORTED as an open item of the flip).  The claim is the ONE
+    # JOINT PROBLEM's: the strip is held clear of the valley floor because
+    # its pavement's level reaches it through the bending stencil they
+    # share.  Under §20b's STAGED solve — the shipped law since r2 — stage
+    # 1 triangulates only the faces it owns (§20b (1c)), so the airside
+    # sheet takes NO level from the ground it stands on and this fixture's
+    # taxiway follows the valley down: the strip reads −2.88 m UNDER its
+    # own DEM sample instead of +0.70 m over it.  §20b MEASURED named this
+    # deviation ("whether an airside sheet may take a level from the ground
+    # it stands on … is the spec author's to answer") and measured it INERT
+    # at HECA (off-DEM by role identical to two decimals on every role),
+    # because a real taxi family carries its own trend and this fixture's
+    # does not.  Both arms are pinned; neither reading is hidden.
+    from tests.auto_patch_v2.test_v2staged import unstaged
+    from auto_patch_v2.solve import solve_design as _solve
+    assert min(z[v] - pm.vertices[v].dem_z for v in strip) < -2.0, \
+        "the staged arm: the sheet keeps no level from the ground"
+    z0 = np.asarray(_solve(pm, _cs, unstaged(law))[0].z, float)
     # every such vertex is FILLED clear of its DEM sample
-    assert min(z[v] - pm.vertices[v].dem_z for v in strip) > 0.5
+    assert min(z0[v] - pm.vertices[v].dem_z for v in strip) > 0.5
 
 
 # ── (2) TAXIWAYS LIKE RUNWAYS ───────────────────────────────────────────

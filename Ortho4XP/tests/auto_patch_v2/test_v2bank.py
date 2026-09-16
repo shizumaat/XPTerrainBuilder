@@ -435,10 +435,31 @@ def test_the_pad_is_no_longer_a_merged_flat_group(pad_map, law):  # noqa: F811
 def test_a_pad_on_a_three_percent_apron_stays_flat_and_welds(pad_map, law):  # noqa: F811
     """09c: "targeting flat".  Nothing forces the pad off level, so it
     comes out one plane inside the elevation materiality — and it is
-    welded: its rim vertices ARE the apron's (05t, identity, not a row)."""
+    welded: its rim vertices ARE the apron's (05t, identity, not a row).
+
+    RE-FOUNDED, NOT WEAKENED (lane ``v2stagepop`` r2, §20b (3) AMENDED).
+    "Nothing forces the pad off level" was true of the ONE JOINT PROBLEM,
+    where the apron could yield a centimetre to let the pad lie flat.  This
+    fixture's apron falls 3 % across the pad, and under §20b's STAGED solve
+    (the shipped law since r2) the apron is a CONSTANT at every welded rim
+    vertex: the pad's plate is pinned between two of them and its spread IS
+    the apron's own 3 % drop across it — MEASURED 0.4003 m over the 13.3 m
+    between those contacts, tilt 0.0100 (the pad's own 1 % ceiling, HELD).
+    That is §20b MEASURED's third named deviation ("a welded pad's ceiling
+    is unreachable"), and it is the airside's drop, never a pad row pulling
+    the apron.  Both arms are pinned here.
+    """
+    from tests.auto_patch_v2.test_v2staged import unstaged
     airport, pm, _r = pad_map
     fid = _pad_face(pm).id
     cs, _c, _w = generate(pm, law, airport)
+    sol_s, _rs = solve_design(pm, cs, law)               # the SHIPPED (staged) arm
+    (_r_s, tilt_s), ids_s = _pad_plane(pm, sol_s.z, fid)
+    spread_s = max(sol_s.z[v] for v in ids_s) - min(sol_s.z[v] for v in ids_s)
+    assert 0.39 <= spread_s <= 0.41, spread_s            # the apron's own 3 %
+    assert tilt_s <= law.tables.emit.within_shape.pad_slope_max + \
+        law.tables.emit.materiality.grade, tilt_s
+    law = unstaged(law)                                  # the joint problem
     sol, _rep = solve_design(pm, cs, law)
     (resid, tilt), ids = _pad_plane(pm, sol.z, fid)
     spread = max(sol.z[v] for v in ids) - min(sol.z[v] for v in ids)
@@ -479,7 +500,19 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     same weight.  On a real pad the plate is many pairs against ONE mean
     row and the trade is ~1/n of this (LEMD, 10ah: ``pad_flat`` verify rows
     6 -> 7, DEFECTs 0).  ``frontage_near_miss`` is where the same row shows
-    up as surface — see the sibling note in ``test_m3b``."""
+    up as surface — see the sibling note in ``test_m3b``.
+
+    RE-FOUNDED, NOT WEAKENED (lane ``v2stagepop`` r2, §20b (3) AMENDED):
+    both arms are pinned.  Under §20b's STAGED solve — the shipped law
+    since r2 — this pure-hole pad's rim vertices are the apron's and are
+    CONSTANTS when the pad is solved, so the plate carries the two pins
+    against a fixed rim and its tilt reads 0.010308 against the 1 % hard
+    ceiling: 0.0002 over, TWICE the 0.0001 grade materiality and four
+    orders under the 0.5 m surface floor, and it is the weld's own
+    geometry, not a pad row pulling the apron (§20b MEASURED's third
+    deviation).  The joint-solve claim below is unchanged.
+    """
+    from tests.auto_patch_v2.test_v2staged import unstaged
     airport, pm, _r = pad_map
     fid = _pad_face(pm).id
     rim = list(dict.fromkeys(pm.ring_vertices(pm.faces[fid].ring)))
@@ -492,6 +525,10 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     z0 = 700.0 + 0.03 * 210.0
     src = padgen.pad_flats(pm, law, airport)[0].source
     cs2 = stack(list(cs.rows()) + [Pin(a, z0, src), Pin(b, z0 + 0.30, src)])
+    sol_s, _rs = solve_design(pm, cs2, law)              # the SHIPPED (staged) arm
+    (_resid_s, tilt_s), _ids_s = _pad_plane(pm, sol_s.z, fid)
+    assert tilt_s <= 0.0104, tilt_s                      # 0.010308, named above
+    law = unstaged(law)                                  # the joint problem
     sol, _rep = solve_design(pm, cs2, law)
     (resid, tilt), ids = _pad_plane(pm, sol.z, fid)
     spread = max(sol.z[v] for v in ids) - min(sol.z[v] for v in ids)

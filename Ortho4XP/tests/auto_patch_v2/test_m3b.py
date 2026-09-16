@@ -149,7 +149,17 @@ def test_station_walk_reads_the_apron_beside_the_road(synthetic, law):
 
 
 def test_round_trip_publishes_station_caps_and_reads_zero(synthetic, law, tmp_path):
+    """RE-FOUNDED, NOT WEAKENED (lane ``v2stagepop`` r2): the claim below
+    is the ONE JOINT PROBLEM's — the apron yields the centimetres that
+    keep a flat pad flush with its frontage — so the arm is named.  Under
+    §20b's STAGED solve the apron is a CONSTANT when the pad is solved and
+    cannot yield: this fixture then mints a SECOND ``frontage_near_miss``
+    row (0.53 m and 0.39 m, both ``apron|building``, both under the 0.60 m
+    the family reports here).  The staged arm is asserted at the bottom of
+    this twin, so neither reading is hidden."""
+    from tests.auto_patch_v2.test_v2staged import unstaged
     airport, pm, _s, _cl = synthetic
+    law_staged, law = law, unstaged(law)
     cs, counts, _w = generate(pm, law, airport)
     # 09-09c: a pad is one PLANE — one flatness target and one hard 1 %
     # ceiling row per rim PAIR, no longer one ``Flat`` per pad
@@ -250,6 +260,21 @@ def test_round_trip_publishes_station_caps_and_reads_zero(synthetic, law, tmp_pa
     assert tilt <= law.tables.emit.within_shape.pad_slope_max
     za = [sol.z[v] for v in pm.ring_vertices(apron.ring)]
     assert min(za) - 0.05 <= sum(zn) / len(zn) <= max(za) + 0.05
+    # THE STAGED ARM (§20b, the shipped law since r2), pinned with its own
+    # number: the airside cannot yield, so the pad's frontage misses twice
+    # instead of once.  Both rows are the same class and the same family
+    # ceiling; what changed is the count.
+    sol_s = solve_design(pm, cs, law_staged)[0]
+    pub_s = publication(pm, law_staged, airport, sol_s.z)
+    surf_s = graded_surface(pm, law_staged, sol_s, airport.frame.origin,
+                            airport.frame.crs, {})
+    rows_s = census(surf_s, law_staged, pub_s,
+                    roads.road_law_caps(pm, law_staged, airport))
+    miss_s = rows_s["frontage_near_miss"]
+    assert len(miss_s) == 2, miss_s
+    for m in miss_s:
+        assert m["roles"] == "apron|building" and m["side"] == "airside", m
+        assert m["magnitude_m"] <= 0.60, m
 
 
 def test_verify_reader_flags_a_published_cap_looser_than_the_walk(synthetic, law):

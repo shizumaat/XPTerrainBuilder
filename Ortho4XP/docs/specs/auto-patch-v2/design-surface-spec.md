@@ -15994,3 +15994,41 @@ base control's `body_sha ecc616c4bba5` is the SAME hash it carried at
 `ae0f956f` and at v2vmmcshore r6, so neither merged lane moves VMMC's
 surface and the pair's frame is unchanged.  Suite on the merged tree:
 **1,749 passed, 1 skipped, 1 xpassed, 0 FAILED**.
+
+### §45 (19)–(20) THE TOE, THE NARROWINGS RATIFIED, A SYNTHESISED BORE YIELDS (Fable 2026-09-16; RULINGS 2026-09-16g) — lane `v2channel` round 9
+
+Round 8 (5a2c4efc): (16) MET — seven replays ALL IDENTICAL on main 28b4b451, KPHX ONE
+bounded channel (ways −9378/−14705, two necks 50/30 m, 410 m of corridor, zero
+`building16` refusals), CYXY twins green, suite 1773/0; (17) partly — KDFW on the (3)(ii)
+lidar datum (§45 (18) working), `channel_crest_at_edge` 0, 0 violated hard rows in the
+channel families, `channel_floor_at_declaration` 149 rows / worst 1.886 m (from 378 /
+12.626). RULED:
+
+(19) **THE BANK TOE IS THE FIRST RISE, NOT THE CAP.** At KDFW (10)(ii) read the half-width
+as 120 m — the `corridor_max_half_width_m` cap — where the DTM measures the cut 84–106 m
+wall to wall, so the floor face rides the banks (declared 172.87–175.13 against the lidar
+170.9–173.3). The toe on each side is the FIRST station along the axis normal where the
+DTM rises above the floor by `[channel] toe_rise_m` (0.5 m, the same reading as (7)'s
+"cut" test) and stays above it for `toe_confirm_m` (10 m); the cap is a backstop that is
+LOGGED as a refusal reason when reached, never a width. Bar: KDFW half-widths 42–53 m at
+the six bridges (the measured 84–106 m span), `channel_floor_at_declaration` 0 rows on
+the floor faces, the four necks at the taxiway grade, the median fill kept.
+
+Round 8's three narrowings at the one derivation site are RATIFIED as law: (a) a notch
+flank qualifies only where pavement stands on both sides across the way within the cap,
+tested beside the neck (interior holes keep the midpoint test); (b) a credible inset is a
+depth witness only where it reads a CUT — ground above the DTM floor on both sides —
+never a hillside; (c) a neck has a plan width — a one-station paved run is no neck.
+HECA's `channel:2` (way −13192, neck + pack witness, one deck) is lawful under (13)(c)
+and stands; it is named for the owner's HECA read.
+
+(20) **A SYNTHESISED BORE YIELDS TO A CHANNEL WITH A DEPTH WITNESS.** (16)'s claimed set
+put LGAV's −2914/−4017 under §34 (5)'s synthesised TWY H bores and the trench channel
+kept only −1343/−7021. RULED: a bore SYNTHESISED from a `bridge=yes` aeroway (no
+`tunnel=yes` way, no object corridor) covers the same crossing the channel's deck
+covers; where the channel carries a DEPTH witness ((1)(c) pack walls or (3)(ii) lidar)
+the synthesised bore yields — its ways return to the channel and the bore is not built
+(reported by name). A mapped `tunnel=yes` bore or an object corridor never yields. Bar:
+LGAV ONE channel on all four ways (−1343/−7021/−2914/−4017), 4 decks, tunnels = base
+minus the yielded synthesised bores, named; KCLT taxiway U (no depth witness) keeps its
+four synthesised bores; the other replays identical.

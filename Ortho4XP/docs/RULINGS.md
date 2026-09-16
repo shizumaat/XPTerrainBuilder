@@ -8824,3 +8824,54 @@ absorbed into `bores_no_mouth`); `-1341+-1339@0` refused loudly by
 (i′) (`-639` severs, the climb cannot reach the DEM in 600 m — not one
 of the approved seven).
 16p addendum: v2vmmcbore MERGED (faa6f78b → 31716692; the lane resolved structure_service.py's `__all__` and the frames union on its branch; VMMC build byte-identical 420018b72b91, LEMD 47 / 7 decks = the approved seven). Suite ON MAIN after the merge: 1742 passed, 1 skipped, 1 xpassed, 0 FAILED. Now on main for 1.0.343: the shoulder end cap (16n), no building bores + the corridor deck witness (16p); pending: v2padclip, the peer's v2channel.
+
+## 2026-09-16r v2padclip r1 (104c7b43) MEASURED, merge held for the shipped-arm identity check: the arrangement clip no longer re-nodes airside (`pad_airside_renode` deleted 0; the garage on `building45` at one level; HECA mismatch 15 → 0) — but the airside VALUE still moves with pads (HECA 6,031 / 3.09 m) because the design problem is solved JOINTLY; the interventional arm names §20b: with `staged_solve = true` the runway's movement is 3 / 0.020 m → RULED (§16g (10) (12) MEASURED AND AMENDED): staged solve ships ON under §20c, pads ON with it if the bars hold; r2
+
+Lane @ 104c7b43 (base 7f80dc71); suite 1,711 / 0 FAILED; keys ship
+FALSE. Functions: `planar/overlay.build_arrangement` (two passes),
+`airside_union`, `build_rim`, `_node_coords`, `_drop_rim_midpoints`,
+`_renode_counts`, `airside_clip(regions, law, air=, nodes=, rim=)`
+un-gated + drops a pad wholly on airside; `geom/cluster_outline.
+AirsideRim(nodes=, node_tol_m=)`; `pipeline/publication._renode_rows`
+(absent key = NOT MEASURED, empty = MEASURED ZERO); `check_grade
+_check_pad_airside_renode`; `pad_airside_arm --arm-a/--arm-b`;
+`v2_solve_replay` captures carry the re-node reading. Refuted:
+retreating an unsnappable crossing off the rim (takes the weld). Twins
+re-founded: a building standing in an apron IS a hole in that apron
+(`test_v2bank` pad 40 m; `test_constraints`; `test_v2padvert`). Census
+OFF → ON: HECA ADJUDICATED 19,456 → 18,686, LEMD 2,121 → 1,004; worse
+by > 5 % named (HECA `plane_gradient` 9 → 14, `strip_seam_tear` 28 →
+33). NOT done: the `classify/roles.classify` `if` (the OFF arm's
+airside region still pad-dependent: LEMD apron faces 180 vs 106); the
+OFF-arm identity vs main (r2's first deliverable, before the merge).
+
+## 2026-09-16g v2channel ROUND 8 (5a2c4efc): (16) MET — seven replays ALL IDENTICAL, KPHX ONE bounded channel, KDFW on lidar with the hard set feasible; floor rows 378 → 149 (12.6 → 1.9 m) attributed to the (10)(ii) bank-toe cap; §45 (19)–(20) RULED (the toe, the three narrowings ratified, a synthesised bore yields); round 9 then the merge
+
+Round 8 on main 28b4b451: ends at the outermost crossings ⊕ one deck
+width, (14) wired, synthesised underpass bores in the claimed set (read
+from `structure_underpass.underpass_bores`). Replays OTHH 43/10, LEMD
+47/1, HECA 9/0, KCLT 17/0, CYXY 2/0, LGAV 11/2 — ALL IDENTICAL (counts
+moved with main's own merges, identical on both arms); SPJC refuses on
+both arms (−13-077/−13-078 stale; owner refresh). KPHX `channel:0` ways
+−9378/−14705, necks 50/30 m (the engine's neck read; the scout's 23 m
+was the pack's), 410 m corridor, tunnels 14 unchanged, ZERO `building16`
+refusals; datum (3)(iii) — the lidar is credible but reads no cut there.
+CYXY planar twins green; suite 1773/0 (`-n0`). KDFW build
+`KDFW_20260916T094915` rc 0, 441 s, UNCHANGED, ledger c3dbe3dada2b:
+`[flat-site] KDFW: lidar_credible — DEM lidar[inset]` (16a working),
+(3)(ii) datum, `channel_crest_at_edge` 0, hard set 48/146,790 over
+0.02 m (worst 0.0849 `runway_profile`), `channel_floor_at_declaration`
+149 / 1.886 m — ATTRIBUTED: the half-width read 120 m (the cap) from
+(10)(ii)'s bank toes against an 84–106 m cut, so the floor face rides
+the banks. Deviations reported, now RATIFIED (§45 (19)): the notch
+flank tested beside the neck with pavement on both sides; a credible
+inset is a depth witness only where it reads a cut; a neck has a plan
+width. Counts after: OTHH/KCLT/CYXY 0, LEMD 3, KPHX 1, LGAV 1 on TWO
+ways (−2914/−4017 claimed by §34 (5)'s synthesised TWY H bores — RULED
+§45 (20): a synthesised bore yields to a channel with a depth witness),
+HECA 1 (`channel:2`, −13192, neck + pack, lawful; named for the owner's
+read). Housekeeping: `owner_kept`/`parts` resolved to the peer's
+`structure_service.py`; `structures.py` at 1,000. Frames registered.
+Round 9: (19) the toe, (20) the yield; bars: KDFW floor rows 0,
+half-widths 42–53 m, LGAV one channel on four ways; then the merge for
+app 1.0.343 with the peer's lanes.

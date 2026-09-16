@@ -12,12 +12,15 @@ and never appeared in the app.
 
 This twin regenerates the snapshot from the tree and requires the committed
 file to match BYTE FOR BYTE — encoding drift (the ``ensure_ascii`` episode)
-counts as drift too.  Hermetic: the repo's own files and the running
-interpreter, no network.
+counts as drift too.  The one masked field is ``engineVersion``: it comes
+from ``O4_Version.py``, which every app build bumps, and a tripwire that
+fires on every build is a standing red, not a tripwire.  Hermetic: the
+repo's own files and the running interpreter, no network.
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +31,11 @@ ENGINE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = ENGINE_DIR.parent
 SCHEMA_DUMP = REPO_ROOT / "Sources" / "SceneryKit" / "Resources" / "o4_schema_dump.py"
 SNAPSHOT = REPO_ROOT / "Sources" / "SceneryKit" / "Resources" / "o4_schema_snapshot.json"
+_ENGINE_VERSION = re.compile(r'"engineVersion": "[^"]*"')
+
+
+def _mask_engine_version(text: str) -> str:
+    return _ENGINE_VERSION.sub('"engineVersion": "*"', text, count=1)
 
 app_side = pytest.mark.skipif(
     not SCHEMA_DUMP.is_file(),
@@ -45,7 +53,7 @@ def test_bundled_snapshot_matches_the_tree() -> None:
     )
     assert result.returncode == 0, result.stderr
     committed = SNAPSHOT.read_text(encoding="utf-8")
-    assert result.stdout == committed, (
+    assert _mask_engine_version(result.stdout) == _mask_engine_version(committed), (
         "Sources/SceneryKit/Resources/o4_schema_snapshot.json is stale — the "
         "shipped app's settings UI silently drops any row missing from it. "
         "Regenerate with:\n  (cd Ortho4XP && venv/bin/python "

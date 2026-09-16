@@ -8644,3 +8644,42 @@ were rewritten Sep 14 22:07 (unledgered — the owner's app build, same
 source).
 
 ## 2026-09-16f OWNER: "Yes, both 981 and 988 span real cuts." → §34 (12) (4) AMENDED (2): witness (i) reads the CORRIDOR (any way of the bore chain tagged tunnel / layer ≤ −1), safe now that (5) builds no bore at VMMC; LEMD returns to its seven approved decks; the DEM witness stays second. Assigned to lane v2vmmcbore (structure_service.deck_witness_for is its file)
+
+## 2026-09-16e v2usgsbox MERGED (23049f59): the `.elv` reader holds a LIST of coverage boxes; USGS3DEP US-only (8 boxes), HRDEM/HRDEMTIDAL Canada-only (3), NEWZEALAND1M/TIDAL + the Chathams; CYXY's two negatives INERT with no corpus edit; HECA's 468 were already out-of-box
+
+Lane `v2usgsbox` (564887e5). Reader: `coverage_bbox` may repeat (one
+box per cited line) or be `;`-separated (the reader's existing list
+separator); the parsed definition gains `coverage_bboxes` while
+`coverage_bbox` stays ONE box — their hull — so single-box providers
+parse byte-identically. Consumer census: `_coverage_bbox_intersects`
+(~30 sites) and `_tile_centre_in_coverage` match ANY box via
+`coverage_boxes(definition)`; the STAC root-item pseudo-collection
+takes the hull, unchanged. Declarations deviate from 16c's brief with
+the measurement: the brief's CONUS box kept CYVR in coverage and its
+Alaska box kept CYXY (−135.07 lies east of the panhandle's −130 limit
+only below 60 N) — so CONUS splits at the Northwest Angle (west box to
+49.05), Alaska into mainland / panhandle 54.5–60 N / Aleutians west of
+the antimeridian, plus Hawaii, PR/USVI, Guam/CNMI, American Samoa;
+HRDEM's `−141,41,−52,84` reached 41 N (nine stale negatives at Portland
+N45W123). Named residual: a rectangle cannot follow the Great Lakes
+border (southern Ontario stays in CONUS-east; the upper Midwest in the
+Canadian box) — discovery is authoritative there. CENSUS, read-only,
+30 indexes / 11,523 no-coverage records: newly out-of-box 15 (USGS3DEP
+6, HRDEM 9) — N60W136 2 (CYXY, the ruling's site), N61W133 1, N17W097
+2, N16W097 1, N45W123 9; version-stale 118 → 103; residual IN-box
+version-stale negatives (legitimate providers, re-asked once per
+version as 15ay rules): USGS3DEP 59 (the Phoenix/Portland set),
+FRANCE50CM 22, ITALY10M 11, SWISSALTI3D 8, COPERNICUSGLO30 3. HECA's
+468 on N30E031 were ALREADY out-of-box (NEWZEALAND1M's box never
+reached Egypt) — the addendum's premise does not hold there. Campaign
+tiles inside the new USGS3DEP boxes: KCLT, KDFW, KPHX, KMCI, KAFW, KDEN,
+KPDX; outside: CYXY, OTHH, VHHH, VMMC, HECA, LEMD, SPJC, LGAV. All 80
+provider boxes surveyed: SONNY1 (`−74,27,45,84`, role=base, judged by
+tile centre) left — tightening could change a real tile's base DEM,
+a geometry change needing a build; national providers' spill onto
+neighbours left (no measured defect). Both `.spec` files copy
+`Providers/` into the frozen engine. Suite ON MAIN: `1952 passed, 1
+skipped, 1 xpassed`, 0 failed. OWNER QUESTION (kept as merged, zero
+records change either way): the Chatham Islands box WIDENS
+NEWZEALAND1M/TIDAL (LINZ publishes Chatham 1 m lidar) — keep, or revert
+to mainland-only?

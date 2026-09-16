@@ -405,6 +405,14 @@ def structure_records(airport, cl, law) -> dict:
         "crest_from_approach": list(sstats.crest_from_approach),
         # spec §34 (5): the crossings an aeroway bridge stated
         "underpasses": list(sstats.underpasses),
+        # §33 (6) B AMENDED (3) (c): the object-decked trenches and what
+        # rides the object inside each (the dry arm's own reading)
+        "decked_excluded": list(sstats.decked_excluded),
+        "decked_runway_family": list(sstats.decked_runway_family),
+        "decked_outlines": sstats.decked_outlines,
+        "decked_centreline_m": sstats.decked_centreline_m,
+        "decked_road_m": sstats.decked_road_m,
+        "decked_pavement_m2": sstats.decked_pavement_m2,
         "tunnel_object_stats": {k: v for k, v in _dc.asdict(tstats).items()
                                 if not isinstance(v, list)},
         "tunnels": [{"id": t.id, "source": t.source, "mouth_z": t.mouth_z,

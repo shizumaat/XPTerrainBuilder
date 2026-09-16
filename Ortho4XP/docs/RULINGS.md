@@ -8706,3 +8706,59 @@ the record: a symlinked `tools/` in a git-archive base tree resolves
 `__file__` back to the branch and silently runs the ARM's code —
 caught and rerun. Merge clean, no markers; suite on main below.
 16j addendum: suite ON MAIN after the v2shellwall r3 merge (48a2afda): 1724 passed, 1 skipped, 1 xpassed, 0 FAILED lines. App 1.0.342 building from main 6c1afc66 (without v2channel, per the peer: its round 8 merges 48a2afda and targets 1.0.343 with v2padclip / v2shoulderband r2 / v2vmmcbore; `owner_kept`/`parts` will have ONE home, structure_service.py).
+
+## 2026-09-16k Stale-worktree sweep: 145 → 46 trees; 23 dirty trees adjudicated, four recovered (92e5e4fe)
+
+Owner order (2026-09-16): take down every finished lane worktree through
+the ritual, never `rm -rf`; then evaluate the 23 trees holding uncommitted
+work — superseded or never merged, merge or discard — and check the
+orphaned processes. Four Opus scouts read each dirty diff against main
+(symbol grep, `-S` landing-commit search, RULINGS trail, `git apply
+--check --3way`). Owner ruled on the seven survivors: MERGE 1–4, DISCARD 5–7.
+
+MERGED (lane `claude/stalemerge-8fe42f`, off bc7f16a2, merge 92e5e4fe;
+touched twins 187 passed on the merged tree, no build):
+1. `1d9c8c52` epic-jepsen-ee4e52 (2026-08-09): `progress.substep` events
+   during the cold object-pack classification scan (~8 min looked hung);
+   `GEOMETRY_SCAN_PROGRESS_INTERVAL = 500`, `TestColdScanProgress`.
+2. `1f7acaaa` infallible-rhodes-37e5c3 (2026-07-31): loud "NO AIRPORTS
+   WILL BE GRADED" banner when auto_patch runs with no CIFP path on the
+   app path (the harness already refused, `build_airport.py`); FIRST
+   Python emitter of the `Log` wire event — fields `level`/`text` match
+   `OrthoEngineClient.swift` `case "Log"`.
+3. `22358ee2` + `8dd60198` zealous-pare-b88796 (2026-08-14): bundled
+   config-schema snapshot tripwire `tests/test_schema_snapshot.py` +
+   `ensure_ascii=False` in the dump; snapshot regenerated (no key delta
+   on today's main — `flat_site_declared` is lawfully retired since
+   ff3af379, so the lane's motivating defect is already closed);
+   `engineVersion` MASKED in the twin (it bumps on every app build).
+4. `0878298c` laughing-cori-55647d (2026-07-26): conftest pops an ambient
+   `ORTHO4XP_DATA_ROOT` at import time (restored by a session fixture).
+   Its perf hunk had landed via 30f612fd; discarded.
+
+DISCARDED as MERGED-ELSEWHERE / SUPERSEDED (every diff saved as a patch in
+the session scratchpad `discarded/`): gracious-perlman-31623d (16d30c93),
+simtile-killhalf (quarantine machinery deleted outright), c5auth
+(2e731853), c4tip (`joint_entries` 5dd3ad27), loving-diffie-fafc66
+(71f1ba41), silly-satoshi-3e0d10 (straddle formulation chosen instead),
+v2dsfelev (11b: lane stopped; v2dsfagl merged), zen-benz-56f50d
+(0f92fd0d §45 (18)), pensive-antonelli-d9526d (7653bcc5, 2fafae7f),
+v2rwytransverse (key deleted 3a7d7c33; 05r "budget is not the lever"),
+ecstatic-bhabha-e3302a (f1b13c3e), appcut, v2objcutbase, tunattr,
+v2routecap, v2terrace3 (scratch only). Owner DISCARDED: seats-lane (the
+only split-level-seats implementation; HELD at 2026-09-01o stays held
+with no code behind it), objective-morse-032b92 (persist the
+`_valid_poly` repair — unreachable on the battery), ecstatic-shamir-5658cb
+(gate-first `down` ordering — 86229de8 fixed the symptom).
+
+PROCESSES KILLED: v2qp pid 35262, the HiGHS QP prototype (`proto2.py`,
+925 CPU-min, objective frozen 30 h) — refuted at 2026-09-15b; v2hairline
+pids 95418–95422, five parentless multiprocessing workers.
+
+RITUAL LESSON (recorded in memory): `lane_worktree.sh down` refuses its
+OWN leftovers — a tracked `Ortho4XP/Sessions` symlink an older ritual
+deleted, the tracked 2W2 patch, `tools/__pycache__/`, an untracked
+`Ortho4XP/Tiles` symlink, `.progress` — because the dirty audit runs
+before its own checkout-restore. Repair with `git checkout --` and `mv`,
+never `rm -r`; pass bare NAMEs (a full path in the caller's command line
+trips the `pgrep -f` holder check).

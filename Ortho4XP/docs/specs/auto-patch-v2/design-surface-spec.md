@@ -15766,3 +15766,231 @@ groups); OTHH 44 / 1 unchanged; VMMC 0 (by (5)); SPJC/KCLT/CYXY any
 deck that changes named.  Twins: the two LEMD decks (tag-only via the
 chain), a VMMC-shaped case (a bore that enters a building → no
 corridor → no deck), a chain with no tag and no cut (no sever).
+
+### §34 (12) (5) CONSUMER CENSUS (owner RULINGS 2026-08-30l), written BEFORE the first consumer was edited — lane `v2vmmcbore`
+
+§34 (12) (5) is a REGION SHRINK at a SINGLE derivation site: fewer bores
+admitted.  It mints no shape class, no role, no ref and no sidecar key, so
+the table's job is the same as (12)'s own — prove each reader is
+COUNT-SENSITIVE ONLY.  The gate stands in `planar/structure_approach.
+mouths()`, which is where admission has stood since owner 12ab, so no
+consumer downstream of it can tell a refused bore from one that never had
+an on-field mouth.
+
+**A. THE ADMISSION.**
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| B1 | `planar/structure_approach.mouths()` | `bores`, `osm`, `law`, `FieldRegion` | **EDITED, the ONE derivation site of (5).** A bore that fails the (5) reading yields NO mouths. §29 (1)'s own gate is UNCHANGED and runs first, so `mouths_off_field` keeps counting exactly what it counted. |
+| B2 | `planar/structure_approach.field_region_for()` | `airport`, `law`, `polys` | **EDITED, reporting only**: the `FieldRegion` now carries the `airport` it was built from, so `mouths()` can reach the DEM and the cover WITHOUT a new argument at `structures.build_structures`'s call site (another lane's file this round). No test of the region changes. |
+| B3 | `planar/structure_service.terrain_tunnel_witness()` (NEW) | the law, the cover tree, the OSM ways, the DEM | **NEW, the reading itself** — a pure function, one call site (B1), beside (12) (3)'s and (4)'s readings for the same reason they live there. |
+| B4 | `airport/deck_signature.is_enclosure_way()` (NEW) | the OSM tags | **NEW predicate beside `is_tunnel_way` / `is_bridge_way`** — (5) (a)'s building / underground-parking / covered class, ONE spelling (row 27 of §33 (6)'s census: one predicate, never a second). `is_tunnel_way` itself is UNCHANGED: WHICH ways are bores is not what (5) is about. |
+| B5 | `airport/osm.TAGS_OF_INTEREST` | the feeds | **EDITED: `covered` added.** (5) (a) names `covered=yes` and the v2 reader's whitelist dropped the tag, so the witness could not be read at all. `O4_Vector_Map.ROADS_TAGS_OF_INTEREST` already keeps it (§45 (9), schema 2026-09-15). Additive: every consumer reads tags BY KEY, so one more key changes no existing reading. |
+| B6 | `planar/structures.build_structures` — `with_mouth` / `covered` / `bores_no_mouth` | the mouths `mouths()` returned | **NOT TOUCHED** (another lane's file). A (5)-refused bore is absorbed into `stats.bores_no_mouth`, whose label then covers two populations. THE ONE LINE (5) WOULD OWE `structures.py` is its own counter; it is NOT taken, and the conflation is named in the MEASURED block and in the lane report instead. The refusals themselves are NAMED, one line each, through `mouth_reports`. |
+| B7 | `planar/structure_approach.mouth_reports()` | `FieldRegion`, mouths, dropped | **EDITED, reporting only**: emits one `bore not a terrain tunnel …` line per (5) refusal with its evidence, kept apart from the `mouth off-field …` lines — the r1 discipline (two reports are never one region). |
+| B8 | `planar/structure_approach.merge_duals` / `apply_plates` / `object_corridor.mouth_covered_by` | the mouth list | UNAFFECTED — the list is shorter; no mouth changes. |
+| B9 | `planar/structures` ramp / void / deck / stop machinery, `planar/zones.keepouts`, `planar/basins`, `planar/overlay`, `constraints/*`, `verify/structures`, `emit/osm_adapter`, `tools/check_grade` | the corridors and the records | UNAFFECTED, exactly as §34 (12)'s own census T5–T12 ruled: a corridor that is not built withdraws its own cells, records and rows with it. No family, role or sidecar key is added by (5). |
+| B10 | `planar/structure_deck.deck_intervals` + `structure_service.deck_witness_for` | the corridor's decks | **EDITED for §34 (12) (4) AMENDED (2)** (16f), and ONLY safely because (5) runs first: witness (i) now reads the CORRIDOR's whole bore chain instead of the way under the span. |
+
+**B. THE (5) (a) WITNESS — WHICH FEED CARRIES IT, PER TILE (the brief's own bar).**
+
+Measured by reading the CACHED feeds directly (`scratchpad/vb/feedtags.py`,
+raw XML, before the v2 whitelist):
+
+| tile | feed | closed `building*` rings | `amenity=parking` / `parking=*` | `covered=*` ways |
+|---|---|---|---|---|
+| `+22+113` (VMMC) | `airports` | **37** (5 within 4 km of the owner probe, all `hangar` / `transportation`, nearest **377 m**) | **0** | 163 |
+| `+22+113` | `airport_small_roads` — **the feed the VMMC bores are in** | **0** | **0** | 0 |
+| `+22+113` | `big_roads` | 0 | 0 | 258 |
+| `+22+113` | `small_roads` (v1 tile layer, not a v2 feed) | **0** of 110,279 ways | 0 | — |
+| `+40-004` (LEMD) | all three | 13 rings total | 0 | — |
+| `+25+051` (OTHH) | all three | 25 rings total | 0 | — |
+
+**NO CACHED FEED CARRIES THE BUILDING/PARKING WITNESS AT THE VMMC SITE.**
+Ortho4XP's general building layer is commented out (`O4_Vector_Map.
+include_buildings`), the `airports` feed's buildings are the aerodrome's
+own, and `amenity=parking` polygons are mapped in NO feed at any of the
+three tiles.  So (5) (a) can NEVER fire at the owner's site: the Taipa
+car-park buildings the bores enter are not in the data.  **Reported, and
+the round does NOT stop on it** — because (5) (c) is a POSITIVE test over
+data that IS present, and the measurement below shows it separates the
+owner's site cleanly.  (a) is implemented anyway (it costs one predicate
+and fires at LEMD, where two bores DO end inside a mapped
+`building=transportation`); a feed change is what it would take to make it
+bite at VMMC, and that is the owner's call, not this lane's.
+
+### §34 (12) (5) + §34 (12) (4) AMENDED (2) **MEASURED** (lane `v2vmmcbore`, 2026-09-16, branch `claude/v2vmmcbore`, base main `ae0f956f`)
+
+**THE FRAME.**  One tree per arm, one corpus, the lane-local mod-cache
+overlay.  BASE = the ritual worktree `v2vmmcborebase` at main `ae0f956f`;
+ARM = this branch.  The base VMMC build reproduces lane `v2vmmcshore`
+r6's shipped closing build EXACTLY — **`body_sha ecc616c4bba5`**, the
+same hash 15ap's r6 block records — so the pair is anchored to the
+patch the owner read.
+
+#### THE CLOSING VMMC BUILD
+
+`build_airport.py VMMC --tag v2vmmcbore1`: **rc 0, 16.5 s**, `status
+optimal`, `body_sha 420018b72b91`, artifact ledger **`dc9747f8d707`**,
+and verbatim:
+
+> `[harness] shared repo UNCHANGED by this build (full-surface before/after snapshot) — no side-effect mutation`
+
+| bar | BASE = r6 (`ecc616c4bba5`) | ARM (`420018b72b91`) |
+|---|---|---|
+| owner probe 22.1618794, 113.579745 | covered by nothing; **nearest structure vertex 188 m** | covered by nothing; **nearest structure vertex 1,816 m** |
+| `tunnel_ramp` + `structure_rim` faces | **14** | **2** |
+| tunnels (dry `--stage structures`) | **13**, decks **1** (`bridge_deck:-2088` on `-4787@1`) | **2**, decks **0** |
+| `-2488@0`, `-5508+-5507+-2489@1`, `-4787@1` (the owner's own bores) | built | **NOT BUILT**, each named with its evidence |
+| ramp + rim standing on the sea | 0.00 m² | **0.00 m²** (both survivors are inland, 1.8 / 4.7 km from the shore probe) |
+| patch nodes at or under 0.5 m | 0 | **0** |
+| `pav5` | 5.09 … 6.12 | **5.09 … 6.12** — unchanged |
+| `sea_wall` | **27 rows**, worst 6.100 m | **27 rows**, worst 6.100 m — unchanged |
+| cockpit CRITICAL motion / visual | 11 / 93 | **11 / 81** |
+| census LAW-TRUE / ADJUDICATED | 172 / **55** | 169 / **59** |
+| ways / nodes | 117 / 2,657 | 91 / 2,360 |
+
+**THE BAR IS `tunnels 13 → 0` AND IT IS MISSED BY 2 — HERE IS WHAT THE
+TWO ARE.**  Nine of VMMC's twelve admitted bores are the car-park ramps
+the owner's site is about and all nine are refused.  The other three
+(two records after the dual merge) are REAL MACAU ROAD TUNNELS, and the
+measurement separates them without a single tuned number:
+
+| bore | length | cover | at-grade over it | ground over it | `layer` | verdict |
+|---|---|---|---|---|---|---|
+| `-2488` | 36.6 m | 0.0 m | none | **+0.00 m** | none | NOT BUILT |
+| `-5508+-5507+-2489` | 37.0 m | 0.0 m | none | **+0.00 m** | none | NOT BUILT |
+| `-4787` | 25.2 m | 0.0 m | none | **+0.00 m** | none | NOT BUILT |
+| `-6965+-2516` / `-6914` / `-5049` / `-3313` / `-2849` | 22–37 m | 0.0 m | none | **+0.00 m** | none | NOT BUILT |
+| `-2388` | 26.7 m | 0.0 m | none | **+0.33 m** | none | NOT BUILT |
+| **`-5994+-5993`** | 214 / 224 m | 0.0 m | **`-14967`, `-14962` (`primary`)** | **+1.10 / +1.36 m** | **−2** | **BUILT** — mouth 22.1517293, 113.5646767, **1,816 m** from the owner's probe |
+| **`-2577`** | 264.3 m | 0.0 m | **`-3762`, `-3763` (`primary`)** | **+10.53 m** | **−1** | **BUILT** — mouth 22.194078, 113.5500071, **4,709 m** from the probe |
+
+Both survivors are bored through hills on the Macau peninsula, carry
+OSM's own `layer −1 / −2`, and are admitted to the airport at all only
+by §31 (2)'s 5 km APPROACH CORRIDOR.  **OWNER QUESTION 16d-1**: the
+ruling's expectation is 0 tunnels at VMMC, and the two that stand are
+not the class the owner objected to — they are exactly what (5) (c)
+calls a terrain tunnel.  Removing them needs a rule this lane may not
+author (a distance from the field, or a narrowing of §31 (2)'s corridor
+for structures); it is offered with its geometry, not tuned away.
+
+**THE +4 ADJUDICATED, ATTRIBUTED** (`census_rows_diff`: EXACT 103,
+MOVED 0, GONE 69, NEW 66).  Every new row stands on stub `-10016` and
+junction `-10017` between 22.1621 and 22.1630 — the pavement the eleven
+withdrawn corridors used to CUT, which comes back WHOLE and is now
+priced across its restored extent (the same mechanism r1 recorded for
+`pav5`: "with the tunnel withdrawn the junction came back whole").  The
+seven biggest are `within_shape` rows that the census does not
+adjudicate (`withdrawn_law_05aa`); the adjudicated move is `taxi_box`
++5 and `airside_no_step` −1, worst 0.490 m at 2.14 % against a 1.52 %
+box cap.  Twelve `hairline_pair` rows on `tunnel_ramp` / `service_road`
+go with the corridors.  No new family, no new role, no new step.
+
+#### THE MATCHED DRY `--stage structures` PAIRS
+
+| | VMMC base | VMMC arm | LEMD base | LEMD arm | OTHH base | OTHH arm | KCLT base | KCLT arm | CYXY base | CYXY arm |
+|---|---|---|---|---|---|---|---|---|---|---|
+| tunnels | 13 | **2** | 52 | **47** | 44 | **43** | 23 | **17** | 2 | **2** |
+| decks | 1 | **0** | 5 | **7** | 1 | **0** | 1 | **1** | 0 | 0 |
+| corridors / wall corridors / basins / door wells / plates | 0/0/0/0/0 | 0/0/0/0/0 | 1/0/1/0/3 | **1/0/1/0/3** | 9/73/10/4/2 | **9/73/10/4/2** | — | unchanged | — | unchanged |
+
+* **LEMD KEEPS EXACTLY THE SEVEN APPROVED DECKS.**  §34 (12) (4)
+  AMENDED (2) (16f) restores `-5305` and `-15293` — the two the owner
+  checked in the sim and confirmed span real cuts — so the arm emits
+  `-6288, -11828, -14230, -516, -5305, -1378, -15293`.  **Bar MET.**
+* **LEMD loses 5 tunnel records, and each is named.**  Four are (5)'s:
+  `tunnel:-15336@0/@1` (37 m, cover 0, no crossing, ground +0.11 m, no
+  layer), `tunnel:-3958@0/@1` (30 m, +0.10 m, standing under two
+  `primary` BRIDGES and nothing else — clause (b) exactly) and
+  `tunnel:-4054+-4052@*`, whose `-4052` side is refused (+0.17 m) while
+  `-4054` (+0.71 m) survives alone.  The fifth is (4)'s:
+  **`tunnel:-1341+-1339@0` is refused loudly** — with `-639` now
+  severing by (i′), the climb starts at s 531 and "the 8 % climb from
+  622.58 at s 531 does not reach the DEM (627.13..641.16) within 600 m".
+  `-639` is NOT one of the approved seven (15ap's table: "no — its
+  tunnel is unbuilt at base").  **Reported, not tuned.**
+* **(5) (a) FIRES AT LEMD AND COSTS NOTHING**: `-15347`, `-15349` and
+  `-9263` end inside `building=transportation` rings `-48` / `-79` and
+  are refused — none of them had a built tunnel at base, so the built
+  population is unmoved.  (a) is a no-op on every built tunnel at every
+  airport measured.
+* **OTHH: one bore out, one PACK CORRIDOR BACK.**  `tunnel:-11191@0/@1`
+  (23 m, cover 0, no crossing, +0.00 m, no layer) is a terminal parking
+  ramp and is not built; its own `object_deck:dsf:obj269` withdraws with
+  it (decks 1 → 0), and **`wall-corridor:OTHH_Terminal_Parking_VCN_004.
+  obj@1` RETURNS** — the base refused it for overlapping that bore.
+  That is (5) (a)'s intent measured as a positive: the object carries
+  the ramp.  The 9 object corridors, 73 wall corridors, 10 basins and 4
+  door wells are byte-identical.
+* **KCLT loses 3 bores / 6 records**, all one class: `-11281` (10 m,
+  +0.04 m), `-11277` (10 m, +0.25 m), `-11251` (9 m, +0.09 m) — cover 0,
+  no crossing, no layer.  Its one deck `bridge_deck:-14164` is unchanged.
+* **CYXY IS BYTE-IDENTICAL** — 2 tunnels, 0 decks, nothing moved.
+* **SPJC COULD NOT BE MEASURED** and no workaround was taken: its road
+  feeds `-13-077_big_roads` / `-13-078_big_roads` are SCHEMA-STALE
+  (`o4_tag_schema 2026-07-16`) and the loader refuses by name (RULINGS
+  2026-09-15u).  `--refresh-data` is the owner's act; the 15ap addendum
+  refreshed six tiles and SPJC's two were not among them.
+
+#### THE (5) (a) WITNESS IS NOT IN THE DATA AT VMMC, AND THAT IS WHY (c) CARRIES THE SITE
+
+The census table above measures it: the feed the VMMC bores live in
+(`airport_small_roads`) carries **zero** closed building or parking
+rings, the `airports` feed's nearest building ring is **377 m** from the
+owner's probe, and `amenity=parking` polygons are mapped in NO feed at
+any of the five tiles.  Ortho4XP's general building layer is commented
+out.  So the Taipa car parks the bores enter are simply absent, (5) (a)
+can never bite there, and every VMMC refusal above is (5) (c)'s.
+**A feed change is what (a) at VMMC would take**, and that is the
+owner's call.
+
+#### WHAT THIS ROUND DID NOT DO, NAMED
+
+* **`stats.bores_not_terrain` — the ONE line `planar/structures.py`
+  would owe (5)** — is NOT taken: that file is lane `v2shellwall` r3's
+  and the peer's `v2channel`'s this round.  The refusals are all NAMED
+  (one line each, with their evidence, under the structures block) but
+  their COUNT is absorbed into `stats.bores_no_mouth`, whose label then
+  covers two populations.  Named here so the conflation is not
+  discovered later as a defect.
+* The two VMMC survivors (owner question 16d-1 above); SPJC (the
+  owner's `--refresh-data osm_layers`); any `--refresh-data`; the
+  five-airport sweep; any LEMD / OTHH / KCLT / CYXY BUILD; any tile
+  build and therefore any mesh reading; any merge into main; any
+  RULINGS entry; any new tool (the readings are `harness/
+  build_airport.py`, `harness/census.py`, `census_rows_diff.py`,
+  `osm_site.py`, `planar --stage structures` and `frames.py`).
+
+#### Build-time impact statement
+
+`terrain_tunnel_witness` builds two STRtrees once per build (VMMC 3,306
+road/rail ways and 5 rings; LEMD 6,679 / 13; OTHH 7,199 / 25) and asks
+at most four questions per ADMITTED bore (VMMC 12, LEMD 47, OTHH 10);
+the DEM read is one sample per 5 m of bore.  Measured whole-build wall
+at VMMC: base **17.4 s**, arm **16.5 s** — the arm builds LESS (117 → 91
+ways, 2,657 → 2,360 nodes).  Nothing here is within 1 % of either budget
+on the wrong side.
+
+#### §34 (12) (5) RE-MEASURED AFTER THE MAIN MERGE (lane `v2vmmcbore`, branch `claude/v2vmmcbore` `b2ead29a`, base main `c4efff90` — v2shellwall r3 and v2shoulderband r2 in)
+
+The merge conflicted in `planar/structure_service.py` (v2shellwall r3
+moved `decked_exclusion` / `SURFACE_LINE_KINDS` / `owner_kept` / `parts`
+in from `structures.py`); BOTH SIDES ARE KEPT — the conflict was the
+`__all__` line alone and every symbol of both lanes resolves.
+`docs/frames.jsonl` was unioned, no markers anywhere.
+
+**NOTHING MOVED.**  Matched pairs re-run on the merged trees:
+
+| | base (main `c4efff90`) | arm (merged) | arm (pre-merge `9f4e504a`) |
+|---|---|---|---|
+| VMMC tunnels / decks | 13 / 1 | **2 / 0** | 2 / 0 — IDENTICAL |
+| LEMD tunnels / decks | 52 / 5 | **47 / 7** | 47 / 7 — IDENTICAL |
+| LEMD deck set | `-6288 -11828 -14230 -516 -1378` | **the approved SEVEN** (`+ -5305 -15293`) | the same seven |
+| VMMC closing build | `ecc616c4bba5`, rc 0, 16.8 s, ledger `07c3f4fcd06e` | **`420018b72b91`**, rc 0, 17.0 s, ledger `b1cb3707f003` | `420018b72b91` — BYTE-IDENTICAL |
+
+Both builds print `[harness] shared repo UNCHANGED by this build`.  The
+base control's `body_sha ecc616c4bba5` is the SAME hash it carried at
+`ae0f956f` and at v2vmmcshore r6, so neither merged lane moves VMMC's
+surface and the pair's frame is unchanged.  Suite on the merged tree:
+**1,749 passed, 1 skipped, 1 xpassed, 0 FAILED**.

@@ -77,7 +77,8 @@ from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
 
 __all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way", "DEFAULT_TUNNEL_VALUES",
-           "is_bridge_way", "bridge_lines", "family_key", "PierReading", "elevated_deck"]
+           "is_bridge_way", "is_enclosure_way", "bridge_lines", "family_key", "PierReading",
+           "elevated_deck"]
 
 EVIDENCE_ROAD_BRIDGE = "road_bridge"
 EVIDENCE_BELOW_GRADE = "below_grade"
@@ -182,6 +183,33 @@ def is_tunnel_way(tags: _t.Mapping[str, str],
     the same class of not-a-bore."""
     b = tags.get("tunnel")
     return bool(b) and b in admitted and ("highway" in tags or "railway" in tags)
+
+
+def is_enclosure_way(tags: _t.Mapping[str, str],
+                     parking_values: _t.Sequence[str] = ()) -> str | None:
+    """§34 (12) (5) (a) A BUILDING, AN UNDERGROUND PARKING OR A COVERED
+    STRUCTURE (owner RULINGS 2026-09-16d) — the class whose own ramp a
+    bore ending inside it IS, named, or ``None``.
+
+    ONE PREDICATE, beside :func:`is_tunnel_way` and :func:`is_bridge_way`
+    rather than a second spelling in the planar pass (the §33 (6) census's
+    row 27 rule).  ``parking_values`` is ``[tunnel] enclosure_parking_
+    values`` — the ``parking`` values that mean the cars are UNDER
+    something; an at-grade ``amenity=parking`` surface lot is not an
+    enclosure and never appears here.
+
+    THE CALLER DECIDES WHETHER THE RING IS CLOSED: this reads tags only.
+    """
+    b = tags.get("building") or tags.get("building:part")
+    if b and str(b).strip().lower() not in ("", "no"):
+        return f"building={b}"
+    if str(tags.get("amenity", "")).strip().lower() == "parking":
+        p = str(tags.get("parking", "")).strip().lower()
+        if p and p in {str(v).strip().lower() for v in parking_values}:
+            return f"amenity=parking parking={p}"
+    if str(tags.get("covered", "")).strip().lower() == "yes":
+        return "covered=yes"
+    return None
 
 
 def bridge_lines(osm_ways) -> list[tuple[int, LineString]]:

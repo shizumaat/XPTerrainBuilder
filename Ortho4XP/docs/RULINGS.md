@@ -8800,3 +8800,26 @@ pairs at the four airports (a `--rule` arm needs a second capture +
 replay-emit per airport; the classify change cannot raise a family at
 KCLT/CYXY where both arms are identical); SPJC. Frames: VHHH/OTHH/KCLT
 at 7f80dc71, CYXY at 3e15a18d (post the coverage-box merge).
+
+## 2026-09-16p v2vmmcbore r1 (9f4e504a) MEASURED — merge deferred to its main-merge (structure_service.py conflicts with v2shellwall r3): VMMC 13 → 2 tunnels (the owner's probe covered by nothing, nearest structure 188 m → 1,816 m; ramp+rim faces 14 → 2; sea wall / pav5 unchanged); the 2 survivors are REAL Macau road tunnels (`-5994+-5993` layer −2 under two primary roads, +1.36 m of hill; `-2577` layer −1, +10.53 m of hill), 1.8 km+ from the field, admitted by §31 (2)'s 5 km approach corridor → OWNER 16d-1 (keep, or bound structures to the field's neighbourhood); LEMD 52 → 47 tunnels and decks 5 → 7 = exactly the approved seven (witness (i′) restores 981/988); OTHH 44 → 43 (a terminal parking ramp under nothing out; wall corridor VCN_004@1 returns; 9/73/10/4 identical); KCLT 23 → 17 (three 9–10 m bores); CYXY identical; SPJC unmeasured (stale road layers — the owner's refresh)
+
+Closing VMMC build rc 0, 16.5 s, body 420018b72b91, ledger
+dc9747f8d707, `shared repo UNCHANGED`; BASE control body ecc616c4bba5
+= v2vmmcshore r6's shipped build. Consumer census committed before the
+edit (d23720b2): NO cached feed carries a building/parking polygon at
+VMMC (or at any of the five tiles — `amenity=parking` absent; the
+general building layer is commented out in O4_Vector_Map), so (5)(a)
+is a no-op everywhere and clause (c) — a terrain tunnel passes UNDER
+something at grade (pavement, pad, road, railway, a witnessed cutting)
+— carries the site: nine car-park ramps read cover 0.0 m, no crossing,
++0.00…+0.33 m, no `layer`. New `deck_signature.is_enclosure_way`,
+`structure_service.terrain_tunnel_witness` (+ `_layer_of_bore`,
+`_crossings`, `_rise_m`), `deck_witness_for` reads the bore chain (16f),
+`structure_approach.FieldRegion.cover_run_m`, law keys `[tunnel]
+terrain_cover_min_m / terrain_crossing_min_m / terrain_rise_m /
+terrain_layer_max / enclosure_parking_values`, `TAGS_OF_INTEREST` +
+`covered`; 13 twins; suite 1,729 / 1,736, 0 FAILED. Owed: the one
+`structures.py` line (`stats.bores_not_terrain` — the refusal count is
+absorbed into `bores_no_mouth`); `-1341+-1339@0` refused loudly by
+(i′) (`-639` severs, the climb cannot reach the DEM in 600 m — not one
+of the approved seven).

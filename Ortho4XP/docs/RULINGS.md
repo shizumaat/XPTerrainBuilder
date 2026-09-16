@@ -8644,3 +8644,159 @@ were rewritten Sep 14 22:07 (unledgered — the owner's app build, same
 source).
 
 ## 2026-09-16f OWNER: "Yes, both 981 and 988 span real cuts." → §34 (12) (4) AMENDED (2): witness (i) reads the CORRIDOR (any way of the bore chain tagged tunnel / layer ≤ −1), safe now that (5) builds no bore at VMMC; LEMD returns to its seven approved decks; the DEM witness stays second. Assigned to lane v2vmmcbore (structure_service.deck_witness_for is its file)
+
+## 2026-09-16e v2usgsbox MERGED (23049f59): the `.elv` reader holds a LIST of coverage boxes; USGS3DEP US-only (8 boxes), HRDEM/HRDEMTIDAL Canada-only (3), NEWZEALAND1M/TIDAL + the Chathams; CYXY's two negatives INERT with no corpus edit; HECA's 468 were already out-of-box
+
+Lane `v2usgsbox` (564887e5). Reader: `coverage_bbox` may repeat (one
+box per cited line) or be `;`-separated (the reader's existing list
+separator); the parsed definition gains `coverage_bboxes` while
+`coverage_bbox` stays ONE box — their hull — so single-box providers
+parse byte-identically. Consumer census: `_coverage_bbox_intersects`
+(~30 sites) and `_tile_centre_in_coverage` match ANY box via
+`coverage_boxes(definition)`; the STAC root-item pseudo-collection
+takes the hull, unchanged. Declarations deviate from 16c's brief with
+the measurement: the brief's CONUS box kept CYVR in coverage and its
+Alaska box kept CYXY (−135.07 lies east of the panhandle's −130 limit
+only below 60 N) — so CONUS splits at the Northwest Angle (west box to
+49.05), Alaska into mainland / panhandle 54.5–60 N / Aleutians west of
+the antimeridian, plus Hawaii, PR/USVI, Guam/CNMI, American Samoa;
+HRDEM's `−141,41,−52,84` reached 41 N (nine stale negatives at Portland
+N45W123). Named residual: a rectangle cannot follow the Great Lakes
+border (southern Ontario stays in CONUS-east; the upper Midwest in the
+Canadian box) — discovery is authoritative there. CENSUS, read-only,
+30 indexes / 11,523 no-coverage records: newly out-of-box 15 (USGS3DEP
+6, HRDEM 9) — N60W136 2 (CYXY, the ruling's site), N61W133 1, N17W097
+2, N16W097 1, N45W123 9; version-stale 118 → 103; residual IN-box
+version-stale negatives (legitimate providers, re-asked once per
+version as 15ay rules): USGS3DEP 59 (the Phoenix/Portland set),
+FRANCE50CM 22, ITALY10M 11, SWISSALTI3D 8, COPERNICUSGLO30 3. HECA's
+468 on N30E031 were ALREADY out-of-box (NEWZEALAND1M's box never
+reached Egypt) — the addendum's premise does not hold there. Campaign
+tiles inside the new USGS3DEP boxes: KCLT, KDFW, KPHX, KMCI, KAFW, KDEN,
+KPDX; outside: CYXY, OTHH, VHHH, VMMC, HECA, LEMD, SPJC, LGAV. All 80
+provider boxes surveyed: SONNY1 (`−74,27,45,84`, role=base, judged by
+tile centre) left — tightening could change a real tile's base DEM,
+a geometry change needing a build; national providers' spill onto
+neighbours left (no measured defect). Both `.spec` files copy
+`Providers/` into the frozen engine. Suite ON MAIN: `1952 passed, 1
+skipped, 1 xpassed`, 0 failed. OWNER QUESTION (kept as merged, zero
+records change either way): the Chatham Islands box WIDENS
+NEWZEALAND1M/TIDAL (LINZ publishes Chatham 1 m lidar) — keep, or revert
+to mainland-only?
+
+## 2026-09-16h v2usgsbox on main (peer, 23049f59 / 16e): USGS3DEP US-only (8 boxes), HRDEM Canada-only, NZ + Chathams — CYXY's negatives are out-of-box and inert, its builds pass the `dem` pre-flight (lanes merge main first). My 16d premise about HECA's 468 records CORRECTED by the peer's measurement: they were already out-of-box (NZ's box never reached Egypt); the in-box version-stale residual is legitimate providers (USGS3DEP 59 Phoenix/Portland, FRANCE50CM 22, ITALY10M 11, SWISSALTI3D 8, COPERNICUS 3) that re-ask once per version. The new .elv files ship with the next make_engine.sh.
+
+## 2026-09-16j v2shellwall r3 MERGED (7aee2b23 → 48a2afda): the 1.0.341 VHHH REGRESSION FIXED — §33 (6) B AMENDED (1)+(3): every shell an OPEN walled trench (rim at the surrounding surface: the owner's site reads rim 7.31–7.32 over a floor 1.30), surface elements over an object-decked trench excluded from the terrain solve (`structure_service.decked_exclusion`, one derivation site; TUNNEL2: 10,766 m² pavement + 97.2 m centreline excluded); off-DEM maxima back to the control (junction 6.23 → 1.45, apron 5.39 → 2.58), verify rows 1,904 → 105, 885 of 1,284 airside vertices restored; OTHH/LEMD dry pairs identical; suite 1,708 / 0 FAILED on the lane; residuals named: 42 vertices beside TUNNEL2 ≤ 0.32 m (the exclusion's own consequence), 3 `object_cut_offset` cliffs 0.81–0.90 m (v2objcut r3's emitter, unchanged) — ACCEPTED; app 1.0.342 next
+
+Fresh VHHH capture on the merged tree (423 s, guard UNCHANGED);
+matched pair BASE (git archive e0363dcc) vs ARM, one variable;
+`--why-at` the 15bp vertex: BASE reproduces the chain verbatim (z −
+DEM −6.47), ARM "no row binds the vertex" (−0.00). Closing build
+v2shellwallr3 rc 0, 800.1 s, body d873efc07694, ledger 54b8c1ada3cc,
+`shared repo UNCHANGED`: LAW-TRUE 1,629, ADJUDICATED 148 (airside 46 vs
+the control's 89; the rise = 95 mixed `ramp_in_strip` trench rows);
+five open trenches TUNNEL2 32,026 m² / tunnel5 10,181 / tunnel3 9,856
+/ tunnel4 7,915 / tunnel1 4,571; `decks 0`, `object_cut_depth 0`,
+`object_cut_offset 3`; no runway-family cell inside any outline.
+Three-way join (849 vertices): BASE 372 movers (5.77 m) → ARM 96, of
+which 54 never moved base→arm (main's day) and 42 carry this edit
+(worst 0.320 m, 15–30 m beside TUNNEL2). `owner_kept`/`parts` moved
+verbatim out of structures.py (the 1,000-line budget). Lane trap for
+the record: a symlinked `tools/` in a git-archive base tree resolves
+`__file__` back to the branch and silently runs the ARM's code —
+caught and rerun. Merge clean, no markers; suite on main below.
+16j addendum: suite ON MAIN after the v2shellwall r3 merge (48a2afda): 1724 passed, 1 skipped, 1 xpassed, 0 FAILED lines. App 1.0.342 building from main 6c1afc66 (without v2channel, per the peer: its round 8 merges 48a2afda and targets 1.0.343 with v2padclip / v2shoulderband r2 / v2vmmcbore; `owner_kept`/`parts` will have ONE home, structure_service.py).
+
+## 2026-09-16k Stale-worktree sweep: 145 → 46 trees; 23 dirty trees adjudicated, four recovered (92e5e4fe)
+
+Owner order (2026-09-16): take down every finished lane worktree through
+the ritual, never `rm -rf`; then evaluate the 23 trees holding uncommitted
+work — superseded or never merged, merge or discard — and check the
+orphaned processes. Four Opus scouts read each dirty diff against main
+(symbol grep, `-S` landing-commit search, RULINGS trail, `git apply
+--check --3way`). Owner ruled on the seven survivors: MERGE 1–4, DISCARD 5–7.
+
+MERGED (lane `claude/stalemerge-8fe42f`, off bc7f16a2, merge 92e5e4fe;
+touched twins 187 passed on the merged tree, no build):
+1. `1d9c8c52` epic-jepsen-ee4e52 (2026-08-09): `progress.substep` events
+   during the cold object-pack classification scan (~8 min looked hung);
+   `GEOMETRY_SCAN_PROGRESS_INTERVAL = 500`, `TestColdScanProgress`.
+2. `1f7acaaa` infallible-rhodes-37e5c3 (2026-07-31): loud "NO AIRPORTS
+   WILL BE GRADED" banner when auto_patch runs with no CIFP path on the
+   app path (the harness already refused, `build_airport.py`); FIRST
+   Python emitter of the `Log` wire event — fields `level`/`text` match
+   `OrthoEngineClient.swift` `case "Log"`.
+3. `22358ee2` + `8dd60198` zealous-pare-b88796 (2026-08-14): bundled
+   config-schema snapshot tripwire `tests/test_schema_snapshot.py` +
+   `ensure_ascii=False` in the dump; snapshot regenerated (no key delta
+   on today's main — `flat_site_declared` is lawfully retired since
+   ff3af379, so the lane's motivating defect is already closed);
+   `engineVersion` MASKED in the twin (it bumps on every app build).
+4. `0878298c` laughing-cori-55647d (2026-07-26): conftest pops an ambient
+   `ORTHO4XP_DATA_ROOT` at import time (restored by a session fixture).
+   Its perf hunk had landed via 30f612fd; discarded.
+
+DISCARDED as MERGED-ELSEWHERE / SUPERSEDED (every diff saved as a patch in
+the session scratchpad `discarded/`): gracious-perlman-31623d (16d30c93),
+simtile-killhalf (quarantine machinery deleted outright), c5auth
+(2e731853), c4tip (`joint_entries` 5dd3ad27), loving-diffie-fafc66
+(71f1ba41), silly-satoshi-3e0d10 (straddle formulation chosen instead),
+v2dsfelev (11b: lane stopped; v2dsfagl merged), zen-benz-56f50d
+(0f92fd0d §45 (18)), pensive-antonelli-d9526d (7653bcc5, 2fafae7f),
+v2rwytransverse (key deleted 3a7d7c33; 05r "budget is not the lever"),
+ecstatic-bhabha-e3302a (f1b13c3e), appcut, v2objcutbase, tunattr,
+v2routecap, v2terrace3 (scratch only). Owner DISCARDED: seats-lane (the
+only split-level-seats implementation; HELD at 2026-09-01o stays held
+with no code behind it), objective-morse-032b92 (persist the
+`_valid_poly` repair — unreachable on the battery), ecstatic-shamir-5658cb
+(gate-first `down` ordering — 86229de8 fixed the symptom).
+
+PROCESSES KILLED: v2qp pid 35262, the HiGHS QP prototype (`proto2.py`,
+925 CPU-min, objective frozen 30 h) — refuted at 2026-09-15b; v2hairline
+pids 95418–95422, five parentless multiprocessing workers.
+
+RITUAL LESSON (recorded in memory): `lane_worktree.sh down` refuses its
+OWN leftovers — a tracked `Ortho4XP/Sessions` symlink an older ritual
+deleted, the tracked 2W2 patch, `tools/__pycache__/`, an untracked
+`Ortho4XP/Tiles` symlink, `.progress` — because the dirty audit runs
+before its own checkout-restore. Repair with `git checkout --` and `mv`,
+never `rm -r`; pass bare NAMEs (a full path in the caller's command line
+trips the `pgrep -f` holder check).
+
+## 2026-09-16l APP 1.0.342 BUILT (eda1bf9a, engine 1.50.1789, main 48a2afda + docs) — after a STALE-ENGINE INCIDENT: the first run's freeze failed (the reboot purge had gutted the TMPDIR freeze venv — pyvenv.cfg and lib/ gone, bin/ symlinks left pointing at Homebrew's externally-managed python → PEP 668 at the first pip call, rc 1) and make_app.sh bundled 1.50.1788 under the 1.0.342 label; caught by the bundled-law check (`deck_cut_witness_m` absent, engine binary mtime Sep 15 12:23); the false bump reverted (70342317), make_engine.sh recreates a venv without pyvenv.cfg (c8fd2a51), rebuilt: engine binary Sep 16 09:06, `deck_cut_witness_m` present, 80 .elv provider files (the coverage boxes), solver qp, defect floor 0.10, bank OFF, pads OFF
+
+WHAT THE OWNER READS IN 1.0.342: VHHH — every shell an OPEN walled
+trench (the rim at the surrounding surface; the owner's site tunnel5
+rim 7.31 over floor 1.30), taxiways/aprons near TUNNEL2/tunnel5 back
+at their level (off-DEM maxima = the control's), pavement drawn over a
+trench rides the object's deck (if a taxiway texture renders IN a
+trench, the apt.dat pavement over that shell is the next question);
+three 0.8–0.9 m offset cliffs at TUNNEL2's west end remain (v2objcut's
+emitter). LEMD — 5 of the 7 approved decks in this build (`-5305`/
+`-15293` return in 1.0.343 with §34 (12) (4) AMENDED (2)); the item-7
+site under the junction law (0.55 %); the shoulder band (no runway
+ref beyond 75 m; the 0.95 m runway step gone); the raw-pair crossfall
+rows; object feet one-way at airside. VMMC — the deck rule (the
+seafront corridor shrinks to an 84 m ramp at −2488; 0 tunnels arrive in
+1.0.343 with §34 (12) (5)). CYXY builds pass the dem pre-flight (the
+coverage boxes). NOT in 1.0.342: v2channel (§45), v2padclip, v2shoulderband
+r2, v2vmmcbore → 1.0.343. LESSON (memory `icloud-venv-freeze-traps`
+addendum): chain make_engine && make_app; verify the bundled engine's
+mtime and a new-engine-only law key after every build; never commit a
+bump from a run whose engine rc ≠ 0.
+
+## 2026-09-16n v2shoulderband r2 MERGED (e4a44292; frames union resolved): the band's END CAP = the ruleset's own `end_skirt.corridor_length_m` (150 m code 3 / 240 m code 4 — the "ICAO 60 m" gloss in §40 (5) RULED was wrong; the key is read, not the gloss): LEMD band 271,086 → 292,443 m² (+21,357 conserved), two 18R/36L cells return whole; the band at VHHH (199,772 m² §40 (1) shoulder → 101,678 m² band + 98,094 re-roled; vertices beyond the strip 196 → 0), OTHH (107,118 → 93,762 + 13,357; 20 → 0), KCLT (9,609 → 4,935; 9 → 0), CYXY (14,399 → 12,778; 6 → 0); `runway_step`/`runway_transverse`/`runway_vertical_curve`/`runway_crown` 0/0/0/0 on all four real builds; the 14s "84,000 m² VHHH shoulder" no longer exists in this frame (largest 28,619 m², 100 % kept). SPJC REFUSED (schema-stale −13-078/−13-077 big_roads) — the owner's `--refresh-data osm_layers` for SPJC. Suite ON MAIN after the merge: 1,729 passed, 0 FAILED
+
+Four closing builds (VHHH 860.8 s, OTHH 531.8 s, KCLT 322.0 s, CYXY
+15.5 s), `shared repo UNCHANGED` on every one (VHHH's ledger store
+declined on two EXTERNAL candidates — a concurrent lane's VHHH pack
+dump; run not contaminated). Real shoulders survive whole: VHHH 07L/25R
+28,619 m² 100 %, OTHH 16L/34R 62,320 m² 97.7 %; CYXY's single cell 88.7
+%, KCLT's 51.4 % (each with a genuine off-axis lobe, named). New
+instrument `v2_solve_replay --reclassify PKL [--rule …]` (the classify
+stage alone over a capture; a DRY read — prices no law), INDEX row +
+twin; 5 twins in test_runway_shoulder.py. NOT measured: matched census
+pairs at the four airports (a `--rule` arm needs a second capture +
+replay-emit per airport; the classify change cannot raise a family at
+KCLT/CYXY where both arms are identical); SPJC. Frames: VHHH/OTHH/KCLT
+at 7f80dc71, CYXY at 3e15a18d (post the coverage-box merge).

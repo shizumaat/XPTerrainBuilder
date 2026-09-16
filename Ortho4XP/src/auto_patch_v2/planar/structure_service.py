@@ -36,7 +36,8 @@ from ..law.tables import is_structure_role, is_value_role, role_side
 from .structure_approach import under_cover
 
 __all__ = ["airside_cut_roles", "airside_stops", "deck_witness_for",
-           "osm_stops", "pad_relief_m", "terrain_tunnel_witness"]
+           "decked_exclusion", "osm_stops", "owner_kept", "pad_relief_m",
+           "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness"]
 
 
 def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
@@ -383,3 +384,145 @@ def deck_witness_for(airport, law: Law, under_ways):
         return tag, cut, bool(tag) or (cut is not None and cut >= floor)
 
     return witness
+
+
+#: §33 (6) B AMENDED (3) (c): the CUT-LINE kinds that are SURFACE ELEMENTS
+#: — the taxi centreline network and the road centrelines.  A
+#: ``runway_profile`` line is not among them: a runway is never cut by a
+#: corridor (the knife's 08-07 ruling 4 exemption), so trimming its axis
+#: would state a law nothing else states.
+SURFACE_LINE_KINDS: tuple[str, ...] = ("taxi_centerline", "road_centerline")
+
+
+def decked_exclusion(cut_lines, tunnels, footprints, cells, polys, cut_roles,
+                     grid: float, stats):
+    """§33 (6) B AMENDED (3) (c) SURFACE ELEMENTS OVER AN OBJECT-DECKED
+    TRENCH RIDE THE OBJECT (owner RULINGS 2026-09-15br) — the
+    classification's cut lines with every piece INSIDE an object-decked
+    outline removed, plus the report of what each outline excluded.
+
+    The OBJECT-DECKED outlines are picked out of ``tunnels`` /
+    ``footprints`` here: a tunnel whose id starts with
+    ``structure_geometry.OBJECT_CUT_PREFIX`` IS a signature-B shell, and a
+    signature-B shell is admitted only WITH its flush ``HARD_DECK`` cover
+    (``airport/object_cut.py``), so "the object provides a hard deck"
+    (owner 15br) is exactly that test — no second spelling of the
+    signature.  Returns the trimmed cut lines and writes its own report
+    into ``stats`` (``StructureStats.decked_*``).
+
+    THE MECHANISM THIS REMOVES is the one RULINGS 2026-09-15bp attributed
+    at VHHH: ``TUNNEL2_DONE`` runs 1,110 m LENGTHWISE under the taxiway
+    system, the taxiway's painted centreline crosses its trench, the
+    arrangement nodes that centreline straight through the trench rings,
+    and ``constraints/taxi.taxi_centerlines`` then prices an edge from an
+    AIRSIDE vertex to a FLOOR-RING vertex pinned at the authored floor
+    (``tunnel.object.mouth_depth = floor_slab``).  The taxi network
+    propagated that seed to 525 of 1,079 airside vertices within 200 m,
+    worst −6.460 m — and no wall can touch it, because the row does not
+    care where the wall stands.  The ruling's cure is that the centreline
+    ENDS AT THE RIM on each side: the object's deck carries the pavement
+    over the trench, so the terrain solve never sees it.
+
+    ONE derivation, not a veto per consumer (RULINGS 2026-08-30l): every
+    reader downstream — ``constraints/taxi.taxi_centerlines``,
+    ``constraints.stretches``, ``constraints.routes``,
+    ``constraints/transverse.axes``, ``constraints/apron``'s spine
+    proximity read, ``solve/design``'s taxi profile,
+    ``planar/shapes``'s stations — reads the breaklines the map holds,
+    and the map holds what these lines make.
+
+    The PAVEMENT limb of (3) (c) needs no edit and is MEASURED here
+    instead: ``build_structures``'s knife already takes every
+    non-runway-family airside cell's area inside the footprint, so the
+    ``pavement_m2`` reported per outline is what it takes.  A
+    RUNWAY-family cell is exempt from that knife (08-07 ruling 4) and is
+    NAMED rather than silently cut."""
+    from shapely.ops import unary_union as _u
+    from .structure_geometry import OBJECT_CUT_PREFIX
+    pairs = [(t.id, f) for t, f in zip(tunnels, footprints)
+             if str(t.id).startswith(OBJECT_CUT_PREFIX)]
+    if not pairs:
+        return list(cut_lines)
+    outlines = [f for _ref, f in pairs]
+    region = _u(list(outlines))
+    per: list[dict] = []
+    pav_total = 0.0
+    for ref, outline in pairs:
+        pav = 0.0
+        for c, p in zip(cells, polys):
+            if c.role not in cut_roles or not p.intersects(outline):
+                continue
+            a = p.intersection(outline).area
+            if a <= 0.0:
+                continue
+            if c.role in _RUNWAY_FAMILY:
+                stats.decked_runway_family.append(
+                    f"{ref}: runway-family cell {c.role}/{c.ref} stands {a:,.0f} m2 inside "
+                    f"the outline — the knife's 08-07 ruling 4 exemption, NOT cut")
+                continue
+            pav += a
+        pav_total += pav
+        per.append({"ref": ref, "open_m2": float(outline.area), "pavement_m2": float(pav),
+                    "centreline_m": 0.0, "road_m": 0.0})
+    out: list = []
+    cl_m = rd_m = 0.0
+    for cl in cut_lines:
+        if cl.kind not in SURFACE_LINE_KINDS or len(cl.points) < 2:
+            out.append(cl)
+            continue
+        ln = LineString(cl.points)
+        if not ln.intersects(region):
+            out.append(cl)
+            continue
+        inside = ln.intersection(region).length
+        if cl.kind == "taxi_centerline":
+            cl_m += inside
+        else:
+            rd_m += inside
+        for entry, outline in zip(per, outlines):
+            d = ln.intersection(outline).length
+            if d > 0.0:
+                entry["centreline_m" if cl.kind == "taxi_centerline" else "road_m"] += float(d)
+        rest = ln.difference(region)
+        for g in getattr(rest, "geoms", [rest]):
+            if g.geom_type != "LineString" or g.length < grid or len(g.coords) < 2:
+                continue
+            out.append(type(cl)(cl.kind, cl.ref,
+                                tuple((float(x), float(y)) for x, y in g.coords),
+                                cl.code_letter))
+    stats.decked_outlines = len(outlines)
+    stats.decked_centreline_m = float(cl_m)
+    stats.decked_road_m = float(rd_m)
+    stats.decked_pavement_m2 = float(pav_total)
+    for e in per:
+        stats.decked_excluded.append(
+            f"{e['ref']}: an OPEN object-decked trench of {e['open_m2']:,.0f} m2 — the surface "
+            f"elements over it RIDE THE OBJECT and are excluded from the terrain solve "
+            f"(§33 (6) B AMENDED (3) (c)): pavement {e['pavement_m2']:,.0f} m2 cut, taxi "
+            f"centreline {e['centreline_m']:,.1f} m and road centreline {e['road_m']:,.1f} m "
+            f"trimmed at the rim")
+    return out
+
+
+def owner_kept(cell: tuple, tunnels, keep) -> bool:
+    """Whether a pending structure cell's owning tunnel survived the
+    overlap refusals — MOVED VERBATIM from ``planar/structures.py`` (that
+    file stands at its 1,000-line budget, ``tests/auto_patch_v2/
+    test_planar.py::test_import_and_budget``); no behaviour moved."""
+    ids = {t.id for t, k in zip(tunnels, keep) if k}
+    return cell[3] in ids
+
+
+def parts(geom) -> list[Polygon]:
+    """The non-degenerate polygon parts of ``geom`` — MOVED VERBATIM from
+    ``planar/structures.py`` for the same budget reason."""
+    import shapely
+    if geom is None or geom.is_empty:
+        return []
+    return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]
+
+
+#: the two roles the knife never cuts (08-07 ruling 4) — stated once here
+#: for :func:`decked_exclusion`'s report; ``planar/structures`` keeps its
+#: own ``RUNWAY_FAMILY`` for the knife itself.
+_RUNWAY_FAMILY = ("runway", "runway_crossing")

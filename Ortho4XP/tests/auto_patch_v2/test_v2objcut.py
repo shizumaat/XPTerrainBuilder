@@ -378,7 +378,7 @@ def test_the_object_cut_ring_is_the_objects_own_trench_polygon(law):
     from auto_patch_v2.planar import structure_geometry as sg
     trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
     foot = Polygon([(-2, -2), (102, -2), (102, 22), (-2, 22)])
-    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.5,
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.0, 0.5,
                                 trench, foot)
     assert g is not None
     assert g.ramp.area == pytest.approx(2000.0)
@@ -396,10 +396,70 @@ def test_a_footprint_that_does_not_contain_the_trench_is_unioned(law):
     from auto_patch_v2.planar import structure_geometry as sg
     trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
     small = Polygon([(0, 0), (50, 0), (50, 5), (0, 5)])
-    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.5,
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.7, 0.5,
                                 trench, small)
     assert g is not None and g.outer.contains(g.ramp)
-    assert g.wall.area == pytest.approx(0.0, abs=1e-6)
+    # …and the union'd rim still carries the §33 (6) B AMENDED wall band
+    assert g.wall.area > 0.0
+    assert g.ramp.exterior.distance(g.outer.exterior) == pytest.approx(1.2, abs=1e-6)
+
+
+def test_a_shells_trench_is_walled_the_floor_ring_stands_inside_the_rim(law):
+    """§33 (6) B AMENDED (RULINGS 2026-09-15bh).  With the stand-off the
+    floor ring is the trench ∩ the footprint ERODED by it, so a wall band
+    of at least the stand-off stands between the floor ring and the rim
+    EVERYWHERE — including the runs where the shell's own wall faces do
+    not stand on the ring (its portals).  Wall-less, the floor ring IS
+    the surrounding surface's ring and ``constraints/structures.on_floor``
+    hands the airside vertices standing on it the FLOOR row: measured at
+    VHHH, 1,362 of 3,815 airside vertices within 200 m of the five shells
+    pulled up to 6.46 m."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_geometry as sg
+    trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
+    # the footprint carries a wall band on three sides only — the x = 100
+    # end is a PORTAL, where the r3 emitter left ramp and rim coincident
+    foot = Polygon([(-2, -2), (100, -2), (100, 22), (-2, 22)])
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.7, 0.5,
+                                trench, foot)
+    assert g is not None
+    # the floor ring stands the stand-off PLUS one grid step (09-01e: the
+    # gap is never on the weld tolerance) inside the rim on EVERY side,
+    # the portal included
+    assert g.ramp.exterior.distance(g.outer.exterior) == pytest.approx(1.2, abs=1e-6)
+    assert g.wall.area > 0.0
+    # a vertex can only move INWARD: the cut never leaves its object
+    assert g.outer.buffer(1e-9).contains(g.ramp)
+    assert g.ramp.area < trench.area
+
+
+def test_the_walled_rim_ring_is_the_corridors_wall_path(law):
+    """§33 (6) B AMENDED (2): the rim ring is published as ``left_rim``
+    (``right_rim`` empty), so ``planar/structures``' ``wall_path`` is the
+    closed rim ring itself — what ``_rim_rows`` projects the rim's
+    vertices onto — and not the axis-offset lines, which on a hairpin run
+    across the trench."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_geometry as sg
+    trench = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
+    foot = Polygon([(-2, -2), (102, -2), (102, 22), (-2, 22)])
+    g = sg.geometry_from_trench(lambda s: (s, 10.0), [0.0, 50.0, 100.0], 8.0, 0.7, 0.5,
+                                trench, foot)
+    assert g is not None and g.right_rim == []
+    assert list(g.left_rim) == list(g.outer.exterior.coords)
+    assert g.left_rim[0] == g.left_rim[-1]          # a CLOSED ring
+
+
+def test_a_shell_with_no_room_for_its_own_walls_is_refused(law):
+    """A stand-off that would eat the trench is a refusal by name, never
+    a wall-less trench emitted anyway (the attempt this lane exists to
+    stop)."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_geometry as sg
+    trench = Polygon([(0, 0), (100, 0), (100, 1.2), (0, 1.2)])
+    foot = Polygon([(0, 0), (100, 0), (100, 1.2), (0, 1.2)])
+    assert sg.geometry_from_trench(lambda s: (s, 0.6), [0.0, 50.0, 100.0], 0.6, 0.7, 0.5,
+                                   trench, foot) is None
 
 
 def test_ring_for_leaves_an_ordinary_corridor_to_the_axis_offset(law):
@@ -442,3 +502,127 @@ def test_seeding_is_inert_without_a_corridor(law):
     from auto_patch_v2.planar import structure_geometry as sg
     ss = [0.0, 12.0, 24.0]
     assert sg.seed_wall_stations(list(ss), None, 0.5) == ss
+
+
+# ── §33 (6) B AMENDED (3) (c): the surface elements ride the object ──
+#
+# owner RULINGS 2026-09-15br.  The mechanism these pin is the one 15bp
+# attributed at VHHH: a `taxi_centreline` row from an AIRSIDE vertex to a
+# FLOOR-RING vertex pinned at the authored floor, propagated by the taxi
+# network to 525 of 1,079 airside vertices within 200 m (worst −6.460 m).
+# Measured base→arm on ONE VHHH capture: junction off-DEM 6.23 → 1.45 m,
+# primary_parallel 6.47 → 1.53, cross_connector 6.44 → 0.92, apron
+# 5.39 → 2.58; ADJUDICATED 1,434 → 151.
+
+class _Cut:
+    """The minimum a decked-exclusion caller reads off a tunnel record."""
+
+    def __init__(self, tid):
+        self.id = tid
+
+
+class _Cell:
+    def __init__(self, role, ref):
+        self.role, self.ref = role, ref
+
+
+def _line(kind, ref, pts, letter=None):
+    from auto_patch_v2.classify.roles import CutLine
+    return CutLine(kind, ref, tuple(pts), letter)
+
+
+def _stats():
+    from auto_patch_v2.planar.structure_stats import StructureStats
+    return StructureStats()
+
+
+def test_a_centreline_crossing_an_object_decked_trench_ends_at_the_rim():
+    """(3) (c): the taxi centreline is CUT at the outline — two pieces,
+    one either side, and NOTHING inside.  The rows every reader below
+    makes are the breaklines these lines become, so one trim ends them
+    all at the rim (RULINGS 2026-08-30l's one derivation site)."""
+    from shapely.geometry import Polygon, LineString
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(40, -10), (60, -10), (60, 10), (40, 10)])
+    ln = _line("taxi_centerline", "taxi7", [(0, 0), (100, 0)], "E")
+    st = _stats()
+    out = ss.decked_exclusion([ln], [_Cut("object-cut:TUNNEL2_DONE.obj@0")], [outline],
+                              [], [], (), 0.5, st)
+    assert [c.kind for c in out] == ["taxi_centerline", "taxi_centerline"]
+    assert all(c.ref == "taxi7" and c.code_letter == "E" for c in out)
+    for c in out:
+        assert not LineString(c.points).intersects(outline.buffer(-1e-6))
+    assert st.decked_outlines == 1
+    assert st.decked_centreline_m == pytest.approx(20.0, abs=1e-6)
+    assert st.decked_road_m == 0.0
+    assert len(st.decked_excluded) == 1
+
+
+def test_a_road_centreline_is_trimmed_and_a_runway_profile_line_is_not():
+    """The ruling names apt.dat pavement, the taxi centreline network and
+    ROADS.  A ``runway_profile`` line is not a surface element a corridor
+    may cut at all (08-07 ruling 4), so it is left alone — trimming it
+    would state a law nothing else states."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(40, -10), (60, -10), (60, 10), (40, 10)])
+    road = _line("road_centerline", "route3", [(0, 0), (100, 0)])
+    rw = _line("runway_profile", "07L/25R", [(0, 5), (100, 5)])
+    st = _stats()
+    out = ss.decked_exclusion([road, rw], [_Cut("object-cut:x.obj@0")], [outline],
+                              [], [], (), 0.5, st)
+    assert sum(1 for c in out if c.kind == "runway_profile") == 1
+    assert [c for c in out if c.kind == "runway_profile"][0].points == rw.points
+    assert sum(1 for c in out if c.kind == "road_centerline") == 2
+    assert st.decked_road_m == pytest.approx(20.0, abs=1e-6)
+    assert st.decked_centreline_m == 0.0
+
+
+def test_only_an_object_decked_trench_excludes_anything():
+    """An OSM bore's corridor is not object-decked: nothing rides it, so
+    nothing is trimmed.  A signature-B shell is admitted only WITH its
+    flush HARD_DECK cover, which is why the id prefix IS the test."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(40, -10), (60, -10), (60, 10), (40, 10)])
+    ln = _line("taxi_centerline", "taxi7", [(0, 0), (100, 0)])
+    st = _stats()
+    out = ss.decked_exclusion([ln], [_Cut("tunnel:-5931@0")], [outline],
+                              [], [], (), 0.5, st)
+    assert out == [ln] and st.decked_outlines == 0 and not st.decked_excluded
+
+
+def test_a_piece_shorter_than_the_identity_spacing_is_dropped():
+    """A stub that carries no two distinct vertices is not a centreline;
+    it would only weld onto the rim it was cut from."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(0.2, -10), (60, -10), (60, 10), (0.2, 10)])
+    ln = _line("taxi_centerline", "taxi7", [(0, 0), (100, 0)])
+    st = _stats()
+    out = ss.decked_exclusion([ln], [_Cut("object-cut:x.obj@0")], [outline],
+                              [], [], (), 0.5, st)
+    assert len(out) == 1                      # the 0.2 m stub is gone
+    assert min(p[0] for p in out[0].points) >= 60.0 - 1e-6
+
+
+def test_the_pavement_inside_an_outline_is_measured_and_a_runway_is_NAMED():
+    """The PAVEMENT limb needs no edit — ``build_structures``'s knife
+    already takes a non-runway-family airside cell's area inside the
+    footprint — so it is MEASURED here per outline, and the runway
+    family's own exemption (08-07 ruling 4) is NAMED rather than widened
+    on a count of zero."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
+    cells = [_Cell("junction", "pav68"), _Cell("runway", "rw07L"),
+             _Cell("service_road", "route9")]
+    polys = [Polygon([(0, 0), (50, 0), (50, 20), (0, 20)]),
+             Polygon([(60, 0), (100, 0), (100, 20), (60, 20)]),
+             Polygon([(0, 0), (10, 0), (10, 20), (0, 20)])]
+    st = _stats()
+    ss.decked_exclusion([], [_Cut("object-cut:x.obj@0")], [outline], cells, polys,
+                        ("junction", "runway"), 0.5, st)
+    assert st.decked_pavement_m2 == pytest.approx(1000.0, abs=1e-6)   # the junction only
+    assert len(st.decked_runway_family) == 1
+    assert "rw07L" in st.decked_runway_family[0] and "NOT cut" in st.decked_runway_family[0]

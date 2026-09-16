@@ -5781,3 +5781,328 @@ def test_a_tile_with_a_version_stale_negative_is_not_settled(
     # Stamped by THIS engine, the same tile is settled.
     _write_phoenix_negative(engine="1.0.341")
     assert INSETS.is_cached(tile) is True
+
+
+# =====================================================================
+# Multi-box coverage declarations (owner RULINGS 2026-09-16c)
+# =====================================================================
+#: The shipped providers directory, so the twins below judge the REAL
+#: declarations rather than a fixture copy of them.
+_SHIPPED_PROVIDERS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "Providers",
+    "Elevation",
+)
+
+
+def _tiny_box(latitude, longitude, margin=0.02):
+    """An airport-sized WGS84 box around a point."""
+    return (
+        longitude - margin,
+        latitude - margin,
+        longitude + margin,
+        latitude + margin,
+    )
+
+
+def test_repeated_coverage_bbox_lines_parse_as_a_list(tmp_path):
+    """Repeated lines accumulate; every other key keeps last-line-wins."""
+    providers_directory = tmp_path / "Elevation"
+    providers_directory.mkdir()
+    _write_elv(
+        str(providers_directory),
+        "TWOREGION",
+        [
+            "access_strategy=tnm_cog",
+            "# the mainland",
+            "coverage_bbox=-125.0,24.0,-66.0,49.5",
+            "# and an island group a Pacific away",
+            "coverage_bbox=-161.0,18.5,-154.5,22.5  # Hawaii",
+            "priority=1",
+            "priority=2",
+        ],
+    )
+    definition = INSETS.initialize_elevation_providers_dict(
+        str(providers_directory)
+    )["TWOREGION"]
+    assert definition["coverage_bboxes"] == (
+        (-125.0, 24.0, -66.0, 49.5),
+        (-161.0, 18.5, -154.5, 22.5),
+    )
+    # coverage_bbox stays ONE box -- the hull -- for the consumers that
+    # want a single extent.
+    assert definition["coverage_bbox"] == (-161.0, 18.5, -66.0, 49.5)
+    # A non-multi-value key is unchanged: the last line still wins.
+    assert definition["priority"] == 2.0
+    # Between the two regions (mid-Pacific) is NOT covered, though the
+    # hull contains it.
+    assert (
+        INSETS._coverage_bbox_intersects(definition, _tiny_box(25.0, -140.0))
+        is False
+    )
+    assert INSETS._coverage_bbox_intersects(
+        definition, _tiny_box(21.3, -157.9)
+    )
+    assert INSETS._coverage_bbox_intersects(
+        definition, _tiny_box(32.9, -97.0)
+    )
+
+
+def test_semicolon_separated_coverage_bbox_parses_as_a_list(tmp_path):
+    """One line with ``;`` is the same declaration as repeated lines."""
+    providers_directory = tmp_path / "Elevation"
+    providers_directory.mkdir()
+    _write_elv(
+        str(providers_directory),
+        "ONELINE",
+        [
+            "access_strategy=tnm_cog",
+            "coverage_bbox=-125.0,24.0,-66.0,49.5;-161.0,18.5,-154.5,22.5",
+        ],
+    )
+    definition = INSETS.initialize_elevation_providers_dict(
+        str(providers_directory)
+    )["ONELINE"]
+    assert definition["coverage_bboxes"] == (
+        (-125.0, 24.0, -66.0, 49.5),
+        (-161.0, 18.5, -154.5, 22.5),
+    )
+
+
+def test_single_box_provider_is_unchanged_by_the_list_parser(tmp_path):
+    """Control: one box parses exactly as it always did."""
+    providers_directory = tmp_path / "Elevation"
+    providers_directory.mkdir()
+    _write_elv(
+        str(providers_directory),
+        "ONEBOX",
+        [
+            "access_strategy=tnm_cog",
+            "coverage_bbox=-9.6,36.9,-6.1,42.2",
+        ],
+    )
+    definition = INSETS.initialize_elevation_providers_dict(
+        str(providers_directory)
+    )["ONEBOX"]
+    assert definition["coverage_bbox"] == (-9.6, 36.9, -6.1, 42.2)
+    assert definition["coverage_bboxes"] == ((-9.6, 36.9, -6.1, 42.2),)
+    assert INSETS.coverage_boxes(definition) == (
+        (-9.6, 36.9, -6.1, 42.2),
+    )
+    # Lisbon in, Madrid out -- the pre-filter is what it was.
+    assert INSETS._coverage_bbox_intersects(
+        definition, _tiny_box(38.77, -9.13)
+    )
+    assert (
+        INSETS._coverage_bbox_intersects(
+            definition, _tiny_box(40.47, -3.56)
+        )
+        is False
+    )
+    # A provider declaring nothing still covers everywhere.
+    assert INSETS.coverage_boxes({"code": "X"}) == ()
+    assert INSETS._coverage_bbox_intersects(
+        {"code": "X"}, _tiny_box(0.0, 0.0)
+    )
+
+
+def test_every_shipped_provider_normalises_to_a_box_list():
+    """Twin over the REAL Providers/Elevation tree.
+
+    Each definition either declares no coverage at all, or its
+    ``coverage_bbox`` is the hull of a non-empty ``coverage_bboxes``.
+    """
+    parsed = INSETS.initialize_elevation_providers_dict(
+        _SHIPPED_PROVIDERS_DIR
+    )
+    assert parsed
+    multi = []
+    for code, definition in parsed.items():
+        if "coverage_bbox" not in definition:
+            assert "coverage_bboxes" not in definition, code
+            continue
+        boxes = definition["coverage_bboxes"]
+        assert boxes, code
+        for box in boxes:
+            assert len(box) == 4, code
+        assert definition["coverage_bbox"] == INSETS._bounding_box_hull(
+            boxes
+        ), code
+        if len(boxes) > 1:
+            multi.append(code)
+    # The providers the ruling split, and no others by accident.
+    assert sorted(multi) == [
+        "HRDEM",
+        "HRDEMTIDAL",
+        "NEWZEALAND1M",
+        "NEWZEALANDTIDAL",
+        "USGS3DEP",
+    ]
+
+
+def test_usgs3dep_coverage_is_united_states_only():
+    """Owner RULINGS 2026-09-16c: the box was the defect, not the door.
+
+    CYXY (Whitehorse) is out of box, so its ``no-coverage`` is never
+    re-asked; the US campaign airports are unchanged.
+    """
+    parsed = INSETS.initialize_elevation_providers_dict(
+        _SHIPPED_PROVIDERS_DIR
+    )
+    usgs = parsed["USGS3DEP"]
+    covered = {
+        "KCLT": (35.214, -80.943),
+        "KDFW": (32.897, -97.038),
+        "KPHX": (33.434, -112.012),
+        "KMCI": (39.298, -94.714),
+        "PANC": (61.174, -149.996),
+        "PAJN": (58.355, -134.576),   # the southeast panhandle
+        "PADK": (51.878, -176.646),   # Aleutians east of the antimeridian
+        "PASY": (52.712, 174.114),    # Aleutians WEST of it
+        "PHNL": (21.319, -157.922),
+        "TJSJ": (18.439, -66.002),
+        "PGUM": (13.484, 144.796),
+        "NSTU": (-14.331, -170.710),
+    }
+    for icao, (latitude, longitude) in covered.items():
+        assert INSETS._coverage_bbox_intersects(
+            usgs, _tiny_box(latitude, longitude)
+        ), icao
+    outside = {
+        "CYXY": (60.710, -135.067),   # Whitehorse, Yukon -- the ruling's site
+        "CYVR": (49.194, -123.184),
+        "CYQT": (48.372, -89.324),    # Thunder Bay, Ontario
+        "MMBT": (16.569, -95.094),    # Oaxaca, Mexico
+        "MROC": (9.994, -84.209),     # Costa Rica
+        "MKJP": (17.936, -76.787),    # Jamaica
+        "HECA": (30.112, 31.400),
+        "LEMD": (40.472, -3.561),
+    }
+    for icao, (latitude, longitude) in outside.items():
+        assert (
+            INSETS._coverage_bbox_intersects(
+                usgs, _tiny_box(latitude, longitude)
+            )
+            is False
+        ), icao
+    # NAMED RESIDUAL, not a bug: an axis-aligned box cannot follow the
+    # Great Lakes / St Lawrence border, so southern Ontario and the
+    # Montreal corridor stay inside the CONUS-east box.  Discovery is
+    # authoritative there.  Pinned so the residual is visible if the
+    # boxes are ever re-cut.
+    for icao, (latitude, longitude) in {
+        "CYYZ": (43.677, -79.631),
+        "CYUL": (45.470, -73.741),
+    }.items():
+        assert INSETS._coverage_bbox_intersects(
+            usgs, _tiny_box(latitude, longitude)
+        ), icao
+
+
+def test_hrdem_coverage_is_canada_only():
+    """The Canada box no longer reaches 41 N across the continent."""
+    parsed = INSETS.initialize_elevation_providers_dict(
+        _SHIPPED_PROVIDERS_DIR
+    )
+    hrdem = parsed["HRDEM"]
+    for icao, (latitude, longitude) in {
+        "CYXY": (60.710, -135.067),
+        "CYVR": (49.194, -123.184),
+        "CYYZ": (43.677, -79.631),
+        "CYUL": (45.470, -73.741),
+        "CYHZ": (44.881, -63.509),
+    }.items():
+        assert INSETS._coverage_bbox_intersects(
+            hrdem, _tiny_box(latitude, longitude)
+        ), icao
+    for icao, (latitude, longitude) in {
+        "KPDX": (45.589, -122.597),   # nine stale negatives on N45W123
+        "KSEA": (47.450, -122.309),
+        "KBOS": (42.363, -71.006),
+        "KDEN": (39.862, -104.673),
+    }.items():
+        assert (
+            INSETS._coverage_bbox_intersects(
+                hrdem, _tiny_box(latitude, longitude)
+            )
+            is False
+        ), icao
+    # NAMED RESIDUAL, mirror image of the CONUS one: southern Ontario
+    # (Toronto 43.7 N) lies SOUTH of Minneapolis, so no small set of
+    # axis-aligned boxes holds Canada without the upper Midwest and the
+    # Great Lakes states.  Pinned so it stays visible.
+    for icao, (latitude, longitude) in {
+        "KMSP": (44.882, -93.222),
+        "KDTW": (42.212, -83.353),
+    }.items():
+        assert INSETS._coverage_bbox_intersects(
+            hrdem, _tiny_box(latitude, longitude)
+        ), icao
+
+
+def test_new_zealand_covers_the_chatham_islands():
+    """The second box the old comment said was not representable."""
+    parsed = INSETS.initialize_elevation_providers_dict(
+        _SHIPPED_PROVIDERS_DIR
+    )
+    for code in ("NEWZEALAND1M", "NEWZEALANDTIDAL"):
+        definition = parsed[code]
+        assert INSETS._coverage_bbox_intersects(
+            definition, _tiny_box(-43.810, -176.457)   # NZCI
+        ), code
+        assert INSETS._coverage_bbox_intersects(
+            definition, _tiny_box(-43.489, 172.534)    # NZCH
+        ), code
+        assert (
+            INSETS._coverage_bbox_intersects(
+                definition, _tiny_box(-33.946, 151.177)   # YSSY
+            )
+            is False
+        ), code
+
+
+def test_out_of_box_negative_is_never_version_stale_for_cyxy():
+    """The ruling's whole point: no corpus edit, the record goes inert.
+
+    The record is CYXY's real one (``Elevation_data/+60-140/
+    N60W136_airport_insets/index.json``): a ``no-coverage`` with NO
+    capability stamp, which is version-stale for as long as the
+    provider's box reaches it.
+    """
+    parsed = INSETS.initialize_elevation_providers_dict(
+        _SHIPPED_PROVIDERS_DIR
+    )
+    record = {
+        "FRANCE50CM": "no-coverage",
+        "HRDEM": "ok",
+        "SOUTHTYROL50CM": "no-coverage",
+        "SWISSALTI3D": "no-coverage",
+        "USGS3DEP": "no-coverage",
+        "bounding_box": [
+            -135.099940135663,
+            60.6863164471588,
+            -135.035911064337,
+            60.7329847528412,
+        ],
+        "checked": "2026-07-25",
+    }
+    usgs = parsed["USGS3DEP"]
+    assert (
+        INSETS._coverage_bbox_intersects(usgs, tuple(record["bounding_box"]))
+        is False
+    )
+    assert (
+        INSETS.negative_is_version_stale(record, "USGS3DEP", usgs) is False
+    )
+    # The pre-ruling declaration is what made it stale, so the twin
+    # cannot pass by accident.
+    old_box = dict(usgs)
+    old_box.pop("coverage_bboxes", None)
+    old_box["coverage_bbox"] = (-180.0, 15.0, -64.0, 72.0)
+    assert INSETS.negative_is_version_stale(record, "USGS3DEP", old_box)
+    # A US airport's negative is untouched by the ruling.
+    dfw = {
+        "USGS3DEP": "no-coverage",
+        "bounding_box": [-97.06, 32.87, -97.01, 32.93],
+    }
+    assert INSETS.negative_is_version_stale(dfw, "USGS3DEP", usgs)

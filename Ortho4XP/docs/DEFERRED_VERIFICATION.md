@@ -6058,3 +6058,9 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   twinned, the application is an intent question (spec §33 (6) MEASURED, (C)).
 - §33 (6) A (the affordance's retirement) is REFUTED and reverted; no OFF→ON
   pair was needed beyond the one dry VHHH replay that refuted it.
+- 2026-09-16 (recovered from lane epic-jepsen, authored 2026-08-09) cold-scan
+  progress events (`object_terrain_assembly.attach_bridge_classification` +
+  `_load_object_geometry_by_resource`): unit-tested only (synthetic pack,
+  serial substep channel); skipped a real cold rebuild of a big pack (OTHH
+  Aeroscape ~8 min case), the parallel pool-queue drain observed in the app
+  UI, and any build.

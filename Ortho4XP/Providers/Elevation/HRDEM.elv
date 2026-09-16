@@ -35,8 +35,31 @@ dtm_asset_keys=dtm
 native_resolution_m=1
 
 # Cheap pre-filter before the discovery request is issued; discovery is
-# authoritative. Canada bounding box (west, south, east, north).
-coverage_bbox=-141.0,41.0,-52.0,84.0
+# authoritative.  HRDEM IS CANADA-ONLY (Natural Resources Canada,
+# https://natural-resources.canada.ca/science-data/science-research/
+# geomatics/elevation-data -- "coverage of the Canadian landmass").  The
+# single box this file used to declare (-141,41,-52,84) reached 41 deg N
+# across the whole continent, i.e. most of the northern United States;
+# every US airport in it recorded a durable "no-coverage" that the
+# once-per-engine-version door (RULINGS 2026-09-15ay) then re-asks --
+# nine such records sit on N45W123 (Portland, Oregon) today.  Now that
+# the reader holds a LIST (owner RULINGS 2026-09-16c) the border is
+# followed in three boxes.  The west edge stays at the 141st meridian
+# (the Alaska border); the boxes still spill onto the Alaska panhandle,
+# the Great Lakes states and northern New England, where a rectangle
+# cannot follow the border and discovery is authoritative.
+#
+# West of Lake of the Woods: the 49th parallel border, BC to Manitoba.
+# This is the box that keeps Portland, Seattle and the whole northwest
+# of the United States out.
+coverage_bbox=-141.0,48.9,-95.15,84.0
+# Ontario and the Great Lakes, south to Middle Island (41.68 N), Canada's
+# southernmost point.  Southern Ontario lies SOUTH of Minneapolis, so a
+# rectangle holding Toronto necessarily holds the upper Midwest and the
+# Great Lakes states as well; discovery is authoritative there.
+coverage_bbox=-95.15,41.6,-74.0,84.0
+# Quebec and Atlantic Canada, south to Cape Sable, Nova Scotia (43.4 N).
+coverage_bbox=-74.0,43.0,-52.0,84.0
 
 # Vertical datum of the delivered elevations. CGVD2013 is the Canadian
 # geodetic vertical datum; the lidar is treated as truth and never shifted

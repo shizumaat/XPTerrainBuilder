@@ -1457,6 +1457,25 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
                 road_data=_road_provider,
                 mode=auto_patch_mode,
             )
+        else:
+            # LOUD on purpose: an empty cifp_data_path here silently
+            # produced tiles with ZERO airport grading that looked
+            # complete (vector phase ~20 s instead of ~400 s, exit 0).
+            banner = "!" * 78
+            UI.loud_warning("\n".join([
+                banner,
+                "! WARNING: auto_patch=%s but no CIFP data was found."
+                % auto_patch_mode,
+                "!   cifp_data_path is empty in Ortho4XP.cfg and no",
+                "!   'Custom Data/CIFP' directory exists next to"
+                " custom_scenery_dir.",
+                "! NO AIRPORTS WILL BE GRADED ON THIS TILE - runways,"
+                " taxiways",
+                "!   and aprons will drape over the raw DEM terrain.",
+                "! Fix: set cifp_data_path in Ortho4XP.cfg to X-Plane's"
+                " Custom Data/CIFP folder.",
+                banner,
+            ]))
 
 
 ################################################################################

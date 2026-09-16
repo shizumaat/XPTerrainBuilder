@@ -87,6 +87,6 @@ json.dump(
         "groups": groups,
         "vars": {name: encode(name, spec) for name, spec in CV.cfg_vars.items()},
     },
-    sys.stdout, indent=1, sort_keys=True,
+    sys.stdout, indent=1, sort_keys=True, ensure_ascii=False,
 )
 sys.stdout.write("\n")

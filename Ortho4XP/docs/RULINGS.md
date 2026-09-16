@@ -8784,3 +8784,19 @@ r2, v2vmmcbore → 1.0.343. LESSON (memory `icloud-venv-freeze-traps`
 addendum): chain make_engine && make_app; verify the bundled engine's
 mtime and a new-engine-only law key after every build; never commit a
 bump from a run whose engine rc ≠ 0.
+
+## 2026-09-16n v2shoulderband r2 MERGED (e4a44292; frames union resolved): the band's END CAP = the ruleset's own `end_skirt.corridor_length_m` (150 m code 3 / 240 m code 4 — the "ICAO 60 m" gloss in §40 (5) RULED was wrong; the key is read, not the gloss): LEMD band 271,086 → 292,443 m² (+21,357 conserved), two 18R/36L cells return whole; the band at VHHH (199,772 m² §40 (1) shoulder → 101,678 m² band + 98,094 re-roled; vertices beyond the strip 196 → 0), OTHH (107,118 → 93,762 + 13,357; 20 → 0), KCLT (9,609 → 4,935; 9 → 0), CYXY (14,399 → 12,778; 6 → 0); `runway_step`/`runway_transverse`/`runway_vertical_curve`/`runway_crown` 0/0/0/0 on all four real builds; the 14s "84,000 m² VHHH shoulder" no longer exists in this frame (largest 28,619 m², 100 % kept). SPJC REFUSED (schema-stale −13-078/−13-077 big_roads) — the owner's `--refresh-data osm_layers` for SPJC. Suite ON MAIN after the merge: 1,729 passed, 0 FAILED
+
+Four closing builds (VHHH 860.8 s, OTHH 531.8 s, KCLT 322.0 s, CYXY
+15.5 s), `shared repo UNCHANGED` on every one (VHHH's ledger store
+declined on two EXTERNAL candidates — a concurrent lane's VHHH pack
+dump; run not contaminated). Real shoulders survive whole: VHHH 07L/25R
+28,619 m² 100 %, OTHH 16L/34R 62,320 m² 97.7 %; CYXY's single cell 88.7
+%, KCLT's 51.4 % (each with a genuine off-axis lobe, named). New
+instrument `v2_solve_replay --reclassify PKL [--rule …]` (the classify
+stage alone over a capture; a DRY read — prices no law), INDEX row +
+twin; 5 twins in test_runway_shoulder.py. NOT measured: matched census
+pairs at the four airports (a `--rule` arm needs a second capture +
+replay-emit per airport; the classify change cannot raise a family at
+KCLT/CYXY where both arms are identical); SPJC. Frames: VHHH/OTHH/KCLT
+at 7f80dc71, CYXY at 3e15a18d (post the coverage-box merge).

@@ -315,3 +315,34 @@ def test_the_densifier_may_not_node_the_rim_but_a_pad_corner_survives():
                                     own)
     assert gone == 1
     assert list(out[0].coords) == [(100.0, 100.0), (300.0, 100.0)]
+
+
+def test_an_absent_renode_key_means_NOT_MEASURED_not_zero():
+    """§16g (10) (12) (2): ``pipeline/publication`` reads the ARRANGEMENT's
+    own reading out of a module global, so a process that did not build an
+    arrangement — every ``v2_solve_replay`` replay arm — has none.  It
+    OMITS the key there: an absent key is NOT MEASURED, an empty list is
+    MEASURED ZERO.  Publishing ``[]`` either way made all four of this
+    lane's matched replay arms read a perfect ``pad_airside_renode``, which
+    is the silent-degradation class the harness exists to refuse."""
+    from auto_patch_v2.pipeline.publication import _renode_rows
+    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+
+    class _F:
+        def transformers(self):
+            return (lambda lo, la: (lo, la)), (lambda x, y: (y, x))
+
+    class _A:
+        frame = _F()
+
+    keep = dict(PAD_AIRSIDE)
+    try:
+        PAD_AIRSIDE.clear()
+        assert _renode_rows(_A()) is None
+        PAD_AIRSIDE.update(renode_deleted=0, renode_minted=1,
+                           renode_deleted_xy=[], renode_minted_xy=[(3.0, 4.0)])
+        got = _renode_rows(_A())
+        assert got == [[4.0, 3.0, "minted"]], got
+    finally:
+        PAD_AIRSIDE.clear()
+        PAD_AIRSIDE.update(keep)

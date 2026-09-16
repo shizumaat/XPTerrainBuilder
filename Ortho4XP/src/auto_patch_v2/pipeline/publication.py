@@ -91,7 +91,7 @@ from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
 
 
-def _renode_rows(airport) -> list:
+def _renode_rows(airport) -> "list | None":
     """§16g (10) (12) (2): the airside nodes the PAD STAGE minted or
     deleted, as ``[lat, lon, kind]``, read verbatim out of the
     arrangement's own publication (``planar/overlay.PAD_AIRSIDE``) and
@@ -99,6 +99,15 @@ def _renode_rows(airport) -> list:
     place the two node sets both exist is inside the arrangement."""
     from ..planar.overlay import PAD_AIRSIDE
     out: list = []
+    if "renode_minted" not in PAD_AIRSIDE:
+        # THE ARRANGEMENT DID NOT RUN IN THIS PROCESS — a ``v2_solve_replay``
+        # arm resumes from a captured planar map, so the pad stage's own
+        # reading does not exist here.  Return ``None``, and the caller
+        # OMITS the key: an ABSENT key means NOT MEASURED and an empty list
+        # means MEASURED ZERO.  Publishing ``[]`` either way would make
+        # every replay arm read a perfect ``pad_airside_renode`` — the
+        # silent-degradation class this project refuses.
+        return None
     if not PAD_AIRSIDE:
         return out
     _to_xy, to_ll = airport.frame.transformers()
@@ -396,7 +405,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 if key not in seen and (key[1], key[0]) not in seen:
                     seen.add(key)
                     taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
-    return {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
+    _doc = {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             # §40 (2) as amended (owner RULINGS 2026-09-13dd): per runway
             # ``[ref, lat_a, lon_a, lat_b, lon_b, half_width_m]`` — the
             # RUNWAY's own geometry (apt.dat ends and width, never a fit
@@ -510,6 +519,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                           else _eat_rects(planar, cs)),
             "tunnel_objects": tunnel_objects(planar, airport),
             "object_cuts": object_cuts(planar, airport)}
+    # §16g (10) (12) (2): an ABSENT key means NOT MEASURED (the arrangement
+    # did not run in this process — a replay arm), an EMPTY list means
+    # MEASURED ZERO.  See ``_renode_rows``.
+    if _doc.get("pad_airside_renode") is None:
+        _doc.pop("pad_airside_renode", None)
+    return _doc
 
 
 def apron_tier(law: Law) -> dict[str, float | None]:

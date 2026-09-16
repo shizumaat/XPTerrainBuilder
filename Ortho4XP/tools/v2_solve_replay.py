@@ -300,8 +300,19 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     stage = shape_stage(pm, law, airport, cl)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as fh:
+        # §16g (10) (12) (2) (RULINGS 2026-09-16b): the ARRANGEMENT's own
+        # reading of what its pad stage did to the airside vertex set
+        # travels WITH the capture.  It is produced in ``build_planar``
+        # and lives in a module global, so a replay that did not run the
+        # arrangement has none — and ``pipeline/publication`` then OMITS
+        # the sidecar key rather than publishing an empty list, which
+        # would make every replay arm read a perfect
+        # ``pad_airside_renode``.  Carrying it here is what lets a
+        # matched replay PAIR be adjudicated on that family at all.
+        from auto_patch_v2.planar.overlay import PAD_AIRSIDE
         pickle.dump({"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
-                     "inputs": inputs, "placement": dict(placement or {})}, fh)
+                     "inputs": inputs, "placement": dict(placement or {}),
+                     "pad_airside": dict(PAD_AIRSIDE)}, fh)
     print(f"[{icao}] captured -> {out} in {time.perf_counter() - t:.0f} s "
           f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
 
@@ -912,6 +923,16 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         cap = pickle.load(fh)
     icao, airport, cl, pm, stage, inputs = (cap["icao"], cap["airport"], cap["cl"], cap["pm"],
                                             cap["stage"], cap["inputs"])
+    # restore the arrangement's re-node reading (see ``--capture``); a
+    # capture written before 2026-09-16 carries none and every reader
+    # then reports the key ABSENT rather than zero
+    _pa = cap.get("pad_airside")
+    if _pa:
+        from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+        PAD_AIRSIDE.clear()
+        PAD_AIRSIDE.update(_pa)
+        print(f"[{cap['icao']}] pad/airside re-node from the capture: "
+              f"deleted {_pa.get('renode_deleted')} minted {_pa.get('renode_minted')}")
     if not capture_has_groups(cap):
         raise SystemExit(
             f"[{icao}] REFUSED: this capture carries no pack PARTITION / GROUPS, so the "

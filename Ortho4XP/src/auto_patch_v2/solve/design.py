@@ -210,7 +210,8 @@ def stage_split(planar: PlanarMap, cs: ConstraintSet, law: Law
 def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
              rep: DesignReport, *,
              drop: _t.AbstractSet[int] | None = None,
-             fixed: _t.Mapping[int, float] | None = None) -> Base:
+             fixed: _t.Mapping[int, float] | None = None,
+             stage_roles: _t.AbstractSet[str] | None = None) -> Base:
     """Sections 1-9 of the module docstring: the sheets and their
     triangulation, the zone ramp, the reduction, and every always-on row
     (bending, road chains, the chord, the zone DEM fit, the law's equalities,
@@ -222,7 +223,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     the reduction, exactly as a ``Pin`` is substituted, so a row coupling to
     it is one-way BY CONSTRUCTION.  ``drop`` removes every row that touches
     one of its vertices, which is how stage 1 keeps only the rows whose every
-    column is airside.  Both default empty: the single solve is unchanged."""
+    column is airside.  Both default empty: the single solve is unchanged.
+
+    §20b (3) adds ``stage_roles``: the ROLES this stage's sheet is made of.
+    "No vertex of it is foreign" is not the same test — a face every one of
+    whose vertices is column-shared with airside (a pad welded to an apron
+    rim, a lot, a service road) passed it and was triangulated INSIDE the
+    airside stage whatever its role.  MEASURED (lane ``v2stagepop`` r1,
+    HECA, every pad row dropped): the pads-OFF arm carried a 1 m²
+    ``building`` face and a 16 m² ``groundside_pavement`` face in stage 1's
+    sheet and the pads-ON arm neither, at LEMD 2 ``service_road`` faces
+    against 1 ``building`` — a difference in stage 1's own problem made by
+    groundside geometry, which is exactly what §20b (3) forbids.  ``None``
+    (the single solve, stage 2) keeps the whole sheet."""
     d = design_law(law)
     n = len(planar.vertices)
     drop_f = frozenset(drop or ())
@@ -241,6 +254,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # and every bending row it writes is in-stage by construction.
     sheet_faces = [f.id for f in planar.faces.values()
                    if f.role in roles
+                   and (stage_roles is None or f.role in stage_roles)
                    and not (drop_f and any(
                        v in drop_f
                        for ring in (f.ring, *f.holes)
@@ -791,7 +805,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     t1 = time.perf_counter()
     sol1, rep1 = _solve_stage(planar, cs, law, options, size_out=size1,
                               method=method, low_rank=low_rank,
-                              drop=drop, fixed=foreign, levelled_out=levels)
+                              drop=drop, fixed=foreign, levelled_out=levels,
+                              stage_roles=airside_stage_roles(law))
     w1 = time.perf_counter() - t1
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
@@ -887,7 +902,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  low_rank: str = DEFAULT_LOW_RANK,
                  drop: _t.AbstractSet[int] | None = None,
                  fixed: _t.Mapping[int, float] | None = None,
-                 levelled_out: dict[int, float] | None = None
+                 levelled_out: dict[int, float] | None = None,
+                 stage_roles: _t.AbstractSet[str] | None = None
                  ) -> tuple[Solution, DesignReport]:
     """ONE solve of the design surface (module docstring) — the whole thing
     when ``staged_solve`` is off, one stage of §20b when it is not.
@@ -902,7 +918,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep = DesignReport(method=method)
     t0 = time.perf_counter()
     n = len(planar.vertices)
-    base_p = assemble(planar, cs, law, rep, drop=drop, fixed=fixed)
+    base_p = assemble(planar, cs, law, rep, drop=drop, fixed=fixed,
+                      stage_roles=stage_roles)
     rows, red, one, eqs = base_p.rows, base_p.red, base_p.one, base_p.eqs
     # §20b (4): a column with NO LEVEL is not this stage's answer.  The level
     # belt (§23.4) normally leaves none — it gives every level-free piece its

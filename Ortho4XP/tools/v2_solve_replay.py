@@ -1029,7 +1029,8 @@ def stability_probe(pkl: Path, site: tuple[float, float], drop_m: float,
 _IS_KEY = _re.compile(r"^-?\d+\.\d{11},-?\d+\.\d{11}$")
 
 
-def _stage1_faces(pm, law, drop_v) -> list[tuple[str, str, float]]:
+def _stage1_faces(pm, law, drop_v, stage_roles=None
+                  ) -> list[tuple[str, str, float, list[str]]]:
     """The faces :func:`solve.design.assemble` triangulates for the stage —
     ITS OWN predicate, imported (``bend_roles`` + "no dropped vertex"),
     re-read here so a dump can name the sheet.  The count is asserted
@@ -1039,7 +1040,8 @@ def _stage1_faces(pm, law, drop_v) -> list[tuple[str, str, float]]:
     roles = set(bend_roles(law))
     out: list[tuple[str, str, float, list[str]]] = []
     for f in pm.faces.values():
-        if f.role not in roles:
+        if f.role not in roles or (stage_roles is not None
+                                   and f.role not in stage_roles):
             continue
         vs = [v for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
         if drop_v and any(v in drop_v for v in vs):
@@ -1084,7 +1086,8 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
     from auto_patch_v2.model.constraints import ConstraintSet
     from auto_patch_v2.solve.design import assemble, stage_split
     from auto_patch_v2.solve.design_report import DesignReport
-    from auto_patch_v2.solve.design_roles import (airside_stage_vertices,
+    from auto_patch_v2.solve.design_roles import (airside_stage_roles,
+                                                  airside_stage_vertices,
                                                   ruling_head)
     from auto_patch_v2.solve.rows import _face_triangles
     t0 = time.perf_counter()
@@ -1110,7 +1113,9 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
                                           if r.source.generator not in drop])
     drop_v, foreign = stage_split(pm, cs, law)
     rep = DesignReport()
-    base = assemble(pm, cs, law, rep, drop=drop_v, fixed=foreign)
+    s_roles = airside_stage_roles(law)          # the §20b dispatch's own arm
+    base = assemble(pm, cs, law, rep, drop=drop_v, fixed=foreign,
+                    stage_roles=s_roles)
     red, rows = base.red, base.rows
 
     # the columns, canonically: a column is the SET of vertices the
@@ -1164,7 +1169,7 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
         ts = ";".join(sorted(f"{_vkey(pm, v)}*{c:.6f}" for v, c in terms))
         one_keys.append(f"{row.source.generator}\t{ruling_head(row)}|{ts}|{hi:.6f}")
 
-    faces = _stage1_faces(pm, law, drop_v)
+    faces = _stage1_faces(pm, law, drop_v, s_roles)
     tris: list[str] = []
     # the triangulation, off the same face list the assembly uses
     role_of = {(r, k): a for r, k, a, _vs in faces}

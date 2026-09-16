@@ -296,3 +296,62 @@ def test_a_pad_welded_to_two_pavements_takes_the_airsides_own_drop(law):
     # RE-FOUNDED with the skirt's withdrawal: 0.0300 (the airside's drop)
     # -> 0.0100 (the pad's own ceiling).  Both arms now hold 1 %.
     assert tilts[True] <= 0.012, tilts
+
+
+# ── §20b (3) stage 1's SHEET is stage 1's own roles ──────────────────────
+
+def test_stage_ones_sheet_carries_no_groundside_face(law):
+    """§20b (3) (1) / (1c): "a stage triangulates only the faces it OWNS".
+
+    "No vertex of it is foreign" is NOT that test.  A face every one of
+    whose vertices is column-shared with airside — a lot or a pad standing
+    INSIDE an apron, which §16g (10) (12) makes a HOLE in that apron —
+    passes it and is triangulated inside the AIRSIDE stage, so stage 1's
+    sheet becomes a function of what stands beside (and in) the airside.
+    MEASURED at HECA by lane ``v2stagepop`` r1 on the registered v2padclip
+    r2 staged arms with EVERY pad row dropped: 892 sheet faces on the
+    pads-OFF arm against 890 on the pads-ON one — a 1 m² ``building`` face
+    and a 16 m² ``groundside_pavement`` face that exist in one arm's
+    airside problem and not the other's (LEMD: 2 ``service_road`` faces
+    against 1 ``building``).  With the stage's ROLES deciding, both arms
+    read 859.
+
+    The twin is both directions on one map: the pad-in-the-apron face is
+    in the sheet under the old predicate and out of it under the rule.
+    """
+    from auto_patch_v2.solve.design import assemble
+    from auto_patch_v2.solve.design_report import DesignReport
+    from auto_patch_v2.solve.rows import _face_triangles
+    airport = _airport(law)
+    lw = _law_arm(law, staged_solve=True)
+    pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), lw)
+    cs, _c, _w = generate(pm, lw, airport)
+    drop, foreign = stage_split(pm, cs, lw)
+    road = next(f for f in pm.faces.values() if f.ref == "roadA")
+    assert road.role not in airside_stage_roles(law)
+    # THE CONDITION, REPRODUCED: a face with NO foreign vertex.  At HECA
+    # the weld makes one by itself (a lot or a pad every vertex of which
+    # an airside face already owns); here the stage's own foreign set is
+    # narrowed by the road's vertices, which is the same predicate input.
+    welded = frozenset(drop) - set(pm.ring_vertices(road.ring))
+
+    rep_old, rep_new = DesignReport(), DesignReport()
+    assemble(pm, cs, lw, rep_old, drop=welded, fixed=foreign)
+    assemble(pm, cs, lw, rep_new, drop=welded, fixed=foreign,
+             stage_roles=airside_stage_roles(law))
+    assert rep_new.triangles < rep_old.triangles, (rep_old.triangles,
+                                                   rep_new.triangles)
+    # and what left the sheet is exactly that groundside face's own
+    # triangulation — no airside triangle was taken with it
+    assert (rep_old.triangles - rep_new.triangles
+            == len(_face_triangles(pm, road.id))), (
+        rep_old.triangles, rep_new.triangles, road.id)
+    # the stage's OWN sheet, read the other way: with the stage's roles
+    # deciding, the sheet is what the stage owns and nothing else
+    rep_s = DesignReport()
+    assemble(pm, cs, lw, rep_s, drop=drop, fixed=foreign,
+             stage_roles=airside_stage_roles(law))
+    own = sum(len(_face_triangles(pm, f.id)) for f in pm.faces.values()
+              if f.role in airside_stage_roles(law)
+              and not (set(pm.ring_vertices(f.ring)) & set(drop)))
+    assert rep_s.triangles == own, (rep_s.triangles, own)

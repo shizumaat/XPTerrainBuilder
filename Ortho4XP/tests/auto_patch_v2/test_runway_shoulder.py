@@ -31,6 +31,7 @@ airport (``test_classify._synthetic``):
 """
 from __future__ import annotations
 
+import json
 import dataclasses as _dc
 import sys
 from pathlib import Path
@@ -509,3 +510,53 @@ def test_the_end_cap_does_not_touch_a_shoulder_that_never_reaches_an_end(law, ru
                       for c in cl.cells if c.kind == "runway_shoulder")
     assert _sh(on) == _sh(off)
     assert on.stats.get("shoulder_band_cuts") == off.stats.get("shoulder_band_cuts")
+
+
+# ── 7. THE DRY BAND READER (`v2_solve_replay --reclassify`) ─────────────
+
+def test_the_dry_band_reader_is_the_classifier_s_own_verdict(law, rules, tmp_path):
+    """`--reclassify` re-runs CLASSIFY ALONE over a capture's own
+    ``Airport`` with ``--rule`` as the only variable — the §40 (5) band
+    table at seconds instead of a capture's minutes (promoted r2; r1
+    hand-rolled it for the HECA control).
+
+    The twin asserts it reports the CLASSIFIER's verdict and not a second
+    derivation: the same two arms as the twins above, read through the
+    tool, come back with the areas the classifier itself produces."""
+    import importlib.util
+    import pickle
+    tool = Path(__file__).resolve().parents[2] / "tools" / "v2_solve_replay.py"
+    spec = importlib.util.spec_from_file_location("_v2_solve_replay", tool)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    cap = tmp_path / "SYNT.pkl"
+    with cap.open("wb") as fh:
+        pickle.dump({"icao": "SYNT", "airport": _end_lobe_airport()}, fh)
+
+    ext = _end_len(law)
+    out_on, out_off = tmp_path / "on.json", tmp_path / "off.json"
+    assert mod.reclassify(cap, {}, out_on) == 0
+    assert mod.reclassify(
+        cap, {"corridor.runway_shoulder_band_end_cap": "false"}, out_off) == 0
+    on = json.loads(out_on.read_text())
+    off = json.loads(out_off.read_text())
+
+    # the band table IS the classifier's (the twins above, through the tool)
+    assert on["runway_shoulder"]["cells"] == off["runway_shoulder"]["cells"] == 1
+    assert on["runway_shoulder"]["m2"] == pytest.approx((200.0 + ext) * 20.0, rel=0.02)
+    assert off["runway_shoulder"]["m2"] == pytest.approx(200.0 * 20.0, rel=0.02)
+    assert on["runway_shoulder"]["m2"] - off["runway_shoulder"]["m2"] == \
+        pytest.approx(ext * 20.0, rel=0.02)
+    # the remainder and the band PARTITION the cell on both arms
+    for arm in (on, off):
+        assert arm["runway_shoulder"]["m2"] + arm["remainder"]["m2"] == \
+            pytest.approx(400.0 * 20.0, rel=0.02)
+        assert sum(v["m2"] for v in arm["remainder_by_role"].values()) == \
+            pytest.approx(arm["remainder"]["m2"], rel=1e-6)
+        # §40 (5) (1)'s own bar: no shoulder vertex stands beyond the band
+        assert arm["vertices_beyond_band"] == 0
+        assert arm["worst_lateral_m"] <= 40.0 + 0.01     # the strip half width
+    # the arm is recorded in the dump, so no reading is frame-less
+    assert off["rule"] == {"corridor.runway_shoulder_band_end_cap": "false"}
+    assert on["rule"] == {}

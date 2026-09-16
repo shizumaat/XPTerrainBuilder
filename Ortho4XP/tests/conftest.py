@@ -36,6 +36,17 @@ from typing import List, Optional
 # the warmer itself delete this variable and stub the download modules.
 os.environ.setdefault("O4_DISABLE_OSM_WARMER", "1")
 
+# An ambient ORTHO4XP_DATA_ROOT (commonly exported when probing production
+# data from the shell) outranks the cwd in O4_File_Names.resolve_data_root,
+# silently defeating every test that sandboxes via monkeypatch.chdir(tmp_path).
+# Popped HERE, at conftest import, not in a fixture: O4_File_Names bakes the
+# data root into module globals when test modules import it at collection
+# time, before any fixture (even session-scoped) runs.  Tests exercising the
+# env-var path set it explicitly with monkeypatch.setenv, which restores
+# per-test.  _restore_ambient_data_root below puts the shell's value back at
+# session end.
+_AMBIENT_DATA_ROOT = os.environ.pop("ORTHO4XP_DATA_ROOT", None)
+
 # No test may reach the platform secret store either: provider-session
 # code paths (O4_Authenticated_Sessions.load_credentials/load_api_key)
 # lazily import ``keyring``, and on a machine with real stored sign-ins
@@ -85,6 +96,21 @@ sys.modules["keyring"] = _fake_keyring
 sys.modules["keyring.errors"] = _fake_keyring_errors
 
 import pytest
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _restore_ambient_data_root():
+    """Put the shell's ORTHO4XP_DATA_ROOT back after the whole session.
+
+    The pop itself happens at conftest import (see _AMBIENT_DATA_ROOT
+    above); this only undoes it so an interactive parent shell's export
+    survives the run untouched."""
+    yield
+    if _AMBIENT_DATA_ROOT is not None:
+        os.environ["ORTHO4XP_DATA_ROOT"] = _AMBIENT_DATA_ROOT
+    else:
+        os.environ.pop("ORTHO4XP_DATA_ROOT", None)
+
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SRC = os.path.normpath(os.path.join(_HERE, "..", "src"))

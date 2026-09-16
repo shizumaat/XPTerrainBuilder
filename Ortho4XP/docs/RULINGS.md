@@ -8644,3 +8644,29 @@ were rewritten Sep 14 22:07 (unledgered — the owner's app build, same
 source).
 
 ## 2026-09-16f OWNER: "Yes, both 981 and 988 span real cuts." → §34 (12) (4) AMENDED (2): witness (i) reads the CORRIDOR (any way of the bore chain tagged tunnel / layer ≤ −1), safe now that (5) builds no bore at VMMC; LEMD returns to its seven approved decks; the DEM witness stays second. Assigned to lane v2vmmcbore (structure_service.deck_witness_for is its file)
+
+## 2026-09-16e 16a's FLAGGED chip closed: `_honest_inset_resolution_m` (the smoothing-radius reader, ~:10023; 16a named it `_inset_effective_pixel_m`, a symbol that does not exist) reads the sidecar with §45 (18)'s precedence — `native_resolution_m`, else `resolution_m`, else the name-derived provider definition
+
+One mechanism, in place. `O4_Airport_Elevation_Insets._honest_inset_
+resolution_m` read the inset's own sidecar for `native_resolution_m`
+ONLY, then the provider `.elv` definition, then the stored pixel at
+face value. USGS3DEP survived because its definition declares
+native_resolution_m=1; a sidecar stating only `resolution_m` (the
+fetchers' key) from a NON-declaring provider, or a hand-dropped inset,
+took its stored posting as its resolution — and that figure feeds
+`resolve_airport_smoothing_radius` (via `inset_coverage_of_airport_
+mask`) and `working_grid_candidate_factors`. Now: sidecar
+`native_resolution_m`, else sidecar `resolution_m`, else the
+definition; the coarser-of-stored-and-native rule is unchanged. NOT
+imported from `ProductionDem._entry_pixel_m`: v2 imports this module
+(`dem_production.py` `import O4_Airport_Elevation_Insets`), so a v1 →
+v2 import is a layering cycle; the read is restated with a docstring
+pointer. Four twins beside the existing honest-resolution twin in
+`tests/test_airport_elevation_insets.py` (GDAL-free through
+`stored_pixel_m`): only-`resolution_m` + non-declaring provider reads
+2.0 over a 0.5 posting (was 0.5) and still 5.0 over a 5.0 posting;
+native outranks resolution_m; the sidecar outranks the definition and
+the definition answers a sidecar stating neither; junk / no sidecar
+stay at face value. Suite `tests/test_airport_elevation_insets.py
+tests/auto_patch_v2 tests/test_harness.py`: `1914 passed, 1 skipped,
+1 xpassed`, 0 FAILED. No build, no download, no shared-repo write.

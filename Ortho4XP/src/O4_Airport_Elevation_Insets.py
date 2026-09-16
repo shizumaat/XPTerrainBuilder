@@ -10011,9 +10011,20 @@ def _honest_inset_resolution_m(inset_path, stored_pixel_m=None):
     honest figure is the COARSER of the two.  A warp to a coarser posting
     is real coarsening, so the stored pixel wins there.
 
-    The native resolution comes from the provenance sidecar, else from
-    the provider definition named in the file name.  When neither knows
-    (a hand-dropped raster), the stored pixel is taken at face value.
+    The native resolution comes from the provenance sidecar --
+    ``native_resolution_m``, else its ``resolution_m`` (the warp target
+    the fetch actually asked for) -- else from the provider definition
+    named in the file name.  When none knows (a hand-dropped raster with
+    no sidecar), the stored pixel is taken at face value.
+
+    The sidecar read is the same three-step precedence as the manifest
+    reader ``auto_patch_v2.airport.dem_production.ProductionDem.
+    _entry_pixel_m`` (§45 (18), RULINGS 2026-09-16a); it is restated here
+    rather than imported because v2 imports THIS module -- a v1 -> v2
+    import would be a layering cycle.  Before this read, a sidecar that
+    stated only ``resolution_m`` (the fetchers' key) from a provider
+    whose definition declares no native resolution fell through to the
+    stored pixel, which is what fed the airport smoothing radius.
     """
     if stored_pixel_m is None:
         header = _inset_header_geometry(inset_path)
@@ -10023,9 +10034,13 @@ def _honest_inset_resolution_m(inset_path, stored_pixel_m=None):
     native_resolution_m = None
     try:
         with open(os.path.splitext(inset_path)[0] + ".json", "r") as handle:
-            native_resolution_m = _parse_float(
-                json.load(handle).get("native_resolution_m")
-            )
+            meta = json.load(handle)
+        if isinstance(meta, dict):
+            for key in ("native_resolution_m", "resolution_m"):
+                native_resolution_m = _parse_float(meta.get(key))
+                if native_resolution_m is not None and native_resolution_m > 0:
+                    break
+                native_resolution_m = None
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     if native_resolution_m is None:

@@ -1001,6 +1001,70 @@ def test_honest_inset_resolution_prefers_native_over_posting(
     )
 
 
+def _sidecar_only_inset(directory, code, sidecar):
+    """A GDAL-free inset stand-in: only the sidecar exists, the stored
+    pixel is handed to the reader directly."""
+    os.makedirs(str(directory), exist_ok=True)
+    inset_path = os.path.join(str(directory), f"KXXX_{code}.tif")
+    with open(os.path.splitext(inset_path)[0] + ".json", "w") as handle:
+        json.dump(sidecar, handle)
+    return inset_path
+
+
+def test_honest_inset_resolution_reads_resolution_m_for_a_nondeclaring_provider(
+    tmp_path, monkeypatch
+):
+    """RULINGS 2026-09-16e (the 16a chip): a sidecar stating only
+    ``resolution_m`` -- the fetchers' key -- from a provider whose
+    definition declares no native resolution must NOT fall through to the
+    stored pixel: it is the second step of the §45 (18) precedence."""
+    monkeypatch.setattr(INSETS, "elevation_providers_dict", {"NODECL": {}})
+    inset = _sidecar_only_inset(tmp_path, "NODECL", {"resolution_m": 2.0})
+    # Stored finer than fetched: the fetched figure is the honest one.
+    assert INSETS._honest_inset_resolution_m(inset, stored_pixel_m=0.5) == 2.0
+    # Stored coarser: real coarsening, the posting still wins.
+    assert INSETS._honest_inset_resolution_m(inset, stored_pixel_m=5.0) == 5.0
+
+
+def test_honest_inset_resolution_native_key_outranks_resolution_m(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(INSETS, "elevation_providers_dict", {"NODECL": {}})
+    inset = _sidecar_only_inset(
+        tmp_path, "NODECL", {"native_resolution_m": 30.0, "resolution_m": 3.0}
+    )
+    assert INSETS._honest_inset_resolution_m(inset, stored_pixel_m=3.0) == 30.0
+
+
+def test_honest_inset_resolution_sidecar_outranks_the_definition(
+    tmp_path, monkeypatch
+):
+    """The sidecar answers before the name-derived definition; the
+    definition is the fallback for a sidecar that states neither key."""
+    monkeypatch.setattr(
+        INSETS, "elevation_providers_dict",
+        {"DECL": {"native_resolution_m": 30.0}},
+    )
+    stated = _sidecar_only_inset(tmp_path / "a", "DECL", {"resolution_m": 10.0})
+    assert INSETS._honest_inset_resolution_m(stated, stored_pixel_m=1.0) == 10.0
+    silent = _sidecar_only_inset(
+        tmp_path / "b", "DECL",
+        {"native_resolution_m": None, "resolution_m": None},
+    )
+    assert INSETS._honest_inset_resolution_m(silent, stored_pixel_m=1.0) == 30.0
+
+
+def test_honest_inset_resolution_hand_dropped_stays_at_face_value(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(INSETS, "elevation_providers_dict", {})
+    inset = _sidecar_only_inset(tmp_path, "UNKNOWN", {"resolution_m": "junk"})
+    assert INSETS._honest_inset_resolution_m(inset, stored_pixel_m=0.5) == 0.5
+    assert INSETS._honest_inset_resolution_m(
+        os.path.join(str(tmp_path), "KXXX_NOSIDECAR.tif"), stored_pixel_m=0.5
+    ) == 0.5
+
+
 @requires_gdal
 def test_upsampled_inset_does_not_shrink_the_radius(tmp_path, monkeypatch):
     """A 30 m source on a 3 m grid must still smooth like 30 m data."""

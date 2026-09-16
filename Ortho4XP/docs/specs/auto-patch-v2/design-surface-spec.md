@@ -15517,6 +15517,161 @@ over per-consumer vetoes.
 | 24 | `emit/graded.py` / `emit/osm_adapter.py` (`VOID_ROLE`, `RIM_KIND`, `structure_rim`) | the void face → the rim ring and the floor edges | UNCHANGED — the wall stays the breakline PAIR (rim ring + floor ring) of 14av / §37 (11). |
 | 25 | `classify/roles.py` (the `CutLine` producer), `solve/design*.py`, `planar/channel.py` + `constraints/channel.py` (lane `v2channel` §45) | other lanes' files this round | **NOT TOUCHED.** In particular the trim is NOT made in `roles.py`: the structure outlines do not exist at classify time. |
 
+
+**THE ARMS.**  ONE fresh VHHH capture on the merged tree
+(`scratchpad/v2shellwall/cap/VHHH.pkl`, base `5b70d61a` + the revert,
+423 s, 26,702 vertices / 1,368 faces, `[guard] shared repo UNCHANGED`,
+registered); BASE arm = `git archive e0363dcc src` in its own tree
+(`base3`, its own `tools` copy — a SYMLINKED `tools` resolves
+`__file__` back to the branch and silently runs the ARM's code, which
+is how the first base run was caught and rerun); LANE arm = the branch.
+Both `--replay … --from planar --emit --verify` off THAT capture, so the
+only variable is (3) (c).  The two trees differ in exactly five files.
+
+**THE MECHANISM, BEFORE AND AFTER, AT THE 15bp SITE** (`--why-at
+22.30772370921,113.92337437951`, the same solved arms):
+
+* BASE — 15bp's chain reproduced verbatim: `v20237[junction#807,
+  primary_parallel#800,…] z 0.84` (DEM 7.32, **z − DEM −6.47**) ←
+  **`taxi_centreline` cap 1.50 % × 1.1 m** → `v22202[retaining_wall,
+  tunnel_ramp] z 0.78` → `v16846` **`[PIN: tunnel.object.mouth_depth =
+  floor_slab (object-cut:TUNNEL2_DONE.obj@0)]`**.
+* ARM — `v16895 z 7.31, DEM 7.32 (z − DEM −0.00)`; **binding rows:
+  none — "no row binds the vertex — the objective holds it"**.
+
+**THE MATCHED PAIR** (one capture, one machine, the shared corpus):
+
+| bar | BASE (the regression on the merged tree) | ARM (3) (c) | the f912ba81 control |
+|---|---|---|---|
+| off-DEM `junction` | **6.23** m (350 over 0.5 / 2,607) | **1.45** (133) | 1.45 |
+| off-DEM `primary_parallel` | **6.47** (565 / 4,295) | **1.53** (348) | 1.55 |
+| off-DEM `cross_connector` | **6.44** (323 / 2,017) | **0.92** (124) | 0.96 |
+| off-DEM `apron` | **5.39** (370 / 6,768) | **2.58** (74) | 2.57 |
+| off-DEM `graded_strip` | 6.10 (631) | **1.88** (361) | — |
+| the 15bp site, 60 m | z − DEM mean **−3.28**, min **−6.47** | mean **−0.03**, min **−0.25** | — |
+| v2 verify rows | **1,904** | **105** | — |
+| `within_shape` / `airside_no_step` / `taxi_box` / `transverse` | 894 / 624 / 269 / 45 | **8 / 7 / 26 / 0** | — |
+| census LAW-TRUE / ADJUDICATED | **6,008 / 1,434** | **2,732 / 151** | 1,531 / 121 |
+| `object_cut_offset` / `object_cut_depth` | 3 / 0 | **3 / 0** (unchanged by this lane) | n/a |
+| solve | optimal | optimal | optimal |
+| airside within 200 m of the five cuts, BASE → ARM | — | **739 of 1,302 moved, worst 6.470 m** — the cure itself | — |
+
+**THE CLOSING BUILD** — `build_airport.py VHHH --tag v2shellwallr3`,
+branch `claude/v2shellwall` @ `7ce30bbb`: **rc 0, 800.1 s**, status
+**optimal**, ways 1,459 / nodes 26,242, `body_sha d873efc07694`,
+artifact ledger **`54b8c1ada3cc`**, and verbatim:
+
+> `[harness] shared repo UNCHANGED by this build (full-surface before/after snapshot) — no side-effect mutation`
+
+Its structures line carries the new report:
+
+    object-decked trenches 5 (§33 (6) B (3) (c): 20,950 m2 pavement,
+    97 m centreline, 0 m road excluded)  …  tunnels 28  decks 0  cells cut 17
+
+| shell | OPEN trench (the outline) | pavement cut | taxi centreline trimmed | road |
+|---|---|---|---|---|
+| `TUNNEL2_DONE` | **32,026 m²** | 10,766 m² | **97.2 m** | 0.0 m |
+| `tunnel5_done` (the owner's site) | **10,181 m²** | 10,181 m² | 0.0 m | 0.0 m |
+| `tunnel3_done` | 9,856 m² | 0 m² | 0.0 m | 0.0 m |
+| `tunnel4_done` | 7,915 m² | 0 m² | 0.0 m | 0.0 m |
+| `tunnel1_done` | 4,571 m² | 4 m² | 0.0 m | 0.0 m |
+
+Every shell is OPEN for its authored extent — (2)'s subtraction is gone
+— and **`decks 0`**: nothing severs a VHHH trench, which is (3) (b) read
+at this airport.  **No runway-family cell stands inside any outline**
+(the 08-07 ruling 4 exemption reports zero rows), so the question the
+census row 1 reserved does not arise here and nothing was widened on a
+count of zero.
+
+**THE OWNER'S SITE 22.3038632, 113.9088362 (`tunnel5_done`), read in the
+three patches** (`osm_site --at … --radius 40`):
+
+| arm | what stands there |
+|---|---|
+| control `f912ba81` | nothing (no object cut existed) |
+| **1.0.341 (`VHHH_20260915T122604`)** | ramp −10852 alt **[1.30, 9.26]** and **FOUR** `structure_rim` ways at **[1.30, 8.57] / [3.24, 8.59] / [5.88, 8.59] / [2.90, 8.57]** — the rim itself carrying the floor |
+| **r3 build** | **ONE** `structure_rim` −11364 at **[7.31, 7.32]** — the rim AT the surrounding surface (DEM 7.32) — over ramp −11152 **[1.30, 13.72]**, the authored floor climbing out |
+
+**THE CLOSING BUILD'S CENSUS** (harness, cockpit block first): CRITICAL
+motion **3**, CRITICAL visual **1,353**; LAW-TRUE **1,629**, ADJUDICATED
+**148** (airside **46** / gs 7 / mixed **95**) against the control's
+1,531 / **121** (airside **89** / gs 1 / mixed 31) and the 1.0.341 arm's
+4,845 / **1,472**.  The AIRSIDE half is BELOW the control's (46 vs 89);
+the rise is the mixed **95 `ramp_in_strip`** rows, which are the
+trenches' own — the control carries no object cut at all.  Airside
+within 200 m of the five cuts against the 1.0.341 arm: **885 of 1,284
+restored, worst +6.530 m** (0.78 → 7.31, apron at 22.30695628,
+113.91904585).
+
+**THE BARS, AND THE ONE THAT IS MISSED.**
+
+* *Every shell an OPEN walled trench for its authored extent* — **MET**
+  (the five areas above; `object_cut_depth` **0** rows, `object_cut_
+  offset` **3** ≤ the bar's 4).
+* *Surface elements inside each outline named and shown excluded* —
+  **MET** (the table; 0 `taxi_centreline` rows reach a trench vertex —
+  the `--why-at` read above, and the base arm's own chain as the
+  contrast).
+* *off-DEM maxima by role back to the control's* — **MET** (1.45 /
+  1.53 / 0.92 / 2.58 against 1.45 / 1.55 / 0.96 / 2.57; the apron's
+  +0.01 m is the materiality floor).
+* *ADJUDICATED ≤ 121 + the trenches' own rows* — **MET** (148 = 121's
+  own airside population ↓ to 46, plus the 95 `ramp_in_strip` trench
+  rows).
+* *airside OUTSIDE the outlines within 200 m moved vs the f912ba81
+  control ≤ 0.02 m* — **NOT MET, and here is the whole number.**  The
+  three-way join (control build, base arm, lane arm; 849 airside
+  vertices joined on all three within 200 m of the outlines and outside
+  them): the BASE stands **372 movers, worst 5.770 m**; the ARM stands
+  **96**, of which **54 did not move base → arm at all** (they are
+  main's day between the control build at `f912ba81` and this capture —
+  v2shoulderband, v2vmmcshore r2–r7, §33 (5), v2roadtags …; worst
+  −0.750 m, a `cross_connector` at 22.30434595, 113.92789667) and **42
+  carry this lane's edit**: worst **0.320 m**, 23 over 0.1 m, 1 over
+  0.3 m, all of them beside `TUNNEL2_DONE` (14.9–30.2 m from its
+  outline), roles apron 41 / junction 16 / cross_connector 4.  That
+  residual IS the ruling's own consequence: with the centreline ending
+  at the rim the pavement on the two sides of a 1,110 m trench is no
+  longer tied longitudinally ACROSS it, so it settles a decimetre or two
+  differently from a control that never had a trench there.  It is
+  reported, not tuned, and the bar as stated cannot be met against a
+  control built a day of main earlier — which is why the matched pair
+  above is the measurement of record.
+* *cockpit CRITICAL motion → 0* — **NOT MET: 3**, and they are not this
+  lane's.  All three are `object_cut_offset [apron|apron]` cliffs at
+  TUNNEL2's west end (0.897 / 0.842 / 0.812 m at 22.3048161,
+  113.9137469 and two neighbours) — the ring vertices v2objcut r3's own
+  reading leaves outside the object's wall line (15bh recorded the same
+  class at 0.670 m).  The BASE arm carries the identical 3 rows
+  (`object_cut_offset` 3 → 3, Δ +0 in the A/B), so (3) (c) neither
+  makes nor removes them; they are the residual of §33 (6) B's emitter,
+  named for the next round.
+
+**OTHH AND LEMD — DRY `planar --stage structures` PAIRS, BYTE-IDENTICAL.**
+Base arm from the same `base3` archive, lane arm on the branch, same
+corpus, same lane-local overlay.  OTHH `tunnels 44 / corridors 9 /
+wall_corridors 73 / basins 10 / plates 2 / door_wells 4 / underpasses 0`
+and LEMD `52 / 1 / 0 / 1 / 3 / 0 / 1` — **identical on every published
+array**; the only differing keys are wall-clock (`read_s`,
+`signature_s`, `wall_s`, `basin_unions.cover`'s seconds) and the NEW
+`decked_*` keys, which read **0 / empty at both airports** — neither has
+a signature-B shell, so (3) (c) is inert there by construction and by
+measurement.
+
+**SUITE** `tests/auto_patch_v2 tests/test_harness.py`: **1,708 passed,
+1 skipped, 1 xpassed, 0 FAILED**.  Five new twins in
+`tests/auto_patch_v2/test_v2objcut.py`.
+
+**WHAT r3 DID NOT DO.**  No `--refresh-data`, no five-airport sweep, no
+LEMD / OTHH / VMMC build, no merge into main, no RULINGS entry, no new
+tool (the readings are `v2_solve_replay`, `harness/census.py`,
+`arm_site_read --airside-near-cuts`, `osm_site.py`, `planar --stage
+structures` and `frames.py`); the three-way join that attributed the
+residual is a scratchpad one-off (`scratchpad/v2shellwall/threeway.py`),
+asked once, not promoted.  The `object_cut_offset` trio at TUNNEL2 is
+NOT fixed (it is §33 (6) B's emitter, not (3)); the 42-vertex / 0.320 m
+residual beside TUNNEL2 is NOT tuned.
+
 ### §45 (16)–(18) THE ENDS, THE SEPARATION, THE MANIFEST (Fable 2026-09-16; RULINGS 2026-09-15bo) — lane `v2channel` round 8, lane `v2insetmanifest`
 
 Round 7's checkpoint (b0a86405, RULINGS 15bm) attributed three things; each is ruled here.

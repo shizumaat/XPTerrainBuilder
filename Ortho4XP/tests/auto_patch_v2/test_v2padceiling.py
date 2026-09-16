@@ -316,7 +316,12 @@ def test_a_capture_predating_the_clusters_derives_them_at_replay():
     backfill (§37 (10)).  Without this an old frame measures the pads-OFF
     law however the law values are set."""
     import inspect
-    src = inspect.getsource(_replay_module().replay)
+    mod = _replay_module()
+    # the replay's PRELUDE is ``replay_problem`` since lane ``v2stagepop``
+    # (§20b (3)): ``--replay`` and ``--stage1-dump`` share one copy of it,
+    # so the claim is read over the path, not over one function
+    src = (inspect.getsource(mod.replay)
+           + inspect.getsource(mod.replay_problem))
     assert "capture predates Airport.clusters" in src
     assert "_derive_clusters(airport, law)" in src
     # and it is guarded on the capture NOT already carrying them

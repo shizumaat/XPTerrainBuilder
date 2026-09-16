@@ -16205,3 +16205,36 @@ BOUND on the airside movement, not invariance.  If it may not, 08-25 is
 amended for stage 1 and the pad becomes a stage-2 anchor only.  That is
 the spec author's to rule; this lane measured both sides of it and armed
 neither.
+
+**WHAT SHIPPED OF THE FIX, AND ITS MATCHED PAIR.**  ONE clause of the
+stage-1 population site is this lane's and it landed: `solve/design.
+assemble` gains `stage_roles` and the §20b dispatch (`solve_design`'s
+stage-1 call in `_solve_stage`) passes `airside_stage_roles(law)`, so the
+stage's SHEET is the stage's own ROLES and no longer "every bend role
+face with no foreign vertex".  HECA sheet faces **892 (OFF) / 890 (ON) →
+859 / 859 — the face set is now IDENTITICAL on the two arms** (the diff
+reads A-only 0, B-only 0); the single solve passes `stage_roles=None` and
+is byte-identical BY CONSTRUCTION (the argument is only ever set in the
+staged branch, and `staged_solve` ships false).
+
+Matched pair, ONE tree (`claude/v2stagepop`), ONE variable (the rule),
+the v2padclip r2 captures, `staged_solve=1`, every pad generator dropped:
+
+| HECA, pads OFF → ON, no pad row anywhere | movers > 0.02 m | worst | runway |
+|---|---|---|---|
+| without the rule (reproduces r2's own number on this tree) | **1,544** | 2.00 m | 0 |
+| with the rule | **1,470** | **1.82 m** | 0 |
+
+And the BAR's own row (the same pair with the pad rows in place, the rule
+armed): **2,077** non-pad solve-owned airside vertices moved, worst
+**2.40 m**, the RUNWAY **2 at 0.020 m** — r2 read 2,230 / 2.68 m / 2 on
+its own tree, which is a CROSS-TREE reading and named as one.  The bar
+(0) is MISSED and the four channels above say why: three of them are not
+in `solve/`.
+
+Suite 1,781 passed / 1 skipped / 1 xpassed, 0 FAILED.  One twin was
+re-founded, not weakened: `test_v2padceiling::test_a_capture_predating_
+the_clusters_derives_them_at_replay` read the claim off
+`v2_solve_replay.replay`'s source, and the replay's prelude is now
+`replay_problem` (shared with `--stage1-dump`, so there is one copy of
+it); it reads the path's two functions.

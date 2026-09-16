@@ -36,7 +36,177 @@ from ..law.tables import is_structure_role, is_value_role, role_side
 from .structure_approach import under_cover
 
 __all__ = ["airside_cut_roles", "airside_stops", "deck_witness_for",
-           "osm_stops", "pad_relief_m"]
+           "osm_stops", "pad_relief_m", "terrain_tunnel_witness"]
+
+
+def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
+    """§34 (12) (5) A BORE THAT ENTERS A BUILDING IS THE BUILDING'S RAMP,
+    NOT A TERRAIN TUNNEL (owner RULINGS 2026-09-16d) — the reading ONE
+    bore is admitted or refused by, as ``f(bore) -> (built, reason)``.
+
+    Owner 2026-09-16: "There should be no tunnels cut at VMMC because all
+    of the roads are above ground, all the bridges/overpasses/ramps are
+    handled by elevated roads provided by the sim, they don't need any
+    trenches cut."
+
+    (a) A bore whose MAPPED END stands inside a BUILDING footprint, an
+    underground parking or a ``covered=yes`` structure is that building's
+    own ramp — the object or the sim carries it — and is NOT built.
+    (b) A mapped bridge / overpass / ramp over ordinary ground is the
+    SIM'S ELEVATED ROAD: it is not a crossing at grade, so it is no
+    witness at all here (and §34 (12) (4) already withholds its deck).
+    (c) A TERRAIN TUNNEL passes UNDER something at grade, by any of four
+    witnesses — the classified cover (pavement, a pad, a roofed
+    corridor's footprint) for ``terrain_cover_min_m``; a mapped road or
+    railway AT GRADE crossing the bore's INTERIOR; the DEM standing
+    ``terrain_rise_m`` over the bore above the mean at its own two ends;
+    or the bore's own ``layer`` at or under ``terrain_layer_max``, which
+    is OSM's statement that it runs below what it crosses.
+
+    THE LAST TWO ARE §34 (12) (4)'S OWN WITNESSES, in the form a BORE
+    takes them: (4) (i) reads a tag, (4) (ii) reads the DEM against the
+    abutments of the thing in question — for a deck its span's, for a
+    bore its two mouths'.  MEASURED at VMMC (lane `v2vmmcbore`): the nine
+    car-park ramps under Taipa read cover 0.0 m, no crossing, rise +0.00
+    .. +0.33 m and NO layer; the three real Macau road tunnels read
+    +1.10 / +1.36 / +10.53 m of ground over them, two ``primary`` roads
+    across them and ``layer`` -1 / -2.  Nothing had to be tuned between
+    them.
+
+    ``on_field`` is the ``FieldRegion`` §29 (1) gated the mouths with —
+    the SAME cover, never a second union — and it carries the airport the
+    DEM is sampled from.  A witness with no cover tree and no DEM claims
+    nothing and every bore is built, which is what a caller with no
+    classification means.
+    """
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.strtree import STRtree
+    from ..airport.deck_signature import is_enclosure_way, is_tunnel_way
+    tn = law.tables.structures.tunnel
+
+    # (a) the enclosures — closed rings only; a tag on an open way states
+    # no footprint to stand inside
+    encl: list[tuple[Polygon, str, object]] = []
+    for w in osm_ways:
+        if not getattr(w, "closed", False) or len(w.points) < 4:
+            continue
+        why = is_enclosure_way(w.tags or {}, tn.enclosure_parking_values)
+        if not why:
+            continue
+        try:
+            poly = Polygon(w.points)
+        except (ValueError, TypeError):
+            continue
+        if poly.is_valid and not poly.is_empty:
+            encl.append((poly, why, w.id))
+    encl_tree = STRtree([p for p, _w, _i in encl]) if encl else None
+
+    # (b)/(c) the roads and railways AT GRADE.  A `bridge` way, or one at
+    # `layer >= 1`, is the sim's elevated road and is not a crossing.
+    grade: list[tuple[LineString, object]] = []
+    for w in osm_ways:
+        t = w.tags or {}
+        if len(w.points) < 2 or ("highway" not in t and "railway" not in t):
+            continue
+        if is_tunnel_way(t, tn.admitted_values):
+            continue
+        if str(t.get("bridge", "")).strip().lower() not in ("", "no"):
+            continue
+        if _layer_of(t, 0) >= 1:
+            continue
+        grade.append((LineString(w.points), w))
+    grade_tree = STRtree([ln for ln, _w in grade]) if grade else None
+
+    def witness(bore) -> tuple[bool, str]:
+        ln = bore.line
+        ids = "+".join(str(w.id) for w in bore.ways)
+        for end in (bore.points[0], bore.points[-1]):
+            pt = Point(end)
+            for j in (encl_tree.query(pt, predicate="within")
+                      if encl_tree is not None else ()):
+                _p, why, wid = encl[int(j)]
+                return False, (f"bore {ids} ENTERS AN ENCLOSURE at "
+                               f"{end[0]:.0f},{end[1]:.0f} — way {wid} {why}: it is "
+                               f"that structure's own ramp, not a terrain tunnel "
+                               f"(§34 (12) (5) (a))")
+        cover = on_field.cover_run_m(ln) if on_field is not None else 0.0
+        if cover >= tn.terrain_cover_min_m:
+            return True, f"under the classified cover for {cover:.1f} m"
+        lay = _layer_of_bore(bore)
+        if lay is not None and lay <= tn.terrain_layer_max:
+            return True, f"the bore carries layer {lay}"
+        crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m)
+        if crossed:
+            return True, ("under " + ", ".join(crossed[:3]) + " at grade")
+        rise = _rise_m(airport, ln)
+        if rise is not None and rise >= tn.terrain_rise_m:
+            return True, f"the ground over it stands {rise:+.2f} m above its own ends"
+        return False, (f"bore {ids} PASSES UNDER NOTHING AT GRADE "
+                       f"({ln.length:.0f} m; cover {cover:.1f} m, no road or railway "
+                       f"across it, ground "
+                       f"{'unreadable' if rise is None else f'{rise:+.2f} m'} over its "
+                       f"own ends, layer {'none' if lay is None else lay}) — the sim's "
+                       f"elevated roads carry it (§34 (12) (5) (c))")
+
+    return witness
+
+
+def _layer_of(tags, default=None):
+    try:
+        return int(str(tags.get("layer")))
+    except (TypeError, ValueError):
+        return default
+
+
+def _layer_of_bore(bore):
+    """The bore chain's LOWEST mapped ``layer``, or ``None`` when no way
+    carries one (which is not zero — an untagged way makes no statement)."""
+    vals = [v for v in (_layer_of(w.tags or {}) for w in bore.ways) if v is not None]
+    return min(vals) if vals else None
+
+
+def _crossings(ln, grade, tree, bore, min_inside_m):
+    """The mapped at-grade ways crossing the bore's INTERIOR, named.  A
+    way meeting it at a mouth is the APPROACH, not a crossing — the same
+    distinction §34 (12) (4) draws between a deck over the span and one
+    over the approach walk."""
+    from shapely.geometry import Point
+    own = {id(w) for w in bore.ways}
+    out: list[str] = []
+    for j in (tree.query(ln, predicate="intersects") if tree is not None else ()):
+        g, w = grade[int(j)]
+        if id(w) in own:
+            continue
+        x = ln.intersection(g)
+        if x.is_empty:
+            continue
+        pieces = list(x.geoms) if hasattr(x, "geoms") else [x]
+        for p in pieces:
+            if p.geom_type != "Point":
+                continue
+            s = ln.project(Point(p.coords[0]))
+            if min_inside_m < s < ln.length - min_inside_m:
+                t = w.tags or {}
+                out.append(f"{w.id}[{t.get('highway') or t.get('railway')}]")
+                break
+    return sorted(set(out))
+
+
+def _rise_m(airport, ln):
+    """How far the DEM anywhere OVER the bore stands above the mean of the
+    DEM at its two mapped ends — the bore's form of §34 (12) (4) (ii)."""
+    dem = getattr(airport, "dem", None)
+    if dem is None or ln.length <= 0.0:
+        return None
+    n = max(4, int(ln.length // 5.0))
+    zs = []
+    for i in range(n + 1):
+        p = ln.interpolate(ln.length * i / n)
+        z = float(dem.z(p.x, p.y))
+        if z != z:                                     # NaN: no witness
+            return None
+        zs.append(z)
+    return max(zs) - (zs[0] + zs[-1]) / 2.0
 
 
 def pad_relief_m(airport: Airport, poly: Polygon) -> float:
@@ -147,10 +317,20 @@ def deck_witness_for(airport, law: Law, under_ways):
     one corridor's decks are weighed with.
 
     ``under_ways`` are the corridor's OWN ways — its mapped ``tunnel=yes``
-    bore chain.  Witness (i) asks whether the deck's SPAN stands over one
-    of them carrying ``tunnel=yes`` or ``layer <= -1``: the span, never
-    the approach walk, because VMMC's seafront decks stand over untagged
-    road while the bore 300 m away is tagged.  Witness (ii) reads the
+    bore chain.
+
+    **WITNESS (i) READS THE CORRIDOR, NOT THE SPAN** (§34 (12) (4)
+    AMENDED (2); owner RULINGS 2026-09-16f).  It asks whether ANY way of
+    the bore chain the deck crosses carries ``tunnel=yes`` or
+    ``layer <= -1``.  The owner checked the two decks the span reading
+    dropped — shape 981 = ``bridge_deck:-5305`` at 40.4788711, -3.5787587
+    and shape 988 = ``bridge_deck:-15293`` at 40.4659974, -3.5811339 —
+    and both span REAL CUTS; the DEM witness read -0.57 / -1.46 m there
+    against sloping abutments, and (i) as written asked the untagged
+    approach the span happens to stand over.  The narrowness existed ONLY
+    to keep VMMC's seafront decks out, and §34 (12) (5) now keeps the
+    seafront bores themselves out: at VMMC no OSM car-park bore is built,
+    so no deck of one can be weighed.  Witness (ii) reads the
     production DEM — the SAME sampler the structures run reads — under the
     span and at the deck's two abutments ``[bridge] deck_abutment_m``
     along the deck each way (the deck end where it is shorter), and asks
@@ -181,13 +361,13 @@ def deck_witness_for(airport, law: Law, under_ways):
             pass
         return None
 
+    # §34 (12) (4) AMENDED (2): the CORRIDOR's witness, taken ONCE per
+    # corridor rather than per span — the chain is the same for every
+    # deck this corridor is weighed against.
+    chain_tag = next((t for t in (_tag_of(w) for _ln, w in lines) if t), None)
+
     def witness(deck_way, dpoly, _covered_end):
-        tag = None
-        for ln, w in lines:
-            if dpoly is not None and not dpoly.is_empty and ln.intersects(dpoly):
-                tag = _tag_of(w)
-                if tag:
-                    break
+        tag = chain_tag
         cut = None
         pts = list(getattr(deck_way, "points", ()) or ())
         if len(pts) >= 2 and lines:

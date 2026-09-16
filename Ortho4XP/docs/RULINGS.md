@@ -8971,3 +8971,4 @@ of its own no longer borrows the ground's across its boundary (3–4 m
 on the `test_v2ground` / `test_v2chord` fixtures; inert at HECA/LEMD
 where a real taxi family carries its own trend) — twinned on both
 arms. Revert path: one `git revert` of the keys commit.
+16z addendum: APP 1.0.344 BUILT (6575775f, engine 1.50.1791, binary Sep 16 12:22; bundled: pad_from_cluster true, pad_airside_clip true, staged_solve true, solver qp, bank OFF, defect floor 0.10). The owner's sim read at LEMD (the T4 garage 40.4892214,−3.5944287 on `building45` at one level, +4.26 m fill; the airside re-anchored on the buildings per 2026-08-25) and HECA (16 pads → clusters, mismatch 0) adjudicates the pad line; refusal = one `git revert` of b7949a15's law commit and app 1.0.345.

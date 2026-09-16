@@ -37,7 +37,7 @@ from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
 from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
-from .channel_claims import claimed_crossing_ways
+from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .structure_road import mouth_pair_roads
 from ..airport.tunnel_objects import TunnelObjectStats, read_corridors
@@ -106,7 +106,8 @@ class BuildStats:
 
 
 def channels_after_basins(airport, classification, law, objects, corridors, extra,
-                         plates, cache, orep, claimed_ways, shell_claimed):
+                         plates, cache, orep, claimed_ways, shell_claimed,
+                         synth_ways=frozenset()):
     """§45 (13) (d) AMENDED — A MEMBER OF A *BUILT* BASIN, BASINS BEFORE
     CHANNELS (owner RULINGS 2026-09-15aw).  THE ONE ORDERING SITE; the
     ``--stage structures`` replay calls this same function.
@@ -135,7 +136,8 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     pair is not run (OTHH, KCLT, CYXY and SPJC identify no channel with
     a pack witness, and pay nothing for this ordering).
     """
-    ch0, st0 = identify_channels(airport, classification, law, objects, claimed_ways)
+    ch0, st0 = identify_channels(airport, classification, law, objects, claimed_ways,
+                                 synth_ways=synth_ways)
     if not any(c.witness_ids for c in ch0):
         st0.notes.append("§45 (13) (d): no channel took a pack wall/floor witness — "
                          "the BUILT-basin exclusion cannot change this airport's reading "
@@ -147,7 +149,7 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
                                        report=orep, claimed=shell_claimed)
     pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ()))
     channels, stats = identify_channels(airport, classification, law, objects,
-                                        claimed_ways, pit)
+                                        claimed_ways, pit, synth_ways)
     stats.notes.append(
         f"§45 (13) (d): the basin pass ran FIRST and built {len(basins0)} basin(s); their "
         f"{len(pit)} member placement(s) are the exclusion (a pit CANDIDATE that never "
@@ -202,10 +204,10 @@ def build(airport: Airport, classification: Classification, law: Law,
     # pass to refuse a built basin that IS the channel's own wall (§45
     # (7)/(11)).  §45 (13) (d) AMENDED (RULINGS 2026-09-15aw) puts the
     # BASIN PASS FIRST — see :func:`channels_after_basins`.
+    hard_claims, synth_claims = crossing_claims(airport, law, corridors, classification)
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
-        claimed_crossing_ways(airport, law, corridors, classification),
-        frozenset(tstats.shell_claimed))
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable

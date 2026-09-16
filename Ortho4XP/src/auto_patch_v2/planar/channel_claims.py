@@ -31,49 +31,39 @@ from .structure_approach import is_tunnel
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
-__all__ = ['add_channel_cells', 'channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor', 'way_key', 'WayKey', 'ANY_FEED', 'channel_swallowing']
+__all__ = ['add_channel_cells', 'channel_cells'] + ['crossing_claims', 'claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor', 'way_key', 'WayKey', 'ANY_FEED', 'channel_swallowing']
 
 
-def claimed_crossing_ways(airport: Airport, law: Law,
-                          corridors: _t.Sequence = (),
-                          classification=None) -> frozenset[WayKey]:
-    """§45 (13) (b): THE WAYS THE ENGINE ALREADY MODELS, read off the
-    passes' OWN outputs and never re-derived.
+def crossing_claims(airport: Airport, law: Law, corridors: _t.Sequence = (),
+                    classification=None) -> tuple[frozenset[WayKey], frozenset[WayKey]]:
+    """§45 (13) (b)/(20): ``(the HARD claims, the SYNTHESISED ones)``.
 
-    THREE sources since §45 (16) (Fable 2026-09-16; owner RULINGS
-    2026-09-15bo): the claimed set includes the §34 (5) SYNTHESISED
-    underpass bores — every way a bore of ANY provenance names.  Round 7
-    measured what their absence costs once (14) admits notch corridors:
-    KCLT tunnels 23 -> 19, the four bores of taxiway U
-    (``tunnel:-14074@0..3``) taken by a channel, which is exactly the
-    round-3 regression (13) was ruled to end.  A mapped ``tunnel=yes``
-    way can plead (13) (b) and a synthesised one could not, because it
-    exists only inside ``build_structures``.  It is read here from
-    ``structure_underpass.underpass_bores`` — §34 (5)'s OWN derivation,
-    the same call ``build_structures`` makes — and never re-derived; the
-    synthetic way keeps its PARENT road's id and feed, so ``way_key`` of
-    a synthesised bore is the road way the channel would have taken.
+    THE HARD HALF is what the engine models from DATA the channel cannot
+    override: the mapped ``tunnel=yes`` bores ``build_structures`` seeds
+    from (``is_tunnel`` on ``[tunnel] admitted_values`` — the same
+    predicate, not a copy) and the bore ways each 05k-1 object corridor
+    claims (``Corridor.bore_ways``, ``tunnel_objects.read_corridors``).
+    Neither ever yields.
 
-    The other two, both existing: the mapped ``tunnel=yes`` bores
-    ``build_structures`` seeds from (``is_tunnel`` on
-    ``[tunnel] admitted_values`` — the same predicate, not a copy) and
-    the bore ways each 05k-1 object corridor claims
-    (``Corridor.bore_ways``, ``tunnel_objects.read_corridors``).  The
-    round-3 replays are why this is ONE function handed IN rather than a
-    test inside the channel pass: a second reading of "what is already
-    modelled" is exactly what let a channel delete four KCLT bores."""
+    THE SYNTHESISED HALF is §34 (5)'s own: a bore the engine INFERRED
+    from a ``bridge=yes`` aeroway over an untagged road.  §45 (16) put
+    those ways in the claimed set (round 7 measured KCLT's four taxiway-U
+    bores taken by a channel) and §45 (20) then ruled what round 8
+    measured with it: at LGAV the TWY H bores took ways −2914/−4017 off
+    the trench channel, which carries pack walls under it.  A synthesised
+    bore and a channel's deck model the SAME crossing, so where the
+    channel carries a DEPTH witness ((1) (c) pack walls or (3) (ii) lidar
+    reading a cut) the synthesised bore YIELDS: its ways return to the
+    channel and the bore is not built.  The decision is the channel's own
+    (``planar/channel.identify_channels``), because only the built record
+    knows whether the depth witness stands.
+
+    They are read here, once, off §34 (5)'s OWN function — never
+    re-derived: the round-3 replays are why "what is already modelled" is
+    ONE reading handed in."""
     tn = law.tables.structures.tunnel
-    out = {way_key(w) for w in airport.osm_ways
-           if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2}
-    # §45 (16): the §34 (5) SYNTHESISED underpass bores, from §34 (5)'s
-    # own function (the cells and their polygons are all it reads)
-    if classification is not None and getattr(classification, "cells", None):
-        from shapely.geometry import Polygon as _Poly
-        from .structure_underpass import underpass_bores as _up
-        cells = list(classification.cells)
-        up_ways, _parents, _notes = _up(airport, law, cells,
-                                        [_Poly(c.ring, c.holes) for c in cells])
-        out.update(way_key(w) for w in up_ways)
+    hard = {way_key(w) for w in airport.osm_ways
+            if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2}
     # A corridor states its bore ways as BARE ids (``Corridor.bore_ways``
     # is ``tuple[int, ...]``), so they are qualified here against the
     # ways themselves.  MEASURED 2026-09-15: no producer sets that field
@@ -86,12 +76,32 @@ def claimed_crossing_ways(airport: Airport, law: Law,
             for i in (getattr(c, "bore_ways", ()) or ())}
     if bare:
         seen = {int(w.id) for w in airport.osm_ways if int(w.id) in bare}
-        out.update(way_key(w) for w in airport.osm_ways if int(w.id) in bare)
+        hard.update(way_key(w) for w in airport.osm_ways if int(w.id) in bare)
         # a claimed id no feed carries is kept as ANY_FEED rather than
         # dropped: the claim is the pass's output and this function must
         # not lose it just because the id cannot be qualified
-        out.update((ANY_FEED, i) for i in bare - seen)
-    return frozenset(out)
+        hard.update((ANY_FEED, i) for i in bare - seen)
+    synth: set[WayKey] = set()
+    if classification is not None and getattr(classification, "cells", None):
+        from shapely.geometry import Polygon as _Poly
+        from .structure_underpass import underpass_bores as _up
+        cells = list(classification.cells)
+        up_ways, _parents, _notes = _up(airport, law, cells,
+                                        [_Poly(c.ring, c.holes) for c in cells])
+        # the synthetic way keeps its PARENT road's id and feed, so its
+        # ``way_key`` IS the road way a channel would otherwise take
+        synth = {way_key(w) for w in up_ways} - hard
+    return frozenset(hard), frozenset(synth)
+
+
+def claimed_crossing_ways(airport: Airport, law: Law,
+                          corridors: _t.Sequence = (),
+                          classification=None) -> frozenset[WayKey]:
+    """§45 (13) (b): every way the engine already models, hard and
+    synthesised — :func:`crossing_claims`' two halves as one set, for the
+    callers that do not decide the §45 (20) yield."""
+    hard, synth = crossing_claims(airport, law, corridors, classification)
+    return frozenset(hard | synth)
 
 
 def channel_ways(channels: _t.Sequence[Channel]) -> set[WayKey]:

@@ -330,14 +330,14 @@ def structure_records(airport, cl, law) -> dict:
                                           measure=True)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
-    from .channel_claims import claimed_crossing_ways
+    from .channel_claims import crossing_claims
     # §45 (13) (d) AMENDED (RULINGS 2026-09-15aw): the basin pass decides
     # first — THE ONE ordering site, shared with ``planar.build.build``
     from .build import channels_after_basins
+    hard_claims, synth_claims = crossing_claims(airport, law, corridors, cl)
     channels, chstats = channels_after_basins(
         airport, cl, law, objects, corridors, extra, plates, cache, orep,
-        claimed_crossing_ways(airport, law, corridors, cl),
-        frozenset(tstats.shell_claimed))
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims)
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
                                             plates, channels)
     cl3, basins, bstats = build_basins(airport, cl2, law, tunnels, objects, cache, report=orep,

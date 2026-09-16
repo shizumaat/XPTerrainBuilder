@@ -213,6 +213,47 @@ def test_3ii_a_credible_inset_is_no_depth_witness_without_a_cut(law, monkeypatch
     assert "lidar" not in chans[0].width_source
 
 
+def test_19_the_bank_toe_is_the_first_rise_not_the_cap(law, monkeypatch):
+    """§45 (19) (owner RULINGS 2026-09-16g).  The toe is the FIRST offset
+    along the axis normal where the DTM stands ``toe_rise_m`` above the
+    station's floor and STAYS above it for ``toe_confirm_m``; the cap is
+    a backstop, never a width.  Round 8 measured the old reading at KDFW:
+    120 m — the cap — against a cut the 1 m DTM reads 84-106 m wall to
+    wall, so the floor face rode the banks (149 rows, worst 1.886 m)."""
+    import auto_patch_v2.planar.channel as chmod
+    ch = law.tables.structures.channel
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: True)
+    ap = _airport(law, [_pavement_with_corridor()], [_road()], dem=_CutDem())
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert len(chans) == 1, (st.refused, st.notes)
+    c = chans[0]
+    assert c.width_source.startswith("lidar bank toes")
+    # _CutDem's floor is flat at 91 for |x| <= 10 and rises 0.25 m/m
+    # beyond, so 0.5 m of rise stands at 12 m: the FLOOR half-width is
+    # the toe, and the CREST ring stands at the bank's top (46 m) —
+    # neither is the 120 m cap
+    half = c.half_width(c.ends[0])
+    assert 10.0 <= half <= 16.0, (half, c.width_source)
+    assert half < ch.corridor_max_half_width_m
+    crest = max(abs(x) for x, _y in c.crest_ring)
+    assert 40.0 <= crest <= 55.0, crest
+    # …and the cap, when it IS reached, is a REFUSAL REASON in the stats
+    assert not any("backstop" in n for n in st.notes), st.notes
+
+
+def test_19_a_flat_field_reaches_the_backstop_and_says_so(law, monkeypatch):
+    """§45 (19): a side that reaches ``corridor_max_half_width_m`` without
+    confirming a toe is RECORDED, never taken as a width."""
+    import auto_patch_v2.planar.channel as chmod
+    import auto_patch_v2.planar.channel_geometry as geo
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: True)
+    monkeypatch.setattr(chmod, "_lidar_cut", lambda *_a, **_k: True)
+    ap = _airport(law, [_pavement_with_corridor()], [_road()])   # flat at 100
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert len(chans) == 1, (st.refused, st.notes)
+    assert any("backstop" in n and "never a width" in n for n in st.notes), st.notes
+
+
 # ── (c) the pack's wall / floor objects ──────────────────────────────────
 
 class _Placed:
@@ -374,6 +415,37 @@ def test_16_a_depth_witness_extends_the_ends(law):
     # the Trench-class wall runs 300 m past both crossings, so it does
     assert withw[0].ends[0] < bare[0].ends[0] - 100.0
     assert withw[0].ends[1] > bare[0].ends[1] + 100.0
+
+
+def test_20_a_synthesised_bore_yields_to_a_depth_witness(law):
+    """§45 (20) (owner RULINGS 2026-09-16g): a bore §34 (5) SYNTHESISED
+    from a ``bridge=yes`` aeroway covers the same crossing the channel's
+    deck covers, so where the channel states the DEPTH itself the bore
+    YIELDS and its way is the channel's.  At LGAV the TWY H bores took
+    −2914/−4017 off the trench channel, whose pack walls stand 12 m under
+    them; at KCLT taxiway U there is no depth witness and the four bores
+    keep their crossing."""
+    from auto_patch_v2.planar.channel_claims import crossing_claims
+    bridge = OsmWay(-900, "airports", ((-60.0, 0.0), (60.0, 0.0)), False,
+                    {"aeroway": "taxiway", "bridge": "yes", "layer": "1",
+                     "width": "40"})
+    ap = _airport(law, [_pavement_with_corridor()], [_road(), bridge])
+    cl = Classification(tuple(_cells()), (), {}, ())
+    hard, synth = crossing_claims(ap, law, (), cl)
+    assert ("big_roads", -500) in synth and ("big_roads", -500) not in hard
+
+    # WITH a pack wall/floor witness the bore yields: the way is the
+    # channel's and the floor is the pack's
+    obj = _Placed("dsf:obj1", Polygon(_rect(-8.0, -300.0, 8.0, 300.0)), 88.0)
+    chans, st = identify_channels(ap, cl, law, [obj], hard, synth_ways=synth)
+    assert len(chans) == 1, (st.refused, st.notes)
+    assert chans[0].ways == (-500,) and chans[0].datum_source == DATUM_PACK
+    assert any("YIELD" in n and "-500" in n for n in st.notes), st.notes
+
+    # WITHOUT one the bore keeps its crossing and the candidate is refused
+    chans2, st2 = identify_channels(ap, cl, law, (), hard, synth_ways=synth)
+    assert chans2 == [], [c.id for c in chans2]
+    assert any("keep their crossing" in r for r in st2.refused), st2.refused
 
 
 def test_16_a_synthesised_underpass_bore_is_in_the_claimed_set(law):

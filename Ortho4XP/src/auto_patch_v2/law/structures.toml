@@ -329,6 +329,8 @@ min_decks_without_depth = 2    # §45 (12) (the lane names or refuses `channel:0
 station_m             = 10.0   # the floor profile and the banks are sampled this far apart along the axis
 object_min_depth_m    = 3.0    # §45 (1) (c): a pack solid along the axis whose deepest genuine solid stands this far under the crest is a wall/floor WITNESS (the 05k-1 authority: seat = floor).  Reuses tunnel.object.skirt_min_depth_m's reading of "a real wall", stated here because a channel wall need not carry a skirt
 lidar_floor_window_m  = 20.0   # §45 (3) (ii): the DTM floor per station is the MINIMUM across this window on the axis normal — the bank toes lie inside the corridor and the floor is what stands between them (KDFW's banks run 1:4 over ~35-45 m)
+toe_rise_m            = 0.5    # §45 (19) (owner RULINGS 2026-09-16g): the BANK TOE on the axis normal is the FIRST offset where the DTM stands this far above the station's own DTM floor.  The same reading as (7)'s "does the DEM see the cut" test, at the resolution a 1 m DTM answers: KDFW's banks run ~1:4, so 0.5 m is 2 m out of the floor and the toe lands where the bank starts, not where it ends
+toe_confirm_m         = 10.0   # §45 (19): ...and STAYS above it for this far outward (or to the backstop).  Without the confirmation a kerb, a sign gantry or one noisy DTM pixel inside the cut reads as the bank top
 
 [bridge]
 clearance_m         = 5.1   # deck needs this above the ramp under it; ramp climbs beyond (08-28 :1931)

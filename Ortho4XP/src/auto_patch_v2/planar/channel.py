@@ -54,6 +54,8 @@ from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
                                _poly, _runs, _sides, _span, _spread_m,
                                _walls_half)
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
+from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
+                            channel_floor as _floor)
 from .structure_underpass import aeroway_decks
 
 __all__ = ["ChannelStats", "identify_channels",
@@ -71,12 +73,6 @@ WITNESS_NECK = "neck"          # (b) a paved neck across an unpaved corridor
 WITNESS_PACK = "pack"          # (c) the pack's wall / floor objects
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
-
-#: §45 (3): the three floor DATUM sources, in the ruled precedence.
-DATUM_PACK = "pack"            # (i)   the pack's floor plates along the axis
-DATUM_LIDAR = "lidar"          # (ii)  a CREDIBLE lidar inset's DTM floor
-DATUM_CLEARANCE = "clearance"  # (iii) deck top − bridge.clearance_m
-
 
 @_dc.dataclass
 class ChannelStats:
@@ -161,6 +157,10 @@ class _Cand:
     witnesses: set[str] = _dc.field(default_factory=set)
     bridges: list[tuple[int, float, float]] = _dc.field(default_factory=list)  # (way id, s, half width)
     packs: list[str] = _dc.field(default_factory=list)
+    #: §45 (20): a §34 (5) SYNTHESISED bore covers this way's crossing.
+    #: It is a candidate anyway — the bore YIELDS where the channel
+    #: carries a depth witness — and is dropped again where it does not.
+    synth: bool = False
 
 
 def _read_way(w: OsmWay, law: Law, union, holes, notch=None) -> _Cand | None:
@@ -214,7 +214,8 @@ def _read_way(w: OsmWay, law: Law, union, holes, notch=None) -> _Cand | None:
                                     ch.corridor_max_half_width_m, s0 - half_flank)
                        and _in_hole(ln, ss, runs[k + 1], holes, notch, union,
                                     ch.corridor_max_half_width_m, s1 + half_flank))
-            # A NECK HAS A PLAN WIDTH.  §45 (1) (b): "the neck is the
+            # A NECK HAS A PLAN WIDTH — **LAW** (§45 (19) (c), ratified
+            # by owner RULINGS 2026-09-16g).  §45 (1) (b): "the neck is the
             # deck and its plan width the deck width" — a paved run of a
             # SINGLE station is 0 m wide and is a sample, not a crossing.
             # Measured on the round-8 arm: HECA's `channel:0` and
@@ -374,7 +375,8 @@ def _lidar_credible(airport: Airport, law: Law) -> bool:
 def identify_channels(airport: Airport, classification, law: Law,
                       objects: _t.Sequence = (),
                       claimed_ways: _t.AbstractSet[int] = frozenset(),
-                      pit_shell_ids: _t.AbstractSet[str] = frozenset()
+                      pit_shell_ids: _t.AbstractSet[str] = frozenset(),
+                      synth_ways: _t.AbstractSet = frozenset()
                       ) -> tuple[list[Channel], ChannelStats]:
     """THE CHANNEL RECORDS (§45 (1)–(7)), derived ONCE.
 
@@ -448,18 +450,29 @@ def identify_channels(airport: Airport, classification, law: Law,
     # at 8 of LEMD's 11 decks.
     claimed = {i for i in (claimed_ways or ()) if isinstance(i, tuple)}
     claimed_bare = {int(i) for i in (claimed_ways or ()) if not isinstance(i, tuple)}
+    # §45 (20): the SYNTHESISED half of the claimed set, kept apart —
+    # ``channel_claims.crossing_claims`` returns the two halves and only
+    # this one may yield
+    synth = {i for i in (synth_ways or ()) if isinstance(i, tuple)}
+    claimed = claimed - synth
     n_claimed = 0
     for w in airport.osm_ways:
         if not _is_road_or_rail(w, law):
             continue
         if (way_key(w) in claimed or (ANY_FEED, int(w.id)) in claimed
                 or int(w.id) in claimed_bare):
-            # §45 (13) (b): the engine already models this crossing
+            # §45 (13) (b): the engine already models this crossing from
+            # DATA — a mapped `tunnel=yes` bore or a 05k-1 object
+            # corridor.  Neither ever yields (§45 (20)).
             n_claimed += 1
             continue
         c = _read_way(w, law, union, holes, notch)
         if c is None:
             continue
+        # §45 (20): a §34 (5) SYNTHESISED bore covers the same crossing a
+        # channel's deck does, so the way stays a candidate and the bore
+        # yields only where the channel carries a depth witness
+        c.synth = (way_key(w) in synth or (ANY_FEED, int(w.id)) in synth)
         if c.necks:
             c.witnesses.add(WITNESS_NECK)
         cands.append(c)
@@ -584,6 +597,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # 2,518 x ~1,150 m, the whole gap between the terminal horseshoes,
     # against a cut the 1 m DTM reads 84.3-105.8 m wall to wall.
     cap = ch.corridor_max_half_width_m
+    toe_top = 0.0                       # §45 (19): the bank's own top, where it stands
     widest = max(carriageway_width_m(c.way.tags, law) for c in grp)
     # (iii), the floor of every reading — the OVERLAP offset only
     # (:func:`_across`: an end-clamped projection is an overhang, not a
@@ -620,11 +634,45 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # READS THE CUT — ground standing above the DTM floor on BOTH sides
     # within the cap, which a hillside never does
     lidar = _lidar_credible(airport, law) and _lidar_cut(airport, law, axis_fn, ss, cap)
+    # ── §45 (20) A SYNTHESISED BORE YIELDS TO A CHANNEL WITH A DEPTH
+    # WITNESS (Fable 2026-09-16; owner RULINGS 2026-09-16g).  A bore §34
+    # (5) inferred from a `bridge=yes` aeroway covers the same crossing
+    # this channel's deck covers, so where the channel states the DEPTH
+    # itself — (1) (c) pack walls or (3) (ii) lidar reading a cut — the
+    # bore yields and its ways are the channel's.  Where it does not, the
+    # bore keeps the crossing and the ways leave the candidate: KCLT
+    # taxiway U's four bores are that case, LGAV's TWY H bores over
+    # −2914/−4017 (pack walls 12 m under them) the other.
+    yielded = [c for c in grp if c.synth]
+    if yielded:
+        names = "+".join(str(int(c.way.id)) for c in yielded)
+        if half_walls or lidar:
+            stats.notes.append(
+                f"{cid}: §45 (20) the §34 (5) SYNTHESISED bore(s) over way(s) {names} "
+                f"YIELD — the channel states the depth itself "
+                f"({'pack walls (1) (c)' if half_walls else 'a credible lidar cut (3) (ii)'})"
+                f", so the crossing is the channel's deck and no bore is built")
+        else:
+            kept = [c for c in grp if not c.synth]
+            if not kept:
+                stats.refused.append(
+                    f"{cid}: no depth witness — the §34 (5) SYNTHESISED bore(s) over "
+                    f"way(s) {names} keep their crossing (§45 (20): only a channel that "
+                    f"states the depth itself takes a synthesised bore's way)")
+                return None
+            stats.notes.append(
+                f"{cid}: §45 (20) way(s) {names} stay with their §34 (5) SYNTHESISED "
+                f"bore(s) — this channel states no depth witness")
+            return _build_one(airport, law, cid, kept, union, objects, stats, pit_shells)
     if half_walls:
         half_at, width_src = min(cap, max(half_walls, half_base)), "pack walls (10) (i)"
     elif lidar:
         # (ii) THE BANK TOES on the axis normal
-        toe = _bank_toe_half(airport, law, axis_fn, ss, cap)
+        capped: list[str] = []
+        toe, toe_top = _bank_toe_half(airport, law, axis_fn, ss, cap, capped)
+        for note in capped:
+            # §45 (19): the backstop is a REFUSAL REASON, never a width
+            stats.notes.append(f"{cid}: {note}")
         half_at, width_src = ((min(cap, max(toe, half_base)), "lidar bank toes (10) (ii)")
                               if toe else (half_base, "carriageways ⊕ lane_width_m (10) (iii)"))
     else:
@@ -748,8 +796,13 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # construction, not a solver failure.  ``channel_cells`` stands the
     # floor back from every DECK by the same band, so a deck's airside
     # faces meet the band's CREST and never the floor.
+    # §45 (19): where the lidar states the bank, its PLAN RUN is measured
+    # — toe to top — and not inferred from ``bank_slope``; the corridor
+    # edge (the crest ring) then lands at the top, which at KDFW is the
+    # taxiway bridges' own span.
     bank = max(_bank_width(airport, axis_fn, ss, profile, ch.bank_slope, wall_shape,
                            law.tables.emit.identity.min_distinct_spacing_m),
+               toe_top - half_at if wall_shape == "lidar" else 0.0,
                tn.wall_gap_m + tn.wall_band_width_m)
     lo, ro = _sides(axis_fn, ss, half_at + bank)
     crest_ring = tuple(lo) + tuple(reversed(ro))
@@ -887,91 +940,3 @@ def _decks(airport: Airport, law: Law, cid: str, grp: list[_Cand], axis_ln, axis
                         way=wid, s0=float(t0), s1=float(t1),
                         ring=ring, datum=CREST_DESIGN))
     return out, halves
-
-
-def _floor(airport: Airport, law: Law, cid: str, grp: list[_Cand], axis_ln, axis_fn,
-           ss: list[float], decks: list[Deck], half: float, objects: _t.Sequence,
-           stats: ChannelStats, packs: _t.Sequence[str] = (),
-           lidar: bool = False):
-    """§45 (3) THE FLOOR DATUM — precedence, then "Cut the road down".
-
-    (i) the pack's floor plates along the axis; (ii) a CREDIBLE lidar
-    inset (the DTM floor at each station); (iii) neither: under each deck
-    the floor is the deck top − ``bridge.clearance_m`` and between decks
-    the road's own longitudinal law clamped ≤ that datum and
-    ≤ ``ramp_max_grade``.  Returns ``(profile, datum, wall shape, witness)``.
-
-    The clamp is stated as ``min over decks of (z_d + grade·|s − s_d|)``,
-    which IS "≤ that datum and ≤ ramp_max_grade" written once: two decks
-    closer than ``2 × clearance / ramp_max_grade`` keep the floor down
-    between them (KPHX's two stand 58 m apart against a 127.5 m reach, so
-    the road never climbs between the terminals)."""
-    ch = law.tables.structures.channel
-    tn = law.tables.structures.tunnel
-    br = law.tables.structures.bridge
-    # the corridor's CREST estimate, used only to judge a pack witness's
-    # depth and to report: the DEM along the axis outside the decks
-    samples = [_dem(airport, axis_fn(s)) for s in ss]
-    good = [z for z in samples if not math.isnan(z)]
-    crest_est = (sum(good) / len(good)) if good else float("nan")
-
-    # (i) THE PACK'S FLOOR PLATES — the SAME witness set the width (10)
-    # (i) read, never a second read at a second radius
-    packs = list(packs)
-    floor_pack: float | None = None
-    if packs:
-        zs = [float(o.solid_min_z) for o in objects
-              if str(getattr(o, "id", "")) in set(packs)
-              and getattr(o, "solid_min_z", None) is not None]
-        if zs:
-            floor_pack = min(zs)
-            for c in grp:
-                c.witnesses.add(WITNESS_PACK)
-            profile = tuple((float(s), float(floor_pack)) for s in (ss[0], ss[-1]))
-            stats.notes.append(f"{cid}: floor from the pack (§45 (3) (i)) — "
-                               f"{len(set(packs))} placement(s), deepest genuine solid "
-                               f"{floor_pack:.2f} m against a crest of {crest_est:.2f}")
-            return profile, DATUM_PACK, "face", ",".join(sorted(set(packs))[:4])
-
-    # (ii) A CREDIBLE LIDAR INSET **THAT READS THE CUT** (§45 (7): "Where
-    # the DEM DOES see the cut (KDFW) it is the floor witness (3) (ii)")
-    if lidar:
-        prof = []
-        for s in ss:
-            z = _lidar_floor(airport, axis_fn, s, ch.lidar_floor_window_m)
-            if not math.isnan(z):
-                prof.append((float(s), float(z)))
-        if len(prof) >= 2:
-            stats.notes.append(f"{cid}: floor from a CREDIBLE lidar inset (§45 (3) (ii)) — "
-                               f"{len(prof)} station(s), "
-                               f"{min(z for _s, z in prof):.2f}..{max(z for _s, z in prof):.2f} m "
-                               f"under a crest of {crest_est:.2f}")
-            return tuple(prof), DATUM_LIDAR, "lidar", "lidar inset"
-
-    # (iii) CUT THE ROAD DOWN
-    anchors: list[tuple[float, float]] = []
-    for d in decks:
-        mid = (d.s0 + d.s1) / 2.0
-        top = _dem(airport, axis_fn(mid))
-        if math.isnan(top):
-            continue
-        anchors.append((mid, top - br.clearance_m))
-    if not anchors:
-        stats.refused.append(f"{cid}: no deck top could be sampled — the DEM answers NaN "
-                             f"at every crossing, so §45 (3) (iii) has no datum")
-        return None, "", "bank", ""
-    grade = tn.ramp_max_grade
-    # THE DECK'S OWN STATION IS IN THE PROFILE.  Without it the datum
-    # lands between two sampled stations and the floor reads the CLIMB's
-    # value under the deck itself — measured on the twin: 95.30 against
-    # the 94.90 the clearance states, one half-station of 8 % grade.
-    stations = sorted(set(list(ss) + [sd for sd, _z in anchors]))
-    prof = []
-    for s in stations:
-        prof.append((float(s), float(min(z + grade * abs(s - sd) for sd, z in anchors))))
-    stats.notes.append(
-        f"{cid}: floor by §45 (3) (iii) \"Cut the road down\" — deck top − "
-        f"bridge.clearance_m {br.clearance_m:.1f} m at {len(anchors)} crossing(s), the road's "
-        f"own law between them clamped at ramp_max_grade {grade:.0%}; "
-        f"{min(z for _s, z in prof):.2f}..{max(z for _s, z in prof):.2f} m")
-    return tuple(prof), DATUM_CLEARANCE, "bank", "bridge.clearance_m"

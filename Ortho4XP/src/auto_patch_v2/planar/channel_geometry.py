@@ -28,7 +28,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from .structure_approach import unit
 
-__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along', '_lidar_cut']
+__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along', '_lidar_cut', '_confirmed']
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -124,7 +124,9 @@ def _in_hole(ln: LineString, ss: list[float], run, holes, notch=None,
     the outer boundary (KPHX's E Sky Harbor Blvd, which runs in from the
     edge, leaves ``holes`` empty and read ``necks = 0``).
 
-    A NOTCH IS A CORRIDOR ONLY WHERE IT IS ONE.  The field complement is
+    A NOTCH IS A CORRIDOR ONLY WHERE IT IS ONE — **LAW** (§45 (19) (a),
+    ratified by owner RULINGS 2026-09-16g from round 8's measurement).
+    The field complement is
     everything unpaved, so on its own it reads every road that crosses a
     taxiway as a channel: measured on the round-8 arm (the seven dry
     replays), LEMD 3 -> 6, HECA 0 -> 3, CYXY 0 -> 1, LGAV 1 -> 4, all of
@@ -260,7 +262,9 @@ def _lidar_cut(airport: Airport, law: Law, axis_fn, ss, cap: float) -> bool:
     object_min_depth_m`` above the DTM floor on BOTH SIDES of the axis
     within ``corridor_max_half_width_m``, at a majority of the stations.
 
-    A credible inset is not by itself a depth witness.  §45 (7) states it
+    A CREDIBLE INSET IS A DEPTH WITNESS ONLY WHERE IT READS A CUT —
+    **LAW** (§45 (19) (b), ratified by owner RULINGS 2026-09-16g).
+    §45 (7) states it
     the other way round — "Where the DEM DOES see the cut (KDFW) it is the
     floor witness (3) (ii)" — and the round-8 arm measured what dropping
     the condition costs: at CYXY, KCLT and KPHX, whose insets are credible
@@ -342,47 +346,107 @@ def _walls_half(axis_ln: LineString, objects: _t.Sequence, ids: _t.Sequence[str]
     return out
 
 
-def _bank_toe_half(airport: Airport, law: Law, axis_fn, ss, cap: float) -> float:
-    """§45 (10) (ii): the BANK TOES on the axis normal, where the inset is
-    credible lidar — walk outward from the axis until the DTM comes back
-    within the materiality floor of the crest (the toe), and take the
-    MEDIAN station's toe so one bridge abutment does not set the width.
+def _bank_toe_half(airport: Airport, law: Law, axis_fn, ss, cap: float,
+                   capped: list[str] | None = None) -> tuple[float, float]:
+    """§45 (10) (ii)/(19) THE BANK TOE IS THE FIRST RISE, NOT THE CAP
+    (Fable 2026-09-16; owner RULINGS 2026-09-16g).  Returns ``(toe, top)``
+    — the FLOOR's half-width and the offset where the bank stops rising,
+    both as the MEDIAN station's so one bridge abutment sets neither.
 
-    KDFW is the site this exists for: 8.64-9.94 m of cut with banks at
-    roughly 1:4, i.e. a toe 35-45 m out, against an apt.dat hole
-    1,150 m wide."""
+    On each side of each station the TOE is the first offset along the
+    axis normal where the DTM stands ``[channel] toe_rise_m`` above the
+    station's own DTM floor and STAYS above it for ``toe_confirm_m`` —
+    the confirmation is what keeps a kerb or one noisy pixel from reading
+    as the bank.  The TOP is where that rise stops (the DTM back within
+    the materiality floor of its own running maximum): the crest ring
+    stands there, which at KDFW is the taxiway bridges' own 84-106 m
+    span.
+
+    ``corridor_max_half_width_m`` is a BACKSTOP, never a width: a side
+    that reaches it without confirming a toe is RECORDED in ``capped``
+    and the ruling calls that a refusal reason, not a measurement.  Round
+    8 measured what the old reading cost — it walked for the TOP alone,
+    which at KDFW ran to the 120 m cap, so the FLOOR face was 240 m wide
+    over a cut the 1 m DTM reads 84-106 m and rode the banks (149
+    `channel_floor_at_declaration` rows, worst 1.886 m)."""
+    ch = law.tables.structures.channel
+    rise = float(ch.toe_rise_m)
+    confirm = float(ch.toe_confirm_m)
+    window = float(ch.lidar_floor_window_m)
     tol = float(law.tables.emit.materiality.elevation_m)
-    step = max(2.0, float(law.tables.structures.channel.station_m) / 5.0)
+    step = max(2.0, float(ch.station_m) / 5.0)
     toes: list[float] = []
+    tops: list[float] = []
+    n_capped = 0
     for s in ss:
         p = axis_fn(s)
         a, b = axis_fn(max(0.0, s - 1.0)), axis_fn(s + 1.0)
         u = unit(a, b)
         nv = (-u[1], u[0])
-        z0 = _dem(airport, p)
-        if math.isnan(z0):
+        flr = _lidar_floor(airport, axis_fn, s, window)
+        if math.isnan(flr):
             continue
-        here = 0.0
+        here_toe = 0.0
+        here_top = 0.0
         for sgn in (1.0, -1.0):
+            toe: float | None = None
             t = step
-            top = z0
             while t <= cap:
                 z = _dem(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
-                if math.isnan(z):
-                    break
-                if z <= top + tol:
-                    top = max(top, z)
-                    t += step
-                    continue
-                top = z
+                if not math.isnan(z) and (z - flr) >= rise:
+                    if _confirmed(airport, p, nv, sgn, t, confirm, step, flr, rise, cap):
+                        toe = t
+                        break
                 t += step
-            here = max(here, min(t, cap))
-        if here > 0.0:
-            toes.append(here)
+            if toe is None:
+                n_capped += 1
+                here_toe = max(here_toe, cap)
+                here_top = max(here_top, cap)
+                continue
+            # the TOP: outward from the toe while the DTM still climbs
+            top = toe
+            run = _dem(airport, (p[0] + nv[0] * sgn * toe, p[1] + nv[1] * sgn * toe))
+            t = toe + step
+            while t <= cap:
+                z = _dem(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
+                if math.isnan(z) or z <= run + tol:
+                    break
+                run = z
+                top = t
+                t += step
+            here_toe = max(here_toe, toe)
+            here_top = max(here_top, top)
+        if here_toe > 0.0:
+            toes.append(here_toe)
+            tops.append(here_top)
+    if capped is not None and n_capped:
+        capped.append(f"{n_capped} side-station(s) reached the "
+                      f"[channel] corridor_max_half_width_m backstop {cap:.0f} m without "
+                      f"confirming a toe (§45 (19): the cap is never a width)")
     if not toes:
-        return 0.0
+        return 0.0, 0.0
     toes.sort()
-    return toes[len(toes) // 2]
+    tops.sort()
+    return toes[len(toes) // 2], tops[len(tops) // 2]
+
+
+def _confirmed(airport: Airport, p: XY, nv: XY, sgn: float, t0: float,
+               confirm_m: float, step: float, floor_z: float, rise: float,
+               cap: float) -> bool:
+    """§45 (19): whether the rise at ``t0`` STAYS ``rise`` above the floor
+    for ``confirm_m`` further out (or to the backstop) — the clause that
+    keeps a kerb, a sign gantry or one noisy pixel from reading as the
+    bank top."""
+    t = t0 + step
+    end = t0 + confirm_m
+    while t <= end:
+        z = _dem(airport, (p[0] + nv[0] * sgn * t, p[1] + nv[1] * sgn * t))
+        if math.isnan(z):
+            return t >= cap                 # the DTM ends: take the toe
+        if (z - floor_z) < rise:
+            return False
+        t += step
+    return True
 
 
 def _witness_along(axis_ln: LineString, objects: _t.Sequence,

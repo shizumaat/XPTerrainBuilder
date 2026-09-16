@@ -313,6 +313,8 @@ class Channel:
     #: this wide across the axis at each station (the bank toes are in the
     #: corridor; the floor is what lies between them).
     lidar_floor_window_m: float
+    toe_rise_m: float
+    toe_confirm_m: float
 
 
 @_dc.dataclass(frozen=True)

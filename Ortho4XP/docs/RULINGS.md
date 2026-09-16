@@ -8573,3 +8573,115 @@ then stands on lidar with no re-warm. Round 8 is a FRESH lane (the
 round-7 agent died with the session) on the branch at b0a86405.
 
 ## 2026-09-16b RESUMED after the shutdown (main 756785ca clean, no markers, no locks, the app closed): lane v2shellwall r3 launched from the regenerated pack (revert 07cb9794, keep r1's walled trench, implement §33 (6) B AMENDED (3)); §16g (10) (12) WRITTEN (the arrangement clip preserves the airside vertex set; `pad_airside_renode` family; pads ship ON only at 0 airside movement) → lane v2padclip; v2shoulderband r2 (the end cap + one capture each at VHHH/CYXY/SPJC/KCLT/OTHH) → launched. 145 lane worktrees under .claude/worktrees (1.6 TB) — cleanup chipped for the owner (only v2shellwall, v2padclip, v2shoulderband and the peer's v2channel are live)
+
+## 2026-09-16a v2insetmanifest MERGED (0f92fd0d): §45 (18) — the manifest reader falls back to the inset's own sidecar; the writer stamps both keys; KDFW's 1 m lidar now reads `(1.0, 'inset')` / `lidar` with no re-warm
+
+Lane `v2insetmanifest` (a5b13d50): `ProductionDem._entry_pixel_m` —
+`native_resolution_m`, else the entry's `resolution_m` (already on
+main), else the inset's OWN `<path>.json` (`resolution_m`, then
+`native_resolution_m`), else `None`; ONE log line per distinct source
+when the fallback fires. Writer `O4_Airport_Elevation_Insets._inset_
+bake_provenance_entry` stamps BOTH keys (the USGS3DEP fetch writes
+`resolution_m`, the writer read only `native_resolution_m` — that minted
+the 08-15 N32W098 manifests). Replayed read-only on the real KDFW 08-15
+entry: `source_pixel_m()` `(None,'base_tier')` → `(1.0,'inset')`,
+`flat_source_class` `coarse` → `lidar`. Consumer census by grep: the
+only caller is `flat_site._source_class`; `law/tables.flat_source_
+class`, `tools/flat_site_sweep`, v1 `flat_site`, `O4_Bathymetry_Band`
+and `_inset_effective_pixel_m` unaffected (the last reads provider
+definitions). 16 twins. Suite ON MAIN: `1941 passed, 1 skipped, 1
+xpassed` (campaign + insets + flat-site), 0 failed. FLAGGED, not fixed:
+`_inset_effective_pixel_m` (~:10023) reads the sidecar for
+`native_resolution_m` only and survives via the provider `.elv`
+declaration — a non-declaring provider's inset would take its stored
+pixel at face value for the smoothing radius (chip). v2channel r8's
+KDFW build now stands on the lidar datum by itself.
+
+## 2026-09-16c OWNER (relayed by the peer session's interview): CYXY's two version-stale USGS3DEP negatives are fixed by the PROVIDER'S COVERAGE BOX, not by re-asking — USGS 3DEP is US-only; lane `v2usgsbox`
+
+`Providers/Elevation/USGS3DEP.elv` declares `coverage_bbox=-180.0,15.0,
+-64.0,72.0`, which reaches all of Canada, Mexico, Central America and
+the Caribbean; CYXY (Whitehorse) therefore carries two USGS3DEP
+`no-coverage` records that 15ay's once-per-version door re-asks and the
+harness refuses on (`--refresh-only dem` on 1.50.1788: "2 artifact(s)
+STILL not current"). Owner: fix the box. 15ay's predicate already
+treats an out-of-box negative as never stale, so a correct declaration
+(CONUS, Alaska, Hawaii, PR/USVI, Guam/CNMI, American Samoa — a LIST of
+boxes if the `.elv` reader holds one) makes CYXY's records inert with
+no corpus edit. The lane also censuses every cached index for
+now-out-of-box USGS3DEP negatives and names the campaign tiles inside
+the new boxes. KCLT needed nothing (rc 0); the KPHX item is closed by
+15au.
+
+## 2026-09-16d OWNER INTERVIEW (four answers, verbatim) — 15y-1 CLOSED as our mistake (the item-7 mouth is 496 m from 14R/32L; the "33 m" was distance to the mis-classified shoulder face, retired by §40 (5)); VMMC: NO tunnels at all → §34 (12) (5) (a bore that enters a building is the building's ramp; the sim's elevated roads carry bridges), lane v2vmmcbore; the two LEMD decks named for the owner's check (shape 981 at 40.4788711,−3.5787587; shape 988 at 40.4659974,−3.5811339 in the Sep 15 07:20 patch); CYXY: fix the USGS3DEP coverage box (peer); KPHX closed (13:29 refresh + 15au); the DEM refreshes: CYXY "nothing to derive" (two version-stale negatives remain — the box fix), KCLT nothing stale; HECA/LEMD DEM inputs UNCHANGED since Aug 5 / Aug 24 — what the owner sees as "the DEM changed" is the design surface (§20c, bank OFF, pads, the shoulder band)
+
+1. (15y-1) "The only tunnel mouths I see near 14R/32L are here:
+   40°29'02.72"N 3°34'48.63"W and 40°27'39.42"N 3°32'40.81"W, both of
+   which are more than 300m from the runway. So this sounds like a
+   mistake." — CONFIRMED: apt.dat 14R/32L centreline: the item-7 site
+   496 m, the owner's mouths 361 / 469 m, the trench rim 438 m. The
+   residual quoted in 15y/15az was the `runway_shoulder` cell (111,648
+   m², 914 m off-axis) carrying the runway's ref; v2shoulderband r1
+   retired the nine runway|tunnel_ramp rows (15bl).
+2. (15w-1) "There should be no tunnels cut at VMMC because all of the
+   roads are above ground, all the bridges/overpasses/ramps are
+   handled by elevated roads provided by the sim, they don't need any
+   trenches cut." → §34 (12) (5).
+3. (the LEMD decks) "Is it possible to provide shapeID's for these in
+   the current auto-patch on disk so I can check the location?" →
+   given above (the patch on disk is the Sep 15 07:20 build).
+4. (CYXY) "Fix the USGS coverage box" → the peer's inset line; HECA's
+   index also carries 468 USGS3DEP/NEWZEALAND1M negatives for Egyptian
+   airports — the same box defect.
+Owner also: "Why would the DEM need to be refreshed? It doesn't
+change" — RIGHT: the rasters are never refetched; the `dem` scope
+today only re-asks a provider's stale NEGATIVE; a correct coverage box
+makes that unnecessary. "Is this USGS bug affecting other airports
+too, like HECA?" — NO (3DEP is US-only; KPHX hit, KCLT not); HECA's
+DEM inputs unchanged since Aug 5 (no dem-scope write since Aug 8);
+VHHH gained a Hong Kong 5 m inset Sep 13; OTHH's Copernicus insets
+were rewritten Sep 14 22:07 (unledgered — the owner's app build, same
+source).
+
+## 2026-09-16f OWNER: "Yes, both 981 and 988 span real cuts." → §34 (12) (4) AMENDED (2): witness (i) reads the CORRIDOR (any way of the bore chain tagged tunnel / layer ≤ −1), safe now that (5) builds no bore at VMMC; LEMD returns to its seven approved decks; the DEM witness stays second. Assigned to lane v2vmmcbore (structure_service.deck_witness_for is its file)
+
+## 2026-09-16e v2usgsbox MERGED (23049f59): the `.elv` reader holds a LIST of coverage boxes; USGS3DEP US-only (8 boxes), HRDEM/HRDEMTIDAL Canada-only (3), NEWZEALAND1M/TIDAL + the Chathams; CYXY's two negatives INERT with no corpus edit; HECA's 468 were already out-of-box
+
+Lane `v2usgsbox` (564887e5). Reader: `coverage_bbox` may repeat (one
+box per cited line) or be `;`-separated (the reader's existing list
+separator); the parsed definition gains `coverage_bboxes` while
+`coverage_bbox` stays ONE box — their hull — so single-box providers
+parse byte-identically. Consumer census: `_coverage_bbox_intersects`
+(~30 sites) and `_tile_centre_in_coverage` match ANY box via
+`coverage_boxes(definition)`; the STAC root-item pseudo-collection
+takes the hull, unchanged. Declarations deviate from 16c's brief with
+the measurement: the brief's CONUS box kept CYVR in coverage and its
+Alaska box kept CYXY (−135.07 lies east of the panhandle's −130 limit
+only below 60 N) — so CONUS splits at the Northwest Angle (west box to
+49.05), Alaska into mainland / panhandle 54.5–60 N / Aleutians west of
+the antimeridian, plus Hawaii, PR/USVI, Guam/CNMI, American Samoa;
+HRDEM's `−141,41,−52,84` reached 41 N (nine stale negatives at Portland
+N45W123). Named residual: a rectangle cannot follow the Great Lakes
+border (southern Ontario stays in CONUS-east; the upper Midwest in the
+Canadian box) — discovery is authoritative there. CENSUS, read-only,
+30 indexes / 11,523 no-coverage records: newly out-of-box 15 (USGS3DEP
+6, HRDEM 9) — N60W136 2 (CYXY, the ruling's site), N61W133 1, N17W097
+2, N16W097 1, N45W123 9; version-stale 118 → 103; residual IN-box
+version-stale negatives (legitimate providers, re-asked once per
+version as 15ay rules): USGS3DEP 59 (the Phoenix/Portland set),
+FRANCE50CM 22, ITALY10M 11, SWISSALTI3D 8, COPERNICUSGLO30 3. HECA's
+468 on N30E031 were ALREADY out-of-box (NEWZEALAND1M's box never
+reached Egypt) — the addendum's premise does not hold there. Campaign
+tiles inside the new USGS3DEP boxes: KCLT, KDFW, KPHX, KMCI, KAFW, KDEN,
+KPDX; outside: CYXY, OTHH, VHHH, VMMC, HECA, LEMD, SPJC, LGAV. All 80
+provider boxes surveyed: SONNY1 (`−74,27,45,84`, role=base, judged by
+tile centre) left — tightening could change a real tile's base DEM,
+a geometry change needing a build; national providers' spill onto
+neighbours left (no measured defect). Both `.spec` files copy
+`Providers/` into the frozen engine. Suite ON MAIN: `1952 passed, 1
+skipped, 1 xpassed`, 0 failed. OWNER QUESTION (kept as merged, zero
+records change either way): the Chatham Islands box WIDENS
+NEWZEALAND1M/TIDAL (LINZ publishes Chatham 1 m lidar) — keep, or revert
+to mainland-only?
+
+## 2026-09-16h v2usgsbox on main (peer, 23049f59 / 16e): USGS3DEP US-only (8 boxes), HRDEM Canada-only, NZ + Chathams — CYXY's negatives are out-of-box and inert, its builds pass the `dem` pre-flight (lanes merge main first). My 16d premise about HECA's 468 records CORRECTED by the peer's measurement: they were already out-of-box (NZ's box never reached Egypt); the in-box version-stale residual is legitimate providers (USGS3DEP 59 Phoenix/Portland, FRANCE50CM 22, ITALY10M 11, SWISSALTI3D 8, COPERNICUS 3) that re-ask once per version. The new .elv files ship with the next make_engine.sh.

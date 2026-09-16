@@ -578,6 +578,14 @@ def elevation_providers_directory():
     return os.path.join(FNAMES.Provider_dir, "Elevation")
 
 
+#: Keys a ``.elv`` file may repeat, one record per line, instead of
+#: overwriting.  Repeated lines are joined with ``;`` -- the separator the
+#: list parsers already use -- so the accumulated value parses exactly like
+#: a single ``;``-separated line.  Only ``coverage_bbox`` is in the set
+#: (owner RULINGS 2026-09-16c: a provider declares DISJOINT regions).
+MULTI_VALUE_KEYS = frozenset(("coverage_bbox",))
+
+
 def initialize_elevation_providers_dict(providers_directory=None):
     """Parse every ``Providers/Elevation/<CODE>.elv`` file.
 
@@ -623,7 +631,16 @@ def initialize_elevation_providers_dict(providers_directory=None):
             items = line.split("=")
             key = items[0].strip()
             value = "=".join(items[1:]).strip()
-            definition[key] = value
+            if key in MULTI_VALUE_KEYS and key in definition:
+                # A REPEATED key accumulates instead of overwriting, so a
+                # provider with disjoint regions can give each box its own
+                # line and its own citation comment (owner 2026-09-16c).
+                # The accumulated value is the same ``;``-separated string
+                # a single line may carry, so both spellings parse
+                # identically.  Every other key keeps last-line-wins.
+                definition[key] = definition[key] + ";" + value
+            else:
+                definition[key] = value
         if "access_strategy" not in definition:
             UI.vprint(
                 0,
@@ -649,9 +666,13 @@ def initialize_elevation_providers_dict(providers_directory=None):
                 definition.get("native_resolution_m"), default=None
             )
         if "coverage_bbox" in definition:
-            definition["coverage_bbox"] = _parse_bounding_box(
-                definition["coverage_bbox"]
-            )
+            boxes = _parse_bounding_boxes(definition["coverage_bbox"])
+            definition["coverage_bboxes"] = boxes
+            # ``coverage_bbox`` remains ONE box -- the hull -- so every
+            # single-box provider parses exactly as before and consumers
+            # that want a single extent are untouched.  The precise
+            # declaration is ``coverage_bboxes`` (owner 2026-09-16c).
+            definition["coverage_bbox"] = _bounding_box_hull(boxes)
         # role=bathymetry sources whose data stops at the waterline
         # (exposed-flats lidar): visually a binary "flats" layer, so the
         # automatic paths prefer the free OpenStreetMap fallback and only
@@ -970,6 +991,70 @@ def _parse_bounding_box(value):
     return None
 
 
+def _parse_bounding_boxes(value):
+    """Parse ``W,S,E,N;W,S,E,N;...`` into a tuple of boxes.
+
+    Owner RULINGS 2026-09-16c.  A provider whose data lives in DISJOINT
+    regions (USGS 3DEP: CONUS, Alaska, Hawaii, PR/USVI, Guam/CNMI,
+    American Samoa) could only declare the HULL of them, and a hull over
+    the Pacific and the Caribbean reaches every airport between -- every
+    one of which then records a ``no-coverage`` that 15ay's once-per-
+    version door re-asks forever.  The declaration is now a LIST.
+
+    ``;`` is the separator the reader already uses for a list of records
+    (``exclude_tiles``, :func:`_parse_tile_list`), and
+    :func:`initialize_elevation_providers_dict` additionally JOINS
+    repeated ``coverage_bbox=`` lines with it, so a ``.elv`` file can
+    give each box its own line and its own citation comment.
+
+    A malformed box is skipped, not fatal: one bad line must not silently
+    widen a provider to "no declared coverage" (which means EVERYWHERE).
+    """
+    boxes = []
+    for chunk in str(value).split(";"):
+        if not chunk.strip():
+            continue
+        box = _parse_bounding_box(chunk)
+        if box is not None:
+            boxes.append(box)
+    return tuple(boxes)
+
+
+def _bounding_box_hull(boxes):
+    """The single ``(W, S, E, N)`` box enclosing ``boxes`` (or ``None``).
+
+    ``coverage_bbox`` keeps meaning exactly what it meant -- ONE box --
+    so every consumer that wants a single extent (the root-item
+    pseudo-collection in the STAC strategy) is unchanged, and a
+    single-box provider parses byte-identically.  The PRECISE
+    declaration lives beside it in ``coverage_bboxes``.
+    """
+    if not boxes:
+        return None
+    return (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+
+
+def coverage_boxes(definition):
+    """The provider's declared coverage as a tuple of boxes (possibly ())."""
+    boxes = definition.get("coverage_bboxes")
+    if boxes:
+        return tuple(boxes)
+    single = definition.get("coverage_bbox")
+    if not single:
+        return ()
+    if not isinstance(single, (list, tuple)):
+        # A definition assembled by hand (a test, a tool) may still hold the
+        # raw string; parse it the same way the .elv reader does, so a
+        # ``;``-separated string is a list there too.
+        return _parse_bounding_boxes(single)
+    return (tuple(single),)
+
+
 def _parse_tile_list(value):
     """Parse ``lat,lon;lat,lon;...`` into a tuple of integer tile corners."""
     tiles = []
@@ -1103,13 +1188,20 @@ def select_bathymetry_definitions(lat, lon):
 
 
 def _coverage_bbox_intersects(definition, bounding_box_wgs84):
-    """Cheap pre-filter: does the provider's optional coverage overlap?"""
-    coverage = definition.get("coverage_bbox")
-    if not coverage:
+    """Cheap pre-filter: does the provider's optional coverage overlap?
+
+    A provider may declare SEVERAL disjoint boxes (owner 2026-09-16c);
+    overlap with ANY of them is coverage, and a provider that declares
+    none covers everywhere (unchanged).
+    """
+    boxes = coverage_boxes(definition)
+    if not boxes:
         return True
     (west, south, east, north) = bounding_box_wgs84
-    (cw, cs, ce, cn) = coverage
-    return not (east < cw or west > ce or north < cs or south > cn)
+    return any(
+        not (east < cw or west > ce or north < cs or south > cn)
+        for (cw, cs, ce, cn) in boxes
+    )
 
 
 # =====================================================================
@@ -8955,7 +9047,18 @@ def _inset_bake_provenance_entry(inset_path):
             entry["provider"] = meta.get("provider")
             entry["source_ids"] = meta.get("source_ids") or []
             entry["fetch_date"] = meta.get("fetch_date")
-            entry["native_resolution_m"] = meta.get("native_resolution_m")
+            # §45 (18) (owner RULINGS 2026-09-15bo): BOTH keys are
+            # stamped, each falling back to the other.  The fetchers
+            # write ``resolution_m`` (see the USGS3DEP sidecar); stamping
+            # only ``native_resolution_m`` minted the 2026-08-15 N32W098
+            # manifests that read ``null`` over a composed 1 m lidar
+            # frame, so every reader of the manifest called KDFW coarse.
+            native = meta.get("native_resolution_m")
+            stated = meta.get("resolution_m")
+            entry["native_resolution_m"] = (
+                native if native is not None else stated)
+            entry["resolution_m"] = (
+                stated if stated is not None else native)
         except Exception:
             pass
     return entry
@@ -11346,15 +11449,15 @@ def _tile_centre_in_coverage(definition, lat, lon):
     centre (a tile straddling the coverage edge is not a safe automatic
     pick -- the un-covered part would read as nodata/zero).
     """
-    coverage = definition.get("coverage_bbox")
-    if not coverage:
+    boxes = coverage_boxes(definition)
+    if not boxes:
         return True
-    (west, south, east, north) = coverage
     centre_longitude = lon + 0.5
     centre_latitude = lat + 0.5
-    return (
+    return any(
         west <= centre_longitude <= east
         and south <= centre_latitude <= north
+        for (west, south, east, north) in boxes
     )
 
 

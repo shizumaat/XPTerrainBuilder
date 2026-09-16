@@ -15315,3 +15315,52 @@ the reader takes `native_resolution_m`, else `resolution_m`, else the inset's OW
 names), else `None` as today — one derivation, twinned on a 08-15-shaped manifest;
 and the WRITER stamps both keys on every new entry. No re-warm needed; the owner's
 KDFW read then stands on the lidar datum with no law change.
+
+## §34 (12) (5) A BORE THAT ENTERS A BUILDING IS THE BUILDING'S RAMP, NOT A TERRAIN TUNNEL; THE SIM'S ELEVATED ROADS CARRY BRIDGES (owner RULINGS 2026-09-16d; Fable 2026-09-16) — lane `v2vmmcbore`
+
+Owner 2026-09-16: "There should be no tunnels cut at VMMC because all
+of the roads are above ground, all the bridges/overpasses/ramps are
+handled by elevated roads provided by the sim, they don't need any
+trenches cut."  VMMC after r6 still built `tunnel:-2488@0` (an 84 m
+ramp at an OSM `highway=service tunnel=yes` bore 188 m from the owner's
+probe) and `-2088` on `-4787@1` — car-park ramps under Taipa's
+buildings, admitted by the mouth (12ab).  RULED (OSM-derived bores
+only; pack-stated corridors are authored geometry and untouched):
+(a) a bore whose covered end enters a BUILDING footprint, an
+underground parking (`amenity=parking` + `parking=underground` /
+`multi-storey`, `building=parking`) or a `covered=yes` structure is
+the building's own ramp — the object or the sim carries it; it is NOT
+built as a terrain tunnel; (b) a mapped bridge / overpass / ramp
+(`bridge=yes`, `layer ≥ 1`) over ordinary ground is the sim's elevated
+road; the terrain neither severs nor trenches for it (§34 (12) (4)
+already: no witnessed cutting → no deck); (c) a terrain tunnel is an
+OSM bore that passes UNDER something at grade — pavement, a pad, a
+road, a railway, ground witnessed as a cutting (the deck witnesses of
+(4)) — with a mouth on the field (12ab).  At VMMC every bore fails (c):
+expected 0 tunnels, 0 ramps, 0 rims; the sea wall and quays of §37 (11)
+unchanged.  LEMD (55/56 tunnels — real road tunnels under the field,
+`layer −1/−2`) and OTHH (44, pack corridors) unchanged tunnel for
+tunnel; SPJC/KCLT/CYXY named if any bore changes.  The building/parking
+witness comes from the OSM feeds already cached (the airports layer
+carries `building=*`; the small-roads layer the `amenity=parking`
+polygons — say if it does not).
+
+## §34 (12) (4) AMENDED (2) — WITNESS (i) READS THE CORRIDOR, NOT THE SPAN (owner RULINGS 2026-09-16f: shapes 981 and 988 span real cuts; conditional on (5)) — lane `v2vmmcbore`
+
+The owner checked the two decks §34 (12) (4) dropped (shape 981 =
+`bridge_deck:-5305` at 40.4788711, −3.5787587; shape 988 =
+`bridge_deck:-15293` at 40.4659974, −3.5811339): "both span real
+cuts."  The DEM witness (ii) read −0.57 / −1.46 m there (a coarse
+reading against sloping abutments) and witness (i) as written asked
+the way beneath the SPAN, which is the untagged approach.  The
+narrowness of (i) existed only to keep VMMC's seafront decks out; with
+(5) no OSM bore is built at VMMC at all.  RULED: (i) reads the
+CORRIDOR — a deck severs the climb where ANY way of the bore chain it
+crosses carries `tunnel=yes` or `layer ≤ −1` in a schema-current feed;
+(ii) the DEM cut stays as the second witness.  Expected: LEMD returns
+to exactly the seven approved decks (`-6288 -11828 -14230 -516 -5305
+-1378 -15293`; the grouped partners `-374/-15311/-1379` follow their
+groups); OTHH 44 / 1 unchanged; VMMC 0 (by (5)); SPJC/KCLT/CYXY any
+deck that changes named.  Twins: the two LEMD decks (tag-only via the
+chain), a VMMC-shaped case (a bore that enters a building → no
+corridor → no deck), a chain with no tag and no cut (no sever).

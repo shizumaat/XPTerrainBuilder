@@ -29,8 +29,13 @@ source_nodata=-9999
 # Native ground resolution of the source rasters, in metres.
 native_resolution_m=1
 
-# Coverage box copied from the parent (New Zealand).
+# Cheap pre-filter: the main islands.
 coverage_bbox=166.3,-47.4,178.6,-34.3
+# The Chatham Islands, east of the main islands and west of the
+# antimeridian: a SECOND box, now that the reader holds a list (owner
+# RULINGS 2026-09-16c).  LINZ publishes "Chatham Islands LiDAR 1m DEM
+# (2021)" on the LINZ Data Service alongside the mainland tiles.
+coverage_bbox=-177.0,-44.5,-175.5,-43.5
 
 # Vertical datum: NZVD2016, the New Zealand vertical datum -- an MSL-family
 # datum, appropriate for water rendering.

@@ -15344,3 +15344,23 @@ tunnel; SPJC/KCLT/CYXY named if any bore changes.  The building/parking
 witness comes from the OSM feeds already cached (the airports layer
 carries `building=*`; the small-roads layer the `amenity=parking`
 polygons — say if it does not).
+
+## §34 (12) (4) AMENDED (2) — WITNESS (i) READS THE CORRIDOR, NOT THE SPAN (owner RULINGS 2026-09-16f: shapes 981 and 988 span real cuts; conditional on (5)) — lane `v2vmmcbore`
+
+The owner checked the two decks §34 (12) (4) dropped (shape 981 =
+`bridge_deck:-5305` at 40.4788711, −3.5787587; shape 988 =
+`bridge_deck:-15293` at 40.4659974, −3.5811339): "both span real
+cuts."  The DEM witness (ii) read −0.57 / −1.46 m there (a coarse
+reading against sloping abutments) and witness (i) as written asked
+the way beneath the SPAN, which is the untagged approach.  The
+narrowness of (i) existed only to keep VMMC's seafront decks out; with
+(5) no OSM bore is built at VMMC at all.  RULED: (i) reads the
+CORRIDOR — a deck severs the climb where ANY way of the bore chain it
+crosses carries `tunnel=yes` or `layer ≤ −1` in a schema-current feed;
+(ii) the DEM cut stays as the second witness.  Expected: LEMD returns
+to exactly the seven approved decks (`-6288 -11828 -14230 -516 -5305
+-1378 -15293`; the grouped partners `-374/-15311/-1379` follow their
+groups); OTHH 44 / 1 unchanged; VMMC 0 (by (5)); SPJC/KCLT/CYXY any
+deck that changes named.  Twins: the two LEMD decks (tag-only via the
+chain), a VMMC-shaped case (a bore that enters a building → no
+corridor → no deck), a chain with no tag and no cut (no sever).

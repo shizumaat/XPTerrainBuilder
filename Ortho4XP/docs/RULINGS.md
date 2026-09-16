@@ -8642,3 +8642,5 @@ DEM inputs unchanged since Aug 5 (no dem-scope write since Aug 8);
 VHHH gained a Hong Kong 5 m inset Sep 13; OTHH's Copernicus insets
 were rewritten Sep 14 22:07 (unledgered — the owner's app build, same
 source).
+
+## 2026-09-16f OWNER: "Yes, both 981 and 988 span real cuts." → §34 (12) (4) AMENDED (2): witness (i) reads the CORRIDOR (any way of the bore chain tagged tunnel / layer ≤ −1), safe now that (5) builds no bore at VMMC; LEMD returns to its seven approved decks; the DEM witness stays second. Assigned to lane v2vmmcbore (structure_service.deck_witness_for is its file)

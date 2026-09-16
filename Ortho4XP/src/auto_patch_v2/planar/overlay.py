@@ -22,6 +22,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import math
 
+import numpy as np
 import shapely
 from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
@@ -38,6 +39,7 @@ from .weld import WeldStats, weld_cells
 from .zones import zone_regions
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
+           "airside_union",
            "merge_slivers", "dissolve_degenerate_holes",
            "absorb_enclosed_pavement", "dissolve_sliver_zones",
            "inscribed_width_m", "ENCLOSED_MIN_FRAC"]
@@ -139,7 +141,26 @@ class Arrangement:
 PAD_AIRSIDE: dict[str, object] = {}
 
 
-def airside_clip(regions, law) -> tuple[list, dict]:
+def airside_union(regions, law):
+    """§16g (10) (12) (1): the AIRSIDE CELLS' own union — the cell regions
+    whose role is in ``law.tables.rolled_on_roles``, and NOTHING a pad
+    contributes.  ONE derivation, read by the clip and by the re-node
+    census alike."""
+    return unary_union([r.polygon for r in regions
+                        if r.source == "cell" and r.role in rolled_on_roles(law)])
+
+
+def build_rim(air, law, nodes=None) -> AirsideRim:
+    """THE RIM the pads quantise to (§16g (10) (12) (1)) — built ONCE per
+    arrangement, over the airside union and the ARRANGEMENT's own node set
+    (pass A's), never the region ring's."""
+    ident = float(law.tables.emit.identity.min_distinct_spacing_m)
+    return AirsideRim(air, 1.5 * ident,
+                      float(law.tables.structures.placement.pad_airside_snap_max_m),
+                      nodes=nodes, node_tol_m=0.5 * ident)
+
+
+def airside_clip(regions, law, air=None, nodes=None, rim=None) -> tuple[list, dict]:
     """§16g (10) (5) AT THE SITE WHERE THE FACES HAVE ROLES (owner RULINGS
     2026-09-14ax): every RIGID (``building``) region clipped out of the
     airside faces — ``law.tables.rolled_on_roles``: the runway family, the
@@ -171,14 +192,11 @@ def airside_clip(regions, law) -> tuple[list, dict]:
     its bodies seat on the pavement.
     """
     counts: dict = {}
-    if not bool(law.tables.structures.placement.pad_airside_clip):
-        return list(regions), counts
-    rolled = rolled_on_roles(law)
     pad_ix = [i for i, r in enumerate(regions) if is_rigid_role(law, r.role)]
     if not pad_ix:
         return list(regions), counts
-    air = unary_union([r.polygon for r in regions
-                       if r.source == "cell" and r.role in rolled])
+    if air is None:
+        air = airside_union(regions, law)
     counts["pads"] = len(pad_ix)
     if air.is_empty:
         return list(regions), counts
@@ -190,9 +208,10 @@ def airside_clip(regions, law) -> tuple[list, dict]:
     # one cell HECA still minted 29 airside vertices, every one standing
     # 0.02 .. 0.50 m off the boundary — inside the band a single cell
     # leaves open.
-    rim = AirsideRim(air,
-                     1.5 * float(law.tables.emit.identity.min_distinct_spacing_m),
-                     float(law.tables.structures.placement.pad_airside_snap_max_m))
+    if rim is None:
+        rim = build_rim(air, law, nodes)
+    counts["rim_nodes_ring"] = rim.nodes_ring
+    counts["rim_nodes_arrangement"] = rim.nodes_kept
     out = list(regions)
     drop: set[int] = set()
     for i in pad_ix:
@@ -238,6 +257,89 @@ def _polys(g) -> list[Polygon]:
             if isinstance(q, Polygon) and q.area > 0.0]
 
 
+def _node_coords(noded) -> list[tuple[float, float]]:
+    """Every distinct coordinate of a noded line work — the arrangement's
+    own node set, which is exactly the vertex set its polygonized faces
+    can carry."""
+    out: set[tuple[float, float]] = set()
+    if noded is None or noded.is_empty:
+        return []
+    for g in getattr(noded, "geoms", (noded,)):
+        cs = getattr(g, "coords", None)
+        if cs is None:
+            continue
+        for x, y in cs:
+            out.add((float(x), float(y)))
+    return sorted(out)
+
+
+def _drop_rim_midpoints(lines, rim, nodes: set, own: set) -> tuple[list, int]:
+    """Drop every coordinate the DENSIFIER inserted on the airside rim
+    (§16g (10) (12) (1)) — a point that lies on the rim, is not one of the
+    arrangement's own nodes, and is not a vertex of the pad's own polygon.
+
+    ``own`` is what makes this a densifier filter and not a pad-corner
+    eraser: a pad corner standing on the rim is the pad's own geometry (a
+    crossing point the snap either quantised or counted as too far), and
+    dropping it collapses the ring — the three ``test_v2padlevel``
+    fixtures whose pad merely TOUCHES its apron along a straight edge are
+    exactly that case.  Returns the surviving lines and the count."""
+    if rim is None or rim.boundary is None:
+        return list(lines), 0
+    out, gone = [], 0
+    for ln in lines:
+        cs = [(float(x), float(y)) for x, y in ln.coords]
+        keep = []
+        for c in cs:
+            if c not in nodes and c not in own and rim.on_boundary(c):
+                gone += 1
+                continue
+            keep.append(c)
+        if len(keep) >= 2:
+            out.append(LineString(keep))
+        elif len(cs) >= 2:
+            out.append(ln)          # nothing left to say: keep it as found
+    return out, gone
+
+
+def _renode_counts(before, after, air) -> dict:
+    """§16g (10) (12) (2): how many nodes inside or on the AIRSIDE union
+    the pad stage DELETED and MINTED.
+
+    The population is the nodes standing on airside ground, not the faces
+    — a face-level read would have to polygonize twice and would answer
+    the same question, and the node is the unknown the solve carries
+    (09-01g, contact = value).  A node ON the boundary counts: it belongs
+    to an airside cell as much as an interior one does."""
+    if air is None or air.is_empty:
+        return {"renode_deleted": 0, "renode_minted": 0}
+
+    def _on_air(cs):
+        if not cs:
+            return set()
+        pts = shapely.points(np.asarray(cs, dtype=float))
+        keep = shapely.intersects(air, pts)
+        return {cs[i] for i in range(len(cs)) if bool(keep[i])}
+
+    b, a = _on_air(list(before)), _on_air(list(after))
+    minted = a - b
+    out = {"renode_deleted": len(b - a), "renode_minted": len(minted),
+           "renode_airside_nodes": len(b)}
+    # WHERE a minted node stands says WHICH mechanism minted it, and the
+    # two have different levers: ON the airside boundary it is a pad
+    # CROSSING POINT the snap could not reach a node with
+    # (``snap_too_far``); INSIDE the airside it is a pad that STANDS on
+    # airside ground — the ``kept_wholly_on_airside`` / refused class,
+    # whose ring cuts the face it sits in.
+    if minted:
+        cs = sorted(minted)
+        pts = shapely.points(np.asarray(cs, dtype=float))
+        on = shapely.dwithin(air.boundary, pts, 1e-6)
+        out["renode_minted_on_rim"] = int(sum(1 for v in on if bool(v)))
+        out["renode_minted_inside"] = len(cs) - out["renode_minted_on_rim"]
+    return out
+
+
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement."""
@@ -261,19 +363,37 @@ def build_arrangement(airport: Airport, classification: Classification,
                               "zone", z.zone, z.edge_kind, z.quay))
         edge_lines.extend(z.edge_lines)
 
-    # §16g (10) (5) AT THE ARRANGEMENT (owner RULINGS 2026-09-14ax)
-    regions, _pad_clip = airside_clip(regions, law)
-    PAD_AIRSIDE.clear()
-    PAD_AIRSIDE.update(_pad_clip)
+    # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS
+    # (Fable 2026-09-16; RULINGS 2026-09-16b), and this SPLIT of the line
+    # set is the whole rule.  Until now every region ring — the pads' among
+    # them — went into ONE ``unary_union(..., grid_size=grid)``, and
+    # snap-rounding is a GLOBAL operation: adding or removing any line can
+    # move an unrelated vertex by up to half a cell, and a pad ring
+    # crossing an airside ring splits that ring's edges outright.  MEASURED
+    # at HECA (``tools/pad_airside_arm.py``, the clip arm against the
+    # shipped one, ONE variable): 1,008 airside vertices gone and 283
+    # minted, 228 of the minted ones over 1 m from ANY airside vertex of
+    # the other arm and the leading class a node the two arms hold 0.500 m
+    # apart — the grid's own half cell.  So: pass A nodes everything the
+    # airside is made of, pass B adds the pads to THAT result.  The
+    # airside's vertex set is then a function of the airside alone, which
+    # is what §16g (10) (5) "airside is king" means at the vertex.
+    pad_ix = {i for i, r in enumerate(regions) if is_rigid_role(law, r.role)}
+    base_regions = [r for i, r in enumerate(regions) if i not in pad_ix]
+    pad_regions = [r for i, r in enumerate(regions) if i in pad_ix]
 
-    lines: list[LineString] = []
-    for r in regions:
-        cap = chord_cap_m(law, r.role)
-        for ring in ring_lines(tuple(r.polygon.exterior.coords)[:-1],
-                               [tuple(h.coords)[:-1] for h in r.polygon.interiors],
-                               cap):
-            if len(ring) >= 2:
-                lines.append(LineString(ring))
+    def _ring_lines_of(rs) -> list[LineString]:
+        out: list[LineString] = []
+        for r in rs:
+            cap = chord_cap_m(law, r.role)
+            for ring in ring_lines(tuple(r.polygon.exterior.coords)[:-1],
+                                   [tuple(h.coords)[:-1] for h in r.polygon.interiors],
+                                   cap):
+                if len(ring) >= 2:
+                    out.append(LineString(ring))
+        return out
+
+    lines: list[LineString] = _ring_lines_of(base_regions)
 
     sources: list[SourceLine] = []
     spacing = law.tables.emit.chords.station_spacing_m
@@ -298,13 +418,57 @@ def build_arrangement(airport: Airport, classification: Classification,
     bands = seam_bands(airport, regions, law.tables.emit.seam.half_width_m)
     lines.extend(LineString(b.exterior.coords) for b in bands)
 
-    # Node at full precision, snap the ONE result to the grid, then node
-    # AGAIN under the grid's precision model: snap-rounding can create new
-    # crossings between previously noded segments, and polygonize needs a
-    # fully noded set.
-    noded = shapely.unary_union(unary_union(lines), grid_size=grid)
-    if noded.geom_type == "LineString":
-        noded = MultiLineString([noded])
+    # PASS A — Node at full precision, snap the ONE result to the grid, then
+    # node AGAIN under the grid's precision model: snap-rounding can create
+    # new crossings between previously noded segments, and polygonize needs
+    # a fully noded set.  NO PAD IS IN THIS SET.
+    noded_a = shapely.unary_union(unary_union(lines), grid_size=grid)
+    if noded_a.geom_type == "LineString":
+        noded_a = MultiLineString([noded_a])
+
+    # PASS B — the pads, clipped BY the airside cells pass A just fixed and
+    # taking THEIR nodes (§16g (10) (12) (1)).  ``air`` is pass A's own
+    # airside union put on the grid, so the pad's clipped boundary is the
+    # airside's boundary coordinate for coordinate — the WELD of §16g (10)
+    # (6), one coordinate one unknown — and the rim the crossing points
+    # quantise to is the ARRANGEMENT's node set, not the region ring's
+    # (which stands a full 60 m chord apart and is why 75 of HECA's
+    # crossings had no node to reach).
+    air = shapely.set_precision(airside_union(base_regions, law), grid)
+    nodes_a = _node_coords(noded_a)
+    rim = build_rim(air, law, nodes_a)
+    pad_regions, _pad_clip = airside_clip(pad_regions, law, air=air,
+                                          nodes=nodes_a, rim=rim)
+    regions = base_regions + pad_regions
+    # THE DENSIFIER MAY NOT NODE THE RIM EITHER.  A clipped pad's boundary
+    # RUNS ALONG the airside boundary between its two crossing points, and
+    # ``ring_lines`` densifies every ring at its role's chord cap — so the
+    # `building` cap's own midpoints land ON airside edges the airside cap
+    # spaced differently and SPLIT them.  A coordinate of a pad ring that
+    # lies on the rim without being one of pass A's nodes is therefore
+    # dropped: the straight run between two rim nodes IS the airside edge,
+    # which is the weld (12) (1) asks for and nothing else.
+    own_pad_coords = {(float(x), float(y)) for r in pad_regions
+                      for ring in (r.polygon.exterior, *r.polygon.interiors)
+                      for x, y in ring.coords}
+    pad_lines, _dropped_mid = _drop_rim_midpoints(_ring_lines_of(pad_regions),
+                                                  rim, set(nodes_a),
+                                                  own_pad_coords)
+    _pad_clip["rim_midpoints_dropped"] = _dropped_mid
+    if pad_lines:
+        noded = shapely.unary_union(
+            unary_union([noded_a, *pad_lines]), grid_size=grid)
+        if noded.geom_type == "LineString":
+            noded = MultiLineString([noded])
+    else:
+        noded = noded_a
+    # §16g (10) (12) (2) THE RE-NODE CENSUS, at the derivation site: the
+    # nodes standing inside or on the airside union BEFORE the pads against
+    # the ones standing there AFTER.  ``deleted`` and ``minted`` are both
+    # the defect; the bar is 0.
+    _pad_clip.update(_renode_counts(nodes_a, _node_coords(noded), air))
+    PAD_AIRSIDE.clear()
+    PAD_AIRSIDE.update(_pad_clip)
     polys = [g for g in shapely.get_parts(shapely.polygonize([noded]))
              if g.geom_type == "Polygon" and not g.is_empty]
 

@@ -132,7 +132,18 @@ def test_the_arrangement_clips_a_pad_by_the_ROLLED_ON_faces_only():
     assert counts["clipped"] == 1
 
 
-def test_the_clip_is_law_gated_and_false_is_the_identity():
+def test_the_arrangement_clip_is_no_longer_law_gated():
+    """RE-FOUNDED (§16g (10) (12), Fable 2026-09-16; RULINGS 2026-09-16b).
+
+    This twin asserted that ``[placement] pad_airside_clip = false`` made
+    the ARRANGEMENT's clip the identity.  (12) rules that the airside
+    cells are computed before any pad exists and are NEVER re-cut by one,
+    on EVERY arm — so a pad left overlapping the apron would split the
+    apron's own edges and the OFF arm could never read
+    ``pad_airside_renode`` 0, which is (12) (2)'s bar on both arms.  The
+    key keeps its other two jobs (the mint's pre-split guard in
+    ``classify/evidence``, the region subtraction in ``classify/roles``);
+    at the arrangement the clip IS the law."""
     from auto_patch_v2.planar.overlay import Region, airside_clip
     law = _armed(_law(), clip=False)
     apron = Region("apron", "pav1", Polygon([(0, 0), (200, 0), (200, 200),
@@ -142,8 +153,9 @@ def test_the_clip_is_law_gated_and_false_is_the_identity():
                                            (120, 260), (20, 260)]),
                  None, None, "airside", "cell")
     out, counts = airside_clip([apron, pad], law)
-    assert counts == {} and [r.polygon for r in out] == [apron.polygon,
-                                                         pad.polygon]
+    by = {r.ref: r.polygon for r in out if r.role == "building"}
+    assert counts["clipped"] == 1
+    assert by["b"].intersection(apron.polygon).area == 0.0
 
 
 # ── (au) THE SKIRT IS WITHDRAWN (14ay/14bn) ────────────────────────────

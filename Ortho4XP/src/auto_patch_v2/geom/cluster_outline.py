@@ -202,9 +202,24 @@ class AirsideRim:
     """
 
     __slots__ = ("airside", "boundary", "_coords", "_pts", "_segs", "band",
-                 "snap_max")
+                 "snap_max", "nodes_ring", "nodes_kept")
 
-    def __init__(self, airside, band_m: float = 0.0, snap_max_m: float = 0.0):
+    def __init__(self, airside, band_m: float = 0.0, snap_max_m: float = 0.0,
+                 nodes=None, node_tol_m: float = ON_BOUNDARY_EPS_M):
+        #: §16g (10) (12) (1) THE NODES ARE THE ARRANGEMENT'S OWN, NOT THE
+        #: REGION RING'S.  ``nodes``, when given, is the coordinate set of
+        #: the AIRSIDE PASS's noded line work
+        #: (``planar/overlay.build_arrangement``'s pass A) — which carries
+        #: the ring vertices DENSIFIED at the role's chord cap AND every
+        #: crossing the runway stations, the zone edges, the road
+        #: centrelines and the seam bands mint on the rim.  Built from
+        #: ``airside.boundary`` alone (the pre-14ax reading) the rim's
+        #: nodes stand up to a full 60 m chord apart, which is why 75 of
+        #: HECA's crossing points measured FARTHER than
+        #: ``pad_airside_snap_max_m`` from any of them (max 70.76 m) and
+        #: minted an airside vertex each.  Only the given nodes lying ON
+        #: the boundary are kept: a node in the airside's interior is not
+        #: something a pad may snap to.
         #: HOW FAR A PAD MAY BE MOVED TO REACH A RIM NODE
         #: (``[placement] pad_airside_snap_max_m``).  Quantising a
         #: crossing point to the rim's nearest node moves the pad ALONG
@@ -237,9 +252,27 @@ class AirsideRim:
                 segs.extend(LineString((cs[i], cs[i + 1]))
                             for i in range(len(cs) - 1)
                             if cs[i] != cs[i + 1])
+        self._segs = STRtree(segs) if segs else None
+        #: how many of ``nodes`` were kept as rim nodes, and how many the
+        #: ring itself carried — the caller PUBLISHES both, so a filter
+        #: that silently kept nothing is visible instead of degrading to
+        #: the ring (the reading this whole rule exists to fix).
+        self.nodes_ring = len(coords)
+        self.nodes_kept = 0
+        if nodes is not None and self._segs is not None:
+            keep: list[tuple[float, float]] = []
+            for c in nodes:
+                c = (float(c[0]), float(c[1]))
+                if len(self._segs.query_nearest(Point(c),
+                                                max_distance=node_tol_m,
+                                                return_distance=False,
+                                                all_matches=False)):
+                    keep.append(c)
+            self.nodes_kept = len(keep)
+            if keep:
+                coords = keep
         self._coords = coords
         self._pts = STRtree([Point(c) for c in coords]) if coords else None
-        self._segs = STRtree(segs) if segs else None
 
     def has(self, c) -> bool:
         """Is ``c`` ALREADY an airside boundary vertex?"""

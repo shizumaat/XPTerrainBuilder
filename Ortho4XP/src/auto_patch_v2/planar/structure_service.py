@@ -35,7 +35,7 @@ from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_side
 from .structure_approach import under_cover
 
-__all__ = ["airside_cut_roles", "airside_stops", "cover_region", "deck_witness_for",
+__all__ = ["airside_cut_roles", "airside_stops", "deck_witness_for",
            "osm_stops", "pad_relief_m"]
 
 
@@ -115,61 +115,6 @@ def airside_stops(cells, polys, cut_roles, decked, mouth_pts, grid: float):
             continue                      # this corridor's own deck
         out.append((p, c.ref))
     return out
-
-
-def cover_region(corridor, cells, polys, tree, pads, pad_tree, cut_roles):
-    """§33 (6) B AMENDED (2) WHAT COVERS A SHELL'S TRENCH (Fable
-    2026-09-15; RULINGS 2026-09-15bp) — the region a signature-B cut is
-    NOT open under, or ``None``.
-
-    Two halves, one union.  (i) THE OBJECT'S OWN COVER: the ``_TN`` flush
-    ``HARD_DECK`` plate the §33 (6) B screen already paired with the
-    shell, published on the corridor as ``cover`` ("the tunnels have
-    object based interior walls and hard covers where needed", owner 15g).
-    (ii) THE LIVE SURFACE OVER IT: every airside pavement of the §34 (12)
-    (3) protected set (``airside_cut_roles`` — the same tuple the OSM
-    stop reads, never a second spelling), every building pad and every
-    unit footprint whose plan stands over the trench.  AIRSIDE IS KING:
-    where a taxiway lies over the tunnel the taxiway IS the cover, and a
-    heightfield cannot carry the taxiway at 7.31 m and the tunnel floor
-    at 0.78 m at one plan point — measured r1 at VHHH, where cutting
-    `TUNNEL2_DONE`'s 1,110 m trench under the taxiway system reached a
-    `taxi_centreline` row through a floor-ring vertex and pulled the
-    junction beside it down 6.46 m.
-
-    Only a signature-B corridor has a cover region: every other class is
-    an axis-offset corridor whose crossing of a pavement is already ruled
-    (a deck, an underpass, or a stop), and this returns ``None`` for it.
-    """
-    from shapely.ops import unary_union
-    from .structure_geometry import OBJECT_CUT_PREFIX
-    if corridor is None or not str(getattr(corridor, "id", "")).startswith(OBJECT_CUT_PREFIX):
-        return None
-    foot = getattr(corridor, "footprint", None)
-    if foot is None or getattr(foot, "is_empty", True):
-        return None
-    covers = []
-    own = getattr(corridor, "cover", None)
-    if own is not None and not own.is_empty and own.intersects(foot):
-        covers.append(own)
-    if tree is not None:
-        for j in tree.query(foot, predicate="intersects"):
-            cell, poly = cells[int(j)], polys[int(j)]
-            if cell.kind == "structure":
-                continue
-            if cell.role not in cut_roles and cell.role != "building":
-                continue
-            if poly.intersects(foot):
-                covers.append(poly)
-    if pad_tree is not None:
-        for j in pad_tree.query(foot, predicate="intersects"):
-            poly, _ref = pads[int(j)]
-            if poly.intersects(foot):
-                covers.append(poly)
-    if not covers:
-        return None
-    u = unary_union(covers)
-    return None if u.is_empty else u
 
 
 def osm_stops(corridor, group, cells, polys, pads, pad_tree, cut_roles,

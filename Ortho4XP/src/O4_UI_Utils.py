@@ -198,6 +198,22 @@ def lvprint(min_verbosity, *args):
 
 
 ################################################################################
+def loud_warning(*args):
+    """A warning that must not be missable: stdout + Ortho4XP.log,
+    plus a Log(level="warning") engine event when a session is
+    attached (engine-jsonl repoints sys.stdout to stderr, so the
+    event is the only first-class channel the app UI receives)."""
+    lvprint(0, *args)
+    if engine_session is not None:
+        try:
+            engine_session.log_warning(
+                " ".join(str(x) for x in args)
+            )
+        except Exception:
+            pass
+
+
+################################################################################
 def bug_report(*args):
     logprint(
         "An internal error occured. Please file a bug with lat/lon and cfg"

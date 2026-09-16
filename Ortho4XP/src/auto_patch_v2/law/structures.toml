@@ -48,6 +48,19 @@ approach_turn_max_deg = 60.0
 # (lane_width_m x default_lanes = 7.0), so any real crossing clears it.
 underpass_min_layer   = 1
 underpass_min_span_m  = 6.0
+# §34 (12) (5) A TERRAIN TUNNEL PASSES UNDER SOMETHING AT GRADE (owner
+# RULINGS 2026-09-16d): "there should be no tunnels cut at VMMC because all
+# of the roads are above ground ... they don't need any trenches cut".  A
+# bore with an on-field mouth (12ab) is built ONLY where it passes under
+# pavement, a pad, a pack corridor, a mapped road or railway AT GRADE, or
+# ground witnessed above it; a bore ENDING inside a building / underground
+# parking / covered structure is that building's own ramp and is never
+# built.  Every number here is the law's; there are no Python defaults.
+terrain_cover_min_m   = 1.0   # metres of the bore's plan line under the classified cover (pavement, a pad, a roofed corridor's footprint) that count as passing UNDER it — the retired §29 (2) cover test's own 1 m, read here as ONE of (5) (c)'s witnesses rather than as the admission
+terrain_crossing_min_m = 1.0  # a mapped road / railway crosses the bore when its intersection stands at least this far INSIDE the bore's own ends — a way joined at the mouth is the approach, not a crossing
+terrain_rise_m        = 0.5   # (5) (c)'s ground witness, the BORE's form of §34 (12) (4) (ii)'s `[bridge] deck_cut_witness_m`: the DEM anywhere over the bore stands at least this above the mean of the DEM at its two mapped ends.  0.5 m is 4's own number; measured VMMC: the nine car-park ramps read +0.00 .. +0.33 and the three real road tunnels +1.10 / +1.36 / +10.53
+terrain_layer_max     = -1    # (5) (c)'s tag witness, 4 (i)'s form: a bore way carrying `layer` at or under this is OSM's own statement that it runs below what it crosses (VMMC's three road tunnels read -1 / -2; its nine car-park ramps carry no layer at all)
+enclosure_parking_values = ["underground", "multi-storey", "multi_storey", "garage"]   # (5) (a): the `parking` values that mean the cars stand UNDER something.  An at-grade `amenity=parking` surface lot is not an enclosure
 
 [tunnel.object]                     # RULINGS 2026-09-05k-1 / 05n: the pack's tunnel wall OBJECTS are the tunnel authority; round 2 = ground-referenced ramps inside the walls
 source_precedence   = ["object", "osm"]   # applied PER MOUTH (05n-3): an OSM bore mouth inside an object's trench or wall band is the object's (its OSM ramp is not built); a mouth outside every object keeps its OSM ramp exactly as before

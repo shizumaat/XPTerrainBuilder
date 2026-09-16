@@ -329,7 +329,8 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon]
     return FieldRegion(list(polys),
                        law.tables.structures.tunnel.mouth_standoff_m,
                        approach_corridor_of(airport, law),
-                       runway_band_of(airport, law))
+                       runway_band_of(airport, law),
+                       airport)
 
 
 def mouth_reports(on_field: "FieldRegion", mouth_list: _t.Sequence["Mouth"],
@@ -337,8 +338,19 @@ def mouth_reports(on_field: "FieldRegion", mouth_list: _t.Sequence["Mouth"],
     """``(off-field lines, on-approach count, on-approach lines)`` for the
     structures line — the nearest drops and every mouth THE CORRIDOR
     kept, each with its true distance off the field, so both findings are
-    visible without a rebuild and neither is read as the other."""
-    off = [f"mouth off-field {ids} at {xy[0]:.0f},{xy[1]:.0f} — {d:.0f} m off "
+    visible without a rebuild and neither is read as the other.
+
+    §34 (12) (5)'s refusals (``on_field.not_terrain``) ride the SAME list
+    with their own wording and their own evidence — a bore the terrain
+    witness withheld is never reported as a mouth that stood off the
+    field, and the two counts are never added.  ``stats.mouths_off_field``
+    is ``len(dropped)`` at the caller and so stays §29 (1)'s alone."""
+    not_terrain = list(getattr(on_field, "not_terrain", ()) or ())
+    off = [f"bore NOT A TERRAIN TUNNEL (§34 (12) (5)): {w}" for w in not_terrain]
+    if not_terrain:
+        off.insert(0, f"§34 (12) (5): {len(not_terrain)} bore(s) with an on-field mouth "
+                      f"pass under nothing at grade and are NOT built")
+    off += [f"mouth off-field {ids} at {xy[0]:.0f},{xy[1]:.0f} — {d:.0f} m off "
            f"the field, outside every approach corridor and outside the "
            f"runway lateral band"
            for ids, xy, d in sorted(dropped, key=lambda t: t[2])[:8]]
@@ -424,9 +436,21 @@ class FieldRegion:
     geometry): the cover then decides alone."""
 
     def __init__(self, polys: _t.Sequence[Polygon], standoff_m: float,
-                 corridor=None, band=None) -> None:
+                 corridor=None, band=None, airport=None) -> None:
         self.standoff_m = float(standoff_m)
+        self._polys = list(polys)
         self._tree = STRtree(list(polys)) if len(polys) else None
+        #: THE AIRPORT THE REGION WAS BUILT FROM (§34 (12) (5), lane
+        #: `v2vmmcbore`) — carried here so ``mouths()`` can reach the DEM
+        #: and the cover without a new argument at ``planar/structures.
+        #: build_structures``'s call site, which is another lane's file
+        #: this round.  ``None`` for every caller that passes none; the
+        #: (5) witness then claims nothing.
+        self.airport = airport
+        #: §34 (12) (5)'s own report — one line per bore refused as NOT A
+        #: TERRAIN TUNNEL, kept apart from §29 (1)'s off-field drops
+        #: (two reports are never one region: the r1 discipline).
+        self.not_terrain: list[str] = []
         self.corridor = corridor
         rings = list(corridor.rings()) if corridor is not None else []
         self._corridor_tree = (STRtree([Polygon(r) for r in rings])
@@ -470,6 +494,18 @@ class FieldRegion:
             return False
         return len(self._corridor_tree.query(geom,
                                              predicate="intersects")) > 0
+
+    def cover_run_m(self, line) -> float:
+        """§34 (12) (5) (c): metres of ``line`` running UNDER the
+        classified cover — the SAME polygons §29 (1)'s standoff is grown
+        from and the same reading ``under_cover`` takes, without a second
+        union to build."""
+        if self._tree is None:
+            return 0.0
+        parts = [line.intersection(self._polys[int(j)])
+                 for j in self._tree.query(line, predicate="intersects")]
+        parts = [g for g in parts if not g.is_empty]
+        return float(unary_union(parts).length) if parts else 0.0
 
     def cover_distance_m(self, geom) -> float:
         """Distance to the CLASSIFIED COVER alone — how far off the field
@@ -519,6 +555,19 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
     banks (149 vertices) that set the patch's whole western bbox edge and
     carry zero grade rows.
     """
+    # §34 (12) (5) A TERRAIN TUNNEL PASSES UNDER SOMETHING AT GRADE (owner
+    # RULINGS 2026-09-16d): the SECOND, independent admission condition,
+    # after §29 (1)'s.  It is applied HERE because this is where admission
+    # has stood since owner 12ab — a bore that fails it yields no mouths,
+    # so nothing downstream can tell it from one that never had an
+    # on-field mouth, and no other file needs a line.  Its refusals are
+    # NAMED on ``on_field.not_terrain``, never folded into ``dropped``
+    # (§29 (1)'s own population): the two reports stay apart.
+    terrain = None
+    if on_field is not None and getattr(on_field, "airport", None) is not None:
+        from .structure_service import terrain_tunnel_witness
+        terrain = terrain_tunnel_witness(on_field.airport, law, on_field, osm)
+        on_field.not_terrain = []
     out: list[Mouth] = []
     dropped: list[tuple[str, XY, float]] = []
     for b in bores:
@@ -567,6 +616,16 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
         # A narrowing that separates the two needs a law number this lane
         # may not author (a bore length, or a distance from the built
         # mouth).  Routed to the spec's author with the measurement.
+        # §34 (12) (5) RUNS AFTER §29 (1), ON A BORE THAT SURVIVED IT.
+        # The order is the reports': a bore with no on-field mouth was
+        # never going to be built and is not a (5) finding (at VMMC 65 of
+        # 77 bores are in that class), so (5) names only the bores it
+        # ITSELF withholds.
+        if terrain is not None and any(held for _m, held, _d in cand):
+            built, why = terrain(b)
+            if not built:
+                on_field.not_terrain.append(why)
+                continue
         for m, held, d in cand:
             if held:
                 out.append(m)

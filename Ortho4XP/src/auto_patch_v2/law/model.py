@@ -256,6 +256,15 @@ class Tunnel:
     #: least ``underpass_min_span_m`` is bored.
     underpass_min_layer: int
     underpass_min_span_m: float
+    #: §34 (12) (5) (owner RULINGS 2026-09-16d): A TERRAIN TUNNEL PASSES
+    #: UNDER SOMETHING AT GRADE.  The four witnesses a bore with an
+    #: on-field mouth is admitted by (``planar/structure_service.
+    #: terrain_tunnel_witness``) and (a)'s enclosure class.
+    terrain_cover_min_m: float
+    terrain_crossing_min_m: float
+    terrain_rise_m: float
+    terrain_layer_max: int
+    enclosure_parking_values: tuple[str, ...]
     object: TunnelObject
     #: §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): how far a
     #: mapped road's END may stand from a structure MOUTH and still be

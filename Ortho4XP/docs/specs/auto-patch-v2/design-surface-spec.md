@@ -15455,6 +15455,68 @@ For the owner's read: the pavement inside each outline is expected to
 sit on the object's deck in the sim — if a taxiway texture renders in
 a trench, the apt.dat pavement over that shell is the next question.
 
+### §33 (6) B AMENDED (3) — **MEASURED** (lane `v2shellwall` r3, branch `claude/v2shellwall`, base main `5b70d61a`; ONE tree, the shared corpus, ONE fresh VHHH capture, the registered f912ba81 control)
+
+**THE BRANCH STATE FIRST.**  r2's tip `07cb9794` — (2)'s cover/pavement
+SUBTRACTION (`structure_service.cover_region`, `Corridor.cover`, the
+`covered=` path and its two twin classes) — is REVERTED (`2ed869cd`),
+owner 15br having withdrawn it: the shell's trench is OPEN for its whole
+authored extent.  r1's WALLED cut stays (`structure_geometry.ring_for` /
+`geometry_from_trench`, rim ring at the surrounding surface, floor ring
+inset by the corridor's own `rim_standoff`, rim↔floor 1.20 m on all five
+shells) and so does `arm_site_read --airside-near-cuts`.
+
+**§33 (6) B AMENDED (3) CONSUMER CENSUS (RULINGS 2026-08-30l), one table,
+written BEFORE the first code edit.**  The new region is (3) (c)'s
+EXCLUSION: inside an object-decked trench outline the surface elements
+(apt.dat pavement faces, the taxi centreline network, the road
+centrelines) ride the object's deck and are not terrain.  Every reader of
+an airside FACE or ROW that can lie inside a structure outline is ruled
+here.  UNCHANGED = a site this lane does not edit and the measurement must
+prove untouched.
+
+The census's own finding, which decides the shape of the edit: the
+PAVEMENT half of (3) (c) is ALREADY LAW — `build_structures`'s knife
+(`p.difference(blade)`, row 1) removes every non-runway-family airside
+cell's area inside the corridor footprint, and the cut face's new ring
+runs along the RIM ring, which r1 put at the surrounding surface.  What
+no pass trims is the CUT LINE population: `classify/roles.py` publishes
+the taxi and road centrelines as `Classification.cut_lines` and nothing
+between there and the arrangement clips them to anything, so a centreline
+crossing a trench is noded straight through it and every reader below
+(row 4–11) prices its edges.  That is the 15bp chain (`taxi_centreline`
+row → a floor-ring vertex → `PIN mouth_depth = floor_slab`), and it is
+ONE derivation site to trim — the preference RULINGS 2026-08-30l states
+over per-consumer vetoes.
+
+| # | Reader (file · symbol) | What it reads | Ruled |
+|---|---|---|---|
+| 1 | `planar/structures.build_structures` — the knife (`blade` / `p.difference(blade)` / `stats.cells_cut`) | every classification cell vs the corridor footprints | **UNCHANGED in code, and it is (3) (c)'s pavement limb already**: an airside cell inside an object-decked outline loses that area and its new ring follows the rim. The RUNWAY FAMILY is exempt (08-07 ruling 4) and stays exempt — a runway-family cell inside a shell outline is MEASURED and named (VHHH: the count below); nothing is widened on a count of zero. |
+| 2 | `planar/structures.build_structures` — `new_cells` (`tunnel_ramp`, `retaining_wall`, deck roles) | the ramp / void / deck polygons | UNCHANGED — the trench is OPEN for its authored extent, so the cells are r1's exactly; (2)'s subtraction that shrank them is reverted. |
+| 3 | `planar/structures.build_structures` — the returned `Classification` | cells, keepouts, stats | **EDITED, THE ONE DERIVATION SITE OF (3) (c).** The returned classification also carries `cut_lines` TRIMMED by the union of the OBJECT-DECKED outlines (the same `footprints` the knife is made of, for tunnels whose corridor id starts with `structure_geometry.OBJECT_CUT_PREFIX` — a signature-B shell is admitted only WITH its flush `HARD_DECK` cover, so object-decked is exactly that set). A `taxi_centerline` / `road_centerline` line is replaced by its pieces OUTSIDE the region; a piece shorter than the identity spacing is dropped. Each trimmed line keeps its kind, ref and code letter — `classify/roles.py` already publishes several parts under one ref, so no consumer gains a new key. `runway_profile` lines are NOT trimmed (a runway is not cut by a corridor, row 1). |
+| 4 | `constraints/taxi.taxi_centerlines` | `planar.breaklines` kind `taxi_centerline` → one `Diff` per edge | UNCHANGED in code — the generator in the attributed chain. With row 3's trim there is no edge inside the outline to row, so the chain's rows END AT THE RIM on each side. Bar: 0 `taxi_centreline` rows reaching a trench vertex. |
+| 5 | `constraints/stretches.build_stretches` | the same breaklines → stretches (the caps, the axis index) | UNCHANGED in code; a stretch now ENDS at the rim instead of running through the trench, which is what "the rows end at the rim" is in the stretch vocabulary. `breakline_chains_split` moves and is named. |
+| 6 | `constraints/routes.build_routes` (i) the stretch edges, (iii) the attachment | stretch edges → `CENTRELINE`; every route-face ring vertex hops to the nearest line | UNCHANGED in code. `route_roles` is the AIRSIDE value roles, and `tunnel_ramp` / `retaining_wall` are `side = "groundside"` in `precedence.toml`, so no hop hangs off a trench face; with row 3 no centreline segment stands inside the outline for an airside ring vertex to hop onto either. |
+| 7 | `constraints/taxi.taxi_chain` | `routes()`'s LATERAL / CROSSING edges | UNCHANGED in code (row 6's population, one row per edge). |
+| 8 | `constraints/transverse.axes` / `transverse` / `junction_raw_transverse` | both centreline kinds as `Axis` chains | UNCHANGED in code; an axis now stops at the rim. |
+| 9 | `constraints/apron.apron_within_shape` (the spine-by-proximity read) | `taxi_centerline` chains, apron ring vertices within the weld tolerance | UNCHANGED in code. Named because it reads the chains by PROXIMITY, not by membership: a trimmed chain can no longer make an apron vertex over a trench a spine node. |
+| 10 | `solve/design.py` — the taxi design profile (`bl.kind != "taxi_centerline"`) | the chain's second difference at `[design] taxi_profile` | **NOT TOUCHED** (another lane's file), and it needs nothing: it iterates the breaklines the map holds, and row 3 changes what the map holds. |
+| 11 | `constraints/roads.road_within_shape`, `road_ramp.road_ramp_rows` / `road_contact_rows` / `road_join_rows` | the road faces and their routes | UNCHANGED in code. A road face inside an outline is cut by row 1 (`service_road` is not runway family); its centreline is trimmed by row 3. The roads inside each outline are named in metres. |
+| 12 | `planar/structure_underpass.underpass_bores` / `_deck_cell` / `_cell_ribbon` / `strip_half_width_m` (§34 (5), (5) (a), (5) (b)) | an `aeroway bridge=yes` way → the deck cell's footprint + strip, the bored road | **REUSED, NEVER FORKED, AND NOT EDITED.** This is the repo's existing "the pavement over a trench is the structure's deck, not terrain" path; §33 (6) B's shell states its own deck (the object), so it mints no underpass and needs none. VHHH has 0 underpasses on both arms — named. |
+| 13 | `planar/structure_deck.emit_decks` / `deck_items` / `deck_intervals` / `pavement_deck_intervals` / `object_deck_intervals`; `structure_service.deck_witness_for` | mapped `bridge=yes` ways over a corridor; the two §34 (12) (4) witnesses | **UNCHANGED in code** — and (3) (b) is the reading, not an edit: a mapped bridge severs a trench only where NO object covers it. At VHHH nothing severs (the shells' own decks are the objects), so the arm must show `decks 0` on all five shells; LEMD's five witnessed decks are the byte-identical bar. |
+| 14 | `constraints/structures.structures` — `on_floor` / `shared_with_ground` / `_rim_rows` / the `mouth_depth = floor_slab` pin | the void faces, the rim path, which vertices are floor | UNCHANGED in code. The floor pin stays exactly what it is; (3) (c) removes the ROW that carried it into the taxi network, not the pin. Bar: `--why-at` at the 15bp site names no chain from an airside vertex to a trench vertex. |
+| 15 | `constraints/structures.rim_level` / `rim_contacts` | the rim vertices vs the pavement they sit in | UNCHANGED — the rim still rises to the pavement it stands in and never pulls it down (10an); this is the mechanism that keeps the rim AT the surrounding surface. |
+| 16 | `constraints/no_step` (`no_step_pairs`, `no_step_rate`, `reach_bands`), `constraints/proximity.cross_shape_pairs`, `constraints/junction_mesh`, `constraints/taxi.taxi_box` / `triangle_planes` | airside face rings and their pairs | UNCHANGED — they price AIRSIDE vertices, and after row 1 an airside ring inside an outline is the rim's, not the floor's. The regression's `airside_no_step` / `within_shape` rows were PROPAGATION from the seeded vertices; the measurement is the proof. |
+| 17 | `constraints/zones.zone_bands` / `strip_transverse`, `constraints/strips.*` | the zone / strip regions and `retaining_wall` vertices | UNCHANGED — no role and no ref changes. |
+| 18 | `planar/overlay.build_arrangement` | `classification.cut_lines` as noding sources | UNCHANGED in code; it nodes the lines row 3 hands it. Fewer source segments inside a trench means fewer faces there — the trench is structure area, which row 2 owns. |
+| 19 | `planar/build._breaklines` + `_LINE_KIND` | the noded arrangement → `Breakline` chains | UNCHANGED in code; a trimmed source line yields chains that stop at the rim. `dropped_source_edges` / `breakline_chains_split` are quoted before → after. |
+| 20 | `planar/shapes.build_shapes` (`STATION_KIND = "taxi_centerline"`) | the stations of a shape | UNCHANGED in code, named because a shape's station list shortens where a centreline was trimmed. |
+| 21 | `pipeline/why.py` (the `taxi_centerline` chain trace), `tools/v2_solve_replay --why-at` | the breaklines and the rows | UNCHANGED — the instrument this round's bar is read on. |
+| 22 | `verify/within.py` (`taxi_box`, `within_shape`), `verify/structures.py` (`structure_rim_gap`, `tunnel_ramp_wall_gap`, `tunnel_mouth_canonical`, `tunnel_deck_clearance`) | the emitted faces and records | UNCHANGED — no new role, no new feature, no new family. Quoted before → after. |
+| 23 | `tools/check_grade` `LAW_FAMILIES` (`object_cut_offset`, `object_cut_depth`, `ramp_in_strip`, the taxi families) | the emitted patch | UNCHANGED — (3) adds no family and no sidecar key. `object_cut_depth` measures the WHOLE floor again (the trench is open for its authored extent), which is (2)'s region amendment withdrawn. |
+| 24 | `emit/graded.py` / `emit/osm_adapter.py` (`VOID_ROLE`, `RIM_KIND`, `structure_rim`) | the void face → the rim ring and the floor edges | UNCHANGED — the wall stays the breakline PAIR (rim ring + floor ring) of 14av / §37 (11). |
+| 25 | `classify/roles.py` (the `CutLine` producer), `solve/design*.py`, `planar/channel.py` + `constraints/channel.py` (lane `v2channel` §45) | other lanes' files this round | **NOT TOUCHED.** In particular the trim is NOT made in `roles.py`: the structure outlines do not exist at classify time. |
+
 ### §45 (16)–(18) THE ENDS, THE SEPARATION, THE MANIFEST (Fable 2026-09-16; RULINGS 2026-09-15bo) — lane `v2channel` round 8, lane `v2insetmanifest`
 
 Round 7's checkpoint (b0a86405, RULINGS 15bm) attributed three things; each is ruled here.

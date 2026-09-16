@@ -15185,3 +15185,133 @@ profile) if that is the mechanism, or name the other. Bar: `channel_floor_at_
 declaration` 0 rows at KDFW on the lidar datum (after the owner's `--refresh-data dem
 --warm-insets KDFW` if (a) says the inset must be re-cut), the four necks at the taxiway
 grade, the corridor floor at the lidar 170.9–173.3, the median fill kept.
+
+## §33 (6) B AMENDED (2) — A SHELL'S TRENCH IS OPEN ONLY WHERE NOTHING COVERS IT: THE COVER PLATE AND LIVE AIRSIDE PAVEMENT ARE ITS DECK (Fable 2026-09-15; RULINGS 2026-09-15bp; lane v2shellwall r1 attribution) — lane `v2shellwall` r2
+
+**The measurement (r1 c4e64230, VHHH capture with the wall standing).**
+The wall was built (rim↔floor gap 0.00 → 1.20 m on all five shells,
+floor kept 96–98 %) and the bar was MISSED unchanged: 525 of 1,079
+airside vertices within 200 m still move, worst −6.460 m at the same
+vertex (22.30772370921, 113.9233744, `TUNNEL2_DONE`).  `--why-at` names
+the chain: `v20738[junction, primary_parallel]` z 0.85 → `v22252
+[retaining_wall, tunnel_ramp]` z 0.78 by a `taxi_centreline` row (cap
+1.50 % × 1.1 m) → `v16996` PIN `tunnel.object.mouth_depth = floor_slab`
+(`object-cut:TUNNEL2_DONE.obj@0`).  TUNNEL2 runs 1,110 m LENGTHWISE
+under the taxiway system; the taxiway's painted centreline crosses its
+trench and one centreline vertex sits on the floor ring; of 1,591
+movers only 6 stand inside a cut outline — the rest is the taxi network
+propagating those seeds.  No law caught it: §34 (12) (3)'s stop is not
+applied to pack corridors (15w), and `pavement_deck_intervals` runs
+only for climbing corridors crossed by pavement — TUNNEL2 is `flat`,
+lying ALONG the pavement ("decks 0, cells cut 17").  `tunnel5_done`
+(the owner's site) has 0 control airside vertices inside its cut and
+is not where the regression lives.  The object's cover plate covers
+12,445 of TUNNEL2's 28,525 m² and 2,231 of tunnel5's 9,290.
+
+**RULED.**  A signature-B trench is OPEN only where nothing covers it.
+The cut emitted for a shell is the trench MINUS the union of (i) the
+object's own cover plate (the `_TN` HARD_DECK plate at grade — "hard
+covers where needed", 15g) and (ii) every live airside pavement, pad
+and unit footprint lying over the trench (airside is king; the
+pavement IS the cover).  Over the covered stretch the SURFACE holds
+its own law (the pavement's, the pad's, the plate's) and the floor pin
+is an INTERIOR datum applied to no surface vertex — no floor ring, no
+wall, no `tunnel_ramp` face; `taxi_centreline` and every airside row
+see only surface vertices.  Along the open parts the walled cut of B
+AMENDED (1) stands (rim ring, vertical walls, floor ring at the
+authored plate) with the ramps at the object's stations; MOUTHS stand
+at every open↔covered transition (a portal face, the §33 mouth law).
+A shell entirely covered emits mouths and ramps only (the owner's
+12r reading of the mouth-only population).  Bars at VHHH (the control
+pair's frames): airside within 200 m of the cuts moved vs the
+f912ba81 control ≤ 0.02 m (named survivors); off-DEM maxima by role
+back to the control's; ADJUDICATED back to ≤ 121 + the open cuts'
+own rows; `object_cut_depth` 0 on the OPEN parts (the family measures
+the open floor only — amend its region); each shell's open / covered
+m² named (TUNNEL2's open area under no pavement, tunnel5's 413 m
+U-turn expected almost entirely open); OTHH 0 signature-B cuts (dry
+pair byte-identical); LEMD dry pair byte-identical.
+
+## §33 (6) B AMENDED (3) — OWNER: AN OBJECT'S HARD DECK SPANS AN OPEN TRENCH; A TRENCH STOPS AT A BRIDGE ONLY WHEN NO OBJECT COVERS IT; SURFACE ELEMENTS OVER AN OBJECT-DECKED TRENCH RIDE THE OBJECT (owner RULINGS 2026-09-15br; supersedes (2)'s (i)–(ii)) — lane `v2shellwall` r2
+
+Owner 2026-09-15: "if an object provides a hard deck then we just
+leave an open trench, since the object spans it.  The only time we
+would need to stop a trench at a bridge is if there is NO object
+covering it, and we need the terrain to provide the hard land area for
+the bridge.  So I think all the cases at VHHH are open trench."
+
+RULED accordingly.  (a) A signature-B shell's trench is OPEN for its
+whole authored extent — the cover plate (`_TN`, HARD_DECK) is the
+object's own deck spanning the open trench, never a reason to fill it;
+(2)'s subtraction of the cover plate and of airside pavement is
+WITHDRAWN.  (b) A trench stops (the covered run of §34 (12) (4) / a
+mapped `bridge=yes` deck) only where NO object covers the crossing and
+the terrain must provide the bridge's land — the LEMD case; where an
+object covers, the mapped bridge is the object and severs nothing.
+(c) Surface elements lying over an object-decked open trench — apt.dat
+pavement polygons, the taxi centreline network, roads — RIDE THE
+OBJECT'S DECK: inside the trench outline they are EXCLUDED from the
+terrain solve (no row of theirs touches a trench vertex; the taxi/road
+network's rows end at the rim on each side, the pavement faces inside
+the outline are not terrain faces), so no centreline vertex ever sits
+on the floor ring and nothing propagates the floor into the network —
+the mechanism 15bp attributed.  (d) The walled cut of B AMENDED (1)
+stands along the whole trench (rim ring at the surrounding surface,
+vertical walls, floor ring at the authored plate), mouths and ramps at
+the object's own stations.  Bars at VHHH (the f912ba81 control pair):
+every shell's trench open for its authored extent (m² named); airside
+OUTSIDE the trench outlines within 200 m moved vs the control ≤ 0.02
+m; surface elements inside each outline named (pavement m², centreline
+m, roads m) and shown excluded from the solve (0 rows crossing the
+rim); off-DEM maxima by role outside the outlines back to the
+control's; ADJUDICATED ≤ 121 + the trenches' own rows; `object_cut_
+depth` 0, `object_cut_offset` ≤ 4; OTHH / LEMD dry pairs byte-identical.
+For the owner's read: the pavement inside each outline is expected to
+sit on the object's deck in the sim — if a taxiway texture renders in
+a trench, the apt.dat pavement over that shell is the next question.
+
+### §45 (16)–(18) THE ENDS, THE SEPARATION, THE MANIFEST (Fable 2026-09-16; RULINGS 2026-09-15bo) — lane `v2channel` round 8, lane `v2insetmanifest`
+
+Round 7's checkpoint (b0a86405, RULINGS 15bm) attributed three things; each is ruled here.
+
+(16) **A CHANNEL ENDS AT ITS OUTERMOST CROSSINGS.** §45 (2)'s "where the corridor leaves
+the airside pavement union ⊕ standoff" was written for a hole; a notch has no such exit
+and (14) wired as written ran corridors to the field boundary (KPHX 5,750 m, HECA
+14,562 m, CYXY 5,646 m). RULED: the corridor's two ENDS are its outermost crossings
+(decks by (1)(a)/(b)) each extended by ONE deck width along the axis — and where a depth
+witness ((1)(c) pack walls, (3)(ii) lidar) reaches further along the way, to the end of
+that witness. Beyond the ends §37 governs as before. A candidate with fewer than two
+crossings and no depth witness is refused by (13)(c) unchanged. With the ends so bounded
+(14) is WIRED (`field=` at the one call site). And the CLAIMED SET of (13)(b) includes the
+§34 (5) SYNTHESISED underpass bores (the four at KCLT taxiway U) — every way a bore of
+any provenance names — so a channel never takes what §34 (5) already built. Bar: the
+seven replays byte-identical (KCLT tunnels 23, LGAV channels 1, LEMD 3 → the round-6
+count, HECA/CYXY no new channel), KPHX ONE channel through its two necks bounded by
+them (~150 m of corridor, not 5,750), CYXY's planar twins green.
+
+(17) **THE FLOOR AND THE AIRSIDE SURFACE NEVER SHARE A VERTEX.** The KDFW floor rows
+(378, worst 12.626 m) are `pavement_ceiling` on vertices shared between the channel floor
+and airside cells (v14070: roles cross_connector / retaining_wall / tunnel_trench, 169.40
+vs 182.28 over ~23 m) — an infeasible set by construction, not a solver failure. RULED:
+the channel emits its own WALL BAND between the floor and every airside or adjacent-
+ground cell, exactly as a bore does (`[tunnel] wall_gap_m` + `wall_band_width_m`: the
+floor's ring stands `wall_gap_m` inside the corridor edge, the band's outer ring IS the
+corridor edge and carries the crest rows of (5)); the floor faces share vertices only
+with the band, never with a pavement cell; a deck's faces are airside and meet the band's
+crest, not the floor. And `verify/channel._declared_at` reads the floor's declaration
+the way the floor was STATED: the profile z(s) at the vertex's axis station, over the
+floor faces only (never the band). Bar: `channel_floor_at_declaration` 0 rows and
+`channel_crest_at_edge` ≤ 0.01 m at KDFW; the hard set feasible (0 violated hard rows
+in the channel's families).
+
+(18) **THE INSET MANIFEST READER FALLS BACK TO THE INSET'S OWN SIDECAR.** KDFW's 1 m
+3DEP inset is composed and present, yet the tile's `inset_provenance` entry carries
+`native_resolution_m: null` and no `resolution_m` (every N32W098 sidecar of 08-15; the
+newer writer stamps it), so `ProductionDem.source_pixel_m` reads `(None, 'base_tier')`,
+`_source_class` says `coarse`, `_lidar_credible` is False and every channel falls to
+(3)(iii). RULED (lane `v2insetmanifest`, engine side, independent of the channel):
+the reader takes `native_resolution_m`, else `resolution_m`, else the inset's OWN
+`<inset>.json` `resolution_m` / `native_resolution_m` (the file the provenance entry
+names), else `None` as today — one derivation, twinned on a 08-15-shaped manifest;
+and the WRITER stamps both keys on every new entry. No re-warm needed; the owner's
+KDFW read then stands on the lidar datum with no law change.

@@ -16212,7 +16212,7 @@ assemble` gains `stage_roles` and the §20b dispatch (`solve_design`'s
 stage-1 call in `_solve_stage`) passes `airside_stage_roles(law)`, so the
 stage's SHEET is the stage's own ROLES and no longer "every bend role
 face with no foreign vertex".  HECA sheet faces **892 (OFF) / 890 (ON) →
-859 / 859 — the face set is now IDENTITICAL on the two arms** (the diff
+859 / 859 — the face set is now IDENTICAL on the two arms** (the diff
 reads A-only 0, B-only 0); the single solve passes `stage_roles=None` and
 is byte-identical BY CONSTRUCTION (the argument is only ever set in the
 staged branch, and `staged_solve` ships false).

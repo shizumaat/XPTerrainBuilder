@@ -307,7 +307,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             # 0.95 m step between two faces of one "runway" role escaped
             # every DEFECT family (RULINGS 2026-09-15az; lane
             # v2lemdstruct2 r5 §2).
-            band = (shoulder_band(sh[0], law)
+            band = (shoulder_band(
+                        sh[0], law,
+                        end_cap=rules.corridor.runway_shoulder_band_end_cap)
                     if rules.corridor.runway_shoulder_band else None)
             if band is None:
                 shoulders.append((face, sh[0], sh[1],
@@ -1129,7 +1131,7 @@ def _runway_shoulder(face: Polygon, rw_edges, rules: Rules):
     return best
 
 
-def shoulder_band(rw, law: Law):
+def shoulder_band(rw, law: Law, *, end_cap: bool = True):
     """§40 (5) (1) THE RUNWAY'S GRADED STRIP AS A BAND about its
     CENTRELINE (Fable 2026-09-15; owner RULINGS 2026-09-15az) — the
     region a pavement cell must lie inside to be the runway's, or
@@ -1141,8 +1143,18 @@ def shoulder_band(rw, law: Law):
     ``law.tables.zone2_half_width_m("runway", code)`` — ICAO Annex 14's
     graded strip by code number, the FAA RSA table under an FAA ruleset,
     read through the same function ``planar/zones``, ``planar/structures``
-    and ``tools/check_grade`` read.  A FLAT cap: the band ends at the
-    thresholds, so a lobe past the runway end is not inside it.
+    and ``tools/check_grade`` read.
+
+    THE END CAP (§40 (5) as ruled 2026-09-15bl, r2): the graded strip does
+    not stop at the threshold — ``constraints/strips.runway_groups`` and
+    ``planar/shapes.strip_keepout`` both run it
+    ``ruleset.end_skirt.corridor_length_m`` beyond each end (ICAO Annex 14
+    §3.5.3 by code number), and the shoulder band IS that strip, so the
+    axis is extended by the same law number at both ends before the flat
+    cap.  One derivation, one number: ``CodeTable.value`` on the runway's
+    own code, never a literal here.  ``end_cap=False``
+    (``corridor.runway_shoulder_band_end_cap``) restores the flat cap at
+    the apt.dat ends — r2's matched-pair variable.
 
     §40 (5) bounds §40 (1), it does not reverse it: a cell that shares
     ``runway_shoulder_shared_m`` with the runway ring is STILL the
@@ -1153,6 +1165,15 @@ def shoulder_band(rw, law: Law):
     a, b = rw.ends[0].xy, rw.ends[1].xy
     if a == b:
         return None
+    if end_cap:
+        cl = law.ruleset.end_skirt.corridor_length_m
+        ext = (cl.value(rw.code_number, rw.code_letter)
+               if cl is not None else 0.0) or 0.0
+        if ext > 0.0:
+            length = math.hypot(b[0] - a[0], b[1] - a[1])
+            ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+            a = (a[0] - ux * ext, a[1] - uy * ext)
+            b = (b[0] + ux * ext, b[1] + uy * ext)
     return LineString([a, b]).buffer(hw, cap_style="flat")
 
 

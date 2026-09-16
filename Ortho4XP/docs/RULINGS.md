@@ -8571,3 +8571,5 @@ falls back to `resolution_m`, then the inset's own sidecar; the writer
 stamps both keys; twin on a 08-15-shaped manifest; the owner's KDFW read
 then stands on lidar with no re-warm. Round 8 is a FRESH lane (the
 round-7 agent died with the session) on the branch at b0a86405.
+
+## 2026-09-16b RESUMED after the shutdown (main 756785ca clean, no markers, no locks, the app closed): lane v2shellwall r3 launched from the regenerated pack (revert 07cb9794, keep r1's walled trench, implement §33 (6) B AMENDED (3)); §16g (10) (12) WRITTEN (the arrangement clip preserves the airside vertex set; `pad_airside_renode` family; pads ship ON only at 0 airside movement) → lane v2padclip; v2shoulderband r2 (the end cap + one capture each at VHHH/CYXY/SPJC/KCLT/OTHH) → launched. 145 lane worktrees under .claude/worktrees (1.6 TB) — cleanup chipped for the owner (only v2shellwall, v2padclip, v2shoulderband and the peer's v2channel are live)

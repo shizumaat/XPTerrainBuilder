@@ -5633,3 +5633,35 @@ HECA.  Suite **1,613 passed / 1 skipped**, 0 FAILED.  No closing build:
 the keys did not flip.  The owner's garage still seats on `building45`
 (93-node face, median **615.09**, z − DEM **+4.06 m** of fill) on the
 armed arm.
+
+### §16g (10) (12) THE ARRANGEMENT CLIP PRESERVES THE AIRSIDE VERTEX SET — A PAD IS CLIPPED BY THE AIRSIDE CELLS, THE AIRSIDE CELLS ARE NEVER RE-CUT BY A PAD (Fable 2026-09-16; RULINGS 2026-09-16b) — lane `v2padclip`
+
+**The measurement (v2padqp r2, RULINGS 15ah).**  With `pad_airside_clip`
+alone (no derived pads) the airside moved 4,474 vertices (worst 1.39 m,
+runway 17 / 0.100 m) against the pads-OFF arm — three quarters of the
+movement the pad line was held for: the arrangement clip DELETES 1,082
+solve-owned airside vertices and MINTS 235, i.e. it re-nodes the
+airside faces.  14as (i) made the airside REGION pad-independent; its
+VERTEX SET is not.  The one binding pad row found (the cap-0 plate over
+an apron vertex) was pointed one-way in r2 and is not the cause.
+
+**RULED.**  (1) The airside cells' geometry and vertex set are computed
+BEFORE any pad exists and are NEVER modified by the pad stage: a pad
+polygon is the cluster outline MINUS the airside union, clipped BY the
+airside cells (their existing edges become the pad's boundary where
+they touch), and the pad's own vertices are new vertices on the
+pad's side of that boundary; where a pad edge meets an airside edge
+the pad takes the airside's existing boundary vertices (shared by
+identity, §16g (10) (6) the weld) and adds none to the airside cell.
+(2) An airside vertex present in the pads-OFF arm is present, with the
+same id/position, in the pads-ON arm; the census family
+`pad_airside_renode` counts airside vertices deleted or minted by the
+pad stage (bar 0).  (3) With (1)–(2) in force the flag is re-measured
+(the v2padqp bars): airside moved > 0.02 m between the OFF and ON arms
+→ 0 at HECA and LEMD (named survivors), `pad_airside_weld` 0 new,
+mismatch HECA 0 (ref-area share), LEMD 1 named, the far-field probe ≤
+0.02 m; then `pad_from_cluster` + `pad_airside_clip` ship TRUE and the
+T4 garage (40.4892214, −3.5944287) seats on `building45` at one level
+with the fill under it (r2: 615.09, +4.06 m).  Consumer census first
+(every reader of the arrangement / the airside cells / the pad polygon
+/ `_face_map` / the census cutters — the two cutters r1 aligned).

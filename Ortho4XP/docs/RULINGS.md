@@ -8455,3 +8455,119 @@ needed" (15g) + airside is king → (b) with the pavement as the deck,
 generalised to any cover. r2 implements the subtraction and the
 mouths at the transitions; `object_cut_depth` measures the open floor
 only.
+
+## 2026-09-15br OWNER: "if an object provides a hard deck then we just leave an open trench, since the object spans it. The only time we would need to stop a trench at a bridge is if there is NO object covering it, and we need the terrain to provide the hard land area for the bridge. So I think all the cases at VHHH are open trench right?" — YES: §33 (6) B AMENDED (3) supersedes (2)'s cover/pavement subtraction; surface elements over an object-decked trench ride the object and are excluded from the terrain solve inside the outline (the 15bp mechanism); every VHHH shell is an open walled trench for its authored extent; v2shellwall r2 redirected
+
+## 2026-09-15bt SHUTDOWN RECORD (owner: machine off in ~15 min) — RESUME HERE. Main 476e63ae (mine) + the peer's eae7c7c2; suite on main green (1,691 + 392, 15bn); APP 1.0.341 built (f4bac3d4, engine 1.50.1788) and in the owner's hands; lane v2shellwall r2 checkpointed on `claude/v2shellwall` (sha in the addendum); no lane builds running; no locks; the app closed; the LEMD/VHHH install packs restored (15bn)
+
+MERGED TODAY (all suite-proved on main, RULINGS 15e–15br): the three
+1.0.340 reads (LEMD 15e, VMMC 15f, VHHH 15g) → v2lemdstruct2 r1–r5
+(§33 (5) mouth = bore datum, the equality-row bug; §34 (5) (b); §34
+(13) axis ramps, mouth-pair road, raw-pair transverse, one-way object
+feet), v2objcut r1–r3 + the LGAV crash fix (§33 (6) signatures A/B/C:
+B reads every VHHH shell; C1′ Bridge3 pairs; C3′ parapets centre the
+deck; C2′ Bridge4 stations), v2padqp r1–r2 OFF (§16g (10) (11); the
+airside movement = the arrangement clip re-noding airside — §16g (10)
+(12) TO WRITE), v2vmmcshore r1–r7 (§37 (11) sea wall/quays; §34 (12)
+(1) withdrawn — 12ab stands, (3) stop-short, (4) a deck severs only
+where the ground beneath is WITNESSED below grade: LEMD keeps 5 of 7
+approved decks, `-5305`/`-15293` lost — owner read item), v2othhdet
+(the "nondeterminism" was my OTHH refresh between runs; ids now
+geometry-keyed; the replay refuses stale feeds), v2shoulderband (§40
+(5) the shoulder is a band: LEMD 111,648 m² → 49,515 within 75 m; the
+0.95 m runway step gone; the owner's item-7 site 0.554 %; band end cap
+= the strip's 60 m extension — r2 owed with the VHHH capture). Peer
+(xpterrainbuilder-7f, shares this tree and main; RULINGS letters even
+mine / odd theirs): v2drapedbind, v2pavborrow §44, v2insetneg,
+v2roadtags, v2schemarefuse r1–r5 (refuse guards: stale road layers,
+new-hash dumps, install writes; lane builds measure-only — PROVED at
+LEMD 15bf; tile builds lawful on main ≥ 6f6c28ed; `--refresh-only`,
+`--break-stale-lock`), v2insetreprobe; v2channel (§45) round 7
+checkpointed on `claude/v2channel`, NOT merged.
+
+IN FLIGHT AT SHUTDOWN: v2shellwall r2 (§33 (6) B AMENDED (3), owner
+15br: every VHHH shell an OPEN walled trench for its authored extent;
+surface elements over an object-decked trench ride the object and are
+excluded from the terrain solve inside the outline — the 15bp
+mechanism (`taxi_centreline` row → floor pin); bars = the f912ba81
+VHHH control pair frames) — the 1.0.341 VHHH REGRESSION (taxiways
+pulled down 6.5 m near TUNNEL2/tunnel5) is FIXED ONLY WHEN THIS LANDS
+→ then app 1.0.342. Owner chips running in their sessions:
+task_de21f3fb (negative-id collision across OSM layers),
+task_e28892c3 (conflict-marker twin), task_dfad5ff5 (freshness
+tests), plus older ones (6e755fe1, cf2b291a, e97fecda, 35732789).
+
+OWNER OWES: the read of 1.0.341 (LEMD items 1–7 states in 15ax; VMMC
+shore; VHHH shells — the trench regression known); 15y-1 (LEMD road
+ramp inside the runway 75 m strip: accept, or a 150 m tunnel); 15w-1
+(VMMC's remaining 84 m ramp 188 m from the probe — after r6 it may be
+moot); the two LEMD decks `-5305`/`-15293` on the next build; the KPHX
+inset scrub; `--refresh-data dem` for CYXY (15bd) and KCLT.
+
+NEXT SESSION, IN ORDER: (1) read the memory handover + this entry +
+`tools/docq.py ruling 15br 15bp 15bl 15bj`; (2) `git log --oneline -20`
+for the peer's overnight commits; grep both specs and frames.jsonl for
+`^<<<<<<<`; (3) resume lane v2shellwall from its checkpoint (SendMessage
+to the agent is gone after a restart — start a NEW lane `v2shellwall`
+r3 from the brief pack `docs/briefs/v2shellwall.md` + §33 (6) B
+AMENDED (3), branch `claude/v2shellwall`, worktree may need
+`lane_worktree.sh up v2shellwall claude/v2shellwall`); (4) merge it,
+suite on main, app 1.0.342, notify the owner; (5) v2shoulderband r2
+(end cap + VHHH/HECA/KCLT/OTHH/CYXY captures); (6) §16g (10) (12) the
+arrangement clip preserves the airside vertex set, then pads ON.
+Standing: ONE git-touching task at a time on this tree (15bn); never
+compare runs across a corpus refresh (15bj); brief packs via
+brief_pack.py; lanes on Opus; suites by FAILED lines ON MAIN.
+15bt addendum: lane v2shellwall's checkpoint = branch `claude/v2shellwall` @ 07cb9794 ("§33 (6) B AMENDED (2): a shell's trench is OPEN only where nothing covers it" — its worktree was clean, its build stopped, no processes left; this tip predates the owner's (3) correction, so r3 starts from (3): the (2) subtraction on the branch is to be REMOVED; r1's walled-cut geometry (`structure_geometry.ring_for` / `geometry_from_trench`, rim↔floor 1.20 m) and `arm_site_read --airside-near-cuts` are kept). Tree clean at shutdown; no locks; the app closed; no builds running.
+
+## 2026-09-15bm v2channel ROUND 7 CHECKPOINT (b0a86405, shutdown): §45 (14) written but NOT wired (it regresses everywhere — a notch corridor needs ENDS at its crossings); the KDFW datum is a MANIFEST defect (08-15 sidecars lack `native_resolution_m`); C12 REFUTED — the floor rows are `pavement_ceiling` on vertices SHARED between the channel floor and airside cells
+
+(14) `channel_geometry._field_region` + `_hole_region(union, field)` exist,
+twinned, call site `field=None`: wired in, KPHX 0 → 1 channel but KCLT
+tunnels 23 → 19 (four §34 (5) SYNTHESISED underpass bores that (13)(b)'s
+claimed set does not cover), LGAV channels 1 → 4, LEMD 3 → 6, HECA a
+14,562 m channel, CYXY 5,646 m, KPHX 5,750 m with a (3)(iii) floor
+332.76–563.14 m, CYXY planar twins red (6,856 vs 6,660 vertices). §45
+(2)'s ends do not bound a notch corridor — OWNER/Fable ruling needed: a
+corridor ENDS at its outermost crossings (plus one deck-width), never at
+the field boundary; and (13)(b)'s claimed set must include synthesised
+underpass bores. (15)(a) the 1 m inset IS composed (`insets=…,KDFW:
+USGS3DEP`) but the tile's `inset_provenance` entry reads `native_
+resolution_m: null` with no `resolution_m` (all 55 N32W098 sidecars of
+08-15; LEMD/LGAV's newer writer carries it) → `ProductionDem.source_
+pixel_m` → `coarse/base_tier` → `_lidar_credible` False. Fix at the
+manifest READER (fall back to the inset's own sidecar `resolution_m`) or
+the owner re-warms KDFW if today's writer stamps it — a lane, not a
+refresh. (15)(b) C12 REFUTED (`road_fit_vertices: 0`; `--why-vertex
+14070`: the only binding row is the channel's own pin, held to 0.000):
+the fight is `pavement_ceiling` (`pavement_max_grade`) on vertices
+SHARED between the channel floor and airside cells (v14070 roles
+cross_connector/retaining_wall/tunnel_trench: 169.40 vs 182.28 over
+~23 m = 13.41 m; 131 of 482 violated hard rows an infeasible set) — the
+floor and the airside surface must NOT share vertices (the wall band /
+weld spacing between them, as bores have); and `verify/channel._
+declared_at` compares a 2-D floor region to a 1-D axis profile. Suite
+1729/0; LGAV byte-identical to round 6. KDFW capture + solved pickle and
+the KPHX (14)-wired arm registered in frames. NEXT (fresh lane after
+resume): rule the ends + the synthesised-bore claims, wire (14), the
+floor/airside vertex separation, the manifest reader; seven replays;
+ONE KDFW build; merge; app 1.0.342.
+15bt addendum 2 (the lane's own checkpoint report, verbatim resume points): revert 07cb9794 (the (2) cover subtraction: `structure_service.cover_region`, `Corridor.cover`, the `covered=` path, the two twin classes); KEEP r1's walled trench (4382c4a7 + 3ba0a4d1) = (3)(a). (3)(b) — the exclusion of surface elements over an object-decked trench — lives where airside faces and rows are MADE, not in structure_geometry: `planar/structures.build_structures` (the knife / `new_cells`) and the row sites `constraints/taxi.taxi_centerlines` (walks `planar.breaklines` kind `taxi_centerline` — the generator in the attributed chain) + `constraints/taxi.taxi_chain` (`routes()`); reuse `planar/structure_underpass.py` + `structure_deck.emit_decks` / `deck_witness_for` (they already exclude decked pavement from a trench) — do not fork. Consumer census first. Cheap arm: the registered VHHH capture `scratchpad/v2shellwall/cap/VHHH.pkl` (+ `.solved.pkl`) reproduces the regression and carries the `--why-at` chain; the dry structures dump publishes `trench_ll`/`footprint_ll`/`rim_ll`. OTHH reads 0 signature-B cuts; the OTHH/LEMD byte-identity base arm (`scratchpad/v2shellwall/basesrc`, `dry_base.py`) is set up, not completed. Note the scratchpad is session-local (/private/tmp/claude-501/…/3fc455a9…) — the next session re-registers or re-cuts those arms.
+
+## 2026-09-15bo RESUME 2026-09-16 (PM line): §45 (16)–(18) RULED from the round-7 checkpoint — a channel ends at its outermost crossings (synthesised bores join the claimed set), the floor never shares a vertex with airside (its own wall band, as a bore), the inset manifest reader falls back to the inset's sidecar — lanes `v2channel` r8 (fresh) and `v2insetmanifest`
+
+Resumed on main 756785ca (clean; no locks; no builds; the peer's
+shutdown record 15bt read: app 1.0.341 in the owner's hands, VHHH
+regression known, v2shellwall r2 checkpointed). From 15bm: (16) ENDS —
+the outermost crossings ⊕ one deck width, extended by a depth witness;
+(14) wired with them; (13)(b)'s claimed set includes §34 (5) synthesised
+bores; bars: seven replays identical, KPHX ONE bounded channel, CYXY
+twins green. (17) SEPARATION — the channel emits a bore-style wall band
+between floor and airside (`wall_gap_m` + `wall_band_width_m`); floor
+faces never share a vertex with a pavement cell; verify reads the
+profile at the station over floor faces only; bars: 0 floor rows, crest
+≤ 0.01 m, hard set feasible at KDFW. (18) MANIFEST — `source_pixel_m`
+falls back to `resolution_m`, then the inset's own sidecar; the writer
+stamps both keys; twin on a 08-15-shaped manifest; the owner's KDFW read
+then stands on lidar with no re-warm. Round 8 is a FRESH lane (the
+round-7 agent died with the session) on the branch at b0a86405.

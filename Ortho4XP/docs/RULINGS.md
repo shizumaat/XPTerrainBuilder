@@ -8683,3 +8683,5 @@ skipped, 1 xpassed`, 0 failed. OWNER QUESTION (kept as merged, zero
 records change either way): the Chatham Islands box WIDENS
 NEWZEALAND1M/TIDAL (LINZ publishes Chatham 1 m lidar) — keep, or revert
 to mainland-only?
+
+## 2026-09-16h v2usgsbox on main (peer, 23049f59 / 16e): USGS3DEP US-only (8 boxes), HRDEM Canada-only, NZ + Chathams — CYXY's negatives are out-of-box and inert, its builds pass the `dem` pre-flight (lanes merge main first). My 16d premise about HECA's 468 records CORRECTED by the peer's measurement: they were already out-of-box (NZ's box never reached Egypt); the in-box version-stale residual is legitimate providers (USGS3DEP 59 Phoenix/Portland, FRANCE50CM 22, ITALY10M 11, SWISSALTI3D 8, COPERNICUS 3) that re-ask once per version. The new .elv files ship with the next make_engine.sh.

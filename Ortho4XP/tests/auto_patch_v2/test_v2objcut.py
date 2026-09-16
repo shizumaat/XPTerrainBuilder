@@ -502,3 +502,127 @@ def test_seeding_is_inert_without_a_corridor(law):
     from auto_patch_v2.planar import structure_geometry as sg
     ss = [0.0, 12.0, 24.0]
     assert sg.seed_wall_stations(list(ss), None, 0.5) == ss
+
+
+# ── §33 (6) B AMENDED (3) (c): the surface elements ride the object ──
+#
+# owner RULINGS 2026-09-15br.  The mechanism these pin is the one 15bp
+# attributed at VHHH: a `taxi_centreline` row from an AIRSIDE vertex to a
+# FLOOR-RING vertex pinned at the authored floor, propagated by the taxi
+# network to 525 of 1,079 airside vertices within 200 m (worst −6.460 m).
+# Measured base→arm on ONE VHHH capture: junction off-DEM 6.23 → 1.45 m,
+# primary_parallel 6.47 → 1.53, cross_connector 6.44 → 0.92, apron
+# 5.39 → 2.58; ADJUDICATED 1,434 → 151.
+
+class _Cut:
+    """The minimum a decked-exclusion caller reads off a tunnel record."""
+
+    def __init__(self, tid):
+        self.id = tid
+
+
+class _Cell:
+    def __init__(self, role, ref):
+        self.role, self.ref = role, ref
+
+
+def _line(kind, ref, pts, letter=None):
+    from auto_patch_v2.classify.roles import CutLine
+    return CutLine(kind, ref, tuple(pts), letter)
+
+
+def _stats():
+    from auto_patch_v2.planar.structure_stats import StructureStats
+    return StructureStats()
+
+
+def test_a_centreline_crossing_an_object_decked_trench_ends_at_the_rim():
+    """(3) (c): the taxi centreline is CUT at the outline — two pieces,
+    one either side, and NOTHING inside.  The rows every reader below
+    makes are the breaklines these lines become, so one trim ends them
+    all at the rim (RULINGS 2026-08-30l's one derivation site)."""
+    from shapely.geometry import Polygon, LineString
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(40, -10), (60, -10), (60, 10), (40, 10)])
+    ln = _line("taxi_centerline", "taxi7", [(0, 0), (100, 0)], "E")
+    st = _stats()
+    out = ss.decked_exclusion([ln], [_Cut("object-cut:TUNNEL2_DONE.obj@0")], [outline],
+                              [], [], (), 0.5, st)
+    assert [c.kind for c in out] == ["taxi_centerline", "taxi_centerline"]
+    assert all(c.ref == "taxi7" and c.code_letter == "E" for c in out)
+    for c in out:
+        assert not LineString(c.points).intersects(outline.buffer(-1e-6))
+    assert st.decked_outlines == 1
+    assert st.decked_centreline_m == pytest.approx(20.0, abs=1e-6)
+    assert st.decked_road_m == 0.0
+    assert len(st.decked_excluded) == 1
+
+
+def test_a_road_centreline_is_trimmed_and_a_runway_profile_line_is_not():
+    """The ruling names apt.dat pavement, the taxi centreline network and
+    ROADS.  A ``runway_profile`` line is not a surface element a corridor
+    may cut at all (08-07 ruling 4), so it is left alone — trimming it
+    would state a law nothing else states."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(40, -10), (60, -10), (60, 10), (40, 10)])
+    road = _line("road_centerline", "route3", [(0, 0), (100, 0)])
+    rw = _line("runway_profile", "07L/25R", [(0, 5), (100, 5)])
+    st = _stats()
+    out = ss.decked_exclusion([road, rw], [_Cut("object-cut:x.obj@0")], [outline],
+                              [], [], (), 0.5, st)
+    assert sum(1 for c in out if c.kind == "runway_profile") == 1
+    assert [c for c in out if c.kind == "runway_profile"][0].points == rw.points
+    assert sum(1 for c in out if c.kind == "road_centerline") == 2
+    assert st.decked_road_m == pytest.approx(20.0, abs=1e-6)
+    assert st.decked_centreline_m == 0.0
+
+
+def test_only_an_object_decked_trench_excludes_anything():
+    """An OSM bore's corridor is not object-decked: nothing rides it, so
+    nothing is trimmed.  A signature-B shell is admitted only WITH its
+    flush HARD_DECK cover, which is why the id prefix IS the test."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(40, -10), (60, -10), (60, 10), (40, 10)])
+    ln = _line("taxi_centerline", "taxi7", [(0, 0), (100, 0)])
+    st = _stats()
+    out = ss.decked_exclusion([ln], [_Cut("tunnel:-5931@0")], [outline],
+                              [], [], (), 0.5, st)
+    assert out == [ln] and st.decked_outlines == 0 and not st.decked_excluded
+
+
+def test_a_piece_shorter_than_the_identity_spacing_is_dropped():
+    """A stub that carries no two distinct vertices is not a centreline;
+    it would only weld onto the rim it was cut from."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(0.2, -10), (60, -10), (60, 10), (0.2, 10)])
+    ln = _line("taxi_centerline", "taxi7", [(0, 0), (100, 0)])
+    st = _stats()
+    out = ss.decked_exclusion([ln], [_Cut("object-cut:x.obj@0")], [outline],
+                              [], [], (), 0.5, st)
+    assert len(out) == 1                      # the 0.2 m stub is gone
+    assert min(p[0] for p in out[0].points) >= 60.0 - 1e-6
+
+
+def test_the_pavement_inside_an_outline_is_measured_and_a_runway_is_NAMED():
+    """The PAVEMENT limb needs no edit — ``build_structures``'s knife
+    already takes a non-runway-family airside cell's area inside the
+    footprint — so it is MEASURED here per outline, and the runway
+    family's own exemption (08-07 ruling 4) is NAMED rather than widened
+    on a count of zero."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.planar import structure_service as ss
+    outline = Polygon([(0, 0), (100, 0), (100, 20), (0, 20)])
+    cells = [_Cell("junction", "pav68"), _Cell("runway", "rw07L"),
+             _Cell("service_road", "route9")]
+    polys = [Polygon([(0, 0), (50, 0), (50, 20), (0, 20)]),
+             Polygon([(60, 0), (100, 0), (100, 20), (60, 20)]),
+             Polygon([(0, 0), (10, 0), (10, 20), (0, 20)])]
+    st = _stats()
+    ss.decked_exclusion([], [_Cut("object-cut:x.obj@0")], [outline], cells, polys,
+                        ("junction", "runway"), 0.5, st)
+    assert st.decked_pavement_m2 == pytest.approx(1000.0, abs=1e-6)   # the junction only
+    assert len(st.decked_runway_family) == 1
+    assert "rw07L" in st.decked_runway_family[0] and "NOT cut" in st.decked_runway_family[0]

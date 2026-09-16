@@ -8823,3 +8823,4 @@ terrain_layer_max / enclosure_parking_values`, `TAGS_OF_INTEREST` +
 absorbed into `bores_no_mouth`); `-1341+-1339@0` refused loudly by
 (i′) (`-639` severs, the climb cannot reach the DEM in 600 m — not one
 of the approved seven).
+16p addendum: v2vmmcbore MERGED (faa6f78b → 31716692; the lane resolved structure_service.py's `__all__` and the frames union on its branch; VMMC build byte-identical 420018b72b91, LEMD 47 / 7 decks = the approved seven). Suite ON MAIN after the merge: 1742 passed, 1 skipped, 1 xpassed, 0 FAILED. Now on main for 1.0.343: the shoulder end cap (16n), no building bores + the corridor deck witness (16p); pending: v2padclip, the peer's v2channel.

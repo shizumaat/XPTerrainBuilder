@@ -1,30 +1,28 @@
 # Brief pack — lane `v2shoulderband`
 
-Base: main `ff56c8cf` · generated 2026-09-15 by `tools/brief_pack.py`
+Base: main `e4a29817` · generated 2026-09-16 by `tools/brief_pack.py`
 
 Read THIS file first and whole. Do not grep the spec, RULINGS or INDEX monoliths for
 what is here; use `tools/docq.py` for anything else you need.
 
 ## Task
 
-The runway shoulder is a band (§40 (5)): the runway role ends at the strip; every runway vertex carries a level; runway_step
+Shoulder band r2: the end cap takes the strip extension; the band measured at VHHH/CYXY/SPJC/KCLT/OTHH (one capture each)
 
 ## The brief
 
-Founded on v2lemdstruct2 r5 (RULINGS 15az): the moving "runway" vertices at LEMD are on a §40 (1) shoulder cell reaching 914 m off 14R/32L; only the centreline breakline's 1,421 of 4,033 runway-family vertices carry a level. Sites: `classify/roles.py` (§40 (1)/(4) the shoulder kind — the cut at the strip line), `classify/rules.toml` (`runway_shoulder_shared_m`, the strip half-width by code — find the existing strip table: `[runway] strip_half_width_m` or the §29 (7) lateral band key), `constraints/runway_profile.py` (level rows across the band via `runway_crown`), `verify/census.py` + `tools/check_grade.py` (`runway_step`), `law/families.toml`. The runway's OWN law must hold the runway: no runway-family vertex "held by the objective". STANDING ORDERS: NO `--tile` builds (RULINGS 15av); airport-path builds only; never write the shared data repo; never `--refresh-data`; matched pairs on one tree. Other lanes: v2othhdet (object readers), v2vhhhctl (measurement). Do not touch solve/design*.py, planar/structure_deck.py, planar/structures.py.
+Round 2 of v2shoulderband (r1 merged, RULINGS 15bl; §40 (5) MEASURED AND RULED — read the RULED paragraph for the end cap). Your files: classify/roles.py, rules.toml, constraints/runway_profile.py, verify/runway.py, check_grade. Other lanes running: v2shellwall (planar/structure_geometry.py, structures.py, constraints/taxi.py, structure_underpass.py — its VHHH builds may run concurrently with your VHHH capture: correctness builds are lawful in parallel; do not compare across its merges), v2padclip (constraints/cluster_pad.py, classify/evidence.py, planar/overlay.py), the peer's v2channel (planar/channel*.py). Never write the shared data repo or the X-Plane install; never --refresh-data; if a build refuses on a stale layer / stale DEM negative, quote it and move on.
 
 ## Bars
 
-- The consumer census table (§40 (5) (5)) in the MEASURED block BEFORE the first code edit: every reader of the runway role set / the shoulder kind / `runway_*` families / the strip and lateral band / `ramp_in_strip` / `wall_in_runway_strip` / `ramp_cuts_runway_family` / the profile preserve / the CIFP pins / `airside_edge_flip` — one table, one derivation site chosen.
-- LEMD: cell 15 (`runway_shoulder`, 111,648 m², face 5 lateral offsets 30.2/58.1/914.3 m) → the runway-family part within the strip half-width named (m²), the remainder re-roled (which roles, m²); NO runway-family vertex beyond the strip; every runway-family vertex carries a level row (count "held by the objective" → 0); the 0.95 m step at 40.4613609,−3.5446852 gone or named as a `runway_step` DEFECT; the owner's item-7 site 40.4611623,−3.5444804 raw pair still ≤ 1.985 %; `ramp_in_strip` 18 → named (the trench vs the strip re-read).
-- VHHH: the 84,000 m² shoulder (14s) → its strip part vs remainder named; HECA: shape 44 (pav73) strip part joins 05L/23R, the rest apron (13co's read); CYXY/SPJC/KCLT/OTHH: every shoulder before → after with its extent (a real shoulder must survive whole).
-- `runway_step` in `[verify]` + `LAW_FAMILIES` + families.toml with twins; materiality floor 0.10 m (14bx).
-- Census by family, matched replay pairs (one tree, one capture, one variable — registers asserted per arm) at LEMD + HECA + VHHH: no family worse by > 5 % unnamed; `runway_transverse`/`runway_crown` rows before → after.
-- Suite by FAILED lines (zero); ONE LEMD build (AIRPORT PATH, no --tile) as the closing test; `shared repo UNCHANGED` quoted.
+- The band's END CAP: `classify/roles.shoulder_band` extends `end_skirt.corridor_length_m` (the strip's own end extension, `constraints/strips`) beyond each threshold — LEMD matched pair (`--rule` arm): the band's m² and the re-roled remainder before → after; any shoulder lobe within the extension named.
+- ONE capture each, registered, and the band measured (the same table as r1: shoulder m² → band m² + remainder by role; runway vertices beyond the strip → 0; `runway_step` rows; the census pair by family): VHHH (the 84,000 m² shoulder of 14s — its band part vs remainder), CYXY, SPJC, KCLT, OTHH. Each capture is an airport-path build through the harness (`build_airport.py ICAO`, then `v2_solve_replay --capture`) — five builds, one per airport, the closing tests of this round (no --tile; a schema-stale road layer or a version-stale DEM negative REFUSES by name — quote it and skip that airport, the owner refreshes).
+- A real shoulder survives whole at every airport (named with its extent); no family worse by > 5 % unnamed at any of the five.
+- Suite by FAILED lines; `shared repo UNCHANGED` quoted per build.
 
 ## Files
 
-Yours: `Ortho4XP/src/auto_patch_v2/classify/roles.py`, `Ortho4XP/src/auto_patch_v2/classify/rules.toml`, `Ortho4XP/src/auto_patch_v2/constraints/runway_profile.py`, `Ortho4XP/tools/check_grade.py`
+Yours: `Ortho4XP/src/auto_patch_v2/classify/roles.py`, `Ortho4XP/src/auto_patch_v2/classify/rules.toml`, `Ortho4XP/src/auto_patch_v2/constraints/strips.py`
 Other lanes' (do not touch): `Ortho4XP/src/auto_patch_v2/solve/design.py`, `Ortho4XP/src/auto_patch_v2/planar/structures.py`
 
 ## Spec (design-surface) §40
@@ -250,6 +248,334 @@ beyond the strip keeps the role its geometry earns (HECA shape 44, 101.5
 m wide: the strip part joins 05L/23R, the rest is the apron the owner
 read it as — 13co).  Owner ruling 13co's intent ("a pavement along a
 runway is the runway's") is exactly a band beside the runway.
+
+### §40 (5) (5) **MEASURED — THE CONSUMER CENSUS, BEFORE THE CUT** (lane `v2shoulderband`, branch `claude/v2shoulderband`, base main `e856ce64`; owner RULINGS 2026-08-30l)
+
+**WHAT THE CUT CHANGES, STATED FIRST** — because it decides every verdict
+below.  §40 (5) does NOT change the runway ROLE SET, the shoulder KIND, or
+any predicate a consumer tests.  It changes ONE thing at ONE derivation
+site (`classify/roles`, the §40 (1) shoulder branch): the EXTENT of the
+cell that is admitted as the shoulder.  A shoulder cell is cut by its host
+runway's strip band (the runway axis ⊕ `zone2_half_width_m("runway", code)`
+— 75 m at ICAO code 3/4, the `zones.toml` table §40 (5) (1) names); the
+part inside keeps `role = "runway"`, `kind = "runway_shoulder"`, the
+runway's `ref`, code number and letter; the part outside goes BACK ON THE
+`_slice` WORKLIST (the §43 neck mechanism, already in this loop) and is
+scored on its own evidence with NO runway ref.  So the census's question
+for every reader is not "does it keep the shoulder?" (§40 (4) ruled that)
+but **"is it correct against a SMALLER runway region and a NEW taxi/apron
+face where runway used to be?"**
+
+**THE POPULATION AT LEMD** (the registered capture `LEMD capture base
+da8e5d7f lane v2lemdstruct2`, read-only, offline): **17** shoulder cells,
+**541,035 m²**, all code 4/F.  Within the 75 m band **270,086 m² (49.9 %)**;
+beyond it **270,949 m²** in 22 parts.
+
+| cell | ref | area m² | lateral off the axis min/med/max | depth | wrap | within 75 m | beyond |
+|---|---|---|---|---|---|---|---|
+| **15** | 14R/32L | **111,648** | 30.5 / **341.3** / **914.6** | 47.8 | 0.26 | 49,515 (44.3 %) | **62,133** (3 parts) |
+| 5 | 18R/36L | 93,521 | 30.0 / 140.0 / 192.9 | 46.1 | 0.22 | 19,327 (20.7 %) | 74,194 |
+| 9 | 18L/36R | 65,911 | 30.0 / 94.6 / 252.7 | 27.2 | 0.30 | 38,692 (58.7 %) | 27,218 (4) |
+| 4 | 18R/36L | 45,460 | 30.0 / 140.0 / 194.6 | 41.8 | 0.12 | 8,704 (19.1 %) | 36,756 |
+| 8 | 18R/36L | 39,506 | 30.0 / 41.2 / 165.2 | 10.8 | 0.40 | 37,848 (**95.8 %**) | 1,658 |
+| 20 | 14L/32R | 32,208 | 30.0 / 37.6 / 302.2 | 8.2 | 0.47 | 29,749 (92.4 %) | 2,460 (2) |
+| 19 | 18L/36R | 31,970 | 30.8 / 135.9 / 252.9 | 7.9 | 0.50 | 30,474 (95.3 %) | 1,495 (2) |
+| 6 | 18R/36L | 22,703 | 30.0 / 125.6 / 193.1 | 47.2 | 0.05 | 7,661 (33.7 %) | 15,042 |
+| 10 | 18L/36R | 19,600 | 30.0 / 126.2 / 188.4 | 49.9 | 0.05 | 7,352 (37.5 %) | 12,247 |
+| 18 | 14R/32L | 18,666 | 30.6 / 139.0 / 176.8 | 48.7 | 0.04 | 8,051 (43.1 %) | 10,615 (2) |
+| 14 | 14L/32R | 17,915 | 30.0 / 73.6 / 190.2 | 48.2 | 0.04 | 6,880 (38.4 %) | 11,035 (2) |
+| 11 | 18L/36R | 15,820 | 30.0 / 49.3 / 160.8 | 31.0 | 0.06 | 9,862 (62.3 %) | 5,958 |
+| 7 | 18R/36L | 10,226 | 30.0 / 49.1 / 106.1 | 11.0 | 0.10 | 7,576 (74.1 %) | 2,650 |
+| 16 | 14R/32L | 8,547 | 30.5 / 60.6 / 188.0 | 16.2 | 0.06 | 935 (10.9 %) | 7,612 |
+| 17 | 14R/32L | 5,190 | 30.5 / 60.1 / 139.4 | 48.4 | 0.01 | 2,611 (50.3 %) | 2,579 |
+| 12 / 13 | 14L/32R | 3,095 / 3,049 | 30.0 / 50-64 / 86 | 23 | 0.02 | 2,947 / 2,902 (95.2 %) | 148 / 148 |
+
+Cells **8, 19, 20, 12, 13** are what §40 (1) meant — ribbons 8–23 m deep,
+92–96 % inside the band; the cut barely touches them.  Cells **15, 5, 4,
+6, 10** are the defect: mean depths at the 50 m cap and lobes reaching
+190–915 m, of which four fifths is not a shoulder.
+
+**THE TABLE.**  Classes: SURFACE reader (asks "is this pavement the
+runway's?"), REGION derivation (buffers runway cells into a zone of
+influence), CLASSIFY (runs before/beside the cut), CENSUS (prices the
+emitted patch).  Verdicts: **CORRECT-BY-CONSTRUCTION** (the reader sees a
+runway region that is now truthful and needs no edit), **CHANGED-report-
+only** (its numbers move and the round names them), **NEEDS-A-RULE**,
+**HAZARD**.
+
+| # | consumer | what it reads | class | verdict under §40 (5) |
+|---|---|---|---|---|
+| 1 | `classify/roles._runway_shoulder` + the shoulder branch (`roles.py:288-292`, `:485-502`) | the §40 (1) predicate and the `add("runway", …)` of the whole face | CLASSIFY | **THE CUT SITE** — one derivation, per 30l's "trim at the derivation, never per consumer" |
+| 2 | `classify/roles` the `_slice` WORKLIST (`queue`, §43) | apron-neck pieces re-scored on their own evidence | CLASSIFY | **REUSED** — the beyond-band remainder is pushed back on the SAME queue; no second scoring path is written |
+| 3 | `classify/roles._ref_for` / `_source_for` / `_kind` / `open_pavement_role` | the remainder's own evidence (taxi chains, apron cover, source page) | CLASSIFY | CORRECT-BY-CONSTRUCTION — this is §40 (5) (2)'s "the role its geometry earns"; the runway ref is dropped because `_ref_for` reads the PAVEMENT PAGE, never the runway |
+| 4 | `classify/airside_edge.airside_edge_flip` (`roles.py:506`) | roles + `lot.road_airside_edge_frac`, to fixpoint | CLASSIFY | **CHANGED-report-only** — the remainder faces enter the §27 pass (shoulders never did: they are added after `scored` and before the flip). A lot beside a runway shoulder still reads airside pavement: the remainder is airside too (junction/apron), so the flip's inputs are the same class |
+| 5 | `classify/roles` zone-strip mint / `planar/zones.zone_regions:159-169` | `RUNWAY_FAMILY and not is_runway_shoulder` → runway band; `TAXI_FAMILY` → taxi band | REGION | **CHANGED-report-only, AND THE ONE REAL CONSEQUENCE**: the remainder is now taxi family, so it MINTS its own 22 m (code F) zone band where a shoulder minted none. Bounded by construction — 22 m, not the runway's 75 m, and against 270,949 m² of LEMD remainder. Named in the round's `graded_strip` figure |
+| 6 | `planar/structures.py:322-326` `strip` / `strip_u` | runway cells ⊕ 75 m, minus shoulders | REGION | CORRECT-BY-CONSTRUCTION — already excludes shoulders (§40 (4)); a smaller shoulder cannot grow it. The remainder is NOT runway, so it adds none either |
+| 7 | `planar/shapes.strip_keepout:138-155` | runway cell long axis ⊕ strip half width, minus shoulders | REGION | CORRECT-BY-CONSTRUCTION — same; and §40 (4)'s finding ("an 84,000 m² shoulder has a long axis of its own") is retired by the cut, not merely vetoed |
+| 8 | `constraints/strips.py:121,139,387` `runway_groups` | `Runway.slab_corners`, apt.dat ends and width | REGION | UNAFFECTED — never reads the role's rings (§40 (1) round 1) |
+| 9 | `planar/structures.py:275-278` `runway_u` (what a ramp may not cross), `:296` door-ramp stops, `:299` `airside_stops`, `:950` the object knife | `c.role in RUNWAY_FAMILY` | surface | **CHANGED-report-only** — the protected pavement shrinks to the band. A ramp/knife may now cut the ex-shoulder remainder. That is the RULING: beyond the strip it is not the runway's pavement. Counted (LEMD `cells cut`, object corridors) |
+| 10 | `planar/basins.py:438-439,779` `runway_u` / `cuts_runway_family` | `RUNWAY_FAMILY` | surface | **CHANGED-report-only** — same shrink; a basin refused for reaching a 914 m lobe is now judged against the band. VHHH's §40 (4) regression came from the opposite direction and is not re-opened |
+| 11 | `planar/structure_underpass.strip_half_width_m:58-82` | the cell's own class half width (runway 75 / taxi 22) | surface | **CHANGED-report-only** — the ex-shoulder's covered extent falls 75 → 22 m. This is the mechanism behind the `ramp_in_strip` bar |
+| 12 | `planar/weld.weld_cells` | value roles, non-rigid | surface | CORRECT-BY-CONSTRUCTION — the band line is a new shared edge between two VALUE faces; §37 (10) welds them, which is §40 (5) (2)'s own words ("it welds to the runway family at the strip line like any airside contact") |
+| 13 | `planar/shapes.py:218-226` network roots | the runway-connected face network | surface | CORRECT-BY-CONSTRUCTION — the remainder is still reachable pavement, reached through the band face |
+| 14 | `constraints/runway_profile.crown_drops` / `runway_crown` / `runway_transverse` (`:242,283,337`) | every runway-family FACE vertex vs the ridge, capped by `runway_transverse_cap(d, half)` | surface | **THE SECOND CUT SITE (§40 (5) (3))** — with the band at 75 m the transverse bound falls from `0.025 × 914 = 22.9 m` to `0.025 × 75 = 1.88 m`, and §40 (5) (3) asks for a LEVEL. Ruled below the table |
+| 15 | `constraints/runway_profile.threshold_pins` / `runway_profile` / `runway_vertical_curve` / `curve_stations` | `ridge_chains` = the `runway_profile` BREAKLINE only | surface | UNAFFECTED by the cut (the ridge is the centreline; r5 measured all four LEMD runways as one intact pinned chain each, ≤ 0.059 m) — and it is exactly why the level must come from (14), not from widening this population |
+| 16 | `constraints/runway_chord.py:559-562` the §29 chord target | `faces_of_role(RUNWAY_FAMILY)` | surface | **CHANGED-report-only** — the chord surface stops at the band. §40 (1)'s "the runway's chord surface reaches the shoulder" is honoured within the band and withdrawn beyond it, per §40 (5) |
+| 17 | `constraints/zones.py:198-206,96-99,326-346` | which runway face an edge's band belongs to; the tie population's runway exclusion | surface | **CHANGED-report-only** — the remainder's edges now carry the JUNCTION band, not the runway's. Its `ref` is no longer the runway's, so the §40 (4) inheritance argument no longer applies to it and must not |
+| 18 | `constraints/transverse.py:79,243` `_RUNWAY_FAMILY`, `junction_raw_transverse`'s contact test | is this junction vertex shared with a runway? | surface | **CHANGED-report-only, AND THE OWNER'S ITEM-7 SITE** — v906 (40.4611623,−3.5444804) is `junction#86` + `runway#5`; face 5 beyond the band stops being runway, so the contact set moves. §34 (13) (3)'s raw-pair row is unchanged in law; the round re-reads the pair |
+| 19 | `constraints/no_step.py:113,293` / `reach_bands` | `no_step_roles`, the threshold pins | surface | **CHANGED-report-only** — an ex-shoulder/runway pair becomes a junction\|runway or junction\|junction pair with its own cap |
+| 20 | `constraints/eat.py:280`, `apron_trend.py:170`, `taxi_trend.py:115`, `flat_site.py:80`, `junction_mesh.py`, `taxi.py` | role-set membership | surface | CORRECT-BY-CONSTRUCTION — mechanical and role-keyed; the remainder simply joins the taxi/apron populations it geometrically belongs to |
+| 21 | `solve/project.py:158-161` `runway_family_vertices`, `solve/design.py:188` | the projection's runway vertex set | surface | **CHANGED-report-only** — this set shrinks to the band. It is the set r5 measured "held by the objective" on (2,612 of 4,033); shrinking it is the point |
+| 22 | `verify/runway.py:59-169` (`runway_crown`, `runway_transverse`, `runway_vertical_curve`, `runway_intersection`) | `sh.role in RUNWAY_FAMILY` on the emitted patch | CENSUS | **CHANGED-report-only** — prices the band, at the band's cap. The families stop being vacuous 490 m off-axis |
+| 23 | `verify/strips.py:56,106-192,477-504`, `verify/structures.wall_in_runway_strip:84-109` | `RUNWAY_FAMILY` shapes ⊕ `zone2_half_width_m` | CENSUS/REGION | **CHANGED-report-only** — the wall/strip region shrinks with the shoulder. A wall refused for standing in a 914 m lobe's 75 m band is re-judged. Bar: `wall_in_runway_strip` before → after |
+| 24 | `tools/check_grade._check_ramp_in_strip:6849-6900` (+ `_strip_half_width_m:6825`) | each emitted way's own solid ⊕ its class half width | CENSUS | **CHANGED-report-only — THE `ramp_in_strip` BAR.** LEMD's 18 rows are minted against the runway band of the ex-shoulder; beyond the cut the same ground is junction (22 m). Bar: 18 → named |
+| 25 | `tools/check_grade` `_CROWN_RUNWAY_ROLES:3990`, `MATERIALITY_RUNWAY_FAMILY_ROLES:9479`, `:295/2544/2907/3360/8207/8822` | `law_role(way) in {runway, runway_crossing}` | CENSUS | **CHANGED-report-only** — the runway materiality floor and the crown reader follow the role, which is now truthful |
+| 26 | `law/tables.role_family` / `role_words` / `precedence`, `precedence.toml:116` `runway_family.members` | the role register | surface | UNAFFECTED — no role is added or renamed; §40 (5) needs no `precedence.toml` entry (unlike §40 (1)'s owed distinct role) |
+| 27 | `law/tables.runway_transverse_cap:227-249` | runway cap inside the half width, shoulder cap beyond | surface | UNAFFECTED as a function; its DOMAIN is now bounded by the band. `d ≤ 75` so the shoulder cap prices ≤ 1.88 m instead of 22.9 m |
+| 28 | `law/structures.toml:14` `ramp_cuts_runway_family`, `:494` `cuts_runway_family` | booleans over `RUNWAY_FAMILY` | surface | UNAFFECTED as law; their protected set shrinks with the region (rows 9, 10) |
+| 29 | `law/approach_corridor.py` + `emit.cockpit.runway_view_half_width_m` (250 m), §29 (7) | each runway's AXIS from apt.dat, ⊕ 250 m | REGION | UNAFFECTED — built from the apt.dat axes, never from the role's rings. The §29 (7) lateral band is NOT the strip and is untouched by this cut |
+| 30 | `pipeline/build.py:32` + `pipeline.publication` (`runway_half_widths`, `crown_drops`) | the sidecar's runway half widths and built drops | CENSUS | **CHANGED-report-only** — fewer runway vertices declare a drop; the sidecar line the v1 census reads stays one derivation |
+| 31 | `src/auto_patch/*` (v1) | v1 role sets | — | UNAFFECTED — not on the v2 pipeline |
+
+**THE ONE DERIVATION SITE CHOSEN.**  Row 1 — `classify/roles`, the §40 (1)
+shoulder branch — with row 2's existing worklist as the re-scoring path and
+row 14 as the (§40 (5) (3)) level rows.  No per-consumer veto is added
+anywhere: rows 6, 7 and 8 keep the §40 (4) exclusions they already have,
+and every "CHANGED" row changes because the REGION it reads is now
+truthful, which is what 30l asks a derivation-site trim to do.
+
+**THE TWO HAZARDS NAMED, AND WHY NEITHER BLOCKS.**  (a) Row 5: the
+remainder mints zone bands a shoulder did not — bounded at the taxi class's
+22 m and reported.  (b) Rows 9/10/11: pavement that was protected from
+ramps, knives and basins stops being protected.  Both are the ruling's own
+content ("the remainder beyond the strip keeps the role its geometry
+earns"), not side effects of the implementation, and both are measured as
+bars rather than vetoed.
+
+### §40 (5) **MEASURED — THE CUT** (lane `v2shoulderband`, branch `claude/v2shoulderband`, base main `e856ce64`)
+
+**THE FRAME.**  ONE tree, ONE airport, ONE variable, registers asserted per
+arm (RULINGS 2026-09-15az's own lesson).  A classify change is invisible to
+a `--from planar` replay — the capture HOLDS the classification — so the
+pair is TWO CAPTURES, taken through the new `v2_solve_replay --rule
+SECTION.KEY=V` (the capture-time classify arm, beside `--placement`) rather
+than by editing the shipped toml between the arms, which is exactly the
+register-deletion defect 15az records.  Both arms print their arm line —
+`[LEMD] CAPTURE ARM [rules] {'corridor.runway_shoulder_band': 'false'}` /
+`'true'` — and both print `[guard] shared repo UNCHANGED`.
+
+| | OFF (§40 (1)) | ON (§40 (5)) |
+|---|---|---|
+| capture | `sb/cap_off/LEMD.pkl`, 236 s, 21,376 vertices / 1,059 faces | `sb/cap_on/LEMD.pkl`, 351 s, 21,883 / 1,099 |
+| emit | `sb/emit_off/LEMD_auto.patch.osm` | `sb/emit_on/LEMD_auto.patch.osm` |
+| solve | optimal, **169.9 s** | optimal, **70.9 s** |
+
+#### 1. THE ROLE — 49.9 % OF THE "SHOULDER" WAS NOT THE RUNWAY'S
+
+`runway_shoulder` **545,036 → 271,086 m²** (17 cells → 19 band pieces, 17
+cut); the remainder is **273,949 m²** in 28 faces, and the runway BODY
+itself is untouched (1,023,880 m² both arms).  Every square metre is
+accounted for:
+
+| the remainder's earned role | faces | m² |
+|---|---|---|
+| `primary_parallel` | 6 | 154,604 |
+| `apron` | 2 | 46,809 |
+| `stub` | 8 | 40,602 |
+| `junction` | 11 | 29,354 |
+| `cross_connector` | 1 | 2,579 |
+
+**The owner's cell.**  Cell 15 (`pav159`, 14R/32L, **111,648 m²**, lateral
+offsets 30.5 / 341.3 / **914.6 m**) → cell 16, **49,515 m²**, offsets 30.5 /
+54.3 / **75.0 m**; its remainder is **46,764 m² of APRON** (`pav188`) plus
+the smaller pieces — which is 13co's reading of exactly this class of
+pavement.  The other big cuts: `pav154` (18R/36L) 93,521 → 19,327 m² with
+74,194 m² becoming `primary_parallel`; `pav158` (18L/36R) 65,911 → 38,661.
+The genuine ribbons are barely touched: `pav153` 39,506 → 37,848 (95.8 %),
+`pav155` 32,208 → 29,749 (92.4 %).
+
+#### 2. NO RUNWAY-FAMILY VERTEX BEYOND THE STRIP; AND WHAT HOLDS THE RUNWAY
+
+Measured on both captures with the generators' own `ridge_chains` /
+`project_to_chain`:
+
+| | OFF | ON |
+|---|---|---|
+| runway-family vertices | 4,044 | **3,458** |
+| worst lateral off its own ridge | **914.3 m** | **75.5 m** |
+| vertices beyond the 75 m strip | **609** | **1** (75.5 m — the band line's own weld) |
+| `runway_crown` / `runway_transverse` coverage | 3,962 | 3,325 (96.2 %) |
+| LEVEL rows (`runway_profile` + CIFP pins + `runway_vertical_curve`) | **1,421** (35.1 %) | **1,421** (41.1 %) |
+
+**THE RUNWAY PROJECTION IS THE INSTRUMENT, AND IT INVERTS.**  On the OFF
+arm the §09y runway projection does not solve at all —
+`Solve error [rc HighsStatus.kError, 25006 rows x 4034 columns]`.  On the
+ON arm: `22,734 hard rows (2,718 coupled to fixed feet) over 3,451 free
+columns / 3,459 runway vertices, worst hard row 0.0023 → 0.002263 m, max
+move 0.000 m, 0.01 s — **held by the solve (nothing to settle)**`.  The
+whole-problem hard set improves with it: **20 → 14** rows violated, worst
+**1.8043 → 0.4148 m**, and the OFF arm's two worst violations stand at
+40.46131/40.46144, −3.5445/−3.5446 — the owner's own site.
+
+**§40 (5) (3) IS MET IN SUBSTANCE AND NOT IN ITS LITERAL WORDS, AND THE
+DIFFERENCE IS DELIBERATE.**  The LEVEL-giving population is still the
+centreline breakline's 1,421 vertices — unchanged, exactly as r5 measured —
+because extending `runway_profile` across the band is the fix r5 argued
+against and this round did not attempt.  What changed is the DOMAIN the
+bounding rows act over: a `runway_transverse` row at 914 m bounded the
+vertex to ±0.025 × 914 = **±22.9 m** of the ridge, which is no bound at
+all; at 75 m it bounds it to **±1.88 m**, and the projection then reports
+the runway held to **2.3 mm** with nothing to settle.  "No runway-family
+vertex is ever held by the objective" is therefore TRUE of the solve's own
+reading on the ON arm and was not true on the OFF arm, while the row
+population §40 (5) (3) names is unchanged.  A tighter level row was NOT
+minted: the measurement says the band alone closes it, and r3/r4 measured
+twice that hardening a runway row set over-determines the sheet (10,006 and
+8,548 violations).
+
+#### 3. THE 0.95 m STEP — CAUGHT BY THE NEW FAMILY, THEN HEALED BY THE CUT
+
+`runway_step` (§40 (5) (4)) on the OFF arm reads **3 rows, ALL THREE AT
+40.4613609,−3.5446852** — **0.950 / 0.633 / 0.317 m**, roles
+`runway|runway`, the owner's own site and the exact row r5 attributed.  On
+the ON arm: **0**.  `mid_edge_step` 2 → 0 at the same coordinate.  The
+family is neither vacuous nor endorsing: it fires on the geometry §40 (5)
+disputes and reads zero once the role is right.
+
+#### 4. THE OWNER'S ITEM-7 SITE, 40.4611623,−3.5444804
+
+| | OFF | ON |
+|---|---|---|
+| roles on the node | `junction` + **`runway`** | `apron` + `junction` (**the runway ref is gone**) |
+| z | 582.59 | **576.22** (6.37 m lower — it is no longer lifted to a runway's datum 496 m off that runway's centreline) |
+| the raw pair over 18.05 m | 1.552 % | **0.554 %** (junction cap 1.985 %) |
+
+The bar was "still ≤ 1.985 %".  It reads 0.554 %, under the law its
+geometry earns, which is §40 (5)'s own expectation in its own words.
+
+#### 5. THE CENSUS BY FAMILY (harness `census.py`, both arms, one tree)
+
+| family | OFF | ON | Δ |
+|---|---|---|---|
+| `within_shape` | 4,176 | 3,842 | −334 |
+| `hairline_pair` | 1,898 | 1,793 | −105 |
+| `airside_no_step` | 362 | 319 | −43 |
+| `taxi_box` | 129 | 127 | −2 |
+| `strip_transverse` | 93 | **34** | −59 |
+| `transverse` | 92 | **34** | −58 |
+| **`ramp_in_strip`** | **18** | **9** | **−9** |
+| `road_cross_section` | 9 | 9 | 0 |
+| `frontage_near_miss` | 8 | 8 | 0 |
+| `strip_arc` | 6 | **0** | −6 |
+| `resa_transverse` | 4 | 4 | 0 |
+| **`runway_step`** | **3** | **0** | −3 |
+| `strip_longitudinal` | 3 | 1 | −2 |
+| `mid_edge_step` | 2 | 0 | −2 |
+| `raoa` | 2 | 1 | −1 |
+| `pad_airside_weld` | 2 | 2 | 0 |
+| **`adjacent_ground_step`** | **0** | **2** | **+2** |
+| LAW-TRUE | 6,807 | **6,185** | −622 |
+| ADJUDICATED | 2,011 | **1,709** | −302 (airside 1,880 → **1,627**) |
+| CRITICAL MOTION | **12** (worst 1.32 m) | **6** (worst **0.09 m**) | −6 |
+| CRITICAL VISUAL (cliffs) | 1,918 (**20**) | 1,804 (**10**) | −114 (−10) |
+| worst cliff | **26.881 m** `runway\|tunnel_ramp` | **4.52 m** `cross_connector\|tunnel_ramp` | |
+
+**NO FAMILY IS WORSE BY MORE THAN 5 % UNNAMED, AND THE ONE RISER IS NAMED:**
+`adjacent_ground_step` **0 → 2**, worst **0.580 m**, both CRITICAL VISUAL
+cliffs.  Mechanism: the remainder is now taxi family, so it MINTS its own
+code-F zone band (22 m) where a shoulder minted none — census row 5 of the
+§40 (5) (5) table, predicted there before the edit and priced here.  It is
+two within-face welded steps in a NEW adjacent-ground face, against the
+twenty cliffs and the 26.9 m worst that the cut removed.
+
+**`ramp_in_strip` 18 → 9, and WHICH 9.**  The nine that went are the
+`runway|tunnel_ramp` rows at 40.4606–40.4620, −3.5445…−3.5448 — the F-6
+trench, judged against the 75 m RUNWAY strip of a 914 m lobe.  The nine
+that stay are `cross_connector|tunnel_ramp` / `junction|tunnel_ramp`, worst
+**4.52 m** (was 26.88 m): the same trench against the TAXI strip the ground
+actually carries.  §34 (13) (2)'s residual therefore shrinks by a factor of
+six without §34 (13) (2) being re-attempted.
+
+#### 6. HECA — THE CONTROL, SAME VARIABLE, DRY
+
+`classify` re-run on the registered `HECA capture base 2117c48c lane
+v2padqp` (`HECA.off3.pkl`), one tree, the law key the only variable:
+`runway_shoulder` **574,991 → 243,104 m²** (32 cells → 37 band pieces, 22
+cut, **331,887 m²** beyond); the remainder earns `stub` +210,192,
+`primary_parallel` +92,417, `junction` +26,730, `apron` +3,774 m².  The
+runway BODY is unchanged at 701,407 m² on both arms.
+
+**HECA's worst is worse than LEMD's.**  Cell 8, `dsf:objpav93` on
+**05R/23L**, **218,797 m²**, lateral offsets 30.0 / 307.4 / **1,717.2 m** —
+more than half again LEMD cell 15's reach, carrying the runway's role, ref
+and code — becomes five band pieces totalling **83,655 m²**, none past
+75.0 m.  Owner ruling 13co's shape 44 is `dsf:objpav103` on **05L/23R** in
+this capture's page numbering (the 1.0.329 shape ids do not survive the
+re-slice): **108,065 m²** in three cells reaching 319.3 m → **41,561 m²**
+of band (cells 3 and 4, max 75.0 m), the rest re-roled on its own evidence
+— the strip part joins 05L/23R and the remainder takes the apron/parallel
+roles 13co reads it as.  The ribbons that were always ribbons are
+untouched: `dsf:objpav441` 10,058 → 10,058, `objpav460` 9,323 → 9,323,
+`objpav459` 13,987 → 13,987, `objpav461` 9,251 → 9,251 (all ≤ 44.2 m deep).
+
+**NOT MEASURED, NAMED.**  VHHH's 84,000 m² shoulder (14s), and
+CYXY / SPJC / KCLT / OTHH's shoulder sets: there is no registered capture
+for any of them, and a classify change cannot be read off a `--from planar`
+replay or off an emitted patch.  An emitted-patch proxy for VHHH (the
+`v2roles` §40 (4) closing patch, runway-role area against each ref's
+principal axis ⊕ 75 m) returned **3.7 % within the band** — which would put
+the runway SLAB outside its own strip — so it was DISCARDED rather than
+quoted (the implausible-numbers rule).  Those airports want a capture each
+and are owed.
+
+#### 7. THE CLOSING BUILD — LEMD, THE AIRPORT PATH (RULINGS 2026-09-15av)
+
+`build_airport.py LEMD --tag v2shoulderband`: **rc 0, 351.4 s**, status
+**optimal**, ways 1,123, nodes 21,660, `body_sha 42241995fdaf`, artifact
+ledger `874c7aee6b0d`, v2-verify **1,797 rows** with **every DEFECT family
+ZERO** (`runway_transverse`, `runway_vertical_curve`, `runway_step`), and
+**`[harness] shared repo UNCHANGED by this build (full-surface
+before/after snapshot)`** — 18 lock-churn operations, the allowed class.
+The runway projection line on the build is the ON arm's: *held by the solve
+(nothing to settle)*.  No `--tile` build was run.
+
+**Suite** `tests/auto_patch_v2 tests/test_harness.py`: **0 FAILED**.
+
+## §40 (5) MEASURED AND RULED — THE BAND TAKES THE STRIP'S END EXTENSION (lane v2shoulderband a8138464; Fable 2026-09-15; RULINGS 2026-09-15bl)
+
+LEMD matched pair (one tree, two captures, `--rule` the only variable):
+cell 15 111,648 m² (914.6 m off-axis) → 49,515 m² of band at max 75.0
+m + 46,764 m² of apron; airport-wide shoulder 545,036 → 271,086 m²,
+the remainder 273,949 m² in 28 faces (primary_parallel 154,604 / apron
+46,809 / stub 40,602 / junction 29,354); runway-family vertices beyond
+the strip 609 → 1 (75.5 m, the band line's weld); `runway_step` 3 → 0
+(the 0.950 / 0.633 / 0.317 m rows at 40.4613609, −3.5446852), `mid_edge_
+step` 2 → 0; the owner's item-7 site loses the runway ref (junction +
+runway → apron + junction), raw pair 1.552 → 0.554 %; `ramp_in_strip`
+18 → 9 (the nine runway|tunnel_ramp rows gone; the nine against the
+TAXI strip stay, worst cliff 26.88 → 4.52 m); ADJUDICATED 2,011 →
+1,709, CRITICAL motion 12 → 6 (worst 1.32 → 0.09 m), cliffs 20 → 10;
+the 09y runway projection `Solve error [rc kError]` → "held by the
+solve", worst hard row 2.3 mm.  (3) was met in SUBSTANCE, not letter:
+no tighter level row was minted (r3/r4 measured twice that hardening a
+runway row set over-determines the sheet); what changed is the DOMAIN
+— `runway_transverse` now bounds a vertex to ±1.88 m at 75 m instead of
+±22.9 m at 914 m.  Accepted.  Riser named: `adjacent_ground_step` 0 →
+2 (0.580 m) — the remainder's own taxi zone band, predicted by the
+census.  HECA (dry): 574,991 → 243,104 m²; `dsf:objpav93` on 05R/23L
+218,797 m² reaching 1,717 m → five band pieces 83,655 m²; 13co's shape
+44 (`objpav103`) 108,065 → 41,561 m² of band, the rest re-roled.
+Closing LEMD build (airport path): every DEFECT family zero, `shared
+repo UNCHANGED`.  Not measured: VHHH's 84,000 m² shoulder and CYXY /
+SPJC / KCLT / OTHH — no registered captures (a classify change is
+invisible to a `--from planar` replay); an emitted-patch proxy for
+VHHH was discarded, not quoted.  RULED, the lane's question: the band's
+END CAP takes the strip's own end extension — the graded strip runs
+`end_skirt.corridor_length_m` (`constraints/strips`; ICAO 60 m for
+code 3/4) beyond each threshold, and so does the shoulder band; a
+shoulder lobe within that extension stays the runway's, beyond it is
+re-roled.  One line at `classify/roles.shoulder_band` (r2, with the
+VHHH capture).
 
 ## Spec (design-surface) §29
 
@@ -499,831 +825,20 @@ committed tree (`v2approachcorridor_x`, 364.2 s, ledger `93c615b05a58`) comes
 back **body `b27faf5ce243`, byte-identical** to the arm quoted above, with the
 same structures line.
 
-## Spec (design-surface) §34 (13)
-
-## §34 (13) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS; THE COVERED EXTENT READS EVERY AIRSIDE STRIP THE CROSSING LIES IN (Fable 2026-09-15; RULINGS 2026-09-15u; answers lane v2lemdstruct2's two questions) — lane `v2lemdstruct2` r2
-
-(1) **`tunnel_ramp` is a ROUTE-family shape.**  Its grade is read along
-its AXIS (mouth → top, the §34 (7) stations), as §37 (7) reads the road
-family and 09-05aa the taxi family — never across the plan chord.  The
-item-5 ramp's worst `within_shape` row today is 8.250 m / 8.31 % over a
-99.25 m PLAN CHORD where the axis is 143.5 m (5.75 %); the +63
-`within_shape` rows the §33 (5) fix priced are that misreading.  The
-ramp's own cap is the ramp grade cap; a chord row on a `tunnel_ramp` is
-not minted.
-
-(2) **The covered extent reads EVERY airside strip the crossing lies in.**
-§34 (5) (b) clears the strip of the way the bore passes UNDER; at LEMD
-item 7 the underpass passes under junction pav157 and the trench then
-surfaces inside runway 14R/32L's 75 m strip (8 `ramp_in_strip` rows
-against the runway; `strip_transverse [runway|tunnel_ramp]` 13.87 m).
-RULED: the mouth opens beyond the OUTERMOST airside strip at that
-station — runway strips included (§29 (7) the runway lateral band is
-airside ground) — and the ramp descends outside it.  If the ramp that
-results exceeds its grade cap within `max_ramp_length_m`, the ramp cap
-decides and the residual is named; the strip is never cut.
-`wall_in_runway_strip` / §29 (7) keep their own reading of walls.
-
-(3) **The junction's crossfall at a runway contact.**  No `transverse`
-row exists at pav157's nodes shared with the runway; the crossfall is
-priced only by `taxi_box` / `airside_no_step` junction|runway pairs and
-reads 4.957 % over 18.2 m (cap 1.985 / 1.500 %); after the trench move
-4.296 / 2.479 %.  A junction touching a runway takes the runway's edge
-level at the contact (airside is king) and carries its OWN transverse
-cap across its width: the lane names the rows that pull pav157's far
-edge down (the trench rim? the zone? the bored road's deck?) with
-`--why-at` before the fix — a transverse row set on the junction is the
-expected remedy, the measurement decides.
-
-(4) **§34 (11) (a) road admission — the consumer census is the first
-deliverable of r2**, then the admission: OSM way −5944 (`highway=
-service`, `lanes=2`, 0.14 m from the owner's point) is kept out by
-`classify/evidence._osm_roads` (centrelines ∩ `pavement_union`) and
-`classify/roles` (faces only from `ev.truck_chains`).  The "pull" as
-stated is REFUTED (vertices within 60 m at DEM +0.03 mean, worst +1.41 m
-ABOVE); what the owner sees is the DEM's own 611 m × 88.7 m plateau
-between two rims solving at 602.16 / 601.69 — an unowned 9 m cut in the
-witness.  The road, admitted, grades that ground (§37 (6) its zones);
-the 144,429 m² hole ring (cover 0.011) is closed by the road's faces and
-zones or excluded per §34 (11) (c).
-
-### §34 (13) **MEASURED — r2** (lane `v2lemdstruct2`, branch `claude/v2lemdstruct2`, base main `9c313551`)
-
-THE FRAME is r1's: the ONE registered LEMD capture (`LEMD capture base
-da8e5d7f lane v2lemdstruct2`), matched `v2_solve_replay` arms off it, the
-harness census on each `--emit`.  **NO CLOSING BUILD** — the shared repo's
-`osm_layers` refresh RULINGS 15u calls for has not been run (the refresh
-ledger's last `osm_layers` entry is 2026-09-08T11:33:30, for SPJC), so
-this round stops at the replay pair exactly as instructed.
-
-#### (1) A STRUCTURE RAMP IS GRADED ALONG ITS AXIS — MET
-
-ONE derivation, `auto_patch_v2.verify.within.ring_route_m`: the ROUTE
-between two vertices of a closed ring is the shorter of the two walks
-around it.  A `tunnel_ramp` face is a RIBBON (`planar/structure_geometry.
-geometry` walks the axis stations down one side and back up the other),
-so for two vertices on the same side that walk IS the run between their
-stations, and for two across the ribbon it is the short way round the
-nearer end — no sidecar key needed, unlike the taxi route
-(`taxi_route_pairs`) and the road frame (`road_route_frame`).  It reads
-`max(chord, route)` and a polyline between two of its own points is never
-shorter than the chord, so it can only RELAX and never blinds a ramp that
-is genuinely over cap along its axis.  Two readers, one function: the v2
-verify (`verify/within.within_shape`) and `tools/check_grade`
-(`_ring_route_m`, imported, with a literal no-engine fallback the twin
-asserts identity against).
-
-| bar | before | §34 (13) (1) |
-|---|---|---|
-| census `within_shape` rows touching a `tunnel_ramp` | **71** | **27** |
-| the item-5 ramp's worst row (way −10852/−10853) | **10.41 m / 10.49 % over a 99.3 m PLAN CHORD** | **3.87 m / 8.29 % over a 46.7 m AXIS run** |
-| census `within_shape`, airport-wide | 3,464 | **3,420** |
-| the same on the BASE arm | 3,397 | **3,391** |
-| §33 (5)'s price, re-read | +67 rows | **+29** |
-| census ADJUDICATED | 1,404 | **1,360** |
-
-**RESIDUAL, NAMED.**  27 ramp rows survive, worst **8.29 % against the
-8.0 % cap** — the item-5 ramp is 0.29 pp over its own cap along its own
-axis over a 46.7 m run, which is a real grade and not an artefact.  The
-ruling's own alternative ("or is named") is what this is.
-
-#### (2) THE COVERED EXTENT READS EVERY AIRSIDE STRIP — ATTEMPTED, MOVED BACKWARDS, DELETED
-
-Built as ruled: `airside_strip_union` (every runway- and taxi-family cell
-grown by `strip_half_width_m`, the zone law's own number) and, per station
-per side, `_strip_exit_m` — the last point along the normal still inside
-any airside strip — as the floor under §34 (5) (b)'s kerb+strip offset.
-ONE full planar replay arm (`b1`).  **Every bar moved the wrong way:**
-
-| | §34 (5) (b) (r1) | §34 (13) (2) attempt |
-|---|---|---|
-| `ramp_in_strip` (bar: 8 → **0**) | 8 | **19** |
-| `strip_transverse`, worst | 83, 13.872 m | **90, 19.070 m** |
-| v2 verify `wall_in_runway_strip` | 6 | **20** |
-| cockpit CRITICAL visual CLIFFS | 10 | **24** |
-| census ADJUDICATED | 1,360 | 1,372 |
-| the trench mouth from the owner's node | 31.06 / 33.43 m | 41.67 / 43.25 m |
-| solve | optimal | optimal |
-
-**THE MECHANISM, AND WHY A SECOND ATTEMPT IS NOT WORTH ITS BUILD.**  At
-LEMD F-6 the crossing stands 33–43 m from runway 14R/32L, whose code-4
-strip is **75 m**.  "The mouth opens beyond the outermost airside strip"
-therefore asks for a covered extent of roughly **150 m** and a ramp that
-descends from `mouth_z` 564.90 below a taxi surface at 581 over that run —
-a different structure, not a longer clip.  What the clip's 10 m of extra
-reach actually bought was a DEEPER trench slightly FURTHER into the same
-strip, plus a wider ribbon that bored more road and put fresh ramps into
-OTHER runway strips (the new worst `ramp_in_strip` row is at
-40.4633057,−3.5451343, a site the reading never touched before).  §34 (13)
-(2)'s own escape clause is the answer: *"If the ramp that results exceeds
-its grade cap within `max_ramp_length_m`, the ramp cap decides and the
-residual is named; the strip is never cut."*  `max_ramp_length_m` is 600 m
-and `ramp_max_grade` 0.08, so the ramp CAN be built — but the strip is not
-being cut by the ramp, it is being cut by the TRENCH the bore needs, and
-the bore's length is what the deck cell states.  The code is DELETED per
-the standing law (a bar that moves backwards is not kept gated); the
-measurement is this table.  **The residual stands: 8 `ramp_in_strip` rows
-and `strip_transverse [runway|tunnel_ramp]` 13.872 m over 32.49 m against
-runway 14R/32L's strip, at LEMD 40.4605950,−3.5447694.**
-
-#### (3) THE JUNCTION'S CROSSFALL AT A RUNWAY CONTACT — THE ROWS ARE NAMED, AND THE PREMISE INVERTS
-
-`--why-vertex` on the two vertices the census pair is made of (the r1
-solved arm), at the owner's own point:
-
-* **v906** (40.4611623,−3.5444804, the owner's point, shared
-  `junction#86` + `runway#5`) z **579.08**, DEM 572.03 — **7.05 m of
-  fill**.  Binding: `no_step_pairs` 4 (dual 3,197), `junction_mesh` 7
-  (2,584), `runway_profile` 1 (585), `taxi_centreline` 1 (585),
-  **`transverse` 1 (141), a 4-term row AT ITS BOUND +0.2241**.  Chain:
-  v906 → v6621 (**+2.31 m**, `junction_mesh` at **cap 1.50 % × 43.2 m**)
-  → v6719 `graded_strip#95` z 577.63, terminal **FREE — "held by its
-  ground datum (the DEM under it)"**.
-* **v6622** (18.12 m away, `graded_strip#94` + `junction#86`, NOT shared
-  with the runway) z **579.86** — the junction's far edge.  Binding:
-  **`foot_rows` 14 (dual 42,656 — an order of magnitude above everything
-  else)**, `no_step_pairs` 6 (4,565), `junction_mesh` 7 (1,870),
-  **`transverse` 6 (900), 4-term rows AT THEIR BOUND −0.2438**,
-  `taxi_box` 2, `taxi_chain` 1, `zone_bands` 4.
-
-**THE PREMISE INVERTS.**  The brief and the ruling ask for "the rows that
-pull pav157's far edge DOWN".  The far edge is **0.78 m ABOVE** the
-runway contact, not below: 579.86 against 579.08.  Nothing pulls it down;
-the runway edge is held 7.05 m over its own DEM by the junction mesh
-stretched at cap across 43.2 m to a zone-band vertex sitting on the DEM,
-and the object **FOOT ROWS** are the heaviest thing in the sheet at the
-far edge.
-
-**AND THE `transverse` ROWS EXIST AND ARE AT CAP.**  r1 reported "no
-transverse row" from the CENSUS's family view, and that is true of the
-census — zero `transverse` rows within 120 m — but the SOLVE has seven of
-them there, every one binding at its bound (±0.24 m over 18.1 m =
-**1.35 %**, inside the 1.5 % cap).  They are 4-TERM rows: a vertex against
-an INTERPOLATED point across the corridor, not the raw pair.  The census
-prices the raw pair v906–v6622 at **0.78 m / 18.12 m = 4.30 %**.  So the
-two instruments disagree about what "the crossfall" IS, and the remedy the
-ruling expects — "a transverse row set on the junction" — is already
-there and already satisfied.  **A NEW ROW SET IS NOT THE FIX AND WAS NOT
-ATTEMPTED**: what wants Fable's reading is whether a junction's transverse
-law is the 4-term cross-corridor row (satisfied) or the pair across its
-width (4.30 %, three times the cap).  Measured both ways, above.
-
-#### (4) §34 (11) (a) ROAD ADMISSION — THE CONSUMER CENSUS, AND THE EDIT IT REFUSES
-
-The census (owner RULINGS 2026-08-30l) was completed BEFORE any consumer
-was edited, and it is the deliverable: **the admission as specified is not
-a bounded change and was NOT landed.**
-
-**THE TABLE** (scout `v2lemdstruct2-census`, read-only, on the registered
-capture; `service_road` is `value=true`, `side="groundside"` in
-`law/precedence.toml`).  Verdicts: UNAFFECTED / CHANGED-report-only /
-NEEDS-A-RULE / HAZARD.
-
-| # | consumer | what it reads | effect of a new `service_road` face population | verdict |
-|---|---|---|---|---|
-| 1 | `classify/evidence._osm_roads` | centreline ∩ `pavement_union`, `rules.osm_roads` (`highways=["service"]`, `dedup_m` 8, `min_len_m` 10) | the gate itself; widening CHAINS is a different blast radius from minting FACES | NEEDS-A-RULE |
-| 2 | `classify/roles` corridor mint | `ev.truck_chains` − pavement/pad/runway, `service.road_width_m` 6.0 | the change site | — |
-| 3 | `classify/roles._road_evidence` | `truck_chains + road_chains` vs `scored` | corridor faces are appended AFTER `scored`, so FACES do not reach it; widened CHAINS do → more `parking_lot` demotions and open-default flips | HAZARD if chains widen |
-| 4 | `classify/roles` road CUT LINES in strips | `truck_chains + road_chains` ∩ strip sources | widened chains mint breaklines INSIDE senior strips | NEEDS-A-RULE |
-| 5 | `classify/sources` | `ev.road_chains` → `osm_road_m` / `aisle_m` | the whole lot ladder (`lot.min_road_fraction`, `narrow_road_width_m`, §37 (5)) — role churn on EXISTING pages | HAZARD if chains widen |
-| 6 | `classify/airside_edge.airside_edge_flip` | roles, `lot.road_airside_edge_frac` | every new face is a §27 candidate and can FLIP to `apron`; flips propagate to fixpoint. **9 of 46 candidate faces (5,016 m²) lie mostly inside a 75 m runway strip** | **HAZARD** |
-| 7 | `planar/build.build` | `classification.cells` | +46…+207 faces on a 1,024-face / 20,608-vertex map | CHANGED-report-only |
-| 8 | `planar/weld.weld_cells` | value, non-rigid roles | `service_road` is a VALUE role → new faces weld into neighbours and MOVE their vertices | NEEDS-A-RULE |
-| 9 | `planar/shapes._label_roads` / `network_faces` / `strip_keepout` | road-family faces | each new face is labelled ALONG or CROSSING → new declared `road_ramp`s with their own row law | NEEDS-A-RULE |
-| 10 | `planar/zones.zone_regions` | `side == "groundside"` cells ⊕ `groundside_cutback_m` 0.6 + snap 0.354 | **9,229 m² of 3,036,527 m² zone-band area removed = 0.30 %, on 10 of 279 `graded_strip` faces** | CHANGED-report-only |
-| 11 | `planar/terrain_edge.road_lines` | `airport.osm_ways` DIRECTLY | already sees every mapped road | UNAFFECTED |
-| 12 | `constraints/roads.road_law_caps` / `road_within_shape` | `family("road_cross_section").roles` | the full cross-section pair law on every new face; lateral contiguity hands the 9 strip-interior faces a RUNWAY-grade transverse cap | **HAZARD** |
-| 13 | §37 (1) longitudinal (`role_cap("service_road")`) | the role cap | unchanged (8 %); row count grows | CHANGED-report-only |
-| 14 | `constraints/road_ramp` §37 (6)/(7)/(9)/(10) | the road frame | new ramp / contact / join rows | CHANGED-report-only |
-| 15 | `airport/road_ramp.deck_refs` / `road_ramp_targets` | `pm.structures[*].decks` refs | `deck_refs` excludes only MAPPED BRIDGE DECKS. A face minted over a `tunnel=yes` way has NO structure record, is NOT excluded, and §37 (6) grades it to the surface **OVER A BORE**. Three such ways sit in the owner's void (−15327, −5980, −5931) | **HAZARD** |
-| 16 | `airport/road_profile.core_profiles` / `preferred_road_z` | ALL `osm_ways` with `highway` | population already complete — **way −5944 is ALREADY in the core profile**, so §37 (6) answers a face over it with no new plumbing | UNAFFECTED |
-| 17 | `emit/osm_adapter` | `precedence.roles[role]`, `ref` | would reuse the 1206 corridors' own `route{i}` namespace — the census could not separate the two populations | NEEDS-A-RULE |
-| 18 | `tools/check_grade` `_ROAD_FAMILY_ROLES`, `road_cross_section`, `ramp_in_road`, `road_coverage_join`, `zone_on_pavement` | `law_role(way)` | all four price the new faces automatically; counts rise on every one | CHANGED-report-only |
-| 19 | `verify/roads.road_profile_agreement` | faces owning a preferred vertex | whole-population mean/max move | CHANGED-report-only |
-| 20 | `verify/steps`, `constraints/proximity`, `constraints/groundside`, `solve/design` §9 | `role_side == "groundside"` | every new corridor rim is a fresh airside/groundside boundary → more step / proximity pairs | CHANGED-report-only |
-| 21 | `constraints/zones` `own_law` | `road_family_roles` | new rim vertices leave the zone-band constraint | CHANGED-report-only |
-| 22 | `constraints/transverse`, `contiguity`, `verify/contiguity`, `pipeline/shapes` | `road_family_roles` | mechanical, role-keyed | UNAFFECTED |
-| 23 | `verify/structures.tunnel_deck_clearance` | the `("service_road","tunnel_ramp")` pair | would catch #15 only where a `tunnel_ramp` exists | NEEDS-A-RULE |
-| 24 | `src/auto_patch/*` (v1) | v1 role sets | not on the v2 pipeline | UNAFFECTED |
-
-**THE POPULATION, MEASURED THREE WAYS** (the capture; `airport.osm_ways`
-are the whole TILE's road net, which is the trap):
-
-| scope | faces | area |
-|---|---|---|
-| every off-pavement `highway=service` part, no gate | **618** | **1,857,973 m²** |
-| clipped to the apt.dat boundary ⊕ 50 m, `tunnel`/`bridge` refused (57 ways), the runway strip cut | **207** | **944,872 m²** |
-| the same without the runway-strip cut | 199 | 977,182 m² |
-| (scout's independent count, clipped to the PATCH COVERAGE) | 46 | 21,038 m² |
-
-LEMD's whole patch coverage is 12,189,226 m².  **The narrowest gate I
-could derive at classify time still admits 944,872 m² — 7.8 % of the
-layout — to fix one 297.9 m road.**  A third scope was tried and measured
-too: roads inside the ENCLOSED VOIDS of the airside union (the shape
-§34 (11) (c) names) — 52 voids ≥ 10,000 m², but the largest is
-**4,816,431 m²** (the airfield's own middle, not a void), and the class
-reads **137 road parts / 42,113 m**.  None of the three isolates the
-defect.
-
-**THE VOID ITSELF** is not −5944's alone: it is a hole in
-`graded_strip:adjacent_ground:taxi:F:zone2#18`, **144,254 m²**,
-representative point **40.4946503,−3.5835473** (the owner's, exactly), and
-**fourteen** `highway` ways lie in it — ten with no chain today (−5944
-297.9 m, −5913 263.9 m, −5958 244.0 m, −5962 126.6 m, −15328/29/30/31/32/33
-~30 m each) and three of the remaining four are the **bores themselves**
-(−15327, −5980, −5931).  Closing it takes a **10-way, ~1,030 m road
-network**, not one way.
-
-**WHAT THIS LANE DID.**  The admission was BUILT to the census's own
-scope — faces only (never widening `ev.road_chains`), `tunnel`/`bridge`
-ways refused, the runway strip cut, its own `osmroad<n>` ref namespace,
-clipped to the apt.dat boundary — and then **REVERTED**: 207 faces /
-944,872 m² is two orders of magnitude past the owner's one road, and it
-cannot be measured this round at all (a classify-stage change is invisible
-to a `--from planar` replay — the capture holds the classification — so it
-needs a fresh capture AND a build, and the build is barred until the
-`osm_layers` refresh).  This is a STOP-and-report under the attempt cap.
-
-**THE BOUNDED SUCCESSOR, NAMED.**  §34 (11)'s own words are "THE ROAD
-BETWEEN TWO MOUTHS", and that predicate is available — at the PLANAR
-stage, not at classify: two mouths of the SAME bored road facing each
-other across a gap (LEMD `tunnel:-15327@0` at 40.4947815,−3.5829176 and
-`tunnel:-5980@0` at 40.4940096,−3.5826576, **88.7 m** apart, the parent
-road already walked by `structure_approach.approach_along`).  That mints
-ONE face at LEMD instead of 207, needs no boundary heuristic, and cannot
-touch a runway strip or a bore because the structures stage already knows
-where both are.  It is a new emitted class (classify → planar → emit) and
-wants its own round.
-
-**AND THE ROAD-TAG QUESTION IS ANSWERED: NO.**  `+40-004_big_roads.osm.bz2`
-(the file r1's build rewrote) does now carry the v2roadtags keys —
-`layer` 2,420, `covered` 250, `embankment` 68, `cutting` 16 — but it holds
-**zero ways within 600 m of the site**.  All 22 ways there come from
-`+40-004_airport_small_roads.osm.bz2`, dated **Aug 31 and NOT rewritten**,
-and carry only `highway` / `lanes` / `bridge` / `tunnel` / `width`.  Across
-all 6,620 loaded `highway` ways the capture has **no `layer` tag at all**,
-and `airport/osm.TAGS_OF_INTEREST` keeps `layer` but DROPS `covered`,
-`cutting` and `embankment`, so even a rewritten small-roads feed would
-need that frozenset widened first.  The new tags cannot identify −5944's
-relationship to the two bores.
-
-#### THE CLOSING ARM — NO BUILD, AND WHY
-
-The shipping arm is `b2`: one `--from planar` replay of the registered
-capture on the r2 tree, solve **optimal** 54.5 s.  Its surface is
-BYTE-EQUAL to r1's at both owner sites (item 5 rim −10995 602.16 / ramp
-−10852 floor **597.09** = **5.07 m**; item 7 rim at **31.06 m**, ramp at
-**33.43 m**, floor 564.90), because §34 (13) (1) changes only how the
-surface is READ.  The two instruments agree exactly on how many rows the
-plan chord was inventing:
-
-| | r1 | r2 (§34 (13) (1)) |
-|---|---|---|
-| v2 verify `within_shape` | 466 | **422** (−44) |
-| census `within_shape` | 3,464 | **3,420** (−44) |
-| census LAW-TRUE / ADJUDICATED | 5,756 / 1,404 | **5,712 / 1,360** |
-| `ramp_in_strip` / `strip_transverse` worst | 8 / 13.872 m | 8 / 13.872 m (unchanged — (2) deleted) |
-| v2 verify `tunnel_mouth_canonical` / `wall_in_runway_strip` | 28 / 6 | 28 / 6 |
-| cockpit CRITICAL motion / visual (cliffs) | 4 / 1,433 (10) | 4 / 1,433 (10) |
-
-**NO CLOSING BUILD WAS RUN.**  RULINGS 15u's owner act — `build_airport.py
-LEMD --refresh-data osm_layers` — has not happened: the refresh ledger
-`/Users/noah/XPTerrainBuilderData/.harness/refresh_ledger.jsonl` ends at
-**2026-09-08T11:33:30** (scope `osm_layers`, for SPJC), with nothing from
-2026-09-15.  Building LEMD now would measure the same mixed corpus r1's
-build contaminated, so this round stops at the replay pair, as instructed.
-Suite `tests/auto_patch_v2 tests/test_harness.py`: **1,591 passed / 1
-skipped / 0 FAILED**.
-
-## §34 (13) MEASURED AND AMENDED (lane v2lemdstruct2 r2 1846bb15; Fable 2026-09-15; RULINGS 2026-09-15y) — (1) landed; (2) WITHDRAWN; (3) the raw pair IS the junction's transverse law; (4) the road between two mouths is minted at the planar stage
-
-**(1) LANDED.**  `verify/within.ring_route_m` — a ramp ribbon's ring IS
-its axis down one side and back; `within_shape` reads `max(chord,
-route)`, so it can only relax.  Ramp rows 71 → 27; the item-5 ramp 10.49
-% over a 99.3 m chord → 8.29 % over a 46.7 m axis run; verify and
-census both lose exactly 44 rows.  Residual: 27 rows, worst 8.29 %
-against the 8.0 % cap — named, under the 0.5 pp attempt floor of
-interest.
-
-**(2) WITHDRAWN.**  "Beyond the outermost strip" at item 7 asks for a
-~150 m covered extent (the crossing stands 33–43 m from 14R/32L, whose
-strip is 75 m) — a different structure; the attempt moved backwards
-(`ramp_in_strip` 8 → 19, `strip_transverse` 13.87 → 19.07 m, cliffs 10
-→ 24) and was deleted.  The residual STANDS and is the owner's to see:
-8 `ramp_in_strip` rows, the trench 13.87 m deep over 32.49 m at
-40.4605950, −3.5447694, inside the runway's 75 m strip.  Two honest
-options for the owner: accept a road ramp 33 m off the runway edge
-(the real road IS there), or cover the bore to the strip edge (a ~150
-m tunnel the pack did not author).
-
-**(3) THE RAW PAIR IS THE TRANSVERSE LAW.**  `--why-vertex`: the far edge
-v6622 is 0.78 m ABOVE the runway contact (579.86 vs 579.08) — nothing
-pulls it down; the RUNWAY edge is held 7.05 m over its own DEM by
-`junction_mesh` stretched at cap 1.50 % × 43.2 m to a free zone-band
-vertex, and the heaviest family at the far edge is `foot_rows` (dual
-42,656 — object feet).  `transverse` rows exist and are AT THEIR BOUND
-(1.35 % of 1.5 %) — as 4-term cross-corridor rows; the census prices
-the raw pair across the junction at 4.30 %, and the raw pair is what
-the owner sees from the cockpit ("lateral slope … still not fixed").
-RULED: a junction's transverse law is the RAW PAIR across its width at
-every station (the census's reading); the 4-term cross-corridor row is
-not a transverse cap and does not satisfy it.  r3 sets raw-pair
-transverse rows on junctions (≤ the taxiway cap, the runway's edge
-level at the contact per airside-is-king) and names the object feet
-that then yield or the row that then binds.
-
-**(4) THE ROAD BETWEEN TWO MOUTHS — planar-stage, one face.**  The 24-
-reader census (in the MEASURED block) returned HAZARD on five for a
-general road-face admission (`airside_edge_flip` turning road into
-apron inside a runway strip; §37 (1) contiguity handing a runway cap;
-`road_ramp.deck_refs` grading a face to the surface OVER A BORE; the
-lot ladder; the `route{i}` namespace) and the gated population is 207
-faces / 944,872 m² (7.8 % of LEMD's coverage) to fix one 297.9 m road —
-reverted.  RULED: §34 (11) (a) is re-founded on its own words — at the
-PLANAR stage, two mouths of the same parent road within `mouth_pair_m`
-(the LEMD pair is 88.7 m apart) mint ONE road face between them (the
-road's own width, the §37 road rows, its zones), never a general
-admission; the void (144,254 m², cover 0.011) then closes by that face
-and its zones or is excluded per (11) (c).  v2roadtags' tags do not
-reach this site (all 22 ways come from `airport_small_roads`, and
-`TAGS_OF_INTEREST` drops `covered`/`cutting`/`embankment`) — noted for
-the peer's follow-up, not this lane's.
-
-### §34 (13) **MEASURED — r3** (lane `v2lemdstruct2`, branch `claude/v2lemdstruct2`, base main `539e524e`)
-
-THE FRAME is r1's still: the ONE registered LEMD capture, matched
-`v2_solve_replay` arms, the harness census on each `--emit`.  **NO
-CLOSING BUILD** — checked once, the refresh ledger's last `osm_layers`
-entry is **2026-09-08T11:33:30 (SPJC)**, so RULINGS 15u's owner act has
-not run and LEMD would be measured on the corpus r1's build contaminated.
-Suite `tests/auto_patch_v2 tests/test_harness.py`: **1,619 passed / 1
-skipped / 0 FAILED**.
-
-#### (3) THE RAW PAIR IS THE JUNCTION'S TRANSVERSE LAW — STATED AND MINTED; NOT MET AS A VALUE, AND THE REASON IS MEASURED TWICE
-
-**WHAT LANDED.**  `constraints/transverse.junction_raw_transverse` — a
-new generator beside `transverse`, registered in `constraints/__init__`.
-It walks the SAME stations (`geometry.walk_transects`, the census's own
-walk, never a second one) and, at each, prices the two RING VERTICES the
-transect's two hits fall nearest — real emitted columns, which is what
-makes it a raw pair — over their own plan distance at the axis's
-transverse cap.  Two ruling heads so the halves can be told apart:
-`RAW_PAIR_RULING` and, where one end is a vertex the junction SHARES with
-a runway, `RAW_PAIR_CONTACT_RULING`; both registered in `[design]
-one_way_rulings`, so at a contact the junction's far edge FOLLOWS and no
-runway column ever moves for it (airside is king).  Where BOTH ends are
-runway-shared the runway owns the pair and no row is minted.
-
-**AT THE OWNER'S POINT the row is exactly right and it does not bind.**
-LEMD `pav157` / 40.4611623,−3.5444804: the pair (v906 on the runway edge,
-v6622 the junction's far edge 18.12 m away) is priced at **±0.268 m**,
-`follows=(v6622,)` — and the solve still reads **4.296 % over 18.2 m**,
-unchanged from r2.  1,591 raw-pair rows at LEMD, **62 of them contacts**.
-
-**HARD WAS TRIED TWICE AND IS INFEASIBLE.**
-
-| arm | what | result |
-|---|---|---|
-| c1 | the row as a TARGET (one-way, at `law`) | solve optimal, verify 1,549; `transverse` 115 → 97, `airside_no_step` 457 → 451; **the site unchanged at 5.01 %** |
-| c2 | ALL 1,591 raw pairs in `[design] hard_rulings` | **10,006 of 109,240 hard rows violated, worst 60.48 m** |
-| c5 | ONLY the 62 CONTACT rows hard | **8,548 of 106,182 violated, worst 105.29 m**; verify 179,008 rows, `runway_transverse` 625 and `runway_vertical_curve` 243 — the DEFECT families |
-
-So the raw pair stands as the LAW and as a TARGET, and §34 (13) (3)'s own
-alternative is what r3 reports.  **THE ROWS THAT BEAT IT, NAMED** (r2's
-`--why-vertex`, unchanged): at the far edge v6622 — `foot_rows` **14 rows,
-sum |dual| 42,656** (the object feet), `no_step_pairs` 6 (4,565),
-`junction_mesh` 7 (1,870), `zone_bands` 4; at the contact v906 —
-`no_step_pairs` (3,197), `junction_mesh` **at cap 1.50 % × 43.2 m**
-(2,584) whose chain terminates on a zone-band vertex that is FREE, "held
-by its ground datum".  A junction's far edge is held by four families at
-once; a fifth, however correct, is one voice among them, and hardening it
-over-determines the sheet.  **The residual is 4.296 % / 2.479 % against
-1.985 % / 1.500 %, and it is the owner's to see beside 15y-1.**
-
-| bar | r2 | r3 |
-|---|---|---|
-| the raw pair at 40.4611623,−3.5444804 (18.2 m) | 4.296 % | **4.296 %** — NOT MET |
-| the same over 16.5 m | 2.479 % | **2.479 %** — NOT MET |
-| census `taxi_box` \| `airside_no_step` junction\|runway pairs within 14 m | 5 \| 4 | **0 \| 8** |
-| census `transverse` (the 4-term family) | 107 | **98** |
-| census `airside_no_step` | 475 | **460** |
-| runway vertices moved > 0.02 m by the new rows | — | **0** (every contact row is one-way on the junction end; the registers are twinned) |
-
-#### (4) THE ROAD BETWEEN TWO MOUTHS — LANDED, AND THE PREDICATE THE BRIEF GUESSED IS REFUTED
-
-**THE PREDICATE IS NOT "TWO MOUTHS OF ONE BORE FACING EACH OTHER".**
-Measured at the owner's site: `tunnel:-15327@0` and `tunnel:-5980@0` are
-88.5 m apart and their ramps climb AWAY from one another — dot of each
-outward direction with the line between them **−0.916** and **−0.906**.
-They are the two near portals of a DUAL CARRIAGEWAY whose far ends merge
-at `tunnel:-15327+-5980@0` (−15327 is 2,234 m long, −5980 2,204 m), and
-the 88.5 m between them is the 611 m plateau the bores pass UNDER, not a
-road.  What IS the road between two mouths is the way whose OWN TWO ENDS
-are mouths: **−5944** runs from `tunnel:-5931@1`'s mouth — sharing its
-node exactly, **0.00 m** — to 47.3 m short of `tunnel:-5980@0`.
-
-**WHAT LANDED.**  `planar/structure_road.py` (NEW, its own module because
-`planar/structures.py` is at its 1,000-line budget and because lane
-`v2vmmcshore` r2 is editing it): `mouth_pair_roads(airport,
-classification, law, tunnels)`, called from `planar/build.build`
-immediately after `build_structures` — the seam where the cells must
-exist before the arrangement is built.  Law key `[tunnel] mouth_pair_m`
-(100.0, in `structures.toml`; the model field carries NO default, which
-is what the two `no_numeric_literal_in_law_python` twins enforce).
-`StructureStats.mouth_roads` carries one named line per face and
-`pipeline/build` prints them under the structures line, because the class
-is meant to be a handful and a rising count must be visible.
-
-The predicate, each clause answering a HAZARD r2's 24-reader census named:
-a mapped `highway=*` way, itself **neither `tunnel` nor `bridge`** (the
-census's worst hazard: a face over a bore is graded to the surface over
-it); **each end within `mouth_pair_m` of a structure mouth, the two
-mouths DIFFERENT**; **at least one end joined to the bore by a shared
-NODE** (the canonical identity join) — two node joins reads **0** ways at
-LEMD, none reads **27**, one reads **4**; the face is the way's own
-carriageway width minus every existing cell; its own `mouth_road:<way>`
-ref namespace.
-
-**THE DRY PAIRS — 7 faces across three airports.**
-
-| airport | faces | area | named |
-|---|---|---|---|
-| **LEMD** | **4** | **3,775 m²** | `mouth_road:-5944` 2,085 m² (the owner's), `-3830` 787, `-12917` 541, `-4044` 361 |
-| **OTHH** | **0** | — | the class never fires (39 structures, cells 369 → 369) |
-| **KCLT** | **3** | **3,564 m²** | `-11280` 2,613 m², `-11279` 929, `-9694` 22 |
-
-Against 207 faces / 944,872 m² for the general admission r2 refused.
-
-**THE BARS.**
-
-| bar | before | after |
-|---|---|---|
-| the face exists on way −5944's segment | no road-family way within 60 m | **way −10867 `service_road` / `mouth_road:-5944`, 24 nodes, 605.09–611.00 m**; 4 of the 6 stations along the owner's own line now read it |
-| its grade ≤ the road cap | — | worst edge **8.00 % against the 8 % road cap** — MET at cap; it rides its ground, \|z−DEM\| max **1.70 m** |
-| the ground at 40.4940268,−3.5826498 within 0.10 m of the road profile | no face | **NOT MET** — −5944's own centreline ENDS 47.3 m short of that point; only the rim and the ramp stand there |
-| hole ring −10670 (144,429 m²) closed | cover **0.011** | cover **0.023** — **NOT MET**; rings > 10,000 m² **13 → 13** |
-| census by family | ADJ 1,360 | **ADJ 1,344** (airside 1,279 → 1,251); `transverse` 107 → 98, `airside_no_step` 475 → 460, `road_cross_section` 9 → 11, `taxi_box` 167 → 171, `hairline_pair` 1,423 → 1,428; LAW-TRUE 5,712 → **5,692**; CRITICAL motion 4 → 4, visual 1,433 → 1,438 (10 cliffs both) |
-| the class's own census cost | — | **16 rows** on the four faces, **11 of them `-4044`'s** (a tertiary on a 12 % hillside, worst 10.79 % over 12.0 m); the owner's −5944 carries **one**, a 7.98 % cross-section over a 2.0 m span |
-| solve | optimal | **optimal** |
-
-**WHY THE VOID DOES NOT CLOSE, ARITHMETICALLY.**  One 2,085 m² road in a
-144,254 m² hole is 1.4 %; r2 already measured that closing it takes a
-**10-way, ~1,030 m network** (−5944, −5913, −5958, −5962 and six ~30 m
-stubs), of which −5944 is the only one with a mouth at each end.  §34 (11)
-(c)'s other limb — "or excluded from the graded strip" — is untouched by
-this lane and is where the remaining 98.6 % belongs.
-
-## §34 (13) (3) RULED ON r3's MEASUREMENT — AN OBJECT'S FOOT NEVER HOLDS AIRSIDE PAVEMENT (Fable 2026-09-15; RULINGS 2026-09-15ad) — lane `v2lemdstruct2` r4
-
-r3 minted the raw-pair row (`constraints/transverse.junction_raw_
-transverse`, one-way on the junction end at a runway contact; 1,591
-rows at LEMD, 62 contacts; census `transverse` 107 → 98, junction|
-runway `taxi_box` within 14 m 5 → 0; 0 runway vertices moved) and the
-site still reads 4.296 %.  Hard was infeasible twice (10,006 / 8,548
-violated).  The families that hold pav157's far edge v6622 ABOVE the
-runway contact: `foot_rows` **14 rows, dual 42,656** (object feet),
-`no_step_pairs` 6 (4,565), `junction_mesh` 7 (1,870), `zone_bands` 4;
-at the contact v906 `junction_mesh` at cap 1.50 % × 43.2 m to a FREE
-zone vertex held by its DEM.  RULED: (a) an object's foot row on an
-AIRSIDE vertex is ONE-WAY toward the object — the foot follows the
-pavement, never holds it (airside is king; the object stage re-seats
-on the design surface anyway).  r4 names the 14 objects behind those
-rows (what stands at a taxiway junction's edge 18 m from a runway —
-signs, lights, a fence?) and flips their rows' direction at the
-derivation site; (b) the `junction_mesh` row from the runway contact
-to a free zone vertex terminates on a vertex that carries the
-junction's own transverse law, not on a DEM-held zone vertex — the
-mesh row's far end at a contact is the raw-pair partner; (c) re-
-measure the crossfall; if the raw pair then binds and the site reads
-≤ 1.985 %, done; if `no_step_pairs` bind next, name them and stop —
-the residual joins 15y-1 for the owner.
-
-### §34 (13) (3) (a) **MEASURED — r4** (lane `v2lemdstruct2`, branch `claude/v2lemdstruct2`, base main `848bf35e`)
-
-Same registered LEMD capture, matched `v2_solve_replay` arms, harness
-census on each `--emit`.  **NO BUILD** — the refresh ledger's last
-`osm_layers` entry is still **2026-09-08T11:33:30 (SPJC)**.  Suite
-**1,638 passed / 1 skipped / 0 FAILED**.
-
-#### (a) THE 14 OBJECTS, NAMED — THEY ARE TWO BODIES OF ONE PLACEMENT
-
-`foot_targets` on the capture: **8 foot targets touch v6622, from exactly
-2 bodies** (the 14 the `--why-vertex` dual named are the binding subset of
-their 16 one-sided rows).
-
-| body | span | feet | verdict | target z | DEM under it | relief | `y_zero` | anchor |
-|---|---|---|---|---|---|---|---|---|
-| `LEMD_OBJ-Airport_Munoza-LEMD69#b2` | **2.232 m** | 4 | `bare` | 577.02 | 577.01–577.03 | 0.001 m | −1.198 | 40.4609886,−3.5450515 |
-| `LEMD_OBJ-Airport_Munoza-LEMD69#b4` | **2.231 m** | 4 | `bare` | 576.85 | 576.80–576.91 | 0.001 m | −1.200 | 40.4609892,−3.5449556 |
-
-**RESOURCE / CLASS.**  One pack placement, `Airport_Munoza` /
-`LEMD69.obj`, cut by §6 into **27 rigid bodies** — b1…b22 and b24/b25 are
-all **2.23 m** square with 4 feet, relief 0.001 m and `y_zero` −1.18…−1.21,
-strung down the taxiway edge; b0 is the 28.0 m run and b23 the 71.3 m one
-with 140 feet.  That signature — a 2.2 m flat square sitting 1.2 m under
-its own origin, repeated in a line along a kerb — is the taxiway's own
-**edge furniture** (sign boards / guidance panels on their plinths), and
-b2 and b4 are two of them.
-
-**ITS OWN GROUND, and why the row reaches AIRSIDE.**  Every one of the 8
-feet stands on `graded_strip` — none on pavement — and the bodies sit on
-their DEM to the centimetre (`fit_residual` 0.010 / 0.112 m).  The row
-reaches the junction because a foot row is stated over the TRIANGLE the
-foot stands in, and the graded strip SHARES its kerb vertices with the
-junction it borders: **one node, one value** (09-01g).  v6622 carries
-`graded_strip#94` AND `junction#86`, so two pieces of taxiway furniture
-standing on the verge were holding a taxiway junction's crossfall through
-a shared kerb column — the heaviest family on the vertex, `sum |dual|`
-**42,656**, an order of magnitude over everything else.
-
-**WHAT LANDED.**  `constraints/foot_rows.foot_rows`: a foot row whose
-triangle touches an AIRSIDE VALUE ROLE keeps every term and sets
-`follows` to its BARE-GROUND columns — the pavement's are GIVEN.  The
-head `structures.placement foot_row` is registered in `[design]
-one_way_rulings` beside its existing `foot_row_rulings` price entry.  A
-triangle with NO free column stays two-sided (11x (1): all or nothing per
-body).  `STATS["foot_rows"]["one_way_at_airside"]` reports the count —
-**LEMD 184**, **HECA 3**.
-
-**THE SCOPE IS THE RULING'S, AND THE NARROWING WAS MEASURED AND
-REJECTED.**  Excluding the runway family (taxi + apron only) halves the
-runway movement but never reaches zero and LOSES the law:
-
-| scope | owner's raw pair | runway vertices moved > 0.02 m | worst |
-|---|---|---|---|
-| every airside value role (RULED) | **1.160 %** | 394 | 5.086 m |
-| taxi family + apron only | **2.585 %** (over the 1.985 % cap) | 196 | 3.277 m |
-
-#### (b) THE `junction_mesh` ROW — DISSOLVED BY (a), NOT EDITED
-
-`--why-vertex 6622` after (a): `junction_mesh` **1 row, sum |dual| 0.07**
-— it holds nothing, and its far end is v904/v903, both `junction#86` +
-`runway#5`, not a DEM-held zone vertex.  The premise of (b) was r3's
-measurement of a sheet the feet were distorting; with the feet one-way it
-is gone.  **No change was made to the 04y mesh population**, because
-rewriting a triangulation edge to a different pair on the strength of a
-dissolved symptom is the opposite of mechanism-before-fix.  What binds
-v6622 now: `foot_rows` 8 (26,950, still in the row as GIVEN terms),
-`rim_level` 1 (117), `junction_mesh` 1 (**0.07**); the chain runs 6 hops
-to the F-6 trench's own pinned ramp top.
-
-#### (c) THE CROSSFALL, RE-MEASURED — BAR MET; THE RUNWAY MOVED, AND IT IS THE PRICE
-
-Read BY COORDINATE on the two closing planar arms (the vertex ids differ:
-the mouth-road cells renumber the map).
-
-| | r3 closing (`c6`) | r4 closing (`d5`) |
-|---|---|---|
-| contact vertex at 40.4611623,−3.5444804 | 579.068 | 582.586 |
-| the junction's far edge, 18.12 m out | 579.850 | 582.309 |
-| **THE RAW PAIR** | **4.313 %** | **1.529 %** — **MET** (junction cap 1.985 %) |
-| census rows within 20 m of the owner's point | 8 | **0** |
-| the row that binds | — | none at the site; the pair is inside its cap and the census prices nothing there |
-
-| census family | r3 (`c6`) | r4 (`d5`) |
-|---|---|---|
-| `transverse` | 98 | **90** |
-| `airside_no_step` | 460 | **377** |
-| `taxi_box` | 171 | **163** |
-| `within_shape` | 3,415 | **3,585** |
-| `strip_transverse` (worst) | 81 (13.864 m) | **89 (17.700 m)** |
-| `ramp_in_strip` | 8 | **18** |
-| LAW-TRUE / ADJUDICATED | 5,692 / 1,344 | 5,791 / **1,357** (airside 1,251 → 1,215) |
-| CRITICAL motion | 4 | **6** |
-| CRITICAL visual (cliffs) | 1,438 (10) | 1,456 (**20**) |
-| v2 verify rows | 1,564 | **1,547**; DEFECT families ALL ZERO, solve optimal |
-
-**THE RUNWAY-IMMOBILITY BAR IS NOT MET AND CANNOT BE BY THIS MECHANISM.**
-Joined by identity key over 4,031 shared runway-family vertices,
-**354 moved more than 0.02 m, worst 5.687 m**, 8 of them over 2 m — all
-at the F-6 crossing.  That is not a one-way leak: the feet WERE holding
-the runway, so removing a hold necessarily moves what it wrongly held,
-and even the taxi-only narrowing leaves 196 moving.  The knock-on is
-named: `ramp_in_strip` 8 → 18, `strip_transverse` worst 13.864 → 17.700 m,
-cliffs 10 → 20, and a **new `mid_edge_step` 0.950 m over 1 m between two
-RUNWAY faces at 40.4613609,−3.5446852** — a welded step on rolled-on
-pavement, the kind of row the pilot feels, at the owner's own site.
-Against that: the crossfall is fixed, airside ADJUDICATED falls 1,251 →
-1,215, `airside_no_step` 460 → 377 and the site prices nothing.  **The
-trade is the owner's to see beside 15y-1.**
-
-#### THE CONTROL — HECA, matched pair, ONE variable
-
-The law toggle alone (`one_way_rulings` entry in / out), one tree, one
-capture (`HECA.off3.pkl`).  Only **3 of HECA's 4 foot targets** touch
-airside pavement, and the change is nearly inert:
-
-| | flip OFF | flip ON |
-|---|---|---|
-| v2 verify rows | 30,459 | **30,500** (+41, +0.13 %) |
-| `airside_no_step` | 7,794 | 7,823 |
-| runway-family vertices moved > 0.02 m | — | **8 of 3,753**, worst **0.064 m** |
-| whole surface max \|off − on\| | — | **0.822 m**, 2 vertices over 0.5 m |
-
-LEMD's 5 m is therefore a SITE property — two bodies of edge furniture on
-a junction↔runway contact — not the law's general cost.
-
-#### A DEFECT THIS ROUND MADE AND CAUGHT, RECORDED
-
-Disarming the flip for the HECA control by deleting every line matching
-the head's prefix deleted the `foot_row_rulings` entry as well, which
-silently re-priced **every foot row in the tree** from `pad_flat` (3000)
-to `law` (3).  The four §11b twins caught it; the first HECA control arm
-was run under it and was DISCARDED and re-run with a single-variable
-toggle.  `tests/test_harness.py::test_the_foot_row_head_is_in_both_
-registers` now twins the two registers apart — `conforming_rulings` is
-their union and so could never have been the guard.
-
-### §34 (13) (3) **MEASURED — r5: WHAT HOLDS 14R/32L THERE, AND THE ANSWER IS THAT IT IS NOT 14R/32L** (lane `v2lemdstruct2`, base main `d803147a`)
-
-#### 0. THE FRAME r4 GOT WRONG, AND THE CORRECTION
-
-r4's runway figures compared `c6` (r3's closing arm) with `d5` (r4's) —
-and **main moved between them** (`v2vmmcshore` added
-`planar/structure_service.py`, `v2objcut` landed).  That is a cross-tree
-comparison and it is not evidence (memory
-``cross-tree-comparisons-are-not-evidence``).  r5 rebuilt the pair on ONE
-tree, ONE capture, ONE variable — the `emit.toml one_way_rulings` entry
-for `structures.placement foot_row`, in and out, registers asserted
-before each arm:
-
-| | flip OFF (`e_off`) | flip ON (`e_on`) |
-|---|---|---|
-| solve | optimal 188.1 s | optimal 174.3 s |
-| v2 verify rows | 1,711 | **1,554** |
-| census LAW-TRUE / ADJUDICATED | 5,782 / 1,505 | **5,712 / 1,393** (airside 1,370 → **1,258**) |
-| CRITICAL motion | **7** | **5** |
-| CRITICAL visual (cliffs) | 1,456 (**20**) | 1,456 (**20**) |
-| `mid_edge_step` | **2, worst 0.950 m** | **2, worst 0.950 m** |
-| `ramp_in_strip` | **18** | **18** |
-| `airside_no_step` | 452 | **357** |
-| `taxi_box` | 152 | **130** |
-| `transverse` | 98 | **90** |
-| `strip_arc` | 9 | **4** |
-| `within_shape` | 3,497 | 3,559 |
-| `strip_transverse` (worst) | 90 (13.864 m) | 89 (**17.700 m**) |
-| the owner's raw pair | **4.313 %** | **1.529 %** |
-
-**THE 0.950 m STEP, THE 18 `ramp_in_strip` ROWS AND THE 20 CLIFFS ARE ON
-BOTH ARMS.**  r4 reported them as the flip's cost; on a matched pair they
-are not.  The flip's real price is `within_shape` +62, `strip_transverse`
-worst 13.864 → 17.700 m and `raoa` 1 → 2; its gains are CRITICAL motion
-7 → 5, airside ADJUDICATED −112, `airside_no_step` −95, `taxi_box` −22,
-`transverse` −8, `strip_arc` −5 and the crossfall.  **Net the flip is
-clearly positive**, and the case for holding r4 was built on a frame
-error this round corrects.
-
-Runway movement, same matched pair: **319 of 4,042 runway-family
-vertices move more than 0.02 m, worst 5.687 m** (r4's 354 / 5.687 m was
-the right magnitude by luck).  That number is real and §1 explains it.
-
-#### 1. `--why-vertex` ON THE WORST MOVER — THE SAME ANSWER ON BOTH ARMS
-
-v902 (40.4610273,−3.5449992), the worst mover, 576.631 → 582.319:
-
-    e_off: binding rows on v902 by family — foot_rows 9, sum|dual| 48,669
-           chain trace: no terminal reached — the objective holds it
-    e_on : binding rows on v902 by family — foot_rows 9, sum|dual| 48,669
-           chain trace: no terminal reached — the objective holds it
-
-**On BOTH arms the ONLY family binding it is `foot_rows`, and on both the
-chain reaches no terminal.**  No §29 profile row, no CIFP threshold pin,
-no lateral-band row, no `runway_crown`, no `runway_transverse`, no
-longitudinal cap binds that vertex on either arm.  (On the OFF arm the
-pressure solve moves the surface by up to **10.265 m** — the OFF
-solution is nowhere near the pressure solution, which is itself the
-signature of a sheet held by weights rather than constraints.)
-
-#### 2. WHY — THE VERTEX IS NOT ON THE RUNWAY
-
-Generator coverage of the 4,033 runway-family vertices, counted offline
-on the capture:
-
-| generator | vertices covered |
-|---|---|
-| `runway_crown` / `runway_transverse` | 3,950 |
-| `runway_within_shape` | 3,720 |
-| **`runway_profile` / `runway_vertical_curve`** | **1,421** |
-
-`runway_profile` and the CIFP threshold pins are the ONLY rows that give
-a runway vertex a LEVEL; everything else bounds a DIFFERENCE.  Their
-population is `ridge_chains` — the `runway_profile` BREAKLINE, i.e. the
-centreline.  And the centreline is perfect: **14R/32L is ONE chain, 365
-vertices, carrying its threshold pins, and it moved at most 0.059 m
-between the two arms.**  All four LEMD runways are one intact pinned
-chain each.
-
-So where is v902?  Measured assumption-free as the distance to the
-nearest 14R/32L ridge vertex:
-
-| vertex | distance to the 14R/32L RIDGE | roles |
-|---|---|---|
-| v902 | **451.6 m** | `graded_strip` + `runway` |
-| v903 | 453.9 m | `graded_strip` + `junction` + `runway` |
-| v906 (the owner's own point) | **495.8 m** | `junction` + `runway` |
-| v940 (a face of the 0.95 m step) | 491.8 m | `runway` |
-
-14R/32L is **61.1 m** wide — a half-width of 30.5 m.  These vertices are
-**fifteen times** that off its centreline, and they all sit on ONE face:
-
-| face | ring | area | lateral offset from the ridge (min / median / max) | beyond the 30.5 m half-width |
-|---|---|---|---|---|
-| 0 | 538 | 133,118 m² | 0.0 / 0.0 / **30.9 m** | 115 of 538 |
-| 7 | 555 | 133,106 m² | 0.0 / 0.0 / **31.0 m** | 118 of 555 |
-| **5** | 306 | **111,308 m²** | 30.2 / **58.1** / **914.3 m** | **276 of 306** |
-
-Faces 0 and 7 are the runway.  **Face 5 is not**, and the classification
-says what it is: **cell 15, `kind = runway_shoulder`, 111,648 m², code
-4/F** — a §40 (1) SHOULDER, admitted as a runway cell with the runway's
-ref, code number and code letter.
-
-**THE MECHANISM, STATED PLAINLY.**  14R/32L's level at that station is
-derived from NEITHER the runway's own law nor honestly from neighbours:
-the station is not on the runway.  A 111,648 m² §40 (1) shoulder reaching
-**914 m** from the centreline carries the runway's role, ref and code, so
-`runway_crown` and `runway_transverse` are minted over it — but those
-price a CROWN across a 30.5 m half-width, and over 58–914 m they bound
-nothing a five-metre move could violate (which is why the DEFECT families
-read ALL ZERO on both arms throughout r3, r4 and r5).  `runway_profile`
-never reaches it.  The shoulder's level was therefore held by the
-objective, and — until r4 — by two object feet: `LEMD_OBJ-Airport_
-Munoza-LEMD69` b2 and b4.
-
-#### 3. WHY TWO "RUNWAY FACES" STEP 0.95 m OVER 1 m WITHOUT A DEFECT
-
-`runway_transverse` IS the DEFECT family that would price it, and it is
-the CROWN reading: a pair judged against the runway's own axis and half
-width.  A pair 490 m off-axis is not a crown pair, so the family never
-sees it, and no other DEFECT family prices a step between two faces of
-one role.  The census sees it only as `mid_edge_step` — a geometric
-within-face welded step with no axis notion — and the cockpit block
-classes it a CLIFF because it is steeper than the design surface's own
-bank.  Both rows are REPORT, not DEFECT.
-
-**A `runway_step` DEFECT FAMILY WAS NOT ADDED, and that is deliberate.**
-On this geometry it would fire on 111,648 m² that is not a runway, making
-the instrument agree with a role it should be disputing.  The family is
-worth having — but after the role is right, not instead of it.
-
-#### 4. THE FIX IS NOT AT THE RUNWAY LAW'S DERIVATION SITE
-
-15an asked for it there ("the runway holds itself: its profile/threshold
-rows must be present and binding at every runway vertex incl. shared
-kerb nodes").  The measurement says the runway already holds itself
-perfectly — one pinned chain per runway, ≤ 0.059 m of movement — and that
-extending `runway_profile`'s level rows to "every runway vertex" would
-spread the runway's own profile law across a **111,648 m²** shoulder
-lobe reaching 914 m off the centreline.  That is a §40 question (what a
-shoulder is, and whether a shoulder 914 m from its runway is one at all),
-it lives in `classify/roles` beside §40 (1)/(4), and it is the shape of
-change owner RULINGS 2026-08-30l requires a consumer census for.  This
-lane STOPS at the attribution rather than improvising it — which is what
-"mechanism before fix" is for.
-
-**What r5 recommends, with its numbers:** (i) MERGE r4 — on a matched
-pair the flip costs nothing it was held for and buys airside ADJUDICATED
-−112 and CRITICAL motion 7 → 5; (ii) open the §40 shoulder question with
-face 5's table above; (iii) add `runway_step` once a shoulder's extent is
-ruled.
-
-## §34 (13) (3) MEASURED (lane v2lemdstruct2 r4 96c1208f; Fable 2026-09-15; RULINGS 2026-09-15an) — the feet were `Airport_Munoza/LEMD69.obj`'s 27 plinth bodies on the kerb; one-way at airside meets the crossfall (1.529 %) — and the RUNWAY moves 5.687 m at LEMD (HECA control 0.064 m): what held 14R/32L there was the furniture, not the runway's law → r5 attributes the runway's own rows before the merge
-
-The 14 binding foot rows at v6622 belong to TWO bodies of ONE
-placement (`LEMD69#b2`, `#b4`: 2.23 m square, 4 feet, relief 0.001 m,
-`y_zero` −1.2 — sign panels on plinths strung along the kerb, 27 bodies
-in all); their feet sit on `graded_strip` at their own DEM, and the row
-is stated over the TRIANGLE while the strip shares its kerb vertices
-with the junction (one node, one value, 09-01g) — so verge furniture
-held a junction's crossfall at dual 42,656.  LANDED: `constraints/foot_
-rows.foot_rows` — a foot row touching an airside value role keeps its
-terms and sets `follows` to its bare-ground columns (head in
-`one_way_rulings`; an all-pavement triangle stays two-sided, 11x (1));
-LEMD 184 rows one-way, HECA 3.  The `junction_mesh` row dissolved (dual
-0.07, far end on junction+runway vertices) — NOT edited.  Crossfall at
-the site 4.313 % → **1.529 %** (cap 1.985), census rows within 20 m 8 →
-0; `transverse` 98 → 90, `airside_no_step` 460 → 377.  THE PRICE: 354 of
-4,031 runway vertices moved > 0.02 m, worst **5.687 m**; the contact
-rose 579.07 → 582.59; `ramp_in_strip` 8 → 18, `strip_transverse` worst
-13.86 → 17.70 m, cliffs 10 → 20, and a NEW `mid_edge_step` 0.950 m over
-1 m between two RUNWAY faces at 40.4613609, −3.5446852.  HECA control
-(one variable): 8 of 3,753 runway vertices, worst 0.064 m.  RULED: the
-direction is right and stays; the runway movement is a SITE property —
-at that station 14R/32L's level was being held by the sign feet, which
-means the runway's own rows (§29 the profile preserve / the CIFP
-thresholds / the lateral band, the runway crown) were slack or absent
-there.  r5 ATTRIBUTES before the merge: `--why-at` on the worst runway
-mover and on both faces of the 0.95 m step — which runway-family rows
-exist at those vertices, what holds the runway's level there on the r3
-arm (with the feet) and on the r4 arm (without), and why two runway
-faces can step 0.95 m over 1 m without a structural DEFECT.  The fix
-follows the attribution (the runway's own law must hold the runway; a
-step between runway faces is a DEFECT family if it is not one).  Also
-recorded: a register-deletion defect this round (disarming a head by
-prefix also deleted `foot_row_rulings`, re-pricing every foot row 3000
-→ 3) was caught by the §11b twins; the two registers are now twinned
-apart.
-
 ## RULINGS
+
+## 2026-09-15bl v2shoulderband MERGED (a8138464): §40 (5) the shoulder is a band — LEMD's 111,648 m² cell → 49,515 m² within 75 m + 46,764 m² apron; runway vertices beyond the strip 609 → 1; the 0.95 m step gone (`runway_step` family, 3 → 0); the owner's item-7 site 1.552 → 0.554 % under the junction law; ADJUDICATED 2,011 → 1,709; every DEFECT family zero on a real LEMD build; HECA's worst "shoulder" reached 1,717 m (218,797 m²) → 83,655 m² of band; RULED the band takes the strip's end extension (r2 with the VHHH capture)
+
+Lane @ a8138464; suite 1,668 passed, 0 FAILED; consumer census of 31
+readers committed BEFORE the code (ea770ec9), two hazards predicted and
+both landed as predicted. Functions: `classify/roles.shoulder_band`
+(new) + the §40 (1) branch, `rules.Corridor.runway_shoulder_band`,
+`verify/steps._step_rows(roles=, allow_of=)`, `verify/runway.runway_
+step` (new), census READERS/DEFECT_KEYS, `Materiality.runway_step_m`,
+families.toml, check_grade, `v2_solve_replay --rule` (INDEX row).
+Details in §40 (5) MEASURED AND RULED. Owed: VHHH/CYXY/SPJC/KCLT/OTHH
+captures (one each) to measure the band there; the end-cap line (r2).
+15bl addendum: suite ON MAIN after the v2shoulderband merge: 1682 passed, 1 skipped, 1 xpassed, 42 warnings in 88.92s (0:01:28).
 
 ## 2026-09-15az v2lemdstruct2 r4+r5 MERGED (1da0faeb): r4's 5.687 m "runway movement" was a CROSS-TREE comparison (main moved between the arms); on one tree/one capture/one variable the one-way-feet flip costs `within_shape` +62 and gains airside ADJUDICATED −112, motion 7 → 5, the owner's raw pair 4.313 → 1.529 % (1.542 % in a real build); the moving "runway" vertices sit on a §40 SHOULDER cell of 111,648 m² reaching 914 m off the centreline — RULED §40 (5): a shoulder is a band, the runway role ends at the strip, every runway vertex carries a level, `runway_step` DEFECT
 
@@ -1350,22 +865,6 @@ band, the runway ref dropped beyond the strip, level rows across the
 band, `runway_step`. Memory rule re-founded by this round: cross-tree
 comparisons are not evidence (14bk, r4) — a lane's before/after must
 be one tree, one capture, one variable, registers asserted per arm.
-
-## 2026-09-15an v2lemdstruct2 r4 HELD (96c1208f): the crossfall bar MET (4.313 → 1.529 %) by making foot rows one-way at airside — the 14 feet were `LEMD69.obj` sign plinths on the kerb — but LEMD's runway moves 354 vertices / 5.687 m and a 0.95 m step appears between two runway faces at the owner's site (HECA control 0.064 m) → r5 attributes what holds 14R/32L there before the merge
-
-Lane @ 96c1208f; suite 1,650 passed, 0 FAILED; no build (the lane
-read the ledger before the 11:05–11:35 refreshes; +40-004 needed none).
-Details in §34 (13) (3) MEASURED. The direction (a foot never holds
-airside) is RIGHT and is not re-litigated; what is wrong is that the
-runway's level at that station depended on it — the runway's own rows
-must hold the runway. r5: `--why-at` on the worst runway mover and on
-the 0.95 m step's two faces on BOTH arms; name the runway-family rows
-present/absent; then the fix at the runway law's derivation site, and
-a DEFECT family for a step between runway faces if none prices it.
-HECA control clean (+41 verify rows, 8 runway vertices ≤ 0.064 m).
-Register defect caught by the §11b twins (`foot_row_rulings` deleted
-by a prefix match; every foot row re-priced 3000 → 3; the control arm
-discarded and re-run) — the two registers twinned apart.
 
 ## 2026-09-13co Owner read of 1.0.329 — HECA ("mostly … close to the best we've built so far"), six items — scout `v2heca329`
 
@@ -1446,7 +945,7 @@ identical across patches). The mesh is innocent.
 
 ## Tool: v2_solve_replay
 
-| `Ortho4XP/tools/v2_solve_replay.py` | --why-vertex V [--why-relax FAMILY ...]`; `--why-hard [N] [--why-hard-stage 1]` on either a `--replay` arm or a `--why-from PKL`; `--why-from PKL --probe-site LAT,LON [--probe-drop M] [--probe-arm TERM=V ...]`) | You are iterating on the v2 SOLVE (a law table, a generator, the shape stage, the planar build) and want the runway bows / z − DEM / joints / yielded-rows figures per change WITHOUT paying for the load stage each time — the synthetic-first solve arm (CLAUDE.md BUILD ECONOMY; `docs/specs/auto-patch-v2/heca-sag-ablation/ablate_heca_pin.py` was the scratch pattern, promoted on its second use by lane v2chord, RULINGS 2026-09-08d). `--capture` runs load → **the PACK PARTITION + GROUPS** (`build.py:288-318`, owner RULINGS 2026-09-11j — folded in 2026-09-12u by lane `v2padceiling` after scout `v2unsettled` measured the trap: a capture without them carries an `Airport` with no `partition` and no `groups`, so the replay silently solves a DIFFERENT problem — no `foot_rows`, no `pad_relief` targets, no basin bodies, and the shipped LEMD hard set could not be reproduced at all; a capture predating it is now REFUSED BY NAME at replay, `capture_has_groups`) → classify → planar (which labels the SHAPES, owner RULINGS 2026-09-08k) → flat site → road profile → shape stage exactly as `pipeline/build.py` and pickles the airport, the classification, the planar map and the stage (**and THE CLUSTERS beside the partition and the groups** — lane ``v2padjoin`` 2026-09-14: a capture without ``Airport.clusters`` leaves §30 (4)'s cluster pad, its apron reach and §16g (10)'s derived pads INERT in every replay of it, so a pads-ON arm silently measures the pads-OFF law; a capture predating them has them DERIVED at replay off its own partition, named on stdout) (HECA 56 s; LEMD 232 s, of which 104 s partition); `--replay` resumes from the named stage under the CURRENT tree (constraints + joint filter + yield transform + ONE solve by default — 08k (4), no joint re-solve; `shapes` rebuilds the shapes over the captured map and re-runs the stage — for a change in `planar/shapes.py` or `[terrace]`; `planar` the whole map), and prints per two-threshold runway the crown-ridge BOW, the ridge minimum, z − DEM mean/min/max, the law-tier line, `yielded_rows` per family and the max apron grade PER SHAPE with the steepest rows per family (face, grade, span, lat/lon), the shapes (count, the largest by vertices), the joints (count, gap joints, max built step, the worst with their shape pair), the road steps, and per `--site` the vertices within `--site-radius` (z − DEM, roles, shape ids, the max |dz| over a short edge = a step). `--emit DIR` writes the arm's patch through the build's own emit half so `patch_proximity_diff.py` and `undulation.py` can read a same-frame divergence on a replay arm; `--verify` runs the v2 VERIFY CENSUS on the solved surface and prints the rows per family and the DEFECT families the app's driver gates on (lane v2smooth round 2, RULINGS 2026-09-08v — a weight sweep needs the defect count per arm without a 130 s build); `--design-weight TERM=W` overrides one `emit.toml [design]` weight for the arm (the measurement arm, never a default). `--drop-generator` also accepts the pseudo-generator **`eat_ramp_reach`** (lane `v2eatramp`, spec §36 (5)): the EAT ramp's trend WITHDRAWAL is a channel edit made before the solve, not a row, so it cannot be dropped by the row filter — `eat_anchor_rect` drops the pins and their reach together, `eat_ramp_reach` the withdrawal alone (the §36 (5) before-arm). Lane v2shapes (2026-09-08): HECA capture 56 s; one pass 144–150 s (the 08g three-pass law read 357 s). `--why-from PKL --why-hump RUNWAY S0 S1` (the `solve.why` bindings and chain trace on the highest ridge vertex above the chord, from a duals solve of the SAME LP — kept out of the timed arm) with `--why-relax FAMILY ...` (relax-one-family arms: the hump's dz after a full re-solve without the family — the INTERVENTIONAL holder read). `--why-hard [N]` lists EVERY VIOLATED HARD ROW of the solved surface — generator, ruling, demanded vs allowed metres, and per vertex the id, coefficient, z, DEM, lat/lon and roles — re-assembling the design problem with `solve.design.assemble` and applying design.py's own `2 / Σ|c|` row scaling, so every violation reads in the METRES `hard_tol_m` is stated in (promoted from scout `v2unsettled2`'s `hardrows.py` on its second use, spec §32 (4), RULINGS 2026-09-13ac: `HARD SET NOT SETTLED` names ONE truncated ruling, which cost 12u a scout re-deriving the population by hand and 13ac needed the row's VERTICES to see that main's worst row was a pair the zone projection had clamped independently).  **`--why-hard-stage 1`** reads §20b STAGE 1's OWN ASSEMBLY instead of the full problem's (`solve.design.stage_split`'s drop + fixed): the AIRSIDE hard set, in the rows and the metre scaling stage 1 enforced them under. The full read cannot answer "does the AIRSIDE solve settle" — the airside rows are a subset of 325k whose population and scaling the stage's own drop changes — and that is exactly the claim RULINGS 13y (B) / 13ab / 14as make (lane `v2settle`, which used it to split HECA's "42 unsettled rows" into 9 CONSTANT rows the solve can never move, 6 HELD runway rows at the projection's own bar, and 18 real ones).  The shipped surface is read either way: an airside vertex's z IS stage 1's, so the stage-1 read at the shipped z equals the read at stage 1's own surface (measured identical at HECA). **`--emit` IS THE BUILD'S WHOLE EMIT HALF SINCE 2026-09-13** (lane `v2zonebank`, §37 (3)): it ran `graded_surface` -> `write_patch` and SKIPPED `with_bank` / `with_terrain_edges`, so every `bank_foot` question asked of a replay arm read ZERO feet and looked like the defect under attribution — it now runs `pipeline/build.py:780-795` verbatim and prints the `BankReport` line. **`--bank-from SOLVED.pkl`** replays that emit half alone off a `--solved-out` pickle (KCLT 2.5 s against the 160 s `--replay`), with `--emit DIR` and/or **`--bank-walk`**: §37 (3)'s per-station ADJACENT-GROUND ZONE-2 WALK — per `adjacent_ground:*:zone2` face ring, `|z_ring - DEM(foot)|` at every station, the stations at or over `bank_materiality_m`, whether the foot point stands outside the design coverage, whether it falls in the terrain-edge no-bank region or the water cut, and whether a `bank_foot` stands within that station's OWN 1:3 reach (never the airport-wide `bank_max_width_m`, which calls a foot 200 m away near); then, off `emit/bank.with_bank`'s `station_probe` / `region_probe` attribution hooks, the banked-region station the load-bearing verdict was actually taken on and where an unbanked station stands (inside the banked region? inside a coverage HOLE?). It prices no law and counts no defects — defect counts come from `harness/census.py`. Measured basis (KCLT, base `ce203b29`, `cap/KCLT.pkl`): 233 zone2 rings / 5,647 stations, 542 at or over the 1.65 m materiality, 220 with their foot outside the coverage, **110 with no foot at all** — 110 of them inside the banked region and 109 inside a coverage hole, which is how RULINGS 2026-09-13bu item 5 was attributed to `_foot_piece`'s solid exterior disc; after the fix 8. **A CAPTURE PREDATING A TARGET CHANNEL STILL REPLAYS, AND SAYS SO** (2026-09-13, lane `v2roadcontact`): a `PlanarMap` field added since the pickle was written is simply ABSENT on the unpickled instance, so the first `dataclasses.replace` raised `AttributeError` and a REGISTERED FRAME another lane shares became unreplayable for a channel its own stage never produced; `--replay` now backfills each missing field at the dataclass's OWN default and NAMES it on stdout (the publisher derives the channel in the replay anyway). This is NOT a relaxation of the 12u groups refusal, which stands: that one is a capture solving a DIFFERENT problem, this one is a channel the capture never had. Twins: `tests/auto_patch_v2/test_v2padceiling.py` (the capture calls every pre-solve stage `pipeline/build.build` calls, read off both sources; the refusal predicate).  **`--probe-site LAT,LON` IS THE STABILITY PROBE** (lane `v2qp`, spec §20c, promoted from lane `v2settle` r2's `scratchpad/v2settle/probe3.py`/`probe4.py` on its second use): off a `--solved-out` pickle, one extra `Band` ceiling `--probe-drop` (default 0.30) metres under the ARM's OWN base surface at the vertex nearest the point, re-solved, and the moved set (> 0.02 m) binned by distance from it — 0-40 / 40-100 / 100-250 / 250-500 / beyond, with the worst beyond 250 m, each arm's hard set and its exit line.  `--probe-arm TERM=V` repeated makes it a MATCHED PAIR of `[design]` arms on ONE problem (`--probe-arm solver=fixed_point --probe-arm solver=qp` is §20c's own bar); with none it probes the shipped law alone.  This is the instrument RULINGS 2026-09-14bw's headline was taken on (HECA: 959 vertices moved by one 0.30 m row, 953 beyond 500 m, ZERO within 100 m).  `--design-weight TERM=V` also takes a NON-NUMERIC value now (§20c's `solver=qp`); a value that does not parse as a float is passed through as the string.    **`--placement KEY=V` IS THE CAPTURE-TIME LAW ARM** (lane `v2padqp`, spec §16g (10) (11)): the §16g (10) pad keys (`pad_from_cluster`, `pad_airside_clip`) are read in `classify/evidence._pads` and `planar/overlay` — UPSTREAM of the capture — so `--design-weight` (a `[design]` override applied at REPLAY) cannot arm them and a pads-ON replay of a pads-OFF capture silently measures the pads-OFF law; a matched OFF/ON pair is therefore TWO CAPTURES of one tree, never two edits of the shipped toml (the value is coerced to the key's own type, an unknown key refuses by name, and the arm is recorded in the pickle).  `--capture` also arms `harness/build_airport.arm_shared_repo_protection` — the ONE arming composition — and prints `[guard] shared repo UNCHANGED`.  Twin: `tests/auto_patch_v2/test_v2qp.py` (the probe as a fixture pair) — the rest of the replay is an instrument over `pipeline/build.py`'s own stages, which the pipeline twins cover. |
+| `Ortho4XP/tools/v2_solve_replay.py` | --why-vertex V [--why-relax FAMILY ...]`; `--why-hard [N] [--why-hard-stage 1]` on either a `--replay` arm or a `--why-from PKL`; `--why-from PKL --probe-site LAT,LON [--probe-drop M] [--probe-arm TERM=V ...]`) | You are iterating on the v2 SOLVE (a law table, a generator, the shape stage, the planar build) and want the runway bows / z − DEM / joints / yielded-rows figures per change WITHOUT paying for the load stage each time — the synthetic-first solve arm (CLAUDE.md BUILD ECONOMY; `docs/specs/auto-patch-v2/heca-sag-ablation/ablate_heca_pin.py` was the scratch pattern, promoted on its second use by lane v2chord, RULINGS 2026-09-08d). `--capture` runs load → **the PACK PARTITION + GROUPS** (`build.py:288-318`, owner RULINGS 2026-09-11j — folded in 2026-09-12u by lane `v2padceiling` after scout `v2unsettled` measured the trap: a capture without them carries an `Airport` with no `partition` and no `groups`, so the replay silently solves a DIFFERENT problem — no `foot_rows`, no `pad_relief` targets, no basin bodies, and the shipped LEMD hard set could not be reproduced at all; a capture predating it is now REFUSED BY NAME at replay, `capture_has_groups`) → classify → planar (which labels the SHAPES, owner RULINGS 2026-09-08k) → flat site → road profile → shape stage exactly as `pipeline/build.py` and pickles the airport, the classification, the planar map and the stage (**and THE CLUSTERS beside the partition and the groups** — lane ``v2padjoin`` 2026-09-14: a capture without ``Airport.clusters`` leaves §30 (4)'s cluster pad, its apron reach and §16g (10)'s derived pads INERT in every replay of it, so a pads-ON arm silently measures the pads-OFF law; a capture predating them has them DERIVED at replay off its own partition, named on stdout) (HECA 56 s; LEMD 232 s, of which 104 s partition); `--replay` resumes from the named stage under the CURRENT tree (constraints + joint filter + yield transform + ONE solve by default — 08k (4), no joint re-solve; `shapes` rebuilds the shapes over the captured map and re-runs the stage — for a change in `planar/shapes.py` or `[terrace]`; `planar` the whole map), and prints per two-threshold runway the crown-ridge BOW, the ridge minimum, z − DEM mean/min/max, the law-tier line, `yielded_rows` per family and the max apron grade PER SHAPE with the steepest rows per family (face, grade, span, lat/lon), the shapes (count, the largest by vertices), the joints (count, gap joints, max built step, the worst with their shape pair), the road steps, and per `--site` the vertices within `--site-radius` (z − DEM, roles, shape ids, the max |dz| over a short edge = a step). `--emit DIR` writes the arm's patch through the build's own emit half so `patch_proximity_diff.py` and `undulation.py` can read a same-frame divergence on a replay arm; `--verify` runs the v2 VERIFY CENSUS on the solved surface and prints the rows per family and the DEFECT families the app's driver gates on (lane v2smooth round 2, RULINGS 2026-09-08v — a weight sweep needs the defect count per arm without a 130 s build); `--design-weight TERM=W` overrides one `emit.toml [design]` weight for the arm (the measurement arm, never a default). `--drop-generator` also accepts the pseudo-generator **`eat_ramp_reach`** (lane `v2eatramp`, spec §36 (5)): the EAT ramp's trend WITHDRAWAL is a channel edit made before the solve, not a row, so it cannot be dropped by the row filter — `eat_anchor_rect` drops the pins and their reach together, `eat_ramp_reach` the withdrawal alone (the §36 (5) before-arm). Lane v2shapes (2026-09-08): HECA capture 56 s; one pass 144–150 s (the 08g three-pass law read 357 s). `--why-from PKL --why-hump RUNWAY S0 S1` (the `solve.why` bindings and chain trace on the highest ridge vertex above the chord, from a duals solve of the SAME LP — kept out of the timed arm) with `--why-relax FAMILY ...` (relax-one-family arms: the hump's dz after a full re-solve without the family — the INTERVENTIONAL holder read). `--why-hard [N]` lists EVERY VIOLATED HARD ROW of the solved surface — generator, ruling, demanded vs allowed metres, and per vertex the id, coefficient, z, DEM, lat/lon and roles — re-assembling the design problem with `solve.design.assemble` and applying design.py's own `2 / Σ|c|` row scaling, so every violation reads in the METRES `hard_tol_m` is stated in (promoted from scout `v2unsettled2`'s `hardrows.py` on its second use, spec §32 (4), RULINGS 2026-09-13ac: `HARD SET NOT SETTLED` names ONE truncated ruling, which cost 12u a scout re-deriving the population by hand and 13ac needed the row's VERTICES to see that main's worst row was a pair the zone projection had clamped independently).  **`--why-hard-stage 1`** reads §20b STAGE 1's OWN ASSEMBLY instead of the full problem's (`solve.design.stage_split`'s drop + fixed): the AIRSIDE hard set, in the rows and the metre scaling stage 1 enforced them under. The full read cannot answer "does the AIRSIDE solve settle" — the airside rows are a subset of 325k whose population and scaling the stage's own drop changes — and that is exactly the claim RULINGS 13y (B) / 13ab / 14as make (lane `v2settle`, which used it to split HECA's "42 unsettled rows" into 9 CONSTANT rows the solve can never move, 6 HELD runway rows at the projection's own bar, and 18 real ones).  The shipped surface is read either way: an airside vertex's z IS stage 1's, so the stage-1 read at the shipped z equals the read at stage 1's own surface (measured identical at HECA). **`--emit` IS THE BUILD'S WHOLE EMIT HALF SINCE 2026-09-13** (lane `v2zonebank`, §37 (3)): it ran `graded_surface` -> `write_patch` and SKIPPED `with_bank` / `with_terrain_edges`, so every `bank_foot` question asked of a replay arm read ZERO feet and looked like the defect under attribution — it now runs `pipeline/build.py:780-795` verbatim and prints the `BankReport` line. **`--bank-from SOLVED.pkl`** replays that emit half alone off a `--solved-out` pickle (KCLT 2.5 s against the 160 s `--replay`), with `--emit DIR` and/or **`--bank-walk`**: §37 (3)'s per-station ADJACENT-GROUND ZONE-2 WALK — per `adjacent_ground:*:zone2` face ring, `|z_ring - DEM(foot)|` at every station, the stations at or over `bank_materiality_m`, whether the foot point stands outside the design coverage, whether it falls in the terrain-edge no-bank region or the water cut, and whether a `bank_foot` stands within that station's OWN 1:3 reach (never the airport-wide `bank_max_width_m`, which calls a foot 200 m away near); then, off `emit/bank.with_bank`'s `station_probe` / `region_probe` attribution hooks, the banked-region station the load-bearing verdict was actually taken on and where an unbanked station stands (inside the banked region? inside a coverage HOLE?). It prices no law and counts no defects — defect counts come from `harness/census.py`. Measured basis (KCLT, base `ce203b29`, `cap/KCLT.pkl`): 233 zone2 rings / 5,647 stations, 542 at or over the 1.65 m materiality, 220 with their foot outside the coverage, **110 with no foot at all** — 110 of them inside the banked region and 109 inside a coverage hole, which is how RULINGS 2026-09-13bu item 5 was attributed to `_foot_piece`'s solid exterior disc; after the fix 8. **A CAPTURE PREDATING A TARGET CHANNEL STILL REPLAYS, AND SAYS SO** (2026-09-13, lane `v2roadcontact`): a `PlanarMap` field added since the pickle was written is simply ABSENT on the unpickled instance, so the first `dataclasses.replace` raised `AttributeError` and a REGISTERED FRAME another lane shares became unreplayable for a channel its own stage never produced; `--replay` now backfills each missing field at the dataclass's OWN default and NAMES it on stdout (the publisher derives the channel in the replay anyway). This is NOT a relaxation of the 12u groups refusal, which stands: that one is a capture solving a DIFFERENT problem, this one is a channel the capture never had. Twins: `tests/auto_patch_v2/test_v2padceiling.py` (the capture calls every pre-solve stage `pipeline/build.build` calls, read off both sources; the refusal predicate).  **`--probe-site LAT,LON` IS THE STABILITY PROBE** (lane `v2qp`, spec §20c, promoted from lane `v2settle` r2's `scratchpad/v2settle/probe3.py`/`probe4.py` on its second use): off a `--solved-out` pickle, one extra `Band` ceiling `--probe-drop` (default 0.30) metres under the ARM's OWN base surface at the vertex nearest the point, re-solved, and the moved set (> 0.02 m) binned by distance from it — 0-40 / 40-100 / 100-250 / 250-500 / beyond, with the worst beyond 250 m, each arm's hard set and its exit line.  `--probe-arm TERM=V` repeated makes it a MATCHED PAIR of `[design]` arms on ONE problem (`--probe-arm solver=fixed_point --probe-arm solver=qp` is §20c's own bar); with none it probes the shipped law alone.  This is the instrument RULINGS 2026-09-14bw's headline was taken on (HECA: 959 vertices moved by one 0.30 m row, 953 beyond 500 m, ZERO within 100 m).  `--design-weight TERM=V` also takes a NON-NUMERIC value now (§20c's `solver=qp`); a value that does not parse as a float is passed through as the string.    **`--placement KEY=V` IS THE CAPTURE-TIME LAW ARM** (lane `v2padqp`, spec §16g (10) (11)): the §16g (10) pad keys (`pad_from_cluster`, `pad_airside_clip`) are read in `classify/evidence._pads` and `planar/overlay` — UPSTREAM of the capture — so `--design-weight` (a `[design]` override applied at REPLAY) cannot arm them and a pads-ON replay of a pads-OFF capture silently measures the pads-OFF law; a matched OFF/ON pair is therefore TWO CAPTURES of one tree, never two edits of the shipped toml (the value is coerced to the key's own type, an unknown key refuses by name, and the arm is recorded in the pickle).  `--capture` also arms `harness/build_airport.arm_shared_repo_protection` — the ONE arming composition — and prints `[guard] shared repo UNCHANGED`.  **`--rule SECTION.KEY=V` IS THE CAPTURE-TIME CLASSIFY ARM** (lane `v2shoulderband`, spec §40 (5)): the same thing for `classify/rules.toml` that `--placement` is for `[placement]` — a CLASSIFY key is read upstream of the capture (the capture HOLDS the classification, so `--from planar` cannot see a classify change at all), which makes a matched pair on one TWO CAPTURES; doing that by editing the shipped toml between the arms is the defect RULINGS 2026-09-15az records (disarming a head by prefix also deleted `foot_row_rulings` and silently re-priced every foot row), so the arm is ONE COMMAND-LINE VARIABLE on one unedited tree instead. `SECTION.KEY=VALUE`, coerced to the key's own type, an unknown section or key refuses BY NAME, and the arm is printed on stdout — e.g. `--rule corridor.runway_shoulder_band=false`.  Twin: `tests/auto_patch_v2/test_v2qp.py` (the probe as a fixture pair) — the rest of the replay is an instrument over `pipeline/build.py`'s own stages, which the pipeline twins cover. |
 
 ## Tool: check_grade
 
@@ -1470,17 +969,15 @@ identical across patches). The mesh is innocent.
 
 | `census_lockstep.py` | `harness/census.py` (law-true + bare frames, class table) |
 
-## Tool: site_read
+## Tool: build_airport
 
-| `Ortho4XP/tools/site_read.py` | You have a coordinate from an owner's sim read and the question is WHAT THE OBJECT STAGE MADE OF IT — not what the OSM patch says there (`osm_site.py`, the emitted ways) and not one law's defect count (`harness/census.py`). Three products of ONE build, read at ONE point in one process: the emitted DESIGN SURFACE's faces containing or near it (role, ref, side, z min/med/max, node count — a CONTAINING face reads 0.0 m, never the distance to its nearest vertex, which is `osm_site --at`'s own trap); the DSF ROWS standing on it (`OBJECT` / `OBJECT_MSL` / `OBJECT_AGL` with the resource and, where it has one, the written elevation — `None` for a plain `OBJECT`, never 0.0); and the PLAN BODIES whose plan box reaches it, each with its §6 class, its FOOTPRINT UNIT, its surface z and zero and the stage's own ANCHOR REASON verbatim, which is the line that says WHY a body is where the owner saw it. `--patch-dir DIR` resolves `<ICAO>.graded.json` and `o4_v2_placement_<ICAO>.json` by glob (an `obj8_split_report --json` dump works as `--plan`: the same `splits` records), `--dsf-dump` takes a DSFTool TEXT dump — pass the PRISTINE `<dsf>.anchor_bak...text` (`dsf_write.pristine_dsf_path`) when you want the pack as INSTALLED rather than as this repo last wrote it. `--show`, `--max`, `--json`. **It measures nothing and derives no law**: every value is read verbatim out of a product and nothing is written. Promoted 2026-09-14 (RULINGS `7e90032`, promote-on-reuse) from the scratchpad reader of the 14g HECA attribution, re-written for the 14bl LEMD one (scouts `v2heca331` / `v2lemd336o`) and used a THIRD time by lane `v2leafframe` — three copies of one question, already drifted in their hard-coded LEMD paths. Twin: `tests/auto_patch_v2/test_v2leafframe.py`. |
+| `Ortho4XP/tools/harness/build_airport.py` | You need to BUILD anything for measurement: one airport patch, a constant-DEM oracle world, or a whole tile. Enforces the build cwd, refuses a cold DEM/inset frame, a drifted config frame, a PRIVATE data corpus and any implicit download into the shared repo (including a SCHEMA-STALE cached OSM layer — `schema_stale_osm_layers`, 2026-09-15: a road cache written under an older `ROAD_CACHE_TAG_SCHEMA` is re-downloaded by the tile build's background prefetch and REWRITTEN mid-build, so it is named under `osm_layers` and refused up front; and a pack DSF whose sha has NO cached DSFTool text dump in either the shared corpus or this lane's overlay — `missing_pack_dsf_dumps`, scope `airport_mod_cache`, the engine's own `airport/dsf.find_text_dump` / `dsf_write.pristine_dsf_path`: the dump is a SUBPROCESS write no Python guard can refuse at the call, so the only honest defence is up front; the judge is the READER's own — `superseded_road_feeds` asks `auto_patch_v2/airport/osm.ROAD_FEEDS` / `feed_path` / `feed_tag_schema` over the SAME 3x3 neighbourhood `load_feed` merges, because the build's own tile is not the square the loader reads: KDFW died 54 s in on the NEIGHBOUR +33-098's feed, KPHX owes +33-112. `--refresh-data osm_layers` then CLEARS it — `refresh_stale_osm_layers` moves each named layer aside as `<name>.stale-<schema>` inside the scope lock and the armed guard, lets the ENGINE's own `start_background_osm_prefetch`/`wait_for_background_osm_prefetch` re-derive it before the build, removes the aside copy on success and puts it BACK (refusing) when nothing schema-current came back.  An AUTHORISED scope is no longer a cold-frame refusal (`require_dem_frame(requested=…)`): the run proceeds to the derivation and the frame is RE-JUDGED with nothing authorised afterwards, so `--refresh-data osm_layers,dem` can warm a COLD tile — absent layers and the airports layer through the engine's prefetch pair, the base raster and the tile's insets through `refresh_tile_dem` (`O4_DEM_Utils.DEM` + `ensure_insets_for_tile(refresh=True)`, so `--warm-insets ICAO` is no longer needed for a cold tile and stays for the per-ICAO case). `--refresh-only` does exactly those refreshes for the named tile, stamps the ledger and EXITS without building — its pre-flight STANDS DOWN (a warm run reads nothing and builds nothing; refusing there stopped KDFW +33-098 warming anything over 31 unrelated `dem` items) and its exit code is decided AFTER the derivations by `require_refreshed_frame`, on the REQUESTED scopes alone. The derivations, the re-judge and the build all sit inside ONE try whose `finally` snapshots, stamps the ledger and releases every scope lock on EVERY exit path — before round 6 a refusal after a derivation lost the `REFRESH RECORDED` line (KPHX's +33-112_big_roads, re-derived 13:48, unledgered) and leaked `.harness/locks/osm_layers.lock`. `--reconcile-ledger` stamps the CURRENT hash of any artefact of the requested scopes that the ledger does not account for — `never-ledgered` (no line names it at all) or `stale-line` (the newest line naming it predates its mtime), per path in `reconciled_paths`, one record per scope marked `reconciled: true`. The paths are SHARED-REPO-relative (`corpus_base`): a lane's `OSM_data` is a symlink into the repo, and relativising against the lane root silently emptied the whole list (measured at +33-112, round 7) — explicit, never automatic, because another lane's authorised refresh looks identical from outside — the way to warm a neighbour tile without paying for a whole `--tile` build. Without this the authorised refresh was a no-op: measured at VMMC 2026-09-15, rc 0 in 23 s, "authorised but wrote NOTHING — the artifact was already present", and the next plain build refused on the same file); guarantees the axes sidecar; wraps the run in the ledger; audits the shared repo before/after; and records the env, DEM-frame and data-mount snapshots every later claim depends on. It also refuses a DEGRADATION THE ENGINE SWALLOWED (2026-08-07): `auto_patch.elevation._load_airport_dem` runs production's whole DEM prep inside one `except Exception`, so a write the shared-repo guard blocked became a WARN line, `dem_inset_provenance: null` and a build that exited 0 on 18.5 k nodes against production's 34-36 k (measured at HECA, `tmp/sliver_attrib`). Two independent detectors close it — a write the guard blocked during a build that nevertheless returned, and a laylane carrying no DEM provenance at all — and either refuses BEFORE the patch is written, so a DEM-less `.osm` never lands where a census would find it. The guard's one allowance is the lane's cross-process `.lock` file (`is_lock_artifact`): coordination state, never corpus data, and only for the exclusive-create and removal that `O4_File_Lock.hold_file_lock` performs — a `builtins.open` of a `.lock` path, a rename onto one, or any real data write beside it still refuses, and the churn is recorded in `tmp/engine_cache_root`, `O4_LANE_CACHE_ROOT` overrides; one per WORKTREE, reused across runs, still lane-local and still COW-seeded — perf P2 Lane A 2026-08-13: the per-run root threw away everything a build derived, so HECA re-ran `_compute_dsf_object_buildings` (66.6 s) every lane build and OTHH ~455 s, and seeding from the shared corpus could not save it because the pack's own `.obj` files are IN the footprint fingerprint and the Phase-2 y-bake rewrites them AFTER that run's sidecar is written — HECA sidecar 07:03, 376 of 568 `.obj` rewritten 07:14; staleness is safe because every artifact under the root is content-keyed, so a stale clone recomputes rather than answering wrong) (`build_airport.frame.json`. `--dem CONST_M` substitutes a synthetic constant surface (an explicit DEM SOURCE substitution, never a law gate) and takes NEGATIVES — `--dem -500` is the ruled low world; the world is stamped into `<tag>.result.json` / `<tag>.frame.json` under `synthetic_dem`, because a −500 m census row is not comparable with a real-DEM one. The guard and its allowances live in `harness/shared_repo_guard.py` (one implementation, shared with `run_tile_mesh_only.py`). Engine derived-cache writes never touch the corpus at all (2026-08-11): every build re-points the two writable cache roots the engine derives into — the DSFTool dump cache (`O4_DSF_CACHE_DIR`) and the per-pack `Airport_mod_cache` root (`O4_AIRPORT_MOD_CACHE_DIR`, a COPY-ON-WRITE read-through overlay: APFS `clonefile` seeding — warm reads, and a write lands lane-local even when the writer TRUNCATES IN PLACE) — at the LANE-PERSISTENT root `<out>/<tag>.engine_caches/`, the same env-overridden mechanism the pytest suite runs under; the measured hole it closes is the DSFTool SUBPROCESS dump no Python-level guard can intercept (KCLT 2026-08-11, `Airport_mod_cache/zOrtho4XP_+35-081/+35-081.dsf.8828b7db.text`, run flagged CONTAMINATED). The MASKS root joined them 2026-08-12b (owner ruling: lane mask writes land lane-local): `O4_MASKS_DIR` (`O4_File_Names.masks_root`, read at CALL time) points the engine at `<out>/<tag>.engine_caches/Masks`, a copy-on-write overlay seeded from the shared `Masks/` subtree of the TILE(S) IN SCOPE — so the masks step's reads stay warm and its legacy cleanup deletes lane-local clones instead of everyone's rasters (the measured refusal: a HECA `--tile 30 31` arm rc=1 on 16 blocked `os.remove`s of `Masks/+30+030/+30+031/*.png`, every one swallowed by a bare `except: pass` now narrowed to `FileNotFoundError`). A scope the run is AUTHORISED to refresh (`--refresh-data airport_mod_cache` / `dsf_cache` / `masks`) is deliberately NOT redirected — the refresh must land in the shared repo — and the redirect record rides in `<tag>.result.json` / `<tag>.frame.json` under `engine_cache_redirects`. Corollary: a cold derived cache no longer forces `--allow-degraded-dem` (the rewrite lands lane-local instead of being guard-blocked); warming the SHARED cache stays an explicit `--refresh-data` act. `--warm-insets ICAO[,ICAO...]` (2026-08-11, round-13 spec amendment) fetches/refreshes the airport ELEVATION INSETS of exactly the airports named, before the build's DEM prep and inside the lock, snapshot, guard and ledger record (which names them) — valid ONLY with `--refresh-data dem`, re-querying rather than consulting the cache (negatives included — a transient TNM 504 cached a durable `no-coverage` for KMCI on 2026-08-11), and it is the only lawful instrument for a one-airport inset need: an airport build never reaches `ensure_airport_insets` (its DEM prep is pure disk state), a `--tile` build would refresh every void inset on the tile against a one-airport authorisation, and the standalone fetch tool writes the corpus outside the lock and the ledger. It also bypasses the `is_cached` size>0 gate for the named airports, under which a non-empty but INVALID raster makes a tile pass skip the fetch entirely. **The BASE-ARM ARTIFACT LEDGER (2026-08-12, BS2) means a reference arm is built once, ever:** every successful patch build stores its patch + sidecar + frame + env + result in `~/.ortho4xp/artifact_ledger` (outside the shared repo, gitignored, size-capped LRU, `O4_ARTIFACT_LEDGER_DIR` / `_MAX_MB`), content-addressed by (code-tree hash, ICAO, the `O4_*` env the run ledger keys on, CORPUS STAMP, build variant); `--base-arm` (or `--from-ledger`) serves that artifact instead of rebuilding — measured at CYXY: **0.3 s against a 63.3 s build, patch, sidecar and frame byte-identical**, behind a provenance line naming the original build, its timestamp and its duration, with a `<tag>.served.json` record beside it. A miss NAMES the component that moved, and a corpus-stamp mismatch is ALWAYS a miss (a changed corpus is a different measurement — the KCLT road-feed precedent). Refused: `--no-ledger` (a timing run has no time to replay), `--tile`, `--refresh-data`, and `--no-artifact-ledger` (a flag that silently does nothing). A refresh-authorised or CONTAMINATED run is never stored, and the key's tree hash + dirty flag are RE-CHECKED at store time (the key is cut at START; a worker-pool child that outlives its parent can finish after source edits land — the 2026-08-28 LEMD poisoned-key precedent): a mismatch refuses the store loudly, stamps `contaminated_key` into `<tag>.frame.json`, and never re-keys. **LANE INPUTS ARE PROVISIONED, NEVER HAND-SEEDED (owner ruling 2026-08-12b):** a `--tile` build whose build dir lacks `Ortho4XP_+XX+YYY.cfg` gets it as a BYTE COPY from the ritual's own canonical source (`$O4_MAIN_REPO/Ortho4XP/Tiles/zOrtho4XP_+XX+YYY/`, the tree `lane_worktree.sh` clones `Ortho4XP.cfg` and `Patches/` from), recorded with its sha256 in `<tag>.frame.json` under `tile_cfg_provenance`; an EXISTING lane cfg is never overwritten (recorded as `present`, hashed) and a MISSING canonical source REFUSES — synthesized defaults would build a tile at a provider and ZL nobody chose and exit 0. Closes the 'EMPTY default_website' wall two lanes each improvised past with a different cfg source on 2026-08-12. **`--solve-capture DIR` (2026-08-13, P2 instrument item 1)** additionally writes a SOLVE-STAGE CAPTURE into `DIR/<ICAO>/` — the phases 1-4 product at the solve boundary, replayable by `tools/solve_cut.py --replay` without rebuilding phases 1-4. It is armed inside `build_patch`, AFTER `arm_shared_repo_protection` (the env key is the engine module's own constant, and importing the engine before the redirect composition is the ordering that composition exists to prevent), and it is refused with `--tile` rather than silently doing nothing (`build_tile` runs the engine through another entry; arm `O4_SOLVE_CAPTURE` in that build's environment knowingly instead, and every airport the tile builds writes its own capture). Capture is a pure reader at the boundary: measured at CYXY the build's body sha was `61efa43c3aeb`, the frozen 1.0.245 baseline, capture armed.  **`--geometry-only` (2026-08-14, owner request):** plan geometry only (`compute_elevations=False`, the pipeline's own documented mode) for visual inspection — refused with `--tile` and `--solve-capture` (silent no-ops), stamped into `result.json` and the artifact-ledger variant key so a solved arm can never be served from a geometry-only one, and NEVER censused (there is no solved surface to count). **THE WINDOW IS NOT THE AUTHOR (2026-09-01, beta hardening H6 item 6 — flagged independently by three lanes):** the before/after audit diffs the WHOLE shared repo across the build's wall-clock window and used to attribute EVERY delta in it to that build — but builds run concurrently by ruling, an authorised `--refresh-data` in lane B lands inside lane A's window, and the library-index allowance was this same cross-attribution solved once for one file (the nidrepair 2026-08-07 frames each reported `write_guard_blocked: []` and each named the same modified sidecar neither of them wrote). Every delta is still NAMED — nothing is dropped — but one is labelled **EXTERNAL-CANDIDATE** instead of CONTAMINATED when BOTH hold: this build's own `write_guard_blocked` is EMPTY (a guard-blocked write is a whole-run veto — that build's code did reach for the corpus), AND the path is provably OUTSIDE the build's INPUT SET (`BuildInputScope`: the tiles it reads plus their eight neighbours, in BOTH corpus spellings — `+30+031` and `N30E031` — plus the per-airport road feed by ICAO). A path naming neither a tile nor an airport is UNSCOPABLE and therefore IN scope: "not provably external" is the whole predicate, and the instrument downgrades only what it can positively exclude. CONTAMINATED is unchanged for in-scope or guard-blocked deltas, and an entry passing no scope (or an empty one) gets the pre-2026-09-01 behaviour to the letter. The verdict is re-derivable: `build_input_scope`, `unauthorised_writes` (every delta) and `external_candidate_writes` all ride in `<tag>.frame.json`. The ARTIFACT-LEDGER STORE gate is deliberately the stricter of the two and still refuses on ANY delta — contamination is about whether this build's numbers are trustworthy, the store gate about whether its corpus stamp still describes the corpus a later hit would read. `contaminating_writes` is the ONE reading of the label. Twins: `tests/test_harness.py` (external-vs-in-scope, the guard-blocked veto, the unchanged default, the unscopable path, both tile spellings + neighbours, the ICAO rule, the refusal reading the one helper, the frame stamps). **There is no other sanctioned way to build.** **THE V2 ENGINE (2026-09-04, lane v2resid; THE ONLY ENGINE since the owner retired v1, RULINGS 2026-09-13au — there is no `--engine` flag and no `auto_patch_engine` cfg key):** the SAME entry builds the auto-patch-v2 patch (`src/auto_patch_v2/pipeline/build.py`, RULINGS 2026-09-03d) under the same cwd/DEM-frame/corpus refusals, the same shared-repo guard and swallowed-refusal detectors, the same sidecar guarantee, run ledger and artifact ledger; `frame.json` records `engine` and the v2 law-table digest (`law_tables`: sha256 over `src/auto_patch_v2/law/*.toml`) plus a `v2` block (solve status, LP size, stage walls, v2-verify counts, tile pieces), and the artifact-ledger variant key carries both (v1 keys unchanged — a v2 patch is never served for a v1 arm). The v2 products land in `<tag>.v2/` (`<ICAO>.report.json` with the IIS on infeasibility, `<ICAO>.graded.json`, tile pieces); the patch and sidecar are MOVED to `<tag>.osm` / `<tag>.osm.axes.json` so `census.py` reads it like any patch. Refused by name (not wired for v2): `--dem`, `--geometry-only`, `--solve-capture` (not wired; a silently-inert flag is the precedent). A non-optimal solve refuses to report (no patch is written). **`--tile LAT LON` (2026-09-04, lane v2app)** builds the WHOLE TILE with the app's own dispatch: `auto_patch.driver` runs `auto_patch.engine_v2.build_write_verify_one_v2` per airport — `auto_patch_v2.pipeline.build` on the tile's OWN production DEM (`tile.dem` seeded into the v2 loader, never re-composed), the current tile's patch + sidecar placed at `Patches/<block>/<tile>/<ICAO>_auto.patch.osm`, the v2 verify census in `auto_patch_verify_debug.log`, one `[provenance] ICAO patch: engine=v2 sha=… law=<digest> ruleset=… solve=… dem=…` line per airport, and a non-optimal solve / v2 refusal a NAMED per-airport build failure (`AutoPatchFailed` on the JSONL protocol, IIS in the verify log). Every patch carries `o4_ap_engine` in its freshness block (schema `2`), so a patch the retired engine left behind never reads as current. Measured +25+051 2026-09-04: OTBD 13.7 s / OTBH 7.0 s / OTHH 37.8 s, all optimal; oracle census on the placed OTHH patch 0/0. The mod-cache redirect is also handed to v2's own loader (`inputs.mod_cache_root`), which `planar.__main__.default_inputs` cannot do for itself — it reads no environment by design, so before 2026-09-13 the pack-dump FRESHNESS guard (`airport/load.py:289`) judged the SHARED root and refused every KCLT / HECA v2 build and `explain` (RULINGS 2026-09-13q, "chip"); the build now reads and derives its DSF text dumps in the same lane-local overlay every other derived cache lands in. The guard's one allowance is the lane's cross-process `.lock` file (`is_lock_artifact`): coordination state, never corpus data, and only for the exclusive-create and removal that `O4_File_Lock.hold_file_lock` performs — a `builtins.open` of a `.lock` path, a rename onto one, or any real data write beside it still refuses, and the churn is recorded in `tmp/engine_cache_root`, `O4_LANE_CACHE_ROOT` overrides; one per WORKTREE, reused across runs, still lane-local and still COW-seeded — perf P2 Lane A 2026-08-13: the per-run root threw away everything a build derived, so HECA re-ran `_compute_dsf_object_buildings` (66.6 s) every lane build and OTHH ~455 s, and seeding from the shared corpus could not save it because the pack's own `.obj` files are IN the footprint fingerprint and the Phase-2 y-bake rewrites them AFTER that run's sidecar is written — HECA sidecar 07:03, 376 of 568 `.obj` rewritten 07:14; staleness is safe because every artifact under the root is content-keyed, so a stale clone recomputes rather than answering wrong) (`build_airport.frame.json`. `--dem CONST_M` substitutes a synthetic constant surface (an explicit DEM SOURCE substitution, never a law gate) and takes NEGATIVES — `--dem -500` is the ruled low world; the world is stamped into `<tag>.result.json` / `<tag>.frame.json` under `synthetic_dem`, because a −500 m census row is not comparable with a real-DEM one. The guard and its allowances live in `harness/shared_repo_guard.py` (one implementation, shared with `run_tile_mesh_only.py`). Engine derived-cache writes never touch the corpus at all (2026-08-11): every build re-points the two writable cache roots the engine derives into — the DSFTool dump cache (`O4_DSF_CACHE_DIR`) and the per-pack `Airport_mod_cache` root (`O4_AIRPORT_MOD_CACHE_DIR`, a COPY-ON-WRITE read-through overlay: APFS `clonefile` seeding — warm reads, and a write lands lane-local even when the writer TRUNCATES IN PLACE) — at the LANE-PERSISTENT root `<out>/<tag>.engine_caches/`, the same env-overridden mechanism the pytest suite runs under; the measured hole it closes is the DSFTool SUBPROCESS dump no Python-level guard can intercept (KCLT 2026-08-11, `Airport_mod_cache/zOrtho4XP_+35-081/+35-081.dsf.8828b7db.text`, run flagged CONTAMINATED). The MASKS root joined them 2026-08-12b (owner ruling: lane mask writes land lane-local): `O4_MASKS_DIR` (`O4_File_Names.masks_root`, read at CALL time) points the engine at `<out>/<tag>.engine_caches/Masks`, a copy-on-write overlay seeded from the shared `Masks/` subtree of the TILE(S) IN SCOPE — so the masks step's reads stay warm and its legacy cleanup deletes lane-local clones instead of everyone's rasters (the measured refusal: a HECA `--tile 30 31` arm rc=1 on 16 blocked `os.remove`s of `Masks/+30+030/+30+031/*.png`, every one swallowed by a bare `except: pass` now narrowed to `FileNotFoundError`). A scope the run is AUTHORISED to refresh (`--refresh-data airport_mod_cache` / `dsf_cache` / `masks`) is deliberately NOT redirected — the refresh must land in the shared repo — and the redirect record rides in `<tag>.result.json` / `<tag>.frame.json` under `engine_cache_redirects`. Corollary: a cold derived cache no longer forces `--allow-degraded-dem` (the rewrite lands lane-local instead of being guard-blocked); warming the SHARED cache stays an explicit `--refresh-data` act. `--warm-insets ICAO[,ICAO...]` (2026-08-11, round-13 spec amendment) fetches/refreshes the airport ELEVATION INSETS of exactly the airports named, before the build's DEM prep and inside the lock, snapshot, guard and ledger record (which names them) — valid ONLY with `--refresh-data dem`, re-querying rather than consulting the cache (negatives included — a transient TNM 504 cached a durable `no-coverage` for KMCI on 2026-08-11), and it is the only lawful instrument for a one-airport inset need: an airport build never reaches `ensure_airport_insets` (its DEM prep is pure disk state), a `--tile` build would refresh every void inset on the tile against a one-airport authorisation, and the standalone fetch tool writes the corpus outside the lock and the ledger. It also bypasses the `is_cached` size>0 gate for the named airports, under which a non-empty but INVALID raster makes a tile pass skip the fetch entirely. **The BASE-ARM ARTIFACT LEDGER (2026-08-12, BS2) means a reference arm is built once, ever:** every successful patch build stores its patch + sidecar + frame + env + result in `~/.ortho4xp/artifact_ledger` (outside the shared repo, gitignored, size-capped LRU, `O4_ARTIFACT_LEDGER_DIR` / `_MAX_MB`), content-addressed by (code-tree hash, ICAO, the `O4_*` env the run ledger keys on, CORPUS STAMP, build variant); `--base-arm` (or `--from-ledger`) serves that artifact instead of rebuilding — measured at CYXY: **0.3 s against a 63.3 s build, patch, sidecar and frame byte-identical**, behind a provenance line naming the original build, its timestamp and its duration, with a `<tag>.served.json` record beside it. A miss NAMES the component that moved, and a corpus-stamp mismatch is ALWAYS a miss (a changed corpus is a different measurement — the KCLT road-feed precedent). Refused: `--no-ledger` (a timing run has no time to replay), `--tile`, `--refresh-data`, and `--no-artifact-ledger` (a flag that silently does nothing). A refresh-authorised or CONTAMINATED run is never stored, and the key's tree hash + dirty flag are RE-CHECKED at store time (the key is cut at START; a worker-pool child that outlives its parent can finish after source edits land — the 2026-08-28 LEMD poisoned-key precedent): a mismatch refuses the store loudly, stamps `contaminated_key` into `<tag>.frame.json`, and never re-keys. **LANE INPUTS ARE PROVISIONED, NEVER HAND-SEEDED (owner ruling 2026-08-12b):** a `--tile` build whose build dir lacks `Ortho4XP_+XX+YYY.cfg` gets it as a BYTE COPY from the ritual's own canonical source (`$O4_MAIN_REPO/Ortho4XP/Tiles/zOrtho4XP_+XX+YYY/`, the tree `lane_worktree.sh` clones `Ortho4XP.cfg` and `Patches/` from), recorded with its sha256 in `<tag>.frame.json` under `tile_cfg_provenance`; an EXISTING lane cfg is never overwritten (recorded as `present`, hashed) and a MISSING canonical source REFUSES — synthesized defaults would build a tile at a provider and ZL nobody chose and exit 0. Closes the 'EMPTY default_website' wall two lanes each improvised past with a different cfg source on 2026-08-12. **`--solve-capture DIR` (2026-08-13, P2 instrument item 1)** additionally writes a SOLVE-STAGE CAPTURE into `DIR/<ICAO>/` — the phases 1-4 product at the solve boundary, replayable by `tools/solve_cut.py --replay` without rebuilding phases 1-4. It is armed inside `build_patch`, AFTER `arm_shared_repo_protection` (the env key is the engine module's own constant, and importing the engine before the redirect composition is the ordering that composition exists to prevent), and it is refused with `--tile` rather than silently doing nothing (`build_tile` runs the engine through another entry; arm `O4_SOLVE_CAPTURE` in that build's environment knowingly instead, and every airport the tile builds writes its own capture). Capture is a pure reader at the boundary: measured at CYXY the build's body sha was `61efa43c3aeb`, the frozen 1.0.245 baseline, capture armed.  **`--geometry-only` (2026-08-14, owner request):** plan geometry only (`compute_elevations=False`, the pipeline's own documented mode) for visual inspection — refused with `--tile` and `--solve-capture` (silent no-ops), stamped into `result.json` and the artifact-ledger variant key so a solved arm can never be served from a geometry-only one, and NEVER censused (there is no solved surface to count). **THE WINDOW IS NOT THE AUTHOR (2026-09-01, beta hardening H6 item 6 — flagged independently by three lanes):** the before/after audit diffs the WHOLE shared repo across the build's wall-clock window and used to attribute EVERY delta in it to that build — but builds run concurrently by ruling, an authorised `--refresh-data` in lane B lands inside lane A's window, and the library-index allowance was this same cross-attribution solved once for one file (the nidrepair 2026-08-07 frames each reported `write_guard_blocked: []` and each named the same modified sidecar neither of them wrote). Every delta is still NAMED — nothing is dropped — but one is labelled **EXTERNAL-CANDIDATE** instead of CONTAMINATED when BOTH hold: this build's own `write_guard_blocked` is EMPTY (a guard-blocked write is a whole-run veto — that build's code did reach for the corpus), AND the path is provably OUTSIDE the build's INPUT SET (`BuildInputScope`: the tiles it reads plus their eight neighbours, in BOTH corpus spellings — `+30+031` and `N30E031` — plus the per-airport road feed by ICAO). A path naming neither a tile nor an airport is UNSCOPABLE and therefore IN scope: "not provably external" is the whole predicate, and the instrument downgrades only what it can positively exclude. CONTAMINATED is unchanged for in-scope or guard-blocked deltas, and an entry passing no scope (or an empty one) gets the pre-2026-09-01 behaviour to the letter. The verdict is re-derivable: `build_input_scope`, `unauthorised_writes` (every delta) and `external_candidate_writes` all ride in `<tag>.frame.json`. The ARTIFACT-LEDGER STORE gate is deliberately the stricter of the two and still refuses on ANY delta — contamination is about whether this build's numbers are trustworthy, the store gate about whether its corpus stamp still describes the corpus a later hit would read. `contaminating_writes` is the ONE reading of the label. Twins: `tests/test_harness.py` (external-vs-in-scope, the guard-blocked veto, the unchanged default, the unscopable path, both tile spellings + neighbours, the ICAO rule, the refusal reading the one helper, the frame stamps). **There is no other sanctioned way to build.** **THE V2 ENGINE (2026-09-04, lane v2resid; THE ONLY ENGINE since the owner retired v1, RULINGS 2026-09-13au — there is no `--engine` flag and no `auto_patch_engine` cfg key):** the SAME entry builds the auto-patch-v2 patch (`src/auto_patch_v2/pipeline/build.py`, RULINGS 2026-09-03d) under the same cwd/DEM-frame/corpus refusals, the same shared-repo guard and swallowed-refusal detectors, the same sidecar guarantee, run ledger and artifact ledger; `frame.json` records `engine` and the v2 law-table digest (`law_tables`: sha256 over `src/auto_patch_v2/law/*.toml`) plus a `v2` block (solve status, LP size, stage walls, v2-verify counts, tile pieces), and the artifact-ledger variant key carries both (v1 keys unchanged — a v2 patch is never served for a v1 arm). The v2 products land in `<tag>.v2/` (`<ICAO>.report.json` with the IIS on infeasibility, `<ICAO>.graded.json`, tile pieces); the patch and sidecar are MOVED to `<tag>.osm` / `<tag>.osm.axes.json` so `census.py` reads it like any patch. Refused by name (not wired for v2): `--dem`, `--geometry-only`, `--solve-capture` (not wired; a silently-inert flag is the precedent). A non-optimal solve refuses to report (no patch is written). **`--tile LAT LON` (2026-09-04, lane v2app)** builds the WHOLE TILE with the app's own dispatch: `auto_patch.driver` runs `auto_patch.engine_v2.build_write_verify_one_v2` per airport — `auto_patch_v2.pipeline.build` on the tile's OWN production DEM (`tile.dem` seeded into the v2 loader, never re-composed), the current tile's patch + sidecar placed at `Patches/<block>/<tile>/<ICAO>_auto.patch.osm`, the v2 verify census in `auto_patch_verify_debug.log`, one `[provenance] ICAO patch: engine=v2 sha=… law=<digest> ruleset=… solve=… dem=…` line per airport, and a non-optimal solve / v2 refusal a NAMED per-airport build failure (`AutoPatchFailed` on the JSONL protocol, IIS in the verify log). Every patch carries `o4_ap_engine` in its freshness block (schema `2`), so a patch the retired engine left behind never reads as current. Measured +25+051 2026-09-04: OTBD 13.7 s / OTBH 7.0 s / OTHH 37.8 s, all optimal; oracle census on the placed OTHH patch 0/0. |
 
-| `Ortho4XP/tools/arm_site_read.py` | The question is about a PLACE across two arms — "is the wall at 35.2077303,-80.9290869 still there, and did anything near it get worse?" — which an A/B leaves open: `census.py --rows-json` itemises rows and `census_rows_diff.py` joins two dumps class by class, but neither can be asked about a coordinate, and `osm_site.py` reads geometry without law rows or pad seats. This is the join: per named `--site`, per arm, the law-true rows within `--radius` with their worst grade and |de|; with `--seats`, the BUILDING PAD seats that moved between the arms — the channel this repo's HECA airside attribution ran through (a pad seat welds into the apron ring, so a seat that moves moves airside; measured 2026-08-12b: 92 of 215 pads, median 0.32 m, and building211's +0.88 m carried +203 apron rows). **It measures no law and counts no defects**: rows are read verbatim out of census `--rows-json` dumps and geometry/altitudes through the harness library's own `check_grade._parse_osm`, so this tool and the census read one file one way; a missing input reports SKIPPED, never zero. FRAMES, both printed: rows are located by the census's own row lat/lon, which for a within-shape pair is the PAIR's position (a 400 m apron chord's row sits far from either endpoint's geometry), so a radius selects rows near the PAIR, not shapes touching the site; seats join by the building's `ref` tag, never by way id or shapeID (both arm-dependent). Promoted 2026-08-12b from the service-corridor lane's `measure_arms.py` on its SECOND use — the named-site table and then the airside attribution. `--welds` (added 2026-08-12c, the corridor-joins round's ruling-4(a) instrument) answers the other question a place can be asked — IS THIS SEAM JOINED? Per site, per arm: the node ids SHARED between the road family (`check_grade._ROAD_FAMILY_ROLES`, read from the census library) and the airside ways, the max |Δalt| two ways carry at a shared node (0.00 is the construction — production values sit on the NODE, so a weld is single-valued; the delta is the torn-weld guard for way-valued rings), the NEAREST UNWELDED approach when nothing is shared (0.999 m at both KCLT mouths, against a 0.5 m weld tolerance), and the `retaining_wall` ways standing at the site with their ids. `--profile` / `--line` (added 2026-08-25, the HECA apron round-2 acceptance) answer the THIRD question a place can be asked — WHAT SHAPE IS THE SURFACE HERE? `--profile` walks every ring of `--profile-roles` (default `apron,graded_strip`) reaching a site and reports its worst consecutive EDGE and its RIPPLE AMPLITUDE, the peak-to-peak inside a 50 m run ALONG THE RING — the same window `apron_drape_read` calls `amp50`, so the two tools spell the ripple one way. `--line NAME=LAT,LON:LAT,LON` orders every emitted vertex in a corridor about an owner-named segment by its station along it, with the step between consecutive stations: the reading an acceptance written as "no unlawful step along the owner line" is stated in, AND the reading that shows a NODELESS VOID, because there an EMPTY STATION LIST IS ITSELF THE FINDING (a region with no emitted vertices contributes no census row however wrong its surface is — the blind spot `nodeless_interiors` counts). Neither prices a law; quote them ARM TO ARM on identical options, never as a verdict. Reach for it whenever an acceptance claim is about a join: **row absence cannot answer it** — a census row exists only between PAIRED geometry, so an unwelded road↔taxiway seam is silent in every census, which is exactly how two 1.0.244 acceptance claims passed over a gap no node could bridge. Twin: `tests/test_corridor_axis_coverage.py`.  **`--behind NAME=LAT,LON:LAT,LON` is the WALL scope** (added 2026-08-29, scorer-v2 round, spec `scorer-v2-class-boundary-spec.md`): the owner states a wall as two coordinates and asks that no airside pavement cross it — `--line` answers what the emitted elevation does ALONG it and `osm_site --line` answers what covers each station ON it, but neither answers the quantitative half, the SQUARE METRES of airside-role pavement sitting on the groundside, which is the number a boundary-cut round moves and therefore the number its acceptance is written in. Per crossing ring it reports the area behind, the node split either side and each side's altitude range — the shape of a wall buried inside one apron (HECA apron 584: 48 nodes at 97.22-104.69 m in front, 95 at 90.77-102.71 m behind). TWO FRAME RULES, both load-bearing: the band is the line's OWN SPAN by `--behind-depth-m` (default 150 m) deep, never a half-plane — unbounded, the far side sweeps in the whole airport and reports 634,371 m² where the local answer is 25,900 (measured at HECA); and the GROUNDSIDE side is decided by the patch — the side carrying less airside pavement — so reversing the two coordinates cannot change the answer and a caller cannot pick it. The closed-ring repeat is dropped before the node split (counting it double reports one extra node on whichever side the ring starts). It prices no law and counts no defects. **THE SEAT JOIN IS NOT FREE (2026-08-31, the buildings round).** `building{N}` is an ORDINAL identifier, so an arm that ADDS or DROPS a pad renumbers every later one and the ref join reports the RENUMBERING as seat motion: measured on the buildings-round HECA arms (pad count 175 -> 176) the ref join said 85 of 174 pads moved, median 2.72 m, max 33.65 m, where the population had barely moved. The tool now DETECTS it — a common ref whose pad centroid is more than `--seat-radius` (15 m) away is named as RENUMBERED, with the advice to re-run — and `--seat-join location` pairs pads by centroid instead (closest pair first, each pad used once; a pad with no partner within the radius is reported as added/dropped, NEVER as a move), which on the same arms reads 28 of 174 moved, median 0.07 m, max 2.32 m. Quote a pad-population round's seat movements under the location join. |
+| `Ortho4XP/tools/harness/build_airport.py` | **Default.** See above. |
 
-## Tool: role_overlap_read
+## Tool: frames
 
-| `Ortho4XP/tools/role_overlap_read.py` | The question is WHAT STANDS ON WHAT — *how many square metres of one emitted role/ref class lie on another class's footprint* — which is the single number a ruling of the form "the gap-fill spine must STOP at groundside pavement" (RULINGS 2026-08-30 ruling 4) is accepted or refused on. No other instrument answers it: `harness/census.py` prices PAIRS OF VALUES, so a face lying flat on a lot breaks no grade law and reports ZERO rows; `osm_site.py` answers one coordinate and `arm_site_read.py` one named place; `void_census.py` asks enclave TOPOLOGY; `lattice_overlap_read.py` asks CONTAINMENT of the two role-less membrane classes by LENGTH. This is the AREA sweep: `--over ROLE[:REF] --on ROLE[:REF],...` reports the populations, how many OVER ways stand on the ON union, the total m², and per stacked way its own area, the area over, the fraction and the ON shapes it stands on, largest first. **It measures no law and counts no defects** — geometry, the metre frame about the sidecar's own anchor and the role-carrying rings come from the harness library (`check_grade._parse_osm` / `_ll_to_m_factory`), imported and never re-spelled (the census-wrapper precedent); defect counts come from `harness/census.py` and nowhere else. A patch with NO `.axes.json` sidecar is REFUSED (no anchor, no metre frame — an area in the wrong frame looks right and is not). `--min-area` (default 1.0 m²) is emit rounding, not a law threshold. Measured basis (HECA round 6b/6c): on the round-6b closing arm `graded_strip:gap_fill_spine` over `groundside_pavement` = 18 strips / 26,780 m², two faces carrying 24,288 m² of it (3190 over lot 2813 by 13,657 m², 70 %; 3192 over 2814 by 10,631 m², 63 %), while the same read over `service_road,service_junction` — 34 strips / 25,073 m² — said the annulus class was not one ruling's alone. Promoted 2026-08-30 from the HECA round-6b lane's scratchpad on its second use (RULINGS `7e90032`). `--pad M` grows the ON union before the read and `--beyond` reports the COMPLEMENT — the OVER ways that do NOT reach it, totalled and split by ref: the OWNERSHIP read RULINGS 31b is stated in ("within SERVICE_ROAD_PAVEMENT_NEAR_M of aircraft pavement"), which is how Batch 4a priced HECA's far road-family population off the merged-main control (`service_junction` beyond 25 m of the airside roles: 1,526 of 1,777 rings / 473,248 m², of which 1,325 ref-less / 435,882 m²). `--site LAT,LON` (repeatable) answers a named place in the OVER class's own terms — which way covers it, its ref and area, and the distance from both point and ring to the ON class. Several patches are reported separately — the arm-to-arm read; quote it on identical options. **`--contains` is the CONTAINMENT CENSUS and it is a DIFFERENT FRAME** (2026-09-13, lane `v2zonehole`, spec §41 (1)): the overlap sweep above is a SOLID-frame question and reads 0 m² here BY CONSTRUCTION — the arrangement is a partition, so a face enclosed by another sits in its HOLE and never overlaps its solid. `--contains` asks whether a pavement face lies inside another pavement face's EXTERIOR RING (`--min-frac`, default 0.95 = §41 (1)'s own floor, the one spelling of `planar.overlay.ENCLOSED_MIN_FRAC` outside the engine), and reports per row the inner face and its area, the host, the RING fraction, the SOLID fraction beside it (which is what says the two readings are not the same question), the shared-edge length and the distance to the host's solid — a face that TOUCHES its host is a NOTCH cut into a body (absorbed by `planar.overlay.absorb_enclosed_pavement`), one that does not is an ISLAND in the middle of a taxiway loop (left alone). Measured basis (the owner's 1.0.329 HECA patch): 39 of 370 pavement faces contained, 65,772 m², every one at solid fraction 0.000, 33 notches / 6 islands — `cross_connector:pav77` 896 m² in `primary_parallel:pav73` is the owner's dip site (RULINGS 2026-09-13co item 2). **THE ANCHOR REPAIR** (same lane): the read used to do `side["anchor"]` and died `KeyError: 'anchor'` on every v2 patch — v2's `SIDECAR_KEYS` publishes no anchor, deliberately, and the harness library itself falls back to the MEAN OF NODES, which is the frame the census reads the same patch in. The sidecar is still REQUIRED; the anchor is used when the patch carries one; the frame in force is printed on every report and carried in the JSON (`frame`). **`--slivers` and `--hole-rings` are the FOURTH and FIFTH questions, and both are WIDTH questions** (2026-09-14, lane `v2slivers`, spec §41 (4) / RULINGS 2026-09-14g items 4/5): the reads above ask what stands on, or inside, what — neither asks whether a shape is BIG ENOUGH TO CARRY LAW, which is what a zone strip that mints a hump and a hole ring that ships across a service road have in common. `--slivers` reports every `graded_strip` face under `--strip-min-area` (50 m², `emit.terrace.strip_min_m2`) or narrower than `--strip-min-width` (3.0 m, `strip_min_width_m`) with its area, inscribed width, elevation span and the pavement face it borders longest — the HOST `planar.overlay.dissolve_sliver_zones` unions it into. `--hole-rings` reports every emitted `gap_interior_ring` way with the fraction of its area the faces INSIDE it cover (`--cover-eps`, `emit.terrace.hole_cover_eps`), its inscribed width, and a verdict: `covered` (a duplicate ring), `hairline` (narrower than `strip_min_width_m`: it can carry no transition) or `void` (a real hole, which KEEPS its ring). THE WIDTH IS THE MAXIMUM INSCRIBED CIRCLE's DIAMETER, imported from the engine's own `planar.overlay.inscribed_width_m` and never re-spelled: `2 A / P` is a mean-width proxy and over-counted HECA's narrow zone faces 42 → 153 (the ruling's own measurement). Measured basis (the owner's 1.0.331 HECA patch, mean-of-nodes frame): 338 `graded_strip` faces / 2,895,389 m², of which 57 slivers / 1,647 m² (51 under 50 m², 42 under 3 m) — shape 1035 `adjacent_ground:taxi:E:zone1#38`, 15.7 m², 2.16 m, z 105.86–106.01 against a taxiway at 104.4, host `cross_connector:pav115`, the owner's hump (RULINGS 2026-09-14c item 4); and 57 `gap_interior_ring` rings / 926,251 m², 11 covered ≥ 98 %, 5 hairline, 41 real voids — way −10231, 29.5 m², 1.60 m wide, 92.3 % covered, the ring that shipped across `service_road:route4`. Both price no law and count no defects. Twin: `tests/test_role_overlap_read.py` (the area IS the intersection, the ROLE:REF selector is exact, the floor both ways, prices-no-law, the no-sidecar refusal, the `--pad`/`--beyond` complement, the `--site` read, the inscribed width agreeing with the engine's and the proxy disagreeing, the tool's three §41 (4) constants being the law table's, the sliver read naming the host, the hole read's cover fraction / width / three verdicts, the three reads refusing to run two at a time, and this index row) and `tests/auto_patch_v2/test_v2zonehole.py` (the anchor-less sidecar is not a crash, the containment census's ring-vs-solid frames, and that the two spellings of 0.95 agree). |
-
-| `Ortho4XP/tools/role_overlap_read.py` | The question is WHAT STANDS ON WHAT — *how many square metres of one emitted role/ref class lie on another class's footprint* — which is the single number a ruling of the form "the gap-fill spine must STOP at groundside pavement" (RULINGS 2026-08-30 ruling 4) is accepted or refused on. No other instrument answers it: `harness/census.py` prices PAIRS OF VALUES, so a face lying flat on a lot breaks no grade law and reports ZERO rows; `osm_site.py` answers one coordinate and `arm_site_read.py` one named place; `void_census.py` asks enclave TOPOLOGY; `lattice_overlap_read.py` asks CONTAINMENT of the two role-less membrane classes by LENGTH. This is the AREA sweep: `--over ROLE[:REF] --on ROLE[:REF],...` reports the populations, how many OVER ways stand on the ON union, the total m², and per stacked way its own area, the area over, the fraction and the ON shapes it stands on, largest first. **It measures no law and counts no defects** — geometry, the metre frame about the sidecar's own anchor and the role-carrying rings come from the harness library (`check_grade._parse_osm` / `_ll_to_m_factory`), imported and never re-spelled (the census-wrapper precedent); defect counts come from `harness/census.py` and nowhere else. A patch with NO `.axes.json` sidecar is REFUSED (no anchor, no metre frame — an area in the wrong frame looks right and is not). `--min-area` (default 1.0 m²) is emit rounding, not a law threshold. Measured basis (HECA round 6b/6c): on the round-6b closing arm `graded_strip:gap_fill_spine` over `groundside_pavement` = 18 strips / 26,780 m², two faces carrying 24,288 m² of it (3190 over lot 2813 by 13,657 m², 70 %; 3192 over 2814 by 10,631 m², 63 %), while the same read over `service_road,service_junction` — 34 strips / 25,073 m² — said the annulus class was not one ruling's alone. Promoted 2026-08-30 from the HECA round-6b lane's scratchpad on its second use (RULINGS `7e90032`). Several patches are reported separately — the arm-to-arm read; quote it on identical options. Twin: `tests/test_role_overlap_read.py` (the area IS the intersection, the ROLE:REF selector is exact, the floor both ways, prices-no-law, the no-sidecar refusal, and this index row). |
+| `tools/harness/frames.py` | THE FRAMES REGISTRY (owner 2026-09-13): `register --icao KCLT --kind capture|rebake|patch|graded|mesh --path P --base SHA --lane L [--note]`, `list [ICAO] [--kind K]`, `latest ICAO --kind K` (newest EXISTING entry; a vanished path prints `[MISSING]` and is never served). Append-only JSONL at `docs/frames.jsonl` (merge-friendly across lane branches). A lane registers its capture / rebake plan / closing products at the end so the next lane does not hunt scratchpads. Twin in `Ortho4XP/tests/test_docq.py`. |
 
 ## Registered frames: LEMD
 
@@ -1521,6 +1018,12 @@ LEMD  patch    base d803147a   lane v2lemdstruct2    2026-09-15T12:24:50  /priva
 LEMD  patch    base d803147a   lane v2lemdstruct2    2026-09-15T12:24:50  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/ls2/e_on_emit/LEMD_auto.patch.osm  — r5 MATCHED PAIR, flip ON arm. Verify 1,554 rows; census LAW-TRUE 5,712 ADJUDICATED 1,393 (airside 1,258); CRITICAL motion 5, cliffs 20; mid_edge_step 2 worst 0.950 m (SAME as the OFF arm - it is NOT the flip's doing); ramp_in_strip 18 (same); airside_no_step 452 -> 357, taxi_box 152 -> 130, transverse 98 -> 90, strip_arc 9 -> 4; within_shape +62 and strip_transverse worst 13.864 -> 17.700 m are the flip's real price; the owner's raw pair 4.313 -> 1.529 percent. Runway movement 319 of 4,042 vertices > 0.02 m, worst 5.687 m - attributed to a 111,648 m2 40 (1) runway SHOULDER (cell 15 / face 5) reaching 914 m off the centreline, on which no level row exists
 LEMD  patch    base f912ba81   lane v2objcut         2026-09-15T12:02:00  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/e1_LEMD/structures.json/structures.json  — r3 lane dry --stage structures at claude/v2objcut edf1e3c0; matched base arm at main f912ba81 in /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/e0_LEMD (LEMD) / /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/e2_LEMD (OTHH, run 2 - run 1 e0_OTHH read 7 corridors against run 2's 9 at the SAME sha: main's object-corridor reader is NONDETERMINISTIC at OTHH, reported).
 LEMD  patch    base f912ba81   lane v2objcut         2026-09-15T12:02:00  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/f1_LEMD/structures.json/structures.json  — r3 C3' arm with deck_rings_ll published (base arm /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/f0_LEMD): bridge_deck:-6288 lateral -11.81..+2.29 m -> -10.23..+10.24 m against the Bridge2 pair's inner faces at +-10.185 m (worst |offset|-half 1.62 -> 0.06 m); every other LEMD deck ring BYTE-IDENTICAL.
+LEMD  patch    base 9306c56d   lane v2othhdet        2026-09-15T13:10:37  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othhdet/runs/lemd_lane/structures.json  — v2othhdet LEMD dry --stage structures PAIR: lane arm (claude/v2othhdet 9306c56d) vs base arm scratchpad/v2othhdet/runs/lemd_base (git archive 118d2c40 in basesrc). corridors 1 / tunnels 51 / basins 1 / wall_corridors / plates / door_wells ALL byte-identical; the only difference is corridor_refused 209, the same SET now in sorted order.
+LEMD  capture  base e856ce64   lane v2shoulderband   2026-09-15T13:25:05  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/sb/cap_off/LEMD.pkl  — §40 (5) MATCHED PAIR, band OFF arm (--rule corridor.runway_shoulder_band=false, the §40 (1) law). v2_solve_replay --capture on claude/v2shoulderband, 236 s, 21,376 vertices / 1,059 faces, guard shared repo UNCHANGED. runway_shoulder 545,036 m2 in 17 cells, worst lateral 914.3 m; solve optimal 169.9 s; the 09y runway projection FAILS (Solve error rc kError); runway_step 3 rows at 40.4613609,-3.5446852 (0.950/0.633/0.317 m); census LAW-TRUE 6,807 ADJUDICATED 2,011.
+LEMD  capture  base e856ce64   lane v2shoulderband   2026-09-15T13:25:05  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/sb/cap_on/LEMD.pkl  — §40 (5) MATCHED PAIR, band ON arm (--rule corridor.runway_shoulder_band=true, the RULED law). Same tree, same airport, ONE variable, arm line printed per capture. 351 s, 21,883 vertices / 1,099 faces, guard UNCHANGED. runway_shoulder 271,086 m2 in 19 band pieces, worst lateral 75.5 m, remainder 273,949 m2 in 28 faces; solve optimal 70.9 s; runway projection 'held by the solve (nothing to settle)', worst hard row 2.3 mm; runway_step 0; census LAW-TRUE 6,185 ADJUDICATED 1,709.
+LEMD  patch    base e856ce64   lane v2shoulderband   2026-09-15T13:25:05  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/sb/emit_off/LEMD_auto.patch.osm  — §40 (5) band OFF arm EMIT (v2_solve_replay --replay --emit --verify off cap_off). The BASE of the matched pair.
+LEMD  patch    base e856ce64   lane v2shoulderband   2026-09-15T13:25:05  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/sb/emit_on/LEMD_auto.patch.osm  — §40 (5) band ON arm EMIT. ramp_in_strip 18 -> 9, strip_transverse 93 -> 34, transverse 92 -> 34, CRITICAL motion 12 -> 6, cliffs 20 -> 10; the ONE riser adjacent_ground_step 0 -> 2 (0.580 m).
+LEMD  patch    base e856ce64   lane v2shoulderband   2026-09-15T13:25:05  /tmp/harness/v2shoulderband.osm  — CLOSING LEMD AIRPORT-PATH build of claude/v2shoulderband a8138464 (build_airport.py LEMD --tag v2shoulderband, NO --tile per RULINGS 2026-09-15av): rc 0, 351.4 s, status optimal, ways 1123, nodes 21660, body_sha 42241995fdaf, artifact ledger 874c7aee6b0d, v2-verify 1797 rows with every DEFECT family ZERO (runway_transverse / runway_vertical_curve / runway_step), shared repo UNCHANGED (18 lock-churn ops, the allowed class).
 
 ## Registered frames: HECA
 
@@ -1610,6 +1113,95 @@ VHHH  rebake   base 8e92e26a   lane v2othhfix        2026-09-14T11:37:09  /priva
 VHHH  patch    base 106459fa   lane v2objcut         2026-09-15T09:44:01  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/r4_VHHH/structures.json/structures.json  — §33 (6) LANE arm: dry 'planar --stage structures' on claude/v2objcut; its MATCHED BASE arm on main 106459fa is /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/b4_VHHH/structures.json/structures.json. corridors 0 -> 5 object cuts with the AUTHORED floors (TUNNEL2_DONE 0.78 / tunnel1 0.37 / tunnel3 -1.63 / tunnel4 -1.69 / tunnel5 1.30 vs the bar 0.77/0.36/-1.63/-1.69/1.31); wall corridors 0 -> 0 (the affordance stands, §33 (6) A refuted); basins 70 -> 70 population IDENTICAL, 10 placements claimed; tunnels 28 -> 23. tunnel5 (the owner's site) and TUNNEL2 refused DOWNSTREAM by planar/structures.py's ring builder: a hairpin corridor's offset ring self-intersects.
 VHHH  patch    base 106459fa   lane v2objcut         2026-09-15T10:44:12  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/c7_VHHH/structures.json/structures.json  — r2 §33 (6) lane arm at claude/v2objcut 3b3259dd: corridors 0->5 (floors 0.78/0.37/-1.63/-1.69/1.30), wall corridors 0->0, basins 70->71 (one extra 0.2 m2 JETWAY FRAME pit; population identical by (objects, area)), tunnels 28->24
 VHHH  patch    base f912ba81   lane v2objcut         2026-09-15T12:02:00  /tmp/harness/v2objcutVHHHr3.osm  — r3 CLOSING VHHH BUILD (claude/v2objcut edf1e3c0): rc 0, 672.4 s, ways 1460, nodes 25910, status optimal, body_sha 38e3a2678b5c, v2-verify rows 1970. object corridors 5 (object cuts 5 B, basin placements claimed 10), tunnels 26, cells cut 17. AFTER on the five shells: ring vertices outside the wall line 85/19/111/27/26 -> 0/0/4/0/0 (worst 75.8-86.1 m -> 0.90 m), emitted floor vs authored |de| 0.90/1.85/1.44/3.85/3.91 -> 0.00/0.00/0.00/0.01/0.00 m. object_cut_offset 4 rows (worst 0.897, all TUNNEL2_DONE), object_cut_depth 0. RUN FLAGGED CONTAMINATED: 2 unauthorised Airport_mod_cache paths (a fresh +22+113 DSFTool dump) - artifact ledger NOT stored.
+VHHH  patch    base 9306c56d   lane v2othhdet        2026-09-15T13:10:37  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othhdet/runs/vhhh_lane/structures.json  — v2othhdet VHHH dry --stage structures PAIR: lane arm (claude/v2othhdet 9306c56d) vs base arm scratchpad/v2othhdet/runs/vhhh_base (git archive 118d2c40 in basesrc). corridors 5 (object cuts 5 B, 10 placements claimed) / tunnels 26 / basins 71 ALL byte-identical - the signature-B shell ids did NOT move under the sorted intake; the only difference is corridor_refused 133, the same SET now in sorted order.
+VHHH  patch    base f912ba81   lane v2vhhhctl        2026-09-15T13:02:22  /tmp/harness/VHHH_20260915T120714.osm  — MATCHED CONTROL for the v2objcut r3 delta: harness build_airport.py VHHH at main f912ba81 (own ritual worktree v2vhhhctlbase, lane-local DSF/mod-cache redirects). rc 0, wall 1108.6 s, ways 1405, nodes 25328, optimal, body_sha 8c8ef471eaab, v2-verify rows 160. 'shared repo UNCHANGED by this build'; artifact ledger STORED bfbfeb3e3a64 (44.1 MB) - a later --base-arm at this tree/env/corpus serves it. Census law-true 1531, ADJUDICATED 121, out-of-scope 1410. object_cuts 3 of 5 (tunnel1/3/4); TUNNEL2_DONE + tunnel5_done still refused by the ring builder. No --tile.
+VHHH  patch    base 118d2c40   lane v2vhhhctl        2026-09-15T13:02:32  /tmp/harness/VHHH_20260915T122604.osm  — ARM of the matched pair: harness build_airport.py VHHH at merged main 118d2c40 (v2objcut r3 d94db789 is the ONLY source merge over the control f912ba81). rc 0, wall 1182.9 s, ways 1460, nodes 25910, optimal, body_sha 38e3a2678b5c = v2objcut r3's closing build EXACTLY; v2-verify rows 1970. 'shared repo UNCHANGED by this build' - the r3 mod-cache contamination did NOT recur; artifact ledger STORED fed2cfb7b219 (45.6 MB). Census law-true 4845 (control 1531), ADJUDICATED 1472 (control 121). object_cuts 5 of 5: TUNNEL2_DONE (1109.9 m, 203-vertex ring) and tunnel5_done (413.2 m, the owner's site) newly built. 3084 of 3558 NEW census rows stand within 500 m of TUNNEL2_DONE. No --tile.
+
+## Registered frames: CYXY
+
+CYXY  patch    base 8dac3c6b   lane v1settings       2026-09-13T12:56:32  /tmp/harness/v1settings_base.osm  — base arm: CYXY --engine v2 at main 8dac3c6b, body_sha fc59980475f5 (v1-retirement stage A control)
+CYXY  patch    base 9ae9e5a9   lane v1settings       2026-09-13T12:56:32  /tmp/harness/v1settings_lane.osm  — lane arm: CYXY, no --engine flag, body_sha fc59980475f5 — byte-identical to the base arm
+CYXY  patch    base dc5517c0   lane solvemodel       2026-09-13T15:55:54  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/base_CYXY/CYXY_20260913T155123.osm  — BASE arm, solve_model retirement closing test; body_sha ca2c7bbaa57e, 314 ways / 4690 nodes / 344 verify rows
+CYXY  patch    base dc5517c0   lane solvemodel       2026-09-13T15:55:54  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/lane_CYXY/CYXY_20260913T155153.osm  — LANE arm (claude/solvemodel fdd291e9); body_sha ca2c7bbaa57e — byte-identical to the base arm, patch cmp-clean
+CYXY  patch    base ce203b29   lane v2zonebank       2026-09-13T17:33:35  /tmp/harness/CYXY_20260913T173248.osm  — CYXY control on claude/v2zonebank cde84e27 (rc 0, 16.4 s, body_sha b38fbb12b262) — census law-true 1,087, bank_across_seam 0, stacked_nodes 0 (the RULINGS 10g plateau-tearing class clean)
+CYXY  patch    base fef82b29   lane v2slivers        2026-09-14T09:05:36  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2slivers/cyxy/v2sl_cyxy2.osm  — CYXY control, lane arm (claude/v2slivers 88dfed33): rc 0, 13.6 s, ways 268, body_sha 018092d831df. NOT byte-identical to the base arm and lawfully so: CYXY carries 12 zone slivers / 339 m2 and 4 hairline hole rings at base, all dissolved/suppressed. Base arm v2sl_cyxy_base (main fef82b29): 284 ways, body_sha 673393ea5af0, 121 graded_strip faces / 12 slivers, 13 rings / 4 hairline
+CYXY  patch    base 4c6f467c   lane v2cost2          2026-09-14T10:52:37  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2cost2/lane/CYXY.osm/cyxylane.osm  — CYXY control, LANE arm (claude/v2cost2 12b29e6c): rc 0, 12.9 s, body_sha 018092d831df — cmp-IDENTICAL to the base arm at main 4c6f467c in scratchpad/v2cost2/base/CYXY.osm/cyxybase.osm (13.2 s, same sha)
+CYXY  patch    base 55cf0fe3   lane v2cost2          2026-09-14T11:31:42  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2cost2/lane/CYXY_r2.osm/cyxyr2.osm  — CYXY control, round 2 lane arm (claude/v2cost2 7bc09ea7): rc 0, 14.2 s, body_sha 018092d831df, cmp-IDENTICAL to the base arm scratchpad/v2cost2/base/CYXY.osm/cyxybase.osm
+CYXY  capture  base 12400580   lane v2settle         2026-09-14T23:01:33  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2settle/cap/CYXY.pkl  — v2_solve_replay --capture CYXY on main 12400580 (8 s, 4,503 vertices / 261 faces); guard shared repo UNCHANGED. The cheap control: single solve 17/32,327 hard rows violated, active-set exits line_search_stalled x1 (never the set's own fixed point). Lane v2settle r2's byte-identity arm.
+CYXY  graded   base 63258868   lane v2qp             2026-09-15T00:29:54  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2qp/emit_cyxy_qp/CYXY.graded.json  — QP ARM of the v2qp matched CYXY replay pair off cap/CYXY.pkl (base 12400580): solve 3.2 -> 4.2 s (1.31x), status feasible -> optimal, hard rows over 0.02 m 17 -> 12, runway projection worst hard row 0.0044 -> 0.0002 m, lag worst leader move 0.319 -> 0.162 m. BASE ARM at emit_cyxy_fp/. Census A/B ADJUDICATED 427 -> 379 (-11.2 %), NO family worse. The FISTA cross-check and the HiGHS refutation were measured on this capture (scratchpad/v2qp/*.log)
+
+## Registered frames: SPJC
+
+SPJC  patch    base 95c78040   lane v2spjc327        2026-09-13T15:52:21  /tmp/harness/SPJC_20260913T154126.osm  — scout v2spjc327 SPJC build 2026-09-13, rc0 121.7s, body_sha e61277b2bbbc, artifact 7857e8587009, solve=feasible, guard UNCHANGED; reproduces owner 1.0.327 tile -13-078 structures line exactly
+SPJC  graded   base 95c78040   lane v2spjc327        2026-09-13T15:52:21  /tmp/harness/SPJC_20260913T154126.v2/SPJC.graded.json  — scout v2spjc327 SPJC build 2026-09-13, rc0 121.7s, body_sha e61277b2bbbc, artifact 7857e8587009, solve=feasible, guard UNCHANGED; reproduces owner 1.0.327 tile -13-078 structures line exactly
+SPJC  rebake   base 95c78040   lane v2spjc327        2026-09-13T15:52:21  /tmp/harness/SPJC_20260913T154126.v2/SPJC.rebake.json  — scout v2spjc327 SPJC build 2026-09-13, rc0 121.7s, body_sha e61277b2bbbc, artifact 7857e8587009, solve=feasible, guard UNCHANGED; reproduces owner 1.0.327 tile -13-078 structures line exactly
+SPJC  patch    base 0c86fe2c   lane v2spjc           2026-09-13T17:03:04  /tmp/harness/v2spjc-r2.osm  — lane v2spjc closing SPJC build on claude/v2spjc 1992e754 (base main 0c86fe2c): rc0 111.2s, body_sha 0c903ea7b254, artifact 60993cdd0302, solve=optimal, guard UNCHANGED; structures bores 10 underpasses 0 tunnels 8 decks 0 refused 6 (scout base 95c78040: 59/19/18/4/31)
+SPJC  graded   base 0c86fe2c   lane v2spjc           2026-09-13T17:03:04  /tmp/harness/v2spjc-r2.v2/SPJC.graded.json  — lane v2spjc closing SPJC build on claude/v2spjc 1992e754 (base main 0c86fe2c): rc0 111.2s, body_sha 0c903ea7b254, artifact 60993cdd0302, solve=optimal, guard UNCHANGED; structures bores 10 underpasses 0 tunnels 8 decks 0 refused 6 (scout base 95c78040: 59/19/18/4/31)
+SPJC  rebake   base 0c86fe2c   lane v2spjc           2026-09-13T17:03:04  /tmp/harness/v2spjc-r2.v2/SPJC.rebake.json  — lane v2spjc closing SPJC build on claude/v2spjc 1992e754 (base main 0c86fe2c): rc0 111.2s, body_sha 0c903ea7b254, artifact 60993cdd0302, solve=optimal, guard UNCHANGED; structures bores 10 underpasses 0 tunnels 8 decks 0 refused 6 (scout base 95c78040: 59/19/18/4/31)
+SPJC  patch    base 6ec68b44   lane v2connector      2026-09-13T21:58:13  /tmp/harness/SPJC_20260913T214930.osm  — lane v2connector closing SPJC build on claude/v2connector 9b67e568 (base main 6ec68b44): rc0 110.9s, body_sha 545886ed769d, artifact ledger 5fe4d215e11d, solve optimal, guard UNCHANGED — §16g (6) connector law: xp11_007__b0 / xp11_010__b0 members of fu:0:0@cluster_pad at 19.56, unit_connectors_cut 0, unit_split_authored 0
+SPJC  graded   base 6ec68b44   lane v2connector      2026-09-13T21:58:13  /tmp/harness/SPJC_20260913T214930.v2/SPJC.graded.json  — lane v2connector closing SPJC build on claude/v2connector 9b67e568 (base main 6ec68b44): rc0 110.9s, body_sha 545886ed769d, artifact ledger 5fe4d215e11d, solve optimal, guard UNCHANGED — §16g (6) connector law: xp11_007__b0 / xp11_010__b0 members of fu:0:0@cluster_pad at 19.56, unit_connectors_cut 0, unit_split_authored 0
+SPJC  rebake   base 6ec68b44   lane v2connector      2026-09-13T21:58:13  /tmp/harness/SPJC_20260913T214930.v2/SPJC.rebake.json  — lane v2connector closing SPJC build on claude/v2connector 9b67e568 (base main 6ec68b44): rc0 110.9s, body_sha 545886ed769d, artifact ledger 5fe4d215e11d, solve optimal, guard UNCHANGED — §16g (6) connector law: xp11_007__b0 / xp11_010__b0 members of fu:0:0@cluster_pad at 19.56, unit_connectors_cut 0, unit_split_authored 0
+SPJC  patch    base a1d0edfa   lane v2padcluster     2026-09-14T14:21:30  /tmp/harness/v2padclusterSPJC4.osm  — v2padcluster ROUND 4 SPJC build — the FIRST SPJC frame carrying Part.height_m (claude/v2padcluster 9a4bd0e3): rc 0, 82.1 s, ways 431, body_sha 7f9b9659d13c, solve optimal, guard shared repo UNCHANGED (23 EXTERNAL-CANDIDATE deltas in the window, another lane's — NO ledger key). The viaduct xp11_007__b0 is on pad building7 at 20.07 in unit fu:0:3@cluster_pad of 6 members; 13df read 19.5604 in fu:0:0@cluster_pad of 24 — the leaf rule split the unit and the derived pad stands 0.51 m above the bar. pad_airside_weld 7, worst building7 -> pav46 0.970 m over 20.0 m
+SPJC  graded   base a1d0edfa   lane v2padcluster     2026-09-14T14:21:30  /tmp/harness/v2padclusterSPJC4.v2/SPJC.graded.json  — v2padcluster ROUND 4 SPJC build — the FIRST SPJC frame carrying Part.height_m (claude/v2padcluster 9a4bd0e3): rc 0, 82.1 s, ways 431, body_sha 7f9b9659d13c, solve optimal, guard shared repo UNCHANGED (23 EXTERNAL-CANDIDATE deltas in the window, another lane's — NO ledger key). The viaduct xp11_007__b0 is on pad building7 at 20.07 in unit fu:0:3@cluster_pad of 6 members; 13df read 19.5604 in fu:0:0@cluster_pad of 24 — the leaf rule split the unit and the derived pad stands 0.51 m above the bar. pad_airside_weld 7, worst building7 -> pav46 0.970 m over 20.0 m
+SPJC  rebake   base a1d0edfa   lane v2padcluster     2026-09-14T14:21:30  /tmp/harness/v2padclusterSPJC4.v2/SPJC.rebake.json  — v2padcluster ROUND 4 SPJC build — the FIRST SPJC frame carrying Part.height_m (claude/v2padcluster 9a4bd0e3): rc 0, 82.1 s, ways 431, body_sha 7f9b9659d13c, solve optimal, guard shared repo UNCHANGED (23 EXTERNAL-CANDIDATE deltas in the window, another lane's — NO ledger key). The viaduct xp11_007__b0 is on pad building7 at 20.07 in unit fu:0:3@cluster_pad of 6 members; 13df read 19.5604 in fu:0:0@cluster_pad of 24 — the leaf rule split the unit and the derived pad stands 0.51 m above the bar. pad_airside_weld 7, worst building7 -> pav46 0.970 m over 20.0 m
+
+## Registered frames: KCLT
+
+KCLT  capture  base ec8723e9   lane v2eat            2026-09-13T12:06:34  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2eat/cap  — captures of KCLT/HECA/OTHH/SPJC by lane v2eat; base predates the 13ak pad-law break — valid
+KCLT  rebake   base 864e7577   lane v2family         2026-09-13T12:12:34  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/family/frame/KCLT.rebake.json  — v2familyKCLTframe build (rc 0, 389.3 s, body_sha bb022a77f067) on main 864e7577 — POST 13ak pad-law fix; the build was CONTAMINATED (one Airport_mod_cache dump, chip 13ao) so it carries no ledger key
+KCLT  graded   base 864e7577   lane v2family         2026-09-13T12:12:34  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/family/frame/KCLT.graded.json  — the design surface of the same v2familyKCLTframe build
+KCLT  capture  base 70646dc8   lane v2roadramp       2026-09-13T12:44:39  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/cap/KCLT.pkl
+KCLT  rebake   base 0c86fe2c   lane v2clusterpad     2026-09-13T17:03:58  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/clusterpad/laneKCLT/v2clusterpadKCLT2.v2/KCLT.rebake.json  — v2clusterpadKCLT2 build (rc 0, 477.2 s, body_sha 9f056cce3dc3, shared repo UNCHANGED) on claude/v2clusterpad over main 0c86fe2c — the FIRST KCLT frame carrying the §30 (4) CLUSTER PAD and its apron reach; no ledger key (the tree moved between key and store time)
+KCLT  graded   base 0c86fe2c   lane v2clusterpad     2026-09-13T17:03:58  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/clusterpad/laneKCLT/v2clusterpadKCLT2.v2/KCLT.graded.json  — the design surface of the same v2clusterpadKCLT2 build: building80+building91 are ONE plane (union spread 4.43 -> 1.46 m) and 38 of 90 apron vertices within 60 m sit at the pad's level
+KCLT  patch    base ce203b29   lane v2zonebank       2026-09-13T17:33:35  /tmp/harness/KCLT_20260913T172152.osm  — closing build of claude/v2zonebank cde84e27 (rc 0, 492.4 s, body_sha 9113da337600, ledger 6486660716cc, shared repo UNCHANGED) — §37 (3) as amended: bank 134 rings / 1,311 foot nodes, bank_foot at both owner sites (38.3 m and 10.2 m) and at the 13ax lip; census law-true 13,416
+KCLT  graded   base ce203b29   lane v2zonebank       2026-09-13T17:33:35  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/zonebank/KCLT.solved.pkl  — v2_solve_replay --solved-out off cap/KCLT.pkl on BASE ce203b29 — the fixed upstream for 'v2_solve_replay --bank-from PKL --bank-walk' (2.5 s per bank-stage arm)
+KCLT  graded   base 880a9293   lane v2clusterpad     2026-09-13T17:50:28  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/clusterpad/r2/v2cpKCLTr2.v2/KCLT.graded.json  — v2cpKCLTr2 (rc 0, 493.0 s, 5fb560ae50d0) — the CLUSTER arm of the matched pair; its DISARM twin (cluster_pad_min_m2=0, cluster_apron_reach_m=0) is v2cpKCLTdisarm at .../disarmOUT/v2cpKCLTdisarm.v2/
+KCLT  rebake   base 880a9293   lane v2clusterpad     2026-09-13T17:50:28  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/clusterpad/r2/v2cpKCLTr2.v2/KCLT.rebake.json  — the rebake plan of the same v2cpKCLTr2 build
+KCLT  graded   base 952924e9   lane v2clusterpad     2026-09-13T18:15:42  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/clusterpad/c3/v2cpKCLTc3.v2/KCLT.graded.json  — round-3 CLUSTER arm (13cc reach: population minus no-step-coupled apron, priced at apron_trend); its matched DISARM twin is .../d3/v2cpKCLTd3.v2 and the PAD-ONLY attribution arm .../padonly/ is BYTE-IDENTICAL to the disarm
+KCLT  patch    base 8fce79cb   lane v2hairline       2026-09-13T17:43:19  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2hairline/kclt_arm.osm  — §39 ARM patch (harness tag v2hairline_kclt_patch): shore weld dropped 2 bank nodes, worst 0.0198 mm at 35.2031709,-80.9454997 (the 723,015-sliver site)
+KCLT  graded   base e88ed84b   lane v2clusterpad     2026-09-13T18:41:09  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/clusterpad/p5/v2cpKCLTp5.v2/KCLT.graded.json  — round-4 PAD-ONLY arm (reach 0, merge EFFECTIVE: building91 221.52, union spread 1.07); its matched DISARM twin is .../d4/v2cpKCLTd4.v2 (bde3f0aff32e). Taxi family 2,406 moved worst 2.07 m between the two — the merge's own, the reach is off in both
+KCLT  graded   base 8841c106   lane v2clusterpad     2026-09-13T18:58:24  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/clusterpad/p6/v2cpKCLTp6.v2/KCLT.graded.json  — round-5 PAD-ONLY arm under the §30 (4) (5) GATE — BYTE-IDENTICAL to its DISARM twin .../d4/v2cpKCLTd4.v2 (both bde3f0aff32e): building91 yields (65.81 m from the terminal, a part-box artefact), taxi family 0 moved
+KCLT  patch    base 00d8b05c   lane v2hairline       2026-09-13T21:16:09  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2hairline/kclt_r2.osm  — §39 round 2 arm patch: hairline_pair adjudicated 0, emitted sub-spacing segments 799 -> 11 (all the deliberate triangle floor)
+KCLT  patch    base a1d0edfa   lane v2padcluster     2026-09-14T13:25:46  /tmp/harness/v2padclusterKCLT3.osm  — lane v2padcluster ROUND 3 KCLT build (claude/v2padcluster at 01724ef4 — carries (4) on the DESIGN cluster, (5) and (6); the object-stage half of (4) landed after and moves no vertex, proven by HECA3/HECA4 sharing body_sha cbefb8edcacb): rc 0, 274.2 s, ways 1189, body_sha d19ae4797bc4, solve feasible, guard shared repo UNCHANGED; NO ledger key (the tree moved during the run). THE CONTROL, read BY COORDINATE at 13bo's site 35.2191877,-80.9426007 because the derived pads RENUMBER every building{N}: the terminal pad 221.46 -> 220.56 m (-0.90), 865 -> 483 vertices, spread 1.07 -> 0.51 — the bar (unchanged within hard_tol_m) is MISSED
+KCLT  graded   base a1d0edfa   lane v2padcluster     2026-09-14T13:25:46  /tmp/harness/v2padclusterKCLT3.v2/KCLT.graded.json  — lane v2padcluster ROUND 3 KCLT build (claude/v2padcluster at 01724ef4 — carries (4) on the DESIGN cluster, (5) and (6); the object-stage half of (4) landed after and moves no vertex, proven by HECA3/HECA4 sharing body_sha cbefb8edcacb): rc 0, 274.2 s, ways 1189, body_sha d19ae4797bc4, solve feasible, guard shared repo UNCHANGED; NO ledger key (the tree moved during the run). THE CONTROL, read BY COORDINATE at 13bo's site 35.2191877,-80.9426007 because the derived pads RENUMBER every building{N}: the terminal pad 221.46 -> 220.56 m (-0.90), 865 -> 483 vertices, spread 1.07 -> 0.51 — the bar (unchanged within hard_tol_m) is MISSED
+KCLT  rebake   base a1d0edfa   lane v2padcluster     2026-09-14T13:25:46  /tmp/harness/v2padclusterKCLT3.v2/KCLT.rebake.json  — lane v2padcluster ROUND 3 KCLT build (claude/v2padcluster at 01724ef4 — carries (4) on the DESIGN cluster, (5) and (6); the object-stage half of (4) landed after and moves no vertex, proven by HECA3/HECA4 sharing body_sha cbefb8edcacb): rc 0, 274.2 s, ways 1189, body_sha d19ae4797bc4, solve feasible, guard shared repo UNCHANGED; NO ledger key (the tree moved during the run). THE CONTROL, read BY COORDINATE at 13bo's site 35.2191877,-80.9426007 because the derived pads RENUMBER every building{N}: the terminal pad 221.46 -> 220.56 m (-0.90), 865 -> 483 vertices, spread 1.07 -> 0.51 — the bar (unchanged within hard_tol_m) is MISSED
+KCLT  patch    base a1d0edfa   lane v2padcluster     2026-09-14T14:21:29  /tmp/harness/v2padclusterKCLT4.osm  — v2padcluster ROUND 4 KCLT build at the final tree (claude/v2padcluster 9a4bd0e3): rc 0, 259.0 s, ways 1070, body_sha 2fa924a012cc, artifact ledger dca6d7449633, solve feasible, guard shared repo UNCHANGED. THE CONTROL at 13bo's coordinate 35.2191877,-80.9426007: the terminal pad building80 (850 verts) median 221.46 -> 220.93 (-0.53), spread 1.07 -> 3.77 — and the movement IS THE WELD: the pad shares 743 nodes with the apron pav14 (z 220.04..223.81) and 51 with pav118, so the step across the weld is 0 by construction. pad_airside_weld 25, worst building80 -> pav14 1.384 m over 11.6 m (the pad cannot reach that edge even bending at 1 %)
+KCLT  graded   base a1d0edfa   lane v2padcluster     2026-09-14T14:21:29  /tmp/harness/v2padclusterKCLT4.v2/KCLT.graded.json  — v2padcluster ROUND 4 KCLT build at the final tree (claude/v2padcluster 9a4bd0e3): rc 0, 259.0 s, ways 1070, body_sha 2fa924a012cc, artifact ledger dca6d7449633, solve feasible, guard shared repo UNCHANGED. THE CONTROL at 13bo's coordinate 35.2191877,-80.9426007: the terminal pad building80 (850 verts) median 221.46 -> 220.93 (-0.53), spread 1.07 -> 3.77 — and the movement IS THE WELD: the pad shares 743 nodes with the apron pav14 (z 220.04..223.81) and 51 with pav118, so the step across the weld is 0 by construction. pad_airside_weld 25, worst building80 -> pav14 1.384 m over 11.6 m (the pad cannot reach that edge even bending at 1 %)
+KCLT  rebake   base a1d0edfa   lane v2padcluster     2026-09-14T14:21:30  /tmp/harness/v2padclusterKCLT4.v2/KCLT.rebake.json  — v2padcluster ROUND 4 KCLT build at the final tree (claude/v2padcluster 9a4bd0e3): rc 0, 259.0 s, ways 1070, body_sha 2fa924a012cc, artifact ledger dca6d7449633, solve feasible, guard shared repo UNCHANGED. THE CONTROL at 13bo's coordinate 35.2191877,-80.9426007: the terminal pad building80 (850 verts) median 221.46 -> 220.93 (-0.53), spread 1.07 -> 3.77 — and the movement IS THE WELD: the pad shares 743 nodes with the apron pav14 (z 220.04..223.81) and 51 with pav118, so the step across the weld is 0 by construction. pad_airside_weld 25, worst building80 -> pav14 1.384 m over 11.6 m (the pad cannot reach that edge even bending at 1 %)
+KCLT  capture  base b1b7704c   lane v2settle         2026-09-14T17:38:04  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2settle/cap/KCLT.pkl  — v2_solve_replay --capture on main b1b7704c (79 s, 21,683 vertices / 1,007 faces, pack partition 45 s: bodies 7,163 groups 7,007 relief 1,261 infeasible 1,032); guard shared repo UNCHANGED. KCLT captures and replays under the harness (13w's fresh_pack_dump). Base arm 408/227,135 hard violated max 0.5040 m, lag NOT SETTLED 0.3174 m.
+KCLT  graded   base b1b7704c   lane v2settle         2026-09-14T17:38:04  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2settle/emit_kcltB/KCLT.graded.json  — LANE arm of the v2settle KCLT matched pair (single solve), claude/v2settle b1a93a9a. BYTE-IDENTICAL to the base arm /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2settle/base/emit_kcltA/. Hard set 408 -> 406 violated, worst 0.5040 m unchanged, and 143 of the 406 NAMED as a proven INFEASIBLE SET (26.3994 m over 179 free columns), all structures.building_pad airside skirt at 35.2096,-80.9327. Census law-true 18,193 ADJUDICATED 6,874.
+KCLT  capture  base b1b7704c   lane v2padvert        2026-09-14T18:18:51  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2settle/cap/KCLT.pkl  — RE-READ by lane v2padvert (branch claude/v2padvert 4ec750f9) — v2settle's own KCLT capture replayed as a MATCHED PAIR under §20b (--design-weight staged_solve=1), the ONLY variable emit.within_shape.pad_skirt_max_slope (14au). BASE 1 %: stage 1 airside 1/121,520 hard violated worst 0.0241 m; stage 2 4,431/105,498 violated worst 3.3606 m, of which 2,410 a PROVED INFEASIBLE SET (1,389.70 m over 697 free columns). LANE 5 %: stage 1 IDENTICAL (1/121,520, 0.0241 — the airside did not move); stage 2 937 violated worst 2.3622, INFEASIBLE SET 313 rows / 128.20 m over 392 columns (-87 % rows, -91 % shortfall). The 14au bar (143 -> 0) is MISSED: 313 remain and they are the pads that cannot reach even bending at 5 % — pad_airside_weld CRITICAL by 14au's own clause. Single-solve arm (relaxation ungated) read 406 -> 74 violated and 143 -> 19 infeasible, but cost CYXY 2 runway_transverse rows and is NOT the shipped form. guard shared repo UNCHANGED.
+KCLT  patch    base 7fe1ee9e   lane v2padjoin        2026-09-14T21:30:17  /tmp/harness/v2padjoinKCLTr3.osm  — KCLT with pads ON and the collar armed (claude/v2padjoin round 3): rc 0, 218.0 s, body_sha f953d1f4658b, v2-verify 2,774, guard shared repo UNCHANGED. ANSWERS 'is the cluster pad still inert at KCLT': NO, not with pads ON — 5 cluster pads, the terminal cluster unit:31#2377 (55,695 m2) over building80 + building89 at 220.859, plus unit:31#2385 over building91 and unit:30#528/3 over building80 + building97. The COLLAR is 5 vertices (1 at the plane): KCLT's terminal apron is struck almost entirely by the taxi-band, no-step-coupling and other-pad-weld rules. The pad at 13bo's coordinate 35.2191877,-80.9426007 is building80, 63 vertices, median 220.34, spread 1.54 (NOT comparable with round 4's 850-vertex 220.93 reading: the derived pads renumber every building{N} and the nearest vertex is 148.6 m from the site). Certificate 151 infeasible / 70.6075 m over 249 columns
+KCLT  graded   base 63258868   lane v2qp             2026-09-15T00:29:54  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2qp/emit_kclt_qp/KCLT.graded.json  — QP ARM of the v2qp matched KCLT replay pair off cap/KCLT.pkl (base b1b7704c): solve 67.8 -> 82.1 s (1.21x), hard rows over 0.02 m 29 -> 19, worst 0.1100 -> 0.1099, certificate FEASIBLE both arms. BASE ARM beside it at emit_kclt_fp/. Census A/B ADJUDICATED 6607 -> 6515, within_shape 11448 -> 11179, airside_no_step 874 -> 850; transverse +4 and drainage_minimum +4 are the only backward families (+1.2 % / +0.27 %)
+
+## Registered frames: OTHH
+
+OTHH  rebake   base 05050624   lane v2unboxed        2026-09-13T12:06:34  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/unboxed  — KCLT 1.0.324 / LEMD 1.0.325 / OTHH 1.0.326 rebake frames + dry arms
+OTHH  capture  base 7949757a   lane v2othh327        2026-09-13T16:30:07  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othh327/OTHH.pkl  — v2_solve_replay --capture OTHH on main 7949757a (402 s); solved arms beside it: OTHH.solved.pkl (base) and OTHH.nofeet.pkl (--drop-generator foot_rows)
+OTHH  patch    base a0f65165   lane v2cutfeet        2026-09-13T17:37:22  /tmp/harness/OTHH_20260913T171324.osm  — closing build of lane v2cutfeet (§11b (7) cut foot verdicts), rc 0, 968.0 s, ways 1097, body_sha 0ff85d1a7bff, artifact ledger 86493fdab68b; matched replay arms on the v2othh327 capture live in /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2cutfeet/out (OTHH.base.pkl / OTHH.cut.pkl / othh.base.json / othh.cut.json / *.log), KCLT arms beside them
+OTHH  patch    base f4e9b436   lane v2gradecache     2026-09-13T18:08:32  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/fin_OTHH/structures.json  — OTHH planar --stage structures on claude/v2gradecache vs the 0c86fe2c base arm in scratchpad/base_OTHH: basins array BYTE-IDENTICAL; only one sunken_refused message rounds 50%->49% roofed, same verdict
+OTHH  capture  base cf87c942   lane v2unionsweep     2026-09-14T07:40:37  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2unionsweep/othh.lane.json  — DRY replay dump (NOT a capture: the plan_clusters reading OFF the registered OTHH capture 7949757a, via scratchpad/v2unionsweep/cluster_arm.py). MATCHED PAIR: othh.base.json = main cf87c942 (666.07 s, machine contended; scout v2partcost read 299.8 s uncontended at 628cca80), othh.lane.json = claude/v2unionsweep 99cf52ba (16.60 s). 44 clusters both arms, all 44 area_m2 BIT-IDENTICAL (struct.pack '<d' hex).
+OTHH  patch    base 4c6f467c   lane v2cost2          2026-09-14T10:52:28  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2cost2/base/OTHH_base.osm/v2cost2base.osm  — BASE ARM of the v2cost2 matched triple (own ritual worktree v2cost2base at main 4c6f467c): rc 0, harness wall 631.7 s, staged total 592.86, body_sha 72d4ec0e08f2, ways 1000 nodes 25387, guard UNCHANGED. wall_s load 7.63 / partition 313.57 / classify 7.87 / planar 67.13 / constraints 94.43 / solve 23.34 / emit 9.00 / rebake_plan 5.49 / verify 63.50 (the second Patch.of + road_law_caps + apron_over_preference ran OUTSIDE this clock). obj8_split_report on its own products: plan stage 223.13 s
+OTHH  patch    base 4c6f467c   lane v2cost2          2026-09-14T10:52:28  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2cost2/lane/OTHH_cold.osm/v2cost2cold.osm  — LANE COLD arm (claude/v2cost2 3eeccf13, partition cache EMPTY -> WROTE 1.05 GB): rc 0, wall 615.1 s, body_sha 72d4ec0e08f2 — BYTE-IDENTICAL to the base arm (patch, OTHH.rebake.json and OTHH.graded.json all sha-equal). wall_s partition 288.87 (313.57 base: the per-axis contact screens), constraints 85.32 (94.43), verify 121.85 (63.50 + the 45.6 s that used to run unclocked), total 612.71, unclocked 1.24
+OTHH  patch    base 4c6f467c   lane v2cost2          2026-09-14T10:52:28  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2cost2/lane/OTHH_warm.osm/v2cost2warm.osm  — LANE WARM arm (claude/v2cost2 12b29e6c, partition cache HIT): rc 0, harness wall 328.1 s vs the base arm's 631.7; body_sha 72d4ec0e08f2 BYTE-IDENTICAL, guard shared repo UNCHANGED. wall_s partition 313.57 -> 8.40, classify 7.87 -> 75.79 (the ResourceCache is cold on a hit, so the pack parse moves here: partition+classify 321.5 -> 84.2), constraints 94.43 -> 73.48, verify 63.50+45.6-unclocked -> 62.43, total 592.86 -> 325.17. verify.wall_s per family published (within_shape 50.94, taxi_box 8.72)
+OTHH  patch    base 55cf0fe3   lane v2cost2          2026-09-14T11:31:42  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2cost2/lane/OTHH_r2c2.osm/v2c2r2c2.osm  — ROUND 2 COLD arm (claude/v2cost2 7bc09ea7, RULINGS 14v; cache EMPTY -> WROTE 31.3 MB, was 1,047 MB): rc 0, body_sha 72d4ec0e08f2, patch/rebake/graded sha-equal to the 4c6f467c base arm, guard UNCHANGED. wall_s partition 283.70 classify 8.90 planar 63.17 constraints 80.17 verify 67.25 total 547.67 unclocked 1.28
+OTHH  patch    base 55cf0fe3   lane v2cost2          2026-09-14T11:31:42  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2cost2/lane/OTHH_r2w2.osm/v2c2r2w2.osm  — ROUND 2 WARM arm (claude/v2cost2 7bc09ea7): cache HIT, 2,259 resource readings restored; rc 0 harness wall 298.6 s (base arm 631.7), body_sha 72d4ec0e08f2 BYTE-IDENTICAL (patch, rebake plan and graded surface), guard UNCHANGED. wall_s partition 8.07 classify 10.21 (partition+classify 321.5 -> 18.3 on the base arm's frame; bar <= 40 MET) planar 84.43 (55 cold: the pack parse the cache no longer pre-pays lands here) constraints 78.67 verify 69.06 total 296.22 unclocked 1.28
+OTHH  patch    base 8e92e26a   lane v2othhfix        2026-09-14T11:37:09  /tmp/harness/v2othhfix2.osm  — closing OTHH patch build of lane v2othhfix on claude/v2othhfix (§24 (7)/(8), §34 (7)/(8) as amended by 14u): rc 0, 614.3 s, ways 1012, nodes 23724, body_sha 44208e4fdd65, artifact ledger 20d817adcf38, shared repo UNCHANGED; report /tmp/harness/v2othhfix2.v2/OTHH.report.json; census A/B vs the owner's 1.0.332 patch ADJUDICATED 1764 -> 1766 (+2)
+OTHH  rebake   base 908895cd   lane v2othhfix        2026-09-14T11:37:09  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othhfix  — dry planar --stage structures arms on the lane-local overlay: base_OTHH (main 908895cd), a5_OTHH (the branch, final law); bars.py / inner.py / prof.py read floor-per-region, floor vs rim-minus-standoff and the §34 (7) profile identity; dry.sh / dry2.sh are the arm runners
+OTHH  patch    base ed971ccd   lane v2othhfix        2026-09-14T14:56:25  /tmp/harness/v2othhfix_r2.osm  — ROUND 2 closing OTHH build (§34 (9) the pinched ramp, RULINGS 2026-09-14ak) on claude/v2othhfix: rc 0, 511.5 s, ways 1010, nodes 23607, body_sha ba3354ce693f, artifact ledger 3060701734b4, shared repo UNCHANGED; verify DEFECT families EMPTY (rows 2190 -> 2214, the +24 all within_shape on the two pinched ramps); census vs the owner's 1.0.333 patch ADJUDICATED 3206 -> 3223, road_cross_section 6 -> 6, transverse/airside_no_step/zone_on_pavement unchanged; shared AIRSIDE vertices moved > 0.1 m = 0 of 16,810
+OTHH  rebake   base ed971ccd   lane v2othhfix        2026-09-14T14:56:25  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othhfix  — ROUND 2 dry --stage structures matched pair: r2_base (main 9a8b253b = the 1.0.333 code) vs r2_fix (§34 (9)); corridors 40 -> 40, refusals 50 -> 50, 2 pinched_ramps (Terminal_Base_2_1@2 vs route9 12.6 m at 11.05 %; Terminal_Base_2_5@0/a vs route7 5.1 m at 36.98 %)
+OTHH  patch    base 298b6ac8   lane v2liftedcap      2026-09-14T15:43:25  /tmp/harness/v2liftedcap.osm  — §34 (9) the census takes the LIFTED pinched-ramp cap (RULINGS 14am): rc 0, 494.9 s, ways 1010, nodes 23607, body_sha bdd053b93bbf, artifact ledger 5c0c2ded14c5, shared repo UNCHANGED. MATCHED PAIR: the same patch with the two o4_grade_law_cap_lifted tags stripped is /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2liftedcap/arms/nolift.osm (ADJUDICATED 3223 / law-true 4526 = the v2othhfix_r2 numbers exactly); as built 3204 / 4507. census_rows_diff EXACT 4507 MOVED 0 NEW 0 GONE 19 (all within_shape tunnel_ramp|tunnel_ramp on shapes 828/831). Census json/rows arms in /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2liftedcap
+OTHH  patch    base a4b7801d   lane v2othhfix        2026-09-14T17:31:46  /tmp/harness/v2othhfix_r3b.osm  — ROUND 3 closing OTHH build (§34 (9) (4)-(5), RULINGS 2026-09-14aq) on claude/v2othhfix: rc 0, 262.3 s (warm), ways 1010, nodes 23615, body_sha a3c64e4a261c, artifact ledger 4afb62b3f6a1, shared repo UNCHANGED; verify DEFECT families EMPTY, rows 2189 -> 2146; census vs the owner's 1.0.334 patch ADJUDICATED 3204 -> 3174 (within_shape -35, road_cross_section +8 away from both pinched roads); route7 road levels byte-identical, route9 within 0.02 m, 0 of 118 service-road vertices moved > 0.1 m, 2 of 16,810 airside (0.10/0.12 m, apron|building corners)
+OTHH  rebake   base a4b7801d   lane v2othhfix        2026-09-14T17:31:46  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othhfix/r3_base2/structures.json  — ROUND 3 dry --stage structures (§34 (9) (4)-(5)) vs the lane's round-2 arm r2_fix: corridors 40 -> 40, refusals 50 -> 50; Terminal_Base_2_5@0/a climb_from 38.89 -> 36.50 (+2.4 m), pinched grade 36.98 % -> 25.18 %; Terminal_Base_2_1@2 6.30 -> 6.00, 11.05 % -> 10.80 %; mouth_z unchanged both; both pinched ramps report 'the road face edge (the pack paints no line here)' — OTHH carries NO road-edge marking (marks.py/marks2.py/marks3.py/pol.py beside it)
+OTHH  rebake   base 9a49f136   lane v2splitname      2026-09-14T18:03:01  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2splitname/out/othh.lane.json  — 14at THE SPLIT FILE IS KEYED ON THE OFFSET IT BAKES — MATCHED PAIR of v2_rebake_replay plan --sampler mesh --runs 3 on the 1.0.334 OTHH products (o4_v2_rebake_OTHH.json + OTHH.graded.json + the installed Data+25+051.mesh, --dsf-dump the shared mod cache's +25+051.dsf.55d38455.text). othh.base.json = main 9a49f136 cut with git archive (145.99 s mean); othh.lane.json = claude/v2splitname 4b13e977 (140.26 s mean). Collisions (one file written by >1 placement with distinct offsets) 1 -> 0; distinct body files 1856 -> 1857; splits 705 bodies 1857 both arms; every row byte-identical bar the name (and the 531 anchor_reason/merged_into strings that quote a carrier's file name) — 0 differences beyond the tag. tunnel1 b0: idx 14052 -> __b0_8b16464a baking its own [9.0486,9.5497,-50.1039], idx 14051 -> __b0_c057eb1e baking [-8.8848,9.5497,-84.4220]. guard shared repo UNCHANGED both arms.
+OTHH  rebake   base fe0a5b33   lane v2othhfix        2026-09-14T19:34:56  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othhfix/r4b/structures.json  — ROUND 4 dry --stage structures (§34 (9) (6) the half-width margin) vs r3_base2: corridors 40 -> 40, none lost; Terminal_Base_2_5@0/a top_s 44.0 -> 40.0 (IN 4.00 m) grade 25.18 -> 53.95 %; Terminal_Base_2_1@2 top_s 18.9 -> 14.0 (IN 4.89 m) grade 10.80 -> 17.39 %; route7 half-width 3.32 m / route9 3.00 m; mouth_z unchanged. NO BUILD — the 54 % east ramp needs 14be's plate-edge full-depth point (not landed) to give the run back; ramp_in_road measured 0 in BOTH the owner's 1.0.335 patch and the lane's r3b build
+OTHH  patch    base 88de7fec   lane v2othhramp       2026-09-14T20:43:50  /tmp/harness/v2othhramp.osm  — CLOSING OTHH build of lane v2othhramp (claude/v2othhramp caf7b9cc; the three coupled items of RULINGS 14bi): rc 0, 649.9 s, ways 1015, nodes 23714, body_sha 87ba777c8a94, shared repo UNCHANGED, verify defects {} (rows 7877). MATCHED CONTROL at the same tree = /tmp/harness/v2othhrampBASE.osm (worktree v2othhrampbase at bdd28759 = main 88de7fec + the v2othhfix half-width merge, rc 0, 511.9 s, body_sha b60c2dd4502b, artifact ledger cc0ead55f1f2 — a later --base-arm at that tree is served from it). A/B: law-true 8939 -> 8957, airside 8854 -> 8851, ADJUDICATED 7623 -> 7620; ramp_in_road 0 -> 0; hairline_pair 1316 -> 1337; airside vertices 22 of 20,001 moved > 0.02 m worst 0.060 m and 0 over 0.1 m; service-road vertices 0 of 116 moved > 0.02 m worst 0.010 m. Pinched grades east route7 53.95 -> 17.17 %, west route9 17.39 -> 18.06 %
+OTHH  patch    base bdd28759   lane v2othhramp       2026-09-14T20:44:05  /tmp/harness/v2othhrampBASE.osm  — MATCHED CONTROL for lane v2othhramp: main 88de7fec + the claude/v2othhfix half-width merge, NONE of the three 14bi items. rc 0, 511.9 s, ways 1010, nodes 23605, body_sha b60c2dd4502b, artifact ledger cc0ead55f1f2, shared repo UNCHANGED, verify defects {} (rows 7881). Built in ritual worktree v2othhrampbase
+OTHH  rebake   base bdd28759   lane v2othhramp       2026-09-14T20:44:06  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othhramp  — MATCHED dry --stage structures TRIPLE for RULINGS 14bi: r0_base (bdd28759 = the half-width margin alone), r1_plate (the plate edge alone), r2_all (all three). tunnels 40 -> 42, wall corridors 25 -> 27, refusals 26 -> 26. EAST MOUTH Terminal_Base_2_5@0/a along the axis: wall-band end 38.89, PAD edge 36.50 (14at's reading), COVERING-PLATE edge 29.00, ramp top 40.00 with the half-width margin (44.00 without) — 9.9 m of uncovered corridor is ramp, grade 53.95 -> 17.17 %. WEST Terminal_Base_2_1@2: the plate covers the whole corridor so climb_from stands at the wall end 6.30 (the pad read 6.00), 17.39 -> 18.06 %. r1 and r2 are BYTE-IDENTICAL: §34 (10)'s generalisation changes nothing at OTHH beyond the §34 (9) pinch. dry.sh is the arm runner; basetree/ is the git-archive base tree
+OTHH  patch    base 106459fa   lane v2objcut         2026-09-15T09:44:01  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/r4_OTHH/structures.json/structures.json  — §33 (6) OTHH matched pair (base /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/b4_OTHH/...): corridors/tunnels/wall_corridors/basins/plates/door_wells ALL BYTE-IDENTICAL (9/44/73/10/2/4); +51 named §33 (6) refusals only.
+OTHH  patch    base 106459fa   lane v2objcut         2026-09-15T10:44:12  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/c6_OTHH/structures.json/structures.json  — r2 §33 (6) C lane arm at claude/v2objcut 3b3259dd (base arm /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/b4_OTHH/...)
+OTHH  patch    base f912ba81   lane v2objcut         2026-09-15T12:02:00  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/e1_OTHH/structures.json/structures.json  — r3 lane dry --stage structures at claude/v2objcut edf1e3c0; matched base arm at main f912ba81 in /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/e0_OTHH (LEMD) / /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2objcut/e2_OTHH (OTHH, run 2 - run 1 e0_OTHH read 7 corridors against run 2's 9 at the SAME sha: main's object-corridor reader is NONDETERMINISTIC at OTHH, reported).
+OTHH  patch    base 9306c56d   lane v2othhdet        2026-09-15T13:10:23  /private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/v2othhdet/runs/g1/structures.json  — v2othhdet CLOSING dry --stage structures arm on claude/v2othhdet 9306c56d (lane-local mod-cache overlay, shared corpus). N=6 runs (g1-g4,h1,h2) SEMANTICALLY IDENTICAL, sha 1cafb197257c96cd over every non-timing key. Base arm = git archive 118d2c40 into scratchpad/v2othhdet/basesrc, run othh_base2. BASE vs LANE: corridors 9 / tunnels 44 / wall_corridors 73 / basins 10 / plates 2 / door_wells 4 all byte-identical IGNORING id; corridor_refused 120 the same SET, now sorted; the ONLY change is tunnel-object:tunnel1.obj@0 <-> @1 swapping placements dsf:obj14051/14052 (the 14av tunnel-wall pair) because @k is no longer the input index. structures.json embeds wall clocks (wall_s, *_stats, grade_read, basin_unions) so a raw file sha is NEVER a determinism instrument - compare the non-timing keys. Pre-fix arms r1-r4 beside it; the 7/42 of 15ar is NOT reproducible on the refreshed corpus.
 
 ## Standing discipline (unchanged for every lane; the long form is `.claude/agents/lane.md`)
 

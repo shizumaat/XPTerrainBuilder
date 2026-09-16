@@ -5927,3 +5927,108 @@ merge of r1, the SHIPPED arm's identity: the two-pass arrangement and
 the un-gated clip run on the OFF arm too — HECA and LEMD OFF-arm replay
 pairs main-before vs branch must be byte-identical or each difference
 named (the lane reported OFF → ON pairs only).
+
+### §16g (10) (12) MEASURED, ROUND 2 (lane `v2padclip` r2, 2026-09-16; branch `claude/v2padclip`, base main `1bc93833` then `782a50d6`)
+
+**(1) THE SHIPPED ARM IS NOT BYTE-IDENTICAL, AND r1 ALONE MADE IT WORSE —
+WHICH IS WHY (12) (1) (c) IS NOT OPTIONAL.**  OFF-arm (both keys false)
+matched replay pairs, base main `1bc93833` cut into its own ritual
+worktree against the branch, one variable (the lane's code):
+
+| | HECA base → r1 | HECA base → r1+(c) | LEMD base → r1 | LEMD base → r1+(c) |
+|---|---|---|---|---|
+| ADJUDICATED | 19,032 → **19,826** (+4.2 %) | 19,032 → **19,076** (+0.2 %) | 1,749 → **2,159** (+23 %) | 1,749 → **986** (−44 %) |
+| law-true | 59,215 → 60,506 | 59,215 → **59,114** | 6,257 → 6,630 | 6,257 → **4,850** |
+| `airside_no_step` | 5,171 → 5,421 | 5,171 → **5,138** | 322 → 334 | 322 → **321** |
+| `hairline_pair` | 2,767 → 2,808 | 2,767 → **2,230** | 1,819 → 1,670 | 1,819 → **1,272** |
+| `taxi_box` | 2,511 → 2,654 | 2,511 → **2,511** | 119 → 127 | 119 → 122 |
+| `frontage_near_miss` | 29 → 47 | 29 → **27** | 8 → 14 | 8 → **0** |
+| `pad_airside_weld` | 8 → 9 | 8 → **8** | 2 → 2 | 2 → **1** |
+
+THE MECHANISM, NAMED: with the arrangement clip un-gated (r1) and
+`classify/roles`'s `if` still standing, the pad was CUT TWICE on the
+shipped arm — once out of the airside REGION at classify, then again at
+the arrangement, where the rim snap moved **1,700 pad vertices** (HECA,
+`snapped_vertices`).  Neither cut is wrong; making both is.  With (12)
+(1) (c) landed there is ONE cutter and it is the arrangement's, and the
+shipped arm comes back to parity at HECA and materially better at LEMD.
+The surface still CHANGES — the airside value moves 5,961 (HECA, worst
+2.42 m, runway 60 / 0.090 m) and 1,286 (LEMD, worst 2.22 m, runway 1 /
+0.020 m) — because the airside region is no longer a function of the
+pads, which is a DEFECT FIXED and not a free change: it is the last
+clause of (12) (1).  `pad_cluster_mismatch` and `strip_seam_tear` are
+unmoved; the named regressions are HECA `within_shape` +479,
+`mid_edge_step` 13 → 21, `road_cross_section` +11, `vertex_to_edge_step`
+2 → 4 and LEMD `taxi_box` +3, `strip_longitudinal` 1 → 2.
+
+**(2) (12) (1) (c) CLOSES THE AIRSIDE REGION.**  `classify/roles.classify`
+no longer differences the airside region by `ev.pad_union` at all (the
+key kept its other job, the mint's pre-split guard).  MEASURED at LEMD
+(`tools/pad_airside_arm.py`, OFF vs ON): **apron faces 106 on BOTH arms**
+(before: 180 vs 106); the OFF arm's `renode_minted` **150 → 12**; the
+cross-arm airside vertex set GONE/NEW **1,484 / 254 → 23 / 43**.
+
+**(3) §20b UNDER §20c — THE STAGED ARMS, AND THE BAR IS STILL MISSED.**
+`solver = "qp"` (the shipped default since 15b) with `--design-weight
+staged_solve=1`, OFF → ON, solve-owned frame, pad vertices excluded:
+
+| | moved > 0.02 m | worst | runway | runway worst |
+|---|---|---|---|---|
+| HECA unstaged | 2,230 … (r1 frame 3,875) | — | — | — |
+| **HECA staged** | **2,230** | 2.68 m | **2** | **0.020 m** |
+| **LEMD staged** | **485** | 0.36 m | **0** | — |
+
+The RUNWAY bar is MET (LEMD 0; HECA 2 vertices AT the 0.02 m elevation
+materiality — PASS-with-residual, CLAUDE.md convergence guard (a)).  The
+solve-owned bar of 0 is MISSED on both.
+
+**AND IT IS NOT A §20b (2) DEFECT — THE INTERVENTIONAL ARM SAYS SO.**
+`--why-at` on HECA's worst staged mover (+2.68 m at 30.12612886558,
+31.41825773893, `v13336[apron#511,building#547]`) names `pads` (7 rows,
+Σ|dual| 112.54) and `pad_frontage_level` (1 row) as its binding rows and
+a 15-hop chain to the 23R threshold pin whose dz is dominated by
+`apron_preference +17.81`, `apron_edge_portion +3.85`, `no_step_pairs
++3.46` and `apron_within_shape +2.18` — the airside's OWN families —
+against `pads +0.04` and `pad_frontage_level +0.84`.  So the third arm:
+the SAME staged pair with EVERY pad generator dropped (`--drop-generator
+pads --drop-generator pad_level --drop-generator pad_frontage_level`),
+which is a problem with no pad row anywhere:
+
+| HECA staged, OFF → ON | moved | worst | runway |
+|---|---|---|---|
+| all rows | 2,230 | 2.68 m | 2 / 0.020 m |
+| **every pad generator dropped** | **1,544** | **2.00 m** | **0** |
+
+**69 % of the movement survives the deletion of every pad row**, at the
+same coordinate.  The pads' ROWS are 31 % of it; the rest is the pads'
+PRESENCE — extra faces in the sheet, extra columns in one problem, and
+the ground the pad occupies no longer carrying the zone/strip rows it
+would otherwise carry.  §20b (1b) is doing its job (`conforming_rulings`
+already refuses every pad ruling in stage 1 even where every column is
+airside), stage 2 substitutes the airside as constants, and NO stage-2
+substitution touches a shared weld vertex it should not.  There is no
+defect at the substitution site, `solve/design*.py` is untouched, and
+the remaining movement is not reachable by a row-level fix.
+
+**(4) THE STAGED SOLVE ALONE CHANGES THE SHIPPED SURFACE, NAMED.**
+OFF arm, the only variable `staged_solve`: HECA ADJUDICATED 19,076 →
+**18,346** (−3.8 %), law-true −1,081, `pad_airside_weld` 8 → **18**;
+LEMD ADJUDICATED 986 → **1,005** (+1.9 %), law-true +266,
+`airside_no_step` 321 → **292**.
+
+**(5) THE REMAINING BARS.**  Staged OFF → ON census: HECA ADJUDICATED
+18,346 → 19,026 (+3.7 %), `pad_cluster_mismatch` **15 → 0** (MET),
+`pad_airside_weld` 18 → 19 (+1, MISSED), `hairline_pair` 2,230 → 2,781;
+LEMD 1,005 → 1,053 (+4.8 %), mismatch 0 → 1 (`unit:27#341/8`, r2's own
+named survivor), weld 2 → 2 (MET).  THE ONE-VERTEX PROBE IS MET AND IS
+THE ROUND'S BEST NUMBER: on the pads-ON staged arm, one 0.30 m ceiling at
+30.1279552,31.403143 moves **0 of 32,575 vertices by more than 0.02 m**,
+max 0.0167 m over the whole field, **nothing beyond 250 m**, the hard set
+27 → 27 under the perturbation.
+
+**SHIPS OFF: `pad_from_cluster = false`, `pad_airside_clip = false`,
+`staged_solve = false`.**  16r (b) flips the three together only if every
+bar holds; the solve-owned airside bar is missed at both airports and the
+weld gains one row at HECA.  No LEMD airport-path build.  Suite **1,787
+passed / 1 skipped / 1 xpassed**, 0 FAILED, after merging the peer's
+§45 channel work (`782a50d6`; both census families kept, additively).

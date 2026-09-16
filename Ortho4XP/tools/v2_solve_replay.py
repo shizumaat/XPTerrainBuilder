@@ -45,6 +45,7 @@ import dataclasses as _dc
 import json
 import math
 import pickle
+import re as _re
 import sys
 import time
 from pathlib import Path
@@ -1023,6 +1024,374 @@ def stability_probe(pkl: Path, site: tuple[float, float], drop_m: float,
     return 0
 
 
+#: a CANONICAL vertex key, "LAT,LON" at 11 dp — the identity every
+#: stage-1 dump joins on (memory ``canonical-identity-join``)
+_IS_KEY = _re.compile(r"^-?\d+\.\d{11},-?\d+\.\d{11}$")
+
+
+def _stage1_faces(pm, law, drop_v) -> list[tuple[str, str, float]]:
+    """The faces :func:`solve.design.assemble` triangulates for the stage —
+    ITS OWN predicate, imported (``bend_roles`` + "no dropped vertex"),
+    re-read here so a dump can name the sheet.  The count is asserted
+    against the report's own ``triangles`` by :func:`stage1_population`, so
+    a re-spelling that drifted from the assembly would fail loudly."""
+    from auto_patch_v2.solve.design_roles import bend_roles
+    roles = set(bend_roles(law))
+    out: list[tuple[str, str, float]] = []
+    for f in pm.faces.values():
+        if f.role not in roles:
+            continue
+        vs = [v for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
+        if drop_v and any(v in drop_v for v in vs):
+            continue
+        ring = pm.ring_vertices(f.ring)
+        area = abs(sum(pm.vertices[ring[i]].xy[0] * pm.vertices[ring[(i + 1) % len(ring)]].xy[1]
+                       - pm.vertices[ring[(i + 1) % len(ring)]].xy[0] * pm.vertices[ring[i]].xy[1]
+                       for i in range(len(ring)))) * 0.5
+        out.append((f.role, min(_vkey(pm, v) for v in ring), area))
+    return out
+
+
+def _vkey(pm, vid: int) -> str:
+    """A vertex's CANONICAL identity — the 11-dp lat/lon spelling that
+    carries node ids across arms (memory ``canonical-identity-join``)."""
+    lat, lon = pm.vertices[vid].key
+    return f"{lat:.11f},{lon:.11f}"
+
+
+def stage1_population(pkl: Path, drop: list[str], out: Path,
+                      design_weights: dict | None = None) -> int:
+    """§20b (3) STAGE 1'S POPULATION, dumped off a ``--solved-out`` pickle.
+
+    The question RULINGS 2026-09-16v asks first: *what does a pad's
+    presence change in the STAGE-1 problem?*  §20b (1) made stage 1 solve
+    the airside alone; it did not make stage 1's POPULATION independent of
+    what stands beside it, and v2padclip r2 measured 1,544 airside vertices
+    moving between the pads-OFF and pads-ON arms with EVERY pad generator
+    dropped — a problem with no pad row anywhere.
+
+    This is the reader for that: :func:`solve.design.stage_split` +
+    :func:`solve.design.assemble` — the assembly the stage actually solves,
+    never a re-derivation — with every row, column, sheet face and triangle
+    keyed CANONICALLY (11-dp lat/lon), so two arms' dumps diff by identity.
+    It solves nothing, prices no law and counts no defects.
+    """
+    import gzip
+
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.constraints import ConstraintSet
+    from auto_patch_v2.solve.design import assemble, stage_split
+    from auto_patch_v2.solve.design_report import DesignReport
+    from auto_patch_v2.solve.design_roles import (airside_stage_vertices,
+                                                  ruling_head)
+    from auto_patch_v2.solve.rows import _face_triangles
+    t0 = time.perf_counter()
+    with pkl.open("rb") as fh:
+        sv = pickle.load(fh)
+    icao, pm, cs = sv["icao"], sv["pm"], sv["cs"]
+    law = Law.for_airport(icao)
+    if design_weights:
+        d0 = law.tables.emit.design
+        law = _dc.replace(law, tables=_dc.replace(
+            law.tables, emit=_dc.replace(law.tables.emit,
+                                         design=_dc.replace(d0, **design_weights))))
+    if drop:
+        cs = ConstraintSet.from_rows([r for r in cs.rows()
+                                      if r.source.generator not in drop])
+    drop_v, foreign = stage_split(pm, cs, law)
+    rep = DesignReport()
+    base = assemble(pm, cs, law, rep, drop=drop_v, fixed=foreign)
+    red, rows = base.red, base.rows
+
+    # the columns, canonically: a column is the SET of vertices the
+    # reduction merged into it (a rigid ``Flat`` group is one column)
+    col_v: dict[int, list[str]] = {}
+    for vid in range(len(pm.vertices)):
+        c = int(red.col[vid])
+        if c >= 0:
+            col_v.setdefault(c, []).append(_vkey(pm, vid))
+    col_key = {c: f"{min(vs)}#{len(vs)}" for c, vs in col_v.items()}
+
+    # the least-squares stack, one canonical key per row
+    terms_of: dict[int, list[tuple[int, float]]] = {}
+    for r_, c_, v_ in zip(rows.r, rows.c, rows.v):
+        terms_of.setdefault(int(r_), []).append((int(c_), float(v_)))
+
+    def _own(o) -> tuple[str, str]:
+        if isinstance(o, tuple) and o:
+            tag = o[0]
+            if tag == "law":
+                row = o[1]
+                return (f"law:{row.source.generator}",
+                        f"law:{row.source.generator}:{ruling_head(row)}")
+            if tag in ("bend", "taxi_trend", "chord", "road_fit",
+                       "ground_datum") and isinstance(o[1], int):
+                return tag, f"{tag}:{_vkey(pm, o[1])}"
+            return str(tag), str(tag)
+        return "other", "other"
+
+    row_keys: list[str] = []
+    for i in range(rows.n):
+        cls, head = _own(rows.owner[i])
+        ts = ";".join(sorted(f"{col_key[c]}*{v:.6f}" for c, v in terms_of.get(i, ())))
+        row_keys.append(f"{cls}\t{head}|{ts}|{rows.b[i]:.6f}")
+
+    # THE PER-BODY DATUM stack is kept OUT of ``rows`` (RULINGS 2026-09-09r
+    # (1)) and is part of the problem all the same — the apron bodies' own
+    # DEM planes, which a pad cutting a body re-fits.
+    body_keys: list[str] = []
+    if base.body is not None and base.body.n:
+        bt: dict[int, list[tuple[int, float]]] = {}
+        for r_, c_, v_ in zip(base.body.r, base.body.c, base.body.v):
+            bt.setdefault(int(r_), []).append((int(c_), float(v_)))
+        for i in range(base.body.n):
+            cls, head = _own(base.body.owner[i])
+            ts = ";".join(sorted(f"{col_key[c]}*{v:.6f}" for c, v in bt.get(i, ())))
+            body_keys.append(f"body:{cls}\t{head}|{ts}|{base.body.b[i]:.6f}")
+
+    one_keys: list[str] = []
+    for terms, hi, row in base.one:
+        ts = ";".join(sorted(f"{_vkey(pm, v)}*{c:.6f}" for v, c in terms))
+        one_keys.append(f"{row.source.generator}\t{ruling_head(row)}|{ts}|{hi:.6f}")
+
+    faces = _stage1_faces(pm, law, drop_v)
+    tris: list[str] = []
+    # the triangulation, off the same face list the assembly uses
+    role_of = {(r, k): a for r, k, a in faces}
+    for f in pm.faces.values():
+        key = (f.role, min(_vkey(pm, v) for v in pm.ring_vertices(f.ring)))
+        if key not in role_of:
+            continue
+        for a, b, c in _face_triangles(pm, f.id):
+            tris.append("|".join(sorted((_vkey(pm, a), _vkey(pm, b), _vkey(pm, c)))))
+    if len(tris) != rep.triangles:
+        raise SystemExit(f"[{icao}] REFUSED: the dump's sheet re-read {len(tris)} "
+                         f"triangles against the assembly's {rep.triangles} — the "
+                         f"face predicate has drifted from ``assemble``")
+
+    air_v = airside_stage_vertices(pm, law)
+    rec = {"icao": icao, "pkl": str(pkl), "drop": list(drop),
+           "design_weights": dict(design_weights or {}),
+           "counts": {"columns": red.n_cols, "ls_rows": rows.n,
+                      "body_datum_rows": len(body_keys),
+                      "one_sided_rows": len(base.one), "eq_rows": len(base.eqs),
+                      "hard_rows": rep.hard_rows, "triangles": len(tris),
+                      "sheet_faces": len(faces),
+                      "airside_stage_vertices": len(air_v),
+                      "vertices": len(pm.vertices),
+                      "foreign_vertices": len(drop_v),
+                      "stage_dropped_rows": rep.stage_dropped_rows},
+           "cols": sorted(col_key.values()),
+           "rows": row_keys, "body": body_keys, "one": one_keys, "tris": tris,
+           "faces": [[r, k, round(a, 2)] for r, k, a in faces],
+           "airside_v": sorted(_vkey(pm, v) for v in air_v)}
+    with gzip.open(out, "wt") as fh:
+        json.dump(rec, fh)
+    print(f"[{icao}] stage-1 population -> {out} ({time.perf_counter()-t0:.1f} s): "
+          + ", ".join(f"{k} {v:,}" for k, v in rec["counts"].items()))
+    return 0
+
+
+def stage1_diff(a: Path, b: Path, movers: Path | None, json_out: Path | None,
+                top: int = 12) -> int:
+    """§20b (3) (4) THE DECOMPOSITION: two :func:`stage1_population` dumps
+    diffed by identity, and (with ``movers``, an
+    ``airside_value_delta --json``) the airside movers attributed to the
+    classes of stage-1 difference they stand on.
+
+    It derives no law and measures no defect: every number is a set
+    difference over the two arms' own assemblies."""
+    import gzip
+    from collections import Counter
+
+    def _load(p: Path) -> dict:
+        with gzip.open(p, "rt") as fh:
+            return json.load(fh)
+
+    A, B = _load(a), _load(b)
+    out: dict = {"a": str(a), "b": str(b), "counts": {}, "classes": {}}
+    print(f"STAGE-1 POPULATION, arm A {A['pkl']} vs arm B {B['pkl']} "
+          f"(drop {A['drop']} / {B['drop']})")
+    print(f"{'count':34s} {'A':>12s} {'B':>12s} {'B-A':>10s}")
+    for k in A["counts"]:
+        va, vb = A["counts"][k], B["counts"][k]
+        out["counts"][k] = [va, vb]
+        print(f"{k:34s} {va:12,d} {vb:12,d} {vb-va:+10,d}")
+
+    def _diff(name: str, ka: list[str], kb: list[str]) -> dict:
+        """THE THREE WAYS A ROW CAN DIFFER, kept apart because they are
+        three mechanisms: a row REMOVED (its vertices or its generator are
+        gone), a row ADDED, and a row RETARGETED — the same row over the
+        same vertices at a different right-hand side, which is a TARGET
+        the pad's presence moved (an apron body's 2-D trend fitted over a
+        different body, a datum plane over a different vertex set) and
+        never a row of the pad law."""
+        ca, cb = Counter(ka), Counter(kb)
+        gone, new = ca - cb, cb - ca
+        # the STEM is the row without its right-hand side
+        stem_g, stem_n = Counter(), Counter()
+        for k, c in gone.items():
+            stem_g[k.rsplit("|", 1)[0]] += c
+        for k, c in new.items():
+            stem_n[k.rsplit("|", 1)[0]] += c
+        retarget = stem_g & stem_n
+        rem, add = stem_g - retarget, stem_n - retarget
+        by = {"retargeted": Counter(), "removed": Counter(), "added": Counter()}
+        for lbl, cnt in (("retargeted", retarget), ("removed", rem), ("added", add)):
+            for k, c in cnt.items():
+                by[lbl][k.split("\t")[0]] += c
+        print(f"\n{name}: A-only {sum(gone.values()):,}  B-only {sum(new.values()):,}"
+              f"  = RETARGETED {sum(retarget.values()):,} + REMOVED "
+              f"{sum(rem.values()):,} + ADDED {sum(add.values()):,}")
+        for lbl in ("retargeted", "removed", "added"):
+            if by[lbl]:
+                print(f"  {lbl:11s}: "
+                      + ", ".join(f"{k} {v:,}" for k, v in by[lbl].most_common(top)))
+        return {"a_only": sum(gone.values()), "b_only": sum(new.values()),
+                "retargeted": sum(retarget.values()), "removed": sum(rem.values()),
+                "added": sum(add.values()),
+                "by_class": {k: dict(v.most_common()) for k, v in by.items()},
+                "retargeted_keys": list(retarget.elements())[:4000],
+                "removed_keys": list(rem.elements())[:4000],
+                "added_keys": list(add.elements())[:4000]}
+
+    out["classes"]["ls_rows"] = _diff("LEAST-SQUARES ROWS", A["rows"], B["rows"])
+    out["classes"]["body"] = _diff("PER-BODY DATUM ROWS",
+                                   A.get("body", []), B.get("body", []))
+    out["classes"]["one_sided"] = _diff("ONE-SIDED LAW ROWS", A["one"], B["one"])
+    ca, cb = set(A["cols"]), set(B["cols"])
+    out["classes"]["columns"] = {"a_only": sorted(ca - cb), "b_only": sorted(cb - ca)}
+    print(f"\nCOLUMNS: A-only {len(ca-cb):,}  B-only {len(cb-ca):,}")
+    for lbl, s in (("A-only", ca - cb), ("B-only", cb - ca)):
+        if s:
+            print(f"  {lbl}: " + ", ".join(sorted(s)[:top]))
+    ta, tb = Counter(A["tris"]), Counter(B["tris"])
+    out["classes"]["triangles"] = {"a_only": sum((ta - tb).values()),
+                                   "b_only": sum((tb - ta).values())}
+    print(f"\nTRIANGLES: A-only {sum((ta-tb).values()):,}  "
+          f"B-only {sum((tb-ta).values()):,}")
+    fa = {(r, k): ar for r, k, ar in A["faces"]}
+    fb = {(r, k): ar for r, k, ar in B["faces"]}
+    only_a = {k: v for k, v in fa.items() if k not in fb}
+    only_b = {k: v for k, v in fb.items() if k not in fa}
+    retri = {k: (fa[k], fb[k]) for k in set(fa) & set(fb)}
+    out["classes"]["faces"] = {
+        "a_only": [[r, k, v] for (r, k), v in sorted(only_a.items())],
+        "b_only": [[r, k, v] for (r, k), v in sorted(only_b.items())]}
+    print(f"SHEET FACES: A-only {len(only_a):,} ({sum(only_a.values()):,.0f} m2)  "
+          f"B-only {len(only_b):,} ({sum(only_b.values()):,.0f} m2)")
+    by_role_a, by_role_b = Counter(), Counter()
+    for (r, _k), v in only_a.items():
+        by_role_a[r] += 1
+    for (r, _k), v in only_b.items():
+        by_role_b[r] += 1
+    if by_role_a:
+        print("  A-only by role: " + ", ".join(f"{k} {v}" for k, v in by_role_a.most_common()))
+    if by_role_b:
+        print("  B-only by role: " + ", ".join(f"{k} {v}" for k, v in by_role_b.most_common()))
+    va, vb = set(A["airside_v"]), set(B["airside_v"])
+    print(f"AIRSIDE STAGE VERTICES: A {len(va):,} B {len(vb):,}; "
+          f"A-only {len(va-vb):,} B-only {len(vb-va):,}")
+    out["classes"]["airside_vertices"] = {"a_only": sorted(va - vb)[:200],
+                                          "b_only": sorted(vb - va)[:200],
+                                          "n_a_only": len(va - vb),
+                                          "n_b_only": len(vb - va)}
+
+    if movers is not None:
+        mv = json.loads(movers.read_text())
+        rows_ = [m for m in mv["frames"]["solve-owned"]["moved"]
+                 if "building" not in m["roles"]]
+        touched: dict[str, set[str]] = {}
+
+        def _vs_of(keys: list[str], kind: str = "row") -> set[str]:
+            """The canonical vertex keys a row key names — its terms, plus
+            the vertex in a per-vertex owner tag (``bend:LAT,LON``)."""
+            s: set[str] = set()
+            for k in keys:
+                body = k.split("\t", 1)[-1]
+                mid = body.split("|")
+                head = mid[0]
+                for piece in (mid[1].split(";") if len(mid) > 1 else []):
+                    if piece:
+                        s.add(piece.split("*")[0].split("#")[0])
+                s.add(head.split(":")[-1])
+            return {k for k in s if _IS_KEY.match(k)}
+
+        for lbl, fld in (("row removed", "removed_keys"), ("row added", "added_keys"),
+                         ("row retargeted", "retargeted_keys")):
+            touched[lbl] = set().union(*(
+                _vs_of(out["classes"][c][fld])
+                for c in ("ls_rows", "body", "one_sided")))
+        tri_v: set[str] = set()
+        for k in list((ta - tb).elements()) + list((tb - ta).elements()):
+            tri_v.update(k.split("|"))
+        touched["triangulation changed"] = tri_v
+        touched["column changed"] = {k.split("#")[0] for k in (ca ^ cb)
+                                     if _IS_KEY.match(k.split("#")[0])}
+        print(f"\nTHE MOVERS ({len(rows_):,} non-pad solve-owned vertices over "
+              f"{mv['tol_m']} m), by the stage-1 change they stand on:")
+        seen: set[str] = set()
+        order = ["column changed", "triangulation changed", "row added",
+                 "row removed", "row retargeted"]
+        tbl = []
+        for cls in order:
+            vs = touched[cls]
+            hit = [m for m in rows_
+                   if f"{float(m['lat']):.11f},{float(m['lon']):.11f}" in vs
+                   and f"{float(m['lat']):.11f},{float(m['lon']):.11f}" not in seen]
+            seen.update(f"{float(m['lat']):.11f},{float(m['lon']):.11f}" for m in hit)
+            worst = max((m["dz_m"] for m in hit), default=0.0)
+            tbl.append((cls, len(hit), worst,
+                        max(hit, key=lambda m: m["dz_m"], default=None)))
+        rest = [m for m in rows_
+                if f"{float(m['lat']):.11f},{float(m['lon']):.11f}" not in seen]
+        tbl.append(("none of these (far field)", len(rest),
+                    max((m["dz_m"] for m in rest), default=0.0),
+                    max(rest, key=lambda m: m["dz_m"], default=None)))
+        print(f"{'class':32s} {'movers':>8s} {'worst m':>9s}  worst site")
+        for cls, n, w, m in tbl:
+            site = (f"{m['lat']},{m['lon']} {','.join(m['roles'])}" if m else "-")
+            print(f"{cls:32s} {n:8,d} {w:9.2f}  {site}")
+        out["movers"] = [{"class": c, "n": n, "worst_m": w,
+                          "worst": m} for c, n, w, m in tbl]
+        # THE REACH: how far each mover stands from the NEAREST changed
+        # stage-1 item.  A least-squares surface is solved globally, so a
+        # mover that stands on nothing changed is the CHANGE PROPAGATING
+        # through the sheet — this is the profile of that propagation, and
+        # it is what separates "the pads moved this vertex" from "the pads
+        # moved the problem and this vertex is downstream of it".
+        changed = set().union(*touched.values())
+        if changed and rest:
+            import numpy as np
+            cxy = np.array([[float(k.split(",")[0]), float(k.split(",")[1])]
+                            for k in changed])
+            lat0 = float(cxy[:, 0].mean())
+            sc = np.array([111_320.0, 111_320.0 * math.cos(math.radians(lat0))])
+            cm = cxy * sc
+            bins = [0, 25, 100, 250, 500, 1000, 10 ** 9]
+            prof: dict[str, int] = {}
+            worst_far = (0.0, None)
+            for m in rest:
+                p = np.array([float(m["lat"]), float(m["lon"])]) * sc
+                dmin = float(np.min(np.hypot(cm[:, 0] - p[0], cm[:, 1] - p[1])))
+                for lo, hi in zip(bins, bins[1:]):
+                    if lo <= dmin < hi:
+                        prof[f"{lo}-{hi:g} m"] = prof.get(f"{lo}-{hi:g} m", 0) + 1
+                        break
+                if dmin > worst_far[0]:
+                    worst_far = (dmin, m)
+            print("  the far-field movers' distance to the nearest changed "
+                  "stage-1 item: " + ", ".join(f"{k} {v:,}" for k, v in prof.items()))
+            if worst_far[1] is not None:
+                print(f"  the farthest: {worst_far[0]:,.0f} m at "
+                      f"{worst_far[1]['lat']},{worst_far[1]['lon']} "
+                      f"({worst_far[1]['dz_m']} m)")
+            out["far_field_reach"] = prof
+    if json_out is not None:
+        json_out.write_text(json.dumps(out, indent=1, default=str))
+    return 0
+
+
 def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            z_out: Path | None, method: str = "normal",
            design_weights: dict[str, float] | None = None, verbose: bool = False,
@@ -1390,11 +1759,33 @@ def main() -> int:
                          "re-solved, the moved set binned by distance")
     ap.add_argument("--probe-drop", type=float, default=0.30, metavar="M",
                     help="the probe's ceiling, metres under the base surface (default 0.30)")
+    ap.add_argument("--stage1-dump", type=Path, metavar="OUT.json.gz",
+                    help="§20b (3) THE STAGE-1 POPULATION off a --solved-out "
+                         "pickle (--why-from): stage_split + assemble, with every "
+                         "row, column, sheet face and triangle keyed canonically "
+                         "(11-dp lat/lon), written gzipped.  Solves nothing; "
+                         "--drop-generator and --design-weight apply")
+    ap.add_argument("--stage1-diff", nargs=2, type=Path, metavar=("A.json.gz", "B.json.gz"),
+                    help="§20b (3) (4) THE DECOMPOSITION: diff two --stage1-dump "
+                         "arms by identity — rows removed / added, columns, sheet "
+                         "faces and triangles — and with --movers attribute an "
+                         "airside_value_delta --json's movers to the class of "
+                         "stage-1 change each stands on")
+    ap.add_argument("--movers", type=Path, metavar="AVD.json",
+                    help="an airside_value_delta --json dump for --stage1-diff")
     ap.add_argument("--probe-arm", action="append", default=[], metavar="TERM=V",
                     help="one probe ARM as a [design] override; repeat for a "
                          "matched pair (e.g. --probe-arm solver=fixed_point "
                          "--probe-arm solver=qp).  Default: the shipped law alone")
     a = ap.parse_args()
+    if a.stage1_diff:
+        return stage1_diff(a.stage1_diff[0], a.stage1_diff[1], a.movers, a.json)
+    if a.stage1_dump:
+        if not a.why_from:
+            ap.error("--stage1-dump needs --why-from PKL (a --solved-out pickle)")
+        dw = {k.strip(): _design_value(v)
+              for k, v in (it.split("=") for it in a.design_weight)}
+        return stage1_population(a.why_from, a.drop_generator, a.stage1_dump, dw)
     if a.probe_site:
         if not a.why_from:
             ap.error("--probe-site needs --why-from PKL (a --solved-out pickle)")

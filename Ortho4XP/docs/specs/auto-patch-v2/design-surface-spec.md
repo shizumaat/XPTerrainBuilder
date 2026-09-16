@@ -15971,3 +15971,26 @@ the DEM read is one sample per 5 m of bore.  Measured whole-build wall
 at VMMC: base **17.4 s**, arm **16.5 s** — the arm builds LESS (117 → 91
 ways, 2,657 → 2,360 nodes).  Nothing here is within 1 % of either budget
 on the wrong side.
+
+#### §34 (12) (5) RE-MEASURED AFTER THE MAIN MERGE (lane `v2vmmcbore`, branch `claude/v2vmmcbore` `b2ead29a`, base main `c4efff90` — v2shellwall r3 and v2shoulderband r2 in)
+
+The merge conflicted in `planar/structure_service.py` (v2shellwall r3
+moved `decked_exclusion` / `SURFACE_LINE_KINDS` / `owner_kept` / `parts`
+in from `structures.py`); BOTH SIDES ARE KEPT — the conflict was the
+`__all__` line alone and every symbol of both lanes resolves.
+`docs/frames.jsonl` was unioned, no markers anywhere.
+
+**NOTHING MOVED.**  Matched pairs re-run on the merged trees:
+
+| | base (main `c4efff90`) | arm (merged) | arm (pre-merge `9f4e504a`) |
+|---|---|---|---|
+| VMMC tunnels / decks | 13 / 1 | **2 / 0** | 2 / 0 — IDENTICAL |
+| LEMD tunnels / decks | 52 / 5 | **47 / 7** | 47 / 7 — IDENTICAL |
+| LEMD deck set | `-6288 -11828 -14230 -516 -1378` | **the approved SEVEN** (`+ -5305 -15293`) | the same seven |
+| VMMC closing build | `ecc616c4bba5`, rc 0, 16.8 s, ledger `07c3f4fcd06e` | **`420018b72b91`**, rc 0, 17.0 s, ledger `b1cb3707f003` | `420018b72b91` — BYTE-IDENTICAL |
+
+Both builds print `[harness] shared repo UNCHANGED by this build`.  The
+base control's `body_sha ecc616c4bba5` is the SAME hash it carried at
+`ae0f956f` and at v2vmmcshore r6, so neither merged lane moves VMMC's
+surface and the pair's frame is unchanged.  Suite on the merged tree:
+**1,749 passed, 1 skipped, 1 xpassed, 0 FAILED**.

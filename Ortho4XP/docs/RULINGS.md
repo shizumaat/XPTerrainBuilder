@@ -8596,3 +8596,19 @@ xpassed` (campaign + insets + flat-site), 0 failed. FLAGGED, not fixed:
 declaration — a non-declaring provider's inset would take its stored
 pixel at face value for the smoothing radius (chip). v2channel r8's
 KDFW build now stands on the lidar datum by itself.
+
+## 2026-09-16c OWNER (relayed by the peer session's interview): CYXY's two version-stale USGS3DEP negatives are fixed by the PROVIDER'S COVERAGE BOX, not by re-asking — USGS 3DEP is US-only; lane `v2usgsbox`
+
+`Providers/Elevation/USGS3DEP.elv` declares `coverage_bbox=-180.0,15.0,
+-64.0,72.0`, which reaches all of Canada, Mexico, Central America and
+the Caribbean; CYXY (Whitehorse) therefore carries two USGS3DEP
+`no-coverage` records that 15ay's once-per-version door re-asks and the
+harness refuses on (`--refresh-only dem` on 1.50.1788: "2 artifact(s)
+STILL not current"). Owner: fix the box. 15ay's predicate already
+treats an out-of-box negative as never stale, so a correct declaration
+(CONUS, Alaska, Hawaii, PR/USVI, Guam/CNMI, American Samoa — a LIST of
+boxes if the `.elv` reader holds one) makes CYXY's records inert with
+no corpus edit. The lane also censuses every cached index for
+now-out-of-box USGS3DEP negatives and names the campaign tiles inside
+the new boxes. KCLT needed nothing (rc 0); the KPHX item is closed by
+15au.

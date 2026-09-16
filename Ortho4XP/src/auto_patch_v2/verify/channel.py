@@ -62,25 +62,67 @@ def _profile_of(rec: dict) -> list[tuple[float, float, float]]:
     return out
 
 
+def _axis_of(p: Patch, prof: list[tuple[float, float, float]]
+             ) -> tuple[list[tuple[float, float]], list[float], list[float]]:
+    """The published profile as an AXIS: its station points in the patch's
+    metres, the cumulative station ``s`` at each, and the declared ``z``.
+
+    The profile's own points ARE the axis stations the record was stated
+    over (``profile_ll`` is ``axis_fn(s)`` per station), so the polyline
+    through them is the axis and the cumulative chord length is ``s``."""
+    pts = [p.to_m(la, lo) for la, lo, _z in prof]
+    ss = [0.0]
+    for a, b in zip(pts, pts[1:]):
+        ss.append(ss[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+    return pts, ss, [float(z) for _la, _lo, z in prof]
+
+
 def _declared_at(p: Patch, prof: list[tuple[float, float, float]],
                  lat: float, lon: float) -> float | None:
-    """The record's floor over a point: the two NEAREST profile stations,
-    interpolated between them — the stations are the axis's own, so
-    "nearest two" is "the segment this vertex stands over"."""
+    """§45 (17): the record's floor over a point, read THE WAY THE FLOOR
+    WAS STATED — the profile's ``z(s)`` at the vertex's own AXIS STATION.
+
+    ``constraints/channel.channels`` pins each floor vertex at
+    ``c.floor_z(axis.project(v))``; this is that same reading on the
+    published record, so the stated row and the judged expectation are one
+    arithmetic.  The first arm compared a 2-D floor REGION to a 1-D axis
+    profile by "the two nearest stations", which off the centreline picks
+    two stations on the same side and interpolates between them — a
+    different number from ``z(s)`` wherever the vertex stands off the axis
+    (the whole width of the corridor, RULINGS 2026-09-15bm)."""
     if not prof:
         return None
+    if len(prof) == 1:
+        return prof[0][2]
+    pts, ss, zs = _axis_of(p, prof)
     x, y = p.to_m(lat, lon)
-    d = []
-    for la, lo, z in prof:
-        px, py = p.to_m(la, lo)
-        d.append((math.hypot(px - x, py - y), z))
-    d.sort()
-    if len(d) == 1 or d[0][0] <= 1e-9:
-        return d[0][1]
-    d0, z0 = d[0]
-    d1, z1 = d[1]
-    t = d0 / max(d0 + d1, 1e-9)
-    return z0 + (z1 - z0) * t
+    best_s = None
+    best_d = None
+    for i, (a, b) in enumerate(zip(pts, pts[1:])):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 <= 1e-12 else max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / L2))
+        qx, qy = a[0] + dx * t, a[1] + dy * t
+        d = math.hypot(qx - x, qy - y)
+        if best_d is None or d < best_d:
+            best_d = d
+            best_s = ss[i] + t * math.hypot(dx, dy)
+    if best_s is None:
+        return None
+    # the profile's own z(s), the reading ``model.structures.profile_z``
+    # states for the record and the pin
+    if best_s <= ss[0]:
+        return zs[0]
+    if best_s >= ss[-1]:
+        return zs[-1]
+    for i in range(len(ss) - 1):
+        if ss[i] <= best_s <= ss[i + 1]:
+            span = ss[i + 1] - ss[i]
+            if span <= 1e-9:
+                return zs[i]
+            f = (best_s - ss[i]) / span
+            return zs[i] + (zs[i + 1] - zs[i]) * f
+    return zs[-1]
 
 
 def channel_floor_at_declaration(p: Patch) -> list[Row]:

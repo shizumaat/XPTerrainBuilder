@@ -30,11 +30,26 @@ __all__ = ['add_channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'cha
 
 
 def claimed_crossing_ways(airport: Airport, law: Law,
-                          corridors: _t.Sequence = ()) -> frozenset[WayKey]:
+                          corridors: _t.Sequence = (),
+                          classification=None) -> frozenset[WayKey]:
     """§45 (13) (b): THE WAYS THE ENGINE ALREADY MODELS, read off the
     passes' OWN outputs and never re-derived.
 
-    Two sources, both existing: the mapped ``tunnel=yes`` bores
+    THREE sources since §45 (16) (Fable 2026-09-16; owner RULINGS
+    2026-09-15bo): the claimed set includes the §34 (5) SYNTHESISED
+    underpass bores — every way a bore of ANY provenance names.  Round 7
+    measured what their absence costs once (14) admits notch corridors:
+    KCLT tunnels 23 -> 19, the four bores of taxiway U
+    (``tunnel:-14074@0..3``) taken by a channel, which is exactly the
+    round-3 regression (13) was ruled to end.  A mapped ``tunnel=yes``
+    way can plead (13) (b) and a synthesised one could not, because it
+    exists only inside ``build_structures``.  It is read here from
+    ``structure_underpass.underpass_bores`` — §34 (5)'s OWN derivation,
+    the same call ``build_structures`` makes — and never re-derived; the
+    synthetic way keeps its PARENT road's id and feed, so ``way_key`` of
+    a synthesised bore is the road way the channel would have taken.
+
+    The other two, both existing: the mapped ``tunnel=yes`` bores
     ``build_structures`` seeds from (``is_tunnel`` on
     ``[tunnel] admitted_values`` — the same predicate, not a copy) and
     the bore ways each 05k-1 object corridor claims
@@ -45,6 +60,15 @@ def claimed_crossing_ways(airport: Airport, law: Law,
     tn = law.tables.structures.tunnel
     out = {way_key(w) for w in airport.osm_ways
            if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2}
+    # §45 (16): the §34 (5) SYNTHESISED underpass bores, from §34 (5)'s
+    # own function (the cells and their polygons are all it reads)
+    if classification is not None and getattr(classification, "cells", None):
+        from shapely.geometry import Polygon as _Poly
+        from .structure_underpass import underpass_bores as _up
+        cells = list(classification.cells)
+        up_ways, _parents, _notes = _up(airport, law, cells,
+                                        [_Poly(c.ring, c.holes) for c in cells])
+        out.update(way_key(w) for w in up_ways)
     # A corridor states its bore ways as BARE ids (``Corridor.bore_ways``
     # is ``tuple[int, ...]``), so they are qualified here against the
     # ways themselves.  MEASURED 2026-09-15: no producer sets that field

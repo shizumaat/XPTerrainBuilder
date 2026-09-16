@@ -336,7 +336,7 @@ def structure_records(airport, cl, law) -> dict:
     from .build import channels_after_basins
     channels, chstats = channels_after_basins(
         airport, cl, law, objects, corridors, extra, plates, cache, orep,
-        claimed_crossing_ways(airport, law, corridors),
+        claimed_crossing_ways(airport, law, corridors, cl),
         frozenset(tstats.shell_claimed))
     cl2, tunnels, sstats = build_structures(airport, cl, law, objects, corridors, extra,
                                             plates, channels)

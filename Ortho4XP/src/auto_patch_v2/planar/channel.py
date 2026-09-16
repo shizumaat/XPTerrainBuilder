@@ -49,7 +49,7 @@ from ..model.frame import XY
 from ..model.structures import (CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE,
                                 CREST_DESIGN, Channel, ChannelWall, Deck)
 from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
-                               _field_region, _hole_region, _in_hole,
+                               _ends, _field_region, _hole_region, _in_hole,
                                _lidar_floor, _parts,
                                _poly, _runs, _sides, _span, _spread_m,
                                _walls_half)
@@ -403,30 +403,23 @@ def identify_channels(airport: Airport, classification, law: Law,
     tn = law.tables.structures.tunnel
     br = law.tables.structures.bridge
     union = _pavement_union(airport)
-    # §45 (14) IS IMPLEMENTED AND **NOT WIRED IN** — the measurement is
-    # in the round-7 report and the decision is the owner's.
+    # §45 (14) A NOTCH IS A CORRIDOR TOO, **WIRED** under §45 (16)'s ends
+    # (Fable 2026-09-16; owner RULINGS 2026-09-15bo).  The corridor of
+    # (1) (b) is the complement of the airside pavement union INSIDE THE
+    # FIELD, so a notch (KPHX: E Sky Harbor Blvd runs in from the outer
+    # edge, ``holes`` empty, every candidate ``necks = 0``) and a hole
+    # (KDFW's 2,518 m ring) are ONE class.
     #
-    # Passing ``_field_region(airport, union, law)`` here is the ruling as
-    # written (a notch is a corridor too) and it does fix the blindness:
-    # KPHX gains the channel its two taxiway decks state.  It also, on
-    # the same arm (base f66803ba, dry replays):
-    #   * KCLT  tunnels 23 -> 19 — FOUR bores lost, the §34 (5)
-    #     SYNTHESISED underpasses of taxiway U.  (13) (b) protects the
-    #     mapped `tunnel=yes` and object-corridor claims only, so a
-    #     synthesised bore has nothing to plead with; before (14) those
-    #     candidates simply had no neck.  This is the round-3 regression
-    #     (13) was ruled to end.
-    #   * LGAV channels 1 -> 4, LEMD 3 -> 6, HECA gains a 14,562 m one,
-    #     CYXY gains a 5,646 m one, KPHX's runs 5,750 m with a (3) (iii)
-    #     floor of 332.76..563.14 m — because §45 (2)'s ENDS ("where the
-    #     corridor leaves the pavement union ⊕ mouth_standoff_m") do not
-    #     bound a way that runs the length of the field INSIDE the
-    #     boundary, which is exactly what the field region now admits.
-    #   * CYXY's planar twins break on it (vertices 6,856 against the
-    #     6,660 bar) and `test_cyxy_verify_matches_v1_census` with them.
-    # A notch is a corridor too — but the corridor needs an end.  Until
-    # that is ruled, the region is the union's own interiors.
-    holes = _hole_region(union)
+    # Round 7 measured what wiring it ALONE costs, and it is why (16)
+    # lands in the same commit: with §45 (2)'s ends (the pavement union
+    # ⊕ ``mouth_standoff_m``) a notch corridor has no exit and ran to the
+    # field boundary — KPHX 5,750 m, HECA 14,562 m, CYXY 5,646 m, LGAV
+    # channels 1 -> 4, LEMD 3 -> 6, CYXY's planar twins red.  (16) ends
+    # the corridor at its OUTERMOST CROSSINGS instead (:func:`_ends`),
+    # and KCLT's four §34 (5) SYNTHESISED underpass bores now stand in
+    # the (13) (b) claimed set (``channel_claims.claimed_crossing_ways``)
+    # so a channel never takes what §34 (5) already built.
+    holes = _hole_region(union, _field_region(airport, union, law))
     cands: list[_Cand] = []
     # §45 (13) (b) JOINED BY FEED, NEVER BY THE BARE ID (owner addendum
     # 2026-09-15): ``claimed_ways`` is a set of ``(feed, id)`` keys from
@@ -616,28 +609,6 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         half_at, width_src = half_base, "carriageways ⊕ lane_width_m (10) (iii)"
     widths = tuple((float(s), float(half_at)) for s in (ss[0], ss[-1]))
 
-    # ── the ENDS (§45 (2)): where the corridor leaves the pavement union
-    # ⊕ ``mouth_standoff_m``.  Beyond them §37 governs and the floor
-    # rejoins the road's own profile at ≤ ``ramp_max_grade``.
-    field = union.buffer(tn.mouth_standoff_m, **_MITRE) if union is not None else None
-    inside = [bool(field.contains(Point(axis_fn(s)))) if field is not None else True
-              for s in ss]
-    if not any(inside):
-        stats.refused.append(f"{cid}: no station of the axis stands on the field "
-                             f"(the pavement union ⊕ mouth_standoff_m {tn.mouth_standoff_m:.0f} m)")
-        return None
-    s_in = [s for s, ok in zip(ss, inside) if ok]
-    ends = (float(min(s_in)), float(max(s_in)))
-    # §45 (2) THE ENDS.  The channel's own faces exist BETWEEN them;
-    # beyond them the road law §37 governs and the floor rejoins the
-    # road's own profile at <= ramp_max_grade — which is §37's join, not
-    # a second ramp of ours.  Everything from here (the profile, the
-    # region, the banks) is stated over the stations INSIDE the ends.
-    ss = [s for s in ss if ends[0] - 1e-6 <= s <= ends[1] + 1e-6]
-    if len(ss) < 2:
-        stats.refused.append(f"{cid}: only {len(ss)} station(s) of the axis stand between "
-                             f"the ends {ends[0]:.0f}..{ends[1]:.0f} m")
-        return None
     corridor_m = sum(c.corridor_m for c in grp) / max(1, len(grp))
     if not decks:
         stats.refused.append(f"{cid}: witnessed ({', '.join(sorted(_wits(grp)))}) but no "
@@ -648,6 +619,26 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         stats.refused.append(f"{cid}: the unpaved corridor reads {corridor_m:.0f} m, under "
                              f"[channel] corridor_min_length_m {ch.corridor_min_length_m:.0f} — "
                              f"a gap between two pavements, not a channel through the field")
+        return None
+
+    # ── the ENDS (§45 (16), Fable 2026-09-16; owner RULINGS 2026-09-15bo)
+    # THE OUTERMOST CROSSINGS ⊕ ONE DECK WIDTH, extended by a DEPTH
+    # WITNESS.  §45 (2)'s ends — the pavement union ⊕ ``mouth_standoff_m``
+    # — were written for a HOLE; a notch has no such exit and, once (14)
+    # admitted notches, they ran the corridor to the field boundary
+    # (KPHX 5,750 m, HECA 14,562 m, CYXY 5,646 m; round 7).  Beyond the
+    # ends §37 governs and the floor rejoins the road's own profile at
+    # ≤ ``ramp_max_grade`` — §37's join, not a second ramp of ours.
+    ends = _ends(airport, law, decks, axis_ln, axis_fn, half_at, objects, packs,
+                 _lidar_credible(airport, law))
+    # Everything from here (the profile, the region, the banks) is stated
+    # over the stations INSIDE the ends, and the ends are themselves
+    # stations: the corridor's faces run exactly to them.
+    ss = sorted({ends[0], *(s for s in ss if ends[0] - 1e-6 <= s <= ends[1] + 1e-6),
+                 ends[1]})
+    if len(ss) < 2 or (ends[1] - ends[0]) < law.tables.emit.identity.min_distinct_spacing_m:
+        stats.refused.append(f"{cid}: only {len(ss)} station(s) of the axis stand between "
+                             f"the ends {ends[0]:.0f}..{ends[1]:.0f} m")
         return None
 
     to_ll = airport.frame.transformers()[1]
@@ -720,8 +711,24 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # the bank's plan run at each station: (crest − floor) / bank_slope,
     # sized off the DEM ONLY to give the mesh room — the crest's VALUE is
     # the solved surface (§45 (5)), stated by ``constraints/channel.py``.
-    bank = _bank_width(airport, axis_fn, ss, profile, ch.bank_slope, wall_shape,
-                       law.tables.emit.identity.min_distinct_spacing_m)
+    #
+    # §45 (17) THE FLOOR AND THE AIRSIDE SURFACE NEVER SHARE A VERTEX
+    # (Fable 2026-09-16; owner RULINGS 2026-09-15bo).  The band between
+    # the floor and every airside / adjacent-ground cell is the channel's
+    # OWN, exactly as a bore's is: it is never thinner than the bore's
+    # ``[tunnel] wall_gap_m + wall_band_width_m`` stand-off, the one
+    # ``planar/structures`` mints its ``retaining_wall`` void with
+    # (``rim_off`` there).  The KDFW measurement this answers: 378
+    # ``channel_floor_at_declaration`` rows, worst 12.626 m, all
+    # ``pavement_ceiling`` on vertices the floor SHARED with an airside
+    # cell (v14070: cross_connector / retaining_wall / tunnel_trench,
+    # 169.40 against 182.28 over ~23 m) — an infeasible hard set by
+    # construction, not a solver failure.  ``channel_cells`` stands the
+    # floor back from every DECK by the same band, so a deck's airside
+    # faces meet the band's CREST and never the floor.
+    bank = max(_bank_width(airport, axis_fn, ss, profile, ch.bank_slope, wall_shape,
+                           law.tables.emit.identity.min_distinct_spacing_m),
+               tn.wall_gap_m + tn.wall_band_width_m)
     lo, ro = _sides(axis_fn, ss, half_at + bank)
     crest_ring = tuple(lo) + tuple(reversed(ro))
     wits = sorted(_wits(grp))
@@ -751,6 +758,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         width_source=width_src,
         crest=CREST_DESIGN,
         bank_slope=float(ch.bank_slope),
+        wall_band_m=float(bank),
         floor_ref=f"channel_floor:{cid.split(':')[-1]}",
         wall_ref=f"channel_wall:{cid.split(':')[-1]}",
         region=region,
@@ -969,7 +977,15 @@ def channel_cells(channels: _t.Sequence[Channel], law: Law
         decks = [_poly(d.ring) for d in c.decks]
         du = unary_union([d for d in decks if d is not None]) if decks else None
         if du is not None and not du.is_empty:
-            floor = floor.difference(du)
+            # §45 (17): the floor stands the WALL BAND back from the deck
+            # as it does from the corridor edge — a deck's faces are
+            # AIRSIDE and meet the band's crest, never the floor.  Without
+            # the set-back the deck's own ring became the floor's edge and
+            # one vertex carried the taxiway surface and the floor at once
+            # (KDFW v14070: 182.28 against 169.40 over ~23 m, 378
+            # infeasible ``pavement_ceiling`` rows).
+            band = float(getattr(c, "wall_band_m", 0.0) or 0.0)
+            floor = floor.difference(du.buffer(band, **_MITRE) if band > 0.0 else du)
             outer = outer.difference(du)
         void = outer.difference(floor)
         for k, part in enumerate(_parts(floor)):

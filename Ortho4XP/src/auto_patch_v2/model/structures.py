@@ -389,6 +389,13 @@ class Channel:
     width_source: str = ""
     crest: str = CREST_DESIGN
     bank_slope: float = 0.5
+    #: §45 (17) THE CHANNEL'S OWN WALL BAND (owner RULINGS 2026-09-15bo):
+    #: the plan width of the band between the floor ring and the crest
+    #: ring — the bank of (5), never thinner than a bore's ``[tunnel]
+    #: wall_gap_m + wall_band_width_m``.  The floor stands this far back
+    #: from every airside or adjacent-ground cell AND from every DECK, so
+    #: a floor face never shares a vertex with a pavement cell.
+    wall_band_m: float = 0.0
     #: The emitted faces' refs (``planar/channel.py`` writes the cells):
     #: the floor ``channel_floor:<k>`` and the void ``channel_wall:<k>``.
     floor_ref: str = ""

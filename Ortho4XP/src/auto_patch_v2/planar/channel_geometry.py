@@ -28,7 +28,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from .structure_approach import unit
 
-__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts']
+__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along']
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -298,6 +298,84 @@ def _bank_toe_half(airport: Airport, law: Law, axis_fn, ss, cap: float) -> float
         return 0.0
     toes.sort()
     return toes[len(toes) // 2]
+
+
+def _witness_along(axis_ln: LineString, objects: _t.Sequence,
+                   ids: _t.Sequence[str]) -> tuple[float, float] | None:
+    """How far the witnessing pack walls' BELOW-GRADE footprints reach
+    ALONG the axis — ``(s_min, s_max)``, or ``None`` where none states
+    one.  §45 (16)'s "extended by a depth witness" for (1) (c)."""
+    want = set(ids or ())
+    lo: float | None = None
+    hi: float | None = None
+    for o in objects or ():
+        if str(getattr(o, "id", "")) not in want:
+            continue
+        bg = getattr(o, "below_grade", None)
+        if bg is None or getattr(bg, "is_empty", True):
+            continue
+        for g in getattr(bg, "geoms", [bg]):
+            if g.geom_type != "Polygon":
+                continue
+            for p in g.exterior.coords:
+                s = axis_ln.project(Point(p))
+                lo = s if lo is None else min(lo, s)
+                hi = s if hi is None else max(hi, s)
+    return None if lo is None else (float(lo), float(hi))
+
+
+def _ends(airport: Airport, law: Law, decks, axis_ln: LineString, axis_fn,
+          half_at: float, objects: _t.Sequence, packs: _t.Sequence[str],
+          lidar: bool) -> tuple[float, float]:
+    """§45 (16) A CHANNEL ENDS AT ITS OUTERMOST CROSSINGS (Fable
+    2026-09-16; owner RULINGS 2026-09-15bo).
+
+    §45 (2)'s ends — "where the corridor leaves the airside pavement
+    union ⊕ ``mouth_standoff_m``" — were written for a HOLE, whose road
+    leaves the pavement at the hole's own two edges.  A NOTCH has no such
+    exit, and (14) wired with those ends ran corridors to the field
+    boundary: KPHX 5,750 m, HECA 14,562 m, CYXY 5,646 m (round 7).
+
+    So the ends are the corridor's OUTERMOST CROSSINGS — the decks of
+    (1) (a)/(b) — each extended by ONE DECK WIDTH along the axis, and
+    where a DEPTH WITNESS reaches further along the way, to the end of
+    that witness: the pack walls' below-grade footprints (1) (c), or the
+    stations a credible lidar still reads as cut (3) (ii).  Beyond them
+    §37 governs as before."""
+    ch = law.tables.structures.channel
+    first = min(decks, key=lambda d: d.s0)
+    last = max(decks, key=lambda d: d.s1)
+    lo = first.s0 - (first.s1 - first.s0)
+    hi = last.s1 + (last.s1 - last.s0)
+    span = _witness_along(axis_ln, objects, packs)
+    if span is not None:
+        lo, hi = min(lo, span[0]), max(hi, span[1])
+    elif lidar:
+        # the lidar's own reach: walk outward while the DTM still reads a
+        # cut of ``object_min_depth_m`` under the ground at the corridor
+        # edge (the same "is this a real wall" depth (1) (c) uses)
+        step = float(ch.station_m)
+        depth = float(ch.object_min_depth_m)
+        window = float(ch.lidar_floor_window_m)
+        for sgn, start in ((-1.0, lo), (1.0, hi)):
+            s = start
+            while 0.0 <= s + sgn * step <= axis_ln.length:
+                t = s + sgn * step
+                p = axis_fn(t)
+                a, b = axis_fn(max(0.0, t - 1.0)), axis_fn(t + 1.0)
+                u = unit(a, b)
+                nv = (-u[1], u[0])
+                rim = max(_dem(airport, (p[0] + nv[0] * half_at, p[1] + nv[1] * half_at)),
+                          _dem(airport, (p[0] - nv[0] * half_at, p[1] - nv[1] * half_at)))
+                flr = _lidar_floor(airport, axis_fn, t, window)
+                if math.isnan(rim) or math.isnan(flr) or (rim - flr) < depth:
+                    break
+                s = t
+            if sgn < 0.0:
+                lo = min(lo, s)
+            else:
+                hi = max(hi, s)
+    return (max(0.0, float(lo)), min(axis_ln.length, float(hi)))
 
 
 def _poly(ring) -> Polygon | None:

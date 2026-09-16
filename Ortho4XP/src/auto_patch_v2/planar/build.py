@@ -204,7 +204,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # BASIN PASS FIRST — see :func:`channels_after_basins`.
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
-        claimed_crossing_ways(airport, law, corridors),
+        claimed_crossing_ways(airport, law, corridors, classification),
         frozenset(tstats.shell_claimed))
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels)

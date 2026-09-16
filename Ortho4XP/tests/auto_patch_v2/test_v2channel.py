@@ -294,11 +294,9 @@ def test_e_a_way_inside_a_corridor_never_becomes_a_bore(law):
 # ── (f) beyond an end ────────────────────────────────────────────────────
 
 def test_f_the_channel_stops_at_its_ends(law):
-    """(f) The channel's own faces exist only BETWEEN the ends — the two
-    stations where the corridor leaves the pavement union ⊕
-    ``mouth_standoff_m``.  Beyond them §37 governs and the floor rejoins
-    the road's own profile: this lane emits nothing there."""
-    tn = law.tables.structures.tunnel
+    """(f) The channel's own faces exist only BETWEEN the ends.  Beyond
+    them §37 governs and the floor rejoins the road's own profile: this
+    lane emits nothing there."""
     ap = _airport(law, [_pavement_with_corridor()], [_road()])
     chans, _st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
     c = chans[0]
@@ -306,10 +304,135 @@ def test_f_the_channel_stops_at_its_ends(law):
     assert s1 > s0
     # every axis station stands inside the ends, and the profile with it
     assert c.profile[0][0] >= s0 - 1e-6 and c.profile[-1][0] <= s1 + 1e-6
-    # the corridor reaches no further than the field ⊕ the standoff
-    region = Polygon(c.region)
-    assert region.bounds[1] >= -400.0 - tn.mouth_standoff_m - 1.0
-    assert region.bounds[3] <= 400.0 + tn.mouth_standoff_m + 1.0
+    assert c.axis[0] == pytest.approx(tuple(_axis_at(c, s0)), abs=1e-6)
+
+
+def _axis_at(c, s):
+    from shapely.geometry import LineString as _LS
+    p = _LS([(0.0, y) for y in range(-400, 401, 20)]).interpolate(s)
+    return (p.x, p.y)
+
+
+# ── (16) THE ENDS ────────────────────────────────────────────────────────
+
+def test_16_the_ends_are_the_outermost_crossings(law):
+    """§45 (16) (owner RULINGS 2026-09-15bo): the corridor's two ENDS are
+    its OUTERMOST CROSSINGS, each extended by ONE DECK WIDTH — never the
+    field boundary.  Round 7 measured the alternative once (14) admitted
+    a notch: KPHX 5,750 m, HECA 14,562 m, CYXY 5,646 m of corridor."""
+    necks = ((-40.0, -10.0), (120.0, 150.0))
+    ap = _airport(law, [_pavement_with_corridor(necks=necks)], [_road()])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert len(chans) == 1, (st.refused, st.notes)
+    c = chans[0]
+    s0, s1 = c.ends
+    d0 = min(c.decks, key=lambda d: d.s0)
+    d1 = max(c.decks, key=lambda d: d.s1)
+    assert s0 == pytest.approx(d0.s0 - (d0.s1 - d0.s0), abs=1e-6)
+    assert s1 == pytest.approx(d1.s1 + (d1.s1 - d1.s0), abs=1e-6)
+    # …and that is a small fraction of the 800 m way the ends used to run
+    assert (s1 - s0) < 260.0, (s0, s1)
+    assert Polygon(c.region).bounds[3] < 200.0
+
+
+def test_16_a_depth_witness_extends_the_ends(law):
+    """§45 (16): "…and where a depth witness reaches further along the
+    way, to the end of that witness" — the pack walls of (1) (c)."""
+    necks = ((-40.0, -10.0), (120.0, 150.0))
+    obj = _Placed("dsf:obj1", Polygon(_rect(-8.0, -300.0, 8.0, 300.0)), 88.0)
+    ap = _airport(law, [_pavement_with_corridor(necks=necks)], [_road()])
+    cl = Classification(tuple(_cells()), (), {}, ())
+    bare, _s = identify_channels(ap, cl, law)
+    withw, _s2 = identify_channels(ap, cl, law, [obj])
+    assert withw[0].datum_source == DATUM_PACK
+    # the Trench-class wall runs 300 m past both crossings, so it does
+    assert withw[0].ends[0] < bare[0].ends[0] - 100.0
+    assert withw[0].ends[1] > bare[0].ends[1] + 100.0
+
+
+def test_16_a_synthesised_underpass_bore_is_in_the_claimed_set(law):
+    """§45 (16): the (13) (b) claimed set includes the §34 (5)
+    SYNTHESISED underpass bores — every way a bore of ANY provenance
+    names.  Round 7 measured their absence: wiring (14) took KCLT
+    taxiway U's four bores (tunnels 23 -> 19)."""
+    # a taxiway bridge over a road, with a taxi cell stating the deck:
+    # §34 (5) bores the road under it, and that bore's way is claimed
+    bridge = OsmWay(-900, "airports", ((-60.0, 0.0), (60.0, 0.0)), False,
+                    {"aeroway": "taxiway", "bridge": "yes", "layer": "1",
+                     "width": "40"})
+    ap = _airport(law, [_pavement_with_corridor()], [_road(), bridge])
+    cl = Classification(tuple(_cells()), (), {}, ())
+    with_cl = claimed_crossing_ways(ap, law, (), cl)
+    without = claimed_crossing_ways(ap, law, ())
+    assert ("big_roads", -500) in with_cl, with_cl
+    assert ("big_roads", -500) not in without
+    # and the channel pass then never takes that way
+    chans, st = identify_channels(ap, cl, law, (), with_cl)
+    assert chans == [], [c.id for c in chans]
+    assert any("already models them" in n for n in st.notes), st.notes
+
+
+# ── (17) THE FLOOR AND THE AIRSIDE SURFACE NEVER SHARE A VERTEX ─────────
+
+def test_17_the_band_is_never_thinner_than_a_bores(law):
+    """§45 (17) (owner RULINGS 2026-09-15bo): the channel's wall band is
+    the bore's own stand-off at the least — ``[tunnel] wall_gap_m +
+    wall_band_width_m``, the ``rim_off`` ``planar/structures`` mints its
+    ``retaining_wall`` void with."""
+    tn = law.tables.structures.tunnel
+    ap = _airport(law, [_pavement_with_corridor()], [_road()])
+    chans, _st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    c = chans[0]
+    assert c.wall_band_m >= tn.wall_gap_m + tn.wall_band_width_m - 1e-9
+    # the crest ring stands the band outside the floor ring, both sides
+    assert (Polygon(c.crest_ring).bounds[2] - Polygon(c.region).bounds[2]) \
+        == pytest.approx(c.wall_band_m, abs=1e-6)
+
+
+def test_17_the_floor_never_touches_a_deck(law):
+    """§45 (17): the floor stands the band back from every DECK too — a
+    deck's faces are AIRSIDE and meet the band's CREST, never the floor.
+    The KDFW measurement: 378 ``channel_floor_at_declaration`` rows,
+    worst 12.626 m, on vertices the floor shared with an airside cell."""
+    ap = _airport(law, [_pavement_with_corridor()], [_road()])
+    chans, _st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    c = chans[0]
+    cells, _knives = channel_cells(chans, law)
+    floor = [p for r, _ref, p, _cid in cells if r == "tunnel_trench"]
+    bank = [p for r, _ref, p, _cid in cells if r == "retaining_wall"]
+    assert floor and bank
+    for d in c.decks:
+        deck = Polygon(d.ring)
+        for f in floor:
+            assert f.distance(deck) >= c.wall_band_m - 1e-6, (f.bounds, deck.bounds)
+        # …and the band DOES reach the deck: the crest is what it meets
+        assert min(b.distance(deck) for b in bank) < 1e-6
+
+
+def test_17_declared_at_reads_the_profile_at_the_axis_station(law):
+    """§45 (17): ``verify/channel._declared_at`` reads the floor the way
+    the floor was STATED — the profile's ``z(s)`` at the vertex's own
+    axis station.  The first arm interpolated between the two NEAREST
+    stations, which off the centreline picks two on the same side and
+    answers a different number (RULINGS 2026-09-15bm)."""
+    from auto_patch_v2.verify.channel import _declared_at
+
+    class _P:                       # the two Patch members _declared_at reads
+        @staticmethod
+        def to_m(la, lo):
+            return (float(lo), float(la))
+
+    # an axis along +lat with a 1 m/station ramp
+    prof = [(0.0, 0.0, 10.0), (10.0, 0.0, 11.0), (20.0, 0.0, 12.0)]
+    # ON the axis: the station's own value
+    assert _declared_at(_P, prof, 10.0, 0.0) == pytest.approx(11.0)
+    assert _declared_at(_P, prof, 5.0, 0.0) == pytest.approx(10.5)
+    # OFF the axis by 40 m — the station is unchanged, so the value is
+    assert _declared_at(_P, prof, 5.0, 40.0) == pytest.approx(10.5)
+    assert _declared_at(_P, prof, 15.0, -40.0) == pytest.approx(11.5)
+    # beyond either end it clamps to that end's declaration
+    assert _declared_at(_P, prof, -30.0, 0.0) == pytest.approx(10.0)
+    assert _declared_at(_P, prof, 60.0, 5.0) == pytest.approx(12.0)
 
 
 # ── (g) the flat-site region ─────────────────────────────────────────────

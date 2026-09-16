@@ -119,16 +119,25 @@ def test_the_arrangement_clips_a_pad_by_the_ROLLED_ON_faces_only():
     assert is_rigid_role(law, "building")
     out, counts = airside_clip([apron, lot, on_apron, straddle, on_lot], law)
     by = {r.ref: r.polygon for r in out if r.role == "building"}
-    assert set(by) == {"b_in", "b_cut", "b_lot"}, sorted(by)
+    # §16g (10) (12) (1) (Fable 2026-09-16; RULINGS 2026-09-16b): the pad
+    # WHOLLY on the apron is DROPPED, not kept.  It was the §30 / 14ai
+    # pad-in-an-apron class until (12), and this twin asserted it was
+    # kept; MEASURED at HECA those 8 pads were the ONLY class of airside
+    # re-node left once the arrangement noded the airside first — 548 of
+    # the 553 minted airside nodes, every one STRICTLY INSIDE the airside
+    # union.  (12) (1)'s own sentence is "a pad polygon is the cluster
+    # outline MINUS the airside union" and §16g (10) (5) already said a
+    # cluster wholly on airside pavement gets no pad: its bodies seat on
+    # the pavement.  A building that really does stand in an apron is a
+    # HOLE in that apron and keeps its pad that way (the re-founded
+    # ``test_v2bank`` / ``test_constraints`` fixtures).
+    assert set(by) == {"b_cut", "b_lot"}, sorted(by)
     # the GROUNDSIDE lot clips nothing: the shed on it is untouched
     assert by["b_lot"].equals(on_lot.polygon)
     # the straddling pad is TRIMMED out of the apron and takes none of it
     assert by["b_cut"].intersection(apron.polygon).area == 0.0
     assert round(by["b_cut"].area) == 6000   # 100 x 70 less the 100 x 10 in the apron
-    # ... and the pad WHOLLY on the apron is KEPT, not erased: it is §30 /
-    # 14ai's pad-in-an-apron class, which welds to the apron around it
-    assert by["b_in"].equals(on_apron.polygon)
-    assert counts["kept_wholly_on_airside"] == 1
+    assert counts["dropped_wholly_on_airside"] == 1
     assert counts["clipped"] == 1
 
 

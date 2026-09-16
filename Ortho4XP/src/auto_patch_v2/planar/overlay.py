@@ -224,15 +224,24 @@ def airside_clip(regions, law, air=None, nodes=None, rim=None) -> tuple[list, di
             # what an aircraft rolls on is the §30 / 14ai PAD-IN-AN-APRON
             # class — the pad that welds to the apron around it and keeps
             # its own two-sided plate (r5's "30 pads wholly in the band").
-            # §16g (10) (5)'s "a cluster wholly on airside pavement gets
-            # no pad" is the DERIVED pad's rule and is applied at its own
-            # derivation (``geom.cluster_outlines``); erasing the general
-            # pad here takes three ruled twins with it
-            # (``test_v2bank``'s pad on a 3 % apron and its two
-            # neighbours).  It is COUNTED, because it is the one class
-            # that can still make the airside depend on the pad set.
-            counts["kept_wholly_on_airside"] = \
-                int(counts.get("kept_wholly_on_airside", 0)) + 1
+            # §16g (10) (12) (1) (Fable 2026-09-16; RULINGS 2026-09-16b):
+            # THE PAD IS DROPPED.  It was KEPT until now — the §30 / 14ai
+            # pad-in-an-apron class, which welds to the apron around it and
+            # keeps its own two-sided plate — and the comment here said so
+            # while also naming it "the one class that can still make the
+            # airside depend on the pad set".  MEASURED (lane
+            # ``v2padclip``, HECA): it is the ONLY class left.  With the
+            # two-pass arrangement the crossing points mint 5 airside nodes
+            # and these 8 pads mint **548**, every one of them STRICTLY
+            # INSIDE the airside union — a ring cutting the apron face it
+            # stands in.  (12) (1)'s own sentence is "a pad polygon is the
+            # cluster outline MINUS the airside union", and §16g (10) (5)
+            # already says a cluster wholly on airside pavement gets no pad
+            # and its bodies seat on the pavement.  So the general pad now
+            # obeys the derived pad's rule.
+            counts["dropped_wholly_on_airside"] = \
+                int(counts.get("dropped_wholly_on_airside", 0)) + 1
+            drop.add(i)
             continue
         counts["clipped"] = int(counts.get("clipped", 0)) + 1
         parts = [airside_vertex_snap(q, rim, counts)

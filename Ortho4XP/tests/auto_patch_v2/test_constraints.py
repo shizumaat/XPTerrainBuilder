@@ -75,7 +75,18 @@ def synthetic(law):
              "D", "airside", "taxi", {}),
         Cell(2, "stub", "stubB", _rect(-11.5, 22.5, 11.5, 80), (), None, "D",
              "airside", "taxi", {}),
-        Cell(3, "apron", "apron1", _rect(-200, 103, 200, 250), (), None, None,
+        # §16g (10) (12) (1) (Fable 2026-09-16; RULINGS 2026-09-16b): the
+        # apron carries the pad as a HOLE.  The pad used to be laid over
+        # the apron's own polygon, and under (12) a pad wholly inside the
+        # airside union is dropped at the arrangement ("a pad polygon is
+        # the cluster outline MINUS the airside union"; §16g (10) (5)'s
+        # "a cluster wholly on airside pavement gets no pad") — so this
+        # fixture had no `building` face at all.  A building standing in
+        # an apron IS a hole in that apron, which is what the data says
+        # here now; every law this file asserts is unchanged and the pad
+        # still welds to the apron by identity (09-01g).
+        Cell(3, "apron", "apron1", _rect(-200, 103, 200, 250),
+             (_rect(-60, 200, 60, 250),), None, None,
              "airside", "apron", {}),
         Cell(4, "building", "pad1", _rect(-60, 200, 60, 250), (), None, None,
              "airside", "pad", {}),

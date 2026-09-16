@@ -333,8 +333,14 @@ def test_the_bank_touches_neither_the_planar_map_nor_the_solve(apron_map, law): 
 
 @pytest.fixture(scope="module")
 def pad_map(law):                                           # noqa: F811
-    """An apron on ground falling 3 % across it, with a 60 x 40 m pad
-    welded into the middle of it."""
+    """An apron on ground falling 3 % across it, with a 40 x 40 m pad
+    welded into the middle of it — the apron carrying the pad as its own
+    HOLE (§16g (10) (12) (1)).  The pad is 40 m on a side, not 60, so no
+    edge of it reaches the apron role's own chord cap: the hole ring is
+    densified at the APRON's cap and a 60 m edge came back SPLIT at its
+    midpoint, which gave the pad a six-vertex rim and cost the pin twin
+    its own premise ("this pad's rim is FOUR vertices and the two Pins
+    take the diagonal")."""
     class _Three:
         provenance = {"synthetic": "3 % cross slope"}
 
@@ -348,9 +354,20 @@ def pad_map(law):                                           # noqa: F811
     cells = (
         Cell(0, "runway", "09/27", _rect(r, -RUN_LEN / 2, -HALF_WIDTH, RUN_LEN / 2,
                                          HALF_WIDTH), (), 3, "D", "airside", "runway", {}),
-        Cell(1, "apron", "apron1", _rect(r, -200.0, 120.0, 200.0, 320.0), (), None,
+        # §16g (10) (12) (1) (Fable 2026-09-16; RULINGS 2026-09-16b): the
+        # apron carries the pad as a HOLE — a building standing in an
+        # apron is a hole in that apron.  Laid OVER the apron the pad is
+        # now dropped at the arrangement ((12) (1): "a pad polygon is the
+        # cluster outline MINUS the airside union"), and the three twins
+        # below lost their subject.  The hole keeps every one of their
+        # claims intact, PURE-HOLE rim included: the pad's four rim
+        # vertices are still the apron's own by identity (05t), so the
+        # weld, the flatness target and the 1 % ceiling all read exactly
+        # as they did.
+        Cell(1, "apron", "apron1", _rect(r, -200.0, 120.0, 200.0, 320.0),
+             (_rect(r, -20.0, 190.0, 20.0, 230.0),), None,
              "D", "airside", "apron", {}),
-        Cell(2, "building", "pad1", _rect(r, -30.0, 190.0, 30.0, 230.0), (), None,
+        Cell(2, "building", "pad1", _rect(r, -20.0, 190.0, 20.0, 230.0), (), None,
              None, "groundside", "building", {}),
     )
     from auto_patch_v2.planar.build import build

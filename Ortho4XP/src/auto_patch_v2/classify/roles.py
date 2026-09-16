@@ -247,9 +247,18 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # subtraction would be area-null and is not made at all.  The
     # GROUNDSIDE subtractions below (the service-road corridors, §22.2's
     # set-back) are untouched: a pad does cut the landside it stands on.
-    if not ev.pad_union.is_empty and not bool(
-            law.tables.structures.placement.pad_airside_clip):
-        region = region.difference(ev.pad_union)
+    #
+    # §16g (10) (12) (1) (c) (Fable 2026-09-16; RULINGS 2026-09-16r): THE
+    # SUBTRACTION IS GONE, AND NOT ONLY GATED.  It was still made whenever
+    # ``pad_airside_clip`` was false, so on the SHIPPED arm the airside
+    # REGION was a function of which pads exist — the last thing (12) (1)
+    # ("the airside cells' geometry and vertex set are computed BEFORE any
+    # pad exists") still allowed.  MEASURED (lane v2padclip r2, the OFF-arm
+    # identity pair): with the arrangement clip un-gated and this `if`
+    # still standing the pad was cut TWICE — once out of the region here,
+    # then again at the arrangement, where the rim snap moved 1,700 pad
+    # vertices — and the shipped arm's census rose 4.2 % at HECA and 23 %
+    # at LEMD.  One cutter, and it is the arrangement's.
     taxi_parts, truck_parts, prox, spurs, src_cuts = _cut_lines(
         ev, region, rules, cut_polys)
     # §42 (2) as amended (RULINGS 2026-09-13dc): a §42 object-pavement body

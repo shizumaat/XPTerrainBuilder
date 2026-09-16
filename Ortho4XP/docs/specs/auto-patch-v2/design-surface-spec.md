@@ -15364,3 +15364,55 @@ groups); OTHH 44 / 1 unchanged; VMMC 0 (by (5)); SPJC/KCLT/CYXY any
 deck that changes named.  Twins: the two LEMD decks (tag-only via the
 chain), a VMMC-shaped case (a bore that enters a building → no
 corridor → no deck), a chain with no tag and no cut (no sever).
+
+### §34 (12) (5) CONSUMER CENSUS (owner RULINGS 2026-08-30l), written BEFORE the first consumer was edited — lane `v2vmmcbore`
+
+§34 (12) (5) is a REGION SHRINK at a SINGLE derivation site: fewer bores
+admitted.  It mints no shape class, no role, no ref and no sidecar key, so
+the table's job is the same as (12)'s own — prove each reader is
+COUNT-SENSITIVE ONLY.  The gate stands in `planar/structure_approach.
+mouths()`, which is where admission has stood since owner 12ab, so no
+consumer downstream of it can tell a refused bore from one that never had
+an on-field mouth.
+
+**A. THE ADMISSION.**
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| B1 | `planar/structure_approach.mouths()` | `bores`, `osm`, `law`, `FieldRegion` | **EDITED, the ONE derivation site of (5).** A bore that fails the (5) reading yields NO mouths. §29 (1)'s own gate is UNCHANGED and runs first, so `mouths_off_field` keeps counting exactly what it counted. |
+| B2 | `planar/structure_approach.field_region_for()` | `airport`, `law`, `polys` | **EDITED, reporting only**: the `FieldRegion` now carries the `airport` it was built from, so `mouths()` can reach the DEM and the cover WITHOUT a new argument at `structures.build_structures`'s call site (another lane's file this round). No test of the region changes. |
+| B3 | `planar/structure_service.terrain_tunnel_witness()` (NEW) | the law, the cover tree, the OSM ways, the DEM | **NEW, the reading itself** — a pure function, one call site (B1), beside (12) (3)'s and (4)'s readings for the same reason they live there. |
+| B4 | `airport/deck_signature.is_enclosure_way()` (NEW) | the OSM tags | **NEW predicate beside `is_tunnel_way` / `is_bridge_way`** — (5) (a)'s building / underground-parking / covered class, ONE spelling (row 27 of §33 (6)'s census: one predicate, never a second). `is_tunnel_way` itself is UNCHANGED: WHICH ways are bores is not what (5) is about. |
+| B5 | `airport/osm.TAGS_OF_INTEREST` | the feeds | **EDITED: `covered` added.** (5) (a) names `covered=yes` and the v2 reader's whitelist dropped the tag, so the witness could not be read at all. `O4_Vector_Map.ROADS_TAGS_OF_INTEREST` already keeps it (§45 (9), schema 2026-09-15). Additive: every consumer reads tags BY KEY, so one more key changes no existing reading. |
+| B6 | `planar/structures.build_structures` — `with_mouth` / `covered` / `bores_no_mouth` | the mouths `mouths()` returned | **NOT TOUCHED** (another lane's file). A (5)-refused bore is absorbed into `stats.bores_no_mouth`, whose label then covers two populations. THE ONE LINE (5) WOULD OWE `structures.py` is its own counter; it is NOT taken, and the conflation is named in the MEASURED block and in the lane report instead. The refusals themselves are NAMED, one line each, through `mouth_reports`. |
+| B7 | `planar/structure_approach.mouth_reports()` | `FieldRegion`, mouths, dropped | **EDITED, reporting only**: emits one `bore not a terrain tunnel …` line per (5) refusal with its evidence, kept apart from the `mouth off-field …` lines — the r1 discipline (two reports are never one region). |
+| B8 | `planar/structure_approach.merge_duals` / `apply_plates` / `object_corridor.mouth_covered_by` | the mouth list | UNAFFECTED — the list is shorter; no mouth changes. |
+| B9 | `planar/structures` ramp / void / deck / stop machinery, `planar/zones.keepouts`, `planar/basins`, `planar/overlay`, `constraints/*`, `verify/structures`, `emit/osm_adapter`, `tools/check_grade` | the corridors and the records | UNAFFECTED, exactly as §34 (12)'s own census T5–T12 ruled: a corridor that is not built withdraws its own cells, records and rows with it. No family, role or sidecar key is added by (5). |
+| B10 | `planar/structure_deck.deck_intervals` + `structure_service.deck_witness_for` | the corridor's decks | **EDITED for §34 (12) (4) AMENDED (2)** (16f), and ONLY safely because (5) runs first: witness (i) now reads the CORRIDOR's whole bore chain instead of the way under the span. |
+
+**B. THE (5) (a) WITNESS — WHICH FEED CARRIES IT, PER TILE (the brief's own bar).**
+
+Measured by reading the CACHED feeds directly (`scratchpad/vb/feedtags.py`,
+raw XML, before the v2 whitelist):
+
+| tile | feed | closed `building*` rings | `amenity=parking` / `parking=*` | `covered=*` ways |
+|---|---|---|---|---|
+| `+22+113` (VMMC) | `airports` | **37** (5 within 4 km of the owner probe, all `hangar` / `transportation`, nearest **377 m**) | **0** | 163 |
+| `+22+113` | `airport_small_roads` — **the feed the VMMC bores are in** | **0** | **0** | 0 |
+| `+22+113` | `big_roads` | 0 | 0 | 258 |
+| `+22+113` | `small_roads` (v1 tile layer, not a v2 feed) | **0** of 110,279 ways | 0 | — |
+| `+40-004` (LEMD) | all three | 13 rings total | 0 | — |
+| `+25+051` (OTHH) | all three | 25 rings total | 0 | — |
+
+**NO CACHED FEED CARRIES THE BUILDING/PARKING WITNESS AT THE VMMC SITE.**
+Ortho4XP's general building layer is commented out (`O4_Vector_Map.
+include_buildings`), the `airports` feed's buildings are the aerodrome's
+own, and `amenity=parking` polygons are mapped in NO feed at any of the
+three tiles.  So (5) (a) can NEVER fire at the owner's site: the Taipa
+car-park buildings the bores enter are not in the data.  **Reported, and
+the round does NOT stop on it** — because (5) (c) is a POSITIVE test over
+data that IS present, and the measurement below shows it separates the
+owner's site cleanly.  (a) is implemented anyway (it costs one predicate
+and fires at LEMD, where two bores DO end inside a mapped
+`building=transportation`); a feed change is what it would take to make it
+bite at VMMC, and that is the owner's call, not this lane's.

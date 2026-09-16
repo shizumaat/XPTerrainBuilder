@@ -44,10 +44,34 @@ from auto_patch_v2.law import Law  # noqa: E402
 from auto_patch_v2.planar.build import build  # noqa: E402
 
 
-def armed(law, on: bool):
-    p = _dc.replace(law.tables.structures.placement, pad_from_cluster=on)
+def armed(law, on: bool | dict):
+    """``on`` is either the historical bool (``pad_from_cluster``) or a dict
+    of ``[placement]`` key -> value, coerced to the key's own type — the same
+    arm form ``v2_solve_replay --placement KEY=V`` speaks (lane ``v2padqp``).
+    An unknown key REFUSES BY NAME rather than arming nothing."""
+    base = law.tables.structures.placement
+    over = {"pad_from_cluster": bool(on)} if isinstance(on, bool) else dict(on)
+    for k in over:
+        if not hasattr(base, k):
+            raise SystemExit(f"[arm] unknown [placement] key: {k}")
+    over = {k: type(getattr(base, k))(v) if not isinstance(v, type(getattr(base, k)))
+            else v for k, v in over.items()}
+    p = _dc.replace(base, **over)
     st = _dc.replace(law.tables.structures, placement=p)
     return _dc.replace(law, tables=_dc.replace(law.tables, structures=st))
+
+
+def _parse_arm(spec: str) -> dict:
+    """``KEY=V,KEY=V`` -> dict, with ``true``/``false`` read as bools."""
+    out: dict = {}
+    for item in spec.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        k, _, v = item.partition("=")
+        vl = v.strip().lower()
+        out[k.strip()] = True if vl == "true" else False if vl == "false" else v.strip()
+    return out
 
 
 def read(pm, law):
@@ -85,44 +109,10 @@ def read(pm, law):
     return vkeys, sorted(apron), faces_by_role, fv, xy, poly
 
 
-def _read_old(pm):
-    """airside vertex keys, apron face refs, per-role face counts."""
-    vkeys, apron, faces_by_role = set(), [], {}
-    fv = {}
-    for f in pm.faces.values():
-        faces_by_role[f.role] = faces_by_role.get(f.role, 0) + 1
-        if f.role == "apron":
-            apron.append(f.ref)
-    # airside vertices: incident to any face whose side is airside
-    airside_f = {i for i, f in pm.faces.items() if f.side == "airside"}
-    for v in pm.vertices.values():
-        if any(i in airside_f for i in v.incident_faces):
-            vkeys.add(v.key)
-            fv[v.key] = tuple(sorted({pm.faces[i].role for i in v.incident_faces
-                                      if i in airside_f}))
-    xy = {pm.vertices[v].key: pm.vertices[v].xy for v in air}
-    # the AIRSIDE POLYGON of this arm, from its own faces
-    from shapely.geometry import Polygon as _P
-    from shapely.ops import unary_union as _u
-    gs = []
-    for f in pm.faces.values():
-        if f.role not in roles:
-            continue
-        try:
-            ring = [pm.vertices[v].xy for v in pm.ring_vertices(f.ring)]
-            if len(ring) >= 3:
-                g = _P(ring)
-                gs.append(g if g.is_valid else g.buffer(0.0))
-        except Exception:
-            pass
-    poly = _u(gs) if gs else None
-    return vkeys, sorted(apron), faces_by_role, fv, xy, poly
-
-
-def run(icao="HECA", out="arm.json"):
+def run(icao="HECA", out="arm.json", arm_a=None, arm_b=None):
     GUARD.__enter__()
     try:
-        _run(icao, out)
+        _run(icao, out, arm_a, arm_b)
     finally:
         GUARD.__exit__(None, None, None)
         report_guard_churn(GUARD)
@@ -130,7 +120,7 @@ def run(icao="HECA", out="arm.json"):
               else f"BLOCKED {GUARD.blocked}")
 
 
-def _run(icao, out):
+def _run(icao, out, arm_a=None, arm_b=None):
     law0 = Law.for_airport(icao)
     t = time.perf_counter()
     inputs = default_inputs()
@@ -171,8 +161,12 @@ def _run(icao, out):
           flush=True)
     rules = load_rules()
     res = {}
-    for name, on in (("off", False), ("on", True)):
+    arms = (("off", arm_a if arm_a is not None else False),
+            ("on", arm_b if arm_b is not None else True))
+    for name, on in arms:
         law = armed(law0, on)
+        print(f"{name}: ARM {json.dumps(on if isinstance(on, dict) else {'pad_from_cluster': on})}",
+              flush=True)
         t = time.perf_counter()
         cl = classify(airport, law, rules, cache=ocache)
         pm, _st = build(airport, cl, law, cache=ocache, objects=pack_objects,
@@ -230,5 +224,17 @@ def _run(icao, out):
 
 
 if __name__ == "__main__":
-    run(sys.argv[1] if len(sys.argv) > 1 else "HECA",
-        sys.argv[2] if len(sys.argv) > 2 else "arm.json")
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("icao", nargs="?", default="HECA")
+    ap.add_argument("out", nargs="?", default="arm.json")
+    ap.add_argument("--arm-a", metavar="KEY=V[,KEY=V]",
+                    help="[placement] keys for the FIRST arm (default: "
+                         "pad_from_cluster=false)")
+    ap.add_argument("--arm-b", metavar="KEY=V[,KEY=V]",
+                    help="[placement] keys for the SECOND arm (default: "
+                         "pad_from_cluster=true)")
+    a = ap.parse_args()
+    run(a.icao, a.out,
+        _parse_arm(a.arm_a) if a.arm_a else None,
+        _parse_arm(a.arm_b) if a.arm_b else None)

@@ -5665,3 +5665,81 @@ T4 garage (40.4892214, −3.5944287) seats on `building45` at one level
 with the fill under it (r2: 615.09, +4.06 m).  Consumer census first
 (every reader of the arrangement / the airside cells / the pad polygon
 / `_face_map` / the census cutters — the two cutters r1 aligned).
+
+### §16g (10) (12) MEASURED (lane `v2padclip`, 2026-09-16; branch `claude/v2padclip`, base main `7f80dc71`)
+
+**THE CONSUMER CENSUS (RULINGS 2026-08-30l), BEFORE ANY CONSUMER IS
+EDITED.**  The affected geometry is THE ARRANGEMENT'S NODED VERTEX SET —
+not a new region, an exemption or a claim, which is why the table below
+is short and its rows are all one seam: `planar/overlay.build_arrangement`
+is the ONLY producer of it (`grep build_arrangement src` = one call site,
+`planar/build.build`:161) and every other pass in the engine reads it
+THROUGH `PlanarMap`.  So the census asks, per reader: *what does this
+pass read that a change to WHICH VERTICES EXIST can move?*
+
+| # | reader | what it reads of the arrangement | ruled interaction |
+|---|---|---|---|
+| 1 | `planar/build.build` :198-240 | `arr.faces` → `Face.ring/holes`, `vertex()` (exact-XY dedupe → the WELD: one coordinate = one unknown), `arr.regions` → `edge_kind_of_ref` / `quay_refs`, `arr.sources` → `_breaklines`, `arr.seam_bands` → `_seam_vertices` | THE one consumer. The airside faces it is handed must be the pad-free ones; the pad faces are additional faces that SHARE the airside's own coordinates and mint none of their own inside the airside union. Nothing else in the file changes. |
+| 2 | `solve/design_roles.airside_stage_vertices` (§20b stage 1) | every vertex of an `airside_stage_roles` face | the stage-1 column set. A minted airside vertex is a NEW UNKNOWN in the airside problem and a deleted one removes a row — this is the channel 15ah attributed the 4,474-vertex far field to. Bar `pad_airside_renode` = 0 closes it BY CONSTRUCTION, not by a veto here. |
+| 3 | `constraints/pads._pad_polys` / `_pad_groups` / `pad_flats` / `pad_shared` / `frontage_contacts` | pad FACE rings out of `PlanarMap` (`vw.rings`, `vw.holes`) | reads the pad's own face, never the airside's. The one-way plate at airside pairs (r2) is priced on SHARED vertices — preserved: the pad still takes the airside's own boundary vertices by identity (12) (1). UNCHANGED. |
+| 4 | `constraints/pads._pavement_geoms` / `_pavement_faces` | airside pavement face rings | reads airside face geometry. It gets FEWER vertices (the pad-minted ones stop existing) and the same polygon: the clip is area-null (14as (i)), so every proximity read it does is unchanged in kind. |
+| 5 | `constraints/cluster_pad._face_map` :227 / `plane_groups` / `pad_cluster_mismatch` | pad faces by `_base_ref` (r2's join) + `rolled_on_roles` faces for the cluster/apron reach | the CENSUS CUTTER. r1 aligned it with the mint (one ref per cluster piece, `ref#k` for the surplus); r2 made its share test the REF's own area. (12) does not move either cutter — it moves WHICH VERTICES the faces carry. UNCHANGED. |
+| 6 | `constraints/pad_relief` / `pad_frontage_gs` | `_pad_polys` + `_pavement_geoms` | as 3 / 4. UNCHANGED. |
+| 7 | `classify/roles.classify` :244-251 | subtracts the pad union from the airside REGION when `pad_airside_clip` is OFF | region-level, pre-arrangement. (12) changes nothing here; the key still selects the region-level behaviour. |
+| 8 | `classify/evidence._pads` / `_cluster_pads` :499-518 | mints the pad polygons; pre-splits the outline at the apt.dat airside union only when the arrangement clip is DISARMED | THE MINT. (12) does not re-cut it. The guard at `_mint_airside` stands. |
+| 9 | `planar/shapes.build_shapes`, `planar/zones.zone_regions`, `emit/*`, `verify/*` | `PlanarMap` faces/vertices | all downstream of 1; they read whatever the arrangement produced. None of them can distinguish a pad-minted airside vertex from a real one, which is exactly why the trim belongs at the single derivation site (CLAUDE.md's own preference) and not in any of them. |
+| 10 | `tools/check_grade.py` / `harness/census.py` | the EMITTED patch | the instrument. `pad_airside_renode` is a SIDECAR-DECLARED family (the `eat_ceiling` / `seam_pins` pattern): the arrangement publishes what the pad stage did to the airside vertex set and the census reads it. A patch with no key reads exactly as before. |
+
+NO consumer is vetoed and no consumer is edited: the whole change is at
+`planar/overlay.build_arrangement`, the single derivation site.
+
+**THE DEFECT REPRODUCED AND ATTRIBUTED (`tools/pad_airside_arm.py`, HECA,
+one tree, ONE variable `[placement] pad_airside_clip`, `pad_from_cluster`
+FALSE on both arms — the clip-alone arm of 15ah).**  `[guard] shared repo
+UNCHANGED`.  Airside vertices (`solve/design_roles.airside_stage_vertices`,
+never a hand list): OFF **19,435** → clip ON **18,710**, **GONE 1,008,
+NEW 283** (15ah's build-frame reading: 1,082 / 235).
+
+*THE 1,008 GONE ARE NOT DELETIONS — THEY ARE MINTS THE OFF ARM MAKES.*
+Every one of the leading classes is a vertex incident to an APRON AND A
+BUILDING PAD at once on the OFF arm — `apron:pav1 + building:building1`
+116, `apron:pav132 + building:building289` 83, `apron:pav1 +
+building:building7` 67, `…building4` 67, `…building6` 63 — i.e. the
+UNCLIPPED pad ring crossing the apron, which splits the apron's own
+edges.  With the clip armed the pad is differenced out of the apron and
+those nodes have no reason to exist.  So §16g (10) (12) (2)'s frame as
+written ("an airside vertex present in the pads-OFF arm is present in the
+pads-ON arm") would score the pad stage's own pollution as the defect: the
+OFF arm is the POLLUTED one.  **The frame that survives measurement is the
+invariance frame: the airside vertex set must be the SAME on every pad
+arm, because it is a function of the airside alone** — which is (12) (1)'s
+own sentence, and (2) read as a bar on either direction.  `pad_airside_
+renode` is therefore counted as DELETED ∪ MINTED against the pad-free
+airside, on each arm, and its bar 0 subsumes (2).
+
+*THE 283 MINTS ARE TWO CLASSES, BOTH THE NODING'S.*  `PAD_AIRSIDE` on the
+clip arm: `pads 384, clipped 59, snapped_pads 58, snapped_vertices 419,
+snap_max_m 4.8, snap_too_far 75 (max 70.76 m), snap_refused_overlap 2,
+snap_refused_invalid 1, kept_wholly_on_airside 8`.
+(a) THE UNSNAPPED CROSSING POINT — 75 of the clip's own crossing points
+stand further from a rim NODE than `pad_airside_snap_max_m`, so they split
+a rim edge and mint an airside vertex that exists only because the pad
+does.  The rim they snap to is `AirsideRim(air, …)`, built from the airside
+REGION rings — NOT from the arrangement's own node set, which also carries
+every crossing the runway sources, the zone edges and the seam bands mint
+INSIDE the airside.  A pad vertex near one of those can never snap.
+(b) THE GLOBAL SNAP-ROUND — the whole line set is noded in ONE
+`shapely.unary_union(…, grid_size=min_distinct_spacing_m)`, and
+snap-rounding is a GLOBAL operation: adding or removing ANY line can move
+an unrelated vertex by up to half a cell.  Measured directly in the pair:
+`NEW vertex → nearest OFF-arm airside vertex` has **min 0.500 m**, p50
+2.55 m, and the matching GONE/NEW couples read as one vertex MOVED — e.g.
+`apron:pav1 + service_road:route0` at (30.10639358515, 31.38950704486) on
+the OFF arm and (30.10639809557, 31.38950704376) on the ON arm, the same
+node 0.5 m apart.  228 of the 283 stand over 1 m from any OFF-arm airside
+vertex and 106 over 5 m; only **4 of 283** lie on the OFF arm's airside
+boundary at all.  **No amount of rim snapping can fix (b): while the pads
+are noded in the same pass as the airside, the airside vertex set is a
+function of the pad set.**  That is the mechanism (12) (1) names, and the
+fix is structural — the airside is noded BEFORE the pads exist and the pad
+stage may only ADD vertices outside the airside union.

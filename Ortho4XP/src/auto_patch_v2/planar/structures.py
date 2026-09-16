@@ -103,6 +103,8 @@ from .structure_approach import (FieldRegion, apply_plates,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
+                                decked_exclusion as _decked_exclusion,
+                                owner_kept as _owner_kept, parts as _parts,
                                 osm_stops as _osm_stops,
                                 pad_relief_m as _pad_relief_m)
 from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
@@ -960,6 +962,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                   tuple(tuple(h.coords)[:-1] for h in part.interiors),
                                   c.code_number, c.code_letter, c.side, c.kind,
                                   dict(c.evidence, structure_cut=1.0)))
+    # §33 (6) B AMENDED (3) (c) (owner RULINGS 2026-09-15br): the surface
+    # elements over an OBJECT-DECKED trench RIDE THE OBJECT — the cut lines
+    # are trimmed at each such outline's rim, one derivation site
+    # (``structure_service.decked_exclusion``, which holds the reading).
+    cut_lines = _decked_exclusion(classification.cut_lines, tunnels, footprints,
+                                  cells, polys, _cut_roles, grid, stats)
     by_ref = {c.ref: c for c in cells}
     for role, ref, part, _tid in new_cells:
         src = by_ref.get(ref.split(":", 1)[1].split("#")[0]) if ref.startswith("bridge_deck:") \
@@ -977,6 +985,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               None, None, role_side(law, role), "structure", {}))
     out_cells = [_dc.replace(c, id=i) for i, c in enumerate(out_cells)]
     cl = _dc.replace(classification, cells=tuple(out_cells),
+                     cut_lines=tuple(cut_lines),
                      keepouts=tuple(tuple(k.exterior.coords)[:-1] for k in keepouts),
                      stats={**dict(classification.stats), "tunnels": stats.tunnels,
                             "tunnel_decks": stats.decks, "tunnel_object_decks": stats.object_decks,
@@ -988,13 +997,3 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
 
-
-def _owner_kept(cell: tuple, tunnels: list[Tunnel], keep: list[bool]) -> bool:
-    ids = {t.id for t, k in zip(tunnels, keep) if k}
-    return cell[3] in ids
-
-
-def _parts(geom) -> list[Polygon]:
-    if geom is None or geom.is_empty:
-        return []
-    return [g for g in shapely.get_parts(geom) if g.geom_type == "Polygon" and g.area > 1e-6]

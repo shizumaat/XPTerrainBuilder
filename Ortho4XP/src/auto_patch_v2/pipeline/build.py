@@ -508,6 +508,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
              f"{ts.signature_s:.2f} s)  plate mouths {len(ss.plate_mouths)}  "
              f"crest from approach {len(ss.crest_from_approach)}  "
              f"underpasses {len(ss.underpasses)}  "
+             f"object-decked trenches {ss.decked_outlines} (§33 (6) B (3) (c): "
+             f"{ss.decked_pavement_m2:,.0f} m2 pavement, {ss.decked_centreline_m:,.0f} m "
+             f"centreline, {ss.decked_road_m:,.0f} m road excluded)  "
              f"door ramps {ss.door_ramps}  sunken roads "
              f"{ss.sunken_roads}  wall corridors {ss.wall_corridors}  tunnels {ss.tunnels}  "
              f"decks {ss.decks}  "
@@ -527,6 +530,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         for r in ss.plate_mouths:
             _say(f"    {r}", out)
         for r in ss.underpasses:
+            _say(f"    {r}", out)
+        for r in ss.decked_excluded:
+            _say(f"    {r}", out)
+        for r in ss.decked_runway_family:
             _say(f"    {r}", out)
         for r in ss.crest_from_approach:
             _say(f"    {r}", out)

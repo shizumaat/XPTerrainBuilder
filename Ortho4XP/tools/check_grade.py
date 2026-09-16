@@ -6056,16 +6056,54 @@ def _channel_facilities_declared(channel_facilities) -> list:
 
 
 def _channel_declared_at(prof, lat: float, lon: float) -> Optional[float]:
-    """The record's floor over a point: the two NEAREST stations,
-    interpolated.  The stations ARE the axis's own, so "nearest two" is
-    "the segment this vertex stands over"."""
+    """§45 (17) (owner RULINGS 2026-09-15bo): the record's floor over a
+    point, read THE WAY THE FLOOR WAS STATED — the profile's ``z(s)`` at
+    the vertex's own AXIS STATION.
+
+    The published profile's points ARE the axis stations the record was
+    stated over, so the polyline through them is the axis and the
+    cumulative chord length is ``s``.  ONE READING WITH
+    ``auto_patch_v2.verify.channel._declared_at``, which states the same
+    law for the build's own verify: the first arm took "the two nearest
+    stations", which off the centreline picks two on the SAME side and
+    answers a different number over the whole width of the corridor —
+    measured at KDFW 2026-09-16, 85 census rows against the build
+    verify's 55 on one surface."""
     if not prof:
         return None
-    d = sorted(((_hav_m(lat, lon, la, lo), z) for la, lo, z in prof))
-    if len(d) == 1 or d[0][0] <= 1e-9:
-        return d[0][1]
-    (d0, z0), (d1, z1) = d[0], d[1]
-    return z0 + (z1 - z0) * (d0 / max(d0 + d1, 1e-9))
+    if len(prof) == 1:
+        return prof[0][2]
+    # the axis in local metres about the query point
+    cos0 = math.cos(math.radians(lat))
+    pts = [((lo - lon) * 6378137.0 * math.radians(1.0) * cos0,
+            (la - lat) * 6378137.0 * math.radians(1.0)) for la, lo, _z in prof]
+    zs = [float(z) for _la, _lo, z in prof]
+    ss = [0.0]
+    for a, b in zip(pts, pts[1:]):
+        ss.append(ss[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+    best_s = None
+    best_d = None
+    for i, (a, b) in enumerate(zip(pts, pts[1:])):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 <= 1e-12 else max(0.0, min(1.0, (-a[0] * dx - a[1] * dy) / L2))
+        qx, qy = a[0] + dx * t, a[1] + dy * t
+        d = math.hypot(qx, qy)
+        if best_d is None or d < best_d:
+            best_d, best_s = d, ss[i] + t * math.hypot(dx, dy)
+    if best_s is None:
+        return None
+    if best_s <= ss[0]:
+        return zs[0]
+    if best_s >= ss[-1]:
+        return zs[-1]
+    for i in range(len(ss) - 1):
+        if ss[i] <= best_s <= ss[i + 1]:
+            span = ss[i + 1] - ss[i]
+            if span <= 1e-9:
+                return zs[i]
+            return zs[i] + (zs[i + 1] - zs[i]) * ((best_s - ss[i]) / span)
+    return zs[-1]
 
 
 def _hav_m(lat0: float, lon0: float, lat1: float, lon1: float) -> float:

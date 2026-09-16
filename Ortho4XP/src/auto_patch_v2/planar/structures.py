@@ -89,13 +89,14 @@ from ..law import Law
 from ..law.tables import role_family, role_side, zone2_half_width_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
-from ..model.structures import Deck, Tunnel
+from ..model.structures import Channel, Deck, Tunnel
 from .basins import object_decks
+from .channel_claims import add_channel_cells, channel_yields
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, airside_stops,
                                   locked_road_stops, road_true_edge, stop_and_steepen,
                                   wall_corridor_note, wall_corridor_profile)
-from .structure_approach import (FieldRegion, apply_plates,
+from .structure_approach import (_dem,FieldRegion, apply_plates,
                                  approach_ground as _approach_ground,
                                  carriageway_width_m,
                                  chains, field_region_for, mouth_reports, under_cover,
@@ -126,16 +127,12 @@ NODE_TOL = 0.05                    #: two node coords closer than this are one
 MAX_HOPS = 6                       #: hops an approach walk follows from a mouth
 PARALLEL_COS = math.cos(math.radians(30))   #: 31h's dual test / the kink test
 
-
-def _dem(airport: Airport, p: XY) -> float:
-    return float(airport.dem.z(p[0], p[1]))
-
 # ── build ────────────────────────────────────────────────────────────────
 
 def build_structures(airport: Airport, classification: Classification, law: Law,
                      objects: _t.Sequence = (), corridors: _t.Sequence = (),
                      extra_groups: _t.Sequence[Group] = (),
-                     plates: _t.Sequence = ()
+                     plates: _t.Sequence = (), channels: _t.Sequence[Channel] = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -150,7 +147,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     ``extra_groups`` are the door ramps and sunken roads
     (``planar/door_ramps.py``; RULINGS 2026-09-08b/c) as build groups
     through the same machinery.  A classification with no bores, no
-    corridors and no groups comes back unchanged."""
+    corridors and no groups comes back unchanged.  ``channels`` are the
+    §45 OPEN CHANNELS identified upstream (``planar/channel_claims``)."""
     stats = StructureStats()
     odecks = object_decks(objects)
     tn = law.tables.structures.tunnel
@@ -174,7 +172,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # module doc; the round-1 measurement that forced it is there too).
     up_ways, up_parents, stats.underpasses = _underpass_bores(airport, law, cells, polys)
     tunnel_ways += up_ways
-    if (not tunnel_ways and not corridors and not extra_groups) or not classification.cells:
+    tunnel_ways, corridors, extra_groups = channel_yields(  # §45 (1)/(6)/(7)
+        channels, tunnel_ways, corridors, extra_groups, stats.refused)  # noqa: E501
+    if (not tunnel_ways and not corridors and not extra_groups and not channels) or not classification.cells:
         return classification, (), stats
     cell_tree = STRtree(polys) if polys else None
     bores = chains(tunnel_ways) if tunnel_ways else []
@@ -221,7 +221,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.bores_no_mouth = len(bores) - len(covered)
     stats.bores_mouth_only = len(mouth_only)
     stats.mouth_only_bores = ["+".join(str(w.id) for w in b.ways) for b in mouth_only][:12]
-    if not covered and not corridors and not extra_groups:
+    if not covered and not corridors and not extra_groups and not channels:
         return classification, (), stats
     # THE PRECEDENCE PER MOUTH (05n-3, ``tunnel.object.source_precedence``):
     # an OSM bore mouth inside an object corridor's footprint is the
@@ -937,7 +937,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         footprints = [f for f, k in zip(footprints, keep) if k]
         keepouts = [f for f, k in zip(keepouts, keep) if k]
     stats.tunnels = len(tunnels)
-    if not tunnels:
+    if not add_channel_cells(channels, law, new_cells, footprints, keepouts, stats) \
+            and not tunnels:
         return classification, (), stats
 
     # cut the pavement the structures run through (never the runway

@@ -24,7 +24,23 @@ import dataclasses as _dc
 
 from .frame import XY
 
-__all__ = ["Deck", "Tunnel", "Basin", "profile_z", "deck_z_on_faces"]
+__all__ = ["Deck", "Tunnel", "Basin", "Channel", "ChannelWall",
+           "profile_z", "deck_z_on_faces", "CHANNEL_FLOOR_ROLE",
+           "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM"]
+
+#: §45 (8) EMISSION: the channel's floor faces carry ``tunnel_trench``
+#: (already an ``emit/graded.FLOOR_ROLES`` member) and its banks the VOID
+#: role ``retaining_wall`` — the same two the tunnel and the basin use, so
+#: every downstream reader (``rim_runs``, the rim breaklines, the DSF
+#: adapter) follows with no edit.  No new role is minted (§45 C15
+#: "prefer none").
+CHANNEL_FLOOR_ROLE = "tunnel_trench"
+CHANNEL_WALL_ROLE = "retaining_wall"
+#: §45 (5): the two crest laws.  ``"dem"`` is the BORE's (RULINGS
+#: 2026-09-03b, unchanged anywhere); ``"design"`` is the CHANNEL's — the
+#: solved surface of the governed cell at the corridor edge.
+CREST_DEM = "dem"
+CREST_DESIGN = "design"
 
 
 #: A point this far outside a corridor ring (METRES, the planar frame's
@@ -289,6 +305,128 @@ class Tunnel:
     #: build steeper than the judged cap mints a violation by
     #: construction").
     pinched: tuple[str, float, float] | None = None
+
+
+@_dc.dataclass(frozen=True)
+class ChannelWall:
+    """One SIDE of an open channel (spec §45 (2)/(5)).
+
+    ``shape`` is how the bank between crest and floor is made:
+    ``"face"`` — a pack wall face stands here and the bank hides behind
+    it at the identity spacing (near-vertical at the face); ``"lidar"`` —
+    a credible lidar inset states the bank and it is KEPT (clamped
+    monotone crest → floor); ``"bank"`` — neither, so ``[channel]
+    bank_slope`` (1:2) runs from crest to floor.  ``crest`` names the
+    crest REFERENCE, always :data:`CREST_DESIGN` for a channel: the
+    solved surface of the governed cell at the corridor edge, never
+    ``DEM(x, y)``.  ``path`` is the crest line in the airport frame and
+    ``toe`` the floor-edge line beneath it, station for station."""
+
+    side: str                       # "left" | "right" (the axis's own sense)
+    shape: str                      # "face" | "lidar" | "bank"
+    crest: str = CREST_DESIGN
+    path: tuple[XY, ...] = ()
+    toe: tuple[XY, ...] = ()
+    witness: str = ""               # the pack resource / inset that stated it
+
+
+@_dc.dataclass(frozen=True)
+class Channel:
+    """THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i) — a road /
+    rail corridor under a STATED CROSSING that keeps its own floor
+    through the field.
+
+    Data only, like every record here: ``planar/channel.py`` derives it
+    once and ``constraints/channel.py`` + ``verify/channel.py`` READ it.
+    Neither re-derives the corridor (the defect class this module's
+    docstring names).
+
+    ``ways`` the OSM road/rail way ids sharing the corridor (both
+    carriageways, the frontage roads, the rail) within ``[channel]
+    merge_m``; ``axis`` the merged centreline through the field, ``s``
+    growing from the field ENTRY (unlike a ``Tunnel``, whose ``s`` grows
+    outward from a mouth — a channel has no mouth, §45 (6));
+    ``profile`` the FLOOR as ``(s, z)`` stations and ``widths`` the
+    half-width as ``(s, half)``; ``decks`` the crossings (``Deck``
+    records with ``datum = "design"``, §45 (4): the neck's faces keep
+    their airside role and law); ``walls`` one :class:`ChannelWall` per
+    side; ``ends`` the two stations where the corridor leaves the
+    airside pavement union ⊕ ``mouth_standoff_m`` (beyond them §37
+    governs and the floor rejoins the road's own profile at
+    ≤ ``ramp_max_grade``); ``witnesses`` each identification witness by
+    NAME (§45 (1): "Each witness is recorded on the record by name");
+    ``datum_source`` which of §45 (3)'s three the floor came from —
+    ``"pack"`` (i), ``"lidar"`` (ii) or ``"clearance"`` (iii) — so a
+    ``--refresh-data dem`` moving a site from (iii) to (ii) is visible in
+    the report with no law change."""
+
+    id: str
+    ways: tuple[int, ...]
+    axis: tuple[XY, ...]
+    profile: tuple[tuple[float, float], ...]
+    widths: tuple[tuple[float, float], ...] = ()
+    decks: tuple[Deck, ...] = ()
+    walls: tuple[ChannelWall, ...] = ()
+    ends: tuple[float, float] = (0.0, 0.0)
+    witnesses: tuple[str, ...] = ()
+    datum_source: str = ""
+    #: THE MEMBER WAYS AS ``(feed, id)`` KEYS — what every cross-pass
+    #: join uses (``planar/channel_claims.way_key``).  ``ways`` above is
+    #: the same ways' plain ids, for the citations and the sidecar; it is
+    #: NOT an identity, because the feeds' negative ids collide (owner
+    #: addendum 2026-09-15: 8 of 11 LEMD deck ids carry two ways).
+    way_keys: tuple[tuple[str, int], ...] = ()
+    #: §45 (10)/(11): the corridor's CREST estimate (the DEM's own mean
+    #: along the axis) and the pack placements that witnessed it (1) (c).
+    #: The crest estimate is what ``object_min_depth_m`` is measured
+    #: against when a pass asks whether an object is the channel's own —
+    #: a pit BESIDE the corridor keeps its basin (§45 (11)).
+    crest_estimate_m: float = 0.0
+    witness_ids: tuple[str, ...] = ()
+    #: How the width was reached: ``"pack walls (10) (i)"``, ``"lidar
+    #: bank toes (10) (ii)"`` or ``"carriageways ⊕ lane_width_m (10)
+    #: (iii)"`` — the hole states the CROSSING, never the width.
+    width_source: str = ""
+    crest: str = CREST_DESIGN
+    bank_slope: float = 0.5
+    #: §45 (17) THE CHANNEL'S OWN WALL BAND (owner RULINGS 2026-09-15bo):
+    #: the plan width of the band between the floor ring and the crest
+    #: ring — the bank of (5), never thinner than a bore's ``[tunnel]
+    #: wall_gap_m + wall_band_width_m``.  The floor stands this far back
+    #: from every airside or adjacent-ground cell AND from every DECK, so
+    #: a floor face never shares a vertex with a pavement cell.
+    wall_band_m: float = 0.0
+    #: The emitted faces' refs (``planar/channel.py`` writes the cells):
+    #: the floor ``channel_floor:<k>`` and the void ``channel_wall:<k>``.
+    floor_ref: str = ""
+    wall_ref: str = ""
+    #: The corridor's plan ring (the floor's outline BEFORE the decks are
+    #: subtracted) and the crest ring (the corridor ⊕ the banks), in the
+    #: frame — what the flat-site region subtracts (§45 (8), C13) and
+    #: what the object gates read as "inside an identified corridor"
+    #: (§45 (7), C5/C6/C7).
+    region: tuple[XY, ...] = ()
+    crest_ring: tuple[XY, ...] = ()
+    #: The same two in LONGITUDE / LATITUDE — what the SIDECAR publishes,
+    #: for the same reason ``Basin.ramp_rings_ll`` exists: the patch's
+    #: metres are not the planar frame's, so the published corridor is
+    #: carried in the one coordinate system both sides agree on.
+    region_ll: tuple[tuple[float, float], ...] = ()
+    profile_ll: tuple[tuple[float, float, float], ...] = ()
+    notes: tuple[str, ...] = ()
+
+    def floor_z(self, s: float) -> float:
+        """The floor at ``s`` along the axis — :func:`profile_z`, the ONE
+        reading both the generator's row and the verifier's expectation
+        are stated with."""
+        return profile_z(self.profile, s)
+
+    def half_width(self, s: float) -> float:
+        """The corridor's half-width at ``s`` (§45 (2)); the end values
+        beyond the stated stations, exactly as :func:`profile_z`."""
+        if not self.widths:
+            return 0.0
+        return profile_z(self.widths, s)
 
 
 @_dc.dataclass(frozen=True)

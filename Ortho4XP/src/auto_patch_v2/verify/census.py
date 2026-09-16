@@ -26,6 +26,7 @@ from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_step,
                      adjacent_ground_tear, raoa,
                      resa_transverse, strip_arc, strip_longitudinal, strip_seam_tear,
                      strip_transverse)
+from .channel import channel_crest_at_edge, channel_floor_at_declaration
 from .contiguity import lateral_contiguity
 from .eat import eat_ceiling
 from .frontage import frontage_near_miss
@@ -71,6 +72,9 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "frontage_near_miss": frontage_near_miss,
     "wall_in_runway_strip": wall_in_runway_strip,
     "basin_floor_declaration": basin_floor_declaration,
+    # spec §45 C14 (owner RULINGS 2026-09-15i): the OPEN CHANNEL's two
+    "channel_floor_at_declaration": channel_floor_at_declaration,
+    "channel_crest_at_edge": channel_crest_at_edge,
     # spec §36: the pinned end-around-taxiway rect, read back
     "eat_ceiling": eat_ceiling,
 }

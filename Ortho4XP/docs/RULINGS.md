@@ -8705,3 +8705,4 @@ verbatim out of structures.py (the 1,000-line budget). Lane trap for
 the record: a symlinked `tools/` in a git-archive base tree resolves
 `__file__` back to the branch and silently runs the ARM's code —
 caught and rerun. Merge clean, no markers; suite on main below.
+16j addendum: suite ON MAIN after the v2shellwall r3 merge (48a2afda): 1724 passed, 1 skipped, 1 xpassed, 0 FAILED lines. App 1.0.342 building from main 6c1afc66 (without v2channel, per the peer: its round 8 merges 48a2afda and targets 1.0.343 with v2padclip / v2shoulderband r2 / v2vmmcbore; `owner_kept`/`parts` will have ONE home, structure_service.py).

@@ -16032,3 +16032,43 @@ the synthesised bore yields — its ways return to the channel and the bore is n
 LGAV ONE channel on all four ways (−1343/−7021/−2914/−4017), 4 decks, tunnels = base
 minus the yielded synthesised bores, named; KCLT taxiway U (no depth witness) keeps its
 four synthesised bores; the other replays identical.
+
+## §20b (3) STAGE 1'S POPULATION IS INVARIANT TO GROUNDSIDE GEOMETRY — AIRSIDE IS KING MEANS THE AIRSIDE SHEET DOES NOT KNOW THE PADS EXIST (Fable 2026-09-16; RULINGS 2026-09-16v; founded on v2padclip r2) — lane `v2stagepop`, measurement first
+
+**The measurement (v2padclip r2, 16t).**  With the airside vertex set
+invariant, the airside REGION pad-independent, `solver = "qp"` and
+`staged_solve = true`, the pads-OFF → pads-ON pair still moves solve-
+owned airside values at HECA by 2,230 vertices (worst 2.68 m; runway 2
+at 0.020 m) and at LEMD by 485 (0.36 m; runway 0); with EVERY pad
+generator dropped 1,544 / 2.00 m survive at the same coordinates.  The
+`--why-at` chain at the worst mover is 15 hops of `apron_preference`,
+`apron_edge_portion`, `no_step_pairs`, `apron_within_shape` — the
+airside's own rows — against `pads` +0.04.  So the difference between
+the arms is the SHEET the airside rows are priced on: with pads present
+the ground under a pad no longer carries zone/strip rows, extra faces
+and columns exist beside the airside, and the airside rows' neighbours
+have changed.  §20b (1) made stage 1 solve the airside alone; it did
+not make stage 1's POPULATION independent of what stands beside it.
+
+**RULED.**  (1) Stage 1's sheet is derived from the airside cells and
+their own strips/zones EXACTLY as if no pad, unit, cluster or
+structure existed: the same faces, the same columns, the same rows on
+the pads-OFF and pads-ON arms — a twin asserts the stage-1 problem
+(row count, column count, the sorted row keys) is byte-identical
+between the arms at HECA and LEMD.  (2) Stage 2 takes the stage-1
+surface as constants on every airside vertex and solves the rest
+(pads, units, ground); a stage-2 row may reference an airside vertex
+only as a constant (the weld), never as a column.  (3) Bars: solve-
+owned airside moved > 0.02 m between the pads-OFF and pads-ON arms → 0
+at HECA and LEMD (survivors named); runway 0; the one-vertex probe
+≤ 0.02 m beyond 250 m (r2's 0 of 32,575 must hold); then `pad_from_
+cluster`, `pad_airside_clip`, `staged_solve` ship TRUE together and
+the T4 garage seats on `building45` at one level in a real build.
+(4) MEASUREMENT FIRST (mechanism before fix): r1 of the lane
+decomposes the 1,544 survivors by what the pad's presence changes in
+the stage-1 problem — rows removed (zone/strip rows under the pad),
+rows added, columns added, face adjacency changed — one table with
+counts and the worst mover per class, on the registered HECA staged
+captures, before any edit; the fix then lands at the stage-1 population
+site in `solve/design.py` / `solve/api.py` (the §20b dispatch) and at
+whichever generator builds the ground rows the pad removes.

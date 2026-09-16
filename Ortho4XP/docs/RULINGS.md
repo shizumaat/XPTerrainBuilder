@@ -8931,3 +8931,14 @@ lever for the residual `renode_minted` (HECA 40/43, LEMD 12/32) is
 `pad_airside_snap_max_m` 5.0. Refuted: retreating an unsnappable
 crossing off the rim (takes the weld). Functions in 16r; plus
 `classify/roles.classify` (the pad-union subtraction removed).
+
+## 2026-09-16v APP 1.0.343 BUILT (26721f38, engine 1.50.1790, main a5e6a968; bundled: `[channel]` present, `terrain_cover_min_m` present, solver qp, staged_solve false, bank OFF, pads OFF; engine binary Sep 16 11:02) — §45 the open channel ON (peer 16i), no building bores + LEMD's seven decks, the shoulder end cap, the pad clip's airside-region fix; §20b (3) WRITTEN (stage 1's population invariant to groundside geometry — the pad line's last lever; measurement first) → lane v2stagepop
+
+WHAT THE OWNER READS IN 1.0.343 (beyond 1.0.342): LEMD decks 981/988
+back (7 of 7); VMMC no tunnels near the field (two real hill tunnels
+1.8 km+ out remain — 16d-1 open); OTHH one terminal car-park ramp gone
+(a wall corridor returns); LGAV/KPHX/KDFW open channels (the peer's
+read items); the shoulder band's end cap at every airport; the pad
+clip's shipped-surface changes (LEMD ADJUDICATED −44 %, HECA +0.2 %,
+HECA `within_shape` +479 / `mid_edge_step` 13 → 21 named). SPJC still
+unbuildable until the owner's road-layer refresh.

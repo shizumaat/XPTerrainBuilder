@@ -16238,3 +16238,45 @@ the_clusters_derives_them_at_replay` read the claim off
 `v2_solve_replay.replay`'s source, and the replay's prelude is now
 `replay_problem` (shared with `--stage1-dump`, so there is one copy of
 it); it reads the path's two functions.
+
+## §20b (3) AMENDED — THE AIRSIDE SHEET KNOWS THE PADS AS ANCHORS (owner 2026-08-25), NEVER AS PULLS; THE PADS-OFF ARM IS NOT THE REFERENCE (Fable 2026-09-16; RULINGS 2026-09-16x; lane v2stagepop r1 measurement) — lane `v2stagepop` r2: the keys ship ON for the owner's read
+
+**The measurement (r1 2b430ab4).**  A pad's presence reaches stage 1
+through five channels, each at its derivation site: (1) the apron's
+chord ANCHOR set is seeded with every rigid (building) face's rings —
+`constraints/apron.apron_within_shape` `strict` — 4,712 rows removed /
+9,178 added at HECA: this is owner RULINGS 2026-08-25 ("the anchor set
+is BOTH the building pads and the taxiway centerline nodes"); (2) the
+apron body's 2-D trend / datums re-fitted over the changed body: 1,107
+HECA / 998 LEMD rows RETARGETED over 1.35 M m² of apron; (3) the
+triangulation at the pad rim (±60 triangles); (4) the airside vertex-
+set residual of §16g (10) (12) (`renode_minted` 18/22 HECA, 23/43 LEMD);
+(5) groundside faces inside stage 1's sheet — FIXED in r1
+(`assemble(stage_roles=)`: a stage triangulates only the roles it
+owns; sheet faces 859 = 859).  Of the 1,544 movers that survive
+dropping every pad row, 1,075 stand on nothing that changed — the
+solve's globality; dropping the apron generator too still moves 1,146
+/ 1.92 m.  A two-problem architecture (stage 1 over the pad-free PASS A
+arrangement) would cost ~96 s at HECA and still miss until (4) is 0.
+
+**RULED.**  (3) (1) as written contradicted 2026-08-25 and is
+WITHDRAWN: the airside sheet is MEANT to know the building pads — as
+the anchors of the apron's own chord law — and the apron re-finding
+its datum with the buildings present is the DESIGN, not a pull.  The
+pads-OFF arm is therefore not the reference for "airside moved"; the
+bars that express airside-is-king within the pads-ON arm are: (a) no
+pad row binds an airside vertex (r2: `pads` +0.04 at the worst mover —
+MET), (b) stage 2 references airside vertices only as constants (r2 —
+MET), (c) the one-vertex probe: 0 of 32,575 moved, max 0.0167 m (r2 —
+MET), (d) the runway: 0 / at the 0.02 m materiality (MET), (e) the
+census pairs OFF → ON by family with every family worse by > 5 % named
+(r2: HECA +3.7 %, LEMD +4.8 % staged; `pad_airside_weld` HECA 18 → 19
+named), (f) the owner's SIM READ — the campaign's acceptance (memory
+`campaign-goal`).  `pad_from_cluster`, `pad_airside_clip` and
+`staged_solve` ship TRUE together (r2), with ONE LEMD airport-path
+build (the T4 garage on `building45` at one level, the fill named) and
+the HECA/LEMD census pairs quoted; the residual (4) (`renode_minted`,
+the untried `pad_airside_snap_max_m` lever) stays named.  The staged
+solve's own shipped-surface change (16t: HECA ADJUDICATED −3.8 %, LEMD
++1.9 %) is part of what the owner reads.  If the read refuses, the
+keys come back OFF by one `git revert`.

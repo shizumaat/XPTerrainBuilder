@@ -8942,3 +8942,15 @@ read items); the shoulder band's end cap at every airport; the pad
 clip's shipped-surface changes (LEMD ADJUDICATED −44 %, HECA +0.2 %,
 HECA `within_shape` +479 / `mid_edge_step` 13 → 21 named). SPJC still
 unbuildable until the owner's road-layer refresh.
+
+## 2026-09-16x v2stagepop r1 MERGED (2b430ab4; suite ON MAIN 1781 passed, 0 FAILED): the measurement-first table — a pad's presence reaches stage 1 through FIVE channels, the largest being owner 2026-08-25's anchor law (building pads seed the apron chords: 4,712 / 9,178 rows at HECA); groundside faces in stage 1's sheet FIXED (`assemble(stage_roles=)`, sheet 859 = 859); 1,075 of 1,544 movers stand on nothing changed (globality) → RULED §20b (3) AMENDED: the airside knows pads as ANCHORS, never as pulls; the pads-OFF arm is not the reference; the keys ship ON (r2) for the owner's read — `pad_from_cluster`, `pad_airside_clip`, `staged_solve` TRUE together, one LEMD build, census pairs quoted, one `git revert` back
+
+Lane @ 2b430ab4; new `v2_solve_replay --stage1-dump / --stage1-diff
+[--movers]` (INDEX row), `replay_problem` shared prelude; twin
+`test_v2staged::test_stage_ones_sheet_carries_no_groundside_face`.
+The owner's site on the pads-ON staged arm: `building45`, 615.19…615.34
+(spread 0.15 m), +4.26 m fill. NOT taken (STOP-and-report): the two-
+problem architecture (stage 1 over PASS A; ~96 s at HECA; still misses
+until `renode_minted` = 0). The 08-25 vs §20b (3) conflict is resolved
+by 08-25 (the owner's ruling stands; mine is amended) — no owner
+question needed.

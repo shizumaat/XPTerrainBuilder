@@ -22,9 +22,9 @@ from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.model.structures import CREST_DESIGN
 from auto_patch_v2.planar.channel import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                                           WITNESS_NECK, WITNESS_PACK,
-                                          channel_cells, identify_channels)
-from auto_patch_v2.planar.channel_claims import (channel_claiming, channel_ways,
-                                                 channel_yields,
+                                          identify_channels)
+from auto_patch_v2.planar.channel_claims import (channel_cells, channel_claiming,
+                                                 channel_ways, channel_yields,
                                                  claimed_crossing_ways,
                                                  in_any_corridor)
 from auto_patch_v2.planar.structures import build_structures
@@ -185,6 +185,32 @@ def test_b_a_credible_lidar_inset_supplies_the_floor(law, monkeypatch):
     assert min(zs) == pytest.approx(91.0, abs=0.2), zs[:5]
     # and the decks are unchanged by the datum
     assert len(c.decks) == 2
+
+
+class _SlopeDem(_PlaneDem):
+    """Ordinary sloping ground — a credible lidar inset that sees NO cut
+    (CYXY / KCLT: the round-8 arm read them as 120 m channels)."""
+
+    provenance = {"synthetic": "a 1:20 hillside"}
+
+    def z(self, x: float, y: float) -> float:
+        return 100.0 + float(x) * 0.05
+
+
+def test_3ii_a_credible_inset_is_no_depth_witness_without_a_cut(law, monkeypatch):
+    """§45 (3) (ii)/(7): "Where the DEM DOES see the cut (KDFW) it is the
+    floor witness".  A credible inset over a HILLSIDE is not a depth
+    witness — measured on the round-8 arm at CYXY, KCLT and KPHX, where
+    it made the bank toes walk to ``corridor_max_half_width_m`` and gave
+    a road crossing a taxiway a 120 m corridor on a floor that was just
+    the terrain."""
+    import auto_patch_v2.planar.channel as chmod
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: True)
+    ap = _airport(law, [_pavement_with_corridor()], [_road()], dem=_SlopeDem())
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert len(chans) == 1, (st.refused, st.notes)
+    assert chans[0].datum_source == DATUM_CLEARANCE
+    assert "lidar" not in chans[0].width_source
 
 
 # ── (c) the pack's wall / floor objects ──────────────────────────────────

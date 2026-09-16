@@ -50,13 +50,13 @@ from ..model.structures import (CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE,
                                 CREST_DESIGN, Channel, ChannelWall, Deck)
 from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
                                _ends, _field_region, _hole_region, _in_hole,
-                               _lidar_floor, _parts,
+                               _lidar_cut, _lidar_floor, _parts,
                                _poly, _runs, _sides, _span, _spread_m,
                                _walls_half)
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 from .structure_underpass import aeroway_decks
 
-__all__ = ["ChannelStats", "identify_channels", "channel_cells",
+__all__ = ["ChannelStats", "identify_channels",
            "FLOOR_ROLE", "WALL_ROLE",
            "WITNESS_BRIDGE", "WITNESS_NECK", "WITNESS_PACK",
            "WayKey", "way_key", "ANY_FEED"]
@@ -163,7 +163,7 @@ class _Cand:
     packs: list[str] = _dc.field(default_factory=list)
 
 
-def _read_way(w: OsmWay, law: Law, union, holes) -> _Cand | None:
+def _read_way(w: OsmWay, law: Law, union, holes, notch=None) -> _Cand | None:
     """§45 (1) (b) THE HOLE AND ITS NECKS, read along ONE way.
 
     A maximal PAVED run under ``[channel] deck_max_width_m`` flanked by
@@ -204,12 +204,25 @@ def _read_way(w: OsmWay, law: Law, union, holes) -> _Cand | None:
             # channel: measured at LGAV on the first arm — 3,187
             # candidate ways, 6 "channels", four of them airport service
             # roads with a taxiway painted across them.
+            # the flank is read BESIDE the neck (§45 (14)'s "along the
+            # way"): half a ``corridor_min_length_m`` into each flank
+            half_flank = ch.corridor_min_length_m / 2.0
             flanked = (k > 0 and k + 1 < len(runs)
                        and _run_m(k - 1) >= ch.corridor_min_length_m
                        and _run_m(k + 1) >= ch.corridor_min_length_m
-                       and _in_hole(ln, ss, runs[k - 1], holes)
-                       and _in_hole(ln, ss, runs[k + 1], holes))
-            if flanked and (s1 - s0) <= ch.deck_max_width_m:
+                       and _in_hole(ln, ss, runs[k - 1], holes, notch, union,
+                                    ch.corridor_max_half_width_m, s0 - half_flank)
+                       and _in_hole(ln, ss, runs[k + 1], holes, notch, union,
+                                    ch.corridor_max_half_width_m, s1 + half_flank))
+            # A NECK HAS A PLAN WIDTH.  §45 (1) (b): "the neck is the
+            # deck and its plan width the deck width" — a paved run of a
+            # SINGLE station is 0 m wide and is a sample, not a crossing.
+            # Measured on the round-8 arm: HECA's `channel:0` and
+            # `channel:3` each took their SECOND crossing (the one §45
+            # (12)'s ``min_decks_without_depth`` asks for) from a
+            # zero-width neck at s 9590 / s 180.
+            grid = law.tables.emit.identity.min_distinct_spacing_m
+            if flanked and grid <= (s1 - s0) <= ch.deck_max_width_m:
                 necks.append((s0, s1))
         else:
             corridor += s1 - s0
@@ -419,7 +432,12 @@ def identify_channels(airport: Airport, classification, law: Law,
     # and KCLT's four §34 (5) SYNTHESISED underpass bores now stand in
     # the (13) (b) claimed set (``channel_claims.claimed_crossing_ways``)
     # so a channel never takes what §34 (5) already built.
-    holes = _hole_region(union, _field_region(airport, union, law))
+    # the pavement's own INTERIOR rings, and the FIELD complement that
+    # also carries the notch (§45 (14)); ``_in_hole`` reads both and
+    # holds a notch to the corridor test an interior hole passes by
+    # construction, so every site that had a hole is unchanged
+    holes = _hole_region(union)
+    notch = _hole_region(union, _field_region(airport, union, law))
     cands: list[_Cand] = []
     # §45 (13) (b) JOINED BY FEED, NEVER BY THE BARE ID (owner addendum
     # 2026-09-15): ``claimed_ways`` is a set of ``(feed, id)`` keys from
@@ -439,7 +457,7 @@ def identify_channels(airport: Airport, classification, law: Law,
             # §45 (13) (b): the engine already models this crossing
             n_claimed += 1
             continue
-        c = _read_way(w, law, union, holes)
+        c = _read_way(w, law, union, holes, notch)
         if c is None:
             continue
         if c.necks:
@@ -598,9 +616,13 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # MEASURE, never the search radius.
     packs = packs0
     half_walls = _walls_half(axis_ln, objects, packs)
+    # §45 (3) (ii)/(7): a credible inset is a DEPTH witness only where it
+    # READS THE CUT — ground standing above the DTM floor on BOTH sides
+    # within the cap, which a hillside never does
+    lidar = _lidar_credible(airport, law) and _lidar_cut(airport, law, axis_fn, ss, cap)
     if half_walls:
         half_at, width_src = min(cap, max(half_walls, half_base)), "pack walls (10) (i)"
-    elif _lidar_credible(airport, law):
+    elif lidar:
         # (ii) THE BANK TOES on the axis normal
         toe = _bank_toe_half(airport, law, axis_fn, ss, cap)
         half_at, width_src = ((min(cap, max(toe, half_base)), "lidar bank toes (10) (ii)")
@@ -630,7 +652,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # ends §37 governs and the floor rejoins the road's own profile at
     # ≤ ``ramp_max_grade`` — §37's join, not a second ramp of ours.
     ends = _ends(airport, law, decks, axis_ln, axis_fn, half_at, objects, packs,
-                 _lidar_credible(airport, law))
+                 lidar)
     # Everything from here (the profile, the region, the banks) is stated
     # over the stations INSIDE the ends, and the ends are themselves
     # stations: the corridor's faces run exactly to them.
@@ -650,7 +672,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # ── (3) THE FLOOR DATUM, in the ruled precedence ───────────────────
     profile, datum, wall_shape, witness_name = _floor(
         airport, law, cid, grp, axis_ln, axis_fn, ss, decks, half_at, objects, stats,
-        packs)
+        packs, lidar)
     if profile is None:
         return None
     # §45 (13) (a) A BRIDGE-ONLY WITNESS IS §34 (5)'s UNDERPASS (owner
@@ -869,7 +891,8 @@ def _decks(airport: Airport, law: Law, cid: str, grp: list[_Cand], axis_ln, axis
 
 def _floor(airport: Airport, law: Law, cid: str, grp: list[_Cand], axis_ln, axis_fn,
            ss: list[float], decks: list[Deck], half: float, objects: _t.Sequence,
-           stats: ChannelStats, packs: _t.Sequence[str] = ()):
+           stats: ChannelStats, packs: _t.Sequence[str] = (),
+           lidar: bool = False):
     """§45 (3) THE FLOOR DATUM — precedence, then "Cut the road down".
 
     (i) the pack's floor plates along the axis; (ii) a CREDIBLE lidar
@@ -910,8 +933,9 @@ def _floor(airport: Airport, law: Law, cid: str, grp: list[_Cand], axis_ln, axis
                                f"{floor_pack:.2f} m against a crest of {crest_est:.2f}")
             return profile, DATUM_PACK, "face", ",".join(sorted(set(packs))[:4])
 
-    # (ii) A CREDIBLE LIDAR INSET
-    if _lidar_credible(airport, law):
+    # (ii) A CREDIBLE LIDAR INSET **THAT READS THE CUT** (§45 (7): "Where
+    # the DEM DOES see the cut (KDFW) it is the floor witness (3) (ii)")
+    if lidar:
         prof = []
         for s in ss:
             z = _lidar_floor(airport, axis_fn, s, ch.lidar_floor_window_m)
@@ -951,51 +975,3 @@ def _floor(airport: Airport, law: Law, cid: str, grp: list[_Cand], axis_ln, axis
         f"own law between them clamped at ramp_max_grade {grade:.0%}; "
         f"{min(z for _s, z in prof):.2f}..{max(z for _s, z in prof):.2f} m")
     return tuple(prof), DATUM_CLEARANCE, "bank", "bridge.clearance_m"
-
-
-# ── the cells (§45 (8) EMISSION) ─────────────────────────────────────────
-
-def channel_cells(channels: _t.Sequence[Channel], law: Law
-                  ) -> tuple[list[tuple[str, str, Polygon, str]], list[Polygon]]:
-    """``([(role, ref, polygon, channel id)…], [the knives])`` — the floor
-    and the void, and what the corridor CUTS.
-
-    §45 (8): floor faces ``tunnel_trench`` (already a ``FLOOR_ROLE``),
-    banks ``retaining_wall`` (the VOID role — the mesh triangulates the
-    bank inside it, exactly as it makes a tunnel's wall), decks UNCHANGED
-    airside faces.  Emittable in a heightfield: at every (x, y) exactly
-    one of floor / bank / deck, because the deck rings are subtracted from
-    both the floor and the void and the void is the crest ring less the
-    floor."""
-    out: list[tuple[str, str, Polygon, str]] = []
-    knives: list[Polygon] = []
-    for c in channels:
-        floor = _poly(c.region)
-        outer = _poly(c.crest_ring) or floor
-        if floor is None or outer is None:
-            continue
-        decks = [_poly(d.ring) for d in c.decks]
-        du = unary_union([d for d in decks if d is not None]) if decks else None
-        if du is not None and not du.is_empty:
-            # §45 (17): the floor stands the WALL BAND back from the deck
-            # as it does from the corridor edge — a deck's faces are
-            # AIRSIDE and meet the band's crest, never the floor.  Without
-            # the set-back the deck's own ring became the floor's edge and
-            # one vertex carried the taxiway surface and the floor at once
-            # (KDFW v14070: 182.28 against 169.40 over ~23 m, 378
-            # infeasible ``pavement_ceiling`` rows).
-            band = float(getattr(c, "wall_band_m", 0.0) or 0.0)
-            floor = floor.difference(du.buffer(band, **_MITRE) if band > 0.0 else du)
-            outer = outer.difference(du)
-        void = outer.difference(floor)
-        for k, part in enumerate(_parts(floor)):
-            out.append((FLOOR_ROLE, c.floor_ref + (f"#{k}" if k else ""), part, c.id))
-        for k, part in enumerate(_parts(void)):
-            out.append((WALL_ROLE, c.wall_ref + (f"#{k}" if k else ""), part, c.id))
-        # the knife is handed on as POLYGONS: subtracting the decks can
-        # leave the crest region in pieces, and the keep-out publication
-        # reads ``.exterior`` off each one
-        knives.extend(_parts(outer))
-    return out, knives
-
-

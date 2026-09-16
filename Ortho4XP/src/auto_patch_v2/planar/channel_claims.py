@@ -19,14 +19,19 @@ from __future__ import annotations
 import typing as _t
 
 from shapely.geometry import LineString, Polygon
+from shapely.ops import unary_union
 
 from ..law import Law
 from ..model.airport import Airport, OsmWay
 from ..model.structures import Channel
-from .channel import ANY_FEED, _depth_under_crest, WayKey, way_key
+from .channel import (ANY_FEED, FLOOR_ROLE, WALL_ROLE, _depth_under_crest,
+                      WayKey, way_key)
+from .channel_geometry import _parts, _poly
 from .structure_approach import is_tunnel
 
-__all__ = ['add_channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor', 'way_key', 'WayKey', 'ANY_FEED', 'channel_swallowing']
+_MITRE = dict(join_style="mitre", mitre_limit=2.0)
+
+__all__ = ['add_channel_cells', 'channel_cells'] + ['claimed_crossing_ways', 'channel_ways', 'channel_yields', '_within_corridor', 'channel_claiming', 'in_any_corridor', 'way_key', 'WayKey', 'ANY_FEED', 'channel_swallowing']
 
 
 def claimed_crossing_ways(airport: Airport, law: Law,
@@ -287,6 +292,56 @@ def in_any_corridor(channels: _t.Sequence[Channel], geom) -> str:
 
 
 
+# ── the cells (§45 (8) EMISSION) ─────────────────────────────────────────
+#
+# Here and not in ``planar/channel.py`` for that file's 1,000-line budget,
+# and because this module already owns :func:`add_channel_cells`, its one
+# caller inside ``src``.
+
+def channel_cells(channels: _t.Sequence[Channel], law: Law
+                  ) -> tuple[list[tuple[str, str, Polygon, str]], list[Polygon]]:
+    """``([(role, ref, polygon, channel id)…], [the knives])`` — the floor
+    and the void, and what the corridor CUTS.
+
+    §45 (8): floor faces ``tunnel_trench`` (already a ``FLOOR_ROLE``),
+    banks ``retaining_wall`` (the VOID role — the mesh triangulates the
+    bank inside it, exactly as it makes a tunnel's wall), decks UNCHANGED
+    airside faces.  Emittable in a heightfield: at every (x, y) exactly
+    one of floor / bank / deck, because the deck rings are subtracted from
+    both the floor and the void and the void is the crest ring less the
+    floor."""
+    out: list[tuple[str, str, Polygon, str]] = []
+    knives: list[Polygon] = []
+    for c in channels:
+        floor = _poly(c.region)
+        outer = _poly(c.crest_ring) or floor
+        if floor is None or outer is None:
+            continue
+        decks = [_poly(d.ring) for d in c.decks]
+        du = unary_union([d for d in decks if d is not None]) if decks else None
+        if du is not None and not du.is_empty:
+            # §45 (17): the floor stands the WALL BAND back from the deck
+            # as it does from the corridor edge — a deck's faces are
+            # AIRSIDE and meet the band's crest, never the floor.  Without
+            # the set-back the deck's own ring became the floor's edge and
+            # one vertex carried the taxiway surface and the floor at once
+            # (KDFW v14070: 182.28 against 169.40 over ~23 m, 378
+            # infeasible ``pavement_ceiling`` rows).
+            band = float(getattr(c, "wall_band_m", 0.0) or 0.0)
+            floor = floor.difference(du.buffer(band, **_MITRE) if band > 0.0 else du)
+            outer = outer.difference(du)
+        void = outer.difference(floor)
+        for k, part in enumerate(_parts(floor)):
+            out.append((FLOOR_ROLE, c.floor_ref + (f"#{k}" if k else ""), part, c.id))
+        for k, part in enumerate(_parts(void)):
+            out.append((WALL_ROLE, c.wall_ref + (f"#{k}" if k else ""), part, c.id))
+        # the knife is handed on as POLYGONS: subtracting the decks can
+        # leave the crest region in pieces, and the keep-out publication
+        # reads ``.exterior`` off each one
+        knives.extend(_parts(outer))
+    return out, knives
+
+
 def add_channel_cells(channels: _t.Sequence[Channel], law: Law, new_cells: list,
                       footprints: list, keepouts: list, stats) -> int:
     """§45 (8): put each channel's FLOOR and BANK into the pending cells
@@ -298,7 +353,6 @@ def add_channel_cells(channels: _t.Sequence[Channel], law: Law, new_cells: list,
     knife is what cuts the pavement the corridor runs through.  Lives
     here so ``planar/structures.build_structures`` carries two lines of
     channel and none of its law."""
-    from .channel import channel_cells
     if not channels:
         return 0
     cells, knives = channel_cells(channels, law)

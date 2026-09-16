@@ -759,6 +759,17 @@ pad_from_cluster    = false
 # the airside problem no longer depends on the pads.  A pad left wholly
 # inside airside mints nothing: its bodies seat on the pavement, exactly
 # as (5) already says of a cluster.  false = the pre-14as derivation.
+# §16g (10) (12) NARROWS WHAT THIS KEY DOES (Fable 2026-09-16; RULINGS
+# 2026-09-16b).  At the ARRANGEMENT the clip is NO LONGER GATED: the
+# airside cells are noded BEFORE any pad exists and a pad polygon is the
+# outline MINUS the airside union on EVERY arm, because (12) (2)'s bar —
+# `pad_airside_renode` 0 — is a bar on both arms and an unclipped pad
+# splits the apron's own edges.  This key keeps its other two jobs: the
+# MINT's pre-split guard in `classify/evidence._pads` and the region
+# subtraction in `classify/roles.classify`.  MEASURED (lane v2padclip,
+# `tools/pad_airside_arm.py`, HECA, the clip arm against the shipped one
+# before the rule): 1,008 airside vertices deleted and 283 minted; after
+# it, deleted 0 on every arm and minted 40 (HECA) / 32 (LEMD armed).
 pad_airside_clip    = false
 
 # RULINGS 2026-09-14as (i), the clip's SECOND half: the crossing points

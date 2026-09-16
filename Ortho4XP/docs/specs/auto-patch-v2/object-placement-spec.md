@@ -5743,3 +5743,148 @@ are noded in the same pass as the airside, the airside vertex set is a
 function of the pad set.**  That is the mechanism (12) (1) names, and the
 fix is structural — the airside is noded BEFORE the pads exist and the pad
 stage may only ADD vertices outside the airside union.
+
+**WHAT SHIPPED (12) (1), AT THE ONE DERIVATION SITE.**
+`planar/overlay.build_arrangement` is now TWO PASSES over one line set,
+and that split IS the rule:
+
+* PASS A nodes everything the airside is made of — every non-pad region
+  ring, the runway-profile stations, the taxi/road cut lines, the zone
+  rings and the seam bands — in the same single `unary_union(...,
+  grid_size=min_distinct_spacing_m)` as before.  Its node set IS the
+  airside cells' vertex set, and it is a function of the airside alone.
+* PASS B adds the PADS to that result.  Each pad is differenced by pass
+  A's own grid-snapped airside union (`airside_union`, ONE derivation,
+  read by the clip and by the re-node census alike), and the rim its
+  crossing points quantise to is built over PASS A'S OWN NODES
+  (`AirsideRim(..., nodes=)`), not the region ring's — measured at HECA,
+  6,272 ring nodes against **8,775** arrangement ones, which is why 75
+  crossing points had nothing to reach (`snap_too_far_max_m` 70.76 m).
+* THE DENSIFIER MAY NOT NODE THE RIM EITHER (`_drop_rim_midpoints`):
+  `ring_lines` densifies every ring at its OWN role's chord cap, so the
+  `building` cap's midpoints landed on airside edges the airside cap had
+  spaced differently and split them.  A pad coordinate on the rim that is
+  neither one of pass A's nodes nor a vertex of the pad's own polygon is
+  dropped — 24…37 per HECA arm.  The `own` test is load-bearing: dropping
+  pad CORNERS collapsed the three `test_v2padlevel` fixtures whose pad
+  merely touches its apron along a straight edge.
+* A PAD WHOLLY ON AIRSIDE IS DROPPED, not kept.  (12) (1)'s own sentence
+  is "a pad polygon is the cluster outline MINUS the airside union" and
+  §16g (10) (5) already said a cluster wholly on airside pavement gets no
+  pad.  It was KEPT as the §30 / 14ai pad-in-an-apron class, and MEASURED
+  it was the ONLY re-node class left once the airside was noded first:
+  HECA **548 of 553** minted nodes, every one STRICTLY INSIDE the airside
+  union.  The four ruled twins that encoded the class are RE-FOUNDED, not
+  weakened — a building that really does stand in an apron IS A HOLE in
+  that apron, so `test_v2bank`'s `pad_map` and `test_constraints`'s
+  `synthetic` now carry the pad as the apron cell's own hole and every
+  claim they make (the weld by identity, the flat target, the 1 % hard
+  ceiling, the pure-hole pad minting no level row) reads exactly as
+  before.  `test_v2bank`'s pad is 40 m on a side rather than 60 because
+  the HOLE ring is densified at the APRON's chord cap and a 60 m edge came
+  back split at its midpoint, which cost the pin twin its own premise.
+
+(12) (2) SHIPS AS A CENSUS FAMILY, `pad_airside_renode`, sidecar-declared
+in the `eat_ceiling` / `seam_pins` shape: the arrangement publishes
+`[lat, lon, "minted"|"deleted"]` per node (`pipeline/publication.
+_renode_rows` off `planar/overlay.PAD_AIRSIDE`) and `check_grade` emits
+one row each.  An ABSENT key means NOT MEASURED and an EMPTY list means
+MEASURED ZERO — publishing `[]` either way made all four of this lane's
+matched REPLAY arms read a perfect family, because a replay resumes from
+a captured planar map and never builds an arrangement; `v2_solve_replay
+--capture` therefore carries the arrangement's own reading in the pickle
+and `--replay` restores and prints it.
+
+### §16g (10) (12) THE NUMBERS
+
+**(a) THE RE-NODE IS CLOSED — `renode_deleted` 0 ON EVERY ARM.**
+`tools/pad_airside_arm.py` (ONE load, classify+planar twice, the airside
+population read from `solve/design_roles.airside_stage_vertices`), one
+tree, `[guard] shared repo UNCHANGED`:
+
+| airport / arm | deleted | minted | on the rim | inside airside |
+|---|---|---|---|---|
+| HECA, shipped law (both keys false) | **0** | 40 | 5 | 35 |
+| HECA, clip alone | **0** | 40 | 5 | 35 |
+| HECA, clip + derived pads | **0** | 43 | 4 | 39 |
+| LEMD, shipped law | **0** | 150 | 85 | 65 |
+| LEMD, clip + derived pads | **0** | **32** | 9 | 23 |
+
+Before the rule, the clip alone at HECA read **1,008 deleted / 283
+minted** against the shipped arm (15ah's build frame: 1,082 / 235), and
+the pad-in-an-apron class alone accounted for 553 → 40 of the minted.
+THE RESIDUAL IS ONE CLASS AND IT IS NAMED: an unsnappable CROSSING POINT
+(`snap_too_far`, 68 at HECA) standing on a rim segment, plus the 2–3
+`snap_refused_overlap` pads whose snap is withdrawn and whose clip
+polygon keeps a sliver inside the union.  The second attempt on it —
+making such a crossing RETREAT off the rim by the hot-pixel band instead
+of standing on it — IS REFUTED: it takes the WELD with it (09-01g /
+§16g (10) (6)), and `test_v2padlevel::test_a_pad_between_two_pavements_
+half_a_percent_apart_stays_flat_and_tiers_neither` read **ZERO shared
+vertices** on both its frontages.  The attempts are spent.  The un-tried
+lever, named: the law value `pad_airside_snap_max_m` (5.0 m), which
+trades pad distortion along the rim for these nodes.
+
+**(b) AND THE AIRSIDE STILL MOVES, WHICH IS THE ROUND'S FINDING.**
+`tools/airside_value_delta.py`, HECA, solve-owned frame, the `building`
+(pad) vertices excluded so the number is airside and not the pad:
+
+| pair | moved > 0.02 m | worst | runway | runway worst |
+|---|---|---|---|---|
+| pads OFF → pads ON (the bar) | **6,031** | 3.09 m | 180 | 0.130 m |
+| OFF → the CLIP ALONE | 4,787 | 2.06 m | 19 | 0.070 m |
+| clip → clip + derived pads | 3,875 | 3.14 m | 157 | 0.110 m |
+| the same pair under §20b `staged_solve` | **2,018** | 2.69 m | **3** | **0.020 m** |
+
+15ah read OFF → ON 5,973 / 3.28 m and the clip alone 4,474 / 1.39 m on
+its own tree.  **So the airside vertex set is now invariant and the
+airside VALUE moves as much as it ever did** — which REFUTES 15ah's
+attribution as a complete explanation.  A re-noded arrangement was real
+and is now gone; it was not what moved the surface.  The interventional
+arm above names what does: with the vertex set held fixed and the ONLY
+variable §20b's `staged_solve`, the runway's moved set falls from **157
+vertices / 0.110 m to 3 / 0.020 m** — at the elevation materiality.  The
+pads' own rows reach the airside because the design problem is solved
+JOINTLY; §20b stage 1 solving the airside alone and substituting it is
+what freezes it.  §16g (10) (5)'s bar of 0 is therefore a question for
+§20b, not for the pad law, and this lane does not re-litigate it by
+narrative.
+
+**(c) THE OWNER'S SITE IS FIXED AND READS AS r2 LEFT IT.**  The LEMD T4
+garage `LEMD_OBJ-Airport_Terminal4_green-PKT4.obj` at 40.4892214,
+−3.5944287, pads ON: INSIDE **`building45`**, a **93-node** face, way
+−10991, altitudes **615.05 … 615.11** — ONE LEVEL, spread 0.06 m — with
+no step over a short edge.  Pads OFF, the shipped law: **0 ring groups
+cover the point** (15h's "the pad polygon ends 55.28 m short").
+
+**(d) THE CENSUS PAIRS (matched replay arms, ONE tree, the only variable
+the two `[placement]` keys; `harness/census.py`).**
+
+| | HECA OFF → ON | LEMD OFF → ON |
+|---|---|---|
+| ADJUDICATED | 19,456 → **18,686** (−4.0 %) | 2,121 → **1,004** (−53 %) |
+| law-true | 61,185 → 59,755 | 6,479 → 4,865 |
+| `pad_cluster_mismatch` | 15 → **0** | 0 → 1 |
+| `pad_airside_weld` | 9 → **8** | 2 → 3 |
+| `airside_no_step` | 5,457 → **5,172** | 335 → **320** |
+| `within_shape` | 48,707 → **47,901** | 4,253 → **3,025** |
+| `taxi_box` | 2,679 → **2,481** | 135 → **131** |
+| `mid_edge_step` | 21 → **2** | — |
+| `vertex_to_edge_step` | 7 → **0** | — |
+| `frontage_near_miss` | 47 → **21** | 14 → **3** |
+| `hairline_pair` | 2,836 → **2,792** | 1,642 → **1,287** |
+| `transverse` | 1,002 → **978** | 39 → **34** |
+
+WORSE BY MORE THAN 5 %, each named: HECA `plane_gradient` 9 → 14 and
+`strip_seam_tear` 28 → 33 and `strip_longitudinal` 3 → 4; LEMD
+`pad_cluster_mismatch` 0 → 1 (`unit:27#341/8`-class, r2's own named
+survivor), `pad_airside_weld` 2 → 3, `strip_longitudinal` 1 → 2 and
+`raoa` 0 → 1.  `pad_airside_weld` HECA 9 → 8 MEETS the "0 new" clause;
+LEMD's +1 is the `building7` class r2 named.
+
+**SHIPS OFF: `pad_from_cluster = false`, `pad_airside_clip = false`.**
+Bar 6 is "flipped only if EVERY bar holds".  The re-node bar HOLDS on
+`deleted` and is missed on `minted` by one named class (HECA 40/43, LEMD
+32); the AIRSIDE MOVEMENT bar is missed by 6,031 vertices and is now
+attributed, interventionally, to §20b rather than to the pad law.  No
+closing airport build: the keys did not flip.

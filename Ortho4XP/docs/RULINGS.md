@@ -8762,3 +8762,25 @@ deleted, the tracked 2W2 patch, `tools/__pycache__/`, an untracked
 before its own checkout-restore. Repair with `git checkout --` and `mv`,
 never `rm -r`; pass bare NAMEs (a full path in the caller's command line
 trips the `pgrep -f` holder check).
+
+## 2026-09-16l APP 1.0.342 BUILT (eda1bf9a, engine 1.50.1789, main 48a2afda + docs) — after a STALE-ENGINE INCIDENT: the first run's freeze failed (the reboot purge had gutted the TMPDIR freeze venv — pyvenv.cfg and lib/ gone, bin/ symlinks left pointing at Homebrew's externally-managed python → PEP 668 at the first pip call, rc 1) and make_app.sh bundled 1.50.1788 under the 1.0.342 label; caught by the bundled-law check (`deck_cut_witness_m` absent, engine binary mtime Sep 15 12:23); the false bump reverted (70342317), make_engine.sh recreates a venv without pyvenv.cfg (c8fd2a51), rebuilt: engine binary Sep 16 09:06, `deck_cut_witness_m` present, 80 .elv provider files (the coverage boxes), solver qp, defect floor 0.10, bank OFF, pads OFF
+
+WHAT THE OWNER READS IN 1.0.342: VHHH — every shell an OPEN walled
+trench (the rim at the surrounding surface; the owner's site tunnel5
+rim 7.31 over floor 1.30), taxiways/aprons near TUNNEL2/tunnel5 back
+at their level (off-DEM maxima = the control's), pavement drawn over a
+trench rides the object's deck (if a taxiway texture renders IN a
+trench, the apt.dat pavement over that shell is the next question);
+three 0.8–0.9 m offset cliffs at TUNNEL2's west end remain (v2objcut's
+emitter). LEMD — 5 of the 7 approved decks in this build (`-5305`/
+`-15293` return in 1.0.343 with §34 (12) (4) AMENDED (2)); the item-7
+site under the junction law (0.55 %); the shoulder band (no runway
+ref beyond 75 m; the 0.95 m runway step gone); the raw-pair crossfall
+rows; object feet one-way at airside. VMMC — the deck rule (the
+seafront corridor shrinks to an 84 m ramp at −2488; 0 tunnels arrive in
+1.0.343 with §34 (12) (5)). CYXY builds pass the dem pre-flight (the
+coverage boxes). NOT in 1.0.342: v2channel (§45), v2padclip, v2shoulderband
+r2, v2vmmcbore → 1.0.343. LESSON (memory `icloud-venv-freeze-traps`
+addendum): chain make_engine && make_app; verify the bundled engine's
+mtime and a new-engine-only law key after every build; never commit a
+bump from a run whose engine rc ≠ 0.

@@ -317,12 +317,25 @@ def test_a_deck_severs_only_where_a_CUTTING_is_witnessed(law):
     assert not _run(_Airport(_Dem(0.0)), [stale])
     assert _run(_Airport(_Dem(floor + 0.01)), [stale])
 
-    # (i) IS THE WAY UNDER THE SPAN, NOT THE CORRIDOR: a tagged bore the
-    # span does not reach witnesses nothing — VMMC's seafront decks stand
-    # over the untagged approach while the bore is 300 m away.
+    # (i) IS THE CORRIDOR, NOT THE SPAN — §34 (12) (4) AMENDED (2) (owner
+    # RULINGS 2026-09-16f, lane `v2vmmcbore`).  THE HISTORY, so the
+    # reversal cannot come back unnoticed: r6 read (i) as "the corridor's
+    # way beneath the deck's SPAN", which dropped the two decks the owner
+    # then checked in the sim and confirmed span REAL CUTS — shape 981 =
+    # `bridge_deck:-5305` at 40.4788711,-3.5787587 and shape 988 =
+    # `bridge_deck:-15293` at 40.4659974,-3.5811339, whose bore chains
+    # carry `layer -1 tunnel=yes` but end short of the crossing station
+    # (s 103.3 / 146.2 m of the approach walk).  The narrow reading
+    # existed ONLY to keep VMMC's seafront decks out; §34 (12) (5) now
+    # keeps the seafront BORES out, so the deck reading need not.  A
+    # tagged bore the span does not reach NOW severs.
     far = LineString([(200.0, -30.0), (200.0, 30.0)]).buffer(4.0,
                                                              cap_style="flat")
-    assert not _run(_Airport(_Dem(0.0)), [bore_tagged], far)
+    assert _run(_Airport(_Dem(0.0)), [bore_tagged], far), \
+        "witness (i) reads the corridor's whole bore chain (16f)"
+    # and the untagged corridor over flat ground still severs nothing,
+    # wherever the span stands — (ii) is unchanged and still decides alone
+    assert not _run(_Airport(_Dem(0.0)), [bore_plain], far)
 
 
 # ── §34 (12) (2): no structure face, rim or ramp over the water ─────────

@@ -16072,3 +16072,136 @@ counts and the worst mover per class, on the registered HECA staged
 captures, before any edit; the fix then lands at the stage-1 population
 site in `solve/design.py` / `solve/api.py` (the §20b dispatch) and at
 whichever generator builds the ground rows the pad removes.
+
+### §20b (3) (4) MEASURED — THE DECOMPOSITION (lane `v2stagepop` r1, 2026-09-16; branch `claude/v2stagepop`, base main `8fe85a0f`; HECA + LEMD)
+
+**THE FRAME.**  The registered v2padclip r2 staged arms, ONE tree, the only
+variable the two `[placement]` pad keys, `solver = "qp"`, `--design-weight
+staged_solve=1`, and EVERY pad generator dropped on both sides
+(`--drop-generator pads --drop-generator pad_level --drop-generator
+pad_frontage_level`) — 16t's own "1,544 survivors" frame.  HECA off/on
+from the solved pickles `r2/heca_off_st.pkl` / `heca_on_st.pkl`; LEMD from
+the captures `r2/cap/LEMD.lane2.pkl` / `LEMD.on2.pkl` (the generators
+re-run under this tree).  The instrument is `v2_solve_replay
+--stage1-dump` / `--stage1-diff` (new): `solve/design.stage_split` +
+`solve/design.assemble` — the assembly the stage actually solves, never a
+re-derivation — with every row, column, sheet face and triangle keyed by
+the canonical 11-dp lat/lon, diffed by identity.  It refuses if its own
+sheet re-read does not reproduce `DesignReport.triangles`.
+
+**THE STAGE-1 PROBLEM IS NOT THE SAME PROBLEM ON THE TWO ARMS.**
+
+| stage-1 population (pads OFF → ON, every pad row dropped) | HECA | LEMD |
+|---|---|---|
+| columns | 18,495 → **18,499** (+4) | 13,455 → **13,475** (+20) |
+| least-squares rows | 35,042 → 35,082 (+40) | 27,848 → 27,875 (+27) |
+| per-body datum rows | 87 → 84 (−3) | 136 → 136 |
+| ONE-SIDED law rows | 1,317,645 → **1,322,265 (+4,620)** | 813,270 → **818,892 (+5,622)** |
+| hard rows | 150,214 → 150,394 (+180) | 85,476 → 85,616 (+140) |
+| triangles | 28,074 → 28,073 (−1) | 21,772 → 21,785 (+13) |
+| sheet faces | 892 → 890 (−2) | 514 → 513 (−1) |
+| airside stage vertices | 18,503 → 18,507 (18 gone / 22 new) | 13,463 → 13,483 (23 / 43) |
+
+**THE DECOMPOSITION, BY WHAT THE PAD'S PRESENCE DID TO THE ROW** — a row
+REMOVED, a row ADDED, or a row RETARGETED (the same row over the same
+vertices at a different right-hand side, which is a TARGET the pad moved
+and never a row of the pad law):
+
+| class (HECA) | removed | added | retargeted | the sheet it prices |
+|---|---|---|---|---|
+| `apron` one-sided (frontage chord 2,052 → 4,186; preferred tier 1,752 → 3,974; body chords) | 4,712 | 9,178 | 0 | 50 apron faces / 1,264,501 m², 33 junction / 157,367 m² |
+| `apron_trend` (the apron body's 2-D long-wave trend, §8.7) | 12 | 55 | **1,107** | 78 apron faces / **1,350,402 m²** over 1,122 vertices |
+| `bend` (the cotangent Laplacian: the stage's own triangulation) | 99 | 104 | 0 | ±60 triangles |
+| `no_step` | 164 | 236 | 0 | |
+| `pavement_ceiling` | 110 | 300 | 0 | |
+| `roads` / `junction_mesh` / `apron_edge_portion` / `taxi` / `transverse` / `proximity` / `structures` / `groundside_ramp` / `road_ramp` | 190 | 108 | 0 | |
+| `detached` + `body_datum` (a sheet's / an apron body's own DEM plane) | 15 | 4 | 18 | |
+
+LEMD reads the same shape: `apron` 5,564 → 11,014, `apron_trend`
+**998 retargeted**, `bend` 189 → 208, `no_step` 274 → 372,
+`pavement_ceiling` 102 → 250.
+
+**THE 1,544 MOVERS, ATTRIBUTED (HECA, non-pad solve-owned, > 0.02 m).**
+
+| the stage-1 change the mover stands on | movers | worst | worst site |
+|---|---|---|---|
+| a column that changed | **0** | — | — |
+| the triangulation changed | 29 | 0.41 m | 30.11902950937,31.41685658901 apron+graded_strip |
+| a row ADDED | 206 | 1.28 m | 30.11931367998,31.41614061189 apron |
+| a row REMOVED | 9 | 0.42 m | 30.11883105750,31.41655047477 apron |
+| a row RETARGETED | 225 | 0.25 m | 30.11680616949,31.38048744805 apron+graded_strip |
+| **none of these — the far field** | **1,075** | **2.00 m** | 30.12612886713,31.41821104101 apron |
+
+The far field is the solve's own globality, and its reach is measured:
+124 of the 1,075 stand within 25 m of a changed stage-1 item, 186 within
+100 m, 317 within 250 m, 416 within 500 m, 27 within a kilometre and 5
+beyond it (the farthest 2,341 m, 0.05 m).  A least-squares surface is one
+problem; ~14,000 changed rows in one apron move its optimum everywhere on
+that sheet.
+
+**THE FIVE CHANNELS, NAMED AT THEIR DERIVATION SITES.**
+
+1. **THE APRON'S CHORD ANCHOR SET IS THE PAD** —
+   `constraints/apron.apron_within_shape`, whose `strict` set is seeded
+   with the RINGS AND HOLES OF EVERY RIGID-ROLE FACE (the `building`
+   pads).  An apron vertex beside a pad becomes a chord anchor, so the
+   apron's OWN rows (`common.roles.apron frontage chord` / `preferred
+   tier`) are a function of what stands beside the apron.  This is not a
+   defect: **owner RULINGS 2026-08-25 rules it** — "an apron ring
+   vertex's strict chord is measured to the NEAREST VISIBLE anchor …
+   the anchor set is BOTH the building pads and the taxiway centerline
+   nodes".  §20b (3) and 08-25 cannot both hold.
+2. **THE APRON BODY'S 2-D TREND** (`constraints/apron_trend`, §8.7) and
+   the per-body datum planes are fitted over the apron BODY, whose
+   vertex set and geometry the pad changes: 1,107 HECA / 998 LEMD
+   airside targets take a different value at the same vertex.
+3. **THE TRIANGULATION** — `assemble`'s `sheet_faces` / `_face_triangles`:
+   ±60 triangles, ±100 bending rows at the pad rim.
+4. **THE AIRSIDE VERTEX SET STILL DIFFERS**: 18 gone / 22 new at HECA,
+   23 / 43 at LEMD — §16g (10) (12)'s own named residual
+   (`renode_minted` 40/43 HECA, 32 LEMD; the unsnappable crossing,
+   `snap_too_far`).  No edit in `solve/` can make the stage-1 problem
+   byte-identical while the airside CELLS are not.
+5. **GROUNDSIDE FACES STAND INSIDE STAGE 1's SHEET.**  `assemble` keeps a
+   sheet face when NO vertex of it is foreign, so a face every one of
+   whose vertices is column-shared with airside is triangulated in the
+   AIRSIDE stage whatever its role: HECA's OFF arm carries a 1 m²
+   `building` face and a 16 m² `groundside_pavement` face there, the ON
+   arm neither; LEMD 2 `service_road` faces OFF against 1 `building` face
+   ON.  152 (HECA OFF) / 128 (ON) non-airside vertices are inside stage
+   1's column set by the same weld.
+
+**REFUTED, INTERVENTIONALLY: THE APRON CHORD POPULATION IS NOT THE WHOLE
+MOVER.**  A fourth arm on the same captures with the `apron` generator
+ALSO dropped on both sides — a stage-1 problem with no apron law row
+anywhere — still moves **1,146** non-pad solve-owned airside vertices
+(worst 1.92 m) against 1,544 / 2.00 m: the chord population carries at
+most 26 % of it.  With `apron` gone the stage-1 populations still differ
+by 490 removed / 644 added one-sided rows, 1,107 retargeted `apron_trend`
+rows, ±60 triangles, ±18/22 columns and the 2 sheet faces.
+
+**WHAT THE BAR REQUIRES, AND WHY IT IS NOT REACHABLE AT THE STAGE-1
+POPULATION SITE ALONE (STOP-and-report).**  "The same faces, the same
+columns, the same rows" means stage 1's rows must be GENERATED over a
+pad-free map: the generators (`constraints/apron`, `apron_trend`,
+`zones`, `strips`, `no_step`, `pavement_ceiling` …) read the whole
+`PlanarMap`, and `solve/` may not import `constraints/` (M0 §1), so no
+filter inside `solve/design.py` can restore a row the pads-ON generators
+never minted.  The architecture the ruling asks for is TWO PROBLEMS:
+`pipeline/build` builds the airside-alone constraint set over the
+pad-free arrangement — §16g (10) (12)'s own PASS A, which
+`planar/overlay.build_arrangement` already computes and discards — and
+hands it to `solve_design` for stage 1, the full problem staying stage
+2's.  Its costs, named: a second constraint pass (HECA's constraints
+stage is ~96 s) and a second planar/arrangement product; and even then
+channel 4 stands until `renode_minted` reaches 0
+(`pad_airside_snap_max_m`, §16g (10) (12)'s own untried lever).
+
+**THE INTENT QUESTION (RULINGS 2026-08-25 vs §20b (3)).**  May the
+apron's chord anchor set see the pads?  If it may (08-25 as written),
+stage 1's population can never be pad-invariant and §20b (3)'s bar is
+unreachable by construction — the honest form of the law would be a
+BOUND on the airside movement, not invariance.  If it may not, 08-25 is
+amended for stage 1 and the pad becomes a stage-2 anchor only.  That is
+the spec author's to rule; this lane measured both sides of it and armed
+neither.

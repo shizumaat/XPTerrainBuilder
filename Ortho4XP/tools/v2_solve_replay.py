@@ -1037,7 +1037,7 @@ def _stage1_faces(pm, law, drop_v) -> list[tuple[str, str, float]]:
     a re-spelling that drifted from the assembly would fail loudly."""
     from auto_patch_v2.solve.design_roles import bend_roles
     roles = set(bend_roles(law))
-    out: list[tuple[str, str, float]] = []
+    out: list[tuple[str, str, float, list[str]]] = []
     for f in pm.faces.values():
         if f.role not in roles:
             continue
@@ -1048,7 +1048,8 @@ def _stage1_faces(pm, law, drop_v) -> list[tuple[str, str, float]]:
         area = abs(sum(pm.vertices[ring[i]].xy[0] * pm.vertices[ring[(i + 1) % len(ring)]].xy[1]
                        - pm.vertices[ring[(i + 1) % len(ring)]].xy[0] * pm.vertices[ring[i]].xy[1]
                        for i in range(len(ring)))) * 0.5
-        out.append((f.role, min(_vkey(pm, v) for v in ring), area))
+        out.append((f.role, min(_vkey(pm, v) for v in ring), area,
+                    sorted({_vkey(pm, v) for v in vs})))
     return out
 
 
@@ -1060,7 +1061,8 @@ def _vkey(pm, vid: int) -> str:
 
 
 def stage1_population(pkl: Path, drop: list[str], out: Path,
-                      design_weights: dict | None = None) -> int:
+                      design_weights: dict | None = None,
+                      from_capture: bool = False, resume: str = "constraints") -> int:
     """§20b (3) STAGE 1'S POPULATION, dumped off a ``--solved-out`` pickle.
 
     The question RULINGS 2026-09-16v asks first: *what does a pad's
@@ -1086,18 +1088,26 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
                                                   ruling_head)
     from auto_patch_v2.solve.rows import _face_triangles
     t0 = time.perf_counter()
-    with pkl.open("rb") as fh:
-        sv = pickle.load(fh)
-    icao, pm, cs = sv["icao"], sv["pm"], sv["cs"]
-    law = Law.for_airport(icao)
-    if design_weights:
-        d0 = law.tables.emit.design
-        law = _dc.replace(law, tables=_dc.replace(
-            law.tables, emit=_dc.replace(law.tables.emit,
-                                         design=_dc.replace(d0, **design_weights))))
-    if drop:
-        cs = ConstraintSet.from_rows([r for r in cs.rows()
-                                      if r.source.generator not in drop])
+    if from_capture:
+        # THE CAPTURE PATH runs the replay's OWN prelude (the generators
+        # under the current tree), which is what a stage-1 population
+        # measured against a CODE change needs; the ``--solved-out`` path
+        # reads the constraint set another arm already built.
+        prob = replay_problem(pkl, resume, drop, design_weights)
+        icao, pm, cs, law = prob["icao"], prob["pm"], prob["cs"], prob["law"]
+    else:
+        with pkl.open("rb") as fh:
+            sv = pickle.load(fh)
+        icao, pm, cs = sv["icao"], sv["pm"], sv["cs"]
+        law = Law.for_airport(icao)
+        if design_weights:
+            d0 = law.tables.emit.design
+            law = _dc.replace(law, tables=_dc.replace(
+                law.tables, emit=_dc.replace(law.tables.emit,
+                                             design=_dc.replace(d0, **design_weights))))
+        if drop:
+            cs = ConstraintSet.from_rows([r for r in cs.rows()
+                                          if r.source.generator not in drop])
     drop_v, foreign = stage_split(pm, cs, law)
     rep = DesignReport()
     base = assemble(pm, cs, law, rep, drop=drop_v, fixed=foreign)
@@ -1157,7 +1167,7 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
     faces = _stage1_faces(pm, law, drop_v)
     tris: list[str] = []
     # the triangulation, off the same face list the assembly uses
-    role_of = {(r, k): a for r, k, a in faces}
+    role_of = {(r, k): a for r, k, a, _vs in faces}
     for f in pm.faces.values():
         key = (f.role, min(_vkey(pm, v) for v in pm.ring_vertices(f.ring)))
         if key not in role_of:
@@ -1183,7 +1193,7 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
                       "stage_dropped_rows": rep.stage_dropped_rows},
            "cols": sorted(col_key.values()),
            "rows": row_keys, "body": body_keys, "one": one_keys, "tris": tris,
-           "faces": [[r, k, round(a, 2)] for r, k, a in faces],
+           "faces": [[r, k, round(a, 2), vs] for r, k, a, vs in faces],
            "airside_v": sorted(_vkey(pm, v) for v in air_v)}
     with gzip.open(out, "wt") as fh:
         json.dump(rec, fh)
@@ -1270,8 +1280,8 @@ def stage1_diff(a: Path, b: Path, movers: Path | None, json_out: Path | None,
                                    "b_only": sum((tb - ta).values())}
     print(f"\nTRIANGLES: A-only {sum((ta-tb).values()):,}  "
           f"B-only {sum((tb-ta).values()):,}")
-    fa = {(r, k): ar for r, k, ar in A["faces"]}
-    fb = {(r, k): ar for r, k, ar in B["faces"]}
+    fa = {(r, k): ar for r, k, ar, *_ in A["faces"]}
+    fb = {(r, k): ar for r, k, ar, *_ in B["faces"]}
     only_a = {k: v for k, v in fa.items() if k not in fb}
     only_b = {k: v for k, v in fb.items() if k not in fa}
     retri = {k: (fa[k], fb[k]) for k in set(fa) & set(fb)}
@@ -1289,6 +1299,40 @@ def stage1_diff(a: Path, b: Path, movers: Path | None, json_out: Path | None,
         print("  A-only by role: " + ", ".join(f"{k} {v}" for k, v in by_role_a.most_common()))
     if by_role_b:
         print("  B-only by role: " + ", ".join(f"{k} {v}" for k, v in by_role_b.most_common()))
+    # THE m2 PER CLASS: the stage-1 sheet faces carrying a vertex of a
+    # changed row, by role — "how much of the airside sheet is priced on a
+    # different row set because a pad stands beside it".
+    def _vs_of_keys(keys: list[str]) -> set[str]:
+        s: set[str] = set()
+        for k in keys:
+            mid = k.split("\t", 1)[-1].split("|")
+            for piece in (mid[1].split(";") if len(mid) > 1 else []):
+                if piece:
+                    s.add(piece.split("*")[0].split("#")[0])
+            s.add(mid[0].split(":")[-1])
+        return {x for x in s if _IS_KEY.match(x)}
+
+    fv_b = [(r, k, ar, set(vs)) for r, k, ar, vs in B["faces"]]
+    print("\nTHE SHEET PRICED ON A DIFFERENT ROW SET (arm B faces carrying a "
+          "changed row), by role:")
+    per_class_m2: dict[str, dict] = {}
+    for cls_name in ("removed_keys", "added_keys", "retargeted_keys"):
+        vs_all: set[str] = set()
+        for c in ("ls_rows", "body", "one_sided"):
+            vs_all |= _vs_of_keys(out["classes"][c][cls_name])
+        by_role: Counter = Counter()
+        m2: Counter = Counter()
+        for r, _k, ar, fvs in fv_b:
+            if fvs & vs_all:
+                by_role[r] += 1
+                m2[r] += ar
+        per_class_m2[cls_name] = {"vertices": len(vs_all),
+                                  "faces": dict(by_role.most_common()),
+                                  "m2": {k: round(v) for k, v in m2.most_common()}}
+        print(f"  {cls_name.replace('_keys',''):11s}: {len(vs_all):,} vertices, "
+              + ", ".join(f"{r} {by_role[r]} faces / {m2[r]:,.0f} m2"
+                          for r, _n in m2.most_common(6)))
+    out["sheet_m2"] = per_class_m2
     va, vb = set(A["airside_v"]), set(B["airside_v"])
     print(f"AIRSIDE STAGE VERTICES: A {len(va):,} B {len(vb):,}; "
           f"A-only {len(va-vb):,} B-only {len(vb-va):,}")
@@ -1392,15 +1436,17 @@ def stage1_diff(a: Path, b: Path, movers: Path | None, json_out: Path | None,
     return 0
 
 
-def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
-           z_out: Path | None, method: str = "normal",
-           design_weights: dict[str, float] | None = None, verbose: bool = False,
-           sites: list[tuple[float, float]] | None = None, emit_dir: Path | None = None,
-           why_hump: tuple[str, float, float] | None = None, verify: bool = False,
-           solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
-           site_radius_m: float = 12.0, why_hard_limit: int | None = None,
-           why_hard_stage: int | None = None) -> int:
-    import numpy as np
+def replay_problem(pkl: Path, resume: str, drop: list[str],
+                   design_weights: dict | None = None,
+                   chord_fill: tuple[str, ...] = ()) -> dict:
+    """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
+    the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
+    it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
+    re-node reading, the channel backfills, the clusters, the target
+    channels in ``pipeline/build.py``'s order, the shape stage, the
+    ``[design]`` arm and ``shape_constraints`` with ``--drop-generator``
+    applied.  It solves nothing."""
+    import numpy as np  # noqa: F401  (the prelude's imports are the replay's)
     from auto_patch_v2.airport.road_profile import preferred_road_z
     from auto_patch_v2.law import Law
     from auto_patch_v2.model.constraints import ConstraintSet
@@ -1542,10 +1588,31 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             law.tables, emit=_dc.replace(law.tables.emit,
                                          design=_dc.replace(d0, **design_weights))))
         print(f"[{icao}] design weight ARM: {design_weights} -> {law.tables.emit.design}")
-    size: dict = {}
     cs, counts, _w = shape_constraints(pm, law, airport, stage)
     if drop:
         cs = ConstraintSet.from_rows([r for r in cs.rows() if r.source.generator not in drop])
+    return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
+            "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0}
+
+
+def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
+           z_out: Path | None, method: str = "normal",
+           design_weights: dict[str, float] | None = None, verbose: bool = False,
+           sites: list[tuple[float, float]] | None = None, emit_dir: Path | None = None,
+           why_hump: tuple[str, float, float] | None = None, verify: bool = False,
+           solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
+           site_radius_m: float = 12.0, why_hard_limit: int | None = None,
+           why_hard_stage: int | None = None) -> int:
+    import numpy as np
+    from auto_patch_v2.pipeline.build import displacement_by_role
+    from auto_patch_v2.pipeline.shapes import joint_steps
+    from auto_patch_v2.solve import Options
+    from auto_patch_v2.solve import solve_design
+    prob = replay_problem(pkl, resume, drop, design_weights, chord_fill)
+    icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
+                                  prob["law"], prob["cs"])
+    cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
+    size: dict = {}
     t = time.perf_counter()
     sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size, method=method)
     wall = round(time.perf_counter() - t, 1)
@@ -1781,11 +1848,15 @@ def main() -> int:
     if a.stage1_diff:
         return stage1_diff(a.stage1_diff[0], a.stage1_diff[1], a.movers, a.json)
     if a.stage1_dump:
-        if not a.why_from:
-            ap.error("--stage1-dump needs --why-from PKL (a --solved-out pickle)")
+        if not (a.why_from or a.replay):
+            ap.error("--stage1-dump needs --why-from PKL (a --solved-out pickle) "
+                     "or --replay PKL (a capture, whose generators are re-run "
+                     "under the current tree)")
         dw = {k.strip(): _design_value(v)
               for k, v in (it.split("=") for it in a.design_weight)}
-        return stage1_population(a.why_from, a.drop_generator, a.stage1_dump, dw)
+        return stage1_population(a.why_from or a.replay, a.drop_generator,
+                                 a.stage1_dump, dw,
+                                 from_capture=a.why_from is None, resume=a.resume)
     if a.probe_site:
         if not a.why_from:
             ap.error("--probe-site needs --why-from PKL (a --solved-out pickle)")

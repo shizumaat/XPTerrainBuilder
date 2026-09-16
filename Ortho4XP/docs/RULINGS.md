@@ -8921,3 +8921,13 @@ profile reading), C9 (§19 structure edge), `Corridor.bore_ways` (the
 object-corridor half of (13)(b) is inert), the reorder of
 `identify_channels` ahead of the corridor/sunken-road/door readers,
 SPJC's neighbour refresh, the Chatham box question (16e).
+
+## 2026-09-16t v2padclip r1+r2 MERGED (4be40fb4, fast-forward; suite ON MAIN 1780 passed, 0 FAILED): the arrangement clip no longer re-nodes airside and the airside REGION is pad-independent (the `classify/roles` `if` gone; LEMD apron faces 106 on both arms); the shipped OFF arm CHANGED as a defect fixed (r1 alone double-cut every pad: HECA ADJUDICATED 19,032 → 19,076 (+0.2 %), LEMD 1,749 → 986 (−44 %); named regressions HECA `within_shape` +479, `mid_edge_step` 13 → 21, `road_cross_section` +11; LEMD `taxi_box` +3); KEYS SHIP FALSE (`pad_from_cluster`, `pad_airside_clip`, `staged_solve`): under the staged solve + qp the runway bar is MET (LEMD 0, HECA 2 at 0.020 m) and the one-vertex probe is the campaign's best (0 of 32,575 moved, max 0.0167 m), but solve-owned airside VALUES still move (HECA 2,230 / 2.68 m, LEMD 485 / 0.36 m) and 69 % of that survives deleting EVERY pad row — the pads' PRESENCE in the sheet (faces, columns, ground no longer carrying zone/strip rows), not a row and not a §20b (2) substitution defect → §20b (3) to write: stage 1's population must be invariant to groundside geometry (airside is king) — measured first (r3: decompose the 1,544 by what the pad's presence removes); app 1.0.343 = v2channel (§45, peer 16i) + this, building now
+
+Also measured: the staged solve ALONE changes the shipped surface (HECA
+ADJUDICATED 19,076 → 18,346 −3.8 % but `pad_airside_weld` 8 → 18; LEMD
+986 → 1,005) — named. `pad_cluster_mismatch` HECA 15 → 0; the untried
+lever for the residual `renode_minted` (HECA 40/43, LEMD 12/32) is
+`pad_airside_snap_max_m` 5.0. Refuted: retreating an unsnappable
+crossing off the rim (takes the weld). Functions in 16r; plus
+`classify/roles.classify` (the pad-union subtraction removed).

@@ -8844,3 +8844,34 @@ by > 5 % named (HECA `plane_gradient` 9 → 14, `strip_seam_tear` 28 →
 33). NOT done: the `classify/roles.classify` `if` (the OFF arm's
 airside region still pad-dependent: LEMD apron faces 180 vs 106); the
 OFF-arm identity vs main (r2's first deliverable, before the merge).
+
+## 2026-09-16g v2channel ROUND 8 (5a2c4efc): (16) MET — seven replays ALL IDENTICAL, KPHX ONE bounded channel, KDFW on lidar with the hard set feasible; floor rows 378 → 149 (12.6 → 1.9 m) attributed to the (10)(ii) bank-toe cap; §45 (19)–(20) RULED (the toe, the three narrowings ratified, a synthesised bore yields); round 9 then the merge
+
+Round 8 on main 28b4b451: ends at the outermost crossings ⊕ one deck
+width, (14) wired, synthesised underpass bores in the claimed set (read
+from `structure_underpass.underpass_bores`). Replays OTHH 43/10, LEMD
+47/1, HECA 9/0, KCLT 17/0, CYXY 2/0, LGAV 11/2 — ALL IDENTICAL (counts
+moved with main's own merges, identical on both arms); SPJC refuses on
+both arms (−13-077/−13-078 stale; owner refresh). KPHX `channel:0` ways
+−9378/−14705, necks 50/30 m (the engine's neck read; the scout's 23 m
+was the pack's), 410 m corridor, tunnels 14 unchanged, ZERO `building16`
+refusals; datum (3)(iii) — the lidar is credible but reads no cut there.
+CYXY planar twins green; suite 1773/0 (`-n0`). KDFW build
+`KDFW_20260916T094915` rc 0, 441 s, UNCHANGED, ledger c3dbe3dada2b:
+`[flat-site] KDFW: lidar_credible — DEM lidar[inset]` (16a working),
+(3)(ii) datum, `channel_crest_at_edge` 0, hard set 48/146,790 over
+0.02 m (worst 0.0849 `runway_profile`), `channel_floor_at_declaration`
+149 / 1.886 m — ATTRIBUTED: the half-width read 120 m (the cap) from
+(10)(ii)'s bank toes against an 84–106 m cut, so the floor face rides
+the banks. Deviations reported, now RATIFIED (§45 (19)): the notch
+flank tested beside the neck with pavement on both sides; a credible
+inset is a depth witness only where it reads a cut; a neck has a plan
+width. Counts after: OTHH/KCLT/CYXY 0, LEMD 3, KPHX 1, LGAV 1 on TWO
+ways (−2914/−4017 claimed by §34 (5)'s synthesised TWY H bores — RULED
+§45 (20): a synthesised bore yields to a channel with a depth witness),
+HECA 1 (`channel:2`, −13192, neck + pack, lawful; named for the owner's
+read). Housekeeping: `owner_kept`/`parts` resolved to the peer's
+`structure_service.py`; `structures.py` at 1,000. Frames registered.
+Round 9: (19) the toe, (20) the yield; bars: KDFW floor rows 0,
+half-widths 42–53 m, LGAV one channel on four ways; then the merge for
+app 1.0.343 with the peer's lanes.

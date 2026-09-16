@@ -8612,3 +8612,33 @@ no corpus edit. The lane also censuses every cached index for
 now-out-of-box USGS3DEP negatives and names the campaign tiles inside
 the new boxes. KCLT needed nothing (rc 0); the KPHX item is closed by
 15au.
+
+## 2026-09-16d OWNER INTERVIEW (four answers, verbatim) — 15y-1 CLOSED as our mistake (the item-7 mouth is 496 m from 14R/32L; the "33 m" was distance to the mis-classified shoulder face, retired by §40 (5)); VMMC: NO tunnels at all → §34 (12) (5) (a bore that enters a building is the building's ramp; the sim's elevated roads carry bridges), lane v2vmmcbore; the two LEMD decks named for the owner's check (shape 981 at 40.4788711,−3.5787587; shape 988 at 40.4659974,−3.5811339 in the Sep 15 07:20 patch); CYXY: fix the USGS3DEP coverage box (peer); KPHX closed (13:29 refresh + 15au); the DEM refreshes: CYXY "nothing to derive" (two version-stale negatives remain — the box fix), KCLT nothing stale; HECA/LEMD DEM inputs UNCHANGED since Aug 5 / Aug 24 — what the owner sees as "the DEM changed" is the design surface (§20c, bank OFF, pads, the shoulder band)
+
+1. (15y-1) "The only tunnel mouths I see near 14R/32L are here:
+   40°29'02.72"N 3°34'48.63"W and 40°27'39.42"N 3°32'40.81"W, both of
+   which are more than 300m from the runway. So this sounds like a
+   mistake." — CONFIRMED: apt.dat 14R/32L centreline: the item-7 site
+   496 m, the owner's mouths 361 / 469 m, the trench rim 438 m. The
+   residual quoted in 15y/15az was the `runway_shoulder` cell (111,648
+   m², 914 m off-axis) carrying the runway's ref; v2shoulderband r1
+   retired the nine runway|tunnel_ramp rows (15bl).
+2. (15w-1) "There should be no tunnels cut at VMMC because all of the
+   roads are above ground, all the bridges/overpasses/ramps are
+   handled by elevated roads provided by the sim, they don't need any
+   trenches cut." → §34 (12) (5).
+3. (the LEMD decks) "Is it possible to provide shapeID's for these in
+   the current auto-patch on disk so I can check the location?" →
+   given above (the patch on disk is the Sep 15 07:20 build).
+4. (CYXY) "Fix the USGS coverage box" → the peer's inset line; HECA's
+   index also carries 468 USGS3DEP/NEWZEALAND1M negatives for Egyptian
+   airports — the same box defect.
+Owner also: "Why would the DEM need to be refreshed? It doesn't
+change" — RIGHT: the rasters are never refetched; the `dem` scope
+today only re-asks a provider's stale NEGATIVE; a correct coverage box
+makes that unnecessary. "Is this USGS bug affecting other airports
+too, like HECA?" — NO (3DEP is US-only; KPHX hit, KCLT not); HECA's
+DEM inputs unchanged since Aug 5 (no dem-scope write since Aug 8);
+VHHH gained a Hong Kong 5 m inset Sep 13; OTHH's Copernicus insets
+were rewritten Sep 14 22:07 (unledgered — the owner's app build, same
+source).

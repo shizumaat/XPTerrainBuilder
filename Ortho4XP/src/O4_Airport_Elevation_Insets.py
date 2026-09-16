@@ -8955,7 +8955,18 @@ def _inset_bake_provenance_entry(inset_path):
             entry["provider"] = meta.get("provider")
             entry["source_ids"] = meta.get("source_ids") or []
             entry["fetch_date"] = meta.get("fetch_date")
-            entry["native_resolution_m"] = meta.get("native_resolution_m")
+            # §45 (18) (owner RULINGS 2026-09-15bo): BOTH keys are
+            # stamped, each falling back to the other.  The fetchers
+            # write ``resolution_m`` (see the USGS3DEP sidecar); stamping
+            # only ``native_resolution_m`` minted the 2026-08-15 N32W098
+            # manifests that read ``null`` over a composed 1 m lidar
+            # frame, so every reader of the manifest called KDFW coarse.
+            native = meta.get("native_resolution_m")
+            stated = meta.get("resolution_m")
+            entry["native_resolution_m"] = (
+                native if native is not None else stated)
+            entry["resolution_m"] = (
+                stated if stated is not None else native)
         except Exception:
             pass
     return entry

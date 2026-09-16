@@ -39,6 +39,7 @@ tile drapes.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import sys
@@ -315,12 +316,22 @@ class ProductionDem:
         the tile overlay's ``target_resolution_m`` (``overlay``), else
         ``(None, "base_tier")`` — the base tier's 1- and 3-arcsec postings
         are both coarse; the raster's own posting is NOT consulted (a
-        3-arcsec .hgt is upsampled with no record of it)."""
+        3-arcsec .hgt is upsampled with no record of it).
+
+        §45 (18) (owner RULINGS 2026-09-15bo): the manifest entry is read
+        for ``native_resolution_m``, else ``resolution_m``, else the
+        INSET'S OWN sidecar (``<inset>.json``, the file the entry's
+        ``path`` names) — every N32W098 sidecar of 2026-08-15 was minted
+        by a writer that stamped ``native_resolution_m: null``, so KDFW's
+        composed 1 m 3DEP frame read ``(None, 'base_tier')`` → ``coarse``
+        → ``_lidar_credible`` False.  One line is logged when a fallback
+        fires, naming the key and the file."""
         lat, lon = self.frame.origin
         t = self.tile(int(math.floor(lat)), int(math.floor(lon)))
         if t is None:
             return None, "unknown"
         finest: float | None = None
+        note: str | None = None
         for e in t.inset_provenance:
             if not isinstance(e, dict):
                 continue
@@ -328,16 +339,20 @@ class ProductionDem:
             # airport is not this airport's; one naming none counts
             if e.get("icao") and str(e["icao"]).upper() != self.icao.upper():
                 continue
-            v = e.get("native_resolution_m")
-            if v is None:
-                v = e.get("resolution_m")
-            try:
-                f = float(v)
-            except (TypeError, ValueError):
+            f, whence = self._entry_pixel_m(e)
+            if f is None:
                 continue
-            if f > 0.0 and (finest is None or f < finest):
+            if finest is None or f < finest:
                 finest = f
+                note = whence
         if finest is not None:
+            if note is not None:
+                seen = self.__dict__.setdefault("_pixel_notes", set())
+                if note not in seen:
+                    seen.add(note)
+                    self._out(f"   [inset] {self.icao}: manifest entry carries "
+                              f"no native_resolution_m — source pixel "
+                              f"{finest:g} m from {note}")
             return finest, "inset"
         try:
             f = float(t.overlay_provenance.get("target_resolution_m"))
@@ -346,6 +361,44 @@ class ProductionDem:
         if f > 0.0:
             return f, "overlay"
         return None, "base_tier"
+
+    @staticmethod
+    def _entry_pixel_m(entry: dict) -> tuple[float | None, str | None]:
+        """One manifest entry's source pixel, §45 (18)'s precedence:
+        ``native_resolution_m``, else the entry's ``resolution_m``, else
+        the inset's OWN sidecar (``<path>.json``, keys ``resolution_m`` /
+        ``native_resolution_m``).  The second member is ``None`` when the
+        primary key answered, and otherwise names the key and the file the
+        value came from (the caller logs it once)."""
+        def _pos(v) -> float | None:
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                return None
+            return f if f > 0.0 else None
+
+        f = _pos(entry.get("native_resolution_m"))
+        if f is not None:
+            return f, None
+        f = _pos(entry.get("resolution_m"))
+        if f is not None:
+            return f, "the manifest entry's resolution_m"
+        path = entry.get("path")
+        if not path or not str(path).endswith(".tif"):
+            return None, None
+        sidecar = str(path)[:-4] + ".json"
+        try:
+            with open(sidecar, "r") as handle:
+                meta = json.load(handle)
+        except (OSError, ValueError):
+            return None, None
+        if not isinstance(meta, dict):
+            return None, None
+        for key in ("resolution_m", "native_resolution_m"):
+            f = _pos(meta.get(key))
+            if f is not None:
+                return f, f"{key} in {sidecar}"
+        return None, None
 
     def core_flat_site(self) -> dict | None:
         """The core's own ``synthetic_flat_site`` record for this airport

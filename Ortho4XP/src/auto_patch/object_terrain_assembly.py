@@ -56,6 +56,7 @@ from . import obj8_reader
 from . import dsf_road_network
 from . import object_terrain_features
 from . import config
+from . import progress as build_progress
 from .geom_safe import min_rotated_rect
 
 
@@ -227,8 +228,13 @@ def _pavement_polygons_longitude_latitude(layout) -> list | None:
     return rings or None
 
 
+# Progress cadence for the cold geometry scan: one report per this many
+# resources.  A big pack emits a handful of events, a small one none.
+GEOMETRY_SCAN_PROGRESS_INTERVAL = 500
+
+
 def _load_object_geometry_by_resource(
-    placements, pack_root, xplane_root
+    placements, pack_root, xplane_root, progress_callback=None
 ):
     """Resolve and load OBJ8 geometry for every terrain-relative placement
     resource, skipping light-only objects (no solid geometry), mass-placed
@@ -236,16 +242,31 @@ def _load_object_geometry_by_resource(
     — the same two skips Phase 1 applies — and stock library assets
     (``lib/...``), which the classifier refuses anyway (2026-07-18): not
     loading them saves parsing catalogue geometry such as the 27k-triangle
-    ``lib/ships/OilRig.obj``."""
+    ``lib/ships/OilRig.obj``.
+
+    ``progress_callback`` (optional) is called as ``callback(index,
+    total)`` every :data:`GEOMETRY_SCAN_PROGRESS_INTERVAL` resources — a
+    cold scan of a large pack runs for minutes, and callers report
+    liveness through it.  Progress is cosmetic: callback exceptions are
+    swallowed, never failing the scan."""
     placement_count_by_resource: dict[str, int] = {}
     for placement in placements:
         placement_count_by_resource[placement.resource_path] = (
             placement_count_by_resource.get(placement.resource_path, 0) + 1
         )
     geometry_by_resource: dict = {}
-    for resource_path in sorted(
+    resource_paths = sorted(
         {placement.resource_path for placement in placements}
-    ):
+    )
+    for index, resource_path in enumerate(resource_paths, start=1):
+        if (
+            progress_callback is not None
+            and index % GEOMETRY_SCAN_PROGRESS_INTERVAL == 0
+        ):
+            try:
+                progress_callback(index, len(resource_paths))
+            except Exception:
+                pass
         if (
             placement_count_by_resource[resource_path]
             > MAXIMUM_PLACEMENTS_PER_RESOURCE
@@ -816,6 +837,34 @@ def attach_bridge_classification(layout, xplane_root: str):
             except Exception:
                 pass
 
+    # ── Cold classify from here on (sidecar disabled, absent, or stale)
+    # ──  The DSFTool dump + per-resource geometry load + classifier can
+    # run for minutes on a big pack (measured 2026-08-09: ~8 min for the
+    # OTHH Aeroscape pack after a cache-version bump) with no sign of
+    # life in the app window, which sat looking hung.  Report through
+    # the build-progress channel — the driver's pool queue in parallel
+    # workers, the UI directly in serial builds (``progress.substep``
+    # routes both and no-ops outside a build).  Kept cheap: one event
+    # here, one per :data:`GEOMETRY_SCAN_PROGRESS_INTERVAL` resources,
+    # one at the cache write.
+    scan_banner = (
+        "Scanning 3D object pack (one-time cache rebuild): "
+        + (os.path.basename(pack_root_early or "") or "?")
+    )
+    build_progress.substep(0.0, scan_banner)
+    UI.vprint(
+        1,
+        "   [object-bridge] classification cache cold — scanning the "
+        "pack's 3D objects (a large pack can take several minutes)",
+    )
+
+    def _geometry_scan_progress(index, total):
+        build_progress.substep(
+            0.0,
+            "Scanning 3D object pack (one-time cache rebuild): "
+            f"resource {index}/{total}",
+        )
+
     lines = dsf_reader._load_dsf_text(dsf_path)
     if not lines:
         UI.vprint(
@@ -845,7 +894,8 @@ def attach_bridge_classification(layout, xplane_root: str):
 
     pack_root = dsf_reader._pack_root_for_dsf(dsf_path)
     geometry_by_resource = _load_object_geometry_by_resource(
-        terrain_placements, pack_root, xplane_root
+        terrain_placements, pack_root, xplane_root,
+        progress_callback=_geometry_scan_progress,
     )
     if not geometry_by_resource:
         return None
@@ -885,6 +935,11 @@ def attach_bridge_classification(layout, xplane_root: str):
 
     if sidecar_path is not None and fingerprint is not None:
         import pickle
+        build_progress.substep(
+            0.0,
+            "Scanning 3D object pack (one-time cache rebuild): "
+            "writing cache",
+        )
         try:
             os.makedirs(os.path.dirname(sidecar_path), exist_ok=True)
             with open(sidecar_path, "wb") as sidecar_file:

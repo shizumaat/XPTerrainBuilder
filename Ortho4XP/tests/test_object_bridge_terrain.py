@@ -1008,6 +1008,138 @@ class TestClassificationReadsAuthoredGeometry:
 
 
 # ---------------------------------------------------------------------------
+# cold-scan progress (2026-08-09: the app window looked hung for ~8 min
+# while the OTHH Aeroscape pack's classification cache rebuilt with no
+# progress event — the cold classify path now reports through
+# progress.substep, the channel the driver's pool queue drains)
+# ---------------------------------------------------------------------------
+
+
+class TestColdScanProgress:
+    def _placements(self, resources):
+        from auto_patch.obj8_reader import ObjectPlacement
+
+        return [
+            ObjectPlacement(
+                definition_index=index, resource_path=resource,
+                longitude=ANCHOR_LONGITUDE + 0.001 * index,
+                latitude=ANCHOR_LATITUDE, heading_degrees=0.0,
+            )
+            for index, resource in enumerate(resources)
+        ]
+
+    def _synthetic_pack(self, tmp_path, count=5):
+        pack_root = tmp_path / "Progress Pack"
+        (pack_root / "objects").mkdir(parents=True)
+        resources = []
+        for index in range(count):
+            resource = f"objects/building{index}.obj"
+            (pack_root / resource).write_text(_FLAT_BOX_OBJ_TEXT)
+            resources.append(resource)
+        return pack_root, resources
+
+    def test_geometry_scan_fires_callback_at_interval(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(assembly, "GEOMETRY_SCAN_PROGRESS_INTERVAL", 2)
+        pack_root, resources = self._synthetic_pack(tmp_path)
+        calls = []
+        geometry_by_resource = assembly._load_object_geometry_by_resource(
+            self._placements(resources), str(pack_root), None,
+            progress_callback=lambda index, total: calls.append(
+                (index, total)),
+        )
+        assert calls == [(2, 5), (4, 5)]
+        assert len(geometry_by_resource) == 5  # the scan itself unharmed
+
+    def test_callback_exception_never_fails_the_scan(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(assembly, "GEOMETRY_SCAN_PROGRESS_INTERVAL", 2)
+        pack_root, resources = self._synthetic_pack(tmp_path)
+
+        def _explode(_index, _total):
+            raise RuntimeError("progress is cosmetic")
+
+        geometry_by_resource = assembly._load_object_geometry_by_resource(
+            self._placements(resources), str(pack_root), None,
+            progress_callback=_explode,
+        )
+        assert len(geometry_by_resource) == 5
+
+    def test_attach_cold_path_reports_and_warm_path_stays_quiet(
+        self, tmp_path, monkeypatch
+    ):
+        """End to end through ``attach_bridge_classification``: the cold
+        classify emits the scan-start banner, the per-resource events and
+        the cache-write event through the build-progress channel; the
+        second (sidecar-warm) build emits none of them."""
+        from types import SimpleNamespace
+
+        from auto_patch import dsf_reader
+
+        monkeypatch.setattr(config, "OBJECT_BRIDGE_TERRAIN", True)
+        monkeypatch.setattr(assembly, "GEOMETRY_SCAN_PROGRESS_INTERVAL", 2)
+        pack_root, resources = self._synthetic_pack(tmp_path)
+        # ``_pack_root_for_dsf`` is dirname^3 of the DSF path — give the
+        # pack the real ``<pack>/Earth nav data/<subdir>/<tile>.dsf``
+        # shape so pack-root resolution (and with it the sidecar cache
+        # and .obj resolution) works.
+        dsf_dir = pack_root / "Earth nav data" / "+30-090"
+        dsf_dir.mkdir(parents=True)
+        dsf_path = dsf_dir / "overlay.dsf"
+        dsf_path.write_bytes(b"")
+        definition_lines = [
+            f"OBJECT_DEF {resource}" for resource in resources
+        ]
+        placement_lines = [
+            f"OBJECT {index} {ANCHOR_LONGITUDE + 0.001 * index} "
+            f"{ANCHOR_LATITUDE} 0.0"
+            for index in range(len(resources))
+        ]
+        monkeypatch.setattr(
+            dsf_reader, "find_associated_dsf",
+            lambda _apt, _lat, _lon: str(dsf_path),
+        )
+        monkeypatch.setattr(
+            dsf_reader, "_load_dsf_text",
+            lambda _path: definition_lines + placement_lines,
+        )
+        events = []
+        monkeypatch.setattr(
+            assembly.build_progress, "substep",
+            lambda frac, detail=None: events.append(detail),
+        )
+
+        def _layout():
+            return SimpleNamespace(
+                icao="XTST",
+                apt_dat_path=str(tmp_path / "no_such_apt.dat"),
+                anchor=(ANCHOR_LATITUDE, ANCHOR_LONGITUDE),
+            )
+
+        result = assembly.attach_bridge_classification(
+            _layout(), str(tmp_path / "XP"))
+        assert result is not None
+        scan_events = [
+            event for event in events
+            if event and event.startswith("Scanning 3D object pack")
+        ]
+        assert scan_events[0].endswith("Progress Pack")  # scan start
+        assert any("resource 2/5" in event for event in scan_events)
+        assert any("resource 4/5" in event for event in scan_events)
+        assert scan_events[-1].endswith("writing cache")
+
+        events.clear()
+        assert assembly.attach_bridge_classification(
+            _layout(), str(tmp_path / "XP")) is not None
+        assert not [
+            event for event in events
+            if event and event.startswith("Scanning 3D object pack")
+        ], "a sidecar-warm build must not report a cold scan"
+
+
+# ---------------------------------------------------------------------------
 # stage 2 — bridge laws (grade_law lockstep source)
 # ---------------------------------------------------------------------------
 

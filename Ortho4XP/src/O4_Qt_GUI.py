@@ -73,6 +73,7 @@ import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
 import O4_UI_Utils as UI
 import O4_Version
+import O4_Build_Info
 import O4_Airport_Index as APT
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
@@ -1279,8 +1280,6 @@ class MainWindow(QMainWindow):
         off the title bar cannot tell us which build broke.  In a dev tree
         the components with no artifact behind them read "dev".
         """
-        import O4_Build_Info
-
         return "Ortho4XP\n%s\n\nMap-first Qt UI (preview build)." % (
             O4_Build_Info.build_info().as_lines()
         )

@@ -59,6 +59,37 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS = ROOT / "tools" / "harness"
 
+# WINDOWS: the standard test harness is a POSIX-ONLY LANE INSTRUMENT.
+# ``tools/harness/artifact_ledger.py`` imports ``fcntl`` at module scope
+# for its cross-lane flock, ``lane_worktree.sh`` is a /bin/sh script this
+# file syntax-checks and greps, and the twins assert POSIX paths and
+# ``lsof``.  None of it ships: the Windows artifact is the frozen Qt app.
+# So the whole module skips on win32 rather than importing (the import
+# itself dies on ``fcntl``) — measured in CI 2026-09-17, beta plan §1 B4.
+if sys.platform == "win32":                                # pragma: no cover
+    pytest.skip(
+        "Windows: tools/harness is a POSIX-only lane instrument "
+        "(artifact_ledger.py imports fcntl for its cross-lane flock; "
+        "lane_worktree.sh is /bin/sh).  It never ships on Windows.",
+        allow_module_level=True)
+
+#: A BARE CHECKOUT IS NOT A BUILD TREE.  ``venv`` and ``OSM_data`` are
+#: symlinks the lane ritual mounts, and ``Ortho4XP.cfg`` is untracked and
+#: cloned by the ritual — a CI runner's checkout has none of the three,
+#: and the twins that exercise the real tree have nothing to exercise.
+#: They SKIP with that named cause rather than asserting against a tree
+#: that was never provisioned (measured in CI 2026-09-17).
+LANE_PROVISIONED = all((ROOT / d).is_dir() for d in ("venv", "OSM_data"))
+requires_lane_tree = pytest.mark.skipif(
+    not LANE_PROVISIONED,
+    reason="needs a lane-provisioned tree (venv + OSM_data mounts from "
+           "tools/harness/lane_worktree.sh); a bare CI checkout has none")
+requires_global_cfg = pytest.mark.skipif(
+    not (ROOT / "Ortho4XP.cfg").is_file(),
+    reason="needs this tree's own Ortho4XP.cfg — untracked in git and "
+           "cloned by tools/harness/lane_worktree.sh; a bare CI checkout "
+           "has none, so there is no engine-global frame to diverge from")
+
 sys.path.insert(0, str(ROOT / "src"))
 
 
@@ -1082,6 +1113,7 @@ def test_the_build_entry_refuses_a_cwd_without_venv_and_osm_data(build_mod,
     assert "OSM_data" in str(exc.value)
 
 
+@requires_lane_tree
 def test_the_build_entry_accepts_the_real_tree(build_mod):
     assert build_mod.require_build_cwd(ROOT) == ROOT
 
@@ -1167,6 +1199,7 @@ def test_the_per_tile_cfg_is_PROVISIONED_when_absent(build_mod, tmp_path):
         "on two sources left nothing in either frame to compare")
 
 
+@requires_global_cfg
 def test_a_MISSING_canonical_tile_cfg_DERIVES_from_global_defaults(
         build_mod, tmp_path):
     """OWNER RULING 2026-08-14 — "A TILE WITHOUT A PER-TILE CFG USES
@@ -5640,8 +5673,15 @@ def test_the_harness_build_redirects_engine_caches_lane_local(
             "writers' truncate-in-place, straight into the shared file")
         assert seeded.read_bytes() == shared.read_bytes(), (
             "reads stay WARM on the shared sidecars")
-        assert rec["mod_cache_seeded"] == {"dirs": 1, "files": 1,
-                                           "cloned": 1, "copied": 0}
+        # cloned-vs-copied is a FILESYSTEM fact, not a law one: APFS
+        # clones, ext4 falls back to shutil.copyfile, which
+        # mirror_tree_as_overlay itself calls "lawful, just costlier"
+        # (Linux CI 2026-09-17 reported copied=1, cloned=0).  What the
+        # overlay must guarantee is one real file per shared file.
+        assert (rec["mod_cache_seeded"]["dirs"],
+                rec["mod_cache_seeded"]["files"]) == (1, 1)
+        assert (rec["mod_cache_seeded"]["cloned"]
+                + rec["mod_cache_seeded"]["copied"]) == 1
 
         # THE BELT: the engine was already imported, and
         # ``Default_dsf_cache_dir`` is computed at import time.
@@ -5690,8 +5730,10 @@ def test_the_redirect_leaves_an_authorised_refresh_scope_shared(
         assert rec2["dsf_dump_cache"] is None
         assert rec2["airport_mod_cache"] == str(overlay)
         assert os.environ["O4_AIRPORT_MOD_CACHE_DIR"] == str(overlay)
-        assert rec2["mod_cache_seeded"] == {"dirs": 1, "files": 1,
-                                            "cloned": 1, "copied": 0}
+        assert (rec2["mod_cache_seeded"]["dirs"],
+                rec2["mod_cache_seeded"]["files"]) == (1, 1)
+        assert (rec2["mod_cache_seeded"]["cloned"]          # see above:
+                + rec2["mod_cache_seeded"]["copied"]) == 1  # fs-dependent
         assert not (overlay / "packA" / "warm.cache").is_symlink()
         assert rec2["masks"] == str(masks)
         assert os.environ["O4_MASKS_DIR"] == str(masks)
@@ -5852,10 +5894,14 @@ def test_the_masks_overlay_is_seeded_PER_TILE_IN_SCOPE(tmp_path, monkeypatch,
         assert rec["masks"] == str(masks)
         assert os.environ["O4_MASKS_DIR"] == str(masks)
         assert rec["masks_subtrees"] == [FNAMES.long_latlon(30, 31)]
-        assert rec["masks_seeded"] == {"dirs": 0, "files": 1,
-                                       "cloned": 1, "copied": 0}, (
+        assert (rec["masks_seeded"]["dirs"],
+                rec["masks_seeded"]["files"]) == (0, 1), (
             "the counts are reported like the mod cache's — a corpus that "
             "fell back to real copies is a number in the build record")
+        assert (rec["masks_seeded"]["cloned"]
+                + rec["masks_seeded"]["copied"]) == 1, (
+            "one real file per shared file; WHICH of the two it was is a "
+            "filesystem fact (APFS clones, ext4 copies)")
 
         seeded = masks / FNAMES.long_latlon(30, 31) / "3000_5000.png"
         assert seeded.read_bytes() == b"warm mask", "reads stay WARM"

@@ -9,6 +9,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
+
 jobs:
   build-and-test:
     name: Build & test (macOS)
@@ -36,3 +39,123 @@ jobs:
 
       - name: Build (release)
         run: swift build -c release
+
+  # ════════════════════════════════════════════════════════════════════
+  # THE ENGINE IS PYTHON AND SHIPS ON THREE PLATFORMS (beta plan §1 B4)
+  # ════════════════════════════════════════════════════════════════════
+  # Until 2026-09-17 CI ran no Python at all: every Windows and Linux
+  # regression was found by a user, or by release.yml failing at freeze
+  # time — after the tag.  This matrix runs the corpus-independent test
+  # set (harness twins, the JSONL engine protocol, the Qt app offscreen)
+  # on the three OSes the release ships.
+  #
+  # The corpus-dependent suites (tests/auto_patch_v2 and the airport
+  # integration files) are NOT here: they need
+  # /Users/noah/XPTerrainBuilderData, which no runner has.  conftest's
+  # shared-repo guard is inert when the corpus is absent, so the files
+  # below collect and run clean without it.
+  python-tests:
+    name: Python tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false        # one platform's red must not hide another's
+      matrix:
+        os: [macos-15, windows-latest, ubuntu-22.04]
+    defaults:
+      run:
+        shell: bash           # one recipe; Git bash on the Windows runner
+    env:
+      # The Qt tests construct real widgets; there is no display on any
+      # runner.  MPLBACKEND keeps matplotlib (pulled in transitively) off
+      # the interactive backends for the same reason.
+      QT_QPA_PLATFORM: offscreen
+      MPLBACKEND: Agg
+      # --timeout: a hung test fails with its own stack dump instead of
+      # taking the job's 30 minutes and leaving no log behind.
+      PYTEST_FLAGS: >-
+        -q --no-header -p no:cacheprovider -rfE
+        --continue-on-collection-errors
+        --timeout=180 --timeout-method=thread
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Ortho4XP/requirements.txt
+
+      # Qt's offscreen platform plugin still links the X/EGL stack.  Same
+      # list release.yml installs for the Linux freeze.
+      - name: System libraries for Qt (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0
+
+      # Same recipe as release.yml, plus the dev/test tail (pytest,
+      # pytest-xdist, hypothesis) which the frozen app deliberately drops.
+      #   * gdal: optional at runtime everywhere (O4_DEM_Utils.py guards
+      #     the import) and a source build on a runner is not worth it.
+      #   * scikit-fmm on Windows: the vendored cp313 wheel in Utils/win,
+      #     which is also what the release installs.
+      - name: Install engine packages
+        working-directory: Ortho4XP
+        run: |
+          python -m pip install --upgrade pip
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python -m pip install Utils/win/*.whl
+            grep -v '^gdal==' requirements.txt \
+              | grep -v '^scikit-fmm==' > reqs-ci.txt
+          else
+            grep -v '^gdal==' requirements.txt > reqs-ci.txt
+          fi
+          python -m pip install -r reqs-ci.txt
+          # A hung test must NAME ITSELF, not eat the 30-minute job budget:
+          # round 1 (2026-09-17) lost the whole Linux Qt step to a hang with
+          # no log, because a cancelled job keeps no logs at all.
+          python -m pip install pytest-timeout
+          python -m pip list
+
+      # Three steps, each `if: always()`, so one group's red does not hide
+      # the other two — a matrix debugged one hidden failure per push is
+      # what six CI rounds are spent on.
+      #
+      # `|| [ $? -eq 5 ]`: pytest exits 5 for "no tests ran", which on
+      # Windows is the INTENDED state of the harness file (the whole
+      # module is platform-skipped).  Every other non-zero code still
+      # fails the step.
+      - name: Harness twins
+        if: always()
+        working-directory: Ortho4XP
+        run: |
+          python -m pytest $PYTEST_FLAGS tests/test_harness.py \
+            || [ $? -eq 5 ]
+
+      - name: Engine protocol
+        if: always()
+        working-directory: Ortho4XP
+        run: |
+          python -m pytest $PYTEST_FLAGS tests/test_engine*.py \
+            || [ $? -eq 5 ]
+
+      # SERIAL (-n0) and, where the runner has coreutils, under a wall
+      # clock of its own.  Rounds 1 and 3 both lost this step on Linux to
+      # the job's 30-minute timeout, and a CANCELLED job keeps NO LOGS AT
+      # ALL — two rounds spent learning nothing.  Under xdist a worker
+      # that dies hard leaves the controller waiting and --timeout cannot
+      # fire; serial, a crash kills pytest immediately and -v names the
+      # test it died in.  The step's own `timeout` fails the STEP instead
+      # of the JOB, so the log survives to be read.
+      - name: Qt app (offscreen)
+        if: always()
+        working-directory: Ortho4XP
+        run: |
+          limit=""
+          if command -v timeout >/dev/null 2>&1; then
+            limit="timeout -k 30 900"     # absent on the macOS runner
+          fi
+          $limit python -m pytest $PYTEST_FLAGS -n0 -v tests/test_qt_*.py \
+            || [ $? -eq 5 ]

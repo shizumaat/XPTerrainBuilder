@@ -115,6 +115,26 @@ def _wait_for(predicate, timeout=5.0, interval=0.01):
     return False
 
 
+def _unconstrain_memory_admission(monkeypatch):
+    """Stub the admission MEMORY BUDGET, the way ``stub_worker`` already
+    stubs the time model.
+
+    Admission is gated on available memory, not on slots alone
+    (``ParallelBuildRun._memory_budget``, sampled once at construction),
+    so on a small runner the scheduler lawfully admits ONE step at a time
+    and nothing overlaps.  Measured on macos-15 in CI (2026-09-17, beta
+    plan §1 B4): in two successive rounds the second tile's start marker
+    equalled the first tile's end marker to within 0.7 ms — strict
+    serialisation, not a near miss, and unchanged by widening the stub
+    worker's pauses.  With the budget stubbed these tests measure the
+    SCHEDULER rather than the runner's RAM; the assertions are untouched.
+    """
+    monkeypatch.setattr(parallel, "step_memory_budget_gigabytes",
+                        lambda: 1024.0)
+    monkeypatch.setattr(parallel, "mesh_memory_budget_gigabytes",
+                        lambda: 1024.0)
+
+
 # ---------------------------------------------------------------------------
 # Subprocess-path tests
 # ---------------------------------------------------------------------------
@@ -123,11 +143,12 @@ def test_two_tiles_overlap_and_complete(stub_worker, tmp_path):
     starts precede either end), all four terminal events arrive, RunDone
     aggregates 2/0/False, and per-tile step order holds."""
     stub_worker.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
+    _unconstrain_memory_admission(stub_worker)
     session = EngineSession()
     collector = Collector(session)
     tiles = [(48, -6), (49, -6)]
     assert _start_parallel(session, tiles, slots=2) is True
-    run_done = collector.wait_run_done()
+    run_done = collector.wait_run_done(30.0)
 
     # Every tile's terminal events arrived.
     for lat, lon in tiles:
@@ -332,6 +353,7 @@ def test_enqueued_tiles_start_on_free_slots_beyond_initial_batch(
     at slots=4, two happy tiles enqueued: both must START while the
     sleepers are still sleeping."""
     stub_worker.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
+    _unconstrain_memory_admission(stub_worker)
     session = EngineSession()
     collector = Collector(session)
     sleepers = [(60, 1), (60, 2)]

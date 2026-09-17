@@ -25,10 +25,11 @@ All headless: no network, no GUI toolkit, no X-Plane install.
 
 import json
 import os
-import selectors
+import queue
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 
 import pytest
@@ -43,37 +44,59 @@ SLOW_STEP_SECONDS = 120.0
 
 
 class _ProtocolReader:
-    """Incremental line reader over a child's stdout pipe with timeouts."""
+    """Incremental JSON-line reader over a child's stdout pipe, with
+    timeouts.
+
+    A BACKGROUND THREAD, not ``selectors``: on Windows ``select`` accepts
+    SOCKETS ONLY, and selecting a pipe's file descriptor raises
+    ``OSError [WinError 10038] An operation was attempted on something
+    that is not a socket`` — measured on windows-latest in CI 2026-09-17
+    (beta plan §1 B4), where it failed two of these lifecycle tests while
+    the engine transport itself was fine.  A blocking ``readline`` on its
+    own daemon thread is the one shape that works on all three platforms,
+    and a child that never closes stdout cannot hang the run.
+    """
+
+    _END = object()
 
     def __init__(self, process):
-        self._file_descriptor = process.stdout.fileno()
-        self._selector = selectors.DefaultSelector()
-        self._selector.register(self._file_descriptor,
-                                selectors.EVENT_READ)
-        self._buffer = b""
+        self._stdout = process.stdout
+        self._lines = queue.Queue()
+        self._thread = threading.Thread(target=self._pump, daemon=True)
+        self._thread.start()
+
+    def _pump(self):
+        try:
+            while True:
+                line = self._stdout.readline()
+                if not line:
+                    break
+                self._lines.put(line)
+        except (OSError, ValueError):       # pipe closed under us
+            pass
+        finally:
+            self._lines.put(self._END)
 
     def wait_for(self, predicate, timeout):
         """Return the first JSON object line matching ``predicate``, or
         None if the stream ends or the timeout expires first."""
         deadline = time.time() + timeout
         while True:
-            while b"\n" in self._buffer:
-                line, self._buffer = self._buffer.split(b"\n", 1)
-                try:
-                    message = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(message, dict) and predicate(message):
-                    return message
             remaining = deadline - time.time()
             if remaining <= 0:
                 return None
-            if not self._selector.select(min(remaining, 0.2)):
+            try:
+                line = self._lines.get(timeout=min(remaining, 0.2))
+            except queue.Empty:
                 continue
-            chunk = os.read(self._file_descriptor, 65536)
-            if not chunk:
+            if line is self._END:
                 return None
-            self._buffer += chunk
+            try:
+                message = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(message, dict) and predicate(message):
+                return message
 
 
 def _spawn_engine_child(tmp_path, extra_environment=None):

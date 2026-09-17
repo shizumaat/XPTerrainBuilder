@@ -6475,3 +6475,26 @@ def test_warn_rule_is_silent_on_a_fully_delivered_inset(tmp_path, monkeypatch):
     # An unopenable raster is never judged, never guessed.
     assert INSETS.inset_delivery_shortfall(
         str(tmp_path / "absent.tif"), boundary, 0.5) is None
+
+
+def test_every_strategy_stamps_native_resolution_beside_the_target():
+    """A manifest carrying only ``resolution_m`` (the WARP TARGET) leaves
+    every reader to call a 1 m lidar cut coarse — the 2026-08-15 N32W098
+    class — and makes a manifest-side pixel tolerance uncomputable
+    (measured 2026-09-17: 229 usgs3dep manifests on the corpus had no
+    ``native_resolution_m``).  Read structurally so a NEW strategy cannot
+    reintroduce the omission."""
+    import inspect
+    import re
+
+    source = inspect.getsource(INSETS)
+    # Every manifest literal that states the warp target must state the
+    # source's own resolution too; they are three lines apart at most.
+    blocks = [match.start() for match in
+              re.finditer(r'"resolution_m": target_resolution_m,', source)]
+    assert blocks, "the manifest literals moved; fix this twin"
+    for start in blocks:
+        window = source[max(0, start - 900):start + 200]
+        assert '"native_resolution_m"' in window, (
+            "a manifest states the warp target without the source's "
+            "native resolution near offset %d" % start)

@@ -1787,6 +1787,14 @@ class TnmCloudOptimizedGeoTiffStrategy:
             ),
             "fetch_date": datetime.date.today().isoformat(),
             "bounding_box_wgs84": list(bounding_box_wgs84),
+            # Every other strategy stamps what the SOURCE publishes
+            # beside what the warp targeted; without it a manifest
+            # reader has only the target and calls a 1 m lidar cut
+            # coarse (the 2026-08-15 N32W098 class), and a
+            # manifest-side pixel tolerance cannot be computed at
+            # all (measured 2026-09-17: 229 usgs3dep manifests).
+            "native_resolution_m": definition.get(
+                "native_resolution_m"),
             "resolution_m": target_resolution_m,
         }
 
@@ -3305,6 +3313,14 @@ class CoralAtlasLibraryStrategy:
             ),
             "fetch_date": datetime.date.today().isoformat(),
             "bounding_box_wgs84": list(bounding_box_wgs84),
+            # Every other strategy stamps what the SOURCE publishes
+            # beside what the warp targeted; without it a manifest
+            # reader has only the target and calls a 1 m lidar cut
+            # coarse (the 2026-08-15 N32W098 class), and a
+            # manifest-side pixel tolerance cannot be computed at
+            # all (measured 2026-09-17: 229 usgs3dep manifests).
+            "native_resolution_m": definition.get(
+                "native_resolution_m"),
             "resolution_m": target_resolution_m,
         }
 
@@ -3526,6 +3542,14 @@ class CoordinateNamedUrlListStrategy:
             ),
             "fetch_date": datetime.date.today().isoformat(),
             "bounding_box_wgs84": list(bounding_box_wgs84),
+            # Every other strategy stamps what the SOURCE publishes
+            # beside what the warp targeted; without it a manifest
+            # reader has only the target and calls a 1 m lidar cut
+            # coarse (the 2026-08-15 N32W098 class), and a
+            # manifest-side pixel tolerance cannot be computed at
+            # all (measured 2026-09-17: 229 usgs3dep manifests).
+            "native_resolution_m": definition.get(
+                "native_resolution_m"),
             "resolution_m": target_resolution_m,
         }
 

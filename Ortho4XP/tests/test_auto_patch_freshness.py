@@ -797,17 +797,37 @@ def _select(monkeypatch, path):
         lambda xp_root, icao: str(path) if path else None)
 
 
+def _stub_the_engine(tmp_path, monkeypatch):
+    """Put a STUB v2 pipeline under the real ``build_write_verify_one_v2``.
+
+    v2 is the only engine (RULINGS 2026-09-13au), and the stamps this
+    file's gate reads back are written by ``engine_v2._stamp_header``
+    into the patch root — so the round-trip these tests defend only
+    exists when the REAL v2 adapter runs.  The stub is the one in
+    ``test_auto_patch_engine_dispatch`` (a single definition, shared,
+    never a second copy): its ``build`` writes the patch + sidecar with
+    ``config.header_extra`` on the ``<osm>`` root, exactly as the real
+    emitter does.  Serial, and the pipeline's scratch under ``tmp_path``.
+    """
+    from auto_patch import config as CFG
+    from auto_patch import engine_v2 as E2
+    from test_auto_patch_engine_dispatch import _stub_v2
+
+    monkeypatch.setattr(CFG, "PARALLEL_AIRPORTS", False, raising=False)
+    monkeypatch.setattr(E2, "_scratch_dir",
+                        lambda task: str(tmp_path / "v2scratch" / task["icao"]))
+    return _stub_v2(monkeypatch)
+
+
 def _drive_generate(tmp_path, monkeypatch, apt, tile=None,
                     cifp_file="dummy.dat"):
     """Run generate_auto_patches over one fake CIFP airport (KFAK).
 
     The CIFP/apt.dat plumbing is stubbed at the driver-module level;
-    the build itself is stubbed to emit a minimal stamped layout.
+    the build itself runs the real v2 adapter over a stub v2 pipeline,
+    so the patch is written with the production freshness stamps.
     Returns (auto_patched, providers) so callers assert on both.
     """
-    import auto_patch.pipeline as pipeline
-    import auto_patch.verification as verification
-
     patch_dir = tmp_path / "Patches"
     patch_dir.mkdir(exist_ok=True)
     rwy = {"lat": 40.1, "lon": -100.2}
@@ -824,16 +844,7 @@ def _drive_generate(tmp_path, monkeypatch, apt, tile=None,
     monkeypatch.setattr(driver, "xplane_root_from_cifp_path",
                         lambda path: "xp_root")
 
-    def _build(icao, xp_root, **kw):
-        built = PavementLayout(icao=icao, anchor=(40.0, -100.0),
-                               apt_dat_path=str(apt))
-        built.dsf_sources_read = []
-        built.dsf_tiles_scanned = []
-        return built
-
-    monkeypatch.setattr(pipeline, "build_airport_pavement", _build)
-    monkeypatch.setattr(verification, "verify_and_log",
-                        lambda layout, icao, **kw: None)
+    _stub_the_engine(tmp_path, monkeypatch)
     _select(monkeypatch, apt)
 
     if tile is None:
@@ -970,8 +981,6 @@ def test_no_apt_dat_airport_is_skipped_not_fatal(
 def test_no_apt_dat_neighbour_does_not_block_a_buildable_airport(
         tmp_path, monkeypatch, fresh_env):
     """The tile keeps building its other airports (HECA beside HECP)."""
-    import auto_patch.pipeline as pipeline
-    import auto_patch.verification as verification
     apt = _make_apt_dat(tmp_path)
     tile = types.SimpleNamespace(lat=40.0, lon=-100.0, dem=None)
     patch_dir = tmp_path / "Patches"
@@ -992,17 +1001,7 @@ def test_no_apt_dat_neighbour_does_not_block_a_buildable_airport(
     monkeypatch.setattr(
         osm_load, "_pick_best_apt_dat_against_osm",
         lambda xp_root, icao: str(apt) if icao == "KFAK" else None)
-
-    def _build(icao, xp_root, **kw):
-        built = PavementLayout(icao=icao, anchor=(40.0, -100.0),
-                               apt_dat_path=str(apt))
-        built.dsf_sources_read = []
-        built.dsf_tiles_scanned = []
-        return built
-
-    monkeypatch.setattr(pipeline, "build_airport_pavement", _build)
-    monkeypatch.setattr(verification, "verify_and_log",
-                        lambda layout, icao, **kw: None)
+    _stub_the_engine(tmp_path, monkeypatch)
     auto_patched = driver.generate_auto_patches(
         tile, str(tmp_path), taxiway_data={}, building_data={},
         road_data=None, mode="All")

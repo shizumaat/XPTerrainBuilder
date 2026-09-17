@@ -67,6 +67,51 @@ and (c).
 > release notices must cover the tree we actually ship, not the tree
 > upstream documented in 2018.
 
+### 3.1 The AppImage type-2 runtime — **Linux `.AppImage` artifact only**
+
+The Linux `.AppImage` is one file whose first ~945 KB are the AppImage
+*runtime*: a small static launcher that mounts the squashfs payload and
+executes `AppRun`. It is the first code a Linux user runs, so we vendor one
+verified copy rather than let the build tool download it:
+`scripts/appimage/runtime-x86_64`, upstream
+[AppImage/type2-runtime](https://github.com/AppImage/type2-runtime) commit
+`75849dce7cc37e4319b633df1f116ca895c71a12`, sha256
+`1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf`
+(provenance: `scripts/appimage/README.md`; the pin is enforced by
+`scripts/make_appimage.sh`).
+
+**It ships only inside the Linux AppImage.** It is not in the Linux
+`tar.gz`, the Windows zip, the macOS app, or any frozen PyInstaller bundle
+(it lives under `scripts/`, which no `.spec` bundles).
+
+| Component | License | Copyright |
+| --- | --- | --- |
+| **AppImage type-2 runtime** (`runtime.c`) | **MIT** | © 2004-23 probonopd |
+| **musl libc** (Alpine 3.21; the runtime is built in an Alpine chroot) | **MIT** | © 2005-2020 Rich Felker and contributors |
+| **libfuse 3.15.0** — `lib/` + `include/`, patched with upstream's `patches/libfuse/mount.c.diff` | **LGPL v2.1** (libfuse's other files are GPL v2 and are *not* linked in) | © Miklos Szeredi and contributors |
+| **squashfuse 0.5.2** (`libsquashfuse`, `libsquashfuse_ll`) | **BSD-2-Clause** | © 2012 Dave Vasilevsky; `squashfs_fs.h` © Phillip Lougher |
+| **zstd** (Alpine 3.21 `zstd-static`) | **BSD-3-Clause** (dual-licensed BSD-3 / GPL v2; taken under BSD-3) | © Meta Platforms, Inc. and affiliates |
+| **zlib** (Alpine 3.21 `zlib-static`) | **zlib license** | © 1995-2024 Jean-loup Gailly and Mark Adler |
+| **mimalloc** (Alpine 3.21 `mimalloc-dev`) | **MIT** | © 2018-2025 Microsoft Corporation, Daan Leijen |
+
+This list is upstream's own, not a guess: the link line is
+`src/runtime/Makefile` at that commit
+(`-lsquashfuse -lsquashfuse_ll -lzstd -lz -lfuse3 -lmimalloc`), the two
+from-source dependencies and their versions are
+`scripts/common/install-dependencies.sh`, and the distribution-supplied
+ones are the `apk add` list in `scripts/chroot/build.sh` /
+`scripts/docker/Dockerfile` (`alpine:3.21`).
+
+**Obligation on us.** Reproduce these notices (this section is copied into
+`THIRD-PARTY-NOTICES.txt`, which ships in the AppImage root). libfuse's
+LGPL v2.1 §6 applies to a *static* link: users must be able to relink the
+runtime against a modified libfuse. We satisfy it by identifying the exact
+upstream commit above — its `BUILD.md` is a complete, containerised build
+recipe for the exact binary we ship, and upstream publishes the matching
+`runtime-x86_64.debug`. The runtime is not part of XPTerrainBuilder's own
+GPL v3 work: it is an unmodified upstream launcher concatenated in front of
+our payload, which is why it is listed here rather than in §1.
+
 ## 4. Python dependencies (frozen into release builds)
 
 PyInstaller embeds these, so releases redistribute them.

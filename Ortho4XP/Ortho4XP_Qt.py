@@ -240,11 +240,23 @@ def main():
 
     # macOS takes the icon from the .app bundle; this covers the window /
     # taskbar icon on Windows and Linux (and source runs everywhere).
-    icon_path = os.path.join(FNAMES.Utils_dir, "icons", "Ortho4XP.png")
-    if os.path.isfile(icon_path):
-        from PySide6.QtGui import QIcon
+    #
+    # The release jobs generate the XPTerrainBuilder icon into
+    # Utils/icons/generated/ before the freeze (scripts/make_icon.py,
+    # RELEASES-PLAN §E), and ./Utils is bundled, so the SAME PNG brands the
+    # window, the Windows exe (via icon.ico) and the Linux AppImage's
+    # hicolor entry.  A source tree without it falls back to the upstream
+    # Ortho4XP icon rather than running with no icon at all.
+    icons_dir = os.path.join(FNAMES.Utils_dir, "icons")
+    for candidate in (
+        os.path.join(icons_dir, "generated", "xpterrainbuilder.png"),
+        os.path.join(icons_dir, "Ortho4XP.png"),
+    ):
+        if os.path.isfile(candidate):
+            from PySide6.QtGui import QIcon
 
-        app.setWindowIcon(QIcon(icon_path))
+            app.setWindowIcon(QIcon(candidate))
+            break
 
     sys.path.append(FNAMES.Provider_dir)
 

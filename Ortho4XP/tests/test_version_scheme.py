@@ -287,12 +287,20 @@ def test_info_plist_template_carries_the_app_version() -> None:
     end = next(i for i in range(start + 1, len(lines)) if lines[i] == "PLIST")
     body = "\n".join(lines[start + 1 : end])
 
-    rendered = _zsh(f'APP_VERSION="1.0.42"\nAPP_BUILD="42"\ncat <<PLIST\n{body}\nPLIST\n')
+    rendered = _zsh(
+        'APP_VERSION="1.0.42"\nAPP_BUILD="42"\n'
+        'ENGINE_VERSION="1.50.1793"\nCOMMIT_SHA="5883949fdeadbeef"\n'
+        f"cat <<PLIST\n{body}\nPLIST\n"
+    )
     assert rendered.returncode == 0, rendered.stderr
     plist = plistlib.loads(rendered.stdout.encode("utf-8"))
     assert plist["CFBundleShortVersionString"] == "1.0.42"
     assert plist["CFBundleVersion"] == "42"
     assert plist["CFBundleIdentifier"] == "com.novemberlima.XPTerrainBuilder"
+    # The About box's other two thirds (beta plan §1 B3(3)) — without these
+    # the packaged app can only report its own version number.
+    assert plist["XPTBEngineVersion"] == "1.50.1793"
+    assert plist["XPTBCommitSHA"] == "5883949fdeadbeef"
 
 
 @app_side
@@ -303,3 +311,212 @@ def test_app_version_ships_as_a_swiftpm_resource() -> None:
         "Resources/VERSION"
     )
     assert '.copy("Resources/VERSION")' in (REPO_ROOT / "Package.swift").read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# The tag scheme gate (docs/BETA-PLAN-20260916.md §1 B3)
+#
+# `v1.0.<app-build>[-beta.N]`: the tag's numeric part IS the tracked app
+# version at the tagged commit, or the release refuses in the first step of
+# every job rather than after an hour of freezing and notarizing.
+# ---------------------------------------------------------------------------
+CHECK_TAG = REPO_ROOT / "scripts" / "check_tag_version.sh"
+
+tag_gate = pytest.mark.skipif(
+    not CHECK_TAG.is_file(), reason="engine checked out standalone — no app tree"
+)
+
+
+def _tag_gate(ref: str, version: str, tmp_path: Path) -> subprocess.CompletedProcess:
+    version_file = tmp_path / "VERSION"
+    version_file.write_text(version + "\n", encoding="utf-8")
+    return subprocess.run(
+        ["/bin/bash", str(CHECK_TAG), ref, str(version_file)],
+        capture_output=True,
+        text=True,
+    )
+
+
+@tag_gate
+def test_tag_gate_accepts_a_matching_tag(tmp_path: Path) -> None:
+    for ref in ("refs/tags/v1.0.347", "refs/tags/v1.0.347-beta.2", "v1.0.347-beta.11"):
+        result = _tag_gate(ref, "1.0.347", tmp_path)
+        assert result.returncode == 0, f"{ref}: {result.stdout}{result.stderr}"
+        assert "1.0.347" in result.stdout
+
+
+@tag_gate
+def test_tag_gate_refuses_a_mismatching_tag_and_prints_both(tmp_path: Path) -> None:
+    result = _tag_gate("refs/tags/v1.0.346-beta.1", "1.0.347", tmp_path)
+    assert result.returncode == 1, result.stdout
+    both = result.stdout + result.stderr
+    assert "1.0.346" in both and "1.0.347" in both, both
+
+
+@tag_gate
+def test_tag_gate_refuses_an_off_scheme_tag(tmp_path: Path) -> None:
+    for ref in ("refs/tags/v1.0.347-rc1", "refs/tags/v1.0-beta.1", "refs/tags/v1.0.347beta"):
+        result = _tag_gate(ref, "1.0.347", tmp_path)
+        assert result.returncode == 1, f"{ref} was accepted: {result.stdout}"
+
+
+@tag_gate
+def test_tag_gate_passes_a_non_tag_ref(tmp_path: Path) -> None:
+    """workflow_dispatch must stay buildable off any branch."""
+    result = _tag_gate("refs/heads/main", "1.0.347", tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@tag_gate
+def test_tag_gate_runs_first_in_every_release_job() -> None:
+    """Every job checks out, then checks the tag — before anything expensive.
+
+    Textual, not YAML: no yaml module is installed in the engine venv, and
+    this assertion is about ORDER inside the file anyway.
+    """
+    text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    chunks = text.split("- uses: actions/checkout@v4")
+    assert len(chunks) - 1 == 4, "expected four jobs, each starting with a checkout"
+    for chunk in chunks[1:]:
+        head = chunk[:600]
+        assert "check_tag_version.sh" in head, head
+
+
+# ---------------------------------------------------------------------------
+# NO-BUMP MODE: a CI build packages the tagged tree's version AS IS
+#
+# Measured on Release run 35239347609 (owner ruling, round 2): the mac job
+# ran make_engine.sh and make_app.sh, which bumped ON THE RUNNER, so the mac
+# artifact carried app 1.0.348 / engine 1.50.1794 for a tree and a tag at
+# 1.0.347 / 1.50.1793 — while the Windows and Linux artifacts, which never
+# run those scripts, carried the tree's numbers.  One release, three
+# artifacts, three different versions.  Only a LOCAL build mints a number.
+# ---------------------------------------------------------------------------
+@app_side
+@pytest.mark.parametrize("prefix", ["GITHUB_ACTIONS=true", "XPTB_NO_BUMP=1"])
+def test_ci_bump_writes_nothing_and_reports_the_current_version(
+    tmp_path: Path, prefix: str
+) -> None:
+    target = tmp_path / "VERSION"
+    target.write_text("1.0.347\n", encoding="utf-8")
+    before = target.read_bytes()
+
+    result = _helper(f'{prefix} xptb_version_bump "{target}"')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1.0.347"
+    assert target.read_bytes() == before, "the version file must be untouched"
+    # And it says so, so a job log never silently looks like a local build.
+    assert "NOT bumped" in result.stderr, result.stderr
+
+
+@app_side
+def test_ci_bump_works_for_the_engine_assignment_shape_too(tmp_path: Path) -> None:
+    target = tmp_path / "O4_Version.py"
+    target.write_text("# a comment\nversion='1.50.1793'\n", encoding="utf-8")
+    before = target.read_bytes()
+
+    result = _helper(f'GITHUB_ACTIONS=true xptb_version_bump "{target}"')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1.50.1793"
+    assert target.read_bytes() == before
+
+
+@app_side
+def test_bump_still_writes_by_default(tmp_path: Path) -> None:
+    """The local path is the one that mints numbers; guard it beside the
+    CI path so a future env-var change cannot silently disable both."""
+    target = tmp_path / "VERSION"
+    target.write_text("1.0.347\n", encoding="utf-8")
+    result = _helper(f'GITHUB_ACTIONS= XPTB_NO_BUMP= xptb_version_bump "{target}"')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1.0.348"
+    assert target.read_text(encoding="utf-8") == "1.0.348\n"
+
+
+# ---------------------------------------------------------------------------
+# The "-dirty" marker excludes a build's OWN version bump
+# ---------------------------------------------------------------------------
+TREE_DIRTY = REPO_ROOT / "scripts" / "tree_dirty.sh"
+
+dirty_gate = pytest.mark.skipif(
+    not TREE_DIRTY.is_file(), reason="engine checked out standalone — no app tree"
+)
+
+
+def _fake_repo(tmp_path: Path) -> Path:
+    """A committed tree carrying both version files at their real paths."""
+    root = tmp_path / "repo"
+    (root / "Sources" / "XPTerrainBuilder" / "Resources").mkdir(parents=True)
+    (root / "Ortho4XP" / "src").mkdir(parents=True)
+    (root / "Sources" / "XPTerrainBuilder" / "Resources" / "VERSION").write_text(
+        "1.0.347\n", encoding="utf-8"
+    )
+    (root / "Ortho4XP" / "src" / "O4_Version.py").write_text(
+        "version='1.50.1793'\n", encoding="utf-8"
+    )
+    (root / "README.md").write_text("hello\n", encoding="utf-8")
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": str(tmp_path / "gitconfig"), "HOME": str(tmp_path)}
+    for argv in (
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "config", "user.email", "t@example.com"],
+        ["git", "config", "user.name", "t"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-qm", "base"],
+    ):
+        subprocess.run(argv, cwd=root, check=True, env=env, capture_output=True)
+    return root
+
+
+def _is_dirty(root: Path) -> bool:
+    """scripts/tree_dirty.sh exits 0 for dirty, 1 for clean."""
+    result = subprocess.run(
+        ["/bin/bash", str(TREE_DIRTY), str(root)], capture_output=True, text=True
+    )
+    assert result.returncode in (0, 1), result.stderr
+    return result.returncode == 0
+
+
+@dirty_gate
+def test_a_clean_tree_is_not_dirty(tmp_path: Path) -> None:
+    assert _is_dirty(_fake_repo(tmp_path)) is False
+
+
+@dirty_gate
+def test_a_builds_own_version_bump_is_not_dirt(tmp_path: Path) -> None:
+    """Otherwise EVERY local build stamps "-dirty" and the marker says
+    nothing: make_app.sh/make_engine.sh bump before anything stamps a sha."""
+    root = _fake_repo(tmp_path)
+    (root / "Sources" / "XPTerrainBuilder" / "Resources" / "VERSION").write_text(
+        "1.0.348\n", encoding="utf-8"
+    )
+    (root / "Ortho4XP" / "src" / "O4_Version.py").write_text(
+        "version='1.50.1794'\n", encoding="utf-8"
+    )
+    assert _is_dirty(root) is False
+
+
+@dirty_gate
+def test_any_other_change_is_dirt(tmp_path: Path) -> None:
+    root = _fake_repo(tmp_path)
+    (root / "README.md").write_text("edited\n", encoding="utf-8")
+    assert _is_dirty(root) is True
+
+
+@dirty_gate
+def test_another_change_alongside_the_bump_is_still_dirt(tmp_path: Path) -> None:
+    root = _fake_repo(tmp_path)
+    (root / "Sources" / "XPTerrainBuilder" / "Resources" / "VERSION").write_text(
+        "1.0.348\n", encoding="utf-8"
+    )
+    (root / "README.md").write_text("edited\n", encoding="utf-8")
+    assert _is_dirty(root) is True
+
+
+@dirty_gate
+def test_the_stampers_use_the_one_dirty_predicate() -> None:
+    """Two callers, one rule — a second hand-written `git diff --quiet HEAD`
+    is how the marker drifted apart in the first place."""
+    for script in ("make_app.sh", "write_version_txt.sh"):
+        text = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        assert "tree_dirty.sh" in text, script
+        assert "git diff --quiet HEAD" not in text, script

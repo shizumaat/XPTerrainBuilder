@@ -29,7 +29,7 @@ struct XPTerrainBuilderApp: App {
         .defaultSize(width: 1280, height: 860)
         .defaultPosition(.center)
         .commands {
-            AppCommands(controller: controller)
+            AppCommands(controller: controller, buildModel: buildModel)
         }
 
         // Analysis Report and Modifications windows removed — the scenery
@@ -43,8 +43,17 @@ struct XPTerrainBuilderApp: App {
 
 struct AppCommands: Commands {
     @ObservedObject var controller: AnalysisController
+    @ObservedObject var buildModel: BuildModel
 
     var body: some Commands {
+        // The stock About panel shows the app version alone; a beta report
+        // needs the engine version and the commit with it (see AboutPanel).
+        CommandGroup(replacing: .appInfo) {
+            Button("About XPTerrainBuilder") {
+                AboutPanel.show(engineVersion: buildModel.schema.engineVersion)
+            }
+        }
+
         // Manage (analysis/report/modifications) commands are disabled for
         // now along with the Manage mode itself.
         CommandGroup(after: .textEditing) {

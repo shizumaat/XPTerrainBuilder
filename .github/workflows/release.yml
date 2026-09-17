@@ -21,6 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A release tag names a build that EXISTS: the tag's numeric part must
+      # equal the app version tracked at this commit (docs/BETA-PLAN-20260916.md
+      # §1 B3).  First real step of every job — an hour of freezing and
+      # notarizing is not where a mistyped tag should surface.  A
+      # workflow_dispatch ref passes with a note.
+      - name: Tag matches the tracked app version
+        run: bash scripts/check_tag_version.sh
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -50,6 +58,16 @@ jobs:
           PROJ_LIB: /nonexistent/proj
           PROJ_DATA: /nonexistent/proj
         run: Ortho4XP/dist/Ortho4XP/Ortho4XP --proj-selfcheck
+
+      # The frozen engine must decode LERC elevation assets (owner RULINGS
+      # 2026-09-12as (3)) — the same 64x64 fixture check the Windows and
+      # Linux jobs run, one implementation.  A bundle missing tifffile /
+      # imagecodecs._lerc does not crash: it SKIPS the source and silently
+      # degrades New Zealand's 1 m lidar, which is how 1.0.324 shipped.  So
+      # it fails HERE.  python3 is the job interpreter, never the thing
+      # under test.
+      - name: LERC self-check (frozen engine)
+        run: bash scripts/check_frozen_lerc.sh Ortho4XP/dist/Ortho4XP/Ortho4XP python3
 
       # Signing and notarization (docs/BETA-PLAN-20260916.md §1 B1,
       # RELEASES-PLAN §B4).  A TAG release is signed, notarized and stapled
@@ -162,6 +180,9 @@ jobs:
           ditto dist.nosync/XPTerrainBuilder.app \
             XPTerrainBuilder/XPTerrainBuilder.app
           cp LICENSE LICENSING.md THIRD-PARTY-NOTICES.txt XPTerrainBuilder/
+          # app + engine + commit, the triple a bug report quotes
+          # (docs/BETA-PLAN-20260916.md §1 B3) — the About box reads it.
+          bash scripts/write_version_txt.sh XPTerrainBuilder/VERSION.txt
           cp Ortho4XP/Licence/gpl.txt Ortho4XP/Licence/copyright.txt \
             XPTerrainBuilder/
           cp -R Ortho4XP/Utils/src/. XPTerrainBuilder/Triangle-src/
@@ -199,6 +220,14 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+
+      # A release tag names a build that EXISTS: the tag's numeric part must
+      # equal the app version tracked at this commit (docs/BETA-PLAN-20260916.md
+      # §1 B3).  First real step of every job — an hour of freezing and
+      # notarizing is not where a mistyped tag should surface.  A
+      # workflow_dispatch ref passes with a note.
+      - name: Tag matches the tracked app version
+        run: bash scripts/check_tag_version.sh
 
       - uses: actions/setup-python@v5
         with:
@@ -252,8 +281,9 @@ jobs:
         run: |
           mv Ortho4XP/dist/Ortho4XP_Qt XPTerrainBuilder
           mv XPTerrainBuilder/Ortho4XP_Qt.exe XPTerrainBuilder/XPTerrainBuilder.exe
-          grep -m1 '^version' Ortho4XP/src/O4_Version.py | cut -d= -f2 | tr -d " '\"" \
-            > XPTerrainBuilder/VERSION.txt
+          # app + engine + commit, the triple a bug report quotes
+          # (docs/BETA-PLAN-20260916.md §1 B3) — the About dialog reads it.
+          bash scripts/write_version_txt.sh XPTerrainBuilder/VERSION.txt
           # License payload at the artifact root (RELEASES-PLAN §G).  The
           # Triangle sources already ship inside
           # _internal/Ortho4XP_Data/Utils/src via Ortho4XP_Qt.spec.
@@ -274,6 +304,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
+      # A release tag names a build that EXISTS: the tag's numeric part must
+      # equal the app version tracked at this commit (docs/BETA-PLAN-20260916.md
+      # §1 B3).  First real step of every job — an hour of freezing and
+      # notarizing is not where a mistyped tag should surface.  A
+      # workflow_dispatch ref passes with a note.
+      - name: Tag matches the tracked app version
+        run: bash scripts/check_tag_version.sh
 
       - uses: actions/setup-python@v5
         with:
@@ -332,8 +370,9 @@ jobs:
         run: |
           mv Ortho4XP/dist/Ortho4XP_Qt XPTerrainBuilder
           mv XPTerrainBuilder/Ortho4XP_Qt XPTerrainBuilder/XPTerrainBuilder
-          grep -m1 '^version' Ortho4XP/src/O4_Version.py | cut -d= -f2 | tr -d " '\"" \
-            > XPTerrainBuilder/VERSION.txt
+          # app + engine + commit, the triple a bug report quotes
+          # (docs/BETA-PLAN-20260916.md §1 B3) — the About dialog reads it.
+          bash scripts/write_version_txt.sh XPTerrainBuilder/VERSION.txt
           # License payload at the artifact root (RELEASES-PLAN §G).  The
           # Triangle sources already ship inside
           # _internal/Ortho4XP_Data/Utils/src via Ortho4XP_Qt.spec.
@@ -362,6 +401,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A release tag names a build that EXISTS: the tag's numeric part must
+      # equal the app version tracked at this commit (docs/BETA-PLAN-20260916.md
+      # §1 B3).  First real step of every job — an hour of freezing and
+      # notarizing is not where a mistyped tag should surface.  A
+      # workflow_dispatch ref passes with a note.
+      - name: Tag matches the tracked app version
+        run: bash scripts/check_tag_version.sh
+
       - name: Version
         id: ver
         run: |
@@ -386,17 +433,22 @@ jobs:
           merge-multiple: true
           path: artifacts
 
-      # Use the tagged release notes when they exist; never fail the
-      # release because they do not.
+      # Release notes are REQUIRED on a tag (docs/BETA-PLAN-20260916.md
+      # §1 B3(4)).  The bare auto-body this used to fall back to is what a
+      # first-time beta tester would be handed instead of the download and
+      # first-launch instructions for their platform — so a missing file
+      # fails the release, by name, and docs/RELEASE_NOTES-TEMPLATE.md is
+      # the thing to copy.
       - name: Release body
         run: |
           notes="docs/RELEASE_NOTES-${{ steps.ver.outputs.version }}.md"
-          if [[ -f "$notes" ]]; then
-            cp "$notes" RELEASE_BODY.md
-          else
-            printf 'XPTerrainBuilder %s\n' "${{ steps.ver.outputs.version }}" \
-              > RELEASE_BODY.md
+          if [[ ! -f "$notes" ]]; then
+            echo "::error::release notes missing: $notes"
+            echo "Copy docs/RELEASE_NOTES-TEMPLATE.md to $notes, fill it in," >&2
+            echo "commit it, and move the tag." >&2
+            exit 1
           fi
+          cp "$notes" RELEASE_BODY.md
 
       - uses: softprops/action-gh-release@v2
         with:

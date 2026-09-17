@@ -46,6 +46,19 @@ xptb_version_read() {
 #   Increment BUILD by one, rewrite <file> keeping its surrounding text
 #   (python assignment or bare line) and print the new version.
 #
+#   NO-BUMP MODE (GITHUB_ACTIONS=true, or XPTB_NO_BUMP=1): print the CURRENT
+#   version and write nothing. A CI build packages THE TAGGED TREE'S version
+#   as it is — measured on Release run 35239347609, where the mac job bumped
+#   on the runner and shipped app 1.0.348 / engine 1.50.1794 for a tree (and
+#   a tag) at 1.0.347 / 1.50.1793, while the Windows and Linux artifacts,
+#   which never run these scripts, carried the tree's numbers. Three
+#   artifacts of one release disagreed about what they were.
+#
+#   Only a LOCAL developer build mints a number: that is what these numbers
+#   are for (see the header above), and that bump is a tracked line the
+#   session commits afterwards. A runner's bump is committed by nobody and
+#   identifies nothing.
+#
 #   The rewrite goes to a hidden sibling temp file and is moved into place,
 #   so the destination is either the old version or the new one — an
 #   interrupted or failed build never leaves a truncated version file, and
@@ -54,6 +67,12 @@ xptb_version_bump() {
   local file="$1"
   local current
   current="$(xptb_version_read "$file")" || return 1
+
+  if [[ "${GITHUB_ACTIONS:-}" == "true" || "${XPTB_NO_BUMP:-}" == "1" ]]; then
+    echo "version NOT bumped: CI build of the tagged tree ($current)" >&2
+    echo "$current"
+    return 0
+  fi
 
   local stem="${current%.*}"
   local build="${current##*.}"

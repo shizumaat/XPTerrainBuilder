@@ -83,6 +83,27 @@ sign_one() {  # sign_one PATH
     "$1"
 }
 
+# ------------------------------------------------- archives with native code
+# Apple's notary UNPACKS archives and rejects any unsigned Mach-O inside one;
+# codesign cannot reach into a zip.  Measured 2026-09-17: a vendored
+# numpy-*.whl under Utils/mac cost a full CI round and a notary submission
+# (status Invalid, 23 objects).  Refuse the class here, in seconds, by name.
+ARCHIVE_HITS=0
+while IFS= read -r -d '' ar; do
+  # Listing captured FIRST: under pipefail `unzip | grep -q` reads as a
+  # failure (grep exits at the first match, unzip dies of SIGPIPE, rc 141)
+  # and the guard silently MISSES — measured on the very wheel it exists for.
+  listing="$(unzip -Z1 "$ar" 2>/dev/null || true)"
+  if grep -qE '\.(so|dylib|bundle)$' <<<"$listing"; then
+    echo "REFUSED: archive carries native code the notary will reject: ${ar#"$APP"/}" >&2
+    ARCHIVE_HITS=$((ARCHIVE_HITS + 1))
+  fi
+done < <(find "$APP" -type f \( -name '*.whl' -o -name '*.zip' -o -name '*.egg' -o -name '*.jar' \) -print0)
+if [ "$ARCHIVE_HITS" -gt 0 ]; then
+  echo "REFUSED: $ARCHIVE_HITS archive(s) with unsigned native code; drop them from the bundle (Ortho4XP.spec) — they cannot be signed in place." >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------- discovery
 # Regular files only (a symlink is signed through its target), Mach-O by
 # content, never by name: PyInstaller ships extensionless executables and

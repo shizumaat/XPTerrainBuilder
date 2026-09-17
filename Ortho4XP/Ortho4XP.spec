@@ -114,6 +114,14 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+# Vendored *.whl files under Utils/ are INSTALL-TIME artifacts (they build the
+# venv this freeze runs in); nothing at runtime opens one (grep 2026-09-17:
+# zero references in src/).  Shipped inside a signed mac app they fail
+# notarization: Apple's notary unpacks archives and found 23 unsigned Mach-Os
+# inside Utils/mac/numpy-*.whl (submission 0e71fbdf, status Invalid), which no
+# codesign pass can reach.  Dropped at the derivation site.
+a.datas = [d for d in a.datas if not d[0].lower().endswith('.whl')]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(

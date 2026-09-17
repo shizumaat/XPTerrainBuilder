@@ -40,7 +40,7 @@ It is a fork and derivative of
 | --- | --- |
 | macOS 14+, **Apple Silicon only** | `XPTerrainBuilder-<version>-mac.zip` |
 | Windows 10/11 x64 | `XPTerrainBuilder-<version>-win.zip` |
-| Linux x86_64 (built on Ubuntu 22.04) | `XPTerrainBuilder-<version>-linux.tar.gz` |
+| Linux x86_64 (built on Ubuntu 22.04) | `XPTerrainBuilder-<version>-linux.AppImage` (or `…-linux.tar.gz`) |
 
 **macOS.** The app is signed with a Developer ID and notarized by Apple, so
 there is nothing to bypass.
@@ -63,7 +63,21 @@ code-signed yet, so SmartScreen warns about an unrecognized app: click
 **More info → Run anyway**. Keep the folder contents together — the app is
 portable, not installed.
 
-**Linux.** Untar, make the launcher executable, and run it:
+**Linux.** Download the **AppImage**, make it executable, and run it — one
+file, nothing to install:
+
+```sh
+chmod +x XPTerrainBuilder-<version>-linux.AppImage
+./XPTerrainBuilder-<version>-linux.AppImage
+```
+
+Double-clicking it in a file manager works too, once it is executable
+(some desktops offer "Allow executing file as program" in its Properties).
+If your system has no working FUSE, run it as
+`./XPTerrainBuilder-<version>-linux.AppImage --appimage-extract-and-run`.
+
+The **tar.gz** remains for anyone who prefers a plain folder — same build,
+unpacked:
 
 ```sh
 tar xzf XPTerrainBuilder-<version>-linux.tar.gz
@@ -72,7 +86,8 @@ chmod +x XPTerrainBuilder
 ./XPTerrainBuilder
 ```
 
-On a minimal system, install the Qt and archive prerequisites first:
+On a minimal system, install the Qt and archive prerequisites first (both
+artifacts need them):
 
 ```sh
 sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 \
@@ -81,6 +96,10 @@ sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 \
 
 `p7zip-full` is required, not optional: the build extracts 7-Zip archives
 when it installs scenery overlays, and without it that step stops.
+
+Both Linux artifacts carry the licenses and `VERSION.txt` at their root;
+inside the AppImage they are reachable with
+`./XPTerrainBuilder-<version>-linux.AppImage --appimage-extract`.
 
 ## The two folders
 

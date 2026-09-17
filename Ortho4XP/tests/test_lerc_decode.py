@@ -243,7 +243,10 @@ def test_ONE_fixture_check_serves_every_frozen_artifact():
     assert "tifffile.imwrite" not in engine
 
     workflow = open(RELEASE_WORKFLOW).read()
-    assert workflow.count("check_frozen_lerc.sh") == 2, (
+    # Count INVOCATIONS, not mentions: the mac job's comment names the
+    # script in prose (it runs inside scripts/make_engine.sh), which made
+    # this assertion red on main at 74c9d813 for a comment.
+    assert workflow.count("bash scripts/check_frozen_lerc.sh") == 2, (
         "the Windows and Linux release jobs must each run the check")
     assert "Ortho4XP_Qt.exe" in workflow
 

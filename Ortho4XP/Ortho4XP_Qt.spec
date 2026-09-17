@@ -94,6 +94,26 @@ for _codec in ('imagecodecs._lerc', 'imagecodecs._shared'):
 with open(os.path.join("src", "O4_Version.py"), encoding="utf-8") as f:
     o4_version = f.read().split("=", 1)[1].strip().strip("'\"")
 
+# ---------------------------------------------------------------------------
+# BRANDING (RELEASES-PLAN §C1 / §E).  The release jobs run
+# `scripts/make_icon.py --out Utils/icons/generated` BEFORE this freeze, so
+# the generated XPTerrainBuilder icon is there and (being under ./Utils) is
+# bundled with everything else — that is the PNG the Qt window icon reads at
+# runtime.  A DEV tree has no generated/ directory, and a local
+# `pyinstaller Ortho4XP_Qt.spec` must not break because of it: fall back to
+# the upstream Ortho4XP icon, print which one was used, and never fail here.
+# Likewise the Windows VERSION RESOURCE (`scripts/make_version_resource.py
+# version_info.txt`): present in the job, absent in a dev tree.
+_generated_ico = os.path.join('Utils', 'icons', 'generated', 'icon.ico')
+_upstream_ico = os.path.join('Utils', 'icons', 'Ortho4XP.ico')
+win_icon = _generated_ico if os.path.isfile(_generated_ico) else _upstream_ico
+print(f"Windows exe icon: {win_icon}")
+
+_version_resource = 'version_info.txt'
+win_version = _version_resource if os.path.isfile(_version_resource) else None
+print("Windows version resource: "
+      + (win_version or "none (dev tree — run scripts/make_version_resource.py)"))
+
 a = Analysis(
     ['Ortho4XP_Qt.py'],
     pathex=['src'],
@@ -151,8 +171,8 @@ exe = EXE(
     [('hash_seed=0', None, 'OPTION')],
     exclude_binaries=True,
     name='Ortho4XP_Qt',
-    icon=os.path.join('Utils', 'icons', 'Ortho4XP.ico')
-    if os.name == 'nt' else None,
+    icon=win_icon if os.name == 'nt' else None,
+    version=win_version if os.name == 'nt' else None,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

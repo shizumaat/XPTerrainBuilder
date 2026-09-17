@@ -25,3 +25,9 @@ Ortho4XP/Orthophotos
 
 # never track bytecode under the negated fixture tree
 Ortho4XP/tests/auto_patch_v2/fixtures/__pycache__/
+
+# Release branding, generated per build (scripts/make_icon.py,
+# scripts/make_version_resource.py) — RELEASES-PLAN §C1/§E.
+build/icons/
+Ortho4XP/Utils/icons/generated/
+Ortho4XP/version_info.txt

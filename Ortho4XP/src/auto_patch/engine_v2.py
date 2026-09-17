@@ -178,16 +178,22 @@ def _stamp_header(task: dict) -> dict[str, str]:
     to percent-encode it (``pipeline/build.py`` :915, ``Config.
     header_extra``), never to name a different file.
 
-    NOT WATCHED HERE: §44's BORROWED Global Airports block.  When the
+    NOT STAMPED HERE: §44's BORROWED Global Airports block.  When the
     pack's pavement covers < 25 % of Global's, v2 reads a SECOND apt.dat
-    and records it in the header as ``o4_apt_dat_borrowed`` (and in the
-    pack signature / partition-cache key as ``borrowed_block_sha256``) —
-    but the borrow is decided inside the load stage, long after this
-    stamp is cut, and re-deciding it in the gate would cost a Global-block
-    parse plus a coverage union per airport per tile build (the gate is
-    stat()s by construction).  A Global Airports update therefore does not
-    invalidate a borrowed patch through the freshness gate; every cache
-    keyed on the pack signature does see it."""
+    — decided inside the load stage, long after this stamp is cut, so
+    ``pipeline/build.py`` writes it into the header itself:
+    ``o4_apt_dat_borrowed`` (§44 (4)) plus ``o4_apt_dat_borrowed_mtime``
+    (:func:`~auto_patch_v2.pipeline.build.borrowed_apt_dat_stamp`, lane
+    ``borrowstamp``).  Both ARE now watched: ``_auto_patch_is_current``
+    stat()s the borrowed file, so a Global Airports update in place
+    invalidates a borrowed patch.
+
+    STILL NOT WATCHED, anywhere: the borrow DECISION.  A Global Airports
+    update that would flip an airport from not-borrowing to borrowing (or
+    back) is invisible to the gate — re-deciding it costs a Global-block
+    parse plus a coverage union per airport per tile build, and the gate
+    is stat()s by construction.  Every cache keyed on the pack signature
+    (``borrowed_block_sha256``) does see the content change."""
     from . import provenance as _prov
     hdr: dict[str, str] = {}
     apt = task.get("apt_dat_path")

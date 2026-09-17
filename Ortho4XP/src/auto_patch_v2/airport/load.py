@@ -544,14 +544,21 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 # ── helpers ──────────────────────────────────────────────────────────────
 
 def _vector_to_xy(frame: Frame) -> _t.Callable[[float, float], XY]:
-    """A scalar ``to_xy(lon, lat)`` over ONE pyproj transformer."""
-    from pyproj import Transformer  # local: geodesy lives in the loaders
-    fwd = Transformer.from_crs("EPSG:4326", frame.crs, always_xy=True)
+    """A scalar ``to_xy(lon, lat)`` — THE FRAME'S OWN, never a second one.
 
-    def to_xy(lon: float, lat: float) -> XY:
-        x, y = fwd.transform(lon, lat)
-        return (float(x), float(y))
-    return to_xy
+    This used to build its OWN ``pyproj`` transformer, byte-for-byte the
+    frame's — so the module docstring's "the frame carries the transformer
+    factory" was not true of the stage that produces every coordinate in
+    the airport, and any change made at the frame (lane
+    ``xplatdeterminism`` needed one to attribute a cross-platform
+    divergence, and measured this duplicate by watching it have no effect)
+    silently never reached the load.  One derivation site.
+
+    Byte-neutral as it stands: with the frame unchanged the two spellings
+    return identical doubles, verified on the CYXY release fixture — every
+    stage digest equal at 9 dp before and after.
+    """
+    return frame.transformers()[0]
 
 
 def _ring(pts: _t.Sequence[tuple[float, float]],

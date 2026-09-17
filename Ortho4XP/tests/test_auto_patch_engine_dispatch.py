@@ -111,7 +111,13 @@ def _stub_v2(monkeypatch, *, status="optimal", pieces_tiles=None, raise_exc=None
         rebake_plan = None   # the M6a pipeline result field (5890bfa0)
 
     class _Config:
-        def __init__(self, header_extra=None): self.header_extra = header_extra
+        # ``**kw`` deliberately: the real ``pipeline/build.Config`` is a
+        # SCHEMA that grows (``xplat_dump`` joined it in 2026-09-17), and
+        # a stub that enumerates today's fields turns every new option
+        # into three red tests in an unrelated file.
+        def __init__(self, header_extra=None, **kw):
+            self.header_extra = header_extra
+            self.options = kw
 
     class _Inputs:
         def __init__(self, **kw): self.kw = kw

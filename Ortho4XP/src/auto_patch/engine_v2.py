@@ -319,7 +319,14 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         law = Law.for_airport(icao)
         scratch = _scratch_dir(task)
         os.makedirs(scratch, exist_ok=True)
-        cfg = Config(header_extra=_stamp_header(task))
+        # THE CROSS-PLATFORM STAGE DUMP (lane ``xplatdeterminism``).  The
+        # v2 package may not read the environment (its own twin forbids
+        # it), so the release check's request is read HERE, in the v1
+        # wrapper, and handed on as a schema flag.  Set by
+        # ``scripts/check_frozen_tile.py --xplat-dump`` in the frozen
+        # bundle's environment; unset in every ordinary build.
+        cfg = Config(header_extra=_stamp_header(task),
+                     xplat_dump=bool(os.environ.get("O4_V2_XPLAT_DIGEST")))
         res = build(icao, inputs, scratch, cfg, law, out=_out)
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "build", "engine": ENGINE_V2,

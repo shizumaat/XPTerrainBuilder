@@ -83,10 +83,16 @@ jobs:
         run: |
           bash scripts/check_frozen_tile.sh \
             Ortho4XP/dist/Ortho4XP/Ortho4XP python3 \
-            --logs "$RUNNER_TEMP/frozen-tile-logs"
+            --logs "$RUNNER_TEMP/frozen-tile-logs" \
+            --xplat-dump "$RUNNER_TEMP/frozen-tile-logs/xplat"
 
+      # ALWAYS, not only on failure (lane ``xplatdeterminism``):
+      # the airport pass writes the engine's own per-stage
+      # cross-platform digest dump (CYXY.xplat.json) beside the
+      # logs, and a dump that uploads only when the job is RED
+      # cannot answer why three GREEN platforms disagree.
       - name: Frozen tile build logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: frozen-tile-logs-mac
@@ -318,10 +324,16 @@ jobs:
         run: |
           bash scripts/check_frozen_tile.sh \
             Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe python \
-            --logs "$RUNNER_TEMP/frozen-tile-logs"
+            --logs "$RUNNER_TEMP/frozen-tile-logs" \
+            --xplat-dump "$RUNNER_TEMP/frozen-tile-logs/xplat"
 
+      # ALWAYS, not only on failure (lane ``xplatdeterminism``):
+      # the airport pass writes the engine's own per-stage
+      # cross-platform digest dump (CYXY.xplat.json) beside the
+      # logs, and a dump that uploads only when the job is RED
+      # cannot answer why three GREEN platforms disagree.
       - name: Frozen tile build logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: frozen-tile-logs-windows
@@ -435,10 +447,16 @@ jobs:
         run: |
           bash scripts/check_frozen_tile.sh \
             Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt python \
-            --logs "$RUNNER_TEMP/frozen-tile-logs"
+            --logs "$RUNNER_TEMP/frozen-tile-logs" \
+            --xplat-dump "$RUNNER_TEMP/frozen-tile-logs/xplat"
 
+      # ALWAYS, not only on failure (lane ``xplatdeterminism``):
+      # the airport pass writes the engine's own per-stage
+      # cross-platform digest dump (CYXY.xplat.json) beside the
+      # logs, and a dump that uploads only when the job is RED
+      # cannot answer why three GREEN platforms disagree.
       - name: Frozen tile build logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: frozen-tile-logs-linux

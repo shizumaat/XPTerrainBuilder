@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
-# THE FROZEN TILE-BUILD SMOKE TEST — one implementation, every frozen
-# artifact (beta plan docs/BETA-PLAN-20260916.md §1 B4, round 2).
+# THE FROZEN BUILD SMOKE TEST — one implementation, every frozen
+# artifact (beta plan docs/BETA-PLAN-20260916.md §1 B4, rounds 2-3).
+#
+# TWO PASSES, run by this one call (release.yml is untouched):
+#   1. a synthetic TILE with auto_patch OFF — vector + mesh + imagery,
+#      a real .dsf on disk;
+#   2. ONE REAL AIRPORT SOLVED with auto_patch ON — the vector step over
+#      the checked-in CYXY fixture, arranged into an X-Plane-shaped root,
+#      asserting the emitted <ICAO>_auto.patch.osm + .axes.json sidecar
+#      and no AutoPatchFailed.  Pass 2 is the only one that walks
+#      auto_patch_v2's linear programme, i.e. the lazy `highspy` import
+#      that actually shipped broken.  Restrict with `--pass tile|airport`.
 #
 # The release jobs' PROJ and LERC self-checks prove the frozen bundle
 # IMPORTS.  What has actually shipped broken is narrower and invisible to
@@ -24,14 +34,16 @@
 #                    a redundant LERC step (removed 2026-09-17).  It is
 #                    never the thing under test.
 #   [extra args]     passed through to scripts/check_frozen_tile.py
-#                    (--deadline, --logs, --lat/--lon, --keep).
+#                    (--pass, --deadline, --airport-deadline, --logs,
+#                    --lat/--lon, --keep).
 #
-# The fixture is generated into a temp dir and thrown away: a synthetic
-# data root, one synthetic elevation source, pre-seeded empty OSM caches,
-# imagery off, auto_patch off, no X-Plane install, no shared corpus, no
-# provider key, no network.  The whole check runs under a deadline
-# enforced inside the helper — coreutils `timeout` exists on neither the
-# mac runner nor the maintainer's mac.
+# Both fixtures are generated into temp dirs and thrown away: a private
+# data root, imagery off, no shared corpus, no provider key, no network
+# (every OSM layer is pre-seeded as an empty, schema-stamped cache; the
+# airport pass additionally has elevation insets off, the one auto-patch
+# input that would fetch from national elevation servers).  Each pass
+# runs under its own deadline enforced inside the helper — coreutils
+# `timeout` exists on neither the mac runner nor the maintainer's mac.
 #
 # bash, not zsh: this runs on the Windows and Linux release runners as
 # well as on the maintainer's mac.
@@ -49,5 +61,5 @@ fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "Checking the frozen bundle can BUILD A TILE ($BIN) …"
+echo "Checking the frozen bundle can BUILD A TILE and SOLVE AN AIRPORT ($BIN) …"
 "$PY" "$HERE/check_frozen_tile.py" "$BIN" "$@"

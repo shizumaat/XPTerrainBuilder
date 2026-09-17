@@ -19,6 +19,7 @@ import threading
 import time
 import traceback
 
+import shiboken6
 from PySide6.QtCore import (
     QByteArray,
     QEvent,
@@ -1491,13 +1492,37 @@ class MainWindow(QMainWindow):
         timer.timeout.connect(slot)
         timer.timeout.connect(timer.deleteLater)
         timer.start(msec)
+        self._deferred_timers = [
+            t for t in getattr(self, "_deferred_timers", [])
+            if shiboken6.isValid(t)] + [timer]
         return timer
 
+    def _cancel_deferred(self):
+        """A CLOSED window runs no deferred work.  Ownership (``_after``)
+        only cancels a call when the window is DESTROYED; a window that is
+        closed but still referenced keeps its timers, and its first-run
+        wizard then opened during the NEXT window's life and saved this
+        window's stale prefs over the live ones (CI run 35284299120,
+        macos-15 — the second sighting, after 829b777d closed the
+        destroyed-window route)."""
+        for timer in getattr(self, "_deferred_timers", []):
+            if shiboken6.isValid(timer):
+                timer.stop()
+        self._deferred_timers = []
+
     def run_wizard(self):
+        if getattr(self, "_closed", False):
+            return
         wizard = QTWIZ.OnboardingWizard(
             self.prefs, gui_provider_codes(), self
         )
         wizard.exec()
+        # ``exec`` spins a nested event loop: the window can be closed or
+        # destroyed underneath it (the wizard is its child, so the loop then
+        # returns HERE, into a dead window).  Nothing of a dead window's is
+        # saved or applied.
+        if not shiboken6.isValid(self) or getattr(self, "_closed", False):
+            return
         self.prefs = dict(wizard.prefs)
         save_prefs(self.prefs)
         self._seed_paths_from_xplane()
@@ -3807,6 +3832,8 @@ class MainWindow(QMainWindow):
         ).decode("ascii")
         self.prefs["console_visible"] = self.console.isVisible()
         save_prefs(self.prefs)
+        self._closed = True
+        self._cancel_deferred()
         event.accept()
 
 

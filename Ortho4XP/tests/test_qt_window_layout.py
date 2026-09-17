@@ -395,6 +395,37 @@ class TestStartupCallsAreOwnedByTheWindow:
             window.deleteLater()
             UI.engine_session = None
 
+    def test_a_closed_window_never_runs_them(self, qapp, tmp_path,
+                                             monkeypatch, capsys):
+        """CLOSED, not destroyed — the route 829b777d left open (CI run
+        35284299120, macos-15): the window object outlives ``close()``, so
+        its owned timers are still valid and its first-run wizard opened
+        during the NEXT window's life."""
+        import O4_UI_Utils as UI
+
+        calls = []
+        window = self._window(tmp_path, monkeypatch, capsys, calls)
+        try:
+            assert window._first_run
+            window.show()
+            qapp.processEvents()
+            window.close()  # inside the 200 ms delay; the object lives on
+            self._pump(qapp, 0.7)
+            assert calls == []
+            # ...and a wizard asked for on a closed window saves nothing.
+            saved = []
+            import O4_Qt_GUI as GUI
+            monkeypatch.undo()
+            monkeypatch.setattr(GUI, "PREFS_FILE",
+                                str(tmp_path / "prefs.json"))
+            monkeypatch.setattr(GUI, "save_prefs",
+                                lambda prefs: saved.append(dict(prefs)))
+            window.run_wizard()
+            assert saved == []
+        finally:
+            window.deleteLater()
+            UI.engine_session = None
+
     def test_a_destroyed_window_never_runs_them(self, qapp, tmp_path,
                                                 monkeypatch, capsys):
         import O4_UI_Utils as UI

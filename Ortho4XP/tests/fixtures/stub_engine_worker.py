@@ -71,17 +71,9 @@ MARK_DIR = os.environ.get("STUB_WORKER_MARK_DIR")
 
 # Small inter-event pauses so concurrent tiles overlap measurably in
 # wall-clock time (the two-slot overlap test asserts on marker files).
-#
-# TUNABLE, because the observation window has to dominate CHILD-SPAWN
-# SKEW, not just the scheduler.  Measured on the macos-15 CI runner
-# 2026-09-17 (3 cores, pytest-xdist saturating them): the second tile's
-# interpreter took 2.5 s to reach its start mark while the first tile's
-# whole 0.28 s script had already run, and the overlap window closed by
-# 0.6 MILLISECONDS.  The tests that assert overlap raise these so the
-# window is seconds wide; every other test keeps the fast defaults.
-_STEP_PAUSE = float(os.environ.get("STUB_WORKER_STEP_PAUSE", "0.06"))
-_TERMINAL_PAUSE = float(os.environ.get("STUB_WORKER_TERMINAL_PAUSE", "0.08"))
-_SLEEPER_SECONDS = float(os.environ.get("STUB_WORKER_SLEEPER_SECONDS", "0.6"))
+_STEP_PAUSE = 0.06
+_TERMINAL_PAUSE = 0.08
+_SLEEPER_SECONDS = 0.6
 _SLEEPER_POLL = 0.02
 
 _SOLVE_SECONDS = float(os.environ.get("STUB_WORKER_SOLVE_SECONDS", "0.6"))

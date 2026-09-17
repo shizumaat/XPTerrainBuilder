@@ -486,7 +486,15 @@ down)
     [ -d "$WT" ] || die "no worktree at $WT"
     # A live process holding the tree: tearing it out mid-build yields a
     # half-written patch and a "not reproducible" report next session.
-    holders=$(pgrep -fl "$WT" 2>/dev/null | grep -v "lane_worktree.sh")
+    # The self-exclusion must match how EACH pgrep prints.  macOS `pgrep
+    # -fl` prints the full argv ("… lane_worktree.sh down NAME"); procps
+    # `pgrep -l` prints the COMM, truncated to 15 chars
+    # ("lane_worktree.s"), because -f only affects MATCHING there.  The
+    # ".sh" spelling therefore stopped excluding this very script on
+    # Linux and `down` refused itself — measured on ubuntu-22.04 in CI
+    # 2026-09-17 (beta plan §1 B4).  Drop the extension: a process whose
+    # name carries "lane_worktree" IS the ritual.
+    holders=$(pgrep -fl "$WT" 2>/dev/null | grep -v "lane_worktree")
     if [ -n "$holders" ]; then
         echo "$holders" | sed 's/^/    /'
         die "process(es) above still hold $WT.  Wait for them (a build

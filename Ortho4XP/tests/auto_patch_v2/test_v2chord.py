@@ -208,6 +208,29 @@ def test_a_same_region_sliver_is_merged_into_its_neighbour():
     assert merge_slivers(faces, 1.0)[1] == 0                         # under the area gate: kept
 
 
+def test_a_same_region_hairline_is_merged_whatever_its_area():
+    """lane ``v2hecastep`` (2026-09-16): HECA's app-1.0.344 ``runway_step``
+    DEFECT stood on a 0.50 m wide, 80 m long strip of 05C/23C beside its own
+    runway face — 20.7 m², OVER the 16 m² area gate, so the area-only merge
+    never looked at it.  A same-region face narrower than the weld's own
+    spacing is the sliver the weld exists to prevent, read after the noding:
+    it merges whatever its area, and a face that is merely SMALL-BUT-WIDE
+    still needs the area gate."""
+    rw = Region("runway", "05C/23C", Polygon(_rect(0, 0, 100, 50)),
+                None, None, "airside", "cell")
+    body = Polygon(_rect(0, 0, 100, 50))
+    hair = Polygon(((0, 50), (100, 50), (100, 50.5), (0, 50.5)))     # 50 m², 0.5 m wide
+    wide = Polygon(((0, 50), (100, 50), (100, 53), (0, 53)))         # 300 m², 3 m wide
+    assert merge_slivers([(body, rw), (hair, rw)], 16.0)[1] == 0     # area alone: kept
+    out, n = merge_slivers([(body, rw), (hair, rw)], 16.0, 1.0)
+    assert n == 1 and len(out) == 1
+    assert out[0][0].area == pytest.approx(5050.0)
+    assert merge_slivers([(body, rw), (wide, rw)], 16.0, 1.0)[1] == 0  # wider than the bound
+    # a hairline of ANOTHER region is not this cell's and never merges
+    other = Region("runway", "05L/23R", hair, None, None, "airside", "cell")
+    assert merge_slivers([(body, rw), (hair, other)], 16.0, 1.0)[1] == 0
+
+
 @pytest.fixture(scope="module")
 def lot_site(law):
     cells = [RUNWAY,

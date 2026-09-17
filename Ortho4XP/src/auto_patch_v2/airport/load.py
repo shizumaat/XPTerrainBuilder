@@ -544,14 +544,18 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 # ── helpers ──────────────────────────────────────────────────────────────
 
 def _vector_to_xy(frame: Frame) -> _t.Callable[[float, float], XY]:
-    """A scalar ``to_xy(lon, lat)`` over ONE pyproj transformer."""
-    from pyproj import Transformer  # local: geodesy lives in the loaders
-    fwd = Transformer.from_crs("EPSG:4326", frame.crs, always_xy=True)
+    """A scalar ``to_xy(lon, lat)`` — THE FRAME'S OWN, never a second one.
 
-    def to_xy(lon: float, lat: float) -> XY:
-        x, y = fwd.transform(lon, lat)
-        return (float(x), float(y))
-    return to_xy
+    This used to build its own ``pyproj`` transformer and return the raw
+    doubles.  That made the loader a SECOND spelling of the projection,
+    and the frame's quantisation (``model/frame.PROJECTION_DP``) never
+    reached the stage that produces every coordinate in the airport —
+    which is how three release platforms loaded the same apt.dat into
+    geometry that agreed to 0.1 mm and disagreed at 1 um, flipped a cell
+    at ``classify``, and solved three different programmes (lane
+    ``xplatdeterminism``, run 35272775466).  One derivation site.
+    """
+    return frame.transformers()[0]
 
 
 def _ring(pts: _t.Sequence[tuple[float, float]],

@@ -19,7 +19,45 @@ XY = tuple[float, float]
 LL = tuple[float, float]
 Key = tuple[float, float]
 
-__all__ = ["XY", "LL", "Key", "Frame", "identity_key"]
+__all__ = ["XY", "LL", "Key", "Frame", "identity_key", "PROJECTION_DP"]
+
+#: DECIMALS THE PROJECTION IS QUANTISED TO (lane ``xplatdeterminism``,
+#: measured 2026-09-17 on release run 35272775466).  The same PROJ 9.5.1
+#: and GEOS 3.13.1, the same wheels and the same apt.dat gave the CYXY
+#: load stage geometry that agreed to 4 dp (0.1 mm) on macOS/arm64,
+#: Linux/x86_64 and Windows/x86_64 and DISAGREED at 6 dp (1 um) — Linux
+#: and Windows equal to each other there, macOS apart, which is the
+#: arm64/compiler last-ulp signature, not a data difference.  A micron is
+#: nothing to the law and everything to a THRESHOLD: one cell flipped at
+#: ``classify`` (105/104/105 cells, runway 6/5/6) and from there the three
+#: platforms solved different problems — 17128x1933, 17151x1922,
+#: 17039x1934 — and shipped different patches.
+#:
+#: THIS IS A MEASUREMENT ARM, NOT A RATIFIED FIX (lane
+#: ``xplatdeterminism``, dispatch 2).  The projection is quantised HERE,
+#: at its ONE derivation site, to 0.1 mm — the resolution at which all
+#: three platforms' load dumps already AGREED — so that a CI dispatch can
+#: answer interventionally whether the divergence really is the
+#: projection's last ulp, or something further down.
+#:
+#: What is already known against it, measured on this tree:
+#:  * at 1 mm (3 dp) it breaks ``test_frame_round_trip_cyxy``'s stated
+#:    1e-9 deg round-trip contract and moves a pad-relief verdict;
+#:  * at 0.1 mm it still breaks ``test_v2padceiling::
+#:    test_a_groundside_face_is_not_senior_here``, because quantising xy
+#:    breaks ``to_xy(to_ll(xy)) == xy``: the canonical identity join is
+#:    lat/lon at 11 dp (~1 um), which is FINER than the quantum, so a
+#:    vertex within a micron of a 0.1 mm boundary re-projects into the
+#:    neighbouring cell and an identity join misses;
+#:  * it changes the surface: CYXY's planar vertices moved 4289 -> 4256
+#:    (1 mm) / 4283 (0.1 mm) on one unchanged macOS tree, because the
+#:    thresholds downstream sit near degeneracy.
+#:
+#: So quantising the METRES is in tension with a MICRON-resolution
+#: identity in DEGREES.  Whatever ships has to reconcile those two; this
+#: constant exists to buy the measurement that says where to reconcile
+#: them.
+PROJECTION_DP = 4
 
 
 def identity_key(lat: float, lon: float, dp: int) -> Key:
@@ -66,7 +104,12 @@ class Frame:
 
         def to_xy(lon: float, lat: float) -> XY:
             x, y = fwd.transform(lon, lat)
-            return (float(x), float(y))
+            # Quantised to PROJECTION_DP — see the constant.  ONE site:
+            # the frame is the only thing in v2 that turns lat/lon into
+            # metres, so every producer downstream inherits the same
+            # numbers on every platform.
+            return (round(float(x), PROJECTION_DP),
+                    round(float(y), PROJECTION_DP))
 
         def to_ll(x: float, y: float) -> LL:
             lon, lat = inv.transform(x, y)

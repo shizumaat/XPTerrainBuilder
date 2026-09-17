@@ -140,9 +140,15 @@ def _classify_items(cl) -> list:
 def _planar_items(pm):
     """(vertices, edges, faces) as order-free lines keyed by GEOMETRY."""
     vertices = getattr(pm, "vertices", {}) or {}
-    verts = [("v", float(v.xy[0]), float(v.xy[1]),
-              "-" if v.dem_z is None else float(v.dem_z))
+    # xy ALONE and xy+DEM separately: a divergence that shows only in
+    # ``dem`` is the DEM sampler's own (its forward transform and its
+    # bilinear arithmetic), not the planar build's, and one combined
+    # digest could never say which.
+    verts = [("v", float(v.xy[0]), float(v.xy[1]))
              for v in vertices.values()]
+    verts_dem = [("v", float(v.xy[0]), float(v.xy[1]),
+                  "-" if v.dem_z is None else float(v.dem_z))
+                 for v in vertices.values()]
     edges = []
     for e in (getattr(pm, "edges", {}) or {}).values():
         a, b = vertices.get(e.a), vertices.get(e.b)
@@ -159,7 +165,7 @@ def _planar_items(pm):
                      for v in ring if v is not None)
         faces.append(("f", f.role, f.ref, f.side, len(f.ring),
                       len(f.holes or ())) + tuple(c for p in pts for c in p))
-    return verts, edges, faces
+    return verts, verts_dem, edges, faces
 
 
 def _constraint_items(cs, pm) -> list:
@@ -298,7 +304,7 @@ def stage_digests(icao: str, airport=None, classification=None, pm=None,
             "geometry": digest(items),
         }
     if pm is not None:
-        verts, edges, faces = _planar_items(pm)
+        verts, verts_dem, edges, faces = _planar_items(pm)
         by_role = {}
         for f in (getattr(pm, "faces", {}) or {}).values():
             by_role[f.role] = by_role.get(f.role, 0) + 1
@@ -311,6 +317,7 @@ def stage_digests(icao: str, airport=None, classification=None, pm=None,
                 "faces_by_role": dict(sorted(by_role.items())),
             },
             "vertices": digest(verts),
+            "vertices_dem": digest(verts_dem),
             "edges": digest(edges),
             "faces": digest(faces),
         }

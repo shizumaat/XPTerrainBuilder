@@ -10367,9 +10367,10 @@ def _honest_inset_resolution_m(inset_path, stored_pixel_m=None):
     return max(stored_pixel_m, native_resolution_m)
 
 
-def cached_inset_paths_for_airport(tile, icao):
+def cached_inset_paths_for_icao(lat, lon, icao, providers_config="auto"):
     """The cached inset rasters whose file name names ``icao`` (case
-    insensitively), restricted to the providers this tile would select.
+    insensitively), in the PROVIDER RANKING order ``providers_config``
+    selects -- the order the fetch loop consults them in.
 
     Cache files are ``<airport key>_<code>.tif`` and the airport key is
     the dico key the box was cut for, so this is the same identity
@@ -10377,19 +10378,92 @@ def cached_inset_paths_for_airport(tile, icao):
     """
     if not icao:
         return []
-    codes = [
-        definition["code"]
-        for definition in select_provider_definitions(
-            getattr(tile, "airport_elevation_providers", "auto")
-        )
-    ]
-    return [
-        path
-        for path in list_cached_inset_dems(
-            tile.lat, tile.lon, provider_codes=codes or None
-        )
-        if _inset_icao_from_path(path).upper() == str(icao).upper()
-    ]
+    wanted = str(icao).upper()
+    cached = {
+        _inset_provider_code_from_path(path): path
+        for path in list_cached_inset_dems(lat, lon)
+        if _inset_icao_from_path(path).upper() == wanted
+    }
+    ordered = []
+    for definition in select_provider_definitions(providers_config):
+        path = cached.pop(definition["code"].lower(), None)
+        if path is not None:
+            ordered.append(path)
+    # A raster from a provider this config does not select is still ON
+    # DISK and still bakes; it ranks last rather than vanishing.
+    return ordered + [cached[code] for code in sorted(cached)]
+
+
+def cached_inset_paths_for_airport(tile, icao):
+    """:func:`cached_inset_paths_for_icao` for a tile object."""
+    return cached_inset_paths_for_icao(
+        tile.lat, tile.lon, icao,
+        getattr(tile, "airport_elevation_providers", "auto"))
+
+
+def airport_has_inset_index_record(lat, lon, icao):
+    """True when the tile's inset index already holds a record for this
+    airport -- i.e. some pass HAS considered it.
+
+    An airport with a record but no raster is a lawful absence (every
+    provider answered ``no-coverage``, and that negative is the cache).
+    An airport with NEITHER has simply never been asked, which is a cold
+    frame for this airport inside a warm-looking directory -- the gap
+    ``frame_state`` could not see.
+    """
+    wanted = str(icao).upper()
+    return any(str(key).upper() == wanted
+               for key in _read_index(lat, lon))
+
+
+def airport_inset_frame_problem(lat, lon, icao, required_box,
+                                providers_config="auto"):
+    """Why THIS airport's elevation inset cannot serve a build over
+    ``required_box``, as ``(kind, text)``, or ``None`` when it can.
+
+    THE ONE DERIVATION SITE for the per-airport frame check: production
+    (``auto_patch_v2.airport.dem_production.frame_state``) and the
+    harness (``tools/harness/build_airport.py``) both call this, so the
+    thing the app RE-CUTS and the thing the harness REFUSES can never
+    drift apart.
+
+    ``("missing", ...)``  no raster for this airport AND no index record
+                          -- nothing has ever asked this provider chain.
+    ``("stale", ...)``    the highest-ranked cached raster was cut for a
+                          box that no longer contains what is required
+                          (:func:`inset_recut_is_needed`, THE RE-CUT
+                          RULE).  The text names the inset, both boxes
+                          and the ``--refresh-data dem`` scope.
+
+    A raster whose manifest cannot be judged is REUSABLE, so it yields
+    ``None``; and the DELIVERY shortfall is NOT judged here at all --
+    that arm warns (:func:`warn_if_delivered_inset_clips_airport`) and
+    never re-cuts, because re-asking returns the same raster.
+    """
+    paths = cached_inset_paths_for_icao(lat, lon, icao, providers_config)
+    if not paths:
+        if airport_has_inset_index_record(lat, lon, icao):
+            return None            # every provider answered no-coverage
+        return ("missing",
+                "NO airport elevation inset for %s in %s, and no index "
+                "record either — this airport's provider chain has never "
+                "been asked, so the build would fetch it (--refresh-data "
+                "dem)" % (icao, FNAMES.airport_inset_directory(lat, lon)))
+    # The fetch loop reuses the FIRST ranked provider whose cache is
+    # usable, so that raster is the one whose staleness decides.
+    path = paths[0]
+    code = _inset_provider_code_from_path(path)
+    if not inset_recut_is_needed(lat, lon, icao, code, required_box):
+        return None
+    requested = requested_inset_bounding_box(lat, lon, icao, code)
+    return ("stale",
+            "STALE airport elevation inset %s — it was cut for %s but %s "
+            "now requires %s, so the build would RE-CUT it (--refresh-data "
+            "dem)"
+            % (path,
+               ",".join("%.6f" % value for value in requested),
+               icao,
+               ",".join("%.6f" % value for value in required_box)))
 
 
 def warn_if_inset_does_not_cover_airport(tile, icao, coverage_fraction):

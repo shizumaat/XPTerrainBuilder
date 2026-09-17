@@ -10995,3 +10995,106 @@ def test_a_version_stale_capability_free_negative_refuses_and_names_dem(
         INSETS, "version_stale_capability_free_negatives",
         lambda lat, lon: [])
     assert build_mod.unverified_inset_negatives(state, 33, -113) == []
+
+
+# =====================================================================
+# THE PER-AIRPORT INSET REFUSAL (session ruling 2026-09-17 (3))
+# =====================================================================
+def _state_with_inset_problem(problem):
+    return {"tile_stem": "N60W136", "base_raster": True,
+            "airport_insets": True, "airports_layer": True,
+            "tile_overlay": False, "airport_inset_problem": problem}
+
+
+def test_this_airports_stale_inset_refuses_by_name_with_the_scope(
+    build_mod, tmp_path, monkeypatch
+):
+    """The harness NEVER re-cuts.  It names the inset, both boxes and
+    ``--refresh-data dem`` — twice, because two different laws apply: the
+    frame is COLD for this airport (``--allow-degraded-dem`` may accept
+    it) and the build would WRITE the shared repo re-cutting it (only
+    ``--refresh-data dem`` authorises that)."""
+    text = ("STALE airport elevation inset /x/N60W136_airport_insets/"
+            "CYXY_hrdem.tif — it was cut for -135.060000,60.690000,"
+            "-135.040000,60.720000 but CYXY now requires -135.100000,"
+            "60.650000,-135.000000,60.760000, so the build would RE-CUT "
+            "it (--refresh-data dem)")
+    state = _state_with_inset_problem(("stale", text))
+
+    # 1. THE COLD-FRAME LAW.
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_dem_frame(state, allow_degraded=False)
+    assert "STALE airport elevation inset" in str(exc.value)
+    assert "CYXY_hrdem.tif" in str(exc.value)
+    assert "--refresh-data dem" in str(exc.value)
+    # Accepted KNOWINGLY by the flag, which authorises no write.
+    build_mod.require_dem_frame(state, allow_degraded=True)
+    # An authorised dem refresh DERIVES it instead of refusing.
+    build_mod.require_dem_frame(state, requested={"dem"})
+
+    # 2. THE IMPLICIT-REFRESH LAW, through the build's own pre-flight list.
+    monkeypatch.setattr(build_mod, "unverified_inset_negatives",
+                        lambda *a: [])
+    monkeypatch.setattr(build_mod, "schema_stale_osm_layers", lambda *a: [])
+    monkeypatch.setattr(build_mod, "missing_pack_dsf_dumps", lambda *a: [])
+    missing = build_mod.missing_shared_artifacts(
+        tmp_path, 60, -136, "CYXY", state=state)
+    assert [scope for scope, _a, _w in missing] == ["dem"]
+    assert "CYXY_*.tif [stale]" in missing[0][1]
+    assert missing[0][2] == text
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    assert "--refresh-data dem" in str(exc.value)
+    build_mod.require_no_implicit_refresh(missing, {"dem"})
+
+
+def test_a_contained_inset_refuses_nothing(build_mod, tmp_path, monkeypatch):
+    state = _state_with_inset_problem(None)
+    build_mod.require_dem_frame(state, allow_degraded=False)
+    monkeypatch.setattr(build_mod, "unverified_inset_negatives",
+                        lambda *a: [])
+    monkeypatch.setattr(build_mod, "schema_stale_osm_layers", lambda *a: [])
+    monkeypatch.setattr(build_mod, "missing_pack_dsf_dumps", lambda *a: [])
+    assert build_mod.missing_shared_artifacts(
+        tmp_path, 60, -136, "CYXY", state=state) == []
+
+
+def test_the_per_airport_check_is_the_engines_own_predicate(build_mod,
+                                                           monkeypatch):
+    """Imported, never copied: what the app RE-CUTS and what the harness
+    REFUSES are the same function."""
+    import O4_Airport_Elevation_Insets as INSETS
+    calls = []
+
+    def fake_problem(lat, lon, icao, required, *a, **k):
+        calls.append((lat, lon, icao, required))
+        return ("stale", "the engine said so")
+
+    monkeypatch.setattr(INSETS, "airport_inset_frame_problem", fake_problem)
+    monkeypatch.setattr(INSETS, "_airport_bounding_boxes",
+                        lambda tile, dico: {"CYXY": (-1.0, 2.0, 3.0, 4.0)})
+    import O4_Config_Utils as CFG
+    import O4_OSM_Utils as OSM
+    import O4_Vector_Map as VMAP
+    monkeypatch.setattr(CFG, "Tile", lambda lat, lon, _s: types.SimpleNamespace(
+        lat=lat, lon=lon, read_from_config=lambda: None))
+    monkeypatch.setattr(OSM, "OSM_layer", lambda: None)
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(VMAP, "build_airports_dico", lambda _t, _l: {"CYXY": {}})
+    problem = build_mod.this_airports_inset_problem(
+        {"tile_stem": "N60W136", "airport_insets": True,
+         "airports_layer": True}, 60, -136, "CYXY")
+    assert problem == ("stale", "the engine said so")
+    assert calls == [(60, -136, "CYXY", (-1.0, 2.0, 3.0, 4.0))]
+    # No insets directory, no cached airports layer, or no airport: the
+    # check stands down rather than querying overpass for a box.
+    assert build_mod.this_airports_inset_problem(
+        {"tile_stem": "N60W136", "airport_insets": False,
+         "airports_layer": True}, 60, -136, "CYXY") is None
+    assert build_mod.this_airports_inset_problem(
+        {"tile_stem": "N60W136", "airport_insets": True,
+         "airports_layer": False}, 60, -136, "CYXY") is None
+    assert build_mod.this_airports_inset_problem(
+        {"tile_stem": "N60W136", "airport_insets": True,
+         "airports_layer": True}, 60, -136, None) is None

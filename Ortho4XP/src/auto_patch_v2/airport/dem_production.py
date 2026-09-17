@@ -72,9 +72,27 @@ def engine_root() -> Path:
 
 
 def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
-                icao: str) -> tuple[dict, list[str]]:
+                icao: str, required_box: tuple | None = None
+                ) -> tuple[dict, list[str]]:
     """Filesystem-only cache warmth for one tile (``dem_cache_state``):
-    ``(state, problems)`` — pure path inspection, never a fetch."""
+    ``(state, problems)`` — pure path inspection, never a fetch.
+
+    ``required_box`` is THIS airport's required inset extent (the
+    aerodrome boundary plus ``airport_elevation_inset_margin_m``, from
+    ``O4_Airport_Elevation_Insets._airport_bounding_boxes``).  Given it,
+    the per-airport check runs too: a present ``_airport_insets``
+    directory says nothing about whether THIS airport has an inset in it,
+    or whether the one there was cut for a box that still contains what
+    the airport needs.  Until 2026-09-17 this function tested only
+    ``os.path.isdir`` and took ``icao`` without ever using it for the
+    inset, so a MISSING or STALE inset read as a warm frame.
+
+    The predicate is the ENGINE's own
+    (``O4_Airport_Elevation_Insets.airport_inset_frame_problem``) —
+    imported, never copied — so what the app RE-CUTS and what the harness
+    REFUSES cannot drift.  Without ``required_box`` the behaviour is
+    exactly as before, and the core is not imported at all.
+    """
     hgt, tif, _js = resolve_dem_files(elevation_root, lat + 0.5, lon + 0.5, icao)
     stem = hgt_name(lat, lon)
     block = f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}"
@@ -99,6 +117,17 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
         problems.append(f"NO airport elevation insets dir {ins_dir} — the base "
                         f"surface only, while production bakes insets "
                         f"(--refresh-data dem)")
+    elif required_box is not None:
+        # THE PER-AIRPORT CHECK.  Only reached with the directory there:
+        # a whole-tile miss is already named above, and naming it twice
+        # would say the same cold cache in two voices.
+        import O4_Airport_Elevation_Insets as INSETS
+        state["airport_inset_required_box"] = [float(v) for v in required_box]
+        problem = INSETS.airport_inset_frame_problem(lat, lon, icao,
+                                                     required_box)
+        if problem is not None:
+            (state["airport_inset_problem_kind"], text) = problem
+            problems.append(text)
     return state, problems
 
 
@@ -679,9 +708,49 @@ class ProductionDem:
             OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
                                          ["all"], cached_suffix="airports")
             dico = VMAP.build_airports_dico(tile, layer)
+        # THE PER-AIRPORT INSET CHECK, which needs the dico the first
+        # frame_state call above could not have (the airports layer is
+        # one of the things it judges).  A MISSING or STALE inset for
+        # THIS airport is a cold frame exactly like a missing directory:
+        # the production host warms it through the SAME _warm_tile path
+        # (owner ruling 2026-09-17 "the app may re-cut a stale inset
+        # automatically"), and the harness refuses long before here.
+        required_box = self._required_inset_box(tile, dico)
+        if required_box is not None:
+            seen = set(problems)
+            (state, problems) = frame_state(self.elevation_root, self.osm_root,
+                                            lat, lon, self.icao, required_box)
+            fresh = [p for p in problems if p not in seen]
+            if fresh and self._may_warm(state):
+                self._warm_tile(lat, lon, state, tile=tile, dico=dico)
+                (state, problems) = frame_state(
+                    self.elevation_root, self.osm_root, lat, lon, self.icao,
+                    required_box)
+                fresh = [p for p in problems if p not in seen]
+            if fresh:
+                self._degrade(stem, fresh)
         dem = VMAP.compose_tile_dem_from_disk(tile, dico, write_alt_file=False)
         return self._bake(lat, lon, dem, stem, state, tile=tile,
                           airports_smoothed=len(dico), how="composed")
+
+    def _required_inset_box(self, tile: _t.Any, dico: dict) -> tuple | None:
+        """This airport's required inset extent, from the ENGINE's own
+        arithmetic (``_airport_bounding_boxes``) — boundary bounds plus
+        ``airport_elevation_inset_margin_m``.  ``None`` when the airports
+        layer gave no boundary for it, which is not a cold frame: there
+        is then nothing to require."""
+        if not dico:
+            return None
+        try:
+            import O4_Airport_Elevation_Insets as INSETS
+            boxes = INSETS._airport_bounding_boxes(tile, dico)
+        except Exception:
+            return None
+        wanted = self.icao.upper()
+        for key, box in boxes.items():
+            if str(key).upper() == wanted:
+                return box
+        return None
 
     def _may_warm(self, state: dict) -> bool:
         """Only the production host warms (the harness refuses by law), only
@@ -690,7 +759,8 @@ class ProductionDem:
         return bool(self.core_hosted and not self.allow_degraded
                     and state.get("base_raster_present"))
 
-    def _warm_tile(self, lat: int, lon: int, state: dict) -> None:
+    def _warm_tile(self, lat: int, lon: int, state: dict, *,
+                   tile: _t.Any = None, dico: dict | None = None) -> None:
         """Warm one tile's frame the way its own tile build would: the
         airports OSM layer (``OSM_queries_to_OSM_layer`` downloads and writes
         the cache when it is absent) and every airport inset on the tile
@@ -704,21 +774,34 @@ class ProductionDem:
         stem = state["tile_stem"]
         missing = [k for k in ("airports_layer_present", "airport_insets_present")
                    if not state.get(k)]
+        # The per-airport problems (2026-09-17) are cold in their own
+        # right even when both tile-wide artefacts are present.
+        if state.get("airport_inset_problem_kind"):
+            missing.append(f"airport_inset_{state['airport_inset_problem_kind']}")
         self._out(f"  [dem] production frame {stem} is COLD ({', '.join(missing)}) — "
                   f"warming it as a build of tile {lat:+d}{lon:+d} would "
                   f"(airports layer + airport insets), owner 2026-09-10")
-        tile = CFG.Tile(lat, lon, "")
-        tile.read_from_config()
-        tile.auto_patch_xplane_root = self.xplane_root
+        # The caller may already hold the tile and its airports dico (the
+        # per-airport check builds them); re-deriving would re-read the
+        # cached layer for nothing.
+        if tile is None:
+            tile = CFG.Tile(lat, lon, "")
+            tile.read_from_config()
+            tile.auto_patch_xplane_root = self.xplane_root
         # the tile build's own prelude creates the tile's OSM cache dir
         # (``O4_Vector_Map.py`` ~:999) before its first query; a neighbour
         # tile never built has none, and the layer write needs it
         import O4_File_Names as FNAMES
         os.makedirs(FNAMES.osm_dir(lat, lon), exist_ok=True)
-        layer = OSM.OSM_layer()
-        OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
-                                     ["all"], cached_suffix="airports")
-        dico = VMAP.build_airports_dico(tile, layer)
+        if dico is None:
+            layer = OSM.OSM_layer()
+            OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat,
+                                         lon, ["all"],
+                                         cached_suffix="airports")
+            dico = VMAP.build_airports_dico(tile, layer)
+        # ensure_insets_for_tile re-cuts a STALE inset by the same RE-CUT
+        # rule the check used (owner ruling 2026-09-17 (2)): one path, no
+        # new code, and a fetch failure still degrades or refuses below.
         INSETS.ensure_insets_for_tile(tile, dico)
         after, still = frame_state(self.elevation_root, self.osm_root, lat, lon, self.icao)
         note = (f"warmed {','.join(missing)}: airports layer "

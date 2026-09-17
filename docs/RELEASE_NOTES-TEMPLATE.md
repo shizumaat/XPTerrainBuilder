@@ -137,8 +137,9 @@ Open an issue at <issue tracker URL> and include, in this order:
 3. **The log.**
    - macOS: `~/Library/Logs/XPTerrainBuilder/engine-stderr.log`, plus the
      build console pane (it has a copy button).
-   - Windows and Linux: the build console pane, copied. To capture
-     everything, start the app from a terminal and include what it prints.
+   - Windows and Linux: `<data folder>/logs/engine-stderr.log` (20 MB
+     rotation, same rule as the mac log), plus the build console pane,
+     copied.
 4. **Screenshots** of anything visibly wrong in the sim, with the airport
    and the rough position.
 

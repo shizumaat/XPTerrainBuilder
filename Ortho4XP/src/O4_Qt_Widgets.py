@@ -102,7 +102,17 @@ class ElidedRowLabel(QLabel):
 
     def _apply_elide(self):
         width = self.contentsRect().width()
-        if width <= 0:  # not laid out yet: nothing to elide against
+        # A label the layout granted EXACTLY its size hint must not
+        # elide.  QFontMetrics::elidedText measures in QFontMetricsF
+        # and rounds differently from horizontalAdvance, so a label
+        # given precisely its hint width came back one ellipsis short —
+        # which is how the settings sheet's row names, each sitting at
+        # its own hint, all elided at the window's DEFAULT size
+        # (measured 2026-09-17).  Compare against the same number the
+        # hint is built from and only elide when it truly does not fit.
+        if width <= 0 or (  # not laid out yet: nothing to elide against
+            self.fontMetrics().horizontalAdvance(self._full_text) <= width
+        ):
             display = self._full_text
         else:
             display = self.fontMetrics().elidedText(

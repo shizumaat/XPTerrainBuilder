@@ -1066,8 +1066,11 @@ class SettingsWindow(QDialog):
         # buttons keep their ideal width and their text.
         wrap_and_never_widen(self.legend)
         self.legend.setStyleSheet("color: gray; font-size: 11px;")
+        # The legend itself absorbs the footer's slack (no separate
+        # stretch beside it): sharing the slack with a spacer halved
+        # the width it wraps into and put the one-line legend on two
+        # lines at the window's default size.
         footer.addWidget(self.legend, 1)
-        footer.addStretch(1)
         self.reset_category_btn = QPushButton()
         self.reset_category_btn.clicked.connect(self._reset_category)
         footer.addWidget(self.reset_category_btn)

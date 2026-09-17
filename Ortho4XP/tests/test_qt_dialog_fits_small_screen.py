@@ -155,30 +155,67 @@ def test_the_settings_rows_scroll_so_height_never_forces_the_window(
     for row in window.rows.values():
         assert window.scroll.isAncestorOf(row)
     tall = window.scroll.widget().sizeHint().height()
-    assert tall > MAX_MIN_HEIGHT  # the content really is taller than the bound
+    # The content really is taller than the bound on every platform,
+    # so the bound below is the scroll area's doing, not an accident.
+    assert tall > 400
     assert _effective_minimum(window)[1] <= MAX_MIN_HEIGHT
 
 
-def test_a_long_row_name_elides_and_keeps_its_full_text(settings_window):
-    """The squeeze must not lose information: the label keeps the whole
-    name, and the row's own explanation stays in the tooltip."""
+def test_a_long_row_name_keeps_its_full_text_and_its_tooltip(
+    settings_window,
+):
+    """The squeeze must not lose information: the label answers the
+    whole name, and the row's own explanation outranks the full-text
+    fallback in the tooltip."""
     from O4_Qt_Widgets import ElidedRowLabel
 
     window = settings_window([])
-    row = max(
-        window.rows.values(), key=lambda r: len(r.setting.label)
-    )
+    row = max(window.rows.values(), key=lambda r: len(r.setting.label))
     assert isinstance(row.name_label, ElidedRowLabel)
     assert row.name_label.text() == row.setting.label
     assert row.name_label.toolTip() == (
         row.setting.hint or row.setting.name)
-    row.name_label.resize(24, row.name_label.height())
-    qapp = QApplication.instance()
-    qapp.processEvents()
-    from PySide6.QtWidgets import QLabel
 
-    assert QLabel.text(row.name_label) != row.setting.label
-    assert row.name_label.text() == row.setting.label  # still whole
+
+class TestElidedRowLabelBoundary:
+    """A label granted EXACTLY its size hint must NOT elide.
+
+    ``QFontMetrics::elidedText`` measures in ``QFontMetricsF`` and
+    rounds differently from ``horizontalAdvance``, which the size hint
+    is built from.  A label handed precisely its hint width therefore
+    came back one ellipsis short — and in the settings sheet every row
+    name sits at exactly its hint, so at the window's DEFAULT size all
+    32 visible names were elided (measured 2026-09-17, macOS).  That is
+    the mac look this lane had to keep.
+    """
+
+    def _label(self, qapp, text, width):
+        from O4_Qt_Widgets import ElidedRowLabel
+
+        label = ElidedRowLabel(text)
+        label.show()  # a hidden widget defers resizeEvent to show time
+        label.resize(width, 24)
+        qapp.processEvents()
+        return label
+
+    NAME = "Modify custom airports (reseat objects)"
+
+    def test_exactly_its_hint_is_not_elided(self, qapp):
+        from PySide6.QtWidgets import QLabel
+
+        probe = self._label(qapp, self.NAME, 400)
+        label = self._label(qapp, self.NAME, probe.sizeHint().width())
+        assert QLabel.text(label) == self.NAME
+        assert label.toolTip() == ""
+
+    def test_narrower_than_its_hint_still_elides(self, qapp):
+        from PySide6.QtWidgets import QLabel
+
+        label = self._label(qapp, self.NAME, 40)
+        assert QLabel.text(label) != self.NAME
+        assert QLabel.text(label).endswith("…")
+        assert label.text() == self.NAME  # the full text survives
+        assert label.toolTip() == self.NAME
 
 
 @pytest.fixture

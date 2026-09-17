@@ -42,7 +42,7 @@ STANDING = """\
   no `--refresh-data`; every run prints `[guard] shared repo UNCHANGED`;
   lane-local `O4_DSF_CACHE_DIR` / `O4_AIRPORT_MOD_CACHE_DIR` under your scratchpad.
 - Any wait loop is bounded (`timeout N` or `$SECONDS`); prefer foreground.
-- Suite from `Ortho4XP/` twice: `venv/bin/python -m pytest -q --no-header -p no:cacheprovider -rfE tests/auto_patch_v2 tests/test_harness.py tests/test_role_edge_census.py`.
+- Suite from `Ortho4XP/` twice: `venv/bin/python -m pytest -q --no-header -p no:cacheprovider -rfE tests/auto_patch_v2 tests/test_harness.py tests/test_role_edge_census.py tests/test_auto_patch_freshness.py`.
 - Attempt cap two per rule; a bar that moves backwards twice → delete the code, report the measurement.
 - Consumer census (RULINGS 2026-08-30l) in the spec MEASURED block before any consumer is edited.
 - Extend tools, never fork; INDEX row + twin for any new option. Do NOT merge into main; do NOT write RULINGS.

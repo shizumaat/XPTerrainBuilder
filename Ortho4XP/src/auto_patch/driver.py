@@ -715,105 +715,28 @@ def _build_write_verify_one(task: dict) -> dict:
     icao, xp_root, taxiway_data, boundary, tile_lat, tile_lon, auto_patch_file,
     verify_log_path, freshness.
     """
-    import time as _time
     import traceback as _tb
-    from collections import Counter as _Counter
     icao = task["icao"]
-    t_apt = _time.time()
     # THE ENGINE IS V2 (RULINGS 2026-09-03d: v2 beside v1; 2026-09-13au:
     # v1 RETIRED — there is no selector and no second branch).  v2 replaces
     # this ONE step (build + write + verify) and returns the SAME record,
     # so everything below the worker — results loop, manifest check,
     # AutoPatchFailed events — is one path.  A v2 import or refusal is
     # contained the same way any build error is: a named ``build``-stage
-    # failure, never a silent skip.  (The code below this return is the
-    # retired v1 step, unreachable until the stage-B deletion.)
+    # failure, never a silent skip.  The retired v1 step that used to stand
+    # below this return (build_airport_pavement → to_osm → verify_and_log,
+    # unreachable since 3bf14c5f) is DELETED — the catch below is the whole
+    # containment: one airport's failure is returned WITH its icao and
+    # traceback, never propagated out of the serial loop and never lost as
+    # an anonymous dead worker.  (A hard process death — segfault/OOM-kill
+    # — still escapes Python and is handled as a dead future in
+    # ``_run_build_tasks``.)
     try:
         return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
     except Exception as _e:
         return {"icao": icao, "ok": False, "stage": "build",
                 "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
                 "traceback": _tb.format_exc()}
-    # Catch BROADLY (Exception, not just _DRIVER_EXC): one airport's build must
-    # never abort the whole tile (serial: an uncaught error propagates out of the
-    # caller's list-comp and aborts every remaining airport) nor vanish as an
-    # anonymous "worker died hard" (parallel: the pool loses the icao).  Any
-    # failure is CONTAINED here and returned WITH its icao + traceback so the main
-    # process logs which airport failed and why — no patch is ever silently
-    # dropped.  (A hard process death — segfault/OOM-kill — still escapes Python
-    # and is handled as a dead future in ``_run_build_tasks``.)
-    try:
-        from .pipeline import build_airport_pavement
-        layout = build_airport_pavement(
-            icao, task["xp_root"],
-            taxiway_data=task["taxiway_data"],
-            tile_dem=_WORKER_DEM,
-            airport_boundary=task["boundary"],
-            current_tile_lat=task["tile_lat"],
-            current_tile_lon=task["tile_lon"],
-        )
-    except Exception as _e:
-        return {"icao": icao, "ok": False, "stage": "build", "error": str(_e),
-                "traceback": _tb.format_exc()}
-    try:
-        _pd = os.path.dirname(task["auto_patch_file"])
-        if _pd and not os.path.exists(_pd):
-            os.makedirs(_pd)
-        # Rebuild-freshness stamps for the inputs the main process fingerprinted
-        # (config, DEM, CIFP, pack enablement, engine version).  The build's own
-        # DSF reads were recorded on the layout by the pipeline; ``to_osm``
-        # merges the two halves into one all-or-nothing stamp block.
-        layout.freshness = task.get("freshness")
-        layout.to_osm(task["auto_patch_file"])
-    except Exception as _e:
-        return {"icao": icao, "ok": False, "stage": "write", "error": str(_e),
-                "auto_patch_file": task["auto_patch_file"],
-                "traceback": _tb.format_exc()}
-    # Render the one-line provenance summary from the record to_osm stamped, so
-    # the main process can log it race-free in task order (workers must not
-    # write the shared console/log directly).  None when provenance is gated
-    # off or no record was produced.
-    provenance_log = None
-    try:
-        _record = getattr(layout, "_provenance_record", None)
-        if _record is not None:
-            from . import provenance as _prov
-            provenance_log = _prov.format_log_line(_record)
-    except Exception:
-        provenance_log = None
-    counts = _Counter(s.role for s in layout.shapes)
-    summary = " + ".join("{} {}".format(n, r) for r, n in
-                         sorted(counts.items(), key=lambda x: -x[1]))
-    build_s = _time.time() - t_apt
-    # Verify to a PER-AIRPORT log part (the main process concatenates them in
-    # order) so parallel workers don't race on the shared verify debug log.
-    t_v = _time.time()
-    verify_err = None
-    try:
-        from .verification import verify_and_log
-        # The adjacent-ground law check (gate-guarded inside) reads the SAME
-        # smoothed tile DEM + tile coordinates the build itself used, so the
-        # production counter is live and in lockstep with the emitter
-        # (source_runways stays None — the check derives runway code numbers
-        # from the layout's own runway shapes).
-        verify_and_log(layout, icao, debug_log_path=task["verify_log_path"],
-                       dem=_WORKER_DEM, tile_lat=task["tile_lat"],
-                       tile_lon=task["tile_lon"])
-    except Exception as _ve:
-        verify_err = str(_ve)
-    # THE PAD CONVERGENCE MEMORY (per-cluster seating spec section 5.2).
-    # The emitted-pad records are the sidecar's ``emitted`` section, and
-    # the sidecar is per TILE while airports build in a ProcessPool — so a
-    # worker never writes it.  It hands the records back and the MAIN
-    # process merges them, exactly as the object-anchor worklist is
-    # written from the main process only.
-    return {"icao": icao, "ok": True, "summary": summary, "build_s": build_s,
-            "worker_pid": os.getpid(),
-            "verify_s": _time.time() - t_v, "verify_err": verify_err,
-            "verify_log_path": task["verify_log_path"],
-            "object_pad_records": list(
-                getattr(layout, "object_pad_records", None) or ()),
-            "provenance_log": provenance_log}
 
 
 # Seconds a pool worker gets to exit after its last result was collected,

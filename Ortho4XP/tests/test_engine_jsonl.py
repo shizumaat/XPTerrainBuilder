@@ -17,7 +17,6 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import o4_deliberately_missing_module_betaci  # DELIBERATE RED (B4 closing test)
 import pytest  # noqa: E402
 
 import O4_UI_Utils as UI  # noqa: E402

@@ -88,7 +88,10 @@ def test_the_wording_matches_the_mac_app(window):
         "Sources", "XPTerrainBuilder", "BuildModel.swift")
     if not os.path.exists(swift):
         pytest.skip("Swift sources not present in this tree")
-    with open(swift) as handle:
+    # utf-8 pinned: the Swift literal carries an em dash, and Windows' default
+    # cp1252 mangled it (CI run 35257552035, the only red on the first
+    # three-platform run of main).
+    with open(swift, encoding="utf-8") as handle:
         source = handle.read()
     assert '"*** Tile \\(coord.key): airport \\(airport) failed at the "' \
         in source

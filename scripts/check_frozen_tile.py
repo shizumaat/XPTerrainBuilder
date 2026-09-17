@@ -932,7 +932,14 @@ def run_airport(binary, repo_root, log_dir, deadline, keep):
         # would read "CYXY did not solve" instead of "the bundle omitted
         # highspy".  Reported against the stream AND the log, because a
         # worker traceback reaches only one of them.
-        pattern = r"(ModuleNotFoundError|ImportError)[^\n]*"
+        # ``engine_v2`` formats the exception as ``[v2] {exc}``, i.e. the
+        # MESSAGE alone — a removed extension reads "No module named
+        # 'highspy._core'" with no exception class in sight (measured
+        # 2026-09-17 against a scratch copy of the mac freeze with
+        # ``_internal/highspy`` moved aside).  Both spellings, and any
+        # dynamic-library miss, are named.
+        pattern = (r"(ModuleNotFoundError|ImportError|No module named|"
+                   r"cannot open shared object|Library not loaded)[^\n]*")
         seen = set()
         for text in ([str(e.get("error") or "")
                       for e in stream.events("AutoPatchFailed")]

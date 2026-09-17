@@ -20,4 +20,15 @@ enum AppVersion {
     private static var bundleVersion: String? {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
+
+    /// App version, engine version and commit — the triple a beta bug report
+    /// quotes (docs/BETA-PLAN-20260916.md §1 B3). The engine version and the
+    /// commit are stamped into Info.plist by scripts/make_app.sh; under
+    /// `swift run` there is no stamp, so the engine version falls back to the
+    /// bundled schema snapshot's and the commit reads "dev".
+    static func triple(liveEngineVersion: String? = nil) -> BuildTriple {
+        BuildTriple(app: current,
+                    infoDictionary: Bundle.main.infoDictionary,
+                    engineFallback: liveEngineVersion)
+    }
 }

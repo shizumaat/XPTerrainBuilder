@@ -287,12 +287,20 @@ def test_info_plist_template_carries_the_app_version() -> None:
     end = next(i for i in range(start + 1, len(lines)) if lines[i] == "PLIST")
     body = "\n".join(lines[start + 1 : end])
 
-    rendered = _zsh(f'APP_VERSION="1.0.42"\nAPP_BUILD="42"\ncat <<PLIST\n{body}\nPLIST\n')
+    rendered = _zsh(
+        'APP_VERSION="1.0.42"\nAPP_BUILD="42"\n'
+        'ENGINE_VERSION="1.50.1793"\nCOMMIT_SHA="5883949fdeadbeef"\n'
+        f"cat <<PLIST\n{body}\nPLIST\n"
+    )
     assert rendered.returncode == 0, rendered.stderr
     plist = plistlib.loads(rendered.stdout.encode("utf-8"))
     assert plist["CFBundleShortVersionString"] == "1.0.42"
     assert plist["CFBundleVersion"] == "42"
     assert plist["CFBundleIdentifier"] == "com.novemberlima.XPTerrainBuilder"
+    # The About box's other two thirds (beta plan §1 B3(3)) — without these
+    # the packaged app can only report its own version number.
+    assert plist["XPTBEngineVersion"] == "1.50.1793"
+    assert plist["XPTBCommitSHA"] == "5883949fdeadbeef"
 
 
 @app_side

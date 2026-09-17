@@ -1268,15 +1268,25 @@ class MainWindow(QMainWindow):
         wizard_action.triggered.connect(self.run_wizard)
         help_menu.addAction(wizard_action)
         about_action = QAction("About Ortho4XP", self)
-        about_action.triggered.connect(
-            lambda: QMessageBox.about(
-                self,
-                "Ortho4XP",
-                "Ortho4XP %s\nMap-first Qt UI (preview build)."
-                % O4_Version.version,
-            )
-        )
+        about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+
+    def about_text(self):
+        """The About body: the build triple a bug report must quote.
+
+        App version, engine version and commit are three independent numbers
+        (docs/BETA-PLAN-20260916.md §1 B3); a tester reading only "1.0.347"
+        off the title bar cannot tell us which build broke.  In a dev tree
+        the components with no artifact behind them read "dev".
+        """
+        import O4_Build_Info
+
+        return "Ortho4XP\n%s\n\nMap-first Qt UI (preview build)." % (
+            O4_Build_Info.build_info().as_lines()
+        )
+
+    def show_about(self):
+        QMessageBox.about(self, "Ortho4XP", self.about_text())
 
     # ------------------------------------------------------------------
     # Prefs / settings

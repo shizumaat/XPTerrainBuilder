@@ -47,6 +47,19 @@ APP_VERSION="$(xptb_version_bump "$ROOT/Sources/XPTerrainBuilder/Resources/VERSI
 APP_BUILD="${APP_VERSION##*.}"
 echo "App build $APP_VERSION"
 
+# The other two thirds of the build triple a beta report quotes
+# (docs/BETA-PLAN-20260916.md §1 B3): the engine version this app embeds and
+# the commit it was packaged from. Stamped into Info.plist below, which is
+# how the About box reads them without opening anything outside the bundle.
+# A tree that cannot answer says "unknown"; BuildTriple renders that as "dev"
+# rather than letting a guess reach a bug report.
+ENGINE_VERSION="$(xptb_version_read "$ROOT/Ortho4XP/src/O4_Version.py" 2>/dev/null || echo unknown)"
+COMMIT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [[ "$COMMIT_SHA" != unknown ]] && ! git -C "$ROOT" diff --quiet HEAD 2>/dev/null; then
+  COMMIT_SHA="$COMMIT_SHA-dirty"
+fi
+echo "Engine $ENGINE_VERSION, commit $COMMIT_SHA"
+
 cd "$ROOT"
 swift build --build-system native -c "$CONFIG"
 BIN="$(swift build --build-system native -c "$CONFIG" --show-bin-path)/XPTerrainBuilder"
@@ -126,6 +139,11 @@ cat > "$STAGE/Contents/Info.plist" <<PLIST
     <string>${APP_VERSION}</string>
     <key>CFBundleVersion</key>
     <string>${APP_BUILD}</string>
+    <!-- The build triple's other two thirds; read by AboutPanel.swift. -->
+    <key>XPTBEngineVersion</key>
+    <string>${ENGINE_VERSION}</string>
+    <key>XPTBCommitSHA</key>
+    <string>${COMMIT_SHA}</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>

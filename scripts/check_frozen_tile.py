@@ -1052,7 +1052,45 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
         log_dir, stderr_log, jsonl_log)
 
 
-def _compare(specs, projection=False):
+#: §46 (7) THE GATE'S BAR, and the RESIDUES it names instead of failing on
+#: (spec §46 (6), lane ``xplatquantum``).  Everything not listed here is a
+#: gate failure.  A residue is a line the MEASUREMENT shows the quantum
+#: does not close AND that does not reach the emitted file — the emitted
+#: artefacts are compared byte for byte either way, so a residue that ever
+#: did reach one would fail on that line instead.
+_GATE_RESIDUES = (
+    # (6) (ii): the active set at exit lands on a different face of the
+    # same problem — same rows, same columns, same rounds, 2 nonzeros
+    # apart.  mac (numpy on Accelerate) against linux/windows (numpy on
+    # scipy-openblas).
+    ("lp", "counts.nnz"),
+    # the row VALUES agree to <= 7.96e-13 m (measured, §46 (3)); a digest
+    # ladder rung can still differ when a value sits on its own rounding
+    # boundary, which is the over-reading §46 (2) warns about.
+    ("constraints", "rows."),
+    # the solved z downstream of (ii); the EMITTED z (1 cm) is compared
+    # by the byte-identity of the patch and of .graded.json.
+    ("solved", "z."),
+)
+
+
+def _gate_verdict(lines):
+    """§46 (7): which DIFFER lines are a release failure, and which are a
+    NAMED residue.  ``lines`` are the engine's own stage table."""
+    fail, residue = [], []
+    for line in lines:
+        if " DIFFER" not in line or line.startswith("env "):
+            continue
+        parts = line.split()
+        stage, metric = parts[0], parts[1]
+        if any(stage == s and metric.startswith(m) for s, m in _GATE_RESIDUES):
+            residue.append(line)
+        else:
+            fail.append(line)
+    return fail, residue
+
+
+def _compare(specs, projection=False, gate=False):
     """``--compare mac=A.json linux=B.json windows=C.json``.
 
     With ``projection``, the same call over the ``.xproj.json`` files and
@@ -1116,7 +1154,25 @@ def _compare(specs, projection=False):
     # question "did it reach the shipped file?" is exactly the one worth
     # answering, and a gate that stops at the first digest cannot answer it.
     emitted = _compare_emitted(dict(zip(dumps, paths)))
-    return 2 if (differ or emitted) else 0
+    if not gate:
+        return 2 if (differ or emitted) else 0
+
+    # ---- §46 (7) THE RELEASE GATE --------------------------------------
+    fail, residue = _gate_verdict(lines)
+    print("\n== §46 (7) GATE ==")
+    for line in residue:
+        print("  residue (§46 (6), named, not a failure): %s" % line.strip())
+    if emitted:
+        print("  FAIL: the emitted artefact is not byte-identical")
+    for line in fail:
+        print("  FAIL: %s" % line.strip())
+    if fail or emitted:
+        print("\nONE AIRPORT, %d PROGRAMMES — the release is not one build."
+              % len(dumps))
+        return 2
+    print("  every stage but the named residues AGREES, and the emitted "
+          "artefacts are BYTE-IDENTICAL: ONE AIRPORT, ONE PROGRAMME.")
+    return 0
 
 
 #: §46 (7): the artefacts whose BYTES the gate compares, beside each
@@ -1230,6 +1286,14 @@ def main(argv):
                              "and the straddle counts at 1e-4/1e-3/1e-2 m) "
                              "over %s.xproj.json files written by "
                              "--xplat-dump, and exit" % AIRPORT_ICAO)
+    parser.add_argument("--gate", action="store_true",
+                        help="with --compare, apply spec §46 (7)'s RELEASE "
+                             "bar instead of the human one: the named §46 "
+                             "(6) residues are printed and allowed, "
+                             "everything else — any divergence at load / "
+                             "partition / classify / planar / shapes, any "
+                             "count, and any difference in the EMITTED "
+                             "artefacts — fails with exit 2")
     parser.add_argument("--compare", nargs="+", default=None,
                         help="NAME=PATH … : print the per-stage AGREE/"
                              "DIFFER table over dumps written by "
@@ -1240,7 +1304,7 @@ def main(argv):
         return _compare(arguments.compare_projection, projection=True)
 
     if arguments.compare:
-        return _compare(arguments.compare)
+        return _compare(arguments.compare, gate=arguments.gate)
 
     if not arguments.binary:
         print("ERROR: a frozen binary is required (only --compare runs "

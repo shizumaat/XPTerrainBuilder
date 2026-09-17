@@ -196,3 +196,53 @@ def test_every_platform_uploads_its_dump_on_success(workflow):
         assert "if: always()" in step, (
             "frozen-tile-logs-%s uploads only on failure — three green "
             "platforms could never be compared" % platform)
+
+
+def test_the_cross_platform_gate_is_a_release_job(workflow):
+    """§46 (7): the comparison is a GATE, not a reading somebody remembers
+    to run.  A fourth job needs the three platform jobs, downloads the
+    three dumps and fails on the first thing the bar does not allow — and
+    the release job needs IT, so a tag cannot ship three surfaces for one
+    apt.dat."""
+    assert "xplat_gate:" in workflow
+    block = workflow[workflow.index("  xplat_gate:"):]
+    block = block[:block.index("\n  release:")]
+    assert "needs: [mac, windows, linux]" in block
+    assert "--gate --compare" in block
+    for platform in ("mac", "linux", "windows"):
+        assert "%s=artifacts/frozen-tile-logs-%s/xplat/CYXY.xplat.json" \
+            % (platform, platform) in block, platform
+    # the gate itself must NOT be the optional reading beside it
+    gate_step = block[block.index("- name: The three platforms solved"):]
+    gate_step = gate_step[:gate_step.index("- name: The exact projection")]
+    assert "||" not in gate_step and "continue-on-error" not in gate_step
+    # and the release job cannot outrun it
+    rel = workflow[workflow.index("  release:"):]
+    assert "needs: [mac, windows, linux, xplat_gate]" in rel
+
+
+def test_the_gate_allows_only_the_named_residues():
+    """The allowance is a LIST, printed by name on every run, and it is a
+    list to shrink.  A gate that allowed a stage would be no gate."""
+    import importlib.util
+    path = os.path.join(_ROOT, "scripts", "check_frozen_tile.py")
+    spec = importlib.util.spec_from_file_location("_cft_gate", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._GATE_RESIDUES == (("lp", "counts.nnz"),
+                                  ("constraints", "rows."),
+                                  ("solved", "z."))
+    lines = [
+        "load         geometry.dp9                 DIFFER a | b | c",
+        "lp           counts.nnz                   DIFFER 1 | 2 | 2",
+        "lp           counts.rows                  DIFFER 1 | 2 | 3",
+        "constraints  rows.dp4                     DIFFER a | b | c",
+        "constraints  counts.pins                  DIFFER 1 | 2 | 3",
+        "solved       z.dp6                        DIFFER a | b | c",
+        "env machine                DIFFER arm64 | x86_64 | AMD64",
+        "planar       counts.v                     AGREE  1 | 1 | 1",
+    ]
+    fail, residue = mod._gate_verdict(lines)
+    assert [f.split()[0] + " " + f.split()[1] for f in fail] == [
+        "load geometry.dp9", "lp counts.rows", "constraints counts.pins"]
+    assert len(residue) == 3

@@ -16462,3 +16462,58 @@ build and one CYXY, verify family table and ADJUDICATED census before/after, eve
 family that moves by > 1 % named. Registered captures and coordinate-literal pins
 (`repro_cut`) predate the quantum: a capture replays under the CURRENT tree and says
 so; a pin that no longer matches refuses BY NAME (R5), which is the right failure.
+
+**(9) MEASURED — THE CONSUMER CENSUS (§46 (5), RULINGS 2026-08-30l; lane `xplatquantum`,
+base `6c8dfe71`, taken BEFORE any consumer was edited).** Every caller of
+`Frame.transformers()`, of a `to_xy` derived from it, and of `airport/load._vector_to_xy`,
+plus the two places outside `Frame` that build their own forward tmerc on the frame's CRS.
+Ruled ONE of: **ENTRY** (an input-domain coordinate — switch to the entry projection),
+**EXACT** (our own geometry, a derived constant, a diagnostic query point or the
+instrument — leave the exact projection), **INVERSE** (`to_ll` only — nothing to rule).
+
+FORWARD, INSIDE THE FRAME (14 production sites):
+
+| # | site (file:line) | what it projects | ruling |
+|---|------------------|------------------|--------|
+| 1 | `airport/load.py:572` `_vector_to_xy` (used at `:251`) | EVERY apt.dat runway end, pavement/boundary ring, taxi node and startup; every OSM way point; every DSF `.pol` / `.fac` ring and object anchor — the whole load stage | **ENTRY** |
+| 2 | `airport/borrow.py:158` `_to_xy` → `coverage_of:190` | §44 (2): the row-110 pavement rings of the CUSTOM and the GLOBAL apt.dat blocks, unioned for the coverage ratio | **ENTRY** |
+| 3 | `airport/pack_partition.py:681` `frame_xy` | contract is "the plan's coordinates are degrees" — the pack plan's placement lat/lon. ZERO callers in the whole tree (grepped `src`, `tools`, `scripts`, `tests`): a public helper standing ready to re-found the defect | **ENTRY** |
+| 4 | `classify/evidence.py:496` → `geom/cluster_outline.py:144` | `Cluster.rings` = `airport/placement_family.Part.rings`, the OBJ8 footprint ring in `(lat, lon)` under a DSF placement | **ENTRY** |
+| 5 | `constraints/cluster_pad.py:162` → the same `cluster_outlines` | the same ring population, read a second time for the pad census | **ENTRY** |
+| 6 | `constraints/foot_rows.py:276` (used `:285`, and `:353-355` `_sampler` → `:314`) | `planar/group.Foot.lat/lon` = `Part.feet`, the OBJ8 ground-contact vertices of a DSF placement. §46 (5) asked this be VERIFIED: **VERIFIED, production feet ARE input-domain** — `_feet_of` (`planar/group.py:278-285`) reads `Part.feet` / `Part.lat,lon` straight off `airport/contact._feet`, which is authored OBJ8 geometry under a parsed DSF anchor. `:276` is NOT fixture-only | **ENTRY** |
+| 7 | `constraints/pad_relief.py:91` (used `:118`) | the same `Foot` population, projected for the §11a (2) relief targets. `:118` is likewise NOT fixture-only | **ENTRY** |
+| 8 | `pipeline/build.py:430` `_to_xy` → `_dem_at:432-433` → `_derive_groups(dem_at=…):445` | the `(lat, lon)` handed to `_dem_at` are those same feet — the §11b (3) feasibility verdict samples the DEM under each foot | **ENTRY** |
+| 9 | `pipeline/build.py:1031` `_to_xy` → `emit/rebake.py:49` `to_xy(sv.ll[1], sv.ll[0])` | `sv` is a **SOLVED SURFACE** vertex; its `ll` is the exact inverse of our own `xy`. Quantising here would break `to_xy(to_ll(xy)) == xy` — the exact conflict §46 (4) (b) exists to avoid | **EXACT** |
+| 10 | `planar/overlay.py:942` `seam_bands` (via `_degree_offset:902-913`, `_xy_at:952-965`) | the INTEGER graticule lines and §38 (3) / 13an's one Newton step **against the round trip**. Not an entering coordinate, and a quantised forward would put a 0.5 mm floor under a correction whose whole claim is "well under a millimetre" — the SPLP hairline crack class | **EXACT** |
+| 11 | `classify/explain.py:83` `shape_polygon` | the lat/lon of a way in a SHIPPED PATCH — our own emitted geometry, read back by a diagnostic | **EXACT** |
+| 12 | `pipeline/__main__.py:251` (`--at`) | a human query coordinate in the classify CLI; decides nothing in a build | **EXACT** |
+| 13 | `pipeline/why.py:131` (`resolve_faces(at=…)`) | the same class — the `why` CLI's query point | **EXACT** |
+| 14 | `pipeline/xplat.py:463` | THE INSTRUMENT. It must record the RAW projection and its own lattice probe, or §46 (2)'s spread measurement measures the quantum instead of PROJ | **EXACT** |
+
+FORWARD, OUTSIDE THE FRAME — a second spelling of the tmerc on the frame's own CRS (2):
+
+| # | site | what it projects | ruling |
+|---|------|------------------|--------|
+| 15 | `airport/dem.py:188-192` `Dem.bounds()` | the four INTEGER corners of the 1° base tile, giving the fallback membership box read at `airport/road_profile.py:424`. A derived constant, never a coordinate in the layout | **EXACT** |
+| 16 | `airport/dem_production.py:275` `self._fwd`, used at `:291` (the same integer tile box) and at **`:522`** | `:522` projects the WATER-MASK POLYGONS of the tile's water source — genuinely **input-domain** vector data | **ENTRY** — but **NOT SWITCHED THIS ROUND**: `dem_production.py` is lane `insetbounds`'s file. Recorded here as the census's one open consumer; it is not exercised by §46 (7)'s CYXY bars |
+
+INVERSE-ONLY (`to_ll`; nothing enters the frame, no change) — 23 sites:
+`airport/dem.py:177`, `airport/dem_production.py:274`, `airport/door_wells.py:271`,
+`airport/pack_partition.py:427` + `:471`, `airport/rebake_plan.py:224`,
+`airport/sunken_roads.py:284`, `airport/wall_corridors.py:575`, `classify/explain.py:60`,
+`classify/roles.py:291`, `constraints/cluster_pad.py:345`, `emit/bank.py:738`,
+`pipeline/publication.py:113`, `:373`, `:611`, `:710`, `pipeline/why.py:273`,
+`planar/__main__.py:318`, `planar/basins.py:861` + `:866`, `planar/build.py:335`,
+`planar/channel.py:714`, `planar/index.py:70`, `planar/shapes.py:910`.
+
+NON-PRODUCTION (`tools/`, `tests/`, `scripts/`): every forward use is a diagnostic or a
+fixture over geometry the build already produced — `tools/v2_solve_replay.py:388`, `:428`,
+`:702`, `:968`, `tools/pad_airside_arm.py:143`, `tools/patch_proximity_diff.py:87`, `:126`,
+`tools/rwy_profile.py:85`, and the test files. **EXACT**, all of them: an instrument that
+quantised would no longer read what the build reads.
+
+THE CONSEQUENCE, STATED ONCE. The ENTRY set is exactly the **apt.dat / OSM / DSF+OBJ8**
+domain, and it reaches the frame through four populations: the load stage's vectors (1, 2, 3),
+the pack's footprint rings (4, 5), the pack's feet (6, 7, 8) and the tile's water polygons
+(16, deferred). Nothing our own solve produced is quantised, so `to_xy(to_ll(xy)) == xy`
+holds everywhere it held before and the 52 `identity_dp=11` test files stand (§46 (4) (b)).

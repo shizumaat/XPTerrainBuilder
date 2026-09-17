@@ -1154,3 +1154,167 @@ def test_apt_dat_reads_are_utf8_not_locale(tmp_path, monkeypatch):
     block = v2_apt.read_airport_block(str(p), "KFAKE")
     assert opened.get("encoding") == "utf-8"
     assert "Aérodrome Fâké" in "\n".join(block)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Input 1b — §44's BORROWED Global Airports apt.dat
+# (lane ``borrowstamp``, the follow-up chip of RULINGS 2026-09-17a)
+#
+# The borrow is decided in v2's load stage, so ``pipeline/build.py``
+# writes ``o4_apt_dat_borrowed`` / ``o4_apt_dat_borrowed_mtime`` into
+# the ``<osm>`` header itself.  v1's ``to_osm`` (what these fixtures
+# emit through) never writes them, so the header attribute is added
+# here exactly as v2's emitter renders it — through the emitter's OWN
+# attribute quoter, so the encoding under test is the shipped one.
+# ──────────────────────────────────────────────────────────────────────
+def _add_header_attrs(patch: Path, **attrs: str) -> Path:
+    """Append ``<osm>`` root attributes, rendered by v2's emitter."""
+    from auto_patch_v2.emit.osm_adapter import _q
+    lines = patch.read_text(encoding="utf-8").splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if "<osm " in line:
+            head, sep, tail = line.rstrip("\n").rpartition(">")
+            assert sep, line
+            extra = " ".join(f"{k}={_q(v)}" for k, v in attrs.items())
+            lines[i] = f"{head} {extra}>{tail}\n"
+            break
+    else:                                                # pragma: no cover
+        raise AssertionError("no <osm> root element")
+    patch.write_text("".join(lines), encoding="utf-8")
+    return patch
+
+
+@pytest.fixture
+def global_apt(tmp_path):
+    """A stand-in Global Airports apt.dat to borrow from."""
+    d = tmp_path / "Global Scenery" / "Global Airports" / "Earth nav data"
+    d.mkdir(parents=True)
+    return _make_apt_dat(d)
+
+
+def _borrowed_patch(install, tmp_path, global_apt, *, with_mtime=True) -> Path:
+    """A patch that BORROWED ``global_apt``, stamped as v2 stamps one."""
+    from auto_patch_v2.pipeline.build import borrowed_apt_dat_stamp
+    patch = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
+    attrs = {"o4_apt_dat_borrowed": str(global_apt)}
+    if with_mtime:
+        attrs.update(borrowed_apt_dat_stamp(str(global_apt)))
+    return _add_header_attrs(patch, **attrs)
+
+
+def test_borrowed_stamp_renders_like_the_selected_apt_dat_mtime(global_apt):
+    from auto_patch_v2.pipeline.build import borrowed_apt_dat_stamp
+    stamp = borrowed_apt_dat_stamp(str(global_apt))
+    assert stamp == {"o4_apt_dat_borrowed_mtime":
+                     f"{os.path.getmtime(global_apt):.6f}"}
+    # nothing borrowed, and a path that does not stat(): no key at all
+    assert borrowed_apt_dat_stamp("") == {}
+    assert borrowed_apt_dat_stamp(None) == {}
+    assert borrowed_apt_dat_stamp(str(global_apt) + ".gone") == {}
+
+
+def test_borrowed_keys_round_trip_through_read_patch_source(
+        install, tmp_path):
+    """The path rides RAW (XML-escaped), not percent-encoded — and comes
+    back byte-identical through spaces and an apostrophe."""
+    odd = tmp_path / "Pilot's Global Scenery"
+    odd.mkdir()
+    borrowed = _make_apt_dat(odd, "apt.dat")
+    patch = _borrowed_patch(install, tmp_path, borrowed)
+    header = patch.read_text().splitlines()[1]
+    assert "o4_apt_dat_borrowed='" in header and "&apos;" in header
+    assert header.count("'") % 2 == 0
+    meta = read_patch_source(str(patch))
+    assert meta["apt_dat_borrowed"] == str(borrowed)
+    assert meta["apt_dat_borrowed_mtime"] == pytest.approx(
+        os.path.getmtime(borrowed), abs=1e-6)
+
+
+def test_borrowed_keys_do_not_capture_the_selected_apt_dat(
+        install, tmp_path, global_apt):
+    """``o4_apt_dat`` / ``o4_apt_dat_mtime`` must keep NOT matching the
+    longer borrowed names (and vice versa)."""
+    patch = _borrowed_patch(install, tmp_path, global_apt)
+    meta = read_patch_source(str(patch))
+    assert meta["apt_dat"] == str(install.apt_dat)
+    assert meta["apt_dat_mtime"] == pytest.approx(
+        os.path.getmtime(install.apt_dat), abs=1e-6)
+    assert meta["apt_dat_borrowed"] == str(global_apt)
+    assert meta["apt_dat_borrowed"] != str(install.apt_dat)
+
+
+def test_current_when_borrowed_apt_dat_untouched(install, tmp_path,
+                                                 global_apt):
+    patch = _borrowed_patch(install, tmp_path, global_apt)
+    assert install.is_current(patch)
+
+
+def test_stale_when_borrowed_apt_dat_touched(install, tmp_path, global_apt):
+    """THE DEFECT: a Global Airports update in place left a borrowed
+    patch reading current."""
+    patch = _borrowed_patch(install, tmp_path, global_apt)
+    assert install.is_current(patch)
+    _touch_newer(global_apt)
+    assert not install.is_current(patch)
+
+
+def test_stale_when_borrowed_apt_dat_missing(install, tmp_path, global_apt):
+    patch = _borrowed_patch(install, tmp_path, global_apt)
+    global_apt.unlink()
+    assert not install.is_current(patch)
+
+
+def test_stale_when_borrowed_without_the_mtime_key(install, tmp_path,
+                                                   global_apt):
+    """A patch that borrowed but carries no mtime key rebuilds ONCE
+    (fail-safe) — that is how the key is acquired."""
+    patch = _borrowed_patch(install, tmp_path, global_apt, with_mtime=False)
+    meta = read_patch_source(str(patch))
+    assert meta["apt_dat_borrowed"] == str(global_apt)
+    assert meta["apt_dat_borrowed_mtime"] is None
+    assert not install.is_current(patch)
+
+
+def test_empty_borrow_stamp_is_unaffected_by_a_global_update(
+        install, tmp_path, global_apt):
+    """NO MASS INVALIDATION (1): a patch that borrowed NOTHING carries
+    ``o4_apt_dat_borrowed=''`` and never stats Global."""
+    patch = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
+    _add_header_attrs(patch, o4_apt_dat_borrowed="")
+    assert read_patch_source(str(patch))["apt_dat_borrowed"] == ""
+    assert install.is_current(patch)
+    _touch_newer(global_apt)
+    assert install.is_current(patch)
+    global_apt.unlink()
+    assert install.is_current(patch)
+
+
+def test_patch_without_either_borrow_key_stays_current(install, patch_file,
+                                                       global_apt):
+    """NO MASS INVALIDATION (2): a patch written before §44 carries
+    neither key and reads exactly as before."""
+    header = patch_file.read_text().splitlines()[1]
+    assert "o4_apt_dat_borrowed" not in header
+    meta = read_patch_source(str(patch_file))
+    assert meta["apt_dat_borrowed"] == ""
+    assert meta["apt_dat_borrowed_mtime"] is None
+    assert install.is_current(patch_file)
+    _touch_newer(global_apt)
+    assert install.is_current(patch_file)
+
+
+def test_borrow_gate_parses_no_apt_dat(install, tmp_path, global_apt,
+                                       monkeypatch):
+    """STAT ONLY: the gate must not read the borrowed file's CONTENT (no
+    Global-block parse, no coverage union)."""
+    patch = _borrowed_patch(install, tmp_path, global_apt)
+    real_open = open
+    target = os.path.realpath(global_apt)
+
+    def _spy(path, *a, **kw):
+        assert os.path.realpath(str(path)) != target, \
+            "the freshness gate opened the borrowed apt.dat"
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", _spy)
+    assert install.is_current(patch)

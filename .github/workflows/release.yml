@@ -59,15 +59,14 @@ jobs:
           PROJ_DATA: /nonexistent/proj
         run: Ortho4XP/dist/Ortho4XP/Ortho4XP --proj-selfcheck
 
-      # The frozen engine must decode LERC elevation assets (owner RULINGS
-      # 2026-09-12as (3)) — the same 64x64 fixture check the Windows and
-      # Linux jobs run, one implementation.  A bundle missing tifffile /
-      # imagecodecs._lerc does not crash: it SKIPS the source and silently
-      # degrades New Zealand's 1 m lidar, which is how 1.0.324 shipped.  So
-      # it fails HERE.  python3 is the job interpreter, never the thing
-      # under test.
-      - name: LERC self-check (frozen engine)
-        run: bash scripts/check_frozen_lerc.sh Ortho4XP/dist/Ortho4XP/Ortho4XP python3
+      # LERC: no separate step on mac.  scripts/make_engine.sh ("Freeze
+      # engine" above) already runs scripts/check_frozen_lerc.sh FATALLY with
+      # the freeze venv's own python, which has numpy/tifffile to build the
+      # fixture (measured in run 35256890708: "frozen LERC decode OK" inside
+      # the freeze step).  A second step handing it the job's bare python3
+      # died on "No module named numpy" — redundant AND broken, removed
+      # 2026-09-17.  Windows/Linux keep their step: they never run
+      # make_engine.sh, and their job python carries the engine packages.
 
       # Signing and notarization (docs/BETA-PLAN-20260916.md §1 B1,
       # RELEASES-PLAN §B4).  A TAG release is signed, notarized and stapled

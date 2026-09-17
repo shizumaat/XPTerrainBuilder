@@ -6477,6 +6477,47 @@ def _airport_pack_dsf_paths(xplane_root, bounding_box_wgs84):
     return dsf_paths
 
 
+#: Manifest key (inside :data:`SURFACE_MODEL_BUILDING_MASKING`) holding the
+#: SORTED pack directory names that served object footprints to the mask.
+#: Owner ruling 2026-09-17c (1): record the contributing pack NAMES.
+FOOTPRINT_PACKS = "footprint_packs"
+
+
+def package_footprint_pack_names(bounding_box_wgs84):
+    """Sorted directory names of the installed airport packs that serve
+    object footprints over ``bounding_box_wgs84``.
+
+    THE CHEAP SCAN, and deliberately the SAME one both sides of the reuse
+    test use (:func:`_airport_pack_dsf_paths`: a ``Custom Scenery``
+    listing plus an ``os.path.isfile`` per pack — no DSF is parsed, no
+    OBJ8 is read).  Recomputing this on a warm pass therefore costs a
+    directory walk, while asking "did the footprints CHANGE" would cost
+    the object parse the scan exists to avoid.  Enabling or disabling a
+    pack in ``scenery_packs.ini`` moves a NAME in this list, which is
+    exactly the signal the mask's reuse test needs.
+
+    ``[]`` when no X-Plane root is configured, when nothing covers the box,
+    or on any error — the same defensive degradation
+    :func:`package_object_footprints` takes.
+    """
+    try:
+        xplane_root = _xplane_root_for_package_footprints()
+        if not xplane_root:
+            return []
+        custom_scenery_directory = os.path.join(xplane_root, "Custom Scenery")
+        names = set()
+        for dsf_path in _airport_pack_dsf_paths(
+            xplane_root, bounding_box_wgs84
+        ):
+            relative = os.path.relpath(dsf_path, custom_scenery_directory)
+            head = relative.split(os.sep)[0]
+            if head and head not in (os.pardir, os.curdir):
+                names.add(head)
+        return sorted(names)
+    except Exception:
+        return []
+
+
 def package_object_footprints(bounding_box_wgs84, definition):
     """Authoritative building footprints from installed airport packages.
 
@@ -6692,6 +6733,14 @@ def mask_building_footprints_in_surface_model(
     (footprints, footprint_source) = _collect_inset_building_footprints(
         bounding_box_wgs84, definition, footprint_prefetch=footprint_prefetch
     )
+    # WHICH PACKS SERVED THIS MASK (owner ruling 2026-09-17c (1)).  The
+    # prose ``footprint_source`` label says only WHETHER packages
+    # contributed; the reuse test needs the NAMES, because enabling or
+    # disabling one changes the mask and therefore the terrain the patch
+    # is graded against.  Recorded on every path that got as far as
+    # collecting footprints; a manifest WITHOUT the key is
+    # unknown-and-reusable (:func:`_sidecar_footprint_packs_mismatch`).
+    footprint_packs = package_footprint_pack_names(bounding_box_wgs84)
     buffer_m = _parse_float(
         definition.get("footprint_mask_buffer_m"),
         default=DEFAULT_FOOTPRINT_MASK_BUFFER_M,
@@ -6701,6 +6750,7 @@ def mask_building_footprints_in_surface_model(
         return {
             "skipped": "no building footprints in the box",
             "footprint_count": 0,
+            FOOTPRINT_PACKS: footprint_packs,
         }
     (west, south, east, north) = bounding_box_wgs84
     centre_latitude = (south + north) / 2.0
@@ -6755,6 +6805,7 @@ def mask_building_footprints_in_surface_model(
                     DEFAULT_RESIDUAL_MASK_OPENING_WINDOW_M,
                 "footprint_mask_buffer_m": buffer_m,
                 "fill_method": _inset_fill_method(),
+                FOOTPRINT_PACKS: footprint_packs,
             }
         fill_method = _inset_fill_method()
         if fill_method == INSET_FILL_METHOD_DISTANCE_TRANSFORM:
@@ -6799,9 +6850,11 @@ def mask_building_footprints_in_surface_model(
             "   WARNING: building-footprint masking failed:",
             str(error),
         )
-        return {"skipped": str(error), "footprint_count": len(footprints)}
+        return {"skipped": str(error), "footprint_count": len(footprints),
+                FOOTPRINT_PACKS: footprint_packs}
     return {
         "footprint_source": footprint_source,
+        FOOTPRINT_PACKS: footprint_packs,
         "footprint_count": len(footprints),
         "masked_pixel_count": int(pixels_to_fill.sum()),
         "masked_fraction": round(
@@ -6972,6 +7025,40 @@ def _sidecar_residual_masking_mismatch(lat, lon, icao, provider_code,
     if residual_masking_wanted:
         return "residual_masked_pixel_count" not in summary
     return bool(summary.get("residual_masked_pixel_count"))
+
+
+def _sidecar_footprint_packs_mismatch(lat, lon, icao, provider_code,
+                                      bounding_box_wgs84):
+    """True when the cached inset's mask was served by a DIFFERENT SET of
+    installed scenery packs than serves this box now (owner ruling
+    2026-09-17c (1)).
+
+    Compared as SETS, so pack order and the scan's path layout never
+    matter.  A manifest that carries no
+    :data:`FOOTPRINT_PACKS` key is UNKNOWN, and unknown reads as
+    REUSABLE -- the established leave-alone policy every other sidecar
+    test here takes (:func:`_sidecar_residual_masking_mismatch`): the key
+    is stamped lazily the next time the inset is derived for its own
+    reasons, never by a corpus-wide re-cut.  Also False when the
+    provenance is missing or unreadable.
+    """
+    provenance_path = FNAMES.airport_inset_provenance(
+        lat, lon, icao, provider_code
+    )
+    try:
+        with open(provenance_path, "r") as handle:
+            provenance = json.load(handle)
+    except (OSError, ValueError):
+        return False
+    summary = provenance.get(SURFACE_MODEL_BUILDING_MASKING)
+    if not isinstance(summary, dict):
+        return False
+    recorded = summary.get(FOOTPRINT_PACKS)
+    if not isinstance(recorded, (list, tuple)):
+        return False                      # unknown => reusable
+    return set(map(str, recorded)) != set(
+        package_footprint_pack_names(bounding_box_wgs84)
+    )
 
 
 def _fetched_bounding_box(lat, lon, icao, provider_code):
@@ -7240,6 +7327,22 @@ def ensure_airport_insets(
                     cached_inset_is_stale = True
                     stale_reason = (
                         "was built with a different residual-masking setting"
+                    )
+                if (not cached_inset_is_stale
+                        and definition.get(SURFACE_MODEL_BUILDING_MASKING)
+                        and _sidecar_footprint_packs_mismatch(
+                            lat, lon, icao, code, bounding_box)):
+                    # THE PACK SET MOVED (owner ruling 2026-09-17c (1)).
+                    # The mask is built from the object footprints of the
+                    # installed airport packs that RENDER here; installing
+                    # one, removing one, or toggling one in
+                    # scenery_packs.ini changes the mask and therefore the
+                    # terrain this airport is graded against, and nothing
+                    # in the cache used to notice.
+                    cached_inset_is_stale = True
+                    stale_reason = (
+                        "was masked with a different set of installed "
+                        "scenery packs"
                     )
                 if not cached_inset_is_stale and _cached_inset_oversamples(
                     destination, definition

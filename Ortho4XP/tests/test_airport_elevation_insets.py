@@ -6106,3 +6106,117 @@ def test_out_of_box_negative_is_never_version_stale_for_cyxy():
         "bounding_box": [-97.06, 32.87, -97.01, 32.93],
     }
     assert INSETS.negative_is_version_stale(dfw, "USGS3DEP", usgs)
+
+
+# =====================================================================
+# footprint_packs: the manifest records WHICH packs served the mask
+# (owner ruling 2026-09-17c (1), lane insetbounds)
+# =====================================================================
+def test_footprint_pack_names_are_the_enabled_airport_packs(
+    tmp_path, monkeypatch
+):
+    root = str(tmp_path / "X-Plane 12")
+    _write_fake_custom_scenery(root)
+    monkeypatch.setattr(
+        INSETS, "_xplane_root_for_package_footprints", lambda: root
+    )
+    # Exactly the packs the scan selects: the disabled one, the
+    # non-airport ortho pack and Global Airports are all out.
+    assert INSETS.package_footprint_pack_names(_PACK_BOX) == ["Test Airport"]
+    # No configured root, and a scan that raises, both degrade to [].
+    monkeypatch.setattr(
+        INSETS, "_xplane_root_for_package_footprints", lambda: None
+    )
+    assert INSETS.package_footprint_pack_names(_PACK_BOX) == []
+
+    def _broken(*_args, **_kwargs):
+        raise RuntimeError("scan exploded")
+
+    monkeypatch.setattr(
+        INSETS, "_xplane_root_for_package_footprints", lambda: root
+    )
+    monkeypatch.setattr(INSETS, "_airport_pack_dsf_paths", _broken)
+    assert INSETS.package_footprint_pack_names(_PACK_BOX) == []
+
+
+def _write_masking_sidecar(lat, lon, icao, code, summary):
+    path = FNAMES.airport_inset_provenance(lat, lon, icao, code)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(
+            {
+                "provider": code,
+                INSETS.SURFACE_MODEL_BUILDING_MASKING: summary,
+            },
+            handle,
+        )
+    return path
+
+
+def test_footprint_pack_set_mismatch_is_by_set_and_unknown_is_reusable(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path / "elev"))
+    monkeypatch.setattr(
+        INSETS, "package_footprint_pack_names",
+        lambda _box: ["Beta Pack", "Test Airport"],
+    )
+    args = (36, -87, "KBNA", "COPERNICUSGLO30")
+    # Same SET, different order: not a mismatch.
+    _write_masking_sidecar(
+        *args, {INSETS.FOOTPRINT_PACKS: ["Test Airport", "Beta Pack"]}
+    )
+    assert INSETS._sidecar_footprint_packs_mismatch(*args, _PACK_BOX) is False
+    # A pack gone (disabled in scenery_packs.ini, or uninstalled): stale.
+    _write_masking_sidecar(
+        *args, {INSETS.FOOTPRINT_PACKS: ["Test Airport"]}
+    )
+    assert INSETS._sidecar_footprint_packs_mismatch(*args, _PACK_BOX) is True
+    # NO key at all: unknown, and unknown is REUSABLE -- the whole point
+    # of the leave-alone policy is that no existing manifest goes stale.
+    _write_masking_sidecar(*args, {"footprint_count": 12})
+    assert INSETS._sidecar_footprint_packs_mismatch(*args, _PACK_BOX) is False
+    # No masking block, and no sidecar at all: likewise reusable.
+    path = FNAMES.airport_inset_provenance(*args)
+    with open(path, "w") as handle:
+        json.dump({"provider": "COPERNICUSGLO30"}, handle)
+    assert INSETS._sidecar_footprint_packs_mismatch(*args, _PACK_BOX) is False
+    os.remove(path)
+    assert INSETS._sidecar_footprint_packs_mismatch(*args, _PACK_BOX) is False
+
+
+def test_pack_set_change_refetches_a_cached_inset(tmp_path, monkeypatch):
+    """The reuse test's teeth: a cached inset whose recorded pack set no
+    longer matches the installed one is refetched, and one whose set is
+    unchanged is not."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    packs = ["Test Airport"]
+    monkeypatch.setattr(
+        INSETS, "package_footprint_pack_names", lambda _box: list(packs)
+    )
+    fetch_calls = []
+    _register_box_recording_strategy("pack_set_strategy", fetch_calls)
+    try:
+        definition = _box_definition("PACKSET", "pack_set_strategy")
+        definition[INSETS.SURFACE_MODEL_BUILDING_MASKING] = True
+        INSETS.ensure_airport_insets(
+            60, -136, {"CYXY": _SMALL_BOX}, [definition], 3.0
+        )
+        assert len(fetch_calls) == 1
+        # The strategy stub writes no masking block; stamp the one the
+        # real mask pass writes, so the sidecar is judgeable.
+        _write_masking_sidecar(
+            60, -136, "CYXY", "PACKSET",
+            {INSETS.FOOTPRINT_PACKS: ["Test Airport"], "footprint_count": 3},
+        )
+        INSETS.ensure_airport_insets(
+            60, -136, {"CYXY": _SMALL_BOX}, [definition], 3.0
+        )
+        assert len(fetch_calls) == 1          # settled: no refetch
+        packs.append("New Airport Pack")
+        INSETS.ensure_airport_insets(
+            60, -136, {"CYXY": _SMALL_BOX}, [definition], 3.0
+        )
+        assert len(fetch_calls) == 2          # the pack set moved
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("pack_set_strategy", None)

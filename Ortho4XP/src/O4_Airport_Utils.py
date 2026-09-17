@@ -1035,9 +1035,19 @@ def smooth_raster_over_airports(
                 "m, inset coverage",
                 str(round(coverage_fraction * 100)) + "%).",
             )
+        (xmin, ymin, xmax, ymax) = dico_airports[airport]["boundary"].bounds
+        if isinstance(airport, str):
+            # THE WARN ARM (never a re-cut, never a refusal): a cached
+            # inset DELIVERED short of the functional margin.  Judged on
+            # the aerodrome boundary in absolute degrees, the same
+            # geometry the inset's box was cut from.
+            INSETS.warn_if_delivered_inset_clips_airport(
+                tile, airport,
+                (tile.lon + xmin, tile.lat + ymin,
+                 tile.lon + xmax, tile.lat + ymax),
+            )
         if not pix:
             continue
-        (xmin, ymin, xmax, ymax) = dico_airports[airport]["boundary"].bounds
         colmin = max(floor((xmin - x0) / xstep) - pix, 0)
         colmax = min(ceil((xmax - x0) / xstep) + pix, tile.dem.nxdem - 1)
         rowmin = max(floor((y1 - ymax) / ystep) - pix, 0)

@@ -6350,3 +6350,151 @@ def test_full_inset_coverage_says_nothing(tmp_path, monkeypatch):
     )
     INSETS.resolve_airport_smoothing_radius(tile, {}, 30.9, mask, icao="OTHH")
     assert warnings == []
+
+
+# =====================================================================
+# THE TWO NAMED RULES (session ruling 2026-09-17 on the corpus census)
+#   RE-CUT: required today not inside REQUESTED at cut time
+#   WARN  : DELIVERED raster short of boundary + INSET_FUNCTIONAL_MARGIN_M
+# =====================================================================
+def test_recut_rule_judges_the_requested_box_and_prefers_the_new_key(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    args = (60, -136, "CYXY", "HRDEM")
+    path = FNAMES.airport_inset_provenance(*args)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    def _write(payload):
+        with open(path, "w") as handle:
+            json.dump(payload, handle)
+
+    # Historic manifests carry only bounding_box_wgs84, and that IS the
+    # requested box.
+    _write({"bounding_box_wgs84": list(_LARGE_BOX)})
+    assert INSETS.requested_inset_bounding_box(*args) == _LARGE_BOX
+    assert INSETS.inset_recut_is_needed(*args, _SMALL_BOX) is False
+    assert INSETS.inset_recut_is_needed(*args, _LARGE_BOX) is False
+    # A box reaching outside what was asked for: re-asking WILL do better.
+    bigger = (_LARGE_BOX[0] - 0.01, _LARGE_BOX[1], _LARGE_BOX[2],
+              _LARGE_BOX[3])
+    assert INSETS.inset_recut_is_needed(*args, bigger) is True
+    # The new key wins when both are present.
+    _write({"bounding_box_wgs84": list(_SMALL_BOX),
+            "requested_bounding_box_wgs84": list(_LARGE_BOX)})
+    assert INSETS.requested_inset_bounding_box(*args) == _LARGE_BOX
+    assert INSETS.inset_recut_is_needed(*args, _LARGE_BOX) is False
+    # UNJUDGEABLE => REUSABLE, whatever is required.
+    _write({"provider": "HRDEM"})
+    assert INSETS.requested_inset_bounding_box(*args) is None
+    assert INSETS.inset_recut_is_needed(*args, bigger) is False
+    os.remove(path)
+    assert INSETS.inset_recut_is_needed(*args, bigger) is False
+
+
+def test_recut_rule_is_not_the_delivered_box(tmp_path, monkeypatch):
+    """The whole point of the ruling: a raster warp-snapped a hair inside
+    the box it was granted is NOT stale.  Judging the delivered box would
+    have marked 453 of 565 corpus rasters stale, every battery airport
+    among them, for shortfalls under a metre."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    args = (60, -136, "CYXY", "HRDEM")
+    path = FNAMES.airport_inset_provenance(*args)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump({"bounding_box_wgs84": list(_LARGE_BOX),
+                   # a tenth of a 30 m pixel inside the request
+                   "delivered_bounding_box_wgs84": [
+                       _LARGE_BOX[0] + 3e-5, _LARGE_BOX[1] + 3e-5,
+                       _LARGE_BOX[2] - 3e-5, _LARGE_BOX[3] - 3e-5]},
+                  handle)
+    assert INSETS.inset_recut_is_needed(*args, _LARGE_BOX) is False
+
+
+@requires_gdal
+def test_warn_rule_fires_on_a_clipped_delivery_and_never_recuts(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    INSETS.initialize_elevation_providers_dict()
+    tile = _RadiusTile(0, 0)
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+    boundary = (0.0048, 0.0048, 0.0052, 0.0052)
+    margin = INSETS.INSET_FUNCTIONAL_MARGIN_M / 111120.0
+    # Delivered with the full functional margin on three edges and only a
+    # third of it on the east: a provider whose data stops.
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30"),
+        boundary[0] - margin, boundary[1] - margin,
+        boundary[2] + margin / 3.0, boundary[3] + margin, 30.0,
+    )
+    inset_path = FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30")
+    shortfalls = INSETS.inset_delivery_shortfall(inset_path, boundary, 0.5)
+    assert set(shortfalls) == {"east"}
+    assert shortfalls["east"] == pytest.approx(
+        2.0 * INSETS.INSET_FUNCTIONAL_MARGIN_M / 3.0, rel=0.05)
+
+    warnings = []
+    monkeypatch.setattr(
+        INSETS.UI, "loud_warning",
+        lambda *args: warnings.append(" ".join(str(a) for a in args)))
+    assert INSETS.warn_if_delivered_inset_clips_airport(
+        tile, "OTHH", boundary) == 1
+    assert "OTHH_copernicusglo30.tif" in warnings[0]
+    assert "east short" in warnings[0]
+    assert "re-cut would NOT help" in warnings[0]
+    # AND IT IS NOT A STALENESS TEST: with no manifest at all the re-cut
+    # rule still says reusable, so the clipped raster is never refetched.
+    assert INSETS.inset_recut_is_needed(
+        0, 0, "OTHH", "COPERNICUSGLO30",
+        (boundary[0] - margin, boundary[1] - margin,
+         boundary[2] + margin, boundary[3] + margin)) is False
+
+
+@requires_gdal
+def test_warn_rule_is_silent_on_a_fully_delivered_inset(tmp_path, monkeypatch):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    INSETS.initialize_elevation_providers_dict()
+    tile = _RadiusTile(0, 0)
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+    boundary = (0.0049, 0.0049, 0.0051, 0.0051)
+    margin = INSETS.INSET_FUNCTIONAL_MARGIN_M / 111120.0
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30"),
+        boundary[0] - margin, boundary[1] - margin,
+        boundary[2] + margin, boundary[3] + margin, 30.0,
+    )
+    warnings = []
+    monkeypatch.setattr(INSETS.UI, "loud_warning",
+                        lambda *args: warnings.append(args))
+    assert INSETS.warn_if_delivered_inset_clips_airport(
+        tile, "OTHH", boundary) == 0
+    assert warnings == []
+    # An unopenable raster is never judged, never guessed.
+    assert INSETS.inset_delivery_shortfall(
+        str(tmp_path / "absent.tif"), boundary, 0.5) is None
+
+
+def test_every_strategy_stamps_native_resolution_beside_the_target():
+    """A manifest carrying only ``resolution_m`` (the WARP TARGET) leaves
+    every reader to call a 1 m lidar cut coarse — the 2026-08-15 N32W098
+    class — and makes a manifest-side pixel tolerance uncomputable
+    (measured 2026-09-17: 229 usgs3dep manifests on the corpus had no
+    ``native_resolution_m``).  Read structurally so a NEW strategy cannot
+    reintroduce the omission."""
+    import inspect
+    import re
+
+    source = inspect.getsource(INSETS)
+    # Every manifest literal that states the warp target must state the
+    # source's own resolution too; they are three lines apart at most.
+    blocks = [match.start() for match in
+              re.finditer(r'"resolution_m": target_resolution_m,', source)]
+    assert blocks, "the manifest literals moved; fix this twin"
+    for start in blocks:
+        window = source[max(0, start - 900):start + 200]
+        assert '"native_resolution_m"' in window, (
+            "a manifest states the warp target without the source's "
+            "native resolution near offset %d" % start)

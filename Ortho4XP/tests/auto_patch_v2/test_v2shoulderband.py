@@ -15,6 +15,7 @@ import math
 import pytest
 
 from auto_patch_v2.law import Law
+from auto_patch_v2.law.tables import cliff_grade
 from auto_patch_v2.verify.census import DEFECT_KEYS, READERS
 from auto_patch_v2.verify.frame import Patch, Shape
 from auto_patch_v2.verify.runway import runway_step
@@ -105,3 +106,51 @@ def test_the_cap_term_can_only_relax_never_bind_inside_the_contact_tolerance():
     ins = law.tables.emit.instrument
     cap = law.ruleset.runway.shoulder_transverse_max
     assert cap * ins.step_contact_tol_m < FLOOR, (cap, ins.step_contact_tol_m)
+
+
+# ── the span rule and the cliff escape (owner RULINGS 2026-09-12ad / 12af,
+#    ruled for this family 2026-09-16; lane ``v2hecastep``) ──────────────
+
+def test_a_spanned_pair_under_the_cliff_grade_is_a_slope_and_is_reported():
+    """HECA's survivor: 0.1693 m over 0.992 m between two runway faces that
+    SHARE a vertex — a 17 % SLOPE on a continuous surface.  It stays a
+    census row (the family counts it) and carries ZERO excess, so
+    ``defect_gate`` files it under the floor and no tile aborts on it."""
+    from auto_patch_v2.verify.census import defect_excess_m, defect_gate
+    p = _two_faces(0.1693, gap=0.992)
+    rows = runway_step(p)
+    assert rows, "the row is still a census row — REPORT is not deletion"
+    assert all(r["reading"] == "slope" for r in rows)
+    assert all(r["cap_pct"] == pytest.approx(100.0 * cliff_grade(p.law)) for r in rows)
+    assert all(defect_excess_m(r) == 0.0 for r in rows)
+    defects, under = defect_gate(p.law, {"runway_step": rows})
+    assert defects == {} and under["runway_step"]["rows"] == len(rows)
+
+
+def test_at_or_over_the_cliff_grade_it_stays_a_defect_whatever_the_span():
+    """The check that the rule keeps the family's teeth: HECA's three face-37
+    rows read 187 % / 126 % / 188 % over 0.365 / 0.455 / 0.182 m."""
+    from auto_patch_v2.verify.census import defect_excess_m, defect_gate
+    for step, gap in ((0.6845, 0.365), (0.5715, 0.455), (0.3422, 0.182)):
+        p = _two_faces(step, gap=gap)
+        rows = runway_step(p)
+        assert rows, (step, gap)
+        assert all(r["reading"] == "cliff" for r in rows)
+        # the whole magnitude is the excess, exactly as before the rule
+        assert max(defect_excess_m(r) for r in rows) == pytest.approx(step, abs=1e-6)
+        assert defect_gate(p.law, {"runway_step": rows})[0]["runway_step"] == len(rows)
+
+
+def test_a_welded_pair_under_the_floor_is_unchanged_by_the_rule():
+    """d ~ 0 is why the floor exists: a hair-wide pair is judged by the
+    0.10 m floor and the cliff line never enters."""
+    assert runway_step(_two_faces(FLOOR - 0.01, gap=0.02)) == []
+    rows = runway_step(_two_faces(0.30, gap=0.02))
+    assert rows and all(r["reading"] == "cliff" for r in rows)
+
+
+def test_the_cliff_line_is_imported_and_never_re_spelled():
+    """§31 (7)'s ONE derivation site: the family reads the design surface's
+    own bank slope through ``law.tables.cliff_grade`` (RULINGS 2026-09-12af)."""
+    law = Law.for_airport("CYXY")
+    assert cliff_grade(law) == pytest.approx(law.tables.emit.design.bank_slope)

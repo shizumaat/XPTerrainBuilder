@@ -6279,3 +6279,74 @@ def test_fetch_inset_records_requested_and_delivered_boxes(
         ]
     finally:
         INSETS.ACCESS_STRATEGIES.pop("both_boxes_strategy", None)
+
+
+# =====================================================================
+# A coverage shortfall is LOUD, not a silent fall-through (gap (ii))
+# =====================================================================
+@requires_gdal
+def test_partial_inset_coverage_warns_loudly_and_names_the_inset(
+    tmp_path, monkeypatch
+):
+    from shapely import geometry as shapely_geometry
+
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    INSETS.initialize_elevation_providers_dict()
+    tile = _RadiusTile(0, 0)
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+    # OTHH's own inset reaches only the western third of its mask.
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30"),
+        0.0040, 0.0040, 0.00483, 0.0060, 30.0,
+    )
+    mask = shapely_geometry.box(0.0045, 0.0045, 0.0055, 0.0055)
+    warnings = []
+    monkeypatch.setattr(
+        INSETS.UI, "loud_warning", lambda *args: warnings.append(" ".join(
+            str(arg) for arg in args))
+    )
+    (_radius, _source_pixel, coverage) = (
+        INSETS.resolve_airport_smoothing_radius(
+            tile, {}, 30.9, mask, icao="OTHH"
+        )
+    )
+    assert coverage < INSETS.INSET_COVERAGE_THRESHOLD
+    assert len(warnings) == 1
+    assert "OTHH_copernicusglo30.tif" in warnings[0]
+    assert "OTHH" in warnings[0]
+    assert "BASE elevation source" in warnings[0]
+
+    # A neighbour's inset clipping this mask is NOT this airport's
+    # shortfall: an airport with no inset of its own stays silent (the
+    # ordinary base-source case, and a tile of airstrips must not shout).
+    warnings.clear()
+    INSETS.resolve_airport_smoothing_radius(
+        tile, {}, 30.9, mask, icao="OTBD"
+    )
+    assert warnings == []
+    # And no icao at all keeps the historic silence.
+    INSETS.resolve_airport_smoothing_radius(tile, {}, 30.9, mask)
+    assert warnings == []
+
+
+@requires_gdal
+def test_full_inset_coverage_says_nothing(tmp_path, monkeypatch):
+    from shapely import geometry as shapely_geometry
+
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    INSETS.initialize_elevation_providers_dict()
+    tile = _RadiusTile(0, 0)
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30"),
+        0.0040, 0.0035, 0.0060, 0.0062, 30.0,
+    )
+    mask = shapely_geometry.box(0.0045, 0.0045, 0.0055, 0.0055)
+    warnings = []
+    monkeypatch.setattr(
+        INSETS.UI, "loud_warning", lambda *args: warnings.append(args)
+    )
+    INSETS.resolve_airport_smoothing_radius(tile, {}, 30.9, mask, icao="OTHH")
+    assert warnings == []

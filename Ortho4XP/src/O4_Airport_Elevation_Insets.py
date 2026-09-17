@@ -10237,9 +10237,66 @@ def _honest_inset_resolution_m(inset_path, stored_pixel_m=None):
     return max(stored_pixel_m, native_resolution_m)
 
 
+def cached_inset_paths_for_airport(tile, icao):
+    """The cached inset rasters whose file name names ``icao`` (case
+    insensitively), restricted to the providers this tile would select.
+
+    Cache files are ``<airport key>_<code>.tif`` and the airport key is
+    the dico key the box was cut for, so this is the same identity
+    :func:`_inset_icao_from_path` recovers.
+    """
+    if not icao:
+        return []
+    codes = [
+        definition["code"]
+        for definition in select_provider_definitions(
+            getattr(tile, "airport_elevation_providers", "auto")
+        )
+    ]
+    return [
+        path
+        for path in list_cached_inset_dems(
+            tile.lat, tile.lon, provider_codes=codes or None
+        )
+        if _inset_icao_from_path(path).upper() == str(icao).upper()
+    ]
+
+
+def warn_if_inset_does_not_cover_airport(tile, icao, coverage_fraction):
+    """LOUD when an airport HAS a cached elevation inset that does not
+    cover it (lane insetbounds, brief gap (ii)).
+
+    :func:`resolve_airport_smoothing_radius` used to consume a
+    below-threshold coverage fraction SILENTLY -- it picked the base
+    source's radius and returned, and the airport ground outside the
+    inset stayed on the base DEM with nothing said anywhere.  That is the
+    difference between "this airport has no lidar" (ordinary, and visible
+    in the inset index) and "this airport has lidar over PART of itself",
+    which is a cache defect and used to be invisible.
+
+    Silent when the airport has no cached inset at all: that is the
+    ordinary base-source case, not a shortfall, and a tile of a hundred
+    unnamed airstrips must not shout a hundred times.  Returns True when
+    it warned (the twins read that).
+    """
+    if coverage_fraction >= INSET_COVERAGE_THRESHOLD:
+        return False
+    paths = cached_inset_paths_for_airport(tile, icao)
+    if not paths:
+        return False
+    UI.loud_warning(
+        "   WARNING: airport elevation inset(s) %s cover only %.0f %% of %s "
+        "(threshold %.0f %%) - the airport ground outside them is graded on "
+        "the BASE elevation source, not on the inset."
+        % (", ".join(os.path.basename(path) for path in paths),
+           100.0 * coverage_fraction, icao, 100.0 * INSET_COVERAGE_THRESHOLD)
+    )
+    return True
+
+
 def resolve_airport_smoothing_radius(
     tile, airport_record, working_pixel_m, mask_geometry=None,
-    reference_pixel_m=None,
+    reference_pixel_m=None, icao=None,
 ):
     """Resolve the smoothing radius (in working-grid pixels) for one airport.
 
@@ -10268,6 +10325,10 @@ def resolve_airport_smoothing_radius(
     working grid (its historic meaning), so densifying scales its physical
     footprint -- an override is a deliberate manual value and is left
     literal.
+
+    ``icao`` is the airport's dico key.  It is used ONLY to make a
+    coverage shortfall LOUD (:func:`warn_if_inset_does_not_cover_airport`)
+    and never to pick a radius; omitting it keeps the historic silence.
     """
     if "smoothing_pix" in airport_record:
         try:
@@ -10287,6 +10348,9 @@ def resolve_airport_smoothing_radius(
     if coverage_fraction >= INSET_COVERAGE_THRESHOLD and finest_pixel_m:
         source_pixel_m = finest_pixel_m
     else:
+        # A SHORTFALL IS LOUD, not a silent fall-through to the base
+        # source (gap (ii)); the threshold itself is untouched.
+        warn_if_inset_does_not_cover_airport(tile, icao, coverage_fraction)
         # Base source: TRUE pixel capped at the reference pixel (see the
         # section comment -- the cap makes this the reference pixel, and
         # the radius identical to today on the non-densified path).

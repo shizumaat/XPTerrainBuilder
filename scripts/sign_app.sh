@@ -92,9 +92,13 @@ MACHO_LIST="$(mktemp)"
 FRAMEWORK_LIST="$(mktemp)"
 trap 'rm -f "$MACHO_LIST" "$FRAMEWORK_LIST"' EXIT
 
+# NOTE the ': *' — BSD `file` PADS the name field to a column when it is
+# given many paths at once, so an exact ': application/…' match finds four
+# objects out of ~500 and the bundle ships mostly unsigned.  Measured here
+# on 2026-09-17 (first run: "7 signed / 4 found").
 find "$APP" -type f -print0 \
   | xargs -0 -n 200 file --mime-type 2>/dev/null \
-  | sed -n 's/^\(.*\): application\/x-mach-binary$/\1/p' \
+  | sed -n 's/^\(.*\): *application\/x-mach-binary$/\1/p' \
   > "$MACHO_LIST"
 
 # Versioned frameworks are signed as BUNDLES (their version directory), not
@@ -111,13 +115,17 @@ echo "  Mach-O objects: $TOTAL_FOUND"
 APP_EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist" 2>/dev/null || echo XPTerrainBuilder)"
 ENGINE_EXE="$APP/Contents/Resources/Engine/Ortho4XP"
 
+# SIGNED counts DISCOVERED Mach-O objects that this run covered — directly
+# in the loop, or through the framework bundle that contains them.  It must
+# end equal to TOTAL_FOUND; the app bundle itself is counted separately, so
+# the two numbers are comparable.
 SIGNED=0
 n=0
 while IFS= read -r f; do
   n=$((n + 1))
   case "$f" in
-    *.framework/*) continue ;;
-    "$APP_EXE"|"$ENGINE_EXE") continue ;;
+    *.framework/*) continue ;;                 # covered by the framework pass
+    "$APP_EXE"|"$ENGINE_EXE") continue ;;      # signed last, in that order
   esac
   sign_one "$f"
   SIGNED=$((SIGNED + 1))
@@ -133,14 +141,14 @@ while IFS= read -r fw; do
     while IFS= read -r v; do
       [[ "$(basename "$v")" == "Current" ]] && continue
       sign_one "$v"
-      SIGNED=$((SIGNED + 1))
       echo "    framework $(basename "$fw") ($(basename "$v"))"
     done < <(find "$fw/Versions" -maxdepth 1 -mindepth 1 -type d)
   else
     sign_one "$fw"
-    SIGNED=$((SIGNED + 1))
     echo "    framework $(basename "$fw")"
   fi
+  inside=$(grep -c "^$fw/" "$MACHO_LIST" || true)
+  SIGNED=$((SIGNED + inside))
 done < "$FRAMEWORK_LIST"
 
 if [[ -f "$ENGINE_EXE" ]]; then
@@ -149,10 +157,15 @@ if [[ -f "$ENGINE_EXE" ]]; then
   echo "    engine entry point Engine/Ortho4XP"
 fi
 
+# The app's own executable is sealed by signing the bundle.
 sign_one "$APP"
-SIGNED=$((SIGNED + 1))
+if grep -qx "$APP_EXE" "$MACHO_LIST"; then SIGNED=$((SIGNED + 1)); fi
 echo "    app bundle $(basename "$APP")"
 echo "  $SIGNED signed / $TOTAL_FOUND found"
+if [[ "$SIGNED" -ne "$TOTAL_FOUND" ]]; then
+  echo "REFUSED: $((TOTAL_FOUND - SIGNED)) discovered Mach-O object(s) were not covered." >&2
+  exit 1
+fi
 
 # ------------------------------------------------------------------ checks
 echo "Verifying …"

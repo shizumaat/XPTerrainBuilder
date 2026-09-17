@@ -78,6 +78,8 @@ def describe_auto_patch_failures(failures: list) -> str:
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+# The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
+import O4_Scenery_Packs as _scenery_packs
 from .cifp_reader import (
     airport_in_tile,
     discover_cifp_airports,
@@ -322,46 +324,20 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
 # ──────────────────────────────────────────────────────────────────────────────
 # Parsed ``(ordered names, disabled names)`` per ini, memoised on the file's
 # (mtime, size).  The freshness gate asks the same question once per airport
-# per tile build; the worklist scan asks it once per tile.
-_SCENERY_PACKS_INI_CACHE: dict = {}
+# per tile build; the worklist scan asks it once per tile.  The cache now
+# lives in O4_Scenery_Packs, keyed the same way (path, mtime, size).
 
 
 def _parse_scenery_packs_ini(ini_path: str) -> tuple[list[str], set[str]]:
     """``(pack names in ini order, names marked disabled)``.
 
-    The ini lists one pack per line as ``SCENERY_PACK <path>`` or
-    ``SCENERY_PACK_DISABLED <path>`` — the second form is a pack X-Plane keeps
-    installed but does NOT load, so its airport geometry and its objects do not
-    render.  Names are the trailing directory component of the listed path.
-    Both lists are empty when the ini is missing or unreadable.
+    Thin delegation to :func:`O4_Scenery_Packs.parse_ini`, the ONE
+    derivation site (owner RULINGS 2026-09-17b) — four copies of this
+    parser existed, one of them with the ``startswith`` defect.  Kept as a
+    name because the freshness gate and the worklist scan call it and its
+    twins pin it.
     """
-    try:
-        stat = os.stat(ini_path)
-        key = (ini_path, stat.st_mtime, stat.st_size)
-    except OSError:
-        return ([], set())
-    cached = _SCENERY_PACKS_INI_CACHE.get(key)
-    if cached is not None:
-        return (list(cached[0]), set(cached[1]))
-    ordered: list[str] = []
-    disabled: set[str] = set()
-    try:
-        with open(ini_path, "r", encoding="utf-8",
-                  errors="replace") as handle:
-            for line in handle:
-                tokens = line.strip().split(None, 1)
-                if len(tokens) != 2:
-                    continue
-                name = os.path.basename(tokens[1].strip().rstrip("/"))
-                if tokens[0] == "SCENERY_PACK_DISABLED":
-                    disabled.add(name)
-                elif tokens[0] == "SCENERY_PACK" and name not in ordered:
-                    ordered.append(name)
-    except OSError:
-        return ([], set())
-    _SCENERY_PACKS_INI_CACHE.clear()      # one ini per install in practice
-    _SCENERY_PACKS_INI_CACHE[key] = (ordered, disabled)
-    return (list(ordered), set(disabled))
+    return _scenery_packs.parse_ini(ini_path)
 
 
 def _scenery_pack_state(apt_dat_path: str | None) -> str:
@@ -381,19 +357,9 @@ def _scenery_pack_state(apt_dat_path: str | None) -> str:
     needs no state here — the gate's existing apt.dat path/mtime check already
     catches it.
     """
-    if not apt_dat_path:
-        return "unknown"
-    parts = os.path.normpath(os.path.abspath(apt_dat_path)).split(os.sep)
-    try:
-        index = len(parts) - 1 - parts[::-1].index("Custom Scenery")
-    except ValueError:
-        return "external"
-    if index + 1 >= len(parts):
-        return "external"
-    pack = parts[index + 1]
-    ini_path = os.sep.join(parts[:index + 1] + ["scenery_packs.ini"])
-    _ordered, disabled = _parse_scenery_packs_ini(ini_path)
-    state = "disabled" if pack in disabled else "enabled"
+    pack, state = _scenery_packs.pack_state(apt_dat_path)
+    if state in ("unknown", "external"):
+        return state
     from . import provenance as _prov
     # Same percent-encoding every other stamp uses: a pack name can carry
     # spaces and quotes, and the value rides in a single-quoted XML attribute.
@@ -423,18 +389,15 @@ def _enabled_airport_pack_tile_dsfs(
     custom_scenery = os.path.join(xp_root, "Custom Scenery")
     if not os.path.isdir(custom_scenery):
         return []
-    on_disk = {
-        name for name in os.listdir(custom_scenery)
-        if os.path.isdir(os.path.join(custom_scenery, name))
-    }
-    ini_order, disabled = _parse_scenery_packs_ini(
-        os.path.join(custom_scenery, "scenery_packs.ini"))
-    ordered: list[str] = [name for name in ini_order if name in on_disk]
-    ordered.extend(sorted(on_disk - set(ordered)))
+    enabled = _scenery_packs.enabled_pack_names(custom_scenery)
+    ini_order, _disabled = _scenery_packs.parse_ini(
+        os.path.join(custom_scenery, _scenery_packs.INI_FILENAME))
+    ordered: list[str] = [name for name in ini_order if name in enabled]
+    ordered.extend(sorted(enabled - set(ordered)))
 
     results: list[tuple[str, str]] = []
     for pack_name in ordered:
-        if pack_name == "Global Airports" or pack_name in disabled:
+        if pack_name == "Global Airports":
             continue
         pack_root = os.path.join(custom_scenery, pack_name)
         earth_nav_data = os.path.join(pack_root, "Earth nav data")

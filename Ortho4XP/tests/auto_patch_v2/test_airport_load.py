@@ -604,3 +604,63 @@ def test_pavement_less_custom_pack_is_still_the_pack(tmp_path):
     assert rep.pavement_source["coverage"] == 0.0
     assert rep.pavement_source["custom_pavements"] == 0
     assert len([p for p in a.pavements if p.id.startswith("pav")]) == 4
+
+
+# ── a DISABLED pack is ignored (owner RULINGS 2026-09-17b) ───────────────
+def _ini(root, lines):
+    (root / "Custom Scenery" / "scenery_packs.ini").write_text(
+        "I\n1000 Version\nSCENERY\n\n" + "\n".join(lines) + "\n")
+
+
+def _two_pack_root(tmp_path):
+    """``AAA Pack`` and ``BBB Pack``, both carrying the ICAO with
+    pavement; sorted order makes AAA the winner while both are enabled."""
+    root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)
+    _apt_file(root / "Custom Scenery" / "BBB Pack" / "Earth nav data"
+              / "apt.dat", _CUSTOM_THIN)
+    return root
+
+
+def _apt(root, pack):
+    return str(root / "Custom Scenery" / pack / "Earth nav data" / "apt.dat")
+
+
+def test_disabled_pack_never_wins_the_selection(tmp_path):
+    root = _two_pack_root(tmp_path)
+    assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "AAA Pack")
+    _ini(root, ["SCENERY_PACK_DISABLED Custom Scenery/AAA Pack/",
+                "SCENERY_PACK Custom Scenery/BBB Pack/"])
+    assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "BBB Pack")
+
+
+def test_sole_source_disabled_pack_falls_back_to_global(tmp_path):
+    """The airport is still BUILT — from what the sim actually draws."""
+    root = _borrow_root(tmp_path, _CUSTOM_THIN, _GLOBAL_FOUR)
+    _ini(root, ["SCENERY_PACK_DISABLED Custom Scenery/AAA Pack/"])
+    assert A.find_apt_dat(str(root), _BORROW_ICAO) == str(
+        root / "Global Scenery" / "Global Airports" / "Earth nav data"
+        / "apt.dat")
+    sel = P.select_pack(str(root), _BORROW_ICAO, _borrow_law())
+    assert sel is not None and not sel.custom
+
+
+def test_disabled_token_is_not_an_enabled_token_in_the_selector(tmp_path):
+    """``startswith('SCENERY_PACK')`` would have read the DISABLED row as
+    an enabled one (the agp_reader E1 defect, pinned here too)."""
+    root = _two_pack_root(tmp_path)
+    _ini(root, ["SCENERY_PACK_DISABLED Custom Scenery/AAA Pack/"])
+    assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "BBB Pack")
+
+
+def test_unlisted_pack_still_wins(tmp_path):
+    """X-Plane adds a new pack ENABLED; an ini that never mentions it must
+    not make it vanish from the build."""
+    root = _two_pack_root(tmp_path)
+    _ini(root, ["SCENERY_PACK Custom Scenery/BBB Pack/"])
+    assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "AAA Pack")
+
+
+def test_absent_ini_leaves_every_pack_enabled(tmp_path):
+    root = _two_pack_root(tmp_path)
+    assert not (root / "Custom Scenery" / "scenery_packs.ini").exists()
+    assert A.find_apt_dat(str(root), _BORROW_ICAO) == _apt(root, "AAA Pack")

@@ -377,6 +377,43 @@ def test_invalidates_when_scenery_packs_ini_is_removed(tmp_path):
         "Alpha/alpha.agp")
 
 
+# ── E1: a DISABLED pack is out of the library order entirely ─────────
+# (owner RULINGS 2026-09-17b).  The old row test was
+# ``line.startswith("SCENERY_PACK")``, which SCENERY_PACK_DISABLED also
+# satisfies: a pack the simulator never draws could WIN a virtual library
+# path and supply footprint geometry for objects that do not exist.
+def _ini(root, lines):
+    (root / "Custom Scenery" / "scenery_packs.ini").write_text(
+        "I\n1000 Version\nSCENERY\n\n" + "".join(f"{ln}\n" for ln in lines))
+
+
+def test_disabled_pack_never_wins_a_virtual_path(tmp_path):
+    root = _install(tmp_path, _PACKS, ini_order=["Bravo", "Alpha"])
+    assert _cold_index(root)["lib/shared.agp"].endswith("Bravo/bravo.agp")
+    _ini(root, ["SCENERY_PACK_DISABLED Custom Scenery/Bravo/",
+                "SCENERY_PACK Custom Scenery/Alpha/"])
+    index = _assert_rebuilds_to_truth(root)
+    assert index["lib/shared.agp"].endswith("Alpha/alpha.agp")
+
+
+def test_disabled_pack_contributes_no_exports_at_all(tmp_path):
+    root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
+    assert "lib/b.agp" in _cold_index(root)
+    _ini(root, ["SCENERY_PACK Custom Scenery/Alpha/",
+                "SCENERY_PACK_DISABLED Custom Scenery/Bravo/"])
+    index = _assert_rebuilds_to_truth(root)
+    assert "lib/b.agp" not in index          # Bravo's own export is gone
+    assert "lib/a.agp" in index
+
+
+def test_unlisted_pack_keeps_its_lowest_priority_slot(tmp_path):
+    """A pack the ini never mentions is ENABLED, and still sorts last."""
+    root = _install(tmp_path, _PACKS, ini_order=["Alpha"])
+    index = _cold_index(root)
+    assert "lib/b.agp" in index
+    assert index["lib/shared.agp"].endswith("Alpha/alpha.agp")
+
+
 def test_invalidates_on_a_cache_version_bump(tmp_path, monkeypatch):
     root = _install(tmp_path, _PACKS, ini_order=["Alpha", "Bravo"])
     _cold_index(root)

@@ -247,8 +247,11 @@ struct MapCanvasView: View {
             let lon = airport.info.longitude, lat = airport.info.latitude
             guard lon > minLon - 1, lon < maxLon + 1, lat > minLat - 1, lat < maxLat + 1 else { continue }
             let p = cam.point(lon: lon, lat: lat, in: size)
-            let dim = airport.status == .uninstalled
-            let color = Self.magenta.opacity(dim ? 0.35 : 0.95)
+            // Only ENABLED packs reach `overlays.airports` at all (owner
+            // 2026-09-17; SceneryPack.drawsAirportMarks), so every custom
+            // mark is a full-strength one — the old dimmed variant for
+            // uninstalled/disabled packs has nothing left to draw.
+            let color = Self.magenta.opacity(0.95)
             let circle = Path(ellipseIn: CGRect(x: p.x - radius, y: p.y - radius,
                                                 width: radius * 2, height: radius * 2))
             context.stroke(circle, with: .color(color), lineWidth: max(1.4, radius * 0.4))

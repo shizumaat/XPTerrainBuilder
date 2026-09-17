@@ -53,6 +53,10 @@ import re
 import shutil
 from dataclasses import dataclass, field
 
+# The ONE derivation site for pack enablement (RULINGS 2026-09-17b);
+# stdlib-only, imported at TOP LEVEL so the frozen bundle sees it.
+import O4_Scenery_Packs as _scenery_packs
+
 from .obj8_reader import (
     POSITIONAL_COMMAND_COORDINATE_TOKEN_INDICES,
     ObjectGeometry,
@@ -1323,6 +1327,20 @@ def apply(
         )
 
     # --- pool-wide prechecks: nothing is touched until they all pass ---
+    #
+    # THE BELT (owner RULINGS 2026-09-17b).  This function is the only
+    # place the engine WRITES into a user's scenery pack (.obj rewrites,
+    # .anchor_bak, split bodies).  Its pack set comes from the worklist,
+    # whose step 1 is the apt.dat selector — now ini-aware, which closes
+    # the hole where a DISABLED pack could be rewritten because it won the
+    # selection.  This is the belt behind that braces: whatever hands us a
+    # pack root, a pack X-Plane does not load is never written, and the
+    # refusal names it.
+    if not _scenery_packs.pack_enabled(pack_root):
+        return _refused_report(
+            "scenery pack is DISABLED in scenery_packs.ini "
+            f"(X-Plane does not load it, so it is never rewritten): "
+            f"{os.path.basename(os.path.normpath(pack_root))}")
     if not os.path.isfile(mesh_path):
         return _refused_report(f"mesh not found: {mesh_path}")
 

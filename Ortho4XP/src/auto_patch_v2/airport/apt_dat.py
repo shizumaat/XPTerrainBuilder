@@ -32,6 +32,13 @@ import math
 import os
 import typing as _t
 
+# TOP-LEVEL on purpose (not a lazy function-level import): PyInstaller
+# only sees what it can read statically, and a lazy third-party import
+# shipped a broken frozen engine on 2026-09-10.  ``O4_Scenery_Packs`` is
+# a stdlib-only top-level module — importing it breaks no v2 law (it is
+# not a v1 ``auto_patch`` module) and costs nothing.
+import O4_Scenery_Packs as _scenery_packs
+
 LonLat = tuple[float, float]
 
 __all__ = [
@@ -289,6 +296,15 @@ def find_apt_dat(xplane_root: str, icao: str) -> str | None:
     its objects were never read — is DELETED; ``airport/borrow.py``
     (§44 (2), (3)) does that work by borrowing the PAVEMENT alone.
 
+    A pack DISABLED in ``Custom Scenery/scenery_packs.ini`` is IGNORED
+    (owner RULINGS 2026-09-17b): X-Plane does not load it, so it is not
+    what the sim renders and it is not evidence about the ground.  It
+    cannot win the selection here, and — because this selector feeds the
+    object-anchor worklist — it can no longer be REWRITTEN by the rebake
+    either.  A sole-source disabled pack leaves the airport to Global
+    Airports; the airport is still built, from what the sim draws.  The
+    rules live in :mod:`O4_Scenery_Packs` (the ONE derivation site).
+
     With no custom pack the Global Airports block serves, in
     :func:`global_candidates` order.
     """
@@ -296,8 +312,11 @@ def find_apt_dat(xplane_root: str, icao: str) -> str | None:
     custom_root = os.path.join(xplane_root, "Custom Scenery")
     cands: list[str] = []
     if os.path.isdir(custom_root):
+        enabled = _scenery_packs.enabled_pack_names(custom_root)
         for entry in sorted(os.listdir(custom_root)):
             if entry == "Global Airports":
+                continue
+            if entry not in enabled:
                 continue
             p = os.path.join(custom_root, entry, "Earth nav data", "apt.dat")
             if os.path.isfile(p) and file_has_airport(p, icao):

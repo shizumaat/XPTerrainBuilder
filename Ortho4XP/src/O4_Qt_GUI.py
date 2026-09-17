@@ -1644,18 +1644,30 @@ class MainWindow(QMainWindow):
     def _push_airport_marks(self):
         """Hand the map its airport marks.
 
-        Every ICAO a custom pack ships is dropped from the gray layer —
-        the magenta mark replaces it rather than sitting on top of it
-        (mac-app parity: MapOverlays.withDefaultAirports).  Done here,
+        Every ICAO an ENABLED custom pack ships is dropped from the gray
+        layer — the magenta mark replaces it rather than sitting on top of
+        it (mac-app parity: MapOverlays.withDefaultAirports).  Done here,
         off the paint path, because it is a set difference over the whole
         index and must never run per frame.
+
+        A DISABLED pack contributes NOTHING here (owner 2026-09-17,
+        "revert to gray mark for disabled airports").  X-Plane does not
+        load it and — since RULINGS 2026-09-17b — neither does the build:
+        an airport whose only custom source is disabled is graded from
+        Global Airports, so the map must show it as the ordinary GRAY
+        Global mark, not a dimmed magenta one and not nothing at all.  An
+        airport an enabled pack ALSO ships keeps that pack's undimmed
+        custom mark.  The pack LIST still shows disabled packs (that is
+        how a user re-enables one) and their coverage outlines may stay
+        dimmed — only the airport MARKS follow this rule.
         """
         custom = []
         custom_codes = set()
         for pack in self._scenery_packs:
-            dim = pack.status != "enabled"
+            if pack.status != "enabled":
+                continue
             for airport in pack.airports:
-                custom.append((airport.icao, airport.lat, airport.lon, dim))
+                custom.append((airport.icao, airport.lat, airport.lon, False))
                 custom_codes.add(airport.icao)
         self.map.set_custom_airports(custom)
         self.map.set_default_airports(

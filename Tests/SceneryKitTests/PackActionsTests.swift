@@ -153,4 +153,20 @@ import Foundation
         #expect(PackActionService.packName(fromIniLine: "SCENERY_PACK *GLOBAL_AIRPORTS*") == nil)
         #expect(PackActionService.packName(fromIniLine: "1000 Version") == nil)
     }
+
+    /// Owner 2026-09-17, "revert to gray mark for disabled airports": only
+    /// an ENABLED pack supplies a custom (magenta) airport mark, so an
+    /// airport whose only custom source is disabled falls back to the gray
+    /// Global Airports mark — which is what the build now grades it from
+    /// (owner RULINGS 2026-09-17b). MapOverlays.init reads this property;
+    /// the map model itself lives in the app target, which has no test
+    /// target, so the RULE lives here where it can be pinned.
+    @Test func onlyEnabledPacksDrawAirportMarks() {
+        #expect(makePack("On", kind: .airport, status: .enabled).drawsAirportMarks)
+        #expect(!makePack("Off", kind: .airport, status: .disabled).drawsAirportMarks)
+        #expect(!makePack("Away", kind: .airport, status: .uninstalled).drawsAirportMarks)
+        // The pack LIST is untouched: a disabled pack is still installed
+        // and still listed, which is how a user re-enables one.
+        #expect(makePack("Off", kind: .airport, status: .disabled).isInstalled)
+    }
 }

@@ -362,7 +362,11 @@ def _discover_sibling_road_networks(
     Scans the ``scenery_packs.ini`` pack order, builds each pack's tile
     DSF path, and — for those that exist and dump to text — parses the
     road network, keeping any that carries at least one segment.  Base and
-    global scenery are skipped (never a bespoke roads pack)."""
+    global scenery are skipped (never a bespoke roads pack).
+
+    Packs DISABLED in the ini contribute nothing (owner RULINGS
+    2026-09-17b): ``_scenery_pack_order`` leaves them out, so this reader
+    inherits the rule rather than re-deriving it."""
     if not xplane_root:
         return []
     try:

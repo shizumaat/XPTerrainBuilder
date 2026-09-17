@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from typing import Iterator, Optional, Sequence, Set, Tuple
 
 import O4_File_Names as FNAMES
+# The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
+import O4_Scenery_Packs as _scenery_packs
 
 __all__ = [
     "PackAirport",
@@ -104,22 +106,12 @@ def disabled_pack_names(scenery_dir: str) -> Set[str]:
     """Pack folder names marked ``SCENERY_PACK_DISABLED``.
 
     A disabled pack sits in Custom Scenery but X-Plane never loads it, so
-    it is reported — dimmed — rather than hidden.
+    it is reported — dimmed — rather than hidden.  The parse itself is
+    :mod:`O4_Scenery_Packs`, the ONE derivation site (owner RULINGS
+    2026-09-17b); this module keeps LISTING disabled packs, which is how a
+    user re-enables one.
     """
-    disabled: Set[str] = set()
-    ini_path = os.path.join(scenery_dir or "", "scenery_packs.ini")
-    try:
-        with open(ini_path, "r", encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line.startswith("SCENERY_PACK_DISABLED"):
-                    continue
-                rest = line.split(None, 1)[1] if " " in line else ""
-                if rest:
-                    disabled.add(os.path.basename(rest.strip().rstrip("/\\")))
-    except OSError:
-        pass
-    return disabled
+    return _scenery_packs.disabled_pack_names(scenery_dir)
 
 
 def _pack_tiles(content_root: str) -> frozenset:

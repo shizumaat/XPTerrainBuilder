@@ -137,6 +137,8 @@ import O4_File_Names as FNAMES
 import O4_File_Lock as O4_File_Lock
 import O4_Geo_Utils as GEO
 import O4_DEM_Utils as DEM
+# The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
+import O4_Scenery_Packs as _scenery_packs
 
 # The .elv provider CODE is lower-cased in cache file names so the cache key
 # survives access-strategy refactors (spec section 3.2).
@@ -6427,25 +6429,11 @@ def _disabled_custom_scenery_pack_names(custom_scenery_directory):
     """Pack directory names marked SCENERY_PACK_DISABLED in
     ``scenery_packs.ini``.  A disabled pack does not render, so its object
     footprints are not authoritative for the mask (the whole point of the
-    package source is matching what renders in the simulator)."""
-    disabled = set()
-    ini_path = os.path.join(custom_scenery_directory, "scenery_packs.ini")
-    try:
-        with open(
-            ini_path, "r", encoding="utf-8", errors="replace"
-        ) as handle:
-            for line in handle:
-                line = line.strip()
-                if not line.startswith("SCENERY_PACK_DISABLED"):
-                    continue
-                rest = line.split(None, 1)[1] if " " in line else ""
-                if rest:
-                    disabled.add(
-                        os.path.basename(rest.strip().rstrip("/"))
-                    )
-    except OSError:
-        pass
-    return disabled
+    package source is matching what renders in the simulator).
+
+    Delegated to :mod:`O4_Scenery_Packs`, the ONE derivation site (owner
+    RULINGS 2026-09-17b)."""
+    return _scenery_packs.disabled_pack_names(custom_scenery_directory)
 
 
 def _airport_pack_dsf_paths(xplane_root, bounding_box_wgs84):

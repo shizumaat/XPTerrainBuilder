@@ -138,6 +138,10 @@ def test_scenery_filter_reaches_the_map_and_persists(make_window):
 # ===========================================================================
 # Airport marks
 # ===========================================================================
+def _index_airport(code, lat, lon):
+    return APT.AirportEntry(code, code, "", "", lat, lon)
+
+
 def test_a_custom_pack_replaces_the_gray_mark_it_duplicates(make_window):
     """A gray disc under a magenta one is only noise (mac-app parity:
     MapOverlays.withDefaultAirports)."""
@@ -157,8 +161,16 @@ def test_a_custom_pack_replaces_the_gray_mark_it_duplicates(make_window):
     assert window.map._custom_airports == [("EGLL", 51.47, -0.46, False)]
 
 
-def test_a_disabled_pack_dims_its_marks(make_window):
+def test_a_disabled_pack_leaves_its_airport_on_the_gray_layer(make_window):
+    """Owner 2026-09-17, "revert to gray mark for disabled airports" —
+    re-founding the old "a disabled pack dims its marks" assertion on the
+    ruled behaviour.  The pack is not loaded by X-Plane and (RULINGS
+    2026-09-17b) not read by the build, so the airport is graded from
+    Global Airports and must carry the ordinary GRAY Global mark: no
+    dimmed magenta mark, and NOT suppressed from the gray layer either.
+    """
     window = make_window()
+    window._airports = [_index_airport("EGKK", 51.1, -0.19)]
     window._scenery_packs = [
         PACKS.SceneryPack(
             name="Off", path="/p", content_root="/p", status="disabled",
@@ -166,7 +178,26 @@ def test_a_disabled_pack_dims_its_marks(make_window):
             airports=(PACKS.PackAirport("EGKK", "Gatwick", 51.1, -0.19),)),
     ]
     window._push_airport_marks()
-    assert window.map._custom_airports == [("EGKK", 51.1, -0.19, True)]
+    assert window.map._custom_airports == []
+    assert [row[0] for row in window.map._default_airports] == ["EGKK"]
+
+
+def test_an_enabled_pack_beside_a_disabled_one_wins_undimmed(make_window):
+    window = make_window()
+    window._airports = [_index_airport("EGKK", 51.1, -0.19)]
+    window._scenery_packs = [
+        PACKS.SceneryPack(
+            name="Off", path="/off", content_root="/off", status="disabled",
+            kind="airport",
+            airports=(PACKS.PackAirport("EGKK", "Gatwick", 51.1, -0.19),)),
+        PACKS.SceneryPack(
+            name="On", path="/on", content_root="/on", status="enabled",
+            kind="airport",
+            airports=(PACKS.PackAirport("EGKK", "Gatwick", 51.1, -0.19),)),
+    ]
+    window._push_airport_marks()
+    assert window.map._custom_airports == [("EGKK", 51.1, -0.19, False)]
+    assert window.map._default_airports == []
 
 
 # ===========================================================================
@@ -347,3 +378,67 @@ def test_provider_label_names_one_source_or_says_multiple():
     assert GUI._provider_label({"BI"}) == "BI"
     assert GUI._provider_label({"BI", "Arc"}) == "Multiple"
     assert GUI._provider_label(set()) == "—"
+
+
+# ===========================================================================
+# scenery_packs.ini — the two languages agree on the edge rules
+# (owner RULINGS 2026-09-17b; Python's ONE derivation site is
+# ``O4_Scenery_Packs``, Swift's is InstallationScanner + PackActions)
+# ===========================================================================
+def _swift(*parts):
+    path = os.path.join(os.path.dirname(__file__), "..", "..",
+                        "Sources", "SceneryKit", *parts)
+    if not os.path.exists(path):
+        pytest.skip("Swift sources not present in this tree")
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def test_the_four_ini_edge_rules_match_the_mac_app(tmp_path):
+    """Python's answers, then the Swift lines that give the same ones.
+
+    Four rules, one per pair of assertions: EXACT token, unlisted =
+    enabled, a non-``Custom Scenery/`` entry names no pack, and a pack not
+    on disk (a dangling symlink onto an unmounted volume is the owner's
+    common case) is simply absent — never an error.
+    """
+    import O4_Scenery_Packs as SP
+
+    scanner = _swift("InstallationScanner.swift")
+    actions = _swift("PackActions.swift")
+
+    custom = tmp_path / "Custom Scenery"
+    (custom / "on").mkdir(parents=True)
+    (custom / "off").mkdir()
+    (custom / "unlisted").mkdir()
+    os.symlink(str(tmp_path / "unmounted" / "pack"), str(custom / "dangler"))
+    (custom / "scenery_packs.ini").write_text(
+        "I\n1000 Version\nSCENERY\n\n"
+        "SCENERY_PACK Custom Scenery/on/\n"
+        "SCENERY_PACK_DISABLED Custom Scenery/off/\n"
+        "SCENERY_PACK Custom Scenery/dangler/\n"
+        "SCENERY_PACK *GLOBAL_AIRPORTS*\n")
+
+    # 1. EXACT first token — never startswith("SCENERY_PACK"), which
+    #    SCENERY_PACK_DISABLED also satisfies.
+    assert SP.pack_enabled("off", str(custom)) is False
+    assert SP.pack_enabled("on", str(custom)) is True
+    assert 'line.hasPrefix("SCENERY_PACK_DISABLED ")' in scanner
+    assert '["SCENERY_PACK_DISABLED ", "SCENERY_PACK "]' in actions
+
+    # 2. On disk but NOT LISTED = enabled (X-Plane adds it on next launch).
+    assert SP.pack_enabled("unlisted", str(custom)) is True
+    assert "(iniEntry?.enabled ?? true) ? .enabled : .disabled" in scanner
+
+    # 3. An entry that is not a Custom Scenery path names no pack.
+    assert SP.pack_name_from_ini_path("*GLOBAL_AIRPORTS*") is None
+    assert SP.pack_name_from_ini_path(
+        "Global Scenery/X-Plane 12 Global Scenery/") is None
+    assert 'guard path.hasPrefix("Custom Scenery/") else { return nil }' \
+        in actions
+
+    # 4. Listed but not on disk (dangling symlink) = absent, never an
+    #    error.  Swift keeps a pack whose symlink RESOLVES and drops one
+    #    that does not, through the same isDirectory/fileExists test.
+    assert SP.enabled_pack_names(str(custom)) == {"on", "unlisted"}
+    assert "fm.fileExists(atPath: url.path, isDirectory: &isDir)" in scanner

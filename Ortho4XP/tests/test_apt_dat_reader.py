@@ -345,6 +345,69 @@ class TestFindAirportAptDat:
         (xp / "Custom Scenery").mkdir(parents=True)
         assert APR.find_airport_apt_dat(str(xp), "ZZZZ") is None
 
+    def test_disabled_pack_is_ignored(self, tmp_path):
+        """Owner RULINGS 2026-09-17b: a pack disabled in
+        scenery_packs.ini is not loaded by X-Plane, so the reader falls
+        through to Global Airports."""
+        xp, per_apt_path, global_path = _pack_and_global(tmp_path)
+        assert APR.find_airport_apt_dat(str(xp), "ZZZZ") == str(per_apt_path)
+        _write_ini(xp, ["SCENERY_PACK_DISABLED "
+                        "Custom Scenery/ZZZZ Per Airport Pack/"])
+        assert APR.find_airport_apt_dat(str(xp), "ZZZZ") == str(global_path)
+
+    def test_disabling_global_airports_changes_nothing(self, tmp_path):
+        """``Global Airports`` is never filtered by this module."""
+        xp, _per, global_path = _pack_and_global(tmp_path)
+        _write_ini(xp, ["SCENERY_PACK_DISABLED "
+                        "Custom Scenery/ZZZZ Per Airport Pack/",
+                        "SCENERY_PACK_DISABLED "
+                        "Custom Scenery/Global Airports/"])
+        assert APR.find_airport_apt_dat(str(xp), "ZZZZ") == str(global_path)
+
+
+def _write_ini(xp, lines):
+    (xp / "Custom Scenery" / "scenery_packs.ini").write_text(
+        "I\n1000 Version\nSCENERY\n\n" + "".join(f"{ln}\n" for ln in lines),
+        encoding="utf-8")
+
+
+def _pack_and_global(tmp_path):
+    """An X-Plane root with one per-airport pack and Global Airports,
+    both carrying ZZZZ.  Returns ``(root, pack apt.dat, global apt.dat)``."""
+    xp = tmp_path / "X-Plane 12"
+    cs = xp / "Custom Scenery"
+    per = cs / "ZZZZ Per Airport Pack" / "Earth nav data"
+    per.mkdir(parents=True)
+    per_path = per / "apt.dat"
+    per_path.write_text("A\n1    100 0 0 ZZZZ Per-Airport Test\n",
+                        encoding="utf-8")
+    glob = cs / "Global Airports" / "Earth nav data"
+    glob.mkdir(parents=True)
+    glob_path = glob / "apt.dat"
+    glob_path.write_text("A\n1    100 0 0 ZZZZ Global Test\n",
+                         encoding="utf-8")
+    return xp, per_path, glob_path
+
+
+class TestFindAllAirportAptDats:
+    def test_lists_every_enabled_pack(self, tmp_path):
+        xp, per_path, glob_path = _pack_and_global(tmp_path)
+        assert APR.find_all_airport_apt_dats(str(xp), "ZZZZ") == [
+            str(glob_path), str(per_path)]      # sorted listdir order
+
+    def test_disabled_pack_is_not_available_geometry(self, tmp_path):
+        xp, _per, glob_path = _pack_and_global(tmp_path)
+        _write_ini(xp, ["SCENERY_PACK_DISABLED "
+                        "Custom Scenery/ZZZZ Per Airport Pack/"])
+        assert APR.find_all_airport_apt_dats(str(xp), "ZZZZ") == [
+            str(glob_path)]
+
+    def test_unlisted_pack_stays_available(self, tmp_path):
+        xp, per_path, glob_path = _pack_and_global(tmp_path)
+        _write_ini(xp, ["SCENERY_PACK Custom Scenery/Global Airports/"])
+        assert APR.find_all_airport_apt_dats(str(xp), "ZZZZ") == [
+            str(glob_path), str(per_path)]
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Ramp starts (rows 1300/1301) and ground-vehicle routes (row 1206)

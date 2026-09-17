@@ -106,7 +106,12 @@ a = Analysis(
       + imagecodecs_datas,
     hiddenimports=(collect_submodules('PIL') + collect_submodules('auto_patch_v2')
                    + highspy_hidden + tifffile_hidden + imagecodecs_hidden
-                   + ['O4_LERC_Decode']),
+                   # O4_Scenery_Packs is imported at TOP LEVEL by every
+                   # consumer, so PyInstaller would find it anyway; named
+                   # here as a belt because the whole build's honouring of
+                   # scenery_packs.ini (RULINGS 2026-09-17b) rides on it
+                   # and a missing module is a silent frozen-only break.
+                   + ['O4_LERC_Decode', 'O4_Scenery_Packs']),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

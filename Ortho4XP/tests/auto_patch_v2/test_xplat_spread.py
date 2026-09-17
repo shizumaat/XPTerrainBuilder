@@ -109,8 +109,13 @@ def test_a_coordinate_straddles_when_EITHER_axis_does():
     b = _dump([(1.0, 2.0, 5.00049, 7.00051)], name="linux")
     lines = xplat.compare_projection({"mac": a, "linux": b})
     text = "\n".join(lines)
-    assert "straddles x  0.0001 m:0 0.001 m:0 0.01 m:0" in text, text
-    assert "straddles COORD 0.0001 m:1 0.001 m:1 0.01 m:0 of 1" in text, text
+    assert "straddles x  0.0001 m:0 0.001 m:0 0.01 m:0 0.5 m:0" in text, text
+    assert "straddles COORD 0.0001 m:1 0.001 m:1 0.01 m:0 0.5 m:0 of 1" \
+        in text, text
+    # …and it NAMES the coordinate, because the census's question is
+    # whether the handful that straddle the grids the pipeline already
+    # snaps to are where the stages first diverge.
+    assert "straddle @0.001 m  2.000000000,1.000000000" in text, text
 
 
 def test_the_decade_histogram_buckets_by_magnitude():
@@ -151,7 +156,46 @@ def test_the_solved_z_is_straddle_counted_on_the_same_grids():
     lines = xplat.compare_projection({"mac": a, "linux": b})
     text = "\n".join(lines)
     assert "SOLVED z (n=2 joined of [2, 2])" in text, text
-    assert "straddles z  0.0001 m:1 0.001 m:1 0.01 m:0 of 2" in text, text
+    assert "straddles z  0.0001 m:1 0.001 m:1 0.01 m:0 0.5 m:0 of 2" \
+        in text, text
+
+
+def test_the_grids_include_the_two_the_pipeline_ALREADY_SNAPS_TO():
+    """Identity census, main ``2fb0799f``: the planar arrangement is noded
+    at ``emit.identity.min_distinct_spacing_m`` = 0.5 m
+    (``planar/overlay.py:360-362, 441, 476``) and classify slices its
+    pavement at ``[cells] snap_grid_m`` = 0.01 m
+    (``classify/rules.toml:8``).  Those two are where a nanometre PROJ
+    difference can already become a DECISION, so the straddle table must
+    price them beside the owner's candidate quanta — and it must read them
+    off the RAW projection, not a quantised arm."""
+    assert 0.5 in xplat.GRIDS and 1e-2 in xplat.GRIDS
+    assert 1e-4 in xplat.GRIDS and 1e-3 in xplat.GRIDS
+    law = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch_v2",
+                            "law", "emit.toml"), encoding="utf-8").read()
+    assert "min_distinct_spacing_m  = 0.5" in law, (
+        "the 0.5 m grid is the planar arrangement's, taken from law — if "
+        "this moved, the straddle table prices the wrong lattice")
+    rules = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch_v2",
+                              "classify", "rules.toml"), encoding="utf-8").read()
+    assert "snap_grid_m" in rules and "0.01" in rules
+
+
+def test_the_expectation_scales_CYXY_to_a_hub():
+    """The spec has to see what each quantum buys at hub size; CYXY is the
+    only airport CI can build, so the count is projected by N."""
+    rows_a, rows_b = [], []
+    for k in range(100):
+        rows_a.append((float(k), 0.0, 1000.0, 0.0))
+        rows_b.append((float(k), 0.0, 1000.0 + 1e-5, 0.0))
+    lines = xplat.compare_projection({"mac": _dump(rows_a),
+                                      "linux": _dump(rows_b, "linux")})
+    text = "\n".join(lines)
+    assert "what each quantum buys" in text, text
+    # s = 5e-6 (mean over the two axes: 1e-5 on x, 0 on y) -> p = 2s/q
+    assert "q=0.001    p=1.000e-02" in text, text
+    assert "N*50=5000" in text, text
+    assert "[measured" in text, text
 
 
 def test_a_mixed_quantum_comparison_is_called_out():

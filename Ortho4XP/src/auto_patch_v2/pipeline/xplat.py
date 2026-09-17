@@ -524,8 +524,24 @@ def projection_payload(icao: str, frame=None, solved=None,
 
 # ------------------------------------------------- the offline comparer
 
-#: Snap grids the owner's question names, in metres (0.1 mm, 1 mm, 1 cm).
-GRIDS = (1e-4, 1e-3, 1e-2)
+#: Snap grids, in metres.  The first three are the ones owner Q 17d-1
+#: names (0.1 mm, 1 mm, 1 cm).  The last two are grids the pipeline
+#: ALREADY snaps to today (identity census, main ``2fb0799f``):
+#:
+#:  * ``0.01`` m — ``classify`` nodes its pavement slices at
+#:    ``[cells] snap_grid_m`` (``classify/rules.toml:8``; used at
+#:    ``classify/roles.py:473, 938`` and ``classify/neck.py:162, 199,
+#:    239``).  It doubles as the owner's 1 cm candidate.
+#:  * ``0.5`` m — the planar arrangement is noded at ``grid_size =
+#:    emit.identity.min_distinct_spacing_m`` (``planar/overlay.py:360-362,
+#:    441, 476``; law ``emit.toml:12``).
+#:
+#: A coordinate within the platform spread of one of THOSE boundaries
+#: already snaps a whole centimetre — or half a metre — apart on two
+#: platforms, which is the candidate mechanism for 17d's cells 105/104/105
+#: and planar V 4289/4283/4287.  So they are counted on the RAW ``to_xy``
+#: output, exactly as the pipeline sees it.
+GRIDS = (1e-4, 1e-3, 1e-2, 0.5)
 
 
 def _snap(value: float, grid: float) -> int:
@@ -596,35 +612,49 @@ def _joined(a: list, b: list, nkey: int):
     """Inner join two hex tables on their first ``nkey`` columns."""
     index = {tuple(row[:nkey]): row[nkey:] for row in b}
     for row in a:
-        other = index.get(tuple(row[:nkey]))
+        key = tuple(row[:nkey])
+        other = index.get(key)
         if other is not None:
-            yield row[nkey:], other
+            yield key, row[nkey:], other
 
 
 def _axis_report(label: str, joined: list) -> dict:
-    """``joined`` is a list of ``((ax, ay), (bx, by))`` value pairs in
+    """``joined`` is a list of ``(key, (ax, ay), (bx, by))``, the values in
     metres.  Per axis and for the planar distance."""
     import math
     out: dict = {"label": label, "n": len(joined)}
     for k, axis in enumerate(("x", "y")):
-        deltas = [abs(p[0][k] - p[1][k]) for p in joined]
+        deltas = [abs(p[1][k] - p[2][k]) for p in joined]
         out[axis] = _stats(deltas)
-        out[axis]["straddles"] = _straddles([(p[0][k], p[1][k])
+        out[axis]["straddles"] = _straddles([(p[1][k], p[2][k])
                                              for p in joined])
-    out["dist"] = _stats([math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1])
+    out["dist"] = _stats([math.hypot(p[1][0] - p[2][0], p[1][1] - p[2][1])
                           for p in joined])
     # A COORDINATE straddles when EITHER axis does — that is the number an
     # identity join would actually lose.
-    coord = {}
+    coord: dict = {}
+    witnesses: dict = {}
     for grid in GRIDS:
-        coord["%g" % grid] = sum(
-            1 for p in joined
-            if _snap(p[0][0], grid) != _snap(p[1][0], grid)
-            or _snap(p[0][1], grid) != _snap(p[1][1], grid))
+        hits = [p for p in joined
+                if _snap(p[1][0], grid) != _snap(p[2][0], grid)
+                or _snap(p[1][1], grid) != _snap(p[2][1], grid)]
+        coord["%g" % grid] = len(hits)
+        # NAME THE STRADDLING COORDINATES, not just count them: the
+        # question the census asks is whether the handful that straddle
+        # the grids the pipeline ALREADY snaps to (1 cm in classify,
+        # 0.5 m in the planar arrangement) are the places the stage dumps
+        # first diverge.  Degrees, because that is what every other
+        # instrument in this campaign quotes.
+        witnesses["%g" % grid] = [
+            {"lon": float.fromhex(p[0][0]), "lat": float.fromhex(p[0][1]),
+             "a": list(p[1]), "b": list(p[2]),
+             "d": math.hypot(p[1][0] - p[2][0], p[1][1] - p[2][1])}
+            for p in hits[:20]]
     out["straddles_coord"] = coord
-    out["bands"] = _bands([(math.hypot(*p[0]),
-                            math.hypot(p[0][0] - p[1][0],
-                                       p[0][1] - p[1][1]))
+    out["straddle_witnesses"] = witnesses
+    out["bands"] = _bands([(math.hypot(*p[1]),
+                            math.hypot(p[1][0] - p[2][0],
+                                       p[1][1] - p[2][1]))
                            for p in joined])
     return out
 
@@ -643,21 +673,21 @@ def _pair_projection(a: dict, b: dict) -> dict:
             tb = ((b.get("probe") or {}).get(table_key)) or []
         if not ta or not tb:
             continue
-        joined = [((fh(va[0]), fh(va[1])), (fh(vb[0]), fh(vb[1])))
-                  for va, vb in _joined(ta, tb, nkey)]
+        joined = [(k, (fh(va[0]), fh(va[1])), (fh(vb[0]), fh(vb[1])))
+                  for k, va, vb in _joined(ta, tb, nkey)]
         if key == "probe_inverse":
             # The inverse's outputs are DEGREES; report them in metres so
             # every number in this lane is one unit.  1e-5 deg of latitude
             # is 1.11 m; longitude is scaled by cos(lat) at the origin,
             # which the payload does not carry — the conservative reading
             # is the latitude scale on both axes.
-            joined = [((va[0] * _M_PER_DEG, va[1] * _M_PER_DEG),
+            joined = [(k, (va[0] * _M_PER_DEG, va[1] * _M_PER_DEG),
                        (vb[0] * _M_PER_DEG, vb[1] * _M_PER_DEG))
-                      for va, vb in joined]
+                      for k, va, vb in joined]
         out[key] = _axis_report(key, joined)
     za, zb = a.get("solved_z") or [], b.get("solved_z") or []
     if za and zb:
-        pairs = [(fh(va[0]), fh(vb[0])) for va, vb in _joined(za, zb, 2)]
+        pairs = [(fh(va[0]), fh(vb[0])) for _k, va, vb in _joined(za, zb, 2)]
         out["solved_z"] = {
             "n": len(pairs),
             "joined_of": [len(za), len(zb)],
@@ -671,6 +701,41 @@ def _pair_projection(a: dict, b: dict) -> dict:
 #: only ever used to put the INVERSE probe's degrees on the same axis as
 #: everything else in the report.
 _M_PER_DEG = 111320.0
+
+
+#: Airport sizes the expectation is projected onto: CYXY's own N, and a
+#: hub at 10x and 50x it (HECA/LEMD are the campaign's large fixtures).
+_SCALES = (1, 10, 50)
+
+
+def _expectation_lines(rep: dict) -> list:
+    """WHAT EACH CANDIDATE QUANTUM BUYS, for the spec's grid choice.
+
+    For a quantum ``q`` and a per-axis spread ``s``, a coordinate straddles
+    a boundary with probability ~``s/q`` per axis (the offset of a snap
+    boundary inside a cell is uniform and independent of the spread at
+    these magnitudes), so ``p_coord ~ 2 s / q`` and the expected count is
+    ``N p_coord``.  The MEASURED count is printed beside it: the model is
+    only there to scale CYXY to a hub, and if the two disagree it is the
+    measurement that stands.
+    """
+    lines = ["  what each quantum buys (s = mean |d| per axis; "
+             "p ~ 2s/q; measured count in brackets):"]
+    sx = (rep.get("x") or {}).get("mean")
+    sy = (rep.get("y") or {}).get("mean")
+    n = rep.get("n") or 0
+    if sx is None or sy is None or not n:
+        return []
+    s = 0.5 * (sx + sy)
+    for grid in GRIDS:
+        p = min(1.0, 2.0 * s / grid)
+        counts = "  ".join("N*%-2d=%-7d -> %.2f" % (k, n * k, n * k * p)
+                           for k in _SCALES)
+        lines.append("    q=%-8g p=%.3e   %s   [measured %d/%d]"
+                     % (grid, p, counts,
+                        (rep.get("straddles_coord") or {}).get("%g" % grid,
+                                                               0), n))
+    return lines
 
 
 def compare_projection(dumps: _t.Mapping[str, dict]) -> list:
@@ -720,6 +785,16 @@ def compare_projection(dumps: _t.Mapping[str, dict]) -> list:
                              % (" ".join("%s m:%d" % (g, n) for g, n in
                                          sorted(rep["straddles_coord"].items())),
                                 rep["n"]))
+                for grid, hits in sorted(
+                        (rep.get("straddle_witnesses") or {}).items()):
+                    for w in hits:
+                        lines.append("    straddle @%s m  %.9f,%.9f  "
+                                     "|d| %.3e  a (%.6f, %.6f)  "
+                                     "b (%.6f, %.6f)"
+                                     % (grid, w["lat"], w["lon"], w["d"],
+                                        w["a"][0], w["a"][1],
+                                        w["b"][0], w["b"][1]))
+                lines += _expectation_lines(rep)
                 for band in rep["bands"]:
                     lines.append("  r %7.0f..%-7s n %-6d max|d| %.3e  "
                                  "p50 %.3e"

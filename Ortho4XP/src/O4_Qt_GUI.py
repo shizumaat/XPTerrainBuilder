@@ -692,9 +692,10 @@ class ElidedRowLabel(QLabel):
     ``text()`` answers the FULL text, not what is painted.
     """
 
-    #: Squeezed-out floor: an ellipsis plus a couple of characters, so a
-    #: tight row still shows the label EXISTS.
-    MIN_CHARS = 3
+    #: Squeezed-out floor, in ellipsis widths: enough that a fully
+    #: squeezed label still shows it EXISTS, small enough that a form
+    #: full of them cannot add up past the panel.
+    MIN_CHARS = 1
 
     def __init__(self, text="", parent=None):
         super().__init__(parent)
@@ -1110,7 +1111,7 @@ class MainWindow(QMainWindow):
         irl = QHBoxLayout(imagery_row)
         irl.setContentsMargins(0, 0, 0, 0)
         irl.setSpacing(4)
-        self.info_provider = QLabel("—")
+        self.info_provider = ElidedRowLabel("—")
         irl.addWidget(self.info_provider, 1)
         self.imagery_conflict_btn = QToolButton()
         self.imagery_conflict_btn.setAutoRaise(True)
@@ -1125,11 +1126,11 @@ class MainWindow(QMainWindow):
         self.imagery_conflict_btn.setVisible(False)
         irl.addWidget(self.imagery_conflict_btn, 0)
         ig.addRow("Imagery:", imagery_row)
-        self.info_zl = QLabel("—")
+        self.info_zl = ElidedRowLabel("—")
         ig.addRow("Zoom level:", self.info_zl)
-        self.info_mesh = QLabel("—")
+        self.info_mesh = ElidedRowLabel("—")
         ig.addRow("Mesh built:", self.info_mesh)
-        self.info_imagery = QLabel("—")
+        self.info_imagery = ElidedRowLabel("—")
         ig.addRow("Imagery updated:", self.info_imagery)
         self.info_elevation = TwoLineElidedLabel("—")
         ig.addRow("Elevation:", self.info_elevation)
@@ -1152,7 +1153,7 @@ class MainWindow(QMainWindow):
         _never_widen(self.manual_elevation_btn)
         ig.addRow(self.manual_elevation_btn)
         self._manual_elevation_entries = []
-        self.info_size = QLabel("—")
+        self.info_size = ElidedRowLabel("—")
         ig.addRow("Size on disk:", self.info_size)
         # Legacy per-tile config affordance: a tile whose cfg an older or
         # different Ortho4XP wrote gets an offer to modernise it (mac-app

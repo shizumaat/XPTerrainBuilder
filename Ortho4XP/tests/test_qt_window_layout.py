@@ -155,11 +155,19 @@ class TestPanelFitsItsViewport:
         window.show()
         qapp.processEvents()
         # Long dynamic values, as after a scan of a lidar-covered tile.
+        # EVERY value the panel can show goes in: a panel measured with
+        # the placeholder "…" values understates its own minimum by the
+        # width of a date (Windows CI, 2026-09-17).
         window.build_summary.setText(
             "12 tiles selected · rough est. 48.0 GB · airport lidar on 12"
         )
         window.info_elevation.setText(LONG_TEXT)
         window.info_airport_lidar.setText(LONG_TEXT)
+        window.info_provider.setText("GO2  ⚠ mixed")
+        window.info_zl.setText("16 (mixed: 16, 17, 18)")
+        window.info_mesh.setText("12 Sep 2026 14:30")
+        window.info_imagery.setText("12 Sep 2026 14:30")
+        window.info_size.setText("48.0 GB (12 folders)")
         qapp.processEvents()
         panel = window.info_group.parentWidget()
         scroll = panel.parentWidget()

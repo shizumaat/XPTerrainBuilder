@@ -35,7 +35,13 @@
 #                    never the thing under test.
 #   [extra args]     passed through to scripts/check_frozen_tile.py
 #                    (--pass, --deadline, --airport-deadline, --logs,
-#                    --lat/--lon, --keep).
+#                    --lat/--lon, --keep, --xplat-dump, --xplat-quantise).
+#
+# --xplat-dump additionally runs a SECOND, NON-GATING airport solve with the
+# load stage's projection snapped (--xplat-quantise, default 1 mm) — the
+# interventional arm of the cross-platform measurement (lane `xplatspread`).
+# Its outcome is printed and discarded: a release never goes red over an
+# instrument.  Pass `--xplat-quantise 0` to skip it.
 #
 # Both fixtures are generated into temp dirs and thrown away: a private
 # data root, imagery off, no shared corpus, no provider key, no network

@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import math
 import os
+import sys as _sys
 import typing as _t
 import zlib
 
@@ -557,8 +558,51 @@ def _vector_to_xy(frame: Frame) -> _t.Callable[[float, float], XY]:
     Byte-neutral as it stands: with the frame unchanged the two spellings
     return identical doubles, verified on the CYXY release fixture — every
     stage digest equal at 9 dp before and after.
+
+    THE DUMP HOOK (lane ``xplatspread``).  When — and ONLY when — the
+    cross-platform projection recorder has been armed by
+    ``pipeline/build.build`` under ``Config.xplat_dump``, the frame's
+    function is wrapped so every ``(lon, lat) -> (x, y)`` it evaluates is
+    recorded as exact ``float.hex()``.  Off, this function returns the
+    frame's own callable UNCHANGED — not a wrapper that happens to be a
+    no-op — so the shipped path is byte-neutral by construction and the
+    arming cannot be reached from an environment variable (the package's
+    own twin forbids reading one).
     """
-    return frame.transformers()[0]
+    base = frame.transformers()[0]
+    xplat = _projection_recorder()
+    if xplat is None:
+        return base
+    quantum = xplat.projection_quantum()
+
+    def to_xy(lon: float, lat: float) -> XY:
+        x, y = base(lon, lat)
+        if quantum:
+            # THE INTERVENTIONAL ARM (17d's ``8615f4f9``, re-armed behind
+            # the dump switch and never in the shipped path): with the
+            # inputs snapped, what still differs downstream is not the
+            # projection.
+            x = round(x / quantum) * quantum
+            y = round(y / quantum) * quantum
+        xplat.record_projection(lon, lat, x, y)
+        return (x, y)
+
+    return to_xy
+
+
+def _projection_recorder():
+    """The armed ``pipeline/xplat`` module, or ``None``.
+
+    Looked up in ``sys.modules`` rather than imported: ``pipeline``
+    imports this package, so an import here would be a cycle at module
+    load.  When the recorder is armed, ``pipeline/build`` has necessarily
+    already imported it, so the lookup always finds what exists.
+    """
+    root = __name__.rsplit(".", 2)[0]
+    mod = _sys.modules.get(root + ".pipeline.xplat")
+    if mod is None or not mod.projection_armed():
+        return None
+    return mod
 
 
 def _ring(pts: _t.Sequence[tuple[float, float]],

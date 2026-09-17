@@ -97,6 +97,13 @@ class Config:
     #: ``O4_V2_XPLAT_DIGEST`` is read.  Off by default — the digests walk
     #: every vertex of every stage.
     xplat_dump: bool = False
+    #: THE INTERVENTIONAL ARM (lane ``xplatspread``, 17d's ``8615f4f9``
+    #: re-armed behind the dump switch): metres to SNAP the load stage's
+    #: projected coordinates to, so every platform is fed the same xy and
+    #: what still differs downstream can be attributed to something other
+    #: than PROJ's forward tmerc.  Read ONLY when ``xplat_dump`` is set;
+    #: 0.0 (the default, and every shipped build) alters nothing.
+    xplat_quantise_m: float = 0.0
 
 
 @_dc.dataclass
@@ -325,6 +332,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # of the whole call and ``unclocked`` names what no stage claimed.
     t_build = t
     law = law or Law.for_airport(icao)
+    # THE RAW PROJECTION DUMP (lane ``xplatspread``): armed BEFORE the load
+    # stage, because the load stage's ``_vector_to_xy`` is the hook.  Off,
+    # nothing is armed and the hook returns the frame's own function
+    # unchanged — the shipped path never sees a wrapper.
+    if cfg.xplat_dump:
+        _xplat.arm_projection(cfg.xplat_quantise_m)
+    else:
+        _xplat.disarm_projection()
     airport, lrep = load_with_report(icao, inputs, law)
     wall["load"] = time.perf_counter() - t
     # THE CROSS-PLATFORM STAGE DUMP (lane ``xplatdeterminism``): armed by
@@ -1150,6 +1165,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                          stage=stage, constraints=cs, lp=size,
                          solved=sol.z or None, final_pm=pm))
         _say(f"[{icao}] cross-platform stage dump -> {icao}.xplat.json", out)
+        # THE EXACT PROJECTION (lane ``xplatspread``): its OWN file, so a
+        # reader that only wants the stage table never parses the ~N-vertex
+        # hex table, and vice versa.
+        _xplat.write(str(Path(out_dir) / f"{icao}.xproj.json"),
+                     _xplat.projection_payload(
+                         icao, frame=airport.frame,
+                         solved=sol.z or None, final_pm=pm,
+                         constraints=cs))
+        _say(f"[{icao}] exact projection dump -> {icao}.xproj.json "
+             f"(quantise {cfg.xplat_quantise_m:g} m)", out)
+        _xplat.disarm_projection()
     (Path(out_dir) / f"{icao}.report.json").write_text(
         json.dumps(report, indent=1, default=str),
         encoding="utf-8", newline="\n")

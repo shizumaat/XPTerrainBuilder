@@ -331,8 +331,18 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         # wrapper, and handed on as a schema flag.  Set by
         # ``scripts/check_frozen_tile.py --xplat-dump`` in the frozen
         # bundle's environment; unset in every ordinary build.
+        # ``O4_V2_XPLAT_QUANTISE_M`` (lane ``xplatspread``) is the
+        # INTERVENTIONAL arm of the same instrument: it snaps the load
+        # stage's projected metres so every platform is fed identical
+        # inputs.  Read only when the dump is armed; a malformed value is
+        # ignored rather than failing a release check.
+        try:
+            _xq = float(os.environ.get("O4_V2_XPLAT_QUANTISE_M") or 0.0)
+        except ValueError:
+            _xq = 0.0
         cfg = Config(header_extra=_stamp_header(task),
-                     xplat_dump=bool(os.environ.get("O4_V2_XPLAT_DIGEST")))
+                     xplat_dump=bool(os.environ.get("O4_V2_XPLAT_DIGEST")),
+                     xplat_quantise_m=_xq)
         res = build(icao, inputs, scratch, cfg, law, out=_out)
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "build", "engine": ENGINE_V2,

@@ -61,6 +61,15 @@ class Config:
     #: before reusing a patch).  Applied over the adapter's own header, so
     #: a host may override ``o4_apt_dat`` with its percent-encoded form.
     header_extra: _t.Mapping[str, str] | None = None
+    #: THE CROSS-PLATFORM STAGE DUMP (lane ``xplatdeterminism``): write
+    #: ``<ICAO>.xplat.json`` beside the report — per-stage counts and
+    #: order-free geometry digests at 9/6/4/2/1 dp, plus what the running
+    #: wheels actually bundle (GEOS, PROJ, BLAS).  A SCHEMA FLAG, not an
+    #: env gate: the release check asks for it through
+    #: ``auto_patch/engine_v2.py``, which is where its
+    #: ``O4_V2_XPLAT_DIGEST`` is read.  Off by default — the digests walk
+    #: every vertex of every stage.
+    xplat_dump: bool = False
 
 
 @_dc.dataclass
@@ -297,7 +306,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # than mutated, so holding one is a true snapshot and costs nothing
     # until the digests are taken at the report site.
     _xp: dict = {}
-    if _xplat.armed():
+    if cfg.xplat_dump:
         _xp["armed"] = True
     _say(f"[{icao}] load {wall['load']:.2f} s  runways {len(airport.runways)}  "
          f"pavements {len(airport.pavements)}  buildings {len(airport.buildings)}", out)

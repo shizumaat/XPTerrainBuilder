@@ -99,16 +99,22 @@ def test_compare_names_the_first_divergent_stage():
         "the table must carry the NUMBERS, not just a verdict")
 
 
-def test_the_arming_flag_is_off_by_default(monkeypatch):
-    monkeypatch.delenv(xplat.ENV_FLAG, raising=False)
-    assert not xplat.armed()
-    monkeypatch.setenv(xplat.ENV_FLAG, "1")
-    assert xplat.armed()
+def test_the_arming_is_a_schema_flag_not_an_env_gate():
+    """``test_model.py`` forbids an environment read anywhere in the v2
+    package, so the dump is armed by ``Config.xplat_dump`` and the
+    release check's request is translated in the v1 wrapper."""
+    from auto_patch_v2.pipeline.build import Config
+    assert Config().xplat_dump is False, "off by default"
+    assert Config(xplat_dump=True).xplat_dump is True
+    wrapper = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch",
+                                "engine_v2.py"), encoding="utf-8").read()
+    assert "O4_V2_XPLAT_DIGEST" in wrapper and "xplat_dump=" in wrapper, (
+        "the wrapper is the ONE place the release check's request is read")
 
 
 def test_build_writes_the_dump_only_when_armed():
     """The wiring, read off ``pipeline/build.py`` itself: the writer is
-    reached through ``_xplat.armed()`` and nowhere else, and the dump
+    reached through ``cfg.xplat_dump`` and nowhere else, and the dump
     goes in its OWN file so the report's schema is untouched."""
     source = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch_v2",
                                "pipeline", "build.py"),
@@ -117,7 +123,7 @@ def test_build_writes_the_dump_only_when_armed():
         "a TOP-LEVEL import — a function-level one is invisible to "
         "PyInstaller and the frozen bundle would have no dump at all "
         "(the highspy precedent)")
-    assert "_xplat.armed()" in source
+    assert "cfg.xplat_dump" in source
     assert "_xplat.write(" in source
     assert 'f"{icao}.xplat.json"' in source
     assert 'report["xplat"]' not in source, (

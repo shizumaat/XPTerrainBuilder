@@ -24,30 +24,25 @@ Two things make it usable across machines:
   those two is the whole point.
 
 ARMED, NEVER DEFAULT: ``build`` calls :func:`stage_digests` only when
-``O4_V2_XPLAT_DIGEST`` is set (``scripts/check_frozen_tile.py
---xplat-dump`` sets it in the child's environment), because the digests
-walk every vertex of every stage and a release check is the only caller
-that wants that per build.
+``pipeline/build.Config.xplat_dump`` is set — a SCHEMA, never an env gate
+(``tests/auto_patch_v2/test_model.py`` forbids an environment read
+anywhere in this package, and rightly: a gate the engine reads out of the air is a
+second configuration nobody can see).  The v1 wrapper
+``auto_patch/engine_v2.py`` is where the release check's
+``O4_V2_XPLAT_DIGEST`` is read and turned into that flag.  Off by default
+because the digests walk every vertex of every stage and a release check
+is the only caller that wants that per build.
 """
 
 from __future__ import annotations
 
 import hashlib as _hash
-import os as _os
 import platform as _platform
 import sys as _sys
 import typing as _t
 
 #: Decimal places the FRAME's metre coordinates are digested at.
 METRE_DP = (9, 6, 4, 2, 1)
-
-ENV_FLAG = "O4_V2_XPLAT_DIGEST"
-
-
-def armed() -> bool:
-    """True when this build was asked for a cross-platform stage dump."""
-    return bool(_os.environ.get(ENV_FLAG))
-
 
 # ---------------------------------------------------------------- digests
 
@@ -215,7 +210,9 @@ def environment() -> dict:
         "machine": _platform.machine(),
         "processor": _platform.processor(),
         "frozen": bool(getattr(_sys, "frozen", False)),
-        "hash_seed": _os.environ.get("PYTHONHASHSEED"),
+        # Read off the INTERPRETER, not the environment: what PYTHONHASHSEED
+        # was asked for and what the process actually did can differ.
+        "hash_randomization": _sys.flags.hash_randomization,
         "maxsize": _sys.maxsize,
         "float_repr_style": _sys.float_repr_style,
     }

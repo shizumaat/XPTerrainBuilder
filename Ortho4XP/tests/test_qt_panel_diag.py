@@ -40,9 +40,13 @@ def _describe(widget):
     return text.replace("\n", " ")[:46]
 
 
+ROWS = []
+
+
 def _walk(widget, lines, depth=0):
     msh = widget.minimumSizeHint().width()
     sh = widget.sizeHint().width()
+    ROWS.append((msh, type(widget).__name__, _describe(widget), depth))
     lines.append(
         "%-44s %5d %5d %5d %5d  %s"
         % (
@@ -84,6 +88,16 @@ def test_panel_offender_table(tmp_path, monkeypatch, capsys):
 
     app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(GUI, "PREFS_FILE", str(tmp_path / "prefs.json"))
+    monkeypatch.setattr(
+        GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "tile-scan.json")
+    )
+    # First run queues run_wizard() 200 ms after construction, and its
+    # exec() is modal: on the Windows runner construction is slow enough
+    # that the timer fires inside our processEvents and the test hangs
+    # until the 180 s timeout (CI round 1).
+    monkeypatch.setattr(
+        GUI.MainWindow, "run_wizard", lambda self: None, raising=True
+    )
     with capsys.disabled():
         original_stdout = sys.stdout
         window = GUI.MainWindow()
@@ -161,4 +175,7 @@ def test_panel_offender_table(tmp_path, monkeypatch, capsys):
             extras.append("%-20s RAISED %r" % (name, exc))
 
     window.deleteLater()
-    pytest.fail("\n".join(lines + [""] + extras))
+    top = ["TOP OFFENDERS (by minimumSizeHint width)"]
+    for msh, cls, text, depth in sorted(ROWS, reverse=True)[:14]:
+        top.append("  %5d  d%d %-22s %s" % (msh, depth, cls, text))
+    pytest.fail("\n".join(lines + [""] + top + [""] + extras))

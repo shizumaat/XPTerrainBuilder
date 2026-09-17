@@ -36,7 +36,8 @@ ENGINE="$(read_triple "$ROOT/Ortho4XP/src/O4_Version.py")"
 SHA="${GITHUB_SHA:-}"
 if [ -z "$SHA" ]; then
   SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
-  if [ -n "$SHA" ] && ! git -C "$ROOT" diff --quiet HEAD 2>/dev/null; then
+  # A local build's own version bump is not dirt — see scripts/tree_dirty.sh.
+  if [ -n "$SHA" ] && bash "$ROOT/scripts/tree_dirty.sh" "$ROOT"; then
     SHA="$SHA-dirty"
   fi
 fi

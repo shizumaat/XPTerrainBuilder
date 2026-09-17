@@ -54,8 +54,11 @@ echo "App build $APP_VERSION"
 # A tree that cannot answer says "unknown"; BuildTriple renders that as "dev"
 # rather than letting a guess reach a bug report.
 ENGINE_VERSION="$(xptb_version_read "$ROOT/Ortho4XP/src/O4_Version.py" 2>/dev/null || echo unknown)"
-COMMIT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
-if [[ "$COMMIT_SHA" != unknown ]] && ! git -C "$ROOT" diff --quiet HEAD 2>/dev/null; then
+COMMIT_SHA="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)}"
+# The bump above is this build's OWN diff, and marking every local build
+# "-dirty" would empty the marker of meaning — scripts/tree_dirty.sh excludes
+# the two version files and nothing else.
+if [[ "$COMMIT_SHA" != unknown ]] && bash "$ROOT/scripts/tree_dirty.sh" "$ROOT"; then
   COMMIT_SHA="$COMMIT_SHA-dirty"
 fi
 echo "Engine $ENGINE_VERSION, commit $COMMIT_SHA"

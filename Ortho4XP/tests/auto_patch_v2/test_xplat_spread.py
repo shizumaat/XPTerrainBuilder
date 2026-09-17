@@ -198,6 +198,71 @@ def test_the_expectation_scales_CYXY_to_a_hub():
     assert "[measured" in text, text
 
 
+def _cons(rows, name="mac"):
+    return {"icao": "CYXY", "env": {"machine": name, "platform": name},
+            "quantise_m": 1e-3, "recorded": [], "counts": {},
+            "constraint_rows": sorted(
+                "%s\t%s" % (k, " ".join(float(v).hex() for v in vals))
+                for k, vals in rows)}
+
+
+def test_a_duplicate_constraint_KEY_is_grouped_not_overwritten():
+    """THE BUG THE CONTROL CAUGHT.  Two faces put the same generator's row
+    on the same vertex pair with different caps, so a key is NOT unique.
+    Indexing by key and keeping the last pairs arbitrary members of a
+    duplicate group: two runs of ONE mac came out 10.8 m apart (measured
+    2026-09-17) before the groups were compared as sorted sets."""
+    rows = [("diff|pavement_ceiling|r|1,2|3,4", (0.015, 40.0)),
+            ("diff|pavement_ceiling|r|1,2|3,4", (0.015, 51.0)),
+            ("diff|taxi|r|9,9|8,8", (0.015, 7.0))]
+    lines = xplat.compare_projection({"mac": _cons(rows),
+                                      "linux": _cons(rows, "linux")})
+    text = "\n".join(lines)
+    assert "CONSTRAINT ROW VALUES ([3, 3] rows, 0 unmatched keys)" in text, text
+    assert "pavement_ceiling             n 2       differ 0       " \
+        "max|d| 0.000e+00" in text, text
+
+
+def test_a_real_constraint_value_difference_is_named_by_generator():
+    a = [("diff|taxi|plane_gradient|1,2|3,4", (0.015, 7.0)),
+         ("diff|no_step|rate|5,6|7,8", (0.02, 3.0))]
+    b = [("diff|taxi|plane_gradient|1,2|3,4", (0.015, 7.0)),
+         ("diff|no_step|rate|5,6|7,8", (0.02, 3.0004))]
+    lines = xplat.compare_projection({"mac": _cons(a),
+                                      "linux": _cons(b, "linux")})
+    text = "\n".join(lines)
+    assert "taxi                         n 1       differ 0" in text, text
+    assert "no_step                      n 1       differ 1       " \
+        "max|d| 4.000e-04" in text, text
+    assert "@ no_step/rate" in text, text
+
+
+def test_a_row_present_on_one_side_only_is_UNMATCHED_not_silently_dropped():
+    a = [("diff|taxi|r|1,2|3,4", (0.015, 7.0)),
+         ("diff|taxi|r|9,9|8,8", (0.015, 7.0))]
+    b = [("diff|taxi|r|1,2|3,4", (0.015, 7.0))]
+    lines = xplat.compare_projection({"mac": _cons(a),
+                                      "linux": _cons(b, "linux")})
+    assert any("1 unmatched keys" in ln for ln in lines), lines
+
+
+def test_the_constraint_table_is_written_ONLY_in_the_quantised_arm():
+    """Unquantised, the geometry key differs in the last ulp on two
+    platforms and nothing would join — a multi-megabyte file that answers
+    nothing.  The gate is the quantum, read off the module."""
+    source = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch_v2",
+                               "pipeline", "xplat.py"),
+                  encoding="utf-8").read()
+    assert "if constraints is not None and final_pm is not None and _PROJ_Q:" \
+        in source
+    xplat.arm_projection(0.0)
+    try:
+        assert "constraint_rows" not in xplat.projection_payload(
+            "CYXY", constraints=object(), final_pm=object())
+    finally:
+        xplat.disarm_projection()
+
+
 def test_a_mixed_quantum_comparison_is_called_out():
     lines = xplat.compare_projection(
         {"mac": _dump([], quantise=0.0),

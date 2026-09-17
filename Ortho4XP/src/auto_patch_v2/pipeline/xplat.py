@@ -478,8 +478,66 @@ def probe_projection(frame) -> dict:
     return {"forward": forward, "inverse": inverse}
 
 
+def _constraint_rows_exact(cs, pm) -> list:
+    """Every constraint row as ``"key\\tvalue value …"`` — the KEY being the
+    row's generator, ruling and the GEOMETRY of its vertices, the values
+    being its numbers as exact ``float.hex()``.
+
+    Only the quantised arm writes this, and that is the point: with the
+    inputs identical the geometry key is bit-identical on every platform,
+    so the rows join exactly and what is left is the arithmetic.  17d's
+    residue said "row values < 1e-4 m" from a digest ladder; this says
+    WHICH generator and BY HOW MUCH.
+    """
+    vertices = getattr(pm, "vertices", {}) or {}
+
+    # The key is the vertex's position in QUANTA, not its hex: this table
+    # is written only in the quantised arm, where every planar coordinate
+    # is an exact multiple of the quantum, so the integer is lossless AND
+    # about six times shorter than the double's hex — 73k rows is a file
+    # that has to travel as a CI artifact.
+    q = _PROJ_Q or 1e-3
+
+    def at(i) -> str:
+        v = vertices.get(i)
+        if v is None:
+            return "-,-"
+        return "%d,%d" % (_snap(float(v.xy[0]), q), _snap(float(v.xy[1]), q))
+
+    def hx(value) -> str:
+        return "-" if value is None else float(value).hex()
+
+    rows: list = []
+    for p in getattr(cs, "pins", ()) or ():
+        rows.append(["pin|%s|%s|%s" % (p.source.generator, p.source.ruling,
+                                       at(p.v)), hx(p.z)])
+    for d in getattr(cs, "diffs", ()) or ():
+        rows.append(["diff|%s|%s|%s|%s" % (d.source.generator,
+                                           d.source.ruling, at(d.a), at(d.b)),
+                     hx(d.cap), hx(d.d)])
+    for b in getattr(cs, "bands", ()) or ():
+        rows.append(["band|%s|%s|%s" % (b.source.generator, b.source.ruling,
+                                        at(b.v)), hx(b.lo), hx(b.hi)])
+    for o in getattr(cs, "offsets", ()) or ():
+        rows.append(["offset|%s|%s|%s|%s" % (o.source.generator,
+                                             o.source.ruling, at(o.a),
+                                             at(o.b)), hx(o.min_delta)])
+    for ln in getattr(cs, "linears", ()) or ():
+        terms = sorted((at(i), float(c)) for i, c in ln.terms)
+        rows.append(["linear|%s|%s|%s" % (ln.source.generator,
+                                          ln.source.ruling,
+                                          ";".join(t[0] for t in terms)),
+                     hx(ln.lo), hx(ln.hi)]
+                    + [hx(t[1]) for t in terms])
+    # ONE STRING PER ROW, not a nested list: ``write`` pretty-prints with
+    # ``indent=1`` and a 73k-row nested list costs ~19 MB of whitespace and
+    # quotes where the flat form costs ~4 MB.
+    out = sorted("%s\t%s" % (row[0], " ".join(row[1:])) for row in rows)
+    return out
+
+
 def projection_payload(icao: str, frame=None, solved=None,
-                       final_pm=None) -> dict:
+                       final_pm=None, constraints=None) -> dict:
     """The exact-projection dump: what was recorded, the lattice probes,
     and (when the inputs were made identical by ``quantise_m``) the
     SOLVED z keyed by its vertex's xy, so the vertical axis can be
@@ -519,6 +577,13 @@ def projection_payload(icao: str, frame=None, solved=None,
         rows.sort()
         out["solved_z"] = rows
         out["counts"]["solved_z"] = len(rows)
+    if constraints is not None and final_pm is not None and _PROJ_Q:
+        # ONLY the quantised arm: unquantised, the geometry key differs in
+        # the last ulp and nothing would join, so the table would be a
+        # multi-megabyte file that answers nothing.
+        rows = _constraint_rows_exact(constraints, final_pm)
+        out["constraint_rows"] = rows
+        out["counts"]["constraint_rows"] = len(rows)
     return out
 
 
@@ -685,6 +750,57 @@ def _pair_projection(a: dict, b: dict) -> dict:
                        (vb[0] * _M_PER_DEG, vb[1] * _M_PER_DEG))
                       for k, va, vb in joined]
         out[key] = _axis_report(key, joined)
+    ca, cb = a.get("constraint_rows") or [], b.get("constraint_rows") or []
+    if ca and cb:
+        def split(row):
+            key, _, values = row.partition("\t")
+            return key, values.split()
+
+        # A KEY IS NOT UNIQUE — two faces can put the same generator's row
+        # on the same vertex pair with different caps.  Group, and compare
+        # the SORTED value vectors: a dict that kept only the last row
+        # would pair arbitrary members of a duplicate group and report a
+        # 10 m "divergence" between two runs of ONE machine (measured).
+        def group(rows):
+            out: dict = {}
+            for line in rows:
+                k, v = split(line)
+                out.setdefault(k, []).append(v)
+            for v in out.values():
+                v.sort()
+            return out
+
+        left, right = group(ca), group(cb)
+        per_gen: dict = {}
+        unmatched = 0
+        for row_key, mine in left.items():
+            theirs = right.get(row_key)
+            if theirs is None or len(theirs) != len(mine):
+                unmatched += len(mine)
+                continue
+            gen = row_key.split("|")[1]
+            slot = per_gen.setdefault(gen, {"n": 0, "differ": 0, "max": 0.0,
+                                            "worst": None})
+            for va_row, vb_row in zip(mine, theirs):
+                slot["n"] += 1
+                worst = 0.0
+                for va, vb in zip(va_row, vb_row):
+                    if va == vb:
+                        continue
+                    if va == "-" or vb == "-":
+                        worst = max(worst, float("inf"))
+                        continue
+                    worst = max(worst, abs(float.fromhex(va)
+                                           - float.fromhex(vb)))
+                if worst:
+                    slot["differ"] += 1
+                    if worst > slot["max"]:
+                        slot["max"] = worst
+                        slot["worst"] = row_key
+        out["constraint_rows"] = {
+            "n": [len(ca), len(cb)], "unmatched": unmatched,
+            "by_generator": per_gen,
+        }
     za, zb = a.get("solved_z") or [], b.get("solved_z") or []
     if za and zb:
         pairs = [(fh(va[0]), fh(vb[0])) for _k, va, vb in _joined(za, zb, 2)]
@@ -802,6 +918,19 @@ def compare_projection(dumps: _t.Mapping[str, dict]) -> list:
                                     ("inf" if band["hi_m"] is None
                                      else "%.0f" % band["hi_m"]),
                                     band["n"], band["max"], band["p50"]))
+            cons = pair.get("constraint_rows")
+            if cons:
+                lines.append("")
+                lines.append("== %s vs %s — CONSTRAINT ROW VALUES "
+                             "(%s rows, %d unmatched keys) =="
+                             % (a, b, cons["n"], cons["unmatched"]))
+                for gen, s in sorted(cons["by_generator"].items(),
+                                     key=lambda kv: -kv[1]["max"]):
+                    lines.append("  %-28s n %-7d differ %-7d max|d| %.3e%s"
+                                 % (gen, s["n"], s["differ"], s["max"],
+                                    ("  @ " + s["worst"].split("|")[1] + "/"
+                                     + s["worst"].split("|")[2])
+                                    if s["worst"] else ""))
             z = pair.get("solved_z")
             if z:
                 s = z["delta"]

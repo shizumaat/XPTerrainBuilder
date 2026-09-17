@@ -1170,7 +1170,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _xplat.write(str(Path(out_dir) / f"{icao}.xproj.json"),
                      _xplat.projection_payload(
                          icao, frame=airport.frame,
-                         solved=sol.z or None, final_pm=pm))
+                         solved=sol.z or None, final_pm=pm,
+                         constraints=cs))
         _say(f"[{icao}] exact projection dump -> {icao}.xproj.json "
              f"(quantise {cfg.xplat_quantise_m:g} m)", out)
         _xplat.disarm_projection()

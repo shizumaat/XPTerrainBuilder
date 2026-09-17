@@ -83,6 +83,16 @@ from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
 import O4_Qt_Wizard as QTWIZ
 
+# The squeeze idiom lives in ONE module now (2026-09-17): this window,
+# the settings sheet and the wizard all import it.  Top-level, so
+# PyInstaller sees it without a hidden-import entry.  The underscored
+# aliases keep this file's ~20 existing call sites unchanged.
+from O4_Qt_Widgets import (  # noqa: E402
+    ElidedRowLabel,
+    may_be_squeezed as _may_be_squeezed,
+    never_widen as _never_widen,
+)
+
 PREFS_FILE = FNAMES.data_path(".qt_prefs.json")
 AIRPORT_CACHE = FNAMES.airport_index_cache()
 MAX_CONSOLE_LINES = 5000
@@ -671,109 +681,6 @@ class TwoLineElidedLabel(QLabel):
         if display != super().text():
             super().setText(display)
         self.setToolTip(self._full_text if display != self._full_text else "")
-
-
-class ElidedRowLabel(QLabel):
-    """One-line label that PREFERS its full text but may be squeezed.
-
-    A plain QLabel reports its whole text width as its MINIMUM, so every
-    such label is a hard floor under the fixed-width side panel.  That
-    floor is measured in the platform's font: on the Windows CI runner
-    the offscreen font's glyphs are 1.5x the mac's, the panel's minimum
-    came out 452 px against its 266 px viewport, and the panel clipped
-    silently (its horizontal scrollbar is off by design — beta plan §1
-    B4).  Here the size HINT still carries the full text, so wherever
-    the row has room nothing changes; only a squeezed row elides the
-    label (tail elision, full text in the tooltip) instead of widening
-    its panel.
-
-    Height never depends on width — no word wrap — so this cannot start
-    the scroll-area relayout oscillation TwoLineElidedLabel documents.
-    ``text()`` answers the FULL text, not what is painted.
-    """
-
-    #: Squeezed-out floor, in ellipsis widths: enough that a fully
-    #: squeezed label still shows it EXISTS, small enough that a form
-    #: full of them cannot add up past the panel.
-    MIN_CHARS = 1
-
-    def __init__(self, text="", parent=None):
-        super().__init__(parent)
-        self.setTextFormat(Qt.PlainText)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        self._full_text = ""
-        self.setText(text)
-
-    def text(self):
-        return self._full_text
-
-    def setText(self, text):
-        self._full_text = str(text or "")
-        self._apply_elide()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._apply_elide()
-
-    def changeEvent(self, event):
-        super().changeEvent(event)
-        if event.type() == QEvent.FontChange:
-            self.updateGeometry()
-            self._apply_elide()
-
-    def _margin_width(self):
-        margins = self.contentsMargins()
-        return margins.left() + margins.right() + 2 * self.margin()
-
-    def sizeHint(self):
-        # Computed from the FULL text: painting an elided string must
-        # never shrink the hint (that would ratchet the label down and
-        # never let it back).
-        hint = super().sizeHint()
-        hint.setWidth(
-            self.fontMetrics().horizontalAdvance(self._full_text)
-            + self._margin_width()
-        )
-        return hint
-
-    def minimumSizeHint(self):
-        hint = super().minimumSizeHint()
-        hint.setWidth(
-            self.fontMetrics().horizontalAdvance("…" * self.MIN_CHARS)
-            + self._margin_width()
-        )
-        return hint
-
-    def _apply_elide(self):
-        width = self.contentsRect().width()
-        if width <= 0:  # not laid out yet: nothing to elide against
-            display = self._full_text
-        else:
-            display = self.fontMetrics().elidedText(
-                self._full_text, Qt.ElideRight, width
-            )
-        if display != QLabel.text(self):
-            QLabel.setText(self, display)
-        elided = display != self._full_text
-        # A tooltip the CALLER set (the row's own explanation) outranks
-        # the full-text fallback and is never overwritten.
-        if self.toolTip() in ("", self._full_text):
-            self.setToolTip(self._full_text if elided else "")
-
-
-def _may_be_squeezed(combo, chars=4):
-    """Stop *combo* demanding room for its widest item.
-
-    QComboBox reports the same width as its minimum and its hint (the
-    widest item, by default), which in the fixed-width side panel is a
-    floor that grows with the platform's font.  These combos always fill
-    the width their row has left over (stretch 1), so a small minimum
-    changes nothing that is drawn — it only lets the row shrink.
-    """
-    combo.setSizeAdjustPolicy(
-        QComboBox.AdjustToMinimumContentsLengthWithIcon
-    )
-    combo.setMinimumContentsLength(chars)
 
 
 class _EngineBridge(QObject):
@@ -4091,20 +3998,6 @@ def _fmt_remaining(seconds):
     if seconds < 3600:
         return "%d m" % round(seconds / 60.0)
     return _fmt_duration(seconds)
-
-
-def _never_widen(widget):
-    """Let *widget* clip rather than widen the fixed-width side panel.
-
-    The panel is 280 px with its horizontal scrollbar off, so a child
-    that demands more width clips SILENTLY — and a push button neither
-    wraps nor elides its label.  Ignored horizontal policy is the same
-    answer the Activity title already uses; the tooltip carries the full
-    text.
-    """
-    policy = widget.sizePolicy()
-    policy.setHorizontalPolicy(QSizePolicy.Ignored)
-    widget.setSizePolicy(policy)
 
 
 def _provider_label(providers):

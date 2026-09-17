@@ -31,3 +31,6 @@ Ortho4XP/tests/auto_patch_v2/fixtures/__pycache__/
 build/icons/
 Ortho4XP/Utils/icons/generated/
 Ortho4XP/version_info.txt
+
+# scripts/check_frozen_tile.py default --logs dir (local runs)
+frozen-tile-logs/

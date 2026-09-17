@@ -1704,17 +1704,21 @@ def apply_xplane_install_paths(owner_cfg=OWNER_APP_CFG) -> dict:
     auto-patch phases, 40.1 MB mesh vs 44.5, 11.5 MB DSF vs 12.5).
     """
     import O4_Config_Utils as CFG
+    import O4_Settings_Model as SETTINGS
     applied = {}
     for key, value in read_cfg(owner_cfg).items():
         if key in XPLANE_PATH_KEYS and value:
             CFG.set_global_variables(key, CFG.config_compatibility(value))
             applied[key] = value
-    if not applied.get("cifp_data_path") and \
-            not applied.get("custom_scenery_dir"):
-        raise SystemExit(
-            "REFUSING: no CIFP directory and no Custom Scenery directory "
-            "resolve — auto_patch generation would be SKIPPED and the tile "
-            "would build with no airport surfaces at all, exiting 0.")
+    # THE SAME PREDICATE the engine itself refuses on
+    # (``O4_Vector_Map.run_auto_patch_generation``) — imported, never a
+    # second spelling: the harness refusing on a condition the engine
+    # tolerated (or the reverse) is how the two drifted apart before.
+    refusal = SETTINGS.cifp_refusal_reason(
+        applied.get("cifp_data_path", ""),
+        applied.get("custom_scenery_dir", ""))
+    if refusal is not None:
+        raise SystemExit("REFUSING: " + refusal)
     return applied
 
 

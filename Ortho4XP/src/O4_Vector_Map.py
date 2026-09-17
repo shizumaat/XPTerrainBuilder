@@ -1381,101 +1381,91 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
     # Backward compat: legacy bool True/False configs map to "All"/"None"
     auto_patch_mode = resolved_auto_patch_mode(tile)
     if auto_patch_mode != "None":
-        cifp_path = CFG.cifp_data_path
-        if not cifp_path and CFG.custom_scenery_dir:
-            # Try X-Plane's CIFP locations relative to Custom Scenery.
-            # ``autodetect_cifp`` owns the precedence (an AIRAC update in
-            # Custom Data/CIFP wins over the stock Resources/default
-            # data/CIFP); this used to look only in Custom Data, so an
-            # install without Navigraph found no CIFP at all.
-            import O4_Settings_Model as SETTINGS
-            xplane_root = os.path.dirname(
-                os.path.normpath(CFG.custom_scenery_dir)
+        # ONE spelling of "which CIFP folder will this build read" and of
+        # the refusal, shared with tools/harness/build_airport.py and with
+        # both UIs (``O4_Settings_Model``).  ``autodetect_cifp`` owns the
+        # precedence inside it (an AIRAC update in Custom Data/CIFP wins
+        # over the stock Resources/default data/CIFP).
+        import O4_Settings_Model as SETTINGS
+        cifp_path = SETTINGS.resolve_cifp_dir(
+            CFG.cifp_data_path, CFG.custom_scenery_dir)
+        refusal = SETTINGS.cifp_refusal_reason(
+            CFG.cifp_data_path, CFG.custom_scenery_dir, auto_patch_mode)
+        if refusal is not None:
+            # FATAL, not a warning (beta plan §1 B2).  This used to print
+            # a loud banner and carry on: the tile finished with exit 0,
+            # a ~20 s vector phase instead of ~400 s, and every runway,
+            # taxiway and apron draped over the raw DEM — the same silent
+            # tile-death class H1 closed for per-airport failures.  Raised
+            # through the EXISTING ``AutoPatchBuildFailure`` path so step 1
+            # returns 0, the session emits ``BuildDone(ok=False)`` and the
+            # process exits nonzero: no new protocol event.
+            raise AUTOPATCH.AutoPatchBuildFailure([{
+                "icao": "*", "stage": "config", "error": refusal,
+            }])
+        # The taxiway/building/road extraction below is passed as
+        # zero-arg callables: generate_auto_patches invokes them
+        # only when at least one airport actually needs a rebuild.
+        # A tile whose auto-patches are all up to date (apt.dat
+        # unchanged) skips the parsing — and its log output —
+        # entirely.
+
+        # Taxiway centerlines from OSM data for patch generation.
+        def _taxiway_provider():
+            return OSMAERO.extract_taxiway_info(
+                airport_layer, dico_airports, tile
             )
-            cifp_path = SETTINGS.autodetect_cifp(xplane_root) or ""
-        if cifp_path:
-            # The taxiway/building/road extraction below is passed as
-            # zero-arg callables: generate_auto_patches invokes them
-            # only when at least one airport actually needs a rebuild.
-            # A tile whose auto-patches are all up to date (apt.dat
-            # unchanged) skips the parsing — and its log output —
-            # entirely.
 
-            # Taxiway centerlines from OSM data for patch generation.
-            def _taxiway_provider():
-                return OSMAERO.extract_taxiway_info(
-                    airport_layer, dico_airports, tile
-                )
-
-            # Building data: rely solely on aeroway=hangar and
-            # aeroway=terminal features that are ALREADY in the
-            # per-tile airport_layer cache.  Per user 2026-04-27:
-            # the previous per-airport ``way["building"]`` Overpass
-            # queries (one per airport, with a 1 km buffer) caused
-            # rate-limit cascades and partial failures on tiles
-            # with many small airports (e.g. 25+ airports in the
-            # Charlotte tile), and the resulting building cache
-            # often failed to write entirely.  General building
-            # footprints (control towers, fire stations, fuel
-            # depots, etc.) catch only edge cases — terminals and
-            # hangars dominate the apron-paint cut-outs.  Skipping
-            # the extra query trades minor coverage for speed,
-            # robustness, and zero rate-limit risk.
-            def _building_provider():
-                return OSMAERO.extract_building_info(
-                    airport_layer, dico_airports, tile,
-                    building_layer=None,
-                )
-
-            # Cached big roads for tunnel/road-aware terrain modeling.
-            def _road_provider():
-                # The background prefetch may still be downloading the
-                # roads — wait for it, so a freshly built tile gets its
-                # road data instead of silently building without it.
-                wait_for_background_osm_prefetch()
-                cached_roads = FNAMES.osm_cached(
-                    tile.lat, tile.lon, "big_roads"
-                )
-                if not os.path.isfile(cached_roads):
-                    return None
-                road_osm_layer = OSM.OSM_layer()
-                road_osm_layer.update_dicosm(
-                    cached_roads,
-                    {"n": [], "w": [("highway", ""), ("tunnel", ""),
-                                    ("bridge", "")], "r": []},
-                    {"n": [], "w": [("highway", ""), ("tunnel", ""),
-                                    ("bridge", "")], "r": []},
-                )
-                return OSMAERO.extract_road_info(
-                    dico_airports, tile, road_layer=road_osm_layer)
-
-            AUTOPATCH.generate_auto_patches(
-                tile, cifp_path,
-                taxiway_data=_taxiway_provider,
-                building_data=_building_provider,
-                dico_airports=dico_airports,
-                road_data=_road_provider,
-                mode=auto_patch_mode,
+        # Building data: rely solely on aeroway=hangar and
+        # aeroway=terminal features that are ALREADY in the
+        # per-tile airport_layer cache.  Per user 2026-04-27:
+        # the previous per-airport ``way["building"]`` Overpass
+        # queries (one per airport, with a 1 km buffer) caused
+        # rate-limit cascades and partial failures on tiles
+        # with many small airports (e.g. 25+ airports in the
+        # Charlotte tile), and the resulting building cache
+        # often failed to write entirely.  General building
+        # footprints (control towers, fire stations, fuel
+        # depots, etc.) catch only edge cases — terminals and
+        # hangars dominate the apron-paint cut-outs.  Skipping
+        # the extra query trades minor coverage for speed,
+        # robustness, and zero rate-limit risk.
+        def _building_provider():
+            return OSMAERO.extract_building_info(
+                airport_layer, dico_airports, tile,
+                building_layer=None,
             )
-        else:
-            # LOUD on purpose: an empty cifp_data_path here silently
-            # produced tiles with ZERO airport grading that looked
-            # complete (vector phase ~20 s instead of ~400 s, exit 0).
-            banner = "!" * 78
-            UI.loud_warning("\n".join([
-                banner,
-                "! WARNING: auto_patch=%s but no CIFP data was found."
-                % auto_patch_mode,
-                "!   cifp_data_path is empty in Ortho4XP.cfg and no",
-                "!   'Custom Data/CIFP' directory exists next to"
-                " custom_scenery_dir.",
-                "! NO AIRPORTS WILL BE GRADED ON THIS TILE - runways,"
-                " taxiways",
-                "!   and aprons will drape over the raw DEM terrain.",
-                "! Fix: set cifp_data_path in Ortho4XP.cfg to X-Plane's"
-                " Custom Data/CIFP folder.",
-                banner,
-            ]))
+
+        # Cached big roads for tunnel/road-aware terrain modeling.
+        def _road_provider():
+            # The background prefetch may still be downloading the
+            # roads — wait for it, so a freshly built tile gets its
+            # road data instead of silently building without it.
+            wait_for_background_osm_prefetch()
+            cached_roads = FNAMES.osm_cached(
+                tile.lat, tile.lon, "big_roads"
+            )
+            if not os.path.isfile(cached_roads):
+                return None
+            road_osm_layer = OSM.OSM_layer()
+            road_osm_layer.update_dicosm(
+                cached_roads,
+                {"n": [], "w": [("highway", ""), ("tunnel", ""),
+                                ("bridge", "")], "r": []},
+                {"n": [], "w": [("highway", ""), ("tunnel", ""),
+                                ("bridge", "")], "r": []},
+            )
+            return OSMAERO.extract_road_info(
+                dico_airports, tile, road_layer=road_osm_layer)
+
+        AUTOPATCH.generate_auto_patches(
+            tile, cifp_path,
+            taxiway_data=_taxiway_provider,
+            building_data=_building_provider,
+            dico_airports=dico_airports,
+            road_data=_road_provider,
+            mode=auto_patch_mode,
+        )
 
 
 ################################################################################

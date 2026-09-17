@@ -122,20 +122,40 @@ jobs:
       # Three steps, each `if: always()`, so one group's red does not hide
       # the other two — a matrix debugged one hidden failure per push is
       # what six CI rounds are spent on.
+      #
+      # `|| [ $? -eq 5 ]`: pytest exits 5 for "no tests ran", which on
+      # Windows is the INTENDED state of the harness file (the whole
+      # module is platform-skipped).  Every other non-zero code still
+      # fails the step.
       - name: Harness twins
         if: always()
         working-directory: Ortho4XP
         run: |
-          python -m pytest $PYTEST_FLAGS tests/test_harness.py
+          python -m pytest $PYTEST_FLAGS tests/test_harness.py \
+            || [ $? -eq 5 ]
 
       - name: Engine protocol
         if: always()
         working-directory: Ortho4XP
         run: |
-          python -m pytest $PYTEST_FLAGS tests/test_engine*.py
+          python -m pytest $PYTEST_FLAGS tests/test_engine*.py \
+            || [ $? -eq 5 ]
 
+      # SERIAL (-n0) and, where the runner has coreutils, under a wall
+      # clock of its own.  Rounds 1 and 3 both lost this step on Linux to
+      # the job's 30-minute timeout, and a CANCELLED job keeps NO LOGS AT
+      # ALL — two rounds spent learning nothing.  Under xdist a worker
+      # that dies hard leaves the controller waiting and --timeout cannot
+      # fire; serial, a crash kills pytest immediately and -v names the
+      # test it died in.  The step's own `timeout` fails the STEP instead
+      # of the JOB, so the log survives to be read.
       - name: Qt app (offscreen)
         if: always()
         working-directory: Ortho4XP
         run: |
-          python -m pytest $PYTEST_FLAGS tests/test_qt_*.py
+          limit=""
+          if command -v timeout >/dev/null 2>&1; then
+            limit="timeout -k 30 900"     # absent on the macOS runner
+          fi
+          $limit python -m pytest $PYTEST_FLAGS -n0 -v tests/test_qt_*.py \
+            || [ $? -eq 5 ]

@@ -23,7 +23,12 @@ Contract (frozen, spec section 4.1):
     for floating-point misses outside coverage;
   * ``terrain_paths`` preserves ``TERRAIN_DEF`` declaration order.
 
-Water terrains are kept like any other terrain (callers filter if needed).
+Water terrains are kept like any other terrain: the map reports what the
+default scenery says.  Callers filter with :func:`is_water_terrain` — and
+the DSF writer MUST, because X-Plane's landclass coastline is far coarser
+than an Ortho4XP mesh's, so the terrain at a bank triangle's centroid is
+routinely a water terrain (owner sim read at OTHH, 2026-09-17: water drawn
+up the banks under a bridge, on land standing 3.96 m above the sea).
 
 This is a core-pipeline module: it must never import a GUI toolkit.  It may
 import ``O4_UI_Utils`` for prints and reuse ``auto_patch.dsf_reader``'s
@@ -75,6 +80,28 @@ def _dump_cache_dir() -> str:
     """
     os.makedirs(FNAMES.Default_dsf_cache_dir, exist_ok=True)
     return FNAMES.Default_dsf_cache_dir
+
+
+#: Terrain resources X-Plane draws with its WATER shader.  ``terrain_Water``
+#: is the engine's own virtual terrain (``O4_DSF_Utils`` seeds it at index
+#: 0); the substrings catch the default-scenery landclass water terrains
+#: (``lib/g10/terrain10/water_*.ter``, lake and sea variants) this map can
+#: return for any point the default coastline calls water.
+_WATER_TERRAIN_EXACT = ("terrain_Water",)
+_WATER_TERRAIN_SUBSTRINGS = ("water", "lake", "/sea", "_sea")
+
+
+def is_water_terrain(terrain_path: str) -> bool:
+    """Whether ``terrain_path`` is drawn by X-Plane's water shader.
+
+    THE ONE IMPLEMENTATION: the DSF writer's filter and
+    ``tools/decode_dsf_terrain_table.py --water-datum-audit`` both call
+    this, so the law and the instrument that measures it cannot disagree.
+    """
+    if terrain_path in _WATER_TERRAIN_EXACT:
+        return True
+    lowered = terrain_path.lower()
+    return any(token in lowered for token in _WATER_TERRAIN_SUBSTRINGS)
 
 
 class DefaultTerrainMap:

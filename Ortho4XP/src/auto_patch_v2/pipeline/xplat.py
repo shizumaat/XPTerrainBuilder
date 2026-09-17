@@ -365,7 +365,7 @@ def stage_digests(icao: str, airport=None, classification=None, pm=None,
 
 def write(path: str, payload: dict) -> str:
     import json
-    with open(path, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(payload, handle, indent=1, sort_keys=True)
     return path
 

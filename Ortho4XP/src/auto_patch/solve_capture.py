@@ -232,7 +232,8 @@ def write_capture(tail: dict, dest: Path) -> Path:
         **{k: tail[k] for k in SCALAR_KEYS},
     }
     (dest / MANIFEST_NAME).write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8", newline="\n")
     return dest
 
 

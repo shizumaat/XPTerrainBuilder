@@ -741,10 +741,22 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     out_dsf = os.path.join(work, base + ".new")
 
     dump(backup, pristine_text, tool)
-    with open(pristine_text, "r", errors="replace") as fh:
+    # THE DUMP ROUND-TRIPS BYTE-EXACTLY, ON EVERY PLATFORM (lane xplatcrlf,
+    # 2026-09-17).  Both sides pin the same codec AND the same terminator:
+    #   - utf-8/surrogateescape: X-Plane resource paths are UTF-8, and a
+    #     byte that is not decodes and re-encodes to ITSELF, so a line
+    #     ``edit_dump`` does not touch is handed back to DSFTool unchanged
+    #     whatever the machine's locale encoding happens to be.
+    #   - newline="\n": the universal-newline read already normalises the
+    #     dump to "\n" before ``edit_dump`` splits it with keepends, so the
+    #     unqualified text-mode write was re-expanding that to CRLF on
+    #     Windows and nowhere else.
+    with open(pristine_text, "r", encoding="utf-8",
+              errors="surrogateescape") as fh:
         text = fh.read()
     edited = edit_dump(text, plan)
-    with open(edited_text, "w") as fh:
+    with open(edited_text, "w", encoding="utf-8",
+              errors="surrogateescape", newline="\n") as fh:
         fh.write(edited)
 
     encode(edited_text, out_dsf, tool)
@@ -777,7 +789,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             for f in body_files),
     }
     prov_path = os.path.join(os.path.dirname(dsf_path), PROVENANCE_FILENAME)
-    with open(prov_path, "w") as fh:
+    with open(prov_path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(prov, fh, indent=1, sort_keys=True)
 
     return WriteResult(dsf_path, backup, created, edited_text, prov_path,

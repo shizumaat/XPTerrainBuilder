@@ -611,7 +611,8 @@ def write_band_width_artifact(field: dict, path,
     }
     if extra:
         doc.update(extra)
-    Path(path).write_text(json.dumps(doc, indent=1))
+    Path(path).write_text(json.dumps(doc, indent=1),
+                          encoding="utf-8", newline="\n")
 
 
 def constant_dem_worlds(lat: int = 0, lon: int = 0) -> Iterable:

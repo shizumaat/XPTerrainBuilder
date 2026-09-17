@@ -217,7 +217,11 @@ def write_files(pack_root: str, files: _t.Sequence, *,
                     f"REFUSING to overwrite an authored object with a cut body: "
                     f"{rel!r} (the split names are new names only, §4.5)")
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="latin-1", errors="replace") as fh:
+        # latin-1 is deliberate (X-Plane reads OBJ8 text as 8-bit); the
+        # newline is pinned so Windows does not rewrite the same object
+        # with CRLF (lane xplatcrlf, 2026-09-17).
+        with open(path, "w", encoding="latin-1", errors="replace",
+                  newline="\n") as fh:
             fh.write(f.text)
         out.append(path)
     return tuple(out)
@@ -323,7 +327,8 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     if patch_dir:
         os.makedirs(patch_dir, exist_ok=True)
         plan_path = os.path.join(patch_dir, PLAN_FILENAME.format(icao=plan.icao))
-        with open(plan_path + ".tmp", "w") as fh:
+        with open(plan_path + ".tmp", "w", encoding="utf-8",
+                  newline="\n") as fh:
             json.dump(plan.to_dict(), fh, indent=1)
         os.replace(plan_path + ".tmp", plan_path)
     counts = dict(plan.counts())

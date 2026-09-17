@@ -1206,7 +1206,7 @@ def _cached_post_mesh_records(
     try:
         os.makedirs(cache_directory, exist_ok=True)
         temporary_path = cache_path + ".tmp"
-        with open(temporary_path, "w") as handle:
+        with open(temporary_path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(
                 {
                     "version": _EXCLUSION_CACHE_VERSION,

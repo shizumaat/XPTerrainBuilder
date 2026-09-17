@@ -311,6 +311,6 @@ def chain_kml(prep: Prepared, fid: int, path: str, title: str | None = None,
         L.append(f"<Placemark><name>{escape(f'TERMINAL {tr.terminal_kind} v{tr.terminal} z {z[tr.terminal]:.2f}: {tr.terminal_note}')}</name>"
                  f"<Point><coordinates>{ll(tr.terminal)}</coordinates></Point></Placemark>")
     L.append("</Document></kml>")
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(L) + "\n")
     return tr

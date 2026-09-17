@@ -980,7 +980,7 @@ def write_patch(surface: GradedSurface, law: Law, out_dir: str | Path,
     out.mkdir(parents=True, exist_ok=True)
     text, n_ways, n_nodes = render_patch(surface, law, header, face_tags)
     patch = out / f"{surface.icao}_auto.patch.osm"
-    patch.write_text(text)
+    patch.write_text(text, encoding="utf-8", newline="\n")
     side = Path(str(patch) + ".axes.json")
     # THE HOLES ARE THE HOLES OF THE RINGS THIS WRITER WRITES (RULINGS
     # 2026-09-13da residual; spec §41 (2)): derived here from ``surface``,
@@ -989,9 +989,11 @@ def write_patch(surface: GradedSurface, law: Law, out_dir: str | Path,
     # frame.  A ``face_holes`` the caller published earlier is superseded.
     doc = dict(sidecar or {})
     doc["face_holes"] = face_holes_ll(surface)
-    side.write_text(json.dumps(render_sidecar(law, doc), separators=(",", ":")))
+    side.write_text(json.dumps(render_sidecar(law, doc), separators=(",", ":")),
+                    encoding="utf-8", newline="\n")
     graded = out / f"{surface.icao}.graded.json"
-    graded.write_text(surface.to_json(z_dp=z_decimals(law)))
+    graded.write_text(surface.to_json(z_dp=z_decimals(law)),
+                      encoding="utf-8", newline="\n")
     return PatchPaths(patch, side, graded, n_ways, n_nodes,
                       patch.stat().st_size, side.stat().st_size)
 

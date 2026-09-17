@@ -477,7 +477,12 @@ class _Stream:
     def __init__(self, path):
         self.objects = []
         self.raw = []
-        self._file = open(path, "w", encoding="utf-8")
+        # newline pinned: the pump reads the engine's stdout in
+        # universal-newline mode, so an unqualified text write re-expanded
+        # every protocol line to CRLF on Windows and the uploaded
+        # ``engine-jsonl.log`` then said nothing about what the WIRE
+        # carried (lane xplatcrlf, 2026-09-17: 275 CRLF, run 35284573827).
+        self._file = open(path, "w", encoding="utf-8", newline="\n")
         self._lock = threading.Lock()
 
     def pump(self, handle):

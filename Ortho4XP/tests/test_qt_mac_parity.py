@@ -347,3 +347,67 @@ def test_provider_label_names_one_source_or_says_multiple():
     assert GUI._provider_label({"BI"}) == "BI"
     assert GUI._provider_label({"BI", "Arc"}) == "Multiple"
     assert GUI._provider_label(set()) == "—"
+
+
+# ===========================================================================
+# scenery_packs.ini — the two languages agree on the edge rules
+# (owner RULINGS 2026-09-17b; Python's ONE derivation site is
+# ``O4_Scenery_Packs``, Swift's is InstallationScanner + PackActions)
+# ===========================================================================
+def _swift(*parts):
+    path = os.path.join(os.path.dirname(__file__), "..", "..",
+                        "Sources", "SceneryKit", *parts)
+    if not os.path.exists(path):
+        pytest.skip("Swift sources not present in this tree")
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def test_the_four_ini_edge_rules_match_the_mac_app(tmp_path):
+    """Python's answers, then the Swift lines that give the same ones.
+
+    Four rules, one per pair of assertions: EXACT token, unlisted =
+    enabled, a non-``Custom Scenery/`` entry names no pack, and a pack not
+    on disk (a dangling symlink onto an unmounted volume is the owner's
+    common case) is simply absent — never an error.
+    """
+    import O4_Scenery_Packs as SP
+
+    scanner = _swift("InstallationScanner.swift")
+    actions = _swift("PackActions.swift")
+
+    custom = tmp_path / "Custom Scenery"
+    (custom / "on").mkdir(parents=True)
+    (custom / "off").mkdir()
+    (custom / "unlisted").mkdir()
+    os.symlink(str(tmp_path / "unmounted" / "pack"), str(custom / "dangler"))
+    (custom / "scenery_packs.ini").write_text(
+        "I\n1000 Version\nSCENERY\n\n"
+        "SCENERY_PACK Custom Scenery/on/\n"
+        "SCENERY_PACK_DISABLED Custom Scenery/off/\n"
+        "SCENERY_PACK Custom Scenery/dangler/\n"
+        "SCENERY_PACK *GLOBAL_AIRPORTS*\n")
+
+    # 1. EXACT first token — never startswith("SCENERY_PACK"), which
+    #    SCENERY_PACK_DISABLED also satisfies.
+    assert SP.pack_enabled("off", str(custom)) is False
+    assert SP.pack_enabled("on", str(custom)) is True
+    assert 'line.hasPrefix("SCENERY_PACK_DISABLED ")' in scanner
+    assert '["SCENERY_PACK_DISABLED ", "SCENERY_PACK "]' in actions
+
+    # 2. On disk but NOT LISTED = enabled (X-Plane adds it on next launch).
+    assert SP.pack_enabled("unlisted", str(custom)) is True
+    assert "(iniEntry?.enabled ?? true) ? .enabled : .disabled" in scanner
+
+    # 3. An entry that is not a Custom Scenery path names no pack.
+    assert SP.pack_name_from_ini_path("*GLOBAL_AIRPORTS*") is None
+    assert SP.pack_name_from_ini_path(
+        "Global Scenery/X-Plane 12 Global Scenery/") is None
+    assert 'guard path.hasPrefix("Custom Scenery/") else { return nil }' \
+        in actions
+
+    # 4. Listed but not on disk (dangling symlink) = absent, never an
+    #    error.  Swift keeps a pack whose symlink RESOLVES and drops one
+    #    that does not, through the same isDirectory/fileExists test.
+    assert SP.enabled_pack_names(str(custom)) == {"on", "unlisted"}
+    assert "fm.fileExists(atPath: url.path, isDirectory: &isDir)" in scanner

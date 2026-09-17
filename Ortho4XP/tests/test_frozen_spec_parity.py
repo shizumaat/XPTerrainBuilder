@@ -28,3 +28,13 @@ def test_every_spec_parses():
 def test_every_spec_pins_the_hash_seed():
     for name in SPECS:
         assert "('hash_seed=0', None, 'OPTION')" in _source(name), name
+
+
+def test_every_spec_names_the_scenery_pack_module():
+    """Whether scenery_packs.ini is honoured (owner RULINGS 2026-09-17b)
+    rides on ``O4_Scenery_Packs`` reaching the frozen bundle.  Its
+    consumers import it at TOP LEVEL, so PyInstaller finds it statically;
+    naming it in hiddenimports is the belt — the lazy-import class shipped
+    a broken frozen engine on 2026-09-10."""
+    for name in SPECS:
+        assert "'O4_Scenery_Packs'" in _source(name), name

@@ -511,7 +511,7 @@ def _tail(path, lines=60):
 
 
 def _drive(binary, work, data_root, command, jsonl_log, stderr_log,
-           deadline, label, tolerated=None):
+           deadline, label, tolerated=None, extra_env=None):
     """Run one ``build`` command through the frozen binary's protocol.
 
     Returns ``(stream, elapsed, failures)``.  The protocol-level
@@ -536,6 +536,12 @@ def _drive(binary, work, data_root, command, jsonl_log, stderr_log,
     # — the same hostile environment the PROJ self-check uses.
     environment["PROJ_LIB"] = os.path.join(work, "nonexistent-proj")
     environment["PROJ_DATA"] = environment["PROJ_LIB"]
+    # ``--xplat-dump`` arms the engine's own per-stage digest writer
+    # (``auto_patch_v2/pipeline/xplat.py``).  It travels in the CHILD's
+    # environment because the driver never imports the engine — the bundle
+    # under test is the only thing that can read its own stages.
+    for key, value in (extra_env or {}).items():
+        environment[key] = value
 
     print("   fixture data root: %s" % data_root)
     print("   driving %s --engine-jsonl (%s, steps %s, deadline %d s)"
@@ -750,7 +756,7 @@ def run(binary, repo_root, log_dir, lat, lon, deadline, keep):
                    log_dir, stderr_log, jsonl_log)
 
 
-def run_airport(binary, repo_root, log_dir, deadline, keep):
+def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None):
     """PASS 2 — ONE REAL AIRPORT SOLVED inside the frozen bundle.
 
     The vector step alone: ``include_airports`` ->
@@ -781,7 +787,8 @@ def run_airport(binary, repo_root, log_dir, deadline, keep):
             binary, work, data_root, command, jsonl_log, stderr_log,
             deadline, "airport %s on tile %s"
             % (AIRPORT_ICAO, _short_latlon(AIRPORT_LAT, AIRPORT_LON)),
-            tolerated=lambda text: VERIFY_DEFECT_MARKER in text)
+            tolerated=lambda text: VERIFY_DEFECT_MARKER in text,
+            extra_env={"O4_V2_XPLAT_DIGEST": "1"} if xplat_dump else None)
 
         # ---- the auto-patch protocol events ---------------------------
         # AutoPatchBegin/Progress are emitted by the engine even though
@@ -966,6 +973,36 @@ def run_airport(binary, repo_root, log_dir, deadline, keep):
             print("   WARNING: the airport pass attempted an Overpass "
                   "download — a cache suffix or tag schema changed.")
 
+        # ---- THE CROSS-PLATFORM DUMP ---------------------------------
+        # The fixture is thrown away at the end of this call, so anything
+        # the platform comparison needs is COPIED OUT here.  The driver
+        # only copies: every number in the dump was derived inside the
+        # bundle under test, by the engine's own ``pipeline/xplat.py``,
+        # because this interpreter has no third-party package to derive
+        # one with (the mac runner's bare python3 has no numpy).
+        if xplat_dump:
+            os.makedirs(xplat_dump, exist_ok=True)
+            copied = []
+            for name in ("%s.xplat.json" % AIRPORT_ICAO,
+                         "%s.report.json" % AIRPORT_ICAO):
+                for found in glob.glob(os.path.join(
+                        data_root, "tmp", "auto_patch_v2", "*",
+                        AIRPORT_ICAO, name)):
+                    shutil.copy2(found, os.path.join(xplat_dump, name))
+                    copied.append(name)
+            if patch and os.path.isfile(patch):
+                shutil.copy2(patch, os.path.join(
+                    xplat_dump, "%s_auto.patch.osm" % AIRPORT_ICAO))
+                copied.append("%s_auto.patch.osm" % AIRPORT_ICAO)
+            if "%s.xplat.json" % AIRPORT_ICAO not in copied:
+                # Armed but absent: the bundle is older than the dump, or
+                # the build died before the report site.  Named, never
+                # silently an empty artifact.
+                print("   WARNING: --xplat-dump was asked for but the "
+                      "bundle wrote no %s.xplat.json" % AIRPORT_ICAO)
+            print("   cross-platform dump -> %s (%s)"
+                  % (xplat_dump, ", ".join(copied) or "nothing"))
+
         print("   frozen airport solve finished in %.0f s" % elapsed)
     finally:
         if keep:
@@ -979,9 +1016,62 @@ def run_airport(binary, repo_root, log_dir, deadline, keep):
         log_dir, stderr_log, jsonl_log)
 
 
+def _compare(specs):
+    """``--compare mac=A.json linux=B.json windows=C.json``.
+
+    The table itself is the ENGINE's own ``pipeline/xplat.compare`` —
+    imported from ``Ortho4XP/src``, never re-spelled here (a second
+    implementation of a comparison is the census-wrapper defect,
+    CLAUDE.md).  ``xplat.py`` is standard-library only, which is what
+    lets this third-party-free driver import it at all.
+    """
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(repo_root, "Ortho4XP", "src", "auto_patch_v2",
+                        "pipeline", "xplat.py")
+    # Loaded BY FILE, not as ``auto_patch_v2.pipeline.xplat``: importing
+    # the package would drag in shapely, and this interpreter is the bare
+    # runner python3 with no third-party package at all.  ``xplat.py`` is
+    # standard-library only, which is what makes that lawful.
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_o4_xplat", path)
+        xplat = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(xplat)
+    except Exception as error:
+        print("ERROR: cannot load the engine's xplat module from %s: %s"
+              % (path, error), file=sys.stderr)
+        return 1
+    dumps = {}
+    for spec in specs:
+        if "=" not in spec:
+            print("ERROR: --compare takes NAME=PATH, not %r" % spec,
+                  file=sys.stderr)
+            return 1
+        name, path = spec.split("=", 1)
+        if not os.path.isfile(path):
+            print("ERROR: no dump at %s" % path, file=sys.stderr)
+            return 1
+        with open(path, "r", encoding="utf-8") as handle:
+            dumps[name] = json.load(handle)
+    lines = xplat.compare(dumps)
+    print("== the %d-platform stage table (%s) =="
+          % (len(dumps), ", ".join(dumps)))
+    for line in lines:
+        print(line)
+    differ = [line for line in lines
+              if " DIFFER" in line and not line.startswith("env ")]
+    if differ:
+        print("\nFIRST DIVERGENT STAGE: %s" % differ[0].split()[0])
+        return 2
+    print("\nevery stage AGREES across %d platform(s)." % len(dumps))
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("binary", help="the frozen executable under test")
+    parser.add_argument("binary", nargs="?",
+                        help="the frozen executable under test (omitted "
+                             "only with --compare, which runs none)")
     parser.add_argument("--pass", dest="which", default="both",
                         choices=("tile", "airport", "both"),
                         help="which pass(es) to run (default both)")
@@ -995,8 +1085,25 @@ def main(argv):
     parser.add_argument("--lon", type=int, default=DEFAULT_LON)
     parser.add_argument("--keep", action="store_true",
                         help="keep the generated fixture for debugging")
+    parser.add_argument("--xplat-dump", dest="xplat_dump", default=None,
+                        help="arm the engine's per-stage cross-platform "
+                             "digest writer and copy %s.xplat.json (+ the "
+                             "report and the patch) into this directory; "
+                             "the three platforms' dumps are then diffed "
+                             "with --compare" % AIRPORT_ICAO)
+    parser.add_argument("--compare", nargs="+", default=None,
+                        help="NAME=PATH … : print the per-stage AGREE/"
+                             "DIFFER table over dumps written by "
+                             "--xplat-dump and exit (no bundle is run)")
     arguments = parser.parse_args(argv)
 
+    if arguments.compare:
+        return _compare(arguments.compare)
+
+    if not arguments.binary:
+        print("ERROR: a frozen binary is required (only --compare runs "
+              "without one)", file=sys.stderr)
+        return 1
     binary = os.path.abspath(arguments.binary)
     if not os.path.isfile(binary):
         print("ERROR: no frozen binary at %s" % binary, file=sys.stderr)
@@ -1016,7 +1123,10 @@ def main(argv):
         print("== PASS 2/2: the frozen bundle SOLVES %s =="
               % AIRPORT_ICAO)
         status |= run_airport(binary, repo_root, log_dir,
-                              arguments.airport_deadline, arguments.keep)
+                              arguments.airport_deadline, arguments.keep,
+                              xplat_dump=(
+                                  os.path.abspath(arguments.xplat_dump)
+                                  if arguments.xplat_dump else None))
     return status
 
 

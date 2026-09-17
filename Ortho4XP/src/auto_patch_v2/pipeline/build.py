@@ -44,6 +44,7 @@ from ..model.planar import PlanarMap
 from ..planar.build import build as build_planar
 from ..solve import DesignReport, Options, Solution, solve_design
 from .publication import face_tags, publication
+from . import xplat as _xplat
 
 __all__ = ["Config", "BuildResult", "build"]
 
@@ -290,6 +291,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     law = law or Law.for_airport(icao)
     airport, lrep = load_with_report(icao, inputs, law)
     wall["load"] = time.perf_counter() - t
+    # THE CROSS-PLATFORM STAGE DUMP (lane ``xplatdeterminism``): armed by
+    # ``O4_V2_XPLAT_DIGEST`` alone, off by default.  These are REFERENCES
+    # to the stage products, which are frozen dataclasses replaced rather
+    # than mutated, so holding one is a true snapshot and costs nothing
+    # until the digests are taken at the report site.
+    _xp: dict = {}
+    if _xplat.armed():
+        _xp["armed"] = True
     _say(f"[{icao}] load {wall['load']:.2f} s  runways {len(airport.runways)}  "
          f"pavements {len(airport.pavements)}  buildings {len(airport.buildings)}", out)
     # §44 (4) THE PAVEMENT BORROW (owner RULINGS 2026-09-15f): ONE line,
@@ -439,6 +448,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
                               objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
+    if _xp:
+        _xp["classification"] = cl
+        _xp["planar_pm"] = pm
+        _xp["partition_airport"] = airport
     _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
          f"edges {pstats.edges}  vertices {pstats.vertices}  "
          f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}"
@@ -1084,6 +1097,20 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["unclocked"] = wall["total"] - _staged
     report["wall_s"] = {k: round(v, 3) for k, v in wall.items()}
     Path(out_dir).mkdir(parents=True, exist_ok=True)
+    if _xp:
+        # The dump is a READ of the stages already held — it prices no law
+        # and counts no defects.  It goes in its OWN file so the report's
+        # schema (which the app, the census and the twins read) is
+        # untouched by a debugging instrument.
+        _xplat.write(str(Path(out_dir) / f"{icao}.xplat.json"),
+                     _xplat.stage_digests(
+                         icao,
+                         airport=_xp.get("partition_airport"),
+                         classification=_xp.get("classification"),
+                         pm=_xp.get("planar_pm"),
+                         stage=stage, constraints=cs, lp=size,
+                         solved=sol.z or None, final_pm=pm))
+        _say(f"[{icao}] cross-platform stage dump -> {icao}.xplat.json", out)
     (Path(out_dir) / f"{icao}.report.json").write_text(
         json.dumps(report, indent=1, default=str))
     _say(f"[{icao}] total {wall['total']:.2f} s  -> {out_dir}", out)

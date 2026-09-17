@@ -87,6 +87,22 @@ public struct SceneryPack: Codable, Sendable {
 
     public var isEnabled: Bool { status == .enabled }
     public var isInstalled: Bool { status != .uninstalled }
+
+    /// Does this pack supply the map's custom (magenta) airport marks?
+    ///
+    /// Owner 2026-09-17, "revert to gray mark for disabled airports": only
+    /// an ENABLED pack does. X-Plane does not load a disabled or
+    /// uninstalled pack, and since owner RULINGS 2026-09-17b neither does
+    /// the build — an airport whose only custom source is disabled is
+    /// graded from Global Airports, so the map must show it as the
+    /// ordinary GRAY Global mark rather than a dimmed custom one, and it
+    /// must NOT be suppressed from the gray layer. An airport an enabled
+    /// pack also ships keeps that pack's undimmed custom mark.
+    ///
+    /// This governs the airport MARKS only. The pack list keeps showing
+    /// disabled packs (that is how a user re-enables one) and coverage
+    /// outlines may stay dimmed.
+    public var drawsAirportMarks: Bool { isEnabled }
     public var hasDSF: Bool { !tiles.isEmpty }
 
     /// Classification is CONTENT-first — name hints only break ties. Name

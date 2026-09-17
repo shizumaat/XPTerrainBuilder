@@ -318,8 +318,19 @@ struct MapOverlays: Sendable {
                 }
             }
             for (icao, info) in pack.airports where info.latitude != 0 || info.longitude != 0 {
-                airports.append(Airport(icao: icao, info: info,
-                                        packName: pack.name, status: pack.status))
+                // Only an ENABLED pack draws a custom mark (owner
+                // 2026-09-17, "revert to gray mark for disabled
+                // airports"; the rule is SceneryPack.drawsAirportMarks).
+                // A disabled pack's ICAO therefore stays OUT of `airports`
+                // and so survives withDefaultAirports' subtraction below,
+                // keeping its ordinary gray Global mark — which is what
+                // the build now grades it from (RULINGS 2026-09-17b).
+                // The pack's BOUNDS still count it: coverage, viewport
+                // membership and the pack list are unchanged.
+                if pack.drawsAirportMarks {
+                    airports.append(Airport(icao: icao, info: info,
+                                            packName: pack.name, status: pack.status))
+                }
                 minLat = min(minLat, info.latitude); maxLat = max(maxLat, info.latitude)
                 minLon = min(minLon, info.longitude); maxLon = max(maxLon, info.longitude)
                 airportPoints.append(GeoPoint(lon: info.longitude, lat: info.latitude))

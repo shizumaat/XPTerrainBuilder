@@ -19,45 +19,40 @@ XY = tuple[float, float]
 LL = tuple[float, float]
 Key = tuple[float, float]
 
-__all__ = ["XY", "LL", "Key", "Frame", "identity_key", "PROJECTION_DP"]
+__all__ = ["XY", "LL", "Key", "Frame", "identity_key"]
 
-#: DECIMALS THE PROJECTION IS QUANTISED TO (lane ``xplatdeterminism``,
-#: measured 2026-09-17 on release run 35272775466).  The same PROJ 9.5.1
-#: and GEOS 3.13.1, the same wheels and the same apt.dat gave the CYXY
-#: load stage geometry that agreed to 4 dp (0.1 mm) on macOS/arm64,
-#: Linux/x86_64 and Windows/x86_64 and DISAGREED at 6 dp (1 um) — Linux
-#: and Windows equal to each other there, macOS apart, which is the
-#: arm64/compiler last-ulp signature, not a data difference.  A micron is
-#: nothing to the law and everything to a THRESHOLD: one cell flipped at
-#: ``classify`` (105/104/105 cells, runway 6/5/6) and from there the three
-#: platforms solved different problems — 17128x1933, 17151x1922,
-#: 17039x1934 — and shipped different patches.
+#: THE PROJECTION IS **NOT** QUANTISED — and that is a known, MEASURED
+#: cross-platform defect, left standing because closing it needs an owner
+#: ruling, not a lane's judgement (lane ``xplatdeterminism``, 2026-09-17).
 #:
-#: THIS IS A MEASUREMENT ARM, NOT A RATIFIED FIX (lane
-#: ``xplatdeterminism``, dispatch 2).  The projection is quantised HERE,
-#: at its ONE derivation site, to 0.1 mm — the resolution at which all
-#: three platforms' load dumps already AGREED — so that a CI dispatch can
-#: answer interventionally whether the divergence really is the
-#: projection's last ulp, or something further down.
+#: MEASURED (release runs 35272775466 and 35274144555, CYXY through the
+#: frozen release check, the three platforms' own stage dumps):
+#:  * Same PROJ 9.5.1, GEOS 3.13.1, shapely 2.1.2, numpy 2.4.4, scipy
+#:    1.17.1, python 3.13.15, same apt.dat.  The LOAD stage's geometry
+#:    agrees at 4 dp (0.1 mm) and DIFFERS at 6 dp (1 um).  Linux and
+#:    Windows are equal to each other there; macOS/arm64 stands apart.
+#:    Nothing but ``to_xy`` runs between the identical input and that
+#:    difference, so it is PROJ's compiled forward tmerc, last ulp.
+#:  * A micron then becomes a decision: ``classify`` came out 105 / 104 /
+#:    105 cells (runway 6 / 5 / 6), and the three platforms solved
+#:    17128x1933, 17151x1922 and 17039x1934 and shipped three different
+#:    patches.
+#:  * INTERVENTIONAL: quantising this function's output to 0.1 mm made
+#:    load, classify, planar (including every DEM sample), shapes and
+#:    every constraint COUNT byte-identical on all three, and the LP
+#:    exactly 17096 x 1926 / 275 rounds everywhere.  Suspect confirmed.
 #:
-#: What is already known against it, measured on this tree:
-#:  * at 1 mm (3 dp) it breaks ``test_frame_round_trip_cyxy``'s stated
-#:    1e-9 deg round-trip contract and moves a pad-relief verdict;
-#:  * at 0.1 mm it still breaks ``test_v2padceiling::
-#:    test_a_groundside_face_is_not_senior_here``, because quantising xy
-#:    breaks ``to_xy(to_ll(xy)) == xy``: the canonical identity join is
-#:    lat/lon at 11 dp (~1 um), which is FINER than the quantum, so a
-#:    vertex within a micron of a 0.1 mm boundary re-projects into the
-#:    neighbouring cell and an identity join misses;
-#:  * it changes the surface: CYXY's planar vertices moved 4289 -> 4256
-#:    (1 mm) / 4283 (0.1 mm) on one unchanged macOS tree, because the
-#:    thresholds downstream sit near degeneracy.
-#:
-#: So quantising the METRES is in tension with a MICRON-resolution
-#: identity in DEGREES.  Whatever ships has to reconcile those two; this
-#: constant exists to buy the measurement that says where to reconcile
-#: them.
-PROJECTION_DP = 4
+#: WHY IT IS NOT DONE HERE.  Quantising metres breaks
+#: ``to_xy(to_ll(xy)) == xy``, and the canonical identity join is lat/lon
+#: at ``emit.identity.coordinate_dp`` = 11 dp, i.e. ~1 um — FINER than any
+#: quantum that would help, so a vertex within a micron of a cell boundary
+#: re-projects into the neighbouring cell and an identity join misses
+#: (measured: ``test_v2padceiling::test_a_groundside_face_is_not_senior_here``
+#: goes red at both 1 mm and 0.1 mm).  Reconciling them means moving the
+#: identity into the metre domain or coarsening ``coordinate_dp`` — a LAW
+#: parameter.  The arm is commit ``8615f4f9`` on ``claude/xplatdeterminism``;
+#: the standing witness is ``scripts/check_frozen_tile.py --xplat-dump`` /
+#: ``--compare``.
 
 
 def identity_key(lat: float, lon: float, dp: int) -> Key:
@@ -103,13 +98,10 @@ class Frame:
         inv = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
 
         def to_xy(lon: float, lat: float) -> XY:
+            # THE one site that turns lat/lon into this frame's metres —
+            # see the note above on what that costs across platforms.
             x, y = fwd.transform(lon, lat)
-            # Quantised to PROJECTION_DP — see the constant.  ONE site:
-            # the frame is the only thing in v2 that turns lat/lon into
-            # metres, so every producer downstream inherits the same
-            # numbers on every platform.
-            return (round(float(x), PROJECTION_DP),
-                    round(float(y), PROJECTION_DP))
+            return (float(x), float(y))
 
         def to_ll(x: float, y: float) -> LL:
             lon, lat = inv.transform(x, y)

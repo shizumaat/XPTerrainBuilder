@@ -546,14 +546,17 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 def _vector_to_xy(frame: Frame) -> _t.Callable[[float, float], XY]:
     """A scalar ``to_xy(lon, lat)`` — THE FRAME'S OWN, never a second one.
 
-    This used to build its own ``pyproj`` transformer and return the raw
-    doubles.  That made the loader a SECOND spelling of the projection,
-    and the frame's quantisation (``model/frame.PROJECTION_DP``) never
-    reached the stage that produces every coordinate in the airport —
-    which is how three release platforms loaded the same apt.dat into
-    geometry that agreed to 0.1 mm and disagreed at 1 um, flipped a cell
-    at ``classify``, and solved three different programmes (lane
-    ``xplatdeterminism``, run 35272775466).  One derivation site.
+    This used to build its OWN ``pyproj`` transformer, byte-for-byte the
+    frame's — so the module docstring's "the frame carries the transformer
+    factory" was not true of the stage that produces every coordinate in
+    the airport, and any change made at the frame (lane
+    ``xplatdeterminism`` needed one to attribute a cross-platform
+    divergence, and measured this duplicate by watching it have no effect)
+    silently never reached the load.  One derivation site.
+
+    Byte-neutral as it stands: with the frame unchanged the two spellings
+    return identical doubles, verified on the CYXY release fixture — every
+    stage digest equal at 9 dp before and after.
     """
     return frame.transformers()[0]
 

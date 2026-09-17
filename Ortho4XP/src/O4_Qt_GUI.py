@@ -488,6 +488,114 @@ class _StdoutTee:
             pass
 
 
+ENGINE_STDERR_LOG_MAX_BYTES = 20 * 1024 * 1024
+
+
+def engine_stderr_log_path():
+    """Where the Qt window persists engine stderr.
+
+    The mac app's twin is ``~/Library/Logs/XPTerrainBuilder/
+    engine-stderr.log`` (``OrthoEngineClient.swift``, ``EngineStderrLog``);
+    the Qt app has no platform log directory, so it uses the writable data
+    root it already owns."""
+    return FNAMES.data_path(os.path.join("logs", "engine-stderr.log"))
+
+
+class _StderrTee:
+    """Duplicates engine stderr into a persisted log file.
+
+    THE ENGINE'S STDERR, PERSISTED: a Python ``RuntimeWarning`` (shapely,
+    numpy) reached the terminal the Qt app happened to be launched from
+    and nowhere else — a warning the user saw could not be read back
+    afterwards.  Same rule as the mac app (``EngineStderrLog``): one
+    appended file, a session header, rotated at 20 MB by renaming to
+    ``engine-stderr.1.log``.
+
+    Nothing here may raise: this object IS ``sys.stderr``, so a failure
+    to log would take out the report of whatever was being logged.  A
+    file that cannot be opened simply disables persistence for the
+    session; the original stream is always written first.
+    """
+
+    def __init__(self, original, path, max_bytes=ENGINE_STDERR_LOG_MAX_BYTES):
+        self._original = original
+        self._path = path
+        self._max_bytes = max_bytes
+        self._handle = None
+        self._failed = False
+
+    def _open(self):
+        if self._handle is not None or self._failed:
+            return
+        try:
+            directory = os.path.dirname(self._path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            self._handle = open(self._path, "a", encoding="utf-8",
+                                errors="replace")
+            self._handle.write(
+                "=== engine session %s ===\n"
+                % time.strftime("%Y-%m-%dT%H:%M:%S%z")
+            )
+            self._handle.flush()
+        except Exception:
+            self._handle = None
+            self._failed = True
+
+    def _rotate(self):
+        try:
+            if self._handle.tell() <= self._max_bytes:
+                return
+        except Exception:
+            return
+        try:
+            self._handle.close()
+        except Exception:
+            pass
+        self._handle = None
+        old = os.path.splitext(self._path)[0] + ".1.log"
+        try:
+            if os.path.exists(old):
+                os.remove(old)
+            os.replace(self._path, old)
+        except Exception:
+            self._failed = True
+
+    def write(self, text):
+        try:
+            self._original.write(text)
+        except Exception:
+            pass
+        self._open()
+        if self._handle is None:
+            return
+        try:
+            self._handle.write(text)
+            self._handle.flush()
+        except Exception:
+            self._failed = True
+            self._handle = None
+            return
+        self._rotate()
+
+    def flush(self):
+        try:
+            self._original.flush()
+        except Exception:
+            pass
+        if self._handle is not None:
+            try:
+                self._handle.flush()
+            except Exception:
+                pass
+
+    def isatty(self):
+        try:
+            return self._original.isatty()
+        except Exception:
+            return False
+
+
 class TwoLineElidedLabel(QLabel):
     """Value label capped at two wrapped lines.
 
@@ -669,6 +777,11 @@ class MainWindow(QMainWindow):
         # has its own stdout discipline instead.
         self._console_queue = queue.Queue()
         sys.stdout = _StdoutTee(sys.stdout, self._console_queue)
+        # Engine stderr is persisted rather than teed to the console: the
+        # console drawer is a live view, and a RuntimeWarning is worth
+        # reading back days later.  Parity with the mac app's
+        # EngineStderrLog, same 20 MB rotation rule.
+        sys.stderr = _StderrTee(sys.stderr, engine_stderr_log_path())
         self._console_timer = QTimer(self)
         self._console_timer.setInterval(120)
         self._console_timer.timeout.connect(self._drain_console)
@@ -689,6 +802,7 @@ class MainWindow(QMainWindow):
             EV.TileState: self._on_tile_state,
             EV.RunEta: self._on_run_eta,
             EV.TileClocks: self._on_tile_clocks,
+            EV.AutoPatchFailed: self._on_auto_patch_failed,
             EV.BuildDone: self._on_build_done,
             EV.RunDone: self._on_run_done,
         }
@@ -3316,6 +3430,27 @@ class MainWindow(QMainWindow):
             if row is None:
                 continue
             row[4].setText(_fmt_tile_clock(*entry))
+
+    def _on_auto_patch_failed(self, event):
+        """H1: name the airport in the console the moment it dies.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .autoPatchFailed``), wording included.  The tile's own
+        ``BuildDone(ok=False)`` follows and repeats it in the end-of-run
+        report, but the user watching the build sees WHICH airport broke
+        WHERE here first — before this handler existed the Qt window
+        showed a red row and nothing else, the same silence the
+        2026-08-30 death had.
+        """
+        print(
+            "*** Tile %s: airport %s failed at the %s stage — %s"
+            % (
+                FNAMES.short_latlon(event.lat, event.lon),
+                event.airport,
+                event.stage,
+                event.error,
+            )
+        )
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own

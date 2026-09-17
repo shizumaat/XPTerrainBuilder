@@ -62,6 +62,35 @@ incomplete_imgs = {}
 # bytes on disk (2026-08-12, the KCLT deletion — see
 # ``O4_Tile_Utils.delete_incomplete_imgs``).
 incomplete_img_paths = {}
+# {tile_coords: {provider_code, ...}} — WHICH imagery source each tile's
+# failures came from, so the end-of-step warning can name it.  A combined
+# provider fans out to several layer codes; every one that failed is here.
+incomplete_img_providers = {}
+
+
+def incomplete_texture_warning(tile_coords):
+    """The ONE line a tile says when its imagery step ends incomplete.
+
+    ``None`` when every texture was obtained.
+
+    IMAGERY FAILURE IS STATED, NOT SILENT (2026-09-17): a connection
+    failure was logged at verbosity 2-3 — invisible at the default
+    verbosity — and the tile then finished, exit 0, with white textures
+    the user discovered in the simulator.  ``UI.loud_warning`` reaches
+    both UIs' consoles and ``Ortho4XP.log``, so the count and the source
+    are said once, where the build is being watched.
+    """
+    names = incomplete_imgs.get(tile_coords) or []
+    if not names:
+        return None
+    providers = sorted(incomplete_img_providers.get(tile_coords) or [])
+    source = ", ".join(providers) if providers else "the imagery source"
+    return (
+        "WARNING: tile %s finished with %d texture%s that could not be "
+        "downloaded from %s and were filled with white — check the network "
+        "connection and the imagery source, then build the tile again."
+        % (tile_coords, len(names), "" if len(names) == 1 else "s", source)
+    )
 
 
 ################################################################################
@@ -1737,6 +1766,9 @@ def download_jpeg_ortho(
             "(even at lower ZL), it was filled with white there.",
         )
         incomplete_imgs.setdefault(tile_coords, []).append(file_name)
+        incomplete_img_providers.setdefault(tile_coords, set()).add(
+            provider_code
+        )
     if not os.path.exists(file_dir):
         os.makedirs(file_dir)
     destination = os.path.join(file_dir, file_name)

@@ -575,6 +575,7 @@ def build_tile(tile):
     if UI.cleaning_level >= 1:
         remove_dsftool_dump_leftovers(tile)
     _write_imagery_manifest(tile, download_stats, dico_conv_progress)
+    warn_if_imagery_incomplete(tile)
     UI.timings_and_bottom_line(timer)
     UI.logprint(
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
@@ -675,6 +676,26 @@ def remove_dsftool_dump_leftovers(tile):
                 except OSError:
                     pass
 
+def warn_if_imagery_incomplete(tile):
+    """End of the imagery step: STATE an incomplete result, once.
+
+    Connection failures are logged at verbosity 2-3 (the retry loop in
+    ``O4_Imagery_Utils``) — invisible at the default verbosity — and the
+    tile then finished, exit 0, with white textures the user met in the
+    simulator.  ``UI.loud_warning`` is the channel that reaches both
+    UIs' consoles and ``Ortho4XP.log``; no new wire event is needed.
+    """
+    message = IMG.incomplete_texture_warning(
+        FNAMES.short_latlon(tile.lat, tile.lon)
+    )
+    if message:
+        UI.loud_warning(message)
+    return message
+
+
+################################################################################
+
+################################################################################
 def delete_incomplete_imgs(tile):
     """Delete the white-squared orthophotos THIS RUN WROTE, and their dds.
 
@@ -721,3 +742,4 @@ def delete_incomplete_imgs(tile):
 
     IMG.incomplete_imgs.pop(tile_coords, None)
     IMG.incomplete_img_paths.pop(tile_coords, None)
+    IMG.incomplete_img_providers.pop(tile_coords, None)

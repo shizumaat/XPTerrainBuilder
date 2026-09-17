@@ -133,8 +133,24 @@ scripts/                    Build/test helpers
 
 ## Status
 
-Prototype, under active development. The scenery-doctor analysis features
-are out of scope for this app and live in a separate project.
+**Beta, under active development** (2026-09-17). Three platforms are built
+from this repo: the SwiftUI app on macOS, and the PySide6 Qt front end
+(`Ortho4XP/Ortho4XP_Qt.py`) on Windows and Linux; all three drive the same
+vendored Python engine, so a build produces the same scenery everywhere.
+
+What to expect on first launch:
+
+- **macOS** — **arm64 only** (Apple silicon; there is no Intel build). The
+  app is signed with a Developer ID and notarized by Apple, so it opens
+  normally: no right-click bypass, no Gatekeeper warning.
+- **Windows** — the executable is not yet Authenticode-signed, so
+  SmartScreen shows "Windows protected your PC": choose **More info →
+  Run anyway**. (Signing is planned.)
+- **Linux** — run the published archive's binary; mark it executable
+  (`chmod +x`) if your browser cleared the bit.
+
+Expect rough edges and file bug reports. The scenery-doctor analysis
+features are out of scope for this app and live in a separate project.
 
 ## License
 

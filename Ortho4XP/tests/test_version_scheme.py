@@ -303,3 +303,72 @@ def test_app_version_ships_as_a_swiftpm_resource() -> None:
         "Resources/VERSION"
     )
     assert '.copy("Resources/VERSION")' in (REPO_ROOT / "Package.swift").read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# The tag scheme gate (docs/BETA-PLAN-20260916.md §1 B3)
+#
+# `v1.0.<app-build>[-beta.N]`: the tag's numeric part IS the tracked app
+# version at the tagged commit, or the release refuses in the first step of
+# every job rather than after an hour of freezing and notarizing.
+# ---------------------------------------------------------------------------
+CHECK_TAG = REPO_ROOT / "scripts" / "check_tag_version.sh"
+
+tag_gate = pytest.mark.skipif(
+    not CHECK_TAG.is_file(), reason="engine checked out standalone — no app tree"
+)
+
+
+def _tag_gate(ref: str, version: str, tmp_path: Path) -> subprocess.CompletedProcess:
+    version_file = tmp_path / "VERSION"
+    version_file.write_text(version + "\n", encoding="utf-8")
+    return subprocess.run(
+        ["/bin/bash", str(CHECK_TAG), ref, str(version_file)],
+        capture_output=True,
+        text=True,
+    )
+
+
+@tag_gate
+def test_tag_gate_accepts_a_matching_tag(tmp_path: Path) -> None:
+    for ref in ("refs/tags/v1.0.347", "refs/tags/v1.0.347-beta.2", "v1.0.347-beta.11"):
+        result = _tag_gate(ref, "1.0.347", tmp_path)
+        assert result.returncode == 0, f"{ref}: {result.stdout}{result.stderr}"
+        assert "1.0.347" in result.stdout
+
+
+@tag_gate
+def test_tag_gate_refuses_a_mismatching_tag_and_prints_both(tmp_path: Path) -> None:
+    result = _tag_gate("refs/tags/v1.0.346-beta.1", "1.0.347", tmp_path)
+    assert result.returncode == 1, result.stdout
+    both = result.stdout + result.stderr
+    assert "1.0.346" in both and "1.0.347" in both, both
+
+
+@tag_gate
+def test_tag_gate_refuses_an_off_scheme_tag(tmp_path: Path) -> None:
+    for ref in ("refs/tags/v1.0.347-rc1", "refs/tags/v1.0-beta.1", "refs/tags/v1.0.347beta"):
+        result = _tag_gate(ref, "1.0.347", tmp_path)
+        assert result.returncode == 1, f"{ref} was accepted: {result.stdout}"
+
+
+@tag_gate
+def test_tag_gate_passes_a_non_tag_ref(tmp_path: Path) -> None:
+    """workflow_dispatch must stay buildable off any branch."""
+    result = _tag_gate("refs/heads/main", "1.0.347", tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@tag_gate
+def test_tag_gate_runs_first_in_every_release_job() -> None:
+    """Every job checks out, then checks the tag — before anything expensive.
+
+    Textual, not YAML: no yaml module is installed in the engine venv, and
+    this assertion is about ORDER inside the file anyway.
+    """
+    text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    chunks = text.split("- uses: actions/checkout@v4")
+    assert len(chunks) - 1 == 4, "expected four jobs, each starting with a checkout"
+    for chunk in chunks[1:]:
+        head = chunk[:600]
+        assert "check_tag_version.sh" in head, head

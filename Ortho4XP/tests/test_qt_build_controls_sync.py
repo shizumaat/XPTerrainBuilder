@@ -48,6 +48,14 @@ def window(qapp, tmp_path, monkeypatch):
     # Isolate the prefs file BEFORE construction: MainWindow loads the
     # prefs in __init__ and closeEvent SAVES them.
     monkeypatch.setattr(GUI, "PREFS_FILE", str(tmp_path / "prefs.json"))
+    # A fake X-Plane CIFP corpus: since beta plan §1 B2 the Build button
+    # refuses while none resolves (tests/test_qt_first_run_xplane.py owns
+    # that law), and these tests are about the imagery/ZL combos.
+    cifp = tmp_path / "CIFP"
+    cifp.mkdir()
+    monkeypatch.setattr(SM, "read_global_raw",
+                        lambda *a, **k: {"cifp_data_path": str(cifp),
+                                         "custom_scenery_dir": ""})
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
     # Route all per-tile config reads/writes into the isolated temp dir.

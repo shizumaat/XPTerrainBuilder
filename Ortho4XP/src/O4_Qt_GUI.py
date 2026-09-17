@@ -2262,8 +2262,9 @@ class MainWindow(QMainWindow):
             self.build_btn.setText(
                 "▶ Build %d tile%s" % (n, "s" if n > 1 else "")
                 if n else "▶ Build")
-            self.build_btn.setEnabled(True)
-            self.build_btn.setToolTip("")
+            blocked = self.xplane_block_reason()
+            self.build_btn.setEnabled(blocked is None)
+            self.build_btn.setToolTip(blocked or "")
 
     def _active_changed(self, tile):
         self._selection_changed()
@@ -2933,9 +2934,33 @@ class MainWindow(QMainWindow):
         return (state in ("queued", "active", "indeterminate")
                 and label != "stopped")
 
+    def xplane_block_reason(self):
+        """Why a build cannot start for want of X-Plane data, or ``None``.
+
+        Beta plan §1 B2: a build with no valid X-Plane folder grades no
+        airport at all — the engine now refuses it outright, so the UI
+        must not offer it.  ONE predicate with the engine
+        (``O4_Settings_Model``); a power user who pointed
+        ``cifp_data_path`` straight at a Navigraph corpus is NOT blocked,
+        because the engine can build that.
+        """
+        import O4_Settings_Model as SM
+
+        raw = SM.read_global_raw()
+        if SM.cifp_refusal_reason(raw.get("cifp_data_path", ""),
+                                  raw.get("custom_scenery_dir", "")) is None:
+            return None
+        problem = SM.xplane_install_problem(self.prefs.get("xplane_dir", ""))
+        return "%s Set it in Settings, or run Help ▸ Run setup assistant." % (
+            problem or "Your X-Plane folder has no CIFP data.")
+
     def start_build(self):
         """Build the selected tiles — or queue them into the run in
         progress (the map and the Build box stay live during builds)."""
+        blocked = self.xplane_block_reason()
+        if blocked:
+            self._status(blocked)
+            return
         selection = sorted(self.map.selection())
         if not selection:
             self._status("Select at least one tile to build.")

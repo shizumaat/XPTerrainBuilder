@@ -45,7 +45,13 @@ class AutoPatchBuildFailure(RuntimeError):
     ungated.  ``failures`` is the ordered list of
     ``{"icao", "stage", "error"}`` records that caused it; ``stage`` is
     one of ``build`` / ``write`` / ``worker`` / ``missing`` /
-    ``manifest``.
+    ``manifest`` / ``config``.
+
+    ``config`` is the whole-tile variant (``icao`` is ``"*"``): raised by
+    ``O4_Vector_Map.run_auto_patch_generation`` when auto-patch is enabled
+    and no CIFP directory resolves, which used to be a loud warning
+    followed by an exit-0 tile whose every airport draped over the raw
+    DEM (beta plan §1 B2).
     """
 
     def __init__(self, failures: list):

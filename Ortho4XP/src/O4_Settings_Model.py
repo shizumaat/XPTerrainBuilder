@@ -666,6 +666,84 @@ def autodetect_cifp(xplane_dir: str) -> str:
     return ""
 
 
+#: What makes a folder a USABLE X-Plane installation for this app (beta
+#: plan §1 B2).  ``Custom Scenery`` is where a finished tile installs;
+#: ``Resources/default data/CIFP`` is X-Plane's own stock AIRAC corpus and
+#: is what makes auto-patching possible without a Navigraph subscription.
+#: A folder missing either one is not an install we can build against, and
+#: BOTH UIs validate against exactly this tuple — one spelling.
+XPLANE_REQUIRED_SUBDIRS = ("Custom Scenery", "Resources/default data/CIFP")
+
+
+def xplane_install_problem(xplane_dir: str) -> str | None:
+    """``None`` when ``xplane_dir`` is a usable X-Plane install, else why not.
+
+    The returned string is USER-FACING copy: both the Qt wizard and the
+    Swift first-run page show it verbatim under the folder field.
+    """
+    xplane_dir = (xplane_dir or "").strip()
+    if not xplane_dir:
+        return "No X-Plane folder set."
+    if not os.path.isdir(xplane_dir):
+        return "%s is not a folder." % xplane_dir
+    missing = [sub for sub in XPLANE_REQUIRED_SUBDIRS
+               if not os.path.isdir(os.path.join(xplane_dir, *sub.split("/")))]
+    if missing:
+        return ("This folder has no %s — is it really an X-Plane install?"
+                % " and no ".join("%s/" % m for m in missing))
+    return None
+
+
+def resolve_cifp_dir(cifp_data_path: str, custom_scenery_dir: str) -> str:
+    """The CIFP directory a tile build will ACTUALLY read, or ``""``.
+
+    ONE spelling of the resolution ``O4_Vector_Map.run_auto_patch_generation``
+    performs and ``tools/harness/build_airport.py`` enforces:
+
+    * a non-empty ``cifp_data_path`` is authoritative — if it is not a
+      directory the answer is ``""`` (a typo must refuse, never silently
+      fall back to some other corpus);
+    * an EMPTY ``cifp_data_path`` falls back to :func:`autodetect_cifp`
+      on the X-Plane root above ``custom_scenery_dir``.
+    """
+    cifp_data_path = (cifp_data_path or "").strip()
+    if cifp_data_path:
+        return cifp_data_path if os.path.isdir(cifp_data_path) else ""
+    custom_scenery_dir = (custom_scenery_dir or "").strip()
+    if not custom_scenery_dir:
+        return ""
+    return autodetect_cifp(
+        os.path.dirname(os.path.normpath(custom_scenery_dir)))
+
+
+def cifp_refusal_reason(cifp_data_path: str, custom_scenery_dir: str,
+                        auto_patch_mode: str = "ICAO") -> str | None:
+    """``None`` when auto-patch may run, else THE refusal text naming the key.
+
+    The law (beta plan §1 B2): with auto-patch ENABLED and no CIFP
+    directory resolving, the tile build must FAIL — it used to print a
+    loud warning and then build every airport on the raw DEM, exiting 0.
+    An explicitly disabled auto-patch (``auto_patch=None``) still builds.
+    """
+    if not auto_patch_mode or str(auto_patch_mode) == "None":
+        return None
+    if resolve_cifp_dir(cifp_data_path, custom_scenery_dir):
+        return None
+    given = (cifp_data_path or "").strip()
+    if given:
+        detail = "cifp_data_path=%r is not a directory" % given
+    else:
+        detail = ("cifp_data_path is empty and no CIFP folder was found "
+                  "under the X-Plane install above custom_scenery_dir=%r"
+                  % ((custom_scenery_dir or "").strip(),))
+    return ("auto_patch=%s but NO CIFP data resolves: %s. Every airport "
+            "on this tile would drape over the raw DEM — runways, taxiways "
+            "and aprons ungraded. Set cifp_data_path to X-Plane's "
+            "'Resources/default data/CIFP' (or a Navigraph 'Custom "
+            "Data/CIFP'), or set auto_patch=None to build without airport "
+            "grading on purpose." % (auto_patch_mode, detail))
+
+
 def elevation_source_options() -> list[str]:
     """Choices for ``base_elevation_source``: ``auto``, the legacy keywords,
     then every shipped elevation provider definition

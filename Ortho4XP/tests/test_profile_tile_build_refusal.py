@@ -104,7 +104,7 @@ def test_the_profiler_refuses_an_empty_cifp_path(profiler, build_entry,
         build_entry.apply_xplane_install_paths(owner_cfg=cfg)
 
     assert "REFUSING" in str(profiled.value)
-    assert "auto_patch generation would be SKIPPED" in str(profiled.value)
+    assert "cifp_data_path" in str(profiled.value)
     assert str(profiled.value) == str(built.value), (
         "the profiler's reason string has drifted from the build entry's")
     assert not cfg_stub, "nothing may be applied when the refusal fires"

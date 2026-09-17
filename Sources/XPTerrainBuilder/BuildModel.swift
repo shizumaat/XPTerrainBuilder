@@ -997,10 +997,25 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// Why a build cannot start for want of X-Plane data, or `nil`.
+    ///
+    /// Beta plan §1 B2: with no CIFP corpus the engine refuses the tile
+    /// outright (it used to warn and then build every airport on the raw
+    /// DEM, exiting 0), so the app must not offer the Build. One predicate
+    /// with the engine and the Qt UI — `XPlaneInstall` is the Swift twin of
+    /// `O4_Settings_Model.cifp_refusal_reason`.
+    var xplaneBlockReason: String? {
+        XPlaneInstall.buildBlockReason(
+            xplanePath: UserDefaults.standard.string(forKey: PrefKeys.xplanePath) ?? "",
+            cifpDataPath: globalConfigValues["cifp_data_path"]?.cfgLiteral ?? "",
+            customSceneryDir: globalConfigValues["custom_scenery_dir"]?.cfgLiteral ?? "")
+    }
+
     var canBuild: Bool {
         engine != nil && !buildableSelection.isEmpty
             && (doVector || doImagery || doOverlays)
             && !(isBuilding && !usesProtocol) // legacy path can't queue into a run
+            && xplaneBlockReason == nil
     }
 
     // MARK: - Legacy tile settings (built by an older/other Ortho4XP)

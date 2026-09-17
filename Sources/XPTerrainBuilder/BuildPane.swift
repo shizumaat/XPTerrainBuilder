@@ -798,6 +798,9 @@ struct BuildPane: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!buildModel.canBuild || buildModel.buildableSelection.isEmpty)
+            // The one disabled-reason the user cannot guess from the map
+            // (beta plan §1 B2): no X-Plane folder, so no CIFP, so no build.
+            .help(buildModel.xplaneBlockReason ?? "")
             .confirmationDialog(
                 "Build with a different imagery source?",
                 isPresented: $showingProviderMismatch,

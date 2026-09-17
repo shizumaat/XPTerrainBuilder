@@ -152,6 +152,7 @@ def _dem(core_hosted, allow_degraded=False):
     dem._tiles = {}
     dem.icao, dem.elevation_root, dem.osm_root = ICAO, "e", "o"
     dem.xplane_root = ""
+    dem._required_boxes = {}
     return dem
 
 
@@ -222,6 +223,45 @@ def test_the_harness_REFUSES_a_stale_inset_and_never_recuts(monkeypatch):
     with pytest.raises(DP.ColdDemFrame, match="STALE airport elevation inset"):
         dem._compose(LAT, LON)
     assert calls == []            # it warmed NOTHING
+
+
+def test_the_frame_records_all_three_boxes_and_the_packs(monkeypatch):
+    """Owner ruling 3, conditional: ADDITIVE metadata only.  It buys
+    COMPARABILITY between arms — the engine consults the manifest, never
+    the frame record — and the ledger-identity guard lives in
+    ``tests/test_harness.py``."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(INSETS, "requested_inset_bounding_box",
+                        lambda *a: (-135.1, 60.6, -135.0, 60.8))
+    monkeypatch.setattr(INSETS, "delivered_inset_bounding_box",
+                        lambda _p: (-135.1, 60.6, -135.0, 60.79))
+    monkeypatch.setattr(INSETS, "recorded_footprint_packs",
+                        lambda *a: ["Aerosoft CYXY", "Zzz Pack"])
+    monkeypatch.setattr(FNAMES, "airport_inset_dem",
+                        lambda *a: "/x/CYXY_hrdem.tif")
+    dem = _dem(core_hosted=False)
+    dem._required_boxes[(LAT, LON)] = REQUIRED
+    dem._record_inset_boxes(LAT, LON, [
+        {"icao": ICAO, "provider": "hrdem"},
+        {"icao": "OTHER", "provider": "hrdem"},   # not this airport
+    ])
+    line = dem.provenance["inset:CYXY:hrdem"]
+    assert isinstance(line, str), "every value in this dict is a string"
+    assert "required=-135.100000,60.650000,-135.000000,60.760000" in line
+    assert "requested=-135.100000,60.600000,-135.000000,60.800000" in line
+    assert "delivered=-135.100000,60.600000,-135.000000,60.790000" in line
+    assert "footprint_packs=Aerosoft CYXY|Zzz Pack" in line
+    assert "inset:OTHER:hrdem" not in dem.provenance
+    # Unknown packs and an unreadable raster read as '?', never a guess
+    # and never an exception: the frame record must not fail a build.
+    monkeypatch.setattr(INSETS, "recorded_footprint_packs", lambda *a: None)
+    monkeypatch.setattr(INSETS, "delivered_inset_bounding_box",
+                        lambda _p: None)
+    dem.provenance.clear()
+    dem._record_inset_boxes(LAT, LON, [{"icao": ICAO, "provider": "hrdem"}])
+    assert "delivered=?" in dem.provenance["inset:CYXY:hrdem"]
+    assert "footprint_packs=?" in dem.provenance["inset:CYXY:hrdem"]
 
 
 def test_allow_degraded_accepts_the_stale_inset_and_still_never_recuts(

@@ -289,6 +289,9 @@ class ProductionDem:
         self.xplane_root = xplane_root
         self.allow_degraded = bool(allow_degraded)
         self._warm_notes: dict[str, str] = {}
+        #: This airport's REQUIRED inset box per tile, kept so the frame
+        #: record can state it beside what was requested and delivered.
+        self._required_boxes: dict[tuple[int, int], tuple | None] = {}
         self.core_hosted = bool(core_hosted)
         self._out = out
         self.provenance: dict[str, str] = {"frame": "production",
@@ -716,6 +719,7 @@ class ProductionDem:
         # (owner ruling 2026-09-17 "the app may re-cut a stale inset
         # automatically"), and the harness refuses long before here.
         required_box = self._required_inset_box(tile, dico)
+        self._required_boxes[(lat, lon)] = required_box
         if required_box is not None:
             seen = set(problems)
             (state, problems) = frame_state(self.elevation_root, self.osm_root,
@@ -841,6 +845,7 @@ class ProductionDem:
             f"{how}: grid {dem.nxdem}x{dem.nydem}, baked_query={dem.baked_query_active}, "
             f"airports_smoothed={airports_smoothed if airports_smoothed is not None else '?'}, "
             f"insets=" + ",".join(f"{b.get('icao')}:{b.get('provider')}" for b in baked))
+        self._record_inset_boxes(lat, lon, baked)
         if tile is not None:
             for k in ("apt_smoothing_pix", "apt_smoothing_auto", "working_grid_arc_seconds",
                       "airport_elevation_insets", "airport_elevation_inset_feather_m",
@@ -853,6 +858,51 @@ class ProductionDem:
                           flat_site_provenance=list(
                               getattr(dem, "synthetic_flat_site_provenance", None) or []),
                           overlay_provenance=overlay if isinstance(overlay, dict) else None)
+
+    @staticmethod
+    def _box_text(box) -> str:
+        return ",".join(f"{float(v):.6f}" for v in box) if box else "?"
+
+    def _record_inset_boxes(self, lat: int, lon: int, baked: list) -> None:
+        """Record, per BAKED inset of THIS airport, the three boxes and the
+        scenery packs that served its mask — ADDITIVE frame metadata
+        (owner ruling 3, conditional on digest neutrality).
+
+        It buys COMPARABILITY between arms, not the re-cut test: the
+        engine consults the manifest, never ``frame.json``.  Written as
+        STRING values under ``inset:<ICAO>:<provider>``, the shape every
+        other key in this dict already has, so no consumer sees a new
+        type.  Proven not to move the artifact-ledger corpus stamp or the
+        law-tables digest (``tests/test_harness.py``
+        ``..._never_moves_a_frame_identity``): the stamp hashes
+        ``dem_cache_before``, ``data_mounts`` and ``dem_frame_effective``,
+        and this is none of them.
+
+        Best-effort throughout: the frame record must never be the thing
+        that fails a build.
+        """
+        required = self._required_boxes.get((lat, lon))
+        for record in baked:
+            icao = str(record.get("icao", ""))
+            if icao.upper() != self.icao.upper():
+                continue
+            provider = str(record.get("provider", "?"))
+            try:
+                import O4_Airport_Elevation_Insets as INSETS
+                import O4_File_Names as FNAMES
+                path = FNAMES.airport_inset_dem(lat, lon, icao, provider)
+                requested = INSETS.requested_inset_bounding_box(
+                    lat, lon, icao, provider)
+                delivered = INSETS.delivered_inset_bounding_box(path)
+                packs = INSETS.recorded_footprint_packs(
+                    lat, lon, icao, provider)
+            except Exception:
+                continue
+            self.provenance[f"inset:{icao}:{provider}"] = (
+                f"required={self._box_text(required)} "
+                f"requested={self._box_text(requested)} "
+                f"delivered={self._box_text(delivered)} "
+                f"footprint_packs={'|'.join(packs) if packs else '?'}")
 
     def _degrade(self, stem: str, problems: list[str]) -> None:
         text = "\n  - ".join(problems)

@@ -439,22 +439,20 @@ def _tile_stem(lat: int, lon: int) -> str:
     return f"{ns}{abs(int(lat)):02d}{ew}{abs(int(lon)):03d}"
 
 
-def dem_cache_state(root, lat: int, lon: int, icao=None) -> dict:
+def dem_cache_state(root, lat: int, lon: int) -> dict:
     """Filesystem-only report of the DEM/inset cache warmth for one tile.
 
     Pure path inspection: importable and testable without loading Ortho4XP,
     and it never triggers a network fetch (a fetch inside a measurement is
     itself a confound).
 
-    With ``icao``, the PER-AIRPORT inset check runs too and its verdict
-    lands in ``airport_inset_problem`` — see
-    :func:`this_airports_inset_problem`.  That one derivation feeds both
-    consumers: :func:`require_dem_frame` (the frame is COLD for this
-    airport; ``--allow-degraded-dem`` accepts it knowingly) and
-    :func:`missing_shared_artifacts` (the build would WRITE the shared
-    repo re-cutting it; only ``--refresh-data dem`` authorises that).
-    The two are different laws, named separately, exactly as the
-    whole-tile inset miss already is.
+    ITS KEY SET IS FROZEN.  This dict is hashed WHOLE into the artifact
+    ledger's corpus stamp (``artifact_ledger.corpus_stamp``:
+    ``"dem_cache": _sha_of(cache)``), so ADDING A KEY HERE RE-KEYS EVERY
+    STORED ARM and rebuilds controls that already exist.  The
+    per-airport inset verdict therefore does NOT live here — it is
+    derived beside this call and travels in its own frame key
+    (:func:`this_airports_inset_problem`).
     """
     root = Path(root)
     stem = _tile_stem(lat, lon)
@@ -474,7 +472,7 @@ def dem_cache_state(root, lat: int, lon: int, icao=None) -> dict:
     short = _short_latlon(lat, lon)
     airports = sorted(str(p.relative_to(root))
                       for p in osm.glob(f"*/{short}/{short}_airports*"))
-    state = {
+    return {
         "tile": [int(lat), int(lon)],
         "tile_stem": stem,
         "base_raster": bool(base),
@@ -484,12 +482,7 @@ def dem_cache_state(root, lat: int, lon: int, icao=None) -> dict:
         "tile_overlay": bool(overlay),
         "airports_layer": bool(airports),
         "airports_layer_files": airports[:4],
-        "airport_inset_problem": None,
     }
-    if icao:
-        state["airport_inset_problem"] = this_airports_inset_problem(
-            state, lat, lon, icao)
-    return state
 
 
 def _short_latlon(lat: int, lon: int) -> str:
@@ -497,7 +490,7 @@ def _short_latlon(lat: int, lon: int) -> str:
 
 
 def require_dem_frame(state: dict, *, allow_degraded: bool = False,
-                     requested=()) -> None:
+                     requested=(), inset_problem=None) -> None:
     """The zero-DEM and cold-cache refusals.
 
     * NO base raster ⇒ the loader either downloads mid-measurement or hands
@@ -547,7 +540,7 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
             f"fetch: --refresh-data dem  (or "
             f"tools/fetch_airport_elevation_insets.py, which writes the "
             f"same shared cache).")
-    elif state.get("airport_inset_problem"):
+    elif inset_problem:
         # THE PER-AIRPORT COLD FRAME (session ruling 2026-09-17 (3)): the
         # directory is there but THIS airport's inset is missing, or was
         # cut for a box that no longer contains what it needs.  Building
@@ -555,7 +548,7 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
         # been — the same silent degradation the whole-tile miss above
         # refuses — so it is named here too, and ``--allow-degraded-dem``
         # accepts it KNOWINGLY, authorising no write.
-        _name("dem", state["airport_inset_problem"][1])
+        _name("dem", inset_problem[1])
     for scope, text in deferred:
         print(f"  [harness] COLD, and this run's --refresh-data {scope} "
               f"DERIVES it before the build (re-judged afterwards): {text}")
@@ -622,7 +615,8 @@ def require_shared_data(mounts: dict, *, allow_private: bool = False) -> None:
               f"{mounts[n]['realpath']}")
 
 
-def missing_shared_artifacts(root, lat, lon, icao=None, state=None) -> list:
+def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
+                             inset_problem=None) -> list:
     """Named artifacts this build NEEDS that the shared repo does not have.
 
     Each one is something the engine would silently download or regenerate
@@ -635,10 +629,13 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None) -> list:
     (a road-feed fingerprint, a changed query box) is caught by the
     post-build write audit instead — a mutation, not a prediction.
     """
-    # ``state`` is passed in by the CLI so the per-airport inset check
-    # (which parses the cached airports layer) runs ONCE per build.
+    # ``state`` and ``inset_problem`` are passed in by the CLI so the
+    # per-airport check — which parses the cached airports layer — runs
+    # ONCE per build.  Called without them, this derives both itself.
     if state is None:
-        state = dem_cache_state(root, lat, lon, icao)
+        state = dem_cache_state(root, lat, lon)
+    if inset_problem is None and icao:
+        inset_problem = this_airports_inset_problem(state, lat, lon, icao)
     out = []
     if not state["base_raster"]:
         out.append(("dem", f"Elevation_data/**/{state['tile_stem']}.hgt",
@@ -657,9 +654,8 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None) -> list:
                     "overpass QUERY, and without it the DEM prep has no "
                     "smoothing masks"))
     out.extend(unverified_inset_negatives(state, lat, lon))
-    problem = state.get("airport_inset_problem")
-    if problem is not None:
-        (kind, text) = problem
+    if inset_problem is not None:
+        (kind, text) = inset_problem
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
                     f"{icao}_*.tif [{kind}]", text))
@@ -3497,17 +3493,20 @@ def main(argv=None) -> int:
              "data_repo": str(DATA_REPO), "data_mounts": mounts,
              "refresh_authorised": sorted(requested)}
     if lat is not None:
-        # The per-airport inset check runs HERE, once: its verdict rides
-        # in the state, into the frame record, the cold-frame refusal and
-        # the implicit-refresh refusal alike.  A ``--tile`` run judges
-        # the whole tile, so it names no single airport.
-        state = dem_cache_state(root, lat, lon,
-                                None if args.tile else args.icao)
+        state = dem_cache_state(root, lat, lon)
         frame["dem_cache_before"] = state
-        if state.get("airport_inset_problem"):
-            prog.note(f"per-airport inset "
-                      f"{state['airport_inset_problem'][0].upper()}: "
-                      f"{state['airport_inset_problem'][1]}")
+        # The per-airport inset check runs HERE, once, and travels in its
+        # OWN frame key — never inside ``dem_cache_before``, which the
+        # artifact ledger hashes whole.  A ``--tile`` run judges the whole
+        # tile, so it names no single airport.
+        inset_problem = this_airports_inset_problem(
+            state, lat, lon, None if args.tile else args.icao)
+        frame["airport_inset_problem"] = (
+            {"kind": inset_problem[0], "why": inset_problem[1]}
+            if inset_problem else None)
+        if inset_problem:
+            prog.note(f"per-airport inset {inset_problem[0].upper()}: "
+                      f"{inset_problem[1]}")
         prog.note(f"DEM cache {state['tile_stem']}: base_raster="
                   f"{state['base_raster']} insets={state['airport_insets']} "
                   f"airports_layer={state['airports_layer']} "
@@ -3529,7 +3528,8 @@ def main(argv=None) -> int:
                       "scope(s) alone")
         elif args.dem is None:
             require_dem_frame(state, allow_degraded=args.allow_degraded_dem,
-                              requested=requested)
+                              requested=requested,
+                              inset_problem=inset_problem)
         else:
             prog.note("constant-DEM oracle build: the real DEM frame is "
                       "SUBSTITUTED, so its cache warmth cannot confound "
@@ -3540,7 +3540,8 @@ def main(argv=None) -> int:
             require_no_implicit_refresh(
                 missing_shared_artifacts(root, lat, lon,
                                          None if args.tile else args.icao,
-                                         state=state),
+                                         state=state,
+                                         inset_problem=inset_problem),
                 requested)
     else:
         prog.note(f"WARNING: could not resolve the anchor tile for "

@@ -7064,6 +7064,31 @@ def _sidecar_residual_masking_mismatch(lat, lon, icao, provider_code,
     return bool(summary.get("residual_masked_pixel_count"))
 
 
+def recorded_footprint_packs(lat, lon, icao, provider_code):
+    """The pack names a cached inset's manifest RECORDS as having served
+    its building mask, or ``None`` when the manifest does not say.
+
+    ``None`` is "unknown", not "none": it is what a manifest written
+    before 2026-09-17 says, and what a provider that runs no masking pass
+    says.  Both are REUSABLE (:func:`_sidecar_footprint_packs_mismatch`).
+    """
+    provenance_path = FNAMES.airport_inset_provenance(
+        lat, lon, icao, provider_code
+    )
+    try:
+        with open(provenance_path, "r") as handle:
+            provenance = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    summary = provenance.get(SURFACE_MODEL_BUILDING_MASKING)
+    if not isinstance(summary, dict):
+        return None
+    recorded = summary.get(FOOTPRINT_PACKS)
+    if not isinstance(recorded, (list, tuple)):
+        return None
+    return [str(name) for name in recorded]
+
+
 def _sidecar_footprint_packs_mismatch(lat, lon, icao, provider_code,
                                       bounding_box_wgs84):
     """True when the cached inset's mask was served by a DIFFERENT SET of
@@ -7079,21 +7104,10 @@ def _sidecar_footprint_packs_mismatch(lat, lon, icao, provider_code,
     reasons, never by a corpus-wide re-cut.  Also False when the
     provenance is missing or unreadable.
     """
-    provenance_path = FNAMES.airport_inset_provenance(
-        lat, lon, icao, provider_code
-    )
-    try:
-        with open(provenance_path, "r") as handle:
-            provenance = json.load(handle)
-    except (OSError, ValueError):
-        return False
-    summary = provenance.get(SURFACE_MODEL_BUILDING_MASKING)
-    if not isinstance(summary, dict):
-        return False
-    recorded = summary.get(FOOTPRINT_PACKS)
-    if not isinstance(recorded, (list, tuple)):
+    recorded = recorded_footprint_packs(lat, lon, icao, provider_code)
+    if recorded is None:
         return False                      # unknown => reusable
-    return set(map(str, recorded)) != set(
+    return set(recorded) != set(
         package_footprint_pack_names(bounding_box_wgs84)
     )
 

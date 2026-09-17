@@ -586,6 +586,22 @@ def test_pack_reenabled_rebuilds_then_settles(install, tmp_path):
     assert install.is_current(patch)          # and then settles
 
 
+def test_disabling_a_pack_moves_the_SELECTION_too(install):
+    """Owner RULINGS 2026-09-17b closed the hole where only the freshness
+    STAMP saw the toggle: with the selector honouring the ini, disabling
+    the only pack invalidates the patch by BOTH routes — the stamp
+    (``<pack>|disabled``) and the selected apt.dat PATH, which is now the
+    fallback rather than the pack's."""
+    from auto_patch_v2.airport import apt_dat as V2APT
+    before = V2APT.find_apt_dat(str(install.root), "KFAKE")
+    assert before == str(install.apt_dat)
+    install.set_pack_enabled(False)
+    after = V2APT.find_apt_dat(str(install.root), "KFAKE")
+    assert after != str(install.apt_dat)
+    assert driver._scenery_pack_state(str(install.apt_dat)) \
+        == "TestPack|disabled"
+
+
 def test_pack_state_reads_the_ini_keywords(install):
     state = driver._scenery_pack_state(str(install.apt_dat))
     assert state == "TestPack|enabled"

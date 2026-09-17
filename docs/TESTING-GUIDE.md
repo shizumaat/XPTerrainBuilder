@@ -140,9 +140,10 @@ said — it states the reason.
   install). The tile still builds.
 - The same airport built on macOS, Windows and Linux differs slightly. Tell
   us your platform; do not file the difference itself.
-- A scenery pack you disabled in X-Plane still influences grading in this
-  build (fix in progress). Move the pack out of `Custom Scenery` to exclude
-  it.
+- A scenery pack you **disabled in X-Plane is ignored**: its airport is
+  graded from the next enabled pack or from Global Airports and shows a
+  gray mark on the map. If an airport looks like it was built from the
+  wrong pack, tell us which packs you have for it and which are enabled.
 - Windows shows a SmartScreen warning (the app is not code-signed yet);
   Linux needs the listed apt packages; macOS is Apple Silicon only.
 

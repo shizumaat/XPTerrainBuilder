@@ -56,6 +56,12 @@ It is a fork and derivative of
   it, decoded correctly in the packaged app on all three platforms.
 - Stop and resume individual tiles in a running batch; finished tiles can be
   installed into X-Plane automatically.
+- **Scenery packs you have disabled in X-Plane are ignored.** A pack marked
+  disabled in `scenery_packs.ini` no longer supplies an airport layout,
+  library objects or object placements, and is never rewritten; its airport
+  is graded from the next enabled pack or from Global Airports, and shows
+  the ordinary gray airport mark on the map. Toggling a pack rebuilds the
+  affected airport on the next build.
 - A tile folder that points at an unplugged drive is now reported as exactly
   that, not as a permissions problem.
 - Missing or failed imagery downloads are stated at the end of a tile with a
@@ -67,8 +73,9 @@ It is a fork and derivative of
   with no security dialog.
 - **Windows and Linux:** the same engine and the same settings as the Mac
   app, a live per-airport failure line, a persistent engine log for bug
-  reports, and an About box that identifies the build. The tile-details
-  panel no longer clips on Windows. **Linux** now ships as a single
+  reports, and an About box that identifies the build. On Windows the
+  tile-details panel no longer clips, and the Settings window and first-run
+  wizard now fit a 1280-pixel laptop screen. **Linux** now ships as a single
   AppImage (the tar.gz remains).
 - Every download identifies itself: `VERSION.txt` at its root carries the
   app version, the engine version and the commit.
@@ -185,14 +192,6 @@ include, in this order:
 - **The same airport can come out slightly differently on macOS, Windows
   and Linux.** The surface is equally lawful on each, but not identical.
   Say which platform you built on.
-- **Scenery packs you disabled in X-Plane still influence the build.** A
-  pack marked disabled in `scenery_packs.ini` still supplies its airport
-  layout. A fix is in progress; until then, move a pack out of
-  `Custom Scenery` if you do not want it used.
-- **Windows:** the Settings window is wider than a 1280-pixel screen on
-  some font setups. A fix is in progress; until then maximise the window,
-  and note that every setting also lives in `Ortho4XP.cfg` in the data
-  folder.
 - **Large airports take a while.** The airport stage runs a few seconds for
   a small field and around ten minutes for a large hub. The progress line
   names the airport and its step; it has not hung.

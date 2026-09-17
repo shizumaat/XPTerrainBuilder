@@ -408,6 +408,12 @@ def test_rebake_decision_fields():
         # can record them on fresh bakes; defaults empty for
         # hand-constructed decisions.
         "anchor_by_resource",
+        # Per-resource seat NOTE for the provenance sidecar (RULINGS
+        # 2026-09-06b law 3: a member seated apart records the family's
+        # coalition delta beside its own; commit 31924141).  The pin was
+        # not updated with the field and sat RED from 2026-09-06 until
+        # 2026-09-17 — this file is in neither the standing suite nor CI.
+        "seat_note_by_resource",
         # Multi-ground-cluster foot re-anchor
         # (docs/multi_foot_object_reanchor.md): the per-structure foot
         # audit trail and the per-foot terrain-pad requests; both

@@ -756,7 +756,25 @@ def run(binary, repo_root, log_dir, lat, lon, deadline, keep):
                    log_dir, stderr_log, jsonl_log)
 
 
-def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None):
+def _xplat_env(xplat_dump, quantise_m=None):
+    """The CHILD's environment for the cross-platform instrument.
+
+    ``O4_V2_XPLAT_DIGEST`` arms the per-stage digests + the exact
+    projection dump; ``O4_V2_XPLAT_QUANTISE_M`` additionally snaps the
+    load stage's projection (the interventional arm).  Both are read once,
+    in ``auto_patch/engine_v2.py``, and handed to the v2 package as schema
+    flags — the package itself never reads an environment.
+    """
+    if not xplat_dump:
+        return None
+    env = {"O4_V2_XPLAT_DIGEST": "1"}
+    if quantise_m:
+        env["O4_V2_XPLAT_QUANTISE_M"] = repr(float(quantise_m))
+    return env
+
+
+def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
+                quantise_m=None, tag=""):
     """PASS 2 — ONE REAL AIRPORT SOLVED inside the frozen bundle.
 
     The vector step alone: ``include_airports`` ->
@@ -764,10 +782,17 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None):
     ``auto_patch_v2.pipeline.build``, which is where HiGHS is imported
     and called.  Mesh and imagery would add minutes and prove nothing
     this pass is about.
+
+    ``quantise_m`` runs the INTERVENTIONAL arm (lane ``xplatspread``): the
+    load stage's projected metres are snapped, so every platform is fed
+    identical inputs and what still differs downstream is not the
+    projection.  ``tag`` keeps that arm's logs and dump beside — never on
+    top of — the shipped-path arm's.
     """
     os.makedirs(log_dir, exist_ok=True)
-    jsonl_log = os.path.join(log_dir, "engine-airport-jsonl.log")
-    stderr_log = os.path.join(log_dir, "engine-airport-stderr.log")
+    suffix = ("-" + tag) if tag else ""
+    jsonl_log = os.path.join(log_dir, "engine-airport%s-jsonl.log" % suffix)
+    stderr_log = os.path.join(log_dir, "engine-airport%s-stderr.log" % suffix)
     work = tempfile.mkdtemp(prefix="frozen-airport-")
     failures = []
     try:
@@ -788,7 +813,7 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None):
             deadline, "airport %s on tile %s"
             % (AIRPORT_ICAO, _short_latlon(AIRPORT_LAT, AIRPORT_LON)),
             tolerated=lambda text: VERIFY_DEFECT_MARKER in text,
-            extra_env={"O4_V2_XPLAT_DIGEST": "1"} if xplat_dump else None)
+            extra_env=_xplat_env(xplat_dump, quantise_m))
 
         # ---- the auto-patch protocol events ---------------------------
         # AutoPatchBegin/Progress are emitted by the engine even though
@@ -984,6 +1009,7 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None):
             os.makedirs(xplat_dump, exist_ok=True)
             copied = []
             for name in ("%s.xplat.json" % AIRPORT_ICAO,
+                         "%s.xproj.json" % AIRPORT_ICAO,
                          "%s.report.json" % AIRPORT_ICAO):
                 for found in glob.glob(os.path.join(
                         data_root, "tmp", "auto_patch_v2", "*",
@@ -1016,8 +1042,12 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None):
         log_dir, stderr_log, jsonl_log)
 
 
-def _compare(specs):
+def _compare(specs, projection=False):
     """``--compare mac=A.json linux=B.json windows=C.json``.
+
+    With ``projection``, the same call over the ``.xproj.json`` files and
+    the engine's ``xplat.compare_projection`` — the EXACT spread, not the
+    AGREE/DIFFER table.
 
     The table itself is the ENGINE's own ``pipeline/xplat.compare`` —
     imported from ``Ortho4XP/src``, never re-spelled here (a second
@@ -1053,6 +1083,12 @@ def _compare(specs):
             return 1
         with open(path, "r", encoding="utf-8") as handle:
             dumps[name] = json.load(handle)
+    if projection:
+        print("== the exact projection spread over %d dump(s) (%s) =="
+              % (len(dumps), ", ".join(dumps)))
+        for line in xplat.compare_projection(dumps):
+            print(line)
+        return 0
     lines = xplat.compare(dumps)
     print("== the %d-platform stage table (%s) =="
           % (len(dumps), ", ".join(dumps)))
@@ -1091,11 +1127,31 @@ def main(argv):
                              "report and the patch) into this directory; "
                              "the three platforms' dumps are then diffed "
                              "with --compare" % AIRPORT_ICAO)
+    parser.add_argument("--xplat-quantise", dest="xplat_quantise",
+                        type=float, default=1e-3,
+                        help="with --xplat-dump, ALSO solve the airport a "
+                             "second time with the load stage's projection "
+                             "snapped to this many metres (default 1e-3), "
+                             "writing into <dump>/quantised; 0 disables. "
+                             "Never a gate — the arm's outcome is printed "
+                             "and discarded")
+    parser.add_argument("--compare-projection", dest="compare_projection",
+                        nargs="+", default=None,
+                        help="NAME=PATH … : print the exact cross-platform "
+                             "PROJECTION spread (per-pair max/p99/median "
+                             "|delta| in metres, the decade histogram, the "
+                             "growth with distance from the frame origin "
+                             "and the straddle counts at 1e-4/1e-3/1e-2 m) "
+                             "over %s.xproj.json files written by "
+                             "--xplat-dump, and exit" % AIRPORT_ICAO)
     parser.add_argument("--compare", nargs="+", default=None,
                         help="NAME=PATH … : print the per-stage AGREE/"
                              "DIFFER table over dumps written by "
                              "--xplat-dump and exit (no bundle is run)")
     arguments = parser.parse_args(argv)
+
+    if arguments.compare_projection:
+        return _compare(arguments.compare_projection, projection=True)
 
     if arguments.compare:
         return _compare(arguments.compare)
@@ -1122,11 +1178,32 @@ def main(argv):
         # one, and the release job uploads both logs at once.
         print("== PASS 2/2: the frozen bundle SOLVES %s =="
               % AIRPORT_ICAO)
+        dump = (os.path.abspath(arguments.xplat_dump)
+                if arguments.xplat_dump else None)
         status |= run_airport(binary, repo_root, log_dir,
                               arguments.airport_deadline, arguments.keep,
-                              xplat_dump=(
-                                  os.path.abspath(arguments.xplat_dump)
-                                  if arguments.xplat_dump else None))
+                              xplat_dump=dump)
+        # ---- THE INTERVENTIONAL ARM (lane ``xplatspread``) -------------
+        # A SECOND solve of the same airport with the load stage's
+        # projection snapped, so the three platforms are fed identical
+        # inputs.  It is an INSTRUMENT, never a gate: its outcome is
+        # printed and DISCARDED, because a release must not go red over a
+        # measurement arm.  It runs only when a dump was asked for.
+        if dump and arguments.xplat_quantise:
+            print("== PASS 2b (instrument, NOT a gate): %s again with the "
+                  "load projection snapped to %g m =="
+                  % (AIRPORT_ICAO, arguments.xplat_quantise))
+            try:
+                second = run_airport(
+                    binary, repo_root, log_dir, arguments.airport_deadline,
+                    arguments.keep,
+                    xplat_dump=os.path.join(dump, "quantised"),
+                    quantise_m=arguments.xplat_quantise, tag="quantised")
+                print("   (interventional arm exit %d — not held against "
+                      "the bundle)" % second)
+            except Exception as error:               # pragma: no cover
+                print("   WARNING: the interventional arm failed to run: "
+                      "%r (not held against the bundle)" % (error,))
     return status
 
 

@@ -127,7 +127,14 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    [],
+    # hash_seed=0: the bootloader starts the embedded interpreter with a
+    # pinned string-hash seed (same effect as PYTHONHASHSEED=0, which an
+    # engine spawned by the app never receives from a shell).  BOTH frozen
+    # engines carry the same belt — Ortho4XP_Qt.spec has had it since the
+    # Qt bundle was first frozen, and this is the engine the mac app runs.
+    # Deterministic builds are primarily guaranteed by source-level
+    # ordering pins in auto_patch; this is defense in depth.
+    [('hash_seed=0', None, 'OPTION')],
     exclude_binaries=True,
     name='Ortho4XP',
     debug=False,

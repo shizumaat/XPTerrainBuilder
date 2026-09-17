@@ -172,10 +172,11 @@ private struct GeneralPane: View {
     @StateObject private var showingEnginePicker = ViewState(false)
     @StateObject private var signInTarget = ViewState<O4ProviderAccount?>(nil)
 
-    private var xplaneValid: Bool {
-        !xplanePath.isEmpty
-            && Installation.looksLikeXPlaneRoot(URL(fileURLWithPath: xplanePath, isDirectory: true))
-    }
+    /// The SAME predicate the first-run page and the engine use (beta plan
+    /// §1 B2): Settings calling a folder valid that Build then rejects is
+    /// the confusion this closes.
+    private var xplaneProblem: String? { XPlaneInstall.problem(at: xplanePath) }
+    private var xplaneValid: Bool { xplaneProblem == nil }
 
     var body: some View {
         Form {
@@ -198,7 +199,7 @@ private struct GeneralPane: View {
                 }
                 if !xplanePath.isEmpty {
                     LabeledContent("Status") {
-                        Label(xplaneValid ? "Looks like an X-Plane installation" : "Not recognized as X-Plane",
+                        Label(xplaneProblem ?? "Looks like an X-Plane installation",
                               systemImage: xplaneValid ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                             .foregroundStyle(xplaneValid ? .green : .orange)
                     }

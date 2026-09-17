@@ -10,6 +10,8 @@ struct MapMainView: View {
     @EnvironmentObject var buildModel: BuildModel
     @StateObject private var searchText = ViewState("")
     @StateObject private var showingPicker = ViewState(false)
+    /// Why the last folder the user picked was not accepted (empty = none).
+    @StateObject private var rejectedFolder = ViewState("")
     /// Native inspector visibility, persisted manually (ViewState instead of
     /// @AppStorage — the @State-family macros are unavailable on this
     /// toolchain, see ViewState.swift).
@@ -20,7 +22,11 @@ struct MapMainView: View {
 
     var body: some View {
         Group {
-            if controller.xplanePath.isEmpty {
+            // First run, step 2 (after the data-folder sheet below): a VALID
+            // X-Plane folder is required before anything can be built — with
+            // no CIFP corpus the engine refuses the tile outright (beta plan
+            // §1 B2). "Non-empty" was not enough: a wrong folder passed.
+            if XPlaneInstall.problem(at: controller.xplanePath) != nil {
                 onboarding
             } else {
                 // The window opens straight onto the (initially empty) map;
@@ -50,7 +56,15 @@ struct MapMainView: View {
         }
         .fileImporter(isPresented: $showingPicker.value, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
-                controller.xplanePath = url.path
+                // Validated before it is accepted: an invalid folder would
+                // otherwise seed nothing and leave Build permanently off
+                // with no explanation.
+                if let problem = XPlaneInstall.problem(at: url.path) {
+                    rejectedFolder.value = problem
+                } else {
+                    rejectedFolder.value = ""
+                    controller.xplanePath = url.path
+                }
             }
         }
         // First run: where downloads and built tiles go. Presented until the
@@ -280,8 +294,22 @@ struct MapMainView: View {
                 .font(.title2.weight(.semibold))
             Text("Select your X-Plane folder to get started.")
                 .foregroundStyle(.secondary)
+            Text("Ortho4XP reads X-Plane's own airport and CIFP data to grade "
+                 + "runways, taxiways and aprons. Without it every airport would "
+                 + "drape over the raw terrain, so a build cannot start.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 440)
             Button("Choose X-Plane Folder…") { showingPicker.value = true }
                 .buttonStyle(.borderedProminent)
+            if !rejectedFolder.value.isEmpty {
+                Text(rejectedFolder.value)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 440)
+            }
             Text(Self.systemInfo.summary)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)

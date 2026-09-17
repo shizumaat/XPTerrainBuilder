@@ -68,6 +68,31 @@ jobs:
       # 2026-09-17.  Windows/Linux keep their step: they never run
       # make_engine.sh, and their job python carries the engine packages.
 
+      # THE FROZEN BUNDLE BUILDS A TILE, before anything is signed
+      # (beta plan §1 B4 round 2).  PROJ and LERC prove the bundle
+      # imports; the classes that have actually shipped broken — a
+      # function-level third-party import PyInstaller never sees
+      # (highspy, 2026-09-10), a data file missing from the .spec, a
+      # wrong data-root/cwd inside the bundle — appear only on a code
+      # path a real build walks.  Driven over the shipped JSONL
+      # protocol, never an import.  A bundle that cannot build a tile
+      # must never be notarized, so this sits AHEAD of signing.
+      # python3 with no third-party package: the job's bare python3 has
+      # no numpy (that is what killed a redundant LERC step, 649452b3).
+      - name: Frozen tile build (shipped JSONL protocol)
+        run: |
+          bash scripts/check_frozen_tile.sh \
+            Ortho4XP/dist/Ortho4XP/Ortho4XP python3 \
+            --logs "$RUNNER_TEMP/frozen-tile-logs"
+
+      - name: Frozen tile build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-tile-logs-mac
+          path: ${{ runner.temp }}/frozen-tile-logs
+          if-no-files-found: ignore
+
       # Signing and notarization (docs/BETA-PLAN-20260916.md §1 B1,
       # RELEASES-PLAN §B4).  A TAG release is signed, notarized and stapled
       # or it does not ship: an ad-hoc tag artifact is refused by current
@@ -267,6 +292,28 @@ jobs:
       - name: LERC self-check (frozen app)
         run: bash scripts/check_frozen_lerc.sh Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe python
 
+      # THE FROZEN BUNDLE BUILDS A TILE, before branding and zipping
+      # (beta plan §1 B4 round 2 — same implementation as the mac job).
+      # On Windows this app IS the engine: Ortho4XP_Qt.py dispatches
+      # --engine-jsonl ahead of every Qt import, so the shipped binary
+      # is a headless engine and the check needs no display.  It is also
+      # a WINDOWED bundle (Ortho4XP_Qt.spec console=False), which is
+      # exactly why the protocol has to be exercised here rather than
+      # assumed: nothing else proves the shipped .exe can serve stdio.
+      - name: Frozen tile build (shipped JSONL protocol)
+        run: |
+          bash scripts/check_frozen_tile.sh \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt.exe python \
+            --logs "$RUNNER_TEMP/frozen-tile-logs"
+
+      - name: Frozen tile build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-tile-logs-windows
+          path: ${{ runner.temp }}/frozen-tile-logs
+          if-no-files-found: ignore
+
       - name: Version
         id: ver
         run: |
@@ -355,6 +402,26 @@ jobs:
       # filter drops only the dev/test tail and gdal).
       - name: LERC self-check (frozen app)
         run: bash scripts/check_frozen_lerc.sh Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt python
+
+      # THE FROZEN BUNDLE BUILDS A TILE, before branding and tarring
+      # (beta plan §1 B4 round 2 — same implementation as the mac job).
+      # On Linux this app IS the engine: Ortho4XP_Qt.py dispatches
+      # --engine-jsonl ahead of every Qt import, so the shipped binary
+      # is a headless engine and this needs no X display (the runner has
+      # none).
+      - name: Frozen tile build (shipped JSONL protocol)
+        run: |
+          bash scripts/check_frozen_tile.sh \
+            Ortho4XP/dist/Ortho4XP_Qt/Ortho4XP_Qt python \
+            --logs "$RUNNER_TEMP/frozen-tile-logs"
+
+      - name: Frozen tile build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-tile-logs-linux
+          path: ${{ runner.temp }}/frozen-tile-logs
+          if-no-files-found: ignore
 
       - name: Version
         id: ver

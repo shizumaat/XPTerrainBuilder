@@ -6,16 +6,16 @@ set -euo pipefail
 CONFIG="${1:-release}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/version.sh"
-# The SwiftUI macro plugin lives in the Xcode-beta toolchain on this machine
-# (memory swift-build-needs-xcode-beta; 2026-09-13 the 1.0.327 build failed
-# without it: "SwiftUIMacros.StateMacro could not be found").
-# Default to Xcode-beta ONLY where it exists (the owner's machine needs the
-# macOS 26 SDK it carries).  An unconditional default broke the CI mac job
-# from 2026-09-13 until 2026-09-17: the runner selects Xcode 26 with
-# xcode-select and has no /Applications/Xcode-beta.app, so xcrun died with
-# "missing DEVELOPER_DIR path" before the build started.
-if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode-beta.app ]; then
-    export DEVELOPER_DIR=/Applications/Xcode-beta.app
+# Toolchain: the RELEASE Xcode that `xcode-select` points at (owner
+# 2026-09-17: Xcode 27.0 release replaces Xcode-beta, which is no longer
+# installed).  Nothing is defaulted here — an unconditional Xcode-beta
+# default broke the CI mac job from 2026-09-13 to 2026-09-17 (the runner has
+# no such path).  A caller may still export DEVELOPER_DIR to pin one.  The
+# SwiftUI macro plugin needs a full Xcode, not the Command Line Tools:
+if ! xcrun --find swift-plugin-server >/dev/null 2>&1 && \
+   [ "$(xcode-select -p 2>/dev/null)" = "/Library/Developer/CommandLineTools" ]; then
+  echo "ERROR: xcode-select points at the Command Line Tools; the app needs a full Xcode (sudo xcode-select -s /Applications/Xcode.app)." >&2
+  exit 1
 fi
 # .nosync: iCloud Drive skips such folders. The repo may live under the
 # synced Documents folder, and letting the file provider chew on a half-

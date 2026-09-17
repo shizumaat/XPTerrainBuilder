@@ -673,6 +673,108 @@ class TwoLineElidedLabel(QLabel):
         self.setToolTip(self._full_text if display != self._full_text else "")
 
 
+class ElidedRowLabel(QLabel):
+    """One-line label that PREFERS its full text but may be squeezed.
+
+    A plain QLabel reports its whole text width as its MINIMUM, so every
+    such label is a hard floor under the fixed-width side panel.  That
+    floor is measured in the platform's font: on the Windows CI runner
+    the offscreen font's glyphs are 1.5x the mac's, the panel's minimum
+    came out 452 px against its 266 px viewport, and the panel clipped
+    silently (its horizontal scrollbar is off by design — beta plan §1
+    B4).  Here the size HINT still carries the full text, so wherever
+    the row has room nothing changes; only a squeezed row elides the
+    label (tail elision, full text in the tooltip) instead of widening
+    its panel.
+
+    Height never depends on width — no word wrap — so this cannot start
+    the scroll-area relayout oscillation TwoLineElidedLabel documents.
+    ``text()`` answers the FULL text, not what is painted.
+    """
+
+    #: Squeezed-out floor: an ellipsis plus a couple of characters, so a
+    #: tight row still shows the label EXISTS.
+    MIN_CHARS = 3
+
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self.setTextFormat(Qt.PlainText)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self._full_text = ""
+        self.setText(text)
+
+    def text(self):
+        return self._full_text
+
+    def setText(self, text):
+        self._full_text = str(text or "")
+        self._apply_elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_elide()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:
+            self.updateGeometry()
+            self._apply_elide()
+
+    def _margin_width(self):
+        margins = self.contentsMargins()
+        return margins.left() + margins.right() + 2 * self.margin()
+
+    def sizeHint(self):
+        # Computed from the FULL text: painting an elided string must
+        # never shrink the hint (that would ratchet the label down and
+        # never let it back).
+        hint = super().sizeHint()
+        hint.setWidth(
+            self.fontMetrics().horizontalAdvance(self._full_text)
+            + self._margin_width()
+        )
+        return hint
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        hint.setWidth(
+            self.fontMetrics().horizontalAdvance("…" * self.MIN_CHARS)
+            + self._margin_width()
+        )
+        return hint
+
+    def _apply_elide(self):
+        width = self.contentsRect().width()
+        if width <= 0:  # not laid out yet: nothing to elide against
+            display = self._full_text
+        else:
+            display = self.fontMetrics().elidedText(
+                self._full_text, Qt.ElideRight, width
+            )
+        if display != QLabel.text(self):
+            QLabel.setText(self, display)
+        elided = display != self._full_text
+        # A tooltip the CALLER set (the row's own explanation) outranks
+        # the full-text fallback and is never overwritten.
+        if self.toolTip() in ("", self._full_text):
+            self.setToolTip(self._full_text if elided else "")
+
+
+def _may_be_squeezed(combo, chars=4):
+    """Stop *combo* demanding room for its widest item.
+
+    QComboBox reports the same width as its minimum and its hint (the
+    widest item, by default), which in the fixed-width side panel is a
+    floor that grows with the platform's font.  These combos always fill
+    the width their row has left over (stretch 1), so a small minimum
+    changes nothing that is drawn — it only lets the row shrink.
+    """
+    combo.setSizeAdjustPolicy(
+        QComboBox.AdjustToMinimumContentsLengthWithIcon
+    )
+    combo.setMinimumContentsLength(chars)
+
+
 class _EngineBridge(QObject):
     """Marshals engine-session events onto the GUI thread.
 
@@ -996,6 +1098,10 @@ class MainWindow(QMainWindow):
         # hint is meaningless by design) — the values simply vanish.
         ig.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.info_title = QLabel("—")
+        # Rich text (no elision support), so it clips rather than ever
+        # widening the fixed-width panel; the tooltip keeps the whole
+        # line for a font wide enough to need it.
+        _never_widen(self.info_title)
         ig.addRow(self.info_title)
         # Imagery row: the source, plus the mixed-sources warning button
         # that opens the per-source breakdown and its cleanup offer
@@ -1043,6 +1149,7 @@ class MainWindow(QMainWindow):
             self._show_manual_elevation_dialog
         )
         self.manual_elevation_btn.setVisible(False)
+        _never_widen(self.manual_elevation_btn)
         ig.addRow(self.manual_elevation_btn)
         self._manual_elevation_entries = []
         self.info_size = QLabel("—")
@@ -1091,6 +1198,7 @@ class MainWindow(QMainWindow):
         self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
+        _never_widen(self.install_check)
         ig.addRow(self.install_check)
         pv.addWidget(self.info_group)
 
@@ -1132,7 +1240,9 @@ class MainWindow(QMainWindow):
         # batch is flyable the moment it ends.  Default ON, as there.
         # Short label by necessity: the panel is a fixed 280 px with its
         # horizontal scrollbar off, and a checkbox cannot elide — the mac
-        # app's "Install finished tiles automatically" would clip.
+        # app's "Install finished tiles automatically" would clip.  Every
+        # checkbox here is _never_widen'd below, so a wide platform font
+        # clips ONE label instead of clipping the whole panel.
         self.chk_auto_install = QCheckBox("Auto-install finished tiles")
         self.chk_auto_install.setChecked(
             bool(self.prefs.get(AUTO_INSTALL_KEY, True))
@@ -1170,15 +1280,27 @@ class MainWindow(QMainWindow):
             self.chk_auto_install,
             self.chk_modify_airports,
         ):
+            # A QCheckBox neither wraps nor elides, so its label width is
+            # a hard floor under the panel — and the floor grows with the
+            # platform font (the Windows runner measures 1.5x the mac's,
+            # where "Auto-install finished tiles" alone wants 348 px of a
+            # 266 px viewport).  Ignored policy keeps the box at whatever
+            # width the panel has, clipping its own tail at worst.
+            _never_widen(c)
             bg.addWidget(c)
 
         # Texture mode: what the base mesh is textured with (per-tile config).
         self.texture_row = QWidget()
         trl = QHBoxLayout(self.texture_row)
         trl.setContentsMargins(0, 0, 0, 0)
-        self.texture_label = QLabel("Textures:")
+        # Label + combo rows: the label PREFERS its full text (nothing
+        # moves where the row has room) but yields first when the panel
+        # is tighter than the platform font wants — the combo beside it
+        # must stay usable.
+        self.texture_label = ElidedRowLabel("Textures:")
         trl.addWidget(self.texture_label)
         self.texture_combo = QComboBox()
+        _may_be_squeezed(self.texture_combo)
         for label, value in TEXTURE_MODE_CHOICES:
             self.texture_combo.addItem(label, value)
         self.texture_combo.currentIndexChanged.connect(
@@ -1192,9 +1314,10 @@ class MainWindow(QMainWindow):
         self.elevation_row = QWidget()
         erl = QHBoxLayout(self.elevation_row)
         erl.setContentsMargins(0, 0, 0, 0)
-        self.elevation_label = QLabel("Tile elevation:")
+        self.elevation_label = ElidedRowLabel("Tile elevation:")
         erl.addWidget(self.elevation_label)
         self.elevation_combo = QComboBox()
+        _may_be_squeezed(self.elevation_combo)
         for label, value in ELEVATION_LEVEL_CHOICES:
             self.elevation_combo.addItem(label, value)
         self.elevation_combo.setToolTip(ELEVATION_LEVEL_TOOLTIP)
@@ -1210,9 +1333,10 @@ class MainWindow(QMainWindow):
         self.airport_elevation_row = QWidget()
         arl = QHBoxLayout(self.airport_elevation_row)
         arl.setContentsMargins(0, 0, 0, 0)
-        self.airport_elevation_label = QLabel("Airport elevation:")
+        self.airport_elevation_label = ElidedRowLabel("Airport elevation:")
         arl.addWidget(self.airport_elevation_label)
         self.airport_elevation_combo = QComboBox()
+        _may_be_squeezed(self.airport_elevation_combo)
         for label, value in AIRPORT_ELEVATION_LEVEL_CHOICES:
             self.airport_elevation_combo.addItem(label, value)
         self.airport_elevation_combo.setToolTip(
@@ -1782,7 +1906,10 @@ class MainWindow(QMainWindow):
             )
             if pack.status != "enabled":
                 detail += " · disabled in X-Plane"
-            note = QLabel(detail)
+            # Elided for the same reason as the pack name above: the
+            # detail line ("DSF modified … · disabled in X-Plane") is
+            # wider than the panel on any generous platform font.
+            note = ElidedRowLabel(detail)
             note.setStyleSheet("color: gray; font-size: 11px;")
             rl.addWidget(note)
             self._other_scenery_rows.addWidget(row)
@@ -2279,6 +2406,7 @@ class MainWindow(QMainWindow):
         self.info_title.setText(
             "<b>Tile %s</b>" % FNAMES.short_latlon(lat, lon)
         )
+        self.info_title.setToolTip(self.info_title.text())
         info = self._built.get(tile)
         import O4_Config_Utils as CFG
 
@@ -2353,6 +2481,7 @@ class MainWindow(QMainWindow):
                 self.info_title.text()
                 + ("  (scanning…)" if pending else "  (not built)")
             )
+            self.info_title.setToolTip(self.info_title.text())
             self.install_check.setEnabled(False)
             self.install_check.setChecked(False)
             return
@@ -2601,7 +2730,10 @@ class MainWindow(QMainWindow):
             rl.setContentsMargins(0, 0, 0, 0)
             rl.setSpacing(4)
             objects = pack.get("objects", 0)
-            label = QLabel(pack["pack_name"])
+            # Elided: a pack name is arbitrarily long and this row lives
+            # in the fixed-width panel (a plain QLabel here would make
+            # the longest installed pack name the panel's minimum).
+            label = ElidedRowLabel(pack["pack_name"])
             label.setToolTip(
                 "%d object file%s reseated to this tile's rebuilt "
                 "ground (originals kept as .anchor_bak backups)."

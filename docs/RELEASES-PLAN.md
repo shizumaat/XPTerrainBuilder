@@ -84,10 +84,22 @@ scope for the first release cycle.)
    `Ortho4XP.cfg` land there, never inside the bundle. Still open from the
    original plan: folding the X-Plane folder pick into the same sheet and
    writing `custom_scenery_dir` into the engine config.
-4. Signing/notarization: Developer ID Application cert + notarytool API key
-   as GitHub secrets; hardened runtime on app + every Mach-O in the frozen
-   engine (PyInstaller output must be signed inner-first). Without secrets,
-   CI still produces an ad-hoc-signed zip (users right-click → Open once).
+4. **DONE (machinery; the owner still owes the secrets):**
+   `scripts/sign_app.sh` signs every Mach-O the bundle carries inner-first
+   (discovered with `find` + `file`, never a hand list) with the hardened
+   runtime, a secure timestamp and `scripts/XPTerrainBuilder.entitlements`,
+   and refuses unless every object reports the team and the `runtime` flag;
+   `scripts/notarize_app.sh` submits with an App Store Connect API key,
+   staples and gates on `spctl` saying "Notarized Developer ID", and
+   refuses BY NAME when the credentials are absent. `make_app.sh` routes a
+   "Developer ID Application" identity through it and leaves the dev path
+   alone. `release.yml`'s mac job imports the cert into a throwaway
+   keychain, signs, notarizes, staples and zips the stapled app: a `v*` tag
+   with any of `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `NOTARY_KEY_P8`,
+   `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` empty now FAILS naming it (no more
+   ad-hoc tag artifacts — current macOS has no right-click bypass), while
+   `workflow_dispatch` may build ad-hoc and ships it as `…-mac-UNSIGNED.zip`.
+   Open: the five repo secrets, and the first notarized run.
 5. Architecture: ship arm64 first (the vendored numpy wheel in `Utils/mac`
    is arm64-only). A separate x86_64 artifact later if there's demand;
    universal2 for a frozen Python tree is not worth the pain.

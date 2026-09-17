@@ -150,8 +150,24 @@ if [ -z "$SIGN_IDENTITY" ] && security find-identity -v -p codesigning 2>/dev/nu
      | grep -q '"XPTerrainBuilder Dev"'; then
     SIGN_IDENTITY="XPTerrainBuilder Dev"
 fi
-codesign --force --sign "${SIGN_IDENTITY:--}" "$STAGE"
-[ -n "$SIGN_IDENTITY" ] && echo "Signed with identity: $SIGN_IDENTITY"
+case "$SIGN_IDENTITY" in
+    "Developer ID Application"*)
+        # Distribution build: hardened runtime, secure timestamp,
+        # entitlements, and every Mach-O in the frozen engine signed
+        # inner-first.  Minutes, not the second the ad-hoc path takes —
+        # which is why it is gated on a Developer ID identity and local dev
+        # builds are untouched.
+        "$ROOT/scripts/sign_app.sh" "$STAGE" "$SIGN_IDENTITY"
+        ;;
+    *)
+        codesign --force --sign "${SIGN_IDENTITY:--}" "$STAGE"
+        if [ -n "$SIGN_IDENTITY" ]; then
+            echo "Signed with identity: $SIGN_IDENTITY"
+        else
+            echo "Signed ad-hoc (no Developer ID identity; not distributable)"
+        fi
+        ;;
+esac
 
 rm -rf "$APP"
 mkdir -p "$ROOT/dist.nosync"

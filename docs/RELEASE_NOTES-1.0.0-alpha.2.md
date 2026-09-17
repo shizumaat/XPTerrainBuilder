@@ -58,14 +58,17 @@ the limitations below.
 
 ## Download and run
 
-**macOS** — the app is **unsigned and not notarized**, so Gatekeeper will
-refuse a normal double-click:
+**macOS** — the app is **signed with a Developer ID and notarized by
+Apple**, so there is nothing to bypass:
 
 1. Unzip `XPTerrainBuilder-1.0.0-alpha.2-mac.zip`.
 2. Move `XPTerrainBuilder.app` where you want it (e.g. `/Applications`).
-3. **Right-click (or Control-click) the app → Open**, then confirm **Open**
-   in the dialog. You only need to do this the first time; afterwards it
-   launches normally.
+3. Double-click it. **No dialog is expected.** If one appears ("cannot be
+   opened because the developer cannot be verified", or a damaged /
+   unverified warning), the build you have is not the signed one — please
+   report it, with the exact file name you downloaded, instead of working
+   around it. Do not use right-click → Open: current macOS no longer
+   offers that bypass, and on this app it would only hide a bad download.
 
 Requires macOS 14 or later on an Apple Silicon Mac.
 
@@ -104,8 +107,8 @@ Pick a folder with plenty of free space — ortho tiles are large.
 
 ## Known alpha limitations
 
-- **No code signing or notarization** on any platform. Hence the
-  right-click-Open dance on macOS and the SmartScreen warning on Windows.
+- **No code signing on Windows or Linux** — hence the SmartScreen warning
+  on Windows. The macOS app is Developer ID signed and notarized.
 - **macOS is Apple Silicon only.** No x86_64 (Intel) Mac build ships in
   this alpha.
 - **No Linux AppImage yet** — only the portable tarball.

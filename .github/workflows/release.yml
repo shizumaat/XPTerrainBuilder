@@ -51,8 +51,88 @@ jobs:
           PROJ_DATA: /nonexistent/proj
         run: Ortho4XP/dist/Ortho4XP/Ortho4XP --proj-selfcheck
 
+      # Signing and notarization (docs/BETA-PLAN-20260916.md §1 B1,
+      # RELEASES-PLAN §B4).  A TAG release is signed, notarized and stapled
+      # or it does not ship: an ad-hoc tag artifact is refused by current
+      # macOS with no right-click bypass, so shipping one silently is worse
+      # than failing here.  workflow_dispatch may still build ad-hoc, and
+      # says so in the artifact name.
+      - name: Signing secrets
+        id: signing
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          missing=""
+          for v in MACOS_CERT_P12 MACOS_CERT_PASSWORD NOTARY_KEY_P8 \
+                   NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::tag release requires the signing secrets; missing:$missing"
+              exit 1
+            fi
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::building UNSIGNED (missing:$missing)"
+          else
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A throwaway keychain, deleted in an `if: always()` step below: the
+      # runner's login keychain is shared with everything else on the job.
+      - name: Import Developer ID certificate
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/xptb-signing.keychain-db"
+          KPASS="$(openssl rand -base64 24)"
+          P12="$RUNNER_TEMP/cert.p12"
+          trap 'rm -f "$P12"' EXIT
+          security create-keychain -p "$KPASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KPASS" "$KEYCHAIN"
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$P12"
+          security import "$P12" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" \
+            -T /usr/bin/codesign -f pkcs12
+          # Without this, codesign blocks on a UI prompt no runner can answer.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KPASS" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | tr -d '"')
+          IDENT="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1)"
+          if [ -z "$IDENT" ]; then
+            echo "::error::the imported .p12 carries no Developer ID Application identity"
+            exit 1
+          fi
+          echo "Identity: $IDENT"
+          echo "XPTB_SIGN_IDENTITY=$IDENT" >> "$GITHUB_ENV"
+          echo "SIGN_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      # With XPTB_SIGN_IDENTITY a "Developer ID Application" string,
+      # make_app.sh routes the stage through scripts/sign_app.sh (hardened
+      # runtime, inner-first).  Without it, today's ad-hoc path.
       - name: Build app
         run: scripts/make_app.sh release
+
+      - name: Notarize and staple
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          KEY="$RUNNER_TEMP/notary.p8"
+          trap 'rm -f "$KEY"' EXIT
+          printf '%s' "$NOTARY_KEY_P8" | base64 --decode > "$KEY"
+          NOTARY_KEY_PATH="$KEY" scripts/notarize_app.sh \
+            dist.nosync/XPTerrainBuilder.app
 
       # LICENSING.md §6(d) / RELEASES-PLAN §G: every artifact carries the
       # notices, generated from LICENSING.md so they cover what we ship.
@@ -71,7 +151,11 @@ jobs:
       # Stage the app next to the license payload, so the artifact root
       # carries the per-artifact checklist of RELEASES-PLAN §G (LICENSE,
       # LICENSING.md, notices, gpl.txt, copyright.txt, Triangle sources).
+      # `ditto` (not zip) preserves the symlinks, the signatures and the
+      # stapled notarization ticket inside the bundle.
       - name: Stage and zip
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
           rm -rf XPTerrainBuilder
           mkdir -p XPTerrainBuilder/Triangle-src
@@ -81,13 +165,30 @@ jobs:
           cp Ortho4XP/Licence/gpl.txt Ortho4XP/Licence/copyright.txt \
             XPTerrainBuilder/
           cp -R Ortho4XP/Utils/src/. XPTerrainBuilder/Triangle-src/
+          if [ "$SIGNED" = "true" ]; then
+            # The stapled ticket must survive the zip: assert it on the
+            # STAGED copy, which is what the artifact actually carries.
+            xcrun stapler validate XPTerrainBuilder/XPTerrainBuilder.app
+            SUFFIX=mac
+          else
+            SUFFIX=mac-UNSIGNED
+          fi
           ditto -c -k --keepParent XPTerrainBuilder \
-            "XPTerrainBuilder-${{ steps.ver.outputs.version }}-mac.zip"
+            "XPTerrainBuilder-${{ steps.ver.outputs.version }}-$SUFFIX.zip"
 
       - uses: actions/upload-artifact@v4
         with:
           name: mac
-          path: XPTerrainBuilder-*-mac.zip
+          path: XPTerrainBuilder-*-mac*.zip
+
+      # Never leave the imported certificate on the runner, whatever failed.
+      - name: Delete the signing keychain
+        if: always()
+        run: |
+          if [ -n "${SIGN_KEYCHAIN:-}" ] && [ -f "$SIGN_KEYCHAIN" ]; then
+            security delete-keychain "$SIGN_KEYCHAIN" || true
+          fi
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/notary.p8" || true
 
   windows:
     name: Windows portable (frozen Qt app)

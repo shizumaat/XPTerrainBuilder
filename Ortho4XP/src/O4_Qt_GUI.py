@@ -689,6 +689,7 @@ class MainWindow(QMainWindow):
             EV.TileState: self._on_tile_state,
             EV.RunEta: self._on_run_eta,
             EV.TileClocks: self._on_tile_clocks,
+            EV.AutoPatchFailed: self._on_auto_patch_failed,
             EV.BuildDone: self._on_build_done,
             EV.RunDone: self._on_run_done,
         }
@@ -3316,6 +3317,27 @@ class MainWindow(QMainWindow):
             if row is None:
                 continue
             row[4].setText(_fmt_tile_clock(*entry))
+
+    def _on_auto_patch_failed(self, event):
+        """H1: name the airport in the console the moment it dies.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .autoPatchFailed``), wording included.  The tile's own
+        ``BuildDone(ok=False)`` follows and repeats it in the end-of-run
+        report, but the user watching the build sees WHICH airport broke
+        WHERE here first — before this handler existed the Qt window
+        showed a red row and nothing else, the same silence the
+        2026-08-30 death had.
+        """
+        print(
+            "*** Tile %s: airport %s failed at the %s stage — %s"
+            % (
+                FNAMES.short_latlon(event.lat, event.lon),
+                event.airport,
+                event.stage,
+                event.error,
+            )
+        )
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own

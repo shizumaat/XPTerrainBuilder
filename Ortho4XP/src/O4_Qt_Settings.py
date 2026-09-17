@@ -42,6 +42,13 @@ from PySide6.QtWidgets import (
 
 import O4_File_Names as FNAMES
 import O4_Settings_Model as SM
+from O4_Qt_Widgets import (
+    ElidedRowLabel,
+    SqueezableLineEdit,
+    may_be_squeezed,
+    never_widen,
+    wrap_and_never_widen,
+)
 
 DOT_STYLE = "color: #C7861B; font-weight: bold;"
 INVALID_STYLE = "border: 1px solid #C03030;"
@@ -102,12 +109,19 @@ class _SettingRow(QWidget):
         self.dot.setVisible(False)
         self.dot.setToolTip("Differs from the inherited value")
         top.addWidget(self.dot)
-        self.name_label = QLabel(setting.label)
+        # The row NAME is the biggest per-row floor (184 px on macOS,
+        # ~276 px on the Windows runner for "X-Plane Custom Scenery
+        # folder"), and a settings sheet is 100+ such rows.  Eliding it
+        # costs nothing wherever the window has room and removes the
+        # font-scaled floor where it has not; the tooltip set just below
+        # outranks ElidedRowLabel's full-text fallback.
+        self.name_label = ElidedRowLabel(setting.label)
         self.name_label.setToolTip(setting.hint or setting.name)
         top.addWidget(self.name_label)
         self.scope_tag = QLabel("app-wide")
         self.scope_tag.setStyleSheet("color: gray; font-size: 10px;")
         self.scope_tag.setVisible(False)
+        never_widen(self.scope_tag)
         top.addWidget(self.scope_tag)
         top.addStretch(1)
 
@@ -132,10 +146,16 @@ class _SettingRow(QWidget):
                     else setting.label_for(raw)
                 )
                 self.control.addItem(label, raw)
+            # A combo demands its WIDEST item as its minimum ("Auto —
+            # synthesize when Global Scenery is missing" is 324 px on
+            # macOS, ~486 px on Windows).  It still opens at that width
+            # wherever the row has room.
+            may_be_squeezed(self.control, chars=8)
             self.control.currentIndexChanged.connect(self._commit)
         else:
-            self.control = QLineEdit()
-            self.control.setFixedWidth(
+            # PREFERS the same width the fixed one had (identical form
+            # on screen), but may give way before the window does.
+            self.control = SqueezableLineEdit(
                 280 if _is_path_setting(setting) else 110
             )
             # Free-text commits when editing FINISHES (Enter / focus out),
@@ -167,7 +187,9 @@ class _SettingRow(QWidget):
 
         if setting.hint:
             desc = QLabel(setting.hint)
-            desc.setWordWrap(True)
+            # Word wrap alone still floors the row at the longest
+            # unbreakable run (a URL, a path): 156 px on macOS here.
+            wrap_and_never_widen(desc)
             desc.setStyleSheet("color: gray; font-size: 11px;")
             desc.setContentsMargins(16, 0, 0, 0)
             lay.addWidget(desc)
@@ -685,7 +707,10 @@ class _ProviderSignInSection(QWidget):
         )
         title.setTextFormat(Qt.RichText)
         # Long attributions wrap rather than forcing the row (and with
-        # it the whole settings window) wider than the viewport.
+        # it the whole settings window) wider than the viewport.  NOT
+        # never_widen: this row's law (test_qt_provider_accounts) is
+        # that the title keeps its ideal width and the STATUS absorbs
+        # the slack, and Ignored policy would collapse it to zero.
         title.setWordWrap(True)
         if definition.get("registration_url"):
             title.setToolTip(
@@ -803,6 +828,11 @@ class SettingsWindow(QDialog):
     value applies it to every selected tile.
     """
 
+    #: Hard ceiling on the window's own minimum width, whatever the
+    #: platform font makes of the content: a 1280 px laptop (and a
+    #: Windows display at 125 % scaling) must be able to hold the sheet.
+    MAX_MINIMUM_WIDTH = 720
+
     def __init__(self, prefs, tiles, custom_build_dir, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Ortho4XP Settings")
@@ -860,6 +890,15 @@ class SettingsWindow(QDialog):
         widest row of ANY category (hidden categories count: switching
         category must not start clipping).  Needs the window shown
         once, to measure the chrome between window and viewport.
+
+        The clamp is CAPPED at :data:`MAX_MINIMUM_WIDTH` (2026-09-17).
+        Uncapped it was the Windows 1228 px floor: it copied the widest
+        row's font-scaled minimum straight onto the window, so a laptop
+        screen could not hold the dialog at all.  Rows now elide and
+        squeeze, so the computed number is small everywhere; the cap is
+        the guarantee that a future row can never take the window off
+        the screen again — past it the scroll area scrolls, which is
+        recoverable, where a too-large window minimum is not.
         """
         if self._width_clamped:
             return
@@ -886,10 +925,11 @@ class SettingsWindow(QDialog):
         scrollbar_allowance = (
             self.scroll.verticalScrollBar().sizeHint().width()
         )
-        self.setMinimumWidth(
+        self.setMinimumWidth(min(
             widest_row + margins.left() + margins.right()
-            + chrome + scrollbar_allowance
-        )
+            + chrome + scrollbar_allowance,
+            self.MAX_MINIMUM_WIDTH,
+        ))
 
     @property
     def blended(self):
@@ -913,16 +953,16 @@ class SettingsWindow(QDialog):
 
         # Top bar: search + editing context + customized filter
         top = QHBoxLayout()
-        self.search_edit = QLineEdit()
+        self.search_edit = SqueezableLineEdit(240)
         self.search_edit.setPlaceholderText("Search settings…")
-        self.search_edit.setFixedWidth(240)
         self.search_edit.textChanged.connect(self._apply_filter)
         top.addWidget(self.search_edit)
         top.addStretch(1)
-        self.context_label = QLabel()
+        self.context_label = ElidedRowLabel()
         self.context_label.setStyleSheet("color: gray;")
         top.addWidget(self.context_label)
         self.customized_chip = QPushButton()
+        never_widen(self.customized_chip)
         self.customized_chip.setCheckable(True)
         self.customized_chip.setVisible(self.blended)
         self.customized_chip.toggled.connect(self._apply_filter)
@@ -961,6 +1001,7 @@ class SettingsWindow(QDialog):
         # The pinned This-tile view has its own header line.
         self.tile_header = QLabel()
         self.tile_header.setTextFormat(Qt.RichText)
+        wrap_and_never_widen(self.tile_header)
         self.tile_header.setContentsMargins(0, 14, 0, 2)
         self.tile_header.setVisible(False)
         self.content_layout.addWidget(self.tile_header)
@@ -996,6 +1037,7 @@ class SettingsWindow(QDialog):
                     "“Show advanced”.</i>"
                     % (hidden_count, "s" if hidden_count > 1 else "")
                 )
+                wrap_and_never_widen(note)
                 note.setStyleSheet("color: gray; font-size: 11px;")
                 note.setContentsMargins(8, 0, 0, 4)
                 self.content_layout.addWidget(note)
@@ -1018,8 +1060,13 @@ class SettingsWindow(QDialog):
         footer = QHBoxLayout()
         self.legend = QLabel("")
         self.legend.setTextFormat(Qt.RichText)
+        # The footer, not a row, was the DIALOG-level floor: the legend
+        # (252 px on macOS, ~378 px on Windows) plus three buttons came
+        # to 702 px here and ~990 px there.  The legend re-wraps; the
+        # buttons keep their ideal width and their text.
+        wrap_and_never_widen(self.legend)
         self.legend.setStyleSheet("color: gray; font-size: 11px;")
-        footer.addWidget(self.legend)
+        footer.addWidget(self.legend, 1)
         footer.addStretch(1)
         self.reset_category_btn = QPushButton()
         self.reset_category_btn.clicked.connect(self._reset_category)

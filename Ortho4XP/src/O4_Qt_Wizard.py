@@ -24,6 +24,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from O4_Qt_Widgets import (
+    ElidedRowLabel,
+    may_be_squeezed,
+    wrap_and_never_widen,
+)
+
 STEPS = ["Welcome", "X-Plane", "Folders", "Imagery"]
 
 
@@ -179,6 +185,12 @@ class OnboardingWizard(QDialog):
 
         self.unlock_label = QLabel("")
         self.unlock_label.setTextFormat(Qt.RichText)
+        # The wizard's single largest floor: a rejection reason quotes
+        # the folder the user picked, and a filesystem path has nothing
+        # to wrap at (771 px on macOS with a long path, and the
+        # platform font scales it).  Ignored policy lets the paragraph
+        # take the dialog's width instead of setting it.
+        wrap_and_never_widen(self.unlock_label)
         lay.addWidget(self.unlock_label)
         lay.addStretch(1)
 
@@ -221,14 +233,21 @@ class OnboardingWizard(QDialog):
             "quadruples download size."
         ))
         row = QHBoxLayout()
-        row.addWidget(QLabel("Imagery:"))
+        # Field labels elide rather than floor the page: on the Windows
+        # runner "Imagery:" + "Zoom level:" alone were ~180 px of the
+        # wizard's minimum.
+        row.addWidget(ElidedRowLabel("Imagery:"))
         self.imagery_combo = QComboBox()
+        # A provider list carries one very long code (354 px on macOS);
+        # the menu still opens at full width.
+        may_be_squeezed(self.imagery_combo, chars=6)
         self.imagery_combo.addItems(provider_codes)
         self.imagery_combo.setCurrentText(self.prefs.get("imagery", "BI"))
         row.addWidget(self.imagery_combo)
         row.addSpacing(16)
-        row.addWidget(QLabel("Zoom level:"))
+        row.addWidget(ElidedRowLabel("Zoom level:"))
         self.zl_combo = QComboBox()
+        may_be_squeezed(self.zl_combo, chars=2)
         self.zl_combo.addItems([str(z) for z in range(12, 19)])
         self.zl_combo.setCurrentText(str(self.prefs.get("zl", 16)))
         row.addWidget(self.zl_combo)
@@ -244,13 +263,17 @@ class OnboardingWizard(QDialog):
         lay.setContentsMargins(0, 0, 0, 0)
         heading = QLabel("<b>%s</b>" % title)
         heading.setTextFormat(Qt.RichText)
+        wrap_and_never_widen(heading)
         lay.addWidget(heading)
         return page, lay
 
     def _body(self, text):
-        lbl = QLabel(text)
-        lbl.setWordWrap(True)
-        return lbl
+        # The body copy carries its own line breaks (the bullet lists
+        # read as written), so word wrap alone still floors the page at
+        # the longest authored line — ~196 px on macOS, ~300 px on the
+        # Windows runner.  Wherever the dialog is at least its default
+        # 640 px the authored breaks are what is drawn, unchanged.
+        return wrap_and_never_widen(QLabel(text))
 
     def _set_step(self, index):
         self.stack.setCurrentIndex(index)

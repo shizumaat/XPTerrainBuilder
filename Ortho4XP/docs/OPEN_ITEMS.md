@@ -1,5 +1,11 @@
 # OPEN_ITEMS — live unfinished work distilled from the docs/ plan audit (2026-06-30)
 
+> **HISTORICAL as of 2026-09-17 — see the repo-root
+> `docs/BETA-PLAN-20260916.md` (`../../docs/` from here).** This
+> list was distilled in June 2026 and has not been re-audited against the
+> code since; the plan of record for what is actually open is the beta
+> plan. Read the items below as the 2026-06-30 backlog, not as today's.
+
 This is the single index of **planned-but-not-done work that is still relevant**, lifted
 out of ~30 plan docs (many of which are now superseded — see `docs/archive/README.md`).
 Each item cites the source doc and the code evidence. It is *not* a status of the live

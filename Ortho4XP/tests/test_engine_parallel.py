@@ -123,11 +123,17 @@ def test_two_tiles_overlap_and_complete(stub_worker, tmp_path):
     starts precede either end), all four terminal events arrive, RunDone
     aggregates 2/0/False, and per-tile step order holds."""
     stub_worker.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
+    # The overlap window must dominate CHILD-SPAWN SKEW, not just the
+    # scheduler: on the 3-core macos-15 CI runner the second interpreter
+    # took 2.5 s to reach its start mark and the default 0.28 s window
+    # closed by 0.6 ms (2026-09-17).  Seconds-wide here; the assertion
+    # below is unchanged.
+    stub_worker.setenv("STUB_WORKER_STEP_PAUSE", "1.5")
     session = EngineSession()
     collector = Collector(session)
     tiles = [(48, -6), (49, -6)]
     assert _start_parallel(session, tiles, slots=2) is True
-    run_done = collector.wait_run_done()
+    run_done = collector.wait_run_done(30.0)
 
     # Every tile's terminal events arrived.
     for lat, lon in tiles:
@@ -332,6 +338,11 @@ def test_enqueued_tiles_start_on_free_slots_beyond_initial_batch(
     at slots=4, two happy tiles enqueued: both must START while the
     sleepers are still sleeping."""
     stub_worker.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
+    # Same CI-runner spawn skew as the two-slot overlap test: the enqueued
+    # tiles' interpreters took 2.3 s to reach their start marks, by which
+    # time the 0.6 s sleepers had finished.  Give the sleepers a window
+    # wide enough to still be sleeping; the assertion is unchanged.
+    stub_worker.setenv("STUB_WORKER_SLEEPER_SECONDS", "3.0")
     session = EngineSession()
     collector = Collector(session)
     sleepers = [(60, 1), (60, 2)]
@@ -343,7 +354,9 @@ def test_enqueued_tiles_start_on_free_slots_beyond_initial_batch(
     assert session.enqueue_build(
         added, "BI", 16, "",
         do_vector=True, do_imagery=True, do_overlays=False) is True
-    run_done = collector.wait_run_done(30.0)
+    # Each sleeper tile sleeps once PER STEP, so the run is ~5x the
+    # per-step window above; 60 s leaves room on a loaded CI runner.
+    run_done = collector.wait_run_done(60.0)
     assert (run_done.done_count, run_done.error_count) == (4, 0)
 
     def _mark(kind, lat, lon):

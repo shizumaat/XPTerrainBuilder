@@ -71,6 +71,12 @@ jobs:
       # the interactive backends for the same reason.
       QT_QPA_PLATFORM: offscreen
       MPLBACKEND: Agg
+      # --timeout: a hung test fails with its own stack dump instead of
+      # taking the job's 30 minutes and leaving no log behind.
+      PYTEST_FLAGS: >-
+        -q --no-header -p no:cacheprovider -rfE
+        --continue-on-collection-errors
+        --timeout=180 --timeout-method=thread
     steps:
       - uses: actions/checkout@v4
 
@@ -107,6 +113,10 @@ jobs:
             grep -v '^gdal==' requirements.txt > reqs-ci.txt
           fi
           python -m pip install -r reqs-ci.txt
+          # A hung test must NAME ITSELF, not eat the 30-minute job budget:
+          # round 1 (2026-09-17) lost the whole Linux Qt step to a hang with
+          # no log, because a cancelled job keeps no logs at all.
+          python -m pip install pytest-timeout
           python -m pip list
 
       # Three steps, each `if: always()`, so one group's red does not hide
@@ -116,19 +126,16 @@ jobs:
         if: always()
         working-directory: Ortho4XP
         run: |
-          python -m pytest -q --no-header -p no:cacheprovider -rfE \
-            --continue-on-collection-errors tests/test_harness.py
+          python -m pytest $PYTEST_FLAGS tests/test_harness.py
 
       - name: Engine protocol
         if: always()
         working-directory: Ortho4XP
         run: |
-          python -m pytest -q --no-header -p no:cacheprovider -rfE \
-            --continue-on-collection-errors tests/test_engine*.py
+          python -m pytest $PYTEST_FLAGS tests/test_engine*.py
 
       - name: Qt app (offscreen)
         if: always()
         working-directory: Ortho4XP
         run: |
-          python -m pytest -q --no-header -p no:cacheprovider -rfE \
-            --continue-on-collection-errors tests/test_qt_*.py
+          python -m pytest $PYTEST_FLAGS tests/test_qt_*.py

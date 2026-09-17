@@ -203,6 +203,14 @@ class AptAirport:
 
 
 # ── file access ──────────────────────────────────────────────────────────
+#
+# ENCODING IS PINNED, NOT INHERITED (lane ``aptstamp`` 2026-09-17): every
+# apt.dat read here opens ``encoding="utf-8", errors="replace"``, the same
+# pair v1's ``apt_dat_reader`` has always used (:837).  These reads used to
+# take the LOCALE default, so a frozen app launched with no ``LANG`` (or a
+# non-UTF-8 one) could decode a pack's non-ASCII airport name differently
+# from the indexer that judged the same file — a difference in what is
+# SELECTED and in ``block_sha256``, on a machine nobody can reproduce.
 
 def _is_header_for(toks: list[str], icao: str) -> bool:
     return (len(toks) >= 5 and toks[0] in ("1", "16", "17")
@@ -213,7 +221,7 @@ def file_has_airport(path: str, icao: str) -> bool:
     """Whether ``path`` starts an airport block for ``icao``."""
     icao = icao.upper()
     try:
-        with open(path, "r", errors="replace") as fh:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if line[:1] in "1" and _is_header_for(line.split(), icao):
                     return True
@@ -228,7 +236,7 @@ def read_airport_block(path: str, icao: str) -> list[str] | None:
     icao = icao.upper()
     out: list[str] = []
     inside = False
-    with open(path, "r", errors="replace") as fh:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
             toks = line.split()
             if toks and toks[0] in ("1", "16", "17", "99"):

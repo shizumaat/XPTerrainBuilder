@@ -1010,3 +1010,132 @@ def test_no_apt_dat_neighbour_does_not_block_a_buildable_airport(
     assert auto_patched == ["KFAK"]
     assert (patch_dir / "KFAK_auto.patch.osm").exists()
     assert not (patch_dir / "KNON_auto.patch.osm").exists()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# ONE SELECTOR, ONE DATUM (lane ``aptstamp`` 2026-09-17)
+#
+# auto_patch used to carry TWO apt.dat policies: the gate/stamp
+# re-derived v1's ``_pick_best_apt_dat_against_osm`` (custom pack with a
+# 1201/1202 taxi network, ELSE Global Airports) while the BUILD read
+# ``auto_patch_v2.airport.apt_dat.find_apt_dat`` (§44 (1): the first
+# custom pack with row-110 pavement, never a Global fallback).  Measured
+# on the owner's install 2026-09-17: 225 of 1,327 CIFP airports carried
+# by a custom pack disagreed, and for each of those the freshness gate
+# watched a file the build never opened.
+#
+# These two packs are the disagreement in miniature: the custom pack has
+# pavement but no taxi network, so the OLD gate fell back to Global
+# Airports.  Editing the pack v2 READS must invalidate the patch;
+# editing the one it does not must not.
+# ──────────────────────────────────────────────────────────────────────
+_PAVEMENT_BLOCK = (
+    "110 1 0.25 0.00 pavement\n"
+    "111 40.001000 -100.001000\n"
+    "111 40.001000 -100.000000\n"
+    "111 40.000000 -100.000000\n"
+    "113 40.000000 -100.001000\n"
+)
+_TAXI_NETWORK = (
+    "1201 40.000500 -100.000500 both 1 node_a\n"
+    "1201 40.000600 -100.000600 both 2 node_b\n"
+    "1202 1 2 twoway taxiway\n"
+)
+
+
+def _write_block(path: Path, *, pavement: bool, taxi: bool) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "I\n1000 Version\n1 100 0 0 KFAKE Fake Airport\n"
+    if pavement:
+        text += _PAVEMENT_BLOCK
+    if taxi:
+        text += _TAXI_NETWORK
+    text += "99\n"
+    path.write_text(text)
+    return path
+
+
+@pytest.fixture
+def two_pack_install(tmp_path, fresh_env):
+    """A FakeInstall plus the two disagreeing packs, NO selector stub."""
+    fake = FakeInstall(tmp_path / "X-Plane 12")
+    # v1's candidate walk reads every Custom Scenery pack: FakeInstall's
+    # own bare ``TestPack`` must not be a candidate for either policy.
+    fake.apt_dat.unlink()
+    cs = fake.custom_scenery
+    fake.pack_apt = _write_block(
+        cs / "A Custom Pack" / "Earth nav data" / "apt.dat",
+        pavement=True, taxi=False)
+    fake.global_apt = _write_block(
+        cs / "Global Airports" / "Earth nav data" / "apt.dat",
+        pavement=True, taxi=True)
+    return fake
+
+
+def _selected(root: Path) -> str:
+    """Exactly what ``driver.generate_auto_patches`` selects (:1467)."""
+    return osm_load._pick_best_apt_dat_against_osm(str(root), "KFAKE")
+
+
+def test_gate_selector_is_the_build_selector(two_pack_install):
+    """The gate's datum IS what v2 will read — one function, one answer."""
+    from auto_patch_v2.airport.apt_dat import find_apt_dat
+    root = str(two_pack_install.root)
+    assert find_apt_dat(root, "KFAKE") == str(two_pack_install.pack_apt)
+    assert _selected(two_pack_install.root) == find_apt_dat(root, "KFAKE")
+
+
+def _two_pack_patch(fake, tmp_path) -> Path:
+    """A patch stamped the way the driver stamps one (task apt.dat =
+    what the selector answered), with the DSF half empty."""
+    fake.apt_dat = Path(_selected(fake.root))
+    patch = fake.emit_patch(tmp_path / "KFAKE_auto.patch.osm",
+                            dsf_sources=[], dsf_tiles=[])
+    assert fake.is_current(patch), "a just-built patch must be current"
+    return patch
+
+
+def test_editing_the_apt_dat_v2_read_invalidates_the_patch(
+        two_pack_install, tmp_path):
+    patch = _two_pack_patch(two_pack_install, tmp_path)
+    _touch_newer(two_pack_install.pack_apt)
+    assert not two_pack_install.is_current(patch)
+
+
+def test_editing_the_apt_dat_v2_did_not_read_leaves_the_patch_current(
+        two_pack_install, tmp_path):
+    patch = _two_pack_patch(two_pack_install, tmp_path)
+    _touch_newer(two_pack_install.global_apt)
+    assert two_pack_install.is_current(patch)
+
+
+def test_stamped_pack_is_the_pack_v2_reads(two_pack_install, tmp_path):
+    """``o4_apt_dat`` / ``o4_pack`` name the CUSTOM pack, not Global."""
+    patch = _two_pack_patch(two_pack_install, tmp_path)
+    meta = read_patch_source(str(patch))
+    assert meta["apt_dat"] == str(two_pack_install.pack_apt)
+    assert meta["freshness"]["o4_pack"].startswith("A%20Custom%20Pack|")
+
+
+def test_apt_dat_reads_are_utf8_not_locale(tmp_path, monkeypatch):
+    """v2's apt.dat reads pin utf-8 (v1's reader always has): a frozen
+    app with no LANG must not decode a pack's non-ASCII name its own
+    way."""
+    import auto_patch_v2.airport.apt_dat as v2_apt
+    p = tmp_path / "apt.dat"
+    p.write_bytes(
+        "I\n1000 Version\n1 100 0 0 KFAKE Aérodrome Fâké\n99\n"
+        .encode("utf-8"))
+    opened = {}
+    real_open = open
+
+    def _spy(path, *a, **kw):
+        opened.update(kw)
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr(v2_apt, "open", _spy, raising=False)
+    assert v2_apt.file_has_airport(str(p), "KFAKE")
+    assert opened.get("encoding") == "utf-8"
+    block = v2_apt.read_airport_block(str(p), "KFAKE")
+    assert opened.get("encoding") == "utf-8"
+    assert "Aérodrome Fâké" in "\n".join(block)

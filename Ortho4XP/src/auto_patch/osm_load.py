@@ -599,73 +599,39 @@ def _pick_best_apt_dat_against_osm(
         apron_threshold: float = 0.7,
         taxi_threshold: float = 0.7,
         ) -> str | None:
-    """Select the apt.dat for ``icao``.
+    """Select the apt.dat for ``icao`` — v2's selector, nothing else.
 
-    TEMPORARY policy (user 2026-05-21): always use a Custom Scenery
-    pack that contains the airport if one is present; only fall back
-    to Global Airports (then default scenery) when NO Custom Scenery
-    pack has it.  No pavement / OSM coverage analysis is performed.
+    ONE SELECTOR, ONE DATUM (lane ``aptstamp`` 2026-09-17).  This
+    function is the v1-side NAME the driver, the freshness gate and the
+    DSF object-anchor worklist call; its POLICY is now
+    ``auto_patch.engine_v2.select_apt_dat`` →
+    ``auto_patch_v2.airport.apt_dat.find_apt_dat``, the same call the
+    build makes, so nothing downstream can watch a file the build never
+    opened.
 
-    This replaces the earlier coverage-scoring selector (preserved in
-    git history) that scored every candidate's apron + taxi coverage
-    against OSM and skipped a custom pack whose coverage fell below
-    ``apron_threshold`` / ``taxi_threshold``.  That surprised users
-    whose hand-built scenery was silently ignored in favour of the
-    Global definition (e.g. KPHX, whose custom pack scored 0 % apron
-    against OSM and was skipped).  The ``*_threshold`` parameters are
-    retained for signature compatibility but are now unused.
+    What was deleted here: the 2026-05-21/06-16 policy — first Custom
+    Scenery pack carrying a 1201/1202 taxi-routing network, ELSE fall
+    back to Global Airports (the MKStudios LPPT case).  §44 (1) (owner
+    RULINGS 2026-09-15m) rules that tail out for the build: THE PACK IS
+    STILL THE PACK, and a pack whose pavement is thin borrows Global's
+    pavement (``airport/borrow.py``) instead of losing the selection.
+    Keeping a second policy alive on the gate side made the two disagree
+    at 225 of 1,327 CIFP airports on the owner's install (2026-09-17).
 
-    ``find_all_airport_apt_dats`` returns header matches in priority
-    order — Custom Scenery packs first, then Global Airports, then
-    default scenery — using a header-only check (no pavement scan).
+    The ``*_threshold`` parameters were already unused when the coverage
+    scorer was removed; they stay for signature compatibility.
+
+    ``None`` is returned when NOTHING in the install carries the airport,
+    and it is returned WITHOUT a v1 fallback resolver: a second walk that
+    found a file v2's does not is how the driver came to queue an airport
+    the build then failed on with "no apt.dat under xp_root".  None here
+    means the driver's skip line, which is the truthful answer.
     """
-    candidates = APR.find_all_airport_apt_dats(xplane_root, icao)
-    if not candidates:
-        return APR.find_airport_apt_dat(xplane_root, icao)
-
-    def _is_global_or_default(c: str) -> bool:
-        # The Global Airports pack lives under Custom Scenery on
-        # X-Plane 11, so identify it (and the default-scenery pack) by
-        # path rather than by directory position.
-        return "Global Airports" in c or "default scenery" in c
-
-    custom = [c for c in candidates if not _is_global_or_default(c)]
-
-    # Prefer the first genuine Custom Scenery pack that can actually
-    # drive the taxi build — i.e. one whose apt.dat carries a 1201/1202
-    # taxi-routing network.  Some packs (MKStudios LPPT) draw the
-    # airport as draped pavement polygons + painted lines but ship NO
-    # routing graph; picking such a pack emits a taxi-less,
-    # boundary-only patch.  User 2026-06-16: fall back to a candidate
-    # (Global) that does route rather than honour the custom pack
-    # blindly.  Custom packs that DO route are unchanged.
-    for cand in custom:
-        if APR._file_has_airport_with_taxi_routing(cand, icao):
-            UI.vprint(1,
-                f"  [pav-builder] {icao}: using Custom Scenery "
-                f"apt.dat (no pavement analysis): {cand}")
-            return cand
-    # No Custom Scenery pack has a taxi network.  Fall back to the
-    # first remaining candidate (Global, then default) that does.
-    if custom:
-        for cand in candidates:
-            if (_is_global_or_default(cand)
-                    and APR._file_has_airport_with_taxi_routing(cand, icao)):
-                UI.vprint(1,
-                    f"  [pav-builder] {icao}: Custom Scenery pack has no "
-                    f"taxi-routing network; falling back to {cand}")
-                return cand
-    # Nothing routes anywhere — preserve the prior policy (first custom
-    # pack, else first candidate) so runways/boundary still emit.
-    if custom:
-        UI.vprint(1,
-            f"  [pav-builder] {icao}: using Custom Scenery "
-            f"apt.dat (no pavement analysis): {custom[0]}")
-        return custom[0]
-    UI.vprint(1,
-        f"  [pav-builder] {icao}: no Custom Scenery pack; using "
-        f"{candidates[0]}")
-    return candidates[0]
+    from . import engine_v2 as _engine_v2
+    chosen = _engine_v2.select_apt_dat(xplane_root, icao)
+    if chosen is not None:
+        UI.vprint(1, f"  [pav-builder] {icao}: apt.dat {chosen}")
+    return chosen
 
 
 def _load_osm_big_roads(apt_lat: float, apt_lon: float,

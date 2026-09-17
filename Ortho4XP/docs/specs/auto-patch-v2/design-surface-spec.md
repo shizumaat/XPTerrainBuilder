@@ -16353,3 +16353,112 @@ never been ruled; at HECA and LEMD it is inert (a real taxi family carries
 its own trend), on a fixture with none it is 3–4 m.  It is now twinned on
 both arms rather than hidden.  Suite **1,781 passed / 1 skipped /
 1 xpassed, 0 FAILED** with the keys ON.
+
+
+## §46 ONE AIRPORT, ONE PROGRAMME ON EVERY PLATFORM — THE INPUT QUANTUM (owner 2026-09-17, Q 17d-1: "let's implement option A now … can we simply standardize everything to the nearest 1 mm?"; Fable 2026-09-17; founded on lanes `xplatdeterminism`, `xplatspread` and the identity census) — lane `xplatquantum`
+
+**(1) THE DEFECT (17d, measured).** One apt.dat, identical library versions, three
+platforms, three different programmes: CYXY solved 17128×1933 (mac arm64) /
+17151×1922 (Linux) / 17039×1934 (Windows). The first divergent stage is `load`; the
+only thing between the identical input and the difference is PROJ's compiled forward
+transverse Mercator.
+
+**(2) WHAT THE SPREAD REALLY IS (lane `xplatspread`, release runs 35283889554 and
+35285038635, exact `float.hex()` joins over 2,847 load-stage coordinates).**
+Nanometres — max **2.11e-9 m**, p50 3.6e-10 m, almost entirely in northing, easting at
+the ulp; it does NOT grow with distance from the origin (289-point lattice to ±13.9 km).
+17d's bracket "(5e-7, 5e-5) m" was an over-reading of a digest ladder: agreement at a
+coarse rung does not bound a spread, and disagreement at a fine rung does not establish
+one. Linux and Windows are NOT identical either (84 of 2,847 differ by ~1.4e-9 m).
+STRADDLES — coordinates that round differently on two platforms — are **ZERO at every
+grid tried (1e-4, 1e-3, 1e-2, 0.5 m), on every pair.** So the session's hypothesis that
+the pipeline's existing snaps (`min_distinct_spacing_m` = 0.5 m, classify `snap_grid_m`
+= 0.01 m) are where the nanometre becomes a decision is REFUTED: the decision is minted
+DOWNSTREAM, in derived geometry computed from inputs that differ in their last digits.
+
+**(3) THE INTERVENTION THAT WORKED.** With the LOAD stage's projected inputs quantised
+to 1 mm (dump arm only), the projection came out bit-identical on all three and then:
+load, partition, classify, planar (every DEM sample), shapes — every digest agrees at
+every rung; constraints — identical counts by type and 73,528 exact row values agreeing
+to ≤ 7.96e-13 m; LP **17289×1918, 181 rounds, identical everywhere**; the emitted patch
+BODY **byte-identical on all three** (header path and line endings apart); emitted z at
+today's 1 cm: zero cross-platform differences. Bit-identical inputs give bit-identical
+derived geometry: GEOS, numpy and scipy are deterministic across these platforms once
+they are fed the same doubles.
+
+**(4) THE LAW — INPUTS ENTER THE FRAME ON A GRID; NOTHING ELSE CHANGES.**
+ (a) Every coordinate that ENTERS an airport's metric frame from outside — apt.dat,
+     OSM, DSF/OBJ8 placements and feet, any lat/lon we did not compute ourselves — is
+     quantised ONCE, at entry, to `emit.identity.input_quantum_m` = **0.001 m**
+     (law, `law/emit.toml [identity]`; typed in `law/model.py`, exposed in
+     `law/tables.py`). ONE derivation site: `model/frame.Frame` gains the entry
+     projection (name it for what it is, e.g. `enter(lon, lat) -> XY`); `to_xy`
+     stays the EXACT projection for our own geometry.
+ (b) THE IDENTITY DOES NOT MOVE. 17d-1's option (A) — identity in the metre domain —
+     was proposed because quantising `to_xy` AT THE FRAME broke
+     `to_xy(to_ll(xy)) == xy` against the 11-dp lat/lon key (arm 8615f4f9: the
+     pad-ceiling twin and the 1e-9° round-trip twin red). Quantising at ENTRY only
+     leaves every round trip of our own geometry exact, so that conflict never arises:
+     `coordinate_dp` = 11 stays the canonical key AND the emit format, `Vertex.key`
+     keeps its shape, captures and dumps keep their schema, the sidecar ↔ patch ↔
+     census joins are untouched, the 52 test files that build a `Frame` with
+     `identity_dp=11` stand. Option (A) is NOT taken because it is no longer needed;
+     it remains available if a later measurement finds an own-geometry round trip that
+     decides something.
+ (c) WHY 1 mm. apt.dat carries 8 decimals (≈ 1.1 mm): 1 mm respects the source's own
+     resolution and moves no input by more than 0.5 mm, against a planar lattice of
+     0.5 m. Expected straddles per build = N × spread / q: at q = 1 mm, 0.001 at CYXY,
+     0.011 at a hub of 10× CYXY's coordinates, 0.055 at a deliberately pessimistic 50×;
+     1 cm is ten times rarer again and 0.1 mm would put roughly one hub build in two at
+     risk. A straddle, when it happens, is one input 1 mm apart on one platform — a rare
+     one-off difference, never a systematic one; the instrument (5) names it.
+ (d) The shore weld is untouched: `weld_to_shore` copies a FOREIGN OSM coordinate,
+     which is input data and identical on every platform, and §39's exact snap stands.
+     Nothing is snapped at EMIT. (The census's two objections to a 1 cm grid — the
+     mesher's `HAIRLINE_DEGENERATE_M` and shore welds landing g/2 off the water — apply
+     to an emit-side grid, which this law does not create.)
+
+**(5) CONSUMER CENSUS — BEFORE ANY EDIT (RULINGS 2026-08-30l).** The lane tables every
+caller of `Frame.transformers()` / `to_xy` / `_vector_to_xy` (the measurement lane
+counted ~12 beyond load: `planar/build._vector_to_ll`, `planar/overlay._degree_offset`,
+`constraints/foot_rows`, `constraints/pad_relief`, `classify/evidence`,
+`pipeline/publication`, `airport/pack_partition`, `constraints/cluster_pad`, …) and
+rules each ONE of: INPUT-DOMAIN (switch to the entry projection), OWN-GEOMETRY (leave
+exact), or INVERSE-ONLY (no change). A site that takes a lat/lon WE produced and
+projects it back (the census names `pad_relief.py:118` and `foot_rows.py:276` as
+fixture-only exposures; production feet are input-domain from DSF/OBJ8 — VERIFY) is
+listed with its ruling. The `load` hook `xplatspread` left in `_vector_to_xy` is the
+first consumer.
+
+**(6) THREE RESIDUES THE QUANTUM DOES NOT CLOSE, SAME LANE.**
+ (i)  THE WINDOWS CONTACT FLIP: 22 of 616 `road_ramp` rows (`roads.groundside_road
+      airside contact`, §37 (10), owner 2026-09-13cs item 5) anchor on a different
+      airside vertex on Windows — (−281.0, 151.0) m against (−300.5, 120.5) m on
+      mac and Linux, 36 m apart, so not a near-tie in distance: a SELECTION resolving
+      differently (an unstable sort or an argmin over equal scores, a set/dict order).
+      Attribute it interventionally, then make the selection a total order with a
+      deterministic tie-break on the canonical key. No law threshold moves.
+ (ii) `lp.nnz` 16874 (mac) vs 16872 — attribute (a structural zero kept or dropped on
+      a sign of ±0.0?); fix only if it is a decision, else record it.
+ (iii) LINE ENDINGS — ALREADY CLOSED on main by lane `xplatcrlf` (RULINGS
+      2026-09-17g, fd1702ff): `newline="\n"` + an explicit encoding at 29 writers,
+      AST twin `test_newline_pinned.py`, Windows patch `\r` = 0 on run 35284573827.
+      This lane only VERIFIES it under the bars of (7) — it changes nothing there.
+
+**(7) BARS.** On the three runners, through the frozen release check's CYXY pass with
+the quantum SHIPPED (no dump-arm quantisation): every stage digest AGREES at every rung
+on every pair; LP rows × cols and rounds identical; the 616 `road_ramp` rows identical;
+the emitted patch body BYTE-IDENTICAL on all three (the `<osm>` header line excluded —
+it carries the runner's temp path); `.graded.json` byte-identical; emitted z
+cross-platform differences 0. Make `check_frozen_tile.py --compare` a GATE in
+`release.yml` once it is green (three artefacts from three jobs: a fourth job that
+downloads the three `frozen-tile-logs-*` and fails on the first divergent stage).
+
+**(8) THE PRICE, STATED.** `emit.toml` changes, so `law_tables_digest` changes, so
+EVERY airport's patch invalidates and rebuilds once, by itself. Inputs move by
+≤ 0.5 mm against a 0.5 m lattice, so the expectation is surfaces indistinguishable to a
+pilot and census counts within a few rows — MEASURED, not assumed: one harness HECA
+build and one CYXY, verify family table and ADJUDICATED census before/after, every
+family that moves by > 1 % named. Registered captures and coordinate-literal pins
+(`repro_cut`) predate the quantum: a capture replays under the CURRENT tree and says
+so; a pin that no longer matches refuses BY NAME (R5), which is the right failure.

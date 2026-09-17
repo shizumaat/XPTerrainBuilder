@@ -36,6 +36,15 @@ def window(qapp, tmp_path, monkeypatch):
     # Isolate prefs BEFORE construction (MainWindow loads them in
     # __init__ and closeEvent SAVES them).
     monkeypatch.setattr(GUI, "PREFS_FILE", str(tmp_path / "prefs.json"))
+    # A fake X-Plane CIFP corpus: since beta plan §1 B2 the Build button
+    # refuses while none resolves (tests/test_qt_first_run_xplane.py owns
+    # that law), and these tests are about the activity queue.
+    import O4_Settings_Model as SM
+    cifp = tmp_path / "CIFP"
+    cifp.mkdir()
+    monkeypatch.setattr(SM, "read_global_raw",
+                        lambda *a, **k: {"cifp_data_path": str(cifp),
+                                         "custom_scenery_dir": ""})
     import O4_UI_Utils as UI
     saved_stdout = sys.stdout
     win = GUI.MainWindow()

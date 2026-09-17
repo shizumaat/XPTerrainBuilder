@@ -63,13 +63,24 @@ def detect_xplane_installs():
         if c in seen:
             continue
         seen.add(c)
-        if os.path.isdir(os.path.join(c, "Custom Scenery")):
+        if xplane_problem(c) is None:
             found.append(c)
     return found
 
 
+def xplane_problem(path):
+    """``None`` when ``path`` is a usable X-Plane install, else why not.
+
+    Delegates to ``O4_Settings_Model.xplane_install_problem`` — the ONE
+    spelling both UIs and the engine validate against (beta plan §1 B2).
+    """
+    import O4_Settings_Model as SM
+
+    return SM.xplane_install_problem(path)
+
+
 def looks_like_xplane(path):
-    return bool(path) and os.path.isdir(os.path.join(path, "Custom Scenery"))
+    return xplane_problem(path) is None
 
 
 class OnboardingWizard(QDialog):
@@ -151,8 +162,9 @@ class OnboardingWizard(QDialog):
     def _page_xplane(self):
         page, lay = self._page("Where is X-Plane installed?")
         lay.addWidget(self._body(
-            "Used to install finished tiles and to read data X-Plane\n"
-            "already ships with. Optional — skip if you copy tiles by hand."
+            "Required. Ortho4XP reads X-Plane's own airport and CIFP data\n"
+            "to grade runways, taxiways and aprons — without it every\n"
+            "airport would drape over the raw terrain, so a build refuses."
         ))
         row = QHBoxLayout()
         self.xplane_edit = QLineEdit(self.prefs.get("xplane_dir", ""))
@@ -250,12 +262,25 @@ class OnboardingWizard(QDialog):
         self.next_btn.setText(
             "Finish" if index == len(STEPS) - 1 else "Continue"
         )
+        # The X-Plane page is the one REQUIRED step (beta plan §1 B2).
+        self.next_btn.setEnabled(
+            index != STEPS.index("X-Plane")
+            or looks_like_xplane(self.xplane_edit.text().strip())
+        )
 
     def _back(self):
         self._set_step(max(0, self.stack.currentIndex() - 1))
 
     def _next(self):
         i = self.stack.currentIndex()
+        if i == STEPS.index("X-Plane") and not looks_like_xplane(
+                self.xplane_edit.text().strip()):
+            # REQUIRED (beta plan §1 B2): a build without a valid X-Plane
+            # folder cannot grade a single airport, so the wizard does not
+            # walk past this page.  "Skip setup" still exits the wizard —
+            # the Build button itself refuses until the folder is set.
+            self._xplane_changed(self.xplane_edit.text())
+            return
         if i == len(STEPS) - 1:
             self._finish()
         else:
@@ -289,23 +314,22 @@ class OnboardingWizard(QDialog):
             self.output_edit.setText(path)
 
     def _xplane_changed(self, text):
-        ok = looks_like_xplane(text.strip())
-        if ok:
+        problem = xplane_problem(text.strip())
+        if problem is None:
             self.unlock_label.setText(
                 "<span style='color:green'>✓</span> Custom Scenery — tiles "
                 "install with one click<br>"
                 "<span style='color:green'>✓</span> Global Airports — map "
                 "search by ICAO, name, city, country<br>"
-                "<span style='color:green'>✓</span> Global Scenery — overlay "
-                "source for roads and forests"
-            )
-        elif text.strip():
-            self.unlock_label.setText(
-                "<span style='color:#b00'>This folder has no Custom Scenery "
-                "subfolder — is it really an X-Plane install?</span>"
+                "<span style='color:green'>✓</span> CIFP — runways, taxiways "
+                "and aprons graded to their real profiles"
             )
         else:
             self.unlock_label.setText(
-                "<i>No folder set — installing and airport search stay "
-                "off until you set one in Settings.</i>"
+                "<span style='color:#b00'>%s</span>" % problem
+            )
+        if hasattr(self, "next_btn"):
+            self.next_btn.setEnabled(
+                self.stack.currentIndex() != STEPS.index("X-Plane")
+                or problem is None
             )

@@ -200,7 +200,12 @@ def test_second_strategy_plugs_in_without_orchestration_change(tmp_path):
         provenance = INSETS.fetch_inset(
             definition, (-1.0, -1.0, 1.0, 1.0), 3.0, destination
         )
-        assert provenance == {"provider": "DUMMY", "strategy": "dummy"}
+        # The strategy's own keys pass through untouched; the seam adds
+        # the boxes (the raster here is not a GeoTIFF, so only the ask).
+        assert provenance == {
+            "provider": "DUMMY", "strategy": "dummy",
+            "requested_bounding_box_wgs84": [-1.0, -1.0, 1.0, 1.0],
+        }
         assert calls["fetch"] == 1
         assert os.path.isfile(destination)
         # discover is also dispatched through the registry
@@ -6220,3 +6225,57 @@ def test_pack_set_change_refetches_a_cached_inset(tmp_path, monkeypatch):
         assert len(fetch_calls) == 2          # the pack set moved
     finally:
         INSETS.ACCESS_STRATEGIES.pop("pack_set_strategy", None)
+
+
+# =====================================================================
+# The manifest records the REQUESTED and the DELIVERED box
+# (lane insetbounds; the manifest overstates the raster by up to one
+# source pixel, measured over 559 pairs on the corpus)
+# =====================================================================
+@requires_gdal
+def test_delivered_bounding_box_comes_from_the_rasters_geotransform(
+    tmp_path,
+):
+    path = str(tmp_path / "KBNA_USGS3DEP.tif")
+    _write_constant_geotiff(path, -86.9, 36.16, -86.85, 36.2, 100.0,
+                            columns=5, rows=4)
+    delivered = INSETS.delivered_inset_bounding_box(path)
+    assert delivered is not None
+    (west, south, east, north) = delivered
+    assert round(west, 6) == -86.9
+    assert round(north, 6) == 36.2
+    assert round(east, 6) == -86.85
+    assert round(south, 6) == 36.16
+    # Unopenable: no answer, never a guess.
+    assert INSETS.delivered_inset_bounding_box(
+        str(tmp_path / "absent.tif")) is None
+
+
+def test_fetch_inset_records_requested_and_delivered_boxes(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    fetch_calls = []
+    _register_box_recording_strategy("both_boxes_strategy", fetch_calls)
+    try:
+        definition = _box_definition("BOTHBOX", "both_boxes_strategy")
+        monkeypatch.setattr(
+            INSETS, "delivered_inset_bounding_box",
+            lambda _path: (-135.061, 60.689, -135.039, 60.721),
+        )
+        INSETS.ensure_airport_insets(
+            60, -136, {"CYXY": _SMALL_BOX}, [definition], 3.0
+        )
+        with open(
+            FNAMES.airport_inset_provenance(60, -136, "CYXY", "BOTHBOX")
+        ) as handle:
+            manifest = json.load(handle)
+        # The ask is unchanged and still under its historic key.
+        assert manifest["bounding_box_wgs84"] == list(_SMALL_BOX)
+        assert manifest["requested_bounding_box_wgs84"] == list(_SMALL_BOX)
+        # What the file carries is recorded beside it, and it is NOT the ask.
+        assert manifest["delivered_bounding_box_wgs84"] == [
+            -135.061, 60.689, -135.039, 60.721
+        ]
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("both_boxes_strategy", None)

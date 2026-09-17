@@ -1263,6 +1263,19 @@ def fetch_inset(
         target_resolution_m,
         destination_path,
     )
+    # BOTH BOXES, from here on: what was ASKED for and what the raster
+    # actually CARRIES.  ``bounding_box_wgs84`` has always been the
+    # request, and a warp snaps its target extent to the pixel grid (and
+    # some providers clip to their own coverage), so the two differ by up
+    # to about one source pixel -- measured over the whole corpus,
+    # 2026-09-17.  Every existing consumer keeps reading
+    # ``bounding_box_wgs84``; these are ADDITIVE, and a manifest that
+    # carries neither new key is simply older.
+    if provenance is not None:
+        provenance["requested_bounding_box_wgs84"] = list(bounding_box_wgs84)
+        delivered = delivered_inset_bounding_box(destination_path)
+        if delivered is not None:
+            provenance["delivered_bounding_box_wgs84"] = list(delivered)
     # Surface-model providers (radar DSMs) opt into a post-fetch pass that
     # replaces building-contaminated pixels by interpolated ground; the
     # pass and its summary live with the fetch so every consumer of the
@@ -10665,6 +10678,31 @@ def _inset_header_geometry(inset_path):
         )
     except Exception:
         return None
+
+
+def delivered_inset_bounding_box(inset_path):
+    """The box a written inset raster ACTUALLY delivers, from its OWN
+    geotransform: ``(west, south, east, north)`` in EPSG:4326, or ``None``
+    when the file cannot be opened (no GDAL, absent, corrupt).
+
+    THE MANIFEST OVERSTATES THE RASTER.  Measured 2026-09-17 over 559
+    tif/manifest pairs on the shared corpus: the manifest's
+    ``bounding_box_wgs84`` (the box that was REQUESTED) differs from the
+    box the raster carries by a median 5.1e-6 deg and up to 2.45e-4 deg
+    (~27 m, about one 30 m source pixel), in BOTH directions -- a warp
+    snaps the target extent to its pixel grid, and some providers clip to
+    their own coverage.  So a manifest is a record of the ASK, and only
+    the file answers what was delivered.  Written alongside the requested
+    box by :func:`fetch_inset` from here on.
+    """
+    header = _inset_header_geometry(inset_path)
+    if header is None:
+        return None
+    (geotransform, rows, columns) = header
+    west = geotransform[0]
+    north = geotransform[3]
+    return (west, north + rows * geotransform[5],
+            west + columns * geotransform[1], north)
 
 
 def _acceptance_probes_with_source_from_index(inset_path, airport_record):

@@ -112,6 +112,10 @@ class _Frame:
             return (LON + x * DLON, LAT + y * DLAT)
         return to_xy, to_ll
 
+    def entry(self):
+        # §46: a fixture frame carries no law quantum, so ENTRY == exact
+        return self.transformers()[0]
+
 
 class _Obj:
     def __init__(self, path):

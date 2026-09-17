@@ -207,6 +207,10 @@ class _Frame:
             return ((lon - LON) / DLON, (lat - LAT) / DLAT)
         return to_xy, None
 
+    def entry(self):
+        # §46: a fixture frame carries no law quantum, so ENTRY == exact
+        return self.transformers()[0]
+
 
 class _Airport:
     def __init__(self, groups):

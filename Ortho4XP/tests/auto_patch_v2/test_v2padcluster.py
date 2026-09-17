@@ -151,6 +151,10 @@ class _Frame:
         return (lambda lon, lat: (float(lon), float(lat)),
                 lambda x, y: (float(y), float(x)))
 
+    def entry(self):
+        # §46: a fixture frame carries no law quantum, so ENTRY == exact
+        return self.transformers()[0]
+
 
 class _Cl:
     def __init__(self, cid, rings, area=20000.0, floors=(0.0,), walled=None):

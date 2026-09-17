@@ -141,31 +141,33 @@ class TestPanelFitsItsViewport:
     scrollbar off: content wider than the viewport silently clips, so
     no child may demand more width than the viewport offers."""
 
-    # WINDOWS: a REAL, UNFIXED layout finding, not an instrument artifact
-    # (CI 2026-09-17, beta plan §1 B4).  On windows-latest the panel's
-    # minimum width comes out 452 px against a 266 px viewport — the
-    # Windows style's wider font metrics and control margins push the
-    # right panel past the fixed width that fits on macOS and Linux, so
-    # the frozen Windows app silently clips it (the horizontal scrollbar
-    # is off by design).  Fixing it is a Qt layout change in
-    # src/O4_Qt_GUI.py, which this lane does not own; skipped BY NAME so
-    # the rest of the file guards Windows too, and reported for a UI lane.
-    @pytest.mark.skipif(
-        sys.platform == "win32",
-        reason="Windows: panel minimumSizeHint 452 px > 266 px viewport — "
-               "the Windows style's font metrics/margins overflow the "
-               "right panel's fixed width (real defect, needs an "
-               "O4_Qt_GUI.py layout fix; see beta plan §1 B4 report)")
+    # RUNS ON ALL THREE PLATFORMS since 2026-09-17 (beta plan §1 B4).
+    # It was skipped on win32 for one day: the panel's minimum measured
+    # 452 px against a 266 px viewport, because a QCheckBox's label, a
+    # rich-text title and a row label all reported their full text width
+    # as a MINIMUM — a floor that grows with the platform font (the
+    # Windows runner's offscreen font is 1.5x the mac's; a Windows user
+    # at 125% scaling is the same case).  Every such widget now either
+    # elides (ElidedRowLabel) or accepts Ignored policy, so the floor is
+    # font-independent: measured 452 -> 236 on windows-latest.
     def test_panel_minimum_width_fits(self, qapp, make_window):
         window = make_window()
         window.show()
         qapp.processEvents()
         # Long dynamic values, as after a scan of a lidar-covered tile.
+        # EVERY value the panel can show goes in: a panel measured with
+        # the placeholder "…" values understates its own minimum by the
+        # width of a date (Windows CI, 2026-09-17).
         window.build_summary.setText(
             "12 tiles selected · rough est. 48.0 GB · airport lidar on 12"
         )
         window.info_elevation.setText(LONG_TEXT)
         window.info_airport_lidar.setText(LONG_TEXT)
+        window.info_provider.setText("GO2  ⚠ mixed")
+        window.info_zl.setText("16 (mixed: 16, 17, 18)")
+        window.info_mesh.setText("12 Sep 2026 14:30")
+        window.info_imagery.setText("12 Sep 2026 14:30")
+        window.info_size.setText("48.0 GB (12 folders)")
         qapp.processEvents()
         panel = window.info_group.parentWidget()
         scroll = panel.parentWidget()

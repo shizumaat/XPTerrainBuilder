@@ -88,7 +88,8 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
     pads = _pad_polys(planar, law)
     if not pads:
         return {}
-    to_xy, _to_ll = airport.frame.transformers()
+    # §46 (9) census row 7: the same INPUT feet as ``foot_rows``
+    to_xy = airport.frame.entry()
     # PAVEMENT IS SENIOR: a foot standing on pavement founds no target,
     # AND (12u, §30 (2)) a pad vertex the AIRSIDE pavement shares takes
     # none either — one read of the one derivation, `_pavement_geoms`.

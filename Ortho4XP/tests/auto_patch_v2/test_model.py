@@ -44,6 +44,69 @@ def test_frame_round_trip_cyxy():
     assert fr.key(60.72, -135.05) == (60.72, -135.05)
 
 
+def test_entry_quantises_and_to_xy_stays_exact():
+    """§46 (4): the ENTRY projection snaps an arriving coordinate to
+    ``input_quantum_m``; ``to_xy`` does not, so OUR OWN geometry keeps its
+    exact round trip and THE IDENTITY DOES NOT MOVE."""
+    fr = Frame(icao="CYXY", origin=(60.7096, -135.0671), identity_dp=11,
+               input_quantum_m=0.001)
+    to_xy, to_ll = fr.transformers()
+    enter = fr.entry()
+
+    # (a) every entering coordinate lands on the 1 mm grid
+    worst = 0.0
+    for dlat in (0.0, 0.003, 0.017, 0.12):
+        for dlon in (0.0, 0.004, 0.023, 0.31):
+            lat, lon = 60.7096 + dlat, -135.0671 + dlon
+            ex, ey = enter(lon, lat)
+            ax, ay = to_xy(lon, lat)
+            for q, a in ((ex, ax), (ey, ay)):
+                assert abs(q * 1000 - round(q * 1000)) < 1e-6, q
+                worst = max(worst, abs(q - a))
+    # (b) and moves by at most half a quantum
+    assert worst <= 0.0005 + 1e-9, worst
+
+    # (c) to_xy is UNTOUCHED: the own-geometry round trip stays exact
+    x, y = to_xy(-135.05, 60.72)
+    lat, lon = to_ll(x, y)
+    assert abs(lat - 60.72) < 1e-9 and abs(lon + 135.05) < 1e-9
+    x2, y2 = to_xy(lon, lat)
+    assert abs(x2 - x) < 1e-6 and abs(y2 - y) < 1e-6
+
+    # (d) the identity key is the same law it always was
+    assert fr.key(60.72, -135.05) == (60.72, -135.05)
+    assert fr.identity_dp == 11
+
+    # (e) a frame with no quantum returns the exact function ITSELF
+    plain = Frame(icao="CYXY", origin=(60.7096, -135.0671), identity_dp=11)
+    assert plain.entry()(-135.05, 60.72) == plain.transformers()[0](-135.05, 60.72)
+
+    # (f) A CAPTURE PREDATING §46 (no field on the unpickled instance)
+    # replays EXACT rather than raising
+    stale = Frame(icao="CYXY", origin=(60.7096, -135.0671), identity_dp=11)
+    object.__delattr__(stale, "input_quantum_m")        # what pickle restores
+    assert "input_quantum_m" not in stale.__dict__
+    # the DEFAULT is a class attribute, so a pre-§46 frame reads 0.0 and
+    # replays EXACT — the pre-§46 law — instead of raising
+    assert stale.input_quantum_m == 0.0
+    assert stale.entry()(-135.05, 60.72) == to_xy(-135.05, 60.72)
+
+
+def test_entry_is_deterministic_for_identical_doubles():
+    """The §46 (3) claim, stated as a twin: identical inputs give
+    bit-identical outputs, and two coordinates a nanometre apart (the
+    MEASURED cross-platform spread) enter at the same point."""
+    fr = Frame(icao="CYXY", origin=(60.7096, -135.0671), identity_dp=11,
+               input_quantum_m=0.001)
+    enter = fr.entry()
+    a = enter(-135.05, 60.72)
+    assert enter(-135.05, 60.72) == a
+    assert float(a[0]).hex() == float(enter(-135.05, 60.72)[0]).hex()
+    # 2.1e-9 m is the measured max spread; in degrees that is ~1.9e-14
+    b = enter(-135.05 + 1.9e-14, 60.72 + 1.9e-14)
+    assert b == a
+
+
 # ── planar map ───────────────────────────────────────────────────────────
 
 def _square_map(dem=100.0) -> PlanarMap:

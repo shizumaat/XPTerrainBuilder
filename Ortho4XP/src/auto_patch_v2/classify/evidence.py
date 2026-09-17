@@ -493,7 +493,9 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     if not bool(st.pad_from_cluster):
         CLUSTER_PADS.update(disarmed=True, clusters=len(cl))
         return []
-    to_xy, _to_ll = airport.frame.transformers()
+    # §46 (9) census row 4: ``Cluster.rings`` are OBJ8 footprint rings
+    # under a DSF placement — INPUT, so the ENTRY projection
+    to_xy = airport.frame.entry()
     # §16g (10) (11) ONE CUTTER, AND IT IS THE ARRANGEMENT'S (lane
     # ``v2padqp``; RULINGS 2026-09-14ax already ruled the CLIP belongs to
     # ``planar/overlay.airside_clip``, where the faces have ROLES).  The

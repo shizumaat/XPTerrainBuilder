@@ -455,6 +455,11 @@ class Identity:
     """Canonical vertex identity."""
 
     coordinate_dp: int
+    #: §46 (4): the grid every INPUT coordinate is snapped to at entry to
+    #: the airport's metric frame.  Not an identity parameter — the
+    #: identity is ``coordinate_dp`` and does not move — but it lives here
+    #: because it is the other half of "what a coordinate IS" in v2.
+    input_quantum_m: float
     min_distinct_spacing_m: float
     weld_spacing_m: float
     dsf_pavement_admission_m: float

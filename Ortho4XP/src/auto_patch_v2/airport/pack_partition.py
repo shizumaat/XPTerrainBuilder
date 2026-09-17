@@ -680,8 +680,13 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
 
 def frame_xy(airport: Airport) -> _t.Callable[[float, float], XY]:
     """``(lat, lon) -> frame xy`` — the plan's coordinates are degrees and
-    every geometric consumer works in the frame."""
-    to_xy, _to_ll = airport.frame.transformers()
+    every geometric consumer works in the frame.
+
+    §46 (9) census row 3: the plan's degrees are DSF/OBJ8 input, so this
+    is the ENTRY projection.  (Measured at the census: this helper has no
+    caller anywhere in the tree; it is switched rather than left as a
+    public door back onto the exact projection.)"""
+    to_xy = airport.frame.entry()
 
     def f(lat: float, lon: float) -> XY:
         return to_xy(lon, lat)

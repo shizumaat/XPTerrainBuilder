@@ -396,34 +396,53 @@ def write(path: str, payload: dict) -> str:
 
 #: The armed recorder: ``{(lon_hex, lat_hex): (x, y)}``.  ``None`` = off.
 _PROJ: dict | None = None
-#: Metre quantum applied to the RECORDED projection in the dump arm only
-#: (``Config.xplat_quantise_m``).  0.0 = record, never alter.  This is the
-#: interventional arm of 17d (commit ``8615f4f9``, reverted ``e885d4d0``)
-#: re-armed behind the dump switch: it makes the pipeline's inputs
-#: IDENTICAL on every platform so what still differs downstream can be
-#: attributed to something other than the projection.
+#: THE MEASUREMENT ARM'S OVERRIDE of ``emit.identity.input_quantum_m``
+#: (``Config.xplat_quantise_m``), or ``None`` for "the law's value".
+#: Since §46 the quantum SHIPS and lives at ``model/frame.Frame.entry``;
+#: this is no longer a second quantiser, only a way to run an arm at
+#: another grid — notably ``0``, the pre-§46 unquantised arm, which is how
+#: §46 (6)'s residues are attributed against the shipped law.
+_PROJ_Q_OVERRIDE: float | None = None
+#: The quantum the load stage ACTUALLY entered on, reported back by
+#: ``airport/load._entry_quantum`` so the dump records what happened
+#: rather than what was asked for.
 _PROJ_Q: float = 0.0
 
 
-def arm_projection(quantise_m: float = 0.0) -> None:
-    """Start recording (and, with ``quantise_m``, snapping) the load
-    stage's projection.  Resets any previous recording."""
-    global _PROJ, _PROJ_Q
+def arm_projection(quantise_m: float | None = None) -> None:
+    """Start recording the load stage's projection; ``quantise_m``
+    OVERRIDES the law's input quantum for this arm (``None`` = law).
+    Resets any previous recording."""
+    global _PROJ, _PROJ_Q, _PROJ_Q_OVERRIDE
     _PROJ = {}
-    _PROJ_Q = float(quantise_m or 0.0)
+    _PROJ_Q = 0.0
+    _PROJ_Q_OVERRIDE = None if quantise_m is None else float(quantise_m)
 
 
 def disarm_projection() -> None:
-    global _PROJ, _PROJ_Q
+    global _PROJ, _PROJ_Q, _PROJ_Q_OVERRIDE
     _PROJ = None
     _PROJ_Q = 0.0
+    _PROJ_Q_OVERRIDE = None
 
 
 def projection_armed() -> bool:
     return _PROJ is not None
 
 
+def projection_quantum_override() -> float | None:
+    """The arm's override of the law value, or ``None``."""
+    return _PROJ_Q_OVERRIDE
+
+
+def record_quantum(quantum_m: float) -> None:
+    """The quantum the frame entered on — reported by the load stage."""
+    global _PROJ_Q
+    _PROJ_Q = float(quantum_m or 0.0)
+
+
 def projection_quantum() -> float:
+    """The EFFECTIVE entry quantum of the recorded arm."""
     return _PROJ_Q
 
 

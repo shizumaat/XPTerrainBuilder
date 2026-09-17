@@ -159,7 +159,10 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             got, counts = cached, {}
             break
     if got is None:
-        to_xy, _to_ll = airport.frame.transformers()
+        # §46 (9) census row 5: the same INPUT ring population as
+        # ``classify/evidence`` — the ENTRY projection, or the two reads
+        # of one derivation would not agree
+        to_xy = airport.frame.entry()
         got, counts = cluster_outlines(
             cl, to_xy, touch, airside=airside,
             # §16g (10) (7): the pad population is the WALLED clusters

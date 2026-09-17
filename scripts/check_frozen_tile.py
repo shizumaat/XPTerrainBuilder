@@ -765,15 +765,16 @@ def _xplat_env(xplat_dump, quantise_m=None):
     """The CHILD's environment for the cross-platform instrument.
 
     ``O4_V2_XPLAT_DIGEST`` arms the per-stage digests + the exact
-    projection dump; ``O4_V2_XPLAT_QUANTISE_M`` additionally snaps the
-    load stage's projection (the interventional arm).  Both are read once,
-    in ``auto_patch/engine_v2.py``, and handed to the v2 package as schema
-    flags — the package itself never reads an environment.
+    projection dump; ``O4_V2_XPLAT_QUANTISE_M`` OVERRIDES the law's
+    ``emit.identity.input_quantum_m`` for a measurement arm (§46 (4)) —
+    including with ``0``, the pre-§46 UNQUANTISED arm.  Both are read
+    once, in ``auto_patch/engine_v2.py``, and handed to the v2 package as
+    schema flags — the package itself never reads an environment.
     """
     if not xplat_dump:
         return None
     env = {"O4_V2_XPLAT_DIGEST": "1"}
-    if quantise_m:
+    if quantise_m is not None:                 # 0.0 IS an arm, not "off"
         env["O4_V2_XPLAT_QUANTISE_M"] = repr(float(quantise_m))
     return env
 
@@ -788,11 +789,11 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
     and called.  Mesh and imagery would add minutes and prove nothing
     this pass is about.
 
-    ``quantise_m`` runs the INTERVENTIONAL arm (lane ``xplatspread``): the
-    load stage's projected metres are snapped, so every platform is fed
-    identical inputs and what still differs downstream is not the
-    projection.  ``tag`` keeps that arm's logs and dump beside — never on
-    top of — the shipped-path arm's.
+    ``quantise_m`` runs a MEASUREMENT arm at another entry quantum than
+    the law's (§46 (4)) — ``0`` being the pre-§46 unquantised arm, which
+    is what the interventional reading of a §46 residue needs now that the
+    quantum SHIPS.  ``tag`` keeps that arm's logs and dump beside — never
+    on top of — the shipped-path arm's.
     """
     os.makedirs(log_dir, exist_ok=True)
     suffix = ("-" + tag) if tag else ""
@@ -1133,13 +1134,16 @@ def main(argv):
                              "the three platforms' dumps are then diffed "
                              "with --compare" % AIRPORT_ICAO)
     parser.add_argument("--xplat-quantise", dest="xplat_quantise",
-                        type=float, default=1e-3,
+                        type=float, default=None,
                         help="with --xplat-dump, ALSO solve the airport a "
-                             "second time with the load stage's projection "
-                             "snapped to this many metres (default 1e-3), "
-                             "writing into <dump>/quantised; 0 disables. "
-                             "Never a gate — the arm's outcome is printed "
-                             "and discarded")
+                             "second time with the ENTRY quantum overridden "
+                             "to this many metres, writing into "
+                             "<dump>/quantised. Since spec §46 the quantum "
+                             "SHIPS (emit.identity.input_quantum_m = 1 mm), "
+                             "so the useful arm is 0 = the pre-§46 "
+                             "UNQUANTISED control; omitted, no second arm "
+                             "runs. Never a gate — the arm's outcome is "
+                             "printed and discarded")
     parser.add_argument("--compare-projection", dest="compare_projection",
                         nargs="+", default=None,
                         help="NAME=PATH … : print the exact cross-platform "
@@ -1188,15 +1192,16 @@ def main(argv):
         status |= run_airport(binary, repo_root, log_dir,
                               arguments.airport_deadline, arguments.keep,
                               xplat_dump=dump)
-        # ---- THE INTERVENTIONAL ARM (lane ``xplatspread``) -------------
-        # A SECOND solve of the same airport with the load stage's
-        # projection snapped, so the three platforms are fed identical
-        # inputs.  It is an INSTRUMENT, never a gate: its outcome is
-        # printed and DISCARDED, because a release must not go red over a
-        # measurement arm.  It runs only when a dump was asked for.
-        if dump and arguments.xplat_quantise:
+        # ---- THE MEASUREMENT ARM (lane ``xplatspread``; re-pointed by
+        # ``xplatquantum``) --------------------------------------------
+        # A SECOND solve of the same airport at a DIFFERENT entry quantum
+        # than the law's — ``0`` being the pre-§46 unquantised control.
+        # It is an INSTRUMENT, never a gate: its outcome is printed and
+        # DISCARDED, because a release must not go red over a measurement
+        # arm.  It runs only when a dump AND an override were asked for.
+        if dump and arguments.xplat_quantise is not None:
             print("== PASS 2b (instrument, NOT a gate): %s again with the "
-                  "load projection snapped to %g m =="
+                  "ENTRY quantum overridden to %g m =="
                   % (AIRPORT_ICAO, arguments.xplat_quantise))
             try:
                 second = run_airport(

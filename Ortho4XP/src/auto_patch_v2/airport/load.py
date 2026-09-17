@@ -16,7 +16,7 @@ import typing as _t
 import zlib
 
 from ..law import Law
-from ..law.tables import identity_dp
+from ..law.tables import identity_dp, input_quantum_m
 from ..model.airport import (Airport, Boundary, Building, DsfObject,
                              GroundRoute, LinearFeature, OsmWay, Pavement,
                              Runway, RunwayEnd, Startup, Surface, TaxiEdge,
@@ -247,7 +247,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     n_own_pav = bres.custom_pavements
     rep.pavement_source = bres.record(sel.name)
     rep.pavement_borrow_line = bres.line(icao)
-    frame = Frame(icao, (lat0, lon0), identity_dp(law))
+    frame = Frame(icao, (lat0, lon0), identity_dp(law),
+                  input_quantum_m=_entry_quantum(law))
     to_xy = _vector_to_xy(frame)
     tile = (int(math.floor(lat0)), int(math.floor(lon0)))
 
@@ -544,6 +545,28 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
+def _entry_quantum(law: Law) -> float:
+    """§46 (4): the law's ``input_quantum_m``, or the MEASUREMENT ARM's
+    override of it.
+
+    ONE quantiser in the tree (:meth:`model.frame.Frame.entry`) and one
+    knob: ``Config.xplat_quantise_m`` / ``O4_V2_XPLAT_QUANTISE_M`` no
+    longer runs a second quantiser of its own — it OVERRIDES this value
+    for an arm, including with ``0`` (the pre-§46, unquantised arm, which
+    is how (6)'s residues are attributed against the shipped law).  The
+    override is reachable only when the dump recorder is armed, so the
+    shipped path reads law and nothing else.
+    """
+    q = input_quantum_m(law)
+    xplat = _projection_recorder()
+    if xplat is not None:
+        over = xplat.projection_quantum_override()
+        if over is not None:
+            q = float(over)
+        xplat.record_quantum(q)
+    return q
+
+
 def _vector_to_xy(frame: Frame) -> _t.Callable[[float, float], XY]:
     """A scalar ``to_xy(lon, lat)`` — THE FRAME'S OWN, never a second one.
 
@@ -555,9 +578,13 @@ def _vector_to_xy(frame: Frame) -> _t.Callable[[float, float], XY]:
     divergence, and measured this duplicate by watching it have no effect)
     silently never reached the load.  One derivation site.
 
-    Byte-neutral as it stands: with the frame unchanged the two spellings
-    return identical doubles, verified on the CYXY release fixture — every
-    stage digest equal at 9 dp before and after.
+    IT IS THE **ENTRY** PROJECTION (§46 (9) census row 1).  Everything
+    this stage projects — every apt.dat runway end, pavement and boundary
+    ring, taxi node and startup, every OSM way point, every DSF ``.pol`` /
+    ``.fac`` ring and object anchor — arrives from OUTSIDE the frame, so
+    it is quantised at ``Frame.input_quantum_m`` once, here, and the three
+    platforms are fed identical doubles (§46 (3)).  The frame's exact
+    ``to_xy`` is for OUR OWN geometry and is not reached from this stage.
 
     THE DUMP HOOK (lane ``xplatspread``).  When — and ONLY when — the
     cross-platform projection recorder has been armed by
@@ -565,25 +592,18 @@ def _vector_to_xy(frame: Frame) -> _t.Callable[[float, float], XY]:
     function is wrapped so every ``(lon, lat) -> (x, y)`` it evaluates is
     recorded as exact ``float.hex()``.  Off, this function returns the
     frame's own callable UNCHANGED — not a wrapper that happens to be a
-    no-op — so the shipped path is byte-neutral by construction and the
-    arming cannot be reached from an environment variable (the package's
-    own twin forbids reading one).
+    no-op — so arming is byte-neutral by construction and cannot be
+    reached from an environment variable (the package's own twin forbids
+    reading one).  The recorder now RECORDS ONLY: the quantum it used to
+    apply moved to the frame, where the law lives (``_entry_quantum``).
     """
-    base = frame.transformers()[0]
+    base = frame.entry()
     xplat = _projection_recorder()
     if xplat is None:
         return base
-    quantum = xplat.projection_quantum()
 
     def to_xy(lon: float, lat: float) -> XY:
         x, y = base(lon, lat)
-        if quantum:
-            # THE INTERVENTIONAL ARM (17d's ``8615f4f9``, re-armed behind
-            # the dump switch and never in the shipped path): with the
-            # inputs snapped, what still differs downstream is not the
-            # projection.
-            x = round(x / quantum) * quantum
-            y = round(y / quantum) * quantum
         xplat.record_projection(lon, lat, x, y)
         return (x, y)
 

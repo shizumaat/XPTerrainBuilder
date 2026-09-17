@@ -273,7 +273,10 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
     if bank <= 0.0:
         return [], [], counts
 
-    to_xy, _to_ll = airport.frame.transformers()
+    # §46 (9) census row 6: a ``Foot`` is an OBJ8 ground-contact vertex
+    # under a parsed DSF anchor — INPUT (VERIFIED at the census: these are
+    # production feet, not a fixture exposure) — so the ENTRY projection
+    to_xy = airport.frame.entry()
     index = _FaceIndex(planar, law)
 
     rows: list[FootTarget] = []

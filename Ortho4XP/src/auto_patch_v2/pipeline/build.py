@@ -97,13 +97,14 @@ class Config:
     #: ``O4_V2_XPLAT_DIGEST`` is read.  Off by default — the digests walk
     #: every vertex of every stage.
     xplat_dump: bool = False
-    #: THE INTERVENTIONAL ARM (lane ``xplatspread``, 17d's ``8615f4f9``
-    #: re-armed behind the dump switch): metres to SNAP the load stage's
-    #: projected coordinates to, so every platform is fed the same xy and
-    #: what still differs downstream can be attributed to something other
-    #: than PROJ's forward tmerc.  Read ONLY when ``xplat_dump`` is set;
-    #: 0.0 (the default, and every shipped build) alters nothing.
-    xplat_quantise_m: float = 0.0
+    #: THE MEASUREMENT ARM'S OVERRIDE of ``emit.identity.input_quantum_m``
+    #: (§46 (4)).  Since §46 the quantum SHIPS, at ``Frame.entry`` — this
+    #: is not a second quantiser but a way to run an arm on another grid,
+    #: notably ``0.0`` = the pre-§46 UNQUANTISED arm, which is how §46 (6)'s
+    #: residues are attributed against the shipped law.  Read ONLY when
+    #: ``xplat_dump`` is set; ``None`` (the default, and every shipped
+    #: build) means "the law's value".
+    xplat_quantise_m: float | None = None
 
 
 @_dc.dataclass
@@ -427,7 +428,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # authored for — exactly backwards.  The body's level is FITTED to the
     # ground under its feet and the residual judged against the bank the
     # terrain may lawfully make (``bank_slope``, 1:3).
-    _to_xy, _ = airport.frame.transformers()
+    # §46 (9) census row 8: the ``(lat, lon)`` handed to ``_dem_at`` are
+    # the groups' own INPUT feet — the ENTRY projection, so the §11b (3)
+    # verdict samples the DEM at the same point ``foot_rows`` does
+    _to_xy = airport.frame.entry()
 
     def _dem_at(lat: float, lon: float) -> float | None:
         x, y = _to_xy(lon, lat)
@@ -1174,7 +1178,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                          solved=sol.z or None, final_pm=pm,
                          constraints=cs))
         _say(f"[{icao}] exact projection dump -> {icao}.xproj.json "
-             f"(quantise {cfg.xplat_quantise_m:g} m)", out)
+             f"(entry quantum {_xplat.projection_quantum():g} m)", out)
         _xplat.disarm_projection()
     (Path(out_dir) / f"{icao}.report.json").write_text(
         json.dumps(report, indent=1, default=str),

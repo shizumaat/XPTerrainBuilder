@@ -156,7 +156,9 @@ def find_global_block(xplane_root: str, icao: str,
 # ── (2) the trigger ──────────────────────────────────────────────────────
 
 def _to_xy(frame: Frame) -> _t.Callable[[float, float], tuple[float, float]]:
-    return frame.transformers()[0]
+    """§46 (9) census row 2: apt.dat row-110 rings are INPUT — the ENTRY
+    projection, never the exact one."""
+    return frame.entry()
 
 
 def _union(pavements: _t.Sequence[_apt.AptPavement],
@@ -222,9 +224,10 @@ def decide(xplane_root: str, icao: str, custom_apt_path: str,
     try:
         custom = _apt.parse_airport_block(cblock)
         glob = _apt.parse_airport_block(gblock)
-        from ..law.tables import identity_dp
+        from ..law.tables import identity_dp, input_quantum_m
         # THE CUSTOM BLOCK'S FRAME — the borrow does not move it (§44 (2))
-        frame = Frame(icao.upper(), custom.reference_point(), identity_dp(law))
+        frame = Frame(icao.upper(), custom.reference_point(), identity_dp(law),
+                      input_quantum_m=input_quantum_m(law))
         cov = coverage_of(custom, glob, frame)
     except Exception as exc:                # a block v2 cannot project
         return BorrowDecision(reason=f"not measurable: {exc}",

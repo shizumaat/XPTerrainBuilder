@@ -9,7 +9,14 @@ source "$ROOT/scripts/version.sh"
 # The SwiftUI macro plugin lives in the Xcode-beta toolchain on this machine
 # (memory swift-build-needs-xcode-beta; 2026-09-13 the 1.0.327 build failed
 # without it: "SwiftUIMacros.StateMacro could not be found").
-export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app}"
+# Default to Xcode-beta ONLY where it exists (the owner's machine needs the
+# macOS 26 SDK it carries).  An unconditional default broke the CI mac job
+# from 2026-09-13 until 2026-09-17: the runner selects Xcode 26 with
+# xcode-select and has no /Applications/Xcode-beta.app, so xcrun died with
+# "missing DEVELOPER_DIR path" before the build started.
+if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode-beta.app ]; then
+    export DEVELOPER_DIR=/Applications/Xcode-beta.app
+fi
 # .nosync: iCloud Drive skips such folders. The repo may live under the
 # synced Documents folder, and letting the file provider chew on a half-
 # gigabyte app bundle mid-assembly causes conflict duplicates and stalls.

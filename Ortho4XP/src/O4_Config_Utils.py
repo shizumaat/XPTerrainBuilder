@@ -182,15 +182,39 @@ class Tile:
                     " is write protected.",
                 )
                 raise Exception
+        elif os.path.islink(self.build_dir) and not os.path.exists(
+            self.build_dir
+        ):
+            # A DANGLING SYMLINK, not a permissions problem: the tile dir
+            # points at a target that is not there — an external volume
+            # left unmounted is the everyday cause (found in the wild
+            # 2026-09-16, VHHH on an unmounted disk, where the old message
+            # sent the user to check file permissions).  os.makedirs would
+            # raise FileExistsError here, which said nothing either.
+            try:
+                target = os.readlink(self.build_dir)
+            except OSError:
+                target = "?"
+            UI.vprint(
+                0,
+                "OS error: Tile directory is a symlink whose target is"
+                " missing:",
+                self.build_dir,
+                "->",
+                target,
+                "(is the volume mounted?)",
+            )
+            raise Exception
         else:
             try:
                 os.makedirs(self.build_dir)
-            except:
+            except OSError as e:
                 UI.vprint(
                     0,
                     "OS error: Cannot create tile directory",
                     self.build_dir,
-                    " check file permissions.",
+                    " check file permissions:",
+                    e,
                 )
                 raise Exception
 

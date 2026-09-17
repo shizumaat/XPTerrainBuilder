@@ -1263,6 +1263,19 @@ def fetch_inset(
         target_resolution_m,
         destination_path,
     )
+    # BOTH BOXES, from here on: what was ASKED for and what the raster
+    # actually CARRIES.  ``bounding_box_wgs84`` has always been the
+    # request, and a warp snaps its target extent to the pixel grid (and
+    # some providers clip to their own coverage), so the two differ by up
+    # to about one source pixel -- measured over the whole corpus,
+    # 2026-09-17.  Every existing consumer keeps reading
+    # ``bounding_box_wgs84``; these are ADDITIVE, and a manifest that
+    # carries neither new key is simply older.
+    if provenance is not None:
+        provenance["requested_bounding_box_wgs84"] = list(bounding_box_wgs84)
+        delivered = delivered_inset_bounding_box(destination_path)
+        if delivered is not None:
+            provenance["delivered_bounding_box_wgs84"] = list(delivered)
     # Surface-model providers (radar DSMs) opt into a post-fetch pass that
     # replaces building-contaminated pixels by interpolated ground; the
     # pass and its summary live with the fetch so every consumer of the
@@ -6477,6 +6490,47 @@ def _airport_pack_dsf_paths(xplane_root, bounding_box_wgs84):
     return dsf_paths
 
 
+#: Manifest key (inside :data:`SURFACE_MODEL_BUILDING_MASKING`) holding the
+#: SORTED pack directory names that served object footprints to the mask.
+#: Owner ruling 2026-09-17c (1): record the contributing pack NAMES.
+FOOTPRINT_PACKS = "footprint_packs"
+
+
+def package_footprint_pack_names(bounding_box_wgs84):
+    """Sorted directory names of the installed airport packs that serve
+    object footprints over ``bounding_box_wgs84``.
+
+    THE CHEAP SCAN, and deliberately the SAME one both sides of the reuse
+    test use (:func:`_airport_pack_dsf_paths`: a ``Custom Scenery``
+    listing plus an ``os.path.isfile`` per pack — no DSF is parsed, no
+    OBJ8 is read).  Recomputing this on a warm pass therefore costs a
+    directory walk, while asking "did the footprints CHANGE" would cost
+    the object parse the scan exists to avoid.  Enabling or disabling a
+    pack in ``scenery_packs.ini`` moves a NAME in this list, which is
+    exactly the signal the mask's reuse test needs.
+
+    ``[]`` when no X-Plane root is configured, when nothing covers the box,
+    or on any error — the same defensive degradation
+    :func:`package_object_footprints` takes.
+    """
+    try:
+        xplane_root = _xplane_root_for_package_footprints()
+        if not xplane_root:
+            return []
+        custom_scenery_directory = os.path.join(xplane_root, "Custom Scenery")
+        names = set()
+        for dsf_path in _airport_pack_dsf_paths(
+            xplane_root, bounding_box_wgs84
+        ):
+            relative = os.path.relpath(dsf_path, custom_scenery_directory)
+            head = relative.split(os.sep)[0]
+            if head and head not in (os.pardir, os.curdir):
+                names.add(head)
+        return sorted(names)
+    except Exception:
+        return []
+
+
 def package_object_footprints(bounding_box_wgs84, definition):
     """Authoritative building footprints from installed airport packages.
 
@@ -6692,6 +6746,14 @@ def mask_building_footprints_in_surface_model(
     (footprints, footprint_source) = _collect_inset_building_footprints(
         bounding_box_wgs84, definition, footprint_prefetch=footprint_prefetch
     )
+    # WHICH PACKS SERVED THIS MASK (owner ruling 2026-09-17c (1)).  The
+    # prose ``footprint_source`` label says only WHETHER packages
+    # contributed; the reuse test needs the NAMES, because enabling or
+    # disabling one changes the mask and therefore the terrain the patch
+    # is graded against.  Recorded on every path that got as far as
+    # collecting footprints; a manifest WITHOUT the key is
+    # unknown-and-reusable (:func:`_sidecar_footprint_packs_mismatch`).
+    footprint_packs = package_footprint_pack_names(bounding_box_wgs84)
     buffer_m = _parse_float(
         definition.get("footprint_mask_buffer_m"),
         default=DEFAULT_FOOTPRINT_MASK_BUFFER_M,
@@ -6701,6 +6763,7 @@ def mask_building_footprints_in_surface_model(
         return {
             "skipped": "no building footprints in the box",
             "footprint_count": 0,
+            FOOTPRINT_PACKS: footprint_packs,
         }
     (west, south, east, north) = bounding_box_wgs84
     centre_latitude = (south + north) / 2.0
@@ -6755,6 +6818,7 @@ def mask_building_footprints_in_surface_model(
                     DEFAULT_RESIDUAL_MASK_OPENING_WINDOW_M,
                 "footprint_mask_buffer_m": buffer_m,
                 "fill_method": _inset_fill_method(),
+                FOOTPRINT_PACKS: footprint_packs,
             }
         fill_method = _inset_fill_method()
         if fill_method == INSET_FILL_METHOD_DISTANCE_TRANSFORM:
@@ -6799,9 +6863,11 @@ def mask_building_footprints_in_surface_model(
             "   WARNING: building-footprint masking failed:",
             str(error),
         )
-        return {"skipped": str(error), "footprint_count": len(footprints)}
+        return {"skipped": str(error), "footprint_count": len(footprints),
+                FOOTPRINT_PACKS: footprint_packs}
     return {
         "footprint_source": footprint_source,
+        FOOTPRINT_PACKS: footprint_packs,
         "footprint_count": len(footprints),
         "masked_pixel_count": int(pixels_to_fill.sum()),
         "masked_fraction": round(
@@ -6972,6 +7038,40 @@ def _sidecar_residual_masking_mismatch(lat, lon, icao, provider_code,
     if residual_masking_wanted:
         return "residual_masked_pixel_count" not in summary
     return bool(summary.get("residual_masked_pixel_count"))
+
+
+def _sidecar_footprint_packs_mismatch(lat, lon, icao, provider_code,
+                                      bounding_box_wgs84):
+    """True when the cached inset's mask was served by a DIFFERENT SET of
+    installed scenery packs than serves this box now (owner ruling
+    2026-09-17c (1)).
+
+    Compared as SETS, so pack order and the scan's path layout never
+    matter.  A manifest that carries no
+    :data:`FOOTPRINT_PACKS` key is UNKNOWN, and unknown reads as
+    REUSABLE -- the established leave-alone policy every other sidecar
+    test here takes (:func:`_sidecar_residual_masking_mismatch`): the key
+    is stamped lazily the next time the inset is derived for its own
+    reasons, never by a corpus-wide re-cut.  Also False when the
+    provenance is missing or unreadable.
+    """
+    provenance_path = FNAMES.airport_inset_provenance(
+        lat, lon, icao, provider_code
+    )
+    try:
+        with open(provenance_path, "r") as handle:
+            provenance = json.load(handle)
+    except (OSError, ValueError):
+        return False
+    summary = provenance.get(SURFACE_MODEL_BUILDING_MASKING)
+    if not isinstance(summary, dict):
+        return False
+    recorded = summary.get(FOOTPRINT_PACKS)
+    if not isinstance(recorded, (list, tuple)):
+        return False                      # unknown => reusable
+    return set(map(str, recorded)) != set(
+        package_footprint_pack_names(bounding_box_wgs84)
+    )
 
 
 def _fetched_bounding_box(lat, lon, icao, provider_code):
@@ -7240,6 +7340,22 @@ def ensure_airport_insets(
                     cached_inset_is_stale = True
                     stale_reason = (
                         "was built with a different residual-masking setting"
+                    )
+                if (not cached_inset_is_stale
+                        and definition.get(SURFACE_MODEL_BUILDING_MASKING)
+                        and _sidecar_footprint_packs_mismatch(
+                            lat, lon, icao, code, bounding_box)):
+                    # THE PACK SET MOVED (owner ruling 2026-09-17c (1)).
+                    # The mask is built from the object footprints of the
+                    # installed airport packs that RENDER here; installing
+                    # one, removing one, or toggling one in
+                    # scenery_packs.ini changes the mask and therefore the
+                    # terrain this airport is graded against, and nothing
+                    # in the cache used to notice.
+                    cached_inset_is_stale = True
+                    stale_reason = (
+                        "was masked with a different set of installed "
+                        "scenery packs"
                     )
                 if not cached_inset_is_stale and _cached_inset_oversamples(
                     destination, definition
@@ -10121,9 +10237,66 @@ def _honest_inset_resolution_m(inset_path, stored_pixel_m=None):
     return max(stored_pixel_m, native_resolution_m)
 
 
+def cached_inset_paths_for_airport(tile, icao):
+    """The cached inset rasters whose file name names ``icao`` (case
+    insensitively), restricted to the providers this tile would select.
+
+    Cache files are ``<airport key>_<code>.tif`` and the airport key is
+    the dico key the box was cut for, so this is the same identity
+    :func:`_inset_icao_from_path` recovers.
+    """
+    if not icao:
+        return []
+    codes = [
+        definition["code"]
+        for definition in select_provider_definitions(
+            getattr(tile, "airport_elevation_providers", "auto")
+        )
+    ]
+    return [
+        path
+        for path in list_cached_inset_dems(
+            tile.lat, tile.lon, provider_codes=codes or None
+        )
+        if _inset_icao_from_path(path).upper() == str(icao).upper()
+    ]
+
+
+def warn_if_inset_does_not_cover_airport(tile, icao, coverage_fraction):
+    """LOUD when an airport HAS a cached elevation inset that does not
+    cover it (lane insetbounds, brief gap (ii)).
+
+    :func:`resolve_airport_smoothing_radius` used to consume a
+    below-threshold coverage fraction SILENTLY -- it picked the base
+    source's radius and returned, and the airport ground outside the
+    inset stayed on the base DEM with nothing said anywhere.  That is the
+    difference between "this airport has no lidar" (ordinary, and visible
+    in the inset index) and "this airport has lidar over PART of itself",
+    which is a cache defect and used to be invisible.
+
+    Silent when the airport has no cached inset at all: that is the
+    ordinary base-source case, not a shortfall, and a tile of a hundred
+    unnamed airstrips must not shout a hundred times.  Returns True when
+    it warned (the twins read that).
+    """
+    if coverage_fraction >= INSET_COVERAGE_THRESHOLD:
+        return False
+    paths = cached_inset_paths_for_airport(tile, icao)
+    if not paths:
+        return False
+    UI.loud_warning(
+        "   WARNING: airport elevation inset(s) %s cover only %.0f %% of %s "
+        "(threshold %.0f %%) - the airport ground outside them is graded on "
+        "the BASE elevation source, not on the inset."
+        % (", ".join(os.path.basename(path) for path in paths),
+           100.0 * coverage_fraction, icao, 100.0 * INSET_COVERAGE_THRESHOLD)
+    )
+    return True
+
+
 def resolve_airport_smoothing_radius(
     tile, airport_record, working_pixel_m, mask_geometry=None,
-    reference_pixel_m=None,
+    reference_pixel_m=None, icao=None,
 ):
     """Resolve the smoothing radius (in working-grid pixels) for one airport.
 
@@ -10152,6 +10325,10 @@ def resolve_airport_smoothing_radius(
     working grid (its historic meaning), so densifying scales its physical
     footprint -- an override is a deliberate manual value and is left
     literal.
+
+    ``icao`` is the airport's dico key.  It is used ONLY to make a
+    coverage shortfall LOUD (:func:`warn_if_inset_does_not_cover_airport`)
+    and never to pick a radius; omitting it keeps the historic silence.
     """
     if "smoothing_pix" in airport_record:
         try:
@@ -10171,6 +10348,9 @@ def resolve_airport_smoothing_radius(
     if coverage_fraction >= INSET_COVERAGE_THRESHOLD and finest_pixel_m:
         source_pixel_m = finest_pixel_m
     else:
+        # A SHORTFALL IS LOUD, not a silent fall-through to the base
+        # source (gap (ii)); the threshold itself is untouched.
+        warn_if_inset_does_not_cover_airport(tile, icao, coverage_fraction)
         # Base source: TRUE pixel capped at the reference pixel (see the
         # section comment -- the cap makes this the reference pixel, and
         # the radius identical to today on the non-densified path).
@@ -10562,6 +10742,31 @@ def _inset_header_geometry(inset_path):
         )
     except Exception:
         return None
+
+
+def delivered_inset_bounding_box(inset_path):
+    """The box a written inset raster ACTUALLY delivers, from its OWN
+    geotransform: ``(west, south, east, north)`` in EPSG:4326, or ``None``
+    when the file cannot be opened (no GDAL, absent, corrupt).
+
+    THE MANIFEST OVERSTATES THE RASTER.  Measured 2026-09-17 over 559
+    tif/manifest pairs on the shared corpus: the manifest's
+    ``bounding_box_wgs84`` (the box that was REQUESTED) differs from the
+    box the raster carries by a median 5.1e-6 deg and up to 2.45e-4 deg
+    (~27 m, about one 30 m source pixel), in BOTH directions -- a warp
+    snaps the target extent to its pixel grid, and some providers clip to
+    their own coverage.  So a manifest is a record of the ASK, and only
+    the file answers what was delivered.  Written alongside the requested
+    box by :func:`fetch_inset` from here on.
+    """
+    header = _inset_header_geometry(inset_path)
+    if header is None:
+        return None
+    (geotransform, rows, columns) = header
+    west = geotransform[0]
+    north = geotransform[3]
+    return (west, north + rows * geotransform[5],
+            west + columns * geotransform[1], north)
 
 
 def _acceptance_probes_with_source_from_index(inset_path, airport_record):

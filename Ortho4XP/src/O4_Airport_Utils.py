@@ -1019,6 +1019,9 @@ def smooth_raster_over_airports(
         ) = INSETS.resolve_airport_smoothing_radius(
             tile, dico_airports[airport], working_pixel_m, full_area,
             reference_pixel_m=reference_pixel_m,
+            # Only so a coverage SHORTFALL can name the airport and its
+            # inset files loudly; the radius never depends on it.
+            icao=airport if isinstance(airport, str) else None,
         )
         if source_pixel_m is not None:
             UI.vprint(

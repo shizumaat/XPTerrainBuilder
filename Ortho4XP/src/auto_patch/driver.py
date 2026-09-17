@@ -241,6 +241,16 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        Custom Scenery pack taking selection priority) and it is unmodified
        (exact mtime match: catches an in-place airport update, and — because
        it is exact rather than newer-than — a pack downgrade or restore too).
+    1b. **the BORROWED apt.dat** (§44) — when the patch records a non-empty
+       ``o4_apt_dat_borrowed``, that Global Airports file is stat'ed too and
+       its mtime must match ``o4_apt_dat_borrowed_mtime`` exactly, so a
+       Global Airports update in place invalidates a borrowed patch (lane
+       ``borrowstamp``, the follow-up chip of RULINGS 2026-09-17a).  A patch
+       that borrowed nothing, or that pre-dates §44, is unaffected — this is
+       not an all-or-nothing stamp.  STILL NOT WATCHED: the borrow DECISION.
+       A Global Airports update that would flip a NON-borrowing airport into
+       borrowing (or out of it) is invisible here — deciding it needs the
+       Global block parsed and a coverage union, which this gate does not do.
     2. **pack DSF(s)** — every DSF the build read from that pack, re-resolved
        and re-stat'ed (``o4_dsf`` / ``o4_dsf_tiles``).
     3. **configuration** — one digest over every ``auto_patch`` gate and
@@ -303,6 +313,27 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     # apt.dat (pack downgrade / restore) must also trigger a rebuild.
     elif abs(mtime_now - stored) >= 1e-6:
         return False
+
+    # ── Input 1b: §44's BORROWED Global Airports apt.dat ───────────────────
+    # STAT ONLY.  The borrow DECISION is not re-derived here (no Global-block
+    # parse, no coverage union — the gate is stat()s by construction): the
+    # patch names the file it borrowed from, and the only question asked is
+    # whether THAT file still has the mtime it had at emit time.  A patch
+    # that borrowed nothing (or pre-dates §44) carries "" and is untouched by
+    # this block — no mass invalidation.
+    borrowed = meta.get("apt_dat_borrowed") or ""
+    if borrowed:
+        b_stored = meta.get("apt_dat_borrowed_mtime")
+        try:
+            b_now: float | None = os.path.getmtime(borrowed)
+        except OSError:
+            b_now = None
+        if b_stored is None or b_now is None or abs(b_now - b_stored) >= 1e-6:
+            UI.vprint(2, "   Auto-patch:", icao,
+                      "rebuild — borrowed apt.dat", borrowed,
+                      "changed (was", repr(b_stored),
+                      ", now", repr(b_now) + ").")
+            return False
 
     # ── Inputs 2-7 ────────────────────────────────────────────────────────
     stamped = meta.get("freshness") or {}

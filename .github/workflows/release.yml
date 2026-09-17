@@ -508,7 +508,18 @@ jobs:
       # The AppImage is built from the SAME staged tree the tar.gz was made
       # from, so the §G license payload and VERSION.txt cannot drift
       # between the two Linux artifacts.
-      - name: Build AppImage
+      #
+      # The type-2 RUNTIME is vendored, not downloaded (owner decision
+      # 2026-09-17): appimagetool would otherwise fetch it from upstream's
+      # mutable `continuous` tag at build time, and those bytes are the
+      # first code a Linux tester executes.  make_appimage.sh verifies
+      # scripts/appimage/runtime-x86_64 against its pinned sha256 BEFORE
+      # building, fails if appimagetool's log shows a download, and then
+      # proves the SHIPPED AppImage's runtime region (everything before
+      # --appimage-offset) is that file byte for byte, allowing only the
+      # 16-byte .digest_md5 section appimagetool fills in.  This step's log
+      # carries all three lines.
+      - name: Build AppImage (vendored runtime, sha256-verified)
         run: |
           bash scripts/make_appimage.sh XPTerrainBuilder \
             "XPTerrainBuilder-${{ steps.ver.outputs.version }}-linux.AppImage" \

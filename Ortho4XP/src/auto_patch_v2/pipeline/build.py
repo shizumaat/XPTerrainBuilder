@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import json
+import os
 import time
 import typing as _t
 from pathlib import Path
@@ -46,7 +47,33 @@ from ..solve import DesignReport, Options, Solution, solve_design
 from .publication import face_tags, publication
 from . import xplat as _xplat
 
-__all__ = ["Config", "BuildResult", "build"]
+__all__ = ["Config", "BuildResult", "build", "borrowed_apt_dat_stamp"]
+
+
+def borrowed_apt_dat_stamp(path: str | None) -> dict[str, str]:
+    """The freshness stamp for §44's BORROWED Global Airports apt.dat.
+
+    ``{}`` when nothing was borrowed (the empty path), else
+    ``{"o4_apt_dat_borrowed_mtime": "<mtime>.6f"}`` — the same rendering
+    ``auto_patch/engine_v2._stamp_header`` gives ``o4_apt_dat_mtime``, so
+    the two mtimes compare the same way in the gate.  An ``OSError``
+    (the borrowed file vanished between the load stage and the emit)
+    OMITS the key, exactly as ``_stamp_header`` does for ``o4_apt_dat``
+    — and the gate reads a non-empty ``o4_apt_dat_borrowed`` with no
+    mtime as "not current" (fail-safe), so the patch rebuilds once.
+
+    The PATH itself rides RAW (``o4_apt_dat_borrowed``, written beside
+    this key since §44 (4)), XML-escaped by the emitter's ``_q``; only
+    ``o4_apt_dat`` is percent-encoded, and by the v1 host's
+    ``header_extra``.  ``layout.read_patch_source`` reads each back in
+    the encoding it is written in.
+    """
+    if not path:
+        return {}
+    try:
+        return {"o4_apt_dat_borrowed_mtime": f"{os.path.getmtime(path):.6f}"}
+    except OSError:
+        return {}
 
 @_dc.dataclass(frozen=True)
 class Config:
@@ -939,6 +966,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                   # §44 (4): the Global Airports apt.dat this patch
                   # borrowed its pavement from ("" = nothing borrowed)
                   "o4_apt_dat_borrowed": airport.pack.borrowed_apt_dat_path}
+        header.update(borrowed_apt_dat_stamp(
+            airport.pack.borrowed_apt_dat_path))
         header.update(cfg.header_extra or {})
         # THE BANK (owner RULINGS 2026-09-09e; ``emit/bank.py``, spec §9):
         # the mesh does not blend, so the patch emits its own 1:3 bank out

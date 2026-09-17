@@ -1301,3 +1301,72 @@ def test_pristine_entries_adopt_the_backup_without_recorded_hashes(
     assert _pristine_entries(pack_root) == [
         f"{BOX_RESOURCE}:{backup_stat.st_size}:{backup_stat.st_mtime}"
     ]
+
+
+# ---------------------------------------------------------------------------
+# THE BELT — a DISABLED pack is never rewritten (owner RULINGS 2026-09-17b)
+#
+# This function is the only place the engine writes into a user's scenery
+# pack.  Its pack set comes from the object-anchor worklist, whose step 1
+# is the apt.dat selector; that selector is now ini-aware, which closes
+# the hole.  These pin the belt behind it.
+# ---------------------------------------------------------------------------
+
+def _pack_in_custom_scenery(tmp_path, pack_name="ZZZZ Pack", ini_lines=None):
+    """A synthetic pack under a real ``Custom Scenery`` directory, with an
+    optional ``scenery_packs.ini``.  Returns ``(pack_root, mesh_path)``."""
+    custom = tmp_path / "X-Plane 12" / "Custom Scenery"
+    pack_root = custom / pack_name
+    (pack_root / "Objects").mkdir(parents=True)
+    (pack_root / BOX_RESOURCE).write_text(_two_box_object_text())
+    mesh_path = tmp_path / "Data+35-081.mesh"
+    mesh_path.write_text("synthetic mesh for provenance stat only\n")
+    if ini_lines is not None:
+        (custom / "scenery_packs.ini").write_text(
+            "I\n1000 Version\nSCENERY\n\n"
+            + "".join(f"{line}\n" for line in ini_lines))
+    return str(pack_root), str(mesh_path)
+
+
+def test_apply_refuses_a_disabled_pack_and_names_it(tmp_path, caplog):
+    pack_root, mesh_path = _pack_in_custom_scenery(
+        tmp_path, ini_lines=["SCENERY_PACK_DISABLED "
+                             "Custom Scenery/ZZZZ Pack/"])
+    before = _sha256_of(_live_path(pack_root))
+    with caplog.at_level(logging.WARNING):
+        report = apply(_two_box_decision(), pack_root, mesh_path)
+    assert report.objects_written == []
+    assert [reason for _resource, reason in report.skipped]
+    reason = report.skipped[0][1]
+    assert "DISABLED" in reason and "ZZZZ Pack" in reason
+    assert "ZZZZ Pack" in caplog.text
+    # Nothing written: no bake, and no .anchor_bak minted either.
+    assert _sha256_of(_live_path(pack_root)) == before
+    assert not os.path.exists(_backup_path(pack_root))
+    assert not os.path.exists(
+        os.path.join(pack_root, ".o4_reanchor_provenance.json"))
+
+
+def test_apply_bakes_an_enabled_pack_in_the_same_install(tmp_path):
+    pack_root, mesh_path = _pack_in_custom_scenery(
+        tmp_path, ini_lines=["SCENERY_PACK Custom Scenery/ZZZZ Pack/"])
+    report = apply(_two_box_decision(), pack_root, mesh_path)
+    assert report.objects_written == [BOX_RESOURCE]
+
+
+def test_apply_bakes_an_unlisted_pack(tmp_path):
+    """Unlisted = enabled (X-Plane adds it on next launch)."""
+    pack_root, mesh_path = _pack_in_custom_scenery(
+        tmp_path, ini_lines=["SCENERY_PACK Custom Scenery/Other/"])
+    report = apply(_two_box_decision(), pack_root, mesh_path)
+    assert report.objects_written == [BOX_RESOURCE]
+
+
+def test_apply_bakes_a_pack_outside_custom_scenery(tmp_path):
+    """The belt must not refuse the synthetic/test pack roots that live
+    nowhere near a Custom Scenery directory — the ini governs nothing
+    there."""
+    pack_root, mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: _two_box_object_text()})
+    report = apply(_two_box_decision(), pack_root, mesh_path)
+    assert report.objects_written == [BOX_RESOURCE]

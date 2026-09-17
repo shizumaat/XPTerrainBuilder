@@ -112,6 +112,30 @@ def _restore_ambient_data_root():
         os.environ.pop("ORTHO4XP_DATA_ROOT", None)
 
 
+@pytest.fixture(autouse=True)
+def _no_modal_first_run_wizard(monkeypatch):
+    """No test opens the REAL first-run wizard by accident.
+
+    Every Qt test window is a "first run" — its tmp prefs file does not
+    exist yet — so ``MainWindow`` arms ``run_wizard`` on a 200 ms timer at
+    construction.  A test that merely processes events past 200 ms on a
+    slow runner then opens ``OnboardingWizard.exec()``, a modal loop that
+    nothing offscreen ever closes: CI run 35286238333 timed out in
+    ``test_info_rows_get_two_lines_in_the_form`` (macos-15 AND
+    ubuntu-22.04, a test that never mentions the wizard), and it is the
+    likeliest cause of lane ``betaci``'s two 30-minute Linux hangs.  So
+    every test gets a no-op wizard unless it patches ``run_wizard``
+    itself (``monkeypatch`` set inside the test wins).  Patched through
+    ``sys.modules`` — importing the Qt module here would pull PySide6
+    into every non-Qt test.
+    """
+    gui = sys.modules.get("O4_Qt_GUI")
+    if gui is not None and hasattr(gui, "MainWindow"):
+        monkeypatch.setattr(gui.MainWindow, "run_wizard",
+                            lambda self: None)
+    yield
+
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SRC = os.path.normpath(os.path.join(_HERE, "..", "src"))
 if _SRC not in sys.path:

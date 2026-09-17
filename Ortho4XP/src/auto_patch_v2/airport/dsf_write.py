@@ -741,10 +741,16 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     out_dsf = os.path.join(work, base + ".new")
 
     dump(backup, pristine_text, tool)
-    with open(pristine_text, "r", errors="replace") as fh:
+    # The DSFTool text dump is UTF-8 (X-Plane resource paths are), and the
+    # terminator is PINNED on both sides: reading in universal-newline mode
+    # already normalises the dump to "\n" before ``edit_dump`` splits it, so
+    # a platform-translated write was re-expanding that to CRLF on Windows
+    # and nowhere else (lane xplatcrlf, 2026-09-17).  What DSFTool re-reads
+    # is now the same bytes on every platform.
+    with open(pristine_text, "r", encoding="utf-8", errors="replace") as fh:
         text = fh.read()
     edited = edit_dump(text, plan)
-    with open(edited_text, "w") as fh:
+    with open(edited_text, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(edited)
 
     encode(edited_text, out_dsf, tool)
@@ -777,7 +783,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             for f in body_files),
     }
     prov_path = os.path.join(os.path.dirname(dsf_path), PROVENANCE_FILENAME)
-    with open(prov_path, "w") as fh:
+    with open(prov_path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(prov, fh, indent=1, sort_keys=True)
 
     return WriteResult(dsf_path, backup, created, edited_text, prov_path,

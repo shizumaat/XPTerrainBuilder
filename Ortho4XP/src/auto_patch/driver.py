@@ -635,7 +635,7 @@ def _write_object_anchor_worklist(patch_dir: str, tile_lat: int,
             "airports": entries,
         }
         temporary_path = worklist_path + ".tmp"
-        with open(temporary_path, "w") as handle:
+        with open(temporary_path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(worklist, handle, indent=2)
             handle.write("\n")
         os.replace(temporary_path, worklist_path)
@@ -842,7 +842,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
     dem = getattr(tile, "dem", None)
     # Truncate the shared verify debug log once per build pass.
     try:
-        open(verify_debug_path, "w").close()
+        open(verify_debug_path, "w", encoding="utf-8", newline="\n").close()
     except OSError:
         pass
     _set_worker_dem(dem)            # the serial path reads this module global too
@@ -1008,7 +1008,8 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
             _trace = r.get("traceback")
             if _trace:
                 try:
-                    with open(verify_debug_path, "a") as _lf:
+                    with open(verify_debug_path, "a", encoding="utf-8",
+                              newline="\n") as _lf:
                         _lf.write("\n=== {} build FAILED ({}) ===\n{}\n".format(
                             icao, stage, _trace))
                 except OSError:
@@ -1038,7 +1039,9 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         part = r.get("verify_log_path")
         if part and os.path.exists(part):
             try:
-                with open(part) as _pf, open(verify_debug_path, "a") as _lf:
+                with open(part, encoding="utf-8") as _pf, \
+                        open(verify_debug_path, "a", encoding="utf-8",
+                             newline="\n") as _lf:
                     _lf.write(_pf.read())
                 os.remove(part)
             except OSError:

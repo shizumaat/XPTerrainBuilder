@@ -116,6 +116,6 @@ def _cycle_vids(pm: PlanarMap, cycle: tuple[int, ...]) -> list[int]:
 
 
 def dump_geojson(path: str, collection: dict) -> None:
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(collection, fh)
 

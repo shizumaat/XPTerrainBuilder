@@ -420,7 +420,8 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
     try:
         rep_v = (res.report.get("verify") or {})
         by_family = rep_v.get("by_family") or {}
-        with open(task["verify_log_path"], "w") as lf:
+        with open(task["verify_log_path"], "w", encoding="utf-8",
+                  newline="\n") as lf:
             lf.write(f"=== {icao} v2 verify: {sum(by_family.values())} row(s) ===\n")
             for fam, n in sorted(by_family.items()):
                 if n:

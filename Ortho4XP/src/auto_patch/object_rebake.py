@@ -852,7 +852,7 @@ def store_run_record(
             _run_key(mesh_path, dsf_path, airport)
         ] = record
         sidecar_path = _provenance_path(pack_root)
-        with open(sidecar_path, "w") as handle:
+        with open(sidecar_path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(provenance, handle, indent=2)
             handle.write("\n")
         return sidecar_path
@@ -1706,7 +1706,7 @@ def apply(
     if objects_written or objects_reverted:
         provenance["meshes"][tile] = _mesh_signature(mesh_path)
         provenance_path = _provenance_path(pack_root)
-        with open(provenance_path, "w") as handle:
+        with open(provenance_path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(provenance, handle, indent=2)
             handle.write("\n")
 

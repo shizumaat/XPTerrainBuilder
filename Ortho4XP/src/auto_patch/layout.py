@@ -1091,7 +1091,8 @@ class PavementLayout:
         }
         try:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-            Path(path).write_text(_json.dumps(payload, indent=1))
+            Path(path).write_text(_json.dumps(payload, indent=1),
+                                  encoding="utf-8", newline="\n")
         except OSError as exc:      # forensics must never break a build
             UI.vprint(1, f"  [single-authority] census write failed: "
                          f"{exc}")
@@ -4220,7 +4221,8 @@ class PavementLayout:
             "airside_certificate": (
                 getattr(self, "_airside_certificate", None) or {}),
         }
-        Path(str(path) + ".axes.json").write_text(_json.dumps(data))
+        Path(str(path) + ".axes.json").write_text(
+            _json.dumps(data), encoding="utf-8", newline="\n")
 
 
 # ── retained absorbed-road context (membership round V2, §V2.A/§V2.B) ──

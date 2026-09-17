@@ -1006,7 +1006,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                 partition=airport.partition)
             rebake_path = Path(out_dir) / f"{icao}.rebake.json"
             Path(out_dir).mkdir(parents=True, exist_ok=True)
-            rebake_path.write_text(rplan.to_json())
+            rebake_path.write_text(rplan.to_json(),
+                                   encoding="utf-8", newline="\n")
             wall["rebake_plan"] = time.perf_counter() - t
             rc = rplan.counts
             _say(f"[{icao}] rebake plan {wall['rebake_plan']:.2f} s  units {rc['units']}  "
@@ -1121,7 +1122,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                          solved=sol.z or None, final_pm=pm))
         _say(f"[{icao}] cross-platform stage dump -> {icao}.xplat.json", out)
     (Path(out_dir) / f"{icao}.report.json").write_text(
-        json.dumps(report, indent=1, default=str))
+        json.dumps(report, indent=1, default=str),
+        encoding="utf-8", newline="\n")
     _say(f"[{icao}] total {wall['total']:.2f} s  -> {out_dir}", out)
     return BuildResult(icao, pm, cs, counts, sol, paths, vrows, pieces, wall, size, report,
                        Path(out_dir) / f"{icao}.rebake.json" if report.get("rebake_plan")

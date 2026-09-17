@@ -150,7 +150,9 @@ def main(argv: list[str] | None = None) -> int:
         out.mkdir(parents=True, exist_ok=True)
         rec["wall_s"] = {"load": round(t1 - t0, 3), "classify": round(t2 - t1, 3),
                          "structures": round(time.perf_counter() - t2, 3)}
-        (out / "structures.json").write_text(json.dumps(rec, indent=1, default=str))
+        (out / "structures.json").write_text(
+            json.dumps(rec, indent=1, default=str),
+            encoding="utf-8", newline="\n")
         if args.kml:
             write_kml(rec, Path(args.kml))
             print(f"  KML -> {args.kml}")
@@ -270,8 +272,10 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     faces, lines = to_geojson(pm, airport.frame)
-    (out / "faces.geojson").write_text(json.dumps(faces))
-    (out / "breaklines.geojson").write_text(json.dumps(lines))
+    (out / "faces.geojson").write_text(json.dumps(faces),
+                                       encoding="utf-8", newline="\n")
+    (out / "breaklines.geojson").write_text(json.dumps(lines),
+                                            encoding="utf-8", newline="\n")
     t4 = time.perf_counter()
     report = {
         "icao": airport.icao, "name": airport.name, "ruleset": law.ruleset_key,
@@ -286,7 +290,8 @@ def main(argv: list[str] | None = None) -> int:
                    "total": round(t4 - t0, 3)},
         "pack": _dc.asdict(airport.pack),
     }
-    (out / "report.json").write_text(json.dumps(report, indent=1, default=str))
+    (out / "report.json").write_text(json.dumps(report, indent=1, default=str),
+                                     encoding="utf-8", newline="\n")
     print(f"{airport.icao} planar map: faces {stats.faces}  edges {stats.edges}  "
           f"vertices {stats.vertices}  breaklines {stats.breaklines}  "
           f"T-vertices {stats.t_vertices}  dropped faces {stats.dropped_faces}  "
@@ -639,7 +644,7 @@ def write_kml(rec: dict, path: Path) -> None:
                                 "basin", point=tuple(b["site_ll"])) for b in rec["basins"]])
     out.append("</Document></kml>")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(out))
+    path.write_text("\n".join(out), encoding="utf-8", newline="\n")
 
 
 def _count(items) -> dict[str, int]:

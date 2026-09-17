@@ -342,3 +342,68 @@ class TestLayoutPersistence:
         qapp.processEvents()
         assert not second.console.isVisible()
         assert second.console_btn.text() == "Console ▾"
+
+
+class TestStartupCallsAreOwnedByTheWindow:
+    """A window's deferred startup calls die with the window.
+
+    Measured 2026-09-17 (CI run 35260613342, macos-15): ``QTimer.singleShot(
+    200, self.run_wizard)`` has no owner, so a window destroyed inside the
+    delay still ran the wizard path, whose ``save_prefs(self.prefs)`` wrote
+    the DEAD window's prefs into whatever ``PREFS_FILE`` pointed at by then —
+    the next test's.  ``test_hidden_console_stays_hidden`` went red one run
+    in four, by runner speed.  ``MainWindow._after`` parents the timer.
+    """
+
+    def _pump(self, qapp, seconds):
+        import time
+        from PySide6.QtCore import QCoreApplication, QEvent
+
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            qapp.processEvents()
+            time.sleep(0.01)
+
+    def _window(self, tmp_path, monkeypatch, capsys, calls):
+        import O4_Qt_GUI as GUI
+
+        monkeypatch.setattr(GUI, "PREFS_FILE", str(tmp_path / "prefs.json"))
+        for name in ("run_wizard", "refresh_tiles", "_load_airports_async"):
+            monkeypatch.setattr(
+                GUI.MainWindow, name,
+                lambda self, _name=name: calls.append(_name))
+        with capsys.disabled():
+            original_stdout = sys.stdout
+            window = GUI.MainWindow()
+            sys.stdout = original_stdout
+        return window
+
+    def test_a_live_window_runs_them(self, qapp, tmp_path, monkeypatch,
+                                     capsys):
+        import O4_UI_Utils as UI
+
+        calls = []
+        window = self._window(tmp_path, monkeypatch, capsys, calls)
+        try:
+            assert window._first_run  # no prefs file: the wizard is armed
+            self._pump(qapp, 0.7)
+            # The control: the calls DO fire on a window that is still there.
+            assert calls == ["run_wizard", "refresh_tiles",
+                             "_load_airports_async"]
+        finally:
+            window.deleteLater()
+            UI.engine_session = None
+
+    def test_a_destroyed_window_never_runs_them(self, qapp, tmp_path,
+                                                monkeypatch, capsys):
+        import O4_UI_Utils as UI
+
+        calls = []
+        window = self._window(tmp_path, monkeypatch, capsys, calls)
+        assert window._first_run
+        window.deleteLater()  # destroyed INSIDE the 200 ms delay
+        del window
+        UI.engine_session = None
+        self._pump(qapp, 0.7)
+        assert calls == []

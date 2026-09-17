@@ -980,9 +980,9 @@ class MainWindow(QMainWindow):
             )
 
         if self._first_run:
-            QTimer.singleShot(200, self.run_wizard)
-        QTimer.singleShot(300, self.refresh_tiles)
-        QTimer.singleShot(400, self._load_airports_async)
+            self._after(200, self.run_wizard)
+        self._after(300, self.refresh_tiles)
+        self._after(400, self._load_airports_async)
 
         # OSM regional extracts: keep stored region extracts fresh and
         # download newly wanted ones in the background (docs/specs/
@@ -1564,6 +1564,27 @@ class MainWindow(QMainWindow):
             str(self.prefs.get(SCENERY_FILTER_KEY, QTMAP.SCENERY_FILTER_ALL)),
             persist=False,
         )
+
+    def _after(self, msec, slot):
+        """A one-shot call OWNED BY THIS WINDOW: the timer is the window's
+        child, so destroying the window cancels the call.
+
+        ``QTimer.singleShot(msec, bound_method)`` has no owner and fires on a
+        destroyed window.  Measured 2026-09-17 (CI run 35260613342, macos-15):
+        a window closed inside the 200 ms first-run delay still ran
+        ``run_wizard``, which ends in ``save_prefs(self.prefs)`` — the DEAD
+        window's prefs overwrote the ones the live session had just saved
+        (the console came back), then ``_apply_prefs`` raised "Internal C++
+        object (QComboBox) already deleted".  The first-run delay is armed
+        whenever no valid X-Plane folder is configured, i.e. always on a
+        fresh install, so this is the tester's first launch.
+        """
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(slot)
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(msec)
+        return timer
 
     def run_wizard(self):
         wizard = QTWIZ.OnboardingWizard(
@@ -2902,7 +2923,7 @@ class MainWindow(QMainWindow):
         self.legacy_config_btn.setVisible(True)
         if tile not in self._legacy_prompted:
             self._legacy_prompted.add(tile)
-            QTimer.singleShot(0, self._show_legacy_config_dialog)
+            self._after(0, self._show_legacy_config_dialog)
 
     def _legacy_config_message(self, legacy):
         """What the offer says — one bullet per thing this engine has to
@@ -3737,7 +3758,7 @@ class MainWindow(QMainWindow):
                 self.eta_label.setText("")
             self._selection_changed()
 
-        QTimer.singleShot(5000, revert)
+        self._after(5000, revert)
         # Tiles the user resumed mid-run get their own follow-up run,
         # client-side.  A run the user STOPPED wholesale takes the queue
         # down with it — stop is the inverse of resume, at any scale.

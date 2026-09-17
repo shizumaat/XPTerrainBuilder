@@ -508,7 +508,9 @@ def build_arrangement(airport: Airport, classification: Classification,
             continue
         faces.append((poly, best))
     ident = law.tables.emit.identity.min_distinct_spacing_m
-    faces, merged = merge_slivers(faces, (ident * law.tables.emit.terrace.sliver_area_factor) ** 2)
+    faces, merged = merge_slivers(faces,
+                                  (ident * law.tables.emit.terrace.sliver_area_factor) ** 2,
+                                  law.tables.emit.identity.weld_spacing_m)
     # §41 (1): an enclosed pavement face is its host's hole — absorbed HERE,
     # at the single derivation site, so every consumer downstream reads one
     # body with one law (owner RULINGS 2026-08-30l: trim at the derivation
@@ -601,7 +603,8 @@ def _holds_a_face(hole: Polygon, faces: list[tuple[Polygon, Region]],
     return False
 
 
-def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float
+def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float,
+                  width_max: float = 0.0
                   ) -> tuple[list[tuple[Polygon, Region]], int]:
     """THE SLIVER MERGE (RULINGS 2026-09-08d (4a); spec heca-v1-parity §4 /
     §6.3): a face under ``area_max`` (``(identity.min_distinct_spacing_m ×
@@ -611,15 +614,41 @@ def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float
     unioned into that neighbour (the largest sharing one).  HECA pav131
     face 269 (3 nodes, 9.8 m², 47 m along face 215's edge) became a
     terrace joint of 6.2 m at the owner's site.  Returns the faces and
-    the number merged."""
-    if area_max <= 0.0 or len(faces) < 2:
+    the number merged.
+
+    AREA ALONE DOES NOT READ A HAIRLINE (lane ``v2hecastep``, 2026-09-16;
+    the §41 (4) lesson of RULINGS 2026-09-14g item 4 — "use the INSCRIBED
+    circle" — applied to the same-region merge).  HECA's app-1.0.344
+    ``runway_step`` DEFECT stood on face 37, a **0.50 m wide** strip of
+    05C/23C **80.1 m** along face 14's own boundary, left where object
+    pavement ``dsf:objpav100``'s ring runs a half metre inside the
+    runway's: 20.7 m², which clears the 16 m² area gate, so the merge
+    never looked at it and the solve gave its two long sides different
+    levels (0.684 / 0.571 / 0.342 m apart — three of the four DEFECT
+    rows).  ``width_max`` (the weld's own ``identity.weld_spacing_m``:
+    the width below which two pavement boundaries ARE one boundary,
+    RULINGS 2026-09-04u) merges such a face WHATEVER its area — it is
+    the sliver the weld exists to prevent, read after the noding.  The
+    inscribed circle is computed only for a face whose mean width
+    (``2A/P``) is already under twice the bound, so the pass costs
+    nothing on the faces that are not candidates."""
+    if (area_max <= 0.0 and width_max <= 0.0) or len(faces) < 2:
         return faces, 0
+
+    def _hairline(poly: Polygon) -> bool:
+        if width_max <= 0.0:
+            return False
+        per = poly.length
+        if per <= 0.0 or 2.0 * poly.area / per >= 2.0 * width_max:
+            return False
+        return inscribed_width_m(poly) < width_max
+
     polys = [p for p, _r in faces]
     tree = STRtree(polys)
     keep = list(faces)
     merged = 0
     for i, (poly, region) in enumerate(faces):
-        if keep[i] is None or poly.area >= area_max:
+        if keep[i] is None or (poly.area >= area_max and not _hairline(poly)):
             continue
         best = None
         best_len = 0.0

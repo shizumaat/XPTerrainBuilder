@@ -46,7 +46,8 @@ import math
 
 from ..constraints.geometry import principal_axis
 from ..constraints.runway_profile import curve_stations
-from ..law.tables import runway_transverse_cap, runway_vertical_curve_bound
+from ..law.tables import (cliff_grade, runway_transverse_cap,
+                          runway_vertical_curve_bound)
 from .frame import Patch, Row, noise_m, row
 from .steps import _edges, _step_rows
 from .within import crown_by_vertex
@@ -303,7 +304,28 @@ def runway_step(p: Patch) -> list[Row]:
 
     Declared terrace joints are forgiven as in every step reader; a pair
     at a ``runway_crossing`` is NOT exempt here (Annex 14 §3.1.19 exempts
-    the CROSS-FALL at an intersection, not a step in the surface)."""
+    the CROSS-FALL at an intersection, not a step in the surface).
+
+    THE SPAN RULE AND THE CLIFF ESCAPE (owner RULINGS 2026-09-12ad /
+    12af, ruled for this family 2026-09-16; lane ``v2hecastep``).  This
+    family prices a WALL between runway-role faces, and its floor exists
+    because a WELDED pair has d ~ 0.  A pair with a SPAN — d > 0 — whose
+    implied grade ``|dz| / d`` is under the ruleset's own cliff line
+    (:func:`law.tables.cliff_grade`, the design surface's 1:3 bank,
+    imported and never re-spelled) is a SLOPE, not a discontinuity: it
+    stays a census row and is REPORTED, never a DEFECT.  At or over the
+    cliff line it is a cut or a rise and stays a DEFECT whatever d.
+    The reading is published on the row itself, in the terms the gate
+    already prices (``verify.census.defect_excess_m``): a SLOPE row
+    states its own grade against the cliff line as its cap, so its
+    excess is zero and ``defect_gate`` files it under the floor; a CLIFF
+    row states neither, so its whole magnitude is the excess, exactly as
+    before.  MEASURED at HECA (app 1.0.344's four rows): the three face
+    37 rows read 187 % / 126 % / 188 % and stay DEFECTs; the survivor at
+    30.1076486,-31.4083338 reads 17 % over 0.992 m between two faces
+    that SHARE vertex 1748 — a continuous surface — and becomes REPORT.
+    §40 (5) (3)'s band LEVEL rows are NOT minted (v2shoulderband r3/r4
+    measured that hardening a runway row set over-determines the sheet)."""
     law = p.law
     floor = float(law.tables.emit.materiality.runway_step_m)
     ins = law.tables.emit.instrument
@@ -338,6 +360,23 @@ def runway_step(p: Patch) -> list[Row]:
               if sh.role in RUNWAY_FAMILY for k in range(len(sh.ids))]
     probes += [(sh, (0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])), 0.5 * (za + zb))
                for sh, a, b, za, zb in edges if sh.role in RUNWAY_FAMILY]
-    return _step_rows(p, "runway_step", probes, edges, ins.edge_search_m,
+    rows = _step_rows(p, "runway_step", probes, edges, ins.edge_search_m,
                       ins.step_contact_tol_m, floor, roles=RUNWAY_FAMILY,
                       allow_of=allow_of)
+    return [_span_rule(r, cliff_grade(law)) for r in rows]
+
+
+def _span_rule(r: Row, cliff: float) -> Row:
+    """The 12ad / 12af reading of one ``runway_step`` row (see
+    :func:`runway_step`): a SPANNED pair under the cliff line is a
+    SLOPE — it states its grade and the cliff line as its cap, so the
+    gate prices zero excess and REPORTS it; anything else is a CLIFF and
+    keeps its magnitude as its excess."""
+    d = float(r.get("distance_m") or 0.0)
+    mag = abs(float(r.get("magnitude_m") or 0.0))
+    if d > 0.0 and cliff > 0.0 and mag / d < cliff:
+        r.update({"reading": "slope", "grade_pct": 100.0 * mag / d,
+                  "cap_pct": 100.0 * cliff})
+    else:
+        r["reading"] = "cliff"
+    return r

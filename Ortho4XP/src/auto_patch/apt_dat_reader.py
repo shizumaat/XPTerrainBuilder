@@ -44,6 +44,10 @@ from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
+# The ONE derivation site for pack enablement (RULINGS 2026-09-17b);
+# stdlib-only, imported at TOP LEVEL so the frozen bundle sees it.
+import O4_Scenery_Packs as _scenery_packs
+
 # Narrow exception tuple for shapely / numeric-geometry failure
 # modes.  Programming errors propagate so they surface immediately.
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
@@ -414,8 +418,11 @@ def find_airport_apt_dat(xplane_root: str, icao: str) -> str | None:
     # pavement geometry there.
     custom_packs: list[str] = []
     if os.path.isdir(custom_scenery):
+        # A pack DISABLED in scenery_packs.ini is ignored (owner RULINGS
+        # 2026-09-17b): X-Plane does not load it, so it is not evidence.
+        enabled = _scenery_packs.enabled_pack_names(custom_scenery)
         for entry in sorted(os.listdir(custom_scenery)):
-            if entry == "Global Airports":
+            if entry == "Global Airports" or entry not in enabled:
                 continue
             pack_apt = os.path.join(
                 custom_scenery, entry, "Earth nav data", "apt.dat")
@@ -685,7 +692,12 @@ def find_all_airport_apt_dats(xplane_root: str,
     out: list[str] = []
     custom_scenery = os.path.join(xplane_root, "Custom Scenery")
     if os.path.isdir(custom_scenery):
+        # Disabled packs are not among "available" geometry at all: the
+        # simulator never draws them (owner RULINGS 2026-09-17b).
+        enabled = _scenery_packs.enabled_pack_names(custom_scenery)
         for entry in sorted(os.listdir(custom_scenery)):
+            if entry not in enabled:
+                continue
             pack_apt = os.path.join(
                 custom_scenery, entry, "Earth nav data", "apt.dat")
             if (os.path.isfile(pack_apt)

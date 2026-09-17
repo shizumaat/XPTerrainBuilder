@@ -1070,7 +1070,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         part = r.get("verify_log_path")
         if part and os.path.exists(part):
             try:
-                with open(part, encoding="utf-8") as _pf, \
+                with open(part, encoding="utf-8", errors="replace") as _pf, \
                         open(verify_debug_path, "a", encoding="utf-8",
                              newline="\n") as _lf:
                     _lf.write(_pf.read())

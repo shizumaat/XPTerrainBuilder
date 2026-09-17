@@ -7074,13 +7074,20 @@ def _sidecar_footprint_packs_mismatch(lat, lon, icao, provider_code,
     )
 
 
-def _fetched_bounding_box(lat, lon, icao, provider_code):
-    """The bounding box a cached inset was actually fetched with.
+def requested_inset_bounding_box(lat, lon, icao, provider_code):
+    """The box a cached inset's fetch ASKED the provider for.
 
-    Read from the provenance sidecar's ``bounding_box_wgs84`` (every access
-    strategy records the requested box verbatim).  ``None`` when the sidecar
-    is missing or unreadable — pre-sidecar caches cannot be judged and are
-    treated as covering whatever is requested.
+    ``requested_bounding_box_wgs84`` when the manifest has it (written
+    since 2026-09-17), else the historic ``bounding_box_wgs84`` -- which
+    IS the requested box: every access strategy records the box it was
+    handed, verbatim, before any warp.  ``None`` when the sidecar is
+    missing or unreadable: a cache that cannot be judged is REUSABLE, the
+    established leave-alone policy.
+
+    This is the input to THE RE-CUT RULE
+    (:func:`inset_recut_is_needed`); what the raster actually carries is
+    :func:`delivered_inset_bounding_box`, and the two are not the same
+    box (measured 2026-09-17 over 559 pairs).
     """
     provenance_path = FNAMES.airport_inset_provenance(
         lat, lon, icao, provider_code
@@ -7088,12 +7095,135 @@ def _fetched_bounding_box(lat, lon, icao, provider_code):
     try:
         with open(provenance_path, "r") as handle:
             provenance = json.load(handle)
-        recorded_box = provenance.get("bounding_box_wgs84")
-        if isinstance(recorded_box, (list, tuple)) and len(recorded_box) == 4:
-            return tuple(float(value) for value in recorded_box)
+        for key in ("requested_bounding_box_wgs84", "bounding_box_wgs84"):
+            recorded_box = provenance.get(key)
+            if (isinstance(recorded_box, (list, tuple))
+                    and len(recorded_box) == 4):
+                return tuple(float(value) for value in recorded_box)
     except (OSError, ValueError, TypeError):
         pass
     return None
+
+
+#: Historic spelling, kept so nothing that reads "what was this inset
+#: fetched with" has to change; the answer is the REQUESTED box.
+_fetched_bounding_box = requested_inset_bounding_box
+
+
+def inset_recut_is_needed(lat, lon, icao, provider_code, required_box):
+    """THE RE-CUT RULE (named by the session 2026-09-17, on the corpus
+    census in ``tools/inset_coverage_census.py``).
+
+    An inset is STALE -- worth asking the provider again -- exactly when
+    the box this airport requires TODAY is not contained in the box that
+    was REQUESTED when the inset was cut.  What we asked for then is no
+    longer what we need now, so re-asking WILL do better.
+
+    This is the predicate the engine has always applied here; naming it
+    changes no behaviour and marks no additional raster stale (measured
+    2026-09-17: 215 of 565, identically before and after).  Deliberately
+    NOT judged against the delivered raster: a warp snaps the target
+    extent to its pixel grid, so the delivered box is up to a source
+    pixel off the request in either direction, and judging by it would
+    have marked 453 of 565 stale -- including every battery airport --
+    for shortfalls of under a metre.  A raster the PROVIDER could not
+    fill is a different question and a different answer
+    (:func:`inset_delivery_shortfall`): re-asking cannot help there, so
+    it warns and never re-cuts.
+
+    An unjudgeable manifest returns False: reusable.
+    """
+    requested_box = requested_inset_bounding_box(lat, lon, icao,
+                                                 provider_code)
+    if requested_box is None:
+        return False
+    return _bounding_box_extends_beyond(required_box, requested_box)
+
+
+#: THE FUNCTIONAL MARGIN of the WARN rule, in metres: how far beyond the
+#: aerodrome boundary an inset must actually REACH before the shortfall is
+#: worth a word.  It is far smaller than
+#: ``airport_elevation_inset_margin_m`` (2000 m) on purpose -- the margin
+#: exists so the airport and its surroundings sit on fine elevation, and
+#: an inset delivering 1,998 m of it instead of 2,000 harms nothing.
+#:
+#: Measured 2026-09-17 over all 565 cached rasters
+#: (``tools/inset_coverage_census.py --section sweep``): ZERO fail at any
+#: m_min <= 1000 m; the battery's worst edge is OTHH south at 1985 m; and
+#: every provider delivers its own request to within 0.5 delivered pixels,
+#: england1m included.  So this arm fires on NOTHING today.  It is the
+#: guard for a provider that really does clip -- where the request was
+#: honoured but the data stops -- and there re-asking would not help,
+#: which is why it warns and never re-cuts.
+INSET_FUNCTIONAL_MARGIN_M = 1000.0
+
+
+def inset_delivery_shortfall(inset_path, boundary_box, mid_latitude,
+                             functional_margin_m=INSET_FUNCTIONAL_MARGIN_M):
+    """THE WARN RULE: the edges on which the DELIVERED raster fails to
+    reach ``functional_margin_m`` beyond the aerodrome boundary.
+
+    ``{edge: metres_short}`` for the failing edges only, ``{}`` when the
+    raster covers what matters, and ``None`` when it cannot be opened (no
+    GDAL, absent, corrupt -- never a guess).  Judged against the raster's
+    OWN geotransform with a tolerance of one DELIVERED pixel per axis:
+    the pixel comes from the file, so this needs no ``native_resolution_m``
+    (which not every manifest carries) and never fires on warp rounding.
+
+    NEVER a staleness test.  A shortfall here means the provider did not
+    fill what it was asked for, and asking again returns the same raster.
+    """
+    delivered_box = delivered_inset_bounding_box(inset_path)
+    if delivered_box is None:
+        return None
+    header = _inset_header_geometry(inset_path)
+    pixel_lon = abs(header[0][1])
+    pixel_lat = abs(header[0][5])
+    metres_per_degree_longitude = GEO.lon_to_m(mid_latitude)
+    margin_lon = functional_margin_m / metres_per_degree_longitude
+    margin_lat = functional_margin_m / GEO.lat_to_m
+    (west, south, east, north) = boundary_box
+    required = (west - margin_lon, south - margin_lat,
+                east + margin_lon, north + margin_lat)
+    shortfalls = {
+        "west": (delivered_box[0] - required[0] - pixel_lon)
+        * metres_per_degree_longitude,
+        "south": (delivered_box[1] - required[1] - pixel_lat) * GEO.lat_to_m,
+        "east": (required[2] - delivered_box[2] - pixel_lon)
+        * metres_per_degree_longitude,
+        "north": (required[3] - delivered_box[3] - pixel_lat) * GEO.lat_to_m,
+    }
+    return {edge: metres for edge, metres in shortfalls.items()
+            if metres > 0.0}
+
+
+def warn_if_delivered_inset_clips_airport(tile, icao, boundary_box):
+    """LOUD when a cached inset for ``icao`` was DELIVERED short of the
+    functional margin (:data:`INSET_FUNCTIONAL_MARGIN_M`).
+
+    One line per raster, naming it, the short edges in metres, and that a
+    RE-CUT WOULD NOT HELP -- the request itself was delivered, so the
+    provider's data simply stops there.  Returns the number of warnings
+    emitted (the twins read that).
+    """
+    warned = 0
+    for inset_path in cached_inset_paths_for_airport(tile, icao):
+        shortfalls = inset_delivery_shortfall(
+            inset_path, boundary_box, tile.lat + 0.5
+        )
+        if not shortfalls:
+            continue
+        UI.loud_warning(
+            "   WARNING: the elevation inset %s reaches less than %.0f m "
+            "beyond %s's aerodrome boundary (%s) - the ground beyond it is "
+            "graded on the BASE elevation source.  A re-cut would NOT help: "
+            "the provider delivered the box that was requested."
+            % (os.path.basename(inset_path), INSET_FUNCTIONAL_MARGIN_M, icao,
+               ", ".join("%s short %.0f m" % (edge, shortfalls[edge])
+                         for edge in sorted(shortfalls)))
+        )
+        warned += 1
+    return warned
 
 
 # A cached inset counts as over-sampled only when its posting is
@@ -7315,15 +7445,15 @@ def ensure_airport_insets(
             if os.path.isfile(destination) and not refresh and (
                 void_reason is None
             ):
-                fetched_box = _fetched_bounding_box(lat, lon, icao, code)
-                cached_inset_is_stale = (
-                    fetched_box is not None
-                    and _bounding_box_extends_beyond(
-                        bounding_box, fetched_box
-                    )
+                # THE RE-CUT RULE, by name.  Same predicate as ever --
+                # required today vs REQUESTED at cut time -- now stated
+                # once, so the harness's refusal and the production
+                # warm path judge with this function and never a copy.
+                cached_inset_is_stale = inset_recut_is_needed(
+                    lat, lon, icao, code, bounding_box
                 )
                 stale_reason = (
-                    "covers a smaller area than the requested margin"
+                    "was cut for a smaller box than this airport now needs"
                     if cached_inset_is_stale
                     else None
                 )

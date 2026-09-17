@@ -141,31 +141,33 @@ class TestPanelFitsItsViewport:
     scrollbar off: content wider than the viewport silently clips, so
     no child may demand more width than the viewport offers."""
 
-    # WINDOWS: a REAL, UNFIXED layout finding, not an instrument artifact
-    # (CI 2026-09-17, beta plan §1 B4).  On windows-latest the panel's
-    # minimum width comes out 452 px against a 266 px viewport — the
-    # Windows style's wider font metrics and control margins push the
-    # right panel past the fixed width that fits on macOS and Linux, so
-    # the frozen Windows app silently clips it (the horizontal scrollbar
-    # is off by design).  Fixing it is a Qt layout change in
-    # src/O4_Qt_GUI.py, which this lane does not own; skipped BY NAME so
-    # the rest of the file guards Windows too, and reported for a UI lane.
-    @pytest.mark.skipif(
-        sys.platform == "win32",
-        reason="Windows: panel minimumSizeHint 452 px > 266 px viewport — "
-               "the Windows style's font metrics/margins overflow the "
-               "right panel's fixed width (real defect, needs an "
-               "O4_Qt_GUI.py layout fix; see beta plan §1 B4 report)")
+    # RUNS ON ALL THREE PLATFORMS since 2026-09-17 (beta plan §1 B4).
+    # It was skipped on win32 for one day: the panel's minimum measured
+    # 452 px against a 266 px viewport, because a QCheckBox's label, a
+    # rich-text title and a row label all reported their full text width
+    # as a MINIMUM — a floor that grows with the platform font (the
+    # Windows runner's offscreen font is 1.5x the mac's; a Windows user
+    # at 125% scaling is the same case).  Every such widget now either
+    # elides (ElidedRowLabel) or accepts Ignored policy, so the floor is
+    # font-independent: measured 452 -> 236 on windows-latest.
     def test_panel_minimum_width_fits(self, qapp, make_window):
         window = make_window()
         window.show()
         qapp.processEvents()
         # Long dynamic values, as after a scan of a lidar-covered tile.
+        # EVERY value the panel can show goes in: a panel measured with
+        # the placeholder "…" values understates its own minimum by the
+        # width of a date (Windows CI, 2026-09-17).
         window.build_summary.setText(
             "12 tiles selected · rough est. 48.0 GB · airport lidar on 12"
         )
         window.info_elevation.setText(LONG_TEXT)
         window.info_airport_lidar.setText(LONG_TEXT)
+        window.info_provider.setText("GO2  ⚠ mixed")
+        window.info_zl.setText("16 (mixed: 16, 17, 18)")
+        window.info_mesh.setText("12 Sep 2026 14:30")
+        window.info_imagery.setText("12 Sep 2026 14:30")
+        window.info_size.setText("48.0 GB (12 folders)")
         qapp.processEvents()
         panel = window.info_group.parentWidget()
         scroll = panel.parentWidget()
@@ -340,3 +342,68 @@ class TestLayoutPersistence:
         qapp.processEvents()
         assert not second.console.isVisible()
         assert second.console_btn.text() == "Console ▾"
+
+
+class TestStartupCallsAreOwnedByTheWindow:
+    """A window's deferred startup calls die with the window.
+
+    Measured 2026-09-17 (CI run 35260613342, macos-15): ``QTimer.singleShot(
+    200, self.run_wizard)`` has no owner, so a window destroyed inside the
+    delay still ran the wizard path, whose ``save_prefs(self.prefs)`` wrote
+    the DEAD window's prefs into whatever ``PREFS_FILE`` pointed at by then —
+    the next test's.  ``test_hidden_console_stays_hidden`` went red one run
+    in four, by runner speed.  ``MainWindow._after`` parents the timer.
+    """
+
+    def _pump(self, qapp, seconds):
+        import time
+        from PySide6.QtCore import QCoreApplication, QEvent
+
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            qapp.processEvents()
+            time.sleep(0.01)
+
+    def _window(self, tmp_path, monkeypatch, capsys, calls):
+        import O4_Qt_GUI as GUI
+
+        monkeypatch.setattr(GUI, "PREFS_FILE", str(tmp_path / "prefs.json"))
+        for name in ("run_wizard", "refresh_tiles", "_load_airports_async"):
+            monkeypatch.setattr(
+                GUI.MainWindow, name,
+                lambda self, _name=name: calls.append(_name))
+        with capsys.disabled():
+            original_stdout = sys.stdout
+            window = GUI.MainWindow()
+            sys.stdout = original_stdout
+        return window
+
+    def test_a_live_window_runs_them(self, qapp, tmp_path, monkeypatch,
+                                     capsys):
+        import O4_UI_Utils as UI
+
+        calls = []
+        window = self._window(tmp_path, monkeypatch, capsys, calls)
+        try:
+            assert window._first_run  # no prefs file: the wizard is armed
+            self._pump(qapp, 0.7)
+            # The control: the calls DO fire on a window that is still there.
+            assert calls == ["run_wizard", "refresh_tiles",
+                             "_load_airports_async"]
+        finally:
+            window.deleteLater()
+            UI.engine_session = None
+
+    def test_a_destroyed_window_never_runs_them(self, qapp, tmp_path,
+                                                monkeypatch, capsys):
+        import O4_UI_Utils as UI
+
+        calls = []
+        window = self._window(tmp_path, monkeypatch, capsys, calls)
+        assert window._first_run
+        window.deleteLater()  # destroyed INSIDE the 200 ms delay
+        del window
+        UI.engine_session = None
+        self._pump(qapp, 0.7)
+        assert calls == []

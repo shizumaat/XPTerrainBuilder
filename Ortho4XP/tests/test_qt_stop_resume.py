@@ -433,15 +433,14 @@ def test_stopped_rows_and_their_buttons_survive_the_run_end(window,
     stopped, which are the handle on a tile they still mean to build."""
     deferred = []
 
-    class _CapturedTimer:
-        """Only the linger's singleShot is of interest here; the window's
-        own timers were built during construction."""
-
-        @staticmethod
-        def singleShot(milliseconds, callback):
-            deferred.append((milliseconds, callback))
-
-    monkeypatch.setattr(GUI, "QTimer", _CapturedTimer)
+    # Only the linger's deferred call is of interest here; the window's own
+    # startup calls were armed during construction.  The seam is the window's
+    # ``_after`` (window-owned one-shots, 2026-09-17) — it replaced the
+    # ownerless ``QTimer.singleShot`` this test used to capture.
+    monkeypatch.setattr(
+        window, "_after",
+        lambda milliseconds, callback: deferred.append(
+            (milliseconds, callback)))
     window._start_run([TILE, OTHER], dict(SETTINGS))
     window._cancel_tile_clicked(TILE)
     window._on_tile_state(EV.TileState(

@@ -30,6 +30,35 @@ else:
     unzip_cmd = "7z"
     dsftool_cmd = os.path.join(FNAMES.Utils_dir, "lin", "DSFTool ")
 
+# The names distributions actually install a 7-Zip CLI under: 7zz is the
+# upstream 7-Zip build, 7z the p7zip wrapper, 7za its standalone.
+UNZIP_CANDIDATES = ("7zz", "7z", "7za")
+UNZIP_MISSING_MESSAGE = (
+    "   ERROR: this overlay DSF is a 7z archive and no 7-Zip executable was"
+    " found (tried 7zz, 7z, 7za on PATH) — install p7zip-full (Debian/Ubuntu)"
+    " or 7zip (Fedora/Arch/openSUSE) and build the overlay again."
+)
+
+
+def resolve_unzip_cmd():
+    """The 7-Zip executable to use, or ``None`` if there is none.
+
+    mac and Windows ship one in ``Utils/``; ``Utils/lin`` does not, so on
+    Linux the module-level ``unzip_cmd`` was a bare ``"7z"`` that exists
+    only if the user happens to have p7zip installed — and when they did
+    not, the miss surfaced as a ``FileNotFoundError`` from inside
+    extraction, naming neither the cause nor the package.  Probed AT USE
+    TIME: a vendored binary is used as-is, otherwise PATH decides.
+    """
+    if os.path.isabs(unzip_cmd):
+        return unzip_cmd if os.path.exists(unzip_cmd) else None
+    for name in UNZIP_CANDIDATES:
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
 ################################################################################
 def build_overlay(lat, lon):
     if UI.is_working:
@@ -79,8 +108,14 @@ def build_overlay(lat, lon):
     f.close()
     if dsfid == "7z":
         UI.vprint(1, "-> The original DSF is a 7z archive, uncompressing...")
+        seven_zip = resolve_unzip_cmd()
+        if seven_zip is None:
+            # REFUSE here, naming the package: the alternative was a
+            # FileNotFoundError raised deep inside extraction.
+            UI.exit_message_and_bottom_line(UNZIP_MISSING_MESSAGE)
+            return 0
         os.replace(file_to_sniff_loc, file_to_sniff_loc + ".7z")
-        subprocess.run([unzip_cmd, "e", f"-o{FNAMES.Tmp_dir}", f"{file_to_sniff_loc}.7z"], **UI.external_tool_keyword_arguments())
+        subprocess.run([seven_zip, "e", f"-o{FNAMES.Tmp_dir}", f"{file_to_sniff_loc}.7z"], **UI.external_tool_keyword_arguments())
         os.remove(file_to_sniff_loc + ".7z")
     UI.vprint(1, "-> Converting the copy to text format")
     dsfconvertcmd = [

@@ -36,6 +36,13 @@ import os
 import threading
 from collections import namedtuple
 
+# The ONE derivation site for pack enablement (RULINGS 2026-09-17b).  It
+# is stdlib-only and imports no Ortho4XP module, so importing it here at
+# TOP LEVEL keeps this module's standalone unit-testability AND lets
+# PyInstaller see it (a lazy import shipped a broken frozen engine on
+# 2026-09-10).
+import O4_Scenery_Packs as _scenery_packs
+
 
 # Parsed footprint of one .agp: ``local_poly`` is a list of (x, y) in
 # meters relative to the anchor (x = texture S / east, y = texture T /
@@ -76,32 +83,27 @@ def _scenery_pack_order(xplane_root: str) -> list[str]:
     let the highest-priority provider win.  Packs absent from the ini (or
     when the ini is missing) are appended in sorted order at the lowest
     priority for determinism.
+
+    A pack DISABLED in the ini contributes NOTHING (owner RULINGS
+    2026-09-17b).  This was a real defect: the row test read
+    ``line.startswith("SCENERY_PACK")``, which ``SCENERY_PACK_DISABLED``
+    also satisfies — so a disabled pack entered the merged ``library.txt``
+    priority order and could WIN a virtual library path over an enabled
+    one, supplying footprint geometry for objects the simulator never
+    draws.  The exact-token test now lives in :mod:`O4_Scenery_Packs`.
     """
     custom = os.path.join(xplane_root, "Custom Scenery")
     if not os.path.isdir(custom):
         return []
-    on_disk = {d for d in os.listdir(custom)
-               if os.path.isdir(os.path.join(custom, d))}
+    enabled = _scenery_packs.enabled_pack_names(custom)
+    ini_order, _disabled = _scenery_packs.parse_ini(
+        os.path.join(custom, _scenery_packs.INI_FILENAME))
     ordered_high_to_low: list[str] = []
-    ini = os.path.join(custom, "scenery_packs.ini")
-    if os.path.isfile(ini):
-        try:
-            with open(ini, "r", encoding="utf-8",
-                      errors="replace") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line.startswith("SCENERY_PACK"):
-                        continue
-                    rest = line.split(None, 1)[1] if " " in line else ""
-                    rest = rest.strip().rstrip("/")
-                    # "Custom Scenery/<pack>" → "<pack>"
-                    name = os.path.basename(rest)
-                    if name in on_disk and name not in ordered_high_to_low:
-                        ordered_high_to_low.append(name)
-        except OSError:
-            pass
+    for name in ini_order:
+        if name in enabled and name not in ordered_high_to_low:
+            ordered_high_to_low.append(name)
     # Append any on-disk packs the ini didn't mention (sorted, lowest).
-    for name in sorted(on_disk):
+    for name in sorted(enabled):
         if name not in ordered_high_to_low:
             ordered_high_to_low.append(name)
     # Reverse → low priority first (so dict-overwrite leaves high last).

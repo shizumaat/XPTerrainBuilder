@@ -232,9 +232,10 @@ def test_the_stale_feed_refusal_is_gated_on_the_production_frame():
     from auto_patch_v2.airport import osm as _osm
     _load = importlib.import_module("auto_patch_v2.airport.load")
     body = inspect.getsource(_load.load_with_report)
-    assert ('if stale and inputs.dem_frame == "production" '
+    assert ('if suspect and inputs.dem_frame == "production" '
             "and not inputs.allow_degraded_dem:") in body
     assert "rep.osm_road_feeds_stale = tuple(sorted(stale))" in body
+    assert "rep.osm_road_feeds_untagged = tuple(untagged)" in body
     # the fixture really is the stale case the exemption exists for
     fix = (Path(_load.__file__).resolve().parents[3] / "tests" / "auto_patch_v2"
            / "fixtures" / "CYXY" / "OSM_data" / "+60-140" / "+60-136"
@@ -253,4 +254,42 @@ def test_the_cyxy_fixture_reports_its_stale_feed_by_name():
     _apt, rep = load_with_report("CYXY", inp, Law.for_airport("CYXY"))
     assert any("big_roads" in p for p in rep.osm_road_feeds_stale), \
         rep.osm_road_feeds_stale
+    assert any("airport_small_roads" in p for p in rep.osm_road_feeds_untagged)
+
+
+
+# ── chip D: AN UNTAGGED FEED IS AS STALE AS A STALE-STAMPED ONE ────────
+# (owner RULINGS 2026-09-17t; scout ``hecachannel``) — lane ``v2channelfp``
+
+def test_D_an_untagged_road_feed_is_refused_exactly_like_a_stale_one(tmp_path):
+    """HECA's ``+30+031_airport_small_roads.osm.bz2`` (2026-07-27) carries
+    NO ``o4_tag_schema`` at all, so it predates the stamp and therefore
+    predates every whitelist bump the stamp exists to detect — §45 (1)
+    (d)'s ``layer`` / ``cutting`` / ``covered`` / ``embankment`` gate was
+    structurally unavailable at HECA while the run reported nothing but a
+    record on ``osm_road_feeds_untagged``.  It is the same fact on weaker
+    evidence, not an exemption: the refusal now covers it, with the same
+    two exemptions and the same ledgered remedy."""
+    import importlib
+    import inspect
+    _load = importlib.import_module("auto_patch_v2.airport.load")
+    body = inspect.getsource(_load.load_with_report)
+    # ONE predicate over BOTH populations — never a second gate
+    assert ("suspect = sorted(stale) + [f\"{u} — NO o4_tag_schema stamp at all\"" in body)
+    assert body.count('inputs.dem_frame == "production"\n') <= 1
+    # named, and the only authorised remedy is the owner's ledgered act
+    assert "--refresh-data osm_layers (never a build side effect)." in body
+    assert "NO o4_tag_schema stamp at all" in body
+
+
+def test_D_the_frozen_frame_exemption_still_covers_an_untagged_feed():
+    """The CYXY fixture's own ``airport_small_roads`` is untagged and must
+    keep loading: a twin's frame is not the shared corpus (the same
+    exemption the stale ``big_roads`` beside it already has)."""
+    from tests.auto_patch_v2.test_airport_load import fixture_inputs
+    from auto_patch_v2.airport.load import load_with_report
+    from auto_patch_v2.law import Law
+    inp = fixture_inputs()
+    assert inp.dem_frame == "authored"
+    _apt, rep = load_with_report("CYXY", inp, Law.for_airport("CYXY"))
     assert any("airport_small_roads" in p for p in rep.osm_road_feeds_untagged)

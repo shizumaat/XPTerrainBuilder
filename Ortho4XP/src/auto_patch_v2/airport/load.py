@@ -360,16 +360,33 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     # recorded "measure in the worse frame KNOWINGLY" override that
     # authorises no write (CLAUDE.md).  Either way the stale feeds are
     # NAMED on the report, never silent.
-    if stale and inputs.dem_frame == "production" and not inputs.allow_degraded_dem:
+    # AN UNTAGGED FEED IS AS STALE AS A STALE-STAMPED ONE (owner RULINGS
+    # 2026-09-17t, chip D; scout ``hecachannel``).  A cache carrying NO
+    # ``o4_tag_schema`` at all predates the stamp, so it predates every
+    # whitelist bump the stamp exists to detect — it is the WEAKER
+    # evidence of the same fact, not an exemption.  Measured at HECA:
+    # ``+30+031_airport_small_roads.osm.bz2`` (2026-07-27) carries no
+    # stamp, so §45 (1) (d)'s ``layer`` / ``cutting`` / ``covered`` /
+    # ``embankment`` gate — the whole point of the 2026-09-15 bump — was
+    # structurally unavailable at HECA while the run reported nothing
+    # but a record on ``osm_road_feeds_untagged``.  Same refusal, same
+    # exemptions (a frozen ``authored`` frame, ``--allow-degraded-dem``),
+    # same remedy: the LEDGERED ``--refresh-data osm_layers``, which is
+    # the owner's act — a reader NEVER re-bakes a feed.
+    suspect = sorted(stale) + [f"{u} — NO o4_tag_schema stamp at all"
+                               for u in sorted(untagged)]
+    if suspect and inputs.dem_frame == "production" and not inputs.allow_degraded_dem:
         raise RuntimeError(
-            f"{icao}: {len(stale)} cached road feed(s) were written under a "
-            f"SUPERSEDED tag whitelist — the reading would be missing the "
+            f"{icao}: {len(suspect)} cached road feed(s) were written under a "
+            f"SUPERSEDED tag whitelist (or none) — the reading would be missing the "
             f"tags the current one keeps (ROADS_TAGS_OF_INTEREST / "
             f"ROAD_CACHE_TAG_SCHEMA {_osm.ROAD_CACHE_TAG_SCHEMA}), and the "
             f"structure readers would silently see fewer bores (measured at "
             f"OTHH: 8 against 16, corridors 7 against 9 — RULINGS "
-            f"2026-09-15ar, attributed by lane v2othhdet): "
-            + "; ".join(sorted(stale))
+            f"2026-09-15ar, attributed by lane v2othhdet; an UNSTAMPED feed is "
+            f"the same fact on weaker evidence — RULINGS 2026-09-17t, HECA's "
+            f"airport_small_roads): "
+            + "; ".join(suspect)
             + ". Refresh them explicitly: build_airport.py <ICAO> "
               "--refresh-data osm_layers (never a build side effect).")
     rep.buildings_by_source["osm"] = len(buildings)

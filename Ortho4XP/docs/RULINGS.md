@@ -9149,3 +9149,75 @@ Twins: 10 new in `tests/test_auto_patch_freshness.py` (all red on base, 90 passe
 * Item 5: `Bridge2.obj` (one authored row, no elevation) → 5 bodies from 3 components; north wall = component 0 split into a FOOTED piece b0 (50 feet, "line segment 1/2: mid-foot", 611.52, its 125 m box running west onto the `tunnel_ramp` face that climbs to 611) and an ELEVATED footless remainder b2 ("footless_own_ground", 605.96) — 5.56 m apart; south wall = component 1 → b3/b4, footless, boxes straddling deck and trench, the MEDIAN ground under them lands on the `tunnel_ramp` floor 599.30. The deck face `service_road bridge_deck:-6288` (605.60..609.47; both owner points are its ring vertices at 606.98 / 606.19) is READ BY NOTHING in `airport/` (`placement_read.py:51-52` publishes only `building` faces and `structure_rim` breaklines); `deck_kind ""`, `plate_y None` → §16e's datum branch (`anchor_rule.py:324/658`) returns None; `footless_own_ground` (`placement_plan.py:299`) and `segment_anchor` (`placement_cut.py:727`) never reach `anchor_of` at all. History: the five-body split and the N/S pairing are unchanged since 1.0.340 (15h); RULINGS 13r ruled Bridge2/LEMD50 DRAPED plates ("no object re-seat" — the deck plate, not the parapets); 15ax moved the DECK onto the parapets' span — the deck was fixed, the walls never re-seated, which is why the gap shows now.
 * FIX SHAPES (not implemented): item 4 — **(A)** read the low side LOCALLY (pad vertices within reach of the body's own contacts, or the shared-edge subset the `:577-587` comment proposes), amends §16g (10) (9) (2); **(B)** a unit member never seats below the graded AIRSIDE surface under its own footprint (`max(unit_datum, own_ground − ε)`, `footprint_unit.py:705-707`) — BREAKS §16g rigidity → OWNER INTENT; **(C)** `pad_plurality` folds every face of a ref before min/median — a pure defect, `anchor_rule.py` blast 21 importers, touch last. Item 5 — **(D)** a body whose footprint touches an emitted `bridge_deck:*` face takes that face's z at its own station BEFORE any foot/own-ground/line-station reading: a NEW REGION entering the object stage → consumer census at spec time (30l), amends §16e, and needs the owner to say 13r covered the plate not the parapets → OWNER INTENT; **(E)** narrow/partial: an elevated footless remainder takes its footed sibling's zero (fixes b2, not b3/b4). Replay: `tools/obj8_split_report.py` on the shipped `o4_v2_rebake_LEMD.json` + `LEMD.graded.json` (no mesh); the only LEMD mesh on disk is 2026-08-27 (unmatched — say so if used). Instruction mismatch reported: `tools/INDEX.md` absent at the repo root the CLAUDE.md names; the index is `Ortho4XP/tools/README.md` + `tools/docq.py index`.
 * OWNER INTENT QUESTIONS (17u-1) T4: with the pad datum now MEDIAN (17t) T4 still sits 0.8–1.4 m under `pav12` at the owner's points — does a 1,216 m footprint unit stay ONE rigid plane when its members' ground differs by 2 m (then fix A: the datum read where the body stands, the unit partitioned by reach), or is the graded airside surface a FLOOR under every member (fix B, rigidity yields to the apron)? (17u-2) Bridge parapets: may a parapet wall take the emitted deck face's z at its station (fix D, §16e amended, 13r read as the PLATE only), or stay draped (13r as written, the gap stands)?
+
+## 2026-09-17v lane `v2channelfp` MERGED-READY (branch `claude/v2channelfp`, base main `26fe28e6`) — §45 (21) the three false positives + chip D: HECA `channel:2` GONE, LEMD `channel:5` GONE, the Λ floor clamped at four more channels, seven replays ALL IDENTICAL in `Tunnel`/`Basin`, `pav65` −7.39 m → −0.37 m
+
+Owner 17t ("Channels: A+B+C+D") implemented at four derivation sites; spec §45 (21) with
+its MEASURED block written on the branch.
+
+* **A — §45 (1)(c) AMENDED** (`planar/channel._pack_witnesses`, one site): a pack witness
+  is a wall or floor ALONG the corridor — below-grade footprint inside the ROAD'S OWN
+  `half_base`, and running `corridor_min_length_m` along the axis or longer than it is
+  wide. The 120 m cap stays the SEARCH radius so every drop is NAMED. New
+  `channel_geometry._along` is `_across`'s companion (the same overlap reading, the
+  longitudinal axis). **HECA `channel:2` (way −13192) is refused by the EXISTING (13)(c)
+  guard**, naming its three `Airport/Jetway/EGCC_Jetway_metal_03.obj` witnesses at 89 / 85 /
+  19 m off a 7.0 m half-base. The 92.0 m half-width dies at source (`_walls_half` reads the
+  same set). HECA channels **1 → 0**.
+* **B — §45 (1)(b) AMENDED** (`planar/channel._decks`): a span states a crossing only with
+  `s1 − s0 ≥ min_distinct_spacing_m` and a plan midpoint within
+  `corridor_max_half_width_m`. §45 (10)'s own `_across` reading carried to the STATION site.
+  **LEMD `channel:5` refused** — way −5832's `s 0.0..0.0` deck dropped by name, one crossing
+  left. LEMD channels **3 → 2**.
+* **C — §45 (3)(iii) AS WRITTEN** (`planar/channel_floor`): between decks the floor is
+  clamped to the road's own profile at grade (the DEM along the axis; a NaN clamps nothing;
+  the cones still hold under every deck). The Λ was NOT one airport's: **LEMD `channel:1`
+  625.1 → 608.99 (cones stood 17.56 m above grade), `channel:2` 597.1 → 595.96 (4.03 m),
+  VHHH `channel:0` 22.615 → 7.315 (15.30 m over a field at ~6 m), KPHX `channel:0` 344.36 →
+  338.65 (6.30 m over a field flat to 0.1 m)** — the two channels the brief named as the
+  TRUE ones carried it too. Each channel's record now states how many stations were held and
+  how high the cones stood. KDFW's three lidar-datum channels are byte-identical.
+* **D — `airport/load.py`**: an UNTAGGED road feed is refused exactly like a stale-stamped
+  one — ONE predicate over both populations, the same two exemptions (frozen `authored`
+  frame, recorded `--allow-degraded-dem`), the same ledgered remedy. It refuses HECA by name
+  at the dry replay AND at the build (`+30+031_airport_small_roads.osm.bz2`, no
+  `o4_tag_schema`). **No feed was re-baked by this lane**; `--refresh-data osm_layers` at
+  HECA is owed to the owner, and until it runs §45 (1)(d) has never been read there.
+
+**MEASUREMENT.** Nine dry `planar --stage structures` replays, base arm from `git archive
+26fe28e6` onto the same shared corpus and `venv` (`/tmp/harness/v2channelfp/basetree`),
+arms at `/tmp/harness/v2channelfp/arms/{base,br}_<ICAO>`.
+`tools/structure_replay_diff.py --prefix`: **ALL IDENTICAL** — HECA 9/0, LEMD 47/1, VHHH
+20/87, KPHX 11/0, KDFW 4/0, KCLT 17/0, CYXY 2/0 (`tunnels`/`basins`, `replaced_ways` and
+all; no foreign added refusal, none lost). **LGAV and OTHH REFUSE ON BOTH ARMS** on
+`airport_mod_cache` (the pack DSF is newer than every cached dump; LGAV's pristine frame is
+`+37+023.dsf.anchor_bak` and only `+37+023.dsf.<sha>.text` exists) — so **the LGAV trench
+identity bar is NOT MEASURED** and needs the owner's `build_airport.py LGAV --refresh-data
+airport_mod_cache`. Branch arms carry `--allow-degraded-dem` (D's refusal only; no
+`DEGRADED production frame` line on any arm, so both arms read the same data).
+
+**CLOSING BUILD** `HECA_20260917T205929` rc 0, 399.8 s, `body_sha c175bfcea93e`, ledger
+`0b7d611a818f`, `[harness] shared repo UNCHANGED`. Census law-true **56,668**, adjudicated
+**18,530**, `channel_floor_at_declaration` 0, `channel_crest_at_edge` 0. **THE SITE:**
+taxiway `pav65` z − DEM **−7.39…−0.77 m (mean −3.61)** on the registered §46 arm
+`xq_lane_heca4.osm` → **−0.37…+2.07 m (mean +0.39)** here; `airside_value_delta` 7,394
+row-side vertices moved, worst 10.65 m, the worst carrying `cross_connector | junction |
+tunnel_trench` at the channel floor's own vertices, which no longer exist. Family deltas
+over that pair (law-true 64,480 → 56,668, `taxi_box` 3,920 → 2,292, `airside_no_step`
+6,934 → 4,939, `runway_step` 2 → 0) are DIRECTIONAL only — the base arm is another lane's
+tree, not a single-variable A/B.
+
+**TWINS.** `test_v2channel.py` +8 (A: the jetway fixture refused with its drop named, the
+wall-along-the-axis control kept, `_walls_half` reads the same set, `_along`/`_across`;
+B: the end-clamped neck states no deck + the positive-span control; C: the 535 m pair never
+above grade — the base tree reads **+16.90 m** on that fixture — + the 100 m control still
+cut down), `test_v2othhdet.py` +2 (D: one predicate, the frozen-frame exemption) and its
+source assertion updated from `if stale` to `if suspect`.
+
+**NOT DONE, by name.** (1) LGAV `channel:0` and OTHH replays — the `airport_mod_cache`
+refusal above, an owner act. (2) LEMD's `channel_floor_at_declaration` 230 → ? — that family
+is priced on an EMITTED patch and the round allows ONE closing build (HECA); the mechanism
+behind the 230 rows is (21)(c)'s Λ, now clamped in `channel:1`/`channel:2`, so the reading is
+owed to the owner's next LEMD build. (3) The dry structure arms are NOT in `frames.jsonl`:
+`tools/harness/frames.py` has no `structures` kind (`capture|rebake|patch|graded|mesh`) and
+this lane did not widen it; the HECA patch frame IS registered.

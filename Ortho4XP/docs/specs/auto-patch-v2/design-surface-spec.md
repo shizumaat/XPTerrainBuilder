@@ -11382,6 +11382,65 @@ should carry more of the slope than aprons."
    taxiway running ALONG an apron edge (sharing a boundary, not
    penetrating it) does not cut.
 
+### §43 (1) AMENDED — AN ARM THAT FOLLOWS A PATH IS A TAXIWAY (owner RULINGS 2026-09-17x item 3) — lane `v2neckarm`, MEASURED
+
+Owner, on LEMD `pav188` (40.4614416, −3.5452585): "We should be able to
+identify that the vast majority of this shape is not apron because it
+follows a path and is under 50m wide, the only portion that's apron is the
+small square here: 40°27'45.50"N 3°32'47.55"W, which is about 70m square."
+
+1. The LOCAL width threshold is ONE number — `corridor.max_width_m` (50 m,
+   the owner's own figure and the corridor floor of §40), read here as an
+   inscribed width and in the ladder as a mean.  `apron_neck_width_m`
+   (45 m) is RETIRED: two thresholds for one statement is how a cell comes
+   out apron under one and taxiway under the other.
+2. A narrow component that FOLLOWS A PATH is an ARM and is cut out of the
+   cell WHATEVER number of wide lobes it leaves — two (the neck of (1)),
+   or one (a dead end, `pav188`'s band).  "Follows a path" is two readings
+   of the component's own geometry, and both are needed:
+   (a) ASPECT — its run is at least `arm_min_aspect` (3.0) times its mean
+   width, the run measured as the neck length of (1) less the half-width a
+   dead end's CAP contributes (an uncorrected 45 × 90 m stub reads 112 m
+   and aspect 3.5, and would be cut);
+   (b) THE MOUTH — its total mouth length is at most `arm_mouth_max_factor`
+   (2.5) times its own width: an arm meets the wide pavement across a
+   CROSS-SECTION, never along a flank.  `_separates` guards the two-lobe
+   neck against THE FRINGE; nothing guarded a one-lobe arm, and the aspect
+   alone admits every rounded corner of every apron cell (a 25 m corner
+   sliver reads aspect 4.6, mouth factor 7.2).
+3. A component with NO wide lobe at all (the whole face under the width) is
+   NOT converted.  §43 cuts an apron; it does not re-kind one, and such a
+   face has already been offered the corridor ladder on its mean width and
+   kept apron there by its own apron evidence (a stand, an `aeroway=apron`
+   cover, the author's name).  A LANE NARROWING of the ruling's "one, two
+   or none", reported for the owner.
+4. A face is re-offered this pass unless it is already a §43 PRODUCT (a
+   neck piece or the apron beyond one).  Reading the guard as "any mark at
+   all" cost the owner's own site: `pav188`'s cell carries §40 (5)'s
+   `shoulder_beyond_band` and was never offered the neck pass.
+
+MEASURED (dry `explain --roles` arms, base main `390c3282` vs branch
+`claude/v2neckarm`, 2026-09-17).  THE SITE: `pav188` cell 471
+`role=apron kind=apron`, 46,764 m², mean width 106 m → the band is cell 509
+`role=junction`, 49,970 m² (arm: length 1,395 m, width 35.6 m, aspect 39.1,
+mouth factor 1.27, one mouth 40.4631943,−3.5467318 → 40.4629149,−3.5470172)
+and the owner's square is cell 510 `role=apron`, 6,575 m², at
+40.462639,−3.546542.  COLLATERAL, five airports (OTHH could not be read —
+the shared corpus holds no `Airport_mod_cache` dump for its pack and a
+refresh is the owner's, not a lane's): §43 cut cells LEMD 5 → 17
+(57,918 → 187,169 m²), HECA 8 → 14 (85,386 → 114,411), KCLT 7 → 13
+(97,286 → 208,311), CYXY 0 → 2 (0 → 8,120), SPJC 4 → 9
+(26,114 → 70,336); apron area −85,997 / −19,643 / −35,732 / −207 /
+−37,291 m² (2.6 / 0.8 / 1.8 / 0.1 / 3.0 % of each airport's apron), every
+metre of it landing in a TAXI-FAMILY role (junction, cross_connector,
+primary/secondary_parallel, stub) chosen by the corridor ladder on the
+piece's own evidence.  Every re-kinded cell is airside pavement 10.6–35.6 m
+wide; NO `parking_lot`, `service_road`, `groundside_pavement` or `building`
+cell moved at any airport (the pass is only ever offered apron candidates).
+The marginal class is five cells of aspect 3.2–3.8 (2,395–3,823 m², LEMD
+`pav33`/`pav86`/`pav188`, HECA `pav65`, KCLT `pav24`): they leave the cut at
+`arm_min_aspect` 4.0 and are the knob's sensitivity.
+
 BARS (HECA, the 1.0.331 frame, dry then ONE build): shape 344 cut at
 30.1141763, 31.4114194 → 30.1137443, 31.4118218 (± 15 m along the axis) and a
 new apron beginning at 30.1166525, 31.411575 → 30.1169773, 31.4119433 (± 15 m);

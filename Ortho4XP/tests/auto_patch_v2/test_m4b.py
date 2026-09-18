@@ -52,13 +52,14 @@ def _rect(x0, y0, x1, y1):
 # ── synthetic OBJ8 files ─────────────────────────────────────────────────
 
 def _box_obj(path, hx, hz, depth, top=0.0, extra="", attr="", lid=False,
-             walls=(0, 1, 2, 3), floor=True):
+             walls=(0, 1, 2, 3), floor=True, cx=0.0, cz=0.0):
     """A box pit: ``walls`` (of four) from ``top`` down to ``-depth``
-    around ``2hx × 2hz`` (authored x, z) and a floor at ``-depth`` (a lid
-    at ``top`` too with ``lid``; no floor with ``floor=False`` — a
-    skirt), plus ``extra`` lines appended (a decal quad).  Solid,
-    welded."""
-    corners = [(-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz)]
+    around ``2hx × 2hz`` (authored x, z) centred on ``(cx, cz)`` and a
+    floor at ``-depth`` (a lid at ``top`` too with ``lid``; no floor with
+    ``floor=False`` — a skirt), plus ``extra`` lines appended (a decal
+    quad).  Solid, welded."""
+    corners = [(cx - hx, cz - hz), (cx + hx, cz - hz),
+               (cx + hx, cz + hz), (cx - hx, cz + hz)]
     vt = []
     for x, z in corners:
         vt.append((x, top, z))

@@ -309,7 +309,7 @@ def _to_frame(xy: XY, heading_deg: float, x: float, z: float) -> XY:
 
 
 from .obj8_clip import (_clip, _union_rings, _split_at_plane,  # noqa: E402
-                        _bulk_polys, _clip_component, _clip_both)
+                        _bulk_polys, _clip_component)
 from .obj8_grade import GradeStats, above_clip, both_clip  # noqa: E402
 from .obj8_grade import memo_union as _memo_union          # noqa: E402
 from .obj8_grade import planes as _planes                  # noqa: E402
@@ -900,39 +900,59 @@ def _authored_bbox(xy: XY, heading_deg: float, within) -> tuple[float, float, fl
     return min(xs), max(xs), min(zs), max(zs)
 
 
-def _windowed(v: np.ndarray, comp: Component, box: tuple[float, float, float, float] | None
-              ) -> Component | None:
-    """``comp`` restricted to the triangles whose plan bounding box
-    overlaps the authored window ``box`` (``None`` when none does); its y
-    range stays the whole component's."""
-    if box is None:
-        return comp
-    ax0, ax1, az0, az1 = box
-    px = v[comp.tris][:, :, 0]
-    pz = v[comp.tris][:, :, 2]
-    m = ((px.max(axis=1) >= ax0) & (px.min(axis=1) <= ax1)
-         & (pz.max(axis=1) >= az0) & (pz.min(axis=1) <= az1))
-    if not m.any():
-        return None
-    return Component(comp.tris[m], comp.min_y, comp.max_y, comp.cx, comp.cz, comp.deck)
-
-
 def _components_near(cache: "ResourceCache", o: "PlacedObject", within
-                     ) -> tuple[list[tuple[int, Component]],
-                                tuple[float, float, float, float] | None]:
+                     ) -> list[tuple[int, Component]]:
     """The components whose plan bounds overlap the window WITH THEIR
     INDEX in the resource's component list (the index is half the memo
-    key of RULINGS 2026-09-13bp (i)), and the window's authored bbox (all
-    of them, ``None``, without a window)."""
+    key of RULINGS 2026-09-13bp (i)); all of them without a window.
+
+    THE WINDOW IS APPLIED AT COMPONENT GRANULARITY, NEVER AT TRIANGLE
+    GRANULARITY (RULINGS 2026-09-17k (a)).  A component entirely outside
+    the window contributes nothing inside it, so dropping it is exact —
+    and a WHOLE component's clip is what the per-component memo
+    (``cache.clip_memo``, keyed ``(resource, index, plane)``) holds, so
+    every window that reaches a component pays its clip once between
+    them all.  The retired triangle-level filter could not be memoised
+    at all: it re-clipped a window-shaped subset per placement."""
     comps = list(enumerate(cache.components(o.resolved)))
     if within is None:
-        return comps, None
+        return comps
     box = _authored_bbox(o.xy, o.heading_deg, within)
     b = cache.component_bounds(o.resolved)
     if b.shape[0] != len(comps):
-        return comps, box
+        return comps
     m = (b[:, 1] >= box[0]) & (b[:, 0] <= box[1]) & (b[:, 3] >= box[2]) & (b[:, 2] <= box[3])
-    return [c for c, k in zip(comps, m.tolist()) if k], box
+    return [c for c, k in zip(comps, m.tolist()) if k]
+
+
+def _in_window(u, within, polygons: bool):
+    """THE WINDOW, APPLIED TO THE MEMOISED WHOLE-OBJECT READ (RULINGS
+    2026-09-17k (a)).  The clip plane of a component does not depend on
+    the window, so the windowed read is exactly the whole-object read
+    intersected with the window — and the whole-object read is the one
+    memoised per ``(resource, planes)``.  Before this, a windowed call
+    re-clipped its own triangle subset per placement, with NO memo and NO
+    vertex budget: OTHH's new pack (14,218 placements over 1,247
+    resources) did not terminate — 56:40 and 25.8 GB, inside
+    ``read_door_wells``.  ``polygons`` keeps only the polygonal parts an
+    intersection can shatter a footprint into (a shared edge comes back
+    as a line)."""
+    if u is None or within is None:
+        return u
+    try:
+        u = u.intersection(within)
+    except GEOSException:
+        u = u.buffer(0).intersection(within.buffer(0))
+    if u.is_empty:
+        return None
+    if polygons and u.geom_type not in ("Polygon", "MultiPolygon"):
+        parts = [p for p in shapely.get_parts(u) if p.geom_type in ("Polygon", "MultiPolygon")]
+        if not parts:
+            return None
+        u = unary_union(parts)
+        if u.is_empty:
+            return None
+    return u
 
 
 def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
@@ -945,9 +965,11 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
     floor) and a roof sheet is cover regardless (LEMD's cargo sheds read
     0 % own cover under the gate, their roofs being single sheets).
     Computed on demand — only for placements whose ``plan_bbox`` reaches
-    a candidate region; ``within`` (a frame polygon) restricts the read to
-    the triangles near it (RULINGS 2026-09-08b/c: a car-park well's cover
-    read off a 150,000-triangle terminal in milliseconds)."""
+    a candidate region; ``within`` (a frame polygon) restricts the
+    RESULT to it (RULINGS 2026-09-17k (a): the read itself is the
+    memoised whole-object one, so a resource is clipped once per
+    ``(resource, planes)`` however many windows ask for it, and the
+    vertex budget applies)."""
     if o.resolved is None or is_stock_library_resource(o.path):
         return None
     g = cache.geometry(o.resolved)
@@ -955,27 +977,11 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
         return None
     base = o.anchor_z + o.agl_m
     mat = placement_affine(o.xy, o.heading_deg)
-    comps, box = _components_near(cache, o, within)
-    if within is None:
-        # ── RULINGS 2026-09-13bp (i): read ONCE per (resource, planes) ──
-        keyed = _planes(o, comps, dem_z, base, contact_band_m, True, _to_frame)
-        return _place(_memo_union(cache, cache.cover_memo, o, g, comps, keyed,
-                                  above_clip), mat)
-    rings = []
-    for _ci, comp in comps:
-        cx, cy = _to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
-        local = float(dem_z(cx, cy))
-        if math.isnan(local):
-            local = o.anchor_z
-        plane_above = local - base + contact_band_m
-        if comp.max_y >= plane_above:
-            comp = _windowed(g.vertices, comp, box)
-            if comp is None:
-                continue
-            u = _clip_component(g.vertices, comp, plane_above, False)
-            if u is not None:
-                rings.append(u)
-    return _transformed(rings, mat)
+    comps = _components_near(cache, o, within)
+    # ── RULINGS 2026-09-13bp (i): read ONCE per (resource, planes) ──
+    keyed = _planes(o, comps, dem_z, base, contact_band_m, True, _to_frame)
+    u = _place(_memo_union(cache, cache.cover_memo, o, g, comps, keyed, above_clip), mat)
+    return _in_window(u, within, True)
 
 
 def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
@@ -990,7 +996,10 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     here: a buried component simply has no geometry up here.  Computed
     on demand for a candidate region's members only.  ``select`` keeps
     only the components it accepts (RULINGS 2026-09-08b/c: a door well's
-    own shell read apart from the building it is attached to)."""
+    own shell read apart from the building it is attached to) and
+    ``within`` restricts the RESULT to a frame window — both read through
+    the memo of RULINGS 2026-09-13bp (i) / 2026-09-17k (a), never per
+    placement."""
     if o.resolved is None or is_stock_library_resource(o.path):
         return None, None
     g = cache.geometry(o.resolved)
@@ -998,37 +1007,21 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
         return None, None
     base = o.anchor_z + o.agl_m
     mat = placement_affine(o.xy, o.heading_deg)
-    lines, polys = [], []
-    comps, box = _components_near(cache, o, within)
-    if select is None and within is None:
-        # ── RULINGS 2026-09-13bp (i): read ONCE per (resource, planes) ──
-        keyed = _planes(o, comps, dem_z, base, contact_band_m, False, _to_frame)
-        both = _memo_union(cache, cache.grade_memo, o, g, comps, keyed, both_clip)
-        if both is None:
-            return None, None
-        lu, pu = both
-        tf = _affinity.affine_transform
-        return (None if lu is None else tf(lu, mat)), _place(pu, mat)
-    for _ci, comp in comps:
-        if select is not None and not select(comp):
-            continue
-        cx, cy = _to_frame(o.xy, o.heading_deg, comp.cx, comp.cz)
-        local = float(dem_z(cx, cy))
-        if math.isnan(local):
-            local = o.anchor_z
-        plane = local - base - contact_band_m
-        if comp.max_y < plane:
-            continue
-        comp = _windowed(g.vertices, comp, box)
-        if comp is None:
-            continue
-        ln, pg = _clip_both(g.vertices, comp, plane)
-        if ln is not None:
-            lines.append(_affinity.affine_transform(ln, mat))
-        if pg is not None:
-            polys.append(pg)
-    lu = unary_union(lines) if lines else None
-    return (None if lu is None or lu.is_empty else lu), _transformed(polys, mat)
+    comps = _components_near(cache, o, within)
+    if select is not None:
+        # ``select`` reads the COMPONENT only, so the surviving set is the
+        # resource's — it keys the same memo, one entry per distinct set
+        comps = [(ci, c) for ci, c in comps if select(c)]
+    # ── RULINGS 2026-09-13bp (i) + 2026-09-17k (a): read ONCE per
+    # (resource, planes); a window is applied to the placed result ──
+    keyed = _planes(o, comps, dem_z, base, contact_band_m, False, _to_frame)
+    both = _memo_union(cache, cache.grade_memo, o, g, comps, keyed, both_clip)
+    if both is None:
+        return None, None
+    lu, pu = both
+    tf = _affinity.affine_transform
+    lu = None if lu is None else tf(lu, mat)
+    return _in_window(lu, within, False), _in_window(_place(pu, mat), within, True)
 
 
 def _place(u, mat: list[float]):

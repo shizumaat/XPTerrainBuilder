@@ -16517,3 +16517,110 @@ domain, and it reaches the frame through four populations: the load stage's vect
 the pack's footprint rings (4, 5), the pack's feet (6, 7, 8) and the tile's water polygons
 (16, deferred). Nothing our own solve produced is quantised, so `to_xy(to_ll(xy)) == xy`
 holds everywhere it held before and the 52 `identity_dp=11` test files stand (§46 (4) (b)).
+
+**(10) MEASURED — THE QUANTUM SHIPPED (lane `xplatquantum`, branch
+`claude/xplatquantum` `0992d747`, base main `6c8dfe71`).**
+
+**(a) THE BARS OF (7), on the three runners, quantum SHIPPED (no `--xplat-quantise`).**
+Release run **35290612194** (`--ref claude/xplatquantum`, all four jobs green; round 1 was
+35288457711 on `5ff0392f`). CYXY through the frozen release check, the three runners' own
+dumps, read by `scripts/check_frozen_tile.py --gate --compare`:
+
+| bar (§46 (7)) | measured | met |
+|---|---|---|
+| every stage digest AGREES at every rung on every pair | load / partition / classify / planar / **shapes**: every rung, every pair. `constraints` COUNTS agree (73,528 rows; pins 8, diffs 58,817, bands 1,982, linears 12,721) and `rows.dp1/dp4/dp6/dp9` agree — only `rows.dp2` differs | **NO, and the residue is named**: `constraints rows.dp2`, `lp counts.nnz`, `solved z.dp4/6/9` |
+| LP rows × cols and rounds identical | **17289 × 1918, 254 rounds, 11,886 active, 3,349 one-way rows, 4,267 z, 7,087 triangles — identical on all three.** `nnz` 16889 (mac) / 16887 / 16887 | **MET** except `nnz` = (6) (ii) |
+| the `road_ramp` rows identical | `road_ramp` vertices 286 / targets 286 / mouths 36 / on_dem 262 / on_ramp 24 / cap 0.08 and **`reach_contacts` 9, `reach_governed` 128, every `reach_ends` entry (edge, `u`, `at`, `governs`) identical on all three** | **MET — (6) (i) CLOSED** |
+| the emitted patch body BYTE-IDENTICAL (`<osm>` header excluded) | `301280a0e02e`, **830,345 B on all three** | **MET** |
+| `.graded.json` byte-identical | `8fca48a23fb0`, **266,679 B on all three** | **MET** |
+| emitted z cross-platform differences 0 | carried by the two byte-identity rows above | **MET** |
+| (6) (iii) line endings | `\r\n` = 0 in the Windows patch and graded file (the gate normalises CRLF and would NAME a CR as a 17g regression; it named none) | **MET** |
+| `--compare` is a GATE in `release.yml` | job `xplat_gate`, needs the three platform jobs, downloads the three `frozen-tile-logs-*`; the `release` job needs IT | **MET** |
+
+`constraints rows.dp2` is allowed by the gate ONLY because `rows.dp9` AGREES: values equal
+to a nanometre can still fall either side of the 0.01 rounding. That is §46 (2)'s
+over-reading, read the other way round, and it is a rule, not an exception — the pre-fix
+Windows flip differed at dp9 too and still fails.
+
+**(b) ATTRIBUTION OF (6) (i), THE WINDOWS CONTACT FLIP — CLOSED.** Interventional, and the
+intervention was already in the artefacts: in lane `xplatspread`'s 1 mm arm (run
+35285038635, `quantised/`) every stage through `shapes` agrees on all three — the inputs
+ARE identical — and `constraints rows.dp1` **still** shows Windows apart from mac == linux.
+A divergence at the 0.1 m rung from identical inputs is not PROJ and not the load stage: it
+is our own selection. `airport/road_ramp.reach_contacts` kept the FIRST candidate on a tie
+(`if d >= best[0]: continue`), and "first" is the order a compiled GEOS `STRtree.query`
+returns; the comparison also ranges ACROSS the group's vertices, so an EXACT tie in `d`
+between two road vertices picks between two airside edges 36 m apart — which is why the flip
+was never a near-tie in distance. The key is now TOTAL: `d` rounded to the nanometre
+(`_CONTACT_TIE_DP` = 9), then the CANONICAL 11-dp keys of the road vertex and of the edge's
+two ends. No law threshold moves. Twins: the contact does not move when the `STRtree` query
+order is reversed; the first-wins argmin cannot come back.
+
+**(c) ATTRIBUTION OF (6) (ii), `lp.nnz` — NOT A STRUCTURAL ZERO, AND NOT A DECISION; RECORDED.**
+The hypothesis in (6) (ii) — a structural zero kept or dropped on a sign of ±0.0 — is
+REFUTED by the counts: rows 17,289, columns 1,918, **active 11,886** and rounds 254 are
+IDENTICAL on all three while `nnz` is 16,889 / 16,887 / 16,887. The reported matrix is
+`solve/design._stack(active_i)` — the base rows plus the ACTIVE one-sided rows — so an
+identical active COUNT with two more nonzeros means the active SET landed on a different
+row of a different arity: the augmented-Lagrangian exit chose another face of the same
+problem, its rows are `A1 @ x - (b1 - shift) > tol`, and `x` differs in its last bits.
+The split is mac against linux+windows, which is exactly the split of
+`numpy_blas: accelerate | scipy-openblas | scipy-openblas` (PROJ can no longer be the
+cause — `load` agrees at dp9). It **decides nothing**: the emitted patch body and
+`.graded.json` are byte-identical on all three. Per (6) (ii) — "fix only if it is a
+decision, else record it" — it is RECORDED, and it is the gate's one standing count
+residue.
+
+**(d) THE PRICE OF (8), MEASURED.** One harness HECA build and one CYXY, base main
+`6c8dfe71` against `claude/xplatquantum`, one corpus, `[harness] shared repo UNCHANGED` on
+all four:
+
+| | base (main `6c8dfe71`) | lane (quantum) | Δ |
+|---|---|---|---|
+| **HECA** | rc 0, 393.2 s, 1,954 ways / 32,314 nodes, optimal, `0696f7810bf4`, verify 29,391 | rc 0, 319.1 s, 1,961 ways / 32,469 nodes, optimal, `3d01fc6270a9`, verify 29,992 | |
+| HECA census law-true | 63,820 | 64,480 | +660 |
+| HECA **ADJUDICATED** | 22,885 | 23,592 | **+707, +3.1 %** |
+| **CYXY** | rc 0, 13.2 s, 268 ways / 4,335 nodes, optimal, `e1b9e0e9cc19`, verify 311 | rc 0, 13.0 s, 268 ways / 4,330 nodes, optimal, `ad542d0955b3`, verify 335 | |
+| CYXY census law-true | 1,101 | 1,104 | +3 |
+| CYXY **ADJUDICATED** | 368 | 384 | **+16, +4.3 %** |
+
+Families moving by more than 1 % — HECA WORSE: `adjacent_ground_step` 13 → 15 (+15.4 %),
+`plane_gradient` 13 → 14 (+7.7 %), `hairline_pair` 1,403 → 1,464 (+4.4 %),
+`airside_no_step` 6,793 → 6,934 (+2.1 %), `taxi_box` 3,863 → 3,920 (+1.5 %); HECA BETTER:
+`strip_arc` 1 → 0, `road_cross_section` 132 → 120 (−9.1 %), `pad_airside_weld` 15 → 14
+(−6.7 %), `pad_airside_renode` 43 → 42 (−2.3 %), `transverse` 1,082 → 1,069 (−1.2 %).
+CYXY WORSE: `road_cross_section` 15 → 16, `within_shape` 980 → 990 (+1.0 %); CYXY BETTER:
+`airside_no_step` 18 → 16 (−11.1 %), `hairline_pair` 23 → 21 (−8.7 %), `transverse`
+41 → 38 (−7.3 %), `taxi_box` 17 → 16.
+
+**This is more than (8)'s "census counts within a few rows", and it is reported as it
+stands, not explained away.** What can be said from the numbers: the movement is two-sided
+in every family group at both airports, HECA carries 22,885 adjudicated rows AT BASE (an
+airport whose problem is deeply infeasible, where the solve's landing is chaotic in the
+inputs), and no input moved by more than 0.5 mm against a 0.5 m lattice. What cannot be
+said from the numbers is that the surface is better or worse to a pilot; that is the sim
+read, and the owner's.
+
+**(e) A DEFECT THE QUANTUM EXPOSED, AND IT IS NOT THE QUANTUM'S.** The first HECA build on
+the branch DIED in the classify stage: `TopologyException: side location conflict at
+-528.19972125802042 2223.0072125802039`. Attributed at the site: `classify/roles.
+_junction_letter`'s `part` is VALID and `part.buffer(rules.cells.on_tol_m)` is NOT
+("Self-intersection", at exactly that coordinate), so the next `intersection` raises rather
+than answering. GEOS's buffer of a valid polygon can self-intersect where the ring turns
+sharply inside the offset; the quantum only moved the vertex that made this one cross.
+Repaired with the canonical zero-width buffer at the one site, and INERT wherever the
+buffer is valid — CYXY's `body_sha` is `ad542d0955b3` before and after it. REFUTED FIRST,
+and deleted: that the quantum collapses two apt.dat coordinates (8 decimals ≈ 1.1 mm) onto
+one 1 mm point and leaves a zero-length segment in a load ring — dropping consecutive
+duplicates at `_ring` and both polyline builders left HECA failing at the same coordinate.
+
+**(f) THE IDENTITY DID NOT MOVE, AS (4) (b) SAYS.** None of the 52 `identity_dp=11` test
+files needed touching. The only tests that changed are four DUCK-TYPED fixture `_Frame`
+stubs that carried `transformers()` and no `entry()` — not Frames, and a fixture frame has
+no law quantum, so their entry projection is the exact one. Standing suite on the lane
+tree: **1,929 passed, 2 skipped, 1 xpassed, 0 FAILED.**
+
+**(g) NOT DONE.** Census row 16, `airport/dem_production.py:522` — the tile's WATER-MASK
+polygons are input-domain and are still projected EXACTLY, because that file belongs to
+lane `insetbounds` this round. It is not exercised by (7)'s CYXY bars. It is the census's
+one open ENTRY consumer.

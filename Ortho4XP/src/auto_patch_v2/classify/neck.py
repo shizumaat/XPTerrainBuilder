@@ -1,5 +1,6 @@
 """§43 AN APRON ENDS AT ITS MOUTH (owner RULINGS 2026-09-14c item 2;
-Fable 2026-09-14; ``rules.apron.neck_width_m`` / ``neck_length_m``).
+Fable 2026-09-14; §43 (1) AMENDED owner RULINGS 2026-09-17x item 3;
+``rules.corridor.max_width_m`` / ``rules.apron.neck_length_m``).
 
 The owner, verbatim: "Aprons, like parking lots are joined by roads, are
 separated by taxiways.  A taxiway can run along an apron edge, but when
@@ -26,17 +27,43 @@ the mouth width").  A point of a face has local width ≥ W exactly where an
 inscribed disc of radius W/2 covers it, i.e. where it lies within W/2 of
 the face's erosion by W/2.  So, per face:
 
-* ``lobes`` — the parts of the erosion by ``neck_width_m`` / 2: the
-  pavement wide enough to be an apron;
+* ``lobes`` — the parts of the erosion by ``corridor.max_width_m`` / 2:
+  the pavement wide enough to be an apron;
 * ``WIDE`` — those lobes dilated back by the same half width, clipped to
-  the face: every point of local width ≥ ``neck_width_m``;
+  the face: every point of local width ≥ ``corridor.max_width_m``;
 * ``NARROW = face - WIDE`` — every point of local width < it.  Its
   components are the necks, the fringes of the wide pavement's own
   corners, and the dead-end spurs;
 * a component adjacent to TWO OR MORE lobes is a NECK: pavement that
-  narrows below the apron width between two wide bodies.  A fringe or a
-  spur touches one lobe and is not a neck however long; a neck shorter
+  narrows below the apron width between two wide bodies; a neck shorter
   than ``neck_length_m`` is a NOTCH and is not cut (§43 (1)'s length).
+
+§43 (1) AMENDED (owner RULINGS 2026-09-17x item 3, on LEMD ``pav188``):
+"We should be able to identify that the vast majority of this shape is
+not apron because it FOLLOWS A PATH and is under 50m wide, the only
+portion that's apron is the small square here ... about 70m square."  So
+the cut no longer needs two wide lobes: a narrow component that follows a
+path is an ARM and is cut out WHATEVER number of lobes it leaves — one
+(the dead-end band of ``pav188``), two (the neck above) or, for the
+component itself, none.  Two readings say "follows a path", and both are
+measured, not assumed:
+
+* ASPECT — the arm's own run over its mean width is at least
+  ``apron.arm_min_aspect``.  A path is long relative to how wide it is; a
+  fat rectangle hanging off an apron is not.
+* THE MOUTH — the arm meets the wide pavement across a CROSS-SECTION, not
+  along a flank: its total mouth length is at most
+  ``apron.arm_mouth_max_factor`` times its own width.  This is what
+  separates an arm from THE FRINGE (below), which is long, thin and
+  touches its lobe along its whole length; the aspect test alone admits
+  every rounded corner of every apron (measured: a 25 m corner sliver
+  reads aspect 4.6 and mouth factor 7.2).
+
+The WIDTH is one number, ``corridor.max_width_m`` — the owner's 50 m, the
+corridor floor of §40 — read LOCALLY here and as a MEAN in the ladder.
+``apron.neck_width_m`` (45 m) is retired by the amendment: two thresholds
+for one statement is how a cell comes out apron under one and taxiway
+under the other.
 
 THE CUT LINES are the neck's MOUTHS — "the shortest chord across the
 pavement at the point where the width crosses the neck width" (§43 (2)).
@@ -72,7 +99,7 @@ __all__ = ["Neck", "necks_of", "split_at_necks"]
 class Neck:
     """One detected neck and the numbers the verdict used."""
 
-    #: the neck's own polygon (the stretch below ``neck_width_m``)
+    #: the cut's own polygon (the stretch below ``corridor.max_width_m``)
     polygon: Polygon
     #: the mouth CUT LINES, one per lobe the neck joins
     cuts: tuple[LineString, ...]
@@ -89,20 +116,33 @@ class Neck:
     #: mouths whose straight chord left the pavement and fell back to the
     #: mouth curve itself
     curved_mouths: int
+    #: ``"neck"`` (§43 (1): between two wide lobes) or ``"arm"``
+    #: (§43 (1) AMENDED, owner 17x item 3: it follows a path)
+    kind: str = "neck"
+    #: the arm verdict's own two numbers, published for the census
+    aspect: float = 0.0
+    mouth_factor: float = 0.0
 
 
 def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
-    """Every §43 neck of ``face``: a stretch of local width below
-    ``apron.neck_width_m`` at least ``apron.neck_length_m`` long joining
-    two or more wide lobes of the same face."""
+    """Every §43 cut of ``face``: a stretch of local width below
+    ``corridor.max_width_m``, at least ``apron.neck_length_m`` long, that
+    either joins two or more wide lobes of the same face (a NECK) or
+    follows a path off it (an ARM, §43 (1) AMENDED)."""
     ap = rules.apron
-    w, need = ap.neck_width_m, ap.neck_length_m
+    w, need = rules.corridor.max_width_m, ap.neck_length_m
     if w <= 0.0 or need <= 0.0 or face.area <= 0.0:
         return []
     half = w / 2.0
     lobes = [b for b in polygon_parts(face.buffer(-half)) if b.area > 0.0]
-    if len(lobes) < 2:
-        return []                      # nothing narrows between two bodies
+    if not lobes:
+        # NO WIDE LOBE AT ALL — the whole face is under the width.  §43
+        # cuts an apron; it does not convert one, and such a face has
+        # already been offered the corridor ladder on its MEAN width and
+        # refused there by its own apron evidence (a stand, an
+        # `aeroway=apron` cover, the author's name).  Reported as a
+        # deliberate narrowing of "one, two or none": see the lane report.
+        return []
     reach = [b.buffer(half).intersection(face) for b in lobes]
     wide = unary_union(reach)
     out: list[Neck] = []
@@ -111,20 +151,36 @@ def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
             continue
         touching = [(k, r) for k, r in enumerate(reach)
                     if part.boundary.intersection(r.boundary).length > 0.0]
-        if len(touching) < 2:
-            continue                   # a dead-end spur off ONE lobe
-        if not _separates(face, part, [lobes[k] for k, _r in touching],
-                          rules):
-            continue                   # a FRINGE, not a neck
-        touching = [r for _k, r in touching]
-        mouths = [part.boundary.intersection(r.boundary) for r in touching]
+        if not touching:
+            continue                   # an island of narrow: nothing to cut
+        mouths = [part.boundary.intersection(r.boundary)
+                  for _k, r in touching]
         mouth_m = sum(m.length for m in mouths)
-        # the neck's length: its two side walls' mean run, the corridor
+        # the length: the part's two side walls' mean run, the corridor
         # mean-width idiom read the other way round (a corridor's
         # perimeter is its two walls plus its two mouths)
         length = (part.exterior.length - mouth_m) / 2.0
+        # A DEAD END HAS A CAP, and the cap is not a side wall: an arm with
+        # ONE mouth closes at its far end, so half its width is counted as
+        # run by the idiom above and a stub reads longer than it is (the
+        # brief's 45 x 90 m bar read 112 m, aspect 3.5, and would have been
+        # cut).  One correction pass — the width the cap costs is read off
+        # the uncorrected length, which is what makes it a fixed point:
+        free_ends = max(0, 2 - len(touching))
+        if free_ends and length > 0.0:
+            length = max(0.0, length - free_ends * (part.area / length) / 2.0)
         if length < need:
-            continue                   # §43 (1): a notch, not a neck
+            continue                   # §43 (1): a notch, not a cut
+        width = part.area / length if length > 0.0 else 0.0
+        aspect = length / width if width > 0.0 else 0.0
+        factor = mouth_m / width if width > 0.0 else 0.0
+        if len(touching) >= 2 and _separates(
+                face, part, [lobes[k] for k, _r in touching], rules):
+            kind = "neck"              # §43 (1): between two wide lobes
+        elif _is_arm(aspect, factor, rules):
+            kind = "arm"               # §43 (1) AMENDED: it follows a path
+        else:
+            continue                   # a FRINGE / a lobe's own corner
         cuts: list[LineString] = []
         mids: list[tuple[tuple[float, float], tuple[float, float]]] = []
         curved = 0
@@ -135,12 +191,28 @@ def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
             curved += int(is_curve)
             cuts.append(chord)
             mids.append(raw)
-        if len(cuts) < 2:
+        if not cuts or (kind == "neck" and len(cuts) < 2):
             continue
-        out.append(Neck(part, tuple(cuts), tuple(mids), length,
-                        part.area / length if length > 0.0 else 0.0,
-                        part.area, len(touching), curved))
+        out.append(Neck(part, tuple(cuts), tuple(mids), length, width,
+                        part.area, len(touching), curved, kind,
+                        aspect, factor))
     return out
+
+
+def _is_arm(aspect: float, mouth_factor: float, rules: Rules) -> bool:
+    """§43 (1) AMENDED: does this narrow component FOLLOW A PATH?
+
+    Two readings, both of the component's own geometry: its run is at
+    least ``apron.arm_min_aspect`` times its width (a path is long
+    relative to how wide it is), and it meets the wide pavement across a
+    CROSS-SECTION — total mouth length at most
+    ``apron.arm_mouth_max_factor`` times its width — not along a flank.
+    The second is what keeps the fringe and the rounded corner of every
+    apron out: those are long and thin too, but they are ATTACHED along
+    their whole length, and an arm hangs off a mouth."""
+    ap = rules.apron
+    return (aspect >= ap.arm_min_aspect
+            and mouth_factor <= ap.arm_mouth_max_factor)
 
 
 def _separates(face: Polygon, part: Polygon, lobes: list[Polygon],

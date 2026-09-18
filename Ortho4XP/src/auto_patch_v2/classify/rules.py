@@ -57,8 +57,9 @@ class Apron:
     route_proximity_m: float
     through_join_tol_m: float
     through_min_len_m: float
-    neck_width_m: float
     neck_length_m: float
+    arm_min_aspect: float
+    arm_mouth_max_factor: float
 
 
 @_dc.dataclass(frozen=True)

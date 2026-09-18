@@ -340,6 +340,23 @@ class ProductionDem:
         for (lat, lon), dem in sorted((seed_tiles or {}).items()):
             self._tiles[(int(lat), int(lon))] = self._adopt(int(lat), int(lon), dem)
 
+    # ── pickling (the synthetic-first capture) ──────────────────────
+    def __getstate__(self) -> dict:
+        """``Frame.entry()`` returns a CLOSURE (§46 (4) (a)), which pickle
+        cannot serialise — so the capture of `tools/v2_solve_replay.py`
+        died on every airport.  The closure is a pure function of
+        ``self.frame``, so it is dropped here and rebuilt in
+        :meth:`__setstate__` from the frame that IS pickled — the derived
+        constant is never carried, never re-derived differently.
+        """
+        st = dict(self.__dict__)
+        st.pop("_enter", None)
+        return st
+
+    def __setstate__(self, st: dict) -> None:
+        self.__dict__.update(st)
+        self._enter = self.frame.entry()
+
     # ── DemSample protocol ──────────────────────────────────────────
     def z(self, x: float, y: float) -> float:
         return float(self.z_many(np.array([x]), np.array([y]))[0])

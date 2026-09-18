@@ -7,6 +7,7 @@ still build and report the measurement.
 """
 
 import os
+import pathlib
 
 import pytest
 
@@ -163,3 +164,100 @@ def test_both_writers_share_one_rule(sparse_tile):
 def test_sparse_tile_values_refuses_a_foreign_key():
     with pytest.raises(ValueError):
         SM.sparse_tile_values({"not_a_tile_var": 1})
+
+
+# ---------------------------------------------------------------------------
+# P3 -- one-time migration of existing tile cfgs (RULINGS 2026-09-18a (1))
+# ---------------------------------------------------------------------------
+def _full_dump(path, global_cfg_values):
+    """A pre-2026-09-18 tile cfg: EVERY tile var, frozen."""
+    lines = []
+    for var in O4_Cfg_Vars.list_tile_vars:
+        value = global_cfg_values.get(
+            var, str(O4_Cfg_Vars.cfg_vars[var]["default"]))
+        lines.append(var + "=" + value)
+    path.write_text("\n".join(lines) + "\n")
+
+
+def test_legacy_full_dump_keeps_no_override_but_its_provenance(sparse_tile):
+    """The owner's 23 tiles: modify_custom_airports=True frozen into the
+    dump while the global says False.  It must NOT survive."""
+    tile, global_cfg = sparse_tile
+    path = tile._tile_cfg_path()
+    _full_dump(pathlib.Path(path), {"modify_custom_airports": "True",
+                                    "default_website": "BI",
+                                    "default_zl": "17"})
+
+    infos = SM.migrate_tile_cfg(path, SM.read_global_raw(str(global_cfg)))
+
+    assert infos and "legacy full-dump" in infos[0]
+    keys = _cfg_keys(path)
+    assert "modify_custom_airports" not in keys
+    assert keys == {"zone_list", "default_website", "default_zl"}
+    values = SM._parse_cfg(path)
+    assert values["default_website"] == "BI" and values["default_zl"] == "17"
+
+    fresh = CFG.Tile(tile.lat, tile.lon, tile.custom_build_dir)
+    fresh.build_dir = tile.build_dir
+    fresh.read_from_config()
+    assert fresh.modify_custom_airports is False   # the global wins now
+
+
+def test_migration_is_idempotent_and_keeps_an_existing_bak(sparse_tile):
+    tile, global_cfg = sparse_tile
+    path = tile._tile_cfg_path()
+    _full_dump(pathlib.Path(path), {"modify_custom_airports": "True"})
+    pathlib.Path(path + ".bak").write_text("older backup\n")
+
+    assert SM.migrate_tile_cfg(path, SM.read_global_raw(str(global_cfg)))
+    first = pathlib.Path(path).read_text()
+    assert pathlib.Path(path + ".bak").read_text() == "older backup\n"
+
+    assert SM.migrate_tile_cfg(path, SM.read_global_raw(str(global_cfg))) == []
+    assert pathlib.Path(path).read_text() == first
+
+
+def test_migration_keeps_a_real_override_in_a_sparse_file(sparse_tile):
+    """A file written by write_tile / the app is NOT a full dump: its
+    genuine overrides survive, only phantom ones are dropped -- and only
+    when the caller asks (the read path never churns a sparse file)."""
+    tile, global_cfg = sparse_tile           # global: both False
+    path = pathlib.Path(tile._tile_cfg_path())
+    path.write_text("modify_custom_airports=True\n"
+                    "color_harmonization=False\n"
+                    "default_zl=17\n")
+
+    infos = SM.migrate_tile_cfg(str(path), SM.read_global_raw(str(global_cfg)),
+                                strip_inherited=True)
+
+    assert infos and "sparse" in infos[0]
+    keys = _cfg_keys(str(path))
+    assert "modify_custom_airports" in keys     # differs: kept
+    assert "color_harmonization" not in keys    # equals global: dropped
+    assert "default_zl" in keys                 # provenance: kept
+
+
+def test_a_sparse_file_is_untouched_on_the_read_path(sparse_tile):
+    tile, global_cfg = sparse_tile
+    path = pathlib.Path(tile._tile_cfg_path())
+    path.write_text("color_harmonization=False\nmesh_zl=19\n")
+    before = path.read_text()
+
+    assert SM.migrate_tile_cfg(str(path),
+                               SM.read_global_raw(str(global_cfg))) == []
+
+    assert path.read_text() == before
+    assert not pathlib.Path(str(path) + ".bak").exists()
+
+
+def test_migration_runs_on_read(sparse_tile):
+    tile, _global_cfg = sparse_tile
+    path = tile._tile_cfg_path()
+    _full_dump(pathlib.Path(path), {"modify_custom_airports": "True"})
+
+    fresh = CFG.Tile(tile.lat, tile.lon, tile.custom_build_dir)
+    fresh.build_dir = tile.build_dir
+    assert fresh.read_from_config() == 1
+
+    assert "modify_custom_airports" not in _cfg_keys(path)
+    assert fresh.modify_custom_airports is False

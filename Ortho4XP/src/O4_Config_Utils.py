@@ -264,6 +264,16 @@ class Tile:
             layers = [global_cfg_file]
         else:
             tile_cfg = config_file or self._tile_cfg_path()
+            # THE ONE-TIME MIGRATION (owner ruling RULINGS 2026-09-18a (1)),
+            # run before the tile layer is applied so this build already
+            # resolves the migrated file: a tile cfg written by the
+            # pre-2026-09-18 full-dump writer carries a FROZEN copy of the
+            # whole settings frame, which then beats the global for ever.
+            # Idempotent, and a file needing no change is not rewritten.
+            import O4_Settings_Model as SM
+            for _info in SM.migrate_tile_cfg(
+                    tile_cfg, SM.read_global_raw(global_cfg_file)):
+                UI.lvprint(0, "   INFO:", _info)
             layers = [global_cfg_file, tile_cfg]
         layers = [path for path in layers if os.path.isfile(path)]
         if not layers:

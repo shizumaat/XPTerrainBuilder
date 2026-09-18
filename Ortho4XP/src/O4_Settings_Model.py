@@ -298,7 +298,8 @@ def _default_global_cfg() -> str:
     return FNAMES.data_path("Ortho4XP.cfg")
 
 
-def _write_atomic_with_backup(path: str, data: dict) -> None:
+def _write_atomic_with_backup(path: str, data: dict,
+                              keep_existing_backup: bool = False) -> None:
     """Write ``key=value`` lines to *path* atomically, backing up any prior file.
 
     Parent directories are created as needed.  The new content is fully
@@ -322,7 +323,8 @@ def _write_atomic_with_backup(path: str, data: dict) -> None:
     with open(tmp, "w") as f:
         for key, value in data.items():
             f.write(key + "=" + str(value) + "\n")
-    if os.path.isfile(path):
+    if os.path.isfile(path) and not (keep_existing_backup
+                                     and os.path.isfile(path + ".bak")):
         shutil.copy2(path, path + ".bak")
     os.replace(tmp, path)
 
@@ -472,6 +474,102 @@ def sparse_tile_values(values: dict, *, always_keep: tuple = (),
             continue  # equal to inherited: no override to store
         out[var] = candidate
     return out
+
+
+#: A tile cfg carrying at least this FRACTION of the non-provenance tile
+#: vars is a LEGACY FULL DUMP (the pre-2026-09-18 ``write_to_config``
+#: wrote every one of them).  A sparse file carries a handful; the gap
+#: between "a handful" and "all of them" is the whole register, so the
+#: threshold is not delicate.  Retired keys deleted from an old file are
+#: why it is not 1.0.
+FULL_DUMP_FRACTION = 0.8
+
+
+def migrate_tile_cfg(path: str, global_cfg: dict | None = None,
+                     strip_inherited: bool = False) -> list[str]:
+    """Make an EXISTING tile cfg sparse, once, in place.
+
+    Owner ruling RULINGS 2026-09-18a (1): "one-time migration strips the
+    rest from existing tile cfgs".  Two shapes exist on disk and they are
+    told apart by how many tile vars the file carries:
+
+    * a LEGACY FULL DUMP (pre-2026-09-18 ``Tile.write_to_config``: every
+      ``list_tile_vars`` key, i.e. a frozen snapshot of the whole settings
+      frame at the moment that tile was last built) -> NO key survives as
+      an override except the build provenance (:data:`_TILE_PRESERVED`)
+      and any foreign/unknown key, which is passed through untouched.
+    * an ALREADY-SPARSE file (written by :func:`write_tile` since
+      2026-09-04, by the app, or by this migration) -> LEFT ALONE unless
+      *strip_inherited* is set, in which case keys whose value EQUALS the
+      inherited one are dropped and genuine overrides stay.
+
+    *strip_inherited* is OFF on the read path deliberately.  A read that
+    rewrote a hand-written or already-sparse cfg every time a global
+    happened to match it would churn the user's file for no resolution
+    change (the value is identical either way) and would break the
+    standing "a cfg with no retired key is untouched BYTE FOR BYTE"
+    invariant (``test_r21_corridor_retirement``).  Removing a key that
+    has become equal to the global is the WRITER's job — ruling (2),
+    ``write_tile`` / ``Tile.write_to_config`` / the UI write-through.
+
+    WHY A FULL DUMP LOSES EVEN THE KEYS THAT DIFFER (the honest part): the
+    dump records the frame the tile was BUILT with, not what the user
+    chose, so a differing value is evidence of nothing — it may be a
+    deliberate per-tile choice or a global the user has since changed in
+    the UI.  The owner's own corpus settles it: 23 tile cfgs say
+    ``modify_custom_airports=True`` while the global (and the app's
+    unchecked box) say False, and that override must NOT survive — it is
+    the GEN-1 bug itself.  Keeping differing keys would keep the bug.
+
+    IDEMPOTENT: the output is sparse, so a second call sees the sparse
+    shape and finds nothing to drop.  A file that needs no change is not
+    rewritten (no ``.bak`` is minted).  An existing ``<path>.bak`` is
+    KEPT — the pre-migration file is only backed up when nothing else has
+    claimed that name.  Never raises.
+
+    :returns: INFO lines for the caller to print (empty when nothing done).
+    """
+    try:
+        if not path or not os.path.isfile(path):
+            return []
+        data = _parse_cfg(path)
+        if not data:
+            return []
+        tile_vars = O4_Cfg_Vars.list_tile_vars
+        settings_keys = [k for k in data
+                         if k in tile_vars and k not in _TILE_PRESERVED]
+        denominator = max(1, len(tile_vars) - len(_TILE_PRESERVED))
+        full_dump = len(settings_keys) >= FULL_DUMP_FRACTION * denominator
+        if not full_dump and not strip_inherited:
+            return []
+        if global_cfg is None:
+            global_cfg = read_global_raw()
+        out: dict = {}
+        dropped: list[str] = []
+        for key, value in data.items():
+            if key not in tile_vars or key in _TILE_PRESERVED:
+                out[key] = value        # provenance / foreign: untouched
+                continue
+            if key in O4_Cfg_Vars.retired_cfg_keys:
+                dropped.append(key)     # the retired-key cleanup agrees
+                continue
+            if full_dump:
+                dropped.append(key)
+                continue
+            if values_equivalent(key, value,
+                                 global_effective_value(key, global_cfg)):
+                dropped.append(key)
+                continue
+            out[key] = value
+        if not dropped:
+            return []
+        _write_atomic_with_backup(path, out, keep_existing_backup=True)
+        shape = "legacy full-dump" if full_dump else "sparse"
+        return ["tile config %s (%s) made sparse: %d frozen key(s) removed, "
+                "now inherited from the global config (RULINGS 2026-09-18a)"
+                % (os.path.basename(path), shape, len(dropped))]
+    except Exception:
+        return []
 
 
 def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:

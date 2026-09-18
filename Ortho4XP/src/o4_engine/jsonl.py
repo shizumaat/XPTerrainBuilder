@@ -161,6 +161,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "siblings": session.set_parallel_siblings,
         "tile_info": session.tile_info,
         "config_describe": session.config_describe,
+        # Settings write-through to the selected tiles (protocol 1.7,
+        # RULINGS 2026-09-18a (2)): set the key when it now differs from
+        # the global, REMOVE it when it equals it.  Plain synchronous
+        # file writes — no build, no parse, safe on the read loop.
+        "tile_settings_write": session.tile_settings_write,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,
@@ -403,7 +408,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             ortho4xp_version=_ortho4xp_version(),
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
-                          "secrets"))))
+                          "secrets", "tile_settings_write"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

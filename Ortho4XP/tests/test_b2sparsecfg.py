@@ -261,3 +261,39 @@ def test_migration_runs_on_read(sparse_tile):
 
     assert "modify_custom_airports" not in _cfg_keys(path)
     assert fresh.modify_custom_airports is False
+
+
+# ---------------------------------------------------------------------------
+# P4 -- write-through on a settings change / reset (RULINGS 2026-09-18a (2))
+# ---------------------------------------------------------------------------
+def test_engine_command_sets_then_removes_the_override(tmp_path, monkeypatch):
+    """The owner's sentence, both halves: changing a setting SETS the key
+    on the selected tiles, resetting it to the global REMOVES it."""
+    from o4_engine.session import EngineSession
+    from o4_engine import jsonl
+
+    global_cfg = tmp_path / "Ortho4XP.cfg"
+    global_cfg.write_text("modify_custom_airports=False\n")
+    monkeypatch.setattr(SM, "_default_global_cfg", lambda: str(global_cfg))
+    working = str(tmp_path / "Tiles") + "/"
+
+    session = EngineSession.__new__(EngineSession)   # no build machinery
+    out = session.tile_settings_write(
+        [[30, 31]], {"modify_custom_airports": "True"}, working)
+    assert out == {"written": [[30, 31]]}
+    path = SM._tile_cfg_path(30, 31, working)
+    assert SM._parse_cfg(path)["modify_custom_airports"] == "True"
+
+    # reset to the global value -> the key is REMOVED, not set to False
+    session.tile_settings_write(
+        [[30, 31]], {"modify_custom_airports": "False"}, working)
+    assert "modify_custom_airports" not in SM._parse_cfg(path)
+
+    assert "tile_settings_write" in jsonl._build_handlers(session)
+
+
+def test_the_command_is_announced_in_the_handshake():
+    import inspect
+    from o4_engine import jsonl
+    source = inspect.getsource(jsonl.serve)
+    assert "tile_settings_write" in source

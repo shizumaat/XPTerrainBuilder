@@ -1326,6 +1326,35 @@ class EngineSession:
         import O4_Cfg_Vars as CFG_VARS
         return CFG_VARS.cfg_vars
 
+    def tile_settings_write(self, tiles, values, working_dir=""):
+        """WRITE-THROUGH of a settings change to the SELECTED tiles
+        (owner ruling RULINGS 2026-09-18a (2), verbatim: "if the settings
+        are reset, or the user changes one it needs to update the
+        selected tile(s) configs by changing or removing the setting (if
+        it was reset to global)").
+
+        *values* is the new EFFECTIVE value per setting — exactly what the
+        row now shows.  Per tile and per key the rule is one rule, and it
+        is not implemented here: ``O4_Settings_Model.write_tile`` SETS the
+        key when the value differs from the global layer and REMOVES it
+        when it equals it, so a reset-to-global is simply the global value
+        arriving here.  A front end with no Python of its own (the macOS
+        app) drives it through this command; the Qt settings window calls
+        the same function in process.
+
+        :param tiles: ``[[lat, lon], ...]`` — the current selection.
+        :param values: ``{setting: value}``, tile-scope vars only.
+        :param working_dir: the tiles' custom build dir ("" = default).
+        :returns: ``{"written": [[lat, lon], ...]}``
+        """
+        import O4_Settings_Model as SM
+        written = []
+        for pair in tiles or []:
+            lat, lon = int(pair[0]), int(pair[1])
+            SM.write_tile(lat, lon, working_dir or "", dict(values or {}))
+            written.append([lat, lon])
+        return {"written": written}
+
     def links_status(self, lat, lon, build_dir, scenery_dir):
         import O4_Scenery_Links as LINKS
         return LINKS.link_status(lat, lon, build_dir, scenery_dir)

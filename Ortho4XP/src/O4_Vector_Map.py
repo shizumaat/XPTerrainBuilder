@@ -784,11 +784,31 @@ def _airport_auto_roads_layer(tile):
     layer = OSM.OSM_layer()
     cache_path = FNAMES.osm_cached(tile.lat, tile.lon,
                                    "airport_small_roads")
+    # THE CACHE IS RECYCLED ONLY WHEN SCHEMA-CURRENT (2026-09-17, app
+    # 1.0.349 aborted EVERY tile: auto_patch_v2's reader refuses a road
+    # feed carrying a superseded or absent ``o4_tag_schema`` — RULINGS
+    # 2026-09-17t chip D — and this writer had never stamped its cache
+    # nor re-derived it, so every airport at every tile read an
+    # unstamped file).  Same predicate the tile-wide layers use
+    # (``_layer_cache_is_current``).  A stale copy is MOVED ASIDE, not
+    # deleted, and put back if the re-derivation yields nothing (the
+    # harness precedent ``build_airport.refresh_stale_osm_layers``: a
+    # stale corpus beats an absent one when Overpass fails).
+    aside_path = None
     if os.path.isfile(cache_path):
-        UI.vprint(1, "    * Recycling airport-area road data from",
-                  cache_path)
-        layer.update_dicosm(cache_path, input_tags, target_tags)
-        return layer
+        if OSM._cached_osm_schema_matches(cache_path, ROAD_CACHE_TAG_SCHEMA):
+            UI.vprint(1, "    * Recycling airport-area road data from",
+                      cache_path)
+            layer.update_dicosm(cache_path, input_tags, target_tags)
+            return layer
+        aside_path = cache_path + ".stale"
+        UI.vprint(1, "    * Airport-area road cache", cache_path,
+                  "predates tag schema", ROAD_CACHE_TAG_SCHEMA,
+                  "- re-deriving it (stale copy set aside).")
+        try:
+            os.replace(cache_path, aside_path)
+        except OSError:
+            aside_path = None
     got_any = False
     # Regional-extract backend first, all inset boxes batched into ONE
     # filtering pass (the pbf filtering cost is dominated by reading the
@@ -817,12 +837,46 @@ def _airport_auto_roads_layer(tile):
             if UI.red_flag:
                 return None
     if not got_any:
+        if aside_path and not os.path.isfile(cache_path):
+            try:
+                os.replace(aside_path, cache_path)
+            except OSError:
+                pass
         return None
     try:
-        layer.write_to_file(cache_path)
+        layer.write_to_file(
+            cache_path,
+            header_attributes={"o4_tag_schema": ROAD_CACHE_TAG_SCHEMA})
     except OSError:
         pass
+    if aside_path and os.path.isfile(cache_path):
+        try:
+            os.remove(aside_path)
+        except OSError:
+            pass
     return layer
+
+
+def ensure_airport_auto_roads_cache(tile):
+    """Make the per-tile ``airport_small_roads`` cache PRESENT and
+    SCHEMA-CURRENT before auto_patch reads it.
+
+    auto_patch_v2 loads that feed at ``run_auto_patch_generation`` —
+    BEFORE the vector step, whose ``_airport_auto_roads_layer`` is the
+    feed's only writer — and refuses a stale or unstamped copy by name.
+    So the derivation must run here first.  Cheap when current: one
+    ``isfile`` and a two-line header read, no parse.  Under the harness's
+    armed shared-repo guard the write is refused and named (the ledgered
+    ``--refresh-data osm_layers`` is the harness's explicit form); in
+    the app the tile build is the writer of record.
+    """
+    cache_path = FNAMES.osm_cached(tile.lat, tile.lon,
+                                   "airport_small_roads")
+    if (os.path.isfile(cache_path)
+            and OSM._cached_osm_schema_matches(cache_path,
+                                               ROAD_CACHE_TAG_SCHEMA)):
+        return True
+    return _airport_auto_roads_layer(tile) is not None
 
 
 def _osm_layer_prefetch_specifications(tile):
@@ -1466,6 +1520,11 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
             return OSMAERO.extract_road_info(
                 dico_airports, tile, road_layer=road_osm_layer)
 
+        # The airport-area road feed must be present and schema-current
+        # BEFORE the v2 reader loads it (it refuses a stale/unstamped
+        # copy by name); its writer otherwise runs only in the later
+        # vector step.
+        ensure_airport_auto_roads_cache(tile)
         AUTOPATCH.generate_auto_patches(
             tile, cifp_path,
             taxiway_data=_taxiway_provider,

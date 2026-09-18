@@ -272,3 +272,91 @@ def test_a_group_that_cannot_close_keeps_one_face_per_way(law):
     items = _sd.deck_items(ivals, [], 0.5, law)
     assert len(items) == 3, "no deck may be dropped when the group cannot close"
     assert {it[0].id for it in items} == {-1, -2, -3}
+
+
+# ── §34 (5) (b) AMENDED / §34 (12) (3) AMENDED — THE RAMP-MOUTH LAW ─────
+#    (owner RULINGS 2026-09-17x (4); owner 17q item 2 / 17v; lane v2f6mouth)
+
+class _APRON(_C):
+    """The NEIGHBOUR pavement north of the deck cell — LEMD's ``pav188``.
+
+    Its ROLE is deliberately read from §34 (12) (3)'s airside set rather
+    than named here, which is what makes the reading role-blind: the twin
+    below runs it as ``apron`` AND as ``taxiway`` (lane ``v2neckarm`` is
+    re-roling this very band, 17x (3) — a sub-50 m path-following arm
+    becomes a TAXI-family role, ``cross_connector``) and demands the same
+    offset."""
+
+    role = "apron"
+    ref = "pav188"
+
+
+def _f6(law, cells, polys):
+    """LEMD F-6 in the twin's own frame: the deck along +x, its cell's
+    NORTH kerb 0.15 m from the centreline (the measured 0.09–0.22 m) and
+    its south kerb 16.3 m away, the bore crossing at x = 0."""
+    deck = OsmWay(-1230, "airport", ((-60.0, 0.0), (60.0, 0.0)), False,
+                  {"aeroway": "taxiway", "bridge": "yes", "layer": "1"})
+    road = OsmWay(-5820, "big_roads", ((0.0, -200.0), (0.0, 200.0)), False, TAGS_R)
+    airport = _airport(law, ways=[deck, road])
+    return _su.underpass_bores(airport, law, cells, polys)
+
+
+@pytest.mark.parametrize("neighbour_role", ["apron", "cross_connector"])
+def test_the_strip_stops_at_a_neighbours_pavement(law, neighbour_role):
+    """§34 (5) (b) AMENDED — THE STRIP COVERS GROUND, NEVER A NEIGHBOUR'S
+    PAVEMENT (owner RULINGS 2026-09-17x (4); owner 17q item 2).
+
+    LEMD F-6: the deck cell ``junction/pav157``'s north kerb stands
+    **0.15 m** from way −1230's OSM centreline, so §34 (5) (b)'s code-E
+    strip (19.0 m) was laid almost entirely on the NEIGHBOUR's pavement
+    ``pav188`` — the mouth opened 14.5 m inside a 30 m apron band and the
+    rim notched 324 m² out of it.  A strip is GROUND.  Where the first
+    thing beyond the kerb is another airside pavement, the covered extent
+    runs to THAT pavement's far kerb and stops: the ramp's mouth lands at
+    the pavement's edge (owner 17x (4)) and the trench beneath it is
+    covered.  No strip is added beyond it, which is why the answer is the
+    same whether the neighbour is ``apron`` or ``taxiway``.
+
+    The SOUTH side of the very same crossing is unchanged: beyond that
+    kerb is ground, so the strip stands exactly as 15h ruled it."""
+    from auto_patch_v2.law.tables import zone2_half_width_m
+    tn = law.tables.structures.tunnel
+    grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
+    erode = tn.wall_gap_m + tn.wall_band_width_m + grid
+    strip = zone2_half_width_m(law, "junction", None, "E")
+    deck_cell = Polygon([(-200.0, -16.3), (200.0, -16.3),
+                         (200.0, 0.15), (-200.0, 0.15)])
+    apron = Polygon([(-200.0, 0.15), (200.0, 0.15),
+                     (200.0, 30.6), (-200.0, 30.6)])
+    nb = _APRON()
+    nb.role = neighbour_role
+    ways, _p, notes = _f6(law, [_CE(), nb], [deck_cell, apron])
+    assert len(ways) == 1, notes
+    ys = sorted(q[1] for q in ways[0].points)
+    # NORTH: the apron's own far kerb, less the erosion — NOT kerb + strip
+    assert ys[-1] == pytest.approx(30.6 - erode, abs=0.05)
+    assert abs(ys[-1] - (0.15 + strip - erode)) > 5.0, \
+        "the strip is still being laid on pav188"
+    # SOUTH: ground beyond the kerb, so 15h's strip stands untouched
+    assert ys[0] == pytest.approx(-(16.3 + strip - erode), abs=0.05)
+    assert "pav188" in notes[0] and "STOPPED at a neighbour" in notes[0], notes[0]
+
+
+def test_a_strip_over_ground_is_the_15h_reading_verbatim(law):
+    """The amendment NARROWS §34 (5) (b) and nothing else: with ground on
+    both sides the offsets are 15h's, station for station.  This is the
+    twin that fails if the walk ever stops at something that is not
+    airside pavement."""
+    from auto_patch_v2.law.tables import zone2_half_width_m
+    tn = law.tables.structures.tunnel
+    grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
+    erode = tn.wall_gap_m + tn.wall_band_width_m + grid
+    strip = zone2_half_width_m(law, "junction", None, "E")
+    deck_cell = Polygon([(-200.0, -16.3), (200.0, -16.3),
+                         (200.0, 0.15), (-200.0, 0.15)])
+    ways, _p, notes = _f6(law, [_CE()], [deck_cell])
+    ys = sorted(q[1] for q in ways[0].points)
+    assert ys[-1] == pytest.approx(0.15 + strip - erode, abs=0.05)
+    assert ys[0] == pytest.approx(-(16.3 + strip - erode), abs=0.05)
+    assert "STOPPED at a neighbour" not in notes[0]

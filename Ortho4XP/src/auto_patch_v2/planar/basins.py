@@ -560,12 +560,14 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                     covering.append(cv)
             if covering:
                 cov = uu("cover", covering).area / ring.area
-        owning = [g1 for g1 in (obj8.at_grade_geometry(o, cache, airport.dem.z,
-                                                       bl.contact_band_m, within=ring)[1]
-                                for o in members) if g1 is not None]
+        # NOT windowed: the own-cover read is shared with the rim tree
+        # through ``grade_of``'s LRU across rings, and a ring-shaped read
+        # would forfeit that reuse.  Windowing it was measured WORSE on
+        # OTHH (RULINGS 2026-09-17k MEASURED, third path).
+        owning = [g1 for g1 in (grade_of(o)[1] for o in members) if g1 is not None]
         own = uu("own_cover", owning) if owning else None
         if own is not None:
-            cov_own = own.area / ring.area
+            cov_own = own.intersection(ring).area / ring.area
         # THE BASEMENT TEST IS A FRACTION (RULINGS 2026-09-06c (1)): own
         # cover of at least basement_cover_min = a basement; less = a pit,
         # covered or open.  The 04i erosion test ("wholly covered to

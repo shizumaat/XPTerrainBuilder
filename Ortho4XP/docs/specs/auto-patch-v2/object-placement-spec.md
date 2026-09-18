@@ -6034,3 +6034,221 @@ bar holds; the solve-owned airside bar is missed at both airports and the
 weld gains one row at HECA.  No LEMD airport-path build.  Suite **1,787
 passed / 1 skipped / 1 xpassed**, 0 FAILED, after merging the peer's
 §45 channel work (`782a50d6`; both census families kept, additively).
+
+### §16g (10) (4) AMENDED — A LEAF SEATS IN THE UNIT ITS OWN ELEVATED MEMBERS BELONG TO; §16g (10) (9) AMENDED — ONE PAD DATUM, THE MEDIAN (owner RULINGS 2026-09-17t, on scouts `hecat3split` 17s and `lemdobjects` 17u) — lane `v2leafseat`
+
+Owner, verbatim: *"Terminal 3: A.  Pad datum: median, one rule for both
+seats."*
+
+**THE DEFECT (17s).**  HECA's `Airport/T23/T3_brick_clean.obj` is ONE
+shared-datum placement (382 pack rows at one coordinate, zero
+`OBJECT_MSL`) whose 138 parts are (a) elevated façade panels, base_y
+10.66–18.46 m, NO feet, and (b) 0.49 m ground plinths with feet.  (10)
+(4) makes every plinth a LEAF; the walls are ELEVATED and are never
+candidates (`placement_plan` builds the pool from footed non-elevated
+groups, `attach_elevated=False`); so the pid join in `_bind_plan_wide`
+named NO unit for the plinths and they fell to `anchor_rule.anchor_for`
+on a lawfully sloping apron.  At the owner's site 98 bodies stood on 18
+datums spanning 2.62 m and pack contacts welded at 2 mm were written up
+to 2.343 m apart.  Disarming `chain_min_height_m` is REFUTED by replay
+(units 180 → 323, chain bodies 7,264 → 24,165, `fu:38:23` back with 7.50
+m floats): the chain must not change.
+
+4. (amended)  A LEAF IS STILL NEVER A LINK.  But a leaf body whose own
+   ELEVATED members — the parts §15 will merge into its file — belong to
+   a walled body's plan-wide unit JOINS THAT UNIT FOR SEATING.  The join
+   is still the PART ID; only the pid SET grows, and only where the
+   body's own pids name no unit at all, so no body that already had a
+   seat can be moved by it.  The relation is §15 (1) (a)'s own
+   (`placement_boxes.parts_overlap`, the part boxes, never the hull),
+   read over the leaf's OWN placement.  The chain is untouched:
+   `unit_leaf_bodies` and `unit_chain_bodies` must not move.
+9. (2) (amended)  ONE PAD DATUM RULE, THE MEDIAN, over EVERY FACE of the
+   ref, taken by the cluster seat and the §16g (6) connector end datum
+   ALIKE — `plan_unit_datums` is called identically by both and has no
+   `low_side` parameter.  14az's low side is RETIRED.
+   (fix C, a pure defect)  `pad_plurality` and `pad_majority` COUNT a
+   body's ground contacts per REF and must therefore ANSWER per ref: a
+   `building` ref emitted as several FACES is folded
+   (`anchor_rule.fold_pad_ref`) before any min/median, and the
+   containment test that selects the contacts ON the pad is the ref's
+   (`anchor_rule.pad_contains`), not the largest face's.
+
+### §16g (10) (4)/(9) MEASURED (lane `v2leafseat`, 2026-09-17; branch `claude/v2leafseat`, base main `26fe28e6`)
+
+**THE FRAME, AND ONE CAVEAT NAMED FIRST.**  Matched dry replay arms,
+ONE worktree, base sha against the branch, one instrument
+(`tools/obj8_split_report.py` on the shipped `o4_v2_rebake_*.json` +
+`*.graded.json`; no HECA mesh exists on this machine, so
+`v2_rebake_replay.py plan` could not be the instrument).  **The dry
+instrument has NEVER armed `low_side`** — `obj8_split_report` does not
+pass it and `build_splits` defaulted it False — so the MEDIAN half of
+this change is a NO-OP in every dry arm below and is visible only on the
+ENGINE path.  Its before/after is read on the shipped 1.0.348 products
+(`site_read.py --patch-dir`) against the closing build.
+
+**THE OWNER'S HECA SITE (30.1080544, 31.3958302, r 60 m).**
+
+| | base `26fe28e6` | lane |
+|---|---|---|
+| distinct body datums within 60 m | **12**, spread 4.47 m | **5**, spread 4.40 m |
+| `T3_brick_clean` bodies at the site | 7 on **6** datums, 97.19 … 100.07 | 6, **five on ONE datum 97.26** |
+| `T3_concrete` b0 vs `T3_brick_clean` b0 | 97.19 / 97.19 (dry; **96.24 / 97.19 on the shipped ENGINE frame — the 0.95 m 17s named**) | 97.26 / 97.26 |
+| site bodies in `fu:42:4016@cluster_pad` | 11 | **15** |
+
+The ONE `T3_brick_clean` residual at the site is `b13` at 100.07, 60 m
+away on higher apron with own ground +0.08 m — a genuine leaf that
+touches nothing of the unit and is seated on its own ground, which is
+what (10) (4) says a leaf does.
+
+**THE CHAIN DID NOT MOVE, WHICH IS THE AMENDMENT'S OWN BAR.**
+
+| count (HECA) | base | lane |
+|---|---|---|
+| `unit_leaf_bodies` | 16,901 | **16,901** |
+| `unit_chain_bodies` | 7,264 | **7,264** |
+| `plan_wide_units` / seated | 180 / 180 | **180 / 180** |
+| `fu:38:23` present | no | **no** |
+| `bodies_bound_to_unit` | 724 | **748** |
+| `unit_leaf_seated_by_elevated` | — | **22** (HECA), **3** (LEMD) |
+| `unit_members_off_the_plane` | 358 | 377 |
+
+Worst own-ground offset among the newly seated: **+2.19 m**
+(`T3_brick_clean` b11), against the 7.50 m float the leaf rule was
+written against.
+
+**AND FIX A ALONE BREAKS THE CARRIER POOL — THE ROUND'S FINDING,
+ATTRIBUTED INTERVENTIONALLY.**  Four arms, one tree, HECA:
+
+| | base | fold + median ONLY | fix A, no exemption | **SHIPPED** |
+|---|---|---|---|---|
+| files | 3,743 | 3,740 | **6,165** | **3,423** |
+| `footless_own_ground` | 346 | 344 | **2,938** | **134** |
+| `elevated_ride_other_file` | 10,962 | 10,943 | 8,489 | 10,820 |
+| §15 footed float > 0.5 m | 608 | — | **3,176** | **421** |
+| §15 carried float over its carrier (bar 0) | 96 | — | 96 | **67** |
+| §15 carried over a REFUSED carrier | 329 | — | 181 | **102** |
+| §16a (2) refusal set | 586 | — | 603 | 603 |
+| §16b carried piece float > 0.5 m | 593 | — | 566 | **701** |
+| COCKPIT CRITICAL visual | 2,212 | — | **4,622** | — |
+
+The fold-and-median arm is INERT at HECA (3,743 → 3,740 files), so the
+whole movement is fix A's **24 re-seated bodies** — and among them are
+the T3 district's principal carriers.  `_seat` recomputes a seated
+candidate's `ground_off` from the UNIT datum, and §16a (2)'s carrier test
+(`placement_carrier`, "a body whose zero stands off the ground under its
+own feet would carry its own error") then refuses them: **2,398 riders
+lost every carrier** and fell to their own ground as their own files.
+
+**THE DEVIATION, NAMED AND NOT SELF-APPROVED.**  §16g (2) is "every
+member of a unit takes one rigid zero — no per-member cut, no carrier
+search, NO GROUND TEST BETWEEN MEMBERS", and a unit member standing off
+its own ground is the law WORKING (`unit_members_off_the_plane` reports
+it), not a mis-anchored body.  So `Anchor.unit_seat` is published by
+`footprint_unit._seat` and §16a (2)'s test honours it.  That is a change
+to a law this lane's brief did not scope, in
+`airport/placement_carrier.py`; it ships on the BRANCH with the numbers
+above and **requires Fable/owner sign-off before the merge**.  The §16f
+comment at that test still holds as written — §16f (4)'s family seat is
+BOUNDED by `bind_ground_m` and needs no exemption; §16g's unit seat is
+unbounded by design, which is why it does.  Note the shipped arm is
+BETTER than base on five bars and worse on one (`§16b carried piece
+float` 593 → 701, named).
+
+**LEMD IS QUIET, AND T4 MOVES BY THE FOLD ALONE.**  Bodies 2,844 in both
+arms, files unchanged; `unit_leaf_seated_by_elevated` 3;
+`carrier_refused_zero_off_ground` 1,537 → 1,181; `footless_own_ground`
+428 → 403; `unit_members_off_the_plane` 110 → 106; CRITICAL visual 618 →
+621; plan stage 30.1 → 31.2 s.  The T4 unit `fu:25:983@cluster_pad` on
+pad `building45`:
+
+| frame | T4 unit datum |
+|---|---|
+| shipped 1.0.348 (ENGINE, low side armed) | **614.77** — `min(p.z)` over ONE face's whole ring, 590 m from the owner's points |
+| dry base (median, ONE face) | 615.17 |
+| **lane (median, ALL FIVE faces folded)** | **615.22** |
+
+So the engine arm moves **+0.45 m**.  The apron `pav12` containing all
+three of the owner's points is 615.16 … 616.62 and the bodies' own ground
+there reads +1.03 … +1.73 m over the new datum.
+
+**THE RESIDUAL IS 17u-1 AND IS REPORTED, NOT FIXED.**  With the median
+datum T4 still sits ~1.0–1.7 m under `pav12` at the owner's points — the
+number the brief predicted — because ONE rigid plane is carried 600 m
+across a 1,216 × 516 m unit to an apron that is higher there.  That is
+the owner's open intent question (a local datum by reach, partitioning
+the unit — fix A of 17u; or the graded airside surface as a FLOOR under
+every member — fix B, which breaks §16g rigidity).  Fix B was NOT
+implemented.  `Terminal4_05` b5 and `_56` b0 remain **OUTSIDE** the unit
+at 616.96/616.97 in BOTH arms — 1.74 m above the unit datum, inside one
+building — also 17u-1's, also not fixed.  Bridge2's parapets (17u-2) are
+not this lane's.
+
+### §16g (2) AMENDED — THE GRADED AIRSIDE SURFACE IS A FLOOR UNDER EVERY UNIT MEMBER (owner RULINGS 2026-09-17x (1), fix B on 17u-1) — lane `v2leafseat`
+
+Owner: *"the graded airside surface flooring every member is probably
+best, do you concur?"* — §16g rigidity YIELDS to the apron; airside is
+king.  A pack terminal is one mesh at one datum and cannot bend, but the
+apron under it is lawfully graded and VISIBLE: a buried kiosk or door is
+a defect the pilot reads, a member 1 m higher than its neighbour 600 m
+away is not.
+
+2. (amended)  A unit member never seats BELOW the graded airside surface
+   under its own footprint.  The floor is read over the member's OWN
+   ground-contact FEET the way §17 (2) reads a foot — the MEDIAN, so one
+   foot over lower ground does not float the body — never over the whole
+   plan box, and only over the feet standing on a `rolled_on` face
+   (§17's own two sampler channels; a sampler carrying no roles reads NO
+   floor, because no reading is no evidence).  Contact-bound RIGID
+   CLUSTERS (§16c (7)) move TOGETHER to the highest floor among their
+   members, so a 2 mm pack weld is never written as a step; the cluster
+   relation is PUBLISHED by `placement_atom.bind_unit` and never
+   re-derived.  Only a floor ABOVE the unit's datum moves anything.
+   INSTRUMENT AND BAR: 17s's cross-body contact census (pack contacts
+   across two bodies, written > 0.5 m apart, within 60 m of the site —
+   `obj8_split_report --contact-pairs`) must not RISE, and no foot of a
+   floored member may be buried more than 0.2 m.  If the census rises,
+   the unit is partitioned by REACH instead (the reserve shape).
+
+### §16g (2) FIX B MEASURED — MET AT LEMD, MISSED AT HECA; SHIPS OFF (lane `v2leafseat`, 2026-09-17; branch `claude/v2leafseat`)
+
+Matched dry replay arms, ONE worktree, the ONLY variable `[placement]
+airside_floor`, both arms read by the same instrument (the
+median-and-fix-A tree `a7aa2ffa` against the branch):
+
+| bar (17x (1)) | median + fix A | **+ the airside floor** | verdict |
+|---|---|---|---|
+| **LEMD T4** cross-body contact pairs > 0.5 m within 60 m | 99, worst **1.748 m** | **42, worst 0.807 m** | **MET** |
+| LEMD T4 worst BURIED foot of a unit member | **+1.73 m** | **+0.43 m** | improved 4×; the 0.2 m bar MISSED by 0.23 m on one body (`Terminal4_yellow-LEMD14` b4) |
+| LEMD unit members off their plane | 106 | **36** | — |
+| LEMD members floored / worst lift | — | **101 / 3.536 m** | — |
+| LEMD files | 2,840 | 2,804 | — |
+| **HECA T3** cross-body contact pairs > 0.5 m within 60 m | **44**, worst 4.397 m | **245**, worst 3.619 m | **MISSED, 5.6×** |
+| HECA the site's distinct body datums | **5** (spread 4.40 m) | **18** (spread 3.62 m) | **MISSED** |
+| HECA `T3_brick_clean` shells at the site | **five on ONE datum 97.26** | back on **SEVEN** datums (98.90 … 100.07) | **MISSED — fix A undone** |
+| HECA unit members off their plane | 377 | 308 | — |
+| HECA members floored / worst lift | — | 125 / 4.262 m | — |
+| HECA files | 3,423 | 3,516 | — |
+
+**THE ATTRIBUTION, AND IT IS THE RESERVE SHAPE'S OWN PREMISE.**  At LEMD
+the T4 members are large skirted buildings on `pav12`, which is nearly
+level where they stand, and their rigid clusters hold — every member
+rises +1.09 … +1.84 m onto the apron together and the welds survive.  At
+HECA the T3 shells stand on apron `pav1`, which falls **5.4 m across the
+district** (95.99 … 101.42 over 390 nodes), and they are NOT one §16c (7)
+rigid cluster (`bind refused for ground` 499), so each floors to its OWN
+local apron and the district is scattered again — the exact defect 17s
+attributed and fix A closed, at the owner's own site.
+
+**SHIPS OFF: `[placement] airside_floor = false`.**  17x (1) names the
+reserve shape for precisely this — partition the unit by REACH — and says
+it is not this lane's to choose.  STOP-and-report, per the instruction:
+the mechanism is complete, gated, twinned and reproduces both arms from
+the key (`--airside-floor` on the instrument).  Flipping it needs either
+the reach partition or an owner who accepts HECA's 245.
+
+**ALSO OWED, NAMED.**  The engine path cannot arm the key: `[placement]
+airside_floor` is read by `tools/obj8_split_report.py` and by
+`placement_plan.build_splits`'s caller, and `src/auto_patch/engine_v2.py`
+— another lane's file this round — does not pass it.  One line there when
+the flag flips.

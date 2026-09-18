@@ -418,6 +418,13 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  cluster_min_m2: float = 0.0, touch_m: float = 0.0,
                  connector_span_m: float = 0.0,
                  chain_min_height_m: float = 0.0,
+                 # §16g (2) AMENDED (owner RULINGS 2026-09-17x (1))
+                 airside_floor: bool = False,
+                 # RETIRED (owner RULINGS 2026-09-17t: "Pad datum: median,
+                 # one rule for both seats").  §16g (10) (9) (2)'s low-side
+                 # pad reading is gone from ``footprint_unit``; the keyword
+                 # is kept only so ``src/auto_patch/engine_v2.py`` (another
+                 # lane's file) still calls this, and it is READ BY NOTHING.
                  low_side: bool = False,
                  abutment_step_m: float = 0.0,
                  abutment_walk_max_m: float = 0.0,
@@ -543,8 +550,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)
-                                      chain_min_height_m,  # §16g (10) (4)
-                                      low_side)  # §16g (10) (9) (2)
+                                      chain_min_height_m)  # §16g (10) (4)
 
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
@@ -708,9 +714,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # its own member it stands over, or nearest within the coarsen
         # reach — are ONE RIGID CLUSTER at ONE zero: the SENIOR FOOTED
         # body's.  The law lives in ``placement_atom`` (12q, 12am (1)).
+        # §16g (2) AMENDED (owner RULINGS 2026-09-17x): the rigid cluster
+        # the airside floor lifts AS ONE — published by the bind, never
+        # re-derived here
+        _clus: dict[int, int] = {}
         forced, cl_census = _atom.bind_unit(
             cands, staged, surface, unit_pairs.get(ui, ()), counts,
-            near_m=coarsen_reach_m, bind_ground_m=bind_ground_m)
+            near_m=coarsen_reach_m, bind_ground_m=bind_ground_m,
+            cluster_out=_clus)
         cl_spans.extend(cl_census[:5])
 
         # §16f AN OBJECT FAMILY STAYS TOGETHER (RULINGS 2026-09-13af),
@@ -720,7 +731,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cands, staged, surface, pads, counts, unit_id=u.id,
             touch_m=touch_m, visual_m=bind_ground_m,
             cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m,
-            plan_wide=_pw))
+            plan_wide=_pw, cluster_of=(_clus if airside_floor else None),
+            airside_floor=airside_floor))
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
         by_key = {(c.member, c.group): c for c in cands}

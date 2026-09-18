@@ -343,3 +343,456 @@ def test_site_read_is_in_the_tool_index():
     text = open(os.path.join(root, "tools", "INDEX.md"), encoding="utf-8").read()
     assert "tools/site_read.py" in text
     assert "--dsf-dump" in text
+
+
+# ── §16g (10) (4) AMENDED + (10) (9) ONE PAD DATUM (owner RULINGS
+#    2026-09-17t, on the scout attributions 17s / 17u) — lane v2leafseat ──
+#
+# 17s: HECA's ``Airport/T23/T3_brick_clean.obj`` is ONE shared-datum
+# placement whose 138 parts are elevated façade panels with NO feet plus
+# 0.49 m ground plinths.  Every plinth is a LEAF (under
+# ``chain_min_height_m``), the walls are ELEVATED and never candidates, so
+# the plinth's OWN pids named no unit and it fell to its own apron — the
+# shell written in pieces up to 2.34 m apart.  A LEAF IS STILL NEVER A
+# LINK; a leaf whose own elevated members belong to a unit now SEATS in
+# that unit.
+#
+# 17u: the pad datum was ``min(p.z)`` over the WHOLE ring of ONE FACE of a
+# multi-face ref — LEMD's ``building45`` is five faces and the T4 unit's
+# 64 bodies took a vertex 590 m away.  ONE rule for both seats: the
+# MEDIAN, over EVERY FACE of the ref.
+
+class _LPart:
+    """A plan part, with the fields §16g (10) (4) reads (``height_m``,
+    ``rings``) that ``_PPart`` above predates."""
+
+    def __init__(self, pid, box, height_m, feet=()):
+        self.pid, self.box, self.line = pid, box, False
+        self.lat = 0.5 * (box[0] + box[2])
+        self.lon = 0.5 * (box[1] + box[3])
+        self.base_y, self.comp, self.area_m2 = 0.0, 0, 1.0
+        self.height_m = float(height_m)
+        self.feet = tuple(feet)
+        self.rings = ((box[0], box[1]), (box[0], box[3]),
+                      (box[2], box[3]), (box[2], box[1])),
+
+
+class _LMember:
+    def __init__(self, resource, parts):
+        self.id = self.resource = resource
+        self.parts = tuple(parts)
+        self.deck_datum_z = self.deck_ring = None
+        self.deck_kind = ""
+        self.heading_deg = 0.0
+
+
+class _LUnit:
+    def __init__(self, uid, members, anchor=(41.0, -3.0)):
+        self.id, self.members, self.anchor = uid, tuple(members), anchor
+
+
+class _LPlan:
+    def __init__(self, units, contacts=()):
+        self.units, self.contacts = tuple(units), tuple(contacts)
+
+
+def _lat_m(m: float) -> float:
+    return 41.0 + m / 111_132.0
+
+
+def _lbox(m0, m1, lo0=-3.0000, lo1=-2.9990):
+    return (_lat_m(m0), lo0, _lat_m(m1), lo1)
+
+
+def _lcand(member, boxes, z, pids, group=0):
+    import auto_patch_v2.airport.anchor_rule as AR
+    import auto_patch_v2.airport.placement_boxes as _PB
+    import auto_patch_v2.airport.placement_carrier as _PC
+    hull = _PB.hull_of(list(boxes))
+    return _PC.Candidate(member, f"objects/m{member}.obj",
+                         AR.Anchor(AR.BUILDING, 0.5 * (hull[0] + hull[2]),
+                                   0.5 * (hull[1] + hull[3]), 0.0,
+                                   "surface at the body's zero", z),
+                         frozenset(pids), 4, hull, part_boxes=list(boxes),
+                         group=group, body_class=AR.BUILDING, fill=1.0,
+                         ground_off=0.0)
+
+
+class _LStaged:
+    """The staged member ``_bind_plan_wide`` reads: one FOOTED group (the
+    plinth) plus the member's own ELEVATED parts, which is the shape a
+    material-sliced pack has."""
+
+    def __init__(self, mi, resource, raw, elevated=frozenset()):
+        import types
+        import auto_patch_v2.airport.anchor_rule as AR
+        self.mi = mi
+        self.m = types.SimpleNamespace(resource=resource, deck_kind="",
+                                       deck_ring=None)
+        self.raw, self.part_boxes = [], []
+        for parts, box, feet in raw:
+            self.raw.append((list(parts), AR.BUILDING,
+                             AR.Anchor(AR.BUILDING, box[0], box[1], 0.0,
+                                       "r", 0.0), tuple(feet), False, (),
+                             (), None))
+            self.part_boxes.append([box])
+        self.elevated = frozenset(elevated)
+        self.groups = [[0]]
+        self.ground_off = [0.0]
+
+
+def _t3_plan():
+    """A WALLED block (a 12 m wall, footed) beside a MATERIAL-SLICED
+    placement: a 0.49 m plinth with feet (a LEAF) whose own ELEVATED
+    façade panel (18 m up, no feet) stands over it and touches the wall.
+    The panel is in the wall's unit; the plinth's own pids are not."""
+    wall = _LMember("objects/wall.obj",
+                    [_LPart(1, _lbox(0, 40), 12.0,
+                            feet=((_lat_m(5), -2.9995, 0.0),))])
+    # the façade panel overlaps the wall in plan (so they chain) AND
+    # stands over the plinth
+    panel = _LPart(10, _lbox(30, 70), 6.0)
+    plinth = _LPart(11, _lbox(45, 70), 0.49,
+                    feet=((_lat_m(50), -2.9995, 0.0),))
+    shell = _LMember("objects/shell.obj", [panel, plinth])
+    return wall, panel, plinth, _LPlan([_LUnit("unit:0", [wall, shell])])
+
+
+def _t3_arms(surface):
+    """``(counts, the plinth candidate after the bind)`` — the whole
+    §16g pipeline the shipped ``build_splits`` runs, on the fixture."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    _wall, panel, plinth, plan = _t3_plan()
+    counts: dict = {}
+    pw, _s = FU.plan_wide_seats(plan, surface, (), 0.5, 0.0, counts,
+                                0.0, 2.5)
+    cands = [_lcand(0, [_lbox(0, 40)], surface(_lat_m(20), -2.9995), {1}),
+             _lcand(1, [plinth.box], surface(_lat_m(57), -2.9995), {11})]
+    st = [_LStaged(0, "objects/wall.obj",
+                   [([_LPart(1, _lbox(0, 40), 12.0)], _lbox(0, 40),
+                     ((_lat_m(5), -2.9995, 0.0),))]),
+          _LStaged(1, "objects/shell.obj",
+                   [([plinth], plinth.box, ((_lat_m(50), -2.9995, 0.0),)),
+                    ([panel], panel.box, ())],
+                   elevated={1})]
+    FU.bind_footprint_units(cands, st, surface, (), counts, unit_id="unit:0",
+                            touch_m=0.5, visual_m=0.5, connector_span_m=0.0,
+                            plan_wide=pw)
+    return counts, cands[1]
+
+
+def test_a_leaf_seats_in_the_unit_its_own_elevated_members_belong_to():
+    """§16g (10) (4) AMENDED (17t, fix A): the 0.49 m plinth is a LEAF and
+    its own pids name no unit — but the façade panel §15 merges into its
+    file is a member of the wall's unit, so the plinth takes the UNIT's
+    zero instead of the sloping ground under itself."""
+    from auto_patch_v2.airport import footprint_unit as FU
+
+    def surface(la, lo):          # the ground climbs 3 m over the site
+        return 10.0 + 3.0 * (la - 41.0) / (_lat_m(70) - 41.0)
+
+    counts, plinth = _t3_arms(surface)
+    assert counts["unit_leaf_seated_by_elevated"] == 1
+    assert plinth.anchor.reason.startswith(FU.UNIT_REASON)
+    assert plinth.anchor.unit_seat is True
+    # and it is on the UNIT's zero — the median ground under the unit's
+    # parts, 11.50 — not on the ground under its own plinth, which the
+    # sloping site puts ~1 m higher.  That difference IS the 2.34 m the
+    # shell's pieces were written apart at HECA.
+    zero = plinth.anchor.surface_z - plinth.anchor.y_zero
+    own = surface(_lat_m(57), -2.9995)
+    assert zero == pytest.approx(11.50, abs=0.05), zero
+    assert own - zero > 0.8, (own, zero)
+
+
+def test_the_chain_is_untouched_a_leaf_is_still_never_a_link():
+    """The other half of the amendment, and the bar 17s set: the leaf
+    count and the chain are read BEFORE the seat and cannot move.
+    Disarming ``chain_min_height_m`` was REFUTED by replay (HECA units
+    180 -> 323, chain bodies 7,264 -> 24,165) and this twin is what keeps
+    fix A from becoming that."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    _w, _p, _pl, plan = _t3_plan()
+    counts: dict = {}
+    FU.plan_wide_seats(plan, lambda la, lo: 10.0, (), 0.5, 0.0, counts,
+                       0.0, 2.5)
+    # the plinth (0.49 m) is a LEAF and never links; only the wall and the
+    # panel chain, so the plan-wide partition is the pre-17t one
+    assert counts["unit_leaf_bodies"] == 1
+    assert counts["plan_wide_units"] == 1
+
+
+def test_a_leaf_with_no_elevated_member_in_any_unit_is_unchanged():
+    """The negative: a leaf standing alone keeps §16c's own anchor — fix
+    A reads the elevated members ONLY where the body's own pids name no
+    unit, and adds nothing when they name none either."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    lone = _LMember("objects/slab.obj",
+                    [_LPart(1, _lbox(0, 30), 0.30,
+                            feet=((_lat_m(10), -2.9995, 0.0),))])
+    far = _LMember("objects/other.obj",
+                   [_LPart(2, _lbox(900, 940), 12.0,
+                           feet=((_lat_m(910), -2.9995, 0.0),))])
+    plan = _LPlan([_LUnit("unit:0", [lone, far])])
+    counts: dict = {}
+    pw, _s = FU.plan_wide_seats(plan, lambda la, lo: 10.0, (), 0.5, 0.0,
+                                counts, 0.0, 2.5)
+    cands = [_lcand(0, [_lbox(0, 30)], 10.0, {1})]
+    st = [_LStaged(0, "objects/slab.obj",
+                   [([_LPart(1, _lbox(0, 30), 0.30)], _lbox(0, 30),
+                     ((_lat_m(10), -2.9995, 0.0),))])]
+    FU.bind_footprint_units(cands, st, lambda la, lo: 10.0, (), counts,
+                            unit_id="unit:0", touch_m=0.5, visual_m=0.5,
+                            connector_span_m=0.0, plan_wide=pw)
+    assert counts.get("unit_leaf_seated_by_elevated", 0) == 0
+    assert cands[0].anchor.reason == "surface at the body's zero"
+    assert cands[0].anchor.unit_seat is False
+
+
+def test_a_unit_seated_body_is_not_refused_as_a_carrier():
+    """§16g (2): "no per-member cut, no carrier search, NO GROUND TEST
+    BETWEEN MEMBERS".  §16a (2) refuses a carrier whose zero stands off
+    the ground under its own feet because it would carry its own error —
+    a UNIT SEAT is not that error, it is the law working.
+
+    MEASURED (lane v2leafseat, HECA dry replay): without this, fix A's 24
+    re-seated bodies — the T3 district's principal carriers — cost 2,398
+    riders every carrier, files 3,743 -> 6,165 and §15 footed float
+    608 -> 3,176.  With it, files 3,423."""
+    import auto_patch_v2.airport.anchor_rule as AR
+    import auto_patch_v2.airport.placement_carrier as PC
+    seated = _lcand(0, [_lbox(0, 40)], 10.0, {1})
+    seated = type(seated)(**{**seated.__dict__,
+                             "anchor": AR.Anchor(AR.BUILDING, _lat_m(20),
+                                                 -2.9995, 0.0, "r", 10.0,
+                                                 unit_seat=True),
+                             "ground_off": 2.08})
+    plain = type(seated)(**{**seated.__dict__,
+                            "anchor": AR.Anchor(AR.BUILDING, _lat_m(20),
+                                                -2.9995, 0.0, "r", 10.0),
+                            "ground_off": 2.08})
+    body = (_lat_m(10), -3.0000, _lat_m(30), -2.9990)
+    ref: dict = {}
+    assert PC.carriers_for(frozenset({9}), body, [seated], {}, (),
+                           tol_m=0.3, refusals=ref, solid_cands=[seated],
+                           reach_m=100.0)
+    ref = {}
+    assert not PC.carriers_for(frozenset({9}), body, [plain], {}, (),
+                               tol_m=0.3, refusals=ref, solid_cands=[plain],
+                               reach_m=100.0)
+    assert ref.get("zero_off_ground", 0) >= 1
+
+
+# ── §16g (10) (9) ONE PAD DATUM, THE MEDIAN, OVER EVERY FACE ────────────
+
+def _five_face_pad():
+    """LEMD's ``building45``: ONE ref, FIVE faces, whose minima differ.
+    The face the scan happens to touch LAST decided the datum (17u)."""
+    import auto_patch_v2.airport.anchor_rule as AR
+    faces = []
+    for k, z in enumerate((614.77, 615.18, 615.40, 615.60, 616.00)):
+        la0 = _lat_m(100 * k)
+        la1 = _lat_m(100 * k + 90)
+        ring = ((la0, -3.0000), (la0, -2.9990), (la1, -2.9990), (la1, -3.0000))
+        faces.append(AR.PadRing("building45", ring, (z, z + 0.2, z + 0.4,
+                                                     z + 0.6)))
+    return tuple(faces)
+
+
+def test_pad_plurality_and_pad_majority_fold_every_face_of_a_ref():
+    """fix C, a pure defect: a `building` REF may be emitted as several
+    FACES, and both readers COUNTED per ref while KEEPING the last face
+    they matched — an iteration-order datum (LEMD 0.41 m).  The fold is
+    order-free and its plane is the ref's."""
+    import auto_patch_v2.airport.anchor_rule as AR
+    from auto_patch_v2.airport import placement_family as PF
+    pads = _five_face_pad()
+    # one contact on face 0 and one on face 3: whatever the order, the
+    # pad handed back carries EVERY face's heights and every face's ring
+    cands = [(_lat_m(45), -2.9995, 0.0, 0.0), (_lat_m(345), -2.9995, 0.0, 0.0)]
+    for order in (pads, tuple(reversed(pads))):
+        p = PF.pad_plurality(cands, order)
+        assert p is not None and p.ref == "building45"
+        assert len(p.z) == 20 and len(p.rings) == 5
+        assert min(p.z) == 614.77 and max(p.z) == 616.60
+        q = AR.pad_majority(cands, order)
+        assert q is not None and tuple(sorted(q.z)) == tuple(sorted(p.z))
+    # the containment test is the REF's, not the largest face's
+    p = PF.pad_plurality(cands, pads)
+    assert AR.pad_contains(p, _lat_m(45), -2.9995)
+    assert AR.pad_contains(p, _lat_m(345), -2.9995)
+    assert not AR.pad_contains(p, _lat_m(95), -2.9995)   # the gap between
+
+
+def test_the_cluster_seat_and_the_connector_datum_take_ONE_rule():
+    """§16g (10) (9) AMENDED (17t, verbatim: "Pad datum: median, one rule
+    for both seats").  14az's low side read ``min(p.z)`` and 17s measured
+    the two seats 0.95 m apart on HECA's ``building9``; ``low_side`` is
+    gone from the signature, so ``plan_unit_datums`` cannot answer the two
+    callers differently."""
+    import inspect
+    from auto_patch_v2.airport import footprint_unit as FU
+    assert "low_side" not in inspect.signature(FU.plan_unit_datums).parameters
+    assert "low_side" not in inspect.signature(FU.plan_wide_seats).parameters
+    pads = _five_face_pad()
+    un = FU.PlanUnit(id="unit:0", bodies=(), pids=frozenset(), members=(),
+                     boxes=(_lbox(0, 90), _lbox(300, 390)), area_m2=10.0)
+    plan = _LPlan([_LUnit("unit:0", [])])
+    dat = FU.plan_unit_datums([un], plan, lambda la, lo: 600.0, pads, 0.0)
+    z, where, src = dat["unit:0"]
+    assert where == "building45" and src == "pad"
+    # the MEDIAN of the folded ref (20 vertices, 614.77 … 616.60), never
+    # the global minimum 614.77 the low side took
+    allz = sorted(v for f in pads for v in f.z)
+    want = 0.5 * (allz[9] + allz[10])
+    assert z == pytest.approx(want, abs=1e-6), (z, want)
+    assert z > min(allz) + 0.5
+
+
+# ── §16g (2) AMENDED — THE GRADED AIRSIDE SURFACE IS A FLOOR UNDER EVERY
+#    MEMBER (owner RULINGS 2026-09-17x (1), fix B) — lane v2leafseat ─────
+
+class _Roles:
+    """The sampler's §17 role channel: ``apron`` everywhere except the
+    named boxes (``ground``), so a foot can be ON or OFF the airside."""
+
+    def __init__(self, off=()):
+        self.off = tuple(off)
+
+    def roles_many(self, lats, lons):
+        out = []
+        for la, lo in zip(lats, lons):
+            r = "apron"
+            for b in self.off:
+                if b[0] <= la <= b[2] and b[1] <= lo <= b[3]:
+                    r = "ground"
+            out.append(r)
+        return out
+
+
+class _Surface:
+    """A callable design surface carrying §17's two channels."""
+
+    def __init__(self, fn, roles=None, rolled_on=("apron",)):
+        self._fn, self.roles, self.rolled_on = fn, roles, rolled_on
+
+    def __call__(self, la, lo):
+        return self._fn(la, lo)
+
+
+def _floor_fixture(cluster_of, armed=True):
+    """A four-member unit on a pad at 600.00 with the apron stepping up
+    2.00 m under the last two members — LEMD T4 in miniature (17u: one
+    rigid plane carried 600 m to an apron 1–1.9 m higher)."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    import auto_patch_v2.airport.anchor_rule as AR
+    mem, cands, st = [], [], []
+    for i, (m0, m1, g) in enumerate([(0, 40, 600.0), (38, 78, 600.0),
+                                     (76, 116, 602.0), (114, 154, 602.0)]):
+        box = _lbox(m0, m1)
+        mem.append(_LMember(f"objects/m{i}.obj",
+                            [_LPart(1 + i, box, 12.0,
+                                    feet=((_lat_m(m0 + 20), -2.9995, 0.0),))]))
+        cands.append(_lcand(i, [box], g, {1 + i}))
+        st.append(_LStaged(i, f"objects/m{i}.obj",
+                           [([_LPart(1 + i, box, 12.0)], box,
+                             ((_lat_m(m0 + 20), -2.9995, 0.0),))]))
+    plan = _LPlan([_LUnit("unit:0", mem)])
+    # one pad over the whole unit, its plane 600.00
+    ring = ((_lat_m(-5), -3.0001), (_lat_m(-5), -2.9989),
+            (_lat_m(160), -2.9989), (_lat_m(160), -3.0001))
+    pads = (AR.PadRing("building1", ring, (600.0, 600.0, 600.0, 600.0)),)
+    # member 0's foot stands on GROUND, not apron: §16g (2)'s "pavement is
+    # king" stands down for a unit only PART of which is on pavement,
+    # which is the mixed case the datum rule is written for
+    surf = _Surface(lambda la, lo: 600.0 if la < _lat_m(76) else 602.0,
+                    roles=_Roles(((_lat_m(-5), -3.0001,
+                                   _lat_m(30), -2.9989),)))
+    counts: dict = {}
+    pw, _s = FU.plan_wide_seats(plan, surf, pads, 0.5, 0.0, counts, 0.0, 2.5)
+    FU.bind_footprint_units(cands, st, surf, pads, counts, unit_id="unit:0",
+                            touch_m=0.5, visual_m=0.5, connector_span_m=0.0,
+                            plan_wide=pw, cluster_of=cluster_of,
+                            airside_floor=armed)
+    return counts, [round(c.anchor.surface_z - c.anchor.y_zero, 2)
+                    for c in cands]
+
+
+def test_a_member_on_a_higher_apron_floors_at_its_own_feet():
+    """17x (1): the unit's pad plane is 600.00 and members 2 and 3 stand
+    on apron 2.00 m above it.  Rigidity yields to the apron — those two
+    seat at 602.00, the two over the pad stay at 600.00.  Before this
+    every member took 600.00 and the last two were buried 2 m."""
+    counts, zeros = _floor_fixture({})
+    assert zeros == [600.0, 600.0, 602.0, 602.0], zeros
+    assert counts["unit_members_floored"] == 2   # members 2 and 3
+    assert counts["unit_floor_worst_lift_m"] == pytest.approx(2.0, abs=1e-3)
+
+
+def test_a_rigid_cluster_rises_together_so_a_weld_is_never_a_step():
+    """The session's refinement, and the reason the cross-body contact
+    census is 17x's bar: member 1 is welded to member 2 (§16c (7)'s rigid
+    cluster, published by ``placement_atom.bind_unit``).  The cluster
+    takes the HIGHEST floor among its members, so the two are written at
+    ONE zero and the 2 mm pack contact between them is not a step."""
+    counts, zeros = _floor_fixture({1: 1, 2: 1})
+    assert zeros == [600.0, 602.0, 602.0, 602.0], zeros
+    assert counts["unit_members_floored"] == 3
+
+
+def test_no_airside_foot_and_no_roles_both_read_NO_FLOOR():
+    """Two negatives, and both are "no reading is no evidence": a member
+    whose every foot stands on `ground` has no airside floor, and a
+    sampler carrying no roles at all gives none to anybody — the unit's
+    own datum stands in both, exactly as before 17x."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    cc = [(_lat_m(10), -2.9995, 0.0, 602.0)]
+    assert FU._airside_floor(cc, _Surface(lambda la, lo: 602.0)) is None
+    off = (( _lat_m(-5), -3.0001, _lat_m(160), -2.9989),)
+    assert FU._airside_floor(
+        cc, _Surface(lambda la, lo: 602.0, roles=_Roles(off))) is None
+    assert FU._airside_floor(
+        cc, _Surface(lambda la, lo: 602.0, roles=_Roles())) == 602.0
+
+
+def test_the_floor_is_the_MEDIAN_foot_not_the_lowest_and_not_the_box():
+    """§17 (2)'s reading, as the session refined it: one foot over lower
+    ground must not float the body, and the whole plan box is not the
+    member's ground.  Three feet at 601.0 / 602.0 / 602.2 floor at
+    602.0."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    cc = [(_lat_m(10), -2.9995, 0.0, 601.0),
+          (_lat_m(20), -2.9995, 0.0, 602.0),
+          (_lat_m(30), -2.9995, 0.0, 602.2)]
+    got = FU._airside_floor(cc, _Surface(lambda la, lo: 0.0, roles=_Roles()))
+    assert got == pytest.approx(602.0, abs=1e-6), got
+
+
+def test_the_floor_ships_OFF_and_the_key_reproduces_both_arms():
+    """`[placement] airside_floor` ships FALSE and the reason is measured,
+    not doubted: the 17x bar (17s's cross-body contact census within 60 m
+    of the owner's site) is MET at LEMD T4 (pairs > 0.5 m 99 -> 42, worst
+    1.748 -> 0.807 m, worst buried foot 1.73 -> 0.43 m) and MISSED at
+    HECA T3 (44 -> 245, the six `T3_brick_clean` shells back on SEVEN
+    datums, site datums 5 -> 18) — HECA's shells stand on an apron that
+    falls 5.4 m across the district and are not one rigid cluster, so
+    each floors locally and fix A is undone at the owner's own site.  17x
+    (1)'s reserve shape (partition the unit by reach) is the answer and
+    is not this lane's to choose.  Disarmed, NOTHING moves."""
+    counts, zeros = _floor_fixture({}, armed=False)
+    assert zeros == [600.0, 600.0, 600.0, 600.0], zeros
+    assert "unit_members_floored" not in counts
+    armed, _z = _floor_fixture({}, armed=True)
+    assert armed["unit_members_floored"] == 2
+
+
+def test_the_shipped_law_value_is_false():
+    """The key is the arm, and a lane that measured a bar MISSED does not
+    flip it (build economy: a mechanism awaiting the owner's adjudication
+    is the one thing a gate is for)."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    text = open(os.path.join(root, "src", "auto_patch_v2", "law",
+                             "structures.toml"), encoding="utf-8").read()
+    assert "airside_floor       = false" in text

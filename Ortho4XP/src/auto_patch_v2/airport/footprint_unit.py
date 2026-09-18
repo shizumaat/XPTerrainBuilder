@@ -71,7 +71,9 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
                          unit_id: str = "", touch_m: float = 0.0,
                          visual_m: float = 0.0, cluster_min_m2: float = 0.0,
                          connector_span_m: float = 0.0,
-                         plan_wide: "_t.Mapping[int, tuple[str, float, str, str]] | None" = None
+                         plan_wide: "_t.Mapping[int, tuple[str, float, str, str]] | None" = None,
+                         cluster_of: "_t.Mapping[int, int] | None" = None,
+                         airside_floor: bool = False
                          ) -> list[Family]:
     """§16g THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed;
     spec §16g) — the ONE rule that replaces every family derivation of
@@ -113,7 +115,9 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
     if plan_wide:
         return _bind_plan_wide(cands, by_mi, surface, counts, plan_wide,
                                visual_m=visual_m,
-                               connector_span_m=connector_span_m)
+                               connector_span_m=connector_span_m,
+                               cluster_of=cluster_of,
+                               airside_floor=airside_floor)
     clusters, _adj = _clusters(cands, touch_m, min_members=1)
     units: list[Family] = []
     bound_ci: set[int] = set()
@@ -527,7 +531,7 @@ def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
 
 def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                      surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
-                     cluster_min_m2: float, low_side: bool = False
+                     cluster_min_m2: float
                      ) -> dict[str, tuple[float, str, str]]:
     """§16g (2)'s PRIORITY DATUM, read PLAN-WIDE: ``unit id -> (zero,
     where, source)``.
@@ -539,6 +543,13 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     stands on (its OWN plane, ``median(pad.z)`` — the §30 (4) cluster pad
     for a unit over ``cluster_pad_min_m2``).  Then the median ground under
     its part centres.
+
+    ONE PAD DATUM RULE (owner RULINGS 2026-09-17t): the pad's own plane is
+    its MEDIAN, over EVERY FACE of the ref, and this function is called
+    IDENTICALLY for the cluster seat and for a §16g (6) connector's end
+    datum — 14az's ``pad_between_aprons`` low side is retired and the
+    ``low_side`` parameter is gone, so the two seats cannot drift apart
+    again (17s measured them 0.95 m apart on HECA's ``building9``).
 
     The ground is sampled at the PART CENTRES rather than at the feet: the
     feet belong to a staged body and this pass runs before any staging.  A
@@ -566,28 +577,22 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                 continue
             p = pad_plurality(cc, pads)
             if p is not None and p.z:
-                # §16g (10) (9) (2) THE BUILDING SEATS AT THE LOW SIDE
-                # (owner RULINGS 2026-09-14az, verbatim: "seat the
-                # building level at the low side so nothing floats and
-                # the high side is slightly buried"; armed by
-                # ``[placement] pad_between_aprons``).  A pad sharing
-                # edges with apron on more than one side is a PLANE
-                # sloping up to 1 % between those levels, so its median
-                # stands half the fall above the low edge and every body
-                # on it floats there: at HECA the terminal read 75.92
-                # against a 72.62 pad because the plane's mean was taken.
-                #
-                # DEVIATION, NAMED: the law says the lowest SHARED-EDGE
-                # level and ``PadRing`` carries no per-vertex airside
-                # flag at this layer (it is ``(ref, ring, z)``), so what
-                # is read is the pad plane's own LOW SIDE — which is that
-                # level whenever the pad is pinned at its apron edges,
-                # the case (9) (2) is about.  Publishing the shared-edge
-                # subset would be a new sidecar channel and its own
-                # consumer census.
-                zero, where, src = (
-                    (min(p.z) if low_side else _median(list(p.z))),
-                    p.ref, "pad")
+                # §16g (10) (9) (2) AMENDED — ONE PAD DATUM RULE, THE
+                # MEDIAN (owner RULINGS 2026-09-17t: "Pad datum: median,
+                # one rule for both seats").  14az's LOW SIDE reading is
+                # RETIRED.  It was written for a pad pinned between two
+                # aprons, where the plane's median floats the low edge by
+                # half the fall; measured on the shipped law it took
+                # ``min(p.z)`` over the WHOLE ring of ONE face — at LEMD
+                # the T4 unit (1,216 x 516 m, 64 bodies) seated on the
+                # single lowest vertex of ``building45`` 590 m from the
+                # owner's points, 1.0-1.9 m UNDER apron ``pav12``
+                # (RULINGS 2026-09-17u).  Two seats on one pad also
+                # disagreed by 0.95 m at HECA, because the connector
+                # datum below never took the low side (17s).  The MEDIAN,
+                # over EVERY face of the ref (fix C, :func:`pad_plurality`
+                # folds them), is now the one rule both seats take.
+                zero, where, src = _median(list(p.z)), p.ref, "pad"
                 if cluster_min_m2 > 0.0 and un.area_m2 >= cluster_min_m2:
                     src = "cluster_pad"
             else:
@@ -596,10 +601,84 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     return out
 
 
+def _airside_floor(cc: _t.Sequence[tuple[float, float, float, float]],
+                   surface: _ar.Surface) -> "float | None":
+    """§16g (2) AMENDED (owner RULINGS 2026-09-17x (1)): THE GRADED
+    AIRSIDE SURFACE UNDER THIS BODY'S OWN GROUND-CONTACT FEET — the zero
+    its own feet imply, or ``None`` where it has no foot on a rolled-on
+    face.
+
+    Owner: the graded airside surface is a FLOOR under every unit member;
+    §16g rigidity yields to the apron (airside is king).  A pack terminal
+    is one mesh at one datum and cannot bend, but the apron under it is
+    lawfully graded and VISIBLE — a buried kiosk or door is a defect the
+    pilot reads, a member 1 m higher than its neighbour 600 m away is
+    not.  MEASURED (17u): LEMD's T4 unit is 1,216 x 516 m and its one
+    plane, carried 600 m, put 64 bodies 1.0-1.9 m under apron ``pav12``.
+
+    THE READING IS §17 (2)'s — THE MEDIAN FOOT, never the whole plan box
+    and never one low foot: one foot over lower ground must not float the
+    body.  The role test is §17's own (``anchor_rule._all_on_rolled``'s
+    two sampler-carried channels, ``surface.roles`` /
+    ``surface.rolled_on``, read PER FOOT here because a member with one
+    foot off the apron still has an apron under the rest of it).  A
+    sampler carrying no roles reads NO FLOOR: no reading is no evidence,
+    and the unit's own datum stands."""
+    if not cc:
+        return None
+    roles = getattr(surface, "roles", None)
+    rolled = getattr(surface, "rolled_on", None)
+    if roles is None or not rolled:
+        return None
+    step = max(1, len(cc) // FAMILY_CONTACTS_MAX)
+    qs = list(cc[::step])
+    got = roles.roles_many([q[0] for q in qs], [q[1] for q in qs])
+    zs = [q[3] - q[2] for q, r in zip(qs, got) if r in rolled]
+    if not zs:
+        return None
+    return _median(zs)
+
+
+def _elevated_pids_over(c: _t.Any, st: _t.Any) -> frozenset[int]:
+    """§16g (10) (4) AMENDED (owner RULINGS 2026-09-17t): THE PART IDS OF
+    THE PLACEMENT'S OWN ELEVATED MEMBERS THAT STAND OVER THIS BODY — the
+    parts §15 will merge into this body's file, read at plan time by §15
+    (1) (a)'s own relation (PLAN OVERLAP of the part boxes,
+    ``placement_boxes.parts_overlap``, never the hull).
+
+    They are the leaf's own walls.  A MATERIAL-SLICED pack (HECA's
+    ``Airport/T23/T3_brick_clean.obj``: 138 parts, elevated façade panels
+    with no feet plus 0.49 m ground plinths) puts every ground contact
+    under ``chain_min_height_m`` and every wall out of the candidate pool
+    (``placement_plan`` builds candidates from footed non-elevated groups,
+    ``attach_elevated=False``), so the plinth's OWN pids name no unit and
+    it fell to its own sloping apron — the shell written in pieces 2.34 m
+    apart (RULINGS 2026-09-17s).  Its walls are in the unit; this is how
+    the seat finds them.  The CHAIN is not touched: these pids are read
+    for the SEAT lookup only, never offered to ``_clusters``."""
+    el = getattr(st, "elevated", None) if st is not None else None
+    if not el:
+        return frozenset()
+    mine = list(c.part_boxes) or ([c.box] if c.box else [])
+    if not mine:
+        return frozenset()
+    raw = getattr(st, "raw", ())
+    pbx = getattr(st, "part_boxes", ())
+    out: set[int] = set()
+    for i in sorted(el):
+        if i >= len(raw) or i >= len(pbx):
+            continue
+        if _pb.parts_overlap(pbx[i], mine) > 0.0:
+            out.update(p.pid for p in raw[i][0])
+    return frozenset(out)
+
+
 def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                     surface: _ar.Surface, counts: dict,
                     plan_wide: _t.Mapping[int, tuple],
-                    *, visual_m: float, connector_span_m: float
+                    *, visual_m: float, connector_span_m: float,
+                    cluster_of: "_t.Mapping[int, int] | None" = None,
+                    airside_floor: bool = False
                     ) -> list[Family]:
     """§16g (1)/(2) PLAN-WIDE (owner RULINGS 2026-09-13bw): seat every
     candidate of this pass at the datum ITS PLAN-WIDE UNIT was given.
@@ -609,7 +688,11 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     because the plan's body keys and a staged candidate's ground groups
     are different partitions of the same triangles and the part is what
     both are made of.  A candidate whose pids name no unit (a body
-    touching nothing) is left alone: it seats by §16c as it always did.
+    touching nothing) is left alone: it seats by §16c as it always did —
+    UNLESS §16g (10) (4) as amended by 17t finds the unit through the
+    body's own ELEVATED members (:func:`_elevated_pids_over`), which is
+    the only way a material-sliced pack's plinths can reach the walls
+    standing on them.
 
     §16g (6) (owner RULINGS 2026-09-13cn): an identified CONNECTOR is NOT
     dropped out of the bind.  It is moved onto the seat of the unit its
@@ -626,6 +709,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     expulsion under a new name."""
     counts.setdefault("unit_connectors_cut", 0)
     counts.setdefault("unit_connectors_seated", 0)
+    counts.setdefault("unit_leaf_seated_by_elevated", 0)
     per_uid: dict[str, dict[int, list]] = {}
     info: dict[str, tuple[float, str, str]] = {}
     conn: dict[int, tuple[str, str]] = {}
@@ -637,13 +721,31 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             got = plan_wide.get(q)
             if got is not None:
                 hit[got[0]] = hit.get(got[0], 0) + 1
+        st = by_mi.get(c.member)
+        pids = frozenset(c.pids)
+        if not hit:
+            # §16g (10) (4) AMENDED (owner RULINGS 2026-09-17t, fix A on
+            # the scout's attribution 17s): A LEAF IS STILL NEVER A LINK,
+            # BUT A LEAF SEATS IN THE UNIT ITS OWN ELEVATED MEMBERS
+            # BELONG TO.  The join stays the pid — only the pid SET grows,
+            # by the parts §15 will merge into this body's file.  Read
+            # ONLY where the body's own pids name no unit at all, so no
+            # body that already had a seat can be moved by it.
+            ep = _elevated_pids_over(c, st)
+            for q in ep:
+                got = plan_wide.get(q)
+                if got is not None:
+                    hit[got[0]] = hit.get(got[0], 0) + 1
+            if hit:
+                pids = pids | ep
+                counts["unit_leaf_seated_by_elevated"] = \
+                    counts.get("unit_leaf_seated_by_elevated", 0) + 1
         if not hit:
             continue
         uid = max(sorted(hit), key=lambda k: hit[k])
-        row = plan_wide[next(q for q in sorted(c.pids)
+        row = plan_wide[next(q for q in sorted(pids)
                              if plan_wide.get(q, ("",))[0] == uid)]
         z, where, src = row[1], row[2], row[3]
-        st = by_mi.get(c.member)
         if st is None:
             continue
         cc = _contacts_of(c, st, surface)
@@ -673,20 +775,74 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             counts["unit_all_on_pavement"] = \
                 counts.get("unit_all_on_pavement", 0) + 1
             continue
+        # §16g (2) AMENDED (owner RULINGS 2026-09-17x (1)): THE GRADED
+        # AIRSIDE SURFACE IS A FLOOR UNDER EVERY MEMBER.  Read per
+        # member at its own feet (:func:`_airside_floor`), then RAISED
+        # to the whole RIGID CLUSTER's highest floor, so a body welded
+        # to another at 2 mm can never be written as a step: the pieces
+        # move together or not at all.  A member with no airside foot
+        # keeps the unit datum; a floor at or below the datum changes
+        # nothing.
+        floors = (_cluster_floors(per, surface, cluster_of, zero, counts)
+                  if airside_floor else {})
         out.extend(_seat(cands, by_mi, surface, counts, per, zero, where,
                          src, uid, visual_m,
-                         conn={ci: conn[ci] for ci in per if ci in conn}))
+                         conn={ci: conn[ci] for ci in per if ci in conn},
+                         floors=floors))
+    return out
+
+
+def _cluster_floors(per: _t.Mapping[int, list], surface: _ar.Surface,
+                    cluster_of: "_t.Mapping[int, int] | None",
+                    zero: float, counts: dict) -> dict[int, float]:
+    """``candidate -> the floor its seat must not go below`` (§16g (2) as
+    amended by 17x), already raised to its RIGID CLUSTER's highest.
+
+    The cluster is §16c (7)'s own, published by ``placement_atom.
+    bind_unit`` (``cluster_out``) — never re-derived here.  A candidate
+    the bind put in no cluster is its own cluster of one.  Only floors
+    ABOVE the unit datum are returned; nothing else can move a seat."""
+    own: dict[int, float] = {}
+    for ci, cc in per.items():
+        f = _airside_floor(cc, surface)
+        if f is not None:
+            own[ci] = f
+    if not own:
+        return {}
+    by_cl: dict[int, float] = {}
+    for ci, f in own.items():
+        k = (cluster_of or {}).get(ci, ci)
+        by_cl[k] = max(by_cl.get(k, f), f)
+    out = {}
+    for ci in per:
+        k = (cluster_of or {}).get(ci, ci)
+        f = by_cl.get(k)
+        if f is not None and f > zero:
+            out[ci] = f
+    if out:
+        counts["unit_members_floored"] = \
+            counts.get("unit_members_floored", 0) + len(out)
+        counts["unit_floor_worst_lift_m"] = max(
+            counts.get("unit_floor_worst_lift_m", 0.0),
+            round(max(out.values()) - zero, 3))
     return out
 
 
 def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
           counts: dict, per: _t.Mapping[int, list], zero: float, where: str,
           src: str, uid: str, visual_m: float,
-          conn: "_t.Mapping[int, tuple[str, str]] | None" = None
+          conn: "_t.Mapping[int, tuple[str, str]] | None" = None,
+          floors: "_t.Mapping[int, float] | None" = None
           ) -> list[Family]:
     """Put every candidate of ``per`` on ``zero`` — the one anchor rewrite
     §16f (2) and §16g (2) both take, factored so the per-unit and the
-    plan-wide readings cannot drift apart."""
+    plan-wide readings cannot drift apart.
+
+    ``floors`` (§16g (2) as amended by owner RULINGS 2026-09-17x) raises
+    a member's seat to the graded AIRSIDE surface under its own feet
+    where that stands ABOVE the unit's datum — per RIGID CLUSTER, so
+    welded pieces move together.  Empty in the per-unit path and wherever
+    the sampler carries no face roles."""
     from . import placement_carrier as _pc
     fid = f"{uid}@{src}"
     mems = sorted({cands[ci].member for ci in per})
@@ -697,28 +853,39 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
         c = cands[ci]
         st = by_mi[c.member]
         n_contacts += len(cc)
+        # §16g (2) AMENDED (17x): this member's own seat — the unit's
+        # datum, RAISED to the graded airside floor under its rigid
+        # cluster where that stands higher.  Everything below reads
+        # ``z_i``, so the anchor, the off-plane report and the residual
+        # in the reason are all one number.
+        z_i = max(zero, float(floors[ci])) if (floors and ci in floors) else zero
         _st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
         if (visual_m > 0.0
-                and abs(_median([q[3] - q[2] for q in cc[::_st]]) - zero)
+                and abs(_median([q[3] - q[2] for q in cc[::_st]]) - z_i)
                 > visual_m):
             n_off += 1
-        best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - zero), 6),
+        best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - z_i), 6),
                                       round(abs(q[2]), 6), q[0], q[1]))
         own = best[3] - best[2]
         pair = (conn or {}).get(ci)
         a = _ar.Anchor(
-            c.anchor.body_class, best[0], best[1], best[3] - zero,
+            c.anchor.body_class, best[0], best[1], best[3] - z_i,
             f"{UNIT_REASON} {fid} of {len(mems)} member(s) on "
             + (f"pad {where}" if src in ("pad", "cluster_pad")
                else (f"deck {where}" if src == "deck"
                      else "its median ground"))
-            + f" at {zero:.2f} (own ground {own - zero:+.2f} m)"
+            + f" at {zero:.2f} (own ground {own - z_i:+.2f} m)"
+            + ("" if z_i <= zero else
+               f" — §16g (2)/17x AIRSIDE FLOOR: raised to {z_i:.2f} "
+               f"(+{z_i - zero:.2f} m) with its rigid cluster")
             + ("" if pair is None else
                f" — §16g (6)/(7) CONNECTOR between "
                f"{pair[0] or 'open ground'} and {pair[1] or 'open ground'}, "
                f"seated on its LOW end's contact (no station cut written)"),
             best[3], family=fid,
-            connector_of=("" if pair is None else f"{pair[0]}|{pair[1]}"))
+            connector_of=("" if pair is None else f"{pair[0]}|{pair[1]}"),
+            # §16g (2): a unit seat is NOT a mis-anchored body
+            unit_seat=True)
         grp0 = (st.groups[c.group] if 0 <= c.group < len(st.groups) else ())
         if not grp0:
             continue
@@ -779,8 +946,7 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     pads: _t.Sequence[_ar.PadRing], touch_m: float,
                     cluster_min_m2: float, counts: dict,
                     connector_span_m: float = 0.0,
-                    chain_min_height_m: float = 0.0,
-                    low_side: bool = False
+                    chain_min_height_m: float = 0.0
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
     where, source, connector ends, the HIGH end's own seat), the units'
@@ -813,8 +979,7 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
             if p is not None:
                 out.extend(p.feet)
         return out
-    dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2,
-                           low_side=low_side)
+    dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
     out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
     for un in units:

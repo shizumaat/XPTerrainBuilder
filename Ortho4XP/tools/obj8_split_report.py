@@ -228,6 +228,80 @@ def _near_m(lat0: float, lon0: float, lat: float, lon: float) -> float:
                       (lon - lon0) * 111_320.0 * math.cos(math.radians(lat0)))
 
 
+
+def contact_pairs_near(plan, ss: PP.SplitSet,
+                       near: "tuple[float, float, float]",
+                       step_m: float = 0.5) -> dict:
+    """§16g's CROSS-BODY CONTACT CENSUS, BY PLACE — the instrument the
+    scout ``hecat3split`` used to name HECA Terminal 3's defect (RULINGS
+    2026-09-17s) and the bar owner RULINGS 2026-09-17x (1) states the
+    airside floor in, promoted here on its SECOND use (RULINGS
+    `7e90032`).
+
+    The pack welds parts at ``[placement] contact_eps_m`` (2 mm); the cut
+    may put two welded parts in DIFFERENT bodies, and each body is
+    written at its own zero.  Every such pair is a seam the eye reads.
+    This is a PROJECTION of the same split: it reads the plan's own
+    ε-contact graph (``RebakePlan.contacts``, ``(pid, pid)``) and the
+    bodies' published ``pids`` — nothing is re-derived and no geometry is
+    re-parsed.  Restricted to pairs whose own parts stand within
+    ``near[2]`` metres of ``near[:2]``, because an owner names a defect
+    by coordinate.
+
+    ``{"pairs", "over", "worst", "rows"}``: the pairs inside the radius,
+    how many are written more than ``step_m`` apart, the worst step and
+    the named rows.  Bodies whose zero is OFF-SHEET are excluded — this
+    tool never guesses a surface (§15 (5))."""
+    import math as _m
+    lat0, lon0, rad = near
+    ml, mo = _ar._m_per_deg(lat0)
+    part = {}
+    for u in plan.units:
+        for m in u.members:
+            for q in m.parts:
+                part[q.pid] = (m.resource, float(q.lat), float(q.lon))
+
+    def _d(pid):
+        r = part.get(pid)
+        if r is None:
+            return None
+        return _m.hypot((r[1] - lat0) * ml, (r[2] - lon0) * mo)
+
+    zero_of, name_of = {}, {}
+    for sp in tuple(ss.all):
+        for b in sp.bodies:
+            if b.anchor.surface_z is None:
+                continue
+            z = float(b.anchor.surface_z) - float(b.anchor.y_zero)
+            nm = f"{os.path.basename(sp.resource)} b{b.body_id}"
+            for q in (b.pids or ()):
+                zero_of[q] = z
+                name_of[q] = nm
+    rows, n, worst = [], 0, 0.0
+    for a, b in getattr(plan, "contacts", ()):
+        if a not in zero_of or b not in zero_of:
+            continue
+        if name_of[a] == name_of[b]:
+            continue
+        da, db = _d(a), _d(b)
+        if da is None or db is None or min(da, db) > rad:
+            continue
+        step = abs(zero_of[a] - zero_of[b])
+        worst = max(worst, step)
+        if step > step_m:
+            n += 1
+            rows.append({"a": name_of[a], "b": name_of[b],
+                         "step_m": round(step, 3),
+                         "site_m": round(min(da, db), 1)})
+        else:
+            rows.append(None)
+    pairs = sum(1 for r in rows if r is not None) + rows.count(None)
+    rows = sorted((r for r in rows if r is not None),
+                  key=lambda r: -r["step_m"])
+    return {"pairs": pairs, "over": n, "worst": round(worst, 3),
+            "rows": rows}
+
+
 def census(ss: PP.SplitSet, sampler, band_m: float,
            rows_of: tuple[str, ...] = (),
            near: "tuple[float, float, float] | None" = None) -> dict:
@@ -689,6 +763,16 @@ def _main() -> int:
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--filter", default="", help="only placements whose resource "
                                                  "contains this")
+    ap.add_argument("--airside-floor", action="store_true",
+                    help="arm §16g (2) as amended by owner RULINGS "
+                         "2026-09-17x (1) — the graded airside surface as "
+                         "a FLOOR under every unit member ([placement] "
+                         "airside_floor, which ships false)")
+    ap.add_argument("--contact-pairs", default="", metavar="LAT,LON[,R]",
+                    help="the CROSS-BODY CONTACT census by place: pack "
+                         "contacts (2 mm) whose two parts landed in "
+                         "different bodies, and how far apart the two "
+                         "bodies are written (17s's instrument, 17x's bar)")
     ap.add_argument("--rows-near", default="", metavar="LAT,LON[,R]",
                     help="the SAME per-body rows as --rows, selected by "
                          "PLACE: every body whose ANCHOR is within R "
@@ -802,8 +886,19 @@ def _main() -> int:
              if a.line_segment is None else a.line_segment)
     print(f"  line segments: [placement] line_segment_m {seg_m:g} m "
           f"(cap {rb.line_object_stations_max} stations)")
+    # §16g (2) AMENDED (17x (1)); SHIPS FALSE.  Passed only when ARMED,
+    # so this instrument still drives a `src` that predates the key —
+    # the SIG-DIFF discipline `v2_rebake_replay` already carries, and
+    # without it a base arm cut from an older sha cannot be read by the
+    # same instrument as the lane arm (which is the whole point of a
+    # matched pair).
+    _floor = bool(a.airside_floor
+                  or getattr(_law.tables.structures.placement,
+                             "airside_floor", False))
+    _extra = {"airside_floor": True} if _floor else {}
     _t0 = time.perf_counter()
     ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut,
+                         **_extra,
                          split_tol_m=tol_m,
                          elevated_base_m=rb.elevated_base_m,
                          line_segment_m=seg_m,
@@ -1083,6 +1178,22 @@ def _main() -> int:
     for d, who, lat, lon in cen["worst"][:8]:
         print(f"    {d:7.2f} m  {who}  {lat:.6f},{lon:.6f}")
 
+    cp = None
+    if a.contact_pairs:
+        q = [float(v) for v in a.contact_pairs.split(",")]
+        if len(q) not in (2, 3):
+            raise SystemExit("--contact-pairs takes LAT,LON or LAT,LON,RADIUS_M")
+        cp = contact_pairs_near(plan, ss,
+                                (q[0], q[1], q[2] if len(q) == 3 else 60.0))
+        print(f"\nCROSS-BODY CONTACT PAIRS within "
+              f"{q[2] if len(q) == 3 else 60.0:.0f} m of {q[0]:.7f},{q[1]:.7f}: "
+              f"{cp['pairs']} pack contacts across two bodies, "
+              f"{cp['over']} written more than 0.5 m apart, worst "
+              f"{cp['worst']:.3f} m")
+        for r in cp["rows"][:10]:
+            print(f"    {r['step_m']:7.3f} m  {r['a']} <-> {r['b']}"
+                  f"  site {r['site_m']:.1f} m")
+
     if a.json:
         out = ss.to_dict()
         out["wrote"] = wrote
@@ -1090,6 +1201,8 @@ def _main() -> int:
         out["census"] = {"bins": cen["bins"], "feet": cen["feet"],
                          "placements_over_0_3": cen["placements_over_0_3"],
                          "rows": cen["rows"]}
+        if cp is not None:
+            out["contact_pairs"] = cp
         json.dump(out, open(a.json, "w", encoding="utf-8"))
         print(f"report -> {a.json}")
     return 0

@@ -789,7 +789,7 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
     ramp_pairs = ramp_ways = ramp_vertices = 0
     law_ctx_frame = "context-free GradeContext(centerlines=[], routes=[])"
     try:
-        import auto_patch.grade_graph as _GG
+        from harness.law_support import grade_graph as _GG
         nodes, ways = cg._parse_osm(Path(osm))
         law_ctx = _GG.GradeContext(centerlines=[], routes=[])
         for w in ways:

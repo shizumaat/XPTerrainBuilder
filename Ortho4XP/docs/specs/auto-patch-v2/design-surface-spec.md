@@ -16953,3 +16953,16 @@ paired with the same on the `git archive` base tree
   both named in (3);
 * no harness build of any airport (the closing bar is MEASURED-BY-REPLAY
   per the 17k addendum).
+
+### §47 (4) AMENDED — THE EMITTED RIM GAP KEEPS THE IDENTITY SPACING; THE EXACT BAND IS A PLANAR-CELL ASSERTION (Fable 2026-09-17; RULINGS 2026-09-17m; lane `v2wallface` measurement)
+
+(4) as written — `structure_rim_gap` at the designed band `max(t, F) − materiality` — is not
+satisfiable: the arrangement rounds BOTH rings to the 0.5 m lattice, each vertex up to half a
+cell diagonal toward the other, so the emitted rim-to-floor distance is designed 0.7071 →
+0.500, 1.00 → 0.707, 2.00 → 1.803 (measured through `planar/build`); a bar of `F` minus half a
+diagonal (0.354 m) is weaker than the identity spacing. AMENDED: `verify.structure_rim_gap`
+keeps the identity spacing (the no-fusion invariant (3) exists for — 0 shared rim/floor vertices
+at every rung, the docstring says why); the exact band `max(t, F)` is asserted on the planar
+cells BEFORE the arrangement (`tests/auto_patch_v2/test_v2wallface.py`). Dockets (a)–(c) of
+RULINGS 17m (the thin-shell wall reader, the end-band exclusion, the unpublished residual /
+yield keys) are owed to the OTHH read.

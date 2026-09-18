@@ -42,6 +42,7 @@ from shapely.geometry import Point
 from shapely.strtree import STRtree
 
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel_way, unit
+from .structure_service import airside_cut_roles
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -201,6 +202,11 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
     decks = aeroway_decks(airport, law)
     if not decks:
         return out, parents, notes
+    # §34 (5) (b) AMENDED / §34 (12) (3) AMENDED (owner RULINGS
+    # 2026-09-17x (4)): the protected AIRSIDE set the covered extent
+    # stops at — §34 (12) (3)'s own derivation, imported, never
+    # re-spelled (the census-wrapper precedent).
+    cut_roles = airside_cut_roles(law)
     roads = [w for w in airport.osm_ways
              if (getattr(w, "tags", None) or {}).get("highway") and len(w.points) >= 2
              and not is_tunnel_way(w.tags, tn.admitted_values) and not is_bridge(w)]
@@ -215,9 +221,12 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         # widen the deck up to DECK_CELL_MAX_RATIO × the carriageway.
         # §34 (5) (a) (RULINGS 2026-09-14bp item 1): ONE derivation — the
         # deck CELL's own footprint — read here and by ``_deck_half_width``.
+        grid0 = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
+        stopped: dict[str, int] = {}
         offs, cell_half, n_read, n_refused = _deck_cell(
             axis_fn, ss, cells, polys, half,
-            DECK_CELL_MAX_RATIO * 2.0 * half, law=law)
+            DECK_CELL_MAX_RATIO * 2.0 * half, law=law,
+            cut_roles=cut_roles, grid=grid0, stopped=stopped)
         half = max(half, cell_half)
         # THE MOUTH STANDS INSIDE THE DECK (spec §34 (5) as amended,
         # RULINGS 2026-09-13ai): the clip ribbon is the deck's own
@@ -271,8 +280,13 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                         else f"the centreline ribbon {half_clip:.1f} m (no cell states "
                              f"the deck, §34 (5) (a))")
                      + f", cell {n_read} read / {n_refused} refused over "
-                     f"{DECK_CELL_MAX_RATIO:g}x carriageway): "
-                     f"{n} road(s) bored")
+                     f"{DECK_CELL_MAX_RATIO:g}x carriageway"
+                     + (", the strip STOPPED at a neighbour's pavement "
+                        "(§34 (12) (3) as amended, owner 17x (4)): "
+                        + ", ".join(f"{r} x{k}" for r, k in
+                                    sorted(stopped.items()))
+                        if stopped else "")
+                     + f"): {n} road(s) bored")
     return out, parents, notes
 
 
@@ -370,8 +384,115 @@ def _deck_half_width(axis_fn, ss, cells, polys, half_default: float,
     return half, n_read, n_refused
 
 
+def _far_boundary(p, nv, sgn: float, poly, reach: float = 400.0) -> float | None:
+    """The distance from ``p`` to the FARTHEST point at which the outward
+    normal ray leaves ``poly`` — the far kerb of the cell the ray is
+    standing in.  ``None`` where the ray never meets its boundary."""
+    ray = LineString([p, (p[0] + nv[0] * sgn * reach, p[1] + nv[1] * sgn * reach)])
+    x = ray.intersection(poly.boundary)
+    if x.is_empty:
+        return None
+    ds = [math.hypot(g.x - p[0], g.y - p[1])
+          for g in getattr(x, "geoms", [x]) if g.geom_type == "Point"]
+    return max(ds) if ds else None
+
+
+def _edges_at(p, nv, sgn: float, poly, reach: float = 600.0):
+    """``(the NEAR boundary distance, the FAR one)`` at which the outward
+    normal ray from ``p`` crosses ``poly``'s boundary — the two kerbs of
+    the cell the ray is standing in — or ``None``."""
+    ray = LineString([p, (p[0] + nv[0] * sgn * reach, p[1] + nv[1] * sgn * reach)])
+    x = ray.intersection(poly.boundary)
+    if x.is_empty:
+        return None
+    ds = sorted(math.hypot(g.x - p[0], g.y - p[1])
+                for g in getattr(x, "geoms", [x]) if g.geom_type == "Point")
+    return (ds[0], ds[-1]) if ds else None
+
+
+def _covered_offset(p, nv, sgn: float, kerb: float, strip: float, tree, cells,
+                    polys, deck_cell, cut_roles, grid: float
+                    ) -> tuple[float, str | None]:
+    """§34 (5) (b) AMENDED — A COVERED EXTENT NEVER ENDS INSIDE A
+    NEIGHBOUR'S PAVEMENT; §34 (12) (3) AMENDED — A RAMP PRIMARILY OFF
+    PAVEMENT STOPS AT THE PAVEMENT EDGE (owner RULINGS 2026-09-17x (4);
+    owner 17q item 2, 17v).
+
+    ``(the covered extent's offset from the axis on this side, the ref of
+    the neighbour pavement that moved it or None)``.
+
+    §34 (5) (b) added the deck cell's own GRADED STRIP to each kerb so the
+    trench opens beyond the strip and never inside zone 1 (owner 15e item
+    7).  A strip is GROUND.  At LEMD F-6 the deck cell ``junction/pav157``'s
+    north kerb stands **0.15 m** from way −1230's OSM centreline, so the
+    whole 19.0 m code-E strip was laid on the NEIGHBOUR's pavement
+    ``pav188``: the ramp's mouth opened **14.5 m inside** a 30 m apron
+    band and the rim notched 324 m² out of it — owner 17q item 2, the
+    THIRD read of this one mouth.
+
+    THE AMENDMENT, and it is one sentence: the covered extent may not END
+    INSIDE another airside pavement cell.  Where ``kerb + strip`` lands in
+    one, it moves to the NEARER of that cell's two kerbs along the normal
+    — forward, and the pavement is COVERED and the ramp opens beyond it
+    ("stop at the pavement edge"); or back, and the ramp opens before it
+    and the pavement is never entered.  The mouth therefore always stands
+    on ground or on a pavement's own edge, never in the middle of one.
+
+    THE NEARER EDGE IS WHAT BOUNDS IT, and that was measured: reading
+    "always the far kerb" instead (arm r1) ran LEMD F-6 correctly and then
+    swallowed whole aprons elsewhere — VMMC's underpass −34 grew its
+    ribbon 90,619 → 95,295 m² across ``pav5`` for 1,607 of its 1,614
+    stations and BORED A ROAD THAT WAS NOT BORED BEFORE (VMMC tunnels
+    2 → 4, at the airport whose owner read is "there should be no tunnels
+    cut at VMMC"), and KCLT's ribbons grew the same way.  The nearer-edge
+    rule can never move the extent further out than it would move it back,
+    so a crossing cannot run under an apron it does not pass through.
+
+    Nothing is added BEYOND the neighbour's pavement: the reading is
+    therefore ROLE-BLIND — ``pav188`` as ``apron`` and ``pav188`` re-roled
+    to a TAXI-family role (lane ``v2neckarm``, owner 17x (3)) give the
+    same offset, which is the twin's own parametrisation.
+
+    ``cut_roles`` is ``structure_service.airside_cut_roles`` — §34 (12)
+    (3)'s own protected set, imported and never re-spelled (the
+    census-wrapper precedent).  With none (``_deck_half_width``, which
+    reads the DECK's width alone) the pre-17x reading stands verbatim."""
+    if not cut_roles or strip <= 0.0:
+        return kerb + strip, None
+    target = kerb + strip
+    hit = _airside_at(p, nv, sgn, target, tree, cells, polys,
+                      deck_cell, cut_roles)
+    if hit is None:
+        return target, None                      # the strip stands on ground
+    edges = _edges_at(p, nv, sgn, hit[1])
+    if edges is None:
+        return target, None
+    near, far = max(kerb, edges[0]), edges[1]
+    if far - target <= target - near:
+        return far, hit[0].ref                   # covered: the ramp opens beyond
+    return near, hit[0].ref                      # short: the ramp opens before
+
+
+def _airside_at(p, nv, sgn: float, dist: float, tree, cells, polys,
+                deck_cell, cut_roles):
+    """``(cell, polygon)`` of the AIRSIDE PAVEMENT cell standing ``dist``
+    out along the normal, or ``None`` — the deck cell itself never
+    counts (it is the pavement the crossing is already under)."""
+    q = Point(p[0] + nv[0] * sgn * dist, p[1] + nv[1] * sgn * dist)
+    for j in tree.query(q, predicate="intersects"):
+        c = cells[int(j)]
+        if c is deck_cell or c.kind == "structure" or c.role not in cut_roles:
+            continue
+        if not polys[int(j)].contains(q):
+            continue
+        return c, polys[int(j)]
+    return None
+
+
 def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
-               max_half: float | None = None, law: Law | None = None):
+               max_half: float | None = None, law: Law | None = None,
+               cut_roles: _t.Sequence[str] = (), grid: float = 0.5,
+               stopped: dict | None = None):
     """THE DECK CELL AND ITS HALF-WIDTH ACROSS THE ROAD (spec §34 (5),
     §34 (5) (a)): ``(the admitted cells' union or None, the MEDIAN
     half-width, stations read, stations REFUSED)``.
@@ -410,6 +531,8 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
     ``ramp_pavement_max_offset_m`` test asks whether a pavement TRACES a
     road, and a junction blob's across-axis centre is metres off the
     taxiway centreline it contains."""
+    if stopped is None:
+        stopped = {}
     if not polys:
         return [], half_default, 0, 0
     tree = STRtree(polys)
@@ -470,7 +593,14 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
         # cell the ``DECK_CELL_MAX_RATIO`` gate refuses outright.  The
         # widest reading can therefore never differ from this one.
         strip = strip_half_width_m(law, best_cell) if law is not None else 0.0
-        offs.append((s, best[1] + strip, best[2] + strip))
+        hl, kl = _covered_offset(p, nv, +1.0, best[1], strip, tree, cells,
+                                 polys, best_cell, cut_roles, grid)
+        hr, kr = _covered_offset(p, nv, -1.0, best[2], strip, tree, cells,
+                                 polys, best_cell, cut_roles, grid)
+        for ref in (kl, kr):
+            if ref:
+                stopped[ref] = stopped.get(ref, 0) + 1
+        offs.append((s, hl, hr))
     if not vals:
         return offs, half_default, 0, refused
     vals.sort()

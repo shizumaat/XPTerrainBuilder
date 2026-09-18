@@ -25,11 +25,13 @@ from __future__ import annotations
 import math
 
 import pytest
+import shapely
+from shapely.errors import GEOSException
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from auto_patch_v2.airport import obj8
-from auto_patch_v2.airport.door_wells import read_door_wells
+from auto_patch_v2.airport.door_wells import _union_below, read_door_wells
 from auto_patch_v2.airport.rebake_plan import plan as rebake_plan
 from auto_patch_v2.airport.sunken_roads import read_sunken_roads
 from auto_patch_v2.classify.roles import Classification
@@ -412,3 +414,42 @@ def test_level_or_open_plate_is_not_a_sunken_road(objs, law):
     airport, cache, objects = _read(objs, law, [("road_open", (0.0, 0.0), 0.0, 0.0, "OBJECT")])
     roads, rs = read_sunken_roads(airport, objects, cache, law)
     assert not roads and any("roofed" in r for r in rs.refused), rs.refused
+
+
+# --- lane ``gemltopology`` 2026-09-18: the GEML free-hole abort -------------
+#
+# THE MINIMAL OFFENDER, verbatim from the airport frame of GEML's
+# ``Objects/CartelonAprox.OBJ`` placement ``dsf:obj1484`` (capture
+# 2026-09-18, ``v2_solve_replay --capture GEML``).  ``obj8._clip_component``
+# produced this component's below-ground footprint VALID; the placement's
+# heading affine (``obj8._witness``) rounded it into a self-touching ring
+# that visits ``(-472.3430, 726.5788)`` twice, so GEOS reads a hole with
+# no shell.  ``unary_union`` of this ONE polygon raises
+# ``TopologyException: unable to assign free hole to a shell`` — which is
+# what aborted tile +35-003 in app engine 1.50.1796.
+GEML_FREE_HOLE_WKT = (
+    "MULTIPOLYGON (((-472.29122386010937 726.5434285995657, -472.3470759154321 726.4618118155117, -472.34707591543827 726.4618118155028, -472.29122386010937 726.5434285995657, -472.3429637085204 726.5788367232723, -472.4173308063246 726.4583588605841, -472.3429637085204 726.5788367232723, -472.3737492563175 726.5999047881826, -472.3737492563257 726.5999047881706, -472.3737492563175 726.5999047881826, -473.12484744630154 725.5023226415454, -473.16478067780685 725.4439608764801, -473.08225528159875 725.3874846878632, -472.3220448457465 726.4983870146116, -472.29122386010937 726.5434285995657), (-473.12347190762245 725.4986138831806, -473.12347190762245 725.4986138831806, -473.12347190762245 725.4986138831806, -473.12347190762245 725.4986138831806), (-472.5632672856197 726.1458906865047, -472.56326728565364 726.1458906864551, -472.5632672856819 726.1458906864137, -472.56326728564795 726.1458906864633, -472.5632672856197 726.1458906865047)), ((-470.7288425365336 729.0036182058856, -470.76877346202895 728.9452703936807, -471.47993486651296 727.9060422058022, -471.4480877584559 727.8842476629807, -471.39740947030486 727.8495660171853, -471.3175428518894 727.9662760082008, -471.3175428518894 727.9662760082008, -471.3515285079904 727.9166123853144, -471.3175408525619 727.9662746399626, -470.6463090108902 728.947147840694, -470.7288425365336 729.0036182058856)))"
+)
+
+
+def test_geml_free_hole_sliver_unions_after_repair():
+    """``_union_below`` repairs the contribution; bare ``unary_union`` does not."""
+    g = shapely.from_wkt(GEML_FREE_HOLE_WKT)
+    assert not g.is_valid                      # the transform minted this
+    with pytest.raises(GEOSException, match="unable to assign free hole to a shell"):
+        unary_union([g])
+    u = _union_below([g])
+    # a degenerate sliver repairs to nothing at all -- and NOT to a
+    # buffered line (make_valid also yields lines; only polygons survive)
+    assert u is None or (u.is_valid and u.area < 1e-9)
+
+
+def test_union_below_keeps_the_lawful_members_beside_an_invalid_one():
+    """One invalid member must not delete its family's real footprints."""
+    a = Polygon([(0, 0), (4, 0), (4, 3), (0, 3)])
+    b = Polygon([(3, 0), (7, 0), (7, 3), (3, 3)])
+    bad = shapely.from_wkt(GEML_FREE_HOLE_WKT)
+    u = _union_below([a, bad, b])
+    assert u is not None and u.is_valid
+    assert u.area == pytest.approx(21.0, abs=1e-9)
+    assert _union_below([]) is None

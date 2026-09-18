@@ -311,21 +311,47 @@ def test_the_hook_returns_the_FRAMES_OWN_function_when_not_armed():
         xplat.disarm_projection()
 
 
+def _FakeLaw(quantum_m):
+    """Just enough law for ``tables.input_quantum_m``."""
+    from types import SimpleNamespace as NS
+    return NS(tables=NS(emit=NS(identity=NS(input_quantum_m=quantum_m))))
+
+
 def test_the_quantised_arm_snaps_and_says_so():
     import importlib
     from auto_patch_v2.model.frame import Frame
     _load = importlib.import_module("auto_patch_v2.airport.load")
 
-    frame = Frame("CYXY", (60.7095, -135.0678), 11)
-    xplat.arm_projection(1e-3)
+    # §46: the quantum lives on the FRAME, from law, and the load stage's
+    # ``_vector_to_xy`` IS the entry projection — the recorder only records
+    frame = Frame("CYXY", (60.7095, -135.0678), 11, input_quantum_m=1e-3)
+    exact = Frame("CYXY", (60.7095, -135.0678), 11)
+    x, y = frame.entry()(-135.0, 60.7)
+    assert abs(x * 1000 - round(x * 1000)) < 1e-6, x
+    assert abs(y * 1000 - round(y * 1000)) < 1e-6, y
+    # a frame with no quantum returns the EXACT function UNCHANGED, not a
+    # wrapper that happens to be a no-op
+    assert exact.entry().__name__ == "to_xy"
+
+    xplat.arm_projection()                     # no override: law's value
     try:
+        assert xplat.projection_quantum_override() is None
         wrapped = _load._vector_to_xy(frame)
-        x, y = wrapped(-135.0, 60.7)
-        assert abs(x * 1000 - round(x * 1000)) < 1e-6, x
-        assert abs(y * 1000 - round(y * 1000)) < 1e-6, y
+        qx, qy = wrapped(-135.0, 60.7)
+        assert (qx, qy) == (x, y)              # the recorder alters nothing
+        xplat.record_quantum(1e-3)
         assert xplat.projection_payload("CYXY")["quantise_m"] == 1e-3
     finally:
         xplat.disarm_projection()
+
+    # AND THE ARM IS AN OVERRIDE, INCLUDING AT ZERO (the pre-§46 control)
+    xplat.arm_projection(0.0)
+    try:
+        assert xplat.projection_quantum_override() == 0.0
+        assert _load._entry_quantum(_FakeLaw(0.001)) == 0.0
+    finally:
+        xplat.disarm_projection()
+    assert _load._entry_quantum(_FakeLaw(0.001)) == 0.001
 
 
 def test_the_probe_lattice_reaches_hub_scale_and_is_exactly_representable():
@@ -349,9 +375,25 @@ def test_the_probe_lattice_reaches_hub_scale_and_is_exactly_representable():
     assert origin and abs(float.fromhex(origin[0][2])) < 1e-6
 
 
-def test_the_quantum_is_a_schema_flag_and_is_off_by_default():
+def test_the_quantum_is_law_and_the_arm_is_only_an_override():
+    """§46: the SHIPPED quantum is the law's, read at one site; the dump
+    arm's ``xplat_quantise_m`` is an OVERRIDE and defaults to "no
+    override" — never a second quantiser."""
+    from auto_patch_v2.law import DEFAULT_LAW_DIR, Law, load_tables
+    from auto_patch_v2.law import tables as T
     from auto_patch_v2.pipeline.build import Config
-    assert Config().xplat_quantise_m == 0.0
+    assert Config().xplat_quantise_m is None
+    law = Law(tables=load_tables(DEFAULT_LAW_DIR), ruleset_key="icao")
+    assert T.input_quantum_m(law) == 0.001
+    # ONE quantiser in the tree: the frame's entry projection
+    frame_src = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch_v2",
+                                  "model", "frame.py"), encoding="utf-8").read()
+    assert "def entry(" in frame_src
+    load_src = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch_v2",
+                                 "airport", "load.py"), encoding="utf-8").read()
+    assert "frame.entry()" in load_src
+    assert "round(x / quantum)" not in load_src, \
+        "the load stage must not quantise a second time"
     wrapper = open(os.path.join(_ROOT, "Ortho4XP", "src", "auto_patch",
                                 "engine_v2.py"), encoding="utf-8").read()
     assert "O4_V2_XPLAT_QUANTISE_M" in wrapper and \

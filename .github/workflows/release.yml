@@ -571,10 +571,73 @@ jobs:
             XPTerrainBuilder-*-linux.tar.gz
             XPTerrainBuilder-*-linux.AppImage
 
+  # ── spec §46 (7) THE CROSS-PLATFORM GATE ───────────────────────────────
+  # ONE AIRPORT, ONE PROGRAMME ON EVERY PLATFORM.  The three jobs above
+  # each solve CYXY inside their own frozen bundle and upload the engine's
+  # own per-stage dump; this job is the only place the three can be
+  # compared, and until it existed three GREEN platforms could ship three
+  # different surfaces for one apt.dat (RULINGS 2026-09-17d: 17128x1933 /
+  # 17151x1922 / 17039x1934).  Since §46 every coordinate entering an
+  # airport's frame is quantised to 1 mm at entry, and the three solve one
+  # programme — so a divergence here is a REGRESSION, not the weather.
+  #
+  # It runs on every dispatch as well as every tag: a cross-platform
+  # divergence found at tag time is found an hour too late.  It needs
+  # nothing but the runner's own python3 — check_frozen_tile.py derives no
+  # number, the bundles under test did (and the comparison itself is the
+  # ENGINE's own pipeline/xplat.compare, never re-spelled here).
+  xplat_gate:
+    name: One programme on every platform (§46 (7))
+    needs: [mac, windows, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Each artifact lands at artifacts/<its name>/ — the per-stage dump
+      # the three jobs armed is the xplat/ subdirectory of their logs.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: frozen-tile-logs-*
+          path: artifacts
+
+      - name: What the three platforms uploaded
+        run: |
+          find artifacts -name 'CYXY.*.json' -o -name 'CYXY_auto.patch.osm' \
+            | sort | xargs ls -l
+
+      # Exit 2 on the first thing §46 (7) does not allow: any divergence
+      # at load / partition / classify / planar / shapes, any stage COUNT,
+      # or an emitted artefact that is not byte-identical (the patch's
+      # <osm> header line excluded — it carries the runner's temp path —
+      # and CRLF normalised, which 17g already pinned).  The §46 (6)
+      # residues are printed by name and allowed.
+      - name: The three platforms solved ONE programme
+        run: |
+          python3 scripts/check_frozen_tile.py --gate --compare \
+            mac=artifacts/frozen-tile-logs-mac/xplat/CYXY.xplat.json \
+            linux=artifacts/frozen-tile-logs-linux/xplat/CYXY.xplat.json \
+            windows=artifacts/frozen-tile-logs-windows/xplat/CYXY.xplat.json
+
+      # The exact projection spread beside the verdict: a divergence that
+      # DOES appear should be read against the nanometres PROJ actually
+      # costs, not guessed at from a digest ladder (§46 (2)).  Never a
+      # gate — it is a reading.
+      - name: The exact projection spread (reading, not a gate)
+        if: always()
+        run: |
+          python3 scripts/check_frozen_tile.py --compare-projection \
+            mac=artifacts/frozen-tile-logs-mac/xplat/CYXY.xproj.json \
+            linux=artifacts/frozen-tile-logs-linux/xplat/CYXY.xproj.json \
+            windows=artifacts/frozen-tile-logs-windows/xplat/CYXY.xproj.json \
+            || echo "(the projection reading did not run; not a gate)"
+
   release:
     name: Attach to GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [mac, windows, linux]
+    # ``xplat_gate`` joins the three platform jobs: a release that ships
+    # three different surfaces for one apt.dat is not one build (§46 (7)).
+    needs: [mac, windows, linux, xplat_gate]
     runs-on: ubuntu-latest
     permissions:
       contents: write

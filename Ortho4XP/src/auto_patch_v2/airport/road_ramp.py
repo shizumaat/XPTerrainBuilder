@@ -173,6 +173,14 @@ def _airside_level(pm: PlanarMap, v: int) -> float | None:
     return max(float(z) for z in cands) if cands else None
 
 
+#: §46 (6) (i): decimals the reach-contact argmin compares its DISTANCE
+#: at before falling back to the canonical keys.  A nanometre — three
+#: decades under the coarsest thing this repo calls material and the
+#: decade of the MEASURED cross-platform projection spread (2.1e-9 m), so
+#: it can only ever decide a tie no reading could tell apart.
+_CONTACT_TIE_DP = 9
+
+
 def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                    mouths: _t.Mapping[int, float],
                    frame: _t.Mapping[int, tuple[int, float, float]],
@@ -249,7 +257,26 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                                              if s_ >= items[-1][0] - end_m])):
             if any(abs(m - end_s) <= end_m for m in ms):
                 continue                       # the end already has a mouth
-            best: tuple[float, int, int, float, int] | None = None
+            # §46 (6) (i) THE SELECTION IS A TOTAL ORDER (owner 2026-09-17,
+            # spec §46; measured on release run 35285038635).  This was
+            # ``if d >= best[0]: continue`` — strict improvement, so the
+            # FIRST candidate reached won every tie, and "first" is the
+            # order ``STRtree.query`` returns, which is a compiled GEOS
+            # tree's own.  The comparison also runs ACROSS the group's
+            # vertices, so two road vertices whose own nearest edges are
+            # equidistant decide which of TWO DIFFERENT airside edges the
+            # end anchors on — at CYXY, (−281.0, 151.0) m on Windows
+            # against (−300.5, 120.5) m on mac and Linux, 36 m apart, on
+            # 22 of the 616 ``road_ramp`` rows.  It is not a near-tie in
+            # 36 metres: it is an exact tie in ``d`` resolved by
+            # enumeration order.  So the key is TOTAL — the distance
+            # rounded to the nanometre (below any materiality, and the
+            # decade of the measured cross-platform spread), then the
+            # CANONICAL KEYS of the road vertex and of the edge's two
+            # ends.  No law threshold moves: ``reach_m`` still decides
+            # candidacy and ``d`` still decides the winner wherever it
+            # differs by more than a nanometre.
+            best: tuple[tuple, float, int, int, int] | None = None
             for v in group:
                 if v in mouths:
                     continue
@@ -257,15 +284,18 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                 for i in tree.query(p, predicate="dwithin", distance=reach_m):
                     i = int(i)
                     d = float(segs[i].distance(p))
-                    if best is not None and d >= best[0]:
-                        continue
-                    ln = segs[i]
-                    a, b = ends[i]
-                    u = (ln.project(p) / ln.length) if ln.length else 0.0
-                    best = (d, a, b, float(u), v)
+                    a_, b_ = ends[i]
+                    key = (round(d, _CONTACT_TIE_DP), pm.vertices[v].key,
+                           pm.vertices[a_].key, pm.vertices[b_].key)
+                    if best is None or key < best[0]:
+                        best = (key, d, i, v, 0)
             if best is None:
                 continue
-            _d, a, b, u, at_v = best
+            _key, _d, _i, at_v, _ = best
+            a, b = ends[_i]
+            ln = segs[_i]
+            p = Point(pm.vertices[at_v].xy)
+            u = float((ln.project(p) / ln.length) if ln.length else 0.0)
             n = 0
             for s_, v in items:
                 ds = abs(s_ - end_s)

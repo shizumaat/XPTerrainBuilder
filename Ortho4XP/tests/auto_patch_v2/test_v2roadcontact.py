@@ -331,3 +331,58 @@ def test_the_census_prices_the_ribbon_exactly_as_the_generator_does(law):
         assert cg._road_pair_reading_v2(0.08, 0.015, fa, fb, chord) == \
             road_pair_reading(0.08, 0.015, deg, fa, fb, chord,
                               one_ribbon_m(law))
+
+
+# ── §46 (6) (i) THE SELECTION IS A TOTAL ORDER ──────────────────────────
+
+def test_the_reach_contact_does_not_move_with_the_query_order(law, monkeypatch):
+    """The Windows contact flip (spec §46 (6) (i); measured on release run
+    35285038635: 22 of 616 ``road_ramp`` rows anchored on an airside
+    vertex 36 m away from the one mac and Linux chose, with the inputs
+    made IDENTICAL by the 1 mm quantum — so it is OUR OWN selection, not
+    PROJ).
+
+    The argmin ran over ``d`` alone and kept the FIRST candidate on a tie,
+    and "first" is the order a compiled GEOS ``STRtree`` hands back.  This
+    reverses that order and asserts the answer does not move — the property
+    the total order buys, on any platform's tree.
+    """
+    import shapely.strtree as _st
+
+    base, flipped = {}, {}
+    for out, reverse in ((base, False), (flipped, True)):
+        real = _st.STRtree
+
+        class _Reversed(real):                 # same tree, query reversed
+            def query(self, *args, **kwargs):
+                got = real.query(self, *args, **kwargs)
+                return got[::-1] if reverse else got
+
+        monkeypatch.setattr(_st, "STRtree", _Reversed)
+        _airport_, pm, rep = _near(law, 4.0)
+        out.update(pm.road_contact_edge)
+        monkeypatch.undo()
+
+    assert base, "the fixture must produce at least one reach contact"
+    assert base == flipped, (
+        "the reach contact moved with the STRtree query order: %s"
+        % {v: (base.get(v), flipped.get(v)) for v in set(base) | set(flipped)
+           if base.get(v) != flipped.get(v)})
+
+
+def test_the_reach_contact_tie_break_is_the_canonical_key(law):
+    """The tie-break is the CANONICAL 11-dp lat/lon key (memory
+    ``canonical-identity-join``), not a vertex id, not a coordinate: ids
+    are per-build and a float key would be the same problem one decade
+    down.  The distance is compared at the nanometre first, so the law
+    threshold (``contact_reach_m``) and the distance itself still decide
+    everything a reading could tell apart."""
+    from auto_patch_v2.airport import road_ramp as RR
+    import inspect
+    src = inspect.getsource(RR.reach_contacts)
+    assert "_CONTACT_TIE_DP" in src
+    assert "pm.vertices[v].key" in src and "pm.vertices[a_].key" in src
+    code = "\n".join(line for line in src.splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert "if d >= best[0]" not in code, "the first-wins argmin is back"
+    assert RR._CONTACT_TIE_DP == 9

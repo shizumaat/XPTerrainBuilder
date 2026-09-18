@@ -85,6 +85,7 @@ import argparse
 import array
 import bz2
 import glob
+import hashlib
 import json
 import os
 import re
@@ -765,15 +766,16 @@ def _xplat_env(xplat_dump, quantise_m=None):
     """The CHILD's environment for the cross-platform instrument.
 
     ``O4_V2_XPLAT_DIGEST`` arms the per-stage digests + the exact
-    projection dump; ``O4_V2_XPLAT_QUANTISE_M`` additionally snaps the
-    load stage's projection (the interventional arm).  Both are read once,
-    in ``auto_patch/engine_v2.py``, and handed to the v2 package as schema
-    flags — the package itself never reads an environment.
+    projection dump; ``O4_V2_XPLAT_QUANTISE_M`` OVERRIDES the law's
+    ``emit.identity.input_quantum_m`` for a measurement arm (§46 (4)) —
+    including with ``0``, the pre-§46 UNQUANTISED arm.  Both are read
+    once, in ``auto_patch/engine_v2.py``, and handed to the v2 package as
+    schema flags — the package itself never reads an environment.
     """
     if not xplat_dump:
         return None
     env = {"O4_V2_XPLAT_DIGEST": "1"}
-    if quantise_m:
+    if quantise_m is not None:                 # 0.0 IS an arm, not "off"
         env["O4_V2_XPLAT_QUANTISE_M"] = repr(float(quantise_m))
     return env
 
@@ -788,11 +790,11 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
     and called.  Mesh and imagery would add minutes and prove nothing
     this pass is about.
 
-    ``quantise_m`` runs the INTERVENTIONAL arm (lane ``xplatspread``): the
-    load stage's projected metres are snapped, so every platform is fed
-    identical inputs and what still differs downstream is not the
-    projection.  ``tag`` keeps that arm's logs and dump beside — never on
-    top of — the shipped-path arm's.
+    ``quantise_m`` runs a MEASUREMENT arm at another entry quantum than
+    the law's (§46 (4)) — ``0`` being the pre-§46 unquantised arm, which
+    is what the interventional reading of a §46 residue needs now that the
+    quantum SHIPS.  ``tag`` keeps that arm's logs and dump beside — never
+    on top of — the shipped-path arm's.
     """
     os.makedirs(log_dir, exist_ok=True)
     suffix = ("-" + tag) if tag else ""
@@ -1015,7 +1017,10 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
             copied = []
             for name in ("%s.xplat.json" % AIRPORT_ICAO,
                          "%s.xproj.json" % AIRPORT_ICAO,
-                         "%s.report.json" % AIRPORT_ICAO):
+                         "%s.report.json" % AIRPORT_ICAO,
+                         # §46 (7): the graded surface is one of the two
+                         # artefacts the gate compares BYTE for byte
+                         "%s.graded.json" % AIRPORT_ICAO):
                 for found in glob.glob(os.path.join(
                         data_root, "tmp", "auto_patch_v2", "*",
                         AIRPORT_ICAO, name)):
@@ -1047,7 +1052,61 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
         log_dir, stderr_log, jsonl_log)
 
 
-def _compare(specs, projection=False):
+#: §46 (7) THE GATE'S BAR, and the RESIDUES it names instead of failing on
+#: (spec §46 (6), lane ``xplatquantum``).  Everything not listed here is a
+#: gate failure.  A residue is a line the MEASUREMENT shows the quantum
+#: does not close AND that does not reach the emitted file — the emitted
+#: artefacts are compared byte for byte either way, so a residue that ever
+#: did reach one would fail on that line instead.
+_GATE_RESIDUES = (
+    # (6) (ii): the active set at exit lands on a different face of the
+    # same problem — same rows, same columns, same rounds, 2 nonzeros
+    # apart.  mac (numpy on Accelerate) against linux/windows (numpy on
+    # scipy-openblas).
+    ("lp", "counts.nnz"),
+    # (the constraint rows are NOT a blanket residue — see
+    # ``_ROUNDING_BOUNDARY`` below)
+    # the solved z downstream of (ii); the EMITTED z (1 cm) is compared
+    # by the byte-identity of the patch and of .graded.json.
+    ("solved", "z."),
+)
+
+
+#: A COARSE RUNG MAY DIFFER WHILE THE FINEST ONE AGREES, and that is a
+#: rounding boundary, not a divergence: two values equal to 1e-9 can still
+#: fall either side of the 0.01 rounding.  It is exactly the over-reading
+#: §46 (2) records ("agreement at a coarse rung does not bound a spread,
+#: and disagreement at a fine rung does not establish one"), read the
+#: other way round.  So these ladders are allowed ONLY when their OWN
+#: finest rung agrees — the pre-§46 (6) (i) Windows contact flip differed
+#: at dp9 as well and would still fail here.
+_ROUNDING_BOUNDARY = (("constraints", "rows.", "rows.dp9"),)
+
+
+def _gate_verdict(lines):
+    """§46 (7): which DIFFER lines are a release failure, and which are a
+    NAMED residue.  ``lines`` are the engine's own stage table."""
+    agrees = {(l.split()[0], l.split()[1]) for l in lines if " AGREE" in l
+              and not l.startswith("env ")}
+    fail, residue = [], []
+    for line in lines:
+        if " DIFFER" not in line or line.startswith("env "):
+            continue
+        parts = line.split()
+        stage, metric = parts[0], parts[1]
+        if any(stage == s and metric.startswith(m) for s, m in _GATE_RESIDUES):
+            residue.append(line)
+        elif any(stage == s and metric.startswith(m)
+                 and metric != finest and (stage, finest) in agrees
+                 for s, m, finest in _ROUNDING_BOUNDARY):
+            residue.append(line + "   [a rounding boundary: the finest "
+                                  "rung AGREES]")
+        else:
+            fail.append(line)
+    return fail, residue
+
+
+def _compare(specs, projection=False, gate=False):
     """``--compare mac=A.json linux=B.json windows=C.json``.
 
     With ``projection``, the same call over the ``.xproj.json`` files and
@@ -1077,6 +1136,7 @@ def _compare(specs, projection=False):
               % (path, error), file=sys.stderr)
         return 1
     dumps = {}
+    paths = []
     for spec in specs:
         if "=" not in spec:
             print("ERROR: --compare takes NAME=PATH, not %r" % spec,
@@ -1088,6 +1148,7 @@ def _compare(specs, projection=False):
             return 1
         with open(path, "r", encoding="utf-8") as handle:
             dumps[name] = json.load(handle)
+        paths.append(path)
     if projection:
         print("== the exact projection spread over %d dump(s) (%s) =="
               % (len(dumps), ", ".join(dumps)))
@@ -1103,9 +1164,98 @@ def _compare(specs, projection=False):
               if " DIFFER" in line and not line.startswith("env ")]
     if differ:
         print("\nFIRST DIVERGENT STAGE: %s" % differ[0].split()[0])
+    else:
+        print("\nevery stage AGREES across %d platform(s)." % len(dumps))
+    # The emitted comparison runs EITHER WAY: when a stage differs, the
+    # question "did it reach the shipped file?" is exactly the one worth
+    # answering, and a gate that stops at the first digest cannot answer it.
+    emitted = _compare_emitted(dict(zip(dumps, paths)))
+    if not gate:
+        return 2 if (differ or emitted) else 0
+
+    # ---- §46 (7) THE RELEASE GATE --------------------------------------
+    fail, residue = _gate_verdict(lines)
+    print("\n== §46 (7) GATE ==")
+    for line in residue:
+        print("  residue (§46 (6), named, not a failure): %s" % line.strip())
+    if emitted:
+        print("  FAIL: the emitted artefact is not byte-identical")
+    for line in fail:
+        print("  FAIL: %s" % line.strip())
+    if fail or emitted:
+        print("\nONE AIRPORT, %d PROGRAMMES — the release is not one build."
+              % len(dumps))
         return 2
-    print("\nevery stage AGREES across %d platform(s)." % len(dumps))
+    print("  every stage but the named residues AGREES, and the emitted "
+          "artefacts are BYTE-IDENTICAL: ONE AIRPORT, ONE PROGRAMME.")
     return 0
+
+
+#: §46 (7): the artefacts whose BYTES the gate compares, beside each
+#: dump.  ``header_prefix`` names a leading line that is per-runner and is
+#: excluded — the patch's ``<osm>`` element carries the fixture's temp
+#: path.  A file absent on EVERY platform is skipped (an older bundle);
+#: absent on SOME is a DIFFER, because that is a real asymmetry.
+_EMITTED = (("%s_auto.patch.osm" % AIRPORT_ICAO, "<osm"),
+            ("%s.graded.json" % AIRPORT_ICAO, None))
+
+
+def _compare_emitted(paths):
+    """Byte identity of the emitted artefacts (§46 (7)), over the dump
+    directories the stage table was just read from.
+
+    Not a second spelling of the stage comparison: the stage table is the
+    ENGINE's own digest of its own products, and this is the shipped FILE,
+    which is the thing a user's scenery folder actually receives.
+    """
+    status = 0
+    for name, header_prefix in _EMITTED:
+        found, digests, crlf = {}, {}, set()
+        for platform, dump in paths.items():
+            candidate = os.path.join(os.path.dirname(dump), name)
+            if not os.path.isfile(candidate):
+                continue
+            with open(candidate, "rb") as handle:
+                body = handle.read()
+            # LINE ENDINGS ARE NOT THE PROGRAMME (§46 (6) (iii); RULINGS
+            # 2026-09-17g pinned ``newline="\n"`` at 29 writers, so this
+            # should be a no-op — it is kept because the bar is about the
+            # SURFACE, and a CR would otherwise mask it.
+            if b"\r\n" in body:
+                crlf.add(platform)
+                body = body.replace(b"\r\n", b"\n")
+            if header_prefix is not None:
+                body = b"".join(
+                    line for line in body.splitlines(True)
+                    if not line.lstrip().startswith(header_prefix.encode()))
+            found[platform] = len(body)
+            digests[platform] = hashlib.sha256(body).hexdigest()
+        if not found:
+            print("%-26s SKIP    (no platform wrote one)" % name)
+            continue
+        missing = [p for p in paths if p not in found]
+        agree = len(set(digests.values())) == 1 and not missing
+        print("%-26s %s  %s%s"
+              % (name, "AGREE  " if agree else "DIFFER ",
+                 ", ".join("%s %s/%d B" % (p, digests[p][:12], found[p])
+                           for p in sorted(found)),
+                 ("  MISSING on " + ", ".join(sorted(missing))) if missing
+                 else ""))
+        if crlf:
+            print("%-26s NOTE    CRLF normalised on %s (17g pinned the "
+                  "writers; a CR here is a REGRESSION worth a line in the "
+                  "lane report, not a divergence of the surface)"
+                  % ("", ", ".join(sorted(crlf))))
+        if not agree:
+            status = 2
+    if status:
+        print("\nTHE EMITTED ARTEFACT IS NOT BYTE-IDENTICAL "
+              "across the platforms (§46 (7)).")
+    else:
+        print("every emitted artefact is BYTE-IDENTICAL "
+              "(the patch's <osm> header line excluded — it carries the "
+              "runner's temp path).")
+    return status
 
 
 def main(argv):
@@ -1133,13 +1283,16 @@ def main(argv):
                              "the three platforms' dumps are then diffed "
                              "with --compare" % AIRPORT_ICAO)
     parser.add_argument("--xplat-quantise", dest="xplat_quantise",
-                        type=float, default=1e-3,
+                        type=float, default=None,
                         help="with --xplat-dump, ALSO solve the airport a "
-                             "second time with the load stage's projection "
-                             "snapped to this many metres (default 1e-3), "
-                             "writing into <dump>/quantised; 0 disables. "
-                             "Never a gate — the arm's outcome is printed "
-                             "and discarded")
+                             "second time with the ENTRY quantum overridden "
+                             "to this many metres, writing into "
+                             "<dump>/quantised. Since spec §46 the quantum "
+                             "SHIPS (emit.identity.input_quantum_m = 1 mm), "
+                             "so the useful arm is 0 = the pre-§46 "
+                             "UNQUANTISED control; omitted, no second arm "
+                             "runs. Never a gate — the arm's outcome is "
+                             "printed and discarded")
     parser.add_argument("--compare-projection", dest="compare_projection",
                         nargs="+", default=None,
                         help="NAME=PATH … : print the exact cross-platform "
@@ -1149,6 +1302,14 @@ def main(argv):
                              "and the straddle counts at 1e-4/1e-3/1e-2 m) "
                              "over %s.xproj.json files written by "
                              "--xplat-dump, and exit" % AIRPORT_ICAO)
+    parser.add_argument("--gate", action="store_true",
+                        help="with --compare, apply spec §46 (7)'s RELEASE "
+                             "bar instead of the human one: the named §46 "
+                             "(6) residues are printed and allowed, "
+                             "everything else — any divergence at load / "
+                             "partition / classify / planar / shapes, any "
+                             "count, and any difference in the EMITTED "
+                             "artefacts — fails with exit 2")
     parser.add_argument("--compare", nargs="+", default=None,
                         help="NAME=PATH … : print the per-stage AGREE/"
                              "DIFFER table over dumps written by "
@@ -1159,7 +1320,7 @@ def main(argv):
         return _compare(arguments.compare_projection, projection=True)
 
     if arguments.compare:
-        return _compare(arguments.compare)
+        return _compare(arguments.compare, gate=arguments.gate)
 
     if not arguments.binary:
         print("ERROR: a frozen binary is required (only --compare runs "
@@ -1188,15 +1349,16 @@ def main(argv):
         status |= run_airport(binary, repo_root, log_dir,
                               arguments.airport_deadline, arguments.keep,
                               xplat_dump=dump)
-        # ---- THE INTERVENTIONAL ARM (lane ``xplatspread``) -------------
-        # A SECOND solve of the same airport with the load stage's
-        # projection snapped, so the three platforms are fed identical
-        # inputs.  It is an INSTRUMENT, never a gate: its outcome is
-        # printed and DISCARDED, because a release must not go red over a
-        # measurement arm.  It runs only when a dump was asked for.
-        if dump and arguments.xplat_quantise:
+        # ---- THE MEASUREMENT ARM (lane ``xplatspread``; re-pointed by
+        # ``xplatquantum``) --------------------------------------------
+        # A SECOND solve of the same airport at a DIFFERENT entry quantum
+        # than the law's — ``0`` being the pre-§46 unquantised control.
+        # It is an INSTRUMENT, never a gate: its outcome is printed and
+        # DISCARDED, because a release must not go red over a measurement
+        # arm.  It runs only when a dump AND an override were asked for.
+        if dump and arguments.xplat_quantise is not None:
             print("== PASS 2b (instrument, NOT a gate): %s again with the "
-                  "load projection snapped to %g m =="
+                  "ENTRY quantum overridden to %g m =="
                   % (AIRPORT_ICAO, arguments.xplat_quantise))
             try:
                 second = run_airport(

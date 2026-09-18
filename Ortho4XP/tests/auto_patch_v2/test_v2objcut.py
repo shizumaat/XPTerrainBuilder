@@ -231,6 +231,9 @@ def test_the_publication_carries_the_object_cut_witness(law):
             return (lambda la, lo: (0.0, 0.0),
                     lambda x, y: (22.0 + y / 111_320.0, 113.0 + x / 103_000.0))
 
+        def entry(self):
+            return self.transformers()[0]
+
     class _Airport:
         frame = _Frame()
 

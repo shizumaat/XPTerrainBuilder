@@ -21,7 +21,7 @@ __all__ = [
     "pavement_roles", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
     "runway_end_zone_length_m", "family", "families_for_role",
-    "chord_cap_m", "identity_dp", "materiality_m", "snap_margin_m",
+    "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
     "is_governed", "governed_roles", "ungoverned_roles", "tiers", "role_tier",
     "tier_of_roles", "role_preferred_cap",
@@ -484,6 +484,14 @@ def chord_cap_m(law: Law, role: str) -> float:
 def identity_dp(law: Law) -> int:
     """Decimal places of the canonical lat/lon identity key."""
     return law.tables.emit.identity.coordinate_dp
+
+
+def input_quantum_m(law: Law) -> float:
+    """§46 (4) THE INPUT QUANTUM: the grid a coordinate entering the
+    airport's metric frame from OUTSIDE is snapped to, once, at
+    :meth:`~...model.frame.Frame.entry`.  ``0.0`` disables it (a
+    measurement arm only)."""
+    return float(law.tables.emit.identity.input_quantum_m)
 
 
 def snap_margin_m(law: Law) -> float:

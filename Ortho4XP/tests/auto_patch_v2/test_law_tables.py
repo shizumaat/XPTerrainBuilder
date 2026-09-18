@@ -525,6 +525,8 @@ def _mutated(tmp_path, fname, old, new):
     ("emit.toml", "coordinate_dp           = 11",
      "coordinate_dp           = 11\nbogus = 1", "unknown key"),
     ("emit.toml", "coordinate_dp           = 11     #", "#", "missing"),
+    # §46 (4) the input quantum is LAW, not a default in a module
+    ("emit.toml", "input_quantum_m         = 0.001  #", "#", "missing"),
     ("rulesets.toml", "apron_fan_ramp_max = 0.050", 'apron_fan_ramp_max = "5%"',
      "expected a number"),
     ("rulesets.toml", "apron_fan_ramp_max = 0.050", "apron_fan_ramp_max = 5.0",
@@ -578,3 +580,15 @@ def test_accessors(tables):
     faa = Law(tables=tables, ruleset_key="faa")
     assert T.runway_end_zone_length_m(faa, 4000.0) == \
         v1.FAA_RULESET.runway_end_zone_max_length_m
+
+
+def test_input_quantum_is_law(tables):
+    """§46 (4): the entry grid is a LAW value, 1 mm, and it is NOT the
+    identity — ``coordinate_dp`` does not move with it."""
+    law = Law(tables=tables, ruleset_key="icao")
+    assert T.input_quantum_m(law) == 0.001
+    assert T.identity_dp(law) == 11
+    # finer than the planar lattice by three decades: an input moves by at
+    # most half the quantum against ``min_distinct_spacing_m``
+    assert T.input_quantum_m(law) * 1000 <= \
+        tables.emit.identity.min_distinct_spacing_m * 2

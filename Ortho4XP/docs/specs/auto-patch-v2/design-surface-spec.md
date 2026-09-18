@@ -16462,3 +16462,165 @@ build and one CYXY, verify family table and ADJUDICATED census before/after, eve
 family that moves by > 1 % named. Registered captures and coordinate-literal pins
 (`repro_cut`) predate the quantum: a capture replays under the CURRENT tree and says
 so; a pin that no longer matches refuses BY NAME (R5), which is the right failure.
+
+**(9) MEASURED — THE CONSUMER CENSUS (§46 (5), RULINGS 2026-08-30l; lane `xplatquantum`,
+base `6c8dfe71`, taken BEFORE any consumer was edited).** Every caller of
+`Frame.transformers()`, of a `to_xy` derived from it, and of `airport/load._vector_to_xy`,
+plus the two places outside `Frame` that build their own forward tmerc on the frame's CRS.
+Ruled ONE of: **ENTRY** (an input-domain coordinate — switch to the entry projection),
+**EXACT** (our own geometry, a derived constant, a diagnostic query point or the
+instrument — leave the exact projection), **INVERSE** (`to_ll` only — nothing to rule).
+
+FORWARD, INSIDE THE FRAME (14 production sites):
+
+| # | site (file:line) | what it projects | ruling |
+|---|------------------|------------------|--------|
+| 1 | `airport/load.py:572` `_vector_to_xy` (used at `:251`) | EVERY apt.dat runway end, pavement/boundary ring, taxi node and startup; every OSM way point; every DSF `.pol` / `.fac` ring and object anchor — the whole load stage | **ENTRY** |
+| 2 | `airport/borrow.py:158` `_to_xy` → `coverage_of:190` | §44 (2): the row-110 pavement rings of the CUSTOM and the GLOBAL apt.dat blocks, unioned for the coverage ratio | **ENTRY** |
+| 3 | `airport/pack_partition.py:681` `frame_xy` | contract is "the plan's coordinates are degrees" — the pack plan's placement lat/lon. ZERO callers in the whole tree (grepped `src`, `tools`, `scripts`, `tests`): a public helper standing ready to re-found the defect | **ENTRY** |
+| 4 | `classify/evidence.py:496` → `geom/cluster_outline.py:144` | `Cluster.rings` = `airport/placement_family.Part.rings`, the OBJ8 footprint ring in `(lat, lon)` under a DSF placement | **ENTRY** |
+| 5 | `constraints/cluster_pad.py:162` → the same `cluster_outlines` | the same ring population, read a second time for the pad census | **ENTRY** |
+| 6 | `constraints/foot_rows.py:276` (used `:285`, and `:353-355` `_sampler` → `:314`) | `planar/group.Foot.lat/lon` = `Part.feet`, the OBJ8 ground-contact vertices of a DSF placement. §46 (5) asked this be VERIFIED: **VERIFIED, production feet ARE input-domain** — `_feet_of` (`planar/group.py:278-285`) reads `Part.feet` / `Part.lat,lon` straight off `airport/contact._feet`, which is authored OBJ8 geometry under a parsed DSF anchor. `:276` is NOT fixture-only | **ENTRY** |
+| 7 | `constraints/pad_relief.py:91` (used `:118`) | the same `Foot` population, projected for the §11a (2) relief targets. `:118` is likewise NOT fixture-only | **ENTRY** |
+| 8 | `pipeline/build.py:430` `_to_xy` → `_dem_at:432-433` → `_derive_groups(dem_at=…):445` | the `(lat, lon)` handed to `_dem_at` are those same feet — the §11b (3) feasibility verdict samples the DEM under each foot | **ENTRY** |
+| 9 | `pipeline/build.py:1031` `_to_xy` → `emit/rebake.py:49` `to_xy(sv.ll[1], sv.ll[0])` | `sv` is a **SOLVED SURFACE** vertex; its `ll` is the exact inverse of our own `xy`. Quantising here would break `to_xy(to_ll(xy)) == xy` — the exact conflict §46 (4) (b) exists to avoid | **EXACT** |
+| 10 | `planar/overlay.py:942` `seam_bands` (via `_degree_offset:902-913`, `_xy_at:952-965`) | the INTEGER graticule lines and §38 (3) / 13an's one Newton step **against the round trip**. Not an entering coordinate, and a quantised forward would put a 0.5 mm floor under a correction whose whole claim is "well under a millimetre" — the SPLP hairline crack class | **EXACT** |
+| 11 | `classify/explain.py:83` `shape_polygon` | the lat/lon of a way in a SHIPPED PATCH — our own emitted geometry, read back by a diagnostic | **EXACT** |
+| 12 | `pipeline/__main__.py:251` (`--at`) | a human query coordinate in the classify CLI; decides nothing in a build | **EXACT** |
+| 13 | `pipeline/why.py:131` (`resolve_faces(at=…)`) | the same class — the `why` CLI's query point | **EXACT** |
+| 14 | `pipeline/xplat.py:463` | THE INSTRUMENT. It must record the RAW projection and its own lattice probe, or §46 (2)'s spread measurement measures the quantum instead of PROJ | **EXACT** |
+
+FORWARD, OUTSIDE THE FRAME — a second spelling of the tmerc on the frame's own CRS (2):
+
+| # | site | what it projects | ruling |
+|---|------|------------------|--------|
+| 15 | `airport/dem.py:188-192` `Dem.bounds()` | the four INTEGER corners of the 1° base tile, giving the fallback membership box read at `airport/road_profile.py:424`. A derived constant, never a coordinate in the layout | **EXACT** |
+| 16 | `airport/dem_production.py:275` `self._fwd`, used at `:291` (the same integer tile box) and at **`:522`** | `:522` projects the WATER-MASK POLYGONS of the tile's water source — genuinely **input-domain** vector data | **ENTRY** — but **NOT SWITCHED THIS ROUND**: `dem_production.py` is lane `insetbounds`'s file. Recorded here as the census's one open consumer; it is not exercised by §46 (7)'s CYXY bars |
+
+INVERSE-ONLY (`to_ll`; nothing enters the frame, no change) — 23 sites:
+`airport/dem.py:177`, `airport/dem_production.py:274`, `airport/door_wells.py:271`,
+`airport/pack_partition.py:427` + `:471`, `airport/rebake_plan.py:224`,
+`airport/sunken_roads.py:284`, `airport/wall_corridors.py:575`, `classify/explain.py:60`,
+`classify/roles.py:291`, `constraints/cluster_pad.py:345`, `emit/bank.py:738`,
+`pipeline/publication.py:113`, `:373`, `:611`, `:710`, `pipeline/why.py:273`,
+`planar/__main__.py:318`, `planar/basins.py:861` + `:866`, `planar/build.py:335`,
+`planar/channel.py:714`, `planar/index.py:70`, `planar/shapes.py:910`.
+
+NON-PRODUCTION (`tools/`, `tests/`, `scripts/`): every forward use is a diagnostic or a
+fixture over geometry the build already produced — `tools/v2_solve_replay.py:388`, `:428`,
+`:702`, `:968`, `tools/pad_airside_arm.py:143`, `tools/patch_proximity_diff.py:87`, `:126`,
+`tools/rwy_profile.py:85`, and the test files. **EXACT**, all of them: an instrument that
+quantised would no longer read what the build reads.
+
+THE CONSEQUENCE, STATED ONCE. The ENTRY set is exactly the **apt.dat / OSM / DSF+OBJ8**
+domain, and it reaches the frame through four populations: the load stage's vectors (1, 2, 3),
+the pack's footprint rings (4, 5), the pack's feet (6, 7, 8) and the tile's water polygons
+(16, deferred). Nothing our own solve produced is quantised, so `to_xy(to_ll(xy)) == xy`
+holds everywhere it held before and the 52 `identity_dp=11` test files stand (§46 (4) (b)).
+
+**(10) MEASURED — THE QUANTUM SHIPPED (lane `xplatquantum`, branch
+`claude/xplatquantum` `0992d747`, base main `6c8dfe71`).**
+
+**(a) THE BARS OF (7), on the three runners, quantum SHIPPED (no `--xplat-quantise`).**
+Release run **35290612194** (`--ref claude/xplatquantum`, all four jobs green; round 1 was
+35288457711 on `5ff0392f`). CYXY through the frozen release check, the three runners' own
+dumps, read by `scripts/check_frozen_tile.py --gate --compare`:
+
+| bar (§46 (7)) | measured | met |
+|---|---|---|
+| every stage digest AGREES at every rung on every pair | load / partition / classify / planar / **shapes**: every rung, every pair. `constraints` COUNTS agree (73,528 rows; pins 8, diffs 58,817, bands 1,982, linears 12,721) and `rows.dp1/dp4/dp6/dp9` agree — only `rows.dp2` differs | **NO, and the residue is named**: `constraints rows.dp2`, `lp counts.nnz`, `solved z.dp4/6/9` |
+| LP rows × cols and rounds identical | **17289 × 1918, 254 rounds, 11,886 active, 3,349 one-way rows, 4,267 z, 7,087 triangles — identical on all three.** `nnz` 16889 (mac) / 16887 / 16887 | **MET** except `nnz` = (6) (ii) |
+| the `road_ramp` rows identical | `road_ramp` vertices 286 / targets 286 / mouths 36 / on_dem 262 / on_ramp 24 / cap 0.08 and **`reach_contacts` 9, `reach_governed` 128, every `reach_ends` entry (edge, `u`, `at`, `governs`) identical on all three** | **MET — (6) (i) CLOSED** |
+| the emitted patch body BYTE-IDENTICAL (`<osm>` header excluded) | `301280a0e02e`, **830,345 B on all three** | **MET** |
+| `.graded.json` byte-identical | `8fca48a23fb0`, **266,679 B on all three** | **MET** |
+| emitted z cross-platform differences 0 | carried by the two byte-identity rows above | **MET** |
+| (6) (iii) line endings | `\r\n` = 0 in the Windows patch and graded file (the gate normalises CRLF and would NAME a CR as a 17g regression; it named none) | **MET** |
+| `--compare` is a GATE in `release.yml` | job `xplat_gate`, needs the three platform jobs, downloads the three `frozen-tile-logs-*`; the `release` job needs IT | **MET** |
+
+`constraints rows.dp2` is allowed by the gate ONLY because `rows.dp9` AGREES: values equal
+to a nanometre can still fall either side of the 0.01 rounding. That is §46 (2)'s
+over-reading, read the other way round, and it is a rule, not an exception — the pre-fix
+Windows flip differed at dp9 too and still fails.
+
+**(b) ATTRIBUTION OF (6) (i), THE WINDOWS CONTACT FLIP — CLOSED.** Interventional, and the
+intervention was already in the artefacts: in lane `xplatspread`'s 1 mm arm (run
+35285038635, `quantised/`) every stage through `shapes` agrees on all three — the inputs
+ARE identical — and `constraints rows.dp1` **still** shows Windows apart from mac == linux.
+A divergence at the 0.1 m rung from identical inputs is not PROJ and not the load stage: it
+is our own selection. `airport/road_ramp.reach_contacts` kept the FIRST candidate on a tie
+(`if d >= best[0]: continue`), and "first" is the order a compiled GEOS `STRtree.query`
+returns; the comparison also ranges ACROSS the group's vertices, so an EXACT tie in `d`
+between two road vertices picks between two airside edges 36 m apart — which is why the flip
+was never a near-tie in distance. The key is now TOTAL: `d` rounded to the nanometre
+(`_CONTACT_TIE_DP` = 9), then the CANONICAL 11-dp keys of the road vertex and of the edge's
+two ends. No law threshold moves. Twins: the contact does not move when the `STRtree` query
+order is reversed; the first-wins argmin cannot come back.
+
+**(c) ATTRIBUTION OF (6) (ii), `lp.nnz` — NOT A STRUCTURAL ZERO, AND NOT A DECISION; RECORDED.**
+The hypothesis in (6) (ii) — a structural zero kept or dropped on a sign of ±0.0 — is
+REFUTED by the counts: rows 17,289, columns 1,918, **active 11,886** and rounds 254 are
+IDENTICAL on all three while `nnz` is 16,889 / 16,887 / 16,887. The reported matrix is
+`solve/design._stack(active_i)` — the base rows plus the ACTIVE one-sided rows — so an
+identical active COUNT with two more nonzeros means the active SET landed on a different
+row of a different arity: the augmented-Lagrangian exit chose another face of the same
+problem, its rows are `A1 @ x - (b1 - shift) > tol`, and `x` differs in its last bits.
+The split is mac against linux+windows, which is exactly the split of
+`numpy_blas: accelerate | scipy-openblas | scipy-openblas` (PROJ can no longer be the
+cause — `load` agrees at dp9). It **decides nothing**: the emitted patch body and
+`.graded.json` are byte-identical on all three. Per (6) (ii) — "fix only if it is a
+decision, else record it" — it is RECORDED, and it is the gate's one standing count
+residue.
+
+**(d) THE PRICE OF (8), MEASURED.** One harness HECA build and one CYXY, base main
+`6c8dfe71` against `claude/xplatquantum`, one corpus, `[harness] shared repo UNCHANGED` on
+all four:
+
+| | base (main `6c8dfe71`) | lane (quantum) | Δ |
+|---|---|---|---|
+| **HECA** | rc 0, 393.2 s, 1,954 ways / 32,314 nodes, optimal, `0696f7810bf4`, verify 29,391 | rc 0, 319.1 s, 1,961 ways / 32,469 nodes, optimal, `3d01fc6270a9`, verify 29,992 | |
+| HECA census law-true | 63,820 | 64,480 | +660 |
+| HECA **ADJUDICATED** | 22,885 | 23,592 | **+707, +3.1 %** |
+| **CYXY** | rc 0, 13.2 s, 268 ways / 4,335 nodes, optimal, `e1b9e0e9cc19`, verify 311 | rc 0, 13.0 s, 268 ways / 4,330 nodes, optimal, `ad542d0955b3`, verify 335 | |
+| CYXY census law-true | 1,101 | 1,104 | +3 |
+| CYXY **ADJUDICATED** | 368 | 384 | **+16, +4.3 %** |
+
+Families moving by more than 1 % — HECA WORSE: `adjacent_ground_step` 13 → 15 (+15.4 %),
+`plane_gradient` 13 → 14 (+7.7 %), `hairline_pair` 1,403 → 1,464 (+4.4 %),
+`airside_no_step` 6,793 → 6,934 (+2.1 %), `taxi_box` 3,863 → 3,920 (+1.5 %); HECA BETTER:
+`strip_arc` 1 → 0, `road_cross_section` 132 → 120 (−9.1 %), `pad_airside_weld` 15 → 14
+(−6.7 %), `pad_airside_renode` 43 → 42 (−2.3 %), `transverse` 1,082 → 1,069 (−1.2 %).
+CYXY WORSE: `road_cross_section` 15 → 16, `within_shape` 980 → 990 (+1.0 %); CYXY BETTER:
+`airside_no_step` 18 → 16 (−11.1 %), `hairline_pair` 23 → 21 (−8.7 %), `transverse`
+41 → 38 (−7.3 %), `taxi_box` 17 → 16.
+
+**This is more than (8)'s "census counts within a few rows", and it is reported as it
+stands, not explained away.** What can be said from the numbers: the movement is two-sided
+in every family group at both airports, HECA carries 22,885 adjudicated rows AT BASE (an
+airport whose problem is deeply infeasible, where the solve's landing is chaotic in the
+inputs), and no input moved by more than 0.5 mm against a 0.5 m lattice. What cannot be
+said from the numbers is that the surface is better or worse to a pilot; that is the sim
+read, and the owner's.
+
+**(e) A DEFECT THE QUANTUM EXPOSED, AND IT IS NOT THE QUANTUM'S.** The first HECA build on
+the branch DIED in the classify stage: `TopologyException: side location conflict at
+-528.19972125802042 2223.0072125802039`. Attributed at the site: `classify/roles.
+_junction_letter`'s `part` is VALID and `part.buffer(rules.cells.on_tol_m)` is NOT
+("Self-intersection", at exactly that coordinate), so the next `intersection` raises rather
+than answering. GEOS's buffer of a valid polygon can self-intersect where the ring turns
+sharply inside the offset; the quantum only moved the vertex that made this one cross.
+Repaired with the canonical zero-width buffer at the one site, and INERT wherever the
+buffer is valid — CYXY's `body_sha` is `ad542d0955b3` before and after it. REFUTED FIRST,
+and deleted: that the quantum collapses two apt.dat coordinates (8 decimals ≈ 1.1 mm) onto
+one 1 mm point and leaves a zero-length segment in a load ring — dropping consecutive
+duplicates at `_ring` and both polyline builders left HECA failing at the same coordinate.
+
+**(f) THE IDENTITY DID NOT MOVE, AS (4) (b) SAYS.** None of the 52 `identity_dp=11` test
+files needed touching. The only tests that changed are four DUCK-TYPED fixture `_Frame`
+stubs that carried `transformers()` and no `entry()` — not Frames, and a fixture frame has
+no law quantum, so their entry projection is the exact one. Standing suite on the lane
+tree: **1,929 passed, 2 skipped, 1 xpassed, 0 FAILED.**
+
+**(g) NOT DONE.** Census row 16, `airport/dem_production.py:522` — the tile's WATER-MASK
+polygons are input-domain and are still projected EXACTLY, because that file belongs to
+lane `insetbounds` this round. It is not exercised by (7)'s CYXY bars. It is the census's
+one open ENTRY consumer.

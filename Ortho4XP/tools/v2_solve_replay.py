@@ -1498,6 +1498,18 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         print(f"[{icao}] capture predates {len(missing)} PlanarMap channel(s), "
               f"backfilled at their defaults: {', '.join(f.name for f in missing)}")
     law = Law.for_airport(icao)
+    # A CAPTURE PREDATING §46's INPUT QUANTUM says so (spec §46 (8)): its
+    # Frame carries no ``input_quantum_m``, so every ENTRY projection in
+    # the replay (the pack's rings and feet — the load stage is already
+    # in the pickle) is EXACT, i.e. the pre-§46 law.  It is NOT
+    # backfilled: the pickle's own coordinates were produced without the
+    # quantum and a half-quantised replay would be neither law.
+    _fr = getattr(airport, "frame", None)
+    if _fr is not None and "input_quantum_m" not in getattr(_fr, "__dict__", {}):
+        from auto_patch_v2.law.tables import input_quantum_m as _iq
+        print(f"[{icao}] capture predates §46's input quantum — this replay's "
+              f"ENTRY projections are EXACT (the pre-§46 law), not "
+              f"{_iq(law):g} m")
     # A CAPTURE PREDATING THE CLUSTERS derives them HERE, off its own
     # partition, and says so — the same "the publisher derives the
     # channel in the replay anyway" rule as the PlanarMap backfill above.

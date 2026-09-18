@@ -33,6 +33,7 @@ import re
 from typing import overload
 
 from shapely.errors import GEOSException, TopologicalError
+from shapely.geometry import Polygon
 
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
@@ -338,3 +339,36 @@ def pair_runways(runways: dict) -> list:
         else:
             pairs.append((desig, data, None, None))
     return pairs
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Runway rects
+# ──────────────────────────────────────────────────────────────────────
+
+def _runway_rect_m(runway, to_m) -> Polygon:
+    """4-vertex runway rect spanning end-to-end including blast pads.
+
+    Targets are drawn with blast pads included (matches how the
+    runway paint looks in satellite imagery).
+    """
+    ax, ay = to_m(runway.lon_a, runway.lat_a)
+    bx, by = to_m(runway.lon_b, runway.lat_b)
+    dx, dy = bx - ax, by - ay
+    mag = math.hypot(dx, dy)
+    if mag < 1e-9:
+        return Polygon()
+    ux, uy = dx / mag, dy / mag
+    a_extra = runway.blast_a_m or 0.0
+    b_extra = runway.blast_b_m or 0.0
+    ax2 = ax - ux * a_extra
+    ay2 = ay - uy * a_extra
+    bx2 = bx + ux * b_extra
+    by2 = by + uy * b_extra
+    px, py = -uy, ux
+    half = runway.width_m / 2.0
+    return Polygon([
+        (ax2 + px * half, ay2 + py * half),
+        (bx2 + px * half, by2 + py * half),
+        (bx2 - px * half, by2 - py * half),
+        (ax2 - px * half, ay2 - py * half),
+    ])

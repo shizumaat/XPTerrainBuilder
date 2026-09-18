@@ -133,7 +133,7 @@ def cifp_threshold_elevations(xplane_root: str, icao: str) -> list:
     the detector reads the same file, with the same AIRAC precedence, as
     the runway profile does.  Empty list when no CIFP file exists.
     """
-    from .elevation import _find_cifp_path
+    from .build_support import _find_cifp_path
 
     path = _find_cifp_path(xplane_root, icao)
     if not path:
@@ -301,7 +301,7 @@ def extent_from_apt(apt, to_m, margin_m: float | None = None):
     from shapely.ops import transform as _shp_transform
     from shapely.ops import unary_union
 
-    from .pavement.runways import _runway_rect_m
+    from .build_support import _runway_rect_m
 
     if margin_m is None:
         margin_m = _config.FLAT_SITE_MARGIN_M
@@ -845,54 +845,11 @@ def classify_site(*, icao: str, cifp_elevations_m: Sequence, dem,
     }
 
 
-def detect_for_layout(layout, *, icao: str, apt, to_m, dem,
-                      tile_lat: int, tile_lon: int,
-                      patch_dir: str | None = None,
-                      xplane_root: str | None = None) -> dict | None:
-    """Run the detector at the pipeline's DEM-in-hand point.  Report-only.
-
-    Returns the ``site_class`` record (also stored on the layout), or
-    ``None`` when the layout has no anchor to measure about.
-    """
-    if layout is None or getattr(layout, "anchor", None) is None:
-        return None
-    extent_m, ring_m = extents_from_apt(apt, to_m)
-    elevations = (cifp_threshold_elevations(xplane_root, icao)
-                  if xplane_root else [])
-    # S4's pack evidence, IN-RUN (R3 step 4): the airport's object pad
-    # frames — pack data, mesh-free, built once per build behind the
-    # pristine-input cache, so the detector's read is the same product
-    # the pad emitter consumes later and costs a disk hit, not a second
-    # frame.  Ground authority here is the DEM: the detector runs before
-    # the solve, so there is no patch to evaluate yet.
-    pack = {"targets": [], "n_total": 0, "n_below_grade": 0,
-            "sidecar_version": 0, "path": None}
-    if patch_dir:
-        try:
-            from .elevation import _sample_dem
-            from .post_mesh import pad_frames_from_worklist
-
-            frames = pad_frames_from_worklist(patch_dir, icao)
-            if frames:
-                pack = pack_seat_targets(
-                    patch_dir, icao, pad_frames=frames,
-                    ground_at=lambda latitude, longitude: _sample_dem(
-                        dem, tile_lat, tile_lon, latitude, longitude))
-        except Exception:                            # pragma: no cover
-            # Report-only signal: a pack it cannot read is NO DATA, never
-            # a failed detector and never a failed build.
-            pass
-    record = classify_site(
-        icao=icao, cifp_elevations_m=elevations, dem=dem,
-        tile_lat=tile_lat, tile_lon=tile_lon, anchor=layout.anchor,
-        extent_m=extent_m, ring_m=ring_m,
-        dem_meta=getattr(layout, "dem_inset_provenance", None),
-        pack_targets=pack["targets"], pack_meta=pack)
-    try:
-        layout.site_class = record
-    except AttributeError:                           # pragma: no cover
-        pass
-    return record
+# ``detect_for_layout`` MOVED to ``pipeline.py`` (seam S1, lane v1retire
+# 2026-09-17): it takes a v1 ``PavementLayout`` and reads
+# ``elevation._sample_dem``, so it is v1's own entry into this detector and
+# it lived here only as the pipeline's convenience.  The detector itself is
+# KEEP: ``flat_site_mode`` (production DEM prep) is its other caller.
 
 
 def format_log_line(record: dict | None) -> str:

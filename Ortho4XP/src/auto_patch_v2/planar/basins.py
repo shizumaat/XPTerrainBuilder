@@ -480,6 +480,27 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             grade_cache.put(o.id, v)
         return v
 
+    # ── THE RING IS THE WINDOW (RULINGS 2026-09-17k (a), lane
+    # ``v2doorwellperf``) ─────────────────────────────────────────────
+    # Both cover readings are used ONLY as ``u.intersection(ring)``, so
+    # asking for the read already restricted to the ring is the same set.
+    # It is worth asking: on OTHH's 2026-09-16 pack the seating update
+    # consolidated 4,343 resources into 1,247 much heavier meshes (104
+    # ``.obj`` over 5 MB), so ONE placement's whole above-grade footprint
+    # is a multipolygon of tens of thousands of parts and ``uu("cover",
+    # ...)`` over every placement whose plan bbox touches a ring ran the
+    # stage past 40 min at 28.6 GB (``basins.py`` union of whole-object
+    # covers, attributed by ``kill -ABRT``).  The window costs nothing
+    # extra: ``obj8`` applies it at component granularity and the clip
+    # itself stays memoised per ``(resource, component, plane)``.
+    def cover_in(o, ring, key: str):
+        v = cover_cache.get(key)
+        if v is None:
+            v = (obj8.above_grade_footprint(o, cache, airport.dem.z, bl.contact_band_m,
+                                            within=ring),)
+            cover_cache.put(key, v)
+        return v[0]
+
     rim_tree_cache: _LRU = _LRU(_RIM_TREE_WINDOW)
 
     def rim_tree_of(o):
@@ -487,13 +508,6 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         if v is None:
             v = (_rim_index(grade_of(o)[0]),)
             rim_tree_cache.put(o.id, v)
-        return v[0]
-
-    def cover_of(o):
-        v = cover_cache.get(o.id)
-        if v is None:
-            v = (obj8.above_grade_footprint(o, cache, airport.dem.z, bl.contact_band_m),)
-            cover_cache.put(o.id, v)
         return v[0]
 
     grid = law.tables.emit.identity.min_distinct_spacing_m
@@ -541,15 +555,17 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             covering = []
             for i in box_tree.query(ring, predicate="intersects"):
                 o = boxed[int(i)]
-                cv = cover_of(o)
+                cv = cover_in(o, ring, f"{o.id}@{k}")
                 if cv is not None:
                     covering.append(cv)
             if covering:
-                cov = uu("cover", covering).intersection(ring).area / ring.area
-        owning = [g1 for g1 in (grade_of(o)[1] for o in members) if g1 is not None]
+                cov = uu("cover", covering).area / ring.area
+        owning = [g1 for g1 in (obj8.at_grade_geometry(o, cache, airport.dem.z,
+                                                       bl.contact_band_m, within=ring)[1]
+                                for o in members) if g1 is not None]
         own = uu("own_cover", owning) if owning else None
         if own is not None:
-            cov_own = own.intersection(ring).area / ring.area
+            cov_own = own.area / ring.area
         # THE BASEMENT TEST IS A FRACTION (RULINGS 2026-09-06c (1)): own
         # cover of at least basement_cover_min = a basement; less = a pit,
         # covered or open.  The 04i erosion test ("wholly covered to

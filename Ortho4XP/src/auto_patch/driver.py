@@ -86,18 +86,12 @@ from .cifp_reader import (
     parse_cifp_file,
     xplane_root_from_cifp_path,
 )
-from .pavement.runway_geometry import (
-    DEFAULT_RUNWAY_WIDTH,
-    extend_point,
-    pair_runways,
-    runway_corners,
-)
+from .build_support import pair_runways
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
 FT_TO_M = 0.3048  # left over from the dead surface-patches code (slice 0)
-# DEFAULT_RUNWAY_WIDTH imported from O4_Runway_Geometry above.
 
 # FAA AC 150/5300-13B grade limits for Approach Category C-E airports.
 MAX_TAXIWAY_GRADE = 0.015     # 1.5% max longitudinal grade for taxiways
@@ -113,23 +107,15 @@ DEFAULT_STEEPNESS = 2
 MAX_NODE_ID = -1  # will be decremented for each new node
 
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Runway-segment patch emission (re-exported from
-# O4_Pavement_Runway_Segments)
-# ──────────────────────────────────────────────────────────────────────────────
-from .pavement.runway_segments import (
-    DEFAULT_CELL_SIZE,
-    DEFAULT_PROFILE,
-    DEG_TO_M,
-    GRADE_RELAX_ITERATIONS,
-    MAX_RUNWAY_GRADE,
-    MAX_RUNWAY_GRADE_CHANGE_PER_M,
-    OVERRUN_EXTENSION,
-    RUNWAY_MARGIN,
-    RUNWAY_SEGMENT_LENGTH,
-    generate_patch_osm,
-)
+# The runway-segment re-export block that stood here (DEFAULT_CELL_SIZE,
+# DEFAULT_PROFILE, DEG_TO_M, GRADE_RELAX_ITERATIONS, MAX_RUNWAY_GRADE,
+# MAX_RUNWAY_GRADE_CHANGE_PER_M, OVERRUN_EXTENSION, RUNWAY_MARGIN,
+# RUNWAY_SEGMENT_LENGTH, generate_patch_osm — plus DEFAULT_RUNWAY_WIDTH /
+# extend_point / runway_corners from ``pavement.runway_geometry``) was DEAD:
+# measured 2026-09-17, not one of those names was used in this module or
+# imported from it anywhere in src/, tools/ or tests/.  It was also half of
+# seam S2 (RULINGS 2026-09-13aw), so the retired v1 tree stayed inside the
+# production import closure to serve twelve unused names.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -173,7 +159,7 @@ def _cifp_path_under_root(xp_root: str | None, icao: str) -> str | None:
     """``<xp_root>/Custom Data/CIFP/<ICAO>.dat`` when it exists."""
     if not xp_root:
         return None
-    from .elevation import _find_cifp_path
+    from .build_support import _find_cifp_path
     return _find_cifp_path(xp_root, icao)
 
 
@@ -285,11 +271,11 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         return False
     if not os.path.isfile(auto_patch_file):
         return False
-    from .layout import read_patch_source
+    from .build_support import read_patch_source
     meta = read_patch_source(auto_patch_file)
     if not meta:
         return False
-    from .osm_load import _pick_best_apt_dat_against_osm
+    from .build_support import _pick_best_apt_dat_against_osm
     apt_now = _pick_best_apt_dat_against_osm(xp_root, icao)
     if not apt_now:
         return False
@@ -456,7 +442,7 @@ def _airport_claim_lonlat(runways: dict, boundary=None,
     ``None`` when the airport has no usable coordinates: a claim nothing
     can be tested against must not silently claim everything.
     """
-    from .object_pads import _CLAIM_MARGIN_M
+    from .build_support import _CLAIM_MARGIN_M
 
     if margin_metres is None:
         margin_metres = _CLAIM_MARGIN_M
@@ -569,7 +555,7 @@ def _object_anchor_worklist_entries(icao: str, xp_root: str,
         find_associated_dsf,
         read_dsf_object_placement_positions,
     )
-    from .osm_load import _pick_best_apt_dat_against_osm
+    from .build_support import _pick_best_apt_dat_against_osm
 
     threshold_latitudes = [data["lat"] for data in runways.values()]
     threshold_longitudes = [data["lon"] for data in runways.values()]
@@ -1383,7 +1369,7 @@ def generate_auto_patches(tile, cifp_path: str,
         # HERE, in the main process, before it is queued, so it is never in
         # ``tasks`` and the manifest never expects its patch.  Logged at
         # level 0 so the skip is visible in every build log.
-        from .osm_load import _pick_best_apt_dat_against_osm
+        from .build_support import _pick_best_apt_dat_against_osm
         apt_dat_selected = _pick_best_apt_dat_against_osm(xp_root, icao)
         if apt_dat_selected is None:
             UI.lvprint(
@@ -1514,7 +1500,7 @@ def generate_auto_patches(tile, cifp_path: str,
     # it, issuing duplicate Overpass queries.  A failed prefetch is not
     # fatal: the per-airport loader keeps its own download fallback.
     if tasks and airports_osm_tiles_needed:
-        from .osm_load import ensure_airports_osm_tile_cached
+        from .build_support import ensure_airports_osm_tile_cached
         missing_tiles = sorted(
             tile_coordinates
             for tile_coordinates in airports_osm_tiles_needed

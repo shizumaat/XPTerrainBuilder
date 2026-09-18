@@ -31,10 +31,11 @@ from pathlib import Path
 import pytest
 
 import auto_patch.driver as driver
-import auto_patch.osm_load as osm_load
+import auto_patch.build_support as build_support
 import auto_patch.provenance as provenance
 from auto_patch.driver import _auto_patch_is_current
-from auto_patch.layout import PavementLayout, read_patch_source
+from auto_patch.build_support import read_patch_source
+from auto_patch.layout import PavementLayout
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ def install(tmp_path, monkeypatch, fresh_env):
     """A fake install whose apt.dat is what the selector returns."""
     fake = FakeInstall(tmp_path / "X-Plane 12")
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda xp_root, icao: str(fake.apt_dat))
     return fake
 
@@ -240,7 +241,7 @@ def test_stale_when_different_apt_selected(install, patch_file, monkeypatch,
     newer_pack = tmp_path / "NewPack"
     newer_pack.mkdir()
     other = _make_apt_dat(newer_pack)
-    monkeypatch.setattr(osm_load, "_pick_best_apt_dat_against_osm",
+    monkeypatch.setattr(build_support, "_pick_best_apt_dat_against_osm",
                         lambda xp_root, icao: str(other))
     assert not install.is_current(patch_file)
 
@@ -255,7 +256,7 @@ def test_stale_when_patch_missing_or_unstamped(install, tmp_path):
 
 
 def test_stale_when_no_apt_selectable(install, patch_file, monkeypatch):
-    monkeypatch.setattr(osm_load, "_pick_best_apt_dat_against_osm",
+    monkeypatch.setattr(build_support, "_pick_best_apt_dat_against_osm",
                         lambda xp_root, icao: None)
     assert not install.is_current(patch_file)
 
@@ -809,7 +810,7 @@ class _CountingProvider:
 
 def _select(monkeypatch, path):
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda xp_root, icao: str(path) if path else None)
 
 
@@ -1015,7 +1016,7 @@ def test_no_apt_dat_neighbour_does_not_block_a_buildable_airport(
     monkeypatch.setattr(driver, "xplane_root_from_cifp_path",
                         lambda path: "xp_root")
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda xp_root, icao: str(apt) if icao == "KFAK" else None)
     _stub_the_engine(tmp_path, monkeypatch)
     auto_patched = driver.generate_auto_patches(
@@ -1089,7 +1090,7 @@ def two_pack_install(tmp_path, fresh_env):
 
 def _selected(root: Path) -> str:
     """Exactly what ``driver.generate_auto_patches`` selects (:1467)."""
-    return osm_load._pick_best_apt_dat_against_osm(str(root), "KFAKE")
+    return build_support._pick_best_apt_dat_against_osm(str(root), "KFAKE")
 
 
 def test_gate_selector_is_the_build_selector(two_pack_install):

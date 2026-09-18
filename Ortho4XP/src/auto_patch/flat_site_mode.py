@@ -309,7 +309,7 @@ def _cifp_runways(xplane_root: str, icao: str) -> dict:
     Phase 2 partitions with.  ``{}`` when no CIFP file exists.
     """
     from . import cifp_reader as _CIFP
-    from .elevation import _find_cifp_path
+    from .build_support import _find_cifp_path
 
     try:
         path = _find_cifp_path(xplane_root, icao)
@@ -568,7 +568,7 @@ def claimed_placement_cluster_bounds(placements_ll, anchor, tile_lat: int,
     """
     from shapely.geometry import MultiPoint, Point
 
-    from .layout import _projection
+    from .build_support import _projection
 
     if margin_m is None:
         margin_m = _config.FLAT_SITE_MARGIN_M
@@ -669,8 +669,8 @@ def flat_site_substitutions(tile, dico_airports=None,
     from . import apt_dat_reader as _APR
     from . import flat_site as _flat_site
     from . import provenance as _provenance
-    from .layout import _airport_anchor, _projection
-    from .osm_load import _pick_best_apt_dat_against_osm
+    from .build_support import _airport_anchor, _projection
+    from .build_support import _pick_best_apt_dat_against_osm
 
     if xplane_root is None:
         # The install THIS build was handed (recorded on the Tile by

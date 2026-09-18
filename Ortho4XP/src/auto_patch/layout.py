@@ -4394,103 +4394,18 @@ def _atomic_write_text(path: str, text: str) -> None:
         raise
 
 
-def _xml_unescape(value: str) -> str:
-    """The inverse of the v2 emitter's attribute quoter
-    (``emit/osm_adapter._q``: ``escape(v, {"'": "&apos;", '"':
-    "&quot;"})``) — for header values that ride RAW rather than
-    percent-encoded."""
-    from xml.sax.saxutils import unescape as _unescape
-    return _unescape(value, {"&apos;": "'", "&quot;": '"'})
-
-
-_PATCH_SOURCE_APT_RE = re.compile(r"o4_apt_dat='([^']*)'")
-_PATCH_SOURCE_MTIME_RE = re.compile(r"o4_apt_dat_mtime='([^']*)'")
-# §44's BORROWED Global Airports apt.dat (v2's emitter only).  Neither of
-# the two regexes above may match these longer names — they cannot: both
-# require ``=`` straight after ``o4_apt_dat`` / ``o4_apt_dat_mtime``,
-# where these carry ``_borrowed``.  Pinned by
-# ``test_borrowed_keys_do_not_capture_the_selected_apt_dat``.
-_PATCH_SOURCE_BORROWED_RE = re.compile(r"o4_apt_dat_borrowed='([^']*)'")
-_PATCH_SOURCE_BORROWED_MTIME_RE = re.compile(
-    r"o4_apt_dat_borrowed_mtime='([^']*)'")
-_PATCH_FRESHNESS_RE = re.compile(r"(o4_(?:fresh_v|cfg|dem|cifp|pack|engine"
-                                 r"|ap_engine|dsf_tiles|dsf))='([^']*)'")
-
-
-def read_patch_source(path: str) -> dict | None:
-    """Read the build-input provenance stamped into an auto-patch file.
-
-    ``to_osm`` records the apt.dat the build consumed as
-    ``o4_apt_dat`` / ``o4_apt_dat_mtime`` attributes on the ``<osm>``
-    root element, plus — for a driver-driven build — the freshness
-    stamps for the build's other inputs (``o4_fresh_v``, ``o4_cfg``,
-    ``o4_dem``, ``o4_cifp``, ``o4_pack``, ``o4_engine``, ``o4_dsf``,
-    ``o4_dsf_tiles``; see ``provenance.FRESHNESS_KEYS``).
-
-    v2's emitter additionally records §44's BORROWED Global Airports
-    apt.dat as ``o4_apt_dat_borrowed`` / ``o4_apt_dat_borrowed_mtime``
-    (``pipeline/build.py``, :func:`~auto_patch_v2.pipeline.build.
-    borrowed_apt_dat_stamp`).  Unlike ``o4_apt_dat`` that path rides RAW
-    (XML-escaped by the emitter's attribute quoter, not percent-encoded),
-    so it is read back XML-unescaped — the encoding it is written in.
-
-    Returns ``{"apt_dat": str, "apt_dat_mtime": float | None,
-    "apt_dat_borrowed": str, "apt_dat_borrowed_mtime": float | None,
-    "freshness": {key: raw value}}``, or ``None`` when the file is
-    missing, unreadable, or pre-dates the apt.dat stamp.
-    ``apt_dat_borrowed`` is ``""`` when the patch borrowed nothing or
-    pre-dates §44; ``apt_dat_borrowed_mtime`` is ``None`` when the key is
-    absent or unparseable (which the gate reads as "not current" for a
-    patch that DID borrow).  ``freshness``
-    is EMPTY for a patch written before those stamps existed or by a
-    standalone tool — which the driver's gate reads as "inputs
-    unverifiable" and rebuilds.
-    """
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            # The root element is line 1 or 2 (after the XML
-            # declaration) — same convention O4_OSM_Utils relies on.
-            line = f.readline()
-            if "<osm " not in line:
-                line = f.readline()
-    except OSError:
-        return None
-    if "<osm " not in line:
-        return None
-    m = _PATCH_SOURCE_APT_RE.search(line)
-    if not m:
-        return None
-    apt_dat = urllib.parse.unquote(m.group(1))
-    mtime: float | None = None
-    m = _PATCH_SOURCE_MTIME_RE.search(line)
-    if m:
-        try:
-            mtime = float(m.group(1))
-        except ValueError:
-            mtime = None
-    # Freshness stamps ride RAW (already percent-encoded where they carry a
-    # path): the gate compares them byte-for-byte against freshly computed
-    # values in the same encoding, so decoding here would only invite a
-    # round-trip mismatch.
-    freshness = {
-        match.group(1): match.group(2)
-        for match in _PATCH_FRESHNESS_RE.finditer(line)
-    }
-    borrowed = ""
-    m = _PATCH_SOURCE_BORROWED_RE.search(line)
-    if m:
-        borrowed = _xml_unescape(m.group(1))
-    borrowed_mtime: float | None = None
-    m = _PATCH_SOURCE_BORROWED_MTIME_RE.search(line)
-    if m:
-        try:
-            borrowed_mtime = float(m.group(1))
-        except ValueError:
-            borrowed_mtime = None
-    return {"apt_dat": apt_dat, "apt_dat_mtime": mtime,
-            "apt_dat_borrowed": borrowed,
-            "apt_dat_borrowed_mtime": borrowed_mtime,
-            "freshness": freshness}
+# MOVED to ``build_support`` (seam S2, lane v1retire 2026-09-17): the
+# freshness gate in ``driver`` — a KEEP module — is the reader's caller.
+# Re-exported here for this module's own v1 users.
+from .build_support import (  # noqa: E402,F401
+    _PATCH_FRESHNESS_RE,
+    _PATCH_SOURCE_APT_RE,
+    _PATCH_SOURCE_BORROWED_MTIME_RE,
+    _PATCH_SOURCE_BORROWED_RE,
+    _PATCH_SOURCE_MTIME_RE,
+    _xml_unescape,
+    read_patch_source,
+)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -4500,34 +4415,12 @@ def read_patch_source(path: str) -> dict | None:
 # Projection helpers
 # ──────────────────────────────────────────────────────────────────
 
-def _projection(anchor: tuple[float, float]):
-    lat0, lon0 = anchor
-    cos0 = math.cos(math.radians(lat0))
-
-    @overload
-    def to_m(lon: float, lat: float) -> tuple[float, float]: ...
-    @overload
-    def to_m(lon: float, lat: float, z: float | None
-             ) -> tuple[float, float] | tuple[float, float, float]: ...
-
-    def to_m(lon: float, lat: float, z: float | None = None
-             ) -> tuple[float, float] | tuple[float, float, float]:
-        x = math.radians(lon - lon0) * R_EARTH * cos0
-        y = math.radians(lat - lat0) * R_EARTH
-        return (x, y) if z is None else (x, y, z)
-
-    return to_m
-
-
-def _airport_anchor(apt: APR.Airport) -> tuple[float, float]:
-    if apt.runways:
-        r = apt.runways[0]
-        return ((r.lat_a + r.lat_b) / 2.0,
-                (r.lon_a + r.lon_b) / 2.0)
-    if apt.boundary:
-        c = apt.boundary.centroid
-        return (c.y, c.x)
-    return (0.0, 0.0)
+# MOVED to ``build_support`` (seam S1, lane v1retire 2026-09-17): the
+# flat-site detector — a KEEP module — works in this frame.
+from .build_support import (  # noqa: E402,F401
+    _airport_anchor,
+    _projection,
+)
 
 
 # ──────────────────────────────────────────────────────────────────

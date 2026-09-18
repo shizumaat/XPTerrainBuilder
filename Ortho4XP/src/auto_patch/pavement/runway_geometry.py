@@ -129,44 +129,12 @@ def parse_aptdat_runway_widths(aptdat_path: str, icao: str) -> dict[str, float]:
 # ──────────────────────────────────────────────────────────────────────
 # Runway Pairing
 # ──────────────────────────────────────────────────────────────────────
-def get_reciprocal(designator: str) -> str | None:
-    """Get the reciprocal runway designator. RW16L → RW34R, RW09 → RW27."""
-    match = re.match(r"RW(\d{2})([LRC]?)", designator)
-    if not match:
-        return None
-    num = int(match.group(1))
-    suffix = match.group(2)
-    recip_num = num + 18
-    if recip_num > 36:
-        recip_num -= 36
-    recip_suffix = {"L": "R", "R": "L", "C": "C", "": ""}.get(suffix, "")
-    return "RW{:02d}{}".format(recip_num, recip_suffix)
-
-
-def pair_runways(
-    runways: dict[str, _RunwayData],
-) -> list[tuple[str, _RunwayData, str | None, _RunwayData | None]]:
-    """Match runway thresholds into pairs.
-
-    Returns list of tuples:
-        (desig_a, data_a, desig_b, data_b)
-    where a is the higher-numbered threshold (higher heading number) by
-    convention, and b is the reciprocal. If unpaired, desig_b/data_b are None.
-    """
-    paired: set[str] = set()
-    pairs: list[tuple[str, _RunwayData, str | None, _RunwayData | None]] = []
-    for desig in sorted(runways.keys()):
-        if desig in paired:
-            continue
-        data = runways[desig]
-        recip = get_reciprocal(desig)
-        if recip and recip in runways:
-            paired.add(desig)
-            paired.add(recip)
-            pairs.append((desig, data, recip, runways[recip]))
-        else:
-            pairs.append((desig, data, None, None))
-    return pairs
+# MOVED to ``auto_patch.build_support`` (seam S2, lane v1retire
+# 2026-09-17): the tile driver — a KEEP module — pairs thresholds with it.
+from ..build_support import (  # noqa: E402,F401
+    get_reciprocal,
+    pair_runways,
+)
 
 
 def match_runway_ends_by_geometry(

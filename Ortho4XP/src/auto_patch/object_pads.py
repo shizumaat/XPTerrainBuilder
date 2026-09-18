@@ -365,7 +365,11 @@ def specs_from_frames(frames, datum_ground_at, surface_ground_at, *,
 #: hangar apron outside the pavement hull is still the airport's) and an
 #: order of magnitude under the separation between two airports that
 #: share a tile (OTBD↔OTHH: ~4.4 km).
-_CLAIM_MARGIN_M = 250.0
+# MOVED to ``build_support`` (seam S2, lane v1retire 2026-09-17): the
+# driver's Phase-2 worklist claim is drawn with this dilation.
+from .build_support import (  # noqa: E402,F401
+    _CLAIM_MARGIN_M,
+)
 
 
 def _footprint_claim(layout: PavementLayout):

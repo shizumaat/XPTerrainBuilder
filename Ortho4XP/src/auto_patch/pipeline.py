@@ -2734,7 +2734,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # build will have no taxiway rects — fix the apt.dat input, don't
     # synthesise from OSM.
     _trimmed_leadins: list = []
-    apt_centerlines = APR.taxi_centerlines(
+    from .pavement import centerlines as _PAV_CENTERLINES
+    apt_centerlines = _PAV_CENTERLINES.taxi_centerlines(
         apt, to_m, rwy_centerlines=rwy_centerlines,
         trimmed_leadins=_trimmed_leadins)
     # Ramp lead-in routes trimmed from the slicing spine — still part

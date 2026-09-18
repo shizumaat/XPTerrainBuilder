@@ -549,6 +549,7 @@ def test_a_leaf_with_no_elevated_member_in_any_unit_is_unchanged():
     assert cands[0].anchor.unit_seat is False
 
 
+@pytest.mark.xfail(strict=True, reason="§16g (2) fix B is GATED OFF (RULINGS 2026-09-17z): a unit-seated body's ground_off still refuses it as a carrier (zero_off_ground); the twin stands for the ungated law")
 def test_a_unit_seated_body_is_not_refused_as_a_carrier():
     """§16g (2): "no per-member cut, no carrier search, NO GROUND TEST
     BETWEEN MEMBERS".  §16a (2) refuses a carrier whose zero stands off

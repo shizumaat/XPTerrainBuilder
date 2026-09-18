@@ -31,6 +31,7 @@ from auto_patch import (
     object_footprints,
     object_rebake,
     post_mesh,
+    post_mesh_v1,
 )
 
 
@@ -563,7 +564,7 @@ def test_object_footprints_signature():
 # ---------------------------------------------------------------------------
 
 def test_post_mesh_signature():
-    assert _parameter_names(post_mesh.rebake_dsf_objects) == ["tile"]
+    assert _parameter_names(post_mesh_v1.rebake_dsf_objects) == ["tile"]
 
 
 # ---------------------------------------------------------------------------

@@ -32,6 +32,7 @@ from auto_patch import config
 from auto_patch import driver
 from auto_patch import dsf_reader as D
 from auto_patch import obj8_reader, object_rebake, post_mesh
+from auto_patch import post_mesh_v1
 
 TILE_LATITUDE = 35
 TILE_LONGITUDE = -81
@@ -277,11 +278,11 @@ def test_flag_off_returns_empty_without_reading_anything(monkeypatch):
 
     monkeypatch.setattr(FNAMES, "patch_dir", exploding_patch_dir)
     tile = types.SimpleNamespace(lat=35, lon=-81, build_dir="/nonexistent")
-    assert post_mesh.rebake_dsf_objects(tile) == {}
+    assert post_mesh_v1.rebake_dsf_objects(tile) == {}
 
 
 def test_missing_worklist_returns_empty_without_error(phase_two_harness):
-    assert post_mesh.rebake_dsf_objects(phase_two_harness.tile) == {}
+    assert post_mesh_v1.rebake_dsf_objects(phase_two_harness.tile) == {}
 
 
 def test_missing_mesh_reports_and_returns_zero_counts(
@@ -298,7 +299,7 @@ def test_missing_mesh_reports_and_returns_zero_counts(
         UI, "vprint",
         lambda level, *message_parts: messages.append(
             (level, " ".join(str(part) for part in message_parts))))
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert counts == {key: 0 for key in post_mesh._COUNT_KEYS}
     assert any("mesh not found" in message for _level, message in messages)
 
@@ -314,7 +315,7 @@ def test_end_to_end_bake_rewrites_live_file_with_backup_and_provenance(
     harness.write_worklist(
         [harness.worklist_entry("KTST", dsf_path, pack_root)])
 
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     assert counts["airports_processed"] == 1
     assert counts["packs_corrected"] == 1
@@ -413,7 +414,7 @@ def test_a_below_threshold_pack_is_never_touched(phase_two_harness):
     pack_root, live_path = _single_slab_worklist(harness, SOUTH_SLAB_OBJECT)
     assert abs(_expected_south_slab_offset()) < 1.0  # the premise
 
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     assert counts["airports_processed"] == 1  # the pass ran
     assert counts["structures_baked"] == 0
@@ -446,7 +447,7 @@ def test_a_previous_bake_is_reverted_when_the_threshold_excludes_it(
 
     # Round 1: the pre-2026-08-09 law (threshold disabled) bakes it.
     monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 0.0)
-    first = post_mesh.rebake_dsf_objects(harness.tile)
+    first = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert first["structures_baked"] == 1
     with open(live_path) as handle:
         assert handle.read() != SOUTH_SLAB_OBJECT
@@ -457,7 +458,7 @@ def test_a_previous_bake_is_reverted_when_the_threshold_excludes_it(
     # asked not to have.
     monkeypatch.setattr(
         config, "DSF_OBJECT_BAKE_MIN_DELTA_M", shipping_threshold)
-    second = post_mesh.rebake_dsf_objects(harness.tile)
+    second = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert second["objects_reverted"] == 1
     assert second["structures_baked"] == 0
     with open(live_path) as handle:
@@ -474,7 +475,7 @@ def test_measure_only_runs_the_pass_and_writes_nothing(phase_two_harness):
     pack_root, live_path = _single_slab_worklist(harness, OFFSET_SLAB_OBJECT)
     assert _expected_slab_offset() > 1.0  # the default law WOULD bake it
 
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     assert counts["airports_processed"] == 1
     assert counts["structures_baked"] == 0
@@ -495,13 +496,13 @@ def test_measure_only_still_reverts_an_earlier_bake(phase_two_harness):
     _pack_root, live_path = _single_slab_worklist(
         harness, OFFSET_SLAB_OBJECT)
 
-    baked = post_mesh.rebake_dsf_objects(harness.tile)
+    baked = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert baked["structures_baked"] == 1
     with open(live_path) as handle:
         assert handle.read() != OFFSET_SLAB_OBJECT
 
     harness.tile.modify_custom_airports = False
-    measured = post_mesh.rebake_dsf_objects(harness.tile)
+    measured = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert measured["airports_up_to_date"] == 0  # no stale short-circuit
     assert measured["objects_reverted"] == 1
     with open(live_path) as handle:
@@ -517,7 +518,7 @@ def test_measure_only_still_records_the_pad_requests(phase_two_harness):
     _pack_root, live_path = _single_slab_worklist(
         harness, _two_foot_gantry_object(40.0))
 
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     sidecar_path = os.path.join(
         str(harness.patches_directory),
@@ -546,13 +547,13 @@ def test_idempotent_through_the_full_path(phase_two_harness):
     live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
     backup_path = live_path + ".anchor_bak"
 
-    first_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    first_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     with open(live_path, "rb") as handle:
         live_after_first_run = handle.read()
     with open(backup_path, "rb") as handle:
         backup_after_first_run = handle.read()
 
-    second_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    second_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     with open(live_path, "rb") as handle:
         live_after_second_run = handle.read()
     with open(backup_path, "rb") as handle:
@@ -577,11 +578,11 @@ def test_idempotent_rerun_does_not_touch_the_live_file(phase_two_harness):
         [harness.worklist_entry("KTST", dsf_path, pack_root)])
     live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
 
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     backdated = os.path.getmtime(live_path) - 1000.0
     os.utime(live_path, (backdated, backdated))
 
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert os.path.getmtime(live_path) == pytest.approx(backdated), (
         "identical re-bake rewrote the live file (mtime churn)")
 
@@ -614,13 +615,13 @@ def test_partition_cache_serves_second_run_and_content_invalidates(
         post_mesh.object_anchor, "partition_structures",
         counting_partition)
 
-    first_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    first_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert first_counts["structures_baked"] == 1
     assert len(partition_calls) == 1
     with open(live_path, "rb") as handle:
         live_after_first_run = handle.read()
 
-    second_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    second_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert second_counts["structures_baked"] == 1
     assert len(partition_calls) == 1  # served from the sidecar cache
     with open(live_path, "rb") as handle:
@@ -634,7 +635,7 @@ def test_partition_cache_serves_second_run_and_content_invalidates(
         original = handle.read()
     with open(backup_path, "w") as handle:
         handle.write(original + "# trailing comment changes the bytes\n")
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(partition_calls) == 2
 
 
@@ -662,8 +663,8 @@ def test_partition_cache_disabled_by_environment_flag(
         post_mesh.object_anchor, "partition_structures",
         counting_partition)
 
-    post_mesh.rebake_dsf_objects(harness.tile)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(partition_calls) == 2  # no cache with the flag off
 
 
@@ -684,7 +685,7 @@ def test_foot_pad_sidecar_written_and_removed(
     harness.write_worklist(
         [harness.worklist_entry("KTST", dsf_path, pack_root)])
 
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert counts["structures_baked"] == 1
     assert counts["foot_pad_requests"] == 1
 
@@ -720,7 +721,7 @@ def test_foot_pad_sidecar_written_and_removed(
 
     # Gate off, run again: no request remains, the stale sidecar goes.
     monkeypatch.setattr(config, "DSF_OBJECT_FOOT_ANCHOR", False)
-    second_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    second_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert second_counts["foot_pad_requests"] == 0
     assert not sidecar_path.exists()
 
@@ -833,7 +834,7 @@ def test_multi_placement_exclusion_counts_through_the_worklist(
         })
     harness.write_worklist(
         [harness.worklist_entry("KTST", dsf_path, pack_root)])
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert counts["structures_baked"] == 1
     assert counts["objects_skipped"] == 1
     assert counts["airports_failed"] == 0
@@ -852,7 +853,7 @@ def test_stale_dsf_mtime_still_processes_against_current_dsf(
             "KTST", dsf_path, pack_root,
             dsf_mtime=os.path.getmtime(dsf_path) - 500.0),
     ])
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert counts["airports_processed"] == 1
     assert counts["structures_baked"] == 1
     assert counts["airports_failed"] == 0
@@ -871,7 +872,7 @@ def test_one_broken_airport_never_blocks_the_next(phase_two_harness):
             dsf_mtime=0.0),
         harness.worklist_entry("KTST", dsf_path, pack_root),
     ])
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert counts["airports_failed"] == 1
     assert counts["airports_processed"] == 1
     assert counts["structures_baked"] == 1
@@ -1002,7 +1003,7 @@ def test_worklist_entries_cover_object_packs_beyond_apt_dat_winner(
         scan_xplane_root, monkeypatch):
     """apt.dat winner in pack A, placements in pack B → both entries
     present, B tagged as a pack-scan discovery."""
-    from auto_patch import osm_load
+    from auto_patch import build_support
 
     xp_root, custom_scenery = scan_xplane_root
     dsf_a, pack_a = _make_airport_pack(
@@ -1013,7 +1014,7 @@ def test_worklist_entries_cover_object_packs_beyond_apt_dat_winner(
     _write_scenery_packs_ini(
         custom_scenery, enabled=["Pack A", "Pack B"])
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda root, icao: os.path.join(
             pack_a, "Earth nav data", "apt.dat"))
 
@@ -1028,7 +1029,7 @@ def test_worklist_entries_cover_object_packs_beyond_apt_dat_winner(
 
 def test_worklist_scan_skips_disabled_far_and_global_airports(
         scan_xplane_root, monkeypatch):
-    from auto_patch import osm_load
+    from auto_patch import build_support
 
     xp_root, custom_scenery = scan_xplane_root
     _make_airport_pack(
@@ -1041,7 +1042,7 @@ def test_worklist_scan_skips_disabled_far_and_global_airports(
         custom_scenery, enabled=["Far Pack", "Global Airports"],
         disabled=["Disabled Pack"])
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda root, icao: None)
 
     assert _worklist_entries("LSTS", xp_root) == []
@@ -1055,7 +1056,7 @@ def test_worklist_entries_dedupe_winner_pack_and_repeat_airports(
     placements between the two by containment).  The tile-wide dedup
     this replaced gave a shared cell whole to whichever airport sorted
     first — measured on +25+051, OTBD owned all of OTHH's pack."""
-    from auto_patch import osm_load
+    from auto_patch import build_support
 
     xp_root, custom_scenery = scan_xplane_root
     _dsf_b, pack_b = _make_airport_pack(
@@ -1063,7 +1064,7 @@ def test_worklist_entries_dedupe_winner_pack_and_repeat_airports(
         {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
     _write_scenery_packs_ini(custom_scenery, enabled=["Pack B"])
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda root, icao: os.path.join(
             pack_b, "Earth nav data", "apt.dat"))
 
@@ -1084,7 +1085,7 @@ def test_worklist_scan_enumerates_packs_once_per_tile(
     """The pack enumeration and positions reads are airport-invariant;
     with the tile-wide scan cache a second airport must not re-list
     Custom Scenery (optimization review 2026-07-24)."""
-    from auto_patch import osm_load
+    from auto_patch import build_support
 
     xp_root, custom_scenery = scan_xplane_root
     _make_airport_pack(
@@ -1092,7 +1093,7 @@ def test_worklist_scan_enumerates_packs_once_per_tile(
         {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
     _write_scenery_packs_ini(custom_scenery, enabled=["Pack B"])
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda root, icao: None)
     enumerations = []
     real_enumerate = driver._enabled_airport_pack_tile_dsfs
@@ -1118,7 +1119,7 @@ def test_two_pack_fixture_bakes_the_pack_scan_entry(
         phase_two_harness, monkeypatch):
     """End to end: driver entries → worklist sidecar → rebake.  The
     pack that lost the apt.dat contest still gets its objects baked."""
-    from auto_patch import osm_load
+    from auto_patch import build_support
 
     harness = phase_two_harness
     xp_root = harness.tmp_path / "XPlane"
@@ -1132,7 +1133,7 @@ def test_two_pack_fixture_bakes_the_pack_scan_entry(
     _write_scenery_packs_ini(
         custom_scenery, enabled=["Pack A", "Pack B"])
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda root, icao: os.path.join(
             pack_a, "Earth nav data", "apt.dat"))
 
@@ -1142,7 +1143,7 @@ def test_two_pack_fixture_bakes_the_pack_scan_entry(
         str(harness.patches_directory), TILE_LATITUDE, TILE_LONGITUDE,
         entries, str(xp_root))
 
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     assert counts["airports_processed"] == 2
     live_path = os.path.join(pack_b, "objects", "offset_bake.obj")
@@ -1170,7 +1171,7 @@ def test_worklist_v1_payload_still_processed(phase_two_harness):
         }],
     }, indent=2) + "\n")
 
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     assert counts["airports_processed"] == 1
     live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
@@ -1270,7 +1271,7 @@ def test_mesh_hook_swallows_exceptions(monkeypatch):
     guard ``_auto_patch_post_mesh_rebake``; a raising re-seat must never
     propagate out of it.  The re-seat is v2's ``rebake_after_mesh`` (v1
     retired, RULINGS 2026-09-13au — the guard no longer dispatches to
-    ``post_mesh.rebake_dsf_objects``)."""
+    ``post_mesh_v1.rebake_dsf_objects``)."""
     from auto_patch import engine_v2
 
     def exploding_rebake(tile):
@@ -1414,7 +1415,7 @@ def test_second_consecutive_build_short_circuits(
     _dsf_path, pack_root = _slab_pack(harness)
     live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
 
-    first_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    first_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert first_counts["airports_up_to_date"] == 0
     assert first_counts["structures_baked"] == 1
     with open(live_path, "rb") as handle:
@@ -1427,7 +1428,7 @@ def test_second_consecutive_build_short_circuits(
         UI, "vprint",
         lambda level, *parts: messages.append(" ".join(map(str, parts))))
 
-    second_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    second_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert calls == []  # nothing re-derived
     assert second_counts["airports_up_to_date"] == 1
     assert second_counts["airports_processed"] == 1
@@ -1443,7 +1444,7 @@ def test_short_circuit_records_its_fingerprint_in_the_sidecar(
         phase_two_harness):
     harness = phase_two_harness
     dsf_path, pack_root = _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     with open(os.path.join(
             pack_root, ".o4_reanchor_provenance.json")) as handle:
@@ -1471,14 +1472,14 @@ def test_touching_an_object_forces_a_full_run(
     the owner touching a file is the owner asking for a reconsideration."""
     harness = phase_two_harness
     _dsf_path, pack_root = _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
     stamp = os.path.getmtime(live_path) + 500.0
     os.utime(live_path, (stamp, stamp))
 
     calls = _count_derivations(monkeypatch)
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1
     assert counts["airports_up_to_date"] == 0
     assert counts["structures_baked"] == 1
@@ -1490,7 +1491,7 @@ def test_editing_an_object_behind_its_mtime_forces_a_full_run(
     catch this, and it must."""
     harness = phase_two_harness
     _dsf_path, pack_root = _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     backup_path = os.path.join(
         pack_root, "objects", "offset_bake.obj.anchor_bak")
@@ -1504,7 +1505,7 @@ def test_editing_an_object_behind_its_mtime_forces_a_full_run(
     assert os.stat(backup_path).st_mtime_ns == stat_before.st_mtime_ns
 
     calls = _count_derivations(monkeypatch)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1  # the hash caught it
 
 
@@ -1514,12 +1515,12 @@ def test_deleting_the_anchor_bak_forces_a_full_run(
     backup when one exists, so losing (or gaining) one is a new input."""
     harness = phase_two_harness
     _dsf_path, pack_root = _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     os.remove(os.path.join(
         pack_root, "objects", "offset_bake.obj.anchor_bak"))
 
     calls = _count_derivations(monkeypatch)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1
 
 
@@ -1527,14 +1528,14 @@ def test_changing_the_mesh_forces_a_full_run(
         phase_two_harness, monkeypatch):
     harness = phase_two_harness
     _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     _write_synthetic_mesh(harness.mesh_path)  # a fresh mesh build
     stamp = os.path.getmtime(harness.mesh_path) + 100.0
     os.utime(harness.mesh_path, (stamp, stamp))
 
     calls = _count_derivations(monkeypatch)
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1
     assert counts["airports_up_to_date"] == 0
 
@@ -1543,7 +1544,7 @@ def test_changing_the_dsf_forces_a_full_run(
         phase_two_harness, monkeypatch):
     harness = phase_two_harness
     dsf_path, _pack_root = _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     # Run 1 migrated the pre-seeded ``.dsf.text`` into the pack cache;
     # keep that dump newer than the touched ``.dsf`` so the second run
@@ -1558,7 +1559,7 @@ def test_changing_the_dsf_forces_a_full_run(
                      (stamp + 10.0, stamp + 10.0))
 
     calls = _count_derivations(monkeypatch)
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1
     assert counts["airports_up_to_date"] == 0
 
@@ -1567,11 +1568,11 @@ def test_changing_a_configuration_gate_forces_a_full_run(
         phase_two_harness, monkeypatch):
     harness = phase_two_harness
     _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     monkeypatch.setattr(config, "DSF_OBJECT_MIN_REACH_M", 24.0)
     calls = _count_derivations(monkeypatch)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1
 
 
@@ -1579,11 +1580,11 @@ def test_short_circuit_flag_off_always_runs_in_full(
         phase_two_harness, monkeypatch):
     harness = phase_two_harness
     _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     monkeypatch.setenv("O4_REANCHOR_SHORT_CIRCUIT", "0")
     calls = _count_derivations(monkeypatch)
-    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1
     assert counts["airports_up_to_date"] == 0
 
@@ -1593,7 +1594,7 @@ def test_dry_run_never_short_circuits(phase_two_harness, monkeypatch):
     'nothing to do' would report nothing."""
     harness = phase_two_harness
     dsf_path, pack_root = _slab_pack(harness)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
 
     calls = _count_derivations(monkeypatch)
     result = post_mesh.discover_and_rebake_airport(
@@ -1614,13 +1615,13 @@ def test_short_circuit_keeps_the_foot_pad_sidecar(phase_two_harness):
     harness.write_worklist(
         [harness.worklist_entry("KTST", dsf_path, pack_root)])
 
-    first_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    first_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert first_counts["foot_pad_requests"] == 1
     sidecar_path = harness.patches_directory / (
         post_mesh.OBJECT_FOOT_PAD_SIDECAR_FILENAME)
     first_payload = json.loads(sidecar_path.read_text())
 
-    second_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    second_counts = post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert second_counts["airports_up_to_date"] == 1
     assert second_counts["foot_pad_requests"] == 1
     assert sidecar_path.exists()
@@ -1642,7 +1643,7 @@ def test_short_circuit_survives_a_prototype_era_sidecar(
                   handle)
 
     calls = _count_derivations(monkeypatch)
-    post_mesh.rebake_dsf_objects(harness.tile)
+    post_mesh_v1.rebake_dsf_objects(harness.tile)
     assert len(calls) == 1
     with open(provenance_path) as handle:
         assert json.load(handle)[object_rebake.RUN_RECORDS_KEY]

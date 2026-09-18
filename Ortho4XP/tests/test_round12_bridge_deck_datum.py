@@ -1083,10 +1083,10 @@ class TestTheAgreeingCoalitionSeatsTheAssembly:
             if finding["finding"] == assembly.BRIDGE_SEAT_FALLBACK_FINDING
         ]
         # ...and it is counted as its own thing, outliers included.
-        from auto_patch import post_mesh
+        from auto_patch import post_mesh, post_mesh_v1
 
         counts = {key: 0 for key in post_mesh._COUNT_KEYS}
-        post_mesh._report_bridge_findings(
+        post_mesh_v1._report_bridge_findings(
             "TEST", result["bridge_findings"], counts)
         assert counts["bridge_seat_coalitions"] == 1
         assert counts["bridge_seat_coalition_outliers"] == 4
@@ -1239,12 +1239,12 @@ class TestVerdictFrameSplitIsRecorded:
     def test_the_findings_are_counted_and_logged(self):
         """Counted, not merely recorded: both round-12 findings have a
         count key, so a tile summary can never lose them."""
-        from auto_patch import post_mesh
+        from auto_patch import post_mesh, post_mesh_v1
 
         assert "bridge_seat_fallbacks" in post_mesh._COUNT_KEYS
         assert "bridge_verdict_frame_splits" in post_mesh._COUNT_KEYS
         counts = {key: 0 for key in post_mesh._COUNT_KEYS}
-        post_mesh._report_bridge_findings(
+        post_mesh_v1._report_bridge_findings(
             "OTHH",
             [
                 {"finding": assembly.BRIDGE_VERDICT_FRAME_SPLIT_FINDING,

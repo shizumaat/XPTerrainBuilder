@@ -1770,7 +1770,9 @@ def _split_annulus_to_simple_parts(geometry) -> list:
 #   leans outward and the floor reaches the shell wall flush;
 _TUNNEL_WALL_SETBACK_M = 0.6
 # * width of the flat datum band beyond the setback;
-_TUNNEL_RIM_BAND_WIDTH_M = 0.6
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import _TUNNEL_RIM_BAND_WIDTH_M  # noqa: E402,F401
 # * where the body abuts ANY earlier-born shape (pavement, building
 #   pads, …) the wall top is that shape's own edge and the floor stays
 #   this far from it (slightly over the setback: foreign edges carry
@@ -1829,7 +1831,9 @@ _TUNNEL_MAX_AIRSIDE_DISTANCE_M = 500.0
 # point DEM reads, which is nothing beside the union work already in
 # this pass (the build-time tripwire is stated in the spec section 3
 # item 4).
-_BASIN_RIM_SAMPLE_STEP_M = 10.0
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import _BASIN_RIM_SAMPLE_STEP_M  # noqa: E402,F401
 
 # R6-3 abutment-grade sampling density.  The abutment LINE is the land
 # witness the classifier certified (``abutment_reaches_grade``), and its
@@ -1838,7 +1842,9 @@ _BASIN_RIM_SAMPLE_STEP_M = 10.0
 # tens of metres long, not hundreds.  Half the basin rim step: the rim
 # band is a long closed outline where 10 m is plenty; two short lines
 # want a denser median.
-_ABUTMENT_GRADE_SAMPLE_STEP_M = 5.0
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import _ABUTMENT_GRADE_SAMPLE_STEP_M  # noqa: E402,F401
 
 
 def _basin_rim_estimate_elevation_m(
@@ -2476,7 +2482,9 @@ def _found_basins_from_unmatched_regions(regions, matched_regions,
 #: Decision kind recorded in the rebake provenance for a basin facility
 #: seated by the section-2.2 rim-flush law.  ONE spelling, read by the
 #: post-mesh pass, the provenance writer and the tests.
-BASIN_RIM_FLUSH_DECISION_KIND = "basin_rim_flush"
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import BASIN_RIM_FLUSH_DECISION_KIND  # noqa: E402,F401
 
 #: Decision kind recorded in the rebake provenance for a basin facility
 #: seated RIGIDLY AS A GROUP (docket B, docs/specs/basin-group-seat-spec.md
@@ -2485,7 +2493,9 @@ BASIN_RIM_FLUSH_DECISION_KIND = "basin_rim_flush"
 #: seated onto the group's single datum plane ``G``; a record carrying
 #: :data:`BASIN_RIM_FLUSH_DECISION_KIND` was seated by the
 #: pre-amendment interface-member law (``O4_BASIN_GROUP_SEAT=0``).
-BASIN_GROUP_SEAT_DECISION_KIND = "basin_group_seat"
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import BASIN_GROUP_SEAT_DECISION_KIND  # noqa: E402,F401
 
 
 @dataclass(frozen=True)
@@ -2918,12 +2928,18 @@ def basin_rim_flush_facilities(classification) -> list:
 #: Decision kind recorded in the rebake provenance for a TERRAIN_CARRIED
 #: bridge seated by the R6-3 abutment-grade law.  ONE spelling, read by
 #: the post-mesh pass, the provenance writer and the tests.
-BRIDGE_ABUTMENT_SEAT_DECISION_KIND = "bridge_abutment_seat"
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import BRIDGE_ABUTMENT_SEAT_DECISION_KIND  # noqa: E402,F401
 
 #: Which limb produced a seat candidate (round-12 R12-2).  ONE spelling
 #: each, read by the post-mesh records, the findings and the tests.
-SEAT_SOURCE_CLASSIFIED = "classified"
-SEAT_SOURCE_REFUSED_VIADUCT = "refused_viaduct"
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import SEAT_SOURCE_CLASSIFIED  # noqa: E402,F401
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import SEAT_SOURCE_REFUSED_VIADUCT  # noqa: E402,F401
 
 #: Counted findings this module mints for the post-mesh pass to report.
 #: ``bridge_seat_fallback`` (R12-2): a REFUSED family that has no
@@ -2933,14 +2949,20 @@ SEAT_SOURCE_REFUSED_VIADUCT = "refused_viaduct"
 #: than the pipeline-time classification cached for the same pack — two
 #: frames, two verdicts, one pack.  Both are RECORDED; neither changes
 #: which verdict is used.
-BRIDGE_SEAT_FALLBACK_FINDING = "bridge_seat_fallback"
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import BRIDGE_SEAT_FALLBACK_FINDING  # noqa: E402,F401
 #: ``bridge_seat_coalition`` (amendment 4): a family that DID seat, and
 #: which of its deck members authored the level.  Informational, not a
 #: defect — but counted, because its OUTLIERS are the standing evidence
 #: trail for the canal-floor residual B2 cannot see (a member whose end
 #: lines cross unattributed water reads low and lands here).
-BRIDGE_SEAT_COALITION_FINDING = "bridge_seat_coalition"
-BRIDGE_VERDICT_FRAME_SPLIT_FINDING = "bridge_verdict_frame_split"
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import BRIDGE_SEAT_COALITION_FINDING  # noqa: E402,F401
+# MOVED to ``object_terrain_kinds`` (seam S3, lane v1retire 2026-09-17):
+# the post-mesh pass — a KEEP module — reads it.  Re-exported here.
+from .object_terrain_kinds import BRIDGE_VERDICT_FRAME_SPLIT_FINDING  # noqa: E402,F401
 
 
 @dataclass(frozen=True)

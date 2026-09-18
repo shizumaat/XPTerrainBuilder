@@ -62,6 +62,12 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _SRC_DIR = os.path.join(os.path.dirname(_THIS_DIR), "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
+# ``harness.law_support`` — THIS file's own law machinery since the v1 engine
+# was retired (2026-09-17, seam S4 of RULINGS 2026-09-13aw; see that package's
+# docstring).  tools/ is on sys.path for every caller that does `import
+# check_grade`, but never rely on the caller for it.
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
 try:
     from auto_patch.config import (
         ROLE_GRADE_LIMITS,
@@ -86,7 +92,7 @@ try:
         APRON_MAX_GRADE as _APRON_MAX_GRADE,
         APRON_EDGE_PORTION_MIN_WIDTH_RATIO as _APRON_EDGE_PORTION_RATIO,
     )
-    from auto_patch.layout import SHARED_VERTEX_TOL_M
+    from harness.law_support.roles import SHARED_VERTEX_TOL_M
 except Exception:
     ROLE_GRADE_LIMITS: Dict[str, Optional[float]] = {}
     # Fallbacks (kept in sync with auto_patch.config/layout) so the standalone
@@ -138,7 +144,7 @@ except Exception:
 # tile-cut corridor (``TILE_SEAM_*`` below).  A bare ``seam`` identifier
 # is banned in new code.  The census row key ``seam::seam`` is
 # deliberately NOT renamed (baseline continuity) and means STRIP seam.
-from auto_patch.strip_seam_law import (      # noqa: E402
+from harness.law_support.strip_seam import (      # noqa: E402
     STRIP_SEAM_TEAR_RADIUS_M,
     STRIP_SEAM_TEAR_MIN_STEP_M,
     STRIP_SEAM_TEAR_MIN_GRADE,
@@ -170,7 +176,7 @@ from auto_patch_v2.law.approach_corridor import (
 # copy of a rule number here).  ``None`` when the package is unavailable:
 # the checks that consume them then report nothing rather than guessing.
 try:
-    from auto_patch.grade_law import (
+    from harness.law_support.grade_law import (
         runway_axis_and_width as _runway_axis_and_width,
         runway_strip_wall_keepout_rings as _runway_strip_wall_keepout_rings,
         runway_strip_longitudinal_runs as _runway_strip_longitudinal_runs,
@@ -1393,7 +1399,7 @@ def _pair_grade_limit(way_a: "Way", way_b: "Way",
 # no-engine fallback for the bare-patch CLI, and the harness twin
 # ``tests/test_harness.py`` asserts the two agree.
 try:                                                   # pragma: no cover
-    from auto_patch.layout import GROUNDSIDE_ROLES as _LAYOUT_GS_ROLES
+    from harness.law_support.roles import GROUNDSIDE_ROLES as _LAYOUT_GS_ROLES
     _GROUNDSIDE_ROLES = set(_LAYOUT_GS_ROLES)
 except Exception:                                      # pragma: no cover
     _GROUNDSIDE_ROLES = {"groundside_pavement", "service_road",
@@ -1410,7 +1416,7 @@ def _is_groundside(way: "Way") -> bool:
 # census-wrapper defect.  The literal is the no-engine fallback only, and
 # ``tests/test_road_cross_section.py`` asserts the two agree.
 try:                                                   # pragma: no cover
-    from auto_patch.grade_law import ROAD_ROLES as _LAW_ROAD_ROLES
+    from harness.law_support.grade_law import ROAD_ROLES as _LAW_ROAD_ROLES
     _ROAD_FAMILY_ROLES = set(_LAW_ROAD_ROLES)
 except Exception:                                      # pragma: no cover
     _ROAD_FAMILY_ROLES = {"service_road", "service_junction"}
@@ -1565,7 +1571,7 @@ HOST_SHARED_NODES_TAG = "o4_host_shared_nodes"
 HOST_DUPLICATE_TAG = "o4_host_duplicate"
 
 try:                                                   # pragma: no cover
-    from auto_patch.layout import AUTHORITY_RANK as _LAYOUT_AUTHORITY_RANK
+    from harness.law_support.roles import AUTHORITY_RANK as _LAYOUT_AUTHORITY_RANK
 except Exception:                                      # pragma: no cover
     _LAYOUT_AUTHORITY_RANK = {}
 
@@ -1792,7 +1798,7 @@ class ShapePairConstraint:
 # is the no-engine fallback only (the CLI-on-a-bare-patch case), and the
 # certificate instrument twin asserts the two agree.
 try:                                                   # pragma: no cover
-    from auto_patch.grade_law import JUNCTION_ROLES as _LAW_JUNCTION_ROLES
+    from harness.law_support.grade_law import JUNCTION_ROLES as _LAW_JUNCTION_ROLES
     _WELD_HUB_ROLES = frozenset(_LAW_JUNCTION_ROLES)
 except Exception:                                      # pragma: no cover
     _WELD_HUB_ROLES = frozenset({"junction", "service_junction"})
@@ -1844,7 +1850,7 @@ def _pair_grade_allowance(cap_allow, dist: float, way: "Way") -> float:
     encoding (``_pair_quant_noise_m``).  The budget core is
     ``grade_law.pair_grade_budget_m`` — THE single formula shared with
     ``grade_graph_validate`` so the two pair-law readers cannot drift."""
-    from auto_patch.grade_law import pair_grade_budget_m
+    from harness.law_support.grade_law import pair_grade_budget_m
     return pair_grade_budget_m(cap_allow, dist) + _pair_quant_noise_m(way)
 
 
@@ -1863,7 +1869,7 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
     so the seam / building-step exemptions match by identity.  Mirrors
     ``grade_graph.build_context`` (centerlines from the apt.dat taxi axes, spine-
     less junction cap inherited from the nearest taxi rect, building-pad keys)."""
-    from auto_patch import grade_graph as GG
+    from harness.law_support import grade_graph as GG
     from auto_patch.config import TAXI_MAX_GRADE
 
     centerlines = []
@@ -1927,7 +1933,7 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
     # (``grade_law.frontage_vertex_keys`` / ``FRONTAGE_SOFT_ROLES``), read on
     # emitted node IDENTITY — never a proximity join — so the census and the
     # solver bake enumerate the same apron pairs.
-    from auto_patch import grade_law as _GL_F
+    from harness.law_support import grade_law as _GL_F
     _soft_front_nids = {nid for w in ways
                         if w.tags.get("role") in _GL_F.FRONTAGE_SOFT_ROLES
                         for nid in w.nids}
@@ -2053,7 +2059,7 @@ def _soft_grade_shape(w: "Way", role0: str, pts, pnids, holes=None):
     own idea of where the ramp is.  A patch predating the law has no
     tag and is judged as before.
     """
-    from auto_patch import grade_graph as _GG
+    from harness.law_support import grade_graph as _GG
     # A JUNCTION THAT CARRIES A LETTER is priced at it (RULINGS
     # 2026-09-04q-2: a route-proximity junction inherits the code letter of
     # the taxi chain(s) it serves; the v2 emitter stamps ``code_letter`` on
@@ -2145,7 +2151,7 @@ def iter_shape_grade_constraints(
     # enforces.  The road-frontage / back-edge relaxations below stay a test-only
     # layer ON TOP (they only RELAX a cap).  Non-soft shapes (rects / runway /
     # terminal) keep their per-role all-pair handling further down.
-    from auto_patch import grade_graph as _GG
+    from harness.law_support import grade_graph as _GG
     # INDEX-PRESERVING: axis route ordinals index this list positionally, so a
     # degenerate route must keep its slot (never filter — that shifts every
     # later ordinal).  A <2-point route becomes a 2-point degenerate chain.
@@ -2162,8 +2168,8 @@ def iter_shape_grade_constraints(
                                        interior_zones_m=interior_zones_m)
     # SPINE CROWN (part 30): per-nid designed drops (sidecar field);
     # every pair's law re-centres on grade_law.crown_pair_offset.
-    from auto_patch.grade_law import crown_pair_offset as _crown_off  # noqa: F401
-    from auto_patch.grade_law import (
+    from harness.law_support.grade_law import crown_pair_offset as _crown_off  # noqa: F401
+    from harness.law_support.grade_law import (
         crown_pair_offset_clamped as _crown_off_clamped)
     # AN UNDECLARED CROWN ENDPOINT IS UNKNOWN, NOT ON THE RIDGE.  The tally
     # below ACCUMULATES across this builder's several calls per census and is
@@ -2578,7 +2584,7 @@ def iter_shape_grade_constraints(
     # LONG shared-apron run of a marked way holds the apron cap — a
     # TIGHTENING only (``min``), so every other law the pair already met
     # (frontage, seam, cross-section) still binds.
-    from auto_patch.grade_law import Allowance as _Allow
+    from harness.law_support.grade_law import Allowance as _Allow
     _apron_allow = _Allow.flat(_APRON_MAX_GRADE)
     for k, c in enumerate(out):
         if c.cap > _APRON_MAX_GRADE and _apron_portion_pair(c.way, c.nid_a, c.nid_b):
@@ -2618,7 +2624,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     full DEM-aware floor/curvature law lives in
     ``verification.check_runway_end_skirt``; this is the always-on
     lockstep reader for emitted patches."""
-    from auto_patch.grade_law import RUNWAY_END_SKIRT_MAX_DOWN_GRADE
+    from harness.law_support.grade_law import RUNWAY_END_SKIRT_MAX_DOWN_GRADE
     # Skirt altitudes emit at 0.1 m quantization — a pair carries up to
     # ~0.1 m of rounding; padded slightly for float noise.
     skirt_edge_noise_m = 0.15
@@ -4456,7 +4462,7 @@ def _check_published_law_edges(
 # ``enclaves.ENCLAVE_AIRSIDE_ROLES`` the solve enumerates its airside
 # nodes from, so the two readers cannot price different pavement.
 try:                                                    # pragma: no cover
-    from auto_patch.enclaves import (
+    from harness.law_support.contiguity import (
         ENCLAVE_AIRSIDE_ROLES as _NO_STEP_AIRSIDE_ROLES)
 except Exception:                                       # pragma: no cover
     _NO_STEP_AIRSIDE_ROLES = frozenset()
@@ -4699,7 +4705,7 @@ def _check_drainage_spine_below_pavement(
     #                       own maximum down slope (one number, both
     #                       readers; gap_fill asserts the twin below).
     try:
-        from auto_patch.gap_fill import _RING_ALONG_BENCH_SLOPE
+        from harness.law_support.contiguity import _RING_ALONG_BENCH_SLOPE
         _BENCH_SLOPE = float(_RING_ALONG_BENCH_SLOPE)
     except Exception:
         pass
@@ -4879,7 +4885,7 @@ _TRANSVERSE_MAX_GAP_M = 1.0
 # ``config.transverse_cap_for_longitudinal_cap``, the one law source
 # ``grade_graph._bake_edge`` binds with.
 try:
-    from auto_patch.lateral_spine_nodes import (
+    from harness.law_support.contiguity import (
         TAXI_AXIS_PRICED_ROLES as _LAT_TAXI_PRICED_ROLES,
         SERVICE_AXIS_PRICED_ROLES as _LAT_SERVICE_PRICED_ROLES,
     )
@@ -4949,7 +4955,7 @@ def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m,
     try:
         from shapely.geometry import Polygon
         from shapely.strtree import STRtree
-        from auto_patch.lateral_contiguity import (ROAD_ROLES, station_caps,
+        from harness.law_support.contiguity import (ROAD_ROLES, station_caps,
                                                    cap_at as _cap_at)
     except Exception:
         return [], 0, 0
@@ -5129,7 +5135,7 @@ def _transverse_cap_for_seg_cap(cap_l: float) -> float:
 
 
 try:
-    from auto_patch import transect_walk as _TW
+    from harness.law_support import transect as _TW
 except Exception:                                      # pragma: no cover
     _TW = None
 
@@ -7696,7 +7702,7 @@ _TERRACE_STEP_QUANT_M = 0.11        # 2 x emit rounding + weld noise
 # The joint FACE's own width — the band the lower panel retreats by.
 # Read from the emitter's constant so the two never drift.
 try:
-    from auto_patch.adjacent_ground import (
+    from harness.law_support.contiguity import (
         STACKED_WALL_RETREAT_M as _WALL_RETREAT_M)
 except Exception:                                    # pragma: no cover
     _WALL_RETREAT_M = 0.6

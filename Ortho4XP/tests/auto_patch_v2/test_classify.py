@@ -449,3 +449,39 @@ def test_only_a_road_offers_a_mouth():
         ("parking_lot", "pav2", lot2, None, {"kind": "lot"}),
     ])
     assert n == 0 and roles == ["apron", "service_road", "parking_lot"]
+
+
+# ── §46 (8): A BUFFER THAT SELF-INTERSECTS IS REPAIRED, NOT RAISED ──────
+
+def test_a_junction_buffer_that_self_intersects_is_repaired():
+    """MEASURED (HECA, 2026-09-17, lane ``xplatquantum``): with §46's 1 mm
+    entry quantum, one junction part's ``buffer(on_tol_m)`` came back
+    SELF-INTERSECTING although the part itself was valid, and the very
+    next ``intersection`` raised ``TopologyException: side location
+    conflict at -528.19972125802042 2223.0072125802039`` — the whole HECA
+    build ended in the classify stage.  The quantum only moved the vertex
+    that made the offset curve cross itself; the fragility is GEOS's
+    buffer, at any input.
+
+    Twinned in two halves, because a buffer that self-intersects cannot be
+    written down as a fixture: the REPAIR (the canonical zero-width
+    buffer turns a self-intersecting ring into a valid geometry an
+    ``intersection`` answers), and the guard's presence at the one site.
+    """
+    import inspect
+    from shapely.geometry import LineString, Polygon
+    from auto_patch_v2.classify import roles as R
+
+    bowtie = Polygon([(0, 0), (10, 10), (10, 0), (0, 10)])
+    assert not bowtie.is_valid
+    with pytest.raises(Exception):
+        LineString([(-1, 5), (11, 5)]).intersection(bowtie).length
+    repaired = bowtie.buffer(0)
+    assert repaired.is_valid
+    assert LineString([(-1, 5), (11, 5)]).intersection(repaired).length >= 0.0
+
+    src = inspect.getsource(R._junction_letter)
+    code = "\n".join(line for line in src.splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert "if not near.is_valid:" in code and "near = near.buffer(0)" in code, \
+        "the junction buffer repair is gone — HECA dies in classify again"

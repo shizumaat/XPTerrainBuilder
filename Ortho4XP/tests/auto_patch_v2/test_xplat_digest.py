@@ -229,14 +229,16 @@ def test_the_gate_allows_only_the_named_residues():
     spec = importlib.util.spec_from_file_location("_cft_gate", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    assert mod._GATE_RESIDUES == (("lp", "counts.nnz"),
-                                  ("constraints", "rows."),
-                                  ("solved", "z."))
+    assert mod._GATE_RESIDUES == (("lp", "counts.nnz"), ("solved", "z."))
+    assert mod._ROUNDING_BOUNDARY == (("constraints", "rows.", "rows.dp9"),)
     lines = [
         "load         geometry.dp9                 DIFFER a | b | c",
         "lp           counts.nnz                   DIFFER 1 | 2 | 2",
         "lp           counts.rows                  DIFFER 1 | 2 | 3",
-        "constraints  rows.dp4                     DIFFER a | b | c",
+        # a COARSE rung apart while the finest one agrees: a rounding
+        # boundary, allowed
+        "constraints  rows.dp2                     DIFFER a | b | c",
+        "constraints  rows.dp9                     AGREE  a | a | a",
         "constraints  counts.pins                  DIFFER 1 | 2 | 3",
         "solved       z.dp6                        DIFFER a | b | c",
         "env machine                DIFFER arm64 | x86_64 | AMD64",
@@ -246,3 +248,10 @@ def test_the_gate_allows_only_the_named_residues():
     assert [f.split()[0] + " " + f.split()[1] for f in fail] == [
         "load geometry.dp9", "lp counts.rows", "constraints counts.pins"]
     assert len(residue) == 3
+
+    # AND THE PRE-FIX WINDOWS CONTACT FLIP STILL FAILS: it differed at the
+    # FINEST rung too, so it is not a rounding boundary (§46 (6) (i))
+    flip = ["constraints  rows.dp1                     DIFFER a | a | b",
+            "constraints  rows.dp9                     DIFFER a | a | b"]
+    fail, residue = mod._gate_verdict(flip)
+    assert len(fail) == 2 and not residue

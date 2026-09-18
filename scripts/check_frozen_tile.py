@@ -1064,19 +1064,30 @@ _GATE_RESIDUES = (
     # apart.  mac (numpy on Accelerate) against linux/windows (numpy on
     # scipy-openblas).
     ("lp", "counts.nnz"),
-    # the row VALUES agree to <= 7.96e-13 m (measured, §46 (3)); a digest
-    # ladder rung can still differ when a value sits on its own rounding
-    # boundary, which is the over-reading §46 (2) warns about.
-    ("constraints", "rows."),
+    # (the constraint rows are NOT a blanket residue — see
+    # ``_ROUNDING_BOUNDARY`` below)
     # the solved z downstream of (ii); the EMITTED z (1 cm) is compared
     # by the byte-identity of the patch and of .graded.json.
     ("solved", "z."),
 )
 
 
+#: A COARSE RUNG MAY DIFFER WHILE THE FINEST ONE AGREES, and that is a
+#: rounding boundary, not a divergence: two values equal to 1e-9 can still
+#: fall either side of the 0.01 rounding.  It is exactly the over-reading
+#: §46 (2) records ("agreement at a coarse rung does not bound a spread,
+#: and disagreement at a fine rung does not establish one"), read the
+#: other way round.  So these ladders are allowed ONLY when their OWN
+#: finest rung agrees — the pre-§46 (6) (i) Windows contact flip differed
+#: at dp9 as well and would still fail here.
+_ROUNDING_BOUNDARY = (("constraints", "rows.", "rows.dp9"),)
+
+
 def _gate_verdict(lines):
     """§46 (7): which DIFFER lines are a release failure, and which are a
     NAMED residue.  ``lines`` are the engine's own stage table."""
+    agrees = {(l.split()[0], l.split()[1]) for l in lines if " AGREE" in l
+              and not l.startswith("env ")}
     fail, residue = [], []
     for line in lines:
         if " DIFFER" not in line or line.startswith("env "):
@@ -1085,6 +1096,11 @@ def _gate_verdict(lines):
         stage, metric = parts[0], parts[1]
         if any(stage == s and metric.startswith(m) for s, m in _GATE_RESIDUES):
             residue.append(line)
+        elif any(stage == s and metric.startswith(m)
+                 and metric != finest and (stage, finest) in agrees
+                 for s, m, finest in _ROUNDING_BOUNDARY):
+            residue.append(line + "   [a rounding boundary: the finest "
+                                  "rung AGREES]")
         else:
             fail.append(line)
     return fail, residue

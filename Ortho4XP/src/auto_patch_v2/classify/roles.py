@@ -1008,6 +1008,21 @@ def _junction_letter(part: Polygon, touching: list[Chain], through: list[Chain],
     ``None`` when the stretch carries no letter (the default cap)."""
     tol = rules.cells.on_tol_m
     near = part.buffer(tol)
+    if not near.is_valid:
+        # GEOS'S BUFFER OF A VALID POLYGON CAN SELF-INTERSECT, and then
+        # every set operation against it raises rather than answering.
+        # MEASURED (HECA, 2026-09-17, lane ``xplatquantum``): with §46's
+        # 1 mm entry quantum one junction part's offset curve crossed
+        # itself at (-528.1997, 2223.0072) — ``part.is_valid`` True,
+        # ``near.is_valid`` False, "Self-intersection" at exactly the
+        # coordinate ``intersection`` then died on, and the whole HECA
+        # build ended in the classify stage with a ``TopologyException``.
+        # The quantum only moved the vertex that made the offset curve
+        # cross; the fragility is the buffer's, at any input.  Repaired
+        # with the canonical zero-width buffer — the same "silence
+        # shapely's numerics at the one site, change no geometry" guard
+        # ``model/frame.rotated_rectangle`` carries.
+        near = near.buffer(0)
     crossing: dict[int, Chain] = {}
     for c in touching:
         if c.line.intersection(near).length >= rules.cells.min_shared_m:

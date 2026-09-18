@@ -16092,6 +16092,11 @@ osm_layers`, which is the OWNER'S act. A reader never re-bakes a feed. The site:
 — has never run at HECA, while the run reported nothing but a record on
 `osm_road_feeds_untagged`.
 
+The witness reading moved to its OWN module, `planar/channel_witness.py` — `channel.py`
+crossed its 1,000-line budget (`test_planar::test_import_and_budget`) and the witness set is
+one question with four consumers (the width (10)(i), the floor (3)(i), the deck pieces (12),
+§45 (7)'s exclusion), which is exactly why one false witness set all three at HECA.
+
 Twins: `tests/auto_patch_v2/test_v2channel.py` (A: the jetway fixture refused + its drop
 named, the wall-along-the-axis control kept, `_walls_half` reads the same set, `_along` is
 `_across`'s companion; B: the end-clamped neck states no deck + the positive-span control;

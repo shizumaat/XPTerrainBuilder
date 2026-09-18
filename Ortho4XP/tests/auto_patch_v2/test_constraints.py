@@ -459,7 +459,18 @@ DATA = Path("/Users/noah/XPTerrainBuilderData")
 def test_cyxy_verify_matches_v1_census(tmp_path):
     from auto_patch_v2.pipeline.build import Config, build as build_v2
     from auto_patch_v2.planar.__main__ import default_inputs
-    res = build_v2("CYXY", default_inputs(), tmp_path, Config())
+    # THE SHARED CORPUS'S CYXY ``airport_small_roads`` CARRIES NO
+    # ``o4_tag_schema`` (lane ``v2channelfp``, owner RULINGS 2026-09-17t):
+    # an UNSTAMPED feed is now refused exactly like a stale-stamped one, so
+    # this twin — whose subject is the CENSUS LOCKSTEP and not the feed's
+    # schema — takes the standing, recorded override, which authorises NO
+    # write.  The feed is owed the owner's ``build_airport.py CYXY
+    # --refresh-data osm_layers``, exactly as HECA's is; when it runs this
+    # line can drop the flag.  (``dem_frame="authored"`` is the other
+    # exemption and is NOT usable here: it would change the geometry the
+    # lockstep is measured on.)
+    res = build_v2("CYXY", default_inputs(allow_degraded_dem=True), tmp_path,
+                   Config())
     assert res.solution.status in (Status.OPTIMAL, Status.FEASIBLE)
     # The pipeline's wall clock is read by ``test_cyxy_pipeline_wall``
     # (marked ``timing``, deselected by default), never here.

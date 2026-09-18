@@ -9214,6 +9214,16 @@ above grade — the base tree reads **+16.90 m** on that fixture — + the 100 m
 cut down), `test_v2othhdet.py` +2 (D: one predicate, the frozen-frame exemption) and its
 source assertion updated from `if stale` to `if suspect`.
 
+**TWO CONSEQUENCES OF THE CHANGE, both named.** (1) `planar/channel.py` crossed its
+1,000-line budget (`test_planar::test_import_and_budget`), so the witness reading moved to
+its own `planar/channel_witness.py` — the same split `channel_geometry` and `channel_floor`
+already are, and the right one: the witness set is ONE question with four consumers.
+(2) Chip D refuses the SHARED CORPUS's CYXY `airport_small_roads` too (also unstamped), which
+red-lined `test_constraints::test_cyxy_verify_matches_v1_census` — a twin whose subject is the
+census lockstep, not the feed's schema. It now takes the standing recorded
+`--allow-degraded-dem` override with the reason and the owed act in a comment; **CYXY's feed
+is owed the owner's `--refresh-data osm_layers` exactly as HECA's is.**
+
 **NOT DONE, by name.** (1) LGAV `channel:0` and OTHH replays — the `airport_mod_cache`
 refusal above, an owner act. (2) LEMD's `channel_floor_at_declaration` 230 → ? — that family
 is priced on an EMITTED patch and the round allows ONE closing build (HECA); the mechanism

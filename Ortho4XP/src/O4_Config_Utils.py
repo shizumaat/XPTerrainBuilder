@@ -264,6 +264,16 @@ class Tile:
             layers = [global_cfg_file]
         else:
             tile_cfg = config_file or self._tile_cfg_path()
+            # THE ONE-TIME MIGRATION (owner ruling RULINGS 2026-09-18a (1)),
+            # run before the tile layer is applied so this build already
+            # resolves the migrated file: a tile cfg written by the
+            # pre-2026-09-18 full-dump writer carries a FROZEN copy of the
+            # whole settings frame, which then beats the global for ever.
+            # Idempotent, and a file needing no change is not rewritten.
+            import O4_Settings_Model as SM
+            for _info in SM.migrate_tile_cfg(
+                    tile_cfg, SM.read_global_raw(global_cfg_file)):
+                UI.lvprint(0, "   INFO:", _info)
             layers = [global_cfg_file, tile_cfg]
         layers = [path for path in layers if os.path.isfile(path)]
         if not layers:
@@ -356,43 +366,58 @@ class Tile:
             )
             return 0
 
+    def _tile_zones(self):
+        """The zones the user drew that fall inside THIS tile."""
+        tile_zones = []
+        lat = self.lat + 1 if self.lat < 0 else self.lat
+        lon = self.lon + 1 if self.lon < 0 else self.lon
+        for zone in globals()["zone_list"]:
+            _zone_list = set(int(coord) for coord in zone[0])
+            if lat in _zone_list and lon in _zone_list:
+                tile_zones.append(zone)
+                _LOGGER.debug("Zones in tile found: %s", tile_zones)
+        return tile_zones
+
     def write_to_config(self, config_file = None):
         """
-        Create tile config file from class variables.
+        Write this tile's config file as SPARSE OVERRIDES.
+
+        Owner ruling RULINGS 2026-09-18a (1), BETA2 GEN-1: a tile cfg
+        carries ONLY the keys whose value differs from the GLOBAL layer
+        (the global cfg file, else the registry default), plus its zones
+        and build provenance.  Until 2026-09-18 this dumped EVERY
+        ``list_tile_vars`` key, so each build froze the whole resolved
+        settings frame into the tile file — and on the next build that
+        frozen value BEAT the global the app checkbox writes
+        (``read_from_config`` layers global then tile).  Any global-only
+        app toggle was therefore dead on a tile that had ever been built:
+        ``modify_custom_airports`` (GEN-1, all 23 of the owner's tile cfgs
+        said True while the box was unchecked) and ``color_harmonization``
+        were two instances of ONE defect.
+
+        The diffing rule itself is not implemented here — it is
+        ``O4_Settings_Model.sparse_tile_values``, the same function the
+        settings window's ``write_tile`` uses.  One rule, one code path.
 
         :params str config_file: path to config file; unknown use case
-        
+
         :returns: 1 if successful, 0 if not
         :return type: int
         """
+        import O4_Settings_Model as SM
         if not config_file:
             config_file = self._tile_cfg_path()
-        config_file_bak = config_file + ".bak"
         try:
-            os.replace(config_file, config_file_bak)
-        except:
-            pass
-        try:
-            f = open(config_file, "w")
+            values = {}
             for var in list_tile_vars:
-                tile_zones = []
-                lat = self.lat
-                lon = self.lon
-                if lat < 0:
-                    lat = lat + 1
-                if lon < 0:
-                    lon = lon + 1
-                for zone in globals()["zone_list"]:
-                    _zone_list = [int(coord) for coord in zone[0]]
-                    _zone_list = set(_zone_list)
-                    if lat in _zone_list and lon in _zone_list:
-                        tile_zones.append(zone)
-                        _LOGGER.debug("Zones in tile found: %s", tile_zones)
                 if var == "zone_list":
-                    f.write(var + "=" + str(tile_zones) + "\n")
+                    values[var] = self._tile_zones()
                 else:
-                    f.write(var + "=" + str(eval("self." + var)) + "\n")
-            f.close()
+                    values[var] = getattr(self, var)
+            out = SM.sparse_tile_values(
+                values, always_keep=SM._TILE_PRESERVED,
+                global_cfg=SM.read_global_raw(global_cfg_file))
+            SM._write_atomic_with_backup(config_file, out)
             return 1
         except Exception as e:
             UI.vprint(2, e)

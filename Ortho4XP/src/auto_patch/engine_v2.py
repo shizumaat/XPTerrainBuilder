@@ -821,10 +821,21 @@ def rebake_after_mesh(tile) -> dict:
             UI.vprint(0, "  [v2 rebake] STALE MESH: the mesh predates the tile's .alt — "
                          "placement SKIPPED; rebuild the mesh after the elevation step")
             return counts
+        # THE USER'S SWITCH IS A STAND-DOWN, NOT A MEASURE-ONLY ARM
+        # (owner ruling RULINGS 2026-09-18a (3), BETA2 GEN-1).  When the
+        # user unchecks "Modify custom airports" the whole placement stage
+        # is skipped: no pack DSF dump into the mod cache, no placement
+        # plan, no ``[v2 placement]`` output — ONE line naming the switch.
+        # The env arms below (``O4_PACK_WRITES=measure_only``, the
+        # ``DSF_OBJECT_REANCHOR`` kill switch) exist precisely to KEEP the
+        # measurement while standing the writes down, so they do NOT take
+        # this return.
         measure_only = not getattr(tile, "modify_custom_airports", True)
         if measure_only:
-            UI.vprint(1, "  [v2 rebake] modify_custom_airports is off — measure-only: "
-                         "nothing is written to the pack")
+            UI.vprint(1, "  [v2 rebake] modify_custom_airports is off — "
+                         "placement stage skipped entirely (no pack is read, "
+                         "dumped or written, no placement plan is computed)")
+            return counts
         # v1's engine-wide kill switch (``O4_DSF_OBJECT_REANCHOR=0`` "leaves
         # every pack byte-identical"; function-local import so tests drive
         # it): the placement plan is still built and reported — the

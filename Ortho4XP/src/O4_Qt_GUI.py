@@ -2634,6 +2634,21 @@ class MainWindow(QMainWindow):
             SM.write_global({"modify_custom_airports": str(bool(checked))})
         except OSError as exc:
             print("Could not save modify_custom_airports:", exc)
+        # WRITE-THROUGH (owner ruling RULINGS 2026-09-18a (2)): a tile cfg
+        # that still carries this key BEATS the global, so the box would
+        # go on lying about what the engine does (BETA2 GEN-1).  The
+        # active tile's override is set when it now differs and REMOVED
+        # when it equals the global — one rule, ``write_tile``'s.
+        tile = self.map.active_tile()
+        if tile is None:
+            return
+        try:
+            SM.write_tile(
+                tile[0], tile[1], self.output_dir(),
+                {"modify_custom_airports": str(bool(checked))},
+            )
+        except OSError as exc:
+            print("Could not update the tile's modify_custom_airports:", exc)
 
     def _texture_mode_changed(self, index):
         """Persist the chosen texture mode to the active tile's config.

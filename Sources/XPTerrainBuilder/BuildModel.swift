@@ -1597,24 +1597,7 @@ final class BuildModel: ObservableObject {
             setConfigValue(item.name, to: value)
             return
         }
-        let inherited = configValue(for: item.name)
-        for coord in selected {
-            guard let url = tileConfigURL(coord) else { continue }
-            var file = (try? OrthoConfigFile(contentsOf: url)) ?? OrthoConfigFile()
-            if let inherited, value == inherited {
-                file.remove(item.name)
-            } else {
-                file.set(item.name, to: value)
-            }
-            do {
-                try FileManager.default.createDirectory(
-                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try file.write(to: url)
-            } catch {
-                engineError = "Could not write \(url.lastPathComponent): \(error.localizedDescription)"
-            }
-        }
-        tileConfigGeneration += 1
+        writeThroughToSelectedTiles(item.name, value)
     }
 
     /// Every config variable the current selection actually customizes —
@@ -1661,6 +1644,44 @@ final class BuildModel: ObservableObject {
 
     func setModifyCustomAirports(_ enabled: Bool) {
         setConfigValue("modify_custom_airports", to: .bool(enabled))
+        // WRITE-THROUGH (owner ruling RULINGS 2026-09-18a (2)): this is a
+        // TILE-scope var (SettingsLayout.swift), and a tile cfg carrying
+        // it BEATS the global the line above writes — which is BETA2
+        // GEN-1 itself: all 23 of the owner's tile cfgs said True while
+        // this box was unchecked, so the engine reseated packs anyway.
+        // Same rule as every other tile-scope edit: set the override when
+        // it now differs from the global, REMOVE it when it matches.
+        writeThroughToSelectedTiles("modify_custom_airports", .bool(enabled))
+    }
+
+    /// Set-or-remove one tile-scope override on every selected tile, against
+    /// the global effective value (RULINGS 2026-09-18a (2) — a settings
+    /// change or reset updates the selected tiles' cfgs).
+    ///
+    /// The engine owns the same rule as `tile_settings_write`
+    /// (O4_Settings_Model.write_tile), which the Qt window calls in
+    /// process; this local writer predates that command and is the one
+    /// convergence owed here.
+    private func writeThroughToSelectedTiles(_ name: String, _ value: O4Value) {
+        guard !selected.isEmpty else { return }
+        let inherited = configValue(for: name)
+        for coord in selected {
+            guard let url = tileConfigURL(coord) else { continue }
+            var file = (try? OrthoConfigFile(contentsOf: url)) ?? OrthoConfigFile()
+            if let inherited, value == inherited {
+                file.remove(name)
+            } else {
+                file.set(name, to: value)
+            }
+            do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try file.write(to: url)
+            } catch {
+                engineError = "Could not write \(url.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+        tileConfigGeneration += 1
     }
 
     func setConfigValue(_ name: String, to value: O4Value) {

@@ -20,7 +20,7 @@ from pathlib import Path
 from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
                                ReliefFloor, check_flat_site as _check_flat_site)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
-from .rebake_schema import Placement, Rebake  # noqa: F401
+from .rebake_schema import Deck, Placement, Rebake  # noqa: F401
 # the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
 from .cutout_schema import Cutout, check_cutout as _check_cutout  # noqa: F401
 # the [basin] schema (the below-grade facility law; 11t §24) likewise
@@ -437,6 +437,9 @@ class Structures:
     rebake: Rebake
     placement: Placement
     load: LoadLaw
+    #: §49: the deck-face datum (``[deck]``); defaulted so a law dir
+    #: without the table still loads
+    deck: Deck = _dc.field(default_factory=Deck)
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

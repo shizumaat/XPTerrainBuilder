@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
-__all__ = ["Rebake", "Placement"]
+__all__ = ["Rebake", "Placement", "Deck"]
 
 
 @_dc.dataclass(frozen=True)
@@ -289,3 +289,34 @@ class Placement:
     #: it is cut at §10's line stations and never holds its unit rigid.
     #: 0 disarms the class and every body stays rigid.
     connector_span_m: float = 200.0
+
+
+@_dc.dataclass(frozen=True)
+class Deck:
+    """``structures.toml [deck]`` — §49 A PARAPET RIDES THE DECK (owner
+    RULINGS 2026-09-17u-2 / 17x (2)): the emitted ``bridge_deck:*`` face
+    is a datum for every body standing on it."""
+
+    #: §49 (2): a body is ON a deck when at least this fraction of its
+    #: ground-contact feet (footed) or plan-box samples (footless) fall
+    #: inside ONE deck ring.  ``Bridge2`` b1 (the pier, 1 of 81) is out.
+    on_fraction: float = 0.5
+    #: A PARAPET STANDS ON THE DECK'S EDGE, outside the emitted road face
+    #: (lane ``v2deckseat``, MEASURED on the shipped LEMD pair): a point
+    #: within this of the deck ring's edge counts as on the deck.  With
+    #: the bare ring Bridge2's walls read 17–44 % of their plan boxes
+    #: inside (every one under ``on_fraction``); within 6 m they read
+    #: 54–94 % and the pier b1 reads 7 %.  0 = the bare ring.
+    edge_m: float = 6.0
+    #: A PIER IS NOT A PARAPET: a footed body is on the deck only where
+    #: the design surface under its on-deck feet reads no more than this
+    #: BELOW the deck's own z (Bridge2's pier b1 stands 6.9 m under it in
+    #: the trench, 2 of its 4 feet inside the edge band).  0 disarms.
+    under_m: float = 2.0
+    #: §49 (5): shear the body to the deck's grade between its end
+    #: stations.  NOT YET IMPLEMENTED (budget mode 2026-09-17): every
+    #: deck-seated body takes §49 (6)'s low-end fallback whatever this
+    #: reads; the key is bound so the law file names the intent.
+    shear: bool = True
+    #: §49 (5): a deck steeper than this is not sheared (fallback (6)).
+    shear_max_grade: float = 0.10

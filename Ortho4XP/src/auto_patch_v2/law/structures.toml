@@ -918,6 +918,19 @@ chain_min_height_m  = 2.5
 connector_span_m    = 200.0
 
 # ─────────────────────────────────────────────────────────────────────────
+# §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec
+# design-surface-spec.md §49).  The emitted `bridge_deck:*` face is a datum
+# for every body standing on it (LEMD's Bridge2 parapets: +4.54 / -6.87 m
+# off their deck under the foot-box MEDIAN).  Budget-mode 2026-09-17: the
+# SHEAR (5) is not delivered; every deck body takes the LOW-END fallback (6).
+[deck]
+on_fraction         = 0.5          # >= this fraction of feet / plan-box samples inside ONE deck ring = ON the deck
+under_m             = 2.0          # a PIER is not a parapet: a foot whose surface reads further than this UNDER the deck's z stands under it (Bridge2 b1: 6.9 m)
+edge_m              = 6.0          # a parapet stands on the deck's EDGE: within this of the ring is on it (LEMD Bridge2 walls 54-94 %, the pier 7 %; bare ring 17-44 %, MEASURED)
+shear               = true         # §49 (5) — bound, NOT YET IMPLEMENTED (fallback (6) runs regardless)
+shear_max_grade     = 0.10         # §49 (5): steeper decks are not sheared
+
+# ─────────────────────────────────────────────────────────────────────────
 # §42 OBJECT-BASED PAVEMENT IS A SOURCE (owner RULINGS 2026-09-13cv; the
 # defect is RULINGS 2026-09-13cu).  A pack's DRAPED OBJ8 ground polygons
 # are pavement source geometry beside the apt.dat 110 polygons and the

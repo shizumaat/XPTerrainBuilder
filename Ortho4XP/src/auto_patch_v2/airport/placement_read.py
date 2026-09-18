@@ -19,7 +19,8 @@ from ..model.rebake import RebakePlan
 from . import anchor_rule as _ar
 
 __all__ = ["read_plan", "pads_rims_from_graded", "pads_rims_from_graded_doc",
-           "PAD_FACE_ROLE", "RIM_BREAKLINE_KIND"]
+           "decks_from_graded_doc", "decks_from_graded",
+           "PAD_FACE_ROLE", "RIM_BREAKLINE_KIND", "DECK_REF_PREFIX"]
 
 
 def read_plan(path: str) -> tuple[RebakePlan, tuple[tuple[int, int], ...]]:
@@ -50,6 +51,32 @@ def read_plan(path: str) -> tuple[RebakePlan, tuple[tuple[int, int], ...]]:
 #: ``basin`` — while the tool, deriving them, classified both.
 PAD_FACE_ROLE = "building"
 RIM_BREAKLINE_KIND = "structure_rim"
+#: §49 (1): the emitted DECK FACE region — every graded face whose ref
+#: starts with this, WHATEVER its role (today all 14 are ``service_road``)
+DECK_REF_PREFIX = "bridge_deck:"
+
+
+def decks_from_graded_doc(d: _t.Mapping[str, _t.Any]
+                          ) -> tuple[_ar.DeckFace, ...]:
+    """§49 (1): every ``bridge_deck:*`` face of a parsed
+    ``<ICAO>.graded.json`` as a :class:`anchor_rule.DeckFace` — its ring
+    and the ring's own heights.  ONE derivation site (the engine and the
+    dry-run tool both read it)."""
+    by_id = {v[0]: (v[1], v[2]) for v in d["vertices"]}
+    z_id = {v[0]: v[3] for v in d["vertices"]}
+    return tuple(_ar.DeckFace(f["ref"],
+                              tuple(by_id[i] for i in f["ring"] if i in by_id),
+                              tuple(float(z_id[i]) for i in f["ring"]
+                                    if i in by_id))
+                 for f in d.get("faces", ())
+                 if str(f.get("ref", "")).startswith(DECK_REF_PREFIX)
+                 and len(f["ring"]) >= 3)
+
+
+def decks_from_graded(path: str) -> tuple[_ar.DeckFace, ...]:
+    """:func:`decks_from_graded_doc` of the file at ``path``."""
+    with open(path, encoding="utf-8") as fh:
+        return decks_from_graded_doc(json.loads(fh.read()))
 
 
 def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]

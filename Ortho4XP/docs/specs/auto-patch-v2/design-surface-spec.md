@@ -16659,3 +16659,137 @@ property of the build at all on those two platforms; the patch body has been
 `301280a0e02e` on every platform of every run since the quantum shipped. Judging the
 release on the shipped file rather than on `z.dp9` is not a relaxation, it is the only
 reading that is reproducible.
+
+## §47 THE TRENCH RINGS SIT ON THE WALL'S FACES; A WALLED RAMP HOLDS THE CAP TO THE BUILDING (owner RULINGS 2026-09-17h / 17j; Fable 2026-09-17; scout `wallfit`, RULINGS 17k) — lane `v2wallface`, after `v2doorwellperf`
+
+Owner (OTHH read of 1.0.347, old-pack tiles): "The ramp should fully align with the
+interior of the walls so there's no gaps, and the surrounding terrain or tunnel wall shape
+that sets the ground level must exactly match the exterior of the wall object so the
+entire terrain wall is hidden INSIDE the package provided object wall." — "when a package
+has subterranean objects, like the basement ramps, and the partially underground corridor
+that passes under the terminal, and the package includes ramp edge walls extending out
+from the building, the ramp must start at terrain level at the outer edge of the wall and
+descend at max grade to the building so the whole ramp is within the provided walls." —
+Q1: "Maintain 10% cap, descend as far as that allows, stopping at the building wall." —
+Q2: "We must hide the terrain inside any shell, surrounding grade must meet the shell
+exactly with no gaps, and the ramp must follow the interior of the shell exactly. Whatever
+gap that leaves should be fine."
+
+What this supersedes: the 08a/08e trench law's `floor_overlap_m` 0.3 and
+`rim_inset_fraction` 0.5 FOR OBJECT WALLS (an OSM bore keeps `wall_gap_m +
+wall_band_width_m`); the `rim_standoff` identity-spacing floor; Law A's outward climb
+(`[cutout.door] max_length_m`, the flat well); Law C's `stop_and_steepen` above the cap
+(14bm's 17 % east ramp). The 08e OWED deviation (2) — the emit path putting the rim ≈ 0.4 m
+OUTSIDE the object at a 1.0 m wall — is closed by (2) below. The mechanisms are
+pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hamad Intl`,
+17j), never on an old-pack product.
+
+1. **THE RINGS ARE THE FACES.** For every object-walled structure (object corridor, wall
+   corridor, door well, sunken road, basin shell) the FLOOR ring is the wall's INNER face
+   exactly and the RIM ring is the wall's OUTER face exactly; the band between them is the
+   wall's own measured thickness `t` (per band / per station where it varies). Both rings
+   are born from the object's own face vertices, unsnapped (the §33 (6) B
+   `geometry_from_trench` precedent). `structure_geometry.rim_standoff` returns `(0, t)`
+   for an object wall at its five call sites (`object_corridor.py:176`,
+   `wall_corridor_ramps.py:90`, `door_ramps.py:117/:177`, `basins.py:605`); `half_fn`
+   drops the overlap.
+2. **THE EMIT PATH NEVER LEAVES THE WALL.** `_geometry_at`'s floor `snap_out`
+   (`structure_geometry.py:420-423`), the rim `_offset_out` + `_clear` (`:434-437`) and
+   `geometry()`'s k-widening (`:661-679`) may move no rim vertex outside the outer face and
+   no floor vertex inside the inner face. A station that cannot be cleared inside the wall
+   is not widened; it is (3)'s case.
+3. **THE LATTICE FLOOR `F` IS MEASURED, AND THE RIM YIELDS.** The arrangement snap-rounds
+   every coordinate to the 0.5 m identity lattice (`planar/overlay.py:441`); two unsnapped
+   rings are guaranteed distinct only above the cell diameter 0.7071 m by vertex rounding,
+   and GEOS's segment hot-pixel rule may bind higher (the 09-01e "0.85 m" record). The lane
+   MEASURES `F`: ring pairs at 0.60 / 0.71 / 0.75 / 0.85 / 1.00 m through the real
+   arrangement, the smallest separation at which both survive as two rings, recorded as
+   `structures.toml [cutout] ring_floor_m` with its measurement beside it. Where `t < F`
+   (OTHH's 0.25 / 0.55 m Dewatering shells; the 0.75 m drainage shells if `F > 0.75`): the
+   FLOOR STAYS ON THE INNER FACE (the owner: the ramp follows the interior exactly) and the
+   RIM YIELDS OUTWARD by `F − t`, per shell, reported by name with metres (`rim_yield` in
+   the structures line and the KML). Nothing else yields; no shell is refused for thinness.
+4. **`structure_rim_gap` RE-FOUNDED.** The bar is the DESIGNED band `max(t, F) −
+   materiality` per corridor (`verify/structures.py:229-277`), never the global 0.5 m.
+5. **05n-2's assertion.** `trench_outside_m` (`object_corridor.py:227-251`) drops the
+   overlap term and keeps `grid·√2`.
+6. **LAW A INVERTED — THE DOOR RAMP DESCENDS INSIDE ITS WALLS.** The ramp top is at grade
+   at the well's OUTER end (`hull_s`); the floor descends toward the building face at the
+   cap — `[cutout.door] ramp_grade` 0.08 → 0.10 (= `wall_corridor.max_ramp_grade`) — and
+   STOPS AT THE BUILDING WALL at `depth_at_wall = min(sill, 0.10 × well length)`; the
+   residual `sill − depth_at_wall` is a step AT the building face, reported per well.
+   Nothing is emitted beyond the well: the outward climb and `max_length_m` retire;
+   `stop_at_pavement` still governs the well itself. `Group.climb_from_s` (`door_ramps.py:
+   134`) is the inversion's one derivation site.
+7. **LAW C HOLDS THE CAP.** The wall corridor's ramp from the wall's outer end to the
+   covering-plate edge (14be/14bm) runs at ≤ 0.10; `stop_and_steepen` past the cap is
+   superseded — the ramp arrives at the plate edge at `0.10 × L` and the residual to the
+   authored wall-bottom floor is at the plate edge, reported per corridor (14bm's east
+   mouth: 9.89 m → 0.99 m against a wall bottom 1.35–1.89 m). `road_true_edge` and the
+   half-width margin (§34 (10)) stand where the road edge is inside the wall end; where the
+   wall's outer end is the top, the top is the wall end (the owner's sentence). Law B
+   (sunken road, the plate's own y) unchanged.
+8. **CONSUMER CENSUS (30l)** — §47.1 below is the table (scout `wallfit`, static). BEFORE
+   editing, the lane seam-probes the two undecided readers: `constraints/structures.on_floor`
+   (`:242-258`) with the rim on the face coinciding with foreign ground (the 15bh VHHH class)
+   and `verify/structures._rim_edges` (`:308`) under `tunnel_mouth_canonical`; and re-founds
+   the named twins (`test_v2trenchgap.py` :65/:73/:76/:80/:95/:97/:119/:173,
+   `test_tunnel_objects.py:302-307`, `test_v2doorramp.py:250`, `test_v2basinedge.py:140`,
+   `test_m4b.py:294-300`, the three Law C twins of 14bm).
+9. **BARS** (the NEW pack, after `v2doorwellperf` merges and the owner's
+   `--refresh-data airport_mod_cache`): the ring table per class — rim vertices outside the
+   outer face 0 beyond the named (3) yields, floor vertices off the inner face 0, band = `t`
+   (or `F`) within materiality; `structure_rim_gap` 0 under (4); every door well inverted
+   with its residual named; every wall corridor at ≤ 10 % with its residual named; 05n-2
+   0; verify defects {}; airside unchanged against the matched control (`airside_value_
+   delta` 0 > 0.02 m); LEMD and VHHH dry pairs byte-identical for OSM bores and
+   signature-B shells (a touched `+ grid` widen named); synthetic-first (`m235.py`'s
+   seven-arm `_geometry_at` replay, fixtures at t = 0.25 / 0.55 / 0.75 / 1.00 / 2.00 m);
+   ONE OTHH build; twins; suite; the harness census with the cockpit block.
+
+### §47.1 CONSUMER CENSUS (owner RULINGS 2026-08-30l) — scout `wallfit`, 2026-09-17, static (seam-probe owed to the lane, (8))
+
+(i) The rim + floor derivation
+
+| Reader | file:line | Reads | Changes under §47 |
+|---|---|---|---|
+| `rim_standoff` | `structure_geometry.py:79-98` | `t`, `rim_inset_fraction`, `floor_overlap_m`, spacing | returns `(0, t)` for object walls; 5 call sites below |
+| `object_corridor.object_groups` | `object_corridor.py:163-209` (`:176`, `half_fn` `:186`, `rim_fn` `:191`) | `Station.half_l/r`, `thick_l/r` | `half_fn` drops `+ overlap`; `rim_fn` returns `t` |
+| `wall_corridor_ramps.wall_corridor_groups` | `wall_corridor_ramps.py:80-119` (`:90`) | same | same |
+| `door_ramps.door_groups` / `sunken_groups` | `door_ramps.py:96-135` (`:117`) / `:150-196` (`:177`) | `shell_thickness_m` | same |
+| `basins` (basin rim) | `basins.py:605` | `shell_thickness_m` | same; 08e (3): OTHH basins read shell 0.00 m and did not move — re-measure on the new pack |
+| `shell_thickness_m` | `basin_geometry.py:182-199` | plate→footprint min distance | unchanged; becomes the whole band |
+| `snap_out` / `_offset_out` / `_clear` | `structure_geometry.py:148/167/176` | — | no readers outside the file (grep `src/`, `tools/`, `tests/`) |
+| `_geometry_at` | `structure_geometry.py:398-470` | `half_fn`, `rim_fn` | (2): no outward push past the face |
+| `geometry` (k-widening) | `structure_geometry.py:661-679` | `side_want` | (2): never past the outer face |
+| `geometry_from_trench` | `structure_geometry.py:555-640` | `c.trench`, `c.footprint` | the `+ grid` widen (`:627`) and `_MIN_WALLED_FRACTION` (`:480`) assume the snap eats the band — VHHH/LEMD reach it, OTHH does not; (3)'s `F` replaces the `+ grid` |
+| `ring_for` | `structure_geometry.py:534-552` | dispatch | unchanged |
+| `RampGeometry.*` | `structure_geometry.py:101-123` | — | values only |
+| `structures.build_structures` → `wall_path` | `structures.py:758-760` | rims + caps | values only |
+| `Tunnel.wall_path` consumers | `constraints/structures.py:155` (`wall_faces_of`), `:324`; `pipeline/build.py:165-168` (`plate_stations`) | the rim ring | plate stations move with the rim (08f rule (c)) |
+| `Tunnel.footprint` | `structures.py:845-847` | `c.footprint` | unchanged |
+| `on_floor` / `shared_with_ground` | `constraints/structures.py:242-258` | structure role set | SEAM-PROBE: a rim on the face may coincide with foreign ground (15bh class) |
+| `structure_rim` feature | `airport/placement_read.py:52`, `verify/frame.py:184-193`, `constraints/foot_rows.py:433` | the rim breakline | rim moves; foot rows follow |
+| `verify.structure_rim_gap` | `verify/structures.py:229-277` | 0.49 m global | (4) re-founded |
+| `verify.tunnel_mouth_canonical` | `verify/structures.py:364+` (`_rim_edges` `:308`, `_mouth_end` `:332`) | rim edges | SEAM-PROBE |
+| `verify.tunnel_deck_clearance` | `verify/structures.py:486+` | decks vs rim | unaffected (expected) |
+| `verify.wall_in_runway_strip` | `verify/structures.py:84-115` | wall vs strip | fewer hits |
+| `object_cut_offset` / `trench_outside_m` | `object_corridor.py:227-251`; `structures.py:838` | trench ⊕ overlap ⊕ grid·√2 | (5) |
+| census families | `retaining_wall` no `rulesets.toml` cap; ramp roles' caps (`rulesets.toml:29`, `precedence.toml:58/71/72`) | — | unchanged |
+| weld / proximity / census exemptions | `weld.py:65-66` (value roles only), `constraints/proximity.py:57-60` (`role_cap` None), `check_grade.py:8494-8496` (airside/groundside skip; role-less feature way) | — | already exempt the pair — no edit |
+| twins | `test_v2trenchgap.py`, `test_tunnel_objects.py:302-307`, `test_v2doorramp.py:250`, `test_v2basinedge.py:140`, `test_m4b.py:294-300` | `rim_standoff` | all re-founded |
+
+(ii) The climb start
+
+| Reader | file:line | Reads | Changes under (6)/(7) |
+|---|---|---|---|
+| `Group.climb_from_s` | `object_corridor.py:88`; `door_ramps.py:134`; `wall_corridor_ramps.py:117` | — | Law A inverts at `door_ramps.py:134` |
+| `covered_start` | `structure_geometry.py:289-315`; `structures.py:494` | `plate_plan` | still the full-depth point; the cap sets the depth reached |
+| `Group.hull_s` | `object_corridor.py:57`; `structures.py:503/543/556/595/668` | wall end | the ramp top |
+| `Group.profile` / `wall_corridor_profile` | `object_corridor.py:96`; `door_ramps.py:195`; `structures.py:809` | plate y / published profile | Law B unchanged; Law C cap-pinned |
+| `stop_at_pavement` | `object_corridor.py:93`; `structures.py:608-611` | stop set | unchanged |
+| `locked_road_stops` / `stop_and_steepen` | `wall_corridor_ramps.py`; `structures.py:630` | road cells | steepening past the cap superseded (7) |
+| `road_true_edge` | `wall_corridor_ramps.py:182-217` | ribbon half-width | unchanged |
+| `ramp_targets` / `collapse_for_ramp` / `collapse_stations` / `reseat_expect` | `structure_geometry.py:318-361 / 364-395 / 241-275 / 278-286` | design line, knees | knee set follows the inverted door law |
+| `constraints/structures` ramp cap | `constraints/structures.py:275-278` | `co.door.ramp_grade` / `tn.ramp_max_grade` / `co.wall_corridor.max_ramp_grade` | door 0.08 → 0.10 |
+| twins | the three Law C twins (14bm), `test_v2doorramp.py`, `test_v2corridor.py` | — | re-founded |

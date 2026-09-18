@@ -16966,3 +16966,74 @@ at every rung, the docstring says why); the exact band `max(t, F)` is asserted o
 cells BEFORE the arrangement (`tests/auto_patch_v2/test_v2wallface.py`). Dockets (a)–(c) of
 RULINGS 17m (the thin-shell wall reader, the end-band exclusion, the unpublished residual /
 yield keys) are owed to the OTHH read.
+
+
+## §48 THE INTERIOR OBJECT CLASS — AN INTERIOR IS NEVER READ AND NEVER LOADED; IT RIDES ITS CLUSTER (owner RULINGS 2026-09-17n; Fable 2026-09-17; scout `interiors`, RULINGS 17o) — lane `v2interiors`, after `v2doorwellperf`
+
+Owner: "We should be able to gain efficiency by identifying object interiors, as we should never
+need or want to do anything with them, they simply stay bundled with their object group/cluster
+and move with it like a roof. They are not applicable to anything we build in the patch. I guess
+if they were placed with an explicit MSL altitude, we might have to modify that..."
+
+Measured (scout `interiors`, four packs, a 1 m footprint raster of every solid triangle in the
+authored frame): a SINGLE-HOST containment rule is refuted — the new OTHH pack authors the
+terminal shell as many `Terminal_Base_*` files each SMALLER in plan than the interior it roofs
+(`Interior_Clutter_3_1`: roofed cover 99.2 % composed of `Base_14` 77 %, `Base_9_4` 65 %,
+`Interior_12` 34 %, …), so the cover is the UNION of the candidate's own cluster. The union rule
+with the same-resource exclusion (U5) removes OTHH 28.0 % of solid triangles / 33.9 % of `.obj`
+bytes (all five 17n-named clutter files, the 141 MB one included), LEMD 34.7 % / 32.5 %, HECA 15.9 %
+(the least trustworthy: material-sliced shells), VHHH 1.3 %. A NAME rule finds nothing at LEMD
+or VHHH (no resource named Interior/Clutter) where the mechanical rule admits 403 / 75. No
+`OBJECT_MSL` row exists in any of the four packs.
+
+1. **THE PREDICATE, MECHANICAL, ONE DERIVATION SITE.** A placement is INTERIOR when, in the
+   authored frame: (a) ≥ `[interior] roofed_fraction` (0.95) of its plan footprint lies under the
+   union of the at-or-above-grade solids of OTHER placements that are themselves NON-INTERIOR and
+   not the same resource, and the cover's top is at or above the candidate's top over those
+   cells; (b) it has NO at-grade witness outside that cover — no solid within `basin.contact_band_m`
+   of the datum on any uncovered cell; (c) it carries no `ATTR_hard` / `ATTR_hard_deck` and no
+   draped triangle (a deck, a jetway, a car-park deck, an object pavement §42 are never interior);
+   (d) its `y_min` > −`basin.admission_depth_m` (a below-grade facility — §33 (6), Law B, Law C, a
+   basin floor witness — is never interior). The predicate lives in ONE new module
+   `airport/interiors.py`, listed in `partition_cache._CODE_MODULES`, and is evaluated once at the
+   placement read (`airport/load.py:447-472`) into a `DsfObject.interior` flag that
+   `obj8.PlacedObject` carries; no consumer re-derives it.
+2. **THE COVER IS NON-INTERIOR, TO A FIXPOINT.** Because (a) reads the cover from OTHER placements,
+   two shells that roof each other (coincident duplicate placements at LEMD — every cargo building
+   emitted twice at one lon/lat/heading; material-sliced shells at HECA's T23, one `.obj` per
+   material) would exclude each other and the building would vanish from every read. The
+   invariant: EVERY interior's cover is composed of non-interiors. The lane evaluates to a
+   fixpoint, restoring candidates in descending order of at-grade footprint until the invariant
+   holds; a restored candidate is named in the report (`interior_restored`). The same-resource
+   exclusion stays as the first line (it kills the exact-duplicate case by construction).
+3. **AN INTERIOR IS NEVER READ.** Every geometry reader of the structures stage skips it —
+   `basin_witness.read_objects` is THE gate (`:60-99`), so tunnel objects, thin plates, door
+   wells, sunken roads, wall corridors, object cuts, basins (seeds AND cover), below-zero and
+   line objects, the skirt / pad-drop evidence (`classify/evidence.py:673-681`) all inherit it;
+   `cache.geometry` is never called for a resource whose every placement is interior (the byte
+   saving is per resource — a resource placed both inside and outside still loads, counted).
+4. **AN INTERIOR IS NEVER DROPPED.** It stays a member of its unit: `pack_partition` (membership
+   yes, geometry parts / feet no), `rebake_plan`, `footprint_unit` (§16g (5)) and `dsf_write`
+   see it unchanged — that is how it "moves with its cluster like a roof" (§16a carried bodies,
+   §30 (4)). A plain `OBJECT` interior needs nothing more (the drape lands it on the cluster pad).
+5. **THE MSL INTERIOR TAKES ITS CARRIER'S BASE.** An `OBJECT_MSL` interior binds §16g (5)'s
+   unit-datum branch (its offset recovered against the SAME `authored_ground` as its carrier),
+   never the surface-at-own-feet branch — otherwise the interior re-seats on the terrain while its
+   shell re-seats on the unit. No such row exists on the corpus: a synthetic twin only, named as
+   such.
+6. **THE FALSE-POSITIVE REGISTER** is a twin: a hangar door leaf whose only grade contact is
+   inside the hangar's cover (admitted — harmless, the hangar carries the footprint; NAMED in
+   the report as `interior_door`), a vehicle under a roof (admitted, named), a tower cab over its
+   decal (admitted — the cab rides the tower), a jetway (refused by (c)), a car-park deck (refused
+   by (c)), a sunken corridor (refused by (d)), a coincident duplicate (refused by the same-resource
+   line), two material slices of one shell (one restored by (2)).
+7. **BARS** (lane `v2interiors`, after `v2doorwellperf` merges): the predicate through the
+   PRODUCTION accessors (`obj8._plan_footprint`, `above_grade_footprint`, `at_grade_geometry`),
+   never a second raster, with the scout's per-airport counts reproduced within 5 % or every
+   difference named; dry structure pairs OTHH (new pack) / LEMD / HECA / VHHH: structure records
+   byte-identical except rows an interior sourced (named; a `sunken_refused` / basin-cover flip is
+   a named deviation, not a silent one); the OTHH structures stage's wall and peak RSS with the
+   flag ON vs OFF (env toggle `O4_V2_INTERIORS=0` for the arm only); the predicate's own cost
+   (scout: 36 s cold raster at OTHH — cache it under the partition fingerprint); partition-cache
+   key moves (`_CODE_MODULES` carries the new module); the false-positive register twin; the MSL
+   twin; suite; no shared-repo write; no tile build (the owner's app build is the acceptance).

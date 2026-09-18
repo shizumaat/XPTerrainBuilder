@@ -1,0 +1,643 @@
+# Insets follow the patch set; boundary airports ask
+
+Spec: 2026-09-18, DRAFT FOR RATIFICATION (Fable, design only — no
+implementation code accompanies it). Ruling of record: `docs/RULINGS.md`
+`## 2026-09-18b`. Same-day peer law it must not collide with:
+`## 2026-09-18a` (tile cfgs are sparse; engine-owned write-through).
+Pre-ship mode and BUILD ECONOMY (`Ortho4XP/CLAUDE.md`) govern the
+implementer; deviations STOP-and-report to this spec's author.
+
+Related but ORTHOGONAL: `docs/specs/round13-border-aware-inset-fetch-spec.md`
+is about PROVIDER data borders (state/country lidar projects inside one
+inset). This spec is about 1° TILE borders. Nothing in R13 changes.
+
+## 0. The ruling and the measured facts
+
+Owner, verbatim: (1) "Use the existing setting that determines which
+airports get an auto-patch, default is ICAO only, and we should only
+download high res elevation insets for the airports that are getting
+patched." (2) "When a tile has an airport that cross the boundary, we
+should present a dialog asking the user if they want to build the
+adjacent tile as well or skip creating a patch for the airport(s) on
+boundary."
+
+Measured (brief; not re-derived): app 1.0.350, tile +38-010, ~3 h.
+LPMT's production-DEM window crossed lon −9;
+`auto_patch_v2/airport/dem_production.py` `_warm_tile` (:799-850) ran
+`INSETS.ensure_insets_for_tile` over all 17 OSM aerodromes of the
+never-built +38-009 — ~190 MB each at 0.5 m, ~90 KB/s, from inside the
+auto-patch POOL CHILD, where `UI.progress_bar` / `task_meter` never reach
+the app.
+
+One fact read by this lane (shared corpus, read-only, one sidecar):
+`Elevation_data/+30-010/N38W010_airport_insets/LPMT_portugal50cm.json`
+`bounding_box_wgs84` east = −8.98365. With the 2,000 m margin
+(0.02305° of longitude at 38.5°N) LPMT's OSM boundary ends at
+**−9.0067: ~580 m WEST of the line.** LPMT's BOUNDARY does not cross
+lon −9; only its 2 km inset box / DEM window does (by ~1.4 km). This
+matters for §C.1 and owner question Q2.
+
+## A. ONE selector
+
+### A.1 What exists today (three spellings, no function)
+
+There is no predicate today — the decision is inline, and spelled twice
+more elsewhere:
+
+| # | site | what it decides |
+|---|---|---|
+| 1 | `src/auto_patch/driver.py:1287-1384` (the `for icao, filepath in sorted(cifp_airports.items())` loop of `generate_auto_patches`) | mode filter (`mode == "ICAO" and not (len(icao) == 4 and icao.isalpha())`, :1289) → manual patch → `parse_cifp_file` → `airport_in_tile` (`cifp_reader.py:233`, a runway THRESHOLD inside the 1° cell) → `pair_runways` → `xplane_root_from_cifp_path` → (worklist, up-to-date reuse) → `_pick_best_apt_dat_against_osm` is None ⇒ skipped-not-built (the ONE apt.dat selector, RULINGS 17a) |
+| 2 | `src/O4_Vector_Map.py:3089-3112` (`include_patches`) | the same mode filter again, "mirrors generation", to decide which `*_auto.patch.osm` files on disk are APPLIED |
+| 3 | `src/O4_Vector_Map.py:710-727` | `resolved_auto_patch_mode` / `auto_patch_runs` — the mode normaliser (kept; it is the input, not the selector) |
+
+The inset set never consults any of them:
+`O4_Airport_Elevation_Insets._airport_bounding_boxes` (:8460) takes every
+string-keyed entry of `dico_airports`.
+
+### A.2 The one selector (frozen interface)
+
+New module `src/auto_patch/selection.py` (pure, no network, no GUI
+imports, no DEM):
+
+    @dataclass(frozen=True)
+    class PatchCandidate:
+        icao: str                 # CIFP identifier, upper case
+        cifp_file: str
+        runways: dict             # parse_cifp_file() result (reused by the driver)
+        disposition: str          # one of DISPOSITIONS
+        reason: str               # the loud line's tail, "" for "patch"
+
+    DISPOSITIONS = ("patch", "manual", "no_apt_dat", "no_xplane_root",
+                    "boundary_skipped")
+
+    def mode_admits(icao: str, mode: str) -> bool
+    def select_patch_airports(tile, cifp_path, mode, *,
+                              manual_icaos, boundary=None) -> list[PatchCandidate]
+
+* `mode_admits` is THE mode filter; sites 1 and 2 above both call it
+  (site 2's inline copy is deleted).
+* `select_patch_airports` is the driver loop's head (mode → CIFP parse →
+  `airport_in_tile` → `pair_runways` → xp root → apt.dat selector),
+  lifted unchanged in ORDER and RESULT. `"patch"` means "this build
+  will BUILD or REUSE an auto-patch for it" — the up-to-date reuse stays
+  in the driver (a reused patch is still a patch). `boundary` is §C's
+  decision object; `None` = no boundary trimming.
+* `mode == "None"` returns `[]` without touching CIFP.
+* The apt.dat selection is MOVED earlier, not added: the driver consumes
+  `PatchCandidate` and must not call `_pick_best_apt_dat_against_osm` a
+  second time for the skip gate (the freshness stamp's own call is
+  unchanged).
+
+### A.3 The ONE derivation site
+
+`O4_Vector_Map.load_airports_and_prepare_dem`, immediately after
+`build_airports_dico` and BEFORE `INSETS.ensure_insets_for_tile`
+(:1363): compute `tile.auto_patch_selection = select_patch_airports(…)`
+once. Consumers:
+
+1. `ensure_insets_for_tile(tile, dico_airports)` passes
+   `only=patched_keys(tile)` to `_airport_bounding_boxes`, which keeps a
+   dico key `k` iff `str(k).upper()` is the `icao` of a candidate whose
+   disposition is `"patch"` (and `"manual"`, pending Q4). The JOIN is
+   the existing one — upper-cased string equality, exactly what
+   `dem_production._required_inset_box` (:773-790) and the driver's
+   `taxiway_data.get(icao)` already use. `_airport_bounding_boxes` with
+   `only=None` is unchanged (its other callers, §B rows 2-5).
+2. `generate_auto_patches` iterates `tile.auto_patch_selection` (falls
+   back to calling the selector itself when the attribute is absent — lab
+   tools such as `tools/production_airport_patch.py`).
+3. `include_patches` uses `mode_admits` and refuses to APPLY an on-disk
+   auto-patch whose ICAO is `boundary_skipped` this run (§C.5).
+
+The trim happens at the FETCH derivation site only. Readers stay
+disk-driven (§B) — that is the "trim at the single derivation site, no
+per-consumer vetoes" law, and it is what keeps existing corpora and
+controls byte-stable.
+
+### A.4 `auto_patch = None`
+
+RULINGS 18b's own gloss — "an airport that gets no patch gets no inset"
+— reads as: **`None` ⇒ the fetch set is EMPTY; no inset is downloaded.**
+The spec is written to that reading (`select_patch_airports` returns
+`[]`). The owner's verbatim words do not mention `None`, and the
+consequence is user-visible (the separate `airport_elevation_insets`
+checkbox becomes inert while auto-patch is Off), so it is confirmed as
+**Q1**, not decided here.
+
+## B. CONSUMER CENSUS (every reader of the inset set / directory / index)
+
+Accessors grepped: `_airport_bounding_boxes`, `ensure_insets_for_tile`,
+`ensure_airport_insets`, `list_cached_inset_dems`, `_read_index`,
+`airport_inset_directory`, `airport_inset_dem`, `is_cached`,
+`inset_completion_*`, `airport_inset_frame_problem`,
+`seam_harmonized_ballot_insets`, `ensure_inset_water_supplement`.
+`INS` = `src/O4_Airport_Elevation_Insets.py`.
+
+RULING COLUMN KEY — **TRIM**: reads the selector. **DISK**: stays
+driven by what is on disk, deliberately. **N/A**: does not read the set.
+
+| # | consumer (file:line) | reads | ruling |
+|---|---|---|---|
+| 1 | `INS:8581` `ensure_insets_for_tile` → `:8460` boxes → `:7390` `ensure_airport_insets` (pool `:7816`) | dico → fetch set | **TRIM** — the one derivation site (§A.3). Only network consumer of the set. |
+| 2 | `src/O4_Elevation_Level.py:594` (coastline approach-visibility ladder) | `_airport_bounding_boxes` as "where are airports" | **unchanged (`only=None`)**. Not an inset; non-default `elevation_level="coastline"` only. Noted under Q5. |
+| 3 | `dem_production.py:783` `_required_inset_box`; `tools/harness/build_airport.py:708` | boxes for ONE icao (the airport being built) | **unchanged** — the airport being built is by construction in the patch set. |
+| 4 | `tools/harness/build_airport.py:1258` `warm_airport_insets` (`--warm-insets`) | boxes filtered to human-named icaos | **unchanged** — an explicit, named, ledgered authorisation outranks the selector. |
+| 5 | `tools/harness/build_airport.py:1540` `--refresh-data dem` → `ensure_insets_for_tile(refresh=True)` | whole-tile refresh | **TRIM, automatically** (it calls row 1). It must compute the selection first (same call as §A.3); a refresh of +38-009 then refetches its patched airports, not 17. `prog.note` text changes from "for N airport(s)" to "for K patched of N". |
+| 6 | `INS:8870` `assemble_inset_composite_source` (`O4_Mesh_Utils.py:2716`) | `list_cached_inset_dems` | **DISK**. An orphan inset (cached, airport no longer selected) keeps feeding the composite. See §B.1. |
+| 7 | `INS:9227` `bake_airport_insets_into_alt_dem` (`O4_Airport_Utils.py:971,1113`; `O4_Mesh_Utils.py:2794`) | same | **DISK**. |
+| 8 | `INS:11568` working-grid decision + `INS:11454/11465` `seam_harmonized_ballot_insets` (`O4_DEM_Utils.py:596`) | own + seam-component cached insets, probes from index (`INS:11014`) | **DISK**. The ballot is over files; a shrunk FETCH set removes no file, so no existing ballot moves (§B.1). |
+| 9 | `INS:10282` `resolve_airport_smoothing_radius` (`O4_Airport_Utils.py:1019`) | cached insets intersecting each airport's mask | **DISK**. Smoothing itself still runs over ALL of `dico_airports` — unpatched airports are still smoothed at the base-grid radius, as any airport without coverage is today. |
+| 10 | `INS:8348` `ensure_inset_water_supplement` (`O4_Vector_Map.py:~2458`) | every cached inset | **DISK**. Fewer insets on a fresh corpus ⇒ fewer detected basins, identical to an airport with no provider coverage today. |
+| 11 | `O4_Vector_Map.py:755` `_airport_auto_roads_layer` | inset sidecar boxes → per-airport Overpass road queries | **DISK**, and it SHRINKS on fresh corpora for free: no inset ⇒ no road query for an unpatched strip. Correct — that feed exists for the v2 solve. The `airport_small_roads` cache stamp (the 1.0.349 abort class) is keyed on its own inputs; implementer verifies the stamp does not embed the box COUNT (one grep, no build). |
+| 12 | `INS:8793` `is_cached` + `INS:8690-8740` stamp + `o4_engine/parallel.py:464` `STEP_FETCH_SUBSYSTEMS` | `complete.json` | **TRIM, schema-tolerant** — §B.2. |
+| 13 | `dem_production.py:74` `frame_state` (`airport_insets_present`, `airport_inset_problem_kind`), `:708` `_compose`, `:875` "bake reports NO inset" | dir presence + THIS airport's record (`INS:10457` `airport_inset_frame_problem`, `:10442`) | **unchanged predicate, changed caller** — per-airport checks are about the airport being built (in the set). `_compose`'s two `_warm_tile` calls are deleted (§C.6). NEW: a tile whose selection is EMPTY legitimately has no `_airport_insets` dir; `frame_state`'s "NO airport elevation insets dir" problem is raised only when the tile's selection is non-empty — the caller passes `expects_insets: bool`, default `True` = today. |
+| 14 | `tools/harness/build_airport.py:678-713` `require_dem_frame`, `frame.json`, `dem_cache_state` | same predicate | **unchanged**; gains row 13's `expects_insets` for the NEIGHBOUR tiles only (home tile always expects: its airport is selected). `frame.json` gains `inset_selection: {mode, selected:[…]}` as ADDITIVE string metadata, proven digest-neutral by the existing `..._never_moves_a_frame_identity` twin. |
+| 15 | `tools/inset_coverage_census.py:97-110,398` | its own copy of the box arithmetic (twin-pinned) | **unchanged arithmetic**; gains `--mode {None,ICAO,All}` (default: the cfg value) so the census reports "expected insets" against the selected population, not every aerodrome. Extension of a near-fit, not a fork. |
+| 16 | `src/auto_patch/flat_site_mode.py:114-132` `tile_icao_candidates` | dico 4-letter keys ("same population as the inset fetch") | **unchanged**; docstring corrected: the inset population is now a SUBSET of it in every mode it matters (ICAO ⊂ 4-letter). Flat-site substitution for an unpatched 4-letter airport is today's behaviour and is not touched. |
+| 17 | `O4_Airport_Utils.py:1044` `warn_if_delivered_inset_clips_airport`; `:972,1120` `overlay_flat_site_insets` | per-airport cached inset | **DISK**. |
+| 18 | `driver.py:1388` `_freshness_stamps_now` (patch freshness reads the tile DEM's inset provenance) | baked provenance | **unchanged** — a patched airport keeps its inset, so no stamp moves. |
+| 19 | `session.py:1116` `features.insets_fetched`; `tools/check_build_time.py:321` | fetch counter | **unchanged**; §D's neighbour fetches increment the SAME counter on the home tile (a neighbour fetch is download wall time in this build). |
+| 20 | `O4_Bathymetry_Band.py:1055,1134,1329,1602` | provider definitions + `fetch_inset` only | **N/A** — never reads the airport inset set, dir or index. |
+| 21 | `tools/fetch_airport_elevation_insets.py:168`, `tools/flat_site_sweep.py:142`, `tools/apron_drape_read.py:133` | explicit tools | **unchanged** (named-airport instruments). |
+| 22 | Qt/Swift/session imports of `INS` (`O4_Qt_GUI.py:2323,2417,3874`, `O4_Qt_Settings.py:662`, `session.py:1386`) | provider registry only | **N/A**. |
+
+### B.1 Orphans: cached insets for airports that left the set
+
+PROPOSED (and **Q3** — it is an intent call): orphans stay on disk and
+stay USED. Nothing is deleted, nothing is filtered at read time.
+
+* Shared corpus `/Users/noah/XPTerrainBuilderData`: no file moves, so
+  every ballot (row 8), bake, composite and smoothing radius on it is
+  byte-identical after this change. No control in the artifact ledger is
+  invalidated; no `--refresh-data` event is needed.
+* Existing built tiles' seams: unaffected. The seam-factor ballot is a
+  function of files present; this change removes none. (The known limit
+  at `INS:11342-11348` — a never-fetched neighbour contributes nothing —
+  is unchanged in kind; the neighbour simply contributes FEWER insets
+  when it is eventually built.)
+* The cost: two installs with the same settings and different cache
+  HISTORY render an unpatched strip differently (one has the orphan).
+  That class already exists (a failed fetch, a provider outage negative).
+* The alternative — filter `list_cached_inset_dems` by the selection —
+  is REJECTED in this draft: it needs the selection in step 2 (another
+  process), needs the NEIGHBOUR's selection inside the seam ballot, moves
+  surfaces and ballots on every existing corpus, and invalidates every
+  shared control. If the owner answers Q3 the other way, that is a
+  second spec with its own census, not a switch in this one.
+
+### B.2 `is_cached` and the completion stamp
+
+`_inset_completion_key` (`INS:8740-8765`) gains `"selection_mode"`
+(`"None"|"ICAO"|"All"`), and the stamp body gains `"selected"` (sorted
+keys fetched-for; informational).
+
+* Compare rule for `selection_mode` is ORDERED, not equality:
+  `None < ICAO < All`; the tile is cached when `stamp_mode >= wanted`.
+* A stamp WITHOUT the key (every stamp on disk today, e.g.
+  `N38W010_airport_insets/complete.json`, schema `2026-07-30`) was
+  settled over every string-keyed aerodrome — a superset of any
+  selection — and reads as `All`. **`INSET_COMPLETION_SCHEMA` is NOT
+  bumped.** Reason: a bump makes every tile on the shared corpus
+  "uncached", the next guarded build re-runs the pass and tries to
+  REWRITE `complete.json` — a shared-repo write inside DEM prep, which
+  the harness refuses (CLAUDE.md "guard-blocked write inside DEM prep").
+* `is_cached` stays cheap (no CIFP parse). CIFP/AIRAC or manual-patch
+  changes that ADD an airport under an unchanged mode are caught not by
+  the stamp but by the pass itself being cheap when it does run; the
+  stamp's existing `airports_layer` identity is the set proxy, as today.
+  Residual (recorded, accepted): a new AIRAC adding a CIFP file for an
+  aerodrome already in the OSM layer under ICAO mode leaves the tile
+  "cached" until the airports layer refreshes; the airport then builds
+  on the base DEM and its `frame_state` per-airport check (row 13) names
+  the missing inset — in the app that is §D's home-tile fetch (the
+  prelude runs the per-airport check for every selected airport and
+  treats a miss as NOT cached). One line in the prelude, no new state.
+
+## C. BOUNDARY AIRPORTS
+
+### C.1 What "crosses the boundary" means
+
+Three nested geometries exist; the engine cares about two:
+
+| | geometry | source | LPMT |
+|---|---|---|---|
+| E | OWN EXTENT: runways + pavements + boundary | apt.dat (`auto_patch_v2/airport/load.py:700` `_own_extent`; the driver's `_airport_claim_lonlat` `driver.py:429`); OSM aerodrome polygon when the airports layer is cached | ends ~580 m WEST of lon −9 |
+| P | PATCH REACH: E buffered by `R_patch` — the farthest the EMITTED patch (nodes, seam pins, adjacent-ground zones 1-2) extends beyond E | a law constant the implementer MEASURES ONCE (below) | crosses iff `R_patch > ~580 m` |
+| W | DEM WINDOW: every point v2 samples (`ProductionDem.z_many`, `dem_production.py:490`, composes a tile on FIRST TOUCH `:702-706`) — context reads by ~20 samplers (`planar/terrain_edge.py`, `road_profile.py`, `channel.py`, …); in practice bounded by the inset box (E bounds + `airport_elevation_inset_margin_m`, 2,000 m) | emergent | crosses by ~1.4 km |
+
+* **CLASS S (straddler): P touches another 1° cell.** The patch itself
+  reaches the graticule: `constraints/seams.py` mints HARD seam pins from
+  the NEIGHBOUR tile's baked raster ("the value the neighbouring tile's
+  mesh meets"). A cold neighbour frame here pins the runway strip to a
+  surface the neighbour's own build will not reproduce (no insets, no
+  smoothing, different working grid) — a visible seam step. **This is
+  the geometry the engine actually needs, and the class that ASKS.**
+* **CLASS M (margin-only): W crosses, P does not.** Only far-field
+  CONTEXT is read across the line; no emitted vertex, no pin. PROPOSED:
+  class M never asks and never fetches — the neighbour is composed from
+  whatever is on disk (warm ⇒ production compose; cold ⇒ base raster
+  only, one loud `[dem]` line and a `provenance["context_only:<stem>"]`
+  record; no base raster ⇒ NaN, as `z_many` already returns for an
+  absent tile). **LPMT is almost certainly class M**, in which case the
+  3-hour build becomes zero neighbour downloads and NO dialog. Because
+  the owner's ruling was prompted by LPMT and says "dialog", whether
+  class M should ask is **Q2**; the design carries ONE constant
+  (`ASK_GEOMETRY = "P"` vs `"W"`) so either answer is the same code.
+
+`R_patch` measurement (implementer, synthetic, once): on a registered
+capture (`frames.py list HECA` / `CYXY`), replay with `--emit` and report
+max distance from `_own_extent(margin 0)` to (a) any emitted node and
+(b) any `ProductionDem.z_many` query. (a) rounded UP to the next 50 m is
+`R_patch` (law table, not a module constant); (b) is reported so Q2 is
+answered with a number. No build.
+
+"Needs a decision" = class S (or S∪M per Q2) AND the neighbour frame is
+not already warm: `frame_state(neighbour)` has problems, or
+`INS.is_cached(neighbour_tile)` is False under the NEIGHBOUR's own
+selection. An already-built neighbour asks nothing.
+
+### C.2 Preflight (before the build starts; cheap; NO network)
+
+New session command **`boundary_airports`** (`EngineSession` method,
+auto-exposed by `jsonl.py`'s handler table; arguments
+`tiles: [[lat, lon], …]`). The handler replies `{"status": "started",
+"request_id": N}` AT ONCE and works on a worker thread — a handler runs
+on the transport read loop and must never block it (the
+`airport_index` / `provider_sign_in` precedent). For each tile it runs
+`select_patch_airports` with THAT tile's cfg (`CFG.Tile(lat, lon,
+"").read_from_config()` — `auto_patch` is a tile var and, under 18a,
+sparse: absent key ⇒ global), CIFP parsed ONCE for the whole request and
+bucketed by cell, then tests P (or W) against the cell edges using:
+
+1. the cached OSM airports layer boundary when
+   `FNAMES.osm_cached(lat, lon, "airports")` exists (exact — it is the
+   geometry the inset box is cut from), else
+2. the apt.dat own extent via the 17a selector (local file), else
+3. the CIFP threshold hull (`_airport_claim_lonlat` geometry).
+
+Never a query. Source (1|2|3) is reported per airport. Completion is a
+new event (additive ⇒ **PROTOCOL_VERSION 1.8**):
+
+    @dataclass(frozen=True)
+    class BoundaryAirportsReady(EngineEvent):
+        request_id: int = 0
+        airports: list = field(default_factory=list)
+        #   [{"icao", "name", "home": [lat, lon],
+        #     "neighbours": [[lat, lon], …],      # cold ones only
+        #     "cls": "S" | "M", "geometry_source": "osm"|"apt_dat"|"cifp"}]
+        add_tiles: list = field(default_factory=list)
+        #   union of cold neighbours NOT already in `tiles`, sorted
+        remembered: str = ""      # "" | "neighbour" | "skip" (C.4)
+        error: str = ""
+
+`airports == []` ⇒ the front end proceeds straight to `enqueue_build`
+with no dialog. `remembered != ""` ⇒ no dialog either; the front end
+applies it (and still shows the per-airport lines in its log view).
+
+### C.3 The answer
+
+`EngineSession.build` / `enqueue_build` gain ONE additive keyword,
+`boundary_policy: "neighbour" | "skip" | None = None`, forwarded by
+`parallel.py` to worker children with the batch's other per-batch
+settings (it sits beside `provider`/`zoomlevel` in the batch record) and
+landed on the tile object as `tile.boundary_policy`.
+
+* **"neighbour"** — the front end sends
+  `tiles = selected ∪ BoundaryAirportsReady.add_tiles`. ONE dialog for
+  the whole batch. The engine then warms each cold neighbour FRAME
+  through §D; ordering is handled by a lock, not the scheduler (§D.2).
+  Transitivity: an added tile may itself carry a boundary airport. The
+  preflight is NOT iterated to a fixed point (Lisbon-to-Vladivostok
+  chain); the added tiles' own boundary airports follow the same policy
+  at build time, EXCEPT that a neighbour outside the batch is then never
+  added — those airports fall to "skip" with their loud line. Stated in
+  the dialog copy.
+* **"skip"** — nothing is added. Each deciding airport becomes
+  `disposition="boundary_skipped"` in the selector (§A.2): no patch, NO
+  INSET (ruling (1) applied to itself), never in `tasks`, never expected
+  by the manifest (the same place the `no_apt_dat` skip lives,
+  `driver.py:1352-1374`, so H1's fatal path is not armed), and one
+  level-0 line per airport:
+  `Auto-patch: LPMT crosses into tile +38-009 (not built) — patch SKIPPED by your boundary choice; build +38-009 with +38-010 to patch it.`
+  Collected on the tile build summary beside `skipped_no_apt_dat`.
+* **`None`** — resolve from cfg (C.4).
+
+The build-time check is AUTHORITATIVE and uses the exact geometry (the
+OSM boundary is in hand by then). An airport the preflight missed
+(apt.dat extent smaller than the OSM polygon) is simply handled by the
+policy in force — this is why the answer is a POLICY and not a list of
+ICAOs: there is no "unasked airport" state.
+
+### C.4 Remembered answer; CLI; harness
+
+New **app-level** cfg var (in `cfg_app_vars`, NOT a tile var — under 18a
+a tile var would be frozen per tile and need write-through; this is a
+preference about how the user is asked):
+
+    "auto_patch_boundary": {"type": str, "default": "Ask",
+        "values": ("Ask", "Build adjacent", "Skip patch"), …}
+
+* The dialog's "remember" checkbox writes it through the engine-owned
+  settings-write path RULINGS 18a specifies (if that lane has not landed
+  when slice 2/3 start, the front end's existing global-cfg write — an
+  app var has no tile write-through to do); `remembered` in
+  the event is this value mapped to `neighbour`/`skip`.
+* Non-interactive contexts NEVER block. With `boundary_policy=None` and
+  cfg `"Ask"`: CLI batch builds (`Ortho4XP.py` without a front end) and
+  any front end older than 1.8 resolve to **"skip"** with the loud line
+  (PROPOSED — **Q5**; rationale: never download or build what was not
+  asked for; the 3-hour class cannot recur by default).
+* **Harness.** `build_airport.py ICAO` (pipeline CLI, `core_hosted=False`)
+  is UNCHANGED: it never warms, and a cold neighbour frame refuses with
+  the `--refresh-data` scope, by the standing frame law. `build_airport.py
+  --tile LAT LON` gains **`--boundary {skip,neighbour}`**, default
+  `skip`, recorded in `frame.json`; `neighbour` means "the neighbour
+  frame must ALREADY be warm" — a cold one REFUSES naming
+  `--refresh-data osm_layers,dem` for that tile (the harness never
+  downloads implicitly; §D's fetch is armed only when `core_hosted` and
+  NOT under the shared-repo guard). `run_tile_mesh_only.py`: no patch
+  generation, untouched.
+
+### C.5 Stale patches under "skip"
+
+`include_patches` (`O4_Vector_Map.py:3089-3112`) must not APPLY an
+on-disk `LPMT_auto.patch.osm` from an earlier build when LPMT is
+`boundary_skipped` this run: same loop, one more `continue` with
+`(boundary choice: skipped)`. The file is NOT deleted (no destructive
+op; a later "neighbour" build reuses or rebuilds it by the freshness
+law). `tile.auto_patch_selection` is the source; when absent (step run
+in isolation) it is recomputed — the selector is pure and cheap.
+
+### C.6 What replaces `_warm_tile`
+
+`ProductionDem._warm_tile` (`dem_production.py:799-850`), `_may_warm`
+(`:792-797`) and both call sites in `_compose` (`:711-727`, `:750-760`)
+are **DELETED** (BUILD ECONOMY: refuted mechanisms are deleted, not
+gated). The pool child never fetches again. The owner's 2026-09-10
+ruling it implemented ("why wouldn't the app just refresh it?") is
+still honoured — by §D, in the main process, for the patch set only,
+after an explicit choice. After deletion `_compose` does: `frame_state`
+→ declared neighbour cold ⇒ `_degrade` ⇒ `ColdDemFrame` exactly as today
+when a warm attempt failed (the `hint` text loses "TRIED to warm" unless
+§D recorded an attempt on the tile object's provenance); UNDECLARED
+(class M) neighbour ⇒ the context-only path of C.1.
+`tests/auto_patch_v2/test_v2coldframe_warms_in_production.py` is
+rewritten against §D's function, not kept green by a shim.
+
+### C.7 Front ends (both ship it — Qt parity is law)
+
+Flow, identical in both: user presses Build → front end sends
+`boundary_airports` → on `BoundaryAirportsReady` with a non-empty list
+and no remembered answer, ONE modal sheet → `enqueue_build(tiles′,
+boundary_policy=…)`. A preflight `error` or a 10 s timeout proceeds with
+`boundary_policy=None` (engine default) and logs the reason — the
+preflight can never be the thing that stops a build.
+
+UX COPY — **PROPOSED; the lead owns the final wording**:
+
+> **Airports on a tile boundary**
+> These airports extend into tiles you have not built:
+> • LPMT Montijo — tile +38-010, extends into +38-009
+> Their elevation patches need the neighbouring tile's terrain.
+> **[Build adjacent tiles too (adds 1 tile)]**  **[Skip these airports' patches]**  [Cancel]
+> ☐ Remember my choice (change it in Settings ▸ Airports)
+> _Footnote:_ Adjacent tiles may have boundary airports of their own;
+> those are patched only if their neighbour is also in this build.
+
+* Swift: `Sources/SceneryKit/OrthoEngineClient.swift` (decode
+  `"BoundaryAirportsReady"` — a string literal; send `boundary_airports`;
+  pass `boundary_policy` in the `enqueue_build` arguments,
+  `BuildModel.swift:1246,1368`), `Sources/XPTerrainBuilder/BuildModel.swift`
+  (the gate before enqueue; the added tiles join the run's tile list so
+  TileClocks/RunEta rows exist for them), a new sheet view, the setting
+  row in `SettingsLayout.swift`.
+* Qt: `src/O4_Qt_GUI.py` build start (`:3125-3170`, both
+  `enqueue_build` sites) subscribes to the event in-process; dialog in a
+  new small module; the setting appears through the cfg-vars registry
+  automatically (`O4_Qt_Settings.py`).
+
+`tools/blast.py` hazards quoted (index 43122f8):
+
+* `events.py` / `OrthoEngineClient.swift`: "WIRE PROTOCOL … the wire
+  name IS the Python class name … Swift matches string literals.
+  Renaming either silently breaks the GUI." Standing drift:
+  `python_only=['ImageryDownloadsDone']` (pre-existing; do not "fix" it
+  in this lane). CO-CHANGED `OrthoEngineClient.swift(100%)`,
+  `BuildModel.swift(100%)`, `session.py(80%)`, `parallel.py(60%)`,
+  `jsonl.py(60%)`. "19 python handlers cover all 13 swift call sites" —
+  becomes 20/14.
+* `session.py`: ROLE LITERAL `building` present (untouched). 14 direct
+  test importers — run `test_engine_session.py`, `test_engine_jsonl.py`,
+  `test_engine_parallel.py` once.
+* `O4_Airport_Elevation_Insets.py`: imported by 52 files; ENV FLAGS
+  `O4_INSET_SEAM_HARMONIZE` (default ON) — untouched; WRITES
+  `<inset dir>/<ICAO>_<provider>.tif`. Tests:
+  `test_airport_elevation_insets.py`, `test_fetch_cache_predicates.py`,
+  `auto_patch_v2/test_v2insetframe.py`, `test_v2insetmanifest.py`.
+* `O4_Vector_Map.py`: 16 ROLE literals (untouched); READS
+  `Patches/<tile>/<ICAO>_auto.patch.osm`. Tests:
+  `test_cifp_missing_refusal.py`, `test_fetch_cache_predicates.py`,
+  `test_harness.py`.
+* `driver.py`: ENV `O4_AUTO_PATCH_REBUILD`; WRITES the auto patch;
+  tests `test_auto_patch_freshness.py`, `test_auto_patch_engine_dispatch.py`,
+  `test_cifp_missing_refusal.py`.
+* `dem_production.py`: 1 src importer (`load.py`), 4 tests (above).
+
+## D. "Build adjacent": what is fetched, in what order, with what progress
+
+### D.1 The frame prelude (one function, main process)
+
+New `O4_Vector_Map.ensure_tile_frame(lat, lon, *, reason)`: for ONE
+tile — create its OSM dir, fetch-or-load the airports layer
+(`OSM_queries_to_OSM_layer(AIRPORTS_QUERIES, …, cached_suffix="airports")`),
+`build_airports_dico`, `select_patch_airports` with THAT tile's cfg, and
+`INSETS.ensure_insets_for_tile` — i.e. exactly the fetch half of that
+tile's own step 1, so when the neighbour's own build runs it finds
+`is_cached` True and fetches nothing twice. The base raster is NOT
+fetched here (`compose_tile_dem_from_disk` / `O4_DEM_Utils.DEM` owns that
+and already does it on compose).
+
+Called from `load_airports_and_prepare_dem` right after the home tile's
+own `ensure_insets_for_tile`, once per cold neighbour of each deciding
+airport, only when `tile.boundary_policy == "neighbour"` (and
+`core_hosted`, and no shared-repo guard armed). Under ruling (1) the
+neighbour fetch is the neighbour's PATCH SET only: for +38-009 in ICAO
+mode that is its 4-letter CIFP airports with an apt.dat, not 17 strips.
+
+### D.2 Ordering without a scheduler edge
+
+Two tiles can need each other's frame (A in X reaches Y, B in Y reaches
+X), so a dependency edge in `parallel.py` can cycle. Instead
+`ensure_tile_frame` holds a per-tile `O4_File_Lock` on
+`<tile>_airport_insets/.frame.lock` (the `.lock` family the shared-repo
+guard already records as churn). Whoever arrives first — the
+neighbour's own step 1 or the home tile's prelude — fetches; the other
+waits on the lock (bounded: the lock primitive's existing stale-lock
+deadline; on timeout it logs and proceeds to `frame_state`, which
+refuses honestly) and then finds the pass settled. The home tile's own
+`ensure_insets_for_tile` call takes the same lock for its own tile. No
+change to `STEP_FETCH_SUBSYSTEMS` membership: `O4_Vector_Map` and
+`O4_Airport_Elevation_Insets` are already in `"vector"`; the vector
+step's fetch-admission predicate additionally requires
+`INSETS.is_cached` of each declared cold neighbour (so a tile with a
+neighbour fetch still holds a fetch token while it downloads).
+
+### D.3 Progress that reaches the app
+
+The fetch now runs in the tile's MAIN build process, where
+`UI.progress_bar` and `TASK_METER` (`INS:7800-7822`, label
+`"airport-insets"`) already reach the front end as `StepProgress`. Two
+additions, no new event: (a) a level-0 line before each neighbour pass —
+`Airport insets: tile +38-009 (neighbour of LPMT): 2 patched airport(s) — LPXX, LPYY`
+— and one per completed inset with its size; (b) the task-meter label
+for a neighbour pass is `"airport-insets +38-009"` so the activity view
+distinguishes it. Twin: a fetch reached from a process whose
+`multiprocessing.parent_process()` is not None raises in tests (the
+pool-child class cannot return silently).
+
+## E. Feasibility, build time, tests, guards, closing build
+
+**Emittability.** Nothing here changes mesh or patch geometry for a
+patched airport with a warm frame. "Skip" emits no patch: the airport
+drapes on the production DEM exactly as a `no_apt_dat` airport does
+today — a lawful heightfield. Class S + "neighbour" is today's SPLP/SPJC
+path with a smaller fetch. Class M context-only reads touch no emitted
+vertex (that is the definition of M; the `R_patch` measurement is what
+makes the definition true — if measurement (a) shows emitted nodes
+beyond the OSM boundary by more than the zone widths, STOP and report).
+**Unemittable as literally worded:** none. One tension, not a
+contradiction: read literally, (2) asks a dialog for LPMT, whose patch
+(probably) never reaches the line — Q2.
+
+**Build-time impact statement (HARD LAW §6; budgets exclude download).**
+Compute: `select_patch_airports` is the driver loop's head MOVED ~1
+phase earlier, net ~0; the preflight runs outside any build. Expected
+compute delta < 0.6 s per airport / < 3 s per tile — the implementer
+confirms from the recorded phase ledger
+(`~/.ortho4xp/auto_patch_build_times`), no timing run, no Fable-5
+optimisation review unless the ledger tripwire (~2×) fires. Download
+wall (not budgeted, but the point of the ruling): LPMT tile — 17
+neighbour insets × ~190 MB at ~90 KB/s ≈ 3 h ⇒ **0 bytes** under "skip"
+or class-M-no-ask; under "neighbour" only +38-009's patched airports.
+Home tiles everywhere: +38-010 has 6 cached insets, 5 of them 4-letter
+ICAO — ICAO mode stops fetching name-/ref-keyed strips (e.g. `LP63`-class
+keys) on every fresh tile. Large reduction; no regression path.
+
+**Test plan (headless, `tmp_path`, no network, run once each).**
+1. `tests/test_patch_selection.py` — `mode_admits` table; selector
+   dispositions on a synthetic CIFP dir + fake apt.dat root; `None` ⇒ `[]`
+   without opening CIFP (monkeypatched `open` counter).
+2. TWIN: driver loop and selector agree — the set of ICAOs
+   `generate_auto_patches` queues/reuses == `{c.icao for c if
+   c.disposition == "patch"}` on the same synthetic tile; and
+   `include_patches` applies exactly those. (Kills spelling #2.)
+3. `_airport_bounding_boxes(only=…)`: 17-aerodrome synthetic dico, ICAO
+   mode ⇒ boxes only for selected keys; `only=None` byte-identical to
+   today (rows 2-4).
+4. Stamp: legacy stamp (no `selection_mode`) reads cached under ICAO and
+   All; ICAO-stamp + wanted All ⇒ not cached; **no write occurs** when a
+   legacy stamp is read (assert under the conftest refuse-mode guard).
+5. `frame_state(expects_insets=False)` names no missing-dir problem;
+   default unchanged.
+6. Boundary geometry: synthetic airport 580 m from the edge, `R_patch`
+   below/above ⇒ M/S; warm neighbour ⇒ no decision.
+7. Protocol: `boundary_airports` replies `started` at once;
+   `BoundaryAirportsReady` serialises through `serialize_event`;
+   `enqueue_build(boundary_policy=…)` reaches a (fake) worker child.
+   Swift: `SceneryKitTests` decodes a recorded `BoundaryAirportsReady`
+   line. Wire twin: `tools/blast.py --audit` shows no new drift.
+8. "skip": airport absent from `tasks` and manifest, loud line present,
+   stale on-disk auto patch NOT applied, no inset box for it.
+9. `_warm_tile` gone: `ProductionDem` with `core_hosted=True` and a cold
+   declared neighbour raises `ColdDemFrame` and performs ZERO calls into
+   `INSETS.ensure_*` (monkeypatch raises). Pool-child fetch twin (§D.3).
+10. `ensure_tile_frame` lock: two threads, one fetch (fake strategy
+    counter == 1).
+
+**Convergence guards (mandatory in the implementation brief).**
+Materiality floor: surfaces are not a target here; the pre-registered
+targets are COUNTS — (i) neighbour insets fetched for the LPMT twin = 0
+under skip; (ii) home-tile fetch set == selector set; (iii) legacy-stamp
+corpus writes = 0. Any elevation diff on a warm-frame control < 0.01 m
+is PASS-with-residual. Attempt cap: 2 fix iterations per target, then
+STOP-and-report. Heartbeat: START/step/EXIT in the lane's `.progress`.
+
+**Closing build (ONE).** Not LPMT (network-heavy, app-only path). The
+mechanism is proven by the SYNTHETIC TWIN (tests 6, 8, 9: a fake
+two-tile corpus with a strip-heavy neighbour, fake fetch strategy
+counting calls). The one real build is the cheap control through the
+harness: `build_airport.py CYXY` on the shared corpus — single-tile
+airport, asserts the no-boundary path is byte-stable (patch BODY hash ==
+the ledger control at the base sha; selection recorded in `frame.json`).
+If the lead wants a straddler too, SPJC is the registered class-S
+fixture — orchestrator's call at batch time, not the lane's. The real
+LPMT confirmation is the owner's next app build of +38-010 (expected:
+minutes, no neighbour fetch) — a line in `docs/DEFERRED_VERIFICATION.md`.
+
+## F. Implementation slicing (ONE Opus implementer per coupled set)
+
+**Slice 1 — engine (one implementer; everything else depends on it).**
+`src/auto_patch/selection.py` (new), `src/auto_patch/driver.py`,
+`src/O4_Vector_Map.py` (`load_airports_and_prepare_dem`,
+`include_patches`, `ensure_tile_frame`),
+`src/O4_Airport_Elevation_Insets.py` (`_airport_bounding_boxes(only=)`,
+`ensure_insets_for_tile`, completion key/stamp, `is_cached`, lock),
+`src/auto_patch_v2/airport/dem_production.py` (delete `_warm_tile` /
+`_may_warm`, `expects_insets`, context-only path),
+`src/o4_engine/events.py` (+`BoundaryAirportsReady`, 1.8),
+`src/o4_engine/session.py` (+`boundary_airports`, `boundary_policy`),
+`src/o4_engine/parallel.py` (forward the policy; neighbour `is_cached`
+in the vector predicate), `src/O4_Cfg_Vars.py` (`auto_patch_boundary`,
+app var), `tools/harness/build_airport.py` (`--boundary`, refresh note,
+`frame.json` key), `tools/inset_coverage_census.py` (`--mode`),
+`tools/INDEX.md` rows touched in the same commit, tests 1-10 (engine
+side), `docs/DEFERRED_VERIFICATION.md` line. First act: the `R_patch`
+replay measurement, reported BEFORE coding C.1 (it feeds Q2). Frozen for
+slices 2-3: the command name, the event's class and field names, the
+`boundary_policy` values, the cfg key and its three values.
+
+**Slice 2 — Swift (after slice 1's protocol lands; parallel with 3).**
+`Sources/SceneryKit/OrthoEngineClient.swift`,
+`Sources/XPTerrainBuilder/BuildModel.swift`, new
+`Sources/XPTerrainBuilder/BoundaryAirportsSheet.swift`,
+`Sources/XPTerrainBuilder/SettingsLayout.swift`,
+`Tests/SceneryKitTests` decode test. Copy is a placeholder constant
+block the lead edits.
+
+**Slice 3 — Qt (parallel with 2).** `src/O4_Qt_GUI.py` (both
+`enqueue_build` sites), new `src/O4_Qt_Boundary_Dialog.py`,
+`tests/test_qt_*` headless dialog-model test (offscreen platform). Same
+placeholder copy block.
+
+## OWNER QUESTIONS
+
+**Q1.** With auto-patch set to Off (`None`), no airport is patched, so
+by your ruling no airport elevation inset is downloaded at all — the
+separate "airport elevation insets" option does nothing while
+auto-patch is Off. Confirm? (The spec is written to "yes".)
+
+**Q2.** LPMT's own boundary ends ~580 m short of lon −9; only its 2 km
+elevation window crosses. When ONLY that surrounding window crosses —
+no part of the patch reaches the tile edge — should the app (a) NOT ask:
+build the patch, read the far side from whatever is on disk, download
+nothing (proposed; LPMT then builds with no dialog and no neighbour
+fetch), or (b) ask anyway, exactly as for an airport whose pavement
+straddles the line?
+
+**Q3.** Insets already downloaded for airports that will no longer be
+selected (the private strips in existing caches, including the shared
+corpus): keep using them where they exist (proposed — nothing on disk or
+in any built tile changes), or ignore them so an unpatched airport never
+gets high-res terrain even when the file is there (a second spec; moves
+surfaces and seam ballots on existing corpora)?
+
+**Q4.** An airport covered by a MANUAL patch gets no auto-patch. Does it
+still get an inset? (Proposed: yes — it is "getting patched", and its
+mode filter is the same.)
+
+**Q5.** When nobody can be asked (command-line batch, an older front
+end) and no answer is remembered, the default is "skip the boundary
+airports' patches, loudly" rather than "build the adjacent tile".
+Confirm? Also noted, no action proposed: the non-default "coastline"
+elevation level uses ALL airports' positions for its approach-visibility
+ladder; this spec leaves that untouched.

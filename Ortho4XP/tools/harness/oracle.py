@@ -1,4 +1,12 @@
-"""THE CONSTANT-DEM ORACLE RUNNER — the pair build with no terrain confound.
+"""THE CONSTANT-DEM ORACLE RUNNER — RETIRED WITH v1 (2026-09-17), REFUSES BY NAME.
+
+This runner is a v1 instrument end to end (``build_patch`` + ``auto_patch.constant_dem`` + the v1 ``PavementLayout`` band readers).  v1 is
+retired (RULINGS 2026-09-13au/13aw) and ``main`` now refuses with the reason and
+the v2 instruments that answer the same questions; the body below is kept for
+the round-2 decision (re-wire over v2's own solve product, or delete).
+
+THE ORIGINAL CHARTER, unchanged for that decision:
+
 
     venv/bin/python tools/harness/oracle.py ICAO [--worlds -500 10000]
         [--out DIR] [--allow-degraded-dem]
@@ -671,6 +679,43 @@ def main(argv=None) -> int:
                          "swallowed-degradation refusal.  It does NOT "
                          "authorise a write to the shared data repo.")
     args = ap.parse_args(argv)
+
+    # ── THE ORACLE HAS NO SUBJECT (lane v1retire round 1, 2026-09-17;
+    # ruling (f) of the stage-B brief, the 13az pattern: refuse BY NAME
+    # where an option becomes meaningless, never leave it inert) ────────
+    # Every assertion this runner makes is read off a v1 ``PavementLayout``
+    # built twice by ``build_airport.build_patch`` with
+    # ``auto_patch.constant_dem`` substituted for the terrain, and its
+    # band-agreement half calls ``auto_patch.elevation_per_surface``'s
+    # ``solver_primitives`` / ``building_feasibility`` and
+    # ``auto_patch.grade_graph``.  All of those are modules the v1
+    # retirement takes (RULINGS 2026-09-13au/13aw); ``build_patch`` itself
+    # was deleted with them, and the harness build entry has refused
+    # ``--dem`` BY NAME for v2 since stage A (RULINGS 2026-09-13az, "the
+    # constant-DEM oracle world is a v2 wiring item if wanted").
+    #
+    # So this refuses rather than pretending: a constant-DEM oracle over
+    # the v2 engine needs (1) a synthetic-DEM input wired into
+    # ``auto_patch_v2.planar.__main__.default_inputs``, and (2) the band
+    # readers re-expressed over v2's own solve product
+    # (``<ICAO>.graded.json`` + the report's hard set, which
+    # ``tools/v2_solve_replay.py --why-hard`` already reads).  Until then
+    # the instruments that answer the same questions on v2 are
+    # ``v2_solve_replay`` (the hard set, the probe arms) and
+    # ``harness/census.py`` (every law family, sidecar-true).
+    raise SystemExit(
+        "REFUSED: the constant-DEM oracle is a v1 instrument and v1 is "
+        "retired (RULINGS 2026-09-13au/13aw; lane v1retire 2026-09-17).\n"
+        "  It built two worlds through build_airport.build_patch (DELETED) "
+        "with auto_patch.constant_dem, and read its bands off v1's "
+        "PavementLayout via solver_primitives / building_feasibility / "
+        "grade_graph (all DELETE modules).\n"
+        "  The harness build entry already refuses --dem for v2 by name.  "
+        "A v2 oracle needs a synthetic DEM wired into v2's own loader and "
+        "the band readers re-expressed over <ICAO>.graded.json + the "
+        "report's hard set; until that lands, use "
+        "tools/v2_solve_replay.py --why-hard / --probe-site for the "
+        "seating questions and tools/harness/census.py for compliance.")
 
     root = HB.require_build_cwd(Path.cwd())
     for p in (root / "src", root, root / "tests"):

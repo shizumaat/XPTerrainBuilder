@@ -1,6 +1,9 @@
-import ast, json, sys
+import ast, json, os, sys
 from pathlib import Path
-ROOT = Path('/Users/noah/XPTerrainBuilder/Ortho4XP'); SRC = ROOT/'src'
+# ROOT is overridable so the closure can be re-run on a lane worktree's tree
+# (2026-09-17, lane v1retire round 1); the default is the main tree the
+# 2026-09-13aw inventory was cut on.
+ROOT = Path(os.environ.get('O4_G2_ROOT', '/Users/noah/XPTerrainBuilder/Ortho4XP')); SRC = ROOT/'src'
 mods={}
 def mod_for(p):
     q=p.relative_to(SRC); parts=list(q.parts)
@@ -63,4 +66,5 @@ for m in keep:
 print("\n== DELETE ==")
 for m in dele:
     l,b,p=loc(m); print(f"{p}\t{l}\t{b}")
-json.dump({'keep':keep,'delete':dele,'origin':{k:sorted(v) for k,v in origin.items()}},open('/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/3fc455a9-745d-4126-a4c3-38d52975e33b/scratchpad/g2.json','w'),indent=1)
+OUT = os.environ.get('O4_G2_OUT', str(Path(__file__).with_name('g2.json')))
+json.dump({'keep':keep,'delete':dele,'origin':{k:sorted(v) for k,v in origin.items()}},open(OUT,'w'),indent=1)

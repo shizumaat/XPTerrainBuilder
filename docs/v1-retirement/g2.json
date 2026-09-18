@@ -3,11 +3,13 @@
   "auto_patch",
   "auto_patch.agp_reader",
   "auto_patch.apt_dat_reader",
+  "auto_patch.build_support",
   "auto_patch.cifp_reader",
   "auto_patch.config",
   "auto_patch.driver",
   "auto_patch.dsf_reader",
   "auto_patch.engine_v2",
+  "auto_patch.flat_site",
   "auto_patch.flat_site_mode",
   "auto_patch.geom_safe",
   "auto_patch.mesh_sampler",
@@ -19,6 +21,7 @@
   "auto_patch.object_frame",
   "auto_patch.object_rebake",
   "auto_patch.object_terrain_features",
+  "auto_patch.object_terrain_kinds",
   "auto_patch.osm_aeroway",
   "auto_patch.post_mesh",
   "auto_patch.progress",
@@ -68,7 +71,6 @@
   "auto_patch.fabric_sparse",
   "auto_patch.finalize",
   "auto_patch.flat_fast_path",
-  "auto_patch.flat_site",
   "auto_patch.flatedge_snap",
   "auto_patch.gap_fill",
   "auto_patch.gap_spine_bridge",
@@ -112,6 +114,7 @@
   "auto_patch.pavement_classification",
   "auto_patch.pavement_scoring",
   "auto_patch.pipeline",
+  "auto_patch.post_mesh_v1",
   "auto_patch.road_bridge_deck",
   "auto_patch.road_lanes",
   "auto_patch.road_piece_ledger",
@@ -131,53 +134,12 @@
   "auto_patch.verification"
  ],
  "origin": {
-  "auto_patch.apt_dat_reader": [
+  "auto_patch.provenance": [
    "SEED",
-   "auto_patch.dsf_reader",
-   "auto_patch.flat_site_mode"
-  ],
-  "auto_patch.osm_aeroway": [
-   "O4_Vector_Map",
-   "SEED"
-  ],
-  "O4_UI_Utils": [
-   "O4_Airport_Elevation_Insets",
-   "O4_Airport_Fade_Masks",
-   "O4_Airport_Utils",
-   "O4_Authenticated_Sessions",
-   "O4_Bathymetry_Band",
-   "O4_Config_Utils",
-   "O4_Coral_Atlas",
-   "O4_DEM_Utils",
-   "O4_DSF_Utils",
-   "O4_Default_Terrain_Map",
-   "O4_Elevation_Level",
-   "O4_File_Lock",
-   "O4_File_Names",
-   "O4_Imagery_Utils",
-   "O4_Mask_Utils",
-   "O4_Mesh_Utils",
-   "O4_OSM_Extracts",
-   "O4_OSM_Utils",
-   "O4_Overlay_Utils",
-   "O4_Parallel_Utils",
-   "O4_Tile_Utils",
-   "O4_Vector_Map",
-   "O4_Vector_Utils",
-   "auto_patch.agp_reader",
-   "auto_patch.cifp_reader",
    "auto_patch.driver",
-   "auto_patch.dsf_reader",
    "auto_patch.engine_v2",
-   "auto_patch.flat_site_mode",
-   "auto_patch.object_anchor",
-   "auto_patch.object_footprints",
-   "auto_patch.object_terrain_features",
-   "auto_patch.osm_aeroway",
-   "auto_patch.post_mesh",
-   "auto_patch.progress",
-   "o4_engine.parallel",
-   "o4_engine.session"
+   "auto_patch.flat_site",
+   "auto_patch.flat_site_mode"
   ],
   "O4_File_Names": [
    "O4_Airport_Elevation_Insets",
@@ -205,6 +167,7 @@
    "O4_UI_Utils",
    "O4_Vector_Map",
    "auto_patch.agp_reader",
+   "auto_patch.build_support",
    "auto_patch.driver",
    "auto_patch.dsf_reader",
    "auto_patch.engine_v2",
@@ -215,73 +178,56 @@
    "o4_engine.session",
    "o4_engine.tile_time_model"
   ],
-  "auto_patch.agp_reader": [
-   "O4_Default_Terrain_Map",
-   "SEED",
-   "auto_patch.dsf_reader",
-   "auto_patch.obj8_reader"
-  ],
-  "auto_patch.flat_site_mode": [
+  "O4_UI_Utils": [
    "O4_Airport_Elevation_Insets",
-   "SEED"
-  ],
-  "auto_patch.driver": [
-   "O4_Vector_Map",
-   "SEED",
-   "auto_patch.engine_v2",
-   "auto_patch.flat_site_mode"
-  ],
-  "auto_patch.dsf_reader": [
-   "O4_Airport_Elevation_Insets",
+   "O4_Airport_Fade_Masks",
+   "O4_Airport_Utils",
+   "O4_Authenticated_Sessions",
+   "O4_Bathymetry_Band",
+   "O4_Config_Utils",
+   "O4_Coral_Atlas",
+   "O4_DEM_Utils",
+   "O4_DSF_Utils",
    "O4_Default_Terrain_Map",
-   "SEED",
-   "auto_patch.driver",
-   "auto_patch.engine_v2",
-   "auto_patch.flat_site_mode",
-   "auto_patch.post_mesh"
-  ],
-  "auto_patch.config": [
-   "O4_Cfg_Vars",
+   "O4_Elevation_Level",
+   "O4_File_Lock",
+   "O4_File_Names",
+   "O4_Imagery_Utils",
+   "O4_Mask_Utils",
+   "O4_Mesh_Utils",
+   "O4_OSM_Extracts",
+   "O4_OSM_Utils",
+   "O4_Overlay_Utils",
+   "O4_Parallel_Utils",
+   "O4_Tile_Utils",
    "O4_Vector_Map",
-   "SEED",
+   "O4_Vector_Utils",
+   "auto_patch.agp_reader",
+   "auto_patch.build_support",
+   "auto_patch.cifp_reader",
    "auto_patch.driver",
    "auto_patch.dsf_reader",
    "auto_patch.engine_v2",
    "auto_patch.flat_site_mode",
    "auto_patch.object_anchor",
    "auto_patch.object_footprints",
-   "auto_patch.object_frame",
-   "auto_patch.object_rebake",
    "auto_patch.object_terrain_features",
+   "auto_patch.osm_aeroway",
    "auto_patch.post_mesh",
    "auto_patch.progress",
-   "auto_patch.provenance"
-  ],
-  "auto_patch.object_footprints": [
-   "auto_patch.dsf_reader",
-   "auto_patch.object_frame",
-   "auto_patch.post_mesh"
-  ],
-  "auto_patch.object_anchor": [
-   "auto_patch.dsf_reader",
-   "auto_patch.object_footprints",
-   "auto_patch.object_frame",
-   "auto_patch.object_rebake",
-   "auto_patch.object_terrain_features",
-   "auto_patch.post_mesh"
-  ],
-  "auto_patch.object_frame": [
-   "auto_patch.object_anchor",
-   "auto_patch.post_mesh"
+   "o4_engine.parallel",
+   "o4_engine.session"
   ],
   "auto_patch": [
    "O4_Airport_Elevation_Insets",
    "O4_Mesh_Utils",
    "O4_Vector_Map",
    "SEED",
+   "auto_patch.build_support",
    "auto_patch.driver",
    "auto_patch.dsf_reader",
    "auto_patch.engine_v2",
+   "auto_patch.flat_site",
    "auto_patch.flat_site_mode",
    "auto_patch.object_anchor",
    "auto_patch.object_footprints",
@@ -293,10 +239,35 @@
    "auto_patch.provenance",
    "o4_engine.session"
   ],
-  "auto_patch.mesh_sampler": [
+  "auto_patch.driver": [
+   "O4_Vector_Map",
    "SEED",
+   "auto_patch",
    "auto_patch.engine_v2",
-   "auto_patch.object_anchor",
+   "auto_patch.flat_site_mode"
+  ],
+  "auto_patch.post_mesh": [
+   "SEED",
+   "auto_patch.driver",
+   "auto_patch.engine_v2",
+   "auto_patch.flat_site_mode",
+   "auto_patch.object_rebake"
+  ],
+  "auto_patch.object_terrain_kinds": [
+   "auto_patch.post_mesh"
+  ],
+  "auto_patch.object_rebake": [
+   "SEED",
+   "auto_patch.dsf_reader",
+   "auto_patch.post_mesh",
+   "o4_engine.session"
+  ],
+  "auto_patch.object_anchor": [
+   "auto_patch.dsf_reader",
+   "auto_patch.object_footprints",
+   "auto_patch.object_frame",
+   "auto_patch.object_rebake",
+   "auto_patch.object_terrain_features",
    "auto_patch.post_mesh"
   ],
   "auto_patch.obj8_reader": [
@@ -309,6 +280,45 @@
    "auto_patch.object_terrain_features",
    "auto_patch.post_mesh"
   ],
+  "auto_patch.agp_reader": [
+   "O4_Default_Terrain_Map",
+   "SEED",
+   "auto_patch.dsf_reader",
+   "auto_patch.obj8_reader"
+  ],
+  "O4_Scenery_Packs": [
+   "O4_Airport_Elevation_Insets",
+   "auto_patch.agp_reader",
+   "auto_patch.apt_dat_reader",
+   "auto_patch.driver",
+   "auto_patch.object_rebake",
+   "auto_patch_v2.airport.apt_dat"
+  ],
+  "auto_patch.config": [
+   "SEED",
+   "auto_patch.driver",
+   "auto_patch.dsf_reader",
+   "auto_patch.engine_v2",
+   "auto_patch.flat_site",
+   "auto_patch.flat_site_mode",
+   "auto_patch.object_anchor",
+   "auto_patch.object_footprints",
+   "auto_patch.object_frame",
+   "auto_patch.object_rebake",
+   "auto_patch.object_terrain_features",
+   "auto_patch.post_mesh",
+   "auto_patch.progress",
+   "auto_patch.provenance"
+  ],
+  "auto_patch.object_frame": [
+   "auto_patch.flat_site",
+   "auto_patch.object_anchor",
+   "auto_patch.post_mesh"
+  ],
+  "auto_patch.object_footprints": [
+   "auto_patch.dsf_reader",
+   "auto_patch.object_frame"
+  ],
   "auto_patch.object_clusters": [
    "auto_patch.object_anchor"
   ],
@@ -317,19 +327,25 @@
    "auto_patch.object_rebake",
    "auto_patch.object_terrain_features"
   ],
-  "auto_patch.object_rebake": [
+  "auto_patch.mesh_sampler": [
    "SEED",
-   "auto_patch.dsf_reader",
-   "auto_patch.post_mesh",
-   "o4_engine.session"
+   "auto_patch.engine_v2",
+   "auto_patch.object_anchor",
+   "auto_patch.post_mesh"
   ],
-  "auto_patch.post_mesh": [
-   "O4_Mesh_Utils",
+  "auto_patch.dsf_reader": [
+   "O4_Airport_Elevation_Insets",
+   "O4_Default_Terrain_Map",
    "SEED",
    "auto_patch.driver",
    "auto_patch.engine_v2",
    "auto_patch.flat_site_mode",
-   "auto_patch.object_rebake"
+   "auto_patch.post_mesh"
+  ],
+  "auto_patch.apt_dat_reader": [
+   "SEED",
+   "auto_patch.dsf_reader",
+   "auto_patch.flat_site_mode"
   ],
   "auto_patch.object_terrain_features": [
    "auto_patch.dsf_reader"
@@ -337,128 +353,194 @@
   "auto_patch.geom_safe": [
    "auto_patch.object_terrain_features"
   ],
-  "auto_patch.progress": [
-   "SEED",
+  "auto_patch.build_support": [
    "auto_patch.driver",
-   "auto_patch.engine_v2"
+   "auto_patch.flat_site",
+   "auto_patch.flat_site_mode"
+  ],
+  "O4_OSM_Utils": [
+   "O4_Airport_Elevation_Insets",
+   "O4_Bathymetry_Band",
+   "O4_Cfg_Vars",
+   "O4_Config_Utils",
+   "O4_Elevation_Level",
+   "O4_Imagery_Utils",
+   "O4_Mask_Utils",
+   "O4_Mesh_Utils",
+   "O4_Vector_Map",
+   "auto_patch.build_support",
+   "auto_patch.flat_site_mode",
+   "auto_patch_v2.airport.dem_production",
+   "o4_engine.parallel"
+  ],
+  "O4_Version": [
+   "O4_Airport_Elevation_Insets",
+   "O4_Mesh_Utils",
+   "O4_OSM_Utils",
+   "O4_Tile_Utils",
+   "auto_patch.provenance",
+   "auto_patch_v2.airport.partition_cache"
+  ],
+  "o4_engine": [
+   "O4_Airport_Elevation_Insets",
+   "O4_Bathymetry_Band",
+   "O4_DEM_Utils",
+   "O4_Imagery_Utils",
+   "O4_OSM_Extracts",
+   "O4_OSM_Utils",
+   "o4_engine.parallel",
+   "o4_engine.session"
+  ],
+  "o4_engine.events": [
+   "o4_engine",
+   "o4_engine.parallel",
+   "o4_engine.session"
+  ],
+  "o4_engine.session": [
+   "o4_engine",
+   "o4_engine.parallel"
+  ],
+  "O4_Scenery_Links": [
+   "o4_engine.session"
+  ],
+  "O4_Airport_Elevation_Insets": [
+   "O4_Airport_Utils",
+   "O4_Bathymetry_Band",
+   "O4_DEM_Utils",
+   "O4_Elevation_Level",
+   "O4_Mesh_Utils",
+   "O4_Vector_Map",
+   "auto_patch_v2.airport.dem_production",
+   "o4_engine.session"
+  ],
+  "O4_Elevation_Level": [
+   "O4_Airport_Elevation_Insets",
+   "O4_DEM_Utils",
+   "O4_Mesh_Utils",
+   "O4_Vector_Map",
+   "auto_patch.flat_site"
+  ],
+  "O4_Geo_Utils": [
+   "O4_Airport_Elevation_Insets",
+   "O4_Airport_Fade_Masks",
+   "O4_Airport_Utils",
+   "O4_Bathymetry",
+   "O4_Bathymetry_Band",
+   "O4_Coral_Atlas",
+   "O4_DSF_Utils",
+   "O4_Elevation_Level",
+   "O4_Imagery_Utils",
+   "O4_Mask_Utils",
+   "O4_Mesh_Utils",
+   "O4_Vector_Map",
+   "O4_Vector_Utils",
+   "auto_patch.build_support",
+   "auto_patch.flat_site_mode"
   ],
   "auto_patch.cifp_reader": [
    "O4_Airport_Elevation_Insets",
    "SEED",
    "auto_patch.driver",
+   "auto_patch.flat_site",
    "auto_patch.flat_site_mode"
+  ],
+  "auto_patch.flat_site_mode": [
+   "O4_Airport_Elevation_Insets",
+   "SEED"
+  ],
+  "O4_Vector_Map": [
+   "O4_Config_Utils",
+   "O4_Mesh_Utils",
+   "O4_Tile_Utils",
+   "auto_patch.flat_site_mode",
+   "auto_patch_v2.airport.dem_production",
+   "auto_patch_v2.emit.osm_adapter",
+   "o4_engine.parallel",
+   "o4_engine.session"
+  ],
+  "O4_Vector_Utils": [
+   "O4_Airport_Utils",
+   "O4_Imagery_Utils",
+   "O4_Mask_Utils",
+   "O4_Mesh_Utils",
+   "O4_Vector_Map",
+   "auto_patch_v2.airport.road_profile"
+  ],
+  "O4_Mesh_Utils": [
+   "O4_DSF_Utils",
+   "O4_Imagery_Utils",
+   "O4_Mask_Utils",
+   "O4_Tile_Utils",
+   "O4_Vector_Map",
+   "o4_engine.session"
+  ],
+  "O4_Proj_Runtime": [
+   "O4_Mask_Utils",
+   "O4_Mesh_Utils",
+   "O4_Tile_Utils",
+   "O4_Vector_Map"
+  ],
+  "O4_DEM_Utils": [
+   "O4_Airport_Elevation_Insets",
+   "O4_Airport_Utils",
+   "O4_Config_Utils",
+   "O4_DSF_Utils",
+   "O4_Mask_Utils",
+   "O4_Mesh_Utils",
+   "O4_Vector_Map",
+   "auto_patch.provenance"
+  ],
+  "o4_engine.download_meter": [
+   "O4_Bathymetry_Band",
+   "O4_DEM_Utils",
+   "O4_Imagery_Utils",
+   "O4_OSM_Extracts",
+   "O4_OSM_Utils",
+   "o4_engine.session"
   ],
   "auto_patch.engine_v2": [
    "O4_Mesh_Utils",
    "SEED",
+   "auto_patch.build_support",
    "auto_patch.driver"
   ],
-  "auto_patch_v2.airport.placement_boxes": [
+  "auto_patch_v2.pipeline.build": [
    "auto_patch.engine_v2",
-   "auto_patch_v2.airport.placement_carrier",
-   "auto_patch_v2.airport.placement_orphan"
+   "auto_patch_v2.pipeline"
   ],
-  "auto_patch_v2.airport": [
-   "auto_patch.engine_v2",
-   "auto_patch_v2.airport.basin_ring",
-   "auto_patch_v2.airport.basin_witness",
-   "auto_patch_v2.airport.below_zero",
-   "auto_patch_v2.airport.contact",
-   "auto_patch_v2.airport.deck_signature",
-   "auto_patch_v2.airport.door_wells",
-   "auto_patch_v2.airport.line_object",
-   "auto_patch_v2.airport.load",
-   "auto_patch_v2.airport.obj8_split",
-   "auto_patch_v2.airport.pack_partition",
-   "auto_patch_v2.airport.placement_atom",
-   "auto_patch_v2.airport.placement_body",
-   "auto_patch_v2.airport.placement_boxes",
-   "auto_patch_v2.airport.placement_carrier",
-   "auto_patch_v2.airport.placement_census",
-   "auto_patch_v2.airport.placement_cut",
-   "auto_patch_v2.airport.placement_geom",
-   "auto_patch_v2.airport.placement_orphan",
-   "auto_patch_v2.airport.placement_plan",
-   "auto_patch_v2.airport.placement_read",
-   "auto_patch_v2.airport.placement_record",
-   "auto_patch_v2.airport.placement_seams",
-   "auto_patch_v2.airport.placement_targets",
-   "auto_patch_v2.airport.placement_write",
-   "auto_patch_v2.airport.rebake_plan",
-   "auto_patch_v2.airport.skirt",
-   "auto_patch_v2.airport.sunken_roads",
-   "auto_patch_v2.airport.thin_plates",
-   "auto_patch_v2.airport.tunnel_objects",
-   "auto_patch_v2.airport.wall_corridor_probe",
-   "auto_patch_v2.airport.wall_corridors",
-   "auto_patch_v2.airport.wall_geometry",
-   "auto_patch_v2.classify.evidence",
+  "auto_patch_v2.verify.census": [
    "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.planar.basins"
+   "auto_patch_v2.verify"
   ],
-  "auto_patch_v2.airport.load": [
-   "auto_patch.engine_v2",
-   "auto_patch_v2.airport",
-   "auto_patch_v2.pipeline.build"
+  "auto_patch_v2.verify.contiguity": [
+   "auto_patch_v2.verify.census"
   ],
-  "auto_patch_v2.airport.apt_dat": [
-   "auto_patch_v2.airport.dsf",
-   "auto_patch_v2.airport.load",
-   "auto_patch_v2.airport.pack"
+  "auto_patch_v2.verify.frame": [
+   "auto_patch_v2.verify.census",
+   "auto_patch_v2.verify.channel",
+   "auto_patch_v2.verify.contiguity",
+   "auto_patch_v2.verify.eat",
+   "auto_patch_v2.verify.frontage",
+   "auto_patch_v2.verify.no_step",
+   "auto_patch_v2.verify.pads",
+   "auto_patch_v2.verify.runway",
+   "auto_patch_v2.verify.steps",
+   "auto_patch_v2.verify.strips",
+   "auto_patch_v2.verify.structures",
+   "auto_patch_v2.verify.transverse",
+   "auto_patch_v2.verify.within"
   ],
-  "auto_patch_v2.model.airport": [
-   "auto_patch_v2.airport.door_wells",
-   "auto_patch_v2.airport.flat_site",
-   "auto_patch_v2.airport.load",
-   "auto_patch_v2.airport.pack",
-   "auto_patch_v2.airport.pack_partition",
-   "auto_patch_v2.airport.rebake_plan",
-   "auto_patch_v2.airport.road_profile",
-   "auto_patch_v2.airport.sunken_roads",
-   "auto_patch_v2.airport.thin_plates",
-   "auto_patch_v2.airport.tunnel_objects",
-   "auto_patch_v2.airport.wall_corridor_probe",
-   "auto_patch_v2.airport.wall_corridors",
-   "auto_patch_v2.classify.evidence",
-   "auto_patch_v2.classify.roles",
-   "auto_patch_v2.classify.sources",
-   "auto_patch_v2.constraints",
-   "auto_patch_v2.constraints.apron",
-   "auto_patch_v2.constraints.apron_trend",
-   "auto_patch_v2.constraints.eat",
-   "auto_patch_v2.constraints.flat_site",
-   "auto_patch_v2.constraints.foot_rows",
-   "auto_patch_v2.constraints.junction_mesh",
-   "auto_patch_v2.constraints.no_step",
-   "auto_patch_v2.constraints.pad_frontage_gs",
-   "auto_patch_v2.constraints.pad_relief",
-   "auto_patch_v2.constraints.pads",
-   "auto_patch_v2.constraints.proximity",
-   "auto_patch_v2.constraints.roads",
-   "auto_patch_v2.constraints.routes",
-   "auto_patch_v2.constraints.runway_chord",
-   "auto_patch_v2.constraints.runway_profile",
-   "auto_patch_v2.constraints.seams",
-   "auto_patch_v2.constraints.strips",
-   "auto_patch_v2.constraints.structures",
-   "auto_patch_v2.constraints.taxi",
-   "auto_patch_v2.constraints.taxi_trend",
-   "auto_patch_v2.constraints.transverse",
-   "auto_patch_v2.constraints.water",
-   "auto_patch_v2.constraints.zones",
+  "auto_patch_v2.emit.surface": [
    "auto_patch_v2.emit.bank",
-   "auto_patch_v2.pipeline.publication",
-   "auto_patch_v2.pipeline.shapes",
-   "auto_patch_v2.planar.basins",
-   "auto_patch_v2.planar.build",
-   "auto_patch_v2.planar.object_corridor",
-   "auto_patch_v2.planar.overlay",
-   "auto_patch_v2.planar.shapes",
-   "auto_patch_v2.planar.structure_approach",
-   "auto_patch_v2.planar.structures"
+   "auto_patch_v2.emit.graded",
+   "auto_patch_v2.emit.osm_adapter",
+   "auto_patch_v2.emit.terrain_edge",
+   "auto_patch_v2.verify.census",
+   "auto_patch_v2.verify.frame"
   ],
   "auto_patch_v2.model.frame": [
    "auto_patch_v2.airport.below_zero",
+   "auto_patch_v2.airport.borrow",
    "auto_patch_v2.airport.contact",
    "auto_patch_v2.airport.deck_signature",
    "auto_patch_v2.airport.dem",
@@ -466,6 +548,8 @@
    "auto_patch_v2.airport.door_wells",
    "auto_patch_v2.airport.load",
    "auto_patch_v2.airport.obj8",
+   "auto_patch_v2.airport.object_cut",
+   "auto_patch_v2.airport.object_pavement",
    "auto_patch_v2.airport.pack_partition",
    "auto_patch_v2.airport.rebake_plan",
    "auto_patch_v2.airport.road_profile",
@@ -487,222 +571,41 @@
    "auto_patch_v2.model.planar",
    "auto_patch_v2.model.rebake",
    "auto_patch_v2.model.structures",
+   "auto_patch_v2.planar.basin_geometry",
    "auto_patch_v2.planar.basins",
    "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.channel",
+   "auto_patch_v2.planar.channel_geometry",
    "auto_patch_v2.planar.chords",
    "auto_patch_v2.planar.door_ramps",
    "auto_patch_v2.planar.object_corridor",
    "auto_patch_v2.planar.shapes",
    "auto_patch_v2.planar.structure_approach",
+   "auto_patch_v2.planar.structure_deck",
    "auto_patch_v2.planar.structure_geometry",
-   "auto_patch_v2.planar.structures"
-  ],
-  "auto_patch_v2.airport.pack": [
-   "auto_patch.engine_v2",
-   "auto_patch_v2.airport.load",
-   "auto_patch_v2.airport.pack_partition"
-  ],
-  "auto_patch_v2.airport.dem_production": [
-   "auto_patch_v2.airport.load"
-  ],
-  "auto_patch_v2.airport.dem": [
-   "auto_patch_v2.airport.dem_production",
-   "auto_patch_v2.airport.load"
-  ],
-  "O4_Config_Utils": [
-   "O4_Settings_Model",
-   "O4_Solve_Model",
-   "O4_Vector_Map",
-   "auto_patch.engine_v2",
-   "auto_patch.flat_site_mode",
-   "auto_patch_v2.airport.dem_production",
-   "o4_engine.parallel",
-   "o4_engine.session"
-  ],
-  "O4_Cfg_Vars": [
-   "O4_Config_Utils",
-   "O4_Settings_Model",
-   "o4_engine.session"
-  ],
-  "O4_Settings_Model": [
-   "O4_Cfg_Vars",
-   "O4_Vector_Map",
-   "o4_engine.parallel"
-  ],
-  "O4_OSM_Utils": [
-   "O4_Airport_Elevation_Insets",
-   "O4_Bathymetry_Band",
-   "O4_Cfg_Vars",
-   "O4_Config_Utils",
-   "O4_Elevation_Level",
-   "O4_Imagery_Utils",
-   "O4_Mask_Utils",
-   "O4_Mesh_Utils",
-   "O4_Vector_Map",
-   "auto_patch.flat_site_mode",
-   "auto_patch_v2.airport.dem_production",
-   "o4_engine.parallel"
-  ],
-  "o4_engine.download_meter": [
-   "O4_Bathymetry_Band",
-   "O4_DEM_Utils",
-   "O4_Imagery_Utils",
-   "O4_OSM_Extracts",
-   "O4_OSM_Utils",
-   "o4_engine.session"
-  ],
-  "O4_OSM_Extracts": [
-   "O4_Airport_Elevation_Insets",
-   "O4_OSM_Utils",
-   "O4_Vector_Map",
-   "o4_engine.parallel"
-  ],
-  "O4_File_Lock": [
-   "O4_Airport_Elevation_Insets",
-   "O4_OSM_Extracts"
-  ],
-  "o4_engine": [
-   "O4_Airport_Elevation_Insets",
-   "O4_Bathymetry_Band",
-   "O4_DEM_Utils",
-   "O4_Imagery_Utils",
-   "O4_OSM_Extracts",
-   "O4_OSM_Utils",
-   "o4_engine.parallel",
-   "o4_engine.session"
-  ],
-  "o4_engine.events": [
-   "o4_engine",
-   "o4_engine.parallel",
-   "o4_engine.session"
-  ],
-  "o4_engine.session": [
-   "o4_engine",
-   "o4_engine.parallel"
-  ],
-  "o4_engine.tile_time_model": [
-   "o4_engine.parallel",
-   "o4_engine.session"
-  ],
-  "O4_Airport_Index": [
-   "O4_Bathymetry_Band",
-   "o4_engine.session"
-  ],
-  "O4_Authenticated_Sessions": [
-   "O4_Airport_Elevation_Insets",
-   "o4_engine.parallel",
-   "o4_engine.session"
-  ],
-  "O4_Mask_Utils": [
-   "O4_DSF_Utils",
-   "O4_Imagery_Utils",
-   "O4_Tile_Utils",
-   "o4_engine.session"
-  ],
-  "O4_Parallel_Utils": [
-   "O4_Bathymetry_Band",
-   "O4_Imagery_Utils",
-   "O4_Mask_Utils",
-   "O4_Tile_Utils",
-   "o4_engine.parallel",
-   "o4_engine.session"
-  ],
-  "O4_Imagery_Utils": [
-   "O4_Config_Utils",
-   "O4_Mask_Utils",
-   "O4_Tile_Utils"
-  ],
-  "O4_Mesh_Utils": [
-   "O4_DSF_Utils",
-   "O4_Imagery_Utils",
-   "O4_Mask_Utils",
-   "O4_Tile_Utils",
-   "O4_Vector_Map",
-   "o4_engine.session"
-  ],
-  "O4_Elevation_Level": [
-   "O4_Airport_Elevation_Insets",
-   "O4_DEM_Utils",
-   "O4_Mesh_Utils",
-   "O4_Vector_Map"
-  ],
-  "O4_Geo_Utils": [
-   "O4_Airport_Elevation_Insets",
-   "O4_Airport_Fade_Masks",
-   "O4_Airport_Utils",
-   "O4_Bathymetry",
-   "O4_Bathymetry_Band",
-   "O4_Coral_Atlas",
-   "O4_DSF_Utils",
-   "O4_Elevation_Level",
-   "O4_Imagery_Utils",
-   "O4_Mask_Utils",
-   "O4_Mesh_Utils",
-   "O4_Vector_Map",
-   "O4_Vector_Utils",
-   "auto_patch.flat_site_mode"
-  ],
-  "O4_Airport_Elevation_Insets": [
-   "O4_Airport_Utils",
-   "O4_Bathymetry_Band",
-   "O4_DEM_Utils",
-   "O4_Elevation_Level",
-   "O4_Mesh_Utils",
-   "O4_Vector_Map",
-   "auto_patch_v2.airport.dem_production",
-   "o4_engine.session"
-  ],
-  "O4_Coral_Atlas": [
-   "O4_Airport_Elevation_Insets"
-  ],
-  "O4_Version": [
-   "O4_Airport_Elevation_Insets",
-   "O4_Mesh_Utils",
-   "O4_OSM_Utils",
-   "O4_Tile_Utils",
-   "auto_patch.provenance"
-  ],
-  "o4_engine.task_meter": [
-   "O4_Airport_Elevation_Insets",
-   "o4_engine.session"
-  ],
-  "O4_DEM_Utils": [
-   "O4_Airport_Elevation_Insets",
-   "O4_Airport_Utils",
-   "O4_Config_Utils",
-   "O4_DSF_Utils",
-   "O4_Mask_Utils",
-   "O4_Mesh_Utils",
-   "O4_Vector_Map",
-   "auto_patch.provenance"
-  ],
-  "O4_Proj_Runtime": [
-   "O4_Mask_Utils",
-   "O4_Mesh_Utils",
-   "O4_Tile_Utils",
-   "O4_Vector_Map"
-  ],
-  "O4_Vector_Utils": [
-   "O4_Airport_Utils",
-   "O4_Imagery_Utils",
-   "O4_Mask_Utils",
-   "O4_Mesh_Utils",
-   "O4_Vector_Map",
-   "auto_patch_v2.airport.road_profile"
+   "auto_patch_v2.planar.structure_pair",
+   "auto_patch_v2.planar.structure_underpass",
+   "auto_patch_v2.planar.structures",
+   "auto_patch_v2.planar.wall_corridor_ramps"
   ],
   "auto_patch_v2.law.tables": [
+   "O4_Cfg_Vars",
    "O4_Mesh_Utils",
    "auto_patch.engine_v2",
+   "auto_patch_v2.airport.borrow",
    "auto_patch_v2.airport.flat_site",
    "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.partition_cache",
    "auto_patch_v2.airport.placement_cockpit",
    "auto_patch_v2.airport.road_profile",
+   "auto_patch_v2.airport.road_ramp",
    "auto_patch_v2.airport.wall_corridor_probe",
    "auto_patch_v2.classify.airside_edge",
    "auto_patch_v2.classify.roles",
    "auto_patch_v2.constraints.apron",
    "auto_patch_v2.constraints.apron_trend",
    "auto_patch_v2.constraints.ceiling",
+   "auto_patch_v2.constraints.cluster_pad",
    "auto_patch_v2.constraints.contiguity",
    "auto_patch_v2.constraints.flat_site",
    "auto_patch_v2.constraints.foot_rows",
@@ -714,6 +617,7 @@
    "auto_patch_v2.constraints.pads",
    "auto_patch_v2.constraints.precedence",
    "auto_patch_v2.constraints.proximity",
+   "auto_patch_v2.constraints.road_ramp",
    "auto_patch_v2.constraints.roads",
    "auto_patch_v2.constraints.routes",
    "auto_patch_v2.constraints.runway_profile",
@@ -736,6 +640,10 @@
    "auto_patch_v2.planar.overlay",
    "auto_patch_v2.planar.shapes",
    "auto_patch_v2.planar.structure_approach",
+   "auto_patch_v2.planar.structure_deck",
+   "auto_patch_v2.planar.structure_road",
+   "auto_patch_v2.planar.structure_service",
+   "auto_patch_v2.planar.structure_underpass",
    "auto_patch_v2.planar.structures",
    "auto_patch_v2.planar.terrain_edge",
    "auto_patch_v2.planar.wall_corridor_ramps",
@@ -755,37 +663,13 @@
    "auto_patch_v2.verify.structures",
    "auto_patch_v2.verify.within"
   ],
-  "auto_patch_v2.law.cockpit_schema": [
-   "auto_patch_v2.law.model",
-   "auto_patch_v2.law.tables"
-  ],
   "auto_patch_v2.law.model": [
    "auto_patch_v2.emit.osm_adapter",
    "auto_patch_v2.emit.terrain_edge",
    "auto_patch_v2.law",
    "auto_patch_v2.law.tables"
   ],
-  "auto_patch_v2.law.flat_site_schema": [
-   "auto_patch_v2.law.model"
-  ],
-  "auto_patch_v2.law.terrace_schema": [
-   "auto_patch_v2.law.model"
-  ],
-  "auto_patch_v2.law.basin_schema": [
-   "auto_patch_v2.law.model"
-  ],
-  "auto_patch_v2.law.design_schema": [
-   "auto_patch_v2.law.model",
-   "auto_patch_v2.solve.design",
-   "auto_patch_v2.solve.design_roles"
-  ],
-  "auto_patch_v2.law.tunnel_object_schema": [
-   "auto_patch_v2.law.model"
-  ],
-  "auto_patch_v2.law.rebake_schema": [
-   "auto_patch_v2.law.model"
-  ],
-  "auto_patch_v2.law.role_cap_schema": [
+  "auto_patch_v2.law.airports_schema": [
    "auto_patch_v2.law.model"
   ],
   "auto_patch_v2.law.eat_schema": [
@@ -795,19 +679,45 @@
    "auto_patch_v2.law.eat_schema",
    "auto_patch_v2.law.model"
   ],
-  "auto_patch_v2.law.airports_schema": [
+  "auto_patch_v2.law.flat_site_schema": [
    "auto_patch_v2.law.model"
+  ],
+  "auto_patch_v2.law.cockpit_schema": [
+   "auto_patch_v2.law.model",
+   "auto_patch_v2.law.tables"
+  ],
+  "auto_patch_v2.law.rebake_schema": [
+   "auto_patch_v2.law.model"
+  ],
+  "auto_patch_v2.law.design_schema": [
+   "auto_patch_v2.law.model",
+   "auto_patch_v2.solve.design",
+   "auto_patch_v2.solve.design_roles"
   ],
   "auto_patch_v2.law.cutout_schema": [
    "auto_patch_v2.law.model",
    "auto_patch_v2.planar.wall_corridor_ramps"
   ],
+  "auto_patch_v2.law.basin_schema": [
+   "auto_patch_v2.law.model"
+  ],
+  "auto_patch_v2.law.terrace_schema": [
+   "auto_patch_v2.law.model"
+  ],
+  "auto_patch_v2.law.tunnel_object_schema": [
+   "auto_patch_v2.law.model"
+  ],
+  "auto_patch_v2.law.role_cap_schema": [
+   "auto_patch_v2.law.model"
+  ],
   "auto_patch_v2.law.units": [
    "auto_patch_v2.law.model"
   ],
   "auto_patch_v2.law": [
+   "O4_Cfg_Vars",
    "O4_Mesh_Utils",
    "auto_patch.engine_v2",
+   "auto_patch.flat_site",
    "auto_patch_v2.airport.basin_witness",
    "auto_patch_v2.airport.door_wells",
    "auto_patch_v2.airport.flat_site",
@@ -816,6 +726,7 @@
    "auto_patch_v2.airport.placement_cockpit",
    "auto_patch_v2.airport.rebake_plan",
    "auto_patch_v2.airport.road_profile",
+   "auto_patch_v2.airport.road_ramp",
    "auto_patch_v2.airport.sunken_roads",
    "auto_patch_v2.airport.thin_plates",
    "auto_patch_v2.airport.tunnel_objects",
@@ -827,6 +738,8 @@
    "auto_patch_v2.constraints.apron",
    "auto_patch_v2.constraints.apron_trend",
    "auto_patch_v2.constraints.ceiling",
+   "auto_patch_v2.constraints.channel",
+   "auto_patch_v2.constraints.cluster_pad",
    "auto_patch_v2.constraints.contiguity",
    "auto_patch_v2.constraints.eat",
    "auto_patch_v2.constraints.flat_site",
@@ -839,6 +752,7 @@
    "auto_patch_v2.constraints.pads",
    "auto_patch_v2.constraints.precedence",
    "auto_patch_v2.constraints.proximity",
+   "auto_patch_v2.constraints.road_ramp",
    "auto_patch_v2.constraints.roads",
    "auto_patch_v2.constraints.routes",
    "auto_patch_v2.constraints.runway_chord",
@@ -854,6 +768,7 @@
    "auto_patch_v2.constraints.zones",
    "auto_patch_v2.emit.bank",
    "auto_patch_v2.emit.graded",
+   "auto_patch_v2.emit.road_join",
    "auto_patch_v2.emit.seam_band",
    "auto_patch_v2.pipeline.build",
    "auto_patch_v2.pipeline.publication",
@@ -862,11 +777,22 @@
    "auto_patch_v2.pipeline.shapes",
    "auto_patch_v2.planar.basins",
    "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.channel",
+   "auto_patch_v2.planar.channel_claims",
+   "auto_patch_v2.planar.channel_floor",
+   "auto_patch_v2.planar.channel_geometry",
+   "auto_patch_v2.planar.cluster",
    "auto_patch_v2.planar.door_ramps",
    "auto_patch_v2.planar.object_corridor",
    "auto_patch_v2.planar.overlay",
    "auto_patch_v2.planar.shapes",
    "auto_patch_v2.planar.structure_approach",
+   "auto_patch_v2.planar.structure_deck",
+   "auto_patch_v2.planar.structure_geometry",
+   "auto_patch_v2.planar.structure_pair",
+   "auto_patch_v2.planar.structure_road",
+   "auto_patch_v2.planar.structure_service",
+   "auto_patch_v2.planar.structure_underpass",
    "auto_patch_v2.planar.structures",
    "auto_patch_v2.planar.terrain_edge",
    "auto_patch_v2.planar.wall_corridor_ramps",
@@ -879,278 +805,18 @@
    "auto_patch_v2.solve.rows",
    "auto_patch_v2.verify.census",
    "auto_patch_v2.verify.frame",
-   "auto_patch_v2.verify.roads"
-  ],
-  "O4_Vector_Map": [
-   "O4_Config_Utils",
-   "O4_Mesh_Utils",
-   "O4_Tile_Utils",
-   "auto_patch.flat_site_mode",
-   "auto_patch_v2.airport.dem_production",
-   "o4_engine.parallel",
-   "o4_engine.session"
-  ],
-  "O4_Bathymetry_Band": [
-   "O4_DSF_Utils",
-   "O4_Mask_Utils",
-   "O4_Vector_Map"
-  ],
-  "O4_Airport_Utils": [
-   "O4_Vector_Map"
-  ],
-  "O4_Sea_Nodata_Fill": [
-   "O4_Imagery_Utils"
-  ],
-  "O4_Color_Harmonization": [
-   "O4_Imagery_Utils"
-  ],
-  "O4_Coastal_Foam_Edge": [
-   "O4_Mask_Utils"
-  ],
-  "O4_Scenery_Links": [
-   "o4_engine.session"
-  ],
-  "O4_Tile_Info": [
-   "o4_engine.session"
-  ],
-  "o4_engine.parallel": [
-   "o4_engine.session"
-  ],
-  "O4_Tile_Utils": [
-   "O4_Config_Utils",
-   "o4_engine.session"
-  ],
-  "O4_DSF_Utils": [
-   "O4_Tile_Utils"
-  ],
-  "O4_Overlay_Utils": [
-   "O4_Config_Utils",
-   "O4_DSF_Utils",
-   "O4_Default_Terrain_Map",
-   "o4_engine.session"
-  ],
-  "O4_Airport_Fade_Masks": [
-   "O4_DSF_Utils"
-  ],
-  "O4_Bathymetry": [
-   "O4_DSF_Utils"
-  ],
-  "O4_Default_Terrain_Map": [
-   "O4_DSF_Utils"
-  ],
-  "O4_OSM_Extract_Filter": [
-   "O4_OSM_Extracts"
-  ],
-  "auto_patch_v2.airport.dsf_write": [
-   "auto_patch.engine_v2",
-   "auto_patch_v2.airport.load",
-   "auto_patch_v2.airport.placement_write"
-  ],
-  "auto_patch_v2.model.placement": [
-   "auto_patch_v2.airport.dsf_write",
-   "auto_patch_v2.airport.placement_plan",
-   "auto_patch_v2.airport.placement_write"
-  ],
-  "auto_patch_v2.airport.obj8": [
-   "auto_patch_v2.airport.basin_witness",
-   "auto_patch_v2.airport.below_zero",
-   "auto_patch_v2.airport.contact",
-   "auto_patch_v2.airport.deck_signature",
-   "auto_patch_v2.airport.door_wells",
-   "auto_patch_v2.airport.line_object",
-   "auto_patch_v2.airport.load",
-   "auto_patch_v2.airport.obj8_clip",
-   "auto_patch_v2.airport.obj8_split",
-   "auto_patch_v2.airport.pack_partition",
-   "auto_patch_v2.airport.placement_cut",
-   "auto_patch_v2.airport.rebake_plan",
-   "auto_patch_v2.airport.skirt",
-   "auto_patch_v2.airport.sunken_roads",
-   "auto_patch_v2.airport.thin_plates",
-   "auto_patch_v2.airport.tunnel_objects",
-   "auto_patch_v2.airport.wall_corridor_probe",
-   "auto_patch_v2.airport.wall_corridors",
-   "auto_patch_v2.airport.wall_geometry",
-   "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.planar.basins",
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.airport.obj8_clip": [
-   "auto_patch_v2.airport.obj8",
-   "auto_patch_v2.airport.skirt"
-  ],
-  "auto_patch_v2.airport.cifp": [
-   "auto_patch_v2.airport.load"
-  ],
-  "auto_patch_v2.airport.dsf": [
-   "auto_patch.engine_v2",
-   "auto_patch_v2.airport.load"
-  ],
-  "auto_patch_v2.airport.osm": [
-   "auto_patch_v2.airport.load"
-  ],
-  "auto_patch_v2.airport.anchor_rule": [
-   "auto_patch_v2.airport.basin_ring",
-   "auto_patch_v2.airport.placement_atom",
-   "auto_patch_v2.airport.placement_body",
-   "auto_patch_v2.airport.placement_boxes",
-   "auto_patch_v2.airport.placement_carrier",
-   "auto_patch_v2.airport.placement_census",
-   "auto_patch_v2.airport.placement_cut",
-   "auto_patch_v2.airport.placement_geom",
-   "auto_patch_v2.airport.placement_orphan",
-   "auto_patch_v2.airport.placement_plan",
-   "auto_patch_v2.airport.placement_read",
-   "auto_patch_v2.airport.placement_record",
-   "auto_patch_v2.airport.placement_seams"
-  ],
-  "auto_patch_v2.airport.rebake_plan": [
-   "auto_patch_v2.airport.anchor_rule",
-   "auto_patch_v2.airport.bridge_family",
-   "auto_patch_v2.airport.placement_body",
-   "auto_patch_v2.pipeline.build"
-  ],
-  "auto_patch_v2.airport.pack_partition": [
-   "auto_patch_v2.airport.rebake_plan",
-   "auto_patch_v2.pipeline.build"
-  ],
-  "auto_patch_v2.model.rebake": [
-   "auto_patch.engine_v2",
-   "auto_patch_v2.airport.pack_partition",
-   "auto_patch_v2.airport.placement_body",
-   "auto_patch_v2.airport.placement_cut",
-   "auto_patch_v2.airport.placement_geom",
-   "auto_patch_v2.airport.placement_plan",
-   "auto_patch_v2.airport.placement_read",
-   "auto_patch_v2.airport.placement_record",
-   "auto_patch_v2.airport.rebake_plan",
-   "auto_patch_v2.planar.group"
-  ],
-  "auto_patch_v2.airport.skirt": [
-   "auto_patch_v2.airport.below_zero",
-   "auto_patch_v2.airport.pack_partition",
-   "auto_patch_v2.classify.evidence",
-   "auto_patch_v2.planar.structures"
-  ],
-  "auto_patch_v2.airport.basin_witness": [
-   "auto_patch_v2.airport.skirt",
-   "auto_patch_v2.planar.basins"
-  ],
-  "auto_patch_v2.airport.deck_signature": [
-   "auto_patch_v2.airport.basin_witness",
-   "auto_patch_v2.airport.door_wells",
-   "auto_patch_v2.airport.pack_partition",
-   "auto_patch_v2.airport.rebake_plan",
-   "auto_patch_v2.airport.sunken_roads",
-   "auto_patch_v2.airport.thin_plates",
-   "auto_patch_v2.airport.tunnel_objects",
-   "auto_patch_v2.airport.wall_corridors",
-   "auto_patch_v2.planar.object_corridor",
-   "auto_patch_v2.planar.structure_approach"
-  ],
-  "auto_patch_v2.airport.line_object": [
-   "auto_patch_v2.airport.basin_ring",
-   "auto_patch_v2.airport.pack_partition",
-   "auto_patch_v2.airport.placement_cut",
-   "auto_patch_v2.airport.placement_geom",
-   "auto_patch_v2.airport.placement_plan"
-  ],
-  "auto_patch_v2.airport.contact": [
-   "auto_patch_v2.airport.pack_partition"
-  ],
-  "auto_patch_v2.airport.placement_write": [
-   "auto_patch.engine_v2"
-  ],
-  "auto_patch_v2.airport.placement_plan": [
-   "auto_patch.engine_v2",
-   "auto_patch_v2.airport.placement_write",
-   "auto_patch_v2.planar.group"
-  ],
-  "auto_patch_v2.airport.basin_ring": [
-   "auto_patch_v2.airport.placement_body",
-   "auto_patch_v2.airport.placement_census",
-   "auto_patch_v2.airport.placement_cut",
-   "auto_patch_v2.airport.placement_plan"
-  ],
-  "auto_patch_v2.airport.placement_cut": [
-   "auto_patch_v2.airport.basin_ring",
-   "auto_patch_v2.airport.placement_body",
-   "auto_patch_v2.airport.placement_orphan",
-   "auto_patch_v2.airport.placement_plan",
-   "auto_patch_v2.airport.placement_seams",
-   "auto_patch_v2.airport.placement_targets"
-  ],
-  "auto_patch_v2.airport.placement_carrier": [
-   "auto_patch_v2.airport.bridge_family",
-   "auto_patch_v2.airport.placement_atom",
-   "auto_patch_v2.airport.placement_body",
-   "auto_patch_v2.airport.placement_census",
-   "auto_patch_v2.airport.placement_cut",
-   "auto_patch_v2.airport.placement_plan",
-   "auto_patch_v2.airport.placement_targets"
-  ],
-  "auto_patch_v2.airport.placement_census": [
-   "auto_patch_v2.airport.placement_carrier",
-   "auto_patch_v2.airport.placement_cockpit"
-  ],
-  "auto_patch_v2.airport.bridge_family": [
-   "auto_patch_v2.airport.placement_body",
-   "auto_patch_v2.airport.placement_census",
-   "auto_patch_v2.airport.placement_plan"
-  ],
-  "auto_patch_v2.airport.placement_cockpit": [
-   "auto_patch_v2.airport.placement_census"
-  ],
-  "auto_patch_v2.airport.placement_motion": [
-   "auto_patch_v2.airport.placement_census"
-  ],
-  "auto_patch_v2.airport.placement_seams": [
-   "auto_patch_v2.airport.placement_census"
-  ],
-  "auto_patch_v2.airport.placement_geom": [
-   "auto_patch_v2.airport.placement_cut"
-  ],
-  "auto_patch_v2.airport.placement_body": [
-   "auto_patch_v2.airport.placement_cut"
-  ],
-  "auto_patch_v2.airport.placement_atom": [
-   "auto_patch_v2.airport.placement_cut",
-   "auto_patch_v2.airport.placement_plan"
-  ],
-  "auto_patch_v2.airport.placement_record": [
-   "auto_patch_v2.airport.placement_plan",
-   "auto_patch_v2.airport.placement_targets"
-  ],
-  "auto_patch_v2.airport.obj8_split": [
-   "auto_patch_v2.airport.placement_plan",
-   "auto_patch_v2.airport.placement_record"
-  ],
-  "auto_patch_v2.airport.placement_targets": [
-   "auto_patch_v2.airport.placement_plan"
-  ],
-  "auto_patch_v2.model": [
-   "auto_patch.engine_v2",
-   "auto_patch_v2.airport.placement_plan"
-  ],
-  "auto_patch_v2.airport.placement_read": [
-   "auto_patch_v2.airport.placement_plan"
-  ],
-  "auto_patch_v2.airport.placement_orphan": [
-   "auto_patch_v2.airport.placement_plan"
-  ],
-  "auto_patch_v2.pipeline.build": [
-   "auto_patch.engine_v2"
-  ],
-  "auto_patch_v2.constraints.flat_site": [
-   "auto_patch_v2.constraints",
-   "auto_patch_v2.pipeline.build"
+   "auto_patch_v2.verify.roads",
+   "auto_patch_v2.verify.strips"
   ],
   "auto_patch_v2.model.planar": [
    "auto_patch_v2.airport.road_profile",
+   "auto_patch_v2.airport.road_ramp",
    "auto_patch_v2.constraints",
    "auto_patch_v2.constraints.apron",
    "auto_patch_v2.constraints.apron_trend",
    "auto_patch_v2.constraints.ceiling",
+   "auto_patch_v2.constraints.channel",
+   "auto_patch_v2.constraints.cluster_pad",
    "auto_patch_v2.constraints.contiguity",
    "auto_patch_v2.constraints.eat",
    "auto_patch_v2.constraints.flat_site",
@@ -1164,6 +830,7 @@
    "auto_patch_v2.constraints.pads",
    "auto_patch_v2.constraints.precedence",
    "auto_patch_v2.constraints.proximity",
+   "auto_patch_v2.constraints.road_ramp",
    "auto_patch_v2.constraints.roads",
    "auto_patch_v2.constraints.routes",
    "auto_patch_v2.constraints.runway_chord",
@@ -1179,6 +846,7 @@
    "auto_patch_v2.constraints.zones",
    "auto_patch_v2.emit.bank",
    "auto_patch_v2.emit.graded",
+   "auto_patch_v2.emit.road_join",
    "auto_patch_v2.emit.seam_band",
    "auto_patch_v2.emit.terrain_edge",
    "auto_patch_v2.pipeline.build",
@@ -1193,69 +861,24 @@
    "auto_patch_v2.solve.design_ground",
    "auto_patch_v2.solve.project",
    "auto_patch_v2.solve.rows",
+   "auto_patch_v2.verify.frame",
    "auto_patch_v2.verify.roads"
   ],
   "auto_patch_v2.model.structures": [
+   "auto_patch_v2.constraints.channel",
    "auto_patch_v2.constraints.structures",
    "auto_patch_v2.model.planar",
    "auto_patch_v2.planar.basins",
+   "auto_patch_v2.planar.channel",
+   "auto_patch_v2.planar.channel_claims",
+   "auto_patch_v2.planar.channel_floor",
+   "auto_patch_v2.planar.channel_geometry",
+   "auto_patch_v2.planar.structure_deck",
+   "auto_patch_v2.planar.structure_geometry",
+   "auto_patch_v2.planar.structure_underpass",
    "auto_patch_v2.planar.structures",
+   "auto_patch_v2.planar.wall_corridor_ramps",
    "auto_patch_v2.verify.structures"
-  ],
-  "auto_patch_v2.model.constraints": [
-   "auto_patch_v2.constraints",
-   "auto_patch_v2.constraints.apron",
-   "auto_patch_v2.constraints.ceiling",
-   "auto_patch_v2.constraints.eat",
-   "auto_patch_v2.constraints.flat_site",
-   "auto_patch_v2.constraints.foot_rows",
-   "auto_patch_v2.constraints.groundside",
-   "auto_patch_v2.constraints.junction_mesh",
-   "auto_patch_v2.constraints.no_step",
-   "auto_patch_v2.constraints.pad_frontage_gs",
-   "auto_patch_v2.constraints.pads",
-   "auto_patch_v2.constraints.precedence",
-   "auto_patch_v2.constraints.proximity",
-   "auto_patch_v2.constraints.roads",
-   "auto_patch_v2.constraints.runway_chord",
-   "auto_patch_v2.constraints.runway_profile",
-   "auto_patch_v2.constraints.seams",
-   "auto_patch_v2.constraints.strips",
-   "auto_patch_v2.constraints.structures",
-   "auto_patch_v2.constraints.taxi",
-   "auto_patch_v2.constraints.transverse",
-   "auto_patch_v2.constraints.water",
-   "auto_patch_v2.constraints.zones",
-   "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.pipeline.seam_report",
-   "auto_patch_v2.pipeline.shapes",
-   "auto_patch_v2.solve.design",
-   "auto_patch_v2.solve.design_report",
-   "auto_patch_v2.solve.design_roles",
-   "auto_patch_v2.solve.rows"
-  ],
-  "auto_patch_v2.constraints.precedence": [
-   "auto_patch_v2.constraints.apron",
-   "auto_patch_v2.constraints.contiguity",
-   "auto_patch_v2.constraints.eat",
-   "auto_patch_v2.constraints.flat_site",
-   "auto_patch_v2.constraints.foot_rows",
-   "auto_patch_v2.constraints.groundside",
-   "auto_patch_v2.constraints.junction_mesh",
-   "auto_patch_v2.constraints.no_step",
-   "auto_patch_v2.constraints.pad_frontage_gs",
-   "auto_patch_v2.constraints.pads",
-   "auto_patch_v2.constraints.proximity",
-   "auto_patch_v2.constraints.roads",
-   "auto_patch_v2.constraints.runway_chord",
-   "auto_patch_v2.constraints.runway_profile",
-   "auto_patch_v2.constraints.strips",
-   "auto_patch_v2.constraints.structures",
-   "auto_patch_v2.constraints.taxi",
-   "auto_patch_v2.constraints.transverse",
-   "auto_patch_v2.constraints.water",
-   "auto_patch_v2.constraints.zones",
-   "auto_patch_v2.pipeline.runway_report"
   ],
   "auto_patch_v2.constraints.geometry": [
    "auto_patch_v2.constraints.apron",
@@ -1276,33 +899,77 @@
    "auto_patch_v2.verify.transverse",
    "auto_patch_v2.verify.within"
   ],
-  "auto_patch_v2.constraints.runway_profile": [
+  "auto_patch_v2.constraints.roads": [
    "auto_patch_v2.constraints",
-   "auto_patch_v2.constraints.no_step",
-   "auto_patch_v2.constraints.runway_chord",
+   "auto_patch_v2.constraints.proximity",
+   "auto_patch_v2.constraints.transverse",
+   "auto_patch_v2.constraints.zones",
    "auto_patch_v2.pipeline.build",
    "auto_patch_v2.pipeline.publication",
-   "auto_patch_v2.pipeline.runway_report",
-   "auto_patch_v2.verify.runway"
+   "auto_patch_v2.pipeline.shapes",
+   "auto_patch_v2.verify.contiguity",
+   "auto_patch_v2.verify.steps",
+   "auto_patch_v2.verify.within"
   ],
-  "auto_patch_v2.emit.terrain_edge": [
-   "auto_patch_v2.emit.bank",
-   "auto_patch_v2.pipeline.build"
-  ],
-  "auto_patch_v2.emit.surface": [
-   "auto_patch_v2.emit.bank",
-   "auto_patch_v2.emit.graded",
-   "auto_patch_v2.emit.osm_adapter",
-   "auto_patch_v2.emit.terrain_edge",
-   "auto_patch_v2.verify.census",
-   "auto_patch_v2.verify.frame"
-  ],
-  "auto_patch_v2.verify.census": [
+  "auto_patch_v2.model.constraints": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.constraints.apron",
+   "auto_patch_v2.constraints.ceiling",
+   "auto_patch_v2.constraints.channel",
+   "auto_patch_v2.constraints.cluster_pad",
+   "auto_patch_v2.constraints.eat",
+   "auto_patch_v2.constraints.flat_site",
+   "auto_patch_v2.constraints.foot_rows",
+   "auto_patch_v2.constraints.groundside",
+   "auto_patch_v2.constraints.junction_mesh",
+   "auto_patch_v2.constraints.no_step",
+   "auto_patch_v2.constraints.pad_frontage_gs",
+   "auto_patch_v2.constraints.pads",
+   "auto_patch_v2.constraints.precedence",
+   "auto_patch_v2.constraints.proximity",
+   "auto_patch_v2.constraints.road_ramp",
+   "auto_patch_v2.constraints.roads",
+   "auto_patch_v2.constraints.runway_chord",
+   "auto_patch_v2.constraints.runway_profile",
+   "auto_patch_v2.constraints.seams",
+   "auto_patch_v2.constraints.strips",
+   "auto_patch_v2.constraints.structures",
+   "auto_patch_v2.constraints.taxi",
+   "auto_patch_v2.constraints.transverse",
+   "auto_patch_v2.constraints.water",
+   "auto_patch_v2.constraints.zones",
    "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.verify"
+   "auto_patch_v2.pipeline.seam_report",
+   "auto_patch_v2.pipeline.shapes",
+   "auto_patch_v2.solve.design",
+   "auto_patch_v2.solve.design_report",
+   "auto_patch_v2.solve.design_roles",
+   "auto_patch_v2.solve.rows"
   ],
-  "auto_patch_v2.verify.contiguity": [
-   "auto_patch_v2.verify.census"
+  "auto_patch_v2.constraints.precedence": [
+   "auto_patch_v2.constraints.apron",
+   "auto_patch_v2.constraints.channel",
+   "auto_patch_v2.constraints.cluster_pad",
+   "auto_patch_v2.constraints.contiguity",
+   "auto_patch_v2.constraints.eat",
+   "auto_patch_v2.constraints.flat_site",
+   "auto_patch_v2.constraints.foot_rows",
+   "auto_patch_v2.constraints.groundside",
+   "auto_patch_v2.constraints.junction_mesh",
+   "auto_patch_v2.constraints.no_step",
+   "auto_patch_v2.constraints.pad_frontage_gs",
+   "auto_patch_v2.constraints.pads",
+   "auto_patch_v2.constraints.proximity",
+   "auto_patch_v2.constraints.roads",
+   "auto_patch_v2.constraints.runway_chord",
+   "auto_patch_v2.constraints.runway_profile",
+   "auto_patch_v2.constraints.strips",
+   "auto_patch_v2.constraints.structures",
+   "auto_patch_v2.constraints.taxi",
+   "auto_patch_v2.constraints.transverse",
+   "auto_patch_v2.constraints.water",
+   "auto_patch_v2.constraints.zones",
+   "auto_patch_v2.pipeline.runway_report"
   ],
   "auto_patch_v2.constraints.contiguity": [
    "auto_patch_v2.constraints.roads",
@@ -1315,65 +982,93 @@
    "auto_patch_v2.constraints.zones",
    "auto_patch_v2.verify.strips"
   ],
-  "auto_patch_v2.constraints.roads": [
+  "auto_patch_v2.model.airport": [
+   "auto_patch_v2.airport.door_wells",
+   "auto_patch_v2.airport.flat_site",
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.pack",
+   "auto_patch_v2.airport.pack_partition",
+   "auto_patch_v2.airport.rebake_plan",
+   "auto_patch_v2.airport.road_profile",
+   "auto_patch_v2.airport.road_ramp",
+   "auto_patch_v2.airport.sunken_roads",
+   "auto_patch_v2.airport.thin_plates",
+   "auto_patch_v2.airport.tunnel_objects",
+   "auto_patch_v2.airport.wall_corridor_probe",
+   "auto_patch_v2.airport.wall_corridors",
+   "auto_patch_v2.classify.evidence",
+   "auto_patch_v2.classify.roles",
+   "auto_patch_v2.classify.sources",
    "auto_patch_v2.constraints",
+   "auto_patch_v2.constraints.apron",
+   "auto_patch_v2.constraints.apron_trend",
+   "auto_patch_v2.constraints.channel",
+   "auto_patch_v2.constraints.cluster_pad",
+   "auto_patch_v2.constraints.eat",
+   "auto_patch_v2.constraints.flat_site",
+   "auto_patch_v2.constraints.foot_rows",
+   "auto_patch_v2.constraints.junction_mesh",
+   "auto_patch_v2.constraints.no_step",
+   "auto_patch_v2.constraints.pad_frontage_gs",
+   "auto_patch_v2.constraints.pad_relief",
+   "auto_patch_v2.constraints.pads",
    "auto_patch_v2.constraints.proximity",
+   "auto_patch_v2.constraints.road_ramp",
+   "auto_patch_v2.constraints.roads",
+   "auto_patch_v2.constraints.routes",
+   "auto_patch_v2.constraints.runway_chord",
+   "auto_patch_v2.constraints.runway_profile",
+   "auto_patch_v2.constraints.seams",
+   "auto_patch_v2.constraints.strips",
+   "auto_patch_v2.constraints.structures",
+   "auto_patch_v2.constraints.taxi",
+   "auto_patch_v2.constraints.taxi_trend",
    "auto_patch_v2.constraints.transverse",
+   "auto_patch_v2.constraints.water",
    "auto_patch_v2.constraints.zones",
-   "auto_patch_v2.pipeline.build",
+   "auto_patch_v2.emit.bank",
    "auto_patch_v2.pipeline.publication",
    "auto_patch_v2.pipeline.shapes",
-   "auto_patch_v2.verify.contiguity",
-   "auto_patch_v2.verify.steps"
-  ],
-  "auto_patch_v2.verify.frame": [
-   "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.verify.census",
-   "auto_patch_v2.verify.contiguity",
-   "auto_patch_v2.verify.eat",
-   "auto_patch_v2.verify.frontage",
-   "auto_patch_v2.verify.no_step",
-   "auto_patch_v2.verify.pads",
-   "auto_patch_v2.verify.runway",
-   "auto_patch_v2.verify.steps",
-   "auto_patch_v2.verify.strips",
-   "auto_patch_v2.verify.structures",
-   "auto_patch_v2.verify.transverse",
-   "auto_patch_v2.verify.within"
-  ],
-  "auto_patch_v2.verify.eat": [
-   "auto_patch_v2.verify.census"
-  ],
-  "auto_patch_v2.verify.structures": [
-   "auto_patch_v2.verify.census"
-  ],
-  "auto_patch_v2.verify.frontage": [
-   "auto_patch_v2.verify.census"
+   "auto_patch_v2.planar.basins",
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.channel",
+   "auto_patch_v2.planar.channel_claims",
+   "auto_patch_v2.planar.channel_floor",
+   "auto_patch_v2.planar.channel_geometry",
+   "auto_patch_v2.planar.cluster",
+   "auto_patch_v2.planar.object_corridor",
+   "auto_patch_v2.planar.overlay",
+   "auto_patch_v2.planar.shapes",
+   "auto_patch_v2.planar.structure_approach",
+   "auto_patch_v2.planar.structure_deck",
+   "auto_patch_v2.planar.structure_pair",
+   "auto_patch_v2.planar.structure_road",
+   "auto_patch_v2.planar.structure_underpass",
+   "auto_patch_v2.planar.structures"
   ],
   "auto_patch_v2.verify.steps": [
    "auto_patch_v2.verify.census",
    "auto_patch_v2.verify.no_step",
+   "auto_patch_v2.verify.runway",
    "auto_patch_v2.verify.transverse",
    "auto_patch_v2.verify.within"
   ],
-  "auto_patch_v2.verify.strips": [
+  "auto_patch_v2.verify.runway": [
    "auto_patch_v2.verify.census"
   ],
-  "auto_patch_v2.verify.no_step": [
-   "auto_patch_v2.verify.census",
-   "auto_patch_v2.verify.strips"
-  ],
-  "auto_patch_v2.constraints.no_step": [
-   "auto_patch_v2.constraints",
-   "auto_patch_v2.pipeline.publication",
-   "auto_patch_v2.pipeline.shapes",
-   "auto_patch_v2.verify.no_step"
-  ],
-  "auto_patch_v2.constraints.routes": [
+  "auto_patch_v2.constraints.runway_profile": [
    "auto_patch_v2.constraints",
    "auto_patch_v2.constraints.no_step",
-   "auto_patch_v2.constraints.taxi",
-   "auto_patch_v2.pipeline.build"
+   "auto_patch_v2.constraints.runway_chord",
+   "auto_patch_v2.pipeline.build",
+   "auto_patch_v2.pipeline.publication",
+   "auto_patch_v2.pipeline.runway_report",
+   "auto_patch_v2.verify.runway"
+  ],
+  "auto_patch_v2.verify.within": [
+   "auto_patch_v2.pipeline.build",
+   "auto_patch_v2.verify.census",
+   "auto_patch_v2.verify.runway"
   ],
   "auto_patch_v2.constraints.stretches": [
    "auto_patch_v2.constraints.junction_mesh",
@@ -1383,9 +1078,22 @@
    "auto_patch_v2.pipeline.publication",
    "auto_patch_v2.verify.within"
   ],
+  "auto_patch_v2.constraints.taxi": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.constraints.junction_mesh",
+   "auto_patch_v2.pipeline.publication",
+   "auto_patch_v2.verify.within"
+  ],
+  "auto_patch_v2.constraints.routes": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.constraints.no_step",
+   "auto_patch_v2.constraints.taxi",
+   "auto_patch_v2.pipeline.build"
+  ],
   "auto_patch_v2.constraints.pads": [
    "auto_patch_v2.constraints",
    "auto_patch_v2.constraints.ceiling",
+   "auto_patch_v2.constraints.cluster_pad",
    "auto_patch_v2.constraints.foot_rows",
    "auto_patch_v2.constraints.no_step",
    "auto_patch_v2.constraints.pad_frontage_gs",
@@ -1393,27 +1101,54 @@
    "auto_patch_v2.constraints.routes",
    "auto_patch_v2.constraints.structures"
   ],
-  "auto_patch_v2.constraints.pad_relief": [
+  "auto_patch_v2.constraints.cluster_pad": [
+   "auto_patch_v2.constraints",
    "auto_patch_v2.constraints.pads",
    "auto_patch_v2.pipeline.publication"
+  ],
+  "auto_patch_v2.constraints.no_step": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.constraints.cluster_pad",
+   "auto_patch_v2.pipeline.publication",
+   "auto_patch_v2.pipeline.shapes",
+   "auto_patch_v2.verify.no_step"
+  ],
+  "auto_patch_v2.geom": [
+   "auto_patch_v2.classify.evidence",
+   "auto_patch_v2.constraints.cluster_pad",
+   "auto_patch_v2.constraints.foot_rows",
+   "auto_patch_v2.solve.rows"
+  ],
+  "auto_patch_v2.geom.cluster_outline": [
+   "auto_patch_v2.geom",
+   "auto_patch_v2.planar.overlay"
+  ],
+  "auto_patch_v2.geom.triangulate": [
+   "auto_patch_v2.geom"
   ],
   "auto_patch_v2.constraints.apron": [
    "auto_patch_v2.constraints",
    "auto_patch_v2.constraints.pads"
   ],
-  "auto_patch_v2.verify.runway": [
+  "auto_patch_v2.constraints.pad_relief": [
+   "auto_patch_v2.constraints.pads",
+   "auto_patch_v2.pipeline.publication"
+  ],
+  "auto_patch_v2.verify.structures": [
    "auto_patch_v2.verify.census"
   ],
-  "auto_patch_v2.verify.within": [
-   "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.verify.census",
-   "auto_patch_v2.verify.runway"
+  "auto_patch_v2.verify.channel": [
+   "auto_patch_v2.verify.census"
   ],
-  "auto_patch_v2.constraints.taxi": [
-   "auto_patch_v2.constraints",
-   "auto_patch_v2.constraints.junction_mesh",
-   "auto_patch_v2.pipeline.publication",
-   "auto_patch_v2.verify.within"
+  "auto_patch_v2.verify.strips": [
+   "auto_patch_v2.verify.census"
+  ],
+  "auto_patch_v2.verify.no_step": [
+   "auto_patch_v2.verify.census",
+   "auto_patch_v2.verify.strips"
+  ],
+  "auto_patch_v2.verify.eat": [
+   "auto_patch_v2.verify.census"
   ],
   "auto_patch_v2.verify.transverse": [
    "auto_patch_v2.verify.census"
@@ -1426,163 +1161,20 @@
   "auto_patch_v2.verify.pads": [
    "auto_patch_v2.verify.census"
   ],
-  "auto_patch_v2.constraints.taxi_trend": [
-   "auto_patch_v2.constraints.eat",
+  "auto_patch_v2.verify.frontage": [
+   "auto_patch_v2.verify.census"
+  ],
+  "auto_patch_v2.emit.bank": [
+   "auto_patch_v2.emit.osm_adapter",
+   "auto_patch_v2.emit.road_join",
    "auto_patch_v2.pipeline.build"
   ],
-  "auto_patch_v2.constraints.trend": [
-   "auto_patch_v2.constraints.runway_chord",
-   "auto_patch_v2.constraints.taxi_trend"
-  ],
-  "auto_patch_v2.constraints.runway_chord": [
-   "auto_patch_v2.constraints",
-   "auto_patch_v2.constraints.apron_trend",
-   "auto_patch_v2.constraints.eat",
-   "auto_patch_v2.constraints.taxi_trend",
-   "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.pipeline.runway_report"
-  ],
-  "auto_patch_v2.classify": [
+  "auto_patch_v2.emit.terrain_edge": [
+   "auto_patch_v2.emit.bank",
    "auto_patch_v2.pipeline.build"
   ],
-  "auto_patch_v2.classify.roles": [
-   "auto_patch_v2.classify",
-   "auto_patch_v2.pipeline.shapes",
-   "auto_patch_v2.planar.basins",
-   "auto_patch_v2.planar.build",
-   "auto_patch_v2.planar.overlay",
-   "auto_patch_v2.planar.shapes",
-   "auto_patch_v2.planar.structure_approach",
-   "auto_patch_v2.planar.structures",
-   "auto_patch_v2.planar.weld",
-   "auto_patch_v2.planar.zones"
-  ],
-  "auto_patch_v2.classify.open_default": [
-   "auto_patch_v2.classify.roles"
-  ],
-  "auto_patch_v2.classify.rules": [
-   "auto_patch_v2.classify",
-   "auto_patch_v2.classify.airside_edge",
-   "auto_patch_v2.classify.evidence",
-   "auto_patch_v2.classify.open_default",
-   "auto_patch_v2.classify.roles",
-   "auto_patch_v2.classify.sources"
-  ],
-  "auto_patch_v2.classify.sources": [
-   "auto_patch_v2.classify.open_default",
-   "auto_patch_v2.classify.roles"
-  ],
-  "auto_patch_v2.classify.evidence": [
-   "auto_patch_v2.classify.roles",
-   "auto_patch_v2.classify.sources",
-   "auto_patch_v2.planar.shapes"
-  ],
-  "auto_patch_v2.classify.airside_edge": [
-   "auto_patch_v2.classify.roles"
-  ],
-  "auto_patch_v2.pipeline.seam_report": [
-   "auto_patch_v2.pipeline.build"
-  ],
-  "auto_patch_v2.planar.build": [
-   "auto_patch_v2.pipeline.build"
-  ],
-  "auto_patch_v2.planar.overlay": [
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.planar.terrain_edge": [
-   "auto_patch_v2.planar.build",
-   "auto_patch_v2.planar.overlay",
-   "auto_patch_v2.planar.zones"
-  ],
-  "auto_patch_v2.planar.zones": [
-   "auto_patch_v2.planar.overlay"
-  ],
-  "auto_patch_v2.planar.weld": [
-   "auto_patch_v2.planar.build",
-   "auto_patch_v2.planar.overlay"
-  ],
-  "auto_patch_v2.planar.chords": [
-   "auto_patch_v2.planar.overlay"
-  ],
-  "auto_patch_v2.planar.shapes": [
-   "auto_patch_v2.pipeline.publication",
-   "auto_patch_v2.pipeline.shapes",
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.planar.basins": [
-   "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.planar.build",
-   "auto_patch_v2.planar.door_ramps",
-   "auto_patch_v2.planar.structures"
-  ],
-  "auto_patch_v2.planar.structure_geometry": [
-   "auto_patch_v2.planar.basins",
-   "auto_patch_v2.planar.door_ramps",
-   "auto_patch_v2.planar.object_corridor",
-   "auto_patch_v2.planar.structures",
-   "auto_patch_v2.planar.wall_corridor_ramps"
-  ],
-  "auto_patch_v2.airport.tunnel_objects": [
-   "auto_patch_v2.airport.sunken_roads",
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.airport.tunnel_walls": [
-   "auto_patch_v2.airport.tunnel_objects",
-   "auto_patch_v2.airport.wall_corridors"
-  ],
-  "auto_patch_v2.planar.door_ramps": [
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.planar.object_corridor": [
-   "auto_patch_v2.planar.door_ramps",
-   "auto_patch_v2.planar.structures",
-   "auto_patch_v2.planar.wall_corridor_ramps"
-  ],
-  "auto_patch_v2.planar.structure_approach": [
-   "auto_patch_v2.planar.door_ramps",
-   "auto_patch_v2.planar.object_corridor",
-   "auto_patch_v2.planar.structures",
-   "auto_patch_v2.planar.wall_corridor_ramps"
-  ],
-  "auto_patch_v2.law.approach_corridor": [
-   "auto_patch_v2.planar.structure_approach"
-  ],
-  "auto_patch_v2.planar.structures": [
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.planar.wall_corridor_ramps": [
-   "auto_patch_v2.planar.build",
-   "auto_patch_v2.planar.structures"
-  ],
-  "auto_patch_v2.airport.wall_corridors": [
-   "auto_patch_v2.planar.build",
-   "auto_patch_v2.planar.wall_corridor_ramps"
-  ],
-  "auto_patch_v2.airport.wall_geometry": [
-   "auto_patch_v2.airport.wall_corridor_probe",
-   "auto_patch_v2.airport.wall_corridors"
-  ],
-  "auto_patch_v2.airport.wall_corridor_probe": [
-   "auto_patch_v2.airport.wall_corridors"
-  ],
-  "auto_patch_v2.airport.road_profile": [
-   "auto_patch_v2.airport.wall_corridor_probe",
-   "auto_patch_v2.pipeline.build"
-  ],
-  "auto_patch_v2.airport.below_zero": [
-   "auto_patch_v2.airport.wall_corridors"
-  ],
-  "auto_patch_v2.airport.door_wells": [
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.airport.sunken_roads": [
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.planar.edges": [
-   "auto_patch_v2.planar.build"
-  ],
-  "auto_patch_v2.airport.thin_plates": [
-   "auto_patch_v2.planar.build"
+  "auto_patch_v2.emit.seam_band": [
+   "auto_patch_v2.emit.bank"
   ],
   "auto_patch_v2.solve": [
    "auto_patch_v2.pipeline.build"
@@ -1596,46 +1188,33 @@
   "auto_patch_v2.solve.design": [
    "auto_patch_v2.solve"
   ],
-  "auto_patch_v2.solve.linear": [
-   "auto_patch_v2.solve.design",
-   "auto_patch_v2.solve.design_report"
-  ],
   "auto_patch_v2.solve.rows": [
    "auto_patch_v2.pipeline.runway_report",
    "auto_patch_v2.solve.design",
    "auto_patch_v2.solve.linear",
    "auto_patch_v2.solve.project"
   ],
-  "auto_patch_v2.geom": [
-   "auto_patch_v2.constraints.foot_rows",
-   "auto_patch_v2.solve.rows"
-  ],
-  "auto_patch_v2.geom.triangulate": [
-   "auto_patch_v2.geom"
-  ],
-  "auto_patch_v2.solve.design_report": [
+  "auto_patch_v2.solve.design_qp": [
    "auto_patch_v2.solve.design"
   ],
-  "auto_patch_v2.solve.project": [
+  "auto_patch_v2.solve.linear": [
    "auto_patch_v2.solve.design",
+   "auto_patch_v2.solve.design_qp",
    "auto_patch_v2.solve.design_report"
-  ],
-  "auto_patch_v2.solve.design_ground": [
-   "auto_patch_v2.solve.design"
   ],
   "auto_patch_v2.solve.design_roles": [
    "auto_patch_v2.solve.design",
    "auto_patch_v2.solve.design_ground"
   ],
-  "auto_patch_v2.emit.bank": [
-   "auto_patch_v2.emit.osm_adapter",
-   "auto_patch_v2.pipeline.build"
+  "auto_patch_v2.solve.project": [
+   "auto_patch_v2.solve.design",
+   "auto_patch_v2.solve.design_report"
   ],
-  "auto_patch_v2.emit.seam_band": [
-   "auto_patch_v2.emit.bank"
+  "auto_patch_v2.solve.design_report": [
+   "auto_patch_v2.solve.design"
   ],
-  "auto_patch_v2.airport.flat_site": [
-   "auto_patch_v2.pipeline.build"
+  "auto_patch_v2.solve.design_ground": [
+   "auto_patch_v2.solve.design"
   ],
   "auto_patch_v2.planar.group": [
    "auto_patch_v2.pipeline.build"
@@ -1644,7 +1223,427 @@
    "auto_patch_v2.constraints.foot_rows",
    "auto_patch_v2.planar.group"
   ],
-  "auto_patch_v2.verify": [
+  "auto_patch_v2.model.rebake": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.pack_partition",
+   "auto_patch_v2.airport.placement_body",
+   "auto_patch_v2.airport.placement_cut",
+   "auto_patch_v2.airport.placement_geom",
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_read",
+   "auto_patch_v2.airport.placement_record",
+   "auto_patch_v2.airport.rebake_plan",
+   "auto_patch_v2.planar.group"
+  ],
+  "auto_patch_v2.airport.placement_family": [
+   "auto_patch_v2.airport.footprint_unit",
+   "auto_patch_v2.airport.placement_census",
+   "auto_patch_v2.planar.cluster",
+   "auto_patch_v2.planar.group"
+  ],
+  "auto_patch_v2.airport.placement_contact": [
+   "auto_patch_v2.airport.footprint_connector",
+   "auto_patch_v2.airport.footprint_unit",
+   "auto_patch_v2.airport.placement_family"
+  ],
+  "auto_patch_v2.airport.placement_boxes": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.footprint_connector",
+   "auto_patch_v2.airport.footprint_unit",
+   "auto_patch_v2.airport.placement_carrier",
+   "auto_patch_v2.airport.placement_contact",
+   "auto_patch_v2.airport.placement_family",
+   "auto_patch_v2.airport.placement_orphan"
+  ],
+  "auto_patch_v2.airport.anchor_rule": [
+   "auto_patch_v2.airport.basin_ring",
+   "auto_patch_v2.airport.footprint_connector",
+   "auto_patch_v2.airport.footprint_unit",
+   "auto_patch_v2.airport.placement_atom",
+   "auto_patch_v2.airport.placement_body",
+   "auto_patch_v2.airport.placement_boxes",
+   "auto_patch_v2.airport.placement_carrier",
+   "auto_patch_v2.airport.placement_census",
+   "auto_patch_v2.airport.placement_contact",
+   "auto_patch_v2.airport.placement_cut",
+   "auto_patch_v2.airport.placement_family",
+   "auto_patch_v2.airport.placement_geom",
+   "auto_patch_v2.airport.placement_orphan",
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_read",
+   "auto_patch_v2.airport.placement_record",
+   "auto_patch_v2.airport.placement_seams"
+  ],
+  "auto_patch_v2.airport.rebake_plan": [
+   "auto_patch_v2.airport.anchor_rule",
+   "auto_patch_v2.airport.bridge_family",
+   "auto_patch_v2.airport.placement_body",
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.airport": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.basin_ring",
+   "auto_patch_v2.airport.basin_witness",
+   "auto_patch_v2.airport.below_zero",
+   "auto_patch_v2.airport.borrow",
+   "auto_patch_v2.airport.contact",
+   "auto_patch_v2.airport.deck_signature",
+   "auto_patch_v2.airport.door_wells",
+   "auto_patch_v2.airport.footprint_connector",
+   "auto_patch_v2.airport.footprint_unit",
+   "auto_patch_v2.airport.line_object",
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.obj8_split",
+   "auto_patch_v2.airport.object_cut",
+   "auto_patch_v2.airport.object_pavement",
+   "auto_patch_v2.airport.pack",
+   "auto_patch_v2.airport.pack_partition",
+   "auto_patch_v2.airport.partition_cache",
+   "auto_patch_v2.airport.placement_atom",
+   "auto_patch_v2.airport.placement_body",
+   "auto_patch_v2.airport.placement_boxes",
+   "auto_patch_v2.airport.placement_carrier",
+   "auto_patch_v2.airport.placement_census",
+   "auto_patch_v2.airport.placement_contact",
+   "auto_patch_v2.airport.placement_cut",
+   "auto_patch_v2.airport.placement_family",
+   "auto_patch_v2.airport.placement_geom",
+   "auto_patch_v2.airport.placement_orphan",
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_read",
+   "auto_patch_v2.airport.placement_record",
+   "auto_patch_v2.airport.placement_seams",
+   "auto_patch_v2.airport.placement_targets",
+   "auto_patch_v2.airport.placement_write",
+   "auto_patch_v2.airport.rebake_plan",
+   "auto_patch_v2.airport.skirt",
+   "auto_patch_v2.airport.sunken_roads",
+   "auto_patch_v2.airport.thin_plates",
+   "auto_patch_v2.airport.tunnel_objects",
+   "auto_patch_v2.airport.wall_corridor_probe",
+   "auto_patch_v2.airport.wall_corridors",
+   "auto_patch_v2.airport.wall_geometry",
+   "auto_patch_v2.classify.evidence",
+   "auto_patch_v2.pipeline.build",
+   "auto_patch_v2.planar.basins",
+   "auto_patch_v2.planar.structure_geometry",
+   "auto_patch_v2.planar.wall_corridor_ramps"
+  ],
+  "auto_patch_v2.airport.load": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport",
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.airport.pack": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.pack_partition",
+   "auto_patch_v2.airport.partition_cache"
+  ],
+  "auto_patch_v2.airport.apt_dat": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.borrow",
+   "auto_patch_v2.airport.dsf",
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.pack"
+  ],
+  "auto_patch_v2.airport.borrow": [
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.pack"
+  ],
+  "auto_patch_v2.airport.object_pavement": [
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.planar.wall_corridor_ramps"
+  ],
+  "auto_patch_v2.airport.obj8": [
+   "auto_patch_v2.airport.basin_witness",
+   "auto_patch_v2.airport.below_zero",
+   "auto_patch_v2.airport.contact",
+   "auto_patch_v2.airport.deck_signature",
+   "auto_patch_v2.airport.door_wells",
+   "auto_patch_v2.airport.footprint_unit",
+   "auto_patch_v2.airport.line_object",
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.obj8_clip",
+   "auto_patch_v2.airport.obj8_grade",
+   "auto_patch_v2.airport.obj8_split",
+   "auto_patch_v2.airport.object_cut",
+   "auto_patch_v2.airport.object_pavement",
+   "auto_patch_v2.airport.pack_partition",
+   "auto_patch_v2.airport.placement_cut",
+   "auto_patch_v2.airport.rebake_plan",
+   "auto_patch_v2.airport.skirt",
+   "auto_patch_v2.airport.sunken_roads",
+   "auto_patch_v2.airport.thin_plates",
+   "auto_patch_v2.airport.tunnel_objects",
+   "auto_patch_v2.airport.wall_corridor_probe",
+   "auto_patch_v2.airport.wall_corridors",
+   "auto_patch_v2.airport.wall_geometry",
+   "auto_patch_v2.pipeline.build",
+   "auto_patch_v2.planar.basins",
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.wall_corridor_ramps"
+  ],
+  "auto_patch_v2.airport.obj8_clip": [
+   "auto_patch_v2.airport.obj8",
+   "auto_patch_v2.airport.obj8_grade",
+   "auto_patch_v2.airport.skirt"
+  ],
+  "auto_patch_v2.airport.obj8_grade": [
+   "auto_patch_v2.airport.obj8"
+  ],
+  "auto_patch_v2.airport.cifp": [
+   "auto_patch_v2.airport.load"
+  ],
+  "auto_patch_v2.airport.dem_production": [
+   "auto_patch_v2.airport.load"
+  ],
+  "auto_patch_v2.airport.dem": [
+   "auto_patch_v2.airport.dem_production",
+   "auto_patch_v2.airport.load"
+  ],
+  "O4_Config_Utils": [
+   "O4_Settings_Model",
+   "O4_Vector_Map",
+   "auto_patch.flat_site",
+   "auto_patch.flat_site_mode",
+   "auto_patch_v2.airport.dem_production",
+   "o4_engine.parallel",
+   "o4_engine.session"
+  ],
+  "O4_Cfg_Vars": [
+   "O4_Config_Utils",
+   "O4_Settings_Model",
+   "O4_Vector_Map",
+   "o4_engine.session"
+  ],
+  "O4_Settings_Model": [
+   "O4_Cfg_Vars",
+   "O4_Vector_Map",
+   "o4_engine.parallel"
+  ],
+  "O4_Imagery_Utils": [
+   "O4_Config_Utils",
+   "O4_Mask_Utils",
+   "O4_Tile_Utils"
+  ],
+  "O4_Sea_Nodata_Fill": [
+   "O4_Imagery_Utils"
+  ],
+  "O4_Parallel_Utils": [
+   "O4_Bathymetry_Band",
+   "O4_Imagery_Utils",
+   "O4_Mask_Utils",
+   "O4_Tile_Utils",
+   "o4_engine.parallel",
+   "o4_engine.session"
+  ],
+  "O4_Color_Harmonization": [
+   "O4_Imagery_Utils"
+  ],
+  "O4_Mask_Utils": [
+   "O4_DSF_Utils",
+   "O4_Imagery_Utils",
+   "O4_Tile_Utils",
+   "o4_engine.session"
+  ],
+  "O4_Bathymetry_Band": [
+   "O4_DSF_Utils",
+   "O4_Mask_Utils",
+   "O4_Vector_Map"
+  ],
+  "O4_Airport_Index": [
+   "O4_Bathymetry_Band",
+   "o4_engine.session"
+  ],
+  "O4_Coastal_Foam_Edge": [
+   "O4_Mask_Utils"
+  ],
+  "O4_Overlay_Utils": [
+   "O4_Config_Utils",
+   "O4_DSF_Utils",
+   "O4_Default_Terrain_Map",
+   "o4_engine.session"
+  ],
+  "O4_Tile_Utils": [
+   "O4_Config_Utils",
+   "o4_engine.session"
+  ],
+  "O4_DSF_Utils": [
+   "O4_Tile_Utils"
+  ],
+  "O4_Airport_Fade_Masks": [
+   "O4_DSF_Utils"
+  ],
+  "O4_Bathymetry": [
+   "O4_DSF_Utils"
+  ],
+  "O4_Default_Terrain_Map": [
+   "O4_DSF_Utils"
+  ],
+  "auto_patch_v2.airport.osm": [
+   "auto_patch_v2.airport.load"
+  ],
+  "auto_patch_v2.airport.dsf": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.partition_cache"
+  ],
+  "auto_patch_v2.airport.dsf_write": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.load",
+   "auto_patch_v2.airport.placement_write"
+  ],
+  "auto_patch_v2.model.placement": [
+   "auto_patch_v2.airport.dsf_write",
+   "auto_patch_v2.airport.footprint_unit",
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_write"
+  ],
+  "auto_patch_v2.airport.pack_partition": [
+   "auto_patch_v2.airport.rebake_plan",
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.airport.skirt": [
+   "auto_patch_v2.airport.below_zero",
+   "auto_patch_v2.airport.pack_partition",
+   "auto_patch_v2.classify.evidence",
+   "auto_patch_v2.planar.structure_service"
+  ],
+  "auto_patch_v2.airport.basin_witness": [
+   "auto_patch_v2.airport.skirt",
+   "auto_patch_v2.planar.basins"
+  ],
+  "auto_patch_v2.airport.deck_signature": [
+   "auto_patch_v2.airport.basin_witness",
+   "auto_patch_v2.airport.door_wells",
+   "auto_patch_v2.airport.pack_partition",
+   "auto_patch_v2.airport.rebake_plan",
+   "auto_patch_v2.airport.sunken_roads",
+   "auto_patch_v2.airport.thin_plates",
+   "auto_patch_v2.airport.tunnel_objects",
+   "auto_patch_v2.airport.wall_corridors",
+   "auto_patch_v2.planar.object_corridor",
+   "auto_patch_v2.planar.structure_approach",
+   "auto_patch_v2.planar.structure_service",
+   "auto_patch_v2.planar.terrain_edge"
+  ],
+  "auto_patch_v2.airport.contact": [
+   "auto_patch_v2.airport.pack_partition"
+  ],
+  "auto_patch_v2.airport.line_object": [
+   "auto_patch_v2.airport.basin_ring",
+   "auto_patch_v2.airport.pack_partition",
+   "auto_patch_v2.airport.placement_cut",
+   "auto_patch_v2.airport.placement_geom",
+   "auto_patch_v2.airport.placement_plan"
+  ],
+  "auto_patch_v2.airport.placement_carrier": [
+   "auto_patch_v2.airport.bridge_family",
+   "auto_patch_v2.airport.footprint_unit",
+   "auto_patch_v2.airport.placement_atom",
+   "auto_patch_v2.airport.placement_body",
+   "auto_patch_v2.airport.placement_census",
+   "auto_patch_v2.airport.placement_cut",
+   "auto_patch_v2.airport.placement_family",
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_targets"
+  ],
+  "auto_patch_v2.airport.placement_census": [
+   "auto_patch_v2.airport.placement_carrier",
+   "auto_patch_v2.airport.placement_cockpit"
+  ],
+  "auto_patch_v2.airport.placement_motion": [
+   "auto_patch_v2.airport.placement_census"
+  ],
+  "auto_patch_v2.airport.bridge_family": [
+   "auto_patch_v2.airport.placement_body",
+   "auto_patch_v2.airport.placement_census",
+   "auto_patch_v2.airport.placement_plan"
+  ],
+  "auto_patch_v2.airport.placement_seams": [
+   "auto_patch_v2.airport.placement_census"
+  ],
+  "auto_patch_v2.airport.placement_cut": [
+   "auto_patch_v2.airport.basin_ring",
+   "auto_patch_v2.airport.placement_body",
+   "auto_patch_v2.airport.placement_orphan",
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_seams",
+   "auto_patch_v2.airport.placement_targets"
+  ],
+  "auto_patch_v2.airport.basin_ring": [
+   "auto_patch_v2.airport.placement_body",
+   "auto_patch_v2.airport.placement_census",
+   "auto_patch_v2.airport.placement_cut",
+   "auto_patch_v2.airport.placement_plan"
+  ],
+  "auto_patch_v2.airport.placement_body": [
+   "auto_patch_v2.airport.placement_cut"
+  ],
+  "auto_patch_v2.airport.placement_geom": [
+   "auto_patch_v2.airport.placement_cut"
+  ],
+  "auto_patch_v2.airport.placement_atom": [
+   "auto_patch_v2.airport.placement_cut",
+   "auto_patch_v2.airport.placement_plan"
+  ],
+  "auto_patch_v2.airport.placement_cockpit": [
+   "auto_patch_v2.airport.placement_census"
+  ],
+  "auto_patch_v2.airport.placement_plan": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.placement_family",
+   "auto_patch_v2.airport.placement_write"
+  ],
+  "auto_patch_v2.airport.obj8_split": [
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_record"
+  ],
+  "auto_patch_v2.airport.placement_targets": [
+   "auto_patch_v2.airport.placement_plan"
+  ],
+  "auto_patch_v2.airport.placement_record": [
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_targets"
+  ],
+  "auto_patch_v2.airport.footprint_unit": [
+   "auto_patch_v2.airport.placement_plan",
+   "auto_patch_v2.airport.placement_record",
+   "auto_patch_v2.airport.placement_write"
+  ],
+  "auto_patch_v2.airport.footprint_connector": [
+   "auto_patch_v2.airport.footprint_unit"
+  ],
+  "auto_patch_v2.airport.placement_read": [
+   "auto_patch_v2.airport.placement_plan"
+  ],
+  "auto_patch_v2.airport.placement_orphan": [
+   "auto_patch_v2.airport.placement_plan"
+  ],
+  "auto_patch_v2.model": [
+   "auto_patch.engine_v2",
+   "auto_patch_v2.airport.placement_plan"
+  ],
+  "auto_patch_v2.constraints.eat": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.pipeline.build",
+   "auto_patch_v2.pipeline.publication"
+  ],
+  "auto_patch_v2.constraints.runway_chord": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.constraints.apron_trend",
+   "auto_patch_v2.constraints.eat",
+   "auto_patch_v2.constraints.taxi_trend",
+   "auto_patch_v2.pipeline.build",
+   "auto_patch_v2.pipeline.runway_report"
+  ],
+  "auto_patch_v2.constraints.trend": [
+   "auto_patch_v2.constraints.runway_chord",
+   "auto_patch_v2.constraints.taxi_trend"
+  ],
+  "auto_patch_v2.constraints.taxi_trend": [
+   "auto_patch_v2.constraints.eat",
    "auto_patch_v2.pipeline.build"
   ],
   "auto_patch_v2.emit.osm_adapter": [
@@ -1654,10 +1653,126 @@
    "auto_patch_v2.emit.osm_adapter",
    "auto_patch_v2.pipeline.build"
   ],
+  "auto_patch_v2.pipeline": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.pipeline.publication": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.constraints.seams": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.pipeline.publication"
+  ],
+  "auto_patch_v2.planar.overlay": [
+   "auto_patch_v2.pipeline.publication",
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch_v2.planar.chords": [
+   "auto_patch_v2.planar.overlay"
+  ],
+  "auto_patch_v2.classify.sources": [
+   "auto_patch_v2.classify.open_default",
+   "auto_patch_v2.classify.roles",
+   "auto_patch_v2.planar.overlay"
+  ],
+  "auto_patch_v2.classify.evidence": [
+   "auto_patch_v2.classify.neck",
+   "auto_patch_v2.classify.roles",
+   "auto_patch_v2.classify.sources",
+   "auto_patch_v2.planar.shapes"
+  ],
+  "auto_patch_v2.classify.rules": [
+   "auto_patch_v2.classify",
+   "auto_patch_v2.classify.airside_edge",
+   "auto_patch_v2.classify.evidence",
+   "auto_patch_v2.classify.neck",
+   "auto_patch_v2.classify.open_default",
+   "auto_patch_v2.classify.roles",
+   "auto_patch_v2.classify.sources"
+  ],
+  "auto_patch_v2.classify.roles": [
+   "auto_patch_v2.classify",
+   "auto_patch_v2.pipeline.shapes",
+   "auto_patch_v2.planar.basins",
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.overlay",
+   "auto_patch_v2.planar.shapes",
+   "auto_patch_v2.planar.structure_approach",
+   "auto_patch_v2.planar.structure_road",
+   "auto_patch_v2.planar.structure_underpass",
+   "auto_patch_v2.planar.structures",
+   "auto_patch_v2.planar.weld",
+   "auto_patch_v2.planar.zones"
+  ],
+  "auto_patch_v2.classify.airside_edge": [
+   "auto_patch_v2.classify.roles"
+  ],
+  "auto_patch_v2.classify.neck": [
+   "auto_patch_v2.classify.roles"
+  ],
+  "auto_patch_v2.classify.open_default": [
+   "auto_patch_v2.classify.roles"
+  ],
+  "auto_patch_v2.planar.zones": [
+   "auto_patch_v2.planar.overlay",
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.planar.terrain_edge": [
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.overlay",
+   "auto_patch_v2.planar.zones"
+  ],
+  "auto_patch_v2.planar.weld": [
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.overlay"
+  ],
+  "auto_patch_v2.constraints.channel": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.pipeline.publication"
+  ],
+  "auto_patch_v2.constraints.junction_mesh": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.pipeline.publication"
+  ],
+  "auto_patch_v2.planar.shapes": [
+   "auto_patch_v2.pipeline.publication",
+   "auto_patch_v2.pipeline.shapes",
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch_v2.pipeline.runway_report": [
+   "auto_patch_v2.pipeline.build"
+  ],
   "auto_patch_v2.emit.rebake": [
    "auto_patch_v2.pipeline.build"
   ],
-  "auto_patch_v2.pipeline.runway_report": [
+  "auto_patch_v2.classify": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.airport.road_profile": [
+   "auto_patch_v2.airport.road_ramp",
+   "auto_patch_v2.airport.wall_corridor_probe",
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.verify": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.pipeline.seam_report": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.constraints.flat_site": [
+   "auto_patch_v2.constraints",
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.airport.partition_cache": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.emit.road_join": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.planar.cluster": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.airport.road_ramp": [
    "auto_patch_v2.pipeline.build"
   ],
   "auto_patch_v2.pipeline.shapes": [
@@ -1666,6 +1781,9 @@
   "auto_patch_v2.constraints": [
    "auto_patch_v2.constraints",
    "auto_patch_v2.pipeline.shapes"
+  ],
+  "auto_patch_v2.constraints.water": [
+   "auto_patch_v2.constraints"
   ],
   "auto_patch_v2.constraints.ceiling": [
    "auto_patch_v2.constraints"
@@ -1678,34 +1796,98 @@
    "auto_patch_v2.constraints",
    "auto_patch_v2.constraints.pad_frontage_gs"
   ],
-  "auto_patch_v2.constraints.seams": [
+  "auto_patch_v2.constraints.structures": [
    "auto_patch_v2.constraints",
-   "auto_patch_v2.pipeline.publication"
+   "auto_patch_v2.constraints.foot_rows"
   ],
-  "auto_patch_v2.constraints.water": [
+  "auto_patch_v2.constraints.proximity": [
+   "auto_patch_v2.constraints"
+  ],
+  "auto_patch_v2.constraints.zones": [
+   "auto_patch_v2.constraints"
+  ],
+  "auto_patch_v2.constraints.road_ramp": [
    "auto_patch_v2.constraints"
   ],
   "auto_patch_v2.constraints.foot_rows": [
    "auto_patch_v2.constraints"
   ],
-  "auto_patch_v2.constraints.structures": [
-   "auto_patch_v2.constraints",
-   "auto_patch_v2.constraints.foot_rows"
-  ],
-  "auto_patch_v2.constraints.zones": [
-   "auto_patch_v2.constraints"
-  ],
-  "auto_patch_v2.constraints.proximity": [
-   "auto_patch_v2.constraints"
-  ],
-  "auto_patch_v2.constraints.junction_mesh": [
-   "auto_patch_v2.constraints",
-   "auto_patch_v2.pipeline.publication"
-  ],
-  "auto_patch_v2.constraints.eat": [
-   "auto_patch_v2.constraints",
+  "auto_patch_v2.planar.basins": [
    "auto_patch_v2.pipeline.build",
-   "auto_patch_v2.pipeline.publication"
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.door_ramps",
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.planar.basin_geometry": [
+   "auto_patch_v2.planar.basins"
+  ],
+  "auto_patch_v2.planar.structure_geometry": [
+   "auto_patch_v2.planar.basins",
+   "auto_patch_v2.planar.door_ramps",
+   "auto_patch_v2.planar.object_corridor",
+   "auto_patch_v2.planar.structure_service",
+   "auto_patch_v2.planar.structures",
+   "auto_patch_v2.planar.wall_corridor_ramps"
+  ],
+  "auto_patch_v2.airport.object_cut": [
+   "auto_patch_v2.airport.thin_plates",
+   "auto_patch_v2.airport.tunnel_objects",
+   "auto_patch_v2.planar.structure_geometry"
+  ],
+  "auto_patch_v2.airport.wall_geometry": [
+   "auto_patch_v2.airport.object_cut",
+   "auto_patch_v2.airport.wall_corridor_probe",
+   "auto_patch_v2.airport.wall_corridors"
+  ],
+  "auto_patch_v2.planar.channel_claims": [
+   "auto_patch_v2.planar.basins",
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.planar.channel_geometry": [
+   "auto_patch_v2.planar.channel",
+   "auto_patch_v2.planar.channel_claims",
+   "auto_patch_v2.planar.channel_floor"
+  ],
+  "auto_patch_v2.planar.structure_approach": [
+   "auto_patch_v2.planar.channel",
+   "auto_patch_v2.planar.channel_claims",
+   "auto_patch_v2.planar.channel_geometry",
+   "auto_patch_v2.planar.door_ramps",
+   "auto_patch_v2.planar.object_corridor",
+   "auto_patch_v2.planar.structure_deck",
+   "auto_patch_v2.planar.structure_pair",
+   "auto_patch_v2.planar.structure_road",
+   "auto_patch_v2.planar.structure_service",
+   "auto_patch_v2.planar.structure_underpass",
+   "auto_patch_v2.planar.structures",
+   "auto_patch_v2.planar.wall_corridor_ramps"
+  ],
+  "auto_patch_v2.law.approach_corridor": [
+   "auto_patch_v2.planar.structure_approach"
+  ],
+  "auto_patch_v2.planar.structure_pair": [
+   "auto_patch_v2.planar.structure_approach"
+  ],
+  "auto_patch_v2.planar.structure_service": [
+   "auto_patch_v2.planar.structure_approach",
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.planar.channel": [
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.channel_claims"
+  ],
+  "auto_patch_v2.planar.channel_floor": [
+   "auto_patch_v2.planar.channel"
+  ],
+  "auto_patch_v2.planar.structure_underpass": [
+   "auto_patch_v2.planar.channel",
+   "auto_patch_v2.planar.channel_claims",
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.airport.flat_site": [
+   "auto_patch_v2.pipeline.build",
+   "auto_patch_v2.planar.channel"
   ],
   "auto_patch_v2.constraints.apron_trend": [
    "auto_patch_v2.pipeline.build"
@@ -1713,20 +1895,122 @@
   "auto_patch_v2.constraints.surface_trend": [
    "auto_patch_v2.constraints.apron_trend"
   ],
-  "auto_patch_v2.pipeline.publication": [
-   "auto_patch_v2.pipeline.build"
-  ],
   "auto_patch_v2.verify.roads": [
    "auto_patch_v2.pipeline.build"
   ],
-  "auto_patch.provenance": [
+  "auto_patch_v2.pipeline.xplat": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.planar.build": [
+   "auto_patch_v2.pipeline.build"
+  ],
+  "auto_patch_v2.planar.structures": [
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch_v2.planar.structure_deck": [
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.planar.wall_corridor_ramps": [
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.planar.object_corridor": [
+   "auto_patch_v2.planar.door_ramps",
+   "auto_patch_v2.planar.structures",
+   "auto_patch_v2.planar.wall_corridor_ramps"
+  ],
+  "auto_patch_v2.airport.wall_corridors": [
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.wall_corridor_ramps"
+  ],
+  "auto_patch_v2.airport.wall_corridor_probe": [
+   "auto_patch_v2.airport.wall_corridors"
+  ],
+  "auto_patch_v2.airport.below_zero": [
+   "auto_patch_v2.airport.wall_corridors"
+  ],
+  "auto_patch_v2.airport.tunnel_walls": [
+   "auto_patch_v2.airport.tunnel_objects",
+   "auto_patch_v2.airport.wall_corridors"
+  ],
+  "auto_patch_v2.planar.door_ramps": [
+   "auto_patch_v2.planar.build",
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.planar.structure_stats": [
+   "auto_patch_v2.planar.structures"
+  ],
+  "auto_patch_v2.airport.thin_plates": [
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch_v2.airport.door_wells": [
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch_v2.airport.sunken_roads": [
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch_v2.airport.tunnel_objects": [
+   "auto_patch_v2.airport.sunken_roads",
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch_v2.planar.structure_road": [
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch_v2.planar.edges": [
+   "auto_patch_v2.planar.build"
+  ],
+  "auto_patch.progress": [
    "SEED",
    "auto_patch.driver",
-   "auto_patch.engine_v2",
+   "auto_patch.engine_v2"
+  ],
+  "auto_patch_v2.airport.placement_write": [
+   "auto_patch.engine_v2"
+  ],
+  "O4_OSM_Extracts": [
+   "O4_Airport_Elevation_Insets",
+   "O4_OSM_Utils",
+   "O4_Vector_Map",
+   "o4_engine.parallel"
+  ],
+  "O4_File_Lock": [
+   "O4_Airport_Elevation_Insets",
+   "O4_OSM_Extracts"
+  ],
+  "O4_OSM_Extract_Filter": [
+   "O4_OSM_Extracts"
+  ],
+  "auto_patch.osm_aeroway": [
+   "O4_Vector_Map",
+   "SEED"
+  ],
+  "O4_Airport_Utils": [
+   "O4_Vector_Map"
+  ],
+  "auto_patch.flat_site": [
    "auto_patch.flat_site_mode"
   ],
-  "O4_Solve_Model": [
-   "auto_patch.driver"
+  "O4_Authenticated_Sessions": [
+   "O4_Airport_Elevation_Insets",
+   "o4_engine.parallel",
+   "o4_engine.session"
+  ],
+  "O4_Coral_Atlas": [
+   "O4_Airport_Elevation_Insets"
+  ],
+  "o4_engine.task_meter": [
+   "O4_Airport_Elevation_Insets",
+   "o4_engine.session"
+  ],
+  "o4_engine.tile_time_model": [
+   "o4_engine.parallel",
+   "o4_engine.session"
+  ],
+  "o4_engine.parallel": [
+   "o4_engine.session"
+  ],
+  "O4_Tile_Info": [
+   "o4_engine.session"
   ]
  }
 }

@@ -1631,6 +1631,37 @@ def main(argv=None) -> int:
                  "(footprint history), --vertex-dump PATH (vertex "
                  "history), or any combination")
 
+    # ── THE BUILD-AND-INTERCEPT MODE HAS NO SUBJECT (lane v1retire round 1,
+    # 2026-09-17; ruling (f) of the stage-B brief, the 13az pattern) ─────
+    # Per-vertex authorship here IS property interception on v1's
+    # ``layout.BuiltShape`` (``node_altitudes`` / ``polygon``), driven by a
+    # ``build_airport.build_patch`` build.  Both are gone with the v1 engine
+    # (RULINGS 2026-09-13au/13aw; ``build_patch`` deleted in this round):
+    # v2 computes its surface as one LP over the whole airport, so there is
+    # no sequence of per-shape writes to record and no class to wrap.
+    #
+    # The READING modes survive and are what this tool still does:
+    # ``--emitted-patch`` (with ``--dem``, and ``--who-json`` to join an
+    # authorship report) answers "which vertices of this patch sit exactly
+    # on the DEM" off the patch bytes, engine-neutrally, and returns above.
+    # For v2 the equivalent of "which pass authored this value" is read from
+    # the solve itself: ``tools/v2_solve_replay.py --why-hard /
+    # --why-hard-stage / --probe-site`` (the hard set and its provenance),
+    # and ``tools/solve_cut.py`` for a stage replay.
+    raise SystemExit(
+        "REFUSED: who_wrote's BUILD mode is a v1 instrument and v1 is "
+        "retired (RULINGS 2026-09-13au/13aw; lane v1retire 2026-09-17).\n"
+        "  It recorded writes to auto_patch.layout.BuiltShape (a DELETE "
+        "module) during a build_airport.build_patch build (DELETED).  v2 "
+        "solves the whole airport as one LP: there is no per-shape write "
+        "sequence to intercept.\n"
+        "  STILL AVAILABLE HERE: --emitted-patch PATCH --dem M "
+        "[--who-json REPORT] reads a patch an earlier build wrote and is "
+        "engine-neutral.\n"
+        "  For v2 authorship use tools/v2_solve_replay.py --why-hard / "
+        "--why-hard-stage N / --probe-site LAT,LON, or "
+        "tools/solve_cut.py for a stage replay.")
+
     root = HB.require_build_cwd(Path.cwd())
     for p in (root / "src", root, root / "tests"):
         if str(p) not in sys.path:

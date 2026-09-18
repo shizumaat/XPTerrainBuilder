@@ -423,37 +423,13 @@ def _sample_dem(dem, tile_lat: int, tile_lon: int,
 # data/CIFP`` is the stock cycle every X-Plane 12 install ships with.
 # Same precedence as ``O4_Settings_Model.autodetect_cifp`` (the folder-level
 # autodetect both UIs use to seed ``cifp_data_path``) — keep the two in step.
-_CIFP_DIRS = (
-    ("Custom Data", "CIFP"),
-    ("Resources", "default data", "CIFP"),
+# MOVED to ``build_support`` (seam S2, lane v1retire 2026-09-17): the
+# driver and the flat-site detector — KEEP modules — resolve CIFP paths
+# through it.  Re-exported here for this module's own v1 users.
+from .build_support import (  # noqa: E402,F401
+    _CIFP_DIRS,
+    _find_cifp_path,
 )
-
-
-def _find_cifp_path(xplane_root: str, icao: str) -> str | None:
-    """Locate the CIFP ``.dat`` file for an ICAO under the X-Plane root.
-
-    Prefers an AIRAC update in ``Custom Data/CIFP``, falling back to the
-    stock cycle in ``Resources/default data/CIFP``.  Without that fallback
-    an install with no Navigraph resolved to ``None`` and silently skipped
-    the ENTIRE segmented-runway block in ``_compute_elevations`` — no CIFP
-    threshold elevations, no FAA vertical profile, no segmentation at
-    apt.dat pavement joins — because the stock CIFP X-Plane ships with was
-    never consulted.
-
-    The fallback is PER FILE, not per directory: a partial AIRAC update
-    carrying only some airports still resolves the rest from stock, which
-    a directory-level choice could not do.
-
-    Returns None when neither location has the airport.
-    """
-    if not xplane_root:
-        return None
-    name = f"{icao.upper()}.dat"
-    for parts in _CIFP_DIRS:
-        p = os.path.join(xplane_root, *parts, name)
-        if os.path.isfile(p):
-            return p
-    return None
 
 
 def _build_apt_runway_join(apt_runways, pairs):

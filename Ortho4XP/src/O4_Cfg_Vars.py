@@ -5,15 +5,28 @@ import os
 import O4_OSM_Utils as OSM
 
 # THE ROAD GRADE CAP IS ONE CONSTANT, NOT TWO (linear-transport census
-# #115/#116).  ``road_grade_limit`` below is the user-facing knob whose
-# DEFAULT is auto_patch's own ``SERVICE_ROAD_MAX_GRADE`` — the constant
-# the transition profiler, the census law table and the conformance
-# instrument all judge roads by.  Imported, never re-spelled: a second
-# 0.08 here would be the silently-different-copy defect the moment one
-# of them moved.  The import direction (core -> auto_patch.config) is
-# the one O4_Vector_Map already uses; auto_patch.config imports nothing
-# from the settings registry, so there is no cycle.
-from auto_patch.config import SERVICE_ROAD_MAX_GRADE as _ROAD_GRADE_CAP
+# #115/#116), AND SINCE 2026-09-17 THAT CONSTANT IS THE V2 LAW TABLE'S
+# (lane ``v1retire`` round 1, session ruling (c) of the stage-B brief).
+# ``road_grade_limit`` below is the user-facing knob whose DEFAULT is the
+# engine's own ground-vehicle grade limit — ``[common.roles]``
+# ``service_road.longitudinal`` in ``auto_patch_v2/law/rulesets.toml``
+# (VDOT GS-9, owner 2026-08-03), which ``law/emit.toml``'s road section
+# already names as "ONE constant with the core's ``road_grade_limit``
+# default".  It used to be read from
+# ``auto_patch.config.SERVICE_ROAD_MAX_GRADE``, i.e. out of the v1
+# engine; for v2 the value lives in the law table, so the READER moves
+# rather than the value being re-spelled (a second 0.08 here would be
+# the silently-different-copy defect the moment one of them moved).
+# The DEFAULT ruleset is the right scope: this is a registry default,
+# not an airport's law, and every ruleset inherits ``common.roles``
+# unless it states its own.
+def _road_grade_cap_from_law() -> float:
+    from auto_patch_v2.law import tables as _v2_tables
+    return float(_v2_tables.role_cap(
+        _v2_tables.load_default(), "service_road").longitudinal)
+
+
+_ROAD_GRADE_CAP = _road_grade_cap_from_law()
 
 
 global_prefix = "global_"
@@ -361,7 +374,7 @@ cfg_tile_vars = {
     "road_grade_limit": {
         "type": float,
         "default": _ROAD_GRADE_CAP,
-        "hint": "Longitudinal grade cap for levelled roads, as a fraction (0.08 = 8 %). A road follows the terrain wherever the terrain is within this cap, and where the terrain is steeper the road lifts or cuts the minimum needed to hold it — the clamp runs per way along the road's own centerline, at 20 m stations. The default is the engine's own ground-vehicle grade limit (SERVICE_ROAD_MAX_GRADE), which is also what the airport pavement builder grades service roads by; raise it for mountain roads that should stay glued to the ground, lower it for gentler road profiles at the cost of deeper cuttings and higher embankments.",
+        "hint": "Longitudinal grade cap for levelled roads, as a fraction (0.08 = 8 %). A road follows the terrain wherever the terrain is within this cap, and where the terrain is steeper the road lifts or cuts the minimum needed to hold it — the clamp runs per way along the road's own centerline, at 20 m stations. The default is the engine's own ground-vehicle grade limit (the v2 law table's common.roles.service_road.longitudinal), which is also what the airport pavement builder grades service roads by; raise it for mountain roads that should stay glued to the ground, lower it for gentler road profiles at the cost of deeper cuttings and higher embankments.",
     },
     "lane_width": {
         "type": float,

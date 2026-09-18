@@ -296,7 +296,9 @@ def test_rebake_skips_on_stale_mesh(tmp_path, monkeypatch):
             handle,
         )
 
-    counts = post_mesh.rebake_dsf_objects(tile)
+    from auto_patch import post_mesh_v1
+
+    counts = post_mesh_v1.rebake_dsf_objects(tile)
     # Guard fired: the airport was never reached, so no failure was counted.
     assert counts["airports_failed"] == 0
     assert counts["airports_processed"] == 0

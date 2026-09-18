@@ -2734,7 +2734,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # build will have no taxiway rects — fix the apt.dat input, don't
     # synthesise from OSM.
     _trimmed_leadins: list = []
-    apt_centerlines = APR.taxi_centerlines(
+    from .pavement import centerlines as _PAV_CENTERLINES
+    apt_centerlines = _PAV_CENTERLINES.taxi_centerlines(
         apt, to_m, rwy_centerlines=rwy_centerlines,
         trimmed_leadins=_trimmed_leadins)
     # Ramp lead-in routes trimmed from the slicing spine — still part
@@ -4544,7 +4545,7 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             try:
                 from . import flat_site as _flat_site
 
-                _site_record = _flat_site.detect_for_layout(
+                _site_record = _flat_site_detect_for_layout(
                     layout, icao=icao, apt=apt, to_m=to_m, dem=dem,
                     tile_lat=tile_lat, tile_lon=tile_lon,
                     patch_dir=FNAMES.patch_dir(tile_lat, tile_lon),
@@ -8502,3 +8503,64 @@ from .pavement.centerlines import (
 )
 
 
+
+
+# ──────────────────────────────────────────────────────────────────────
+# The flat-site detector at the pipeline's DEM-in-hand point
+#
+# MOVED here from ``flat_site.detect_for_layout`` (seam S1, lane v1retire
+# 2026-09-17): this pipeline is its only caller, it takes a v1
+# ``PavementLayout`` and it reads ``elevation._sample_dem`` — v1 both
+# sides.  The DETECTOR stays in ``flat_site`` (KEEP): production DEM prep
+# reaches it through ``flat_site_mode``.
+# ──────────────────────────────────────────────────────────────────────
+def _flat_site_detect_for_layout(layout, *, icao: str, apt, to_m, dem,
+                      tile_lat: int, tile_lon: int,
+                      patch_dir: str | None = None,
+                      xplane_root: str | None = None) -> dict | None:
+    """Run the detector at the pipeline's DEM-in-hand point.  Report-only.
+
+    Returns the ``site_class`` record (also stored on the layout), or
+    ``None`` when the layout has no anchor to measure about.
+    """
+    from . import flat_site as _flat_site
+
+    if layout is None or getattr(layout, "anchor", None) is None:
+        return None
+    extent_m, ring_m = _flat_site.extents_from_apt(apt, to_m)
+    elevations = (_flat_site.cifp_threshold_elevations(xplane_root, icao)
+                  if xplane_root else [])
+    # S4's pack evidence, IN-RUN (R3 step 4): the airport's object pad
+    # frames — pack data, mesh-free, built once per build behind the
+    # pristine-input cache, so the detector's read is the same product
+    # the pad emitter consumes later and costs a disk hit, not a second
+    # frame.  Ground authority here is the DEM: the detector runs before
+    # the solve, so there is no patch to evaluate yet.
+    pack = {"targets": [], "n_total": 0, "n_below_grade": 0,
+            "sidecar_version": 0, "path": None}
+    if patch_dir:
+        try:
+            from .elevation import _sample_dem
+            from .post_mesh import pad_frames_from_worklist
+
+            frames = pad_frames_from_worklist(patch_dir, icao)
+            if frames:
+                pack = _flat_site.pack_seat_targets(
+                    patch_dir, icao, pad_frames=frames,
+                    ground_at=lambda latitude, longitude: _sample_dem(
+                        dem, tile_lat, tile_lon, latitude, longitude))
+        except Exception:                            # pragma: no cover
+            # Report-only signal: a pack it cannot read is NO DATA, never
+            # a failed detector and never a failed build.
+            pass
+    record = _flat_site.classify_site(
+        icao=icao, cifp_elevations_m=elevations, dem=dem,
+        tile_lat=tile_lat, tile_lon=tile_lon, anchor=layout.anchor,
+        extent_m=extent_m, ring_m=ring_m,
+        dem_meta=getattr(layout, "dem_inset_provenance", None),
+        pack_targets=pack["targets"], pack_meta=pack)
+    try:
+        layout.site_class = record
+    except AttributeError:                           # pragma: no cover
+        pass
+    return record

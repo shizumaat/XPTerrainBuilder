@@ -153,37 +153,13 @@ def _osm_layer_to_tuples(layer) -> tuple[dict[str, tuple[float, float]],
 # `FNAMES.osm_cached` directly.
 
 
-def ensure_airports_osm_tile_cached(tile_latitude: int,
-                                    tile_longitude: int) -> bool:
-    """Download the ``airports`` OSM cache for one 1°×1° tile if absent.
-
-    Shared by the per-airport loader below (which keeps
-    build_airport_pavement self-sufficient for standalone use, e.g.
-    tests) and by the tile driver's prefetch, which downloads every
-    tile the airport builds will need ONCE, up front, so the parallel
-    airport worker processes never issue duplicate Overpass queries
-    for the same tile.  Returns True when the cache file exists on
-    return.
-    """
-    cache_path = FNAMES.osm_cached(tile_latitude, tile_longitude,
-                                   "airports")
-    if os.path.isfile(cache_path):
-        return True
-    try:
-        import O4_OSM_Utils as _OSM
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        layer = _OSM.OSM_layer()
-        queries = [('node["aeroway"]', 'way["aeroway"]',
-                    'rel["aeroway"]')]
-        _OSM.OSM_queries_to_OSM_layer(
-            queries, layer, tile_latitude, tile_longitude,
-            tags_of_interest=["all"],
-            cached_suffix="airports")
-    except _GEOM_EXC as exc:
-        UI.vprint(1,
-            f"  [pav-builder] WARN: airport OSM download error: "
-            f"{exc}")
-    return os.path.isfile(cache_path)
+# MOVED to ``build_support`` (seam S2, lane v1retire 2026-09-17): the tile
+# driver — a KEEP module — is its caller, so its definition cannot live in a
+# module the v1 deletion takes.  Re-exported here for the v1 callers below,
+# which go with this file.
+from .build_support import (  # noqa: E402
+    ensure_airports_osm_tile_cached,
+)
 
 
 def is_cached(tile) -> bool:
@@ -593,45 +569,13 @@ def capture_osm_taxi_linework(
     return out
 
 
-def _pick_best_apt_dat_against_osm(
-        xplane_root: str,
-        icao: str,
-        apron_threshold: float = 0.7,
-        taxi_threshold: float = 0.7,
-        ) -> str | None:
-    """Select the apt.dat for ``icao`` — v2's selector, nothing else.
-
-    ONE SELECTOR, ONE DATUM (lane ``aptstamp`` 2026-09-17).  This
-    function is the v1-side NAME the driver, the freshness gate and the
-    DSF object-anchor worklist call; its POLICY is now
-    ``auto_patch.engine_v2.select_apt_dat`` →
-    ``auto_patch_v2.airport.apt_dat.find_apt_dat``, the same call the
-    build makes, so nothing downstream can watch a file the build never
-    opened.
-
-    What was deleted here: the 2026-05-21/06-16 policy — first Custom
-    Scenery pack carrying a 1201/1202 taxi-routing network, ELSE fall
-    back to Global Airports (the MKStudios LPPT case).  §44 (1) (owner
-    RULINGS 2026-09-15m) rules that tail out for the build: THE PACK IS
-    STILL THE PACK, and a pack whose pavement is thin borrows Global's
-    pavement (``airport/borrow.py``) instead of losing the selection.
-    Keeping a second policy alive on the gate side made the two disagree
-    at 225 of 1,327 CIFP airports on the owner's install (2026-09-17).
-
-    The ``*_threshold`` parameters were already unused when the coverage
-    scorer was removed; they stay for signature compatibility.
-
-    ``None`` is returned when NOTHING in the install carries the airport,
-    and it is returned WITHOUT a v1 fallback resolver: a second walk that
-    found a file v2's does not is how the driver came to queue an airport
-    the build then failed on with "no apt.dat under xp_root".  None here
-    means the driver's skip line, which is the truthful answer.
-    """
-    from . import engine_v2 as _engine_v2
-    chosen = _engine_v2.select_apt_dat(xplane_root, icao)
-    if chosen is not None:
-        UI.vprint(1, f"  [pav-builder] {icao}: apt.dat {chosen}")
-    return chosen
+# MOVED to ``build_support`` (seam S2, lane v1retire 2026-09-17): the
+# driver, the freshness gate and the object-anchor worklist are KEEP
+# modules, so the ONE selector name cannot live in a file the v1
+# deletion takes.  Re-exported for this module's own v1 callers.
+from .build_support import (  # noqa: E402
+    _pick_best_apt_dat_against_osm,
+)
 
 
 def _load_osm_big_roads(apt_lat: float, apt_lon: float,

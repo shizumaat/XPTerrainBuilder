@@ -2472,7 +2472,7 @@ def test_refresh_only_refreshes_and_NEVER_ENTERS_A_BUILD(
                         lambda: None)
 
     # NO build entry may be called.
-    for name in ("build_patch_v2", "build_patch", "build_tile"):
+    for name in ("build_patch_v2", "build_tile"):
         monkeypatch.setattr(build_mod, name, _never_called(name))
 
     summary = build_mod.refresh_stale_osm_layers(root, 33, -98, _Notes())
@@ -3590,12 +3590,24 @@ class TestNodeHistory:
 
 def test_who_wrote_builds_through_the_harness_entry_only():
     """It must not grow a private build: the whole point of a lane tool
-    living in tools/harness is that it inherits the entry's refusals."""
+    living in tools/harness is that it inherits the entry's refusals.
+
+    Since 2026-09-17 (lane v1retire, ruling (f)) its BUILD mode REFUSES BY
+    NAME instead: authorship there was property interception on v1's
+    ``layout.BuiltShape`` during a ``build_patch`` build, and both are gone
+    with the engine.  What the twin holds is the same property — no private
+    build ever grows here — plus the refusal actually being wired, naming
+    the v2 instruments, and the READING mode surviving."""
     src = (HARNESS / "who_wrote.py").read_text()
-    assert "HB.build_patch(" in src
     assert "build_airport_pavement(" not in src, (
         "who_wrote.py must build through tools/harness/build_airport.py, "
         "never by calling the pipeline directly")
+    assert "REFUSED: who_wrote's BUILD mode is a v1 instrument" in src
+    assert "v2_solve_replay.py --why-hard" in src
+    assert "--emitted-patch" in src, "the engine-neutral reading mode stays"
+    assert src.index("REFUSED: who_wrote's BUILD mode") < src.index(
+        "from auto_patch.layout import BuiltShape"), (
+        "the refusal must come BEFORE the v1 import it explains")
 
 
 def test_the_probe_values_survive_uninstall():
@@ -3983,13 +3995,16 @@ def test_the_detector_SURVIVES_the_preventer(build_mod):
 
 def test_the_write_guard_is_armed_by_the_BUILD_ENTRY_not_only_the_cli(
         build_mod):
-    """``oracle.py`` and ``who_wrote.py`` call ``build_patch`` DIRECTLY.
+    """The BUILD ENTRY arms its own guard, not only ``main``.
 
-    Arming the guard in ``main`` only would have left every oracle run and
-    every authorship trace free to regenerate the shared corpus — and those
-    are the entries a lane actually runs most.  ``build_patch`` therefore
-    arms its own (defaulting to "nothing authorised") and ``main`` hands
-    its own guard down rather than wrapping the call.
+    ``oracle.py`` and ``who_wrote.py`` used to call the (now deleted) v1
+    ``build_patch`` DIRECTLY, and arming the guard in ``main`` only would
+    have left every oracle run and every authorship trace free to
+    regenerate the shared corpus.  Both refuse by name since 2026-09-17,
+    but the property is the reason the composition lives in the builder and
+    not in the CLI: ``build_patch_v2`` arms its own (defaulting to "nothing
+    authorised") and ``main`` hands its own guard down rather than wrapping
+    the call.
 
     Since 2026-08-11 the arming is ONE named composition
     (``arm_shared_repo_protection``, shared with
@@ -3998,11 +4013,11 @@ def test_the_write_guard_is_armed_by_the_BUILD_ENTRY_not_only_the_cli(
     inside what it hands back.
     """
     import inspect
-    sig = inspect.signature(build_mod.build_patch)
+    sig = inspect.signature(build_mod.build_patch_v2)
     assert "write_guard" in sig.parameters
-    src = inspect.getsource(build_mod.build_patch)
+    src = inspect.getsource(build_mod.build_patch_v2)
     assert "arm_shared_repo_protection(" in src, (
-        "build_patch must arm the composition when its caller passes none")
+        "build_patch_v2 must arm the composition when its caller passes none")
     assert "with guard:" in src
     composed = inspect.getsource(build_mod.arm_shared_repo_protection)
     assert "SharedRepoWriteGuard(" in composed and "redirect_engine_caches(" \
@@ -4019,11 +4034,11 @@ def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
     """The frame record has to be IN the artifact: "which corpus cut the
     insets" is a question asked of numbers that are already in a report."""
     import inspect
-    src = inspect.getsource(build_mod.build_patch)
+    src = inspect.getsource(build_mod.build_patch_v2)
     for key in ("write_guard_armed", "write_guard_blocked",
                 "write_guard_lock_churn", "write_guard_library_index_churn",
                 "dem_frame_effective"):
-        assert f'"{key}"' in src, f"build_patch result omits {key}"
+        assert f'"{key}"' in src, f"build_patch_v2 result omits {key}"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -4683,22 +4698,30 @@ def _stub_layout(provenance):
     return _L()
 
 
-def _run_build_patch(build_mod, monkeypatch, tmp_path, *, engine, **kw):
-    """Drive ``build_patch`` with a stub engine, so the whole refusal path
-    runs in-process (no X-Plane, no network, no build)."""
+def _run_build_patch(build_mod, monkeypatch, tmp_path, *, engine,
+                     dem_provenance={"frame": "production"}, **kw):
+    """Drive the BUILD ENTRY with a stubbed v2 pipeline, so the whole
+    refusal path runs in-process (no X-Plane, no network, no build).
+
+    It drove the v1 ``build_patch`` until 2026-09-17 (lane v1retire round 1);
+    that builder is deleted with the engine and ``build_patch_v2`` carries
+    the same arming composition and the same two detectors, so the twins
+    below moved onto it unchanged in what they assert.  ``engine`` is now the
+    side effect the stubbed v2 build performs — the reach for the shared
+    corpus whose refusal the engine swallows.
+    """
     repo, lane = _lock_repo(tmp_path)
-    pipeline = types.ModuleType("auto_patch.pipeline")
-    pipeline.build_airport_pavement = engine
     conftest_stub = types.ModuleType("conftest")
     conftest_stub.xplane_root = lambda: str(tmp_path / "xplane")
-    monkeypatch.setitem(sys.modules, "auto_patch.pipeline", pipeline)
     monkeypatch.setitem(sys.modules, "conftest", conftest_stub)
+    _stub_v2_pipeline(monkeypatch, side_effect=engine,
+                      dem_provenance=dem_provenance)
     out = tmp_path / "out"
     prog = build_mod.Progress(out / "twin.progress")
     guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
-    return build_mod.build_patch("HECA", lane, out, "twin", prog,
-                                 write_guard=guard, allow_no_sidecar=True,
-                                 **kw), out, repo
+    return build_mod.build_patch_v2("HECA", lane, out, "twin", prog,
+                                    write_guard=guard, allow_no_sidecar=True,
+                                    **kw), out, repo
 
 
 def test_a_GUARD_BLOCKED_PREP_the_engine_swallowed_never_exits_0(
@@ -4706,18 +4729,18 @@ def test_a_GUARD_BLOCKED_PREP_the_engine_swallowed_never_exits_0(
     """THE DEFECT ITSELF, end to end and in-process: the engine attempts a
     shared-repo write, the guard refuses it, the engine's own
     ``except Exception`` swallows the refusal and returns a DEM-less
-    layout.  Before this twin that combination exited 0 and a lane spent
+    product.  Before this twin that combination exited 0 and a lane spent
     two builds measuring it."""
-    def engine(icao, xplane_root, **kw):
-        try:                       # elevation._load_airport_dem's shape
+    def engine():
+        try:                       # the swallowed DEM-prep write's shape
             os.open(str(tmp_path / "repo" / "Elevation_data" / "+30+030"
                         / "N30E031.hgt"), os.O_CREAT | os.O_WRONLY)
         except Exception:
             pass                   # ← the whole defect, in one line
-        return _stub_layout(None)
 
     with pytest.raises(SystemExit) as exc:
-        _run_build_patch(build_mod, monkeypatch, tmp_path, engine=engine)
+        _run_build_patch(build_mod, monkeypatch, tmp_path, engine=engine,
+                         dem_provenance=None)
     msg = str(exc.value)
     assert "N30E031.hgt" in msg
     assert "--allow-degraded-dem" in msg
@@ -4728,20 +4751,20 @@ def test_a_GUARD_BLOCKED_PREP_the_engine_swallowed_never_exits_0(
 
 def test_the_same_build_PROCEEDS_and_is_RECORDED_under_the_flag(
         build_mod, monkeypatch, tmp_path):
-    def engine(icao, xplane_root, **kw):
+    def engine():
         try:
             os.open(str(tmp_path / "repo" / "Elevation_data" / "+30+030"
                         / "N30E031.hgt"), os.O_CREAT | os.O_WRONLY)
         except Exception:
             pass
-        return _stub_layout(None)
 
     result, out, _repo = _run_build_patch(build_mod, monkeypatch, tmp_path,
-                                          engine=engine, allow_degraded=True)
+                                          engine=engine, dem_provenance=None,
+                                          allow_degraded=True)
     assert (out / "twin.osm").exists()
     assert result["write_guard_blocked"], (
         "the degradation is RECORDED in the artifact, as the cold-DEM one is")
-    assert result["dem_inset_provenance"] is None
+    assert not result["dem_inset_provenance"]
     assert "DEGRADED" in (out / "twin.progress").read_text()
 
 
@@ -4750,16 +4773,16 @@ def test_a_CLEAN_build_that_only_took_a_LOCK_is_reported_normally(
     """The other side of the same coin: the lock allowance must let a real
     build through, and the churn is recorded rather than being either
     silent or fatal."""
-    def engine(icao, xplane_root, **kw):
+    def engine():
         lock = tmp_path / "repo" / LOCK_REL
         fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.close(fd)
         os.remove(str(lock))
-        return _stub_layout({"insets": [{"provider": "COPERNICUSGLO30"}],
-                             "raw": False})
 
-    result, out, _repo = _run_build_patch(build_mod, monkeypatch, tmp_path,
-                                          engine=engine)
+    result, out, _repo = _run_build_patch(
+        build_mod, monkeypatch, tmp_path, engine=engine,
+        dem_provenance={"insets": [{"provider": "COPERNICUSGLO30"}],
+                        "raw": False})
     assert (out / "twin.osm").exists()
     assert result["write_guard_blocked"] == []
     assert [c["op"] for c in result["write_guard_lock_churn"]] == [
@@ -4768,22 +4791,28 @@ def test_a_CLEAN_build_that_only_took_a_LOCK_is_reported_normally(
 
 
 def test_the_refusals_are_WIRED_IN_not_merely_defined(build_mod):
-    """A refusal nobody calls is a comment.  ``build_patch`` runs both
+    """A refusal nobody calls is a comment.  ``build_patch_v2`` runs both
     detectors before it writes anything, ``main`` hands the flag down and
-    covers the ``--tile`` path (which never enters ``build_patch``), and
-    the frame artifact records the flag and the churn."""
+    covers the ``--tile`` path (which never enters the builder), and the
+    frame artifact records the flag and the churn.
+
+    Detector 2 was wired into the v2 builder on 2026-09-17 (lane v1retire):
+    until then it was called only from the v1 ``build_patch``, and deleting
+    that builder would have left exactly the comment this twin forbids."""
     import inspect
-    bp = inspect.getsource(build_mod.build_patch)
+    bp = inspect.getsource(build_mod.build_patch_v2)
     assert "require_no_swallowed_write_block(" in bp
     assert "require_dem_prep_succeeded(" in bp
-    assert bp.index("require_dem_prep_succeeded(") < bp.index("to_osm("), (
-        "the refusal must come BEFORE the patch is written")
+    # the patch only becomes visible under the harness name when it is MOVED
+    # out of the v2 product directory
+    assert bp.index("require_dem_prep_succeeded(") < bp.index(".replace(osm)"), (
+        "the refusal must come BEFORE the patch is placed")
     assert "allow_degraded" in inspect.signature(
-        build_mod.build_patch).parameters
+        build_mod.build_patch_v2).parameters
     main_src = inspect.getsource(build_mod.main)
     assert "allow_degraded=args.allow_degraded_dem" in main_src
     assert "require_no_swallowed_write_block(" in main_src, (
-        "--tile does not go through build_patch and would keep the hole")
+        "--tile does not go through the builder and would keep the hole")
     for key in ('frame["write_guard_lock_churn"]',
                 'frame["write_guard_library_index_churn"]',
                 'frame["allow_degraded_dem"]'):
@@ -8671,10 +8700,19 @@ def test_the_v2_law_table_digest_names_every_table_and_moves_with_bytes(
     assert build_mod.v2_law_tables_digest(tmp_path / "nowhere")["sha256"] is None
 
 
-def _stub_v2_pipeline(monkeypatch, *, status="optimal", sidecar=True):
+def _stub_v2_pipeline(monkeypatch, *, status="optimal", sidecar=True,
+                      side_effect=None,
+                      dem_provenance={"frame": "production"}):
     """The v2 pipeline as three stub modules: ``build`` writes the patch
     the real adapter writes (``<ICAO>_auto.patch.osm`` + ``.axes.json``)
-    and returns the fields ``build_patch_v2`` reads."""
+    and returns the fields ``build_patch_v2`` reads.
+
+    ``side_effect`` runs INSIDE the guarded build call (that is how the
+    swallowed-refusal twins reproduce an engine reaching for the shared
+    corpus and swallowing the refusal), and ``dem_provenance`` is what the
+    load report carries — ``None``/``{}`` being the DEM-less state detector
+    2 refuses.
+    """
     import types
 
     class _Status:
@@ -8694,6 +8732,8 @@ def _stub_v2_pipeline(monkeypatch, *, status="optimal", sidecar=True):
 
     def build(icao, inputs, out_dir, config=None, law=None, out=print):
         out(f"[{icao}] stub build")
+        if side_effect is not None:
+            side_effect()
         d = Path(out_dir); d.mkdir(parents=True, exist_ok=True)
         patch = d / f"{icao}_auto.patch.osm"
         patch.write_text("<osm/>")
@@ -8704,7 +8744,7 @@ def _stub_v2_pipeline(monkeypatch, *, status="optimal", sidecar=True):
         r = _Res()
         r.solution = _Sol(status)
         r.paths = _Paths(patch, side) if status == "optimal" else None
-        r.report = {"load": {"dem_provenance": {"frame": "production"}},
+        r.report = {"load": {"dem_provenance": dem_provenance},
                     "verify": {"by_family": {"strip_seam_tear": 0}}}
         r.wall = {"total": 0.1}; r.lp_size = {"rows_ub": 1}; r.pieces = None
         return r
@@ -8746,23 +8786,32 @@ def _run_build_patch_v2(build_mod, monkeypatch, tmp_path, **kw):
                                     write_guard=guard, **kw), out
 
 
+#: THE RESULT REGISTER — every key the build entry's result must carry, so
+#: ``main``'s frame, result and artifact-ledger code stays ONE path.  It was
+#: derived from the v1 ``build_patch``'s own ``return {...}`` until that
+#: builder was deleted (2026-09-17, lane v1retire round 1); FROZEN here, which
+#: is what a register is.  A key removed from ``build_patch_v2`` now fails this
+#: twin instead of quietly shrinking the frame with it.
+BUILD_RESULT_KEYS = frozenset({
+    "patch", "sidecar", "sidecar_present", "body_sha256", "shapes",
+    "build_seconds",
+    "dem_inset_provenance", "engine_solve_model", "write_guard_armed",
+    "write_guard_blocked", "write_guard_lock_churn",
+    "write_guard_library_index_churn", "dem_frame_effective",
+    "engine_cache_redirects",
+})
+
+
 def test_build_patch_v2_publishes_every_build_patch_key_and_records_the_engine(
         build_mod, monkeypatch, tmp_path):
-    """ONE frame/result/ledger path for both engines: the v2 result carries
-    every key ``build_patch`` publishes (the twin above enumerates the
-    frame-and-guard ones; the rest are read by ``main`` by name), plus
-    ``engine`` and the law-table digest; the patch lands under the
-    harness names, the v2 products under ``<tag>.v2/``."""
-    import inspect
-    import re
+    """ONE frame/result/ledger path: the result carries every key of
+    :data:`BUILD_RESULT_KEYS` (the twin above enumerates the frame-and-guard
+    ones; the rest are read by ``main`` by name), plus ``engine`` and the
+    law-table digest; the patch lands under the harness names, the v2
+    products under ``<tag>.v2/``."""
     _stub_v2_pipeline(monkeypatch)
     result, out = _run_build_patch_v2(build_mod, monkeypatch, tmp_path)
-    ret = inspect.getsource(build_mod.build_patch).rsplit("return {", 1)[1]
-    v1_keys = set(re.findall(r'"([a-z_0-9]+)":', ret)) - {"elevation_m", "world",
-                                                          "is_synthetic", "source"}
-    assert v1_keys >= {"patch", "sidecar", "body_sha256", "shapes",
-                       "dem_inset_provenance", "engine_solve_model"}
-    missing = v1_keys - set(result)
+    missing = BUILD_RESULT_KEYS - set(result)
     assert not missing, f"build_patch_v2 result omits {sorted(missing)}"
     assert result["engine"] == "v2"
     assert "sha256" in result["law_tables"]

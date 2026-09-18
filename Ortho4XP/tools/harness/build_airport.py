@@ -76,15 +76,12 @@ measurement in this repo, and every one of them exits 0 without the check:
    tile with NO auto_patch surfaces at all and still exits 0.  ``--tile``
    loads the three X-Plane install paths from the owner's app config and
    aborts before any work if none resolve.
-5. **A patch with no sidecar.**  ``O4_LOG_VERBOSITY=1`` is set here, because
-   ``layout._write_axes_sidecar`` is gated on it — and without the sidecar
-   every census silently falls back to the context-free frame.  The writer
-   also builds its whole dict inside ONE bare ``except Exception: pass``, so
-   a single failing contributor discards the entire sidecar in silence:
-   when that happens, ``diagnose_missing_sidecar`` calls each contributor
-   separately, un-swallowed, and the refusal names the culprit and its
-   traceback.  It diagnoses and never repairs — a harness that patched the
-   emitter would be inventing the frame it exists to measure.
+5. **A patch with no sidecar.**  Without it every census silently falls back
+   to the context-free frame, so a build that writes none REFUSES (only
+   ``allow_no_sidecar`` — a caller's explicit act — proceeds).  The v1
+   emitter's contributor probe (``diagnose_missing_sidecar``) went with the
+   v1 builder on 2026-09-17: v2's sidecar register is closed by design and
+   written by its own emitter, so there is no swallowed contributor to name.
 
 6. **A PRIVATE data corpus.**  Owner ruling e9daef5 makes ONE shared data
    repo mandatory (``/Users/noah/XPTerrainBuilderData``): every lane mounts
@@ -1753,6 +1750,12 @@ def require_dem_prep_succeeded(provenance, *, allow_degraded: bool = False,
 
     A DEM-less build is never a measurement: with ``compute_elevations``
     on, every seed the solve would take from terrain is simply absent.
+
+    v2 (wired 2026-09-17): the same detector reads the v2 loader's
+    ``LoadReport.dem_provenance`` — published for any DEM it composed, so
+    an EMPTY one means it composed none.  Until then this refusal was
+    reachable only through the v1 builder and went uncalled the moment that
+    builder was deleted.
     """
     if provenance is not None:
         return
@@ -2626,241 +2629,23 @@ def report_guard_churn(guard, prog=None) -> None:
 # THE BUILDS
 # ══════════════════════════════════════════════════════════════════════
 
-def diagnose_missing_sidecar(layout) -> str:
-    """Name the contributor that killed the sidecar.
-
-    ``layout._write_axes_sidecar`` builds its whole dict inside one
-    ``try: ... except Exception: pass``.  ONE contributor raising therefore
-    discards the ENTIRE sidecar — axes, anchor, seam pins, crown field,
-    pair caps, terrace joints, ruleset — and the only symptom is that every
-    later census silently degrades to the context-free frame.  This calls
-    each contributor separately, un-swallowed, so the failure has an
-    address instead of a silence.  It DIAGNOSES; it never repairs (a
-    harness that patched the emitter would be inventing the frame it is
-    supposed to measure).
-    """
-    import traceback
-    from auto_patch import verification as V
-    from auto_patch.elevation_per_surface.route_profile import apron_terrace
-    from auto_patch import grade_law
-
-    probes = [
-        ("axes", lambda: V.taxi_axes_ll(layout)),
-        ("routes", lambda: V.taxi_routes_ll(layout)),
-        ("axes_exact/routes_exact", lambda: V.taxi_axes_exact_ll(layout)),
-        ("mesh_edges", lambda: V.junction_mesh_edges_ll(layout)),
-        ("terrace_joints",
-         lambda: apron_terrace.terrace_joints_sidecar(layout)),
-        ("terrace_certificates",
-         lambda: apron_terrace.terrace_certificates_sidecar(layout)),
-        ("ruleset", lambda: grade_law.ruleset_of(layout)),
-    ]
-    lines = ["  sidecar contributor probe (each called separately, "
-             "exceptions NOT swallowed):"]
-    culprits = []
-    for name, fn in probes:
-        try:
-            fn()
-            lines.append(f"    OK     {name}")
-        except Exception:
-            culprits.append(name)
-            tb = traceback.format_exc().strip().splitlines()
-            lines.append(f"    RAISED {name}:")
-            lines.extend(f"      {t}" for t in tb[-4:])
-    if not culprits:
-        lines.append("    every contributor succeeded — the sidecar was "
-                     "gated OFF instead (config.LOG_VERBOSITY <= 0) or the "
-                     "write itself failed.")
-    else:
-        lines.append(f"    => {culprits} discarded the WHOLE sidecar "
-                     f"through layout._write_axes_sidecar's bare "
-                     f"'except Exception: pass'.")
-    return "\n".join(lines)
-
-
-def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
-                prog: Progress, const_dem=None,
-                allow_no_sidecar: bool = False,
-                write_guard=None, allow_degraded: bool = False,
-                solve_capture=None, geometry_only: bool = False) -> dict:
-    """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar.
-
-    ``write_guard`` — a :class:`SharedRepoWriteGuard` (or ``None`` for the
-    default: nothing authorised, guard ARMED), composed with the engine
-    cache redirect by :func:`arm_shared_repo_protection` — the ONE arming
-    composition, shared with ``tools/classify_report.py``.  It is armed
-    HERE, not in ``main``, because ``main`` is not the only entry that
-    builds:
-    ``tools/harness/oracle.py`` and ``tools/harness/who_wrote.py`` both
-    call this function directly, and those are the entries a lane actually
-    runs most.  Arming in the CLI only would have left every oracle and
-    every authorship trace free to regenerate the shared corpus — the
-    precise hole the road-feed precedent went through.
-
-    ``allow_degraded`` — the ``--allow-degraded-dem`` semantics, and for
-    the same reason: the two swallowed-degradation refusals fire HERE so
-    that a direct caller gets them too, and a direct caller therefore
-    needs the same knowing-override its own CLI advertises.  The
-    degradation is refused BEFORE the patch is written: an ``.osm`` from a
-    DEM-less build sitting in the output directory is exactly the artifact
-    a later census picks up by name, so the flag is also what keeps it.
-    """
-    for p in (root / "src", root, root / "tests", root / "tools"):
-        if str(p) not in sys.path:
-            sys.path.insert(0, str(p))
-    # THE ARMING COMPOSITION (redirect now, guard around the build call),
-    # before the engine is imported and for the same reason the guard is
-    # armed HERE rather than in ``main``: ``oracle.py`` and ``who_wrote.py``
-    # call this function directly, and the DSFTool subprocess a direct call
-    # spawns writes the shared corpus just as a CLI build's does.
-    guard, redirects = arm_shared_repo_protection(
-        root, out_dir, tag, prog, write_guard=write_guard)
-    from conftest import xplane_root                      # noqa: E402
-    from auto_patch.pipeline import build_airport_pavement  # noqa: E402
-    from auto_patch import config as ap_cfg               # noqa: E402
-    # SOLVE-STAGE CAPTURE (perf P2 instrument 1), armed HERE and not in
-    # ``main``: the env key is the engine module's own constant, and
-    # importing the engine before ``arm_shared_repo_protection`` has run
-    # is the very ordering the composition above exists to prevent.  The
-    # capture is a pure reader at the solve boundary — the patch this
-    # build writes is unaffected (the byte-identity acceptance is the
-    # proof), so no build number is conditional on it.
-    if solve_capture is not None:
-        from auto_patch.solve_capture import CAPTURE_ENV  # noqa: E402
-        os.environ[CAPTURE_ENV] = str(Path(solve_capture).resolve())
-        prog.note(f"SOLVE-STAGE CAPTURE armed -> {solve_capture} "
-                  f"(per-airport subdirectory); replay with "
-                  f"tools/solve_cut.py --replay")
-    # The sidecar is gated on this: without it every census silently
-    # degrades to the context-free frame.
-    ap_cfg.LOG_VERBOSITY = max(1, getattr(ap_cfg, "LOG_VERBOSITY", 0))
-
-    kw = {"compute_elevations": not geometry_only}
-    if geometry_only:
-        # GEOMETRY-ONLY (owner request 2026-08-14): the pipeline's own
-        # documented ``compute_elevations=False`` mode — plan geometry
-        # emitted for VISUAL INSPECTION, no solved surface.  Never a
-        # measurement: a census of this patch would count a surface that
-        # was never built.  The artifact-ledger variant key carries the
-        # flag, so a solved arm can never be served from this one.
-        prog.note("GEOMETRY-ONLY build (compute_elevations=False): "
-                  "visual-inspection artifact — NOT a measurement; "
-                  "never census this patch for grade defects")
-    synthetic = None
-    if const_dem is not None:
-        # THE SYNTHETIC PATH, EXPLICIT (owner ruling 2026-08-05 §3: the
-        # loader's all-zero refusal stays for PRODUCTION data and gains an
-        # explicit synthetic path for the oracle — "the guard catches
-        # absent data, not constant data").  Nothing here is a law gate and
-        # no rule changes: the ONLY difference from a production build is
-        # which surface answers ``alt()``.  The constant is whatever the
-        # caller asked for, NEGATIVES INCLUDED — the ruled low world is
-        # −500 m (RULINGS 2026-08-06) and the DEM ≡ 1 m interim it
-        # supersedes was a dodge around a guard this path never reaches.
-        from auto_patch.constant_dem import (              # noqa: E402
-            ConstantDEM, PLATEAU_ELEVATION_M, CANYON_ELEVATION_M)
-        synthetic = ConstantDEM(float(const_dem))
-        kw["tile_dem"] = synthetic
-        ruled = {PLATEAU_ELEVATION_M: "the ruled LOW world (plateau: every "
-                                      "free value seats at its band FLOOR)",
-                 CANYON_ELEVATION_M: "the ruled HIGH world (canyon: every "
-                                     "free value seats at its band CEILING)"}
-        prog.note(f"SYNTHETIC CONSTANT-DEM world: {synthetic.elevation_m:g} m "
-                  f"[{synthetic.world_label}] — "
-                  f"{ruled.get(synthetic.elevation_m, 'a custom constant')}.  "
-                  f"This is an EXPLICIT DEM SOURCE SUBSTITUTION, not a law "
-                  f"gate: no rule changes, only which surface answers alt().")
-        if synthetic.elevation_m < 0:
-            prog.note(f"  below sea level by {-synthetic.elevation_m:g} m — "
-                      f"exercised deliberately (RULINGS 2026-08-06, 'The low "
-                      f"extreme is −500 m').  The real DEM frame's cache "
-                      f"warmth is irrelevant here; the loader's all-zero "
-                      f"guard is never reached, because an oracle DEM "
-                      f"arrives as override_dem.")
-
-    t0 = time.time()
-    with guard:
-        layout = build_airport_pavement(icao, xplane_root(), **kw)
-    dt = time.time() - t0
-    # WHAT THE ENGINE ITSELF RESOLVED — the other half of ``main``'s
-    # one-reader check (the harness resolves the same key from the cfg
-    # FILES, before the engine is importable, and refuses if the two
-    # disagree).  Read AFTER the build, not before: the engine's config
-    # module is certainly loaded by now (the flat-site classifier reads
-    # it on every build), so this costs no import the build had not
-    # already paid, and it reports what the build actually saw.  A
-    # patch-only build has no tile, so nothing here needs one.
-    # THE SOLVE MODEL IS RETIRED (RULINGS 2026-09-13bh): v1 always built
-    # with the iterative core and there is no key to read any more, so
-    # this record is the constant the solve dispatch now hard-codes.
-    engine_solve_model = SOLVE_MODEL
-    # THE SWALLOWED-DEGRADATION REFUSALS, before anything is written: the
-    # engine catches the guard's refusal and returns a DEM-less layout with
-    # rc=0 (module docstring, item 8).  Two detectors, one from the guard's
-    # record and one from the layout itself.
-    require_no_swallowed_write_block(guard.blocked,
-                                     allow_degraded=allow_degraded, prog=prog)
-    if not geometry_only:
-        # A geometry-only build NEVER solves against terrain, so absent DEM
-        # provenance is its lawful state, not a swallowed degradation — the
-        # rail's own message ("every elevation was solved without terrain")
-        # cannot occur when nothing is solved.  The swallowed-write check
-        # above still runs: a blocked corpus write is unlawful either way.
-        require_dem_prep_succeeded(
-            getattr(layout, "dem_inset_provenance", None),
-            allow_degraded=allow_degraded, prog=prog)
-    report_guard_churn(guard, prog)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    osm = out_dir / f"{tag}.osm"
-    layout.to_osm(str(osm))
-    side = Path(str(osm) + ".axes.json")
-    if not side.exists():
-        why = diagnose_missing_sidecar(layout)
-        msg = (f"NO axes sidecar was written ({side}).  Every census would "
-               f"silently fall back to the context-free frame, which "
-               f"OVERCOUNTS by construction — the numbers would not be "
-               f"defect counts.\n{why}")
-        if not allow_no_sidecar:
-            raise SystemExit(
-                "REFUSING to report this build: " + msg
-                + "\nPass --allow-no-sidecar to keep the patch anyway "
-                  "(recorded loudly); it is measurable only in the bare "
-                  "frame until the writer above is fixed.")
-        prog.note("DEGRADED (accepted by flag): " + msg)
-    prog.note(f"built {tag} in {dt:.1f}s  shapes={len(layout.shapes)}  "
-              f"-> {osm}  sidecar={'OK' if side.exists() else 'MISSING'}  "
-              f"body_sha={body_sha256(osm)[:12]}")
-    return {
-        # ``_layout`` is the live object, for in-process consumers (the
-        # oracle reads node values off it through
-        # ``constant_dem._node_values`` rather than re-parsing the patch —
-        # a second reader of the same thing is a second chance to be wrong).
-        # ``_``-prefixed keys are stripped before any JSON dump.
-        "_layout": layout,
-        "icao": icao, "tag": tag, "patch": str(osm), "sidecar": str(side),
-        # The synthetic world, recorded ON THE BUILD.  A census row from a
-        # −500 m world and one from a real-DEM build are not comparable,
-        # and "which world" must be IN the artifact, not in the tag string
-        # a later reader has to parse (frame stamps, RULINGS 2026-08-06).
-        "synthetic_dem": (None if synthetic is None else
-                          {"elevation_m": synthetic.elevation_m,
-                           "world": synthetic.world_label,
-                           "is_synthetic": True,
-                           "source": synthetic.source_path}),
-        "geometry_only": bool(geometry_only),
-        "engine_solve_model": engine_solve_model,
-        "build_seconds": round(dt, 1), "shapes": len(layout.shapes),
-        "body_sha256": body_sha256(osm),
-        "sidecar_present": side.exists(),
-        "write_guard_armed": guard.enabled,
-        "write_guard_blocked": list(guard.blocked),
-        "write_guard_lock_churn": list(guard.lock_churn),
-        "write_guard_library_index_churn": list(guard.library_index_churn),
-        "dem_frame_effective": frame_surface_keys(root),
-        "dem_inset_provenance": getattr(layout, "dem_inset_provenance", None),
-        "engine_cache_redirects": redirects,
-        "anchor": (list(layout.anchor) if layout.anchor is not None else None),
-    }
+# ``build_patch`` — THE v1 BUILDER — and ``diagnose_missing_sidecar`` were
+# DELETED 2026-09-17 (lane v1retire round 1, ruling (f) of the stage-B brief:
+# "the HARNESS survives but ... loses its v1 arms — refuse BY NAME where an
+# option becomes meaningless, never leave an option inert").
+#
+# ``build_patch`` called ``auto_patch.pipeline.build_airport_pavement`` and
+# ``auto_patch.constant_dem``; ``main`` stopped reaching it when stage A made
+# v2 the only engine (RULINGS 2026-09-13az), and its only remaining callers
+# were the two v1 instruments that refuse by name themselves now
+# (``oracle.py``, ``who_wrote.py``).  ``diagnose_missing_sidecar`` probed
+# ``auto_patch.verification`` / ``route_profile.apron_terrace`` /
+# ``grade_law`` contributors of the v1 emitter's ``_write_axes_sidecar``,
+# which v2 does not write: it named a culprit inside a function that no
+# longer runs.  :func:`build_patch_v2` is THE builder, under the same arming
+# composition, the same swallowed-refusal detectors (their in-process twins
+# moved with them in ``tests/test_harness.py``), the same sidecar guarantee
+# and the same result record.
 
 
 V2_LAW_DIR = Path("src") / "auto_patch_v2" / "law"
@@ -2973,6 +2758,15 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         prog.note(f"  [v2] {ln}")
     require_no_swallowed_write_block(guard.blocked,
                                      allow_degraded=allow_degraded, prog=prog)
+    # DETECTOR 2 over v2's OWN provenance (wired 2026-09-17, lane v1retire
+    # round 1): it was called only from the v1 ``build_patch``, so deleting
+    # that builder would have left "a refusal nobody calls".  v2's
+    # equivalent of the null ``layout.dem_inset_provenance`` is an EMPTY
+    # ``LoadReport.dem_provenance`` — the loader publishes the composed tile
+    # DEM's frame for any DEM it read, so nothing means it read none.
+    require_dem_prep_succeeded(
+        (res.report.get("load", {}) or {}).get("dem_provenance") or None,
+        allow_degraded=allow_degraded, prog=prog)
     report_guard_churn(guard, prog)
     status = res.solution.status.value
     if status not in ("optimal", "feasible") or res.paths is None:

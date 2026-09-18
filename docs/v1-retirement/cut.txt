@@ -1,0 +1,19 @@
+# THE SEAMS — import edges from a KEEP module into a DELETE module.
+# `CUTFILE=this g2.py seeds.json` reproduces the keep/delete sets.
+#
+# ROUND 1 (lane v1retire, 2026-09-17) CUT EVERY ONE: THIS FILE IS EMPTY.
+# The closure now needs no cuts at all — `g2.py` with this file reads
+# KEEP 26 / DELETE 104 — and `Ortho4XP/tests/test_v1_retired.py` is the
+# standing assertion of that, run from every production root.
+#
+# What stood here, for the record (measured on main 8aa97485):
+#   apt_dat_reader  -> pavement.centerlines                (1 site)
+#   driver          -> elevation, layout, object_pads, osm_load,
+#                      pavement.runway_geometry, pavement.runway_segments
+#   flat_site_mode  -> elevation, flat_site, layout, osm_load
+#   post_mesh       -> object_terrain_assembly            (10 sites)
+# and, outside `src/`, tools/check_grade.py's eleven v1 law modules plus
+# the harness's v1 arms (build_patch, oracle, who_wrote).
+#
+# The three modules that JOINED the keep set to cut them: build_support,
+# object_terrain_kinds, flat_site (which left the delete list).

@@ -32,7 +32,15 @@ import O4_Geo_Utils as GEO                                      # noqa: E402
 import O4_OSM_Utils as OSM                                      # noqa: E402
 import O4_Vector_Map as VM                                      # noqa: E402
 import O4_Vector_Utils as VECT                                  # noqa: E402
-from auto_patch.config import SERVICE_ROAD_MAX_GRADE            # noqa: E402
+from auto_patch_v2.law import tables as V2TABLES                # noqa: E402
+
+#: THE ONE DEFINITION of the road grade cap since 2026-09-17 (lane
+#: v1retire round 1, session ruling (c)): ``[common.roles]``
+#: ``service_road.longitudinal`` in ``auto_patch_v2/law/rulesets.toml``.
+#: It was ``auto_patch.config.SERVICE_ROAD_MAX_GRADE`` — inside the
+#: retired v1 engine — and both core readers moved with it.
+ROAD_CAP_FROM_LAW = float(V2TABLES.role_cap(
+    V2TABLES.load_default(), "service_road").longitudinal)
 
 CAP = 0.08
 STATION_M = 20.0
@@ -489,9 +497,29 @@ def test_the_pass_is_off_when_auto_patch_is_off():
 def test_road_grade_limit_defaults_to_the_engine_constant():
     var = CFGVARS.cfg_vars["road_grade_limit"]
     assert var["type"] is float
-    assert var["default"] == SERVICE_ROAD_MAX_GRADE
+    assert var["default"] == ROAD_CAP_FROM_LAW
     assert "road_grade_limit" in CFGVARS.list_vector_vars
     # beside road_banking_limit, as the census asked
     keys = list(CFGVARS.cfg_vars)
     assert abs(keys.index("road_grade_limit")
                - keys.index("road_banking_limit")) == 1
+
+
+def test_both_road_cap_readers_read_the_LAW_TABLE_and_not_the_v1_engine():
+    """Session ruling (c) of the v1 stage-B brief: ONE definition, both
+    readers re-pointed.  ``O4_Cfg_Vars`` (the knob's default) and
+    ``O4_Vector_Map`` (the fallback for a tile object predating the knob)
+    must agree with ``rulesets.toml`` and must not import the v1
+    constant — which does not survive the config split of round 2."""
+    assert CFGVARS._ROAD_GRADE_CAP == ROAD_CAP_FROM_LAW
+    assert VM.ROAD_GRADE_CAP_DEFAULT == ROAD_CAP_FROM_LAW
+    assert CFGVARS.cfg_vars["road_grade_limit"]["default"] == ROAD_CAP_FROM_LAW
+    for mod in (CFGVARS, VM):
+        src = Path(mod.__file__).read_text()
+        code = "\n".join(l for l in src.splitlines()
+                         if not l.lstrip().startswith("#"))
+        assert "SERVICE_ROAD_MAX_GRADE" not in code, (
+            f"{mod.__name__} still reads the v1 engine's constant")
+    # and the law table is the value the CENSUS prices roads by, so the
+    # knob's default cannot drift from what a defect count assumes
+    assert ROAD_CAP_FROM_LAW == CAP

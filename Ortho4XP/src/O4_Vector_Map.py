@@ -20,10 +20,18 @@ import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
 from auto_patch import driver as AUTOPATCH
 from auto_patch import osm_aeroway as OSMAERO
-# The road grade cap, one constant for the whole engine (census #115):
-# the user knob ``road_grade_limit`` defaults to it in O4_Cfg_Vars and
-# this is the fallback for a tile object that predates the knob.
-from auto_patch.config import SERVICE_ROAD_MAX_GRADE as ROAD_GRADE_CAP_DEFAULT
+# The road grade cap, one constant for the whole engine (census #115),
+# read from the V2 LAW TABLE since 2026-09-17 (lane ``v1retire`` round 1,
+# session ruling (c)): the user knob ``road_grade_limit`` defaults to the
+# SAME reader in ``O4_Cfg_Vars`` and this is the fallback for a tile
+# object that predates the knob.  ONE definition —
+# ``auto_patch_v2/law/rulesets.toml`` ``[common.roles]``
+# ``service_road.longitudinal`` — and both readers point at it; it used to
+# be ``auto_patch.config.SERVICE_ROAD_MAX_GRADE``, inside the retired v1
+# engine.
+from O4_Cfg_Vars import _road_grade_cap_from_law as _road_cap_from_law
+
+ROAD_GRADE_CAP_DEFAULT = _road_cap_from_law()
 import O4_Config_Utils as CFG
 
 good_imagery_list = ()

@@ -430,6 +430,50 @@ def global_effective_value(name: str, global_cfg: dict | None = None) -> str:
     return str(O4_Cfg_Vars.cfg_vars[name]["default"])
 
 
+def sparse_tile_values(values: dict, *, always_keep: tuple = (),
+                       global_cfg: dict | None = None) -> dict:
+    """THE sparse-tile-cfg rule, one implementation (owner ruling
+    RULINGS 2026-09-18a (1)): a tile cfg carries ONLY the keys whose value
+    DIFFERS from what the tile would inherit — the global config file,
+    else the registry default — plus the build-provenance keys in
+    *always_keep* (``zone_list`` and friends), which are written verbatim
+    and never diffed away.
+
+    *values* maps tile var -> candidate value (anything ``str()`` renders);
+    a var absent from it stays inherited.  Output preserves
+    ``list_tile_vars`` order so cfg files stay diffable.
+
+    Both writers go through here: :func:`write_tile` (the settings window /
+    app tile-scope edits) and ``O4_Config_Utils.Tile.write_to_config``
+    (the build).  Before 2026-09-18 the build wrote EVERY tile var, which
+    froze the whole settings frame per tile and made the frozen value beat
+    the global an app checkbox writes — BETA2 GEN-1 (``modify_custom_airports``
+    stuck True on 23 tiles) and the same class as ``color_harmonization``.
+
+    :raises ValueError: if any key in *values* is not a tile var.
+    """
+    tile_vars = O4_Cfg_Vars.list_tile_vars
+    for key in values:
+        if key not in tile_vars:
+            raise ValueError("%r is not a tile config var" % (key,))
+    if global_cfg is None:
+        global_cfg = read_global_raw()
+    out: dict = {}
+    for var in tile_vars:
+        if var not in values:
+            continue
+        candidate = str(values[var])
+        if var in always_keep:
+            out[var] = candidate
+            continue
+        if values_equivalent(
+            var, candidate, global_effective_value(var, global_cfg)
+        ):
+            continue  # equal to inherited: no override to store
+        out[var] = candidate
+    return out
+
+
 def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:
     """Write the tile config file as SPARSE OVERRIDES (blended model).
 
@@ -462,23 +506,18 @@ def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:
     existing = _parse_cfg(path) if file_exists else {}
     global_cfg = read_global_raw()
 
-    out: dict = {}
+    resolved: dict = {}
     for var in tile_vars:
         if var in _TILE_PRESERVED:
             if file_exists and var in existing:
-                out[var] = existing[var]
+                resolved[var] = existing[var]
             continue
         if var in values:
-            candidate = str(values[var])
+            resolved[var] = str(values[var])
         elif var in existing:
-            candidate = existing[var]
-        else:
-            continue
-        if values_equivalent(
-            var, candidate, global_effective_value(var, global_cfg)
-        ):
-            continue  # equal to inherited: no override to store
-        out[var] = candidate
+            resolved[var] = existing[var]
+    out = sparse_tile_values(resolved, always_keep=_TILE_PRESERVED,
+                             global_cfg=global_cfg)
     _write_atomic_with_backup(path, out)
 
 

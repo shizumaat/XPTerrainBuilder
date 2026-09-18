@@ -119,7 +119,11 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                abutment_walk_max_m: float = 0.0,
                pads: _t.Sequence = (), rims: _t.Sequence = (),
                engine_version: str = "", law_digest: str = "",
-               write_cuts: bool = True) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
+               write_cuts: bool = True,
+               decks: _t.Sequence = (),                                 # §49
+               deck_on_fraction: float = 0.5,
+               deck_edge_m: float = 0.0,
+               deck_under_m: float = 0.0) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
     ``rebake_plan`` is the build's own ``<ICAO>.rebake.json`` model (the
@@ -148,7 +152,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           chain_min_height_m=chain_min_height_m,
                           airside_floor=airside_floor,
                           abutment_step_m=abutment_step_m,
-                          abutment_walk_max_m=abutment_walk_max_m)
+                          abutment_walk_max_m=abutment_walk_max_m,
+                          decks=decks, deck_on_fraction=deck_on_fraction,
+                          deck_edge_m=deck_edge_m, deck_under_m=deck_under_m)
     splits, kept = _pp.to_placement_records(ss)
     conversions, _kept_conv = _dw.conversions_for_dump(dump, pack_root)
     split_idx = frozenset(s.placement.index for s in splits)

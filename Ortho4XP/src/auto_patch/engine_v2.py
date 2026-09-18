@@ -669,6 +669,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     from auto_patch_v2.airport import placement_plan as _pp
     from auto_patch_v2.airport import placement_boxes as _pb
     pads, rims = (), ()
+    decks: tuple = ()                                               # §49
     graded = graded_surface_path(patch_dir, plan_.icao)
     if os.path.isfile(graded):
         try:
@@ -676,6 +677,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             with open(graded, encoding="utf-8") as _fh:
                 _gd = _json.loads(_fh.read())
             pads, rims = _pp.pads_rims_from_graded_doc(_gd)
+            decks = _pp.decks_from_graded_doc(_gd)                  # §49
             # §17 (owner RULINGS 2026-09-12am (2)): the FACE ROLE under a
             # point, off the SAME parsed document — what says whether a
             # foot stands where the aircraft ROLLS.  §9's anchor reads it
@@ -741,6 +743,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         abutment_step_m=law.tables.structures.bridge.abutment_sample_step_m,
         abutment_walk_max_m=law.tables.structures.bridge.abutment_walk_max_m,
         pads=pads, rims=rims,
+        # §49: the emitted deck faces are a datum for the bodies on them
+        decks=decks,
+        deck_on_fraction=law.tables.structures.deck.on_fraction,
+        deck_edge_m=law.tables.structures.deck.edge_m,
+        deck_under_m=law.tables.structures.deck.under_m,
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))
     c = dict(plan.counts())

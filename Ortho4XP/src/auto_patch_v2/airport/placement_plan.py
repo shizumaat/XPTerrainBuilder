@@ -81,12 +81,16 @@ from .placement_targets import (_carrier_pieces,          # noqa: F401
 # and every twin — ``engine_v2``, ``obj8_split_report``, the replay —
 # reads them as this module's names, which they remain.
 from .placement_read import (PAD_FACE_ROLE, RIM_BREAKLINE_KIND,  # noqa: F401
+                             DECK_REF_PREFIX, decks_from_graded,
+                             decks_from_graded_doc,
                              pads_rims_from_graded,
                              pads_rims_from_graded_doc, read_plan)
+from . import placement_deck as _deck                            # §49
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "build_splits", "coarsen",
            "is_elevated",
-           "authored_offset", "pads_rims_from_graded", "pads_rims_from_graded_doc"]
+           "authored_offset", "pads_rims_from_graded", "pads_rims_from_graded_doc",
+           "decks_from_graded", "decks_from_graded_doc"]
 
 
 # ── the authored frame ───────────────────────────────────────────────────
@@ -428,7 +432,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  low_side: bool = False,
                  abutment_step_m: float = 0.0,
                  abutment_walk_max_m: float = 0.0,
-                 abutments: _t.Sequence[tuple[int, int]] = ()) -> SplitSet:
+                 abutments: _t.Sequence[tuple[int, int]] = (),
+                 # §49: the emitted DECK FACES (``placement_read.decks_from_
+                 # graded_doc``) and ``[deck] on_fraction``; a body on one
+                 # seats at the deck's LOW END (``placement_deck``)
+                 decks: _t.Sequence[_ar.DeckFace] = (),
+                 deck_on_fraction: float = 0.5,
+                 deck_edge_m: float = 0.0,
+                 deck_under_m: float = 0.0) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
     (1)) and each anchored by the generic rule of 11e (2).
@@ -910,6 +921,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                         surface, 0, counts, by_class,
                                         st.part_boxes, st.bridge,
                                         st.geom_boxes)
+                body = _deck.deck_seat(body, u, m, decks,                # §49
+                                       on_fraction=deck_on_fraction, edge_m=deck_edge_m,
+                    surface=surface, under_m=deck_under_m,
+                                       counts=counts)
                 counts["bodies"] += 1
                 record = Split(_index_of(m.id), m.id, m.resource,
                                m.authored_path, u.anchor[0], u.anchor[1],
@@ -924,16 +939,24 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                          by_class, st.part_boxes,
                                          st.ground_off, st.bridge,
                                          st.geom_boxes))
+            # §49: a body on an emitted deck face seats on the deck
+            bodies = [_deck.deck_seat(b, u, m, decks,
+                                      on_fraction=deck_on_fraction, edge_m=deck_edge_m,
+                    surface=surface, under_m=deck_under_m,
+                                      counts=counts) for b in bodies]
             # 14at: the GROUP bodies are this member's candidates, in
             # candidate order — what a body riding one of them is
             # ``merged_into``
             for _gi, _b in enumerate(bodies):
                 file_of[(st.mi, _gi)] = _b.new_resource
             for grp in st.own_ground:
-                bodies.append(_own_ground_file(st.raw, grp, m, u, surface,
-                                               len(bodies), counts, by_class,
-                                               st.part_boxes, st.bridge,
-                                               st.geom_boxes))
+                bodies.append(_deck.deck_seat(                          # §49
+                    _own_ground_file(st.raw, grp, m, u, surface,
+                                     len(bodies), counts, by_class,
+                                     st.part_boxes, st.bridge,
+                                     st.geom_boxes),
+                    u, m, decks, on_fraction=deck_on_fraction, edge_m=deck_edge_m,
+                    surface=surface, under_m=deck_under_m, counts=counts))
             for grp, c, why in st.carried:
                 cw = written_of.get(c.member, True)
                 bodies.append(_carried_file(

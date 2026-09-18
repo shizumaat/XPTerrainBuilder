@@ -123,6 +123,134 @@ class RimRing:
 
 
 @_dc.dataclass(frozen=True)
+class DeckFace:
+    """§49 (1): one emitted ``bridge_deck:*`` face — its ``(lat, lon)``
+    ring and the ring's own vertex HEIGHTS in ring order, exactly
+    parallel to :class:`PadRing`.  The region is NOT a pad and NOT a rim:
+    a body on it is never ``building`` and never BASIN."""
+
+    ref: str
+    ring: tuple[tuple[float, float], ...]
+    z: tuple[float, ...] = ()
+
+
+def _deck_bbox(d: DeckFace) -> tuple[float, float, float, float]:
+    las = [p[0] for p in d.ring]
+    los = [p[1] for p in d.ring]
+    return (min(las), min(los), max(las), max(los))
+
+
+def _ring_edge_dist_m(ring: _t.Sequence[tuple[float, float]],
+                      lat: float, lon: float) -> float:
+    """plan distance from the point to the nearest ring EDGE, metres"""
+    ml, mo = _m_per_deg(lat)
+    best = math.inf
+    n = len(ring)
+    for i in range(n):
+        a, b = ring[i], ring[(i + 1) % n]
+        ax, ay = (a[1] - lon) * mo, (a[0] - lat) * ml
+        bx, by = (b[1] - lon) * mo, (b[0] - lat) * ml
+        dx, dy = bx - ax, by - ay
+        ll = dx * dx + dy * dy
+        t = 0.0 if ll == 0.0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / ll))
+        best = min(best, math.hypot(ax + t * dx, ay + t * dy))
+    return best
+
+
+def deck_of(decks: _t.Sequence[DeckFace], lat: float, lon: float,
+            edge_m: float = 0.0) -> DeckFace | None:
+    """The deck face whose ring holds the point — or whose ring EDGE is
+    within ``edge_m`` of it (``[deck] edge_m``: a PARAPET stands on the
+    deck's edge, OUTSIDE the emitted road face, so LEMD's Bridge2 walls
+    read 17–44 % of their plan boxes inside the bare ring and 54–94 %
+    within 6 m of it; the pier b1 reads 7 %) — or ``None``."""
+    for d in decks:
+        if len(d.ring) < 3:
+            continue
+        b = _deck_bbox(d)
+        e = edge_m / 100_000.0                      # a generous degree pad
+        if not (b[0] - e <= lat <= b[2] + e and b[1] - e <= lon <= b[3] + e):
+            continue
+        if _inside(d.ring, lat, lon):
+            return d
+        if edge_m > 0.0 and _ring_edge_dist_m(d.ring, lat, lon) <= edge_m:
+            return d
+    return None
+
+
+def deck_z_at(deck: DeckFace, lat: float, lon: float) -> float | None:
+    """§49 (3): THE DECK'S OWN SURFACE at a point — a least-squares plane
+    over the ring's vertices (the emitted surface, never the median of
+    foot boxes), clamped to the ring's own height range; the nearest
+    vertex where the ring carries fewer than three heights or is
+    degenerate.  ``None`` for a ring without heights."""
+    n = min(len(deck.ring), len(deck.z))
+    if n == 0:
+        return None
+    ml, mo = _m_per_deg(lat)
+    la0 = sum(p[0] for p in deck.ring[:n]) / n
+    lo0 = sum(p[1] for p in deck.ring[:n]) / n
+    pts = [((p[0] - la0) * ml, (p[1] - lo0) * mo, float(z))
+           for p, z in zip(deck.ring[:n], deck.z[:n])]
+    zmin, zmax = min(q[2] for q in pts), max(q[2] for q in pts)
+    x, y = (lat - la0) * ml, (lon - lo0) * mo
+    if n >= 3:
+        # normal equations for z = a + b·x + c·y
+        sx = sum(q[0] for q in pts); sy = sum(q[1] for q in pts)
+        sz = sum(q[2] for q in pts)
+        sxx = sum(q[0] * q[0] for q in pts); syy = sum(q[1] * q[1] for q in pts)
+        sxy = sum(q[0] * q[1] for q in pts)
+        sxz = sum(q[0] * q[2] for q in pts); syz = sum(q[1] * q[2] for q in pts)
+        m = [[float(n), sx, sy, sz], [sx, sxx, sxy, sxz], [sy, sxy, syy, syz]]
+        ok = True
+        for i in range(3):
+            piv = max(range(i, 3), key=lambda r: abs(m[r][i]))
+            if abs(m[piv][i]) < 1e-9:
+                ok = False
+                break
+            m[i], m[piv] = m[piv], m[i]
+            for r in range(3):
+                if r != i:
+                    f = m[r][i] / m[i][i]
+                    m[r] = [a - f * b for a, b in zip(m[r], m[i])]
+        if ok:
+            a, b, c = (m[i][3] / m[i][i] for i in range(3))
+            return min(zmax, max(zmin, a + b * x + c * y))
+    q = min(pts, key=lambda q: (q[0] - x) ** 2 + (q[1] - y) ** 2)
+    return q[2]
+
+
+def deck_datum_of(points: _t.Sequence[tuple[float, float]],
+                  decks: _t.Sequence[DeckFace], on_fraction: float = 0.5,
+                  edge_m: float = 0.0
+                  ) -> "tuple[DeckFace, tuple[tuple[int, float], ...]] | None":
+    """§49 (2)/(3): the ONE deck at least ``on_fraction`` of ``points``
+    stand on, with the deck's own surface at each on-deck point as
+    ``(index, z)`` — or ``None`` (no deck, no majority, no heights)."""
+    if not decks or not points:
+        return None
+    hits: dict[str, list[int]] = {}
+    by_ref: dict[str, DeckFace] = {}
+    for i, (la, lo) in enumerate(points):
+        d = deck_of(decks, la, lo, edge_m)
+        if d is not None:
+            hits.setdefault(d.ref, []).append(i)
+            by_ref[d.ref] = d
+    if not hits:
+        return None
+    ref = max(hits, key=lambda r: (len(hits[r]), r))
+    if len(hits[ref]) < on_fraction * len(points):
+        return None
+    d = by_ref[ref]
+    on = []
+    for i in hits[ref]:
+        z = deck_z_at(d, points[i][0], points[i][1])
+        if z is not None:
+            on.append((i, float(z)))
+    return (d, tuple(on)) if on else None
+
+
+@_dc.dataclass(frozen=True)
 class Anchor:
     """Where the body's placement goes and what its zero is."""
 

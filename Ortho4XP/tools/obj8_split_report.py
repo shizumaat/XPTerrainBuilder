@@ -217,6 +217,9 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
     # engine path calls the same function, so the tool and the build
     # cannot classify differently.
     pads, rims = PP.pads_rims_from_graded_doc(d)
+    # §49: the deck faces ride on the sampler (the triple is a public
+    # signature with four callers)
+    sampler.decks = PP.decks_from_graded_doc(d)   # type: ignore[attr-defined]
     return sampler, pads, rims
 
 
@@ -899,6 +902,11 @@ def _main() -> int:
     _t0 = time.perf_counter()
     ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut,
                          **_extra,
+                         # §49: the deck-face datum, off the same document
+                         decks=getattr(sampler, "decks", ()),
+                         deck_on_fraction=_law.tables.structures.deck.on_fraction,
+                         deck_edge_m=_law.tables.structures.deck.edge_m,
+                         deck_under_m=_law.tables.structures.deck.under_m,
                          split_tol_m=tol_m,
                          elevated_base_m=rb.elevated_base_m,
                          line_segment_m=seg_m,

@@ -17207,3 +17207,37 @@ written untranslated and the offset rides an `ANIM_trans`). LEMD `-6288` (Bridge
     a carried body on a deck: rides its carrier); suite; ONE LEMD harness build; the owner's sim
     read of the next app is the acceptance (campaign goal 09-09b). `placement_plan.py` is 1,035
     lines: a lane adding to it moves something out first (13bz).
+
+### §49 LANDED IN BUDGET MODE (lane `v2deckseat`, 2026-09-17; owner: "the code change in the next app build even if not fully verified")
+
+(1), (2), (3), (4) and (6) ship; (5) the SHEAR, (7) the deck-substituted cut and (9) the
+cockpit census line do NOT. The reader is `placement_read.decks_from_graded_doc` →
+`anchor_rule.DeckFace(ref, ring, z)` (`DECK_REF_PREFIX = "bridge_deck:"`), the datum
+`anchor_rule.deck_z_at` (a least-squares plane over the ring's vertices, clamped to its range)
+through `deck_datum_of(points, decks, on_fraction)`. The three mints are pre-empted at ONE site
+instead of three: `placement_deck.deck_seat` is applied to every formed body in `build_splits`'s
+PASS 4 (after the station cut, `_own_ground_file`, `anchor_for`, the cluster and family binds and
+the carrier search have all spoken, before the cut is written), so the deck is read for all three
+mints' bodies without touching `segment_anchor` / `_own_ground_file` / `anchor_for`. A body ≥
+`[deck] on_fraction` of whose feet (footed) or 9 × 9 plan-box samples (footless) stand inside one
+deck ring seats at the deck's LOW END over those on-deck candidates (§49 (6), the owner's
+fallback), `datum = true`, reason `on deck bridge_deck:<ref>: low end (…)`, counters
+`deck_on_bodies` / `deck_fallback`; the exclusions of (2) hold (BASIN / DECK / PLATE class,
+carried, datum-bearing, family / unit / connector members). `[deck] shear` and `shear_max_grade`
+are bound but READ BY NOTHING until (5) lands. Known gaps: a CARRIER re-seated on a deck does not
+move its carried bodies (0 such carriers at LEMD); the `Bridge4.obj` plate datum is not restored
+(the station cut is untouched); the footed test reads the FEET, so a body whose feet stand mostly
+off the deck (Bridge2 b0's mid-foot reads 611.52, off the deck) may stay where §10 put it.
+Verified by the twins in `tests/auto_patch_v2/test_v2deckseat.py` and the dry LEMD pair
+(`tools/obj8_split_report.py --no-cut`); NO harness build, NO suite (owner's budget order).
+MEASURED on the dry LEMD pair: with the BARE ring, (2)'s `on_fraction` 0.5 admits NOTHING —
+Bridge2 b0/b2/b3/b4 and LEMD50 b0 read 17 / 44 / 22 / 33 / 33 % of their plan-box samples inside
+`bridge_deck:-6288`, because a PARAPET STANDS ON THE DECK'S EDGE, outside the emitted road face
+(the scout's own in/81 column said the same: 14–28). One key added, `[deck] edge_m = 6.0`: a
+sample within it of the ring's edge is on the deck — the five read 64 / 64 / 80 / 94 / 54 %, the
+pier b1 7 %, LEMD50 b1 1 %. The (2) text's "inside ONE DeckFace ring" is read as "inside or within
+`edge_m` of it". The band then admitted the PIER b1 (2 of 4 feet, seated +6.9 m onto the deck),
+so a second key, `[deck] under_m = 2.0`: a footed body's foot counts only where the design
+surface under it reads no more than `under_m` BELOW the deck's z there — a pier stands under the
+deck, a parapet on it. Footless bodies (box samples) take no surface test (their samples beside
+the road face read the trench, which is the very median defect §49 names).

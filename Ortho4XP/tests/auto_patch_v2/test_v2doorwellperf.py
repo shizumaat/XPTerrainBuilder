@@ -115,7 +115,10 @@ def test_many_windows_clip_the_resource_once(pair, bl):
         assert got is not None and got.area == pytest.approx(80.0, abs=1e-6)
     assert cache.grade.calls == 6
     assert cache.grade.unions == 1, "one clip + union for the whole resource, not one per window"
-    assert len(cache.clip_memo) == 2, "one entry per component, not per placement"
+    # the window is applied at COMPONENT granularity: box B never overlaps
+    # any of the six windows, so it is never clipped at all, and box A is
+    # clipped ONCE for all six (the per-component memo is window-free)
+    assert len(cache.clip_memo) == 1, "one entry per component reached, not per placement"
 
 
 def test_the_vertex_budget_reaches_the_windowed_caller(pair, bl):

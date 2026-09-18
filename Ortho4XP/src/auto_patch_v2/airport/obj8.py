@@ -886,6 +886,45 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
                         comp_index=comp_index)
 
 
+def _authored_bbox(xy: XY, heading_deg: float, within) -> tuple[float, float, float, float]:
+    """The frame window's bounds taken back to the authored frame
+    ``(x0, x1, z0, z1)`` — the placement affine is an involution."""
+    h = math.radians(heading_deg)
+    s_, c_ = math.sin(h), math.cos(h)
+    x0, y0, x1, y1 = within.bounds
+    xs, zs = [], []
+    for ex, ny in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+        dx, dy = ex - xy[0], ny - xy[1]
+        xs.append(c_ * dx - s_ * dy)
+        zs.append(-s_ * dx - c_ * dy)
+    return min(xs), max(xs), min(zs), max(zs)
+
+
+def _components_near(cache: "ResourceCache", o: "PlacedObject", within
+                     ) -> list[tuple[int, Component]]:
+    """The components whose plan bounds overlap the window WITH THEIR
+    INDEX in the resource's component list (the index is half the memo
+    key of RULINGS 2026-09-13bp (i)); all of them without a window.
+
+    THE WINDOW IS APPLIED AT COMPONENT GRANULARITY, NEVER AT TRIANGLE
+    GRANULARITY (RULINGS 2026-09-17k (a)).  A component entirely outside
+    the window contributes nothing inside it, so dropping it is exact —
+    and a WHOLE component's clip is what the per-component memo
+    (``cache.clip_memo``, keyed ``(resource, index, plane)``) holds, so
+    every window that reaches a component pays its clip once between
+    them all.  The retired triangle-level filter could not be memoised
+    at all: it re-clipped a window-shaped subset per placement."""
+    comps = list(enumerate(cache.components(o.resolved)))
+    if within is None:
+        return comps
+    box = _authored_bbox(o.xy, o.heading_deg, within)
+    b = cache.component_bounds(o.resolved)
+    if b.shape[0] != len(comps):
+        return comps
+    m = (b[:, 1] >= box[0]) & (b[:, 0] <= box[1]) & (b[:, 3] >= box[2]) & (b[:, 2] <= box[3])
+    return [c for c, k in zip(comps, m.tolist()) if k]
+
+
 def _in_window(u, within, polygons: bool):
     """THE WINDOW, APPLIED TO THE MEMOISED WHOLE-OBJECT READ (RULINGS
     2026-09-17k (a)).  The clip plane of a component does not depend on
@@ -938,7 +977,7 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
         return None
     base = o.anchor_z + o.agl_m
     mat = placement_affine(o.xy, o.heading_deg)
-    comps = list(enumerate(cache.components(o.resolved)))
+    comps = _components_near(cache, o, within)
     # ── RULINGS 2026-09-13bp (i): read ONCE per (resource, planes) ──
     keyed = _planes(o, comps, dem_z, base, contact_band_m, True, _to_frame)
     u = _place(_memo_union(cache, cache.cover_memo, o, g, comps, keyed, above_clip), mat)
@@ -968,7 +1007,7 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
         return None, None
     base = o.anchor_z + o.agl_m
     mat = placement_affine(o.xy, o.heading_deg)
-    comps = list(enumerate(cache.components(o.resolved)))
+    comps = _components_near(cache, o, within)
     if select is not None:
         # ``select`` reads the COMPONENT only, so the surviving set is the
         # resource's — it keys the same memo, one entry per distinct set

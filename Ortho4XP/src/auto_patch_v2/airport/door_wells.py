@@ -54,6 +54,7 @@ import typing as _t
 
 import numpy as np
 import shapely
+from shapely.errors import GEOSException
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
@@ -63,6 +64,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from . import obj8 as _obj8
 from .deck_signature import family_key
+from .obj8_clip import _polygon_parts
 
 __all__ = ["DoorWell", "DoorStats", "read_door_wells", "ID_PREFIX"]
 
@@ -170,6 +172,47 @@ def _sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
     return out
 
 
+def _union_below(parts: list) -> object | None:
+    """Rule 2's union of the family's below-ground footprints, REPAIRED AT
+    THE CONTRIBUTION — the same contribution-repair ``obj8_clip.
+    _union_rings`` does one layer down, and the same repair the sill
+    plate gets below.
+
+    ``FloorWitness.below`` leaves ``obj8._clip_component`` VALID and is
+    then affine-transformed into the airport frame by the placement's
+    heading (``obj8._witness``); that rotation rounds the clip's
+    micron-scale slivers into self-touching rings.  Measured GEML
+    2026-09-18 (lane ``gemltopology``): 126 of 449 sill witnesses arrive
+    INVALID, and ONE of them — a 0.27 m2 two-part sliver of
+    ``Objects/CartelonAprox.OBJ`` (``dsf:obj1484``) whose ring visits
+    ``(-472.3430, 726.5788)`` twice, so GEOS reads a hole with no shell
+    — refused the whole family's union with ``TopologyException: unable
+    to assign free hole to a shell``, failing the pavement builder and
+    ABORTING tile +35-003.  One invalid member refuses the whole union
+    (here a single one does), so each is repaired first.
+
+    Only the POLYGON parts survive: ``make_valid`` of a self-touching
+    sliver also yields lines, which the caller's ``buffer`` would
+    otherwise inflate into area.  The repair is area-preserving to the
+    materiality floor — the GEML offender repairs to 0.0 m2 (it IS a
+    degenerate sliver) and its family's union to 5.2478 m2 against the
+    members' 5.3101 m2 raw sum, which overlap."""
+    if not parts:
+        return None
+    arr = np.empty(len(parts), dtype=object)
+    arr[:] = parts
+    bad = ~shapely.is_valid(arr)
+    if bad.any():
+        arr[bad] = shapely.make_valid(arr[bad])
+    polys = [p for g in arr.tolist() for p in _polygon_parts(g)]
+    if not polys:
+        return None
+    try:
+        return unary_union(polys)
+    except GEOSException:                   # the _union_rings ladder
+        return shapely.union_all(polys, grid_size=1e-6)
+
+
 def _unit(a: XY, b: XY) -> XY:
     dx, dy = b[0] - a[0], b[1] - a[1]
     L = math.hypot(dx, dy) or 1.0
@@ -274,7 +317,9 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     for fk, fam in sorted(by_fam.items(), key=lambda kv: kv[0]):
         members = members_of.get(fk, [])
         tree = STRtree([o.plan_bbox for o in members]) if members else None
-        u = unary_union([w.below for _o, w, _c in fam])
+        u = _union_below([w.below for _o, w, _c in fam])
+        if u is None:
+            continue
         u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
         parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and g.area > grid * grid]
         stats.regions += len(parts)

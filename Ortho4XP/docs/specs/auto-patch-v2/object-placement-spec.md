@@ -3356,6 +3356,8 @@ clause deleted) and `airport/anchor_rule.py` (§16d (6): `pad_majority`, and the
 
 ## §16e THE DECK TOP AND THE CREST PLATE ARE DATUMS (owner RULINGS 2026-09-13k; Fable 2026-09-13n) — lane `v2othhdatums`
 
+**AMENDED by design-surface-spec §49 (Fable 2026-09-17; owner RULINGS 17u-2 / 17x (2)):** the EMITTED deck face (`bridge_deck:*` in `graded.json`) is a datum for every body standing on it, senior to the foot, own-ground and §10 station readings, and the body is SHEARED to the deck's grade (fallback: the low end). §16e's object-derived datums (`plate_y`, `deck_top_y`) stay senior where they exist; the two regions are disjoint on the corpus (OTHH emits no deck face, LEMD no object deck). Scout `deckseat` census: `docs/briefs/deckseat-report.md`.
+
 Owner: "With single layer bridges over water we should be seating the top deck to
 align with the ground and let the feet land where they may. The tunnel walls are now
 seating above ground, where before, and as they should, be creating the tunnel ramp

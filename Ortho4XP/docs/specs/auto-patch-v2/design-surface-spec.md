@@ -17037,3 +17037,114 @@ or VHHH (no resource named Interior/Clutter) where the mechanical rule admits 40
    (scout: 36 s cold raster at OTHH — cache it under the partition fingerprint); partition-cache
    key moves (`_CODE_MODULES` carries the new module); the false-positive register twin; the MSL
    twin; suite; no shared-repo write; no tile build (the owner's app build is the acceptance).
+
+## §49 A PARAPET RIDES THE DECK — THE EMITTED DECK FACE IS A DATUM FOR EVERY BODY STANDING ON IT, AND THE BODY FOLLOWS THE DECK'S SLOPE (owner RULINGS 2026-09-17u-2 / 17x (2); Fable 2026-09-17; scout `deckseat`, report `docs/briefs/deckseat-report.md`) — lane `v2deckseat`, after `v2leafseat` merges
+
+Owner: "Since the deck must slope to meet terrain (and it does in reality), unless you can change
+the bridge parapets to match the slope angle, we would have to seat them at the low end and let
+them disappear into the deck, better than leaving an end floating."
+
+Measured (scout `deckseat`, base 390c3282, the shipped 1.0.348 LEMD products): the region is
+SMALL and LEMD's alone — `bridge_deck:*` faces exist at 5 of 41 emitted airports (LEMD 7, KCLT 3,
+HEAZ 2, LGMG 1, KJQF 1 = 14 faces), every one role `service_road`, side groundside; OTHH, VHHH,
+HECA, LGAV, KPHX emit NONE (OTHH's whole bridge law §16e runs off the OBJECT's `deck_top_y` /
+`plate_y`, a disjoint region). Only LEMD has bodies on a deck: 22 (KCLT 0, the zero-collateral
+control). DECK ∩ PAD = ∅ (no pad ring bbox overlaps a deck); DECK ∩ RIM = 8–9 nodes per deck (13r:
+the deck ring's vertices ARE the corridor rim's). The surface already knows the deck's z (its
+vertices are emitted vertices) — the defect is the STATISTIC: `placement_boxes.ground_under`
+(`:194-202`) takes the MEDIAN of foot-box samples, and half of `Bridge2` b3/b4's boxes stand on the
+`tunnel_ramp` floor 599.30, so the wall seats in the trench (−6.9 m under the deck). Three mints
+pre-empt any datum that lives only in `anchor_for`: §10's station cut `placement_body.py:143-163`
+→ `segment_anchor` (`placement_cut.py:727`, no datum argument — it already throws away
+`Bridge4.obj`'s live crest-plate datum, 72 stations, both bodies written `datum=false`);
+`placement_carrier.is_elevated` (`:73-106`, escape `if anchor.datum` at `:99-102`);
+`placement_plan._own_ground_file` (`:299-330`, never calls `anchor_for`; 414 bodies at LEMD). The
+station cut gives nothing for free: `line_segment_m` 100 on a 4.12 % deck steps 4.1 m against
+`[cockpit] visual_m` 0.5 (a groundside role is judged at the visual bar), and the key is pinned to
+`body_feet_span_m` with the 5,157 m perimeter fence against the 64-station cap. The seat is baked
+into the written `.obj` as a PURE TRANSLATION (`obj8_split._retok`, `:300-311`, four call sites
+`:498/:508/:629/:641`); OBJ8 has no shear animation node (vertices inside an `ANIM` block are
+written untranslated and the offset rides an `ANIM_trans`). LEMD `-6288` (Bridge2's deck): axis
+84.9 m, 605.60 → 609.47, grade +4.12 %, crossfall residual 1.39 m.
+
+1. **THE REGION, ONE DERIVATION SITE.** `airport/placement_read.decks_from_graded_doc` beside
+   `pads_rims_from_graded_doc` returns `DeckFace(ref, ring, z)` exactly parallel to `PadRing`
+   (per-vertex z); the region is every graded face whose ref starts `DECK_REF_PREFIX =
+   "bridge_deck:"` (the constant beside `PAD_FACE_ROLE` / `RIM_BREAKLINE_KIND`, `:51-52`),
+   WHATEVER its role (a pavement deck keeps the pavement's role at `structure_deck.py:669`; today
+   all 14 are `service_road`, so the choice carries no collateral). `object_deck:` never reaches a
+   face (`structure_deck.py:687-688`, recorded never severing) and is out of scope. The region is
+   NOT a pad (never fed to `classify_body`'s `has_pad`, `pad_majority`, `pad_plurality`,
+   `plan_unit_datums`) and NOT a rim (never a `RimRing`: a body on it is never BASIN). `GradedRoles`
+   (`placement_boxes.py:380-518`) already answers "which face is under this point" and stays the
+   containment oracle; it gains `refs_many` beside `roles_many` so the deck's REF is data, never
+   re-derived from a second point-in-polygon index (the census-wrapper precedent).
+2. **THE POPULATION.** A body is ON a deck when ≥ `[deck] on_fraction` (0.5) of its ground-contact
+   feet (a footed body) or of its plan-box samples (a footless body) fall inside ONE `DeckFace` ring.
+   EXCLUDED BY CONSTRUCTION: a BASIN body (§14 (2): its zero is its rim — `LEMD60__b8`,
+   `Bridge3__b0`); a CARRIED body (§15: the CARRIER is seated and the carried body rides it — the
+   nine `carried by …` bodies on `-11828`); a body whose anchor already carries a datum (§16e
+   plate / object deck stays senior); a deck-class member itself (`deck_kind` flag/signature); a
+   member of a footprint unit, family or connector (it takes the unit's plane; and 17x (1)'s
+   AIRSIDE floor is not this region — a deck is groundside, a deck face is never that floor).
+   `Bridge2` b1 (1 of 81 samples inside, the pier) is out by the fraction test — the pier/parapet
+   distinction needs no top-y the plan does not publish.
+3. **THE DATUM.** `anchor_rule.deck_datum_of(points, decks) -> Datum | None`: the deck's own
+   surface at each point, interpolated inside the `DeckFace` ring from its vertices (the emitted
+   surface, never the median of foot boxes). ONE function; the three mints call it.
+4. **THE SEAT PRE-EMPTS THE THREE READINGS.** For a body on a deck: (a) §10's station cut
+   (`placement_body.py:143-163` / `segment_anchor`) takes the deck datum at each station instead
+   of its mid-foot — which also restores §16e's crest-plate datum to `Bridge4.obj` (its loss is a
+   defect this clause fixes and measures); (b) `_own_ground_file` takes the deck datum at the body's
+   mid-station instead of `ground_under`'s median; (c) `anchor_for`'s candidate set is restricted to
+   the feet on the deck, in the exact shape of §16d (6)'s on-pad restriction (`anchor_rule.py:
+   697-701`), so the median/low-side branches read the deck; (d) `is_elevated`'s `anchor.datum`
+   escape holds (a deck-seated body is not elevated and never goes to PASS 3), `keep_off_row` writes
+   it, `bind_unit` never drags it to a cluster senior, and a carrier's `ground_off` is read against
+   the deck so `carrier_refused_far_from_carried_ground` never refuses a body whose ground IS the
+   deck. The reason string names the deck: `on deck bridge_deck:-6288 at s=…`.
+5. **THE SLOPE — THE BODY IS SHEARED, NOT STEPPED.** The seat is the deck datum at the body's
+   MID-station; the body's grade `g` is the deck's rise between its two end stations divided by
+   their along-axis distance (the body's own principal plan axis); every vertex is written
+   `y' = y + g·(s − s_mid)` at `obj8_split._retok` (positions), and `VT` normals are transformed by
+   the inverse-transpose at the same site (a shear is not rigid; unlit normals are the visible
+   defect). One axis only — the deck's crossfall (≤ 1.39 m residual at LEMD) is not modelled.
+   REFUSED, by name, to the fallback (6): a body carrying any `ANIM` block (no shear node in OBJ8;
+   `obj8_split` publishes `anim_count` per body — today LEMD `anim = 0`); `|g|` >
+   `[deck] shear_max_grade` (0.10); `[deck] shear = false`. Posts stay vertical (a pitch rotation
+   would lean the wall; the owner's "match the slope angle" is the shear).
+6. **THE FALLBACK (owner).** Where the shear is refused, the body seats at the deck's LOW END —
+   the low-side reading over the deck-restricted candidates (`anchor_rule.py:740-747`, `min` keyed
+   on the surface at the foot; for a footless body the `min` of the deck-restricted samples instead
+   of `ground_under`'s median) — and disappears into the rising deck. It NEVER floats.
+7. **THE CUT.** §16b's terrain cut (`_LineCutter.terrain_groups`) reads the ground under a body's
+   own triangles and split `Bridge2`'s component 1 into b3 + b4 (deck 606 vs trench 599) before
+   any seat ran. For a body on a deck the ground it is cut against is the DECK-SUBSTITUTED surface
+   (the deck z over deck cells, the surface elsewhere) at that one site, so a parapet is one body
+   per wall and is cut only where it truly leaves the deck (the abutment). Measured, not assumed:
+   the lane names Bridge2's body count before/after.
+8. **13r STANDS.** The draped deck PLATE (`Bridge2.obj` / `LEMD50.obj`'s top) rides the terrain deck
+   the mesh gives it (13r); §49 governs the bodies ON the deck, which 13r never adjudicated
+   (measured: b3/b4 −6.9 m, b0 +4.5 m — nothing 13r describes). Object-spec §16e is AMENDED by
+   this section: the emitted deck face is a datum senior to the foot, own-ground and station
+   readings for a body on it.
+9. **THE CENSUS.** A §49 line in the cockpit block beside §14a's ring bar (never inside it,
+   `placement_census.py:188`): for every body on a deck, `|zero(s) − deck z(s)|` at each station
+   after the shear ≤ `[cockpit] visual_m` (0.5); counters `deck_on_bodies`, `deck_sheared`,
+   `deck_fallback`, `deck_refused_anim`, `deck_refused_grade`; the report names every fallback body.
+10. **KEYS** (`law/structures.toml` `[deck]`, schema-bound): `on_fraction = 0.5`, `shear = true`,
+    `shear_max_grade = 0.10`; `DECK_REF_PREFIX` is a constant, not a key.
+11. **CLOSING TEST / BARS.** Dry object-stage pair (`tools/obj8_split_report.py` on the shipped
+    `o4_v2_rebake_LEMD.json` + `LEMD.graded.json`, base via `git archive`, never a live checkout;
+    the only LEMD mesh on disk is 2026-08-27 and unmatched — dry-to-dry only): `Bridge2` b0/b2/b3/b4,
+    `LEMD50` b0, `LEMDzaun` b34 within `visual_m` of `-6288` at every station (today +4.54 / −0.23 /
+    −6.87 / −6.88 / +0.03 / −2.00); b1 (the pier) unchanged; on `-11828` the nine carried bodies
+    unchanged, `LEMD60__b8` (basin) unchanged, `LEMD60` b11/b12, `LEMD38` b76, `VOR-40-T1` b0 named
+    before/after; `Bridge4.obj`'s plate datum restored through §10 (delta named); KCLT byte-identical
+    (3 decks, 0 bodies); HECA / OTHH / VHHH / LGAV byte-identical (no deck faces); `unit_leaf_bodies`,
+    `bodies_bound_to_unit` unchanged; the §49 census line green or every residual named; twins
+    (a synthetic 4 % deck with a 60 m wall: sheared within 1 cm at both ends; an ANIM wall: low
+    end, buried at the high end by the deck's rise, 0 float; a wall 1/81 on the deck: untouched;
+    a carried body on a deck: rides its carrier); suite; ONE LEMD harness build; the owner's sim
+    read of the next app is the acceptance (campaign goal 09-09b). `placement_plan.py` is 1,035
+    lines: a lane adding to it moves something out first (13bz).

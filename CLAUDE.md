@@ -24,8 +24,11 @@ Every `Agent` launch passes the model explicitly and one of those
 `subagent_type`s — the PreToolUse hook `.claude/hooks/agent_guard.py`
 refuses anything else (built-in types inherit the session's high
 effort; definitions load at session start).
-Lanes iterate synthetic-first on `repro_cut.py` site extracts and
-`solve_cut.py` stage replays, build ONE representative airport once as
+Lanes iterate synthetic-first on `tools/v2_solve_replay.py` captures and
+stage replays (`--capture`, `--replay --from STAGE`, `--why-hard`,
+`--probe-site`, `--emit`, `--verify`; the v1 `repro_cut.py` / `solve_cut.py`
+were retired with the v1 engine, stage B 2026-09-17), build ONE
+representative airport once as
 the closing test, and never run the five-airport sweep (orchestrator,
 once per merged batch — `Ortho4XP/CLAUDE.md` BUILD ECONOMY). The
 spawner owns the merge. Current plan of record:

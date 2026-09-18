@@ -21,10 +21,15 @@ and plans other lanes made: `tools/harness/frames.py list ICAO`; register
 yours at the end (`frames.py register …`) so the next lane does not hunt.
 
 
-- Iterate SYNTHETIC-FIRST: cut the trouble site out of the shipped patch
-  with `Ortho4XP/tools/repro_cut.py ICAO --coord LAT LON --radius M` (a
-  self-contained fixture incl. the cropped DEM window) and replay it; use
-  `solve_cut.py` for solve-stage iteration; use offline replays and twins.
+- Iterate SYNTHETIC-FIRST: capture the airport once with
+  `Ortho4XP/tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl`
+  (load → partition → classify → planar → shape stage pickled) and replay
+  it per change with `--replay DIR/ICAO.pkl --from STAGE` (`--why-hard`,
+  `--probe-site LAT,LON`, `--emit DIR`, `--verify`; `--placement` /
+  `--rule` for capture-time arms); reuse a registered capture
+  (`tools/harness/frames.py list ICAO`) before taking a new one; use
+  offline replays and twins. The v1 `repro_cut.py` / `solve_cut.py` are
+  retired (stage B, 2026-09-17).
   Consult `tools/INDEX.md` before writing any script.
 - The real airport builds ONCE per round, as the closing test, through
   `Ortho4XP/tools/harness/build_airport.py` — ONE representative airport

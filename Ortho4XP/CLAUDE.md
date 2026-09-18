@@ -29,9 +29,12 @@ writing any implementation brief).**
 **BUILD ECONOMY + GATES (owner 2026-08-29e/f — BRIEFS MUST NOT
 RE-IMPOSE SUSPENDED RITUAL; a brief demanding more verification than
 this section is INVALID, same as one violating a ruling):**
-- Iteration is SYNTHETIC-FIRST: mechanisms iterate on cut fixtures
-  and replays (`repro_cut.py`, `solve_cut.py`, offline replays,
-  synthetic twins). The real airport builds ONCE, as the closing test.
+- Iteration is SYNTHETIC-FIRST: mechanisms iterate on captures and
+  stage replays (`tools/v2_solve_replay.py --capture ICAO` once, then
+  `--replay --from STAGE` per change; `--why-hard`, `--probe-site`,
+  `--emit`, `--verify` — see its `tools/INDEX.md` row), offline replays
+  and synthetic twins; the v1 `repro_cut.py` / `solve_cut.py` are retired
+  (stage B, 2026-09-17). The real airport builds ONCE, as the closing test.
 - ONE REPRESENTATIVE AIRPORT per round's acceptance — the airport
   carrying the owner's site. The five-airport sweep runs once per
   merged batch at app-build time, never per lane.

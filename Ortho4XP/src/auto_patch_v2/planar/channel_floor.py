@@ -105,11 +105,46 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     # the 94.90 the clearance states, one half-station of 8 % grade.
     stations = sorted(set(list(ss) + [sd for sd, _z in anchors]))
     prof = []
+    # §45 (3) (iii) AS WRITTEN — "between decks the ROAD'S OWN
+    # longitudinal law (§37) clamped ≤ that datum and ≤ ramp_max_grade"
+    # (owner RULINGS 2026-09-17t, fix C; scout ``hecachannel``).  The
+    # cone ``min over decks of (z_d + grade·|s − s_d|)`` is only the
+    # ``≤ ramp_max_grade`` HALF of that sentence.  With the decks far
+    # apart the two upward cones MEET in a Λ that climbs without limit,
+    # and nothing in the code clamped it to where the road runs AT
+    # GRADE: at LEMD ``channel:5`` the anchors (0, 583.90) and
+    # (460, 580.90) peaked at s = 211.25, z = 600.80 — **11.90 m ABOVE**
+    # a flat 5 m DTM (589 → 585) at the owner's read point, a "floor"
+    # standing a four-storey building over the field.  The same Λ stands
+    # in LEMD ``channel:1`` (603.9…625.1) and ``channel:2``; the shipped
+    # tile carries 230 ``channel_floor_at_declaration`` rows.
+    #
+    # The road's own profile at a station where nothing cuts it down IS
+    # the ground there, so the clamp is the DEM along the axis — the one
+    # reading §37 (6)-(10) itself starts from, and the only one available
+    # here without re-deriving the road pass.  A NaN sample clamps
+    # nothing (the DEM is not a witness AGAINST a channel, §45 (7)); the
+    # cone still holds under every deck, so the clearance under a
+    # crossing is untouched and (d)'s "two decks 58 m apart keep the
+    # floor down between them" is unchanged — that floor was already
+    # under grade.
+    capped = 0
+    worst = 0.0
     for s in stations:
-        prof.append((float(s), float(min(z + grade * abs(s - sd) for sd, z in anchors))))
-    stats.notes.append(
-        f"{cid}: floor by §45 (3) (iii) \"Cut the road down\" — deck top − "
-        f"bridge.clearance_m {br.clearance_m:.1f} m at {len(anchors)} crossing(s), the road's "
-        f"own law between them clamped at ramp_max_grade {grade:.0%}; "
-        f"{min(z for _s, z in prof):.2f}..{max(z for _s, z in prof):.2f} m")
+        z = float(min(zd + grade * abs(s - sd) for sd, zd in anchors))
+        ground = _dem(airport, axis_fn(s))
+        if not math.isnan(ground) and z > ground:
+            capped += 1
+            worst = max(worst, z - ground)
+            z = float(ground)
+        prof.append((float(s), z))
+    note = (f"{cid}: floor by §45 (3) (iii) \"Cut the road down\" — deck top − "
+            f"bridge.clearance_m {br.clearance_m:.1f} m at {len(anchors)} crossing(s), the road's "
+            f"own law between them clamped at ramp_max_grade {grade:.0%}; "
+            f"{min(z for _s, z in prof):.2f}..{max(z for _s, z in prof):.2f} m")
+    if capped:
+        note += (f"; §45 (3) (iii) AMENDED (RULINGS 2026-09-17t) held "
+                 f"{capped}/{len(stations)} station(s) at the road's own grade — "
+                 f"the clearance cones would have stood {worst:.2f} m ABOVE it")
+    stats.notes.append(note)
     return tuple(prof), DATUM_CLEARANCE, "bank", "bridge.clearance_m"

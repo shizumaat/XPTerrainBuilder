@@ -16092,6 +16092,150 @@ LGAV ONE channel on all four ways (−1343/−7021/−2914/−4017), 4 decks, tu
 minus the yielded synthesised bores, named; KCLT taxiway U (no depth witness) keeps its
 four synthesised bores; the other replays identical.
 
+### §45 (21) THE THREE FALSE POSITIVES — A WITNESS STANDS ON THE CORRIDOR, A DECK HAS A SPAN, A FLOOR IS NEVER ABOVE THE ROAD (owner RULINGS 2026-09-17t: "Channels: A+B+C+D"; scout `hecachannel`, RULINGS 2026-09-17r) — lane `v2channelfp`
+
+§45 shipped ON in 1.0.343 and the owner's 1.0.348 reads found two channels that are not
+channels. Scout `hecachannel` attributed both to OPPOSITE branches of (13)(c), neither of
+them present in a true channel (LGAV `channel:0`, VHHH `channel:0`). Each fix lands at the
+ONE derivation site the false reading was taken at, so the consequences die with it rather
+than being vetoed per consumer (§45.1's own discipline).
+
+**(21)(a) §45 (1)(c) AMENDED — A PACK WITNESS IS A WALL OR FLOOR *ALONG* THE CORRIDOR.**
+A placement witnesses a channel only where its below-grade footprint stands within the
+ROAD'S OWN `half_base` — the carriageways ⊕ `lane_width_m` of (10)(iii) — and RUNS ALONG
+the axis: its along-axis extent reaches `corridor_min_length_m`, or is at least its own
+extent across the axis. The 120 m `corridor_max_half_width_m` is the SEARCH radius and a
+drop is named, never silent; it was never a test. A point object beside the road is not a
+witness. The site: HECA `channel:2` (way −13192, `highway=service`, 7.0 m) took three
+`Airport/Jetway/EGCC_Jetway_metal_03.obj` AIRBRIDGES 19–89 m off the road, whose model
+geometry runs to y = −4.2753 (a rotunda stub sunk so the model reads flush on any apron)
+and therefore read 4.28 m under local grade against `object_min_depth_m` 3.0. That one
+reading supplied a flat 97.32 floor over 1,990 m, set the half-width to 92.0 m off the
+jetways' own offset through `_walls_half` (which reads the SAME set — one site, one death),
+and flipped the datum to `pack`, which SKIPS the (13)(c) guard that refused the way's five
+neck-only siblings.
+
+**(21)(b) §45 (1)(b) AMENDED — A DECK IS A CROSSING ONLY WITH A POSITIVE SPAN.** A neck or
+bridge span states a crossing only where `s1 − s0 ≥ emit.identity.min_distinct_spacing_m`
+and its plan midpoint stands within `corridor_max_half_width_m` of the axis. `LineString.
+project` CLAMPS a point past either end of the axis to that end, so a neck that is not on
+the axis at all reads `s0 = s1 = 0` — a ZERO-LENGTH deck that still counts toward
+`min_decks_without_depth`. This is §45 (10)'s own reading at `_across` ("an end-clamped
+projection is an overhang, not a width") carried to the STATION site, which is where it was
+missing. The site: LEMD `channel:5` (ways −5828 + −5832, a service loop 500 m north merged
+under `merge_m` 40) was admitted on one real deck and one degenerate one. Every dropped
+span is named.
+
+**(21)(c) §45 (3)(iii) AS WRITTEN — THE FLOOR IS NEVER ABOVE THE ROAD AT GRADE.** "Between
+decks the road's own longitudinal law (§37) clamped ≤ that datum and ≤ `ramp_max_grade`"
+had only its SECOND half in the code: the `min` over upward `ramp_max_grade` cones from the
+deck anchors. With the decks far apart those cones meet in a Λ that climbs without limit,
+and a floor 11.90 m above the ground is not a floor. The road's own profile where nothing
+cuts it down IS the ground there, so the clamp is the DEM along the axis; a NaN sample
+clamps nothing (§45 (7): the DEM is not a witness AGAINST a channel), and the cones still
+hold under every deck, so the clearance under a crossing and (d)'s "two decks 58 m apart
+keep the floor down between them" are untouched. The number of held stations and the height
+the cones would have reached are on the record. The sites: LEMD `channel:5` peaked at
+s = 211.25, z = 600.80 — **+11.90 m above a flat 5 m DTM** at the owner's read point — with
+the same Λ in `channel:1`/`channel:2`; the shipped LEMD tile carries 230
+`channel_floor_at_declaration` rows.
+
+**(21)(d) AN UNTAGGED ROAD FEED IS AS STALE AS A STALE-STAMPED ONE** (`airport/load.py`).
+A cache carrying NO `o4_tag_schema` predates the stamp, so it predates every whitelist bump
+the stamp exists to detect: it is the same fact on weaker evidence, not an exemption. One
+predicate over both populations, the same two exemptions (a frozen `authored` frame, the
+recorded `--allow-degraded-dem`), the same remedy — the LEDGERED `--refresh-data
+osm_layers`, which is the OWNER'S act. A reader never re-bakes a feed. The site: HECA's
+`+30+031_airport_small_roads.osm.bz2` (2026-07-27) is unstamped, so §45 (1)(d)'s
+`layer` / `cutting` / `covered` / `embankment` gate — the whole point of the 2026-09-15 bump
+— has never run at HECA, while the run reported nothing but a record on
+`osm_road_feeds_untagged`.
+
+The witness reading moved to its OWN module, `planar/channel_witness.py` — `channel.py`
+crossed its 1,000-line budget (`test_planar::test_import_and_budget`) and the witness set is
+one question with four consumers (the width (10)(i), the floor (3)(i), the deck pieces (12),
+§45 (7)'s exclusion), which is exactly why one false witness set all three at HECA.
+
+Twins: `tests/auto_patch_v2/test_v2channel.py` (A: the jetway fixture refused + its drop
+named, the wall-along-the-axis control kept, `_walls_half` reads the same set, `_along` is
+`_across`'s companion; B: the end-clamped neck states no deck + the positive-span control;
+C: the 535 m pair never above grade + the 100 m control still cut down) and
+`tests/auto_patch_v2/test_v2othhdet.py` (D: one predicate, the frozen-frame exemption).
+
+### §45 (21) MEASURED — lane `v2channelfp` (branch `claude/v2channelfp`, base main `26fe28e6`)
+
+Nine dry structure replays, base arm cut with `git archive 26fe28e6` onto the SAME shared
+corpus and the same `venv`, branch arm the lane worktree; diffed with
+`tools/structure_replay_diff.py --prefix`. HECA / LEMD / LGAV / VHHH / KPHX / KDFW / KCLT /
+CYXY / OTHH; **seven ran, two refused on BOTH arms** for an owner data act (LGAV and OTHH:
+`airport_mod_cache` — the pack DSF is newer than every cached text dump; LGAV's pristine
+read frame is `+37+023.dsf.anchor_bak` and only `+37+023.dsf.<sha>.text` dumps exist). The
+branch arms pass `--allow-degraded-dem`, the standing recorded override, because (21)(d)
+refuses HECA's unstamped feed; the flag waives that refusal and NOTHING else (no
+`DEGRADED production frame` line on any arm), so both arms read the same data.
+
+| | base `26fe28e6` | branch | verdict |
+|---|---|---|---|
+| **HECA** | tunnels 9, basins 0, **channels 1** (`channel:2`, way −13192, `neck, pack`, datum **pack**, 1 deck, half-width **91.99 m**, floor flat **97.324** over 1,990 m) | tunnels 9, basins 0, **channels 0** | `Tunnel`/`Basin` **IDENTICAL**; `channel:2` REFUSED by the EXISTING (13)(c) guard (datum clearance, 1 crossing), the three `EGCC_Jetway_metal_03.obj` witnesses named with their distances (89 / 85 / 19 m off a 7.0 m half-base) |
+| **LEMD** | tunnels 47, basins 1, **channels 3** (`channel:1` floor 603.9…**625.1**, `channel:2` 588.9…**597.1**, `channel:5` ways −5828+−5832, 2 decks, 580.9…**600.7**) | tunnels 47, basins 1, **channels 2** | `Tunnel`/`Basin` **IDENTICAL**; `channel:5` REFUSED — way −5832's span `s 0.0..0.0` dropped by name (< `min_distinct_spacing_m` 0.50), one crossing left; `channel:1` 625.1 → **608.99** (47/70 stations held, cones stood **17.56 m** above grade), `channel:2` 597.1 → **595.96** (15/38, 4.03 m) |
+| **VHHH** | tunnels 20, basins 87, channels 1 (`channel:0`, way −6184, `neck`, clearance, 3 decks, half-width 7.0, floor 2.215…**22.615**) | tunnels 20, basins 87, channels 1 — same way, witnesses, datum, decks, half-width, ends | `Tunnel`/`Basin` **IDENTICAL**; the floor alone moves: 22.615 → **7.315** (64/103 stations held, cones stood **15.30 m** above a field at ~6 m). The owner's "true channel" carried the Λ too |
+| **KPHX** | tunnels 11, channels 1 (`channel:0`, −9378+−14705, `neck`, clearance, 2 decks, half 7.0, 332.76…**344.36**) | identical but floor 332.76…**338.65** | 18/44 stations held, cones stood **6.30 m** above a field flat to 0.1 m |
+| **KDFW** | tunnels 4, channels 3, all `lidar` datum (13.1 / 43.46 / 43.17 m, 172.87…173.72 / 172.77…174.85 / 170.11…171.81) | **byte-identical in all three** | (21)(c) touches (3)(iii) only |
+| **KCLT** | tunnels 17, channels 0 | identical | — |
+| **CYXY** | tunnels 2, channels 0 | identical | — |
+| **LGAV / OTHH** | REFUSED on both arms (`airport_mod_cache`) | same refusal | the LGAV trench identity bar is **NOT MEASURED**; it needs the owner's `build_airport.py LGAV --refresh-data airport_mod_cache` |
+
+`structure_replay_diff.py`: **ALL IDENTICAL** on HECA, LEMD, VHHH, KPHX, KDFW, KCLT, CYXY
+(`tunnels N->N`, `basins N->N`, `replaced_ways` and all; no foreign added refusal, no
+refusal lost).
+
+**THE CLOSING BUILD.** `HECA_20260917T205929`, rc 0, 399.8 s, `body_sha c175bfcea93e`,
+ledger `0b7d611a818f`, `[harness] shared repo UNCHANGED`, `--allow-degraded-dem` (recorded;
+authorises no write) because (21)(d) refuses the unstamped feed — the refusal itself is
+quoted below. Census: law-true **56,668**, adjudicated **18,530** (airside 17,769,
+groundside 760), `channel_floor_at_declaration` **0**, `channel_crest_at_edge` **0**.
+
+**THE AIRSIDE SITE.** Taxiway `pav65`, against the registered §46 lane arm
+`/tmp/harness/xq_lane_heca4.osm` (the arm the scout read `channel:2` on):
+
+| | z − DEM min | max | mean | n |
+|---|---|---|---|---|
+| `xq_lane_heca4` (channel:2 ON) | **−7.39 m** | −0.77 m | −3.61 m | 83 |
+| `HECA_20260917T205929` (this lane) | **−0.37 m** | +2.07 m | +0.39 m | 84 |
+
+The scout's −6.31…−7.39 m is reproduced and closed.
+
+Family deltas over the same pair (`xq_lane_heca4` → `HECA_20260917T205929`): law-true
+**64,480 → 56,668**, adjudicated **23,592 → 18,530** (airside 22,836 → 17,769, groundside
+756 → 760); `within_shape` 50,477 → 46,407, `taxi_box` 3,920 → 2,292, `airside_no_step`
+6,934 → 4,939, `strip_transverse` 312 → 265, `runway_step` 2 → 0. **THIS IS NOT A
+SINGLE-VARIABLE A/B** (memory `cross-tree-comparisons-are-not-evidence`): the base arm is
+lane `xplatquantum`'s §46 arm on a different tree, so the numbers read as the direction and
+the site, not as this change's price. The single-variable evidence is the dry-replay table
+above and the `pav65` read. `tools/airside_value_delta.py` over the
+pair: 7,394 row-side vertices moved > 0.01 m, worst **10.65 m**, and the worst movers carry
+the roles `cross_connector | junction | tunnel_trench` at 30.11107, 31.40782 — the channel
+floor's own vertices, which no longer exist: at that site the base arm carries
+`ref=channel_floor:2 role=tunnel_trench alt=[97.32,97.32]` and `ref=channel_wall:2`, and the
+branch arm carries none of them and `pav111` at 107.32…108.92 instead of 98.30…102.35.
+
+**(21)(d) REFUSES HECA BY NAME**, at the dry replay and at the build alike:
+
+> `HECA: 1 cached road feed(s) were written under a SUPERSEDED tag whitelist (or none) …
+> /…/+30+031_airport_small_roads.osm.bz2 (airport_small_roads) — NO o4_tag_schema stamp at
+> all. Refresh them explicitly: build_airport.py <ICAO> --refresh-data osm_layers (never a
+> build side effect).`
+
+No feed was re-baked by this lane. The refresh is the owner's, and until it runs §45 (1)(d)
+has never been read at HECA.
+
+**NOT MEASURED, and why.** (1) LGAV `channel:0` and OTHH — the `airport_mod_cache` refusal
+above, an owner act, identical on both arms. (2) LEMD's `channel_floor_at_declaration`
+230 → ? — that family is priced on an EMITTED patch, and the round's build economy allows
+ONE closing build (HECA); the dry replay cannot price it. The mechanism behind those 230
+rows is (21)(c)'s Λ (`channel:1`/`channel:2` carried it and are now clamped), so the reading
+is owed to the owner's next LEMD build, not to this lane.
+
 ## §20b (3) STAGE 1'S POPULATION IS INVARIANT TO GROUNDSIDE GEOMETRY — AIRSIDE IS KING MEANS THE AIRSIDE SHEET DOES NOT KNOW THE PADS EXIST (Fable 2026-09-16; RULINGS 2026-09-16v; founded on v2padclip r2) — lane `v2stagepop`, measurement first
 
 **The measurement (v2padclip r2, 16t).**  With the airside vertex set

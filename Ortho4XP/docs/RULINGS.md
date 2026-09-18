@@ -9196,3 +9196,85 @@ Twins: 10 new in `tests/test_auto_patch_freshness.py` (all red on base, 90 passe
 * **THE CLOSING BUILD.** `build_airport.py HECA --tag v2leafseatHECA2`: rc 0, **817.3 s**, ways 1,961, nodes 32,469, status `optimal`, `body_sha 3d01fc6270a9`, v2-verify 29,992 rows, verbatim `[harness] shared repo UNCHANGED by this build (full-surface before/after snapshot) — no side-effect mutation`. **NO artifact ledger key: REFUSED, CONTAMINATED-KEY** — the lane committed a `tools/` change after key time; the build's `src` is the shipped `src` and the refusal is the ledger's own law working, not a bad build. Harness census: law-true **64,480**, COCKPIT CRITICAL motion **9** / visual **1,501**, `pad_cluster_mismatch` **0**, `zone_on_pavement` 0. **AIRSIDE UNMOVED, EXACTLY:** `airside_value_delta` against the §46 lane arm `/tmp/harness/xq_lane_heca4.osm` reads **0 moved > 0.01 m, 0 added, 0 removed on BOTH frames** (row-side 28,511 nodes, solve-owned 22,560) — the object stage writes no ground, bar MET. Frames registered (`frames.py list HECA`).
 * **Instrument promoted on its SECOND use (RULINGS `7e90032`):** `tools/obj8_split_report.py --contact-pairs LAT,LON[,R]` — the cross-body contact census scout `hecat3split` wrote in its scratchpad and 17x states its bar in; a pure projection of the same split (the plan's ε-contact graph against the bodies' published `pids`). `--airside-floor` arms fix B, and the key is passed only when ARMED so one instrument reads both arms of a matched pair. Index row + twins in the same commits.
 * **NOT DONE, NAMED.** `src/auto_patch/engine_v2.py` (another lane's file this round) does not pass `airside_floor`, so the ENGINE path cannot arm fix B — one line when it flips. The MEDIAN half's engine-frame before/after is owed to an APP build (a harness patch build emits no placement file). `Terminal4_05` b5 / `_56` b0 stay OUTSIDE the T4 unit at 616.96/616.97 in EVERY arm — 1.74 m above the unit datum, inside one building — not fixed (17u-1's other half). Bridge2 parapets (17u-2) are scout `deckseat`'s. No LEMD build (one representative airport per round). The §16b carried-piece float 593 → 701 is not attributed further (the attempt cap is spent).
+
+## 2026-09-17aa lane `v2channelfp` MERGED-READY (branch `claude/v2channelfp`, base main `26fe28e6`) — §45 (21) the three false positives + chip D: HECA `channel:2` GONE, LEMD `channel:5` GONE, the Λ floor clamped at four more channels, seven replays ALL IDENTICAL in `Tunnel`/`Basin`, `pav65` −7.39 m → −0.37 m
+
+Owner 17t ("Channels: A+B+C+D") implemented at four derivation sites; spec §45 (21) with
+its MEASURED block written on the branch.
+
+* **A — §45 (1)(c) AMENDED** (`planar/channel._pack_witnesses`, one site): a pack witness
+  is a wall or floor ALONG the corridor — below-grade footprint inside the ROAD'S OWN
+  `half_base`, and running `corridor_min_length_m` along the axis or longer than it is
+  wide. The 120 m cap stays the SEARCH radius so every drop is NAMED. New
+  `channel_geometry._along` is `_across`'s companion (the same overlap reading, the
+  longitudinal axis). **HECA `channel:2` (way −13192) is refused by the EXISTING (13)(c)
+  guard**, naming its three `Airport/Jetway/EGCC_Jetway_metal_03.obj` witnesses at 89 / 85 /
+  19 m off a 7.0 m half-base. The 92.0 m half-width dies at source (`_walls_half` reads the
+  same set). HECA channels **1 → 0**.
+* **B — §45 (1)(b) AMENDED** (`planar/channel._decks`): a span states a crossing only with
+  `s1 − s0 ≥ min_distinct_spacing_m` and a plan midpoint within
+  `corridor_max_half_width_m`. §45 (10)'s own `_across` reading carried to the STATION site.
+  **LEMD `channel:5` refused** — way −5832's `s 0.0..0.0` deck dropped by name, one crossing
+  left. LEMD channels **3 → 2**.
+* **C — §45 (3)(iii) AS WRITTEN** (`planar/channel_floor`): between decks the floor is
+  clamped to the road's own profile at grade (the DEM along the axis; a NaN clamps nothing;
+  the cones still hold under every deck). The Λ was NOT one airport's: **LEMD `channel:1`
+  625.1 → 608.99 (cones stood 17.56 m above grade), `channel:2` 597.1 → 595.96 (4.03 m),
+  VHHH `channel:0` 22.615 → 7.315 (15.30 m over a field at ~6 m), KPHX `channel:0` 344.36 →
+  338.65 (6.30 m over a field flat to 0.1 m)** — the two channels the brief named as the
+  TRUE ones carried it too. Each channel's record now states how many stations were held and
+  how high the cones stood. KDFW's three lidar-datum channels are byte-identical.
+* **D — `airport/load.py`**: an UNTAGGED road feed is refused exactly like a stale-stamped
+  one — ONE predicate over both populations, the same two exemptions (frozen `authored`
+  frame, recorded `--allow-degraded-dem`), the same ledgered remedy. It refuses HECA by name
+  at the dry replay AND at the build (`+30+031_airport_small_roads.osm.bz2`, no
+  `o4_tag_schema`). **No feed was re-baked by this lane**; `--refresh-data osm_layers` at
+  HECA is owed to the owner, and until it runs §45 (1)(d) has never been read there.
+
+**MEASUREMENT.** Nine dry `planar --stage structures` replays, base arm from `git archive
+26fe28e6` onto the same shared corpus and `venv` (`/tmp/harness/v2channelfp/basetree`),
+arms at `/tmp/harness/v2channelfp/arms/{base,br}_<ICAO>`.
+`tools/structure_replay_diff.py --prefix`: **ALL IDENTICAL** — HECA 9/0, LEMD 47/1, VHHH
+20/87, KPHX 11/0, KDFW 4/0, KCLT 17/0, CYXY 2/0 (`tunnels`/`basins`, `replaced_ways` and
+all; no foreign added refusal, none lost). **LGAV and OTHH REFUSE ON BOTH ARMS** on
+`airport_mod_cache` (the pack DSF is newer than every cached dump; LGAV's pristine frame is
+`+37+023.dsf.anchor_bak` and only `+37+023.dsf.<sha>.text` exists) — so **the LGAV trench
+identity bar is NOT MEASURED** and needs the owner's `build_airport.py LGAV --refresh-data
+airport_mod_cache`. Branch arms carry `--allow-degraded-dem` (D's refusal only; no
+`DEGRADED production frame` line on any arm, so both arms read the same data).
+
+**CLOSING BUILD** `HECA_20260917T205929` rc 0, 399.8 s, `body_sha c175bfcea93e`, ledger
+`0b7d611a818f`, `[harness] shared repo UNCHANGED`. Census law-true **56,668**, adjudicated
+**18,530**, `channel_floor_at_declaration` 0, `channel_crest_at_edge` 0. **THE SITE:**
+taxiway `pav65` z − DEM **−7.39…−0.77 m (mean −3.61)** on the registered §46 arm
+`xq_lane_heca4.osm` → **−0.37…+2.07 m (mean +0.39)** here; `airside_value_delta` 7,394
+row-side vertices moved, worst 10.65 m, the worst carrying `cross_connector | junction |
+tunnel_trench` at the channel floor's own vertices, which no longer exist. Family deltas
+over that pair (law-true 64,480 → 56,668, `taxi_box` 3,920 → 2,292, `airside_no_step`
+6,934 → 4,939, `runway_step` 2 → 0) are DIRECTIONAL only — the base arm is another lane's
+tree, not a single-variable A/B.
+
+**TWINS.** `test_v2channel.py` +8 (A: the jetway fixture refused with its drop named, the
+wall-along-the-axis control kept, `_walls_half` reads the same set, `_along`/`_across`;
+B: the end-clamped neck states no deck + the positive-span control; C: the 535 m pair never
+above grade — the base tree reads **+16.90 m** on that fixture — + the 100 m control still
+cut down), `test_v2othhdet.py` +2 (D: one predicate, the frozen-frame exemption) and its
+source assertion updated from `if stale` to `if suspect`.
+
+**TWO CONSEQUENCES OF THE CHANGE, both named.** (1) `planar/channel.py` crossed its
+1,000-line budget (`test_planar::test_import_and_budget`), so the witness reading moved to
+its own `planar/channel_witness.py` — the same split `channel_geometry` and `channel_floor`
+already are, and the right one: the witness set is ONE question with four consumers.
+(2) Chip D refuses the SHARED CORPUS's CYXY `airport_small_roads` too (also unstamped), which
+red-lined `test_constraints::test_cyxy_verify_matches_v1_census` — a twin whose subject is the
+census lockstep, not the feed's schema. It now takes the standing recorded
+`--allow-degraded-dem` override with the reason and the owed act in a comment; **CYXY's feed
+is owed the owner's `--refresh-data osm_layers` exactly as HECA's is.**
+
+**NOT DONE, by name.** (1) LGAV `channel:0` and OTHH replays — the `airport_mod_cache`
+refusal above, an owner act. (2) LEMD's `channel_floor_at_declaration` 230 → ? — that family
+is priced on an EMITTED patch and the round allows ONE closing build (HECA); the mechanism
+behind the 230 rows is (21)(c)'s Λ, now clamped in `channel:1`/`channel:2`, so the reading is
+owed to the owner's next LEMD build. (3) The dry structure arms are NOT in `frames.jsonl`:
+`tools/harness/frames.py` has no `structures` kind (`capture|rebake|patch|graded|mesh`) and
+this lane did not widen it; the HECA patch frame IS registered.

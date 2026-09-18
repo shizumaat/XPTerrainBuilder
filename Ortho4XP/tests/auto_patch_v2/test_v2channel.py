@@ -857,3 +857,176 @@ def test_13d_reuses_the_basin_passs_own_derivation(law):
     assert "pit_shells" in src
     assert "basin_member_ids(" not in src
     assert "read_objects(" not in src
+
+
+# ════════════════════════════════════════════════════════════════════════
+# §45 FALSE POSITIVES — owner RULINGS 2026-09-17t (fixes A / B / C / D),
+# lane ``v2channelfp``; the defect is specified by scout ``hecachannel``
+# (``docs/briefs/hecachannel-report.md``).
+# ════════════════════════════════════════════════════════════════════════
+
+def _service_road(wid=-13192):
+    """HECA way −13192's shape: a ``highway=service`` ring with no other
+    tag, whose carriageway reads 7.0 m — the road the three jetways 90 m
+    away witnessed a 92 m channel over."""
+    return _road(wid, {"highway": "service"})
+
+
+# ── (A) A PACK WITNESS IS A WALL OR FLOOR ALONG THE CORRIDOR ────────────
+
+def test_A_a_point_object_beside_the_road_is_no_pack_witness(law):
+    """HECA ``channel:2`` to the metre: three
+    ``Airport/Jetway/EGCC_Jetway_metal_03.obj`` airbridges standing 90 m
+    off a 7 m service road read 4.28 m below grade (the model's own
+    rotunda stub) and witnessed the channel.  Under §45 (1) (c) AMENDED
+    they are not a witness at all, the datum falls back to clearance,
+    and the EXISTING (13) (c) guard refuses the one-neck candidate."""
+    jetway = _Placed("dsf:obj2786", Polygon(_rect(85.0, -10.0, 105.0, 10.0)), 95.72)
+    ap = _airport(law, [_pavement_with_corridor(necks=((-40.0, -10.0),))],
+                  [_service_road()])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()),
+                                  law, [jetway])
+    assert chans == [], [(c.id, c.datum_source, c.witnesses) for c in chans]
+    assert any("a single neck is a CROSSING" in r for r in st.refused), st.refused
+    assert any("not a wall or floor ALONG the corridor" in n
+               and "dsf:obj2786" in n for n in st.notes), st.notes
+
+
+def test_A_a_wall_running_along_the_axis_is_kept(law):
+    """The LGAV shape, at the same site: a 60 m wall INSIDE the road's own
+    half-base and running along the axis keeps its (1) (c) witness, the
+    pack datum and the pack width."""
+    wall = _Placed("dsf:objW", Polygon(_rect(-8.0, -30.0, 8.0, 30.0)), 88.0)
+    ap = _airport(law, [_pavement_with_corridor()], [_road()])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()),
+                                  law, [wall])
+    assert len(chans) == 1, (st.refused, st.notes)
+    c = chans[0]
+    assert c.datum_source == DATUM_PACK and WITNESS_PACK in c.witnesses
+    assert "dsf:objW" in c.witness_ids
+    assert not any("not a wall or floor ALONG" in n for n in st.notes), st.notes
+
+
+def test_A_the_off_axis_width_dies_at_the_source(law):
+    """(c) of the scout's three consequences: the 92 m half-width came out
+    of the jetway's own off-axis offset through
+    ``channel_geometry._walls_half``, which reads THE SAME witness set.
+    One derivation site, so the width dies with the witness — this twin
+    holds that the set is what both read."""
+    from auto_patch_v2.planar.channel_geometry import _walls_half
+    from shapely.geometry import LineString as _LS
+    axis = _LS([(0.0, y) for y in range(-400, 401, 20)])
+    jetway = _Placed("dsf:obj2786", Polygon(_rect(85.0, -10.0, 105.0, 10.0)), 95.72)
+    assert _walls_half(axis, [jetway], ["dsf:obj2786"]) > 80.0   # the 92 m read
+    assert _walls_half(axis, [jetway], []) == 0.0                # not a witness
+
+
+def test_A_along_and_across_are_the_same_overlap_rule(law):
+    """``_along`` is ``_across``'s companion, measured on the same
+    stations (§45 (10)'s own reading carried to the longitudinal axis)."""
+    from auto_patch_v2.planar.channel_geometry import _across, _along
+    from shapely.geometry import LineString as _LS
+    axis = _LS([(0.0, 0.0), (0.0, 400.0)])
+    wall = list(_rect(-5.0, 50.0, 5.0, 350.0))
+    assert _along(axis, wall) == pytest.approx(300.0)
+    assert _across(axis, wall) == pytest.approx(5.0)
+
+
+# ── (B) A DECK IS A CROSSING ONLY WITH A POSITIVE SPAN ─────────────────
+
+def test_B_an_end_clamped_neck_states_no_deck(law):
+    """LEMD ``channel:5``: way −5832's neck lies past the end of the
+    merged axis, so ``LineString.project`` clamps both ends to station
+    0.0 and the deck reads ZERO length.  It counted toward
+    ``min_decks_without_depth`` 2 and made the channel; it is now dropped
+    by name and the channel falls to the (13) (c) guard."""
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    ch = law.tables.structures.channel
+    assert ch.min_decks_without_depth == 2
+
+    # one real neck on the axis, and a second way 500 m NORTH of the
+    # axis's own end carrying a neck of its own (the -5832 loop)
+    pav = _pavement_with_corridor(necks=((-40.0, -10.0),))
+    ap = _airport(law, [pav], [_road()])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert chans == [], [c.id for c in chans]
+    assert any("a single neck is a CROSSING" in r for r in st.refused), st.refused
+
+    # and the span test itself, at its own site
+    from auto_patch_v2.planar.channel import _decks
+    from shapely.geometry import LineString as _LS
+    axis = _LS([(0.0, -400.0), (0.0, 400.0)])
+
+    class _C:
+        way = _road()
+        line = _LS([(0.0, 900.0), (0.0, 1000.0)])   # entirely past the end
+        necks = [(10.0, 40.0)]
+        bridges: list = []
+    drop: list[str] = []
+    out, _halves = _decks(ap, law, "channel:9", [_C()], axis,
+                          lambda s: (0.0, -400.0 + s), None, (), (), drop)
+    assert out == [], [d.ref for d in out]
+    assert drop and "not a deck" in drop[0], drop
+    assert f"{grid:.2f}" in drop[0], drop
+
+
+def test_B_a_positive_span_neck_is_still_a_deck(law):
+    """The control: the SAME call with the neck on the axis yields a deck
+    — fix B refuses the degenerate case and nothing else.  (The whole
+    hole-and-neck fixture keeps its two decks: twin (a) above.)"""
+    from auto_patch_v2.planar.channel import _decks
+    from shapely.geometry import LineString as _LS
+    ap = _airport(law, [_pavement_with_corridor()], [_road()])
+    axis = _LS([(0.0, -400.0), (0.0, 400.0)])
+
+    class _C:
+        way = _road()
+        line = _LS([(0.0, -400.0), (0.0, 400.0)])
+        necks = [(360.0, 390.0)]
+        bridges: list = []
+    drop: list[str] = []
+    out, _halves = _decks(ap, law, "channel:9", [_C()], axis,
+                          lambda s: (0.0, -400.0 + s), None, (), (), drop)
+    assert len(out) == 1 and out[0].s1 - out[0].s0 == pytest.approx(30.0)
+    assert drop == [], drop
+
+
+# ── (C) THE FLOOR NEVER RISES ABOVE THE ROAD AT GRADE ──────────────────
+
+def test_C_the_floor_between_two_far_decks_never_climbs_above_grade(law):
+    """LEMD ``channel:5``'s Λ: with the decks 535 m apart the two upward
+    8 % cones meet 11.90 m ABOVE the DTM.  §45 (3) (iii) as WRITTEN
+    clamps the floor to the road's own profile at grade, so the peak
+    stands at or under the ground at every station."""
+    br = law.tables.structures.bridge
+    necks = ((-290.0, -260.0), (260.0, 290.0))       # 535 m between the mids
+    ap = _airport(law, [_pavement_with_corridor(necks=necks)], [_road()])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert len(chans) == 1, (st.refused, st.notes)
+    c = chans[0]
+    assert c.datum_source == DATUM_CLEARANCE
+    assert len(c.decks) == 2, [d.ref for d in c.decks]
+    # the premise: the unclamped cones WOULD have climbed above the ground
+    tn = law.tables.structures.tunnel
+    mids = sorted((d.s0 + d.s1) / 2.0 for d in c.decks)
+    reach = (mids[1] - mids[0]) / 2.0 * tn.ramp_max_grade
+    assert reach > br.clearance_m, reach
+    # the law: never above the ground (flat 100 m here) at any station
+    worst = max(c.floor_z(s) - 100.0 for s, _z in c.profile)
+    assert worst <= 1e-6, worst
+    assert any("held" in n and "ABOVE it" in n for n in st.notes), st.notes
+
+
+def test_C_close_decks_keep_the_floor_down_between_them(law):
+    """The control (§45 (3) (iii)'s own KPHX case, restated at 100 m):
+    where the cones still meet UNDER the datum the clamp is inert and the
+    floor stays cut down between the decks."""
+    br = law.tables.structures.bridge
+    necks = ((-65.0, -35.0), (35.0, 65.0))           # 100 m between the mids
+    ap = _airport(law, [_pavement_with_corridor(necks=necks)], [_road()])
+    chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
+    assert len(chans) == 1, (st.refused, st.notes)
+    c = chans[0]
+    between = 0.0
+    assert c.floor_z(between) < 100.0 - 1.0          # still well under grade
+    assert not any("held" in n and "ABOVE it" in n for n in st.notes), st.notes

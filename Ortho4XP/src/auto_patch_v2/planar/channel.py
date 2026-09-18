@@ -48,6 +48,8 @@ from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import (CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE,
                                 CREST_DESIGN, Channel, ChannelWall, Deck)
+from .channel_witness import (_depth_under_crest, _pack_ids, _pack_witnesses,
+                             _res_of)
 from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
                                _ends, _field_region, _hole_region, _in_hole,
                                _lidar_cut, _lidar_floor, _parts,
@@ -241,109 +243,6 @@ def _aeroway_bridges(airport: Airport, law: Law) -> list[tuple[OsmWay, LineStrin
     which is a second site for §34 (12) (4)'s below-grade witness to miss
     when ``v2vmmcshore`` r6 lands it."""
     return [(w, LineString(w.points)) for w in aeroway_decks(airport, law)]
-
-
-def _pack_witnesses(cand: _Cand, objects: _t.Sequence, half_m: float,
-                    crest_est: float, min_depth_m: float,
-                    min_area_m2: float = 1.0,
-                    pit_shells: _t.AbstractSet[str] = frozenset(),
-                    dropped: list[str] | None = None) -> list[str]:
-    """§45 (1) (c): the pack's wall / floor objects along the axis.
-
-    The 05k-1 authority — seat = floor, plate = crest, hull = footprint —
-    read through the placement reading the basin pass already made
-    (``planar/basins.read_objects``), so nothing re-parses an OBJ8.  A
-    placement whose plan runs inside the corridor band and whose deepest
-    GENUINE solid stands ``object_min_depth_m`` under the corridor's
-    crest is the channel's witness.  It is NOT a basin seed, a sunken
-    road, a tunnel-object corridor or a door well (§45 (7))."""
-    band = cand.line.buffer(half_m, **_MITRE)
-    dropped = dropped if dropped is not None else []
-    out: list[str] = []
-    for o in objects or ():
-        # THE FOOTPRINT, NEVER THE BBOX — the round-1 defect, attributed
-        # before it was changed (§45 (12); RULINGS 2026-09-15s).
-        # ``plan_bbox`` is the resource's plan EXTENT: at LGAV
-        # ``Trench_03``'s is 7,984,284 m2 (2.5 x 3.2 km) and
-        # ``Trench_06``'s 8,800,700 m2, so EVERY candidate band on the
-        # field intersected them and five separate "channels" all read
-        # one floor.  Worse, the number they read — 63.43 — came from
-        # ``train_powercable.obj``, whose ``below_grade`` is a
-        # ZERO-AREA MultiPolygon straddling the axis and whose
-        # ``solid_min_z`` is the family's lowest: the floor of LGAV's
-        # trench was the power cable.  So the witness is the object's
-        # own below-grade footprint WITH REAL AREA, and an object that
-        # states no footprint states no width and no floor.
-        # §45 (13) (d) A BASIN'S OWN SHELL IS NEVER A CHANNEL'S WALL
-        # (owner RULINGS 2026-09-15ac).  The object side is decided by the
-        # object's own KIND, at the one derivation site the basin pass
-        # already owns — ``airport/basin_witness.basin_member_ids``: a
-        # placement carrying a basin FLOOR WITNESS is a PIT SHELL whose
-        # rim tops out at grade (§24 (1)), not a trench wall running along
-        # an axis.  Basins are built AFTER channels, so (13) (b)'s
-        # "already claimed" set does not exist for objects and the kind
-        # test is what stands in its place.  Measured at LEMD round 4:
-        # ``channel:5`` (way −5989, neck + pack, ONE deck) took
-        # ``dsf:obj7`` / ``dsf:obj10`` — two of ``basin:0``'s three
-        # members ``Ground-FSX-LEMD36/37/85`` — and §24's owner-accepted
-        # T4S basin then fell to "overlaps a tunnel structure".
-        bb = getattr(o, "below_grade", None)
-        z = getattr(o, "solid_min_z", None)
-        if bb is None or z is None or getattr(bb, "area", 0.0) <= min_area_m2:
-            continue
-        try:
-            if not band.intersects(bb):
-                continue
-        except Exception:                     # pragma: no cover
-            continue
-        if _depth_under_crest(o, crest_est) < min_depth_m:
-            continue
-        oid = str(getattr(o, "id", ""))
-        if oid in pit_shells:
-            # the test above is (13) (d)'s, and it runs HERE — after the
-            # footprint / band / depth tests — for one reason only: so the
-            # drop is REPORTABLE.  A placement refused before those tests
-            # is a silent nothing, and the LGAV round-5 arm then cost two
-            # full airport loads to learn WHICH object went (the answer:
-            # Trench_07 / Trench_08).  Same rule, named.
-            dropped.append(oid)
-            continue
-        out.append(oid)
-    return out
-
-
-def _res_of(o) -> str:
-    """The placement's RESOURCE as the pack names it — ``resource`` when
-    the reading carries one, else the placed ``path`` (``obj8`` states
-    the path; the LGAV round-5 note read ``?`` for all three)."""
-    for k in ("resource", "path"):
-        v = getattr(o, k, None)
-        if v:
-            return str(v)
-    return "?"
-
-
-def _depth_under_crest(o, crest_est: float) -> float:
-    """HOW FAR THIS PLACEMENT'S DEEPEST GENUINE SOLID STANDS UNDER THE
-    GROUND OVER IT (§45 (1) (c)/(7)) — the ONE reading both the witness
-    test and §45 (7)'s exclusion ask.
-
-    ``obj8`` already measures it per component against the LOCAL terrain
-    (``solid_min_depth_m``, negative below), and that is what is used.
-    The scalar corridor mean is only the fallback, and the round-2 arm
-    measured why it cannot be the rule: LGAV's axis is 1,954 m long over
-    12.6 m of relief, so its mean DEM reads 67.48 while the DEM along it
-    runs 64.32…76.96.  Against that mean ``Trench_07`` (its own local
-    depth −11.03 m) read 1.02 m and ``Trench_08`` (−8.19 m) read −2.17 m
-    — both refused by ``object_min_depth_m`` 3.0, which is why the trench
-    did not witness its own channel."""
-    d = getattr(o, "solid_min_depth_m", None)
-    if d is not None:
-        return -float(d)
-    z = getattr(o, "solid_min_z", None)
-    if z is None or math.isnan(crest_est):
-        return 0.0
-    return float(crest_est) - float(z)
 
 
 def _dem(airport: Airport, p: XY) -> float:
@@ -608,8 +507,26 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     good0 = [z for z in zs0 if not math.isnan(z)]
     crest_est = (sum(good0) / len(good0)) if good0 else 0.0
     pit_drop: list[str] = []
-    packs0 = _pack_ids(grp, objects, cap, airport, law, axis_fn, ss, pit_shells,
-                       pit_drop)
+    off_axis: list[tuple[str, str]] = []
+    # §45 (1) (c) AMENDED (owner RULINGS 2026-09-17t, fix A): the search
+    # stays at the cap so a drop can be NAMED; the TEST is the road's own
+    # half-base and the along-axis run.
+    packs0 = _pack_ids(grp, objects, cap, airport, law, axis_fn, ss,
+                       pit_shells, pit_drop, half_base, off_axis)
+    if off_axis:
+        # NAMED, like (13) (d)'s drop above: a candidate that would have
+        # read a pack witness under the old 120 m search says WHICH
+        # placement it refused and by how much — HECA ``channel:2``'s
+        # three ``EGCC_Jetway_metal_03.obj`` airbridges are the site.
+        _byid = {str(getattr(o, "id", "")): o for o in objects or ()}
+        _seen = list(dict.fromkeys(off_axis))
+        stats.notes.append(
+            f"{cid}: §45 (1) (c) AMENDED dropped {len(_seen)} below-grade "
+            f"placement(s) that are not a wall or floor ALONG the corridor "
+            f"(inside the road's own half-base {half_base:.1f} m and running "
+            f"{ch.corridor_min_length_m:.0f} m along the axis, or longer than "
+            f"wide; RULINGS 2026-09-17t): "
+            + "; ".join(f"{i} ({_res_of(_byid.get(i))}) {w}" for i, w in _seen))
     if pit_drop:
         # §45 (13) (d), NAMED: a candidate that read a wall/floor witness
         # and lost it to the pit test says WHICH placement it lost, in
@@ -623,8 +540,16 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
             f"{cid}: §45 (13) (d) dropped {len(_seen)} pack wall/floor "
             f"witness(es) — a member of a BUILT basin is a pit shell, never a "
             f"channel's wall (AMENDED, RULINGS 2026-09-15aw): {_res}")
+    deck_drop: list[str] = []
     decks, deck_half = _decks(airport, law, cid, grp, axis_ln, axis_fn, union,
-                              objects, packs0)
+                              objects, packs0, deck_drop)
+    if deck_drop:
+        # §45 (1) (b) AMENDED (owner RULINGS 2026-09-17t, fix B), NAMED:
+        # a crossing that is not a crossing is the difference between a
+        # channel and a refusal at (13) (c), so it is never silent.
+        stats.notes.append(
+            f"{cid}: §45 (1) (b) AMENDED dropped {len(deck_drop)} span(s) that "
+            f"state no crossing (RULINGS 2026-09-17t): " + "; ".join(deck_drop))
     # (i) THE PACK'S WALL OBJECTS ALONG THE AXIS.  Searched at the cap —
     # the widest a corridor may be — and then the width is what they
     # MEASURE, never the search radius.
@@ -843,24 +768,6 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         notes=tuple(notes))
 
 
-def _pack_ids(grp: list[_Cand], objects: _t.Sequence, half_m: float,
-              airport: Airport, law: Law, axis_fn, ss,
-              pit_shells: _t.AbstractSet[str] = frozenset(),
-              dropped: list[str] | None = None) -> list[str]:
-    """§45 (1) (c) / (10) (i): the pack placements that witness THIS
-    channel — read once, so the width (i), the floor (3) (i), the deck
-    pieces (12) and §45 (7)'s exclusion all name the SAME set."""
-    ch = law.tables.structures.channel
-    zs = [_dem(airport, axis_fn(s)) for s in ss]
-    good = [z for z in zs if not math.isnan(z)]
-    crest = (sum(good) / len(good)) if good else float("nan")
-    out: list[str] = []
-    for c in grp:
-        for i in _pack_witnesses(c, objects, half_m, crest, ch.object_min_depth_m,
-                                 pit_shells=pit_shells, dropped=dropped):
-            if i not in out:
-                out.append(i)
-    return out
 
 
 def _wits(grp: list[_Cand]) -> set[str]:
@@ -871,32 +778,56 @@ def _wits(grp: list[_Cand]) -> set[str]:
 
 
 def _decks(airport: Airport, law: Law, cid: str, grp: list[_Cand], axis_ln, axis_fn,
-           union, objects: _t.Sequence = (), packs: _t.Sequence[str] = ()
+           union, objects: _t.Sequence = (), packs: _t.Sequence[str] = (),
+           degenerate: list[str] | None = None
            ) -> tuple[list[Deck], list[tuple[float, float | None]]]:
     """§45 (1)/(4) THE DECKS.  Every neck of every member way, plus every
     aeroway bridge crossing it, as ``Deck`` records with ``datum =
     "design"``: the neck's faces keep their airside role and law — the
     taxiway surface runs across at the airside design surface — and under
-    the deck the road is a bore under cover, not emitted."""
+    the deck the road is a bore under cover, not emitted.
+
+    §45 (1) (b) AMENDED (owner RULINGS 2026-09-17t, fix B; scout
+    ``hecachannel``): A DECK IS A CROSSING ONLY WITH A POSITIVE SPAN ON
+    THE AXIS, and with its plan midpoint standing within the corridor's
+    own maximum half-width of the axis.  ``LineString.project`` CLAMPS a
+    point past either end of the axis to that end, so a neck that is not
+    on the axis at all reads ``s0 == s1 == 0`` — a ZERO-LENGTH deck.
+    LEMD ``channel:5`` was admitted on exactly that: way −5832 is a
+    service loop 500 m north of way −5828, merged under ``merge_m`` 40,
+    and its neck projected to station 0.0 on both ends.  That degenerate
+    deck satisfied ``min_decks_without_depth`` 2 and the channel — whose
+    floor then climbed 11.90 m ABOVE the flat DTM (see
+    ``channel_floor``) — passed the (13) (c) guard its one-deck siblings
+    ``channel:3/4/6`` were refused by.  §45 (10) already names this
+    clamp at :func:`channel_geometry._across` ("an end-clamped
+    projection is an overhang, not a width"); this is the same reading
+    carried to the STATION site, which is where it was missing."""
     ch = law.tables.structures.channel
     out: list[Deck] = []
     halves: list[tuple[float, float | None]] = []
     seen: list[tuple[float, float]] = []
     cap = ch.corridor_max_half_width_m
-    spans: list[tuple[float, float, int]] = []
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    degenerate = degenerate if degenerate is not None else []
+    # (t0, t1, way id, the span's own PLAN midpoint — None where it is on
+    # the axis by construction, as a hard-deck piece's intersection is)
+    spans: list[tuple[float, float, int, XY | None]] = []
     for c in grp:
         # (1) (b) every PAVED NECK across the unpaved corridor
         for s0, s1 in c.necks:
             a, b = c.line.interpolate(s0), c.line.interpolate(s1)
+            mid = c.line.interpolate((s0 + s1) / 2.0)
             spans.append((axis_ln.project(Point(a.x, a.y)),
-                          axis_ln.project(Point(b.x, b.y)), int(c.way.id)))
+                          axis_ln.project(Point(b.x, b.y)), int(c.way.id),
+                          (mid.x, mid.y)))
         # (1) (a) every taxied aeroway BRIDGE over the way: its own
         # carriageway across the crossing station (the neck the apt.dat
         # pavement would have drawn had the pack authored one)
         for _wid, s, half in c.bridges:
             p = c.line.interpolate(min(max(s, 0.0), c.line.length))
             t = axis_ln.project(Point(p.x, p.y))
-            spans.append((t - half, t + half, int(c.way.id)))
+            spans.append((t - half, t + half, int(c.way.id), (p.x, p.y)))
     # (12) THE ROOFED PIECES ARE DECKS.  A witnessing placement's own
     # hard deck, cut into the pieces that cross the axis: LGAV's
     # `Trench_06` is a 4,077 x 149 m plate ROOFED OVER 6 % of its area,
@@ -925,9 +856,28 @@ def _decks(airport: Airport, law: Law, cid: str, grp: list[_Cand], axis_ln, axis
                 u0, u1 = (u0, u1) if u0 <= u1 else (u1, u0)
                 if (u1 - u0) > ch.deck_max_width_m:
                     continue                # a roof along the axis, not a crossing
-                spans.append((u0, u1, int(next(iter(grp)).way.id)))
-    for t0, t1, wid in spans:
+                spans.append((u0, u1, int(next(iter(grp)).way.id), None))
+    for t0, t1, wid, plan_mid in spans:
         t0, t1 = (t0, t1) if t0 <= t1 else (t1, t0)
+        # §45 (1) (b) AMENDED (fix B): a POSITIVE SPAN on the axis and a
+        # midpoint that really stands on the corridor.  Both refusals are
+        # NAMED — a degenerate deck is otherwise a silent +1 against
+        # ``min_decks_without_depth``, which is how LEMD ``channel:5``
+        # was born.
+        if (t1 - t0) < grid:
+            degenerate.append(
+                f"way {wid} at s {t0:.1f}..{t1:.1f} m (span {t1 - t0:.2f} m < "
+                f"emit.identity.min_distinct_spacing_m {grid:.2f}) — an "
+                f"end-clamped projection is not a deck")
+            continue
+        if plan_mid is not None:
+            off = Point(plan_mid).distance(axis_ln)
+            if off > cap:
+                degenerate.append(
+                    f"way {wid} at s {t0:.1f}..{t1:.1f} m — its plan midpoint "
+                    f"stands {off:.0f} m off the axis, beyond [channel] "
+                    f"corridor_max_half_width_m {cap:.0f}")
+                continue
         if any(t0 <= u1 + ch.station_m and t1 >= u0 - ch.station_m
                for u0, u1 in seen):
             continue

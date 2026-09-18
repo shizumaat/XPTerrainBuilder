@@ -28,7 +28,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from .structure_approach import unit
 
-__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along', '_lidar_cut', '_confirmed']
+__all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_along', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along', '_lidar_cut', '_confirmed']
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -182,6 +182,22 @@ def _across(line: LineString, pts) -> float:
         q = line.interpolate(s)
         out = max(out, math.hypot(p[0] - q.x, p[1] - q.y))
     return out
+
+
+def _along(line: LineString, pts) -> float:
+    """How far ``pts`` reach ALONG ``line`` — the span of their stations.
+
+    The companion of :func:`_across`, and the second half of §45 (1) (c)
+    as AMENDED by owner RULINGS 2026-09-17t (fix A): a pack witness is a
+    wall or floor running ALONG the corridor, so it needs a longitudinal
+    extent as well as a lateral one.  The end clamp works FOR this
+    reading rather than against it — a footprint that overhangs an end
+    reads that end's station, so the span can only ever be UNDER-read,
+    which refuses a doubtful witness rather than admitting one.
+
+    ``0.0`` for an empty sequence."""
+    ss = [line.project(Point(p)) for p in pts]
+    return (max(ss) - min(ss)) if ss else 0.0
 
 
 def _spread_m(grp: list[_Cand], extra: _Cand | None = None) -> float:

@@ -173,3 +173,55 @@ def test_tile_water_levels_sea_zero_and_an_inland_body_its_dem_median():
     assert w.level_of(int(idx[0]), sampler) == 0.0          # SEA
     assert w.level_of(int(idx[1]), sampler) == pytest.approx(12.5)  # inland
     assert TileWater(25, 51, None, None).state()["has_data"] is False
+
+
+# ── §46 (9) CENSUS ROW 16: the water mask ENTERS the frame ──────────────
+
+def test_the_water_mask_takes_the_entry_projection():
+    """§46 (5) / (9) row 16: the tile's water-mask polygons are lat/lon we
+    did not compute — OSM/tile linework — so they ENTER the airport's
+    metric frame and are quantised at ``Frame.entry``, like every other
+    input.  Until this round they went through ``ProductionDem._fwd``, a
+    SECOND spelling of the frame's forward projection, exactly as
+    ``airport/load._vector_to_xy`` used to (RULINGS 2026-09-17d).
+
+    ``bounds()`` keeps the exact one: the four INTEGER corners of the 1
+    degree tile are a derived constant, not a coordinate in the layout
+    (census row 15).
+    """
+    from shapely.geometry import MultiPolygon
+    from auto_patch_v2.airport.dem_production import (ProductionDem, TileWater,
+                                                      _entered)
+    from auto_patch_v2.model.frame import Frame
+
+    frame = Frame("ZZZZ", (25.25, 51.61), 11, input_quantum_m=0.001)
+    dem = ProductionDem.__new__(ProductionDem)
+    dem.frame = frame
+    dem._enter = frame.entry()
+    dem._tiles = {(25, 51): object()}
+    # the mask stores rings as offsets from the tile's own SW corner
+    ring = MultiPolygon([box(0.20, 0.20, 0.30, 0.30)])
+    dem._water = {(25, 51): TileWater(25, 51, ring, None)}
+    dem.water = lambda lat, lon: dem._water[(int(lat), int(lon))]
+
+    got = ProductionDem.water_geometry(dem)
+    assert got is not None and not got.is_empty
+    xs, ys = got.exterior.coords.xy
+    for v in list(xs) + list(ys):
+        assert abs(v * 1000 - round(v * 1000)) < 1e-6, v       # ON the 1 mm grid
+
+    # and the helper is the frame's own callable, one point at a time —
+    # never a numpy re-spelling of the snap beside it
+    import inspect
+    code = "\n".join(line for line in inspect.getsource(_entered).splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert "enter(" in code and "rint" not in code and "/ q" not in code
+    src = inspect.getsource(ProductionDem.water_geometry)
+    assert "self._fwd" not in src, "the water mask is back on the exact projection"
+    assert "self._fwd" in inspect.getsource(ProductionDem.bounds), \
+        "the integer tile corners must stay EXACT (census row 15)"
+
+    # an UNQUANTISED frame (a fixture, a pre-46 capture) still projects
+    plain = Frame("ZZZZ", (25.25, 51.61), 11)
+    dem._enter = plain.entry()
+    assert not ProductionDem.water_geometry(dem).is_empty

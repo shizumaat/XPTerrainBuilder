@@ -16507,7 +16507,7 @@ FORWARD, OUTSIDE THE FRAME — a second spelling of the tmerc on the frame's own
 | # | site | what it projects | ruling |
 |---|------|------------------|--------|
 | 15 | `airport/dem.py:188-192` `Dem.bounds()` | the four INTEGER corners of the 1° base tile, giving the fallback membership box read at `airport/road_profile.py:424`. A derived constant, never a coordinate in the layout | **EXACT** |
-| 16 | `airport/dem_production.py:275` `self._fwd`, used at `:291` (the same integer tile box) and at **`:522`** | `:522` projects the WATER-MASK POLYGONS of the tile's water source — genuinely **input-domain** vector data | **ENTRY** — but **NOT SWITCHED THIS ROUND**: `dem_production.py` is lane `insetbounds`'s file. Recorded here as the census's one open consumer; it is not exercised by §46 (7)'s CYXY bars |
+| 16 | `airport/dem_production.py` — `self._fwd` (built for `bounds()`, the integer tile box) and, until round 2, the water projection beside it | it projects the WATER-MASK POLYGONS of the tile's water source — lat/lon we did not compute, so genuinely **input-domain** vector data | **ENTRY — SWITCHED (round 2, main `e2ca979a`, after lane `insetbounds` released the file).** `ProductionDem.__init__` builds `frame.entry()` ONCE as `self._enter` and `water_geometry` projects each ring through it (`_entered`, one point at a time — a vectorised copy of the snap beside the frame's would be the second spelling §46 removes). `_fwd` stays for `bounds()` alone: row 15's ruling, on this file's own integer corners |
 
 INVERSE-ONLY (`to_ll`; nothing enters the frame, no change) — 23 sites:
 `airport/dem.py:177`, `airport/dem_production.py:274`, `airport/door_wells.py:271`,
@@ -16632,7 +16632,30 @@ stubs that carried `transformers()` and no `entry()` — not Frames, and a fixtu
 no law quantum, so their entry projection is the exact one. Standing suite on the lane
 tree: **1,929 passed, 2 skipped, 1 xpassed, 0 FAILED.**
 
-**(g) NOT DONE.** Census row 16, `airport/dem_production.py:522` — the tile's WATER-MASK
-polygons are input-domain and are still projected EXACTLY, because that file belongs to
-lane `insetbounds` this round. It is not exercised by (7)'s CYXY bars. It is the census's
-one open ENTRY consumer.
+**(g) ROUND 1 LEFT ONE CONSUMER; ROUND 2 CLOSED IT.** Census row 16,
+`airport/dem_production.py` — the tile's WATER-MASK polygons — was ruled ENTRY in round 1
+and left on the exact projection because the file was lane `insetbounds`'s. With
+`insetbounds` r3 merged, `ProductionDem` now builds `frame.entry()` once and
+`water_geometry` projects every ring through it; `bounds()` keeps the exact projection for
+its integer tile corners (row 15). **The census has no open ENTRY consumer left.** Twin:
+`tests/auto_patch_v2/test_water_datum.py` — the returned frame geometry lands on the 1 mm
+grid, `water_geometry` no longer names `_fwd`, `bounds` still does, and an unquantised
+(fixture / pre-§46) frame still projects.
+
+**(h) THE GATE ON MAIN, AND ROW 16 UNDER THE BARS (round 2).** `xplat_gate`'s FIRST run on
+`main` — **35291627055**, on the merge — is **GREEN**: patch body `301280a0e02e` /
+830,345 B and `.graded.json` `8fca48a23fb0` / 266,679 B byte-identical on all three, LP
+17289 × 1918 / 254 rounds, the same five named residues and nothing else. Nothing to
+attribute. Run **35291801734** (`claude/xplatquantum` `9cd71efa`, row 16 switched) prints
+the IDENTICAL verdict, and the local CYXY harness arm's `body_sha` is `ad542d0955b3` before
+and after row 16 — the water-mask switch is byte-neutral at CYXY, so it keeps every bar by
+changing nothing there.
+
+ONE OBSERVATION WORTH RECORDING, because it makes the amended bar the right one:
+`solved z.dp9` is not stable RUN TO RUN. Across the four runs mac is fixed at
+`98dc4adaa615c706`, while linux moved `842c649a` → `5137fda5` and windows `c6cb4c23` →
+`fd06d450` — on trees whose CYXY output is byte-identical. A nanometre of solved z is not a
+property of the build at all on those two platforms; the patch body has been
+`301280a0e02e` on every platform of every run since the quantum shipped. Judging the
+release on the shipped file rather than on `z.dp9` is not a relaxation, it is the only
+reading that is reproducible.

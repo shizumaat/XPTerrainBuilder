@@ -273,6 +273,24 @@ class TileWater:
                 "sea_polygons": self.n_sea, "inland_polygons": self.n_inland}
 
 
+def _entered(coords, enter, lon0: float, lat0: float):
+    """``(N, 2)`` tile-local ``(lon, lat)`` offsets -> frame metres through
+    the §46 ENTRY projection.
+
+    The water mask stores its rings as offsets from the tile's own
+    south-west corner, so the absolute lat/lon is rebuilt here and handed
+    to ``Frame.entry`` ONE POINT AT A TIME — that callable is the only
+    place in the tree that snaps an entering coordinate to
+    ``emit.identity.input_quantum_m``, and a numpy re-spelling of its
+    arithmetic beside it is exactly the duplicate §46 removed elsewhere.
+    An empty ring keeps its shape so ``shapely.transform`` is happy.
+    """
+    if len(coords) == 0:                        # pragma: no cover - guard
+        return np.zeros((0, 2), dtype=np.float64)
+    return np.array([enter(float(lo) + lon0, float(la) + lat0)
+                     for lo, la in coords], dtype=np.float64)
+
+
 class ProductionDem:
     """``DemSample`` over the production tile rasters (one per tile,
     composed on first touch)."""
@@ -304,7 +322,16 @@ class ProductionDem:
         self._shore: dict[tuple[int, int], list] = {}
         from pyproj import Transformer  # local: geodesy stays in the loaders
         self._inv = Transformer.from_crs(frame.crs, "EPSG:4326", always_xy=True)
+        #: The EXACT forward projection, for the INTEGER TILE CORNERS
+        #: :meth:`bounds` projects — a derived constant, not a coordinate
+        #: entering the layout (§46 (9) census row 15).
         self._fwd = Transformer.from_crs("EPSG:4326", frame.crs, always_xy=True)
+        #: §46 (9) CENSUS ROW 16, SWITCHED: the tile's WATER-MASK polygons
+        #: are foreign lat/lon — water linework we did not compute — so
+        #: they ENTER the frame and take the ENTRY projection
+        #: (:meth:`water_geometry`).  Built ONCE here: ``Frame.entry()``
+        #: constructs its ``pyproj`` transformers on every call.
+        self._enter = frame.entry()
         self._check_corpus()
         # THE HOST'S OWN RASTER, REUSED (a tile build's ``tile.dem``): the
         # frame of record for every patch node the mesh will sample, so
@@ -549,9 +576,15 @@ class ProductionDem:
             for p, kind in zip(w.polys, w.kinds):
                 if sea_only and kind != "sea":
                     continue
-                q = shapely.transform(
-                    p, lambda c: np.column_stack(
-                        self._fwd.transform(c[:, 0] + w.lon, c[:, 1] + w.lat)))
+                # §46 (4) (a) / (9) row 16: the ENTRY projection, at the
+                # frame's ONE derivation site.  Scalar, because the
+                # quantum lives there and a vectorised copy of
+                # ``round(x / q) * q`` beside it would be the second
+                # spelling §46 exists to remove — the same reason
+                # ``airport/load._vector_to_xy`` stopped building its own
+                # transformer (RULINGS 2026-09-17d).
+                q = shapely.transform(p, lambda c: _entered(c, self._enter,
+                                                            w.lon, w.lat))
                 if clip is not None:
                     if not q.intersects(clip):
                         continue

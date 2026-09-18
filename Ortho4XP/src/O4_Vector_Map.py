@@ -741,6 +741,15 @@ AUTO_AIRPORT_RAIL_QUERIES = [
 
 
 def _airport_auto_roads_layer(tile):
+    """The auto-road-mode OSM layer of ``tile`` — see
+    :func:`_airport_auto_roads_layer_at`, which is the body.  The split
+    exists because :func:`ensure_auto_patch_road_feeds` must be able to
+    re-derive a NEIGHBOUR tile's feed, for which no ``Tile`` object
+    exists in this build (only ``lat`` / ``lon`` were ever read here)."""
+    return _airport_auto_roads_layer_at(tile.lat, tile.lon)
+
+
+def _airport_auto_roads_layer_at(lat, lon):
     """The auto-road-mode OSM layer: level-5 road classes + airport rail
     classes fetched ONLY inside the airport elevation-inset bounding
     boxes (read from the inset GeoTIFF json sidecars), merged into one
@@ -752,7 +761,7 @@ def _airport_auto_roads_layer(tile):
     import O4_Airport_Elevation_Insets as INSETS
 
     try:
-        inset_paths = INSETS.list_cached_inset_dems(tile.lat, tile.lon)
+        inset_paths = INSETS.list_cached_inset_dems(lat, lon)
     except Exception:
         inset_paths = []
     boxes = []
@@ -782,8 +791,7 @@ def _airport_auto_roads_layer(tile):
         for tag in ROADS_TAGS_OF_INTEREST:
             target_tags[osm_type].append((tag, ""))
     layer = OSM.OSM_layer()
-    cache_path = FNAMES.osm_cached(tile.lat, tile.lon,
-                                   "airport_small_roads")
+    cache_path = FNAMES.osm_cached(lat, lon, "airport_small_roads")
     # THE CACHE IS RECYCLED ONLY WHEN SCHEMA-CURRENT (2026-09-17, app
     # 1.0.349 aborted EVERY tile: auto_patch_v2's reader refuses a road
     # feed carrying a superseded or absent ``o4_tag_schema`` — RULINGS
@@ -857,26 +865,148 @@ def _airport_auto_roads_layer(tile):
     return layer
 
 
-def ensure_airport_auto_roads_cache(tile):
-    """Make the per-tile ``airport_small_roads`` cache PRESENT and
-    SCHEMA-CURRENT before auto_patch reads it.
+#: The road feeds auto_patch_v2 reads, and the fallback tile square, used
+#: when ``auto_patch_v2.airport.osm`` cannot be imported (see
+#: :func:`_v2_road_feed_paths`).  The reader's own constants are preferred
+#: — a second spelling would ensure a different file set than the one it
+#: refuses.
+_ROAD_FEED_NEIGHBOURHOOD = (-1, 0, 1)
 
-    auto_patch_v2 loads that feed at ``run_auto_patch_generation`` —
-    BEFORE the vector step, whose ``_airport_auto_roads_layer`` is the
-    feed's only writer — and refuses a stale or unstamped copy by name.
-    So the derivation must run here first.  Cheap when current: one
-    ``isfile`` and a two-line header read, no parse.  Under the harness's
-    armed shared-repo guard the write is refused and named (the ledgered
-    ``--refresh-data osm_layers`` is the harness's explicit form); in
-    the app the tile build is the writer of record.
+
+def _v2_road_feed_paths(lat, lon):
+    """Every cached road feed the auto_patch_v2 reader will TOUCH for a
+    build of tile ``(lat, lon)``, as ``(tlat, tlon, feed, path_or_None)``.
+
+    The square and the spelling are the READER'S OWN — ``ROAD_FEEDS``
+    (which feeds carry a tag whitelist) and ``feed_path`` (``.osm.bz2``
+    then ``.osm``), imported from ``auto_patch_v2.airport.osm``, never
+    copied: the harness's ``superseded_road_feeds`` sets the precedent.
+    ``load_feed`` merges the 3x3 tile neighbourhood, so a NEIGHBOUR
+    tile's feed is read exactly as the home tile's is.
+
+    ``path`` is ``None`` when the tile has no such file — absence is
+    lawful (the reader treats a missing tile as an empty feed) and is
+    NEVER turned into a download here.
     """
-    cache_path = FNAMES.osm_cached(tile.lat, tile.lon,
-                                   "airport_small_roads")
-    if (os.path.isfile(cache_path)
-            and OSM._cached_osm_schema_matches(cache_path,
-                                               ROAD_CACHE_TAG_SCHEMA)):
-        return True
-    return _airport_auto_roads_layer(tile) is not None
+    from auto_patch_v2.airport import osm as _v2osm   # in-tree, bundled
+
+    osm_root = FNAMES.OSM_dir
+    out = []
+    for dlat in _ROAD_FEED_NEIGHBOURHOOD:
+        for dlon in _ROAD_FEED_NEIGHBOURHOOD:
+            tlat, tlon = int(lat) + dlat, int(lon) + dlon
+            for feed in _v2osm.ROAD_FEEDS:
+                path = _v2osm.feed_path(osm_root, tlat, tlon, feed)
+                out.append((tlat, tlon, feed,
+                            path if os.path.isfile(path) else None))
+    return out
+
+
+def _rederive_road_feed(lat, lon, feed):
+    """Re-derive one cached road feed through its ONE existing
+    production writer.  Returns True when a layer came back.
+
+    ``airport_small_roads`` -> :func:`_airport_auto_roads_layer_at`,
+    which moves the stale copy aside and puts it BACK when the
+    derivation yields nothing.  ``big_roads`` -> ``O4_OSM_Utils.
+    OSM_queries_to_OSM_layer``, which leaves the stale cache untouched
+    on the disk when the download fails (the same "a stale corpus beats
+    an absent one" discipline, already implemented there) and holds the
+    per-cache-file lock, so it can never race the background prefetch.
+    """
+    if feed == "airport_small_roads":
+        return _airport_auto_roads_layer_at(lat, lon) is not None
+    if feed == "big_roads":
+        return bool(OSM.OSM_queries_to_OSM_layer(
+            BIG_ROADS_QUERIES,
+            OSM.OSM_layer(),
+            lat,
+            lon,
+            ROADS_TAGS_OF_INTEREST,
+            cached_suffix="big_roads",
+            node_tags_of_interest=ROAD_NODE_TAGS_OF_INTEREST,
+            cache_schema=ROAD_CACHE_TAG_SCHEMA,
+        ))
+    return False
+
+
+def ensure_auto_patch_road_feeds(tile):
+    """Make EVERY cached road feed auto_patch_v2 will read SCHEMA-CURRENT
+    before it reads them — the home tile's and its eight neighbours'.
+
+    ``auto_patch_v2.airport.load.load_with_report`` refuses a PRESENT
+    road feed whose ``o4_tag_schema`` is superseded (RULINGS
+    2026-09-15u) or absent (RULINGS 2026-09-17t) and names the file.
+    An app user has no ``build_airport.py --refresh-data osm_layers`` to
+    run, so the production path must make the feeds current HERE, before
+    ``generate_auto_patches``.  RULINGS 2026-09-17ad did this for the
+    HOME tile's ``airport_small_roads`` only, and tile +46+006 then
+    aborted ALL ELEVEN of its airports (LSGG, LSGB, LFLI, LFSP, LSGL,
+    LSGN, LSGP, LSGY, LSMP, LSTO, LSTR) on ONE stale file — the
+    NEIGHBOUR tile's ``+46+007_big_roads.osm.bz2`` (app engine 1.50.1796,
+    engine-stderr 2026-09-18).  Nine tiles x two feeds is the reader's
+    square; anything less leaves the same abort reachable.
+
+    ABSENCE IS LAWFUL AND NEVER DOWNLOADED.  A feed not on disk makes
+    the reader read an empty feed for that tile, which it accepts, so
+    this function leaves it alone — a tile build must never widen into
+    its neighbours' tile-wide downloads.  The ONE exception is the home
+    tile's own ``airport_small_roads`` (RULINGS 2026-09-17ad): this
+    tile's vector step WOULD write it, but only AFTER auto_patch has
+    read it, so an absent one is derived here.
+
+    COST WHEN CURRENT: one ``isfile`` plus a two-line header read per
+    feed present — at most 18 small bz2 header decompressions, no parse,
+    far under the 1 % build-time floor.
+
+    Under the harness's armed shared-repo guard the write is REFUSED and
+    named (``SharedRepoWriteBlocked`` is a ``RuntimeError``, not an
+    ``OSError``, and nothing here swallows it); the harness's explicit,
+    locked, ledgered form is ``build_airport.py <ICAO> --refresh-data
+    osm_layers``.  In the app the tile build is the writer of record.
+
+    Returns the ``(lat, lon, feed)`` triples it re-derived.
+    """
+    lat0, lon0 = int(tile.lat), int(tile.lon)
+    try:
+        candidates = _v2_road_feed_paths(lat0, lon0)
+    except Exception as exc:                      # pragma: no cover
+        # The reader is in-tree; if it cannot be imported it cannot run
+        # either, so fall back to 17ad's home-tile rule and say so.
+        UI.vprint(1, "    * Road-feed schema pre-check degraded to the "
+                     "home tile only (", repr(exc), ")")
+        candidates = [(lat0, lon0, "airport_small_roads",
+                       FNAMES.osm_cached(lat0, lon0, "airport_small_roads"))]
+        if not os.path.isfile(candidates[0][3]):
+            candidates = [(lat0, lon0, "airport_small_roads", None)]
+    derived = []
+    for tlat, tlon, feed, path in candidates:
+        home_small = (tlat == lat0 and tlon == lon0
+                      and feed == "airport_small_roads")
+        if path is None:
+            if not home_small:
+                continue                  # lawful absence, never a download
+        elif OSM._cached_osm_schema_matches(path, ROAD_CACHE_TAG_SCHEMA):
+            continue                      # current: the header read is all
+        else:
+            UI.vprint(1, "    * Cached", feed, "of tile",
+                      f"{tlat:+03d}{tlon:+04d}",
+                      "predates tag schema", ROAD_CACHE_TAG_SCHEMA,
+                      "- re-deriving it before auto_patch reads it.")
+        # A stale HOME big_roads is exactly what the background prefetch
+        # is re-downloading right now (it filters on the same predicate).
+        # Join it rather than queue behind its cache lock, so the tile
+        # makes ONE Overpass round for that file, not two in a row.
+        if feed == "big_roads" and tlat == lat0 and tlon == lon0:
+            wait_for_background_osm_prefetch()
+            if path is not None and OSM._cached_osm_schema_matches(
+                    path, ROAD_CACHE_TAG_SCHEMA):
+                continue
+        if _rederive_road_feed(tlat, tlon, feed):
+            derived.append((tlat, tlon, feed))
+        if UI.red_flag:
+            break
+    return derived
 
 
 def _osm_layer_prefetch_specifications(tile):
@@ -1520,11 +1650,12 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
             return OSMAERO.extract_road_info(
                 dico_airports, tile, road_layer=road_osm_layer)
 
-        # The airport-area road feed must be present and schema-current
-        # BEFORE the v2 reader loads it (it refuses a stale/unstamped
-        # copy by name); its writer otherwise runs only in the later
-        # vector step.
-        ensure_airport_auto_roads_cache(tile)
+        # EVERY road feed the v2 reader will touch — this tile's and its
+        # eight neighbours', both whitelisted feeds — must be schema-
+        # current BEFORE it loads them (it refuses a stale/unstamped copy
+        # by name, and an app user has no --refresh-data to run).  One
+        # bz2 header read per feed when current.
+        ensure_auto_patch_road_feeds(tile)
         AUTOPATCH.generate_auto_patches(
             tile, cifp_path,
             taxiway_data=_taxiway_provider,

@@ -1895,6 +1895,17 @@ def _write_schema_stamped_layer(path, schema):
                      '</osm>\n' % schema)
 
 
+def _write_unstamped_layer(path):
+    """A cached OSM layer carrying NO ``o4_tag_schema`` at all — every
+    cache written before the stamp existed, and every
+    ``airport_small_roads`` written before RULINGS 2026-09-17ad."""
+    import bz2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with bz2.open(str(path), "wt", encoding="utf-8") as handle:
+        handle.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                     '<osm version="0.6">\n</osm>\n')
+
+
 def test_a_schema_stale_road_layer_refuses_and_names_osm_layers(
         build_mod, tmp_path, monkeypatch):
     """A cached road layer written under an OLD tag schema is a REFRESH.
@@ -2352,10 +2363,15 @@ def test_a_NEIGHBOUR_tiles_superseded_feed_is_named_and_derived(
     # it reaches the build's single pre-flight list
     assert named[0] in build_mod.schema_stale_osm_layers(root, 32, -97)
 
-    # CURRENT schema -> not named; UNTAGGED -> not named (the loader
-    # lists it and does not raise; airport_small_roads carries none).
+    # CURRENT schema -> not named.  UNTAGGED -> NAMED since RULINGS
+    # 2026-09-17t: the loader RAISES on a feed carrying no
+    # ``o4_tag_schema`` at all, so leaving it unnamed here passed the
+    # pre-flight and died mid-build — the KDFW shape again.
     _write_schema_stamped_layer(nbr, _v2osm.ROAD_CACHE_TAG_SCHEMA)
     assert build_mod.superseded_road_feeds(root, 32, -97) == []
+    _write_unstamped_layer(nbr)
+    unstamped = build_mod.superseded_road_feeds(root, 32, -97)
+    assert len(unstamped) == 1 and "<none at all>" in unstamped[0][2], unstamped
     _write_schema_stamped_layer(nbr, "2026-07-16")
 
     # AND THE REFRESH DERIVES IT, on the NEIGHBOUR's tile.
@@ -2375,6 +2391,53 @@ def test_a_NEIGHBOUR_tiles_superseded_feed_is_named_and_derived(
     summary = build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
     assert (33, -98) in prefetched, "the NEIGHBOUR tile must be derived"
     assert summary["refetched"] == [artifact]
+    assert list(nbr.parent.glob("*.stale-*")) == []
+    assert build_mod.superseded_road_feeds(root, 32, -97) == []
+
+
+def test_an_osm_layers_refresh_COVERS_airport_small_roads(
+        build_mod, tmp_path, monkeypatch):
+    """RULINGS 2026-09-17ad left this OWED: ``airport_small_roads`` is
+    not a tile-wide layer, so it has no prefetch specification and
+    ``--refresh-data osm_layers`` re-derived everything BUT it — the
+    aside copy then came back and the refresh refused.  Its ONE
+    production writer is now called inside the same authorisation."""
+    import O4_File_Names as FNAMES
+    import O4_Vector_Map as VMAP
+    from auto_patch_v2.airport import osm as _v2osm
+
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod)
+    _write_schema_stamped_layer(
+        Path(FNAMES.osm_cached(32, -97, "airports")), "")
+    nbr = Path(FNAMES.osm_cached(33, -98, "airport_small_roads"))
+    _write_schema_stamped_layer(nbr, "2026-07-16")
+
+    named = build_mod.superseded_road_feeds(root, 32, -97)
+    assert len(named) == 1 and "airport_small_roads" in named[0][1], named
+
+    monkeypatch.setattr(VMAP, "resolved_road_level", lambda tile: (0, False))
+    _mock_engine_fetch(monkeypatch, [])
+    monkeypatch.setattr(VMAP, "start_background_osm_prefetch",
+                        lambda tile: None)
+    monkeypatch.setattr(VMAP, "wait_for_background_osm_prefetch",
+                        lambda: None)
+    derived = []
+
+    def _auto_roads(lat, lon):
+        derived.append((lat, lon))
+        _write_schema_stamped_layer(
+            Path(FNAMES.osm_cached(lat, lon, "airport_small_roads")),
+            _v2osm.ROAD_CACHE_TAG_SCHEMA)
+        return object()
+
+    monkeypatch.setattr(VMAP, "_airport_auto_roads_layer_at", _auto_roads)
+
+    summary = build_mod.refresh_stale_osm_layers(root, 32, -97, _Notes())
+
+    assert derived == [(33, -98)], (
+        "the writer must run for the NAMED tile only — never widened")
+    assert summary["refetched"] == [
+        "OSM_data/+30-100/+33-098/+33-098_airport_small_roads.osm.bz2"]
     assert list(nbr.parent.glob("*.stale-*")) == []
     assert build_mod.superseded_road_feeds(root, 32, -97) == []
 

@@ -22,7 +22,7 @@ is quoted verbatim in the detail section — the table is a summary.
 
 | ID | Status | Airport | Summary | Notes |
 |----|--------|---------|---------|-------|
-| GEN-1 | OPEN | all | `[v2 rebake]` console messages with "Modify custom airports" UNCHECKED — nothing in the airport should be modified | |
+| GEN-1 | DIAGNOSED | all | `[v2 rebake]` console messages with "Modify custom airports" UNCHECKED — nothing in the airport should be modified | `docs/findings/beta2-GEN-1.md`: flag off ⇒ rebake still MEASURES + prints, returns before the only pack writers (engine_v2.py:757-762) — logging + wasted work, no pack write. OPEN CHECK: a tile cfg carrying `modify_custom_airports=True` beats the global (then it is a real gating bug) |
 | GEN-2 | OPEN | all | Harmonizer rework: exclude water from stats; casts from seam-edge strips, not whole-texture medians; interpolate shift across texture centres (no edge step) | Fable spec, then Opus lane. Memory: color-harmonization-mints-seams. Beta 1 known issue |
 | CYXY-1 | OPEN | CYXY | 60.7125349, -135.0753244 should be GROUNDSIDE with a service road from the apron (was before); now two road slivers, rest apron — regression | |
 | CYXY-2 | OPEN | CYXY | Groundside 60.7141907, -135.0766528 pulled nearly flat with the apron; DEM ~2 m higher | airside-is-king / groundside terrace law |

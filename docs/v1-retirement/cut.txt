@@ -1,20 +1,19 @@
 # THE SEAMS — import edges from a KEEP module into a DELETE module.
-# `CUTFILE=this g2.py seeds.json` reproduces the 2026-09-13aw keep/delete sets.
-# Re-measured on main 8aa97485 (2026-09-17, lane v1retire round 1); the tree had
-# drifted since 13aw: apt_dat_reader -> pavement.centerlines and
-# driver -> elevation / pavement.* are NEW, post_mesh's object_pads / flat_site /
-# route_profile.anchors edges are GONE.
-# ROUND 1 cuts every line below; when the file is empty the closure needs no cuts
-# and tests/test_v1_retired.py is the standing assertion of that.
-auto_patch.apt_dat_reader auto_patch.pavement.centerlines
-auto_patch.driver auto_patch.elevation
-auto_patch.driver auto_patch.layout
-auto_patch.driver auto_patch.object_pads
-auto_patch.driver auto_patch.osm_load
-auto_patch.driver auto_patch.pavement.runway_geometry
-auto_patch.driver auto_patch.pavement.runway_segments
-auto_patch.flat_site_mode auto_patch.elevation
-auto_patch.flat_site_mode auto_patch.flat_site
-auto_patch.flat_site_mode auto_patch.layout
-auto_patch.flat_site_mode auto_patch.osm_load
-auto_patch.post_mesh auto_patch.object_terrain_assembly
+# `CUTFILE=this g2.py seeds.json` reproduces the keep/delete sets.
+#
+# ROUND 1 (lane v1retire, 2026-09-17) CUT EVERY ONE: THIS FILE IS EMPTY.
+# The closure now needs no cuts at all — `g2.py` with this file reads
+# KEEP 26 / DELETE 104 — and `Ortho4XP/tests/test_v1_retired.py` is the
+# standing assertion of that, run from every production root.
+#
+# What stood here, for the record (measured on main 8aa97485):
+#   apt_dat_reader  -> pavement.centerlines                (1 site)
+#   driver          -> elevation, layout, object_pads, osm_load,
+#                      pavement.runway_geometry, pavement.runway_segments
+#   flat_site_mode  -> elevation, flat_site, layout, osm_load
+#   post_mesh       -> object_terrain_assembly            (10 sites)
+# and, outside `src/`, tools/check_grade.py's eleven v1 law modules plus
+# the harness's v1 arms (build_patch, oracle, who_wrote).
+#
+# The three modules that JOINED the keep set to cut them: build_support,
+# object_terrain_kinds, flat_site (which left the delete list).

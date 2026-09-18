@@ -99,15 +99,20 @@ def test_a_different_plane_is_a_different_read(pit, bl):
     assert cache.grade.calls == 2 and cache.grade.unions == 2
 
 
-def test_a_window_or_a_select_is_never_memoised(pit, bl):
-    """``door_wells`` reads one component through a frame window: that read
-    is placement-shaped and stays on the unmemoised path."""
+def test_a_window_or_a_select_reads_THROUGH_the_memo(pit, bl):
+    """SUPERSEDED BY RULINGS 2026-09-17k (a) (lane ``v2doorwellperf``).
+    This test used to pin the opposite — a window or a ``select`` stayed
+    on an unmemoised, unbudgeted path — and that path is what did not
+    terminate on OTHH's 2026-09-16 pack (56:40, 25.8 GB inside
+    ``read_door_wells``).  Both now read through the memo; the window is
+    applied to the placed result.  The equality and the bounded call
+    count live in ``test_v2doorwellperf.py``."""
     dem = _FlatDem()
     cache = obj8.ResourceCache(bl.min_solid_thickness_m)
     o = _placed(str(pit), "o0", (0.0, 0.0), 0.0, dem, bl)
     obj8.at_grade_geometry(o, cache, dem.z, bl.contact_band_m, select=lambda c: True)
     obj8.above_grade_footprint(o, cache, dem.z, bl.contact_band_m, within=o.plan_bbox)
-    assert cache.grade.calls == 0 and cache.grade.unions == 0
+    assert cache.grade.calls == 2 and cache.grade.unions == 2
 
 
 def test_vertex_budget_refuses_and_names_the_pack(pit, bl):

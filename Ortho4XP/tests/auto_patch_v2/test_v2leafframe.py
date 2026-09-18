@@ -647,3 +647,152 @@ def test_the_cluster_seat_and_the_connector_datum_take_ONE_rule():
     want = 0.5 * (allz[9] + allz[10])
     assert z == pytest.approx(want, abs=1e-6), (z, want)
     assert z > min(allz) + 0.5
+
+
+# ── §16g (2) AMENDED — THE GRADED AIRSIDE SURFACE IS A FLOOR UNDER EVERY
+#    MEMBER (owner RULINGS 2026-09-17x (1), fix B) — lane v2leafseat ─────
+
+class _Roles:
+    """The sampler's §17 role channel: ``apron`` everywhere except the
+    named boxes (``ground``), so a foot can be ON or OFF the airside."""
+
+    def __init__(self, off=()):
+        self.off = tuple(off)
+
+    def roles_many(self, lats, lons):
+        out = []
+        for la, lo in zip(lats, lons):
+            r = "apron"
+            for b in self.off:
+                if b[0] <= la <= b[2] and b[1] <= lo <= b[3]:
+                    r = "ground"
+            out.append(r)
+        return out
+
+
+class _Surface:
+    """A callable design surface carrying §17's two channels."""
+
+    def __init__(self, fn, roles=None, rolled_on=("apron",)):
+        self._fn, self.roles, self.rolled_on = fn, roles, rolled_on
+
+    def __call__(self, la, lo):
+        return self._fn(la, lo)
+
+
+def _floor_fixture(cluster_of, armed=True):
+    """A four-member unit on a pad at 600.00 with the apron stepping up
+    2.00 m under the last two members — LEMD T4 in miniature (17u: one
+    rigid plane carried 600 m to an apron 1–1.9 m higher)."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    import auto_patch_v2.airport.anchor_rule as AR
+    mem, cands, st = [], [], []
+    for i, (m0, m1, g) in enumerate([(0, 40, 600.0), (38, 78, 600.0),
+                                     (76, 116, 602.0), (114, 154, 602.0)]):
+        box = _lbox(m0, m1)
+        mem.append(_LMember(f"objects/m{i}.obj",
+                            [_LPart(1 + i, box, 12.0,
+                                    feet=((_lat_m(m0 + 20), -2.9995, 0.0),))]))
+        cands.append(_lcand(i, [box], g, {1 + i}))
+        st.append(_LStaged(i, f"objects/m{i}.obj",
+                           [([_LPart(1 + i, box, 12.0)], box,
+                             ((_lat_m(m0 + 20), -2.9995, 0.0),))]))
+    plan = _LPlan([_LUnit("unit:0", mem)])
+    # one pad over the whole unit, its plane 600.00
+    ring = ((_lat_m(-5), -3.0001), (_lat_m(-5), -2.9989),
+            (_lat_m(160), -2.9989), (_lat_m(160), -3.0001))
+    pads = (AR.PadRing("building1", ring, (600.0, 600.0, 600.0, 600.0)),)
+    # member 0's foot stands on GROUND, not apron: §16g (2)'s "pavement is
+    # king" stands down for a unit only PART of which is on pavement,
+    # which is the mixed case the datum rule is written for
+    surf = _Surface(lambda la, lo: 600.0 if la < _lat_m(76) else 602.0,
+                    roles=_Roles(((_lat_m(-5), -3.0001,
+                                   _lat_m(30), -2.9989),)))
+    counts: dict = {}
+    pw, _s = FU.plan_wide_seats(plan, surf, pads, 0.5, 0.0, counts, 0.0, 2.5)
+    FU.bind_footprint_units(cands, st, surf, pads, counts, unit_id="unit:0",
+                            touch_m=0.5, visual_m=0.5, connector_span_m=0.0,
+                            plan_wide=pw, cluster_of=cluster_of,
+                            airside_floor=armed)
+    return counts, [round(c.anchor.surface_z - c.anchor.y_zero, 2)
+                    for c in cands]
+
+
+def test_a_member_on_a_higher_apron_floors_at_its_own_feet():
+    """17x (1): the unit's pad plane is 600.00 and members 2 and 3 stand
+    on apron 2.00 m above it.  Rigidity yields to the apron — those two
+    seat at 602.00, the two over the pad stay at 600.00.  Before this
+    every member took 600.00 and the last two were buried 2 m."""
+    counts, zeros = _floor_fixture({})
+    assert zeros == [600.0, 600.0, 602.0, 602.0], zeros
+    assert counts["unit_members_floored"] == 2   # members 2 and 3
+    assert counts["unit_floor_worst_lift_m"] == pytest.approx(2.0, abs=1e-3)
+
+
+def test_a_rigid_cluster_rises_together_so_a_weld_is_never_a_step():
+    """The session's refinement, and the reason the cross-body contact
+    census is 17x's bar: member 1 is welded to member 2 (§16c (7)'s rigid
+    cluster, published by ``placement_atom.bind_unit``).  The cluster
+    takes the HIGHEST floor among its members, so the two are written at
+    ONE zero and the 2 mm pack contact between them is not a step."""
+    counts, zeros = _floor_fixture({1: 1, 2: 1})
+    assert zeros == [600.0, 602.0, 602.0, 602.0], zeros
+    assert counts["unit_members_floored"] == 3
+
+
+def test_no_airside_foot_and_no_roles_both_read_NO_FLOOR():
+    """Two negatives, and both are "no reading is no evidence": a member
+    whose every foot stands on `ground` has no airside floor, and a
+    sampler carrying no roles at all gives none to anybody — the unit's
+    own datum stands in both, exactly as before 17x."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    cc = [(_lat_m(10), -2.9995, 0.0, 602.0)]
+    assert FU._airside_floor(cc, _Surface(lambda la, lo: 602.0)) is None
+    off = (( _lat_m(-5), -3.0001, _lat_m(160), -2.9989),)
+    assert FU._airside_floor(
+        cc, _Surface(lambda la, lo: 602.0, roles=_Roles(off))) is None
+    assert FU._airside_floor(
+        cc, _Surface(lambda la, lo: 602.0, roles=_Roles())) == 602.0
+
+
+def test_the_floor_is_the_MEDIAN_foot_not_the_lowest_and_not_the_box():
+    """§17 (2)'s reading, as the session refined it: one foot over lower
+    ground must not float the body, and the whole plan box is not the
+    member's ground.  Three feet at 601.0 / 602.0 / 602.2 floor at
+    602.0."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    cc = [(_lat_m(10), -2.9995, 0.0, 601.0),
+          (_lat_m(20), -2.9995, 0.0, 602.0),
+          (_lat_m(30), -2.9995, 0.0, 602.2)]
+    got = FU._airside_floor(cc, _Surface(lambda la, lo: 0.0, roles=_Roles()))
+    assert got == pytest.approx(602.0, abs=1e-6), got
+
+
+def test_the_floor_ships_OFF_and_the_key_reproduces_both_arms():
+    """`[placement] airside_floor` ships FALSE and the reason is measured,
+    not doubted: the 17x bar (17s's cross-body contact census within 60 m
+    of the owner's site) is MET at LEMD T4 (pairs > 0.5 m 99 -> 42, worst
+    1.748 -> 0.807 m, worst buried foot 1.73 -> 0.43 m) and MISSED at
+    HECA T3 (44 -> 245, the six `T3_brick_clean` shells back on SEVEN
+    datums, site datums 5 -> 18) — HECA's shells stand on an apron that
+    falls 5.4 m across the district and are not one rigid cluster, so
+    each floors locally and fix A is undone at the owner's own site.  17x
+    (1)'s reserve shape (partition the unit by reach) is the answer and
+    is not this lane's to choose.  Disarmed, NOTHING moves."""
+    counts, zeros = _floor_fixture({}, armed=False)
+    assert zeros == [600.0, 600.0, 600.0, 600.0], zeros
+    assert "unit_members_floored" not in counts
+    armed, _z = _floor_fixture({}, armed=True)
+    assert armed["unit_members_floored"] == 2
+
+
+def test_the_shipped_law_value_is_false():
+    """The key is the arm, and a lane that measured a bar MISSED does not
+    flip it (build economy: a mechanism awaiting the owner's adjudication
+    is the one thing a gate is for)."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    text = open(os.path.join(root, "src", "auto_patch_v2", "law",
+                             "structures.toml"), encoding="utf-8").read()
+    assert "airside_floor       = false" in text

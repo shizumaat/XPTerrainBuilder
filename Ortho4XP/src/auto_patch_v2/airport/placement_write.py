@@ -109,6 +109,7 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                cluster_min_m2: float = 0.0,
                touch_m: float = 0.0, connector_span_m: float = 0.0,
                chain_min_height_m: float = 0.0,
+               airside_floor: bool = False,
                # RETIRED (owner RULINGS 2026-09-17t): the low-side pad
                # datum is gone; kept as an accepted no-op keyword because
                # ``src/auto_patch/engine_v2.py`` still passes it.
@@ -145,6 +146,7 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           touch_m=touch_m,
                           connector_span_m=connector_span_m,
                           chain_min_height_m=chain_min_height_m,
+                          airside_floor=airside_floor,
                           abutment_step_m=abutment_step_m,
                           abutment_walk_max_m=abutment_walk_max_m)
     splits, kept = _pp.to_placement_records(ss)

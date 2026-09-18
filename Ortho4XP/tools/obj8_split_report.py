@@ -270,10 +270,10 @@ def contact_pairs_near(plan, ss: PP.SplitSet,
     zero_of, name_of = {}, {}
     for sp in tuple(ss.all):
         for b in sp.bodies:
-            if b.surface_z is None:
+            if b.anchor.surface_z is None:
                 continue
-            z = float(b.surface_z) - float(b.y_zero)
-            nm = f"{os.path.basename(sp.placement.resource)} b{b.body_id}"
+            z = float(b.anchor.surface_z) - float(b.anchor.y_zero)
+            nm = f"{os.path.basename(sp.resource)} b{b.body_id}"
             for q in (b.pids or ()):
                 zero_of[q] = z
                 name_of[q] = nm
@@ -763,6 +763,11 @@ def _main() -> int:
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--filter", default="", help="only placements whose resource "
                                                  "contains this")
+    ap.add_argument("--airside-floor", action="store_true",
+                    help="arm §16g (2) as amended by owner RULINGS "
+                         "2026-09-17x (1) — the graded airside surface as "
+                         "a FLOOR under every unit member ([placement] "
+                         "airside_floor, which ships false)")
     ap.add_argument("--contact-pairs", default="", metavar="LAT,LON[,R]",
                     help="the CROSS-BODY CONTACT census by place: pack "
                          "contacts (2 mm) whose two parts landed in "
@@ -893,6 +898,11 @@ def _main() -> int:
                          # §16g (10) (4): only a WALLED body links a unit
                          chain_min_height_m=(_law.tables.structures.placement
                                              .chain_min_height_m),
+                         # §16g (2) AMENDED (17x (1)); ships false
+                         airside_floor=bool(
+                             a.airside_floor
+                             or getattr(_law.tables.structures.placement,
+                                        "airside_floor", False)),
                          coarsen_reach_m=(_law.tables.structures.placement
                                           .coarsen_reach_m
                                           if a.coarsen_reach is None

@@ -789,6 +789,28 @@ cluster_pad_min_m2  = 5000.0
 # ``low_side`` keyword; nothing acts on its value.
 pad_between_aprons  = false
 
+# §16g (2) AMENDED — THE GRADED AIRSIDE SURFACE IS A FLOOR UNDER EVERY
+# UNIT MEMBER (owner RULINGS 2026-09-17x (1), fix B).  The floor is the
+# graded surface over the member's OWN ground-contact feet, read as
+# §17 (2) reads a foot (the MEDIAN) over the feet on a rolled-on face,
+# and raised to the highest floor of the member's §16c (7) RIGID CLUSTER
+# so a 2 mm pack weld is never written as a step.
+#
+# SHIPS FALSE, AND THE REASON IS A MEASUREMENT, NOT A DOUBT (lane
+# v2leafseat, matched dry replay arms, the 17x bar = 17s's cross-body
+# contact census within 60 m of the owner's site):
+#   LEMD T4  pairs > 0.5 m  99 -> 42, worst 1.748 -> 0.807 m; the worst
+#            BURIED foot of a T4 unit member 1.73 -> 0.43 m.  MET.
+#   HECA T3  pairs > 0.5 m  44 -> 245, and the six T3_brick_clean shells
+#            go back onto SEVEN datums (site distinct datums 5 -> 18).
+# HECA's T3 shells stand on apron `pav1`, which falls 5.4 m across the
+# district, and they are NOT one rigid cluster, so each floors to its own
+# local apron and fix A is undone AT THE OWNER'S OWN SITE.  17x (1) names
+# the reserve shape for exactly this — partition the unit by reach — and
+# it is not this lane's to choose.  Awaiting that ruling; true reproduces
+# every number above.
+airside_floor       = false
+
 # §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed).
 # Two bodies whose plan footprints overlap or come within this are ONE
 # unit, chained transitively; a body touching nothing seats alone.

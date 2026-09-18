@@ -418,6 +418,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  cluster_min_m2: float = 0.0, touch_m: float = 0.0,
                  connector_span_m: float = 0.0,
                  chain_min_height_m: float = 0.0,
+                 # §16g (2) AMENDED (owner RULINGS 2026-09-17x (1))
+                 airside_floor: bool = False,
                  # RETIRED (owner RULINGS 2026-09-17t: "Pad datum: median,
                  # one rule for both seats").  §16g (10) (9) (2)'s low-side
                  # pad reading is gone from ``footprint_unit``; the keyword
@@ -729,7 +731,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cands, staged, surface, pads, counts, unit_id=u.id,
             touch_m=touch_m, visual_m=bind_ground_m,
             cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m,
-            plan_wide=_pw, cluster_of=_clus))
+            plan_wide=_pw, cluster_of=(_clus if airside_floor else None),
+            airside_floor=airside_floor))
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
         by_key = {(c.member, c.group): c for c in cands}

@@ -72,7 +72,8 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
                          visual_m: float = 0.0, cluster_min_m2: float = 0.0,
                          connector_span_m: float = 0.0,
                          plan_wide: "_t.Mapping[int, tuple[str, float, str, str]] | None" = None,
-                         cluster_of: "_t.Mapping[int, int] | None" = None
+                         cluster_of: "_t.Mapping[int, int] | None" = None,
+                         airside_floor: bool = False
                          ) -> list[Family]:
     """§16g THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed;
     spec §16g) — the ONE rule that replaces every family derivation of
@@ -115,7 +116,8 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
         return _bind_plan_wide(cands, by_mi, surface, counts, plan_wide,
                                visual_m=visual_m,
                                connector_span_m=connector_span_m,
-                               cluster_of=cluster_of)
+                               cluster_of=cluster_of,
+                               airside_floor=airside_floor)
     clusters, _adj = _clusters(cands, touch_m, min_members=1)
     units: list[Family] = []
     bound_ci: set[int] = set()
@@ -675,7 +677,8 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                     surface: _ar.Surface, counts: dict,
                     plan_wide: _t.Mapping[int, tuple],
                     *, visual_m: float, connector_span_m: float,
-                    cluster_of: "_t.Mapping[int, int] | None" = None
+                    cluster_of: "_t.Mapping[int, int] | None" = None,
+                    airside_floor: bool = False
                     ) -> list[Family]:
     """§16g (1)/(2) PLAN-WIDE (owner RULINGS 2026-09-13bw): seat every
     candidate of this pass at the datum ITS PLAN-WIDE UNIT was given.
@@ -780,7 +783,8 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
         # move together or not at all.  A member with no airside foot
         # keeps the unit datum; a floor at or below the datum changes
         # nothing.
-        floors = _cluster_floors(per, surface, cluster_of, zero, counts)
+        floors = (_cluster_floors(per, surface, cluster_of, zero, counts)
+                  if airside_floor else {})
         out.extend(_seat(cands, by_mi, surface, counts, per, zero, where,
                          src, uid, visual_m,
                          conn={ci: conn[ci] for ci in per if ci in conn},

@@ -6181,3 +6181,72 @@ implemented.  `Terminal4_05` b5 and `_56` b0 remain **OUTSIDE** the unit
 at 616.96/616.97 in BOTH arms — 1.74 m above the unit datum, inside one
 building — also 17u-1's, also not fixed.  Bridge2's parapets (17u-2) are
 not this lane's.
+
+### §16g (2) AMENDED — THE GRADED AIRSIDE SURFACE IS A FLOOR UNDER EVERY UNIT MEMBER (owner RULINGS 2026-09-17x (1), fix B on 17u-1) — lane `v2leafseat`
+
+Owner: *"the graded airside surface flooring every member is probably
+best, do you concur?"* — §16g rigidity YIELDS to the apron; airside is
+king.  A pack terminal is one mesh at one datum and cannot bend, but the
+apron under it is lawfully graded and VISIBLE: a buried kiosk or door is
+a defect the pilot reads, a member 1 m higher than its neighbour 600 m
+away is not.
+
+2. (amended)  A unit member never seats BELOW the graded airside surface
+   under its own footprint.  The floor is read over the member's OWN
+   ground-contact FEET the way §17 (2) reads a foot — the MEDIAN, so one
+   foot over lower ground does not float the body — never over the whole
+   plan box, and only over the feet standing on a `rolled_on` face
+   (§17's own two sampler channels; a sampler carrying no roles reads NO
+   floor, because no reading is no evidence).  Contact-bound RIGID
+   CLUSTERS (§16c (7)) move TOGETHER to the highest floor among their
+   members, so a 2 mm pack weld is never written as a step; the cluster
+   relation is PUBLISHED by `placement_atom.bind_unit` and never
+   re-derived.  Only a floor ABOVE the unit's datum moves anything.
+   INSTRUMENT AND BAR: 17s's cross-body contact census (pack contacts
+   across two bodies, written > 0.5 m apart, within 60 m of the site —
+   `obj8_split_report --contact-pairs`) must not RISE, and no foot of a
+   floored member may be buried more than 0.2 m.  If the census rises,
+   the unit is partitioned by REACH instead (the reserve shape).
+
+### §16g (2) FIX B MEASURED — MET AT LEMD, MISSED AT HECA; SHIPS OFF (lane `v2leafseat`, 2026-09-17; branch `claude/v2leafseat`)
+
+Matched dry replay arms, ONE worktree, the ONLY variable `[placement]
+airside_floor`, both arms read by the same instrument (the
+median-and-fix-A tree `a7aa2ffa` against the branch):
+
+| bar (17x (1)) | median + fix A | **+ the airside floor** | verdict |
+|---|---|---|---|
+| **LEMD T4** cross-body contact pairs > 0.5 m within 60 m | 99, worst **1.748 m** | **42, worst 0.807 m** | **MET** |
+| LEMD T4 worst BURIED foot of a unit member | **+1.73 m** | **+0.43 m** | improved 4×; the 0.2 m bar MISSED by 0.23 m on one body (`Terminal4_yellow-LEMD14` b4) |
+| LEMD unit members off their plane | 106 | **36** | — |
+| LEMD members floored / worst lift | — | **101 / 3.536 m** | — |
+| LEMD files | 2,840 | 2,804 | — |
+| **HECA T3** cross-body contact pairs > 0.5 m within 60 m | **44**, worst 4.397 m | **245**, worst 3.619 m | **MISSED, 5.6×** |
+| HECA the site's distinct body datums | **5** (spread 4.40 m) | **18** (spread 3.62 m) | **MISSED** |
+| HECA `T3_brick_clean` shells at the site | **five on ONE datum 97.26** | back on **SEVEN** datums (98.90 … 100.07) | **MISSED — fix A undone** |
+| HECA unit members off their plane | 377 | 308 | — |
+| HECA members floored / worst lift | — | 125 / 4.262 m | — |
+| HECA files | 3,423 | 3,516 | — |
+
+**THE ATTRIBUTION, AND IT IS THE RESERVE SHAPE'S OWN PREMISE.**  At LEMD
+the T4 members are large skirted buildings on `pav12`, which is nearly
+level where they stand, and their rigid clusters hold — every member
+rises +1.09 … +1.84 m onto the apron together and the welds survive.  At
+HECA the T3 shells stand on apron `pav1`, which falls **5.4 m across the
+district** (95.99 … 101.42 over 390 nodes), and they are NOT one §16c (7)
+rigid cluster (`bind refused for ground` 499), so each floors to its OWN
+local apron and the district is scattered again — the exact defect 17s
+attributed and fix A closed, at the owner's own site.
+
+**SHIPS OFF: `[placement] airside_floor = false`.**  17x (1) names the
+reserve shape for precisely this — partition the unit by REACH — and says
+it is not this lane's to choose.  STOP-and-report, per the instruction:
+the mechanism is complete, gated, twinned and reproduces both arms from
+the key (`--airside-floor` on the instrument).  Flipping it needs either
+the reach partition or an owner who accepts HECA's 245.
+
+**ALSO OWED, NAMED.**  The engine path cannot arm the key: `[placement]
+airside_floor` is read by `tools/obj8_split_report.py` and by
+`placement_plan.build_splits`'s caller, and `src/auto_patch/engine_v2.py`
+— another lane's file this round — does not pass it.  One line there when
+the flag flips.

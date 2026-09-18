@@ -193,6 +193,10 @@ class Placement:
     #: pad takes the pad's LOW side, never its median — a pad between two
     #: aprons is a plane and its mean floats every body half the fall.
     pad_between_aprons: bool = True
+    #: §16g (2) AMENDED (owner RULINGS 2026-09-17x (1)): the graded
+    #: AIRSIDE surface is a FLOOR under every unit member.  Ships FALSE —
+    #: MET at LEMD T4, MISSED at HECA T3 (see `structures.toml`).
+    airside_floor: bool = False
 
     #: §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo,
     #: interviewed): "We always want to keep objects covering the same

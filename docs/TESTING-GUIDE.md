@@ -138,8 +138,9 @@ said — it states the reason.
 - An airport the app declines to grade is **skipped with a line saying
   why** (for example, no airport layout exists for it in your X-Plane
   install). The tile still builds.
-- The same airport built on macOS, Windows and Linux differs slightly. Tell
-  us your platform; do not file the difference itself.
+- Straight brightness lines between textures, mostly on coasts, come from
+  **Harmonize texture colors** (see the release notes' known issues): untick
+  it and rebuild the tile's textures.
 - A scenery pack you **disabled in X-Plane is ignored**: its airport is
   graded from the next enabled pack or from Global Airports and shows a
   gray mark on the map. If an airport looks like it was built from the

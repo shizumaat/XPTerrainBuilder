@@ -1,11 +1,4 @@
-<!--
-DRAFT (session, 2026-09-17) for the owner to edit. This comment is not rendered.
-The release job REQUIRES this file for the tag v1.0.347-beta.1 and refuses a tag
-whose number differs from Sources/XPTerrainBuilder/Resources/VERSION. If a new
-local app build moves VERSION before tagging, rename this file to match
-(docs/RELEASE_NOTES-<app-build>-beta.1.md) and update the artifact names below.
--->
-# XPTerrainBuilder 1.0.347-beta.1
+# XPTerrainBuilder 1.0.350-beta.1
 
 **Beta 1 — a prerelease for outside testers.** This is the first build meant
 for people other than its author. It runs on macOS, Windows and Linux. What
@@ -84,9 +77,9 @@ It is a fork and derivative of
 
 | Platform | Artifact |
 | --- | --- |
-| macOS 14+, **Apple Silicon only** | `XPTerrainBuilder-1.0.347-beta.1-mac.zip` |
-| Windows 10/11 x64 | `XPTerrainBuilder-1.0.347-beta.1-win.zip` |
-| Linux x86_64 (built on Ubuntu 22.04) | `XPTerrainBuilder-1.0.347-beta.1-linux.AppImage` (or `…-linux.tar.gz`) |
+| macOS 14+, **Apple Silicon only** | `XPTerrainBuilder-1.0.350-beta.1-mac.zip` |
+| Windows 10/11 x64 | `XPTerrainBuilder-1.0.350-beta.1-win.zip` |
+| Linux x86_64 (built on Ubuntu 22.04) | `XPTerrainBuilder-1.0.350-beta.1-linux.AppImage` (or `…-linux.tar.gz`) |
 
 **macOS.** The app is signed with a Developer ID and notarized by Apple, so
 there is nothing to bypass.
@@ -112,15 +105,15 @@ portable, not installed.
 **Linux.** Download the **AppImage**, make it executable, and run it:
 
 ```sh
-chmod +x XPTerrainBuilder-1.0.347-beta.1-linux.AppImage
-./XPTerrainBuilder-1.0.347-beta.1-linux.AppImage
+chmod +x XPTerrainBuilder-1.0.350-beta.1-linux.AppImage
+./XPTerrainBuilder-1.0.350-beta.1-linux.AppImage
 ```
 
 If your system has no working FUSE, add `--appimage-extract-and-run`. The
 **tar.gz** is the same build as a plain folder:
 
 ```sh
-tar xzf XPTerrainBuilder-1.0.347-beta.1-linux.tar.gz
+tar xzf XPTerrainBuilder-1.0.350-beta.1-linux.tar.gz
 cd XPTerrainBuilder && chmod +x XPTerrainBuilder && ./XPTerrainBuilder
 ```
 
@@ -189,9 +182,13 @@ include, in this order:
   your packs were never touched, do not test on an install you cannot
   restore; a copy of X-Plane's `Custom Scenery` is the safe setup for this
   beta.
-- **The same airport can come out slightly differently on macOS, Windows
-  and Linux.** The surface is equally lawful on each, but not identical.
-  Say which platform you built on.
+- **"Harmonize texture colors" can draw straight lines between textures,
+  most visibly on coasts.** The option (on by default) shifts each texture's
+  colour toward its neighbours; where a texture is mostly sea and the next
+  mostly land it over-corrects, and a brightness step appears along the
+  texture edge that is not in the downloaded imagery. If you see it, untick
+  **Harmonize texture colors** in the tile's settings and rebuild the
+  tile's textures. A rework is planned.
 - **Large airports take a while.** The airport stage runs a few seconds for
   a small field and around ten minutes for a large hub. The progress line
   names the airport and its step; it has not hung.

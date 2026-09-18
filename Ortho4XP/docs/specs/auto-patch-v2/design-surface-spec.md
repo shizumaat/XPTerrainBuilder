@@ -16641,3 +16641,21 @@ its integer tile corners (row 15). **The census has no open ENTRY consumer left.
 `tests/auto_patch_v2/test_water_datum.py` — the returned frame geometry lands on the 1 mm
 grid, `water_geometry` no longer names `_fwd`, `bounds` still does, and an unquantised
 (fixture / pre-§46) frame still projects.
+
+**(h) THE GATE ON MAIN, AND ROW 16 UNDER THE BARS (round 2).** `xplat_gate`'s FIRST run on
+`main` — **35291627055**, on the merge — is **GREEN**: patch body `301280a0e02e` /
+830,345 B and `.graded.json` `8fca48a23fb0` / 266,679 B byte-identical on all three, LP
+17289 × 1918 / 254 rounds, the same five named residues and nothing else. Nothing to
+attribute. Run **35291801734** (`claude/xplatquantum` `9cd71efa`, row 16 switched) prints
+the IDENTICAL verdict, and the local CYXY harness arm's `body_sha` is `ad542d0955b3` before
+and after row 16 — the water-mask switch is byte-neutral at CYXY, so it keeps every bar by
+changing nothing there.
+
+ONE OBSERVATION WORTH RECORDING, because it makes the amended bar the right one:
+`solved z.dp9` is not stable RUN TO RUN. Across the four runs mac is fixed at
+`98dc4adaa615c706`, while linux moved `842c649a` → `5137fda5` and windows `c6cb4c23` →
+`fd06d450` — on trees whose CYXY output is byte-identical. A nanometre of solved z is not a
+property of the build at all on those two platforms; the patch body has been
+`301280a0e02e` on every platform of every run since the quantum shipped. Judging the
+release on the shipped file rather than on `z.dp9` is not a relaxation, it is the only
+reading that is reproducible.

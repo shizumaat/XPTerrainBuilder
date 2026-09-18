@@ -83,16 +83,21 @@ Triangles
 """
 
 
-def _write_mesh(build_dir, vertices, triangles):
+def _write_mesh(build_dir, vertices, triangles, elevations=None):
     """Write a minimal Triangle4XP-style ``.mesh`` file.
 
-    ``vertices`` is a list of ``(lon, lat)`` (elevation is fixed tiny);
-    ``triangles`` a list of ``(i, j, k, attr)`` with 1-based node indices and
-    the raw attribute column (0 = land, 2 = sea, per ``read_mesh_file`` +
-    ``build_dsf``'s remap).
+    ``vertices`` is a list of ``(lon, lat)``; ``triangles`` a list of
+    ``(i, j, k, attr)`` with 1-based node indices and the raw attribute
+    column (0 = land, 2 = sea, per ``read_mesh_file`` + ``build_dsf``'s
+    remap).  ``elevations`` gives a per-vertex altitude in METRES (the MEDIT
+    column is metres/100000, as ``read_mesh_file`` reads it); omitted, every
+    vertex keeps the historic fixed 100 m.
     """
+    if elevations is None:
+        elevations = [100.0] * len(vertices)
     vlines = "\n".join(
-        f"{lon:.9f} {lat:.9f} 0.001000000 0" for (lon, lat) in vertices)
+        f"{lon:.9f} {lat:.9f} {z / 100000.0:.11f} 0"
+        for ((lon, lat), z) in zip(vertices, elevations))
     nlines = "\n".join("0.00 0.00 0" for _ in vertices)
     tlines = "\n".join(
         f"{i} {j} {k} {attr}" for (i, j, k, attr) in triangles)
@@ -504,3 +509,115 @@ def test_airport_ortho_physical_base_and_overlay(
     for patch in water:
         assert patch.flags == 1
         assert patch.plane_count == 7
+
+
+# ── test 7: THE MESH OWNS THE WATER (owner sim read, OTHH 2026-09-17) ───
+
+# A raised LAND bank standing 3.96 m above a flat sea, where X-Plane's own
+# landclass coastline (coarser than the mesh's) still says WATER.  This is
+# the OTHH channel in miniature: the mesh's water law is satisfied (the sea
+# triangle is at 0.000 and no water-bit triangle is raised) and the paint is
+# what climbs the bank.
+_BANK_VERTS = [
+    # the bank: land, inside the map's water region (lon < 10.2)
+    (10.10, 50.10), (10.18, 50.10), (10.18, 50.18), (10.10, 50.18),
+    # a land square east of the split, over the map's grass region
+    (10.30, 50.10), (10.38, 50.10), (10.38, 50.18),
+    # the sea, also west of the split
+    (10.10, 50.30), (10.18, 50.30), (10.14, 50.38),
+]
+_BANK_TRIS = [
+    (1, 2, 3, 0),    # raised LAND bank over the landclass water
+    (1, 3, 4, 0),    # raised LAND bank over the landclass water
+    (5, 6, 7, 0),    # flat land over the landclass grass
+    (8, 9, 10, 2),   # SEA
+]
+_BANK_ELEVS = [3.96, 3.96, 3.96, 3.96, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def _water_landclass_map():
+    """A DefaultTerrainMap whose coastline says WATER west of lon 10.2."""
+    tris = [
+        ((10.0, 50.0), (10.2, 50.0), (10.2, 50.5)),
+        ((10.0, 50.0), (10.2, 50.5), (10.0, 50.5)),
+        ((10.2, 50.0), (10.5, 50.0), (10.5, 50.5)),
+        ((10.2, 50.0), (10.5, 50.5), (10.2, 50.5)),
+    ]
+    return DTM.DefaultTerrainMap(
+        ["terrain_Water", "lib/g10/terrain10/grass.ter"],
+        tris, [0, 0, 1, 1])
+
+
+def test_is_water_terrain_predicate():
+    """The ONE implementation the writer filters on and the audit measures."""
+    assert DTM.is_water_terrain("terrain_Water")
+    assert DTM.is_water_terrain("lib/g10/terrain10/water_temp.ter")
+    assert DTM.is_water_terrain("lib/g10/terrain10/lake_cold.ter")
+    assert not DTM.is_water_terrain("lib/g10/terrain10/grass.ter")
+    assert not DTM.is_water_terrain("lib/g10/terrain10/sand_vhot_dry_fl.ter")
+    # The audit tool must not carry a second spelling.
+    assert DECODE.is_water_terrain is DTM.is_water_terrain
+
+
+def _build_bank_tile(module, tmp_path, sub, monkeypatch):
+    build_dir = _prepare_build_dir(tmp_path / sub)
+    _write_mesh(build_dir, _BANK_VERTS, _BANK_TRIS, _BANK_ELEVS)
+    terrain_map = _water_landclass_map()
+    monkeypatch.setattr(
+        DTM.DefaultTerrainMap, "from_tile",
+        classmethod(lambda cls, lat, lon: terrain_map))
+    monkeypatch.setattr(
+        module, "extract_elevation_and_bathymetry_data",
+        lambda lat, lon: (b"", b""))
+    monkeypatch.setattr(
+        module, "elevation_and_bathymetry_data", lambda tile: (b"", b""))
+    tile = _make_tile(build_dir, "default_xplane")
+    assert module.build_dsf(tile, queue.Queue()) == 1
+    return _emitted_dsf(build_dir)
+
+
+@_DSFTOOL
+def test_water_terrain_never_painted_on_a_land_triangle(
+        tmp_path, monkeypatch):
+    """No land triangle is drawn with the water shader — and the BASE commit
+    drew four of them, which is the interventional proof."""
+    (tmp_path / "edited").mkdir()
+    dsf = _build_bank_tile(DSF, tmp_path, "edited", monkeypatch)
+    audit = DECODE.water_datum_audit(
+        DECODE.dsf_text_path(dsf), flag_m=0.05)
+    # The only water in this fixture is the sea, and the sea is at 0.000.
+    assert audit["totals"]["raised"] == 0, (
+        "a water-terrain triangle still stands above the sea: "
+        f"{audit['totals']}")
+
+    dump = DECODE.decode_dsf(dsf)
+    # Every 5-plane (default-landclass) patch carries a LAND terrain.
+    land_band = [p for p in dump.patches if p.plane_count == 5]
+    assert land_band, "no default-landclass land patches emitted"
+    for patch in land_band:
+        assert not DTM.is_water_terrain(patch.terrain_path), (
+            f"water terrain on the LAND band: {patch}")
+    # The sea is untouched: still terrain_Water, physical, 7-plane.
+    sea = [p for p in dump.patches
+           if p.terrain_path == "terrain_Water" and p.plane_count == 7]
+    assert sea, "the sea triangle lost its terrain_Water patch"
+
+    # THE INTERVENTION: the same fixture through the pinned base commit
+    # paints the bank with terrain_Water at 3.96 m.
+    base = _load_base_module(tmp_path)
+    if base is None:
+        pytest.skip(
+            f"baseline O4_DSF_Utils from {_BASE_COMMIT[:7]} unavailable")
+    (tmp_path / "base").mkdir()
+    base_dsf = _build_bank_tile(base, tmp_path, "base", monkeypatch)
+    base_audit = DECODE.water_datum_audit(
+        DECODE.dsf_text_path(base_dsf), flag_m=0.05)
+    assert base_audit["totals"]["raised"] == 2, (
+        "the base commit did NOT reproduce the defect — the fixture, not "
+        f"the fix, is what changed: {base_audit['totals']}")
+    assert base_audit["totals"]["max_z_m"] > 3.9
+    base_dump = DECODE.decode_dsf(base_dsf)
+    base_water = [p for p in base_dump.patches
+                  if DTM.is_water_terrain(p.terrain_path)]
+    assert sum(p.triangle_count for p in base_water) == 3, (
+        "base did not paint the two bank triangles as water beside the sea")

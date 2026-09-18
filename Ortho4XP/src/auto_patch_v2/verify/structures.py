@@ -227,13 +227,33 @@ def basin_floor_at_declaration(p: Patch) -> list[Row]:
 
 
 def structure_rim_gap(p: Patch) -> list[Row]:
-    """RULINGS 2026-09-06b (1), 2026-09-08a: the rim is the at-grade ring
-    around the floor (inside the wall's footprint) — a rim vertex never
-    shares an id with a floor / ramp vertex, and stands at least the
-    identity spacing (``emit.identity.min_distinct_spacing_m``, the
-    stand-off's floor: the per-wall value is planar's, not the patch's)
-    off every floor and ramp vertex in plan (the void the mesh makes the
-    wall in).  Each miss is a row naming the rim and the floor."""
+    """§47 (4) RE-FOUNDED (owner RULINGS 2026-09-17h; supersedes the
+    09-06b (1) / 09-08a reading): the rim is the at-grade ring around the
+    floor — under §47 (1) it is the wall's OUTER face and the floor ring
+    its INNER face, so the DESIGNED band is the wall's own thickness
+    ``t``, or the measured lattice floor ``F`` (``cutout.ring_floor_m``)
+    where the wall is thinner and the rim yields to it (§47 (3)).  A rim
+    vertex never shares an id with a floor / ramp vertex, and never stands
+    closer than the designed band to one in plan (the void the mesh makes
+    the wall in).  Each miss is a row naming the rim and the floor.
+
+    §47 (4)'s "the bar is the DESIGNED band ``max(t, F)`` per corridor" IS
+    REFUTED AS WRITTEN, and this is the measurement (lane ``v2wallface``,
+    the §47 ring ladder through ``planar/build``): THE DESIGNED BAND
+    CANNOT BE READ BACK OFF THE EMITTED PRODUCT, because the arrangement
+    snap-rounds BOTH rings to the 0.5 m identity lattice
+    (``planar/overlay.py:441``) and each vertex may move half a cell
+    diagonal (0.354 m) toward the other.  Measured, designed band →
+    smallest emitted rim-to-floor distance: 0.7071 → 0.500 (the 0.25 and
+    0.55 m shells), 1.0000 → 0.707, 2.0000 → 1.803.  A bar of ``max(t, F)
+    − materiality`` would report every lawful corridor; a bar of
+    ``F − half a diagonal`` is 0.354 m, WEAKER than the identity spacing.
+    So the bar stays the identity spacing — what two DISTINCT emitted
+    vertices may be, which is exactly the fusion §47 (3) exists to
+    prevent.  The rings NEVER fused at any rung of the ladder (shared
+    vertices 0 at t = 0.25 / 0.55 / 1.00 / 2.00), and the EXACT band is
+    asserted where it is real — on the planar cells, before the
+    arrangement, in ``tests/auto_patch_v2/test_v2wallface.py``."""
     gap = p.law.tables.emit.identity.min_distinct_spacing_m
     # the reading's floor: a rim standing AT the stand-off reads 0.2–0.3 mm
     # under it in the patch's own frame (the census reprojects the emitted

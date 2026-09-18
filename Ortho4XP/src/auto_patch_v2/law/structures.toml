@@ -198,8 +198,49 @@ pair_overlap_min_fraction = 0.5
 # to the floor ring than two distinct vertices may be.  Where that floor binds
 # (t < floor_overlap_m + spacing = 0.8 m) the rim stands 0.8 m outside the
 # inner face — at or outside the outer face of a thin shell (spec §1a).
-floor_overlap_m     = 0.3           # the floor extends this far OUTWARD past the object's inner perimeter, into the wall's own footprint (unchanged by 09-08a)
-rim_inset_fraction  = 0.5           # the at-grade rim stands this fraction of the wall's measured plan thickness INSIDE its outer face (09-08a; was rim_gap_m = 0.3 OUTSIDE it)
+# §47 (1) (owner RULINGS 2026-09-17h/17j): THE RINGS ARE THE FACES.  For an
+# OBJECT-WALLED structure the FLOOR ring is the wall's INNER face exactly and
+# the RIM ring its OUTER face exactly — the band between them is the wall's own
+# measured thickness t.  `floor_overlap_m` and `rim_inset_fraction` NO LONGER
+# NAME THAT PAIR (`structure_geometry.rim_standoff` reads neither): the owner's
+# "the ramp must follow the interior of the shell exactly / the surrounding
+# grade must meet the shell exactly with no gaps".  Both keys survive for the
+# uses that are NOT the ring pair — the basin floor-plate close
+# (`planar/basins._floors`), the door well's axial sill overlap
+# (`planar/door_ramps.door_groups`) and the sunken road's — and an OSM BORE's
+# rim is still `wall_gap_m + wall_band_width_m`.
+floor_overlap_m     = 0.3           # the floor plate's own outward close (basins, the door well's axial overlap); NOT the ring pair since §47 (1)
+rim_inset_fraction  = 0.5           # RETIRED for the ring pair by §47 (1) (the rim IS the outer face); kept so the 08a record reads
+# §47 (3) THE LATTICE FLOOR `F`, MEASURED (lane `v2wallface`, 2026-09-17).  The
+# arrangement snap-rounds every coordinate to the 0.5 m identity lattice
+# (`planar/overlay.py:441`, `shapely.unary_union(..., grid_size=0.5)`), so two
+# unsnapped rings closer than this can FUSE.  Measured through that exact call
+# path (rings noded then `shapely.polygonize`d as `build_arrangement` does;
+# "survives" = exactly two faces, the band a proper annulus whose hole is the
+# floor, and the band NOWHERE of zero width), swept over sub-grid phases x
+# rotations on three ring families:
+#   d       straight 40x8 m (1,183 phases)   curved 24-gon R=20 (324)   narrow 12x2 m (484)
+#   0.25    403/405 fused                    —                          —
+#   0.50     91/405 fused                    —                          —
+#   0.55     28/405 fused                    —                          —
+#   0.60    132 bad                          205 bad                     70 bad
+#   0.65     34 bad                           65 bad                     22 bad
+#   0.68      4 bad                            —                          4 bad
+#   0.70      0 bad (min band 0.085)           8 bad                      0 bad
+#   0.7071    0 bad (min band 0.151)           0 bad (min band 0.307)     0 bad (0.354)
+#   0.75/0.85/1.00  0 bad throughout
+# So F = the cell DIAMETER: 0.70 already fails a curved pair and nothing above
+# 0.7071 buys anything.  THE 09-01e "0.85 m merged" RECORD IS SETTLED and does
+# NOT bind: vertex rounding cannot merge two points 0.85 m apart (the cell
+# diameter is 0.7071) and the measurement finds no segment hot-pixel fusion
+# above 0.7071 either — the 0.85 m merge was `structure_geometry.snap_out`,
+# which rounds a point AWAY FROM ITS OWN ORIGIN and so pushes it up to a full
+# grid step TOWARD the other ring (measured here: two points 0.8514 m apart,
+# each snapped away from its own origin, land 0.7071 m apart, and with the
+# origins one step further out they coincide).  §47 (1)/(2) retire `snap_out`
+# for these rings — they are the OBJECT's own unsnapped vertices — so the
+# lattice floor is the arrangement's alone.
+ring_floor_m        = 0.7071        # the smallest separation at which two UNSNAPPED rings survive the arrangement as two rings; where t < this the RIM YIELDS OUTWARD by ring_floor_m - t (§47 (3)), per shell, reported by name
 emit_wall_band  = false             # no wall face is emitted between floor and rim: the rim is a constrained ring (o4_feature=structure_rim), the mesh triangulates the wall (only false is generated)
 
 [cutout.door]                       # RULINGS 2026-09-08b/c LAW A — THE DOOR RAMP (spec othh-terminal-ramps-spec.md §2)
@@ -216,7 +257,17 @@ sill_min_depth_m = 0.5              # the door's own gate (a sill shallower than
 sill_min_width_m = 1.0              # narrower is a drain / a duct, not a door
 sill_max_width_m = 6.0              # RULINGS 2026-09-08j: WIDER is a service yard or a sunken parking pit, not a basement access door (OTHH's six wells read 3.7-5.7 m; the letter of the 08c law admitted 8-15 m parking pits at OTHH and 18-38 m service yards at LEMD) — refused loudly until the owner rules on yards
 exit_max_fraction = 0.5             # the well's rectangle side OPPOSITE the face (the ramp's exit) lies under the family's above-band solids (obj8.above_grade_footprint, basin.contact_band_m) over at most this share of its length; more is a covered slot (OTHH Terminal_Parking_006's light slots), never a door.  The FACE is the well's longer side nearer the MASS of the family's above-band solids around it (the building; the ramp leaves away from it).  OPEN (lane v2doorramp): OTHH's car-park wells are closed four-walled boxes hanging from the facade lattice, the door a texture on the building-side wall — no pack geometry names the door side; the building's mass is the last discriminating signal
-ramp_grade       = 0.08             # the climb beyond the well: a 1.70 m sill -> 21 m (the owner's "small ramp"; the pack's own geometry implies >= 7.5 %: the nearest road 22.8 m away); <= the door_ramp role cap (rulesets.toml), checked at load.  ALSO the sill test: a plate descending at or under this over its reach is a ramp of the object's own (OTHH Terminal_Parking_006's 21 m car-park ramp loop at 5 %), never a sill — a well's steps down to its door are far steeper
+# §47 (6) LAW A INVERTED (owner RULINGS 2026-09-17h, Q1 "Maintain 10% cap,
+# descend as far as that allows, stopping at the building wall"): the ramp TOP
+# stands at grade at the well's OUTER end and the floor DESCENDS toward the
+# building face at this cap, stopping AT the building wall at
+# depth_at_wall = min(sill, ramp_grade x well length); the residual
+# sill - depth_at_wall is a step AT the building face, reported per well.
+# 0.08 -> 0.10 = cutout.wall_corridor.max_ramp_grade (one cap for both walled
+# ramps); the door_ramp role's own longitudinal cap rises with it
+# (rulesets.toml, checked at load).  `max_length_m` no longer governs anything
+# — nothing is emitted beyond the well — and is kept only for the schema.
+ramp_grade       = 0.10             # the descent INSIDE the well (§47 (6); was 0.08 for a climb beyond it): a 1.70 m sill -> 21 m (the owner's "small ramp"; the pack's own geometry implies >= 7.5 %: the nearest road 22.8 m away); <= the door_ramp role cap (rulesets.toml), checked at load.  ALSO the sill test: a plate descending at or under this over its reach is a ramp of the object's own (OTHH Terminal_Parking_006's 21 m car-park ramp loop at 5 %), never a sill — a well's steps down to its door are far steeper
 max_length_m     = 25.0             # a climb that cannot reach the ground within this is refused loudly, never a shallower ramp
 station_m        = 2.0              # ramp station spacing along the climb (the top station stands one station past where the climb meets the ground)
 seat             = "none"           # the door family is NEVER re-seated by its trench (spec §2: a floor_plate seat would move all 35 members of OTHH unit:22); members standing > basin.contact_band_m under the mesh are facility members (05p/05q) and keep their authored y

@@ -97,6 +97,11 @@ class Cutout:
 
     floor_overlap_m: float
     rim_inset_fraction: float
+    #: §47 (3): the MEASURED lattice floor — the smallest separation at
+    #: which two UNSNAPPED rings survive the arrangement's 0.5 m
+    #: snap-rounding as two rings.  Where a wall is thinner the RIM
+    #: YIELDS outward by ``ring_floor_m − t``; the floor never moves.
+    ring_floor_m: float
     emit_wall_band: bool
     door: Door
     sunken_road: SunkenRoad

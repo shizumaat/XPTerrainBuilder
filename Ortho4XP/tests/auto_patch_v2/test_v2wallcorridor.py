@@ -523,16 +523,31 @@ def test_generator_rows_solve_and_emit(objs, law):
     assert sol.status is Status.OPTIMAL, sol.message
     faces = [f for f in pm.faces.values() if f.role == RAMP_ROLE]
     assert faces
-    for t in ts:
-        ln = LineString(t.axis)
-        for f in faces:
-            ids = list(pm.ring_vertices(f.ring))
-            for v in ids:
-                s_ = ln.project(Point(pm.vertices[v].xy))
-                p = Point(pm.vertices[v].xy)
-                if ln.distance(p) <= t.half_width_m + 1e-6 and s_ <= t.wall_length_m + 1e-6 \
-                        and ln.project(p) < ln.length - 1e-6:
-                    assert sol.z[v] == pytest.approx(t.mouth_z, abs=1e-6)
+    # each face is judged against ITS OWN corridor: §47 (7) lifts the floor
+    # of a corridor whose pinched run cannot reach the ground at the 10 %
+    # cap (the residual stands at the covering plate's edge), so the two
+    # corridors' floors are no longer the same number and a face may not be
+    # priced against the other one's mouth
+    lns = {t.id: LineString(t.axis) for t in ts}
+    for f in faces:
+        ids = list(pm.ring_vertices(f.ring))
+        c0 = Point(sum(pm.vertices[v].xy[0] for v in ids) / len(ids),
+                   sum(pm.vertices[v].xy[1] for v in ids) / len(ids))
+        t = min(ts, key=lambda x: lns[x.id].distance(c0))
+        ln = lns[t.id]
+        for v in ids:
+            p = Point(pm.vertices[v].xy)
+            s_ = ln.project(p)
+            # the FLAT floor runs to where the climb starts — which §34 (9)
+            # (5) moves back from the wall end to the COVERING PLATE's edge
+            # (``climb_from_s``), not to ``wall_length_m``.  The 08a floor
+            # ring stood ``floor_overlap_m`` past the inner face and its
+            # wall-end vertex was a station of its own; §47 (1) puts the
+            # ring ON the face, so that vertex is now the climb's first
+            # station and carries the climbed value.
+            if ln.distance(p) <= t.half_width_m + 1e-6 and s_ <= t.climb_from_s + 1e-6 \
+                    and s_ < ln.length - 1e-6:
+                assert sol.z[v] == pytest.approx(t.mouth_z, abs=1e-6)
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     text, _ways, _nodes = render_patch(surf, law, {}, {})
     assert "v='tunnel_ramp'" in text and f"v='{RAMP_ROLE}'" in text

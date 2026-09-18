@@ -597,7 +597,8 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
 def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
           surface: _t.Any, contacts: _t.Iterable[tuple[int, int]],
           counts: dict, near_m: float = 0.0,
-          bind_ground_m: float = 0.0) -> tuple[dict, list]:
+          bind_ground_m: float = 0.0,
+          cluster_out: "dict[int, int] | None" = None) -> tuple[dict, list]:
     """§16c (7) APPLIED TO ONE UNIT (owner RULINGS 2026-09-12q).
 
     Builds the unit's rigid nodes — every footed CANDIDATE and every
@@ -613,7 +614,15 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
 
     ``cands`` is mutated in place (the re-anchored candidates) and so is
     each ``staged`` member's ``raw`` / ``ground_off``.  Returns
-    ``(forced, cluster census)``."""
+    ``(forced, cluster census)``.
+
+    ``cluster_out``, when given, is filled ``candidate index -> the SENIOR
+    candidate index of its rigid cluster`` for every FOOTED candidate the
+    cluster holds — the relation §16g (2) as amended by owner RULINGS
+    2026-09-17x needs, so that a unit member lifted onto the airside floor
+    takes every piece welded to it with it and a 2 mm pack contact can
+    never be written as a step.  Published, never re-derived: this is the
+    SAME ``senior_node`` the re-anchor below acts on."""
     from . import anchor_rule as _ar
     from . import placement_carrier as _pc
     import dataclasses as _dc0
@@ -684,6 +693,9 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
         if sn < 0 or key >= 0 or cand_of_node[sn] < 0:
             continue
         ci, si = cand_of_node[ni], cand_of_node[sn]
+        if cluster_out is not None:
+            cluster_out[ci] = si
+            cluster_out[si] = si
         c, sc = cands[ci], cands[si]
         # (E)/12ap: THE REASON NAMES THIS BODY'S OWN READING, not the
         # senior's.  A bound body used to inherit the senior's whole

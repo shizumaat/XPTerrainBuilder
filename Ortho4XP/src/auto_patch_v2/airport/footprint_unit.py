@@ -71,7 +71,8 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
                          unit_id: str = "", touch_m: float = 0.0,
                          visual_m: float = 0.0, cluster_min_m2: float = 0.0,
                          connector_span_m: float = 0.0,
-                         plan_wide: "_t.Mapping[int, tuple[str, float, str, str]] | None" = None
+                         plan_wide: "_t.Mapping[int, tuple[str, float, str, str]] | None" = None,
+                         cluster_of: "_t.Mapping[int, int] | None" = None
                          ) -> list[Family]:
     """§16g THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo, interviewed;
     spec §16g) — the ONE rule that replaces every family derivation of
@@ -113,7 +114,8 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
     if plan_wide:
         return _bind_plan_wide(cands, by_mi, surface, counts, plan_wide,
                                visual_m=visual_m,
-                               connector_span_m=connector_span_m)
+                               connector_span_m=connector_span_m,
+                               cluster_of=cluster_of)
     clusters, _adj = _clusters(cands, touch_m, min_members=1)
     units: list[Family] = []
     bound_ci: set[int] = set()
@@ -597,6 +599,44 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     return out
 
 
+def _airside_floor(cc: _t.Sequence[tuple[float, float, float, float]],
+                   surface: _ar.Surface) -> "float | None":
+    """§16g (2) AMENDED (owner RULINGS 2026-09-17x (1)): THE GRADED
+    AIRSIDE SURFACE UNDER THIS BODY'S OWN GROUND-CONTACT FEET — the zero
+    its own feet imply, or ``None`` where it has no foot on a rolled-on
+    face.
+
+    Owner: the graded airside surface is a FLOOR under every unit member;
+    §16g rigidity yields to the apron (airside is king).  A pack terminal
+    is one mesh at one datum and cannot bend, but the apron under it is
+    lawfully graded and VISIBLE — a buried kiosk or door is a defect the
+    pilot reads, a member 1 m higher than its neighbour 600 m away is
+    not.  MEASURED (17u): LEMD's T4 unit is 1,216 x 516 m and its one
+    plane, carried 600 m, put 64 bodies 1.0-1.9 m under apron ``pav12``.
+
+    THE READING IS §17 (2)'s — THE MEDIAN FOOT, never the whole plan box
+    and never one low foot: one foot over lower ground must not float the
+    body.  The role test is §17's own (``anchor_rule._all_on_rolled``'s
+    two sampler-carried channels, ``surface.roles`` /
+    ``surface.rolled_on``, read PER FOOT here because a member with one
+    foot off the apron still has an apron under the rest of it).  A
+    sampler carrying no roles reads NO FLOOR: no reading is no evidence,
+    and the unit's own datum stands."""
+    if not cc:
+        return None
+    roles = getattr(surface, "roles", None)
+    rolled = getattr(surface, "rolled_on", None)
+    if roles is None or not rolled:
+        return None
+    step = max(1, len(cc) // FAMILY_CONTACTS_MAX)
+    qs = list(cc[::step])
+    got = roles.roles_many([q[0] for q in qs], [q[1] for q in qs])
+    zs = [q[3] - q[2] for q, r in zip(qs, got) if r in rolled]
+    if not zs:
+        return None
+    return _median(zs)
+
+
 def _elevated_pids_over(c: _t.Any, st: _t.Any) -> frozenset[int]:
     """§16g (10) (4) AMENDED (owner RULINGS 2026-09-17t): THE PART IDS OF
     THE PLACEMENT'S OWN ELEVATED MEMBERS THAT STAND OVER THIS BODY — the
@@ -634,7 +674,8 @@ def _elevated_pids_over(c: _t.Any, st: _t.Any) -> frozenset[int]:
 def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                     surface: _ar.Surface, counts: dict,
                     plan_wide: _t.Mapping[int, tuple],
-                    *, visual_m: float, connector_span_m: float
+                    *, visual_m: float, connector_span_m: float,
+                    cluster_of: "_t.Mapping[int, int] | None" = None
                     ) -> list[Family]:
     """§16g (1)/(2) PLAN-WIDE (owner RULINGS 2026-09-13bw): seat every
     candidate of this pass at the datum ITS PLAN-WIDE UNIT was given.
@@ -731,20 +772,73 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             counts["unit_all_on_pavement"] = \
                 counts.get("unit_all_on_pavement", 0) + 1
             continue
+        # §16g (2) AMENDED (owner RULINGS 2026-09-17x (1)): THE GRADED
+        # AIRSIDE SURFACE IS A FLOOR UNDER EVERY MEMBER.  Read per
+        # member at its own feet (:func:`_airside_floor`), then RAISED
+        # to the whole RIGID CLUSTER's highest floor, so a body welded
+        # to another at 2 mm can never be written as a step: the pieces
+        # move together or not at all.  A member with no airside foot
+        # keeps the unit datum; a floor at or below the datum changes
+        # nothing.
+        floors = _cluster_floors(per, surface, cluster_of, zero, counts)
         out.extend(_seat(cands, by_mi, surface, counts, per, zero, where,
                          src, uid, visual_m,
-                         conn={ci: conn[ci] for ci in per if ci in conn}))
+                         conn={ci: conn[ci] for ci in per if ci in conn},
+                         floors=floors))
+    return out
+
+
+def _cluster_floors(per: _t.Mapping[int, list], surface: _ar.Surface,
+                    cluster_of: "_t.Mapping[int, int] | None",
+                    zero: float, counts: dict) -> dict[int, float]:
+    """``candidate -> the floor its seat must not go below`` (§16g (2) as
+    amended by 17x), already raised to its RIGID CLUSTER's highest.
+
+    The cluster is §16c (7)'s own, published by ``placement_atom.
+    bind_unit`` (``cluster_out``) — never re-derived here.  A candidate
+    the bind put in no cluster is its own cluster of one.  Only floors
+    ABOVE the unit datum are returned; nothing else can move a seat."""
+    own: dict[int, float] = {}
+    for ci, cc in per.items():
+        f = _airside_floor(cc, surface)
+        if f is not None:
+            own[ci] = f
+    if not own:
+        return {}
+    by_cl: dict[int, float] = {}
+    for ci, f in own.items():
+        k = (cluster_of or {}).get(ci, ci)
+        by_cl[k] = max(by_cl.get(k, f), f)
+    out = {}
+    for ci in per:
+        k = (cluster_of or {}).get(ci, ci)
+        f = by_cl.get(k)
+        if f is not None and f > zero:
+            out[ci] = f
+    if out:
+        counts["unit_members_floored"] = \
+            counts.get("unit_members_floored", 0) + len(out)
+        counts["unit_floor_worst_lift_m"] = max(
+            counts.get("unit_floor_worst_lift_m", 0.0),
+            round(max(out.values()) - zero, 3))
     return out
 
 
 def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
           counts: dict, per: _t.Mapping[int, list], zero: float, where: str,
           src: str, uid: str, visual_m: float,
-          conn: "_t.Mapping[int, tuple[str, str]] | None" = None
+          conn: "_t.Mapping[int, tuple[str, str]] | None" = None,
+          floors: "_t.Mapping[int, float] | None" = None
           ) -> list[Family]:
     """Put every candidate of ``per`` on ``zero`` — the one anchor rewrite
     §16f (2) and §16g (2) both take, factored so the per-unit and the
-    plan-wide readings cannot drift apart."""
+    plan-wide readings cannot drift apart.
+
+    ``floors`` (§16g (2) as amended by owner RULINGS 2026-09-17x) raises
+    a member's seat to the graded AIRSIDE surface under its own feet
+    where that stands ABOVE the unit's datum — per RIGID CLUSTER, so
+    welded pieces move together.  Empty in the per-unit path and wherever
+    the sampler carries no face roles."""
     from . import placement_carrier as _pc
     fid = f"{uid}@{src}"
     mems = sorted({cands[ci].member for ci in per})
@@ -755,22 +849,31 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
         c = cands[ci]
         st = by_mi[c.member]
         n_contacts += len(cc)
+        # §16g (2) AMENDED (17x): this member's own seat — the unit's
+        # datum, RAISED to the graded airside floor under its rigid
+        # cluster where that stands higher.  Everything below reads
+        # ``z_i``, so the anchor, the off-plane report and the residual
+        # in the reason are all one number.
+        z_i = max(zero, float(floors[ci])) if (floors and ci in floors) else zero
         _st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
         if (visual_m > 0.0
-                and abs(_median([q[3] - q[2] for q in cc[::_st]]) - zero)
+                and abs(_median([q[3] - q[2] for q in cc[::_st]]) - z_i)
                 > visual_m):
             n_off += 1
-        best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - zero), 6),
+        best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - z_i), 6),
                                       round(abs(q[2]), 6), q[0], q[1]))
         own = best[3] - best[2]
         pair = (conn or {}).get(ci)
         a = _ar.Anchor(
-            c.anchor.body_class, best[0], best[1], best[3] - zero,
+            c.anchor.body_class, best[0], best[1], best[3] - z_i,
             f"{UNIT_REASON} {fid} of {len(mems)} member(s) on "
             + (f"pad {where}" if src in ("pad", "cluster_pad")
                else (f"deck {where}" if src == "deck"
                      else "its median ground"))
-            + f" at {zero:.2f} (own ground {own - zero:+.2f} m)"
+            + f" at {zero:.2f} (own ground {own - z_i:+.2f} m)"
+            + ("" if z_i <= zero else
+               f" — §16g (2)/17x AIRSIDE FLOOR: raised to {z_i:.2f} "
+               f"(+{z_i - zero:.2f} m) with its rigid cluster")
             + ("" if pair is None else
                f" — §16g (6)/(7) CONNECTOR between "
                f"{pair[0] or 'open ground'} and {pair[1] or 'open ground'}, "

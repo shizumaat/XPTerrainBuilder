@@ -114,8 +114,10 @@ def test_auto_layer_queries_each_inset_bbox_and_caches(
         def update_dicosm(self, *a, **k):
             raise AssertionError("no cache exists yet — must query")
 
-        def write_to_file(self, path):
-            written.append(path)
+        def write_to_file(self, path, header_attributes=None):
+            # The writer STAMPS the tag schema since RULINGS
+            # 2026-09-17ad — auto_patch_v2 refuses an unstamped feed.
+            written.append((path, dict(header_attributes or {})))
             Path(path).write_bytes(b"x")
 
     monkeypatch.setattr(VMAP.OSM, "OSM_layer", _FakeLayer)
@@ -126,7 +128,9 @@ def test_auto_layer_queries_each_inset_bbox_and_caches(
     # convention get_overpass_data expects.
     assert seen_bboxes == [(35.1, -80.9, 35.2, -80.8),
                            (35.4, -80.5, 35.5, -80.4)]
-    assert written == [str(cache_path)]
+    assert [w[0] for w in written] == [str(cache_path)]
+    # stamped with the current tag schema, or the v2 reader refuses it
+    assert written[0][1] == {"o4_tag_schema": VMAP.ROAD_CACHE_TAG_SCHEMA}
 
 
 def test_auto_layer_serves_all_boxes_from_extracts_in_one_pass(
@@ -176,8 +180,10 @@ def test_auto_layer_serves_all_boxes_from_extracts_in_one_pass(
         def update_dicosm(self, data, input_tags, target_tags):
             fed.append(data)
 
-        def write_to_file(self, path):
-            written.append(path)
+        def write_to_file(self, path, header_attributes=None):
+            # The writer STAMPS the tag schema since RULINGS
+            # 2026-09-17ad — auto_patch_v2 refuses an unstamped feed.
+            written.append((path, dict(header_attributes or {})))
             Path(path).write_bytes(b"x")
 
     monkeypatch.setattr(VMAP.OSM, "OSM_layer", _FakeLayer)
@@ -191,7 +197,9 @@ def test_auto_layer_serves_all_boxes_from_extracts_in_one_pass(
                                    (35.4, -80.5, 35.5, -80.4)]
     assert extract_calls[0][2] == "airport_small_roads"
     assert fed == [b"<osm version='0.6'/>"]
-    assert written == [str(cache_path)]
+    assert [w[0] for w in written] == [str(cache_path)]
+    # stamped with the current tag schema, or the v2 reader refuses it
+    assert written[0][1] == {"o4_tag_schema": VMAP.ROAD_CACHE_TAG_SCHEMA}
 
 
 def test_auto_layer_recycles_merged_cache(tmp_path, monkeypatch):
@@ -206,7 +214,14 @@ def test_auto_layer_recycles_merged_cache(tmp_path, monkeypatch):
         lambda lat, lon, provider_codes=None: [
             str(inset_dir / "A_usgs3dep.tif")])
     cache_path = tmp_path / "+35-081_airport_small_roads.osm.bz2"
-    cache_path.write_bytes(b"cached")
+    # STAMPED with the current tag schema: since RULINGS 2026-09-17ad the
+    # cache is recycled ONLY when schema-current (auto_patch_v2 refuses a
+    # stale or unstamped feed), so an unstamped fixture re-derives.
+    import bz2 as _bz2
+    with _bz2.open(str(cache_path), "wt", encoding="utf-8") as _fh:
+        _fh.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                  '<osm version="0.6" o4_tag_schema="%s">\n</osm>\n'
+                  % VMAP.ROAD_CACHE_TAG_SCHEMA)
     monkeypatch.setattr(
         FNAMES, "osm_cached",
         lambda lat, lon, suffix: str(cache_path))
@@ -217,7 +232,7 @@ def test_auto_layer_recycles_merged_cache(tmp_path, monkeypatch):
         def update_dicosm(self, path, input_tags, target_tags):
             recycled.append(path)
 
-        def write_to_file(self, path):        # pragma: no cover
+        def write_to_file(self, path, header_attributes=None):  # pragma: no cover
             raise AssertionError("cache hit must not re-write")
 
     monkeypatch.setattr(VMAP.OSM, "OSM_layer", _FakeLayer)

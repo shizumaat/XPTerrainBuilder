@@ -871,10 +871,14 @@ def superseded_road_feeds(root, lat, lon) -> list:
     copied: a second spelling would refuse a different set than the
     loader raises on, which is worse than not checking.
 
-    An UNTAGGED feed is deliberately not named: the loader lists it on
-    the report and does NOT raise (``airport_small_roads`` carries no
-    schema at any tile — its writer stamps none), so refusing it here
-    would refuse every build in the corpus.
+    AN UNTAGGED FEED IS NAMED TOO, since RULINGS 2026-09-17t: the loader
+    RAISES on a feed carrying no ``o4_tag_schema`` at all ("the same fact
+    on weaker evidence"), and since 2026-09-17ad ``O4_Vector_Map.
+    _airport_auto_roads_layer`` stamps the ``airport_small_roads`` cache
+    it writes, so an unstamped one is a pre-fix leftover the refresh can
+    clear — not the permanent state of the corpus this exemption was
+    written for.  Leaving it unnamed meant the pre-flight passed and the
+    loader then refused mid-build, which is the KDFW shape again.
     """
     for p in (Path(root) / "src", Path(root)):
         if str(p) not in sys.path:
@@ -894,8 +898,9 @@ def superseded_road_feeds(root, lat, lon) -> list:
                 if not os.path.isfile(path):
                     continue
                 schema = _v2osm.feed_tag_schema(path)
-                if schema is None or schema == _v2osm.ROAD_CACHE_TAG_SCHEMA:
+                if schema == _v2osm.ROAD_CACHE_TAG_SCHEMA:
                     continue
+                schema = schema if schema is not None else "<none at all>"
                 try:
                     artifact = "OSM_data/" + str(Path(path).resolve()
                                                  .relative_to(Path(osm_root)
@@ -1390,10 +1395,13 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     # must be derived HERE (KDFW died 54 s in on +33-098's).  The engine
     # derives per TILE, so the pass runs once per named tile.
     tiles = {(int(lat), int(lon))}
+    small_roads_tiles = set()
     for _a, path, _t in aside:
         named = _tile_of_osm_path(path)
         if named is not None:
             tiles.add(named)
+            if "_airport_small_roads.osm" in path.name:
+                small_roads_tiles.add(named)
     failures = []
     try:
         for tlat, tlon in sorted(tiles):
@@ -1417,6 +1425,20 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
                     ["all"], cached_suffix="airports")
             VMAP.start_background_osm_prefetch(tile)
             VMAP.wait_for_background_osm_prefetch()
+            # THE PREFETCH DOES NOT COVER ``airport_small_roads`` — it
+            # is not a tile-wide layer, so it has no prefetch
+            # specification (``_osm_layer_prefetch_specifications``
+            # says so in as many words), and RULINGS 2026-09-17ad left
+            # that gap owed.  Its ONE production writer is called here,
+            # inside the same authorisation, lock, snapshot and ledger.
+            # Only for a tile whose own feed was moved aside above: this
+            # refresh re-derives what it NAMED, never more.
+            if (tlat, tlon) in small_roads_tiles:
+                prog.note(f"refresh osm_layers: re-deriving the "
+                          f"airport_small_roads cache of tile "
+                          f"{tlat:+03d}{tlon:+04d} (not a tile-wide "
+                          f"layer, so the prefetch never touches it)")
+                VMAP._airport_auto_roads_layer_at(tlat, tlon)
     finally:
         # The verdict is read off the FILESYSTEM, never off the prefetch:
         # it runs in a daemon thread, so an exception inside it never

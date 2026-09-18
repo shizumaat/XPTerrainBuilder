@@ -108,3 +108,11 @@ check above shows a stale True, the second half is to have the BuildPane
 toggle clear any TILE override for the key (a `write_tile`-style removal
 for the selected tiles) instead of writing the global alone, so the
 visible checkbox is the value the engine resolves.
+
+## 6. Tile-cfg check (PM, 2026-09-18)
+
+`grep modify_custom_airports "~/X-Plane 12/Custom Scenery"/zOrtho4XP_*/Ortho4XP_*.cfg`:
+23 tile cfgs carry the key, ALL `=True` (incl. +25+051, +30+031, +60-136,
++61-133, -13-078, -13-077, +40-004). With tile-beats-global precedence the
+unchecked checkbox never reaches the engine on a re-built tile: GEN-1 is a
+real gating bug of the color_harmonization class, not logging only.

@@ -761,10 +761,13 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         seat_expect = floor_z - (mesh_pred + deepest.agl_m + plate_y)
         prot = max(wits, key=lambda w: w.protrusion_fraction)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
-                 f"shell {shell_t:.2f} m thick: rim inset {inset:.2f} m inside its footprint "
-                 f"(THE CUT HUGS THE WALL, 11t §24 (1): the rim IS the outer face, never widened), "
-                 f"stand-off {standoff:.2f} m taken out of the floor ({floor_trim_m2:.0f} m2 "
-                 f"trimmed, 09-08a)",
+                 f"shell {shell_t:.2f} m thick: the rim IS its OUTER FACE (§47 (1); 11t §24 (1) "
+                 f"THE CUT HUGS THE WALL, never widened)"
+                 + (f", rim_yield {yield_m:.3f} m OUTWARD (§47 (3): the shell is thinner than the "
+                    f"lattice floor {co.ring_floor_m:.4f} m, so the floor stays on the inner face "
+                    f"and the rim yields)" if yield_m > 1e-9 else "")
+                 + f", band {standoff:.2f} m taken out of the floor ({floor_trim_m2:.0f} m2 "
+                 f"trimmed, §47 (1))",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
                  rim_note, snap_note, buried_note,
                  f"rendered deepest solid {smin_z:.2f} = the floor",

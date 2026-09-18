@@ -453,10 +453,23 @@ def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: 
     # did the same.  Both retire for this path; an OSM BORE's carriageway
     # still snaps nearest and its rim still clears by grid steps (its rim
     # law, ``wall_gap_m + wall_band_width_m``, is unchanged).
-    walled = half_fn is not None
+    # ``rim_fn`` — NOT ``half_fn`` — is what says "an object wall": only
+    # the four object group builders set it, while ``half_fn`` is also set
+    # for an OSM BORE whose ramp width comes from the pavement tracing the
+    # road (2026-09-06b (2), ``pavement_half_widths``).  Discriminating on
+    # ``half_fn`` took the unsnapped branch for those bores and moved three
+    # of VHHH's (measured on the §47 dry pair, r1).
+    walled = rim_fn is not None
     if walled:
         left = [(p[0] + nv[0] * h, p[1] + nv[1] * h) for p, nv, h in zip(axis, nrm, hl)]
         right = [(p[0] - nv[0] * h, p[1] - nv[1] * h) for p, nv, h in zip(axis, nrm, hr)]
+    elif half_fn is not None:
+        # an object corridor's floor edges snapped AWAY from the axis (the
+        # pre-§47 law, kept for the pavement-width bore)
+        left = [snap_out((p[0] + nv[0] * h, p[1] + nv[1] * h), p, grid)
+                for p, nv, h in zip(axis, nrm, hl)]
+        right = [snap_out((p[0] - nv[0] * h, p[1] - nv[1] * h), p, grid)
+                 for p, nv, h in zip(axis, nrm, hr)]
     else:
         left = [snap((p[0] + nv[0] * h, p[1] + nv[1] * h), grid) for p, nv, h in zip(axis, nrm, hl)]
         right = [snap((p[0] - nv[0] * h, p[1] - nv[1] * h), grid) for p, nv, h in zip(axis, nrm, hr)]

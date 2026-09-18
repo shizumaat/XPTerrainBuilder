@@ -34,6 +34,16 @@ once per merged batch — `Ortho4XP/CLAUDE.md` BUILD ECONOMY). The
 spawner owns the merge. Current plan of record:
 `Ortho4XP/docs/specs/zero-airside-plan-20260903.md`.
 
+## Beta 2 gate (owner standing 2026-09-18)
+
+`docs/BETA2-BLOCKERS.md` is the beta 1 feedback list (23 rows). ANY attempt
+to cut beta 2 — tag, release notes, app build for release — first runs
+`bash scripts/check_beta_blockers.sh` and stops on a refusal; the release
+workflow enforces the same through `scripts/check_tag_version.sh`. Rows are
+never deleted; only the owner moves a row to `CLOSED` (sim read) or
+`WAIVED` (ruling). Lanes working a row cite its ID and update its
+Status/Notes in the same commit as the evidence.
+
 ## Blast-radius index (check before editing)
 
 Before editing anything under `Ortho4XP/src/` or `Sources/`, run:

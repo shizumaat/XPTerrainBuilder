@@ -71,3 +71,7 @@ if [[ "$TAG_VERSION" != "$TREE_VERSION" ]]; then
 fi
 
 echo "tag $TAG matches the tree app version $TREE_VERSION"
+
+# THE BETA-2 BLOCKER GATE (owner standing 2026-09-18): no tag past beta.1
+# while docs/BETA2-BLOCKERS.md has a row that is not CLOSED/WAIVED.
+bash "$HERE/scripts/check_beta_blockers.sh" "$TAG"

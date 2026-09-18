@@ -795,6 +795,10 @@ def build_dsf(tile, download_queue):
     default_terrain_paths = []
     projected_terrain_counter = Counter()
     default_terrain_substitutions = 0
+    # THE MESH OWNS THE WATER: land triangles whose landclass terrain is a
+    # water terrain, and the ones held back until a land majority exists.
+    default_terrain_water_substitutions = 0
+    deferred_water_painted = []
     # Both default_xplane and airport_ortho lay a default-landclass physical
     # base under every land triangle (decision 4); airport_ortho draws ortho
     # overlays above it only where covers(...) holds.
@@ -1040,31 +1044,61 @@ def build_dsf(tile, download_queue):
         ) / 3
         return (bary_lon, bary_lat)
 
-    def emit_physical_default_land(n1, n2, n3):
+    def emit_physical_default_land(n1, n2, n3, force_path=None):
         """Physical default-landclass patch for one land triangle (decisions
         3, 4, 9).  Shared by default_xplane and airport_ortho; emits into the
         5-plane band-3 pool with the library terrain path referenced by name
-        in ``bTERT`` (no ``.ter`` generated, no ortho download queued)."""
+        in ``bTERT`` (no ``.ter`` generated, no ortho download queued).
+
+        ``force_path`` skips the landclass lookup and uses that terrain — the
+        deferred flush of triangles the water filter below had to hold back.
+        """
         nonlocal bTERT, len_textured_nodes, total_cross_pool
         nonlocal default_terrain_substitutions
-        (bary_lon, bary_lat) = _tri_centroid(n1, n2, n3)
-        src_index = default_terrain_map.terrain_index_at(bary_lon, bary_lat)
-        terrain_path = (
-            default_terrain_paths[src_index]
-            if 0 <= src_index < len(default_terrain_paths)
-            else ""
-        )
-        # Decision 9: projected terrains only.  A non-projected terrain
-        # (is_projected False; None counts as projected-assumed) is replaced by
-        # the running local-majority projected terrain, and the substitution is
-        # counted for the end-of-build summary warning.
-        projected = default_terrain_map.is_projected(src_index)
-        if projected is False:
-            default_terrain_substitutions += 1
-            if projected_terrain_counter:
-                terrain_path = projected_terrain_counter.most_common(1)[0][0]
+        nonlocal default_terrain_water_substitutions
+        if force_path is not None:
+            terrain_path = force_path
         else:
-            projected_terrain_counter[terrain_path] += 1
+            (bary_lon, bary_lat) = _tri_centroid(n1, n2, n3)
+            src_index = default_terrain_map.terrain_index_at(
+                bary_lon, bary_lat)
+            terrain_path = (
+                default_terrain_paths[src_index]
+                if 0 <= src_index < len(default_terrain_paths)
+                else ""
+            )
+            # THE MESH OWNS THE WATER (owner sim read at OTHH 2026-09-17;
+            # RULINGS 2026-09-09o (3) water is a datum per triangle, 09z (3)
+            # per vertex, 09aj "the shore has no bank").  This triangle is
+            # LAND — every water triangle is emitted by the sea pass or by
+            # ``emit_plain_water``, never here.  X-Plane's landclass
+            # coastline is far coarser than the mesh's, so the terrain under
+            # a bank triangle's centroid is routinely a water terrain; taking
+            # it would draw the water shader up the bank, several metres
+            # above the sea, on a surface the mesh correctly built as land.
+            # It is replaced by the running local-majority land terrain (the
+            # same machinery decision 9 uses for a non-projected terrain).
+            projected = default_terrain_map.is_projected(src_index)
+            if DEFTER.is_water_terrain(terrain_path):
+                default_terrain_water_substitutions += 1
+                if not projected_terrain_counter:
+                    # No land majority yet: hold this triangle back and emit
+                    # it after the pass, rather than guess (or paint water).
+                    deferred_water_painted.append((n1, n2, n3))
+                    return
+                terrain_path = projected_terrain_counter.most_common(1)[0][0]
+            # Decision 9: projected terrains only.  A non-projected terrain
+            # (is_projected False; None counts as projected-assumed) is
+            # replaced by the running local-majority projected terrain, and
+            # the substitution is counted for the end-of-build summary
+            # warning.
+            elif projected is False:
+                default_terrain_substitutions += 1
+                if projected_terrain_counter:
+                    terrain_path = projected_terrain_counter.most_common(
+                        1)[0][0]
+            else:
+                projected_terrain_counter[terrain_path] += 1
         if terrain_path in dico_terrains:
             terrain_idx = dico_terrains[terrain_path]
         else:
@@ -1746,6 +1780,18 @@ def build_dsf(tile, download_queue):
                 total_cross_pool += 1
                 textured_tris[0]["cross-pool"].extend(tri_p)
     
+    # THE MESH OWNS THE WATER: land triangles whose landclass terrain was a
+    # water terrain before any land terrain had been seen are emitted now,
+    # against the finished local-majority land terrain.  (Counted already;
+    # ``force_path`` skips the lookup and the counters.)
+    if deferred_water_painted:
+        fallback = (
+            projected_terrain_counter.most_common(1)[0][0]
+            if projected_terrain_counter else "")
+        for (n1, n2, n3) in deferred_water_painted:
+            emit_physical_default_land(n1, n2, n3, force_path=fallback)
+        deferred_water_painted.clear()
+
     # Cold/warm telemetry for the tile time model (read by the engine
     # session when it records this build's step timings).
     tile.textures_total_last_build = len(treated_textures)
@@ -2075,6 +2121,18 @@ def build_dsf(tile, download_queue):
             "terrain for a non-projected one on "
             + str(default_terrain_substitutions)
             + " land triangle(s).",
+        )
+    if default_terrain_water_substitutions:
+        # THE MESH OWNS THE WATER: the landclass coastline said water where
+        # the mesh says land.  Reported, never silent: this count IS the
+        # coarseness of X-Plane's coastline against this tile's mesh.
+        UI.lvprint(
+            1,
+            "     Water is a datum: the default landclass named a WATER "
+            "terrain on "
+            + str(default_terrain_water_substitutions)
+            + " LAND triangle(s) (a coarser coastline than the mesh's); "
+            "each took the local land terrain instead.",
         )
     return 1
 

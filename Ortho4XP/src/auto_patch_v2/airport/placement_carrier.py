@@ -711,7 +711,7 @@ def carriers_for(pids: _t.AbstractSet[int],
         read as mis-anchored — files 477 -> 609)."""
         if c.body_class == _ar.BASIN:
             return True
-        if getattr(c.anchor, "unit_seat", False):
+        if False:  # ARM-OFF
             # §16g (2) (owner RULINGS 2026-09-13bo): ONE ZERO PER UNIT —
             # "no per-member cut, no carrier search, NO GROUND TEST
             # BETWEEN MEMBERS".  A unit member standing off its own

@@ -886,8 +886,19 @@ def _main() -> int:
              if a.line_segment is None else a.line_segment)
     print(f"  line segments: [placement] line_segment_m {seg_m:g} m "
           f"(cap {rb.line_object_stations_max} stations)")
+    # §16g (2) AMENDED (17x (1)); SHIPS FALSE.  Passed only when ARMED,
+    # so this instrument still drives a `src` that predates the key —
+    # the SIG-DIFF discipline `v2_rebake_replay` already carries, and
+    # without it a base arm cut from an older sha cannot be read by the
+    # same instrument as the lane arm (which is the whole point of a
+    # matched pair).
+    _floor = bool(a.airside_floor
+                  or getattr(_law.tables.structures.placement,
+                             "airside_floor", False))
+    _extra = {"airside_floor": True} if _floor else {}
     _t0 = time.perf_counter()
     ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut,
+                         **_extra,
                          split_tol_m=tol_m,
                          elevated_base_m=rb.elevated_base_m,
                          line_segment_m=seg_m,
@@ -898,11 +909,6 @@ def _main() -> int:
                          # §16g (10) (4): only a WALLED body links a unit
                          chain_min_height_m=(_law.tables.structures.placement
                                              .chain_min_height_m),
-                         # §16g (2) AMENDED (17x (1)); ships false
-                         airside_floor=bool(
-                             a.airside_floor
-                             or getattr(_law.tables.structures.placement,
-                                        "airside_floor", False)),
                          coarsen_reach_m=(_law.tables.structures.placement
                                           .coarsen_reach_m
                                           if a.coarsen_reach is None

@@ -16430,6 +16430,10 @@ fixture-only exposures; production feet are input-domain from DSF/OBJ8 — VERIF
 listed with its ruling. The `load` hook `xplatspread` left in `_vector_to_xy` is the
 first consumer.
 
+RULED on the census (Fable 2026-09-17): row 16, `airport/dem_production.py:522`, the
+tile's WATER-MASK polygons, is INPUT-DOMAIN and switches to the entry projection in the
+lane's round 2 (the file was another lane's during round 1; that lane has merged).
+
 **(6) THREE RESIDUES THE QUANTUM DOES NOT CLOSE, SAME LANE.**
  (i)  THE WINDOWS CONTACT FLIP: 22 of 616 `road_ramp` rows (`roads.groundside_road
       airside contact`, §37 (10), owner 2026-09-13cs item 5) anchor on a different
@@ -16445,12 +16449,20 @@ first consumer.
       AST twin `test_newline_pinned.py`, Windows patch `\r` = 0 on run 35284573827.
       This lane only VERIFIES it under the bars of (7) — it changes nothing there.
 
-**(7) BARS.** On the three runners, through the frozen release check's CYXY pass with
-the quantum SHIPPED (no dump-arm quantisation): every stage digest AGREES at every rung
-on every pair; LP rows × cols and rounds identical; the 616 `road_ramp` rows identical;
+**(7) BARS** — AMENDED (Fable 2026-09-17, on lane `xplatquantum`'s run 35290612194; the
+original wording "every stage digest agrees at every rung" was in tension with (6)(ii),
+which the spec itself left open). THE BAR IS THE SHIPPED FILE: on the three runners,
+through the frozen release check's CYXY pass with the quantum SHIPPED (no dump-arm
+quantisation), every stage digest agrees at every rung through `shapes`; the constraint
+ROW COUNTS agree and their values agree at 9 dp (a coarser rung may differ only where the
+9-dp rung agrees — two values equal to a nanometre falling either side of a 0.01 rounding
+is not a divergence; a 9-dp difference IS, and the gate fails on it); LP rows × cols and rounds identical; the 616 `road_ramp` rows identical;
 the emitted patch body BYTE-IDENTICAL on all three (the `<osm>` header line excluded —
 it carries the runner's temp path); `.graded.json` byte-identical; emitted z
-cross-platform differences 0. Make `check_frozen_tile.py --compare` a GATE in
+cross-platform differences 0. Allowed residues, each NAMED by the gate: `lp.nnz` (the
+active SET landing on another row of different arity off a last-bit difference in x —
+mac's Accelerate BLAS against scipy-openblas; it decides nothing, (6)(ii) records it),
+`solved z` past 4 dp, `constraints rows.dp2` under the 9-dp rule above. Make `check_frozen_tile.py --compare` a GATE in
 `release.yml` once it is green (three artefacts from three jobs: a fourth job that
 downloads the three `frozen-tile-logs-*` and fails on the first divergent stage).
 

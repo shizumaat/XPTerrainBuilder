@@ -418,6 +418,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  cluster_min_m2: float = 0.0, touch_m: float = 0.0,
                  connector_span_m: float = 0.0,
                  chain_min_height_m: float = 0.0,
+                 # RETIRED (owner RULINGS 2026-09-17t: "Pad datum: median,
+                 # one rule for both seats").  §16g (10) (9) (2)'s low-side
+                 # pad reading is gone from ``footprint_unit``; the keyword
+                 # is kept only so ``src/auto_patch/engine_v2.py`` (another
+                 # lane's file) still calls this, and it is READ BY NOTHING.
                  low_side: bool = False,
                  abutment_step_m: float = 0.0,
                  abutment_walk_max_m: float = 0.0,
@@ -543,8 +548,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)
-                                      chain_min_height_m,  # §16g (10) (4)
-                                      low_side)  # §16g (10) (9) (2)
+                                      chain_min_height_m)  # §16g (10) (4)
 
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────

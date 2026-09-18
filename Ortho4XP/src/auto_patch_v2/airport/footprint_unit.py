@@ -527,7 +527,7 @@ def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
 
 def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                      surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
-                     cluster_min_m2: float, low_side: bool = False
+                     cluster_min_m2: float
                      ) -> dict[str, tuple[float, str, str]]:
     """§16g (2)'s PRIORITY DATUM, read PLAN-WIDE: ``unit id -> (zero,
     where, source)``.
@@ -539,6 +539,13 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     stands on (its OWN plane, ``median(pad.z)`` — the §30 (4) cluster pad
     for a unit over ``cluster_pad_min_m2``).  Then the median ground under
     its part centres.
+
+    ONE PAD DATUM RULE (owner RULINGS 2026-09-17t): the pad's own plane is
+    its MEDIAN, over EVERY FACE of the ref, and this function is called
+    IDENTICALLY for the cluster seat and for a §16g (6) connector's end
+    datum — 14az's ``pad_between_aprons`` low side is retired and the
+    ``low_side`` parameter is gone, so the two seats cannot drift apart
+    again (17s measured them 0.95 m apart on HECA's ``building9``).
 
     The ground is sampled at the PART CENTRES rather than at the feet: the
     feet belong to a staged body and this pass runs before any staging.  A
@@ -566,34 +573,62 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                 continue
             p = pad_plurality(cc, pads)
             if p is not None and p.z:
-                # §16g (10) (9) (2) THE BUILDING SEATS AT THE LOW SIDE
-                # (owner RULINGS 2026-09-14az, verbatim: "seat the
-                # building level at the low side so nothing floats and
-                # the high side is slightly buried"; armed by
-                # ``[placement] pad_between_aprons``).  A pad sharing
-                # edges with apron on more than one side is a PLANE
-                # sloping up to 1 % between those levels, so its median
-                # stands half the fall above the low edge and every body
-                # on it floats there: at HECA the terminal read 75.92
-                # against a 72.62 pad because the plane's mean was taken.
-                #
-                # DEVIATION, NAMED: the law says the lowest SHARED-EDGE
-                # level and ``PadRing`` carries no per-vertex airside
-                # flag at this layer (it is ``(ref, ring, z)``), so what
-                # is read is the pad plane's own LOW SIDE — which is that
-                # level whenever the pad is pinned at its apron edges,
-                # the case (9) (2) is about.  Publishing the shared-edge
-                # subset would be a new sidecar channel and its own
-                # consumer census.
-                zero, where, src = (
-                    (min(p.z) if low_side else _median(list(p.z))),
-                    p.ref, "pad")
+                # §16g (10) (9) (2) AMENDED — ONE PAD DATUM RULE, THE
+                # MEDIAN (owner RULINGS 2026-09-17t: "Pad datum: median,
+                # one rule for both seats").  14az's LOW SIDE reading is
+                # RETIRED.  It was written for a pad pinned between two
+                # aprons, where the plane's median floats the low edge by
+                # half the fall; measured on the shipped law it took
+                # ``min(p.z)`` over the WHOLE ring of ONE face — at LEMD
+                # the T4 unit (1,216 x 516 m, 64 bodies) seated on the
+                # single lowest vertex of ``building45`` 590 m from the
+                # owner's points, 1.0-1.9 m UNDER apron ``pav12``
+                # (RULINGS 2026-09-17u).  Two seats on one pad also
+                # disagreed by 0.95 m at HECA, because the connector
+                # datum below never took the low side (17s).  The MEDIAN,
+                # over EVERY face of the ref (fix C, :func:`pad_plurality`
+                # folds them), is now the one rule both seats take.
+                zero, where, src = _median(list(p.z)), p.ref, "pad"
                 if cluster_min_m2 > 0.0 and un.area_m2 >= cluster_min_m2:
                     src = "cluster_pad"
             else:
                 zero, where, src = _median([q[3] for q in cc]), "", "ground"
         out[un.id] = (zero, where, src)
     return out
+
+
+def _elevated_pids_over(c: _t.Any, st: _t.Any) -> frozenset[int]:
+    """§16g (10) (4) AMENDED (owner RULINGS 2026-09-17t): THE PART IDS OF
+    THE PLACEMENT'S OWN ELEVATED MEMBERS THAT STAND OVER THIS BODY — the
+    parts §15 will merge into this body's file, read at plan time by §15
+    (1) (a)'s own relation (PLAN OVERLAP of the part boxes,
+    ``placement_boxes.parts_overlap``, never the hull).
+
+    They are the leaf's own walls.  A MATERIAL-SLICED pack (HECA's
+    ``Airport/T23/T3_brick_clean.obj``: 138 parts, elevated façade panels
+    with no feet plus 0.49 m ground plinths) puts every ground contact
+    under ``chain_min_height_m`` and every wall out of the candidate pool
+    (``placement_plan`` builds candidates from footed non-elevated groups,
+    ``attach_elevated=False``), so the plinth's OWN pids name no unit and
+    it fell to its own sloping apron — the shell written in pieces 2.34 m
+    apart (RULINGS 2026-09-17s).  Its walls are in the unit; this is how
+    the seat finds them.  The CHAIN is not touched: these pids are read
+    for the SEAT lookup only, never offered to ``_clusters``."""
+    el = getattr(st, "elevated", None) if st is not None else None
+    if not el:
+        return frozenset()
+    mine = list(c.part_boxes) or ([c.box] if c.box else [])
+    if not mine:
+        return frozenset()
+    raw = getattr(st, "raw", ())
+    pbx = getattr(st, "part_boxes", ())
+    out: set[int] = set()
+    for i in sorted(el):
+        if i >= len(raw) or i >= len(pbx):
+            continue
+        if _pb.parts_overlap(pbx[i], mine) > 0.0:
+            out.update(p.pid for p in raw[i][0])
+    return frozenset(out)
 
 
 def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
@@ -609,7 +644,11 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     because the plan's body keys and a staged candidate's ground groups
     are different partitions of the same triangles and the part is what
     both are made of.  A candidate whose pids name no unit (a body
-    touching nothing) is left alone: it seats by §16c as it always did.
+    touching nothing) is left alone: it seats by §16c as it always did —
+    UNLESS §16g (10) (4) as amended by 17t finds the unit through the
+    body's own ELEVATED members (:func:`_elevated_pids_over`), which is
+    the only way a material-sliced pack's plinths can reach the walls
+    standing on them.
 
     §16g (6) (owner RULINGS 2026-09-13cn): an identified CONNECTOR is NOT
     dropped out of the bind.  It is moved onto the seat of the unit its
@@ -626,6 +665,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     expulsion under a new name."""
     counts.setdefault("unit_connectors_cut", 0)
     counts.setdefault("unit_connectors_seated", 0)
+    counts.setdefault("unit_leaf_seated_by_elevated", 0)
     per_uid: dict[str, dict[int, list]] = {}
     info: dict[str, tuple[float, str, str]] = {}
     conn: dict[int, tuple[str, str]] = {}
@@ -637,13 +677,31 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             got = plan_wide.get(q)
             if got is not None:
                 hit[got[0]] = hit.get(got[0], 0) + 1
+        st = by_mi.get(c.member)
+        pids = frozenset(c.pids)
+        if not hit:
+            # §16g (10) (4) AMENDED (owner RULINGS 2026-09-17t, fix A on
+            # the scout's attribution 17s): A LEAF IS STILL NEVER A LINK,
+            # BUT A LEAF SEATS IN THE UNIT ITS OWN ELEVATED MEMBERS
+            # BELONG TO.  The join stays the pid — only the pid SET grows,
+            # by the parts §15 will merge into this body's file.  Read
+            # ONLY where the body's own pids name no unit at all, so no
+            # body that already had a seat can be moved by it.
+            ep = _elevated_pids_over(c, st)
+            for q in ep:
+                got = plan_wide.get(q)
+                if got is not None:
+                    hit[got[0]] = hit.get(got[0], 0) + 1
+            if hit:
+                pids = pids | ep
+                counts["unit_leaf_seated_by_elevated"] = \
+                    counts.get("unit_leaf_seated_by_elevated", 0) + 1
         if not hit:
             continue
         uid = max(sorted(hit), key=lambda k: hit[k])
-        row = plan_wide[next(q for q in sorted(c.pids)
+        row = plan_wide[next(q for q in sorted(pids)
                              if plan_wide.get(q, ("",))[0] == uid)]
         z, where, src = row[1], row[2], row[3]
-        st = by_mi.get(c.member)
         if st is None:
             continue
         cc = _contacts_of(c, st, surface)
@@ -718,7 +776,9 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
                f"{pair[0] or 'open ground'} and {pair[1] or 'open ground'}, "
                f"seated on its LOW end's contact (no station cut written)"),
             best[3], family=fid,
-            connector_of=("" if pair is None else f"{pair[0]}|{pair[1]}"))
+            connector_of=("" if pair is None else f"{pair[0]}|{pair[1]}"),
+            # §16g (2): a unit seat is NOT a mis-anchored body
+            unit_seat=True)
         grp0 = (st.groups[c.group] if 0 <= c.group < len(st.groups) else ())
         if not grp0:
             continue
@@ -779,8 +839,7 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     pads: _t.Sequence[_ar.PadRing], touch_m: float,
                     cluster_min_m2: float, counts: dict,
                     connector_span_m: float = 0.0,
-                    chain_min_height_m: float = 0.0,
-                    low_side: bool = False
+                    chain_min_height_m: float = 0.0
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
     where, source, connector ends, the HIGH end's own seat), the units'
@@ -813,8 +872,7 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
             if p is not None:
                 out.extend(p.feet)
         return out
-    dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2,
-                           low_side=low_side)
+    dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
     out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
     for un in units:

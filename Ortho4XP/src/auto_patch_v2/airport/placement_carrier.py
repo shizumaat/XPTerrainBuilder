@@ -711,6 +711,23 @@ def carriers_for(pids: _t.AbstractSet[int],
         read as mis-anchored — files 477 -> 609)."""
         if c.body_class == _ar.BASIN:
             return True
+        if getattr(c.anchor, "unit_seat", False):
+            # §16g (2) (owner RULINGS 2026-09-13bo): ONE ZERO PER UNIT —
+            # "no per-member cut, no carrier search, NO GROUND TEST
+            # BETWEEN MEMBERS".  A unit member standing off its own
+            # ground is the law WORKING (``unit_members_off_the_plane``
+            # reports it), not a body that would carry its own error, and
+            # a rider of a unit member belongs on the unit's plane.
+            # MEASURED (lane v2leafseat, HECA dry replay): without this,
+            # §16g (10) (4)'s amended leaf seat re-seated 24 bodies — the
+            # T3 district's principal carriers — and 2,398 of their
+            # riders lost every carrier, files 3,743 -> 6,165 and §15
+            # footed float 608 -> 3,176.  With it: files 3,423, footless
+            # own-ground 346 -> 134, §15 carried float 96 -> 67, carried
+            # over a refused body 329 -> 102.  THE §16f COMMENT BELOW
+            # STILL HOLDS for §16f (4)'s bounded family seat; §16g's is
+            # unbounded by design, which is why it needs this.
+            return True
         if c.ground_off is None or tol_m <= 0.0:
             return True
         if c.ground_off <= tol_m:

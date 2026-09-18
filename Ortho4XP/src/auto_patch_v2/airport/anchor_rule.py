@@ -63,6 +63,7 @@ import typing as _t
 
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
            "anchor_for", "datum_of", "keep_off_row", "rim_of",
+           "pad_majority", "fold_pad_ref", "pad_contains",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
 
 BUILDING = "building"
@@ -91,6 +92,18 @@ class PadRing:
     #: (RULINGS 2026-09-13aq (i)).  Empty where the caller read the ring
     #: without them (every twin that builds a pad by hand).
     z: tuple[float, ...] = ()
+    #: EVERY FACE OF THIS REF, folded (owner RULINGS 2026-09-17t/u, fix
+    #: C).  A `building` ref is one PAD and may be emitted as several
+    #: FACES: LEMD's ``building45`` is five, 25,928 m² (min 614.77) to
+    #: 72,620 m² (min 615.18), and :func:`pad_plurality` / :func:`pad_
+    #: majority` counted the ref's contacts but kept the LAST FACE they
+    #: matched — an ITERATION-ORDER datum with a 0.41 m swing.  A folded
+    #: PadRing carries every face's ring here and every face's heights in
+    #: ``z``, so the min/median a caller takes is the REF's and its
+    #: containment test (:func:`pad_contains`) is the ref's too.  Empty
+    #: for a single-face or hand-built ring, where ``ring`` is the whole
+    #: pad.
+    rings: tuple[tuple[tuple[float, float], ...], ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -141,6 +154,15 @@ class Anchor:
     #: low-side foot; the pair is published so the census can name the two
     #: units the piece has to reach.
     connector_of: str = ""
+    #: §16g (2): THIS ANCHOR IS A FOOTPRINT-UNIT SEAT — one rigid zero for
+    #: the whole unit, chosen by the unit's datum rule and DELIBERATELY
+    #: not the ground under this body's own feet.  Read by
+    #: ``placement_carrier``'s §16a (2) ground test, which exists to
+    #: refuse a MIS-anchored carrier ("it would carry its own error") and
+    #: must not read a lawful unit seat as one: §16g (2) is "no per-member
+    #: cut, no carrier search, NO GROUND TEST BETWEEN MEMBERS".  Set only
+    #: by ``footprint_unit._seat``.
+    unit_seat: bool = False
 
 
 # ── geometry helpers (plan, in degrees scaled to metres) ─────────────────
@@ -233,6 +255,46 @@ def _pad_boxes(pads: _t.Sequence[PadRing]):
     return boxes
 
 
+def fold_pad_ref(pads: _t.Sequence[PadRing], ref: str) -> "PadRing | None":
+    """EVERY FACE OF ``ref``, AS ONE PAD (owner RULINGS 2026-09-17t/u, fix
+    C — a pure defect).
+
+    ``pad_plurality`` / :func:`pad_majority` already COUNT a body's ground
+    contacts per REF; what they returned was whichever FACE of that ref
+    the scan touched last, so the datum a caller read off ``p.z`` was
+    decided by iteration order.  Measured at LEMD: ``building45`` is five
+    faces and the T4 unit's 64 bodies took ``min(p.z)`` over ONE of them
+    — 614.77 against the containing face's 615.18, a 0.41 m swing, and
+    that vertex 590 m from the owner's points.
+
+    The fold keeps the LARGEST face as ``ring`` (so a reader that predates
+    ``rings`` still gets a real polygon of the pad) and publishes every
+    face in ``rings`` and every face's heights, in face order, in ``z``.
+    ``None`` where the ref names no ring with three vertices."""
+    faces = [p for p in pads if p.ref == ref and len(p.ring) >= 3]
+    if not faces:
+        return None
+    if len(faces) == 1:
+        return faces[0]
+    big = max(faces, key=lambda p: (len(p.ring), p.ring))
+    return PadRing(ref, big.ring,
+                   tuple(v for p in faces for v in p.z),
+                   tuple(p.ring for p in faces))
+
+
+def pad_contains(pad: "PadRing | None", lat: float, lon: float) -> bool:
+    """Is this point inside the PAD — any FACE of it (fix C)?  The one
+    containment test every caller of :func:`fold_pad_ref`'s result takes;
+    reading ``_inside(pad.ring, …)`` directly would ask only the largest
+    face and drop the contacts standing on the ref's other faces."""
+    if pad is None:
+        return False
+    for r in (pad.rings or (pad.ring,)):
+        if len(r) >= 3 and _inside(r, lat, lon):
+            return True
+    return False
+
+
 def pad_majority(cands: _t.Sequence[tuple[float, float, float, float]],
                  pads: _t.Sequence[PadRing]) -> "PadRing | None":
     """§16d (6): THE PAD A BODY STANDS ON (owner RULINGS 2026-09-13m).
@@ -268,7 +330,9 @@ def pad_majority(cands: _t.Sequence[tuple[float, float, float, float]],
     if not hits:
         return None
     p, n = max(hits.values(), key=lambda q: q[1])
-    return p if n > PAD_MAJORITY * len(cands) else None
+    # fix C: the winner is a REF, so hand back EVERY face of it
+    return (fold_pad_ref(pads, p.ref) or p) \
+        if n > PAD_MAJORITY * len(cands) else None
 
 
 def rim_of(rims: _t.Sequence[RimRing], lat: float, lon: float) -> RimRing | None:
@@ -697,7 +761,7 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     _pad = pad_majority(cands, pads)
     if _pad is not None:
         _on = [c for c in cands
-               if _inside(_pad.ring, c[0], c[1])]
+               if pad_contains(_pad, c[0], c[1])]
         if _on:
             cands = _on
             on_pad = f" on pad {_pad.ref}"

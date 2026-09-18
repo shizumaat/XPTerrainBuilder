@@ -544,7 +544,12 @@ def pad_plurality(cands: _t.Sequence[tuple[float, float, float, float]],
                 break
     if not hits:
         return None
-    return max(hits.values(), key=lambda q: (q[1], q[0].ref))[0]
+    # fix C (owner RULINGS 2026-09-17t/u): the plurality is over the REF,
+    # so the pad handed back is EVERY FACE of that ref — the last face the
+    # scan matched was an iteration-order datum (LEMD `building45`, five
+    # faces, 0.41 m).  One fold, ``anchor_rule.fold_pad_ref``.
+    won = max(hits.values(), key=lambda q: (q[1], q[0].ref))[0]
+    return _ar.fold_pad_ref(pads, won.ref) or won
 
 
 def _all_on_pavement(cc: _t.Sequence[tuple[float, float, float, float]],
@@ -866,7 +871,7 @@ def bind_families(cands: list, staged: _t.Sequence[_t.Any],
                 n_contacts += len(cc)
                 for q in cc[::step]:
                     allc.append(q[3] - q[2])
-                    if pad is not None and _ar._inside(pad.ring, q[0], q[1]):
+                    if _ar.pad_contains(pad, q[0], q[1]):
                         on.append(q[3] - q[2])
             # §16f (4): EACH PAD GROUP TAKES ITS PAD'S PLANE — the
             # median of the PAD's own graded vertices, so ONE pad is ONE

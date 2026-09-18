@@ -6,6 +6,10 @@ the tag spells it without the leading `v` — `1.0.347-beta.1`), fill in every
 release job REFUSES a tag with no notes file: this page is the whole of what a
 first-time beta tester is handed, and a bare auto-generated body is not it.
 
+LINKS MUST BE ABSOLUTE: a relative link in a release body resolves under
+`/releases/tag/` and 404s (beta.1's testing-guide link, 2026-09-18). Link repo
+files as `https://github.com/shizumaat/XPTerrainBuilder/blob/<tag>/<path>`.
+
 Keep every section below. Remove a bullet only when it has stopped being
 true, not because nothing changed in it.
 

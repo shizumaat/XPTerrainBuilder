@@ -6,7 +6,7 @@ needs testing most is the part no other ortho tool does: **airport terrain**.
 Build a tile that contains an airport you know well, fly or taxi there in
 X-Plane 12, and tell us where the ground looks wrong. Expect rough edges; see
 *Known issues* before you start, and read the
-[testing guide](TESTING-GUIDE.md) for a first build, step by step.
+[testing guide](https://github.com/shizumaat/XPTerrainBuilder/blob/v1.0.350-beta.1/docs/TESTING-GUIDE.md) for a first build, step by step.
 
 ## What this is
 

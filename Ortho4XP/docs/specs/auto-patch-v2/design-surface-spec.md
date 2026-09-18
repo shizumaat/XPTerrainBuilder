@@ -16793,3 +16793,163 @@ pack-independent; every NUMBER is measured on the NEW pack (`Aeroscape OTHH Hama
 | `ramp_targets` / `collapse_for_ramp` / `collapse_stations` / `reseat_expect` | `structure_geometry.py:318-361 / 364-395 / 241-275 / 278-286` | design line, knees | knee set follows the inverted door law |
 | `constraints/structures` ramp cap | `constraints/structures.py:275-278` | `co.door.ramp_grade` / `tn.ramp_max_grade` / `co.wall_corridor.max_ramp_grade` | door 0.08 → 0.10 |
 | twins | the three Law C twins (14bm), `test_v2doorramp.py`, `test_v2corridor.py` | — | re-founded |
+
+### §47.2 MEASURED (lane `v2wallface`, 2026-09-17; branch `claude/v2wallface`, base main `31b7ad1b`, merged main `f29e0d40`)
+
+**(1) THE TWO SEAM-PROBES §47.1 (8) OWED — both CLEAR, both now twins
+(`tests/auto_patch_v2/test_v2wallface.py`).**
+
+*`constraints/structures.on_floor` (`:242-258`) with the rim ON the face.*
+`on_floor` drops a wall-ring vertex from the RIM's own row set; the 15bh
+VHHH failure was the rim and the floor FUSING, after which airside
+vertices on the shared ring took the FLOOR row.  Probed on the built
+planar map at every rung of the ring ladder — including the 0.25 m shell,
+whose whole band is a §47 (3) yield: **shared rim/floor vertices 0 at
+t = 0.25 / 0.55 / 1.00 / 2.00 m**, every rim vertex at or beyond the
+identity spacing from every floor vertex, and every corridor keeps a
+non-empty rim row set.  `F` is what forbids the fusion; nothing else in
+`on_floor` changes.
+
+*`verify/structures._rim_edges` (`:308`) under `tunnel_mouth_canonical`.*
+**§47 MOVES NO RIM THIS READER SEES.**  (a) its ramp population is the
+`tunnel_ramp` ROLE only — door wells (`door_ramp`) and wall corridors
+(`wall_corridor_ramp` / `garage_ramp`) are not in it at all; (b) every
+OBJECT corridor is skipped by its own `on_object` gate (the sidecar's
+`tunnel_objects` axes), untouched here; (c) an OSM BORE's rim law is
+`wall_gap_m + wall_band_width_m` = 1.60 m, which §47 leaves exactly where
+it was — only `rim_standoff`, the OBJECT path, changes.  Its cap search
+reach is 2.60 m and the one OBJECT cap that does move (an end wall's cap
+now stands at its own thickness) stays inside it for every OTHH end wall
+(2.00–2.53 m).
+
+**(2) `F` MEASURED = 0.7071 m — the cell diameter** (`[cutout]
+ring_floor_m`, the measurement in its comment).  Ring pairs through the
+REAL arrangement call path (`planar/overlay.py:441`,
+`shapely.unary_union(unary_union(lines), grid_size=0.5)` then
+`shapely.polygonize`), "survives" = exactly two faces, the band a proper
+annulus whose hole IS the floor, and the band NOWHERE of zero width.
+Swept over sub-grid phases × rotations on three ring families:
+
+| d (m) | straight 40×8 m (1,183 phases) | curved 24-gon R=20 (324) | narrow 12×2 m (484) |
+|---|---|---|---|
+| 0.25 | 403/405 fused | — | — |
+| 0.50 | 91/405 fused | — | — |
+| 0.55 | 28/405 fused | — | — |
+| 0.60 | 132 bad | 205 bad | 70 bad |
+| 0.65 | 34 bad | 65 bad | 22 bad |
+| 0.68 | 4 bad | — | 4 bad |
+| 0.70 | 0 bad (min band 0.085) | **8 bad** | 0 bad |
+| 0.7071 | 0 bad (min band 0.151) | 0 bad (0.307) | 0 bad (0.354) |
+| 0.75 / 0.85 / 1.00 | 0 bad | 0 bad | 0 bad |
+
+A CURVED pair is what rules out the measured 0.70, so `F` is the cell
+diameter and nothing above it buys anything.
+
+**THE 09-01e "0.85 m merged" RECORD IS SETTLED AND DOES NOT BIND.**
+Vertex rounding cannot merge two points 0.85 m apart (the cell diameter
+is 0.7071) and the sweep finds no segment hot-pixel fusion above 0.7071
+either.  The 0.85 m merge was `structure_geometry.snap_out`, which rounds
+a point AWAY FROM ITS OWN ORIGIN and so pushes it up to a full grid step
+TOWARD the other ring: measured, two points 0.8514 m apart, each snapped
+away from its own origin, land 0.7071 m apart, and with the origins one
+step further out they coincide.  §47 (1)/(2) retire `snap_out` for these
+rings, so the lattice floor is the arrangement's alone.
+
+**(3) THE RING LADDER** at t = 0.25 / 0.55 / 0.75 / 1.00 / 2.00 m through
+the real corridor product (`_corridors` → `build_structures`): the ramp
+IS the corridor's own trench (area within 2 %, the station chords'
+sagitta), the minimum rim-to-floor band is EXACTLY `max(t, F)`, no rim
+vertex stands outside the walls' footprint ⊕ the named yield, and
+`trench_outside_max_m` (§47 (5), the overlap term dropped) is **0.000 at
+every rung**.  Two readings worth naming:
+
+* the WALL READER over-reports a thin shell — at `wall_sample_m` 2.0 m
+  every station of the 0.25 m object reads 0.50 m, so the rim stands
+  `F − 0.25` = 0.457 m past the outer face where the yield NAMED from the
+  reader's 0.50 m is 0.207 m.  That over-report is
+  `airport/tunnel_objects`'s, not this ring law's, and is **NOT fixed**;
+* an object corridor's `axis` starts at its MOUTH — the end wall's OUTER
+  face — while `trench` starts at that wall's INNER face, so the first
+  and last station rings stand up to the end wall's own thickness
+  "outside" the trench BY CONSTRUCTION (measured on the curved `arc.obj`
+  fixture: 0.901 m at s = 0 and 0.560 m at s = L against
+  `mouth_thickness_m` 1.00 / `far_thickness_m` 0.50; every other vertex
+  ≤ 0.003 m).  The 08a `floor_overlap_m` term in `trench_outside_m`'s
+  buffer hid it; dropping the term exposed it.  The END WALLS' band is
+  excluded and named rather than moved: **moving s = 0 to the end wall's
+  inner face is the corridor READER's change and would move every mouth
+  datum.**  NOT DONE.
+
+**(4) §47 (4) IS MEASURED AND REFUTED AS WRITTEN.**  The bar cannot be
+the DESIGNED band `max(t, F)` per corridor, because the arrangement
+snap-rounds BOTH rings to the 0.5 m identity lattice and each vertex may
+move half a cell diagonal (0.354 m) toward the other.  Measured through
+`planar/build`, designed band → smallest EMITTED rim-to-floor distance:
+**0.7071 → 0.500** (the 0.25 and 0.55 m shells), **1.0000 → 0.707**,
+**2.0000 → 1.803**.  A bar of `max(t, F) − materiality` would report every
+lawful corridor; a bar of `F` minus half a diagonal is 0.354 m, WEAKER
+than the identity spacing.  What DOES hold at every rung is the thing
+§47 (3) exists for — the rings never FUSE (shared vertices 0).  So
+`verify.structure_rim_gap` KEEPS the identity spacing as its bar, the
+reason is in its docstring, and the exact band is asserted where it is
+real: on the planar cells, before the arrangement.
+
+**(5) THE DRY PAIRS** (base = `git archive` of main `31b7ad1b` with the
+worktree's mounts symlinked; lane-local `O4_DSF_CACHE_DIR` /
+`O4_AIRPORT_MOD_CACHE_DIR`; the shared repo never written).
+
+*LEMD* (193 s base / 183 s lane): tunnels 47 → 47 with **ONE** differing
+row — the single object corridor `tunnel-object:Bridge4.obj@0`, on
+`rim_ll` (the rim to the outer face) and `trench_outside_max_m`
+0.139 → 0.000.  **All 46 OSM bores BYTE-IDENTICAL.**  corridors 1 /
+door_wells 0 / wall_corridors 0 / sunken_roads 0 / plates 3 all
+byte-identical.  `basin:0` moved (rim on the outer face, area
+27,630 → 28,052 m²).
+
+*VHHH* (399 s base / 385 s lane): tunnels 20 → 20 with **THREE**
+differing rows, all object-cuts — `TUNNEL2_DONE` / `tunnel3_done` /
+`tunnel5_done` on `deck_rings_ll` / `notes`: the §34 (7) collapse keeps
+two more stations (168 → 64 against 168 → 62; 81 → 50 against 81 → 48)
+because the band is 0.7071 m and not 0.50 — **the touched `+ grid` widen,
+named**.  **All 17 OSM bores BYTE-IDENTICAL.**  The five signature-B
+corridors BYTE-IDENTICAL (5 → 5, 0 differing); sunken_roads 1, channels
+1, underpasses 0, plates 0 identical.  basins 70 → 87 and `basin_refused`
+46 → 29: **seventeen ZERO-thickness shells are no longer refused** "no
+floor plate survives the stand-off 0.50 m inside the rim" — §47 (3), "no
+shell is refused for thinness".
+
+*A DEFECT THE PAIR CAUGHT (r1 → r2).*  Discriminating the §47 (2)
+unsnapped path on `half_fn is not None` also caught an OSM BORE whose
+ramp width comes from the pavement tracing the road (2026-09-06b (2),
+`pavement_half_widths`): three of VHHH's bores moved.  Only the four
+OBJECT group builders set `rim_fn`, so `rim_fn is not None` is the
+discriminator, and the pavement-width bore keeps its `snap_out` floor.
+
+**(6) OTHH — PENDING.**  `v2doorwellperf` is NOT on main (main `f29e0d40`
+says so itself), so the structures stage still does not terminate on the
+new `Aeroscape OTHH Hamad Intl` pack and no §47 number can be measured
+there.  The command, ready to run the moment it merges:
+
+```
+cd <lane worktree>/Ortho4XP
+O4_DSF_CACHE_DIR=<scratch>/caches/dsf O4_AIRPORT_MOD_CACHE_DIR=<scratch>/caches/mod \
+  venv/bin/python -m auto_patch_v2.planar OTHH --stage structures --out <scratch>/out/lane_OTHH
+```
+paired with the same on the `git archive` base tree
+(`<scratch>/out/base_OTHH`) and diffed with
+`tools/structure_replay_diff.py --prefix`.
+
+**(7) ALSO NOT DONE**, each for a stated reason:
+
+* `Group.climb_from_s`'s door inversion is landed, but §47 (6)'s residual
+  is reported in the tunnel's `notes` only — `pipeline/publication.
+  tunnel_objects` mints no `door_residual_m` key (an emit-surface change
+  outside this lane's file set);
+* the §47 (3) basin yield is named per basin in its own note and
+  collected in `BasinStats.rim_yields`, but `planar/__main__` does not
+  publish that list into `structures.json` (same reason) and there is no
+  KML;
+* the WALL READER's thin-shell over-report and the end-wall axis origin,
+  both named in (3);
+* no harness build of any airport (the closing bar is MEASURED-BY-REPLAY
+  per the 17k addendum).

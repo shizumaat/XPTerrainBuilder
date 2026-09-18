@@ -116,3 +116,24 @@ visible checkbox is the value the engine resolves.
 +61-133, -13-078, -13-077, +40-004). With tile-beats-global precedence the
 unchecked checkbox never reaches the engine on a re-built tile: GEN-1 is a
 real gating bug of the color_harmonization class, not logging only.
+
+## 7. Mechanism of the stale True (PM, 2026-09-18) — a CLASS bug
+
+`Tile.write_to_config` (`O4_Config_Utils.py:359-394`) writes EVERY var in
+`list_tile_vars`, not the sparse overrides the `read_from_config` docstring
+(`:229-255`) says tile cfgs are. So each build freezes the whole resolved
+settings frame into `Ortho4XP_+XX+YYY.cfg`, and on the next build that
+frozen value beats the global the app checkbox writes
+(`BuildModel.swift:1654-1664`). Any global-only app toggle is therefore
+dead on a tile that was ever built: `modify_custom_airports` (GEN-1) and
+`color_harmonization` (memory: tile cfg "falsely says False") are two
+instances of one defect.
+
+Fix options (OWNER INTENT — Q GEN-1a):
+  A. sparse write: `write_to_config` emits only keys that differ from the
+     global layer (+ zones); one-time migration strips keys equal to the
+     registry default/global from existing tile cfgs. Matches the docstring.
+  B. session wins: settings the app sends for THIS build beat the tile cfg
+     (tile cfg = record of the last build, not an override).
+  C. per-key: mark app-checkbox keys global-only (never read from a tile cfg).
+PM recommendation: A + the §5 early return (silent, cheap OFF state).

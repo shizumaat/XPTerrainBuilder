@@ -286,25 +286,35 @@ def test_curved_walls_trench_between_inner_faces(objs, law):
     walls = [Polygon(x.ring, x.holes) for x in cl2.cells if x.role == "retaining_wall"
              and near.contains(Polygon(x.ring).centroid)]
     assert ramps and walls
-    # 05n-2 as 2026-09-06b (1) amends it: no trench vertex outside the
-    # inner lines ⊕ floor_overlap_m (0.0 above); and none further than one
-    # identity-grid step past that either (the snapped end-line vertices)
+    # §47 (5) (05n-2 re-founded): NO trench vertex outside the inner lines
+    # at all — the ``floor_overlap_m`` term is gone (§47 (1): the floor IS
+    # the inner face) and only the arrangement's own rounding diagonal is
+    # allowed.  The END WALLS' band is the one exclusion and it is the
+    # reader's, not the ring's (``trench_outside_m``'s docstring): the axis
+    # starts at the mouth = the end wall's OUTER face.
     grid = law.tables.emit.identity.min_distinct_spacing_m
     co = law.tables.structures.cutout
-    region = c.trench.buffer(co.floor_overlap_m + grid * math.sqrt(2.0) + 1e-6,
+    region = c.trench.buffer(grid * math.sqrt(2.0) + 1e-6,
                              join_style="mitre", mitre_limit=2.0)
+    ax = LineString(c.axis)
     for r in ramps:
         for p in r.exterior.coords:
+            s_ = ax.project(Point(p))
+            if s_ < c.mouth_thickness_m - 1e-6 or s_ > c.length_m - c.far_thickness_m + 1e-6:
+                continue
             assert region.contains(Point(p)), p
-    # the floor OVERLAPS the inner faces: the ramp is wider than the trench
-    assert max(r.area for r in ramps) > c.trench.area
-    # every RIM vertex (the void's exterior) stands INSIDE the walls'
-    # footprint (09-08a: rim_standoff of the 1 m wall = the identity
-    # spacing off the ramp), rounded AWAY from the ramp in grid steps —
-    # never more (a hull rectangle would be tens of metres); the void's
-    # holes are the ramp itself (shared vertices, no band between)
+    # §47 (1): the floor NO LONGER overlaps the inner faces — it IS them,
+    # so the ramp is the trench to within the station chords' own sagitta
+    # (the 12 m chords across a 150 m-radius arc cut the corner inward)
+    assert max(r.area for r in ramps) == pytest.approx(c.trench.area, rel=0.01)
+    # §47 (1): every RIM vertex (the void's exterior) stands ON the walls'
+    # OUTER face — ``rim_standoff`` of the 1 m wall is the 1 m itself off
+    # the floor ring — and so INSIDE the walls' own footprint ⊕ the
+    # rounding; never more (a hull rectangle would be tens of metres); the
+    # void's holes are the ramp itself (shared vertices, no band between)
     from auto_patch_v2.planar.structure_geometry import rim_standoff
-    _inset, standoff = rim_standoff(c.stations[0].thick_l, co, grid)
+    _inset, standoff = rim_standoff(c.stations[0].thick_l, co)
+    assert standoff == pytest.approx(c.stations[0].thick_l)
     plate = c.walls.buffer(4 * grid + 1e-6)
     ramp_u = unary_union(ramps)
     n_rim = 0
@@ -314,8 +324,18 @@ def test_curved_walls_trench_between_inner_faces(objs, law):
                 continue                  # the U void's exterior runs along the ramp too
             n_rim += 1
             assert plate.contains(Point(p)), p
-            assert ramp_u.exterior.distance(Point(p)) >= standoff - 1e-6
+            # §47 (1)/(3): each rim vertex stands its OWN station's band off
+            # the floor ring — the wall's thickness where that is at or above
+            # the lattice floor, else the YIELDED ``ring_floor_m`` (this arc's
+            # far end tapers to 0.50 m and yields to 0.7071)
+            assert ramp_u.exterior.distance(Point(p)) >= co.ring_floor_m - 1e-6
     assert n_rim > 10
+    # ...and NO rim vertex stands further off the floor ring than the
+    # thickest station's own thickness ⊕ one station chord's sagitta (the
+    # distance is measured to the ramp's CHORDED exterior, which cuts the
+    # arc's corner in; the rim itself is on the outer face by construction)
+    assert max(ramp_u.exterior.distance(Point(p)) for w in walls
+               for p in w.exterior.coords) <= standoff + grid + 1e-6
     assert sum(w.area for w in walls) < 1.5 * c.walls.area
 
 

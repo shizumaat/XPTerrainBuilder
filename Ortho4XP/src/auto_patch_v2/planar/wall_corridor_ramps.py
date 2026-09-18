@@ -7,7 +7,7 @@ machinery (the 05n object-corridor path, the 08b/c door path).
 Per record: s = 0 at the MOUTH end (a closed end's floor overlapping the
 end wall by ``cutout.floor_overlap_m``, or a level corridor half's
 midpoint — capless, sharing the mouth line with its sibling half); the
-"walls" are the two bands, their inner faces ⊕ the overlap the ramp's
+"walls" are the two bands, their inner faces the ramp's
 edges, the rim ``rim_standoff`` of each band's measured thickness
 inside the wall (09-08a); the FLOOR is the wall bottom per station
 (``Group.profile``, pinned by the generator — level or descending, cut
@@ -83,11 +83,10 @@ def wall_corridor_groups(records: _t.Sequence, law: Law) -> list[Group]:
         raise ValueError(f"cutout.wall_corridor.mouth_depth {wc.mouth_depth!r}: only "
                          f"{WALL_BOTTOM!r} is generated")
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    overlap = co.floor_overlap_m
     osm_rim = tn.wall_gap_m + tn.wall_band_width_m
 
     def standoff(t: float) -> float:
-        return rim_standoff(t, co, grid)[1]
+        return rim_standoff(t, co)[1]
     out: list[Group] = []
     for r in records:
         axis = list(r.axis)
@@ -98,9 +97,9 @@ def wall_corridor_groups(records: _t.Sequence, law: Law) -> list[Group]:
         inward = (-u0[0], -u0[1])
         garage = r.cls == CLASS_GARAGE
 
-        def half_fn(s: float, _sts=sts, _ov=overlap) -> tuple[float, float]:
-            hl, hr = _interp(_sts, s, "half_l", "half_r")
-            return hl + _ov, hr + _ov
+        def half_fn(s: float, _sts=sts) -> tuple[float, float]:
+            # §47 (1): the floor ring IS the walls' inner faces exactly
+            return _interp(_sts, s, "half_l", "half_r")
 
         def rim_fn(s: float, _sts=sts, _b=osm_rim) -> tuple[float, float]:
             if s > _sts[-1].s + 1e-6:
@@ -351,10 +350,12 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     pulling down the service road edge"), and the moved mouth of 14u is for
     an unpinched climb.
 
-    ``(ss, geom, s_top, design_grade, refusal, climb_from, pinched)`` —
-    ``climb_from`` is the MOVED mouth (unchanged when the ramp reaches the
-    ground as it stands), ``pinched`` the ``(road ref, span m, grade)`` of a
-    §34 (9) pinch or ``None``."""
+    ``(ss, geom, s_top, design_grade, refusal, climb_from, pinched,
+    floor_lift)`` — ``climb_from`` is the MOVED mouth (unchanged when the
+    ramp reaches the ground as it stands), ``pinched`` the ``(road ref,
+    span m, grade)`` of a §34 (9) pinch or ``None``, and ``floor_lift``
+    the metres §47 (7) RAISES the floor by so the cap holds and the
+    residual stands at the covering plate's edge (0.0 otherwise)."""
     geom = regeom(ss)
     witness = ""
     stop_poly = next((p for p, ref in stop_list if ref == clipped_by), None)
@@ -382,19 +383,34 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
     rise = (top_ground - mouth_z) if not math.isnan(top_ground) else math.inf
     g2 = rise / run if run > 1e-6 else math.inf
     if clipped_by in locked_roads:
-        # §34 (9): the ramp ENDS at the road edge, the cap lifted for the
-        # pinched run.  A climb the wrong way is still no corridor.
+        # §47 (7) LAW C HOLDS THE CAP (owner RULINGS 2026-09-17h Q1:
+        # "Maintain 10% cap, descend as far as that allows, stopping at the
+        # building wall") — §34 (9)'s LIFTED cap is SUPERSEDED.  The ramp
+        # still ENDS at the locked road's edge and the road still keeps its
+        # airside level, but the run it has is run at ``max_ramp_grade``
+        # and no steeper: the ramp arrives at the covering plate's edge at
+        # ``cap x L`` and the RESIDUAL to the authored wall-bottom floor is
+        # a step AT THE PLATE EDGE, reported per corridor (14bm's east
+        # mouth read 17.17 % over 11.0 m; at the cap the same run reaches
+        # 1.10 m of the 1.88 m rise and the 0.78 m residual stands at the
+        # plate).  The floor is RAISED to put the residual there rather
+        # than at the road: ``floor_lift`` is what the caller adds to
+        # ``mouth_z``.  A climb the wrong way is still no corridor.
         if g2 < 0.0 or math.isinf(g2) or math.isnan(g2):
             return ss, geom, s_top, g2, (
                 f"the climb pinched against the locked service road {clipped_by} at s "
                 f"{s_top:.1f} runs the wrong way: {run:.1f} m of run for {rise:.2f} m of rise "
-                f"to the road edge {top_ground:.2f} (§34 (9))"), climb_from, None
-        return ss, geom, s_top, g2, None, climb_from, (clipped_by, run, g2, witness)
+                f"to the road edge {top_ground:.2f} (§34 (9))"), climb_from, None, 0.0
+        if g2 > wc.max_ramp_grade + 1e-9:
+            lift = rise - wc.max_ramp_grade * run
+            return ss, geom, s_top, wc.max_ramp_grade, None, climb_from, \
+                (clipped_by, run, wc.max_ramp_grade, witness), lift
+        return ss, geom, s_top, g2, None, climb_from, (clipped_by, run, g2, witness), 0.0
     if g2 < 0.0 or math.isinf(g2) or math.isnan(g2):
         return ss, geom, s_top, g2, (
             f"the climb stopped by {clipped_by} at s {s_top:.1f} runs the wrong way: "
             f"{run:.1f} m of run for {rise:.2f} m of rise to the ground {top_ground:.2f} — "
-            f"a trench standing over its own ground is no corridor (§34 (8))"), climb_from, None
+            f"a trench standing over its own ground is no corridor (§34 (8))"), climb_from, None, 0.0
     if g2 > wc.max_ramp_grade + 1e-9:
         # §34 (8) as amended (14u): MOVE THE MOUTH away from airside by the
         # run the cap needs, and run the ramp at the cap from there
@@ -405,14 +421,14 @@ def stop_and_steepen(airport, wc, axis_fn, axis_ln, ss, s_top, climb_from, mouth
                 f"the climb stopped by {clipped_by} at s {s_top:.1f} needs {need:.1f} m of run "
                 f"at max_ramp_grade {100.0 * wc.max_ramp_grade:.0f} % for {rise:.2f} m of rise, "
                 f"and the corridor is only {s_top:.1f} m long — the mouth cannot move that far "
-                f"back (§34 (8), 14u)"), climb_from, None
+                f"back (§34 (8), 14u)"), climb_from, None, 0.0
         moved = max(0.0, moved)
         ss = sorted(set([s for s in ss if abs(s - moved) > 1e-6] + [moved]))
         geom_m = regeom(ss)
         if geom_m is not None:
             geom = geom_m
-        return ss, geom, s_top, rise / max(s_top - moved, 1e-9), None, moved, None
-    return ss, geom, s_top, g2, None, climb_from, None
+        return ss, geom, s_top, rise / max(s_top - moved, 1e-9), None, moved, None, 0.0
+    return ss, geom, s_top, g2, None, climb_from, None, 0.0
 
 
 def wall_corridor_profile(airport, g: Group, ss, s_top, mouth_z, design_grade, axis_fn,
@@ -471,3 +487,13 @@ def wall_corridor_note(c, g: Group, mouth_dem, s_top, climb_from, design_grade, 
                f"{g.hull_s - covered_from:.1f} m of uncovered corridor — the retaining wall "
                f"protruding past the building included — is RAMP, not trench"
                if covered_from is not None and covered_from < g.hull_s - 1e-6 else ""))
+
+
+def cap_held_note(clipped_by: str, lift_m: float, grade: float, run_m: float) -> str:
+    """§47 (7): what the cap-holding Law C ramp reports — the floor raised
+    by ``lift_m`` so the 10 % cap holds, and the residual to the authored
+    wall-bottom floor standing at the COVERING PLATE's edge."""
+    return (f"§47 (7) the 10 % cap holds against {clipped_by}: the floor is raised "
+            f"{lift_m:.2f} m — the ramp arrives at the covering plate's edge at "
+            f"{100.0 * grade:.1f} % over {run_m:.1f} m and the {lift_m:.2f} m residual to the "
+            f"authored wall-bottom floor is a step there")

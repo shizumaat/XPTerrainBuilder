@@ -118,13 +118,24 @@ def test_the_rim_lies_on_the_objects_outer_wall_face(wide_apron_pit, law):
 
 def test_the_rim_is_never_widened_outside_the_shells_footprint(wide_apron_pit):
     """The mechanism, not the symptom: the emitted rim encloses no more
-    area than the shell's own footprint.  The old ``_rim`` k-loop widened
-    by 2.0 m at LEMD — 28,971 m² of rim over a 27,557 m² region."""
+    area than the shell's own footprint ⊕ the ONE widening §47 (3) names
+    — the ``rim_yield`` of a shell too thin to hold two rings, reported
+    per basin.  The old ``_rim`` k-loop widened by 2.0 m at LEMD —
+    28,971 m² of rim over a 27,557 m² region — and nothing does that now.
+
+    This pit's authored shell is ZERO thick, so its whole band is the
+    yield: ``ring_floor_m`` 0.7071 m, snapped to the identity lattice by
+    ``basin_geometry._snap_ring`` (0.5 m out on each side here)."""
     _a, cl3, basins, _bs = wide_apron_pit
     wall = next(c for c in cl3.cells if c.ref == basins[0].wall_ref)
     rim, plate = Polygon(wall.ring), _plate_footprint()
-    assert rim.area <= plate.area + 1e-6
-    assert plate.buffer(1e-6).contains(rim)
+    from auto_patch_v2.law import Law
+    F = Law.for_airport("ZZZZ").tables.structures.cutout.ring_floor_m
+    allowed = plate.buffer(F + 1e-6, join_style="mitre", mitre_limit=2.0)
+    assert allowed.contains(rim)
+    assert rim.area <= allowed.area + 1e-6
+    # ...and the yield is NAMED, never silent
+    assert any("rim_yield" in n for n in _bs.rim_yields), _bs.rim_yields
 
 
 def test_the_standoff_comes_out_of_the_floor(wide_apron_pit, law):
@@ -137,7 +148,7 @@ def test_the_standoff_comes_out_of_the_floor(wide_apron_pit, law):
     floor = next(c for c in cl3.cells if c.ref == basins[0].floor_ref)
     rim, fp = Polygon(wall.ring), Polygon(floor.ring)
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    _inset, standoff = rim_standoff(0.0, law.tables.structures.cutout, grid)
+    _inset, standoff = rim_standoff(0.0, law.tables.structures.cutout)
     assert rim.contains(fp) and fp.distance(rim.exterior) >= standoff - 1e-6
     # ... and the floor never leaves the plate of a zero-thickness shell
     assert _plate_footprint().buffer(1e-6).contains(fp)

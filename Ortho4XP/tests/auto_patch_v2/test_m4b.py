@@ -298,14 +298,17 @@ def test_basin_pass_cells_records_and_refusals(basin_map, law):
     plate = _aff.affine_transform(Polygon([(-30, -20), (30, -20), (30, 20), (-30, 20)]),
                                   obj8.placement_affine((0.0, 0.0), 30.0))
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    _inset, standoff = rim_standoff(0.0, co, grid)
+    _inset, standoff = rim_standoff(0.0, co)
     assert plate.buffer(1e-6).contains(fp), "the floor never leaves a 0-thick shell's plate"
     assert Polygon(wall.holes[0]).equals(fp)
     assert wp.exterior.distance(fp) >= standoff - 1e-6
-    # the rim hugs the wall: every rim vertex ON the shell's own footprint,
-    # well inside §24 (1)'s 1.0 m weld_spacing_m bar
+    # §47 (1)/(3): the rim hugs the wall — every rim vertex ON the shell's
+    # own footprint, or, for this ZERO-thickness shell, the ``rim_yield``
+    # outward that §47 (3) names (``ring_floor_m``, then snapped to the
+    # identity lattice); still inside §24 (1)'s 1.0 m weld_spacing_m bar
     weld = law.tables.emit.identity.weld_spacing_m
-    assert max(plate.exterior.distance(Point(q)) for q in wp.exterior.coords) <= weld + 1e-6
+    assert co.ring_floor_m <= weld
+    assert max(plate.exterior.distance(Point(q)) for q in wp.exterior.coords) <= weld + grid + 1e-6
     # the pad inside the pit is gone, the one beside it untouched, the apron cut at the rim
     refs = [c.ref for c in cl3.cells]
     assert "padIn" not in refs and "padOut" in refs

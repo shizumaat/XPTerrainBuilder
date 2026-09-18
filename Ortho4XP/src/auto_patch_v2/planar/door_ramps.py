@@ -46,7 +46,7 @@ from .object_corridor import Group
 from .structure_approach import unit
 from .structure_geometry import rim_standoff
 
-__all__ = ["RampCorridor", "door_groups", "sunken_groups"]
+__all__ = ["RampCorridor", "door_groups", "sunken_groups", "door_profile"]
 
 
 @_dc.dataclass(frozen=True)
@@ -108,18 +108,22 @@ def door_groups(wells: _t.Sequence, law: Law) -> list[Group]:
         half = w.sill_width_m / 2.0
         hull_s = w.plate_out_m + 2.0 * overlap
         p0 = (w.sill_mid[0] - n[0] * overlap, w.sill_mid[1] - n[1] * overlap)
-        reach = hull_s + dl.max_length_m + 3.0 * dl.station_m
+        # §47 (6): the axis runs the WELL and no further (a station past
+        # the end so the normals and the stop probe have a line to read);
+        # the 25 m outward climb retires
+        reach = hull_s + 3.0 * dl.station_m
         path = [p0, (p0[0] + n[0] * reach, p0[1] + n[1] * reach)]
         p_hull = (p0[0] + n[0] * hull_s, p0[1] + n[1] * hull_s)
         # the well's side walls (the rim's law, 09-08a): the plate-to-shell
         # distance off the sill line (``basins.shell_thickness_m``)
         t_side = shell_thickness_m(w.region, w.plate, grid, t_max, exclude=w.sill_line.buffer(grid))
-        _inset, standoff = rim_standoff(t_side, co, grid)
+        _inset, standoff = rim_standoff(t_side, co)
         notes = tuple(w.notes) + (f"side walls {t_side:.2f} m thick: rim stand-off {standoff:.2f} m "
                                   f"off the floor ring (09-08a)",)
 
-        def half_fn(s: float, _h=half, _ov=overlap, _L=hull_s) -> tuple[float, float]:
-            return (_h + _ov, _h + _ov) if s <= _L + 1e-6 else (_h, _h)
+        def half_fn(s: float, _h=half) -> tuple[float, float]:
+            # §47 (1): the floor ring IS the well's inner faces exactly
+            return (_h, _h)
 
         def rim_fn(s: float, _so=standoff, _L=hull_s, _b=osm_rim) -> tuple[float, float]:
             return (_so, _so) if s <= _L + 1e-6 else (_b, _b)
@@ -128,10 +132,23 @@ def door_groups(wells: _t.Sequence, law: Law) -> list[Group]:
                          w.sill_width_m, t_side, t_side, "door",
                          w.ground_z, w.sill_z, w.region, w.plate, w.region, w.anchor_xy,
                          w.anchor_dem_z, w.agl_m, w.depth_m, notes)
+        # §47 (6) LAW A INVERTED — THE DOOR RAMP DESCENDS INSIDE ITS WALLS
+        # (owner RULINGS 2026-09-17h, Q1: "Maintain 10% cap, descend as far
+        # as that allows, stopping at the building wall").  THIS IS THE
+        # INVERSION'S ONE DERIVATION SITE: ``climb_from_s`` was ``hull_s``
+        # — the well floor stayed FLAT at the sill and the 8 % climb ran
+        # OUTSIDE the walls for up to ``max_length_m`` (25 m).  It is now
+        # ``None``: the climb starts AT the mouth (s = 0, the building
+        # face), the ramp TOP is at grade at the well's OUTER end, and
+        # ``planar/structures`` clamps the depth reached at the building
+        # wall to ``ramp_grade x well length`` (the residual to the sill is
+        # a step AT the face, reported per well).  Nothing is emitted
+        # beyond the well, so ``max_length_m`` governs nothing and is not
+        # passed.
         out.append(Group([], p0, (-n[0], -n[1]), w.sill_width_m, path, c, w.id, hull_s, True,
                          True, False, half_fn, rim_fn, standoff, None, dl.ramp_grade,
-                         kind="door", max_grade=dl.ramp_grade, max_length_m=dl.max_length_m,
-                         spacing_m=dl.station_m, climb_from_s=hull_s, stop_at_pavement=True))
+                         kind="door", max_grade=dl.ramp_grade,
+                         spacing_m=dl.station_m, stop_at_pavement=True))
     return out
 
 
@@ -174,7 +191,7 @@ def sunken_groups(roads: _t.Sequence, law: Law, refused: list[str] | None = None
         # the side walls: the plate-to-footprint distance off the two ends
         ends = unary_union([Point(axis[0]).buffer(sr.station_m), Point(axis[-1]).buffer(sr.station_m)])
         t_side = shell_thickness_m(r.region, r.plate, grid, t_max, exclude=ends)
-        _inset, standoff = rim_standoff(t_side, co, grid)
+        _inset, standoff = rim_standoff(t_side, co)
         notes = tuple(r.notes) + (f"side walls {t_side:.2f} m thick: rim stand-off {standoff:.2f} m "
                                   f"off the floor ring (09-08a)",)
 
@@ -194,3 +211,31 @@ def sunken_groups(roads: _t.Sequence, law: Law, refused: list[str] | None = None
                          min(tn.ramp_max_grade, r.depth_m / max(L, 1e-9)), kind="sunken_road",
                          spacing_m=sr.station_m, profile=tuple(r.profile)))
     return out
+
+
+def door_profile(floor_z: float, ground_z: float, well_len_m: float, cap: float
+                 ) -> tuple[float, float, float]:
+    """§47 (6) LAW A INVERTED (owner RULINGS 2026-09-17h Q1: "Maintain 10%
+    cap, descend as far as that allows, stopping at the building wall").
+
+    The ramp TOPS at the ground at the well's OUTER end and descends
+    toward the building face at ``cap``, STOPPING AT THE BUILDING WALL at
+    ``depth_at_wall = min(sill, cap x well length)``.  Returns
+    ``(mouth_z, design_grade, residual_m)`` — the floor AT the building
+    face, the grade it is reached at (never over the cap) and the step
+    ``sill − depth_at_wall`` left at the face, which is reported per well
+    and never iterated on.  Nothing is emitted beyond the well: the flat
+    sill and the 8 % outward climb of 09-08b/c retire."""
+    sill_depth = max(ground_z - floor_z, 0.0)
+    depth_at_wall = min(sill_depth, cap * max(well_len_m, 0.0))
+    return (ground_z - depth_at_wall, depth_at_wall / max(well_len_m, 1e-9),
+            sill_depth - depth_at_wall)
+
+
+def door_note(resource: str, mouth_z: float, sill_z: float, top_ground: float,
+              grade: float, cap: float, well_m: float, residual_m: float) -> str:
+    """§47 (6): what an inverted door ramp reports."""
+    return (f"door ramp (§47 (6) LAW A INVERTED) of {resource}: the ramp tops at the ground "
+            f"{top_ground:.2f} at the well's OUTER end and descends {100.0 * grade:.1f} % "
+            f"(cap {100.0 * cap:.0f} %) over the well's {well_m:.2f} m to {mouth_z:.2f} AT THE "
+            f"BUILDING WALL; sill {sill_z:.2f} — residual step at the face {residual_m:.2f} m")

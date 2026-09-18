@@ -405,7 +405,19 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # 2026-09-14, arm 1: 37 neck cells, of which the 1,970 m and
         # 1,434 m "necks" were taxiways).  A face already cut at a neck is
         # never re-offered (the pieces carry their mark).
-        if not neck_ev and (kind == "apron" or apron_refused):
+        # ...and "a face already cut at a neck is never re-offered" means
+        # exactly that: a §43 PRODUCT (a neck piece or the apron beyond
+        # it) carries its own mark and is not re-cut.  Reading it as "any
+        # mark at all" cost the owner's own site: LEMD `pav188`'s cell
+        # (46,764 m2, the 44.5 m x 570 m band of 17x item 3) reaches this
+        # line carrying `shoulder_beyond_band` — it is §40 (5)'s remainder
+        # outside 14R/32L's strip — and was therefore never offered the
+        # neck pass at all, with or without the amendment (measured, the
+        # 17x dry LEMD arm: cell 471 `role=apron kind=apron ref=pav188`
+        # BYTE-IDENTICAL on both arms until this line was fixed).
+        already_cut = bool(neck_ev.get("neck_cut")
+                           or neck_ev.get("neck_new_apron"))
+        if not already_cut and (kind == "apron" or apron_refused):
             pieces = _neck_pieces(face, rules, to_ll, notes, stats)
             if pieces:
                 queue.extend(pieces)
@@ -644,9 +656,10 @@ def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
         rp = n.polygon.representative_point()
         lat, lon = to_ll(rp.x, rp.y)
         notes.append(
-            f"§43 neck cut: {n.area_m2:,.0f} m2, local width <= "
-            f"{rules.apron.neck_width_m:g} m over {n.length_m:,.1f} m "
-            f"(mean {n.width_m:,.1f} m), {n.n_lobes} mouths at "
+            f"§43 {n.kind} cut: {n.area_m2:,.0f} m2, local width <= "
+            f"{rules.corridor.max_width_m:g} m over {n.length_m:,.1f} m "
+            f"(mean {n.width_m:,.1f} m, aspect {n.aspect:,.1f}, mouth "
+            f"factor {n.mouth_factor:,.2f}), {n.n_lobes} mouths at "
             + " | ".join(_mouth_ll(m, to_ll) for m in n.mouth_lines)
             + f"; neck at {lat:.7f},{lon:.7f}"
             + (f" ({n.curved_mouths} curved)" if n.curved_mouths else ""))
@@ -662,7 +675,8 @@ def _neck_pieces(face: Polygon, rules: Rules, to_ll, notes: list[str],
         out.append((poly, {
             "neck_cut": 1.0, "neck_length_m": n.length_m,
             "neck_width_m": n.width_m, "neck_area_m2": n.area_m2,
-            "neck_lobes": float(n.n_lobes),
+            "neck_lobes": float(n.n_lobes), "neck_kind": n.kind,
+            "neck_aspect": n.aspect, "neck_mouth_factor": n.mouth_factor,
             "neck_mouths": " | ".join(_mouth_ll(m, to_ll)
                                       for m in n.mouth_lines)}))
     return out

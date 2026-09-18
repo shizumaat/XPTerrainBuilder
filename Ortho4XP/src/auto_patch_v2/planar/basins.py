@@ -168,7 +168,7 @@ from ..model.structures import Basin, Tunnel
 from .basin_geometry import (_floors, _floors_inside, _outer, _ramp_axis, _region_floor,
                              _renode, _rim, _snap_ring, rim_wall_report,
                              shell_thickness_m)
-from .structure_geometry import rim_standoff
+from .structure_geometry import rim_standoff, rim_yield_m
 
 __all__ = ["BasinStats", "read_objects", "build_basins", "FLOOR_ROLE", "WALL_ROLE"]
 
@@ -207,6 +207,9 @@ class BasinStats:
     basins: int = 0
     refused: list[str] = _dc.field(default_factory=list)
     small_regions: list[str] = _dc.field(default_factory=list)
+    #: §47 (3): every shell whose RIM YIELDED outward because its wall is
+    #: thinner than ``cutout.ring_floor_m``, named with its metres.
+    rim_yields: list[str] = _dc.field(default_factory=list)
     #: EVERY SKIPPED BURIED COMPONENT NAMED (spec §24 (7) (a)): the
     #: object reader's own lines, carried here because the basin report
     #: is where a missing floor plate is looked for.
@@ -597,13 +600,24 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
             stats.refused.append(f"{bid}: {ring.area:.0f} m2 — no floor plate ({plate:.0f} m2) "
                                  f"survives the identity grid ({grid} m) at {site}")
             continue
-        # the rim INSIDE the shells' footprint by rim_inset_fraction of
-        # their thickness (09-08a), clearing the floors by the stand-off;
-        # the void between
+        # §47 (1): THE RIM IS THE SHELLS' OUTER FACE — ``ring`` itself,
+        # which IS "the object's outer wall face at its top" (`_rim`'s own
+        # docstring).  ``rim_standoff`` now returns inset 0 for every shell
+        # at or above the lattice floor, so the 09-08a inward set retires
+        # and the floor is trimmed to clear the rim by the shell's own
+        # thickness.  §47 (3): a shell THINNER than ``ring_floor_m`` cannot
+        # hold two distinct rings, so the RIM YIELDS OUTWARD by
+        # ``ring_floor_m − t`` (the floor stays on the inner face) — the
+        # yield is named per basin below.
         shell_t = shell_thickness_m(ring, plates_u, grid,
                                     law.tables.structures.tunnel.object.wall_face_max_thickness_m)
-        inset, standoff = rim_standoff(shell_t, co, grid)
-        rim = _rim(ring, inset, grid)
+        inset, standoff = rim_standoff(shell_t, co)
+        yield_m = rim_yield_m(shell_t, co)
+        rim = _rim(ring if yield_m <= 1e-9 else ring.buffer(yield_m, **_MITRE), 0.0, grid)
+        if yield_m > 1e-9:
+            stats.rim_yields.append(f"{bid}: shell {shell_t:.2f} m thick is under the lattice floor "
+                               f"{co.ring_floor_m:.4f} m — rim_yield {yield_m:.3f} m outward "
+                               f"(§47 (3); the floor stays on the inner face)")
         snap_note = "rim vs the shells' at-grade geometry (§24 (1) (a)): not read (no rim)"
         if rim is not None:
             # §24 (1) (a) THE RIM IS THE WALL (RULINGS 2026-09-14bp item 5)
@@ -622,8 +636,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                    f"stations" if fin else "no station had at-grade geometry at all")
                 + "; stations within " + ", ".join(f"{r:g} m: {probe[r]}" for r in sorted(probe)))
         if rim is None:
-            stats.refused.append(f"{bid}: the rim (shell {shell_t:.2f} m thick, inset "
-                                 f"{inset:.2f}) does not survive the identity grid "
+            stats.refused.append(f"{bid}: the rim (shell {shell_t:.2f} m thick, rim_yield "
+                                 f"{yield_m:.3f}) does not survive the identity grid "
                                  f"({grid} m) at {site}")
             continue
         # THE STAND-OFF COMES OUT OF THE FLOOR (§24 (1)), never out of the
@@ -747,10 +761,13 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         seat_expect = floor_z - (mesh_pred + deepest.agl_m + plate_y)
         prot = max(wits, key=lambda w: w.protrusion_fraction)
         notes = [kind, f"{len(members)} object(s)", f"floor plate {plate:.0f} m2",
-                 f"shell {shell_t:.2f} m thick: rim inset {inset:.2f} m inside its footprint "
-                 f"(THE CUT HUGS THE WALL, 11t §24 (1): the rim IS the outer face, never widened), "
-                 f"stand-off {standoff:.2f} m taken out of the floor ({floor_trim_m2:.0f} m2 "
-                 f"trimmed, 09-08a)",
+                 f"shell {shell_t:.2f} m thick: the rim IS its OUTER FACE (§47 (1); 11t §24 (1) "
+                 f"THE CUT HUGS THE WALL, never widened)"
+                 + (f", rim_yield {yield_m:.3f} m OUTWARD (§47 (3): the shell is thinner than the "
+                    f"lattice floor {co.ring_floor_m:.4f} m, so the floor stays on the inner face "
+                    f"and the rim yields)" if yield_m > 1e-9 else "")
+                 + f", band {standoff:.2f} m taken out of the floor ({floor_trim_m2:.0f} m2 "
+                 f"trimmed, §47 (1))",
                  f"covered {cov:.0%} (own {cov_own:.0%}; diagnostic max {bl.max_covered_fraction:.0%})",
                  rim_note, snap_note, buried_note,
                  f"rendered deepest solid {smin_z:.2f} = the floor",

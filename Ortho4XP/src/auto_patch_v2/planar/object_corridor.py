@@ -168,12 +168,10 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
     straight on) so a climb the walls cannot hold has a centreline."""
     tn = law.tables.structures.tunnel
     co = law.tables.structures.cutout
-    overlap = co.floor_overlap_m
-    spacing = law.tables.emit.identity.min_distinct_spacing_m
     osm_rim = tn.wall_gap_m + tn.wall_band_width_m
 
     def standoff(thickness_m: float) -> float:
-        return rim_standoff(thickness_m, co, spacing)[1]
+        return rim_standoff(thickness_m, co)[1]
     out: list[Group] = []
     for c in corridors:
         axis = list(c.axis)
@@ -183,15 +181,18 @@ def object_groups(corridors: _t.Sequence, osm: list[OsmWay], law: Law, reach: fl
         u0 = unit(axis[0], axis[1])
         inward = (-u0[0], -u0[1])
 
-        def half_fn(s: float, _sts=sts, _ov=overlap) -> tuple[float, float]:
-            # the floor overlaps the inner faces by floor_overlap_m
-            hl, hr = _interp(_sts, "half_l", "half_r", s, None)
-            return hl + _ov, hr + _ov
+        def half_fn(s: float, _sts=sts) -> tuple[float, float]:
+            # §47 (1): the floor ring IS the walls' INNER faces exactly —
+            # the ``floor_overlap_m`` the 08a law added retires here (the
+            # owner: "the ramp must follow the interior of the shell
+            # exactly")
+            return _interp(_sts, "half_l", "half_r", s, None)
 
         def rim_fn(s: float, _sts=sts, _beyond=osm_rim) -> tuple[float, float]:
-            # the rim INSIDE the outer face (09-08a): rim_standoff of the
-            # wall's measured thickness off the ramp edge; beyond the
-            # walls the OSM law's stand-off
+            # §47 (1): the rim IS the wall's OUTER face — ``rim_standoff``
+            # of the wall's measured thickness off the floor ring is the
+            # thickness itself (or the §47 (3) yield); beyond the walls
+            # the OSM law's stand-off
             if s > _sts[-1].s + 1e-6:
                 return _beyond, _beyond
             tl, tr = _interp(_sts, "thick_l", "thick_r", s, None)
@@ -224,27 +225,52 @@ def mouth_covered_by(pt: XY, corridors: _t.Sequence, tol: float) -> str | None:
     return None
 
 
-def trench_outside_m(ramp_rings: _t.Sequence[Polygon], corridor, overlap_m: float = 0.0,
+def trench_outside_m(ramp_rings: _t.Sequence[Polygon], corridor,
                      grid_m: float = 0.0) -> float:
     """The largest distance any emitted trench (ramp) vertex INSIDE the
-    walls stands outside the region between the inner faces ⊕
-    ``overlap_m`` (``cutout.floor_overlap_m``) ⊕ the outward snap's
-    diagonal (``grid_m·√2``: the edge snaps away from the axis onto the
-    grid in both coordinates) — the 05n-2 assertion as 2026-09-06b (1)
-    amends it (expect 0.0).  Vertices beyond the walls (a climb the walls
-    could not hold) are the OSM ramp law's and are not measured."""
-    region = corridor.trench.buffer(overlap_m + grid_m * math.sqrt(2.0) + 1e-6,
+    walls stands outside the region between the INNER FACES ⊕ the
+    arrangement's own rounding diagonal (``grid_m·√2``) — the 05n-2
+    assertion as §47 (5) amends it (expect 0.0).
+
+    §47 (5): THE OVERLAP TERM IS GONE.  Under §47 (1) the floor ring IS
+    the inner face, so the region to measure against is the corridor's own
+    trench and nothing added to it; ``grid·√2`` stays because the
+    arrangement still snap-rounds the emitted product to the identity
+    lattice even though this pass no longer snaps the ring itself.
+    Vertices beyond the walls (a climb the walls could not hold) are the
+    OSM ramp law's and are not measured.
+
+    THE END WALLS' OWN BAND IS NOT MEASURED EITHER, and the reason is the
+    assertion's: this is the reading of the SIDE walls' INNER FACES.  A
+    corridor's ``axis`` starts at its MOUTH — the end wall's OUTER face —
+    while ``trench`` starts at that wall's INNER face, so the first and
+    last station rings stand up to the end wall's own thickness "outside"
+    the trench BY CONSTRUCTION (measured on the curved `arc.obj` fixture:
+    0.901 m at s = 0 and 0.560 m at s = L against ``mouth_thickness_m``
+    1.00 / ``far_thickness_m`` 0.50; every other vertex ≤ 0.003 m).  Under
+    the 08a law the ``floor_overlap_m`` term in this buffer hid exactly
+    that; dropping it exposed it.  Moving s = 0 to the end wall's inner
+    face is the corridor READER's (``airport/tunnel_objects``) and would
+    move every mouth datum, so it is NOT done here: the end band is
+    excluded and named."""
+    region = corridor.trench.buffer(grid_m * math.sqrt(2.0) + 1e-6,
                                     join_style="mitre", mitre_limit=2.0)
     ext = region.exterior
-    end = LineString(corridor.axis).interpolate(corridor.length_m)
+    ln = LineString(corridor.axis)
+    end = ln.interpolate(corridor.length_m)
     a, b = corridor.axis[-2], corridor.axis[-1]
     u = unit(a, b)
+    s_lo = float(getattr(corridor, "mouth_thickness_m", 0.0) or 0.0)
+    s_hi = corridor.length_m - float(getattr(corridor, "far_thickness_m", 0.0) or 0.0)
     worst = 0.0
     for ring in ramp_rings:
         for x, y in ring.exterior.coords:
             # beyond the wall end (along the axis) is the extension
             if (x - end.x) * u[0] + (y - end.y) * u[1] > 1e-6:
                 continue
+            s = ln.project(Point(x, y))
+            if s < s_lo - 1e-6 or s > s_hi + 1e-6:
+                continue                        # the END WALLS' own band
             p = Point(x, y)
             if not region.contains(p):
                 worst = max(worst, float(ext.distance(p)))

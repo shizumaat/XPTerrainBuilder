@@ -72,30 +72,48 @@ def _unit(a: XY, b: XY) -> XY:
     return (dx / L, dy / L)
 
 __all__ = ["RampGeometry", "geometry", "normals", "offset_line", "snap", "snap_out",
-           "rim_standoff", "corner_distance", "beyond_strip",
+           "rim_standoff", "rim_yield_m", "corner_distance", "beyond_strip",
            "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "covered_start", "reseat_expect"]
 
 
-def rim_standoff(thickness_m: float, cutout, spacing_m: float) -> tuple[float, float]:
-    """RULINGS 2026-09-08a (spec ``othh-read-20260906-spec.md`` §1a): the
-    at-grade rim of a below-grade object's trench — ``(inset_m,
-    standoff_m)`` for a wall (or basin shell) of MEASURED plan thickness
-    ``thickness_m``.  ``inset_m`` is how far INSIDE the wall's outer face
-    the rim stands (``cutout.rim_inset_fraction × t``: the terrain drop
-    happens within the wall's thickness, hidden by the object);
-    ``standoff_m`` is the rim's plan distance from the floor ring (the
-    inner face ⊕ ``cutout.floor_overlap_m``) = the width of the mesh
-    wall band: ``t − overlap − inset``, floored at ``spacing_m``
-    (``emit.identity.min_distinct_spacing_m``) — a rim vertex is never
-    closer to the floor ring than two distinct vertices may be.  Where
-    the floor binds (``t < overlap + spacing``, a thin shell) the rim
-    stands ``overlap + spacing`` outside the inner face: at the outer
-    face of a 0.8 m wall, outside it for thinner ones.  One law for
-    tunnel walls and basins (06b)."""
+def rim_standoff(thickness_m: float, cutout) -> tuple[float, float]:
+    """§47 (1)/(3) — THE RINGS ARE THE FACES (owner RULINGS 2026-09-17h/17j:
+    "the ramp must follow the interior of the shell exactly … the
+    surrounding grade must meet the shell exactly with no gaps … whatever
+    gap that leaves should be fine").
+
+    For an object wall (or basin shell) of MEASURED plan thickness ``t``
+    the FLOOR ring is its INNER face exactly and the RIM ring its OUTER
+    face exactly, so the band between them is ``t`` itself.  Returns
+    ``(inset_m, standoff_m)``:
+
+    * ``standoff_m`` is the rim's plan distance from the FLOOR RING (= the
+      inner face, no overlap) — ``max(t, cutout.ring_floor_m)``;
+    * ``inset_m`` is how far INSIDE the outer face the rim stands, which
+      is now ``0`` for every wall at or above the lattice floor, and
+      NEGATIVE — the measured YIELD ``t − ring_floor_m`` — for a thinner
+      one.  §47 (3): where ``t < F`` the FLOOR STAYS ON THE INNER FACE and
+      the RIM YIELDS OUTWARD by ``F − t``; nothing else yields and no
+      shell is refused for thinness.
+
+    What this supersedes (08a/08e): ``rim_inset_fraction × t`` inward,
+    ``floor_overlap_m`` on the floor ring, and the identity-spacing floor
+    on the stand-off — the last of which is replaced by the MEASURED
+    ``ring_floor_m`` (§47 (3): the arrangement's 0.5 m snap-rounding fuses
+    two unsnapped rings below the cell diameter, not below the spacing).
+    An OSM BORE keeps ``wall_gap_m + wall_band_width_m`` and never reaches
+    here.  One law for tunnel walls, door wells, wall corridors, sunken
+    roads and basins (06b)."""
     t = max(float(thickness_m), 0.0)
-    inset = cutout.rim_inset_fraction * t
-    standoff = max(t - cutout.floor_overlap_m - inset, spacing_m)
-    return inset, standoff
+    standoff = max(t, float(cutout.ring_floor_m))
+    return t - standoff, standoff
+
+
+def rim_yield_m(thickness_m: float, cutout) -> float:
+    """§47 (3): the metres the rim yields OUTWARD past the object's own
+    outer face because the wall is thinner than the lattice floor (0.0
+    where it is not) — reported per shell by name."""
+    return max(float(cutout.ring_floor_m) - max(float(thickness_m), 0.0), 0.0)
 
 
 @_dc.dataclass(frozen=True)
@@ -186,12 +204,22 @@ def _clear(p: XY, direction: XY, ramp: Polygon, gap: float, grid: float) -> XY:
     return q
 
 
-def _cap(m: XY, lin: XY, rin: XY, d: XY, nv: XY, ramp: Polygon, off: float, grid: float
-         ) -> list[XY]:
+def _cap(m: XY, lin: XY, rin: XY, d: XY, nv: XY, ramp: Polygon, off: float, grid: float,
+         walled: bool = False) -> list[XY]:
     """The rim's end cap across the axis point ``m`` in direction ``d``
     (away from the ramp): ``[+nv corner, centre, −nv corner]``, each
-    ``off`` beyond the ramp's end edge and cleared off the ramp by it."""
+    ``off`` beyond the ramp's end edge and cleared off the ramp by it.
+
+    §47 (2): on a WALLED corridor ``off`` IS the end wall's own thickness,
+    so the cap is the end wall's OUTER face — the plain offset, with
+    neither ``snap_out`` nor ``_clear`` able to push it past that face."""
     dirs = [(d[0] + nv[0], d[1] + nv[1]), d, (d[0] - nv[0], d[1] - nv[1])]
+    if walled:
+        out: list[XY] = []
+        for base, dv in ((lin, dirs[0]), (m, dirs[1]), (rin, dirs[2])):
+            L = math.hypot(dv[0], dv[1]) or 1.0
+            out.append((base[0] + dv[0] / L * off, base[1] + dv[1] / L * off))
+        return out
     return [_clear(snap_out((lin[0] + dirs[0][0] * off, lin[1] + dirs[0][1] * off), lin, grid),
                    dirs[0], ramp, off, grid),
             _clear(snap_out((m[0] + d[0] * off, m[1] + d[1] * off), m, grid), d, ramp, off, grid),
@@ -413,10 +441,31 @@ def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: 
     hr = [half_fn(s)[1] for s in ss] if half_fn is not None else [half] * len(ss)
     rl = [rim_fn(s)[0] for s in ss] if rim_fn is not None else [rim_off] * len(ss)
     rr = [rim_fn(s)[1] for s in ss] if rim_fn is not None else [rim_off] * len(ss)
-    # an object corridor's floor edges (``half_fn``: inner face + overlap)
-    # snap AWAY from the axis — the overlap is a stand-off, never rounded
-    # under; an OSM bore's carriageway snaps nearest
-    if half_fn is not None:
+    # §47 (2) THE EMIT PATH NEVER LEAVES THE WALL (owner RULINGS
+    # 2026-09-17h; the 08e OWED deviation (2) is closed here).  An OBJECT
+    # WALL's rings ARE the object's own face vertices — UNSNAPPED (the
+    # §33 (6) B ``geometry_from_trench`` precedent): the floor is the
+    # inner face exactly and the rim the outer face exactly, so no vertex
+    # may be rounded, offset or cleared past either.  ``snap_out`` rounds
+    # AWAY FROM ITS OWN ORIGIN and so could push a rim vertex up to a full
+    # grid step OUTSIDE the object (measured 08e site 1: ≈ 0.4 m outside a
+    # 1.0 m wall) and a floor vertex inside it; ``_clear``'s grid steps
+    # did the same.  Both retire for this path; an OSM BORE's carriageway
+    # still snaps nearest and its rim still clears by grid steps (its rim
+    # law, ``wall_gap_m + wall_band_width_m``, is unchanged).
+    # ``rim_fn`` — NOT ``half_fn`` — is what says "an object wall": only
+    # the four object group builders set it, while ``half_fn`` is also set
+    # for an OSM BORE whose ramp width comes from the pavement tracing the
+    # road (2026-09-06b (2), ``pavement_half_widths``).  Discriminating on
+    # ``half_fn`` took the unsnapped branch for those bores and moved three
+    # of VHHH's (measured on the §47 dry pair, r1).
+    walled = rim_fn is not None
+    if walled:
+        left = [(p[0] + nv[0] * h, p[1] + nv[1] * h) for p, nv, h in zip(axis, nrm, hl)]
+        right = [(p[0] - nv[0] * h, p[1] - nv[1] * h) for p, nv, h in zip(axis, nrm, hr)]
+    elif half_fn is not None:
+        # an object corridor's floor edges snapped AWAY from the axis (the
+        # pre-§47 law, kept for the pavement-width bore)
         left = [snap_out((p[0] + nv[0] * h, p[1] + nv[1] * h), p, grid)
                 for p, nv, h in zip(axis, nrm, hl)]
         right = [snap_out((p[0] - nv[0] * h, p[1] - nv[1] * h), p, grid)
@@ -427,27 +476,32 @@ def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: 
     ramp = Polygon(left + list(reversed(right)))
     if not ramp.is_valid or ramp.area < 1.0:
         return None
-    # the rim: offset, snapped away, then PUSHED out by grid steps until
-    # each point clears the ramp by its stand-off (a component-wise
-    # outward snap can shorten a diagonal offset's projection; the law is
-    # the plan distance to the ramp)
-    left_rim = [_clear(p, d, ramp, o, grid) for p, d, o in
-                zip(_offset_out(left, nrm, rl, left, grid), nrm, rl)]
-    right_rim = [_clear(p, (-d[0], -d[1]), ramp, o, grid) for p, d, o in
-                 zip(_offset_out(right, nrm, [-r for r in rr], right, grid), nrm, rr)]
+    # the rim: for a walled corridor the plain offset by the band (= the
+    # wall's thickness, or the §47 (3) yield); for an OSM bore offset,
+    # snapped away, then PUSHED out by grid steps until each point clears
+    # the ramp by its stand-off (a component-wise outward snap can shorten
+    # a diagonal offset's projection; the law is the plan distance)
+    if walled:
+        left_rim = [(p[0] + nv[0] * o, p[1] + nv[1] * o) for p, nv, o in zip(left, nrm, rl)]
+        right_rim = [(p[0] - nv[0] * o, p[1] - nv[1] * o) for p, nv, o in zip(right, nrm, rr)]
+    else:
+        left_rim = [_clear(p, d, ramp, o, grid) for p, d, o in
+                    zip(_offset_out(left, nrm, rl, left, grid), nrm, rl)]
+        right_rim = [_clear(p, (-d[0], -d[1]), ramp, o, grid) for p, d, o in
+                     zip(_offset_out(right, nrm, [-r for r in rr], right, grid), nrm, rr)]
     cap_out: list[XY] = []
     far_out: list[XY] = []
     if capped:
         # the cap: left corner, CENTRE (the mouth wall node, 09-03b), right corner
         cap_out = _cap(axis[0], left[0], right[0], inward, nrm[0], ramp,
-                       cap_off if cap_off is not None else rim_off, grid)
+                       cap_off if cap_off is not None else rim_off, grid, walled)
     if far_capped:
         a, b = axis[-2], axis[-1]
         L = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
         outward = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
         # in ring order after the right rim's top: right corner, centre, left corner
         far_out = _cap(axis[-1], right[-1], left[-1], outward, (-nrm[-1][0], -nrm[-1][1]),
-                       ramp, far_off if far_off is not None else rim_off, grid)
+                       ramp, far_off if far_off is not None else rim_off, grid, walled)
     outer_ring = list(reversed(left_rim)) + cap_out + right_rim + far_out
     if not capped and not far_capped:
         # capless: two side pieces — the rim is two lines, the void the
@@ -616,15 +670,16 @@ def geometry_from_trench(axis_fn, ss: list[float], half: float, standoff: float,
         if outer is None:
             return None
     if standoff > 0.0:
-        # THE GAP IS NEVER ON A WELD TOLERANCE (09-01e, this file's own
-        # law): the arrangement snap-rounds to ``grid``, and two points
-        # 0.85 m apart have been measured rounding to ONE 0.5 m grid
-        # point.  Neither of these rings is snapped — they are the
-        # OBJECT'S own vertices — so each can move up to half a grid
-        # diagonal toward the other, and the stand-off is widened by one
-        # grid step to keep the rings at least the identity spacing apart
-        # after the round.
-        inside = _one_polygon(outer.buffer(-(standoff + grid), join_style="mitre"))
+        # §47 (3): THE `+ grid` WIDEN RETIRES.  It was the 09-01e "0.85 m
+        # merged" record read as a floor on the arrangement's rounding —
+        # measured (lane `v2wallface`, `[cutout] ring_floor_m`) that record
+        # is ``snap_out``'s, not the arrangement's, and two UNSNAPPED rings
+        # (these are the OBJECT's own vertices) survive from the cell
+        # DIAMETER 0.7071 m up.  ``standoff`` already carries that floor
+        # (``rim_standoff`` = ``max(t, ring_floor_m)``), so a further grid
+        # step only ate the wall: the eroded floor ring stood a whole
+        # 0.5 m inside the object's own inner face.
+        inside = _one_polygon(outer.buffer(-standoff, join_style="mitre"))
         if inside is None:
             return None
         walled = _one_polygon(ramp.intersection(inside))
@@ -657,7 +712,20 @@ def geometry(axis_fn, ss: list[float], half: float, rim_off: float, inward: XY,
     stand-off everywhere — the snapped rings are jagged by up to half a
     grid step, so an edge can stand closer than its vertices do.  THE
     GAP IS THE LAW: a bend that cannot be cleared this way is refused,
-    never welded."""
+    never welded.
+
+    §47 (2): A WALLED CORRIDOR IS NEVER WIDENED.  Its rings are the
+    object's own UNSNAPPED faces, so there is no snap jag to clear and a
+    grid step of widening would put the rim OUTSIDE the wall — which is
+    exactly the 08e OWED deviation (2) ("``geometry()`` widens EVERY
+    station by a grid step when one rim line fails clearance", bands 1.11
+    / 0.71 m against the 0.5 m law).  The band it is asked for IS the
+    wall's thickness (at least ``ring_floor_m``, §47 (3)), so one pass is
+    the answer; a station that cannot be cleared inside the wall is not
+    widened."""
+    if rim_fn is not None:
+        return _geometry_at(axis_fn, ss, half, rim_off, inward, grid, capped, far_capped,
+                            half_fn, rim_fn, cap_off, far_off)
     for k in range(4):
         extra = k * grid
         rf = (lambda s, _f=rim_fn, _e=extra: (_f(s)[0] + _e, _f(s)[1] + _e)) \

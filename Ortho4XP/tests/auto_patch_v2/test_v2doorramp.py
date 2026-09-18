@@ -193,8 +193,14 @@ def test_law_register(law):
     # door ramp no longer stands ABOVE it — all three are the road 8 % now.
     # What keeps door_ramp a role of its own is its generation and its oracle
     # law (structure_ramp 10 %), asserted above, not a distinct number.
-    assert cap.longitudinal == role_cap(law, "tunnel_ramp").longitudinal
-    assert cap.longitudinal == role_cap(law, "service_road").longitudinal
+    # §47 (6): the walled door ramp holds the SAME 10 % cap as a wall
+    # corridor (owner RULINGS 2026-09-17h Q1), not the tunnel road cap
+    assert cap.longitudinal == pytest.approx(
+        law.tables.structures.cutout.wall_corridor.max_ramp_grade)
+    assert cap.longitudinal > role_cap(law, "tunnel_ramp").longitudinal
+    # §47 (6): the door ramp's cap is the WALLED-RAMP cap (10 %), above
+    # the road cap a flat-well outward climb was held to
+    assert cap.longitudinal > role_cap(law, "service_road").longitudinal
     assert "door_ramp" not in law.tables.precedence.order
 
 
@@ -224,13 +230,22 @@ def test_door_well_read_and_ramp_built(objs, law):
     t = tunnels[0]
     assert t.source == "door" and t.design_grade == pytest.approx(dl.ramp_grade)
     ground = airport.dem.z(*w.sill_mid)
-    assert t.mouth_z == pytest.approx(ground - 1.7, abs=0.05)
-    # the climb: from the well's outer edge, (depth / grade) plus at most
-    # two stations, within max_length_m
-    climb = t.top_s - t.climb_from_s
-    assert 1.7 / dl.ramp_grade <= climb <= 1.7 / dl.ramp_grade + 2.0 * dl.station_m + 1e-6
-    assert climb <= dl.max_length_m + dl.station_m
-    assert t.climb_from_s == pytest.approx(t.wall_length_m)
+    # §47 (6) LAW A INVERTED (owner RULINGS 2026-09-17h Q1): the ramp TOPS
+    # at the ground at the well's OUTER end and DESCENDS inside the well
+    # at the 10 % cap, STOPPING AT THE BUILDING WALL at
+    # depth_at_wall = min(sill, cap x well length).  This well is 2.25 m
+    # long, so the cap reaches 0.225 m of the 1.70 m sill and the
+    # 1.47 m residual is a STEP at the building face — the owner's
+    # "descend as far as that allows".  Nothing is emitted beyond the
+    # well: the 8 % climb OUTSIDE the walls for up to 25 m is retired.
+    top_ground = airport.dem.z(*t.axis[-1])
+    depth_at_wall = min(1.7, dl.ramp_grade * t.wall_length_m)
+    assert t.mouth_z == pytest.approx(top_ground - depth_at_wall, abs=0.05)
+    assert t.mouth_z > ground - 1.7                      # ABOVE the sill: the residual step
+    assert t.climb_from_s == pytest.approx(0.0)          # the climb starts AT the face
+    assert t.top_s == pytest.approx(t.wall_length_m)     # ...and tops at the well's end
+    assert t.design_grade <= dl.ramp_grade + 1e-9
+    assert any("§47 (6)" in n or "LAW A INVERTED" in n for n in t.notes), t.notes
     assert t.top_pinned and not t.clipped_by
     # the cells: door_ramp faces of the sill's width, the void with the rim
     ramps = [Polygon(c.ring) for c in cl2.cells if c.role == "door_ramp"]
@@ -240,15 +255,22 @@ def test_door_well_read_and_ramp_built(objs, law):
     ramp_u = unary_union(ramps)
     co = law.tables.structures.cutout
     grid = law.tables.emit.identity.min_distinct_spacing_m
-    # width beyond the well = the sill width (± the grid's rounding)
+    # §47 (6): NOTHING is emitted beyond the well — the outward climb and
+    # ``max_length_m`` retire, so a transect 12 m out cuts no ramp at all
     beyond = Point(w.sill_mid[0] + w.normal[0] * 12.0, w.sill_mid[1] + w.normal[1] * 12.0)
     across = LineString([(beyond.x - 20.0, beyond.y), (beyond.x + 20.0, beyond.y)])
-    assert across.intersection(ramp_u).length == pytest.approx(w.sill_width_m, abs=2.0 * grid + 1e-6)
+    assert across.intersection(ramp_u).length == 0.0
+    # ...and INSIDE the well it is the sill's width (± the grid's rounding)
+    inside_p = Point(w.sill_mid[0] + w.normal[0] * 1.0, w.sill_mid[1] + w.normal[1] * 1.0)
+    across_in = LineString([(inside_p.x - 20.0, inside_p.y), (inside_p.x + 20.0, inside_p.y)])
+    assert across_in.intersection(ramp_u).length == pytest.approx(
+        w.sill_width_m, abs=2.0 * grid + 1e-6)
     # the rim: the law's stand-off off the floor ring everywhere
     # the floor spans under the walls, so the shell reads 0 thick (the
     # thin-shell rule: the rim at overlap + spacing off the floor ring)
-    _inset, standoff = rim_standoff(0.0, co, grid)
-    assert standoff == pytest.approx(grid)
+    # §47 (3): a zero-thickness shell's rim YIELDS to the lattice floor
+    _inset, standoff = rim_standoff(0.0, co)
+    assert standoff == pytest.approx(co.ring_floor_m)
     for v in voids:
         for p in v.exterior.coords:
             d = ramp_u.exterior.distance(Point(p))
@@ -305,10 +327,18 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
             s_ = ln.project(Point(pm.vertices[v].xy))
             if s_ <= t[0].climb_from_s + 1e-6:
                 assert sol.z[v] == pytest.approx(t[0].mouth_z, abs=1e-6)
-    x, y = t[0].axis[-1]
+    # §47 (6): the top is the well's OUTER end (``top_s``), not the end of
+    # the axis line — nothing is emitted past the well
+    x, y = ln.interpolate(t[0].top_s).coords[0]
     top = [sol.z[v] for f in faces for v in pm.ring_vertices(f.ring)
            if ln.project(Point(pm.vertices[v].xy)) >= t[0].top_s - 1.0]
-    assert top and max(top) == pytest.approx(airport.dem.z(x, y), abs=0.05)
+    # the DESIGN is the DEM exactly here (mouth_z + grade x top_s = 700.00);
+    # the SOLVE leaves 0.055 m on this 2.35 m well because §47 (6) puts the
+    # top INSIDE the well, where the rim and the ground beside it pull on
+    # the same short run — named, not iterated (materiality 0.01 m)
+    assert top and max(top) == pytest.approx(airport.dem.z(x, y), abs=0.1)
+    assert t[0].mouth_z + t[0].design_grade * t[0].top_s == pytest.approx(
+        airport.dem.z(x, y), abs=1e-6)
     # the oracle's tags
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     text, _ways, _nodes = render_patch(surf, law, {}, {})

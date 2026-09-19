@@ -120,31 +120,38 @@ from bisect import bisect_left
 from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, KIND_AGL,
                                KIND_MSL, KIND_ON_GROUND, PROVENANCE_FILENAME,
                                PlacementPlan)
+from . import backup_state as _bs
+from .backup_state import BackupUnproven, State
 
 __all__ = ["conversions_for_dump", "TOL_DEG", "TOL_HEADING_DEG", "TOL_ELEV_M",
            "PLACEMENT_KINDS", "RoundTripReport", "WriteResult", "placement_rows",
            "edit_dump", "dump", "encode", "verify_roundtrip", "write_pack",
-           "live_install_roots", "pristine_dsf_path", "written_body_files"]
+           "live_install_roots", "pristine_dsf_path", "written_body_files",
+           "BackupUnproven"]
 
 
 def pristine_dsf_path(dsf_path: str) -> str:
-    """THE ONE READ FRAME of the object stage (RULINGS 2026-09-11m).
+    """THE ONE READ FRAME of the object stage (RULINGS 2026-09-11m), now
+    the ONE RULE's answer (§12a (3) row 1).
 
-    ``<dsf>.anchor_bak`` when one is there, else the live file.  Once
-    :func:`write_pack` has run, the live DSF carries the bodies this
-    stage minted and the backup beside it is the pack as installed; a
-    plan derived from the LIVE file names placements (``dsf:obj3021`` …)
-    that the write half — which dumps the backup — cannot find, and
-    ``edit_dump`` refuses.  EVERY object-stage read resolves through
-    here, so a second build over a written pack plans exactly what the
-    first one planned.
+    ``<dsf>.anchor_bak`` when one is there AND still belongs to the pack
+    on disk, else the live file.  Once :func:`write_pack` has run, the
+    live DSF carries the bodies this stage minted and the backup beside
+    it is the pack as installed; a plan derived from the LIVE file names
+    placements (``dsf:obj3021`` …) that the write half — which dumps the
+    backup — cannot find, and ``edit_dump`` refuses.  EVERY object-stage
+    read resolves through here, so a second build over a written pack
+    plans exactly what the first one planned.
+
+    WHAT §12a CHANGED: a pack the user updated IN PLACE leaves our OLD
+    backup behind, and the backup is then not the pack at all.
+    ``backup_state.classify_dsf`` decides, and this returns its
+    ``read_path`` — so the plan, the footprints, the partition-cache key
+    and the freshness identity all describe the pack that is INSTALLED.
 
     A path that already IS a backup is returned unchanged (never
     ``.anchor_bak.anchor_bak``)."""
-    if not dsf_path or dsf_path.endswith(BACKUP_SUFFIX):
-        return dsf_path
-    bak = dsf_path + BACKUP_SUFFIX
-    return bak if os.path.isfile(bak) else dsf_path
+    return _bs.classify_dsf(dsf_path).read_path
 
 #: The three placement rows (``airport/dsf.read_dump``'s grammar).
 PLACEMENT_KINDS = (KIND_ON_GROUND, KIND_MSL, KIND_AGL)
@@ -303,8 +310,27 @@ def _num(x: float, places: int) -> str:
     return f"{x:.{places}f}"
 
 
-def edit_dump(text: str, plan: PlacementPlan) -> str:
+def _mark_row_at(lines: _t.Sequence[str]) -> int:
+    """Where the ownership mark goes: AFTER the last ``PROPERTY`` row.
+    ``-1`` when the dump has no property atom at all (then no mark is
+    written — there is nowhere in-band to put one)."""
+    last = -1
+    for i, raw in enumerate(lines):
+        if raw.startswith("PROPERTY "):
+            last = i
+    return last + 1 if last >= 0 else -1
+
+
+def edit_dump(text: str, plan: PlacementPlan,
+              engine_version: str = "") -> str:
     """The edited dump text (§3.2).  Pure: no I/O, no DSFTool.
+
+    §12a: ONE row is added — ``PROPERTY o4/placement_rewrite
+    <engine_version>``, after the last ``PROPERTY``.  It is the IN-BAND
+    OWNERSHIP MARK: the backup never carries it (the dump is always taken
+    from the pristine file), so it is added exactly once per write, the
+    round-trip verify sees it on both sides, and ``backup_state`` can
+    answer "is this file ours?" from the FILE when the record is lost.
 
     Raises ``ValueError`` when the plan does not describe THIS dump — a
     placement index past the end, a ``kind_before`` or ``resource`` that
@@ -390,11 +416,18 @@ def edit_dump(text: str, plan: PlacementPlan) -> str:
                                   _num(b.anchor.heading_deg, 6))) + eol
                         for b in s.bodies]
 
+    mark_at = _mark_row_at(lines)
+    mark = (f"PROPERTY {_bs.OWNERSHIP_PROPERTY} "
+            f"{engine_version or 'unknown'}{eol}")
     out: list[str] = []
     for i, raw in enumerate(lines):
+        if i == mark_at:
+            out.append(mark)
         if i == append_at and new_res:
             out.extend(f"OBJECT_DEF {r}{eol}" for r in new_res)
         out.extend(edits.get(i, (raw,)))
+    if mark_at >= len(lines):
+        out.append(mark)
     if new_res and append_at >= len(lines):
         out.extend(f"OBJECT_DEF {r}{eol}" for r in new_res)
     return "".join(out)
@@ -664,6 +697,12 @@ class WriteResult:
     provenance_path: str
     report: RoundTripReport
     counts: _t.Mapping[str, int]
+    #: §12a: the row the classifier read, and what the write had to do
+    #: about it — ``""`` on the normal path (D3 / D4).
+    state: str = ""
+    superseded_path: str = ""
+    preserved_path: str = ""
+    notes: tuple[str, ...] = ()
 
 
 def _sha256(path: str) -> str:
@@ -682,12 +721,18 @@ def written_body_files(pack_root: str, dsf_path: str) -> tuple[str, ...]:
     that cuts fewer bodies than the last one would otherwise leave the
     surplus ``__b<k>.obj`` in the pack forever.  A pack with no
     provenance, or provenance from before this key existed, names
-    nothing and NOTHING is removed."""
-    prov = os.path.join(os.path.dirname(dsf_path), PROVENANCE_FILENAME)
-    try:
-        with open(prov) as fh:
-            rows = json.load(fh).get("body_files") or []
-    except (OSError, ValueError, AttributeError):
+    nothing and NOTHING is removed.
+
+    PER DSF (§12a (2)).  The record lands in the 10°x10° ``Earth nav
+    data/<bucket>/`` folder, which may hold SEVERAL of a pack's DSFs; the
+    version-1 record held one DSF's ``body_files`` at the top level, so
+    writing DSF B removed DSF A's bodies while A's live DSF still
+    referenced them.  A version-1 record is honoured only when its
+    ``dsf`` field names THIS file — otherwise it names nothing, which is
+    11m's own rule (no record ⇒ remove nothing)."""
+    rows = _bs.dsf_entry(_bs.read_record(dsf_path),
+                         os.path.basename(dsf_path)).get("body_files") or []
+    if not isinstance(rows, list):
         return ()
     out: list[str] = []
     root = os.path.abspath(pack_root)
@@ -727,11 +772,40 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             f"(spec §3.5 — a lane writes a COPY of the pack; the app's driver "
             f"passes allow_live_install=True)")
 
+    # ── §12a: IS THE BACKUP STILL THE PACK'S? ───────────────────────────
+    verdict = _bs.classify_dsf(dsf_path)
+    if not verdict.may_write:
+        raise BackupUnproven(_stand_down_line(verdict))
+    notes: list[str] = []
+    superseded = preserved = ""
+    if verdict.state is State.REPLACED:
+        # D5: THE USER'S NEW FILE.  Retire the old backup under a stamped
+        # name (never delete, never overwrite a previous one) and adopt
+        # the live file as the new original.
+        superseded = _bs.adopt(verdict)
+        notes.append(f"adopted the installed {os.path.basename(dsf_path)} as "
+                     f"the new original; the previous backup was kept as "
+                     f"{os.path.basename(superseded)}")
+    elif verdict.state is State.UNPROVEN:
+        # D6 under OWNER Q2 (RULINGS 2026-09-18l): ownership cannot be
+        # proven, so ASSUME the file is ours — but keep its bytes first.
+        preserved = _bs.preserve_live_copy(verdict)
+        notes.append(
+            f"could not tell whether {os.path.basename(dsf_path)} is this "
+            f"app's own rewrite or a new version you installed; a copy of "
+            f"the installed file was kept as {os.path.basename(preserved)} "
+            f"and the DSF was rebuilt from its backup")
+    elif verdict.state is State.OURS and not _bs.backup_matches_record(dsf_path):
+        notes.append(f"the backup {os.path.basename(verdict.backup or '')} no "
+                     f"longer matches what this app recorded — building from "
+                     f"it and re-recording")
+
     backup = plan.dsf_backup_path or (dsf_path + BACKUP_SUFFIX)
     created = False
     if not os.path.isfile(backup):
         shutil.copy2(dsf_path, backup)
         created = True
+        _bs.invalidate_memo()
 
     work = work_dir or tempfile.mkdtemp(prefix="o4_dsf_write_")
     os.makedirs(work, exist_ok=True)
@@ -754,7 +828,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     with open(pristine_text, "r", encoding="utf-8",
               errors="surrogateescape") as fh:
         text = fh.read()
-    edited = edit_dump(text, plan)
+    edited = edit_dump(text, plan,
+                       engine_version or plan.provenance.engine_version)
     with open(edited_text, "w", encoding="utf-8",
               errors="surrogateescape", newline="\n") as fh:
         fh.write(edited)
@@ -765,32 +840,89 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         raise RuntimeError("DSF round-trip verification failed: "
                            + "; ".join(report.findings[:4]))
 
-    shutil.move(out_dsf, dsf_path)
-
     counts = dict(plan.counts())
-    prov = {
-        "version": 1,
+    bodies = sorted(
+        os.path.relpath(os.path.abspath(f), os.path.abspath(pack_root)
+                        ).replace(os.sep, "/")
+        for f in body_files)
+    bak_stat = os.stat(backup)
+    prior = _bs.dsf_entry(_bs.read_record(dsf_path), base).get("written_sha256")
+    adopted_rows = list(
+        _bs.dsf_entry(_bs.read_record(dsf_path), base).get("adopted") or [])
+    if superseded or preserved:
+        adopted_rows.append({
+            "time": _bs.stamp(),
+            "state": verdict.state.value,
+            "superseded": os.path.basename(superseded) if superseded else "",
+            "preserved": os.path.basename(preserved) if preserved else "",
+            "backup_sha256": _sha256(backup),
+            "live_sha256": _sha256(dsf_path),
+        })
+
+    # THE RECORD GOES FIRST (§12a (2)).  It used to be written AFTER the
+    # move and non-atomically: a crash between the two left a live file
+    # that IS ours beside a record that says it is not, and any three-way
+    # rule then reads our own output as "the user's new file" and adopts
+    # it.  Written first with the hash of what we are ABOUT to move into
+    # place (stat fields null), then again with the live file's stat, the
+    # crash window leaves L equal to ``written`` or ``prior_written``, or
+    # carrying the mark: row D4, never D5.
+    entry = {
+        "backup": os.path.basename(backup),
+        "backup_sha256": _sha256(backup),
+        "backup_size": bak_stat.st_size,
+        "backup_mtime_ns": bak_stat.st_mtime_ns,
+        "dump_sha256": hashlib.sha256(text.encode("utf-8", "replace")).hexdigest(),
+        "written_sha256": _sha256(out_dsf),
+        "prior_written_sha256": prior,
+        "written_size": None,
+        "written_mtime_ns": None,
+        "body_files": bodies,
+        "adopted": adopted_rows,
+        "counts": counts,
+        "roundtrip": report.to_dict(),
+    }
+    # the top-level keys of the LAST write stay exactly as they were
+    # (tools and ``v2_rebake_replay.py disk`` read them)
+    top = {
         "icao": plan.icao,
         "pack_name": plan.pack_name,
         "dsf": base,
-        "backup": os.path.basename(backup),
-        "dump_sha256": hashlib.sha256(text.encode("utf-8", "replace")).hexdigest(),
-        "backup_sha256": _sha256(backup),
-        "written_sha256": _sha256(dsf_path),
+        "backup": entry["backup"],
+        "dump_sha256": entry["dump_sha256"],
+        "backup_sha256": entry["backup_sha256"],
+        "written_sha256": entry["written_sha256"],
         "engine_version": engine_version or plan.provenance.engine_version,
         "law_digest": law_digest or plan.provenance.law_digest,
         "counts": counts,
         "roundtrip": report.to_dict(),
-        # 11m: what the NEXT restore removes — pack-relative, sorted, and
-        # ONLY the files this writer made.
-        "body_files": sorted(
-            os.path.relpath(os.path.abspath(f), os.path.abspath(pack_root)
-                            ).replace(os.sep, "/")
-            for f in body_files),
+        "body_files": bodies,
     }
-    prov_path = os.path.join(os.path.dirname(dsf_path), PROVENANCE_FILENAME)
-    with open(prov_path, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(prov, fh, indent=1, sort_keys=True)
+    prov_path = _bs.update_dsf_entry(dsf_path, entry, top_level=top)
+
+    shutil.move(out_dsf, dsf_path)
+    _bs.invalidate_memo()
+
+    st = os.stat(dsf_path)
+    prov_path = _bs.update_dsf_entry(
+        dsf_path, {"written_size": st.st_size,
+                   "written_mtime_ns": st.st_mtime_ns})
 
     return WriteResult(dsf_path, backup, created, edited_text, prov_path,
-                       report, counts)
+                       report, counts, verdict.state.value,
+                       superseded, preserved, tuple(notes))
+
+
+def _stand_down_line(v) -> str:
+    """§12a (4): the ONE line the user sees when the write half stands
+    down for a DSF.  Rows D2 and D8 only — under the owner's Q2 answer
+    (RULINGS 2026-09-18l) row D6 no longer stands down."""
+    name = os.path.basename(v.live)
+    if v.state is State.ORIGINAL_LOST:
+        return (f"the original of {name} is missing and the installed file is "
+                f"this app's own rewrite. Reinstall the pack.")
+    return (f"cannot read the backup of {name} "
+            f"({os.path.basename(v.backup)}), so nothing in the pack was "
+            f"changed and its objects were not re-seated. To continue, "
+            f"reinstall the pack (or delete {os.path.basename(v.backup)} if "
+            f"the installed file is the one you want).")

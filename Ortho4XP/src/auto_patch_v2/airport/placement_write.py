@@ -55,6 +55,7 @@ import os
 import typing as _t
 
 from ..model.placement import (PLAN_FILENAME, PlacementPlan, Provenance)
+from . import backup_state as _bs
 from . import dsf_write as _dw
 from . import footprint_unit as _fu
 from . import placement_plan as _pp
@@ -74,12 +75,20 @@ class RestoreResult:
     restored: tuple[str, ...] = ()
     #: the PREVIOUS write's body files, removed before this one (11m)
     bodies_removed: tuple[str, ...] = ()
+    #: §12a rows O6 / O7 and D7: the stale backup was RETIRED under a
+    #: ``.superseded-<UTC>`` name and the user's file was left alone
+    adopted: tuple[str, ...] = ()
+    #: §12a row O5: ours by WITNESS only — the live bytes were kept as
+    #: ``<obj>.unrecognised-<UTC>`` before the backup went back over them
+    unproven: tuple[str, ...] = ()
 
     @property
     def counts(self) -> dict[str, int]:
         return {"restore_backups": len(self.backups),
                 "restore_restored": len(self.restored),
-                "restore_bodies_removed": len(self.bodies_removed)}
+                "restore_bodies_removed": len(self.bodies_removed),
+                "restore_adopted": len(self.adopted),
+                "restore_unproven": len(self.unproven)}
 
 
 @_dc.dataclass(frozen=True)
@@ -250,6 +259,22 @@ def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False,
     of the dump, never a thing to copy back under it.  The backups
     themselves are kept.
 
+    §12a — THE OBJECT TABLE (rows O1-O7), through
+    ``backup_state.classify_object``.  Before it, EVERY backup whose live
+    file differed was copied back: a ``.obj`` the user's NEW version of
+    the pack had changed was reverted, and one the new version had
+    DROPPED was RESURRECTED (``have = b""``).  Now:
+
+    * O2 / O3 — the same bytes: nothing, or one ``utime`` so the next
+      build is two stats and reads no file at all;
+    * O4 / O5 — ours: the backup goes back, and under the WITNESS-only
+      row O5 the live bytes are kept as ``<obj>.unrecognised-<UTC>``
+      FIRST, because a witness is not a proof;
+    * O6 / O7 — the USER'S file, or a file the new version dropped: the
+      stale backup is RETIRED to ``.superseded-<UTC>`` and nothing is
+      written over the pack.  The DSF's own ``.dsf.anchor_bak`` is
+      retired here too when its live DSF is gone (row D7).
+
     Refuses a live X-Plane install without the app's explicit
     ``allow_live_install``, exactly as :func:`write_files` does: this
     writes pack files."""
@@ -259,27 +284,58 @@ def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False,
             f"{pack_root!r} (spec §3.5 — a lane writes a COPY of the pack)")
     backups: list[str] = []
     restored: list[str] = []
+    adopted: list[str] = []
+    unproven: list[str] = []
     for root, _dirs, names in os.walk(pack_root):
         for n in names:
             if not n.endswith(ANCHOR_BAK):
                 continue
             live = os.path.join(root, n[: -len(ANCHOR_BAK)])
+            bak = os.path.join(root, n)
+            if live.lower().endswith(".dsf"):
+                # row D7: the new version dropped this tile — retire the
+                # backup so no later build dumps it; the DSF's own
+                # discipline is ``dsf_write``'s in every other row.
+                v = _bs.classify_dsf(live)
+                if v.state is _bs.State.LIVE_MISSING:
+                    try:
+                        adopted.append(_bs.adopt(v))
+                    except OSError:
+                        pass
+                continue
             if not live.lower().endswith(".obj"):
                 continue
-            bak = os.path.join(root, n)
             backups.append(bak)
+            v = _bs.classify_object(live, pack_root)
+            if v.state in (_bs.State.REPLACED, _bs.State.LIVE_MISSING):
+                # O6 / O7: the pack's own file, or one the new version
+                # dropped.  NEVER overwrite, NEVER resurrect.
+                try:
+                    adopted.append(_bs.adopt(v))
+                except OSError:
+                    pass
+                continue
+            if not v.may_write:
+                continue                       # O1 / O2: nothing to do
             try:
+                if v.witness == "sha256" and v.state is _bs.State.PRISTINE:
+                    # O3: the same bytes under a moved mtime — sync it and
+                    # the pair is row O2 (two stats, no read) for ever
+                    st = os.stat(bak)
+                    os.utime(live, ns=(st.st_atime_ns, st.st_mtime_ns))
+                    _bs.invalidate_memo()
+                    continue
+                if v.witness == "y-only":
+                    # O5: a witness is not a proof — the bytes survive
+                    unproven.append(_bs.preserve_live_copy(v))
                 with open(bak, "rb") as fh:
                     want = fh.read()
-                have = b""
-                if os.path.isfile(live):
-                    with open(live, "rb") as fh:
-                        have = fh.read()
-                if have == want:
-                    continue
                 with open(live + ".tmp", "wb") as fh:
                     fh.write(want)
                 os.replace(live + ".tmp", live)
+                st = os.stat(bak)
+                os.utime(live, ns=(st.st_atime_ns, st.st_mtime_ns))
+                _bs.invalidate_memo()
             except OSError:
                 continue
             restored.append(live)
@@ -302,7 +358,9 @@ def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False,
                 continue
             removed.append(path)
     return RestoreResult(tuple(sorted(backups)), tuple(sorted(restored)),
-                         tuple(sorted(removed)))
+                         tuple(sorted(removed)),
+                         tuple(sorted(p for p in adopted if p)),
+                         tuple(sorted(p for p in unproven if p)))
 
 
 # ── steps 0-5: the whole write ──────────────────────────────────────────
@@ -313,7 +371,15 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                refresh_dump: _t.Callable[[str], str | None] | None = None,
                engine_version: str = "", law_digest: str = ""
                ) -> PlacementWriteResult:
-    """The writes in the one lawful order (module doc, steps 0-5)."""
+    """The writes in the one lawful order (module doc, steps 0-5).
+
+    §12a (3) row 5: THE DSF IS CLASSIFIED FIRST.  When its write half
+    stands down (rows D2 / D8) nothing at all happens — no restore, no
+    cut file, no record — and ``BackupUnproven`` reaches the caller: a
+    pack half-written against a DSF we may not touch is torn geometry."""
+    v = _bs.classify_dsf(plan.dsf_path)
+    if not v.may_write:
+        raise _dw.BackupUnproven(_dw._stand_down_line(v))
     restore = restore_pack_objects(plan.pack_root,
                                    allow_live_install=allow_live_install,
                                    dsf_path=plan.dsf_path)

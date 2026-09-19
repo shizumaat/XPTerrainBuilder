@@ -1617,6 +1617,35 @@ DEFAULT_ROAD_STATION_M = 20.0
 _PIN_FEASIBILITY_TOL_M = 0.01
 
 
+def _cap_cumsum(s, cap):
+    """``cs`` — the cap's own arclength metric along ``s``.
+
+    A SCALAR ``cap`` keeps today's ``cap * s`` VERBATIM (bit-identity,
+    spec §2-SUPPLEMENT S.1 (4) / twin T1).  A PER-SEGMENT array (length
+    ``n − 1``) becomes ``concat(0, cumsum(cap_seg · ds))``: the four
+    max-plus / min-plus sweeps below are then Lipschitz in THAT metric,
+    i.e. each segment holds ITS OWN cap.
+    """
+    s = numpy.asarray(s, dtype=numpy.float64).ravel()
+    arr = numpy.asarray(cap, dtype=numpy.float64)
+    if arr.ndim == 0:
+        return float(arr) * s
+    if len(arr) != max(len(s) - 1, 0):
+        raise ValueError(
+            "per-segment cap must have len(stations) - 1 entries "
+            "(%d vs %d)" % (len(arr), max(len(s) - 1, 0)))
+    ds = numpy.diff(s)
+    return numpy.concatenate(([0.0], numpy.cumsum(arr * ds)))
+
+
+def _cap_is_usable(cap):
+    """A cap (scalar or per-segment) the clamp can run on."""
+    arr = numpy.asarray(cap, dtype=numpy.float64)
+    if arr.ndim == 0:
+        return bool(numpy.isfinite(arr) and arr > 0)
+    return bool(len(arr) and numpy.isfinite(arr).all() and (arr > 0).all())
+
+
 def cap_lipschitz_pin_envelope(stations_s, cap, pin_idx, pin_val):
     """``(lower, upper)`` — the tightest cap-Lipschitz corridor that
     passes EXACTLY through the pins.
@@ -1645,7 +1674,7 @@ def cap_lipschitz_pin_envelope(stations_s, cap, pin_idx, pin_val):
         if 0 <= i < n:
             up[i] = min(up[i], float(v))
             lo[i] = max(lo[i], float(v))
-    cs = float(cap) * s
+    cs = _cap_cumsum(s, cap)
     # upper: min-plus distance transform of ``up``
     a = up - cs
     numpy.minimum.accumulate(a, out=a)
@@ -1667,7 +1696,9 @@ def cap_lipschitz_profile(stations_s, values, cap, pin_idx=None,
 
     ``stations_s`` are ascending arclengths (metres) along ONE way,
     ``values`` its per-station terrain altitude, ``cap`` the longitudinal
-    grade limit as a fraction (0.08 = 8 %).  Returns the per-station
+    grade limit as a fraction (0.08 = 8 %) — a SCALAR (today's behaviour,
+    bit-identical) or a PER-SEGMENT array of length ``n − 1``, one cap
+    per segment (spec §2-SUPPLEMENT S.1 (4)).  Returns the per-station
     clamped altitude.
 
     THE ALGORITHM is the retired ``free_road_profile.chain_profile``'s
@@ -1718,10 +1749,10 @@ def cap_lipschitz_profile(stations_s, values, cap, pin_idx=None,
     s = numpy.asarray(stations_s, dtype=numpy.float64).ravel()
     z = numpy.asarray(values, dtype=numpy.float64).ravel()
     _pinned = pin_idx is not None and len(pin_idx) > 0
-    if len(z) < 2 or not numpy.isfinite(cap) or cap <= 0:
+    if len(z) < 2 or not _cap_is_usable(cap):
         out = z.copy()
         return (out, {"pins": 0, "refused": False}) if _pinned else out
-    cs = float(cap) * s
+    cs = _cap_cumsum(s, cap)
     # Smallest cap-Lipschitz MAJORANT: max_j (z_j - cap*|s-s_j|).
     fwd = numpy.maximum.accumulate(z + cs) - cs           # over j <= i
     bwd = numpy.maximum.accumulate((z - cs)[::-1])[::-1] + cs  # over j >= i
@@ -1750,6 +1781,219 @@ def cap_lipschitz_profile(stations_s, values, cap, pin_idx=None,
     report["max_pin_lift_m"] = round(
         float(numpy.abs(out - z).max()) if len(out) else 0.0, 4)
     return out, report
+
+
+def road_neighbourhood_law():
+    """``{runout_m, budget_m, cap_ceiling, class_caps}`` — THE ONE LAW
+    TABLE (spec §2-SUPPLEMENT S.4 row 16: ``auto_patch_v2/law/emit.toml``
+    ``[road_profile]``), read through ``O4_Cfg_Vars``' single reader so
+    the core and v2 hold ONE definition, never two literals.
+    """
+    import O4_Cfg_Vars as CFG
+    return CFG.road_neighbourhood_law()
+
+
+def road_class_cap(way_class, class_caps, default_cap):
+    """The per-class cap of one OSM way (S.3).  An unknown or untagged
+    class takes ``default_cap`` — ``road_grade_limit``, today's
+    behaviour, counted loudly by the caller."""
+    if way_class:
+        v = (class_caps or {}).get(str(way_class))
+        if v is not None:
+            return float(v)
+    return float(default_cap)
+
+
+#: Bisection halvings used to find the yielded cap (spec §2-SUPPLEMENT
+#: S.3).  24 over a ≤ 0.24 span resolves the cap to ~1e-8.
+_YIELD_HALVINGS = 24
+
+
+def _runs_of(mask):
+    """``[(i0, i1)]`` — the maximal contiguous True runs of ``mask``,
+    inclusive indices."""
+    out = []
+    n = len(mask)
+    i = 0
+    while i < n:
+        if not mask[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and mask[j + 1]:
+            j += 1
+        out.append((i, j))
+        i = j + 1
+    return out
+
+
+def _arclength_distance_to_mask(s, mask):
+    """Distance ALONG THE WAY from each station to the nearest station
+    where ``mask`` holds (``inf`` when the mask is empty) — two sweeps."""
+    n = len(s)
+    inf = numpy.inf
+    fwd = numpy.full(n, inf)
+    best = -inf
+    for i in range(n):
+        if mask[i]:
+            best = s[i]
+        if best > -inf:
+            fwd[i] = s[i] - best
+    bwd = numpy.full(n, inf)
+    best = inf
+    for i in range(n - 1, -1, -1):
+        if mask[i]:
+            best = s[i]
+        if best < inf:
+            bwd[i] = best - s[i]
+    return numpy.minimum(fwd, bwd)
+
+
+def neighbourhood_road_profile(stations_s, values, in_band, cap_class, *,
+                               cap_inside, runout_m, budget_m, cap_ceiling,
+                               pin_idx=None, pin_val=None):
+    """THE CLAMP, SCOPED TO THE PATCH NEIGHBOURHOOD (owner RULINGS
+    2026-09-18n; spec ``linear-transport-redesign-spec.md``
+    §2-SUPPLEMENT S.1–S.3).
+
+    ``in_band`` is the per-station mask of "inside the patch band"
+    (``patches_area ∪ road bridge decks`` buffered by ``lane_width + 2``
+    — the caller does the geometry; this function is pure numpy so v2
+    and a twin call it directly).
+
+    * A way with NO in-band station is TERRAIN: the DEM is returned
+      identically and the caller must not station it in the answering
+      index — outside the neighbourhood the road pipeline is upstream's,
+      value for value (18n: "normal engine road processing").
+    * Otherwise each maximal RUN — every station within ``runout_m`` of
+      ARCLENGTH along the way from an in-band station — is solved
+      independently by :func:`cap_lipschitz_profile` under a PER-SEGMENT
+      cap, PINNED TO THE DEM at each run extremity that is outside the
+      band, so the run re-meets terrain EXACTLY, by construction.
+    * Segment caps: both ends in band → ``cap_inside`` (the patch's law,
+      ``road_grade_limit`` — inside the patch v2 owns the earthwork);
+      otherwise the way's class cap, AFTER THE YIELD.
+    * THE YIELD (S.3, the §50 analogue): a real road on real terrain may
+      exceed its class cap.  ``cap_eff`` is the smallest cap in
+      ``[cap_class, cap_ceiling]`` whose profile stands no more than
+      ``budget_m`` off the DEM at the run's out-of-band, unpinned
+      stations, found by bisection (``dev`` is non-increasing in the
+      cap).  ONE uniform ``cap_eff`` per run, never a per-station
+      exception.  When even ``cap_ceiling`` cannot meet the budget the
+      run ships at the ceiling and says so (``at_ceiling``).
+    * Stations outside every run take ``dem`` identically.
+
+    Returns ``(altitudes, report)`` with ``report`` =
+    ``{"scope": "neighbourhood"|"terrain", "runs": [...]}`` plus the
+    deck-pin keys of :func:`cap_lipschitz_profile` when pins were
+    offered.
+    """
+    s = numpy.asarray(stations_s, dtype=numpy.float64).ravel()
+    z = numpy.asarray(values, dtype=numpy.float64).ravel()
+    band = numpy.asarray(in_band, dtype=bool).ravel()
+    out = z.copy()
+    report = {"scope": "terrain", "runs": []}
+    _pins = list(zip(list(pin_idx or ()), list(pin_val or ())))
+    if len(z) < 2 or len(band) != len(z) or not band.any():
+        if _pins:
+            report.update({"pins": 0, "refused": False})
+        return out, report
+    report["scope"] = "neighbourhood"
+    ours = _arclength_distance_to_mask(s, band) <= float(runout_m)
+    cap_inside = float(cap_inside)
+    cap_class = float(cap_class)
+    cap_ceiling = float(cap_ceiling)
+    budget_m = float(budget_m)
+    pin_tot = 0
+    refused_any = False
+    worst_infeas = 0.0
+    pin_move = 0.0
+    for (i0, i1) in _runs_of(ours):
+        if i1 - i0 < 1:
+            continue
+        sl = slice(i0, i1 + 1)
+        s_r = s[sl] - s[i0]
+        z_r = z[sl]
+        band_r = band[sl]
+        n_r = len(s_r)
+        # THE RUN'S PINS: the DEM at each extremity that is outside the
+        # band, plus every deck pin that falls inside the run (a deck is
+        # in the band, so its stations always are).
+        p_idx, p_val = [], []
+        for k in (0, n_r - 1):
+            if not band_r[k]:
+                p_idx.append(k)
+                p_val.append(float(z_r[k]))
+        for (gi, gv) in _pins:
+            gi = int(gi)
+            if i0 <= gi <= i1:
+                p_idx.append(gi - i0)
+                p_val.append(float(gv))
+                pin_tot += 1
+        pinned_mask = numpy.zeros(n_r, dtype=bool)
+        for k in p_idx:
+            pinned_mask[int(k)] = True
+        # the stations the budget is measured at: out of band, unpinned
+        judged = (~band_r) & (~pinned_mask)
+        inside_seg = band_r[:-1] & band_r[1:]
+
+        def _solve(c):
+            caps = numpy.where(inside_seg, cap_inside, c)
+            if p_idx:
+                return cap_lipschitz_profile(s_r, z_r, caps, p_idx, p_val)
+            return cap_lipschitz_profile(s_r, z_r, caps), None
+
+        def _dev(c):
+            prof, _rep = _solve(c)
+            if not judged.any():
+                return 0.0
+            return float(numpy.abs(prof[judged] - z_r[judged]).max())
+
+        yielded = False
+        at_ceiling = False
+        cap_eff = cap_class
+        if _dev(cap_class) > budget_m:
+            yielded = True
+            if _dev(cap_ceiling) > budget_m:
+                cap_eff = cap_ceiling
+                at_ceiling = True
+            else:
+                lo, hi = cap_class, cap_ceiling
+                for _ in range(_YIELD_HALVINGS):
+                    mid = 0.5 * (lo + hi)
+                    if _dev(mid) <= budget_m:
+                        hi = mid
+                    else:
+                        lo = mid
+                cap_eff = hi
+        prof, rep = _solve(cap_eff)
+        if rep is not None:
+            refused_any = refused_any or bool(rep.get("refused"))
+            worst_infeas = max(worst_infeas,
+                               float(rep.get("worst_infeasibility_m", 0.0)))
+            pin_move = max(pin_move, float(rep.get("max_pin_move_m", 0.0)))
+        out[sl] = prof
+        report["runs"].append({
+            "i0": int(i0), "i1": int(i1),
+            "cap_eff": round(float(cap_eff), 6),
+            "yielded": bool(yielded),
+            "at_ceiling": bool(at_ceiling),
+            "max_offset_m": round(_max_offset(prof, z_r, judged), 4),
+        })
+    if _pins:
+        report.update({
+            "pins": int(pin_tot),
+            "refused": bool(refused_any),
+            "worst_infeasibility_m": round(worst_infeas, 4),
+            "max_pin_move_m": round(pin_move, 4),
+        })
+    return out, report
+
+
+def _max_offset(prof, z_r, judged):
+    if not judged.any():
+        return 0.0
+    return float(numpy.abs(prof[judged] - z_r[judged]).max())
 
 
 def way_arclengths(way):
@@ -1787,8 +2031,15 @@ class Levelled_Roads:
     """
 
     def __init__(self, cap, lane_width, station_m=DEFAULT_ROAD_STATION_M,
-                 materiality_m=0.01):
+                 materiality_m=0.01, runout_m=None, budget_m=None,
+                 cap_ceiling=None, class_caps=None):
         self.cap = float(cap)
+        #: THE NEIGHBOURHOOD LAW (spec §2-SUPPLEMENT S.1–S.3), carried so
+        #: the sidecar can publish the frame every run was solved under.
+        self.runout_m = runout_m
+        self.budget_m = budget_m
+        self.cap_ceiling = cap_ceiling
+        self.class_caps = dict(class_caps or {})
         self.lane_width = float(lane_width)
         self.station_m = float(station_m)
         self.materiality_m = float(materiality_m)
@@ -1796,6 +2047,11 @@ class Levelled_Roads:
         self.ways = []
         self._tree = None
         self._alts = numpy.zeros(0)
+        self._pts = numpy.zeros((0, 2))
+        self._prev_p = numpy.zeros((0, 2))
+        self._next_p = numpy.zeros((0, 2))
+        self._prev_z = numpy.zeros(0)
+        self._next_z = numpy.zeros(0)
         #: ``{way index: pin report}`` — the ROAD BRIDGE DECK pins this
         #: clamp answered (redesign spec §4) and, where the corridor
         #: inverted, §6's refusal.  Published in the sidecar so a reader
@@ -1813,12 +2069,31 @@ class Levelled_Roads:
                      for r in self.deck_pins.values()), default=0.0)
         return len(self.deck_pins), n_pins, len(refused), round(worst, 4)
 
-    def add_way(self, points, dem_alt, clamped_alt, s_m):
+    def add_way(self, points, dem_alt, clamped_alt, s_m, scope="neighbourhood",
+                runs=(), way_class=None, layer_way_id=None, cap_class=None):
+        """One way's profile.
+
+        ``scope`` — ``"neighbourhood"`` (the way enters the patch band:
+        its RUN stations answer) or ``"terrain"`` (upstream's road, the
+        DEM verbatim, NO answering station: ``alt_vec_shift`` falls
+        through to the shifted DEM, which is upstream's own value).
+        ``runs`` are the solved runs of :func:`neighbourhood_road_profile`.
+        """
+        alt = numpy.asarray(clamped_alt, dtype=numpy.float64)
+        answers = numpy.zeros(len(alt), dtype=bool)
+        for r in runs:
+            answers[int(r["i0"]):int(r["i1"]) + 1] = True
         self.ways.append({
             "points": numpy.asarray(points, dtype=numpy.float64),
             "dem": numpy.asarray(dem_alt, dtype=numpy.float64),
-            "alt": numpy.asarray(clamped_alt, dtype=numpy.float64),
+            "alt": alt,
             "s_m": numpy.asarray(s_m, dtype=numpy.float64),
+            "scope": str(scope),
+            "runs": [dict(r) for r in runs],
+            "answers": answers,
+            "class": way_class,
+            "layer_way_id": layer_way_id,
+            "cap_class": cap_class,
         })
 
     @property
@@ -1826,22 +2101,76 @@ class Levelled_Roads:
         return int(sum(len(w["alt"]) for w in self.ways))
 
     def finalize(self):
-        """Build the nearest-station index (cKDTree, one per tile)."""
+        """Build the nearest-station index (cKDTree, one per tile).
+
+        ONLY THE ANSWERING STATIONS ENTER IT (spec §2-SUPPLEMENT S.1 (3)
+        / row 3): a station outside every run — every station of a
+        terrain-scope way — is NOT in the tree, so ``alt_vec_shift``
+        falls through to the shifted DEM there, which is upstream's own
+        value.  (TFFJ: ~600 stations indexed, not 60,594.)
+        """
         from scipy.spatial import cKDTree
 
-        if not self.ways:
+        pts, alts, prev_z, next_z, prev_p, next_p = [], [], [], [], [], []
+        for w in self.ways:
+            m = w["answers"]
+            if not len(m) or not m.any():
+                continue
+            k = numpy.nonzero(m)[0]
+            p = w["points"]
+            z = w["alt"]
+            pts.append(p[k])
+            alts.append(z[k])
+            # The two neighbours each answering station interpolates
+            # towards (S.2 (c)); a run extremity repeats itself, which
+            # makes the projection onto that side degenerate and never
+            # chosen over the real neighbour.
+            kp = numpy.maximum(k - 1, 0)
+            kn = numpy.minimum(k + 1, len(z) - 1)
+            prev_p.append(p[kp]); next_p.append(p[kn])
+            prev_z.append(z[kp]); next_z.append(z[kn])
+        if not pts:
             self._tree = None
+            self._alts = numpy.zeros(0)
             return self
-        pts = numpy.concatenate([w["points"] for w in self.ways])
-        self._alts = numpy.concatenate([w["alt"] for w in self.ways])
+        self._alts = numpy.concatenate(alts)
+        self._prev_z = numpy.concatenate(prev_z)
+        self._next_z = numpy.concatenate(next_z)
+        scale = numpy.array([[scalx, 1.0]])
+        self._pts = numpy.concatenate(pts) * scale
+        self._prev_p = numpy.concatenate(prev_p) * scale
+        self._next_p = numpy.concatenate(next_p) * scale
         # The tree lives in the scalx-scaled degree frame, where a
         # distance is degrees of LATITUDE — the frame every metre
         # constant in this module converts into via GEO.m_to_lat.
-        self._tree = cKDTree(pts * numpy.array([[scalx, 1.0]]))
+        self._tree = cKDTree(self._pts)
         return self
 
+    @staticmethod
+    def _project(q, a, b, za, zb):
+        """``(value, distance²)`` of ``q``'s projection on segment
+        ``a→b`` with endpoint values ``za``/``zb`` (clamped to the
+        segment).  A degenerate segment answers ``za`` at ``|q − a|``."""
+        d = b - a
+        L2 = (d * d).sum(axis=1)
+        t = numpy.zeros(len(q))
+        ok = L2 > 0
+        t[ok] = numpy.clip(((q[ok] - a[ok]) * d[ok]).sum(axis=1) / L2[ok],
+                           0.0, 1.0)
+        foot = a + d * t[:, None]
+        r = q - foot
+        return za + (zb - za) * t, (r * r).sum(axis=1)
+
     def answer(self, query_points, dem_alt):
-        """Clamped altitude at ``query_points``, DEM beyond the radius."""
+        """Clamped altitude at ``query_points``, DEM beyond the radius.
+
+        THE VALUE IS INTERPOLATED AT THE PROJECTION, not snapped to the
+        nearest station (spec §2-SUPPLEMENT S.2 (c)): the nearest
+        station's two segments are projected onto and the closer one
+        answers.  At ≤ 20 m stations a snapped value hid up to one
+        station of grade — ≤ 1.6 m at the 8 % cap, ≤ 4 m at a 20 %
+        class cap.
+        """
         out = numpy.array(dem_alt, dtype=numpy.float64, copy=True)
         if self._tree is None or not len(out):
             return out
@@ -1851,8 +2180,15 @@ class Levelled_Roads:
             q, distance_upper_bound=self.radius_m * GEO.m_to_lat
         )
         hit = numpy.isfinite(dist)
-        if hit.any():
-            out[hit] = self._alts[idx[hit]]
+        if not hit.any():
+            return out
+        j = idx[hit]
+        qh = q[hit]
+        cur = self._pts[j]
+        zc = self._alts[j]
+        za, da = self._project(qh, self._prev_p[j], cur, self._prev_z[j], zc)
+        zb, db = self._project(qh, cur, self._next_p[j], zc, self._next_z[j])
+        out[hit] = numpy.where(da <= db, za, zb)
         return out
 
     def summary(self):
@@ -1869,12 +2205,18 @@ class Levelled_Roads:
                 lift = max(lift, float(delta.max()))
                 cut = max(cut, float((-delta).max()))
         n_dw, n_dp, n_ref, worst = self.deck_pin_summary()
+        nb = [w for w in self.ways if w.get("scope") == "neighbourhood"]
+        runs = [r for w in nb for r in w.get("runs", ())]
         return {
             "ways": len(self.ways),
             "stations": n_st,
             "clamped_stations": n_moved,
             "max_lift_m": round(max(lift, 0.0), 4),
             "max_cut_m": round(max(cut, 0.0), 4),
+            "neighbourhood_ways": len(nb),
+            "runs": len(runs),
+            "yielded_runs": sum(1 for r in runs if r.get("yielded")),
+            "ceiling_runs": sum(1 for r in runs if r.get("at_ceiling")),
             "deck_pinned_ways": n_dw,
             "deck_pinned_stations": n_dp,
             "deck_pins_refused": n_ref,
@@ -1908,6 +2250,11 @@ class Levelled_Roads:
             delta = w["alt"] - w["dem"]
             ways.append({
                 "index": i,
+                "layer_way_id": w.get("layer_way_id"),
+                "class": w.get("class"),
+                "scope": w.get("scope", "neighbourhood"),
+                "cap_class": w.get("cap_class"),
+                "runs": list(w.get("runs", ())),
                 "deck_pins": self.deck_pins.get(i),
                 "stations": len(w["alt"]),
                 "length_m": round(float(w["s_m"][-1]) if len(w["s_m"])
@@ -1925,11 +2272,19 @@ class Levelled_Roads:
                 "alt": [round(float(v), 6) for v in w["alt"]],
             })
         return {
-            "version": 1,
+            "version": 2,
             "producer": "O4_Vector_Map.include_roads",
             "lat": int(lat),
             "lon": int(lon),
+            # ``grade_cap`` STAYS (= ``cap_inside``): every v1 reader
+            # keeps reading it.  The neighbourhood frame is published
+            # beside it (spec §2-SUPPLEMENT S.4 row 8).
             "grade_cap": self.cap,
+            "cap_inside": self.cap,
+            "runout_m": self.runout_m,
+            "budget_m": self.budget_m,
+            "cap_ceiling": self.cap_ceiling,
+            "class_caps": dict(self.class_caps),
             "station_max_m": self.station_m,
             "lane_width_m": self.lane_width,
             "answer_radius_m": self.radius_m,
@@ -1940,13 +2295,33 @@ class Levelled_Roads:
 
 
 def clamp_road_network(road_network, alt_vec, cap, lane_width,
-                       station_m=DEFAULT_ROAD_STATION_M, deck_pins=None):
+                       station_m=DEFAULT_ROAD_STATION_M, deck_pins=None,
+                       coverage=None, way_classes=None, runout_m=None,
+                       budget_m=None, cap_ceiling=None, class_caps=None):
     """Clamp every way of a banked-road MultiLineString, INDEPENDENTLY.
+
+    THE ONE SITE THAT DECIDES WHO IS CLAMPED (owner RULINGS 2026-09-18n;
+    spec §2-SUPPLEMENT S.1, consumer census row 1).  Nothing else does.
 
     ``alt_vec`` is the tile DEM sampler (an ``(n, 2)`` tile-relative
     array in, ``n`` altitudes out) — the SAME surface ``alt_vec_shift``
     answers from, so a station and the ring vertex that reads it stand
     on one DEM.  Returns a finalized :class:`Levelled_Roads`.
+
+    ``coverage`` — THE BAND: ``patches_area ∪ road bridge decks``
+    buffered by ``lane_width + 2``, in the tile-relative frame.  A way
+    with at least one station in it is OURS and gets the neighbourhood
+    profile; every other way is TERRAIN (the DEM verbatim, no answering
+    station, so the ribbon takes upstream's own shifted DEM).  An EMPTY
+    band therefore clamps nothing — "no patch was built" is "pure
+    upstream".  ``None`` means NO BAND WAS SUPPLIED: the legacy
+    unscoped tile-wide clamp at the scalar ``cap``, which is what the
+    existing twins and ``road_transition`` state; the production caller
+    (``include_roads``) always supplies one.
+
+    ``way_classes`` — the OSM class per geom, parallel to ``geoms``
+    (``highway`` value, else ``railway:<value>``); ``None`` or a short
+    list means the default cap for every way.
 
     ``deck_pins`` — ``[(polygon, level_m, way_id)]``, the ROAD BRIDGE
     DECKS auto_patch confirmed this build (redesign spec §4).  A station
@@ -1955,16 +2330,30 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     terrain and stepping at the abutment.  The polygons are tile-relative
     ``(lon-offset, lat-offset)``, the frame the stations are already in.
     """
-    out = Levelled_Roads(cap, lane_width, station_m)
+    if runout_m is None or budget_m is None or cap_ceiling is None \
+            or class_caps is None:
+        law = road_neighbourhood_law()
+        runout_m = law["runout_m"] if runout_m is None else runout_m
+        budget_m = law["budget_m"] if budget_m is None else budget_m
+        cap_ceiling = law["cap_ceiling"] if cap_ceiling is None \
+            else cap_ceiling
+        class_caps = law["class_caps"] if class_caps is None else class_caps
+    out = Levelled_Roads(cap, lane_width, station_m, runout_m=runout_m,
+                         budget_m=budget_m, cap_ceiling=cap_ceiling,
+                         class_caps=class_caps)
     geoms = getattr(road_network, "geoms", None)
     if geoms is None:
         geoms = [road_network] if road_network is not None else []
+    geoms = list(geoms)
+    classes = list(way_classes or ())
+    if classes and len(classes) != len(geoms):          # pragma: no cover
+        classes = []
+    from shapely.geometry import Point as _Pt
+    from shapely.prepared import prep as _prep
     decks = list(deck_pins or ())
     prepared = []
     if decks:
         try:
-            from shapely.geometry import Point as _Pt
-            from shapely.prepared import prep as _prep
             for poly, level, wid in decks:
                 if poly is None or poly.is_empty or level is None:
                     continue
@@ -1972,7 +2361,12 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
                                  float(level), wid, _Pt))
         except Exception:                               # pragma: no cover
             prepared = []
-    for geom in geoms:
+    band = None
+    band_bounds = None
+    if coverage is not None and not getattr(coverage, "is_empty", True):
+        band = _prep(coverage)
+        band_bounds = coverage.bounds
+    for gi, geom in enumerate(geoms):
         try:
             coords = numpy.array(geom.coords, dtype=numpy.float64)
         except (AttributeError, ValueError):            # pragma: no cover
@@ -1981,25 +2375,67 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
             continue
         stations = refine_way(coords, station_m)
         s = way_arclengths(stations)
+        cls = classes[gi] if classes else None
+        wid_layer = getattr(geom, "o4_way_id", None)
+        # ── SCOPE (S.1 (2)): is any station of this way in the band? ──
+        # bbox-prefiltered, so the prepared ``covers`` runs only for the
+        # handful of ways that can possibly touch the patch.
+        in_band = numpy.zeros(len(stations), dtype=bool)
+        if band is not None:
+            bx0, by0, bx1, by1 = band_bounds
+            gx0, gy0, gx1, gy1 = geom.bounds
+            if not (gx1 < bx0 or gx0 > bx1 or gy1 < by0 or gy0 > by1):
+                for k, (px, py) in enumerate(stations):
+                    if px < bx0 or px > bx1 or py < by0 or py > by1:
+                        continue
+                    if band.covers(_Pt(float(px), float(py))):
+                        in_band[k] = True
+        elif coverage is None:
+            in_band[:] = True          # legacy: the whole way is "inside"
         dem = numpy.asarray(alt_vec(stations), dtype=numpy.float64)
+        if not in_band.any():
+            # UPSTREAM'S ROAD (18n): no clamp, no answering station.
+            out.add_way(stations, dem, dem, s, scope="terrain",
+                        way_class=cls, layer_way_id=wid_layer)
+            continue
         pin_idx, pin_val, pin_wid = [], [], []
-        for pre, (bx0, by0, bx1, by1), level, wid, _Pt in prepared:
+        for pre, (bx0, by0, bx1, by1), level, wid, _P in prepared:
             for k, (px, py) in enumerate(stations):
                 if px < bx0 or px > bx1 or py < by0 or py > by1:
                     continue
-                if pre.covers(_Pt(float(px), float(py))):
+                if pre.covers(_P(float(px), float(py))):
                     pin_idx.append(k)
                     pin_val.append(level)
                     pin_wid.append(wid)
         # ONE WAY, ONE CALL: the clamp never sees another way's stations.
+        if coverage is None:
+            # THE LEGACY PATH, bit-identical to the pre-18n clamp.
+            if pin_idx:
+                clamped, report = cap_lipschitz_profile(
+                    s, dem, cap, pin_idx, pin_val)
+                report["deck_ways"] = sorted(set(str(w) for w in pin_wid))
+                out.note_deck_pins(len(out.ways), report)
+            else:
+                clamped = cap_lipschitz_profile(s, dem, cap)
+            out.add_way(stations, dem, clamped, s, way_class=cls,
+                        layer_way_id=wid_layer,
+                        runs=[{"i0": 0, "i1": len(s) - 1,
+                               "cap_eff": float(cap), "yielded": False,
+                               "at_ceiling": False,
+                               "max_offset_m": round(float(
+                                   numpy.abs(clamped - dem).max()), 4)}])
+            continue
+        cap_class = road_class_cap(cls, class_caps, cap)
+        clamped, report = neighbourhood_road_profile(
+            s, dem, in_band, cap_class, cap_inside=cap,
+            runout_m=runout_m, budget_m=budget_m, cap_ceiling=cap_ceiling,
+            pin_idx=pin_idx or None, pin_val=pin_val or None)
         if pin_idx:
-            clamped, report = cap_lipschitz_profile(
-                s, dem, cap, pin_idx, pin_val)
             report["deck_ways"] = sorted(set(str(w) for w in pin_wid))
             out.note_deck_pins(len(out.ways), report)
-        else:
-            clamped = cap_lipschitz_profile(s, dem, cap)
-        out.add_way(stations, dem, clamped, s)
+        out.add_way(stations, dem, clamped, s, scope=report["scope"],
+                    runs=report["runs"], way_class=cls,
+                    layer_way_id=wid_layer, cap_class=cap_class)
     return out.finalize()
 
 

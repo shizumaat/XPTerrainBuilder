@@ -183,6 +183,49 @@ answer_radius_lane_widths = 2.0  # a vertex reads the profile within this many l
 # the longitudinal cap is `common.roles.service_road.longitudinal` — ONE
 # constant with the core's `road_grade_limit` default (O4_Cfg_Vars); a
 # hosted build passes the tile's own value.
+#
+# THE CLAMP IS SCOPED TO THE PATCH NEIGHBOURHOOD (owner RULINGS
+# 2026-09-18n; spec `linear-transport-redesign-spec.md` §2-SUPPLEMENT).
+# Outside the band a road gets the NORMAL ENGINE ROAD PROCESSING and no
+# longitudinal clamp at all; inside the band the cap is the patch's
+# `road_grade_limit`; over the run-out between them it is the road's
+# CLASS cap, which YIELDS uniformly so the profile never stands more than
+# `budget_m` off the terrain.
+runout_m    = 100.0  # S.1 (3): arclength along the way from its nearest in-band station
+budget_m    = 1.0    # S.3: the deviation budget — the cap yields rather than move the road further off terrain (OWNER Q1 open; this is the spec default)
+cap_ceiling = 0.30   # S.3: nothing above this is a road any class drives (49 CFR 665 bus testing; loaded trucks stall ~10 %)
+
+# S.3 PER-CLASS CAPS — the steepest grade a PUBLISHED DESIGN STANDARD
+# permits for that class in MOUNTAINOUS terrain at low design speed.
+# Sources per row are in the spec's table (AASHTO Green Book via KYTC
+# HDGM Table 2, DMRB CD 109 Table 5.1, RAL 2012 Tab. 14, TxDOT RDM Table
+# 4-11, AASHTO local streets via CED C06-017, USFS FSH 7709.56 ch. 40,
+# IFC 2021 App. D).  A class absent here takes `road_grade_limit`.
+[road_profile.class_caps]
+motorway       = 0.06  # AASHTO freeways mountainous 5-6 %; CD109 motorway 4 % relaxation; RAL EKL 1 4.5 %
+motorway_link  = 0.08  # ramps run steeper than mainline
+trunk          = 0.08  # CD109 all-purpose relaxation 8 %; RAL EKL 4 8.0 %; AASHTO rural arterial mountainous 8 %
+trunk_link     = 0.08
+primary        = 0.10  # AASHTO arterials mountainous 5-10 %
+primary_link   = 0.10
+secondary      = 0.12  # AASHTO collectors mountainous 8-12 %; TxDOT urban collector rolling 12 %
+secondary_link = 0.12
+tertiary       = 0.12  # a minor collector is still a collector (14 % uncorroborated -> not used)
+tertiary_link  = 0.12
+unclassified   = 0.15  # AASHTO local residential streets "15 percent maximum"
+residential    = 0.15
+living_street  = 0.15
+road           = 0.15
+service        = 0.20  # steepest published vehicle-access limit (fire-access driveways) and the 2WD limit
+track          = 0.18  # FSH 7709.56: 18 % high-clearance / 4WD — a track's intended traffic
+"railway:rail"         = 0.04  # LOW-CONFIDENCE ROW (one weak source: adhesion mainline practice, Saluda Grade 4.7 %)
+"railway:narrow_gauge" = 0.04
+"railway:siding"       = 0.04
+"railway:spur"         = 0.04
+"railway:yard"         = 0.04
+"railway:tram"         = 0.08  # unchanged from today (no source sought)
+"railway:light_rail"   = 0.08
+
 [road_contact]
 # §37 (10) THE AIRSIDE CONTACT SET INCLUDES TAXIWAYS; A ROUTE PAIR IS
 # FOUND BY GEOMETRY (Fable 2026-09-13; owner RULINGS 2026-09-13cs items

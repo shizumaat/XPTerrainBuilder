@@ -620,25 +620,5 @@ false
 "stations_over_0p5_outside": 0
 }
 }
-],
-"population_step6": {
-"note": "S.8 step 6 (RULINGS 2026-09-18o Q3), shipped TFFJ sidecar joined to the tile's road caches by end nodes; big = motorway/trunk/primary/secondary/rail/narrow_gauge (BIG_ROADS_QUERIES)",
-"sidecar_ways": 4429,
-"big_class_ways": 283,
-"minor_class_ways": 4146,
-"big_class_stations": 9093,
-"minor_class_stations": 51501,
-"big_class_km": 131.0,
-"minor_class_km": 564.1,
-"minor_ways_entering_band": 37,
-"minor_pieces": 38,
-"minor_piece_km": 3.23,
-"minor_by_class": {
-"service": 29,
-"unclassified": 5,
-"residential": 3
-},
-"big_ways_entering_band": 3,
-"levelled_entries_after": 321
-}
+]
 }

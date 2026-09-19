@@ -742,23 +742,29 @@ def test_the_session_reply_carries_restored_and_kept_changed(tmp_path):
 
 # ── the disabled pack (§12a (3) row 15) ─────────────────────────────────
 
-def test_a_disabled_pack_is_never_classified_or_written(tmp_path,
-                                                        monkeypatch):
-    import O4_Scenery_Packs as SP
+def test_the_disabled_pack_gate_sits_before_the_placement_call(tmp_path):
+    """§12a (3) row 15 / owner 17b-c: a DISABLED pack's files are not
+    rewritten.  The v2 write path had NO ``pack_enabled`` test (v1 did,
+    ``object_rebake.py`` :1339), so a plan JSON left beside the patch from
+    before a pack was disabled would still have been classified, adopted,
+    restored and written.
+
+    Driving ``rebake_after_mesh`` end to end needs a built mesh and a tile
+    (this suite is headless), so what is pinned here is the gate itself:
+    it is in the loop, it calls ``O4_Scenery_Packs.pack_enabled``, and it
+    stands BEFORE ``_place_objects`` — the one call that classifies."""
+    import inspect
+
     from auto_patch import engine_v2
 
-    seen: list = []
-    monkeypatch.setattr(SP, "pack_enabled", lambda p, d=None: False)
-    monkeypatch.setattr(engine_v2, "_place_objects",
-                        lambda *a, **kw: seen.append(a) or {})
-
-    pack, dsf = _pack(tmp_path)
-    plan_dir = tmp_path / "patch"
-    plan_dir.mkdir()
-    monkeypatch.setattr(B, "classify_dsf",
-                        lambda p: pytest.fail("a disabled pack was classified"))
-    assert SP.pack_enabled(str(pack)) is False
-    assert not seen
+    src = inspect.getsource(engine_v2.rebake_after_mesh)
+    gate = src.index("pack_enabled(plan_.pack_root)")
+    place = src.index("pc = _place_objects(")
+    assert gate < place, "the disabled-pack gate must precede the write path"
+    assert "continue" in src[gate:place]
+    # and the predicate itself answers for a pack an ini disables
+    import O4_Scenery_Packs as SP
+    assert SP.pack_enabled(str(tmp_path / "pack")) is True   # ungoverned path
 
 
 # ── THE MARK TWIN: a real DSFTool round trip ────────────────────────────

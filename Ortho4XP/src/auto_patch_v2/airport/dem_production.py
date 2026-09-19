@@ -150,6 +150,17 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
                 # is re-fetched where fetches belong: the tile build's
                 # own inset pass, or an explicit --refresh-data dem.
                 state["airport_inset_declared_empty"] = text
+            elif state["airport_inset_problem_kind"] == "packs":
+                # THE PACK SET MOVED (owner ruling 2026-09-17c (1)).  A
+                # KNOWN, SELF-HEALING state, never a refusal: the tile's
+                # own inset pass re-fetches and re-masks it, out loud
+                # ("was masked with a different set of installed scenery
+                # packs - refetching").  Refusing the airport for it
+                # would take the tile down for a cache the app is about
+                # to repair — the 2026-09-18k (3) class exactly.  The
+                # HARNESS refuses it instead, because there a re-fetch
+                # is a shared-repo write as a build side effect.
+                state["airport_inset_pack_set_moved"] = text
             else:
                 problems.append(text)
     return state, problems

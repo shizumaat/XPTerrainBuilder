@@ -7121,6 +7121,28 @@ def recorded_footprint_packs(lat, lon, icao, provider_code):
     return [str(name) for name in recorded]
 
 
+def _masking_definition_for_code(provider_code, providers_config="auto"):
+    """The airport-inset provider definition named by ``provider_code``
+    WHEN IT RUNS THE BUILDING-MASK PASS, else ``None``.
+
+    The fetch loop gates both mask-related reuse tests on
+    ``definition[SURFACE_MODEL_BUILDING_MASKING]`` (:func:`ensure_airport_
+    insets`), so anything that predicts that loop must apply the SAME
+    gate — a provider that masks nothing can never be pack-set-stale.
+    """
+    try:
+        for definition in select_provider_definitions(
+                providers_config, role=ROLE_AIRPORT_INSET):
+            if str(definition.get("code") or "").upper() == \
+                    str(provider_code or "").upper():
+                return (definition
+                        if definition.get(SURFACE_MODEL_BUILDING_MASKING)
+                        else None)
+    except Exception:
+        return None
+    return None
+
+
 def _sidecar_footprint_packs_mismatch(lat, lon, icao, provider_code,
                                       bounding_box_wgs84):
     """True when the cached inset's mask was served by a DIFFERENT SET of
@@ -10657,6 +10679,36 @@ def airport_inset_frame_problem(lat, lon, icao, required_box,
                 "--warm-insets %s fetches exactly this one)"
                 % (path, declined, icao, icao))
     if not inset_recut_is_needed(lat, lon, icao, code, required_box):
+        if _masking_definition_for_code(code) is not None and \
+                _sidecar_footprint_packs_mismatch(lat, lon, icao, code,
+                                                  required_box):
+            # THE PACK SET MOVED (owner ruling 2026-09-17c (1)), named
+            # here so the pre-flight sees what the FETCH LOOP sees.
+            # MEASURED 2026-09-18 on +17-063: the owner's
+            # ``scenery_packs.ini`` was rewritten at 19:53 disabling two
+            # TFFJ packs the 15:39 sidecars record as having served the
+            # mask, so all FOUR airports of the tile refetched mid-build
+            # and the shared-repo guard blocked four ``os.replace``es
+            # AFTER the download had already run.  The pre-flight said
+            # nothing because this reuse test was not among the ones it
+            # asked.  Same predicate as the fetch loop
+            # (:func:`_sidecar_footprint_packs_mismatch`), same masking
+            # gate — imported, never copied.
+            recorded = recorded_footprint_packs(lat, lon, icao, code) or []
+            now = package_footprint_pack_names(required_box)
+            gone = sorted(set(recorded) - set(now))
+            new = sorted(set(now) - set(recorded))
+            return ("packs",
+                    "PACK-SET-STALE airport elevation inset %s — its "
+                    "building mask was served by a DIFFERENT set of "
+                    "installed scenery packs (%s%s%s), so the build would "
+                    "RE-FETCH and re-mask it (--refresh-data dem)"
+                    % (path,
+                       "no longer installed/enabled: " + ", ".join(gone)
+                       if gone else "",
+                       "; " if gone and new else "",
+                       "newly installed/enabled: " + ", ".join(new)
+                       if new else ""))
         return None
     requested = requested_inset_bounding_box(lat, lon, icao, code)
     return ("stale",

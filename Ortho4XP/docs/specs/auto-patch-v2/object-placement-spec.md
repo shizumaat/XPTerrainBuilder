@@ -823,6 +823,404 @@ the body pads in, the published range closes to **−0.02 … +8.08 m**.
      three-row read (the LEMD DSF/dump frame is scout `v2dsfframe`'s and
      those rows are round 4's), no OTHH build.
 
+## §12a THE BACKUP IS CHECKED AGAINST THE PACK BEFORE IT IS TRUSTED (owner order 2026-09-18 "Fix the DSF overwrite issue as well"; RULINGS 2026-09-18k (2); Fable 2026-09-18) — lane `rebakebackup`
+
+SPEC ONLY. No code was written, nothing was built or run; every statement
+about today's behaviour is a STATIC READING of main `711c49ea`, cited by
+file:line. One Opus implementer, §12a (8).
+
+### §12a (0) The defect, and three more of its class found while reading
+
+`dsf_write.write_pack` (`dsf_write.py:730-734`) makes `<dsf>.anchor_bak` once
+and from then on dumps the backup and moves a fresh encode over the live DSF
+(`:743`, `:768`). Nothing asks whether the backup still belongs to the pack on
+disk. A pack updated IN PLACE has its new DSF reverted from the old backup:
+user data loss, and invisible to the freshness gate because the gate reads
+the same stale backup (`provenance.py:606`). v1 had the rule (invariant I-14,
+`src/auto_patch/object_rebake.py:23-36`, implemented `:1420-1445`; the file is
+still on main). v2 records `backup_sha256` / `written_sha256`
+(`dsf_write.py:778-779`) and never reads them.
+
+The same trust-the-backup class, all read in code, none measured on a pack:
+
+| # | Site | What it does to a pack the user updated in place |
+|---|---|---|
+| a | `placement_write.restore_pack_objects` `:262-285` | every `<obj>.anchor_bak` whose live `.obj` differs is copied back over it — a NEW `.obj` is reverted; a `.obj` the new version DROPPED (`have = b""`, `:274`) is RESURRECTED |
+| b | `object_rebake.restore` `:1843-1862` (the app's and Qt's "restore originals": `session.py:1397-1403`, `O4_Qt_GUI.py:2768`) | walks EVERY `*.anchor_bak`, the DSF's included, and `copy2`s it over the live file unconditionally |
+| c | `pack.authored_source` `:40-51`, `placement_cut.pristine_path` `:808-816`, `dsf_write.pristine_dsf_path` `:130-147` | READ the stale backup as "the pack as authored" — footprints, the plan, the partition-cache key and the freshness identity all describe a pack that is no longer installed; `pristine_dsf_path` returns the backup even when the live DSF is GONE |
+| d | `airport/dsf.find_text_dump` `:136-141` | when the content-keyed dump is absent it serves `max(fresh)` — ANY dump of that file name newer than the DSF's mtime. An adopted DSF carries its author's (old) mtime, so the OLD backup's dump qualifies: the stale dump one layer down |
+
+Two further defects sit in the record itself and must be fixed for the rule
+to be readable at all (reported to the spawner; NOT measured):
+
+* **ONE RECORD PER FOLDER, MANY DSFs.** `o4_placement_provenance.json` lands in
+  `dirname(dsf_path)` (`dsf_write.py:791`) — the 10°×10° `Earth nav data/+10-070/`
+  bucket — and holds ONE DSF's hashes and `body_files`. A pack with two written
+  DSFs in one bucket keeps only the last; worse, `written_body_files` (`:677-700`)
+  does not look at the record's `dsf` field, so writing DSF B REMOVES DSF A's
+  body files while A's live DSF still references them.
+* **THE RECORD IS NOT CRASH-SAFE.** It is written non-atomically AFTER the move
+  (`:768`, `:792`). A crash between the two leaves a live file that is ours
+  beside a record that says it is not — under any three-way rule that reads as
+  "the user changed it" and the engine would adopt ITS OWN OUTPUT as pristine.
+
+### §12a (1) THE RULE — one decision site
+
+New module `src/auto_patch_v2/airport/backup_state.py` (stdlib only, imported
+at top level everywhere — the frozen-engine lazy-import law). It is the ONLY
+code that decides whether a `.anchor_bak` is trusted, and the ONLY code that
+renames one. Frozen interface:
+
+    class State(enum.Enum):
+        NO_BACKUP, PRISTINE, OURS, REPLACED, UNPROVEN, ORIGINAL_LOST, LIVE_MISSING
+    @dataclass(frozen=True)
+    class Verdict:
+        state: State; live: str; backup: str
+        read_path: str      # what every READER opens
+        may_write: bool     # False => the write half stands down for this file
+        witness: str        # "stat" | "sha256" | "mark" | "body-names" | "y-only" | ""
+    def classify_dsf(dsf_path: str) -> Verdict
+    def classify_object(obj_path: str, pack_root: str) -> Verdict
+    def adopt(v: Verdict, *, now: datetime | None = None) -> str   # returns the superseded path
+    def carries_our_mark(dsf_path: str) -> bool
+    OWNERSHIP_PROPERTY = "o4/placement_rewrite"
+
+Both classifiers are PURE (they never write) and memoised in-process on
+`(abspath, size, mtime_ns)` of the live file, the backup and the record, so an
+adoption or a write invalidates the memo by itself. `adopt` is a WRITE and is
+called only from the write half, under every gate a pack write already has.
+
+**Identity ladder (cheapest first; a later rung runs only when the earlier one
+does not decide):** (i) `size + mtime_ns` equal to a recorded or sibling stat ⇒
+same file — the standard the freshness gate already uses; (ii) size differs ⇒
+NOT the same file, no hash; (iii) sha256 of the live file, compared with the
+recorded hashes; (iv) the in-band witnesses below.
+
+**The in-band ownership mark.** `edit_dump` adds ONE line,
+`PROPERTY o4/placement_rewrite <engine_version>`, after the last `PROPERTY` row
+of every DSF it writes (the backup never carries it, so it is added exactly
+once per write and the round-trip verify sees it on both sides).
+`carries_our_mark` is a raw byte scan of the live DSF for the property name
+(DSFTool writes uncompressed DSFs and the PROP atom holds plain C strings; a
+7z-compressed DSF is never ours and the scan correctly finds nothing). It makes
+"is this file ours?" answerable from the FILE, so a lost, overwritten or
+half-written record can never again turn our own output into "the user's".
+IMPLEMENTER'S FIRST TWIN (real DSFTool, the existing `test_v2dsfagl` fixture):
+the property survives text→dsf→text and the byte scan finds it; if DSFTool
+refuses an unknown property, STOP and report — do not invent another channel.
+The second witness, for DSFs written up to 1.0.351 that have no mark: the same
+scan finds an `OBJECT_DEF` name matching `__b<digits>` + `.obj` (a split body —
+only this writer mints that name, §4.5).
+
+**THE DSF TABLE.** L = live DSF, B = `<dsf>.anchor_bak`, R = THIS DSF's entry in
+the record (§12a (2)); "ours(L)" = L equals `R.written_sha256` or
+`R.prior_written_sha256` by the ladder, OR L carries a witness.
+
+| Row | B | L | R | L is… | State | READ frame | WRITE half |
+|---|---|---|---|---|---|---|---|
+| D1 | absent | present | any, and not ours(L) | the pack as installed | NO_BACKUP | L | `copy2` L→B, write (today's first build) |
+| D2 | absent | present | ours(L) | OUR rewrite, original gone | ORIGINAL_LOST | L | STAND DOWN, loud (§12a (4)); never back up our own output as "the original" |
+| D3 | present | same as B (stat, else sha) | any | pristine (first build, or someone restored) | PRISTINE | B | write from B (today) |
+| D4 | present | ours(L) | any | ours | OURS | B | write from B (today's path; the ONLY row the normal build takes) |
+| D5 | present | not B, not ours(L) | entry present | THE USER'S NEW FILE | REPLACED | **L** | **ADOPT**, then write from the new B |
+| D6 | present | not B, no witness | entry absent / unreadable / pre-hash | cannot be proven either way | UNPROVEN | B (unchanged from today) | STAND DOWN, loud; nothing renamed, nothing written |
+| D7 | present | absent | any | the new version dropped this tile | LIVE_MISSING | L (absent ⇒ every caller's `isfile` skips) | none; B is retired by the restore walk |
+| D8 | present, unreadable | any | any | — | UNPROVEN | L | STAND DOWN, loud |
+
+D4 also checks B against `R.backup_sha256` by the ladder (stat first). A B that
+no longer matches its record, under an L that is ours, is a user act on the
+backup: proceed from B, re-record, one loud line. We never write B after
+creating it.
+
+**ADOPT (D5), exactly.** `adopt()` does, in this order: (1) `os.replace(B,
+B + ".superseded-" + UTC "%Y%m%dT%H%M%SZ")` — RENAMED WITH A STAMP, NEVER
+DELETED, never overwritten by a later adoption (v1's fixed `.orphaned` name
+silently destroyed the previous orphan); (2) `copy2(L, B + ".tmp")`,
+`os.replace` onto B — `copy2` keeps L's size+mtime, which is what makes the
+freshness stamp converge (§12a (3) row 9). A crash between (1) and (2) leaves
+no B and a user's L — row D1, correct. The record gains an `adopted` row
+(time, superseded name, both sha256). The stamped name ends in neither
+`.anchor_bak` nor `.dsf` nor `.obj`, so no `endswith` walker, no dump-cache
+prefix filter (`dsf.py:132` already excludes `.anchor_bak.`), and not X-Plane,
+ever reads it.
+
+**THE OBJECT TABLE.** v2 never opens an authored `.obj` for writing
+(`placement_write.py:27-30`); `<obj>.anchor_bak` files exist only from the
+retired v1 seat and the KCLT prototype. So an adopted object needs NO new
+backup — the stale one is retired and the file is simply the pack's.
+"ours(L)" for an object = L's sha256 equals `written_sha256` in v1's
+`<pack>/.o4_reanchor_provenance.json` entry for it; or, when that sidecar has
+NO entry for it (the I-14 "no recorded hashes" population), the Y-ONLY witness:
+same line count, and every differing line has the same first token, the same
+token count and differs only in tokens that parse as floats (v1's invariant
+I-16: a bake changes y tokens and nothing else).
+
+| Row | B | L vs B | Evidence | State | READ frame | RESTORE step (`restore_pack_objects`) |
+|---|---|---|---|---|---|---|
+| O1 | absent | — | — | NO_BACKUP | L | nothing (today) |
+| O2 | present | size+mtime_ns equal | stat | PRISTINE | B | nothing — and NO FILE IS READ (today both files are read whole, every build) |
+| O3 | present | bytes equal, mtime differs | one byte compare | PRISTINE | B | `os.utime(L)` to B's times, so the next build is row O2 |
+| O4 | present | differs | sidecar hash says ours | OURS | B | copy B over L (today), then `utime` as O3 |
+| O5 | present | differs | NO sidecar entry, y-only witness | OURS (witness only) | B | keep L as `<obj>.unrecognised-<stamp>` FIRST, then as O4 — a witness is not a proof, so the bytes survive |
+| O6 | present | differs | neither | REPLACED | **L** | retire B to `.superseded-<stamp>`; L untouched; no new backup |
+| O7 | present | L absent | — | LIVE_MISSING | — | retire B; NEVER recreate L (today it is resurrected) |
+
+READ-side economy for objects: `authored_source` / `pristine_path` take rows
+O1/O2 on two `stat`s; equal SIZE with a different mtime also reads B without
+opening anything (the exact test is the restore step's, which is where a wrong
+answer could cost bytes — a same-size different-content new `.obj` is read one
+build late and never overwritten). Only a SIZE mismatch runs the full
+classification, memoised, and that population is v1-baked-never-restored or
+user-replaced files only.
+
+**PARTIAL STATES.** Every file is classified on its own; nothing is inferred
+from a neighbour. DSF replaced, objects not: D5 + O2. Objects replaced, DSF
+ours: D4 + O6 — the DSF is rebuilt from its (still valid) backup. Files the new
+version ADDS have no backup: O1/D1. Files it REMOVES: O7/D7. BODY FILES WE
+MINTED that the new version does not know: they are provably ours (`CUT_MARK`,
+`placement_write.py:201`) and the existing 11m step removes the previous
+write's bodies before every write — unchanged, now read PER DSF (§12a (2)). A
+new version that itself ships a file on a `__b` name without the cut mark is
+never removed and never overwritten (`:222-228`, unchanged).
+
+**Hash cost.** §12 (2) measured sha256 of LEMD's 2.2 MB DSF at 0.74 ms
+(≈ 3 GB/s); a 50 MB DSF is ≈ 17 ms by that figure (COMPUTED, not measured). The
+normal path (D4/O2) hashes NOTHING: two `stat`s per DSF, two per backed-up
+object (LEMD + OTHH carry 1,517 object backups ⇒ ≈ 3,000 `stat`s, tens of ms).
+A hash runs only when a stat pre-screen misses: once per changed file, and once
+per DSF on the first build after this lands (records up to 1.0.351 carry no
+stat fields). `dsf_content_tag` already sha256s the pristine DSF every build
+(memoised, `dsf_reader.py:361`); `backup_sha256` reuses that digest, never a
+second read.
+
+### §12a (2) The record, per DSF and crash-safe
+
+Same file, same name (`o4_placement_provenance.json`), `"version": 2`. The
+top-level keys of the LAST write stay exactly as today (tools and
+`v2_rebake_replay.py disk` read them). New key
+`"dsfs": {"<dsf basename>": {backup, backup_sha256, backup_size,
+backup_mtime_ns, written_sha256, prior_written_sha256, written_size,
+written_mtime_ns, body_files, adopted: [...]}}`, read-modify-written so a
+sibling DSF's entry survives, always through `tmp` + `os.replace`.
+`written_body_files(pack_root, dsf_path)` returns `dsfs[basename].body_files`;
+for a version-1 record it returns the top-level list ONLY when the record's
+`dsf` equals this basename, else nothing (11m's own rule: no record ⇒ remove
+nothing).
+
+`write_pack`'s order becomes: classify → (D5: adopt) → dump B, edit, encode,
+verify → **record FIRST**: `written_sha256 = sha256(out_dsf)`,
+`prior_written_sha256 =` the old `written_sha256`, stat fields null → move →
+record again with the live file's `size`/`mtime_ns`. A crash at any point
+leaves L equal to `written` or `prior_written`, or carrying the mark: row D4,
+never D5.
+
+### §12a (3) CONSUMER CENSUS (RULINGS 2026-08-30l) — ruled per row
+
+| # | Consumer (file:line) | Reads / writes | RULED |
+|---|---|---|---|
+| 1 | `dsf_write.pristine_dsf_path` `:130` — the ONE DSF read frame; callers `engine_v2.py:157, :655`, `load.py:401`, `provenance.py:606`, `build_airport.py:815`, `obj8_split_report.py:479/637`, `dsf_placement_diff.py:85`, `v2_rebake_replay.py:283` | reads B if it exists | returns `classify_dsf(p).read_path`. NO caller changes. This one edit fixes class (c) for the DSF |
+| 2 | `dsf_write.write_pack` `:730-796` | creates B, moves L, writes R | asks `classify_dsf`; D5 ⇒ `adopt`; `may_write` False ⇒ raises `BackupUnproven` (a new exception `apply_plan` lets through to `_place_objects`, which prints §12a (4) and returns `{}`); record per §12a (2) |
+| 3 | `dsf_write.edit_dump` `:306` | edits the dump | adds the `OWNERSHIP_PROPERTY` row; `compare_dumps` needs no change (structural rows compare equal on both sides) |
+| 4 | `dsf_write.written_body_files` `:677` | reads R | per-DSF, §12a (2) |
+| 5 | `placement_write.restore_pack_objects` `:242-305` | reads B, writes L, removes bodies | the object table, through `classify_object`; the walk also retires a `.dsf.anchor_bak` in row D7; returns two new tuples `adopted` / `unproven` on `RestoreResult`. Runs BEFORE `write_pack` in `apply_plan` — so `apply_plan` classifies the DSF FIRST and does nothing at all (no restore, no cut files) when the DSF stands down: a half-written pack is torn geometry |
+| 6 | `pack.authored_source` `:40` (callers `load.py:478`, `partition_cache.py:176`) | reads B if it exists | `classify_object(...).read_path` by the READ-side economy. `partition_cache._pristine_entries` then keys on the file actually read, so a replaced `.obj` invalidates the partition cache by itself |
+| 7 | `placement_cut.pristine_path` `:808` | second copy of row 6's test | DELETE the private test, call `pack.authored_source` — one resolver, as §12 (1) ruled for the DSF |
+| 8 | v1-era readers `dsf_reader.py:1765-1774`, `post_mesh.py:913-915`, `object_terrain_assembly.py:284-293` | `physical_path + BACKUP_SUFFIX` | implementer confirms reachability from a v2 build (`flat_site_mode` and the worklist still call into `dsf_reader`); reachable ⇒ route through `authored_source`; dead ⇒ leave, and say so in the report. Do not edit dead code |
+| 9 | FRESHNESS: `provenance.pack_dsf_input_identity` `:603-612`, `driver._dsf_identities_now` `:142`, `layout.py:3629` | size+mtime of `pristine_dsf_path` | NO EDIT — it inherits row 1. D5: the identity becomes L's size+mtime ≠ the stamp ⇒ the patch rebuilds; that build stamps L's identity; the post-mesh `adopt` makes B with `copy2` ⇒ same size+mtime ⇒ the NEXT gate reads current. EXACTLY ONE rebuild. D6 reads B and stays current — consistent with what that build does (nothing). FLIP the twin: `test_a_replaced_dsf_alone_is_invisible_upstream_defect` → `test_a_replaced_dsf_rebuilds_once` (`_rebake` must now also write a version-2 record; without one the fixture is row D6 and `test_rebaked_pack_dsf_still_reuses_the_patch` keeps passing as is). Rewrite the STATED RESIDUAL paragraphs at `driver.py:146-156` and `provenance.py:596-600` |
+| 10 | DUMP CACHE: `dsf_reader.ensure_dsf_text_path` + `dsf_content_tag` `:361` (`O4_DSF_CACHE_DIR`, `Airport_mod_cache/<pack>/`) | dump named by CONTENT sha | SAFE AS IS: an adopted B has new bytes ⇒ new tag ⇒ new dump; the old `<dsf>.anchor_bak.<oldtag>.text` is orphaned, not deleted (11m's own ruling for orphans) |
+| 11 | DUMP CACHE: `airport/dsf.find_text_dump` `:136-141` | falls back to `max(fresh)` across tags | class (d). With `dsf_path` given: serve the content-keyed entry, else an UNTAGGED legacy `<name>.text` that passes the mtime guard, else `None`. A dump bearing a DIFFERENT tag is never served. (Production passes `dsf_dump_path` from `ensure_dsf_text_path` — `engine_v2.py:320` — so this bites harness and tool reads; it is the same defect) |
+| 12 | `apply_plan`'s `refresh_dump` `placement_write.py:327`, `engine_v2.py:766` | re-dumps the WRITTEN L | unchanged (content-keyed) |
+| 13 | `object_rebake.restore` `:1843` ← `session.reanchor_restore` `session.py:1397` ← `BuildModel.swift:909-917`; `O4_Qt_GUI.py:2768` | copies every B over L | per file through the classifiers: PRISTINE skip; OURS copy; REPLACED / UNPROVEN / LIVE_MISSING ⇒ DO NOT OVERWRITE, count it. Return stays an `int` for Qt; the session reply keeps `"restored"` (Swift reads `result["restored"].intValue`) and ADDS `"kept_changed"` — additive, no wire rename. What the UIs say about `kept_changed` is the lead's copy |
+| 14 | `object_rebake.apply` `:1260`, I-14 at `:1420` | v1 writer | unreachable since stage B (§8); NOT edited. Its `.anchor_bak.orphaned` relics stay where they are |
+| 15 | DISABLED PACKS (17b/c: "its files are not rewritten") | — | `adopt`, the restore and the write are pack WRITES and sit behind every existing gate (`modify_custom_airports` `engine_v2.py:833`, `O4_PACK_WRITES` `:857`, `DSF_OBJECT_REANCHOR` `:866`, `_is_protected_scenery_root` `:884`, `allow_live_install`). I found NO `pack_enabled` test on this path (v1 had one, `object_rebake.py:1339`); a plan JSON left beside the patch from before a pack was disabled would still be written. ADD `_scenery_packs.pack_enabled(plan_.pack_root)` beside `:883` — a disabled pack is never classified, adopted, restored or written |
+| 16 | Harness / pytest install guards: `shared_repo_guard.py:72-88, :866` (`pack_rebake` scope), `tests/conftest.py:1100-1215`, `test_harness.py:2779-2960` | refuse install writes | unchanged and sufficient: `adopt`'s `os.replace` / `copy2` and the restore's `os.utime` are ordinary writes under `Custom Scenery/` ⇒ refused in a lane, which is the law. The classifiers only `stat`/read ⇒ lawful. NOTE for row O3: the `utime` sync is exactly the "mtime-preserved, traceless" shape conftest `:1106` was written against — every twin runs on `tmp_path` |
+| 17 | Tools reading B by suffix: `seat_feet_census.py:73`, `object_seating_report.py:171`, `object_pad_anchor_report.py:296`, `v2_rebake_replay.py:565`, `site_read.py`, `tools/attic/*` | `live + ".anchor_bak"` | `seat_feet_census` and `object_seating_report` route through `authored_source` (they state the authored frame); the two `disk`/census walkers COUNT backups and stay as they are; attic untouched. `v2_rebake_replay.py disk` gains a `superseded` count |
+| 18 | UI strings: `O4_Qt_GUI.py:1185, :2728`, `O4_Cfg_Vars.py:287`, `engine_v2.py:932-933` | "originals kept as .anchor_bak" | still true; no edit |
+| 19 | `docs/RELEASE_NOTES-1.0.350-beta.1.md:179-180` "keeps the originals beside them as `.anchor_bak` files and restores from them before every rebuild" | promise | becomes FALSE in one case the day this lands, on purpose. Proposed replacement for the next notes (copy is the lead's): "…and rebuilds from them on every build. If you install a new version of a pack over the old one, the app notices, keeps its old backup under a `.superseded-<date>` name, and treats your new files as the originals." |
+
+### §12a (4) What the user sees
+
+NOTHING on the normal path (D3/D4, O1/O2): no new line, and the existing
+`[v2 placement]` summary is unchanged. Otherwise ONE line per pack per build,
+at verbosity 0, aggregated over its files. PROPOSED wording (UX copy is the
+lead's):
+
+* adopted — `  [v2 placement] PACK UPDATED: "<pack>" was changed since the last
+  build (<n> file(s): +17-063.dsf, 12 object(s)). Your new files are now the
+  originals; the previous backup was kept as *.anchor_bak.superseded-<stamp>.`
+* stand-down, D6/D8 — `  [v2 placement] PACK NOT TOUCHED: "<pack>" — cannot
+  tell whether <dsf> is this app's own rewrite or a new version you installed,
+  so nothing in the pack was changed and its objects were not re-seated. To
+  continue, reinstall the pack (or delete <dsf>.anchor_bak if the installed
+  file is the one you want).`
+* stand-down, D2 — `  [v2 placement] PACK NOT TOUCHED: "<pack>" — the original
+  of <dsf> is missing and the installed file is this app's rewrite. Reinstall
+  the pack.`
+
+### §12a (5) Migration — installs written by builds up to 1.0.351
+
+* A version-1 record whose `dsf` names THIS DSF is a valid R with hashes and no
+  stat fields: the first build hashes L once (≈ 17 ms per 50 MB) and lands in
+  D4 or D5; the write upgrades it. No mass event, no `o4_fresh_v` bump.
+* A version-1 record naming a SIBLING DSF (the one-record-per-folder defect) is
+  "no entry": L with split bodies is caught by the body-names witness ⇒ D4.
+  L that is ours but was converted-only (no split, no mark, no record) is D6 —
+  the stand-down line, once per build until the user acts. SIZE OF THIS
+  POPULATION: NOT MEASURED (packs with ≥ 2 written DSFs in one 10° bucket, or a
+  deleted record). Owner Q2.
+* **PACKS ALREADY REVERTED BY THIS DEFECT CANNOT BE RECOVERED, and the engine
+  cannot reliably tell they exist.** On such a pack L is ours (hash-equal to
+  `written_sha256`), B is the OLD original, and the user's new DSF was
+  overwritten by `shutil.move` — its bytes are gone; nothing on disk is or
+  contains it. It reads as a perfectly normal D4. The only residue is
+  circumstantial: other files of the new version (its `apt.dat`, new `.obj`s)
+  carrying mtimes NEWER than B's. That is a HINT, not a detector — archives
+  preserve author mtimes, so a new version can be older than the backup, and
+  a user editing `apt.dat` trips it falsely. PROPOSED: no engine behaviour on
+  it; ONE advisory line when `apt.dat`'s mtime is newer than B's mtime AND
+  newer than `R`'s first write ("this pack's apt.dat is newer than the DSF
+  backup the app keeps; if you updated the pack before <version>, reinstall
+  it"), and a release-notes paragraph telling anyone who updated a pack in
+  place under ≤ 1.0.351 to reinstall it. Owner Q3.
+* `.obj`s already reverted by `restore_pack_objects` are the same: gone.
+* Existing `.anchor_bak.orphaned` (v1) and orphaned `__b*.obj` from 1.0.313
+  (§12 (3)) stay; nothing here deletes anything.
+
+### §12a (6) Build-time impact statement (HARD LAW §6)
+
+Normal path adds: per DSF 3 `stat`s + one small JSON read (memoised); per
+backed-up object 1 extra `stat`. It REMOVES `restore_pack_objects`' whole-file
+read of every backup AND every live object on every write (`:272-277`; LEMD +
+OTHH: 1,517 pairs) once row O3 has synced mtimes. Expected net: NEGATIVE after
+the first build, and ≤ 0.1 s on the first (one DSF hash + one byte-compare
+pass that today runs every time anyway). Against the budgets: < 1 % of 60 s
+(0.6 s) and of 300 s (3 s) by two orders of magnitude on the normal path.
+COMPUTED from §12 (2)'s 0.74 ms / 2.2 MB, NOT MEASURED; the implementer reports
+the `[v2 placement]` stage wall from the recorded phase times of one
+already-scheduled build, no timing run (timing gates suspended, 2026-08-04).
+The mark scan and the y-only witness run only off the normal path.
+
+### §12a (7) Test plan — headless, `tmp_path` fake pack, no X-Plane write
+
+New file `tests/auto_patch_v2/test_backup_state.py`; DSFTool is the existing
+stub/fixture of `test_v2objsplit.py` (real DSFTool only in the mark twin).
+Each bullet is one test; every row id appears in a test name.
+
+1. D1–D8, one test each: build the (B, L, R) state by hand, assert `state`,
+   `read_path`, `may_write`, and that the classifier wrote NOTHING (snapshot
+   the tree's names+sizes+mtime_ns before and after).
+2. D5 end to end through `write_pack`: the superseded file exists with the OLD
+   bytes and a stamped name; B has the NEW bytes and L's size+mtime_ns; L is an
+   encode of the NEW dump; the record has an `adopted` row. A SECOND adoption
+   makes a SECOND superseded file (no overwrite).
+3. Crash safety: monkeypatch `shutil.move` to raise — next classify is D4;
+   monkeypatch the second record write to raise — D4 (hash rung); delete the
+   record after a marked write — D4 (witness `mark`), never D5.
+4. D6 and D2 through `apply_plan`: NO file in the pack changes — no restore, no
+   cut file, no record — and the loud line is returned to the caller.
+5. O1–O7, one test each; O3 asserts the second pass opens no file
+   (monkeypatch `open` to count); O5 asserts the `.unrecognised-` copy holds
+   L's bytes; O7 asserts L is NOT recreated.
+6. Partial states: D5 + O2; D4 + O6; an added `.obj`; a removed `.obj`; minted
+   bodies removed after adoption; a foreign file on a `__b` name survives.
+7. Record: two DSFs in one bucket keep two entries; writing B leaves A's
+   `body_files` on disk (red on base); a version-1 record for a sibling DSF
+   names no body.
+8. Dump cache: after adoption `ensure_dsf_text_path(pristine_dsf_path(L))`
+   returns a NEW tag's dump; `find_text_dump` with only the OLD tag's (newer
+   mtime) dump present returns `None` (red on base).
+9. Freshness (`tests/test_auto_patch_freshness.py`): the flipped twin — not
+   current after replacement; current again after `_rebake`-with-adoption;
+   `test_rebaked_pack_dsf_still_reuses_the_patch` unchanged and green.
+10. UI restore: `object_rebake.restore` on a pack with one OURS and one
+    REPLACED file restores one and leaves the other's bytes; the session reply
+    carries `restored` and `kept_changed`.
+11. Disabled pack: `rebake_after_mesh` with a plan for a disabled pack writes
+    nothing and classifies nothing.
+12. The mark twin (real DSFTool, skip when absent): property round-trips;
+    `carries_our_mark` true on the written DSF, false on the pristine one.
+
+Run ONCE: the new file, `test_v2objsplit.py`, `test_v2dsfagl.py`,
+`test_airport_load.py`, `test_auto_patch_freshness.py`,
+`test_object_rebake.py`, `test_post_mesh.py`, `test_engine_jsonl.py`, and the
+install-guard tests of `test_harness.py` (`-k "pack_rebake or anchor_bak"`).
+No airport build: the harness stands every pack write down
+(`O4_PACK_WRITES=measure_only`), so a lane build cannot exercise the write
+half — the closing evidence IS the twins, and the owner's next app build on a
+COPY of a pack he updates in place is the acceptance.
+
+### §12a (8) Brief for ONE Opus implementer
+
+FILES: NEW `src/auto_patch_v2/airport/backup_state.py`,
+`tests/auto_patch_v2/test_backup_state.py`. EDIT `airport/dsf_write.py`
+(`pristine_dsf_path`, `edit_dump`, `written_body_files`, `write_pack`),
+`airport/placement_write.py` (`restore_pack_objects`, `apply_plan`,
+`RestoreResult`), `airport/pack.py` (`authored_source`),
+`airport/placement_cut.py` (`pristine_path` → delegate), `airport/dsf.py`
+(`find_text_dump`), `src/auto_patch/object_rebake.py` (`restore` ONLY),
+`src/o4_engine/session.py` (`reanchor_restore` reply), `src/auto_patch/engine_v2.py`
+(`_place_objects` stand-down line, `pack_enabled` at `:883`), docstrings at
+`driver.py:146-156` and `provenance.py:596-600`, the flipped twin, two tools
+(census row 17), `tools/INDEX.md` only if a tool's row changes. NOT TOUCHED:
+`provenance.pack_dsf_input_identity`'s code, `FRESHNESS_KEYS` /
+`FRESHNESS_SCHEMA_VERSION`, `events.py`, any Swift file, `object_rebake.apply`.
+
+`blast.py` hazards, quoted: `dsf_write.py` — "IMPORTED BY 11 files (4 src, 3
+tests, 4 tools) … HOT SYMBOLS: pristine_dsf_path(4)" (its signature and
+`str → str` contract are FROZEN); `object_rebake.py` — "IMPORTED BY 18 files …
+ENV FLAGS READ HERE: 2 … WRITES ARTIFACT: <pack root>/.o4_reanchor_provenance.json
+-- read by reanchor_kclt_terminal_bakes.py, test_post_mesh.py" (`restore` still
+removes that sidecar; nothing else in the file moves); `engine_v2.py` — "ENV
+FLAGS READ HERE: 3 (0 default-ON, 3 read in no test file): O4_PACK_WRITES …";
+`session.py` — "CO-CHANGED: events.py(71%) … OrthoEngineClient.swift(36%)" (the
+reply gains a key; no event class is added or renamed, so the wire names do not
+move); `placement_cut.py` — "IMPORTED BY 7 files (6 src…)"; `pack.py` —
+"IMPORTED BY 7 files … load.py, pack_partition.py, partition_cache.py";
+`dsf.py` — "IMPORTED BY 12 files (3 src, 5 tests, 4 tools)".
+
+CONVERGENCE GUARDS. Materiality floor: not an elevation change — the floor is
+BYTES: any test in which a file the engine cannot prove is its own loses bytes
+is a FAIL, no residual. Attempt cap: 2 fix iterations per test-plan item; a
+second miss is STOP-and-report. STOP-and-report also on: DSFTool refusing the
+property; any need to change `pristine_dsf_path`'s signature, the freshness
+keys, or a wire name; a v1-era reader in census row 8 that is reachable AND
+cannot take `authored_source`. `.progress` heartbeat. Never write the owner's
+X-Plane install; no build, no sweep. Deviations come back to this spec's
+author.
+
+### §12a (9) OWNER QUESTIONS
+
+* **Q1 — the superseded backup.** When you install a new version of a pack
+  over the old one, the app's old `.anchor_bak` (the PREVIOUS version's
+  original) is useless to the app. Proposed: keep it, renamed
+  `<name>.anchor_bak.superseded-<date>`, forever, and never delete it — one old
+  DSF plus any replaced objects per pack update, inside the pack folder. Or
+  should the app delete it (loudly, naming it in the log)?
+* **Q2 — when the app cannot tell.** For a pack written by a build up to
+  1.0.351 where the record was lost or overwritten and the file carries no
+  trace of ours, proposed: touch NOTHING and say so on every build until you
+  reinstall the pack (its objects are not re-seated meanwhile). The
+  alternative: assume the file is the app's own rewrite, keep a stamped copy of
+  it beside it, and rebuild from the old backup — it keeps working without
+  asking, and if the guess is wrong your new DSF is replaced (but its copy is
+  still in the folder). Which?
+* **Q3 — packs this defect already reverted.** Their new DSFs are gone and
+  cannot be recovered or reliably detected. Is a release-notes instruction
+  ("if you updated a pack in place before <version>, reinstall it") plus one
+  advisory log line on the apt.dat-newer-than-backup hint enough, or do you
+  want no log line at all (it can fire falsely)?
+
+### §12a (10) Reported to the spawner, NOT in this lane
+
+Read in code, not measured: (i) two airports served by ONE pack DSF (the
++18-064 TNCM + TFFG site) are written one after the other, each from the
+backup with only ITS OWN plan, and the second write's restore step removes the
+first's body files — the first airport's splits do not survive the tile build
+(`engine_v2.py:871-918`, `placement_write.py:317-325`); (ii) the app's
+"modified packs" list reads v1's sidecar only (`object_rebake.modified_packs`
+`:1880`), so a pack only v2 has written is never offered for restore; (iii)
+the UI restore leaves v2's minted body files and record in the pack.
+
 ## §11b Bodies on bare ground take FOOT ROWS, not pads (Fable, 2026-09-11; RULINGS 2026-09-11q)
 
 Round 5 minted a flat pad from each bare-ground body's own footprint (503 pads at

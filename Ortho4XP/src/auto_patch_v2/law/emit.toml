@@ -516,38 +516,63 @@ pad_frontage_m = 3.0
 cluster_apron_reach_m = 0.0    # DISARMED, and the COLLAR PLANE it arms is BUILT (owner RULINGS 2026-09-14bk): the apron within this distance of a cluster's outline is ONE PLANE in the AIRSIDE solve (constraints.cluster_pad.cluster_apron_plane), bounded to the touching component and never across a taxi-family face; the pad's plate then equals it in stage 2.  MEASURED at HECA on matched pairs (lane v2padjoin rounds 2-3).  ROUND 3, with the skirt withdrawn: base 43b8ad21d290 against collar 8cb776c1d044 — stage-2 infeasible 92 rows / 138.7410 m -> 1,511 / 3,148.2532 m, airside moved 11,001 worst 9.27 m (runway 849 worst 1.62), the terminal cluster's plane 72.478 -> 75.497.  AND THE RESIDUAL IS NOT LOCAL: of 11,363 moved vertices only 3,202 stand within 40 m of a cluster pad and 2,211 more than 500 m away — a FIELD-WIDE shift of an UNSETTLED stage-1 optimum (RULINGS 2026-09-14as (ii), 13y (B)/13ab), so 'airside moved = the collar only' cannot be met by ANY row added to stage 1 until the airside solve settles.  ROUND 2 (skirt still in): stage 1 stays FEASIBLE (the collar plane is lawful) but the acceptance is missed — 11,847 airside vertices move against a 266-vertex collar, the runway 837 worst 1.23 m, the terminal 72.62 -> 75.92 m, and the stage-2 infeasible set 151 rows / 178.72 m -> 1,318 / 3,074.92 m, whose worst rows are the `building_pad airside skirt` law RULINGS 2026-09-14ay withdraws and that round did not.  So it ships at 0 and the arms arm it.  Design value 40.0.  Previously DISARMED (RULINGS 2026-09-13ce): at 60 the reach moved 2,651 KCLT taxi vertices (worst 1.45 m) through the apron welds while the cluster-pad MERGE was inert (the `_pairs` decimation defect); re-armed only when the merge does the work and the taxi family moves <= hard_tol_m (round 4). Design value 60.0.
 # §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS 2026-09-13o,
 # refined 13p; Fable 2026-09-13).  A pad-face PAIR whose median DEM step —
-# the median over the face's frontage vertices of ``dem_z`` minus the pad
-# footprint's OWN median ``dem_z`` — exceeds this mints NO
+# the median over the face's frontage vertices of ``dem_z`` minus THE PAD'S
+# AIRSIDE-FRONTAGE median ``dem_z`` — exceeds this mints NO
 # ``groundside_frontage`` row: the face keeps its own ground and the step is
 # a lawful terrace.  PER PAIR, never per vertex (a per-vertex bound
 # saw-tooths a 16-vertex frontage).  0 disables the bound.
 #
-# THE QUANTITY IS DEM-VS-DEM because a constraint generator has no SOLVED
-# pad level — the level is what §20's rows produce, three lag rounds later.
-# MEASURED IN THE ENGINE'S OWN FRAME (lane `v2frontagestep`, the production
-# DEM on the captured planar maps, `v2_solve_replay --capture`), the whole
-# population of pad-face pairs:
-#   CYXY  building9  -> pav4         +3.76   DISARM (the owner's 13l item 1:
-#   CYXY  building10 -> dsf:pol129   +3.43   DISARM   cut into the hillside,
-#                                                     the lot a storey up)
-#   LEMD  building4  -> pav124       +3.00   ARMED  (the case 12r ordered
-#   LEMD  building4  -> pav124       +2.39   ARMED   graded; +0.16 m joints)
-#   LEMD  building4  -> route3/6     +2.03 / +2.00   ARMED
-#   LEMD  building12 -> pav70        +0.00   ARMED
-#   CYXY  building1  -> pav29(#1)    +0.05 / +0.02   ARMED
-# 3.2 is the centre of the 3.00-3.43 gap that population leaves.  It is a
-# NARROW gap and it is the one the data has: an emitted-patch read of the
-# same pairs gives +4.5 / +4.7 at CYXY because the production DEM is
-# SMOOTHED (CYXY inset HRDEM 1 m, smoothing radius 1 px) — quote the frame
-# with the number.
+# THE PAD'S SIDE OF THE STEP IS ITS AIRSIDE FRONTAGE (owner RULINGS
+# 2026-09-18c (1), Q CYXY-2a option C, verbatim: "Building pads are seated
+# based on their airside frontage, then we leave a gap").  It WAS the pad
+# face's RIM-VERTEX median, and that is what broke: since `dba32406` the
+# ARRANGEMENT is the one cutter of a pad face (§16g (10) (12) (1) (c),
+# RULINGS 2026-09-16r) and at CYXY it trimmed the DOWNHILL rim vertices off
+# both hillside pads — `building9` 40 -> 26 rim vertices, `building10`
+# 22 -> 14 / 750.8 -> 442.9 m2 — raising the rim median ~2.9 m and
+# collapsing the step to +0.861 / +0.915, which ARMED two pairs 13o had
+# ruled terraces (BETA2 rows CYXY-2 / CYXY-3, the mechanism in
+# `docs/findings/beta2-CYXY-2-3-mechanism.md`).  §20's own contact set is
+# not trimmable that way: it IS the seat the pad is levelled to.
+#
+# THE QUANTITY IS STILL DEM-VS-DEM because a constraint generator has no
+# SOLVED pad level — the level is what §20's rows produce, three lag rounds
+# later; what this reads is the DEM under the seat §20 will use.
+# MEASURED IN THE ENGINE'S OWN FRAME (lane `b2frontagedatum`, the production
+# DEM on `v2_solve_replay --capture` planar maps at main 0bac9241, read with
+# `tools/pad_frontage_step.py`), the WHOLE pad-face pair population of three
+# airports (CYXY 4 pairs, LEMD 1, HECA 16; |step| descending):
+#   CYXY  building9   -> pav4 (lot)          +4.192  TERRACE (13l item 1: cut
+#   HECA  building9   -> dsf:pol10 (lot)     -4.006  TERRACE  into the
+#   CYXY  building10  -> dsf:pol129          +3.283  TERRACE  hillside, the
+#                                                            lot a storey up)
+#   ------------------------------ the gap, 1.68 m -------------------------
+#   HECA  building305 -> dsf:objpav445       +1.599  ARMED
+#   HECA  building273 -> dsf:objpav121       +1.237  ARMED
+#   HECA  building69  -> dsf:objpav352       +0.991  ARMED
+#   HECA  building305 -> dsf:objpav446#0     -0.781  ARMED
+#   HECA  (8 more pairs)             +0.755 .. +0.007  ARMED
+#   CYXY  building1   -> pav29(#1/#2)  +0.047 / +0.082  ARMED
+#   LEMD  building26  -> route2              -0.049  ARMED
+# 2.4 is the centre of the 1.599-3.283 gap that population leaves.  The
+# HECA -4.006 pair is held on BOTH frames (its rim reading is -4.441), so
+# nothing that grades today stops grading: the only change in the whole
+# population is CYXY's two.  Quote the frame with the number — an
+# emitted-patch read of the same CYXY pairs gives +4.5 / +4.7 because the
+# production DEM is SMOOTHED (CYXY inset HRDEM 1 m, smoothing radius 1 px).
+#
+# 13o's LEMD PAIRS NO LONGER EXIST IN THE RELATION, and the option-C frame
+# is why: `pav124` is `role = apron` (AIRSIDE) on this tree, so `building4
+# -> pav124` is §20's frontage — the pad's own seat — and not a §28 pair at
+# all; `pav70` / `route3` / `route6` carry no face.  `building4`'s nearest
+# groundside face is beyond 30 m.  The 12r/13o arming decision is therefore
+# kept by §20 rather than by this bound.
 #
 # DEVIATION REPORTED, never decided here: 13o set 2.8 on the step against
-# the pad's SOLVED level (CYXY +4.08 / +3.02 against LEMD +2.66).  On the
-# quantity a generator can actually read, the same pairs measure +3.76 /
-# +3.43 against +3.00 — a pad stands above its own terrain once solved — so
-# 2.8 here would disarm `building4`.  The arming decisions 13o ruled are
-# what this value preserves.
-frontage_step_max_m = 3.2
+# the pad's SOLVED level (CYXY +4.08 / +3.02 against LEMD +2.66).  The
+# solved-level frame is still unreadable by a generator; 2.4 is the gap
+# centre of the frame that IS readable.
+frontage_step_max_m = 2.4
 # THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
 # Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
 # drapes the raw DEM right outside the constrained ring (§8.4: a 16.8 m

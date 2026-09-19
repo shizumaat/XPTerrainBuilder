@@ -17401,7 +17401,7 @@ MEASURED (not re-derived here): TFFJ 10/28, CIFP pins 13.411 m apart over 635 m 
 an INFEASIBLE SET, min total shortfall 3.8812 m"). The design solve spreads that shortfall evenly
 (0.0849 m per 12 m edge — it ALREADY yields uniformly, being a quadratic penalty); §16's
 projection then enforces the cap EXACTLY on every free column, its elastic arm withdraws the 260
-pin-footed rows (`fixed_foot` ⇒ `coupled`, `solve/project.py:431-435`), and the 2.8 m that does
+pin-footed rows (`fixed_foot` ⇒ `coupled`, `solve/project.py:424-427`), and the 2.8 m that does
 not fit lands as a 2.6 m step AT the pins → `runway_vertical_curve` 3 + `runway_transverse` 5,
 tile abort. Both interventions (`runway_projection=0`, `hard_tol_m=0.1`) read ALL ZERO. This
 contradicted the standing "feasibility is GUARANTEED for a real airport with real thresholds".
@@ -17535,9 +17535,9 @@ or `View.caps` and needs no edit; "UNCHANGED" = reads a different law value, rul
 deficit before the QP") is SUBSUMED: the deficit is priced before the ROWS exist. Item 2 is
 KEPT, because §50.1 covers pins ON THE RIDGE only and the elastic arm's defect is general: it
 withdraws `coupled` rows, `coupled` includes every pin-FOOTED row of the runway's own family
-(`project.py:431-435`), and a withdrawn family row is a DEFECT by construction. The guard needs
+(`project.py:424-427`), and a withdrawn family row is a DEFECT by construction. The guard needs
 no reader and no new law: both numbers are already computed against the law's own bound over
-ALL rows, withdrawn ones included (`rep.before_m` `:385`, `rep.after_m` `:499`).
+ALL rows, withdrawn ones included (`rep.before_m` `:387`, `rep.after_m` `:498`).
 
     if rep.after_m > rep.before_m + held:        # the projection made the worst hard row WORSE
         return x (the DESIGN vector), status = "refused: worst hard row {before:.4f} -> {after:.4f} m "
@@ -17604,7 +17604,7 @@ TESTS, new file `tests/auto_patch_v2/test_v2capyield.py` (+ the touched twins, e
 * T8 `test_law_tables.py` deviation register updated (Y24).
 CLOSING SYNTHETIC: `tools/v2_solve_replay.py --replay
 /Users/noah/XPTerrainBuilderData/.harness/frames/tffjverify/TFFJ.pkl --from constraints
---verify --why-hard` (check the stage name against the tool's INDEX row) — bar: DEFECT
+--verify --why-hard` (`--from` choices: constraints | shapes | planar, `v2_solve_replay.py:1784`) — bar: DEFECT
 families ALL ZERO, the OVER GRADE line printed with 2.112 %, projection status optimal with 0
 elastic rows and max move < 0.10 m, no INFEASIBLE SET. Quote `within_shape`, `airside_no_step`,
 `taxi_box`, `strip_transverse`, `strip_longitudinal` beside the findings' arms (shipped 585 /

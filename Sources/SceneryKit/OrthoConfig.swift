@@ -90,6 +90,54 @@ public enum O4Value: Sendable, Equatable, Codable {
     public var intValue: Int? { if case .int(let i) = self { return i }; return nil }
 }
 
+/// The two settings that used to be booleans and are now three-valued
+/// enums ("None" / "ICAO" / "All"): `auto_patch`, and — since 2026-09-18 —
+/// `airport_elevation_insets`.
+///
+/// Config files, presets and older front ends still carry `True`/`False`
+/// for them. The engine maps those in ONE coercion
+/// (`auto_patch.selection.normalize_mode`, owner ruling RULINGS
+/// 2026-09-18e: True ⇒ "ICAO", False ⇒ "None" for the insets key; True ⇒
+/// "All", False ⇒ "None" for `auto_patch`); this is the same map on the
+/// Swift side, so that (a) the settings picker selects a real option
+/// instead of rendering blank on a legacy value, and (b) a legacy literal
+/// can never be written BACK to a cfg file — the app only ever persists
+/// one of the enum's own values.
+public enum O4LegacyModes: Sendable {
+    /// The mode a legacy `True` means, per setting key.
+    public static let whenTrue = ["auto_patch": "All", "airport_elevation_insets": "ICAO"]
+    /// The mode a legacy `False` means, per setting key.
+    public static let whenFalse = ["auto_patch": "None", "airport_elevation_insets": "None"]
+
+    private static let trueTokens: Set<String> = ["True", "true", "1"]
+    private static let falseTokens: Set<String> = ["False", "false", "0"]
+
+    /// The enum value *literal* means for *key*, or nil when it is not a
+    /// legacy boolean spelling of a mode-valued setting. A `global_`
+    /// prefix is accepted (the schema's mirrors).
+    public static func mappedLiteral(_ literal: String, forKey key: String) -> String? {
+        var name = key
+        if name.hasPrefix("global_") { name = String(name.dropFirst("global_".count)) }
+        let text = literal.trimmingCharacters(in: .whitespaces)
+        if trueTokens.contains(text) { return whenTrue[name] }
+        if falseTokens.contains(text) { return whenFalse[name] }
+        return nil
+    }
+
+    /// *value* with a legacy boolean mapped onto the enum, when *variable*
+    /// really is the enum-typed version of a mode-valued setting. An engine
+    /// still declaring the key as a bool is left alone.
+    public static func normalized(_ value: O4Value, forKey key: String,
+                                  variable: OrthoConfigSchema.Variable) -> O4Value {
+        guard variable.type == "str", let allowed = variable.values, !allowed.isEmpty,
+              !allowed.contains(value.cfgLiteral),
+              let mapped = mappedLiteral(value.cfgLiteral, forKey: key),
+              allowed.contains(mapped)
+        else { return value }
+        return .string(mapped)
+    }
+}
+
 /// Minimal python-literal parser covering what appears in cfg files: numbers,
 /// quoted strings, booleans, and (nested) lists — e.g. masks_width=100,
 /// zone_list=[[[47.1, 11.2, ...], 18, 'BI']].
@@ -275,7 +323,7 @@ public struct OrthoConfigFile: Sendable {
         for (key, raw) in rawValues {
             guard let variable = schema.vars[key] ?? schema.vars["global_" + key] else { continue }
             if let value = O4Value.parse(raw, typeName: variable.type) {
-                out[key] = value
+                out[key] = O4LegacyModes.normalized(value, forKey: key, variable: variable)
             }
         }
         return out

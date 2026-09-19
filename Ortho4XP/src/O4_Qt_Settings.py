@@ -221,6 +221,20 @@ class _SettingRow(QWidget):
             self.control.setChecked(str(text).strip() in ("True", "true", "1"))
         elif isinstance(self.control, QComboBox):
             index = self.control.findData(str(text))
+            if index < 0:
+                # A stored value that is not one of the combo's own: a
+                # LEGACY scalar of a setting that used to be a bool and is
+                # now a three-valued enum (``airport_elevation_insets``
+                # since 2026-09-18, ``auto_patch`` before it).  SM.coerce
+                # carries the one legacy map (RULINGS 2026-09-18e), so the
+                # menu selects the mode the config really means instead of
+                # silently sitting on item 0 ("Off").
+                try:
+                    (ok, normalized, _) = SM.coerce(self.setting.name, str(text))
+                except KeyError:
+                    ok = False
+                if ok:
+                    index = self.control.findData(normalized)
             if index >= 0:
                 self.control.setCurrentIndex(index)
         else:

@@ -549,3 +549,338 @@ bar) is PROPOSED in the 17w form and is the owner's number to change.
    S5a's. The (N, D) = (64, 10 m) pair is a measured starting point, not a fitted one.
  * The `dwithin` flip count (row 3) is asserted 0 by expectation; S3's twin measures it.
  * OTHH's share of each row is unmeasured here; §48 remains its primary lever.
+
+---
+
+## F. ADDENDUM 2026-09-18 — LEVEL OF DETAIL — the ground footprint is what the laws consume
+
+Owner follow-up (verbatim): *"are you looking for ways we can filter and reduce the
+number of objects we have to process, or the level of detail? Seems like we are
+primarily concerned with footprints on the ground, and so for a given freestanding
+building (with some space all around it), it could have thousands of components,
+interiors, people, chairs, you name it, that don't matter other than they need to stay
+in their same relative position to their surrounding building if we reseat it."*
+RULED since §D was written (RULINGS 2026-09-18q): Q1 scatter NEVER shapes the terrain;
+Q2 each piece of a many-piece scatter object is set down on our ground on its own.
+Owner, on jetways (verbatim): *"Jetways have to stay connected to their terminal and
+should move with it, building pad should include them to keep everything at the same
+level."*
+
+Measurements [M-lod]: parse-only, `ps` checked first (nothing heavy running),
+`.lanes/packfast-spec/lod3.py` / `lod4.py`, logs `lod3_*.log`, `lod4_*.log`,
+`lod3_anyy_OTHH.log`. Instrument: a 1 m label raster of HOST outlines over the ±0.05°
+window; a component is CONTAINED when its four placed plan-box corners and its centre
+all stand on host pixels. It is a census (1 m, box corners), not the production test.
+CORRECTION to §B.2 (2)'s LEMD row: `attach.py` globbed all 21 rewritten dumps in LEMD's
+mod-cache folder, so its LEMD component TOTAL (495,439) is inflated by repeated
+placements; the scatter SHARE (4.5 %) and the named resources stand. [M-lod] reads the
+pristine `*.anchor_bak.*` dump only: LEMD 79,572 placed components / 1,656 placements.
+
+### F.1 LAW BY LAW — what is consumed of an object, and at what precision
+
+| consumer | what it consumes | precision | per component? |
+|---|---|---|---|
+| §16g `footprint_unit` (13bo) | the body's PLAN OUTLINE (rings; box where none) — "do these two cover the same ground" | `footprint_touch_m` = 0.5 m; rings ≤ 16 vertices, simplified OUTWARD by 0.05 m | **no** — only the UNION outline of a unit matters; a ring inside another ring of the same unit adds nothing |
+| `planar/cluster` → cluster pad (14x) | the union outline of touching bodies whose GROUND FLOORS agree within `floor_split_m` 0.5 | the arrangement snaps at 0.5 m (17k M4) | **no** — union again; but it reads each ground-contact body's `base_y` for the floor split |
+| placement seat (`placement_*`, `rebake_plan`) | FEET: ≤ 4 lowest vertices per ground part, the median of `surface − y` over them; carriers for footless bodies | metres in plan, centimetres in y | per ground PART today; the unit's seat needs the unit's ground feet, not every chair's |
+| `planar/group` / `foot_rows` / `pad_relief` | feet of an ELIGIBLE bare-ground body | per foot | a body standing on a pad or pavement states NO rows already ("pavement is senior", 09af-1) |
+| ε-contact partition | every part's triangles vs every neighbour's, 3-D, 0.25 m | millimetre welds | **yes — and its only products are (i) bodies and (ii) structures/abutments; inside one unit both are moot** |
+| basins (witness + COVER), door wells (sill, `above`), tunnels, wall corridors, sunken roads, shells, thin plates, skirt | BELOW-grade floors and walls; AT-grade plates (sills, hard / draped); and the above-grade footprint as **roof COVER**, read as a UNION intersected with a ring or window | clip at a DEM plane; union at GEOS precision | below / at grade: **yes**; above grade: **union only** |
+| deck signature / elevated deck / line object | a plate on piers; a long thin thing | per resource | per resource |
+| v1 inset pass (`dsf_reader._compute_dsf_object_buildings`) | building footprints from its own parse | metres | untouched by everything here |
+
+**CONCLUSION — what is NEVER consumed.** For a component that is
+ * **(a) contained in plan inside a host's closed outline**: its ring (the host's covers
+   it — the unit outline and the cluster-pad outline are the SAME polygon with or
+   without it), its ε-contacts (unit membership follows from containment), its group,
+   and its feet as an INDEPENDENT seat. If it is also wholly above the contact band and
+   carries no hard / draped triangle, its structure reads too: it can only ever add
+   cover under a roof that already covers it. **STILL CONSUMED**: a contained component
+   AT or BELOW grade (a sill plate inside a hangar, a pit, a basement wall, a hard
+   surface) — the door-well / basin / tunnel laws read exactly those, so they stay
+   witnesses. They skip rings / contact / groups like the rest.
+ * **(b) wholly above grade and NOT contained** (roof plant, a sign on a façade, a canopy
+   edge): no feet today already (`elevated_base_m`); still consumed as COVER (union) and
+   as footprint (a canopy extends its unit's outline — 11i). Its ε-contacts are consumed
+   only to decide WHICH body carries it. So (b) alone is not an admission class; it is a
+   precision class (F.3, row 19).
+ * **(c) same resource vs separate placement**: inside one `.obj` the contents ride
+   rigidly for free PROVIDED the file is not split between host and contents — which
+   is what contact-body decomposition + §9's split can do today and what F.2 forbids.
+   A separate placement inside the host must be given the host unit's motion — §16g
+   does that today whenever its footprint is in the plan at all.
+
+### F.2 THE RIGID-UNIT RULE — CONTENTS
+
+**The rule.** A freestanding structure is ONE unit. Its OUTER ground outline and its
+at-/below-grade parts are derived once. Every other component whose plan extent lies
+inside that outline is CONTENTS: it takes the unit's motion rigidly, is never cut from
+it, never decomposed into bodies, never states rows, never enters the contact graph,
+the groups or the clusters, and founds no seat.
+
+**The host outline — and why containment is NOT the refuted discriminator, measured.**
+Box proximity (row 13) failed because flat or sheet-like neighbours' BOXES cover
+everything. Plain plan containment fails THE SAME WAY, and worse: with any at-grade
+solid ≥ 10 m as a host, `HillBush.obj` reads **83.9 % contained** and
+`Tree1Foliage.obj` **100.0 % contained** [M-lod] — because these packs ship their
+TERRAIN as objects: the hosts are `Objects/Flora/hill.obj` (34,565 bushes on it),
+`TFFG/Objects/Ground/fixed_platform.obj` (106,827 leaf clumps) and
+`TFFG/Objects/Ground/Cliff.obj`. A bush standing on a hill object is not the contents
+of a building. The discriminator that works is on the HOST, not on the relation: a
+host is a **closed volume** — the sum of its triangles' plan areas is at least
+`[contents] host_closure_min` (**1.6**) × the area of its plan projection (a box
+projects its roof AND its floor: ≈ 2; a terrain sheet, a slab, a platform: ≈ 1) — at
+least `host_diag_min_m` 10 m across, `host_height_min_m` 2.5 m tall, and not
+line-shaped. With that test [M-lod]: HillBush **0.0 %**, Tree1Foliage **0.0 %**,
+ParkingBushes 0.0 %, BaggageCarts 0.0 %, the people 0.0 % — and what reads contained at
+TNCM is palms in the OceanPoint hotel's courtyard wing, the Sonesta bar, the terminal
+glass. 133 `Autogen1.obj` sheets, the docks pattern and the causeway bridge deck are
+refused as hosts.
+
+**At-grade hosts only vs roof-inclusive hosts, measured.** The owner's words are "the
+footprint on the ground". At COMPONENT level that finds almost nothing at LEMD, because
+a terminal is an assembly — no single at-grade component is the building:
+
+| hosts | TNCM contained | TFFG | LEMD | OTHH |
+|---|---|---|---|---|
+| closed volumes AT GRADE only | 7.8 % comps / 6.5 % tris | 2.5 % / 6.6 % | **0.5 % / 0.2 %** | not run |
+| closed volumes at ANY height (the building's plan outline incl. what its roofs cover) | 10.5 % / 8.7 % | 3.4 % / 7.1 % | **50.0 % / 44.4 %** | **23.1 % / 21.4 %** (of ≈ 772 k placed components) |
+| — of NON-scatter components (what is left after row 5) | **27.0 %** of 57,056 | **26.5 %** of 23,070 | 40.3 % of 53,337 | — |
+| — whole PLACEMENTS contained (decidable before `solid_components`) | 31 placements / 0.2 % | 2 / 0.0 % | **282 placements / 21.0 % of comps** | — |
+| wholly above grade, NOT contained (class (b)) | 65.6 % (polluted: 72 % of HillBush reads "above grade" because it is authored ON the hill object) | 4.1 % | 20.3 % | 55.0 % |
+
+So the production host outline is the any-height one: **the plan outline of the
+structure = the union of its closed-volume components' projections**, holes kept.
+
+**Relation to what exists.**
+ * **§16g / 13bo — UNCHANGED, and it is the motion law.** Contents are in the host's
+   unit because their footprint overlaps it; that is 13bo verbatim. What this rule adds
+   is only that the work BEFORE §16g is not done for them. Deterministic host for
+   motion: none needs choosing — §16g chains transitively, so a component overlapping
+   two hosts makes all three one unit today and still does. For NAMING (the report and
+   the DSF record): the host placement whose outline covers the component's centre;
+   ties → the larger outline area, then the lower placement id.
+ * **§48 interiors — SUBSUMED in its predicate, NOT in its safeguards.** §48's U5 is
+   "roofed ≥ 95 % by the union of OTHER placements". Containment in the closed-volume
+   outline IS that cover test, read in plan (the measured LEMD prize agrees: U5 34.7 %
+   of triangles per placement-level; this rule 44.4 % at component level, 21.0 % of
+   components at whole-placement level). This rule is WIDER in two ways the owner's
+   sentence asks for: it works per COMPONENT (the chairs inside the same `.obj` as the
+   terminal — TNCM 9.5 % of components are same-placement contents, which U5's
+   same-resource exclusion can never reach), and it removes rings / contact / groups,
+   not only structure reads. What §48 still UNIQUELY supplies, and this rule ADOPTS
+   unchanged rather than re-deriving: no hard / hard-deck / draped triangle; `y_min >
+   −2.5` (below-grade facilities are never contents); the fixpoint that stops two
+   mutually-roofing shells from both vanishing (restore in descending footprint,
+   named); the false-positive register (coincident duplicate placements, hangar door
+   leaves, material-sliced shells, vehicles under a roof, a tower cab under its decal);
+   the MSL carry twin. **ONE predicate module, one carried flag**: `v2interiors`
+   (checkpointed, unmerged) is RESUMED as the lane that lands this (S6), not run beside
+   it — two "never read" classes threaded through `basin_witness` would be the
+   census-wrapper defect in geometry.
+ * **Row 8 (convex-hull proxy rings) stays NOT WORTH IT** — contents get NO ring at
+   all, which is cheaper than a hull and exact (the union is unchanged), and hosts keep
+   the true outline 14j ruled.
+ * **Row 5 scatter** is decided FIRST (it is a per-resource, frame-independent fact);
+   contents is decided second, per placed component, against the hosts. A scatter piece
+   inside a host is contents (it rides with the building — 13bo); one outside is set
+   down on its own (18q Q2).
+
+### F.3 THE PRIZE, and how early it is knowable
+
+ * **How early.** Host test and containment need components (closure is a per-component
+   reading), so `solid_components` still runs — and that is fine: parse + components is
+   16.7 s of TNCM's 301.6 s [F]; **the cost is everything AFTER decomposition**
+   (`placed_parts` rings 57 s, narrow pass 169 s, clips, groups). The one thing
+   decidable BEFORE decomposition is the whole-placement case — a placement whose solid
+   vertex bbox lies inside the host union skips `solid_components` too: LEMD 282
+   placements / 21.0 % of components, TNCM / TFFG ≈ 0. Order in `partition_pack`:
+   (1) per-resource readings (scatter, closure per component — frame-independent,
+   cached); (2) place HOST components only and union their projections per placement
+   (hosts are 0.2–1.1 % of components but 8.7–11.5 % of triangles; ONE
+   `coverage`-style union per placement through `frame_entry.union`); (3) bulk
+   containment of every other component's placed plan box (`STRtree.query(...,
+   predicate="within")`, one call); (4) only the survivors become full `PlacedPart`s.
+   Contents become box-only parts: `rings=()`, `feet` empty, `contents=True`, excluded
+   from weld / broad / narrow / abutment passes.
+ * **Estimated gain ON TOP of rows 1–5** (computed from the measured shares; partition
+   cost taken ∝ full parts): TNCM parts ≈ 20 k → ≈ 14.6 k, partition est. 45–60 →
+   **35–45 s**; TFFG ≈ 3 k → ≈ 2.2 k, **≈ −3 s**; **LEMD −40 % of its full parts →
+   the object-layer share of its 378 s structures stage est. −25…−35 %** (NEEDS
+   MEASUREMENT: that stage's split is not in hand); **OTHH −23 % of parts on top of
+   §48's own triangle removal**; RSS: proportional to parts dropped — LEMD est.
+   −1 GB, OTHH unmeasured. **This is LEMD's and OTHH's lever, not the islands'** —
+   their cost is scatter (row 5) standing on terrain objects.
+
+### F.4 RISKS, ruled one by one
+
+| risk | ruling |
+|---|---|
+| contents that include a genuine GROUND STRUCTURE under the outline (a pit, a baggage tunnel mouth, a basement) | at-/below-grade, hard and draped components are never structure-skipped (F.1 (a)); `y_min ≤ −2.5` is never contents at all (§48) |
+| **a hangar with open doors whose interior floor IS graded apron — door wells** | the sill plate and floor witnesses are at-grade / hard → still read; the closed-volume outline of a hangar covers its interior, so equipment parked inside rides with the hangar — correct. §48's door-LEAF false positive (236 of 506 OTHH admits) is an at-grade witness inside the cover: it stays a witness, and as contents it rides with its hangar — also correct |
+| apron equipment inside the building's BBOX but outside its ring | the test is against the outline polygon, never the box; the census' 5-point box test is replaced in production by `within` on the placed plan box, so a cart half under a canopy edge is NOT contents |
+| courtyards / holes | holes are kept in the host outline; a palm in a courtyard is free-standing scatter and is set down on its own |
+| multi-host overlap | predicate = union of hosts; motion = §16g's transitive unit (unchanged) |
+| a jetway foot inside / at the terminal outline | F.5 |
+| host and contents are SEPARATE placements — same motion? | §16g already gives one seat per unit; contents add no feet to the unit's median, so **the unit's seat is its HOSTS' and its free ground members' feet only**. DECLARED MOVEMENT: units whose median included interior feet move by the difference; bounded by the pad's own flatness under the building; S6 reports the per-unit delta distribution on LEMD before wiring |
+| multi-anchor resources that are contents (the same chair file at 40 anchors) | today DROPPED from the plan at load (I-4: one file cannot carry per-placement offsets) → they do not ride. Contents need no per-vertex bake — they need the unit's motion on their DSF ROW (§16g (5) `msl_seat_rows` precedent). Folded into F.5's row mechanism; until then they behave as today |
+| byte identity of the PATCH BODY | expected IDENTICAL: unit and cluster-pad outlines are unions unchanged by removing contained rings; contained bodies stand on the host's pad and state no foot rows today (09af-1); cover unions are unchanged under a roof. PROVEN, not asserted: S6's dry pairs on LEMD / HECA / VHHH (`structures.json` + cluster-pad outlines + foot-row sources byte-identical). DSF rows move (declared above) |
+| terrain objects (hill, platform, cliff) | never hosts (closure test). What the pipeline should DO with a pack's terrain object is outside this spec — owner Q4 |
+
+### F.5 JETWAYS RIDE WITH THEIR TERMINAL (owner ruling above) — read with F.9, which generalises it
+
+**What happens today, measured on the corpus dumps [M-lod]:**
+
+| pack | jetways as placed | in the rebake plan today? |
+|---|---|---|
+| OTHH | 14 pack OBJ types, EVERY one placed > 1× (`Jetway_Type10` ×30, `Type7` ×27, `Type5` ×22 …) | **NO — multi-anchor drop** (`pack_partition` `drop_now`, I-4): X-Plane drapes each at its own anchor, on the apron; the terminal moves, the jetway does not |
+| LEMD | 121 `.agp` placements (`LEBL_jetway.agp` ×81, `LEMD_Jetway_alt.agp` ×40), SAM | **NO — an `.agp` has no OBJ8 geometry**; never a member of anything |
+| HECA | 48 `.agp` jetways + 3 `EGCC_Jetway_metal_03.obj` | `.agp`: no. The three OBJ ones: yes (and 17q found them misread as a channel witness) |
+| TNCM | `Jetway1.obj`, `Jetway2.obj` ×1 each, `AutoJetWay.obj` ×4 | single-anchor ones: yes, as ordinary bodies; §16g units them with the terminal IF their ring comes within 0.5 m of it |
+| library autogates (`lib/airport/Ramp_Equipment/…`) | none on these four dumps | **NO — stock resources are skipped** ("shared, never baked") |
+
+So the ruling is met today only for a single-placement OBJ jetway whose outline touches
+its terminal; on the three big airports it is NOT met for any jetway.
+
+**The rule.**
+ 1. **Membership without geometry.** ANY placement — OBJ, `.agp`, `lib/…`, multi-anchor
+    — whose DSF ANCHOR lies within `footprint_touch_m` (0.5 m) of a unit's host outline,
+    or inside it, is a RIDER of that unit. This is 13bo stated on the anchor for
+    placements whose geometry the plan never holds. It is mechanical and name-free: a
+    SAM / autogate jetway's anchor is its rotunda at the terminal wall; a wall-mounted
+    docking display rides too (correct); an apron marshaller 40 m out does not.
+    Deterministic host: the unit whose outline is nearest the anchor; ties → larger
+    outline area, then lower placement id.
+ 2. *(WITHDRAWN — owner simplification, F.9: no object-type recognition of any kind. A
+    parsed body joins by R1's footprint intersection like everything else.)*
+ 3. **Motion by ROW, not by bake.** A rider takes its unit's vertical motion on its own
+    DSF row (the §16g (5) `msl_seat_rows` mechanism), so multi-anchor, `.agp` and
+    `lib/` placements can all ride without touching a shared file. NEEDS CHECK by S7
+    before anything else: that X-Plane 12 honours an MSL / AGL row for an `.agp` and
+    that SAM's animation anchors follow it.
+ 4. **The pad.** The cluster pad's outline is extended by the rider's GROUND footprint
+    (bogie, rotunda column — for an unparsed rider: a disc of `footprint_touch_m` at
+    the anchor), never by its elevated tunnel. **But §16g (10) (5) / 14ah / 14ax stand:
+    a derived pad never takes AIRSIDE ground** — the extension is clipped by the apron
+    faces like every pad. Where the feet stand on apron (the normal case), "the same
+    level" therefore cannot be bought by bending the apron to the pad (airside is
+    king). The pad already MEETS the apron at the terminal's airside edge (§20: the pad
+    follows its apron; F.9 R4) — what is left open is only the strip of apron under the
+    jetways themselves, which is owner Q3.
+
+### F.9 THE GENERAL RULE (owner simplification, verbatim)
+
+*"Do we need to recognize a jetway? Anything that intersects the building (and doesn't
+extend of hundreds of meters like a railway) is just treated as part of that building
+and moves with it. We only cut apart objects that have clear measurable space all the
+way around them. Aprons and terminals must always meeting smoothly, and the flat
+terminal area should include the jetways."*
+
+**Every clause of this is already law — §16g (13bo) — and the code that costs the
+minutes is the machinery §16g made redundant.** Rule by rule:
+
+| | the owner's clause | what exists | value | what changes |
+|---|---|---|---|---|
+| **R1** | anything that intersects the building is part of it and moves with it; transitive | §16g (1) `footprint_unit.plan_units`: two bodies whose PLAN footprints overlap or come within `[placement] footprint_touch_m` are one unit, chained transitively; one seat per unit | **0.5 m**, plan | nothing in the law. TWO GAPS in its population: (i) a placement the plan never holds — multi-anchor, `.agp`, `lib/` — cannot intersect anything (F.5: every jetway at OTHH, LEMD and HECA's `.agp` ones) → F.5's anchor rider; (ii) `planar/group.derive` is a SECOND, narrower derivation of "what belongs together", from ε-abutments: at TNCM it reports `abutment_pairs 33,909`, **`refused_building 28,013`** (a pair of non-deck bodies across placements is refused a GROUP — 10i "buildings never group with buildings"), `cross_groups 19` (deck juniors joined to a senior), `long_span 0`. Those refusals are about who shares a PAD TARGET, not who moves together, so they do not contradict R1 — but under R1 + R4 the group's membership should be READ from the unit / cluster, not re-derived (the module's own "ONE DERIVATION, MANY READERS"). Consolidation = row 21 |
+| **R2** | …unless it extends hundreds of metres like a railway | §16g (3) + (6) "THE ONLY CUT": a body whose footprint span reaches `connector_span_m` AND whose ends' ground differs by `[cockpit] visual_m` AND which topologically LINKS (two components of its unit, or one end to open ground) is a CONNECTOR — cut at line stations, never holding its unit rigid. Anything else is a member however long (13cn, the SPJC viaduct). Beside it: `[placement] group_span_max_m` 150 (group release, 11i), `UNIT_CLUSTER_SPAN_MAX_M` 300 (a rigid cluster is building-sized), the 10bb line class (fences, kerbs) | **200 m** | **keep 200 m; no new number.** Against real data: LEMD's kerbside canopies span 30–90 m (11i), a jetway with its fixed bridge ≈ 60–120 m, LEMD's T2 block is whole at 300 m and is a BUILDING (it is never asked this question — R2 is asked of one BODY, not of a unit), HECA's elevated rail and LEMD's 5,157 m perimeter fence run kilometres. 200 m sits above every attachment and below every railway; and the span test alone never cuts — the body must also be the link, which is what keeps a 250 m pier finger a member |
+| **R3** | we only cut apart objects that have clear measurable space all the way round | the unit partition IS that: two things are separate units iff nothing chains them within 0.5 m in plan | **0.5 m = `footprint_touch_m`** — NOT the ε-contact 0.25 m (3-D surface-to-surface) and not the abutment test | **the consequence is this spec's subject.** The ε-contact graph (`contact.partition`: TNCM 231 s, TFFG 459 s, OTHH the plan stage) exists to find what is rigidly ONE in 3-D. Since 13bo the only lawful cut is R2's, so inside a unit nothing consumes a 3-D contact edge except (a) splitting ONE FILE that holds several free-standing structures into bodies (LEMD authors hundreds per file), (b) choosing a footless body's carrier (11ai–11am), (c) the cluster floor split (`floor_split_m`). (a) is a PLAN question — clear space all the way round — and is answered by footprint blobs, not by 2.26 M vertex-to-triangle tests |
+| **R4** | the flat terminal area includes the jetways; aprons and terminals always meet smoothly | §16g (10) "THE PAD IS THE CLUSTER" (14x): one pad per cluster = the union outline of touching WALLED bodies (`chain_min_height_m` 2.5) whose ground floors agree within `floor_split_m` 0.5 — a parsed jetway touching its terminal is in the cluster and its outline is in the pad TODAY. §20: the pad FOLLOWS its apron (`frontage_level`: the senior fronting pavement's edge mean is the pad's level; the pad may tilt ≤ `pad_slope_max` 1 %); apron-to-pad joints at LEMD `building4` measure **0.00 m since 11af**. 14ah / 14ax: the pad is CLIPPED out of every airside face | 1 % tilt; 0.5 m floors | "meet smoothly" is MET by standing law — no owner question. "Include the jetways" is met for the part of a jetway over non-airside ground and is CLIPPED where its wheels stand on apron: that one conflict is owner Q3, with numbers. Unparsed riders (F.5) add a `footprint_touch_m` disc at the anchor to the cluster outline before the clip |
+
+**Scatter stays consistent (18q):** a bush whose footprint intersects a building is R1 —
+it rides (13bo); a free-standing piece has clear space all round — R3 — and is set down
+on its own; and it never shapes the terrain (Q1), so it is never in a cluster (R4).
+
+**R1–R4 AND THE LEVEL OF DETAIL — the end state.** Once units are formed by footprint
+intersection, the only per-object products any law consumes are: **(1) the unit's outer
+PLAN outline** (membership, R1 / R3), **(2) its GROUND outline and ground floors** (the
+pad, R4), **(3) its ground feet** (one seat per unit), **(4) its at-/below-grade parts**
+(basins, door wells, tunnels, wall corridors, sills, hard surfaces), **(5) its
+above-grade cover UNION** (one polygon per unit). Nothing else — no ring per component,
+no 3-D contact edge, no group per body.
+
+ * **How early.** (1), (2) and (5) are unions of projected TRIANGLES and need no
+   components at all: per RESOURCE, in OBJECT space, once per pack (row 6's store), the
+   connected BLOBS of the solid plan projection are "the free-standing structures in
+   this file" — R3 read literally. Per placement they are rotated through
+   `frame_entry.enter` (§51) and chained across placements by ONE bulk
+   `STRtree` `dwithin` 0.5 m query. `solid_components` then runs only for what (3) and
+   (4) need: the at-/below-grade band of each blob.
+ * **The measured prize under this rule [M-lod]** — the population the unit law works
+   on, against the population the contact partition works on today:
+
+   | | placed solid components (today's parts population) | at-grade footprint blobs (1 m raster, 8-connected, whole window) | ratio |
+   |---|---|---|---|
+   | TNCM | 153,888 | 6,014–6,706 | **4 %** |
+   | TFFG | 182,584 | 3,493–4,027 | **2 %** |
+   | LEMD | 79,572 | 9,244 | 12 % |
+
+   and inside the blobs, F.2's contents shares (LEMD 50.0 %, OTHH 23.1 %, non-scatter
+   TNCM 27.0 %) are what never needs a second look. Wall: the partition's cost is
+   super-linear in parts (pairs), so a 10–25× smaller population takes the object
+   layer to seconds; stated as an EXPECTATION — it is a redesign of `contact.partition`
+   and its consumers (`placement_plan`, `placement_family`, `rebake_plan`, the carrier
+   law 11ai–11am, `planar/cluster`'s floor split, `planar/group`), and is NOT sliceable
+   from a census. Row 21.
+
+### F.6 VERDICT ROWS (extend §A's table)
+
+| # | option | TNCM | TFFG | LEMD / OTHH | cost | §46 | verdict |
+|---|---|---|---|---|---|---|---|
+| **18** | **CONTENTS — the rigid-unit rule** (F.2): components contained in a closed-volume host outline become box-only riders; above-band non-hard ones leave the structure reads | partition est. −10…−15 s after row 5 | ≈ −3 s | **LEMD 50.0 % of components / 44.4 % of triangles; OTHH 23.1 % / 21.4 %; LEMD whole placements 21.0 % skip decomposition too** | 1 module (shared with §48) + the `placed_parts` reorder; consumer census = §B.6's rows 1, 4–10 with "contents" read as "scatter" | patch body expected byte-identical (dry-pair proof); DSF rows move (declared) | **DO NEXT — S6 `packcontents`**, which RESUMES and absorbs `v2interiors` (§48) |
+| **19** | coarser precision for class (b) (above-grade, not contained): hull ring + no intra-unit narrow pass | large at TNCM / OTHH on paper (65.6 % / 55.0 %) | — | — | the carrier choice (11ai / 16a) reads exactly these contacts | high — carriers decide where roofs sit (the floating-roof defect class, 11ah–11am) | **NEEDS MEASUREMENT, not now**: the "above grade" reading is polluted by terrain-object authoring; re-measure after rows 5 + 18 land |
+| **20** | RIDERS WITHOUT GEOMETRY (F.5 / F.9 R1): anchor-based unit membership + row motion for unparsed (`.agp`), multi-anchor and stock placements — jetways are its first customer, no type is recognised | — | — | correctness, not time | new placement-law section in `object-placement-spec.md`; `dsf_write`, `footprint_unit` | none on the patch body unless Q3 extends pads | **DO NEXT — S7 `unitriders`** (Q3 decides only the pad strip, not the membership); its first step is the X-Plane `.agp`-row check |
+| **21** | **UNITS BY FOOTPRINT, not by 3-D contact** (F.9 end state): object-space plan blobs per resource → placed outlines → one bulk touch query; ε-contact only where a carrier or a floor split needs it; `planar/group` reads units instead of re-deriving from abutments | population 153,888 → ≈ 6,400 (4 %) | 182,584 → ≈ 3,800 (2 %) | LEMD 12 % | a redesign of `contact.partition` + six consumers; needs its own consumer census and spec | every DSF row can move; patch body via cluster pads (outlines should be equal — to prove) | **DO NEXT, AS ITS OWN SPEC** after S5b + S6 land and are profiled: they are the same idea applied to two classes, and their measured residue says how much of the contact graph is still paid for |
+
+**Slices.** S6 `packcontents` — ONE implementer, AFTER S5b (same edit sites:
+`contact.placed_parts`, `pack_partition._build_member`, `basin_witness`), resuming the
+`v2interiors` checkpoint. Files: NEW `airport/contents.py` (host closure reading, host
+outline per placement, bulk containment; §48's safeguards live here), `[contents]` law
+keys + schema; EDIT as S5b's list + `airport/footprint_unit.py` (seat reads hosts' and
+free members' feet) + `partition_cache.py` (module list, version). Step 0 = a DRY
+census like S5a (`pack_stage_profile.py --contents-census`: per airport the contained
+share by the PRODUCTION test, the named false positives from §48's register, the
+per-unit seat delta distribution) reviewed by Fable before wiring. Twins: closure test
+(box ≈ 2, sheet ≈ 1, a hill object refused); containment vs courtyard hole, vs bbox-
+only overlap, vs half-under-canopy; an at-grade sill inside a hangar stays a door-well
+witness; a contained scatter piece rides, a free one seats alone; mutually-roofing
+shells (§48 fixpoint); duplicate coincident placements; cache version refusal. Closing:
+LEMD / HECA / VHHH dry pairs byte-identical on the patch-feeding products, then ONE
+`build_airport.py LEMD` (the airport that carries this row's prize). Bars: LEMD full
+parts −40 % ± 5 pp, structures-stage wall and RSS named; attempt cap 2; heartbeat.
+S7 `unitriders` — separate lane, placement law (F.9).
+
+### F.7 OWNER QUESTIONS
+
+**Q3.** Two of your sentences meet at the jetway wheels. Today's law (14ah, "airside is
+king") says a building pad NEVER takes apron ground, and the pad already FOLLOWS the
+apron where they meet (§20: apron-to-pad joints measure 0.00 m at LEMD since 11af) — so
+"aprons and terminals meet smoothly" holds. But the jetway's wheels stand 30–60 m OUT
+on the apron, and "the flat terminal area should include the jetways" would make that
+strip of apron flat at the terminal's level. Where the apron falls away from or along
+the terminal the two disagree: at LEMD T4 a member of the terminal's unit stands up to
+**1.73 m** off the graded apron under its own feet today (17x; 0.43 m with the shelved
+fix B), and HECA's T3 apron falls **5.4 m** across the district. Which wins under the
+jetways? (a) the apron keeps its own grade (airside is king); the jetway rides rigidly
+with the terminal and its wheels may stand off the apron by the apron's fall over the
+jetway's length — reported per gate; (b) the apron strip under the jetways is asked to
+be LEVEL with the terminal as an AIRSIDE law of its own (a real stand is near-level) —
+the apron is still solved airside-first, nothing groundside pulls it. *Recommended:
+(a) now, with the per-gate number reported so you can judge (b) from a sim read.*
+
+**Q4.** TNCM and TFFG ship parts of their TERRAIN as objects — `Flora/hill.obj`,
+`TFFG/Ground/fixed_platform.obj` (the airport platform itself), `Ground/Cliff.obj` —
+and their trees and bushes are authored standing on those objects, not on the mesh. We
+now set each bush down on OUR ground (18q). What should happen to the terrain objects
+themselves: leave them exactly as authored (they may poke through or float over our
+mesh), or treat them as ground evidence? *No recommendation — this is new, and it
+decides whether a bush set down on our ground ends up buried inside the pack's hill.*
+
+### F.8 NOT DONE (addendum)
+
+ * The census is a 1 m raster with a 5-point box test; the production predicate is
+   exact `within` — S6 step 0 re-measures. OTHH was run with any-height hosts only.
+ * No wall or RSS was measured for rows 18–20; every gain is computed from shares.
+ * `.agp` / SAM behaviour under a rewritten row is unverified (S7 step 0).
+ * No pad-vs-apron joint was re-measured here; R4's "0.00 since 11af" and Q3's 1.73 / 0.43 / 5.4 m
+   are the standing record (11af, 17x), not new captures.
+ * Row 21 has no consumer census yet; it is named as an end state, not designed.

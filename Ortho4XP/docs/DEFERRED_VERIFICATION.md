@@ -6075,3 +6075,16 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   sweep; no OFF-arm byte-identity build for the enum relabel beyond the CYXY
   control; the Swift `SceneryKitTests` half of §E test 3d (slice 2); the Qt
   headless combo test (slice 3).
+- 2026-09-18 lane `insetpatchset1` SLICE 1d: **STOPPED AT STEP (1) — §E test 6a
+  FAILS.**  On the registered SPLP straddler capture (`frames.py list SPLP`,
+  base 69954ab6; HOME cell (-13,-78) 1,853 vertices, FAR cell (-13,-77) 975),
+  lifting the FAR-side baked raster by +10 m moves the NEAR side by up to
+  **0.8288 m** (232 of 1,853 vertices over the 0.01 m materiality floor);
+  REMOVING the far raster moves it by up to 0.6723 m (148 over).  §C.1's
+  decoupling argument is about the seam PINS, and it holds there — ZERO of the
+  232 movers is a seam vertex — but the far side reaches the near side through
+  the SOLVE, decaying with distance west of lon -77 (0.83 m at 5-50 m, 0.40 m
+  at 50-200 m, 0.15 m at 200-500 m, 0.03 m at 500-2000 m).  Per §F slice 1d
+  order, steps (2)-(5) were NOT written: no `ask_reach_m` confirmation replay,
+  no airside-claim geometry, no `_warm_tile` deletion, no protocol 1.8.  The
+  owner question §E anticipated is now live.

@@ -1086,7 +1086,12 @@ final class BuildModel: ObservableObject {
             if let variable = schema.vars[key],
                variable.type == "str",
                let allowed = variable.values, !allowed.isEmpty,
-               !allowed.contains(bare) {
+               // A legacy bool for a mode-valued setting (auto_patch,
+               // airport_elevation_insets) is MAPPED, not "foreign" — the
+               // foreign-enum rule would otherwise replace a user's Off
+               // with the global (engine twin:
+               // O4_Settings_Model._normalize_legacy_mode_value).
+               !allowed.contains(O4LegacyModes.mappedLiteral(bare, forKey: key) ?? bare) {
                 let replacement = globalConfigValues[key]?.cfgLiteral
                     ?? variable.default.cfgLiteral
                 foreign.append((key, bare, Self.unquoteCfgValue(replacement)))

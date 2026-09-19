@@ -98,6 +98,53 @@ import Foundation
         #expect(values["custom_unknown_key"] == nil)
     }
 
+    /// `airport_elevation_insets` is a three-valued enum since 2026-09-18
+    /// and must render as the same picker `auto_patch` uses — same three
+    /// options, same labels (spec §A.5, RULINGS 2026-09-18c/18e).
+    @Test func insetsSettingIsTheAutoPatchEnum() {
+        guard let schema = OrthoConfigSchema.bundledSnapshot() else {
+            Issue.record("bundled schema snapshot missing")
+            return
+        }
+        for name in ["airport_elevation_insets", "global_airport_elevation_insets",
+                     "auto_patch"] {
+            guard let variable = schema.vars[name] else {
+                Issue.record("\(name) missing from the bundled snapshot")
+                continue
+            }
+            #expect(variable.type == "str")
+            #expect(variable.values == ["None", "ICAO", "All"])
+            #expect(variable.default == .string("ICAO"))
+            #expect(variable.label(forValue: "None") == "Off")
+            #expect(variable.label(forValue: "ICAO") == "Airports with ICAO codes")
+            #expect(variable.label(forValue: "All") == "All airports")
+        }
+    }
+
+    /// A legacy `airport_elevation_insets=True`/`False` (the key was a bool
+    /// until 2026-09-18) reads back as the mode the owner ruled, so the
+    /// picker selects a real option and nothing can persist a bool.
+    @Test func legacyBooleanModesMapToTheEnum() {
+        guard let schema = OrthoConfigSchema.bundledSnapshot() else {
+            Issue.record("bundled schema snapshot missing")
+            return
+        }
+        let file = OrthoConfigFile(lines: [
+            "airport_elevation_insets=True",
+            "auto_patch=False",
+            "default_website=EUR",
+        ])
+        let values = file.values(schema: schema)
+        #expect(values["airport_elevation_insets"] == .string("ICAO"))
+        #expect(values["auto_patch"] == .string("None"))
+        // Untouched: a value already in `values`, and a non-mode setting.
+        #expect(values["default_website"] == .string("EUR"))
+        let off = OrthoConfigFile(lines: ["airport_elevation_insets=False"])
+        #expect(off.values(schema: schema)["airport_elevation_insets"] == .string("None"))
+        let kept = OrthoConfigFile(lines: ["airport_elevation_insets=All"])
+        #expect(kept.values(schema: schema)["airport_elevation_insets"] == .string("All"))
+    }
+
     // MARK: Schema
 
     @Test func bundledSnapshotDecodes() {

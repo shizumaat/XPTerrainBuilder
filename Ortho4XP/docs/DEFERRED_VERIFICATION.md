@@ -6098,3 +6098,26 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   byte-identity build (the change moves the surface by design); no matched
   base census arm for the TFFJ closing build (the matched arm is the
   registered-capture replay, run on both trees).
+
+- 2026-09-18 lane `roadclampscope` (spec §2-SUPPLEMENT, the clamp is scoped
+  to the patch neighbourhood).  SKIPPED, not by choice: THE CLOSING TILE
+  BUILD `build_airport.py TFFJ --tile 17 -63 --boundary skip` COULD NOT RUN
+  TO A MESH — TFFJ's v2 patch build aborts at
+  `auto_patch_v2/airport/sunken_roads.py:323`
+  (`unary_union(belows)` → `GEOSException: TopologyException: found
+  non-noded intersection between LINESTRING (-572.834 -635.301, -569.499
+  -640.567) and its reverse`), IDENTICALLY at base `66b5f012` (control run,
+  same file, line and coordinates) — a PRE-EXISTING §51 frame-entry
+  validity site, not this lane's.  So: no new `o4_levelled_roads.json`, no
+  mesh read at the owner's site 17.8985499,−62.838825, no
+  `road_coverage_join` family row count, no vector-step seconds before /
+  after, no registered frame.  What WAS measured instead: an offline
+  projection of the new profile over the SHIPPED +17-063 sidecar (app
+  1.0.351, read-only) against the band derived from the corpus
+  `TFFJ_auto.patch.osm` — ways clamped 4,429 → 40, out-of-band stations
+  off terrain by > 0.5 m 19,531 → 3, > 5 m 6,074 → 0, > 20 m 547 → 0,
+  worst 45.44 m → 1.00 m (= the budget), owner site (way 435 station 47,
+  7.6 m away) shipped 41.48 m vs DEM 10.60 m → 10.60 m, scope `terrain`.
+  Also skipped: the full pytest suite (only the covering files, once); any
+  second airport; the four other affected tiles (+17-097, +16-097,
+  −13-077, +46+006) were not re-run.

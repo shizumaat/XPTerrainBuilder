@@ -110,6 +110,7 @@ from ..law.tables import (is_rigid_role, is_value_role, role_cap, role_family,
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
+from .precedence import cap_of, face_cap
 from .stretches import edge_cap, stretches
 
 __all__ = ["RouteGraph", "route_roles", "build_routes", "routes",
@@ -251,7 +252,8 @@ def _runway_frame(rw) -> tuple[float, float, float, float, float, float, float]:
 
 def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
                       ridge_by_ref: _t.Mapping[str, list[list[int]]],
-                      ring_by_ref: _t.Mapping[str, set[int]], tol: float
+                      ring_by_ref: _t.Mapping[str, set[int]], tol: float,
+                      pm: PlanarMap | None = None
                       ) -> tuple[list[tuple[int, int, float, float]], set[int], int, set[int]]:
     """RULINGS 2026-09-05z (b) + 2026-09-06h (a): the 1202 taxi routes
     CROSSING each runway as graph edges.  Every non-runway ``taxi_edge``
@@ -286,7 +288,12 @@ def _runway_crossings(law: Law, airport: Airport, xy: np.ndarray,
         rc = role_cap(law, "runway", rw.code_number, rw.code_letter)
         if rc is None or not ring_v or not chains:
             continue
-        cap = rc.longitudinal
+        # §50.2 Y6: the ridge walk's budget is the runway's EFFECTIVE
+        # longitudinal cap — a route priced at 1.5 % between pins 2.11 %
+        # apart is the same contradiction one family over.
+        cap = cap_of(pm, law, rw.id, rw.code_number, rw.code_letter)
+        if cap is None:
+            cap = rc.longitudinal
         tcap = runway_transverse_max(law, rw.code_letter, rw.code_number)
         if tcap is None:
             tcap = cap
@@ -487,8 +494,8 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
     st = stretches(pm, law)
     face_caps: dict[int, tuple[float, float] | None] = {}
     for fid, f in pm.faces.items():
-        rc = role_cap(law, f.role, f.code_number, f.code_letter)
-        face_caps[fid] = None if rc is None else (rc.longitudinal, rc.transverse)
+        # §50.2 Y7: ONE accessor, no runway branch here
+        face_caps[fid] = face_cap(law, f, pm)
     n_v = len(pm.vertices)
     xy = np.zeros((n_v, 2), float)
     for vid, v in pm.vertices.items():
@@ -582,7 +589,7 @@ def build_routes(pm: PlanarMap, law: Law, airport: Airport | None = None) -> Rou
     ridge_entries: set[int] = set()
     if airport is not None and ridge_by_ref:
         xing_edges, entries, n_unmatched, ridge_entries = _runway_crossings(
-            law, airport, xy, ridge_by_ref, ring_by_ref, weld_m)
+            law, airport, xy, ridge_by_ref, ring_by_ref, weld_m, pm)
         for a, b, cap, ln in xing_edges:
             add(a, b, cap, CROSSING, ln)
     # THE ATTACHMENT (05aa; 06p (2)): every ring vertex of a route face

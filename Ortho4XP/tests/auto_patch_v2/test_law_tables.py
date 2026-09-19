@@ -424,9 +424,12 @@ def test_every_value_equals_v1(tables, capsys):
     # value v1 still carries in its ruleset table (the census prices the
     # ruled value).  Each entry: path -> (v1 value, ruled value, ruling).
     RULED = {
-        "icao.runway.longitudinal[4]": (0.0125, 0.015, "owner 2026-07-08"),
-        "icao.runway.longitudinal[1]": (0.02, 0.015, "owner 2026-07-08 (04y)"),
-        "icao.runway.longitudinal[2]": (0.02, 0.015, "owner 2026-07-08 (04y)"),
+        # §50.2 Y24 (owner RULINGS 2026-09-18f (1)/(3)): the
+        # ``icao.runway.longitudinal`` deviation is DELETED, not emptied.
+        # The table now states Annex 14 §3.1.13 for every code — 2 % code
+        # 1/2 (reversing 2026-07-08 / 2026-09-04y), 1.5 % code 3 (which
+        # never deviated), 1.25 % code 4 — so it EQUALS v1's own values
+        # and there is nothing left to rule around.
         # M4b: v1's founding openness constant was never exercised on a
         # real record; stated for ratification (m4b-report open question)
         "basin.max_covered_fraction": (0.02, 0.5, "M4b 2026-09-04; a DIAGNOSTIC since 04i (M4d)"),
@@ -563,10 +566,20 @@ def test_no_numeric_literal_in_law_python():
 
 def test_accessors(tables):
     law = Law(tables=tables, ruleset_key="icao")
-    # code 4 is the RULED value (owner 2026-07-08: 1.5 % is the law),
-    # which v1's census prices as ROLE_GRADE_LIMITS["runway"].
-    assert T.role_cap(law, "runway", code_number=4).longitudinal == \
-        v1.ROLE_GRADE_LIMITS["runway"]
+    # §50.1 (1) (owner RULINGS 2026-09-18f (3)): code 4 is Annex 14
+    # §3.1.13's own 1.25 %, no longer the flat 1.5 % v1's census prices
+    # as ROLE_GRADE_LIMITS["runway"] — the sidecar's ``runway_caps``
+    # carries the cap the build priced, for every runway.
+    assert T.role_cap(law, "runway", code_number=4).longitudinal == 0.0125
+    assert T.role_cap(law, "runway", code_number=1).longitudinal == 0.020
+    assert T.role_cap(law, "runway", code_number=2).longitudinal == 0.020
+    assert T.role_cap(law, "runway", code_number=3).longitudinal == 0.015
+    assert T.role_cap(law, "runway").longitudinal == 0.015       # no code
+    # 18f (3) does NOT touch the FAA table (AC 150/5300-13B has no 1.25 %)
+    _faa = Law(tables=tables, ruleset_key="faa")
+    for _l, _v in (("A", 0.020), ("B", 0.020), ("C", 0.015), ("D", 0.015),
+                   ("E", 0.015), ("F", 0.015)):
+        assert T.role_cap(_faa, "runway", code_letter=_l).longitudinal == _v
     assert T.role_cap(law, "graded_strip") is None
     assert T.senior_role(law, ["building", "apron", "runway"]) == "runway"
     assert T.authority_rank(law, "boundary") == len(tables.precedence.order)

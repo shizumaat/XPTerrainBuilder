@@ -85,8 +85,39 @@ def runway_profile_block(planar: PlanarMap, law: Law, airport,
             if dem is not None:
                 dem_abs.append(abs(float(zz[v]) - float(dem)))
         wr = worst.get(r)
+        # §50.2 Y23 (spec §50.4): the CAP THIS RUNWAY WAS BUILT UNDER and
+        # the grade it actually reached.  ``built_max_grade`` is read off
+        # the solved ``z`` along the ridge BETWEEN THE GOVERNING PINS —
+        # the span the yield was derived for — so the report's own number
+        # can be held against ``cap`` (the §50.1 (5) uniformity read).
+        rc = (planar.runway_caps or {}).get(r)
+        span_v = {rc.pin_a.vertex, rc.pin_b.vertex} if (
+            rc is not None and rc.pin_a is not None
+            and rc.pin_b is not None) else set()
+        s_lo, s_hi = (min(c.station(*vw.xy[v]) for v in span_v),
+                      max(c.station(*vw.xy[v]) for v in span_v)) \
+            if span_v else (-float("inf"), float("inf"))
+        built = 0.0
+        for va, vb in zip(ridge, ridge[1:]):
+            sa, sb = c.station(*vw.xy[va]), c.station(*vw.xy[vb])
+            if sa < s_lo - 1e-9 or sb > s_hi + 1e-9:
+                continue
+            dd = vw.dist(va, vb)
+            # THE IDENTITY FLOOR, as every other ridge reader applies it
+            # (``curve_stations``' own ``min_distinct_spacing_m``): two
+            # stations closer than it ARE one station, and a rate stated
+            # over a noding sliver is an instrument artefact, not a grade.
+            if dd >= float(law.tables.emit.identity.min_distinct_spacing_m):
+                built = max(built, abs(float(zz[vb]) - float(zz[va])) / dd)
+        cap_yield = None if rc is None else {
+            "cap_law": rc.cap_law, "cap": rc.cap, "yielded": rc.yielded,
+            "pin_grade": round(rc.g_pin, 8), "span_m": round(rc.span_m, 3),
+            "dz_m": round(rc.dz_m, 4),
+            "pins": [p.label for p in (rc.pin_a, rc.pin_b) if p is not None]}
         out.append({
             "runway": r, "kind": c.kind,
+            "cap_yield": cap_yield,
+            "built_max_grade": round(built, 8),
             "window_m": round(float(law.tables.emit.design.runway_profile_window_m), 1),
             "stations": len(ridge),
             "target_rms_m": round((d2 / len(ridge)) ** 0.5, 4),

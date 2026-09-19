@@ -80,7 +80,15 @@ name = "ICAO Annex 14 Vol I / EASA CS-ADR-DSN"
 authority = "ICAO"
 
 [icao.runway]
-longitudinal      = { by_code = { "1" = 0.015, "2" = 0.015, "3" = 0.015, "4" = 0.015 }, default = 0.015 }  # owner 2026-07-08: 1.5 % IS the law for every runway (Annex 14 §3.1.13 states 2 % for code 1/2 and 1.25 % for code 4; the census prices 1.5 % — 04y: CYXY 02/20 read 4 rows at 2 % vs the oracle)
+longitudinal      = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0.0125 }, default = 0.015 }  # ANNEX 14 §3.1.13 IN FULL (owner RULINGS 2026-09-18f (1)/(3); spec §50.1 (1)): 2 % code 1/2, 1.5 % code 3, 1.25 % code 4.  This REVERSES owner 2026-07-08 / spawner 2026-09-04y for codes 1/2 — the owner acknowledged the reversal (CYXY 02/20 now solves under 2 %, and its ledger control is no longer comparable) — and TIGHTENS code 4, chosen KNOWING HECA/LEMD-class runways move; the sim read adjudicates.  04y's cause (the census pricing every runway at a flat 1.5 %) is closed by §50.1 (4): the sidecar's `runway_caps` carries the cap the build priced, for EVERY runway.  The un-coded `default` stays 1.5 % (§50.1 (2)): it is read only by fixtures and twins that state no code
+# §50.1 (3) THE CAP YIELDS TO ITS PINS, UNIFORMLY (owner RULINGS
+# 2026-09-18d (3)): where a runway's own HARD PINS (CIFP thresholds, a §17
+# crossing anchor, a §38 seam DEM pin) demand more grade than this table
+# allows, the EFFECTIVE cap for that runway is its pin-to-pin grade plus
+# `[design] runway_yield_margin` — derived once in
+# `constraints/runway_yield.py`, carried on `PlanarMap.runway_caps`, read
+# by the solve through `precedence.cap_of` and published in the sidecar.
+# Thresholds are truth; the table is the cap where the pins permit it.
 end_zone          = { by_code = { "3" = 0.008, "4" = 0.008 } }   # first/last quarter, code 3/4 only (§3.1.14); code 1/2: no rule
 end_zone_fraction = 0.25                                  # extent of each end zone, fraction of length
 end_zone_precision_only_codes = [3]                       # code 3: end-zone cap binds Cat II/III only

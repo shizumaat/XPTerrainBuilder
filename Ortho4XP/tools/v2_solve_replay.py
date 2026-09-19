@@ -1541,6 +1541,18 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         is asked for, never assumed, so an OLD capture and an OLD tree still
         replay."""
         m = with_runway_chord(m, law, airport, fill_roles=chord_fill)
+        # §50.4 THE ONE LOUD LINE (owner RULINGS 2026-09-18d (3)): the
+        # replay prints exactly what the build prints, from the SAME
+        # record (``pm.runway_caps``, which ``with_runway_chord`` has just
+        # derived) — so an over-grade runway is visible in a stage replay
+        # and under ``--why-hard`` without an airport build.
+        try:
+            from auto_patch_v2.constraints.runway_yield import yielded_lines
+            for _ln in yielded_lines(icao, getattr(m, "runway_caps", {}) or {},
+                                     law.ruleset.authority):
+                print(_ln)
+        except ImportError:
+            pass                       # a tree that predates §50
         for mod, fn in (("taxi_trend", "with_taxi_trend"),
                         ("apron_trend", "with_apron_trend"),
                         ("eat", "withdraw_trend_over_reach")):

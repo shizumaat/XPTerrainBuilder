@@ -288,6 +288,18 @@ chord         = 300.0  # the runway's PROFILE target per ridge station (``constr
 # without undulating with the ground (08t (1) / 09b).  Schema-validated at
 # or above the largest ``rulesets.*.runway.vertical_curve_k_m``.
 runway_profile_window_m = 500.0
+# §50.1 (3) THE MARGIN ON A YIELDED RUNWAY CAP (owner RULINGS 2026-09-18d
+# (3), Fable 2026-09-18).  Where a runway's HARD PINS (CIFP thresholds, a
+# §17 crossing anchor, a §38 seam DEM pin) demand more grade than
+# ``rulesets.runway.longitudinal`` allows, the effective cap for THAT
+# runway is its pin-to-pin grade PLUS this margin — "the smallest uniform
+# over-grade that fits", with the fit made numerically real.  At ``cap ==
+# g_pin`` exactly the feasible set between the pins is the single straight
+# line and sits on the LP's own tolerance; 0.02 pp is 0.13 m over TFFJ's
+# 635 m — twice the grade materiality floor and far under anything a
+# reader prices.  A VALUE, never a switch: a runway whose pins fit under
+# the table never sees it.
+runway_yield_margin = 0.0002
 law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
 # THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): the
 # `dem_zone` weight, its rows and the beyond-the-outer-ring DEM fixing are

@@ -626,10 +626,19 @@ def with_runway_chord(pm: PlanarMap, law: Law, airport: Airport,
                       fill_roles: tuple[str, ...] = ()) -> PlanarMap:
     """``pm`` with the chord targets merged into ``preferred_z`` (on a
     shared vertex the runway family's target wins: the runway is senior).
-    ``fill_roles``: see ``runway_chord_targets`` (experiment arm)."""
+    ``fill_roles``: see ``runway_chord_targets`` (experiment arm).
+
+    §50.1 (3) THE YIELD IS DERIVED HERE, ONCE.  This function already
+    holds the pins, the chords and the crossings and is already called at
+    exactly the right moment by every entry (``pipeline/build.py``,
+    ``tools/v2_solve_replay.py``), so ``PlanarMap.runway_caps`` is set
+    here and NO new call site exists to forget.  It is set on BOTH exits:
+    a runway whose chord target is absent still carries a cap."""
+    from .runway_yield import derive as _derive_caps
+    caps = _derive_caps(pm, law, airport)
     targets = runway_chord_targets(pm, law, airport, report, fill_roles=fill_roles)
     if not targets:
-        return pm
+        return _dc.replace(pm, runway_caps=caps) if caps else pm
     merged = dict(pm.preferred_z)
     merged.update(targets)
-    return _dc.replace(pm, preferred_z=merged)
+    return _dc.replace(pm, preferred_z=merged, runway_caps=caps)

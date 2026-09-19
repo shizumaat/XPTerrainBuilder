@@ -17,7 +17,7 @@ import typing as _t
 
 from ..emit.surface import GradedSurface
 from ..law import Law
-from ..law.tables import is_rigid_role, role_cap, role_side
+from ..law.tables import is_rigid_role, role_cap, role_family, role_side
 from ..model.planar import face_vertex_ids
 
 __all__ = ["R_EARTH", "Shape", "Patch", "Row", "row", "noise_m"]
@@ -108,9 +108,33 @@ class Patch:
         ``cross_shape`` / ``vertex_to_edge`` / ``mid_edge`` altogether, and
         its ``cap = min(ca, cb)`` would take a lifted value as the pair's
         law.  Lifting here would have deleted the ramp from three families
-        that §34 (9) says nothing about."""
+        that §34 (9) says nothing about.
+
+        §50.1 (4) THE PUBLISHED-SIDE ACCESSOR of the runway's yielded cap
+        (owner RULINGS 2026-09-18d (3)): for a RUNWAY-FAMILY shape the cap
+        is ``max(role cap, publication["runway_caps"][ref].cap)`` — a
+        crossing takes the max over its refs.  NOT ``None`` and NOT
+        ``lifted``, for exactly the reasons above; ``cap_t`` takes
+        ``min(transverse, longitudinal)``, so a LOOSER longitudinal never
+        tightens it and its value is unchanged."""
         rc = role_cap(self.law, sh.role, sh.code_number, sh.code_letter)
-        return None if rc is None else rc.longitudinal
+        if rc is None:
+            return None
+        got = self._runway_cap(sh)
+        return rc.longitudinal if got is None else max(rc.longitudinal, got)
+
+    def _runway_cap(self, sh: Shape) -> float | None:
+        """§50.1 (4): the published EFFECTIVE cap of a runway-family
+        shape (``runway_caps``, the MAX over a crossing's refs), or
+        ``None`` — no key, no record, or a shape of another family."""
+        recs = self.publication.get("runway_caps") or ()
+        if not recs or role_family(self.law, sh.role) != "runway":
+            return None
+        want = set(sh.ref.split("+")) if "+" in sh.ref else {sh.ref}
+        vals = [float(r["cap"]) for r in recs
+                if isinstance(r, dict) and r.get("ref") in want
+                and r.get("cap") is not None]
+        return max(vals) if vals else None
 
     def lifted(self, sh: Shape) -> float | None:
         """§34 (9): the DESIGNED grade of this shape's pinched run when its

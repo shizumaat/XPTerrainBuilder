@@ -486,15 +486,35 @@ def test_the_hard_set_settles_at_the_crossing(runway_crossing, law):
     assert "HARD SET SETTLED" in rep.line()
 
 
-def test_a_flat_polish_round_no_longer_ends_the_loop(law):
+def test_a_flat_polish_round_no_longer_ends_the_loop(law, monkeypatch):
     """09r (3)'s mechanism.  Round 1 stopped the polish on the FIRST round
     that bought less than a tolerance and shipped whatever it had.  The
     loop now runs to ``polish_rounds_max`` and, where the set still is not
     held, says so BY NAME — the crossing whose conflict its secondary
     cannot climb inside its own laws leaves a vertical-curve row over its
-    bound, and the report NAMES that ruling instead of reading settled."""
+    bound, and the report NAMES that ruling instead of reading settled.
+
+    §50 (owner RULINGS 2026-09-18d (3), lane ``tffjcap``) REMOVED THIS
+    FIXTURE'S INFEASIBILITY, by design: the conflict is a PIN conflict
+    (700 -> node 690 -> 706 over 600 m either side, 1.67 % and 2.67 %
+    against code 3's 1.5 %), and the cap now yields to the pins, so the
+    same fixture SETTLES — asserted below as the second arm.  The 09r (3)
+    mechanism this twin exists for is unchanged, so it is read with the
+    yield DISABLED, which is exactly the problem it was written against.
+    """
+    import auto_patch_v2.constraints.runway_yield as _ry
     from auto_patch_v2.law.tables import design as design_law
     d = design_law(law)
+    # ARM 2 first (the §50 effect, on the untouched law): the pins are
+    # truth, the cap yields, and the hard set holds.
+    airport, _r, cells = _crossing_airport(law, _PlaneDem(),
+                                           secondary=(690.0, 690.0))
+    _pm, _z, rep_yield = _solve(law, airport, cells)
+    assert rep_yield.hard_settled and \
+        rep_yield.hard_max_violation_m <= d.hard_tol_m + 1e-9
+    # ARM 1: the same fixture with the yield disabled — the pre-§50
+    # problem, and the polish naming its failure.
+    monkeypatch.setattr(_ry, "derive", lambda pm, law, airport: {})
     airport, _r, cells = _crossing_airport(law, _PlaneDem(),
                                            secondary=(690.0, 690.0))
     _pm, _z, rep = _solve(law, airport, cells)

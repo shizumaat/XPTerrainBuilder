@@ -25,6 +25,7 @@ from .seam_report import seam_yield_block
 from ..constraints.flat_site import GEN as FLAT_GEN
 from ..constraints.routes import RIDGE_KIND
 from ..constraints.runway_chord import ChordReport, with_runway_chord
+from ..constraints.runway_yield import yielded_lines
 from ..constraints.apron_trend import (ApronTrendReport, apron_trend_block,
                                        with_apron_trend)
 from ..constraints.eat import withdraw_trend_over_reach
@@ -725,6 +726,18 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          + ("; off the straight chord " + ", ".join(
              f"{r['runway']} {r['trend_max_off_chord_m']:+.2f}" for r in chord_rep.get("by_runway", [])[:6])
             if chord_rep.get("by_runway") else ""), out)
+    # §50.4 THE ONE LOUD LINE (owner RULINGS 2026-09-18d (3)): one line per
+    # OVER-GRADE runway, naming the grade its own pins demand, the two pins
+    # and the cap they exceeded.  A LINE, never a gate — no verify family
+    # is added and ``defect_gate`` is untouched.  Recorded in three places
+    # from ONE record: ``report.json["runway_cap_yield"]`` (here, through
+    # ``lrep``), the GradedSurface provenance key of the same name, and the
+    # sidecar law key ``runway_caps`` (EVERY runway, yielded or not).
+    _caps = dict(getattr(pm, "runway_caps", {}) or {})
+    _yield_records = [rc.as_dict(law.ruleset_key)
+                      for _r, rc in sorted(_caps.items()) if rc.yielded]
+    for _line in yielded_lines(icao, _caps, law.ruleset.authority):
+        _say(_line, out)
     # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
     # §8.6): every taxi centreline chain takes the ground's LONG-WAVE TREND
     # along itself — the same §21 fit at the same window — shifted linearly
@@ -929,6 +942,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     report: dict[str, _t.Any] = {
         "icao": icao, "ruleset": law.ruleset_key,
         "load": _dc.asdict(lrep), "planar": _dc.asdict(pstats),
+        # §50.4: the OVER-GRADE runways, one record each (§50.1 (4)'s
+        # shape) — yielded runways only; EVERY runway's cap is in the
+        # sidecar's ``runway_caps``
+        "runway_cap_yield": _yield_records,
         "basins": [_dc.asdict(b) for b in pm.basins],
         "constraints": {"by_generator": counts, "by_kind": cs.counts(),
                         "wall_s": {k: round(v, 4) for k, v in gwalls.items()}},
@@ -955,7 +972,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         t = time.perf_counter()
         surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                               {"law_ruleset": law.ruleset_key,
-                               "pack": airport.pack.name})
+                               "pack": airport.pack.name,
+                               # §50.4: the yielded runways ride the
+                               # surface's own provenance (an open object)
+                               "runway_cap_yield": _yield_records})
         pub = publication(pm, law, airport, sol.z, cs)
         # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
         # residual per family (``design``, replacing ``law_tiers``) and the

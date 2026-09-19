@@ -1916,6 +1916,16 @@ def print_report(rep: dict, top: int, cg=None) -> None:
         print(f"  \u00a734 (9) LIFTED pinched-ramp cap: ways={_lc['ways']} "
               f"within-shape pairs lifted={_lc.get('pairs', 0)} "
               f"(sidecar 'lifted_caps' names each: corridor, road, span, grade)")
+    # §50.2 Y20 (owner RULINGS 2026-09-18d (3) / 18f): how many pairs the
+    # PUBLISHED runway cap priced, and in which direction — counted, never
+    # hidden, like the §34 (9) lift above.
+    _rc = dict(getattr(cg, "_RUNWAY_CAP_STATS", {}) or {})
+    if _rc.get("ways"):
+        print(f"  \u00a750 published runway cap: ways={_rc['ways']} "
+              f"within-shape pairs repriced={_rc.get('pairs', 0)} "
+              f"(looser={_rc.get('looser', 0)} stricter={_rc.get('stricter', 0)}"
+              f"; sidecar 'runway_caps' names each runway's cap_law, cap, "
+              f"pin_grade and pins)")
     # ── THE BUILD'S OWN AIRSIDE-SCOPED CERTIFICATE (air7; RULINGS
     # 2026-09-01l/r) — the solve's law-graph verdict on the zero-airside
     # beta bar, printed beside the census's emitted-surface counts so

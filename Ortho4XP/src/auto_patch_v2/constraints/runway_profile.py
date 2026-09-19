@@ -70,7 +70,7 @@ from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
-from .precedence import View, view
+from .precedence import View, cap_of, view
 
 __all__ = ["threshold_pins", "runway_profile", "runway_crown", "runway_transverse",
            "runway_vertical_curve", "curve_stations", "runway_within_shape",
@@ -138,6 +138,15 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         cap = role_cap(law, "runway", rw.code_number, rw.code_letter)
         if cap is None:
             continue
+        # §50.1 (3) THE CAP YIELDS TO ITS PINS: where this runway's own
+        # hard pins demand more grade than the table allows, THIS is the
+        # row that was infeasible — it is priced at the EFFECTIVE cap.
+        # The ruling head is unchanged (``rulesets.runway.longitudinal``,
+        # a ``hard_rulings`` head): the law is the same law, at the cap
+        # the thresholds leave it.
+        lon = cap_of(planar, law, rw.id, rw.code_number, rw.code_letter)
+        if lon is None:
+            lon = cap.longitudinal
         rs = law.ruleset.runway
         end_cap = rs.end_zone.value(rw.code_number, rw.code_letter)
         if rw.code_number in rs.end_zone_precision_only_codes:
@@ -160,7 +169,11 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         # up to the main cap, when the hard anchors (CIFP pins, seam DEM
         # pins) make both unsatisfiable.  One escalation group per runway.
         soft_g = f"end_zone:{rw.id}"
-        soft_hi = cap.longitudinal
+        # §50.2 Y2: the end-zone preference escalates up to the MAIN cap,
+        # and the main cap is the EFFECTIVE one — otherwise a yielded
+        # runway is infeasible in its end quarters at a ceiling its own
+        # thresholds already refused.
+        soft_hi = lon
         chs = sorted(chs, key=lambda c: min(along(c[0]), along(c[-1])))
         chs = [c if along(c[0]) <= along(c[-1]) else list(reversed(c)) for c in chs]
         for prev, nxt in zip(chs, chs[1:]):
@@ -173,7 +186,7 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     if in_end and end_cap is not None:
                         rows.append(Diff(a, b, end_cap, d, src_end, soft_g, soft_hi))
                     else:
-                        rows.append(Diff(a, b, cap.longitudinal, d, src))
+                        rows.append(Diff(a, b, lon, d, src))
         for ch in chs:
             for a, b in zip(ch, ch[1:]):
                 d = vw.dist(a, b)
@@ -184,7 +197,7 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if in_end and end_cap is not None:
                     rows.append(Diff(a, b, end_cap, d, src_end, soft_g, soft_hi))
                 else:
-                    rows.append(Diff(a, b, cap.longitudinal, d, src))
+                    rows.append(Diff(a, b, lon, d, src))
         # pins: the station nearest each threshold with a CIFP elevation
         all_ids = [v for ch in chs for v in ch]
         for end in rw.ends:
@@ -448,8 +461,12 @@ def runway_within_shape(planar: PlanarMap, law: Law, airport: Airport
     # a tile seam the floor yields to the DEM and the census still prices
     # the adjacent-station ring pair at the body cap)
     for f in vw.faces_of_role(("runway",)):
-        cap = role_cap(law, f.role, f.code_number, f.code_letter)
-        if cap is None:
+        # §50.2 Y3: the ring chords are TARGETS pulling the ring onto the
+        # profile — un-yielded they would pull it OFF the line its own
+        # pins demand.  ``vw.caps`` already carries the effective cap
+        # (``precedence.face_cap`` with the map), so this reads it.
+        caps = vw.caps[f.id]
+        if caps is None:
             continue
         ring = vw.rings[f.id]
         src = Source(GEN, "rulesets.runway.longitudinal ring chord", (f"face:{f.id}", f.ref))
@@ -458,10 +475,12 @@ def runway_within_shape(planar: PlanarMap, law: Law, airport: Airport
             a, b = ring[i], ring[(i + 1) % n]
             d = vw.dist(a, b)
             if d >= min_d and a != b:
-                rows.append(Diff(a, b, cap.longitudinal, d, src))
+                rows.append(Diff(a, b, caps[0], d, src))
     for f in vw.faces_of_role(("runway_crossing",)):
-        cap = role_cap(law, f.role, f.code_number, f.code_letter)
-        if cap is None:
+        # §50.2 Y3 / §50.1 (4): a crossing face reads the MAX over its two
+        # runways, which ``face_cap`` composed into ``vw.caps``.
+        caps = vw.caps[f.id]
+        if caps is None:
             continue
         chs = [c for r in f.ref.split("+") for c in chains.get(r, [])]
         if not chs:
@@ -497,6 +516,6 @@ def runway_within_shape(planar: PlanarMap, law: Law, airport: Airport
                 terms = {v: c for v, c in terms.items() if abs(c) > 1e-12}
                 if not terms:
                     continue
-                bound = cap.longitudinal * d
+                bound = caps[0] * d
                 rows.append(Linear(tuple(terms.items()), -bound, bound, src))
     return rows

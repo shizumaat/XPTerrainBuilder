@@ -44,7 +44,12 @@ from typing import Optional
 # before it the death was console-only and the tile exited 0 with the
 # previous build's scenery still installed (H1,
 # docs/POSTMORTEM-20260831.md Task C).
-PROTOCOL_VERSION = "1.7"
+# 1.8 (2026-09-18, additive): BoundaryAirportsReady + the
+# ``boundary_airports`` command + the ``boundary_policy`` keyword on
+# build/enqueue_build — an airport whose AIRSIDE claim crosses a 1 degree
+# tile line needs the user's answer before the build starts (owner
+# RULINGS 2026-09-18b (2), 18i; spec insets-follow-patch-set-spec.md §C).
+PROTOCOL_VERSION = "1.8"
 
 
 @dataclass(frozen=True)
@@ -338,6 +343,48 @@ class AirportIndexReady(EngineEvent):
 
     path: str = ""
     count: int = 0
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class BoundaryAirportsReady(EngineEvent):
+    """The boundary-airport PREFLIGHT finished (spec §C.2).
+
+    The completion half of the ``boundary_airports`` command, which
+    replies ``{"status": "started", "request_id": N}`` at once and works
+    on a worker thread — a command handler runs on the transport's read
+    loop and must never block it (the ``airport_index`` precedent).
+
+    ``airports`` lists ONLY class-S airports — those whose AIRSIDE claim
+    (apt.dat row 100 runways + row 110 pavement, buffered by
+    ``law.emit.seam.ask_reach_m``) reaches a 1 degree cell this build is
+    not building.  An airport whose groundside, inset box or DEM window
+    crosses is class M: it is NOT listed, it never prompts, and its far
+    side is read context-only (owner RULINGS 2026-09-18h).  Each entry::
+
+        {"icao": str, "name": str, "home": [lat, lon],
+         "neighbours": [[lat, lon], ...],   # COLD ones only
+         "crossing_m": float}               # how far the claim reaches
+                                            # past the line
+
+    ``add_tiles`` is the COMPLETE, DEDUPLICATED set of cold neighbour
+    cells needed by EVERY listed airport and not already in ``tiles``,
+    sorted — so the dialog's default action ("build all the tiles the
+    straddling airports need", owner RULINGS 2026-09-18i (2)) is ONE
+    send of ``tiles + add_tiles``.
+
+    ``airports == []`` means proceed straight to ``enqueue_build`` with
+    no dialog.  ``remembered`` is the user's saved answer mapped to a
+    policy (``""`` | ``"neighbour"`` | ``"skip"``, from the
+    ``auto_patch_boundary`` app setting); non-empty means apply it
+    without asking.  ``error`` carries the preflight's failure text, in
+    which case the front end proceeds with ``boundary_policy=None``.
+    """
+
+    request_id: int = 0
+    airports: list = field(default_factory=list)
+    add_tiles: list = field(default_factory=list)
+    remembered: str = ""
     error: str = ""
 
 

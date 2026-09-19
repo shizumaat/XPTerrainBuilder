@@ -789,7 +789,8 @@ class ParallelBuildRun:
     """The phase-aware orchestrator for one parallel run (spec §3.1–3.8)."""
 
     def __init__(self, session, tiles, provider, zoomlevel,
-                 custom_build_dir, step_flags, slots):
+                 custom_build_dir, step_flags, slots,
+                 boundary_policy=None):
         self._session = session
         self._queue = deque()
         self._total = 0
@@ -873,10 +874,12 @@ class ParallelBuildRun:
         self._percent_high_water: dict = {}
         with self._lock:
             self._admit_batch_locked(tiles, provider, zoomlevel,
-                                     custom_build_dir, step_flags)
+                                     custom_build_dir, step_flags,
+                                     boundary_policy=boundary_policy)
 
     def _admit_batch_locked(self, tiles, provider, zoomlevel,
-                            custom_build_dir, step_flags):
+                            custom_build_dir, step_flags,
+                            boundary_policy=None):
         """Register a batch of tiles with the run (caller holds the lock).
 
         Tiles already part of the run (queued or on a child) are skipped
@@ -900,6 +903,10 @@ class ParallelBuildRun:
                 "provider": provider,
                 "zoomlevel": zoomlevel,
                 "custom_build_dir": custom_build_dir,
+                # Per-batch, exactly like provider/zoomlevel: the worker
+                # child receives it in its build command and lands it on
+                # its own tile object (spec §C.3).
+                "boundary_policy": boundary_policy,
             }
             self._programs[tile] = list(program)
             self._static_windows[tile] = {
@@ -976,7 +983,7 @@ class ParallelBuildRun:
         return True
 
     def enqueue(self, tiles, provider, zoomlevel, custom_build_dir,
-                step_flags):
+                step_flags, boundary_policy=None):
         """Append a batch of tiles to the LIVE run.
 
         The batch keeps its own build arguments and step selection —
@@ -992,7 +999,8 @@ class ParallelBuildRun:
             if self._finished or self._cancel_all:
                 return 0
             admitted = self._admit_batch_locked(
-                tiles, provider, zoomlevel, custom_build_dir, step_flags)
+                tiles, provider, zoomlevel, custom_build_dir, step_flags,
+                boundary_policy=boundary_policy)
             if not admitted:
                 return 0
             self._dispatch_locked()

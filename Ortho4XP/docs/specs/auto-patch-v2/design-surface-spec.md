@@ -6059,6 +6059,24 @@ pre-§28 arm) both faces sat on the DEM, +3.4 m above the pads; NOW +0.10 / −0
 
 ### §28 (6) **MEASURED** (lane `v2frontagestep`, 2026-09-13, branch `claude/v2frontagestep`, base `1be04630`)
 
+> **AMENDED 2026-09-18 — THE PAD'S SIDE IS ITS AIRSIDE FRONTAGE** (owner RULINGS
+> 2026-09-18c (1), Q CYXY-2a option C, verbatim: "Building pads are seated based on
+> their airside frontage, then we leave a gap"; lane `b2frontagedatum`,
+> `docs/findings/beta2-CYXY-2-3-optionC.md`). Everything below this box is the
+> 2026-09-13 reading and its pad-RIM-median quantity, kept as the record. What
+> ships now: `pair_dem_step_m` subtracts the median `dem_z` over the PAD'S
+> AIRSIDE-FRONTAGE vertices — `pads.pad_frontage`'s own contacts restricted to the
+> airside roles, i.e. §20's seat — with an AREA-weighted DEM over the pad's own
+> outline as the fallback. WHY: since `dba32406` (§16g (10) (12) (1) (c)) the
+> arrangement is the one cutter of a pad face and it trims a hillside pad's DOWNHILL
+> rim vertices, which raised CYXY's rim medians ~2.9 m and collapsed the two
+> hillside steps 3.757/3.430 → 0.861/0.915, ARMING two pairs 13o had ruled terraces
+> (BETA2 CYXY-2 / CYXY-3). `frontage_step_max_m` re-centred **3.2 → 2.4** on the
+> measured population of three airports (CYXY 4 pairs / LEMD 1 / HECA 16): TERRACE
+> +4.192, −4.006, +3.283 | a 1.68 m gap | ARMED +1.599 … 0.007. 13o's LEMD
+> `building4 → pav124` pairs are no longer §28 pairs at all — `pav124` is `role =
+> apron` (airside), so that pair is now stated by §20.
+
 **THE QUANTITY CHANGED, AND THAT IS THE DEVIATION** (reported, never decided by
 the lane — the §23.3 (2) precedent). 13o's bound is the median DEM step against the
 pad's **SOLVED LEVEL**. A constraint generator cannot read it: the pad's level is what

@@ -3625,8 +3625,13 @@ class PavementLayout:
         if self.freshness is not None:
             stamps = dict(self.freshness)
             stamps["o4_fresh_v"] = _prov.FRESHNESS_SCHEMA_VERSION
+            # The pack DSFs are stamped by their INPUT identity (the
+            # ``.anchor_bak`` pristine file where the object stage has
+            # rewritten the live one) — the same function the gate
+            # re-derives with, so the stage's own rewrite is never read as
+            # a changed input (2026-09-18, the TFFJ rebuild-forever defect).
             stamps["o4_dsf"] = (
-                _prov.identity_list(self.dsf_sources_read)
+                _prov.pack_dsf_identity_list(self.dsf_sources_read)
                 if self.dsf_sources_read is not None else "?")
             stamps["o4_dsf_tiles"] = (
                 ";".join(f"{la},{lo}"

@@ -567,6 +567,64 @@ def identity_list(paths) -> str:
     return ";".join(sorted(_identity(p) for p in (paths or ())))
 
 
+def pack_dsf_input_identity(dsf_path: str | None) -> str:
+    """:func:`_identity` of a pack DSF **as the build's INPUT**.
+
+    THE DEFECT THIS CLOSES (measured 2026-09-18, app 1.0.351 / engine
+    1.50.1797, tile +17-063): the object stage REWRITES the pack DSF it
+    stamped — "[v2 placement] TFFJ: … DSF rewritten (backup
+    +17-063.dsf.anchor_bak, round trip ok)" — so the plain live-file
+    identity a patch carries is the PREVIOUS build's rewrite and never
+    equals the live file at the next gate.  TFFJ rebuilt its auto-patch
+    on every single tile build, forever; TKPK/TKPN (no rebake) reused
+    theirs.  That violated freshness rule 3 (INPUTS, NOT DERIVED
+    ARTIFACTS) exactly as ``Data<tile>.alt`` would.
+
+    THE INPUT IS THE BACKUP.  ``<dsf>.anchor_bak`` is the pack as
+    installed: ``dsf_write.write_pack`` makes it ONCE with
+    ``shutil.copy2`` (size and mtime preserved) and every later dump
+    reads it — ``dsf_write.pristine_dsf_path`` is the object stage's ONE
+    read frame (RULINGS 2026-09-11m), and ``engine_v2`` resolves every
+    pack DSF read through it.  So this returns the identity KEYED BY THE
+    LIVE PATH with size+mtime taken from the pristine file that path
+    resolves to.  Keying by the live path is what makes the first build
+    (no backup yet, live IS pristine) compare EQUAL to every later one
+    (backup exists, same size+mtime from the copy2) — no extra rebuild
+    and no ``o4_fresh_v`` bump.
+
+    A pack that is genuinely REPLACED still invalidates by the other
+    inputs the gate already watches (``o4_apt_dat``'s exact mtime,
+    ``o4_pack``); see the stated residual in
+    :func:`~auto_patch.driver._dsf_identities_now`.
+    """
+    if not dsf_path:
+        return "none"
+    try:
+        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+    except Exception:                       # pragma: no cover - v2 absent
+        return _identity(dsf_path)
+    pristine = pristine_dsf_path(dsf_path)
+    if pristine == dsf_path:
+        return _identity(dsf_path)
+    try:
+        stat = os.stat(pristine)
+    except OSError:                         # race: backup vanished
+        return _identity(dsf_path)
+    return f"{_quote(dsf_path)}|{stat.st_size}|{stat.st_mtime:.6f}"
+
+
+def pack_dsf_identity_list(paths) -> str:
+    """:func:`identity_list` over :func:`pack_dsf_input_identity`.
+
+    THE one function both sides of the freshness gate use for pack DSFs
+    — the emit-side stamp (``engine_v2._stamp_header`` →
+    ``driver._dsf_identities_now``; v1's ``layout.to_osm``) and the gate
+    re-derivation (``driver._auto_patch_is_current``) — so the object
+    stage's own rewrite can never read as a changed input.
+    """
+    return ";".join(sorted(pack_dsf_input_identity(p) for p in (paths or ())))
+
+
 def _stable_repr(value) -> str:
     """Order-independent, float-exact repr for a config constant."""
     if isinstance(value, (set, frozenset)):

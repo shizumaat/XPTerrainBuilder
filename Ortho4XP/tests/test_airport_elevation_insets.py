@@ -6190,6 +6190,74 @@ def test_footprint_pack_set_mismatch_is_by_set_and_unknown_is_reusable(
     assert INSETS._sidecar_footprint_packs_mismatch(*args, _PACK_BOX) is False
 
 
+def test_our_own_pack_rewrite_and_side_files_do_not_move_the_signature(
+    tmp_path, monkeypatch
+):
+    """ATTRIBUTION TWIN (2026-09-18, the +17-063 refetch).
+
+    The pack-set signature is DIRECTORY NAMES: a ``Custom Scenery``
+    listing, an ``apt.dat`` stat, a tile-DSF stat and the
+    ``scenery_packs.ini`` disabled set.  Nothing the v2 object stage
+    writes into a pack may enter it — not the rewritten DSF's bytes, not
+    its ``.anchor_bak``, not a §12a ``.anchor_bak.superseded-<UTC>``, not
+    ``o4_placement_provenance.json``.  A regression here refetches every
+    inset of a tile the moment a pack is rebaked.
+    """
+    root = str(tmp_path / "X-Plane 12")
+    custom_scenery = _write_fake_custom_scenery(root)
+    monkeypatch.setattr(
+        INSETS, "_xplane_root_for_package_footprints", lambda: root
+    )
+    before = INSETS.package_footprint_pack_names(_PACK_BOX)
+    assert before == ["Test Airport"]
+
+    nav = os.path.join(custom_scenery, "Test Airport", "Earth nav data")
+    dsf = os.path.join(nav, _PACK_TILE_DSF)
+    # ...the object stage rewrites the DSF, keeps the original beside it,
+    # retires a superseded backup and drops its per-DSF record
+    with open(dsf, "w") as handle:
+        handle.write("PROPERTY o4/placement_rewrite 1.0.352\n")
+    for side in (dsf + ".anchor_bak",
+                 dsf + ".anchor_bak.superseded-20260918T195300Z",
+                 os.path.join(os.path.dirname(dsf),
+                              "o4_placement_provenance.json"),
+                 os.path.join(custom_scenery, "Test Airport", "objects",
+                              "a__b0.obj")):
+        os.makedirs(os.path.dirname(side), exist_ok=True)
+        with open(side, "w") as handle:
+            handle.write("x")
+    assert INSETS.package_footprint_pack_names(_PACK_BOX) == before
+
+
+def test_a_toggled_or_added_pack_DOES_move_the_signature(
+    tmp_path, monkeypatch
+):
+    """The other half: the signal the reuse test exists for.  MEASURED
+    2026-09-18 — the owner's ``scenery_packs.ini`` was rewritten at 19:53
+    disabling two TFFJ packs, and all four airports of +17-063 correctly
+    reported a different pack set on the next build."""
+    root = str(tmp_path / "X-Plane 12")
+    custom_scenery = _write_fake_custom_scenery(root)
+    monkeypatch.setattr(
+        INSETS, "_xplane_root_for_package_footprints", lambda: root
+    )
+    assert INSETS.package_footprint_pack_names(_PACK_BOX) == ["Test Airport"]
+    ini = os.path.join(custom_scenery, "scenery_packs.ini")
+    # ENABLED -> DISABLED: the name leaves the set
+    with open(ini, "w") as handle:
+        handle.write("I\n1000 Version\nSCENERY\n\n"
+                     "SCENERY_PACK_DISABLED Custom Scenery/Test Airport/\n"
+                     "SCENERY_PACK_DISABLED Custom Scenery/Disabled Airport/\n")
+    assert INSETS.package_footprint_pack_names(_PACK_BOX) == []
+    # DISABLED -> ENABLED, for a pack that was out: the name joins it
+    with open(ini, "w") as handle:
+        handle.write("I\n1000 Version\nSCENERY\n\n"
+                     "SCENERY_PACK Custom Scenery/Test Airport/\n"
+                     "SCENERY_PACK Custom Scenery/Disabled Airport/\n")
+    assert INSETS.package_footprint_pack_names(_PACK_BOX) == [
+        "Disabled Airport", "Test Airport"]
+
+
 def test_pack_set_change_refetches_a_cached_inset(tmp_path, monkeypatch):
     """The reuse test's teeth: a cached inset whose recorded pack set no
     longer matches the installed one is refetched, and one whose set is

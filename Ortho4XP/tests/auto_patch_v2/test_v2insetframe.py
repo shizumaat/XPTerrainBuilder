@@ -86,6 +86,111 @@ def test_an_inset_cut_for_a_smaller_box_is_STALE(tmp_path, monkeypatch):
     assert "--refresh-data dem" in problems[0]
 
 
+def _pack_set_moved(monkeypatch, *, recorded, now):
+    """Make the tmp corpus's manifest carry ``footprint_packs`` and the
+    installed set be ``now`` — the ONE predicate, not a stub of it."""
+    monkeypatch.setattr(INSETS, "recorded_footprint_packs",
+                        lambda *_a: list(recorded))
+    monkeypatch.setattr(INSETS, "package_footprint_pack_names",
+                        lambda _box: list(now))
+    monkeypatch.setattr(INSETS, "_masking_definition_for_code",
+                        lambda *_a, **_k: {"code": "HRDEM"})
+
+
+def test_a_PACK_SET_STALE_inset_is_named_with_its_refresh_scope(
+    tmp_path, monkeypatch
+):
+    """THE GAP THE +17-063 RUN FOUND (2026-09-18).  The owner's
+    ``scenery_packs.ini`` was rewritten at 19:53 disabling two TFFJ
+    packs the 15:39 sidecars record as having served the mask.  The
+    fetch loop noticed and refetched all four airports of the tile
+    mid-build; the pre-flight had said nothing, so the shared-repo guard
+    blocked four ``os.replace``es AFTER the download had run and the run
+    was CONTAMINATED.  Now the frame check names it first."""
+    _pack_set_moved(monkeypatch, recorded=["Alpha Pack", "Beta Pack"],
+                    now=["Alpha Pack"])
+    (state, problems) = _state(tmp_path, monkeypatch, CONTAINED)
+    assert state["airport_inset_problem_kind"] == "packs"
+    assert f"{ICAO}_hrdem.tif" in state["airport_inset_pack_set_moved"]
+    assert "Beta Pack" in state["airport_inset_pack_set_moved"]
+    assert "--refresh-data dem" in state["airport_inset_pack_set_moved"]
+    # PRODUCTION does not refuse for it: the tile's own inset pass
+    # re-fetches and re-masks, out loud.  Refusing would take the tile
+    # down for a cache the app is about to repair (the 18k (3) class).
+    assert problems == []
+
+
+def test_a_provider_that_runs_no_mask_is_never_pack_set_stale(
+    tmp_path, monkeypatch
+):
+    """The fetch loop gates both mask reuse tests on the provider
+    definition's ``surface_model_building_masking``; anything predicting
+    that loop applies the SAME gate."""
+    _pack_set_moved(monkeypatch, recorded=["Alpha Pack", "Beta Pack"],
+                    now=["Alpha Pack"])
+    monkeypatch.setattr(INSETS, "_masking_definition_for_code",
+                        lambda *_a, **_k: None)
+    (state, problems) = _state(tmp_path, monkeypatch, CONTAINED)
+    assert "airport_inset_problem_kind" not in state
+    assert problems == []
+
+
+def test_an_unchanged_pack_set_stays_reusable(tmp_path, monkeypatch):
+    """NO MASS REFETCH ON UPGRADE: a sidecar written by <= 1.0.351 for an
+    unchanged pack set is untouched, and one with NO ``footprint_packs``
+    key at all is UNKNOWN, which reads as reusable (the leave-alone
+    policy every sidecar test here takes)."""
+    _pack_set_moved(monkeypatch, recorded=["Alpha Pack"], now=["Alpha Pack"])
+    (elevation, osm) = _corpus(tmp_path, monkeypatch)
+    (state, problems) = DP.frame_state(elevation, osm, LAT, LON, ICAO,
+                                       CONTAINED)
+    assert "airport_inset_problem_kind" not in state and problems == []
+    # a manifest with NO footprint_packs key: UNKNOWN, and unknown is
+    # REUSABLE — every 1.0.351-era sidecar stays valid
+    monkeypatch.setattr(INSETS, "recorded_footprint_packs", lambda *_a: None)
+    (state, problems) = DP.frame_state(elevation, osm, LAT, LON, ICAO,
+                                       CONTAINED)
+    assert "airport_inset_problem_kind" not in state and problems == []
+
+
+def test_the_harness_preflight_NAMES_a_pack_set_stale_inset(
+    tmp_path, monkeypatch
+):
+    """The harness's missing-artifact list carries it under ``dem``, so
+    the build is refused BEFORE the fetch — the same triple shape every
+    other refusal there uses."""
+    import importlib.util
+    root = os.path.dirname(os.path.dirname(os.path.abspath(INSETS.__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "harness_build_airport",
+        os.path.join(root, "tools", "harness", "build_airport.py"))
+    HB = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(HB)
+
+    _pack_set_moved(monkeypatch, recorded=["Alpha Pack", "Beta Pack"],
+                    now=["Alpha Pack"])
+    _corpus(tmp_path, monkeypatch, requested_box=REQUIRED)
+    monkeypatch.setattr(HB, "this_airports_inset_problem",
+                        lambda _s, lat, lon, icao:
+                        INSETS.airport_inset_frame_problem(
+                            lat, lon, icao, CONTAINED))
+    state = {"base_raster": True, "airport_insets": True,
+             "airports_layer": True, "tile_stem": STEM}
+    monkeypatch.setattr(HB, "schema_stale_osm_layers", lambda *a: [])
+    monkeypatch.setattr(HB, "missing_pack_dsf_dumps", lambda *a: [])
+    monkeypatch.setattr(HB, "unverified_inset_negatives", lambda *a: [])
+    missing = HB.missing_shared_artifacts(str(tmp_path), LAT, LON, ICAO,
+                                          state=state)
+    packs = [m for m in missing if "[packs]" in m[1]]
+    assert len(packs) == 1, missing
+    assert packs[0][0] == "dem"
+    assert "Beta Pack" in packs[0][2]
+    with pytest.raises(SystemExit, match="--refresh-data dem"):
+        HB.require_no_implicit_refresh(missing, set())
+    # ...and AUTHORISED with the scope, it passes
+    HB.require_no_implicit_refresh(missing, {"dem"})
+
+
 def test_a_missing_inset_inside_a_present_directory_is_now_SEEN(
     tmp_path, monkeypatch
 ):

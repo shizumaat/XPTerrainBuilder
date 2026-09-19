@@ -771,6 +771,8 @@ final class BuildModel: ObservableObject {
                 return
             }
             readGlobalAirports(atPath: path)
+        case .boundaryAirportsReady(let ready):
+            boundaryAirportsReady(ready)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -1015,6 +1017,7 @@ final class BuildModel: ObservableObject {
         engine != nil && !buildableSelection.isEmpty
             && (doVector || doImagery || doOverlays)
             && !(isBuilding && !usesProtocol) // legacy path can't queue into a run
+            && !isBoundaryPreflighting // a second press would ask twice
             && xplaneBlockReason == nil
     }
 
@@ -1174,9 +1177,11 @@ final class BuildModel: ObservableObject {
         guard canBuild else { return }
         lastRunSummary = nil
         if usesProtocol {
-            for batch in batches where !batch.tiles.isEmpty {
-                startProtocolBuild(batch.tiles, provider: batch.provider, zl: batch.zl)
-            }
+            // EVERY protocol enqueue goes through the boundary preflight
+            // (protocol 1.8, spec §C.7): one ask for the whole press.
+            startProtocolBuild(batches.map {
+                BuildBatch(tiles: $0.tiles, provider: $0.provider, zl: $0.zl)
+            })
         } else {
             startLegacyBuild(batches.flatMap(\.tiles))
         }
@@ -1229,7 +1234,21 @@ final class BuildModel: ObservableObject {
         startBuild(batches: batches)
     }
 
-    private func startProtocolBuild(_ todo: [TileCoord], provider: String, zl: Int) {
+    /// One enqueue_build's worth of work: the tiles and the imagery
+    /// settings they are being started with.
+    struct BuildBatch: Equatable {
+        var tiles: [TileCoord]
+        let provider: String
+        let zl: Int
+    }
+
+    private func sendProtocolBuild(_ batch: BuildBatch, boundaryPolicy: String?) {
+        sendProtocolBuild(batch.tiles, provider: batch.provider, zl: batch.zl,
+                          boundaryPolicy: boundaryPolicy)
+    }
+
+    private func sendProtocolBuild(_ todo: [TileCoord], provider: String, zl: Int,
+                                   boundaryPolicy: String?) {
         connectIfNeeded()
         guard let client else { return }
         if !isBuilding {
@@ -1248,7 +1267,7 @@ final class BuildModel: ObservableObject {
             activity.runSettings[coord] = TileRunSettings(provider: provider, zl: zl)
         }
         console.append("=== Building \(todo.count) tile\(todo.count == 1 ? "" : "s"): \(todo.prefix(8).map { $0.key }.joined(separator: " "))\(todo.count > 8 ? " …" : "") ===")
-        client.send(command: "enqueue_build", arguments: [
+        var arguments: [String: Any] = [
             "tiles": todo.map { [$0.lat, $0.lon] },
             "provider": provider,
             "zoomlevel": zl,
@@ -1256,7 +1275,11 @@ final class BuildModel: ObservableObject {
             "do_vector": doVector,
             "do_imagery": doImagery,
             "do_overlays": doOverlays,
-        ]) { [weak self] reply in
+        ]
+        // Omitted entirely when nil: an engine older than 1.8 rejects
+        // unknown keywords, and nil IS "resolve from cfg" there anyway.
+        if let boundaryPolicy { arguments["boundary_policy"] = boundaryPolicy }
+        client.send(command: "enqueue_build", arguments: arguments) { [weak self] reply in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if !reply.ok {
@@ -1265,6 +1288,218 @@ final class BuildModel: ObservableObject {
                     self.activity.reset()
                 }
             }
+        }
+    }
+
+    // MARK: - Boundary airports (protocol 1.8)
+
+    /// What the user answered, or what a remembered answer resolved to.
+    enum BoundaryChoice: String, Equatable {
+        /// Build the adjacent tiles too: they join this run's tile list.
+        case neighbour
+        /// Those airports get no elevation patch this run.
+        case skip
+    }
+
+    /// One sheet's worth of boundary airports, as the view reads it.
+    struct BoundaryPrompt: Identifiable, Equatable {
+        let id: Int
+        let airports: [O4BoundaryAirport]
+        let addTiles: [O4TileRef]
+        /// The PRESELECTED (Return-key) choice, engine-owned — never
+        /// hardcoded here (owner RULINGS 2026-09-18i (2)).
+        let defaultChoice: BoundaryChoice
+    }
+
+    /// A preflight that has been sent and not yet answered. The correlation
+    /// rules live in `O4BoundaryFlow` (SceneryKit), where they are testable.
+    private struct PendingBoundary {
+        var batches: [BuildBatch]
+        var flow = O4BoundaryFlow()
+    }
+
+    /// The sheet to present, or nil. Set only for an interactive ask.
+    @Published var boundaryPrompt: BoundaryPrompt?
+    /// A build press is waiting on the preflight — the Build button is off
+    /// so a second press cannot ask twice.
+    @Published private(set) var isBoundaryPreflighting = false
+
+    private var pendingBoundary: PendingBoundary?
+    private var boundaryTimeoutTask: Task<Void, Never>?
+
+    /// The preflight can never be the thing that stops a build (spec §C.7):
+    /// past this, the run starts with the engine's own default policy.
+    static let boundaryPreflightTimeoutSeconds = 10
+
+    /// The saved answer as the app's settings hold it ("Ask" by default).
+    var autoPatchBoundarySetting: String {
+        globalConfigValues["auto_patch_boundary"]?.cfgLiteral ?? "Ask"
+    }
+
+    /// EVERY protocol enqueue (Build, batched Build, resume) enters here:
+    /// ask the engine which airports straddle a tile line for the tiles
+    /// about to be enqueued, then enqueue once with the resulting policy.
+    private func startProtocolBuild(_ batches: [BuildBatch]) {
+        let batches = batches.filter { !$0.tiles.isEmpty }
+        guard !batches.isEmpty else { return }
+        connectIfNeeded()
+        guard let client else { return }
+        // One preflight at a time; a press while one is in flight is
+        // already blocked by canBuild, and a resume is not.
+        guard pendingBoundary == nil else {
+            for batch in batches { sendProtocolBuild(batch, boundaryPolicy: nil) }
+            return
+        }
+        var seen: Set<TileCoord> = []
+        var tiles: [TileCoord] = []
+        for batch in batches {
+            for coord in batch.tiles where seen.insert(coord).inserted { tiles.append(coord) }
+        }
+        pendingBoundary = PendingBoundary(batches: batches)
+        isBoundaryPreflighting = true
+        client.requestBoundaryAirports(
+            tiles: tiles.map { O4TileRef(lat: $0.lat, lon: $0.lon) }
+        ) { [weak self] requestID in
+            Task { @MainActor [weak self] in
+                self?.boundaryPreflightStarted(requestID)
+            }
+        }
+        boundaryTimeoutTask?.cancel()
+        boundaryTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.boundaryPreflightTimeoutSeconds))
+            guard !Task.isCancelled else { return }
+            self?.boundaryPreflightTimedOut()
+        }
+    }
+
+    private func boundaryPreflightStarted(_ requestID: Int?) {
+        guard var pending = pendingBoundary else { return }
+        let step = pending.flow.started(requestID: requestID)
+        pendingBoundary = pending
+        // requestID == nil is an engine older than 1.8: the flow says
+        // "enqueue, no policy" and nothing is logged — silent degradation.
+        apply(step, requestID: requestID ?? 0)
+    }
+
+    private func boundaryPreflightTimedOut() {
+        guard var pending = pendingBoundary, boundaryPrompt == nil else { return }
+        let step = pending.flow.giveUp()
+        pendingBoundary = pending
+        guard case .outcome = step else { return }
+        console.append(
+            "Boundary-airport check did not answer in \(Self.boundaryPreflightTimeoutSeconds) s — building with the engine's own setting.")
+        apply(step, requestID: 0)
+    }
+
+    /// The `BoundaryAirportsReady` event, correlated on its request id.
+    private func boundaryAirportsReady(_ ready: O4BoundaryAirportsReady) {
+        guard var pending = pendingBoundary else { return } // stale: no ask open
+        let step = pending.flow.ready(ready)
+        pendingBoundary = pending
+        if case .outcome = step, !ready.error.isEmpty {
+            console.append("Boundary-airport check failed: \(ready.error) — building with the engine's own setting.")
+        }
+        if case .outcome = step, ready.error.isEmpty, !ready.airports.isEmpty {
+            for line in Self.boundaryAirportLines(ready.airports) { console.append(line) }
+        }
+        apply(step, requestID: ready.requestID)
+    }
+
+    private func apply(_ step: O4BoundaryFlow.Step, requestID: Int) {
+        switch step {
+        case .waiting, .ignored:
+            return
+        case .outcome(.enqueue(let policy, let addTiles)):
+            finishBoundary(policy: policy, addTiles: addTiles)
+        case .outcome(.ask(let airports, let addTiles, let defaultChoice)):
+            // Interactive: the user decides. The timeout stops here — it
+            // guards the ENGINE's answer, never the user's.
+            boundaryTimeoutTask?.cancel()
+            boundaryTimeoutTask = nil
+            boundaryPrompt = BoundaryPrompt(
+                id: requestID, airports: airports, addTiles: addTiles,
+                defaultChoice: BoundaryChoice(rawValue: defaultChoice) ?? .neighbour)
+        }
+    }
+
+    /// The sheet's answer. `nil` = Cancel build: nothing is enqueued.
+    func answerBoundaryPrompt(_ choice: BoundaryChoice?, remember: Bool) {
+        let addTiles = boundaryPrompt?.addTiles ?? []
+        boundaryPrompt = nil
+        if remember, let choice {
+            // The app's one engine-settings write path: an app-level cfg
+            // var, so the global Ortho4XP.cfg, no tile write-through.
+            setConfigValue("auto_patch_boundary",
+                           to: .string(Self.boundarySettingValue(choice)))
+        }
+        guard let choice else {
+            // Cancel build: the press is abandoned, nothing enqueued.
+            boundaryTimeoutTask?.cancel()
+            boundaryTimeoutTask = nil
+            pendingBoundary = nil
+            isBoundaryPreflighting = false
+            return
+        }
+        finishBoundary(policy: choice.rawValue,
+                       addTiles: choice == .neighbour ? addTiles : [])
+    }
+
+    /// Enqueue the press that was waiting on the preflight.
+    private func finishBoundary(policy: String?, addTiles: [O4TileRef]) {
+        boundaryTimeoutTask?.cancel()
+        boundaryTimeoutTask = nil
+        guard let pending = pendingBoundary else { return }
+        pendingBoundary = nil
+        isBoundaryPreflighting = false
+        let batches = Self.adding(addTiles, to: pending.batches)
+        for batch in batches { sendProtocolBuild(batch, boundaryPolicy: policy) }
+    }
+
+    // MARK: Boundary rules (pure — no engine, no view)
+
+    /// The added neighbour tiles join the FIRST batch, so they are built
+    /// with the same imagery source and zoom level as the press that
+    /// needed them, and appear in the queue like user-selected tiles.
+    /// Tiles already in any batch are never added twice.
+    nonisolated static func adding(_ addTiles: [O4TileRef], to batches: [BuildBatch]) -> [BuildBatch] {
+        guard !addTiles.isEmpty, !batches.isEmpty else { return batches }
+        var present = Set(batches.flatMap(\.tiles))
+        var extra: [TileCoord] = []
+        for tile in addTiles {
+            let coord = TileCoord(lat: tile.lat, lon: tile.lon)
+            if present.insert(coord).inserted { extra.append(coord) }
+        }
+        guard !extra.isEmpty else { return batches }
+        var batches = batches
+        batches[0].tiles += extra
+        return batches
+    }
+
+    /// "LPMT Montijo — extends 1,240 m into +38-009" (the sheet's row, and
+    /// the console line when the answer was remembered).
+    nonisolated static func boundaryAirportLines(_ airports: [O4BoundaryAirport]) -> [String] {
+        airports.map { airport in
+            let name = airport.name.isEmpty ? "" : " \(airport.name)"
+            return "\(airport.icao)\(name) — extends \(boundaryCrossingText(airport.crossingMeters)) into \(boundaryTileNames(airport.neighbours))"
+        }
+    }
+
+    /// Metres, rounded to 10 m — the preflight's precision is not the
+    /// user's business and a bare float reads as false accuracy.
+    nonisolated static func boundaryCrossingText(_ metres: Double) -> String {
+        let rounded = Int((metres / 10).rounded()) * 10
+        return "\(rounded.formatted()) m"
+    }
+
+    nonisolated static func boundaryTileNames(_ tiles: [O4TileRef]) -> String {
+        tiles.map(\.key).joined(separator: ", ")
+    }
+
+    /// The `auto_patch_boundary` cfg value a remembered choice writes.
+    nonisolated static func boundarySettingValue(_ choice: BoundaryChoice) -> String {
+        switch choice {
+        case .neighbour: return "Build adjacent"
+        case .skip: return "Skip patch"
         }
     }
 
@@ -1397,10 +1632,12 @@ final class BuildModel: ObservableObject {
             activity.runOrder.removeAll { $0 == coord }
             activity.tileClocks[coord] = nil
         }
-        for batch in batches where !batch.tiles.isEmpty {
-            startProtocolBuild(batch.tiles, provider: batch.settings.provider,
-                               zl: batch.settings.zl)
-        }
+        // A resume enqueues tiles too, so it asks the same question
+        // (spec §C.7: every entry point that enqueues).
+        startProtocolBuild(batches.map {
+            BuildBatch(tiles: $0.tiles, provider: $0.settings.provider,
+                       zl: $0.settings.zl)
+        })
     }
 
     // MARK: Stop/resume rules (pure — no engine, no view)

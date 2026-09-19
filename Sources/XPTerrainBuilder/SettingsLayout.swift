@@ -94,6 +94,9 @@ enum SettingsLayout {
             SettingItem("custom_dem", "Custom elevation data (DEM)", .tile),
             SettingItem("fill_nodata", "Fill missing elevation data", .tile),
             SettingItem("auto_patch", "Auto-patch airports (runway slopes)", .tile),
+            // App-level, not tile-level: a preference about how the user is
+            // asked, not a property of a tile (spec §C.4, RULINGS 18a).
+            SettingItem("auto_patch_boundary", "Airports on a tile edge", .app),
             SettingItem("modify_custom_airports", "Modify custom airports (reseat objects)", .tile),
             SettingItem("airport_elevation_insets", "Airport lidar insets", .tile),
             SettingItem("airport_elevation_level", "Airport elevation detail level", .tile),

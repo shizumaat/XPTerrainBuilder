@@ -142,6 +142,99 @@ public struct O4AirportIndexReply: Sendable, Equatable {
     public var isBuilding: Bool { status == "building" }
 }
 
+/// One 1°×1° cell as the boundary preflight names it (protocol 1.8).
+/// The wire carries `[lat, lon]` pairs; this is their typed form.
+public struct O4TileRef: Sendable, Equatable, Hashable, Codable {
+    public let lat: Int
+    public let lon: Int
+
+    public init(lat: Int, lon: Int) {
+        self.lat = lat
+        self.lon = lon
+    }
+
+    /// "+38-009" — the tile name the user sees on the map.
+    public var key: String { TileMath.key(lat: lat, lon: lon) }
+
+    /// Decode one `[lat, lon]` wire pair.
+    public static func from(_ any: Any) -> O4TileRef? {
+        guard let pair = any as? [Any], pair.count >= 2,
+              let lat = (pair[0] as? NSNumber)?.intValue,
+              let lon = (pair[1] as? NSNumber)?.intValue else { return nil }
+        return O4TileRef(lat: lat, lon: lon)
+    }
+}
+
+/// One airport whose AIRSIDE claim reaches into a 1° cell this build is not
+/// building (protocol 1.8, spec insets-follow-patch-set-spec.md §C.2). Only
+/// class-S airports are ever listed: a groundside / inset-box / DEM-window
+/// crosser (class M) never prompts (owner RULINGS 2026-09-18h).
+public struct O4BoundaryAirport: Sendable, Equatable, Identifiable {
+    public var id: String { icao }
+    public let icao: String
+    public let name: String
+    /// The cell the airport belongs to.
+    public let home: O4TileRef
+    /// The COLD cells its claim reaches into (warm ones are not listed).
+    public let neighbours: [O4TileRef]
+    /// How far the claim reaches past the tile line, in metres.
+    public let crossingMeters: Double
+
+    public init(icao: String, name: String, home: O4TileRef,
+                neighbours: [O4TileRef], crossingMeters: Double) {
+        self.icao = icao
+        self.name = name
+        self.home = home
+        self.neighbours = neighbours
+        self.crossingMeters = crossingMeters
+    }
+
+    public init?(json: Any) {
+        guard let object = json as? [String: Any],
+              let icao = object["icao"] as? String else { return nil }
+        self.icao = icao
+        name = object["name"] as? String ?? ""
+        home = (object["home"].flatMap { O4TileRef.from($0) })
+            ?? O4TileRef(lat: 0, lon: 0)
+        neighbours = (object["neighbours"] as? [Any])?
+            .compactMap { O4TileRef.from($0) } ?? []
+        crossingMeters = (object["crossing_m"] as? NSNumber)?.doubleValue ?? 0
+    }
+}
+
+/// The boundary preflight's completion (`BoundaryAirportsReady`, protocol
+/// 1.8) — the second half of a `boundary_airports` command, which replies
+/// `{"status": "started", "request_id": N}` at once and works on an engine
+/// worker thread.
+public struct O4BoundaryAirportsReady: Sendable, Equatable {
+    public let requestID: Int
+    /// Empty ⇒ proceed straight to `enqueue_build`, no dialog.
+    public let airports: [O4BoundaryAirport]
+    /// The COMPLETE, deduplicated set of cold neighbour cells every listed
+    /// airport needs and that were not already requested, sorted.
+    public let addTiles: [O4TileRef]
+    /// "" | "neighbour" | "skip" — the saved `auto_patch_boundary` answer;
+    /// non-empty means apply it without asking.
+    public let remembered: String
+    /// The preflight's failure text; non-empty ⇒ proceed with a nil policy.
+    public let error: String
+    /// The policy the dialog PRESELECTS (its Return-key action), engine-owned
+    /// so the two front ends cannot spell the default differently
+    /// (owner RULINGS 2026-09-18i (2)). NOT the unattended default.
+    public let defaultChoice: String
+
+    public init(requestID: Int, airports: [O4BoundaryAirport],
+                addTiles: [O4TileRef], remembered: String,
+                error: String, defaultChoice: String) {
+        self.requestID = requestID
+        self.airports = airports
+        self.addTiles = addTiles
+        self.remembered = remembered
+        self.error = error
+        self.defaultChoice = defaultChoice
+    }
+}
+
 /// Typed mirror of the engine protocol's event stream
 /// (docs/specs/engine-protocol-multi-gui.md §5; src/o4_engine/events.py is
 /// the schema). Unknown event types and fields are ignored by protocol rule.
@@ -192,6 +285,10 @@ public enum O4Event: Sendable, Equatable {
     /// "building". `path` is the TSV cache to read (empty on failure) and
     /// `error` the engine's failure text.
     case airportIndexReady(path: String, count: Int, error: String)
+    /// The boundary-airport preflight finished (protocol 1.8) — the
+    /// completion half of a `boundary_airports` command. Correlate on
+    /// `requestID`; ignore the rest.
+    case boundaryAirportsReady(O4BoundaryAirportsReady)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -298,6 +395,21 @@ public enum O4Event: Sendable, Equatable {
         case "AirportIndexReady":
             return .airportIndexReady(path: string("path"), count: int("count"),
                                       error: string("error"))
+        // Another STRING LITERAL match (see AutoPatchFailed above): it is
+        // `class BoundaryAirportsReady` in Ortho4XP/src/o4_engine/events.py
+        // and the name never appears in Python source.
+        case "BoundaryAirportsReady":
+            return .boundaryAirportsReady(O4BoundaryAirportsReady(
+                requestID: int("request_id"),
+                airports: (object["airports"] as? [Any])?
+                    .compactMap { O4BoundaryAirport(json: $0) } ?? [],
+                addTiles: (object["add_tiles"] as? [Any])?
+                    .compactMap { O4TileRef.from($0) } ?? [],
+                remembered: string("remembered"),
+                error: string("error"),
+                // An engine that predates default_choice still preselects
+                // the owner's default (RULINGS 2026-09-18i (2)).
+                defaultChoice: object["default_choice"] as? String ?? "neighbour"))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -564,6 +676,30 @@ public final class OrthoEngineClient: @unchecked Sendable {
                 status: result["status"]?.stringValue ?? "none",
                 path: result["path"]?.stringValue ?? "",
                 count: result["count"]?.intValue ?? 0))
+        }
+    }
+
+    // MARK: - Boundary airports (protocol 1.8)
+
+    /// Start the boundary-airport preflight for the tiles about to be
+    /// enqueued. The completion carries the engine's `request_id` — the
+    /// `boundaryAirportsReady` event with that id completes it.
+    ///
+    /// nil means the preflight never started: an engine older than 1.8
+    /// (unknown commands reply ok=false), a dead engine, or a refusal. The
+    /// caller then enqueues exactly as it did before 1.8.
+    public func requestBoundaryAirports(
+        tiles: [O4TileRef],
+        completion: @escaping @Sendable (Int?) -> Void
+    ) {
+        send(command: "boundary_airports",
+             arguments: ["tiles": tiles.map { [$0.lat, $0.lon] }]) { reply in
+            guard reply.ok, let result = reply.result?.objectValue,
+                  let requestID = result["request_id"]?.intValue else {
+                completion(nil)
+                return
+            }
+            completion(requestID)
         }
     }
 

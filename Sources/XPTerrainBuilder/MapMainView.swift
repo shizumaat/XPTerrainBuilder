@@ -77,6 +77,17 @@ struct MapMainView: View {
                 .environmentObject(buildModel)
                 .interactiveDismissDisabled()
         }
+        // Airports on a tile edge (protocol 1.8): one sheet per build press,
+        // whichever entry point started it — so it covers a resume too.
+        .sheet(item: Binding(
+            get: { buildModel.boundaryPrompt },
+            set: { if $0 == nil { buildModel.boundaryPrompt = nil } }
+        )) { prompt in
+            BoundaryAirportsSheet(prompt: prompt) { choice, remember in
+                buildModel.answerBoundaryPrompt(choice, remember: remember)
+            }
+            .interactiveDismissDisabled()
+        }
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { if !$0 { controller.errorMessage = nil } }

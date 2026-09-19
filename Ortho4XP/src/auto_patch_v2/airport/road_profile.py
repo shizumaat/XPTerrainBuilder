@@ -225,6 +225,19 @@ def _arclength(xy: np.ndarray) -> np.ndarray:
     return np.concatenate(([0.0], np.cumsum(np.hypot(d[:, 0], d[:, 1]))))
 
 
+def neighbourhood_profile(s: np.ndarray, dem: np.ndarray, in_band: np.ndarray,
+                          cap_class: float, *, cap_inside: float,
+                          runout_m: float, budget_m: float,
+                          cap_ceiling: float) -> np.ndarray:
+    """The core's NEIGHBOURHOOD clamp, verbatim — v2 and the core call
+    ONE function (spec §2-SUPPLEMENT S.2 (b), S.5)."""
+    VECT = _core_vector_utils()
+    z, _rep = VECT.neighbourhood_road_profile(
+        s, dem, in_band, cap_class, cap_inside=cap_inside, runout_m=runout_m,
+        budget_m=budget_m, cap_ceiling=cap_ceiling)
+    return np.asarray(z, dtype=float)
+
+
 def clamp_profile(s: np.ndarray, dem: np.ndarray, cap: float) -> np.ndarray:
     """The core's clamp, verbatim (``O4_Vector_Utils.cap_lipschitz_profile``
     without pins): the cap-Lipschitz mid-envelope of ``dem`` over
@@ -240,11 +253,25 @@ Inside = _t.Callable[[np.ndarray], np.ndarray]
 def clamp_way(kind: str, ref: str, points: _t.Sequence[XY],
               sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
               cap: float, station_m: float,
-              inside: Inside | None = None) -> list[Way]:
+              inside: Inside | None = None, *,
+              in_band: Inside | None = None, cap_class: float | None = None,
+              runout_m: float | None = None, budget_m: float | None = None,
+              cap_ceiling: float | None = None) -> list[Way]:
     """Station ``points``, sample the terrain, clamp — one :class:`Way`
     per maximal run of stations ``inside`` the sampleable DEM (a
     tile-wide OSM way leaving the warm tiles is clamped in parts: a cold
-    neighbour tile is never composed for a road)."""
+    neighbour tile is never composed for a road).
+
+    ``in_band`` — THE SAME FUNCTION THE CORE CALLS (owner RULINGS
+    2026-09-18n; spec §2-SUPPLEMENT S.2 (b)).  When given, the profile is
+    :func:`O4_Vector_Utils.neighbourhood_road_profile` under the way's
+    CLASS cap outside the coverage band and ``cap`` inside it, instead of
+    the whole-way clamp at ``cap``.  Without it the patch would still
+    clamp a way that climbs a 20 % hillside out of the airport at 8 %
+    over its whole length and carry the cut/fill INTO the coverage while
+    the core's ribbon outside sits on terrain — the defect re-created at
+    the patch edge.  ``ROUTE`` / ``AXIS`` ways lie wholly in the
+    coverage, so they pass no band and take today's values."""
     if len(points) < 2:
         return []
     xy = stations(points, station_m)
@@ -273,7 +300,15 @@ def clamp_way(kind: str, ref: str, points: _t.Sequence[XY],
         dem = np.asarray(sample(part[:, 0], part[:, 1]), dtype=float)
         if not np.all(np.isfinite(dem)):
             continue
-        out.append(Way(kind, ref, part, s, dem, clamp_profile(s, dem, cap)))
+        if in_band is None:
+            z = clamp_profile(s, dem, cap)
+        else:
+            z = neighbourhood_profile(
+                s, dem, np.asarray(in_band(part), bool),
+                cap if cap_class is None else cap_class, cap_inside=cap,
+                runout_m=runout_m, budget_m=budget_m,
+                cap_ceiling=cap_ceiling)
+        out.append(Way(kind, ref, part, s, dem, z))
     return out
 
 
@@ -440,6 +475,46 @@ def _osm_levelled(w) -> bool:
     return True
 
 
+def _class_cap(tags, class_caps, default_cap: float) -> float:
+    """The way's per-class cap (S.3): ``highway`` value, else
+    ``railway:<value>``; unknown or untagged takes ``road_grade_limit``."""
+    key = tags.get("highway")
+    if not key:
+        rail = tags.get("railway")
+        key = ("railway:" + str(rail)) if rail else None
+    if key is not None:
+        v = class_caps.get(str(key))
+        if v is not None:
+            return float(v)
+    return float(default_cap)
+
+
+def _band_fn(pm: PlanarMap, lane_width_m: float):
+    """``(xy (n, 2)) -> bool mask`` — the patch coverage buffered by
+    ``lane_width + 2``, the core's own band (S.1 (1) / S.2 (b)).  A map
+    with no face bands nothing, and the clamp then reads as terrain."""
+    from shapely.prepared import prep
+    from ..emit.bank import coverage_polygon
+    cov = coverage_polygon(pm)
+    if cov is None or cov.is_empty:
+        return None
+    band = cov.buffer(float(lane_width_m) + 2.0)
+    if band.is_empty:                                    # pragma: no cover
+        return None
+    pre = prep(band)
+    x0, y0, x1, y1 = band.bounds
+
+    def _mask(xy: np.ndarray) -> np.ndarray:
+        out = np.zeros(len(xy), bool)
+        for k, (px, py) in enumerate(xy):
+            if px < x0 or px > x1 or py < y0 or py > y1:
+                continue
+            out[k] = pre.covers(Point(float(px), float(py)))
+        return out
+
+    return _mask
+
+
 def _face_polygon(pm: PlanarMap, fid: int) -> Polygon | None:
     ring = [pm.vertices[v].xy for v in pm.ring_vertices(pm.faces[fid].ring)]
     if len(ring) < 3:
@@ -466,11 +541,19 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     lw = float(lane_width_m) if lane_width_m is not None else rp.lane_width_m
     sample = _sample_fn(airport)
     inside = _inside_fn(airport)
+    # THE BAND v2 CLAMPS UNDER (spec §2-SUPPLEMENT S.2 (b)): the patch
+    # coverage at the SAME ``lane_width + 2`` offset the core's ribbon is
+    # differenced by, so both engines draw one boundary.
+    band_fn = _band_fn(pm, lw)
     ways: list[Way] = []
     for w in airport.osm_ways:
         if _osm_levelled(w):
-            ways.extend(clamp_way(OSM, f"osm:{w.id}", w.points, sample, cap_,
-                                  rp.station_m, inside))
+            ways.extend(clamp_way(
+                OSM, f"osm:{w.id}", w.points, sample, cap_, rp.station_m,
+                inside, in_band=band_fn,
+                cap_class=_class_cap(w.tags, rp.class_caps, cap_),
+                runout_m=rp.runout_m, budget_m=rp.budget_m,
+                cap_ceiling=rp.cap_ceiling))
     for b in pm.breaklines.values():
         if b.kind != "road_centerline":
             continue

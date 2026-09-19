@@ -40,6 +40,38 @@ JOIN_RULING = ("roads.coverage_edge join "
                "(owner 2026-09-13be; spec §37 (9))")
 
 
+#: Halvings used to locate the coverage crossing on the exit segment
+#: (S.2 (c)).  40 resolves a 20 m station to well under a micrometre.
+_CROSSING_HALVINGS = 40
+
+
+def _crossing_z(way, cov, last_in: int, first_out: int) -> float:
+    """The way's profile value AT the coverage boundary — linear in
+    ``way.z`` at the arclength where the segment ``last_in → first_out``
+    crosses it (spec §2-SUPPLEMENT S.2 (c)).
+
+    The crossing is bisected on ``cov.covers`` rather than intersected
+    with the boundary: the segment may clip a re-entrant edge more than
+    once, and the value the join wants is the one at the LAST crossing
+    on the way out, which is what the bisection between an inside point
+    and an outside point converges to.
+    """
+    from shapely.geometry import Point
+    xi, yi = (float(v) for v in way.xy[last_in])
+    xo, yo = (float(v) for v in way.xy[first_out])
+    zi, zo = float(way.z[last_in]), float(way.z[first_out])
+    lo, hi = 0.0, 1.0            # lo: still inside, hi: outside
+    for _ in range(_CROSSING_HALVINGS):
+        t = 0.5 * (lo + hi)
+        p = Point(xi + t * (xo - xi), yi + t * (yo - yi))
+        if cov.covers(p):
+            lo = t
+        else:
+            hi = t
+    t = 0.5 * (lo + hi)
+    return zi + (zo - zi) * t
+
+
 def road_coverage_joins(pm: PlanarMap, law: Law, profiles,
                         frame: _t.Mapping[int, tuple[int, float, float]],
                         coverage=None
@@ -79,7 +111,12 @@ def road_coverage_joins(pm: PlanarMap, law: Law, profiles,
             if inside[a] == inside[b]:
                 continue
             last_in, first_out = (a, b) if inside[a] else (b, a)
-            z_out = float(w.z[first_out])          # the CORE's clamp there
+            # THE JOIN VALUE IS READ AT THE CROSSING, not at the first
+            # station outside (spec §2-SUPPLEMENT S.2 (c)): a 20 m
+            # station hid up to 1.6 m at the 8 % cap and up to 4 m at a
+            # 20 % class cap.  Linear in ``w.z`` at the arclength where
+            # the way crosses the coverage boundary.
+            z_out = _crossing_z(w, cov, last_in, first_out)
             s_in = float(w.s[last_in])
             rep["exits"] += 1
             # THE SECTION AT THAT STATION (§37 (8)'s unit): the route's

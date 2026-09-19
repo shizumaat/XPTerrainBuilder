@@ -562,11 +562,26 @@ def read_levelled_roads(path: Path) -> dict:
     doc = json.loads(Path(path).read_text())
     cap = float(doc.get("grade_cap") or ROAD_CAP)
     materiality = float(doc.get("materiality_m") or 0.01)
+    # SIDECAR v2 (spec ``linear-transport-redesign-spec.md``
+    # §2-SUPPLEMENT S.4 row 10): the clamp is scoped to the patch
+    # neighbourhood, so a way is priced against ITS OWN cap — the run's
+    # ``cap_eff`` where the class cap yielded, ``cap_inside`` in the
+    # band — and a ``scope="terrain"`` way is COUNTED BUT NOT PRICED: no
+    # longitudinal law applies to it, it is the base engine's road on the
+    # terrain.  A v1 sidecar has neither key and reads exactly as before.
+    version = int(doc.get("version") or 1)
+    cap_inside = float(doc.get("cap_inside") or cap)
     chains = []
     dev_all, cut_all = [], []
     n_stations = n_clamped = 0
+    n_terrain_ways = n_terrain_stations = 0
+    n_runs = n_yielded = n_ceiling = 0
     max_lift = max_cut = 0.0
     for w in doc.get("ways", []):
+        if str(w.get("scope") or "neighbourhood") == "terrain":
+            n_terrain_ways += 1
+            n_terrain_stations += len(w.get("s_m", []))
+            continue
         st = [float(v) for v in w.get("s_m", [])]
         lev = [float(v) for v in w.get("alt", [])]
         gnd = [float(v) for v in w.get("dem_alt", [])]
@@ -583,14 +598,31 @@ def read_levelled_roads(path: Path) -> dict:
         n_clamped += int(w.get("clamped_stations") or 0)
         max_lift = max(max_lift, float(w.get("max_lift_m") or 0.0))
         max_cut = max(max_cut, float(w.get("max_cut_m") or 0.0))
+        runs = list(w.get("runs") or ())
+        n_runs += len(runs)
+        n_yielded += sum(1 for r in runs if r.get("yielded"))
+        n_ceiling += sum(1 for r in runs if r.get("at_ceiling"))
+        # THE WAY'S OWN CAP: the loosest bound any of its steps is held
+        # to — ``cap_inside`` in the band, the run's ``cap_eff`` outside
+        # it.  A v1 sidecar (no runs) prices the whole way at
+        # ``grade_cap``, as it always did.
+        cap_w = max([cap_inside] + [float(r.get("cap_eff") or 0.0)
+                                    for r in runs]) if runs else cap
+        priced = [False] * max(len(st) - 1, 0)
+        for r in runs:
+            for k in range(int(r.get("i0", 0)), min(int(r.get("i1", 0)),
+                                                    len(priced))):
+                priced[k] = True
+        if not runs:
+            priced = [True] * len(priced)
         steps = []
         for k in range(len(st) - 1):
             ds = st[k + 1] - st[k]
-            if ds <= 1e-9:
+            if ds <= 1e-9 or not priced[k]:
                 continue
             steps.append({"eg": (lev[k + 1] - lev[k]) / ds,
                           "dg": (gnd[k + 1] - gnd[k]) / ds})
-        followable = [s for s in steps if abs(s["dg"]) <= cap + 1e-12]
+        followable = [s for s in steps if abs(s["dg"]) <= cap_w + 1e-12]
         worst_i = max(range(len(cut_v)), key=lambda i: cut_v[i])
         dem_relief = max(gnd) - min(gnd)
         emit_relief = max(lev) - min(lev)
@@ -634,6 +666,11 @@ def read_levelled_roads(path: Path) -> dict:
             "clamped_stations": int(w.get("clamped_stations") or 0),
             "max_lift_m": float(w.get("max_lift_m") or 0.0),
             "max_cut_m": float(w.get("max_cut_m") or 0.0),
+            "scope": str(w.get("scope") or "neighbourhood"),
+            "class": w.get("class"),
+            "cap_class": w.get("cap_class"),
+            "cap_priced_pct": 100.0 * cap_w,
+            "runs": runs,
         })
     return {
         "patch": str(path),
@@ -656,7 +693,18 @@ def read_levelled_roads(path: Path) -> dict:
             "cut_worst_m": max(cut_all) if cut_all else None,
         },
         "clamp": {
+            "sidecar_version": version,
             "grade_cap": cap,
+            "cap_inside": cap_inside,
+            "runout_m": doc.get("runout_m"),
+            "budget_m": doc.get("budget_m"),
+            "cap_ceiling": doc.get("cap_ceiling"),
+            "neighbourhood_ways": len(chains),
+            "terrain_ways": n_terrain_ways,
+            "terrain_stations": n_terrain_stations,
+            "runs": n_runs,
+            "yielded_runs": n_yielded,
+            "ceiling_runs": n_ceiling,
             "materiality_m": materiality,
             "station_max_m": doc.get("station_max_m"),
             "lane_width_m": doc.get("lane_width_m"),

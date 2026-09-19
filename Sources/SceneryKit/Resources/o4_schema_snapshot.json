@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1796",
+ "engineVersion": "1.50.1797",
  "groups": {
   "app": [
    "verbosity",
@@ -927,7 +927,7 @@
   },
   "global_road_grade_limit": {
    "default": 0.08,
-   "hint": "Longitudinal grade cap for levelled roads, as a fraction (0.08 = 8 %). A road follows the terrain wherever the terrain is within this cap, and where the terrain is steeper the road lifts or cuts the minimum needed to hold it — the clamp runs per way along the road's own centerline, at 20 m stations. The default is the engine's own ground-vehicle grade limit (the v2 law table's common.roles.service_road.longitudinal), which is also what the airport pavement builder grades service roads by; raise it for mountain roads that should stay glued to the ground, lower it for gentler road profiles at the cost of deeper cuttings and higher embankments.",
+   "hint": "Longitudinal grade cap, as a fraction (0.08 = 8 %), for roads INSIDE an auto-patched airport's patch area, where the airport builder grades them. Outside the patch area roads follow the terrain exactly as the base engine levels them; within about 100 m of the patch a road is eased onto the patch using a grade limit for its road class (motorway 6 % … service road 20 %) and is never moved more than about 1 m off the terrain to do it.",
    "name": "global_road_grade_limit",
    "type": "float"
   },
@@ -1366,7 +1366,7 @@
   },
   "road_grade_limit": {
    "default": 0.08,
-   "hint": "Longitudinal grade cap for levelled roads, as a fraction (0.08 = 8 %). A road follows the terrain wherever the terrain is within this cap, and where the terrain is steeper the road lifts or cuts the minimum needed to hold it — the clamp runs per way along the road's own centerline, at 20 m stations. The default is the engine's own ground-vehicle grade limit (the v2 law table's common.roles.service_road.longitudinal), which is also what the airport pavement builder grades service roads by; raise it for mountain roads that should stay glued to the ground, lower it for gentler road profiles at the cost of deeper cuttings and higher embankments.",
+   "hint": "Longitudinal grade cap, as a fraction (0.08 = 8 %), for roads INSIDE an auto-patched airport's patch area, where the airport builder grades them. Outside the patch area roads follow the terrain exactly as the base engine levels them; within about 100 m of the patch a road is eased onto the patch using a grade limit for its road class (motorway 6 % … service road 20 %) and is never moved more than about 1 m off the terrain to do it.",
    "name": "road_grade_limit",
    "type": "float"
   },

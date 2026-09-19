@@ -173,7 +173,7 @@ def _pristine_entries(pack_root: str) -> list[str] | None:
                 if not nm.lower().endswith(".obj"):
                     continue
                 live = os.path.join(root, nm)
-                read, _restored = authored_source(live)
+                read, _restored = authored_source(live, pack_root)
                 st = os.stat(read or live)
                 rel = os.path.relpath(live, pack_root)
                 out.append(f"{rel}:{st.st_size}:{st.st_mtime}")

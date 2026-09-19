@@ -1769,11 +1769,17 @@ def _compute_dsf_object_buildings(
         # ZERO building rings (found at KBNA 2026-07-14: the whole
         # terminal complex vanished from the building pool after the
         # first rebake).
-        from .object_rebake import BACKUP_SUFFIX
+        # §12a (3) row 8 (the ONE reachable v1-era reader of this class —
+        # ``read_dsf_object_buildings`` is called by the inset pass,
+        # ``O4_Airport_Elevation_Insets``, on every tile build): the
+        # backup is read only while it STILL BELONGS to the pack on disk.
+        # A pack the user updated in place leaves our old ``.anchor_bak``
+        # behind, and reading it here would describe a pack that is no
+        # longer installed.
+        from auto_patch_v2.airport.pack import authored_source
 
-        backup_path = physical_path + BACKUP_SUFFIX
         geometry_source_path = (
-            backup_path if os.path.isfile(backup_path) else physical_path)
+            authored_source(physical_path, pack_root)[0] or physical_path)
         geometry = _load_object_geometry(geometry_source_path)
         if geometry is None or not geometry.has_solid_geometry:
             continue

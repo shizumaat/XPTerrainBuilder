@@ -558,10 +558,16 @@ def cmd_disk(args: argparse.Namespace) -> int:
     if os.path.isfile(pp):
         with open(pp) as fh:
             prov = json.load(fh).get("objects", {})
-    n_bak = baked = 0
+    n_bak = baked = superseded = 0
     rows = []
     for d, _, fs in os.walk(root):
         for f in fs:
+            # §12a (3) row 17: a RETIRED backup is counted, never walked —
+            # it is the previous pack version's original, kept for ever
+            # under a stamped name and read by nothing.
+            if ".anchor_bak.superseded-" in f:
+                superseded += 1
+                continue
             if not f.endswith(".anchor_bak"):
                 continue
             n_bak += 1
@@ -584,7 +590,8 @@ def cmd_disk(args: argparse.Namespace) -> int:
             e = prov.get(rel, {})
             rows.append((rel, float(dy.min()), float(dy.max()), e.get("decision_kind"),
                          e.get("anchor_ground_m"), e.get("seat_datum_m"), e.get("delta_m")))
-    print(f"{root}: anchor_bak files {n_bak}, live != backup {baked}, provenance entries {len(prov)}")
+    print(f"{root}: anchor_bak files {n_bak}, live != backup {baked}, "
+          f"superseded backups {superseded}, provenance entries {len(prov)}")
     for rel, lo, hi, kind, ag, seat, delta in sorted(rows):
         print(f"  {rel:62s} dy[{lo:+8.4f},{hi:+8.4f}] {kind} anchor_ground={ag} seat={seat} delta={delta}")
     return 0

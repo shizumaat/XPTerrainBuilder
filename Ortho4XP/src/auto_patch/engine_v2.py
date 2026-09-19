@@ -760,11 +760,38 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                      f"{c['conversions']} conversion(s), {c['splits']} split(s) into "
                      f"{c['bodies']} body file(s), {c['kept']} kept; nothing written")
         return c
-    res = _pw.apply_plan(
-        plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
-        allow_live_install=True,
-        refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
-        engine_version=_engine_version(), law_digest=digest)
+    from auto_patch_v2.airport.backup_state import (BackupUnproven,
+                                                    SUPERSEDED_INFIX as
+                                                    _BS_SUPERSEDED,
+                                                    UNRECOGNISED_INFIX as
+                                                    _BS_UNRECOGNISED)
+    try:
+        res = _pw.apply_plan(
+            plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
+            allow_live_install=True,
+            refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
+            engine_version=_engine_version(), law_digest=digest)
+    except BackupUnproven as exc:
+        # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
+        # touched — not the DSF, not an object, not a cut file: a pack
+        # half-written against a DSF we may not touch is torn geometry.
+        UI.vprint(0, f'  [v2 placement] PACK NOT TOUCHED: "{pack_name}" — '
+                     f'{exc}')
+        return {}
+    # §12a (4): ONE line per pack per build when the rule had to act;
+    # NOTHING on the normal path (D3 / D4, O1 / O2).
+    _adopted = list(res.restore.adopted)
+    _unproven = list(res.restore.unproven)
+    if res.dsf is not None:
+        for note in res.dsf.notes:
+            UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — {note}')
+    if _adopted or _unproven:
+        UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — '
+                     f'{len(_adopted)} file(s) of yours were kept as installed '
+                     f'(their old backups are now *{_BS_SUPERSEDED}<date>)'
+                     + (f'; {len(_unproven)} object(s) could not be proven and '
+                        f'their bytes were kept as *{_BS_UNRECOGNISED}<date>'
+                        if _unproven else ''))
     UI.vprint(1, f"  [v2 placement] {plan_.icao}: "
                  f"{len(res.restore.restored)}/{len(res.restore.backups)} object(s) "
                  f"restored from .anchor_bak, {c['conversions']} placement(s) "
@@ -884,6 +911,21 @@ def rebake_after_mesh(tile) -> dict:
                         _is_protected_scenery_root(plan_.pack_root):
                     UI.vprint(1, f"  [v2 rebake] {icao}: pack {plan_.pack_root} is not a "
                                  "writable Custom Scenery pack — placement skipped")
+                    counts["airports"] += 1
+                    continue
+                # A DISABLED PACK IS NEVER REWRITTEN (owner RULINGS
+                # 2026-09-18 17b/c: "its files are not rewritten"; §12a
+                # (3) row 15).  v1 had this test (``object_rebake.py``
+                # :1339) and the v2 write path had none, so a plan JSON
+                # left beside the patch from before the user disabled a
+                # pack would still have been classified, adopted,
+                # restored and written.
+                import O4_Scenery_Packs as _SP
+                if not _SP.pack_enabled(plan_.pack_root):
+                    UI.vprint(1, f"  [v2 rebake] {icao}: pack "
+                                 f"{os.path.basename(os.path.normpath(plan_.pack_root))}"
+                                 " is DISABLED in scenery_packs.ini — "
+                                 "nothing is read, classified or written")
                     counts["airports"] += 1
                     continue
                 sampler = MeshElevationSampler(mesh_path, plan_.bounds())

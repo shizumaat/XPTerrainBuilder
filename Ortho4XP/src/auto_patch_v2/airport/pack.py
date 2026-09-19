@@ -39,17 +39,26 @@ __all__ = ["PackSelection", "select_pack", "tile_dsf_path", "signature",
 AUTHORED_BACKUP_SUFFIX = ".anchor_bak"
 
 
-def authored_source(path: str | None) -> tuple[str | None, bool]:
+def authored_source(path: str | None,
+                    pack_root: str | None = None) -> tuple[str | None, bool]:
     """``(path_to_read, restored)``: the ``.anchor_bak`` beside ``path``
-    when one exists (the authored geometry; ``restored`` True), else
-    ``path`` itself.  A path that already names a backup is returned
-    unchanged.  ``None`` passes through (an unresolved placement)."""
+    when one exists AND STILL BELONGS TO THE PACK ON DISK (the authored
+    geometry; ``restored`` True), else ``path`` itself.  A path that
+    already names a backup is returned unchanged.  ``None`` passes
+    through (an unresolved placement).
+
+    §12a (3) row 6: the ONE object read frame, via
+    ``backup_state.classify_object`` — a ``.obj`` the user's new version
+    of the pack REPLACED reads as the pack's own file, not as the stale
+    backup of the version before it, so ``partition_cache`` keys on the
+    file actually read and invalidates by itself."""
     if not path or path.endswith(AUTHORED_BACKUP_SUFFIX):
         return path, False
-    bak = path + AUTHORED_BACKUP_SUFFIX
-    if os.path.isfile(bak):
-        return bak, True
-    return path, False
+    if not os.path.isfile(path + AUTHORED_BACKUP_SUFFIX):
+        return path, False                      # row O1, on ONE stat
+    from .backup_state import classify_object
+    read = classify_object(path, pack_root or os.path.dirname(path)).read_path
+    return read, read != path
 
 
 def is_authored_backup(path: str) -> bool:

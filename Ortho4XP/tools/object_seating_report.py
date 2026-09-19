@@ -168,8 +168,11 @@ def main() -> int:
         # Re-load geometry the same way discovery did (backup preferred).
         geometry_by_resource = {}
         for resource, physical in pool.resolved_paths.items():
-            backup = physical + ".anchor_bak"
-            source = backup if os.path.isfile(backup) else physical
+            # §12a (3) row 17: the authored frame is one resolver's
+            from auto_patch_v2.airport.pack import authored_source
+            source = authored_source(physical, pool.pack_root
+                                     if hasattr(pool, "pack_root")
+                                     else os.path.dirname(physical))[0] or physical
             geometry_by_resource[resource] = (
                 post_mesh.dsf_reader._load_object_geometry(source))
 

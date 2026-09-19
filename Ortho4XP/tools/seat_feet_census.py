@@ -70,7 +70,10 @@ def read_feet(pack_root: str, path: str, thickness: float = 0.5,
     sim.  The AUTHORED file is read (``.anchor_bak`` first).
     """
     live = os.path.join(pack_root, path.replace("\\", "/"))
-    src = live + ".anchor_bak" if os.path.isfile(live + ".anchor_bak") else live
+    # §12a (3) row 17: the AUTHORED frame is ``pack.authored_source``'s —
+    # a backup that no longer belongs to the pack on disk is not authored.
+    from auto_patch_v2.airport.pack import authored_source
+    src = authored_source(live, pack_root)[0] or live
     if not os.path.isfile(src):
         return "missing"
     geom = obj8.parse_obj8(src)

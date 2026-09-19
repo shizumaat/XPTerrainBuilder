@@ -727,7 +727,7 @@ structure = the union of its closed-volume components' projections**, holes kept
 | byte identity of the PATCH BODY | expected IDENTICAL: unit and cluster-pad outlines are unions unchanged by removing contained rings; contained bodies stand on the host's pad and state no foot rows today (09af-1); cover unions are unchanged under a roof. PROVEN, not asserted: S6's dry pairs on LEMD / HECA / VHHH (`structures.json` + cluster-pad outlines + foot-row sources byte-identical). DSF rows move (declared above) |
 | terrain objects (hill, platform, cliff) | never hosts (closure test). What the pipeline should DO with a pack's terrain object is outside this spec — owner Q4 |
 
-### F.5 JETWAYS RIDE WITH THEIR TERMINAL (owner ruling above)
+### F.5 JETWAYS RIDE WITH THEIR TERMINAL (owner ruling above) — read with F.9, which generalises it
 
 **What happens today, measured on the corpus dumps [M-lod]:**
 
@@ -751,11 +751,8 @@ its terminal; on the three big airports it is NOT met for any jetway.
     docking display rides too (correct); an apron marshaller 40 m out does not.
     Deterministic host: the unit whose outline is nearest the anchor; ties → larger
     outline area, then lower placement id.
- 2. **A parsed OBJ jetway further than 0.5 m** (authored with a gap) is recognised
-    geometrically, never by path: an ELONGATED body (plan length / width ≥ 3) whose
-    plan area is ≥ 70 % ELEVATED (clear ≥ 2.5 m), whose ground feet fall in ≤ 2 compact
-    clusters, and ONE END of whose outline comes within `[placement] jetway_reach_m`
-    (proposed 3.0 m) of a host outline. Numbers are S7's to measure on OTHH's 14 types.
+ 2. *(WITHDRAWN — owner simplification, F.9: no object-type recognition of any kind. A
+    parsed body joins by R1's footprint intersection like everything else.)*
  3. **Motion by ROW, not by bake.** A rider takes its unit's vertical motion on its own
     DSF row (the §16g (5) `msl_seat_rows` mechanism), so multi-anchor, `.agp` and
     `lib/` placements can all ride without touching a shared file. NEEDS CHECK by S7
@@ -767,10 +764,63 @@ its terminal; on the three big airports it is NOT met for any jetway.
     a derived pad never takes AIRSIDE ground** — the extension is clipped by the apron
     faces like every pad. Where the feet stand on apron (the normal case), "the same
     level" therefore cannot be bought by bending the apron to the pad (airside is
-    king). It can only be bought the other way round — the pad's level meeting the
-    apron grade at the terminal's airside edge — and a flat pad cannot do that along a
-    falling apron. That is an intent conflict with a standing open item (17x fix B,
-    `airside_floor`, ships FALSE), so it is owner Q3, not a design choice here.
+    king). The pad already MEETS the apron at the terminal's airside edge (§20: the pad
+    follows its apron; F.9 R4) — what is left open is only the strip of apron under the
+    jetways themselves, which is owner Q3.
+
+### F.9 THE GENERAL RULE (owner simplification, verbatim)
+
+*"Do we need to recognize a jetway? Anything that intersects the building (and doesn't
+extend of hundreds of meters like a railway) is just treated as part of that building
+and moves with it. We only cut apart objects that have clear measurable space all the
+way around them. Aprons and terminals must always meeting smoothly, and the flat
+terminal area should include the jetways."*
+
+**Every clause of this is already law — §16g (13bo) — and the code that costs the
+minutes is the machinery §16g made redundant.** Rule by rule:
+
+| | the owner's clause | what exists | value | what changes |
+|---|---|---|---|---|
+| **R1** | anything that intersects the building is part of it and moves with it; transitive | §16g (1) `footprint_unit.plan_units`: two bodies whose PLAN footprints overlap or come within `[placement] footprint_touch_m` are one unit, chained transitively; one seat per unit | **0.5 m**, plan | nothing in the law. TWO GAPS in its population: (i) a placement the plan never holds — multi-anchor, `.agp`, `lib/` — cannot intersect anything (F.5: every jetway at OTHH, LEMD and HECA's `.agp` ones) → F.5's anchor rider; (ii) `planar/group.derive` is a SECOND, narrower derivation of "what belongs together", from ε-abutments: at TNCM it reports `abutment_pairs 33,909`, **`refused_building 28,013`** (a pair of non-deck bodies across placements is refused a GROUP — 10i "buildings never group with buildings"), `cross_groups 19` (deck juniors joined to a senior), `long_span 0`. Those refusals are about who shares a PAD TARGET, not who moves together, so they do not contradict R1 — but under R1 + R4 the group's membership should be READ from the unit / cluster, not re-derived (the module's own "ONE DERIVATION, MANY READERS"). Consolidation = row 21 |
+| **R2** | …unless it extends hundreds of metres like a railway | §16g (3) + (6) "THE ONLY CUT": a body whose footprint span reaches `connector_span_m` AND whose ends' ground differs by `[cockpit] visual_m` AND which topologically LINKS (two components of its unit, or one end to open ground) is a CONNECTOR — cut at line stations, never holding its unit rigid. Anything else is a member however long (13cn, the SPJC viaduct). Beside it: `[placement] group_span_max_m` 150 (group release, 11i), `UNIT_CLUSTER_SPAN_MAX_M` 300 (a rigid cluster is building-sized), the 10bb line class (fences, kerbs) | **200 m** | **keep 200 m; no new number.** Against real data: LEMD's kerbside canopies span 30–90 m (11i), a jetway with its fixed bridge ≈ 60–120 m, LEMD's T2 block is whole at 300 m and is a BUILDING (it is never asked this question — R2 is asked of one BODY, not of a unit), HECA's elevated rail and LEMD's 5,157 m perimeter fence run kilometres. 200 m sits above every attachment and below every railway; and the span test alone never cuts — the body must also be the link, which is what keeps a 250 m pier finger a member |
+| **R3** | we only cut apart objects that have clear measurable space all the way round | the unit partition IS that: two things are separate units iff nothing chains them within 0.5 m in plan | **0.5 m = `footprint_touch_m`** — NOT the ε-contact 0.25 m (3-D surface-to-surface) and not the abutment test | **the consequence is this spec's subject.** The ε-contact graph (`contact.partition`: TNCM 231 s, TFFG 459 s, OTHH the plan stage) exists to find what is rigidly ONE in 3-D. Since 13bo the only lawful cut is R2's, so inside a unit nothing consumes a 3-D contact edge except (a) splitting ONE FILE that holds several free-standing structures into bodies (LEMD authors hundreds per file), (b) choosing a footless body's carrier (11ai–11am), (c) the cluster floor split (`floor_split_m`). (a) is a PLAN question — clear space all the way round — and is answered by footprint blobs, not by 2.26 M vertex-to-triangle tests |
+| **R4** | the flat terminal area includes the jetways; aprons and terminals always meet smoothly | §16g (10) "THE PAD IS THE CLUSTER" (14x): one pad per cluster = the union outline of touching WALLED bodies (`chain_min_height_m` 2.5) whose ground floors agree within `floor_split_m` 0.5 — a parsed jetway touching its terminal is in the cluster and its outline is in the pad TODAY. §20: the pad FOLLOWS its apron (`frontage_level`: the senior fronting pavement's edge mean is the pad's level; the pad may tilt ≤ `pad_slope_max` 1 %); apron-to-pad joints at LEMD `building4` measure **0.00 m since 11af**. 14ah / 14ax: the pad is CLIPPED out of every airside face | 1 % tilt; 0.5 m floors | "meet smoothly" is MET by standing law — no owner question. "Include the jetways" is met for the part of a jetway over non-airside ground and is CLIPPED where its wheels stand on apron: that one conflict is owner Q3, with numbers. Unparsed riders (F.5) add a `footprint_touch_m` disc at the anchor to the cluster outline before the clip |
+
+**Scatter stays consistent (18q):** a bush whose footprint intersects a building is R1 —
+it rides (13bo); a free-standing piece has clear space all round — R3 — and is set down
+on its own; and it never shapes the terrain (Q1), so it is never in a cluster (R4).
+
+**R1–R4 AND THE LEVEL OF DETAIL — the end state.** Once units are formed by footprint
+intersection, the only per-object products any law consumes are: **(1) the unit's outer
+PLAN outline** (membership, R1 / R3), **(2) its GROUND outline and ground floors** (the
+pad, R4), **(3) its ground feet** (one seat per unit), **(4) its at-/below-grade parts**
+(basins, door wells, tunnels, wall corridors, sills, hard surfaces), **(5) its
+above-grade cover UNION** (one polygon per unit). Nothing else — no ring per component,
+no 3-D contact edge, no group per body.
+
+ * **How early.** (1), (2) and (5) are unions of projected TRIANGLES and need no
+   components at all: per RESOURCE, in OBJECT space, once per pack (row 6's store), the
+   connected BLOBS of the solid plan projection are "the free-standing structures in
+   this file" — R3 read literally. Per placement they are rotated through
+   `frame_entry.enter` (§51) and chained across placements by ONE bulk
+   `STRtree` `dwithin` 0.5 m query. `solid_components` then runs only for what (3) and
+   (4) need: the at-/below-grade band of each blob.
+ * **The measured prize under this rule [M-lod]** — the population the unit law works
+   on, against the population the contact partition works on today:
+
+   | | placed solid components (today's parts population) | at-grade footprint blobs (1 m raster, 8-connected, whole window) | ratio |
+   |---|---|---|---|
+   | TNCM | 153,888 | 6,014–6,706 | **4 %** |
+   | TFFG | 182,584 | 3,493–4,027 | **2 %** |
+   | LEMD | 79,572 | 9,244 | 12 % |
+
+   and inside the blobs, F.2's contents shares (LEMD 50.0 %, OTHH 23.1 %, non-scatter
+   TNCM 27.0 %) are what never needs a second look. Wall: the partition's cost is
+   super-linear in parts (pairs), so a 10–25× smaller population takes the object
+   layer to seconds; stated as an EXPECTATION — it is a redesign of `contact.partition`
+   and its consumers (`placement_plan`, `placement_family`, `rebake_plan`, the carrier
+   law 11ai–11am, `planar/cluster`'s floor split, `planar/group`), and is NOT sliceable
+   from a census. Row 21.
 
 ### F.6 VERDICT ROWS (extend §A's table)
 
@@ -778,7 +828,8 @@ its terminal; on the three big airports it is NOT met for any jetway.
 |---|---|---|---|---|---|---|---|
 | **18** | **CONTENTS — the rigid-unit rule** (F.2): components contained in a closed-volume host outline become box-only riders; above-band non-hard ones leave the structure reads | partition est. −10…−15 s after row 5 | ≈ −3 s | **LEMD 50.0 % of components / 44.4 % of triangles; OTHH 23.1 % / 21.4 %; LEMD whole placements 21.0 % skip decomposition too** | 1 module (shared with §48) + the `placed_parts` reorder; consumer census = §B.6's rows 1, 4–10 with "contents" read as "scatter" | patch body expected byte-identical (dry-pair proof); DSF rows move (declared) | **DO NEXT — S6 `packcontents`**, which RESUMES and absorbs `v2interiors` (§48) |
 | **19** | coarser precision for class (b) (above-grade, not contained): hull ring + no intra-unit narrow pass | large at TNCM / OTHH on paper (65.6 % / 55.0 %) | — | — | the carrier choice (11ai / 16a) reads exactly these contacts | high — carriers decide where roofs sit (the floating-roof defect class, 11ah–11am) | **NEEDS MEASUREMENT, not now**: the "above grade" reading is polluted by terrain-object authoring; re-measure after rows 5 + 18 land |
-| **20** | JETWAY RIDERS (F.5): anchor-based unit membership + row motion for unparsed / multi-anchor / stock placements | — | — | correctness, not time | new placement-law section in `object-placement-spec.md`; `dsf_write`, `footprint_unit` | none on the patch body unless Q3 extends pads | **DO NEXT — S7 `jetwayunit`, after Q3**; its first step is the X-Plane `.agp`-row check |
+| **20** | RIDERS WITHOUT GEOMETRY (F.5 / F.9 R1): anchor-based unit membership + row motion for unparsed (`.agp`), multi-anchor and stock placements — jetways are its first customer, no type is recognised | — | — | correctness, not time | new placement-law section in `object-placement-spec.md`; `dsf_write`, `footprint_unit` | none on the patch body unless Q3 extends pads | **DO NEXT — S7 `unitriders`** (Q3 decides only the pad strip, not the membership); its first step is the X-Plane `.agp`-row check |
+| **21** | **UNITS BY FOOTPRINT, not by 3-D contact** (F.9 end state): object-space plan blobs per resource → placed outlines → one bulk touch query; ε-contact only where a carrier or a floor split needs it; `planar/group` reads units instead of re-deriving from abutments | population 153,888 → ≈ 6,400 (4 %) | 182,584 → ≈ 3,800 (2 %) | LEMD 12 % | a redesign of `contact.partition` + six consumers; needs its own consumer census and spec | every DSF row can move; patch body via cluster pads (outlines should be equal — to prove) | **DO NEXT, AS ITS OWN SPEC** after S5b + S6 land and are profiled: they are the same idea applied to two classes, and their measured residue says how much of the contact graph is still paid for |
 
 **Slices.** S6 `packcontents` — ONE implementer, AFTER S5b (same edit sites:
 `contact.placed_parts`, `pack_partition._build_member`, `basin_witness`), resuming the
@@ -796,24 +847,25 @@ shells (§48 fixpoint); duplicate coincident placements; cache version refusal. 
 LEMD / HECA / VHHH dry pairs byte-identical on the patch-feeding products, then ONE
 `build_airport.py LEMD` (the airport that carries this row's prize). Bars: LEMD full
 parts −40 % ± 5 pp, structures-stage wall and RSS named; attempt cap 2; heartbeat.
-S7 `jetwayunit` — separate lane, placement law, after Q3.
+S7 `unitriders` — separate lane, placement law (F.9).
 
 ### F.7 OWNER QUESTIONS
 
-**Q3.** "Jetways move with their terminal, and the building pad includes them so
-everything is at the same level." The jetway's wheels stand on the APRON, and the apron
-is airside — the pad may never pull it (14ah; airside is king). Along a real terminal
-the apron falls: at LEMD T4 a unit member's foot is buried up to **1.73 m** under the
-graded apron today (0.43 m with fix B on), and at HECA the T3 apron falls **5.4 m**
-across the district, where fix B put the six T3 shells back on seven different levels
-(17x — which is why it ships off). Which do you want where they disagree?
-(a) the terminal and its jetways stay ONE rigid level, and the jetway wheels may float
-or sink against the apron by that much; (b) each jetway is lifted / lowered to stand on
-the apron at its own gate while its tunnel end stays on the terminal (it tilts or
-stretches slightly — a SAM jetway animates anyway); (c) long terminals are cut into
-sections by reach so each section + its jetways sits at its own apron level (17x's
-reserve shape). *Recommended: (b) for jetways — the wheels on the apron are what a
-taxiing pilot sees — with (c) remaining the standing open item for the buildings.*
+**Q3.** Two of your sentences meet at the jetway wheels. Today's law (14ah, "airside is
+king") says a building pad NEVER takes apron ground, and the pad already FOLLOWS the
+apron where they meet (§20: apron-to-pad joints measure 0.00 m at LEMD since 11af) — so
+"aprons and terminals meet smoothly" holds. But the jetway's wheels stand 30–60 m OUT
+on the apron, and "the flat terminal area should include the jetways" would make that
+strip of apron flat at the terminal's level. Where the apron falls away from or along
+the terminal the two disagree: at LEMD T4 a member of the terminal's unit stands up to
+**1.73 m** off the graded apron under its own feet today (17x; 0.43 m with the shelved
+fix B), and HECA's T3 apron falls **5.4 m** across the district. Which wins under the
+jetways? (a) the apron keeps its own grade (airside is king); the jetway rides rigidly
+with the terminal and its wheels may stand off the apron by the apron's fall over the
+jetway's length — reported per gate; (b) the apron strip under the jetways is asked to
+be LEVEL with the terminal as an AIRSIDE law of its own (a real stand is near-level) —
+the apron is still solved airside-first, nothing groundside pulls it. *Recommended:
+(a) now, with the per-gate number reported so you can judge (b) from a sim read.*
 
 **Q4.** TNCM and TFFG ship parts of their TERRAIN as objects — `Flora/hill.obj`,
 `TFFG/Ground/fixed_platform.obj` (the airport platform itself), `Ground/Cliff.obj` —
@@ -829,4 +881,6 @@ decides whether a bush set down on our ground ends up buried inside the pack's h
    exact `within` — S6 step 0 re-measures. OTHH was run with any-height hosts only.
  * No wall or RSS was measured for rows 18–20; every gain is computed from shares.
  * `.agp` / SAM behaviour under a rewritten row is unverified (S7 step 0).
- * The jetway geometric numbers (3 : 1, 70 %, 3.0 m) are proposals, not fits.
+ * No pad-vs-apron joint was re-measured here; R4's "0.00 since 11af" and Q3's 1.73 / 0.43 / 5.4 m
+   are the standing record (11af, 17x), not new captures.
+ * Row 21 has no consumer census yet; it is named as an end state, not designed.

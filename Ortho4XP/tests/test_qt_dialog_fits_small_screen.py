@@ -272,3 +272,68 @@ def test_the_wizard_still_shows_its_copy_at_its_default_size(qapp, wizard):
         qapp.processEvents()
         page = dialog.stack.currentWidget()
         assert page.width() > 0 and page.height() > 0
+
+
+# ---------------------------------------------------------------------
+# The boundary-airport sheet (spec insets-follow-patch-set-spec.md §C.7)
+# ---------------------------------------------------------------------
+#: The dialog is ONE sheet for a whole batch, so its worst case is a
+#: batch full of straddling airports — the bound has to hold there.
+BOUNDARY_AIRPORTS = [
+    {
+        "icao": "LP%02d" % index,
+        "name": "Aeroporto Internacional de Lisboa Portela %d" % index,
+        "home": [38, -10],
+        "neighbours": [[38, -9], [39, -9]],
+        "crossing_m": 1234.5 + index,
+    }
+    for index in range(20)
+]
+
+
+@pytest.fixture
+def boundary_dialog(qapp):
+    import O4_Qt_Boundary_Dialog as BD
+
+    made = []
+
+    def build(airports=BOUNDARY_AIRPORTS, add_tiles=((38, -9), (39, -9))):
+        dialog = BD.BoundaryAirportsDialog(
+            list(airports), list(add_tiles), default_choice="neighbour")
+        made.append(dialog)
+        dialog.show()
+        qapp.processEvents()
+        return dialog
+
+    yield build
+    for dialog in made:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_the_boundary_dialog_fits_a_small_laptop_with_twenty_airports(
+    boundary_dialog,
+):
+    dialog = boundary_dialog()
+    width, height = _effective_minimum(dialog)
+    assert width <= MAX_MIN_WIDTH, (
+        "the boundary-airport dialog cannot be made narrower than %d px "
+        "on %s" % (width, sys.platform)
+    )
+    assert height <= MAX_MIN_HEIGHT, (
+        "the boundary-airport dialog cannot be made shorter than %d px "
+        "on %s" % (height, sys.platform)
+    )
+    assert dialog.sizeHint().width() <= 1280
+    assert dialog.sizeHint().height() <= 720
+
+
+def test_the_boundary_list_scrolls_instead_of_growing_the_dialog(
+    boundary_dialog,
+):
+    """Twenty rows and one row must ask for the same window height."""
+    tall = boundary_dialog()
+    short = boundary_dialog(airports=BOUNDARY_AIRPORTS[:1])
+    assert tall.scroll.isAncestorOf(tall.rows[0])
+    assert tall.scroll.widget().sizeHint().height() > 200
+    assert _effective_minimum(tall)[1] <= _effective_minimum(short)[1] + 8

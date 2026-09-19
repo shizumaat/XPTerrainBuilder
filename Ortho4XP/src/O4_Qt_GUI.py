@@ -83,6 +83,7 @@ from o4_engine import EngineSession
 from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
 import O4_Qt_Wizard as QTWIZ
+import O4_Qt_Boundary_Dialog as QTBOUND
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -817,7 +818,14 @@ class MainWindow(QMainWindow):
             EV.AutoPatchFailed: self._on_auto_patch_failed,
             EV.BuildDone: self._on_build_done,
             EV.RunDone: self._on_run_done,
+            EV.BoundaryAirportsReady: self._on_boundary_airports_ready,
         }
+        # Boundary-airport preflights in flight, by request id: each is
+        # {"request_id", "tiles", "proceed", "timer"}.  A TABLE, not one
+        # slot — the resume queue can have several batches waiting, and
+        # an ask that superseded another would strand that batch's
+        # build.  An event for an id not in here is stale and dropped.
+        self._boundary_pending = {}
         self._scan_built = {}
         self._scan_installed = set()
         # (working dir, Custom Scenery dir) the in-flight scan was
@@ -3074,6 +3082,12 @@ class MainWindow(QMainWindow):
         if blocked:
             self._status(blocked)
             return
+        if self._boundary_pending and not self._building:
+            # A press whose boundary preflight has not answered yet: a
+            # second press would start a SECOND run for the same tiles.
+            self._status(
+                "Still checking for airports on the tile edges…")
+            return
         selection = sorted(self.map.selection())
         if not selection:
             self._status("Select at least one tile to build.")
@@ -3131,13 +3145,156 @@ class MainWindow(QMainWindow):
             "do_overlays": do_overlays,
         })
 
+    # ------------------------------------------------------------------
+    # Boundary airports (spec insets-follow-patch-set-spec.md §C.7)
+    # ------------------------------------------------------------------
+    def _ask_boundary_airports(self, todo, proceed):
+        """Run the boundary preflight for ``todo``, then ``proceed``.
+
+        ``proceed(tiles, boundary_policy)`` runs ON THE GUI THREAD once
+        the answer is known — with the tiles to enqueue (the neighbour
+        answer adds the engine's ``add_tiles``) and the policy to enqueue
+        them under.  It is NOT called when the user cancels the build.
+
+        Nothing here blocks: ``boundary_airports`` replies at once with a
+        request id and the answer arrives as an event.  Every path that
+        cannot produce an answer — no such command, a refusal, a
+        preflight error, or a silent engine — proceeds with
+        ``boundary_policy=None`` (the engine then resolves it from the
+        ``auto_patch_boundary`` setting).  The preflight can never be the
+        thing that stops a build.
+        """
+        request_id = None
+        try:
+            reply = self._session.boundary_airports(
+                tiles=[[int(t[0]), int(t[1])] for t in todo])
+            if isinstance(reply, dict):
+                request_id = reply.get("request_id")
+        except Exception as error:               # never fatal
+            print("Boundary-airport preflight unavailable (%s) — "
+                  "building the selected tiles as they are." % error)
+        if request_id is None:
+            proceed(list(todo), None)
+            return
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(QTBOUND.PREFLIGHT_TIMEOUT_MS)
+        timer.timeout.connect(
+            lambda rid=request_id: self._boundary_preflight_timeout(rid))
+        self._boundary_pending[request_id] = {
+            "request_id": request_id,
+            "tiles": list(todo),
+            "proceed": proceed,
+            "timer": timer,
+        }
+        timer.start()
+
+    def _retire_boundary_pending(self, request_id):
+        """Take the ask off the pending table and stop its timer."""
+        pending = self._boundary_pending.pop(request_id, None)
+        if pending is not None:
+            pending["timer"].stop()
+        return pending
+
+    def _boundary_preflight_timeout(self, request_id):
+        pending = self._retire_boundary_pending(request_id)
+        if pending is None:
+            return
+        print("Boundary-airport preflight did not answer in %d s — "
+              "building the selected tiles as they are."
+              % (QTBOUND.PREFLIGHT_TIMEOUT_MS // 1000))
+        pending["proceed"](pending["tiles"], None)
+
+    def _on_boundary_airports_ready(self, event):
+        pending = self._retire_boundary_pending(event.request_id)
+        if pending is None:
+            return            # stale: answered already, or never ours
+        tiles = pending["tiles"]
+        proceed = pending["proceed"]
+        if getattr(event, "error", ""):
+            print("Boundary-airport preflight failed (%s) — building the "
+                  "selected tiles as they are." % event.error)
+            proceed(tiles, None)
+            return
+        airports = list(getattr(event, "airports", None) or [])
+        if not airports:
+            proceed(tiles, None)
+            return
+        add_tiles = [(int(c[0]), int(c[1]))
+                     for c in (getattr(event, "add_tiles", None) or [])]
+        for airport in airports:
+            print("Airport on a tile edge: %s"
+                  % QTBOUND.airport_row_text(airport))
+        remembered = str(getattr(event, "remembered", "") or "")
+        if remembered in ("neighbour", "skip"):
+            self._apply_boundary_policy(tiles, add_tiles, remembered, proceed)
+            return
+        dialog = QTBOUND.BoundaryAirportsDialog(
+            airports, add_tiles,
+            default_choice=getattr(event, "default_choice", "neighbour"),
+            parent=self)
+        dialog.exec()
+        choice = dialog.choice
+        if choice is None:
+            self._status("Build cancelled.")
+            return
+        if dialog.remember:
+            self._remember_boundary_choice(choice)
+        self._apply_boundary_policy(tiles, add_tiles, choice, proceed)
+
+    def _apply_boundary_policy(self, tiles, add_tiles, policy, proceed):
+        """Enqueue under ``policy``, adding the neighbours it asks for.
+
+        Under "neighbour" the added tiles join the run — and the map
+        selection — exactly like tiles the user had picked himself, so
+        they build with the batch's own provider and zoom level.
+        """
+        todo = list(tiles)
+        if policy == "neighbour" and add_tiles:
+            extra = [t for t in add_tiles if t not in todo]
+            todo += extra
+            if extra:
+                self.map.set_selection(set(self.map.selection()) | set(extra))
+                print("Adding %d adjacent tile%s to this build: %s"
+                      % (len(extra), "s" if len(extra) > 1 else "",
+                         ", ".join(QTBOUND.tile_label(t) for t in extra)))
+        proceed(todo, policy)
+
+    def _remember_boundary_choice(self, policy):
+        """Persist the answer as ``auto_patch_boundary`` (spec §C.4).
+
+        Through the settings model's own global write — the one app-cfg
+        write path the Settings window uses; there is no second
+        mechanism.
+        """
+        import O4_Settings_Model as SM
+
+        value = QTBOUND.CFG_VALUE_FOR_POLICY.get(policy)
+        if not value:
+            return
+        try:
+            SM.write_global({"auto_patch_boundary": value})
+        except OSError as error:
+            self._status("Could not save the boundary-airport choice: %s"
+                         % error)
+            return
+        SM.apply_runtime({"auto_patch_boundary": value})
+
     def _start_run(self, todo, settings):
         """Start a fresh run for ``todo`` with ``settings``.
 
         The Build button's own machinery without its selection guard: a
         resumed tile need not still be selected on the map — not having
         to re-find it is the whole point of the resume button.
+
+        The boundary preflight runs FIRST: a straddling airport's answer
+        can add tiles to the run, so the run is set up after it.
         """
+        self._ask_boundary_airports(
+            todo,
+            lambda tiles, policy: self._start_run_now(tiles, settings, policy))
+
+    def _start_run_now(self, todo, settings, boundary_policy=None):
         self._building = True
         self._stop_requested = False
         self.stop_btn.setEnabled(True)
@@ -3159,7 +3316,7 @@ class MainWindow(QMainWindow):
         started = self._session.enqueue_build(
             todo,
             custom_build_dir=self.output_dir(),
-            **settings
+            **QTBOUND.build_kwargs(settings, boundary_policy)
         )
         if not started:
             self._building = False
@@ -3171,7 +3328,20 @@ class MainWindow(QMainWindow):
     def _queue_into_running_build(self, todo, provider, zoomlevel,
                                   do_vector, do_imagery, do_overlays):
         """Append a batch to the run in progress; it starts as soon as
-        the orchestrator has capacity for it."""
+        the orchestrator has capacity for it.
+
+        Same preflight as a fresh run: a batch queued into a running
+        build can carry a straddling airport of its own.
+        """
+        self._ask_boundary_airports(
+            todo,
+            lambda tiles, policy: self._queue_into_running_build_now(
+                tiles, provider, zoomlevel, do_vector, do_imagery,
+                do_overlays, policy))
+
+    def _queue_into_running_build_now(self, todo, provider, zoomlevel,
+                                      do_vector, do_imagery, do_overlays,
+                                      boundary_policy=None):
         fresh = [t for t in todo if not self._tile_in_active_run(t)]
         if not fresh:
             self._status(
@@ -3185,6 +3355,7 @@ class MainWindow(QMainWindow):
             do_vector=do_vector,
             do_imagery=do_imagery,
             do_overlays=do_overlays,
+            **QTBOUND.build_kwargs({}, boundary_policy)
         )
         if not accepted:
             self._status(
@@ -3543,11 +3714,31 @@ class MainWindow(QMainWindow):
                     break
             else:
                 batches.append(([tile], dict(settings)))
-        for index, (tiles, settings) in enumerate(batches):
-            if index == 0:
-                self._start_run(tiles, settings)
-            else:
-                self._queue_into_running_build(tiles, **settings)
+        self._start_resume_batches(batches)
+
+    def _start_resume_batches(self, batches):
+        """Start the resume batches IN ORDER, one preflight at a time.
+
+        The first batch starts the run and the rest queue into it, so a
+        later batch must not be enqueued before the run exists — and each
+        batch's boundary preflight (and its dialog) is asynchronous.  The
+        next batch therefore goes out from the previous one's answer.
+        """
+        if not batches:
+            return
+        (tiles, settings), rest = batches[0], batches[1:]
+        if self._building:
+            def proceed(todo, policy, settings=settings, rest=rest):
+                self._queue_into_running_build_now(
+                    todo, settings["provider"], settings["zoomlevel"],
+                    settings["do_vector"], settings["do_imagery"],
+                    settings["do_overlays"], policy)
+                self._start_resume_batches(rest)
+        else:
+            def proceed(todo, policy, settings=settings, rest=rest):
+                self._start_run_now(todo, settings, policy)
+                self._start_resume_batches(rest)
+        self._ask_boundary_airports(tiles, proceed)
 
     def _update_build_clock(self):
         import time as _time

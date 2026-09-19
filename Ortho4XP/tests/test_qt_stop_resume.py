@@ -85,6 +85,13 @@ def make_window(qapp, tmp_path, prefs_file, monkeypatch):
         monkeypatch.setattr(
             win._session, "cancel_tile", lambda lat, lon: True)
         monkeypatch.setattr(win._session, "cancel", lambda: True)
+        # No boundary-airport preflight in these tests: a session
+        # that does not answer the ask (spec
+        # insets-follow-patch-set-spec.md C.7) makes the build start
+        # as it did before the preflight existed --
+        # tests/test_qt_boundary_dialog.py owns that law.
+        monkeypatch.setattr(win._session, "boundary_airports",
+                            lambda tiles=None: None)
         windows.append(win)
         return win
 

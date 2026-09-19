@@ -41,7 +41,10 @@ def _make_cfg(build_dir, lat, lon, website="BI", zl=16, zone_list="[]"):
     cfg = os.path.join(
         build_dir, "Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg"
     )
-    lines = []
+    # STAMPED (owner RULINGS 2026-09-18c (2)): an unstamped tile cfg is a
+    # pre-1.0.352 file, which the scan MOVES aside instead of reading.
+    import O4_Settings_Model as SM
+    lines = [SM.tile_cfg_stamp_line().rstrip("\n")]
     if website is not None:
         lines.append("default_website=" + website)
     if zl is not None:

@@ -295,6 +295,24 @@ public struct OrthoConfigFile: Sendable {
         lines.append(rendered)
     }
 
+    /// The provenance key every tile config written since app 1.0.352
+    /// carries — the engine's `O4_Cfg_Vars.cfg_stamp_key`. It is NOT a
+    /// setting and is absent from the schema, so `values(schema:)` never
+    /// reports it as an override.
+    public static let stampKey = "cfg_written_by"
+
+    /// Stamp this tile config as written by *appVersion* (owner ruling
+    /// RULINGS 2026-09-18c (2)).
+    ///
+    /// The engine MOVES an UNSTAMPED tile config aside on first touch
+    /// (`O4_Settings_Model.retire_unstamped_tile_cfg`), so a tile config
+    /// the app writes without this line would be discarded on the next
+    /// read — taking the user's just-made override with it. Every app
+    /// write of a tile config therefore stamps.
+    public mutating func stampTileConfig(appVersion: String) {
+        set(Self.stampKey, to: .string(appVersion))
+    }
+
     /// Removes a key entirely (used to revert a per-tile override back to
     /// the inherited global value). Comments and other keys survive.
     public mutating func remove(_ key: String) {

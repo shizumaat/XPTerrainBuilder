@@ -34,6 +34,7 @@ from O4_Cfg_Vars import (
     list_mesh_vars,
     list_tile_vars,
     list_vector_vars,
+    cfg_stamp_key,
     cleanup_retired_cfg_keys,
     retired_cfg_keys,
 )
@@ -264,15 +265,15 @@ class Tile:
             layers = [global_cfg_file]
         else:
             tile_cfg = config_file or self._tile_cfg_path()
-            # THE ONE-TIME MIGRATION (owner ruling RULINGS 2026-09-18a (1)),
+            # THE PRE-1.0.352 MOVE (owner ruling RULINGS 2026-09-18c (2)),
             # run before the tile layer is applied so this build already
-            # resolves the migrated file: a tile cfg written by the
-            # pre-2026-09-18 full-dump writer carries a FROZEN copy of the
-            # whole settings frame, which then beats the global for ever.
-            # Idempotent, and a file needing no change is not rewritten.
+            # resolves without it: a tile cfg written before the stamp
+            # existed carries a FROZEN copy of the whole settings frame,
+            # which then beats the global for ever.  It is MOVED to
+            # ``*.pre352.bak`` and the tile inherits everything.  (This
+            # supersedes the 2026-09-18a key-by-key migration.)
             import O4_Settings_Model as SM
-            for _info in SM.migrate_tile_cfg(
-                    tile_cfg, SM.read_global_raw(global_cfg_file)):
+            for _info in SM.retire_unstamped_tile_cfg(tile_cfg):
                 UI.lvprint(0, "   INFO:", _info)
             layers = [global_cfg_file, tile_cfg]
         layers = [path for path in layers if os.path.isfile(path)]
@@ -307,6 +308,12 @@ class Tile:
                     continue
                 try:
                     (var, value) = line.split("=", 1)
+                    if var == cfg_stamp_key:
+                        # THE STAMP (RULINGS 2026-09-18c (2)): provenance,
+                        # not a setting.  Skipped explicitly so it is
+                        # never reported as an unknown key, and left in
+                        # the file so the cfg stays recognisably stamped.
+                        continue
                     if var in retired_cfg_keys:
                         # RETIRED: a tile cfg carrying it loads, and the
                         # cleanup after the read DELETES the line (owner
@@ -417,7 +424,9 @@ class Tile:
             out = SM.sparse_tile_values(
                 values, always_keep=SM._TILE_PRESERVED,
                 global_cfg=SM.read_global_raw(global_cfg_file))
-            SM._write_atomic_with_backup(config_file, out)
+            # Stamped (RULINGS 2026-09-18c (2)) — one writer helper, so a
+            # cfg this build writes is never taken for a legacy one.
+            SM.write_tile_cfg(config_file, out)
             return 1
         except Exception as e:
             UI.vprint(2, e)

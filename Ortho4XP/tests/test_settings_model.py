@@ -227,7 +227,9 @@ def test_read_tile_raw_parses(tmp_path):
     build = _tile_dir(tmp_path)
     path = os.path.join(build, "Ortho4XP_+45+005.cfg")
     with open(path, "w") as f:
-        f.write("road_level=2\ndefault_zl=17\n")
+        # STAMPED (RULINGS 2026-09-18c (2)): an unstamped tile cfg is a
+        # pre-1.0.352 file, MOVED aside on first touch rather than read.
+        f.write(SM.tile_cfg_stamp_line() + "road_level=2\ndefault_zl=17\n")
     assert SM.read_tile_raw(45, 5, build) == {
         "road_level": "2",
         "default_zl": "17",
@@ -247,7 +249,8 @@ def test_write_tile_sparse_overrides_and_preservation(tmp_path, monkeypatch):
     # Existing tile file: map-managed vars + one plain var to preserve.
     with open(path, "w") as f:
         f.write(
-            "zone_list=[['x']]\n"
+            SM.tile_cfg_stamp_line()          # RULINGS 2026-09-18c (2)
+            + "zone_list=[['x']]\n"
             "default_website=BestOrtho\n"
             "default_zl=17\n"
             "curvature_tol=9.9\n"
@@ -293,9 +296,13 @@ def test_write_tile_equal_value_removes_the_override(tmp_path, monkeypatch):
     assert SM.tile_override_names(45, 5, build) == ()
 
 
-def test_legacy_snapshot_shrinks_to_true_differences(tmp_path, monkeypatch):
-    """A legacy full-snapshot tile file reports (and, on its next write,
-    keeps) only the settings that genuinely differ from global."""
+def test_legacy_snapshot_is_MOVED_not_shrunk(tmp_path, monkeypatch):
+    """SUPERSEDED RULE (owner RULINGS 2026-09-18c (2)): a legacy
+    full-snapshot tile file is not shrunk to its true differences any
+    more — it carries no stamp, so the first touch MOVES it aside and the
+    tile inherits everything.  Even ``road_level=5``, which genuinely
+    differs from the global, does not survive: the snapshot records the
+    frame the tile was BUILT with, not a choice (Q 18b-1, superseded)."""
     monkeypatch.chdir(tmp_path)
     build = _tile_dir(tmp_path)
     path = os.path.join(build, "Ortho4XP_+45+005.cfg")
@@ -309,11 +316,15 @@ def test_legacy_snapshot_shrinks_to_true_differences(tmp_path, monkeypatch):
             else:
                 f.write("%s=%s\n" % (var, O4_Cfg_Vars.cfg_vars[var]["default"]))
 
-    assert set(SM.tile_override_names(45, 5, build)) == {"road_level"}
-    SM.write_tile(45, 5, build, {})
+    assert list(SM.tile_override_names(45, 5, build)) == []
+    assert SM.read_tile_raw(45, 5, build) is None
+    assert os.path.isfile(path + SM.PRE_STAMP_BACKUP_SUFFIX)
+
+    # …and a change after the move writes a NEW, stamped, sparse file.
+    SM.write_tile(45, 5, build, {"road_level": "5"})
     result = SM.read_tile_raw(45, 5, build)
-    assert "road_level" in result
-    assert "lane_width" not in result, "snapshot noise must shrink away"
+    assert result == {"road_level": "5"}
+    assert "lane_width" not in result
 
 
 def test_write_tile_with_no_overrides_writes_an_empty_config(

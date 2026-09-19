@@ -552,9 +552,15 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
                          + " -> ".join(f"{y:+.2f}" for _s, y in sts))
         out.append(ObjectCut(f"object-cut:{_base(o.path)}@{k}", o.path, o.id,
                              cov_obj.id, cov_obj.path, SHELL,
-                             outline, place(r.wall_line), chain_a, chain_b, ends,
+                             outline,
+                             # the wall-line union is Polygon | MultiPolygon |
+                             # LineString (§51 row 19 for its line case), so it
+                             # takes the affine alone, spelled in frame_entry
+                             _fe.transform(r.wall_line, mat, 0.0),
+                             chain_a, chain_b, ends,
                              (True, True), zero + r.floor_y, r.floor_y, zero,
-                             place(cover), sts, tuple(notes)))
+                             _fe.enter([cover], mat, _fe.quantum(law))[0],   # ENTRY
+                             sts, tuple(notes)))
         stats.shells += 1
         stats.covers_paired += 1
     for path, r in sorted(readings.items()):

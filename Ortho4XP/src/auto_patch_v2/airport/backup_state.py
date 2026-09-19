@@ -136,6 +136,10 @@ class Verdict:
     @property
     def row(self) -> str:
         """The §12a table row this verdict is, for a log line."""
+        if self.state is State.UNPROVEN and self.backup:
+            # D8 (the backup cannot be read) reads the LIVE file; D6 (the
+            # owner's Q2 path) rebuilds from the backup.
+            return "D8" if self.read_path == self.live else "D6"
         return _ROW.get((self.state, bool(self.backup)), "")
 
 

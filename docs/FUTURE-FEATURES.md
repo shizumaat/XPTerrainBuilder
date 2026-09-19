@@ -7,7 +7,7 @@ answer. Promote an entry to a spec (Fable) before any lane touches it.
 ## 1. Adopt a custom airport's own mesh into our patch (owner, 2026-09-18)
 
 Tracked publicly as issue #41; this entry keeps the parts that stay in the repo
-(the spec questions, incl. licensing).
+(the spec questions).
 
 Owner, verbatim: "When an airport like TFFJ is installed that already has a custom
 mesh, ideally XPTerrainBuilder would detect it, disable it in the scenery_packs.ini
@@ -47,10 +47,7 @@ A spec would have to answer:
    owned like the boundary-airports one), reversibility (restore on uninstall of our
    tile), never touching the OBJECT pack, X-Plane rewriting the ini on launch, and
    the §12a discipline (never destroy what we cannot prove is ours).
-4. LICENSING — a payware mesh's data would be baked into a tile the user builds
-   locally for their own use; confirm nothing derived from it is ever redistributed
-   or uploaded.
-5. Interaction with: the apt.dat/pack selector (17a), the pack-set signature that
+4. Interaction with: the apt.dat/pack selector (17a), the pack-set signature that
    stales insets (17c (1)), patch freshness stamps, the object reseat (objects
    authored on the adopted mesh should then need ~zero motion — a strong acceptance
    test), the boundary-airports dialog, and cross-platform byte identity (§46).

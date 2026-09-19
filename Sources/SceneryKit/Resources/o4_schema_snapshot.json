@@ -214,6 +214,22 @@
     "All"
    ]
   },
+  "auto_patch_boundary": {
+   "default": "Ask",
+   "hint": "What to do when an airport's runways or taxiways cross into a 1 degree tile you are not building. Its elevation patch needs the neighbouring tile's terrain, so either that tile is built too or the airport gets no patch this run. \"Ask me each time\" (default) shows one dialog per build, with \"build the adjacent tiles\" preselected. When nobody can be asked - a command-line build, or an older front end - the answer is always to SKIP those airports' patches, loudly: an unattended run never grows its own tile list.",
+   "name": "auto_patch_boundary",
+   "type": "str",
+   "valueLabels": {
+    "Ask": "Ask me each time",
+    "Build adjacent": "Build the adjacent tiles too",
+    "Skip patch": "Skip those airports' patches"
+   },
+   "values": [
+    "Ask",
+    "Build adjacent",
+    "Skip patch"
+   ]
+  },
   "base_elevation_source": {
    "default": "auto",
    "hint": "Which base (tile-wide) elevation source to use when no custom_dem is set. \"auto\" (default) ranks the enabled role=base definition files in Providers/Elevation/<CODE>.elv that cover the tile by priority, capped at 1 arc-second (for example the USGS national elevation dataset over the continental United States, Viewfinderpanoramas elsewhere). A provider code (for example \"NED13\") or a legacy keyword (View, SRTM, NED1, NED1/3, ALOS) pins one source explicitly.",

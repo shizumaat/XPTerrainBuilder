@@ -87,6 +87,25 @@ pad_slope_max            = 0.01  # RULINGS 2026-09-05f (moved here from the dele
 # each tile's patch carries only the faces on its side.
 half_width_m = 5.0
 
+# THE BOUNDARY DIALOG'S REACH (spec insets-follow-patch-set-spec.md §C.1,
+# RULINGS 2026-09-18h/18i): an airport whose AIRSIDE CLAIM — apt.dat row
+# 100 runway rectangles + row 110 airside pavement, row 130 boundary and
+# all OSM geometry EXCLUDED — buffered by this value touches another 1
+# degree cell is CLASS S and ALWAYS prompts; everything else is class M and
+# never does, however far its groundside tail reaches.
+#
+# CONFIRMED by measurement, not assumed (lane insetpatchset1, registered
+# HECA/CYXY captures, replay only): max distance beyond the UNBUFFERED
+# airside claim of any emitted node touching ONLY airside faces —
+# CYXY 130.7 m (graded_strip), HECA 97.3 m (graded_strip).  The spec's
+# a-priori figure was 100 m (runway graded-strip half-width 75 m + 3 m
+# lip); CYXY exceeds it, so per §C.1 the law value is the measurement
+# rounded UP to 50 m.  ``tunnel_ramp`` is excluded from the airside family
+# as a ROAD structure — it is the worst node at both airports (CYXY
+# 1,493.5 m, HECA 1,178.4 m), the same groundside tail that refuted the
+# scalar R_patch in rev 2.
+ask_reach_m = 150.0
+
 [instrument]
 # THE CENSUS'S OWN ENCODING ENVELOPE — the forgiveness the v1 oracle grants
 # an EMITTED value (never a solve budget: the solver satisfies the law

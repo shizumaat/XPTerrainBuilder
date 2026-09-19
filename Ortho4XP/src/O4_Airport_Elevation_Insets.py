@@ -8716,6 +8716,10 @@ def _inset_completion_key(tile):
             getattr(tile, "airport_elevation_providers", "auto")),
         "level": str(getattr(tile, "airport_elevation_level", "auto")),
         "airports_layer": airports_identity,
+        # §B.2: WHICH airports the pass was settled over.  The inset set
+        # is a pure function of (airports layer, inset mode) and both are
+        # now in the key, so the stamp is EXACT rather than a proxy.
+        "selection_mode": resolved_inset_mode(tile),
     }
 
 
@@ -8735,6 +8739,12 @@ def _write_inset_completion_stamp(tile):
             # Without an airports layer on disk the set is unknowable and
             # the stamp could never be validated — do not write one.
             return
+        # Informational (§B.2): the keys the pass was settled FOR.
+        # ``ensure_insets_for_tile`` lands them on the tile at the one
+        # trim site; a caller that never ran it records nothing rather
+        # than re-deriving a second answer.
+        stamp["selected"] = sorted(
+            getattr(tile, "inset_selection_keys", None) or [])
         stamp["insets"] = sorted(
             os.path.basename(path)
             for path in list_cached_inset_dems(tile.lat, tile.lon)
@@ -8852,6 +8862,22 @@ def is_cached(tile) -> bool:
         if wanted["airports_layer"] is None:
             return False
         for key, value in wanted.items():
+            if key == "selection_mode":
+                # ORDERED, not equality (§B.2): None < ICAO < All, and the
+                # tile is cached when the stamp settled a SUPERSET of what
+                # is wanted now.  A stamp WITHOUT the key — every stamp on
+                # disk today, schema 2026-07-30 — was settled over every
+                # string-keyed aerodrome, which is a superset of any
+                # selection, so it reads as "All".  INSET_COMPLETION_SCHEMA
+                # is deliberately NOT bumped: a bump makes every tile on
+                # the shared corpus uncached, and the next guarded build
+                # would try to REWRITE complete.json — a shared-repo write
+                # inside DEM prep, which the harness refuses.
+                stamped = stamp.get(key, "All")
+                if (MODE_RANK.get(str(stamped), len(MODES))
+                        < MODE_RANK.get(str(value), 0)):
+                    return False
+                continue
             if stamp.get(key) != value:
                 return False
         directory = FNAMES.airport_inset_directory(tile.lat, tile.lon)

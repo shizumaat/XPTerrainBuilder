@@ -1484,6 +1484,19 @@ def load_airports_and_prepare_dem(tile):
     # covers the tile, or GDAL is unavailable. The user's custom_dem config
     # value is never rewritten.
     INSETS.ensure_insets_for_tile(tile, dico_airports)
+    # §D.1: once per COLD neighbour of a class-S airport, and only after
+    # an explicit "build adjacent" answer.  Never in the pool child, never
+    # without a choice, never under the harness's shared-repo guard.
+    if getattr(tile, "boundary_policy", None) == "neighbour":
+        for (lat, lon) in getattr(tile, "boundary_neighbours", ()) or ():
+            try:
+                ensure_tile_frame(lat, lon,
+                                  reason="neighbour of %s" % tile_stem(tile))
+            except Exception as error:
+                UI.lvprint(0, "   Airport insets: tile %+03d%+04d — frame "
+                              "warm FAILED (%s: %s); the frame check will "
+                              "decide." % (lat, lon, type(error).__name__,
+                                           str(error)))
     # Tile-wide elevation detail level (docs/specs/elevation-level-spec.md):
     # fetch the whole-tile overlay for a numeric elevation_level, or the
     # coastline lidar band for "coastline" (dico_airports feeds its
@@ -1495,6 +1508,121 @@ def load_airports_and_prepare_dem(tile):
 
 
 ################################################################################
+#: THE BOUNDARY ANSWER for this PROCESS (spec §C.3).  ``None`` means "not
+#: answered" and resolves from the ``auto_patch_boundary`` app setting,
+#: whose unattended meaning is SKIP-loudly (owner RULINGS 18c Q5, 18i (3)).
+#: ``EngineSession.build`` sets it in the parent and in every worker child
+#: (``parallel.py`` carries it beside provider/zoomlevel).
+BOUNDARY_POLICY = None
+
+
+def tile_stem(tile):
+    """``"+38-010"`` for a tile object."""
+    return "%+03d%+04d" % (int(tile.lat), int(tile.lon))
+
+
+def set_boundary_policy(policy):
+    """Land the user's boundary answer for this process."""
+    global BOUNDARY_POLICY
+    BOUNDARY_POLICY = policy if policy in ("neighbour", "skip") else None
+
+
+def resolved_boundary_policy(tile=None):
+    """``"neighbour"`` or ``"skip"`` — never ``None``, never a prompt here.
+
+    Order: the answer this run was given (``set_boundary_policy`` / the
+    tile object) beats the remembered app setting, which beats SKIP.  The
+    ENGINE never blocks waiting for a user: asking is the front end's job
+    (``boundary_airports`` + the dialog), and anything that reaches a
+    build with no answer is by definition unattended.
+    """
+    explicit = getattr(tile, "boundary_policy", None) or BOUNDARY_POLICY
+    if explicit in ("neighbour", "skip"):
+        return explicit
+    choice = str(getattr(CFG, "auto_patch_boundary", "Ask") or "Ask")
+    if choice == "Build adjacent":
+        return "neighbour"
+    return "skip"
+
+
+def tile_frame_is_warm(lat, lon):
+    """Is this 1° cell's frame already warm enough not to ask about?
+
+    Cheap and OFFLINE (the preflight must never query): its airports OSM
+    layer is cached AND its airport insets are settled under ITS OWN inset
+    mode (``INSETS.is_cached``, which is trivially True when that tile's
+    mode is ``"None"``).  An already-built neighbour asks nothing.
+    """
+    try:
+        if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
+            return False
+        neighbour = CFG.Tile(lat, lon, "")
+        neighbour.read_from_config()
+        return bool(INSETS.is_cached(neighbour))
+    except Exception:
+        return False
+
+
+def ensure_tile_frame(lat, lon, *, reason=""):
+    """Warm ONE neighbour tile's frame, in the MAIN process (spec §D.1).
+
+    Exactly the FETCH HALF of that tile's own step 1 — its OSM dir, its
+    airports layer, its ``dico_airports`` and ``INSETS.ensure_insets_for_tile``
+    under THAT TILE'S OWN inset mode — so when the neighbour's own build
+    runs it finds ``is_cached`` True and fetches nothing twice.  The base
+    raster is NOT fetched here; ``compose_tile_dem_from_disk`` owns that.
+
+    This is what replaces ``ProductionDem._warm_tile`` (§C.6).  The
+    difference that matters is not the code, it is WHERE it runs: in the
+    tile's main build process, where ``UI.progress_bar`` and the airport-
+    insets task meter already reach the front end as ``StepProgress``.
+    Inside the auto-patch pool child, where the old one ran, neither did —
+    which is how tile +38-010 spent ~3 h downloading in silence.
+
+    ORDERING WITHOUT A SCHEDULER EDGE (§D.2): two tiles can need each
+    other's frame, so a dependency edge could cycle.  Instead this holds a
+    per-tile lock on ``<tile>_airport_insets/.frame.lock`` (the ``.lock``
+    family the shared-repo guard records as churn, never contamination):
+    whoever arrives first fetches, the other waits and then finds the pass
+    settled.  On a lock timeout it logs and proceeds — ``frame_state``
+    refuses honestly downstream rather than this inventing a verdict.
+
+    Returns True when the tile's frame is warm on return.
+    """
+    import O4_File_Lock as LOCK
+
+    stem = "%+03d%+04d" % (lat, lon)
+    neighbour = CFG.Tile(lat, lon, "")
+    neighbour.read_from_config()
+    inset_dir = FNAMES.airport_inset_directory(lat, lon)
+    os.makedirs(FNAMES.osm_dir(lat, lon), exist_ok=True)
+    os.makedirs(inset_dir, exist_ok=True)
+    lock_path = os.path.join(inset_dir, ".frame.lock")
+    UI.lvprint(0, "   Airport insets: tile %s%s — warming its frame "
+                  "(airports layer + its own inset selection)"
+               % (stem, (" (%s)" % reason) if reason else ""))
+    with LOCK.hold_file_lock(lock_path) as held:
+        if not held:
+            UI.lvprint(0, "   Airport insets: tile %s — timed out waiting "
+                          "for another build's frame lock; continuing and "
+                          "letting the frame check decide." % stem)
+        layer = OSM.OSM_layer()
+        OSM.OSM_queries_to_OSM_layer(AIRPORTS_QUERIES, layer, lat, lon,
+                                     ["all"], cached_suffix="airports")
+        dico = build_airports_dico(neighbour, layer)
+        mode = _SELECTION.resolved_inset_mode(neighbour)
+        selected = _SELECTION.inset_keys(dico, mode)
+        UI.lvprint(0, "   Airport insets: tile %s: %d selected (insets = %s) "
+                      "of %d aerodrome(s)%s"
+                   % (stem, len(selected), mode, len(dico),
+                      (" — " + ", ".join(sorted(selected)[:8]))
+                      if selected else ""))
+        # The task meter labels a NEIGHBOUR pass by its tile so the
+        # activity view distinguishes it from the home tile's (§D.3).
+        INSETS.ensure_insets_for_tile(neighbour, dico)
+    return tile_frame_is_warm(lat, lon)
+
+
 def derive_auto_patch_selection(tile):
     """THE derivation site of the patch set (spec §A.3), once per build.
 
@@ -1517,16 +1645,49 @@ def derive_auto_patch_selection(tile):
     if not cifp_path:
         tile.auto_patch_selection = []
         return []
+    policy = resolved_boundary_policy(tile)
+    record = []
+    skipper = _SELECTION.boundary_skipper(
+        int(tile.lat), int(tile.lon),
+        is_cold=lambda cell: not tile_frame_is_warm(*cell),
+        reach_m=_SELECTION.ask_reach_m(), record=record)
+
+    def boundary(icao, runways, candidate=None):
+        # The decision is RECORDED either way (the skipper appends to
+        # ``record``); under "neighbour" nothing is skipped — those tiles
+        # are warmed instead, in ``load_airports_and_prepare_dem``.
+        reason = skipper(icao, runways, candidate)
+        return None if policy == "neighbour" else reason
+
     try:
         selection = _SELECTION.select_patch_airports(
             tile, cifp_path, resolved_auto_patch_mode(tile),
-            manual_icaos=manual_patch_icaos(tile))
+            manual_icaos=manual_patch_icaos(tile),
+            boundary=boundary)
     except Exception as error:
         UI.vprint(1, "   WARNING: auto-patch selection failed (",
                   type(error).__name__, ":", str(error),
                   ") - each consumer will recompute it.")
         return []
     tile.auto_patch_selection = selection
+    # The class-S airports' COLD neighbour cells: warmed under
+    # "neighbour" (§D), named in the skip line under "skip" (§C.3), and
+    # DECLARED to ProductionDem either way so its frame check knows which
+    # cells are this build's business and which are class-M far side.
+    neighbours = set()
+    for (_icao, cls, cold, _crossing_m) in record:
+        if cls == "S":
+            neighbours.update(cold)
+    tile.boundary_policy = policy
+    tile.boundary_neighbours = sorted(neighbours)
+    if neighbours and policy == "skip":
+        UI.lvprint(
+            0, "   Auto-patch: %d airport(s) reach into %d tile(s) this "
+               "build is not building (%s); their patches are SKIPPED by "
+               "your boundary choice."
+            % (sum(1 for r in record if r[1] == "S" and r[2]),
+               len(neighbours),
+               ", ".join("%+03d%+04d" % c for c in sorted(neighbours))))
     inset_mode = _SELECTION.resolved_inset_mode(tile)
     for candidate in selection:
         if candidate.disposition != "patch":

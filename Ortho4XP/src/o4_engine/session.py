@@ -30,6 +30,7 @@ import O4_UI_Utils as UI
 
 from .events import (
     AirportIndexReady,
+    BoundaryAirportsReady,
     AutoPatchBegin, AutoPatchFailed, AutoPatchProgress, BuildDone,
     EngineEvent, EngineHello,
     ImageryDownloadsDone,
@@ -581,6 +582,8 @@ class EngineSession:
         # airport_index command joins it instead of starting a second
         # 380 MB parse (see the command's own note).
         self._airport_index_lock = threading.Lock()
+        self._boundary_request_lock = threading.Lock()
+        self._boundary_request_id = 0
         self._airport_index_building = False
         UI.engine_session = self
         self._emit(EngineHello(ortho4xp_version=version,
@@ -684,7 +687,7 @@ class EngineSession:
     # ------------------------------------------------------------------
     def build(self, tiles, provider, zoomlevel, custom_build_dir,
               do_vector=True, do_imagery=True, do_overlays=False,
-              slots=None, steps=None):
+              slots=None, steps=None, boundary_policy=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -700,6 +703,18 @@ class EngineSession:
         """
         if self._building:
             return False
+        # THE BOUNDARY ANSWER (spec §C.3), landed for this process before
+        # any tile prelude runs.  A worker CHILD receives it in its own
+        # build command (parallel.py carries it beside provider/zoomlevel),
+        # so this is correct in the parent and in every child.  ``None``
+        # means "resolve from cfg", which for an unattended run is SKIP
+        # loudly (owner RULINGS 18c Q5, reaffirmed 18i (3)).
+        try:
+            import O4_Vector_Map as _VMAP
+
+            _VMAP.set_boundary_policy(boundary_policy)
+        except Exception:                                # pragma: no cover
+            pass
         self._building = True
         self._stepwise_run = steps is not None
         self._cancel_all = False
@@ -724,7 +739,7 @@ class EngineSession:
             run = parallel.ParallelBuildRun(
                 self, list(tiles), provider, zoomlevel, custom_build_dir,
                 (do_vector, do_imagery, do_overlays),
-                slots)
+                slots, boundary_policy=boundary_policy)
             # Registered BEFORE start so a cancel arriving during the
             # worker handshake window already routes to the run; start
             # runs off-thread because the handshake blocks for seconds.
@@ -765,7 +780,7 @@ class EngineSession:
 
     def enqueue_build(self, tiles, provider, zoomlevel, custom_build_dir,
                       do_vector=True, do_imagery=True, do_overlays=False,
-                      slots=None):
+                      slots=None, boundary_policy=None):
         """Build the given tiles, joining a run already in progress.
 
         The single build entry point for interactive views: with no run
@@ -784,7 +799,8 @@ class EngineSession:
                 if parallel_run is not None:
                     if parallel_run.enqueue(
                             tiles, provider, zoomlevel, custom_build_dir,
-                            (do_vector, do_imagery, do_overlays)):
+                            (do_vector, do_imagery, do_overlays),
+                            boundary_policy=boundary_policy):
                         return True
                     if not (parallel_run._finished
                             or parallel_run._cancel_all):
@@ -812,7 +828,8 @@ class EngineSession:
             return self.build(
                 tiles, provider, zoomlevel, custom_build_dir,
                 do_vector=do_vector, do_imagery=do_imagery,
-                do_overlays=do_overlays, slots=slots)
+                do_overlays=do_overlays, slots=slots,
+                boundary_policy=boundary_policy)
 
     def _enqueue_in_process(self, tiles, provider, zoomlevel,
                             custom_build_dir, do_vector, do_imagery,
@@ -1673,3 +1690,95 @@ class EngineSession:
         threading.Thread(target=work, daemon=True,
                          name="o4-airport-index").start()
         return {"status": "building"}
+
+    def boundary_airports(self, tiles=None):
+        """Which airports in *tiles* cross a 1 degree line onto a COLD tile.
+
+        THE PREFLIGHT (spec ``insets-follow-patch-set-spec.md`` §C.2, owner
+        RULINGS 2026-09-18b (2) and 18i): the front end sends this before
+        it enqueues a build and, on a non-empty answer with no remembered
+        choice, shows ONE dialog for the whole batch.
+
+        Cheap and OFFLINE: it reads each tile's own config, the CIFP
+        directory and the apt.dat the 17a selector already chooses — never
+        a query, never a download.  The ask geometry is the AIRSIDE CLAIM
+        (``auto_patch.selection.airport_boundary_class``), the SAME
+        function the build itself calls, so the two cannot disagree.
+
+        THE READ-LOOP HAZARD (the ``airport_index`` precedent): a command
+        handler runs on the transport's read loop, and parsing CIFP plus
+        an apt.dat block per airport is not free.  This replies at once
+        and works on a worker thread; the answer arrives as
+        :class:`BoundaryAirportsReady`.
+
+        Args:
+            tiles: ``[[lat, lon], ...]`` the user selected.
+
+        Returns:
+            ``{"status": "started", "request_id": N}``.
+        """
+        cells = [(int(t[0]), int(t[1])) for t in (tiles or [])]
+        with self._boundary_request_lock:
+            self._boundary_request_id += 1
+            request_id = self._boundary_request_id
+
+        def work():
+            try:
+                event = self._boundary_preflight(request_id, cells)
+            except Exception as error:                   # never fatal
+                event = BoundaryAirportsReady(request_id=request_id,
+                                              error=str(error))
+            self._emit(event)
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-boundary-airports").start()
+        return {"status": "started", "request_id": request_id}
+
+    def _boundary_preflight(self, request_id, cells):
+        """The worker half of :meth:`boundary_airports`."""
+        import O4_Config_Utils as CFG
+        import O4_Settings_Model as SETTINGS
+        import O4_Vector_Map as VMAP
+        from auto_patch import selection as SELECTION
+
+        selected = set(cells)
+        airports = []
+        add_tiles = set()
+        for (lat, lon) in cells:
+            tile = CFG.Tile(lat, lon, "")
+            tile.read_from_config()
+            cifp = SETTINGS.resolve_cifp_dir(CFG.cifp_data_path,
+                                             CFG.custom_scenery_dir)
+            if not cifp:
+                continue
+            record = []
+            SELECTION.select_patch_airports(
+                tile, cifp, SELECTION.resolved_auto_patch_mode(tile),
+                manual_icaos=VMAP.manual_patch_icaos(tile),
+                boundary=SELECTION.boundary_skipper(
+                    lat, lon,
+                    is_cold=lambda cell: cell not in selected
+                    and not VMAP.tile_frame_is_warm(*cell),
+                    reach_m=SELECTION.ask_reach_m(),
+                    record=record))
+            for (icao, cls, cold, crossing_m) in record:
+                if cls != "S" or not cold:
+                    continue
+                airports.append({
+                    "icao": icao, "name": icao,
+                    "home": [lat, lon],
+                    "neighbours": [[c[0], c[1]] for c in cold],
+                    "crossing_m": float(crossing_m),
+                })
+                add_tiles.update(c for c in cold if c not in selected)
+        remembered = ""
+        choice = str(getattr(CFG, "auto_patch_boundary", "Ask") or "Ask")
+        if choice == "Build adjacent":
+            remembered = "neighbour"
+        elif choice == "Skip patch":
+            remembered = "skip"
+        return BoundaryAirportsReady(
+            request_id=request_id,
+            airports=airports,
+            add_tiles=[[c[0], c[1]] for c in sorted(add_tiles)],
+            remembered=remembered)

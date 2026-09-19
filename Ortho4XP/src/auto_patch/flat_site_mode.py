@@ -115,12 +115,20 @@ def tile_icao_candidates(dico_airports) -> list:
     """The 4-letter ICAO codes on this tile, sorted.
 
     ``dico_airports`` is the engine's own per-tile airport dictionary —
-    the SAME population the airport smoothing and the real inset fetch
-    loop over (``O4_Airport_Elevation_Insets._airport_bounding_boxes``),
-    so flat-site mode never considers an airport the inset machinery
-    would not.  Non-string keys are unnamed strips (``key_type``
-    ``repr_node``) and IATA / local_ref keys cannot name an apt.dat
-    block; both are skipped.
+    the population the airport smoothing loops over.  Non-string keys are
+    unnamed strips (``key_type`` ``repr_node``) and IATA / local_ref keys
+    cannot name an apt.dat block; both are skipped.
+
+    CORRECTED 2026-09-18 (spec ``insets-follow-patch-set-spec.md`` §B row
+    16): this is no longer "the SAME population the real inset fetch loops
+    over".  Since the inset set follows its own
+    ``airport_elevation_insets`` mode, the fetched population is the dico
+    keys THAT mode admits — under ``"ICAO"`` exactly this function's
+    population, under ``"All"`` a superset, under ``"None"`` empty.  That
+    is not a defect here: flat-site mode exists to serve airports that
+    have NO inset, so running for one is its purpose, and flat-site
+    substitution for an unpatched 4-letter airport is today's behaviour,
+    untouched.
     """
     out = set()
     for key in (dico_airports or {}):

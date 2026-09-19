@@ -147,7 +147,7 @@ def _dem(core_hosted, allow_degraded=False):
     dem.core_hosted = core_hosted
     dem.allow_degraded = allow_degraded
     dem.provenance = {}
-    dem._warm_notes = {}
+    dem.declared_tiles = {(LAT, LON)}
     dem._out = lambda line: None
     dem._tiles = {}
     dem.icao, dem.elevation_root, dem.osm_root = ICAO, "e", "o"
@@ -157,14 +157,19 @@ def _dem(core_hosted, allow_degraded=False):
 
 
 def _stale_then_warm(monkeypatch, calls):
-    """frame_state: warm tile-wide, STALE for this airport, then clean."""
+    """frame_state: warm tile-wide, STALE for this airport.
+
+    ``calls`` used to collect ``_warm_tile`` invocations; that method is
+    DELETED (spec §C.6 — the silent pool-child warm is the ~3 h +38-010
+    class, RULINGS 2026-09-18b), so the list now stays empty by
+    construction and any fetch reached from here is an assertion failure.
+    """
     tile_warm = {"tile_stem": STEM, "base_raster_present": True,
                  "airports_layer_present": True,
                  "airport_insets_present": True}
     stale = (dict(tile_warm, airport_inset_problem_kind="stale"),
              ["STALE airport elevation inset /x/CYXY_hrdem.tif"])
-    clean = (dict(tile_warm), [])
-    seq = [(dict(tile_warm), []), stale, clean]
+    seq = [(dict(tile_warm), []), stale, stale]
 
     def fake_state(*args, **kwargs):
         return seq.pop(0) if len(seq) > 1 else seq[0]
@@ -172,12 +177,15 @@ def _stale_then_warm(monkeypatch, calls):
     monkeypatch.setattr(DP, "frame_state", fake_state)
     monkeypatch.setattr(DP.ProductionDem, "_required_inset_box",
                         lambda self, tile, dico: REQUIRED)
+    monkeypatch.setattr(DP.ProductionDem, "_expects_inset",
+                        lambda self, tile: True)
+    import O4_Airport_Elevation_Insets as INSETS
 
-    def fake_warm(self, lat, lon, state, **kwargs):
-        calls.append((lat, lon, state.get("airport_inset_problem_kind")))
-        raise RuntimeError("warmed-stop")
+    def explode(*a, **k):
+        calls.append(("fetch", a, k))
+        raise AssertionError("nothing may fetch from _compose any more")
 
-    monkeypatch.setattr(DP.ProductionDem, "_warm_tile", fake_warm)
+    monkeypatch.setattr(INSETS, "ensure_insets_for_tile", explode)
 
 
 def _stub_core(monkeypatch):
@@ -202,17 +210,34 @@ def _stub_core(monkeypatch):
                         lambda self: None)
 
 
-def test_production_WARMS_a_stale_inset_through_the_existing_path(monkeypatch):
-    """Owner ruling 2026-09-17 (2): the app may re-cut a stale inset
-    automatically.  It joins the same problems list the cold frame uses
-    and is healed by the same ``_warm_tile``; no new code path."""
+def test_production_REFUSES_a_stale_inset_and_no_longer_recuts(monkeypatch):
+    """REWRITTEN for spec §C.6.  The owner's 2026-09-17 (2) ruling ("the
+    app may re-cut a stale inset automatically") is still honoured — but
+    by ``O4_Vector_Map.ensure_tile_frame`` in the MAIN process after an
+    explicit boundary choice (§D), never here in the pool child, where the
+    fetch had no progress channel and cost ~3 h on tile +38-010.  On this
+    build's OWN tile a stale inset is now a refusal, and ZERO fetches
+    happen on the way to it."""
     calls: list = []
     _stale_then_warm(monkeypatch, calls)
     _stub_core(monkeypatch)
     dem = _dem(core_hosted=True)
-    with pytest.raises(RuntimeError, match="warmed-stop"):
+    with pytest.raises(DP.ColdDemFrame, match="STALE airport elevation inset"):
         dem._compose(LAT, LON)
-    assert calls == [(LAT, LON, "stale")]
+    assert calls == []
+
+
+def test_a_stale_inset_on_an_UNDECLARED_tile_is_context_only(monkeypatch):
+    """The class-M far side: recorded, never refused, never fetched."""
+    calls: list = []
+    _stale_then_warm(monkeypatch, calls)
+    _stub_core(monkeypatch)
+    dem = _dem(core_hosted=True)
+    dem.declared_tiles = {(LAT + 1, LON)}          # this cell is NOT ours
+    with pytest.raises(RuntimeError, match="composed-stop"):
+        dem._compose(LAT, LON)
+    assert calls == []
+    assert dem.provenance.get(f"context_only:{STEM}")
 
 
 def test_the_harness_REFUSES_a_stale_inset_and_never_recuts(monkeypatch):

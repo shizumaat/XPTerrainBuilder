@@ -421,6 +421,32 @@ def cfg_frame_diff(root, owner_cfg=OWNER_APP_CFG) -> dict:
     return out
 
 
+def neighbour_cells_of(tile) -> list:
+    """The cold-neighbour cells this tile's CLASS-S airports would need.
+
+    Read through the engine's own selector, so the harness asks exactly
+    the question the build asks (spec §C.3: one function, one apt.dat).
+    """
+    import O4_Vector_Map as VMAP
+
+    VMAP.derive_auto_patch_selection(tile)
+    return list(getattr(tile, "boundary_neighbours", ()) or ())
+
+
+def inset_selection_record(root, icao, owner_cfg=OWNER_APP_CFG) -> dict:
+    """``{"mode": ..., "admitted": ...}`` for the airport being built."""
+    mode = _normalized_frame_value(
+        "airport_elevation_insets",
+        frame_surface_keys(root, owner_cfg).get("airport_elevation_insets"))
+    try:
+        from auto_patch.selection import mode_admits
+
+        admitted = bool(mode_admits(str(icao).upper(), mode or "ICAO"))
+    except Exception:
+        admitted = None
+    return {"mode": mode, "admitted": admitted}
+
+
 def frame_surface_keys(root, owner_cfg=OWNER_APP_CFG) -> dict:
     """The EFFECTIVE value of every DEM-frame key, for the frame record.
 
@@ -2901,6 +2927,11 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         "write_guard_lock_churn": list(guard.lock_churn),
         "write_guard_library_index_churn": list(guard.library_index_churn),
         "dem_frame_effective": frame_surface_keys(root),
+        # Spec §A.6 / §B row 14: WHICH airports this build's inset
+        # selection admits, and whether THIS one is among them.  A
+        # patched-but-not-inset airport is a legitimate recorded frame,
+        # not a cold one — the harness refuses nothing new for it.
+        "inset_selection": inset_selection_record(root, icao),
         "dem_inset_provenance": dict(res.report.get("load", {}).get("dem_provenance") or {}),
         "engine_cache_redirects": redirects,
         "anchor": None,
@@ -2978,7 +3009,7 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
 
 
 def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
-               skip_steps=None, requested=None) -> dict:
+               skip_steps=None, requested=None, boundary="skip") -> dict:
     """One whole tile through the four release steps, with the owner's
     X-Plane install paths applied (absorbs ``run_release_tile.py``).
     The tile's patches build with the ONE auto-patch engine, v2 (owner
@@ -3013,7 +3044,26 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
     prog.note(f"tile {lat:+d}{lon:+d} build_dir={tile.build_dir} "
               f"website={tile.default_website} zl={tile.default_zl} "
               f"auto_patch={tile.auto_patch} engine=v2 "
-              f"modify_custom_airports={tile.modify_custom_airports}")
+              f"modify_custom_airports={tile.modify_custom_airports} "
+              f"boundary={boundary}")
+    # THE BOUNDARY ANSWER (spec §C.4).  The harness is UNATTENDED, so the
+    # default is SKIP-loudly and it never grows its own tile list.
+    # ``neighbour`` here means "the neighbour frame must ALREADY be warm":
+    # the engine's ``ensure_tile_frame`` is armed only when the session
+    # hosts the build, and every fetch under the armed write guard would
+    # refuse anyway — so a cold neighbour REFUSES up front, by name.
+    VMAP.set_boundary_policy(boundary)
+    tile.boundary_policy = boundary
+    if boundary == "neighbour":
+        cold = [cell for cell in neighbour_cells_of(tile)
+                if not VMAP.tile_frame_is_warm(*cell)]
+        if cold:
+            raise SystemExit(
+                "REFUSING --boundary neighbour: tile(s) "
+                + ", ".join("%+03d%+04d" % c for c in cold)
+                + " have a COLD frame, and the harness never downloads "
+                  "implicitly.  Authorise it: build_airport.py --tile "
+                  f"{cold[0][0]} {cold[0][1]} --refresh-data osm_layers,dem")
     if not imagery["ok"]:
         # RULINGS 2026-08-31d: A TILE ENTRY DOES NOT REFUSE FOR A MISSING
         # PER-TILE CFG.  It takes the user's GLOBAL settings and builds
@@ -3113,6 +3163,18 @@ def main(argv=None) -> int:
                          "install paths)")
     ap.add_argument("--build-dir", default=None,
                     help="--tile only: the scenery pack directory")
+    ap.add_argument("--boundary", choices=("skip", "neighbour"),
+                    default="skip",
+                    help="--tile only: what to do with an airport whose "
+                         "AIRSIDE claim crosses into a 1 degree tile this "
+                         "run is not building (spec insets-follow-patch-"
+                         "set §C.4).  DEFAULT skip, loudly: the harness is "
+                         "unattended and never grows its own tile list.  "
+                         "'neighbour' means the neighbour frame must "
+                         "ALREADY be warm — a cold one REFUSES naming "
+                         "--refresh-data osm_layers,dem for that tile; the "
+                         "harness never downloads implicitly.  Recorded in "
+                         "<tag>.frame.json.")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness"),
                     help="output directory (default /tmp/harness)")
     ap.add_argument("--dem", type=float, default=None, metavar="CONST_M",
@@ -3649,7 +3711,8 @@ def main(argv=None) -> int:
                 result = build_tile(
                     lat, lon,
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog,
-                    requested=requested)
+                    requested=requested, boundary=args.boundary)
+            result["boundary_policy"] = args.boundary
             result["engine_cache_redirects"] = redirects
             result["engine"] = ENGINE
         else:

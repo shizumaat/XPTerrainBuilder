@@ -198,6 +198,21 @@ cfg_app_vars = {
         "default": "",
         "hint": "If sceneries with overlays are not found in custom_overlay_src, set an alternate directory to search.",
     },
+    "auto_patch_boundary": {
+        "type": str,
+        "default": "Ask",
+        "values": ("Ask", "Build adjacent", "Skip patch"),
+        "value_labels": {
+            "Ask": "Ask me each time",
+            "Build adjacent": "Build the adjacent tiles too",
+            "Skip patch": "Skip those airports' patches",
+        },
+        # APP-level, not a tile var, deliberately (spec §C.4): under
+        # RULINGS 2026-09-18a a tile var is frozen per tile and would need
+        # write-through, and this is a preference about how the USER IS
+        # ASKED, not a property of a tile.
+        "hint": 'What to do when an airport\'s runways or taxiways cross into a 1 degree tile you are not building. Its elevation patch needs the neighbouring tile\'s terrain, so either that tile is built too or the airport gets no patch this run. "Ask me each time" (default) shows one dialog per build, with "build the adjacent tiles" preselected. When nobody can be asked - a command-line build, or an older front end - the answer is always to SKIP those airports\' patches, loudly: an unattended run never grows its own tile list.',
+    },
     "cifp_data_path": {
         "type": str,
         "default": "",

@@ -173,6 +173,20 @@ NO_COVERAGE = "no-coverage"
 # see WHY the tier is degraded).
 UNAVAILABLE_PREFIX = "unavailable:"
 
+# ``empty:<reason>`` is the THIRD status class (2026-09-18, the LSGP /
+# LSGY class): the provider ANSWERED, a raster was written, and it holds
+# no data -- ``LSGP_swissalti3d.tif``, 9,733 bytes, 0.00 % valid pixels,
+# stamped ``"SWISSALTI3D": "ok"`` on 2026-07-23 and reused as a warm
+# cache ever since, because the cache gate asks only whether the FILE
+# exists.  An empty raster is NOT a cache: it is a fetch that produced
+# nothing, so it takes the retry policy of a fetch that produced nothing
+# -- its own status, never ``ok``, never a durable ``no-coverage``, and
+# asked again on the next fetch pass (exactly what ``unavailable:``
+# does).  The refetch's own outcome then overwrites it: ``ok``, a
+# durable ``no-coverage`` (with the relic deleted by the existing
+# failure path), or this status again.
+EMPTY_PREFIX = "empty:"
+
 #: Keys of a per-airport index record that are NOT provider statuses.
 #: One list, so a consumer counting statuses can never mistake a
 #: bookkeeping key for a provider (``probes_for`` was already being
@@ -194,6 +208,16 @@ def unavailable_status(reason):
 def status_is_unavailable(status):
     """True for an ``unavailable:<reason>`` record.  NOT no-coverage."""
     return isinstance(status, str) and status.startswith(UNAVAILABLE_PREFIX)
+
+
+def empty_status(reason):
+    """The index value for "the fetch wrote a raster that holds no data"."""
+    return EMPTY_PREFIX + str(reason)
+
+
+def status_is_empty(status):
+    """True for an ``empty:<reason>`` record.  NOT no-coverage, NOT ok."""
+    return isinstance(status, str) and status.startswith(EMPTY_PREFIX)
 
 
 def unavailable_reason(status):
@@ -7341,6 +7365,39 @@ def _clear_poisoned_insets(lat, lon, index):
                 record.pop(key, None)
 
 
+def cached_inset_declined_reason(inset_path):
+    """Why the BAKE will DECLINE this on-disk inset, or ``None``.
+
+    THE ONE PREDICATE for the declared-empty state (2026-09-18, the
+    LSGP/LSGY class).  It is the bake's own rule, by name: an inset
+    holding less than ``INSET_MIN_VALID_FRAC`` valid pixels is not baked
+    and carries no coverage, and the build proceeds on the base DEM
+    (``bake_airport_insets_into_alt_dem`` -- the line that says so, and
+    the ``airport_inset_nodata_refusals`` record it writes).
+
+    Before this, three readers disagreed about the same file: the bake
+    DECLARED it (loud line, provenance record, base DEM), the v2 frame
+    check read "file exists but nothing baked" as the 2026-08-07 silent
+    degrade and REFUSED the airport (taking LSGP and LSGY -- and with
+    them the whole +46+006 tile -- down in app 1.0.351), and the fetch
+    loop read "file exists" as a warm cache and re-stamped it ``ok``
+    forever.  All three now ask this function.
+
+    Content, never the index: an ``ok`` stamped in July over an empty
+    raster is recognised at READ time, so the relics migrate themselves
+    with no index rewrite.  ``None`` when the file is absent (the
+    ordinary uncached case) or holds data.
+    """
+    if not os.path.isfile(inset_path):
+        return None
+    (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
+    if not is_empty:
+        return None
+    return ("it holds %.2f %% valid pixels (< %.2f %%) — it carries no "
+            "coverage and the bake DECLINES it"
+            % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC))
+
+
 def _void_inset_record_reason(inset_path):
     """Why a cached fetch record describes NO usable inset, or ``None``.
 
@@ -7487,10 +7544,32 @@ def ensure_airport_insets(
             if void_reason is not None:
                 _archive_void_inset_record(destination, icao, code,
                                            void_reason)
+            # AN EMPTY RASTER IS NO CACHE (2026-09-18, the LSGP/LSGY
+            # class).  R13-1 above catches an empty raster WITH a fetch
+            # record; without one -- the state a killed or half-written
+            # July fetch leaves -- the reuse gate below saw only
+            # ``os.path.isfile`` and re-stamped ``ok`` on every run, so
+            # a 0.00 %-valid file was a permanent cache.  One predicate
+            # (:func:`cached_inset_declined_reason`, the BAKE's own
+            # rule) now answers for the fetch loop, the frame check and
+            # the bake alike.  The status goes in BEFORE the fetch: a
+            # transient failure below leaves the record honest instead
+            # of leaving it ``ok``.
+            empty_reason = cached_inset_declined_reason(destination)
+            if empty_reason is not None:
+                airport_record[code] = empty_status(empty_reason)
+                airport_record["checked"] = checked_stamp
+                UI.vprint(
+                    0,
+                    "   [inset] %s from %s: the cached raster %s - that is "
+                    "NO cache; it is recorded as %s (never 'ok') and the "
+                    "fetch runs again."
+                    % (icao, code, empty_reason, EMPTY_PREFIX.rstrip(":")),
+                )
             cached_inset_is_stale = False
             if os.path.isfile(destination) and not refresh and (
                 void_reason is None
-            ):
+            ) and empty_reason is None:
                 # THE RE-CUT RULE, by name.  Same predicate as ever --
                 # required today vs REQUESTED at cut time -- now stated
                 # once, so the harness's refusal and the production
@@ -10538,6 +10617,11 @@ def airport_inset_frame_problem(lat, lon, icao, required_box,
                           (:func:`inset_recut_is_needed`, THE RE-CUT
                           RULE).  The text names the inset, both boxes
                           and the ``--refresh-data dem`` scope.
+    ``("empty", ...)``    the highest-ranked cached raster is one the
+                          BAKE DECLINES (:func:`cached_inset_declined_
+                          reason`).  A KNOWN, DECLARED state, never a
+                          refusal: the airport solves on the base DEM.
+                          Callers report it and carry on.
 
     A raster whose manifest cannot be judged is REUSABLE, so it yields
     ``None``; and the DELIVERY shortfall is NOT judged here at all --
@@ -10557,6 +10641,21 @@ def airport_inset_frame_problem(lat, lon, icao, required_box,
     # usable, so that raster is the one whose staleness decides.
     path = paths[0]
     code = _inset_provider_code_from_path(path)
+    declined = cached_inset_declined_reason(path)
+    if declined is not None:
+        # DECLARED EMPTY (2026-09-18).  Not a silent degrade and not a
+        # cold frame: the bake says so out loud, records it as a nodata
+        # refusal and grades on the base DEM.  Named here so both
+        # readers of this one predicate -- the harness pre-flight and
+        # production's frame_state -- report the same known state and
+        # neither refuses the airport for it.
+        return ("empty",
+                "DECLARED-EMPTY airport elevation inset %s — %s, so %s "
+                "solves on the BASE DEM (the bake says so in its own line "
+                "and records a nodata refusal).  Re-fetch it deliberately: "
+                "--refresh-data dem (an airport build never fetches one; "
+                "--warm-insets %s fetches exactly this one)"
+                % (path, declined, icao, icao))
     if not inset_recut_is_needed(lat, lon, icao, code, required_box):
         return None
     requested = requested_inset_bounding_box(lat, lon, icao, code)

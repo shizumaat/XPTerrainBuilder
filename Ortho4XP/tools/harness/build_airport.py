@@ -582,6 +582,16 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
             f"fetch: --refresh-data dem  (or "
             f"tools/fetch_airport_elevation_insets.py, which writes the "
             f"same shared cache).")
+    elif inset_problem and inset_problem[0] == "empty":
+        # DECLARED EMPTY, NOT COLD (2026-09-18, the LSGP/LSGY class).
+        # The inset on disk holds no data, the BAKE declines it out loud
+        # under the valid-pixel rule, and the airport grades on the base
+        # DEM — a known, declared state, so it is NAMED here and never
+        # refused.  An airport build fetches no inset (see THE EXPLICIT
+        # INSET WARM below), so there is nothing implicit to refuse
+        # either; the line carries the scope that would re-fetch it.
+        print(f"  [harness] DECLARED-EMPTY INSET (not a cold frame; the "
+              f"airport solves on the base DEM): {inset_problem[1]}")
     elif inset_problem:
         # THE PER-AIRPORT COLD FRAME (session ruling 2026-09-17 (3)): the
         # directory is there but THIS airport's inset is missing, or was
@@ -696,7 +706,12 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
                     "overpass QUERY, and without it the DEM prep has no "
                     "smoothing masks"))
     out.extend(unverified_inset_negatives(state, lat, lon))
-    if inset_problem is not None:
+    if inset_problem is not None and inset_problem[0] != "empty":
+        # "empty" is a DECLARED state, not a missing artifact: the build
+        # reads the raster, finds it empty, says so and grades on the
+        # base DEM.  Nothing is fetched or regenerated, so listing it
+        # here would refuse a build that mutates nothing.
+        # ``require_dem_frame`` names it instead, with its scope.
         (kind, text) = inset_problem
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"

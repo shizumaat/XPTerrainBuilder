@@ -288,3 +288,79 @@ def test_face_axis_is_the_midline_of_a_strip():
     ys = [y for _x, y in axis]
     assert ys == sorted(ys) or ys == sorted(ys, reverse=True)
     assert rp.face_axis(((0, 0), (1, 0), (0, 0)), 10.0) is None
+
+
+# ── §2-SUPPLEMENT S.2 (b)/(c): ONE FUNCTION, AND THE JOIN AT THE CROSSING
+
+def test_v2_osm_way_calls_the_core_neighbourhood_function(law):
+    """An OSM way that LEAVES the coverage takes the core's neighbourhood
+    profile — the same function, on the same arrays — not a whole-way 8 %
+    clamp carried into the patch (owner RULINGS 2026-09-18n, S.2 (b))."""
+    VECT = rp._core_vector_utils()
+    t = law.tables.emit.road_profile
+    # 400 m of road: the first 100 m in the band, then a 30 % hillside
+    xs = np.arange(0.0, 401.0, 20.0)
+    dem = np.where(xs <= 100.0, 0.0, 0.30 * (xs - 100.0))
+    pts = [(float(x), 0.0) for x in xs]
+
+    def sample(x, y):
+        return np.interp(np.asarray(x, float), xs, dem)
+
+    def in_band(xy):
+        return np.asarray(xy[:, 0], float) <= 100.0
+
+    (w,) = rp.clamp_way(rp.OSM, "osm:1", pts, sample, 0.08, 20.0,
+                        in_band=in_band, cap_class=0.20,
+                        runout_m=t.runout_m, budget_m=t.budget_m,
+                        cap_ceiling=t.cap_ceiling)
+    core, _rep = VECT.neighbourhood_road_profile(
+        w.s, w.dem, in_band(w.xy), 0.20, cap_inside=0.08, runout_m=t.runout_m,
+        budget_m=t.budget_m, cap_ceiling=t.cap_ceiling)
+    assert np.abs(w.z - np.asarray(core)).max() < 1e-12
+    # beyond the run-out the road IS the terrain (18n), and the old
+    # whole-way clamp would have stood metres off it there
+    far = w.xy[:, 0] > 100.0 + t.runout_m
+    assert np.abs(w.z - w.dem)[far].max() < 1e-9
+    old = rp.clamp_profile(w.s, w.dem, 0.08)
+    assert np.abs(old - w.dem)[far].max() > 5.0
+
+
+def test_v2_route_ways_keep_todays_values(law):
+    """``ROUTE``/``AXIS`` ways lie wholly in the coverage: no band is
+    passed and the value is today's whole-way clamp (S.2 (b))."""
+    xs = np.arange(0.0, 201.0, 20.0)
+    dem = 0.30 * xs
+    pts = [(float(x), 0.0) for x in xs]
+
+    def sample(x, y):
+        return np.interp(np.asarray(x, float), xs, dem)
+
+    (w,) = rp.clamp_way(rp.ROUTE, "route:1", pts, sample, 0.08, 20.0)
+    assert np.abs(w.z - rp.clamp_profile(w.s, w.dem, 0.08)).max() < 1e-12
+
+
+def test_v2_class_cap_reads_the_law_table(law):
+    caps = law.tables.emit.road_profile.class_caps
+    assert rp._class_cap({"highway": "service"}, caps, 0.08) == 0.20
+    assert rp._class_cap({"highway": "secondary"}, caps, 0.08) == 0.12
+    assert rp._class_cap({"railway": "rail"}, caps, 0.08) == 0.04
+    assert rp._class_cap({"highway": "pier"}, caps, 0.08) == 0.08
+    assert rp._class_cap({}, caps, 0.08) == 0.08
+
+
+def test_road_join_value_is_read_at_the_crossing():
+    """§37 (9)'s join value is the profile AT the coverage boundary, not
+    at the first station outside: at a 10 % outside slope with the
+    crossing mid-segment the old read was 1.0 m out (S.2 (c))."""
+    from shapely.geometry import Polygon
+    from auto_patch_v2.emit.road_join import _crossing_z
+
+    xs = np.arange(0.0, 81.0, 20.0)
+    z = np.where(xs <= 40.0, 0.0, 0.10 * (xs - 40.0))
+    way = _dc.make_dataclass("W", ["xy", "z"])(
+        np.array([[float(x), 0.0] for x in xs]), z)
+    cov = Polygon([(-10.0, -10.0), (50.0, -10.0), (50.0, 10.0),
+                   (-10.0, 10.0)])          # the edge at x = 50, mid-segment
+    got = _crossing_z(way, cov, 2, 3)       # station 40 in, station 60 out
+    assert abs(got - 1.0) < 1e-6            # the value AT x = 50
+    assert abs(float(way.z[3]) - 2.0) < 1e-12   # the old read, 1.0 m out

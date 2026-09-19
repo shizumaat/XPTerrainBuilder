@@ -182,3 +182,62 @@ def test_the_selector_marks_a_straddler_boundary_skipped(tmp_path,
     assert [(c.icao, c.disposition) for c in selection] == [
         ("ZZZZ", "boundary_skipped")]
     assert SEL.patch_set(selection) == set()
+
+
+# ── §B owed items that make 1d coherent ───────────────────────────────
+def test_the_completion_stamp_compare_is_ORDERED_not_equality():
+    """§E test 4 / §B.2.  A legacy stamp (no `selection_mode`) was settled
+    over EVERY named aerodrome, so it reads as "All" and stays cached
+    under ICAO — the schema is deliberately NOT bumped, because a bump
+    would make every tile on the shared corpus uncached and the next
+    guarded build would try to REWRITE complete.json inside DEM prep."""
+    import O4_Airport_Elevation_Insets as INS
+
+    rank = INS.MODE_RANK
+    assert rank["None"] < rank["ICAO"] < rank["All"]
+    # stamp >= wanted ⇒ cached
+    assert rank["All"] >= rank["ICAO"]        # legacy stamp under ICAO
+    assert rank["All"] >= rank["All"]
+    assert not rank["ICAO"] >= rank["All"]    # ICAO stamp, All wanted
+
+
+def test_the_completion_key_carries_the_selection_mode():
+    import types
+
+    import O4_Airport_Elevation_Insets as INS
+
+    tile = types.SimpleNamespace(lat=38, lon=-10,
+                                 airport_elevation_insets=True)
+    assert INS._inset_completion_key(tile)["selection_mode"] == "ICAO"
+
+
+def test_frame_state_expects_inset_false_names_no_missing_dir(tmp_path):
+    """§E test 5 / §B row 13."""
+    from auto_patch_v2.airport import dem_production as DP
+
+    (elevation, osm) = (str(tmp_path / "e"), str(tmp_path / "o"))
+    (_state, problems) = DP.frame_state(elevation, osm, 38, -10, "LIS")
+    assert any("airport elevation insets dir" in p for p in problems)
+    (state, problems) = DP.frame_state(elevation, osm, 38, -10, "LIS",
+                                       expects_inset=False)
+    assert not any("airport elevation insets dir" in p for p in problems)
+    assert state["expects_inset"] is False
+
+
+def test_the_small_roads_cache_stamp_does_not_embed_the_box_count():
+    """§B row 11, the one grep the spec asks for (no build).
+
+    ``_airport_auto_roads_layer`` stamps its cache with
+    ``o4_tag_schema=ROAD_CACHE_TAG_SCHEMA`` — a constant date string.
+    Nothing in it is a function of the inset BOX SET, so trimming the
+    inset selection cannot invalidate or churn that cache (the 1.0.349
+    abort class is keyed on its own inputs, as the spec expected)."""
+    import inspect
+
+    import O4_Vector_Map as VMAP
+
+    source = inspect.getsource(VMAP._airport_auto_roads_layer_at)
+    assert "o4_tag_schema" in source
+    assert "ROAD_CACHE_TAG_SCHEMA" in source
+    assert "len(boxes)" not in source and "box_count" not in source
+    assert isinstance(VMAP.ROAD_CACHE_TAG_SCHEMA, str)

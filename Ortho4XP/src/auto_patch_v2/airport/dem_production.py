@@ -76,7 +76,8 @@ def engine_root() -> Path:
 
 
 def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
-                icao: str, required_box: tuple | None = None
+                icao: str, required_box: tuple | None = None,
+                expects_inset: bool = True
                 ) -> tuple[dict, list[str]]:
     """Filesystem-only cache warmth for one tile (``dem_cache_state``):
     ``(state, problems)`` — pure path inspection, never a fetch.
@@ -117,7 +118,16 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
         problems.append(f"NO cached airports OSM layer {layer} — no smoothing "
                         f"masks, the surface stays UNSMOOTHED "
                         f"(--refresh-data osm_layers)")
-    if not state["airport_insets_present"]:
+    if not expects_inset:
+        # §A.6 patch∖inset (spec §B row 13): this airport is PATCHED but
+        # outside the inset selection, so it solves on the base raster
+        # without meter-class data — exactly what every airport with no
+        # provider coverage does today.  A missing inset is then not a
+        # problem, there is no refusal and nothing is warmed.  An orphan
+        # inset that IS on disk is still baked and still recorded (owner
+        # Q3, RULINGS 2026-09-18c).
+        state["expects_inset"] = False
+    elif not state["airport_insets_present"]:
         problems.append(f"NO airport elevation insets dir {ins_dir} — the base "
                         f"surface only, while production bakes insets "
                         f"(--refresh-data dem)")
@@ -133,6 +143,16 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
             (state["airport_inset_problem_kind"], text) = problem
             problems.append(text)
     return state, problems
+
+
+def _inset_mode_of(tile) -> str:
+    """The tile's normalised inset mode, for the provenance record."""
+    try:
+        from auto_patch.selection import resolved_inset_mode
+
+        return resolved_inset_mode(tile)
+    except Exception:                                    # pragma: no cover
+        return "?"
 
 
 class _BakedTile:
@@ -793,8 +813,12 @@ class ProductionDem:
         # selection (spec §A.4), the box is only REQUIRED when the inset
         # mode admits this airport; a patched-but-not-inset airport solves
         # on the base raster and that is lawful, not cold (§A.6).
+        expects_inset = self._expects_inset(tile)
         required_box = (self._required_inset_box(tile, dico)
-                        if self._expects_inset(tile) else None)
+                        if expects_inset else None)
+        self.provenance["inset_selection"] = (
+            "mode=%s admitted=%s"
+            % (_inset_mode_of(tile), expects_inset))
         self._required_boxes[(lat, lon)] = required_box
         if required_box is not None:
             seen = set(problems)
@@ -836,6 +860,10 @@ class ProductionDem:
         else is class-M far side: context-only, never a refusal.
         """
         return (int(lat), int(lon)) in self.declared_tiles
+
+    def _inset_selection_provenance(self, tile: _t.Any) -> str:
+        return "mode=%s admitted=%s" % (_inset_mode_of(tile),
+                                        self._expects_inset(tile))
 
     def _expects_inset(self, tile: _t.Any) -> bool:
         """Does the INSET selection admit this airport on this tile?

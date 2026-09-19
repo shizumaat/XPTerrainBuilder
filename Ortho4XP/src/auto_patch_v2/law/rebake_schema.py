@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
-__all__ = ["Rebake", "Placement", "Deck"]
+__all__ = ["Rebake", "Placement", "Deck", "Scatter"]
 
 
 @_dc.dataclass(frozen=True)
@@ -320,3 +320,30 @@ class Deck:
     shear: bool = True
     #: §49 (5): a deck steeper than this is not sheared (fallback (6)).
     shear_max_grade: float = 0.10
+
+
+@_dc.dataclass(frozen=True)
+class Scatter:
+    """``structures.toml [scatter]`` — THE SCATTER CLASS (spec
+    ``pack-read-once-fast-spec.md`` §B.2).  A resource of many small
+    disconnected solids: a hillside of bushes, a tree's leaf clumps, a
+    car park of parked vehicles.  The predicate is
+    ``airport/scatter.py``; nothing in the build consults it until
+    slice S5b wires it (the two owner questions of the spec's §D).
+    Defaulted so a law dir without the table still loads (the ``[deck]``
+    precedent)."""
+
+    #: THE MANY-SMALL-COMPONENTS COUNT: a resource with at least this
+    #: many genuine components is a candidate.  = ``placement_atom.
+    #: RIGID_REACH_COMPONENTS_MAX``'s own number and its own sentence —
+    #: "a member with thousands of them is CLUTTER whose pieces are
+    #: meant to stand apart".  0 disables the class.
+    components_min: int = 64
+    #: ...and EVERY genuine component's authored plan-box DIAGONAL must
+    #: be at most this, or that component must be LINE-SHAPED (10bb: a
+    #: fence file of posts and wire runs is one class with its posts).
+    #: Measured starting point, not a fitted one: at TNCM / TFFG /
+    #: LEMD the (64, 10 m) pair reads 96,328 / 154,040 / 22,207
+    #: components scatter, the LEMD population being the named T4-strut
+    #: false positives (8.69-8.70 m each).
+    component_diag_max_m: float = 10.0

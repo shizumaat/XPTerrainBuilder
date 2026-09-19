@@ -6121,3 +6121,26 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   Also skipped: the full pytest suite (only the covering files, once); any
   second airport; the four other affected tiles (+17-097, +16-097,
   −13-077, +46+006) were not re-run.
+
+## 2026-09-18 — lane `packscatter-census` (slice S5a, the scatter predicate + dry census)
+
+NO BEHAVIOUR CHANGE landed (a new `airport/scatter.py` nothing consults, two
+new `[scatter]` law keys nothing reads, a new read-only tool, its twins), so
+no airport was built and no stage was run. Skipped by that choice, and owed
+by slice S5b:
+
+* the **`structures.json` DRY PAIR** on LEMD / HECA with the basin-witness
+  gate skipping scatter vs not — the spec's own S5a deliverable (iii). It
+  needs the S5b wiring (a behaviour change forbidden here) and a
+  `planar --stage structures` run per airport (LEMD 378 s / 4.8 GB, and
+  another lane held the machine's headroom). What was measured instead:
+  the static per-RESOURCE structure-read screen of
+  `docs/findings/pack-scatter-census-20260918.md` §4 — 30 named candidate
+  resources over nine airports, incl. the OTHH `elevated_deck` overlap S5b
+  must order around;
+* the **MEASURED** LP foot-row count and cluster-pad outline delta (an
+  upper bound and a box proxy were measured instead, §2 / §3 of the same
+  findings);
+* the full pytest suite: only `tests/auto_patch_v2/test_v2packscatter.py`
+  (new, 19 passed) and the law-table covering files
+  `test_law_tables.py` + `test_airport_load.py` (63 passed) were run, once.

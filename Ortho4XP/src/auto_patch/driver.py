@@ -133,6 +133,26 @@ def _dsf_identities_now(apt_dat_path: str,
     emit side recorded, so this catches a DSF that changed, one that was
     removed, AND one that has since APPEARED for a scanned tile — the last of
     which a plain re-stat of the recorded list would miss.
+
+    THE IDENTITY IS THE BUILD'S INPUT, NOT THE LIVE FILE
+    (``provenance.pack_dsf_input_identity``, 2026-09-18): the object stage
+    REWRITES the pack DSF after this stamp is cut, so keying on the live
+    file self-invalidated every rebaked airport's patch on every tile build
+    (TFFJ rebuilt forever; TKPK/TKPN, which are not rebaked, reused theirs).
+    The size+mtime come from ``<dsf>.anchor_bak`` when one exists — the pack
+    as installed, and what every object-stage read already resolves to —
+    under the LIVE path as the key.
+
+    STATED RESIDUAL, found while implementing this: nothing re-checks the
+    ``.anchor_bak`` DSF backup against a REPLACED pack.
+    ``dsf_write.write_pack`` creates it once (``if not os.path.isfile``) and
+    has no counterpart of v1 ``object_rebake``'s three-way
+    ``backup_sha256`` / ``written_sha256`` adoption rule (invariant I-14), so
+    a pack updated in place is already dumped — and rewritten — from the OLD
+    backup by the build itself.  That is a defect UPSTREAM of this gate; the
+    identity here is consistent with what the build actually reads, which is
+    the rule.  A replaced pack still invalidates through ``o4_apt_dat``'s
+    exact mtime and ``o4_pack``.
     """
     if tile_keys == "":
         return ""            # scanned no tile — a real, comparable answer
@@ -153,7 +173,19 @@ def _dsf_identities_now(apt_dat_path: str,
         if os.path.isfile(candidate):
             paths.append(candidate)
     from . import provenance as _prov
-    return _prov.identity_list(paths)
+    return _prov.pack_dsf_identity_list(paths)
+
+
+def _rebuild_reason(icao: str, key: str) -> None:
+    """ONE line, at verbosity 1, naming WHY this airport's patch rebuilt.
+
+    The app's log used to say "up to date (build inputs unchanged), reusing
+    existing patch" for a reuse and NOTHING for a rebuild — every "why is
+    TFFJ rebuilt on every build?" question then cost a verbosity-2 rerun.
+    STAMP KEYS ONLY: no paths, no old/new values (those stay at
+    ``vprint(2)``), so a tile full of rebuilds is one short line each.
+    """
+    UI.vprint(1, "   Auto-patch:", icao, "rebuilding —", key, "changed.")
 
 
 def _cifp_path_under_root(xp_root: str | None, icao: str) -> str | None:
@@ -240,7 +272,11 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        borrowing (or out of it) is invisible here — deciding it needs the
        Global block parsed and a coverage union, which this gate does not do.
     2. **pack DSF(s)** — every DSF the build read from that pack, re-resolved
-       and re-stat'ed (``o4_dsf`` / ``o4_dsf_tiles``).
+       and re-stat'ed (``o4_dsf`` / ``o4_dsf_tiles``) BY ITS INPUT IDENTITY:
+       the ``<dsf>.anchor_bak`` pristine file where the object stage has
+       rewritten the live one, which is the file the build actually reads
+       (``provenance.pack_dsf_input_identity``, 2026-09-18 — without it a
+       rebaked pack's airport rebuilt its patch on every single tile build).
     3. **configuration** — one digest over every ``auto_patch`` gate and
        standards/tuning constant that can change the emitted patch
        (``o4_cfg``).
@@ -276,6 +312,7 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     from .build_support import read_patch_source
     meta = read_patch_source(auto_patch_file)
     if not meta:
+        _rebuild_reason(icao, "no build-input stamps on the existing patch")
         return False
     # ``apt_dat_now`` is the selection the patch SELECTOR already made for
     # this airport (spec section A.3); passing it keeps the apt.dat scan at
@@ -288,10 +325,12 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     if not apt_now:
         return False
     if os.path.realpath(apt_now) != os.path.realpath(meta["apt_dat"]):
+        _rebuild_reason(icao, "o4_apt_dat")
         return False
     try:
         mtime_now = os.path.getmtime(apt_now)
     except OSError:
+        _rebuild_reason(icao, "o4_apt_dat")
         return False
     stored = meta.get("apt_dat_mtime")
     if stored is None:
@@ -300,12 +339,15 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         # patch itself.
         try:
             if mtime_now > os.path.getmtime(auto_patch_file):
+                _rebuild_reason(icao, "o4_apt_dat_mtime")
                 return False
         except OSError:
+            _rebuild_reason(icao, "o4_apt_dat_mtime")
             return False
     # Exact-match, not newer-than: replacing an airport with an OLDER
     # apt.dat (pack downgrade / restore) must also trigger a rebuild.
     elif abs(mtime_now - stored) >= 1e-6:
+        _rebuild_reason(icao, "o4_apt_dat_mtime")
         return False
 
     # ── Input 1b: §44's BORROWED Global Airports apt.dat ───────────────────
@@ -323,6 +365,7 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         except OSError:
             b_now = None
         if b_stored is None or b_now is None or abs(b_now - b_stored) >= 1e-6:
+            _rebuild_reason(icao, "o4_apt_dat_borrowed_mtime")
             UI.vprint(2, "   Auto-patch:", icao,
                       "rebuild — borrowed apt.dat", borrowed,
                       "changed (was", repr(b_stored),
@@ -337,6 +380,7 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     from . import provenance as _prov
     changed = _prov.freshness_mismatch(stamped, live)
     if changed is not None:
+        _rebuild_reason(icao, changed)
         UI.vprint(2, "   Auto-patch:", icao, "rebuild —", changed,
                   "changed (was", repr(stamped.get(changed)),
                   ", now", repr(live.get(changed)) + ").")

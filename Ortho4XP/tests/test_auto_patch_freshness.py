@@ -1328,3 +1328,181 @@ def test_borrow_gate_parses_no_apt_dat(install, tmp_path, global_apt,
 
     monkeypatch.setattr("builtins.open", _spy)
     assert install.is_current(patch)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# The object stage's OWN rewrite of the pack DSF (2026-09-18)
+#
+# The v2 placement step rewrites the pack's DSF on every build, keeping
+# the pack as installed beside it as ``<dsf>.anchor_bak`` (one
+# ``shutil.copy2``, size + mtime preserved) and dumping THAT backup ever
+# after.  Keying ``o4_dsf`` on the live file therefore stamped a derived
+# artifact: TFFJ (tile +17-063, app 1.0.351) rebuilt its auto-patch on
+# every single tile build while TKPK/TKPN, whose packs are not rebaked,
+# reused theirs.  The identity is the BUILD'S INPUT — the pristine file,
+# under the live path as key.
+# ──────────────────────────────────────────────────────────────────────
+def _rebake(install, payload: bytes = b"XPLNEDSF-rewritten-by-the-object-stage",
+            mtime_delta: float = 120.0) -> Path:
+    """Do to the pack DSF exactly what ``dsf_write.write_pack`` does.
+
+    Backup made ONCE with ``copy2`` (never refreshed — ``write_pack``'s
+    ``if not os.path.isfile(backup)``), then the live file replaced by
+    the encoded edit, which lands with a NEW mtime and may differ in
+    size.
+    """
+    import shutil
+    backup = Path(str(install.dsf) + ".anchor_bak")
+    if not backup.is_file():
+        shutil.copy2(install.dsf, backup)
+    install.dsf.write_bytes(payload)
+    st = os.stat(install.dsf)
+    os.utime(install.dsf, (st.st_atime, st.st_mtime + mtime_delta))
+    return backup
+
+
+def test_rebaked_pack_dsf_still_reuses_the_patch(install, patch_file):
+    """THE DEFECT: first build stamps (no backup yet) → the object stage
+    rewrites the DSF and leaves the backup → the gate must read CURRENT."""
+    backup = _rebake(install)
+    assert backup.is_file()
+    assert install.dsf.read_bytes() != backup.read_bytes()
+    assert install.is_current(patch_file), \
+        "a rebaked pack DSF must not invalidate the patch it produced"
+
+
+def test_rebake_stays_current_over_repeated_builds(install, patch_file):
+    """Stable, not merely current once: three more rebakes, each with a
+    fresh mtime and a different size, change nothing."""
+    for n in range(3):
+        _rebake(install, payload=b"rewrite" * (n + 3),
+                mtime_delta=60.0 * (n + 1))
+        assert install.is_current(patch_file), f"rebake {n} invalidated"
+
+
+def test_patch_emitted_after_a_rebake_is_current_too(install, tmp_path):
+    """The emit side uses the same function: a patch stamped while the
+    live DSF already carries a rewrite is current immediately (and stays
+    current through the NEXT rewrite)."""
+    _rebake(install)
+    patch = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
+    assert install.is_current(patch)
+    _rebake(install, payload=b"another-rewrite", mtime_delta=900.0)
+    assert install.is_current(patch)
+
+
+def test_backup_absent_keys_on_the_live_dsf(install, patch_file):
+    """No backup ⇒ the live file IS the input: the pre-existing
+    behaviour, unchanged (an external pack edit still rebuilds)."""
+    assert not Path(str(install.dsf) + ".anchor_bak").exists()
+    install.dsf.write_bytes(b"externally-edited")
+    assert not install.is_current(patch_file)
+
+
+def test_backup_edited_rebuilds(install, patch_file):
+    """The pristine file IS the watched input: touching the BACKUP (a
+    genuinely different pack input) invalidates."""
+    backup = _rebake(install)
+    assert install.is_current(patch_file)
+    backup.write_bytes(b"a-different-pack-as-installed")
+    assert not install.is_current(patch_file)
+
+
+def test_pack_dsf_input_identity_is_keyed_by_the_live_path(install):
+    """The value: LIVE path, PRISTINE size + mtime."""
+    live = str(install.dsf)
+    before = provenance.pack_dsf_input_identity(live)
+    backup = _rebake(install)
+    after = provenance.pack_dsf_input_identity(live)
+    assert before == after, "copy2 preserves size+mtime, so the value holds"
+    st = os.stat(backup)
+    assert after.endswith(f"|{st.st_size}|{st.st_mtime:.6f}")
+    assert provenance._quote(live) in after
+    assert ".anchor_bak" not in after
+    # and it is NOT the live file's identity any more
+    assert after != provenance._identity(live)
+
+
+def test_pack_dsf_input_identity_missing_file(install, tmp_path):
+    assert provenance.pack_dsf_input_identity(None) == "none"
+    gone = str(tmp_path / "nope.dsf")
+    assert provenance.pack_dsf_input_identity(gone).endswith("|missing")
+
+
+def test_replaced_pack_rebuilds_through_the_apt_dat_stamp(install,
+                                                          patch_file):
+    """A genuinely UPDATED pack: the user drops in a new version, so its
+    apt.dat moves too — input 1 catches it (exact mtime)."""
+    _rebake(install)
+    assert install.is_current(patch_file)
+    install.dsf.write_bytes(b"a-brand-new-pack-version")
+    _touch_newer(install.apt_dat)
+    assert not install.is_current(patch_file)
+
+
+def test_a_replaced_dsf_alone_is_invisible_upstream_defect(install,
+                                                           patch_file):
+    """DOCUMENTS A DEFECT UPSTREAM OF THIS GATE, not a choice made here.
+
+    ``dsf_write.write_pack`` creates ``<dsf>.anchor_bak`` once and never
+    re-checks it against the pack (v1 ``object_rebake`` has the three-way
+    ``backup_sha256``/``written_sha256`` adoption rule; the v2 DSF path has
+    none).  So a pack DSF replaced in place under a stale backup is not
+    read by the BUILD either — it dumps the old backup and writes it back
+    over the new file.  The gate matching that is correct; the missing
+    staleness rule is the bug, and it is reported, not papered over here.
+    """
+    _rebake(install)
+    install.dsf.write_bytes(b"a-new-pack-DSF-under-a-stale-backup")
+    assert install.is_current(patch_file)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# WHY a patch rebuilt — one line, at verbosity 1
+# ──────────────────────────────────────────────────────────────────────
+def _reason_lines(monkeypatch) -> list:
+    """Capture ``UI.vprint`` calls made at level 1."""
+    seen: list[str] = []
+
+    def _vprint(level, *args):
+        if level <= 1:
+            seen.append(" ".join(str(a) for a in args))
+
+    monkeypatch.setattr(driver.UI, "vprint", _vprint)
+    return seen
+
+
+def test_rebuild_reason_prints_at_verbosity_one(install, patch_file,
+                                                monkeypatch):
+    seen = _reason_lines(monkeypatch)
+    _touch_newer(install.cifp)
+    assert not install.is_current(patch_file)
+    assert len(seen) == 1, seen
+    assert "KFAKE" in seen[0] and "o4_cifp" in seen[0]
+
+
+def test_rebuild_reason_names_the_apt_dat_input(install, patch_file,
+                                                monkeypatch):
+    seen = _reason_lines(monkeypatch)
+    _touch_newer(install.apt_dat)
+    assert not install.is_current(patch_file)
+    assert len(seen) == 1, seen
+    assert "o4_apt_dat_mtime" in seen[0]
+
+
+def test_rebuild_reason_dumps_no_paths(install, patch_file, monkeypatch):
+    """One short line per airport: stamp keys only — the old/new values
+    (which carry every DSF path) stay at verbosity 2."""
+    seen = _reason_lines(monkeypatch)
+    _rebake(install)
+    Path(str(install.dsf) + ".anchor_bak").write_bytes(b"changed-pack")
+    assert not install.is_current(patch_file)
+    assert len(seen) == 1, seen
+    assert str(install.dsf) not in seen[0]
+    assert "o4_dsf" in seen[0]
+
+
+def test_a_current_patch_prints_nothing(install, patch_file, monkeypatch):
+    seen = _reason_lines(monkeypatch)
+    assert install.is_current(patch_file)
+    assert seen == []

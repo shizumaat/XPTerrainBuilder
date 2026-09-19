@@ -1624,6 +1624,7 @@ final class BuildModel: ObservableObject {
             guard let url = tileConfigURL(coord),
                   var file = try? OrthoConfigFile(contentsOf: url) else { continue }
             for name in names { file.remove(name) }
+            file.stampTileConfig(appVersion: AppVersion.current)
             try? file.write(to: url)
         }
         tileConfigGeneration += 1
@@ -1673,6 +1674,10 @@ final class BuildModel: ObservableObject {
             } else {
                 file.set(name, to: value)
             }
+            // STAMPED (RULINGS 2026-09-18c (2)): an unstamped tile cfg is
+            // moved aside by the engine on its next read, so an app write
+            // that did not stamp would lose the override it just made.
+            file.stampTileConfig(appVersion: AppVersion.current)
             do {
                 try FileManager.default.createDirectory(
                     at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

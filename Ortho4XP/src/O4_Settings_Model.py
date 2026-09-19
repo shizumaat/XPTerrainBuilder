@@ -387,12 +387,23 @@ def _tile_cfg_path(lat: int, lon: int, custom_build_dir: str) -> str:
 def read_tile_raw(lat: int, lon: int, custom_build_dir: str) -> dict | None:
     """Return the raw ``{key: value}`` contents of a tile config file.
 
-    :returns: parsed dict, or ``None`` when the tile config file is absent.
+    FIRST TOUCH MOVES A PRE-1.0.352 FILE (owner RULINGS 2026-09-18c (2)):
+    an unstamped tile cfg is retired to ``*.pre352.bak`` here, exactly as
+    on the build's read path, so the settings window and the map overlay
+    see the same thing the build will — the tile inheriting everything.
+    The stamp line itself is NOT a setting and never appears in the
+    returned mapping.
+
+    :returns: parsed dict, or ``None`` when the tile config file is absent
+        (or was just retired).
     """
     path = _tile_cfg_path(lat, lon, custom_build_dir)
+    retire_unstamped_tile_cfg(path)
     if not os.path.isfile(path):
         return None
-    return _parse_cfg(path)
+    data = _parse_cfg(path)
+    data.pop(CFG_STAMP_KEY, None)
+    return data
 
 
 # Vars whose value is never taken from the caller-supplied ``values`` and is
@@ -476,98 +487,165 @@ def sparse_tile_values(values: dict, *, always_keep: tuple = (),
     return out
 
 
-#: A tile cfg carrying at least this FRACTION of the non-provenance tile
-#: vars is a LEGACY FULL DUMP (the pre-2026-09-18 ``write_to_config``
-#: wrote every one of them).  A sparse file carries a handful; the gap
-#: between "a handful" and "all of them" is the whole register, so the
-#: threshold is not delicate.  Retired keys deleted from an old file are
-#: why it is not 1.0.
-FULL_DUMP_FRACTION = 0.8
+# ---------------------------------------------------------------------------
+# THE STAMP, and the move rule for an UNSTAMPED (pre-1.0.352) tile cfg
+# (owner RULINGS 2026-09-18c (2))
+# ---------------------------------------------------------------------------
+#: The stamp key itself lives in the registry (beside the live keys, so a
+#: reader never looks in two places); re-exported here because every
+#: writer and reader of a tile cfg goes through this module.
+CFG_STAMP_KEY = O4_Cfg_Vars.cfg_stamp_key
+
+#: Suffix of the backup an unstamped tile cfg is MOVED to.  Named for the
+#: version the rule starts at, so a user browsing the build dir can see
+#: what the file is without reading it.
+PRE_STAMP_BACKUP_SUFFIX = ".pre352.bak"
 
 
-def migrate_tile_cfg(path: str, global_cfg: dict | None = None,
-                     strip_inherited: bool = False) -> list[str]:
-    """Make an EXISTING tile cfg sparse, once, in place.
+def cfg_stamp_value() -> str:
+    """What this build writes as the stamp value.
 
-    Owner ruling RULINGS 2026-09-18a (1): "one-time migration strips the
-    rest from existing tile cfgs".  Two shapes exist on disk and they are
-    told apart by how many tile vars the file carries:
+    The app version when the artifact carries one (``VERSION.txt`` beside
+    a frozen engine or an app bundle — :mod:`O4_Build_Info`), else
+    ``engine-<engine version>`` for a development tree or a bare engine
+    checkout, which has no app version at hand.  Only the stamp's
+    PRESENCE decides the move rule, so either form is a lawful stamp;
+    the value is provenance for a bug report.
+    """
+    try:
+        import O4_Build_Info                      # noqa: PLC0415 — lazy
+        info = O4_Build_Info.build_info()
+    except Exception:
+        return "unknown"
+    if info.app and info.app != O4_Build_Info.DEV:
+        return info.app
+    return "engine-" + (info.engine or "dev")
 
-    * a LEGACY FULL DUMP (pre-2026-09-18 ``Tile.write_to_config``: every
-      ``list_tile_vars`` key, i.e. a frozen snapshot of the whole settings
-      frame at the moment that tile was last built) -> NO key survives as
-      an override except the build provenance (:data:`_TILE_PRESERVED`)
-      and any foreign/unknown key, which is passed through untouched.
-    * an ALREADY-SPARSE file (written by :func:`write_tile` since
-      2026-09-04, by the app, or by this migration) -> LEFT ALONE unless
-      *strip_inherited* is set, in which case keys whose value EQUALS the
-      inherited one are dropped and genuine overrides stay.
 
-    *strip_inherited* is OFF on the read path deliberately.  A read that
-    rewrote a hand-written or already-sparse cfg every time a global
-    happened to match it would churn the user's file for no resolution
-    change (the value is identical either way) and would break the
-    standing "a cfg with no retired key is untouched BYTE FOR BYTE"
-    invariant (``test_r21_corridor_retirement``).  Removing a key that
-    has become equal to the global is the WRITER's job — ruling (2),
-    ``write_tile`` / ``Tile.write_to_config`` / the UI write-through.
+def tile_cfg_stamp_line() -> str:
+    """THE stamp line, for a writer that renders cfg text itself.
 
-    WHY A FULL DUMP LOSES EVEN THE KEYS THAT DIFFER (the honest part): the
-    dump records the frame the tile was BUILT with, not what the user
-    chose, so a differing value is evidence of nothing — it may be a
-    deliberate per-tile choice or a global the user has since changed in
-    the UI.  The owner's own corpus settles it: 23 tile cfgs say
-    ``modify_custom_airports=True`` while the global (and the app's
-    unchecked box) say False, and that override must NOT survive — it is
-    the GEN-1 bug itself.  Keeping differing keys would keep the bug.
+    One helper, so a test fixture that hand-writes a tile cfg stamps it
+    the same way the engine does rather than re-spelling the key.
+    """
+    return CFG_STAMP_KEY + "=" + cfg_stamp_value() + "\n"
 
-    IDEMPOTENT: the output is sparse, so a second call sees the sparse
-    shape and finds nothing to drop.  A file that needs no change is not
-    rewritten (no ``.bak`` is minted).  An existing ``<path>.bak`` is
-    KEPT — the pre-migration file is only backed up when nothing else has
-    claimed that name.  Never raises.
 
-    :returns: INFO lines for the caller to print (empty when nothing done).
+def is_stamped(data: dict) -> bool:
+    """Whether a parsed tile cfg was written by a stamping build."""
+    return bool(str(data.get(CFG_STAMP_KEY, "")).strip())
+
+
+def write_tile_cfg(path: str, values: dict) -> None:
+    """Write a tile cfg (already-sparse *values*) WITH the stamp.
+
+    Both tile-cfg writers go through here — :func:`write_tile` and
+    ``O4_Config_Utils.Tile.write_to_config`` — so every tile cfg this
+    engine emits carries :data:`CFG_STAMP_KEY` and is therefore never
+    mistaken for a pre-1.0.352 file by :func:`retire_unstamped_tile_cfg`.
+    The stamp is written FIRST so the shape is obvious in a diff.
+    """
+    out = {CFG_STAMP_KEY: cfg_stamp_value()}
+    for key, value in values.items():
+        if key == CFG_STAMP_KEY:
+            continue
+        out[key] = value
+    _write_atomic_with_backup(path, out)
+
+
+def _claim_backup_path(path: str) -> str | None:
+    """Reserve an unused backup name for *path* and LINK the file to it.
+
+    Returns the claimed path, or ``None`` when *path* vanished (a
+    parallel tile worker got there first).  ``os.link`` fails rather than
+    overwrites when the name exists, so two workers racing the same cfg
+    cannot clobber each other's backup; the counter suffix walks past
+    whatever is already there.  A filesystem without hard links falls
+    back to an ``O_CREAT | O_EXCL`` copy, which is exclusive too.
+    """
+    candidate = path + PRE_STAMP_BACKUP_SUFFIX
+    index = 1
+    while True:
+        try:
+            os.link(path, candidate)
+            return candidate
+        except FileNotFoundError:
+            return None
+        except FileExistsError:
+            pass
+        except OSError:
+            try:
+                fd = os.open(candidate,
+                             os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+            except FileExistsError:
+                pass
+            except FileNotFoundError:
+                return None
+            else:
+                try:
+                    with open(path, "rb") as src, os.fdopen(fd, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                except FileNotFoundError:
+                    os.unlink(candidate)
+                    return None
+                return candidate
+        index += 1
+        candidate = path + PRE_STAMP_BACKUP_SUFFIX + "." + str(index)
+
+
+def retire_unstamped_tile_cfg(path: str) -> list[str]:
+    """MOVE a pre-1.0.352 tile cfg aside, once, on first touch.
+
+    Owner ruling RULINGS 2026-09-18c (2), verbatim: "let's just move any
+    config file created before 1.0.352, to a backup so everything going
+    forward starts with no config and global defaults, any changes then
+    write a new config file."  This supersedes the 2026-09-18a key-by-key
+    migration (the 80 %-full-dump heuristic, Q 18b-1), which is retired.
+
+    A tile cfg carrying no :data:`CFG_STAMP_KEY` line was written before
+    this rule existed.  It is MOVED to
+    ``Ortho4XP_+XX+YYY.cfg.pre352.bak`` (``.bak.2``, ``.bak.3`` … when
+    that name is taken — an existing backup is NEVER overwritten) and the
+    tile then resolves WHOLLY from the global config plus registry
+    defaults.  Nothing in the old file is carried forward.
+
+    THE ZONES GO TOO, and this is deliberate.  ``zone_list`` (and the
+    ``default_website`` / ``default_zl`` build provenance) live in the
+    same file, and the owner said ANY config file.  A user's hand-drawn
+    zones for an already-built tile are therefore not read again until
+    they redraw them — the file is beside the tile, losslessly, and can
+    be copied back by hand.  Flagged loudly rather than special-cased:
+    keeping three keys would be a key-by-key migration, which is the
+    thing the ruling retired.
+
+    SAFE UNDER THE PARALLEL TILE WORKERS: the backup name is claimed with
+    an exclusive link (never an overwrite) and the source is unlinked
+    after; a file that vanished mid-way (another worker moved it) is not
+    an error and reports nothing.  Never raises.
+
+    :returns: INFO lines for the caller to print (empty when nothing
+        happened — a stamped file, an absent file, an empty file).
     """
     try:
         if not path or not os.path.isfile(path):
             return []
         data = _parse_cfg(path)
         if not data:
+            return []                      # empty/comment-only: nothing to move
+        if is_stamped(data):
             return []
-        tile_vars = O4_Cfg_Vars.list_tile_vars
-        settings_keys = [k for k in data
-                         if k in tile_vars and k not in _TILE_PRESERVED]
-        denominator = max(1, len(tile_vars) - len(_TILE_PRESERVED))
-        full_dump = len(settings_keys) >= FULL_DUMP_FRACTION * denominator
-        if not full_dump and not strip_inherited:
+        backup = _claim_backup_path(path)
+        if backup is None:
             return []
-        if global_cfg is None:
-            global_cfg = read_global_raw()
-        out: dict = {}
-        dropped: list[str] = []
-        for key, value in data.items():
-            if key not in tile_vars or key in _TILE_PRESERVED:
-                out[key] = value        # provenance / foreign: untouched
-                continue
-            if key in O4_Cfg_Vars.retired_cfg_keys:
-                dropped.append(key)     # the retired-key cleanup agrees
-                continue
-            if full_dump:
-                dropped.append(key)
-                continue
-            if values_equivalent(key, value,
-                                 global_effective_value(key, global_cfg)):
-                dropped.append(key)
-                continue
-            out[key] = value
-        if not dropped:
-            return []
-        _write_atomic_with_backup(path, out, keep_existing_backup=True)
-        shape = "legacy full-dump" if full_dump else "sparse"
-        return ["tile config %s (%s) made sparse: %d frozen key(s) removed, "
-                "now inherited from the global config (RULINGS 2026-09-18a)"
-                % (os.path.basename(path), shape, len(dropped))]
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        return ["tile config %s was written before 1.0.352 and has been "
+                "moved to %s; this tile now uses the global settings "
+                "(zones and imagery source included -- owner ruling "
+                "RULINGS 2026-09-18c (2))"
+                % (os.path.basename(path), os.path.basename(backup))]
     except Exception:
         return []
 
@@ -600,6 +678,10 @@ def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:
         if key not in tile_vars:
             raise ValueError("%r is not a tile config var" % (key,))
     path = _tile_cfg_path(lat, lon, custom_build_dir)
+    # A pre-1.0.352 file is moved aside BEFORE its values could be read
+    # forward: the ruling's "any changes then write a new config file"
+    # means the new file starts from the global, not from the legacy one.
+    retire_unstamped_tile_cfg(path)
     file_exists = os.path.isfile(path)
     existing = _parse_cfg(path) if file_exists else {}
     global_cfg = read_global_raw()
@@ -616,7 +698,7 @@ def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:
             resolved[var] = existing[var]
     out = sparse_tile_values(resolved, always_keep=_TILE_PRESERVED,
                              global_cfg=global_cfg)
-    _write_atomic_with_backup(path, out)
+    write_tile_cfg(path, out)
 
 
 # ---------------------------------------------------------------------------
@@ -715,7 +797,10 @@ def update_legacy_tile_settings(legacy: dict, custom_build_dir: str) -> str:
         key: source[key] for key in LEGACY_KEPT_KEYS if key in source
     }
     destination = _tile_cfg_path(lat, lon, custom_build_dir)
-    _write_atomic_with_backup(destination, kept)
+    # STAMPED (RULINGS 2026-09-18c (2)): the modernised file is written by
+    # THIS build, so it must say so — an unstamped one would be retired to
+    # *.pre352.bak by the very next read, undoing the modernisation.
+    write_tile_cfg(destination, kept)
     if legacy.get("uses_legacy_name"):
         backup = legacy["cfg_path"] + ".legacy"
         try:

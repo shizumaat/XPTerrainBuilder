@@ -79,7 +79,9 @@ def _write_tile_cfg(window, lat, lon, website=None, zoomlevel=None):
     """Seed a per-tile config file with build provenance keys."""
     path = SM._tile_cfg_path(lat, lon, window.output_dir())
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    lines = []
+    # STAMPED (owner RULINGS 2026-09-18c (2)): an unstamped tile cfg is a
+    # pre-1.0.352 file, MOVED aside on first touch rather than read.
+    lines = [SM.tile_cfg_stamp_line().rstrip("\n")]
     if website is not None:
         lines.append("default_website=%s" % website)
     if zoomlevel is not None:

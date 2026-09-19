@@ -870,6 +870,23 @@ list_global_dsf_vars = [global_prefix + item for item in list_dsf_vars]
 list_global_mask_vars = [global_prefix + item for item in list_mask_vars]
 
 list_cfg_vars = list_tile_vars + list_global_tile_vars + list_app_vars
+
+# ──────────────────────────────────────────────────────────────────────
+# THE TILE-CFG STAMP (owner RULINGS 2026-09-18c (2))
+# ──────────────────────────────────────────────────────────────────────
+#: The one line every tile config this engine writes carries, recording
+#: WHICH build wrote it.  It is NOT a setting: it is never in
+#: ``cfg_vars``/``list_tile_vars``, never read as a value, and readers
+#: skip it explicitly rather than swallowing it as an unknown key.
+#:
+#: WHY IT EXISTS.  The owner ruled, verbatim: "let's just move any config
+#: file created before 1.0.352, to a backup so everything going forward
+#: starts with no config and global defaults, any changes then write a
+#: new config file."  File mtime cannot answer "which build wrote this"
+#: (a copy, a restore, a rsync all rewrite it), so the file says so
+#: itself.  ABSENT stamp = written before 1.0.352 = move it aside.
+cfg_stamp_key = "cfg_written_by"
+
 # ──────────────────────────────────────────────────────────────────────
 # RETIRED KEYS
 # ──────────────────────────────────────────────────────────────────────

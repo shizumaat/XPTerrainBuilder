@@ -171,6 +171,21 @@ def _build_tile_info(
     )
     dsf_present = os.path.isfile(dsf_path)
 
+    # FIRST TOUCH MOVES A PRE-1.0.352 CFG (owner RULINGS 2026-09-18c (2)).
+    # The info pane is a first touch like any other: scanning a tile must
+    # not show a legacy file's frozen provider/ZL when the build itself
+    # will retire that file and inherit from the global.  Scoped to the
+    # CANONICAL Ortho4XP_+XX+YYY.cfg name — a generic legacy-named
+    # Ortho4XP.cfg in a build dir is not read by the build at all and
+    # stays for the existing legacy-modernise flow
+    # (O4_Settings_Model.legacy_tile_settings).
+    try:
+        import O4_Settings_Model as SM               # noqa: PLC0415 — lazy
+        SM.retire_unstamped_tile_cfg(
+            _cfg_candidates(build_dir, lat, lon)[0])
+    except Exception:
+        pass
+
     cfg_path = next(
         (p for p in _cfg_candidates(build_dir, lat, lon) if os.path.isfile(p)),
         None,

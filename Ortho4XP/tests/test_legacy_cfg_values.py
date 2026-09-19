@@ -9,9 +9,14 @@ sys.path.insert(0, "src")
 def test_progressive_cover_reads_as_true(tmp_path):
     import O4_Config_Utils as CFG
 
+    import O4_Settings_Model as SM
+
     cfg = tmp_path / "Ortho4XP_+46+006.cfg"
+    # STAMPED (owner RULINGS 2026-09-18c (2)): an unstamped tile cfg is a
+    # pre-1.0.352 file, MOVED aside on first touch rather than read.
     cfg.write_text(
-        "default_website='Arc'\n"
+        SM.tile_cfg_stamp_line()
+        + "default_website='Arc'\n"
         "default_zl=16\n"
         "cover_airports_with_highres=Progressive\n"
         "cover_zl=17\n"
@@ -61,8 +66,10 @@ def _layered_tile(tmp_path, monkeypatch, *, global_lines, tile_lines,
     tile = CFG.Tile(46, 6, str(tmp_path) + os.sep)
     if tile_lines is not None:
         os.makedirs(tile.build_dir, exist_ok=True)
+        import O4_Settings_Model as SM
         with open(tile._tile_cfg_path(), "w") as handle:
-            handle.write(tile_lines)
+            # STAMPED through the one helper (RULINGS 2026-09-18c (2)).
+            handle.write(SM.tile_cfg_stamp_line() + tile_lines)
     return tile
 
 

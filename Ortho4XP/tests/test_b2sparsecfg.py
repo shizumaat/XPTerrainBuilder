@@ -167,10 +167,15 @@ def test_sparse_tile_values_refuses_a_foreign_key():
 
 
 # ---------------------------------------------------------------------------
-# P3 -- one-time migration of existing tile cfgs (RULINGS 2026-09-18a (1))
+# P3 -- a PRE-1.0.352 tile cfg is MOVED to a backup (RULINGS 2026-09-18c (2))
+#
+# Owner, verbatim: "let's just move any config file created before 1.0.352,
+# to a backup so everything going forward starts with no config and global
+# defaults, any changes then write a new config file."  This RETIRED the
+# 2026-09-18a key-by-key migration (the 80%-full-dump heuristic, Q 18b-1).
 # ---------------------------------------------------------------------------
-def _full_dump(path, global_cfg_values):
-    """A pre-2026-09-18 tile cfg: EVERY tile var, frozen."""
+def _legacy_full_dump(path, global_cfg_values):
+    """A pre-1.0.352 tile cfg: EVERY tile var, frozen, and NO stamp."""
     lines = []
     for var in O4_Cfg_Vars.list_tile_vars:
         value = global_cfg_values.get(
@@ -179,23 +184,27 @@ def _full_dump(path, global_cfg_values):
     path.write_text("\n".join(lines) + "\n")
 
 
-def test_legacy_full_dump_keeps_no_override_but_its_provenance(sparse_tile):
-    """The owner's 23 tiles: modify_custom_airports=True frozen into the
-    dump while the global says False.  It must NOT survive."""
-    tile, global_cfg = sparse_tile
-    path = tile._tile_cfg_path()
-    _full_dump(pathlib.Path(path), {"modify_custom_airports": "True",
-                                    "default_website": "BI",
-                                    "default_zl": "17"})
+def test_the_heuristic_is_GONE():
+    """The retired mechanism is deleted, not kept gated."""
+    assert not hasattr(SM, "migrate_tile_cfg")
+    assert not hasattr(SM, "FULL_DUMP_FRACTION")
 
-    infos = SM.migrate_tile_cfg(path, SM.read_global_raw(str(global_cfg)))
 
-    assert infos and "legacy full-dump" in infos[0]
-    keys = _cfg_keys(path)
-    assert "modify_custom_airports" not in keys
-    assert keys == {"zone_list", "default_website", "default_zl"}
-    values = SM._parse_cfg(path)
-    assert values["default_website"] == "BI" and values["default_zl"] == "17"
+def test_an_unstamped_cfg_is_moved_and_the_global_resolves(sparse_tile):
+    """The owner's 23 tiles: modify_custom_airports=True frozen in, global
+    says False.  The whole file goes; the tile inherits."""
+    tile, _global_cfg = sparse_tile
+    path = pathlib.Path(tile._tile_cfg_path())
+    _legacy_full_dump(path, {"modify_custom_airports": "True",
+                             "default_website": "BI", "default_zl": "17"})
+    before = path.read_text()
+
+    infos = SM.retire_unstamped_tile_cfg(str(path))
+
+    assert infos and "before 1.0.352" in infos[0]
+    assert not path.exists()
+    backup = pathlib.Path(str(path) + SM.PRE_STAMP_BACKUP_SUFFIX)
+    assert backup.read_text() == before          # losslessly beside the tile
 
     fresh = CFG.Tile(tile.lat, tile.lon, tile.custom_build_dir)
     fresh.build_dir = tile.build_dir
@@ -203,63 +212,156 @@ def test_legacy_full_dump_keeps_no_override_but_its_provenance(sparse_tile):
     assert fresh.modify_custom_airports is False   # the global wins now
 
 
-def test_migration_is_idempotent_and_keeps_an_existing_bak(sparse_tile):
-    tile, global_cfg = sparse_tile
-    path = tile._tile_cfg_path()
-    _full_dump(pathlib.Path(path), {"modify_custom_airports": "True"})
-    pathlib.Path(path + ".bak").write_text("older backup\n")
-
-    assert SM.migrate_tile_cfg(path, SM.read_global_raw(str(global_cfg)))
-    first = pathlib.Path(path).read_text()
-    assert pathlib.Path(path + ".bak").read_text() == "older backup\n"
-
-    assert SM.migrate_tile_cfg(path, SM.read_global_raw(str(global_cfg))) == []
-    assert pathlib.Path(path).read_text() == first
-
-
-def test_migration_keeps_a_real_override_in_a_sparse_file(sparse_tile):
-    """A file written by write_tile / the app is NOT a full dump: its
-    genuine overrides survive, only phantom ones are dropped -- and only
-    when the caller asks (the read path never churns a sparse file)."""
-    tile, global_cfg = sparse_tile           # global: both False
+def test_the_ZONES_go_to_the_backup_too(sparse_tile):
+    """LOUD: the owner said ANY config file, so zone_list and the imagery
+    provenance leave with it -- they are not special-cased back."""
+    tile, _global_cfg = sparse_tile
     path = pathlib.Path(tile._tile_cfg_path())
-    path.write_text("modify_custom_airports=True\n"
-                    "color_harmonization=False\n"
-                    "default_zl=17\n")
+    path.write_text("zone_list=[[[30,31,30,31],'ZL17','BI']]\n"
+                    "default_website=BI\ndefault_zl=17\n")
 
-    infos = SM.migrate_tile_cfg(str(path), SM.read_global_raw(str(global_cfg)),
-                                strip_inherited=True)
+    assert SM.retire_unstamped_tile_cfg(str(path))
 
-    assert infos and "sparse" in infos[0]
-    keys = _cfg_keys(str(path))
-    assert "modify_custom_airports" in keys     # differs: kept
-    assert "color_harmonization" not in keys    # equals global: dropped
-    assert "default_zl" in keys                 # provenance: kept
+    assert not path.exists()
+    backup = pathlib.Path(str(path) + SM.PRE_STAMP_BACKUP_SUFFIX)
+    assert "zone_list" in backup.read_text()
 
 
-def test_a_sparse_file_is_untouched_on_the_read_path(sparse_tile):
-    tile, global_cfg = sparse_tile
+def test_a_stamped_sparse_cfg_is_untouched_BYTE_FOR_BYTE(sparse_tile):
+    tile, _global_cfg = sparse_tile
     path = pathlib.Path(tile._tile_cfg_path())
-    path.write_text("color_harmonization=False\nmesh_zl=19\n")
+    path.write_text(SM.tile_cfg_stamp_line()
+                    + "color_harmonization=False\nmesh_zl=19\n")
     before = path.read_text()
 
-    assert SM.migrate_tile_cfg(str(path),
-                               SM.read_global_raw(str(global_cfg))) == []
+    assert SM.retire_unstamped_tile_cfg(str(path)) == []
 
     assert path.read_text() == before
-    assert not pathlib.Path(str(path) + ".bak").exists()
+    assert not pathlib.Path(str(path) + SM.PRE_STAMP_BACKUP_SUFFIX).exists()
 
 
-def test_migration_runs_on_read(sparse_tile):
+def test_an_existing_backup_is_never_overwritten(sparse_tile):
     tile, _global_cfg = sparse_tile
-    path = tile._tile_cfg_path()
-    _full_dump(pathlib.Path(path), {"modify_custom_airports": "True"})
+    path = pathlib.Path(tile._tile_cfg_path())
+    first = pathlib.Path(str(path) + SM.PRE_STAMP_BACKUP_SUFFIX)
+    first.write_text("an older backup\n")
+    path.write_text("mesh_zl=19\n")
+
+    assert SM.retire_unstamped_tile_cfg(str(path))
+
+    assert first.read_text() == "an older backup\n"
+    assert pathlib.Path(
+        str(path) + SM.PRE_STAMP_BACKUP_SUFFIX + ".2").read_text() == \
+        "mesh_zl=19\n"
+
+
+def test_a_vanished_file_is_not_an_error(sparse_tile):
+    """Parallel tile workers touch one cfg at the same moment."""
+    tile, _global_cfg = sparse_tile
+    assert SM.retire_unstamped_tile_cfg(tile._tile_cfg_path()) == []
+
+
+def test_both_writers_stamp_what_they_write(sparse_tile):
+    tile, _global_cfg = sparse_tile
+    tile.color_harmonization = True
+    assert tile.write_to_config() == 1
+    assert SM.is_stamped(SM._parse_cfg(tile._tile_cfg_path()))
+
+    SM.write_tile(30, 31, tile.custom_build_dir, {"mesh_zl": 19})
+    assert SM.is_stamped(SM._parse_cfg(tile._tile_cfg_path()))
+
+
+def test_a_change_after_the_move_writes_a_NEW_stamped_sparse_cfg(sparse_tile):
+    """The ruling's last clause: 'any changes then write a new config
+    file'.  A legacy cfg + one setting change = a two-line new file."""
+    tile, global_cfg = sparse_tile
+    global_cfg.write_text("modify_custom_airports=False\nmesh_zl=19\n")
+    path = pathlib.Path(tile._tile_cfg_path())
+    _legacy_full_dump(path, {"modify_custom_airports": "True"})
+
+    SM.write_tile(30, 31, tile.custom_build_dir,
+                  {"modify_custom_airports": True})
+
+    keys = _cfg_keys(str(path))
+    assert keys == {SM.CFG_STAMP_KEY, "modify_custom_airports"}
+    assert SM._parse_cfg(str(path))["modify_custom_airports"] == "True"
+    assert pathlib.Path(
+        str(path) + SM.PRE_STAMP_BACKUP_SUFFIX).is_file()
+
+
+def test_the_stamp_is_not_read_as_a_setting(sparse_tile, capsys):
+    """It must not warn as an unknown key, and must not become an attr."""
+    tile, _global_cfg = sparse_tile
+    path = pathlib.Path(tile._tile_cfg_path())
+    path.write_text(SM.tile_cfg_stamp_line() + "mesh_zl=19\n")
 
     fresh = CFG.Tile(tile.lat, tile.lon, tile.custom_build_dir)
     fresh.build_dir = tile.build_dir
     assert fresh.read_from_config() == 1
 
-    assert "modify_custom_airports" not in _cfg_keys(path)
+    assert fresh.mesh_zl == 19
+    assert not hasattr(fresh, SM.CFG_STAMP_KEY)
+    assert SM.CFG_STAMP_KEY in path.read_text()      # still stamped
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_the_stamp_survives_the_retired_key_cleanup(sparse_tile):
+    """A stamped cfg that also carries a retired key is rewritten by the
+    cleanup -- and comes out still stamped, not re-legacied."""
+    import O4_Cfg_Vars as CV
+    tile, _global_cfg = sparse_tile
+    path = pathlib.Path(tile._tile_cfg_path())
+    path.write_text(SM.tile_cfg_stamp_line()
+                    + "auto_patch_engine=v1\nmesh_zl=19\n")
+
+    fresh = CFG.Tile(tile.lat, tile.lon, tile.custom_build_dir)
+    fresh.build_dir = tile.build_dir
+    assert fresh.read_from_config() == 1
+
+    after = path.read_text()
+    assert "auto_patch_engine" not in after
+    assert CV.cfg_stamp_key in after
+    assert SM.retire_unstamped_tile_cfg(str(path)) == []
+
+
+def test_read_tile_raw_moves_it_and_hides_the_stamp(sparse_tile):
+    """The settings window / map overlay is a first touch like any other."""
+    tile, _global_cfg = sparse_tile
+    path = pathlib.Path(tile._tile_cfg_path())
+    path.write_text("mesh_zl=19\n")
+
+    assert SM.read_tile_raw(30, 31, tile.custom_build_dir) is None
+    assert pathlib.Path(str(path) + SM.PRE_STAMP_BACKUP_SUFFIX).is_file()
+
+    path.write_text(SM.tile_cfg_stamp_line() + "mesh_zl=19\n")
+    raw = SM.read_tile_raw(30, 31, tile.custom_build_dir)
+    assert raw == {"mesh_zl": "19"}
+
+
+def test_the_tile_info_scan_moves_it_too(sparse_tile):
+    """O4_Tile_Info: consumer 8 of the P2 census (commit 8a40b115)."""
+    import O4_Tile_Info as TI
+    tile, _global_cfg = sparse_tile
+    path = pathlib.Path(tile._tile_cfg_path())
+    path.write_text("default_website=BI\ndefault_zl=17\n")
+
+    info = TI._build_tile_info(tile.build_dir, 30, 31, "zOrtho4XP_+30+031")
+
+    assert info is None or info.provider == ""      # nothing inherited from it
+    assert not path.exists()
+    assert pathlib.Path(str(path) + SM.PRE_STAMP_BACKUP_SUFFIX).is_file()
+
+
+def test_the_move_runs_on_the_build_read_path(sparse_tile):
+    tile, _global_cfg = sparse_tile
+    path = pathlib.Path(tile._tile_cfg_path())
+    _legacy_full_dump(path, {"modify_custom_airports": "True"})
+
+    fresh = CFG.Tile(tile.lat, tile.lon, tile.custom_build_dir)
+    fresh.build_dir = tile.build_dir
+    assert fresh.read_from_config() == 1
+
+    assert not path.exists()
     assert fresh.modify_custom_airports is False
 
 

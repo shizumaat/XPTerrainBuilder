@@ -2068,6 +2068,33 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
     rec = {"cfg": str(dest), "canonical_source": str(src),
            "action": None, "sha256": None}
 
+    # THE STAMP, ON THE CANONICAL SOURCE (owner RULINGS 2026-09-18c (2)).
+    # An UNSTAMPED tile cfg is a pre-1.0.352 file, which the engine MOVES
+    # to ``*.pre352.bak`` on first read: a canonical cfg written before
+    # the stamp existed would be retired MID-BUILD and the tile would
+    # fall back to the global defaults, losing default_website /
+    # default_zl / zone_list from the frame.  Stamped HERE, once, on the
+    # source — so the copy below stays a BYTE copy (the invariant is
+    # about never re-RENDERING the settings; a provenance line changes no
+    # value), a ``present`` lane cfg is still never touched, and a
+    # DERIVED cfg still carries zero override lines.  Idempotent; it does
+    # change the recorded cfg sha256 against pre-18c frames.
+    if src.is_file():
+        try:
+            _src_text = src.read_text(errors="ignore")
+            if _src_text.strip() and not any(
+                    line.strip().startswith("cfg_written_by=")
+                    for line in _src_text.splitlines()):
+                _tmp = src.with_suffix(src.suffix + ".stamp.tmp")
+                _tmp.write_text(
+                    _src_text
+                    + ("" if _src_text.endswith("\n") else "\n")
+                    + "cfg_written_by=harness\n")
+                os.replace(_tmp, src)
+                rec["canonical_source_stamped"] = True
+        except OSError:                                # pragma: no cover
+            pass
+
     is_source = (dest.is_file() and src.is_file()
                  and dest.resolve() == src.resolve())
     if is_source:

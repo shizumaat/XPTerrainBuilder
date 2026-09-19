@@ -103,11 +103,18 @@ class TestAStaleCfgIsCLEANEDUP:
         CV._retired_cfg_reported.clear()
 
     def _cfg(self, tmp_path, text):
-        """A tile build dir carrying *text* as its cfg; returns the path."""
+        """A tile build dir carrying *text* as its cfg; returns the path.
+
+        STAMPED (owner RULINGS 2026-09-18c (2)): an UNSTAMPED tile cfg is
+        a pre-1.0.352 file, which a reader MOVES aside rather than reads —
+        so a fixture testing what the reader does with the file's lines
+        must write a file of the current format.  One helper,
+        ``SM.tile_cfg_stamp_line()``, the same line the engine writes.
+        """
         build = tmp_path / "zOrtho4XP_+22+113"
         build.mkdir()
         path = build / ("Ortho4XP_" + FNAMES.short_latlon(22, 113) + ".cfg")
-        path.write_text(text)
+        path.write_text(SM.tile_cfg_stamp_line() + text)
         return path
 
     def _tile(self, tmp_path, text):
@@ -187,7 +194,8 @@ class TestAStaleCfgIsCLEANEDUP:
             build.mkdir()
             path = build / ("Ortho4XP_" + FNAMES.short_latlon(lat, lon)
                             + ".cfg")
-            path.write_text(KEY + "=" + OWNER_DECL + "\n")
+            path.write_text(SM.tile_cfg_stamp_line()
+                            + KEY + "=" + OWNER_DECL + "\n")
             paths.append(path)
             CFG.Tile(lat, lon, str(build)).read_from_config()
         output = capsys.readouterr().out
@@ -204,7 +212,7 @@ class TestAStaleCfgIsCLEANEDUP:
         text = "# a comment\nauto_patch=ICAO\n\nmesh_zl=19\n"
         tile, path = self._tile(tmp_path, text)
         assert tile.read_from_config() == 1
-        assert path.read_text() == text
+        assert path.read_text() == SM.tile_cfg_stamp_line() + text
         assert not Path(str(path) + ".bak").exists()
         assert "removed retired key" not in capsys.readouterr().out
 
@@ -225,7 +233,8 @@ class TestAStaleCfgIsCLEANEDUP:
             assert len(re.findall("IGNORED", output)) == 1
             assert "INFO" in output
             assert "WARNING" not in output
-            assert path.read_text() == text     # untouched
+            assert path.read_text() == (SM.tile_cfg_stamp_line()
+                                        + text)   # untouched
             assert not Path(str(path) + ".bak").exists()
         finally:
             os.chmod(directory, 0o700)

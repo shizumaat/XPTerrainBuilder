@@ -227,7 +227,11 @@ def test_a_tile_cfg_still_carrying_the_key_loads_clean_and_builds_v2(
     build_dir = tmp_path / "zOrtho4XP_+30+031"
     build_dir.mkdir()
     cfg = build_dir / "Ortho4XP_+30+031.cfg"
-    cfg.write_text("auto_patch=ICAO\nauto_patch_engine=v1\n")
+    # STAMPED through the one helper (owner RULINGS 2026-09-18c (2)): an
+    # unstamped cfg is a pre-1.0.352 file, MOVED aside rather than read.
+    import O4_Settings_Model as SM
+    cfg.write_text(SM.tile_cfg_stamp_line()
+                   + "auto_patch=ICAO\nauto_patch_engine=v1\n")
     tile = CFG.Tile(30, 31, str(build_dir))
     assert tile.read_from_config() == 1
     assert tile.auto_patch == "ICAO"

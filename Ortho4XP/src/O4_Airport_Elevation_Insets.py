@@ -8471,13 +8471,21 @@ def insets_enabled_for_tile(tile):
     return True
 
 
-def _airport_bounding_boxes(tile, dico_airports):
+def _airport_bounding_boxes(tile, dico_airports, only=None):
     """Build ``{airport: (west, south, east, north)}`` in EPSG:4326.
 
     Ortho4XP geometry is in tile-relative degrees; this adds the tile origin
     back and expands by ``airport_elevation_inset_margin_m`` converted to
     degrees at the tile latitude.
+
+    *only*, when given, is the collection of ``dico_airports`` keys the
+    INSET SELECTION admits (spec §A.4).  ``only=None`` is every airport,
+    byte-identical to the pre-2026-09-18 behaviour, and stays that way for
+    the other callers of this function (the coastline visibility ladder,
+    ``_required_inset_box``, the harness's ``--warm-insets``): the trim is
+    applied at the ONE fetch entry, :func:`ensure_insets_for_tile`.
     """
+    admitted = None if only is None else set(only)
     margin_m = getattr(tile, "airport_elevation_inset_margin_m", 2000.0)
     metres_per_degree_latitude = GEO.lat_to_m
     metres_per_degree_longitude = GEO.lon_to_m(tile.lat + 0.5)
@@ -8495,6 +8503,8 @@ def _airport_bounding_boxes(tile, dico_airports):
         # Unnamed strips do not get elevation insets; skip them loudly.
         if not isinstance(airport, str):
             skipped_without_code += 1
+            continue
+        if admitted is not None and airport not in admitted:
             continue
         record = dico_airports[airport]
         boundary = record.get("boundary")
@@ -8606,9 +8616,25 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False):
     )
     if not provider_definitions:
         return
-    boxes = _airport_bounding_boxes(tile, dico_airports)
+    # THE ONE TRIM (spec §A.4): the inset set follows the tile's OWN
+    # ``airport_elevation_insets`` mode, applied to the dico_airports KEY.
+    # Every downstream reader stays disk-driven (owner Q3, RULINGS 18c):
+    # an orphan inset already cached for an airport outside the selection
+    # keeps being composited, baked and balloted.
+    mode = resolved_inset_mode(tile)
+    selected = inset_keys(dico_airports, mode)
+    named = sum(1 for key in dico_airports if isinstance(key, str))
+    boxes = _airport_bounding_boxes(tile, dico_airports, only=selected)
     if not boxes:
+        if named:
+            UI.vprint(
+                1,
+                "   Airport insets: none of the %d named aerodrome(s) on "
+                "this tile are in the inset selection (airport lidar "
+                "insets = %s) - nothing to fetch." % (named, mode))
         return
+    tile.inset_selection_mode = mode
+    tile.inset_selection_keys = sorted(selected)
     # None = "auto": each provider warps at its own best available
     # resolution (ensure_airport_insets resolves it per definition).
     resolution_m = parse_airport_elevation_level(

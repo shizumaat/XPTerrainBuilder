@@ -23,6 +23,8 @@ the normalisers, so nothing here may drag the auto-patch pipeline in;
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 #: Ordered weakest → strongest.  ``None`` < ``ICAO`` < ``All``.
 MODES = ("None", "ICAO", "All")
 
@@ -140,3 +142,123 @@ def inset_keys(dico_airports, mode: str) -> list:
         if mode_admits(str(key).strip().upper(), mode):
             out.append(key)
     return out
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SELECTION 1 — the PATCH set (spec §A.3)
+# ══════════════════════════════════════════════════════════════════════
+@dataclass(frozen=True)
+class PatchCandidate:
+    """One CIFP airport and what this tile build will do with it.
+
+    ``disposition``:
+
+    ``"patch"``
+        this build will BUILD or REUSE an auto-patch (which of the two is
+        the driver's up-to-date gate, not this selector's business);
+    ``"manual"``
+        a hand-written patch already covers the airport;
+    ``"no_apt_dat"``
+        CIFP lists it, no ENABLED apt.dat in the install defines it —
+        skipped, never queued, never expected by the manifest (H1);
+    ``"no_xplane_root"``
+        the X-Plane root cannot be resolved from the CIFP path;
+    ``"boundary_skipped"``
+        its patch reaches into a 1° tile this build is not building and
+        the boundary policy is "skip" (spec §C.3).
+
+    Airports the MODE does not admit are not candidates at all.
+    """
+
+    icao: str
+    cifp_file: str
+    runways: dict = field(default_factory=dict)
+    disposition: str = "patch"
+    reason: str = ""
+    #: The apt.dat this build WOULD read, resolved once here so the driver
+    #: and its freshness gate never re-run the (apt.dat-scanning) selector.
+    #: ADDITIVE to the spec's field list; nothing outside the engine sees it.
+    apt_dat: str = ""
+
+
+def select_patch_airports(tile, cifp_path: str, mode: str, *,
+                          manual_icaos=(), boundary=None) -> list:
+    """THE patch set for this tile: the driver loop's head, lifted whole.
+
+    Same ORDER and same RESULT as the inline filter chain that lived in
+    ``driver.generate_auto_patches`` (mode → manual → CIFP parse →
+    in-tile → runway pairing → X-Plane root → apt.dat selection); the
+    up-to-date REUSE decision deliberately stays in the driver, because
+    reuse is about what is on disk in *this* tile's Patches dir, not about
+    which airports this tile owns.
+
+    ``mode == "None"`` returns ``[]`` WITHOUT touching the CIFP directory.
+
+    *boundary*, when given, is ``callable(icao, runways) -> str | None``
+    returning a reason when the airport's patch reaches a tile this build
+    is not building (spec §C.3); the candidate is then
+    ``"boundary_skipped"``.
+
+    Pure apart from reading the CIFP files and the install's apt.dat: it
+    downloads nothing, writes nothing and logs nothing (the driver owns
+    the user-facing lines, so running the selector twice — the preflight
+    and the build — never doubles the log).
+    """
+    mode = normalize_mode(mode, "auto_patch", warn=_ui_warn)
+    if mode == "None":
+        return []
+
+    from . import build_support as _bs
+    from . import cifp_reader as _cifp
+
+    (airport_in_tile, discover_cifp_airports, parse_cifp_file,
+     xplane_root_from_cifp_path) = (
+        _cifp.airport_in_tile, _cifp.discover_cifp_airports,
+        _cifp.parse_cifp_file, _cifp.xplane_root_from_cifp_path)
+    pair_runways = _bs.pair_runways
+
+    manual = {str(code).upper() for code in (manual_icaos or ())}
+    tile_lat = int(getattr(tile, "lat"))
+    tile_lon = int(getattr(tile, "lon"))
+
+    out: list = []
+    for (icao, filepath) in sorted(discover_cifp_airports(cifp_path).items()):
+        if not mode_admits(icao, mode):
+            continue
+        if icao in manual:
+            out.append(PatchCandidate(icao, filepath, {}, "manual",
+                                      "a manual patch covers this airport"))
+            continue
+        runways = parse_cifp_file(filepath)
+        if not runways:
+            continue
+        if not airport_in_tile(runways, tile_lat, tile_lon):
+            continue
+        if not pair_runways(runways):
+            continue
+        xp_root = xplane_root_from_cifp_path(cifp_path)
+        if xp_root is None:
+            out.append(PatchCandidate(
+                icao, filepath, runways, "no_xplane_root",
+                "cannot resolve X-Plane root from CIFP path"))
+            continue
+        apt_dat = _bs._pick_best_apt_dat_against_osm(xp_root, icao)
+        if apt_dat is None:
+            out.append(PatchCandidate(
+                icao, filepath, runways, "no_apt_dat",
+                "no enabled scenery pack defines this airport"))
+            continue
+        reason = boundary(icao, runways) if boundary is not None else None
+        if reason:
+            out.append(PatchCandidate(icao, filepath, runways,
+                                      "boundary_skipped", reason,
+                                      apt_dat))
+            continue
+        out.append(PatchCandidate(icao, filepath, runways, "patch", "",
+                                  apt_dat))
+    return out
+
+
+def patch_set(selection) -> set:
+    """The ICAOs a selection says this build patches (builds OR reuses)."""
+    return {c.icao for c in (selection or []) if c.disposition == "patch"}

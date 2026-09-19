@@ -19,6 +19,7 @@ from shapely import ops as shp_ops
 from shapely.errors import GEOSException, TopologicalError
 
 from . import engine_v2 as _engine_v2
+from . import selection as _SELECTION
 
 # Driver harness tuple — covers expected runtime failure modes for a
 # per-airport pass.  Specifically OMITS NameError / AttributeError /
@@ -215,7 +216,8 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
 
 def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
                            icao: str, *, tile=None,
-                           cifp_file: str | None = None) -> bool:
+                           cifp_file: str | None = None,
+                           apt_dat_now: str | None = None) -> bool:
     """True when an existing auto-patch can be reused as-is.
 
     Reuse requires that EVERY input which can change the emitted patch is
@@ -275,8 +277,14 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     meta = read_patch_source(auto_patch_file)
     if not meta:
         return False
-    from .build_support import _pick_best_apt_dat_against_osm
-    apt_now = _pick_best_apt_dat_against_osm(xp_root, icao)
+    # ``apt_dat_now`` is the selection the patch SELECTOR already made for
+    # this airport (spec section A.3); passing it keeps the apt.dat scan at
+    # ONE call per airport per build, where the pre-selector driver paid two
+    # for every airport it rebuilt.
+    if apt_dat_now is None:
+        from .build_support import _pick_best_apt_dat_against_osm
+        apt_dat_now = _pick_best_apt_dat_against_osm(xp_root, icao)
+    apt_now = apt_dat_now
     if not apt_now:
         return False
     if os.path.realpath(apt_now) != os.path.realpath(meta["apt_dat"]):
@@ -1205,8 +1213,6 @@ def generate_auto_patches(tile, cifp_path: str,
             elif os.path.isdir(os.path.join(patch_dir, fname)):
                 manual_patches.add(fname.upper())
 
-    # Scan all CIFP airports
-    cifp_airports = discover_cifp_airports(cifp_path)
     auto_patched: list[str] = []
     reused: list[str] = []
     tasks: list[dict] = []          # per-airport build tasks, executed post-loop
@@ -1261,6 +1267,9 @@ def generate_auto_patches(tile, cifp_path: str,
     # Airports CIFP lists that no enabled apt.dat defines — skipped, not
     # failed (see the gate below); surfaced on the tile's build summary.
     skipped_no_apt_dat: list[str] = []
+    # Airports whose patch reaches a 1 degree tile this build is not
+    # building, under boundary policy "skip" (spec section C.3).
+    skipped_boundary: list[str] = []
 
     def _resolve_lazy_inputs():
         nonlocal taxiway_data, building_data, road_data, _inputs_resolved
@@ -1283,19 +1292,20 @@ def generate_auto_patches(tile, cifp_path: str,
         if building_data is None:
             building_data = {}
 
-    for icao, filepath in sorted(cifp_airports.items()):
-        # In ICAO mode, only patch airports with a real 4-letter ICAO code
-        # (skip 3-letter FAA codes and alphanumeric local-use codes like "1A2")
-        if mode == "ICAO" and not (len(icao) == 4 and icao.isalpha()):
-            UI.vprint(
-                2,
-                "   Auto-patch: Skipping",
-                icao,
-                "(non-ICAO code, mode=ICAO).",
-            )
-            continue
-        # Skip if a manual patch already covers this airport
-        if icao in manual_patches:
+    # THE PATCH SET (spec §A.3): one derivation site, one spelling of the
+    # mode filter.  ``load_airports_and_prepare_dem`` derives it onto the
+    # tile; a lab tool calling this function directly gets it recomputed
+    # (the selector is pure and cheap apart from the apt.dat scan, which it
+    # hands back on the candidate so nothing below re-runs it).
+    selection = getattr(tile, "auto_patch_selection", None)
+    if selection is None:
+        selection = _SELECTION.select_patch_airports(
+            tile, cifp_path, mode, manual_icaos=manual_patches)
+    for candidate in selection:
+        icao = candidate.icao
+        filepath = candidate.cifp_file
+        runways = candidate.runways
+        if candidate.disposition == "manual":
             UI.vprint(
                 2,
                 "   Auto-patch: Skipping",
@@ -1303,32 +1313,21 @@ def generate_auto_patches(tile, cifp_path: str,
                 "(manual patch exists).",
             )
             continue
-
-        # Parse runway data
-        runways = parse_cifp_file(filepath)
-        if not runways:
-            continue
-
-        # Check if any runway falls within this tile
-        if not airport_in_tile(runways, tile_lat, tile_lon):
-            continue
-
-        # Pair runways and generate patch
-        pairs = pair_runways(runways)
-        if not pairs:
-            continue
-
-        xp_root = xplane_root_from_cifp_path(cifp_path)
-        if xp_root is None:
+        if candidate.disposition == "no_xplane_root":
             UI.vprint(
                 1, "   Auto-patch: Skipping", icao,
                 "(cannot resolve X-Plane root from CIFP path).")
             continue
 
+        pairs = pair_runways(runways)
+        xp_root = xplane_root_from_cifp_path(cifp_path)
+
         # Collect the airport's Phase 2 (DSF object re-anchor) worklist
         # entries now, BEFORE the rebuild-skip gate below can `continue`
         # past them — one per (airport, pack), amendment A22.  Airports
         # with no associated DSF or scenery pack simply do not appear.
+        # It runs for a ``no_apt_dat`` / ``boundary_skipped`` airport too,
+        # exactly as before the selector moved the apt.dat check earlier.
         try:
             worklist_entries = _object_anchor_worklist_entries(
                 icao, xp_root, runways, tile_lat, tile_lon,
@@ -1342,6 +1341,33 @@ def generate_auto_patches(tile, cifp_path: str,
             UI.vprint(2, "   Auto-patch:", icao,
                       "object-anchor worklist entry failed:", exc)
 
+        # NOT BUILDABLE IS NOT A FAILURE.  CIFP lists airports the
+        # install has no apt.dat for (HECP, OTBT, LECU/LECV on 2026-09-03:
+        # heliports and fields absent from every enabled pack).  Before H1
+        # the pipeline raised "No apt.dat found" per airport and the tile
+        # carried on; under H1 that same raise is a ``build``-stage failure
+        # and ABORTED all three of the owner's beta tiles after 8–14 min of
+        # patch work each.  H1 defends a patch this build OWED and did not
+        # write; an airport with no apt.dat owes nothing — it is decided in
+        # the SELECTOR, in the main process, before it is queued, so it is
+        # never in ``tasks`` and the manifest never expects its patch.
+        # Logged at level 0 so the skip is visible in every build log.
+        if candidate.disposition == "no_apt_dat":
+            UI.lvprint(
+                0, "   Auto-patch:", icao,
+                "has no apt.dat in this X-Plane install (CIFP lists it; "
+                "no enabled scenery pack defines it) — skipped, not built.")
+            skipped_no_apt_dat.append(icao)
+            continue
+        if candidate.disposition == "boundary_skipped":
+            # Spec §C.3 "skip": the same place the no-apt.dat skip lives,
+            # so H1's fatal path is not armed for it either.
+            UI.lvprint(0, "   Auto-patch:", icao, candidate.reason)
+            skipped_boundary.append(icao)
+            continue
+
+        apt_dat_selected = candidate.apt_dat
+
         # Reuse the existing auto-patch when it was built from the
         # apt.dat that would be selected today and that apt.dat is
         # unchanged since — runs BEFORE any expensive per-airport
@@ -1351,32 +1377,12 @@ def generate_auto_patches(tile, cifp_path: str,
             patch_dir, "{}_auto.patch.osm".format(icao)
         )
         if _auto_patch_is_current(auto_patch_file, xp_root, icao,
-                                  tile=tile, cifp_file=filepath):
+                                  tile=tile, cifp_file=filepath,
+                                  apt_dat_now=apt_dat_selected):
             UI.lvprint(
                 0, "   Auto-patch:", icao,
                 "up to date (build inputs unchanged), reusing existing patch.")
             reused.append(icao)
-            continue
-
-        # NOT BUILDABLE IS NOT A FAILURE.  CIFP lists airports the
-        # install has no apt.dat for (HECP, OTBT, LECU/LECV on 2026-09-03:
-        # heliports and fields absent from every enabled pack).  Before H1
-        # the pipeline raised "No apt.dat found" per airport and the tile
-        # carried on; under H1 that same raise is a ``build``-stage failure
-        # and ABORTED all three of the owner's beta tiles after 8–14 min of
-        # patch work each.  H1 defends a patch this build OWED and did not
-        # write; an airport with no apt.dat owes nothing — it is decided
-        # HERE, in the main process, before it is queued, so it is never in
-        # ``tasks`` and the manifest never expects its patch.  Logged at
-        # level 0 so the skip is visible in every build log.
-        from .build_support import _pick_best_apt_dat_against_osm
-        apt_dat_selected = _pick_best_apt_dat_against_osm(xp_root, icao)
-        if apt_dat_selected is None:
-            UI.lvprint(
-                0, "   Auto-patch:", icao,
-                "has no apt.dat in this X-Plane install (CIFP lists it; "
-                "no enabled scenery pack defines it) — skipped, not built.")
-            skipped_no_apt_dat.append(icao)
             continue
 
         # This airport WILL be rebuilt — now (and only now) pay for the
@@ -1561,6 +1567,12 @@ def generate_auto_patches(tile, cifp_path: str,
             "   Auto-patch: Skipped {} CIFP airport(s) with no apt.dat in "
             "this install: {}.".format(len(skipped_no_apt_dat),
                                        ", ".join(skipped_no_apt_dat)))
+    if skipped_boundary:
+        UI.vprint(
+            0,
+            "   Auto-patch: Skipped {} airport(s) on a tile boundary by "
+            "your boundary choice: {}.".format(len(skipped_boundary),
+                                               ", ".join(skipped_boundary)))
     if not auto_patched and not reused:
         UI.vprint(2, "   Auto-patch: No airports with CIFP data in this tile.")
 

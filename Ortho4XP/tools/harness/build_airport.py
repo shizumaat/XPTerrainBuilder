@@ -1574,8 +1574,14 @@ def refresh_tile_dem(root, lat, lon, prog) -> dict:
         OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
                                      ["all"], cached_suffix="airports")
         dico = VMAP.build_airports_dico(tile, layer)
+        # Spec §B row 5: the refresh reads the tile's own INSET MODE like
+        # any build, so it refetches the SELECTED airports, not all 17.
+        from auto_patch.selection import inset_keys, resolved_inset_mode
+        _mode = resolved_inset_mode(tile)
+        _selected = inset_keys(dico, _mode)
         prog.note(f"REFRESH dem (authorised, locked, ledgered): deriving "
                   f"the AIRPORT INSETS of {state['tile_stem']} for "
+                  f"{len(_selected)} selected (insets = {_mode}) of "
                   f"{len(dico)} airport(s) through the engine's own "
                   f"tile-prelude hook (ensure_insets_for_tile, refresh)")
         INSETS.ensure_insets_for_tile(tile, dico, refresh=True)

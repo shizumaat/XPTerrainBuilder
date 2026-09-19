@@ -92,6 +92,8 @@ PROVIDER_LIMIT_PIXELS = 3.0
 
 EDGES = ("west", "south", "east", "north")
 
+from auto_patch import selection as SELECTION            # noqa: E402
+
 
 # =====================================================================
 # Geometry (pure; the twin pins it against _airport_bounding_boxes)
@@ -560,11 +562,36 @@ def main(argv=None):
     parser.add_argument("--elevation-dir", default=None,
                         help="read this inset cache instead of "
                              "FNAMES.Elevation_dir")
+    parser.add_argument("--mode", default=None,
+                        choices=("None", "ICAO", "All"),
+                        help="report against the airports THIS inset "
+                             "selection mode admits (spec "
+                             "insets-follow-patch-set §B row 15); default "
+                             "is the configured airport_elevation_insets "
+                             "value.  An orphan raster outside the "
+                             "selection is still on disk and still used "
+                             "(owner Q3) — it is simply not 'expected'.")
     args = parser.parse_args(argv)
 
     elevation_directory = args.elevation_dir or FNAMES.Elevation_dir
     print("inset coverage census — %s" % elevation_directory)
     (records, _skipped) = collect_records(elevation_directory)
+    mode = args.mode
+    if mode is None:
+        import O4_Config_Utils as CFG                       # noqa: E402
+
+        mode = SELECTION.normalize_mode(
+            getattr(CFG, "airport_elevation_insets", None)
+            or getattr(CFG, "global_airport_elevation_insets", None),
+            "airport_elevation_insets")
+    kept = [r for r in records
+            if SELECTION.mode_admits(str(r["airport"]).upper(), mode)]
+    if len(kept) != len(records):
+        print("  selection: insets = %s — %d of %d cached raster(s) are in "
+              "the selected population; %d orphan(s) reported below are "
+              "outside it (kept on disk and still used)."
+              % (mode, len(kept), len(records), len(records) - len(kept)))
+    records = kept
     if args.section in ("all", "sweep"):
         section_sweep(records, args.margins, args.name_below_m)
     if args.section in ("all", "battery"):

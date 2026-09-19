@@ -850,16 +850,22 @@ def _drive_generate(tmp_path, monkeypatch, apt, tile=None,
     rwy = {"lat": 40.1, "lon": -100.2}
     monkeypatch.setattr(driver.FNAMES, "patch_dir",
                         lambda lat, lon: str(patch_dir))
-    monkeypatch.setattr(driver, "discover_cifp_airports",
-                        lambda path: {"KFAK": cifp_file})
-    monkeypatch.setattr(driver, "parse_cifp_file",
-                        lambda path: {"04": rwy, "22": rwy})
-    monkeypatch.setattr(driver, "airport_in_tile",
-                        lambda runways, lat, lon: True)
-    monkeypatch.setattr(driver, "pair_runways",
-                        lambda runways: [("04", rwy, "22", rwy)])
-    monkeypatch.setattr(driver, "xplane_root_from_cifp_path",
-                        lambda path: "xp_root")
+    # Patched on BOTH the driver's re-exports and their source modules:
+    # the patch SELECTOR (``auto_patch.selection``, spec §A.3) reads the
+    # source modules, the driver body still reads its own names.
+    from auto_patch import cifp_reader as _cifp
+    for target in (driver, _cifp):
+        monkeypatch.setattr(target, "discover_cifp_airports",
+                            lambda path: {"KFAK": cifp_file})
+        monkeypatch.setattr(target, "parse_cifp_file",
+                            lambda path: {"04": rwy, "22": rwy})
+        monkeypatch.setattr(target, "airport_in_tile",
+                            lambda runways, lat, lon: True)
+        monkeypatch.setattr(target, "xplane_root_from_cifp_path",
+                            lambda path: "xp_root")
+    for target in (driver, build_support):
+        monkeypatch.setattr(target, "pair_runways",
+                            lambda runways: [("04", rwy, "22", rwy)])
 
     _stub_the_engine(tmp_path, monkeypatch)
     _select(monkeypatch, apt)
@@ -1005,16 +1011,19 @@ def test_no_apt_dat_neighbour_does_not_block_a_buildable_airport(
     rwy = {"lat": 40.1, "lon": -100.2}
     monkeypatch.setattr(driver.FNAMES, "patch_dir",
                         lambda lat, lon: str(patch_dir))
-    monkeypatch.setattr(driver, "discover_cifp_airports",
-                        lambda path: {"KFAK": "a.dat", "KNON": "b.dat"})
-    monkeypatch.setattr(driver, "parse_cifp_file",
-                        lambda path: {"04": rwy, "22": rwy})
-    monkeypatch.setattr(driver, "airport_in_tile",
-                        lambda runways, lat, lon: True)
-    monkeypatch.setattr(driver, "pair_runways",
-                        lambda runways: [("04", rwy, "22", rwy)])
-    monkeypatch.setattr(driver, "xplane_root_from_cifp_path",
-                        lambda path: "xp_root")
+    from auto_patch import cifp_reader as _cifp
+    for target in (driver, _cifp):
+        monkeypatch.setattr(target, "discover_cifp_airports",
+                            lambda path: {"KFAK": "a.dat", "KNON": "b.dat"})
+        monkeypatch.setattr(target, "parse_cifp_file",
+                            lambda path: {"04": rwy, "22": rwy})
+        monkeypatch.setattr(target, "airport_in_tile",
+                            lambda runways, lat, lon: True)
+        monkeypatch.setattr(target, "xplane_root_from_cifp_path",
+                            lambda path: "xp_root")
+    for target in (driver, build_support):
+        monkeypatch.setattr(target, "pair_runways",
+                            lambda runways: [("04", rwy, "22", rwy)])
     monkeypatch.setattr(
         build_support, "_pick_best_apt_dat_against_osm",
         lambda xp_root, icao: str(apt) if icao == "KFAK" else None)

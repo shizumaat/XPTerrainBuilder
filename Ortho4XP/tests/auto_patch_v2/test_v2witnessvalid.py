@@ -296,10 +296,24 @@ def test_g1_no_placement_affine_outside_frame_entry():
 #: ``union_all`` inside one of them is the defect the law removes.
 _UNION_FUNCTIONS = {
     ("obj8.py", "_transformed"),
+    ("obj8.py", "_in_window"),
     ("obj8_clip.py", "_union_rings"),
+    ("obj8_grade.py", "memo_union"),
     ("door_wells.py", "read_door_wells"),
     ("wall_corridors.py", "_bands_of"),
     ("basins.py", "_UnionClock"),
+    # the sweep the coordinator added on the TFFJ abort (2026-09-18,
+    # lane ``roadclampscope``): EVERY union whose operands are PLACED
+    # pack geometry, not only the five the §51 (4) census tabled.
+    ("sunken_roads.py", "read_sunken_roads"),
+    ("deck_signature.py", "_spans"),
+    ("deck_signature.py", "promote"),
+    ("wall_geometry.py", "_straight_runs"),
+    ("wall_geometry.py", "_merge_walls"),
+    ("tunnel_objects.py", "signature"),
+    ("tunnel_objects.py", "_bore_ends_at"),
+    ("tunnel_objects.py", "shell_corridor"),
+    ("basin_witness.py", "ramp_decks"),
 }
 
 

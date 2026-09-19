@@ -24,6 +24,7 @@ import typing as _t
 import numpy as np
 from shapely.ops import unary_union
 
+from . import frame_entry as _fe
 from .obj8_clip import _clip_both, _clip_component
 
 if _t.TYPE_CHECKING:  # annotations only — obj8 imports this module
@@ -155,11 +156,11 @@ def memo_union(cache: "ResourceCache", memo: dict, o: "PlacedObject", g: "ObjGeo
                 polys.append(pg)
         elif out is not None:
             polys.append(out)
-    pu = unary_union(polys) if polys else None
+    pu = _fe.union(polys, "obj8_grade.polys") if polys else None
     if pu is not None and pu.is_empty:
         pu = None
     if clip is both_clip:
-        lu = unary_union(lines) if lines else None
+        lu = _fe.union(lines, "obj8_grade.lines") if lines else None
         if lu is not None and lu.is_empty:
             lu = None
         val = (lu, pu)

@@ -18,6 +18,7 @@ from shapely.ops import unary_union
 
 import dataclasses as _dc
 
+from . import frame_entry as _fe
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
 
@@ -118,8 +119,8 @@ def _straight_runs(segs: list[tuple[LineString, int]], parallel_deg: float, t_ma
             clusters.append((b, [k]))
     runs: list[list[int]] = []
     for _b, idx in clusters:
-        merged = unary_union([segs[k][0].buffer(t_max / 2.0, cap_style="flat", **_MITRE)
-                              for k in idx])
+        merged = _fe.union([segs[k][0].buffer(t_max / 2.0, cap_style="flat", **_MITRE)
+                            for k in idx], "wall_geometry.runs")
         for part in shapely.get_parts(merged):
             members = [k for k in idx if segs[k][0].intersects(part)]
             if members:
@@ -263,7 +264,7 @@ def _merge_walls(bands: list[WallBand], parallel_deg: float, t_max: float, gap_m
             continue
         members.sort(key=lambda b: -b.length_m)
         first = members[0]
-        rect = rotated_rectangle(unary_union([b.poly for b in members]))
+        rect = rotated_rectangle(_fe.union([b.poly for b in members], "wall_geometry.bands"))
         if rect.geom_type != "Polygon":
             out.append(first)
             continue

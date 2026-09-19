@@ -534,7 +534,7 @@ def _spans(plates: dict[str, DeckPlate], bridges, below_grade, cover_min: float,
            carried_area_min: float) -> list[str]:
     if not plates:
         return []
-    fp = unary_union([p.footprint for p in plates.values()])
+    fp = _fe.union([p.footprint for p in plates.values()], "deck_signature.family")
     spans: list[str] = []
     carried: list[tuple[int, str, float]] = []
     carried_ids: set[str] = set()
@@ -598,7 +598,7 @@ def promote(objects: _t.Sequence[_obj8.PlacedObject], regions: _t.Sequence,
         cands = [objects[i] for i in idx if objects[i].deck_kind == "candidate"]
         if not cands:
             continue
-        fp = unary_union([c.deck_plate.footprint for c in cands])
+        fp = _fe.union([c.deck_plate.footprint for c in cands], "deck_signature.cands")
         hits = sum(1 for r in regs if r.intersects(fp))
         if not hits:
             continue

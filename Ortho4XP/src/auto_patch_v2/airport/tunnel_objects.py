@@ -432,7 +432,7 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     # THE PLATE IN PLAN (round 2 §3.1): the walls' footprint
     faces = [Polygon([(float(v[i][0]), float(v[i][2])) for i in t])
              for t in tris[in_bin].tolist()]
-    plate = unary_union([f for f in faces if f.area > 1e-9]).buffer(0)
+    plate = _fe.union([f for f in faces if f.area > 1e-9], "tunnel_objects.crest").buffer(0)
     if plate.is_empty:
         return "the crest plate has no plan area"
     # A CREST NEEDS A WALL UNDER IT (RULINGS 2026-09-09w (2)): the very
@@ -506,7 +506,7 @@ def _bore_ends_at(walls: WallLines, axis: list[XY], tunnel_ways, tol: float
     parts = [g for g in (plate, inner) if g is not None]
     if not parts:
         return ([], [])
-    region = _object_cut.valid_polygon(unary_union(parts))
+    region = _object_cut.valid_polygon(_fe.union(parts, "tunnel_objects.region"))
     if region is None:
         return ([], [])
     region = region.buffer(tol)
@@ -814,7 +814,7 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
     trench = _object_cut.largest_polygon(cut.outline)
     if trench is None:
         return "the shell's trench has no valid plan area"
-    footprint = _object_cut.largest_polygon(unary_union([band, trench]))
+    footprint = _object_cut.largest_polygon(_fe.union([band, trench], "tunnel_objects.band"))
     if footprint is None:
         return "the shell's footprint has no valid plan area"
     depth = float(mouth_dem - cut.floor_z)

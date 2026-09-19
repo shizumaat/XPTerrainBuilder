@@ -190,7 +190,7 @@ def ramp_decks(o: "obj8.PlacedObject", cache: "obj8.ResourceCache",
             polys.append(p)
     if not polys:
         return []
-    u = unary_union(polys)
+    u = _fe.union(polys, "basin_witness.plan")
     out: list[dict] = []
     for part in ([u] if u.geom_type == "Polygon" else list(u.geoms)):
         if part.geom_type != "Polygon" or part.area <= 1e-6:

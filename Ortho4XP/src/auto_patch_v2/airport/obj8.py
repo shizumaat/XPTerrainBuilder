@@ -986,7 +986,7 @@ def _in_window(u, within, polygons: bool):
         parts = [p for p in shapely.get_parts(u) if p.geom_type in ("Polygon", "MultiPolygon")]
         if not parts:
             return None
-        u = unary_union(parts)
+        u = _fe.union(parts, "obj8._in_window")
         if u.is_empty:
             return None
     return u

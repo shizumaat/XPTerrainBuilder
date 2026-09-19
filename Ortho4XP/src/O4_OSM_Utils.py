@@ -1252,7 +1252,14 @@ def way_asserts_any_tag(way_tags, keys):
     return any(tag_is_asserted(way_tags[k]) for k in keys if k in way_tags)
 
 
-def OSM_to_MultiLineString(osm_layer, lat, lon, tags_for_exclusion=set(), filter=None):
+def OSM_to_MultiLineString(osm_layer, lat, lon, tags_for_exclusion=set(), filter=None,
+                           accepted_ids=None):
+    """``accepted_ids`` — an OUT list appended with the ``wayid`` of every
+    way that made it into the returned MultiLineString, in the geoms'
+    own order (spec ``linear-transport-redesign-spec.md`` §2-SUPPLEMENT
+    S.4 row 5).  The clamp needs each way's OSM CLASS and this function
+    is where the id is still in hand; ``filter``'s upstream signature is
+    untouched and ``None`` keeps upstream's behaviour exactly."""
     multiline = []
     multiline_reject = []
     todo = len(osm_layer.dicosmfirst["w"])
@@ -1284,6 +1291,8 @@ def OSM_to_MultiLineString(osm_layer, lat, lon, tags_for_exclusion=set(), filter
             continue
         try:
             multiline.append(geometry.LineString(way))
+            if accepted_ids is not None:
+                accepted_ids.append(wayid)
             filtered_segs += len(way)
         except:
             pass

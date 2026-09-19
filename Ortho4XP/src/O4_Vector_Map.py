@@ -31,6 +31,7 @@ from auto_patch import osm_aeroway as OSMAERO
 # be ``auto_patch.config.SERVICE_ROAD_MAX_GRADE``, inside the retired v1
 # engine.
 from O4_Cfg_Vars import _road_grade_cap_from_law as _road_cap_from_law
+from O4_Cfg_Vars import road_neighbourhood_law as _road_neighbourhood_law
 
 ROAD_GRADE_CAP_DEFAULT = _road_cap_from_law()
 import O4_Config_Utils as CFG
@@ -1262,7 +1263,7 @@ def build_poly_file(tile):
         return 0
 
     # Roads
-    include_roads(vector_map, tile, apt_array, apt_area)
+    include_roads(vector_map, tile, apt_array, apt_area, patches_area)
     if resolved_road_level(tile)[0]:
         UI.vprint(
             1, "   Number of edges at this point:", len(vector_map.dico_edges)
@@ -2020,7 +2021,33 @@ def write_levelled_roads_sidecar(tile, levelled_roads):
 
 
 ################################################################################
-def include_roads(vector_map, tile, apt_array, apt_area):
+def _way_classes(osm_layer, way_ids):
+    """The OSM CLASS of each accepted way, in the geoms' own order
+    (spec §2-SUPPLEMENT S.4 row 5): the ``highway`` value, else the
+    ``railway`` value prefixed ``railway:``, else ``None`` (which takes
+    ``road_grade_limit``, counted loudly).  Never raises: a layer whose
+    tags went missing degrades to all-default caps."""
+    out = []
+    try:
+        tags = osm_layer.dicosmtags["w"]
+    except (AttributeError, KeyError, TypeError):       # pragma: no cover
+        return [None] * len(way_ids)
+    for wid in way_ids:
+        t = tags.get(wid) or {}
+        v = t.get("highway")
+        if v:
+            out.append(str(v))
+            continue
+        v = t.get("railway")
+        out.append("railway:" + str(v) if v else None)
+    return out
+
+
+def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
+    """``patches_area`` — the union of every closed patch ring (13be), the
+    seed of THE BAND the longitudinal clamp is scoped to (owner RULINGS
+    2026-09-18n; spec §2-SUPPLEMENT S.1 (1)).  ``None``/empty = no patch
+    was built, so no way is clamped: pure upstream."""
     def road_is_too_much_banked(way, filtered_segs):
         (col, row) = numpy.minimum(
             numpy.maximum(numpy.round(way[0] * 1000), 0), 1000
@@ -2087,6 +2114,11 @@ def include_roads(vector_map, tile, apt_array, apt_area):
     # tags_for_exclusion=set(["tunnel"])
     road_network_banked = geometry.MultiLineString()
     road_network_flat = geometry.MultiLineString()
+    #: THE WAY CLASSES, parallel to ``road_network_banked.geoms`` (spec
+    #: §2-SUPPLEMENT S.4 row 5): each layer's accepted ids in the geoms'
+    #: own order, mapped to the OSM class the per-class cap is read by.
+    banked_classes = []
+    banked_ids = []
     if road_level:
         road_layer = OSM.OSM_layer()
         if not OSM.OSM_queries_to_OSM_layer(
@@ -2101,13 +2133,17 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         ):
             return 0
         UI.vprint(1, "    * Checking which large roads need leveling.")
+        _ids_1 = []
         (road_network_banked, road_network_flat) = OSM.OSM_to_MultiLineString(
             road_layer,
             tile.lat,
             tile.lon,
             tags_for_exclusion,
             road_is_too_much_banked,
+            accepted_ids=_ids_1,
         )
+        banked_classes = _way_classes(road_layer, _ids_1)
+        banked_ids = list(_ids_1)
     if UI.red_flag:
         return 0
     if road_level >= 2:
@@ -2125,6 +2161,7 @@ def include_roads(vector_map, tile, apt_array, apt_area):
             return 0
         UI.vprint(1, "    * Checking which smaller roads need leveling.")
         timer = time.time()
+        _ids_2 = []
         (
             road_network_banked_2,
             road_network_flat_2,
@@ -2134,11 +2171,14 @@ def include_roads(vector_map, tile, apt_array, apt_area):
             tile.lon,
             tags_for_exclusion,
             road_is_too_much_banked,
+            accepted_ids=_ids_2,
         )
         UI.vprint(3, "Time for check :", time.time() - timer)
         road_network_banked = geometry.MultiLineString(
             list(road_network_banked.geoms) + list(road_network_banked_2.geoms)
         )
+        banked_classes += _way_classes(road_layer, _ids_2)
+        banked_ids += list(_ids_2)
     if road_auto or patch_area_detail:
         # AUTO MODE (owner ruling 2026-07-27): level-5 roads + airport
         # rail classes, fetched ONLY inside each airport's elevation-
@@ -2158,18 +2198,22 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         if auto_layer is not None:
             UI.vprint(1, "    * Checking which airport-area roads need "
                          "leveling (auto road mode).")
+            _ids_3 = []
             (road_network_banked_3, _flat_3) = OSM.OSM_to_MultiLineString(
                 auto_layer,
                 tile.lat,
                 tile.lon,
                 tags_for_exclusion,
                 road_is_too_much_banked,
+                accepted_ids=_ids_3,
             )
             if not road_network_banked_3.is_empty:
                 road_network_banked = geometry.MultiLineString(
                     list(road_network_banked.geoms)
                     + list(road_network_banked_3.geoms)
                 )
+                banked_classes += _way_classes(auto_layer, _ids_3)
+                banked_ids += list(_ids_3)
     if not road_network_banked.is_empty:
         # ── THE LONGITUDINAL CLAMP (spec §2 item 1) ──────────────────
         # PER WAY, ON THE CENTERLINE, BEFORE THE BUFFER (census #110/
@@ -2185,12 +2229,35 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         # (``include_airports`` above), so the decks it confirmed this
         # build are on disk beside its patches.
         _deck_pins = road_bridge_deck_pins(tile)
+        # ── THE BAND (spec §2-SUPPLEMENT S.1 (1)) ────────────────────
+        # ``patches_area`` (the union of every closed patch ring, 13be —
+        # NOT ``apt_area``, which also carries apt.dat pavement of
+        # airports no patch was built for) ∪ the road bridge decks, at
+        # the SAME ``lane_width + 2`` offset the ribbon is differenced by
+        # below: "in the band" = "where the core has no ribbon and the
+        # patch is the authority".  No patch ⇒ an EMPTY band ⇒ NO way is
+        # clamped, which is 18n's "normal engine road processing".
+        _band_seed = [patches_area] if patches_area is not None else []
+        _band_seed += [p for (p, _lvl, _w) in _deck_pins
+                       if p is not None and not p.is_empty]
+        _band_seed = [p for p in _band_seed if p is not None and not p.is_empty]
+        _band = (VECT.improved_buffer(ops.unary_union(_band_seed),
+                                      tile.lane_width + 2, 0, 0)
+                 if _band_seed else geometry.Polygon())
+        _law = _road_neighbourhood_law()
         levelled["roads"] = VECT.clamp_road_network(
             road_network_banked,
             tile.dem.alt_vec,
             getattr(tile, "road_grade_limit", ROAD_GRADE_CAP_DEFAULT),
             tile.lane_width,
             deck_pins=_deck_pins,
+            coverage=_band,
+            way_classes=banked_classes or None,
+            way_ids=banked_ids or None,
+            runout_m=_law["runout_m"],
+            budget_m=_law["budget_m"],
+            cap_ceiling=_law["cap_ceiling"],
+            class_caps=_law["class_caps"],
         )
         _clamp_report = levelled["roads"].summary()
         UI.vprint(3, "Time for road profile clamp:", time.time() - timer)
@@ -2201,6 +2268,36 @@ def include_roads(vector_map, tile, apt_array, apt_area):
                 _clamp_report["ways"], _clamp_report["stations"],
                 _clamp_report["clamped_stations"],
                 _clamp_report["max_lift_m"], _clamp_report["max_cut_m"]),
+        )
+        # ── THE ONE LOUD LINE (spec §2-SUPPLEMENT S.3; no gate, no
+        # verify family): who was in the neighbourhood, which runs
+        # yielded and how far the worst one stands off the terrain.
+        _lr = levelled["roads"]
+        _worst_run = max(
+            ((r.get("max_offset_m", 0.0), r.get("cap_eff"), w.get("class"),
+              w.get("layer_way_id"))
+             for w in _lr.ways for r in w.get("runs", ())),
+            default=(0.0, None, None, None))
+        _yield_worst = max(
+            ((r.get("cap_eff") or 0.0, w.get("class"), w.get("layer_way_id"))
+             for w in _lr.ways for r in w.get("runs", ())
+             if r.get("yielded")), default=(None, None, None))
+        _unclassed = sum(1 for w in _lr.ways
+                         if w.get("scope") == "neighbourhood"
+                         and not w.get("class"))
+        UI.vprint(
+            1,
+            "      %d way(s) in the patch neighbourhood, %d run(s), "
+            "%d yielded (worst cap_eff %s on way %s, class %s), %d at the "
+            "%.0f %% ceiling, max offset %.2f m; %d unclassed way(s) at "
+            "road_grade_limit." % (
+                _clamp_report["neighbourhood_ways"], _clamp_report["runs"],
+                _clamp_report["yielded_runs"],
+                ("%.1f %%" % (100.0 * _yield_worst[0]))
+                if _yield_worst[0] else "-",
+                _yield_worst[2], _yield_worst[1],
+                _clamp_report["ceiling_runs"],
+                100.0 * _law["cap_ceiling"], _worst_run[0], _unclassed),
         )
         if _deck_pins:
             UI.vprint(

@@ -29,6 +29,26 @@ def _road_grade_cap_from_law() -> float:
 _ROAD_GRADE_CAP = _road_grade_cap_from_law()
 
 
+# THE NEIGHBOURHOOD CLAMP'S LAW IS THE SAME TABLE (owner RULINGS
+# 2026-09-18n; spec ``linear-transport-redesign-spec.md`` §2-SUPPLEMENT
+# S.4 row 16).  ONE definition, both engines: the run-out, the deviation
+# budget, the gradeability ceiling and the PER-CLASS caps live in
+# ``auto_patch_v2/law/emit.toml`` ``[road_profile]`` and the core reads
+# them HERE — never as literals beside the clamp.
+def road_neighbourhood_law() -> dict:
+    """``{runout_m, budget_m, cap_ceiling, class_caps}`` from the law
+    table (``O4_Vector_Utils.clamp_road_network`` / v2's
+    ``airport/road_profile``)."""
+    from auto_patch_v2.law import tables as _v2_tables
+    rp = _v2_tables.load_default().tables.emit.road_profile
+    return {
+        "runout_m": float(rp.runout_m),
+        "budget_m": float(rp.budget_m),
+        "cap_ceiling": float(rp.cap_ceiling),
+        "class_caps": {str(k): float(v) for k, v in rp.class_caps.items()},
+    }
+
+
 global_prefix = "global_"
 overpass_server_keys = sorted(OSM.overpass_servers.keys())
 overpass_server_values = (
@@ -403,7 +423,7 @@ cfg_tile_vars = {
     "road_grade_limit": {
         "type": float,
         "default": _ROAD_GRADE_CAP,
-        "hint": "Longitudinal grade cap for levelled roads, as a fraction (0.08 = 8 %). A road follows the terrain wherever the terrain is within this cap, and where the terrain is steeper the road lifts or cuts the minimum needed to hold it — the clamp runs per way along the road's own centerline, at 20 m stations. The default is the engine's own ground-vehicle grade limit (the v2 law table's common.roles.service_road.longitudinal), which is also what the airport pavement builder grades service roads by; raise it for mountain roads that should stay glued to the ground, lower it for gentler road profiles at the cost of deeper cuttings and higher embankments.",
+        "hint": "Longitudinal grade cap, as a fraction (0.08 = 8 %), for roads INSIDE an auto-patched airport's patch area, where the airport builder grades them. Outside the patch area roads follow the terrain exactly as the base engine levels them; within about 100 m of the patch a road is eased onto the patch using a grade limit for its road class (motorway 6 % … service road 20 %) and is never moved more than about 1 m off the terrain to do it.",
     },
     "lane_width": {
         "type": float,

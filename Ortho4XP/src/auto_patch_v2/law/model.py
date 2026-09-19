@@ -576,6 +576,17 @@ class RoadProfile:
     station_m: float
     lane_width_m: float
     answer_radius_lane_widths: float
+    #: §2-SUPPLEMENT S.1 (3): the run-out, in arclength along the way,
+    #: from the nearest in-band station
+    runout_m: float
+    #: S.3: the deviation budget the class cap yields to
+    budget_m: float
+    #: S.3: nothing above this is a road any class drives
+    cap_ceiling: float
+    #: S.3: the per-class longitudinal caps (OSM ``highway`` value, else
+    #: ``railway:<value>``).  A class absent here takes the core's
+    #: ``road_grade_limit``.
+    class_caps: _t.Mapping[str, float]
 
 
 @_dc.dataclass(frozen=True)

@@ -523,3 +523,338 @@ def test_both_road_cap_readers_read_the_LAW_TABLE_and_not_the_v1_engine():
     # and the law table is the value the CENSUS prices roads by, so the
     # knob's default cannot drift from what a defect count assumes
     assert ROAD_CAP_FROM_LAW == CAP
+
+
+# ── §2-SUPPLEMENT: THE CLAMP IS SCOPED TO THE PATCH NEIGHBOURHOOD ───────
+#
+# Owner RULINGS 2026-09-18n, spec §2-SUPPLEMENT (lane ``roadclampscope``).
+# Outside the band a road gets the NORMAL ENGINE ROAD PROCESSING and NO
+# longitudinal clamp; over a 100 m run-out it is eased onto the patch at
+# its OSM CLASS's cap, which YIELDS uniformly so the profile never stands
+# more than the deviation budget off the terrain.
+#
+# The fixture is the shipped TFFJ tile's own sidecar (app 1.0.351): four
+# ways, their stations, the terrain the build sampled, the altitude the
+# 8 % tile-wide clamp gave them, and the in-band mask.
+
+FIXTURE = (_ROOT / "tests" / "fixtures" / "roadclampscope"
+           / "tffj_ways.json")
+
+
+def _fixture():
+    doc = json.loads(FIXTURE.read_text())
+    return doc["params"], {w["sidecar_index"]: w for w in doc["ways"]}
+
+
+def _way_arrays(w):
+    return (numpy.array(w["s_m"], dtype=float),
+            numpy.array(w["dem_alt"], dtype=float),
+            numpy.array(w["in_coverage_band"], dtype=bool))
+
+
+def _profile(w, params, **over):
+    s, dem, band = _way_arrays(w)
+    kw = dict(cap_inside=params["cap_inside"], runout_m=params["runout_m"],
+              budget_m=params["budget_m"], cap_ceiling=params["cap_ceiling"])
+    kw.update(over)
+    cap_class = params["class_caps"].get(w["highway"], params["cap_inside"])
+    return VECT.neighbourhood_road_profile(s, dem, band, cap_class, **kw)
+
+
+# T1 ── the scalar cap is BIT-IDENTICAL, and a constant per-segment array
+#       says exactly the same thing.
+
+def test_t1_scalar_cap_is_the_shipped_profile_and_equals_a_constant_array():
+    _params, ways = _fixture()
+    for w in ways.values():
+        s, dem, _band = _way_arrays(w)
+        got = VECT.cap_lipschitz_profile(s, dem, 0.08)
+        shipped = numpy.array(w["shipped_alt_cap008"], dtype=float)
+        # the sidecar writes 6 dp, so 1e-6 IS bit-identity here
+        assert numpy.abs(got - shipped).max() <= 1e-6, w["sidecar_index"]
+        per_seg = VECT.cap_lipschitz_profile(
+            s, dem, numpy.full(len(s) - 1, 0.08))
+        assert numpy.abs(got - per_seg).max() <= 1e-9, w["sidecar_index"]
+
+
+# T2 ── a per-SEGMENT cap: each segment holds ITS OWN cap.
+
+def test_t2_per_segment_cap_holds_each_segment_to_its_own_cap():
+    s = numpy.array([0.0, 100.0, 200.0])
+    dem = numpy.array([0.0, 30.0, 60.0])          # a 30 % ramp throughout
+    caps = numpy.array([0.08, 0.20])
+    z = VECT.cap_lipschitz_profile(s, dem, caps)
+    got = numpy.abs(numpy.diff(z)) / numpy.diff(s)
+    assert got[0] <= caps[0] + 1e-12, got
+    assert got[1] <= caps[1] + 1e-12, got
+    # and the looser segment really is allowed to be steeper
+    assert got[1] > caps[0] + 1e-3, got
+
+
+# T3 ── THE JOIN.  A way that never enters the band is TERRAIN; a way that
+#       does re-meets the terrain EXACTLY at the run-out pin.
+
+def test_t3_the_owner_site_way_is_terrain_and_the_run_meets_the_dem():
+    params, ways = _fixture()
+    w435 = ways[435]
+    s, dem, band = _way_arrays(w435)
+    assert not band.any()                        # 637 m off the patch
+    z, rep = _profile(w435, params)
+    assert rep["scope"] == "terrain"
+    assert rep["runs"] == []
+    assert numpy.array_equal(z, dem)             # the DEM, identically
+
+    z9, rep9 = _profile(ways[9], params)
+    assert rep9["scope"] == "neighbourhood"
+    (run,) = rep9["runs"]
+    s9, dem9, band9 = _way_arrays(ways[9])
+    for k in (run["i0"], run["i1"]):
+        if not band9[k]:
+            assert abs(z9[k] - dem9[k]) == 0.0    # step 0.000 by construction
+    # outside every run the profile IS the DEM, identically
+    outside = numpy.ones(len(s9), bool)
+    outside[run["i0"]:run["i1"] + 1] = False
+    assert numpy.array_equal(z9[outside], dem9[outside])
+
+
+def test_t3_a_terrain_way_puts_no_station_in_the_answering_tree():
+    from shapely import geometry
+
+    dlat = 1.0 / GEO.lat_to_m
+    line = geometry.LineString([(0.0, i * 25.0 * dlat) for i in range(20)])
+
+    def alt_vec(pts):
+        return 0.5 * numpy.asarray(pts, dtype=float)[:, 1] / dlat
+
+    # a band far away: the way is not OURS
+    band = geometry.Point(0.02, 0.02).buffer(0.0005)
+    lev = VECT.clamp_road_network(geometry.MultiLineString([line]), alt_vec,
+                                  CAP, 4.0, coverage=band)
+    (way,) = lev.ways
+    assert way["scope"] == "terrain"
+    assert numpy.array_equal(way["alt"], way["dem"])
+    assert lev._tree is None                      # nothing answers
+    q = numpy.array([[0.0, 5.0 * 25.0 * dlat]])
+    dem_q = numpy.array([123.0])
+    assert lev.answer(q, dem_q)[0] == 123.0       # the shifted DEM stands
+
+
+def test_t3_an_empty_band_clamps_nothing():
+    from shapely import geometry
+
+    dlat = 1.0 / GEO.lat_to_m
+    line = geometry.LineString([(0.0, i * 25.0 * dlat) for i in range(10)])
+
+    def alt_vec(pts):
+        return 0.5 * numpy.asarray(pts, dtype=float)[:, 1] / dlat
+
+    lev = VECT.clamp_road_network(geometry.MultiLineString([line]), alt_vec,
+                                  CAP, 4.0, coverage=geometry.Polygon())
+    (way,) = lev.ways
+    assert way["scope"] == "terrain"
+    assert lev.summary()["neighbourhood_ways"] == 0
+
+
+# T4 ── THE YIELD.
+
+def test_t4_the_cap_yields_uniformly_to_the_deviation_budget():
+    params, ways = _fixture()
+    expect = {9: (0.1623, 1.000, 4.343, 4),
+              782: (0.2000, 0.554, 0.554, 1),
+              1054: (0.2531, 1.000, 2.934, 2)}
+    for idx, (cap_eff, dev, dev_free, n05) in expect.items():
+        w = ways[idx]
+        s, dem, band = _way_arrays(w)
+        z, rep = _profile(w, params)
+        (run,) = rep["runs"]
+        assert abs(run["cap_eff"] - cap_eff) <= 1e-3, (idx, run)
+        off = numpy.abs(z - dem)[~band]
+        assert abs(off.max() - dev) <= 0.005, (idx, off.max())
+        assert int((off > 0.5).sum()) == n05, idx
+        # and with no budget the class cap alone stands this far off
+        z2, _r2 = _profile(w, params, budget_m=1e9)
+        assert abs(numpy.abs(z2 - dem)[~band].max() - dev_free) <= 0.005, idx
+
+
+def test_t4_dev_is_monotone_in_the_cap():
+    params, ways = _fixture()
+    w = ways[9]
+    s, dem, band = _way_arrays(w)
+    prev = None
+    for c in (0.10, 0.12, 0.15, 0.18, 0.22, 0.30):
+        z, _r = VECT.neighbourhood_road_profile(
+            s, dem, band, c, cap_inside=params["cap_inside"],
+            runout_m=params["runout_m"], budget_m=1e9,
+            cap_ceiling=params["cap_ceiling"])
+        dev = float(numpy.abs(z - dem)[~band].max())
+        if prev is not None:
+            assert dev <= prev + 1e-9, (c, dev, prev)
+        prev = dev
+
+
+def test_t4_an_in_band_cliff_ships_at_the_ceiling_and_says_so():
+    # An 8 % in-band segment pushed off terrain by a cliff INSIDE the
+    # band: no out-of-band cap can buy the budget back, so the run ships
+    # at the ceiling and is named.
+    s = numpy.array([0.0, 20.0, 40.0, 60.0, 80.0, 100.0])
+    dem = numpy.array([0.0, 0.0, 40.0, 40.0, 40.0, 40.0])
+    band = numpy.array([True, True, True, False, False, False])
+    z, rep = VECT.neighbourhood_road_profile(
+        s, dem, band, 0.15, cap_inside=0.08, runout_m=100.0, budget_m=1.0,
+        cap_ceiling=0.30)
+    (run,) = rep["runs"]
+    assert run["at_ceiling"] is True
+    assert run["yielded"] is True
+    assert abs(run["cap_eff"] - 0.30) < 1e-9
+
+
+# T5 ── a deck pin inside a run is still EXACT, and §6's refusal survives.
+
+def test_t5_a_deck_pin_inside_a_run_is_exact():
+    s = numpy.arange(0.0, 201.0, 20.0)
+    dem = 0.02 * s
+    band = numpy.zeros(len(s), bool)
+    band[:3] = True
+    z, rep = VECT.neighbourhood_road_profile(
+        s, dem, band, 0.15, cap_inside=0.08, runout_m=100.0, budget_m=1.0,
+        cap_ceiling=0.30, pin_idx=[5], pin_val=[dem[5] + 0.8])
+    assert rep["pins"] == 1
+    assert rep["refused"] is False
+    assert abs(z[5] - (dem[5] + 0.8)) <= 1e-9
+
+
+def test_t5_two_unreachable_pins_still_refuse():
+    s = numpy.arange(0.0, 201.0, 20.0)
+    dem = numpy.zeros(len(s))
+    band = numpy.zeros(len(s), bool)
+    band[:3] = True
+    _z, rep = VECT.neighbourhood_road_profile(
+        s, dem, band, 0.15, cap_inside=0.08, runout_m=100.0, budget_m=1.0,
+        cap_ceiling=0.30, pin_idx=[3, 4], pin_val=[0.0, 40.0])
+    assert rep["refused"] is True
+    assert rep["worst_infeasibility_m"] > 0.01
+
+
+# T6 ── ``accepted_ids`` is parallel to the geoms.
+
+def test_t6_accepted_ids_are_parallel_to_the_geoms():
+    layer = _FakeLayer({
+        1: ({"highway": "service"}, [(0.0, 0.0), (0.001, 0.0)]),
+        2: ({"highway": "track", "bridge": "yes"},
+            [(0.0, 0.001), (0.001, 0.001)]),
+        3: ({"highway": "residential"}, [(0.0, 0.002)]),   # degenerate
+        4: ({"railway": "rail"}, [(0.0, 0.003), (0.001, 0.003)]),
+    })
+    ids = []
+    banked, _rej = OSM.OSM_to_MultiLineString(
+        layer, 0, 0, set(["bridge", "tunnel"]), lambda w, n: True,
+        accepted_ids=ids)
+    assert len(ids) == len(banked.geoms)
+    assert ids == [1, 4]                       # 2 excluded, 3 degenerate
+    assert VM._way_classes(layer, ids) == ["service", "railway:rail"]
+
+
+def test_t6_a_length_mismatch_falls_back_to_default_caps():
+    from shapely import geometry
+
+    dlat = 1.0 / GEO.lat_to_m
+    lines = [geometry.LineString([(0.0, 0.0), (0.0, 100.0 * dlat)]),
+             geometry.LineString([(0.001, 0.0), (0.001, 100.0 * dlat)])]
+    band = geometry.box(-0.001, -0.001, 0.01, 0.01)
+    lev = VECT.clamp_road_network(
+        geometry.MultiLineString(lines),
+        lambda pts: 0.3 * numpy.asarray(pts, float)[:, 1] / dlat,
+        CAP, 4.0, coverage=band, way_classes=["service"])   # 1 of 2
+    assert all(w["class"] is None for w in lev.ways)
+
+
+# T7 ── ``answer`` interpolates at the projection.
+
+def test_t7_answer_interpolates_between_two_stations():
+    from shapely import geometry
+
+    dlat = 1.0 / GEO.lat_to_m
+    # two stations 20 m apart, the profile rising 2 m over them
+    line = geometry.LineString([(0.0, 0.0), (0.0, 40.0 * dlat)])
+    band = geometry.box(-0.001, -0.001, 0.001, 0.01)
+
+    def alt_vec(pts):
+        return 0.05 * numpy.asarray(pts, dtype=float)[:, 1] / dlat
+
+    lev = VECT.clamp_road_network(geometry.MultiLineString([line]), alt_vec,
+                                  0.08, 4.0, station_m=20.0, coverage=band)
+    (way,) = lev.ways
+    assert way["scope"] == "neighbourhood"
+    mid_y = 0.5 * (way["points"][0][1] + way["points"][1][1])
+    q = numpy.array([[0.0, mid_y]])
+    got = float(lev.answer(q, numpy.array([-999.0]))[0])
+    want = 0.5 * (way["alt"][0] + way["alt"][1])
+    assert abs(got - want) <= 1e-6, (got, want)
+    # far outside the radius the DEM argument stands
+    far = numpy.array([[0.01, mid_y]])
+    assert lev.answer(far, numpy.array([-999.0]))[0] == -999.0
+
+
+# T8 ── the sidecar is version 2 and carries the frame every run used.
+
+def test_t8_sidecar_v2_keys(tmp_path):
+    from shapely import geometry
+
+    dlat = 1.0 / GEO.lat_to_m
+    line = geometry.LineString([(0.0, i * 20.0 * dlat) for i in range(12)])
+    off = geometry.LineString([(0.01, i * 20.0 * dlat) for i in range(12)])
+    band = geometry.box(-0.001, -0.001, 0.001, 0.0005)
+
+    def alt_vec(pts):
+        return 0.25 * numpy.asarray(pts, dtype=float)[:, 1] / dlat
+
+    lev = VECT.clamp_road_network(
+        geometry.MultiLineString([line, off]), alt_vec, CAP, 4.0,
+        station_m=20.0, coverage=band,
+        way_classes=["residential", "service"], way_ids=[11, 22])
+    tile = types.SimpleNamespace(lat=17, lon=-63,
+                                 build_dir=str(tmp_path / "t"))
+    doc = json.loads(Path(VM.write_levelled_roads_sidecar(tile, lev))
+                     .read_text())
+    assert doc["version"] == 2
+    assert doc["grade_cap"] == doc["cap_inside"] == CAP
+    for k in ("runout_m", "budget_m", "cap_ceiling", "class_caps"):
+        assert doc[k] is not None, k
+    ours, terrain = doc["ways"][0], doc["ways"][1]
+    assert ours["scope"] == "neighbourhood"
+    assert ours["class"] == "residential" and ours["layer_way_id"] == 11
+    assert ours["cap_class"] == doc["class_caps"]["residential"]
+    assert ours["runs"] and set(ours["runs"][0]) >= {
+        "i0", "i1", "cap_eff", "yielded", "at_ceiling", "max_offset_m"}
+    assert terrain["scope"] == "terrain"
+    assert terrain["alt"] == terrain["dem_alt"]
+    s = doc["summary"]
+    assert s["neighbourhood_ways"] == 1 and s["runs"] == 1
+    assert set(s) >= {"yielded_runs", "ceiling_runs"}
+    # the geometry keys ``bank_pavement_lines`` reads are untouched
+    for w in doc["ways"]:
+        assert len(w["lat"]) == len(w["lon"]) == w["stations"]
+    assert doc["lane_width_m"] == 4.0
+
+
+# T10 ── ONE law table: the core's reader IS ``emit.toml``.
+
+def test_t10_the_class_caps_come_from_one_law_table():
+    law = CFGVARS.road_neighbourhood_law()
+    rp = V2TABLES.load_default().tables.emit.road_profile
+    assert law["runout_m"] == rp.runout_m
+    assert law["budget_m"] == rp.budget_m
+    assert law["cap_ceiling"] == rp.cap_ceiling
+    assert law["class_caps"] == {str(k): float(v)
+                                 for k, v in rp.class_caps.items()}
+    # the rows the spec's table states, by value
+    for tag, cap in (("motorway", 0.06), ("trunk", 0.08), ("primary", 0.10),
+                     ("secondary", 0.12), ("tertiary", 0.12),
+                     ("residential", 0.15), ("unclassified", 0.15),
+                     ("service", 0.20), ("track", 0.18),
+                     ("railway:rail", 0.04), ("railway:tram", 0.08)):
+        assert law["class_caps"][tag] == cap, tag
+    # an unknown / untagged class takes ``road_grade_limit``
+    assert VECT.road_class_cap(None, law["class_caps"], CAP) == CAP
+    assert VECT.road_class_cap("pier", law["class_caps"], CAP) == CAP
+    assert law["cap_ceiling"] > max(law["class_caps"].values())

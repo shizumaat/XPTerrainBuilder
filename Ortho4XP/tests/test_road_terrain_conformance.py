@@ -425,3 +425,76 @@ def test_by_ref_is_in_the_tool_index(tmp_path):
     assert row and "--by-ref" in row[0], (
         "the index row must name the option — a tool absent from the "
         "index is treated as absent")
+
+
+# ── SIDECAR v2: SCOPE AND THE YIELDED CAP (spec §2-SUPPLEMENT S.4 row 10)
+
+def _v2_sidecar(tmp_path, ways, cap=0.08, **top):
+    """A minimal ``o4_levelled_roads.json`` v2 document on disk."""
+    import json
+    p = tmp_path / "o4_levelled_roads.json"
+    doc = {"version": 2, "producer": "twin", "lat": 17, "lon": -63,
+           "grade_cap": cap, "cap_inside": cap, "runout_m": 100.0,
+           "budget_m": 1.0, "cap_ceiling": 0.30, "class_caps": {},
+           "station_max_m": 20.0, "lane_width_m": 4.0,
+           "answer_radius_m": 8.0, "materiality_m": 0.01,
+           "summary": {}, "ways": ways}
+    doc.update(top)
+    p.write_text(json.dumps(doc))
+    return p
+
+
+def _way_doc(index, scope, s, alt, dem, runs, cls=None, cap_class=None):
+    return {"index": index, "scope": scope, "class": cls,
+            "cap_class": cap_class, "runs": runs, "layer_way_id": 900 + index,
+            "deck_pins": None, "stations": len(s),
+            "length_m": s[-1], "clamped_stations": 0,
+            "max_lift_m": 0.0, "max_cut_m": 0.0,
+            "lat": [LAT0 + i * 1e-4 for i in range(len(s))],
+            "lon": [LON0] * len(s),
+            "s_m": s, "dem_alt": dem, "alt": alt}
+
+
+def test_v2_terrain_scope_ways_are_counted_and_not_priced(tmp_path):
+    """A ``scope="terrain"`` way is the base engine's road on the terrain:
+    no longitudinal law applies to it, so it is COUNTED and never priced."""
+    s = [0.0, 20.0, 40.0, 60.0]
+    dem = [0.0, 6.0, 12.0, 18.0]            # a 30 % hill
+    ours = _way_doc(0, "neighbourhood", s, [0.0, 3.0, 9.0, 18.0], dem,
+                    [{"i0": 0, "i1": 3, "cap_eff": 0.25, "yielded": True,
+                      "at_ceiling": False, "max_offset_m": 3.0}],
+                    cls="service", cap_class=0.20)
+    terrain = _way_doc(1, "terrain", s, dem, dem, [])
+    r = RTC.read_levelled_roads(_v2_sidecar(tmp_path, [ours, terrain]))
+    c = r["clamp"]
+    assert c["sidecar_version"] == 2
+    assert c["neighbourhood_ways"] == 1 and c["terrain_ways"] == 1
+    assert c["terrain_stations"] == 4
+    assert c["runs"] == 1 and c["yielded_runs"] == 1 and c["ceiling_runs"] == 0
+    (ch,) = r["chains"]                     # the terrain way is not a chain
+    assert ch["scope"] == "neighbourhood" and ch["class"] == "service"
+    # priced against ITS OWN cap (cap_eff 25 %), so a 30 % DEM step is the
+    # only unfollowable one — at grade_cap 8 % all three would be
+    assert ch["cap_priced_pct"] == pytest.approx(25.0)
+    assert ch["dem_followable_pct"] == pytest.approx(0.0)
+
+
+def test_v1_sidecar_still_reads_as_today(tmp_path):
+    import json
+    s = [0.0, 20.0, 40.0]
+    dem = [0.0, 1.0, 2.0]                   # 5 %: lawful at the 8 % cap
+    p = tmp_path / "v1.json"
+    w = _way_doc(0, "neighbourhood", s, dem, dem, [])
+    for k in ("scope", "class", "cap_class", "runs", "layer_way_id"):
+        w.pop(k)
+    p.write_text(json.dumps(
+        {"version": 1, "producer": "twin", "lat": 17, "lon": -63,
+         "grade_cap": 0.08, "materiality_m": 0.01, "station_max_m": 20.0,
+         "lane_width_m": 4.0, "answer_radius_m": 8.0, "summary": {},
+         "ways": [w]}))
+    r = RTC.read_levelled_roads(p)
+    assert r["clamp"]["sidecar_version"] == 1
+    assert r["clamp"]["terrain_ways"] == 0
+    (ch,) = r["chains"]
+    assert ch["cap_priced_pct"] == pytest.approx(8.0)
+    assert ch["dem_followable_pct"] == pytest.approx(100.0)

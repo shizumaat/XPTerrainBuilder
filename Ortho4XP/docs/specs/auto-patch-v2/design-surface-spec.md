@@ -8189,6 +8189,16 @@ section, by construction**.
   `constraints/road_ramp.road_join_rows`, priced by the new census family
   **`road_coverage_join`** (`check_grade.LAW_FAMILIES` + `families.toml`
   `cockpit = "step"`, `solver = "pin"`, four twins in `test_harness.py`).
+* **REFINED 2026-09-18n — see `linear-transport-redesign-spec.md`
+  §2-SUPPLEMENT (lane `roadclampscope`): the core's longitudinal clamp is
+  SCOPED to the patch band + a 100 m run-out pinned to the DEM, its cap is
+  the road's OSM class (yielding uniformly under a 1.0 m deviation
+  budget), v2's `clamp_way` calls the SAME
+  `O4_Vector_Utils.neighbourhood_road_profile` for `OSM`-kind ways, and
+  §37 (9)'s join value is read AT THE CROSSING of the coverage boundary
+  instead of at the first station outside. (6)'s "floor = the core's
+  clamped profile" and (9)'s equality are unchanged IN WORDS; the profile
+  they name is now that one.**
 
 #### PER BAR
 
@@ -10466,6 +10476,16 @@ section, by construction**.
   `constraints/road_ramp.road_join_rows`, priced by the new census family
   **`road_coverage_join`** (`check_grade.LAW_FAMILIES` + `families.toml`
   `cockpit = "step"`, `solver = "pin"`, four twins in `test_harness.py`).
+* **REFINED 2026-09-18n — see `linear-transport-redesign-spec.md`
+  §2-SUPPLEMENT (lane `roadclampscope`): the core's longitudinal clamp is
+  SCOPED to the patch band + a 100 m run-out pinned to the DEM, its cap is
+  the road's OSM class (yielding uniformly under a 1.0 m deviation
+  budget), v2's `clamp_way` calls the SAME
+  `O4_Vector_Utils.neighbourhood_road_profile` for `OSM`-kind ways, and
+  §37 (9)'s join value is read AT THE CROSSING of the coverage boundary
+  instead of at the first station outside. (6)'s "floor = the core's
+  clamped profile" and (9)'s equality are unchanged IN WORDS; the profile
+  they name is now that one.**
 
 #### PER BAR
 

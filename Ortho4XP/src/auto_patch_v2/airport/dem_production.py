@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import math
+import math as _m
 import os
 import sys
 import typing as _t
@@ -302,18 +303,27 @@ class ProductionDem:
                  osm_root: str, xplane_root: str, *, allow_degraded: bool = False,
                  out: _t.Callable[[str], None] = print,
                  seed_tiles: _t.Mapping[tuple[int, int], _t.Any] | None = None,
-                 core_hosted: bool = False) -> None:
+                 core_hosted: bool = False,
+                 declared_tiles: _t.Iterable[tuple[int, int]] | None = None,
+                 ) -> None:
         self.frame = frame
         self.icao = icao
         self.elevation_root = elevation_root
         self.osm_root = osm_root
         self.xplane_root = xplane_root
         self.allow_degraded = bool(allow_degraded)
-        self._warm_notes: dict[str, str] = {}
         #: This airport's REQUIRED inset box per tile, kept so the frame
         #: record can state it beside what was requested and delivered.
         self._required_boxes: dict[tuple[int, int], tuple | None] = {}
         self.core_hosted = bool(core_hosted)
+        #: The tiles this build OWNS or was told to warm: the airport's own
+        #: cell, plus every cell a class-S boundary choice declared (§C.3
+        #: ``boundary_policy == "neighbour"``).  A cold tile OUTSIDE this
+        #: set is read CONTEXT-ONLY and never refuses (§C.1 class M).
+        self.declared_tiles: set = {
+            (int(_m.floor(frame.origin[0])), int(_m.floor(frame.origin[1])))}
+        for _cell in (declared_tiles or ()):
+            self.declared_tiles.add((int(_cell[0]), int(_cell[1])))
         self._out = out
         self.provenance: dict[str, str] = {"frame": "production",
                                            "query": "bilinear on the baked working grid"}
@@ -729,21 +739,32 @@ class ProductionDem:
         state, problems = frame_state(self.elevation_root, self.osm_root,
                                       lat, lon, self.icao)
         stem = state["tile_stem"]
-        if problems and self._may_warm(state):
-            # THE PRODUCTION HOST WARMS A COLD TILE, IT DOES NOT REFUSE IT
-            # (owner 2026-09-10: "it makes no sense to fail due to a cache:
-            # the cache should already be warm, and if it's not why wouldn't
-            # the app just refresh it?!").  The refusal is the HARNESS's
-            # frame law — a lane must never measure in a frame it warmed on
-            # its own schedule — and the harness runs the pipeline CLI
-            # (``core_hosted=False``).  The app's driver (``core_hosted=True``)
-            # is production: an airport spanning two tiles (SPJC: S13W078 +
-            # S12W078) fetches the neighbour tile's airports layer and bakes
-            # its insets exactly as a build of that tile would, then composes.
-            self._warm_tile(lat, lon, state)
-            state, problems = frame_state(self.elevation_root, self.osm_root,
-                                          lat, lon, self.icao)
-        if problems:
+        # ``_warm_tile`` / ``_may_warm`` are DELETED (spec §C.6, RULINGS
+        # 2026-09-18b): the silent neighbour warm inside the auto-patch POOL
+        # CHILD is what spent ~3 h on tile +38-010 fetching 17 never-asked-for
+        # insets with no progress reaching the app.  Warming is now an
+        # explicit, main-process act after an explicit user choice
+        # (``O4_Vector_Map.ensure_tile_frame``, §D).  The owner's 2026-09-10
+        # ruling it implemented is honoured there, not here.
+        if problems and not self._is_declared(lat, lon):
+            # CLASS M FAR SIDE — CONTEXT ONLY (§C.1, owner Q2 answer (a);
+            # the coupling this admits is MEASURED and ACCEPTED, RULINGS
+            # 2026-09-18h).  This cell carries no emitted airside of ours;
+            # it is read for far-field context and for the far edge of a cut
+            # seam band.  Never fetched, never a refusal: warm ⇒ compose as
+            # usual; cold ⇒ whatever the base raster says; no base raster ⇒
+            # None ⇒ ``z_many`` NaN ⇒ ``v.dem_z is None`` ⇒ ``seam_pins``
+            # skips the vertex (no pin invented from nothing).
+            note = ", ".join(problems)
+            self.provenance[f"context_only:{stem}"] = note
+            self._out(f"  [dem] production frame {stem} is NOT this build's "
+                      f"tile and was not declared by a boundary choice — "
+                      f"reading it CONTEXT-ONLY from disk, fetching nothing "
+                      f"({note})")
+            if not state["base_raster_present"]:
+                self.provenance[f"tile:{stem}"] = "ABSENT"
+                return None
+        elif problems:
             self._degrade(stem, problems)
             if not state["base_raster_present"]:
                 self.provenance[f"tile:{stem}"] = "ABSENT"
@@ -767,24 +788,22 @@ class ProductionDem:
         # THE PER-AIRPORT INSET CHECK, which needs the dico the first
         # frame_state call above could not have (the airports layer is
         # one of the things it judges).  A MISSING or STALE inset for
-        # THIS airport is a cold frame exactly like a missing directory:
-        # the production host warms it through the SAME _warm_tile path
-        # (owner ruling 2026-09-17 "the app may re-cut a stale inset
-        # automatically"), and the harness refuses long before here.
-        required_box = self._required_inset_box(tile, dico)
+        # THIS airport is a cold frame exactly like a missing directory —
+        # on a DECLARED tile.  Since the inset set follows its own
+        # selection (spec §A.4), the box is only REQUIRED when the inset
+        # mode admits this airport; a patched-but-not-inset airport solves
+        # on the base raster and that is lawful, not cold (§A.6).
+        required_box = (self._required_inset_box(tile, dico)
+                        if self._expects_inset(tile) else None)
         self._required_boxes[(lat, lon)] = required_box
         if required_box is not None:
             seen = set(problems)
             (state, problems) = frame_state(self.elevation_root, self.osm_root,
                                             lat, lon, self.icao, required_box)
             fresh = [p for p in problems if p not in seen]
-            if fresh and self._may_warm(state):
-                self._warm_tile(lat, lon, state, tile=tile, dico=dico)
-                (state, problems) = frame_state(
-                    self.elevation_root, self.osm_root, lat, lon, self.icao,
-                    required_box)
-                fresh = [p for p in problems if p not in seen]
-            if fresh:
+            if fresh and not self._is_declared(lat, lon):
+                self.provenance[f"context_only:{stem}"] = ", ".join(fresh)
+            elif fresh:
                 self._degrade(stem, fresh)
         dem = VMAP.compose_tile_dem_from_disk(tile, dico, write_alt_file=False)
         return self._bake(lat, lon, dem, stem, state, tile=tile,
@@ -809,65 +828,29 @@ class ProductionDem:
                 return box
         return None
 
-    def _may_warm(self, state: dict) -> bool:
-        """Only the production host warms (the harness refuses by law), only
-        when the caller has not already accepted a degraded frame, and only
-        when the base raster is there to compose on."""
-        return bool(self.core_hosted and not self.allow_degraded
-                    and state.get("base_raster_present"))
+    def _is_declared(self, lat: int, lon: int) -> bool:
+        """Is this cell one this build OWNS or was told to warm?
 
-    def _warm_tile(self, lat: int, lon: int, state: dict, *,
-                   tile: _t.Any = None, dico: dict | None = None) -> None:
-        """Warm one tile's frame the way its own tile build would: the
-        airports OSM layer (``OSM_queries_to_OSM_layer`` downloads and writes
-        the cache when it is absent) and every airport inset on the tile
-        (``ensure_insets_for_tile``, G4-safe: a fetch failure logs and the
-        frame is re-read — a still-cold frame then degrades or refuses as
-        before)."""
-        import O4_Config_Utils as CFG
-        import O4_OSM_Utils as OSM
-        import O4_Vector_Map as VMAP
-        import O4_Airport_Elevation_Insets as INSETS
-        stem = state["tile_stem"]
-        missing = [k for k in ("airports_layer_present", "airport_insets_present")
-                   if not state.get(k)]
-        # The per-airport problems (2026-09-17) are cold in their own
-        # right even when both tile-wide artefacts are present.
-        if state.get("airport_inset_problem_kind"):
-            missing.append(f"airport_inset_{state['airport_inset_problem_kind']}")
-        self._out(f"  [dem] production frame {stem} is COLD ({', '.join(missing)}) — "
-                  f"warming it as a build of tile {lat:+d}{lon:+d} would "
-                  f"(airports layer + airport insets), owner 2026-09-10")
-        # The caller may already hold the tile and its airports dico (the
-        # per-airport check builds them); re-deriving would re-read the
-        # cached layer for nothing.
-        if tile is None:
-            tile = CFG.Tile(lat, lon, "")
-            tile.read_from_config()
-            tile.auto_patch_xplane_root = self.xplane_root
-        # the tile build's own prelude creates the tile's OSM cache dir
-        # (``O4_Vector_Map.py`` ~:999) before its first query; a neighbour
-        # tile never built has none, and the layer write needs it
-        import O4_File_Names as FNAMES
-        os.makedirs(FNAMES.osm_dir(lat, lon), exist_ok=True)
-        if dico is None:
-            layer = OSM.OSM_layer()
-            OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat,
-                                         lon, ["all"],
-                                         cached_suffix="airports")
-            dico = VMAP.build_airports_dico(tile, layer)
-        # ensure_insets_for_tile re-cuts a STALE inset by the same RE-CUT
-        # rule the check used (owner ruling 2026-09-17 (2)): one path, no
-        # new code, and a fetch failure still degrades or refuses below.
-        INSETS.ensure_insets_for_tile(tile, dico)
-        after, still = frame_state(self.elevation_root, self.osm_root, lat, lon, self.icao)
-        note = (f"warmed {','.join(missing)}: airports layer "
-                f"{'written' if after['airports_layer_present'] else 'NOT written'} "
-                f"({len(dico)} airport(s) in the layer), insets dir "
-                f"{'present' if after['airport_insets_present'] else 'ABSENT'}")
-        self.provenance[f"warmed:{stem}"] = note
-        self._out(f"  [dem] production frame {stem}: {note}")
-        self._warm_notes[stem] = note
+        The airport's own cell always is.  A neighbour is declared only by
+        an explicit boundary choice (§C.3 ``"neighbour"``).  Everything
+        else is class-M far side: context-only, never a refusal.
+        """
+        return (int(lat), int(lon)) in self.declared_tiles
+
+    def _expects_inset(self, tile: _t.Any) -> bool:
+        """Does the INSET selection admit this airport on this tile?
+
+        §A.6 patch∖inset: an airport that is patched but outside the inset
+        selection solves on the base raster WITHOUT meter-class data.  That
+        is lawful — it is every no-coverage airport today — so a missing
+        inset for it is not a frame problem and must not refuse or warm.
+        """
+        try:
+            from auto_patch.selection import mode_admits, resolved_inset_mode
+
+            return mode_admits(self.icao.upper(), resolved_inset_mode(tile))
+        except Exception:                                # pragma: no cover
+            return True
 
     def _adopt(self, lat: int, lon: int, dem: _t.Any) -> _BakedTile | None:
         """A seeded (host-prepared) tile raster: the same checks and the
@@ -963,8 +946,12 @@ class ProductionDem:
     def _degrade(self, stem: str, problems: list[str]) -> None:
         text = "\n  - ".join(problems)
         if not self.allow_degraded:
-            tried = getattr(self, "_warm_notes", {}).get(stem)
-            hint = (f"The production host TRIED to warm it ({tried}) — check the "
+            # §C.6: nothing in the pool child warms any more, so the only
+            # "we tried" this can report is an attempt ``ensure_tile_frame``
+            # (§D, main process, after an explicit boundary choice) recorded
+            # on the provenance.
+            tried = self.provenance.get(f"warmed:{stem}")
+            hint = (f"The build TRIED to warm it ({tried}) — check the "
                     f"network / Overpass and the engine log, then rebuild."
                     if tried else
                     "Warm the shared cache (build_airport.py --refresh-data ...), or pass "

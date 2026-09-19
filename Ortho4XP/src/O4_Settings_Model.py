@@ -133,7 +133,7 @@ _LAYOUT: list = [
         ("fill_nodata", "Fill missing elevation data", "tile", False),
         ("auto_patch", "Auto-patch airports (runway slopes)", "tile", False),
         ("modify_custom_airports", "Modify custom airports (reseat objects)", "tile", False),
-        ("airport_elevation_insets", "Fetch airport lidar insets", "tile", False),
+        ("airport_elevation_insets", "Airport lidar insets", "tile", False),
         ("airport_elevation_level", "Airport elevation detail level", "tile", False),
         ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", False),
         ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", False),
@@ -760,6 +760,7 @@ def legacy_tile_settings(lat: int, lon: int,
         if variable is None or variable.get("type") is not str:
             continue
         allowed = variable.get("values")
+        bare = _normalize_legacy_mode_value(key, bare)
         if allowed and bare not in allowed:
             replacement = _strip_legacy_quotes(
                 str(global_cfg.get(key, variable["default"])).strip()
@@ -990,6 +991,37 @@ def elevation_source_options() -> list[str]:
 # ---------------------------------------------------------------------------
 # Value validation / normalisation
 # ---------------------------------------------------------------------------
+def _normalize_legacy_mode_value(name: str, normalized: str) -> str:
+    """Map a legacy scalar of a mode-valued setting onto its enum value.
+
+    ``airport_elevation_insets`` was a bool until 2026-09-18 and
+    ``auto_patch`` before that; existing config files, older front ends and
+    older JSONL clients still send ``True``/``False``.  Mapping them HERE —
+    in the one coercion every reader (validator, ``values_equivalent``, the
+    sparse-tile rule, ``tile_settings_write``, the legacy-enum report)
+    already goes through — is what stops the foreign-enum rule from seeing
+    ``"False"`` ∉ ``values`` and silently REPLACING a user's per-tile Off
+    with the global (RULINGS 2026-09-18e; spec §A.5).
+
+    A value already in ``values``, and any non-mode setting, is returned
+    unchanged.
+    """
+    from auto_patch.selection import DEFAULT_MODE, normalize_mode
+
+    if name not in DEFAULT_MODE:
+        return normalized
+    variable = O4_Cfg_Vars.cfg_vars.get(name) or {}
+    allowed = variable.get("values") or ()
+    if normalized in allowed:
+        return normalized
+    mapped = normalize_mode(normalized, name)
+    # Garbage must still FAIL validation rather than silently become the
+    # default: only a recognised legacy token is rewritten.
+    if normalized.strip() in ("True", "true", "1", "False", "false", "0"):
+        return mapped
+    return normalized
+
+
 def coerce(name: str, text: str) -> tuple:
     """Validate and normalise *text* against the setting *name*'s type.
 
@@ -1038,6 +1070,7 @@ def coerce(name: str, text: str) -> tuple:
             return (False, text, "Expected a list, got %r" % (text,))
     else:  # str
         normalized = text.strip()
+        normalized = _normalize_legacy_mode_value(name, normalized)
 
     if setting.values and normalized not in setting.values:
         return (

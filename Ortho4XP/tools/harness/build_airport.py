@@ -351,6 +351,24 @@ def read_cfg(path) -> dict:
     return out
 
 
+#: Frame keys that became a str enum on 2026-09-18 (RULINGS 18c/18e) and
+#: whose LEGACY scalar must compare equal to its mode: a lane cfg still
+#: saying ``airport_elevation_insets=True`` against an app cfg saying
+#: ``ICAO`` is the SAME frame, not a divergence refusal (spec §A.5 row 27).
+MODE_VALUED_FRAME_KEYS = ("airport_elevation_insets",)
+
+
+def _normalized_frame_value(key: str, value):
+    if key not in MODE_VALUED_FRAME_KEYS or value is None:
+        return value
+    try:
+        from auto_patch.selection import normalize_mode
+
+        return normalize_mode(value, key)
+    except Exception:
+        return value
+
+
 def effective_frame_value(key: str, ours: dict, theirs: dict):
     """The value that will ACTUALLY shape this build's surface for ``key``.
 
@@ -376,7 +394,7 @@ def effective_frame_value(key: str, ours: dict, theirs: dict):
     mine = ours.get(key)
     if key in XPLANE_FRAME_PATH_KEYS and not (mine or "").strip():
         return theirs.get(key)           # unset ⇒ the harness supplies it
-    return mine
+    return _normalized_frame_value(key, mine)
 
 
 def cfg_frame_diff(root, owner_cfg=OWNER_APP_CFG) -> dict:
@@ -397,8 +415,9 @@ def cfg_frame_diff(root, owner_cfg=OWNER_APP_CFG) -> dict:
         if k not in theirs:
             continue
         mine = effective_frame_value(k, ours, theirs)
-        if mine != theirs.get(k):
-            out[k] = (mine, theirs.get(k))
+        thine = _normalized_frame_value(k, theirs.get(k))
+        if mine != thine:
+            out[k] = (mine, thine)
     return out
 
 
@@ -1555,8 +1574,14 @@ def refresh_tile_dem(root, lat, lon, prog) -> dict:
         OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
                                      ["all"], cached_suffix="airports")
         dico = VMAP.build_airports_dico(tile, layer)
+        # Spec §B row 5: the refresh reads the tile's own INSET MODE like
+        # any build, so it refetches the SELECTED airports, not all 17.
+        from auto_patch.selection import inset_keys, resolved_inset_mode
+        _mode = resolved_inset_mode(tile)
+        _selected = inset_keys(dico, _mode)
         prog.note(f"REFRESH dem (authorised, locked, ledgered): deriving "
                   f"the AIRPORT INSETS of {state['tile_stem']} for "
+                  f"{len(_selected)} selected (insets = {_mode}) of "
                   f"{len(dico)} airport(s) through the engine's own "
                   f"tile-prelude hook (ensure_insets_for_tile, refresh)")
         INSETS.ensure_insets_for_tile(tile, dico, refresh=True)

@@ -19,6 +19,7 @@ import O4_Airport_Utils as APT
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
 from auto_patch import driver as AUTOPATCH
+from auto_patch import selection as _SELECTION
 from auto_patch import osm_aeroway as OSMAERO
 # The road grade cap, one constant for the whole engine (census #115),
 # read from the V2 LAW TABLE since 2026-09-17 (lane ``v1retire`` round 1,
@@ -707,19 +708,10 @@ def resolved_road_level(tile):
         return 1, True
 
 
-def resolved_auto_patch_mode(tile):
-    """``tile.auto_patch`` normalised: ``"All"`` / ``"ICAO"`` / ``"None"``.
-
-    Backward compat: legacy bool ``True``/``False`` configs map to
-    ``"All"``/``"None"``.  One spelling of that normalisation for the
-    three places that need it (generation, patch loading, and the
-    patch-area road detail below)."""
-    mode = getattr(tile, "auto_patch", "None")
-    if mode is True:
-        return "All"
-    if mode is False:
-        return "None"
-    return mode
+#: MOVED to ``auto_patch.selection`` (spec §A.2): ONE spelling of the mode
+#: normalisation, shared with the inset selection.  Re-exported here because
+#: this module is where every existing caller looks for it.
+resolved_auto_patch_mode = _SELECTION.resolved_auto_patch_mode
 
 
 def auto_patch_runs(tile):
@@ -1483,6 +1475,7 @@ def load_airports_and_prepare_dem(tile):
     start_background_osm_prefetch(tile)
     dico_airports = build_airports_dico(tile, airport_layer)
     APT.list_airports_and_runways(dico_airports)
+    derive_auto_patch_selection(tile)
     UI.vprint(1, "   Loading elevation data and smoothing it over airports.")
     # Airport elevation insets (spec section 3.3): fetch meter-class public
     # elevation for each airport neighbourhood, then augment the DEM source
@@ -1499,6 +1492,76 @@ def load_airports_and_prepare_dem(tile):
     ELEVATION_LEVEL.ensure_tile_overlay(tile, dico_airports)
     compose_tile_dem_from_disk(tile, dico_airports)
     return (airport_layer, dico_airports)
+
+
+################################################################################
+def derive_auto_patch_selection(tile):
+    """THE derivation site of the patch set (spec §A.3), once per build.
+
+    Lands ``tile.auto_patch_selection`` — the list of
+    :class:`auto_patch.selection.PatchCandidate` every later consumer reads
+    instead of re-spelling the mode filter: ``generate_auto_patches``
+    (iterates it), :func:`include_patches` (applies exactly its ``"patch"``
+    set and refuses a ``boundary_skipped`` airport's stale file), the §C
+    boundary check, and the patch∖inset cross-report below.
+
+    Also emits ONE level-0 line per airport that IS patched but is NOT in
+    the inset selection (spec §A.6): that airport solves on the base
+    raster without meter-class data, which is lawful (it is every
+    no-coverage airport today) and must not be mistaken for a cold frame.
+
+    Never fatal: a selector failure leaves the attribute absent and every
+    consumer recomputes, i.e. the pre-selector behaviour.
+    """
+    cifp_path = resolve_cifp_dir_for_tile(tile)
+    if not cifp_path:
+        tile.auto_patch_selection = []
+        return []
+    try:
+        selection = _SELECTION.select_patch_airports(
+            tile, cifp_path, resolved_auto_patch_mode(tile),
+            manual_icaos=manual_patch_icaos(tile))
+    except Exception as error:
+        UI.vprint(1, "   WARNING: auto-patch selection failed (",
+                  type(error).__name__, ":", str(error),
+                  ") - each consumer will recompute it.")
+        return []
+    tile.auto_patch_selection = selection
+    inset_mode = _SELECTION.resolved_inset_mode(tile)
+    for candidate in selection:
+        if candidate.disposition != "patch":
+            continue
+        if _SELECTION.mode_admits(candidate.icao.upper(), inset_mode):
+            continue
+        UI.lvprint(
+            0, "   Auto-patch: %s is patched but outside the inset "
+            "selection (airport lidar insets = %s) — solving on the base "
+            "elevation." % (candidate.icao, inset_mode))
+    return selection
+
+
+def manual_patch_icaos(tile):
+    """The ICAO prefixes the tile's Patches dir already covers by hand."""
+    patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
+    out = set()
+    if not os.path.isdir(patch_dir):
+        return out
+    for fname in os.listdir(patch_dir):
+        if fname.endswith(".patch.osm") and "_auto.patch.osm" not in fname:
+            out.add(fname[:-10].split("_")[0].upper())
+        elif os.path.isdir(os.path.join(patch_dir, fname)):
+            out.add(fname.upper())
+    return out
+
+
+def resolve_cifp_dir_for_tile(tile):
+    """The CIFP directory THIS tile build will read, or ``""``."""
+    import O4_Settings_Model as SETTINGS
+
+    # The SAME spelling ``run_auto_patch_generation`` uses — one resolution
+    # of the CIFP dir for the engine and both UIs.
+    return SETTINGS.resolve_cifp_dir(CFG.cifp_data_path,
+                                     CFG.custom_scenery_dir)
 
 
 ################################################################################
@@ -3218,6 +3281,11 @@ def include_patches(vector_map, tile):
     # patches are always applied — the setting only governs auto-patches.
     # Backward compat: legacy bool True/False map to "All"/"None".
     auto_patch_mode = resolved_auto_patch_mode(tile)
+    boundary_skipped = {
+        candidate.icao
+        for candidate in (getattr(tile, "auto_patch_selection", None) or ())
+        if candidate.disposition == "boundary_skipped"
+    }
     # Process manual patches first, then auto patches
     ordered_patch_files = manual_patches + auto_patches
     for pfile_name in ordered_patch_files:
@@ -3228,16 +3296,21 @@ def include_patches(vector_map, tile):
             # Apply the auto_patch mode filter (mirrors generation in
             # driver.generate_auto_patches): None loads nothing; ICAO
             # loads only real 4-letter-alpha ICAO codes; All loads every.
-            if auto_patch_mode == "None":
+            if not _SELECTION.mode_admits(auto_icao, auto_patch_mode):
+                # ONE spelling of the mode filter (spec §A.2) — this was
+                # the SECOND inline copy of it.
                 UI.vprint(
                     1, "   Skipping auto-patch", pfile_name,
-                    "(auto_patch=None).")
+                    "(auto_patch=%s)." % auto_patch_mode)
                 continue
-            if auto_patch_mode == "ICAO" and not (
-                    len(auto_icao) == 4 and auto_icao.isalpha()):
+            if auto_icao in boundary_skipped:
+                # Spec §C.5: a patch this build DECIDED to skip must not be
+                # applied from an earlier build's file.  The file is not
+                # deleted — a later "build adjacent" run reuses or rebuilds
+                # it by the freshness law.
                 UI.vprint(
-                    1, "   Skipping auto-patch", pfile_name,
-                    "(non-ICAO code, auto_patch=ICAO).")
+                    0, "   Skipping auto-patch", pfile_name,
+                    "(boundary choice: skipped).")
                 continue
             if auto_icao in manual_icao_codes:
                 UI.vprint(

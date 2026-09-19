@@ -1296,7 +1296,7 @@ def test_ensure_insets_for_tile_reads_airport_elevation_level(monkeypatch):
     monkeypatch.setattr(
         INSETS,
         "_airport_bounding_boxes",
-        lambda tile, dico_airports: {
+        lambda tile, dico_airports, only=None: {
             "KJFK": (-73.82, 40.62, -73.75, 40.68)
         },
     )

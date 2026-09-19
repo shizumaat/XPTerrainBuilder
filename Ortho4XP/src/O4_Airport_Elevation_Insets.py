@@ -120,6 +120,14 @@ import math
 import datetime
 import threading
 
+from auto_patch.selection import (               # pure; stdlib-only module
+    MODE_RANK,
+    MODES,
+    inset_keys,
+    mode_admits,
+    resolved_inset_mode,
+)
+
 import numpy
 
 try:
@@ -8444,7 +8452,13 @@ def insets_enabled_for_tile(tile):
     Emits exactly one clear line when the gate is on but GDAL is missing,
     then disables the feature so the build is byte-identical to gate-off.
     """
-    if not getattr(tile, "airport_elevation_insets", False):
+    if resolved_inset_mode(tile) == "None":
+        # HAZARD: the STRING "None" is TRUTHY.  This gate was a bare
+        # truthiness read while the key was a bool; after the 2026-09-18
+        # enum relabel (RULINGS 18c/18e) a truthiness read would turn Off
+        # into On.  "None" keeps the full old ``False`` meaning: nothing
+        # fetched AND nothing on disk composited, baked, balloted or used
+        # for the smoothing radius (owner OQ2).
         return False
     if not has_gdal:
         UI.vprint(
@@ -8457,13 +8471,21 @@ def insets_enabled_for_tile(tile):
     return True
 
 
-def _airport_bounding_boxes(tile, dico_airports):
+def _airport_bounding_boxes(tile, dico_airports, only=None):
     """Build ``{airport: (west, south, east, north)}`` in EPSG:4326.
 
     Ortho4XP geometry is in tile-relative degrees; this adds the tile origin
     back and expands by ``airport_elevation_inset_margin_m`` converted to
     degrees at the tile latitude.
+
+    *only*, when given, is the collection of ``dico_airports`` keys the
+    INSET SELECTION admits (spec §A.4).  ``only=None`` is every airport,
+    byte-identical to the pre-2026-09-18 behaviour, and stays that way for
+    the other callers of this function (the coastline visibility ladder,
+    ``_required_inset_box``, the harness's ``--warm-insets``): the trim is
+    applied at the ONE fetch entry, :func:`ensure_insets_for_tile`.
     """
+    admitted = None if only is None else set(only)
     margin_m = getattr(tile, "airport_elevation_inset_margin_m", 2000.0)
     metres_per_degree_latitude = GEO.lat_to_m
     metres_per_degree_longitude = GEO.lon_to_m(tile.lat + 0.5)
@@ -8481,6 +8503,8 @@ def _airport_bounding_boxes(tile, dico_airports):
         # Unnamed strips do not get elevation insets; skip them loudly.
         if not isinstance(airport, str):
             skipped_without_code += 1
+            continue
+        if admitted is not None and airport not in admitted:
             continue
         record = dico_airports[airport]
         boundary = record.get("boundary")
@@ -8592,9 +8616,25 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False):
     )
     if not provider_definitions:
         return
-    boxes = _airport_bounding_boxes(tile, dico_airports)
+    # THE ONE TRIM (spec §A.4): the inset set follows the tile's OWN
+    # ``airport_elevation_insets`` mode, applied to the dico_airports KEY.
+    # Every downstream reader stays disk-driven (owner Q3, RULINGS 18c):
+    # an orphan inset already cached for an airport outside the selection
+    # keeps being composited, baked and balloted.
+    mode = resolved_inset_mode(tile)
+    selected = inset_keys(dico_airports, mode)
+    named = sum(1 for key in dico_airports if isinstance(key, str))
+    boxes = _airport_bounding_boxes(tile, dico_airports, only=selected)
     if not boxes:
+        if named:
+            UI.vprint(
+                1,
+                "   Airport insets: none of the %d named aerodrome(s) on "
+                "this tile are in the inset selection (airport lidar "
+                "insets = %s) - nothing to fetch." % (named, mode))
         return
+    tile.inset_selection_mode = mode
+    tile.inset_selection_keys = sorted(selected)
     # None = "auto": each provider warps at its own best available
     # resolution (ensure_airport_insets resolves it per definition).
     resolution_m = parse_airport_elevation_level(
@@ -10580,7 +10620,8 @@ def resolve_airport_smoothing_radius(
     default_radius = tile.apt_smoothing_pix
     if not getattr(tile, "apt_smoothing_auto", False):
         return (default_radius, None, None)
-    if not getattr(tile, "airport_elevation_insets", False) or not has_gdal:
+    if resolved_inset_mode(tile) == "None" or not has_gdal:
+        # Same truthiness hazard as ``insets_enabled_for_tile`` (row 24).
         return (default_radius, None, None)
     (coverage_fraction, finest_pixel_m) = inset_coverage_of_airport_mask(
         tile, mask_geometry

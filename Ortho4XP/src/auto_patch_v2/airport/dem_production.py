@@ -48,6 +48,9 @@ from pathlib import Path
 
 import numpy as np
 
+from auto_patch.selection import DEFAULT_MODE as _MODE_VALUED_KEYS
+from auto_patch.selection import normalize_mode
+
 from ..model.frame import Frame
 from .dem import hgt_name, resolve_dem_files
 
@@ -900,7 +903,10 @@ class ProductionDem:
             for k in ("apt_smoothing_pix", "apt_smoothing_auto", "working_grid_arc_seconds",
                       "airport_elevation_insets", "airport_elevation_inset_feather_m",
                       "elevation_level", "custom_dem", "fill_nodata"):
-                self.provenance[f"cfg:{k}"] = str(getattr(tile, k, ""))
+                value = getattr(tile, k, "")
+                if k in _MODE_VALUED_KEYS:
+                    value = normalize_mode(value, k)   # spec §A.5, row 26
+                self.provenance[f"cfg:{k}"] = str(value)
         self._out(f"  [dem] production frame {stem}: {self.provenance[f'tile:{stem}']}")
         overlay = getattr(dem, "tile_overlay_provenance", None)
         return _BakedTile(lat, lon, arr, dem.x0, dem.x1, dem.y0, dem.y1,

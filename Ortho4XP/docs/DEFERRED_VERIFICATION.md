@@ -6064,3 +6064,14 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   serial substep channel); skipped a real cold rebuild of a big pack (OTHH
   Aeroscape ~8 min case), the parallel pool-queue drain observed in the app
   UI, and any build.
+- 2026-09-18 lane `insetpatchset1`, slice 1 of
+  `docs/specs/insets-follow-patch-set-spec.md` (steps (a) setting + (b)
+  selector/trim; step (c) the `R_patch` measurement is DONE and REFUTES §C.1's
+  LPMT premise, so §C/§D were STOPPED for the spec author's ruling and are NOT
+  in this branch).  SKIPPED: the real LPMT / +38-010 confirmation (network
+  heavy, app-only path — the owner's next app build of +38-010 is the read:
+  EXPECTED, given R_patch = 1,200 m, that LPMT is CLASS S and WOULD ask, i.e.
+  NOT the "minutes, no neighbour fetch" the spec predicts); no five-airport
+  sweep; no OFF-arm byte-identity build for the enum relabel beyond the CYXY
+  control; the Swift `SceneryKitTests` half of §E test 3d (slice 2); the Qt
+  headless combo test (slice 3).

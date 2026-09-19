@@ -2296,7 +2296,8 @@ class Levelled_Roads:
 
 def clamp_road_network(road_network, alt_vec, cap, lane_width,
                        station_m=DEFAULT_ROAD_STATION_M, deck_pins=None,
-                       coverage=None, way_classes=None, runout_m=None,
+                       coverage=None, way_classes=None, way_ids=None,
+                       runout_m=None,
                        budget_m=None, cap_ceiling=None, class_caps=None):
     """Clamp every way of a banked-road MultiLineString, INDEPENDENTLY.
 
@@ -2319,9 +2320,10 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     existing twins and ``road_transition`` state; the production caller
     (``include_roads``) always supplies one.
 
-    ``way_classes`` — the OSM class per geom, parallel to ``geoms``
-    (``highway`` value, else ``railway:<value>``); ``None`` or a short
-    list means the default cap for every way.
+    ``way_classes`` / ``way_ids`` — the OSM class (``highway`` value,
+    else ``railway:<value>``) and the source layer's way id per geom,
+    parallel to ``geoms``; ``None`` or a short list means the default cap
+    for every way and no published id.
 
     ``deck_pins`` — ``[(polygon, level_m, way_id)]``, the ROAD BRIDGE
     DECKS auto_patch confirmed this build (redesign spec §4).  A station
@@ -2348,6 +2350,9 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     classes = list(way_classes or ())
     if classes and len(classes) != len(geoms):          # pragma: no cover
         classes = []
+    ids = list(way_ids or ())
+    if ids and len(ids) != len(geoms):                  # pragma: no cover
+        ids = []
     from shapely.geometry import Point as _Pt
     from shapely.prepared import prep as _prep
     decks = list(deck_pins or ())
@@ -2376,7 +2381,7 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
         stations = refine_way(coords, station_m)
         s = way_arclengths(stations)
         cls = classes[gi] if classes else None
-        wid_layer = getattr(geom, "o4_way_id", None)
+        wid_layer = ids[gi] if ids else None
         # ── SCOPE (S.1 (2)): is any station of this way in the band? ──
         # bbox-prefiltered, so the prepared ``covers`` runs only for the
         # handful of ways that can possibly touch the patch.

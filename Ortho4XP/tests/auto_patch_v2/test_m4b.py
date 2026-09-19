@@ -447,7 +447,12 @@ def test_basin_rows_solve_emit_verify(basin_map, law):
     assert rec[0]["floor_m"] == pytest.approx(
         rec[0]["rim_law_m"] + rec[0]["solid_minimum_y_m"] - clearance, abs=0.002)
     assert rec[0]["margins_m"] == 0.0 and rec[0]["anchor_inside_floor"] is True
-    assert rec[0]["seat_expect_m"] == pytest.approx(-rec[0]["plate_y_m"], abs=0.002)
+    # §51 (2) (b): the 1 mm entry snap moves every placed footprint by up
+    # to 0.71 mm, and this value is the SOLVED floor carried back through
+    # the seat expectation — measured 6.000 -> 6.003 on this fixture,
+    # interventionally attributed (the arm with the quantum off reads
+    # 6.000 exactly).  By design; the bar is millimetres, not microns.
+    assert rec[0]["seat_expect_m"] == pytest.approx(-rec[0]["plate_y_m"], abs=0.005)
     assert rec[0]["body_depth_m"] == pytest.approx(-rec[0]["solid_minimum_y_m"])
     assert rec[0]["floor_below_rim_m"] == pytest.approx(
         rec[0]["body_depth_m"] + clearance)

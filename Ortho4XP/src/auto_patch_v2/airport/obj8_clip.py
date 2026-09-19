@@ -97,7 +97,7 @@ def _union_rings(rings: list[list[tuple[float, float]]]):
     parts = _polygon_parts(u)
     if not parts:
         return None
-    return unary_union(parts) if len(parts) > 1 else parts[0]
+    return _fe.union(parts, "obj8_clip._union_rings") if len(parts) > 1 else parts[0]
 
 
 def _split_at_plane(v: np.ndarray, comp: Component, plane_y: float, below: bool

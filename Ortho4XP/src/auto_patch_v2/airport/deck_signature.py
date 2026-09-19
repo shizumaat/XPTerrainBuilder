@@ -502,7 +502,7 @@ def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps,
           + ("" if ends is not None else f" (< {br.deck_min_span_m} m: no abutment end lines)"))
     st_f = []
     for (sx, sz), sy in stations:
-        sp = tf(shapely.points(sx, sz), mat)
+        sp = tf(shapely.points(sx, sz))
         st_f.append(((sp.x, sp.y), sy))
     return DeckPlate(o.id, o.path, foot, rect, axis_f, ends, length, width,
                      float(f.area[inplane].sum()), top, 0.0, top - floor, prof, ev, tuple(st_f))

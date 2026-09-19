@@ -71,6 +71,10 @@ IDENTITY: tuple[float, float, float, float, float, float] = (1.0, 0.0, 0.0, 1.0,
 #: is DERIVED, not a new law key.
 _SLIVER_FLOOR_M2 = 1e-9
 
+#: Rounds of (repair, re-snap) ``enter`` will run before it accepts a
+#: valid-but-off-grid result.  Measured: 2 is what real geometry needs.
+_MAX_REPAIR_ROUNDS = 4
+
 #: Nesting depth ``get_parts`` is unrolled to.  ``make_valid`` returns at
 #: most a GeometryCollection of Multi* parts, so 2 is enough; 4 is the
 #: paranoid bound and the loop asserts it terminated.
@@ -127,6 +131,17 @@ def transform(geom, mat: _t.Sequence[float], q: float = 0.0):
     return shapely.transform(geom, _apply(mat, q))
 
 
+def _snap(q: float):
+    """The snap ALONE — ``rint(c / q) * q``, §46 (4) (a)'s arithmetic."""
+
+    def tf(c: np.ndarray) -> np.ndarray:
+        out = c / q
+        np.rint(out, out=out)
+        return out * q
+
+    return tf
+
+
 def enter(geoms: _t.Sequence, mat: _t.Sequence[float], q: float) -> np.ndarray:
     """LAW A.  ``geoms`` (any sequence, ``None`` entries allowed) placed
     into the airport frame by ``mat`` and repaired, as an object array of
@@ -153,9 +168,25 @@ def enter(geoms: _t.Sequence, mat: _t.Sequence[float], q: float) -> np.ndarray:
 
     g = np.asarray(transform(arr[live], mat, q), dtype=object)
 
-    bad = ~shapely.is_valid(g)
-    if bad.any():
-        g[bad] = shapely.make_valid(g[bad])
+    # (c) THE REPAIR, AND THE SNAP HELD ACROSS IT.  ``make_valid`` of a
+    # self-touching ring MINTS the crossing node, which is not on the
+    # grid — so the repaired subset is re-snapped, and a snap that
+    # re-invalidates is repaired again.  Two rounds is what the measured
+    # geometry needs; the cap makes the loop total.  Without this G3
+    # (idempotence) is false, and a second pass changing anything is
+    # exactly the reason a consumer would grow a belt.
+    for _ in range(_MAX_REPAIR_ROUNDS):
+        bad = ~shapely.is_valid(g)
+        if not bad.any():
+            break
+        fixed = np.asarray(shapely.make_valid(g[bad]), dtype=object)
+        if q > 0.0:
+            fixed = np.asarray(shapely.transform(fixed, _snap(q)), dtype=object)
+        g[bad] = fixed
+    else:
+        bad = ~shapely.is_valid(g)
+        if bad.any():                     # off-grid, but VALID is the law here
+            g[bad] = shapely.make_valid(g[bad])
 
     parts = g
     src = np.arange(g.shape[0])

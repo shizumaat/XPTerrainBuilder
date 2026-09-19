@@ -48,7 +48,7 @@ import numpy as np
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
-from . import deck_signature, obj8
+from . import deck_signature, frame_entry as _fe, obj8
 from .obj8 import is_stock_library_resource, placement_affine
 
 if _t.TYPE_CHECKING:                                   # pragma: no cover
@@ -64,7 +64,7 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None
     function, and the classify-time basin admission below shares the
     same reading."""
     bl = law.tables.structures.basin
-    cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m)
+    cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m, _fe.quantum(law))
     hit = cache.placed.get("objects")
     if hit is not None:
         return hit                                     # type: ignore[return-value]
@@ -190,7 +190,7 @@ def ramp_decks(o: "obj8.PlacedObject", cache: "obj8.ResourceCache",
             polys.append(p)
     if not polys:
         return []
-    u = unary_union(polys)
+    u = _fe.union(polys, "basin_witness.plan")
     out: list[dict] = []
     for part in ([u] if u.geom_type == "Polygon" else list(u.geoms)):
         if part.geom_type != "Polygon" or part.area <= 1e-6:

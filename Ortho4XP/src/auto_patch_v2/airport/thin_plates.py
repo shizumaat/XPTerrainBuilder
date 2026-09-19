@@ -46,13 +46,13 @@ import time
 import typing as _t
 
 import numpy as np
-from shapely import affinity as _affinity
 from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 from . import object_cut as _object_cut
 from .deck_signature import is_bridge_way, is_tunnel_way
@@ -240,8 +240,11 @@ def read_plates(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         hull, y0, y1 = _plan_hull(geom, cache.genuine(o.resolved))
         if hull is None:
             continue
-        plan = _affinity.affine_transform(
-            hull, _obj8.placement_affine(o.xy, o.heading_deg))
+        # §51 (4) row 14 — ENTRY
+        plan = _fe.enter([hull], _obj8.placement_affine(o.xy, o.heading_deg),
+                         cache.input_quantum_m)[0]
+        if plan is None:
+            continue
         b_under = _under(plan, bores, b_lines, b_tree)
         d_under = _under(plan, decks, d_lines, d_tree)
         if not b_under and not d_under:

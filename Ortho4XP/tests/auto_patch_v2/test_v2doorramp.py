@@ -31,7 +31,8 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from auto_patch_v2.airport import obj8
-from auto_patch_v2.airport.door_wells import _union_below, read_door_wells
+from auto_patch_v2.airport import frame_entry as _fe
+from auto_patch_v2.airport.door_wells import read_door_wells
 from auto_patch_v2.airport.rebake_plan import plan as rebake_plan
 from auto_patch_v2.airport.sunken_roads import read_sunken_roads
 from auto_patch_v2.classify.roles import Classification
@@ -432,24 +433,31 @@ GEML_FREE_HOLE_WKT = (
 )
 
 
-def test_geml_free_hole_sliver_unions_after_repair():
-    """``_union_below`` repairs the contribution; bare ``unary_union`` does not."""
+# RE-POINTED to §51 (lane ``frameentry``): ``door_wells._union_below`` is
+# GONE.  The repair happens ONCE, where the footprint enters the frame
+# (``obj8._witness`` -> ``frame_entry.enter``), and what ``door_wells``
+# does is ``frame_entry.union``.  The old twin's "repairs to 0.0 m2" was
+# an artefact of ``_union_below``'s one-level ``get_parts``, which threw
+# away ``make_valid``'s nested MultiPolygon: the ring carries 0.2736 m2.
+def test_geml_free_hole_sliver_enters_valid_and_unions():
     g = shapely.from_wkt(GEML_FREE_HOLE_WKT)
     assert not g.is_valid                      # the transform minted this
     with pytest.raises(GEOSException, match="unable to assign free hole to a shell"):
         unary_union([g])
-    u = _union_below([g])
-    # a degenerate sliver repairs to nothing at all -- and NOT to a
-    # buffered line (make_valid also yields lines; only polygons survive)
-    assert u is None or (u.is_valid and u.area < 1e-9)
+    r = _fe.enter([g], _fe.IDENTITY, 0.001)[0]
+    # polygon parts only -- NOT a buffered line (make_valid also yields lines)
+    assert r is not None and r.is_valid and r.geom_type in ("Polygon", "MultiPolygon")
+    assert r.area == pytest.approx(0.2736, abs=1e-3)
+    assert unary_union([r]).is_valid
 
 
-def test_union_below_keeps_the_lawful_members_beside_an_invalid_one():
+def test_entry_keeps_the_lawful_members_beside_an_invalid_one():
     """One invalid member must not delete its family's real footprints."""
     a = Polygon([(0, 0), (4, 0), (4, 3), (0, 3)])
     b = Polygon([(3, 0), (7, 0), (7, 3), (3, 3)])
     bad = shapely.from_wkt(GEML_FREE_HOLE_WKT)
-    u = _union_below([a, bad, b])
+    placed = _fe.enter([a, bad, b], _fe.IDENTITY, 0.001)
+    u = _fe.union([g for g in placed if g is not None], "twin.doorramp")
     assert u is not None and u.is_valid
-    assert u.area == pytest.approx(21.0, abs=1e-9)
-    assert _union_below([]) is None
+    assert u.area == pytest.approx(21.0 + 0.2736, abs=1e-3)
+    assert _fe.enter([], _fe.IDENTITY, 0.001).size == 0

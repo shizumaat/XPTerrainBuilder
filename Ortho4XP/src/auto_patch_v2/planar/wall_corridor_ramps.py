@@ -31,10 +31,10 @@ import math
 import os
 
 import shapely
-from shapely import affinity as _affinity
 from shapely.geometry import LineString, Point
 
 from ..law import Law
+from ..airport import frame_entry as _fe
 from ..airport import obj8
 from ..law.cutout_schema import WALL_BOTTOM
 from ..law.tables import role_side
@@ -278,8 +278,10 @@ def road_edge_witness(airport, road_poly, at: XY, wc, cache: dict) -> tuple[obje
         fp = cache[path]
         if fp is None:
             continue
-        g = _affinity.affine_transform(fp, list(obj8.placement_affine(o.xy, o.heading_deg)))
-        if g.is_empty or g.distance(edge) > reach:
+        # §51 (4) row 14 — ENTRY
+        g = _fe.enter([fp], obj8.placement_affine(o.xy, o.heading_deg),
+                      float(getattr(airport.frame, "input_quantum_m", 0.0) or 0.0))[0]
+        if g is None or g.distance(edge) > reach:
             continue
         if _parallel_deg(g, edge, Point(at)) > wc.road_edge_line_parallel_deg:
             continue

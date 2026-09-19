@@ -66,7 +66,6 @@ import time
 import typing as _t
 
 import numpy as np
-from shapely import affinity as _affinity
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
@@ -74,6 +73,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY, rotated_rectangle
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 from . import object_cut as _object_cut
 from .deck_signature import is_tunnel_way
@@ -432,7 +432,7 @@ def signature(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component], la
     # THE PLATE IN PLAN (round 2 §3.1): the walls' footprint
     faces = [Polygon([(float(v[i][0]), float(v[i][2])) for i in t])
              for t in tris[in_bin].tolist()]
-    plate = unary_union([f for f in faces if f.area > 1e-9]).buffer(0)
+    plate = _fe.union([f for f in faces if f.area > 1e-9], "tunnel_objects.crest").buffer(0)
     if plate.is_empty:
         return "the crest plate has no plan area"
     # A CREST NEEDS A WALL UNDER IT (RULINGS 2026-09-09w (2)): the very
@@ -498,11 +498,15 @@ def _bore_ends_at(walls: WallLines, axis: list[XY], tunnel_ways, tol: float
     # ``unary_union`` and the whole structure replay dies.
     inner = _object_cut.valid_polygon(
         Polygon(list(walls.inner_a) + list(reversed(walls.inner_b))))
-    plate = _object_cut.valid_polygon(walls.plate)
+    # §51 (4) row 15: the belt STAYS for the wall-BAND ring above (it is
+    # BUILT from authored polylines, never placed, so Law A never sees
+    # it — the LGAV crash); it is REMOVED for the plate, which entered
+    # the frame through ``frame_entry.enter`` and is valid by Law A.
+    plate = walls.plate
     parts = [g for g in (plate, inner) if g is not None]
     if not parts:
         return ([], [])
-    region = _object_cut.valid_polygon(unary_union(parts))
+    region = _object_cut.valid_polygon(_fe.union(parts, "tunnel_objects.region"))
     if region is None:
         return ([], [])
     region = region.buffer(tol)
@@ -634,7 +638,10 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
     tn = law.tables.structures.tunnel
     grid = law.tables.emit.identity.min_distinct_spacing_m
     mat = _obj8.placement_affine(o.xy, o.heading_deg)
-    plate = _affinity.affine_transform(sig.plate, mat)
+    # §51 (4) row 15 — ENTRY
+    plate = _fe.enter([sig.plate], mat, _fe.quantum(law))[0]
+    if plate is None:
+        return "the placed deck plate repairs to nothing (§51 (2))"
     walls = read_wall_lines(plate, law)
     if isinstance(walls, str):
         return walls
@@ -721,7 +728,7 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
     if sig.edge_wall:
         notes.append(f"edge wall (2026-09-06c (2)): crest {sig.plate_y:.2f} m flush at grade")
     floor = mouth_dem - depth
-    footprint = unary_union([walls.plate, trench])
+    footprint = _fe.union([walls.plate, trench], "tunnel_objects.footprint")
     if footprint.geom_type != "Polygon":
         footprint = footprint.convex_hull
     width = 2.0 * sum((s.half_l + s.half_r) / 2.0 for s in sts2) / len(sts2)
@@ -807,7 +814,7 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
     trench = _object_cut.largest_polygon(cut.outline)
     if trench is None:
         return "the shell's trench has no valid plan area"
-    footprint = _object_cut.largest_polygon(unary_union([band, trench]))
+    footprint = _object_cut.largest_polygon(_fe.union([band, trench], "tunnel_objects.band"))
     if footprint is None:
         return "the shell's footprint has no valid plan area"
     depth = float(mouth_dem - cut.floor_z)
@@ -959,8 +966,10 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # the other placements of each resource (the family rule reads them)
     plates: dict[str, list[tuple[str, Polygon]]] = {}
     for sig, o in admitted:
-        plates.setdefault(o.path, []).append(
-            (o.id, _affinity.affine_transform(sig.plate, _obj8.placement_affine(o.xy, o.heading_deg))))
+        placed = _fe.enter([sig.plate],                       # §51 row 15 — ENTRY
+                           _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
+        if placed is not None:
+            plates.setdefault(o.path, []).append((o.id, placed))
     out: list[Corridor] = []
     k_by_res: dict[str, int] = {}
     for sig, o in admitted:

@@ -54,7 +54,12 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 2
+CACHE_VERSION = 3   # §51 (4) row 17: every placed footprint in a cached
+                    # reading was minted by the PRE-§51 entry path.  The
+                    # bump INVALIDATES them; a stale payload is never
+                    # repaired on read, because a repair-on-read is a
+                    # second entry site.  The bump is also what covers the
+                    # FROZEN engine, where the code digest is the version.
 
 #: The payload is DEFLATED at level 1 (owner RULINGS 2026-09-14v: the
 #: file has a size bar).  Measured on the OTHH payload: 72.6 -> 31.3 MB,
@@ -70,6 +75,7 @@ _CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.contact",
     "auto_patch_v2.airport.obj8",
     "auto_patch_v2.airport.obj8_clip",
+    "auto_patch_v2.airport.frame_entry",
     "auto_patch_v2.airport.skirt",
     "auto_patch_v2.airport.deck_signature",
     "auto_patch_v2.airport.line_object",

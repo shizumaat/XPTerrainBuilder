@@ -45,7 +45,6 @@ import typing as _t
 
 import numpy as np
 import shapely
-from shapely import affinity as _affinity
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
@@ -53,6 +52,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .deck_signature import family_key
 from .tunnel_objects import _rect_axis
@@ -172,6 +172,15 @@ def _faces_below(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: 
         pts = v[t[sel]][:, :, [0, 2]]
         xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
         ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
+        # §51 (2) (b), the same ruling row 12 makes for
+        # ``wall_geometry._plan_polys``: this module spells its OWN
+        # placement affine for speed, so the snap is applied here too —
+        # otherwise these faces are the one placed population the three
+        # platforms do not agree on.
+        if cache.input_quantum_m > 0.0:
+            q_ = cache.input_quantum_m
+            xs = np.rint(xs / q_) * q_
+            ys = np.rint(ys / q_) * q_
         hs = base + v[t[sel]][:, :, 1]
         polys = shapely.polygons(np.stack([xs, ys], axis=2))
         areas = shapely.area(polys)
@@ -187,7 +196,10 @@ def _faces_below(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: 
                 faces.append((poly, tuple(cf), ar))
         below = _obj8._clip_component(v, comp, plane_ground, True)
         if below is not None:
-            belows.append(_affinity.affine_transform(below, mat))
+            # §51 (4) row 13 — ENTRY
+            placed = _fe.enter([below], mat, cache.input_quantum_m)[0]
+            if placed is not None:
+                belows.append(placed)
     return faces, belows
 
 
@@ -314,13 +326,16 @@ def read_sunken_roads(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject]
         if not faces:
             continue
         stats.families += 1
-        u = unary_union([f for f, _z, _a in faces])
+        u = _fe.union([f for f, _z, _a in faces], "sunken_roads.faces")
         parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon"
                  and g.area >= sr.min_plate_m2]
         if not parts:
             continue
         tree = STRtree([f for f, _z, _a in faces])
-        region_u = unary_union(belows) if belows else None
+        # the TFFJ abort (lane ``roadclampscope``, 2026-09-18): a
+        # non-noded intersection between a segment and its own reverse
+        # inside the exact overlay of PLACED below-ground footprints
+        region_u = _fe.union(belows, "sunken_roads.belows") if belows else None
         if region_u is not None:
             region_u = region_u.buffer(bl.footprint_close_m, **_MITRE).buffer(
                 -bl.footprint_close_m, **_MITRE)
@@ -411,7 +426,8 @@ def read_sunken_roads(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject]
                 if cover_cache[o.id] is not None:
                     covering.append(cover_cache[o.id])
             if covering:
-                cover = unary_union(covering).intersection(plate).area / plate.area
+                cover = _fe.union(covering, "sunken_roads.cover") \
+                    .intersection(plate).area / plate.area
             if cover < sr.roof_min_fraction:
                 stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 ({length:.0f} x "
                                      f"{width:.0f} m, {shallow:.2f}..{deepest:.2f} m under) is roofed "

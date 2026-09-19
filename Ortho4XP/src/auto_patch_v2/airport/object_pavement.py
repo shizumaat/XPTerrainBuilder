@@ -58,11 +58,11 @@ import typing as _t
 
 import numpy as np
 import shapely
-from shapely import affinity as _affinity
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 
 __all__ = ["Placement", "DrapedBody", "ResourceRow", "ObjectPavementReport",
@@ -295,8 +295,11 @@ def read_object_pavements(placements: _t.Sequence[Placement], law,
         if got is None:
             continue
         u, texture, group = got
-        placed = _affinity.affine_transform(
-            u, _obj8.placement_affine(pl.xy, pl.heading_deg))
+        # §51 (4) row 14 — ENTRY
+        placed = _fe.enter([u], _obj8.placement_affine(pl.xy, pl.heading_deg),
+                           _fe.quantum(law))[0]
+        if placed is None:
+            continue
         raw_n = sum(1 for g in getattr(placed, "geoms", (placed,))
                     if g.geom_type == "Polygon" and g.area > 0.0)
         raw_a = placed.area

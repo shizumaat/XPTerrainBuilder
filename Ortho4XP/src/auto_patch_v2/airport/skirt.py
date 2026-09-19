@@ -42,6 +42,7 @@ from shapely.geometry import MultiPoint, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .obj8_clip import _bulk_polys, _clip_component
 
@@ -243,8 +244,9 @@ def placement_footprint(cache: _obj8.ResourceCache, path: str, law,
     fp = footprint(cache, path)
     if fp is None:
         return None
-    from shapely import affinity as _affinity
-    return _affinity.affine_transform(fp, _obj8.placement_affine(xy, heading_deg))
+    # §51 (4) row 14 — ENTRY
+    return _fe.enter([fp], _obj8.placement_affine(xy, heading_deg),
+                     _fe.quantum(law))[0]
 
 
 def skirted_placements(airport, law, cache: _obj8.ResourceCache | None = None
@@ -265,7 +267,8 @@ def skirted_placements(airport, law, cache: _obj8.ResourceCache | None = None
     7.01/7.03 m and dropped the T4S terminal pad ``building16``, which
     cost the pit its cut — ``basin_witness``' module doc has the chain."""
     sk = law.tables.structures.skirt
-    cache = cache or _obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    cache = cache or _obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
+                                        _fe.quantum(law))
     out: dict[str, float] = {}
     if not (sk.drops_pad or sk.seat_low_side):
         return out, cache

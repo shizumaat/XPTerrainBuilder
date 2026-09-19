@@ -44,9 +44,18 @@ EVERY STEP IS ONE VECTORISED C CALL OVER THE WHOLE ARRAY (owner RULINGS
 2026-09-14q: a per-geometry ``.is_valid`` property loop is the
 ``_rim_index`` 137 s class).  Measured, 100,000 five-vertex parts on one
 core: affine + snap 0.09 s, ``is_valid`` 0.04 s, ``area`` 0.01 s —
-~0.15 s per 10^5 parts, against 0.48 s for the rejected ``valid_output``.
-It REPLACES one Python-level ``affine_transform`` call per geometry, so a
-witness-heavy pack gets faster, not slower.
+~0.15 s per 10^5 parts.  RE-MEASURED by lane ``frameentry`` on TNCM's own
+part count, 101,922 five-vertex parts, mac arm64, best of three:
+
+  * ``enter``, q = 1 mm, the whole pipeline              **115 ms**
+  * today's per-geometry ``affine_transform`` loop, which
+    this REPLACES                                          677 ms
+  * the rejected ``set_precision(valid_output)``            448 ms
+
+So the BUILD-TIME IMPACT IS NEGATIVE: the batched form is 5.9x faster
+than the per-geometry affine it replaces, and 115 ms is 0.19 % of the
+60 s per-airport budget against the 0.6 s (1 %) review threshold.
+``make_valid`` runs on the invalid subset only (GEML: 126 of 449).
 """
 from __future__ import annotations
 

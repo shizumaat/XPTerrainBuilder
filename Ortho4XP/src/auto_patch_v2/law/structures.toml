@@ -931,6 +931,24 @@ shear               = true         # §49 (5) — bound, NOT YET IMPLEMENTED (fa
 shear_max_grade     = 0.10         # §49 (5): steeper decks are not sheared
 
 # ─────────────────────────────────────────────────────────────────────────
+# THE SCATTER CLASS (spec `pack-read-once-fast-spec.md` §B.2; slice S5a).
+# One `.obj` holding tens of thousands of disconnected little solids — a
+# hillside of bushes, a tree's leaf clumps, a car park of parked vehicles,
+# a crowd of standing people.  TNCM's HillBush.obj is 41,220 bushes over
+# 945 m; TFFG's Tree1Foliage.obj is 139,451 leaf clumps (median plan size
+# 0.44 m) = 88.6 % of that airport's placed components.  Every downstream
+# law that reads a solid pays for each piece and none of them can admit
+# one (the smallest admitted structure element on the corpus is a sill
+# plate 18-22 m wide, 17k).  THE PREDICATE IS `airport/scatter.py` AND
+# NOTHING IN THE BUILD CONSULTS IT YET: S5a landed the predicate and the
+# dry census (`tools/pack_scatter_census.py`); the wiring is S5b, after
+# the owner answers the spec's Q1 (may scatter shape the terrain?) and Q2
+# (what is a piece's seat?).
+[scatter]
+components_min       = 64      # a resource with at least this many GENUINE components is a candidate — `placement_atom.RIGID_REACH_COMPONENTS_MAX`'s own number and its own sentence ("a member with thousands of them is CLUTTER whose pieces are meant to stand apart").  0 disables the class
+component_diag_max_m = 10.0    # ...and EVERY genuine component's authored plan-box DIAGONAL is at most this, or that component is LINE-SHAPED (10bb, `[rebake] line_object_ratio` — a fence file of posts and wire runs is one class with its posts).  A measured starting point, not a fitted one: the census of 2026-09-18 reports the near-threshold population for the owner to judge
+
+# ─────────────────────────────────────────────────────────────────────────
 # §42 OBJECT-BASED PAVEMENT IS A SOURCE (owner RULINGS 2026-09-13cv; the
 # defect is RULINGS 2026-09-13cu).  A pack's DRAPED OBJ8 ground polygons
 # are pavement source geometry beside the apt.dat 110 polygons and the

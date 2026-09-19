@@ -20,7 +20,7 @@ from pathlib import Path
 from .flat_site_schema import (Declared, FlatDatum, FlatDetector, FlatSite,  # noqa: F401
                                ReliefFloor, check_flat_site as _check_flat_site)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
-from .rebake_schema import Deck, Placement, Rebake  # noqa: F401
+from .rebake_schema import Deck, Placement, Rebake, Scatter  # noqa: F401
 # the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
 from .cutout_schema import Cutout, check_cutout as _check_cutout  # noqa: F401
 # the [basin] schema (the below-grade facility law; 11t §24) likewise
@@ -46,7 +46,7 @@ __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "
     "Ruleset", "CommonLaw", "Resolution",
     "ZoneClass", "AdjacentGround", "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge",
     "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Placement",
-    "Structures", "ReliefFloor",
+    "Structures", "ReliefFloor", "Scatter",
     "FlatDetector", "FlatDatum", "Declared", "FlatSite", "Chords", "Identity", "Materiality", "Verify",
     "NoStep", "Transect", "WithinShape", "Instrument", "Cockpit", "Terrace", "Design",
     "EmitLaw", "RoleSpec", "Authority", "RoleGroup", "Precedence", "Family", "LawTables",
@@ -440,6 +440,11 @@ class Structures:
     #: §49: the deck-face datum (``[deck]``); defaulted so a law dir
     #: without the table still loads
     deck: Deck = _dc.field(default_factory=Deck)
+    #: THE SCATTER CLASS (``[scatter]``, spec pack-read-once-fast §B.2):
+    #: the predicate's two thresholds.  NOTHING CONSULTS IT YET — slice
+    #: S5a landed the predicate and the dry census only.  Defaulted like
+    #: ``deck``.
+    scatter: Scatter = _dc.field(default_factory=Scatter)
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

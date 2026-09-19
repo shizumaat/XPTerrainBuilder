@@ -27,6 +27,7 @@ from . import anchor_rule as _ar
 from . import basin_ring as _br
 from . import line_object as _lo
 from . import placement_atom as _atom
+from . import pack as _pack
 from . import placement_carrier as _pc
 
 __all__ = ["authored_latlon", "segment_anchor", "pristine_path",
@@ -807,12 +808,17 @@ def _cut_parts_by_terrain(parts: _t.Sequence[Part], surface: _ar.Surface,
 
 def pristine_path(m: Member) -> str:
     """§4.1's restore-before-read: the ``.anchor_bak`` original when v1's
-    y-bake left one, else the member's own authored file.  A split never
-    reads a BAKED file — the deltas it carries are the very machinery §8
-    retires."""
-    bak = m.live_path + ".anchor_bak"
-    if _os.path.isfile(bak):
-        return bak
+    y-bake left one AND it still belongs to the pack on disk, else the
+    member's own authored file.  A split never reads a BAKED file — the
+    deltas it carries are the very machinery §8 retires.
+
+    §12a (3) row 7: the private copy of this test is GONE — ONE resolver
+    (``pack.authored_source``), exactly as §12 (1) ruled for the DSF, so
+    a ``.obj`` the user replaced in an in-place pack update is read as
+    the pack's own file here too."""
+    read, _restored = _pack.authored_source(m.live_path)
+    if read and read != m.live_path:
+        return read
     return m.authored_path if _os.path.isfile(m.authored_path) else m.live_path
 
 def _bodies_of(member: Member, edges: _t.Sequence[tuple[int, int]]

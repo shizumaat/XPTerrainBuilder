@@ -1351,6 +1351,8 @@ def _rebake(install, payload: bytes = b"XPLNEDSF-rewritten-by-the-object-stage",
     the encoded edit, which lands with a NEW mtime and may differ in
     size.
     """
+    import hashlib
+    import json as _json
     import shutil
     backup = Path(str(install.dsf) + ".anchor_bak")
     if not backup.is_file():
@@ -1358,6 +1360,23 @@ def _rebake(install, payload: bytes = b"XPLNEDSF-rewritten-by-the-object-stage",
     install.dsf.write_bytes(payload)
     st = os.stat(install.dsf)
     os.utime(install.dsf, (st.st_atime, st.st_mtime + mtime_delta))
+    # ...AND the record, which since spec §12a is what says the live file
+    # is OUR OWN output.  Without it the pack is row D6 (ownership
+    # unproven), and the whole point of the rule is that a build's own
+    # rewrite is provable.
+    from auto_patch_v2.airport import backup_state as _bs
+    st = os.stat(install.dsf)
+    bst = os.stat(backup)
+    _bs.invalidate_memo()
+    _bs.update_dsf_entry(str(install.dsf), {
+        "backup": backup.name,
+        "backup_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+        "backup_size": bst.st_size, "backup_mtime_ns": bst.st_mtime_ns,
+        "written_sha256": hashlib.sha256(install.dsf.read_bytes()).hexdigest(),
+        "written_size": st.st_size, "written_mtime_ns": st.st_mtime_ns,
+    })
+    _bs.invalidate_memo()
+    assert _json  # the record is JSON on disk beside the DSF
     return backup
 
 
@@ -1440,21 +1459,39 @@ def test_replaced_pack_rebuilds_through_the_apt_dat_stamp(install,
     assert not install.is_current(patch_file)
 
 
-def test_a_replaced_dsf_alone_is_invisible_upstream_defect(install,
-                                                           patch_file):
-    """DOCUMENTS A DEFECT UPSTREAM OF THIS GATE, not a choice made here.
+def test_a_replaced_dsf_rebuilds_once(install, patch_file):
+    """THE FLIPPED TWIN (spec §12a (3) row 9; it was
+    ``test_a_replaced_dsf_alone_is_invisible_upstream_defect``).
 
-    ``dsf_write.write_pack`` creates ``<dsf>.anchor_bak`` once and never
-    re-checks it against the pack (v1 ``object_rebake`` has the three-way
-    ``backup_sha256``/``written_sha256`` adoption rule; the v2 DSF path has
-    none).  So a pack DSF replaced in place under a stale backup is not
-    read by the BUILD either — it dumps the old backup and writes it back
-    over the new file.  The gate matching that is correct; the missing
-    staleness rule is the bug, and it is reported, not papered over here.
+    ``dsf_write.write_pack`` used to create ``<dsf>.anchor_bak`` once and
+    never re-check it against the pack, so a pack DSF replaced IN PLACE
+    under a stale backup was not read by the BUILD either — it dumped the
+    old backup and wrote it back over the user's new file.  Now
+    ``backup_state.classify_dsf`` is the one rule and
+    ``pristine_dsf_path`` returns its ``read_path``: the replaced file IS
+    the input, so the gate says REBUILD — exactly once, because the build
+    that rebuilds adopts the user's file (``copy2`` onto the backup keeps
+    its size+mtime, so the next gate reads current).
     """
+    import shutil
+    from auto_patch_v2.airport import backup_state as _bs
     _rebake(install)
-    install.dsf.write_bytes(b"a-new-pack-DSF-under-a-stale-backup")
     assert install.is_current(patch_file)
+
+    install.dsf.write_bytes(b"a-new-pack-DSF-under-a-stale-backup")
+    _bs.invalidate_memo()
+    v = _bs.classify_dsf(str(install.dsf))
+    assert v.state is _bs.State.REPLACED
+    assert not install.is_current(patch_file), \
+        "the user's new DSF is the build's input, and the patch predates it"
+
+    # the rebuilding build adopts it, and the gate is current again
+    superseded = _bs.adopt(v)
+    assert os.path.isfile(superseded)
+    patch2 = install.emit_patch(Path(str(patch_file)))
+    _bs.invalidate_memo()
+    assert install.is_current(patch2)
+    assert shutil  # the adoption is a rename plus a copy2, nothing deleted
 
 
 # ──────────────────────────────────────────────────────────────────────

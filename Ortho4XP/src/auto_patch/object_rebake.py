@@ -1840,26 +1840,56 @@ def check(pack_root: str, mesh_path: str) -> str:
     return "STALE"
 
 
-def restore(pack_root: str) -> int:
-    """Put the ``.anchor_bak`` originals back, byte-identically, remove
-    the provenance sidecar, and return the number of files restored.
+def restore_detail(pack_root: str) -> dict:
+    """:func:`restore`, with the counts the front ends now report.
 
-    ``<name>.anchor_bak.orphaned`` files (invariant I-14 relics) are left
-    alone: they are not originals of the current pack.
+    ``{"restored": n, "kept_changed": n}`` — §12a (3) row 13.  Before
+    this, "restore originals" walked EVERY ``*.anchor_bak``, the DSF's
+    included, and ``copy2``'d it over the live file UNCONDITIONALLY: on a
+    pack the user had updated in place that reverted his new files to the
+    previous version's.  Now every file goes through the one rule
+    (``backup_state``): PRISTINE is skipped, OURS is restored, and
+    REPLACED / UNPROVEN / LIVE_MISSING are NOT OVERWRITTEN — they are
+    counted instead.
+
+    ``<name>.anchor_bak.orphaned`` (invariant I-14 relics) and
+    ``.anchor_bak.superseded-<UTC>`` (§12a) files are left alone: they
+    are not originals of the current pack.
     """
+    from auto_patch_v2.airport import backup_state as _bs
+
     restored = 0
+    kept_changed = 0
     for directory, _subdirectories, filenames in os.walk(pack_root):
         for filename in filenames:
             if not filename.endswith(BACKUP_SUFFIX):
                 continue
             backup_path = os.path.join(directory, filename)
             live_path = backup_path[:-len(BACKUP_SUFFIX)]
+            if live_path.lower().endswith(".dsf"):
+                verdict = _bs.classify_dsf(live_path)
+            else:
+                verdict = _bs.classify_object(live_path, pack_root)
+            if verdict.state is _bs.State.PRISTINE:
+                continue
+            if verdict.state in (_bs.State.REPLACED, _bs.State.UNPROVEN,
+                                 _bs.State.LIVE_MISSING):
+                kept_changed += 1
+                continue
             shutil.copy2(backup_path, live_path)
+            _bs.invalidate_memo()
             restored += 1
     sidecar_path = _provenance_path(pack_root)
     if os.path.isfile(sidecar_path):
         os.remove(sidecar_path)
-    return restored
+    return {"restored": restored, "kept_changed": kept_changed}
+
+
+def restore(pack_root: str) -> int:
+    """Put the ``.anchor_bak`` originals back and return the number of
+    files restored (the return stays an ``int`` — Qt reads it).  See
+    :func:`restore_detail` for the rule and the second count."""
+    return restore_detail(pack_root)["restored"]
 
 
 def pack_status(pack_root: str) -> dict | None:

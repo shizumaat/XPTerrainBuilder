@@ -84,9 +84,15 @@ def test_msl_and_agl_convert_and_every_other_line_is_byte_identical(tmp_path):
         Conversion(2, "objects/hangar.obj", -94.716857881, 39.298726825,
                    102.026093, "OBJECT_AGL", 24.999816892),
     ), kept=(Kept(3, "lib/cars/car_static_invar.obj", "stock library resource"),))
-    out = W.edit_dump(DUMP, plan)
+    out = W.edit_dump(DUMP, plan, "1.0.352")
     a, b = DUMP.splitlines(), out.splitlines()
-    assert len(a) == len(b)
+    # §12a: ONE row is added — the in-band ownership mark, after the last
+    # PROPERTY.  Everything else is still line-for-line the authored dump.
+    assert len(b) == len(a) + 1
+    mark = b.index("PROPERTY o4/placement_rewrite 1.0.352")
+    assert b[mark - 1].startswith("PROPERTY ")
+    assert not b[mark + 1].startswith("PROPERTY ")
+    del b[mark]
     changed = [i for i, (x, y) in enumerate(zip(a, b)) if x != y]
     assert len(changed) == 2
     assert b[changed[0]] == "OBJECT 0 -94.719717041 39.294637407 352.787366"
@@ -272,7 +278,8 @@ def test_dsf_placement_diff_tool_reports_the_same_edit(tmp_path, capsys):
     assert rep["per_resource"] == {"objects/tower.obj": 1,
                                    "objects/hangar.obj": 1,
                                    "lib/cars/car_static_invar.obj": 1}
-    assert rep["lines_before"] == rep["lines_after"]
+    # §12a: the one added row is the ownership mark
+    assert rep["lines_after"] == rep["lines_before"] + 1
     news = {c["index"]: c["new"] for c in rep["changes"]}
     assert news[1] == "OBJECT 0 -94.719717041 39.294637407 352.787366"
     assert news[2] == "OBJECT 2 -94.716857881 39.298726825 102.026093"

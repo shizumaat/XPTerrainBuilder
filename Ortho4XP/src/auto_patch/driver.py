@@ -143,16 +143,18 @@ def _dsf_identities_now(apt_dat_path: str,
     as installed, and what every object-stage read already resolves to —
     under the LIVE path as the key.
 
-    STATED RESIDUAL, found while implementing this: nothing re-checks the
-    ``.anchor_bak`` DSF backup against a REPLACED pack.
-    ``dsf_write.write_pack`` creates it once (``if not os.path.isfile``) and
-    has no counterpart of v1 ``object_rebake``'s three-way
-    ``backup_sha256`` / ``written_sha256`` adoption rule (invariant I-14), so
-    a pack updated in place is already dumped — and rewritten — from the OLD
-    backup by the build itself.  That is a defect UPSTREAM of this gate; the
-    identity here is consistent with what the build actually reads, which is
-    the rule.  A replaced pack still invalidates through ``o4_apt_dat``'s
-    exact mtime and ``o4_pack``.
+    THE RESIDUAL IS PAID (spec §12a, 2026-09-18).  The backup IS now
+    re-checked against the pack on disk: ``backup_state.classify_dsf`` is
+    the one rule, ``dsf_write.pristine_dsf_path`` returns its
+    ``read_path``, and this gate inherits it with no edit of its own.  A
+    pack the user updated IN PLACE reads as row D5: the identity becomes
+    the LIVE file's size+mtime, which differs from the stamp, so the patch
+    rebuilds; that build ADOPTS the live file (the old backup retired
+    under a ``.superseded-<UTC>`` name, a fresh ``copy2`` backup made from
+    the live file) and stamps the live identity, and because ``copy2``
+    preserves size+mtime the NEXT gate reads current.  EXACTLY ONE
+    rebuild.  Rows D2 / D8 stand the write half down and the gate stays
+    current — consistent with what such a build does, which is nothing.
     """
     if tile_keys == "":
         return ""            # scanned no tile — a real, comparable answer

@@ -592,10 +592,14 @@ def pack_dsf_input_identity(dsf_path: str | None) -> str:
     (backup exists, same size+mtime from the copy2) — no extra rebuild
     and no ``o4_fresh_v`` bump.
 
-    A pack that is genuinely REPLACED still invalidates by the other
-    inputs the gate already watches (``o4_apt_dat``'s exact mtime,
-    ``o4_pack``); see the stated residual in
-    :func:`~auto_patch.driver._dsf_identities_now`.
+    A pack that is genuinely REPLACED is caught HERE since spec §12a
+    (2026-09-18): ``pristine_dsf_path`` is now
+    ``backup_state.classify_dsf(...).read_path``, which returns the LIVE
+    file for a backup that no longer belongs to the pack on disk — so the
+    identity moves, the patch rebuilds exactly once, and the build that
+    rebuilds it adopts the user's file as the new original.  The other
+    inputs the gate watches (``o4_apt_dat``'s exact mtime, ``o4_pack``)
+    still catch a whole-folder replacement, which leaves no backup at all.
     """
     if not dsf_path:
         return "none"

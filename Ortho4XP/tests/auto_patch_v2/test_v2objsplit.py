@@ -524,15 +524,19 @@ def test_restore_puts_every_anchor_bak_back_and_counts_it(tmp_path):
     (pack / "Earth nav data" / "t.dsf.anchor_bak").write_text("old")
 
     r = PW.restore_pack_objects(str(pack))
+    # §12a: the bake is OURS by the Y-ONLY WITNESS (v1's I-16) — a witness
+    # is not a proof, so the live bytes are kept beside the file first.
     assert r.counts == {"restore_backups": 1, "restore_restored": 1,
-                        "restore_bodies_removed": 0}
+                        "restore_bodies_removed": 0, "restore_adopted": 0,
+                        "restore_unproven": 1}
     assert baked.read_text() == "I\n800\nOBJ\nVT\t0 0.0 0\t0 1 0\t0 0\n"
     assert (pack / "objects" / "a.obj.anchor_bak").is_file()
     assert (pack / "Earth nav data" / "t.dsf").read_text() == "new"
 
     again = PW.restore_pack_objects(str(pack))          # idempotent
     assert again.counts == {"restore_backups": 1, "restore_restored": 0,
-                            "restore_bodies_removed": 0}
+                            "restore_bodies_removed": 0, "restore_adopted": 0,
+                            "restore_unproven": 0}
 
 
 def test_restore_on_a_pack_with_no_backup_restores_nothing(tmp_path):
@@ -544,7 +548,8 @@ def test_restore_on_a_pack_with_no_backup_restores_nothing(tmp_path):
     (pack / "objects" / "a.obj").write_text("I\n800\nOBJ\n")
     r = PW.restore_pack_objects(str(pack))
     assert r.counts == {"restore_backups": 0, "restore_restored": 0,
-                        "restore_bodies_removed": 0}
+                        "restore_bodies_removed": 0, "restore_adopted": 0,
+                        "restore_unproven": 0}
     assert (pack / "objects" / "a.obj").read_text() == "I\n800\nOBJ\n"
 
 
@@ -1036,8 +1041,10 @@ def test_a_stale_body_file_from_a_bigger_previous_plan_is_removed(tmp_path):
         f"I\n800\nOBJ\n{PW.CUT_MARK}b body 7\n")
     (pack / "objects" / "authored.obj").write_text("I\n800\nOBJ\n")
     (nav / "o4_placement_provenance.json").write_text(
-        '{"body_files": ["objects/b__b7.obj", "objects/authored.obj",'
-        ' "../escape.obj"]}')
+        # §12a (2): the record is read PER DSF — a version-1 record is
+        # this DSF's only when its ``dsf`` field names it.
+        '{"dsf": "+40-004.dsf", "body_files": ["objects/b__b7.obj",'
+        ' "objects/authored.obj", "../escape.obj"]}')
 
     r = PW.restore_pack_objects(str(pack), dsf_path=str(dsf))
     assert r.counts["restore_bodies_removed"] == 1

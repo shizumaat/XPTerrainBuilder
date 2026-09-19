@@ -134,11 +134,22 @@ def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
         return None
     if dsf_path and os.path.isfile(dsf_path):
         dsf_mtime = os.path.getmtime(dsf_path)
-        keyed = os.path.join(d, f"{os.path.basename(dsf_path)}.{text_dump_tag(dsf_path)}.text")
-        fresh = [h for h in hits if os.path.getmtime(h) >= dsf_mtime]
-        if keyed in fresh:
+        base = os.path.basename(dsf_path)
+        keyed = os.path.join(d, f"{base}.{text_dump_tag(dsf_path)}.text")
+        if os.path.isfile(keyed) and os.path.getmtime(keyed) >= dsf_mtime:
             return keyed
-        return max(fresh, key=os.path.getmtime) if fresh else None
+        # §12a (3) row 11: NEVER ``max(fresh)`` ACROSS TAGS.  That fallback
+        # served ANY dump of this file name newer than the DSF's mtime —
+        # and an ADOPTED DSF carries its author's (old) mtime, so the OLD
+        # backup's dump qualified: the stale dump one layer down, under a
+        # rule whose whole purpose is to stop reading a stale file.  A
+        # dump bearing a DIFFERENT tag is never served; the only fallback
+        # left is an UNTAGGED legacy ``<name>.text`` that passes the same
+        # mtime guard.
+        legacy = os.path.join(d, base + ".text")
+        if legacy in hits and os.path.getmtime(legacy) >= dsf_mtime:
+            return legacy
+        return None
     return max(hits, key=os.path.getmtime)
 
 

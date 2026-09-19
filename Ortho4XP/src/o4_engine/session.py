@@ -1396,11 +1396,16 @@ class EngineSession:
 
     def reanchor_restore(self, pack_path):
         """Put a pack's .anchor_bak originals back and drop its sidecar
-        (object_rebake.restore semantics: backups stay in place)."""
+        (object_rebake.restore semantics: backups stay in place).
+
+        ``restored`` is unchanged (Swift reads ``result["restored"]``);
+        ``kept_changed`` is ADDITIVE (spec §12a (3) row 13) and counts the
+        files NOT overwritten because they are the user's own — a pack
+        updated in place is no longer reverted by "restore originals"."""
         from auto_patch import object_rebake
         if not os.path.isdir(pack_path):
             raise ValueError("not a scenery pack folder: " + str(pack_path))
-        return {"restored": object_rebake.restore(pack_path)}
+        return dict(object_rebake.restore_detail(pack_path))
 
     # ------------------------------------------------------------------
     # Commands: provider account sign-in

@@ -475,7 +475,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 if law.tables.structures.rebake.restore_before_read:
                     # RESTORE BEFORE READ (04f-1): the authored file, never
                     # a previous bake — ``airport/pack.py``
-                    resolved, restored = _pack.authored_source(resolved)
+                    resolved, restored = _pack.authored_source(resolved,
+                                                               sel.root)
                     if restored:
                         rep.objects_restored_for_read += 1
             # the AGL offset, or the MSL elevation (``kind`` says which;

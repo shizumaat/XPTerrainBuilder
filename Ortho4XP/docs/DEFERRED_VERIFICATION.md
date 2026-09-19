@@ -6064,3 +6064,12 @@ pre-existing callers (byte-identical rebuild: `Polygon(ring, None)`).
   serial substep channel); skipped a real cold rebuild of a big pack (OTHH
   Aeroscape ~8 min case), the parallel pool-queue drain observed in the app
   UI, and any build.
+- 2026-09-18 lane `tffjcap` (spec §50, the runway cap yields to its pins).
+  SKIPPED: the full pytest suite (only the covering files were run, once);
+  the five-airport sweep and any second airport — in particular the HECA /
+  LEMD code-4 movement 18f (3) causes, which the merged-batch sweep and the
+  owner's sim read adjudicate; a NEW CYXY control (owed to the orchestrator
+  by 18f (1), the old one being no longer comparable); no OFF-arm
+  byte-identity build (the change moves the surface by design); no matched
+  base census arm for the TFFJ closing build (the matched arm is the
+  registered-capture replay, run on both trees).

@@ -496,6 +496,26 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
     out[free] = xf
     v = Ar @ xf - rhs + held
     rep.after_m = float(np.max(np.maximum(v, 0.0)))
+    # §50.3 A PROJECTION MAY NEVER RETURN A WORSE SURFACE THAN THE ONE IT
+    # WAS GIVEN (Fable 2026-09-18, spec §50.3; findings fix-shape item 2).
+    # The elastic arm WITHDRAWS coupled rows, and ``coupled`` includes
+    # every pin-FOOTED row of the runway's own family (the ``fixed_foot``
+    # test above), so a withdrawn family row is a DEFECT by construction:
+    # at TFFJ this trade bought a 0.085 m residual a 1.718 m move and a
+    # -21.8 % break at a threshold.  Both numbers are already read against
+    # the LAW's own bound over ALL rows, withdrawn ones included, so the
+    # guard needs no reader and no new law.  Under §50.1 it does not fire.
+    if rep.after_m > rep.before_m + held:
+        rep.status = (f"refused: worst hard row {rep.before_m:.4f} -> "
+                      f"{rep.after_m:.4f} m ({rep.elastic_rows} rows "
+                      f"withdrawn) — design surface kept")
+        rep.after_m = rep.before_m
+        rep.ran = False
+        rep.max_move_m = 0.0
+        rep.wall_s = time.perf_counter() - t0
+        if verbose:
+            print("    " + rep.line())
+        return x, rep
     inner = ~coupled
     rep.after_family_m = (float(np.max(np.maximum(v[inner], 0.0)))
                           if inner.any() else 0.0)

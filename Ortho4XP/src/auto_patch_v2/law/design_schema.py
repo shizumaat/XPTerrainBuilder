@@ -57,6 +57,14 @@ class Design:
     #: curvature the K law admits, so the runway bends with the ground's
     #: trend and never undulates with the ground itself (08t (1) / 09b).
     runway_profile_window_m: float
+    #: §50.1 (3) THE MARGIN ON A YIELDED RUNWAY CAP (owner RULINGS
+    #: 2026-09-18d (3)): where a runway's own HARD PINS demand more grade
+    #: than ``rulesets.runway.longitudinal`` allows, that runway's
+    #: effective cap is its pin-to-pin grade plus this margin — the
+    #: smallest uniform over-grade that FITS (at ``cap == g_pin`` exactly
+    #: the feasible set is one straight line, on the LP's own tolerance).
+    #: Derived in ``constraints/runway_yield.py``; a value, not a switch.
+    runway_yield_margin: float
     law: float
     #: THE TAXI DESIGN PROFILE (owner RULINGS 2026-09-09b (2), "taxiways
     #: should follow terrain less and be more like runways"): the second
@@ -318,6 +326,10 @@ def check_design(d: Design, err: type[Exception],
                   f"rulesets.*.runway.vertical_curve_k_m "
                   f"{max_vertical_curve_k_m} — a shorter window fits "
                   f"curvature the K law forbids (RULINGS 2026-09-10t (3))")
+    if not 0.0 <= d.runway_yield_margin < 1.0:
+        raise err(f"emit.design.runway_yield_margin {d.runway_yield_margin}: "
+                  f"a grade in [0, 1) — the margin a YIELDED runway cap "
+                  f"carries over its pin-to-pin grade (§50.1 (3))")
     if d.one_way_max_rounds < 1:
         raise err(f"emit.design.one_way_max_rounds {d.one_way_max_rounds}: at least 1")
     if not 0.0 < d.one_way_relax <= 1.0:

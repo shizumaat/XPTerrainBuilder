@@ -1155,6 +1155,15 @@ LIFTED_CAP_TAG = "o4_grade_law_cap_lifted"
 #: — counted-never-hidden, reported beside the family.
 _LIFTED_CAP_STATS: Dict[str, int] = {"pairs": 0, "ways": 0}
 
+#: §50.2 Y20 (owner RULINGS 2026-09-18d (3) / 18f): how many within-shape
+#: pairs read the PUBLISHED runway cap instead of this file's flat v1
+#: ``ROLE_GRADE_LIMITS["runway"]``, and on how many ways — in BOTH
+#: directions (the published cap is LOOSER for code 1/2 and any yielded
+#: runway, STRICTER for an un-yielded code 4 at 1.25 %).  Counted, never
+#: hidden: a cap the census applied reports its own size.
+_RUNWAY_CAP_STATS: Dict[str, int] = {"pairs": 0, "ways": 0,
+                                     "looser": 0, "stricter": 0}
+
 
 def _lifted_cap_tag(way: "Way") -> Optional[float]:
     """The §34 (9) LIFT on this way (:data:`LIFTED_CAP_TAG`), as the
@@ -8047,6 +8056,30 @@ def _shoulder_cap(c: "ShapePairConstraint", nids: set,
     return cap if cap > c.cap else None
 
 
+def _runway_published_cap(c: "ShapePairConstraint",
+                          caps: Optional[Dict[str, float]]) -> Optional[float]:
+    """§50.2 Y20: the cap a within-shape pair on a RUNWAY-FAMILY way is
+    priced at when the patch published one (sidecar ``runway_caps``, the
+    EFFECTIVE cap the build itself priced this runway at).
+
+    This file's own table is flat 1.5 % for every runway (v1
+    ``ROLE_GRADE_LIMITS``), which 18f makes wrong in BOTH directions:
+    too strict for code 1/2 and for any runway whose cap yielded to its
+    pins, too loose for an un-yielded code 4 at 1.25 %.  The published
+    value is the law the build ran under, so it is the law this census
+    judges.  ``None`` for a pair on a way with no record (an old patch
+    reads exactly as before), for a cross-section pair, or where the
+    published cap equals the one already in hand."""
+    if not caps or c.transverse_road or law_role(c.way) not in _CROWN_RUNWAY_ROLES:
+        return None
+    refs = (c.way.ref or "").split("+")
+    vals = [caps[r] for r in refs if r in caps]
+    if not vals:
+        return None
+    got = max(vals)
+    return None if abs(got - c.cap) <= 1e-12 else got
+
+
 def _common_stretch_cap(c: "ShapePairConstraint", on: Dict[str, list],
                         max_grade: float) -> Optional[float]:
     """THE PER-STRETCH PAIR LAW on a taxi RECT (plane) shape (RULINGS
@@ -8275,6 +8308,7 @@ def _check_within_shape(ways: List[Way],
                         road_frame_by_nid: Optional[Dict[str, tuple]] = None,
                         shoulder_nid_set: Optional[set] = None,
                         shoulder_cap: Optional[float] = None,
+                        runway_caps_by_ref: Optional[Dict[str, float]] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -8309,6 +8343,10 @@ def _check_within_shape(ways: List[Way],
     out: List[Violation] = []
     _LIFTED_CAP_STATS["ways"] = sum(
         1 for w in ways if _lifted_cap_tag(w) is not None)     # §34 (9)
+    _RUNWAY_CAP_STATS["ways"] = sum(                           # §50.2 Y20
+        1 for w in ways if law_role(w) in _CROWN_RUNWAY_ROLES
+        and any(r in (runway_caps_by_ref or {})
+                for r in (w.ref or "").split("+")))
     _jsc = _junction_stretch_crossings(ways, nodes, stretches_m)
     _son = _stretch_node_index(stretches_m)
     for c in iter_shape_grade_constraints(
@@ -8339,6 +8377,19 @@ def _check_within_shape(ways: List[Way],
         if _sh is not None:
             allowance += (_sh - c.cap) * c.dist
             c.cap = _sh
+        # §50.2 Y20 (owner RULINGS 2026-09-18d (3) / 18f (3)): a pair on a
+        # runway-family way whose ref has a published ``runway_caps``
+        # record is priced at THAT cap — above this file's flat 1.5 %
+        # (code 1/2, a yielded runway) or below it (un-yielded code 4 at
+        # 1.25 %).  ``_role_grade_limit`` is NOT touched, so the ramp's
+        # role cap still governs ``cross_shape``, ``taxi_box`` and the
+        # step families (the §34 (9) census's own reason).
+        _rc = _runway_published_cap(c, runway_caps_by_ref)
+        if _rc is not None:
+            _RUNWAY_CAP_STATS["pairs"] += 1
+            _RUNWAY_CAP_STATS["looser" if _rc > c.cap else "stricter"] += 1
+            allowance += (_rc - c.cap) * c.dist
+            c.cap = _rc
         _sc = _junction_stretch_cap(c, _jsc, max_grade)
         if _sc is None:
             # RECT STRETCH CAPS (RULINGS 2026-09-04y on a plane shape): a
@@ -9955,6 +10006,15 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # §40 (2) as amended: the runway/shoulder line and the shoulder cap
     "runway_axes": "runway_axes_ll",
     "shoulder_transverse_max": "shoulder_transverse_max",
+    # §50.1 (4) THE RUNWAY'S EFFECTIVE LONGITUDINAL CAP (owner RULINGS
+    # 2026-09-18d (3), answered 18f): one record per runway — the code,
+    # the ruleset, the TABLE's cap and the cap the build actually priced
+    # it at (yielded to its own hard pins where they demand more).  LAW
+    # INPUT: this file's own table is a flat 1.5 % for every runway, which
+    # 18f makes wrong in BOTH directions (2 % code 1/2, 1.25 % code 4),
+    # and a yielded runway is judged under a law its build refused.  A
+    # patch with no key reads exactly as before.
+    "runway_caps": "runway_caps",
     # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; ratified 11l (2);
     # spec ``object-placement-spec.md`` §11a (2)/(4)): per pad vertex, the
     # metres the emitted terrain stands ABOVE the pad's own LEVEL.  LAW
@@ -10364,6 +10424,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     # §40 (2) as amended (owner RULINGS 2026-09-13dd)
     ctx["runway_axes_ll"] = data.get("runway_axes") or None
     ctx["shoulder_transverse_max"] = data.get("shoulder_transverse_max")
+    # §50.1 (4) (owner RULINGS 2026-09-18d (3) / 18f)
+    ctx["runway_caps"] = data.get("runway_caps") or None
     # THE PAD'S RELIEF TARGET (11l (2)): absent on any patch built before
     # 11j, which reads exactly as it did then.
     ctx["pad_relief_ll"] = data.get("pad_relief") or None
@@ -11427,6 +11489,9 @@ def run_checks(
     # line the SOLVE drew between runway and shoulder
     runway_axes_ll: Optional[list] = None,
     shoulder_transverse_max: Optional[float] = None,
+    # §50.1 (4) (owner RULINGS 2026-09-18d (3) / 18f): per runway, the
+    # EFFECTIVE longitudinal cap the build priced it at
+    runway_caps: Optional[list] = None,
     shore_edges_ll: Optional[list] = None,
     # §33 (6): per signature-B corridor, the object's wall line (lat/lon
     # ring) and its AUTHORED floor — the witness both new families price
@@ -11484,6 +11549,7 @@ def run_checks(
     _CROWN_UNKNOWN_PAIRS.clear()
     _TAXI_BOX_STATS.clear()
     _LIFTED_CAP_STATS.update(pairs=0, ways=0)          # §34 (9)
+    _RUNWAY_CAP_STATS.update(pairs=0, ways=0, looser=0, stricter=0)   # §50 Y20
     _APRON_PREF_STATS.clear()
     # REGION RULESET (phase B).  ``ruleset`` is the SIDECAR's key — the
     # authority the build actually ran under.  The census NEVER re-derives
@@ -11620,6 +11686,10 @@ def run_checks(
     # §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av)
     road_frame_by_nid = _road_frame_by_nid(nodes, road_route_frame_ll or [])
     # §40 (2) as amended: the SHOULDER vertices, off the solve's own line
+    # §50.2 Y20: ref -> the EFFECTIVE cap the build priced that runway at
+    _runway_caps_by_ref: Dict[str, float] = {
+        str(r["ref"]): float(r["cap"]) for r in (runway_caps or [])
+        if isinstance(r, dict) and r.get("ref") and r.get("cap") is not None}
     _shoulder_nids = shoulder_nids(ways, nodes, ll_to_m, runway_axes_ll)
     if _shoulder_nids and not quiet:
         print(f"  runway shoulders (§40 (2)): {len(_shoulder_nids)} vertex(es) "
@@ -11722,7 +11792,8 @@ def run_checks(
         apron_tier=apron_tier, pad_relief_by_nid=pad_relief_by_nid,
         road_frame_by_nid=road_frame_by_nid,
         shoulder_nid_set=_shoulder_nids,
-        shoulder_cap=shoulder_transverse_max))
+        shoulder_cap=shoulder_transverse_max,
+        runway_caps_by_ref=_runway_caps_by_ref))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

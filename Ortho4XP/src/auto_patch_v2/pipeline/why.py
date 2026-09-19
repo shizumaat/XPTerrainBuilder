@@ -172,8 +172,7 @@ def taxi_letters(prep: Prepared, fid: int, near_m: float = 3.0) -> list[str]:
     names and width-class letters, and the faces it bounds with their
     code letter and longitudinal cap — the evidence hypothesis (d) reads."""
     from shapely.geometry import LineString
-    from ..constraints.precedence import view
-    from ..law.tables import role_cap
+    from ..constraints.precedence import face_cap, view
     from ..solve.why import face_vertices
     vw = view(prep.pm, prep.law)
     verts = set(face_vertices(prep, fid))
@@ -203,9 +202,10 @@ def taxi_letters(prep: Prepared, fid: int, near_m: float = 3.0) -> list[str]:
         fl = []
         for f in faces:
             face = prep.pm.faces[f]
-            rc = role_cap(prep.law, face.role, face.code_number, face.code_letter)
+            # §50.2 Y16: name the cap the build PRICED, yield included
+            rc = face_cap(prep.law, face, prep.pm)
             fl.append(f"{f}:{face.role}/{face.code_letter or '-'}"
-                      f"@{rc.longitudinal:.1%}" if rc else f"{f}:{face.role}/ungoverned")
+                      f"@{rc[0]:.1%}" if rc else f"{f}:{face.role}/ungoverned")
         letters = "; ".join(f"{n} {sorted(ls)}" for n, ls in sorted(along.items())) or "-"
         out.append(f"  centreline {bid} ref={b.ref!r} ({line.length:.0f} m): apt.dat 1202 "
                    f"name/letters {letters}; faces " + ", ".join(fl))

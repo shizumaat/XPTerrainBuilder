@@ -144,7 +144,11 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                 continue
             seen.add(key)
             cap = ceil_road if set(vs) <= road_only else ceil_pav
-            out.append(Diff(row.a, row.b, cap, row.d, src))
+            # §50.1 (6) THE CEILING NEVER RE-IMPOSES WHAT THE PINS REFUSE:
+            # a row the law itself prices ABOVE the ceiling (a yielded
+            # runway, an altiport) is not twinned below its own cap — the
+            # twin would re-make infeasible exactly what §50 made feasible.
+            out.append(Diff(row.a, row.b, max(cap, row.cap), row.d, src))
             continue
         if not isinstance(row, Linear) or row.source.generator == GEN:
             continue
@@ -166,6 +170,8 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
             continue
         seen.add(key)
         cap = ceil_road if vs2 <= road_only else ceil_pav
-        bound = hc * cap * d
+        # §50.1 (6), the two-sided form: the twin's bound never falls
+        # below the ROW'S OWN bound.
+        bound = max(hc * cap * d, float(row.hi))
         out.append(Linear(row.terms, -bound, bound, src))
     return out

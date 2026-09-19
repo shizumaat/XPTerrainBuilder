@@ -22,14 +22,53 @@ from ..model.constraints import Diff, Flat, Linear, Offset, Pin, Row
 from ..model.planar import Face, PlanarMap, face_vertex_ids, vertex_tier
 from .geometry import ring_vertex_ids
 
-__all__ = ["face_cap", "View", "view", "row_tier"]
+__all__ = ["cap_of", "face_cap", "View", "view", "row_tier"]
 
 
-def face_cap(law: Law, face: Face) -> tuple[float, float] | None:
+def cap_of(pm: PlanarMap | None, law: Law, ref: str,
+           code_number: int | None = None, code_letter: str | None = None
+           ) -> float | None:
+    """§50.1 (4) THE SOLVE-SIDE ACCESSOR of the runway's EFFECTIVE
+    longitudinal cap: ``pm.runway_caps[ref].cap`` where the yield
+    derivation (``constraints/runway_yield.py``) published one, else the
+    table's own value.  For a ``runway_crossing`` face (``ref = "A+B"``)
+    the MAX over its runways — the crossing stands in both runways'
+    profiles and the looser of the two is the one that can be built.
+
+    Reads ``pm.runway_caps`` and the law table only, so every generator
+    may import it without reaching the derivation (module ordering,
+    §50.6).  ``None`` where the table states no runway cap."""
+    rc = role_cap(law, "runway", code_number, code_letter)
+    table = None if rc is None else rc.longitudinal
+    caps = getattr(pm, "runway_caps", None) if pm is not None else None
+    if not caps:
+        return table
+    vals = [float(caps[r].cap) for r in (ref.split("+") if "+" in ref
+                                         else [ref]) if r in caps]
+    if not vals:
+        return table
+    got = max(vals)
+    return got if table is None else max(table, got)
+
+
+def face_cap(law: Law, face: Face, pm: PlanarMap | None = None
+             ) -> tuple[float, float] | None:
     """``(longitudinal, transverse)`` for a face, or ``None`` when its
-    role is ungoverned."""
+    role is ungoverned.
+
+    §50.1 (4): with ``pm`` given, a RUNWAY-FAMILY face answers through
+    :func:`cap_of`, so the yielded cap reaches every ``vw.caps`` reader
+    with no edit of theirs.  The parameter is optional-last and the
+    transverse cap never moves (the yield is a LONGITUDINAL law)."""
     rc = role_cap(law, face.role, face.code_number, face.code_letter)
-    return None if rc is None else (rc.longitudinal, rc.transverse)
+    if rc is None:
+        return None
+    lon = rc.longitudinal
+    if pm is not None and role_family(law, face.role) == "runway":
+        got = cap_of(pm, law, face.ref, face.code_number, face.code_letter)
+        if got is not None:
+            lon = got
+    return (lon, rc.transverse)
 
 
 @_dc.dataclass(frozen=True)
@@ -87,7 +126,7 @@ def view(pm: PlanarMap, law: Law) -> View:
     for fid, f in pm.faces.items():
         rings[fid] = ring_vertex_ids(pm, f.ring)
         holes[fid] = [ring_vertex_ids(pm, h) for h in f.holes]
-        caps[fid] = face_cap(law, f)
+        caps[fid] = face_cap(law, f, pm)      # §50.1 (4): the yielded cap
     vertex_faces = {vid: v.incident_faces for vid, v in pm.vertices.items()}
     vertex_cap: dict[int, float | None] = {}
     pav: set[int] = set()

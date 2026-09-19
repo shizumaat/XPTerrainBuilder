@@ -99,6 +99,12 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # census reads the line the generator drew and never re-derives it
     # from the runway RINGS, which a shoulder fattens.
     "runway_axes", "shoulder_transverse_max",
+    # §50.1 (4) (owner RULINGS 2026-09-18d (3) / 18f): the EFFECTIVE
+    # longitudinal cap per runway — the cap the build PRICED, yielded to
+    # its own pins or the table's.  LAW INPUT (``check_grade.
+    # SIDECAR_LAW_KEYS``), never evidence: without it a census judges a
+    # runway under a law the build did not run.
+    "runway_caps",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest

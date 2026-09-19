@@ -122,6 +122,7 @@ from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
 from ..constraints.runway_profile import crown_drops, runway_half_widths
+from ..constraints.runway_yield import RunwayCap as _RunwayCap
 from ..constraints.seams import seam_pins, seam_vertices_pinned
 from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
@@ -419,6 +420,19 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 for rw in airport.runways],
             "shoulder_transverse_max":
                 float(law.ruleset.runway.shoulder_transverse_max),
+            # §50.1 (4) THE PUBLISHED SIDE of the runway longitudinal cap
+            # (owner RULINGS 2026-09-18d (3) / 18f): one record per runway
+            # — the code, the ruleset, the TABLE's cap, the EFFECTIVE cap
+            # the build priced and the two pins of the governing span —
+            # for EVERY runway, yielded or not.  LAW INPUT: without it the
+            # census judges a code 1/2 runway at 1.5 % and a yielded one
+            # under the un-yielded law (04y's own cause, closed here).  A
+            # patch with no key reads exactly as before.
+            "runway_caps": [
+                rc.as_dict(law.ruleset_key, ll)
+                for _r, rc in sorted(
+                    (planar.runway_caps or {}).items())
+                if isinstance(rc, _RunwayCap)],
             # §30 (4) THE CLUSTER PADS (owner RULINGS 2026-09-13bj item 1):
             # what the object stage's §16g seats a big terminal on, and
             # what the report reads to name the apron faces that stayed

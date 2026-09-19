@@ -237,6 +237,18 @@ class PlanarMap:
     #: absent here and keeps ``Vertex.dem_z``.  ``dem_z`` itself stays the
     #: DEM sample: seams, reports and readers compare against terrain.
     preferred_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: §50 THE RUNWAY CAP YIELDS TO ITS PINS (owner RULINGS 2026-09-18d
+    #: (3), answered 18f; spec §50.1 (3), additive): runway ref -> its
+    #: ``constraints.runway_yield.RunwayCap`` — the table's cap, the
+    #: runway's own pin-to-pin grade and the EFFECTIVE cap the build
+    #: priced it at.  Derived ONCE inside
+    #: ``constraints/runway_chord.with_runway_chord`` (the one site that
+    #: already holds the pins, the chords and the crossings) and read back
+    #: through ``constraints.precedence.cap_of`` — the same "derived from
+    #: the pins, carried by the map" channel as ``preferred_z``.  Typed
+    #: ``Any`` because ``model`` may not import ``constraints``; empty on
+    #: a map nothing derived over, which reads exactly as before.
+    runway_caps: _t.Mapping[str, _t.Any] = _dc.field(default_factory=dict)
     #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
     #: spec §8.6, ``constraints/taxi_trend.py``): vertex id -> the ground's
     #: LONG-WAVE TREND along that vertex's taxi centreline chain, shifted

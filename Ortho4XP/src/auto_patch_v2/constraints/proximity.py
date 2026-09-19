@@ -28,7 +28,7 @@ from __future__ import annotations
 import math
 
 from ..law import Law
-from ..law.tables import role_cap, role_side
+from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
@@ -53,10 +53,13 @@ def cross_shape_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     prox = law.tables.emit.identity.min_distinct_spacing_m
     roads = frozenset(road_family_roles(law))
     caps: dict[int, float] = {}
-    for fid, f in planar.faces.items():
-        rc = role_cap(law, f.role, f.code_number, f.code_letter)
+    for fid in planar.faces:
+        # §50.2 Y10: the pair takes the STRICTER of the two faces' caps,
+        # and each face's cap is the effective one ``vw.caps`` carries
+        # (``precedence.face_cap`` with the map) — same rule, new number.
+        rc = vw.caps[fid]
         if rc is not None:
-            caps[fid] = rc.longitudinal
+            caps[fid] = rc[0]
     # every governed vertex with the faces it belongs to
     faces_of: dict[int, list[int]] = {}
     for fid in caps:

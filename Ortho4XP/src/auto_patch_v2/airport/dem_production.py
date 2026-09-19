@@ -141,7 +141,17 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
                                                      required_box)
         if problem is not None:
             (state["airport_inset_problem_kind"], text) = problem
-            problems.append(text)
+            if state["airport_inset_problem_kind"] == "empty":
+                # DECLARED EMPTY, not cold (2026-09-18, LSGP/LSGY).  The
+                # bake DECLINES a raster under the valid-pixel rule out
+                # loud and grades on the base DEM; a declared state is
+                # never a silent degrade, so it is recorded and reported
+                # and it warms, refuses and degrades NOTHING.  The relic
+                # is re-fetched where fetches belong: the tile build's
+                # own inset pass, or an explicit --refresh-data dem.
+                state["airport_inset_declared_empty"] = text
+            else:
+                problems.append(text)
     return state, problems
 
 
@@ -901,14 +911,43 @@ class ProductionDem:
                                f"or empty — the base raster is missing")
         baked = list(getattr(dem, "airport_inset_provenance", None) or [])
         mine = [b for b in baked if str(b.get("icao", "")).upper() == self.icao.upper()]
-        if state["airport_inset"] and not mine:
+        # THE BAKE'S OWN DECLARED DECLINATIONS (2026-09-18, LSGP/LSGY).
+        # An inset holding < INSET_MIN_VALID_FRAC valid pixels is not
+        # baked; the bake says so in its own line and records it on
+        # ``airport_inset_nodata_refusals``.  That is a KNOWN, DECLARED
+        # state — the opposite of the 2026-08-07 class this check
+        # exists for, which is a bake that dropped a VALID inset and
+        # said nothing.  So the check consults the RECORD instead of
+        # re-inferring from the file's existence: LSGP's empty
+        # swissALTI3D raster took the whole +46+006 tile down in app
+        # 1.0.351 while the same build printed the declination.
+        declined = [d for d in (getattr(dem, "airport_inset_nodata_refusals",
+                                        None) or [])
+                    if str(d.get("icao", "")).upper() == self.icao.upper()]
+        if state["airport_inset"] and not mine and not declined:
             self._degrade(stem, [f"the bake reports NO inset for {self.icao} while "
                                  f"{state['airport_inset']} exists — the prep "
                                  f"degraded silently (2026-08-07 class)"])
+        elif declined and not mine:
+            self._out(f"  [dem] {self.icao}: the inset on disk is DECLARED EMPTY "
+                      f"and was NOT baked ("
+                      + "; ".join(f"{d.get('path') or d.get('provider')} "
+                                  f"nodata {float(d.get('nodata_fraction', 1.0)):.4f}"
+                                  for d in declined)
+                      + f") — this airport solves on the BASE DEM.  Re-fetch it "
+                        f"deliberately: --refresh-data dem")
+        if state.get("airport_inset_declared_empty"):
+            # The frame check's own wording of the same fact, kept on the
+            # provenance so an arm can be read back without the log.
+            self.provenance[f"inset_declared_empty:{stem}"] = \
+                state["airport_inset_declared_empty"]
         self.provenance[f"tile:{stem}"] = (
             f"{how}: grid {dem.nxdem}x{dem.nydem}, baked_query={dem.baked_query_active}, "
             f"airports_smoothed={airports_smoothed if airports_smoothed is not None else '?'}, "
-            f"insets=" + ",".join(f"{b.get('icao')}:{b.get('provider')}" for b in baked))
+            f"insets=" + ",".join(f"{b.get('icao')}:{b.get('provider')}" for b in baked)
+            + (", nodata_refused=" + ",".join(
+                f"{d.get('icao')}:{os.path.basename(str(d.get('path', '?')))}"
+                for d in declined) if declined else ""))
         self._record_inset_boxes(lat, lon, baked)
         if tile is not None:
             for k in ("apt_smoothing_pix", "apt_smoothing_auto", "working_grid_arc_seconds",

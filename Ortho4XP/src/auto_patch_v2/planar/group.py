@@ -72,6 +72,8 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+from ..geom import feet_graph as _feet_graph
+from ..geom.feet_graph import neighbour_pairs_fast as _pairs_fast
 from ..model.ground_fit import GroundFit, ground_fit
 from ..model.rebake import Member, Part, RebakePlan
 
@@ -404,7 +406,10 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
               "cross_pairs": 0, "refused_ineligible": 0, "refused_building": 0,
               "refused_peer": 0, "groups": 0, "cross_groups": 0, "long_span": 0,
               "released_candidates": 0, "infeasible": 0, "released": 0,
-              "infeasible_short": 0, "relief_bodies": 0}
+              "infeasible_short": 0, "relief_bodies": 0, "mst_fallback": 0}
+    # the neighbour graph's degenerate-input escapes (spec row 1 guards):
+    # counted over THIS derive only, so a non-zero is attributable
+    _mst_fallback_0 = _feet_graph.fallback_count()
 
     area = {k: float(sum(part_of[q].area_m2 for q in ps)) for k, ps in bodies.items()}
 
@@ -416,7 +421,8 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
         slope = _relief_slope(feet)
         if dem_at is None:
             return slope, pad_slope_max > 0.0 and slope > pad_slope_max, None, 0.0, 0.0
-        fit = ground_fit(feet, y_zero, dem_at, bank_slope)
+        fit = ground_fit(feet, y_zero, dem_at, bank_slope,
+                         pairs=_pairs_fast)
         if fit is None:
             return slope, False, None, 0.0, 0.0
         return slope, not fit.feasible, fit.level, fit.residual_m, fit.limit_m
@@ -551,6 +557,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
         for k in g.bodies:
             of_body[k] = i
     counts["groups"] = len(groups)
+    counts["mst_fallback"] = _feet_graph.fallback_count() - _mst_fallback_0
     return GroupSet(tuple(groups), of_body, counts)
 
 

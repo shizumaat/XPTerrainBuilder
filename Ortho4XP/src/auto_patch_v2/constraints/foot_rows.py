@@ -114,6 +114,7 @@ from ..law import Law
 from ..law.tables import is_value_role, role_side
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
+from ..geom.feet_graph import neighbour_pairs_fast as _pairs_fast
 from ..model.ground_fit import GroundFit, ground_fit
 from ..model.planar import PlanarMap
 from .structures import WALL_ROLE
@@ -314,7 +315,8 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
             verdicts.append(_verdict(g, "padded", roles, None, 0))
             counts["padded"] += 1
             continue
-        fit = ground_fit(g.feet, g.y_zero, _sampler(dem, to_xy), bank)
+        fit = ground_fit(g.feet, g.y_zero, _sampler(dem, to_xy), bank,
+                         pairs=_pairs_fast)
         if fit is None or len(fit.keep) != len(g.feet):
             # ALL OR NOTHING (11x (1)): a fit over a SUBSET of the feet
             # would mint a partial profile exactly as an off-sheet foot

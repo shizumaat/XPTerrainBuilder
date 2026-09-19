@@ -98,6 +98,14 @@ def neighbour_pairs(pts: _t.Sequence[tuple[float, float]]
 
     Pure Python, O(n^2) Prim — the feet of one body, never a corpus; and
     ``model`` may import neither ``scipy`` nor ``numpy`` (M0 §1).
+
+    THIS FUNCTION IS THE REFERENCE AND THE DEFAULT.  It is also, on the
+    real maxima, 646.5 s of a 652.3 s TFFG pack stage (findings
+    ``pack-read-profile-20260918.md`` §1.3) — so the callers that see
+    the big bodies inject ``pairs=geom.feet_graph.neighbour_pairs_fast``
+    (spec ``pack-read-once-fast-spec.md`` row 1), which reproduces THIS
+    list exactly, order and float, from a Delaunay candidate graph.  The
+    twins compare against this loop; it is never deleted.
     """
     n = len(pts)
     if n < 2:
@@ -131,9 +139,18 @@ def neighbour_pairs(pts: _t.Sequence[tuple[float, float]]
 
 def ground_fit(feet: _t.Sequence[Foot], y_zero: float,
                dem_at: _t.Callable[[float, float], float | None],
-               bank_slope: float) -> GroundFit | None:
+               bank_slope: float, *,
+               pairs: _t.Callable[[_t.Sequence[tuple[float, float]]],
+                                  list[tuple[int, int, float]]]
+               = neighbour_pairs) -> GroundFit | None:
     """:class:`GroundFit` over ``feet``, or ``None`` when the DEM has no
-    sample under them (nothing to fit, and no verdict to give)."""
+    sample under them (nothing to fit, and no verdict to give).
+
+    ``pairs`` is the neighbour graph, :func:`neighbour_pairs` by default;
+    a caller outside ``model`` may inject an equivalent that does not
+    have to be pure Python (``geom/feet_graph.neighbour_pairs_fast``).
+    An injected implementation must return THIS function's ordered list
+    — ``ground_fit`` reads the ORDER."""
     if not feet:
         return None
     zs: list[float] = []
@@ -160,7 +177,7 @@ def ground_fit(feet: _t.Sequence[Foot], y_zero: float,
     pts = [((feet[i].lon) * mo, (feet[i].lat) * ml) for i in keep]
     worst, worst_res, worst_lim, ok = -1, 0.0, 0.0, True
     worst_pair = (-1, -1)
-    for a, b, d in neighbour_pairs(pts):
+    for a, b, d in pairs(pts):
         # THE PAIR READING (11x (2)): the fall the sheet has to make
         # between these two feet, against the fall it is allowed over
         # the ground between them.  ``level`` cancels.

@@ -29,8 +29,11 @@ def test_the_wire_name_and_field_set_are_frozen():
     assert EV.BoundaryAirportsReady.__name__ == "BoundaryAirportsReady"
     fields = [f.name for f in
               dataclasses.fields(EV.BoundaryAirportsReady)]
-    assert fields[-5:] == ["request_id", "airports", "add_tiles",
-                           "remembered", "error"]
+    assert fields[-6:] == ["request_id", "airports", "add_tiles",
+                           "remembered", "error", "default_choice"]
+    # the dialog's preselected action (owner RULINGS 2026-09-18i (2)) —
+    # engine-owned, so Swift and Qt cannot spell the default differently
+    assert EV.BoundaryAirportsReady().default_choice == "neighbour"
 
 
 def test_it_serialises_through_the_event_encoder():

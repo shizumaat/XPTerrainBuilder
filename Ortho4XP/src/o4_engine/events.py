@@ -379,6 +379,12 @@ class BoundaryAirportsReady(EngineEvent):
     ``auto_patch_boundary`` app setting); non-empty means apply it
     without asking.  ``error`` carries the preflight's failure text, in
     which case the front end proceeds with ``boundary_policy=None``.
+
+    ``default_choice`` is the policy the dialog PRESELECTS (its Return-key
+    action): ``"neighbour"`` — build all the needed tiles (owner RULINGS
+    2026-09-18i (2)).  Engine-owned so the two front ends cannot spell
+    the default differently; it is NOT the unattended default, which
+    stays skip.
     """
 
     request_id: int = 0
@@ -386,6 +392,7 @@ class BoundaryAirportsReady(EngineEvent):
     add_tiles: list = field(default_factory=list)
     remembered: str = ""
     error: str = ""
+    default_choice: str = "neighbour"
 
 
 @dataclass(frozen=True)

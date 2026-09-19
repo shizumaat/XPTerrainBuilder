@@ -706,3 +706,13 @@ STEP-6 FILES: `src/O4_Vector_Utils.py` (the new helper only),
 (regenerated), `tests/test_road_grade_clamp.py`,
 `tests/test_road_level_auto.py`, fixture already amended. Convergence
 guards as S.6.
+
+ANSWERED (owner RULINGS 2026-09-18o, as corrected by 2026-09-18p): Q1 —
+`budget_m` = 1.0 m, RULED. Q2 — upstream's `road_is_too_much_banked`
+admission KEPT as upstream has it, RULED. Q3 — the 'auto' mode's level-5
+LATERAL levelling keeps the larger (inset-box) area exactly as today,
+RULED ("the engine's normal road should continue to be the larger area,
+just any additional capping narrowed"): ONLY the longitudinal clamp narrows
+to the patch band + run-out. S.1–S.6 stand as written; no further step.
+(A rev-2 "step 6" shrinking the lateral detail was committed and reverted
+on this branch — `2fb0dba7` / its revert — and is NOT part of the spec.)

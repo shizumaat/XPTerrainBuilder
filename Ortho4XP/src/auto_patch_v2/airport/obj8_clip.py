@@ -12,6 +12,8 @@ from shapely.errors import GEOSException
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
+from . import frame_entry as _fe
+
 import typing as _t
 
 if _t.TYPE_CHECKING:  # annotations only — obj8 imports this module
@@ -86,13 +88,10 @@ def _union_rings(rings: list[list[tuple[float, float]]]):
     if not arr.size:
         return None
     polys = arr.tolist()
-    try:
-        u = unary_union(polys)
-    except GEOSException:
-        try:
-            u = shapely.union_all(polys, grid_size=1e-6)
-        except GEOSException:
-            u = unary_union([p.buffer(1e-6) for p in polys])
+    # §51 (4) row 16: the LOCAL repair above is KEPT (a clip of a folded
+    # or sliver triangle is born invalid, before any placement), and the
+    # ladder that used to be spelled here IS ``frame_entry.union``.
+    u = _fe.union(polys, "obj8_clip._union_rings")
     if not u.is_valid:
         u = shapely.make_valid(u)
     parts = _polygon_parts(u)

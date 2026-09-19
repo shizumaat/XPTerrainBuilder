@@ -69,11 +69,11 @@ import typing as _t
 import numpy as np
 import shapely
 from scipy import ndimage as _ndimage
-from shapely import affinity as _affinity
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY, rotated_rectangle
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 
 __all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way", "DEFAULT_TUNNEL_VALUES",
@@ -431,7 +431,8 @@ def _read_family(members, cache, faces_of, br, key):
             continue
         wsum += float((f.cy[inplane] * f.area[inplane]).sum())
         asum += float(f.area[inplane].sum())
-        pl = _plate(o, f, inplane, floor, br, cache.components(o.resolved))
+        pl = _plate(o, f, inplane, floor, br, cache.components(o.resolved),
+                    cache.input_quantum_m)
         if pl is not None:
             plates[o.id] = pl
     if not plates:
@@ -441,7 +442,8 @@ def _read_family(members, cache, faces_of, br, key):
     return (plane_y, plane_area), plates
 
 
-def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps) -> DeckPlate | None:
+def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps,
+           q: float = 0.0) -> DeckPlate | None:
     idx = np.nonzero(inplane)[0]
     u = _obj8._union_rings(_rings(f, idx))
     if u is None:
@@ -475,17 +477,21 @@ def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps) -> DeckPl
             stations.append(((float(f.xz[k, :, 0].mean()), float(f.xz[k, :, 1].mean())),
                              float(f.ymax[k])))
     mat = _obj8.placement_affine(o.xy, o.heading_deg)
-    tf = _affinity.affine_transform
-    foot = tf(closed, mat)
-    if not foot.is_valid:
-        foot = foot.buffer(0)
-    rect = tf(rotated_rectangle(closed), mat)
-    o_f = tf(shapely.points(*origin), mat)
-    u_f = tf(shapely.points(origin[0] + unit[0], origin[1] + unit[1]), mat)
+    # §51 (4) row 14 — ENTRY for the POLYGONS (the ``buffer(0)`` belt is
+    # gone with it); the axis and end POINTS carry no validity (row 19)
+    # and take the affine alone, through ``frame_entry`` so this module
+    # never spells one itself.
+    foot, rect = _fe.enter([closed, rotated_rectangle(closed)], mat, q)
+    if foot is None:
+        return None
+    def tf(g):
+        return _fe.transform(g, mat, 0.0)
+    o_f = tf(shapely.points(*origin))
+    u_f = tf(shapely.points(origin[0] + unit[0], origin[1] + unit[1]))
     axis_f = ((o_f.x, o_f.y), (u_f.x - o_f.x, u_f.y - o_f.y))
     ends = None
     if length >= br.deck_min_span_m:
-        pts = [tf(shapely.points(x, z), mat) for e in ends_a for x, z in e]
+        pts = [tf(shapely.points(x, z)) for e in ends_a for x, z in e]
         ends = (((pts[0].x, pts[0].y), (pts[1].x, pts[1].y)),
                 ((pts[2].x, pts[2].y), (pts[3].x, pts[3].y)))
     ev = (f"plate: {float(f.area[inplane].sum()):.0f} m2 of near-horizontal face "

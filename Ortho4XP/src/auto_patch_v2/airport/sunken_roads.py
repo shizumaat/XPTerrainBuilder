@@ -45,7 +45,6 @@ import typing as _t
 
 import numpy as np
 import shapely
-from shapely import affinity as _affinity
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
@@ -53,6 +52,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .deck_signature import family_key
 from .tunnel_objects import _rect_axis
@@ -187,7 +187,10 @@ def _faces_below(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: 
                 faces.append((poly, tuple(cf), ar))
         below = _obj8._clip_component(v, comp, plane_ground, True)
         if below is not None:
-            belows.append(_affinity.affine_transform(below, mat))
+            # §51 (4) row 13 — ENTRY
+            placed = _fe.enter([below], mat, cache.input_quantum_m)[0]
+            if placed is not None:
+                belows.append(placed)
     return faces, belows
 
 

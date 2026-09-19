@@ -48,12 +48,12 @@ import typing as _t
 
 import numpy as np
 import shapely
-from shapely import affinity as _affinity
 from shapely.errors import GEOSException
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY
+from . import frame_entry as _fe
 
 __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjReport", "parse_obj8",
            "solid_components", "library_index_path", "read_library_index",
@@ -317,8 +317,14 @@ from .obj8_grade import planes as _planes                  # noqa: E402
 class ResourceCache:
     """Parse each resource ONCE; components once."""
 
-    def __init__(self, thickness_m: float) -> None:
+    def __init__(self, thickness_m: float, input_quantum_m: float = 0.0) -> None:
         self.thickness_m = thickness_m
+        #: §51 (6): the ONE copy of ``emit.identity.input_quantum_m`` the
+        #: object readers carry, so every ``frame_entry.enter`` under a
+        #: pack read snaps on the same grid.  0 (a synthetic twin frame,
+        #: or a caller that built the cache without a law) means the
+        #: affine and the repair run and the snap does not — §51 (2) (b).
+        self.input_quantum_m = float(input_quantum_m)
         #: RULINGS 2026-09-13bp (i)/(ii): the at-grade / above-grade clip
         #: and union depend only on ``(resource, the components' planes)``,
         #: never on where the placement stands — memoised HERE, per
@@ -558,6 +564,10 @@ class ObjReport:
     #: — instead of the silent ``buried_components`` tally that hid
     #: OTHH's 2,998 m2 basin floor slab.
     buried_named: list[str] = _dc.field(default_factory=list)
+    #: §51 (2): every placed footprint that REPAIRED TO NOTHING at the
+    #: frame-entry site, named — resource, component index, raw area.  A
+    #: degenerate sliver is not a witness, and the drop is never silent.
+    witness_degenerate: list[str] = _dc.field(default_factory=list)
     #: Resources with genuine, grade-reaching solids under the admission
     #: plane but NO floor plate (a skirt, not a pit): path -> (placements,
     #: deepest depth under the local ground, deepest rendered z).  Every
@@ -729,7 +739,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     if shell_reaches_grade and base + comp.max_y < local - contact_band_m:
                         rep.buried_components += 1
                         bw = _witness(g.vertices, comp, base, local, plane_below,
-                                      floor_plate_normal_y_min, mat, ci) \
+                                      floor_plate_normal_y_min, mat, ci,
+                                      cache.input_quantum_m, rep.witness_degenerate, dpath) \
                             if comp.min_y <= plane_below else None
                         rep.buried_named.append(
                             f"{os.path.basename(dpath)}#{ci}: "
@@ -748,7 +759,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                     if smin_z is None or z_min < smin_z:
                         smin_z, smin_d = z_min, depth
                     w = _witness(g.vertices, comp, base, local, plane_below,
-                                 floor_plate_normal_y_min, mat, ci)
+                                 floor_plate_normal_y_min, mat, ci,
+                                 cache.input_quantum_m, rep.witness_degenerate, dpath)
                     if w is None:
                         if deep_no_floor is None or depth < deep_no_floor[0]:
                             deep_no_floor = (depth, z_min)
@@ -772,7 +784,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         protruding = (frac, top_above)
                     witnesses.append(w)
                 if witnesses:
-                    below = _transformed([w.below for w in witnesses], [1, 0, 0, 1, 0, 0])
+                    below = _transformed([w.below for w in witnesses])
                     rep.below_grade_objects += 1
                     if protruding is not None:
                         n, f0, t0 = rep.rim_protrusions.get(dpath, (0, 0.0, 0.0))
@@ -798,9 +810,11 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                 rings = [[(float(v[i][0]), float(v[i][2])) for i in t] for t in tris.tolist()]
                 u = _union_rings(rings)
                 if u is not None:
-                    deck = _affinity.affine_transform(u, mat)
-                    top = anchor_z + agl + float(v[tris.reshape(-1), 1].max())
-                    rep.hard_deck_objects += 1
+                    # §51 (4) row 4 — ENTRY
+                    deck = _fe.enter([u], mat, cache.input_quantum_m)[0]
+                    if deck is not None:
+                        top = anchor_z + agl + float(v[tris.reshape(-1), 1].max())
+                        rep.hard_deck_objects += 1
         out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
                                 below, bbox, smin_z, smin_d, deck, top, tuple(witnesses),
                                 "flag" if deck is not None else "",
@@ -853,9 +867,21 @@ def _plan_footprint(v: np.ndarray, comp: Component):
 
 
 def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_below: float,
-             normal_y_min: float, mat: list[float], comp_index: int = -1) -> FloorWitness | None:
+             normal_y_min: float, mat: list[float], comp_index: int = -1,
+             q: float = 0.0, degenerate: list[str] | None = None,
+             resource: str = "") -> FloorWitness | None:
     """The component's floor witness, or ``None`` when it carries no floor
-    plate under the admission plane (a skirt: walls, no floor)."""
+    plate under the admission plane (a skirt: walls, no floor).
+
+    §51 (4) row 1 — THE ENTRY SITE.  ``below``, ``plate`` and ``outer``
+    are the pack's local geometry; they become frame geometry through ONE
+    :func:`frame_entry.enter` call, valid and polygonal by construction.
+    A footprint that repairs to NOTHING is nothing: ``below`` empty ->
+    no witness (the standing "no floor under the ground" branch),
+    ``plate`` empty -> no witness, ``outer`` empty -> ``outer=None``
+    (``basin_geometry._outer`` already falls back to ``below``).  Every
+    drop is appended to ``degenerate`` and named in the object report —
+    never silent."""
     t = comp.tris
     p0, p1, p2 = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
     n = np.cross(p1 - p0, p2 - p0)
@@ -875,15 +901,26 @@ def _witness(v: np.ndarray, comp: Component, base: float, local: float, plane_be
     below = _clip_component(v, comp, plane_ground, True)
     if below is None:
         return None
-    tf = _affinity.affine_transform
-    plate_f = tf(plate, mat)
-    y_min = np.minimum(np.minimum(p0[:, 1], p1[:, 1]), p2[:, 1])
     whole = _plan_footprint(v, comp)
-    return FloorWitness(tf(below, mat), plate_f, base + comp.min_y, base + comp.max_y, local,
+    below_f, plate_f, outer_f = _fe.enter([below, plate, whole], mat, q)
+    if below_f is None or plate_f is None:
+        if degenerate is not None:
+            gone = "below" if below_f is None else "plate"
+            degenerate.append(
+                f"{os.path.basename(resource)}#{comp_index}: the placed {gone} footprint "
+                f"repairs to nothing (raw {below.area if gone == 'below' else plate.area:.4f} "
+                f"m2) — not a witness (§51 (2))")
+        return None
+    if whole is not None and outer_f is None and degenerate is not None:
+        degenerate.append(
+            f"{os.path.basename(resource)}#{comp_index}: the placed OUTER footprint repairs "
+            f"to nothing (raw {whole.area:.4f} m2) — the region falls back to `below` "
+            f"(§51 (2))")
+    y_min = np.minimum(np.minimum(p0[:, 1], p1[:, 1]), p2[:, 1])
+    return FloorWitness(below_f, plate_f, base + comp.min_y, base + comp.max_y, local,
                         float(plate_f.area), plate_y_min=float(y_min[deep].min()),
                         plate_y_max=float(y_max[deep].max()),
-                        outer=None if whole is None else tf(whole, mat),
-                        comp_index=comp_index)
+                        outer=outer_f, comp_index=comp_index)
 
 
 def _authored_bbox(xy: XY, heading_deg: float, within) -> tuple[float, float, float, float]:
@@ -980,7 +1017,8 @@ def above_grade_footprint(o: PlacedObject, cache: ResourceCache,
     comps = _components_near(cache, o, within)
     # ── RULINGS 2026-09-13bp (i): read ONCE per (resource, planes) ──
     keyed = _planes(o, comps, dem_z, base, contact_band_m, True, _to_frame)
-    u = _place(_memo_union(cache, cache.cover_memo, o, g, comps, keyed, above_clip), mat)
+    u = _place(_memo_union(cache, cache.cover_memo, o, g, comps, keyed, above_clip), mat,
+               cache.input_quantum_m)
     return _in_window(u, within, True)
 
 
@@ -1019,27 +1057,35 @@ def at_grade_geometry(o: PlacedObject, cache: ResourceCache,
     if both is None:
         return None, None
     lu, pu = both
-    tf = _affinity.affine_transform
-    lu = None if lu is None else tf(lu, mat)
-    return _in_window(lu, within, False), _in_window(_place(pu, mat), within, True)
+    # ``lu`` is LINEWORK (§51 (4) row 19: no validity to repair, and the
+    # quantum is not extended to lines here) — the affine alone, spelled
+    # ONCE in ``frame_entry`` rather than a second time in this module.
+    lu = _fe.transform(lu, mat, 0.0)
+    return (_in_window(lu, within, False),
+            _in_window(_place(pu, mat, cache.input_quantum_m), within, True))
 
 
-def _place(u, mat: list[float]):
+def _place(u, mat: list[float], q: float = 0.0):
     """One LOCAL-frame union taken to the placement's frame (the second
     half of RULINGS 2026-09-13bp (i)): the rigid placement affine commutes
     with the union, so the union is done once per resource and only this
-    is paid per placement."""
+    is paid per placement.
+
+    §51 (4) row 2 — ENTRY.  The ``buffer(0)`` belt is REMOVED: what
+    ``frame_entry.enter`` returns is valid, polygonal and non-degenerate
+    by construction."""
     if u is None:
         return None
-    u = _affinity.affine_transform(u, mat)
-    if not u.is_valid:
-        u = u.buffer(0)
-    return None if u.is_empty else u
+    return _fe.enter([u], mat, q)[0]
 
 
-def _transformed(parts: list, mat: list[float]):
+def _transformed(parts: list):
+    """§51 (4) row 3 — UNION.  The witnesses' ``below`` footprints are
+    ALREADY frame geometry, valid by row 1, so the identity ``_place``
+    that used to re-enter them is dropped; what is left is the union,
+    which takes Law B's ladder."""
     if not parts:
         return None
-    u = unary_union(parts)
-    return None if u.is_empty else _place(u, mat)
+    u = _fe.union(parts, "obj8._transformed")
+    return None if u.is_empty else u
 

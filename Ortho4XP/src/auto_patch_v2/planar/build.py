@@ -72,6 +72,11 @@ class BuildStats:
     faces_by_role: dict[str, int] = _dc.field(default_factory=dict)
     area_by_role_m2: dict[str, float] = _dc.field(default_factory=dict)
     grid_m: float = 0.0
+    #: §51 (3): ``site -> (grid-rung unions, buffer-rung unions)`` — every
+    #: union of placed pack geometry that the EXACT overlay refused and
+    #: Law B's ladder carried.  Empty is the expected reading; a non-empty
+    #: one NAMES the site that would have aborted the tile before §51.
+    union_fallback_rungs: dict[str, tuple[int, int]] = _dc.field(default_factory=dict)
     seam_bands: int = 0
     seam_vertices: int = 0
     dropped_seam_faces: int = 0
@@ -172,8 +177,10 @@ def build(airport: Airport, classification: Classification, law: Law,
     reader is upstream of this stage."""
     import time as _time
     t0 = _time.perf_counter()
+    from ..airport import frame_entry as _fe
     from ..airport.obj8 import ResourceCache
-    cache = cache or ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    cache = cache or ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
+                                   _fe.quantum(law))
     if objects is None:
         objects, orep = read_objects(airport, law, cache)
     else:
@@ -325,6 +332,10 @@ def build(airport: Airport, classification: Classification, law: Law,
     stats.vertices, stats.breaklines = len(pm.vertices), len(pm.breaklines)
     stats.t_vertices = _t_vertices(pm)
     stats.min_vertex_spacing_m, stats.max_chord_m = _spacing(pm)
+    stats.union_fallback_rungs = {s: r for s, r in _fe.rung_counts().items() if any(r)}
+    note = _fe.rung_note()
+    if note:
+        print(f"  [frame-entry] {note}")
     return pm, stats
 
 

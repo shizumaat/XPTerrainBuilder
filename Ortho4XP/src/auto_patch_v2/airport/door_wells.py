@@ -54,17 +54,15 @@ import typing as _t
 
 import numpy as np
 import shapely
-from shapely.errors import GEOSException
 from shapely.geometry import LineString, Polygon
-from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .deck_signature import family_key
-from .obj8_clip import _polygon_parts
 
 __all__ = ["DoorWell", "DoorStats", "read_door_wells", "ID_PREFIX"]
 
@@ -121,6 +119,8 @@ class DoorStats:
     regions: int = 0
     wells: int = 0
     refused: list[str] = _dc.field(default_factory=list)
+    #: §51 (2): placed sill footprints that repaired to nothing, named.
+    witness_degenerate: list[str] = _dc.field(default_factory=list)
     read_s: float = 0.0
 
 
@@ -164,53 +164,15 @@ def _sill_witnesses(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
                 stats.basin_gate_components += 1           # the basin pass's
                 continue
             w = _obj8._witness(g.vertices, comp, base, local, plane_sill,
-                               bl.floor_plate_normal_y_min, mat)
+                               bl.floor_plate_normal_y_min, mat,
+                               q=cache.input_quantum_m,
+                               degenerate=stats.witness_degenerate,
+                               resource=o.path)
             if w is None:
                 continue
             out.append((o, w, id(comp)))
             stats.sill_witnesses += 1
     return out
-
-
-def _union_below(parts: list) -> object | None:
-    """Rule 2's union of the family's below-ground footprints, REPAIRED AT
-    THE CONTRIBUTION — the same contribution-repair ``obj8_clip.
-    _union_rings`` does one layer down, and the same repair the sill
-    plate gets below.
-
-    ``FloorWitness.below`` leaves ``obj8._clip_component`` VALID and is
-    then affine-transformed into the airport frame by the placement's
-    heading (``obj8._witness``); that rotation rounds the clip's
-    micron-scale slivers into self-touching rings.  Measured GEML
-    2026-09-18 (lane ``gemltopology``): 126 of 449 sill witnesses arrive
-    INVALID, and ONE of them — a 0.27 m2 two-part sliver of
-    ``Objects/CartelonAprox.OBJ`` (``dsf:obj1484``) whose ring visits
-    ``(-472.3430, 726.5788)`` twice, so GEOS reads a hole with no shell
-    — refused the whole family's union with ``TopologyException: unable
-    to assign free hole to a shell``, failing the pavement builder and
-    ABORTING tile +35-003.  One invalid member refuses the whole union
-    (here a single one does), so each is repaired first.
-
-    Only the POLYGON parts survive: ``make_valid`` of a self-touching
-    sliver also yields lines, which the caller's ``buffer`` would
-    otherwise inflate into area.  The repair is area-preserving to the
-    materiality floor — the GEML offender repairs to 0.0 m2 (it IS a
-    degenerate sliver) and its family's union to 5.2478 m2 against the
-    members' 5.3101 m2 raw sum, which overlap."""
-    if not parts:
-        return None
-    arr = np.empty(len(parts), dtype=object)
-    arr[:] = parts
-    bad = ~shapely.is_valid(arr)
-    if bad.any():
-        arr[bad] = shapely.make_valid(arr[bad])
-    polys = [p for g in arr.tolist() for p in _polygon_parts(g)]
-    if not polys:
-        return None
-    try:
-        return unary_union(polys)
-    except GEOSException:                   # the _union_rings ladder
-        return shapely.union_all(polys, grid_size=1e-6)
 
 
 def _unit(a: XY, b: XY) -> XY:
@@ -317,8 +279,12 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     for fk, fam in sorted(by_fam.items(), key=lambda kv: kv[0]):
         members = members_of.get(fk, [])
         tree = STRtree([o.plan_bbox for o in members]) if members else None
-        u = _union_below([w.below for _o, w, _c in fam])
-        if u is None:
+        # §51 (4) row 5 — the per-consumer repair is REMOVED: every
+        # ``FloorWitness.below`` is valid, polygonal and non-degenerate at
+        # the ONE entry site (``obj8._witness``), so what is left here is
+        # Law B's union.
+        u = _fe.union([w.below for _o, w, _c in fam], "door_wells.below")
+        if u.is_empty:
             continue
         u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
         parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and g.area > grid * grid]
@@ -332,8 +298,10 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             name = os.path.basename(o0.path)
             la, lo = to_ll(*region.centroid.coords[0])
             site = f"{la:.6f},{lo:.6f}"
-            plate = unary_union([w.plate for _o, w in mem]).intersection(region)
-            plate = plate.buffer(0) if not plate.is_valid else plate
+            # §51 (4) row 7 — UNION; the ``buffer(0)`` belt is REMOVED
+            # (every ``w.plate`` is valid by Law A)
+            plate = _fe.union([w.plate for _o, w in mem],
+                              "door_wells.plate").intersection(region)
             if plate.geom_type != "Polygon":
                 plate = max((g for g in shapely.get_parts(plate) if g.geom_type == "Polygon"),
                             key=lambda g: g.area, default=None)
@@ -361,8 +329,9 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             bld_polys = [p for p in (grade.building(o, near) for o in hit) if p is not None]
             shell_polys = [p for p in (grade.shell(o, near) for o in hit) if p is not None]
             above_polys = [p for p in (grade.above(o, reach) for o in hit_reach) if p is not None]
-            bld = unary_union(above_polys) if above_polys else None
-            cover_u = unary_union(bld_polys + shell_polys + above_polys) \
+            # placed pack geometry, so Law B applies to these too
+            bld = _fe.union(above_polys, "door_wells.above") if above_polys else None
+            cover_u = _fe.union(bld_polys + shell_polys + above_polys, "door_wells.cover") \
                 if (bld_polys or shell_polys or above_polys) else None
             plate_cover = 0.0 if cover_u is None else cover_u.intersection(plate).area / plate.area
             if plate_cover >= bl.basement_cover_min:
@@ -390,7 +359,7 @@ def read_door_wells(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             if sides is None:
                 stats.refused.append(f"{name} at {site}: the well has no plan rectangle")
                 continue
-            above_u = unary_union(above_polys)
+            above_u = _fe.union(above_polys, "door_wells.above")
             cm = above_u.centroid
             lens = [math.dist(a_, b_) for a_, b_ in sides]
             frac = [LineString([a_, b_]).intersection(above_u).length / max(L_, 1e-9)

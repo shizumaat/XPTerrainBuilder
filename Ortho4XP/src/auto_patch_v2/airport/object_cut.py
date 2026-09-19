@@ -51,6 +51,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 
 __all__ = ["ObjectCut", "SHELL", "CRESTED", "THIN", "shell_reading", "read_shells",
@@ -516,8 +517,18 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
                 f"cover at the same placement (§33 (6) B) — not a signature-B cut")
             continue
         mat = _obj8.placement_affine(o.xy, o.heading_deg)
-        place = lambda gm: shapely.affinity.affine_transform(gm, mat)  # noqa: E731
-        outline = place(r.interior)
+        # §51 (4): the census table stops at row 19, but G1 ("no
+        # ``affine_transform`` in ``airport/`` or ``planar/`` outside
+        # ``frame_entry``, allow-list: none") reaches this site too, and
+        # it is row 13/14's class exactly — a LOCAL clip carried to the
+        # frame by a placement affine.  ENTRY.  Reported to the spec's
+        # author as a census omission.
+        outline = _fe.enter([r.interior], mat, _fe.quantum(law))[0]
+        if outline is None:
+            stats.refused.append(
+                f"{o.id} {_base(o.path)}: the placed trench outline repairs to nothing "
+                f"(§51 (2))")
+            continue
         chain_a = tuple(_apply(mat, p) for p in r.inner_a)
         chain_b = tuple(_apply(mat, p) for p in r.inner_b)
         ends = (_apply(mat, r.ends[0]), _apply(mat, r.ends[1]))

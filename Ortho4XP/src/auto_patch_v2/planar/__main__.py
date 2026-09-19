@@ -311,12 +311,13 @@ def structure_records(airport, cl, law) -> dict:
     structures`` replay: what a site's objects state, before any
     arrangement or solve).  Runs the same passes in the same order as
     ``planar.build.build``."""
-    from ..airport import obj8
+    from ..airport import frame_entry, obj8
     from ..airport.tunnel_objects import read_corridors
     from .basins import build_basins, read_objects
     from .structures import build_structures
     to_ll = airport.frame.transformers()[1]
-    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m,
+                               frame_entry.quantum(law))
     objects, orep = read_objects(airport, law, cache)
     from ..airport.door_wells import read_door_wells
     from ..airport.sunken_roads import read_sunken_roads

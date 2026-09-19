@@ -158,6 +158,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..airport import basin_witness as _basin_witness
+from ..airport import frame_entry as _fe
 from ..airport import obj8
 from ..classify.roles import Cell, Classification
 from ..law import Law
@@ -361,15 +362,21 @@ class _LRU:
 
 
 class _UnionClock:
-    """``unary_union`` with the call SITE named, so the region loop's cost
-    is attributable without a profiler (owner 2026-09-13, round 2)."""
+    """``frame_entry.union`` with the call SITE named, so the region loop's
+    cost is attributable without a profiler (owner 2026-09-13, round 2)
+    and so §51 (3)'s fallback rungs are counted against the same name.
+
+    Rows 8 and 9 of §51 (4): every union here reads ``FloorWitness``
+    geometry — ``outer``, ``below``, ``plate`` — which is PLACED pack
+    geometry and therefore takes Law B's ladder, not a bare
+    ``unary_union`` that can abort the tile."""
 
     def __init__(self, s: dict, n: dict) -> None:
         self._s, self._n = s, n
 
     def __call__(self, site: str, parts):
         t0 = _time.perf_counter()
-        u = unary_union(parts)
+        u = _fe.union(parts, f"basins.{site}")
         self._s[site] = self._s.get(site, 0.0) + _time.perf_counter() - t0
         self._n[site] = self._n.get(site, 0) + 1
         return u
@@ -462,7 +469,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     tunnel_u = uu("tunnel_u", [p for p, c in zip(polys, cells) if c.kind == "structure"]) \
         if any(c.kind == "structure" for c in cells) else None
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
-    cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m)
+    cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m, _fe.quantum(law))
     boxed = [o for o in objects if o.plan_bbox is not None]
     box_tree = STRtree([o.plan_bbox for o in boxed]) if boxed else None
     # ── THE AT-GRADE READ (owner RULINGS 2026-09-13bp (i)/(ii)) ──────────

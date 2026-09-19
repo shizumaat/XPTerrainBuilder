@@ -114,6 +114,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..model.airport import Airport
 from ..model.frame import XY
+from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .below_zero import read_below_zero, read_wall_height
 from .wall_corridor_probe import (ROAD_ROLES, MouthRoad, _floor_road, _floor_slab,
@@ -284,9 +285,13 @@ def _bands_of(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: Law
             # than a wall's plan thickness); a component whose non-vertical
             # faces span wider is a floor, a roof or a deck — not a band
             # (OTHH Terminal_Base_2_1 comps 3176/3179: 0.1 m2 of slivers)
-            caps = _plan_polys(v, comp.tris[~vert], mat)
+            caps = _plan_polys(v, comp.tris[~vert], mat, cache.input_quantum_m)
             if caps:
-                cap_u = unary_union(caps)
+                # §51 (4) row 12 / Law B (THE TNCM ABORT): every ``cap``
+                # was already valid and GEOS still threw a side-location
+                # conflict at (-557.635, 254.363) — validity at entry does
+                # not make the exact overlay total, so the union ladders.
+                cap_u = _fe.union(caps, "wall_corridors.caps")
                 if cap_u.area > 1e-9:
                     _L, Wc = _rect_sides(rotated_rectangle(cap_u))
                     if Wc > ob.wall_face_max_thickness_m:

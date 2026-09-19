@@ -127,16 +127,30 @@ def _straight_runs(segs: list[tuple[LineString, int]], parallel_deg: float, t_ma
     return runs
 
 
-def _plan_polys(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float]) -> list[Polygon]:
-    """The valid plan polygons of ``tris`` in the frame."""
+def _plan_polys(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float],
+                q: float = 0.0) -> list[Polygon]:
+    """The valid plan polygons of ``tris`` in the frame.
+
+    §51 (4) row 12 (TNCM).  The triangles are built STRAIGHT IN THE FRAME
+    from a numpy affine, so they never pass through ``frame_entry.enter``
+    — but they are placed pack geometry all the same, and §51 (2) (b)
+    applies to them: the coordinates are snapped to ``q`` with the SAME
+    ``rint(c / q) * q`` arithmetic before the rings are built, so the
+    three platforms hold identical doubles here too.  The vectorised
+    valid-and-area filter stays; its floor is the derived one grid cell.
+    """
     if tris.shape[0] == 0:
         return []
     a, b, d, e, xoff, yoff = mat
     pts = v[tris][:, :, [0, 2]]
     xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
     ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
+    if q > 0.0:
+        xs = np.rint(xs / q) * q
+        ys = np.rint(ys / q) * q
     polys = shapely.polygons(np.stack([xs, ys], axis=2))
-    ok = shapely.is_valid(polys) & (shapely.area(polys) > 1e-9)
+    floor = q * q if q > 0.0 else 1e-9
+    ok = shapely.is_valid(polys) & (shapely.area(polys) > floor)
     return [p for p, k in zip(polys, ok.tolist()) if k]
 
 

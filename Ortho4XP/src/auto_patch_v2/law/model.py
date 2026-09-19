@@ -549,9 +549,13 @@ class Instrument:
 @_dc.dataclass(frozen=True)
 class Seam:
     """The tile-seam cut (user 2026-05-10): the graticule band no face
-    covers, ``half_width_m`` each side of an integer lat/lon line."""
+    covers, ``half_width_m`` each side of an integer lat/lon line — and
+    ``ask_reach_m``, how far past its own apt.dat airside the airport may
+    still emit airside geometry (the boundary dialog's reach, spec
+    ``insets-follow-patch-set-spec.md`` §C.1)."""
 
     half_width_m: float
+    ask_reach_m: float
 
 
 @_dc.dataclass(frozen=True)

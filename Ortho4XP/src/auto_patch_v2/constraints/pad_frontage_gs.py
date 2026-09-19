@@ -45,11 +45,12 @@ from ..model.constraints import Row, Source
 from ..model.planar import PlanarMap
 from .groundside import groundside_face_roles
 from .pads import (_pad_polys, _two_sided, design_law, frontage_radius_m,
-                   pad_fronts_airside, rigid_roles)
+                   pad_frontage, pad_fronts_airside, rigid_roles)
 from .precedence import view
 
 __all__ = ["GEN_GS", "GS_LEVEL_RULING", "GS_LEVEL_JUNIOR_RULING",
            "STATS", "frontage_step_max_m", "pair_dem_step_m",
+           "pad_airside_frontage", "pad_area_weighted_dem",
            "groundside_frontage", "groundside_frontage_level"]
 
 #: THE GENERATOR'S OWN STATISTICS, published beside its row count by
@@ -105,37 +106,124 @@ def frontage_step_max_m(law: Law) -> float:
     return float(design_law(law).frontage_step_max_m)
 
 
-def pair_dem_step_m(planar: PlanarMap, front: _t.Iterable[int],
-                    pad_rim: _t.Iterable[int]) -> float | None:
-    """§28 (6)'s QUANTITY for one pad-face pair: the median over the
-    face's frontage vertices of ``dem_z(vertex)`` minus the PAD
-    FOOTPRINT's own median ``dem_z``.  ``None`` where either side has no
-    DEM sample (planar invariant I7 says it always does; a missing one
-    NEVER disarms — a pair is graded unless it is MEASURED to be a
-    hillside).
+def _median_dem(planar: PlanarMap, vs: _t.Iterable[int]) -> float | None:
+    """The median ``Vertex.dem_z`` over a vertex set, or ``None`` where no
+    vertex in it carries a DEM sample.
 
     THE DEM IS THE PLANAR MAP'S OWN SAMPLE (``Vertex.dem_z``, the
     production DEM + insets taken once at map build), never a second
     reader: ``airport.dem.z`` would resample the same raster at the same
-    points and a lane-private path is the census-wrapper defect.
+    points and a lane-private path is the census-wrapper defect."""
+    z = [float(planar.vertices[v].dem_z) for v in vs
+         if planar.vertices[v].dem_z is not None]
+    return statistics.median(z) if z else None
 
-    THE PAD'S SIDE IS ITS GROUND, NOT ITS LEVEL, and this is a DEVIATION
-    from 13o's text, reported not decided here.  13o's medians (CYXY
-    +4.08 / +3.02, LEMD ``building4`` +2.66) are against the pad's SOLVED
-    level, which no generator can read — the level is what §20's rows
-    produce, three lag rounds later.  The pad's own ground is the nearest
-    thing the derivation has; measured in the engine's own frame, the
-    same pairs read +3.76 / +3.43 (CYXY) against +3.00 (LEMD
-    ``building4``) where 13o's solved-level frame reads +4.08 / +3.02
-    against +2.66 — which is why the bound is 3.2 here and not 2.8 (see
-    the law comment for the whole measured population)."""
-    fd = [planar.vertices[v].dem_z for v in front]
-    pd = [planar.vertices[v].dem_z for v in pad_rim]
-    fd = [float(z) for z in fd if z is not None]
-    pd = [float(z) for z in pd if z is not None]
-    if not fd or not pd:
+
+def pad_airside_frontage(planar: PlanarMap, law: Law, pad_id: int,
+                         rel: dict[int, dict[str, list[int]]] | None = None
+                         ) -> list[int]:
+    """THE PAD'S AIRSIDE-FRONTAGE VERTICES — the vertices §20 seats the
+    pad on (owner RULINGS 2026-09-18c (1), verbatim: "Building pads are
+    seated based on their airside frontage, then we leave a gap").
+
+    It is ``constraints.pads.pad_frontage``'s OWN output — §20's contacts,
+    from the ONE derivation ``pads._fronting`` — restricted to the roles
+    whose ``role_side`` is ``airside``.  Never a second relation: §28 asks
+    the reverse question of the same relation (module docstring), so the
+    datum §28 (6) measures a step against is the very set §20 levels the
+    pad to, and the two directions cannot disagree about where a pad sits.
+
+    Empty for a pad that fronts nothing airside — ``pad_fronts_airside``
+    excludes such a pad from the §28 relation entirely (§28 (2)), and
+    :func:`pair_dem_step_m` falls back to
+    :func:`pad_area_weighted_dem` for any pad whose airside frontage
+    carries no DEM sample at all."""
+    if rel is None:
+        rel = pad_frontage(planar, law)
+    return sorted({v for role, contacts in rel.get(pad_id, {}).items()
+                   if role_side(law, role) == "airside" for v in contacts})
+
+
+def pad_area_weighted_dem(planar: PlanarMap, pad_poly: Polygon,
+                          pad_rim: _t.Iterable[int]) -> float | None:
+    """§28 (6)'s FALLBACK DATUM for a pad with no readable airside
+    frontage (owner RULINGS 2026-09-18c (1)): an AREA-WEIGHTED DEM over
+    the pad's OWN OUTLINE.
+
+    The outline is triangulated and each triangle contributes its area
+    times the mean ``dem_z`` of its three corners — which are the pad's
+    own rim vertices, so this samples THE PLANAR MAP'S OWN DEM and never
+    a second reader.  Area weighting, not a rim median: a rim median
+    counts vertices, and a hillside pad's vertex DENSITY is the
+    arrangement's business (``dba32406``), while its AREA is not."""
+    from shapely.ops import triangulate
+    z_at: dict[tuple[float, float], float] = {}
+    for v in pad_rim:
+        dz = planar.vertices[v].dem_z
+        if dz is not None:
+            x, y = planar.vertices[v].xy
+            z_at[(round(x, 6), round(y, 6))] = float(dz)
+    if not z_at or pad_poly.is_empty:
         return None
-    return statistics.median(fd) - statistics.median(pd)
+    num = den = 0.0
+    for tri in triangulate(pad_poly):
+        if not pad_poly.contains(tri.centroid):
+            continue
+        zs = [z_at.get((round(x, 6), round(y, 6)))
+              for x, y in list(tri.exterior.coords)[:3]]
+        if any(z is None for z in zs):
+            continue
+        num += tri.area * (sum(zs) / 3.0)
+        den += tri.area
+    return None if den <= 0.0 else num / den
+
+
+def pair_dem_step_m(planar: PlanarMap, law: Law, front: _t.Iterable[int],
+                    pad_id: int, pad_poly: Polygon,
+                    pad_rim: _t.Iterable[int],
+                    rel: dict[int, dict[str, list[int]]] | None = None
+                    ) -> float | None:
+    """§28 (6)'s QUANTITY for one pad-face pair: the median over the
+    face's frontage vertices of ``dem_z(vertex)`` minus THE PAD'S OWN
+    DATUM — the median ``dem_z`` over its AIRSIDE-FRONTAGE vertices
+    (:func:`pad_airside_frontage`).  ``None`` where the frontage side has
+    no DEM sample (planar invariant I7 says it always does; a missing one
+    NEVER disarms — a pair is graded unless it is MEASURED to be a
+    hillside).
+
+    THE PAD IS SEATED ON ITS AIRSIDE FRONTAGE, so that IS its level
+    (owner RULINGS 2026-09-18c (1), answering Q CYXY-2a with option C).
+    The quantity used to be read off the pad's RIM-VERTEX median, and
+    that is exactly what broke: since ``dba32406`` (§16g (10) (12) (1)
+    (c), one cutter and it is the arrangement's) the ARRANGEMENT trims a
+    pad face, and at CYXY it trimmed the DOWNHILL rim vertices off both
+    hillside pads — ``building9`` 40 → 26 rim vertices, ``building10``
+    22 → 14 / 750.8 → 442.9 m² — which raised the rim median ~2.9 m and
+    collapsed the step from +3.76 / +3.43 to +0.861 / +0.915, arming two
+    pairs 13o had ruled TERRACES (``docs/findings/beta2-CYXY-2-3-mechanism.md``).
+    The airside frontage is not the arrangement's to trim in that way:
+    it is §20's own contact set, the pad's seat.
+
+    IT IS STILL DEM-VS-DEM, and that is still a DEVIATION from 13o's
+    text, reported not decided here: 13o's medians are against the pad's
+    SOLVED level, which no generator can read — the level is what §20's
+    rows produce, three lag rounds later.  What this reads is the DEM
+    under the seat §20 will level the pad to, which is the nearest thing
+    a generator has to that level.
+
+    FALLBACK (owner 2026-09-18c (1)): a pad whose airside frontage
+    carries no DEM sample takes :func:`pad_area_weighted_dem` over its
+    own outline instead.  A pad with no airside frontage at all never
+    reaches here — §28 (2) drops it from the relation."""
+    fd = _median_dem(planar, front)
+    if fd is None:
+        return None
+    pd = _median_dem(planar, pad_airside_frontage(planar, law, pad_id, rel=rel))
+    if pd is None:
+        pd = pad_area_weighted_dem(planar, pad_poly, pad_rim)
+    if pd is None:
+        return None
+    return fd - pd
 
 
 def _groundside_geoms(planar: PlanarMap, law: Law
@@ -208,7 +296,8 @@ def groundside_frontage(planar: PlanarMap, law: Law
     level it has today.
 
     A HILLSIDE TERRACE IS NOT A FRONTAGE (§28 (6), owner RULINGS
-    2026-09-13o/13p).  A pair whose :func:`pair_dem_step_m` exceeds
+    2026-09-13o/13p, the quantity re-based on the pad's AIRSIDE FRONTAGE
+    by 2026-09-18c (1)).  A pair whose :func:`pair_dem_step_m` exceeds
     ``[lot] frontage_step_max_m`` is DROPPED here — the face keeps its own
     ground and the step is a lawful terrace.  The owner's reading (13l
     item 1): CYXY's ``building10`` / ``building9`` are cut into a hill
@@ -227,6 +316,10 @@ def groundside_frontage(planar: PlanarMap, law: Law
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     airside = _airside_pavement_vertices(planar, law)
     bound = frontage_step_max_m(law)
+    # §20's OWN relation, read ONCE for every pair's pad datum (owner
+    # RULINGS 2026-09-18c (1)) — ``pad_frontage`` walks ``_fronting``,
+    # which is the expensive half of this module's population.
+    front_rel = pad_frontage(planar, law)
     held = 0
     out: dict[int, list[tuple[int, str, float, list[int], list[int]]]] = {}
     for gid, _role, _ref, gvs, gpoly in _groundside_geoms(planar, law):
@@ -245,7 +338,8 @@ def groundside_frontage(planar: PlanarMap, law: Law
             # consumer of `groundside_frontage` (the generator, and any
             # reader of the relation as data) sees the same population —
             # a per-consumer veto is the defect 08-30l names.
-            step = pair_dem_step_m(planar, front, pgroup)
+            step = pair_dem_step_m(planar, law, front, pid, ppoly, pgroup,
+                                   rel=front_rel)
             if step is not None and abs(step) > bound:
                 held += 1
                 continue

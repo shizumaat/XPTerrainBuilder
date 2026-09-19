@@ -2,7 +2,10 @@
 
 Spec: 2026-09-18, DRAFT FOR RATIFICATION (Fable, design only — no
 implementation code accompanies it). **AMENDED 2026-09-18 (rev 2) to the
-owner's answers, RULINGS `## 2026-09-18c`.** Ruling of record:
+owner's answers, RULINGS `## 2026-09-18c`; rev 3 (2026-09-18) RULES the
+implementer's three slice-1 deviations — §C.1 rewritten (the ask
+geometry is the AIRSIDE CLAIM, not a scalar patch reach), OQ1/OQ2 closed
+by RULINGS 2026-09-18e.** Ruling of record:
 `docs/RULINGS.md` the 2026-09-18 entry "insets follow the patch set;
 boundary airports ask" (the key 18b is carried TWICE in RULINGS — cite
 by subject) as AMENDED by 18c. Same-day peer law it must not collide with:
@@ -43,7 +46,7 @@ matters for §C.1 (the owner's Q2 answer: LPMT's class does not ask).
 Owner answers folded into this revision (18c): **Q1** the inset set
 follows its OWN dropdown (`airport_elevation_insets` → None/ICAO/All),
 §A rewritten; **Q2** window-only crossers (class M, LPMT) do NOT ask and
-download nothing — `ASK_GEOMETRY = "P"`, fixed; **Q3** insets already on
+download nothing (rev 3: the ask geometry is the AIRSIDE CLAIM, §C.1); **Q3** insets already on
 disk keep being used; **Q5** no-UI default = skip, loudly; harness
 `--boundary {skip,neighbour}` default skip; Q4 not asked, moot (§A.4).
 
@@ -106,6 +109,11 @@ the predicate, as today (`INS:8478-8486`).
         disposition: str          # "patch" | "manual" | "no_apt_dat"
                                   # | "no_xplane_root" | "boundary_skipped"
         reason: str
+        apt_dat: str = ""        # rev 3, ACCEPTED deviation: the 17a-selected
+                                  # apt.dat path, engine-internal (never on the
+                                  # wire); "" unless disposition needs it. It is
+                                  # what makes "moved, not added" true AND is the
+                                  # no-network geometry source of §C.2.
 
     def select_patch_airports(tile, cifp_path, mode, *,
                               manual_icaos, boundary=None) -> list[PatchCandidate]
@@ -165,7 +173,7 @@ Off into "use what is cached". (Stated so the implementer does not have
 to guess; if the owner wants Off-but-use-disk that is a fourth mode and
 a new question, not this spec.)
 
-LEGACY VALUES — **PROPOSED, owner to confirm (open question OQ1):**
+LEGACY VALUES — **RULED (owner, RULINGS 2026-09-18e "OWNER ANSWERS OQ1/OQ2"):**
 `True → "ICAO"`, `False → "None"`, absent → default `"ICAO"`.
 `resolved_inset_mode` accepts, from any source: bool `True`/`False`;
 the strings `"True"/"true"/"1"` and `"False"/"false"/"0"` (what a str-typed
@@ -176,7 +184,7 @@ handles it:
 | where | today | rule |
 |---|---|---|
 | global `Ortho4XP.cfg` line `airport_elevation_insets=True` | parsed as bool | read through the normaliser; REWRITTEN as the mode string the next time the global cfg is saved (no separate migration pass) |
-| sparse tile cfgs (RULINGS 18a; `O4_Settings_Model.migrate_tile_cfg` :488, `sparse_tile_values` :435) | key present only when it differed from the global | the legacy map runs BEFORE the foreign-enum rule at `O4_Settings_Model.py:676-685` — that rule would otherwise see `"False"` ∉ `values` and silently REPLACE it with the global (`"ICAO"`), turning a user's per-tile Off into On. After mapping, the sparse rule applies as usual (equal to the global ⇒ key removed). One twin pins this order. |
+| tile cfgs (RULINGS 18a sparse; AS LANDED after peer lane `b2cfgstamp`, RULINGS 2026-09-18d "lane b2cfgstamp MERGED": `migrate_tile_cfg` is DELETED) | key present only when it differed from the global | (i) an UNSTAMPED (pre-1.0.352) tile cfg is not migrated at all — `retire_unstamped_tile_cfg` (`O4_Settings_Model.py:596`) MOVES it to `*.pre352.bak`, so a legacy per-tile `False` there goes to the backup with the rest of the file and the tile starts from the global. That is the peer's ruled behaviour; this spec adds NOTHING to it (no rescue of the one key). (ii) a STAMPED cfg carrying a bool token (written by 1.0.352+ before this change) is read through `resolved_inset_mode`, and the legacy inspector `legacy_tile_settings` normalises BEFORE its foreign-enum test (`_normalize_legacy_mode_value`, landed at `:763`) so `"False"` is never reported/replaced as a foreign enum. `sparse_tile_values` (`:446`) then applies as usual (equal to the global ⇒ key removed). |
 | JSONL `tile_settings_write` (`session.py:1329`, landed with `b2sparsecfg`) and the settings validator (`O4_Settings_Model.py:915-930`) | bool tokens validated as bool | the key is now a str enum: `values` validation applies; a front end older than this change sending `true`/`false` is mapped by the same normaliser, not rejected |
 | `global_airport_elevation_insets` (schema snapshot :457) | bool mirror | follows the registry automatically (generated) |
 | patch freshness stamp (`auto_patch/provenance.py:748`) records `str(value)` | `"True"` | records the NORMALISED mode and normalises the stored side on compare — otherwise every auto-patch on every install reads stale once and rebuilds (a tile-wide 60 s × N regression for a relabel). Twin: a stamp with `"True"` is current under `"ICAO"`. |
@@ -314,48 +322,108 @@ keys fetched-for; informational).
 
 ## C. BOUNDARY AIRPORTS
 
-### C.1 What "crosses the boundary" means
+### C.1 What "crosses the boundary" means (REWRITTEN rev 3 — deviation 1 RULED)
 
-Three nested geometries exist; the engine cares about two:
+**The measurement that refuted rev 2** (lane `insetpatchset1`, commit
+`76ca638f`, `docs/DEFERRED_VERIFICATION.md`): max EMITTED node beyond
+`_own_extent(margin 0)` — HECA 1,179.4 m (worst node 30.14771547619,
+31.42227039529), CYXY 1,110.1 m ⇒ scalar `R_patch` = 1,200 m; max
+`ProductionDem.z_many` reach — HECA 11,945 m, CYXY 5,090 m. With
+E ⊕ 1,200 m LPMT (boundary −580 m) crosses lon −9 by ~+620 m ⇒ class S
+⇒ ASKS — contradicting the outcome the owner's Q2 answer was given on.
+The implementer STOPPED, correctly. The tail is groundside: service
+roads, parking and access roads following OSM ways away from the field.
+**`E ⊕ one scalar` is REFUTED and deleted from this spec** (no `R_patch`
+constant is written; candidate (iii) "scalar per class" is rejected for
+the same reason — the groundside tail has no meaningful bound).
 
-| | geometry | source | LPMT |
-|---|---|---|---|
-| E | OWN EXTENT: runways + pavements + boundary | apt.dat (`auto_patch_v2/airport/load.py:700` `_own_extent`; the driver's `_airport_claim_lonlat` `driver.py:429`); OSM aerodrome polygon when the airports layer is cached | ends ~580 m WEST of lon −9 |
-| P | PATCH REACH: E buffered by `R_patch` — the farthest the EMITTED patch (nodes, seam pins, adjacent-ground zones 1-2) extends beyond E | a law constant the implementer MEASURES ONCE (below) | crosses iff `R_patch > ~580 m` |
-| W | DEM WINDOW: every point v2 samples (`ProductionDem.z_many`, `dem_production.py:490`, composes a tile on FIRST TOUCH `:702-706`) — context reads by ~20 samplers (`planar/terrain_edge.py`, `road_profile.py`, `channel.py`, …); in practice bounded by the inset box (E bounds + `airport_elevation_inset_margin_m`, 2,000 m) | emergent | crosses by ~1.4 km |
+**What the dialog protects, from the code** (`planar/overlay.py:916`
+`seam_bands`, `constraints/seams.py:63` `seam_pins`, `emit.toml:88`
+`half_width_m = 5.0`): every graticule line crossing the layout's extent
+is cut out as a ±5 m band draped on the DEM; every band-edge vertex is a
+HARD pin at `dem_z`, each served from ITS OWN tile's raster. So:
 
-* **CLASS S (straddler): P touches another 1° cell.** The patch itself
-  reaches the graticule: `constraints/seams.py` mints HARD seam pins from
-  the NEIGHBOUR tile's baked raster ("the value the neighbouring tile's
-  mesh meets"). A cold neighbour frame here pins the runway strip to a
-  surface the neighbour's own build will not reproduce (no insets, no
-  smoothing, different working grid) — a visible seam step. **This is
-  the geometry the engine actually needs, and the class that ASKS.**
-* **CLASS M (margin-only): W crosses, P does not.** Only far-field
-  CONTEXT is read across the line; no emitted vertex, no pin. RULED (owner
-  Q2 answer (a), RULINGS 18c): class M never asks and never fetches — the neighbour is composed from
-  whatever is on disk (warm ⇒ production compose; cold ⇒ base raster
-  only, one loud `[dem]` line and a `provenance["context_only:<stem>"]`
-  record; no base raster ⇒ NaN, as `z_many` already returns for an
-  absent tile). **LPMT is almost certainly class M**, in which case the
-  3-hour build becomes zero neighbour downloads and NO dialog.
-  `ASK_GEOMETRY = "P"` — fixed by the ruling, not a knob (no `"W"` arm
-  is written).
+* NEAR-side pins come from the HOME raster — warm by construction. The
+  home tile's mesh ends at the tile border. A cold neighbour cannot move
+  them.
+* FAR-side pins (5 m and beyond into the neighbour) come from the
+  neighbour's raster — but the far side of THIS solve is meshed by
+  nobody unless the NEIGHBOUR's build generates its own patch for the
+  airport, which it does only when a CIFP threshold lies in it
+  (`cifp_reader.airport_in_tile`), and then from ITS OWN solve on ITS OWN
+  warm frame. Pin↔pin grade rows across the band are exempt
+  (`constraints.seam_exempt`), the band itself is cut, so far-side values
+  do not propagate to the near side.
 
-`R_patch` measurement (implementer, synthetic, once): on a registered
-capture (`frames.py list HECA` / `CYXY`), replay with `--emit` and report
-max distance from `_own_extent(margin 0)` to (a) any emitted node and
-(b) any `ProductionDem.z_many` query. (a) rounded UP to the next 50 m is
-`R_patch` (law table, not a module constant); (b) is reported for the record (it confirms LPMT's class with a
-number). No build.
+What a cold neighbour therefore costs is not a wrong pin in the home
+mesh; it is (1) a REFUSED or silently-warmed build (the 3-hour class —
+removed by §C.6 for everyone), and (2) for an airport whose AIRSIDE
+really continues across the line, a HALF-BUILT AIRPORT: runway/taxiway/
+apron patched and inset on one side, default terrain on the other, and a
+seam-factor ballot the unbuilt side never joined (`INS:11342-11348`
+known limit). (2) is what the owner's words describe — "an airport that
+cross the boundary … build the adjacent tile as well" — and it is a
+property of the AIRSIDE, not of a service road. Airside-is-king: the
+groundside conforms and never drives a decision about the airside.
 
-"Needs a decision" = class S, the airport is in the PATCH set (disposition
-`"patch"`), AND the neighbour frame is not already warm:
-`frame_state(neighbour)` has problems, or `INS.is_cached(neighbour_tile)`
-is False under the NEIGHBOUR tile's own INSET mode (its cfg, sparse per
-18a). With the neighbour's inset mode `"None"` the inset half is
-trivially warm and only its airports layer (smoothing masks) can be
-cold. An already-built neighbour asks nothing.
+**RULED — the ask geometry is the AIRSIDE CLAIM (candidate (i)):**
+
+    A(airport) = union of apt.dat runways (row 100 rectangles) and
+                 airside pavement (row 110 taxiway/apron polygons)
+                 from the 17a-selected apt.dat (PatchCandidate.apt_dat),
+                 buffered by R_air.
+
+* apt.dat row 130 BOUNDARY is NOT in A: a fence line around grass is not
+  "the airport crossing"; with no pavement across the line there is no
+  half-built airside. (It also keeps A strictly inside the geometry the
+  owner was shown for Q2: LPMT's boundary is −580 m and its pavement
+  farther still.)
+* OSM geometry is NOT used (candidate (ii) rejected): it is absent on
+  exactly the never-built tiles where the question matters, it would
+  make preflight and build-time disagree, and the OSM aerodrome polygon
+  is the same fence-line class as row 130.
+* `R_air` = the widest adjacent-ground band the airside can emit: the
+  runway graded strip half-width (`zones.toml:22`, 75 m for code 3/4) +
+  lip (`zones.toml:14`, 3 m), i.e. **R_air = 100 m**, written as ONE law
+  value `emit.seam.ask_reach_m = 100.0` beside `emit.seam.half_width_m`.
+  CONFIRMATION (implementer, same two captures, no build, ≤ 1 replay
+  each): max distance beyond the UNBUFFERED airside claim of any emitted
+  node whose role is in the AIRSIDE family (runway, taxiway roles, apron,
+  graded_strip, adjacent_ground:*; NOT groundside_pavement, roads,
+  object_pad, building, parking). Expected ≤ 100 m. If it measures
+  > 100 m and ≤ 300 m, set the law value to the measurement rounded up
+  to 50 m and report; > 300 m ⇒ STOP-and-report (an airside role is
+  wandering, which is a different bug).
+* **CLASS S** := A touches another 1° cell. **Everything else is class
+  M** — including an airport whose groundside roads, parking, inset box
+  or DEM window cross the line.
+* **LPMT: pavement is more than 580 m from lon −9; A reaches at most
+  ~−480 m. CLASS M. No dialog, no neighbour fetch — the owner's Q2
+  answer holds as given.** No owner question arises.
+
+**Class M with emitted geometry ON the line (the groundside tail).** No
+clipping, no new geometry law — it is today's seam law, unchanged:
+the band is cut, both band edges are pinned, near side from the home
+raster, far side through the class-M CONTEXT-ONLY read (RULED, owner Q2
+answer (a)): the neighbour is composed from whatever is on disk, never
+fetched — warm ⇒ production compose; cold ⇒ base raster only, one loud
+`[dem]` line and `provenance["context_only:<stem>"]`; no base raster ⇒
+NaN ⇒ `v.dem_z is None` ⇒ `seam_pins` already skips the vertex (`:66`).
+Emittable: it is a heightfield patch whose far side lies outside the
+home tile's mesh and is generated by no other tile. Lawful under §38:
+the pin law is met on both edges with the values each tile's raster
+serves; nothing is relaxed. ONE interventional twin carries this claim
+(§E test 6a): perturb the FAR-side raster by +10 m on a straddling
+capture and assert every NEAR-side solved z moves < 0.01 m. If it fails,
+STOP-and-report — the decoupling above is then wrong and class M is not
+free.
+
+"Needs a decision" = class S, disposition `"patch"`, AND the neighbour
+frame is not already warm: `frame_state(neighbour)` has problems, or
+`INS.is_cached(neighbour_tile)` is False under the NEIGHBOUR tile's own
+INSET mode (its cfg, sparse per 18a). With the neighbour's inset mode
+`"None"` the inset half is trivially warm and only its airports layer
+(smoothing masks) can be cold. An already-built neighbour asks nothing.
 
 ### C.2 Preflight (before the build starts; cheap; NO network)
 
@@ -370,13 +438,14 @@ on the transport read loop and must never block it (the
 sparse: absent key ⇒ global), CIFP parsed ONCE for the whole request and
 bucketed by cell, then tests P (or W) against the cell edges using:
 
-1. the cached OSM airports layer boundary when
-   `FNAMES.osm_cached(lat, lon, "airports")` exists (exact — it is the
-   geometry the inset box is cut from), else
-2. the apt.dat own extent via the 17a selector (local file), else
-3. the CIFP threshold hull (`_airport_claim_lonlat` geometry).
+the AIRSIDE CLAIM of §C.1, parsed from `PatchCandidate.apt_dat` (a local
+file the 17a selector already chose; reuse v2's apt.dat row reader —
+`airport/load.py`'s runway/pavement parse that feeds `_own_extent` — do
+NOT write a second parser). A candidate without an apt.dat is
+`no_apt_dat`: it gets no patch, so it never asks. ONE geometry, ONE
+source, the SAME at preflight and at build time.
 
-Never a query. Source (1|2|3) is reported per airport. Completion is a
+Never a query. Completion is a
 new event (additive ⇒ **PROTOCOL_VERSION 1.8**):
 
     @dataclass(frozen=True)
@@ -385,7 +454,8 @@ new event (additive ⇒ **PROTOCOL_VERSION 1.8**):
         airports: list = field(default_factory=list)
         #   [{"icao", "name", "home": [lat, lon],
         #     "neighbours": [[lat, lon], …],      # cold ones only
-        #     "cls": "S" | "M", "geometry_source": "osm"|"apt_dat"|"cifp"}]
+        #     "crossing_m": float}]   # how far A reaches past the line;
+        #   class S only — class M airports are never listed
         add_tiles: list = field(default_factory=list)
         #   union of cold neighbours NOT already in `tiles`, sorted
         remembered: str = ""      # "" | "neighbour" | "skip" (C.4)
@@ -425,11 +495,11 @@ landed on the tile object as `tile.boundary_policy`.
   neighbour fetch happens for it.
 * **`None`** — resolve from cfg (C.4).
 
-The build-time check is AUTHORITATIVE and uses the exact geometry (the
-OSM boundary is in hand by then). An airport the preflight missed
-(apt.dat extent smaller than the OSM polygon) is simply handled by the
-policy in force — this is why the answer is a POLICY and not a list of
-ICAOs: there is no "unasked airport" state.
+The build-time check uses the SAME function on the SAME apt.dat, so it
+agrees with the preflight by construction; it exists because the answer
+is a POLICY, not a list of ICAOs (CLI, harness, an added tile's own
+straddlers, a front end older than 1.8) — there is no "unasked airport"
+state.
 
 ### C.4 Remembered answer; CLI; harness
 
@@ -610,12 +680,14 @@ patched airport with a warm frame. "Skip" emits no patch: the airport
 drapes on the production DEM exactly as a `no_apt_dat` airport does
 today — a lawful heightfield. Class S + "neighbour" is today's SPLP/SPJC
 path with a smaller fetch. Class M context-only reads touch no emitted
-vertex (that is the definition of M; the `R_patch` measurement is what
-makes the definition true — if measurement (a) shows emitted nodes
-beyond the OSM boundary by more than the zone widths, STOP and report).
+vertex OF THE HOME TILE'S MESH (rev 3: class M may emit groundside geometry
+on and across the line — measured tail 1.18 km — and that is lawful
+under the unchanged seam law, §C.1; test 6a is the proof obligation).
 **Unemittable as literally worded:** none. The first draft's one
 tension (a dialog for LPMT, whose patch never reaches the line) is
-resolved by the owner's Q2 answer: class M does not ask. The Q1 answer
+resolved by the owner's Q2 answer: class M does not ask — and rev 3's
+airside-claim geometry keeps LPMT in class M after the 1,200 m
+measurement refuted the scalar. The Q1 answer
 adds no emittability risk: patch∖inset is the existing no-coverage
 surface, inset∖patch the existing draped-inset surface.
 
@@ -652,11 +724,15 @@ keys) on every fresh tile. Large reduction; no regression path.
    `insets_enabled_for_tile` and `resolve_airport_smoothing_radius` with
    the STRING `"None"` are OFF (rows 23-24); Off is byte-identical to
    old `False` on the existing gate-off fixtures.
-3b. 18a plumbing: a sparse tile cfg carrying `airport_elevation_insets=
-   False` migrates to `None` and SURVIVES (not replaced by the global
-   through the foreign-enum rule); `=True` under global ICAO maps to ICAO
-   and is REMOVED as equal-to-global; `tile_settings_write` accepts the
-   three modes and maps a legacy bool; validator rejects `"Sometimes"`.
+3b. Tile-cfg plumbing AS LANDED (rev 3): a STAMPED sparse tile cfg
+   carrying `airport_elevation_insets=False` resolves to `None` and
+   `legacy_tile_settings` reports NO foreign enum for it; `=True` under
+   global ICAO resolves to ICAO and `sparse_tile_values` drops it as
+   equal-to-global; an UNSTAMPED cfg is retired to `*.pre352.bak`
+   (the peer's twin already covers that — do not duplicate it, assert
+   only that this lane added no migration path: `migrate_tile_cfg` stays
+   absent); `tile_settings_write` accepts the three modes and maps a
+   legacy bool; validator rejects `"Sometimes"`.
 3c. Freshness: a patch stamp recording `"True"` is CURRENT under
    `"ICAO"`; ICAO→None is stale. `DEM_FRAME_KEYS` compare: dev `True`
    vs app `ICAO` is NOT a divergence.
@@ -677,8 +753,22 @@ keys) on every fresh tile. Large reduction; no regression path.
    legacy stamp is read (assert under the conftest refuse-mode guard).
 5. `frame_state(expects_inset=False)` names no missing-dir problem;
    default unchanged.
-6. Boundary geometry: synthetic airport 580 m from the edge, `R_patch`
-   below/above ⇒ M/S; warm neighbour ⇒ no decision.
+6. Boundary geometry (rev 3): synthetic apt.dat — (a) pavement 580 m
+   from the edge with a groundside road crossing it ⇒ class M, not
+   listed, no decision (the LPMT twin); (b) apron polygon 60 m from the
+   edge ⇒ class S (R_air); (c) runway rectangle across the edge ⇒ S;
+   (d) row-130 boundary across the edge, pavement 400 m short ⇒ M;
+   (e) class S with a warm neighbour ⇒ no decision; preflight and
+   build-time verdicts identical on all five.
+6a. FAR-SIDE INVARIANCE (interventional; the claim §C.1 rests on): on a
+   registered straddling capture (`frames.py list SPJC` / SPLP; replay
+   only) or, if none replays, a synthetic two-cell planar fixture —
+   far-side raster +10 m ⇒ max |Δz| over near-side vertices < 0.01 m;
+   far-side raster ABSENT ⇒ far-side seam vertices unpinned, solve
+   completes, near side unchanged.
+6b. Class-M context-only read: cold neighbour ⇒ ZERO calls into
+   `INSETS.ensure_*` / `OSM_queries_to_OSM_layer`, one `[dem]` line,
+   `context_only:<stem>` in provenance, no `ColdDemFrame`.
 7. Protocol: `boundary_airports` replies `started` at once;
    `BoundaryAirportsReady` serialises through `serialize_event`;
    `enqueue_build(boundary_policy=…)` reaches a (fake) worker child.
@@ -731,15 +821,32 @@ minutes, no neighbour fetch) — a line in `docs/DEFERRED_VERIFICATION.md`.
 in the vector predicate), `src/O4_Cfg_Vars.py` (`auto_patch_boundary` app var;
 `airport_elevation_insets` bool → str enum, :310),
 `src/O4_Settings_Model.py` (label :136; legacy map before the
-foreign-enum rule :676-685; validator; 18a migrate/sparse),
+foreign-enum inspector `legacy_tile_settings`; validator;
+`sparse_tile_values` — all LANDED in slice 1 a–b),
 `src/o4_engine/session.py` `tile_settings_write` (legacy bool accepted),
 `Sources/SceneryKit/Resources/o4_schema_snapshot.json` (REGENERATED in
 this slice, same commit as the registry change — the byte-for-byte twin
 is red otherwise; it is a generated file, not Swift work), `tools/harness/build_airport.py` (`--boundary`, refresh note,
 `frame.json` key), `tools/inset_coverage_census.py` (`--mode`),
 `tools/INDEX.md` rows touched in the same commit, tests 1-10 incl. 3a-3e (engine
-side), `docs/DEFERRED_VERIFICATION.md` line. First act: the `R_patch`
-replay measurement, reported BEFORE coding C.1 (it sets `R_patch` and confirms LPMT's class). Frozen for
+side), `docs/DEFERRED_VERIFICATION.md` line. STATUS (rev 3): steps (a) setting, (b) selector/trim, (c) the
+measurement are MERGED on main (a30e8d74). What remains is **slice 1d —
+the boundary half, ONE Opus implementer**: `src/auto_patch/selection.py`
+(`airside_claim(apt_dat, icao)`, `crossing_cells(claim)`, the
+`boundary=` argument → `boundary_skipped`), law value
+`emit.seam.ask_reach_m` (`law/emit.toml` + its table reader),
+`dem_production.py` (delete `_warm_tile` / `_may_warm`, context-only
+path, `expects_inset` if not yet landed), `O4_Vector_Map.py`
+(`ensure_tile_frame`, `include_patches` skip, policy read),
+`O4_Airport_Elevation_Insets.py` (`.frame.lock`), `events.py` (1.8),
+`session.py`, `parallel.py`, `O4_Cfg_Vars.py` (`auto_patch_boundary`) +
+REGENERATED schema snapshot, `tools/harness/build_airport.py`
+(`--boundary`), tests 5-10 incl. 6a/6b. ORDER: (1) test 6a FIRST — it is
+the go/no-go for the whole class-M design, replay only; (2) the R_air
+confirmation replay; (3) geometry + selector; (4) `_warm_tile` deletion
++ context-only; (5) protocol + policy + harness flag. Closing build:
+unchanged (CYXY control through the harness).
+Frozen for
 slices 2-3: the command name, the event's class and field names, the
 `boundary_policy` values, the `auto_patch_boundary` key and its three
 values, and `airport_elevation_insets`' type/values/labels. ORDER inside
@@ -768,21 +875,14 @@ the checkbox became the combo with the three labels and that a legacy
 expected beyond the registry). Same
 placeholder copy block.
 
-## OWNER QUESTIONS (still open after RULINGS 2026-09-18c)
+## OWNER QUESTIONS
 
-Answered and removed: first-draft Q1 (→ §A rewritten), Q2 (a), Q3
-(keep using), Q5 (skip, loudly); Q4 not asked and now moot (§A.4).
-
-**OQ1.** "Fetch airport lidar insets" becomes a dropdown (Off / Airports
-with ICAO codes / All airports). For existing settings files: a CHECKED
-box becomes "Airports with ICAO codes", an UNCHECKED box becomes "Off",
-and new installs default to "Airports with ICAO codes". Note the first
-of these changes behaviour on upgrade — a checked box used to mean every
-named aerodrome (the 17-strip class); nothing already downloaded is
-deleted or ignored. Confirm the mapping and the default?
-
-**OQ2.** "Off" in the new dropdown keeps the old unchecked meaning in
-full: nothing is downloaded AND insets already on disk are not used for
-that tile (the build is identical to the feature being absent). Your
-"keep using insets already on disk" answer is applied to airports
-outside the selection under the other two modes, not to Off. Confirm?
+NONE OPEN. OQ1 and OQ2 were answered (RULINGS 2026-09-18e, "OWNER
+ANSWERS OQ1/OQ2": True → ICAO, False → None, default ICAO; Off keeps the
+old unchecked meaning in full). Rev 3's deviation ruling raises none:
+the airside-claim geometry keeps LPMT's outcome exactly as the owner's
+Q2 answer was given (no dialog, no neighbour fetch). One would arise
+ONLY if test 6a fails — then, with the numbers: "LPMT: boundary −580 m,
+groundside patch reach +620 m past the line; the far side turns out to
+influence the near side — ask for such airports, or clip their
+groundside at the tile line?" Not asked now.

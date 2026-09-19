@@ -120,6 +120,14 @@ import math
 import datetime
 import threading
 
+from auto_patch.selection import (               # pure; stdlib-only module
+    MODE_RANK,
+    MODES,
+    inset_keys,
+    mode_admits,
+    resolved_inset_mode,
+)
+
 import numpy
 
 try:
@@ -8444,7 +8452,13 @@ def insets_enabled_for_tile(tile):
     Emits exactly one clear line when the gate is on but GDAL is missing,
     then disables the feature so the build is byte-identical to gate-off.
     """
-    if not getattr(tile, "airport_elevation_insets", False):
+    if resolved_inset_mode(tile) == "None":
+        # HAZARD: the STRING "None" is TRUTHY.  This gate was a bare
+        # truthiness read while the key was a bool; after the 2026-09-18
+        # enum relabel (RULINGS 18c/18e) a truthiness read would turn Off
+        # into On.  "None" keeps the full old ``False`` meaning: nothing
+        # fetched AND nothing on disk composited, baked, balloted or used
+        # for the smoothing radius (owner OQ2).
         return False
     if not has_gdal:
         UI.vprint(
@@ -10580,7 +10594,8 @@ def resolve_airport_smoothing_radius(
     default_radius = tile.apt_smoothing_pix
     if not getattr(tile, "apt_smoothing_auto", False):
         return (default_radius, None, None)
-    if not getattr(tile, "airport_elevation_insets", False) or not has_gdal:
+    if resolved_inset_mode(tile) == "None" or not has_gdal:
+        # Same truthiness hazard as ``insets_enabled_for_tile`` (row 24).
         return (default_radius, None, None)
     (coverage_fraction, finest_pixel_m) = inset_coverage_of_airport_mask(
         tile, mask_geometry

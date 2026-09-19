@@ -25,6 +25,19 @@ Package layout
 """
 from __future__ import annotations
 
-from .driver import generate_auto_patches
-
 __all__ = ["generate_auto_patches"]
+
+
+def __getattr__(name):
+    """Resolve the package entry point LAZILY (PEP 562).
+
+    ``auto_patch.selection`` holds the pure mode predicates that core
+    modules (settings, insets, the harness) import; an eager
+    ``from .driver import generate_auto_patches`` here would drag the whole
+    auto-patch pipeline into every one of those importers.
+    """
+    if name == "generate_auto_patches":
+        from .driver import generate_auto_patches
+
+        return generate_auto_patches
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))

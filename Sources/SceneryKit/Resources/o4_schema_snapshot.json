@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1794",
+ "engineVersion": "1.50.1796",
  "groups": {
   "app": [
    "verbosity",
@@ -119,10 +119,20 @@
    "type": "float"
   },
   "airport_elevation_insets": {
-   "default": true,
-   "hint": "Master gate for automatic per-airport high resolution elevation insets. When set, meter-class public elevation (for example the United States Geological Survey 3D Elevation Program) is fetched for the neighbourhood of every airport on the tile and overlaid on the base elevation raster before the mesh is built. Requires the GDAL python bindings and network access; when either is missing the feature disables itself and the build is byte-identical to unset.",
+   "default": "ICAO",
+   "hint": "Which airports get automatic high resolution elevation insets: meter-class public elevation (for example the United States Geological Survey 3D Elevation Program) fetched for the airport neighbourhood and overlaid on the base elevation raster before the mesh is built. \"Airports with ICAO codes\" (default) insets only airports with a 4-letter ICAO code, \"All airports\" insets every named aerodrome on the tile, and \"Off\" fetches none and bakes none (the build is byte-identical to the feature being absent). Requires the GDAL python bindings and network access; when either is missing the feature disables itself.",
    "name": "airport_elevation_insets",
-   "type": "bool"
+   "type": "str",
+   "valueLabels": {
+    "All": "All airports",
+    "ICAO": "Airports with ICAO codes",
+    "None": "Off"
+   },
+   "values": [
+    "None",
+    "ICAO",
+    "All"
+   ]
   },
   "airport_elevation_level": {
    "default": "auto",
@@ -455,10 +465,20 @@
    "type": "float"
   },
   "global_airport_elevation_insets": {
-   "default": true,
-   "hint": "Master gate for automatic per-airport high resolution elevation insets. When set, meter-class public elevation (for example the United States Geological Survey 3D Elevation Program) is fetched for the neighbourhood of every airport on the tile and overlaid on the base elevation raster before the mesh is built. Requires the GDAL python bindings and network access; when either is missing the feature disables itself and the build is byte-identical to unset.",
+   "default": "ICAO",
+   "hint": "Which airports get automatic high resolution elevation insets: meter-class public elevation (for example the United States Geological Survey 3D Elevation Program) fetched for the airport neighbourhood and overlaid on the base elevation raster before the mesh is built. \"Airports with ICAO codes\" (default) insets only airports with a 4-letter ICAO code, \"All airports\" insets every named aerodrome on the tile, and \"Off\" fetches none and bakes none (the build is byte-identical to the feature being absent). Requires the GDAL python bindings and network access; when either is missing the feature disables itself.",
    "name": "global_airport_elevation_insets",
-   "type": "bool"
+   "type": "str",
+   "valueLabels": {
+    "All": "All airports",
+    "ICAO": "Airports with ICAO codes",
+    "None": "Off"
+   },
+   "values": [
+    "None",
+    "ICAO",
+    "All"
+   ]
   },
   "global_airport_elevation_level": {
    "default": "auto",

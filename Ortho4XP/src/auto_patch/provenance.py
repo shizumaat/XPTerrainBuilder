@@ -50,6 +50,8 @@ import re
 import subprocess
 import urllib.parse
 
+from .selection import DEFAULT_MODE as _MODE_VALUED_KEYS, normalize_mode
+
 
 # Master gate for the whole feature.  ON by default (provenance should be on
 # for every production build); set ``O4_PATCH_PROVENANCE=0`` to suppress the
@@ -750,7 +752,16 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
                  "airport_elevation_inset_margin_m",
                  "airport_elevation_inset_feather_m", "airport_inset_water",
                  "working_grid_arc_seconds"):
-        spec_parts.append(f"cfg:{name}={getattr(tile, name, _UNSET)!r}")
+        value = getattr(tile, name, _UNSET)
+        if name in _MODE_VALUED_KEYS and value is not _UNSET:
+            # NORMALISED (spec §A.5, RULINGS 2026-09-18e): the key became a
+            # str enum on 2026-09-18.  Recording the raw value would make
+            # every auto-patch on every existing install read stale exactly
+            # once and rebuild (a tile-wide 60 s x N regression for a pure
+            # relabel), because the stamp on disk says "True" and the tile
+            # now says "ICAO".
+            value = normalize_mode(value, name)
+        spec_parts.append(f"cfg:{name}={value!r}")
     try:
         # The app-level base source is a per-tile setting only in effect when
         # ``custom_dem`` is empty; the config registry assigns it onto

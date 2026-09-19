@@ -308,9 +308,23 @@ cfg_tile_vars = {
         "hint": "When set, the airport smoothing radius (apt_smoothing_pix) is scaled per airport to the resolution of the finest elevation source actually covering that airport, never exceeding apt_smoothing_pix. Airports covered by coarse global data keep the full radius (identical to today); airports covered by high resolution elevation insets are blurred less or not at all. Unset restores the fixed radius for every airport.",
     },
     "airport_elevation_insets": {
-        "type": bool,
-        "default": True,
-        "hint": "Master gate for automatic per-airport high resolution elevation insets. When set, meter-class public elevation (for example the United States Geological Survey 3D Elevation Program) is fetched for the neighbourhood of every airport on the tile and overlaid on the base elevation raster before the mesh is built. Requires the GDAL python bindings and network access; when either is missing the feature disables itself and the build is byte-identical to unset.",
+        "type": str,
+        "default": "ICAO",
+        "values": ("None", "ICAO", "All"),
+        "value_labels": {
+            "None": "Off",
+            "ICAO": "Airports with ICAO codes",
+            "All": "All airports",
+        },
+        # This key was a BOOL until 2026-09-18 (RULINGS 18c/18e).  The cfg
+        # reader maps an existing line loudly, once, on read; the runtime
+        # backstop for objects built some other way is
+        # ``auto_patch.selection.resolved_inset_mode``.
+        "legacy_values": {
+            "True": "ICAO", "true": "ICAO", "1": "ICAO",
+            "False": "None", "false": "None", "0": "None",
+        },
+        "hint": 'Which airports get automatic high resolution elevation insets: meter-class public elevation (for example the United States Geological Survey 3D Elevation Program) fetched for the airport neighbourhood and overlaid on the base elevation raster before the mesh is built. "Airports with ICAO codes" (default) insets only airports with a 4-letter ICAO code, "All airports" insets every named aerodrome on the tile, and "Off" fetches none and bakes none (the build is byte-identical to the feature being absent). Requires the GDAL python bindings and network access; when either is missing the feature disables itself.',
     },
     "airport_inset_water": {
         "type": bool,

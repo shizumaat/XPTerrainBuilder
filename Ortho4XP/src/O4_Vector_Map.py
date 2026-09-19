@@ -19,6 +19,7 @@ import O4_Airport_Utils as APT
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
 from auto_patch import driver as AUTOPATCH
+from auto_patch import selection as _SELECTION
 from auto_patch import osm_aeroway as OSMAERO
 # The road grade cap, one constant for the whole engine (census #115),
 # read from the V2 LAW TABLE since 2026-09-17 (lane ``v1retire`` round 1,
@@ -707,19 +708,10 @@ def resolved_road_level(tile):
         return 1, True
 
 
-def resolved_auto_patch_mode(tile):
-    """``tile.auto_patch`` normalised: ``"All"`` / ``"ICAO"`` / ``"None"``.
-
-    Backward compat: legacy bool ``True``/``False`` configs map to
-    ``"All"``/``"None"``.  One spelling of that normalisation for the
-    three places that need it (generation, patch loading, and the
-    patch-area road detail below)."""
-    mode = getattr(tile, "auto_patch", "None")
-    if mode is True:
-        return "All"
-    if mode is False:
-        return "None"
-    return mode
+#: MOVED to ``auto_patch.selection`` (spec §A.2): ONE spelling of the mode
+#: normalisation, shared with the inset selection.  Re-exported here because
+#: this module is where every existing caller looks for it.
+resolved_auto_patch_mode = _SELECTION.resolved_auto_patch_mode
 
 
 def auto_patch_runs(tile):

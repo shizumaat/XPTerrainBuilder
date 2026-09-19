@@ -62,7 +62,7 @@ VISIBLE_ROWS = 6
 #: How long the GUI waits for :class:`BoundaryAirportsReady` before it
 #: proceeds as if the preflight had errored (spec §C.7 — generous, and
 #: never a reason a build does not start).
-PREFLIGHT_TIMEOUT_MS = 20000
+PREFLIGHT_TIMEOUT_MS = 60000
 
 
 def build_kwargs(settings, boundary_policy):

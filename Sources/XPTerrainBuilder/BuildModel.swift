@@ -1329,7 +1329,7 @@ final class BuildModel: ObservableObject {
 
     /// The preflight can never be the thing that stops a build (spec §C.7):
     /// past this, the run starts with the engine's own default policy.
-    static let boundaryPreflightTimeoutSeconds = 10
+    static let boundaryPreflightTimeoutSeconds = 60
 
     /// The saved answer as the app's settings hold it ("Ask" by default).
     var autoPatchBoundarySetting: String {

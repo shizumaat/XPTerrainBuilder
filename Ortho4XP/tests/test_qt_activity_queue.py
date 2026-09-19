@@ -54,6 +54,12 @@ def window(qapp, tmp_path, monkeypatch):
     win.imagery_combo.setCurrentText("TEST_PROVIDER")
     win.zl_combo.setCurrentText("16")
     monkeypatch.setattr(win, "refresh_tiles", lambda: None)
+    # No boundary-airport preflight in these tests: a session that
+    # does not answer the ask (spec insets-follow-patch-set-spec.md
+    # SS C.7) makes the build start as it did before the preflight
+    # existed -- tests/test_qt_boundary_dialog.py owns that law.
+    monkeypatch.setattr(win._session, "boundary_airports",
+                        lambda tiles=None: None)
     try:
         yield win
     finally:

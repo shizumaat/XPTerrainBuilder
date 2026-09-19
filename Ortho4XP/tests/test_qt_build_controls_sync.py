@@ -58,6 +58,11 @@ def window(qapp, tmp_path, monkeypatch):
                                          "custom_scenery_dir": ""})
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
+    # No boundary-airport preflight in these tests (see
+    # tests/test_qt_boundary_dialog.py): an unanswered ask makes the
+    # build start as it did before the preflight existed.
+    monkeypatch.setattr(win._session, "boundary_airports",
+                        lambda tiles=None: None)
     # Route all per-tile config reads/writes into the isolated temp dir.
     win.prefs["output_dir"] = str(tmp_path)
     # Headless runs skip the entry point's initialize_providers_dict(),

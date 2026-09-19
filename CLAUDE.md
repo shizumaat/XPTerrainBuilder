@@ -44,6 +44,27 @@ never deleted; only the owner moves a row to `CLOSED` (sim read) or
 `WAIVED` (ruling). Lanes working a row cite its ID and update its
 Status/Notes in the same commit as the evidence.
 
+## Issue tracker (owner 2026-09-18)
+
+GitHub Issues on `shizumaat/XPTerrainBuilder` is THE tracker for bugs and
+features (`gh issue list`, `gh issue view N`). It is PUBLIC.
+
+- Start of session: `gh issue list --label blocker` and
+  `gh issue list --milestone "Beta 2"` — before trusting a memory note.
+- A bug or feature the owner mentions, or a defect a lane finds and does not
+  fix, gets an issue the same turn: labels `bug`/`feature`, one or more
+  `area:*`, plus `blocker` / `regression` / `performance` / `needs-owner` /
+  `needs-sim-read` as they apply; owner sites as `lat, lon` in the title.
+- A merge that fixes one says `Fixes #N` in its merge commit (closes on push);
+  comment the measured result (site numbers first) when closing by hand.
+- NOT issues: owner rulings and law (`Ortho4XP/docs/RULINGS.md` stays canonical
+  — issues LINK to the ruling), specs and findings (files; the issue links them),
+  internal follow-ups (spec-author reviews of lane deviations, harness controls,
+  `docs/DEFERRED_VERIFICATION.md`), and anything private (half-formed ideas,
+  licensing questions) — those stay in `docs/`.
+- `docs/BETA2-BLOCKERS.md` rows were migrated (#1–#20); the gate is now
+  "milestone Beta 2 has no open `blocker`".
+
 ## Blast-radius index (check before editing)
 
 Before editing anything under `Ortho4XP/src/` or `Sources/`, run:

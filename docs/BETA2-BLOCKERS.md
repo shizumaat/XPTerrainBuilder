@@ -1,5 +1,8 @@
 # Beta 2 blockers — the beta 1 (build 1.0.350) feedback list
 
+> **MIGRATED 2026-09-18:** every OPEN / DIAGNOSED row below is now a GitHub issue (#1–#20, milestone *Beta 2*, label `blocker`). Track status THERE; this file is kept as the owner-text record.
+
+
 Source: owner test results on build 350, 2026-09-18. **Every row must be
 `CLOSED` or `WAIVED` before any beta ≥ 2 tag.** The gate is mechanical:
 `scripts/check_beta_blockers.sh` (called by `scripts/check_tag_version.sh`,

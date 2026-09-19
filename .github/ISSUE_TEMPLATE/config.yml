@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Testing guide
+    url: https://github.com/shizumaat/XPTerrainBuilder/blob/main/docs/TESTING-GUIDE.md
+    about: A first build, step by step, and what is expected behaviour.

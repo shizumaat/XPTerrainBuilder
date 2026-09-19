@@ -6,6 +6,9 @@ answer. Promote an entry to a spec (Fable) before any lane touches it.
 
 ## 1. Adopt a custom airport's own mesh into our patch (owner, 2026-09-18)
 
+Tracked publicly as issue #41; this entry keeps the parts that stay in the repo
+(the spec questions, incl. licensing).
+
 Owner, verbatim: "When an airport like TFFJ is installed that already has a custom
 mesh, ideally XPTerrainBuilder would detect it, disable it in the scenery_packs.ini
 if it wasn't already, and incorporate their mesh into our patch so the user can

@@ -1,0 +1,49 @@
+name: Bug report
+description: Something built wrong, failed, or looks wrong in the sim
+labels: ["bug"]
+body:
+  - type: textarea
+    id: version
+    attributes:
+      label: Version (all three lines)
+      description: "Paste the three lines of VERSION.txt from your download (app=, engine=, sha=). The same three are in About XPTerrainBuilder (macOS) or Help > About (Windows/Linux)."
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: ["macOS (Apple Silicon)", "Windows", "Linux"]
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Airport (ICAO) and/or tile
+      placeholder: "e.g. TFFJ, tile +17-063"
+    validations:
+      required: true
+  - type: input
+    id: position
+    attributes:
+      label: Position of the problem
+      description: Latitude, longitude from the map, or a taxiway / stand name
+      placeholder: "17.8985499, -62.838825"
+  - type: textarea
+    id: what
+    attributes:
+      label: What you did and what happened
+      description: Include the imagery provider and which custom scenery pack the airport comes from, if any.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "macOS: ~/Library/Logs/XPTerrainBuilder/engine-stderr.log - Windows/Linux: <data folder>/logs/engine-stderr.log. Attach the file or paste the lines for your tile, plus the build console pane."
+      render: text
+  - type: textarea
+    id: shots
+    attributes:
+      label: Screenshots from the sim

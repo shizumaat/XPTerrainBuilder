@@ -17406,7 +17406,7 @@ the road face read the trench, which is the very median defect §49 names).
 
 ---
 
-## §50 THE RUNWAY CAP YIELDS TO ITS PINS, UNIFORMLY — THRESHOLDS ARE TRUTH; THE LONGITUDINAL CAP IS CODE-AWARE; ONE LOUD LINE, NO NEW GATE (owner RULINGS 2026-09-18d (3); Fable 2026-09-18; founded on lane `tffjverify` 2dff85c2, `docs/findings/tffj-verify-20260918.md`) — lane `v2capyield`
+## §50 THE RUNWAY CAP YIELDS TO ITS PINS, UNIFORMLY — THRESHOLDS ARE TRUTH; THE LONGITUDINAL CAP IS CODE-AWARE; ONE LOUD LINE, NO NEW GATE (owner RULINGS 2026-09-18d (3), ANSWERED 2026-09-18f; Fable 2026-09-18; founded on lane `tffjverify` 2dff85c2, `docs/findings/tffj-verify-20260918.md`) — lane `v2capyield`
 
 Owner, verbatim choices: "Cap yields, uniformly" — thresholds are truth; the runway takes the
 smallest uniform over-grade that fits pin to pin; the cap becomes code-aware (Annex 14 allows
@@ -17427,10 +17427,26 @@ contradicted the standing "feasibility is GUARANTEED for a real airport with rea
 ### 50.1 THE LAW
 
 (1) **THE TABLE IS CODE-AWARE.** `law/rulesets.toml:83` `icao.runway.longitudinal` becomes
-`by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0.015 }, default = 0.015`. This
-REVERSES owner 2026-07-08 / spawner 2026-09-04y for codes 1/2 only (code 4 stays at the owner's
-1.5 %, not Annex 14's 1.25 % — Q 18d-2). `faa.runway.longitudinal` (`rulesets.toml:134`) is
-ALREADY class-aware (`by_letter` A/B 2 %, C–F 1.5 %) and does not change. 04y's cause — the v1
+`by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0.0125 }, default = 0.015` — Annex 14
+§3.1.13 in full (owner RULINGS 2026-09-18f (1)/(3)). This REVERSES owner 2026-07-08 / spawner
+2026-09-04y for codes 1/2 (acknowledged by the owner; CYXY 02/20 solves under 2 %, CYXY's
+ledger control is no longer comparable — A NEW CYXY CONTROL IS OWED, by the orchestrator) AND
+TIGHTENS code 4 (pavement ≥ 1,800 m, `load.py:42-43`) from 1.5 % to 1.25 % — chosen by the
+owner KNOWING HECA/LEMD-class runways move; the sim read adjudicates. The key's TOML comment is
+rewritten to say so (the old "1.5 % IS the law for every runway" comment is deleted, not kept
+beside the new value). `faa.runway.longitudinal` (`rulesets.toml:134`) is ALREADY class-aware
+(`by_letter` A/B 2 %, C–F 1.5 %) and DOES NOT MOVE: AC 150/5300-13B states 1.5 % for AAC C–E
+and has NO 1.25 % class — there is no FAA counterpart of Annex 14's code-4 value, so KCLT /
+KDFW-class airports are untouched by 18f (3). Rows 85-86 (`end_zone` 0.8 % code 3/4) and 87-88
+(`max_grade_change`, `vertical_curve_k_m`) already distinguish the codes and do not change.
+
+WHAT 18f (3) MOVES, BY DESIGN (say it in the lane report, never "fix" it): at every ICAO
+airport, a code-4 runway (a) whose PIN-TO-PIN grade exceeds 1.25 % now YIELDS and prints the
+§50.4 line where at 1.5 % it was lawful — the population with `g_pin` in (1.25 %, 1.5 %] is
+new; (b) whose pins fit but whose built ridge used LOCAL grades between 1.25 % and 1.5 %
+FLATTENS — e.g. HECA 05C/23C, measured 08d holding the DEM for 1.6 km then descending at
+1.38 %; its fill/cut and every surface tied to its edges move with it. The merged-batch sweep
+WILL show HECA/LEMD movement; that is the ruling, not a regression. 04y's cause — the v1
 census pricing every runway at `ROLE_GRADE_LIMITS["runway"]` 1.5 % while v2 solved code 1/2 at
 2 % (CYXY 02/20, 4 rows) — is closed by (4): the sidecar carries the cap the build priced, for
 EVERY runway, yielded or not.
@@ -17438,8 +17454,13 @@ EVERY runway, yielded or not.
 (2) **THE CODE** is what it is today: `airport/load.py:273` `runway_code_number(length_m)`
 (`:192`, never `None` in production) and `runway_code_letter(width_m)` (`:199`). Nothing new is
 loaded. WHEN THE CODE IS UNKNOWN (`None`, a fixture or a twin) `ByClass.value`
-(`law/model_types.py:27-38`) already answers `default` = 1.5 %, the STRICTEST cap: an unknown
-code never loosens the law, and (3) still guarantees feasibility. The code is physical pavement
+(`law/model_types.py:27-38`) answers `default`, which STAYS 1.5 % — decided, and why: the
+default is never read in production (the code is always derived), only by fixtures and twins
+that state no code; 1.5 % is the owner's own un-coded runway number (2026-07-08) and Annex 14's
+middle class (code 3), so it neither borrows code 1/2's relaxation nor imposes code 4's
+tightening on a runway nobody classified; moving it to 1.25 % would shift every code-less
+fixture in the suite for no airport's benefit. 18f does not speak to it; (3) guarantees
+feasibility whatever it is. The code is physical pavement
 length, not aeroplane reference field length; that approximation is the repo's standing one and
 is not reopened here.
 
@@ -17521,17 +17542,17 @@ or `View.caps` and needs no edit; "UNCHANGED" = reads a different law value, rul
 | # | consumer (file:line) | reads today | ruling |
 |---|---|---|---|
 | Y1 | `constraints/runway_profile.py:138,176,187` profile + bridging `Diff`s | `role_cap(law,"runway",code…)`.longitudinal | SEES — `runway_yield.cap_of`. THE row that was infeasible. Head stays `rulesets.runway.longitudinal` (a `hard_rulings` head, `emit.toml:670`). |
-| Y2 | `runway_profile.py:163` `soft_hi` of the end-zone preference (`:174,185`) | `cap.longitudinal` as the escalation ceiling | SEES — the end-zone cap yields "up to the main cap"; the main cap is `cap`. Otherwise a yielded code 3/4 runway is infeasible in its end quarters at the un-yielded 1.5 % ceiling (`rulesets.runway.end_zone` is hard at its ceiling, `emit.toml:671`). |
+| Y2 | `runway_profile.py:163` `soft_hi` of the end-zone preference (`:174,185`) | `cap.longitudinal` as the escalation ceiling | SEES — the end-zone cap yields "up to the main cap"; the main cap is `cap`. Otherwise a yielded code 3/4 runway is infeasible in its end quarters at the un-yielded ceiling (`rulesets.runway.end_zone` is hard at its ceiling, `emit.toml:671`). 18f (3): for code 4 that ceiling is now 1.25 % (was 1.5 %) — the end-zone preference has LESS room to escalate (0.8 → 1.25 %); more code-4 runways will sit at the ceiling in their end quarters. By design. |
 | Y3 | `runway_profile.py:451` ring chords; `:463` crossing foot-space pairs | `role_cap(law, f.role, …)` | SEES — `vw.caps[f.id][0]` (crossing: max over `f.ref.split("+")`, §50.1 (4)). Targets, not hard; un-yielded they pull the ridge off the pins' line. |
 | Y4 | `runway_profile.runway_vertical_curve` `:398`, `law/tables.runway_vertical_curve_bound:402` (`max_grade_change`, `vertical_curve_k_m`) | the K bound by code | UNCHANGED, and that is the point: the yield is a uniform GRADE, never a grade CHANGE. `max_grade_change` / K are NOT yielded; the closing replay reading `runway_vertical_curve` 0 is the proof they need not be. |
 | Y5 | `runway_profile.runway_transverse` `:314`, `runway_crown` , `crown_drops` `:237`; `law/tables.runway_transverse_cap:227` | `transverse_max`, crown | UNCHANGED — lateral law, relative to the ridge; the 5 measured `runway_transverse` rows were the ridge step read across the width, gone with it. |
 | Y6 | `constraints/routes.py:286-289` (runway crossing routes: ridge walk "at the longitudinal cap") | `role_cap(law,"runway",…)` | SEES — `cap_of`. A route budget along the ridge priced at 1.5 % between pins 2.11 % apart is the same contradiction one family over. |
 | Y7 | `constraints/routes.py:490` `face_caps` (all faces) | `role_cap` per face | SEES via `face_cap(law, f, pm)` — one accessor, no runway branch here. |
-| Y8 | `constraints/precedence.py:28,90` `face_cap` → `View.caps`, `vertex_cap` (`:99`, MIN over incident faces) | `role_cap` per face | THE SOLVE-SIDE ACCESSOR. `view(pm, law)`'s cache is keyed on `id(pm)`; `with_runway_chord` returns a NEW pm (`_dc.replace`), so no stale view survives. `vertex_cap` composes by MIN: a taxiway/apron vertex on the runway edge KEEPS its own 1.5 % — the yield never loosens a neighbour. |
-| Y9 | `vw.caps` readers: `no_step.py:114`, `contiguity.py:100`, `taxi.py:298,428`, `roads.py:176-187`, `strips.py:218`, `structures.py:248,660,750`, `channel.py:153,167`, `apron.py:390` | `vw.caps[fid]` | BY CONSTRUCTION. Those that price a pair across faces take the stricter cap (unchanged by a looser runway); those that test `is None` are unaffected. |
-| Y10 | `constraints/proximity.py:57` | `role_cap` per face, stricter of two | SEES via `vw.caps` (replace the private loop's `role_cap`). MIN composition — value-neutral; done so there is ONE accessor, not for a number. |
+| Y8 | `constraints/precedence.py:28,90` `face_cap` → `View.caps`, `vertex_cap` (`:99`, MIN over incident faces) | `role_cap` per face | THE SOLVE-SIDE ACCESSOR. `view(pm, law)`'s cache is keyed on `id(pm)`; `with_runway_chord` returns a NEW pm (`_dc.replace`), so no stale view survives. `vertex_cap` composes by MIN: a taxiway/apron vertex on the runway edge KEEPS its own 1.5 % — the yield never loosens a neighbour. 18f (3) CONSEQUENCE (this row assumed runway == taxi == 1.5 %; no longer true for code 4): on an UN-yielded code-4 runway the runway is now the STRICTER face, so `vertex_cap` on its edge vertices reads 1.25 % (sole reader `constraints/eat.py:621`). Ruled: CORRECT AS IS — the strictest law a vertex stands under, the standing composition; no edit, counted in the sweep's movement. |
+| Y9 | `vw.caps` readers: `no_step.py:114`, `contiguity.py:100`, `taxi.py:298,428`, `roads.py:176-187`, `strips.py:218`, `structures.py:248,660,750`, `channel.py:153,167`, `apron.py:390` | `vw.caps[fid]` | BY CONSTRUCTION. Those that price a pair across faces take the stricter cap (unchanged by a looser runway); those that test `is None` are unaffected. 18f (3): abeam an UN-yielded code-4 runway the stricter cap is now the runway's 1.25 %, so cross-face pairs touching its edge tighten from 1.5 % — by the standing MIN rule, targets not hard rows; part of the designed HECA/LEMD movement, reported, not tuned (G3). |
+| Y10 | `constraints/proximity.py:57` | `role_cap` per face, stricter of two | SEES via `vw.caps` (replace the private loop's `role_cap`). MIN composition: value-neutral for codes 1–3; for code 4 the pair takes the runway's 1.25 % unless the runway yielded above its neighbour (then the neighbour's) — same rule, new number. |
 | Y11 | `constraints/ceiling.py:146` | 5 % twin | §50.1 (6): `max(ceiling, row.cap)`. |
-| Y12 | `constraints/strips.py:212` `strip_longitudinal` (`icao.strip.longitudinal` 2 % code 1/2), `end_corridor_longitudinal:321` | the STRIP's own table | UNCHANGED THIS ROUND. Targets, not hard; abeam a yielded runway they read over their cap and are REPORT rows. The closing replay quotes `strip_longitudinal` beside the DEFECT families; a count attributable to the yielded runway is reported to the spawner, never iterated on (guard G3). |
+| Y12 | `constraints/strips.py:212` `strip_longitudinal` (`icao.strip.longitudinal` 2 % code 1/2), `end_corridor_longitudinal:321` | the STRIP's own table | UNCHANGED THIS ROUND (18f (3) note: `icao.strip.longitudinal` code 4 stays 1.5 %, now LOOSER than its runway's 1.25 % — harmless, the strip follows the runway and the looser cap never binds first; code 3 strip 1.75 % vs runway 1.5 % was already that shape). Targets, not hard; abeam a yielded runway they read over their cap and are REPORT rows. The closing replay quotes `strip_longitudinal` beside the DEFECT families; a count attributable to the yielded runway is reported to the spawner, never iterated on (guard G3). |
 | Y13 | `constraints/runway_chord.py` chord targets (`_Chord.z`, `:181`) | the pins | UNCHANGED — the target already runs pin to pin; it is the cap that contradicted it. HOSTS the derivation call (§50.1 (3)). |
 | Y14 | stage-1 design solve (`solve/design.solve_design`), `base.hard` | the ROWS | BY CONSTRUCTION — the rows carry `cap`. Expected at TFFJ: the longitudinal residual 0.0849 m → held. |
 | Y15 | `solve/project.py:300 project_runway`, `held` `:382`, `_relax_lp` `:260,467` | the ROWS + `[design] hard_tol_m` | BY CONSTRUCTION for the cap (it never reads a table). `hard_tol_m` is NOT changed (the `0.1` arm was a diagnostic, not the fix). Expected at TFFJ: QP feasible, elastic arm does not run, `max move` centimetres. PLUS §50.3. |
@@ -17539,12 +17560,12 @@ or `View.caps` and needs no edit; "UNCHANGED" = reads a different law value, rul
 | Y17 | `verify/frame.py:112 Patch.cap`, `:130 cap_t` | `role_cap(self.law, sh.role, code…)` | THE PUBLISHED-SIDE ACCESSOR: for a runway-family shape, `max(role cap, publication["runway_caps"][ref].cap)` (crossing: max over refs). NOT `None`, NOT `lifted` — §34 (9)'s census of this method stands: three readers treat `None` as "not pavement". `cap_t` takes `min(transverse, longitudinal)`; a LOOSER longitudinal never tightens it — unchanged in value. |
 | Y18 | `verify/within.py:346,484,531` (`within_shape` on runway shapes), `verify/contiguity.py:34`, `verify/steps.py:71` (`min(ca, cb)`), `:219-225`, `verify/strips.py:209`, `verify/channel.py:181` | `p.cap(sh)` | BY CONSTRUCTION through Y17. `within_shape` is the family that would otherwise report every runway ring chord of a yielded runway (report figure, ~all of them). Cross-shape MIN keeps the neighbour's law. |
 | Y19 | `verify/runway.py:215 runway_vertical_curve`, `:149 runway_transverse`, `:278 runway_step` (+ `_span_rule:369`) — the DEFECT families | K bound / `transverse_max` / step allowance `runway_transverse_cap × d` | UNCHANGED READERS, UNCHANGED LAW. None reads the longitudinal cap. They are the ACCEPTANCE: all three read 0 on the TFFJ replay. `_span_rule` stays `runway_step`-only (findings "Not the cause"). |
-| Y20 | `tools/check_grade.py` within-shape pairs on `runway` / `runway_crossing` ways (`_role_grade_limit:1276` → `ROLE_GRADE_LIMITS["runway"]` 1.5 % flat, v1 config) | the v1 table | SEES, by the `_shoulder_cap` pattern (`:8033`, applied `:8338`): a within-shape pair on a runway-family way whose `ref` has a published `runway_caps` cap ABOVE the pair's cap reads the published cap; counted-never-hidden (`_RUNWAY_CAP_STATS` pairs/ways, printed beside the family, as `_LIFTED_CAP_STATS`). `_role_grade_limit` itself is NOT edited, so `cross_shape`, `taxi_box`, the step families keep the role cap (the §34 (9) census's own reason). |
+| Y20 | `tools/check_grade.py` within-shape pairs on `runway` / `runway_crossing` ways (`_role_grade_limit:1276` → `ROLE_GRADE_LIMITS["runway"]` 1.5 % flat, v1 config) | the v1 table | SEES, by the `_shoulder_cap` pattern (`:8033`, applied `:8338`) BUT IN BOTH DIRECTIONS (18f (3): the v1 table's flat 1.5 % is now too LOOSE for code 4 as well as too strict for code 1/2): a within-shape pair on a runway-family way whose `ref` has a published `runway_caps` record reads the PUBLISHED cap — above the v1 cap (code 1/2, any yielded runway) or below it (un-yielded code 4 at 1.25 %); counted-never-hidden (`_RUNWAY_CAP_STATS` pairs/ways, printed beside the family, as `_LIFTED_CAP_STATS`). `_role_grade_limit` itself is NOT edited, so `cross_shape`, `taxi_box`, the step families keep the role cap (the §34 (9) census's own reason). |
 | Y21 | `check_grade.SIDECAR_LAW_KEYS:9934`, `law_context_from_sidecar:10306` (`ctx[…]` `:10394` area), `run_checks` kwargs `:11459`; `emit/osm_adapter` sidecar key register; `tests/test_harness.py` twins | the sidecar contract | GAINS `runway_caps` as a LAW key (not evidence): without it the harness census judges a code 1/2 runway at 1.5 % and a yielded one under the un-yielded law. The twins fail until both registers and `run_checks` carry it — that is the design. `LAW_FAMILIES` gains NOTHING (no new family — the owner's "no new gating verify family" applies to the census too). |
 | Y22 | `pipeline/publication.py:548-549` `apron_tier`-style published caps; `:230` `o4_grade_law_cap` tags; `emit/osm_adapter.py:382` oracle alias | other roles' caps | UNCHANGED — none is a runway cap; the oracle alias composes by MIN and cannot carry a relaxation, which is why the yield travels in the sidecar and not in a way tag. |
 | Y23 | `pipeline/runway_report.runway_profile_block:22` | per-runway report | GAINS the `cap_yield` sub-block + `built_max_grade` (read off `z` along the ridge between the governing pins). |
-| Y24 | `tests/auto_patch_v2/test_law_tables.py` ruled-deviation register (04y: "carries codes 1/2/4") | the table twin | codes 1/2 LEAVE the register (the table now states Annex 14's value); code 4 stays. |
-| Y25 | Swift (`Sources/SceneryKit`), `o4_engine/events.py` | JSONL events | NO CONSUMER, NO NEW EVENT this round — the line travels in the engine's existing stdout log. App-facing surfacing is the lead's (UX copy), reported as owed. |
+| Y24 | `tests/auto_patch_v2/test_law_tables.py` ruled-deviation register (04y: "carries codes 1/2/4") | the table twin | codes 1, 2 AND 4 LEAVE the register (18f: the table now states Annex 14 §3.1.13 for every code; code 3 never deviated) — the runway-longitudinal deviation entry is DELETED, not emptied-and-kept. |
+| Y25 | Swift (`Sources/SceneryKit`), `o4_engine/events.py` | JSONL events | NO CONSUMER, NO NEW EVENT — RULED 18f (4): the app does not surface the line this round. Out of the implementer's scope entirely; not owed. |
 | Y26 | v1 `src/auto_patch/config.ROLE_GRADE_LIMITS` | 1.5 % | UNTOUCHED (v1 engine retired; the census reads the sidecar instead, Y20). |
 
 ### 50.3 THE PROJECTION'S CONTRACT — KEEP, in its minimal form
@@ -17609,7 +17630,13 @@ TESTS, new file `tests/auto_patch_v2/test_v2capyield.py` (+ the touched twins, e
   every interior station between the pins.
 * T2 the same runway at 1.0 %: not yielded, `cap == cap_law`, NO line, rows byte-identical to
   a build with `pm.runway_caps` emptied (the law is inert where it is not needed).
-* T3 code-awareness: ICAO code 1 and 2 → 2 %, 3 and 4 → 1.5 %, `None` → 1.5 %; FAA A/B 2 %.
+* T3 code-awareness: ICAO code 1 and 2 → 2 %, 3 → 1.5 %, 4 → 1.25 %, `None` → 1.5 % (§50.1 (2));
+  FAA A/B 2 %, C–F 1.5 % UNCHANGED (pin the FAA row so 18f (3) cannot leak into it).
+* T3b CODE-4 TWIN (18f (3)) — the T1 fixture at 2,400 m, three arms: pins 1.0 % apart → not
+  yielded, `cap == 0.0125`, every profile `Diff` at 1.25 %, built ridge ≤ 1.25 % + 0.01 pp;
+  pins 1.40 % apart → YIELDED (`cap` 1.42 %, the line names "1.250 % (ICAO code 4)") where
+  the old table read lawful; the sidecar record carries 0.0125 / 0.0142 and `check_grade`
+  prices the un-yielded arm's ring pairs at 1.25 % (the TIGHTENING direction of Y20).
 * T4 three pins (crossing anchor mid-runway, one span over cap): ONE cap for the runway = the
   steeper span + margin; the record names that span's pins.
 * T5 ceiling: pins 6 % apart → the ceiling twin of a profile row is at the row's cap, the
@@ -17631,12 +17658,17 @@ CLOSING BUILD, ONCE: `venv/bin/python tools/harness/build_airport.py TFFJ` — r
 the log, `runway_cap_yield` in the report and provenance, then `tools/harness/census.py` on the
 emitted patch (the census must read `runway_caps`; 0 runway rows attributable to 10/28's
 grade). CYXY is NOT built: its 02/20 now solves under 2 % and its ledger control is no longer
-byte-comparable — say so in the report; the orchestrator's sweep reads it.
+comparable (18f (1): a new CYXY control is owed, by the orchestrator, not this lane). HECA /
+LEMD are NOT built either: the merged-batch sweep WILL show their code-4 runways flatten to
+1.25 % or yield and print the line, with the surfaces tied to them moving — BY DESIGN (18f
+(3)), not a regression; the owner's sim read adjudicates. The lane report says this in its
+first paragraph so the sweep's reader does not open an attribution round on it.
 
 CONVERGENCE GUARDS: G1 materiality — grades 0.01 pp, elevations 0.01 m; a residual under it is
 PASS-with-residual. G2 attempt cap — 2 fix iterations per target (T1 bar, replay ALL ZERO,
 build rc 0); a second miss is STOP-and-report. G3 NOT YOURS TO FIX: non-DEFECT report families
-moving at TFFJ (taxi/strip rows abeam the yielded runway, Y12), any second airport, `hard_tol_m`,
+moving at TFFJ (taxi/strip rows abeam the yielded runway, Y12), any second airport (incl. every
+code-4 movement 18f (3) causes, Y8–Y10), the app / Swift / JSONL surface (18f (4)), `hard_tol_m`,
 K / `max_grade_change`, the elastic arm's row selection. G4 any deviation from this § (a
 consumer not in the table that turns out to read the cap; the margin proving too small; a
 fourth pin kind on a ridge) — STOP, report to the spawner for the Fable author's ruling.
@@ -17668,20 +17700,15 @@ renaming a ROLE_* VALUE in auto_patch/layout.py breaks this file silently" + "RE
 `.toml` files "not in index scope — NOT a safety claim": `law/model._build` refuses unknown
 keys, so `emit.toml` + `design_schema.py` land together.
 
-### 50.7 OWNER QUESTIONS (only what 18d (3) does not settle)
+### 50.7 OWNER QUESTIONS — NONE OPEN (answered RULINGS 2026-09-18f)
 
-**Q 18d-1 (a seam-forced over-grade).** "Thresholds are truth" — a tile-seam DEM pin on a runway
-ridge is NOT a threshold; it is the DEM, the unreliable witness, made hard only so two tiles
-meet. §50 lets the cap yield to it as well (feasibility is guaranteed, and the line names the
-pin as `tile seam DEM`, so it is loud). Is that the intent — or, where ONLY a seam pin forces
-the over-grade, should the runway keep its cap and the SEAM take the mismatch (a visible step
-at the tile line instead of an over-grade runway)? Default until answered: the cap yields.
-
-**Q 18d-2 (code 4).** The cap is now Annex 14's 2 % for code 1/2. Annex 14 §3.1.13 states
-**1.25 %** for code 4; the table keeps your 2026-07-08 **1.5 %** for codes 3 AND 4. Keep 1.5 %
-for code 4 (spec default — tightening it would make HECA/LEMD-class runways yield and print
-the line where today they are lawful), or go to 1.25 %?
-
-**Q 18d-3 (the app surface).** The line is in the engine log, the report JSON, the patch
-provenance and the sidecar. Should the APP show it (a per-tile notice: "TFFJ 10/28 built over
-grade: 2.11 % > 2.00 %"), and if so as information or as a warning? Not built this round.
+* Q 18d-1 (a seam-forced over-grade) — **RULED 18f (2): THE CAP YIELDS, LOUDLY.** A tile-seam
+  DEM pin is in the pin set of §50.1 (3) exactly as drafted; the line names it `tile seam DEM`;
+  no step at the tile line.
+* Q 18d-2 (code 4) — **RULED 18f (3): CODE 4 = 1.25 %**, code 3 stays 1.5 % (against the
+  spec's default). Carried through §50.1 (1)/(2), Y2, Y8–Y10, Y12, Y20, Y24, T3/T3b and the
+  closing-test note. The un-coded `default` stays 1.5 % (§50.1 (2), decided here; 18f silent).
+* Q 18d-3 (the app surface) — **RULED 18f (4): NOT THIS ROUND.** Engine log + report.json +
+  provenance + sidecar only (Y25, G3).
+* Code 1/2 = 2 % — **CONFIRMED 18f (1)**, reversal of 2026-07-08 / 2026-09-04y acknowledged;
+  new CYXY control owed (orchestrator).

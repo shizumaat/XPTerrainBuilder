@@ -17712,3 +17712,135 @@ keys, so `emit.toml` + `design_schema.py` land together.
   provenance + sidecar only (Y25, G3).
 * Code 1/2 = 2 % — **CONFIRMED 18f (1)**, reversal of 2026-07-08 / 2026-09-04y acknowledged;
   new CYXY control owed (orchestrator).
+
+## §51 PACK GEOMETRY IS VALID WHERE IT ENTERS THE FRAME; A UNION OF PACK GEOMETRY NEVER ABORTS A TILE (RULINGS 2026-09-18d (2) GEML; Fable 2026-09-18; founded on lane `gemltopology` and the TNCM capture of lane `packreadprofile`) — lane `v2witnessvalid`
+
+**(1) THE DEFECT, TWICE IN ONE DAY, FOURTH TIME IN THE CAMPAIGN** (OTHH `_union_rings`,
+LGAV `object_cut.valid_polygon`, GEML, TNCM). GEML: `obj8._clip_component` hands out 449
+VALID sill footprints; `obj8._witness` rotates each by the placement heading and the
+rotation rounds micron slivers into self-touching rings — 126 of 449 arrive INVALID, one
+refuses `door_wells`' union, tile +35-003 aborts. `gemltopology` repaired ONE consumer.
+TNCM (`capture_TNCM.log`, 902 s in): `airport/wall_corridors.py:289 _bands_of`,
+`cap_u = unary_union(caps)` — a FIFTH site, none of the three `gemltopology` listed. Its
+inputs come from `wall_geometry._plan_polys:130`, which ALREADY filters
+`is_valid & area > 1e-9`: **every input was valid and GEOS still threw** (`side location
+conflict at -557.635 254.363`). So two laws are needed, not one: validity at entry
+(2), and a union that cannot abort (3). Neither replaces the other.
+
+**(2) LAW A — ONE ENTRY SITE.** New module `airport/frame_entry.py`,
+`enter(geoms, mat, q) -> geoms` (array in, array out; `None`/empty stay `None`). It is the
+ONLY place in `airport/` and `planar/` that applies a placement affine to a POLYGON. The
+repair, in this order, every step one vectorised C call over the whole array:
+ (a) affine (`shapely.transform` with the 2×3 matrix on the coordinate array — not one
+     `affine_transform` per geometry);
+ (b) **SNAP to `emit.identity.input_quantum_m` (1 mm) with the SAME arithmetic as
+     `Frame.entry`: `np.rint(c / q) * q`** (half-even; NOT `set_precision(mode=
+     "pointwise")`, whose rounding is GEOS's own). This is §46 (4)(a) applied to the one
+     input class it missed: the rotation uses libm `sin`/`cos`, the last ulp differs by
+     platform, and an un-snapped ring that is a self-touch on one platform is a
+     micro-crossing on another — `make_valid` of the two differs in TOPOLOGY, not in the
+     last digit. After the snap the three platforms hold identical doubles, so every later
+     step is platform-stable by §46 (3). `q = 0` (a synthetic twin frame) skips the snap
+     and nothing else;
+ (c) `is_valid` over the array; `make_valid` on the invalid subset only;
+ (d) POLYGONAL PARTS ONLY (lines and points dropped — a caller's `buffer` would inflate
+     them into area);
+ (e) parts with `area <= q²` (1e-6 m², one grid cell; with `q = 0` the standing 1e-9)
+     dropped. No new law key: the floor is derived from the quantum.
+ REJECTED: `set_precision(grid, mode="valid_output")` — MEASURED on the GEML ring
+ (`GEML_FREE_HOLE_WKT`): it RAISES the same `unable to assign free hole to a shell`; it
+ cannot repair an invalid input, and it is 3.4× the cost. Snap-only — the snap itself
+ collapses slivers into self-touches (the GEML ring is still invalid after it), so (c)
+ must follow (b).
+ EMPTY: a footprint that repairs to nothing IS nothing. `_witness`: `below` empty →
+ `None` (the standing "no floor under the ground" branch — the component is not a
+ witness); `plate` empty → `None`; `outer` empty → `outer=None` (`basin_geometry._outer`
+ already falls back to `below`). Every such drop is COUNTED and NAMED in the object report
+ (`witness_degenerate`: resource, comp index, raw area) — never silent. (NOTE: measured
+ here the GEML WKT repairs to 0.2736 m², not the 0.0 `door_wells._union_below`'s docstring
+ states; the implementer corrects the docstring's number against the twin.)
+ SURVIVES THE PERF SPEC: the rule is stated on the ACT of applying a placement to a
+ polygon, not on who produced the polygon. A frame-independent per-pack cache stores
+ LOCAL footprints (authored doubles, platform-identical); they become frame geometry
+ only through `enter`, per placement. A cache that ever stores FRAME geometry stores
+ `enter`'s output and keys on `frame_entry`'s source bytes.
+
+**(3) LAW B — ONE UNION.** `frame_entry.union(parts, site=None)`: the `_union_rings`
+ladder, promoted — exact `unary_union` → on `GEOSException` `union_all(grid_size=1e-6)` →
+on `GEOSException` `unary_union` of `buffer(1e-6)` members; a rung below the first is
+COUNTED per site in the report. Grid-first is NOT the standard: a fixed-precision overlay
+moves every intersection node of every union (goldens at five airports) and costs 2–5×,
+to cure a throw measured twice in ~10⁵ unions; and the fallback is platform-stable anyway
+— identical doubles in, identical exception out (§46 (3)). The rung stays 1e-6, the value
+both standing ladders were measured at; on 1 mm-aligned inputs it moves only NEW
+intersection nodes, by ≤ 0.7 µm. `_UnionClock` wraps `frame_entry.union` (its site name
+feeds the counter). Predicates (`intersects`, `intersection`) on `enter`'d geometry need
+no guard: they throw on INVALID operands, which Law A removes.
+
+**(4) CONSUMER CENSUS (RULINGS 2026-08-30l) — ruled before any edit.**
+
+| # | site | reads | today | ruling |
+|---|---|---|---|---|
+| 1 | `airport/obj8.py:878–886 _witness` | mints `below`/`plate`/`outer` | bare `affine_transform` ×3 | **ENTRY** → `enter`; empties per (2) |
+| 2 | `obj8.py:1027 / :1034 _place` | at-/above-grade unions, `below_grade` | affine, then `buffer(0)` belt | **ENTRY**; `buffer(0)` REMOVED |
+| 3 | `obj8.py:1040 _transformed` (:775 `below_grade`) | `w.below` (already frame; identity mat) | bare `unary_union` | **UNION**; identity `_place` dropped |
+| 4 | `obj8.py:801` `hard_deck` | local `_union_rings` → affine | bare | **ENTRY** |
+| 5 | `airport/door_wells.py:175 _union_below`, `:320` | `w.below` | per-consumer make_valid + ladder | **REMOVED** → `union`; its GEML twin moves to `frame_entry` |
+| 6 | `door_wells.py:328` `w.below.intersects` | predicate | unguarded | none needed (Law A) |
+| 7 | `door_wells.py:335–336` | `w.plate` union, `buffer(0)` AFTER | bare | **UNION**; `buffer(0)` REMOVED |
+| 8 | `planar/basin_geometry.py:225 _outer` → `basins.py:452` `uu("regions")`, `:530/531/672` predicates | `outer`/`below` | bare via `_UnionClock` | **UNION** via `_UnionClock`; predicates none |
+| 9 | `planar/basins.py:523,540,547,615` | `w.plate` STRtree / ∩ / `uu` | bare | **UNION** via `_UnionClock` |
+| 10 | `basins.py:922–924`, `rebake_plan.py:171,258`, `deck_signature.py:367`, `pack_partition.py:347` | `hard_deck` | read / parts | none (valid by #4) |
+| 11 | `planar/channel_claims.py:207`, `channel_witness.py:114`, `deck_signature.py:553` | `below_grade` predicates | unguarded | none (valid by #2/#3) |
+| 12 | `airport/wall_geometry.py:130 _plan_polys` → `wall_corridors.py:289` **(TNCM)** | own numpy affine → triangles | valid-filtered, bare union | snap xs/ys by (2)(b) before `polygons`; keep its vectorised filter, floor → q²; `:289` **UNION** |
+| 13 | `airport/sunken_roads.py:190` | `_clip_component` → affine | bare | **ENTRY** |
+| 14 | `airport/skirt.py:247`, `thin_plates.py:243`, `object_pavement.py:298`, `deck_signature.py:478`, `planar/wall_corridor_ramps.py:281` | footprint → affine | bare | **ENTRY** |
+| 15 | `airport/tunnel_objects.py:637,963` → `:501 valid_polygon(walls.plate)`, `:724 unary_union([plate, trench])` | `sig.plate` → affine | `valid_polygon` belt | **ENTRY**; `:501` belt REMOVED for the plate (it STAYS for wall-BAND rings, which are built, not placed — LGAV); `:724` **UNION** |
+| 16 | `airport/obj8_clip.py:55 _union_rings` | LOCAL frame, pre-entry | own repair + ladder | repair KEPT (local clips are born invalid); its ladder body becomes a call to `union` |
+| 17 | `airport/partition_cache.py` | pickles placed objects WITH witnesses | `CACHE_VERSION = 2`, code digest incl. `obj8`, `obj8_clip` | **INVALIDATE, never repair-on-read** (a repaired stale read is a second entry site): `CACHE_VERSION = 3` AND `auto_patch_v2.airport.frame_entry` added to `_CODE_MODULES`. The bump is what covers the FROZEN engine, where the code digest is the engine version. `o4_object_footprints_<tile>.cache` holds no placed polygons — untouched (implementer VERIFIES, one grep) |
+| 18 | the other ~140 `unary_union` calls in `airport/`+`planar/` | OWN geometry (bands, rings, regions we built) | bare | OUT OF SCOPE; G3 keeps the class from growing |
+| 19 | `_plan_segments*`, `_densified`, `_to_frame` | lines / points | own affine | OUT OF SCOPE (no validity); §46 coverage of placed POINTS is a separate question, not asked here |
+
+**(5) TESTS (headless), `tests/auto_patch_v2/test_v2witnessvalid.py`.**
+T1 `enter` on `GEML_FREE_HOLE_WKT` (import it from `test_v2doorramp.py`): valid,
+polygonal, area within 1e-3 of 0.2736. T2 the TNCM offender — the implementer extracts
+the `caps` list at `_bands_of` for the failing placement from the capture inputs
+(probe at −557.635, 254.363), pins it as WKB; `union` returns, rung ≥ 1 counted, area
+within 1e-6 of the sum-minus-overlap from the grid rung. T3 a footprint that repairs to
+empty → `_witness` returns `None` and `witness_degenerate` names it. T4 PLATFORM TWIN:
+the same ring rotated with its coordinates perturbed by ±1 ulp gives byte-identical WKB
+out of `enter`. T5 `q = 0`: no snap, repair still runs. T6 cache: a v2 file is refused,
+and a `frame_entry` source change moves the fingerprint. T7 every `enter` output over a
+registered capture's objects (`frames.py list` — reuse, do not capture) is valid: 0 of N.
+ GUARDS. G1 AST twin: no `affine_transform` / `affinity.rotate` call in `airport/` or
+`planar/` outside `frame_entry.py` (allow-list: none). G2 AST twin: the functions named
+UNION in (4) contain no bare `unary_union`/`union_all`. G3 `enter` is idempotent
+(`enter(enter(g), I) == enter(g)` bytewise) — the convergence guard: a second pass changes
+nothing, so no consumer can need a belt.
+
+**(6) FILES, ONE OPUS IMPLEMENTER.** New: `airport/frame_entry.py`, the test file. Edit:
+`airport/{obj8,obj8_clip,door_wells,wall_geometry,wall_corridors,sunken_roads,skirt,
+thin_plates,object_pavement,deck_signature,tunnel_objects,partition_cache}.py`,
+`planar/{basins,wall_corridor_ramps}.py`; `tests/auto_patch_v2/test_v2doorramp.py`
+(the `_union_below` twin re-pointed); `tools/INDEX.md` untouched (no tool). `q` reaches
+`enter` from `law.tables.input_quantum_m(law)` carried on `ResourceCache` (one field) —
+no module holds a second copy. BLAST (run 2026-09-18): `obj8.py` 55 importers / 22 test
+files, `basins.py` 25 / 17 — run those suites plus `test_v2corridor`, `test_v2wallcorridor`,
+`test_v2othhdet`, `test_v2cost2`, `test_airport_load`; `wall_geometry.py` and
+`obj8_clip.py` have NO direct test importer — T2/T7 are their cover.
+ CLOSING TEST: `v2_solve_replay.py --capture TNCM` gets PAST `planar` (~15 min, once;
+register the frame), then ONE `build_airport.py GEML`. HECA control is NOT rebuilt by the
+lane; expect its body hash to MOVE (every placed footprint shifts ≤ 0.71 mm) — report the
+census delta from the GEML build's frame only; the orchestrator's sweep re-baselines.
+ BUILD TIME. MEASURED here, 100,000 5-vertex parts, one core: affine+snap 0.09 s,
+`is_valid` 0.04 s, area 0.01 s — **≈ 0.15 s per 10⁵ parts**, against 0.48 s for the
+rejected `valid_output` and against today's one-Python-call-per-geometry
+`affine_transform` (which the batched form REPLACES, so `_witness`-heavy packs should get
+faster, not slower). `make_valid` runs on the invalid subset only (GEML: 126). The
+vectorised form is REQUIRED: a per-geometry `.is_valid` property loop is the `_rim_index`
+137 s class (RULINGS 2026-09-14q) and fails review. Where a call site holds ONE geometry
+(`_witness`) the three polygons go through ONE `enter` call; batching across components
+is the perf spec's business, not this lane's.
+
+**(7) OWNER QUESTIONS.** None. (Peer-session note: if another lane has taken §51 by
+merge time, the spawner renumbers; the content does not depend on the number.)

@@ -359,3 +359,56 @@ emitted at all? That is a design ruling, not something a measurement settles.
   above.
 - Did not edit code, did not touch `docs/BETA2-BLOCKERS.md`, ran no git
   operation.
+
+## CHECKPOINT — lane `othhjunction` (#13 #15 #14), 2026-09-21 19:40, machine shutdown
+
+Branch `claude/othhjunction` off main `8224729d`. No code edited. OTHH capture
+KILLED at 11 min (no pickle written; `.harness/frames/othhjunction/` holds only
+`cap_OTHH.engine_caches`). ONE dry classify read completed (6.5 min):
+`PYTHONPATH=src venv/bin/python -m auto_patch_v2.pipeline explain OTHH --at 25.2599127,51.6149444 --roles --sources`.
+
+### Re-measured on the CURRENT v2 classifier (dry, no build)
+
+* The 2026-08-14 patch every number above was read from is a **v1 emission**
+  (`generator='O4_Airport_Pavement_Builder'`). The v2 classifier at main
+  `8224729d` reads OTHH as **401 cells**: apron 26 / primary_parallel 65 /
+  junction **42** (795,453 m²) / cross_connector 150 / runway 9 /
+  secondary_parallel 41 / building 2 / stub 23 / parking_lot 14 /
+  groundside_pavement 19 / service_road 10 — **`service_junction` 0**. The
+  "854 service_junction / 667 junction faces" population does NOT exist in v2;
+  the pack apt.dat carries only **6** 1206 ground routes (488 1202, 33 row-110).
+* v2's `emit/osm_adapter.render_patch` writes `alt_abs` on EVERY node
+  unconditionally (`osm_adapter.py:355`), so "89 % unpinned service_junction
+  vertices" is a v1 artefact too — must be confirmed on a fresh `--emit`.
+* `~/.ortho4xp/tile_build_times/+25+051.json`: BOTH 2026-09-18 build-350 OTHH
+  tile runs record `airports: 0, autopatch_seconds: 0.0` — auto_patch did not
+  run at OTHH, so the owner's build-350 sim read (#13, #15) was on whatever
+  patch the tile ingested from disk. The engine tree's `Patches/+20+050/+25+051/
+  OTHH_auto.patch.osm` is the 2026-08-14 v1 file (5,715,311 B); the data
+  repo's `/Users/noah/XPTerrainBuilderData/Patches/+20+050/+25+051/
+  OTHH_auto.patch.osm` is dated 2026-09-18 08:10 and is UNCENSUSED (next step).
+* #14 site 25.2599127, 51.6149444: **no cell contains the point** (nearest 20.6 m
+  away, cell 400 `building` `building2`, 361,376 m²). 1206 route `route293`
+  and 8 OSM roads run there; sources are `pav4/5/11/12/13/15/17/19/26/27/28`
+  (open, 81-88 % apron cover, 4-13 startups each) + `dsf:pol15` (lot). The
+  "apron" the owner sees is therefore either the 2026-09-18 patch's face (not
+  this classifier's) or the deck piece minted in PLANAR (`structure_deck.py:
+  emit_decks` — "a pavement deck keeps the pavement's role", `structures.toml:
+  451`); undetermined until the emission is read.
+
+### Resume (exact)
+
+1. `cd /Users/noah/XPTerrainBuilder && tools/harness/lane_worktree.sh check othhjunction`
+   (worktree exists; branch `claude/othhjunction`).
+2. Census the 2026-09-18 data-repo patch first (ways/nd-refs by `role`,
+   nodes without `alt_abs`, generator header, 120 m of 25.2546269,51.6204583).
+3. Capture: `cd .claude/worktrees/othhjunction/Ortho4XP && venv/bin/python tools/v2_solve_replay.py --capture OTHH --out /Users/noah/XPTerrainBuilderData/.harness/frames/othhjunction/OTHH.pkl`
+   (needs > 11 min; the v2doorwellperf row prices the planar structures stage
+   at ~1,386 s / 29 GB). Then `--replay ... --from constraints --emit DIR --verify`
+   and re-census; `--site 25.2546269,51.6204583`.
+4. Consumer census table for junction faces (files): constraints/{roads,
+   groundside,transverse,pad_frontage_gs,zones}.py, verify/{eat,within}.py,
+   planar/{shapes,wall_corridor_ramps,zones,structure_underpass}.py,
+   airport/{wall_corridor_probe,road_ramp,road_profile}.py, law/{emit,
+   families,rulesets,precedence,structures}.toml, constraints/junction_mesh.py
+   (`junction_mesh_roles = ["junction"]`).

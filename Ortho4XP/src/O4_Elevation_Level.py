@@ -470,7 +470,7 @@ def ensure_tile_overlay(tile, dico_airports=None):
         lat, lon, definition["code"], target_resolution_m
     )
     os.makedirs(os.path.dirname(provenance_path), exist_ok=True)
-    with open(provenance_path, "w") as handle:
+    with open(provenance_path, "w", newline="\n") as handle:
         json.dump(provenance, handle, indent=2, sort_keys=True)
     index[index_key] = "ok"
     _write_overlay_index(index_path, index)
@@ -904,7 +904,7 @@ def _read_coastline_band_stamp(stamp_path):
 def _write_coastline_band_stamp(stamp_path, stamp):
     """Write the coastline band stamp, creating its directory."""
     os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
-    with open(stamp_path, "w") as handle:
+    with open(stamp_path, "w", newline="\n") as handle:
         json.dump(stamp, handle, indent=2, sort_keys=True)
 
 
@@ -926,7 +926,7 @@ def _read_overlay_index(index_path):
 def _write_overlay_index(index_path, index):
     """Write the tile-overlay discovery index, creating its directory."""
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", newline="\n") as handle:
         json.dump(index, handle, indent=2, sort_keys=True)
 
 

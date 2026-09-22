@@ -310,9 +310,9 @@ class OSM_layer:
     def write_to_file(self, filename, header_attributes=None):
         try:
             if filename[-4:] == ".bz2":
-                fout = bz2.open(filename, "wt", encoding="utf-8")
+                fout = bz2.open(filename, "wt", encoding="utf-8", newline="\n")
             else:
-                fout = open(filename, "w", encoding="utf-8")
+                fout = open(filename, "w", encoding="utf-8", newline="\n")
         except:
             UI.vprint(1, "    Could not open", filename, "for writing.")
             return 0

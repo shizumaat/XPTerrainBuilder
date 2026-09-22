@@ -327,7 +327,7 @@ def write_pack_apt_dat(pack_directory: Path, airport_block: str) -> None:
     if block_body:
         lines.append(block_body)
     lines.append("99")
-    apt_dat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    apt_dat_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 def _degree_padding_for_latitude(
@@ -655,6 +655,7 @@ def write_overlay_dsf(
             dir=str(tile_folder),
             delete=False,
             encoding="utf-8",
+            newline="\n",
         ) as text_handle:
             text_handle.write(dsf_text)
             text_path = Path(text_handle.name)

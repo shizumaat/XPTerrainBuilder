@@ -1717,7 +1717,7 @@ def _bank_blend_dump(path, tile, vertices, scalx, annulus, touched, mask,
         rows.append((i, kind, float(ax[i]), float(ay[i]),
                      _np.nan, _np.nan, _np.nan, _np.nan, _np.nan, _np.nan,
                      _np.nan, float(vertices[6 * i + 5])))
-    with open(path, "w") as handle:
+    with open(path, "w", newline="\n") as handle:
         handle.write("index,kind,lon,lat,d_in_m,d_out_m,d_foot_m,"
                      "z_in,z_out,z_foot,z_field,z_current\n")
         for (i, kind, x, y, di, do, df, zi, zo, zf, zz, zc) in rows:
@@ -2475,7 +2475,7 @@ def post_process_nodes_altitudes(tile):
             "water altitude instead of the patch value (RULINGS "
             "2026-09-09z (3)).")
     UI.vprint(1, "-> Writing output nodes file.")
-    f_node = open(FNAMES.output_node_file(tile), "w")
+    f_node = open(FNAMES.output_node_file(tile), "w", newline="\n")
     f_node.write(init_line_f_node)
     for i in range(0, nbr_pt):
         f_node.write(
@@ -2508,7 +2508,7 @@ def write_mesh_file(tile, vertices):
     temporary_mesh_file_name = (
         mesh_file_name + ".tmp" + str(os.getpid())
     )
-    f = open(temporary_mesh_file_name, "w")
+    f = open(temporary_mesh_file_name, "w", newline="\n")
     f.write("MeshVersionFormatted 2\n")
     f.write("Dimension 3\n\n")
     f.write("Vertices\n")

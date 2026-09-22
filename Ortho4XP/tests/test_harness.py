@@ -11270,3 +11270,46 @@ def test_the_per_airport_check_is_the_engines_own_predicate(build_mod,
     assert build_mod.this_airports_inset_problem(
         {"tile_stem": "N60W136", "airport_insets": True,
          "airports_layer": True}, 60, -136, None) is None
+
+
+def test_the_per_airport_check_scans_packs_with_the_owners_xplane_root(
+        build_mod, monkeypatch, tmp_path):
+    """NLWF 2026-09-21 (#18-#20): the pre-flight's pack-set arm listed the
+    installed airport packs through ``O4_Config_Utils`` install paths a
+    lane tree ships EMPTY, read ``[]``, and refused a WARM inset as
+    PACK-SET-STALE ("no longer installed: NLWF-Point Vele ...") while the
+    pack sat enabled in the owner's scenery_packs.ini.  The airport path
+    must apply the owner's paths BEFORE the engine predicate runs -- the
+    same owner config the frame check validates against -- and the
+    non-fatal form stands down (no SystemExit) when there is no owner
+    config at all."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Config_Utils as CFG
+    import O4_OSM_Utils as OSM
+    import O4_Vector_Map as VMAP
+    order = []
+    real_preflight = build_mod.apply_xplane_install_paths_for_preflight
+    monkeypatch.setattr(build_mod, "apply_xplane_install_paths_for_preflight",
+                        lambda: order.append("paths") or {})
+    monkeypatch.setattr(INSETS, "airport_inset_frame_problem",
+                        lambda *a, **k: order.append("predicate") or None)
+    monkeypatch.setattr(INSETS, "_airport_bounding_boxes",
+                        lambda tile, dico: {"NLWF": (-1.0, 2.0, 3.0, 4.0)})
+    monkeypatch.setattr(CFG, "Tile", lambda lat, lon, _s: types.SimpleNamespace(
+        lat=lat, lon=lon, read_from_config=lambda: None))
+    monkeypatch.setattr(OSM, "OSM_layer", lambda: None)
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer", lambda *a, **k: None)
+    monkeypatch.setattr(VMAP, "build_airports_dico", lambda _t, _l: {"NLWF": {}})
+    assert build_mod.this_airports_inset_problem(
+        {"tile_stem": "S15W179", "airport_insets": True,
+         "airports_layer": True}, -15, -179, "NLWF") is None
+    assert order == ["paths", "predicate"]
+    # No owner config: nothing applied, nothing raised.
+    assert real_preflight(tmp_path / "absent.cfg") == {}
+    # An owner config the fatal form REFUSES (no CIFP resolvable) is an
+    # airport pre-flight's stand-down, not its refusal.
+    cfg = tmp_path / "Ortho4XP.cfg"
+    cfg.write_text("cifp_data_path=\ncustom_scenery_dir=\n")
+    monkeypatch.setattr(build_mod, "apply_xplane_install_paths",
+                        lambda owner_cfg: (_ for _ in ()).throw(SystemExit("REFUSING")))
+    assert real_preflight(cfg) == {}

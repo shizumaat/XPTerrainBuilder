@@ -759,6 +759,20 @@ def this_airports_inset_problem(state, lat, lon, icao):
         import O4_Config_Utils as CFG
         import O4_OSM_Utils as OSM
         import O4_Vector_Map as VMAP
+        # THE PACK SCAN READS THE OWNER'S X-PLANE ROOT (2026-09-21, NLWF
+        # #18-#20).  The predicate's pack-set arm
+        # (``_sidecar_footprint_packs_mismatch``) lists the installed
+        # airport packs through ``O4_Config_Utils.cifp_data_path`` /
+        # ``custom_scenery_dir`` -- which every lane tree ships EMPTY, and
+        # which the AIRPORT path never filled (only ``build_tile`` did,
+        # after this pre-flight).  With no root the scan answers ``[]``,
+        # the recorded pack reads as "no longer installed", and a warm
+        # inset is refused as PACK-SET-STALE for a difference that does
+        # not exist at run time (NLWF 2026-09-21: the pack sits enabled
+        # in the owner's scenery_packs.ini).  The paths come from the
+        # same owner config the frame check validates against; a
+        # machine without one keeps today's empty-root answer.
+        apply_xplane_install_paths_for_preflight()
         tile = CFG.Tile(lat, lon, "")
         tile.read_from_config()
         layer = OSM.OSM_layer()
@@ -1895,6 +1909,23 @@ def apply_xplane_install_paths(owner_cfg=OWNER_APP_CFG) -> dict:
     if refusal is not None:
         raise SystemExit("REFUSING: " + refusal)
     return applied
+
+
+def apply_xplane_install_paths_for_preflight(owner_cfg=OWNER_APP_CFG) -> dict:
+    """The pre-flight's NON-FATAL form of :func:`apply_xplane_install_paths`.
+
+    An airport build needs the owner's install paths only so the inset
+    pack-set scan sees the packs production sees; a missing owner config
+    or an unresolvable CIFP directory is a TILE build's refusal
+    (``build_tile`` still raises through the fatal form), not an airport
+    pre-flight's.  Returns the applied keys, ``{}`` when nothing applied.
+    """
+    if not Path(owner_cfg).is_file():
+        return {}
+    try:
+        return apply_xplane_install_paths(owner_cfg)
+    except SystemExit:
+        return {}
 
 
 def tile_cfg_stem(lat: int, lon: int) -> str:

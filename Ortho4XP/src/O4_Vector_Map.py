@@ -1562,22 +1562,60 @@ def set_boundary_policy(policy):
     BOUNDARY_POLICY = policy if policy in ("neighbour", "skip") else None
 
 
-def resolved_boundary_policy(tile=None):
-    """``"neighbour"`` or ``"skip"`` — never ``None``, never a prompt here.
+#: THE tile-edge skip narration (issue #45).  ``..._CHOSEN`` is the
+#: original line; ``..._UNATTENDED`` is what a build says when nobody
+#: answered and the engine's own default decided.
+BOUNDARY_SKIP_CHOSEN = "by your boundary choice."
+BOUNDARY_SKIP_UNATTENDED = (
+    "because no answer to the tile-edge question reached this build "
+    "before it started — \"Airports on a tile edge\" is set to ask, but "
+    "nothing answered, so the unattended default (skip) applied. If you "
+    "did not see the dialog, build these tiles again.")
 
-    Order: the answer this run was given (``set_boundary_policy`` / the
-    tile object) beats the remembered app setting, which beats SKIP.  The
-    ENGINE never blocks waiting for a user: asking is the front end's job
-    (``boundary_airports`` + the dialog), and anything that reaches a
-    build with no answer is by definition unattended.
+
+def boundary_policy_and_source(tile=None):
+    """``(policy, source)`` — the tile-edge answer and WHERE IT CAME FROM.
+
+    ``policy`` is ``"neighbour"`` or ``"skip"``, never ``None`` and never
+    a prompt here.  Order: the answer this run was given
+    (``set_boundary_policy`` / the tile object) beats the remembered app
+    setting, which beats SKIP.  The ENGINE never blocks waiting for a
+    user: asking is the front end's job (``boundary_airports`` + the
+    dialog), and anything that reaches a build with no answer is by
+    definition unattended.
+
+    ``source`` is what the build may SAY about the answer (issue #45):
+
+    * ``"answer"``     — the front end sent one for this run.
+    * ``"setting"``    — the user's remembered ``auto_patch_boundary``.
+    * ``"unattended"`` — the setting is "Ask me each time" and NOBODY
+      ANSWERED.  The owner hit exactly this on tile +40-077 (app
+      1.0.352): the app's 60 s boundary preflight expired, it enqueued
+      with no policy, skip applied — and the build told them their
+      patches were skipped "by your boundary choice", which was not the
+      choice they had made.
+
+    A policy this module landed on the tile itself carries its own
+    provenance in ``tile.boundary_policy_source``, so re-deriving a
+    tile's selection does not relabel the engine's own default as the
+    user's answer.
     """
     explicit = getattr(tile, "boundary_policy", None) or BOUNDARY_POLICY
     if explicit in ("neighbour", "skip"):
-        return explicit
+        return explicit, (getattr(tile, "boundary_policy_source", None)
+                          or "answer")
     choice = str(getattr(CFG, "auto_patch_boundary", "Ask") or "Ask")
     if choice == "Build adjacent":
-        return "neighbour"
-    return "skip"
+        return "neighbour", "setting"
+    if choice == "Ask":
+        return "skip", "unattended"
+    return "skip", "setting"
+
+
+def resolved_boundary_policy(tile=None):
+    """``"neighbour"`` or ``"skip"`` — see :func:`boundary_policy_and_source`,
+    the ONE derivation site."""
+    return boundary_policy_and_source(tile)[0]
 
 
 def tile_frame_is_warm(lat, lon):
@@ -1680,7 +1718,7 @@ def derive_auto_patch_selection(tile):
     if not cifp_path:
         tile.auto_patch_selection = []
         return []
-    policy = resolved_boundary_policy(tile)
+    policy, policy_source = boundary_policy_and_source(tile)
     record = []
     skipper = _SELECTION.boundary_skipper(
         int(tile.lat), int(tile.lon),
@@ -1714,15 +1752,23 @@ def derive_auto_patch_selection(tile):
         if cls == "S":
             neighbours.update(cold)
     tile.boundary_policy = policy
+    tile.boundary_policy_source = policy_source
     tile.boundary_neighbours = sorted(neighbours)
     if neighbours and policy == "skip":
+        # SAY WHOSE DECISION IT WAS (issue #45).  "by your boundary
+        # choice" is true of a remembered "Skip those airports' patches"
+        # and of an answer the dialog sent — but under "Ask me each
+        # time" with nothing answered it blamed the user for a default
+        # they never picked, and was the only trace that the dialog had
+        # silently not appeared.
         UI.lvprint(
             0, "   Auto-patch: %d airport(s) reach into %d tile(s) this "
-               "build is not building (%s); their patches are SKIPPED by "
-               "your boundary choice."
+               "build is not building (%s); their patches are SKIPPED %s"
             % (sum(1 for r in record if r[1] == "S" and r[2]),
                len(neighbours),
-               ", ".join("%+03d%+04d" % c for c in sorted(neighbours))))
+               ", ".join("%+03d%+04d" % c for c in sorted(neighbours)),
+               BOUNDARY_SKIP_UNATTENDED if policy_source == "unattended"
+               else BOUNDARY_SKIP_CHOSEN))
     inset_mode = _SELECTION.resolved_inset_mode(tile)
     for candidate in selection:
         if candidate.disposition != "patch":

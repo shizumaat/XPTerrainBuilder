@@ -6144,3 +6144,34 @@ by slice S5b:
 * the full pytest suite: only `tests/auto_patch_v2/test_v2packscatter.py`
   (new, 19 passed) and the law-table covering files
   `test_law_tables.py` + `test_airport_load.py` (63 passed) were run, once.
+
+## 2026-09-22 — lane `appcopy` (issues #24, #45; CLOUD lane, no data corpus)
+
+This lane ran in a cloud container with NO access to the owner's shared data
+repo: no DEM, no OSM corpus, no X-Plane install, no `apt.dat`. Code and unit
+tests only, and `swift build` is unavailable there. Skipped by that
+constraint, and owed:
+
+* the **closing airport build**. Neither fix was exercised against a real
+  tile. #24's path needs a tile whose 3x3 road-feed square carries a
+  stale/unstamped cache that cannot be re-derived (the owner's +46+006 with
+  the network down); #45's needs the owner's ~500 MB
+  `Global Scenery/Global Airports/Earth nav data/apt.dat` and the app's own
+  boundary preflight on +40-077.
+* the **measured preflight time**. The apt.dat block index was measured on a
+  SYNTHETIC 129 MB / 24,000-airport apt.dat in the container (7 airports x 3
+  reads: 8.07 s scanning vs 1.00 s indexed, medians of 3, x8.1), not on the
+  owner's install where the defect was attributed at 20.1 s for tile +40-077.
+  OWED: re-run `EngineSession._boundary_preflight(None, 1, [(40,-77)])` on
+  the owner's Mac and confirm it lands well inside
+  `BuildModel.boundaryPreflightTimeoutSeconds = 60` for a five-tile batch,
+  and that the dialog then appears.
+* the **Qt front end's tests**: `tests/test_qt_boundary_dialog.py` cannot be
+  collected in the container (`ImportError: libEGL.so.1`), so the Qt half of
+  the boundary gate was not run. No Qt file was edited.
+* the **Swift half**: `Sources/XPTerrainBuilder/BuildModel.swift` was NOT
+  edited (the 60 s bound and its give-up line stand as they are — the engine
+  side is what was too slow), and no `swift build` ran.
+* **`ensure_auto_patch_road_feeds`'s new return type** (`RoadFeedPrecheck`)
+  was checked against its one production caller and its own test file only;
+  no full-suite run.

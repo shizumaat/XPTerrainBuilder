@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1797",
+ "engineVersion": "1.50.1798",
  "groups": {
   "app": [
    "verbosity",
@@ -9,6 +9,7 @@
    "osm_extract_foreground_download",
    "osm_extract_refresh_days",
    "base_elevation_source",
+   "auto_patch_boundary",
    "skip_downloads",
    "skip_converts",
    "max_download_slots",

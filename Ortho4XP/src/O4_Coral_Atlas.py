@@ -163,7 +163,7 @@ def rescan_library(
                     "bbox": list(bounding_box),
                 }
             )
-    with open(library_index_path(), "w") as index_file:
+    with open(library_index_path(), "w", newline="\n") as index_file:
         json.dump({"entries": entries}, index_file, indent=1)
     progress(
         "   Allen Coral Atlas library: "

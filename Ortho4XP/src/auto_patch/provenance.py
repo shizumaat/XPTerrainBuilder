@@ -514,7 +514,11 @@ def parse_patch_provenance(path: str) -> dict | None:
 # "2" (2026-09-04): ``o4_ap_engine`` joined the compared keys — a patch one
 # auto-patch engine wrote is never current for the other (RULINGS
 # 2026-09-03d, v2 beside v1).  Every "1" patch rebuilds exactly once.
-FRESHNESS_SCHEMA_VERSION = "2"
+# "3" (2026-09-21, #36): ``o4_solve_cfg`` joined — the tile cfg knobs the
+# airport SOLVE reads that no other stamp carried (``road_grade_limit``,
+# ``lane_width``; road-clamp-scope spec census row 17).  Every "2" patch
+# rebuilds exactly once.
+FRESHNESS_SCHEMA_VERSION = "3"
 
 # Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately
 # NOT here: it is an INPUT to the recomputation of ``o4_dsf`` (which 1°×1°
@@ -527,6 +531,7 @@ FRESHNESS_COMPARED_KEYS = (
     "o4_fresh_v",
     "o4_cfg",
     "o4_dem",
+    "o4_solve_cfg",
     "o4_cifp",
     "o4_pack",
     "o4_engine",
@@ -536,6 +541,34 @@ FRESHNESS_COMPARED_KEYS = (
 
 # Every stamp key written, in the order they appear on the root element.
 FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles",)
+
+# ──────────────────────────────────────────────────────────────────────
+# THE TILE CFG VARS THE AIRPORT BUILD READS — and which stamp carries each
+# ──────────────────────────────────────────────────────────────────────
+# Every ``O4_Cfg_Vars`` tile setting the auto-patch path reads off the
+# ``tile`` object must be in exactly one of these tuples, or a user changing
+# it leaves an existing patch reading as current (#36: ``road_grade_limit``
+# and ``lane_width`` reached ``auto_patch_v2.pipeline.build`` through the
+# driver's task dict and were in NO stamp).  ``tests/test_auto_patch_
+# freshness.py::test_every_tile_cfg_var_the_solve_reads_is_stamped`` walks
+# the driver / engine_v2 source for ``getattr(tile, "<cfg var>")`` and
+# ``task.get("<cfg var>")`` reads and fails on one absent from
+# ``STAMPED_TILE_SETTINGS``.
+#
+#: Elevation / DEM knobs — folded into ``o4_dem`` (``dem_fingerprint``).
+DEM_TILE_SETTINGS = (
+    "custom_dem", "fill_nodata", "elevation_level",
+    "elevation_coastline_band_km", "apt_smoothing_pix",
+    "apt_smoothing_auto", "airport_elevation_insets",
+    "airport_elevation_providers", "airport_elevation_level",
+    "airport_elevation_inset_margin_m",
+    "airport_elevation_inset_feather_m", "airport_inset_water",
+    "working_grid_arc_seconds",
+)
+#: Solve knobs handed to the v2 build (``Inputs.road_grade_limit`` /
+#: ``Inputs.lane_width_m``, RULINGS 04t-4) — folded into ``o4_solve_cfg``.
+SOLVE_TILE_SETTINGS = ("road_grade_limit", "lane_width")
+STAMPED_TILE_SETTINGS = DEM_TILE_SETTINGS + SOLVE_TILE_SETTINGS
 
 
 def _identity(path: str | None) -> str:
@@ -807,13 +840,7 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
                     spec_parts.append("generic:" + _identity(generic))
             except Exception:
                 pass
-    for name in ("custom_dem", "fill_nodata", "elevation_level",
-                 "elevation_coastline_band_km", "apt_smoothing_pix",
-                 "apt_smoothing_auto", "airport_elevation_insets",
-                 "airport_elevation_providers", "airport_elevation_level",
-                 "airport_elevation_inset_margin_m",
-                 "airport_elevation_inset_feather_m", "airport_inset_water",
-                 "working_grid_arc_seconds"):
+    for name in DEM_TILE_SETTINGS:
         value = getattr(tile, name, _UNSET)
         if name in _MODE_VALUED_KEYS and value is not _UNSET:
             # NORMALISED (spec §A.5, RULINGS 2026-09-18e): the key became a
@@ -856,6 +883,30 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
                     paths.append(entry["path"])
             insets = identity_list(paths) if paths else "none"
     return f"spec:{spec[:16]};insets:{insets}"
+
+
+def solve_settings_fingerprint(tile) -> str:
+    """Fingerprint of the tile cfg knobs the airport SOLVE reads (#36).
+
+    ``road_grade_limit`` and ``lane_width`` travel from the tile through
+    the driver's task dict into ``auto_patch_v2.pipeline.build`` (the
+    road-profile fit target, RULINGS 04t-4) and change emitted elevations,
+    yet no stamp carried them — a user editing either kept reusing the old
+    patch (road-clamp-scope spec census row 17).  One ``cfg:name=value``
+    line per :data:`SOLVE_TILE_SETTINGS` entry, digested; an attribute the
+    tile does not carry records as the literal ``unset`` (never the
+    sentinel's repr, whose address differs per process) so "never set" and
+    "set to None" stay distinct.  ``"absent"`` with no tile, like
+    ``dem_fingerprint``.
+    """
+    if tile is None:
+        return "absent"
+    parts = []
+    for name in SOLVE_TILE_SETTINGS:
+        value = getattr(tile, name, _UNSET)
+        parts.append(f"cfg:{name}="
+                     + ("unset" if value is _UNSET else repr(value)))
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
 def engine_version() -> str:

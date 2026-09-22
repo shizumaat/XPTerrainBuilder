@@ -304,6 +304,9 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
         "o4_fresh_v": _prov.FRESHNESS_SCHEMA_VERSION,
         "o4_cfg": _prov.config_digest(),
         "o4_dem": _prov.dem_fingerprint(tile, icao=icao),
+        # The tile cfg knobs the v2 solve reads (``road_grade_limit``,
+        # ``lane_width`` — handed on in the task dict below, #36).
+        "o4_solve_cfg": _prov.solve_settings_fingerprint(tile),
         "o4_cifp": _prov.identity_list(
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
@@ -351,6 +354,9 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        (``o4_cfg``).
     4. **DEM inputs** — the DEM source specification for this tile plus the
        airport-elevation insets that actually baked in (``o4_dem``).
+    4b. **solve settings** — the tile cfg knobs the v2 solve reads that no
+       other stamp carries, ``road_grade_limit`` and ``lane_width``
+       (``o4_solve_cfg``; #36 — before it, editing either reused the patch).
     5. **CIFP** — the AIRAC ``.dat`` files this airport's build reads
        (``o4_cifp``).
     6. **scenery-pack enablement** — the pack that supplied the apt.dat being

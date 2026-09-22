@@ -60,3 +60,54 @@ def test_bundled_snapshot_matches_the_tree() -> None:
         "../Sources/SceneryKit/Resources/o4_schema_dump.py > "
         "../Sources/SceneryKit/Resources/o4_schema_snapshot.json)"
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Every settings var belongs to exactly ONE schema group (#34)
+# ──────────────────────────────────────────────────────────────────────
+#: Vars the dump deliberately publishes in NO group: the ``global_*``
+#: mirrors (the per-tile default of a tile var, never a row of their own)
+#: and the three map-managed tile vars (``O4_Settings_Model`` twin
+#: ``test_map_managed_vars_absent``: the tile grid sets them, not a row).
+UNGROUPED_BY_DESIGN = frozenset({"default_website", "default_zl", "zone_list"})
+
+
+def _dumped_schema() -> dict:
+    import json
+
+    result = subprocess.run(
+        [sys.executable, str(SCHEMA_DUMP)],
+        capture_output=True, text=True, cwd=str(ENGINE_DIR),
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@app_side
+def test_every_var_is_in_exactly_one_group() -> None:
+    """``auto_patch_boundary`` sat in ``vars`` but in no ``groups`` entry
+    (#34): the mac app resolves rows by NAME so its row rendered, the Qt
+    row was added by hand, and a front end that walks ``groups`` never saw
+    it.  The groups are the ``O4_Cfg_Vars.list_*_vars`` lists, so a var
+    added to ``cfg_*_vars`` without a list entry is exactly this defect
+    again — this twin fails on it.
+    """
+    sys.path.insert(0, str(ENGINE_DIR / "src"))
+    from O4_Cfg_Vars import global_prefix
+
+    schema = _dumped_schema()
+    membership: dict[str, list[str]] = {}
+    for group, names in schema["groups"].items():
+        for name in names:
+            membership.setdefault(name, []).append(group)
+    twice = {n: g for n, g in membership.items() if len(g) > 1}
+    assert not twice, f"vars in more than one group: {twice}"
+    unknown = sorted(set(membership) - set(schema["vars"]))
+    assert not unknown, f"groups name vars the schema does not carry: {unknown}"
+    rows = {n for n in schema["vars"]
+            if not n.startswith(global_prefix) and n not in UNGROUPED_BY_DESIGN}
+    missing = sorted(rows - set(membership))
+    assert not missing, (
+        f"settings vars in no schema group (add each to its "
+        f"O4_Cfg_Vars.list_*_vars): {missing}")
+    assert membership["auto_patch_boundary"] == ["app"]

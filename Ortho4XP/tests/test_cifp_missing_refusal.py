@@ -46,14 +46,25 @@ def _stub_generate(monkeypatch):
     generation path just before ``generate_auto_patches`` and reads —
     and may re-derive — the shared OSM corpus for nine tiles.  Headless
     here: it is recorded, never run (#35: the bare ``SimpleNamespace``
-    tile had no ``.lat`` for it to read).
+    tile had no ``.lat`` for it to read), and answers with an empty
+    :class:`~O4_Vector_Map.RoadFeedPrecheck` — nothing derived, nothing
+    left stale.
     """
     monkeypatch.setattr(UI, "log", False)
     recorder = _Recorder()
     monkeypatch.setattr(VMAP.AUTOPATCH, "generate_auto_patches", recorder)
     recorder.road_feed_tiles = []
+
+    def _record_road_feeds(tile):
+        # The stub must return what the real pre-check returns: the
+        # caller reads ``.stale`` off it and hands it to
+        # ``generate_auto_patches`` (issue #24).  Nothing is stale here —
+        # nothing was read.
+        recorder.road_feed_tiles.append(tile)
+        return VMAP.RoadFeedPrecheck([], [])
+
     monkeypatch.setattr(VMAP, "ensure_auto_patch_road_feeds",
-                        recorder.road_feed_tiles.append)
+                        _record_road_feeds)
     return recorder
 
 

@@ -150,7 +150,7 @@ def wire_airport(monkeypatch, thresholds=FLAT_THRESHOLDS, apt=None,
     modules, so patching the modules is enough — nothing here replaces a
     detector function, so every verdict below is the real detector's.
     """
-    from auto_patch import apt_dat_reader, osm_load
+    from auto_patch import apt_dat_reader, build_support
 
     per_icao = (thresholds if isinstance(thresholds, dict)
                 else {icao: thresholds for icao in icaos})
@@ -161,8 +161,13 @@ def wire_airport(monkeypatch, thresholds=FLAT_THRESHOLDS, apt=None,
     monkeypatch.setattr(
         flat_site, "cifp_threshold_elevations",
         lambda root, icao: list(per_icao.get(icao.upper(), [])))
+    # The apt.dat selector is bound from ``build_support`` (v1retire r1,
+    # fbf79c53 moved the import off ``osm_load``); patching the
+    # ``osm_load`` re-export left the real selector running against
+    # "/synthetic/X-Plane", which found nothing, so every substitution
+    # twin saw ``[]`` (#35).
     monkeypatch.setattr(
-        osm_load, "_pick_best_apt_dat_against_osm",
+        build_support, "_pick_best_apt_dat_against_osm",
         lambda root, icao: "/synthetic/apt.dat")
     monkeypatch.setattr(
         apt_dat_reader, "load_airport",

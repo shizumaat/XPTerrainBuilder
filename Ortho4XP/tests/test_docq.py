@@ -96,7 +96,10 @@ def test_every_index_row_parses_and_the_short_index_is_short():
 def test_frames_registry_round_trip(tmp_path, monkeypatch):
     reg = tmp_path / "frames.jsonl"
     monkeypatch.setattr(frames, "REGISTRY", str(reg))
-    p = tmp_path / "KCLT.pkl"; p.write_bytes(b"x")
+    durable = tmp_path / "data" / ".harness" / "frames"
+    monkeypatch.setattr(frames, "DURABLE_ROOT", str(durable))
+    (durable / "v2test").mkdir(parents=True)
+    p = durable / "v2test" / "KCLT.pkl"; p.write_bytes(b"x")
     frames.register("kclt", "capture", str(p), "864e7577", "v2test", "unit")
     rows = frames.list_frames("KCLT", "capture")
     assert len(rows) == 1 and rows[0]["icao"] == "KCLT" and rows[0]["base"] == "864e7577"
@@ -108,6 +111,104 @@ def test_frames_registry_round_trip(tmp_path, monkeypatch):
     p.unlink()
     assert frames.latest("KCLT", "capture") is None   # a vanished path is never served
     assert json.loads(reg.read_text().splitlines()[0])["lane"] == "v2test"
+
+
+def _durable(tmp_path, monkeypatch):
+    reg = tmp_path / "frames.jsonl"
+    monkeypatch.setattr(frames, "REGISTRY", str(reg))
+    durable = tmp_path / "data" / ".harness" / "frames"
+    monkeypatch.setattr(frames, "DURABLE_ROOT", str(durable))
+    return reg, durable
+
+
+def test_frames_durable_root_is_the_guards_harness_state(monkeypatch):
+    """ONE resolution of `.harness/` (issue #37): the durable root is the
+    guard's own HARNESS_STATE — the directory the shared-repo write guard
+    ALWAYS allows (the refresh ledger and the locks live there) — so a
+    `--copy` under an armed build is never a refused corpus write, and
+    `O4_DATA_REPO` re-points both together."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "srg", os.path.join(frames.ROOT, "Ortho4XP", "tools", "harness", "shared_repo_guard.py"))
+    srg = importlib.util.module_from_spec(spec); spec.loader.exec_module(srg)
+    assert frames.DURABLE_ROOT == os.path.join(str(srg.HARNESS_STATE), "frames")
+    assert os.path.basename(os.path.dirname(frames.DURABLE_ROOT)) == ".harness"
+    # ...and the guard's rule that makes it safe: `.harness` is never a violation
+    assert 'if rel.startswith(".harness"):' in open(spec.origin, encoding="utf-8").read()
+
+
+def test_frames_register_refuses_a_tmp_path_naming_the_durable_root(tmp_path, monkeypatch):
+    """The #37 twin: a /tmp product registers NOWHERE without --copy — the
+    refusal names the durable root and the flag, and the registry stays
+    empty (a row pointing at a path the next reboot purges is the defect)."""
+    reg, durable = _durable(tmp_path, monkeypatch)
+    import tempfile
+    with tempfile.TemporaryDirectory(dir="/tmp") as td:   # deliberately /tmp
+        p = os.path.join(td, "KCLT.pkl")
+        open(p, "wb").write(b"x")
+        with pytest.raises(SystemExit) as exc:
+            frames.register("KCLT", "capture", p, "864e7577", "v2test")
+        msg = str(exc.value)
+        assert "NON-DURABLE" in msg and str(durable) in msg and "--copy" in msg
+        assert not reg.exists()
+        # the CLI spells the same refusal
+        with pytest.raises(SystemExit) as exc:
+            frames.main(["register", "--icao", "KCLT", "--kind", "capture", "--path", p,
+                         "--base", "864e7577", "--lane", "v2test"])
+        assert "NON-DURABLE" in str(exc.value)
+    # a scratchpad path is no more durable than /tmp
+    p2 = tmp_path / "scratch" / "cap.pkl"; p2.parent.mkdir(); p2.write_bytes(b"y")
+    assert not frames.is_durable(str(p2))
+    with pytest.raises(SystemExit):
+        frames.register("KCLT", "capture", str(p2), "x", "v2test")
+
+
+def test_frames_register_copy_lands_under_the_lane_and_keeps_the_original(tmp_path, monkeypatch):
+    reg, durable = _durable(tmp_path, monkeypatch)
+    src = tmp_path / "scratch"; src.mkdir()
+    # a file, and a patch WITH its sidecar (the census needs both)
+    patch = src / "KCLT.patch.osm"; patch.write_bytes(b"<osm/>")
+    (src / "KCLT.patch.osm.axes.json").write_text('{"ruleset": "FAA"}')
+    rec = frames.register("kclt", "patch", str(patch), "864e7577", "v2test", copy=True)
+    assert rec["path"] == str(durable / "v2test" / "KCLT.patch.osm")
+    assert rec["copied_from"] == str(patch)
+    assert frames.is_durable(rec["path"])
+    assert (durable / "v2test" / "KCLT.patch.osm.axes.json").read_text() == '{"ruleset": "FAA"}'
+    assert frames.latest("KCLT", "patch")["path"] == rec["path"]
+    assert json.loads(reg.read_text().splitlines()[0])["copied_from"] == str(patch)
+    # a directory product (a capture dir) copies whole
+    cap = src / "cap"; cap.mkdir(); (cap / "stage.pkl").write_bytes(b"s")
+    rec = frames.register("KCLT", "capture", str(cap), "864e7577", "v2test", copy=True)
+    assert (durable / "v2test" / "cap" / "stage.pkl").read_bytes() == b"s"
+    # a durable path registers as-is, --copy or not, and gets no copied_from
+    rec2 = frames.register("KCLT", "capture", rec["path"], "864e7577", "v2test", copy=True)
+    assert rec2["path"] == rec["path"] and "copied_from" not in rec2
+    # never overwrite: a byte-identical file is reused, a differing one refuses
+    frames.register("KCLT", "patch", str(patch), "x", "v2test", copy=True)
+    patch.write_bytes(b"<osm>changed</osm>")
+    with pytest.raises(SystemExit) as exc:
+        frames.register("KCLT", "patch", str(patch), "x", "v2test", copy=True)
+    assert "refusing to overwrite" in str(exc.value)
+    with pytest.raises(SystemExit):                       # the dir already exists
+        frames.register("KCLT", "capture", str(cap), "x", "v2test", copy=True)
+    # the original is left where it was — --copy copies, never moves
+    assert patch.exists() and cap.exists()
+    # a lane name that is not a bare name cannot become a path component
+    with pytest.raises(SystemExit):
+        frames.register("KCLT", "patch", str(patch), "x", "claude/lane", copy=True)
+
+
+def test_frames_list_marks_a_vanished_path_missing(tmp_path, monkeypatch, capsys):
+    reg, durable = _durable(tmp_path, monkeypatch)
+    (durable / "v2test").mkdir(parents=True)
+    p = durable / "v2test" / "HECA.pkl"; p.write_bytes(b"x")
+    frames.register("HECA", "capture", str(p), "abc", "v2test")
+    p.unlink()
+    frames.main(["list", "HECA"])
+    out = capsys.readouterr().out
+    assert "[MISSING]" in out and str(p) in out
+    # ...and the rows written before this law are read, never rewritten
+    assert reg.read_text().count("\n") == 1
 
 
 def test_brief_pack_assembles_from_the_tools(tmp_path):

@@ -151,6 +151,7 @@ def build_overlay(lat, lon):
             FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.txt",
         ),
         "w",
+        newline="\n",
     )
     line = f.readline()
     g.write("PROPERTY sim/overlay 1\n")

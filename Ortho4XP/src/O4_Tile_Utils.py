@@ -255,7 +255,7 @@ def _write_imagery_manifest(tile, download_stats, convert_progress):
         }
         path = imagery_manifest_path(tile)
         temporary = path + ".tmp"
-        with open(temporary, "w") as handle:
+        with open(temporary, "w", newline="\n") as handle:
             json.dump(manifest, handle, indent=2, sort_keys=True)
         os.replace(temporary, path)
     except Exception as error:

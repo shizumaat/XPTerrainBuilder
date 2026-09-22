@@ -2011,7 +2011,7 @@ def write_levelled_roads_sidecar(tile, levelled_roads):
     path = levelled_roads_sidecar_path(build_dir)
     try:
         os.makedirs(build_dir, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as handle:
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(levelled_roads.sidecar(tile.lat, tile.lon), handle)
     except (OSError, TypeError, ValueError) as e:
         UI.vprint(1, "      Could not write", path, ":", e)

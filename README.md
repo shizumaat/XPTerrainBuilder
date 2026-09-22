@@ -1,32 +1,9 @@
 # XPTerrainBuilder
 
-A native macOS app that builds X-Plane photoscenery by driving the
-Ortho4XP engine bundled in this repository: pick tiles on a map, tune the
-build options, and watch the build run — no Python setup required.
+A tool that builds detailed terrain by combining high resolution elevation data, satellite imagery, and powerful, FAA/ICAO rule based airport terrain modelling. A native macOS app, as well as QT based Windows and Linux apps provide a simple and powerful UI for picking tiles on a map, tuning the
+build options, and building scenery — no Python setup required.
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange)
-
-This repo merges what used to be two projects:
-
-- **XPTerrainBuilder** — the SwiftUI app and its `SceneryKit` support
-  library (repo root).
-- **Ortho4XP** — vendored as a squashed snapshot under `Ortho4XP/`,
-  taken from the `dev` branch of
-  [shizumaat/Ortho4XP-novemberlima](https://github.com/shizumaat/Ortho4XP-novemberlima)
-  (itself a fork of [shred86/Ortho4XP](https://github.com/shred86/Ortho4XP),
-  which forks the original
-  [oscarpilote/Ortho4XP](https://github.com/oscarpilote/Ortho4XP)).
-  The snapshot's source commit is recorded in the vendoring commit
-  message. **Since the vendoring (2026-07-22), the copy in this repo is
-  the canonical engine tree** — all engine development happens here and
-  the app's release builds freeze from it; the novemberlima repository
-  holds the pre-vendoring history and is no longer updated.
-
-The app is focused on terrain building only. The scenery-analysis
-functionality of the former XPSceneryDoctor project (missing-resource
-diagnosis, redundant-pack detection, package health checks, …) is **not
-part of this app** — it lives in its own separate repository, and its
-code has been removed from this one.
 
 ## What it does
 
@@ -51,10 +28,7 @@ tiles, config) goes to a user-chosen data folder via
 `ORTHO4XP_DATA_ROOT`; the engine copy inside the app bundle stays
 read-only.
 
-## Beyond stock Ortho4XP
-
-Relative to the shred86 base it forked from, the engine in this repo
-adds (see `Ortho4XP/docs/specs/` for the individual specifications):
+## Core Features
 
 **Airport terrain grading (`auto_patch`)**
 - FAA / EASA / ICAO-compliant regrading of every airport's paved
@@ -94,8 +68,7 @@ adds (see `Ortho4XP/docs/specs/` for the individual specifications):
 - A new PySide6 map-first GUI for Windows/Linux (`Ortho4XP_Qt.py`)
   alongside the legacy Tkinter app, sharing the engine protocol
   semantics with the mac app.
-- Texture modes, color harmonization, default-landclass terrain mode,
-  an MSFS→X-Plane airport package converter, and PyInstaller freeze
+- Texture modes, color harmonization, default-landclass terrain mode,and PyInstaller freeze
   specs used for the self-contained releases.
 
 ## Building the app

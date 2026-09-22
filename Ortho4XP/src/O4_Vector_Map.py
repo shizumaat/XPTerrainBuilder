@@ -2,6 +2,7 @@ import os
 import time
 import threading
 from math import pi, sin, cos, sqrt, atan, exp, floor
+from typing import NamedTuple
 import numpy
 from shapely import affinity, geometry, ops
 from shapely.prepared import prep
@@ -923,6 +924,23 @@ def _rederive_road_feed(lat, lon, feed):
     return False
 
 
+class RoadFeedPrecheck(NamedTuple):
+    """What :func:`ensure_auto_patch_road_feeds` found and could do.
+
+    ``derived`` — the ``(lat, lon, feed)`` triples it re-derived.
+    ``stale``   — the ``(lat, lon, feed, path)`` feeds that are STILL on
+    disk and STILL not schema-current after the attempt (offline, no
+    extract, the download failed).  The v2 reader refuses exactly these,
+    once inside every airport's worker, so the caller narrates them ONCE
+    for the tile instead (issue #24, RULINGS 2026-09-18d (1) residual
+    (a)).  An ABSENT feed is never listed: absence is lawful and the
+    reader reads it as an empty feed.
+    """
+
+    derived: list
+    stale: list
+
+
 def ensure_auto_patch_road_feeds(tile):
     """Make EVERY cached road feed auto_patch_v2 will read SCHEMA-CURRENT
     before it reads them — the home tile's and its eight neighbours'.
@@ -958,7 +976,9 @@ def ensure_auto_patch_road_feeds(tile):
     locked, ledgered form is ``build_airport.py <ICAO> --refresh-data
     osm_layers``.  In the app the tile build is the writer of record.
 
-    Returns the ``(lat, lon, feed)`` triples it re-derived.
+    Returns a :class:`RoadFeedPrecheck` — what it re-derived, and what
+    is STILL stale on disk afterwards (the offline residual the caller
+    turns into ONE tile-level line).
     """
     lat0, lon0 = int(tile.lat), int(tile.lon)
     try:
@@ -973,6 +993,7 @@ def ensure_auto_patch_road_feeds(tile):
         if not os.path.isfile(candidates[0][3]):
             candidates = [(lat0, lon0, "airport_small_roads", None)]
     derived = []
+    still_stale = []
     for tlat, tlon, feed, path in candidates:
         home_small = (tlat == lat0 and tlon == lon0
                       and feed == "airport_small_roads")
@@ -997,9 +1018,22 @@ def ensure_auto_patch_road_feeds(tile):
                 continue
         if _rederive_road_feed(tlat, tlon, feed):
             derived.append((tlat, tlon, feed))
+        # DID IT ACTUALLY COME BACK?  ``_rederive_road_feed`` returns
+        # False offline (no extract, the download failed) and both
+        # writers deliberately leave the STALE bytes on the disk — a
+        # stale corpus beats an absent one — so the reader will refuse
+        # this exact file.  Ask the file, not the writer's return value:
+        # a writer can report a layer and still not have rewritten the
+        # cache.  Only reached for a feed that was NOT current, so a
+        # current corpus still costs exactly one header read per feed.
+        if path is None:
+            path = FNAMES.osm_cached(tlat, tlon, feed)
+        if os.path.isfile(path) and not OSM._cached_osm_schema_matches(
+                path, ROAD_CACHE_TAG_SCHEMA):
+            still_stale.append((tlat, tlon, feed, path))
         if UI.red_flag:
             break
-    return derived
+    return RoadFeedPrecheck(derived, still_stale)
 
 
 def _osm_layer_prefetch_specifications(tile):
@@ -1880,7 +1914,7 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
         # current BEFORE it loads them (it refuses a stale/unstamped copy
         # by name, and an app user has no --refresh-data to run).  One
         # bz2 header read per feed when current.
-        ensure_auto_patch_road_feeds(tile)
+        road_feeds = ensure_auto_patch_road_feeds(tile)
         AUTOPATCH.generate_auto_patches(
             tile, cifp_path,
             taxiway_data=_taxiway_provider,
@@ -1888,6 +1922,11 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
             dico_airports=dico_airports,
             road_data=_road_provider,
             mode=auto_patch_mode,
+            # What the pre-check could NOT refresh (offline, no extract).
+            # The driver says it ONCE for the tile instead of letting the
+            # v2 reader refuse it inside each airport's worker with a
+            # developer --refresh-data command (issue #24).
+            stale_road_feeds=road_feeds.stale,
         )
 
 

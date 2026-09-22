@@ -38,6 +38,9 @@ from shapely.geometry import Polygon
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 from O4_Geo_Utils import earth_radius as R_EARTH  # single source of truth
+# Light (only ``.selection`` at module level); the stamp-key set the reader
+# below must recognise — never re-spelled here (#36).
+from .provenance import FRESHNESS_KEYS as _FRESHNESS_KEYS
 
 # Narrow exception tuple for shapely / numeric-geometry failure modes.
 # Programming errors propagate so they surface immediately.  Includes
@@ -183,8 +186,14 @@ _PATCH_SOURCE_MTIME_RE = re.compile(r"o4_apt_dat_mtime='([^']*)'")
 _PATCH_SOURCE_BORROWED_RE = re.compile(r"o4_apt_dat_borrowed='([^']*)'")
 _PATCH_SOURCE_BORROWED_MTIME_RE = re.compile(
     r"o4_apt_dat_borrowed_mtime='([^']*)'")
-_PATCH_FRESHNESS_RE = re.compile(r"(o4_(?:fresh_v|cfg|dem|cifp|pack|engine"
-                                 r"|ap_engine|dsf_tiles|dsf))='([^']*)'")
+# The stamp set is ``provenance.FRESHNESS_KEYS`` — ONE derivation site.  This
+# regex used to re-spell it by hand and silently dropped a key the writer
+# had gained (``o4_solve_cfg``, #36: the reader returned no such stamp, so
+# the gate reported "missing" and rebuilt every airport forever).  Longest
+# names first so ``o4_dsf`` cannot eat ``o4_dsf_tiles``' prefix.
+_PATCH_FRESHNESS_RE = re.compile(
+    "(" + "|".join(re.escape(k) for k in sorted(
+        _FRESHNESS_KEYS, key=len, reverse=True)) + r")='([^']*)'")
 
 
 def read_patch_source(path: str) -> dict | None:

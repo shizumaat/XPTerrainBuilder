@@ -92,7 +92,14 @@ GRID_STEP = 16
 # The per-texture field is evaluated at this square and upsampled.
 FIELD_SIZE = 256
 
-_SIDES = ("L", "R", "T", "B")
+SIDES = ("L", "R", "T", "B")
+# The neighbour each side faces: (dx, dy) in grid steps and its facing side.
+NEIGHBOUR_OF_SIDE = {
+    "L": (-1, 0, "R"),
+    "R": (1, 0, "L"),
+    "T": (0, -1, "B"),
+    "B": (0, 1, "T"),
+}
 
 
 def strength_for_zoomlevel(zoomlevel: int) -> float:
@@ -343,22 +350,28 @@ def solve_offset_field(
         cols.extend((i, j, j, i))
         vals.extend((w, w, -w, -w))
 
-    # smoothness across every adjacent pair of the dense grid
-    for i in range(ny):
-        for j in range(nx):
-            p = i * nx + j
-            if j + 1 < nx:
-                pair(p, p + 1, mu)
-            if i + 1 < ny:
-                pair(p, p + nx, mu)
     # the measured casts
+    measured = set()
     for key_a, key_b, d, w in seams:
         a, b = idx(key_a), idx(key_b)
         w = float(w)
         pair(a, b, w)
+        measured.add((min(a, b), max(a, b)))
         d = numpy.asarray(d, dtype=numpy.float64) * float(strength)
         rhs[b] -= w * d
         rhs[a] += w * d
+    # smoothness across every adjacent pair of the dense grid that carries
+    # NO cast (water, holes and non-witnesses inherit harmonically, spec
+    # §2.3).  A pair with a cast is left to its data term alone: a μ term
+    # on it shrinks the seam residual by w/(w+μ) — a 40-count cast at
+    # strength 0.7 solved to −26.7 instead of −28 with μ on every pair.
+    for i in range(ny):
+        for j in range(nx):
+            p = i * nx + j
+            if j + 1 < nx and (p, p + 1) not in measured:
+                pair(p, p + 1, mu)
+            if i + 1 < ny and (p, p + nx) not in measured:
+                pair(p, p + nx, mu)
     # absolute anchors
     for key, c, w in anchors:
         p = idx(key)
@@ -387,6 +400,99 @@ def solve_offset_field(
             )
     values = solution.reshape(ny, nx, 3).astype(numpy.float32)
     return OffsetField((x0, y0), step, values, present)
+
+
+# --- Nested zoom levels (spec §2.5) ----------------------------------------------
+
+
+def covering_key(key, zoomlevel: int, coarse_zoomlevel: int, step: int = GRID_STEP):
+    """``(coarse_key, rx, ry, factor)``: the texture of ``coarse_zoomlevel``
+    that covers the finer texture ``key`` of ``zoomlevel``, the finer
+    texture's sub-square index ``(rx, ry)`` inside it (``0 ≤ rx, ry <
+    factor``) and ``factor = 2 ** (zoomlevel − coarse_zoomlevel)``.
+    """
+    factor = 2 ** (int(zoomlevel) - int(coarse_zoomlevel))
+    x, y = int(key[0]), int(key[1])
+    cx = (x // (step * factor)) * step
+    cy = (y // (step * factor)) * step
+    return (cx, cy), (x - factor * cx) // step, (y - factor * cy) // step, factor
+
+
+def edge_midpoint_offset(side: str, rx: int, ry: int, factor: int) -> tuple[float, float]:
+    """Where the finer texture's ``side`` edge midpoint lies inside its
+    covering coarse texture, in coarse-cell units relative to the coarse
+    texture's CENTRE (``(-0.5, -0.5)`` is the coarse top-left corner)."""
+    cx = (rx + 0.5) / factor - 0.5
+    cy = (ry + 0.5) / factor - 0.5
+    if side == "L":
+        cx = rx / factor - 0.5
+    elif side == "R":
+        cx = (rx + 1) / factor - 0.5
+    elif side == "T":
+        cy = ry / factor - 0.5
+    elif side == "B":
+        cy = (ry + 1) / factor - 0.5
+    return cx, cy
+
+
+def cross_zoom_cast(
+    stats_fine: dict,
+    side: str,
+    thumb_coarse: numpy.ndarray,
+    land_coarse: numpy.ndarray,
+    rx: int,
+    ry: int,
+    factor: int,
+    strip: int = STRIP_WIDTH,
+    min_fraction: float = MINIMUM_SEAM_ROWS / 512.0,
+) -> tuple[numpy.ndarray, float] | None:
+    """The colour step between a finer texture's outer ``side`` strip and
+    the co-located sub-strip of the coarse thumbnail that covers it
+    (spec §2.5).  The fine strip (512 rows) is block-averaged to the
+    coarse sub-square's ``512 / factor`` rows; the coarse sub-strip is
+    ``strip / factor`` (≥ 1) thumbnail pixels wide.  Returns ``(d, weight)``
+    with ``d = median over land rows of (coarse − fine)`` per channel and
+    ``weight = land_rows / rows``, or ``None`` when fewer than
+    ``min_fraction`` of the rows are land on both sides.
+    """
+    n = int(thumb_coarse.shape[0])
+    sub = n // factor
+    w = max(1, strip // factor)
+    fine_strip = numpy.asarray(stats_fine["strips"][side], dtype=numpy.float64)
+    fine_land = numpy.asarray(stats_fine["land_strips"][side], dtype=bool)
+    rows_fine = fine_strip.shape[0]
+    block = rows_fine // sub
+    if sub < 1 or block < 1 or rows_fine != sub * block:
+        return None
+    fine_strip = fine_strip.reshape(sub, block, 3).mean(axis=1)
+    fine_land = fine_land.reshape(sub, block).all(axis=1)
+    x0, y0 = rx * sub, ry * sub
+    coarse = numpy.asarray(thumb_coarse, dtype=numpy.float64)
+    land_coarse = numpy.asarray(land_coarse, dtype=bool)
+    if side == "L":
+        region = coarse[y0:y0 + sub, x0:x0 + w]
+        land = land_coarse[y0:y0 + sub, x0:x0 + w]
+        axis = 1
+    elif side == "R":
+        region = coarse[y0:y0 + sub, x0 + sub - w:x0 + sub]
+        land = land_coarse[y0:y0 + sub, x0 + sub - w:x0 + sub]
+        axis = 1
+    elif side == "T":
+        region = coarse[y0:y0 + w, x0:x0 + sub]
+        land = land_coarse[y0:y0 + w, x0:x0 + sub]
+        axis = 0
+    else:
+        region = coarse[y0 + sub - w:y0 + sub, x0:x0 + sub]
+        land = land_coarse[y0 + sub - w:y0 + sub, x0:x0 + sub]
+        axis = 0
+    coarse_strip = region.mean(axis=axis)
+    coarse_land = land.all(axis=axis)
+    rows = fine_land & coarse_land
+    k = int(rows.sum())
+    if k < max(1, int(round(min_fraction * sub))):
+        return None
+    d = numpy.median(coarse_strip[rows] - fine_strip[rows], axis=0)
+    return d, k / float(sub)
 
 
 def bilinear_field(field: OffsetField, key, size: int = FIELD_SIZE) -> numpy.ndarray:

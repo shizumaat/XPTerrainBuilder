@@ -149,6 +149,11 @@ jobs:
       # fire; serial, a crash kills pytest immediately and -v names the
       # test it died in.  The step's own `timeout` fails the STEP instead
       # of the JOB, so the log survives to be read.
+      #
+      # tests/conftest.py now REFUSES a Qt file collected into a parallel
+      # run (one failing item, 300 skips, seconds) so an accidental
+      # `pytest tests/` -- which picks up `-n auto` from pytest.ini --
+      # says why instead of hanging.  This step stays the lawful path.
       - name: Qt app (offscreen)
         if: always()
         working-directory: Ortho4XP

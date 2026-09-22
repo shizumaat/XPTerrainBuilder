@@ -1840,6 +1840,115 @@ def check(pack_root: str, mesh_path: str) -> str:
     return "STALE"
 
 
+def _read_json_dict(path: str) -> dict:
+    """A JSON object from ``path``, or ``{}`` — NEVER raises: a garbled
+    record means "nothing recorded", not a failed restore."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            doc = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _v2_record_paths(pack_root: str) -> list[str]:
+    """Every v2 per-DSF placement record in a pack (#26).
+
+    ONE ``listdir`` of ``Earth nav data/`` plus one ``stat`` per 10°x10°
+    bucket — never a deep walk: :func:`modified_packs` runs this for
+    every pack in Custom Scenery.  Both layouts are read: the record
+    lands beside its DSF, which is normally in a bucket folder but may
+    sit directly in ``Earth nav data/``."""
+    from auto_patch_v2.model.placement import PROVENANCE_FILENAME as V2_NAME
+
+    nav = os.path.join(pack_root, "Earth nav data")
+    found = []
+    beside = os.path.join(nav, V2_NAME)
+    if os.path.isfile(beside):
+        found.append(beside)
+    try:
+        entries = sorted(os.listdir(nav))
+    except OSError:
+        return found
+    for name in entries:
+        candidate = os.path.join(nav, name, V2_NAME)
+        if os.path.isfile(candidate):
+            found.append(candidate)
+    return found
+
+
+def _v2_record_entries(record_path: str) -> dict[str, dict]:
+    """``{dsf basename: entry}`` for one record, version 2 and version 1
+    alike (version 1 describes its one DSF at the top level)."""
+    doc = _read_json_dict(record_path)
+    entries = doc.get("dsfs")
+    if isinstance(entries, dict):
+        return {name: entry for name, entry in entries.items()
+                if isinstance(name, str) and isinstance(entry, dict)}
+    name = doc.get("dsf")
+    return {name: doc} if isinstance(name, str) and name else {}
+
+
+def _v2_status(pack_root: str) -> dict[str, int]:
+    """``{tile_name: objects}`` from a pack's v2 placement records (#26).
+
+    The v2 engine writes NO reanchor sidecar — it records what it did per
+    DSF, beside the DSF — so a pack only ever written by v2 was invisible
+    to :func:`modified_packs`, and "restore originals" never offered it.
+    Read here in :func:`pack_status`'s frame: the tile is the DSF's own
+    name (``+18-064.dsf`` -> ``+18-064``), and the count is what the
+    write changed — conversions + row seats + minted bodies."""
+    by_tile: dict[str, int] = {}
+    for record_path in _v2_record_paths(pack_root):
+        for basename, entry in _v2_record_entries(record_path).items():
+            counts = entry.get("counts")
+            counts = counts if isinstance(counts, dict) else {}
+            objects = 0
+            for key in ("conversions", "msl_seats", "bodies"):
+                try:
+                    objects += int(counts.get(key) or 0)
+                except (TypeError, ValueError):
+                    continue
+            tile = os.path.splitext(basename)[0]
+            by_tile[tile] = by_tile.get(tile, 0) + objects
+    return by_tile
+
+
+def _restore_v2_writes(pack_root: str, record_paths: list[str]) -> int:
+    """Remove the body files the v2 engine minted and forget the writes
+    that minted them; returns how many files went (#26).
+
+    Runs AFTER the ``.anchor_bak`` walk has put the DSFs back: a restored
+    DSF no longer references the ``__b<k>.obj`` bodies its write cut, so
+    leaving them leaves the pack carrying the engine's files forever —
+    the v1 sidecar the old restore deleted never named them.
+
+    A DSF the engine cannot prove it owns is left ALONE, bodies and
+    record entry both: UNPROVEN (the backup is unreadable) and
+    ORIGINAL_LOST (marked as ours, but no original to go back to) both
+    mean the live file may still reference those bodies, and the rule
+    here is the restore's own — a file we cannot prove is ours never
+    loses bytes.  Every unlink goes through the one CUT_MARK-guarded
+    remover, so an authored object on a ``__b`` name is never touched."""
+    from auto_patch_v2.airport import backup_state as _bs
+    from auto_patch_v2.airport import dsf_write as _dw
+
+    removed = 0
+    for record_path in record_paths:
+        directory = os.path.dirname(record_path)
+        for basename in sorted(_v2_record_entries(record_path)):
+            dsf_path = os.path.join(directory, basename)
+            state = _bs.classify_dsf(dsf_path).state
+            if state in (_bs.State.UNPROVEN, _bs.State.ORIGINAL_LOST):
+                continue
+            # the record names the bodies, so remove them BEFORE the
+            # entry that names them is dropped
+            removed += len(_dw.remove_cut_files(
+                _dw.written_body_files(pack_root, dsf_path)))
+            _bs.drop_dsf_entry(dsf_path)
+    return removed
+
+
 def restore_detail(pack_root: str) -> dict:
     """:func:`restore`, with the counts the front ends now report.
 
@@ -1855,13 +1964,23 @@ def restore_detail(pack_root: str) -> dict:
     ``<name>.anchor_bak.orphaned`` (invariant I-14 relics) and
     ``.anchor_bak.superseded-<UTC>`` (§12a) files are left alone: they
     are not originals of the current pack.
+
+    ``bodies_removed`` is ADDITIVE (#26): the v2 engine mints ``__b<k>``
+    body files and records its writes beside the DSF, neither of which
+    the v1 sidecar ever named — see :func:`_restore_v2_writes`.  Both
+    front ends read ``restored`` and are unaffected.
     """
     from auto_patch_v2.airport import backup_state as _bs
+    from auto_patch_v2.model.placement import PROVENANCE_FILENAME as V2_NAME
 
     restored = 0
     kept_changed = 0
+    v2_records: list[str] = []
     for directory, _subdirectories, filenames in os.walk(pack_root):
         for filename in filenames:
+            if filename == V2_NAME:
+                # collected on the walk that is already happening (#26)
+                v2_records.append(os.path.join(directory, filename))
             if not filename.endswith(BACKUP_SUFFIX):
                 continue
             backup_path = os.path.join(directory, filename)
@@ -1879,10 +1998,12 @@ def restore_detail(pack_root: str) -> dict:
             shutil.copy2(backup_path, live_path)
             _bs.invalidate_memo()
             restored += 1
+    bodies_removed = _restore_v2_writes(pack_root, v2_records)
     sidecar_path = _provenance_path(pack_root)
     if os.path.isfile(sidecar_path):
         os.remove(sidecar_path)
-    return {"restored": restored, "kept_changed": kept_changed}
+    return {"restored": restored, "kept_changed": kept_changed,
+            "bodies_removed": bodies_removed}
 
 
 def restore(pack_root: str) -> int:
@@ -1908,13 +2029,20 @@ def pack_status(pack_root: str) -> dict | None:
 
 
 def modified_packs(scenery_dir: str, tile: str | None = None) -> list[dict]:
-    """Every pack under ``scenery_dir`` carrying reanchor provenance.
+    """Every pack under ``scenery_dir`` the engine modified.
 
-    One sidecar stat per pack — no deep walks.  ``tile`` (``"+46+008"``)
+    One sidecar stat per pack, plus one ``listdir`` + one stat per bucket
+    for the v2 records — no deep walks.  ``tile`` (``"+46+008"``)
     restricts to packs with objects rebaked for that tile, and each
     entry's ``objects`` then counts that tile's objects only; without it,
     the pack's total.  Front ends (the mac app's selection pane, a future
     Qt panel) list these and offer :func:`restore` per pack.
+
+    BOTH ENGINES (#26).  This read the v1 reanchor sidecar only, so a
+    pack the v2 engine wrote was never listed and "restore originals"
+    never offered it — its minted bodies and its record stayed in the
+    pack with no way to get them out.  A pack carrying either is listed;
+    one carrying both is listed ONCE, with the counts summed.
     """
     results: list[dict] = []
     try:
@@ -1926,19 +2054,22 @@ def modified_packs(scenery_dir: str, tile: str | None = None) -> list[dict]:
         if not os.path.isdir(pack_root):
             continue
         by_tile = pack_status(pack_root)
-        if by_tile is None:
+        v2_by_tile = _v2_status(pack_root)
+        if by_tile is None and not v2_by_tile:
             continue
+        by_tile = by_tile or {}
         if tile is not None:
-            resources = by_tile.get(tile, [])
-            if not resources:
+            if tile not in by_tile and tile not in v2_by_tile:
                 continue
+            objects = len(by_tile.get(tile, [])) + v2_by_tile.get(tile, 0)
         else:
-            resources = [r for tile_resources in by_tile.values()
-                         for r in tile_resources]
+            objects = (sum(len(r) for r in by_tile.values())
+                       + sum(v2_by_tile.values()))
         results.append({
             "pack_name": name,
             "pack_path": pack_root,
-            "tiles": sorted(key for key in by_tile if key),
-            "objects": len(resources),
+            "tiles": sorted({key for key in by_tile if key}
+                            | {key for key in v2_by_tile if key}),
+            "objects": objects,
         })
     return results

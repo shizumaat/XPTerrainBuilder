@@ -117,9 +117,9 @@ import tempfile
 import typing as _t
 from bisect import bisect_left
 
-from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, KIND_AGL,
-                               KIND_MSL, KIND_ON_GROUND, PROVENANCE_FILENAME,
-                               PlacementPlan)
+from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
+                               KIND_AGL, KIND_MSL, KIND_ON_GROUND,
+                               PROVENANCE_FILENAME, PlacementPlan)
 from . import backup_state as _bs
 from .backup_state import BackupUnproven, State
 
@@ -703,6 +703,12 @@ class WriteResult:
     superseded_path: str = ""
     preserved_path: str = ""
     notes: tuple[str, ...] = ()
+    #: #25: the SIBLING airports whose recorded edits of this same DSF
+    #: were re-applied beside this plan's, and the body files of theirs
+    #: this write orphaned (a stale record, or an ordinal this plan now
+    #: claims) and removed.
+    composed_airports: tuple[str, ...] = ()
+    orphaned_bodies: tuple[str, ...] = ()
 
 
 def _sha256(path: str) -> str:
@@ -713,9 +719,58 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def written_body_files(pack_root: str, dsf_path: str) -> tuple[str, ...]:
+def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
+    """Unlink the given body files — each confirmed to carry this writer's
+    ``CUT_MARK`` first, so a corrupt or hand-edited record can never
+    delete an authored object.  ONE implementation for the restore step
+    (11m), the shared-DSF orphan removal (#25) and the UI restore (#26).
+    Returns what went."""
+    removed: list[str] = []
+    for path in paths:
+        try:
+            if not os.path.isfile(path):
+                continue
+            with open(path, "r", errors="replace") as fh:
+                if CUT_MARK not in fh.read(4096):
+                    continue
+            os.remove(path)
+        except OSError:
+            continue
+        removed.append(path)
+    return tuple(sorted(removed))
+
+
+def _body_paths(pack_root: str, rows: _t.Any) -> tuple[str, ...]:
+    """Record-relative body names -> absolute paths inside the pack (a
+    name that escapes the pack is dropped)."""
+    if not isinstance(rows, list):
+        return ()
+    out: list[str] = []
+    root = os.path.abspath(pack_root)
+    for rel in rows:
+        if not isinstance(rel, str) or not rel:
+            continue
+        p = os.path.abspath(os.path.join(root, *rel.replace("\\", "/").split("/")))
+        if p.startswith(root + os.sep):
+            out.append(p)
+    return tuple(out)
+
+
+def written_body_files(pack_root: str, dsf_path: str,
+                       icao: str = "") -> tuple[str, ...]:
     """The body files the PREVIOUS write of this DSF made, as absolute
     paths, from ``o4_placement_provenance.json`` beside it (11m).
+
+    PER AIRPORT (#25).  One pack DSF can serve TWO airports (TNCM + TFFG
+    on +18-064); each is written in turn, and the restore step before
+    the second write must remove only the SECOND airport's previous
+    bodies — the first's are still referenced by the DSF the second
+    write composes.  With ``icao`` and an ``airports`` map in the entry,
+    that airport's list (nothing when it has none); without ``icao``
+    the entry's whole list (every airport's — the UI restore's frame).
+    An entry from before the map holds ONE airport's list, which is the
+    previous write's whatever its ICAO: it is returned either way, so a
+    pack written up to this version cleans up exactly as it did.
 
     The restore step removes exactly these before writing again — a plan
     that cuts fewer bodies than the last one would otherwise leave the
@@ -730,19 +785,45 @@ def written_body_files(pack_root: str, dsf_path: str) -> tuple[str, ...]:
     referenced them.  A version-1 record is honoured only when its
     ``dsf`` field names THIS file — otherwise it names nothing, which is
     11m's own rule (no record ⇒ remove nothing)."""
-    rows = _bs.dsf_entry(_bs.read_record(dsf_path),
-                         os.path.basename(dsf_path)).get("body_files") or []
-    if not isinstance(rows, list):
-        return ()
-    out: list[str] = []
-    root = os.path.abspath(pack_root)
-    for rel in rows:
-        if not isinstance(rel, str) or not rel:
+    entry = _bs.dsf_entry(_bs.read_record(dsf_path), os.path.basename(dsf_path))
+    airports = entry.get("airports")
+    if icao and isinstance(airports, dict):
+        a = airports.get(icao)
+        return _body_paths(pack_root, (a or {}).get("body_files") or [])
+    return _body_paths(pack_root, entry.get("body_files") or [])
+
+
+def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str
+                   ) -> tuple[list[PlacementPlan], dict[str, dict]]:
+    """#25: the OTHER airports' recorded edits of this DSF, as plans to
+    compose, plus their record rows to carry forward.
+
+    A sibling is re-applied only when its edits were built against THIS
+    pristine dump (``dump_sha256`` equal) and parse; a stale or garbled
+    row is dropped — its bodies become orphans the write removes.
+    Sorted by ICAO so the composition is deterministic."""
+    airports = entry.get("airports")
+    if not isinstance(airports, dict):
+        return [], {}
+    plans: list[PlacementPlan] = []
+    keep: dict[str, dict] = {}
+    for icao in sorted(airports):
+        if icao == plan.icao:
             continue
-        p = os.path.abspath(os.path.join(root, *rel.replace("\\", "/").split("/")))
-        if p.startswith(root + os.sep):
-            out.append(p)
-    return tuple(out)
+        row = airports.get(icao)
+        if not isinstance(row, dict) or row.get("dump_sha256") != dump_sha:
+            continue
+        try:
+            sib = PlacementPlan.from_dict({
+                **dict(row.get("edits") or {}),
+                "icao": icao, "pack_name": plan.pack_name,
+                "pack_root": plan.pack_root, "dsf_path": plan.dsf_path,
+                "dsf_backup_path": plan.dsf_backup_path})
+        except (KeyError, ValueError, TypeError):
+            continue
+        plans.append(sib)
+        keep[icao] = dict(row)
+    return plans, keep
 
 
 def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
@@ -828,7 +909,18 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     with open(pristine_text, "r", encoding="utf-8",
               errors="surrogateescape") as fh:
         text = fh.read()
-    edited = edit_dump(text, plan,
+    # ── #25: THE OTHER AIRPORTS SERVED BY THIS DSF ──────────────────────
+    # The dump is always the PRISTINE one, so a plan carrying only this
+    # airport's edits erased the sibling's rows (TNCM + TFFG, one DSF)
+    # and the restore step then removed its bodies.  Their recorded edit
+    # sets are re-applied beside this plan's, this plan winning every
+    # ordinal it claims; a sibling body no longer named by the composed
+    # edit is an orphan and goes after the move.
+    dump_sha = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+    prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
+    siblings, sibling_rows = _sibling_plans(prior_entry, plan, dump_sha)
+    composed = plan.compose(siblings)
+    edited = edit_dump(text, composed,
                        engine_version or plan.provenance.engine_version)
     with open(edited_text, "w", encoding="utf-8",
               errors="surrogateescape", newline="\n") as fh:
@@ -840,11 +932,39 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         raise RuntimeError("DSF round-trip verification failed: "
                            + "; ".join(report.findings[:4]))
 
-    counts = dict(plan.counts())
-    bodies = sorted(
+    counts = dict(composed.counts())
+    own_bodies = sorted(
         os.path.relpath(os.path.abspath(f), os.path.abspath(pack_root)
                         ).replace(os.sep, "/")
         for f in body_files)
+    # #25: the record keeps ONE row per airport — its compact edit set
+    # (what ``edit_dump`` reads), its bodies and the dump it was built
+    # against.  A sibling's bodies survive only where the composed edit
+    # still names them; the rest (and every body of a sibling row that
+    # was dropped as stale) are orphans.
+    live_res = set(composed.new_resources())
+    orphaned: list[str] = []
+    airports: dict[str, dict] = {}
+    for icao, row in sibling_rows.items():
+        names = [b for b in (row.get("body_files") or []) if isinstance(b, str)]
+        kept_b = [b for b in names if b.replace("\\", "/") in live_res]
+        orphaned.extend(b for b in names if b not in kept_b)
+        airports[icao] = {**row, "body_files": sorted(kept_b)}
+    old_airports = prior_entry.get("airports")
+    if isinstance(old_airports, dict):
+        for icao, row in old_airports.items():
+            if icao != plan.icao and icao not in airports and isinstance(row, dict):
+                orphaned.extend(b for b in (row.get("body_files") or [])
+                                if isinstance(b, str))
+    airports[plan.icao] = {
+        "edits": plan.edit_rows(),
+        "body_files": own_bodies,
+        "dump_sha256": dump_sha,
+        "engine_version": engine_version or plan.provenance.engine_version,
+        "time": _bs.stamp(),
+    }
+    orphaned = sorted(set(orphaned) - set(own_bodies))
+    bodies = sorted({b for a in airports.values() for b in a["body_files"]})
     bak_stat = os.stat(backup)
     prior = _bs.dsf_entry(_bs.read_record(dsf_path), base).get("written_sha256")
     adopted_rows = list(
@@ -878,6 +998,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         "written_size": None,
         "written_mtime_ns": None,
         "body_files": bodies,
+        "airports": airports,
         "adopted": adopted_rows,
         "counts": counts,
         "roundtrip": report.to_dict(),
@@ -907,10 +1028,15 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     prov_path = _bs.update_dsf_entry(
         dsf_path, {"written_size": st.st_size,
                    "written_mtime_ns": st.st_mtime_ns})
+    # #25: the sibling bodies the composed DSF no longer references go
+    # AFTER the move (the live DSF never names a missing file), under
+    # 11m's own CUT_MARK guard.
+    removed = remove_cut_files(_body_paths(pack_root, orphaned))
 
     return WriteResult(dsf_path, backup, created, edited_text, prov_path,
                        report, counts, verdict.state.value,
-                       superseded, preserved, tuple(notes))
+                       superseded, preserved, tuple(notes),
+                       tuple(sorted(sibling_rows)), removed)
 
 
 def _stand_down_line(v) -> str:

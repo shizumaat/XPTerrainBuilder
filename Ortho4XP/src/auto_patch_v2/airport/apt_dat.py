@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import hashlib
+import io
 import math
 import os
 import typing as _t
@@ -224,35 +225,163 @@ def _is_header_for(toks: list[str], icao: str) -> bool:
             and toks[4].upper() == icao)
 
 
-def file_has_airport(path: str, icao: str) -> bool:
-    """Whether ``path`` starts an airport block for ``icao``."""
-    icao = icao.upper()
+# ── ONE PASS PER FILE, NOT THREE PER AIRPORT (issue #45) ────────────────
+# ``find_apt_dat`` costs THREE sequential line-by-line scans of the whole
+# apt.dat per airport — ``file_has_airport``, then ``_has_pavement`` and
+# ``airside_claim``, both through ``read_airport_block``.  Against X-Plane
+# 12's ~500 MB ``Global Scenery/Global Airports/Earth nav data/apt.dat``
+# that measured 2.0-2.5 s + 0.7-1.0 s per Global-Airports airport on the
+# owner's install (warm page cache), so the boundary PREFLIGHT for tile
+# +40-077 — which the spec (§C.2) promises is CHEAP — took 20.1 s for
+# SEVEN airports.  Batched over five tiles on one worker thread it blew
+# through ``BuildModel.boundaryPreflightTimeoutSeconds = 60``, the app
+# gave up and enqueued with NO policy, the engine's unattended default
+# (skip) applied, and the owner — who had "Ask me every time" set — got
+# no dialog and a console line blaming their boundary choice.
+#
+# So: ONE pass per file per process builds ``{ICAO: (start, end)}`` byte
+# offsets, and both readers seek.  The index is keyed by the file's
+# identity AND its ``(mtime_ns, size)``, so an apt.dat rewritten under a
+# running engine (a pack update, a re-download) re-indexes instead of
+# serving stale offsets.
+#
+# WHY THE INDEX PASS IS BINARY AND THE BLOCK READ IS NOT: the offsets
+# have to be byte offsets to be seekable, and ``TextIOWrapper.tell()``
+# per line is far dearer than the scan it replaces.  Binary splits lines
+# on ``\n`` ONLY, where text mode also breaks on a lone ``\r`` — so a
+# (hypothetical) CR-only apt.dat would index fewer headers than the scan
+# found.  It can never be read wrongly: the block read decodes the
+# sought bytes through the SAME ``utf-8``/``errors="replace"`` decoder
+# with the SAME universal-newline translation, and VERIFIES that the
+# first line it lands on is the header it asked for — anything else
+# falls back to the linear scan.  ``block_sha256`` therefore cannot move.
+_BLOCK_INDEX: dict[str, tuple[tuple[int, int], dict[str, tuple[int, int]]]] = {}
+_BOUNDARY_ROWS = frozenset(("1", "16", "17", "99"))
+
+
+def _file_identity(path: str) -> tuple[int, int] | None:
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if line[:1] in "1" and _is_header_for(line.split(), icao):
-                    return True
+        st = os.stat(path)
     except OSError:
-        return False
-    return False
+        return None
+    return (st.st_mtime_ns, st.st_size)
 
 
-def read_airport_block(path: str, icao: str) -> list[str] | None:
-    """The lines of ``icao``'s block (header included, up to the next
-    header or the ``99`` terminator), or ``None``."""
-    icao = icao.upper()
+def _build_block_index(path: str) -> dict[str, tuple[int, int]]:
+    """``{ICAO: (start_byte, end_byte)}`` for every airport block in
+    ``path``, in ONE binary pass.
+
+    The boundaries are exactly :func:`read_airport_block`'s: a block runs
+    from its ``1``/``16``/``17`` header to the start of the next such row
+    or the ``99`` terminator, EOF otherwise.  A repeated ICAO keeps the
+    FIRST block — the scan breaks out at the next boundary and never
+    reaches the second either.
+    """
+    index: dict[str, tuple[int, int]] = {}
+    open_icao: str | None = None
+    open_start = 0
+    offset = 0
+    with open(path, "rb") as fh:
+        for raw in fh:
+            # A boundary row starts with '1' (1/16/17) or '9' (99).  One
+            # byte compared per line; only the handful that pass are
+            # decoded and tokenised.
+            if raw[:1] in (b"1", b"9"):
+                toks = raw.decode("utf-8", "replace").split()
+                if toks and toks[0] in _BOUNDARY_ROWS:
+                    if open_icao is not None:
+                        index.setdefault(open_icao, (open_start, offset))
+                        open_icao = None
+                    if toks[0] != "99" and len(toks) >= 5:
+                        open_icao = toks[4].upper()
+                        open_start = offset
+            offset += len(raw)
+    if open_icao is not None:
+        index.setdefault(open_icao, (open_start, offset))
+    return index
+
+
+def _block_index(path: str) -> dict[str, tuple[int, int]] | None:
+    """The cached index for ``path``, rebuilt when the file moved.
+    ``None`` when the file cannot be read at all (the callers' existing
+    "no such airport" answer)."""
+    identity = _file_identity(path)
+    if identity is None:
+        return None
+    cached = _BLOCK_INDEX.get(path)
+    if cached is not None and cached[0] == identity:
+        return cached[1]
+    try:
+        index = _build_block_index(path)
+    except OSError:
+        return None
+    # Re-stat: a file rewritten DURING the pass indexed a mix of both
+    # versions, so it is used once and never cached under either
+    # identity.  (Two threads racing the same file simply index it
+    # twice; the dict assignment itself is atomic.)
+    if _file_identity(path) == identity:
+        _BLOCK_INDEX[path] = (identity, index)
+    return index
+
+
+def _decode_block(raw: bytes) -> list[str]:
+    """``raw`` as the text-mode reader would have produced it — the same
+    decoder, the same universal-newline translation, the same
+    ``rstrip("\n")`` per line."""
+    stream = io.TextIOWrapper(io.BytesIO(raw), encoding="utf-8",
+                              errors="replace")
+    return [line.rstrip("\n") for line in stream]
+
+
+def _scan_airport_block(path: str, icao: str) -> list[str] | None:
+    """The pre-index linear scan — the fallback, and the twins' oracle."""
     out: list[str] = []
     inside = False
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
             toks = line.split()
-            if toks and toks[0] in ("1", "16", "17", "99"):
+            if toks and toks[0] in _BOUNDARY_ROWS:
                 if inside:
                     break
                 inside = _is_header_for(toks, icao)
             if inside:
                 out.append(line.rstrip("\n"))
     return out or None
+
+
+def file_has_airport(path: str, icao: str) -> bool:
+    """Whether ``path`` starts an airport block for ``icao``."""
+    icao = icao.upper()
+    index = _block_index(path)
+    if index is None:
+        return False
+    return icao in index
+
+
+def read_airport_block(path: str, icao: str) -> list[str] | None:
+    """The lines of ``icao``'s block (header included, up to the next
+    header or the ``99`` terminator), or ``None``."""
+    icao = icao.upper()
+    index = _block_index(path)
+    if index is None:
+        return None
+    span = index.get(icao)
+    if span is None:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(span[0])
+            raw = fh.read(span[1] - span[0])
+    except OSError:
+        return None
+    block = _decode_block(raw)
+    # THE SAFETY VALVE: the bytes we landed on must be this airport's
+    # header.  Any disagreement between the binary index and the text
+    # reader (a lone-CR file, a torn read) falls back to the scan rather
+    # than returning a block from the wrong airport.
+    if block and _is_header_for(block[0].split(), icao):
+        return block
+    return _scan_airport_block(path, icao)
 
 
 def block_sha256(block: list[str]) -> str:

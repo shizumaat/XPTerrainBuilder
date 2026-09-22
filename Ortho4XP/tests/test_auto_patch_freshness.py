@@ -1280,25 +1280,41 @@ def test_stamped_pack_is_the_pack_v2_reads(two_pack_install, tmp_path):
 def test_apt_dat_reads_are_utf8_not_locale(tmp_path, monkeypatch):
     """v2's apt.dat reads pin utf-8 (v1's reader always has): a frozen
     app with no LANG must not decode a pack's non-ASCII name its own
-    way."""
+    way.
+
+    Since the block index (issue #45) the whole-file pass is BINARY —
+    which takes no locale at all — and only the block itself is decoded,
+    explicitly.  So the invariant is stated on every read this module
+    makes: a TEXT-mode open must carry ``encoding="utf-8"``, and a
+    binary one decodes nothing.  The name round-tripping is the proof
+    that the decoder actually used was utf-8 and not, say, the latin-1 a
+    LANG-less frozen app could fall into.
+    """
     import auto_patch_v2.airport.apt_dat as v2_apt
     p = tmp_path / "apt.dat"
     p.write_bytes(
         "I\n1000 Version\n1 100 0 0 KFAKE Aérodrome Fâké\n99\n"
         .encode("utf-8"))
-    opened = {}
+    v2_apt._BLOCK_INDEX.clear()
+    opens = []
     real_open = open
 
     def _spy(path, *a, **kw):
-        opened.update(kw)
+        mode = kw.get("mode", a[0] if a else "r")
+        opens.append((mode, kw.get("encoding")))
         return real_open(path, *a, **kw)
 
     monkeypatch.setattr(v2_apt, "open", _spy, raising=False)
     assert v2_apt.file_has_airport(str(p), "KFAKE")
-    assert opened.get("encoding") == "utf-8"
     block = v2_apt.read_airport_block(str(p), "KFAKE")
-    assert opened.get("encoding") == "utf-8"
     assert "Aérodrome Fâké" in "\n".join(block)
+    assert v2_apt.block_sha256(block) == v2_apt.block_sha256(
+        v2_apt._scan_airport_block(str(p), "KFAKE"))
+
+    assert opens, "the reads did not go through the spied open"
+    for (mode, encoding) in opens:
+        assert "b" in mode or encoding == "utf-8", (mode, encoding)
+    v2_apt._BLOCK_INDEX.clear()
 
 
 # ──────────────────────────────────────────────────────────────────────

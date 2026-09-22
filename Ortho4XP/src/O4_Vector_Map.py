@@ -2,6 +2,7 @@ import os
 import time
 import threading
 from math import pi, sin, cos, sqrt, atan, exp, floor
+from typing import NamedTuple
 import numpy
 from shapely import affinity, geometry, ops
 from shapely.prepared import prep
@@ -923,6 +924,23 @@ def _rederive_road_feed(lat, lon, feed):
     return False
 
 
+class RoadFeedPrecheck(NamedTuple):
+    """What :func:`ensure_auto_patch_road_feeds` found and could do.
+
+    ``derived`` — the ``(lat, lon, feed)`` triples it re-derived.
+    ``stale``   — the ``(lat, lon, feed, path)`` feeds that are STILL on
+    disk and STILL not schema-current after the attempt (offline, no
+    extract, the download failed).  The v2 reader refuses exactly these,
+    once inside every airport's worker, so the caller narrates them ONCE
+    for the tile instead (issue #24, RULINGS 2026-09-18d (1) residual
+    (a)).  An ABSENT feed is never listed: absence is lawful and the
+    reader reads it as an empty feed.
+    """
+
+    derived: list
+    stale: list
+
+
 def ensure_auto_patch_road_feeds(tile):
     """Make EVERY cached road feed auto_patch_v2 will read SCHEMA-CURRENT
     before it reads them — the home tile's and its eight neighbours'.
@@ -958,7 +976,9 @@ def ensure_auto_patch_road_feeds(tile):
     locked, ledgered form is ``build_airport.py <ICAO> --refresh-data
     osm_layers``.  In the app the tile build is the writer of record.
 
-    Returns the ``(lat, lon, feed)`` triples it re-derived.
+    Returns a :class:`RoadFeedPrecheck` — what it re-derived, and what
+    is STILL stale on disk afterwards (the offline residual the caller
+    turns into ONE tile-level line).
     """
     lat0, lon0 = int(tile.lat), int(tile.lon)
     try:
@@ -973,6 +993,7 @@ def ensure_auto_patch_road_feeds(tile):
         if not os.path.isfile(candidates[0][3]):
             candidates = [(lat0, lon0, "airport_small_roads", None)]
     derived = []
+    still_stale = []
     for tlat, tlon, feed, path in candidates:
         home_small = (tlat == lat0 and tlon == lon0
                       and feed == "airport_small_roads")
@@ -997,9 +1018,22 @@ def ensure_auto_patch_road_feeds(tile):
                 continue
         if _rederive_road_feed(tlat, tlon, feed):
             derived.append((tlat, tlon, feed))
+        # DID IT ACTUALLY COME BACK?  ``_rederive_road_feed`` returns
+        # False offline (no extract, the download failed) and both
+        # writers deliberately leave the STALE bytes on the disk — a
+        # stale corpus beats an absent one — so the reader will refuse
+        # this exact file.  Ask the file, not the writer's return value:
+        # a writer can report a layer and still not have rewritten the
+        # cache.  Only reached for a feed that was NOT current, so a
+        # current corpus still costs exactly one header read per feed.
+        if path is None:
+            path = FNAMES.osm_cached(tlat, tlon, feed)
+        if os.path.isfile(path) and not OSM._cached_osm_schema_matches(
+                path, ROAD_CACHE_TAG_SCHEMA):
+            still_stale.append((tlat, tlon, feed, path))
         if UI.red_flag:
             break
-    return derived
+    return RoadFeedPrecheck(derived, still_stale)
 
 
 def _osm_layer_prefetch_specifications(tile):
@@ -1528,22 +1562,60 @@ def set_boundary_policy(policy):
     BOUNDARY_POLICY = policy if policy in ("neighbour", "skip") else None
 
 
-def resolved_boundary_policy(tile=None):
-    """``"neighbour"`` or ``"skip"`` — never ``None``, never a prompt here.
+#: THE tile-edge skip narration (issue #45).  ``..._CHOSEN`` is the
+#: original line; ``..._UNATTENDED`` is what a build says when nobody
+#: answered and the engine's own default decided.
+BOUNDARY_SKIP_CHOSEN = "by your boundary choice."
+BOUNDARY_SKIP_UNATTENDED = (
+    "because no answer to the tile-edge question reached this build "
+    "before it started — \"Airports on a tile edge\" is set to ask, but "
+    "nothing answered, so the unattended default (skip) applied. If you "
+    "did not see the dialog, build these tiles again.")
 
-    Order: the answer this run was given (``set_boundary_policy`` / the
-    tile object) beats the remembered app setting, which beats SKIP.  The
-    ENGINE never blocks waiting for a user: asking is the front end's job
-    (``boundary_airports`` + the dialog), and anything that reaches a
-    build with no answer is by definition unattended.
+
+def boundary_policy_and_source(tile=None):
+    """``(policy, source)`` — the tile-edge answer and WHERE IT CAME FROM.
+
+    ``policy`` is ``"neighbour"`` or ``"skip"``, never ``None`` and never
+    a prompt here.  Order: the answer this run was given
+    (``set_boundary_policy`` / the tile object) beats the remembered app
+    setting, which beats SKIP.  The ENGINE never blocks waiting for a
+    user: asking is the front end's job (``boundary_airports`` + the
+    dialog), and anything that reaches a build with no answer is by
+    definition unattended.
+
+    ``source`` is what the build may SAY about the answer (issue #45):
+
+    * ``"answer"``     — the front end sent one for this run.
+    * ``"setting"``    — the user's remembered ``auto_patch_boundary``.
+    * ``"unattended"`` — the setting is "Ask me each time" and NOBODY
+      ANSWERED.  The owner hit exactly this on tile +40-077 (app
+      1.0.352): the app's 60 s boundary preflight expired, it enqueued
+      with no policy, skip applied — and the build told them their
+      patches were skipped "by your boundary choice", which was not the
+      choice they had made.
+
+    A policy this module landed on the tile itself carries its own
+    provenance in ``tile.boundary_policy_source``, so re-deriving a
+    tile's selection does not relabel the engine's own default as the
+    user's answer.
     """
     explicit = getattr(tile, "boundary_policy", None) or BOUNDARY_POLICY
     if explicit in ("neighbour", "skip"):
-        return explicit
+        return explicit, (getattr(tile, "boundary_policy_source", None)
+                          or "answer")
     choice = str(getattr(CFG, "auto_patch_boundary", "Ask") or "Ask")
     if choice == "Build adjacent":
-        return "neighbour"
-    return "skip"
+        return "neighbour", "setting"
+    if choice == "Ask":
+        return "skip", "unattended"
+    return "skip", "setting"
+
+
+def resolved_boundary_policy(tile=None):
+    """``"neighbour"`` or ``"skip"`` — see :func:`boundary_policy_and_source`,
+    the ONE derivation site."""
+    return boundary_policy_and_source(tile)[0]
 
 
 def tile_frame_is_warm(lat, lon):
@@ -1646,7 +1718,7 @@ def derive_auto_patch_selection(tile):
     if not cifp_path:
         tile.auto_patch_selection = []
         return []
-    policy = resolved_boundary_policy(tile)
+    policy, policy_source = boundary_policy_and_source(tile)
     record = []
     skipper = _SELECTION.boundary_skipper(
         int(tile.lat), int(tile.lon),
@@ -1680,15 +1752,23 @@ def derive_auto_patch_selection(tile):
         if cls == "S":
             neighbours.update(cold)
     tile.boundary_policy = policy
+    tile.boundary_policy_source = policy_source
     tile.boundary_neighbours = sorted(neighbours)
     if neighbours and policy == "skip":
+        # SAY WHOSE DECISION IT WAS (issue #45).  "by your boundary
+        # choice" is true of a remembered "Skip those airports' patches"
+        # and of an answer the dialog sent — but under "Ask me each
+        # time" with nothing answered it blamed the user for a default
+        # they never picked, and was the only trace that the dialog had
+        # silently not appeared.
         UI.lvprint(
             0, "   Auto-patch: %d airport(s) reach into %d tile(s) this "
-               "build is not building (%s); their patches are SKIPPED by "
-               "your boundary choice."
+               "build is not building (%s); their patches are SKIPPED %s"
             % (sum(1 for r in record if r[1] == "S" and r[2]),
                len(neighbours),
-               ", ".join("%+03d%+04d" % c for c in sorted(neighbours))))
+               ", ".join("%+03d%+04d" % c for c in sorted(neighbours)),
+               BOUNDARY_SKIP_UNATTENDED if policy_source == "unattended"
+               else BOUNDARY_SKIP_CHOSEN))
     inset_mode = _SELECTION.resolved_inset_mode(tile)
     for candidate in selection:
         if candidate.disposition != "patch":
@@ -1880,7 +1960,7 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
         # current BEFORE it loads them (it refuses a stale/unstamped copy
         # by name, and an app user has no --refresh-data to run).  One
         # bz2 header read per feed when current.
-        ensure_auto_patch_road_feeds(tile)
+        road_feeds = ensure_auto_patch_road_feeds(tile)
         AUTOPATCH.generate_auto_patches(
             tile, cifp_path,
             taxiway_data=_taxiway_provider,
@@ -1888,6 +1968,11 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
             dico_airports=dico_airports,
             road_data=_road_provider,
             mode=auto_patch_mode,
+            # What the pre-check could NOT refresh (offline, no extract).
+            # The driver says it ONCE for the tile instead of letting the
+            # v2 reader refuse it inside each airport's worker with a
+            # developer --refresh-data command (issue #24).
+            stale_road_feeds=road_feeds.stale,
         )
 
 

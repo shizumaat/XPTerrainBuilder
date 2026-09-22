@@ -8687,6 +8687,35 @@ def test_the_build_entry_has_no_engine_flag(build_mod, monkeypatch, tmp_path):
     assert exc.value.code == 2
 
 
+def test_steps_selector_is_the_skip_steps_contract(build_mod):
+    """``--steps`` (colour-harmonization spec §7, 2026-09-21) is a THIN
+    extension of ``run_tile_steps``' ``skip_steps`` contract: the named
+    steps run, every other release step is an explicit recorded skip
+    naming the selector — never a silently shorter plan."""
+    sel = build_mod.tile_steps_selection("3 masks,4 tile", True)
+    assert sel == {"1 vector": "not selected by --steps '3 masks,4 tile'",
+                   "2 mesh": "not selected by --steps '3 masks,4 tile'"}
+    assert build_mod.tile_steps_selection(" 4 tile ", True) == {
+        n: "not selected by --steps '4 tile'"
+        for n in ("1 vector", "2 mesh", "3 masks")}
+    assert build_mod.tile_steps_selection(None, False) is None
+    # refused by name: without --tile, an unknown step, an empty list
+    with pytest.raises(SystemExit, match="REFUSING: --steps is a --tile"):
+        build_mod.tile_steps_selection("4 tile", False)
+    with pytest.raises(SystemExit, match="REFUSING: --steps names"):
+        build_mod.tile_steps_selection("4 tile,5 dsf", True)
+    with pytest.raises(SystemExit, match="REFUSING: --steps names"):
+        build_mod.tile_steps_selection(" , ", True)
+    # ...and the CLI refuses before the cwd check (the airport path)
+    with pytest.raises(SystemExit, match="REFUSING: --steps is a --tile"):
+        build_mod.main(["CYXY", "--steps", "4 tile"])
+    src = inspect.getsource(build_mod.main)
+    assert "skip_steps=steps_skip or None" in src
+    assert 'result["steps_selected"]' in src
+    assert 'frame["steps_selected"] = result.get("steps_selected")' in \
+        inspect.getsource(build_mod)
+
+
 def test_the_build_entry_refuses_the_flags_v2_does_not_wire(build_mod):
     """A flag that quietly did nothing on the v2 path is how a lane comes
     to believe it measured something it did not (the --solve-capture /

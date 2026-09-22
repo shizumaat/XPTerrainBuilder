@@ -2958,6 +2958,39 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     }
 
 
+TILE_STEP_NAMES = ("1 vector", "2 mesh", "3 masks", "4 tile")
+
+
+def tile_steps_selection(steps, with_tile: bool):
+    """``--steps NAMES`` → the ``skip_steps`` dict for :func:`build_tile`
+    (``None`` when no selection was made).
+
+    A thin extension of ``run_tile_steps``' EXISTING ``skip_steps``
+    contract (colour-harmonization spec §7, 2026-09-21): the caller names
+    the steps to RUN, every other step of :data:`TILE_STEP_NAMES` becomes
+    an explicit recorded skip with this selector as the reason.  Refused
+    by name: a selection without ``--tile`` (the airport path has no
+    steps to select, so the flag would silently do nothing — the
+    ``--solve-capture`` precedent), an unknown step name, and an empty
+    selection.
+    """
+    if steps is None:
+        return None
+    if not with_tile:
+        raise SystemExit(
+            "REFUSING: --steps is a --tile selector (the four release "
+            "steps); on the airport path it would silently do nothing.")
+    chosen = [n.strip() for n in steps.split(",") if n.strip()]
+    unknown = [n for n in chosen if n not in TILE_STEP_NAMES]
+    if unknown or not chosen:
+        raise SystemExit(
+            f"REFUSING: --steps names {unknown or 'nothing'}; the release "
+            f"steps are {list(TILE_STEP_NAMES)} (comma-separated, e.g. "
+            f"'3 masks,4 tile').")
+    reason = f"not selected by --steps {','.join(chosen)!r}"
+    return {n: reason for n in TILE_STEP_NAMES if n not in chosen}
+
+
 def run_tile_steps(tile, plan, prog, skip_steps=None):
     """Run a tile's release steps under THE STEP CONTRACT — the engine
     pipeline's own failure convention, which the harness loop used to
@@ -3279,6 +3312,18 @@ def main(argv=None) -> int:
                          "documented mode) for VISUAL INSPECTION — never "
                          "a measurement, never censused; the artifact-"
                          "ledger variant key records it")
+    ap.add_argument("--steps", default=None, metavar="NAMES",
+                    help="--tile only: run ONLY these release steps, a "
+                         "comma-separated subset of "
+                         f"{', '.join(TILE_STEP_NAMES)} (e.g. "
+                         "'3 masks,4 tile' to rebuild the masks and the "
+                         "textures of a build dir that already holds the "
+                         "mesh).  Every other step becomes an EXPLICIT "
+                         "RECORDED SKIP under run_tile_steps' skip_steps "
+                         "contract (frame.json steps_skipped / "
+                         "steps_selected) — never a silently shorter plan; "
+                         "a selected step whose inputs are absent fails "
+                         "loudly as its own step failure")
     ap.add_argument("--solve-capture", type=Path, default=None,
                     metavar="DIR",
                     help="also write a SOLVE-STAGE CAPTURE per airport into "
@@ -3304,6 +3349,7 @@ def main(argv=None) -> int:
                 f"world, no geometry-only emit, no solve-stage capture).  "
                 f"Build the patch: build_airport.py {args.icao}, or the "
                 f"tile: --tile LAT LON.")
+    steps_skip = tile_steps_selection(args.steps, bool(args.tile))
     if args.geometry_only and args.tile:
         raise SystemExit(
             "REFUSING: --geometry-only with --tile is not wired — "
@@ -3726,7 +3772,11 @@ def main(argv=None) -> int:
                 result = build_tile(
                     lat, lon,
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog,
+                    skip_steps=steps_skip or None,
                     requested=requested, boundary=args.boundary)
+            result["steps_selected"] = (
+                [n for n in TILE_STEP_NAMES if n not in steps_skip]
+                if steps_skip is not None else None)
             result["boundary_policy"] = args.boundary
             result["engine_cache_redirects"] = redirects
             result["engine"] = ENGINE
@@ -3815,6 +3865,9 @@ def main(argv=None) -> int:
     # (``run_tile_steps`` ``skip_steps`` — a recorded skip, never an
     # attempted run reported DONE): under 31d the imagery half, by name.
     frame["steps_skipped"] = result.get("steps_skipped")
+    # ``--steps``: the subset the caller SELECTED (None = the whole plan);
+    # the complement is in ``steps_skipped`` with the selector's reason.
+    frame["steps_selected"] = result.get("steps_selected")
     # THE SOLVE MODEL IS RETIRED (RULINGS 2026-09-13bh): no frame record,
     # no per-tile re-resolve, and no one-reader check — there is one solve
     # and no key to disagree about.  The ledger variant key keeps the

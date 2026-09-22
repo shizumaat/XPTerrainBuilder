@@ -84,9 +84,26 @@ def mask_name_for_texture(tile, til_x_left, til_y_top, zl, *args):
 ################################################################################
 
 ################################################################################
-def needs_mask(tile, til_x_left, til_y_top, zl, *args):
+# A mask square whose crop never exceeds this value is ALL WATER: no
+# texture-side mask is written for it and no land pixel exists in it.
+ALL_WATER_MAX = 30
+
+
+def land_class_for_texture(tile, til_x_left, til_y_top, zl):
+    """THE tri-state land knowledge of one texture: ``(land_class, crop)``.
+
+    ``land_class`` is ``"land"`` (no mask square covers the texture, or
+    the texture's zoom level is below ``mask_zl``: all land), ``"water"``
+    (the square's crop never exceeds :data:`ALL_WATER_MAX`: all water,
+    no mask is written) or ``"mask"`` (``crop`` is the ``L`` image of the
+    square cropped to the texture — 255 land, 0 water, feathered over
+    ``masks_width`` m in between).  ``crop`` is ``None`` for the first
+    two.  ONE crop code path (colour-harmonization spec §2.1): the DSF
+    step's :func:`needs_mask` and the harmonizer's land statistics both
+    read it, so "land" means the same thing to both.
+    """
     if int(zl) < tile.mask_zl:
-        return False
+        return "land", None
     factor = 2 ** (zl - tile.mask_zl)
     m_til_x = (int(til_x_left / factor) // 16) * 16
     m_til_y = (int(til_y_top / factor) // 16) * 16
@@ -97,16 +114,23 @@ def needs_mask(tile, til_x_left, til_y_top, zl, *args):
         FNAMES.legacy_mask(m_til_x, m_til_y)
         )
     if not os.path.isfile(mask_file):
-        return False
+        return "land", None
     big_img = Image.open(mask_file)
     x0 = int(rx * 4096 / factor)
     y0 = int(ry * 4096 / factor)
     small_img = big_img.crop((x0, y0, x0 + 4096 // factor, y0 + 4096 // factor))
     small_array = numpy.array(small_img, dtype=numpy.uint8)
-    if small_array.max() <= 30:
-        return False
-    else:
-        return small_img
+    if small_array.max() <= ALL_WATER_MAX:
+        return "water", None
+    return "mask", small_img
+
+
+def needs_mask(tile, til_x_left, til_y_top, zl, *args):
+    """The mask crop to imprint on a texture, or ``False`` when the
+    texture needs none (all land OR all water — :func:`land_class_for_texture`
+    tells the two apart)."""
+    land_class, crop = land_class_for_texture(tile, til_x_left, til_y_top, zl)
+    return crop if land_class == "mask" else False
 ################################################################################
 
 ################################################################################

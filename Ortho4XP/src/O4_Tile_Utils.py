@@ -237,6 +237,21 @@ def _write_imagery_manifest(tile, download_stats, convert_progress):
             "failed": int((download_stats or {}).get("failed", 0) or 0),
             "converted": int((convert_progress or {}).get("done", 0) or 0),
             "dds_present": _count_dds_textures(tile),
+            # Colour-harmonization provenance (colour-harmonization spec
+            # §3).  The tile cfg cannot say what ran — the 1.0.352
+            # sparse-cfg rule writes only tile-differing keys — so the
+            # manifest is the record: whether the field was applied, the
+            # sidecar holding it, and whether this run REUSED a field
+            # solved by an earlier run (a subset rerun).
+            "color_harmonization": bool(
+                getattr(tile, "color_harmonization_active", False)),
+            "color_field": (
+                IMG.COLOR_FIELD_FILE
+                if getattr(tile, "color_harmonization_active", False)
+                and os.path.isfile(IMG.color_field_path(tile))
+                else None),
+            "color_field_reused": bool(
+                getattr(tile, "color_field_reused", False)),
         }
         path = imagery_manifest_path(tile)
         temporary = path + ".tmp"
@@ -453,6 +468,7 @@ def build_tile(tile):
         and not skip_converts
         and getattr(tile, "color_harmonization", False)
     )
+    tile.color_harmonization_active = bool(harmonization_active)
     if harmonization_active:
         IMG.initialize_color_harmonization(tile)
 
@@ -497,7 +513,7 @@ def build_tile(tile):
             tile.lat, tile.lon,
             download_stats.get("done", 0), download_stats.get("failed", 0))
         if harmonization_active and not UI.red_flag:
-            IMG.compute_color_harmonization_targets(tile)
+            IMG.solve_color_field(tile)
             _launch_convert_workers()
             convert_launched = True
         if convert_launched:

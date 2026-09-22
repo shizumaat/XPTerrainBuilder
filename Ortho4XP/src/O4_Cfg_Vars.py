@@ -690,7 +690,7 @@ cfg_tile_vars = {
     "color_harmonization": {
         "type": bool,
         "default": True,
-        "hint": "Harmonizes texture colors across the tile: each texture's color statistics are pulled toward the consensus of its neighborhood (about a 5x5 texture area), removing the patchwork caused by different acquisition dates and providers while preserving genuine geographic color gradients. Fully automatic; no reference imagery or manual correction needed. Adds a short wait before conversions start (statistics need every download finished) and changes the output textures.",
+        "hint": "Harmonizes texture colors across the tile, removing the patchwork caused by different acquisition dates and providers while preserving genuine geographic color gradients. The color difference is MEASURED where two textures meet (the strips on either side of a seam photograph the same ground), water is excluded using the tile's own coastline masks, and the correction is a smooth field interpolated across texture centres — so it can never draw a line at a seam. Fully automatic; no reference imagery or manual correction needed. Adds a short wait before conversions start (the field needs every download finished) and changes the output textures.",
     },
     "sea_nodata_fill": {
         "type": bool,

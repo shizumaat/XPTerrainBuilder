@@ -129,13 +129,35 @@ def test_cli_fail_over_bar_and_json(synthetic_tile, tmp_path, capsys):
     assert "seams_over_bar" in capsys.readouterr().out
 
 
-def test_simulate_harmonizer_predicts_constant_step(synthetic_tile):
-    """The shipped harmonizer on two flat sources with a 40-count cast:
-    ZL16 strength 0.7, targets = neighbourhood median.  Sources are
-    remade here: A = 100, B = 140, C = 140 (all land, no masks) so the
-    3-texture row has target 140 everywhere; A's shift is
-    clip(0.7 * 40) = +28 -> capped to +20; B and C shift 0.  Predicted
-    A|B step is therefore exactly -20 per channel."""
+def test_land_threshold_excludes_the_feather_band(synthetic_tile, tmp_path):
+    """``LAND_THRESHOLD`` is 250, not 128: the feathered shore band is not
+    land (colour-harmonization spec §2.1 / §5 Q6).  The instrument and the
+    mechanism must mean the same thing by "land", or the census judges
+    seams on pixels the solver never measured."""
+    tile, ortho = synthetic_tile
+    m = _load()
+    assert m.LAND_THRESHOLD == 250
+    mask = numpy.full((N, N), 255, numpy.uint8)
+    mask[:, N // 2 :] = 200  # feather: shore, wet sand, shallow water
+    Image.fromarray(mask).save(tile / "textures" / "0_0_ZL16.png")
+    land, source = m._load_land(tile, 0, 0, 16, N)
+    assert source == "tile-mask"
+    assert land[:, : N // 2].all() and not land[:, N // 2 :].any()
+
+
+def test_simulate_harmonizer_v2_leaves_no_step_at_the_seam(synthetic_tile):
+    """THE regression this whole rework exists for, on the same case the v1
+    twin used to pin: A = 100, B = 140, C = 140, all land, ZL16 strength
+    0.70.
+
+    v1 gave each texture ONE constant (A clipped to +20, B and C zero) and
+    therefore predicted a −20-count step right down the A|B seam.  v2
+    solves a field: the measured +40 cast is cancelled to the spec's −28
+    residual between the NODE values (+18.5 vs −9.3), but because both
+    textures evaluate the same interpolant on the seam itself, the step the
+    correction introduces THERE is zero.  That is the difference between a
+    per-texture shift and a field.
+    """
     tile, ortho = synthetic_tile
     sub = ortho / "+20+050" / "+25+051" / "FAKE_16"
     for f in (tile / "textures").glob("*_ZL16.png"):
@@ -146,9 +168,91 @@ def test_simulate_harmonizer_predicts_constant_step(synthetic_tile):
     (sub / "16_0_FAKE16.jpg").unlink()
     m = _load()
     sim = m.simulate_harmonizer(tile, ortho, ["FAKE"], [16])
-    shifts = {t["texture"]: t["shift"] for t in sim["textures"]}
-    assert shifts == {"0_0_FAKE16": [20, 20, 20], "0_16_FAKE16": [0, 0, 0],
-                      "0_32_FAKE16": [0, 0, 0]}
-    seams = {(s["a"], s["b"]): s["predicted"] for s in sim["seams"]}
-    assert seams == {("0_0_FAKE16", "0_16_FAKE16"): [-20, -20, -20],
-                     ("0_16_FAKE16", "0_32_FAKE16"): [0, 0, 0]}
+    assert sim["version"] == 2
+    assert sim["casts"] == {"16_FAKE": 2}  # two east casts, +40 and 0
+
+    nodes = {t["texture"]: t["node"][0] for t in sim["textures"]}
+    assert nodes["0_0_FAKE16"] == pytest.approx(18.5, abs=0.5)
+    assert nodes["0_16_FAKE16"] == pytest.approx(-9.3, abs=0.5)
+    assert nodes["0_16_FAKE16"] - nodes["0_0_FAKE16"] == pytest.approx(
+        -28.0, abs=0.5)
+    # Every texture is a witness (all land) and none clips at the cap.
+    assert all(t["witness"] for t in sim["textures"])
+    assert max(abs(v) for t in sim["textures"] for v in t["shift_max"]) < 20
+
+    seams = {(s["a"], s["b"]): s for s in sim["seams"]}
+    assert set(seams) == {("0_0_FAKE16", "0_16_FAKE16"),
+                          ("0_16_FAKE16", "0_32_FAKE16")}
+    for seam in seams.values():
+        assert seam["predicted"] == [0, 0, 0]
+        assert seam["max_abs"] <= 1.0
+    summary = m.print_simulation(sim, bar=2.0, top=5)
+    assert summary["seams_over_bar"] == 0
+    assert summary["max_predicted_step"] <= 1.0
+    assert summary["witnesses"] == 3
+    assert summary["all_water_textures_with_shift"] == 0
+    # No whole-tile hue drift: the witness nodes average out (spec §2.3).
+    assert max(abs(v) for v in summary["mean_witness_node"]) < 0.5
+
+
+@pytest.fixture()
+def nested_zoom_tile(synthetic_tile):
+    """One ZL18 texture nested inside the ZL16 texture at (0, 0).
+
+    ZL16 (0,0): source 100, built 100  -> no shift.
+    ZL18 (0,0): source 104, built 110  -> the build moved it +6 relative to
+    the ZL16 square around it.  factor = 4, sub-square (0, 0), so the ZL18
+    texture sits in the coarse texture's top-left sixteenth and all four of
+    its edges are zone edges (it has no ZL18 neighbour).
+    """
+    tile, ortho = synthetic_tile
+    fine = ortho / "+20+050" / "+25+051" / "FAKE_18"
+    fine.mkdir(parents=True)
+    Image.fromarray(_flat((104, 104, 104))).save(
+        fine / "0_0_FAKE18.jpg", quality=100)
+    Image.fromarray(_flat((110, 110, 110))).save(
+        tile / "textures" / "0_0_FAKE18.dds")
+    # Make the covering ZL16 texture unshifted so the arithmetic is clean.
+    Image.fromarray(_flat((100, 100, 100))).save(
+        tile / "textures" / "0_0_FAKE16.dds")
+    for f in (tile / "textures").glob("*_ZL16.png"):
+        f.unlink()
+    return tile, ortho
+
+
+def test_cross_zl_seams_measure_the_nested_zone_edge(nested_zoom_tile):
+    """Spec §2.5.  The ZL18 texture's outer strips are compared with the
+    co-located sub-strips of the ZL16 texture covering it:
+    ``step = coarse − fine`` is 100 − 110 = −10 in the DDS and
+    100 − 104 = −4 in the source, so the build INTRODUCED −6 counts at a
+    zone edge no same-zoom pair covers."""
+    tile, ortho = nested_zoom_tile
+    m = _load()
+    report = m.census(tile, ortho, strip=4, cross_zl=True)
+    cross = [s for s in report["seams"] if s.get("cross_zl")]
+    assert report["cross_zl_seams"] == 4  # one per side of the ZL18 texture
+    assert {s["direction"] for s in cross} == {"L", "R", "T", "B"}
+    for seam in cross:
+        assert seam["a"] == "0_0_FAKE18.dds" and seam["b"] == "0_0_FAKE16.dds"
+        assert seam["land_rows"] == 16  # 64 fine rows block-averaged to 64/4
+        assert seam["step_dds"] == [-10.0, -10.0, -10.0]
+        assert seam["step_src"] == [-4.0, -4.0, -4.0]
+        assert seam["introduced"] == [-6.0, -6.0, -6.0]
+        assert seam["max_abs"] == 6.0
+    summary = m.summarize(report, bar=2.0)
+    assert summary["seams_cross_zl"] == 4
+
+
+def test_cross_zl_is_opt_in(nested_zoom_tile):
+    """Without the flag the zone edge is simply not reported, and nothing
+    else about the census changes."""
+    tile, ortho = nested_zoom_tile
+    m = _load()
+    report = m.census(tile, ortho, strip=4)
+    assert report["cross_zl_seams"] == 0
+    assert not any(s.get("cross_zl") for s in report["seams"])
+    assert m.summarize(report, bar=2.0)["seams_cross_zl"] == 0
+    # The CLI flag turns it on.
+    rc = m.main([str(tile), "--orthophotos", str(ortho), "--strip", "4",
+                 "--cross-zl", "--bar", "2", "--fail-over-bar"])
+    assert rc == 1  # the -6-count zone edge is over the 2-count bar

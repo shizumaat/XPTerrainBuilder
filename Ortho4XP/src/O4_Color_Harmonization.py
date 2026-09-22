@@ -512,33 +512,39 @@ def bilinear_field(field: OffsetField, key, size: int = FIELD_SIZE) -> numpy.nda
 def apply_color_field(image: Image.Image, field: numpy.ndarray) -> Image.Image:
     """Add a correction field to an image with saturating uint8 arithmetic.
 
-    ``field`` is a ``(h, w, 3)`` float array (any size; it is rounded to
-    whole counts, split into its positive and negative parts, upsampled
-    with ``Image.BILINEAR`` to the image size and added / subtracted with
-    PIL's saturating ``ImageChops`` in C — no float copy of the 4096²
-    texture is ever made).  RGB and RGBA inputs are supported; alpha
-    passes through untouched.  The input is never mutated.  When the whole
-    field rounds to zero a copy is returned unchanged.
+    ``field`` is a ``(h, w, 3)`` float array (any size).  It is rounded to
+    whole counts, BIASED by +128 into uint8, upsampled with
+    ``Image.BILINEAR`` to the image size and added with PIL's saturating
+    ``ImageChops.add(..., offset=-128)`` in C — the sum is formed in int
+    and clipped once, at the end.  No float copy of the 4096² texture is
+    ever made, and the whole apply is ONE upsample and ONE chop (spec §6:
+    the budget is a per-texture 0.15 s, and each full-size pass costs about
+    half of it).
+
+    The bias is exact for any field within ±128 counts, which the ±20 clip
+    of :func:`solve_offset_field` guarantees.  Splitting the field into a
+    positive and a negative part instead — one upsample and one chop each —
+    costs twice as much AND rounds differently: the intermediate
+    ``add`` saturates at 255 before the negative part is subtracted, so a
+    bright pixel under a field that changes sign across the texture came
+    out up to 10 counts wrong.
+
+    RGB and RGBA inputs are supported; alpha passes through untouched.  The
+    input is never mutated.  When the whole field rounds to zero a copy is
+    returned unchanged.
     """
     rounded = numpy.rint(numpy.asarray(field, dtype=numpy.float32))
     if not numpy.any(rounded):
         return image.copy()
-    positive = numpy.clip(rounded, 0, 255).astype(numpy.uint8)
-    negative = numpy.clip(-rounded, 0, 255).astype(numpy.uint8)
+    biased = numpy.clip(rounded + 128.0, 0, 255).astype(numpy.uint8)
     has_alpha = image.mode == "RGBA"
     if has_alpha:
         red, green, blue, alpha = image.split()
         rgb = Image.merge("RGB", (red, green, blue))
     else:
         rgb = image.convert("RGB")
-    size = rgb.size
-    result = rgb
-    if positive.any():
-        up = Image.fromarray(positive, "RGB").resize(size, Image.BILINEAR)
-        result = ImageChops.add(result, up)
-    if negative.any():
-        up = Image.fromarray(negative, "RGB").resize(size, Image.BILINEAR)
-        result = ImageChops.subtract(result, up)
+    upsampled = Image.fromarray(biased, "RGB").resize(rgb.size, Image.BILINEAR)
+    result = ImageChops.add(rgb, upsampled, 1.0, -128)
     if has_alpha:
         result.putalpha(alpha)
     return result

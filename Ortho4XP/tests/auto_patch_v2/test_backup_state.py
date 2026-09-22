@@ -723,7 +723,7 @@ def test_ui_restore_restores_ours_and_keeps_the_users_file(tmp_path):
     new = "I\n800\nOBJ\nA WHOLE NEW OBJECT FROM THE NEW PACK VERSION\n"
     yours.write_text(new)
     out = object_rebake.restore_detail(str(pack))
-    assert out == {"restored": 1, "kept_changed": 1}
+    assert out == {"restored": 1, "kept_changed": 1, "bodies_removed": 0}
     assert mine.read_text() == OBJ
     assert yours.read_text() == new, "THE USER'S FILE LOSES NO BYTES"
     assert object_rebake.restore(str(pack)) == 0        # idempotent, int reply
@@ -1138,3 +1138,150 @@ def test_25_compose_keeps_the_writers_rows_and_round_trips_edit_rows():
     assert back.new_resources() == p2.new_resources()
     assert [s.placement.to_dict() for s in back.splits] == \
         [s.placement.to_dict() for s in p2.splits]
+
+
+# ── #26: "restore originals" sees, and undoes, the v2 engine's writes ───
+
+def _v2_scenery(tmp_path, monkeypatch, *, both: bool = False):
+    """A Custom Scenery folder holding ONE pack the v2 engine wrote —
+    TNCM on ``+18-064.dsf``, and TFFG on the same DSF when ``both``.  No
+    v1 reanchor sidecar exists: this is the pack the front ends could not
+    see."""
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    p1, f1 = _tncm(pack, dsf)
+    PW.apply_plan(p1, f1, tool, patch_dir=str(tmp_path / "patch"),
+                  work_dir=str(tmp_path / "w1"))
+    if both:
+        p2, f2 = _tffg(pack, dsf)
+        PW.apply_plan(p2, f2, tool, patch_dir=str(tmp_path / "patch"),
+                      work_dir=str(tmp_path / "w2"))
+    assert not (pack / ".o4_reanchor_provenance.json").exists()
+    return pack, dsf
+
+
+def test_26_a_pack_only_the_v2_engine_wrote_is_listed(tmp_path, monkeypatch):
+    """RED ON BASE: ``modified_packs`` read the v1 reanchor sidecar only,
+    so a pack the v2 engine wrote was never offered to "restore
+    originals" — its minted bodies and its record had no way out."""
+    from auto_patch import object_rebake
+    pack, _dsf = _v2_scenery(tmp_path, monkeypatch)
+
+    packs = object_rebake.modified_packs(str(tmp_path))
+    assert [(e["pack_name"], e["tiles"]) for e in packs] == \
+        [("pack", ["+18-064"])]
+    assert packs[0]["pack_path"] == str(pack)
+    # 1 conversion + 0 row seats + 2 minted bodies
+    assert packs[0]["objects"] == 3
+
+    on_tile = object_rebake.modified_packs(str(tmp_path), tile="+18-064")
+    assert [e["pack_name"] for e in on_tile] == ["pack"]
+    assert on_tile[0]["objects"] == 3
+    assert object_rebake.modified_packs(str(tmp_path), tile="+46+008") == []
+
+
+def test_26_both_airports_of_a_shared_dsf_are_counted(tmp_path, monkeypatch):
+    from auto_patch import object_rebake
+    _pk, _dsf = _v2_scenery(tmp_path, monkeypatch, both=True)
+    packs = object_rebake.modified_packs(str(tmp_path), tile="+18-064")
+    # the composed write: 2 conversions + 3 bodies
+    assert [e["objects"] for e in packs] == [5]
+
+
+def test_26_a_pack_carrying_BOTH_records_is_listed_once(tmp_path, monkeypatch):
+    from auto_patch import object_rebake
+    pack, _dsf = _v2_scenery(tmp_path, monkeypatch)
+    (pack / object_rebake.PROVENANCE_FILENAME).write_text(json.dumps({
+        "version": 1, "meshes": {},
+        "objects": {"objects/tower.obj": {"tile": "+18-064"},
+                    "objects/far.obj": {"tile": "+46+008"}}}))
+
+    packs = object_rebake.modified_packs(str(tmp_path))
+    assert len(packs) == 1, "ONE pack, ONE row"
+    assert packs[0]["tiles"] == ["+18-064", "+46+008"]
+    assert packs[0]["objects"] == 3 + 2
+    on_tile = object_rebake.modified_packs(str(tmp_path), tile="+18-064")
+    assert on_tile[0]["objects"] == 3 + 1
+
+
+def test_26_restore_removes_the_v2_bodies_and_the_record(tmp_path,
+                                                         monkeypatch):
+    """RED ON BASE: the restore walked ``.anchor_bak`` files only, so the
+    DSF went back to its original while the ``__b<k>.obj`` bodies that
+    original never references, and the record describing the write,
+    stayed in the pack."""
+    from auto_patch import object_rebake
+    pack, dsf = _v2_scenery(tmp_path, monkeypatch, both=True)
+    record = dsf.parent / "o4_placement_provenance.json"
+    assert _objs(pack) == ["b__b0.obj", "b__b1.obj", "d__b0.obj"]
+    assert record.is_file()
+    theirs = pack / "objects" / "z__b9.obj"
+    theirs.write_text("I\n800\nOBJ\nauthored by the pack, honestly\n")
+
+    out = object_rebake.restore_detail(str(pack))
+
+    assert out == {"restored": 1, "kept_changed": 0, "bodies_removed": 3}
+    assert dsf.read_text() == DUMP4, "the original is back, byte for byte"
+    assert _objs(pack) == ["z__b9.obj"], "every minted body went"
+    assert theirs.read_text() == "I\n800\nOBJ\nauthored by the pack, honestly\n"
+    assert not record.exists(), "the write is forgotten with its bodies"
+    assert Path(str(dsf) + ".anchor_bak").is_file(), "backups stay in place"
+
+    # idempotent, and the pack is no longer offered
+    assert object_rebake.restore(str(pack)) == 0
+    assert object_rebake.modified_packs(str(tmp_path)) == []
+
+
+def test_26_a_dsf_we_cannot_prove_is_ours_keeps_its_bodies(tmp_path):
+    """The restore's own rule reaches the bodies too: a file the engine
+    cannot prove it wrote loses no bytes, and neither does anything that
+    file may still reference."""
+    from auto_patch import object_rebake
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    shutil.copy2(dsf, str(dsf) + ".anchor_bak")
+    body = pack / "objects" / "b__b0.obj"
+    body.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}objects/b__b0.obj\n")
+    _record(dsf, {"body_files": ["objects/b__b0.obj"]})   # D6: no hashes
+    dsf.write_text(DUMP4 + "OBJECT 0 -63.0 18.0 0.0\n")
+    B.invalidate_memo()
+    assert B.classify_dsf(str(dsf)).state is B.State.UNPROVEN
+
+    out = object_rebake.restore_detail(str(pack))
+    assert out == {"restored": 0, "kept_changed": 1, "bodies_removed": 0}
+    assert body.is_file(), "the live DSF may still reference it"
+    assert (dsf.parent / "o4_placement_provenance.json").is_file()
+
+
+def test_26_a_sibling_dsfs_entry_survives_the_drop(tmp_path):
+    a = _pack(tmp_path, name="+18-064.dsf")[1]
+    b = a.parent / "+18-063.dsf"
+    b.write_text(DUMP)
+    doc = {"version": 2, "dsf": a.name, "written_sha256": "a" * 64,
+           "dsfs": {a.name: {"body_files": ["objects/a__b0.obj"]},
+                    b.name: {"body_files": ["objects/c__b0.obj"]}}}
+    (a.parent / "o4_placement_provenance.json").write_text(json.dumps(doc))
+
+    assert B.drop_dsf_entry(str(a)) is True
+    left = json.loads((a.parent / "o4_placement_provenance.json").read_text())
+    assert list(left["dsfs"]) == [b.name]
+    assert "written_sha256" not in left and "dsf" not in left, \
+        "the last write's top-level description named the dropped DSF"
+    assert B.drop_dsf_entry(str(a)) is False                # already gone
+    assert B.drop_dsf_entry(str(b)) is True
+    assert not (a.parent / "o4_placement_provenance.json").exists()
+
+
+def test_26_a_v1_only_pack_restores_exactly_as_it_did(tmp_path):
+    from auto_patch import object_rebake
+    pack, _dsf = _pack(tmp_path)
+    mine = _obj(pack, "mine.obj", OBJ)
+    shutil.copy2(mine, str(mine) + ".anchor_bak")
+    mine.write_text("I\n800\nOBJ\nVT 1.0 -3.0 2.0\nVT 3.0 -3.0 4.0\n")
+    (pack / object_rebake.PROVENANCE_FILENAME).write_text(json.dumps(
+        {"version": 1, "meshes": {},
+         "objects": {"objects/mine.obj": {"tile": "+40-004"}}}))
+
+    out = object_rebake.restore_detail(str(pack))
+    assert out == {"restored": 1, "kept_changed": 0, "bodies_removed": 0}
+    assert mine.read_text() == OBJ
+    assert not (pack / object_rebake.PROVENANCE_FILENAME).exists()

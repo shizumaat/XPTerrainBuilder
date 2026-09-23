@@ -2041,6 +2041,20 @@ def imagery_capability(tile, cfg_provenance) -> dict:
     site = str(getattr(tile, "default_website", "") or "")
     zl = getattr(tile, "default_zl", None)
     action = (cfg_provenance or {}).get("action", "unknown")
+    mode = getattr(tile, "texture_mode", "full_ortho")
+    if mode == "default_xplane":
+        # NO ORTHOPHOTO IS READ in this mode (O4_Tile_Utils: the imagery
+        # download/convert stage is a no-op, ``imagery_needed`` False;
+        # build_dsf textures from the installed Global Scenery and raises
+        # loudly when it is absent).  A provider is therefore not
+        # REQUIRED by any step, and the imagery half runs without one.
+        return {"ok": True, "reason": "texture_mode default_xplane reads no "
+                                      "orthophoto provider",
+                "note": (f"imagery frame OK: texture_mode default_xplane "
+                         f"(provider {site!r} zl={zl} not required; per-tile "
+                         f"cfg {action})"),
+                "default_website": site, "default_zl": zl,
+                "cfg_action": action}
     if site:
         return {"ok": True, "reason": "provider resolved",
                 "note": (f"imagery frame OK: provider {site!r} zl={zl} "
@@ -2074,7 +2088,14 @@ def imagery_capability(tile, cfg_provenance) -> dict:
         "default_website": "", "default_zl": zl, "cfg_action": action}
 
 
-def resolve_tile_frame(lat: int, lon: int, build_dir, prog=None):
+#: The engine's ``texture_mode`` values (``O4_Cfg_Vars.cfg_vars`` — the
+#: twin asserts these ARE that registry's, so the flag can never offer a
+#: mode the engine does not dispatch on).
+TEXTURE_MODES = ("full_ortho", "airport_ortho", "default_xplane")
+
+
+def resolve_tile_frame(lat: int, lon: int, build_dir, prog=None,
+                       texture_mode=None):
     """``(tile, cfg_provenance, imagery)`` — THE tile frame, for BOTH tile
     entries (``--tile`` here and ``tools/run_tile_mesh_only.py``).
 
@@ -2083,6 +2104,19 @@ def resolve_tile_frame(lat: int, lon: int, build_dir, prog=None):
     census-wrapper defect at one remove: the two entries would provision
     from different sources and refuse on different conditions, and no
     reader of either build's record could tell.
+
+    ``texture_mode`` (issue #37, ``--tile --texture-mode``): the engine's
+    per-tile ``texture_mode`` key — what the base mesh is textured with —
+    which the app writes into the tile's cfg per BUILD from its job
+    (``O4_Settings_Model.write_tile`` / the Qt build-area selector), so a
+    harness tile that has no such cfg line would build ``full_ortho`` no
+    matter what the owner's job said.  Given here, it OVERRIDES the cfg
+    value on the resolved tile object (the cfg file is never rewritten —
+    a lane's provisioned input stays byte-identical) and is RECORDED in
+    ``cfg_provenance["texture_mode"]`` as ``{effective, cfg, source}``
+    so the frame says which mode this build ran in and where it came
+    from.  Applied BEFORE the imagery capability is judged, because the
+    mode decides whether a provider is required at all.
     """
     import O4_Config_Utils as _CFG
     import O4_File_Names as _FNAMES
@@ -2095,6 +2129,20 @@ def resolve_tile_frame(lat: int, lon: int, build_dir, prog=None):
     # fact that has to be recorded, not inferred.
     cfg_provenance = provision_tile_cfg(lat, lon, tile.build_dir, prog)
     tile.read_from_config()
+    cfg_mode = getattr(tile, "texture_mode", "full_ortho")
+    if texture_mode is not None:
+        if texture_mode not in TEXTURE_MODES:
+            raise SystemExit(f"REFUSING: --texture-mode {texture_mode!r} is not "
+                             f"one of the engine's modes {TEXTURE_MODES}")
+        tile.texture_mode = texture_mode
+    cfg_provenance = dict(cfg_provenance or {})
+    cfg_provenance["texture_mode"] = {
+        "effective": getattr(tile, "texture_mode", "full_ortho"),
+        "cfg": cfg_mode,
+        "source": "--texture-mode" if texture_mode is not None else "tile cfg"}
+    if prog is not None:
+        prog.note(f"texture mode {cfg_provenance['texture_mode']['effective']} "
+                  f"({cfg_provenance['texture_mode']['source']}; cfg said {cfg_mode})")
     return tile, cfg_provenance, imagery_capability(tile, cfg_provenance)
 
 
@@ -3024,7 +3072,8 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
 
 
 def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
-               skip_steps=None, requested=None, boundary="skip") -> dict:
+               skip_steps=None, requested=None, boundary="skip",
+               texture_mode=None) -> dict:
     """One whole tile through the four release steps, with the owner's
     X-Plane install paths applied (absorbs ``run_release_tile.py``).
     The tile's patches build with the ONE auto-patch engine, v2 (owner
@@ -3055,9 +3104,10 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
     # capability resolved — ONE implementation, shared with
     # ``tools/run_tile_mesh_only.py`` (RULINGS 2026-08-31d).
     tile, cfg_provenance, imagery = resolve_tile_frame(
-        lat, lon, build_dir, prog)
+        lat, lon, build_dir, prog, texture_mode=texture_mode)
     prog.note(f"tile {lat:+d}{lon:+d} build_dir={tile.build_dir} "
               f"website={tile.default_website} zl={tile.default_zl} "
+              f"texture_mode={getattr(tile, 'texture_mode', 'full_ortho')} "
               f"auto_patch={tile.auto_patch} engine=v2 "
               f"modify_custom_airports={tile.modify_custom_airports} "
               f"boundary={boundary}")
@@ -3125,6 +3175,9 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
             "xplane_paths": paths,
             "imagery": imagery,
             "tile_cfg_provenance": cfg_provenance,
+            # WHICH TEXTURE MODE this tile built in and where it came
+            # from (issue #37): ``{effective, cfg, source}``.
+            "texture_mode": (cfg_provenance or {}).get("texture_mode"),
             "tile_engine": None}
 
 
@@ -3178,6 +3231,16 @@ def main(argv=None) -> int:
                          "install paths)")
     ap.add_argument("--build-dir", default=None,
                     help="--tile only: the scenery pack directory")
+    ap.add_argument("--texture-mode", choices=TEXTURE_MODES, default=None,
+                    help="--tile only: the engine's per-tile texture_mode "
+                         "(what the base mesh is textured with — the app "
+                         "writes it into the tile cfg per build from its "
+                         "job; a harness tile with no such cfg line builds "
+                         "full_ortho).  Overrides the cfg value on the "
+                         "resolved tile (the cfg file is never rewritten); "
+                         "default_xplane needs no imagery provider, so the "
+                         "imagery half runs.  Recorded in <tag>.frame.json "
+                         "as texture_mode {effective, cfg, source}.")
     ap.add_argument("--boundary", choices=("skip", "neighbour"),
                     default="skip",
                     help="--tile only: what to do with an airport whose "
@@ -3304,6 +3367,12 @@ def main(argv=None) -> int:
                 f"world, no geometry-only emit, no solve-stage capture).  "
                 f"Build the patch: build_airport.py {args.icao}, or the "
                 f"tile: --tile LAT LON.")
+    if args.texture_mode is not None and not args.tile:
+        raise SystemExit(
+            "REFUSING: --texture-mode without --tile is not wired — the "
+            "airport patch has no textures; texture_mode is a per-tile "
+            "engine key and the flag would silently do nothing.  Build "
+            f"the tile: --tile LAT LON --texture-mode {args.texture_mode}.")
     if args.geometry_only and args.tile:
         raise SystemExit(
             "REFUSING: --geometry-only with --tile is not wired — "
@@ -3726,7 +3795,8 @@ def main(argv=None) -> int:
                 result = build_tile(
                     lat, lon,
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog,
-                    requested=requested, boundary=args.boundary)
+                    requested=requested, boundary=args.boundary,
+                    texture_mode=args.texture_mode)
             result["boundary_policy"] = args.boundary
             result["engine_cache_redirects"] = redirects
             result["engine"] = ENGINE
@@ -3803,6 +3873,9 @@ def main(argv=None) -> int:
     # two lanes that hand-seeded two different sources on 2026-08-12 left
     # nothing in either frame to compare).
     frame["tile_cfg_provenance"] = result.get("tile_cfg_provenance")
+    # ``--tile --texture-mode`` (issue #37): what the cfg said vs what the
+    # run built with — ``{effective, cfg, source}``, None for a patch run.
+    frame["texture_mode"] = result.get("texture_mode")
     # ``--tile --engine``: what the cfg said vs what the run built with.
     frame["tile_engine"] = result.get("tile_engine")
     # WHICH HALVES OF THE TILE THIS BUILD ACTUALLY RAN (RULINGS

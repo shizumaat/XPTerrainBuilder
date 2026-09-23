@@ -432,10 +432,20 @@ def test_apply_on_a_full_size_texture_is_within_the_spec_budget(timing_runs):
     here: a floor measured first came out at 0.60 s and interleaved at
     0.21 s).
 
-    The absolute 0.15 s is asserted only when the machine's own floor is
-    under half of it — otherwise the budget would be judging the runner
-    rather than the code.  Either way the absolute number is printed, for
-    the owner's machine to rule on.
+    The absolute 0.15 s is asserted whenever the machine's own FLOOR fits
+    inside it.  That is the condition under which the budget is a statement
+    about the code: if the irreducible upsample+add already fits and the
+    apply does not, the apply blew a budget this machine could meet, which
+    is precisely what §6 exists to catch.  When the floor alone exceeds the
+    budget no implementation could pass, so the number is printed and not
+    asserted.
+
+    (The first cut of this guard required the floor to be under HALF the
+    budget.  That made the branch dead on the very machine the spec was
+    written for: the owner's Mac measured a 0.0941 s floor and a 0.0959 s
+    apply on 2026-09-23 — comfortably within 0.15 s, but 0.0941 > 0.075, so
+    the twin printed "within" and asserted nothing.  A guard that never
+    fires on the one machine whose budget it encodes is not a guard.)
 
     ``timing``-marked, so deselected by default (RULINGS 2026-09-12z:
     single-run wall times swing ±25 % and a wall-clock gate inside a
@@ -505,5 +515,9 @@ def test_apply_on_a_full_size_texture_is_within_the_spec_budget(timing_runs):
         f"{elapsed:.4f} s is {ratio:.2f}x this machine's {floor:.4f} s floor "
         "— the apply grew a full-size pass"
     )
-    if floor <= 0.075:
-        assert elapsed <= 0.15, f"{elapsed:.4f} s > 0.15 s (spec §6)"
+    if floor <= 0.15:
+        assert elapsed <= 0.15, (
+            f"{elapsed:.4f} s > 0.15 s (spec §6) on a machine whose floor for "
+            f"the same work is {floor:.4f} s — the budget is reachable here, "
+            "so this is the apply's own overhead"
+        )

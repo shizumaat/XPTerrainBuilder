@@ -250,6 +250,8 @@ def apron_cut_to_pads(base_regions, pad_regions, law,
     welds = 0
     cut = 0
     area_cut = 0.0
+    cut_by_ref: dict[str, float] = {}
+    consumed: list[str] = []
     for i, r in enumerate(out):
         if r.source != "cell" or r.role not in cut_roles:
             continue
@@ -269,14 +271,25 @@ def apron_cut_to_pads(base_regions, pad_regions, law,
             # ground there, so the face yields entirely
             counts["apron_face_consumed"] = \
                 int(counts.get("apron_face_consumed", 0)) + 1
+            cut_by_ref[str(r.ref)] = cut_by_ref.get(str(r.ref), 0.0) + r.polygon.area
+            consumed.append(str(r.ref))
             out[i] = None
             continue
+        cut_by_ref[str(r.ref)] = cut_by_ref.get(str(r.ref), 0.0) + (
+            r.polygon.area - g.area)
         cut += 1
         welds += sum(1 for q in ps if q.boundary.intersects(pad_u.boundary))
         out[i] = _dc.replace(r, polygon=max(ps, key=lambda q: q.area))
         for extra in sorted(ps, key=lambda q: -q.area)[1:]:
             out.append(_dc.replace(r, polygon=extra))
     counts["apron_faces_cut"] = cut
+    # WHICH apron faces yielded, and how much each gave — the read the
+    # owner's "airside lost under a terminal" question asks (a string, so
+    # the arrangement's publication stays scalar-per-key)
+    counts["apron_consumed_refs"] = ",".join(sorted(consumed))
+    counts["apron_cut_top"] = ", ".join(
+        f"{k} {v:,.0f}" for k, v in sorted(cut_by_ref.items(),
+                                            key=lambda kv: -kv[1])[:6])
     counts["apron_area_cut_m2"] = round(area_cut, 1)
     counts["pad_airside_weld_pairs"] = welds
     counts["pad_area_kept_m2"] = round(pad_u.area, 1)

@@ -64,6 +64,7 @@ from . import contact as _contact
 from . import deck_signature as _deck
 from . import line_object as _line
 from . import obj8 as _obj8
+from . import scatter as _scatter
 from . import skirt as _skirt
 from .pack import live_path_of
 
@@ -81,7 +82,7 @@ def counts_zero() -> dict[str, int]:
             "terrain_adapted": 0, "line_objects": 0,
             "below_grade": 0, "below_grade_parts": 0,
             "deck_families": 0, "plate_members": 0, "plate_objects": 0,
-            "signature_decks": 0}
+            "signature_decks": 0, "scatter_members": 0, "scatter_parts": 0}
 
 
 @_dc.dataclass(frozen=True)
@@ -199,8 +200,15 @@ class PackPartition:
                 parts = tuple(p for p in m.parts if p.comp not in deep)
                 if screen.structure_seated and oid in screen.structure_seated:
                     # 14.1 rule 4: the line class must not reach a member
-                    # whose elevation a structure seat governs
-                    parts = tuple(_dc.replace(p, line=False) for p in parts)
+                    # whose elevation a structure seat governs — and nor
+                    # may the scatter class (§B.2 (2), re-stated HERE for
+                    # the screened set exactly as the line verdict is)
+                    parts = tuple(_dc.replace(p, line=False, scatter=False) for p in parts)
+                    m = _dc.replace(m, scatter=False)
+                elif m.scatter and (oid in screen.basin_members
+                                    or opath in screen.basin_members):
+                    parts = tuple(_dc.replace(p, scatter=False) for p in parts)
+                    m = _dc.replace(m, scatter=False)
                 if not parts and not (oid in screen.deck_family and rb.deck_family_seats_rigid):
                     counts["no_parts"] += 1
                     skipped.setdefault(opath,
@@ -390,6 +398,20 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                and _line.is_line_object(cache, o.resolved, rb))
     if is_line:
         counts["line_objects"] += 1
+    # THE SCATTER CLASS (spec ``pack-read-once-fast-spec.md`` §B.2 (2),
+    # issue #29; owner RULINGS 2026-09-18q, 18t (4)).  Read AFTER the deck
+    # and line verdicts, as the census found it must be (six OTHH
+    # resources read scatter AND ``elevated_deck``: the deck wins), and
+    # never for a placement 14.1 rule 4 exempts — deck family, plate- or
+    # structure-seated, a basin member, an ``ATTR_hard_deck`` placement.
+    is_scatter = (not is_line and not deck_body and not in_deck_family
+                  and o.hard_deck is None
+                  and o.deck_kind not in ("flag", "signature")
+                  and o.id not in sc.structure_seated
+                  and o.id not in sc.plate_paths and o.path not in sc.plate_paths
+                  and o.id not in sc.basin_members and o.path not in sc.basin_members
+                  and _scatter.is_scatter(cache, o.resolved, law))
+    counts["scatter_members"] += int(is_scatter)
     # EVERY OPTIONAL FIELD IS PASSED BY NAME.  Twice now a field inserted
     # into ``model.rebake.Member`` has silently shifted this call's
     # positional tail: ``plate_clearance_m`` in 2026-09-11t (the viaduct's
@@ -409,7 +431,8 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                     deck_kind=o.deck_kind, deck_ends=None,
                     deck_end_stations=(), deck_profile=(), deck_evidence=(),
                     deck_stations=(), plate_y=None, plate_stations=(),
-                    skirted=skirted, elevated_deck=deck_body)
+                    skirted=skirted, elevated_deck=deck_body,
+                    scatter=is_scatter)
     return member, (o, geom, list(comps)), bool(is_line)
 
 
@@ -529,6 +552,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     placed: list[tuple[_obj8.PlacedObject, _obj8.ObjGeometry,
                        list[tuple[int, _obj8.Component]]]] = []
     line_members: set[int] = set()
+    scatter_members: set[int] = set()
     recipes: list[MemberRecipe] = []
     member_ref: list[tuple[tuple[float, float, float], str, str]] = []
     for key, o in keyed:
@@ -544,6 +568,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         member, mgeom, is_line = built
         if is_line:
             line_members.add(len(placed))
+        if member.scatter:
+            scatter_members.add(len(placed))
         members[o.path] = member
         placed.append(mgeom)
         recipes.append(MemberRecipe(mgeom[0], tuple(k for k, _c in mgeom[2])))
@@ -563,7 +589,11 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                               rb.line_object_stations_max,
                               anchor_of_member, rb.plate_gap_max_m,
                               rb.abutment_extent_min_m,
-                              law.tables.emit.identity.min_distinct_spacing_m)
+                              law.tables.emit.identity.min_distinct_spacing_m,
+                              scatter_members=scatter_members,
+                              piece_touch_m=float(
+                                  law.tables.structures.placement.footprint_touch_m))
+    counts["scatter_parts"] = sum(1 for q in part.parts if q.scatter)
     parts_by_member = _parts_by_member(part, to_ll_batch)
     for mi, (key, path, _oid) in enumerate(member_ref):
         m = units_by_key[key][path]
@@ -674,7 +704,8 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
                  # mixing it in here made ``height_m`` an MSL number
                  # (LEMD read 580–646 m over all 29,684 parts and the
                  # leaf rule passed every body as walled).
-                 round(float(p.box_max[1]) - float(p.box_min[1]), 3)))
+                 round(float(p.box_max[1]) - float(p.box_min[1]), 3),
+                 scatter=bool(p.scatter)))
     return out
 
 

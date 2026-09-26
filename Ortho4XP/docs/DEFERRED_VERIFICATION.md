@@ -6220,3 +6220,16 @@ constraint, and owed:
 * **`ensure_auto_patch_road_feeds`'s new return type** (`RoadFeedPrecheck`)
   was checked against its one production caller and its own test file only;
   no full-suite run.
+
+## 2026-09-25 — lane `packperf` (#27 / #28 / #29, spec S2 / S3 / S4 / S5b)
+
+* #29 (S5b) wired the scatter class through `_build_member` -> `contact.partition`
+  (no ring, one foot, piece edges only) -> `planar/group._eligible` -> the
+  cluster derivation.  NOT wired: the `basin_witness.read_objects` gate (the
+  structure readers still read scatter placements), so the `structures.json`
+  dry pair the S5a entry above names is STILL OWED, and so is the measured
+  foot-row / pad-outline delta on a real airport (the closing TNCM/TFFG build
+  is refused on tile +18-064 by issue #61, PACK-SET-STALE insets).
+* §B.5's mmap DEM half is not done (the tile DEM is an `O4_DEM_Utils.DEM`,
+  not a plain ndarray wrapper — spec says stop and report).
+* Suites: only the files covering the change, once (527 passed).

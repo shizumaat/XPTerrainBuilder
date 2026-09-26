@@ -448,8 +448,11 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
         for (bu, mi, _gi), pids in sorted(bodies.items()):
             if bu != ui:
                 continue
+            # §B.2 (4) (issue #29): a SCATTER piece never joins or founds
+            # a cluster, so it never extends a pad (18q Q1)
             live = [parts_of[q] for q in pids
-                    if q in parts_of and not parts_of[q].line]
+                    if q in parts_of and not parts_of[q].line
+                    and not getattr(parts_of[q], "scatter", False)]
             bx = [q.box for q in live]
             if not bx:
                 continue

@@ -55,7 +55,10 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 3   #  §51 (4) row 17: every placed footprint in a cached
+CACHE_VERSION = 4   # #27/#29: per-airport path + pristine header, and the
+                    # SCATTER class (parts / members / base index carry
+                    # ``scatter``) — a v3 payload is refused, never repaired.
+                    # v3:  §51 (4) row 17: every placed footprint in a cached
                     # reading was minted by the PRE-§51 entry path.  The
                     # bump INVALIDATES them; a stale payload is never
                     # repaired on read, because a repair-on-read is a
@@ -79,6 +82,7 @@ _CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.frame_entry",
     "auto_patch_v2.airport.skirt",
     "auto_patch_v2.airport.bulk_geos",
+    "auto_patch_v2.airport.scatter",
     "auto_patch_v2.airport.deck_signature",
     "auto_patch_v2.airport.line_object",
     "auto_patch_v2.airport.placement_boxes",

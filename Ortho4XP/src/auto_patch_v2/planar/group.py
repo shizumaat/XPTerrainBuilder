@@ -343,6 +343,11 @@ def _eligible(m: Member) -> bool:
         return False
     if m.parts and all(p.line for p in m.parts):
         return False
+    # §B.2 (4) (issue #29; owner RULINGS 2026-09-18q Q1): SCATTER NEVER
+    # SHAPES THE TERRAIN — no group, so no ground_fit, no foot rows, no
+    # pad relief; the pieces go to the terrain
+    if m.parts and all(getattr(p, "scatter", False) for p in m.parts):
+        return False
     return bool(m.parts)
 
 

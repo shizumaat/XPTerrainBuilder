@@ -189,6 +189,34 @@ OUTLINE_SIMPLIFY_M = 0.05
 #: worth its seconds, and the hull is outward.
 OUTLINE_TRIS_MAX = 4000
 
+#: §16g (7) (1) THE OUTWARD GROWTH IS BOUNDED (lane ``hecabodies``, issues
+#: #6 / #7).  :func:`_outward` doubled its tolerance until the ring fit
+#: :data:`FOOTPRINT_RING_MAX`, and for a long THIN component that reached
+#: metres: HECA's ``Hangar_Tower/metal_strip_2.obj`` component 117 — a
+#: kerb strip whose true plan area is 113 m2 — came out as a 7,385 m2
+#: band (a 6.4 m buffer on each side), was chained into ``building13``'s
+#: cluster and carried its pad 30 m over the service road the owner says
+#: "is not part of building13 and must be free to terrace" (#7).  So the
+#: tolerance stops HERE — a small fraction of ``footprint_touch_m`` — and
+#: an outline that still needs more than the cap is CUT into pieces that
+#: each fit (:func:`_outward_pieces`): more rings, never a fatter one.
+#: ``rings_touch`` and ``cluster_outlines`` already read a body as a SET of
+#: rings, so nothing downstream changes shape.
+OUTWARD_TOL_MAX_M = 0.2
+
+#: A HOLE in a component's outline up to this area is filled (outward, and
+#: too small to be ground anything stands on); a larger one is KEPT by
+#: cutting the outline into hole-free pieces.  A ring carries no holes,
+#: and "holes are dropped" put the whole ground a kerb or rail FRAME
+#: encloses into its footprint: HECA ``metal_strip_2.obj`` component 69,
+#: 15 m2 of rail around a 59 x 21 m rectangle, read 1,235 m2.
+HOLE_FILL_MAX_M2 = 4.0
+
+#: How deep :func:`_outward_pieces` may bisect before the piece takes its
+#: convex hull (2**8 = 256 pieces at most per blob — a bound, not a
+#: target: HECA's worst strip needs a few dozen).
+OUTWARD_SPLIT_DEPTH = 8
+
 
 def _outward(poly, tol: float, cap: int):
     """``poly`` simplified to at most ``cap`` vertices and GUARANTEED to
@@ -210,6 +238,63 @@ def _outward(poly, tol: float, cap: int):
             return q
         t *= 2.0
     return shapely.convex_hull(poly)
+
+
+def _outward_fit(poly, tol: float, tol_max: float, cap: int):
+    """:func:`_outward`'s doubling, STOPPED at ``tol_max``: the simplified
+    ring that contains ``poly`` and fits ``cap``, or ``None`` when no
+    tolerance up to the bound makes it fit."""
+    from shapely.geometry import Polygon as _P
+    t = tol
+    while t <= tol_max + 1e-12:
+        q = poly.buffer(t, join_style=2).simplify(t)
+        if not q.is_valid:
+            q = q.buffer(0)
+        if not q.is_empty and q.geom_type == "Polygon" and q.interiors:
+            keep = [h for h in q.interiors if _P(h).area > HOLE_FILL_MAX_M2]
+            if keep:
+                return None        # a real hole: the caller cuts it out
+            q = _P(q.exterior)
+        if (not q.is_empty and q.geom_type == "Polygon" and q.covers(poly)
+                and len(q.exterior.coords) <= cap + 1):
+            return q
+        t *= 2.0
+    return None
+
+
+def _outward_pieces(poly, tol: float, tol_max: float, cap: int,
+                    depth: int = OUTWARD_SPLIT_DEPTH) -> list:
+    """§16g (7) (1) bounded: ``poly`` as outward rings that each fit
+    ``cap`` with growth at most ``tol_max`` — bisecting the polygon across
+    its longer side until every piece fits.  The union of the pieces'
+    rings CONTAINS ``poly`` (each piece's ring contains its piece, and the
+    pieces tile it), so the owner's 14j "never inward" still holds; the
+    last resort at ``depth`` 0 is the piece's convex hull, which contains
+    it by construction."""
+    import shapely
+    from shapely.geometry import box as _box
+    q = _outward_fit(poly, tol, tol_max, cap)
+    if q is not None:
+        return [q]
+    if depth <= 0:
+        return [shapely.convex_hull(poly)]
+    x0, y0, x1, y1 = poly.bounds
+    if (x1 - x0) >= (y1 - y0):
+        xm = 0.5 * (x0 + x1)
+        halves = (_box(x0 - 1.0, y0 - 1.0, xm, y1 + 1.0),
+                  _box(xm, y0 - 1.0, x1 + 1.0, y1 + 1.0))
+    else:
+        ym = 0.5 * (y0 + y1)
+        halves = (_box(x0 - 1.0, y0 - 1.0, x1 + 1.0, ym),
+                  _box(x0 - 1.0, ym, x1 + 1.0, y1 + 1.0))
+    out: list = []
+    for h in halves:
+        g = poly.intersection(h)
+        for part in (g.geoms if hasattr(g, "geoms") else [g]):
+            if part.geom_type != "Polygon" or part.is_empty or part.area <= 0.0:
+                continue
+            out.extend(_outward_pieces(part, tol, tol_max, cap, depth - 1))
+    return out or [shapely.convex_hull(poly)]
 
 
 def plan_hull(pts: "np.ndarray | None",
@@ -243,30 +328,50 @@ def plan_hull(pts: "np.ndarray | None",
         return _hull_ring(pts)
     import shapely
     xz = np.column_stack((pts[:, 0], pts[:, 2]))
-    t = xz[tris]                                   # (m, 3, 2)
-    # a triangle with no plan area contributes nothing to a footprint
-    ar = np.abs((t[:, 1, 0] - t[:, 0, 0]) * (t[:, 2, 1] - t[:, 0, 1])
-                - (t[:, 2, 0] - t[:, 0, 0]) * (t[:, 1, 1] - t[:, 0, 1]))
-    t = t[ar > 1e-6]
-    if len(t) == 0:
+    t_all = xz[tris]                               # (m, 3, 2)
+    if len(t_all) > OUTLINE_TRIS_MAX:
         return _hull_ring(pts)
-    if len(t) > OUTLINE_TRIS_MAX:
-        return _hull_ring(pts)
+    ar = np.abs((t_all[:, 1, 0] - t_all[:, 0, 0]) * (t_all[:, 2, 1] - t_all[:, 0, 1])
+                - (t_all[:, 2, 0] - t_all[:, 0, 0]) * (t_all[:, 1, 1] - t_all[:, 0, 1]))
+    t = t_all[ar > 1e-6]
+    # A triangle with NO plan area is a WALL seen from above: its footprint
+    # is the LINE it stands on.  Until issue #6 such a component (every
+    # triangle vertical) took its CONVEX HULL — HECA's
+    # ``Hangar_Tower/titles_1_yellow.obj`` lettering band, 0.0 m2 in plan,
+    # read 1,946 m2 and nested a second ``building20`` inside the first —
+    # and a mixed component simply dropped its walls.  The walls now enter
+    # as their plan segments grown by the outline tolerance (outward).
+    flat = t_all[ar <= 1e-6]
     try:
-        rings = np.concatenate([t, t[:, :1, :]], axis=1)
-        u = shapely.union_all(shapely.polygons(rings))
+        geoms = []
+        if len(t):
+            rings = np.concatenate([t, t[:, :1, :]], axis=1)
+            geoms.append(shapely.union_all(shapely.polygons(rings)))
+        if len(flat):
+            segs = np.concatenate([flat[:, [0, 1], :], flat[:, [1, 2], :],
+                                   flat[:, [2, 0], :]], axis=0)
+            ln = np.hypot(segs[:, 1, 0] - segs[:, 0, 0],
+                          segs[:, 1, 1] - segs[:, 0, 1])
+            segs = segs[ln > 1e-6]
+            if len(segs):
+                geoms.append(shapely.union_all(shapely.linestrings(segs))
+                             .buffer(OUTLINE_SIMPLIFY_M, join_style=2))
+        if not geoms:
+            return _hull_ring(pts)
+        u = shapely.union_all(geoms)
         if u.is_empty:
             return _hull_ring(pts)
         if not u.is_valid:
             u = u.buffer(0)
         out: list = []
         for g in (u.geoms if u.geom_type.startswith("Multi") else [u]):
-            if g.is_empty or g.area <= 0.0:
+            if g.is_empty or g.area <= 0.0 or g.geom_type != "Polygon":
                 continue
-            q = _outward(g, OUTLINE_SIMPLIFY_M, FOOTPRINT_RING_MAX)
-            r = np.asarray(q.exterior.coords[:-1], dtype=float)
-            if len(r) >= 3:
-                out.append(r)
+            for q in _outward_pieces(g, OUTLINE_SIMPLIFY_M, OUTWARD_TOL_MAX_M,
+                                     FOOTPRINT_RING_MAX):
+                r = np.asarray(q.exterior.coords[:-1], dtype=float)
+                if len(r) >= 3:
+                    out.append(r)
         return out or _hull_ring(pts)
     except Exception:
         return _hull_ring(pts)

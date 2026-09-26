@@ -150,6 +150,26 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
             new[v] = tgt[v]
     live = [k for k in range(len(L)) if trees[k] is not None]
 
+    # A GATED PAD IS NOT MOVED BY ITS NEIGHBOURS' STRIPS (Q-32d (i),
+    # round 2): where the gate refused a pad's strip "the 23a weld alone
+    # governs" — so its own vertices join the never-moved set, or another
+    # pad's transition reaches its weld and bends it anyway (measured:
+    # SPJC's gated terminal 243 -> 326 rows through the concourse pads'
+    # strips beside it).
+    why_fixed: dict[int, str] = dict(strips.fixed)
+    for k, st in enumerate(strips.strips):
+        if resid_of[k][1]:
+            for v in st.pad_vertices:
+                why_fixed.setdefault(v, "gated_pad")
+    fixed = sorted(v for v in why_fixed if v < len(z1a))
+    # ... including a vertex a neighbour's pad SHARES with the gated pad
+    # (two touching 23a pads weld at one vertex, 09-01g): it belongs to
+    # the gated pad too, so no strip moves it (measured: SPJC's concourse
+    # pads `building30` / `building31` share 16 vertices with the gated
+    # terminal and lifted them up to 0.34 m)
+    for v in [v for v in in_strip if why_fixed.get(v) == "gated_pad"]:
+        del in_strip[v]
+        new.pop(v, None)
     # THE TRANSITION (§2 (3)): "from the strip's outer line the surface
     # grades to the stage-1 value over L_t = |fall| / max".  Each strip
     # vertex u carries its CHANGE d_u = L - z1(u); the change propagates
@@ -165,18 +185,6 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
     src_dz = np.array([new[v] - levels[v] for v in in_strip], dtype=float)
     src_k = np.array([in_strip[v] for v in in_strip], dtype=np.int64)
     reach = float(np.max(np.abs(src_dz)) / s) if src_dz.size else 0.0
-    # A GATED PAD IS NOT MOVED BY ITS NEIGHBOURS' STRIPS (Q-32d (i),
-    # round 2): where the gate refused a pad's strip "the 23a weld alone
-    # governs" — so its own vertices join the never-moved set, or another
-    # pad's transition reaches its weld and bends it anyway (measured:
-    # SPJC's gated terminal 243 -> 326 rows through the concourse pads'
-    # strips beside it).
-    why_fixed: dict[int, str] = dict(strips.fixed)
-    for k, st in enumerate(strips.strips):
-        if resid_of[k][1]:
-            for v in st.pad_vertices:
-                why_fixed.setdefault(v, "gated_pad")
-    fixed = sorted(v for v in why_fixed if v < len(z1a))
     ftree = (cKDTree(np.array([xy[v] for v in fixed], dtype=float))
              if fixed else None)
 

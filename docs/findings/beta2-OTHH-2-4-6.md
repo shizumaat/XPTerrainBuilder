@@ -359,3 +359,184 @@ emitted at all? That is a design ruling, not something a measurement settles.
   above.
 - Did not edit code, did not touch `docs/BETA2-BLOCKERS.md`, ran no git
   operation.
+
+## CHECKPOINT — lane `othhjunction` (#13 #15 #14), 2026-09-21 19:40, machine shutdown
+
+Branch `claude/othhjunction` off main `8224729d`. No code edited. OTHH capture
+KILLED at 11 min (no pickle written; `.harness/frames/othhjunction/` holds only
+`cap_OTHH.engine_caches`). ONE dry classify read completed (6.5 min):
+`PYTHONPATH=src venv/bin/python -m auto_patch_v2.pipeline explain OTHH --at 25.2599127,51.6149444 --roles --sources`.
+
+### Re-measured on the CURRENT v2 classifier (dry, no build)
+
+* The 2026-08-14 patch every number above was read from is a **v1 emission**
+  (`generator='O4_Airport_Pavement_Builder'`). The v2 classifier at main
+  `8224729d` reads OTHH as **401 cells**: apron 26 / primary_parallel 65 /
+  junction **42** (795,453 m²) / cross_connector 150 / runway 9 /
+  secondary_parallel 41 / building 2 / stub 23 / parking_lot 14 /
+  groundside_pavement 19 / service_road 10 — **`service_junction` 0**. The
+  "854 service_junction / 667 junction faces" population does NOT exist in v2;
+  the pack apt.dat carries only **6** 1206 ground routes (488 1202, 33 row-110).
+* v2's `emit/osm_adapter.render_patch` writes `alt_abs` on EVERY node
+  unconditionally (`osm_adapter.py:355`), so "89 % unpinned service_junction
+  vertices" is a v1 artefact too — must be confirmed on a fresh `--emit`.
+* `~/.ortho4xp/tile_build_times/+25+051.json`: BOTH 2026-09-18 build-350 OTHH
+  tile runs record `airports: 0, autopatch_seconds: 0.0` — auto_patch did not
+  run at OTHH, so the owner's build-350 sim read (#13, #15) was on whatever
+  patch the tile ingested from disk. The engine tree's `Patches/+20+050/+25+051/
+  OTHH_auto.patch.osm` is the 2026-08-14 v1 file (5,715,311 B); the data
+  repo's `/Users/noah/XPTerrainBuilderData/Patches/+20+050/+25+051/
+  OTHH_auto.patch.osm` is dated 2026-09-18 08:10 and is UNCENSUSED (next step).
+* #14 site 25.2599127, 51.6149444: **no cell contains the point** (nearest 20.6 m
+  away, cell 400 `building` `building2`, 361,376 m²). 1206 route `route293`
+  and 8 OSM roads run there; sources are `pav4/5/11/12/13/15/17/19/26/27/28`
+  (open, 81-88 % apron cover, 4-13 startups each) + `dsf:pol15` (lot). The
+  "apron" the owner sees is therefore either the 2026-09-18 patch's face (not
+  this classifier's) or the deck piece minted in PLANAR (`structure_deck.py:
+  emit_decks` — "a pavement deck keeps the pavement's role", `structures.toml:
+  451`); undetermined until the emission is read.
+
+### Resume (exact)
+
+1. `cd /Users/noah/XPTerrainBuilder && tools/harness/lane_worktree.sh check othhjunction`
+   (worktree exists; branch `claude/othhjunction`).
+2. Census the 2026-09-18 data-repo patch first (ways/nd-refs by `role`,
+   nodes without `alt_abs`, generator header, 120 m of 25.2546269,51.6204583).
+3. Capture: `cd .claude/worktrees/othhjunction/Ortho4XP && venv/bin/python tools/v2_solve_replay.py --capture OTHH --out /Users/noah/XPTerrainBuilderData/.harness/frames/othhjunction/OTHH.pkl`
+   (needs > 11 min; the v2doorwellperf row prices the planar structures stage
+   at ~1,386 s / 29 GB). Then `--replay ... --from constraints --emit DIR --verify`
+   and re-census; `--site 25.2546269,51.6204583`.
+4. Consumer census table for junction faces (files): constraints/{roads,
+   groundside,transverse,pad_frontage_gs,zones}.py, verify/{eat,within}.py,
+   planar/{shapes,wall_corridor_ramps,zones,structure_underpass}.py,
+   airport/{wall_corridor_probe,road_ramp,road_profile}.py, law/{emit,
+   families,rulesets,precedence,structures}.toml, constraints/junction_mesh.py
+   (`junction_mesh_roles = ["junction"]`).
+
+## RESUME 2026-09-25 (lane `othhjunction`) — step 1: WHAT THE OWNER FLEW
+
+**The build-350 OTHH tile ingested a MANUAL patch, not an auto patch.**
+`XPTerrainBuilderData/Patches/+20+050/+25+051/` holds TWO OTHH patches:
+
+| file | mtime | generator | nodes | ways | nodes w/o `alt_abs` | orphan nodes |
+|---|---|---|---|---|---|---|
+| `OTHH.patch.osm` (MANUAL by name) | 2026-09-18 09:55 | `JOSM` | 23,069 | 947 | 0 | 216 |
+| `OTHH_auto.patch.osm` | 2026-09-18 08:10 | `auto_patch_v2` (new pack header) | 21,994 | 1,046 | 0 | 209 |
+
+* The tile runs logged in `~/.ortho4xp/tile_build_times/+25+051.json` (mesh
+  finished 12:43:50 and 13:11:44 MDT, 448.61 s / 272.08 s, `airports: 0`) came
+  AFTER the 09:55 save. A `<ICAO>.patch.osm` without `_auto` is a manual patch:
+  `O4_Vector_Map.include_patches` skips `OTHH_auto.patch.osm` ("manual patch
+  exists", verbosity 1) and the selector (`manual_patch_icaos` →
+  `selection.select_patch_airports`, disposition `manual`, driver vprint
+  verbosity **2**) never builds OTHH — hence `airports: 0`. Nothing at
+  verbosity 0 tells the user.
+* Provenance: the owner's JOSM (`~/Library/Preferences/JOSM/preferences.xml`
+  recent files: `.../+25+051/OTHH.patch.osm` and `.../+25+051/NOAH/OTHH.patch.osm`;
+  autosave `OTHH.patch.osm_20260918_085633701.osm` is byte-identical to the
+  file). It derives from the **2026-09-14** v2 build of lane v2othhramp (JOSM
+  autosave `OTHH.patch.osm_20260914_214633053.osm` = 23,714 nodes / 1,015 ways,
+  exactly that build's counts; 23,010 of the 23,069 nodes coincide) on the
+  **OLD pack** (`OTHH Doha (Aeroscape)`), with ~68 ways removed. It carries no
+  `<osm>` header provenance (JOSM drops it) and no sidecar.
+* Role census, `nd`-refs (manual / fresh-auto): graded_strip 12,412 / 14,458;
+  building **4,704 / 1,541**; apron 4,226 / 2,624; junction 2,162 / 2,518;
+  runway 2,766 / 2,999. `service_junction` 0 in both; unpinned vertices 0 in
+  both — the "89 % unpinned" population is gone in both files.
+* #15 site 25.2546269, 51.6204583, 120 m: MANUAL 487 nodes, alt 3.25–5.27 m,
+  on ring `building2` (567 nodes, median edge **1.41 m**, alt 3.15–5.27 m,
+  456 of them within 120 m) + apron `pav10`; FRESH-AUTO 276 nodes, alt
+  −1.14–4.24 m (the −1.14 is a tunnel ramp), ring `building3` 183 nodes median
+  edge 2.06 m alt 3.74–4.16 m.
+* Harness census of the 08:10 auto patch (sidecar present): LAW-TRUE 1,190,
+  ADJUDICATED 495, CRITICAL motion 0, CRITICAL visual 708 (695 unmeshable
+  `above_degenerate_floor`, 13 cliffs, worst 7.431 m ramp_in_strip
+  secondary_parallel|tunnel_ramp at 25.2541399, 51.6033501). The manual
+  patch has no sidecar and is not censusable by the harness.
+
+### Step 3 (partial) — attributions on the 2026-09-18 artefacts
+
+**#15 "clouds of detached nodes" = free-standing nodes the v2 writer emits
+for vertices NO way names.** 2026-09-18 08:10 auto patch: 209 such nodes
+(manual JOSM patch: 216), in 16 clusters (200 m cells), every one inside a
+face; 207 of them are vertices of HOLE rings that `emit/osm_adapter.
+_hole_cover` suppressed (graded_strip holes 144, building holes 66 — shape
+676 `building3` alone 45; 4–12-vertex holes), 2 are vertices of unemitted
+breakline kinds. Nearest way vertex 12.3 m median / 24.2 m max; |Δalt_abs|
+to it 0.040 m median / 0.370 m max — "slightly different elevations". The
+mesh never reads them (`include_patches` iterates ways only), so they have
+no sim effect; JOSM draws them as detached points. The owner's quoted
+coordinate is EXACTLY a node of the 08:10 auto patch (node −19395 on ring
+`building3`, alt 3.76 — 0.00 m), i.e. the read was of that file in JOSM
+(Q-15). FIX (commit 1f6a646b): `render_patch` writes only the nodes its ways
+name; twin `test_emit_holes::test_a_suppressed_hole_leaves_no_detached_nodes`.
+The `building3` ring the coordinate sits on is a 0.5 m-lattice staircase
+(183 vertices, 67 turns > 90°, alt 3.74–4.16) — a pack-cluster pad outline,
+not a detached node.
+
+**#13 "slow in the object/placement stage"** — the airport's constraint
+density is NOT the outlier any more: segments / median edge / density
+(manual JOSM patch the tile used; 08:10 auto; HECA 09-17 auto) = 23,653 /
+10.30 m / 2,185 per km²; 22,572 / 11.87 m / 2,085; 33,751 / 9.32 m /
+3,404. OTHH is 0.61–0.64× HECA's density. The tile's Triangle4XP input is
+203,892 vertices / 221,722 segments (the airport ≈ 10 %). The owner's
+"last message before the slowest step" is `[v2 placement] OTHH: design
+surface …`, printed at the START of the post-mesh object stage (engine log
+line 36740), which then split 726 bodies into 2,222 body files and rewrote
+the pack DSF — INSIDE the mesh step's clock (tile_build_times `mesh` 448.61
+/ 272.08 s). In build 350 that stage ran on the 08:15 AUTO plan against a
+mesh built from the MANUAL patch — FIX (commit d0496e35): one admission test
+`O4_Vector_Map.auto_patch_not_applied`, used by `include_patches` and by
+`engine_v2.rebake_after_mesh`; a plan whose auto patch is not in the mesh is
+skipped at verbosity 0, and the manual override is now said at verbosity 0.
+
+**#14 25.2599127, 51.6149444** — in the MANUAL patch the tile used, no face
+contains the site (nearest `building5#6`, 19.2 m). In the 08:10 auto patch it
+is inside shape 925 `building7`, role `building` (precedence side AIRSIDE,
+`aeroway=apron` — what JOSM paints as apron), 43 vertices, 5,972 m², alt
+3.15–4.71. The pack object covering it is `Buildings/Terminal/
+OTHH_TerminalRoads_01_001.obj` (plan unit:85, `ATTR_hard_deck`, deck_top_y
+12.64 m, deck_datum_z 3.99, `elevated_deck` False — the pier test reads it as
+a building because it is welded to the terminal); pack polygons there
+`ASPH1_upper.pol`, `Stone_Tiles1/2.pol`, road arrows at 20–23 m. The pad is
+the pack CLUSTER outline (`classify/evidence._cluster_pads`, §16g (10) (2)):
+the elevated road deck's plan footprint is minted into a building pad.
+
+### Step 2 — fresh OTHH capture + emission (new pack), lane tree
+
+Capture `/Users/noah/XPTerrainBuilderData/.harness/frames/othhjunction/OTHH.pkl`
+(registered, base 3a29689b = main 4cd4025f merged): 2,145 s real, peak
+25.2 GB, 22,352 vertices / 951 faces, pack partition 638 s. `--replay
+--from constraints --emit --verify`: optimal, verify DEFECT families ALL ZERO
+(146 rows), 1,047 ways / 22,140 nodes.
+
+* Fresh emission census: nodes without `alt_abs` 0, free-standing nodes **0**
+  (base-emitter arm of the same surface: 212), `service_junction` 0, junction
+  46 ways. Density 22,930 segments, median 11.70 m, **2,118 / km² = 0.62×
+  HECA** — #13 is not constraint density.
+* #15 site: 103 vertices within 60 m, all `building`, z−DEM −0.22…+0.27, max
+  step over a short edge **0.02 m**.
+* #14 site: still inside shape 925 `building7` (role `building`, side
+  airside, `aeroway=apron`), 44 vertices, 5,972 m², alt 3.15–4.71.
+* Harness census, lane emitter vs the base-emitter arm of the SAME surface
+  (all 22,352 vertices written; every lane node line byte-identical to the
+  base's): LAW-TRUE 1,903 / ADJUDICATED 510 / CRITICAL motion 0 / visual
+  1,406 on BOTH — the node filter is census-neutral. (09-18 08:10 patch:
+  1,190 / 495 / 0 / 708 — the rise is code/pack drift since 09-18, mostly
+  `above_degenerate_floor` 695 → 1,393; not this lane's.)
+* #13 placement plan replayed offline on the owner's 09-18 products
+  (`v2_rebake_replay plan`, mesh sampler, ONE contended run, not a timing):
+  build_plan 420 s wall / 281 s user, 3.9 GB, counts reproduce the app's
+  exactly (726 splits, 2,222 bodies, 101 conversions, 442 kept).
+
+### Step 4 — closing OTHH build (lane tree 059a1f18)
+
+`build_airport.py OTHH --tag othhjunction`: rc 0, 2,188 s, ways 1,046, nodes
+21,792, **free-standing nodes 0** (09-18 app patch: 209), nodes without
+`alt_abs` 0, body_sha 2b6bfdedbcb1, artifact ledger 227a03bb5370, shared repo
+UNCHANGED, v2 verify 146 rows (DEFECT families empty). Census LAW-TRUE 1,196,
+ADJUDICATED 494, CRITICAL motion 0, visual 715 (09-18 08:10 app patch: 1,190 /
+495 / 0 / 708). Density 22,579 segments, median 11.87 m, 2,086 / km² (HECA
+3,404). #14 site unchanged (inside `building7`). Frame registered (`--copy`).
+NOTE: the replay `--emit` of the same tree censuses 1,903 — the replay's emit
+is not the build's (known), the build is the number of record.

@@ -115,3 +115,23 @@ def test_hairline_hole_is_refused(law):
     1.60 m wide, straight across ``service_road:route4``)."""
     text, _n, _v = render_patch(_surface(covered=False, hairline=True), law)
     assert _hole_ways(text) == []
+
+
+def test_a_suppressed_hole_leaves_no_detached_nodes(law):
+    """Issue #15 (lane ``othhjunction``): the vertices of a hole the writer
+    suppresses are named by NO way, and used to ship anyway as free-standing
+    nodes — the owner's "clouds of detached nodes" (OTHH 2026-09-18: 209 of
+    them, all on suppressed holes).  Every node written is referenced by a
+    way, and the returned count is the written count."""
+    eps = float(law.tables.emit.terrace.hole_cover_eps)
+    for surface in (_surface(covered=True, shrink=(1.0 - eps * 0.5) ** 0.5),
+                    _surface(covered=False, hairline=True)):
+        text, _n, n_nodes = render_patch(surface, law)
+        root = ET.fromstring(text)
+        nodes = {n.get("id") for n in root.iter("node")}
+        refs = {nd.get("ref") for w in root.iter("way") for nd in w.iter("nd")}
+        assert nodes == refs
+        assert n_nodes == len(nodes) < len(surface.vertices)
+    # nothing is lost where every vertex is on a written ring
+    text, _n, n_nodes = render_patch(_surface(covered=False), law)
+    assert n_nodes == 8

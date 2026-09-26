@@ -346,14 +346,20 @@ def render_patch(surface: GradedSurface, law: Law,
     attrs.update(header or {})
     lines.append("<osm " + " ".join(f"{k}={_q(v)}"
                                     for k, v in attrs.items()) + ">")
-    nid_of: dict[int, int] = {}
-    for v in surface.vertices:
-        nid = -(v.id + 1)
-        nid_of[v.id] = nid
-        lines.append(f"  <node id='{nid}' action='modify' visible='true' "
-                     f"lat='{_fmt(v.ll[0], dp)}' lon='{_fmt(v.ll[1], dp)}'>")
-        lines.append(f"    <tag k='alt_abs' v='{_fmt(v.z, zdp)}' />")
-        lines.append("  </node>")
+    # NODES ARE WRITTEN FOR THE WAYS THAT NAME THEM (lane ``othhjunction``,
+    # issue #15).  A vertex no emitted way references — the ring of a hole
+    # ``hole_cover`` suppressed (covered, or a hairline), an unemitted
+    # breakline kind — used to ship as a free-standing node: the mesh
+    # never reads it (``include_patches`` walks ways only), and in JOSM it
+    # is the owner's "clouds of detached nodes at slightly different
+    # elevations" (OTHH 2026-09-18 08:10 patch: 209 such nodes in 16
+    # clusters, every one on a suppressed hole of a graded_strip or
+    # building face, 4 cm median / 0.37 m max off the nearest way vertex).
+    # The ways are rendered first, then only their nodes, in vertex order.
+    nid_of: dict[int, int] = {v.id: -(v.id + 1) for v in surface.vertices}
+    named: set[int] = set()
+    head = lines
+    lines = []
     wid = -10000
     n_ways = 0
 
@@ -363,6 +369,7 @@ def render_patch(surface: GradedSurface, law: Law,
         n_ways += 1
         lines.append(f"  <way id='{wid}' action='modify' visible='true'>")
         seq = list(ids) + ([ids[0]] if closed else [])
+        named.update(seq)
         for v in seq:
             lines.append(f"    <nd ref='{nid_of[v]}' />")
         for k, val in tags:
@@ -442,7 +449,16 @@ def render_patch(surface: GradedSurface, law: Law,
             continue
         way(b.vertices, [("o4_feature", feat), ("ref", b.ref)], False)
     lines.append("</osm>")
-    return "\n".join(lines) + "\n", n_ways, len(surface.vertices)
+    nodes: list[str] = []
+    for v in surface.vertices:
+        if v.id not in named:
+            continue
+        nodes.append(f"  <node id='{nid_of[v.id]}' action='modify' visible='true' "
+                     f"lat='{_fmt(v.ll[0], dp)}' lon='{_fmt(v.ll[1], dp)}'>")
+        nodes.append(f"    <tag k='alt_abs' v='{_fmt(v.z, zdp)}' />")
+        nodes.append("  </node>")
+    n_nodes = len(nodes) // 3
+    return "\n".join(head + nodes + lines) + "\n", n_ways, n_nodes
 
 
 #: §39 (1) THE HAIRLINE LAW — the shore weld's report.

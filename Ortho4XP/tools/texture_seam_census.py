@@ -77,8 +77,26 @@ def _default_orthophoto_root() -> Path | None:
     return shared if shared.is_dir() else None
 
 
+TILE_PRODUCT_RE = re.compile(
+    r"^(?:Data|Ortho4XP_)([+-]\d{2})([+-]\d{3})(?:\.mesh|\.cfg|_imagery\.json)$")
+
+
 def _tile_names(tile_dir: Path) -> tuple[str, str] | None:
+    """(short, block) for the tile a build dir holds.
+
+    The directory NAME (``zOrtho4XP_+25+051``) first; else the build dir's
+    own products (``Data+25+051.mesh``, ``Ortho4XP_+25+051.cfg``,
+    ``Ortho4XP_+25+051_imagery.json``).  A harness lane build dir is named
+    ``tile_<tag>``: without the second lookup every source JPEG and mask
+    square read as absent and the census judged nothing, silently
+    (hv2 closing arm 2026-09-25: 0 of 186 textures with a source).
+    """
     m = re.search(r"([+-]\d{2})([+-]\d{3})$", tile_dir.name)
+    if not m and tile_dir.is_dir():
+        for child in sorted(tile_dir.iterdir()):
+            m = TILE_PRODUCT_RE.match(child.name)
+            if m:
+                break
     if not m:
         return None
     lat, lon = int(m.group(1)), int(m.group(2))
@@ -762,6 +780,14 @@ def main(argv=None) -> int:
         print("\njson:", args.json)
     if args.fail_over_bar and summary["seams_over_bar"]:
         return 1
+    if args.fail_over_bar and summary["textures"] and not summary["seams_judged"]:
+        # Zero seams judged is not zero seams over the bar: no source JPEG
+        # or no land row was found, and the closing test read nothing.
+        print("\nREFUSING: --fail-over-bar with 0 seams judged "
+              f"({summary['textures_with_source']} of {summary['textures']} "
+              "textures found a source JPEG) - the bar was not measured.",
+              file=sys.stderr)
+        return 2
     return 0
 
 

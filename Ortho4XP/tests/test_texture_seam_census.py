@@ -129,6 +129,28 @@ def test_cli_fail_over_bar_and_json(synthetic_tile, tmp_path, capsys):
     assert "seams_over_bar" in capsys.readouterr().out
 
 
+def test_harness_build_dir_resolves_its_tile_and_a_vacuous_census_refuses(
+        synthetic_tile, tmp_path, capsys):
+    """A harness lane build dir is ``tile_<tag>``, not ``zOrtho4XP_+LL+LLL``.
+    The tile must come from the dir's own products, else every source JPEG
+    reads as absent, 0 seams are judged and ``--fail-over-bar`` passed
+    vacuously (hv2 closing arm 2026-09-25: 0 of 186 textures sourced)."""
+    tile, ortho = synthetic_tile
+    m = _load()
+    lane_dir = tmp_path / "tile_hv2"
+    tile.rename(lane_dir)
+    rc = m.main([str(lane_dir), "--orthophotos", str(ortho), "--strip", "4",
+                 "--bar", "5", "--fail-over-bar"])
+    assert rc == 2  # no product names the tile: 0 judged -> REFUSING
+    assert "REFUSING" in capsys.readouterr().err
+    (lane_dir / "Data+25+051.mesh").write_text("")
+    report = m.census(lane_dir, ortho, strip=4)
+    assert sum(t["source_found"] for t in report["textures"]) == 4
+    rc = m.main([str(lane_dir), "--orthophotos", str(ortho), "--strip", "4",
+                 "--bar", "5", "--fail-over-bar"])
+    assert rc == 0
+
+
 def test_land_threshold_excludes_the_feather_band(synthetic_tile, tmp_path):
     """``LAND_THRESHOLD`` is 250, not 128: the feathered shore band is not
     land (colour-harmonization spec §2.1 / §5 Q6).  The instrument and the

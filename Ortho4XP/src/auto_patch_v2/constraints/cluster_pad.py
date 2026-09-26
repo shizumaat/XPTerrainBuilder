@@ -39,7 +39,7 @@ import typing as _t
 from shapely.geometry import Point, Polygon
 from shapely.strtree import STRtree
 
-from ..geom import cluster_outlines
+from ..geom import cluster_outlines, deck_shades
 from ..law import Law
 from ..law.tables import design as design_law, rolled_on_roles
 from ..model.airport import Airport
@@ -169,7 +169,10 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             # over the threshold — the same one ``classify`` minted from,
             # so the census cannot report a mismatch for a cluster that
             # was never given a pad
-            walled_only=True, min_m2=min_m2)
+            walled_only=True, min_m2=min_m2,
+            # issue #14 (``welded-deck-spec.md`` §2 (1)): the SAME shades
+            # the mint subtracted (``geom.deck_shades``)
+            shades=deck_shades(getattr(airport, "partition", None), to_xy))
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
     if counts.get("no_rings"):

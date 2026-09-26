@@ -132,6 +132,7 @@ from ..constraints.cluster_pad import pad_cluster_mismatch as _pad_cluster_misma
 from ..constraints.pad_relief import pad_relief_offsets
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
+from ..planar.cluster import deck_shades as _deck_shades
 
 __all__ = ["publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES"]
@@ -438,6 +439,10 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # what the report reads to name the apron faces that stayed
             # graded.  Empty at an airport with no cluster (CYXY's class).
             "cluster_pads": cluster_pads(planar, law, airport, z),
+            # issue #14 (``welded-deck-spec.md`` §3, additive): the welded
+            # decks the load read, their pier ratios, and the shade area
+            # that left every cluster outline.  Informational.
+            "deck_shades": _deck_shades(airport),
             # §16g (10) (3) `pad_cluster_mismatch` (owner RULINGS
             # 2026-09-14x): CRITICAL — a pad spanning two clusters or a
             # cluster spanning two pads is a misidentified shape.  LAW

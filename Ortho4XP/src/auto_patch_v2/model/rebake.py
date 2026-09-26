@@ -35,8 +35,10 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
 #: per-component ground reading); 7: the LINE OBJECT verdict per part and
 #: its widened DRAPE STATIONS (10bb, spec §16); 8: the AUTHORED-FRAME
 #: ABUTMENTS (10ay, spec §17 — cross-placement grouping inside one
-#: anchor plane).
-PLAN_VERSION = 9
+#: anchor plane); 9: ``Member.elevated_deck`` (11a); 10: THE WELDED DECK's
+#: ``Member.deck_shade_ring`` / ``deck_pier_ratio`` (issue #14,
+#: ``welded-deck-spec.md`` §1 (4)).
+PLAN_VERSION = 10
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -210,6 +212,18 @@ class Member:
     #: verdict after the placement-level exemptions ``pack_partition.
     #: _build_member`` applies) — every part of it is a scatter piece.
     scatter: bool = False
+    #: THE WELDED DECK (issue #14; ``welded-deck-spec.md`` §1 (4)): for a
+    #: ``flag`` member whose plate stands over its unit's zero on PIERS
+    #: (``airport/deck_signature.welded_deck``), its SHADE — the deck ring
+    #: minus the filled section of what stands under it — as POLYGONS in
+    #: ``(lat, lon)``, each ``(outer ring, *hole rings)``.  The ground under
+    #: it is never a building's pad (§2).  ``None`` for every other member
+    #: and in every plan written before version 10 (which then mints as
+    #: before).
+    deck_shade_ring: tuple[tuple[tuple[LL, ...], ...], ...] | None = None
+    #: ...and the section's filled share of the deck ring that verdict was
+    #: taken on (``None`` where no reading was made).
+    deck_pier_ratio: float | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -337,6 +351,10 @@ class RebakePlan:
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
                     "skirted": m.skirted,
                     "elevated_deck": m.elevated_deck,
+                    "deck_shade_ring": None if m.deck_shade_ring is None
+                    else [[[list(p) for p in r] for r in poly]
+                          for poly in m.deck_shade_ring],
+                    "deck_pier_ratio": m.deck_pier_ratio,
                 } for m in u.members],
             } for u in self.units],
         }
@@ -346,7 +364,10 @@ class RebakePlan:
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "RebakePlan":
-        # Version 9 is version 8 plus ``Member.elevated_deck`` (owner
+        # Version 10 is version 9 plus ``Member.deck_shade_ring`` /
+        # ``deck_pier_ratio`` (issue #14): a v9 plan reads with both None
+        # and mints as it did.  Version 9 is version 8 plus
+        # ``Member.elevated_deck`` (owner
         # RULINGS 2026-09-11a), version 8 is version 7 plus
         # ``RebakePlan.abutments`` (RULINGS
         # 2026-09-10ay) and version 7 is version 6 plus ``Part.line``
@@ -355,7 +376,8 @@ class RebakePlan:
         # exactly — so an OWNER's plan from an earlier build still replays
         # offline (``tools/v2_rebake_replay.py``).  Nothing earlier is
         # accepted: those versions changed fields the seat reads.
-        if d.get("version") not in (PLAN_VERSION, PLAN_VERSION - 1, PLAN_VERSION - 2):
+        if d.get("version") not in (PLAN_VERSION, PLAN_VERSION - 1, PLAN_VERSION - 2,
+                                    PLAN_VERSION - 3):
             raise ValueError(f"rebake plan version {d.get('version')!r} != {PLAN_VERSION}")
         units = tuple(Unit(
             id=str(u["id"]), anchor=(float(u["anchor"][0]), float(u["anchor"][1])),
@@ -393,6 +415,11 @@ class RebakePlan:
                 plate_clearance_m=float(m.get("plate_clearance_m") or 0.0),
                 skirted=bool(m.get("skirted", False)),
                 elevated_deck=bool(m.get("elevated_deck", False)),
+                deck_shade_ring=None if m.get("deck_shade_ring") is None
+                else tuple(tuple(tuple((float(a), float(b)) for a, b in r) for r in poly)
+                           for poly in m["deck_shade_ring"]),
+                deck_pier_ratio=None if m.get("deck_pier_ratio") is None
+                else float(m["deck_pier_ratio"]),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,

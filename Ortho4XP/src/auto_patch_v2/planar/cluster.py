@@ -55,10 +55,11 @@ from __future__ import annotations
 import typing as _t
 
 from ..airport.placement_family import PlanCluster, plan_clusters
+from ..geom import deck_shades as _geom_deck_shades
 from ..law import Law
 from ..model.airport import Airport
 
-__all__ = ["cluster_min_m2", "clusters", "PlanCluster"]
+__all__ = ["cluster_min_m2", "clusters", "PlanCluster", "deck_shades"]
 
 #: The derivation is O(bodies^2) inside a unit and the constraint pass
 #: asks for it once per generator.  A tiny memo keyed on the airport
@@ -144,3 +145,28 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     _MEMO.append((key, airport, (split, tall), eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got
+
+
+def deck_shades(airport: Airport) -> dict[str, object]:
+    """THE WELDED DECKS (issue #14; ``welded-deck-spec.md`` §2 (1)) as the
+    build and the sidecar say them: every ``flag`` member the load read
+    (``airport/deck_signature.welded_deck``, stamped on
+    ``Airport.partition``) with its ratio and its shade's area, and the
+    union's area in the planar frame — read through ``geom.deck_shades``,
+    the ONE reading both pad readers subtract.  ``classify`` and
+    ``constraints`` may not import ``planar``, which is why the reading
+    itself lives in ``geom`` and this is its report."""
+    part = getattr(airport, "partition", None)
+    rows: list[dict[str, object]] = []
+    for u in (getattr(part, "units", ()) or ()):
+        for m in u.members:
+            r = getattr(m, "deck_pier_ratio", None)
+            if r is None and getattr(m, "deck_shade_ring", None) is None:
+                continue
+            rows.append({"unit": u.id, "member": m.id,
+                         "resource": m.resource.rsplit("/", 1)[-1],
+                         "ratio": None if r is None else round(float(r), 4),
+                         "deck": getattr(m, "deck_shade_ring", None) is not None})
+    union = _geom_deck_shades(part, airport.frame.entry()) if part is not None else None
+    return {"members": rows, "shades": sum(1 for q in rows if q["deck"]),
+            "area_m2": round(float(union.area), 1) if union is not None else 0.0}

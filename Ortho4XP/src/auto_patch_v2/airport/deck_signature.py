@@ -78,7 +78,7 @@ from . import obj8 as _obj8
 
 __all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way", "DEFAULT_TUNNEL_VALUES",
            "is_bridge_way", "is_enclosure_way", "bridge_lines", "family_key", "PierReading",
-           "elevated_deck"]
+           "elevated_deck", "WeldedDeck", "welded_deck", "deck_plate_y"]
 
 EVIDENCE_ROAD_BRIDGE = "road_bridge"
 EVIDENCE_BELOW_GRADE = "below_grade"
@@ -818,3 +818,207 @@ def elevated_deck(cache: _obj8.ResourceCache, path: str, law) -> PierReading:
             f"({'piers' if deck else 'walls'}; the gate is "
             f"{br.deck_pier_footprint_max})")
     return _done(PierReading(plate_m2, ground_m2, ratio, plane_y, floor, deck, note))
+
+
+# ── THE WELDED DECK: the pier reading in the UNIT frame (#14) ─────────────
+
+@_dc.dataclass(frozen=True)
+class WeldedDeck:
+    """What :func:`welded_deck` read for one ``flag`` member
+    (``welded-deck-spec.md`` §1)."""
+
+    plate_y: float                  #: the plate over the unit's zero plane
+    ratio: float                    #: |filled section ∩ D| / |D| (inf: no reading)
+    deck: bool                      #: the verdict: a DECK by §1 (1)-(3)
+    #: ``SHADE = D − (filled section ∩ D)`` as a frame (Multi)Polygon, or
+    #: ``None`` when the member is not a deck by §1
+    shade: object | None
+    members_read: int               #: members whose section crossed D
+    note: str
+
+
+def _faces_memo(cache: _obj8.ResourceCache, path: str):
+    """``(_Faces, ylo, yhi, is_hard_deck)`` per solid face of a resource,
+    read once per cache."""
+    memo = getattr(cache, "deck_faces", None)
+    if memo is None:
+        memo = {}
+        setattr(cache, "deck_faces", memo)
+    if path in memo:
+        return memo[path]
+    g = cache.geometry(path)
+    got = None
+    if g is not None and g.solid.shape[0]:
+        f = _Faces(g)
+        if f.n:
+            ys = g.vertices[g.solid][:, :, 1]
+            got = (f, ys.min(axis=1), ys.max(axis=1), g.hardness == _obj8.HARD_DECK)
+    memo[path] = got
+    return got
+
+
+def deck_plate_y(cache: _obj8.ResourceCache, path: str, law) -> float | None:
+    """§1 (1) THE PLATE of a ``flag`` member: the dominant
+    ``deck_plane_bin_m`` bin of its near-horizontal HARD-DECK faces, the
+    tie (``deck_plane_area_tie``) to the higher bin — ``elevated_deck``'s
+    own bin rule — as the bin's height over the resource's authored
+    ``y = 0``, which for a member of a unit IS the unit's zero plane
+    (§16g (2)), never its own lowest vertex.  ``None`` when the resource
+    carries no such face."""
+    br = law.tables.structures.bridge
+    got = _faces_memo(cache, path)
+    if got is None:
+        return None
+    f, _ylo, _yhi, hd = got
+    m = hd & (f.ny >= br.deck_plate_normal_y_min)
+    if not m.any():
+        return None
+    bins: dict[int, float] = {}
+    for k, a in zip(np.round(f.cy[m] / br.deck_plane_bin_m).astype(int).tolist(),
+                    f.area[m].tolist()):
+        bins[k] = bins.get(k, 0.0) + a
+    top = max(bins.values())
+    dom = max(k for k, a in bins.items() if a >= br.deck_plane_area_tie * top)
+    return float(dom * br.deck_plane_bin_m)
+
+
+def _place_xz(o: _obj8.PlacedObject, xz: np.ndarray) -> np.ndarray:
+    """Authored plan ``(x, z)`` → frame ``(east, north)`` for placement
+    ``o`` — ``obj8._to_frame``, vectorised."""
+    h = math.radians(o.heading_deg)
+    s, c = math.sin(h), math.cos(h)
+    x, z = xz[..., 0], xz[..., 1]
+    return np.stack([o.xy[0] + x * c - z * s, o.xy[1] - (x * s + z * c)], axis=-1)
+
+
+def _cells_polygon(mask: np.ndarray, org: np.ndarray, cell: float):
+    """The ``True`` cells of ``mask`` as one shapely geometry — run-length
+    rectangles per grid column, one union."""
+    rects: list[tuple[float, float, float, float]] = []
+    for i in np.flatnonzero(mask.any(axis=1)).tolist():
+        d = np.diff(np.concatenate(([0], mask[i].astype(np.int8), [0])))
+        x0 = float(org[0] + i * cell)
+        for j0, j1 in zip(np.flatnonzero(d == 1).tolist(), np.flatnonzero(d == -1).tolist()):
+            rects.append((x0, float(org[1] + j0 * cell), x0 + cell, float(org[1] + j1 * cell)))
+    if not rects:
+        return None
+    a = np.asarray(rects)
+    return shapely.union_all(shapely.box(a[:, 0], a[:, 1], a[:, 2], a[:, 3]))
+
+
+def welded_deck(cache: _obj8.ResourceCache, members: _t.Sequence[_obj8.PlacedObject],
+                m: _obj8.PlacedObject, law) -> WeldedDeck | None:
+    """THE WELDED DECK (``welded-deck-spec.md`` §1; issue #14): is the
+    ``flag`` member ``m`` a DECK — a plate standing over its unit's zero
+    on piers — even where it is welded into a unit of buildings?
+
+    ``members`` are the placements whose SECTION is read: every member of
+    ``m``'s unit and any placement of another unit whose plan box touches
+    ``m``'s deck ring D (the welded neighbour); ``m`` may be among them.
+    The plate is :func:`deck_plate_y`; a plate under ``[bridge]
+    deck_min_elevation_m`` is a slab on the ground and the rule does not
+    apply.  The SECTION halfway up — rendered height ``z0 + y_plate / 2``
+    over ``m``'s unit zero ``z0 = anchor_z + agl``, read in each member's
+    own frame — takes every solid face whose plan centroid lies in D
+    (within two cells: a wall stands ON the plate's outline, the slack
+    ``elevated_deck`` gives it) and which crosses that height.  EACH
+    MEMBER's trace is rasterised on one grid at ``deck_pier_close_m`` and
+    hole-filled ALONE (a building's OWN walls close its own ring; the
+    joint fill is refuted, §1 (2)), the filled cells are unioned, and
+    ``ratio = |filled ∩ D| / |D|`` in cells.  DECK iff ``ratio <=
+    deck_pier_footprint_max``; its SHADE is ``D − (filled ∩ D)``.
+
+    ``None`` when ``m`` carries no hard-deck ring or no plate.  Read-only
+    geometry: no DEM, no mesh, no environment."""
+    br = law.tables.structures.bridge
+    if m.hard_deck is None or m.resolved is None:
+        return None
+    y_plate = deck_plate_y(cache, m.resolved, law)
+    if y_plate is None:
+        return None
+    D = m.hard_deck
+    if D.geom_type != "Polygon":
+        # the ring the plan carries (``rebake_plan._with_deck``): the
+        # largest piece
+        D = max(D.geoms, key=lambda g: g.area)
+    if not D.is_valid:
+        D = D.buffer(0.0)
+    if D.is_empty or D.area <= 0.0:
+        return None
+    none = WeldedDeck(y_plate, math.inf, False, None, 0, "")
+    if y_plate < br.deck_min_elevation_m:
+        return _dc.replace(none, note=f"plate {y_plate:.2f} m over the unit zero < "
+                                      f"{br.deck_min_elevation_m} m: a slab on the ground")
+    cell = float(br.deck_pier_close_m)
+    z_mid = float(m.anchor_z) + float(m.agl_m) + 0.5 * y_plate
+    sel = D.buffer(2.0 * cell)
+    shapely.prepare(sel)
+    traces: list[np.ndarray] = []
+    seen: set[str] = set()
+    for o in members:
+        if o.resolved is None or o.id in seen:
+            continue
+        seen.add(o.id)
+        got = _faces_memo(cache, o.resolved)
+        if got is None:
+            continue
+        f, ylo, yhi, _hd = got
+        y_mid = z_mid - float(o.anchor_z) - float(o.agl_m)
+        cross = (ylo <= y_mid) & (yhi >= y_mid)
+        if not cross.any():
+            continue
+        xz = _place_xz(o, f.xz[cross])
+        cen = xz.mean(axis=1)
+        inside = shapely.contains_xy(sel, cen[:, 0], cen[:, 1])
+        if inside.any():
+            traces.append(xz[inside])
+    x0, y0, x1, y1 = D.bounds
+    for t in traces:
+        x0 = min(x0, float(t[..., 0].min()))
+        y0 = min(y0, float(t[..., 1].min()))
+        x1 = max(x1, float(t[..., 0].max()))
+        y1 = max(y1, float(t[..., 1].max()))
+    # ONE grid for every member, spanning every selected face whole — a
+    # trace clipped at the grid edge would draw a false wall along it
+    cell = max(cell, max(x1 - x0, y1 - y0) / 4000.0)
+    org = np.array([x0 - 2.0 * cell, y0 - 2.0 * cell])
+    nx = int(math.ceil((x1 - x0) / cell)) + 5
+    nz = int(math.ceil((y1 - y0) / cell)) + 5
+    gx, gy = np.meshgrid(org[0] + (np.arange(nx) + 0.5) * cell,
+                         org[1] + (np.arange(nz) + 0.5) * cell, indexing="ij")
+    dmask = shapely.contains_xy(D, gx, gy)
+    d_cells = int(dmask.sum())
+    if d_cells == 0:
+        return _dc.replace(none, note="deck ring under one cell")
+    filled = np.zeros((nx, nz), dtype=bool)
+    for t in traces:
+        grid = np.zeros((nx, nz), dtype=bool)
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            p0, p1 = t[:, a, :], t[:, b, :]
+            d = np.abs(p1 - p0).max(axis=1)
+            k = int(np.ceil(float(d.max()) / (0.5 * cell))) + 1 if d.size else 1
+            k = max(1, min(k, 4096))
+            ts = np.linspace(0.0, 1.0, k).reshape(1, k, 1)
+            ij = (((p0[:, None, :] + ts * (p1 - p0)[:, None, :]).reshape(-1, 2) - org)
+                  / cell).astype(np.int64)
+            ok = (ij[:, 0] >= 0) & (ij[:, 0] < nx) & (ij[:, 1] >= 0) & (ij[:, 1] < nz)
+            grid[ij[ok, 0], ij[ok, 1]] = True
+        filled |= _ndimage.binary_fill_holes(grid)
+    under = filled & dmask
+    ratio = float(under.sum()) / float(d_cells)
+    deck = ratio <= br.deck_pier_footprint_max
+    note = (f"plate {y_plate:.2f} m over the unit zero; the section at "
+            f"{0.5 * y_plate:.2f} m over {len(traces)} member(s) fills "
+            f"{ratio:.3f} of the {D.area:.0f} m2 deck ring "
+            f"({'piers: a DECK' if deck else 'walls: WALLED'}; the gate is "
+            f"{br.deck_pier_footprint_max})")
+    if not deck:
+        return WeldedDeck(y_plate, ratio, False, None, len(traces), note)
+    shade = D
+    blobs = _cells_polygon(under, org, cell)
+    if blobs is not None and not blobs.is_empty:
+        shade = D.difference(blobs)
+        if not shade.is_valid:
+            shade = shade.buffer(0.0)
+    return WeldedDeck(y_plate, ratio, True, None if shade.is_empty else shade,
+                      len(traces), note)

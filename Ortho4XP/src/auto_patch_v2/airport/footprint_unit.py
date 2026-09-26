@@ -345,6 +345,41 @@ def plan_units(plan: _t.Any, touch_m: float) -> list[PlanUnit]:
     return plan_units_and_connectors(plan, touch_m, 0.0)[0]
 
 
+def _welded_to_building(i: int, cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
+                        plan: _t.Any, m: _t.Any, touch_m: float) -> bool:
+    """§2 (5): does unit ``cl`` hold a WALLED NON-DECK body standing
+    mostly (over half its footprint) outside deck member ``m``'s ring —
+    a building, not the deck's own pier?  A body with no ring is not
+    read (no evidence either way)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    ring = getattr(m, "deck_ring", None) or ()
+    shade = getattr(m, "deck_shade_ring", None) or ()
+    outer = [tuple(ring)] if len(ring) >= 3 else [p[0] for p in shade if p and len(p[0]) >= 3]
+    if not outer:
+        return False
+    ml, mo = m_per_deg_exact(shims[i].box[0])
+    D = unary_union([Polygon([(a * ml, b * mo) for a, b in r]).buffer(0.0) for r in outer])
+    if D.is_empty:
+        return False
+    Dt = D.buffer(max(touch_m, 0.0))
+    for j in cl:
+        if j == i or not shims[j].walled:
+            continue
+        ui, mi, _gi = shims[j].key
+        if member_is_deck(plan.units[ui].members[mi]):
+            continue
+        ps = [Polygon([(a * ml, b * mo) for a, b in r]).buffer(0.0)
+              for r in (shims[j].rings or ()) if len(r) >= 3]
+        ps = [p for p in ps if not p.is_empty]
+        if not ps:
+            continue
+        mine = unary_union(ps)
+        if mine.area > 0.0 and mine.difference(Dt).area > 0.5 * mine.area:
+            return True
+    return False
+
+
 def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
                   plan: _t.Any, touch_m: float, connector_span_m: float,
                   counts: "dict | None"
@@ -364,7 +399,17 @@ def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
     reached.
 
     A CONNECTOR NEVER LENDS (§16g (7) (2)): a body long enough to be the
-    rail is its own body, and neither unit takes its deck."""
+    rail is its own body, and neither unit takes its deck.
+
+    A WELDED DECK LENDS NO DATUM (issue #14; ``welded-deck-spec.md`` §2
+    (5)).  The guard is confined to units whose walled members are the
+    deck's OWN — a bridge's piers, standing under its ring.  A deck by
+    §1 (``Member.deck_shade_ring`` stamped) inside a unit holding a walled
+    non-deck body that stands mostly OUTSIDE its ring — a BUILDING — is a
+    rider: it lends nothing (counted ``deck_lender_refused_welded``) and
+    the unit keeps the pad plurality (17t).  Without this, OTHH unit:85's
+    kerb bodies would re-seat to the road under the deck the day the pad
+    leaves it."""
     decks = []
     for i in cl:
         ui, mi, _gi = shims[i].key
@@ -377,6 +422,12 @@ def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
             if counts is not None:
                 counts["deck_lender_refused_connector"] = \
                     counts.get("deck_lender_refused_connector", 0) + 1
+            continue
+        if (getattr(m, "deck_shade_ring", None)
+                and _welded_to_building(i, cl, shims, plan, m, touch_m)):
+            if counts is not None:
+                counts["deck_lender_refused_welded"] = \
+                    counts.get("deck_lender_refused_welded", 0) + 1
             continue
         decks.append((i, float(dz), m.resource.rsplit("/", 1)[-1],
                       getattr(m, "deck_ring", None)))

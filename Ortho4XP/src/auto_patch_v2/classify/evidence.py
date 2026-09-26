@@ -17,7 +17,7 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..geom import cluster_outlines
+from ..geom import cluster_outlines, deck_shades
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
 from .rules import Rules
@@ -511,12 +511,18 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     # derived pad eating the apron (14ah: 94,795 m2, 13,637 airside
     # vertices), so it stands.
     _mint_airside = None if bool(st.pad_airside_clip) else airside
+    # issue #14 (``welded-deck-spec.md`` §2 (1)): the welded decks' shades
+    # leave every outline — the SAME reading ``constraints/cluster_pad``
+    # censuses with
+    shades = deck_shades(getattr(airport, "partition", None), to_xy)
     got, counts = cluster_outlines(cl, to_xy, float(st.footprint_touch_m),
                                    airside=_mint_airside,
                                    # §16g (10) (7): LEAVES GET NO PAD
                                    walled_only=True,
-                                   min_m2=float(st.cluster_pad_min_m2))
+                                   min_m2=float(st.cluster_pad_min_m2),
+                                   shades=shades)
     CLUSTER_PADS.update(counts)
+    CLUSTER_PADS["deck_shade_m2"] = round(shades.area, 1) if shades is not None else 0.0
     CLUSTER_PADS["area_m2"] = round(sum(g.area for _i, _c, g in got), 1)
     return [g for _i, _c, g in got]
 
@@ -579,6 +585,21 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                             if g is not None and not g.is_empty])
     cluster_pads = _cluster_pads(airport, law,
                                  None if _airside.is_empty else _airside)
+    # issue #14 (``welded-deck-spec.md`` §2 (2)): a FALLBACK footprint is
+    # trimmed by the welded decks' shades BEFORE the cover test — a deck
+    # never re-enters as a v1 footprint or an OSM ``building=roof``
+    if polys:
+        _shades = deck_shades(getattr(airport, "partition", None),
+                              airport.frame.entry())
+        if _shades is not None:
+            trimmed = []
+            for p in polys:
+                if p.intersects(_shades):
+                    p = p.difference(_shades)
+                    if not p.is_valid:
+                        p = p.buffer(0.0)
+                trimmed.extend(polygon_parts(p))
+            polys = [p for p in trimmed if p.area > 0.0]
     if cluster_pads:
         # the FALLBACK half: only the footprints no cluster covers
         cu = unary_union(cluster_pads)

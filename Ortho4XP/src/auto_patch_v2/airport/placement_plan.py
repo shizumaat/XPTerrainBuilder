@@ -409,6 +409,48 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
 
 
 
+def _split_by_unit(groups: _t.Sequence[_t.Sequence[int]],
+                   raw: _t.Sequence[_t.Any],
+                   plan_wide: _t.Mapping[int, tuple]
+                   ) -> "tuple[list[list[int]], int]":
+    """S6 (#30 / #10): cut every ground group along its bodies' §16g
+    UNITS.  A body's unit is the unit most of its parts belong to
+    (``plan_wide`` is the part-id join :func:`footprint_unit.
+    plan_wide_seats` publishes); a body in no unit stays with the
+    group's largest unit piece (it has no unit to disagree with).  A group
+    whose bodies name one unit, or none, is returned unchanged — so a
+    plan with no unit is byte-identical.  Returns the groups and how many
+    extra groups the cut made."""
+    out: list[list[int]] = []
+    n = 0
+    for g in groups:
+        # §14 (2): a basin is ONE rigid object — never cut by unit
+        if any(raw[i][1] == _ar.BASIN for i in g):
+            out.append(list(g))
+            continue
+        by: dict[str, list[int]] = {}
+        free: list[int] = []
+        for i in g:
+            hit: dict[str, int] = {}
+            for p in raw[i][0]:
+                row = plan_wide.get(p.pid)
+                if row is not None:
+                    hit[row[0]] = hit.get(row[0], 0) + 1
+            if hit:
+                u = max(sorted(hit), key=lambda k: hit[k])
+                by.setdefault(u, []).append(i)
+            else:
+                free.append(i)
+        if len(by) < 2:
+            out.append(list(g))
+            continue
+        pieces = sorted(by.values(), key=lambda q: (-len(q), q[0]))
+        pieces[0] = sorted(pieces[0] + free)
+        out.extend(sorted(q) for q in pieces)
+        n += len(pieces) - 1
+    return out, n
+
+
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  pads: _t.Sequence[_ar.PadRing] = (),
                  rims: _t.Sequence[_ar.RimRing] = (),
@@ -657,6 +699,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 bound, keys, split_tol_m, classes, [r[7] for r in raw],
                 boxes, coarsen_reach_m)
             counts["groups_re_cut"] += n_recut
+            # S6 (#30 / #10): ONE FILE NEVER STRADDLES TWO FOOTPRINT UNITS.
+            # §9's coarsening joins bodies whose zeros agree and which lie
+            # within ``coarsen_reach_m``; two neighbouring buildings (or a
+            # building's contents and the next building) then shared one
+            # file and §16g seated the whole file by its MAJORITY unit —
+            # the minority's windows and doors went with the neighbour.
+            if _pw:
+                bound, n_split = _split_by_unit(bound, raw, _pw)
+                if n_split:
+                    counts["groups_split_by_unit"] = \
+                        counts.get("groups_split_by_unit", 0) + n_split
             st.groups = bound
             if len(bound) < len(raw) - len(st.elevated):
                 counts["placements_coarsened"] = \

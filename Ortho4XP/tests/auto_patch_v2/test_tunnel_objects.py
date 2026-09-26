@@ -334,8 +334,10 @@ def test_curved_walls_trench_between_inner_faces(objs, law):
     # thickest station's own thickness ⊕ one station chord's sagitta (the
     # distance is measured to the ramp's CHORDED exterior, which cuts the
     # arc's corner in; the rim itself is on the outer face by construction)
+    # (a closed end's corner is the MITRE of the two outer faces, issue
+    # #16: √2 × the stand-off from the floor corner)
     assert max(ramp_u.exterior.distance(Point(p)) for w in walls
-               for p in w.exterior.coords) <= standoff + grid + 1e-6
+               for p in w.exterior.coords) <= standoff * math.sqrt(2.0) + grid + 1e-6
     assert sum(w.area for w in walls) < 1.5 * c.walls.area
 
 

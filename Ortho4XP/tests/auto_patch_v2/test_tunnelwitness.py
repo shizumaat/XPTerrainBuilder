@@ -117,3 +117,36 @@ def test_the_same_bore_under_a_pack_PAD_is_built(law):
                None, "groundside", "building", {})
     _cl, tunnels, st = _run(law, (pad,))
     assert st.tunnels == 1, st.mouths_off_field_nearest
+
+
+# ── #16 [OTHH-5]: the walled cap corner is the MITRE ─────────────────────
+
+def test_the_walled_cap_corner_stands_off_BOTH_faces():
+    """OTHH ``Terminal_Base_2_1@4`` (25.2639569, 51.6126961): the bay's
+    closed-end rim corner stood ``off`` along the DIAGONAL, so the rim
+    chord from the side rim's end passed 0.65 m from the floor corner at
+    the 0.7071 m lattice floor and the arrangement fused the rim onto
+    the floor corner — the pad took the floor's 2.61 m and carried the
+    whole rim below the 3.96 m ground.  The corner is the mitre of the
+    two outer faces: ``off`` beyond the end edge AND the side stand-off
+    beyond the side edge, so every rim chord keeps its stand-off."""
+    from shapely.geometry import LineString, Point, Polygon
+    from auto_patch_v2.planar.structure_geometry import _geometry_at
+    off = 0.7071
+
+    def axis_fn(s):
+        return (s, 0.0)
+    g = _geometry_at(axis_fn, [0.0, 2.0, 4.0, 6.3], 4.93, off, (-1.0, 0.0), 0.5,
+                     True, False, half_fn=lambda s: (4.93, 4.93),
+                     rim_fn=lambda s: (off, off), cap_off=off)
+    assert g is not None
+    floor = g.ramp
+    # every rim CHORD round the closed end keeps the stand-off from the
+    # floor, the corners included (it read 0.65 m before the mitre)
+    h = 4.93 + off
+    rim = [(0.0, h), *g.cap_out, (0.0, -h)]
+    worst = min(LineString([a, b]).distance(floor) for a, b in zip(rim[:-1], rim[1:]))
+    assert worst >= off - 1e-6, (worst, rim)
+    # the closed-end corners sit at the mitre (-off, ±(4.93 + off))
+    for c in (g.cap_out[0], g.cap_out[2]):
+        assert abs(c[0] + off) < 1e-9 and abs(abs(c[1]) - (4.93 + off)) < 1e-9, c

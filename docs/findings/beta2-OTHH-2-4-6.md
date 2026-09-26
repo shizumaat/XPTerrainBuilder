@@ -501,3 +501,30 @@ a building because it is welded to the terminal); pack polygons there
 `ASPH1_upper.pol`, `Stone_Tiles1/2.pol`, road arrows at 20–23 m. The pad is
 the pack CLUSTER outline (`classify/evidence._cluster_pads`, §16g (10) (2)):
 the elevated road deck's plan footprint is minted into a building pad.
+
+### Step 2 — fresh OTHH capture + emission (new pack), lane tree
+
+Capture `/Users/noah/XPTerrainBuilderData/.harness/frames/othhjunction/OTHH.pkl`
+(registered, base 3a29689b = main 4cd4025f merged): 2,145 s real, peak
+25.2 GB, 22,352 vertices / 951 faces, pack partition 638 s. `--replay
+--from constraints --emit --verify`: optimal, verify DEFECT families ALL ZERO
+(146 rows), 1,047 ways / 22,140 nodes.
+
+* Fresh emission census: nodes without `alt_abs` 0, free-standing nodes **0**
+  (base-emitter arm of the same surface: 212), `service_junction` 0, junction
+  46 ways. Density 22,930 segments, median 11.70 m, **2,118 / km² = 0.62×
+  HECA** — #13 is not constraint density.
+* #15 site: 103 vertices within 60 m, all `building`, z−DEM −0.22…+0.27, max
+  step over a short edge **0.02 m**.
+* #14 site: still inside shape 925 `building7` (role `building`, side
+  airside, `aeroway=apron`), 44 vertices, 5,972 m², alt 3.15–4.71.
+* Harness census, lane emitter vs the base-emitter arm of the SAME surface
+  (all 22,352 vertices written; every lane node line byte-identical to the
+  base's): LAW-TRUE 1,903 / ADJUDICATED 510 / CRITICAL motion 0 / visual
+  1,406 on BOTH — the node filter is census-neutral. (09-18 08:10 patch:
+  1,190 / 495 / 0 / 708 — the rise is code/pack drift since 09-18, mostly
+  `above_degenerate_floor` 695 → 1,393; not this lane's.)
+* #13 placement plan replayed offline on the owner's 09-18 products
+  (`v2_rebake_replay plan`, mesh sampler, ONE contended run, not a timing):
+  build_plan 420 s wall / 281 s user, 3.9 GB, counts reproduce the app's
+  exactly (726 splits, 2,222 bodies, 101 conversions, 442 kept).

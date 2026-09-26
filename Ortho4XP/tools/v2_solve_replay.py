@@ -1538,6 +1538,15 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     from auto_patch_v2.planar.build import build as build_planar
     from auto_patch_v2.solve import Options
     from auto_patch_v2.solve import solve_design
+    # REFUSED BEFORE THE (multi-GB) CAPTURE IS READ: a pad key is read at
+    # classify / planar, so a replay-time ``--placement`` arm — and the
+    # ``--pad-read`` of the arrangement — is honest only when the replay
+    # re-runs that stage.  A later resume re-uses the captured map and the
+    # override would be silently inert.
+    if (placement or pad_read_only) and resume not in ("classify", "planar"):
+        raise SystemExit("--placement / --pad-read at replay need --from "
+                         "classify or --from planar (a later resume re-uses "
+                         "the captured arrangement and cannot see the key)")
     with pkl.open("rb") as fh:
         cap = pickle.load(fh)
     icao, airport, cl, pm, stage, inputs = (cap["icao"], cap["airport"], cap["cl"], cap["pm"],
@@ -1583,10 +1592,6 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # (the mint and the arrangement) or ``--from planar`` (the
         # arrangement alone).  Any later resume re-uses the captured map
         # and the override would be silently inert, so it refuses.
-        if resume not in ("classify", "planar"):
-            raise SystemExit("--placement at replay needs --from classify or "
-                             "--from planar (a later resume re-uses the "
-                             "captured arrangement and cannot see the key)")
         law, _kw = _placement_override(law, placement)
         print(f"[{icao}] REPLAY ARM [placement] {_kw}")
     # A CAPTURE PREDATING §46's INPUT QUANTUM says so (spec §46 (8)): its
@@ -1646,8 +1651,6 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         if pad_read_only:
             return {"icao": icao, "airport": airport, "cl": cl, "pm": pm,
                     "law": law, "t0": t0, "pad_read": _pr}
-    elif pad_read_only:
-        raise SystemExit("--pad-read needs --from classify or --from planar")
     from auto_patch_v2.constraints.runway_chord import with_runway_chord
 
     def _targets(m):

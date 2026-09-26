@@ -160,6 +160,11 @@ def build_rim(air, law, nodes=None) -> AirsideRim:
                       nodes=nodes, node_tol_m=0.5 * ident)
 
 
+#: an apron/pad overlap at or under this is a TOUCH, not an overlap
+#: (``apron_cut_to_pads``): a shared edge's own rounding, never ground
+_TOUCH_ONLY_M2 = 0.01
+
+
 def apron_cut_to_pads(base_regions, pad_regions, law,
                       grid: float = 0.0) -> tuple[list, list, dict]:
     """RULINGS 2026-09-23a — APRON DOES NOT EXTEND UNDER BUILDING PADS.
@@ -249,6 +254,12 @@ def apron_cut_to_pads(base_regions, pad_regions, law,
         if r.source != "cell" or r.role not in cut_roles:
             continue
         if not r.polygon.intersects(pad_u):
+            continue
+        # a pad that only TOUCHES the apron takes none of it: the face is
+        # left exactly as it was (its ring re-densified between the pad's
+        # corners would move the apron's own nodes for nothing), and pass B
+        # nodes the pad onto that edge as it always has
+        if r.polygon.intersection(pad_u).area <= _TOUCH_ONLY_M2:
             continue
         g = r.polygon.difference(pad_u)
         area_cut += r.polygon.area - g.area

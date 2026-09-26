@@ -96,6 +96,12 @@ class PlacedPart:
     #: OBJ8 parse.  Empty where the outline degenerates — the caller then
     #: reads the part by its box.
     rings: tuple = _dc.field(default=(), repr=False, compare=False)
+    #: §16g (10) (4) THE SOLID HEIGHT (owner RULINGS 2026-09-14ah: "a body
+    #: whose tallest component's SOLID height reaches chain_min_height_m"),
+    #: read LOCALLY — :func:`solid_height`, the largest vertical extent of
+    #: the component over one plan cell.  NaN where not computed, and the
+    #: plan writer then falls back to the whole-component y extent.
+    solid_h: float = float("nan")
 
     @property
     def plan_box(self) -> tuple[float, float, float, float]:
@@ -272,6 +278,47 @@ def plan_hull(pts: "np.ndarray | None",
         return _hull_ring(pts)
 
 
+#: §16g (10) (4): the plan cell :func:`solid_height` reads a component's
+#: vertical extent over.  A wall's top and bottom vertices share their
+#: plan position, so any cell reads a wall's full height; a component that
+#: FOLLOWS A SLOPE (a fence down a hillside, a ramp) reads its own section
+#: plus at most ``grade × cell`` — 0.04 m on a 4 % hill.
+SOLID_CELL_M = 1.0
+
+
+def solid_height(pts: np.ndarray, cell: float = SOLID_CELL_M) -> float:
+    """THE COMPONENT'S SOLID HEIGHT: the largest ``max(y) − min(y)`` of its
+    vertices over any one ``cell`` × ``cell`` plan square (lane
+    ``surfacesettle``, issue #22).
+
+    §16g (10) (4) asks whether a body has WALLS, and read it as the
+    component's WHOLE y extent — which is the wall height of a building
+    but the TERRAIN RELIEF under anything authored to follow the ground.
+    MEASURED at TFFJ (pack ``c_FRA - 100_airport - TFFJ_1_Apt``):
+    ``north_fence.obj`` component 1943 is a fence 460 m long, 0.37 m of
+    plan width, authored down the hill with a 19.17 m y extent; it read
+    WALLED, chained with ``gate_north.obj`` into cluster ``unit:30``, and
+    its ≤ 16-vertex outward ring (a 10,141 m² hull) was minted as the
+    rigid 1 % pad ``building3`` over 16.4 m of DEM relief — 181 of the
+    airport's 256 unsettled hard rows and its worst (6.8058 m); the
+    ``pad_from_cluster = false`` capture arm leaves 75 / 1.4375 m.
+    Local, the fence is a 2 m fence."""
+    if pts is None or len(pts) == 0:
+        return 0.0
+    y = pts[:, 1]
+    ext = float(y.max() - y.min())
+    cx = np.floor(pts[:, 0] / cell).astype(np.int64)
+    cz = np.floor(pts[:, 2] / cell).astype(np.int64)
+    if cx.min() == cx.max() and cz.min() == cz.max():
+        return ext                                  # one cell: the extent
+    key = (cx - cx.min()) * (int(cz.max() - cz.min()) + 1) + (cz - cz.min())
+    order = np.argsort(key, kind="stable")
+    ks, ys = key[order], y[order]
+    starts = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+    return float((np.maximum.reduceat(ys, starts)
+                  - np.minimum.reduceat(ys, starts)).max())
+
+
 def _hull_ring(pts: np.ndarray) -> "list[np.ndarray]":
     """The component's plan CONVEX HULL as a single ring — round 3's
     reading, kept as the fallback for a component the outline cannot be
@@ -346,7 +393,7 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
                                     _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
                                           foot_band_m, k_max), is_line,
-                                    plan_hull(pts, lt)))
+                                    plan_hull(pts, lt), solid_height(pts)))
     return parts
 
 

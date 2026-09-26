@@ -139,3 +139,59 @@ def test_the_report_and_the_surface_read_one_number(pinned_pair_map):
     # the pair cannot hold: 3.0 m between the pins, 1.0 m allowed
     assert f["certificate"]["infeasible"]
     assert f["certificate"]["total_slack_m"] == pytest.approx(2.0, abs=1e-3)
+
+
+# ── #22: the SOLID height is local ───────────────────────────────────────
+
+def _fence(length=460.0, drop=19.17, h=2.0, step=2.5):
+    """A fence panel run authored DOWN A HILL: at every post the bottom
+    and the top vertex share their plan position, the ground falls
+    ``drop`` over ``length`` (TFFJ ``north_fence.obj`` component 1943)."""
+    xs = np.arange(0.0, length + 1e-9, step)
+    g = -drop * xs / length
+    bot = np.column_stack([xs, g, np.zeros_like(xs)])
+    top = np.column_stack([xs, g + h, np.zeros_like(xs)])
+    return np.vstack([bot, top])
+
+
+def test_a_fence_down_a_hill_is_as_tall_as_its_panels():
+    """The whole-extent reading called this 19.17 m of WALL (≥ the 2.5 m
+    ``chain_min_height_m``): it chained, and its hull became a 10,141 m²
+    rigid pad over 16.4 m of relief.  Local, it is a 2 m fence."""
+    from auto_patch_v2.airport.contact import SOLID_CELL_M, solid_height
+    pts = _fence()
+    assert float(pts[:, 1].max() - pts[:, 1].min()) == pytest.approx(21.17)
+    assert solid_height(pts) == pytest.approx(2.0, abs=19.17 / 460.0 * SOLID_CELL_M + 1e-9)
+
+
+def test_a_wall_reads_its_full_height_wherever_it_stands():
+    """A building box 30 x 20 m, 12 m tall, on flat ground and on a 5 %
+    slope: its corners carry top and bottom at one plan point, so the wall
+    height reads whole — a building never becomes a leaf by this law."""
+    from auto_patch_v2.airport.contact import solid_height
+    xs, zs = np.array([0.0, 30.0]), np.array([0.0, 20.0])
+    for grade in (0.0, 0.05):
+        pts = []
+        for x in xs:
+            for z in zs:
+                g = -grade * x
+                pts += [(x, g, z), (x, g + 12.0, z)]
+        assert solid_height(np.asarray(pts)) == pytest.approx(12.0)
+
+
+def test_a_component_inside_one_cell_reads_its_extent():
+    from auto_patch_v2.airport.contact import solid_height
+    pts = np.array([[0.1, 0.0, 0.1], [0.2, 3.0, 0.3], [0.4, 1.0, 0.2]])
+    assert solid_height(pts) == pytest.approx(3.0)
+    assert solid_height(np.zeros((0, 3))) == 0.0
+
+
+def test_the_plan_writer_reads_the_solid_height():
+    """``pack_partition`` writes ``Part.height_m`` from the part's
+    ``solid_h`` — the ONE field §16g (10) (4)'s two readers (the design
+    cluster and the object-stage unit) test ``walled`` on."""
+    import inspect
+
+    from auto_patch_v2.airport import pack_partition
+    src = inspect.getsource(pack_partition._parts_by_member)
+    assert "p.solid_h" in src

@@ -906,6 +906,20 @@ pad_from_cluster    = true
 # ``pad_airside_snap_max_m``.
 pad_airside_clip    = true
 
+# RULINGS 2026-09-23a (owner, issue #3): APRON DOES NOT EXTEND UNDER A
+# BUILDING PAD.  The pad MATCHES the building footprint (the cluster
+# outline, 18q/18t) and the APRON-class airside cell is cut back to the
+# pad's edge (`planar/overlay.apron_cut_to_pads`, BEFORE the airside is
+# noded, so the shared edge is one segment set — the §16g (10) (6)
+# `pad_airside_weld`).  The runway and taxi families are not apron: a pad
+# reaching one is still trimmed by it (airside is king).  When true the
+# arrangement clip above does not run (`pad_airside_clip` keeps its
+# mint/classify jobs).  MEASURED SPJC (`--from classify --pad-read`): the
+# terminal `building32` 13,323 m2 in 8 faces -> 99,093 m2 in ONE face;
+# the new terminal `building5` no pad -> 125,993 m2; re-node minted 25
+# -> 20.  `false` is the pre-23a arm and this law's matched base.
+pad_keeps_footprint = true
+
 # RULINGS 2026-09-14as (i), the clip's SECOND half: the crossing points
 # the clip leaves on the airside rim are not rim NODES, and noded into
 # the arrangement they SPLIT an airside edge.  They are QUANTISED to the
@@ -991,6 +1005,28 @@ object_pavement_layer_groups     = ["runways", "taxiways"]
 object_pavement_max_layer_offset = 1
 object_pavement_skip_tokens      = ["sign", "line", "marking", "decal", "paint",
                                     "logo", "grunge", "stain", "skid", "crack_line"]
+# §42 (1b) THE HARD GROUND PLANE (lane `nlwf`, issue #20; OWNER QUESTION
+# Q-20 asks for the ratification).  NLWF's whole apron is
+# `pavement/vele_apron.obj`: 83 vertices, EVERY one at Y = 0, 79
+# triangles, 73 of them ATTR_hard, 1,499 m2, NO draped layer group — so
+# the declaration gate above refused it ("no draped layer group") and the
+# ground under it followed the DEM, 5.7 -> 12.8 m across 55 m, while the
+# runway beside it is pinned at 4.88 m.  A zero-thickness HARD plane at
+# ground level is what an aircraft rolls on; a shadow is not hard, a
+# building floor has walls off Y = 0.  Measured over the battery packs
+# (HECA, LEMD, OTHH, KCLT, SPJC, LGAV, TFFJ, KDFW, CYXY, HEAZ, VMMC): no
+# other resource qualifies — NLWF's is the only one.
+# DEFAULT OFF, AWAITING THE OWNER (Q-20): the arm is measured and NOT yet a
+# fix.  ON at NLWF (build nlwf_r2 vs nlwf_r1): the apron faces grade
+# 5.29-7.59 m and the terminal pad drops 15.89 -> 7.52 m (v2 gate ALL
+# ZERO), but the §09p (3) body datum tilts the apron after the DEM ramp —
+# and a hard OBJ plane cannot tilt, it sits level at its anchor — and the
+# census goes 9 / 0 PASS -> 181 / 78 airside FAIL (within_shape 31,
+# airside_no_step 37, taxi_box 10) with 94 new unmeshable hairline pairs
+# (the object's 0.6 m corner arcs beside the terminal pad).  With the body
+# datum withdrawn from the plane (replay arm body_datum=0) the apron is
+# 4.82-5.89 m, the pad 5.88 m, v2 verify rows 92 -> 5.
+object_pavement_hard_planes = false
 
 # §44 THE PAVEMENT BORROW (owner RULINGS 2026-09-15f, "Coverage < 25 %
 # (Recommended)").  A custom pack whose apt.dat row-110 union covers LESS

@@ -246,6 +246,16 @@ class Placement:
     #: airside vertices out and minted 88.
     pad_airside_clip: bool = True
 
+    #: RULINGS 2026-09-23a (issue #3): APRON DOES NOT EXTEND UNDER A
+    #: BUILDING PAD.  A building pad MATCHES the building footprint (the
+    #: unit footprint, 18q/18t); the §16g (10) (5)/(12) subtraction is
+    #: therefore run BACKWARDS — the pad keeps its full outline and the
+    #: rolled-on face is differenced by it
+    #: (``planar/overlay.apron_cut_to_pads``), the shared ring being a
+    #: §28 ``pad_airside_weld`` pair.  ``false`` is the pre-23a arm (the
+    #: pad clipped out of the airside) and is this law's matched base.
+    pad_keeps_footprint: bool = True
+
     #: RULINGS 2026-09-14as (i): how far a pad may be moved to put a clip
     #: CROSSING POINT on a rim NODE instead of minting an airside vertex.
     #: Quantising moves the pad along the rim by that rim's own vertex

@@ -54,7 +54,10 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 3   # §51 (4) row 17: every placed footprint in a cached
+CACHE_VERSION = 4   # lane ``surfacesettle``: ``Part.height_m`` is the
+                    # LOCAL solid height (``contact.solid_height``); a
+                    # cached reading carries the whole-extent one.
+# was 3:            # §51 (4) row 17: every placed footprint in a cached
                     # reading was minted by the PRE-§51 entry path.  The
                     # bump INVALIDATES them; a stale payload is never
                     # repaired on read, because a repair-on-read is a

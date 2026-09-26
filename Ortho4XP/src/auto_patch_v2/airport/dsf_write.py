@@ -112,6 +112,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import tempfile
 import typing as _t
@@ -126,6 +127,7 @@ from .backup_state import BackupUnproven, State
 __all__ = ["conversions_for_dump", "TOL_DEG", "TOL_HEADING_DEG", "TOL_ELEV_M",
            "PLACEMENT_KINDS", "RoundTripReport", "WriteResult", "placement_rows",
            "edit_dump", "dump", "encode", "verify_roundtrip", "write_pack",
+           "DSFTOOL_LINE_MAX", "text_properties", "replace_properties",
            "live_install_roots", "pristine_dsf_path", "written_body_files",
            "BackupUnproven"]
 
@@ -450,14 +452,104 @@ def dump(dsf_path: str, text_out: str, tool: str) -> str:
     return text_out
 
 
+#: DSFTool 2.4's TEXT READER holds a line in a 512-byte buffer: a longer
+#: line is CUT at 511 characters on ``--text2dsf`` and the rest is lost,
+#: while ``--dsf2text`` writes any length (#23, measured on PHNY's
+#: ``+20-157.dsf``, DSFTool 2.4.0-b1, 2026-09-25: a 596-character
+#: ``PROPERTY sim/exclude_net`` polygon came back 511 characters long on
+#: an UNEDITED dump -> encode -> dump, every other row identical; the
+#: untouched DSF dumps byte-identically twice).  A pack authored in WED
+#: carries such rows; the lost tail is a broken exclusion polygon, so the
+#: round-trip verify was right to refuse it.
+DSFTOOL_LINE_MAX = 511
+
+
+def text_properties(text: str) -> list[tuple[str, str]]:
+    """The ``PROPERTY name value`` rows of a dump, in order, the value
+    taken VERBATIM (everything after the single separating space)."""
+    out: list[tuple[str, str]] = []
+    for raw in text.splitlines():
+        if raw.startswith("PROPERTY "):
+            rest = raw[len("PROPERTY "):]
+            name, _sep, value = rest.partition(" ")
+            out.append((name, value))
+    return out
+
+
+def _atoms(buf: bytes, off: int, end: int) -> list[tuple[bytes, int, int]]:
+    """``(id as read, offset, length)`` of the atoms in ``buf[off:end]``."""
+    out = []
+    while off < end:
+        if off + 8 > end:
+            raise ValueError(f"truncated atom header at {off}")
+        aid, ln = struct.unpack_from("<4sI", buf, off)
+        if ln < 8 or off + ln > end:
+            raise ValueError(f"atom {aid[::-1]!r} at {off}: bad length {ln}")
+        out.append((aid, off, ln))
+        off += ln
+    return out
+
+
+def replace_properties(dsf_path: str, props: _t.Sequence[tuple[str, str]]
+                       ) -> None:
+    """Rewrite the ``HEAD/PROP`` atom of an UNCOMPRESSED DSF so it holds
+    exactly ``props`` (null-terminated name, value pairs), fix the
+    ``HEAD`` length and the trailing MD5.  No other byte moves: DSF atoms
+    reference each other by INDEX, never by file offset."""
+    with open(dsf_path, "rb") as fh:
+        buf = fh.read()
+    if buf[:8] != b"XPLNEDSF" or len(buf) < 28:
+        raise ValueError(f"{dsf_path}: not an uncompressed DSF")
+    body_end = len(buf) - 16
+    top = _atoms(buf, 12, body_end)
+    head = [a for a in top if a[0] == b"DAEH"]
+    if len(head) != 1:
+        raise ValueError(f"{dsf_path}: {len(head)} HEAD atoms")
+    _hid, hoff, hlen = head[0]
+    kids = _atoms(buf, hoff + 8, hoff + hlen)
+    prop = [a for a in kids if a[0] == b"PORP"]
+    if len(prop) != 1:
+        raise ValueError(f"{dsf_path}: {len(prop)} PROP atoms")
+    _pid, poff, plen = prop[0]
+    payload = b"".join(n.encode("utf-8", "surrogateescape") + b"\0"
+                       + v.encode("utf-8", "surrogateescape") + b"\0"
+                       for n, v in props)
+    new_prop = struct.pack("<4sI", b"PORP", 8 + len(payload)) + payload
+    new_head_body = buf[hoff + 8:poff] + new_prop + buf[poff + plen:hoff + hlen]
+    new_head = struct.pack("<4sI", b"DAEH", 8 + len(new_head_body)) + new_head_body
+    out = buf[:hoff] + new_head + buf[hoff + hlen:body_end]
+    out += hashlib.md5(out).digest()
+    with open(dsf_path, "wb") as fh:
+        fh.write(out)
+
+
 def encode(text_path: str, dsf_out: str, tool: str) -> str:
-    """``DSFTool --text2dsf`` into ``dsf_out``; returns it."""
+    """``DSFTool --text2dsf`` into ``dsf_out``; returns it.
+
+    #23: a ``PROPERTY`` row longer than :data:`DSFTOOL_LINE_MAX` is cut
+    by DSFTool's reader, so the encoded file's property atom is then
+    rewritten from the text's rows verbatim (:func:`replace_properties`).
+    Any OTHER row that long has no such repair and is refused before the
+    encode — a silently shortened def path or command is not a write."""
     if not tool or not os.path.isfile(tool):
         raise RuntimeError(f"DSFTool binary required, got {tool!r}")
+    with open(text_path, "r", encoding="utf-8", errors="surrogateescape") as fh:
+        text = fh.read()
+    long_props = False
+    for n, raw in enumerate(text.splitlines(), 1):
+        if len(raw) > DSFTOOL_LINE_MAX:
+            if raw.startswith("PROPERTY "):
+                long_props = True
+            elif not raw.lstrip().startswith("#"):
+                raise RuntimeError(
+                    f"{text_path}:{n}: {len(raw)}-character row, DSFTool's "
+                    f"text reader keeps {DSFTOOL_LINE_MAX}: {raw[:60]!r}")
     os.makedirs(os.path.dirname(os.path.abspath(dsf_out)) or ".", exist_ok=True)
     _run([tool, "--text2dsf", text_path, dsf_out])
     if not os.path.isfile(dsf_out):
         raise RuntimeError(f"DSFTool wrote no DSF at {dsf_out}")
+    if long_props:
+        replace_properties(dsf_out, text_properties(text))
     return dsf_out
 
 
@@ -577,7 +669,13 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
     ``(unmatched, pairs)``.  ``tiebreak`` separates coincident rows by
     their last column (a heading: two objects may stand on the same
     metre and differ only there); ``dims=4`` matches a road segment on
-    BOTH its endpoints, since every junction shares one of them."""
+    BOTH its endpoints, since every junction shares one of them.
+
+    With ``tiebreak`` a candidate INSIDE every tolerance (position,
+    elevation, heading) beats a nearer one outside them (#23 sweep,
+    EGLL ``+51-001``: two objects 0.5e-6 deg apart, headings 178.8 and
+    359.8, trade places under requantisation; nearest-first paired each
+    with the other's heading and read a 180 deg drift)."""
     order = sorted(range(len(b)), key=lambda j: b[j][0])
     lons = [b[j][0] for j in order]
     used = [False] * len(b)
@@ -585,16 +683,23 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
     unmatched = 0
     for row in a:
         j = bisect_left(lons, row[0] - tol)
-        best, bd = None, 1e18
+        best, bd = None, (2, 1e18)
         while j < len(order) and lons[j] <= row[0] + tol:
             cand = order[j]
             if not used[cand]:
                 o = b[cand]
                 d = sum(abs(o[i] - row[i]) for i in range(dims))
+                miss = 0
                 if tiebreak:
-                    d += 1e-9 * _ang(o[-1], row[-1])
-                if d < bd:
-                    bd, best = d, cand
+                    ha = _ang(o[-1], row[-1])
+                    d += 1e-9 * ha
+                    fits = (all(abs(o[i] - row[i]) <= tol for i in range(dims))
+                            and ha <= TOL_HEADING_DEG
+                            and (len(row) < 4
+                                 or abs(o[2] - row[2]) <= TOL_ELEV_M))
+                    miss = 0 if fits else 1
+                if (miss, d) < bd:
+                    bd, best = (miss, d), cand
             j += 1
         if best is None:
             unmatched += 1

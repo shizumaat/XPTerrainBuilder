@@ -276,15 +276,16 @@ def test_route_territory_keeps_tight_pockets_and_returns_the_rest():
 # ── §27 an airside edge makes a lot airside (RULINGS 2026-09-12c/12e,
 # ── roads and the mouth 2026-09-12f) ─────────────────────────────────────
 
-def _lot_flip_case(final_extra, law=None, rules=None):
+def _lot_flip_case(final_extra, law=None, rules=None, roads=()):
     """Run ``_airside_edge_flip`` over ``final_extra`` and give the roles
     back.  Entries are ``(role, ref, polygon, letter, evidence)`` exactly
-    as ``classify``'s own final list."""
+    as ``classify``'s own final list; ``roads`` are free-road centrelines
+    (``ev.truck_chains``' lines)."""
     from auto_patch_v2.classify.airside_edge import airside_edge_flip as _airside_edge_flip
     law = law or Law.for_airport("SYNT")
     rules = rules or load_rules()
     final = [list(t) + [str(t[4].get("kind", ""))] for t in final_extra]
-    n, rounds = _airside_edge_flip(final, [], law, rules)
+    n, rounds = _airside_edge_flip(final, [], law, rules, roads)
     return n, rounds, [f[0] for f in final], final
 
 
@@ -449,6 +450,109 @@ def test_only_a_road_offers_a_mouth():
         ("parking_lot", "pav2", lot2, None, {"kind": "lot"}),
     ])
     assert n == 0 and roles == ["apron", "service_road", "parking_lot"]
+
+
+def _oblique_neck_lot():
+    """The CYXY-1 shape (issue #2, `dsf:pol123` / route50): an apron, and
+    a lot page that reaches it through a 7 m NECK cut OBLIQUELY (35 deg
+    off the seam normal; CYXY's is ~40, and the weld band's flare tilts
+    the contact chord a few more degrees toward the 45 deg bar), a free-road centreline running up the neck from
+    the seam into the lot body.  The neck's contact reads ~9-11 m
+    weld-tolerant — over ``airside_edge_min_m`` — with no road FACE in
+    the pair: the road's strip lives inside the lot page by design."""
+    import math as _m
+    from shapely.geometry import LineString, Polygon, box
+    apron = box(-100, -100, 100, 0)
+    # the neck runs 35 deg off north, 7 m across its own axis
+    ang = _m.radians(35.0)
+    ux, uy = _m.sin(ang), _m.cos(ang)           # neck axis
+    h = 3.5                                     # half the neck, across its axis
+    L = 60.0
+    # the neck's cut along the seam (y = 0) and its far end
+    left = (-h / uy, 0.0)
+    right = (h / uy, 0.0)
+    fl = (left[0] + ux * L, left[1] + uy * L)
+    fr = (right[0] + ux * L, right[1] + uy * L)
+    neck = Polygon([left, right, fr, fl])
+    body = box(fl[0] - 20, fl[1] - 5, fr[0] + 60, fl[1] + 60)
+    lot = neck.union(body)
+    road = LineString([(0.0, 0.0), (ux * (L + 40), uy * (L + 40))])
+    return apron, lot, road
+
+
+def test_a_road_centreline_mouth_keeps_a_lot_groundside():
+    """§27 (5), the CENTRELINE mouth (issue #2, CYXY-1): a lot reaching an
+    apron only through a free road's neck — the road entering the lot
+    through the contact, transverse within 45 deg, the contact at most
+    ``mouth_width_factor`` necks across the road — is met END-ON at the
+    road's mouth and stays groundside, though no FACE in the pair is a
+    born road.  Without the centreline the same contact flips it."""
+    from auto_patch_v2.classify.airside_edge import _LOT_SLIVER_RADIUS_M
+    apron, lot, road = _oblique_neck_lot()
+    assert lot.area / lot.length > _LOT_SLIVER_RADIUS_M
+    n, _r, roles, final = _lot_flip_case([
+        ("apron", "pav9", apron, None, {}),
+        ("parking_lot", "pol123", lot, None, {"kind": "lot"}),
+    ])
+    assert n == 1 and roles[1] == "apron"                    # the defect
+    assert final[1][4]["airside_edge_m"] >= 10.0
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav9", apron, None, {}),
+        ("parking_lot", "pol123", lot, None, {"kind": "lot"}),
+    ], roads=[road])
+    assert n == 0 and roles == ["apron", "parking_lot"]      # the fix
+
+
+def test_a_centreline_does_not_excuse_a_genuine_apron_edge():
+    """§27 (1) still holds with a road in the lot: a lot sharing a real
+    10 m+ edge with an apron flips whether or not a road runs into it,
+    because the contact is wider than the road's neck (the lot's
+    cross-section across the road is the whole lot) — and a road that
+    never reaches the contact excuses nothing."""
+    from shapely.geometry import LineString, box
+    apron = box(0, 0, 100, 100)
+    lot = box(100, 0, 200, 100)                 # 100 m lateral edge
+    through = LineString([(100, 50), (200, 50)])   # a road entering it
+    elsewhere = LineString([(150, 150), (150, 300)])
+    for roads in ((), [through], [elsewhere]):
+        n, _r, roles, _ = _lot_flip_case([
+            ("apron", "pav1", apron, None, {}),
+            ("parking_lot", "pav2", lot, None, {"kind": "lot"}),
+        ], roads=roads)
+        assert n == 1 and roles == ["apron", "apron"], roads
+    # a 12 m finger touching the apron end-on, no road: still flips
+    finger = box(40, 100, 52, 300)
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("parking_lot", "pav3", finger, None, {"kind": "lot"}),
+    ], roads=[elsewhere])
+    assert n == 1 and roles[-1] == "apron"
+
+
+def test_a_centreline_mouth_leaves_12f_propagation_alone():
+    """12f: flips still PROPAGATE with centrelines supplied — a road
+    lateral along an apron flips, and the lot beyond it follows — and a
+    lot that meets the flipped road only at its mouth stays."""
+    from shapely.geometry import LineString, box
+    road = box(0, 0, 10, 200)
+    apron = box(10, 0, 110, 200)
+    lot = box(-60, 0, 0, 200)
+    centre = LineString([(5, -50), (5, 250)])
+    n, rounds, roles, final = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("service_road", "r1", road, None, {}),
+        ("parking_lot", "pav2", lot, None, {"kind": "lot"}),
+    ], roads=[centre])
+    assert roles == ["apron", "apron", "apron"] and n == 2 and rounds == 3
+    assert final[2][4]["airside_edge_round"] == 2.0
+    # the road's north mouth: a lot there stays groundside
+    cap = box(-40, 200, 10, 300)
+    n, _r, roles, _ = _lot_flip_case([
+        ("apron", "pav1", apron, None, {}),
+        ("service_road", "r1", road, None, {}),
+        ("parking_lot", "pav3", cap, None, {"kind": "lot"}),
+    ], roads=[centre])
+    assert roles == ["apron", "apron", "parking_lot"]
 
 
 # ── §46 (8): A BUFFER THAT SELF-INTERSECTS IS REPAIRED, NOT RAISED ──────

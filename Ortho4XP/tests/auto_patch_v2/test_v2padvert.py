@@ -20,9 +20,14 @@ def _law():
     return Law.for_airport("ZZZZ")
 
 
-def _armed(law, *, clip=True, snap_max=5.0):
+def _armed(law, *, clip=True, snap_max=5.0, keeps=False):
+    # RULINGS 2026-09-23a: ``pad_keeps_footprint`` (true in the shipped
+    # law) replaces the arrangement CLIP these twins read with the apron
+    # cut; they arm the clip-era law (``keeps=False``) to keep measuring
+    # it.  The 23a arm's own twins are ``test_spjcpads``.
     p = _dc.replace(law.tables.structures.placement,
-                    pad_airside_clip=clip, pad_airside_snap_max_m=snap_max)
+                    pad_airside_clip=clip, pad_airside_snap_max_m=snap_max,
+                    pad_keeps_footprint=keeps)
     st = _dc.replace(law.tables.structures, placement=p)
     return _dc.replace(law, tables=_dc.replace(law.tables, structures=st))
 

@@ -1,0 +1,145 @@
+   Legacy config value True for airport_elevation_insets read as ICAO.
+    * Recycling OSM data from /Users/noah/XPTerrainBuilder/.claude/worktrees/cyxyflip/Ortho4XP/OSM_data/+60-140/+60-136/+60-136_airports.osm.bz2
+WARNING: Could not save airport info to file /Users/noah/XPTerrainBuilder/.claude/worktrees/cyxyflip/Ortho4XP/Tiles/zOrtho4XP_+60-136/Data+60-136.apt
+   INFO: airport elevation insets skipped 2 unnamed airport(s) (no code to cache under).
+    * Min altitude: 630.29114 , Max altitude: 846.9885 , Mean: 702.02155
+    * Min altitude: 579.0 , Max altitude: 2415.0 , Mean: 1255.1678
+   Airport elevation insets: working grid densified to 1/2 arc-second (worst actionable ideal-bake error 0.461 m).
+   Airport (np.float64(-135.03867549285718), np.float64(60.69076675714286)) : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport (np.float64(-135.03604783333333), np.float64(60.682701377777775)) : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Whitehorse/Cousins Airport : smoothing radius 16 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport CYXY : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+  [dem] production frame N60W136: composed: grid 7345x7345, baked_query=True, airports_smoothed=4, insets=CYXY:HRDEM
+[CYXY] 120 cells; sources: lot 16, open 48, strip 7
+[CYXY] OSM relations (spec 25): relations 0, outer ways tagged 0, stitched 0, inners dropped 0 (0 m2)
+explain: patch /Users/noah/XPTerrainBuilderData/Patches/+60-140/+60-136/CYXY_auto.patch.osm (from the default data root (O4_File_Names.default_data_root); modified 2026-09-17 23:40:47, 3.8 days ago)
+source       cls     area_m2  width    road     osm   taxi strt apron%  park%  description / reason
+dsf:pol117   lot       7,948   24.1     549     549      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> OSM road 549 m inside (12 pieces), no taxi centreline, no startup, width 24.1 m
+dsf:pol131   lot       6,955   41.8     229     229      0    0     0%     0%  'lib/airport/ground/pavement/asphalt_L/plain.pol' -> OSM road 229 m inside (7 pieces), no taxi centreline, no startup, width 41.8 m
+dsf:pol15    lot       6,302   39.0     213     213      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> OSM road 213 m inside (2 pieces), no taxi centreline, no startup, width 39.0 m
+dsf:pol130   lot       5,572   19.9     145     145      0    0     0%     0%  'lib/airport/ground/pavement/asphalt_L/plain.pol' -> OSM road 145 m inside (2 pieces), no taxi centreline, no startup, width 19.9 m
+pav4         lot       5,338   11.5      41      41      0    0     0%     0%  'New Taxiway 5' -> 2 road(s) reach it (04u), no taxi centreline, no startup, width 11.5 m
+dsf:pol123   lot       5,089   21.2      53       0      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> 1 road(s) reach it (04u), no taxi centreline, no startup, width 21.2 m
+dsf:pol125   lot       4,734   32.3     259     259      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> OSM road 259 m inside (6 pieces), no taxi centreline, no startup, width 32.3 m
+dsf:pol128   lot       4,585   16.8     263     263      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> OSM road 263 m inside (8 pieces), no taxi centreline, no startup, width 16.8 m
+dsf:pol124   lot       4,045   26.7     222     222      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> OSM road 222 m inside (7 pieces), no taxi centreline, no startup, width 26.7 m
+dsf:pol116   lot       3,834   24.9     174     174      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> OSM road 174 m inside (5 pieces), no taxi centreline, no startup, width 24.9 m
+dsf:pol132   lot       3,241   23.7      37      37      0    0     0%     0%  'lib/airport/ground/pavement/asphalt_L/plain.pol' -> OSM road 37 m inside (2 pieces), no taxi centreline, no startup, width 23.7 m
+dsf:pol119   lot       2,911   23.2      24      24      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> 1 road(s) reach it (04u), no taxi centreline, no startup, width 23.2 m
+dsf:pol118   lot       2,791   16.2     162      90      0    0     1%     0%  'lib/airport/pavement/asphalt_5L.pol' -> OSM road 90 m inside (2 pieces), no taxi centreline, no startup, width 16.2 m
+dsf:pol133   lot       2,235   21.5      31      31      0    0     0%     0%  'lib/airport/ground/pavement/asphalt_L/plain.pol' -> OSM road 31 m inside (1 pieces), no taxi centreline, no startup, width 21.5 m
+dsf:pol126   lot       1,518   12.7      14       0      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> 1 road(s) reach it (04u), no taxi centreline, no startup, width 12.7 m
+pav2         lot       1,322   17.3      40       0      0    0     0%     0%  'New Taxiway 2' -> 1 road(s) reach it (04u), no taxi centreline, no startup, width 17.3 m
+pav9         open    178,582   46.5    1700      36   3306    5    52%     0%  'Apron 1 and E' -> no road; or taxi/startup/apron evidence
+pav28        open     94,210   44.4       0       0   1947    0     0%     0%  'New Taxiway 1' -> no road; or taxi/startup/apron evidence
+dsf:pol19    open     20,136   38.7       0       0    242    0     0%     0%  'lib/airport/ground/pavement/asphalt_L/plain.pol' -> no road; or taxi/startup/apron evidence
+pav16        open     19,057   15.5       0       0   1036    0     0%     0%  'G' -> no road; or taxi/startup/apron evidence
+pav5         open     18,655   65.0       4       0     83    0     0%     0%  'New Taxiway 4' -> no road; or taxi/startup/apron evidence
+pav24        open     18,320   30.2       0       0    191    0     0%     0%  'To 14L' -> no road; or taxi/startup/apron evidence
+dsf:pol13    open     16,519   46.9     127       0      0    5   100%     0%  'lib/airport/pavement/concrete_4L.pol' -> no road; or taxi/startup/apron evidence
+pav17        open     15,037   45.7      40      40     37    2     0%     0%  'Apron off E at G' -> no road; or taxi/startup/apron evidence
+pav15        open      6,744   20.0       0       0    138    0     0%     0%  'Taxiway E apron' -> no road; or taxi/startup/apron evidence
+pav25        open      6,593   24.9       0       0    163    0     0%     0%  'No entry to 32R' -> no road; or taxi/startup/apron evidence
+dsf:pol17    open      6,581   38.8       0       0      0    0     0%     0%  'lib/airport/ground/pavement/asphalt_L/plain.pol' -> no road; or taxi/startup/apron evidence
+pav23        open      6,217   27.0       0       0    183    0     0%     0%  '14R turnaround' -> no road; or taxi/startup/apron evidence
+pav18        open      6,189   13.7       0       0    411    0     0%     0%  'Apron 2' -> no road; or taxi/startup/apron evidence
+pav6         open      5,854   21.1       0       0    131    0     0%     0%  'New Taxiway 3' -> no road; or taxi/startup/apron evidence
+pav22        open      4,820   26.6       0       0    119    0     0%     0%  '32L' -> no road; or taxi/startup/apron evidence
+pav21        open      4,604   23.6       0       0     12    0     0%     0%  'New Taxiway 16' -> no road; or taxi/startup/apron evidence
+pav26        open      4,177   18.9       0       0    142    0     0%     0%  'Taxi to east roadway' -> no road; or taxi/startup/apron evidence
+dsf:pol14    open      3,641   29.7       0       0      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> no road; or taxi/startup/apron evidence
+pav10        open      3,522   22.2      32       0      0    1     0%     0%  'New Taxiway 9' -> no road; or taxi/startup/apron evidence
+pav3         open      3,313   28.8       0       0      0    0     0%     0%  'New Taxiway 1' -> no road; or taxi/startup/apron evidence
+pav27        open      2,986   22.7       0       0      0    2     0%     0%  'Apron 2' -> no road; or taxi/startup/apron evidence
+dsf:pol18    open      2,791   22.4       0       0      0    0     0%     0%  'lib/airport/ground/pavement/asphalt_L/plain.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol122   open      2,595   16.3       0       0      0    0     7%     0%  'lib/airport/pavement/asphalt_5L.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol16    open      2,302   17.2       0       0      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> no road; or taxi/startup/apron evidence
+pav1         open      1,952   18.6       0       0      0    0     0%     0%  'New Taxiway 3' -> no road; or taxi/startup/apron evidence
+dsf:pol129   open      1,708   17.4       0       0      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol5     open      1,694   20.6       0       0      0    0     0%     0%  'lib/airport/pavement/concrete_4L.pol' -> no road; or taxi/startup/apron evidence
+pav12        open      1,588    9.0       0       0    165    1     0%     0%  'Taxiway E apron' -> no road; or taxi/startup/apron evidence
+pav13        open      1,389    8.0       0       0     54    1     0%     0%  'Taxiway E apron' -> no road; or taxi/startup/apron evidence
+pav14        open      1,218   14.0       0       0     68    0     0%     0%  'Taxiway E apron' -> no road; or taxi/startup/apron evidence
+dsf:pol8     open        958   15.4       0       0      0    0     0%     0%  'lib/airport/pavement/concrete_4L.pol' -> no road; or taxi/startup/apron evidence
+pav8         open        839   14.2       0       0     23    0     0%     0%  'New Taxiway 1' -> no road; or taxi/startup/apron evidence
+pav20        open        803    9.5       6       0     23    0     0%     0%  'Apron 2 to E' -> no road; or taxi/startup/apron evidence
+dsf:pol20    open        796   14.1       0       0      0    0     0%     0%  'lib/airport/ground/pavement/asphalt_L/plain.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol12    open        781   13.9       0       0      2    0     0%     0%  'lib/airport/pavement/concrete_4L.pol' -> no road; or taxi/startup/apron evidence
+pav11        open        747    5.3       0       0     77    0     0%     0%  'Taxiway E apron' -> no road; or taxi/startup/apron evidence
+dsf:pol21    open        657    8.6       0       0      0    0     0%     0%  'lib/airport/pavement/asphalt_5D.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol4     open        622   12.3       0       0      0    0     0%     0%  'lib/airport/pavement/concrete_4L.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol2     open        605    4.8       0       0      0    0     0%     0%  'lib/airport/ground/pavement/concrete/new.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol3     open        570    5.1       0       0      0    0     0%     0%  'lib/airport/ground/pavement/concrete/new.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol6     open        526   10.2       0       0      0    0     0%     0%  'lib/airport/pavement/concrete_4L.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol9     open        518   11.4       0       0      0    0     0%     0%  'lib/airport/pavement/concrete_4L.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol24    open        482   11.0       0       0      0    0     0%     0%  'lib/airport/pavement/asphalt_3D.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol10    open        333    8.1       0       0      0    0     0%     0%  'lib/airport/pavement/concrete_4L.pol' -> no road; or taxi/startup/apron evidence
+pav7         open        136    5.8       0       0      0    0     0%     0%  'New Taxiway 2' -> no road; or taxi/startup/apron evidence
+dsf:pol127   open        120    2.7       0       0      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol1     open         74    2.5       0       0      0    0     0%     0%  'lib/airport/ground/pavement/concrete/new.pol' -> no road; or taxi/startup/apron evidence
+dsf:pol115   open         45    2.5       0       0      0    0     0%     0%  'lib/airport/pavement/concrete_2D.pol' -> no road; or taxi/startup/apron evidence
+pav29        strip    15,191   17.3     621       0      0    0     0%     0%  'New Taxiway 41' -> width 17.3 m, through 621 m >= 0.6 x 880 m, 3 road piece(s)
+pav30        strip     6,596   14.2     335       0      0    0     0%     0%  'New Taxiway 40' -> width 14.2 m, through 335 m >= 0.6 x 466 m, 1 road piece(s)
+dsf:pol120   strip     3,238   11.7     224       0      0    0     0%     0%  'lib/airport/pavement/asphalt_5L.pol' -> width 11.7 m <= narrow 12, road 224 m
+dsf:pol121   strip     2,640    7.9     300       0      0    0    19%     0%  'lib/airport/pavement/asphalt_5L.pol' -> width 7.9 m <= narrow 12, road 300 m
+pav0         strip     2,074   10.6     122      11      0    0     0%     0%  'New Taxiway 5' -> width 10.6 m <= narrow 12, road 122 m
+dsf:pol23    strip     1,304    6.6      99      99      0    0     0%     0%  'lib/airport/pavement/concrete_1L.pol' -> width 6.6 m <= narrow 12, road 99 m
+pav19        strip       463    9.7      36       0      0    0     0%     0%  'Apron 2 to E' -> width 9.7 m <= narrow 12, road 36 m
+role                    cells      area_m2
+runway                      6      219,491
+apron                      14      170,861
+primary_parallel            9      147,144
+junction                   14       64,041
+parking_lot                23       60,652
+cross_connector             9       48,665
+service_road               19       32,542
+stub                        7       16,796
+building                   10       11,968
+groundside_pavement         5        8,572
+secondary_parallel          2        5,268
+runway_crossing             2        2,128
+TOTAL                     120      788,129
+-- runway shoulder (§40 (1)): 1 cell(s)
+   cell 7 role=runway kind=runway_shoulder ref=14L/32R area=12,778 m2 at 60.7166876,-135.0696553: area_m2=12,778, kind=runway_shoulder, shoulder_of=14L/32R, shoulder_shared_m=386, shoulder_depth_m=33.1, shoulder_wrap=0.0915, shoulder_band_m2=12,778, shoulder_source=pav24
+-- apron cover refused the corridor (§40 (2)): 1 cell(s)
+   cell 32 role=apron kind=apron ref=pav9 area=11,120 m2 at 60.7193601,-135.0770265: area_m2=11,120, n_taxi=2, shared_m=678, width_m=16.4, kind=apron, apron_named=1, n_taxi_unnamed=0, apron_cover_refused_corridor=1, cell_apron_cover=0.185, apron_evidence=taxi centreline touches the face
+-- airside edge (§27): 7 cell(s)
+   cell 73 role=apron kind=apron ref=dsf:pol17 area=6,581 m2 at 60.7112707,-135.0757746: area_m2=6,581, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1, airside_edge_m=17.3, airside_edge_flip=1, airside_edge_round=2, airside_edge_was=parking_lot
+   cell 46 role=apron kind=apron ref=dsf:pol130 area=5,572 m2 at 60.7091449,-135.0728213: area_m2=5,572, n_taxi=0, kind=apron, source=dsf:pol130, source_class=lot, source_reason=OSM road 145 m inside (2 pieces), no taxi centreline, no startup, width 19.9 m, source_width_m=19.9, source_road_m=145, source_taxi_m=0, source_road_reach=1, airside_edge_m=81.6, airside_edge_flip=1, airside_edge_round=1, airside_edge_was=parking_lot
+   cell 71 role=apron kind=apron ref=dsf:pol123 area=5,089 m2 at 60.7122880,-135.0759493: area_m2=5,089, n_taxi=0, kind=apron, source=dsf:pol123, source_class=lot, source_reason=1 road(s) reach it (04u), no taxi centreline, no startup, width 21.2 m, source_width_m=21.2, source_road_m=52.6, source_taxi_m=0, source_road_reach=1, airside_edge_m=11.6, airside_edge_flip=1, airside_edge_round=1, airside_edge_was=parking_lot
+   cell 72 role=apron kind=apron ref=dsf:pol20 area=796 m2 at 60.7122001,-135.0756184: area_m2=796, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1, airside_edge_m=70.6, airside_edge_flip=1, airside_edge_round=2, airside_edge_was=parking_lot
+   cell 65 role=apron kind=apron ref=dsf:pol9 area=518 m2 at 60.7062632,-135.0755603: area_m2=518, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=0, airside_edge_m=69.4, airside_edge_flip=1, airside_edge_round=1, airside_edge_was=groundside_pavement
+   cell 70 role=apron kind=apron ref=pav19 area=463 m2 at 60.7114465,-135.0730276: area_m2=463, n_taxi=0, kind=apron, source=pav19, source_class=strip, source_reason=width 9.7 m <= narrow 12, road 36 m, source_width_m=9.69, source_road_m=35.7, source_taxi_m=0, source_road_reach=1, airside_edge_m=46.4, airside_edge_flip=1, airside_edge_round=1, airside_edge_was=service_road
+   cell 50 role=apron kind=apron ref=pav10 area=140 m2 at 60.7058835,-135.0697920: area_m2=140, n_taxi=0, kind=apron, airside_edge_m=36.2, airside_edge_flip=1, airside_edge_round=1, airside_edge_was=service_junction
+-- taxi by name (04z-1): 0 cell(s)
+-- open default (04u): 0 cell(s)
+-- apron cut at a neck: the neck (§43 (1)): 2 cell(s)
+   cell 97 role=primary_parallel kind=corridor ref=pav9 area=5,754 m2 at 60.7095414,-135.0712148: area_m2=5,754, n_taxi=1, shared_m=424, width_m=13.6, kind=corridor, apron_named=1, n_taxi_unnamed=4, neck_cut=1, neck_length_m=541, neck_width_m=10.6, neck_area_m2=5,751, neck_lobes=1, neck_kind=arm, neck_aspect=50.8, neck_mouth_factor=0.921, neck_mouths=60.7082160,-135.0715402 -> 60.7082252,-135.0713628, neck_apron_cover=0
+   cell 93 role=junction kind=junction ref=pav9 area=2,366 m2 at 60.7119103,-135.0727585: area_m2=2,366, n_taxi=2, shared_m=2.76, width_m=856, kind=junction, apron_named=1, n_taxi_unnamed=2, neck_cut=1, neck_length_m=95.9, neck_width_m=21.2, neck_area_m2=2,032, neck_lobes=1, neck_kind=arm, neck_aspect=4.53, neck_mouth_factor=2.34, neck_mouths=60.7121434,-135.0732218 -> 60.7123785,-135.0726225, neck_apron_cover=0
+-- apron cut at a neck: the apron beyond (§43 (1)): 6 cell(s)
+   cell 92 role=apron kind=apron ref=pav9 area=94,566 m2 at 60.7157110,-135.0767180: area_m2=118,614, n_taxi=3, shared_m=561, width_m=211, route_territory_frac=0.0936, kind=apron, apron_named=1, n_taxi_unnamed=2, neck_new_apron=1, neck_mouths=60.7121434,-135.0732218 -> 60.7123785,-135.0726225, territory_frac=0.56, apron_remainder_m2=18,894, near_route=0, apron_evidence=taxi centreline touches the face
+   cell 91 role=junction kind=apron ref=pav9 area=14,644 m2 at 60.7147908,-135.0744260: area_m2=118,614, n_taxi=3, shared_m=561, width_m=211, route_territory_frac=0.0936, kind=apron, apron_named=1, n_taxi_unnamed=2, neck_new_apron=1, neck_mouths=60.7121434,-135.0732218 -> 60.7123785,-135.0726225, territory_frac=0.56, apron_remainder_m2=18,894, near_route=1, letter_chains=5
+   cell 96 role=apron kind=apron ref=pav17 area=12,639 m2 at 60.7084949,-135.0723375: area_m2=14,670, n_taxi=1, shared_m=2.3, width_m=6,386, route_territory_frac=0.0871, kind=apron, apron_named=1, n_taxi_unnamed=0, neck_new_apron=1, neck_mouths=60.7082160,-135.0715402 -> 60.7082252,-135.0713628, territory_frac=1, apron_remainder_m2=0, near_route=0, apron_evidence=taxi centreline touches the face
+   cell 90 role=junction kind=apron ref=pav9 area=9,404 m2 at 60.7193006,-135.0775842: area_m2=118,614, n_taxi=3, shared_m=561, width_m=211, route_territory_frac=0.0936, kind=apron, apron_named=1, n_taxi_unnamed=2, neck_new_apron=1, neck_mouths=60.7121434,-135.0732218 -> 60.7123785,-135.0726225, territory_frac=0.56, apron_remainder_m2=18,894, near_route=1, letter_chains=3
+   cell 95 role=junction kind=apron ref=pav17 area=1,088 m2 at 60.7078665,-135.0722246: area_m2=14,670, n_taxi=1, shared_m=2.3, width_m=6,386, route_territory_frac=0.0871, kind=apron, apron_named=1, n_taxi_unnamed=0, neck_new_apron=1, neck_mouths=60.7082160,-135.0715402 -> 60.7082252,-135.0713628, territory_frac=1, apron_remainder_m2=0, near_route=1, letter_chains=1
+   cell 94 role=junction kind=apron ref=pav17 area=942 m2 at 60.7084795,-135.0710689: area_m2=14,670, n_taxi=1, shared_m=2.3, width_m=6,386, route_territory_frac=0.0871, kind=apron, apron_named=1, n_taxi_unnamed=0, neck_new_apron=1, neck_mouths=60.7082160,-135.0715402 -> 60.7082252,-135.0713628, territory_frac=1, apron_remainder_m2=0, near_route=1, letter_chains=1
+-- touch-chain demotion: 13 cell(s)
+   cell 73 role=apron kind=apron ref=dsf:pol17 area=6,581 m2 at 60.7112707,-135.0757746: area_m2=6,581, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1, airside_edge_m=17.3, airside_edge_flip=1, airside_edge_round=2, airside_edge_was=parking_lot
+   cell 10 role=groundside_pavement kind=apron ref=dsf:pol14 area=5,942 m2 at 60.7115762,-135.0774365: area_m2=5,942, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=0
+   cell 29 role=groundside_pavement kind=apron ref=dsf:pol129 area=1,551 m2 at 60.7155093,-135.0795072: area_m2=1,708, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=0, mixed_pad_cutback=1
+   cell 48 role=parking_lot kind=apron ref=pav1 area=1,501 m2 at 60.7064123,-135.0712640: area_m2=1,884, n_taxi=0, kind=apron, territory_frac=1, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1
+   cell 28 role=parking_lot kind=apron ref=dsf:pol21 area=1,220 m2 at 60.7139183,-135.0781686: area_m2=1,220, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1
+   cell 72 role=apron kind=apron ref=dsf:pol20 area=796 m2 at 60.7122001,-135.0756184: area_m2=796, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1, airside_edge_m=70.6, airside_edge_flip=1, airside_edge_round=2, airside_edge_was=parking_lot
+   cell 12 role=groundside_pavement kind=apron ref=dsf:pol4 area=622 m2 at 60.7122183,-135.0792721: area_m2=622, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=0
+   cell 14 role=parking_lot kind=apron ref=dsf:pol2 area=605 m2 at 60.7135493,-135.0800019: area_m2=605, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1
+   cell 65 role=apron kind=apron ref=dsf:pol9 area=518 m2 at 60.7062632,-135.0755603: area_m2=518, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=0, airside_edge_m=69.4, airside_edge_flip=1, airside_edge_round=1, airside_edge_was=groundside_pavement
+   cell 47 role=groundside_pavement kind=apron ref=pav1 area=383 m2 at 60.7065386,-135.0711424: area_m2=1,884, n_taxi=0, kind=apron, territory_frac=1, apron_remainder_m2=0, near_route=1, letter_chains=1, demoted=1, road_evidence=0
+   cell 17 role=parking_lot kind=apron ref=dsf:pol127 area=120 m2 at 60.7142537,-135.0796022: area_m2=120, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1
+   cell 8 role=groundside_pavement kind=apron ref=dsf:pol1 area=74 m2 at 60.7089121,-135.0793401: area_m2=73.5, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=0
+   cell 26 role=parking_lot kind=apron ref=dsf:pol115 area=44 m2 at 60.7129628,-135.0786026: area_m2=44.3, n_taxi=0, kind=apron, territory_frac=0, apron_remainder_m2=0, near_route=0, demoted=1, road_evidence=1
+(no cell contains the point; nearest is 0.0 m away)
+cell 71: role=apron side=airside kind=apron ref=dsf:pol123 area=5,089 m2
+  evidence: area_m2=5,089, n_taxi=0, kind=apron, source=dsf:pol123, source_class=lot, source_reason=1 road(s) reach it (04u), no taxi centreline, no startup, width 21.2 m, source_width_m=21.2, source_road_m=52.6, source_taxi_m=0, source_road_reach=1, airside_edge_m=11.6, airside_edge_flip=1, airside_edge_round=1, airside_edge_was=parking_lot
+  source dsf:pol123 [lot]: overlap 5,089/5,089 m2, width 21.2 m, road 53 m (osm 0, through 0, pieces 1, aisle 0), taxi 0 m, startups 0, parking cover 0%, apron cover 0%, desc 'lib/airport/pavement/asphalt_5L.pol'
+      -> 1 road(s) reach it (04u), no taxi centreline, no startup, width 21.2 m
+  centrelines: taxi -; 1206 ['route50']; OSM roads -; startups inside -

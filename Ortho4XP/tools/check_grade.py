@@ -2994,8 +2994,19 @@ def _check_zone_on_pavement(ways: List[Way],
         pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
         if len(pts) < 4:
             continue
+        # THE STRIP IS READ IN THE SOLID FRAME TOO (NLWF 2026-09-21, #18).
+        # A zone-2 strip is a RING around the runway and its zone 1 —
+        # the emitted way is its exterior, its hole is the runway's
+        # outline and lives in the sidecar under the STRIP's own
+        # shapeID.  Read ring-blind, the strip's "solid" is the disk and
+        # the whole runway sits inside it: NLWF reported ONE row of
+        # 34,069.6 m² (the runway is 33,600 m²) and an adjudicated FAIL
+        # on an airport whose strips stand on 0.0 m² of pavement.  The
+        # same sidecar key that gives the pavement its hole gives the
+        # strip its own.
+        holes = (face_holes_m or {}).get(str(w.tags.get("shapeID"))) or []
         try:
-            s = Polygon(pts)
+            s = Polygon(pts, [h for h in holes if len(h) >= 4])
             if not s.is_valid:
                 s = s.buffer(0)
         except Exception:                                 # pragma: no cover

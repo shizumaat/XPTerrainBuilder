@@ -49,6 +49,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import types
 import sys
@@ -1632,7 +1633,11 @@ def test_the_ritual_mirrors_the_index_into_a_worktree_that_predates_it(
     assert mirror.is_file(), (
         f"no index mirrored into the lane:\n{up.stdout}\n{up.stderr}")
     assert mirror.read_text() == index.read_text()
-    assert not os.access(mirror, os.W_OK), "the mirror must be read-only"
+    # The MODE BITS the ritual sets (chmod 444), not os.access: access()
+    # asks about the caller, and uid 0 passes W_OK on any file (#53).
+    assert stat.S_IMODE(mirror.stat().st_mode) & 0o222 == 0, (
+        "the mirror must be read-only (no write bit for anyone), got %o"
+        % stat.S_IMODE(mirror.stat().st_mode))
     assert "MIRRORED" in up.stdout
 
     ok = _ritual(env, "check", "lane1")
@@ -1680,7 +1685,8 @@ def test_the_ritual_never_overwrites_a_tracked_index(tmp_path):
     up = _ritual(env, "up", "lane2", "HEAD")
     assert up.returncode == 0, up.stdout + up.stderr
     tracked = main / ".claude" / "worktrees" / "lane2" / "tools" / "INDEX.md"
-    assert os.access(tracked, os.W_OK), (
+    # Mode bits, not os.access (uid 0 passes W_OK regardless; #53).
+    assert stat.S_IMODE(tracked.stat().st_mode) & 0o200, (
         "a tracked index must stay writable — the lane's own promotion "
         "edits it")
     tracked.write_text("# Tool index\n\ncensus.py\nmy_new_tool.py\n")
@@ -8789,6 +8795,35 @@ def test_the_build_entry_has_no_engine_flag(build_mod, monkeypatch, tmp_path):
     assert exc.value.code == 2
 
 
+def test_steps_selector_is_the_skip_steps_contract(build_mod):
+    """``--steps`` (colour-harmonization spec §7, 2026-09-21) is a THIN
+    extension of ``run_tile_steps``' ``skip_steps`` contract: the named
+    steps run, every other release step is an explicit recorded skip
+    naming the selector — never a silently shorter plan."""
+    sel = build_mod.tile_steps_selection("3 masks,4 tile", True)
+    assert sel == {"1 vector": "not selected by --steps '3 masks,4 tile'",
+                   "2 mesh": "not selected by --steps '3 masks,4 tile'"}
+    assert build_mod.tile_steps_selection(" 4 tile ", True) == {
+        n: "not selected by --steps '4 tile'"
+        for n in ("1 vector", "2 mesh", "3 masks")}
+    assert build_mod.tile_steps_selection(None, False) is None
+    # refused by name: without --tile, an unknown step, an empty list
+    with pytest.raises(SystemExit, match="REFUSING: --steps is a --tile"):
+        build_mod.tile_steps_selection("4 tile", False)
+    with pytest.raises(SystemExit, match="REFUSING: --steps names"):
+        build_mod.tile_steps_selection("4 tile,5 dsf", True)
+    with pytest.raises(SystemExit, match="REFUSING: --steps names"):
+        build_mod.tile_steps_selection(" , ", True)
+    # ...and the CLI refuses before the cwd check (the airport path)
+    with pytest.raises(SystemExit, match="REFUSING: --steps is a --tile"):
+        build_mod.main(["CYXY", "--steps", "4 tile"])
+    src = inspect.getsource(build_mod.main)
+    assert "skip_steps=steps_skip or None" in src
+    assert 'result["steps_selected"]' in src
+    assert 'frame["steps_selected"] = result.get("steps_selected")' in \
+        inspect.getsource(build_mod)
+
+
 def test_the_build_entry_refuses_the_flags_v2_does_not_wire(build_mod):
     """A flag that quietly did nothing on the v2 path is how a lane comes
     to believe it measured something it did not (the --solve-capture /
@@ -11372,3 +11407,46 @@ def test_the_per_airport_check_is_the_engines_own_predicate(build_mod,
     assert build_mod.this_airports_inset_problem(
         {"tile_stem": "N60W136", "airport_insets": True,
          "airports_layer": True}, 60, -136, None) is None
+
+
+def test_the_per_airport_check_scans_packs_with_the_owners_xplane_root(
+        build_mod, monkeypatch, tmp_path):
+    """NLWF 2026-09-21 (#18-#20): the pre-flight's pack-set arm listed the
+    installed airport packs through ``O4_Config_Utils`` install paths a
+    lane tree ships EMPTY, read ``[]``, and refused a WARM inset as
+    PACK-SET-STALE ("no longer installed: NLWF-Point Vele ...") while the
+    pack sat enabled in the owner's scenery_packs.ini.  The airport path
+    must apply the owner's paths BEFORE the engine predicate runs -- the
+    same owner config the frame check validates against -- and the
+    non-fatal form stands down (no SystemExit) when there is no owner
+    config at all."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Config_Utils as CFG
+    import O4_OSM_Utils as OSM
+    import O4_Vector_Map as VMAP
+    order = []
+    real_preflight = build_mod.apply_xplane_install_paths_for_preflight
+    monkeypatch.setattr(build_mod, "apply_xplane_install_paths_for_preflight",
+                        lambda: order.append("paths") or {})
+    monkeypatch.setattr(INSETS, "airport_inset_frame_problem",
+                        lambda *a, **k: order.append("predicate") or None)
+    monkeypatch.setattr(INSETS, "_airport_bounding_boxes",
+                        lambda tile, dico: {"NLWF": (-1.0, 2.0, 3.0, 4.0)})
+    monkeypatch.setattr(CFG, "Tile", lambda lat, lon, _s: types.SimpleNamespace(
+        lat=lat, lon=lon, read_from_config=lambda: None))
+    monkeypatch.setattr(OSM, "OSM_layer", lambda: None)
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer", lambda *a, **k: None)
+    monkeypatch.setattr(VMAP, "build_airports_dico", lambda _t, _l: {"NLWF": {}})
+    assert build_mod.this_airports_inset_problem(
+        {"tile_stem": "S15W179", "airport_insets": True,
+         "airports_layer": True}, -15, -179, "NLWF") is None
+    assert order == ["paths", "predicate"]
+    # No owner config: nothing applied, nothing raised.
+    assert real_preflight(tmp_path / "absent.cfg") == {}
+    # An owner config the fatal form REFUSES (no CIFP resolvable) is an
+    # airport pre-flight's stand-down, not its refusal.
+    cfg = tmp_path / "Ortho4XP.cfg"
+    cfg.write_text("cifp_data_path=\ncustom_scenery_dir=\n")
+    monkeypatch.setattr(build_mod, "apply_xplane_install_paths",
+                        lambda owner_cfg: (_ for _ in ()).throw(SystemExit("REFUSING")))
+    assert real_preflight(cfg) == {}

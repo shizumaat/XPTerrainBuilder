@@ -7,7 +7,7 @@ pattern of ``docs/specs/auto-patch-v2/heca-sag-ablation/ablate_heca_pin.py``,
 promoted on its second use by lane ``v2chord``).
 
     venv/bin/python tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl
-    venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar]
+    venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar|classify]
         [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy] [--why-hard [N]]
     venv/bin/python tools/v2_solve_replay.py --why-from SOLVED.pkl --why-hard [N]
 
@@ -158,6 +158,13 @@ def _rules_override(rules, over: dict[str, object]):
             val: object = str(v).strip().lower() in ("1", "true", "yes", "on")
         elif isinstance(cur, (int, float)):
             val = type(cur)(v)
+        elif isinstance(cur, (tuple, list)):
+            # a list key (``surfaces.graded_codes=1,2,3,15``): comma-
+            # separated, each element typed like the shipped first one
+            # (lane ``nlwf``, the transparent-apron arm)
+            elem = type(cur[0]) if cur else str
+            val = type(cur)(elem(t.strip()) for t in str(v).split(",")
+                            if t.strip())
         else:
             val = v
         rules = _dc.replace(rules, **{sec: _dc.replace(node, **{key: val})})
@@ -1441,9 +1448,87 @@ def stage1_diff(a: Path, b: Path, movers: Path | None, json_out: Path | None,
     return 0
 
 
+def pad_read(icao: str, pm, law, airport, sites: list[tuple[float, float]]) -> dict:
+    """THE PAD READ of a re-run arrangement (lane ``spjcpads``, issues #3 /
+    #4, RULINGS 2026-09-23a): what the planar stage made of the building
+    pads, read off the MAP (not the mint) so it is what the solve sees.
+
+    * the arrangement's own pad/airside publication (``PAD_AIRSIDE``: the
+      23a apron cut's ``apron_faces_cut`` / ``apron_face_consumed`` /
+      ``pad_airside_weld_pairs`` / ``pad_area_kept_m2``, or the pre-23a
+      clip's counters, and the §16g (10) (12) re-node census);
+    * the ``building`` faces and refs and their area, and the rolled-on
+      (airside) face area — what 23a trades between the two;
+    * the WELD by node identity: pad refs sharing a vertex with an airside
+      face, and how many vertices they share (the §28 / §16g (10) (6)
+      ``pad_airside_weld`` population the census prices);
+    * ``pad_cluster_mismatch`` (§16g (10) (3)), the declared defect set;
+    * per ``--site``: the face under the point, and for a pad the WHOLE
+      ref — faces, area — because a pad is a ref, not a face.
+    Prices no law; solves nothing."""
+    from shapely.geometry import Point
+    from auto_patch_v2.constraints.cluster_pad import pad_cluster_mismatch
+    from auto_patch_v2.law.tables import rolled_on_roles
+    from auto_patch_v2.planar.index import face_polygon
+    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+    rolled = rolled_on_roles(law)
+    polys = {fid: face_polygon(pm, fid) for fid in pm.faces}
+    bref: dict[str, list[int]] = {}
+    for fid, f in pm.faces.items():
+        if f.role == "building":
+            bref.setdefault(str(f.ref), []).append(fid)
+    b_area = sum(polys[i].area for fs in bref.values() for i in fs)
+    air_area = sum(polys[fid].area for fid, f in pm.faces.items() if f.role in rolled)
+    air_v = {v for fid, f in pm.faces.items() if f.role in rolled
+             for v in _face_vids(f)}
+    weld_refs = 0
+    weld_v = 0
+    for ref, fs in bref.items():
+        n = len({v for i in fs for v in _face_vids(pm.faces[i])} & air_v)
+        if n:
+            weld_refs += 1
+            weld_v += n
+    mism = pad_cluster_mismatch(pm, law, airport)
+    pa = {k: v for k, v in PAD_AIRSIDE.items() if not isinstance(v, (list, tuple, set))}
+    out = {"pad_airside": pa, "building_faces": sum(len(v) for v in bref.values()),
+           "building_refs": len(bref), "building_area_m2": round(b_area, 1),
+           "airside_area_m2": round(air_area, 1), "weld_refs": weld_refs,
+           "weld_vertices": weld_v, "pad_cluster_mismatch": len(mism), "sites": []}
+    print(f"[{icao}] PAD READ arrangement {pa}")
+    print(f"[{icao}] PAD READ building faces {out['building_faces']} in "
+          f"{len(bref)} refs, {b_area:,.0f} m2; airside (rolled-on) faces "
+          f"{air_area:,.0f} m2; weld: {weld_refs} pad refs share {weld_v} "
+          f"vertices with airside; pad_cluster_mismatch {len(mism)}")
+    to_xy = airport.frame.entry()
+    for lat, lon in sites:
+        P = Point(to_xy(lon, lat))
+        hit = [fid for fid, g in polys.items() if g.buffer(0.01).contains(P)]
+        for fid in hit:
+            f = pm.faces[fid]
+            row = {"site": [lat, lon], "face": fid, "role": f.role,
+                   "ref": str(f.ref), "face_m2": round(polys[fid].area, 1)}
+            if f.role == "building":
+                fs = bref.get(str(f.ref), [])
+                row["ref_faces"] = len(fs)
+                row["ref_m2"] = round(sum(polys[i].area for i in fs), 1)
+            out["sites"].append(row)
+            print(f"[{icao}] PAD READ site {lat},{lon}: {row}")
+        if not hit:
+            print(f"[{icao}] PAD READ site {lat},{lon}: no face")
+    return out
+
+
+def _face_vids(f) -> list[int]:
+    from auto_patch_v2.model.planar import face_vertex_ids
+    return face_vertex_ids(f.ring, f.holes)
+
+
 def replay_problem(pkl: Path, resume: str, drop: list[str],
                    design_weights: dict | None = None,
-                   chord_fill: tuple[str, ...] = ()) -> dict:
+                   chord_fill: tuple[str, ...] = (),
+                   placement: dict | None = None,
+                   sites: list[tuple[float, float]] | None = None,
+                   pad_read_only: bool = False) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -1460,6 +1545,15 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     from auto_patch_v2.planar.build import build as build_planar
     from auto_patch_v2.solve import Options
     from auto_patch_v2.solve import solve_design
+    # REFUSED BEFORE THE (multi-GB) CAPTURE IS READ: a pad key is read at
+    # classify / planar, so a replay-time ``--placement`` arm — and the
+    # ``--pad-read`` of the arrangement — is honest only when the replay
+    # re-runs that stage.  A later resume re-uses the captured map and the
+    # override would be silently inert.
+    if (placement or pad_read_only) and resume not in ("classify", "planar"):
+        raise SystemExit("--placement / --pad-read at replay need --from "
+                         "classify or --from planar (a later resume re-uses "
+                         "the captured arrangement and cannot see the key)")
     with pkl.open("rb") as fh:
         cap = pickle.load(fh)
     icao, airport, cl, pm, stage, inputs = (cap["icao"], cap["airport"], cap["cl"], cap["pm"],
@@ -1498,6 +1592,15 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         print(f"[{icao}] capture predates {len(missing)} PlanarMap channel(s), "
               f"backfilled at their defaults: {', '.join(f.name for f in missing)}")
     law = Law.for_airport(icao)
+    if placement:
+        # THE REPLAY-TIME [placement] ARM (lane ``spjcpads``): a pad key is
+        # read at classify / planar, so it is an honest one-variable arm
+        # ONLY when the replay re-runs that stage — ``--from classify``
+        # (the mint and the arrangement) or ``--from planar`` (the
+        # arrangement alone).  Any later resume re-uses the captured map
+        # and the override would be silently inert, so it refuses.
+        law, _kw = _placement_override(law, placement)
+        print(f"[{icao}] REPLAY ARM [placement] {_kw}")
     # A CAPTURE PREDATING §46's INPUT QUANTUM says so (spec §46 (8)): its
     # Frame carries no ``input_quantum_m``, so every ENTRY projection in
     # the replay (the pack's rings and feet — the load stage is already
@@ -1523,11 +1626,38 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
               f"{len(airport.clusters)} off its own partition "
               f"({time.perf_counter() - _ct:.0f} s)")
     t0 = time.perf_counter()
-    if resume == "planar":
+    if resume == "classify":
+        # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
+        # clusters`` — and BOTH are captured, so a change in the cluster
+        # derivation (``plan_clusters``) or the pad mint (``geom.
+        # cluster_outlines``) is INVISIBLE to ``--from planar``, which
+        # re-uses the captured classification (lane ``spjcpads``, issues
+        # #3 / #4: the fix moved 0 pads under ``--from planar``).  This
+        # arm re-derives the clusters off the captured partition and
+        # re-runs the CLASSIFY stage under the current tree, printing the
+        # cluster-outline counters the sidecar publishes, then the planar
+        # map as ``--from planar`` does.  Seconds against a capture.
+        from auto_patch_v2.classify import classify as _classify, load_rules as _load_rules
+        from auto_patch_v2.classify.evidence import CLUSTER_PADS as _CP
+        from auto_patch_v2.planar.cluster import WHY as _WHY
+        from auto_patch_v2.planar.cluster import clusters as _derive_clusters
+        _ct = time.perf_counter()
+        airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
+        print(f"[{icao}] clusters re-derived under the current tree: "
+              f"{len(airport.clusters)} ({time.perf_counter() - _ct:.0f} s) {dict(_WHY)}")
+        _ct = time.perf_counter()
+        cl = _classify(airport, law, _load_rules())
+        print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
+              f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
+    if resume in ("classify", "planar"):
         pm, _ps = build_planar(airport, cl, law)
         road_pref, _r, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
                                              inputs.lane_width_m)
         pm = _dc.replace(pm, preferred_z=road_pref)
+        _pr = pad_read(icao, pm, law, airport, sites or [])
+        if pad_read_only:
+            return {"icao": icao, "airport": airport, "cl": cl, "pm": pm,
+                    "law": law, "t0": t0, "pad_read": _pr}
     from auto_patch_v2.constraints.runway_chord import with_runway_chord
 
     def _targets(m):
@@ -1605,7 +1735,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
               f"joints {sst.contours} contours ({sst.contour_length_m:,.0f} m) + {sst.gap_joints} gap; {sst.wall_s:.2f} s")
         print(f"[{icao}] by shape (id, faces, m2, vertices, roles): {sst.by_shape[:12]}")
     network_crosscheck(pm, law, airport)
-    if resume in ("planar", "shapes"):
+    if resume in ("classify", "planar", "shapes"):
         pm = _targets(pm)                                 # change 1 (build.py order)
         stage = shape_stage(pm, law, airport, cl)
     else:
@@ -1631,13 +1761,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            why_hump: tuple[str, float, float] | None = None, verify: bool = False,
            solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
            site_radius_m: float = 12.0, why_hard_limit: int | None = None,
-           why_hard_stage: int | None = None) -> int:
+           why_hard_stage: int | None = None,
+           placement: dict | None = None) -> int:
     import numpy as np
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps
     from auto_patch_v2.solve import Options
     from auto_patch_v2.solve import solve_design
-    prob = replay_problem(pkl, resume, drop, design_weights, chord_fill)
+    prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
+                          placement=placement, sites=sites)
     icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
                                   prob["law"], prob["cs"])
     cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
@@ -1730,6 +1862,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 for r in (vrows.get(k) or [])[:6]:
                     print(f"      {k}: {r}")
             result["verify"]["defect_rows"] = {k: (vrows.get(k) or [])[:20] for k in DEFECT_KEYS}
+            # EVERY family's rows (capped), so a --json arm can be read by
+            # site without a second census (lane ``nlwf``)
+            result["verify"]["rows"] = {k: v[:200] for k, v in vrows.items() if v}
         if solved_out is not None:
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)
@@ -1793,7 +1928,8 @@ def main() -> int:
                          "the vertices beyond the band).  Prices no law and counts "
                          "no defects.")
     ap.add_argument("--replay", type=Path, metavar="PKL")
-    ap.add_argument("--from", dest="resume", choices=("constraints", "shapes", "planar"),
+    ap.add_argument("--from", dest="resume",
+                    choices=("constraints", "shapes", "planar", "classify"),
                     default="constraints")
     ap.add_argument("--drop-generator", action="append", default=[])
     ap.add_argument("--json", type=Path)
@@ -1805,6 +1941,11 @@ def main() -> int:
                     help="print the design solve's objective per active-set round")
     ap.add_argument("--method", default="normal", choices=("normal", "cg", "lsqr"),
                     help="the design solve's linear solver (solve/design.METHODS)")
+    ap.add_argument("--pad-read", action="store_true",
+                    help="DRY: with --from classify/planar, re-run the stage, print "
+                         "the PAD READ (pad/airside arrangement counters, building vs "
+                         "airside area, weld population, pad_cluster_mismatch, the "
+                         "pad ref under each --site) and stop before the solve")
     ap.add_argument("--site", action="append", default=[], metavar="LAT,LON",
                     help="report z - DEM on the vertices within --site-radius of the point")
     ap.add_argument("--site-radius", type=float, default=12.0, metavar="M",
@@ -1935,6 +2076,13 @@ def main() -> int:
     if a.replay:
         sites = [tuple(float(x) for x in it.split(",")) for it in a.site]
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else None
+        pl = dict(it.split("=", 1) for it in a.placement)
+        if a.pad_read:
+            res = replay_problem(a.replay, a.resume, a.drop_generator, None, (),
+                                 placement=pl, sites=sites, pad_read_only=True)
+            if a.json:
+                a.json.write_text(json.dumps(res["pad_read"], indent=1, default=str))
+            return 0
         return replay(a.replay, a.resume, a.drop_generator, a.json, a.z_out,
                       method=a.method,
                       design_weights={k.strip(): _design_value(v)
@@ -1942,7 +2090,7 @@ def main() -> int:
                       verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
                       emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
-                      why_hard_stage=a.why_hard_stage)
+                      why_hard_stage=a.why_hard_stage, placement=pl)
     ap.error("one of --capture / --replay")
     return 2
 

@@ -1018,7 +1018,17 @@ def welded_deck(cache: _obj8.ResourceCache, members: _t.Sequence[_obj8.PlacedObj
     blobs = _cells_polygon(under, org, cell)
     if blobs is not None and not blobs.is_empty:
         shade = D.difference(blobs)
+        # THE RASTER'S OWN RESOLUTION: a cell straddling D's slanted edge
+        # leaves a staircase of slivers thinner than one cell between its
+        # square and the ring (HECA ``T3_road``: 300+ pieces of < 1 m2).
+        # Nothing thinner than a cell was measured, so an opening at half
+        # a cell (mitred, corners kept) removes exactly them.
+        shade = shade.buffer(-0.5 * cell, join_style=2).buffer(0.5 * cell, join_style=2)
+        shade = shade.intersection(D)
         if not shade.is_valid:
             shade = shade.buffer(0.0)
+        if shade.geom_type in ("MultiPolygon", "GeometryCollection"):
+            shade = shapely.union_all([g for g in shade.geoms
+                                       if g.geom_type == "Polygon" and g.area >= cell * cell])
     return WeldedDeck(y_plate, ratio, True, None if shade.is_empty else shade,
                       len(traces), note)

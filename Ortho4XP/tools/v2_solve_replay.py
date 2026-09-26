@@ -7,7 +7,7 @@ pattern of ``docs/specs/auto-patch-v2/heca-sag-ablation/ablate_heca_pin.py``,
 promoted on its second use by lane ``v2chord``).
 
     venv/bin/python tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl
-    venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar]
+    venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar|classify]
         [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy] [--why-hard [N]]
     venv/bin/python tools/v2_solve_replay.py --why-from SOLVED.pkl --why-hard [N]
 
@@ -1523,7 +1523,30 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
               f"{len(airport.clusters)} off its own partition "
               f"({time.perf_counter() - _ct:.0f} s)")
     t0 = time.perf_counter()
-    if resume == "planar":
+    if resume == "classify":
+        # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
+        # clusters`` — and BOTH are captured, so a change in the cluster
+        # derivation (``plan_clusters``) or the pad mint (``geom.
+        # cluster_outlines``) is INVISIBLE to ``--from planar``, which
+        # re-uses the captured classification (lane ``spjcpads``, issues
+        # #3 / #4: the fix moved 0 pads under ``--from planar``).  This
+        # arm re-derives the clusters off the captured partition and
+        # re-runs the CLASSIFY stage under the current tree, printing the
+        # cluster-outline counters the sidecar publishes, then the planar
+        # map as ``--from planar`` does.  Seconds against a capture.
+        from auto_patch_v2.classify import classify as _classify, load_rules as _load_rules
+        from auto_patch_v2.classify.evidence import CLUSTER_PADS as _CP
+        from auto_patch_v2.planar.cluster import WHY as _WHY
+        from auto_patch_v2.planar.cluster import clusters as _derive_clusters
+        _ct = time.perf_counter()
+        airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
+        print(f"[{icao}] clusters re-derived under the current tree: "
+              f"{len(airport.clusters)} ({time.perf_counter() - _ct:.0f} s) {dict(_WHY)}")
+        _ct = time.perf_counter()
+        cl = _classify(airport, law, _load_rules())
+        print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
+              f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
+    if resume in ("classify", "planar"):
         pm, _ps = build_planar(airport, cl, law)
         road_pref, _r, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
                                              inputs.lane_width_m)
@@ -1605,7 +1628,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
               f"joints {sst.contours} contours ({sst.contour_length_m:,.0f} m) + {sst.gap_joints} gap; {sst.wall_s:.2f} s")
         print(f"[{icao}] by shape (id, faces, m2, vertices, roles): {sst.by_shape[:12]}")
     network_crosscheck(pm, law, airport)
-    if resume in ("planar", "shapes"):
+    if resume in ("classify", "planar", "shapes"):
         pm = _targets(pm)                                 # change 1 (build.py order)
         stage = shape_stage(pm, law, airport, cl)
     else:
@@ -1793,7 +1816,8 @@ def main() -> int:
                          "the vertices beyond the band).  Prices no law and counts "
                          "no defects.")
     ap.add_argument("--replay", type=Path, metavar="PKL")
-    ap.add_argument("--from", dest="resume", choices=("constraints", "shapes", "planar"),
+    ap.add_argument("--from", dest="resume",
+                    choices=("constraints", "shapes", "planar", "classify"),
                     default="constraints")
     ap.add_argument("--drop-generator", action="append", default=[])
     ap.add_argument("--json", type=Path)

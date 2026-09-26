@@ -160,6 +160,63 @@ def build_rim(air, law, nodes=None) -> AirsideRim:
                       nodes=nodes, node_tol_m=0.5 * ident)
 
 
+def apron_cut_to_pads(base_regions, pad_regions, law) -> tuple[list, dict]:
+    """RULINGS 2026-09-23a — APRON DOES NOT EXTEND UNDER BUILDING PADS.
+
+    The owner ruled the §16g (10) (5) / (12) subtraction BACKWARDS for a
+    BUILDING UNIT: a building pad MATCHES ITS FOOTPRINT (18q / 18t's unit
+    footprint), so the pad keeps every square metre of it and the APRON
+    FACE is the thing that is cut back.  This is that cut, and it is the
+    ONE site it happens at: each rolled-on CELL region is differenced by
+    the union of the building pads standing on it, so the shared ring is
+    the PAD's own ring, coordinate for coordinate — a §28
+    ``pad_airside_weld`` pair, which is what "apron and terminal always
+    meet smoothly" (18t) asks for.
+
+    Measured trigger: SPJC's terminal, 87 % of its 99,080 m2 footprint
+    over rolled-on apron, emitted as a ~13 k m2 pad by the old clip.
+
+    The clip is NOT withdrawn for non-building outlines: ``airside_clip``
+    still trims (and drops) every rigid region the caller does not hand
+    here, and the DERIVED-pad mint's own rule 4 in
+    ``geom/cluster_outline.cluster_outlines`` still guards the evidence-time
+    population (it runs only when ``pad_airside_clip`` is false).
+    """
+    counts: dict = {"pads": len(pad_regions)}
+    pads = [r.polygon for r in pad_regions
+            if r.polygon is not None and not r.polygon.is_empty]
+    if not pads:
+        return list(base_regions), counts
+    pad_u = unary_union(pads)
+    roles = rolled_on_roles(law)
+    out = list(base_regions)
+    welds = 0
+    cut = 0
+    for i, r in enumerate(out):
+        if r.source != "cell" or r.role not in roles:
+            continue
+        if not r.polygon.intersects(pad_u):
+            continue
+        g = r.polygon.difference(pad_u)
+        ps = _polys(g)
+        if not ps:
+            # the apron face lies WHOLLY under a pad: the pad is the
+            # ground there, so the face yields entirely
+            counts["apron_face_consumed"] = \
+                int(counts.get("apron_face_consumed", 0)) + 1
+            out[i] = None
+            continue
+        cut += 1
+        welds += sum(1 for q in ps if q.boundary.intersects(pad_u.boundary))
+        out[i] = _dc.replace(r, polygon=max(ps, key=lambda q: q.area))
+        for extra in sorted(ps, key=lambda q: -q.area)[1:]:
+            out.append(_dc.replace(r, polygon=extra))
+    counts["apron_faces_cut"] = cut
+    counts["pad_airside_weld_pairs"] = welds
+    counts["pad_area_kept_m2"] = round(pad_u.area, 1)
+    return [r for r in out if r is not None], counts
+
+
 def airside_clip(regions, law, air=None, nodes=None, rim=None) -> tuple[list, dict]:
     """§16g (10) (5) AT THE SITE WHERE THE FACES HAVE ROLES (owner RULINGS
     2026-09-14ax): every RIGID (``building``) region clipped out of the
@@ -453,8 +510,19 @@ def build_arrangement(airport: Airport, classification: Classification,
     air = shapely.set_precision(airside_union(base_regions, law), grid)
     nodes_a = _node_coords(noded_a)
     rim = build_rim(air, law, nodes_a)
-    pad_regions, _pad_clip = airside_clip(pad_regions, law, air=air,
-                                          nodes=nodes_a, rim=rim)
+    if bool(getattr(law.tables.structures.placement,
+                    "pad_keeps_footprint", False)):
+        # RULINGS 2026-09-23a: the pad keeps its footprint and the APRON
+        # is cut back to the pad edge (see ``apron_cut_to_pads``).  The
+        # pad rings still enter the noded set below, so the cut face and
+        # the pad share their boundary coordinate for coordinate.
+        base_regions, _pad_clip = apron_cut_to_pads(base_regions,
+                                                    pad_regions, law)
+        air = shapely.set_precision(airside_union(base_regions, law), grid)
+        rim = build_rim(air, law, nodes_a)
+    else:
+        pad_regions, _pad_clip = airside_clip(pad_regions, law, air=air,
+                                              nodes=nodes_a, rim=rim)
     regions = base_regions + pad_regions
     # THE DENSIFIER MAY NOT NODE THE RIM EITHER.  A clipped pad's boundary
     # RUNS ALONG the airside boundary between its two crossing points, and

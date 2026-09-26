@@ -40,6 +40,7 @@ from .footprint_connector import (CONNECTOR_BOXES_MAX, ClusterTopology,
                                   cluster_topology, connectors_of_cluster,
                                   contact_graph)
 from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
+                               member_is_deck,
                                _clusters, _contacts_of, _median,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
@@ -58,11 +59,7 @@ def _is_deck_member(st: _t.Any) -> bool:
     ``bridge_family.deck_prints`` uses (``deck_kind`` flag / signature),
     widened by ``deck_ring`` for a member the signature pass named
     without re-parsing."""
-    m = getattr(st, "m", None)
-    if m is None:
-        return False
-    return bool(getattr(m, "deck_ring", None)
-                or getattr(m, "deck_kind", "") in ("flag", "signature"))
+    return member_is_deck(getattr(st, "m", None))
 
 
 def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
@@ -468,8 +465,7 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                        default=0.0)
             walled = (chain_min_height_m <= 0.0 or not any_height
                       or (tall >= chain_min_height_m
-                          and not str(getattr(plan.units[ui].members[mi],
-                                              "deck_kind", "") or "")))
+                          and not member_is_deck(plan.units[ui].members[mi])))
             shims.append(_PShim(len(shims), key, bx, frozenset(pids),
                                 plan.units[ui].members[mi].resource,
                                 tuple(r for q in live

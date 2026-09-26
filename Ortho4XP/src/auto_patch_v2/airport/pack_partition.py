@@ -384,9 +384,6 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
             no_solid.add(o.path)
     rel = os.path.relpath(live_path_of(o.resolved), pack_root) if pack_root \
         else live_path_of(o.resolved)
-    # THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3)
-    skirted = bool(sk.seat_low_side and _skirt.is_skirt(cache, o.resolved, law))
-    counts["skirted_members"] += int(skirted)
     # THE ELEVATED DECK (owner RULINGS 2026-09-11a; spec §17.5): the
     # GATE on the cross-placement abutment group, read off the cache
     deck_body = bool(_deck.elevated_deck(cache, o.resolved, law).deck)
@@ -412,6 +409,14 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                   and o.id not in sc.basin_members and o.path not in sc.basin_members
                   and _scatter.is_scatter(cache, o.resolved, law))
     counts["scatter_members"] += int(is_scatter)
+    # THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3) — never
+    # asked of a SCATTER resource (§B.6 row 10: the scatter test is ordered
+    # BEFORE ``is_skirt``; a bush's root ball under y = 0 is the flora
+    # signature, not a foundation, and its footprint union was 37 of the
+    # 46 s ``is_skirt`` cost at TNCM, measured this lane)
+    skirted = bool(sk.seat_low_side and not is_scatter
+                   and _skirt.is_skirt(cache, o.resolved, law))
+    counts["skirted_members"] += int(skirted)
     # EVERY OPTIONAL FIELD IS PASSED BY NAME.  Twice now a field inserted
     # into ``model.rebake.Member`` has silently shifted this call's
     # positional tail: ``plate_clearance_m`` in 2026-09-11t (the viaduct's

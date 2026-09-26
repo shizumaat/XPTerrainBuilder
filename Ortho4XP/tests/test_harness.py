@@ -49,6 +49,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import types
 import sys
@@ -1632,7 +1633,11 @@ def test_the_ritual_mirrors_the_index_into_a_worktree_that_predates_it(
     assert mirror.is_file(), (
         f"no index mirrored into the lane:\n{up.stdout}\n{up.stderr}")
     assert mirror.read_text() == index.read_text()
-    assert not os.access(mirror, os.W_OK), "the mirror must be read-only"
+    # The MODE BITS the ritual sets (chmod 444), not os.access: access()
+    # asks about the caller, and uid 0 passes W_OK on any file (#53).
+    assert stat.S_IMODE(mirror.stat().st_mode) & 0o222 == 0, (
+        "the mirror must be read-only (no write bit for anyone), got %o"
+        % stat.S_IMODE(mirror.stat().st_mode))
     assert "MIRRORED" in up.stdout
 
     ok = _ritual(env, "check", "lane1")
@@ -1680,7 +1685,8 @@ def test_the_ritual_never_overwrites_a_tracked_index(tmp_path):
     up = _ritual(env, "up", "lane2", "HEAD")
     assert up.returncode == 0, up.stdout + up.stderr
     tracked = main / ".claude" / "worktrees" / "lane2" / "tools" / "INDEX.md"
-    assert os.access(tracked, os.W_OK), (
+    # Mode bits, not os.access (uid 0 passes W_OK regardless; #53).
+    assert stat.S_IMODE(tracked.stat().st_mode) & 0o200, (
         "a tracked index must stay writable — the lane's own promotion "
         "edits it")
     tracked.write_text("# Tool index\n\ncensus.py\nmy_new_tool.py\n")

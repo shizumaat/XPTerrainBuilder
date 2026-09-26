@@ -156,6 +156,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "pad_airside_renode",
     "apron_tier",  # RULINGS 2026-09-06w: the tiered apron law priced (preferred / max / fan) — the oracle's cap for apron rows (``publication.apron_tier``)
     "pad_cluster_mismatch",  # §16g (10) (3) (owner RULINGS 2026-09-14x): the CRITICAL defect set — a pad more than half claimed by two clusters, or a cluster that is more than half of two pads.  "Pads must match building clusters ... exactly"; empty is the bar (``pipeline/publication`` off ``constraints.cluster_pad.pad_cluster_mismatch``)
+    "deck_shades",  # issue #14 (``welded-deck-spec.md`` §3, additive, informational): the welded decks the load read (``airport/deck_signature.welded_deck``), each member's pier ratio and DECK verdict, and the shade area that left every cluster outline (``planar/cluster.deck_shades``)
     "cluster_pads",  # §30 (4) (owner RULINGS 2026-09-13bj item 1): one record per TERMINAL CLUSTER — its members, the emitted `building` faces its footprint union stands on, the ONE level the solve gave that plane, and the apron vertices the reach targeted (with how many reached it).  The object stage's §16g seats the cluster on this level (``pipeline/publication.cluster_pads``)
 )
 

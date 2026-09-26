@@ -412,3 +412,44 @@ KILLED at 11 min (no pickle written; `.harness/frames/othhjunction/` holds only
    airport/{wall_corridor_probe,road_ramp,road_profile}.py, law/{emit,
    families,rulesets,precedence,structures}.toml, constraints/junction_mesh.py
    (`junction_mesh_roles = ["junction"]`).
+
+## RESUME 2026-09-25 (lane `othhjunction`) — step 1: WHAT THE OWNER FLEW
+
+**The build-350 OTHH tile ingested a MANUAL patch, not an auto patch.**
+`XPTerrainBuilderData/Patches/+20+050/+25+051/` holds TWO OTHH patches:
+
+| file | mtime | generator | nodes | ways | nodes w/o `alt_abs` | orphan nodes |
+|---|---|---|---|---|---|---|
+| `OTHH.patch.osm` (MANUAL by name) | 2026-09-18 09:55 | `JOSM` | 23,069 | 947 | 0 | 216 |
+| `OTHH_auto.patch.osm` | 2026-09-18 08:10 | `auto_patch_v2` (new pack header) | 21,994 | 1,046 | 0 | 209 |
+
+* The tile runs logged in `~/.ortho4xp/tile_build_times/+25+051.json` (mesh
+  finished 12:43:50 and 13:11:44 MDT, 448.61 s / 272.08 s, `airports: 0`) came
+  AFTER the 09:55 save. A `<ICAO>.patch.osm` without `_auto` is a manual patch:
+  `O4_Vector_Map.include_patches` skips `OTHH_auto.patch.osm` ("manual patch
+  exists", verbosity 1) and the selector (`manual_patch_icaos` →
+  `selection.select_patch_airports`, disposition `manual`, driver vprint
+  verbosity **2**) never builds OTHH — hence `airports: 0`. Nothing at
+  verbosity 0 tells the user.
+* Provenance: the owner's JOSM (`~/Library/Preferences/JOSM/preferences.xml`
+  recent files: `.../+25+051/OTHH.patch.osm` and `.../+25+051/NOAH/OTHH.patch.osm`;
+  autosave `OTHH.patch.osm_20260918_085633701.osm` is byte-identical to the
+  file). It derives from the **2026-09-14** v2 build of lane v2othhramp (JOSM
+  autosave `OTHH.patch.osm_20260914_214633053.osm` = 23,714 nodes / 1,015 ways,
+  exactly that build's counts; 23,010 of the 23,069 nodes coincide) on the
+  **OLD pack** (`OTHH Doha (Aeroscape)`), with ~68 ways removed. It carries no
+  `<osm>` header provenance (JOSM drops it) and no sidecar.
+* Role census, `nd`-refs (manual / fresh-auto): graded_strip 12,412 / 14,458;
+  building **4,704 / 1,541**; apron 4,226 / 2,624; junction 2,162 / 2,518;
+  runway 2,766 / 2,999. `service_junction` 0 in both; unpinned vertices 0 in
+  both — the "89 % unpinned" population is gone in both files.
+* #15 site 25.2546269, 51.6204583, 120 m: MANUAL 487 nodes, alt 3.25–5.27 m,
+  on ring `building2` (567 nodes, median edge **1.41 m**, alt 3.15–5.27 m,
+  456 of them within 120 m) + apron `pav10`; FRESH-AUTO 276 nodes, alt
+  −1.14–4.24 m (the −1.14 is a tunnel ramp), ring `building3` 183 nodes median
+  edge 2.06 m alt 3.74–4.16 m.
+* Harness census of the 08:10 auto patch (sidecar present): LAW-TRUE 1,190,
+  ADJUDICATED 495, CRITICAL motion 0, CRITICAL visual 708 (695 unmeshable
+  `above_degenerate_floor`, 13 cliffs, worst 7.431 m ramp_in_strip
+  secondary_parallel|tunnel_ramp at 25.2541399, 51.6033501). The manual
+  patch has no sidecar and is not censusable by the harness.

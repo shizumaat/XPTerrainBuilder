@@ -214,13 +214,15 @@ OUTLINE_TRIS_MAX = 4000
 #: rings, so nothing downstream changes shape.
 OUTWARD_TOL_MAX_M = 0.2
 
-#: A HOLE in a component's outline up to this area is filled (outward, and
-#: too small to be ground anything stands on); a larger one is KEPT by
-#: cutting the outline into hole-free pieces.  A ring carries no holes,
-#: and "holes are dropped" put the whole ground a kerb or rail FRAME
-#: encloses into its footprint: HECA ``metal_strip_2.obj`` component 69,
-#: 15 m2 of rail around a 59 x 21 m rectangle, read 1,235 m2.
-HOLE_FILL_MAX_M2 = 4.0
+#: A HOLE in a component's outline is FILLED, whatever its size ("holes
+#: are dropped", the pre-lane reading, kept).  MEASURED (lane
+#: ``hecabodies``): keeping holes over 4 m2 took the room interiors out of
+#: HECA's T3 terminal footprint — its cluster pad came out with 436 holes,
+#: and the closing build's census rose 61,897 -> 135,782 rows, all of the
+#: rise inside the terminal district.  A building's footprint is what its
+#: walls enclose; a rail frame around open ground (``metal_strip_2.obj``
+#: component 69, 1,235 m2 for 15 m2 of rail) is the price, named.
+HOLE_FILL_MAX_M2 = float("inf")
 
 #: How deep :func:`_outward_pieces` may bisect before the piece takes its
 #: convex hull (2**8 = 256 pieces at most per blob — a bound, not a

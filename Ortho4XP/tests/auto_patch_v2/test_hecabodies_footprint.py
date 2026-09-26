@@ -100,15 +100,20 @@ def test_a_wall_with_no_plan_area_is_its_line_not_its_hull():
     assert got.buffer(1e-6).covers(Point(30.0, 0.0))
 
 
-def test_a_frame_keeps_the_ground_it_encloses_out_of_its_footprint():
-    # a 59 x 21 m rail frame
+def test_a_frame_still_encloses_its_ground_a_building_is_what_its_walls_enclose():
+    """Holes are FILLED (the pre-lane reading, kept on measurement): a
+    first cut kept holes over 4 m2 and took the room interiors out of
+    HECA's T3 terminal (436 holes in its cluster pad; the closing census
+    61,897 -> 135,782 rows, all inside the terminal district).  So a frame
+    reads as the area it encloses, grown by at most the bounded tolerance."""
     pts, tris = _strip([(0.0, 0.0), (59.0, 0.0), (59.0, 21.0), (0.0, 21.0),
                         (0.0, 0.0)])
     rings = C.plan_hull(pts, tris)
     got = _rings_union(rings)
-    assert got.buffer(1e-6).covers(_true(pts, tris))
-    assert not got.contains(Point(29.5, 10.5))
-    assert got.area < 0.25 * 59.0 * 21.0
+    assert got.contains(Point(29.5, 10.5))
+    full = Polygon([(0, 0), (59, 0), (59, 21), (0, 21)])
+    assert got.area <= full.buffer(0.15 + C.OUTWARD_TOL_MAX_M + 0.05,
+                                   join_style=2).area + 1e-6
 
 
 def test_a_compact_footprint_is_unchanged_in_kind():

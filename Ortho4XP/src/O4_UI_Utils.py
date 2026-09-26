@@ -72,6 +72,21 @@ def progress_bar(nbr, percentage, message=None):
 
 
 ################################################################################
+def step_detail(text):
+    """Name what the running step is doing right now, e.g. a NEIGHBOUR
+    tile's airport-insets pass (spec insets-follow-patch-set §D.3).
+
+    The session folds it into the step's ``StepProgress`` label, which both
+    front ends render verbatim — no new event, no front-end change.  ``""``
+    clears it.  No-op without an engine session; never raises."""
+    if engine_session is not None:
+        try:
+            engine_session.step_detail(text)
+        except Exception:
+            pass
+
+
+################################################################################
 def auto_patch_begin(icaos):
     """(Re)open the auto-patch progress window with one row per airport in
     ``icaos``.  No-op without a GUI (command-line builds / the test suite).

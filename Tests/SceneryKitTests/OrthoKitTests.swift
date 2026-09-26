@@ -258,6 +258,18 @@ import Foundation
         #expect(event(#"{"event":"BrandNewThing","x":1}"#) == .unknown(event: "BrandNewThing"))
     }
 
+    /// Issue #33 / insets-follow-patch-set-spec §D.3: a NEIGHBOUR tile's
+    /// airport-insets pass is named in the StepProgress label (no new
+    /// event); the label — a non-ASCII middle dot included — reaches the
+    /// activity view verbatim, exactly as `json.dumps` writes it.
+    @Test func neighbourInsetsPassLabelDecodesVerbatim() throws {
+        let step = event(#"{"event":"StepProgress","lat":38,"lon":-10,"step_key":"vector","label":"vector data \u00b7 airport insets +38-011 (neighbour of +38-010)","percent":4.0,"indeterminate":false,"seq":7,"ts":2.0}"#)
+        #expect(step == .stepProgress(
+            lat: 38, lon: -10, stepKey: "vector",
+            label: "vector data \u{00B7} airport insets +38-011 (neighbour of +38-010)",
+            percent: 4.0, indeterminate: false))
+    }
+
     /// H1 (Ortho4XP/docs/POSTMORTEM-20260831.md Task C): the per-airport
     /// auto-patch failure must reach the app. The event name is matched as a
     /// string literal against `class AutoPatchFailed` in the engine's

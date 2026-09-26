@@ -37,11 +37,13 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+import numpy as np
 import shapely
 from shapely.geometry import MultiPoint, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY
+from . import bulk_geos as _bulk
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .obj8_clip import _bulk_polys, _clip_component
@@ -148,6 +150,17 @@ def _exteriors(geom) -> list:
         [geom.exterior] if geom.geom_type == "Polygon" else [])
 
 
+def _rim_hits(below: _t.Sequence, exteriors: _t.Sequence, tol: float) -> list[bool]:
+    """Per below-zero piece, whether it comes within ``tol`` of any
+    footprint exterior (it REACHES the perimeter)."""
+    # §B.3 (#28): one prepared ``dwithin`` per exterior over every piece
+    # (``bulk_geos.within_distance`` is exactly ``e.distance(g) <= tol``)
+    hit = np.zeros(len(below), dtype=bool)
+    for e in exteriors:
+        hit |= _bulk.within_distance(e, below, tol)
+    return hit.tolist()
+
+
 def reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
     """The resource's skirt reading, memoised on ``cache`` (the pack is
     parsed once for classify, the planar pass and the re-seat plan)."""
@@ -199,8 +212,8 @@ def _read(cache: _obj8.ResourceCache, path: str, law) -> SkirtReading:
     frac = min(1.0, on_rim / per)
     # the depths of the pieces that actually REACH the perimeter: a deep
     # lift pit inside a skirted building is not the skirt's depth
-    rim_depths = [d for g, d in zip(below, depths)
-                  if any(e.distance(g) <= tol for e in _exteriors(fp))]
+    rim_depths = [d for g, d, hit in zip(below, depths, _rim_hits(below, _exteriors(fp), tol))
+                  if hit]
     if not rim_depths:
         rim_depths = depths
     d_min, d_max = min(rim_depths), max(rim_depths)

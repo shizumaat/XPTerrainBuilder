@@ -245,7 +245,14 @@ def census(icao: str, xplane_root: str, mod_cache_root: str,
                                     for q in pls),
                "min_authored_y_m": round(min_y, 3),
                "below_admission_depth": deep,
-               "skirt": skirted, "elevated_deck": deck}
+               "skirt": skirted, "elevated_deck": deck,
+               # S5b (#29): what the WIRED build admits — the predicate
+               # after the member-level order ``pack_partition.
+               # _build_member`` applies (the deck verdict wins; the
+               # placement-level deck-family / plate / structure / basin
+               # exemptions are planar screen facts this dry read has no
+               # access to, so this is the resource-level admission)
+               "admitted": bool(reading.scatter and not deck)}
         rows.append(row)
         boxes = np.concatenate([_placed_boxes(geom, comps, p) for p in pls])
         if reading.scatter:
@@ -262,6 +269,11 @@ def census(icao: str, xplane_root: str, mod_cache_root: str,
         cache._geom.pop(res, None)          # stream: one resource at a time
         cache._comps.pop(res, None)
 
+    adm = [r for r in rows if r["admitted"]]
+    rep["admitted_resources"] = len(adm)
+    rep["admitted_placed_components"] = sum(r["placed_components"] for r in adm)
+    rep["admitted_component_share"] = (
+        round(rep["admitted_placed_components"] / tot_comp, 5) if tot_comp else 0.0)
     rep["resources"] = len(rows)
     rep["placed_components"] = tot_comp
     rep["scatter_placed_components"] = tot_scatter_comp
@@ -363,6 +375,12 @@ def _print(rep: dict) -> None:
           f"placed components ({100 * rep['scatter_component_share']:.1f} %)  "
           f"[N >= {rep['law']['components_min']}, "
           f"D <= {rep['law']['component_diag_max_m']} m]")
+    if "admitted_resources" in rep:
+        print(f"  ADMITTED (S5b wiring, #29): {rep['admitted_resources']} resources, "
+              f"{rep['admitted_placed_components']} placed components "
+              f"({100 * rep['admitted_component_share']:.1f} %) — the predicate "
+              f"minus {rep['scatter_resources'] - rep['admitted_resources']} "
+              f"elevated-deck resource(s)")
     scat = [r for r in rep["rows"] if r["scatter"]]
     if scat:
         print(f"  {'placed':>9} {'comps':>7} {'pl':>4} {'dmax':>7}  resource")

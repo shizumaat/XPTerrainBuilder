@@ -321,7 +321,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             dem_frame="production", production_dem_tiles=seeds,
             core_hosted=True,
             road_grade_limit=task.get("road_grade_limit"),
-            lane_width_m=task.get("lane_width"))
+            lane_width_m=task.get("lane_width"),
+            # spec §B.4 (#27): the pack walk the parent took once per tile
+            pack_pristine=task.get("pack_pristine"))
         law = Law.for_airport(icao)
         scratch = _scratch_dir(task)
         os.makedirs(scratch, exist_ok=True)
@@ -912,6 +914,22 @@ def rebake_after_mesh(tile) -> dict:
                 with open(plan_path) as fh:
                     plan_ = _rb.RebakePlan.from_json(fh.read())
                 icao = plan_.icao
+                # A PLAN WHOSE PATCH IS NOT IN THIS MESH IS NEVER PLACED
+                # (lane ``othhjunction``, #13/#15): the plan is the auto
+                # patch's design surface; a manual patch, the mode filter
+                # or a boundary skip means the mesh was built WITHOUT that
+                # surface, and placing (splitting, rewriting the pack DSF)
+                # against it seats objects on ground that is not there.
+                # ONE admission test, the patch ingest's own.
+                import O4_Vector_Map as _VMAP
+                not_applied = _VMAP.auto_patch_not_applied(
+                    tile, icao, patch_dir=patch_dir)
+                if not_applied:
+                    UI.vprint(0, f"  [v2 rebake] {icao}: placement SKIPPED — its "
+                                 f"auto patch is not in this mesh ({not_applied})")
+                    counts["airports_skipped_unapplied"] = \
+                        counts.get("airports_skipped_unapplied", 0) + 1
+                    continue
                 law = Law.for_airport(icao)
                 if not plan_.units:
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "

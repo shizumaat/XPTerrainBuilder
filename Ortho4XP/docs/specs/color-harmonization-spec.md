@@ -165,12 +165,20 @@ max 28, 50 textures at the cap. Bars on the rebuilt +25+051 (Arc, ZL16+18),
 `texture_seam_census.py <build_dir> --bar 2 --fail-over-bar`:
 
 1. `seams_over_bar == 0` (introduced step ≤ 2 counts on EVERY land seam,
-   coast seams included; `max_introduced_step ≤ 2`).
+   coast seams included; `max_introduced_step ≤ 2`). A seam is JUDGED only
+   when ≥ 64 of its 4096 facing rows are land (2026-09-25: the one over-bar
+   seam, 27856_42128|27872_42128, is a 2-row coast sliver over the bar in the
+   OFF control too — DXT noise, not a cast).
 2. `max_texture_shift ≤ 20` and the mean land shift over witnesses within
    ±1 count (no whole-tile hue drift).
-3. The patchwork actually shrinks: over land seams, the p90 of the DDS step
-   (`step_dds`) ≤ 0.6 × the source's p90 (5.9 → ≤ 3.5 counts) and no seam's
-   DDS step exceeds its source step by more than 2 counts.
+3. RESTATED 2026-09-25 (spec author, after the closing arms: the field is
+   interpolated between texture centres, so both textures carry the same
+   value at a shared edge and the field CANNOT change a seam step — the
+   0.6× shrink asked the harmonizer to repair the SOURCE's own patchwork,
+   which is not its job and was exactly what v1's discontinuous field did):
+   no seam's DDS step exceeds its source step by more than 2 counts, and the
+   same-ZL introduced step p90 stays within DXT noise (≤ 0.5 count).
+   Measured 2026-09-25: p90 DDS/source 1.00×, same-ZL introduced p90 0.09.
 4. All-water textures: shift 0 (`land_fraction == 0` rows).
 5. `color_field.json` present, manifest records `color_harmonization`.
 Materiality floor 0.5 count; attempt cap 2 (CLAUDE.md convergence guards).

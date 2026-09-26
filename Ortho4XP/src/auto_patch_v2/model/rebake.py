@@ -118,6 +118,15 @@ class Part:
     #: written before the field, and the reader then SAYS SO rather than
     #: reading every body as thin.
     height_m: float = 0.0
+    #: THE SCATTER PIECE (spec ``pack-read-once-fast-spec.md`` §B.2, issue
+    #: #29; owner RULINGS 2026-09-18q / 18t (4)): a piece of a many-small-
+    #: components resource (a bush, a palm with its fronds, a cart, a
+    #: person).  No ring (§16g reads it by its BOX), ONE foot, no ε-contact
+    #: across pieces or placements — it never forms a rigid body with what
+    #: it touches, never states a row, never joins a cluster.  It is SET
+    #: DOWN on the surface on its own, or rides the unit whose footprint it
+    #: overlaps (a pack's hill object, a building — 13bo, 18t (4)).
+    scatter: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -196,6 +205,11 @@ class Member:
     #: building seats on its own feet, 10i).  Absent from an older plan
     #: = ``False`` = no cross-placement group at all.
     elevated_deck: bool = False
+    #: THE SCATTER MEMBER (spec ``pack-read-once-fast-spec.md`` §B.2, issue
+    #: #29): the placement of a SCATTER resource (``airport/scatter.py``'s
+    #: verdict after the placement-level exemptions ``pack_partition.
+    #: _build_member`` applies) — every part of it is a scatter piece.
+    scatter: bool = False
 
 
 @_dc.dataclass(frozen=True)

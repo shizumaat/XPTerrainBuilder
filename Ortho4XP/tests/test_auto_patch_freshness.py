@@ -15,6 +15,10 @@ Inputs covered (owner requirement 2026-07-24):
 5. the CIFP data
 6. the pack supplying the apt.dat being DISABLED in scenery_packs.ini
 7. the Ortho4XP engine version
+8. the tile cfg knobs the v2 solve reads that no other stamp carried —
+   ``road_grade_limit`` and ``lane_width`` (#36) — plus a twin that walks
+   the driver / engine_v2 source and fails on any tile cfg var the solve
+   path reads that is absent from the stamp registry
 
 Plus the invariants around them: an old-format patch (legacy stamps
 only) rebuilds exactly once and is then stable, ``to_osm`` writes
@@ -121,6 +125,8 @@ class FakeInstall:
             airport_elevation_inset_margin_m=1500.0,
             airport_elevation_inset_feather_m=60.0, airport_inset_water=True,
             working_grid_arc_seconds=1.0,
+            # the solve knobs the driver hands the v2 build (#36)
+            road_grade_limit=0.06, lane_width=4.0,
         )
         settings.update(overrides)
         self.tile = types.SimpleNamespace(**settings)
@@ -512,6 +518,135 @@ def test_dem_base_raster_touched_rebuilds(install, patch_file):
 def test_dem_setting_change_rebuilds(install, patch_file, setting, value):
     setattr(install.tile, setting, value)
     assert not install.is_current(patch_file)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Input 8 — the solve settings the driver hands the v2 build (#36)
+# ──────────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    "setting,value",
+    [("road_grade_limit", 0.08), ("lane_width", 3.5)])
+def test_solve_setting_change_rebuilds(install, patch_file, setting, value):
+    """``road_grade_limit`` / ``lane_width`` reach ``auto_patch_v2.pipeline.
+    build`` through the driver's task dict (the road-profile fit target)
+    and were in NO stamp — editing either kept the old patch (#36,
+    road-clamp-scope spec census row 17)."""
+    setattr(install.tile, setting, value)
+    assert not install.is_current(patch_file)
+
+
+def test_solve_setting_unchanged_reuses(install, patch_file):
+    install.tile.road_grade_limit = 0.06
+    install.tile.lane_width = 4.0
+    assert install.is_current(patch_file)
+
+
+def test_solve_fingerprint_is_stable_across_processes():
+    """The digest must not fold in anything per-process (a sentinel's
+    ``repr`` carries its address): two tiles with the same knobs, and a
+    tile that lacks a knob, digest deterministically."""
+    a = types.SimpleNamespace(road_grade_limit=0.06, lane_width=4.0)
+    b = types.SimpleNamespace(road_grade_limit=0.06, lane_width=4.0)
+    assert provenance.solve_settings_fingerprint(a) == \
+        provenance.solve_settings_fingerprint(b)
+    bare = provenance.solve_settings_fingerprint(types.SimpleNamespace())
+    assert bare == provenance.solve_settings_fingerprint(types.SimpleNamespace())
+    assert bare != provenance.solve_settings_fingerprint(a)
+    assert bare != provenance.solve_settings_fingerprint(
+        types.SimpleNamespace(road_grade_limit=None, lane_width=None))
+    assert provenance.solve_settings_fingerprint(None) == "absent"
+
+
+def _cfg_var_reads_in(path: Path, tile_vars: set[str],
+                      only_functions: tuple[str, ...] = ()) -> dict[str, list[str]]:
+    """``{cfg_var: [f"{file}:{line}", ...]}`` for every read of a tile cfg
+    var the source makes off the ``tile`` object (``getattr(tile, "x")``,
+    ``tile.x``) or the driver's per-airport task dict (``task.get("x")``,
+    ``task["x"]``).  ``only_functions`` restricts the walk to those
+    top-level ``def``s (the solve path of a file that also hosts other
+    stages)."""
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    roots = list(tree.body)
+    if only_functions:
+        roots = [n for n in tree.body
+                 if isinstance(n, ast.FunctionDef) and n.name in only_functions]
+        assert len(roots) == len(only_functions), (
+            f"{path.name}: expected top-level defs {only_functions}, found "
+            f"{[n.name for n in roots]} — re-point the twin")
+    found: dict[str, list[str]] = {}
+
+    def _hit(name, node):
+        if name in tile_vars:
+            found.setdefault(name, []).append(f"{path.name}:{node.lineno}")
+
+    for root in roots:
+        for node in ast.walk(root):
+            if isinstance(node, ast.Call):
+                fn = node.func
+                # getattr(tile, "x", ...)
+                if (isinstance(fn, ast.Name) and fn.id == "getattr"
+                        and len(node.args) >= 2
+                        and isinstance(node.args[0], ast.Name)
+                        and node.args[0].id == "tile"
+                        and isinstance(node.args[1], ast.Constant)):
+                    _hit(node.args[1].value, node)
+                # task.get("x")
+                if (isinstance(fn, ast.Attribute) and fn.attr == "get"
+                        and isinstance(fn.value, ast.Name)
+                        and fn.value.id == "task" and node.args
+                        and isinstance(node.args[0], ast.Constant)):
+                    _hit(node.args[0].value, node)
+            elif (isinstance(node, ast.Attribute)
+                  and isinstance(node.value, ast.Name)
+                  and node.value.id == "tile"):
+                _hit(node.attr, node)                       # tile.x
+            elif (isinstance(node, ast.Subscript)
+                  and isinstance(node.value, ast.Name)
+                  and node.value.id == "task"
+                  and isinstance(node.slice, ast.Constant)):
+                _hit(node.slice.value, node)                # task["x"]
+    return found
+
+
+def test_every_tile_cfg_var_the_solve_reads_is_stamped():
+    """THE REGISTRY TWIN (#36).  Any ``O4_Cfg_Vars`` tile setting the
+    airport solve path reads — ``driver.py`` (where the per-airport task
+    dict is assembled from ``tile``) and the v2 build step in
+    ``engine_v2.py`` (which reads the task dict) — must be carried by a
+    freshness stamp: ``provenance.STAMPED_TILE_SETTINGS`` (``o4_dem`` for
+    the DEM knobs, ``o4_solve_cfg`` for the solve knobs).  A knob added to
+    either without a stamp entry is exactly #36 again; this fails on it,
+    naming the read site.
+
+    Scope: ``engine_v2.py`` is walked ONLY through the solve-step
+    function — its placement stage reads ``modify_custom_airports``, which
+    changes what is written to the PACK, not the emitted patch.
+    """
+    import O4_Cfg_Vars as CV
+
+    src = Path(driver.__file__).parent
+    tile_vars = set(CV.cfg_tile_vars)
+    reads: dict[str, list[str]] = {}
+    for name, sites in _cfg_var_reads_in(src / "driver.py", tile_vars).items():
+        reads.setdefault(name, []).extend(sites)
+    for name, sites in _cfg_var_reads_in(
+            src / "engine_v2.py", tile_vars,
+            only_functions=("build_write_verify_one_v2",)).items():
+        reads.setdefault(name, []).extend(sites)
+    # the walk sees the reads this issue was about
+    assert {"road_grade_limit", "lane_width"} <= set(reads), reads
+    unstamped = {n: s for n, s in reads.items()
+                 if n not in provenance.STAMPED_TILE_SETTINGS}
+    assert not unstamped, (
+        "tile cfg vars the solve path reads with NO freshness stamp — add "
+        "each to provenance.SOLVE_TILE_SETTINGS (or DEM_TILE_SETTINGS) and "
+        f"bump FRESHNESS_SCHEMA_VERSION: {unstamped}")
+    # and the registry itself names only real tile settings, each once
+    assert set(provenance.STAMPED_TILE_SETTINGS) <= tile_vars
+    assert len(set(provenance.STAMPED_TILE_SETTINGS)) == \
+        len(provenance.STAMPED_TILE_SETTINGS)
 
 
 def test_dem_fingerprint_ignores_derived_alt_raster(install, patch_file):
@@ -1145,25 +1280,41 @@ def test_stamped_pack_is_the_pack_v2_reads(two_pack_install, tmp_path):
 def test_apt_dat_reads_are_utf8_not_locale(tmp_path, monkeypatch):
     """v2's apt.dat reads pin utf-8 (v1's reader always has): a frozen
     app with no LANG must not decode a pack's non-ASCII name its own
-    way."""
+    way.
+
+    Since the block index (issue #45) the whole-file pass is BINARY —
+    which takes no locale at all — and only the block itself is decoded,
+    explicitly.  So the invariant is stated on every read this module
+    makes: a TEXT-mode open must carry ``encoding="utf-8"``, and a
+    binary one decodes nothing.  The name round-tripping is the proof
+    that the decoder actually used was utf-8 and not, say, the latin-1 a
+    LANG-less frozen app could fall into.
+    """
     import auto_patch_v2.airport.apt_dat as v2_apt
     p = tmp_path / "apt.dat"
     p.write_bytes(
         "I\n1000 Version\n1 100 0 0 KFAKE Aérodrome Fâké\n99\n"
         .encode("utf-8"))
-    opened = {}
+    v2_apt._BLOCK_INDEX.clear()
+    opens = []
     real_open = open
 
     def _spy(path, *a, **kw):
-        opened.update(kw)
+        mode = kw.get("mode", a[0] if a else "r")
+        opens.append((mode, kw.get("encoding")))
         return real_open(path, *a, **kw)
 
     monkeypatch.setattr(v2_apt, "open", _spy, raising=False)
     assert v2_apt.file_has_airport(str(p), "KFAKE")
-    assert opened.get("encoding") == "utf-8"
     block = v2_apt.read_airport_block(str(p), "KFAKE")
-    assert opened.get("encoding") == "utf-8"
     assert "Aérodrome Fâké" in "\n".join(block)
+    assert v2_apt.block_sha256(block) == v2_apt.block_sha256(
+        v2_apt._scan_airport_block(str(p), "KFAKE"))
+
+    assert opens, "the reads did not go through the spied open"
+    for (mode, encoding) in opens:
+        assert "b" in mode or encoding == "utf-8", (mode, encoding)
+    v2_apt._BLOCK_INDEX.clear()
 
 
 # ──────────────────────────────────────────────────────────────────────

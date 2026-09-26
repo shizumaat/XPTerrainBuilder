@@ -245,11 +245,12 @@ struct BoundaryAirportsTests {
         #expect(variable.label(forValue: "Ask") == "Ask me each time")
         #expect(variable.label(forValue: "Build adjacent") == "Build the adjacent tiles too")
         #expect(variable.label(forValue: "Skip patch") == "Skip those airports' patches")
-        // NOTE (reported, engine-side): the snapshot puts the key in NO
-        // group at all. The mac app resolves its rows by NAME out of
-        // `vars` (SettingsView), so its row renders either way; a front
-        // end that walks `groups` would not see it.
-        #expect(schema.groups.values.allSatisfy { !$0.contains("auto_patch_boundary") })
+        // The key is an APP setting (spec §C.4), so it sits in the `app`
+        // group and nowhere else (#34: it used to be in NO group, which
+        // the mac app hid by resolving rows by NAME out of `vars`; a
+        // front end that walks `groups` never saw it).
+        #expect(schema.groups["app"]?.contains("auto_patch_boundary") == true)
+        #expect(schema.groups.filter { $0.value.contains("auto_patch_boundary") }.count == 1)
     }
 
     /// An ask does NOT settle the press (the user has not answered yet),

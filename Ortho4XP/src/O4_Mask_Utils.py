@@ -1650,7 +1650,7 @@ if __name__ == "__main__":
         + str(ymax)
         + "\n"
     )
-    f = open(name + ".ext", "w")
+    f = open(name + ".ext", "w", newline="\n")
     f.write(buffer)
     f.close()
     if buffer_width:

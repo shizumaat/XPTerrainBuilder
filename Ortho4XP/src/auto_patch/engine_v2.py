@@ -785,6 +785,17 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     if res.dsf is not None:
         for note in res.dsf.notes:
             UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — {note}')
+        if res.dsf.composed_airports:
+            # #25: one pack DSF serving two airports (TNCM + TFFG) — the
+            # sibling's recorded edits were re-applied beside this one's
+            UI.vprint(1, f"  [v2 placement] {plan_.icao}: "
+                         f"{os.path.basename(res.dsf.dsf_path)} also carries "
+                         f"{', '.join(res.dsf.composed_airports)} — their "
+                         f"recorded placements were re-applied with this "
+                         f"airport's"
+                         + (f"; {len(res.dsf.orphaned_bodies)} orphaned body "
+                            f"file(s) removed" if res.dsf.orphaned_bodies
+                            else ""))
     if _adopted or _unproven:
         UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — '
                      f'{len(_adopted)} file(s) of yours were kept as installed '

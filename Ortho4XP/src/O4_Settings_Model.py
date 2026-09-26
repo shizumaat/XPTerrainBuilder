@@ -321,7 +321,7 @@ def _write_atomic_with_backup(path: str, data: dict,
     if directory and not os.path.isdir(directory):
         os.makedirs(directory, exist_ok=True)
     tmp = path + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", newline="\n") as f:
         for key, value in data.items():
             f.write(key + "=" + str(value) + "\n")
     if os.path.isfile(path) and not (keep_existing_backup

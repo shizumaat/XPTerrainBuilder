@@ -214,7 +214,7 @@ def load_prefs():
 
 def save_prefs(prefs):
     try:
-        with open(PREFS_FILE, "w") as f:
+        with open(PREFS_FILE, "w", newline="\n") as f:
             json.dump(prefs, f, indent=2)
     except Exception:
         pass
@@ -326,7 +326,7 @@ def save_scan_cache(built, installed, working_dir, custom_scenery_dir,
         built, installed, working_dir, custom_scenery_dir)
     try:
         temporary = path + ".tmp"
-        with open(temporary, "w") as handle:
+        with open(temporary, "w", newline="\n") as handle:
             json.dump(payload, handle)
         os.replace(temporary, path)
     except Exception:
@@ -545,7 +545,7 @@ class _StderrTee:
             if directory:
                 os.makedirs(directory, exist_ok=True)
             self._handle = open(self._path, "a", encoding="utf-8",
-                                errors="replace")
+                                errors="replace", newline="\n")
             self._handle.write(
                 "=== engine session %s ===\n"
                 % time.strftime("%Y-%m-%dT%H:%M:%S%z")

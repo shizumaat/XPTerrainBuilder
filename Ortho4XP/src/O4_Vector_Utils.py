@@ -1045,7 +1045,7 @@ class Vector_Map:
         # note that Triangle4XP too is writing a(nother) node file, which as
         # more node attributes
         total_nodes = len(self.dico_nodes)
-        f = open(node_file_name, "w")
+        f = open(node_file_name, "w", newline="\n")
         f.write(str(total_nodes) + " 2 1 0\n")
         # Same text, same ``.9f`` conversion (``format(v, '.9f')`` IS what
         # ``"{:.9f}".format(v)`` calls), assembled in blocks: this loop
@@ -1067,7 +1067,7 @@ class Vector_Map:
         f.close()
 
     def write_poly_file(self, poly_file_name):
-        f = open(poly_file_name, "w")
+        f = open(poly_file_name, "w", newline="\n")
         f.write("0 2 1 0\n")
         f.write("\n")
         total_edges = len(self.edges_dico)

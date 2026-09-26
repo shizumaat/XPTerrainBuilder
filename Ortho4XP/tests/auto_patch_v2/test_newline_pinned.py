@@ -29,11 +29,19 @@ call is the defect this twin refuses, whatever it happens to write today.
 
 SCOPE.  Every module under ``src/auto_patch_v2/`` (v2 is the only
 engine, RULINGS 2026-09-13au), plus the non-v2 modules that write a file
-belonging to a v2 build's output set (``_EMIT_PATH_EXTRA``).  The wider
-Ortho4XP TILE writers (``src/O4_*.py``) are deliberately NOT in scope:
-they are a separate surface with their own readers, and widening this
-twin to them without censusing those readers first would be the
-consumer-census defect (RULINGS 2026-08-30l).
+belonging to a v2 build's output set (``_EMIT_PATH_EXTRA``), plus -- since
+lane ``xplatcrlf-tile`` (issue #38, 2026-09-21) -- every Ortho4XP TILE
+module ``src/O4_*.py``.  The tile-side readers were censused before the
+widening (RULINGS 2026-08-30l): every in-tree reader is Python text mode
+(universal newline), and the external ones are Triangle4XP (whitespace-
+tokenised ``.node``/``.poly``), DSFTool (LF is what it already received
+on POSIX) and X-Plane itself (``.ter``, ``apt.dat``, LF-native).  No
+reader flaps on LF; the only Windows effect is a one-shot invalidation
+of any byte-hash stamp over a previously-CRLF file.
+
+Compressed text opens (``bz2.open(p, "wt")`` and friends) are text
+writers too and are scanned by their literal mode; their binary modes
+are skipped like any other ``"b"`` mode.
 """
 from __future__ import annotations
 
@@ -56,6 +64,7 @@ _EMIT_PATH_EXTRA = (
     "auto_patch/object_rebake.py",
     "auto_patch/object_terrain_assembly.py",
 )
+# ``src/O4_*.py`` (the tile side) is added by glob in ``_scoped_files``.
 
 # An allowlist entry is "<relpath>:<code line, stripped>" -> one-line
 # reason.  Keyed by the LINE TEXT, not the line number, so an entry
@@ -63,9 +72,16 @@ _EMIT_PATH_EXTRA = (
 # intended steady state.
 _ALLOWLIST: dict[str, str] = {}
 
-# ``open`` attribute calls on these bases are not text-mode writers.
-_NOT_TEXT_OPEN_BASES = {"os", "gzip", "bz2", "lzma", "zipfile", "tarfile",
-                        "np", "numpy"}
+# ``open`` attribute calls on these bases are not text-mode writers
+# (``os.open`` is a descriptor, ``zipfile``/``tarfile`` members are bytes,
+# ``Image``/``PILImage`` is PIL's decoder, ``archive``/``zip_ref`` are the
+# tile side's ZipFile handles).
+_NOT_TEXT_OPEN_BASES = {"os", "zipfile", "tarfile", "np", "numpy",
+                        "Image", "PILImage", "archive", "zip_ref"}
+
+# ``<base>.open(path, mode)`` whose mode is binary by default and text
+# only when the literal carries ``"t"``: scanned by that literal.
+_COMPRESSED_OPEN_BASES = {"gzip", "bz2", "lzma"}
 
 
 def _scoped_files() -> list[Path]:
@@ -74,6 +90,9 @@ def _scoped_files() -> list[Path]:
         p = SRC / rel
         assert p.exists(), f"_EMIT_PATH_EXTRA names a missing file: {rel}"
         files.append(p)
+    tile = sorted(SRC.glob("O4_*.py"))
+    assert tile, "the tile-side scope (src/O4_*.py) matched no file"
+    files.extend(tile)
     return files
 
 
@@ -124,11 +143,14 @@ def _text_write_calls(path: Path) -> list[tuple[int, str, str]]:
             what = "write_text"
         elif name in ("open", "NamedTemporaryFile", "TemporaryFile",
                       "SpooledTemporaryFile"):
-            if _base_name(func) in _NOT_TEXT_OPEN_BASES:
+            base = _base_name(func)
+            if base in _NOT_TEXT_OPEN_BASES:
                 continue
-            # builtins.open takes (file, mode); Path.open / tempfile.*
-            # take mode first.
-            idx = 1 if (name == "open" and isinstance(func, ast.Name)) else 0
+            compressed = name == "open" and base in _COMPRESSED_OPEN_BASES
+            # builtins.open and gzip/bz2/lzma.open take (file, mode);
+            # Path.open / tempfile.* take mode first.
+            idx = 1 if (name == "open" and (isinstance(func, ast.Name)
+                                            or compressed)) else 0
             known, mode = _mode_arg(node, idx)
             if not known:
                 out.append((node.lineno, f"{name}(mode=<not a literal>)",
@@ -136,6 +158,10 @@ def _text_write_calls(path: Path) -> list[tuple[int, str, str]]:
                 continue
             if mode is None:
                 mode = "r" if name == "open" else "w+b"
+            if compressed:
+                # These default to binary; only an explicit "t" is text.
+                if not isinstance(mode, str) or "t" not in mode:
+                    continue
             if not isinstance(mode, str) or "b" in mode:
                 continue
             if not any(c in mode for c in "wax+"):
@@ -196,6 +222,13 @@ def test_the_scan_sees_the_shapes_it_claims_to_see():
         'Path("h").open("w", newline="")\n'
         'tempfile.NamedTemporaryFile(mode="w")\n'
         'open("i", mode_from_caller)\n'
+        'import bz2, gzip\n'
+        'bz2.open("j", "wt")\n'
+        'bz2.open("k", "wt", newline="\\n")\n'
+        'gzip.open("l", "wb")\n'
+        'bz2.open("m")\n'
+        'from PIL import Image\n'
+        'Image.open(some_path)\n'
     )
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "s.py"
@@ -211,3 +244,7 @@ def test_the_scan_sees_the_shapes_it_claims_to_see():
     assert by_line[10] == ("open('w')", "ok")
     assert by_line[11] == ("NamedTemporaryFile('w')", "unpinned")
     assert by_line[12] == ("open(mode=<not a literal>)", "unknown-mode")
+    assert by_line[14] == ("open('wt')", "unpinned")          # bz2 text
+    assert by_line[15] == ("open('wt')", "ok")
+    assert 16 not in by_line and 17 not in by_line          # binary
+    assert 19 not in by_line                                # PIL decoder

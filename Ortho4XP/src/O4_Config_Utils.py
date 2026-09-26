@@ -142,7 +142,7 @@ try:
 except FileNotFoundError:
     # Create a new global config file using default values
     os.makedirs(os.path.dirname(global_cfg_file), exist_ok=True)
-    with open(global_cfg_file, "w") as file:
+    with open(global_cfg_file, "w", newline="\n") as file:
         for var, value in cfg_global_tile_vars.items():
             # Remove global_ prefix from cfg_global_tile_vars since that's not
             # how they are stored in the global config file

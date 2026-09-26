@@ -105,8 +105,12 @@ def settings_window(qapp, tmp_path, monkeypatch):
     made = []
 
     def build(tiles):
+        # A tmp build dir: ``_populate`` writes every row into the tile
+        # configs, and with ``custom_build_dir=""`` those landed in the
+        # REAL ``Tile_dir`` (``Tiles/zOrtho4XP_+36-087/*.cfg``), where a
+        # later window's scenery scan reported them built (#35).
         window = SettingsWindow(
-            prefs={}, tiles=tiles, custom_build_dir="")
+            prefs={}, tiles=tiles, custom_build_dir=str(tmp_path / "Tiles"))
         made.append(window)
         window.show()
         qapp.processEvents()

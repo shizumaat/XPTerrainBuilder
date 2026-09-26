@@ -39,10 +39,32 @@ class _Recorder:
 
 
 def _stub_generate(monkeypatch):
-    """Keep the log file untouched and record generation calls."""
+    """Keep the log file untouched and record generation calls.
+
+    The road-feed schema pre-check (``ensure_auto_patch_road_feeds``,
+    RULINGS 2026-09-17ad / the +46+006 neighbour-feed abort) runs on the
+    generation path just before ``generate_auto_patches`` and reads —
+    and may re-derive — the shared OSM corpus for nine tiles.  Headless
+    here: it is recorded, never run (#35: the bare ``SimpleNamespace``
+    tile had no ``.lat`` for it to read), and answers with an empty
+    :class:`~O4_Vector_Map.RoadFeedPrecheck` — nothing derived, nothing
+    left stale.
+    """
     monkeypatch.setattr(UI, "log", False)
     recorder = _Recorder()
     monkeypatch.setattr(VMAP.AUTOPATCH, "generate_auto_patches", recorder)
+    recorder.road_feed_tiles = []
+
+    def _record_road_feeds(tile):
+        # The stub must return what the real pre-check returns: the
+        # caller reads ``.stale`` off it and hands it to
+        # ``generate_auto_patches`` (issue #24).  Nothing is stale here —
+        # nothing was read.
+        recorder.road_feed_tiles.append(tile)
+        return VMAP.RoadFeedPrecheck([], [])
+
+    monkeypatch.setattr(VMAP, "ensure_auto_patch_road_feeds",
+                        _record_road_feeds)
     return recorder
 
 
@@ -103,6 +125,8 @@ def test_generates_when_cifp_present(monkeypatch, capsys, tmp_path):
 
     assert len(recorder.calls) == 1
     assert recorder.calls[0][0][1] == str(tmp_path)
+    # The feeds are made current BEFORE generation reads them.
+    assert recorder.road_feed_tiles == [tile]
     assert "WARNING" not in capsys.readouterr().out
 
 

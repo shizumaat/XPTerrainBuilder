@@ -72,7 +72,7 @@ def read_data_root_pointer():
 def write_data_root_pointer(path):
     """Remember the user's data-root choice for future launches."""
     os.makedirs(os.path.dirname(data_root_pointer_file), exist_ok=True)
-    with open(data_root_pointer_file, "w", encoding="utf-8") as f:
+    with open(data_root_pointer_file, "w", encoding="utf-8", newline="\n") as f:
         f.write(os.path.abspath(path) + "\n")
 
 

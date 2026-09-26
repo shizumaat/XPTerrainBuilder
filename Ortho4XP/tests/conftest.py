@@ -1246,9 +1246,124 @@ def _no_test_writes_the_xplane_install(request):
         f"tmp_path.", pytrace=False)
 
 
+# ── THE Qt FILES ARE NOT xdist-SAFE: AN ACCIDENTAL PARALLEL RUN REFUSES ──
+#
+# ``tests/test_qt_*.py`` build real widgets and pump real event loops
+# against wall-clock deadlines.  Mixed into a PARALLEL run they go wrong
+# two ways, neither of which names itself:
+#
+#   * they HANG.  A worker stuck in an event loop leaves the controller
+#     waiting, and ``--timeout`` cannot fire from a dead worker: the job
+#     eats its whole budget and a cancelled CI job keeps NO LOGS AT ALL
+#     (the two rounds that cost are recorded in ci.yml's "Qt app
+#     (offscreen)" step, which is why that step is ``-n0``).
+#   * they go red by NEIGHBOUR LOAD.  Measured 2026-09-22 on
+#     ubuntu-24.04 offscreen: ``-n4 tests/test_qt_*.py
+#     tests/test_harness.py tests/test_engine*.py`` fails
+#     ``TestStartupCallsAreOwnedByTheWindow::
+#     test_a_closed_window_never_runs_them``, which passes ``-n0`` — its
+#     ``_pump()`` deadline slips under three neighbouring workers.
+#
+# CI already splits them (``-n0 -v tests/test_qt_*.py`` in its own step).
+# What was missing is what happens when someone does NOT split: a bare
+# ``pytest`` picks up ``-n auto`` from pytest.ini and the Qt files come
+# along.  This guard turns that into a loud refusal.
+#
+# WHY A FAILING ITEM AND NOT ``pytest.UsageError``: measured here on
+# xdist 3.8.0 / pytest 9.1.1 — a ``UsageError`` raised from a WORKER's
+# collection hook reaches the controller as
+# ``dsession.py: assert not crashitem``, an INTERNALERROR whose traceback
+# never contains the message.  Nonzero, fast, and unreadable.  A failing
+# ITEM is xdist's own channel: the message arrives intact through the
+# worker's report.  (The controller never runs this hook at all — under
+# xdist collection happens on the workers — so the controller branch of
+# :func:`_xdist_role` is a belt-and-braces check, not the live path.)
+_QT_TEST_FILE_PREFIX = "test_qt_"
+
+_QT_XDIST_REFUSAL = (
+    "REFUSED: {count} Qt test file(s) were collected into a PARALLEL run "
+    "({listed}), where they hang the controller or go red by neighbour "
+    "load.  This item carries the refusal; its siblings are skipped.  "
+    "Split the run the way CI does:\n"
+    "    pytest -n0 tests/test_qt_*.py\n"
+    "    pytest --ignore-glob='tests/test_qt_*.py' tests\n"
+    "To measure the hang itself instead, re-run with O4_ALLOW_QT_XDIST=1."
+)
+
+_QT_XDIST_SKIP = ("a sibling Qt item carries the parallel-run refusal; "
+                  "run the Qt files with -n0")
+
+
+def _item_filename(item) -> str:
+    """The basename of the file this item was collected from."""
+    path = getattr(item, "path", None)
+    if path is not None:
+        return path.name
+    return os.path.basename(str(getattr(item, "fspath", "")))
+
+
+def _is_qt_item(item) -> bool:
+    """Was this item collected from a ``test_qt_*.py`` file?"""
+    return _item_filename(item).startswith(_QT_TEST_FILE_PREFIX)
+
+
+def _xdist_role(config) -> Optional[str]:
+    """``None`` when this process runs tests serially; else its xdist role.
+
+    A worker carries ``workerinput`` (xdist sets it on the worker's own
+    config).  A controller carries a resolved ``numprocesses`` > 0 —
+    ``-n0`` leaves it 0, and ``-n auto`` is an int by collection time.
+    """
+    if hasattr(config, "workerinput"):
+        return os.environ.get("PYTEST_XDIST_WORKER", "an xdist worker")
+    try:
+        procs = int(getattr(config.option, "numprocesses", 0) or 0)
+    except (TypeError, ValueError):   # "auto"/"logical" not yet resolved
+        return "the xdist controller"
+    return "the xdist controller" if procs > 0 else None
+
+
+def _refuse_qt_under_xdist(config, items) -> None:
+    """Arm the refusal on the Qt items of a parallel run.  See the note above.
+
+    The first Qt item in collection order (deterministic, so every worker
+    marks the same one) gets the ``qt_xdist_refusal`` marker that
+    :func:`pytest_runtest_setup` turns into a failure; the rest
+    are skipped, so one readable failure stands in for 300 identical ones.
+    """
+    if os.environ.get("O4_ALLOW_QT_XDIST", "0") == "1":
+        return                          # the explicit, recorded override
+    if _xdist_role(config) is None:
+        return
+    qt_items = [item for item in items if _is_qt_item(item)]
+    if not qt_items:
+        return
+    files = sorted({_item_filename(item) for item in qt_items})
+    listed = ", ".join(files[:4])
+    if len(files) > 4:
+        listed += f", +{len(files) - 4} more"
+    qt_items[0].add_marker(pytest.mark.qt_xdist_refusal(
+        _QT_XDIST_REFUSAL.format(count=len(files), listed=listed)))
+    for item in qt_items[1:]:
+        item.add_marker(pytest.mark.skip(reason=_QT_XDIST_SKIP))
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """Fail the item :func:`_refuse_qt_under_xdist` armed, before it runs.
+
+    A HOOK and not an autouse fixture: ``tryfirst`` setup runs before ANY
+    fixture, including the module-scoped ``qapp`` ones that would
+    out-rank a function-scoped guard.  Nothing Qt is constructed.
+    """
+    marker = item.get_closest_marker("qt_xdist_refusal")
+    if marker is not None:
+        pytest.fail(marker.args[0], pytrace=False)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
-    """Per-airport xdist grouping + optional ship-mode skip.
+    """Qt-under-xdist refusal + per-airport grouping + ship-mode skip.
 
     MUST run before xdist's own ``pytest_collection_modifyitems`` (remote.py),
     which converts the ``xdist_group`` marker into the ``@group`` nodeid suffix
@@ -1263,6 +1378,8 @@ def pytest_collection_modifyitems(config, items):
     builds each airport exactly once per run (instead of once per worker
     that happened to pick up one of its tests).
     """
+    _refuse_qt_under_xdist(config, items)
+
     for item in items:
         icao = item.callspec.params.get("icao") if hasattr(
             item, "callspec") else None

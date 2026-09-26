@@ -106,7 +106,8 @@ def site_report(clusters, lat: float, lon: float, min_m2: float = 0.0,
 
 
 def run_once(icao: str, cache_on: bool, out_dir: Path,
-             site: tuple[float, float] | None = None) -> dict:
+             site: tuple[float, float] | None = None,
+             pickle_out: Path | None = None) -> dict:
     """ONE pack stage, in this process.  Returns the run record."""
     for p in (ROOT / "tools", ROOT / "tools" / "harness"):
         if str(p) not in sys.path:
@@ -161,6 +162,14 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         "max_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2),
         "cache_lines": [ln.strip() for ln in lines if "[partition] cache" in ln],
     }
+    if pickle_out is not None:
+        # the stage's airport (partition + clusters) in the capture's own
+        # shape (``{"icao", "airport"}``), so ANOTHER tree's derivation can
+        # read this tree's partition (issue #69: one outline code, N arms)
+        import pickle
+        with open(pickle_out, "wb") as fh:
+            pickle.dump({"icao": icao, "airport": ps["airport"]}, fh,
+                        protocol=pickle.HIGHEST_PROTOCOL)
     if site is not None:
         try:
             from auto_patch_v2.planar.cluster import cluster_min_m2
@@ -245,17 +254,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--site", help="LAT,LON: report the cluster whose outline "
                     "contains (or is nearest) the site — outline m², members, "
                     "bodies — and the cluster counts (issue #69)")
+    ap.add_argument("--pickle", type=Path, help="write the stage's airport "
+                    "({'icao', 'airport'} — a capture's shape) for an offline "
+                    "read under another tree's code (last run only)")
     ap.add_argument("--one", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     a.out_dir.mkdir(parents=True, exist_ok=True)
     if a.one:
         st = tuple(float(v) for v in a.site.split(",")) if a.site else None
-        print("RECORD " + json.dumps(run_once(a.icao, a.cache == "on", a.out_dir, st)), flush=True)
+        print("RECORD " + json.dumps(run_once(a.icao, a.cache == "on", a.out_dir, st,
+                                              a.pickle)), flush=True)
         return 0
     runs: list[dict] = []
     for k in range(a.runs):
         cmd = [sys.executable, __file__, a.icao, "--one", "--cache", a.cache,
-               "--out-dir", str(a.out_dir)] + (["--site", a.site] if a.site else [])
+               "--out-dir", str(a.out_dir)] + (["--site", a.site] if a.site else []) \
+            + (["--pickle", str(a.pickle.resolve())] if a.pickle and k == a.runs - 1 else [])
         env = dict(os.environ)
         if a.tree:
             env["O4_PACK_STAGE_TREE"] = str(a.tree.resolve())

@@ -771,7 +771,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  options: Options | None = None, *,
                  size_out: dict | None = None,
                  method: str = DEFAULT_METHOD,
-                 low_rank: str = DEFAULT_LOW_RANK) -> tuple[Solution, DesignReport]:
+                 low_rank: str = DEFAULT_LOW_RANK,
+                 strips: _t.Any = None) -> tuple[Solution, DesignReport]:
     """THE DESIGN SURFACE, in ONE stage or TWO (§20b).
 
     ``[design] staged_solve`` false is the single solve this module has
@@ -808,9 +809,23 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               drop=drop, fixed=foreign, levelled_out=levels,
                               stage_roles=airside_stage_roles(law))
     w1 = time.perf_counter() - t1
+    # THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec §2
+    # (4)): a PROJECTION of stage 1's airside answer, applied before stage
+    # 2 substitutes it — so the pads read the levelled apron as their
+    # constants and "airside moved outside the strips + transitions" is
+    # zero by construction.  ``strips`` is ``model.jetway.StripSet``,
+    # derived by the caller (``constraints.jetway_strip``: this layer may
+    # not import ``constraints``).
+    strip_rep = None
+    if strips:
+        from .project_strip import project_strips
+        strip_rep = project_strips(planar, law, strips, levels, sol1.z,
+                                   cs.flats)
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
                               method=method, low_rank=low_rank, fixed=levels)
+    if strip_rep is not None:
+        rep2.jetway_strip = strip_rep
     w2 = time.perf_counter() - t2
     rep2.staged = True
     rep2.stage1_wall_s, rep2.stage2_wall_s = w1, w2

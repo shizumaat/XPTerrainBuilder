@@ -624,7 +624,8 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
                          for k, r in fam.items()}, "trace": trace}
 
 
-def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path) -> dict:
+def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
+               strip_rep=None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, THE BANK (``emit/bank.with_bank``), the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -648,7 +649,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path) -> dict:
     surf_out = with_bank(surf, pm, law, airport, brep)
     surf_out = with_terrain_edges(surf_out, pm, law)
     print("    " + brep.line(icao))
-    pub = publication(pm, law, airport, sol.z, cs)
+    pub = publication(pm, law, airport, sol.z, cs, strips=strips,
+                      strip_rep=strip_rep)
     header = {"o4_apt_dat": airport.pack.apt_dat_path, "o4_pack": airport.pack.name,
               "o4_replay": "v2_solve_replay"}
     paths = write_patch(surf_out, law, emit_dir, pub, header, face_tags(pm, law, airport))
@@ -1767,9 +1769,26 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                   prob["law"], prob["cs"])
     cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
     size: dict = {}
+    # THE JETWAY STRIP'S REGION (jetway-strip spec §1): the build's own
+    # derivation (``pipeline/build.py``), so the replay solves the problem
+    # the build solves
+    from auto_patch_v2.airport.riders import rider_candidates
+    from auto_patch_v2.constraints.jetway_strip import jetway_strips
     t = time.perf_counter()
-    sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size, method=method)
+    strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law))
+    print(f"[{icao}] jetway strip region (18t Q3) {time.perf_counter() - t:.2f} s: "
+          + ", ".join(f"{k} {v}" for k, v in strips.counts.items()))
+    t = time.perf_counter()
+    sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
+                            method=method, strips=strips)
     wall = round(time.perf_counter() - t, 1)
+    print(f"[{icao}] {rep.jetway_strip.line()}")
+    for _s in rep.jetway_strip.strips:
+        print(f"    strip {_s['id']} pad {_s['pad_ref']} level {_s['level']} riders "
+              f"{_s['riders']} vertices {_s['vertices']} max move {_s['moved_max_m']} m; "
+              f"clamps {len(_s['clamps'])} worst "
+              f"{max((abs(c[2]) for c in _s['clamps']), default=0.0)} m "
+              f"{sorted({c[1] for c in _s['clamps']})}")
     print(f"[{icao}] solve (ONE pass, 08k): {wall:.1f} s status {sol.status.value}")
     print(f"[{icao}] resume {resume}; rows {cs.counts()}; dropped generators {drop or '-'}; "
           f"solve {wall:.1f} s status {sol.status.value}; {rep.line()}")
@@ -1834,7 +1853,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             t = time.perf_counter()
             surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                                   {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
-            vrows = run_census(surf, law, publication(pm, law, airport, sol.z, cs),
+            vrows = run_census(surf, law, publication(pm, law, airport, sol.z, cs,
+                                                      strips=strips,
+                                                      strip_rep=rep.jetway_strip),
                                road_law_caps(pm, law, airport))
             summary = {k: len(v) for k, v in vrows.items() if v}
             # ONE READING OF THE GATE (RULINGS 2026-09-14bx): the same
@@ -1869,7 +1890,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         if z_out is not None:
             np.save(z_out, z)
         if emit_dir is not None:
-            result.update(emit_patch(icao, pm, law, airport, cs, sol, emit_dir))
+            result.update(emit_patch(icao, pm, law, airport, cs, sol, emit_dir,
+                                     strips=strips, strip_rep=rep.jetway_strip))
     if json_out is not None:
         json_out.write_text(json.dumps(result, indent=1, default=str))
     return 0

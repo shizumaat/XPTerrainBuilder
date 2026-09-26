@@ -209,6 +209,11 @@ class Placement:
     #: its deck, it does not share a vertex with it.  0 disarms §16g.
     footprint_touch_m: float = 0.5
 
+    #: jetway-strip spec §1 (1) (issues #31/#32): the cap on a RIDER's
+    #: reach — ``max(footprint_touch_m, declared plan half-extent)``
+    #: capped at this.  ``airport/riders.py`` is the one reader.
+    rider_reach_max_m: float = 10.0
+
     #: §16g (10) (1) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x):
     #: "pads must match building clusters ... they should match exactly."
     #: A CLUSTER is ONE BUILDING, so two bodies chain only if their

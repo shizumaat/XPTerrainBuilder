@@ -29,6 +29,7 @@ from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_step,
 from .channel import channel_crest_at_edge, channel_floor_at_declaration
 from .contiguity import lateral_contiguity
 from .eat import eat_ceiling
+from .jetway import jetway_strip
 from .frontage import frontage_near_miss
 from .structures import ACCEPTANCE, basin_floor_declaration, wall_in_runway_strip
 from .transverse import transverse
@@ -77,6 +78,8 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "channel_crest_at_edge": channel_crest_at_edge,
     # spec §36: the pinned end-around-taxiway rect, read back
     "eat_ceiling": eat_ceiling,
+    # jetway-strip spec §2 (6) (owner RULINGS 2026-09-18t Q3)
+    "jetway_strip": jetway_strip,
 }
 
 #: Families in the tables with no v2 reader (vacuous on v2's product or

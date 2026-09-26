@@ -6483,6 +6483,81 @@ def _check_pad_airside_renode(renode_ll, nodes) -> List[Violation]:
     return out
 
 
+#: jetway-strip spec §2 (6) (a): a strip vertex off its strip's ONE level
+#: by more than this is a row — §31's visual floor, the spec's materiality.
+_JETWAY_STRIP_TOL_M = 0.05
+
+
+def _check_jetway_strip(jetway_strips_ll, nodes, ways) -> List[Violation]:
+    """THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3: "UNDER THE JETWAYS
+    THE APRON STRIP IS LEVEL WITH THE TERMINAL"; jetway-strip spec §2 (6)).
+
+    SIDECAR-DECLARED, like ``pad_airside_renode`` and ``seam_residual``:
+    the build publishes per strip its ONE level, its vertices by the
+    canonical 11-dp identity and the clamps its projection reported, and
+    this prices the EMITTED surface against exactly that —
+
+      (a) a strip vertex standing off the strip's level by more than
+          ``_JETWAY_STRIP_TOL_M`` (the emit pipeline moved it);
+      (c) every clamp the projection reported (a taxi / runway / pinned /
+          other-pad vertex the field would have moved, never absorbed) —
+          one row each, carrying its metres.
+
+    (b), a transition pair over the apron ``max``, is the ``within_shape``
+    family's own apron pair — the transition changes no role and no cap,
+    so a second reading here would count the same pair twice.  A patch
+    with no key reports nothing."""
+    if not jetway_strips_ll:
+        return []
+    by_ll: Dict[Tuple[float, float], Tuple[float, Way]] = {}
+    for w in ways:
+        for nid, z in zip(w.nids, w.elevs):
+            if z is None or nid not in nodes:
+                continue
+            lat, lon = nodes[nid]
+            by_ll.setdefault((round(lat, 7), round(lon, 7)), (float(z), w))
+    out: List[Violation] = []
+    for st in jetway_strips_ll:
+        if not isinstance(st, dict):
+            continue
+        lvl = st.get("level")
+        ref = f"jetway_strip:{st.get('pad_ref', '')}"
+        if lvl is not None:
+            for ll in st.get("vertices_ll") or ():
+                try:
+                    lat, lon = float(ll[0]), float(ll[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                got = by_ll.get((round(lat, 7), round(lon, 7)))
+                if got is None:
+                    continue
+                z, way = got
+                if abs(z - float(lvl)) <= _JETWAY_STRIP_TOL_M:
+                    continue
+                v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                              de_m=abs(z - float(lvl)), way_a=way, way_b=way,
+                              pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                              elev_a=z, elev_b=float(lvl))
+                v.lat, v.lon = lat, lon
+                out.append(v)
+        for c in st.get("clamps") or ():
+            try:
+                lat, lon, m = float(c[0]), float(c[1]), float(c[3])
+            except (TypeError, ValueError, IndexError):
+                continue
+            got = by_ll.get((round(lat, 7), round(lon, 7)))
+            way = got[1] if got is not None else Way(
+                "jetway_strip", "apron", ref + f":clamp:{c[2]}", "", [], [], {})
+            z = got[0] if got is not None else 0.0
+            v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
+                          de_m=abs(m), way_a=way, way_b=way,
+                          pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                          elev_a=z, elev_b=z + m)
+            v.lat, v.lon = lat, lon
+            out.append(v)
+    return out
+
+
 def _check_seam_residual(seam_pins_ll, nodes, ways) -> List[Violation]:
     """§38 (5) SEAM RESIDUAL: a seam band-edge vertex OFF its own DEM.
 
@@ -9254,6 +9329,13 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("pad_airside_renode",
      "AIRSIDE CELL VERTEX minted or deleted BY THE PAD STAGE",
      "within"),
+    # THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec
+    # §2 (6)).  SIDECAR-DECLARED like the family above: the build
+    # publishes each strip's ONE level, its vertices by identity and its
+    # projection's clamps (``jetway_strips``), and this prices exactly that.
+    ("jetway_strip",
+     "JETWAY STRIP vertex off its ONE level, or a CLAMP the strip reported",
+     "within"),
     # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
     # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
     # above it: the accepted rects arrive as ``eat_rects`` and this prices
@@ -9989,6 +10071,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "seam_pins": "seam_pins_ll",
     # §16g (10) (12) (2): the airside nodes the pad stage minted/deleted
     "pad_airside_renode": "pad_airside_renode_ll",
+    # jetway-strip spec §2 (6): the strips, their levels, vertices, clamps
+    "jetway_strips": "jetway_strips_ll",
     # §38 (3)/(5): the band's own half width, so ``bank_across_seam``
     # reads "inside the band" from the law the BUILD ran under
     "seam_half_width_m": "seam_half_width_m",
@@ -10413,6 +10497,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     # §16g (10) (12) (2): the re-node witness list (absent on any patch
     # written before 2026-09-16, which then reports nothing)
     ctx["pad_airside_renode_ll"] = data.get("pad_airside_renode")
+    # jetway-strip spec §2 (6) (absent before the strip law: nothing)
+    ctx["jetway_strips_ll"] = data.get("jetway_strips") or None
     ctx["seam_half_width_m"] = data.get("seam_half_width_m")
     # §39 (1)/(2): the emitter's own foreign-water population
     ctx["shore_edges_ll"] = data.get("shore_edges") or None
@@ -11483,6 +11569,7 @@ def run_checks(
     anchor: Optional[Tuple[float, float]] = None,
     seam_pins_ll: Optional[list] = None,
     pad_airside_renode_ll: Optional[list] = None,
+    jetway_strips_ll: Optional[list] = None,
     seam_half_width_m: Optional[float] = None,
     # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
     # axis and half width, and the shoulder's transverse maximum — the
@@ -11972,6 +12059,15 @@ def run_checks(
         "boundary vertices and adds none.  One row per node; the bar is "
         "0)", renode, top_n)
     within = within + renode
+
+    jstrip = _fam("jetway_strip",
+                  _check_jetway_strip(jetway_strips_ll, nodes, ways))
+    _pv("JETWAY STRIP vertex off its strip's ONE level, or a CLAMP the "
+        "strip projection reported (owner RULINGS 2026-09-18t Q3: UNDER THE "
+        "JETWAYS THE APRON STRIP IS LEVEL WITH THE TERMINAL; jetway-strip "
+        "spec §2 (6) (a)/(c) — the transition's pairs are within_shape's)",
+        jstrip, top_n)
+    within = within + jstrip
 
     seam_resid = _fam("seam_residual",
                       _check_seam_residual(seam_pins_ll, nodes, ways))

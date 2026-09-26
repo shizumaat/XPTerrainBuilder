@@ -337,7 +337,8 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
 
 def publication(planar: PlanarMap, law: Law, airport: Airport,
                 z: _t.Sequence[float] | None = None,
-                cs: _t.Any = None) -> dict[str, _t.Any]:
+                cs: _t.Any = None, strips: _t.Any = None,
+                strip_rep: _t.Any = None) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
     crown drops are the BUILT ones.  The shape joints (owner RULINGS
     2026-09-08k, ``planar.shape_joints``) are declared, and every published
@@ -540,13 +541,61 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # stated.  Empty at every airport with no channel, which is
             # every airport but the three the class was measured over.
             "channel_facilities": channel_facilities(planar, law, z),
-            "object_cuts": object_cuts(planar, airport)}
+            "object_cuts": object_cuts(planar, airport),
+            # THE JETWAY STRIPS (owner RULINGS 2026-09-18t Q3; jetway-strip
+            # spec §2 (6)): per strip its pad, its ONE level, its riders,
+            # its vertices by identity and its clamps — LAW INPUT for the
+            # census's ``jetway_strip`` family, which prices the emitted
+            # surface against exactly what the projection levelled.  Empty
+            # at an airport with no rider edge.
+            "jetway_strips": jetway_strips_ll(planar, airport, strips,
+                                              strip_rep)}
     # §16g (10) (12) (2): an ABSENT key means NOT MEASURED (the arrangement
     # did not run in this process — a replay arm), an EMPTY list means
     # MEASURED ZERO.  See ``_renode_rows``.
     if _doc.get("pad_airside_renode") is None:
         _doc.pop("pad_airside_renode", None)
     return _doc
+
+
+def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
+                     rep: _t.Any) -> list[dict[str, _t.Any]]:
+    """The ``jetway_strips`` sidecar key (jetway-strip spec §2 (6), §4
+    (2)): one record per strip the projection RAN on —
+    ``{id, pad_ref, level, rider_count, riders: [[lat, lon, path,
+    reach_m]], polygon_ll: [[[lat, lon], ...], ...], vertices_ll:
+    [[lat, lon], ...], clamps: [[lat, lon, why, metres], ...]}``.
+    ``vertices_ll`` carry the canonical 11-dp identity (the census joins
+    by it, never by proximity); ``level`` is ``None`` for a strip no
+    stage-1 level reached (reported, never priced)."""
+    if not strips or rep is None or not getattr(rep, "ran", False):
+        return []
+    _to_xy, to_ll = airport.frame.transformers()
+    ll = {vid: [v.key[0], v.key[1]] for vid, v in planar.vertices.items()}
+    objs = {o.id: o for o in (getattr(airport, "dsf_objects", ()) or ())}
+    reach = {r.obj_id: r.reach_m for r in getattr(strips, "riders", ())}
+    by_id = {d["id"]: d for d in rep.strips}
+    out: list[dict[str, _t.Any]] = []
+    for st in strips.strips:
+        d = by_id.get(st.id, {})
+        riders = []
+        for oid in st.riders:
+            o = objs.get(oid)
+            if o is None:
+                continue
+            la, lo = to_ll(*o.xy)
+            riders.append([round(la, 9), round(lo, 9), o.path,
+                           round(float(reach.get(oid, 0.0)), 3)])
+        out.append({
+            "id": st.id, "pad_ref": st.pad_ref, "level": d.get("level"),
+            "rider_count": len(st.riders), "riders": riders,
+            "polygon_ll": [[[round(a, 9), round(b, 9)]
+                            for a, b in (to_ll(x, y) for x, y in ring)]
+                           for ring in st.region],
+            "vertices_ll": [ll[v] for v in st.vertices if v in ll],
+            "clamps": [[ll[c[0]][0], ll[c[0]][1], c[1], c[2]]
+                       for c in d.get("clamps", ()) if c[0] in ll]})
+    return out
 
 
 def apron_tier(law: Law) -> dict[str, float | None]:

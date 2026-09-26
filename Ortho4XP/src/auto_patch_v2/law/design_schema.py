@@ -176,6 +176,11 @@ class Design:
     #: derivation site; 0 disables the reach and the cluster pad is then
     #: one plane with no apron of its own.
     cluster_apron_reach_m: float
+    #: jetway-strip spec §1 (2) / §2 (owner RULINGS 2026-09-18t Q3): the
+    #: plan distance D from a 23a pad's RIDER EDGE within which the apron
+    #: is ONE level (``constraints.jetway_strip.strip_m`` is the one
+    #: derivation site; 0 disarms the strip).
+    jetway_strip_m: float
     #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
     #: embankment out to the DEM, because the mesh does not blend.
     #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``
@@ -351,6 +356,9 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.frontage_step_max_m {d.frontage_step_max_m}: "
                   "a DEM step in metres, never negative (owner RULINGS "
                   "2026-09-13o/13p)")
+    if d.jetway_strip_m < 0.0:
+        raise err(f"emit.design.jetway_strip_m {d.jetway_strip_m}: a plan "
+                  "distance in metres, never negative (jetway-strip spec §1 (2))")
     if d.cluster_apron_reach_m < 0.0:
         raise err(f"emit.design.cluster_apron_reach_m {d.cluster_apron_reach_m}: "
                   "a plan distance in metres, never negative (owner RULINGS "

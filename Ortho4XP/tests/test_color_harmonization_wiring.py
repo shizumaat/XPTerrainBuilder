@@ -352,3 +352,62 @@ def test_manifest_records_a_reused_field(harmonization_tile):
             TILE.imagery_manifest_path(rerun))).read_text())
     assert manifest["color_harmonization"] is True
     assert manifest["color_field_reused"] is True
+
+
+def test_cross_zl_anchor_shrinks_the_zone_edge_step(harmonization_tile):
+    """The nested-zoom zone edge gets BETTER, not worse (spec §2.5).
+
+    Read on +25+051 (2026-09-25) the census reported cross-ZL seams moving
+    p90 0.21 → 1.12 counts with the harmonizer on, which reads like v2
+    introducing steps at zone edges — the very defect of issue #1.  It is
+    the opposite, and this twin pins the arithmetic.
+
+    The anchor sets the fine node to ``F_coarse(edge) + s·d`` where
+    ``d = coarse − fine``.  So across the zone edge:
+
+        step_after  = d + F_coarse − F_fine = d − s·d = d·(1 − s)
+        introduced  = step_after − step_before = −s·d
+
+    The step SHRINKS by the strength factor; the census's
+    ``introduced = step_dds − step_src`` reports that shrink as a non-zero
+    movement.  At ZL18, s = 0.20, so a 1.12-count "introduced" is a cast of
+    |d| ≈ 5.6 whose real zone-edge step fell from 5.6 to 4.5.  A reading of
+    the sign, not of the magnitude, is what tells the two apart.
+    """
+    tile, write_jpeg, _wm, _tmp = harmonization_tile
+    coarse_grey, fine_grey = 120, 100
+    d = coarse_grey - fine_grey
+    strength = HARMONIZE.strength_for_zoomlevel(18)
+
+    for column in range(3):
+        write_jpeg(column * STEP, 0, coarse_grey)
+    for column in range(2):
+        write_jpeg(column * STEP, 0, fine_grey, zoomlevel=18)
+    _collect(tile, _row())
+    _collect(tile, [(0, 0), (STEP, 0)], zoomlevel=18)
+    IMG.solve_color_field(tile)
+
+    # The anchor lands on F_coarse(edge) + s*d, near exactly.
+    coarse_field = tile.color_harmonization_fields[(ZL, PROVIDER_CODE)]
+    fine_field = tile.color_harmonization_fields[(18, PROVIDER_CODE)]
+    covering = float(coarse_field.offset((0, 0))[0])
+    assert float(fine_field.offset((0, 0))[0]) == pytest.approx(
+        covering + strength * d, abs=0.05)
+
+    def applied(value, field):
+        image = Image.fromarray(
+            numpy.full((TEXTURE, TEXTURE, 3), value, numpy.uint8))
+        out = image if field is None else HARMONIZE.apply_color_field(image, field)
+        return float(numpy.asarray(out)[..., 0].mean())
+
+    fine_after = applied(fine_grey, IMG.color_harmonization_field_for_texture(
+        tile, 0, 0, 18, PROVIDER_CODE))
+    coarse_after = applied(coarse_grey, IMG.color_harmonization_field_for_texture(
+        tile, 0, 0, ZL, PROVIDER_CODE))
+
+    step_before = float(d)
+    step_after = coarse_after - fine_after
+    assert step_after == pytest.approx(d * (1.0 - strength), abs=0.5)
+    assert step_after - step_before == pytest.approx(-strength * d, abs=0.5)
+    # THE point: the zone-edge step is smaller than it was.
+    assert abs(step_after) < abs(step_before)

@@ -145,7 +145,7 @@ def _write_band_stamp(stamp_path: str, stamp: dict) -> None:
     """
     os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
     temporary_path = "%s.part%d" % (stamp_path, os.getpid())
-    with open(temporary_path, "w") as stamp_file:
+    with open(temporary_path, "w", newline="\n") as stamp_file:
         json.dump(stamp, stamp_file, indent=1)
     os.replace(temporary_path, stamp_path)
 

@@ -786,6 +786,12 @@ list_app_vars = [
     "osm_extract_foreground_download",
     "osm_extract_refresh_days",
     "base_elevation_source",
+    # APP-level by design (spec §C.4, RULINGS 2026-09-18a/18j): the
+    # "Airports on a tile edge" answer.  It lives in ``cfg_app_vars``; it
+    # must ALSO sit in this list, because this list is what the schema
+    # dump publishes as the ``app`` GROUP — a front end that walks
+    # ``groups`` instead of resolving rows by name never saw it (#34).
+    "auto_patch_boundary",
     "skip_downloads",
     "skip_converts",
     "max_download_slots",

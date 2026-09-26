@@ -214,6 +214,14 @@ is what that costs.
   is a private measurement frame — warm it explicitly via
   `--refresh-data dem`). Timing runs stay exclusive per the standing law.
 
+- A Qt test file swept into a PARALLEL pytest run (`pytest tests/` picks
+  up `-n auto` from `pytest.ini`), where it hangs the controller — no
+  `--timeout` from a dead worker, no log from a cancelled job — or goes
+  red by neighbour load: `tests/conftest.py` refuses in seconds with one
+  failing item naming the split CI uses (`-n0 tests/test_qt_*.py`, then
+  `--ignore-glob='tests/test_qt_*.py' tests`). `O4_ALLOW_QT_XDIST=1` is
+  the explicit override for measuring the hang itself.
+
 - An unbounded waiter (`until [ -s FILE ]; do sleep 60; done`) that
   outlives its producer: two ran 21 h and 24 h on 2026-09-13. The bash
   guard refuses a sleeping `while`/`until` loop with no `timeout N`,

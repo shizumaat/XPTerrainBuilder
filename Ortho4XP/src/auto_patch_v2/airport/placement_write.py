@@ -54,7 +54,8 @@ import json
 import os
 import typing as _t
 
-from ..model.placement import (PLAN_FILENAME, PlacementPlan, Provenance)
+from ..model.placement import (CUT_MARK, PLAN_FILENAME, PlacementPlan,
+                               Provenance)
 from . import backup_state as _bs
 from . import dsf_write as _dw
 from . import footprint_unit as _fu
@@ -205,9 +206,10 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
 
 # ── step 2: the cut files ───────────────────────────────────────────────
 
-#: every file this writer makes carries it (``obj8_split``'s provenance
-#: line), and it is what says a file on a split's name is OURS to replace.
-CUT_MARK = "# o4 split of "
+#: ``CUT_MARK`` (every file this writer makes carries it — ``obj8_split``'s
+#: provenance line; it is what says a file on a split's name is OURS to
+#: replace) is the model's, re-exported here: ``dsf_write`` reads the same
+#: definition and cannot import this module.
 
 
 def write_files(pack_root: str, files: _t.Sequence, *,
@@ -249,8 +251,14 @@ def write_files(pack_root: str, files: _t.Sequence, *,
 # ── step 0: the restore ─────────────────────────────────────────────────
 
 def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False,
-                         dsf_path: str = "") -> RestoreResult:
+                         dsf_path: str = "", icao: str = "") -> RestoreResult:
     """Put every ``<obj>.anchor_bak`` back over its object (11f (1)).
+
+    ``icao`` (#25): the airport about to be written.  The previous
+    write's bodies removed in this step are THAT airport's only — a
+    sibling airport served by the same DSF keeps its bodies, which the
+    DSF the caller is about to compose still references.  Without it,
+    every airport's bodies (the whole-pack restore).
 
     A BYTE copy of the pristine file, only where the live file differs
     from it (so a second run writes nothing and no mtime moves), and only
@@ -344,21 +352,12 @@ def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False,
     # pack with no provenance removes nothing.  Each is confirmed to
     # carry this writer's CUT_MARK before it is unlinked, so a corrupt
     # or hand-edited provenance can never delete an authored object.
-    removed: list[str] = []
+    removed: tuple[str, ...] = ()
     if dsf_path:
-        for path in _dw.written_body_files(pack_root, dsf_path):
-            try:
-                if not os.path.isfile(path):
-                    continue
-                with open(path, "r", errors="replace") as fh:
-                    if CUT_MARK not in fh.read(4096):
-                        continue
-                os.remove(path)
-            except OSError:
-                continue
-            removed.append(path)
+        removed = _dw.remove_cut_files(
+            _dw.written_body_files(pack_root, dsf_path, icao))
     return RestoreResult(tuple(sorted(backups)), tuple(sorted(restored)),
-                         tuple(sorted(removed)),
+                         removed,
                          tuple(sorted(p for p in adopted if p)),
                          tuple(sorted(p for p in unproven if p)))
 
@@ -382,7 +381,7 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
         raise _dw.BackupUnproven(_dw._stand_down_line(v))
     restore = restore_pack_objects(plan.pack_root,
                                    allow_live_install=allow_live_install,
-                                   dsf_path=plan.dsf_path)
+                                   dsf_path=plan.dsf_path, icao=plan.icao)
     written = write_files(plan.pack_root, files,
                           allow_live_install=allow_live_install)
     dsf = _dw.write_pack(plan.pack_root, plan, tool,

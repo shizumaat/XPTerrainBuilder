@@ -2885,7 +2885,7 @@ class StaticStacCatalogStrategy:
     def _save_index(self, definition, index):
         index_file = self.index_path(definition)
         os.makedirs(os.path.dirname(index_file), exist_ok=True)
-        with open(index_file, "w") as handle:
+        with open(index_file, "w", newline="\n") as handle:
             json.dump(index, handle)
 
     def _fetch_json(self, session, url):
@@ -3450,7 +3450,7 @@ class CoordinateNamedUrlListStrategy:
     def _save_index(self, definition, index):
         index_file = self.index_path(definition)
         os.makedirs(os.path.dirname(index_file), exist_ok=True)
-        with open(index_file, "w") as handle:
+        with open(index_file, "w", newline="\n") as handle:
             json.dump(index, handle)
 
     def _ensure_entries(self, definition, index):
@@ -4325,7 +4325,7 @@ class TileGridHttpStrategy:
         os.makedirs(
             os.path.dirname(self.index_path(definition)), exist_ok=True
         )
-        with open(self.index_path(definition), "w") as handle:
+        with open(self.index_path(definition), "w", newline="\n") as handle:
             json.dump(names, handle)
         return names
 
@@ -4727,7 +4727,7 @@ class GeojsonTileIndexStrategy:
         os.makedirs(
             os.path.dirname(self.index_path(definition)), exist_ok=True
         )
-        with open(self.index_path(definition), "w") as handle:
+        with open(self.index_path(definition), "w", newline="\n") as handle:
             json.dump(entries, handle)
         return entries
 
@@ -4874,7 +4874,7 @@ class ArcgisFeatureTileStrategy:
         os.makedirs(
             os.path.dirname(self.index_path(definition)), exist_ok=True
         )
-        with open(self.index_path(definition), "w") as handle:
+        with open(self.index_path(definition), "w", newline="\n") as handle:
             json.dump(endpoints, handle)
         return endpoints
 
@@ -5226,7 +5226,7 @@ class OsGridBucketStrategy(GeojsonTileIndexStrategy):
         os.makedirs(
             os.path.dirname(self.index_path(definition)), exist_ok=True
         )
-        with open(self.index_path(definition), "w") as handle:
+        with open(self.index_path(definition), "w", newline="\n") as handle:
             json.dump(entries, handle)
         return entries
 
@@ -5502,7 +5502,7 @@ class XyzArchiveDropStrategy:
 
     def _save_index(self, definition, index):
         os.makedirs(os.path.dirname(self.index_path(definition)), exist_ok=True)
-        with open(self.index_path(definition), "w") as handle:
+        with open(self.index_path(definition), "w", newline="\n") as handle:
             json.dump(index, handle)
 
     def _open_ascii_grid(self, definition, sheet_path):
@@ -7038,7 +7038,7 @@ def _write_index(lat, lon, index):
                 "; ".join(f"{k}: {', '.join(v)}" for k, v in changed.items()),
             )
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", newline="\n") as handle:
         handle.write(payload)
 
 
@@ -7858,7 +7858,7 @@ def ensure_airport_insets(
             provenance_path = FNAMES.airport_inset_provenance(
                 lat, lon, icao, code
             )
-            with open(provenance_path, "w") as handle:
+            with open(provenance_path, "w", newline="\n") as handle:
                 json.dump(provenance, handle, indent=2, sort_keys=True)
             airport_record[code] = "ok"
             airport_record["checked"] = checked_stamp
@@ -8539,7 +8539,7 @@ def ensure_inset_water_supplement(lat, lon):
             f"({os.path.basename(inset_path)}).",
         )
     lines.append("</osm>")
-    with bz2.open(supplement_path, "wt", encoding="utf-8") as handle:
+    with bz2.open(supplement_path, "wt", encoding="utf-8", newline="\n") as handle:
         handle.write("\n".join(lines) + "\n")
     return supplement_path
 
@@ -8860,7 +8860,7 @@ def _write_inset_completion_stamp(tile):
             pass
         os.makedirs(os.path.dirname(path), exist_ok=True)
         temporary = path + ".tmp"
-        with open(temporary, "w") as handle:
+        with open(temporary, "w", newline="\n") as handle:
             handle.write(payload)
         os.replace(temporary, path)
     except Exception as error:

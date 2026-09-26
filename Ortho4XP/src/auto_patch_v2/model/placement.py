@@ -32,6 +32,7 @@ import typing as _t
 
 __all__ = [
     "PLAN_VERSION", "PLAN_FILENAME", "BACKUP_SUFFIX", "PROVENANCE_FILENAME",
+    "CUT_MARK",
     "KIND_ON_GROUND", "KIND_MSL", "KIND_AGL", "CONVERTIBLE_KINDS",
     "BODY_CLASSES", "Provenance", "Conversion", "Anchor", "PlacementRef",
     "Body", "Split", "Kept", "PlacementPlan", "MslSeat",
@@ -47,6 +48,12 @@ PLAN_FILENAME = "o4_v2_placement_{icao}.json"
 BACKUP_SUFFIX = ".anchor_bak"
 #: Written beside the DSF by ``airport/dsf_write.write_pack``.
 PROVENANCE_FILENAME = "o4_placement_provenance.json"
+#: Every cut body file this writer makes carries it (``obj8_split``'s
+#: provenance line); it is what says a file on a split's name is OURS to
+#: replace or remove.  Lives here so both the write half
+#: (``placement_write``) and the DSF writer (``dsf_write``) read ONE
+#: definition without an import cycle.
+CUT_MARK = "# o4 split of "
 
 #: The DSF row keywords.  ``OBJECT`` is X-Plane's "on ground": no
 #: elevation column, the origin sits on the terrain under the anchor.
@@ -418,6 +425,62 @@ class PlacementPlan:
                 "kept": len(self.kept),
                 # §16g (5): placements seated by their DSF row
                 "msl_seats": len(self.msl_seats)}
+
+    # ── the shared DSF (#25) ────────────────────────────────────────────
+    def claimed_indices(self) -> frozenset[int]:
+        """Every placement ordinal this plan edits: converted, row-seated
+        or split.  What ``compose`` lets this plan WIN over a sibling's."""
+        return (self.conversion_indices() | self.split_indices()
+                | frozenset(m.index for m in self.msl_seats))
+
+    def edit_rows(self) -> dict[str, _t.Any]:
+        """The COMPACT edit set — exactly what ``dsf_write.edit_dump``
+        reads and nothing else: the conversions, the row seats and, per
+        split, the placement plus each body's ``new_resource`` and
+        anchor.  Round-trips through ``from_dict`` (the body fields that
+        do not shape a DSF row take their defaults).  This is what the
+        pack record keeps per airport so a SIBLING airport's edits can be
+        re-applied when another airport writes the same DSF."""
+        return {"version": PLAN_VERSION, "icao": self.icao,
+                "conversions": [c.to_dict() for c in self.conversions],
+                "msl_seats": [m.to_dict() for m in self.msl_seats],
+                "splits": [{"placement": s.placement.to_dict(),
+                            "bodies": [{"body_id": b.body_id,
+                                        "class": b.body_class,
+                                        "new_resource": b.new_resource,
+                                        "anchor": b.anchor.to_dict()}
+                                       for b in s.bodies]}
+                           for s in self.splits]}
+
+    def compose(self, others: _t.Iterable["PlacementPlan"]) -> "PlacementPlan":
+        """THIS plan plus every sibling's edits for the SAME DSF (#25:
+        TNCM + TFFG are served by one pack DSF, and a write that carried
+        only its own airport's plan erased the other's rows and orphaned
+        its body files).
+
+        This plan wins every ordinal it claims; among the siblings the
+        first one given wins (callers pass them in a fixed order).  The
+        result carries this plan's identity, provenance and ``kept``
+        list — it is the DSF edit, not a new plan of record."""
+        conv = list(self.conversions)
+        msl = list(self.msl_seats)
+        spl = list(self.splits)
+        taken = set(self.claimed_indices())
+        for o in others:
+            for c in o.conversions:
+                if c.index not in taken:
+                    conv.append(c)
+                    taken.add(c.index)
+            for m in o.msl_seats:
+                if m.index not in taken:
+                    msl.append(m)
+                    taken.add(m.index)
+            for s in o.splits:
+                if s.placement.index not in taken:
+                    spl.append(s)
+                    taken.add(s.placement.index)
+        return _dc.replace(self, conversions=tuple(conv), msl_seats=tuple(msl),
+                           splits=tuple(spl))
 
     # ── JSON ────────────────────────────────────────────────────────────
     def to_dict(self) -> dict[str, _t.Any]:

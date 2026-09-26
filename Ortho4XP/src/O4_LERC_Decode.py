@@ -139,7 +139,7 @@ def main(argv) -> int:
         decode_blobs(source, destination)
     else:
         payload = json.dumps(decode_tiff(source, destination))
-        with open(destination + ".tags.json", "w") as handle:
+        with open(destination + ".tags.json", "w", newline="\n") as handle:
             handle.write(payload)
         if sys.stdout is not None:
             print(payload)

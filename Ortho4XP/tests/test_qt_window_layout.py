@@ -47,11 +47,27 @@ def qapp():
 
 @pytest.fixture
 def make_window(qapp, tmp_path, monkeypatch, capsys):
-    """Factory building MainWindows that share one prefs file."""
+    """Factory building MainWindows that share one prefs file.
+
+    HERMETIC (#35, Windows runner 2026-09-18, run 35393777771): the
+    window must see NO scan state but what a test feeds it.  Before,
+    the scan cache stayed at the real ``TILE_SCAN_CACHE_FILE`` and the
+    startup scan reached the real ``EngineSession``: another Qt file
+    had written ``Tiles/zOrtho4XP_+36-087/*.cfg`` into the real
+    ``Tile_dir`` (a cfg-only tile is REPORTED built, ``O4_Tile_Info``),
+    the deferred scan found it, ``_on_scan_done`` wrote the real cache,
+    and the next window adopted (36, -87) as built — so the title never
+    said "(scanning…)".  Locally the same run leaves the same two files
+    behind; the runner's slower event loop is what let the scan land.
+    """
+    import O4_Config_Utils as CFG
     import O4_Qt_GUI as GUI
     import O4_UI_Utils as UI
 
     monkeypatch.setattr(GUI, "PREFS_FILE", str(tmp_path / "prefs.json"))
+    monkeypatch.setattr(GUI, "TILE_SCAN_CACHE_FILE",
+                        str(tmp_path / "tile-scan.json"))
+    monkeypatch.setattr(CFG, "custom_scenery_dir", "")
     windows = []
 
     def build():
@@ -59,6 +75,9 @@ def make_window(qapp, tmp_path, monkeypatch, capsys):
             original_stdout = sys.stdout
             window = GUI.MainWindow()
             sys.stdout = original_stdout
+        # The startup scan is never sent to an engine: every scan event
+        # in these tests is injected by the test itself.
+        window._session.scan = lambda *args, **kwargs: None
         windows.append(window)
         return window
 

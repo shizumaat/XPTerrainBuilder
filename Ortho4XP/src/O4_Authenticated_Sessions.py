@@ -340,7 +340,7 @@ def store_credentials(session_name, username, password):
     _restrict_to_owner(directory, directory=True)
     secret_set(session_name, username, password)
     account_path = _account_file_path(session_name)
-    with open(account_path, "w", encoding="utf-8") as handle:
+    with open(account_path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump({"username": username}, handle)
     _restrict_to_owner(account_path)
 

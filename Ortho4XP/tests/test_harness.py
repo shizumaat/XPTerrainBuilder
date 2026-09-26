@@ -8642,7 +8642,8 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
     imagery = build_mod.imagery_capability(_Tile(), prov)
     assert imagery["ok"] is False
     monkeypatch.setattr(build_mod, "resolve_tile_frame",
-                        lambda lat, lon, bd, prog: (_Tile(), prov, imagery))
+                        lambda lat, lon, bd, prog, texture_mode=None:
+                        (_Tile(), prov, imagery))
     prog = _StepProg()
     result = build_mod.build_tile(40, -4, str(tmp_path), prog)
     assert ran == ["1 vector", "2 mesh"], "the imagery half must NEVER run"
@@ -8665,6 +8666,107 @@ def test_imagery_not_ok_RECORDS_steps_3_and_4_as_skipped_and_never_runs_them(
                                        "3 masks": imagery["note"],
                                        "4 tile": imagery["note"]}
     assert result["steps_run"] == ["1 vector"]
+
+
+# ── --tile --texture-mode (issue #37) ────────────────────────────────
+# The engine's per-tile ``texture_mode`` key is written by the app into
+# the tile cfg per BUILD from its job; a harness tile with no such line
+# built full_ortho whatever the owner's job said, and the frame did not
+# say so.  The flag overrides the resolved tile, never the cfg file, and
+# the frame records {effective, cfg, source}.
+
+def test_texture_mode_choices_are_the_engines_own(build_mod):
+    """The flag can never offer a mode the engine does not dispatch on."""
+    import O4_Cfg_Vars as V
+    assert build_mod.TEXTURE_MODES == tuple(V.cfg_vars["texture_mode"]["values"])
+    src = inspect.getsource(build_mod.main)
+    assert 'ap.add_argument("--texture-mode", choices=TEXTURE_MODES' in src
+    with pytest.raises(SystemExit) as exc:      # argparse refuses an unknown mode
+        build_mod.main(["OTHH", "--tile", "25", "51", "--texture-mode", "sepia"])
+    assert exc.value.code == 2
+
+
+def test_texture_mode_without_tile_is_refused_by_name(build_mod, monkeypatch, tmp_path):
+    """A flag that quietly does nothing is how a lane comes to believe it
+    measured something it did not: the airport patch has no textures."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        build_mod.main(["CYXY", "--texture-mode", "default_xplane"])
+    assert "REFUSING: --texture-mode without --tile is not wired" in str(exc.value)
+
+
+def test_texture_mode_overrides_the_resolved_tile_and_is_recorded(build_mod, monkeypatch, tmp_path):
+    """``resolve_tile_frame`` applies the flag to the TILE OBJECT (the
+    provisioned cfg stays byte-identical) and records where the effective
+    mode came from; the imagery capability is judged AFTER the override."""
+    import sys as _sys
+    for m in ("O4_Config_Utils", "O4_File_Names"):
+        __import__(m)
+
+    class _Tile:
+        def __init__(self, lat, lon, build_dir):
+            self.lat, self.lon, self.build_dir = lat, lon, build_dir
+            self.default_website, self.default_zl = "", 16
+        def read_from_config(self):
+            self.texture_mode = "airport_ortho"          # what the cfg says
+
+    cfg_path = tmp_path / "Ortho4XP_+40-004.cfg"
+    cfg_path.write_text("texture_mode=airport_ortho\n")
+    monkeypatch.setattr(_sys.modules["O4_Config_Utils"], "Tile", _Tile)
+    monkeypatch.setattr(_sys.modules["O4_File_Names"], "normalize_custom_build_dir",
+                        lambda lat, lon, bd: bd)
+    monkeypatch.setattr(build_mod, "provision_tile_cfg",
+                        lambda lat, lon, bd, prog: {"action": "present", "cfg": str(cfg_path)})
+    before = cfg_path.read_bytes()
+    prog = _StepProg()
+    # no flag: the cfg value stands, recorded as such
+    tile, prov, imagery = build_mod.resolve_tile_frame(40, -4, str(tmp_path), prog)
+    assert tile.texture_mode == "airport_ortho"
+    assert prov["texture_mode"] == {"effective": "airport_ortho", "cfg": "airport_ortho",
+                                    "source": "tile cfg"}
+    assert imagery["ok"] is False           # airport_ortho still needs a provider
+    # the flag: overrides the tile, records cfg vs effective, cfg file untouched
+    tile, prov, imagery = build_mod.resolve_tile_frame(
+        40, -4, str(tmp_path), prog, texture_mode="default_xplane")
+    assert tile.texture_mode == "default_xplane"
+    assert prov["texture_mode"] == {"effective": "default_xplane", "cfg": "airport_ortho",
+                                    "source": "--texture-mode"}
+    assert prov["action"] == "present"      # the provenance record is kept, not replaced
+    assert cfg_path.read_bytes() == before, "the provisioned input is never rewritten"
+    assert imagery["ok"] is True and "default_xplane" in imagery["note"]
+    assert any("texture mode default_xplane (--texture-mode; cfg said airport_ortho)" in n
+               for n in prog.notes)
+    with pytest.raises(SystemExit):
+        build_mod.resolve_tile_frame(40, -4, str(tmp_path), prog, texture_mode="sepia")
+
+
+def test_default_xplane_needs_no_provider_the_other_modes_do(build_mod):
+    """default_xplane reads no orthophoto (O4_Tile_Utils ``imagery_needed``
+    is False; build_dsf textures from the installed Global Scenery), so a
+    provider-less frame builds the WHOLE tile in that mode — and ONLY in
+    that mode: no provider is invented for full_ortho / airport_ortho."""
+    class _T(_FakeTile):
+        def __init__(self, mode, site=""):
+            super().__init__(site)
+            self.texture_mode = mode
+    prov = {"action": "derived-from-global-defaults", "global_source": "/x/Ortho4XP.cfg"}
+    assert build_mod.imagery_capability(_T("default_xplane"), prov)["ok"] is True
+    assert build_mod.imagery_capability(_T("full_ortho"), prov)["ok"] is False
+    assert build_mod.imagery_capability(_T("airport_ortho"), prov)["ok"] is False
+    cap = build_mod.imagery_capability(_T("default_xplane", "Arc"), prov)
+    assert cap["ok"] is True and cap["default_website"] == "Arc"
+
+
+def test_texture_mode_flows_from_the_flag_to_the_frame(build_mod):
+    """One path: argparse -> build_tile(texture_mode=) -> resolve_tile_frame
+    -> result["texture_mode"] -> frame["texture_mode"]."""
+    src = inspect.getsource(build_mod.main)
+    assert "texture_mode=args.texture_mode)" in src
+    src = inspect.getsource(build_mod.build_tile)
+    assert "resolve_tile_frame(\n        lat, lon, build_dir, prog, texture_mode=texture_mode)" in src
+    assert '"texture_mode": (cfg_provenance or {}).get("texture_mode")' in src
+    src = inspect.getsource(build_mod)
+    assert 'frame["texture_mode"] = result.get("texture_mode")' in src
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -326,7 +326,7 @@ def create_terrain_file(
     if use_test_texture:
         texture_file_name = "test_texture.dds"
 
-    with open(os.path.join(tile.build_dir, "terrain", ter_file_name), "w") as f:
+    with open(os.path.join(tile.build_dir, "terrain", ter_file_name), "w", newline="\n") as f:
 
         f.write("A\n800\nTERRAIN\n\n")
 

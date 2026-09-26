@@ -60,6 +60,73 @@ class AutoPatchBuildFailure(RuntimeError):
         super().__init__(describe_auto_patch_failures(self.failures))
 
 
+# ── STALE ROAD DATA: ONE CAUSE, ONE LINE, APP WORDING (issue #24) ─────
+# ``auto_patch_v2.airport.load`` refuses a PRESENT road feed whose
+# ``o4_tag_schema`` is superseded or absent, and names the harness's
+# ``build_airport.py <ICAO> --refresh-data osm_layers`` — a developer
+# command an app user does not have.  Worse, the refusal is raised
+# INSIDE each airport's worker, so tile +46+006 printed ELEVEN aborts
+# (LSGG, LSGB, LFLI, LFSP, LSGL, LSGN, LSGP, LSGY, LSMP, LSTO, LSTR)
+# and eleven ``AutoPatchFailed`` events for ONE stale file — the
+# neighbour tile's ``+46+007_big_roads.osm.bz2`` (app engine 1.50.1796,
+# RULINGS 2026-09-18d (1), which left "app-facing refusal copy,
+# one-cause-one-line abort narration" owed).
+#
+# ``O4_Vector_Map.ensure_auto_patch_road_feeds`` already re-derives every
+# stale feed in the reader's 3x3 x 2-feed square through its one
+# production writer before this function runs.  What it CANNOT do is
+# succeed offline, so it now hands back the feeds still stale after the
+# attempt and the tile says so ONCE, here, before a single worker is
+# launched.  ``load.py`` keeps its developer copy: it is the harness /
+# replay gate, and the app never reaches it once this fires first.
+STALE_ROAD_FEED_AIRPORT_ERROR = (
+    "not built — the OSM road data for this area is out of date "
+    "(see the notice above)")
+
+
+def stale_road_feed_notice(stale_feeds) -> str:
+    """THE tile-level line for road caches that are out of date and
+    could not be refreshed.  One line per CAUSE, not per airport.
+
+    ``stale_feeds`` is the ``(lat, lon, feed, path)`` sequence
+    :func:`O4_Vector_Map.ensure_auto_patch_road_feeds` reports as STILL
+    not schema-current after it tried to re-derive them.  Empty (the
+    normal case) returns ``""`` and nothing is printed.
+    """
+    files = []
+    for entry in stale_feeds:
+        path = entry[3] if len(entry) > 3 else None
+        files.append(os.path.basename(path) if path
+                     else "{:+03d}{:+04d}_{}".format(entry[0], entry[1],
+                                                     entry[2]))
+    if not files:
+        return ""
+    return (
+        "Auto-patch: the cached OSM road data this tile reads is out of "
+        "date and could not be refreshed ({}). Connect to the internet "
+        "and build this tile again, or rebuild the area's OSM extract; "
+        "until then no airport on this tile is patched.".format(
+            ", ".join(files)))
+
+
+def _fail_build_tasks(failures: list) -> None:
+    """NAME every failure on the engine log and on the JSONL protocol —
+    one ``AutoPatchFailed`` event per airport, never a bare print (the
+    app's client matches the event name as a string literal) — then
+    raise the fatality.
+
+    ONE spelling, shared by the per-airport build/manifest failures
+    ``_run_build_tasks`` collects and the whole-tile stale-road-feed
+    abort above, so both narrate identically.  Always raises.
+    """
+    for failure in failures:
+        UI.lvprint(0, "   Auto-patch: FAILED", failure["icao"],
+                   "(" + failure["stage"] + "):", failure["error"])
+        UI.auto_patch_failed(failure["icao"], failure["stage"],
+                             failure["error"])
+    raise AutoPatchBuildFailure(failures)
+
+
 def describe_auto_patch_failures(failures: list) -> str:
     """One line naming every failed airport, its stage and its cause.
 
@@ -237,6 +304,9 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
         "o4_fresh_v": _prov.FRESHNESS_SCHEMA_VERSION,
         "o4_cfg": _prov.config_digest(),
         "o4_dem": _prov.dem_fingerprint(tile, icao=icao),
+        # The tile cfg knobs the v2 solve reads (``road_grade_limit``,
+        # ``lane_width`` — handed on in the task dict below, #36).
+        "o4_solve_cfg": _prov.solve_settings_fingerprint(tile),
         "o4_cifp": _prov.identity_list(
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
@@ -284,6 +354,9 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        (``o4_cfg``).
     4. **DEM inputs** — the DEM source specification for this tile plus the
        airport-elevation insets that actually baked in (``o4_dem``).
+    4b. **solve settings** — the tile cfg knobs the v2 solve reads that no
+       other stamp carries, ``road_grade_limit`` and ``lane_width``
+       (``o4_solve_cfg``; #36 — before it, editing either reused the patch).
     5. **CIFP** — the AIRAC ``.dat`` files this airport's build reads
        (``o4_cifp``).
     6. **scenery-pack enablement** — the pack that supplied the apt.dat being
@@ -1174,11 +1247,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         # NAMED, on the engine log and on the JSONL protocol — one
         # ``AutoPatchFailed`` event per airport (never a bare print; the
         # app's client matches the event name as a string literal).
-        for f in failures:
-            UI.lvprint(0, "   Auto-patch: FAILED", f["icao"],
-                       "(" + f["stage"] + "):", f["error"])
-            UI.auto_patch_failed(f["icao"], f["stage"], f["error"])
-        raise AutoPatchBuildFailure(failures)
+        _fail_build_tasks(failures)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1189,7 +1258,8 @@ def generate_auto_patches(tile, cifp_path: str,
                           building_data=None,
                           dico_airports: dict | None = None,
                           road_data=None,
-                          mode: str = "ICAO") -> list[str]:
+                          mode: str = "ICAO",
+                          stale_road_feeds=()) -> list[str]:
     """Generate auto-patch files for all CIFP airports within a tile.
 
     Scans the CIFP directory for airport data files, parses runway threshold
@@ -1228,6 +1298,12 @@ def generate_auto_patches(tile, cifp_path: str,
               code; "All" patches every CIFP airport regardless of code
               format. ("None" is handled at the call site by skipping this
               function entirely.)
+        stale_road_feeds: the ``(lat, lon, feed, path)`` road caches
+              ``O4_Vector_Map.ensure_auto_patch_road_feeds`` could NOT
+              make schema-current (offline, no extract).  The v2 reader
+              would refuse each of them inside every airport's worker,
+              so the tile says it ONCE and fails the airports that
+              needed a rebuild against that one notice (issue #24).
 
     Returns:
         list: ICAO codes of airports for which auto-patches were generated.
@@ -1536,6 +1612,35 @@ def generate_auto_patches(tile, cifp_path: str,
             "road_grade_limit": getattr(tile, "road_grade_limit", None),
             "lane_width": getattr(tile, "lane_width", None),
         })
+
+    # ── STALE ROAD DATA ABORTS THE TILE ONCE, NOT ONCE PER AIRPORT ──────
+    # (issue #24).  Every airport still in ``tasks`` needs a rebuild, and
+    # every rebuild reads the same 3x3 x 2-feed road square that is out
+    # of date — so the cause is printed ONCE and each airport gets one
+    # short line pointing back at it.  Raised HERE, before the worklist
+    # sidecar, before the airports-OSM prefetch (which downloads) and
+    # before any worker starts: nothing is spent on a pass whose every
+    # airport would die inside ``load_with_report`` on the same file.
+    # The tile still aborts (H1: a per-airport failure is fatal) and
+    # each airport still gets its ``AutoPatchFailed`` event.
+    #
+    # An ALL-CURRENT tile never reaches this: with no rebuild collected
+    # there is no reader to refuse, so a stale feed nothing reads is not
+    # an abort.
+    if tasks and stale_road_feeds:
+        notice = stale_road_feed_notice(stale_road_feeds)
+        try:
+            UI.lvprint(0, "   " + notice)
+            _fail_build_tasks([
+                {"icao": task["icao"], "stage": "build",
+                 "error": STALE_ROAD_FEED_AIRPORT_ERROR}
+                for task in tasks])
+        finally:
+            # ``_fail_build_tasks`` always raises, and the caller's
+            # verbosity is only restored by the ``finally`` around
+            # ``_run_build_tasks`` further down — which this never
+            # reaches.
+            UI.verbosity = _saved_verbosity
 
     # ── Write the Phase 2 worklist sidecar (main process ONLY) ──────────
     # Workers have not started yet; they never write it (amendment A5).

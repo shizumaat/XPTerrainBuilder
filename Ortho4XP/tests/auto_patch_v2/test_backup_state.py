@@ -723,7 +723,7 @@ def test_ui_restore_restores_ours_and_keeps_the_users_file(tmp_path):
     new = "I\n800\nOBJ\nA WHOLE NEW OBJECT FROM THE NEW PACK VERSION\n"
     yours.write_text(new)
     out = object_rebake.restore_detail(str(pack))
-    assert out == {"restored": 1, "kept_changed": 1}
+    assert out == {"restored": 1, "kept_changed": 1, "bodies_removed": 0}
     assert mine.read_text() == OBJ
     assert yours.read_text() == new, "THE USER'S FILE LOSES NO BYTES"
     assert object_rebake.restore(str(pack)) == 0        # idempotent, int reply
@@ -906,3 +906,382 @@ def test_a_real_pack_updated_in_place_between_two_builds(tmp_path):
           f"{per_call * 1e3:.3f} ms/call (cold memo); write_pack "
           f"{t_build1:.2f} s (D1) / {t_build2:.2f} s (D5, one adoption)")
     assert per_call < 0.005, "the normal path must not hash the DSF"
+
+
+# ── #25: TWO AIRPORTS, ONE PACK DSF (TNCM + TFFG on +18-064) ────────────
+#
+# The fixture: one pack, one DSF with four placements.  Airport "TNCM"
+# converts placement 0 and splits placement 1 into two bodies; airport
+# "TFFG" converts placement 2 and splits placement 3 into one body.
+# Each is written in turn through ``apply_plan`` exactly as the tile
+# build does (its own plan, its own cut files); the DSFTool stand-in is a
+# byte copy, so the live DSF IS the edited dump text.
+
+DUMP4 = ("PROPERTY sim/west -64\n"
+         "PROPERTY sim/overlay 1\n"
+         "OBJECT_DEF objects/a.obj\n"
+         "OBJECT_DEF objects/b.obj\n"
+         "OBJECT_DEF objects/c.obj\n"
+         "OBJECT_DEF objects/d.obj\n"
+         "OBJECT_MSL 0 -63.1 18.04 5.0 10.0\n"
+         "OBJECT_MSL 1 -63.11 18.041 6.0 20.0\n"
+         "OBJECT_MSL 2 -63.15 18.1 7.0 30.0\n"
+         "OBJECT_MSL 3 -63.16 18.11 8.0 40.0\n")
+
+
+class _Cut:
+    def __init__(self, resource: str):
+        self.resource = resource
+        self.text = f"I\n800\nOBJ\n{PW.CUT_MARK}{resource}\n"
+
+
+def _split(index: int, res: str, lon: float, lat: float, hdg: float,
+           bodies: list[str]) -> PM.Split:
+    return PM.Split(
+        PM.PlacementRef(index, res, lon, lat, hdg),
+        tuple(PM.Body(f"b{k}", "other", (k,), PM.Anchor(lon, lat, hdg), "",
+                      r) for k, r in enumerate(bodies)))
+
+
+def _tncm(pack: Path, dsf: Path) -> tuple[PM.PlacementPlan, list[_Cut]]:
+    plan = _plan(pack, dsf, icao="TNCM",
+                 conversions=(PM.Conversion(0, "objects/a.obj", -63.1, 18.04,
+                                            10.0, "OBJECT_MSL", 5.0),),
+                 splits=(_split(1, "objects/b.obj", -63.11, 18.041, 20.0,
+                                ["objects/b__b0.obj", "objects/b__b1.obj"]),))
+    return plan, [_Cut("objects/b__b0.obj"), _Cut("objects/b__b1.obj")]
+
+
+def _tffg(pack: Path, dsf: Path, *, split_index: int = 3,
+          split_res: str = "objects/d.obj") -> tuple[PM.PlacementPlan, list[_Cut]]:
+    plan = _plan(pack, dsf, icao="TFFG",
+                 conversions=(PM.Conversion(2, "objects/c.obj", -63.15, 18.1,
+                                            30.0, "OBJECT_MSL", 7.0),),
+                 splits=(_split(split_index, split_res, -63.16, 18.11, 40.0,
+                                ["objects/d__b0.obj"]),))
+    return plan, [_Cut("objects/d__b0.obj")]
+
+
+def _objs(pack: Path) -> list[str]:
+    return sorted(p.name for p in (pack / "objects").iterdir())
+
+
+def _record_doc(dsf: Path) -> dict:
+    return json.loads((dsf.parent / "o4_placement_provenance.json").read_text())
+
+
+def test_25_the_second_airports_write_keeps_the_firsts_bodies_and_rows(
+        tmp_path, monkeypatch):
+    """RED ON BASE: TFFG's write restored from the backup with only its
+    own plan — TNCM's converted row went back to OBJECT_MSL, its split
+    rows vanished from the DSF, and the restore step removed its body
+    files (``engine_v2.py`` :871-918, ``placement_write.py`` :317-325)."""
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    patch = str(tmp_path / "patch")
+
+    p1, f1 = _tncm(pack, dsf)
+    first = PW.apply_plan(p1, f1, tool, patch_dir=patch,
+                          work_dir=str(tmp_path / "w1"))
+    assert _objs(pack) == ["b__b0.obj", "b__b1.obj"]
+    assert first.dsf.composed_airports == ()
+
+    p2, f2 = _tffg(pack, dsf)
+    second = PW.apply_plan(p2, f2, tool, patch_dir=patch,
+                           work_dir=str(tmp_path / "w2"))
+
+    # 1. BOTH airports' body files survive
+    assert _objs(pack) == ["b__b0.obj", "b__b1.obj", "d__b0.obj"]
+    assert second.counts["restore_bodies_removed"] == 0, \
+        "TFFG's first write has no previous bodies of ITS OWN to remove"
+    assert second.dsf.composed_airports == ("TNCM",)
+    assert second.dsf.orphaned_bodies == ()
+
+    # 2. the live DSF carries BOTH airports' edits over the pristine dump
+    text = dsf.read_text()
+    assert "OBJECT 0 -63.1 18.04 10.0\n" in text            # TNCM conversion
+    assert "OBJECT 2 -63.15 18.1 30.0\n" in text            # TFFG conversion
+    assert "OBJECT_DEF objects/b__b0.obj\n" in text
+    assert "OBJECT_DEF objects/b__b1.obj\n" in text
+    assert "OBJECT_DEF objects/d__b0.obj\n" in text
+    assert "OBJECT_MSL" not in text, "every placement of both plans was edited"
+    assert text.count("\nOBJECT ") == 2 + 2 + 1             # 2 conv + 3 bodies
+
+    # 3. the record lists both airports, per airport and as a whole
+    entry = _record_doc(dsf)["dsfs"]["+18-064.dsf"]
+    assert set(entry["airports"]) == {"TNCM", "TFFG"}
+    assert entry["airports"]["TNCM"]["body_files"] == [
+        "objects/b__b0.obj", "objects/b__b1.obj"]
+    assert entry["airports"]["TFFG"]["body_files"] == ["objects/d__b0.obj"]
+    assert entry["body_files"] == ["objects/b__b0.obj", "objects/b__b1.obj",
+                                   "objects/d__b0.obj"]
+    assert W.written_body_files(str(pack), str(dsf), "TNCM") == (
+        str(pack / "objects" / "b__b0.obj"), str(pack / "objects" / "b__b1.obj"))
+    assert W.written_body_files(str(pack), str(dsf)) == tuple(
+        str(pack / "objects" / n) for n in ("b__b0.obj", "b__b1.obj", "d__b0.obj"))
+    # the backup is still the PRISTINE pack
+    assert (dsf.parent / "+18-064.dsf.anchor_bak").read_text() == DUMP4
+
+
+def test_25_a_rerun_of_the_first_airport_removes_only_its_own_bodies(
+        tmp_path, monkeypatch):
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    patch = str(tmp_path / "patch")
+    p1, f1 = _tncm(pack, dsf)
+    p2, f2 = _tffg(pack, dsf)
+    PW.apply_plan(p1, f1, tool, patch_dir=patch, work_dir=str(tmp_path / "w1"))
+    PW.apply_plan(p2, f2, tool, patch_dir=patch, work_dir=str(tmp_path / "w2"))
+    # the DSF's ROWS, order-free and def-number-free: the writer's
+    # OBJECT_DEFs come first, so the def NUMBERING differs by writer
+    # while the defs and the placements do not
+    import re as _re
+
+    def _rows(p: Path) -> list[str]:
+        return sorted(_re.sub(r"^(OBJECT\S*) \d+ ", r"\1 ", l)
+                      for l in p.read_text().splitlines())
+    rows_after_two = _rows(dsf)
+
+    # TNCM again (the next tile build): its OWN two bodies are removed and
+    # rewritten; TFFG's survives untouched; the DSF is byte-identical
+    d_mtime = (pack / "objects" / "d__b0.obj").stat().st_mtime_ns
+    third = PW.apply_plan(p1, f1, tool, patch_dir=patch,
+                          work_dir=str(tmp_path / "w3"))
+    assert third.counts["restore_bodies_removed"] == 2
+    assert _objs(pack) == ["b__b0.obj", "b__b1.obj", "d__b0.obj"]
+    assert (pack / "objects" / "d__b0.obj").stat().st_mtime_ns == d_mtime
+    assert third.dsf.composed_airports == ("TFFG",)
+    assert _rows(dsf) == rows_after_two, "the composition is order-independent"
+    entry = _record_doc(dsf)["dsfs"]["+18-064.dsf"]
+    assert set(entry["airports"]) == {"TNCM", "TFFG"}
+
+
+def test_25_a_placement_both_airports_claim_goes_to_the_writer(
+        tmp_path, monkeypatch):
+    """A placement inside both catchments: the plan being written wins
+    the row, and the sibling's body files for that split — no longer
+    referenced by the composed DSF — are removed (CUT_MARK-guarded)."""
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    patch = str(tmp_path / "patch")
+    p1, f1 = _tncm(pack, dsf)
+    PW.apply_plan(p1, f1, tool, patch_dir=patch, work_dir=str(tmp_path / "w1"))
+    # TFFG splits placement 1 too (TNCM's split), into its own body name
+    p2, f2 = _tffg(pack, dsf, split_index=1, split_res="objects/b.obj")
+    second = PW.apply_plan(p2, f2, tool, patch_dir=patch,
+                           work_dir=str(tmp_path / "w2"))
+    text = dsf.read_text()
+    assert "OBJECT_DEF objects/d__b0.obj\n" in text
+    assert "objects/b__b" not in text
+    assert "OBJECT 0 -63.1 18.04 10.0\n" in text, "TNCM's other edit survives"
+    assert second.dsf.orphaned_bodies == (
+        str(pack / "objects" / "b__b0.obj"), str(pack / "objects" / "b__b1.obj"))
+    assert _objs(pack) == ["d__b0.obj"]
+    entry = _record_doc(dsf)["dsfs"]["+18-064.dsf"]
+    assert entry["airports"]["TNCM"]["body_files"] == []
+    assert entry["body_files"] == ["objects/d__b0.obj"]
+
+
+def test_25_a_sibling_recorded_against_another_dump_is_not_reapplied(
+        tmp_path, monkeypatch):
+    """A sibling row whose edits were built against a DIFFERENT pristine
+    dump (the pack was updated in place and adopted since) cannot be
+    re-applied: it is dropped and its bodies are orphans."""
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    patch = str(tmp_path / "patch")
+    p1, f1 = _tncm(pack, dsf)
+    PW.apply_plan(p1, f1, tool, patch_dir=patch, work_dir=str(tmp_path / "w1"))
+    doc = _record_doc(dsf)
+    doc["dsfs"]["+18-064.dsf"]["airports"]["TNCM"]["dump_sha256"] = "0" * 64
+    (dsf.parent / "o4_placement_provenance.json").write_text(json.dumps(doc))
+    B.invalidate_memo()
+    p2, f2 = _tffg(pack, dsf)
+    second = PW.apply_plan(p2, f2, tool, patch_dir=patch,
+                           work_dir=str(tmp_path / "w2"))
+    assert second.dsf.composed_airports == ()
+    assert _objs(pack) == ["d__b0.obj"]
+    assert "objects/b__b" not in dsf.read_text()
+    assert set(_record_doc(dsf)["dsfs"]["+18-064.dsf"]["airports"]) == {"TFFG"}
+
+
+def test_25_a_record_from_before_the_airports_map_cleans_up_as_before(
+        tmp_path, monkeypatch):
+    """Migration: an entry written up to this version has one flat
+    ``body_files`` list and no ``airports`` map.  The next write (any
+    ICAO) removes those bodies exactly as 11m did, then records itself."""
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    old = pack / "objects" / "z__b0.obj"
+    old.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}z\n")
+    _record(dsf, {"body_files": ["objects/z__b0.obj"], "written_sha256": ""})
+    assert W.written_body_files(str(pack), str(dsf), "TFFG") == (str(old),)
+    p2, f2 = _tffg(pack, dsf)
+    res = PW.apply_plan(p2, f2, tool, patch_dir=str(tmp_path / "patch"),
+                        work_dir=str(tmp_path / "w2"))
+    assert res.counts["restore_bodies_removed"] == 1
+    assert _objs(pack) == ["d__b0.obj"]
+
+
+def test_25_compose_keeps_the_writers_rows_and_round_trips_edit_rows():
+    pack, dsf = Path("/p"), Path("/p/Earth nav data/+10-070/+18-064.dsf")
+    p1, _ = _tncm(pack, dsf)
+    p2, _ = _tffg(pack, dsf, split_index=1, split_res="objects/b.obj")
+    c = p1.compose([p2])
+    assert c.icao == "TNCM"
+    assert sorted(x.index for x in c.conversions) == [0, 2]
+    assert [s.placement.index for s in c.splits] == [1]
+    assert c.splits[0].bodies[0].new_resource == "objects/b__b0.obj"
+    back = PM.PlacementPlan.from_dict({**p2.edit_rows(), "pack_root": "/p",
+                                       "dsf_path": str(dsf)})
+    assert back.conversion_indices() == p2.conversion_indices()
+    assert back.new_resources() == p2.new_resources()
+    assert [s.placement.to_dict() for s in back.splits] == \
+        [s.placement.to_dict() for s in p2.splits]
+
+
+# ── #26: "restore originals" sees, and undoes, the v2 engine's writes ───
+
+def _v2_scenery(tmp_path, monkeypatch, *, both: bool = False):
+    """A Custom Scenery folder holding ONE pack the v2 engine wrote —
+    TNCM on ``+18-064.dsf``, and TFFG on the same DSF when ``both``.  No
+    v1 reanchor sidecar exists: this is the pack the front ends could not
+    see."""
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    p1, f1 = _tncm(pack, dsf)
+    PW.apply_plan(p1, f1, tool, patch_dir=str(tmp_path / "patch"),
+                  work_dir=str(tmp_path / "w1"))
+    if both:
+        p2, f2 = _tffg(pack, dsf)
+        PW.apply_plan(p2, f2, tool, patch_dir=str(tmp_path / "patch"),
+                      work_dir=str(tmp_path / "w2"))
+    assert not (pack / ".o4_reanchor_provenance.json").exists()
+    return pack, dsf
+
+
+def test_26_a_pack_only_the_v2_engine_wrote_is_listed(tmp_path, monkeypatch):
+    """RED ON BASE: ``modified_packs`` read the v1 reanchor sidecar only,
+    so a pack the v2 engine wrote was never offered to "restore
+    originals" — its minted bodies and its record had no way out."""
+    from auto_patch import object_rebake
+    pack, _dsf = _v2_scenery(tmp_path, monkeypatch)
+
+    packs = object_rebake.modified_packs(str(tmp_path))
+    assert [(e["pack_name"], e["tiles"]) for e in packs] == \
+        [("pack", ["+18-064"])]
+    assert packs[0]["pack_path"] == str(pack)
+    # 1 conversion + 0 row seats + 2 minted bodies
+    assert packs[0]["objects"] == 3
+
+    on_tile = object_rebake.modified_packs(str(tmp_path), tile="+18-064")
+    assert [e["pack_name"] for e in on_tile] == ["pack"]
+    assert on_tile[0]["objects"] == 3
+    assert object_rebake.modified_packs(str(tmp_path), tile="+46+008") == []
+
+
+def test_26_both_airports_of_a_shared_dsf_are_counted(tmp_path, monkeypatch):
+    from auto_patch import object_rebake
+    _pk, _dsf = _v2_scenery(tmp_path, monkeypatch, both=True)
+    packs = object_rebake.modified_packs(str(tmp_path), tile="+18-064")
+    # the composed write: 2 conversions + 3 bodies
+    assert [e["objects"] for e in packs] == [5]
+
+
+def test_26_a_pack_carrying_BOTH_records_is_listed_once(tmp_path, monkeypatch):
+    from auto_patch import object_rebake
+    pack, _dsf = _v2_scenery(tmp_path, monkeypatch)
+    (pack / object_rebake.PROVENANCE_FILENAME).write_text(json.dumps({
+        "version": 1, "meshes": {},
+        "objects": {"objects/tower.obj": {"tile": "+18-064"},
+                    "objects/far.obj": {"tile": "+46+008"}}}))
+
+    packs = object_rebake.modified_packs(str(tmp_path))
+    assert len(packs) == 1, "ONE pack, ONE row"
+    assert packs[0]["tiles"] == ["+18-064", "+46+008"]
+    assert packs[0]["objects"] == 3 + 2
+    on_tile = object_rebake.modified_packs(str(tmp_path), tile="+18-064")
+    assert on_tile[0]["objects"] == 3 + 1
+
+
+def test_26_restore_removes_the_v2_bodies_and_the_record(tmp_path,
+                                                         monkeypatch):
+    """RED ON BASE: the restore walked ``.anchor_bak`` files only, so the
+    DSF went back to its original while the ``__b<k>.obj`` bodies that
+    original never references, and the record describing the write,
+    stayed in the pack."""
+    from auto_patch import object_rebake
+    pack, dsf = _v2_scenery(tmp_path, monkeypatch, both=True)
+    record = dsf.parent / "o4_placement_provenance.json"
+    assert _objs(pack) == ["b__b0.obj", "b__b1.obj", "d__b0.obj"]
+    assert record.is_file()
+    theirs = pack / "objects" / "z__b9.obj"
+    theirs.write_text("I\n800\nOBJ\nauthored by the pack, honestly\n")
+
+    out = object_rebake.restore_detail(str(pack))
+
+    assert out == {"restored": 1, "kept_changed": 0, "bodies_removed": 3}
+    assert dsf.read_text() == DUMP4, "the original is back, byte for byte"
+    assert _objs(pack) == ["z__b9.obj"], "every minted body went"
+    assert theirs.read_text() == "I\n800\nOBJ\nauthored by the pack, honestly\n"
+    assert not record.exists(), "the write is forgotten with its bodies"
+    assert Path(str(dsf) + ".anchor_bak").is_file(), "backups stay in place"
+
+    # idempotent, and the pack is no longer offered
+    assert object_rebake.restore(str(pack)) == 0
+    assert object_rebake.modified_packs(str(tmp_path)) == []
+
+
+def test_26_a_dsf_we_cannot_prove_is_ours_keeps_its_bodies(tmp_path):
+    """The restore's own rule reaches the bodies too: a file the engine
+    cannot prove it wrote loses no bytes, and neither does anything that
+    file may still reference."""
+    from auto_patch import object_rebake
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    shutil.copy2(dsf, str(dsf) + ".anchor_bak")
+    body = pack / "objects" / "b__b0.obj"
+    body.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}objects/b__b0.obj\n")
+    _record(dsf, {"body_files": ["objects/b__b0.obj"]})   # D6: no hashes
+    dsf.write_text(DUMP4 + "OBJECT 0 -63.0 18.0 0.0\n")
+    B.invalidate_memo()
+    assert B.classify_dsf(str(dsf)).state is B.State.UNPROVEN
+
+    out = object_rebake.restore_detail(str(pack))
+    assert out == {"restored": 0, "kept_changed": 1, "bodies_removed": 0}
+    assert body.is_file(), "the live DSF may still reference it"
+    assert (dsf.parent / "o4_placement_provenance.json").is_file()
+
+
+def test_26_a_sibling_dsfs_entry_survives_the_drop(tmp_path):
+    a = _pack(tmp_path, name="+18-064.dsf")[1]
+    b = a.parent / "+18-063.dsf"
+    b.write_text(DUMP)
+    doc = {"version": 2, "dsf": a.name, "written_sha256": "a" * 64,
+           "dsfs": {a.name: {"body_files": ["objects/a__b0.obj"]},
+                    b.name: {"body_files": ["objects/c__b0.obj"]}}}
+    (a.parent / "o4_placement_provenance.json").write_text(json.dumps(doc))
+
+    assert B.drop_dsf_entry(str(a)) is True
+    left = json.loads((a.parent / "o4_placement_provenance.json").read_text())
+    assert list(left["dsfs"]) == [b.name]
+    assert "written_sha256" not in left and "dsf" not in left, \
+        "the last write's top-level description named the dropped DSF"
+    assert B.drop_dsf_entry(str(a)) is False                # already gone
+    assert B.drop_dsf_entry(str(b)) is True
+    assert not (a.parent / "o4_placement_provenance.json").exists()
+
+
+def test_26_a_v1_only_pack_restores_exactly_as_it_did(tmp_path):
+    from auto_patch import object_rebake
+    pack, _dsf = _pack(tmp_path)
+    mine = _obj(pack, "mine.obj", OBJ)
+    shutil.copy2(mine, str(mine) + ".anchor_bak")
+    mine.write_text("I\n800\nOBJ\nVT 1.0 -3.0 2.0\nVT 3.0 -3.0 4.0\n")
+    (pack / object_rebake.PROVENANCE_FILENAME).write_text(json.dumps(
+        {"version": 1, "meshes": {},
+         "objects": {"objects/mine.obj": {"tile": "+40-004"}}}))
+
+    out = object_rebake.restore_detail(str(pack))
+    assert out == {"restored": 1, "kept_changed": 0, "bodies_removed": 0}
+    assert mine.read_text() == OBJ
+    assert not (pack / object_rebake.PROVENANCE_FILENAME).exists()

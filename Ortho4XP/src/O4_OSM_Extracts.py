@@ -127,7 +127,7 @@ def _read_json(path: str):
 def _write_json_atomic(path: str, payload) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     temporary_path = path + ".tmp"
-    with open(temporary_path, "w") as json_file:
+    with open(temporary_path, "w", newline="\n") as json_file:
         json.dump(payload, json_file, indent=1)
     os.replace(temporary_path, path)
 
@@ -177,7 +177,7 @@ def _refresh_index() -> bool:
         payload = response.json()          # validates before storing
         os.makedirs(STORE_DIRECTORY, exist_ok=True)
         temporary_path = _index_path() + ".tmp"
-        with open(temporary_path, "w") as index_file:
+        with open(temporary_path, "w", newline="\n") as index_file:
             json.dump(payload, index_file)
         os.replace(temporary_path, _index_path())
         _leaf_regions.cache = None

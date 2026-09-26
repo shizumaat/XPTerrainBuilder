@@ -1562,6 +1562,39 @@ def set_boundary_policy(policy):
     BOUNDARY_POLICY = policy if policy in ("neighbour", "skip") else None
 
 
+#: THE PRESS'S OWN TILE SET per tile cell (issue #51): ``(lat, lon) ->
+#: frozenset`` of the cells built by the same press.  A sibling the press
+#: WILL build is never "a tile this build is not building", so it is never
+#: cold.  ``EngineSession.build`` / ``enqueue_build`` land it in the parent
+#: and in every worker child (``parallel.py`` carries the batch beside the
+#: boundary policy); a tile no press declared is its own one-cell batch.
+BOUNDARY_BATCHES = {}
+
+
+def note_boundary_batch(cells):
+    """Record that *cells* were selected together in ONE press."""
+    batch = frozenset((int(c[0]), int(c[1])) for c in (cells or ()))
+    for cell in batch:
+        BOUNDARY_BATCHES[cell] = batch
+
+
+def boundary_batch_of(lat, lon):
+    """The press's tile set this cell was selected in (itself if none)."""
+    cell = (int(lat), int(lon))
+    return BOUNDARY_BATCHES.get(cell) or frozenset((cell,))
+
+
+def boundary_is_cold(batch):
+    """THE ``is_cold`` predicate — ONE spelling, shared by the preflight
+    (``EngineSession._boundary_preflight``) and the build-time check
+    (:func:`derive_auto_patch_selection`), the way ``boundary_skipper`` /
+    ``ask_reach_m`` are shared (issue #51): a cell is cold when this press
+    is NOT building it and its frame is not already warm."""
+    batch = frozenset((int(c[0]), int(c[1])) for c in (batch or ()))
+    return lambda cell: (tuple(cell) not in batch
+                         and not tile_frame_is_warm(*cell))
+
+
 #: THE tile-edge skip narration (issue #45).  ``..._CHOSEN`` is the
 #: original line; ``..._UNATTENDED`` is what a build says when nobody
 #: answered and the engine's own default decided.
@@ -1722,7 +1755,7 @@ def derive_auto_patch_selection(tile):
     record = []
     skipper = _SELECTION.boundary_skipper(
         int(tile.lat), int(tile.lon),
-        is_cold=lambda cell: not tile_frame_is_warm(*cell),
+        is_cold=boundary_is_cold(boundary_batch_of(tile.lat, tile.lon)),
         reach_m=_SELECTION.ask_reach_m(), record=record)
 
     def boundary(icao, runways, candidate=None):

@@ -687,7 +687,8 @@ class EngineSession:
     # ------------------------------------------------------------------
     def build(self, tiles, provider, zoomlevel, custom_build_dir,
               do_vector=True, do_imagery=True, do_overlays=False,
-              slots=None, steps=None, boundary_policy=None):
+              slots=None, steps=None, boundary_policy=None,
+              boundary_batch=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -713,6 +714,11 @@ class EngineSession:
             import O4_Vector_Map as _VMAP
 
             _VMAP.set_boundary_policy(boundary_policy)
+            # THE PRESS'S OWN TILE SET (issue #51): a worker child builds
+            # one tile per command, so the parent sends the whole batch as
+            # ``boundary_batch``; a direct press IS its ``tiles``.
+            _VMAP.note_boundary_batch(
+                boundary_batch if boundary_batch is not None else tiles)
         except Exception:                                # pragma: no cover
             pass
         self._building = True
@@ -854,6 +860,14 @@ class EngineSession:
             for tile in fresh:
                 self._work_queue.append(
                     (tile, provider, zoomlevel, custom_build_dir, plan))
+            if fresh:
+                # This press's own tile set (issue #51), as ``build`` does.
+                try:
+                    import O4_Vector_Map as _VMAP
+
+                    _VMAP.note_boundary_batch(tiles)
+                except Exception:                        # pragma: no cover
+                    pass
             if fresh and self._eta is not None:
                 planned_keys = [key for (key, _b, _w) in plan]
                 estimates = {
@@ -1762,8 +1776,7 @@ class EngineSession:
                 manual_icaos=VMAP.manual_patch_icaos(tile),
                 boundary=SELECTION.boundary_skipper(
                     lat, lon,
-                    is_cold=lambda cell: cell not in selected
-                    and not VMAP.tile_frame_is_warm(*cell),
+                    is_cold=VMAP.boundary_is_cold(selected),
                     reach_m=SELECTION.ask_reach_m(),
                     record=record))
             for (icao, cls, cold, crossing_m) in record:

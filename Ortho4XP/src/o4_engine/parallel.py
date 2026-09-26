@@ -907,6 +907,10 @@ class ParallelBuildRun:
                 # child receives it in its build command and lands it on
                 # its own tile object (spec §C.3).
                 "boundary_policy": boundary_policy,
+                # THE PRESS'S OWN TILE SET (issue #51): the child builds
+                # one tile per command, so without this every sibling of
+                # the batch reads as "a tile this build is not building".
+                "boundary_batch": [[int(t[0]), int(t[1])] for t in tiles],
             }
             self._programs[tile] = list(program)
             self._static_windows[tile] = {

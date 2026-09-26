@@ -229,8 +229,34 @@ def _legacy_pack_stage(icao, airport, law, inputs, lrep, out=print):
     cl = derive_clusters(_d.replace(airport, partition=part), law)
     sub["clusters"] = time.perf_counter() - t
     sub["total"] = time.perf_counter() - t0
-    return {"airport": airport, "partition": part, "groups": grp, "clusters": cl, "cache": "OFF(legacy)",
+    return {"airport": _d.replace(airport, partition=part, clusters=cl), "partition": part, "groups": grp, "clusters": cl, "cache": "OFF(legacy)",
             "wall": sub}
+
+
+def read_pickle(path: Path, site: tuple[float, float]) -> dict:
+    """THE CROSS-TREE READ (issue #69): a capture's (``v2_solve_replay
+    --capture``) or ``--pickle``'s ``{"icao", "airport"}`` — its PARTITION
+    re-derived into clusters and pads by THIS tree's code, and the site
+    report.  One outline code over N partitions is what names a
+    capture-time change."""
+    import pickle
+    if str(ROOT / "src") not in sys.path:
+        sys.path.insert(0, str(ROOT / "src"))
+    from auto_patch_v2.geom import cluster_outlines
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.cluster import cluster_min_m2, clusters
+    with open(path, "rb") as fh:
+        d = pickle.load(fh)
+    ap, law = d["airport"], Law.for_airport(d["icao"])
+    cl = clusters(ap, law)
+    st = law.tables.structures.placement
+    mn = float(cluster_min_m2(law))
+    to_xy = ap.frame.entry()
+    pads, _c = cluster_outlines(cl, to_xy, float(st.footprint_touch_m),
+                                walled_only=True, min_m2=mn)
+    rec = site_report(cl, site[0], site[1], mn, pads, to_xy(site[1], site[0]))
+    rec["partition_counts"] = {k: int(ap.partition.counts.get(k, 0)) for k in COUNT_KEYS}
+    return rec
 
 
 def summarise(runs: list[dict]) -> dict:
@@ -257,9 +283,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pickle", type=Path, help="write the stage's airport "
                     "({'icao', 'airport'} — a capture's shape) for an offline "
                     "read under another tree's code (last run only)")
+    ap.add_argument("--read-pickle", type=Path, help="no stage: read a capture / "
+                    "--pickle file's partition under THIS tree's cluster and "
+                    "outline code and print the --site report")
     ap.add_argument("--one", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     a.out_dir.mkdir(parents=True, exist_ok=True)
+    if a.read_pickle:
+        if not a.site:
+            raise SystemExit("--read-pickle needs --site LAT,LON")
+        rec = read_pickle(a.read_pickle, tuple(float(v) for v in a.site.split(",")))
+        print(f"[{a.icao}] {a.read_pickle.name} [site] "
+              + "  ".join(f"{k} {v}" for k, v in rec.items()))
+        if a.json:
+            a.json.write_text(json.dumps(rec, indent=1))
+        return 0
     if a.one:
         st = tuple(float(v) for v in a.site.split(",")) if a.site else None
         print("RECORD " + json.dumps(run_once(a.icao, a.cache == "on", a.out_dir, st,

@@ -224,6 +224,20 @@ OUTWARD_TOL_MAX_M = 0.2
 #: component 69, 1,235 m2 for 15 m2 of rail) is the price, named.
 HOLE_FILL_MAX_M2 = float("inf")
 
+#: WHEN the bounded outline applies (lane ``hecabodies``): only where the
+#: pre-lane reading (``_outward``'s doubling, or an all-wall component's
+#: convex hull) claims GROSSLY more ground than the outline it contains —
+#: more than ``INFLATION_FACTOR`` times its area AND more than
+#: ``INFLATION_MIN_M2`` m2 over it.  Everywhere else the pre-lane ring
+#: stands byte-for-byte.  MEASURED: bounding EVERY ring re-chained HECA's
+#: T3 district (``T23/concrete_3.obj`` 1 ring -> 8, the terminal cluster
+#: 2,592 -> 2,653 bodies, its pad from 16 pieces into 4 over 22 m of
+#: relief) and the closing census read 6,509 -> 73,562 rows there; the
+#: owner's sites need only the gross class (``metal_strip_2`` c117:
+#: 7,385 m2 for 113 m2; ``titles_1_yellow`` c0: 1,946 m2 for a line).
+INFLATION_FACTOR = 3.0
+INFLATION_MIN_M2 = 50.0
+
 #: How deep :func:`_outward_pieces` may bisect before the piece takes its
 #: convex hull (2**8 = 256 pieces at most per blob — a bound, not a
 #: target: HECA's worst strip needs a few dozen).
@@ -341,19 +355,29 @@ def plan_hull(pts: "np.ndarray | None",
     import shapely
     xz = np.column_stack((pts[:, 0], pts[:, 2]))
     t_all = xz[tris]                               # (m, 3, 2)
-    if len(t_all) > OUTLINE_TRIS_MAX:
-        return _hull_ring(pts)
     ar = np.abs((t_all[:, 1, 0] - t_all[:, 0, 0]) * (t_all[:, 2, 1] - t_all[:, 0, 1])
                 - (t_all[:, 2, 0] - t_all[:, 0, 0]) * (t_all[:, 1, 1] - t_all[:, 0, 1]))
     t = t_all[ar > 1e-6]
     # A triangle with NO plan area is a WALL seen from above: its footprint
-    # is the LINE it stands on.  Until issue #6 such a component (every
-    # triangle vertical) took its CONVEX HULL — HECA's
+    # is the LINE it stands on.  Until issue #6 a component whose EVERY
+    # triangle is vertical took its CONVEX HULL — HECA's
     # ``Hangar_Tower/titles_1_yellow.obj`` lettering band, 0.0 m2 in plan,
-    # read 1,946 m2 and nested a second ``building20`` inside the first —
-    # and a mixed component simply dropped its walls.  The walls now enter
-    # as their plan segments grown by the outline tolerance (outward).
-    flat = t_all[ar <= 1e-6]
+    # read 1,946 m2 and nested a second ``building20`` inside the first.
+    # Such a component now enters as its wall segments grown by the outline
+    # tolerance (outward).  A MIXED component still drops its walls, as it
+    # always did: MEASURED (closing HECA build hecabodies_close3) that
+    # adding them joined the T3 district's blocks through their facades
+    # into ONE 144,831 m2 cluster pad over 22 m of relief (base: pieces of
+    # 126,813 / 54,752 m2), 6,509 -> 73,562 census rows in the district.
+    flat = t_all[ar <= 1e-6] if len(t) == 0 else t_all[:0]
+    # the budget is on the triangles the outline is TAKEN OVER (the pre-lane
+    # test counted the plan-area ones; counting all of them sent a facade-
+    # heavy component to its hull)
+    if len(t) > OUTLINE_TRIS_MAX or len(flat) > OUTLINE_TRIS_MAX:
+        return _hull_ring(pts)
+    hull_pre = None
+    if len(t) == 0:
+        hull_pre = _hull_ring(pts)          # the pre-lane reading
     try:
         geoms = []
         if len(t):
@@ -393,10 +417,21 @@ def plan_hull(pts: "np.ndarray | None",
             return _hull_ring(pts)
         if not u.is_valid:
             u = u.buffer(0)
+        if hull_pre is not None:
+            ha = sum(abs(_ring_area(r)) for r in hull_pre)
+            if not _gross(ha, u.area):
+                return hull_pre
         out: list = []
         for g in (u.geoms if u.geom_type.startswith("Multi") else [u]):
             if g.is_empty or g.area <= 0.0 or g.geom_type != "Polygon":
                 continue
+            if hull_pre is None:
+                q = _outward(g, OUTLINE_SIMPLIFY_M, FOOTPRINT_RING_MAX)
+                if not _gross(q.area, shapely.Polygon(g.exterior).area):
+                    r = np.asarray(q.exterior.coords[:-1], dtype=float)
+                    if len(r) >= 3:
+                        out.append(r)
+                    continue
             for q in _outward_pieces(g, OUTLINE_SIMPLIFY_M, OUTWARD_TOL_MAX_M,
                                      FOOTPRINT_RING_MAX):
                 r = np.asarray(q.exterior.coords[:-1], dtype=float)
@@ -446,6 +481,19 @@ def solid_height(pts: np.ndarray, cell: float = SOLID_CELL_M) -> float:
     starts = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
     return float((np.maximum.reduceat(ys, starts)
                   - np.minimum.reduceat(ys, starts)).max())
+
+
+def _ring_area(r: np.ndarray) -> float:
+    """Shoelace area of a ``(k, 2)`` ring."""
+    x, y = r[:, 0], r[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+
+def _gross(claimed: float, true: float) -> bool:
+    """Does an outline claiming ``claimed`` m2 over ``true`` m2 of footprint
+    inflate it GROSSLY (:data:`INFLATION_FACTOR` / :data:`INFLATION_MIN_M2`)?"""
+    return (claimed > INFLATION_FACTOR * true
+            and claimed - true > INFLATION_MIN_M2)
 
 
 def _hull_ring(pts: np.ndarray) -> "list[np.ndarray]":

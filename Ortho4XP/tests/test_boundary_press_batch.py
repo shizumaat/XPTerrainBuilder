@@ -8,7 +8,8 @@ between them lost its patch although both tiles were being built in that
 very run.  The preflight excluded the press's cells; the build-time
 ``is_cold`` in ``derive_auto_patch_selection`` did not.
 
-Fixed at the single site: ONE predicate, ``VMAP.boundary_is_cold(batch)``,
+Fixed at the single site: ONE predicate, ``VMAP.boundary_is_cold(batch)``
+(wrapped by ``boundary_cold_predicate``),
 shared by both call sites, fed by the press's tile set that
 ``EngineSession.build`` / ``enqueue_build`` land (and that ``parallel.py``
 carries to each worker child beside the boundary policy).  Spec
@@ -141,10 +142,12 @@ def test_the_preflight_and_the_build_time_check_share_one_is_cold():
 
     preflight = inspect.getsource(session.EngineSession._boundary_preflight)
     build_time = inspect.getsource(VMAP.derive_auto_patch_selection)
-    assert "is_cold=VMAP.boundary_is_cold(" in preflight
-    assert "boundary_is_cold(batch)" in build_time
+    assert "VMAP.boundary_cold_predicate(" in preflight
+    assert "boundary_cold_predicate(" in build_time
     for source in (preflight, build_time):
         assert "is_cold=lambda" not in source
+    wrapper = inspect.getsource(VMAP.boundary_cold_predicate)
+    assert "boundary_is_cold(batch)" in wrapper
 
 
 def test_the_predicate_excludes_the_batch_and_reads_warmth(monkeypatch):

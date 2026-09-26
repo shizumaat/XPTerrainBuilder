@@ -1181,12 +1181,14 @@ class EngineSession:
         self._autopatch_state = None
         self._autopatch_t0 = None
         self._bar_values = {1: 0, 2: 0, 3: 0}
+        self._step_detail = ""
+        self._step_percent = base * 100.0
         if self._eta:
             self._eta.step_started(tile, key)
         indeterminate = step_progress(key, {}) is None
         self._emit(StepProgress(
             lat=tile[0], lon=tile[1], step_key=key,
-            label=STEP_LABELS.get(key, key),
+            label=self._step_label(key),
             percent=base * 100.0, indeterminate=indeterminate))
         self._emit_eta(force=True)
 
@@ -1234,10 +1236,33 @@ class EngineSession:
         percent = min(100.0, (base + width * min(inside, 100) / 100.0) * 100)
         if self._eta:
             self._eta.percent_sample(nbr, min(float(percentage), 100.0))
+        self._step_percent = percent
         self._emit(StepProgress(
             lat=tile[0], lon=tile[1], step_key=key,
-            label=STEP_LABELS.get(key, key), percent=percent))
+            label=self._step_label(key), percent=percent))
         self._emit_eta()
+
+    def _step_label(self, key):
+        """The step's label, plus what it is doing right now when a phase
+        named it (``UI.step_detail``) — e.g. ``vector data · airport insets
+        +38-009 (neighbour of +38-010)``."""
+        label = STEP_LABELS.get(key, key)
+        detail = getattr(self, "_step_detail", "")
+        return "%s · %s" % (label, detail) if detail else label
+
+    def step_detail(self, text):
+        """UI hook target (``O4_UI_Utils.step_detail``, spec §D.3): re-emit
+        the running step's progress under a label naming ``text``; ``""``
+        restores the plain step label.  Auto-patch owns the label while it
+        runs, exactly as for the legacy bars."""
+        self._step_detail = str(text or "")
+        if self._current_step is None or self._autopatch_running():
+            return
+        tile, key, base, _width = self._current_step
+        self._emit(StepProgress(
+            lat=tile[0], lon=tile[1], step_key=key,
+            label=self._step_label(key),
+            percent=getattr(self, "_step_percent", base * 100.0)))
 
     def imagery_downloads_done(self, lat, lon, downloaded=0, failed=0):
         """The imagery step's download queue drained (UI hook target).
@@ -1771,14 +1796,20 @@ class EngineSession:
             if not cifp:
                 continue
             record = []
+            (is_cold, siblings) = VMAP.boundary_cold_predicate(
+                (lat, lon), selected)
             SELECTION.select_patch_airports(
                 tile, cifp, SELECTION.resolved_auto_patch_mode(tile),
                 manual_icaos=VMAP.manual_patch_icaos(tile),
                 boundary=SELECTION.boundary_skipper(
-                    lat, lon,
-                    is_cold=VMAP.boundary_is_cold(selected),
+                    lat, lon, is_cold=is_cold,
                     reach_m=SELECTION.ask_reach_m(),
                     record=record))
+            # DECLARED for the scheduler's fetch admission (spec §D.2):
+            # the frames this tile's step 1 may warm.
+            VMAP.declare_boundary_cells(
+                (lat, lon), siblings,
+                {c for r in record if r[1] == "S" for c in r[2]})
             for (icao, cls, cold, crossing_m) in record:
                 if cls != "S" or not cold:
                     continue

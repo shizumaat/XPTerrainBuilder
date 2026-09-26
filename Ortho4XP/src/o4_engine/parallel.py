@@ -467,6 +467,10 @@ STEP_FETCH_SUBSYSTEMS = {
     # and runs the auto-patch airport builds.
     "vector": (
         "O4_Vector_Map",
+        # The declared cold neighbour frames step 1 warms (§D.2 of
+        # insets-follow-patch-set-spec): ``module:predicate`` names a
+        # predicate other than the module's ``is_cached``.
+        "O4_Vector_Map:boundary_frames_are_cached",
         "O4_DEM_Utils",
         "O4_Airport_Elevation_Insets",
         "O4_Bathymetry_Band",
@@ -496,9 +500,11 @@ def preload_cache_predicates():
         for name in names
     }):
         predicate = None
+        (import_name, _colon, attribute) = module_name.partition(":")
+        attribute = attribute or "is_cached"
         try:
-            module = __import__(module_name, fromlist=["is_cached"])
-            predicate = getattr(module, "is_cached", None)
+            module = __import__(import_name, fromlist=[attribute])
+            predicate = getattr(module, attribute, None)
         except Exception:
             predicate = None
         with _PREDICATES_LOCK:
@@ -1163,6 +1169,10 @@ class ParallelBuildRun:
                 configuration.default_website = arguments["provider"]
             if arguments.get("zoomlevel"):
                 configuration.default_zl = arguments["zoomlevel"]
+            # The batch's boundary answer, as the worker applies it: the
+            # §D.2 predicate warms outside neighbours only under it.
+            if arguments.get("boundary_policy") in ("neighbour", "skip"):
+                configuration.boundary_policy = arguments["boundary_policy"]
         except Exception:
             configuration = None
         self._tile_configurations[tile] = configuration

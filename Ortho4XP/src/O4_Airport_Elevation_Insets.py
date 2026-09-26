@@ -7482,6 +7482,7 @@ def ensure_airport_insets(
     target_resolution_m,
     refresh=False,
     fetch_counter=None,
+    meter_key="airport-insets",
 ):
     """Ensure a cached inset exists for each airport, per provider ranking.
 
@@ -7907,7 +7908,7 @@ def ensure_airport_insets(
             UI.progress_bar(
                 1, int(min(done * 100 // max(len(icaos), 1), 99)))
             if TASK_METER is not None:
-                TASK_METER.advance("airport-insets", done)
+                TASK_METER.advance(meter_key, done)
     # Airports fetch CONCURRENTLY: the work is network-bound (windowed
     # WCS/COG reads per airport — separate windows on purpose: one merged
     # request would cover the airports' bounding rectangle, i.e. most of
@@ -7915,7 +7916,7 @@ def ensure_airport_insets(
     # the per-provider slots below keep any single server at two
     # in-flight requests.
     if TASK_METER is not None:
-        TASK_METER.begin("airport-insets", len(icaos))
+        TASK_METER.begin(meter_key, len(icaos))
     try:
         if len(icaos) > 1:
             from concurrent.futures import ThreadPoolExecutor
@@ -7930,7 +7931,7 @@ def ensure_airport_insets(
                 _fetch_airport_insets_with_progress(icao)
     finally:
         if TASK_METER is not None:
-            TASK_METER.end("airport-insets")
+            TASK_METER.end(meter_key)
     _write_index(lat, lon, index)
     return index
 
@@ -8703,8 +8704,13 @@ def _inset_target_resolution_m(definition, target_resolution_m):
     return max(float(target_resolution_m), float(native_resolution_m))
 
 
-def ensure_insets_for_tile(tile, dico_airports, refresh=False):
-    """Fetch/refresh every airport inset on the tile (step-1 download hook)."""
+def ensure_insets_for_tile(tile, dico_airports, refresh=False,
+                           meter_key="airport-insets"):
+    """Fetch/refresh every airport inset on the tile (step-1 download hook).
+
+    ``meter_key`` names the pass on the task meter: a NEIGHBOUR tile's pass
+    (``O4_Vector_Map.ensure_tile_frame``) runs as ``"airport-insets
+    +38-009"`` so it never collides with the home tile's own (§D.3)."""
     # How many inset fetches this build performed, mirrored into the tile
     # build record as ``features.insets_fetched``: a non-zero count marks
     # the run's step-1 wall time as download-polluted, which disqualifies
@@ -8742,6 +8748,9 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False):
         getattr(tile, "airport_elevation_level", "auto")
     )
     fetch_counter = [0]
+    # Only a NEIGHBOUR pass names its own meter key; the home pass keeps
+    # the historic call shape.
+    extra = {} if meter_key == "airport-insets" else {"meter_key": meter_key}
     try:
         ensure_airport_insets(
             tile.lat,
@@ -8751,6 +8760,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False):
             resolution_m,
             refresh=refresh,
             fetch_counter=fetch_counter,
+            **extra,
         )
     except Exception as error:
         # Never let inset fetching abort a build (G4 safety).

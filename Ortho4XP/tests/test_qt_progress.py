@@ -321,3 +321,21 @@ def test_fmt_tile_clock():
     assert GUI._fmt_tile_clock(0.0, 300.0, False) == \
         "~" + GUI._fmt_remaining(300.0)
     assert GUI._fmt_tile_clock(0.0, None, False) == ""
+
+
+def test_a_neighbour_insets_pass_names_its_tile_in_the_label(session):
+    """Issue #33 / spec §D.3: while a NEIGHBOUR tile's airport-insets pass
+    runs inside the vector step, every StepProgress — the legacy-bar ones
+    included — names it; afterwards the plain label returns."""
+    s, events = session
+    s.step_detail("airport insets +48-007 (neighbour of +48-006)")
+    s.legacy_progress(1, 50)
+    s.step_detail("")
+    s.legacy_progress(1, 60)
+    labels = [e.label for e in _step_events(events)]
+    assert labels == [
+        "vector data · airport insets +48-007 (neighbour of +48-006)",
+        "vector data · airport insets +48-007 (neighbour of +48-006)",
+        "vector data",
+        "vector data",
+    ]

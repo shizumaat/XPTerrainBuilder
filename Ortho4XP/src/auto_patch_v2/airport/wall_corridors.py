@@ -80,6 +80,11 @@ THE READING, per ANCHOR FAMILY (``deck_signature.family_key``):
    basement cover gate: the deck above is the family's own roof and stays).
    Open air over the trench is NOT a refusal (RULINGS 2026-09-10z: seven
    OTHH corridors carry no deck plate of their own).
+6. THE KERB (issue #12, Q-12): a band whose OWN component rises more than
+   ``max_wall_height_m`` over the object's zero is a building / bridge wall's
+   buried foot — foundations (10af); the pair is refused and the object keeps
+   its seat.  (10ap refuted it on the OLD pack; the owner's new-pack read
+   names two such corridors as tunnels "where none exist".)
 (The 10w heading and deck clauses, 10z's groundside-mouth clause (b'')
 and 10ao's terminals-only clause are all REFUTED and DELETED: no mouth test separates LEMD's cargo
 foundations from OTHH's kerb corridors — RULINGS 2026-09-10ab / 10ad.)
@@ -781,12 +786,12 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                 # foundation sheet is the bottom of a BUILDING wall that
                 # rises to a roof.  Read per band, in the object's own
                 # authored frame (never the terrain).
-                ha = (read_wall_height(by_id[A.owner], cache, A.comp, grid,
-                                       ob.wall_face_max_thickness_m, store=bz_store)
-                      if measure else None)
-                hb = (read_wall_height(by_id[B.owner], cache, B.comp, grid,
-                                       ob.wall_face_max_thickness_m, store=bz_store)
-                      if measure else None)
+                # ISSUE #12 [OTHH-1] (Q-12, shipped default-ON): read in
+                # EVERY build now — it is the admission's (d) below.
+                ha = read_wall_height(by_id[A.owner], cache, A.comp, grid,
+                                      ob.wall_face_max_thickness_m, store=bz_store)
+                hb = read_wall_height(by_id[B.owner], cache, B.comp, grid,
+                                      ob.wall_face_max_thickness_m, store=bz_store)
                 h_own = max([h.own_m for h in (ha, hb) if h is not None] or [0.0])
                 h_step = max([h.step_m for h in (ha, hb) if h is not None] or [0.0])
                 h_conn = max([h.connected_m for h in (ha, hb) if h is not None] or [0.0])
@@ -831,6 +836,24 @@ def read_wall_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObjec
                                               + (("; B: " + hb.witness) if hb else ""),
                               "admitted": False}
                     stats.narrow_cut.append(nc_row)
+                # (d) THE KERB TEST (issue #12, OWNER QUESTION Q-12): a kerb
+                # wall rises from its floor to the deck and no further; a
+                # band whose OWN component stands more than
+                # ``max_wall_height_m`` over the object's zero is the buried
+                # bottom of a building / bridge wall — FOUNDATIONS (10af):
+                # the object keeps its seat, the ground stays, no trench.
+                # The OWN component, never the connected wall: #16's bay
+                # (Terminal_Base_2_1@4) is a 0.63 m kerb whose one band
+                # touches the terminal's 43.7 m facade.
+                if h_own > wc.max_wall_height_m:
+                    msg = (f"{name} at {site}: its wall rises {h_own:.2f} m over the "
+                           f"object's zero (> max_wall_height_m {wc.max_wall_height_m}) — "
+                           f"the buried foot of a building wall, foundations, not a kerb "
+                           f"corridor (#12)")
+                    stats.refused.append(msg)
+                    stats.admission.append(f"{head}: {clause_a}; (d) REFUSED — wall "
+                                           f"{h_own:.2f} m over the zero: foundations")
+                    continue
                 descending = (zmax - zmin) >= wc.min_wall_depth_m
                 # RULE 4: the ends
                 def end_line(k: int) -> tuple[XY, XY]:

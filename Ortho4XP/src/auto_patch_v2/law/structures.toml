@@ -342,6 +342,21 @@ corridor_floor_road_tol_m           = 1.5   # |road level - floor| within this =
 corridor_floor_slab_max_thickness_m = 0.5   # a component thinner than this can be a floor slab (a wall is not)
 corridor_floor_slab_tol_m           = 0.5   # ...lying within this of the floor
 corridor_floor_slab_cover_min       = 0.5   # ...over at least this share of the corridor's length
+# ISSUE #12 [OTHH-1] (lane `tunnelwitness`, 2026-09-25; OWNER QUESTION Q-12
+# on the issue, shipped default-ON): THE WALL'S OWN HEIGHT above the object's
+# zero — a KERB wall rises from its floor to the deck it carries and no
+# further; a band whose own component rises past this is the buried bottom of
+# a BUILDING / BRIDGE wall (foundations, 10af), and its pair is no corridor:
+# the object keeps its seat and the ground stays.  RULINGS 10ao measured it and
+# 10ap refuted it on the OLD pack because all 43 corridors were then taken as
+# real; on the NEW pack the owner's read names two of the high-wall ones as
+# tunnels "where none exist".  Measured, new pack (dry structures, main
+# 4cd4025f): kept 0.40-1.40 m (Terminal_Base_2_1 bays incl. #16's @4 0.63,
+# Terminal_Base_2_5 underpass 0.59, Qatar_DutyFree_003 0.40-1.40); refused
+# 5.91-9.82 m (TerminalRoads_03_004 9.78 = OTHH-1 site a, Terminal_Parking_VCN
+# _004 9.60-9.82 = site b, TerminalRoads_02_004 9.59, TerminalRoads_Parking_004
+# 5.91, Bridge_02 9.48, Bridge_06 8.10-9.48).  Records 73 -> 11.
+max_wall_height_m  = 3.0            # a band's OWN component max_y above the object's zero at most this (a kerb: OTHH 0.40–1.40 m; foundations of buildings/bridges 5.91–9.82 m)
 min_headroom_m     = 3.5            # the lowest near-horizontal face over the corridor stands this far above its floor (OTHH: 4.3–4.5 m); less is refused by name (replaces the basement cover gate for corridors)
 ramp_grade         = 0.08           # the synthetic climb beyond a mouth (the door ramp's grade, 08m): 1.89 m → 23.6 m
 max_ramp_grade     = 0.10           # ...steepened up to this where the climb stops at airside pavement (08m (a): site 1's NE ramp 18.9 m); refused loudly above; = the wall_corridor_ramp role's cap (rulesets.toml), checked at load

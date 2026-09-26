@@ -237,7 +237,9 @@ def test_the_ring_ladder(pack, law, t):
              and c.walls.buffer(3.0 * max(t_read, F)).contains(Point(p))]
     assert dists
     assert min(dists) == pytest.approx(band, abs=1e-6)
-    assert max(dists) <= band + GRID + 1e-6
+    # (the closed end's corner is the MITRE of the two outer faces, issue
+    # #16: √2 × the band from the floor corner, never more)
+    assert max(dists) <= band * math.sqrt(2.0) + GRID + 1e-6
     # §47 (2): THE EMIT PATH NEVER LEAVES THE WALL — the rim stands
     # inside the walls' own footprint ⊕ the named yield, never a grid
     # step outside it (the 08e OWED deviation (2): ≈ 0.4 m OUTSIDE a
@@ -277,7 +279,9 @@ def test_the_designed_band_is_not_readable_off_the_emitted_product(pack, law):
     rings to the 0.5 m identity lattice and each vertex may move half a
     cell diagonal toward the other.  Designed → smallest emitted
     rim-to-floor distance, measured here: 0.7071 → 0.500, 1.0000 → 0.707,
-    2.0000 → 1.803.  What DOES hold at every rung is the thing §47 (3)
+    2.0000 → 1.803 — and, since the walled cap corner became the MITRE of
+    the two outer faces (issue #16, lane ``tunnelwitness``; the 1.0 / 2.0
+    rungs were read at the diagonal-cut corner), 0.500 / 1.000 / 2.000.  What DOES hold at every rung is the thing §47 (3)
     exists for: the rings never FUSE (0 shared vertices).  So
     ``structure_rim_gap`` keeps the identity spacing as its bar."""
     from auto_patch_v2.planar.build import build
@@ -285,7 +289,7 @@ def test_the_designed_band_is_not_readable_off_the_emitted_product(pack, law):
     from auto_patch_v2.constraints.precedence import view
     co = law.tables.structures.cutout
     spacing = law.tables.emit.identity.min_distinct_spacing_m
-    want = {0.55: 0.500, 1.00: 0.707, 2.00: 1.803}
+    want = {0.55: 0.500, 1.00: 1.000, 2.00: 2.000}
     for t, emitted in want.items():
         airport, objects, cs = _airport_at(pack, law, t)
         pm, _stats = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
@@ -304,7 +308,10 @@ def test_the_designed_band_is_not_readable_off_the_emitted_product(pack, law):
                         for q in pts) for v in rim)
             assert d == pytest.approx(emitted, abs=0.01)
             band = rim_standoff(cs[0].stations[len(cs[0].stations) // 2].thick_l, co)[1]
-            assert d < band - law.tables.emit.materiality.elevation_m   # unreadable
+            # issue #16 (the walled cap corner is the MITRE): the corner
+            # squeeze is gone, so the 1.0 m rung now reads its band exactly;
+            # the others still read under it — never over
+            assert d <= band + 1e-6
             assert d >= spacing - 1e-6                                  # ...but distinct
     from auto_patch_v2.verify import structures as V
     import inspect

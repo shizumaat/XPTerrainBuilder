@@ -205,21 +205,34 @@ def _clear(p: XY, direction: XY, ramp: Polygon, gap: float, grid: float) -> XY:
 
 
 def _cap(m: XY, lin: XY, rin: XY, d: XY, nv: XY, ramp: Polygon, off: float, grid: float,
-         walled: bool = False) -> list[XY]:
+         walled: bool = False, side: tuple[float, float] | None = None) -> list[XY]:
     """The rim's end cap across the axis point ``m`` in direction ``d``
     (away from the ramp): ``[+nv corner, centre, −nv corner]``, each
     ``off`` beyond the ramp's end edge and cleared off the ramp by it.
 
     §47 (2): on a WALLED corridor ``off`` IS the end wall's own thickness,
     so the cap is the end wall's OUTER face — the plain offset, with
-    neither ``snap_out`` nor ``_clear`` able to push it past that face."""
+    neither ``snap_out`` nor ``_clear`` able to push it past that face.
+
+    THE WALLED CORNER IS THE MITRE (issue #16 [OTHH-5], lane
+    ``tunnelwitness``): where the end wall's outer face meets the side
+    wall's, i.e. ``off`` beyond the end edge AND ``side`` (the side rim's
+    own stand-off at this end) beyond the side edge.  It stood ``off``
+    along the DIAGONAL instead, so the rim chord from the side rim's end
+    to it passed ``0.92 × off`` from the floor corner — 0.65 m at the
+    §47 (3) lattice floor 0.7071 — and the arrangement's snap fused the
+    rim onto the floor corner.  MEASURED at OTHH ``Terminal_Base_2_1@4``:
+    floor corner v11953 (pinned at the wall bottom 2.61) became a vertex
+    of the ``building4`` pad; the pad's slope rows then carried every rim
+    vertex (the ground rule: a rim the governed ground shares takes the
+    ground's value) down to 2.61–3.40 against ground 3.96, and the ramp
+    top on the pad to 3.37 — the owner's "tunnel wall below grade"."""
     dirs = [(d[0] + nv[0], d[1] + nv[1]), d, (d[0] - nv[0], d[1] - nv[1])]
     if walled:
-        out: list[XY] = []
-        for base, dv in ((lin, dirs[0]), (m, dirs[1]), (rin, dirs[2])):
-            L = math.hypot(dv[0], dv[1]) or 1.0
-            out.append((base[0] + dv[0] / L * off, base[1] + dv[1] / L * off))
-        return out
+        sl, sr = side if side is not None else (off, off)
+        return [(lin[0] + d[0] * off + nv[0] * sl, lin[1] + d[1] * off + nv[1] * sl),
+                (m[0] + d[0] * off, m[1] + d[1] * off),
+                (rin[0] + d[0] * off - nv[0] * sr, rin[1] + d[1] * off - nv[1] * sr)]
     return [_clear(snap_out((lin[0] + dirs[0][0] * off, lin[1] + dirs[0][1] * off), lin, grid),
                    dirs[0], ramp, off, grid),
             _clear(snap_out((m[0] + d[0] * off, m[1] + d[1] * off), m, grid), d, ramp, off, grid),
@@ -494,14 +507,16 @@ def _geometry_at(axis_fn, ss: list[float], half: float, rim_off: float, inward: 
     if capped:
         # the cap: left corner, CENTRE (the mouth wall node, 09-03b), right corner
         cap_out = _cap(axis[0], left[0], right[0], inward, nrm[0], ramp,
-                       cap_off if cap_off is not None else rim_off, grid, walled)
+                       cap_off if cap_off is not None else rim_off, grid, walled,
+                       (rl[0], rr[0]))
     if far_capped:
         a, b = axis[-2], axis[-1]
         L = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
         outward = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
         # in ring order after the right rim's top: right corner, centre, left corner
         far_out = _cap(axis[-1], right[-1], left[-1], outward, (-nrm[-1][0], -nrm[-1][1]),
-                       ramp, far_off if far_off is not None else rim_off, grid, walled)
+                       ramp, far_off if far_off is not None else rim_off, grid, walled,
+                       (rr[-1], rl[-1]))
     outer_ring = list(reversed(left_rim)) + cap_out + right_rim + far_out
     if not capped and not far_capped:
         # capless: two side pieces — the rim is two lines, the void the

@@ -83,6 +83,12 @@ def objs(tmp_path_factory):
         # roof over them: the LEMD cargo-dock shape the owner described
         # as "just foundations"
         "skirt": _skirt_shed(d / "skirt.obj"),
+        # issue #12 (Q-12): OTHH's new-pack pair at the owner's site a —
+        # TerminalRoads_03_004, bands 1.89 m under the zero whose own
+        # component rises +9.78 — and #16's loading bay, a 0.63 m kerb
+        # 1.35 m deep
+        "tall_wall": _corridor_obj(d / "tall_wall.obj", depth=1.89, top=9.78, deck_y=None),
+        "bay_kerb": _corridor_obj(d / "bay_kerb.obj", depth=1.35, top=0.63),
     }
 
 
@@ -338,7 +344,10 @@ def test_a_foundation_skirt_reads_the_same_fraction_as_a_kerb_corridor(objs, law
     assert abs(row["fraction"] - st2.narrow_cut[0]["fraction"]) < 0.2, (
         row, st2.narrow_cut[0])
     assert not recs and st.corridors == 0
-    assert any("no mouth" in r for r in st.refused), st.refused
+    # issue #12 (Q-12): the skirt's walls rise 8 m over its zero, so the
+    # KERB test (d) refuses it as foundations before the end test reads
+    # its closed ring
+    assert any("foundations, not a kerb corridor" in r for r in st.refused), st.refused
 
 
 # ── RULINGS 2026-09-10ad: the SEATED frame ───────────────────────────────
@@ -535,3 +544,28 @@ def test_the_law_digest_changes_when_the_affordance_table_changes(tmp_path):
     assert after["sha256"] != before["sha256"]
     assert Law.for_airport("LEMD", law_dir=d).affordances.kerb_wall_corridors is True
     assert Law.for_airport("OTHH", law_dir=d).affordances.kerb_wall_corridors is False
+
+
+# ── issue #12 [OTHH-1] (Q-12): THE KERB TEST (d) ─────────────────────────
+
+def test_a_pair_whose_wall_rises_past_a_kerb_is_foundations_not_a_corridor(objs, law):
+    """OTHH-1 site a (25.2575296, 51.6120308): ``TerminalRoads_03_004``'s
+    pair is 1.89 m under its zero — deeper than #16's real bay — so no
+    depth threshold refuses it; its OWN wall component rises +9.78 m, the
+    buried foot of a building wall (10af).  Refused by name; the object
+    keeps its seat and the ground stays."""
+    wc = law.tables.structures.cutout.wall_corridor
+    recs, st = _corridors(objs, law, "tall_wall")
+    assert 9.78 > wc.max_wall_height_m
+    assert not recs and st.corridors == 0, st.admission
+    assert any("rises 9.78 m" in r and "foundations" in r for r in st.refused), st.refused
+
+
+def test_a_kerb_bay_shallower_than_the_foundations_is_still_a_corridor(objs, law):
+    """#16's loading bay ``Terminal_Base_2_1@4``: 1.35 m deep (SHALLOWER
+    than the refused 1.73-1.89 m foundations — why depth cannot be the
+    discriminator), a 0.63 m kerb.  Admitted."""
+    wc = law.tables.structures.cutout.wall_corridor
+    recs, st = _corridors(objs, law, "bay_kerb")
+    assert 0.63 <= wc.max_wall_height_m
+    assert st.corridors == 1 and recs, (st.refused, st.admission)

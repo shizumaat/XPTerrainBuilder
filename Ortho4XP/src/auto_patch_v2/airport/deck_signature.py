@@ -520,7 +520,11 @@ def way_cover(pl: DeckPlate, line: LineString) -> float:
     rectangle, over the plate length (a way crossing a terminal slab
     transversally projects ~0 along the slab's axis; the trunk road on
     OTHH Bridge_05 reads 0.97)."""
-    if pl.ends is None or pl.length_m <= 0.0:
+    if pl.ends is None or pl.length_m <= 0.0 or pl.rect is None:
+        # §51 Law A: ``frame_entry.enter`` hands back ``None`` for a plate
+        # rectangle it could not repair — a degenerate plate runs along
+        # no way (measured SPJC 2026-09-21, lane tunnelwitness: the dry
+        # ``--stage structures`` read died here on ``None.is_empty``).
         return 0.0
     seg = line.intersection(pl.rect)
     if seg.is_empty:

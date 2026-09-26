@@ -158,6 +158,13 @@ def _rules_override(rules, over: dict[str, object]):
             val: object = str(v).strip().lower() in ("1", "true", "yes", "on")
         elif isinstance(cur, (int, float)):
             val = type(cur)(v)
+        elif isinstance(cur, (tuple, list)):
+            # a list key (``surfaces.graded_codes=1,2,3,15``): comma-
+            # separated, each element typed like the shipped first one
+            # (lane ``nlwf``, the transparent-apron arm)
+            elem = type(cur[0]) if cur else str
+            val = type(cur)(elem(t.strip()) for t in str(v).split(",")
+                            if t.strip())
         else:
             val = v
         rules = _dc.replace(rules, **{sec: _dc.replace(node, **{key: val})})
@@ -1855,6 +1862,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 for r in (vrows.get(k) or [])[:6]:
                     print(f"      {k}: {r}")
             result["verify"]["defect_rows"] = {k: (vrows.get(k) or [])[:20] for k in DEFECT_KEYS}
+            # EVERY family's rows (capped), so a --json arm can be read by
+            # site without a second census (lane ``nlwf``)
+            result["verify"]["rows"] = {k: v[:200] for k, v in vrows.items() if v}
         if solved_out is not None:
             # the solved set (pm, stage, rows, z) for a later ``--why-from``
             # (the duals solve is a second full LP; kept out of the timed arm)

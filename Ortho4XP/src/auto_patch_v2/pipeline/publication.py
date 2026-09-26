@@ -253,16 +253,14 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                  z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
     """§30 (4): one record per TERMINAL CLUSTER — its id, its members, the
     emitted ``building`` faces its footprint union stands on, the LEVEL
-    the solve gave that one plane, its footprint-union area, and how many
-    apron vertices the reach targeted (with how many of them came within
-    the materiality floor of the plane, which is the "apron faces that
-    stayed graded" the ruling asks the report to name).
+    the solve gave that one plane and its footprint-union area.  (The
+    apron-reach counts went with the deleted collar, jetway-strip spec §6
+    Q3; the strip publishes its own ``jetway_strips``.)
 
     Read off the SAME derivations the rows were priced from
     (``constraints.cluster_pad``), never a second reading of the law."""
     from ..constraints.cluster_pad import (DERIVED, OFFSET_SPREAD, REFERENCE,
                                            TOUCHING_STEPS, YIELDED,
-                                           cluster_apron_faces,
                                            cluster_offsets, cluster_pad_faces,
                                            plane_groups)
     faces = cluster_pad_faces(planar, law, airport)
@@ -274,21 +272,15 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
     # disagree about the ground floor — a defect in the split) — the SAME
     # derivation the law states, never a second reading
     cluster_offsets(planar, law, airport)
-    reach = cluster_apron_faces(planar, law, airport)
     vs_of = {ref.split("cluster:", 1)[1]: group
              for _f, ref, group, _q in plane_groups(planar, law, airport)
              if ref.startswith("cluster:")}
     by_id = {c.id: c for c in (getattr(airport, "clusters", None) or ())}
-    tol = float(law.tables.emit.materiality.elevation_m)
     out: list[dict[str, _t.Any]] = []
     for cid, fids in sorted(faces.items()):
         vs = vs_of.get(cid) or []
         zs = ([float(z[v]) for v in vs if v < len(z)] if z is not None else [])
         lvl = (sorted(zs)[len(zs) // 2] if zs else None)
-        ap = reach.get(cid, [])
-        flat = (sum(1 for v in ap if v < len(z) and lvl is not None
-                    and abs(float(z[v]) - lvl) <= tol)
-                if z is not None else 0)
         c = by_id.get(cid)
         out.append({"id": cid,
                     "members": list(getattr(c, "members", ()) or ()),
@@ -296,8 +288,6 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                     "pads": sorted({planar.faces[f].ref for f in fids}),
                     "level": (None if lvl is None else round(lvl, 3)),
                     "rim_vertices": len(vs),
-                    "apron_vertices_in_reach": len(ap),
-                    "apron_vertices_at_the_plane": flat,
                     # §30 (4) (5) (owner RULINGS 2026-09-13ch): the member
                     # pads the gate turned away — they keep their own
                     # plane and the report names them

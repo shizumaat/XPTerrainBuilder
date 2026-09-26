@@ -15,8 +15,8 @@ pipeline.  The OBJECT stage's is §16f (7): one unit, one plane, every
 member — walls, roofs, floors, the interior furniture, the pieces
 standing on the apron.  The DESIGN surface's is §30 (4): the plane the
 object stage seats on must EXIST, which means ONE pad over the cluster's
-footprint union, and the apron within ``[design] cluster_apron_reach_m``
-of it targeting that plane.
+footprint union (the apron reach that once targeted it is deleted; the
+apron under the jetways is the JETWAY STRIP's, jetway-strip spec §6 Q3).
 
 **THE CLUSTER MUST BE KNOWN AT PLANAR TIME.**  §16f's family census runs
 in the object stage, which runs after the design surface is emitted, so

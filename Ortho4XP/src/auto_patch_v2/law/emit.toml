@@ -529,15 +529,10 @@ foot_row_rulings = [
   "structures.placement foot_row",                       # 09-11q: the body's foot on bare ground, level = the least-squares fit to the DEM
 ]
 pad_flat = 3000.0
-# §30 (4) (owner RULINGS 2026-09-13cc (ii)): the CLUSTER PAD'S APRON REACH
-# is priced at the APRON TREND's design-target weight, not at ``law`` — a
-# target the taxi family's own law rows always outrank, so the reach yields
-# wherever the taxiways cannot follow ("as long as it remains feasible with
-# grade laws and taxiways").  At ``law`` it did NOT yield: measured on the
-# matched KCLT pair, 2,815 of 6,453 taxi/runway vertices moved, worst 1.88 m.
-cluster_reach_rulings = [
-  "structures.building_pad cluster_apron_reach",
-]
+# §30 (4)'s CLUSTER APRON REACH / COLLAR (13cc, 14bf, 14bk) and its law keys
+# (`cluster_reach_rulings`, `cluster_apron_reach_m`, the collar ceiling head)
+# are DELETED — jetway-strip spec §6 Q3; the JETWAY STRIP projection below
+# (`jetway_strip_m`) is their successor.
 pad_flat_rulings = [
   "structures.building_pad flat",                        # 09-09c: the pad's flatness target, priced on the PLANE'S TILT (10y)
   "structures.building_pad flat airside-led",            # §16g (10) (11) (a): the SAME plate at the SAME price over a pair with one airside end, priced ONE-WAY toward the pad
@@ -587,7 +582,6 @@ pad_frontage_m = 3.0
 # reach stops at any taxiway band.  60 m is a stand depth: a widebody
 # stand at KCLT runs ~55 m from the gate line to the taxilane.  0 disables
 # the reach.
-cluster_apron_reach_m = 0.0    # DISARMED, and the COLLAR PLANE it arms is BUILT (owner RULINGS 2026-09-14bk): the apron within this distance of a cluster's outline is ONE PLANE in the AIRSIDE solve (constraints.cluster_pad.cluster_apron_plane), bounded to the touching component and never across a taxi-family face; the pad's plate then equals it in stage 2.  MEASURED at HECA on matched pairs (lane v2padjoin rounds 2-3).  ROUND 3, with the skirt withdrawn: base 43b8ad21d290 against collar 8cb776c1d044 — stage-2 infeasible 92 rows / 138.7410 m -> 1,511 / 3,148.2532 m, airside moved 11,001 worst 9.27 m (runway 849 worst 1.62), the terminal cluster's plane 72.478 -> 75.497.  AND THE RESIDUAL IS NOT LOCAL: of 11,363 moved vertices only 3,202 stand within 40 m of a cluster pad and 2,211 more than 500 m away — a FIELD-WIDE shift of an UNSETTLED stage-1 optimum (RULINGS 2026-09-14as (ii), 13y (B)/13ab), so 'airside moved = the collar only' cannot be met by ANY row added to stage 1 until the airside solve settles.  ROUND 2 (skirt still in): stage 1 stays FEASIBLE (the collar plane is lawful) but the acceptance is missed — 11,847 airside vertices move against a 266-vertex collar, the runway 837 worst 1.23 m, the terminal 72.62 -> 75.92 m, and the stage-2 infeasible set 151 rows / 178.72 m -> 1,318 / 3,074.92 m, whose worst rows are the `building_pad airside skirt` law RULINGS 2026-09-14ay withdraws and that round did not.  So it ships at 0 and the arms arm it.  Design value 40.0.  Previously DISARMED (RULINGS 2026-09-13ce): at 60 the reach moved 2,651 KCLT taxi vertices (worst 1.45 m) through the apron welds while the cluster-pad MERGE was inert (the `_pairs` decimation defect); re-armed only when the merge does the work and the taxi family moves <= hard_tol_m (round 4). Design value 60.0.
 jetway_strip_m = 40.0         # jetway-strip spec §1 (2) / §2 (owner RULINGS 2026-09-18t Q3, issues #31/#32): UNDER THE JETWAYS THE APRON STRIP IS LEVEL WITH THE TERMINAL.  The apron within this plan distance of a 23a pad's RIDER EDGES (measured along the edge's outward normal, capped at the edge ends + D) takes ONE level, the stage-1 airside median over its vertices, applied as a POST-STAGE-1 PROJECTION (solve/project_strip.py) — never a stage-1 row set (§30 (4)'s collar, 14bk).  Beyond it the apron returns to its stage-1 value at the apron `max` longitudinal grade.  40 m covers every HECA gate and 119/130 LEMD gates (SAM cabinPos + maxExtent 26-42.2 m).  0 disarms.
 # §28 (6) A HILLSIDE TERRACE IS NOT A FRONTAGE (owner RULINGS 2026-09-13o,
 # refined 13p; Fable 2026-09-13).  A pad-face PAIR whose median DEM step —
@@ -772,7 +766,6 @@ hard_rulings = [
   "rulesets.common.pavement_max_grade ceiling",          # 09-09b (4): the 5 % pavement ceiling / 8 % free road
   "structures.building_pad pad_slope_max ceiling",       # 09-09c: a building pad is ONE PLANE tilting at most 1 %
   "road_cross_section",                                  # §37 (8) (owner 2026-09-13, RULINGS 13bb): the 2 % cross-section is LAW on every road-family face, groundside included — "a hillside road keeps its crossfall on a BENCH, not by tilting".  It was a target at 300 and it LOST: KCLT verify 781 violated pairs on the control, 462 with the ramp.  Compatible with the ramp ceiling by construction since §37 (8): the ramp target is one value per (route, station) and cap-Lipschitz along the route, so it can never tilt a section
-  "zones.apron cluster_collar_plane ceiling",             # §30 (4) (owner RULINGS 2026-09-14bk): the apron COLLAR within `cluster_apron_reach_m` of a terminal cluster is one plane, and its tilt ceiling is the pad's own 1 % — APRON LAW, in NO conforming register, so §20b stage 1 owns it and the collar is flat before the pad is priced
   "roads.groundside_road ramp ceiling",                  # §37 (6) (owner 13j item 5): a groundside road stands at most [cockpit] visual_m above its ramp target from the airside contact to the DEM — the objective held KCLT's east access road +9.71 m above its own target with NO row binding (13aj), and a weight contest is not a law
   "tunnel.bore_datum_m",                                 # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth's floor is `rim - bore_datum_m` HOWEVER its station was taken.  MEASURED soft at LEMD tunnel:-15327@0 (owner 15e item 5, "doesn't seem to be providing the right depth"): the datum equality LOST 2.17 m - floor 599.25 against its own 597.08, under a rim solving 602.16 = the DEM it is pinned at - and the census named it 32 times (`tunnel_mouth_canonical`).  A weight contest is not a law
 ]

@@ -217,3 +217,19 @@ def test_t5_site_report_names_the_cluster_at_the_site():
     assert r["site_cluster"] == "a" and r["site_dist_m"] == 0.0
     assert r["site_members"] == 2 and r["clusters"] == 2 and r["clusters_over_min"] == 1
     assert 4.3e4 < r["site_outline_m2"] < 4.7e4
+
+
+def test_t5_site_report_reads_the_largest_pad_at_the_site():
+    """Issue #69: with the pads handed in, the LARGEST pad within 1 m of
+    the site is named (the junction capture's 484,538 m² terminal sat
+    0.1 m from the site beside a 2,642 m² piece containing it)."""
+    import types
+    from shapely.geometry import box
+    import pack_stage_profile as T
+    c = types.SimpleNamespace(id="c", unit="u", members=("m",) * 3, area_m2=1.0,
+                              bodies=7, walled=7, rings=())
+    pads = [("small", c, box(-0.5, -0.5, 0.5, 0.5)), ("big", c, box(0.6, -50, 100.6, 50)),
+            ("far", c, box(500, 500, 900, 900))]
+    r = T.site_report((c,), 25.0, 51.0, 0.0, pads, (0.0, 0.0))
+    assert r["pads"] == 3 and r["pad_at_site"] == "big" and r["pad_at_site_m2"] == 10000.0
+    assert r["pad_members"] == 3 and r["pad_bodies"] == 7

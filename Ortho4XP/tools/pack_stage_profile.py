@@ -49,12 +49,17 @@ COUNT_KEYS = ("placements", "members", "parts", "contacts", "pairs_tested",
 GROUP_KEYS = ("bodies", "groups", "infeasible")
 
 
-def site_report(clusters, lat: float, lon: float, min_m2: float = 0.0) -> dict:
+def site_report(clusters, lat: float, lon: float, min_m2: float = 0.0,
+                pads=None, site_xy=None) -> dict:
     """THE CLUSTER AT A SITE (issue #69): the cluster whose outline (the
     union of its ``rings``, ``(lat, lon)``) contains ``(lat, lon)`` — else
     the nearest one — with its outline area (m², local equirectangular
     metres about the site), member / body counts, and the airport's
     cluster count and how many clear ``min_m2`` (the cluster pad plane).
+    ``pads`` (``geom.cluster_outlines``'s ``[(pad id, cluster, polygon)]``
+    in the planar metres, ``site_xy`` the site there) adds the PAD reading
+    the classify mint starts from: the pad count and the LARGEST pad
+    within 1 m of the site — the #69 terminal piece.
     Prices nothing; a read of the partition the stage returned."""
     import math
     import shapely
@@ -89,6 +94,14 @@ def site_report(clusters, lat: float, lon: float, min_m2: float = 0.0) -> dict:
                    site_area_m2=round(float(c.area_m2), 0),
                    site_members=len(c.members), site_bodies=int(c.bodies),
                    site_walled=int(c.walled))
+    if pads is not None and site_xy is not None:
+        sp = Point(*site_xy)
+        near = [(float(g.area), i, c) for i, c, g in pads if g.distance(sp) <= 1.0]
+        out["pads"] = len(pads)
+        if near:
+            a, i, c = max(near, key=lambda r: r[0])
+            out.update(pad_at_site=i, pad_at_site_m2=round(a, 0),
+                       pad_members=len(c.members), pad_bodies=int(c.bodies))
     return out
 
 
@@ -154,7 +167,17 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
             mn = float(cluster_min_m2(law))
         except Exception:
             mn = 0.0
-        rec["site"] = site_report(ps["clusters"], site[0], site[1], mn)
+        pads = sxy = None
+        try:
+            from auto_patch_v2.geom import cluster_outlines
+            st = law.tables.structures.placement
+            to_xy = ps["airport"].frame.entry()
+            pads, _c = cluster_outlines(ps["clusters"], to_xy, float(st.footprint_touch_m),
+                                        walled_only=True, min_m2=mn)
+            sxy = to_xy(site[1], site[0])
+        except Exception as exc:                  # an older tree: clusters only
+            print(f"[{icao}] pad reading skipped: {exc}", flush=True)
+        rec["site"] = site_report(ps["clusters"], site[0], site[1], mn, pads, sxy)
     return rec
 
 
@@ -197,7 +220,7 @@ def _legacy_pack_stage(icao, airport, law, inputs, lrep, out=print):
     cl = derive_clusters(_d.replace(airport, partition=part), law)
     sub["clusters"] = time.perf_counter() - t
     sub["total"] = time.perf_counter() - t0
-    return {"partition": part, "groups": grp, "clusters": cl, "cache": "OFF(legacy)",
+    return {"airport": airport, "partition": part, "groups": grp, "clusters": cl, "cache": "OFF(legacy)",
             "wall": sub}
 
 

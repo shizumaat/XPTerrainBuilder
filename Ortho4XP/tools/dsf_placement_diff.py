@@ -127,8 +127,11 @@ def sweep_noop(root: str, tool: str, *, raw: bool = False,
                 continue
             seen[key] = p
     work = [(p, tool, raw) for p in sorted(seen.values())]
-    with ProcessPoolExecutor(max_workers=max(1, jobs)) as ex:
-        results = list(ex.map(_noop_one, work))
+    if jobs <= 1:
+        results = [_noop_one(w) for w in work]
+    else:
+        with ProcessPoolExecutor(max_workers=jobs) as ex:
+            results = list(ex.map(_noop_one, work))
     fails = [r for r in results if not r["ok"]]
     return {"root": root, "arm": "raw" if raw else "encode",
             "dumps": len(results), "failed": len(fails),

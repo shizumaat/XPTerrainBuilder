@@ -482,7 +482,13 @@ def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps,
     # and take the affine alone, through ``frame_entry`` so this module
     # never spells one itself.
     foot, rect = _fe.enter([closed, rotated_rectangle(closed)], mat, q)
-    if foot is None:
+    if foot is None or rect is None:
+        # §51 Law A: a plate whose footprint OR rectangle enters the frame
+        # as nothing is no plate.  MEASURED at SPJC (lane ``spjcpads``):
+        # two ``Costa del sol_004/008.obj`` slivers 0.00004 m wide kept a
+        # 0.005 m2 foot while their rectangle snapped to a line and
+        # repaired to nothing — ``way_cover`` then read ``None.is_empty``
+        # and every planar replay of the airport aborted.
         return None
     def tf(g):
         return _fe.transform(g, mat, 0.0)

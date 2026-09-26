@@ -891,6 +891,20 @@ pad_from_cluster    = true
 # ``pad_airside_snap_max_m``.
 pad_airside_clip    = true
 
+# RULINGS 2026-09-23a (owner, issue #3): APRON DOES NOT EXTEND UNDER A
+# BUILDING PAD.  The pad MATCHES the building footprint (the cluster
+# outline, 18q/18t) and the APRON-class airside cell is cut back to the
+# pad's edge (`planar/overlay.apron_cut_to_pads`, BEFORE the airside is
+# noded, so the shared edge is one segment set — the §16g (10) (6)
+# `pad_airside_weld`).  The runway and taxi families are not apron: a pad
+# reaching one is still trimmed by it (airside is king).  When true the
+# arrangement clip above does not run (`pad_airside_clip` keeps its
+# mint/classify jobs).  MEASURED SPJC (`--from classify --pad-read`): the
+# terminal `building32` 13,323 m2 in 8 faces -> 99,093 m2 in ONE face;
+# the new terminal `building5` no pad -> 125,993 m2; re-node minted 25
+# -> 20.  `false` is the pre-23a arm and this law's matched base.
+pad_keeps_footprint = true
+
 # RULINGS 2026-09-14as (i), the clip's SECOND half: the crossing points
 # the clip leaves on the airside rim are not rim NODES, and noded into
 # the arrangement they SPLIT an airside edge.  They are QUANTISED to the

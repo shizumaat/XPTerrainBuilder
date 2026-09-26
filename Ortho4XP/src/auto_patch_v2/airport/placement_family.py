@@ -65,7 +65,7 @@ __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
            "pad_plurality", "bind_families",
            "census_families", "census_families_lines",
            "union_area_m2", "PlanCluster", "plan_clusters", "bodies_of_plan",
-           "cluster_plane"]
+           "cluster_plane", "member_is_deck"]
 
 #: §16f (1): two placement rows do not make a family and neither does one
 #: member — a FAMILY is a cluster of at least this many members of one
@@ -314,6 +314,36 @@ class PlanCluster:
                 f"{self.area_m2:,.0f} m2")
 
 
+#: The object stage's DECK VERDICTS (``Member.deck_kind``): ``flag`` (an
+#: OSM bridge line carried the member) and ``signature`` (the plate read
+#: itself as a deck).  ``candidate`` is NOT a verdict — it is the
+#: signature pass saying "this member HAS a plate" (``deck_signature``
+#: :579), and ``family`` a member of a resolved deck family.
+DECK_VERDICTS: frozenset[str] = frozenset({"flag", "signature"})
+
+
+def member_is_deck(m: _t.Any) -> bool:
+    """§16g (10) (4): is this plan member a DECK by the object stage's OWN
+    verdict — ``deck_kind`` in :data:`DECK_VERDICTS`, or a ``deck_ring``
+    the signature pass named?  ONE spelling for the cluster derivation
+    (:func:`plan_clusters`) and the object stage's footprint unit
+    (``footprint_unit``), the same test ``bridge_family.deck_prints``,
+    ``placement_body`` and ``planar/group`` apply.
+
+    MEASURED at SPJC (lane ``spjcpads``, issues #3 / #4): both sites
+    tested ``deck_kind`` for ANY non-empty string, so a member the
+    signature pass had merely looked at (``candidate``) was a LEAF —
+    ``objectzannes/terminal.obj``, ONE body 61.57 m tall over 99,080 m2,
+    counted ``leaf_dropped`` and left with the footprint cache's pad,
+    which the arrangement clipped to a 2,903 m2 end (building13); at the
+    new terminal ``SPJC_LIMANUEVA_xp11_004/005`` (4.94 / 8.28 m) fell out
+    of the 202-body cluster the same way."""
+    if m is None:
+        return False
+    return bool(getattr(m, "deck_ring", None)
+                or str(getattr(m, "deck_kind", "") or "") in DECK_VERDICTS)
+
+
 class _Shim:
     """A plan MEMBER's body dressed as the candidate :func:`_clusters`
     reads — the ONE cluster law, asked of the plan instead of the
@@ -463,8 +493,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                        default=0.0)
             walled = (chain_min_height_m <= 0.0 or not any_height
                       or (tall >= chain_min_height_m
-                          and not str(getattr(u.members[mi], "deck_kind", "")
-                                      or "")))
+                          and not member_is_deck(u.members[mi])))
             shims.append(_Shim(
                 mi, bx, u.members[mi].resource,
                 [float(q.base_y) for q in live],

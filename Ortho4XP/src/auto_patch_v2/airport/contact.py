@@ -449,8 +449,65 @@ def plan_hull(pts: "np.ndarray | None",
 #: plus at most ``grade × cell`` — 0.04 m on a 4 % hill.
 SOLID_CELL_M = 1.0
 
+#: §16g (10) (4), issue #69: a triangle at least this steep (its plane's
+#: tilt from horizontal, degrees) is a WALL PIECE, and its fall-line chord
+#: is wall height.  60° keeps every ramp, roof and floor sheet a sheet
+#: (OTHH's terminal road decks are 9 %) and admits a leaning facade.
+SOLID_WALL_MIN_TILT_DEG = 60.0
 
-def solid_height(pts: np.ndarray, cell: float = SOLID_CELL_M) -> float:
+
+def wall_chord_height(pts: np.ndarray, tris: np.ndarray,
+                      min_tilt_deg: float = SOLID_WALL_MIN_TILT_DEG) -> float:
+    """THE WALL HEIGHT A TRIANGLE CARRIES (issue #69): over every triangle
+    steeper than ``min_tilt_deg``, the vertical extent of its longest
+    chord along its own FALL LINE — the in-plane direction of steepest
+    rise — measured at one horizontal in-plane station.
+
+    Why: :func:`solid_height`'s cell reading rests on "a wall's top and
+    bottom vertices share their plan point", and that premise fails for
+    two classes MEASURED on OTHH's terminal (lane ``outlinebisect``):
+    a LEANING facade (``OTHH_Terminal_Base_2_3.obj`` comp 257, 17.5 m of
+    glass leaning 2.6 m, read 0.29 m) and a near-plumb post whose base and
+    head fall either side of a cell line (comp 256, 39.8 m, lean 0.1 m
+    across z = 620, read 0.82 m).  Read locally they were LEAVES, the
+    terminal's chain broke and its 484,538 m² pad fell into pieces.
+
+    The chord is taken at a station, never across the triangle's run, so
+    a fence authored down a hill (vertical panels whose ground line falls
+    19 m over 460 m) still reads its 2 m panel — the surfacesettle case —
+    and a sheet shallower than the tilt contributes nothing."""
+    if pts is None or tris is None or len(pts) == 0 or len(tris) == 0:
+        return 0.0
+    t = pts[np.asarray(tris)]                        # (n, 3, 3)
+    n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+    nn = np.linalg.norm(n, axis=1)
+    ok = nn > 1e-12
+    if not ok.any():
+        return 0.0
+    t, n = t[ok], n[ok] / nn[ok, None]
+    steep = np.abs(n[:, 1]) <= np.cos(np.radians(min_tilt_deg))
+    if not steep.any():
+        return 0.0
+    t, n = t[steep], n[steep]
+    up = np.array([0.0, 1.0, 0.0])
+    h = np.cross(up, n)                              # horizontal, in-plane
+    h /= np.linalg.norm(h, axis=1)[:, None]
+    u = np.cross(n, h)                               # fall line, in-plane
+    uy = np.abs(u[:, 1])
+    hc = np.einsum("nkj,nj->nk", t, h)               # (n, 3) station
+    uc = np.einsum("nkj,nj->nk", t, u)               # (n, 3) along the fall
+    o = np.argsort(hc, axis=1)
+    hs = np.take_along_axis(hc, o, axis=1)
+    us = np.take_along_axis(uc, o, axis=1)
+    span = hs[:, 2] - hs[:, 0]
+    frac = np.where(span > 1e-9, (hs[:, 1] - hs[:, 0]) / np.where(span > 1e-9, span, 1.0), 0.0)
+    u_edge = us[:, 0] + (us[:, 2] - us[:, 0]) * frac
+    chord = np.where(span > 1e-9, np.abs(us[:, 1] - u_edge), us.max(1) - us.min(1))
+    return float((chord * uy).max())
+
+
+def solid_height(pts: np.ndarray, cell: float = SOLID_CELL_M,
+                 tris: "np.ndarray | None" = None) -> float:
     """THE COMPONENT'S SOLID HEIGHT: the largest ``max(y) − min(y)`` of its
     vertices over any one ``cell`` × ``cell`` plan square (lane
     ``surfacesettle``, issue #22).
@@ -466,9 +523,16 @@ def solid_height(pts: np.ndarray, cell: float = SOLID_CELL_M) -> float:
     rigid 1 % pad ``building3`` over 16.4 m of DEM relief — 181 of the
     airport's 256 unsettled hard rows and its worst (6.8058 m); the
     ``pad_from_cluster = false`` capture arm leaves 75 / 1.4375 m.
-    Local, the fence is a 2 m fence."""
+    Local, the fence is a 2 m fence.
+
+    With ``tris`` (the component's triangles, indices into ``pts``) the
+    reading is the larger of the cell reading and
+    :func:`wall_chord_height` — a leaning facade and a post straddling a
+    cell line are walls too (issue #69)."""
     if pts is None or len(pts) == 0:
         return 0.0
+    if tris is not None:
+        return max(solid_height(pts, cell), wall_chord_height(pts, tris))
     y = pts[:, 1]
     ext = float(y.max() - y.min())
     cx = np.floor(pts[:, 0] / cell).astype(np.int64)
@@ -576,7 +640,7 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                                     _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
                                           foot_band_m, k_max), is_line,
                                     () if is_scat else plan_hull(pts, lt),
-                                    scatter=is_scat, solid_h=solid_height(pts)))
+                                    scatter=is_scat, solid_h=solid_height(pts, tris=lt)))
     return parts
 
 

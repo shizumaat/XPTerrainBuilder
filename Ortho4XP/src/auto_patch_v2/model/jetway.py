@@ -49,8 +49,8 @@ class RiderAnchor:
 
 @_dc.dataclass(frozen=True)
 class JetwayStrip:
-    """One pad's strip (spec §1 (2)).  ``vertices`` take ONE level (§2
-    (1)); ``struck`` are the vertices inside the region the strip never
+    """One pad's strip (spec §1 (2)).  ``vertices`` take the PAD'S PLANE
+    (Q-32a (d)); ``struck`` are the vertices inside the region the strip never
     moves, with the reason; ``region`` the plan region's outer rings (the
     rider edges buffered D along their outward normals)."""
 
@@ -62,6 +62,10 @@ class JetwayStrip:
     region: tuple[tuple[XY, ...], ...]
     vertices: tuple[int, ...]
     struck: tuple[tuple[int, str], ...] = ()
+    #: every vertex of the host cluster pad (all its faces) — the plane
+    #: the strip takes is the PAD'S (owner / spec-author ruling Q-32a (d),
+    #: 2026-09-25: "level with the terminal" = coplanar with the 23a pad)
+    pad_vertices: tuple[int, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

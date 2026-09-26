@@ -152,7 +152,7 @@ cockpit   = "step"
 # runway / pinned / other-pad vertex the field would have moved).  (b), a
 # transition pair over the apron max, is within_shape's own apron pair.
 [jetway_strip]
-measures  = "an apron vertex of a JETWAY STRIP standing off the strip's one level, or a clamped taxi / runway / pinned / other-pad vertex the strip's transition would have moved"
+measures  = "an apron vertex of a JETWAY STRIP standing off the pad plane it takes (Q-32a (d)), or a clamped taxi / runway / pinned / other-pad vertex the strip's transition would have moved"
 parameter = "emit.design.jetway_strip_m"
 roles     = ["apron"]
 pairs     = "within"

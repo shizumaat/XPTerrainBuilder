@@ -294,7 +294,8 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
             id=f"strip:{cid}", pad_ref=ref, pad_face=fid,
             riders=tuple(sorted(r.obj_id for r in riders_of.get(cid, ()))),
             rider_edges=tuple((a, b) for a, b, _n in edges_of[cid]),
-            region=rings, vertices=tuple(vs), struck=tuple(struck_of[cid])))
+            region=rings, vertices=tuple(vs), struck=tuple(struck_of[cid]),
+            pad_vertices=tuple(sorted(own_of.get(cid, ())))))
     fixed: dict[int, str] = {}
     for v in pad_of:
         if v not in all_own:

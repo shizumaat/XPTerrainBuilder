@@ -552,9 +552,11 @@ def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
                      rep: _t.Any) -> list[dict[str, _t.Any]]:
     """The ``jetway_strips`` sidecar key (jetway-strip spec §2 (6), §4
     (2)): one record per strip the projection RAN on —
-    ``{id, pad_ref, level, rider_count, riders: [[lat, lon, path,
+    ``{id, pad_ref, level, plane, rider_count, riders: [[lat, lon, path,
     reach_m]], polygon_ll: [[[lat, lon], ...], ...], vertices_ll:
-    [[lat, lon], ...], clamps: [[lat, lon, why, metres], ...]}``.
+    [[lat, lon, target_z], ...], clamps: [[lat, lon, why, metres], ...]}``
+    — ``target_z`` is the pad plane at the vertex (Q-32a (d)); ``level``
+    the median target.
     ``vertices_ll`` carry the canonical 11-dp identity (the census joins
     by it, never by proximity); ``level`` is ``None`` for a strip no
     stage-1 level reached (reported, never priced)."""
@@ -568,6 +570,7 @@ def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
     out: list[dict[str, _t.Any]] = []
     for st in strips.strips:
         d = by_id.get(st.id, {})
+        tg = d.get("targets") or {}
         riders = []
         for oid in st.riders:
             o = objs.get(oid)
@@ -582,7 +585,11 @@ def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
             "polygon_ll": [[[round(a, 9), round(b, 9)]
                             for a, b in (to_ll(x, y) for x, y in ring)]
                            for ring in st.region],
-            "vertices_ll": [ll[v] for v in st.vertices if v in ll],
+            # [lat, lon, the vertex's TARGET on the pad plane] (Q-32a (d))
+            "vertices_ll": [ll[v] + ([tg[str(v)] if str(v) in tg else tg[v]]
+                                     if (str(v) in tg or v in tg) else [])
+                            for v in st.vertices if v in ll],
+            "plane": d.get("plane"),
             "clamps": [[ll[c[0]][0], ll[c[0]][1], c[1], c[2]]
                        for c in d.get("clamps", ()) if c[0] in ll]})
     return out

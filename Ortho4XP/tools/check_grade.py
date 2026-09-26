@@ -6508,8 +6508,10 @@ def _check_jetway_strip(jetway_strips_ll, nodes, ways) -> List[Violation]:
     canonical 11-dp identity and the clamps its projection reported, and
     this prices the EMITTED surface against exactly that —
 
-      (a) a strip vertex standing off the strip's level by more than
-          ``_JETWAY_STRIP_TOL_M`` (the emit pipeline moved it);
+      (a) a strip vertex standing off its target — the PAD'S PLANE at
+          that vertex (spec-author ruling Q-32a (d); the strip's level for
+          a sidecar with 2-element vertices) — by more than
+          ``_JETWAY_STRIP_TOL_M``;
       (c) every clamp the projection reported (a taxi / runway / pinned /
           other-pad vertex the field would have moved, never absorbed) —
           one row each, carrying its metres.
@@ -6537,18 +6539,20 @@ def _check_jetway_strip(jetway_strips_ll, nodes, ways) -> List[Violation]:
             for ll in st.get("vertices_ll") or ():
                 try:
                     lat, lon = float(ll[0]), float(ll[1])
+                    # Q-32a (d): the vertex's own target on the pad plane
+                    tgt = float(ll[2]) if len(ll) > 2 else float(lvl)
                 except (TypeError, ValueError, IndexError):
                     continue
                 got = by_ll.get((round(lat, 7), round(lon, 7)))
                 if got is None:
                     continue
                 z, way = got
-                if abs(z - float(lvl)) <= _JETWAY_STRIP_TOL_M:
+                if abs(z - tgt) <= _JETWAY_STRIP_TOL_M:
                     continue
                 v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-                              de_m=abs(z - float(lvl)), way_a=way, way_b=way,
+                              de_m=abs(z - tgt), way_a=way, way_b=way,
                               pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                              elev_a=z, elev_b=float(lvl))
+                              elev_a=z, elev_b=tgt)
                 v.lat, v.lon = lat, lon
                 out.append(v)
         for c in st.get("clamps") or ():

@@ -134,6 +134,25 @@ def no_step_edges(planar: PlanarMap, law: Law, airport: Airport | None = None
     if ns.metric != "route":
         raise LawError(f"emit.no_step.metric = {ns.metric!r}: only \"route\" is lawful "
                        "(RULINGS 2026-09-04o — a chord metric is the refuted reading)")
+    # ONE READ PER MAP (jetway-strip spec §5 bar 5): the generator, the
+    # strip's strike set and the publication all ask for the same list on
+    # the same frozen map; a two-entry identity memo keeps it one route walk
+    # (HECA ~1 s each).  The caller gets a copy.
+    key = (id(planar), id(law), id(airport))
+    for k, pm, lw, ap, got in _EDGES_MEMO:
+        if k == key and pm is planar and lw is law and ap is airport:
+            return list(got)
+    out = _no_step_edges(planar, law, airport, ns)
+    _EDGES_MEMO.append((key, planar, law, airport, tuple(out)))
+    del _EDGES_MEMO[:-2]
+    return out
+
+
+_EDGES_MEMO: list[tuple] = []
+
+
+def _no_step_edges(planar: PlanarMap, law: Law, airport: Airport | None, ns
+                   ) -> list[tuple[int, int, float, float]]:
     vw = view(planar, law)
     caps = _airside_vertices(vw, no_step_roles(law))
     g = routes(planar, law, airport)

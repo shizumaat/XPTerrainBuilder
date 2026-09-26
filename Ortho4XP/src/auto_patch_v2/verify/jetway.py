@@ -7,7 +7,8 @@ through the sidecar's ``jetway_strips`` (``pipeline/publication``), each
 carrying its ONE level, its vertices by the canonical identity and the
 clamps the projection (``solve/project_strip``) reported.  Rows:
 
-  (a) a strip vertex off its level by more than §31's visual floor;
+  (a) a strip vertex off its target (the pad plane at it, Q-32a (d))
+      by more than §31's visual floor;
   (c) every reported clamp, carrying its metres.
 
 (b), a transition pair over the apron ``max``, is ``within_shape``'s own
@@ -42,17 +43,18 @@ def jetway_strip(p: Patch) -> list[Row]:
             for ll in (rec.get("vertices_ll") or ()):
                 try:
                     lat, lon = float(ll[0]), float(ll[1])
+                    tgt = float(ll[2]) if len(ll) > 2 else float(lvl)
                 except (TypeError, ValueError, IndexError):
                     continue
                 vid = by_ll.get((round(lat, _DP), round(lon, _DP)))
                 if vid is None:
                     continue
                 z = p.z.get(vid)
-                if z is None or abs(z - float(lvl)) <= TOL_M:
+                if z is None or abs(z - tgt) <= TOL_M:
                     continue
                 xy = p.xy.get(vid, (0.0, 0.0))
                 out.append(row(FAMILY, ("apron",) * 2, "airside",
-                               abs(z - float(lvl)), 0.0, 0.0, 0.0, xy, xy,
+                               abs(z - tgt), 0.0, 0.0, 0.0, xy, xy,
                                ref, None, lat=lat, lon=lon))
         for c in (rec.get("clamps") or ()):
             try:

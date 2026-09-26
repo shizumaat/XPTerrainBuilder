@@ -14,9 +14,13 @@ built and DISARMED (14bk: 11,363 airside vertices moved, 2,211 of them >
 projection moves only what it names, so "airside moved outside the
 strips + transitions <= hard_tol_m" holds BY CONSTRUCTION.
 
-1. ONE LEVEL PER STRIP: every strip vertex takes ``L = median`` of the
-   stage-1 z over the strip's vertices (the apron's own value where the
-   jetways stand; nothing groundside is in it).
+1. THE PAD'S PLANE PER STRIP (spec-author ruling Q-32a (d), 2026-09-25:
+   "level with the terminal" = COPLANAR with the 23a pad): every strip
+   vertex takes the pad plane evaluated at it — §20's least-squares plane
+   through the pad's airside frontage at its stage-1 values, tilt <= the
+   pad's 1 % ceiling.  Airside-derived; nothing groundside is in it.
+   (Measured, round 1: ONE horizontal level per pad fought the apron's
+   own fall along a 1 km terminal — SPJC adjudicated 913 -> 3,305.)
 2. THE TRANSITION: each strip vertex's CHANGE ``L - z1`` propagates to
    the movable apron beyond it, decaying at ``s`` (the apron's ``max``
    longitudinal grade, 1.5 %) and gone at ``L_t = |fall| / s`` — the
@@ -103,21 +107,26 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
     xy = {v: planar.vertices[v].xy for v in planar.vertices}
     new: dict[int, float] = {}
     L: list[float] = []
+    planes: list[tuple[float, float, float, float, float] | None] = []
     trees = []
     in_strip: dict[int, int] = {}
+    tilt_max = float(law.tables.emit.within_shape.pad_slope_max)
     for k, st in enumerate(strips.strips):
         vs = [v for v in st.vertices if v in levels]
         rep.unlevelled += len(st.vertices) - len(vs)
         if not vs:
             L.append(float("nan"))
+            planes.append(None)
             trees.append(None)
             continue
-        lvl = float(np.median([levels[v] for v in vs]))
-        L.append(lvl)
+        pl = _pad_plane(st, levels, xy, vs, tilt_max)
+        planes.append(pl)
+        tgt = {v: _at(pl, xy[v]) for v in vs}
+        L.append(float(np.median(list(tgt.values()))))
         trees.append(cKDTree(np.array([xy[v] for v in vs], dtype=float)))
         for v in vs:
             in_strip[v] = k
-            new[v] = lvl
+            new[v] = tgt[v]
     live = [k for k in range(len(L)) if trees[k] is not None]
 
     # THE TRANSITION (§2 (3)): "from the strip's outer line the surface
@@ -230,8 +239,50 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
         rep.strips.append({
             "id": st.id, "pad_ref": st.pad_ref,
             "level": None if trees[k] is None else round(L[k], 3),
+            # Q-32a (d): the PAD'S PLANE — z at (x0, y0) and its gradient
+            "plane": (None if planes[k] is None
+                      else [round(c, 6) for c in planes[k]]),
+            "targets": ({} if trees[k] is None else
+                        {int(v): round(new.get(v, levels[v]), 4)
+                         for v in st.vertices if v in levels}),
             "riders": len(st.riders), "vertices": len(st.vertices),
             "moved_max_m": round(max(mv), 3) if mv else 0.0,
             "clamps": cl})
     rep.wall_s = time.perf_counter() - t0
     return rep
+
+
+def _at(pl: tuple[float, float, float, float, float], p: tuple[float, float]
+        ) -> float:
+    z0, gx, gy, x0, y0 = pl
+    return z0 + gx * (p[0] - x0) + gy * (p[1] - y0)
+
+
+def _pad_plane(st: _t.Any, levels: _t.Mapping[int, float],
+               xy: _t.Mapping[int, tuple[float, float]], vs: list[int],
+               tilt_max: float) -> tuple[float, float, float, float, float]:
+    """Q-32a (d) (spec-author ruling 2026-09-25): THE PAD'S PLANE the
+    strip takes — §20's own construction: the least-squares plane through
+    the pad's FRONTAGE CONTACTS (its rim vertices stage 1 already levelled,
+    i.e. the airside weld, 23a) at their stage-1 values, its tilt bounded
+    by the pad's hard ceiling ``emit.within_shape.pad_slope_max`` (1 %;
+    a steeper fit keeps its direction at the ceiling and re-centres).  A
+    pad with fewer than three non-collinear contacts reads the strip's own
+    stage-1 values instead.  ``(z0, gx, gy, x0, y0)``."""
+    pts = [v for v in st.pad_vertices if v in levels]
+    if len(pts) < 3:
+        pts = vs
+    P = np.array([xy[v] for v in pts], dtype=float)
+    z = np.array([levels[v] for v in pts], dtype=float)
+    x0, y0 = float(P[:, 0].mean()), float(P[:, 1].mean())
+    A = np.column_stack([np.ones(len(P)), P[:, 0] - x0, P[:, 1] - y0])
+    if len(P) >= 3 and np.linalg.matrix_rank(A) == 3:
+        c, *_ = np.linalg.lstsq(A, z, rcond=None)
+        z0, gx, gy = float(c[0]), float(c[1]), float(c[2])
+    else:
+        z0, gx, gy = float(np.median(z)), 0.0, 0.0
+    g = float(np.hypot(gx, gy))
+    if g > tilt_max > 0.0:
+        gx, gy = gx * tilt_max / g, gy * tilt_max / g
+        z0 = float(np.mean(z - gx * (P[:, 0] - x0) - gy * (P[:, 1] - y0)))
+    return (z0, gx, gy, x0, y0)

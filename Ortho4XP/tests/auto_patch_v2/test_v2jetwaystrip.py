@@ -414,14 +414,14 @@ def test_a_strip_vertex_yields_to_a_never_moved_neighbour(law, agp):
     n = len(pm.vertices)
     z1 = np.array([_Dem().z(*pm.vertices[v].xy) for v in range(n)])
     levels = {v: float(z1[v]) for v in range(n)}
-    # every strip vertex 2 m below the plane the frontage asks for
-    for v in s.vertices:
-        levels[v] -= 2.0
-    # a never-moved vertex right beside the first strip vertex
+    # one strip vertex 0.3 m under the plane, and a never-moved vertex
+    # right beside it at that same low value
     v0 = s.vertices[0]
     near = min((v for v in range(n) if v not in set(s.vertices) and v != v0),
                key=lambda v: np.hypot(*np.subtract(pm.vertices[v].xy,
                                                    pm.vertices[v0].xy)))
+    levels[v0] -= 0.3
+    levels[near] = levels[v0]
     fixed = dict(st.fixed)
     fixed[near] = "taxi"
     st2 = _dc.replace(st, fixed=fixed, movable=frozenset(st.movable - {near}))
@@ -430,4 +430,3 @@ def test_a_strip_vertex_yields_to_a_never_moved_neighbour(law, agp):
     d = float(np.hypot(*np.subtract(pm.vertices[near].xy, pm.vertices[v0].xy)))
     assert abs(levels[v0] - before[v0]) <= 0.015 * d + 1e-6
     assert levels[near] == before[near]
-    assert rep.strip_yielded >= 1

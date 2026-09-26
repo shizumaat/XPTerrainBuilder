@@ -210,12 +210,20 @@ def _plane(tmp: Path, name: str, *, quad=(0.0, 0.0, 40.0, 50.0), y_far: float = 
     return p
 
 
+def _law_on():
+    import dataclasses as dc
+    t = LAW.tables
+    ld = dc.replace(t.structures.load, object_pavement_hard_planes=True)
+    return dc.replace(LAW, tables=dc.replace(
+        t, structures=dc.replace(t.structures, load=ld)))
+
+
 def test_a_hard_ground_plane_is_pavement(tmp_path):
     """NLWF: the pack's whole apron is a hard solid plane at Y = 0 with no
     draped layer group; §42 (1b) admits it as one body of its own area."""
     p = _plane(tmp_path, "vele_apron.obj")
     bodies, rep = OP.read_object_pavements(
-        [_place(p, "pavement/vele_apron.obj")], LAW)
+        [_place(p, "pavement/vele_apron.obj")], _law_on())
     assert [round(b.polygon.area) for b in bodies] == [2000]
     assert rep.resources_admitted == 1 and rep.refused == {}
     assert rep.rows[0].layer_group == "hard_plane"
@@ -225,15 +233,20 @@ def test_a_hard_ground_plane_is_pavement(tmp_path):
                          ids=["not hard (a shadow)", "a vertex off the ground (a floor with walls)"])
 def test_a_plane_that_is_not_hard_or_not_flat_stays_refused(tmp_path, kw):
     p = _plane(tmp_path, "plane.obj", **kw)
-    bodies, rep = OP.read_object_pavements([_place(p, "objects/plane.obj")], LAW)
+    bodies, rep = OP.read_object_pavements([_place(p, "objects/plane.obj")], _law_on())
     assert bodies == [] and rep.refused == {"no draped layer group": 1}
 
 
 def test_a_hard_plane_under_the_area_floor_is_refused(tmp_path):
     p = _plane(tmp_path, "small.obj", quad=(0.0, 0.0, 10.0, 10.0))
-    bodies, rep = OP.read_object_pavements([_place(p, "objects/small.obj")], LAW)
+    bodies, rep = OP.read_object_pavements([_place(p, "objects/small.obj")], _law_on())
     assert bodies == [] and rep.refused == {"under 200 m2": 1}
 
 
-def test_the_hard_plane_key_is_on():
-    assert LAW.tables.structures.load.object_pavement_hard_planes is True
+def test_the_hard_plane_is_refused_while_the_key_is_off(tmp_path):
+    """Q-20 is open: the shipped law keeps §42 (1)'s reading."""
+    assert LAW.tables.structures.load.object_pavement_hard_planes is False
+    p = _plane(tmp_path, "vele_apron.obj")
+    bodies, rep = OP.read_object_pavements(
+        [_place(p, "pavement/vele_apron.obj")], LAW)
+    assert bodies == [] and rep.refused == {"no draped layer group": 1}

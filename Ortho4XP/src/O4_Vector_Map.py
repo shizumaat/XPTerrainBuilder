@@ -1522,16 +1522,18 @@ def load_airports_and_prepare_dem(tile):
     # §D.1: once per COLD neighbour of a class-S airport, and only after
     # an explicit "build adjacent" answer.  Never in the pool child, never
     # without a choice, never under the harness's shared-repo guard.
-    if getattr(tile, "boundary_policy", None) == "neighbour":
-        for (lat, lon) in getattr(tile, "boundary_neighbours", ()) or ():
-            try:
-                ensure_tile_frame(lat, lon,
-                                  reason="neighbour of %s" % tile_stem(tile))
-            except Exception as error:
-                UI.lvprint(0, "   Airport insets: tile %+03d%+04d — frame "
-                              "warm FAILED (%s: %s); the frame check will "
-                              "decide." % (lat, lon, type(error).__name__,
-                                           str(error)))
+    # A cold neighbour the SAME PRESS builds (issue #51) is warmed under
+    # either policy: the user selected it, its own step 1 fetches exactly
+    # this, and the frame lock (§D.2) makes whichever arrives first fetch
+    # once — so no byte beyond the selection is downloaded.
+    for ((lat, lon), reason) in boundary_cells_to_warm(tile):
+        try:
+            ensure_tile_frame(lat, lon, reason=reason)
+        except Exception as error:
+            UI.lvprint(0, "   Airport insets: tile %+03d%+04d — frame "
+                          "warm FAILED (%s: %s); the frame check will "
+                          "decide." % (lat, lon, type(error).__name__,
+                                       str(error)))
     # Tile-wide elevation detail level (docs/specs/elevation-level-spec.md):
     # fetch the whole-tile overlay for a numeric elevation_level, or the
     # coastline lidar band for "coastline" (dico_airports feeds its
@@ -1560,6 +1562,107 @@ def set_boundary_policy(policy):
     """Land the user's boundary answer for this process."""
     global BOUNDARY_POLICY
     BOUNDARY_POLICY = policy if policy in ("neighbour", "skip") else None
+
+
+#: THE PRESS'S OWN TILE SET per tile cell (issue #51): ``(lat, lon) ->
+#: frozenset`` of the cells built by the same press.  A sibling the press
+#: WILL build is never "a tile this build is not building", so it is never
+#: cold.  ``EngineSession.build`` / ``enqueue_build`` land it in the parent
+#: and in every worker child (``parallel.py`` carries the batch beside the
+#: boundary policy); a tile no press declared is its own one-cell batch.
+BOUNDARY_BATCHES = {}
+
+
+def note_boundary_batch(cells):
+    """Record that *cells* were selected together in ONE press."""
+    batch = frozenset((int(c[0]), int(c[1])) for c in (cells or ()))
+    for cell in batch:
+        BOUNDARY_BATCHES[cell] = batch
+
+
+def boundary_batch_of(lat, lon):
+    """The press's tile set this cell was selected in (itself if none)."""
+    cell = (int(lat), int(lon))
+    return BOUNDARY_BATCHES.get(cell) or frozenset((cell,))
+
+
+def boundary_cold_predicate(home, batch):
+    """``(is_cold, siblings)`` for one home cell of one press.
+
+    ``is_cold`` is :func:`boundary_is_cold` of the press — the ONE spelling
+    both call sites share.  ``siblings`` fills, as ``boundary_skipper`` asks
+    about each class-S neighbour cell, with the cells the SAME PRESS builds
+    whose frame is not warm yet: never skipped, but warmed before the home
+    tile's patch reads across the line (§D.2, issue #51) and therefore part
+    of what the vector step may fetch (§D.2 fetch admission).
+    """
+    home = (int(home[0]), int(home[1]))
+    batch = frozenset((int(c[0]), int(c[1])) for c in (batch or ()))
+    shared = boundary_is_cold(batch)
+    siblings = set()
+
+    def is_cold(cell):
+        cell = (int(cell[0]), int(cell[1]))
+        if (cell in batch and cell != home
+                and not tile_frame_is_warm(*cell)):
+            siblings.add(cell)
+        return shared(cell)
+
+    return is_cold, siblings
+
+
+#: The class-S neighbour cells the boundary PREFLIGHT found not warm, per
+#: home cell (``EngineSession._boundary_preflight`` declares them in the
+#: parent, where the scheduler runs): ``(lat, lon) -> (siblings, outside)``
+#: — cells the same press builds, and cells it does not.  Read by
+#: :func:`boundary_frames_are_cached`, the vector step's extra fetch-
+#: admission predicate (spec §D.2).
+BOUNDARY_DECLARED = {}
+
+
+def declare_boundary_cells(home, siblings=(), outside=()):
+    home = (int(home[0]), int(home[1]))
+    BOUNDARY_DECLARED[home] = (
+        frozenset((int(c[0]), int(c[1])) for c in siblings),
+        frozenset((int(c[0]), int(c[1])) for c in outside))
+
+
+def declared_boundary_cells(tile):
+    """The neighbour frames this tile's step 1 may warm (§D.1): the
+    declared siblings always, the outside cells only under ``"neighbour"``
+    — the same split :func:`boundary_cells_to_warm` applies at build time."""
+    (siblings, outside) = BOUNDARY_DECLARED.get(
+        (int(tile.lat), int(tile.lon)), (frozenset(), frozenset()))
+    cells = set(siblings)
+    if outside and resolved_boundary_policy(tile) == "neighbour":
+        cells |= outside
+    return sorted(cells)
+
+
+def boundary_frames_are_cached(tile):
+    """Fetch-admission predicate (spec §D.2, registered for the vector step
+    in ``parallel.STEP_FETCH_SUBSYSTEMS``): True when every neighbour frame
+    this tile's step 1 may warm is already warm — its airports layer cached
+    AND ``INSETS.is_cached`` under ITS OWN inset mode — so a tile with a
+    neighbour fetch still holds a fetch token while it downloads.  Cheap
+    and offline (:func:`tile_frame_is_warm`); an undeclared tile (no
+    preflight in this process) has nothing to warm and is cached."""
+    try:
+        return all(tile_frame_is_warm(*cell)
+                   for cell in declared_boundary_cells(tile))
+    except Exception:
+        return False
+
+
+def boundary_is_cold(batch):
+    """THE ``is_cold`` predicate — ONE spelling, shared by the preflight
+    (``EngineSession._boundary_preflight``) and the build-time check
+    (:func:`derive_auto_patch_selection`), the way ``boundary_skipper`` /
+    ``ask_reach_m`` are shared (issue #51): a cell is cold when this press
+    is NOT building it and its frame is not already warm."""
+    batch = frozenset((int(c[0]), int(c[1])) for c in (batch or ()))
+    return lambda cell: (tuple(cell) not in batch
+                         and not tile_frame_is_warm(*cell))
 
 
 #: THE tile-edge skip narration (issue #45).  ``..._CHOSEN`` is the
@@ -1691,9 +1794,37 @@ def ensure_tile_frame(lat, lon, *, reason=""):
                       (" — " + ", ".join(sorted(selected)[:8]))
                       if selected else ""))
         # The task meter labels a NEIGHBOUR pass by its tile so the
-        # activity view distinguishes it from the home tile's (§D.3).
-        INSETS.ensure_insets_for_tile(neighbour, dico)
+        # activity view distinguishes it from the home tile's (§D.3): the
+        # meter key keeps the two paces apart, and the step label the front
+        # ends render names the tile while its pass runs.
+        UI.step_detail("airport insets %s%s"
+                       % (stem, (" (%s)" % reason) if reason else ""))
+        try:
+            INSETS.ensure_insets_for_tile(
+                neighbour, dico, meter_key="airport-insets %s" % stem)
+        finally:
+            UI.step_detail("")
     return tile_frame_is_warm(lat, lon)
+
+
+def boundary_cells_to_warm(tile):
+    """``[((lat, lon), reason), ...]`` whose frames this tile's step 1
+    warms (§D.1) — see the call site in :func:`load_airports_and_prepare_dem`.
+
+    Under ``"neighbour"``: every declared cold neighbour.  Under either
+    policy: every cold class-S neighbour the SAME PRESS builds (issue #51),
+    which is never skipped and must not be read context-only merely
+    because its own step 1 has not run yet.
+    """
+    warm = []
+    if getattr(tile, "boundary_policy", None) == "neighbour":
+        warm = [(tuple(cell), "neighbour of %s" % tile_stem(tile))
+                for cell in getattr(tile, "boundary_neighbours", ()) or ()]
+    seen = {cell for (cell, _reason) in warm}
+    warm += [(tuple(cell), "neighbour of %s, in this build" % tile_stem(tile))
+             for cell in getattr(tile, "boundary_siblings", ()) or ()
+             if tuple(cell) not in seen]
+    return warm
 
 
 def derive_auto_patch_selection(tile):
@@ -1720,9 +1851,14 @@ def derive_auto_patch_selection(tile):
         return []
     policy, policy_source = boundary_policy_and_source(tile)
     record = []
+    home = (int(tile.lat), int(tile.lon))
+    # A cold class-S neighbour the SAME PRESS builds is never skipped (the
+    # shared predicate says "not cold"), but its frame is still warmed
+    # before this tile's patch reads across the line (§D.2): ``siblings``.
+    (is_cold, siblings) = boundary_cold_predicate(
+        home, boundary_batch_of(*home))
     skipper = _SELECTION.boundary_skipper(
-        int(tile.lat), int(tile.lon),
-        is_cold=lambda cell: not tile_frame_is_warm(*cell),
+        home[0], home[1], is_cold=is_cold,
         reach_m=_SELECTION.ask_reach_m(), record=record)
 
     def boundary(icao, runways, candidate=None):
@@ -1754,6 +1890,7 @@ def derive_auto_patch_selection(tile):
     tile.boundary_policy = policy
     tile.boundary_policy_source = policy_source
     tile.boundary_neighbours = sorted(neighbours)
+    tile.boundary_siblings = sorted(siblings)
     if neighbours and policy == "skip":
         # SAY WHOSE DECISION IT WAS (issue #45).  "by your boundary
         # choice" is true of a remembered "Skip those airports' patches"

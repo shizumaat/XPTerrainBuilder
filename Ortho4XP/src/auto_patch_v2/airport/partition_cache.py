@@ -55,10 +55,15 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 4   # #27/#29: per-airport path + pristine header, and the
-                    # SCATTER class (parts / members / base index carry
-                    # ``scatter``) — a v3 payload is refused, never repaired.
-                    # v3:  §51 (4) row 17: every placed footprint in a cached
+CACHE_VERSION = 5   # merge of two v4 bumps, BOTH reasons stand:
+                    # (a) #27/#29 (lane packperf): per-airport path + pristine
+                    # header, and the SCATTER class (parts / members / base
+                    # index carry ``scatter``);
+                    # (b) lane ``surfacesettle``: ``Part.height_m`` is the
+                    # LOCAL solid height (``contact.solid_height``); a cached
+                    # reading carries the whole-extent one.
+                    # A v3 / v4 payload is refused, never repaired.
+# was 3:            # §51 (4) row 17: every placed footprint in a cached
                     # reading was minted by the PRE-§51 entry path.  The
                     # bump INVALIDATES them; a stale payload is never
                     # repaired on read, because a repair-on-read is a

@@ -66,7 +66,8 @@ from . import frame_entry as _fe
 from . import obj8 as _obj8
 
 __all__ = ["Placement", "DrapedBody", "ResourceRow", "ObjectPavementReport",
-           "header_facts", "draped_footprint", "read_object_pavements"]
+           "header_facts", "draped_footprint", "hard_plane_footprint",
+           "read_object_pavements"]
 
 #: How far into the file the header facts are looked for.  An OBJ8 header
 #: (``I``/``800``/``OBJ``, the textures, the attributes, ``POINT_COUNTS``)
@@ -230,6 +231,53 @@ def draped_footprint(geom: _obj8.ObjGeometry, y_tol_m: float):
     return None if u.is_empty else u
 
 
+def _ground_plane_candidate(path: str, y_tol_m: float) -> bool:
+    """The §42 (1b) pre-screen, streamed: ``False`` at the FIRST vertex
+    standing more than ``y_tol_m`` off Y = 0 (a building says so in its
+    first few ``VT`` lines, so almost every resource is refused within
+    one read block), else whether the file says ``ATTR_hard`` anywhere.
+    Only a candidate is parsed."""
+    hard = False
+    try:
+        with open(path, "rb") as fh:
+            for raw in fh:
+                if raw.startswith(b"VT"):
+                    toks = raw.split()
+                    try:
+                        if abs(float(toks[2])) > y_tol_m:
+                            return False
+                    except (IndexError, ValueError):
+                        return False
+                elif not hard and raw.startswith(b"ATTR_hard"):
+                    hard = True
+    except OSError:
+        return False
+    return hard
+
+
+def hard_plane_footprint(geom: _obj8.ObjGeometry, y_tol_m: float):
+    """§42 (1b) THE HARD GROUND PLANE: the union of ALL of an object's
+    triangles in its own plan frame when every one of them stands within
+    ``y_tol_m`` of Y = 0 and at least one solid triangle is ``ATTR_hard``
+    — else ``None``.
+
+    A pack that authors its apron as a SOLID zero-thickness hard plane
+    (NLWF ``pavement/vele_apron.obj``: no ``ATTR_layer_group_draped``,
+    every vertex at Y = 0, 73 of 79 triangles hard) declares no draped
+    layer group, so the §42 (1) amended gate reads it as a shadow.  It is
+    not one: a shadow is not hard, and X-Plane rolls aircraft on a hard
+    surface.  Anything with a vertex off the ground (a building floor
+    with walls, a deck) is not a plane and stays the pad path's."""
+    if not geom.solid.shape[0] or not bool((geom.hardness != 0).any()):
+        return None
+    tris = (np.concatenate([geom.solid, geom.draped])
+            if geom.draped.shape[0] else geom.solid)
+    ys = geom.vertices[tris.reshape(-1), 1]
+    if not ys.size or float(abs(ys).max()) > y_tol_m:
+        return None
+    return draped_footprint(_dc.replace(geom, draped=tris), y_tol_m)
+
+
 def read_object_pavements(placements: _t.Sequence[Placement], law,
                           pad_union=None
                           ) -> tuple[list[DrapedBody], ObjectPavementReport]:
@@ -265,7 +313,22 @@ def read_object_pavements(placements: _t.Sequence[Placement], law,
             continue
         group, texture = header_facts(path)
         if group is None:
-            refuse("no draped layer group")
+            # §42 (1b): a HARD ground plane declares itself by being one
+            u = None
+            if (lw.object_pavement_hard_planes
+                    and _ground_plane_candidate(path, lw.draped_y_tol_m)):
+                try:
+                    u = hard_plane_footprint(_obj8.parse_obj8(path),
+                                             lw.draped_y_tol_m)
+                except (OSError, ValueError):
+                    u = None
+            if u is None:
+                refuse("no draped layer group")
+                continue
+            if u.area < lw.object_pavement_min_m2:
+                refuse(f"under {lw.object_pavement_min_m2:g} m2")
+                continue
+            footprints[path] = (u, texture, ("hard_plane", 0))
             continue
         if group[0] not in groups:
             refuse(f"layer group {group[0]}")

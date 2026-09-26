@@ -709,7 +709,12 @@ def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Pa
                  # mixing it in here made ``height_m`` an MSL number
                  # (LEMD read 580–646 m over all 29,684 parts and the
                  # leaf rule passed every body as walled).
-                 round(float(p.box_max[1]) - float(p.box_min[1]), 3),
+                 # SOLID HEIGHT read LOCALLY (lane ``surfacesettle``,
+                 # ``contact.solid_height``): the whole-component extent
+                 # read a terrain-following fence's 19 m of hillside as
+                 # 19 m of wall (TFFJ ``north_fence.obj``).
+                 round(float(p.solid_h) if p.solid_h == p.solid_h
+                       else float(p.box_max[1]) - float(p.box_min[1]), 3),
                  scatter=bool(p.scatter)))
     return out
 

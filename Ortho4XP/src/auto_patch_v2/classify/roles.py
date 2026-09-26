@@ -580,7 +580,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
 
     # ── §27: an airside edge makes a lot (and a road) airside ──────
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
-        airside_edge_flip(final, cells, law, rules)
+        airside_edge_flip(final, cells, law, rules,
+                          [c.line for c in ev.truck_chains])
     for role, ref, face, letter, evid, kind in final:
         add(role, ref, face, kind, None, letter, evid)
 

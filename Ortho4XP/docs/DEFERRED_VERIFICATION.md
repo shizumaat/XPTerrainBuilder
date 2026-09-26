@@ -6220,6 +6220,17 @@ constraint, and owed:
 * **`ensure_auto_patch_road_feeds`'s new return type** (`RoadFeedPrecheck`)
   was checked against its one production caller and its own test file only;
   no full-suite run.
+* **#23 PHNY object re-seat (lane `phnyroundtrip`)**: the fix
+  (`dsf_write.encode` restores PROPERTY rows DSFTool's 511-char text reader
+  cuts; the verify matcher prefers an in-tolerance candidate) was proven on
+  the PHNY pack DSF by `dsf_placement_diff --verify` (38 real conversions,
+  round trip ok; main 4cd4025f fails on structural row 252) and by the
+  `--sweep-noop` class sweep (442 dumps, 16 -> 4 failed). NOT run: a
+  `[v2 rebake] PHNY` placement WRITE — lane builds are measure-only
+  (RULINGS 2026-09-15av) and `--refresh-data pack_rebake` writes the owner's
+  live install; the first app tile build of +20-157 is the acceptance. No
+  full-suite run.
+
 
 ## 2026-09-25 — lane `packperf` (#27 / #28 / #29, spec S2 / S3 / S4 / S5b)
 

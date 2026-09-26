@@ -29,6 +29,12 @@ from O4_Parallel_Utils import parallel_execute
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 
+# The solved colour-correction field is persisted beside the textures so a
+# rerun that converts a SUBSET of them reproduces what was built before
+# (colour-harmonization spec §3); the imagery manifest records its name.
+COLOR_FIELD_FILE = "color_field.json"
+COLOR_FIELD_VERSION = 2
+
 has_URL = False
 try:
     import O4_Custom_URL as URL
@@ -2254,28 +2260,55 @@ def combine_textures(tile, til_x_left, til_y_top, zoomlevel, provider_code):
 
 ################################################################################
 def initialize_color_harmonization(tile):
-    """Prepare the per-tile state for color harmonization (spec:
+    """Prepare the per-tile state for colour harmonization v2 (spec:
     docs/specs/color-harmonization-spec.md).  Called once per tile build
     before the download workers start."""
     tile.color_harmonization_statistics = {}
-    tile.color_harmonization_targets = None
+    tile.color_harmonization_fields = None
+    tile.color_harmonization_land = {}
+    tile.color_field_reused = False
     tile.color_harmonization_lock = threading.Lock()
 
 
-def collect_color_statistics_for_harmonization(
-    tile, til_x_left, til_y_top, zoomlevel, provider_code
-):
-    """Record the color statistics of one downloaded texture.
+def color_field_settings_hash() -> str:
+    """A short digest of every frozen constant the solved field depends on.
 
-    Runs on the download workers, right after the source JPEG landed on
-    disk.  The JPEG is decoded at 1/8 scale via ``Image.draft`` so this
-    costs milliseconds, not a full 4096 decode.  Textures without a cached
-    source JPEG of their own (combined-provider compositions) are skipped
-    and will simply receive no shift.
+    A persisted ``color_field.json`` written under different constants is
+    a different measurement frame, so the reuse check refuses it (spec §3).
     """
+    import hashlib
+    import json as _json
+
+    settings = {
+        "strength": {
+            str(k): v
+            for k, v in sorted(HARMONIZE.STRENGTH_SCHEDULE_BY_ZOOMLEVEL.items())
+        },
+        "max_shift": HARMONIZE.MAXIMUM_SHIFT_MAGNITUDE,
+        "thumbnail": list(HARMONIZE.THUMBNAIL_SIZE),
+        "luminance": [
+            HARMONIZE.LUMINANCE_VALID_LOWER_BOUND,
+            HARMONIZE.LUMINANCE_VALID_UPPER_BOUND,
+        ],
+        "land_mask_threshold": HARMONIZE.LAND_MASK_THRESHOLD,
+        "witness_fraction": HARMONIZE.WITNESS_LAND_FRACTION,
+        "strip": HARMONIZE.STRIP_WIDTH,
+        "minimum_seam_rows": HARMONIZE.MINIMUM_SEAM_ROWS,
+        "mu": HARMONIZE.SMOOTHNESS_MU,
+        "lambda": HARMONIZE.GAUGE_LAMBDA,
+        "field_size": HARMONIZE.FIELD_SIZE,
+        "version": COLOR_FIELD_VERSION,
+    }
+    blob = _json.dumps(settings, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()[:16]
+
+
+def _source_jpeg_path(tile, til_x_left, til_y_top, zoomlevel, provider_code):
+    """The cached source JPEG of one texture, or ``None`` when the provider
+    has no own imagery (a combined/composited provider, spec §5 Q7)."""
     if provider_code not in providers_dict:
-        return
-    jpeg_path = os.path.join(
+        return None
+    return os.path.join(
         FNAMES.jpeg_file_dir_from_attributes(
             tile.lat, tile.lon, zoomlevel, providers_dict[provider_code]
         ),
@@ -2283,74 +2316,344 @@ def collect_color_statistics_for_harmonization(
             til_x_left, til_y_top, zoomlevel, provider_code
         ),
     )
+
+
+def collect_color_statistics_for_harmonization(
+    tile, til_x_left, til_y_top, zoomlevel, provider_code
+):
+    """Record the seam-strip statistics of one downloaded texture.
+
+    Runs on the download workers, right after the source JPEG landed on
+    disk.  The JPEG is decoded at 1/8 scale via ``Image.draft`` so this
+    costs milliseconds, not a full 4096 decode (spec §2.2: 0.05 s).  Land
+    comes from the builder's own tri-state
+    (:func:`O4_Mask_Utils.land_class_for_texture`), never from a luminance
+    gate — that was the v1 mechanism that read the Gulf as the texture.
+    Textures without a cached source JPEG of their own (combined-provider
+    compositions) are skipped and simply receive no correction.
+    """
+    jpeg_path = _source_jpeg_path(
+        tile, til_x_left, til_y_top, zoomlevel, provider_code
+    )
+    if jpeg_path is None:
+        return
     try:
+        land_class, mask_crop = MASK.land_class_for_texture(
+            tile, til_x_left, til_y_top, zoomlevel
+        )
+        mtime = os.path.getmtime(jpeg_path)
         with Image.open(jpeg_path) as jpeg_image:
-            jpeg_image.draft("RGB", (512, 512))
-            statistics = HARMONIZE.compute_texture_color_statistics(
-                jpeg_image
+            jpeg_image.draft("RGB", HARMONIZE.THUMBNAIL_SIZE)
+            thumb, land = HARMONIZE.thumbnail_and_land(
+                jpeg_image, land_class, mask_crop
             )
+        statistics = HARMONIZE.seam_strip_statistics(thumb, land)
     except Exception as exception:
         UI.vprint(2, "      Color statistics skipped:", str(exception))
         return
-    if statistics is None:
-        return
+    statistics["mtime"] = float(mtime)
+    statistics["land_class"] = land_class
     with tile.color_harmonization_lock:
         tile.color_harmonization_statistics[
             (til_x_left, til_y_top, zoomlevel, provider_code)
-        ] = numpy.array(statistics["channel_medians"], dtype=numpy.float64)
+        ] = statistics
 
 
-def compute_color_harmonization_targets(tile):
-    """Turn the collected per-texture statistics into per-texture targets.
+def _coarse_thumbnail(tile, key, zoomlevel, provider_code, cache):
+    """``(thumb, land)`` of a covering coarser texture, re-opened from its
+    cached JPEG (spec §2.5; only the handful of ZL16 squares that cover a
+    ZL18 zone are ever read, so nothing is kept for the whole grid)."""
+    cache_key = (key[0], key[1], zoomlevel, provider_code)
+    if cache_key in cache:
+        return cache[cache_key]
+    result = None
+    jpeg_path = _source_jpeg_path(tile, key[0], key[1], zoomlevel, provider_code)
+    if jpeg_path is not None:
+        try:
+            land_class, mask_crop = MASK.land_class_for_texture(
+                tile, key[0], key[1], zoomlevel
+            )
+            with Image.open(jpeg_path) as jpeg_image:
+                jpeg_image.draft("RGB", HARMONIZE.THUMBNAIL_SIZE)
+                result = HARMONIZE.thumbnail_and_land(
+                    jpeg_image, land_class, mask_crop
+                )
+        except Exception as exception:
+            UI.vprint(2, "      Cross-zoom anchor skipped:", str(exception))
+    cache[cache_key] = result
+    return result
+
+
+def _cross_zoom_anchors(tile, zoomlevel, provider_code, group, fields):
+    """Absolute targets pinning a nested-zoom grid to the coarser field it
+    sits inside (spec §2.5).
+
+    For every edge of a fine texture with NO neighbour in its own grid, the
+    outer strip is compared with the co-located sub-strip of the covering
+    coarser texture; the anchor value is that coarser field's value at the
+    edge midpoint plus the strength-scaled cast, so the two grids agree
+    where they meet.  Returns ``[(key, c, weight), ...]``.
+    """
+    coarse_levels = sorted(
+        (zl for (zl, code) in fields if code == provider_code and zl < zoomlevel),
+        reverse=True,
+    )
+    if not coarse_levels:
+        return []
+    strength = HARMONIZE.strength_for_zoomlevel(zoomlevel)
+    cache: dict = {}
+    anchors = []
+    for key, statistics in sorted(group.items()):
+        if not statistics["witness"]:
+            continue
+        for side in HARMONIZE.SIDES:
+            dx, dy, _facing = HARMONIZE.NEIGHBOUR_OF_SIDE[side]
+            neighbour = (
+                key[0] + dx * HARMONIZE.GRID_STEP,
+                key[1] + dy * HARMONIZE.GRID_STEP,
+            )
+            if neighbour in group:
+                continue  # an inner seam: the same-grid cast already has it
+            for coarse_zl in coarse_levels:
+                field = fields[(coarse_zl, provider_code)]
+                coarse_key, rx, ry, factor = HARMONIZE.covering_key(
+                    key, zoomlevel, coarse_zl
+                )
+                if not field.has(coarse_key):
+                    continue
+                coarse = _coarse_thumbnail(
+                    tile, coarse_key, coarse_zl, provider_code, cache
+                )
+                if coarse is None:
+                    continue
+                cast = HARMONIZE.cross_zoom_cast(
+                    statistics, side, coarse[0], coarse[1], rx, ry, factor
+                )
+                if cast is None:
+                    continue
+                d, weight = cast
+                offset_x, offset_y = HARMONIZE.edge_midpoint_offset(
+                    side, rx, ry, factor
+                )
+                row, column = field.cell(coarse_key)
+                value = field.sample(column + offset_x, row + offset_y)
+                anchors.append((key, numpy.asarray(value) + strength * d, weight))
+                break
+    return anchors
+
+
+def _color_field_record(tile, fields, seam_table, statistics):
+    """The JSON payload persisted beside the textures (spec §3)."""
+    return {
+        "version": COLOR_FIELD_VERSION,
+        "settings_hash": color_field_settings_hash(),
+        "grids": [
+            {
+                "zoomlevel": int(zoomlevel),
+                "provider": provider_code,
+                "strength": HARMONIZE.strength_for_zoomlevel(zoomlevel),
+                "field": field.to_json(),
+                "seams": seam_table.get((zoomlevel, provider_code), []),
+            }
+            for (zoomlevel, provider_code), field in sorted(fields.items())
+        ],
+        "textures": {
+            "%d_%d_%d_%s" % key: {
+                "mtime": round(float(value["mtime"]), 6),
+                "land_fraction": round(float(value["land_fraction"]), 6),
+                "witness": bool(value["witness"]),
+            }
+            for key, value in statistics.items()
+        },
+    }
+
+
+def color_field_path(tile) -> str:
+    return os.path.join(tile.build_dir, COLOR_FIELD_FILE)
+
+
+def read_color_field(tile):
+    """``(fields, land_fractions, record)`` from the persisted sidecar, or
+    ``(None, None, None)`` when there is none / it is unreadable."""
+    import json
+
+    try:
+        with open(color_field_path(tile), "r") as handle:
+            record = json.load(handle)
+        fields = {}
+        for grid in record["grids"]:
+            fields[
+                (int(grid["zoomlevel"]), grid["provider"])
+            ] = HARMONIZE.OffsetField.from_json(grid["field"])
+        land = {}
+        for name, value in record["textures"].items():
+            til_x, til_y, zoomlevel, provider_code = name.split("_", 3)
+            land[
+                (int(til_x), int(til_y), int(zoomlevel), provider_code)
+            ] = float(value["land_fraction"])
+        return fields, land, record
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        UI.vprint(2, "      No reusable colour field:", str(error))
+        return None, None, None
+
+
+def _persisted_field_covers(record, statistics) -> bool:
+    """True when every texture collected THIS run is in the persisted
+    record with the same source JPEG, under the same settings (spec §3:
+    a subset rerun must reproduce what was built before)."""
+    if record.get("settings_hash") != color_field_settings_hash():
+        return False
+    textures = record.get("textures") or {}
+    for key, value in statistics.items():
+        entry = textures.get("%d_%d_%d_%s" % key)
+        if entry is None:
+            return False
+        if abs(float(entry.get("mtime", -1.0)) - float(value["mtime"])) > 1e-6:
+            return False
+    return bool(textures)
+
+
+def solve_color_field(tile):
+    """Turn the collected seam-strip statistics into one offset field per
+    ``(zoomlevel, provider)`` grid, and persist it.
 
     Called once, after the last download finished and before the convert
-    workers are launched (the barrier described in the spec).  Textures are
-    grouped by (zoomlevel, provider) so each group forms one regular grid
-    for the neighborhood-median target field.
+    workers are launched (the barrier of spec §2.2 — the field is a
+    whole-grid consensus).  Grids are solved in ASCENDING zoom level so a
+    nested ZL18 zone can be conditioned on the ZL16 field it sits inside
+    (spec §2.5).  A rerun that converted a SUBSET of the tile's textures
+    REUSES the persisted field, so the subset matches what was built
+    before; the field only recomputes when the full statistics pass ran.
     """
+    import json
+
     statistics = getattr(tile, "color_harmonization_statistics", None)
+    tile.color_field_reused = False
     if not statistics:
-        tile.color_harmonization_targets = {}
+        tile.color_harmonization_fields = {}
+        tile.color_harmonization_land = {}
         return
-    groups = {}
-    for (til_x, til_y, zoomlevel, provider_code), medians in (
-        statistics.items()
-    ):
-        groups.setdefault((zoomlevel, provider_code), {})[
-            (til_x, til_y)
-        ] = medians
-    targets = {}
-    for (zoomlevel, provider_code), group in groups.items():
-        target_field = HARMONIZE.compute_target_field(group)
-        for (til_x, til_y), target in target_field.items():
-            targets[(til_x, til_y, zoomlevel, provider_code)] = target
-    tile.color_harmonization_targets = targets
+    persisted_fields, persisted_land, record = read_color_field(tile)
+    if record is not None and _persisted_field_covers(record, statistics):
+        tile.color_harmonization_fields = persisted_fields
+        tile.color_harmonization_land = persisted_land
+        tile.color_field_reused = True
+        UI.vprint(
+            1,
+            "-> Colour field reused from",
+            COLOR_FIELD_FILE,
+            "for",
+            len(statistics),
+            "texture(s).",
+        )
+        return
+
+    groups: dict = {}
+    for (til_x, til_y, zoomlevel, provider_code), value in statistics.items():
+        groups.setdefault((zoomlevel, provider_code), {})[(til_x, til_y)] = value
+
+    fields: dict = {}
+    seam_table: dict = {}
+    for zoomlevel, provider_code in sorted(groups):
+        group = groups[(zoomlevel, provider_code)]
+        strength = HARMONIZE.strength_for_zoomlevel(zoomlevel)
+        seams, rows = [], []
+        for key, statistic in sorted(group.items()):
+            if not statistic["witness"]:
+                continue
+            for side, facing in (("R", "L"), ("B", "T")):
+                dx, dy, _f = HARMONIZE.NEIGHBOUR_OF_SIDE[side]
+                neighbour_key = (
+                    key[0] + dx * HARMONIZE.GRID_STEP,
+                    key[1] + dy * HARMONIZE.GRID_STEP,
+                )
+                neighbour = group.get(neighbour_key)
+                if neighbour is None or not neighbour["witness"]:
+                    continue
+                cast = HARMONIZE.seam_cast(statistic, side, neighbour, facing)
+                if cast is None:
+                    continue
+                d, weight = cast
+                seams.append((key, neighbour_key, d, weight))
+                rows.append(
+                    {
+                        "a": [int(key[0]), int(key[1])],
+                        "b": [int(neighbour_key[0]), int(neighbour_key[1])],
+                        "direction": "E" if side == "R" else "S",
+                        "d": [round(float(v), 3) for v in d],
+                        "weight": round(float(weight), 4),
+                    }
+                )
+        anchors = _cross_zoom_anchors(
+            tile, zoomlevel, provider_code, group, fields
+        )
+        witnesses = [k for k, v in group.items() if v["witness"]]
+        fields[(zoomlevel, provider_code)] = HARMONIZE.solve_offset_field(
+            list(group), seams, strength, anchors=anchors, witnesses=witnesses
+        )
+        seam_table[(zoomlevel, provider_code)] = rows
+
+    tile.color_harmonization_fields = fields
+    tile.color_harmonization_land = {
+        key: float(value["land_fraction"]) for key, value in statistics.items()
+    }
+    try:
+        path = color_field_path(tile)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        temporary = path + ".tmp"
+        with open(temporary, "w") as handle:
+            json.dump(
+                _color_field_record(tile, fields, seam_table, statistics),
+                handle,
+                indent=1,
+                sort_keys=True,
+            )
+        os.replace(temporary, path)
+    except Exception as error:
+        UI.vprint(2, "Could not write the colour field:", error)
     UI.vprint(
         1,
-        "-> Color harmonization targets computed for",
-        len(targets),
+        "-> Colour field solved over",
+        len(fields),
+        "grid(s),",
+        sum(len(r) for r in seam_table.values()),
+        "seam cast(s),",
+        len(statistics),
         "texture(s).",
     )
 
 
-def color_harmonization_shift_for_texture(
+def color_harmonization_field_for_texture(
     tile, til_x_left, til_y_top, zoomlevel, provider_code
 ):
-    """Return the per-channel shift for one texture, or None when the
-    texture has no target (feature off, no statistics, excluded texture)
-    or the shift rounds to zero."""
-    targets = getattr(tile, "color_harmonization_targets", None)
-    if not targets:
+    """The correction field for one texture — a ``(FIELD_SIZE, FIELD_SIZE,
+    3)`` float32 array — or ``None``.
+
+    ``None`` when the feature is off, the texture is not in the solved
+    grid (no source JPEG of its own), the texture is ALL WATER (spec §4
+    bar 4: an invisible texture is never shifted, though its node keeps
+    the harmonic value its neighbours interpolate toward) or the whole
+    field rounds to zero.
+    """
+    fields = getattr(tile, "color_harmonization_fields", None)
+    if not fields:
         return None
-    key = (til_x_left, til_y_top, zoomlevel, provider_code)
-    if key not in targets:
+    field = fields.get((zoomlevel, provider_code))
+    if field is None:
         return None
-    shift = HARMONIZE.compute_harmonization_shift(
-        tile.color_harmonization_statistics[key], targets[key], zoomlevel
+    key = (til_x_left, til_y_top)
+    if not field.has(key):
+        return None
+    land = getattr(tile, "color_harmonization_land", None) or {}
+    fraction = land.get(
+        (til_x_left, til_y_top, zoomlevel, provider_code)
     )
-    if not numpy.round(shift).any():
+    if fraction is not None and fraction <= 0.0:
         return None
-    return shift
+    values = HARMONIZE.bilinear_field(field, key)
+    if not numpy.rint(values).any():
+        return None
+    return values
 
 
 def repair_sea_nodata_in_texture(
@@ -2457,7 +2760,7 @@ def convert_texture(
         file_dir = FNAMES.jpeg_file_dir_from_attributes(
             tile.lat, tile.lon, zoomlevel, providers_dict[provider_code]
         )
-    harmonization_shift = color_harmonization_shift_for_texture(
+    harmonization_field = color_harmonization_field_for_texture(
         tile, til_x_left, til_y_top, zoomlevel, provider_code
     )
     if (provider_code in local_combined_providers_dict) and (
@@ -2467,9 +2770,9 @@ def convert_texture(
         big_image = combine_textures(
             tile, til_x_left, til_y_top, zoomlevel, provider_code
         )
-        if harmonization_shift is not None:
-            big_image = HARMONIZE.apply_color_shift(
-                big_image, harmonization_shift
+        if harmonization_field is not None:
+            big_image = HARMONIZE.apply_color_field(
+                big_image, harmonization_field
             )
         if masked_texture:
             if tile.sea_nodata_fill:
@@ -2507,7 +2810,7 @@ def convert_texture(
     elif (
         (providers_dict[provider_code]["color_filters"] != "none")
         or masked_texture
-        or harmonization_shift is not None
+        or harmonization_field is not None
     ):
         big_image = Image.open(
             os.path.join(file_dir, jpeg_file_name), "r"
@@ -2516,9 +2819,9 @@ def convert_texture(
             big_image = color_transform(
                 big_image, providers_dict[provider_code]["color_filters"]
             )
-        if harmonization_shift is not None:
-            big_image = HARMONIZE.apply_color_shift(
-                big_image, harmonization_shift
+        if harmonization_field is not None:
+            big_image = HARMONIZE.apply_color_field(
+                big_image, harmonization_field
             )
         if masked_texture:
             if tile.sea_nodata_fill:

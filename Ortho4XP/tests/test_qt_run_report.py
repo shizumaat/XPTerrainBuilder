@@ -173,3 +173,14 @@ def test_run_done_puts_the_summary_in_the_status_bar(window):
     message = window.statusBar().currentMessage()
     assert message.startswith("Build finished in 3 m 2")
     assert "1 ok, 1 failed" in message
+
+
+def test_a_neighbour_insets_label_reaches_the_row_and_the_title(window):
+    """Issue #33 / spec §D.3: the engine names a neighbour tile's inset pass
+    in the StepProgress label; the view renders it verbatim (no new event,
+    Qt parity with the Swift activity view by construction)."""
+    label = "vector data · airport insets +48-007 (neighbour of +48-006)"
+    window._on_step_progress(EV.StepProgress(
+        lat=48, lon=-6, step_key="vector", label=label, percent=10.0))
+    assert window._progress_states[(48, -6)][1] == label
+    assert label in window.windowTitle()

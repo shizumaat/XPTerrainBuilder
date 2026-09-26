@@ -160,7 +160,8 @@ def build_rim(air, law, nodes=None) -> AirsideRim:
                       nodes=nodes, node_tol_m=0.5 * ident)
 
 
-def apron_cut_to_pads(base_regions, pad_regions, law) -> tuple[list, list, dict]:
+def apron_cut_to_pads(base_regions, pad_regions, law,
+                      grid: float = 0.0) -> tuple[list, list, dict]:
     """RULINGS 2026-09-23a — APRON DOES NOT EXTEND UNDER BUILDING PADS.
 
     The owner ruled the §16g (10) (5) / (12) subtraction BACKWARDS for a
@@ -187,6 +188,15 @@ def apron_cut_to_pads(base_regions, pad_regions, law) -> tuple[list, list, dict]
     (12)'s re-node census (measured SPJC, cut after pass A: the terminal
     in 5 faces, ``renode_minted_on_rim`` 741).
 
+    THE PAD IS PUT ON THE IDENTITY GRID FIRST (``grid``, the arrangement's
+    own snap).  Pass A snap-rounds the cut apron ring, so a RAW pad edge
+    added in pass B runs a hair beside its own snapped copy and the two
+    cross at every few metres — each crossing a hot pixel, i.e. an airside
+    node the pad minted (measured SPJC with raw pads: 180 minted along the
+    shared edges, 134 of them "inside" the airside by a few cm).  A pad
+    whose vertices already sit on the grid snaps to itself, so its edge
+    and the apron's are one segment set.
+
     Measured trigger: SPJC's terminal, 87 % of its 99,080 m2 footprint
     over rolled-on apron, emitted as a ~13 k m2 pad by the old clip."""
     counts: dict = {"pads": len(pad_regions)}
@@ -200,13 +210,23 @@ def apron_cut_to_pads(base_regions, pad_regions, law) -> tuple[list, list, dict]
                           if r.source == "cell" and r.role in king])
     pads_out = []
     trimmed = 0.0
+    def _on_grid(g):
+        if grid <= 0.0 or g is None or g.is_empty:
+            return g
+        q = shapely.set_precision(g, grid)
+        return q if q.is_valid else q.buffer(0.0)
+
+    gridded = []
     for r in pad_regions:
-        g = r.polygon
-        if g is None or g.is_empty:
+        if r.polygon is None or r.polygon.is_empty:
             continue
+        for q in _polys(_on_grid(r.polygon)):
+            gridded.append(r if q is r.polygon else _dc.replace(r, polygon=q))
+    for r in gridded:
+        g = r.polygon
         if not king_u.is_empty and g.intersects(king_u):
             before = g.area
-            g = g.difference(king_u)
+            g = _on_grid(g.difference(king_u))
             trimmed += before - g.area
             parts = _polys(g)
             if not parts:
@@ -374,7 +394,8 @@ def _node_coords(noded) -> list[tuple[float, float]]:
     return sorted(out)
 
 
-def _drop_rim_midpoints(lines, rim, nodes: set, own: set) -> tuple[list, int]:
+def _drop_rim_midpoints(lines, rim, nodes: set, own: set,
+                        tol_m: float = 0.0) -> tuple[list, int]:
     """Drop every coordinate the DENSIFIER inserted on the airside rim
     (§16g (10) (12) (1)) — a point that lies on the rim, is not one of the
     arrangement's own nodes, and is not a vertex of the pad's own polygon.
@@ -384,7 +405,16 @@ def _drop_rim_midpoints(lines, rim, nodes: set, own: set) -> tuple[list, int]:
     crossing point the snap either quantised or counted as too far), and
     dropping it collapses the ring — the three ``test_v2padlevel``
     fixtures whose pad merely TOUCHES its apron along a straight edge are
-    exactly that case.  Returns the surviving lines and the count."""
+    exactly that case.  Returns the surviving lines and the count.
+
+    ``tol_m`` (RULINGS 2026-09-23a): how far from the rim a densifier
+    point may stand and still be the rim's.  Under 23a the pad's edge IS
+    the cut apron's edge, but the rim is read off the GRID-SNAPPED airside
+    while the densified pad lines are raw, so a midpoint exactly on the
+    raw shared edge stands up to half a grid diagonal off the snapped one
+    and was never recognised: measured SPJC, 188 pad-edge midpoints minted
+    as airside nodes.  A densifier point is collinear by construction, so
+    dropping one within ``tol_m`` of the rim never changes the pad."""
     if rim is None or rim.boundary is None:
         return list(lines), 0
     out, gone = [], 0
@@ -392,7 +422,9 @@ def _drop_rim_midpoints(lines, rim, nodes: set, own: set) -> tuple[list, int]:
         cs = [(float(x), float(y)) for x, y in ln.coords]
         keep = []
         for c in cs:
-            if c not in nodes and c not in own and rim.on_boundary(c):
+            if c not in nodes and c not in own and (
+                    rim.on_boundary(c) if tol_m <= 0.0
+                    else rim.rim_distance(c, tol_m) is not None):
                 gone += 1
                 continue
             keep.append(c)
@@ -497,7 +529,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                          "pad_keeps_footprint", False))
     if keeps:
         base_regions, pad_regions, _pad_clip = apron_cut_to_pads(
-            base_regions, pad_regions, law)
+            base_regions, pad_regions, law, float(grid))
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []
@@ -571,7 +603,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                       for x, y in ring.coords}
     pad_lines, _dropped_mid = _drop_rim_midpoints(_ring_lines_of(pad_regions),
                                                   rim, set(nodes_a),
-                                                  own_pad_coords)
+                                                  own_pad_coords,
+                                                  float(grid) if keeps else 0.0)
     _pad_clip["rim_midpoints_dropped"] = _dropped_mid
     if pad_lines:
         noded = shapely.unary_union(

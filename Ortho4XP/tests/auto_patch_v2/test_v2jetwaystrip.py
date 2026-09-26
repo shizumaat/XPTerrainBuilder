@@ -400,3 +400,33 @@ def test_a_pad_whose_frontage_is_not_a_plane_gets_no_strip(law, agp):
         rep = _ps.project_strips(pm, law, st, levels, z1)
     assert rep.gated == 1 and rep.strips[0]["gated"] is True
     assert levels == before
+
+
+def test_a_strip_vertex_yields_to_a_never_moved_neighbour(law, agp):
+    """KCLT sweep 0926: a strip vertex lifted ~2 m beside a taxi vertex
+    4.27 m away stood a CRITICAL step.  A strip vertex's change is held to
+    s·d from the nearest never-moved vertex; its plane target is still the
+    published (a) target, so the shortfall is reported, never hidden."""
+    from auto_patch_v2.solve.project_strip import project_strips
+    airport, pm, cs = _prep(law, agp)
+    st = _strips(law, airport, pm, cs)
+    s = st.strips[0]
+    n = len(pm.vertices)
+    z1 = np.array([_Dem().z(*pm.vertices[v].xy) for v in range(n)])
+    levels = {v: float(z1[v]) for v in range(n)}
+    # one strip vertex 0.3 m under the plane, and a never-moved vertex
+    # right beside it at that same low value
+    v0 = s.vertices[0]
+    near = min((v for v in range(n) if v not in set(s.vertices) and v != v0),
+               key=lambda v: np.hypot(*np.subtract(pm.vertices[v].xy,
+                                                   pm.vertices[v0].xy)))
+    levels[v0] -= 0.3
+    levels[near] = levels[v0]
+    fixed = dict(st.fixed)
+    fixed[near] = "taxi"
+    st2 = _dc.replace(st, fixed=fixed, movable=frozenset(st.movable - {near}))
+    before = dict(levels)
+    rep = project_strips(pm, law, st2, levels, z1)
+    d = float(np.hypot(*np.subtract(pm.vertices[near].xy, pm.vertices[v0].xy)))
+    assert abs(levels[v0] - before[v0]) <= 0.015 * d + 1e-6
+    assert levels[near] == before[near]

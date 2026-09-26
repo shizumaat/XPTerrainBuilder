@@ -158,7 +158,17 @@ roles     = ["apron"]
 pairs     = "within"
 ruling    = "2026-09-18t"
 solver    = "construction"
-cockpit   = "step"
+# NOT a step (KCLT sweep 0926, 72 false CRITICAL motion rows): a row here is
+# a RESIDUAL the projection reports — a clamp is the change the strip's
+# field WANTED at a never-moved taxi / runway / pinned vertex, and a strip
+# vertex off its target is a distance to a plane — carried on ONE vertex
+# (span 0), so the §31 span rule read every one as a WELDED step.  The
+# emitted surface at the worst KCLT clamp (2.821 m at 35.2016225,
+# -80.9379783) is 217.26 against neighbours 217.15-217.27 within 25 m: no
+# step exists.  A real step the strip made would be read by the step
+# families (stacked_nodes, vertex_to_edge_step, mid_edge_step, cross_shape)
+# and within_shape; this family is REPORTED.
+cockpit   = "keepout"
 
 # §16g (10) (12) (2) THE ARRANGEMENT CLIP PRESERVES THE AIRSIDE VERTEX SET
 # (Fable 2026-09-16; RULINGS 2026-09-16b).  The airside cells' geometry and

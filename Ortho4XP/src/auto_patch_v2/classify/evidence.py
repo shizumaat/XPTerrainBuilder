@@ -659,7 +659,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             if piece.area < min_area:
                 dropped += 1
                 continue
-            if not gate.contains(piece.representative_point()):
+            if not _inside_gate(piece, gate):
                 dropped += 1
                 continue
             out.append((ref if k == 0 else f"{ref}#{k}", piece))
@@ -681,6 +681,30 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # standing INSIDE an OSM pad still gets that pad's relief offsets
     # (``constraints/pad_relief.py``, §11a (2)) — unchanged.
     return _drop_skirted(airport, law, cache, out, dropped)
+
+
+#: Issue #68 (lane ``padgate``): a pad piece is INSIDE the airport when at
+#: least this fraction of its AREA lies in the gate.  The gate read one
+#: arbitrary point (``representative_point``) and so dropped OTHH's
+#: terminal cluster pad (74,193 m2, 74 % inside, the owner's site
+#: 25.2599127, 51.6149444 inside it) because GEOS put that point 10.5 m
+#: past the boundary in a concave outline.  MEASURED over every cluster
+#: pad piece of two OTHH captures (main b7c98072, othhjunction 3a29689b):
+#: 0.25 keeps every piece the point test kept (0 lost) and admits the
+#: pieces standing mostly inside (+2 / +1); 0.5 would lose one piece the
+#: point test kept; any-intersection would admit a 29,791 m2 piece only
+#: 3.8 % inside.
+PAD_GATE_MIN_FRACTION = 0.25
+
+
+def _inside_gate(piece, gate) -> bool:
+    """A pad piece is admitted by the AREA it has inside ``gate``, never by
+    one representative point (#68)."""
+    if gate.contains(piece):
+        return True
+    if not gate.intersects(piece):
+        return False
+    return piece.intersection(gate).area >= PAD_GATE_MIN_FRACTION * piece.area
 
 
 def _absorb_enclosed(parts: list) -> list:

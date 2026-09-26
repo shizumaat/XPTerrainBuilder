@@ -321,7 +321,9 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             dem_frame="production", production_dem_tiles=seeds,
             core_hosted=True,
             road_grade_limit=task.get("road_grade_limit"),
-            lane_width_m=task.get("lane_width"))
+            lane_width_m=task.get("lane_width"),
+            # spec §B.4 (#27): the pack walk the parent took once per tile
+            pack_pristine=task.get("pack_pristine"))
         law = Law.for_airport(icao)
         scratch = _scratch_dir(task)
         os.makedirs(scratch, exist_ok=True)

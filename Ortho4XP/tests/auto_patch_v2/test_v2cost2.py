@@ -174,12 +174,14 @@ def test_partition_cache_path_and_code_digest(tmp_path):
 
     class _Air:
         pack = _Pack()
+        icao = "OTHH"
 
     air = _Air()
     got = _pc.cache_path(air, str(tmp_path / "mod"),
                          "/x/+25+051.dsf.anchor_bak.84ffe846.text")
+    # #27: PER AIRPORT — two airports of one tile never share the file
     assert got is not None and got.endswith(
-        "OTHH Doha (Aeroscape)/o4_v2_partition_+25+051.cache")
+        "OTHH Doha (Aeroscape)/o4_v2_partition_+25+051_OTHH.cache")
     assert _pc.cache_path(air, None, "/x/+25+051.dsf.text") is None
     assert _pc.cache_path(air, str(tmp_path / "mod"), None) is None
     d = _pc.code_digest()

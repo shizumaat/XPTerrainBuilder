@@ -812,6 +812,53 @@ def _init_worker(dem, progress_queue) -> None:
     _progress.set_worker_queue(progress_queue)
 
 
+#: A pack whose pristine ``.obj`` bytes exceed this makes the pool release
+#: each worker after its airport (spec §B.5): TNCM/TFFG's worker pinned
+#: 12.8 GB idle in ``sem_wait`` for 20 min after returning (issue #27).
+POOL_RELEASE_PACK_BYTES = 1 << 30
+
+
+def _seed_pack_walks(tasks: list) -> dict:
+    """ONE pristine pack walk per distinct pack root among ``tasks``
+    (spec §B.4: once per tile build, in the parent, handed to every child
+    in ``task["pack_pristine"]`` so no child walks).  Returns ``{root:
+    stamps}``; an airport whose pack cannot be selected here is simply
+    not seeded (its child walks, as a standalone build does)."""
+    walks: dict = {}
+    try:
+        from auto_patch_v2.airport.pack import select_pack
+        from auto_patch_v2.airport.partition_cache import pristine_stamps
+    except Exception:
+        return walks
+    for t in tasks:
+        try:
+            sel = select_pack(t["xp_root"], t["icao"])
+        except Exception:
+            sel = None
+        root = getattr(sel, "root", None)
+        if not root:
+            continue
+        if root not in walks:
+            walks[root] = pristine_stamps(root)
+        if walks[root]:
+            t["pack_pristine"] = {root: walks[root]}
+    return walks
+
+
+def _pool_releases_workers(n_tasks: int, n_workers: int, walks: dict) -> bool:
+    """``max_tasks_per_child=1`` (spec §B.5): armed when the tile has more
+    airports than workers (a worker would otherwise be REUSED holding the
+    last airport's peak) or any pack's pristine ``.obj`` bytes exceed
+    :data:`POOL_RELEASE_PACK_BYTES`; a tile of a few small airports keeps
+    reuse (one interpreter start each is its whole cost)."""
+    if n_tasks > n_workers:
+        return True
+    for stamps in walks.values():
+        if stamps and sum(int(e[1]) for e in stamps) > POOL_RELEASE_PACK_BYTES:
+            return True
+    return False
+
+
 def _build_write_verify_one(task: dict) -> dict:
     """Build ONE airport, write its ``*_auto.patch.osm``, and verify it.
 
@@ -990,6 +1037,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
     except OSError:
         pass
     _set_worker_dem(dem)            # the serial path reads this module global too
+    _pack_walks = _seed_pack_walks(tasks)
 
     # Open/refresh the auto-patch progress window with a row per airport (a
     # no-op on the command line / in tests). Phase updates below fill each row.
@@ -1059,9 +1107,14 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
             # the tile never reached the results loop) wedges the tile
             # forever with every collected result in hand.  The pool is
             # torn down by ``_teardown_pool`` on a deadline instead.
+            _release = _pool_releases_workers(len(tasks), n, _pack_walks)
+            _pool_kw = {"max_tasks_per_child": 1} if _release else {}
+            if _release:
+                UI.lvprint(1, "   Auto-patch: each worker exits after its airport "
+                              "(large pack or more airports than workers).")
             ex = _cf.ProcessPoolExecutor(
                 max_workers=n, mp_context=ctx,
-                initializer=_init_worker, initargs=(dem, pq))
+                initializer=_init_worker, initargs=(dem, pq), **_pool_kw)
             futs, pending = {}, set()
             try:
                 # THE DEAD FUTURE MUST KEEP ITS AIRPORT'S NAME (H1).  A

@@ -97,6 +97,11 @@ class Inputs:
     #: ``emit.road_profile.lane_width_m``, the core's own cfg defaults).
     road_grade_limit: float | None = None
     lane_width_m: float | None = None
+    #: THE PACK WALK THE TILE BUILD'S PARENT ALREADY TOOK (spec
+    #: ``pack-read-once-fast-spec.md`` §B.4, issue #27): ``{pack root:
+    #: partition_cache.pristine_stamps(root)}``, so a child never walks a
+    #: pack its parent walked; ``None`` = walk here (standalone builds).
+    pack_pristine: _t.Any = None
 
 
 @_dc.dataclass

@@ -321,6 +321,174 @@ def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
     return dict(sorted(acc.items(), key=lambda kv: (kv[1]["tier"] is None, kv[1]["tier"])))
 
 
+def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
+               out: _t.Callable[[str], None] = print) -> dict:
+    """THE PACK STAGE — read the pack, partition it (or revive the cached
+    partition), derive the groups and the clusters — exactly as ``build``
+    runs it; ``build`` and ``tools/pack_stage_profile.py`` call THIS (one
+    code path, never a second spelling of the drive site).  Returns
+    ``{"airport", "ocache", "objects", "report", "partition", "groups",
+    "clusters", "cache", "wall"}`` — ``airport`` carries the partition,
+    the groups and the clusters; ``cache`` is ``HIT`` / ``MISS`` / ``OFF``;
+    ``wall`` the stage seconds by part (``read``, ``partition``,
+    ``groups``, ``clusters``, ``total``)."""
+    wall: dict[str, float] = {}
+    _sub: dict[str, float] = {}
+    t = time.perf_counter()
+    # ONE ``ResourceCache`` for the whole build (spec §22): the skirt
+    # reader runs inside classify, the structure passes and the re-seat
+    # plan read the same parsed geometry, so the pack is parsed once
+    from ..airport.obj8 import ResourceCache as _RCache
+    ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
+    # THE PACK PARTITION IS A LOAD-STAGE INPUT (owner RULINGS 2026-09-11j;
+    # spec §11a (3)).  The pad law needs the pack's BODIES, FEET and
+    # ABUTMENTS, and the pads are minted inside ``classify`` — so the pack
+    # is read and partitioned HERE, once, and ``rebake_plan.plan()``
+    # FILTERS this reading after the solve instead of re-partitioning a
+    # filtered object set.  ``planar`` is handed the same objects, so the
+    # pack is still read once.
+    from ..airport.pack_partition import partition_pack as _partition_pack
+    from ..law.tables import group_span_max_m as _span_max
+    from ..planar.basins import read_objects as _read_objects
+    from ..planar.group import derive as _derive_groups
+    # THE PACK PARTITION IS CACHED (lane ``v2cost2``, RULINGS 2026-09-14q
+    # item 1): the pack reading and the partition are a pure function of
+    # the pack files, the dump, the law, the frame and the code, so they
+    # are stored beside ``o4_object_footprints_<tile>.cache`` in the
+    # pack's mod-cache folder under the same fingerprint discipline
+    # (``airport/partition_cache.py`` carries the whole argument, and why
+    # the write is that cache's class and not a ``--refresh-data`` act).
+    # ``_derive_groups`` reads the DEM and is NEVER cached.
+    from ..airport import partition_cache as _pcache
+    _fp = _pcache.fingerprint(airport, law, dump_path=lrep.dsf_dump_path,
+                              radius_deg=inputs.radius_deg,
+                              pristine=getattr(inputs, "pack_pristine", None))
+    _cpath = _pcache.cache_path(airport, inputs.mod_cache_root, lrep.dsf_dump_path)
+    _hit = _pcache.read(_cpath, _fp)
+    # spec §B.4: the ``[partition] cache HIT|MISS|WROTE`` line is REQUIRED
+    # on every build — its absence is how a cache that never hit went
+    # unnoticed (TNCM + TFFG overwrote one tile-named file, issue #27)
+    _cstate = "OFF" if not (_cpath and _fp) else ("HIT" if _hit is not None else "MISS")
+    if _cstate == "OFF":
+        _say(f"  [partition] cache OFF (no pack, dump or mod-cache root)", out)
+    if _hit is not None:
+        pack_objects, pack_report, _part, _cached_clusters, _derived = _hit
+        # THE ONE ``ResourceCache`` IS PUT BACK WHERE THE PARTITION LEFT
+        # IT (owner RULINGS 2026-09-14v item 2): a hit that skips the
+        # pack reading leaves the cache EMPTY, and classify then re-runs
+        # ``read_objects`` (its ``placed["objects"]`` memo) and re-derives
+        # every skirt reading — 68 s that simply moved stage.  The
+        # placements and the small per-resource readings are restored;
+        # the parsed geometry is not cached and is re-parsed on demand.
+        ocache.placed["objects"] = (pack_objects, pack_report)
+        _nd = ocache.restore_derived(_derived)
+        # the revived partition's members are RECIPES: bind this run's cache
+        _g = getattr(_part, "geom", None)
+        if _g is not None and hasattr(_g.members, "bind"):
+            _g.members.bind(ocache)
+        _say(f"  [partition] cache HIT {_cpath} ({_nd} resource reading(s) "
+             f"restored)", out)
+    else:
+        if _cstate == "MISS":
+            _say(f"  [partition] cache MISS {_cpath}", out)
+        _cached_clusters = None
+        _t = time.perf_counter()
+        pack_objects, pack_report = _read_objects(airport, law, ocache)
+        _sub["read"] = time.perf_counter() - _t
+        _t = time.perf_counter()
+        _part = _partition_pack(airport, pack_objects, ocache, law)
+        _sub["partition"] = time.perf_counter() - _t
+    # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
+    # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
+    # terrain under an object's feet is GROUND, and the slope a pilot
+    # reads as ground rather than a wall is ``emit.design.bank_slope``
+    # (1:3).  Priced at the pad's own 1 % tilt instead, every body with
+    # any authored relief came out infeasible (LEMD 7,627 of 13,064
+    # groups), which is a verdict that says nothing.
+    # THE FEASIBILITY VERDICT PRICES THE DEM'S FALL (owner RULINGS
+    # 2026-09-11q; spec §11b (3)).  Round 5's reading judged the AUTHORED
+    # relief alone, which says a colonnade rising 2.63 m over 52.8 m is
+    # feasible on flat ground and infeasible on the hillside it was
+    # authored for — exactly backwards.  The body's level is FITTED to the
+    # ground under its feet and the residual judged against the bank the
+    # terrain may lawfully make (``bank_slope``, 1:3).
+    # §46 (9) census row 8: the ``(lat, lon)`` handed to ``_dem_at`` are
+    # the groups' own INPUT feet — the ENTRY projection, so the §11b (3)
+    # verdict samples the DEM at the same point ``foot_rows`` does
+    _to_xy = airport.frame.entry()
+
+    def _dem_at(lat: float, lon: float) -> float | None:
+        x, y = _to_xy(lon, lat)
+        try:
+            z = airport.dem.z(x, y)
+        except Exception:
+            return None
+        if z is None:
+            return None
+        z = float(z)
+        return None if z != z else z        # NaN outside the raster
+
+    _bank = float(law.tables.emit.design.bank_slope)
+    _t = time.perf_counter()
+    _groups = _derive_groups(_part, _span_max(law), _bank,
+                             dem_at=_dem_at, bank_slope=_bank)
+    _sub["groups"] = time.perf_counter() - _t
+    # §16g / §30 (4) THE TERMINAL CLUSTERS (owner RULINGS 2026-09-13bj
+    # item 1, 13bo): the FOOTPRINT UNITS whose union passes
+    # ``[placement] cluster_pad_min_m2``, derived from the same partition
+    # so the design surface's pad and the object stage's unit are one
+    # relation.  Carried on the airport because ``constraints`` may not
+    # import ``planar``.
+    from ..planar.cluster import clusters as _derive_clusters
+    if _cached_clusters is not None:
+        _clusters = _cached_clusters
+    else:
+        _t = time.perf_counter()
+        _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
+        _sub["clusters"] = time.perf_counter() - _t
+        if _pcache.write(_cpath, _fp,
+                         (pack_objects, pack_report, _part, _clusters,
+                          ocache.derived_state())):
+            _say(f"  [partition] cache WROTE {_cpath}", out)
+    airport = _dc.replace(airport, partition=_part, groups=_groups,
+                          clusters=_clusters)
+    # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.
+    # HECA's round-5 build priced 0 cluster cross-links while
+    # ``plan_clusters`` on the same plan returned 2, and nothing in the
+    # build named the difference — an empty derivation must say why.
+    from ..planar.cluster import WHY as _cwhy
+    # §16g (9)/(10) (owner RULINGS 2026-09-14x): the population is now
+    # EVERY footprint chain split at its ground floor, not the two
+    # families §16f's gates left, so the count is the airport's buildings
+    # and the say-line names what the PAD derivation will get: how many
+    # carry an outline (a pre-14o plan carries none and the pads then
+    # fall back to the footprint cache) and how many clear the cluster
+    # PAD PLANE threshold.
+    _say(f"  [clusters] {len(_clusters)} cluster(s)"
+         + (f"  -- {_cwhy['gate']}" if not _clusters and _cwhy.get("gate")
+            else "")
+         + (f"  (partition units {_cwhy.get('units')}, touch "
+            f"{_cwhy.get('touch_m')} m, floor split "
+            f"{_cwhy.get('floor_split_m')} m, "
+            f"{_cwhy.get('with_rings')} with an outline, "
+            f"{sum(1 for _c in _clusters if _c.area_m2 >= _cwhy.get('min_m2', 0.0))} "
+            f"over the cluster-pad threshold {_cwhy.get('min_m2')} m2)"), out)
+    wall["partition"] = time.perf_counter() - t
+    _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
+         f"members {_part.counts['members']}  parts {_part.counts['parts']}  "
+         f"contacts {_part.counts['contacts']}  abutments {_part.counts['abutments']}  "
+         f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']} "
+         f"(cross-placement {_groups.counts['cross_groups']}, long span "
+         f"{_groups.counts['long_span']}, relief {_groups.counts['relief_bodies']}, "
+         f"infeasible {_groups.counts['infeasible']} of which short "
+         f"{_groups.counts['infeasible_short']}, released "
+         f"{_groups.counts['released']})", out)
+    return {"airport": airport, "ocache": ocache, "objects": pack_objects,
+            "report": pack_report, "partition": _part, "groups": _groups,
+            "clusters": _clusters, "cache": _cstate,
+            "wall": {**_sub, "total": wall["partition"]}}
+
+
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
           config: Config | None = None, law: Law | None = None,
           out: _t.Callable[[str], None] = print) -> BuildResult:
@@ -364,138 +532,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(f"  [load] {lrep.object_pavements.line()}", out)
         for ln in lrep.object_pavements.resource_lines():
             _say(ln, out)
-    t = time.perf_counter()
-    # ONE ``ResourceCache`` for the whole build (spec §22): the skirt
-    # reader runs inside classify, the structure passes and the re-seat
-    # plan read the same parsed geometry, so the pack is parsed once
-    from ..airport.obj8 import ResourceCache as _RCache
-    ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m)
-    # THE PACK PARTITION IS A LOAD-STAGE INPUT (owner RULINGS 2026-09-11j;
-    # spec §11a (3)).  The pad law needs the pack's BODIES, FEET and
-    # ABUTMENTS, and the pads are minted inside ``classify`` — so the pack
-    # is read and partitioned HERE, once, and ``rebake_plan.plan()``
-    # FILTERS this reading after the solve instead of re-partitioning a
-    # filtered object set.  ``planar`` is handed the same objects, so the
-    # pack is still read once.
-    from ..airport.pack_partition import partition_pack as _partition_pack
-    from ..law.tables import group_span_max_m as _span_max
-    from ..planar.basins import read_objects as _read_objects
-    from ..planar.group import derive as _derive_groups
-    # THE PACK PARTITION IS CACHED (lane ``v2cost2``, RULINGS 2026-09-14q
-    # item 1): the pack reading and the partition are a pure function of
-    # the pack files, the dump, the law, the frame and the code, so they
-    # are stored beside ``o4_object_footprints_<tile>.cache`` in the
-    # pack's mod-cache folder under the same fingerprint discipline
-    # (``airport/partition_cache.py`` carries the whole argument, and why
-    # the write is that cache's class and not a ``--refresh-data`` act).
-    # ``_derive_groups`` reads the DEM and is NEVER cached.
-    from ..airport import partition_cache as _pcache
-    _fp = _pcache.fingerprint(airport, law, dump_path=lrep.dsf_dump_path,
-                              radius_deg=inputs.radius_deg)
-    _cpath = _pcache.cache_path(airport, inputs.mod_cache_root, lrep.dsf_dump_path)
-    _hit = _pcache.read(_cpath, _fp)
-    if _hit is not None:
-        pack_objects, pack_report, _part, _cached_clusters, _derived = _hit
-        # THE ONE ``ResourceCache`` IS PUT BACK WHERE THE PARTITION LEFT
-        # IT (owner RULINGS 2026-09-14v item 2): a hit that skips the
-        # pack reading leaves the cache EMPTY, and classify then re-runs
-        # ``read_objects`` (its ``placed["objects"]`` memo) and re-derives
-        # every skirt reading — 68 s that simply moved stage.  The
-        # placements and the small per-resource readings are restored;
-        # the parsed geometry is not cached and is re-parsed on demand.
-        ocache.placed["objects"] = (pack_objects, pack_report)
-        _nd = ocache.restore_derived(_derived)
-        # the revived partition's members are RECIPES: bind this run's cache
-        _g = getattr(_part, "geom", None)
-        if _g is not None and hasattr(_g.members, "bind"):
-            _g.members.bind(ocache)
-        _say(f"  [partition] cache HIT {_cpath} ({_nd} resource reading(s) "
-             f"restored)", out)
-    else:
-        _cached_clusters = None
-        pack_objects, pack_report = _read_objects(airport, law, ocache)
-        _part = _partition_pack(airport, pack_objects, ocache, law)
-    # THE FEASIBILITY BAR IS THE GROUND'S, NOT THE PAD'S (owner RULINGS
-    # 2026-09-11j; spec §11 (4) "the emitted surface stays lawful").  The
-    # terrain under an object's feet is GROUND, and the slope a pilot
-    # reads as ground rather than a wall is ``emit.design.bank_slope``
-    # (1:3).  Priced at the pad's own 1 % tilt instead, every body with
-    # any authored relief came out infeasible (LEMD 7,627 of 13,064
-    # groups), which is a verdict that says nothing.
-    # THE FEASIBILITY VERDICT PRICES THE DEM'S FALL (owner RULINGS
-    # 2026-09-11q; spec §11b (3)).  Round 5's reading judged the AUTHORED
-    # relief alone, which says a colonnade rising 2.63 m over 52.8 m is
-    # feasible on flat ground and infeasible on the hillside it was
-    # authored for — exactly backwards.  The body's level is FITTED to the
-    # ground under its feet and the residual judged against the bank the
-    # terrain may lawfully make (``bank_slope``, 1:3).
-    # §46 (9) census row 8: the ``(lat, lon)`` handed to ``_dem_at`` are
-    # the groups' own INPUT feet — the ENTRY projection, so the §11b (3)
-    # verdict samples the DEM at the same point ``foot_rows`` does
-    _to_xy = airport.frame.entry()
-
-    def _dem_at(lat: float, lon: float) -> float | None:
-        x, y = _to_xy(lon, lat)
-        try:
-            z = airport.dem.z(x, y)
-        except Exception:
-            return None
-        if z is None:
-            return None
-        z = float(z)
-        return None if z != z else z        # NaN outside the raster
-
-    _bank = float(law.tables.emit.design.bank_slope)
-    _groups = _derive_groups(_part, _span_max(law), _bank,
-                             dem_at=_dem_at, bank_slope=_bank)
-    # §16g / §30 (4) THE TERMINAL CLUSTERS (owner RULINGS 2026-09-13bj
-    # item 1, 13bo): the FOOTPRINT UNITS whose union passes
-    # ``[placement] cluster_pad_min_m2``, derived from the same partition
-    # so the design surface's pad and the object stage's unit are one
-    # relation.  Carried on the airport because ``constraints`` may not
-    # import ``planar``.
-    from ..planar.cluster import clusters as _derive_clusters
-    if _cached_clusters is not None:
-        _clusters = _cached_clusters
-    else:
-        _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
-        if _pcache.write(_cpath, _fp,
-                         (pack_objects, pack_report, _part, _clusters,
-                          ocache.derived_state())):
-            _say(f"  [partition] cache WROTE {_cpath}", out)
-    airport = _dc.replace(airport, partition=_part, groups=_groups,
-                          clusters=_clusters)
-    # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.
-    # HECA's round-5 build priced 0 cluster cross-links while
-    # ``plan_clusters`` on the same plan returned 2, and nothing in the
-    # build named the difference — an empty derivation must say why.
-    from ..planar.cluster import WHY as _cwhy
-    # §16g (9)/(10) (owner RULINGS 2026-09-14x): the population is now
-    # EVERY footprint chain split at its ground floor, not the two
-    # families §16f's gates left, so the count is the airport's buildings
-    # and the say-line names what the PAD derivation will get: how many
-    # carry an outline (a pre-14o plan carries none and the pads then
-    # fall back to the footprint cache) and how many clear the cluster
-    # PAD PLANE threshold.
-    _say(f"  [clusters] {len(_clusters)} cluster(s)"
-         + (f"  -- {_cwhy['gate']}" if not _clusters and _cwhy.get("gate")
-            else "")
-         + (f"  (partition units {_cwhy.get('units')}, touch "
-            f"{_cwhy.get('touch_m')} m, floor split "
-            f"{_cwhy.get('floor_split_m')} m, "
-            f"{_cwhy.get('with_rings')} with an outline, "
-            f"{sum(1 for _c in _clusters if _c.area_m2 >= _cwhy.get('min_m2', 0.0))} "
-            f"over the cluster-pad threshold {_cwhy.get('min_m2')} m2)"), out)
-    wall["partition"] = time.perf_counter() - t
-    _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
-         f"members {_part.counts['members']}  parts {_part.counts['parts']}  "
-         f"contacts {_part.counts['contacts']}  abutments {_part.counts['abutments']}  "
-         f"bodies {_groups.counts['bodies']}  groups {_groups.counts['groups']} "
-         f"(cross-placement {_groups.counts['cross_groups']}, long span "
-         f"{_groups.counts['long_span']}, relief {_groups.counts['relief_bodies']}, "
-         f"infeasible {_groups.counts['infeasible']} of which short "
-         f"{_groups.counts['infeasible_short']}, released "
-         f"{_groups.counts['released']})", out)
+    _ps = pack_stage(icao, airport, law, inputs, lrep, out)
+    airport, ocache = _ps["airport"], _ps["ocache"]
+    pack_objects, pack_report = _ps["objects"], _ps["report"]
+    _part, _groups = _ps["partition"], _ps["groups"]
+    wall["partition"] = _ps["wall"]["total"]
     t = time.perf_counter()
     cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t

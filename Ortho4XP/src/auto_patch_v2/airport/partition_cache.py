@@ -50,11 +50,12 @@ import pickle
 import typing as _t
 import zlib
 
-__all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write"]
+__all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
+           "pristine_stamps"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 3   # §51 (4) row 17: every placed footprint in a cached
+CACHE_VERSION = 3   #  §51 (4) row 17: every placed footprint in a cached
                     # reading was minted by the PRE-§51 entry path.  The
                     # bump INVALIDATES them; a stale payload is never
                     # repaired on read, because a repair-on-read is a
@@ -77,6 +78,7 @@ _CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.obj8_clip",
     "auto_patch_v2.airport.frame_entry",
     "auto_patch_v2.airport.skirt",
+    "auto_patch_v2.airport.bulk_geos",
     "auto_patch_v2.airport.deck_signature",
     "auto_patch_v2.airport.line_object",
     "auto_patch_v2.airport.placement_boxes",
@@ -127,11 +129,26 @@ def code_digest() -> str:
     return _CODE_DIGEST
 
 
+#: ``fingerprint -> pristine stamps`` of the fingerprints this process
+#: took: :func:`write` stores them in the payload header and :func:`read`
+#: checks them (§12a: size in the key, mtime + content hash in the header).
+_STAMPS: dict[str, list[tuple[str, int, float, str]]] = {}
+
+
 def fingerprint(airport, law, *, dump_path: str | None,
-                radius_deg: float | None) -> str | None:
+                radius_deg: float | None,
+                pristine: "dict[str, list] | None" = None) -> str | None:
     """The fingerprint of everything the cached reading is a function of
     (module doc), or ``None`` when it cannot be taken (no pack, no dump)
-    — in which case nothing is cached."""
+    — in which case nothing is cached.
+
+    ``pristine`` maps a pack root to its walk (:func:`pristine_stamps`)
+    ALREADY TAKEN by the tile build's parent (spec §B.4: once per tile
+    build across children); a root it does not carry is walked here.  The key carries
+    each pristine ``.obj``'s path and SIZE only — the mtime is checked
+    against the payload header on read and, where only the mtime moved,
+    the content hash decides (§12a: a pack restored from a backup must
+    not invalidate every file's worth of reading)."""
     pack_root = _pack_root(airport)
     if not pack_root or not dump_path or not os.path.isfile(dump_path):
         return None
@@ -148,11 +165,13 @@ def fingerprint(airport, law, *, dump_path: str | None,
         h.update(f"dump:{os.path.basename(dump_path)}:{st.st_size}:{st.st_mtime}|".encode())
     except OSError:
         return None
-    ents = _pristine_entries(pack_root)
-    if ents is None:
+    ents = (pristine or {}).get(pack_root) or pristine_stamps(pack_root)
+    if not ents:
         return None                     # no pristine reading: no cache
-    for line in ents:
-        h.update(line.encode()); h.update(b"\n")
+    for rel, size, _mt, _read in ents:
+        h.update(f"{rel}:{size}".encode()); h.update(b"\n")
+    from .pack import AUTHORED_BACKUP_SUFFIX
+    h.update(f"suffix:{AUTHORED_BACKUP_SUFFIX}|".encode())
     fr = getattr(airport, "frame", None)
     h.update(f"frame:{getattr(fr, 'crs', None)}:"
              f"{getattr(fr, 'lat0', None)}:{getattr(fr, 'lon0', None)}|".encode())
@@ -164,15 +183,19 @@ def fingerprint(airport, law, *, dump_path: str | None,
     pk = getattr(airport, "pack", None)
     h.update(f"borrowed:{getattr(pk, 'borrowed_apt_dat_path', '')}:"
              f"{getattr(pk, 'borrowed_block_sha256', '')}|".encode())
-    return h.hexdigest()
+    fp = h.hexdigest()
+    _STAMPS[fp] = list(ents)
+    return fp
 
 
-def _pristine_entries(pack_root: str) -> list[str] | None:
-    """``relpath:size:mtime`` per pack ``.obj``, read at its PRISTINE
-    state (module doc) — sorted, so the digest is order-stable.  ``None``
-    when the pack cannot be walked (nothing is then cached)."""
-    from .pack import AUTHORED_BACKUP_SUFFIX, authored_source
-    out: list[str] = []
+def pristine_stamps(pack_root: str) -> list[tuple[str, int, float, str]] | None:
+    """``(relpath, size, mtime, read path)`` per pack ``.obj``, read at its
+    PRISTINE state (module doc) — sorted by path, so the digest is
+    order-stable.  ``None`` when the pack cannot be walked (nothing is
+    then cached).  A plain picklable list: the tile build's parent takes
+    it ONCE per pack root and hands it to every child (spec §B.4)."""
+    from .pack import authored_source
+    out: list[tuple[str, int, float, str]] = []
     try:
         for root, _dirs, files in os.walk(pack_root):
             for nm in files:
@@ -180,16 +203,49 @@ def _pristine_entries(pack_root: str) -> list[str] | None:
                     continue
                 live = os.path.join(root, nm)
                 read, _restored = authored_source(live, pack_root)
-                st = os.stat(read or live)
+                src = read or live
+                st = os.stat(src)
                 rel = os.path.relpath(live, pack_root)
-                out.append(f"{rel}:{st.st_size}:{st.st_mtime}")
+                out.append((rel, int(st.st_size), float(st.st_mtime), src))
     except OSError:
         return None
     if not out:
         return None
     out.sort()
-    out.append(f"suffix:{AUTHORED_BACKUP_SUFFIX}")
     return out
+
+
+def _file_sha256(path: str) -> str | None:
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 22), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
+def _header(fp: str) -> dict[str, tuple[float, str | None]]:
+    """``relpath -> (mtime, sha256)`` of the pristine files under ``fp`` —
+    what :func:`read` checks an mtime-only change against."""
+    return {rel: (mt, _file_sha256(src)) for rel, _sz, mt, src in _STAMPS.get(fp, ())}
+
+
+def _stamps_hold(fp: str, header: _t.Any) -> bool:
+    """Every pristine file's mtime equals the header's, or — where only the
+    mtime moved (the size is in the key) — its content hash does."""
+    if not isinstance(header, dict):
+        return False
+    for rel, _sz, mt, src in _STAMPS.get(fp, ()):
+        got = header.get(rel)
+        if got is None:
+            return False
+        if got[0] == mt:
+            continue
+        if got[1] is None or _file_sha256(src) != got[1]:
+            return False
+    return True
 
 
 def _pack_root(airport) -> str:
@@ -201,21 +257,29 @@ def _pack_root(airport) -> str:
 
 def cache_path(airport, mod_cache_root: str | None,
                dump_path: str | None) -> str | None:
-    """``<mod cache>/<pack>/o4_v2_partition_<tile>.cache`` — beside the
-    footprint cache, never inside the pack.  The tile token is the dump's
-    own (``+25+051.dsf.<tag>.text`` -> ``+25+051``), so the cache is keyed
-    where the placements came from and needs no second plumbing."""
+    """``<mod cache>/<pack>/o4_v2_partition_<tile>_<ICAO>.cache`` — beside
+    the footprint cache, never inside the pack.  The tile token is the
+    dump's own (``+25+051.dsf.<tag>.text`` -> ``+25+051``), so the cache is
+    keyed where the placements came from and needs no second plumbing.
+
+    PER AIRPORT (spec §B.4, issue #27): the payload is placed geometry in
+    the airport's frame plus that airport's window, so it cannot be shared
+    by two airports; named by tile alone, TNCM and TFFG (one tile, one
+    pack) overwrote each other and no build ever hit.  The old
+    un-suffixed file is never read and never deleted (a build never
+    deletes a user-side cache file)."""
     if not mod_cache_root or not dump_path:
         return None
     pack_name = getattr(getattr(airport, "pack", None), "name", None)
     if not pack_name:
         return None
     tile = os.path.basename(dump_path).split(".", 1)[0]
-    if not tile:
+    icao = str(getattr(airport, "icao", "") or "")
+    if not tile or not icao:
         return None
     from . import dsf as _dsf
     return os.path.join(_dsf.mod_cache_dir(mod_cache_root, pack_name),
-                        f"o4_v2_partition_{tile}.cache")
+                        f"o4_v2_partition_{tile}_{icao}.cache")
 
 
 def read(path: str | None, fp: str | None) -> _t.Any | None:
@@ -235,6 +299,8 @@ def read(path: str | None, fp: str | None) -> _t.Any | None:
         return None
     if not isinstance(blob, dict) or blob.get("fingerprint") != fp:
         return None
+    if fp in _STAMPS and not _stamps_hold(fp, blob.get("pristine")):
+        return None
     return blob.get("result")
 
 
@@ -248,7 +314,8 @@ def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
         tmp = path + ".tmp%d" % os.getpid()
         with open(tmp, "wb") as fh:
             fh.write(zlib.compress(
-                pickle.dumps({"fingerprint": fp, "result": result},
+                pickle.dumps({"fingerprint": fp, "pristine": _header(fp),
+                              "result": result},
                              protocol=pickle.HIGHEST_PROTOCOL), _ZLIB_LEVEL))
         os.replace(tmp, path)
         return True

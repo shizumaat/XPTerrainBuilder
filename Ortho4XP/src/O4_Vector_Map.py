@@ -1522,16 +1522,18 @@ def load_airports_and_prepare_dem(tile):
     # §D.1: once per COLD neighbour of a class-S airport, and only after
     # an explicit "build adjacent" answer.  Never in the pool child, never
     # without a choice, never under the harness's shared-repo guard.
-    if getattr(tile, "boundary_policy", None) == "neighbour":
-        for (lat, lon) in getattr(tile, "boundary_neighbours", ()) or ():
-            try:
-                ensure_tile_frame(lat, lon,
-                                  reason="neighbour of %s" % tile_stem(tile))
-            except Exception as error:
-                UI.lvprint(0, "   Airport insets: tile %+03d%+04d — frame "
-                              "warm FAILED (%s: %s); the frame check will "
-                              "decide." % (lat, lon, type(error).__name__,
-                                           str(error)))
+    # A cold neighbour the SAME PRESS builds (issue #51) is warmed under
+    # either policy: the user selected it, its own step 1 fetches exactly
+    # this, and the frame lock (§D.2) makes whichever arrives first fetch
+    # once — so no byte beyond the selection is downloaded.
+    for ((lat, lon), reason) in boundary_cells_to_warm(tile):
+        try:
+            ensure_tile_frame(lat, lon, reason=reason)
+        except Exception as error:
+            UI.lvprint(0, "   Airport insets: tile %+03d%+04d — frame "
+                          "warm FAILED (%s: %s); the frame check will "
+                          "decide." % (lat, lon, type(error).__name__,
+                                       str(error)))
     # Tile-wide elevation detail level (docs/specs/elevation-level-spec.md):
     # fetch the whole-tile overlay for a numeric elevation_level, or the
     # coastline lidar band for "coastline" (dico_airports feeds its
@@ -1729,6 +1731,26 @@ def ensure_tile_frame(lat, lon, *, reason=""):
     return tile_frame_is_warm(lat, lon)
 
 
+def boundary_cells_to_warm(tile):
+    """``[((lat, lon), reason), ...]`` whose frames this tile's step 1
+    warms (§D.1) — see the call site in :func:`load_airports_and_prepare_dem`.
+
+    Under ``"neighbour"``: every declared cold neighbour.  Under either
+    policy: every cold class-S neighbour the SAME PRESS builds (issue #51),
+    which is never skipped and must not be read context-only merely
+    because its own step 1 has not run yet.
+    """
+    warm = []
+    if getattr(tile, "boundary_policy", None) == "neighbour":
+        warm = [(tuple(cell), "neighbour of %s" % tile_stem(tile))
+                for cell in getattr(tile, "boundary_neighbours", ()) or ()]
+    seen = {cell for (cell, _reason) in warm}
+    warm += [(tuple(cell), "neighbour of %s, in this build" % tile_stem(tile))
+             for cell in getattr(tile, "boundary_siblings", ()) or ()
+             if tuple(cell) not in seen]
+    return warm
+
+
 def derive_auto_patch_selection(tile):
     """THE derivation site of the patch set (spec §A.3), once per build.
 
@@ -1753,9 +1775,23 @@ def derive_auto_patch_selection(tile):
         return []
     policy, policy_source = boundary_policy_and_source(tile)
     record = []
+    home = (int(tile.lat), int(tile.lon))
+    batch = boundary_batch_of(*home)
+    shared_is_cold = boundary_is_cold(batch)
+    # A cold class-S neighbour the SAME PRESS builds is never skipped (the
+    # shared predicate says "not cold"), but its frame is still warmed
+    # before this tile's patch reads across the line (§D.2): noted here.
+    siblings = set()
+
+    def is_cold(cell):
+        cell = (int(cell[0]), int(cell[1]))
+        if (cell in batch and cell != home
+                and not tile_frame_is_warm(*cell)):
+            siblings.add(cell)
+        return shared_is_cold(cell)
+
     skipper = _SELECTION.boundary_skipper(
-        int(tile.lat), int(tile.lon),
-        is_cold=boundary_is_cold(boundary_batch_of(tile.lat, tile.lon)),
+        home[0], home[1], is_cold=is_cold,
         reach_m=_SELECTION.ask_reach_m(), record=record)
 
     def boundary(icao, runways, candidate=None):
@@ -1787,6 +1823,7 @@ def derive_auto_patch_selection(tile):
     tile.boundary_policy = policy
     tile.boundary_policy_source = policy_source
     tile.boundary_neighbours = sorted(neighbours)
+    tile.boundary_siblings = sorted(siblings)
     if neighbours and policy == "skip":
         # SAY WHOSE DECISION IT WAS (issue #45).  "by your boundary
         # choice" is true of a remembered "Skip those airports' patches"

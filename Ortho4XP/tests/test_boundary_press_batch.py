@@ -90,6 +90,19 @@ def test_a_two_tile_press_prints_no_skip_line_for_its_sibling(
     assert "SKIPPED" not in out
     assert "-13-078" not in out
     assert home_tile.boundary_neighbours == []
+    # ... but its cold frame is still warmed before this tile's patch
+    # reads across the line (§D.2), under the unattended skip too.
+    assert home_tile.boundary_siblings == [WEST]
+
+
+def test_a_warm_sibling_needs_no_warming(home_tile, monkeypatch):
+    monkeypatch.setattr(VMAP, "tile_frame_is_warm",
+                        lambda lat, lon: (lat, lon) == WEST)
+    VMAP.note_boundary_batch([HOME, WEST])
+
+    VMAP.derive_auto_patch_selection(home_tile)
+
+    assert home_tile.boundary_siblings == []
 
 
 def test_a_one_tile_press_still_prints_the_skip_line(home_tile, capsys):
@@ -128,9 +141,9 @@ def test_the_preflight_and_the_build_time_check_share_one_is_cold():
 
     preflight = inspect.getsource(session.EngineSession._boundary_preflight)
     build_time = inspect.getsource(VMAP.derive_auto_patch_selection)
+    assert "is_cold=VMAP.boundary_is_cold(" in preflight
+    assert "boundary_is_cold(batch)" in build_time
     for source in (preflight, build_time):
-        assert "is_cold=VMAP.boundary_is_cold(" in source \
-            or "is_cold=boundary_is_cold(" in source
         assert "is_cold=lambda" not in source
 
 
@@ -182,3 +195,27 @@ def test_a_child_lands_the_json_batch(monkeypatch):
     assert VMAP.boundary_batch_of(*HOME) == frozenset({HOME, WEST})
     assert VMAP.boundary_batch_of(*WEST) == frozenset({HOME, WEST})
     assert VMAP.boundary_batch_of(1, 1) == frozenset({(1, 1)})
+
+
+# ── which frames step 1 warms ─────────────────────────────────────────
+def test_a_sibling_is_warmed_under_either_policy():
+    for policy in ("skip", "neighbour"):
+        tile = SimpleNamespace(lat=HOME[0], lon=HOME[1],
+                               boundary_policy=policy,
+                               boundary_neighbours=[],
+                               boundary_siblings=[WEST])
+        assert [c for (c, _r) in VMAP.boundary_cells_to_warm(tile)] == [WEST]
+
+
+def test_an_outside_neighbour_is_warmed_only_on_build_adjacent():
+    outside = (-14, -77)
+    skip = SimpleNamespace(lat=HOME[0], lon=HOME[1], boundary_policy="skip",
+                           boundary_neighbours=[outside],
+                           boundary_siblings=[])
+    assert VMAP.boundary_cells_to_warm(skip) == []
+    adjacent = SimpleNamespace(lat=HOME[0], lon=HOME[1],
+                               boundary_policy="neighbour",
+                               boundary_neighbours=[outside],
+                               boundary_siblings=[WEST])
+    assert [c for (c, _r) in VMAP.boundary_cells_to_warm(adjacent)] == [
+        outside, WEST]

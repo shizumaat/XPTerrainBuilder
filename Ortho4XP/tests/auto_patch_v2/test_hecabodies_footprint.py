@@ -224,3 +224,20 @@ def test_a_wall_line_in_a_cluster_mints_no_pad():
     assert len(got) == 1 and abs(got[0][2].area - 1200.0) < 1.0
     got, counts = CO.cluster_outlines([cl], ident, 0.5, thin_m=0.0)
     assert counts["thin_dropped"] == 0 and len(got) == 2
+
+
+def test_a_pad_inside_another_pads_hole_joins_the_pad_around_it():
+    """#6 at the owner's site after the difference: a pad standing in a
+    HOLE of another (no overlap, one shape still inside the other) is
+    merged into the pad that encloses it — whichever half each came from."""
+    from shapely.geometry import Polygon as _P
+
+    from auto_patch_v2.classify.evidence import _absorb_enclosed
+    ring = _P([(0, 0), (100, 0), (100, 100), (0, 100)],
+              [[(40, 40), (60, 40), (60, 60), (40, 60)]])
+    lobe = _P([(40, 40), (60, 40), (60, 60), (40, 60)])
+    apart = _P([(200, 0), (220, 0), (220, 20), (200, 20)])
+    got = _absorb_enclosed([ring, lobe, apart])
+    assert len(got) == 2
+    big = max(got, key=lambda g: g.area)
+    assert abs(big.area - 10000.0) < 1e-6 and not big.interiors

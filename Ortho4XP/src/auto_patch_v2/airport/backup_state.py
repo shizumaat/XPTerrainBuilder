@@ -277,13 +277,72 @@ def update_dsf_entry(dsf_path: str, fields: _t.Mapping,
     entry.update(dict(fields))
     dsfs[base] = entry
     doc["dsfs"] = dsfs
+    _write_record(path, doc)
+    invalidate_memo()
+    return path
+
+
+def _write_record(path: str, doc: _t.Mapping) -> None:
+    """The record's ONE writer — atomic, so a crash mid-write can never
+    leave a half-parsed record beside a live DSF."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(doc, fh, indent=1, sort_keys=True)
+        json.dump(dict(doc), fh, indent=1, sort_keys=True)
     os.replace(tmp, path)
+
+
+#: the top-level keys ``dsf_write.write_pack`` writes to describe THE
+#: LAST WRITE (tools and ``v2_rebake_replay.py disk`` read them).  They
+#: describe ONE DSF, so they go when that DSF's entry is dropped.
+_LAST_WRITE_KEYS = ("icao", "pack_name", "dsf", "backup", "dump_sha256",
+                    "backup_sha256", "written_sha256", "engine_version",
+                    "law_digest", "counts", "roundtrip", "body_files")
+
+
+def drop_dsf_entry(dsf_path: str) -> bool:
+    """Forget THIS DSF in the record beside it, atomically (#26).
+
+    The counterpart of :func:`update_dsf_entry`, for the UI restore: once
+    a DSF's original is back and the bodies its write minted are gone,
+    the entry that described that write must go with them, or the next
+    classify reads a record for a file the engine no longer owns.  A
+    SIBLING DSF's entry in the same folder survives (the §12a (2) map is
+    what makes that possible); the record file itself is removed once no
+    entry is left, and a version-1 record — one DSF, described at the top
+    level — is removed whole when it names this one.  Returns whether
+    anything was dropped."""
+    path = record_path_for(dsf_path)
+    doc = read_record(dsf_path)
+    if not doc:
+        return False
+    base = os.path.basename(dsf_path)
+    dsfs = doc.get("dsfs")
+    if isinstance(dsfs, dict):
+        if base not in dsfs:
+            return False
+        dsfs = {name: e for name, e in dsfs.items() if name != base}
+    elif doc.get("dsf") == base:
+        dsfs = {}
+    else:
+        return False
+    if not dsfs:
+        try:
+            os.remove(path)
+        except OSError:                                   # pragma: no cover
+            return False
+        invalidate_memo()
+        return True
+    if doc.get("dsf") == base:
+        # the last write WAS this DSF's: its top-level description no
+        # longer names anything on disk
+        for key in _LAST_WRITE_KEYS:
+            doc.pop(key, None)
+    doc["version"] = RECORD_VERSION
+    doc["dsfs"] = dsfs
+    _write_record(path, doc)
     invalidate_memo()
-    return path
+    return True
 
 
 # ── the DSF table ───────────────────────────────────────────────────────

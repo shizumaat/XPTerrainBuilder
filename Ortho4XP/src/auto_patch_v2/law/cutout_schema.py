@@ -75,6 +75,7 @@ class WallCorridor:
     corridor_floor_slab_max_thickness_m: float  # (ii): a component thinner than this can be a floor slab
     corridor_floor_slab_tol_m: float            # (ii): ...lying within this of the floor
     corridor_floor_slab_cover_min: float        # (ii): ...over this share of the corridor's length
+    max_wall_height_m: float     # #12: a band whose OWN component rises past this above the zero is a building/bridge wall (foundations), not a kerb
     min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
     ramp_grade: float            # the synthetic climb beyond a mouth
     max_ramp_grade: float        # ...steepened up to this at an airside stop (= the wall_corridor_ramp cap)

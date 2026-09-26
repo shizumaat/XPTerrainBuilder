@@ -17,17 +17,14 @@ strips + transitions <= hard_tol_m" holds BY CONSTRUCTION.
 1. ONE LEVEL PER STRIP: every strip vertex takes ``L = median`` of the
    stage-1 z over the strip's vertices (the apron's own value where the
    jetways stand; nothing groundside is in it).
-2. THE TRANSITION: every movable apron vertex off the strip takes its
-   stage-1 value CLAMPED into ``[L - s d, L + s d]``, ``d`` its plan
-   distance to the strip's nearest vertex and ``s`` the apron's
-   ``max`` longitudinal grade (1.5 %) — the §13.9 field construction as
-   a cone: it reaches exactly ``L_t = |fall| / s`` and no further, and
-   the min/max of s-Lipschitz fields grades no pair steeper than the
-   larger of ``s`` and the stage-1 surface's own grade.  Several strips:
-   the intersection of their intervals, the nearest strip's where empty.
+2. THE TRANSITION: each strip vertex's CHANGE ``L - z1`` propagates to
+   the movable apron beyond it, decaying at ``s`` (the apron's ``max``
+   longitudinal grade, 1.5 %) and gone at ``L_t = |fall| / s`` — the
+   §13.9 field construction (the change's upper / lower cone envelope).
 3. CLAMPS: a taxi / runway / pinned (threshold, §38 seam) vertex, or a
-   vertex another pad owns, is NEVER moved; where the field would move it
-   more than ``hard_tol_m`` the residual is REPORTED per strip (the
+   vertex another pad owns, is NEVER moved; the change beside it is held
+   to ``s·d`` from it, and where the field wanted it moved more than
+   ``hard_tol_m`` the residual is REPORTED per strip (the
    ``jetway_strip`` family's (c) row), never absorbed.
 """
 from __future__ import annotations
@@ -123,82 +120,80 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
             new[v] = lvl
     live = [k for k in range(len(L)) if trees[k] is not None]
 
-    def _interval(pts: np.ndarray, base: np.ndarray
-                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        lo = np.full(len(pts), -np.inf)
-        hi = np.full(len(pts), np.inf)
-        dbest = np.full(len(pts), np.inf)
-        kbest = np.full(len(pts), -1, dtype=np.int64)
-        per: list[tuple[np.ndarray, np.ndarray]] = []
-        for k in live:
-            d, _i = trees[k].query(pts)
-            lo_k, hi_k = L[k] - s * d, L[k] + s * d
-            lo = np.maximum(lo, lo_k)
-            hi = np.minimum(hi, hi_k)
-            per.append((lo_k, hi_k))
-            better = d < dbest
-            dbest = np.where(better, d, dbest)
-            kbest = np.where(better, k, kbest)
-        bad = lo > hi
-        if bad.any():
-            for j in np.nonzero(bad)[0]:
-                k = int(kbest[j])
-                lo_k, hi_k = per[live.index(k)]
-                lo[j], hi[j] = lo_k[j], hi_k[j]
-        return np.clip(base, lo, hi), kbest, dbest, bad
-
-    # THE CLAMPED VERTICES as cone sources (§2 (3): "the field is clamped
-    # there"): a taxi / runway / pinned / other-pad vertex keeps its own
-    # value, and the transition around it grades to that value at the same
-    # apron max — so the field bends around a taxilane instead of standing
-    # a step against it.  Stage-1 values; never moved.
+    # THE TRANSITION (§2 (3)): "from the strip's outer line the surface
+    # grades to the stage-1 value over L_t = |fall| / max".  Each strip
+    # vertex u carries its CHANGE d_u = L - z1(u); the change propagates
+    # outward decaying at the apron max s and is gone at |d_u| / s — the
+    # §13.9 field construction, as the upper / lower envelope of every
+    # strip vertex's cone of change (each s-Lipschitz, so the transition
+    # adds at most s to the stage-1 grade of any pair and moves nothing
+    # beyond L_t).  It is the CHANGE that is propagated, never the level:
+    # an absolute-level cone reaches every vertex whose stage-1 value is
+    # more than s·d from L, i.e. across every terrace of a hilly airport
+    # (measured, HECA: 4,196 vertices moved up to 21 m).
+    src_xy = np.array([xy[v] for v in in_strip], dtype=float)
+    src_dz = np.array([new[v] - levels[v] for v in in_strip], dtype=float)
+    src_k = np.array([in_strip[v] for v in in_strip], dtype=np.int64)
+    reach = float(np.max(np.abs(src_dz)) / s) if src_dz.size else 0.0
     fixed = sorted(v for v in strips.fixed if v < len(z1a))
-    fz = np.array([float(levels.get(v, z1a[v])) for v in fixed])
     ftree = (cKDTree(np.array([xy[v] for v in fixed], dtype=float))
              if fixed else None)
-    # THE TRANSITION over every movable apron vertex off the strips: the
-    # strip's cone, then — only where the strip moved the vertex — the
-    # clamps' cone, which is SENIOR (a clamped vertex never moves, so the
-    # surface beside it may not either, beyond the apron max)
+
+    def _change(pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """(the propagated change, the strip it comes from) at ``pts``."""
+        up = np.zeros(len(pts))
+        dn = np.zeros(len(pts))
+        kk = np.full(len(pts), -1, dtype=np.int64)
+        best = np.zeros(len(pts))
+        for j0 in range(0, len(pts), 2048):
+            P = pts[j0:j0 + 2048]
+            d = np.hypot(P[:, None, 0] - src_xy[None, :, 0],
+                         P[:, None, 1] - src_xy[None, :, 1])
+            pos = src_dz[None, :] - s * d
+            neg = src_dz[None, :] + s * d
+            u = np.maximum(0.0, np.where(src_dz[None, :] > 0, pos, 0.0).max(axis=1))
+            n_ = np.minimum(0.0, np.where(src_dz[None, :] < 0, neg, 0.0).min(axis=1))
+            up[j0:j0 + 2048], dn[j0:j0 + 2048] = u, n_
+            mag = np.where(src_dz[None, :] > 0, pos, -neg)
+            arg = mag.argmax(axis=1)
+            kk[j0:j0 + 2048] = src_k[arg]
+            best[j0:j0 + 2048] = mag.max(axis=1)
+        return up + dn, np.where(best > 0.0, kk, -1)
+
     mov = sorted(v for v in strips.movable if v not in in_strip and v in levels)
-    if mov and live:
-        pts = np.array([xy[v] for v in mov], dtype=float)
-        base = np.array([levels[v] for v in mov], dtype=float)
-        got, _kb, _db, bad = _interval(pts, base)
-        rep.conflicts = int(bad.sum())
-        for j, (v, zb, zn) in enumerate(zip(mov, base, got)):
-            if abs(zn - zb) <= 1e-9:
-                continue
+    if mov and src_xy.size and reach > 0.0:
+        stree = cKDTree(src_xy)
+        pts_all = np.array([xy[v] for v in mov], dtype=float)
+        dmin, _i = stree.query(pts_all, distance_upper_bound=reach)
+        near = np.nonzero(np.isfinite(dmin))[0]
+        if near.size:
+            pts = pts_all[near]
+            dz, _kk = _change(pts)
+            # "the field is clamped there": a never-moved vertex has zero
+            # change, and the change beside it is bounded by s·d to it
             if ftree is not None:
-                r = abs(zn - zb) / s + 1.0
-                near = ftree.query_ball_point(pts[j], r)
-                if near:
-                    d = np.hypot(*(np.array([xy[fixed[i]] for i in near])
-                                   - pts[j]).T)
-                    zc = fz[near]
-                    lo, hi = float(np.max(zc - s * d)), float(np.min(zc + s * d))
-                    if lo <= hi:
-                        zn = min(max(zn, lo), hi)
-                    else:
-                        i0 = int(np.argmin(d))
-                        zn = min(max(zn, zc[i0] - s * d[i0]), zc[i0] + s * d[i0])
-            if abs(zn - zb) > 1e-9:
-                new[v] = float(zn)
-    # THE CLAMPS (§2 (3), the ``jetway_strip`` family's (c)): per strip,
-    # every never-moved vertex the strip's ONE level cannot be reached from
-    # at the apron max — ``|L - z_c| - s d(c, strip)`` over hard_tol_m,
-    # signed toward the level.  That is the residual the law leaves, and it
-    # is REPORTED, never absorbed.
+                dc, _ic = ftree.query(pts)
+                dz = np.clip(dz, -s * dc, s * dc)
+            for j, dzj in zip(near, dz):
+                if abs(dzj) > 1e-9:
+                    v = mov[int(j)]
+                    new[v] = float(levels[v] + dzj)
+    # THE CLAMPS (§2 (3), the ``jetway_strip`` family's (c)): every
+    # never-moved vertex the transition WANTED to move by more than
+    # hard_tol_m, with the metres — the residual the law leaves there,
+    # REPORTED, never absorbed.
     clamps_of: dict[int, list[list[_t.Any]]] = {k: [] for k in range(len(L))}
-    if fixed and live:
+    if fixed and src_xy.size and reach > 0.0:
         fpts = np.array([xy[v] for v in fixed], dtype=float)
-        for k in live:
-            d, _i = trees[k].query(fpts)
-            ex = np.abs(L[k] - fz) - s * d
-            for i in np.nonzero(ex > tol)[0]:
-                v = fixed[int(i)]
-                m = float(np.sign(L[k] - fz[i]) * ex[i])
-                clamps_of[k].append([int(v), strips.fixed[v], round(m, 3)])
+        dmin, _i = cKDTree(src_xy).query(fpts, distance_upper_bound=reach)
+        near = np.nonzero(np.isfinite(dmin))[0]
+        if near.size:
+            dz, kk = _change(fpts[near])
+            for j, dzj, k in zip(near, dz, kk):
+                if abs(dzj) > tol and k >= 0:
+                    v = fixed[int(j)]
+                    clamps_of[int(k)].append([int(v), strips.fixed[v],
+                                              round(float(dzj), 3)])
     # A FLAT GROUP IS ONE COLUMN: it moves as one value, or — where a
     # member may not move — not at all
     for f in flats:

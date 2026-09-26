@@ -207,15 +207,19 @@ def test_the_projection_levels_the_strip_at_the_stage1_median(law, agp):
     assert rep.strips[0]["level"] == pytest.approx(L, abs=1e-3)
     for v in s.vertices:
         assert levels[v] == pytest.approx(L)
-    # the transition never grades steeper than the apron max beyond the
-    # stage-1 surface's own grade (the cone is 1.5 %-Lipschitz)
+    # the transition carries each strip vertex's CHANGE outward decaying
+    # at the apron max: nothing moves by more than the largest change less
+    # s·d, and nothing beyond L_t = |fall| / s moves at all
     cap = 0.015
+    dmax = max(abs(L - before[u]) for u in s.vertices)
     moved = [v for v in range(n) if abs(levels[v] - before[v]) > 1e-9
              and v not in set(s.vertices)]
-    near = [(v, min(np.hypot(*np.subtract(pm.vertices[v].xy, pm.vertices[u].xy))
-                    for u in s.vertices)) for v in moved]
-    for v, d in near:
-        assert abs(levels[v] - L) <= cap * d + 1e-6
+    assert moved
+    for v in moved:
+        d = min(np.hypot(*np.subtract(pm.vertices[v].xy, pm.vertices[u].xy))
+                for u in s.vertices)
+        assert abs(levels[v] - before[v]) <= max(0.0, dmax - cap * d) + 1e-6
+        assert d <= dmax / cap + 1e-6
     # the taxi family is byte-identical, and a clamp names it where the
     # field wanted it moved
     for v in _verts(pm, "twyA"):

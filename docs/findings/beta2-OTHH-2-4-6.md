@@ -453,3 +453,51 @@ KILLED at 11 min (no pickle written; `.harness/frames/othhjunction/` holds only
   `above_degenerate_floor`, 13 cliffs, worst 7.431 m ramp_in_strip
   secondary_parallel|tunnel_ramp at 25.2541399, 51.6033501). The manual
   patch has no sidecar and is not censusable by the harness.
+
+### Step 3 (partial) — attributions on the 2026-09-18 artefacts
+
+**#15 "clouds of detached nodes" = free-standing nodes the v2 writer emits
+for vertices NO way names.** 2026-09-18 08:10 auto patch: 209 such nodes
+(manual JOSM patch: 216), in 16 clusters (200 m cells), every one inside a
+face; 207 of them are vertices of HOLE rings that `emit/osm_adapter.
+_hole_cover` suppressed (graded_strip holes 144, building holes 66 — shape
+676 `building3` alone 45; 4–12-vertex holes), 2 are vertices of unemitted
+breakline kinds. Nearest way vertex 12.3 m median / 24.2 m max; |Δalt_abs|
+to it 0.040 m median / 0.370 m max — "slightly different elevations". The
+mesh never reads them (`include_patches` iterates ways only), so they have
+no sim effect; JOSM draws them as detached points. The owner's quoted
+coordinate is EXACTLY a node of the 08:10 auto patch (node −19395 on ring
+`building3`, alt 3.76 — 0.00 m), i.e. the read was of that file in JOSM
+(Q-15). FIX (commit 1f6a646b): `render_patch` writes only the nodes its ways
+name; twin `test_emit_holes::test_a_suppressed_hole_leaves_no_detached_nodes`.
+The `building3` ring the coordinate sits on is a 0.5 m-lattice staircase
+(183 vertices, 67 turns > 90°, alt 3.74–4.16) — a pack-cluster pad outline,
+not a detached node.
+
+**#13 "slow in the object/placement stage"** — the airport's constraint
+density is NOT the outlier any more: segments / median edge / density
+(manual JOSM patch the tile used; 08:10 auto; HECA 09-17 auto) = 23,653 /
+10.30 m / 2,185 per km²; 22,572 / 11.87 m / 2,085; 33,751 / 9.32 m /
+3,404. OTHH is 0.61–0.64× HECA's density. The tile's Triangle4XP input is
+203,892 vertices / 221,722 segments (the airport ≈ 10 %). The owner's
+"last message before the slowest step" is `[v2 placement] OTHH: design
+surface …`, printed at the START of the post-mesh object stage (engine log
+line 36740), which then split 726 bodies into 2,222 body files and rewrote
+the pack DSF — INSIDE the mesh step's clock (tile_build_times `mesh` 448.61
+/ 272.08 s). In build 350 that stage ran on the 08:15 AUTO plan against a
+mesh built from the MANUAL patch — FIX (commit d0496e35): one admission test
+`O4_Vector_Map.auto_patch_not_applied`, used by `include_patches` and by
+`engine_v2.rebake_after_mesh`; a plan whose auto patch is not in the mesh is
+skipped at verbosity 0, and the manual override is now said at verbosity 0.
+
+**#14 25.2599127, 51.6149444** — in the MANUAL patch the tile used, no face
+contains the site (nearest `building5#6`, 19.2 m). In the 08:10 auto patch it
+is inside shape 925 `building7`, role `building` (precedence side AIRSIDE,
+`aeroway=apron` — what JOSM paints as apron), 43 vertices, 5,972 m², alt
+3.15–4.71. The pack object covering it is `Buildings/Terminal/
+OTHH_TerminalRoads_01_001.obj` (plan unit:85, `ATTR_hard_deck`, deck_top_y
+12.64 m, deck_datum_z 3.99, `elevated_deck` False — the pier test reads it as
+a building because it is welded to the terminal); pack polygons there
+`ASPH1_upper.pol`, `Stone_Tiles1/2.pol`, road arrows at 20–23 m. The pad is
+the pack CLUSTER outline (`classify/evidence._cluster_pads`, §16g (10) (2)):
+the elevated road deck's plan footprint is minted into a building pad.

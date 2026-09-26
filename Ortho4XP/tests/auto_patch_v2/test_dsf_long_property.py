@@ -159,3 +159,23 @@ def test_requantised_neighbours_are_not_read_as_a_heading_drift():
     # a REAL heading change is still refused
     turned = after.replace("359.840696", "269.840696")
     assert not W.compare_dumps(before, turned).ok
+
+
+@pytest.mark.skipif(_dsftool_path() is None, reason="no DSFTool on this machine")
+def test_sweep_noop_counts_the_class_before_and_after(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "dsf_placement_diff",
+        Path(__file__).resolve().parents[2] / "tools" / "dsf_placement_diff.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    tool = _dsftool_path()
+    pack = tmp_path / "cache" / "PACK"
+    pack.mkdir(parents=True)
+    text = _pristine_dump(tmp_path, tool)
+    (pack / "+20-157.dsf.deadbeef.text").write_text(text)
+    (pack / "+20-157.dsf.anchor_bak.deadbeef.text").write_text(text)  # same tag
+    raw = mod.sweep_noop(str(tmp_path / "cache"), tool, raw=True, jobs=1)
+    assert (raw["dumps"], raw["failed"]) == (1, 1)
+    fixed = mod.sweep_noop(str(tmp_path / "cache"), tool, jobs=1)
+    assert (fixed["dumps"], fixed["failed"]) == (1, 0)

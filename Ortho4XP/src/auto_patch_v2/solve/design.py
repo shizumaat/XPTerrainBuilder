@@ -84,7 +84,6 @@ __all__ = ["DesignReport", "Base", "assemble", "solve_design", "residual",
            "taxi_body_roles", "datum_roles", "hard_rulings",
            "one_way_rulings", "pad_flat_rulings", "pad_level_rulings",
            "ground_roles", "ground_datum_vertices", "foot_row_rulings",
-           "cluster_reach_rulings",
            "is_hard", "ruling_head",
            "METHODS", "DEFAULT_METHOD", "LOW_RANK_MODES", "DEFAULT_LOW_RANK",
            "SOLVERS", "DEFAULT_SOLVER"]
@@ -103,7 +102,7 @@ _LAG_OFF = 1.0e9
 # ── role / ruling readers: ``solve/design_roles`` (the 1,000-line file law) ──
 from .design_ground import ground_datum_vertices, ground_roles  # noqa: E402
 from .design_roles import (  # noqa: E402  (re-export)
-    airside_stage_roles, airside_stage_vertices, conforming_rulings, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, cluster_reach_rulings, hard_rulings, ruling_head, is_hard)
+    airside_stage_roles, airside_stage_vertices, conforming_rulings, bend_roles, pavement_roles, bend_class, apron_roles, taxi_body_roles, datum_roles, one_way_rulings, foot_row_rulings, pad_flat_rulings, pad_level_rulings, hard_rulings, ruling_head, is_hard)
 
 @_dc.dataclass(frozen=True)
 class _BodyDatum:
@@ -154,10 +153,6 @@ class Base:
     #: ``one`` indices of the FOOT ROWS (``[design] foot_row_rulings``,
     #: 11ab): priced at ``pad_flat``, the pad law's own target
     foot_row_i: list[int] = _dc.field(default_factory=list)
-    #: ``one`` indices of §30 (4)'s CLUSTER APRON REACH (``[design]
-    #: cluster_reach_rulings``, owner RULINGS 2026-09-13cc (ii)): priced
-    #: at ``apron_trend``, so the taxi family's law rows outrank them
-    cluster_reach_i: list[int] = _dc.field(default_factory=list)
 
 
 def _carries_a_column(red: _t.Any, terms: _t.Sequence[tuple[int, float]]) -> bool:
@@ -451,7 +446,6 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     heads = hard_rulings(law)
     ow_heads = one_way_rulings(law)
     pf_heads, fr_heads = pad_flat_rulings(law), foot_row_rulings(law)
-    cr_heads = cluster_reach_rulings(law)
     pl_heads = pad_level_rulings(law)
     #: the pad vertices a LEVEL row governs (owner RULINGS 2026-09-10l):
     #: they follow the pavement they front and carry no DEM datum (§9b)
@@ -459,7 +453,6 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     hard: list[int] = []
     pad_flat_i: list[int] = []
     foot_i: list[int] = []   # the FOOT ROWS at ``pad_flat`` (11ab)
-    reach_i: list[int] = []  # §30 (4)'s reach at ``apron_trend`` (13cc)
     one_way: dict[int, tuple[int, ...]] = {}
     #: the vertices a LAW EQUALITY GOVERNS (owner RULINGS 2026-09-10ba): a
     #: basin floor is no longer PINNED — it is tied to its rim by a relative
@@ -539,8 +532,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 one_way[len(one)] = cols
         head = ruling_head(row)
         (pad_flat_i if head in pf_heads
-         else foot_i if head in fr_heads
-         else reach_i if head in cr_heads else []).append(len(one))
+         else foot_i if head in fr_heads else []).append(len(one))
         # A PAD THAT FRONTS PAVEMENT HAS NO DEM DATUM OF ITS OWN (owner
         # RULINGS 2026-09-10l): every vertex a LEVEL row governs — the whole
         # pad plane (10y), not just the feet the row mentions — follows the
@@ -763,15 +755,15 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     rep.body_datum_bodies = len(meta)
     rep.foot_rows = len(foot_i)
     return Base(rows, red, one, eqs, n, hard, pad_flat_i, one_way,
-                chord_v, road_v, body, meta, foot_row_i=foot_i,
-                cluster_reach_i=reach_i)
+                chord_v, road_v, body, meta, foot_row_i=foot_i)
 
 
 def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  options: Options | None = None, *,
                  size_out: dict | None = None,
                  method: str = DEFAULT_METHOD,
-                 low_rank: str = DEFAULT_LOW_RANK) -> tuple[Solution, DesignReport]:
+                 low_rank: str = DEFAULT_LOW_RANK,
+                 strips: _t.Any = None) -> tuple[Solution, DesignReport]:
     """THE DESIGN SURFACE, in ONE stage or TWO (§20b).
 
     ``[design] staged_solve`` false is the single solve this module has
@@ -808,9 +800,23 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               drop=drop, fixed=foreign, levelled_out=levels,
                               stage_roles=airside_stage_roles(law))
     w1 = time.perf_counter() - t1
+    # THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec §2
+    # (4)): a PROJECTION of stage 1's airside answer, applied before stage
+    # 2 substitutes it — so the pads read the levelled apron as their
+    # constants and "airside moved outside the strips + transitions" is
+    # zero by construction.  ``strips`` is ``model.jetway.StripSet``,
+    # derived by the caller (``constraints.jetway_strip``: this layer may
+    # not import ``constraints``).
+    strip_rep = None
+    if strips:
+        from .project_strip import project_strips
+        strip_rep = project_strips(planar, law, strips, levels, sol1.z,
+                                   cs.flats)
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
                               method=method, low_rank=low_rank, fixed=levels)
+    if strip_rep is not None:
+        rep2.jetway_strip = strip_rep
     w2 = time.perf_counter() - t2
     rep2.staged = True
     rep2.stage1_wall_s, rep2.stage2_wall_s = w1, w2
@@ -1045,13 +1051,6 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     fr_i = np.asarray(base_p.foot_row_i, dtype=np.int64)
     if fr_i.size:
         w_row[fr_i] = float(d.pad_flat)
-    # §30 (4) THE CLUSTER PAD'S APRON REACH (owner RULINGS 2026-09-13cc
-    # (ii)): the APRON TREND's own design-target weight, an order BELOW
-    # the law's, so the taxi family's law rows always outrank it and the
-    # reach yields exactly where the owner said it must.
-    cr_i = np.asarray(base_p.cluster_reach_i, dtype=np.int64)
-    if cr_i.size:
-        w_row[cr_i] = float(d.apron_trend)
     w_row[hard_i] = rho
     sw = np.sqrt(w_row)
     #: ``μ/ρ`` per one-sided row — zero everywhere but the hard rows, where it

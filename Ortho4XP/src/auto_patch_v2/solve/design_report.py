@@ -16,6 +16,7 @@ import numpy as np
 from ..model.constraints import ConstraintSet
 from .api import Residual
 from .project import ProjectionReport, ZoneClampReport
+from .project_strip import StripReport
 from .linear import DEFAULT_METHOD
 
 __all__ = ["DesignReport", "residual", "settled_flip", "hard_exceeds",
@@ -332,6 +333,10 @@ class DesignReport:
     #: adjacent-ground zone vertex clamped into its own corridor band
     #: after the runway projection (``solve/project.project_zone_bands``)
     zone_projection: ZoneClampReport = _dc.field(default_factory=ZoneClampReport)
+    #: THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec
+    #: §2): the apron under the jetways levelled between the stages
+    #: (``solve/project_strip.project_strips``)
+    jetway_strip: StripReport = _dc.field(default_factory=StripReport)
     #: THE ONE-WAY ROWS (RULINGS 2026-09-09b (2)/(3)): the adjacent-ground
     #: corridor and strip-tie rows whose pavement feet are LAGGED — how
     #: many, how many lag rounds the outer loop paid, whether the lag
@@ -614,6 +619,7 @@ class DesignReport:
                 "hard_worst": self.hard_worst,
                 "runway_projection": self.runway_projection.as_dict(),
                 "zone_projection": self.zone_projection.as_dict(),
+                "jetway_strip": self.jetway_strip.as_dict(),
                 "one_way_rows": self.one_way_rows,
                 "one_way_rounds": self.one_way_rounds,
                 "one_way_settled": self.one_way_settled,
@@ -725,6 +731,7 @@ class DesignReport:
                 f"{self.solver_wall_s:.2f} s solver; "
                 + self.runway_projection.line() + "; "
                 + self.zone_projection.line() + "; "
+                + self.jetway_strip.line() + "; "
                 "worst targets " + ", ".join(
                     f"{k} {v['missed']}/{v['rows']} max {v['max_m']:.3f} m"
                     for k, v in worst if v["missed"]))

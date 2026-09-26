@@ -16,15 +16,10 @@ Two rows of law, both on the DESIGN surface:
   frontage level fit, while every GEOMETRIC reader keeps reading
   ``pads._pad_groups``'s per-face derivation (the consumer census in the
   spec's §30 (4) MEASURED block rules each one).
-* THE APRON AROUND IT IS FLATTENED BY THE AIRSIDE SOLVE, AND THE PAD
-  THEN TAKES IT (owner RULINGS 2026-09-14bk).
-  :func:`cluster_apron_plane` makes the apron within ``[design]
-  cluster_apron_reach_m`` of the cluster ONE PLANE AMONG ITSELF — apron
-  law, no pad vertex in any row, so §20b stage 1 owns it — and
-  :func:`cluster_pad_takes_collar` then equates the pad's plate to that
-  fixed collar in stage 2.  The one-way preference (13cc) and the
-  pad-to-collar JOIN (14bf) were both measured and refuted; see those
-  functions.  The reach never reaches a taxiway band's own vertices.
+* THE APRON AROUND IT: §30 (4)'s reach / collar rows were measured,
+  disarmed (14bk) and DELETED (jetway-strip spec §6 Q3); the apron under
+  the jetways is levelled by the JETWAY STRIP projection instead
+  (``constraints/jetway_strip.py``, ``solve/project_strip.py``).
 
 It lives apart from ``constraints/pads.py`` only because that file is at
 the 1,000-line bar; ``pad_frontage_gs.py`` (§28) stands beside it for
@@ -36,32 +31,20 @@ from __future__ import annotations
 
 import typing as _t
 
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
 from ..geom import cluster_outlines
 from ..law import Law
-from ..law.tables import design as design_law, rolled_on_roles
+from ..law.tables import rolled_on_roles
 from ..model.airport import Airport
-from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
-from .pads import GEN_LEVEL, _pad_groups, _pad_polys, _two_sided
+from .pads import _pad_groups, _pad_polys
 from .precedence import view
 
-__all__ = ["cluster_reach_m", "cluster_polys", "cluster_pad_faces",
+__all__ = ["cluster_polys", "cluster_pad_faces",
            "YIELDED", "TOUCHING_STEPS", "NO_OUTLINE", "pad_cluster_mismatch",
-           "plane_groups", "cluster_apron_faces", "cluster_apron_plane",
-           "cluster_pad_takes_collar", "COLLAR_RULING",
-           "COLLAR_CEILING_RULING", "COLLAR_STATS",
-           "CLUSTER_REACH_RULING"]
-
-
-def cluster_reach_m(law: Law) -> float:
-    """§30 (4): ``[design] cluster_apron_reach_m`` — the plan distance
-    within which an apron vertex takes a CLUSTER pad's plane as its
-    target (owner RULINGS 2026-09-13bj item 1).  ONE derivation site; 0
-    disables the reach."""
-    return float(design_law(law).cluster_apron_reach_m)
+           "plane_groups", "cluster_offsets", "cluster_pairs"]
 
 
 #: §16g (10) (2): the clusters :func:`cluster_polys` dropped for carrying
@@ -201,8 +184,7 @@ def cluster_pad_faces(planar: PlanarMap, law: Law, airport: Airport | None
     a face whose area is mostly inside the cluster's outline.  A face the
     outline merely clips keeps its own plane and is still named in
     :data:`YIELDED`, which should now be EMPTY at an airport whose pads
-    are derived from the clusters.  The apron reach (13ci, disarmed at
-    13ce) keeps the union reading through :func:`cluster_apron_faces`."""
+    are derived from the clusters."""
     min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
     if min_m2 <= 0.0:                 # 0 disarms the cluster PAD PLANE
         return {}
@@ -472,290 +454,15 @@ def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
 
 
 
-#: The ruling HEAD of §30 (4)'s apron reach.  Named by ``[design]
-#: cluster_reach_rulings`` and by NEITHER ``pad_flat_rulings`` nor
-#: ``hard_rulings``: owner RULINGS 2026-09-13cc (ii) prices the row at the
-#: APRON TREND's design-target weight (``apron_trend``, 30) — a target the
-#: taxi family's own law rows (300) always outrank, so the reach yields
-#: wherever one plane cannot be had, which is exactly the owner's "as long
-#: as it remains feasible with grade laws and taxiways".  At ``law`` it
-#: did not yield: 2,815 taxi vertices moved, worst 1.88 m.
-CLUSTER_REACH_RULING = "structures.building_pad cluster_apron_reach"
-
-
-def cluster_apron_faces(planar: PlanarMap, law: Law, airport: Airport
-                        ) -> dict[str, list[int]]:
-    """§30 (4): ``cluster id -> the APRON vertices within
-    ``cluster_apron_reach_m`` of its pad`` — the population the reach
-    rows are minted over, as data (the publication reads the same call).
-
-    THE REACH STOPS AT A TAXIWAY BAND (the ruling's own words).  The
-    population is the ``apron`` faces alone, and a vertex any face of the
-    TAXI or RUNWAY family also carries is struck: identity is the weld
-    (09-01g), so such a vertex IS a taxiway vertex and the taxi family is
-    never moved by a pad.  A vertex the pad already SHARES is struck too
-    — it is in the pad's own plate (10y) and a row against the plate's
-    own mean would only say the plane equals itself.
-
-    AND IT STOPS ONE APRON CELL SHORT OF ANY TAXI FACE (owner RULINGS
-    2026-09-13cc (i), the taxi bar).  Striking the band's own vertices is
-    not enough and neither is the catchment: MEASURED on the matched KCLT
-    pair, the reach lifted apron the taxi family is COUPLED to and 2,815
-    of 6,453 taxi/runway vertices moved, worst 1.88 m — through §20's own
-    no-step and trend rows, which are senior to the reach.  So an apron
-    vertex a taxi-family NO-STEP row pairs with a taxi vertex
-    (``no_step.no_step_edges``, the ONE derivation of that coupling) is
-    struck as well."""
-    reach = cluster_reach_m(law)
-    if reach <= 0.0:
-        return {}
-    faces = cluster_pad_faces(planar, law, airport)
-    if not faces:
-        return {}
-    vw = view(planar, law)
-    taxi = tuple(sorted(set(_rolled_on(law)) - {"apron"}))
-    struck: set[int] = set()
-    tpolys: list[Polygon] = []
-    for f in vw.faces_of_role(taxi):
-        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
-            struck.update(ring)
-        ring = vw.rings[f.id]
-        if len(ring) >= 3:
-            g = Polygon([vw.xy[v] for v in ring])
-            if not g.is_empty:
-                tpolys.append(g if g.is_valid else g.buffer(0.0))
-    ttree = STRtree(tpolys) if tpolys else None
-    # §30 (4) (13cc (i)): one apron cell short — an apron vertex the
-    # no-step law COUPLES to a taxi vertex is struck with the band itself
-    from .no_step import no_step_edges
-    coupled: set[int] = set()
-    for a, b, _cap, _d in no_step_edges(planar, law, airport):
-        if a in struck and b not in struck:
-            coupled.add(b)
-        elif b in struck and a not in struck:
-            coupled.add(a)
-    struck |= coupled
-    # ... AND IT NEVER MOVES ANOTHER PAD'S WELD (round 2, MEASURED).  A
-    # collar vertex some OTHER ``building`` pad also owns is that pad's
-    # vertex too (09-01g, identity is the weld), so flattening it drags a
-    # pad the cluster has nothing to do with — and that pad's own rows
-    # then cannot reach it: on the first collar arm at HECA the worst
-    # stage-2 rows were exactly those, ``building_pad airside skirt``
-    # 7.07 -> 12.11 m, and the certificate went 151 infeasible rows /
-    # 178.72 m to 1,626 / 3,644.17 m while STAGE 1 STAYED FEASIBLE (min
-    # shortfall 0.0000 m).  The collar's own cluster pads are exempt:
-    # they are what the collar is for, and they take it in stage 2
-    # (:func:`cluster_pad_takes_collar`).
-    own: set[int] = set()
-    for fids in faces.values():
-        for q in fids:
-            own.update(_face_vertices(vw, q))
-    for _f, _ref, grp in _pad_groups(planar, law):
-        for v in grp:
-            if v not in own:
-                struck.add(v)
-    apron_vs: list[int] = []
-    for f in vw.faces_of_role(("apron",)):
-        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
-            apron_vs.extend(ring)
-    if not apron_vs:
-        return {}
-    polys = {fid: poly for fid, _r, _g, poly in _pad_polys(planar, law)}
-    xy = {v: vw.xy[v] for v in set(apron_vs)}
-    out: dict[str, list[int]] = {}
-    for cid, fids in faces.items():
-        pad_vs: set[int] = set()
-        for q in fids:
-            pad_vs.update(_face_vertices(vw, q))
-        shapes = [polys[q] for q in fids if q in polys]
-        if not shapes:
-            continue
-        from shapely.ops import unary_union
-        u = unary_union(shapes)
-        got: list[int] = []
-        for v in sorted(set(apron_vs)):
-            if v in struck or v in pad_vs:
-                continue
-            pt = Point(*xy[v])
-            d = u.distance(pt)
-            if d > reach:
-                continue
-            # THE REACH STOPS AT A TAXIWAY BAND (owner RULINGS
-            # 2026-09-13bj item 1; §30 (4)).  Striking the band's own
-            # vertices is not enough: MEASURED on the twin fixture, an
-            # apron lifted to the cluster's plane dragged the taxiway
-            # welded to it 2.20 m through the apron's own no-step law.
-            # The band's CATCHMENT is the boundary — an apron vertex
-            # nearer a taxi- or runway-family face than the cluster pad
-            # belongs to that band and keeps its own law.
-            if ttree is not None:
-                near = ttree.query_nearest(pt)
-                if len(near):
-                    if min(tpolys[int(i)].distance(pt) for i in near) < d:
-                        continue
-            got.append(v)
-        if got:
-            out[cid] = got
-    return out
-
-
-def _rolled_on(law: Law) -> tuple[str, ...]:
-    return tuple(rolled_on_roles(law))
-
-
-def _face_vertices(vw, fid: int) -> list[int]:
-    out: list[int] = []
-    for ring in [vw.rings[fid], *vw.holes[fid]]:
-        out.extend(ring)
-    return out
-
-
-#: §30 (4) AS RULED 2026-09-14bk: the COLLAR PLANE's two heads.  They are
-#: APRON LAW — the airside flattening itself at a terminal, which the
-#: owner ruled on 2026-09-13bj item 1 — and so they are in NEITHER
-#: ``cluster_reach_rulings`` nor any other register
-#: ``solve.design_roles.conforming_rulings`` reads: a conforming row is
-#: refused by §20b stage 1 even when every column is airside, and the
-#: whole point of this form is that the collar is solved BY THE AIRSIDE
-#: STAGE, with the pad nowhere in it.  The ceiling head is in ``[design]
-#: hard_rulings``.
-COLLAR_RULING = "zones.apron cluster_collar_plane"
-COLLAR_CEILING_RULING = "zones.apron cluster_collar_plane ceiling"
-
-#: What :func:`cluster_apron_plane` and :func:`cluster_pad_takes_collar`
-#: last minted (the generators' stats line).
-COLLAR_STATS: dict[str, int] = {}
-
-
-def cluster_apron_plane(planar: PlanarMap, law: Law, airport: Airport
-                        ) -> list[Row]:
-    """§30 (4) THE COLLAR IS ONE PLANE, IN THE AIRSIDE SOLVE (owner
-    RULINGS 2026-09-14bk, deciding the intent question this lane's round
-    1 measured).
-
-    The apron vertices within ``[design] cluster_apron_reach_m`` (40 m)
-    of a cluster's outline — :func:`cluster_apron_faces`, bounded to the
-    touching component (§30 (5)) and never across a taxi-family face —
-    are ONE PLANE AMONG THEMSELVES: a cap-0 target over their pairs and
-    a HARD 1 % tilt ceiling over the same pairs.  Nothing here names a
-    pad vertex, every column is airside and neither head conforms, so
-    §20b stage 1 owns the whole row set and the collar is flat BEFORE
-    the pad is priced at all.  Beyond the reach the apron returns to its
-    own law.
-
-    WHY NOT THE JOIN THE ROUND BEFORE BUILT (RULINGS 2026-09-14bf, lane
-    ``v2padjoin`` round 1).  14bf's literal form bound each collar
-    vertex into the PAD's plate.  Under §20b that row crosses the stage
-    split: stage 1 solves the collar without the pad and substitutes it
-    as a CONSTANT, so stage 2 has to make the plate equal a collar
-    already fixed.  MEASURED on the matched HECA pair (pads + clip +
-    staged ON, the only variable the reach): the stage-2 certificate
-    went 151 infeasible rows / 178.7207 m to 1,114 / 2,312.4274 m, the
-    worst rows the join's own ceiling at 5.89 m, and the all-airside
-    pairs that did fall into stage 1 moved the AIRSIDE (stage 1 worst
-    0.0329 -> 0.1080 m).  The order is the fix: the collar first, in
-    stage 1, and the pad takes it after
-    (:func:`cluster_pad_takes_collar`).
-
-    "AIRSIDE MOVED VS PADS-OFF = THE COLLAR ONLY" IS THE ACCEPTANCE
-    (14bk), not a miss: this row set moves the apron on purpose, inside
-    the reach, and nothing beyond it."""
-    got = cluster_apron_faces(planar, law, airport)
-    if not got:
-        return []
-    from .pads import GEN as GEN_PADS, _pairs
-    ceiling = float(law.tables.emit.within_shape.pad_slope_max)
-    xy = {v: vx.xy for v, vx in planar.vertices.items()}
-    rows: list[Row] = []
-    COLLAR_STATS.clear()
-    n_collar = 0
-    for cid, vs in sorted(got.items()):
-        collar = sorted(v for v in vs if v in xy)
-        if len(collar) < 2:
-            continue
-        n_collar += len(collar)
-        src = Source(GEN_PADS, COLLAR_RULING
-                     + " (§30 (4) the collar plane, owner 2026-09-14bk; "
-                       "apron law, stage 1's own)",
-                     (f"cluster:{cid}", f"apron_vertices:{len(collar)}"))
-        src_c = Source(GEN_PADS, COLLAR_CEILING_RULING
-                       + " (§30 (4), owner 2026-09-14bk)",
-                       (f"cluster:{cid}", f"apron_vertices:{len(collar)}"))
-        for a, b in _pairs(collar):
-            if a == b:
-                continue
-            d = _hypot(xy[a], xy[b])
-            if d <= 0.0:
-                continue
-            rows.append(Diff(a, b, 0.0, d, src))
-            rows.append(Diff(a, b, ceiling, d, src_c))
-    COLLAR_STATS.update(clusters=len(got), collar_vertices=n_collar,
-                        collar_rows=len(rows))
-    return rows
-
-
-def cluster_pad_takes_collar(planar: PlanarMap, law: Law, airport: Airport
-                             ) -> list[Row]:
-    """§30 (4) THE PAD TAKES THE COLLAR (owner RULINGS 2026-09-14bk): in
-    stage 2 the cluster pad's plate EQUALS the collar plane stage 1 has
-    already fixed — the pad's datum is the collar's, the low side by
-    §16g (10) (9) (2).
-
-    The rows are the PAD's own two plate rows (``pads.FLAT_RULING`` at
-    ``[design] pad_flat``, ``pads.CEILING_RULING`` hard at 1 %) between
-    the collar's decimated witnesses and the plate's, so they conform by
-    their heads and §20b keeps them out of stage 1 — where their airside
-    ends are constants and the pad cannot pull the apron (which is what
-    ``conforming_rulings`` is for).  No skirt: the collar the pad meets
-    is a plane, so one plate can reach it."""
-    got = cluster_apron_faces(planar, law, airport)
-    if not got:
-        return []
-    from .pads import CEILING_RULING, FLAT_RULING, GEN as GEN_PADS
-    groups = {ref.split("cluster:", 1)[1]: (fid, group)
-              for fid, ref, group, _q in plane_groups(planar, law, airport)
-              if ref.startswith("cluster:")}
-    ceiling = float(law.tables.emit.within_shape.pad_slope_max)
-    xy = {v: vx.xy for v, vx in planar.vertices.items()}
-    rows: list[Row] = []
-    n_pairs = 0
-    for cid, vs in sorted(got.items()):
-        got_g = groups.get(cid)
-        if not got_g:
-            continue
-        fid, group = got_g
-        collar = sorted(v for v in vs if v in xy)
-        plate = [v for v in group if v in xy]
-        if not collar or not plate:
-            continue
-        # the decimated witnesses of each side — ``pads._pairs``'s own
-        # reason for decimating: a well-spread subset witnesses a plane
-        # and the row count stays O(n)
-        cs = max(1, (len(collar) + _CROSS_MAX - 1) // _CROSS_MAX)
-        ps = max(1, (len(plate) + _CROSS_MAX - 1) // _CROSS_MAX)
-        src = Source(GEN_PADS, FLAT_RULING
-                     + " (§30 (4) the pad takes the collar, owner "
-                       "2026-09-14bk)", (f"face:{fid}", f"cluster:{cid}"))
-        src_c = Source(GEN_PADS, CEILING_RULING
-                       + " (§30 (4) the pad takes the collar, owner "
-                         "2026-09-14bk)", (f"face:{fid}", f"cluster:{cid}"))
-        for a in collar[::cs]:
-            for b in plate[::ps]:
-                if a == b:
-                    continue
-                d = _hypot(xy[a], xy[b])
-                if d <= 0.0:
-                    continue
-                n_pairs += 1
-                rows.append(Diff(a, b, 0.0, d, src))
-                rows.append(Diff(a, b, ceiling, d, src_c))
-    COLLAR_STATS.update(pad_takes_collar_pairs=n_pairs)
-    return rows
-
-
-def _hypot(p: tuple[float, float], q: tuple[float, float]) -> float:
-    import math
-    return math.hypot(p[0] - q[0], p[1] - q[1])
+# §30 (4)'s APRON REACH — the one-way preference (13cc), the pad-to-collar
+# join (14bf) and the collar PLANE as stage-1 rows (14bk) — was built,
+# measured and DISARMED (HECA 11,363 airside vertices moved, 2,211 of them
+# more than 500 m away), and is DELETED with its law keys (jetway-strip
+# spec §6 Q3, default; BUILD ECONOMY: refuted mechanisms are deleted).  Its
+# successor is the JETWAY STRIP, a post-stage-1 PROJECTION
+# (``constraints/jetway_strip.py`` + ``solve/project_strip.py``), and its
+# strike set lives on there as ``jetway_strip.strike_set`` — ONE derivation
+# of "apron a pad may move".  The record is the spec and git.
 
 
 #: How many CROSS-LINKS one member face of a cluster contributes at most.

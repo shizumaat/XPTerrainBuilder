@@ -672,6 +672,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     from auto_patch_v2.airport import placement_boxes as _pb
     pads, rims = (), ()
     decks: tuple = ()                                               # §49
+    jetway_strips: tuple = ()          # jetway-strip spec §4 (C17), #31
     graded = graded_surface_path(patch_dir, plan_.icao)
     if os.path.isfile(graded):
         try:
@@ -680,6 +681,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                 _gd = _json.loads(_fh.read())
             pads, rims = _pp.pads_rims_from_graded_doc(_gd)
             decks = _pp.decks_from_graded_doc(_gd)                  # §49
+            jetway_strips = tuple((_gd.get("provenance") or {})
+                                  .get("jetway_strips") or ())
             # §17 (owner RULINGS 2026-09-12am (2)): the FACE ROLE under a
             # point, off the SAME parsed document — what says whether a
             # foot stands where the aircraft ROLLS.  §9's anchor reads it
@@ -750,6 +753,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         deck_on_fraction=law.tables.structures.deck.on_fraction,
         deck_edge_m=law.tables.structures.deck.edge_m,
         deck_under_m=law.tables.structures.deck.under_m,
+        # jetway-strip spec §4 (C17): the riders' population and strips
+        jetway_strips=jetway_strips,
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))
     c = dict(plan.counts())

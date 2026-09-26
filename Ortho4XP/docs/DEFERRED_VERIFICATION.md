@@ -6244,3 +6244,13 @@ constraint, and owed:
 * §B.5's mmap DEM half is not done (the tile DEM is an `O4_DEM_Utils.DEM`,
   not a plain ndarray wrapper — spec says stop and report).
 * Suites: only the files covering the change, once (527 passed).
+* **#32 jetway strip, bar 5 (lane `jetwaystrip`)**: the strip REGION
+  derivation (`constraints/jetway_strip.jetway_strips`) measured 0.66 s at
+  HECA and 0.71 s at SPJC on the replay arms after `no_step_edges` was
+  memoised per map (was 1.48 / 0.9 s), against the spec's 0.6 s bar (1 % of
+  the 60 s budget); the projection itself is 0.02 s. The remaining ~0.1 s
+  (`cluster_pad_faces` + the apron-vertex region loop) is ACCEPTED for now
+  by the spec author (Q-32d ruling, 2026-09-25); owed at the final-design
+  profiling round. Also deferred: the #31 rider census on a `--tile` build
+  (the closing pair is patch-only, so the object stage never ran) and the
+  `.agp` OBJECT_MSL sim read (Q-31). No full-suite run.

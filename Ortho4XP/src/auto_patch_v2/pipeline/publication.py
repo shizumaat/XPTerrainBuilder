@@ -253,16 +253,14 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                  z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
     """§30 (4): one record per TERMINAL CLUSTER — its id, its members, the
     emitted ``building`` faces its footprint union stands on, the LEVEL
-    the solve gave that one plane, its footprint-union area, and how many
-    apron vertices the reach targeted (with how many of them came within
-    the materiality floor of the plane, which is the "apron faces that
-    stayed graded" the ruling asks the report to name).
+    the solve gave that one plane and its footprint-union area.  (The
+    apron-reach counts went with the deleted collar, jetway-strip spec §6
+    Q3; the strip publishes its own ``jetway_strips``.)
 
     Read off the SAME derivations the rows were priced from
     (``constraints.cluster_pad``), never a second reading of the law."""
     from ..constraints.cluster_pad import (DERIVED, OFFSET_SPREAD, REFERENCE,
                                            TOUCHING_STEPS, YIELDED,
-                                           cluster_apron_faces,
                                            cluster_offsets, cluster_pad_faces,
                                            plane_groups)
     faces = cluster_pad_faces(planar, law, airport)
@@ -274,21 +272,15 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
     # disagree about the ground floor — a defect in the split) — the SAME
     # derivation the law states, never a second reading
     cluster_offsets(planar, law, airport)
-    reach = cluster_apron_faces(planar, law, airport)
     vs_of = {ref.split("cluster:", 1)[1]: group
              for _f, ref, group, _q in plane_groups(planar, law, airport)
              if ref.startswith("cluster:")}
     by_id = {c.id: c for c in (getattr(airport, "clusters", None) or ())}
-    tol = float(law.tables.emit.materiality.elevation_m)
     out: list[dict[str, _t.Any]] = []
     for cid, fids in sorted(faces.items()):
         vs = vs_of.get(cid) or []
         zs = ([float(z[v]) for v in vs if v < len(z)] if z is not None else [])
         lvl = (sorted(zs)[len(zs) // 2] if zs else None)
-        ap = reach.get(cid, [])
-        flat = (sum(1 for v in ap if v < len(z) and lvl is not None
-                    and abs(float(z[v]) - lvl) <= tol)
-                if z is not None else 0)
         c = by_id.get(cid)
         out.append({"id": cid,
                     "members": list(getattr(c, "members", ()) or ()),
@@ -296,8 +288,6 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                     "pads": sorted({planar.faces[f].ref for f in fids}),
                     "level": (None if lvl is None else round(lvl, 3)),
                     "rim_vertices": len(vs),
-                    "apron_vertices_in_reach": len(ap),
-                    "apron_vertices_at_the_plane": flat,
                     # §30 (4) (5) (owner RULINGS 2026-09-13ch): the member
                     # pads the gate turned away — they keep their own
                     # plane and the report names them
@@ -337,7 +327,8 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
 
 def publication(planar: PlanarMap, law: Law, airport: Airport,
                 z: _t.Sequence[float] | None = None,
-                cs: _t.Any = None) -> dict[str, _t.Any]:
+                cs: _t.Any = None, strips: _t.Any = None,
+                strip_rep: _t.Any = None) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
     crown drops are the BUILT ones.  The shape joints (owner RULINGS
     2026-09-08k, ``planar.shape_joints``) are declared, and every published
@@ -540,13 +531,68 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # stated.  Empty at every airport with no channel, which is
             # every airport but the three the class was measured over.
             "channel_facilities": channel_facilities(planar, law, z),
-            "object_cuts": object_cuts(planar, airport)}
+            "object_cuts": object_cuts(planar, airport),
+            # THE JETWAY STRIPS (owner RULINGS 2026-09-18t Q3; jetway-strip
+            # spec §2 (6)): per strip its pad, its ONE level, its riders,
+            # its vertices by identity and its clamps — LAW INPUT for the
+            # census's ``jetway_strip`` family, which prices the emitted
+            # surface against exactly what the projection levelled.  Empty
+            # at an airport with no rider edge.
+            "jetway_strips": jetway_strips_ll(planar, airport, strips,
+                                              strip_rep)}
     # §16g (10) (12) (2): an ABSENT key means NOT MEASURED (the arrangement
     # did not run in this process — a replay arm), an EMPTY list means
     # MEASURED ZERO.  See ``_renode_rows``.
     if _doc.get("pad_airside_renode") is None:
         _doc.pop("pad_airside_renode", None)
     return _doc
+
+
+def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
+                     rep: _t.Any) -> list[dict[str, _t.Any]]:
+    """The ``jetway_strips`` sidecar key (jetway-strip spec §2 (6), §4
+    (2)): one record per strip the projection RAN on —
+    ``{id, pad_ref, level, plane, rider_count, riders: [[lat, lon, path,
+    reach_m]], polygon_ll: [[[lat, lon], ...], ...], vertices_ll:
+    [[lat, lon, target_z], ...], clamps: [[lat, lon, why, metres], ...]}``
+    — ``target_z`` is the pad plane at the vertex (Q-32a (d)); ``level``
+    the median target.
+    ``vertices_ll`` carry the canonical 11-dp identity (the census joins
+    by it, never by proximity); ``level`` is ``None`` for a strip no
+    stage-1 level reached (reported, never priced)."""
+    if not strips or rep is None or not getattr(rep, "ran", False):
+        return []
+    _to_xy, to_ll = airport.frame.transformers()
+    ll = {vid: [v.key[0], v.key[1]] for vid, v in planar.vertices.items()}
+    objs = {o.id: o for o in (getattr(airport, "dsf_objects", ()) or ())}
+    reach = {r.obj_id: r.reach_m for r in getattr(strips, "riders", ())}
+    by_id = {d["id"]: d for d in rep.strips}
+    out: list[dict[str, _t.Any]] = []
+    for st in strips.strips:
+        d = by_id.get(st.id, {})
+        tg = d.get("targets") or {}
+        riders = []
+        for oid in st.riders:
+            o = objs.get(oid)
+            if o is None:
+                continue
+            la, lo = to_ll(*o.xy)
+            riders.append([round(la, 9), round(lo, 9), o.path,
+                           round(float(reach.get(oid, 0.0)), 3)])
+        out.append({
+            "id": st.id, "pad_ref": st.pad_ref, "level": d.get("level"),
+            "rider_count": len(st.riders), "riders": riders,
+            "polygon_ll": [[[round(a, 9), round(b, 9)]
+                            for a, b in (to_ll(x, y) for x, y in ring)]
+                           for ring in st.region],
+            # [lat, lon, the vertex's TARGET on the pad plane] (Q-32a (d))
+            "vertices_ll": [ll[v] + ([tg[str(v)] if str(v) in tg else tg[v]]
+                                     if (str(v) in tg or v in tg) else [])
+                            for v in st.vertices if v in ll],
+            "plane": d.get("plane"),
+            "clamps": [[ll[c[0]][0], ll[c[0]][1], c[1], c[2]]
+                       for c in d.get("clamps", ()) if c[0] in ll]})
+    return out
 
 
 def apron_tier(law: Law) -> dict[str, float | None]:

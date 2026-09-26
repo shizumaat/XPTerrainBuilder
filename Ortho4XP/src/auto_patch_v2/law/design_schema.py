@@ -151,10 +151,6 @@ class Design:
     #: DEM datum mean — a pad's own datum (09p (3)) is for a pad that
     #: fronts NO pavement.
     pad_level_rulings: tuple[str, ...]
-    #: §30 (4) (owner RULINGS 2026-09-13cc (ii)): the ruling HEADS of the
-    #: CLUSTER PAD's apron reach, priced at ``apron_trend`` instead of
-    #: ``law`` so the taxi family's law rows always outrank them.
-    cluster_reach_rulings: tuple[str, ...]
     #: A PAD FRONTS BY PROXIMITY (owner RULINGS 2026-09-10ax (1)): the
     #: plan distance within which a pad EDGE fronts a pavement EDGE,
     #: shared vertex or not.  ``constraints.pads.frontage_radius_m`` is
@@ -166,16 +162,15 @@ class Design:
     #: row.  ``constraints.pad_frontage_gs.frontage_step_max_m`` is the one
     #: derivation site; 0 disables the bound.
     frontage_step_max_m: float
-    #: §30 (4) THE CLUSTER PAD'S APRON REACH (owner RULINGS 2026-09-13bj
-    #: item 1: "it's acceptable to flatten large apron areas around big
-    #: terminals if needed to accommodate a large terminal cluster").
-    #: An apron vertex within this plan distance of a CLUSTER pad takes
-    #: the pad's plane as its TARGET, at the law's own weight, so the
-    #: apron's own hard caps and the taxiway family still win where the
-    #: two disagree.  ``constraints.pads.cluster_reach_m`` is the one
-    #: derivation site; 0 disables the reach and the cluster pad is then
-    #: one plane with no apron of its own.
-    cluster_apron_reach_m: float
+    #: jetway-strip spec §1 (2) / §2 (owner RULINGS 2026-09-18t Q3): the
+    #: plan distance D from a 23a pad's RIDER EDGE within which the apron
+    #: is ONE level (``constraints.jetway_strip.strip_m`` is the one
+    #: derivation site; 0 disarms the strip).
+    jetway_strip_m: float
+    #: spec-author ruling Q-32d (i): a strip forms only on a pad whose
+    #: stage-1 airside frontage fits its plane within this (max residual,
+    #: metres); elsewhere the 23a weld alone governs.
+    jetway_strip_plane_tol_m: float
     #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
     #: embankment out to the DEM, because the mesh does not blend.
     #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``
@@ -351,10 +346,9 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.frontage_step_max_m {d.frontage_step_max_m}: "
                   "a DEM step in metres, never negative (owner RULINGS "
                   "2026-09-13o/13p)")
-    if d.cluster_apron_reach_m < 0.0:
-        raise err(f"emit.design.cluster_apron_reach_m {d.cluster_apron_reach_m}: "
-                  "a plan distance in metres, never negative (owner RULINGS "
-                  "2026-09-13bj item 1)")
+    if d.jetway_strip_m < 0.0:
+        raise err(f"emit.design.jetway_strip_m {d.jetway_strip_m}: a plan "
+                  "distance in metres, never negative (jetway-strip spec §1 (2))")
     if d.pad_frontage_m < 0.0:
         raise err(f"emit.design.pad_frontage_m {d.pad_frontage_m}: a plan "
                   "distance in metres, never negative (owner RULINGS "

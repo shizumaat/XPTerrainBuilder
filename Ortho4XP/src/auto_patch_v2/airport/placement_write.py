@@ -133,7 +133,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                decks: _t.Sequence = (),                                 # §49
                deck_on_fraction: float = 0.5,
                deck_edge_m: float = 0.0,
-               deck_under_m: float = 0.0) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
+               deck_under_m: float = 0.0,
+               jetway_strips: _t.Sequence = ()) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
     ``rebake_plan`` is the build's own ``<ICAO>.rebake.json`` model (the
@@ -186,10 +187,37 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                                  counts=_msl_counts)
     # a row seated by §16g (5) is NOT also converted to on-ground: the
     # whole point is that it keeps an elevation column
+    _conv0 = conversions
     _mi = frozenset(m.index for m in msl)
     conversions = tuple(c for c in conversions if c.index not in _mi)
+    # jetway-strip spec §4 / C17 (issue #31): THE RIDERS — a placement the
+    # plan holds no geometry for, riding the unit whose outline it stands
+    # at.  The population is the DESIGN side's (the graded surface's
+    # ``jetway_strips``), never a second host search.  A rider row is
+    # left ON GROUND where the terrain at its anchor already equals its
+    # unit's datum (after the strip law, the normal case); it carries
+    # ``OBJECT_MSL`` = datum + authored offset only on a CLAMPED gate, and
+    # never for an ``.agp`` (§4 (3), Q6 default).  Where §16g (5) had
+    # already written a row for a rider on ground it is withdrawn: the
+    # strip IS its seat.
+    from . import riders as _riders
+    riders = _riders.riders_for_dump(
+        dump, jetway_strips, pads, surface, split_idx, tol_m=hard_tol_m,
+        authored_ground=(None if _flat is None else _flat.z0_m))
+    if riders:
+        _ground = {r.index for r in riders if r.seat_why == "on_ground"}
+        _have = {m.index for m in msl}
+        from ..model.placement import MslSeat as _MslSeat
+        msl = tuple(m for m in msl if m.index not in _ground) + tuple(
+            _MslSeat(r.index, r.resource, r.lon, r.lat, r.heading_deg,
+                     float(r.seat_z), "rider")
+            for r in riders if r.seat_why == "msl_written"
+            and r.index not in _have and r.seat_z is not None)
+        _mi = frozenset(m.index for m in msl)
+        conversions = tuple(c for c in _conv0 if c.index not in _mi)
     counts_extra = {"msl_seats": len(msl)}
     counts_extra.update(_msl_counts)
+    counts_extra.update(_riders.rider_census(riders))
     counts_extra.update(_fu.multi_anchor_census(dump, rebake_plan, msl,
                                                 split_idx, ss.unit_seats))
     files = tuple(f for s in ss.splits for f in s.files)
@@ -200,7 +228,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         icao=icao, pack_name=pack_name, pack_root=pack_root, dsf_path=dsf_path,
         dsf_backup_path=dsf_path + ".anchor_bak",
         provenance=Provenance("", engine_version, law_digest, counts),
-        conversions=conversions, splits=splits, kept=kept, msl_seats=msl)
+        conversions=conversions, splits=splits, kept=kept, msl_seats=msl,
+        riders=tuple(riders),
+        jetway_strips=tuple(dict(j) for j in (jetway_strips or ())))
     return plan, files, ss
 
 

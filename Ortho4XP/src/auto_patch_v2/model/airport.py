@@ -331,8 +331,8 @@ class Airport:
     #: §16g / §30 (4) THE FOOTPRINT UNITS large enough to be TERMINAL
     #: CLUSTERS (``planar/cluster.py`` ``PlanCluster``, owner RULINGS
     #: 2026-09-13bj item 1 / 13bo), derived from the partition at load
-    #: beside the groups — the design surface gives each ONE pad and
-    #: flattens the apron within ``[design] cluster_apron_reach_m`` of it.
+    #: beside the groups — the design surface gives each ONE pad (and the
+    #: JETWAY STRIP levels the apron at its rider edges, jetway-strip spec).
     #: ``constraints`` may not import ``planar``, so the relation travels
     #: here.  Same ``None`` / empty rule as ``groups``.
     clusters: _t.Any = None

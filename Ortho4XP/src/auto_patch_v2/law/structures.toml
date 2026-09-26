@@ -833,6 +833,15 @@ airside_floor       = false
 # its deck, it does not share a vertex with it.  0 disarms §16g.
 footprint_touch_m   = 0.5
 
+# §16g / jetway-strip spec §1 (1) THE RIDER (issues #31/#32; owner RULINGS
+# 2026-09-18t (2)/(3)): a placement the plan holds no geometry for (an
+# `.agp`, a dropped multi-anchor resource, a `lib/` resource) RIDES the
+# unit whose outline it stands within `rider_reach` of —
+# max(footprint_touch_m, its own declared plan half-extent: the `.agp`
+# TILE or the OBJ8 plan box), capped here.  Name-free.  HECA's jetway
+# rotundas stand 1-2 m off the wall inside their +/-5 m TILE.
+rider_reach_max_m   = 10.0
+
 # §16g (10) (1) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x): a
 # CLUSTER is ONE BUILDING — bodies chain only if their footprints touch
 # AND their authored GROUND FLOORS (the lowest ground-contact component's

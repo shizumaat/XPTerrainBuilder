@@ -142,6 +142,24 @@ ruling    = "2026-09-14ai"
 solver    = "edge"
 cockpit   = "step"
 
+# THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3, verbatim: "UNDER THE
+# JETWAYS THE APRON STRIP IS LEVEL WITH THE TERMINAL — a NEW AIRSIDE LAW,
+# solved airside-first; nothing groundside pulls it"; jetway-strip spec
+# §2 (6)).  SIDECAR-DECLARED: the build publishes `jetway_strips` (per
+# strip its ONE level, its vertices by identity, its clamps) and the
+# family prices (a) a strip vertex off that level by more than §31's
+# visual floor and (c) every clamp the projection reported (a taxi /
+# runway / pinned / other-pad vertex the field would have moved).  (b), a
+# transition pair over the apron max, is within_shape's own apron pair.
+[jetway_strip]
+measures  = "an apron vertex of a JETWAY STRIP standing off the pad plane it takes (Q-32a (d)), or a clamped taxi / runway / pinned / other-pad vertex the strip's transition would have moved"
+parameter = "emit.design.jetway_strip_m"
+roles     = ["apron"]
+pairs     = "within"
+ruling    = "2026-09-18t"
+solver    = "construction"
+cockpit   = "step"
+
 # §16g (10) (12) (2) THE ARRANGEMENT CLIP PRESERVES THE AIRSIDE VERTEX SET
 # (Fable 2026-09-16; RULINGS 2026-09-16b).  The airside cells' geometry and
 # vertex set are computed BEFORE any pad exists and are never modified by

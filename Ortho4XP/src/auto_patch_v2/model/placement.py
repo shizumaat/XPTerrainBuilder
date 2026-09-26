@@ -35,7 +35,7 @@ __all__ = [
     "CUT_MARK",
     "KIND_ON_GROUND", "KIND_MSL", "KIND_AGL", "CONVERTIBLE_KINDS",
     "BODY_CLASSES", "Provenance", "Conversion", "Anchor", "PlacementRef",
-    "Body", "Split", "Kept", "PlacementPlan", "MslSeat",
+    "Body", "Split", "Kept", "PlacementPlan", "MslSeat", "Rider",
 ]
 
 #: 1: the first plan (11b — conversions, splits, kept).
@@ -128,6 +128,56 @@ class MslSeat:
         return cls(int(d["index"]), str(d["resource"]), _f(d["lon"]),
                    _f(d["lat"]), _f(d.get("heading", 0.0)),
                    _f(d.get("elevation", 0.0)), str(d.get("why", "")))
+
+
+@_dc.dataclass(frozen=True)
+class Rider:
+    """jetway-strip spec §4 (issue #31): a placement the plan holds NO
+    geometry for (an ``.agp``, a dropped multi-anchor resource, a ``lib/``
+    resource) that RIDES the unit whose outline it stands within
+    ``reach_m`` of.  No body; a SEAT RECORD on its carrier.
+
+    ``seat_z`` = the host unit's datum + the authored offset (the 11b
+    conversion); ``seat_why``: ``on_ground`` (the terrain at the anchor
+    IS the datum, or an ``.agp``, whose MSL row is unverified — §4 (3)),
+    ``msl_written`` (a clamped gate: the row carries ``seat_z``) or
+    ``no_host``.  ``terrain_z`` is the design surface at the anchor."""
+
+    index: int
+    resource: str
+    lon: float
+    lat: float
+    heading_deg: float
+    kind_before: str
+    host_unit: str
+    host_pid: str
+    anchor_gap_m: float
+    reach_m: float
+    strip_id: str
+    seat_z: float | None
+    seat_why: str
+    terrain_z: float | None = None
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"index": self.index, "resource": self.resource,
+                "lon": self.lon, "lat": self.lat, "heading": self.heading_deg,
+                "kind_before": self.kind_before, "host_unit": self.host_unit,
+                "host_pid": self.host_pid, "anchor_gap_m": self.anchor_gap_m,
+                "reach_m": self.reach_m, "strip_id": self.strip_id,
+                "seat_z": self.seat_z, "seat_why": self.seat_why,
+                "terrain_z": self.terrain_z}
+
+    @classmethod
+    def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "Rider":
+        sz, tz = d.get("seat_z"), d.get("terrain_z")
+        return cls(int(d["index"]), str(d["resource"]), _f(d["lon"]),
+                   _f(d["lat"]), _f(d.get("heading", 0.0)),
+                   str(d.get("kind_before", "OBJECT")),
+                   str(d.get("host_unit", "")), str(d.get("host_pid", "")),
+                   _f(d.get("anchor_gap_m", 0.0)), _f(d.get("reach_m", 0.0)),
+                   str(d.get("strip_id", "")),
+                   None if sz is None else _f(sz), str(d.get("seat_why", "")),
+                   None if tz is None else _f(tz))
 
 
 @_dc.dataclass(frozen=True)
@@ -393,6 +443,11 @@ class PlacementPlan:
     msl_seats: tuple[MslSeat, ...] = ()
     splits: tuple[Split, ...] = ()
     kept: tuple[Kept, ...] = ()
+    #: jetway-strip spec §4 (2) / C18 (issue #31): the riders' seat
+    #: records and the strips the design surface levelled (the published
+    #: ``jetway_strips`` records, carried verbatim)
+    riders: tuple[Rider, ...] = ()
+    jetway_strips: tuple[_t.Mapping[str, _t.Any], ...] = ()
 
     # ── views the writers use ───────────────────────────────────────────
     def conversion_indices(self) -> frozenset[int]:
@@ -492,7 +547,9 @@ class PlacementPlan:
                 "conversions": [c.to_dict() for c in self.conversions],
                 "splits": [s.to_dict() for s in self.splits],
                 "kept": [k.to_dict() for k in self.kept],
-                "msl_seats": [m.to_dict() for m in self.msl_seats]}
+                "msl_seats": [m.to_dict() for m in self.msl_seats],
+                "riders": [r.to_dict() for r in self.riders],
+                "jetway_strips": [dict(j) for j in self.jetway_strips]}
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -512,7 +569,9 @@ class PlacementPlan:
                    splits=tuple(Split.from_dict(s) for s in d.get("splits", ())),
                    kept=tuple(Kept.from_dict(k) for k in d.get("kept", ())),
                    msl_seats=tuple(MslSeat.from_dict(m)
-                                   for m in d.get("msl_seats", ())))
+                                   for m in d.get("msl_seats", ())),
+                   riders=tuple(Rider.from_dict(r) for r in d.get("riders", ())),
+                   jetway_strips=tuple(dict(j) for j in d.get("jetway_strips", ())))
 
     @classmethod
     def from_json(cls, text: str) -> "PlacementPlan":

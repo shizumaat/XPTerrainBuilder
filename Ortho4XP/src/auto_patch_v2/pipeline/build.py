@@ -897,9 +897,22 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # a ``<generator>.<stat>`` key is a statistic, not a timed generator
         _say(f"    {name:28s} {n:8d}  {gwalls[name]:.3f} s" if name in gwalls
              else f"    {name:28s} {n:8d}", out)
+    # THE JETWAY STRIP'S REGION (owner RULINGS 2026-09-18t Q3; jetway-strip
+    # spec §1): derived HERE, where the airport, the map and the constraint
+    # set meet, and handed to the solve as data — ``solve`` may not import
+    # ``constraints`` (M0 §1).  The projection itself runs between §20b's
+    # two stages (``solve/project_strip.py``).
+    t = time.perf_counter()
+    from ..airport.riders import rider_candidates
+    from ..constraints.jetway_strip import jetway_strips
+    strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law))
+    wall["jetway_strip"] = time.perf_counter() - t
+    _say(f"[{icao}] jetway strip region (18t Q3) {wall['jetway_strip']:.2f} s: "
+         + ", ".join(f"{k} {v}" for k, v in strips.counts.items()), out)
     t = time.perf_counter()
     size: dict[str, int] = {}
-    sol, design_rep = solve_design(pm, cs, law, cfg.options, size_out=size)
+    sol, design_rep = solve_design(pm, cs, law, cfg.options, size_out=size,
+                                   strips=strips)
     wall["solve"] = time.perf_counter() - t
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
@@ -1011,13 +1024,20 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pieces = None
     if sol.status.value in ("optimal", "feasible"):
         t = time.perf_counter()
+        from .publication import jetway_strips_ll
+        _strip_records = jetway_strips_ll(pm, airport, strips,
+                                          design_rep.jetway_strip)
         surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                               {"law_ruleset": law.ruleset_key,
                                "pack": airport.pack.name,
                                # §50.4: the yielded runways ride the
                                # surface's own provenance (an open object)
-                               "runway_cap_yield": _yield_records})
-        pub = publication(pm, law, airport, sol.z, cs)
+                               "runway_cap_yield": _yield_records,
+                               # jetway-strip spec §4 (C17): the object
+                               # stage seats the riders off this
+                               "jetway_strips": _strip_records})
+        pub = publication(pm, law, airport, sol.z, cs, strips=strips,
+                          strip_rep=design_rep.jetway_strip)
         # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
         # residual per family (``design``, replacing ``law_tiers``) and the
         # rows the surface missed (``design_target``), which the census

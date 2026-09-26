@@ -322,9 +322,10 @@ class _PShim:
     """A plan body dressed as the candidate :func:`_clusters` reads."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "key", "pids",
-                 "resource", "rings", "walled")
+                 "resource", "rings", "walled", "base_y")
 
-    def __init__(self, seq, key, boxes, pids, resource, rings=(), walled=True):
+    def __init__(self, seq, key, boxes, pids, resource, rings=(), walled=True,
+                 base_y=None):
         self.member = seq            # a UNIQUE id per body: the chaining
         self.key = key               # is plan-wide, so "member" may not
         self.pids = pids             # collapse two bodies of one member
@@ -336,13 +337,20 @@ class _PShim:
         self.body_class = ""
         #: §16g (10) (4): this body has WALLS and may LINK a unit
         self.walled = bool(walled)
+        #: S6: the body's lowest AUTHORED y (its own zero frame) — a body
+        #: authored below grade is never CONTENTS (§48 (1) (d))
+        self.base_y = base_y
 
 
-def plan_units(plan: _t.Any, touch_m: float) -> list[PlanUnit]:
+def plan_units(plan: _t.Any, touch_m: float,
+               contents_min_fraction: float = 0.0) -> list[PlanUnit]:
     """§16g (1) PLAN-WIDE: every footprint unit of ``plan``, chained
     across placement ``Unit``s.  A body touching nothing is its own unit
-    and is NOT returned — it seats alone (§16c)."""
-    return plan_units_and_connectors(plan, touch_m, 0.0)[0]
+    and is NOT returned — it seats alone (§16c) — unless S6 finds
+    CONTENTS inside it (:mod:`contents`)."""
+    return plan_units_and_connectors(
+        plan, touch_m, 0.0,
+        contents_min_fraction=contents_min_fraction)[0]
 
 
 def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
@@ -407,7 +415,8 @@ def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
 def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                               connector_span_m: float,
                               counts: "dict | None" = None,
-                              chain_min_height_m: float = 0.0
+                              chain_min_height_m: float = 0.0,
+                              contents_min_fraction: float = 0.0
                               ) -> "tuple[list[PlanUnit], list[PlanConnector]]":
     """§16g (1) PLAN-WIDE with §16g (6)'s CONNECTOR reading.
 
@@ -439,7 +448,17 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     2026-09-14ah).  The same rule the design surface's ``plan_clusters``
     applies to its clusters, applied to the UNIT — they are one relation
     (§16g (9) ONE POPULATION) and a leaf rule that held on one side only
-    would be two populations again.  MEASURED at HECA: with the design
+    would be two populations again.
+
+    S6 CONTENTS (spec ``pack-read-once-fast-spec.md`` §F.2, issue #30,
+    #10): a LEAF whose footprint lies inside a walled host (``[placement]
+    contents_min_fraction`` of it, the host widened by ``touch_m``) JOINS
+    that host's unit — its pids and bodies, never its boxes, so the unit's
+    datum is its hosts' alone (F.4) — and a walled body that chains with
+    nothing becomes a unit of its own when it holds contents.  The chain,
+    the connector reading and the design surface's clusters are computed
+    over the walled bodies exactly as before; contents are attached to
+    the result and link nothing.  0 disarms.  MEASURED at HECA: with the design
     cluster resolved but the unit still chaining through slabs, the T3
     terminal stayed in ``fu:38:23@cluster_pad`` — 52 members on one datum
     — and its body sat 7.50 m above its own ground.  A body whose tallest
@@ -470,7 +489,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                                 plan.units[ui].members[mi].resource,
                                 tuple(r for q in live
                                       for r in getattr(q, "rings", ())
-                                      if len(r) >= 3), walled))
+                                      if len(r) >= 3), walled,
+                                base_y=min(float(q.base_y) for q in live)))
     if len(shims) < 2:
         return [], []
     # §16g (10) (4): the chain runs over the WALLED bodies alone; a LEAF
@@ -497,22 +517,43 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     # index is built ONCE (RULINGS 2026-09-14e).
     index = (_near_index([i for cl in clusters for i in cl], shims)
              if connector_span_m > 0.0 else None)
+    # S6 CONTENTS (issue #30 / #10): attached AFTER the chain, so no leaf
+    # can link two units and the connector index above is the walled one
+    contents: dict[int, int] = {}
+    singles: list[int] = []
+    if contents_min_fraction > 0.0 and leaves and walled_ix:
+        from .contents import attach_contents
+        ml, mo = m_per_deg_exact(shims[walled_ix[0]].box[0])
+        contents, singles = attach_contents(
+            shims, clusters, walled_ix, leaves, touch_m,
+            contents_min_fraction, counts,
+            is_deck=lambda i: member_is_deck(
+                plan.units[shims[i].key[0]].members[shims[i].key[1]]),
+            base_y=lambda i: shims[i].base_y, ml=ml, mo=mo)
+    held: dict[int, list[int]] = {}
+    for i, k in sorted(contents.items()):
+        held.setdefault(k, []).append(i)
     out: list[PlanUnit] = []
     conns: list[PlanConnector] = []
     conn_keys: set = set()
-    for cl in clusters:
+    hosts = [(k, list(cl)) for k, cl in enumerate(clusters)]
+    hosts += [(-1 - s, [s]) for s in singles]
+    for k, cl in hosts:
         boxes = [b for i in cl for b in shims[i].part_boxes]
-        uid = f"fu:{shims[cl[0]].key[0]}:{cl[0]}"
-        deck_pids, deck = _deck_lending(cl, shims, plan, touch_m,
+        uid = (f"fu:{shims[cl[0]].key[0]}:{cl[0]}" if k >= 0
+               else f"fu:{shims[cl[0]].key[0]}:{cl[0]}/host")
+        full = cl + held.get(k, [])
+        deck_pids, deck = _deck_lending(full, shims, plan, touch_m,
                                         connector_span_m, counts)
         out.append(PlanUnit(
             id=uid,
-            bodies=tuple(shims[i].key for i in cl),
-            pids=frozenset().union(*(shims[i].pids for i in cl)),
-            members=tuple(sorted({shims[i].resource for i in cl})),
+            bodies=tuple(shims[i].key for i in full),
+            pids=frozenset().union(*(shims[i].pids for i in full)),
+            members=tuple(sorted({shims[i].resource for i in full})),
+            # F.4: the datum is the HOSTS' — contents add no box
             boxes=tuple(boxes), area_m2=union_area_m2(boxes),
             deck_pids=deck_pids, deck=deck))
-        if connector_span_m <= 0.0:
+        if connector_span_m <= 0.0 or k < 0:
             continue
         conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
                                            connector_span_m, index))
@@ -761,8 +802,17 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     out: list[Family] = []
     for uid, per in sorted(per_uid.items()):
         zero, where, src = info[uid]
+        # A plan-wide unit always holds two bodies or more (a singleton is
+        # never a PlanUnit), so ONE candidate of it in this pass is still
+        # a member of a unit whose other bodies stand in other passes and
+        # takes the unit's datum (13bw: one zero across plan units by
+        # construction).  S6 (#30/#10): a host's CONTENTS authored in
+        # another placement row were exactly this case and kept their own
+        # ground.  Only the per-unit path (no plan-wide map) keeps the
+        # "a family of one is no family" guard.
         if len(per) < 2 and not any(ci in conn for ci in per):
-            continue
+            counts["unit_lone_in_pass_seated"] = \
+                counts.get("unit_lone_in_pass_seated", 0) + 1
         # §16g (2): PAVEMENT IS KING only for a unit standing ENTIRELY on
         # rolled-on pavement.  Read over the candidates THIS pass holds —
         # a plan-wide unit split across passes is judged per pass, which
@@ -942,7 +992,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     pads: _t.Sequence[_ar.PadRing], touch_m: float,
                     cluster_min_m2: float, counts: dict,
                     connector_span_m: float = 0.0,
-                    chain_min_height_m: float = 0.0
+                    chain_min_height_m: float = 0.0,
+                    contents_min_fraction: float = 0.0
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
     where, source, connector ends, the HIGH end's own seat), the units'
@@ -965,7 +1016,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
         return {}, []
     units, conns = plan_units_and_connectors(plan, touch_m,
                                              connector_span_m, counts,
-                                             chain_min_height_m)
+                                             chain_min_height_m,
+                                             contents_min_fraction)
     _parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
 
     def _feet_of(pids):

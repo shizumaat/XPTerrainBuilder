@@ -282,6 +282,17 @@ class Placement:
     #: rule and every body chains, as it did before 14ah.
     chain_min_height_m: float = 2.5
 
+    #: S6 THE RIGID BUILDING UNIT — CONTENTS (spec
+    #: ``pack-read-once-fast-spec.md`` §F.2 / F.9 R1; issues #30, #10): a
+    #: LEAF body (under ``chain_min_height_m``) whose plan footprint lies
+    #: at least this share inside a walled host's outline (widened by
+    #: ``footprint_touch_m``) is that host's CONTENTS and takes the host
+    #: unit's one zero; it never links two units and adds nothing to the
+    #: unit's datum.  MEASURED on the HECA hecabodies closing plan: 11,874
+    #: of 13,762 leaves inside a host, 3,091 of them seated apart (the
+    #: glass, the doors, the upper levels).  0 disarms.
+    contents_min_fraction: float = 0.95
+
     #: §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): THE SKIRT
     #: BAND.  A pad's vertices within this of an edge it SHARES with an
     #: airside face follow the airside ONE-WAY within the pad's slope

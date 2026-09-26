@@ -422,6 +422,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  cluster_min_m2: float = 0.0, touch_m: float = 0.0,
                  connector_span_m: float = 0.0,
                  chain_min_height_m: float = 0.0,
+                 # S6 CONTENTS (issue #30 / #10): a leaf inside a walled
+                 # host rides the host's unit; 0 disarms
+                 contents_min_fraction: float = 0.0,
                  # §16g (2) AMENDED (owner RULINGS 2026-09-17x (1))
                  airside_floor: bool = False,
                  # RETIRED (owner RULINGS 2026-09-17t: "Pad datum: median,
@@ -561,7 +564,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)
-                                      chain_min_height_m)  # §16g (10) (4)
+                                      chain_min_height_m,  # §16g (10) (4)
+                                      contents_min_fraction)  # S6
 
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────

@@ -804,6 +804,9 @@ def _main() -> int:
                     "gate back into the population (§16 (1)) by reading their "
                     "rows from the pack's own DSF — what a build's plan now "
                     "carries by itself, for a plan written before §16")
+    ap.add_argument("--contents-min-fraction", type=float, default=None,
+                    help="S6 (#30/#10): override [placement] "
+                         "contents_min_fraction (0 = the pre-S6 arm)")
     ap.add_argument("--coarsen-reach", type=float, default=None,
                     help="override [placement] coarsen_reach_m (§16b (1)'s "
                          "PLAN CONTIGUITY: two bodies of one placement join "
@@ -917,6 +920,12 @@ def _main() -> int:
                          # §16g (10) (4): only a WALLED body links a unit
                          chain_min_height_m=(_law.tables.structures.placement
                                              .chain_min_height_m),
+                         # S6 CONTENTS (#30 / #10)
+                         contents_min_fraction=(
+                             _law.tables.structures.placement
+                             .contents_min_fraction
+                             if a.contents_min_fraction is None
+                             else a.contents_min_fraction),
                          coarsen_reach_m=(_law.tables.structures.placement
                                           .coarsen_reach_m
                                           if a.coarsen_reach is None

@@ -948,6 +948,14 @@ pad_airside_snap_max_m = 5.0
 # carrying 3,594 of its 9,333 touch edges.  2.5 m is a storey.  0 disarms.
 chain_min_height_m  = 2.5
 
+# S6 THE RIGID BUILDING UNIT — CONTENTS (pack-read spec §F.2 / F.9 R1;
+# issues #30, #10): a LEAF whose plan footprint lies at least this share
+# inside a walled host's outline (+ footprint_touch_m) is the host's
+# CONTENTS: one zero with the host's unit, never a link, never in the
+# unit's datum.  HECA: 3,091 contained leaves (glass, doors, upper levels)
+# were seated apart from their building.  0 disarms.
+contents_min_fraction = 0.95
+
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two

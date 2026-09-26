@@ -51,6 +51,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..model.frame import XY
+from . import bulk_geos as _bulk
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 
@@ -242,6 +243,27 @@ class ShellReading:
     width_m: float
 
 
+def _open_edges(ring: _t.Sequence[XY], wall, probe_m: float) -> list[int]:
+    """The ring edges with no wall face standing on them: an edge is
+    OPEN when fewer than half of its stations (every ~2 m, ends included)
+    lie within ``probe_m`` of ``wall``."""
+    n = len(ring)
+    if n == 0:
+        return []
+    # §B.3 (#28): every station of every edge in ONE array, read against
+    # the wall by ONE prepared ``dwithin`` (``bulk_geos.within_distance``
+    # returns exactly ``wall.distance(p) <= probe_m`` per station)
+    edges = [LineString([ring[i], ring[(i + 1) % n]]) for i in range(n)]
+    ks = [max(2, int(e.length / 2.0)) for e in edges]
+    reps = np.asarray([k + 1 for k in ks])
+    frac = np.concatenate([np.arange(k + 1) / k for k in ks])
+    stations = shapely.line_interpolate_point(
+        np.repeat(np.asarray(edges, dtype=object), reps), frac, normalized=True)
+    hits = _bulk.within_distance(wall, stations, probe_m)
+    per = np.add.reduceat(hits.astype(np.int64), np.concatenate(([0], np.cumsum(reps)[:-1])))
+    return [i for i in range(n) if int(per[i]) / (ks[i] + 1) < 0.5]
+
+
 def _ring_ends(interior: Polygon, wall, probe_m: float) -> tuple[list[list[int]], list[XY]]:
     """The trench ring's OPEN RUNS — maximal runs of consecutive ring
     edges with no wall face standing on them — and the simplified ring.
@@ -251,15 +273,7 @@ def _ring_ends(interior: Polygon, wall, probe_m: float) -> tuple[list[list[int]]
     ``tunnel3_done``: a 44.4 m and a 2.5 m edge at one portal)."""
     ring = list(interior.simplify(_RING_SIMPLIFY_M).exterior.coords)[:-1]
     n = len(ring)
-    opens: list[int] = []
-    for i in range(n):
-        a, b = ring[i], ring[(i + 1) % n]
-        e = LineString([a, b])
-        k = max(2, int(e.length / 2.0))
-        hit = sum(1 for j in range(k + 1)
-                  if wall.distance(e.interpolate(j / k, normalized=True)) <= probe_m)
-        if hit / (k + 1) < 0.5:
-            opens.append(i)
+    opens = _open_edges(ring, wall, probe_m)
     runs: list[list[int]] = []
     for i in opens:
         if runs and (runs[-1][-1] + 1) % n == i:

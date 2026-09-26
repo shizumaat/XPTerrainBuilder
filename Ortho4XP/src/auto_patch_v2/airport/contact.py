@@ -96,6 +96,10 @@ class PlacedPart:
     #: OBJ8 parse.  Empty where the outline degenerates — the caller then
     #: reads the part by its box.
     rings: tuple = _dc.field(default=(), repr=False, compare=False)
+    #: THE SCATTER PIECE (spec §B.2 (4), issue #29): no ring, one foot,
+    #: excluded from the weld / broad / narrow / abutment passes; its only
+    #: contact edges are the PIECE edges inside its own member
+    scatter: bool = False
     #: §16g (10) (4) THE SOLID HEIGHT (owner RULINGS 2026-09-14ah: "a body
     #: whose tallest component's SOLID height reaches chain_min_height_m"),
     #: read LOCALLY — :func:`solid_height`, the largest vertical extent of
@@ -356,7 +360,8 @@ def _hull_ring(pts: np.ndarray) -> "list[np.ndarray]":
 def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                  foot_samples_max: int = 4,
                  line_members: _t.Collection[int] = (),
-                 station_span_m: float = 0.0, stations_max: int = 0) -> list[PlacedPart]:
+                 station_span_m: float = 0.0, stations_max: int = 0,
+                 scatter_members: _t.Collection[int] = ()) -> list[PlacedPart]:
     """Every genuine component of every member as a placed part, in
     member order then component order (deterministic pids).  A member in
     ``line_members`` is a LINE OBJECT (RULINGS 2026-09-10bb): its parts
@@ -366,8 +371,10 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
     along the whole fence and not at four points of a 5 km run."""
     parts: list[PlacedPart] = []
     lines = set(line_members)
+    scat = set(scatter_members)
     for mi, (o, geom, comps) in enumerate(members):
         is_line = mi in lines
+        is_scat = mi in scat and not is_line
         for ci, c in comps:
             tris = np.asarray(c.tris)
             ids, inv = np.unique(tris.reshape(-1), return_inverse=True)
@@ -382,7 +389,9 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                 cy = float((cen[:, 2] * areas).sum() / total)
             else:
                 cx, cy = float(pts[:, 0].mean()), float(pts[:, 2].mean())
-            k_max = foot_samples_max
+            # §B.2 (4): a scatter piece seats by ONE foot and carries no
+            # ring (§16g reads it by its box)
+            k_max = 1 if is_scat else foot_samples_max
             if is_line and station_span_m > 0.0 and stations_max > 0:
                 span = math.hypot(float(pts[:, 0].max() - pts[:, 0].min()),
                                   float(pts[:, 2].max() - pts[:, 2].min()))
@@ -393,8 +402,45 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
                                     _feet(pts, float(c.min_y), o.anchor_z + o.agl_m,
                                           foot_band_m, k_max), is_line,
-                                    plan_hull(pts, lt), solid_height(pts)))
+                                    () if is_scat else plan_hull(pts, lt),
+                                    scatter=is_scat, solid_h=solid_height(pts)))
     return parts
+
+
+def _piece_edges(parts: _t.Sequence[PlacedPart], touch_m: float) -> list[tuple[int, int]]:
+    """THE PIECE EDGES (spec §B.2 (4)): inside ONE member, two scatter
+    parts whose PLAN boxes come within ``touch_m`` (``[placement]
+    footprint_touch_m`` — §16g's number) are one PIECE — a palm's trunk
+    and fronds, a person's sub-meshes, a cart and its wheels.  Each piece
+    is stated as a spanning CHAIN in pid order, so ``bodies_of_plan``
+    reads it as one body.  No edge ever crosses members (10bb's sentence
+    for the line class: it never forms a rigid body with what it
+    touches).  One ``STRtree`` ``dwithin`` query per member."""
+    import shapely
+    by_member: dict[int, list[PlacedPart]] = {}
+    for p in parts:
+        if p.scatter:
+            by_member.setdefault(p.member, []).append(p)
+    edges: list[tuple[int, int]] = []
+    for _mi, ps in sorted(by_member.items()):
+        if len(ps) < 2:
+            continue
+        lo = np.array([p.box_min for p in ps])
+        hi = np.array([p.box_max for p in ps])
+        boxes = shapely.box(lo[:, 0], lo[:, 2], hi[:, 0], hi[:, 2])
+        tree = shapely.STRtree(boxes)
+        a, b = tree.query(boxes, predicate="dwithin", distance=touch_m)
+        keep = a < b
+        uf = _UnionFind(len(ps))
+        for i, j in zip(a[keep].tolist(), b[keep].tolist()):
+            uf.union(i, j)
+        groups: dict[int, list[int]] = {}
+        for i in range(len(ps)):
+            groups.setdefault(uf.find(i), []).append(ps[i].pid)
+        for g in groups.values():
+            g.sort()
+            edges.extend(zip(g[:-1], g[1:]))
+    return edges
 
 
 class _UnionFind:
@@ -713,8 +759,9 @@ def _abutment_pairs(parts: _t.Sequence[PlacedPart], anchor_of_member: _t.Sequenc
          & (gy <= gap_m))
     if not m.any():
         return []
-    return [(int(x), int(y)) for x, y in cand[m].tolist()
-            if uf.find(int(x)) != uf.find(int(y))]
+    pid = np.array([p.pid for p in parts])
+    return [(int(pid[x]), int(pid[y])) for x, y in cand[m].tolist()
+            if uf.find(int(pid[x])) != uf.find(int(pid[y]))]
 
 
 def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, budget: int,
@@ -725,30 +772,47 @@ def partition(members: _t.Sequence[MemberGeometry], eps: float, weld_mm: float, 
               anchor_of_member: _t.Sequence[int] = (),
               abutment_gap_m: float = 0.0,
               abutment_extent_min_m: float = 0.0,
-              abutment_spacing_m: float = 0.0) -> Partition:
+              abutment_spacing_m: float = 0.0,
+              scatter_members: _t.Collection[int] = (),
+              piece_touch_m: float = 0.0) -> Partition:
     """Parts, the spanning contact edges, and the pool / structure counts
     (module doc).  With ``elevated_base_m`` given (RULINGS 2026-09-09s
     (2)) an ELEVATED part's feet are dropped: only the GROUND parts carry
     feet into the plan, and ``emit/clusters`` reads that verdict straight
     off the plan."""
     parts = placed_parts(members, foot_band_m, foot_samples_max,
-                         line_members, station_span_m, stations_max)
+                         line_members, station_span_m, stations_max,
+                         scatter_members)
     uf = _UnionFind(len(parts))
     edges: list[tuple[int, int]] = []
-    for a, b in _weld_pairs(parts, weld_mm).tolist():
+    # §B.2 (4) (issue #29): SCATTER pieces never reach the weld, the
+    # broad / narrow ε-contact pass or the abutments — ``solid`` is the
+    # rest, pid-addressed exactly as before (with no scatter member it IS
+    # ``parts``, so every other airport partitions as it did)
+    solid = [p for p in parts if not p.scatter]
+    sid = np.array([p.pid for p in solid], dtype=np.int64)
+    for a, b in _weld_pairs(solid, weld_mm).tolist():
         if uf.union(a, b) or parts[a].member == parts[b].member:
             edges.append((a, b))
     # 10i (1): an intra-PLACEMENT pair is never dropped for being joined
     # transitively — the seat's "one placement, one body" test reads the
     # edge list, and a spanning subset hides the touch.
-    pend = [(int(a), int(b)) for a, b in _broad_pairs(parts, eps).tolist()
+    bp = _broad_pairs(solid, eps)
+    if len(solid) != len(parts) and bp.shape[0]:
+        bp = sid[bp]
+    pend = [(int(a), int(b)) for a, b in bp.tolist()
             if uf.find(int(a)) != uf.find(int(b))
             or parts[int(a)].member == parts[int(b)].member]
     found, unproved = _narrow_pass(parts, pend, eps, budget, chunk_rows, uf)
     edges.extend(found)
+    # THE PIECE EDGES (§B.2 (4)): the scatter pieces' only contacts
+    if len(solid) != len(parts):
+        for a, b in _piece_edges(parts, piece_touch_m):
+            uf.union(a, b)
+            edges.append((a, b))
     # THE ABUTMENTS (owner RULINGS 2026-09-10ay; spec §17), read off the
     # SETTLED contact union-find so a pair already in one body is skipped.
-    abut = _abutment_pairs(parts, anchor_of_member or [0] * len(members),
+    abut = _abutment_pairs(solid, anchor_of_member or [0] * len(members),
                            abutment_gap_m, abutment_extent_min_m,
                            abutment_spacing_m, uf) if anchor_of_member else []
     if elevated_base_m is not None and parts:
@@ -789,6 +853,9 @@ class BaseIndex:
     comp: np.ndarray            # (n_parts,) component index in the file
     line: np.ndarray            # (n_parts,) bool
     root: np.ndarray            # (n_parts,) contact-component id
+    #: (n_parts,) bool — a SCATTER piece is never an extension's
+    #: neighbour (§B.6 row 8); ``None`` on an index built before #29
+    scatter: _t.Any = None
 
 
 def base_index(part: Partition) -> BaseIndex:
@@ -798,6 +865,7 @@ def base_index(part: Partition) -> BaseIndex:
     lo = np.zeros((n, 3)); hi = np.zeros((n, 3))
     mem = np.zeros(n, dtype=np.int64); cmp_ = np.zeros(n, dtype=np.int64)
     ln = np.zeros(n, dtype=bool)
+    sc = np.zeros(n, dtype=bool)
     uf = _UnionFind(n)
     for a, b in part.contacts:
         uf.union(int(a), int(b))
@@ -807,8 +875,9 @@ def base_index(part: Partition) -> BaseIndex:
         mem[p.pid] = p.member
         cmp_[p.pid] = p.comp
         ln[p.pid] = bool(p.line)
+        sc[p.pid] = bool(p.scatter)
     root = np.array([uf.find(i) for i in range(n)], dtype=np.int64)
-    return BaseIndex(lo, hi, mem, cmp_, ln, root)
+    return BaseIndex(lo, hi, mem, cmp_, ln, root, sc)
 
 
 @_dc.dataclass(frozen=True)
@@ -863,6 +932,8 @@ def extend(base: BaseIndex, base_members: _t.Sequence[MemberGeometry],
     if n_base_parts:
         for i in range(flo.shape[0]):
             m = ((base.box_lo - eps <= fhi[i]) & (flo[i] - eps <= base.box_hi)).all(axis=1)
+            if getattr(base, "scatter", None) is not None:
+                m &= ~base.scatter
             near.update(np.flatnonzero(m).tolist())
     # ── re-place just those members' geometry from the resource cache ──
     by_member: dict[int, list[int]] = {}

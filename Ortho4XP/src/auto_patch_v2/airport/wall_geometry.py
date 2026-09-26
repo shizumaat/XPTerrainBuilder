@@ -18,6 +18,7 @@ from shapely.ops import unary_union
 
 import dataclasses as _dc
 
+from . import bulk_geos as _bulk
 from . import frame_entry as _fe
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
@@ -121,10 +122,16 @@ def _straight_runs(segs: list[tuple[LineString, int]], parallel_deg: float, t_ma
     for _b, idx in clusters:
         merged = _fe.union([segs[k][0].buffer(t_max / 2.0, cap_style="flat", **_MITRE)
                             for k in idx], "wall_geometry.runs")
-        for part in shapely.get_parts(merged):
-            members = [k for k in idx if segs[k][0].intersects(part)]
-            if members:
-                runs.append(members)
+        parts = shapely.get_parts(merged)
+        # §B.3 (#28): ONE envelope query + the same GEOS predicate over the
+        # candidates, instead of |idx| x |parts| scalar ``intersects``;
+        # runs come out per part in part order, members in ``idx`` order
+        qi, pi = _bulk.intersecting_pairs([segs[k][0] for k in idx], parts)
+        if qi.size == 0:
+            continue
+        cut = np.nonzero(np.diff(pi))[0] + 1
+        for grp in np.split(qi, cut):
+            runs.append([idx[q] for q in grp.tolist()])
     return runs
 
 

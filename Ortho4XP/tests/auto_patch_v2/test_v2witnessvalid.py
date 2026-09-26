@@ -205,7 +205,7 @@ def test_enter_places_where_affine_transform_placed():
 
 # ── T6 — the cache ────────────────────────────────────────────────────────
 def test_t6_cache_version_bumped_and_frame_entry_in_the_code_digest():
-    assert partition_cache.CACHE_VERSION >= 3   # 4: surfacesettle solid height
+    assert partition_cache.CACHE_VERSION >= 3     # 5: packperf #27/#29 + surfacesettle solid height
     assert "auto_patch_v2.airport.frame_entry" in partition_cache._CODE_MODULES
 
 

@@ -64,6 +64,9 @@ class StripReport:
     conflicts: int = 0
     #: strips the planarity gate refused (Q-32d (i))
     gated: int = 0
+    #: strip vertices held short of the pad plane by a never-moved
+    #: neighbour (the no-step bound, KCLT 0926)
+    strip_yielded: int = 0
     flats_held: int = 0
     unlevelled: int = 0
     wall_s: float = 0.0
@@ -76,6 +79,7 @@ class StripReport:
                 f"{self.transition_vertices} transition, max move "
                 f"{self.moved_max_m:.3f} m; {self.clamps} clamp(s) worst "
                 f"{self.clamp_max_m:.3f} m; {self.gated} gated (frontage not a plane); "
+                f"{self.strip_yielded} strip vertices yielded to a fixed neighbour; "
                 f"{self.wall_s:.2f} s")
 
     def as_dict(self) -> dict[str, _t.Any]:
@@ -85,7 +89,7 @@ class StripReport:
                 "moved_max_m": round(self.moved_max_m, 4),
                 "clamps": self.clamps, "clamp_max_m": round(self.clamp_max_m, 4),
                 "conflicts": self.conflicts, "flats_held": self.flats_held,
-                "gated": self.gated,
+                "gated": self.gated, "strip_yielded": self.strip_yielded,
                 "unlevelled": self.unlevelled, "wall_s": round(self.wall_s, 3)}
 
 
@@ -109,6 +113,9 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
     z1a = np.asarray(z1, dtype=float)
     xy = {v: planar.vertices[v].xy for v in planar.vertices}
     new: dict[int, float] = {}
+    #: the pad plane at each strip vertex — the family's (a) target, kept
+    #: apart from ``new`` because a strip vertex may YIELD short of it
+    plane_tgt: dict[int, float] = {}
     L: list[float] = []
     planes: list[tuple[float, float, float, float, float] | None] = []
     trees = []
@@ -148,6 +155,7 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
         for v in vs:
             in_strip[v] = k
             new[v] = tgt[v]
+            plane_tgt[v] = tgt[v]
     live = [k for k in range(len(L)) if trees[k] is not None]
 
     # A GATED PAD IS NOT MOVED BY ITS NEIGHBOURS' STRIPS (Q-32d (i),
@@ -181,12 +189,28 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
     # an absolute-level cone reaches every vertex whose stage-1 value is
     # more than s·d from L, i.e. across every terrace of a hilly airport
     # (measured, HECA: 4,196 vertices moved up to 21 m).
+    ftree = (cKDTree(np.array([xy[v] for v in fixed], dtype=float))
+             if fixed else None)
+    # A STRIP NEVER STANDS A STEP AGAINST A NEVER-MOVED VERTEX (KCLT sweep
+    # 0926: a `building2` strip vertex lifted ~2 m beside a taxi vertex
+    # 4.27 m away — within_shape 2.08 m, CRITICAL motion as a cliff).  The
+    # strip's own vertices take the same bound the transition does: their
+    # change is held to s·d from the nearest taxi / runway / pinned /
+    # other-pad vertex, so the strip YIELDS at the taxiway edge and the
+    # shortfall off the pad plane is the family's (a) residual, reported.
+    if ftree is not None and in_strip:
+        sv = list(in_strip)
+        dc, _ic = ftree.query(np.array([xy[v] for v in sv], dtype=float))
+        for v, d in zip(sv, dc):
+            dz = new[v] - levels[v]
+            lim = s * float(d)
+            if abs(dz) > lim:
+                new[v] = levels[v] + (lim if dz > 0 else -lim)
+                rep.strip_yielded += 1
     src_xy = np.array([xy[v] for v in in_strip], dtype=float)
     src_dz = np.array([new[v] - levels[v] for v in in_strip], dtype=float)
     src_k = np.array([in_strip[v] for v in in_strip], dtype=np.int64)
     reach = float(np.max(np.abs(src_dz)) / s) if src_dz.size else 0.0
-    ftree = (cKDTree(np.array([xy[v] for v in fixed], dtype=float))
-             if fixed else None)
 
     def _change(pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """(the propagated change, the strip it comes from) at ``pts``."""
@@ -288,7 +312,7 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
             "plane": (None if planes[k] is None
                       else [round(c, 6) for c in planes[k]]),
             "targets": ({} if trees[k] is None else
-                        {int(v): round(new.get(v, levels[v]), 4)
+                        {int(v): round(plane_tgt.get(v, new.get(v, levels[v])), 4)
                          for v in st.vertices if v in levels}),
             "riders": len(st.riders), "vertices": len(st.vertices),
             "moved_max_m": round(max(mv), 3) if mv else 0.0,

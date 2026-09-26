@@ -20,7 +20,7 @@ from .project_strip import StripReport
 from .linear import DEFAULT_METHOD
 
 __all__ = ["DesignReport", "residual", "settled_flip", "hard_exceeds",
-           "HARD_READ_EPS"]
+           "hard_metres", "row_metre_scale", "HARD_READ_EPS"]
 
 #: THE SETTLE TEST'S NUMERICAL FLOOR (lane ``v2settle``, spec §20a).  The
 #: runway projection is a QP that solves its own rows TO ``hard_tol_m``, so
@@ -33,6 +33,28 @@ __all__ = ["DesignReport", "residual", "settled_flip", "hard_exceeds",
 #: readers rounding opposite ways; ONE derivation ends that.  Absolute, not
 #: relative to the row: it is the solver's floor, not the surface's.
 HARD_READ_EPS = 1e-9
+
+
+def row_metre_scale(terms: _t.Iterable[tuple[int, float]]) -> float:
+    """THE METRE SCALE OF ONE LAW ROW: ``2 / Σ|c|`` over the row's OWN
+    terms — every vertex it names, pinned or free (1 for a two-vertex Δz
+    row, ``≈ d/2`` for a vertical-curve row).  The ONE derivation the
+    design report, its infeasibility certificate and ``v2_solve_replay
+    --why-hard`` read a hard row's violation in (lane ``surfacesettle``,
+    issues #21/#22): scaled by the REDUCED sum instead, a row with a pinned
+    side read double and one whose free term was a 0.097 interpolation
+    weight read 20x (GEML 3.5369 m reported, 0.1719 m on the surface)."""
+    s = sum(abs(float(c)) for _v, c in terms)
+    return 2.0 / s if s > 0.0 else 1.0
+
+
+def hard_metres(one: list, hard_i: np.ndarray, raw: np.ndarray) -> np.ndarray:
+    """``raw`` (each hard row's ``Σ c·z − bound`` in the row's own units,
+    positionally over ``hard_i``) in METRES of surface — :func:`row_metre_scale`
+    per row."""
+    sc = np.fromiter((row_metre_scale(one[int(k)][0]) for k in hard_i),
+                     dtype=float, count=len(hard_i))
+    return np.asarray(raw, dtype=float) * sc
 
 
 def _infeasible_set(hard_i: np.ndarray, bad: np.ndarray, one: list,
@@ -111,8 +133,9 @@ def _infeasible_set(hard_i: np.ndarray, bad: np.ndarray, one: list,
         acc = {j: w for j, w in acc.items() if w != 0.0}
         if not acc:
             continue
-        # the metre scaling design.py applies to every hard row
-        sc = 2.0 / sum(abs(w) for w in acc.values())
+        # the row's OWN metres (:func:`row_metre_scale`) — never the sum
+        # over the component's columns, which read a pinned-side row double
+        sc = row_metre_scale(terms)
         rowsA.append([(j, w * sc) for j, w in acc.items()])
         rhs.append(b * sc)
     if not rowsA:

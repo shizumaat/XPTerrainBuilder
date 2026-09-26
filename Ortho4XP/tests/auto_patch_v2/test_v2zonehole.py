@@ -192,6 +192,32 @@ def test_zone_on_pavement_prices_the_solid_frame():
     assert CG._zone_on_pavement_area(over, [host]) == pytest.approx(100.0)
 
 
+def test_zone_on_pavement_reads_the_strips_own_hole():
+    """NLWF 2026-09-21 (#18): a zone-2 strip is a RING around the runway
+    and zone 1; its hole is published under the STRIP's shapeID.  Read
+    ring-blind it 'stood on' the whole runway (34,069.6 m², one
+    adjudicated FAIL); read in its own solid frame it stands on 0 m²."""
+    import check_grade as CG
+    ll = lambda la, lo: (lo * 1000.0, la * 1000.0)        # noqa: E731
+    runway = CG.Way(wid="-1", role="runway", ref="07/25", aeroway="runway",
+                    nids=["r0", "r1", "r2", "r3", "r0"], elevs=[4.9] * 5,
+                    tags={"role": "runway", "shapeID": "0", "ref": "07/25"})
+    strip = CG.Way(wid="-2", role="graded_strip",
+                   ref="adjacent_ground:runway:2:zone2#0", aeroway="apron",
+                   nids=["s0", "s1", "s2", "s3", "s0"], elevs=[4.9] * 5,
+                   tags={"role": "graded_strip", "shapeID": "7",
+                         "ref": "adjacent_ground:runway:2:zone2#0"})
+    nodes = {"r0": (0.02, 0.02), "r1": (0.02, 0.08), "r2": (0.04, 0.08),
+             "r3": (0.04, 0.02), "s0": (0.0, 0.0), "s1": (0.0, 0.1),
+             "s2": (0.06, 0.1), "s3": (0.06, 0.0)}
+    ways = [runway, strip]
+    ring_blind = CG._check_zone_on_pavement(ways, nodes, ll, None)
+    assert len(ring_blind) == 1 and ring_blind[0].de_m == pytest.approx(
+        20.0 * 60.0)
+    hole = [ll(0.02, 0.02), ll(0.02, 0.08), ll(0.04, 0.08), ll(0.04, 0.02)]
+    assert CG._check_zone_on_pavement(ways, nodes, ll, {"7": [hole]}) == []
+
+
 # ── 3. the containment census / the anchor repair ────────────────────
 
 def test_a_sidecar_without_an_anchor_is_not_a_crash(tmp_path):

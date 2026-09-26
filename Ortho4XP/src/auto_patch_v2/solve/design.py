@@ -67,7 +67,7 @@ from ..model.planar import PlanarMap
 from .api import Options, Solution, Status
 from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
                      METHODS, _linear_solve, _objective, _term_energies)
-from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds,
+from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, hard_metres,
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
@@ -1020,6 +1020,18 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         sc = np.ones(A1.shape[0])
         good = rowsum[hard_i] > 0.0
         sc[hard_i[good]] = 2.0 / rowsum[hard_i[good]]
+        # THE READING IS THE ROW'S OWN METRES (lane ``surfacesettle``,
+        # issues #21/#22).  ``sc`` above divides by the REDUCED row sum —
+        # the free columns only, leaders split off — and that is the
+        # solve's weight, left as it is.  But a row with one PINNED side
+        # (a coverage-edge join, a stage-1 airside level) reduces to one
+        # free term and reads DOUBLE, and a row whose free term is a
+        # small interpolation weight reads up to 20x: GEML's worst row
+        # read 3.5369 m where the surface misses it by 0.1719 m, TFFJ's
+        # 13.6115 where it misses by 6.8058.  ``why-hard`` has always
+        # scaled by the FULL term sum; the report's re-read now does too,
+        # through :func:`hard_metres`, so the two readers are ONE.
+        sc_red = sc.copy()
         A1 = sp.diags(sc) @ A1
         b1 = sc * b1
         A1 = A1.tocsr()
@@ -1247,7 +1259,13 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # RE-READ AFTER THE PROJECTION (§30 (3b), ``rep.read_hard_set``): its
         # own rows are held exactly now; what is left is what it does not own.
         if hard_i.size:
-            viol_h = np.maximum(A1[hard_i] @ x - b1[hard_i], 0.0)
+            # in the row's OWN metres (``hard_metres``): un-scale the
+            # solve's reduced reading, put the lagged leader terms back
+            # (the matrix the solve factorises holds only the followers)
+            raw_h = (A1[hard_i] @ x - b1[hard_i]) / sc_red[hard_i]
+            if A1_lead is not None:
+                raw_h = raw_h + np.asarray(A1_lead[hard_i] @ x).ravel()
+            viol_h = np.maximum(hard_metres(one, hard_i, raw_h), 0.0)
             worst = rep.read_hard_set(
                 viol_h, float(d.hard_tol_m),
                 lambda k: one[int(hard_i[k])][2].source.ruling[:70])

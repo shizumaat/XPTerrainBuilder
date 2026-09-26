@@ -414,6 +414,12 @@ class LoadLaw:
     object_pavement_max_layer_offset: int
     #: basename tokens that veto a page whatever it declares
     object_pavement_skip_tokens: tuple[str, ...]
+    #: §42 (1b) THE HARD GROUND PLANE (lane ``nlwf``, issue #20): a
+    #: resource declaring NO draped layer group whose EVERY triangle stands
+    #: within ``draped_y_tol_m`` of Y = 0 and which carries ``ATTR_hard``
+    #: is a pavement too — X-Plane rolls aircraft on it (NLWF
+    #: ``pavement/vele_apron.obj``, 1,499 m2, the pack's whole apron)
+    object_pavement_hard_planes: bool
     #: §44 (2) THE PAVEMENT BORROW (owner RULINGS 2026-09-15f): a custom
     #: pack whose row-110 union covers LESS than this fraction of the
     #: Global Airports block's borrows Global's pavement (and its row-130

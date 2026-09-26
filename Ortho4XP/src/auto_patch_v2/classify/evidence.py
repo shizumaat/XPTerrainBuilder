@@ -579,6 +579,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                             if g is not None and not g.is_empty])
     cluster_pads = _cluster_pads(airport, law,
                                  None if _airside.is_empty else _airside)
+    cu = None
     if cluster_pads:
         # the FALLBACK half: only the footprints no cluster covers
         cu = unary_union(cluster_pads)
@@ -588,7 +589,39 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
         return [], 0, []
     parts = list(cluster_pads)
     if polys:
-        parts.extend(polygon_parts(unary_union(polys)))
+        fb = unary_union(polys)
+        if cu is not None and not cu.is_empty and fb.intersects(cu):
+            # ...AND ONLY THE GROUND NO CLUSTER COVERS (lane ``hecabodies``,
+            # issue #6 / HECA-1: "a building shape must never be nested
+            # inside another").  A fallback footprint under the 50 % bar
+            # was admitted WHOLE, so the part of it a cluster pad already
+            # stands on became TWO pads at once; the arrangement gave the
+            # overlap to one of them and the owner read "two building20's,
+            # one inside the other" (the concrete slab's 9,605 m2 pad over
+            # 2,281 m2 of the T3_20 cluster pad).  Every overlapping pad
+            # pair at HECA is of this kind (21 base).  The cluster pad owns
+            # its ground; the fallback keeps the rest, never under it.
+            fb = fb.difference(cu)
+            # A fallback remnant ENCLOSED by a cluster pad (it fills one of
+            # the pad's holes) is not a second building inside the first:
+            # it is ABSORBED into the pad that encloses it ("only the larger
+            # footprint should matter", HECA-1).
+            shells = [Polygon(q.exterior) for q in parts]
+            tree = STRtree(shells)
+            keep = []
+            for q in polygon_parts(fb):
+                host = [int(k) for k in tree.query(q, predicate="covered_by")]
+                if host:
+                    k = max(host, key=lambda i: parts[i].area)
+                    merged = parts[k].union(q)
+                    if merged.geom_type == "Polygon":
+                        parts[k] = merged
+                        continue
+                keep.append(q)
+            fb = unary_union(keep) if keep else None
+        if fb is not None and not fb.is_empty:
+            parts.extend(polygon_parts(fb))
+        parts = _absorb_enclosed(parts)
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
     # RULINGS 2026-09-14ax: THE PAD CLIP IS THE ARRANGEMENT'S, NOT THIS
     # SITE'S.  Round 1 clipped every pad here by ``runway_union |
@@ -648,6 +681,37 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # standing INSIDE an OSM pad still gets that pad's relief offsets
     # (``constraints/pad_relief.py``, §11a (2)) — unchanged.
     return _drop_skirted(airport, law, cache, out, dropped)
+
+
+def _absorb_enclosed(parts: list) -> list:
+    """HECA-1 (#6): "a building shape must never be nested inside another;
+    only the larger footprint matters".  A pad polygon lying wholly inside
+    ANOTHER pad's outline (in one of its holes) is merged into the pad that
+    encloses it — whichever half it came from.  MEASURED at the owner's
+    site after the fallback difference: the T3_20 cluster's 2,325 m2 lobe
+    stood in a hole of the concrete slab's 7,247 m2 pad — no overlap, but
+    still one shape inside the other."""
+    if len(parts) < 2:
+        return parts
+    shells = [Polygon(q.exterior) for q in parts]
+    tree = STRtree(shells)
+    alive = list(parts)
+    for i in sorted(range(len(parts)), key=lambda k: parts[k].area):
+        q = alive[i]
+        if q is None:
+            continue
+        hosts = [int(k) for k in tree.query(q, predicate="covered_by")
+                 if int(k) != i and alive[int(k)] is not None
+                 and parts[int(k)].area > q.area
+                 and not parts[int(k)].covers(q)]
+        if not hosts:
+            continue
+        k = max(hosts, key=lambda h: parts[h].area)
+        merged = alive[k].union(q)
+        if merged.geom_type == "Polygon":
+            alive[k] = merged
+            alive[i] = None
+    return [q for q in alive if q is not None]
 
 
 def _drop_skirted(airport: Airport, law, cache, pads: list[tuple[str, Polygon]],

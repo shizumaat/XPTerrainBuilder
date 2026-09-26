@@ -35,6 +35,17 @@ ON_BOUNDARY_EPS_M = 1e-6
 #: must carry is a real vertex budget.
 OUTLINE_SIMPLIFY_M = 0.05
 
+#: RULE 6 (lane ``hecabodies``, issues #7 / #8): a cluster PIECE whose mean
+#: width — ``2 * area / perimeter``, exact for a strip — is under this is a
+#: WALL LINE, not ground a building stands on, and mints no pad.  With the
+#: footprint rings bounded (``airport/contact.plan_hull``), HECA's retaining
+#: wall along the service road (``Hangar_Tower/metal_strip_2.obj``, 3.1 m
+#: tall, ~0.3 m thick) is a ~0.7 m strip of ``building13``'s cluster; minted
+#: as a pad it cut a 1 m slot 3.5 m deep into ground the owner says "must be
+#: free to terrace".  The wall's body still seats with its unit (§16g's own
+#: derivation, not this one).
+THIN_PIECE_WIDTH_M = 2.0
+
 
 def _parts(g) -> list[Polygon]:
     if g is None or g.is_empty:
@@ -51,6 +62,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      airside=None,
                      walled_only: bool = False,
                      min_m2: float = 0.0,
+                     thin_m: float = THIN_PIECE_WIDTH_M,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -113,13 +125,20 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        under the threshold — together 39 % of the new pad area that sat
        beside the apron.  Counted ``leaf_dropped`` / ``under_min_m2``.
 
+    6. A WALL LINE GETS NO PAD (lane ``hecabodies``, #7 / #8): a piece
+       whose mean width ``2 A / P`` is under ``thin_m``
+       (:data:`THIN_PIECE_WIDTH_M`) is a wall or kerb seen from above and
+       mints nothing (counted ``thin_dropped``); the ground either side of
+       it terraces as the owner reads it.
+
     ``touch_m <= 0`` disarms the close (rule 2); ``airside=None``
     disarms the clip (rule 4); ``walled_only=False`` and ``min_m2=0``
-    disarm (7).
+    disarm (7); ``thin_m <= 0`` disarms (6).
     """
     counts = {"clusters": len(clusters), "no_rings": 0, "over_another": 0,
               "still_in_pieces": 0, "on_airside": 0, "clipped": 0,
-              "leaf_dropped": 0, "under_min_m2": 0, "pads": 0}
+              "leaf_dropped": 0, "under_min_m2": 0, "thin_dropped": 0,
+              "pads": 0}
     if not clusters:
         return [], counts
     order = sorted(
@@ -175,6 +194,13 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         if not pieces:
             counts["over_another"] += 1
             continue
+        if thin_m > 0.0:
+            wide = [g for g in pieces
+                    if 2.0 * g.area >= thin_m * max(g.length, 1e-9)]
+            counts["thin_dropped"] += len(pieces) - len(wide)
+            pieces = wide
+            if not pieces:
+                continue
         counts["still_in_pieces"] += len(pieces) - 1
         cid = str(getattr(c, "id", i))
         pieces.sort(key=lambda g: (round(g.bounds[1], 3), round(g.bounds[0], 3)))

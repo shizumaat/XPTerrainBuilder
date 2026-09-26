@@ -711,7 +711,7 @@ def carriers_for(pids: _t.AbstractSet[int],
         read as mis-anchored — files 477 -> 609)."""
         if c.body_class == _ar.BASIN:
             return True
-        if False:  # ARM-OFF
+        if getattr(c.anchor, "unit_seat", False):
             # §16g (2) (owner RULINGS 2026-09-13bo): ONE ZERO PER UNIT —
             # "no per-member cut, no carrier search, NO GROUND TEST
             # BETWEEN MEMBERS".  A unit member standing off its own
@@ -727,6 +727,21 @@ def carriers_for(pids: _t.AbstractSet[int],
             # over a refused body 329 -> 102.  THE §16f COMMENT BELOW
             # STILL HOLDS for §16f (4)'s bounded family seat; §16g's is
             # unbounded by design, which is why it needs this.
+            #
+            # RE-ARMED (lane ``hecabodies``, issue #9, 2026-09-25): commit
+            # db414ec1 ("obj8_split_report: pass airside_floor only when
+            # ARMED") replaced this test with ``if False:  # ARM-OFF`` — a
+            # measurement arm committed inside an unrelated tool change,
+            # named in no message — while RULINGS 2026-09-17ac records the
+            # deviation as SHIPPED.  MEASURED at HECA's terminal roof
+            # (30.1110619, 31.4041921): the unit ``fu:42:975`` sits on the
+            # cluster pad at 95.97 and every roof rider was refused it
+            # (``zero_off_ground``) and fell to ``footless_own_ground`` on
+            # the pad surface at ~103.4 — the floating roof elements and
+            # roof light posts.  Counted apart so the census names it.
+            if c.ground_off is not None and tol_m > 0.0 \
+                    and c.ground_off > tol_m:
+                _bump("zero_off_ground_yielded_unit_seat")
             return True
         if c.ground_off is None or tol_m <= 0.0:
             return True

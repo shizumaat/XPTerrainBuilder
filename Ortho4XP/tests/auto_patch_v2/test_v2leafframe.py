@@ -549,7 +549,6 @@ def test_a_leaf_with_no_elevated_member_in_any_unit_is_unchanged():
     assert cands[0].anchor.unit_seat is False
 
 
-@pytest.mark.xfail(strict=True, reason="§16g (2) fix B is GATED OFF (RULINGS 2026-09-17z): a unit-seated body's ground_off still refuses it as a carrier (zero_off_ground); the twin stands for the ungated law")
 def test_a_unit_seated_body_is_not_refused_as_a_carrier():
     """§16g (2): "no per-member cut, no carrier search, NO GROUND TEST
     BETWEEN MEMBERS".  §16a (2) refuses a carrier whose zero stands off
@@ -559,7 +558,13 @@ def test_a_unit_seated_body_is_not_refused_as_a_carrier():
     MEASURED (lane v2leafseat, HECA dry replay): without this, fix A's 24
     re-seated bodies — the T3 district's principal carriers — cost 2,398
     riders every carrier, files 3,743 -> 6,165 and §15 footed float
-    608 -> 3,176.  With it, files 3,423."""
+    608 -> 3,176.  With it, files 3,423.
+
+    RE-ARMED (lane ``hecabodies``, issue #9): db414ec1 had replaced the
+    test with ``if False:  # ARM-OFF`` and this twin was marked xfail as
+    if it were fix B's gate (it is not — fix B is ``airside_floor``).
+    HECA's terminal roof riders at 30.1110619, 31.4041921 were refused the
+    unit-seated terminal and fell to their own ground ~7.4 m above it."""
     import auto_patch_v2.airport.anchor_rule as AR
     import auto_patch_v2.airport.placement_carrier as PC
     seated = _lcand(0, [_lbox(0, 40)], 10.0, {1})
@@ -577,6 +582,8 @@ def test_a_unit_seated_body_is_not_refused_as_a_carrier():
     assert PC.carriers_for(frozenset({9}), body, [seated], {}, (),
                            tol_m=0.3, refusals=ref, solid_cands=[seated],
                            reach_m=100.0)
+    assert ref.get("zero_off_ground", 0) == 0
+    assert ref.get("zero_off_ground_yielded_unit_seat", 0) == 1
     ref = {}
     assert not PC.carriers_for(frozenset({9}), body, [plain], {}, (),
                                tol_m=0.3, refusals=ref, solid_cands=[plain],

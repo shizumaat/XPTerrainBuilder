@@ -147,41 +147,58 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
                 lo[j], hi[j] = lo_k[j], hi_k[j]
         return np.clip(base, lo, hi), kbest, dbest, bad
 
-    # THE TRANSITION over every movable apron vertex off the strips
+    # THE CLAMPED VERTICES as cone sources (§2 (3): "the field is clamped
+    # there"): a taxi / runway / pinned / other-pad vertex keeps its own
+    # value, and the transition around it grades to that value at the same
+    # apron max — so the field bends around a taxilane instead of standing
+    # a step against it.  Stage-1 values; never moved.
+    fixed = sorted(v for v in strips.fixed if v < len(z1a))
+    fz = np.array([float(levels.get(v, z1a[v])) for v in fixed])
+    ftree = (cKDTree(np.array([xy[v] for v in fixed], dtype=float))
+             if fixed else None)
+    # THE TRANSITION over every movable apron vertex off the strips: the
+    # strip's cone, then — only where the strip moved the vertex — the
+    # clamps' cone, which is SENIOR (a clamped vertex never moves, so the
+    # surface beside it may not either, beyond the apron max)
     mov = sorted(v for v in strips.movable if v not in in_strip and v in levels)
     if mov and live:
         pts = np.array([xy[v] for v in mov], dtype=float)
         base = np.array([levels[v] for v in mov], dtype=float)
         got, _kb, _db, bad = _interval(pts, base)
         rep.conflicts = int(bad.sum())
-        for v, zb, zn in zip(mov, base, got):
+        for j, (v, zb, zn) in enumerate(zip(mov, base, got)):
+            if abs(zn - zb) <= 1e-9:
+                continue
+            if ftree is not None:
+                r = abs(zn - zb) / s + 1.0
+                near = ftree.query_ball_point(pts[j], r)
+                if near:
+                    d = np.hypot(*(np.array([xy[fixed[i]] for i in near])
+                                   - pts[j]).T)
+                    zc = fz[near]
+                    lo, hi = float(np.max(zc - s * d)), float(np.min(zc + s * d))
+                    if lo <= hi:
+                        zn = min(max(zn, lo), hi)
+                    else:
+                        i0 = int(np.argmin(d))
+                        zn = min(max(zn, zc[i0] - s * d[i0]), zc[i0] + s * d[i0])
             if abs(zn - zb) > 1e-9:
                 new[v] = float(zn)
+    # THE CLAMPS (§2 (3), the ``jetway_strip`` family's (c)): per strip,
+    # every never-moved vertex the strip's ONE level cannot be reached from
+    # at the apron max — ``|L - z_c| - s d(c, strip)`` over hard_tol_m,
+    # signed toward the level.  That is the residual the law leaves, and it
+    # is REPORTED, never absorbed.
     clamps_of: dict[int, list[list[_t.Any]]] = {k: [] for k in range(len(L))}
-    seen: set[int] = set()
-    # the struck vertices INSIDE a strip are clamps against its level
-    for k, st in enumerate(strips.strips):
-        if trees[k] is None:
-            continue
-        for v, why in st.struck:
-            if why == "coupled":
-                continue          # moved by the transition, not clamped
-            zb = float(levels.get(v, z1a[v]))
-            m = L[k] - zb
-            if abs(m) > tol:
-                clamps_of[k].append([int(v), why, round(m, 3)])
-                seen.add(v)
-    # THE CLAMPS: the vertices the law never moves, where the field
-    # would have moved them by more than hard_tol_m
-    fixed = sorted(v for v in strips.fixed if v < len(z1a))
     if fixed and live:
-        pts = np.array([xy[v] for v in fixed], dtype=float)
-        base = np.array([float(levels.get(v, z1a[v])) for v in fixed])
-        got, kb, _db, _bad = _interval(pts, base)
-        for v, zb, zn, k in zip(fixed, base, got, kb):
-            m = float(zn - zb)
-            if abs(m) > tol and k >= 0 and v not in seen:
-                clamps_of[int(k)].append([int(v), strips.fixed[v], round(m, 3)])
+        fpts = np.array([xy[v] for v in fixed], dtype=float)
+        for k in live:
+            d, _i = trees[k].query(fpts)
+            ex = np.abs(L[k] - fz) - s * d
+            for i in np.nonzero(ex > tol)[0]:
+                v = fixed[int(i)]
+                m = float(np.sign(L[k] - fz[i]) * ex[i])
+                clamps_of[k].append([int(v), strips.fixed[v], round(m, 3)])
     # A FLAT GROUP IS ONE COLUMN: it moves as one value, or — where a
     # member may not move — not at all
     for f in flats:

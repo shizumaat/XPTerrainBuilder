@@ -167,6 +167,10 @@ class Design:
     #: is ONE level (``constraints.jetway_strip.strip_m`` is the one
     #: derivation site; 0 disarms the strip).
     jetway_strip_m: float
+    #: spec-author ruling Q-32d (i): a strip forms only on a pad whose
+    #: stage-1 airside frontage fits its plane within this (max residual,
+    #: metres); elsewhere the 23a weld alone governs.
+    jetway_strip_plane_tol_m: float
     #: THE BANK (owner RULINGS 2026-09-09e; spec §9): the patch's own
     #: embankment out to the DEM, because the mesh does not blend.
     #: ``bank_slope`` is the bank's grade (0.33 = 1:3), ``bank_min_width_m``

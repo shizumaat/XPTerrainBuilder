@@ -1791,7 +1791,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     wall = round(time.perf_counter() - t, 1)
     print(f"[{icao}] {rep.jetway_strip.line()}")
     for _s in rep.jetway_strip.strips:
-        print(f"    strip {_s['id']} pad {_s['pad_ref']} level {_s['level']} riders "
+        print(f"    strip {_s['id']} pad {_s['pad_ref']} frontage resid "
+              f"{_s.get('frontage_resid_m')} gated {_s.get('gated')} level {_s['level']} riders "
               f"{_s['riders']} vertices {_s['vertices']} max move {_s['moved_max_m']} m; "
               f"clamps {len(_s['clamps'])} worst "
               f"{max((abs(c[2]) for c in _s['clamps']), default=0.0)} m "

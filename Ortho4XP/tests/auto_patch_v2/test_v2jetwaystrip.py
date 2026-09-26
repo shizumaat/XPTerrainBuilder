@@ -41,12 +41,14 @@ def _rect(x0, y0, x1, y1):
 
 
 class _Dem:
-    """Ground falling 4 m west -> east along the terminal."""
+    """Ground falling 2.7 m west -> east along the terminal (0.9 %: a
+    plane the pad's 1 % ceiling can take, so the frontage passes the
+    Q-32d (i) planarity gate)."""
 
     provenance = {"synthetic": "tilt"}
 
     def z(self, x: float, y: float) -> float:
-        return 700.0 - 4.0 * max(0.0, min(1.0, (x + 150.0) / 300.0))
+        return 700.0 - 2.7 * max(0.0, min(1.0, (x + 150.0) / 300.0))
 
     def bounds(self):
         return (-5000.0, -5000.0, 5000.0, 5000.0)
@@ -193,9 +195,8 @@ def test_the_strip_takes_the_pad_plane(law, agp):
     """§2 (1) as ruled (Q-32a (d), 2026-09-25): every strip vertex takes
     the PAD'S PLANE at it — §20's least-squares plane through the pad's
     airside frontage at its stage-1 values, tilt bounded by the pad's 1 %
-    ceiling.  The fixture's apron falls 1.33 % along the terminal, so the
-    plane follows the fall at the ceiling instead of standing level
-    against it; a taxi vertex is never moved and appears as a clamp."""
+    ceiling.  The fixture's apron falls 0.9 % along the terminal, so the
+    plane follows the fall instead of standing level against it."""
     from auto_patch_v2.solve.project_strip import _at, project_strips
     airport, pm, cs = _prep(law, agp)
     st = _strips(law, airport, pm, cs)
@@ -207,7 +208,8 @@ def test_the_strip_takes_the_pad_plane(law, agp):
     rep = project_strips(pm, law, st, levels, z1)
     pl = tuple(rep.strips[0]["plane"])
     tilt = float(np.hypot(pl[1], pl[2]))
-    assert tilt == pytest.approx(0.01, abs=1e-6)          # the pad ceiling
+    assert tilt == pytest.approx(0.009, abs=2e-4)         # the frontage's own
+    assert rep.strips[0]["gated"] is False
     assert pl[1] < 0.0                                    # it follows the fall
     for v in s.vertices:
         assert levels[v] == pytest.approx(_at(pl, pm.vertices[v].xy), abs=1e-3)
@@ -377,3 +379,24 @@ def test_the_census_prices_a_strip_vertex_off_its_level_and_each_clamp(tmp_path)
     assert len(rows) == 2
     assert sorted(round(r.de_m, 2) for r in rows) == [0.2, 1.25]
     assert cg._check_jetway_strip(None, nodes, ways) == []
+
+
+def test_a_pad_whose_frontage_is_not_a_plane_gets_no_strip(law, agp):
+    """Q-32d (i) (spec-author ruling 2026-09-25): a strip forms only on a
+    pad whose stage-1 airside frontage fits its plane within ``[design]
+    jetway_strip_plane_tol_m``; elsewhere no strip — nothing of the strip
+    or of the pad moves, and the pad's vertices are never moved by a
+    neighbour's transition either."""
+    import unittest.mock as _mock
+    from auto_patch_v2.solve import project_strip as _ps
+    assert float(law.tables.emit.design.jetway_strip_plane_tol_m) == 0.5
+    airport, pm, cs = _prep(law, agp)
+    st = _strips(law, airport, pm, cs)
+    n = len(pm.vertices)
+    z1 = np.array([_Dem().z(*pm.vertices[v].xy) for v in range(n)])
+    levels = {v: float(z1[v]) for v in range(n)}
+    before = dict(levels)
+    with _mock.patch.object(_ps, "_frontage_residual", lambda *a: 0.9):
+        rep = _ps.project_strips(pm, law, st, levels, z1)
+    assert rep.gated == 1 and rep.strips[0]["gated"] is True
+    assert levels == before

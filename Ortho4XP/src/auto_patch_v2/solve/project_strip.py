@@ -62,6 +62,8 @@ class StripReport:
     clamps: int = 0
     clamp_max_m: float = 0.0
     conflicts: int = 0
+    #: strips the planarity gate refused (Q-32d (i))
+    gated: int = 0
     flats_held: int = 0
     unlevelled: int = 0
     wall_s: float = 0.0
@@ -73,7 +75,7 @@ class StripReport:
                 f"{self.strip_vertices} strip vertices levelled + "
                 f"{self.transition_vertices} transition, max move "
                 f"{self.moved_max_m:.3f} m; {self.clamps} clamp(s) worst "
-                f"{self.clamp_max_m:.3f} m; {self.conflicts} interval conflicts; "
+                f"{self.clamp_max_m:.3f} m; {self.gated} gated (frontage not a plane); "
                 f"{self.wall_s:.2f} s")
 
     def as_dict(self) -> dict[str, _t.Any]:
@@ -83,6 +85,7 @@ class StripReport:
                 "moved_max_m": round(self.moved_max_m, 4),
                 "clamps": self.clamps, "clamp_max_m": round(self.clamp_max_m, 4),
                 "conflicts": self.conflicts, "flats_held": self.flats_held,
+                "gated": self.gated,
                 "unlevelled": self.unlevelled, "wall_s": round(self.wall_s, 3)}
 
 
@@ -111,6 +114,8 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
     trees = []
     in_strip: dict[int, int] = {}
     tilt_max = float(law.tables.emit.within_shape.pad_slope_max)
+    plane_tol = float(design_law(law).jetway_strip_plane_tol_m)
+    resid_of: list[tuple[float, bool]] = []
     for k, st in enumerate(strips.strips):
         vs = [v for v in st.vertices if v in levels]
         rep.unlevelled += len(st.vertices) - len(vs)
@@ -118,8 +123,24 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
             L.append(float("nan"))
             planes.append(None)
             trees.append(None)
+            resid_of.append((float("nan"), False))
             continue
         pl = _pad_plane(st, levels, xy, vs, tilt_max)
+        # THE PLANARITY GATE (spec-author ruling Q-32d (i), 2026-09-25): a
+        # strip forms only on a pad whose stage-1 airside frontage fits its
+        # plane within ``[design] jetway_strip_plane_tol_m``; elsewhere no
+        # strip — the 23a weld alone governs (measured: SPJC's 1 km
+        # terminal, whose frontage is not a plane, bent the pad between
+        # the levelled rider edges and the rest, 243 -> 604 rows)
+        resid = _frontage_residual(st, levels, xy, vs, pl)
+        gated = resid > plane_tol
+        resid_of.append((resid, gated))
+        if gated:
+            rep.gated += 1
+            L.append(float("nan"))
+            planes.append(pl)
+            trees.append(None)
+            continue
         planes.append(pl)
         tgt = {v: _at(pl, xy[v]) for v in vs}
         L.append(float(np.median(list(tgt.values()))))
@@ -144,7 +165,18 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
     src_dz = np.array([new[v] - levels[v] for v in in_strip], dtype=float)
     src_k = np.array([in_strip[v] for v in in_strip], dtype=np.int64)
     reach = float(np.max(np.abs(src_dz)) / s) if src_dz.size else 0.0
-    fixed = sorted(v for v in strips.fixed if v < len(z1a))
+    # A GATED PAD IS NOT MOVED BY ITS NEIGHBOURS' STRIPS (Q-32d (i),
+    # round 2): where the gate refused a pad's strip "the 23a weld alone
+    # governs" — so its own vertices join the never-moved set, or another
+    # pad's transition reaches its weld and bends it anyway (measured:
+    # SPJC's gated terminal 243 -> 326 rows through the concourse pads'
+    # strips beside it).
+    why_fixed: dict[int, str] = dict(strips.fixed)
+    for k, st in enumerate(strips.strips):
+        if resid_of[k][1]:
+            for v in st.pad_vertices:
+                why_fixed.setdefault(v, "gated_pad")
+    fixed = sorted(v for v in why_fixed if v < len(z1a))
     ftree = (cKDTree(np.array([xy[v] for v in fixed], dtype=float))
              if fixed else None)
 
@@ -169,7 +201,8 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
             best[j0:j0 + 2048] = mag.max(axis=1)
         return up + dn, np.where(best > 0.0, kk, -1)
 
-    mov = sorted(v for v in strips.movable if v not in in_strip and v in levels)
+    mov = sorted(v for v in strips.movable if v not in in_strip and v in levels
+                 and v not in why_fixed)
     if mov and src_xy.size and reach > 0.0:
         stree = cKDTree(src_xy)
         pts_all = np.array([xy[v] for v in mov], dtype=float)
@@ -201,7 +234,7 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
             for j, dzj, k in zip(near, dz, kk):
                 if abs(dzj) > tol and k >= 0:
                     v = fixed[int(j)]
-                    clamps_of[int(k)].append([int(v), strips.fixed[v],
+                    clamps_of[int(k)].append([int(v), why_fixed[v],
                                               round(float(dzj), 3)])
     # A FLAT GROUP IS ONE COLUMN: it moves as one value, or — where a
     # member may not move — not at all
@@ -239,6 +272,10 @@ def project_strips(planar: PlanarMap, law: Law, strips: StripSet,
         rep.strips.append({
             "id": st.id, "pad_ref": st.pad_ref,
             "level": None if trees[k] is None else round(L[k], 3),
+            # Q-32d (i): the frontage's max residual off the pad plane and
+            # whether the planarity gate refused the strip
+            "frontage_resid_m": round(resid_of[k][0], 3),
+            "gated": bool(resid_of[k][1]),
             # Q-32a (d): the PAD'S PLANE — z at (x0, y0) and its gradient
             "plane": (None if planes[k] is None
                       else [round(c, 6) for c in planes[k]]),
@@ -286,3 +323,15 @@ def _pad_plane(st: _t.Any, levels: _t.Mapping[int, float],
         gx, gy = gx * tilt_max / g, gy * tilt_max / g
         z0 = float(np.mean(z - gx * (P[:, 0] - x0) - gy * (P[:, 1] - y0)))
     return (z0, gx, gy, x0, y0)
+
+
+def _frontage_residual(st: _t.Any, levels: _t.Mapping[int, float],
+                       xy: _t.Mapping[int, tuple[float, float]], vs: list[int],
+                       pl: tuple[float, float, float, float, float]) -> float:
+    """Q-32d (i): the largest |stage-1 z - pad plane| over the pad's
+    airside frontage contacts (the population :func:`_pad_plane` fitted;
+    the strip's own vertices where the pad has fewer than 3)."""
+    pts = [v for v in st.pad_vertices if v in levels]
+    if len(pts) < 3:
+        pts = vs
+    return float(max(abs(levels[v] - _at(pl, xy[v])) for v in pts))

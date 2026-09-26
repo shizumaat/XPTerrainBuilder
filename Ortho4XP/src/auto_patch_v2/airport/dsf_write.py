@@ -669,7 +669,13 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
     ``(unmatched, pairs)``.  ``tiebreak`` separates coincident rows by
     their last column (a heading: two objects may stand on the same
     metre and differ only there); ``dims=4`` matches a road segment on
-    BOTH its endpoints, since every junction shares one of them."""
+    BOTH its endpoints, since every junction shares one of them.
+
+    With ``tiebreak`` a candidate INSIDE every tolerance (position,
+    elevation, heading) beats a nearer one outside them (#23 sweep,
+    EGLL ``+51-001``: two objects 0.5e-6 deg apart, headings 178.8 and
+    359.8, trade places under requantisation; nearest-first paired each
+    with the other's heading and read a 180 deg drift)."""
     order = sorted(range(len(b)), key=lambda j: b[j][0])
     lons = [b[j][0] for j in order]
     used = [False] * len(b)
@@ -677,16 +683,23 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
     unmatched = 0
     for row in a:
         j = bisect_left(lons, row[0] - tol)
-        best, bd = None, 1e18
+        best, bd = None, (2, 1e18)
         while j < len(order) and lons[j] <= row[0] + tol:
             cand = order[j]
             if not used[cand]:
                 o = b[cand]
                 d = sum(abs(o[i] - row[i]) for i in range(dims))
+                miss = 0
                 if tiebreak:
-                    d += 1e-9 * _ang(o[-1], row[-1])
-                if d < bd:
-                    bd, best = d, cand
+                    ha = _ang(o[-1], row[-1])
+                    d += 1e-9 * ha
+                    fits = (all(abs(o[i] - row[i]) <= tol for i in range(dims))
+                            and ha <= TOL_HEADING_DEG
+                            and (len(row) < 4
+                                 or abs(o[2] - row[2]) <= TOL_ELEV_M))
+                    miss = 0 if fits else 1
+                if (miss, d) < bd:
+                    bd, best = (miss, d), cand
             j += 1
         if best is None:
             unmatched += 1

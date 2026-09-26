@@ -138,3 +138,24 @@ def test_a_long_non_property_row_is_refused(tmp_path):
                                 "objects/" + "h" * 600 + ".obj"))
     with pytest.raises(RuntimeError, match="text reader keeps 511"):
         W.encode(str(src), str(tmp_path / "out.dsf"), _dsftool_path())
+
+
+_PAIR = ("A\n800 written by DSFTool 2.4.0-b1\nDSF2TEXT\n\n"
+         "OBJECT_DEF objects/a.obj\n"
+         "OBJECT 0 -0.466474498 51.480690661 {h1}\n"
+         "OBJECT 0 -0.466474498 51.480691138 {h2}\n")
+
+
+def test_requantised_neighbours_are_not_read_as_a_heading_drift():
+    """#23 sweep, EGLL +51-001: two objects 0.5e-6 deg apart trade
+    places under requantisation; each must still pair with ITS heading."""
+    before = _PAIR.format(h1="178.777752", h2="359.846189")
+    after = ("A\n800 written by DSFTool 2.4.0-b1\nDSF2TEXT\n\n"
+             "OBJECT_DEF objects/a.obj\n"
+             "OBJECT 0 -0.466474498 51.480690661 359.840696\n"
+             "OBJECT 0 -0.466474498 51.480690185 178.772259\n")
+    rep = W.compare_dumps(before, after)
+    assert rep.ok, rep.findings
+    # a REAL heading change is still refused
+    turned = after.replace("359.840696", "269.840696")
+    assert not W.compare_dumps(before, turned).ok

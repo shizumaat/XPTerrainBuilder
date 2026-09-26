@@ -20,6 +20,18 @@ applied: every ``OBJECT_MSL`` / ``OBJECT_AGL`` placement converts — pack
 and stock ``lib/…`` resources alike (owner RULINGS 2026-09-11d: a
 placement edit modifies no object); nothing is kept at this step.
 
+``--sweep-noop DIR`` (#23) is the CLASS instrument: every DSFTool dump
+under DIR (``*.dsf*.text``, one per content tag) goes through the writer's
+own NO-OP write — ``edit_dump`` with an EMPTY plan (only the §12a
+ownership mark added), ``encode``, ``verify_roundtrip`` — in a TEMP dir,
+and the failures are listed.  ``--raw`` runs the pre-#23 arm (plain
+``DSFTool --text2dsf``, no property repair) for a before/after count.
+Read-only on DIR; ``--max-mb`` skips dumps above a size (the long-row scan
+it also prints covers every dump regardless).
+
+    venv/bin/python tools/dsf_placement_diff.py --sweep-noop Airport_mod_cache \\
+        [--raw] [--max-mb 20] [--jobs 6]
+
 ``--verify`` additionally encodes the edited text with DSFTool into a
 TEMP directory and runs ``verify_roundtrip`` on it — still writing
 nothing into the pack.  The tool never writes a pack at all; the writer
@@ -56,12 +68,86 @@ def build_plan(dump_obj, dump_text_path: str, dsf_path: str, pack_root: str,
         conversions=tuple(conversions), kept=tuple(kept))
 
 
+def _noop_one(args: tuple[str, str, bool]) -> dict:
+    """One dump through the writer's no-op write (``--sweep-noop``)."""
+    import shutil
+    path, tool, raw = args
+    tmp = tempfile.mkdtemp(prefix="o4_dsf_noop_")
+    try:
+        with open(path, "r", encoding="utf-8", errors="surrogateescape") as fh:
+            text = fh.read()
+        long_rows = sum(1 for ln in text.splitlines()
+                        if len(ln) > _w.DSFTOOL_LINE_MAX
+                        and not ln.startswith("#"))
+        plan = PlacementPlan(
+            icao="", pack_name="", pack_root="", dsf_path="",
+            dsf_backup_path="",
+            provenance=Provenance(dump_sha="", engine_version="", law_digest=""),
+            conversions=(), kept=())
+        edited = _w.edit_dump(text, plan, "noop-sweep")
+        etext = os.path.join(tmp, "e.text")
+        out = os.path.join(tmp, "e.dsf")
+        with open(etext, "w", encoding="utf-8", errors="surrogateescape",
+                  newline="\n") as fh:
+            fh.write(edited)
+        if raw:
+            _w._run([tool, "--text2dsf", etext, out])
+        else:
+            _w.encode(etext, out, tool)
+        rep = _w.verify_roundtrip(out, edited, tool)
+        return {"dump": path, "ok": rep.ok, "long_rows": long_rows,
+                "findings": list(rep.findings[:3])}
+    except Exception as exc:                          # noqa: BLE001
+        return {"dump": path, "ok": False, "long_rows": -1,
+                "findings": [f"{type(exc).__name__}: {str(exc)[:300]}"]}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def sweep_noop(root: str, tool: str, *, raw: bool = False,
+               max_mb: float = 0.0, jobs: int = 4) -> dict:
+    """``--sweep-noop``: the no-op round trip over every dump under
+    ``root``, deduplicated by (folder, content tag)."""
+    import re
+    from concurrent.futures import ProcessPoolExecutor
+    tag_re = re.compile(r"\.([0-9a-f]{8})\.text$")
+    seen: dict[tuple[str, str], str] = {}
+    skipped = []
+    for d, _subs, files in os.walk(root, followlinks=True):
+        for f in sorted(files):
+            if ".dsf" not in f or not f.endswith(".text"):
+                continue
+            p = os.path.join(d, f)
+            m = tag_re.search(f)
+            key = (d, m.group(1)) if m else (d, f)
+            if key in seen:
+                continue
+            if max_mb and os.path.getsize(p) > max_mb * 1e6:
+                skipped.append(p)
+                continue
+            seen[key] = p
+    work = [(p, tool, raw) for p in sorted(seen.values())]
+    with ProcessPoolExecutor(max_workers=max(1, jobs)) as ex:
+        results = list(ex.map(_noop_one, work))
+    fails = [r for r in results if not r["ok"]]
+    return {"root": root, "arm": "raw" if raw else "encode",
+            "dumps": len(results), "failed": len(fails),
+            "skipped_over_max_mb": len(skipped), "failures": fails}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dsf", help="the pack DSF (dumped into a temp dir)")
     ap.add_argument("--dump", help="an existing DSFTool text dump")
-    ap.add_argument("--pack-root", required=True)
+    ap.add_argument("--pack-root")
+    ap.add_argument("--sweep-noop", metavar="DIR",
+                    help="no-op round trip of every dump under DIR (#23)")
+    ap.add_argument("--raw", action="store_true",
+                    help="--sweep-noop: plain DSFTool encode (the pre-#23 arm)")
+    ap.add_argument("--max-mb", type=float, default=0.0,
+                    help="--sweep-noop: skip dumps larger than this")
+    ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--plan", help="a PlacementPlan JSON to apply instead of §5")
     ap.add_argument("--icao", default="")
     ap.add_argument("--limit", type=int, default=20,
@@ -72,6 +158,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dsftool", default=None,
                     help="DSFTool binary (default: the bundled one v1 resolves)")
     a = ap.parse_args(argv)
+    if a.sweep_noop:
+        rep = sweep_noop(a.sweep_noop, a.dsftool or _dsftool_path(), raw=a.raw,
+                         max_mb=a.max_mb, jobs=a.jobs)
+        if a.json:
+            print(json.dumps(rep, indent=1, sort_keys=True))
+        else:
+            print(f"arm {rep['arm']}: {rep['dumps']} dumps, {rep['failed']} failed, "
+                  f"{rep['skipped_over_max_mb']} skipped (> --max-mb)")
+            for r in rep["failures"]:
+                print(f"  FAIL {r['dump']} (long rows {r['long_rows']})")
+                for f in r["findings"]:
+                    print(f"       {f[:240]}")
+        return 1 if rep["failed"] else 0
+    if not a.pack_root:
+        ap.error("--pack-root is required")
     if not a.dsf and not a.dump:
         ap.error("one of --dsf / --dump is required")
 

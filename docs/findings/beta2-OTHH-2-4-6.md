@@ -528,3 +528,15 @@ Capture `/Users/noah/XPTerrainBuilderData/.harness/frames/othhjunction/OTHH.pkl`
   (`v2_rebake_replay plan`, mesh sampler, ONE contended run, not a timing):
   build_plan 420 s wall / 281 s user, 3.9 GB, counts reproduce the app's
   exactly (726 splits, 2,222 bodies, 101 conversions, 442 kept).
+
+### Step 4 — closing OTHH build (lane tree 059a1f18)
+
+`build_airport.py OTHH --tag othhjunction`: rc 0, 2,188 s, ways 1,046, nodes
+21,792, **free-standing nodes 0** (09-18 app patch: 209), nodes without
+`alt_abs` 0, body_sha 2b6bfdedbcb1, artifact ledger 227a03bb5370, shared repo
+UNCHANGED, v2 verify 146 rows (DEFECT families empty). Census LAW-TRUE 1,196,
+ADJUDICATED 494, CRITICAL motion 0, visual 715 (09-18 08:10 app patch: 1,190 /
+495 / 0 / 708). Density 22,579 segments, median 11.87 m, 2,086 / km² (HECA
+3,404). #14 site unchanged (inside `building7`). Frame registered (`--copy`).
+NOTE: the replay `--emit` of the same tree censuses 1,903 — the replay's emit
+is not the build's (known), the build is the number of record.

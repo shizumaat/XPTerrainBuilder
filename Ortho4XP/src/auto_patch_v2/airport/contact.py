@@ -346,19 +346,37 @@ def plan_hull(pts: "np.ndarray | None",
         geoms = []
         if len(t):
             rings = np.concatenate([t, t[:, :1, :]], axis=1)
-            geoms.append(shapely.union_all(shapely.polygons(rings)))
+            geoms.extend(shapely.polygons(rings))
         if len(flat):
-            segs = np.concatenate([flat[:, [0, 1], :], flat[:, [1, 2], :],
-                                   flat[:, [2, 0], :]], axis=0)
-            ln = np.hypot(segs[:, 1, 0] - segs[:, 0, 0],
-                          segs[:, 1, 1] - segs[:, 0, 1])
-            segs = segs[ln > 1e-6]
-            if len(segs):
-                geoms.append(shapely.union_all(shapely.linestrings(segs))
-                             .buffer(OUTLINE_SIMPLIFY_M, join_style=2))
+            # a collinear triangle's plan footprint is its LONGEST edge
+            # (the other two lie on it); one segment per triangle, the
+            # duplicates of a wall's two triangles dropped, each grown ON
+            # ITS OWN — buffering the UNION of a wall's segments is what
+            # GEOS cannot do cheaply (39 s for one 444-triangle light
+            # fitting, measured: the noded union falls to snap-rounding)
+            e = np.stack([np.hypot(*(flat[:, (k + 1) % 3] - flat[:, k]).T)
+                          for k in range(3)], axis=1)
+            k = np.argmax(e, axis=1)
+            a = flat[np.arange(len(flat)), k]
+            b = flat[np.arange(len(flat)), (k + 1) % 3]
+            keep = e[np.arange(len(flat)), k] > 1e-6
+            seg = np.stack([a[keep], b[keep]], axis=1)
+            if len(seg):
+                key = np.round(np.sort(seg.reshape(len(seg), 4)
+                                       .reshape(len(seg), 2, 2), axis=1), 3)
+                _u, first = np.unique(key.reshape(len(seg), 4), axis=0,
+                                      return_index=True)
+                seg = seg[np.sort(first)]
+                with np.errstate(invalid="ignore"):
+                    bufs = shapely.buffer(shapely.linestrings(seg),
+                                          OUTLINE_SIMPLIFY_M,
+                                          cap_style="square",
+                                          join_style="mitre")
+                geoms.extend(g for g in bufs
+                             if g is not None and not g.is_empty)
         if not geoms:
             return _hull_ring(pts)
-        u = shapely.union_all(geoms)
+        u = shapely.union_all(np.asarray(geoms, dtype=object))
         if u.is_empty:
             return _hull_ring(pts)
         if not u.is_valid:

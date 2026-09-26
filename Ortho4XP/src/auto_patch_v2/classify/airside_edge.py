@@ -21,8 +21,8 @@ from __future__ import annotations
 import math
 
 import numpy as _np
-from shapely.geometry import Polygon
-from shapely.ops import unary_union
+from shapely.geometry import LineString, Polygon
+from shapely.ops import nearest_points, unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
@@ -117,9 +117,105 @@ def _chord_dir(geom) -> tuple[float, float] | None:
     return ((bx - ax) / n, (by - ay) / n)
 
 
+class _Roads:
+    """The free-road CENTRELINES (the 1206 truck chains) a §27 contact
+    may be the mouth of, with the station geometry that reads a neck."""
+
+    __slots__ = ("lines", "tree", "weld_m", "max_w", "run_m")
+
+    def __init__(self, lines, weld_m: float, max_w: float, run_m: float):
+        self.lines = [ln for ln in lines if ln is not None and not ln.is_empty
+                      and ln.length > 0.0]
+        self.tree = STRtree(self.lines) if self.lines else None
+        self.weld_m = float(weld_m)
+        self.max_w = float(max_w)
+        self.run_m = float(run_m)
+
+
+def _cross_section(face: Polygon, line: LineString, s: float,
+                   half: float) -> float:
+    """Length of ``face`` cut across ``line`` at station ``s`` — the piece
+    of the normal segment (half-length ``half``) that holds the station."""
+    p = line.interpolate(s)
+    q = line.interpolate(min(line.length, s + 0.5))
+    r = line.interpolate(max(0.0, s - 0.5))
+    dx, dy = q.x - r.x, q.y - r.y
+    n = math.hypot(dx, dy) or 1.0
+    nx, ny = -dy / n * half, dx / n * half
+    xs = LineString([(p.x - nx, p.y - ny), (p.x + nx, p.y + ny)]
+                    ).intersection(face)
+    piece = 0.0
+    for g in getattr(xs, "geoms", [xs]):
+        if g.geom_type == "LineString" and g.distance(p) < 0.6:
+            piece = max(piece, g.length)
+    return piece
+
+
+def _centreline_mouth(face: Polygon, contact, factor: float,
+                      roads: _Roads) -> bool:
+    """§27 (5), the CENTRELINE mouth (issue #2, CYXY-1): a contact is also
+    a mouth when a free-road centreline ENTERS ``face`` through it — the
+    road whose own strip was differenced into the lot page by design
+    (``roles._cut_lines``: a free route part inside a strip/lot does not
+    cut again), so neither face in contact is a born road.
+
+    The chain passes within ``weld_m`` of the contact and runs on into the
+    face; the face's cross-section across the chain, read at stations
+    ``weld_m .. service.min_run_m`` in, has a median at most
+    ``service.free_max_width_m`` (a road NECK, not a lot the road merely
+    crosses); the contact is transverse to the chain (within
+    ``_MOUTH_TRANSVERSE_DEG`` of its normal, the face rule); and the
+    contact's extent along the chain's NORMAL is at most ``factor`` necks.
+    Measured at CYXY `dsf:pol123` / route50: 8.9 m <= 1.5 x 7.1 m."""
+    if roads is None or roads.tree is None:
+        return False
+    weld = roads.weld_m
+    for j in roads.tree.query(contact.buffer(weld), predicate="intersects"):
+        line = roads.lines[int(j)]
+        s0 = line.project(nearest_points(line, contact)[0])
+        best: tuple[int, list[float]] | None = None
+        for sign in (1, -1):
+            widths: list[float] = []
+            d = max(weld, 1.0)
+            while d <= roads.run_m + 1e-9:
+                s = s0 + sign * d
+                if s < 0.0 or s > line.length:
+                    break
+                if face.distance(line.interpolate(s)) > 0.1:
+                    break
+                widths.append(_cross_section(face, line, s, roads.max_w))
+                d += 1.0
+            if len(widths) >= 2 and (best is None or len(widths) > len(best[1])):
+                best = (sign, widths)
+        if best is None:
+            continue
+        sign, widths = best
+        neck = float(_np.median(widths))
+        if neck <= 0.0 or neck > roads.max_w:
+            continue
+        a = line.interpolate(s0)
+        b = line.interpolate(min(line.length, max(0.0, s0 + sign * roads.run_m)))
+        ax, ay = b.x - a.x, b.y - a.y
+        n = math.hypot(ax, ay)
+        if n <= 0.0:
+            continue
+        axis = (ax / n, ay / n)
+        cd = _chord_dir(contact)
+        if cd is not None and abs(cd[0] * axis[0] + cd[1] * axis[1]) >= \
+                math.cos(math.radians(90.0 - _MOUTH_TRANSVERSE_DEG)):
+            continue
+        nrm = (-axis[1], axis[0])
+        proj = [x * nrm[0] + y * nrm[1]
+                for g in getattr(contact, "geoms", [contact])
+                for x, y in getattr(g, "coords", [])]
+        if proj and max(proj) - min(proj) <= factor * neck:
+            return True
+    return False
+
+
 def _is_mouth(face: Polygon, other: Polygon, contact, factor: float,
               face_is_road: bool, other_is_road: bool,
-              cache: dict | None = None) -> bool:
+              cache: dict | None = None, roads: _Roads | None = None) -> bool:
     """§27 (5): is this contact a FREE ROAD's END CAP — its mouth?
 
     The owner's exemption is a road meeting the shape END-ON: "a
@@ -130,6 +226,9 @@ def _is_mouth(face: Polygon, other: Polygon, contact, factor: float,
     and where NEITHER face is a road there is no mouth at all: a lot
     meeting an apron is a lateral contact however short.  A mouth is at
     most ``factor`` strip-widths long AND transverse to the road's axis.
+    A contact a free-road CENTRELINE enters the face through is a mouth
+    too (``_centreline_mouth``, issue #2): the road's strip may live
+    inside the lot page, where no face is a born road.
     """
     if face_is_road and other_is_road:
         ax_f, w_f = _strip_axis_width(face, cache)
@@ -140,21 +239,21 @@ def _is_mouth(face: Polygon, other: Polygon, contact, factor: float,
     elif other_is_road:
         axis, width = _strip_axis_width(other, cache)
     else:
-        return False
-    if width <= 0.0:
-        return False
-    if contact.length > factor * width:
-        return False
-    d = _chord_dir(contact)
-    if d is None:
-        return True                                  # a point touch is no edge
-    cos = abs(d[0] * axis[0] + d[1] * axis[1])
-    return cos < math.cos(math.radians(90.0 - _MOUTH_TRANSVERSE_DEG))
+        return _centreline_mouth(face, contact, factor, roads)
+    if width > 0.0 and contact.length <= factor * width:
+        d = _chord_dir(contact)
+        if d is None:
+            return True                              # a point touch is no edge
+        cos = abs(d[0] * axis[0] + d[1] * axis[1])
+        if cos < math.cos(math.radians(90.0 - _MOUTH_TRANSVERSE_DEG)):
+            return True
+    return _centreline_mouth(face, contact, factor, roads)
 
 
 def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
                        air: list[tuple[Polygon, bool]], weld_m: float,
-                       factor: float, cache: dict | None = None) -> float:
+                       factor: float, cache: dict | None = None,
+                       roads: _Roads | None = None) -> float:
     """Metres of ``face``'s boundary running LATERALLY along airside
     pavement, measured WELD-TOLERANT at ``emit.identity.weld_spacing_m``.
 
@@ -174,7 +273,7 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
         if contact.is_empty or contact.length <= 0.0:
             continue
         if _is_mouth(face, other, contact, factor, face_is_road,
-                     other_is_road, cache):
+                     other_is_road, cache, roads):
             continue
         lateral.append(contact)
     if not lateral:
@@ -183,7 +282,7 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
 
 
 def airside_edge_flip(final: list[list], cells, law: Law,
-                       rules: Rules) -> tuple[int, int]:
+                       rules: Rules, roads=()) -> tuple[int, int]:
     """§27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c:
     "shapeID 81 ... cannot be groundside because it shares a long edge
     with an apron. Something can only be groundside if it has no
@@ -215,11 +314,17 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     (`auto_patch/junction_repair.py:2752-2789`, owner 2026-07-27); the v2
     port dropped it, and `roles.py`'s lot branch has minted `parking_lot`
     unconditionally ever since.
+
+    ``roads`` are the free-road CENTRELINES (``ev.truck_chains``' lines):
+    a contact one of them enters a face through is a mouth
+    (``_centreline_mouth``, issue #2 CYXY-1).
     """
     min_m = float(rules.lot.airside_edge_min_m)
     frac = float(rules.lot.road_airside_edge_frac)
     factor = float(rules.lot.mouth_width_factor)
     weld_m = float(law.tables.emit.identity.weld_spacing_m)
+    road_ctx = _Roads(roads, weld_m, rules.service.free_max_width_m,
+                      rules.service.min_run_m)
     #: a face OFFERS A MOUTH by the role it was BORN with: a road that
     #: became apron in an earlier round still meets its neighbour end-on
     was_road = [f[0] in _ROAD_ROLES for f in final]
@@ -245,7 +350,7 @@ def airside_edge_flip(final: list[list], cells, law: Law,
             if per <= 0.0 or face.area / per < _LOT_SLIVER_RADIUS_M:
                 continue
             shared = _lateral_airside_m(face, was_road[i], tree, air, weld_m,
-                                        factor, cache)
+                                        factor, cache, road_ctx)
             if shared < min_m:
                 continue
             # §37 (2) A ROAD FLIPS BY SHARE, A LOT BY EDGE (owner RULINGS

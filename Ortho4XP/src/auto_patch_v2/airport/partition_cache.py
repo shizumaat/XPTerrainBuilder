@@ -55,7 +55,11 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 5   # merge of two v4 bumps, BOTH reasons stand:
+CACHE_VERSION = 6   # issue #69 (lane outlinebisect): ``Part.height_m``
+                    # also reads the WALL CHORD of steep triangles
+                    # (``contact.wall_chord_height``) — a leaning facade
+                    # is a wall; the frozen engine's digest is this number.
+# was 5:            # merge of two v4 bumps, BOTH reasons stand:
                     # (a) #27/#29 (lane packperf): per-airport path + pristine
                     # header, and the SCATTER class (parts / members / base
                     # index carry ``scatter``);

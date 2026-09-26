@@ -195,3 +195,66 @@ def test_the_plan_writer_reads_the_solid_height():
     from auto_patch_v2.airport import pack_partition
     src = inspect.getsource(pack_partition._parts_by_member)
     assert "p.solid_h" in src
+
+
+# ── issue #69 (lane outlinebisect): the wall chord ──────────────────────
+
+def _quad_tris(n_pairs: int) -> np.ndarray:
+    """Triangles of a strip whose points alternate bottom, top (pairs)."""
+    t = []
+    for i in range(n_pairs - 1):
+        b0, t0, b1, t1 = 2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 3
+        t += [(b0, b1, t1), (b0, t1, t0)]
+    return np.asarray(t)
+
+
+def _strip(bot: np.ndarray, top: np.ndarray) -> np.ndarray:
+    out = np.empty((2 * len(bot), 3))
+    out[0::2], out[1::2] = bot, top
+    return out
+
+
+def test_a_leaning_facade_is_a_wall():
+    """OTHH ``OTHH_Terminal_Base_2_3.obj`` comp 257: 17.5 m of glass whose
+    head stands 2.6 m out from its foot.  The cell reading gave 0.29 m (a
+    LEAF); the wall chord reads its height."""
+    from auto_patch_v2.airport.contact import solid_height
+    xs = np.array([0.0, 20.0])
+    bot = np.column_stack([xs, np.zeros(2), np.zeros(2)])
+    top = np.column_stack([xs, np.full(2, 17.5), np.full(2, 2.6)])
+    pts = _strip(bot, top)
+    assert solid_height(pts) < 2.5                       # the old reading
+    assert solid_height(pts, tris=_quad_tris(2)) == pytest.approx(17.5)
+
+
+def test_a_post_across_a_cell_line_is_a_wall():
+    """OTHH comp 256: a 39.8 m post leaning 0.1 m across z = 620."""
+    from auto_patch_v2.airport.contact import solid_height
+    bot = np.array([[-117.36, 0.0, 619.95], [-117.27, 0.0, 619.95]])
+    top = np.array([[-117.36, 39.8, 620.05], [-117.27, 39.8, 620.05]])
+    pts = _strip(bot, top)
+    assert solid_height(pts) < 2.5
+    assert solid_height(pts, tris=_quad_tris(2)) == pytest.approx(39.8, abs=1e-3)
+
+
+def test_the_wall_chord_keeps_the_hillside_fence_a_fence():
+    """surfacesettle's case stands: panels down a 19 m hill read 2 m."""
+    from auto_patch_v2.airport.contact import solid_height
+    pts = _fence()
+    k = len(pts) // 2
+    strip = _strip(pts[:k], pts[k:])
+    assert solid_height(strip, tris=_quad_tris(k)) == pytest.approx(2.0, abs=0.05)
+    one = _strip(pts[[0, k - 1]], pts[[k, 2 * k - 1]])   # ONE panel, 460 m
+    assert solid_height(one, tris=_quad_tris(2)) == pytest.approx(2.0, abs=0.05)
+
+
+def test_a_ramp_and_a_roof_stay_sheets():
+    """OTHH's terminal road decks (10 m over 114 m) and a 30° roof carry
+    no wall chord."""
+    from auto_patch_v2.airport.contact import wall_chord_height
+    ramp = np.array([[0, 0, 0], [114, 10, 0], [114, 10, 12], [0, 0, 12.0]])
+    tris = np.array([[0, 1, 2], [0, 2, 3]])
+    assert wall_chord_height(ramp, tris) == 0.0
+    roof = np.array([[0, 0, 0], [10, 10 * np.tan(np.radians(30)), 0],
+                     [10, 10 * np.tan(np.radians(30)), 10], [0, 0, 10.0]])
+    assert wall_chord_height(roof, tris) == 0.0

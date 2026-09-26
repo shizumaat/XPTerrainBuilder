@@ -199,3 +199,37 @@ def test_s4_a_released_pool_gives_each_task_a_fresh_worker():
     finally:
         ex.shutdown(wait=True)
     assert pids[0] != pids[1]
+
+
+def test_t5_site_report_names_the_cluster_at_the_site():
+    """Issue #69: ``--site`` reads the cluster whose outline holds the
+    site, its outline area and the counts."""
+    import types
+    import pack_stage_profile as T
+    lat, lon = 25.0, 51.0
+    d = 0.001                                        # ~100 m
+    sq = lambda la, lo, s: ((la, lo), (la, lo + s), (la + s, lo + s), (la + s, lo))
+    a = types.SimpleNamespace(id="a", unit="u1", members=("x", "y"), area_m2=5e4,
+                              bodies=2, walled=1, rings=(sq(lat - d, lon - d, 2 * d),))
+    b = types.SimpleNamespace(id="b", unit="u2", members=("z",), area_m2=10.0,
+                              bodies=1, walled=0, rings=(sq(lat + 5 * d, lon, d),))
+    r = T.site_report((b, a), lat, lon, min_m2=100.0)
+    assert r["site_cluster"] == "a" and r["site_dist_m"] == 0.0
+    assert r["site_members"] == 2 and r["clusters"] == 2 and r["clusters_over_min"] == 1
+    assert 4.3e4 < r["site_outline_m2"] < 4.7e4
+
+
+def test_t5_site_report_reads_the_largest_pad_at_the_site():
+    """Issue #69: with the pads handed in, the LARGEST pad within 1 m of
+    the site is named (the junction capture's 484,538 m² terminal sat
+    0.1 m from the site beside a 2,642 m² piece containing it)."""
+    import types
+    from shapely.geometry import box
+    import pack_stage_profile as T
+    c = types.SimpleNamespace(id="c", unit="u", members=("m",) * 3, area_m2=1.0,
+                              bodies=7, walled=7, rings=())
+    pads = [("small", c, box(-0.5, -0.5, 0.5, 0.5)), ("big", c, box(0.6, -50, 100.6, 50)),
+            ("far", c, box(500, 500, 900, 900))]
+    r = T.site_report((c,), 25.0, 51.0, 0.0, pads, (0.0, 0.0))
+    assert r["pads"] == 3 and r["pad_at_site"] == "big" and r["pad_at_site_m2"] == 10000.0
+    assert r["pad_members"] == 3 and r["pad_bodies"] == 7

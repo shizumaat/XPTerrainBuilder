@@ -976,6 +976,18 @@ object_pavement_layer_groups     = ["runways", "taxiways"]
 object_pavement_max_layer_offset = 1
 object_pavement_skip_tokens      = ["sign", "line", "marking", "decal", "paint",
                                     "logo", "grunge", "stain", "skid", "crack_line"]
+# §42 (1b) THE HARD GROUND PLANE (lane `nlwf`, issue #20; OWNER QUESTION
+# Q-20 asks for the ratification).  NLWF's whole apron is
+# `pavement/vele_apron.obj`: 83 vertices, EVERY one at Y = 0, 79
+# triangles, 73 of them ATTR_hard, 1,499 m2, NO draped layer group — so
+# the declaration gate above refused it ("no draped layer group") and the
+# ground under it followed the DEM, 5.7 -> 12.8 m across 55 m, while the
+# runway beside it is pinned at 4.88 m.  A zero-thickness HARD plane at
+# ground level is what an aircraft rolls on; a shadow is not hard, a
+# building floor has walls off Y = 0.  Measured over the battery packs
+# (HECA, LEMD, OTHH, KCLT, SPJC, LGAV, TFFJ, KDFW, CYXY, HEAZ, VMMC): no
+# other resource qualifies — NLWF's is the only one.
+object_pavement_hard_planes = true
 
 # §44 THE PAVEMENT BORROW (owner RULINGS 2026-09-15f, "Coverage < 25 %
 # (Recommended)").  A custom pack whose apt.dat row-110 union covers LESS

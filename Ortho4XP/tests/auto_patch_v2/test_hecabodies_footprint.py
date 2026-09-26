@@ -199,3 +199,23 @@ def test_a_fallback_remnant_enclosed_by_a_cluster_pad_is_absorbed():
     assert len(pads) == 1, [(r, round(g.area)) for r, g in pads]
     assert abs(pads[0][1].area - 10000.0) < 1.0   # the hole is filled
     assert not pads[0][1].interiors
+
+
+def test_a_wall_line_in_a_cluster_mints_no_pad():
+    """RULE 6 (#7 / #8): the retaining wall chained into building13's
+    cluster is a strip under a metre wide once its ring is honest; minted
+    as a pad it cut a slot 3.5 m deep beside the service road.  A piece
+    whose mean width is under ``THIN_PIECE_WIDTH_M`` mints nothing; the
+    building beside it keeps its pad."""
+    from auto_patch_v2.geom import cluster_outline as CO
+    from test_v2padcluster import _Cl, _sq
+    ident = lambda lo, la: (float(lo), float(la))   # noqa: E731
+    # a 40 x 30 building and, 5 m away (beyond the 0.5 m close), a 0.7 m
+    # wide wall 80 m long, all one cluster
+    cl = _Cl("unit:0#0", [_sq(0.0, 0.0, 40.0, 30.0),
+                          _sq(45.0, 0.0, 45.7, 80.0)], area=1256.0)
+    got, counts = CO.cluster_outlines([cl], ident, 0.5)
+    assert counts["thin_dropped"] == 1
+    assert len(got) == 1 and abs(got[0][2].area - 1200.0) < 1.0
+    got, counts = CO.cluster_outlines([cl], ident, 0.5, thin_m=0.0)
+    assert counts["thin_dropped"] == 0 and len(got) == 2

@@ -912,6 +912,22 @@ def rebake_after_mesh(tile) -> dict:
                 with open(plan_path) as fh:
                     plan_ = _rb.RebakePlan.from_json(fh.read())
                 icao = plan_.icao
+                # A PLAN WHOSE PATCH IS NOT IN THIS MESH IS NEVER PLACED
+                # (lane ``othhjunction``, #13/#15): the plan is the auto
+                # patch's design surface; a manual patch, the mode filter
+                # or a boundary skip means the mesh was built WITHOUT that
+                # surface, and placing (splitting, rewriting the pack DSF)
+                # against it seats objects on ground that is not there.
+                # ONE admission test, the patch ingest's own.
+                import O4_Vector_Map as _VMAP
+                not_applied = _VMAP.auto_patch_not_applied(
+                    tile, icao, patch_dir=patch_dir)
+                if not_applied:
+                    UI.vprint(0, f"  [v2 rebake] {icao}: placement SKIPPED — its "
+                                 f"auto patch is not in this mesh ({not_applied})")
+                    counts["airports_skipped_unapplied"] = \
+                        counts.get("airports_skipped_unapplied", 0) + 1
+                    continue
                 law = Law.for_airport(icao)
                 if not plan_.units:
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "

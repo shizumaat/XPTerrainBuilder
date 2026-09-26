@@ -120,3 +120,82 @@ def test_a_compact_footprint_is_unchanged_in_kind():
     a = Polygon(rings[0]).area
     assert 600.0 <= a <= Polygon([(0, 0), (30, 0), (30, 20), (0, 20)]).buffer(
         C.OUTLINE_SIMPLIFY_M, join_style=2).area + 1e-6
+
+
+# ── #6 THE FALLBACK PAD NEVER STANDS UNDER A CLUSTER PAD ────────────────
+
+def _pads_of(clusters, footprints):
+    from shapely.geometry import Polygon as _P
+
+    from auto_patch_v2.classify.evidence import _pads
+    from auto_patch_v2.law import Law
+    from test_v2padcluster import _AP, _armed
+
+    class _R:
+        class buildings:
+            sources = ("osm",)
+
+    class _B:
+        def __init__(self, outer):
+            self.source, self.outer, self.holes = "osm", outer, ()
+
+    law = _armed(Law.for_airport("ZZZZ"))
+    ap = _AP(clusters, buildings=tuple(_B(r) for r in footprints))
+    gate = _P([(-500.0, -500.0), (-500.0, 500.0), (500.0, 500.0),
+               (500.0, -500.0)])
+    none = _P()
+    pads, _d, _s = _pads(ap, _R, 50.0, gate, none, none, law=law)
+    return [(r, g) for r, g in pads]
+
+
+def _overlaps(pads):
+    out = 0.0
+    for i, (_ri, a) in enumerate(pads):
+        for _rj, b in pads[i + 1:]:
+            out += a.intersection(b).area
+    return out
+
+
+def test_a_fallback_footprint_never_stands_under_a_cluster_pad():
+    """HECA-1 (#6): the concrete slab's footprint-cache pad (9,605 m2) was
+    admitted WHOLE under the 50 % bar while 2,281 m2 of it lay under the
+    T3_20 cluster pad — two pads on one ground, read by the owner as a
+    building20 inside a building20.  The cluster pad owns its ground."""
+    from test_v2padcluster import _Cl, _sq
+    cl = _Cl("unit:0#0", [_sq(0.0, 0.0, 100.0, 100.0)], area=10000.0)
+    # a footprint 40 % under the cluster pad, the rest beside it
+    slab = ((20.0, 60.0), (80.0, 60.0), (80.0, 160.0), (20.0, 160.0))
+    pads = _pads_of([cl], [slab])
+    assert len(pads) == 2, pads
+    assert _overlaps(pads) < 1e-6
+    fb = [g for r, g in pads if g.area < 9000.0][0]
+    assert abs(fb.area - 60.0 * 60.0) < 1.0      # only the ground no cluster covers
+
+
+def test_a_fallback_remnant_enclosed_by_a_cluster_pad_is_absorbed():
+    """...and where what is left of the fallback lies inside the cluster
+    pad's own outline (a courtyard it half-fills), it is not a second
+    building nested in the first: it joins the pad that encloses it."""
+    from test_v2padcluster import _Cl, _sq
+    # a U-shaped cluster: 100 x 100 with a 40 x 60 notch open to the north
+    # (the notch closed below by the cluster's rings: three blocks)
+    rings = [_sq(0.0, 0.0, 30.0, 100.0), _sq(70.0, 0.0, 100.0, 100.0),
+             _sq(30.0, 0.0, 70.0, 40.0)]
+    cl = _Cl("unit:0#0", rings, area=7600.0)
+    # a courtyard slab whose footprint also covers part of the U's arms
+    slab = ((20.0, 30.0), (80.0, 30.0), (80.0, 90.0), (20.0, 90.0))
+    pads = _pads_of([cl], [slab])
+    assert _overlaps(pads) < 1e-6
+    # the courtyard remnant is NOT enclosed by the U's EXTERIOR (the notch
+    # is open to the north), so it stands as its own pad beside it
+    assert len(pads) == 2, [(r, round(g.area)) for r, g in pads]
+    # now close the U: a ring of four blocks with a 40 x 40 hole
+    rings = [_sq(0.0, 0.0, 30.0, 100.0), _sq(70.0, 0.0, 100.0, 100.0),
+             _sq(30.0, 0.0, 70.0, 30.0), _sq(30.0, 70.0, 70.0, 100.0)]
+    cl = _Cl("unit:0#0", rings, area=8400.0)
+    # a slab over the courtyard and a 5 m margin of the ring (36 % under it)
+    slab = ((25.0, 25.0), (75.0, 25.0), (75.0, 75.0), (25.0, 75.0))
+    pads = _pads_of([cl], [slab])
+    assert len(pads) == 1, [(r, round(g.area)) for r, g in pads]
+    assert abs(pads[0][1].area - 10000.0) < 1.0   # the hole is filled
+    assert not pads[0][1].interiors

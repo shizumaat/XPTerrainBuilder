@@ -579,6 +579,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
                             if g is not None and not g.is_empty])
     cluster_pads = _cluster_pads(airport, law,
                                  None if _airside.is_empty else _airside)
+    cu = None
     if cluster_pads:
         # the FALLBACK half: only the footprints no cluster covers
         cu = unary_union(cluster_pads)
@@ -588,7 +589,38 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
         return [], 0, []
     parts = list(cluster_pads)
     if polys:
-        parts.extend(polygon_parts(unary_union(polys)))
+        fb = unary_union(polys)
+        if cu is not None and not cu.is_empty and fb.intersects(cu):
+            # ...AND ONLY THE GROUND NO CLUSTER COVERS (lane ``hecabodies``,
+            # issue #6 / HECA-1: "a building shape must never be nested
+            # inside another").  A fallback footprint under the 50 % bar
+            # was admitted WHOLE, so the part of it a cluster pad already
+            # stands on became TWO pads at once; the arrangement gave the
+            # overlap to one of them and the owner read "two building20's,
+            # one inside the other" (the concrete slab's 9,605 m2 pad over
+            # 2,281 m2 of the T3_20 cluster pad).  Every overlapping pad
+            # pair at HECA is of this kind (21 base).  The cluster pad owns
+            # its ground; the fallback keeps the rest, never under it.
+            fb = fb.difference(cu)
+            # A fallback remnant ENCLOSED by a cluster pad (it fills one of
+            # the pad's holes) is not a second building inside the first:
+            # it is ABSORBED into the pad that encloses it ("only the larger
+            # footprint should matter", HECA-1).
+            shells = [Polygon(q.exterior) for q in parts]
+            tree = STRtree(shells)
+            keep = []
+            for q in polygon_parts(fb):
+                host = [int(k) for k in tree.query(q, predicate="covered_by")]
+                if host:
+                    k = max(host, key=lambda i: parts[i].area)
+                    merged = parts[k].union(q)
+                    if merged.geom_type == "Polygon":
+                        parts[k] = merged
+                        continue
+                keep.append(q)
+            fb = unary_union(keep) if keep else None
+        if fb is not None and not fb.is_empty:
+            parts.extend(polygon_parts(fb))
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
     # RULINGS 2026-09-14ax: THE PAD CLIP IS THE ARRANGEMENT'S, NOT THIS
     # SITE'S.  Round 1 clipped every pad here by ``runway_union |

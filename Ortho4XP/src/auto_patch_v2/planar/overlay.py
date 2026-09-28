@@ -29,6 +29,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..classify.roles import Classification
+from ..geom.containment import sets_inside_one_ring
 from ..law import Law
 from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
 from ..model.airport import Airport
@@ -375,12 +376,17 @@ def build_arrangement(airport: Airport, classification: Classification,
 #: Two overlaps within this many m² of each other are ONE overlap (a tie).
 CLAIM_TIE_M2 = 1e-6
 
+#: A region whose outline stands within this many m of another's is drawn
+#: inside it (the ring buffer of ``geom.containment.sets_inside_one_ring``).
+CLAIM_CONTAIN_M = 1e-3
+
 
 def _claiming_region(poly: Polygon, regions: "list[Region]", hits,
                      law: Law) -> "tuple[Region | None, float]":
     """The region a polygonised face belongs to: the LARGEST overlap, and on
-    a TIE the senior role (``precedence.toml`` authority order), then the
-    smaller region (the one drawn inside the other), then the ref.
+    a TIE the region drawn INSIDE the other (containment), then the senior
+    role (``precedence.toml`` authority order), then the smaller region,
+    then the ref.
 
     Issue #81: two overlapping cells (KCLT ``dsf:pol52`` parking lot over
     ``dsf:pol10`` apron) overlap a 59 m² face by EXACTLY the same area, and
@@ -388,7 +394,14 @@ def _claiming_region(poly: Polygon, regions: "list[Region]", hits,
     The query order is the tree's packing, a function of EVERY region at
     the airport, so a pad outline 2.4 km away flipped the face between
     parking lot and apron and re-drew the stage-1 airside problem around
-    it.  The tie-break reads only the two regions, never an index."""
+    it.  The tie-break reads only the two regions, never an index.
+
+    Issue #85, RULINGS 2026-09-29f: CONTAINMENT precedes SENIORITY.  A
+    region drawn wholly inside another (a ``tunnel_trench`` inside an apron,
+    an island inside a pad hole) claims its own footprint; seniority breaks
+    ties only between regions neither of which contains the other.  A tied
+    candidate that wholly contains another tied candidate (and is not
+    itself contained by it: identical outlines stay tied) steps aside."""
     cands: list[tuple[float, Region]] = []
     for j in hits:
         r = regions[int(j)]
@@ -399,10 +412,32 @@ def _claiming_region(poly: Polygon, regions: "list[Region]", hits,
         return None, 0.0
     top = max(a for a, _ in cands)
     tied = [(a, r) for a, r in cands if top - a <= CLAIM_TIE_M2]
+    if len(tied) > 1:
+        tied = _innermost(tied)
     a, r = min(tied, key=lambda t: (authority_rank(law, t[1].role),
                                     t[1].polygon.area, str(t[1].ref),
                                     t[1].polygon.wkb))
     return r, a
+
+
+def _innermost(tied: "list[tuple[float, Region]]"
+               ) -> "list[tuple[float, Region]]":
+    """The tied candidates no other tied candidate is drawn inside
+    (RULINGS 2026-09-29f).  ``inside[i][j]``: region i's outline stands
+    whole inside region j's exterior ring."""
+    rings = [list(r.polygon.exterior.coords) for _a, r in tied]
+    n = len(tied)
+    inside = [[False] * n for _ in range(n)]
+    for j in range(n):
+        others = [i for i in range(n) if i != j]
+        hit = sets_inside_one_ring([rings[j]], [rings[i] for i in others],
+                                   CLAIM_CONTAIN_M)
+        for i, h in zip(others, hit):
+            inside[i][j] = h
+    keep = [tied[j] for j in range(n)
+            if not any(inside[i][j] and not inside[j][i]
+                       for i in range(n) if i != j)]
+    return keep or tied
 
 
 def dissolve_degenerate_holes(faces: list[tuple[Polygon, Region]], sep_m: float,

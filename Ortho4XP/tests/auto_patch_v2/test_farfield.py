@@ -30,11 +30,12 @@ def _region(role, ref, poly):
 # ── THE FACE CLAIM ───────────────────────────────────────────────────
 
 def _kclt_tie():
-    """The KCLT shape: a parking lot drawn OVER an apron, and a face whose
-    overlap with each is the same area (the lot square lies inside both)."""
+    """A parking lot drawn ACROSS an apron's edge (neither contains the
+    other), and a face whose overlap with each is the same area.  This is
+    the case seniority decides (RULINGS 2026-09-29f)."""
     apron = _region("apron", "dsf:pol10", box(0.0, 0.0, 100.0, 100.0))
-    lot = _region("parking_lot", "dsf:pol52", box(10.0, 10.0, 17.0, 17.0))
-    face = box(10.0, 10.0, 17.0, 17.0)
+    lot = _region("parking_lot", "dsf:pol52", box(90.0, 10.0, 117.0, 17.0))
+    face = box(90.0, 10.0, 97.0, 17.0)
     return face, [apron, lot]
 
 
@@ -60,6 +61,32 @@ def test_control_the_old_strict_first_wins_rule_flips_with_the_order(law):
         return best.role
 
     assert old([0, 1]) != old([1, 0])
+
+
+# ── CONTAINMENT PRECEDES SENIORITY (#85, RULINGS 2026-09-29f) ────────
+
+def test_a_region_drawn_inside_another_claims_its_own_footprint(law):
+    """The #85 shape (test_flat_site's trench inside an apron) and the one
+    KCLT measured at the #81 site after the weld: ``dsf:pol52`` (55.6 m2)
+    lies WHOLE inside ``dsf:pol10`` (2,303.7 m2), both tie on a 44.9 m2
+    face.  The inner region wins over the senior role, in either query
+    order; seniority still decides when neither contains the other (the
+    twin above), and identical outlines stay a seniority tie."""
+    apron = _region("apron", "dsf:pol10", box(0.0, 0.0, 100.0, 100.0))
+    lot = _region("parking_lot", "dsf:pol52", box(10.0, 10.0, 17.0, 17.0))
+    trench = _region("tunnel_trench", "t", box(40.0, 40.0, 60.0, 50.0))
+    face = box(10.0, 10.0, 17.0, 17.0)
+    for hits in ([0, 1], [1, 0]):
+        r, a = _claiming_region(face, [apron, lot], hits, law)
+        assert r.ref == "dsf:pol52" and a == pytest.approx(49.0)
+    tf = box(40.0, 40.0, 60.0, 50.0)
+    for hits in ([0, 1], [1, 0]):
+        assert _claiming_region(tf, [apron, trench], hits, law)[0].role == \
+            "tunnel_trench"
+    # control: the SAME outline twice is no containment — seniority decides
+    twin = _region("parking_lot", "z", box(0.0, 0.0, 100.0, 100.0))
+    assert _claiming_region(box(1, 1, 2, 2), [twin, apron], [0, 1],
+                            law)[0].role == "apron"
 
 
 def test_a_larger_overlap_still_wins_over_seniority(law):

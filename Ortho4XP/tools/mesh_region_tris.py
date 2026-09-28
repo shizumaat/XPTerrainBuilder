@@ -727,6 +727,36 @@ def edge_audit(mesh_path, near, alt_path=None, tile=None,
     return payload
 
 
+def pool_depth(mesh_path, tile_lat, tile_lon, capacity=None):
+    """THE DSF POINT-POOL DEPTH of a built mesh (issue #71): the encoder's
+    own :class:`O4_DSF_Utils.QuadTree`, fed the mesh vertices exactly as
+    ``build_dsf`` feeds them (tile-relative, ``quad_init_level``,
+    ``quad_capacity_high`` unless ``capacity`` is given — the low capacity
+    applies only with ``use_masks_for_inland``).  Returns ``{"max_level",
+    "pools", "nodes_by_level"}``.  NLWF's 1.47 M-triangle island mesh drove
+    the pools to level 14, the trigger of the #18 ridge; a pool deeper than
+    8 is the class that encoder fix exists for.  Imported, never
+    re-derived: the tree and its constants are the encoder's."""
+    import collections
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(
+        __file__)), "..", "src"))
+    import O4_DSF_Utils as DSF
+    (nv, lon, lat, _z, _t, _a) = _read_mesh_attributed(mesh_path)
+    cap = DSF.quad_capacity_high if capacity is None else int(capacity)
+    tree = DSF.QuadTree(DSF.quad_init_level, cap)
+    for i in range(nv):
+        tree.insert(DSF.float2qquad(lon[i] - tile_lon),
+                    DSF.float2qquad(lat[i] - tile_lat), DSF.quad_init_level)
+    tree.clean()
+    by_level = collections.Counter(tree.levels.values())
+    return {"max_level": max(by_level) if by_level else 0,
+            "pools": len(tree), "capacity": cap,
+            "nodes_by_level": {int(k): int(v)
+                               for k, v in sorted(by_level.items())}}
+
+
 def _tile_origin(path):
     match = re.search(r"([-+]\d{2})([-+]\d{3})", path)
     if not match:
@@ -1138,6 +1168,17 @@ def main(argv=None):
                     help="at most this many WALL polygons in the KML, worst "
                          "first (default 2000 — a fold can mint tens of "
                          "thousands and a KML no viewer opens is no evidence)")
+    ap.add_argument("--pool-depth", action="store_true",
+                    help="THE DSF POINT-POOL DEPTH (issue #71): feed the "
+                         "mesh vertices to the DSF encoder's own QuadTree "
+                         "and print the deepest pool level and the node "
+                         "count per level (NLWF's hairline cascade drove it "
+                         "to 14).  Needs --mesh; the tile comes from its "
+                         "filename or --tile.")
+    ap.add_argument("--pool-capacity", type=int, default=None, metavar="N",
+                    help="--pool-depth bucket size (default the encoder's "
+                         "quad_capacity_high; its low capacity applies only "
+                         "with use_masks_for_inland)")
     ap.add_argument("--json", default=None, metavar="OUT.json",
                     help="also write the counts here, with the bbox and "
                          "band edges stamped alongside")
@@ -1145,6 +1186,21 @@ def main(argv=None):
     if not args.mesh and not args.hairline_audit:
         ap.error('--mesh is required (only --hairline-audit reads the .poly '
                  'alone, via --inputs PREFIX)')
+
+    if args.pool_depth:
+        (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
+                                else _tile_origin(args.mesh))
+        payload = pool_depth(args.mesh, tile_lat, tile_lon,
+                             args.pool_capacity)
+        print(f"DSF point pools: {payload['pools']} pool(s), deepest level "
+              f"{payload['max_level']} (capacity {payload['capacity']}); "
+              f"nodes by level {payload['nodes_by_level']}")
+        if args.json:
+            import json
+            with open(args.json, "w") as fh:
+                json.dump(payload, fh, indent=1)
+            print(f"JSON -> {args.json}")
+        return 0
 
     if args.edge_audit:
         if not args.near:

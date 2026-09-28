@@ -322,7 +322,8 @@ def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
 
 
 def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
-               out: _t.Callable[[str], None] = print) -> dict:
+               out: _t.Callable[[str], None] = print, *,
+               write_cache: bool = True) -> dict:
     """THE PACK STAGE — read the pack, partition it (or revive the cached
     partition), derive the groups and the clusters — exactly as ``build``
     runs it; ``build`` and ``tools/pack_stage_profile.py`` call THIS (one
@@ -331,7 +332,9 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     "clusters", "cache", "wall"}`` — ``airport`` carries the partition,
     the groups and the clusters; ``cache`` is ``HIT`` / ``MISS`` / ``OFF``;
     ``wall`` the stage seconds by part (``read``, ``partition``,
-    ``groups``, ``clusters``, ``total``)."""
+    ``groups``, ``clusters``, ``total``).  ``write_cache=False`` reads a
+    cached partition but never writes one (the dry ``planar --stage
+    structures`` replay, issue #75: a replay writes nothing shared)."""
     wall: dict[str, float] = {}
     _sub: dict[str, float] = {}
     t = time.perf_counter()
@@ -446,7 +449,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _t = time.perf_counter()
         _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
         _sub["clusters"] = time.perf_counter() - _t
-        if _pcache.write(_cpath, _fp,
+        if write_cache and _pcache.write(_cpath, _fp,
                          (pack_objects, pack_report, _part, _clusters,
                           ocache.derived_state())):
             _say(f"  [partition] cache WROTE {_cpath}", out)
@@ -531,6 +534,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _xp["armed"] = True
     _say(f"[{icao}] load {wall['load']:.2f} s  runways {len(airport.runways)}  "
          f"pavements {len(airport.pavements)}  buildings {len(airport.buildings)}", out)
+    # §37 (11) (7) THE SHORE FEED (issue #72): how many built-shore
+    # declarations the zones will see, and from how many feed files — a
+    # zero with no file is "never filled", not "no quay here".
+    _shore = sum(1 for w in airport.osm_ways
+                 if getattr(w, "kind", "") == "shore_structures")
+    _say(f"  [load] shore feed (§37 (11) (7)): {len(lrep.osm_shore_feeds)} "
+         f"file(s), {_shore} shore-structure way(s)"
+         + ("" if lrep.osm_shore_feeds else
+            " — NOT FILLED: every coast reads natural "
+            "(build_airport.py --refresh-data shore)"), out)
     # §44 (4) THE PAVEMENT BORROW (owner RULINGS 2026-09-15f): ONE line,
     # only when the pack's own pavement did not stand.
     if lrep.pavement_borrow_line:
@@ -554,6 +567,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
                               objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
+    # §37 (11) (7) (issue #72): the shore the zones were cut against —
+    # quay faces stand on a DECLARED shore (or a pavement edge that IS
+    # the coast), natural faces slope to the water.
+    _say(f"  [planar] shore (§37 (11) (7)): "
+         f"{len(getattr(pm, 'quay_refs', ()) or ())} quay face(s), "
+         f"{len(getattr(pm, 'natural_shore_refs', ()) or ())} natural", out)
     if _xp:
         _xp["classification"] = cl
         _xp["planar_pm"] = pm

@@ -1562,6 +1562,44 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
             "layers": [a for _s, a, _w in stale], "refetched": refetched}
 
 
+# THE AUTHORISED SHORE-FEED FILL (--refresh-data shore, issue #72)
+def refresh_shore_feed(root, lat, lon, prog) -> dict:
+    """Fill tile ``(lat, lon)``'s shore-structure feed — the ONE engine
+    writer (``O4_Vector_Map.fetch_shore_structures``: the OSM cache writer
+    at its own per-tile path, whose tag list is ``planar.zones.
+    SHORE_WALL_TAGS``).  The build's OWN tile only, deliberately: the v2
+    loader reads the 3x3 neighbourhood and NAMES how many feed files it
+    found (``[load] shore feed``), so a neighbour left unfilled is a
+    reported gap, and filling nine tiles per run is an owner call.
+
+    A cache already on disk under the current schema is RECYCLED, not
+    re-downloaded (the engine's own predicate).  The caller owns the law:
+    the scope lock, the before/after snapshot and the armed guard.
+    """
+    for p in (Path(root) / "src", Path(root)):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    import O4_OSM_Utils as OSM                             # noqa: E402
+    import O4_Vector_Map as VMAP                           # noqa: E402
+    import O4_File_Names as FNAMES                         # noqa: E402
+    path = FNAMES.osm_cached(int(lat), int(lon), VMAP.SHORE_STRUCTURE_SUFFIX)
+    was = (os.path.isfile(path) and OSM._cached_osm_schema_matches(
+        path, VMAP.SHORE_STRUCTURE_CACHE_TAG_SCHEMA))
+    path, ways = VMAP.fetch_shore_structures(int(lat), int(lon))
+    if not os.path.isfile(path):
+        raise SystemExit(
+            f"REFUSING: --refresh-data shore derived NOTHING for "
+            f"{int(lat):+d}{int(lon):+d} ({path} absent after the fetch — "
+            f"an overpass failure, not an empty coast)")
+    summary = {"tile": [int(lat), int(lon)], "path": path, "ways": ways,
+               "recycled": bool(was),
+               "schema": VMAP.SHORE_STRUCTURE_CACHE_TAG_SCHEMA}
+    prog.note(f"shore feed {int(lat):+d}{int(lon):+d}: "
+              f"{'RECYCLED (schema-current)' if was else 'FILLED'} — "
+              f"{ways} shore-structure way(s) at {path}")
+    return summary
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE AUTHORISED DEM REFRESH (--refresh-data dem)
 # ══════════════════════════════════════════════════════════════════════
@@ -3868,6 +3906,7 @@ def main(argv=None) -> int:
 
     warm_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
+    shore_refresh_summary = None
     t0 = time.time()
     # EVERYTHING FROM HERE IS INSIDE THE AUDIT'S ``finally`` (2026-09-15,
     # round 6).  It used not to be, and two things leaked, both measured
@@ -3909,6 +3948,10 @@ def main(argv=None) -> int:
         if "osm_layers" in requested and lat is not None:
             with guard:
                 osm_refresh_summary = refresh_stale_osm_layers(
+                    root, lat, lon, prog)
+        if "shore" in requested and lat is not None:
+            with guard:
+                shore_refresh_summary = refresh_shore_feed(
                     root, lat, lon, prog)
         # THE DEM REFRESH runs SECOND, deliberately: the inset bounding
         # boxes come from the tile's airports layer, which the pass above
@@ -3953,6 +3996,7 @@ def main(argv=None) -> int:
                       "refresh_authorised": sorted(requested),
                       "refresh_osm_layers": osm_refresh_summary,
                       "refresh_dem": dem_refresh_summary,
+                      "refresh_shore": shore_refresh_summary,
                       "wall_seconds": round(time.time() - t0, 1)}
             prog.note(f"REFRESH-ONLY: the authorised refresh(es) "
                       f"{sorted(requested)} are done and the frame is "
@@ -4038,6 +4082,7 @@ def main(argv=None) -> int:
     frame["warm_insets"] = warm_summary
     frame["refresh_osm_layers"] = osm_refresh_summary
     frame["refresh_dem"] = dem_refresh_summary
+    frame["refresh_shore"] = shore_refresh_summary
     frame["reconcile_ledger"] = reconcile_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)
     frame["dem_frame_effective"] = frame_surface_keys(root)

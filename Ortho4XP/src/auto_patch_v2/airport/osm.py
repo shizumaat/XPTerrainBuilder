@@ -38,7 +38,8 @@ import xml.etree.ElementTree as ET
 
 __all__ = ["OsmDoc", "RawWay", "RelationReport", "read_osm_file", "feed_path",
            "load_feed", "TAGS_OF_INTEREST", "FEEDS", "RELATION_TYPES",
-           "ROAD_FEEDS", "ROAD_CACHE_TAG_SCHEMA", "feed_tag_schema"]
+           "ROAD_FEEDS", "ROAD_CACHE_TAG_SCHEMA", "feed_tag_schema",
+           "SHORE_FEED", "SHORE_TAGS_OF_INTEREST", "SHORE_CACHE_TAG_SCHEMA"]
 
 TAGS_OF_INTEREST = frozenset((
     "highway", "railway", "bridge", "tunnel", "layer", "aeroway",
@@ -53,7 +54,24 @@ TAGS_OF_INTEREST = frozenset((
     # one more key changes no existing reading.
     "covered",
 ))
-FEEDS = ("airports", "airport_small_roads", "big_roads")
+#: §37 (11) (7) THE SHORE-STRUCTURE FEED (issue #72): ``man_made=quay`` /
+#: ``pier`` / ``breakwater`` / ``seawall`` / ``groyne`` / ``dyke``,
+#: ``barrier=wall`` / ``retaining_wall`` / ``seawall``, ``wall=seawall`` /
+#: ``retaining_wall`` — ``planar.zones.SHORE_WALL_TAGS``, the one reader.
+#: Written by ``O4_Vector_Map.fetch_shore_structures`` (the explicit
+#: ``--refresh-data shore``), never by a build; an absent tile is an empty
+#: feed and is NAMED on the load report.
+SHORE_FEED = "shore_structures"
+FEEDS = ("airports", "airport_small_roads", "big_roads", SHORE_FEED)
+
+#: The shore feed keeps ITS OWN tags and no others: a ``man_made=pier``
+#: that is also a ``highway=footway`` must not arrive a second time as a
+#: road beside the road feeds' copy of it.
+SHORE_TAGS_OF_INTEREST = frozenset(("man_made", "barrier", "wall", "name"))
+
+#: Mirrored from ``O4_Vector_Map.SHORE_STRUCTURE_CACHE_TAG_SCHEMA``
+#: (twin-asserted equal, like ``ROAD_CACHE_TAG_SCHEMA``).
+SHORE_CACHE_TAG_SCHEMA = "2026-09-28"
 
 #: The feeds written under a TAG WHITELIST — ``O4_Vector_Map``'s
 #: ``ROADS_TAGS_OF_INTEREST``.  The airports feed keeps ``["all"]`` and
@@ -226,7 +244,9 @@ def _stitch(chains: list[list[str]]) -> tuple[list[list[str]], list[list[str]]]:
     return closed, left
 
 
-def read_osm_file(path: str, namespace: str = "") -> tuple[
+def read_osm_file(path: str, namespace: str = "",
+                  tags_of_interest: _t.AbstractSet[str] = TAGS_OF_INTEREST
+                  ) -> tuple[
         dict[str, tuple[float, float]], list[tuple[str, list[str],
                                                     dict[str, str]]],
         RelationReport]:
@@ -251,13 +271,13 @@ def read_osm_file(path: str, namespace: str = "") -> tuple[
         elif el.tag == "way":
             nds = [namespace + nd.get("ref", "") for nd in el.findall("nd")]
             tags = {t.get("k", ""): t.get("v", "") for t in el.findall("tag")
-                    if t.get("k") in TAGS_OF_INTEREST}
+                    if t.get("k") in tags_of_interest}
             ways.append((namespace + el.get("id", ""), nds, tags))
         elif el.tag == "relation":
             all_tags = {t.get("k", ""): t.get("v", "") for t in el.findall("tag")}
             if all_tags.get("type") not in RELATION_TYPES:
                 continue
-            rtags = {k: v for k, v in all_tags.items() if k in TAGS_OF_INTEREST}
+            rtags = {k: v for k, v in all_tags.items() if k in tags_of_interest}
             outer = [namespace + m.get("ref", "") for m in el.findall("member")
                      if m.get("type") == "way" and m.get("role", "outer") in ("outer", "")]
             inner = [namespace + m.get("ref", "") for m in el.findall("member")
@@ -324,7 +344,9 @@ def load_feed(osm_root: str, feed: str, lat: float, lon: float,
             sources.append(path)
             schemas.append((path, feed_tag_schema(path)))
             ns = f"{tlat:+03d}{tlon:+04d}:"
-            nodes, ways, frep = read_osm_file(path, ns)
+            nodes, ways, frep = read_osm_file(
+                path, ns, SHORE_TAGS_OF_INTEREST if feed == SHORE_FEED
+                else TAGS_OF_INTEREST)
             rep = rep.merge(frep)
             for wid, nds, tags in ways:
                 pts = tuple(nodes[n] for n in nds if n in nodes)

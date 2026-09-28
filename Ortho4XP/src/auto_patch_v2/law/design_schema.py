@@ -243,6 +243,14 @@ class Design:
     #: (RULINGS 2026-09-08v: the runway family's transverse, vertical curve
     #: K and max grade), enforced exactly — never one-sided targets
     hard_rulings: tuple[str, ...]
+    #: THE PINS THAT YIELD (owner RULINGS 2026-09-27a (10), Q-21 GEML): the
+    #: ruling heads of ``Pin`` rows stage 2 may RELEASE when the hard set
+    #: cannot settle with them — only a pin the unsettled hard rows reach
+    #: through the free columns, re-stated as a design target at its own
+    #: value, and every release reported per row (``DesignReport.pin_yield``).
+    #: §37 (9)'s coverage-edge join: the core RIBBON yields at the join, not
+    #: the 5 % pavement ceiling.  May be empty (nothing yields).
+    yielding_pin_rulings: tuple[str, ...]
     hard_weight: float
     #: THE HARD SET MUST SETTLE (owner RULINGS 2026-09-09r (3)): the polish
     #: iterates the augmented-Lagrangian multipliers until EVERY hard row is

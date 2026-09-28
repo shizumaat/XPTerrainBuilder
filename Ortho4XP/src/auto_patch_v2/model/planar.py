@@ -301,12 +301,28 @@ class PlanarMap:
     #: level at its own cap, and never pulls the airside (airside is king).
     road_contact_edge: _t.Mapping[int, tuple[int, int, float, float]] = \
         _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-09-27a (11): the ``road_contact_edge`` entries
+    #: whose route END stands within one lane width of the airside edge —
+    #: vertex -> ``(a, b, u, s)``.  Such a contact SEEDS the §37 (6) ramp
+    #: from stage 1's SOLVED level of that edge (applied between §20b's
+    #: stages by ``constraints/road_ramp.reach_seed_rewrite``).
+    road_reach_seed: _t.Mapping[int, tuple[int, int, float, float]] = \
+        _dc.field(default_factory=dict)
     #: §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be;
     #: ``emit/road_join.py``): road vertex -> the CORE ribbon's altitude at
     #: the first station outside the patch coverage, as an EQUALITY — the
     #: patch's road and the core's levelled road meet at one level (KCLT way
     #: 10826 station 0 stood 2.36 m over the ribbon across 7.9 m).
     road_coverage_join: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-09-27a (10): the §37 (9) joins whose pin the
+    #: solve RELEASED because the hard set could not settle with it
+    #: (``solve/pin_yield.py``) — road vertex -> ``(the ribbon's level, the
+    #: level the patch took)``.  Set AFTER the solve by
+    #: ``emit/road_join.with_pin_yield``, which also moves
+    #: ``road_coverage_join`` to the patch's level (the ribbon yields); the
+    #: sidecar publishes it as ``road_join_yield`` for the core clamp.
+    road_join_yield: _t.Mapping[int, tuple[float, float]] = _dc.field(
+        default_factory=dict)
     #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
     #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
     #: -> shape id (a pad's majority shape), and the declared joints — the

@@ -911,9 +911,26 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          + ", ".join(f"{k} {v}" for k, v in strips.counts.items()), out)
     t = time.perf_counter()
     size: dict[str, int] = {}
-    sol, design_rep = solve_design(pm, cs, law, cfg.options, size_out=size,
-                                   strips=strips)
+    # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
+    # seeds the ramp from STAGE 1's solved level — applied between the two
+    # stages, bound here because ``solve`` may not import ``constraints``
+    from ..constraints.road_ramp import reach_seed_rewrite
+    sol, design_rep = solve_design(
+        pm, cs, law, cfg.options, size_out=size, strips=strips,
+        stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv))
     wall["solve"] = time.perf_counter() - t
+    # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS where the solve
+    # released a §37 (9) join pin — the join takes the patch's level and
+    # the sidecar tells the core clamp to follow (``road_join_yield``)
+    from ..emit.road_join import with_pin_yield
+    pm = with_pin_yield(pm, design_rep.pin_yield,
+                        float(law.tables.emit.materiality.elevation_m))
+    _to_ll = airport.frame.transformers()[1] if pm.road_join_yield else None
+    for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):
+        _lat, _lon = _to_ll(*pm.vertices[_v].xy)
+        _say(f"[{icao}] JOIN YIELD (27a (10)): v{_v} at {_lat:.8f},{_lon:.8f} "
+             f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m; "
+             f"the core ribbon takes the patch level beyond its budget)", out)
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
     # THE SEAM PASSES ARE DELETED (§38 (1); owner RULINGS 2026-09-13ah,

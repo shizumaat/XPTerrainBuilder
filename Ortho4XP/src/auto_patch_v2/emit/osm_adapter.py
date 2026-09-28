@@ -112,6 +112,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # against.  Empty at every airport with no channel.
     "channel_facilities",
     "road_coverage_join",  # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each coverage exit
+    "road_join_yield",  # RULINGS 2026-09-27a (10): the joins the solve released — the level the core ribbon must take there (``O4_Vector_Map.road_join_yield_pins``)
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",
     "pair_caps", "seam_pins", "station_caps",

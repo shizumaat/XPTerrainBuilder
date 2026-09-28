@@ -1786,9 +1786,41 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     print(f"[{icao}] jetway strip region (18t Q3) {time.perf_counter() - t:.2f} s: "
           + ", ".join(f"{k} {v}" for k, v in strips.counts.items()))
     t = time.perf_counter()
+    # OWNER RULINGS 2026-09-27a (11): the build's own stage-2 rewrite (the
+    # reach seed), bound the way ``pipeline/build.py`` binds it; a tree
+    # that predates it solves without one
+    _kw = {}
+    _stage2: dict = {}
+    try:
+        from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
+
+        def _rewrite(lv):
+            out = reach_seed_rewrite(pm, law, cs, lv)
+            _stage2["cs"] = out[0]
+            return out
+        _kw["stage2_rewrite"] = _rewrite
+    except ImportError:
+        pass
     sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
-                            method=method, strips=strips)
+                            method=method, strips=strips, **_kw)
     wall = round(time.perf_counter() - t, 1)
+    # the rows stage 2 SOLVED are the ones --why-hard / --verify must read
+    # (a seeded ramp ceiling read at its pre-seed value is a false row)
+    cs = _stage2.get("cs", cs)
+    # 27a (10): the ribbon yields where the solve released a join pin — the
+    # build's own post-solve step, so an --emit arm publishes it too
+    try:
+        from auto_patch_v2.emit.road_join import with_pin_yield
+        pm = with_pin_yield(pm, rep.pin_yield,
+                            float(law.tables.emit.materiality.elevation_m))
+        if pm.road_join_yield:
+            _to_ll = airport.frame.transformers()[1]
+            for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):
+                _lat, _lon = _to_ll(*pm.vertices[_v].xy)
+                print(f"[{icao}] JOIN YIELD (27a (10)): v{_v} at {_lat:.8f},{_lon:.8f} "
+                      f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m)")
+    except (ImportError, AttributeError):
+        pass
     print(f"[{icao}] {rep.jetway_strip.line()}")
     for _s in rep.jetway_strip.strips:
         print(f"    strip {_s['id']} pad {_s['pad_ref']} frontage resid "

@@ -501,6 +501,16 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "road_coverage_join": [[ll[v][0], ll[v][1], round(float(z), 4)]
                                    for v, z in sorted(
                                        planar.road_coverage_join.items())],
+            # OWNER RULINGS 2026-09-27a (10) THE RIBBON YIELDS:
+            # ``[lat, lon, the level the patch took, the ribbon's own
+            # level]`` per join the solve released.  LAW INPUT for the
+            # CORE: ``O4_Vector_Map.road_join_yield_pins`` pins the
+            # levelled road there, beyond its 1.0 m budget.
+            "road_join_yield": [[ll[v][0], ll[v][1], round(float(zp), 4),
+                                 round(float(zr), 4)]
+                                for v, (zr, zp) in sorted(
+                                    (getattr(planar, "road_join_yield", None)
+                                     or {}).items())],
             "basin_facilities": basin_facilities(planar, law, z),
             # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec
             # §11a (2)/(4)): ``[[lat, lon, metres above the pad's level],

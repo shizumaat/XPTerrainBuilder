@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -322,10 +323,69 @@ def templated_cfg(cfg_path, install_root: str) -> str:
     return "\n".join(out) + "\n"
 
 
-def write_apt_slice(src: str, icaos, dst: Path) -> None:
-    """An apt.dat carrying only ``icaos``: the source's two header lines,
-    each airport block verbatim (the engine's own ``read_airport_block``),
-    and the ``99`` terminator."""
+def _block_tile(block):
+    """``(floor lat, floor lon)`` of an apt.dat airport block, or None."""
+    for ln in block:
+        f = ln.split()
+        try:
+            if f and f[0] == "100" and len(f) > 10:
+                return (math.floor(float(f[9])), math.floor(float(f[10])))
+            if f and f[0] in ("101", "102") and len(f) > 3:
+                i = 4 if f[0] == "101" else 2
+                return (math.floor(float(f[i])), math.floor(float(f[i + 1])))
+        except ValueError:
+            continue
+    for ln in block:
+        f = ln.split()
+        if len(f) > 2 and f[0] == "1302" and f[1] == "datum_lat":
+            lat = float(f[2])
+            for l2 in block:
+                g = l2.split()
+                if len(g) > 2 and g[0] == "1302" and g[1] == "datum_lon":
+                    return (math.floor(lat), math.floor(float(g[2])))
+    return None
+
+
+def _neighbour_blocks(src: str, tiles, skip):
+    """Every airport block of ``src`` whose tile is in ``tiles`` and whose
+    code is not in ``skip`` — verbatim lines (issue #79)."""
+    blocks, cur = [], None
+    with open(src, "r", encoding="utf-8", errors="replace") as f:
+        for n, raw in enumerate(f):
+            if n < 2:
+                continue
+            ln = raw.rstrip("\r\n")
+            head = ln.split(None, 1)[0] if ln.strip() else ""
+            if head in ("1", "16", "17", "99"):
+                if cur:
+                    blocks.append(cur)
+                cur = [ln] if head != "99" else None
+            elif cur is not None:
+                cur.append(ln)
+    if cur:
+        blocks.append(cur)
+    out = []
+    for b in blocks:
+        f = b[0].split()
+        code = f[4] if len(f) > 4 else None
+        if code in skip:
+            continue
+        if _block_tile(b) in tiles:
+            while b and not b[-1].strip():
+                b.pop()
+            out.append(b)
+    return out
+
+
+def write_apt_slice(src: str, icaos, dst: Path, tiles=()) -> None:
+    """An apt.dat carrying ``icaos`` plus EVERY airport block in ``tiles``
+    (the cut airports' tiles with neighbours): the source's two header
+    lines, each airport block verbatim (the engine's own
+    ``read_airport_block``), and the ``99`` terminator.  The neighbours
+    matter: the DEM inset bake reads every airport of the tile set
+    (issue #79 — SPJC's S12W078 carries an unnamed airport whose absence
+    changed the inset densification 1/3 -> 1/2 arc-second, ~5 cm on 7,251
+    nodes)."""
     from auto_patch_v2.airport import apt_dat as _apt       # noqa: E402
     with open(src, "r", encoding="utf-8", errors="replace") as f:
         head = [f.readline().rstrip("\r\n"), f.readline().rstrip("\r\n")]
@@ -334,6 +394,10 @@ def write_apt_slice(src: str, icaos, dst: Path) -> None:
         block = _apt.read_airport_block(src, icao)
         if block:
             lines += list(block) + [""]
+    if tiles:
+        for block in _neighbour_blocks(src, set(map(tuple, tiles)),
+                                       set(icaos)):
+            lines += block + [""]
     lines.append("99")
     dst.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -543,7 +607,10 @@ def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
     for rel, (src, icaos_) in slices.items():
         dst = out / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
-        write_apt_slice(src, sorted(icaos_), dst)
+        tiles = {(t[0] + a, t[1] + b)
+                 for i in icaos_ for t in [per_airport[i]["tile"]] if t
+                 for a in (-1, 0, 1) for b in (-1, 0, 1)}
+        write_apt_slice(src, sorted(icaos_), dst, sorted(tiles))
         files[rel] = {"sha256": _sha256(dst), "size": dst.stat().st_size,
                       "sliced_from": {"path": src, "sha256": _sha256(src),
                                       "airports": sorted(icaos_)}}

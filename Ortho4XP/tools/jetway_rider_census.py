@@ -141,18 +141,26 @@ def census(doc: _t.Mapping[str, _t.Any], dump: _t.Any, surface: _t.Callable,
                 best = (float(z), d)
         return best
 
-    # published riders the write side never joined (7-dp key + path)
+    # published riders the write side never joined — by the rule it
+    # joins with: the dump index (path-checked), else the 7-dp anchor
     keys = {(round(float(p.lat), 7), round(float(p.lon), 7), p.def_path)
             for p in rows}
     unjoined = []
     for s in strips:
         for r in s.get("riders", ()) or ():
+            idx = r[4] if len(r) > 4 else None
+            if (isinstance(idx, int) and 0 <= idx < len(rows)
+                    and rows[idx].def_path == str(r[2])):
+                continue
             k = (round(float(r[0]), 7), round(float(r[1]), 7), str(r[2]))
             if k not in keys:
                 unjoined.append({"strip": s.get("id"), "lat": r[0], "lon": r[1],
                                  "resource": r[2]})
     counts["riders_published"] = sum(len(s.get("riders") or ()) for s in strips)
-    counts["riders_unjoined"] = len(unjoined)
+    # what the LOADED write side seated against what was published (a
+    # ``--src`` base arm joins by its own rule, which the list above
+    # cannot know); split_idx is empty here, so the difference is the join
+    counts["riders_unjoined"] = counts["riders_published"] - len(riders)
 
     def _row(r: _t.Any) -> dict[str, _t.Any]:
         dat = _datum(r.host_pid)

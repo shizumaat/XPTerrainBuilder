@@ -193,34 +193,12 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     _conv0 = conversions
     _mi = frozenset(m.index for m in msl)
     conversions = tuple(c for c in conversions if c.index not in _mi)
-    # jetway-strip spec §4 / C17 (issue #31): THE RIDERS — a placement the
-    # plan holds no geometry for, riding the unit whose outline it stands
-    # at.  The population is the DESIGN side's (the graded surface's
-    # ``jetway_strips``), never a second host search.  A rider row is
-    # left ON GROUND where the terrain at its anchor already equals its
-    # unit's datum (after the strip law, the normal case); it carries
-    # ``OBJECT_MSL`` = datum + authored offset only on a CLAMPED gate, and
-    # never for an ``.agp`` (§4 (3), Q6 default).  Where §16g (5) had
-    # already written a row for a rider on ground it is withdrawn: the
-    # strip IS its seat.
-    from . import riders as _riders
-    riders = _riders.riders_for_dump(
-        dump, jetway_strips, pads, surface, split_idx, tol_m=hard_tol_m,
+    riders, msl, conversions = seat_riders(
+        dump, jetway_strips, pads, surface, split_idx, msl, _conv0,
+        conversions, tol_m=hard_tol_m,
         authored_ground=(None if _flat is None else _flat.z0_m),
-        # a CLAMPED GATE is a clamp within the gate's own strip depth
-        # (spec §4 (1); lane ridercensus, #31)
         gate_m=jetway_strip_m)
-    if riders:
-        _ground = {r.index for r in riders if r.seat_why == "on_ground"}
-        _have = {m.index for m in msl}
-        from ..model.placement import MslSeat as _MslSeat
-        msl = tuple(m for m in msl if m.index not in _ground) + tuple(
-            _MslSeat(r.index, r.resource, r.lon, r.lat, r.heading_deg,
-                     float(r.seat_z), "rider")
-            for r in riders if r.seat_why == "msl_written"
-            and r.index not in _have and r.seat_z is not None)
-        _mi = frozenset(m.index for m in msl)
-        conversions = tuple(c for c in _conv0 if c.index not in _mi)
+    from . import riders as _riders
     counts_extra = {"msl_seats": len(msl)}
     counts_extra.update(_msl_counts)
     counts_extra.update(_riders.rider_census(riders))
@@ -238,6 +216,46 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         riders=tuple(riders),
         jetway_strips=tuple(dict(j) for j in (jetway_strips or ())))
     return plan, files, ss
+
+
+def seat_riders(dump: _t.Any, jetway_strips: _t.Sequence, pads: _t.Sequence,
+                surface: _t.Callable, split_idx: _t.AbstractSet[int],
+                msl: tuple, conversions_all: tuple, conversions: tuple, *,
+                tol_m: float, authored_ground: float | None,
+                gate_m: float | None) -> tuple[tuple, tuple, tuple]:
+    """jetway-strip spec §4 / C17 (issue #31): THE RIDERS — ``(riders,
+    msl, conversions)``.  A placement the plan holds no geometry for rides
+    the unit whose outline it stands at.  The population is the DESIGN
+    side's (the graded surface's ``jetway_strips``), never a second host
+    search.  A rider row is left ON GROUND where the terrain at its anchor
+    already equals its unit's datum (after the strip law, the normal
+    case); it carries ``OBJECT_MSL`` = datum + authored offset only on a
+    CLAMPED gate, and never for an ``.agp`` (§4 (3), Q6 default).  Where
+    §16g (5) had already written a row for a rider on ground it is
+    withdrawn: the strip IS its seat.
+
+    ONE implementation, two callers: :func:`build_plan` (the engine) and
+    ``tools/obj8_split_report.py --write-pack`` (the lane's pack copy),
+    which had carried no riders at all (lane ``ridercensus``)."""
+    from . import riders as _riders
+    riders = _riders.riders_for_dump(
+        dump, jetway_strips, pads, surface, split_idx, tol_m=tol_m,
+        authored_ground=authored_ground,
+        # a CLAMPED GATE is a clamp within the gate's own strip depth
+        # (spec §4 (1); lane ridercensus, #31)
+        gate_m=gate_m)
+    if riders:
+        _ground = {r.index for r in riders if r.seat_why == "on_ground"}
+        _have = {m.index for m in msl}
+        from ..model.placement import MslSeat as _MslSeat
+        msl = tuple(m for m in msl if m.index not in _ground) + tuple(
+            _MslSeat(r.index, r.resource, r.lon, r.lat, r.heading_deg,
+                     float(r.seat_z), "rider")
+            for r in riders if r.seat_why == "msl_written"
+            and r.index not in _have and r.seat_z is not None)
+        _mi = frozenset(m.index for m in msl)
+        conversions = tuple(c for c in conversions_all if c.index not in _mi)
+    return tuple(riders), msl, conversions
 
 
 # ── step 2: the cut files ───────────────────────────────────────────────

@@ -67,6 +67,7 @@ from . import obj8 as _obj8
 
 __all__ = ["Placement", "DrapedBody", "ResourceRow", "ObjectPavementReport",
            "header_facts", "draped_footprint", "hard_plane_footprint",
+           "HARD_PLANE_PREFIX", "is_hard_plane_ref",
            "read_object_pavements"]
 
 #: How far into the file the header facts are looked for.  An OBJ8 header
@@ -88,6 +89,17 @@ class Placement:
     heading_deg: float
 
 
+#: §42 (1b): the pavement-id prefix of a HARD-PLANE body (a sub-prefix of
+#: ``classify/sources.OBJECT_PAVEMENT_PREFIX``, so every object-pavement
+#: gate reads it exactly as any other object pavement).
+HARD_PLANE_PREFIX = "dsf:objpavhp"
+
+
+def is_hard_plane_ref(ref: str | None) -> bool:
+    """§42 (1b): does this pavement / cell / face ref name a hard plane?"""
+    return bool(ref) and str(ref).startswith(HARD_PLANE_PREFIX)
+
+
 @_dc.dataclass(frozen=True)
 class DrapedBody:
     """One disjoint body of one placement's draped footprint, in the
@@ -99,6 +111,10 @@ class DrapedBody:
     resource: str
     texture: str
     polygon: Polygon
+    #: §42 (1b) THE HARD GROUND PLANE (owner RULINGS 2026-09-27a (5)): the
+    #: body is a hard zero-thickness Y = 0 object with no draped layer —
+    #: graded LEVEL at its runway-edge frontage, no DEM datum.
+    hard_plane: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -325,6 +341,15 @@ def read_object_pavements(placements: _t.Sequence[Placement], law,
             if u is None:
                 refuse("no draped layer group")
                 continue
+            # THE ARCS ARE NOT DATA (issue #20, owner RULINGS 2026-09-27a
+            # (5)): NLWF's apron object rounds its corners in 0.5-0.6 m
+            # chords, and every one became an emitted segment under the
+            # identity spacing beside the terminal pad — 93 unmeshable
+            # ``hairline_pair`` rows on the (1b) arm.  The plane's outline
+            # is simplified at half the spacing (a 2 m-radius fillet keeps
+            # a <= 0.25 m sagitta), topology preserved.
+            spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
+            u = u.simplify(0.5 * spacing, preserve_topology=True)
             if u.area < lw.object_pavement_min_m2:
                 refuse(f"under {lw.object_pavement_min_m2:g} m2")
                 continue
@@ -380,7 +405,8 @@ def read_object_pavements(placements: _t.Sequence[Placement], law,
                   if g.geom_type == "Polygon" and g.area > 0.0]
         n, area = 0, 0.0
         for body in bodies:
-            out.append(DrapedBody(pl.id, pl.def_path, texture, body))
+            out.append(DrapedBody(pl.id, pl.def_path, texture, body,
+                                  group[0] == "hard_plane"))
             n += 1
             area += body.area
         if not n:

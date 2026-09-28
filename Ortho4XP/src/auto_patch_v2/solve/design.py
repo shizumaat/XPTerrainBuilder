@@ -718,12 +718,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #     mints no such row and keeps its datum, exactly as ruled.
     body = _Rows(red, drop=drop_f)
     meta: list[_BodyDatum] = []
+    # §42 (1b) (owner RULINGS 2026-09-27a (5)): a HARD GROUND PLANE is
+    # graded LEVEL at its runway-edge frontage with NO DEM datum — X-Plane
+    # sets the object level at its anchor, it cannot tilt after the ground
+    # (``constraints/hard_plane``; the NLWF arm body_datum=0 was 92 -> 5
+    # verify rows).  Its vertices leave every body's plane fit.
+    from ..constraints.hard_plane import hard_plane_vertices
+    hard_v = hard_plane_vertices(planar)
     for kind, roles_b in datum_roles(law):
         for vs_b in _shape_bodies(planar, red,
                                   _role_bodies_faced(planar, roles_b, red)):
             # 10l: a pad that fronts pavement takes its frontage's level, not
             # the ground's — its vertices leave every body's datum fit
-            vs_b = [v for v in vs_b if v not in pad_follow]
+            vs_b = [v for v in vs_b if v not in pad_follow and v not in hard_v]
             zs = [float(planar.vertices[v].dem_z) for v in vs_b]
             if not zs:
                 continue

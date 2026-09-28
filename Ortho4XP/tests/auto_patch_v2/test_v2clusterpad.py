@@ -131,7 +131,8 @@ def _cells():
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    from tests.auto_patch_v2._plate import plate_law
+    return plate_law(Law.for_airport("ZZZZ"))    # the subject is the plate (§30 (4))
 
 
 def _arm(law, clustered: bool):

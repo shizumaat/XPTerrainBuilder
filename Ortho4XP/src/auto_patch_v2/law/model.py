@@ -376,6 +376,9 @@ class BuildingPad:
     #: bank_slope``); ``platform_collar_max_m * bank_slope`` is also the
     #: largest end-ground step a SOLID connector may join across
     platform_collar_max_m: float = 15.0
+    #: unit-platform spec §1: mint the platform + collar (``planar/
+    #: platform.py``); false keeps today's welded plate
+    platform_collar: bool = False
 
 
 @_dc.dataclass(frozen=True)

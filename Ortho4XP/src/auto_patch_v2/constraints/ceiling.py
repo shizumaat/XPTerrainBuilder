@@ -131,7 +131,13 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     from .pads import CEILING_RULING as _PAD_CEIL
     from .pads import LEVEL_JUNIOR_RULING as _PAD_LVL_J
     from .pads import LEVEL_RULING as _PAD_LVL
-    _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J}
+    # THE PLATFORM COLLAR IS A 1:3 BANK (unit-platform spec §3 P11, §20 C5's
+    # reason): twinned at the 5 % pavement ceiling it would make the bank a
+    # HARD 5 % grade under the building — the collar exists to be steeper
+    # than that; and its plane rows are already hard equalities.
+    from .platform import COLLAR_RULING as _COLLAR
+    from .platform import PLANE_RULING as _PLANE
+    _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J, _COLLAR, _PLANE}
     for row in rows:
         if row.source.ruling.split(" (")[0].strip() in _skip:
             continue

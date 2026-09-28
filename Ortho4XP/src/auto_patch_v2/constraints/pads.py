@@ -79,7 +79,7 @@ from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
                           role_cap, rolled_on_roles, senior_role)
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
 from .pad_relief import pad_relief_offsets
 from .precedence import view
 
@@ -518,7 +518,11 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # per-face-complete PLUS cross-links, never over the concatenated rim
     # — the merged reading was measured inert (see ``cluster_pairs``).
     AIRSIDE_LED.clear()
-    per_face = {q: g for q, _r, g in _pad_groups(planar, law)}
+    # unit-platform spec §3 P1/P2: a COLLAR face rides its platform's plane
+    # group for the frontage it carries, never for the plate — its
+    # vertices are priced by ``constraints.platform`` alone
+    per_face = {q: g for q, r_, g in _pad_groups(planar, law)
+                if not is_collar_ref(r_)}
     n_cross = 0
     # §16g (10) (11) (a) THE PAD'S PLATE IS ONE-WAY TOWARD THE PAD (owner
     # RULINGS 2026-09-15z; lane ``v2padqp`` r2).  ATTRIBUTED FIRST, at the
@@ -570,9 +574,9 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     for fid, ref, group, fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         src_led = Source(GEN, led_ruling, (f"face:{fid}", ref))
-        if len(fids) > 1:
-            prs, k = cluster_pairs(planar, [per_face[q] for q in fids
-                                            if q in per_face],
+        plate_fids = [q for q in fids if q in per_face]
+        if len(plate_fids) > 1:
+            prs, k = cluster_pairs(planar, [per_face[q] for q in plate_fids],
                                    own=(None if not air else
                                         {v for v in group if v not in air}))
             n_cross += k
@@ -915,6 +919,16 @@ def frontage_contacts(planar: PlanarMap, law: Law
         verts = list(ring)
         for h in vw.holes[f.id]:
             verts.extend(h)
+        if is_collar_ref(f.ref):
+            # unit-platform spec §3 P8: the frontage reads the OUTER rim —
+            # a collar's platform ring (its hole) is 5 m inside the pad and
+            # no frontage's nearest pad vertex (MEASURED at HECA
+            # ``building200``: the near-miss row re-footed on the platform
+            # ring left stage 1 and moved the junction corner 0.149 m)
+            inner = {v for q, g in planar.faces.items()
+                     if g.ref == platform_ref_of(f.ref) and g.role == f.role
+                     for r_ in [vw.rings[q], *vw.holes[q]] for v in r_}
+            verts = [v for v in verts if v not in inner] or verts
         pads.append((f.id, poly, verts))
         pad_vertices.update(verts)
     if not pads:

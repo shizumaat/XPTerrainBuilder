@@ -1,0 +1,206 @@
+"""THE UNIT PLATFORM'S INNER RING AND COLLAR (unit-platform spec §1 (2)-(4);
+owner RULINGS 2026-09-28a (1); issues #66 / #4 / #10).
+
+A pad FACE is rim-only, and under 23a most of a terminal's rim is the apron
+itself (welded, airside moved 0): "one platform" and "airside unmoved"
+cannot both hold ON THE RIM.  The third road is a region INSIDE the
+footprint.  Here, at the one site the pad polygon is final (after
+``pad_cut.apron_cut_to_pads`` and ``pad_terrace.pad_terrace_split``,
+before pass B nodes the pads), every pad that FRONTS AIRSIDE and is a unit
+pad (area >= ``[placement] cluster_pad_min_m2``, the §30 (4) cluster-pad
+bar) is split into TWO regions of its own role:
+
+* the PLATFORM — the pad polygon ERODED by the collar width C, keeping the
+  pad's own ref.  Its face is priced as the pad's plate (one plane, 1 %),
+  and its level is §20's frontage fit (``constraints.pads``).
+* the COLLAR — the annulus between the pad rim and the platform, ref
+  ``<ref>#collar`` (``model.planar.COLLAR_SUFFIX``; every consumer that
+  joins a pad on ``ref.split("#")[0]`` reads it as the same pad).  A
+  ``building`` face with a HOLE, graded as a §31 (7) bank from the welded
+  rim to the platform (``constraints.platform``).
+
+C (spec §1 (2), spec-author ruling 4 on #66: "C is the measured value,
+≈ 5 m at HECA, the floor").  The spec's ``max_rim_relief`` is read off
+the STAGE-1 solve, which runs after this arrangement; the relief measured
+there at HECA (lane ``unitplatform``: T3 1.41 m, T2 0.55 m) is under
+``bank_min_width_m x bank_slope`` (1.65 m), so C is the §31 (7) floor
+``emit.design.bank_min_width_m``.  The relief each platform actually
+carries is MEASURED after the solve and published (``platform_rim_relief``,
+with the collar width it would need) — a pad whose relief outgrows its
+collar reads there, never silently.
+
+The erosion never touches the rim: no airside vertex is created or moved
+(the inner ring is at least C inside the pad, minted after the 23a cut).
+A pad whose erosion leaves no inner ring of ``cluster_pad_min_m2`` is
+REFUSED (no platform, today's welded plate) and published in
+:data:`PLATFORMS` with the reason."""
+from __future__ import annotations
+
+import dataclasses as _dc
+import typing as _t
+
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
+from shapely.strtree import STRtree
+
+from ..law import Law
+from ..law.tables import rolled_on_roles
+from ..model.planar import COLLAR_SUFFIX
+
+__all__ = ["platform_split", "Platform", "PLATFORMS", "collar_width_m"]
+
+#: The ring sampling step of the frontage read (m) — ``pad_terrace._STEP_M``'s
+#: geometric resolution, not a law value.
+_STEP_M = 2.0
+#: A pad needs at least this many welded ring samples to FRONT airside (a
+#: plane has three degrees of freedom; a corner touch fronts nothing).
+_MIN_WELDED = 3
+
+
+@_dc.dataclass(frozen=True)
+class Platform:
+    """One unit pad's platform verdict at the arrangement."""
+
+    ref: str
+    collar_m: float
+    pad_m2: float
+    platform_m2: float
+    welded_samples: int
+    #: ``""`` when minted, else why not (``"eroded_away"``,
+    #: ``"under_min_area"``)
+    refused: str = ""
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return _dc.asdict(self)
+
+
+#: The last arrangement's platform verdicts (the ``pad_terrace.TERRACES``
+#: pattern: read back by the publication and the census).
+PLATFORMS: list[Platform] = []
+
+
+def collar_width_m(law: Law) -> float:
+    """C (module docstring): the §31 (7) bank floor
+    ``emit.design.bank_min_width_m`` — ONE derivation."""
+    return float(law.tables.emit.design.bank_min_width_m)
+
+
+def _parts(g) -> list[Polygon]:
+    if g is None or g.is_empty:
+        return []
+    if isinstance(g, Polygon):
+        return [g]
+    return [q for q in getattr(g, "geoms", []) if isinstance(q, Polygon) and not q.is_empty]
+
+
+def _welded_samples(poly: Polygon, air, near_m: float) -> int:
+    ring = poly.exterior
+    n = max(4, int(ring.length // _STEP_M))
+    k = 0
+    for i in range(n):
+        p = ring.interpolate(i * ring.length / n)
+        if air.distance(p) <= near_m:
+            k += 1
+    return k
+
+
+def platform_split(base_regions, pad_regions, law: Law,
+                   grid: float = 0.0) -> tuple[list, dict]:
+    """THE SPLIT (module docstring).  Returns ``(pad_regions, counts)``;
+    a no-op with ``[building_pad] platform_collar`` off."""
+    PLATFORMS.clear()
+    counts: dict[str, _t.Any] = {"platforms": 0, "platforms_refused": 0}
+    bp = law.tables.structures.building_pad
+    if not bool(getattr(bp, "platform_collar", False)) or not pad_regions:
+        return list(pad_regions), counts
+    from ..law.tables import design as design_law
+    min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
+    near = float(design_law(law).pad_frontage_m)
+    C = collar_width_m(law)
+    if min_m2 <= 0.0 or C <= 0.0:
+        return list(pad_regions), counts
+    air_roles = rolled_on_roles(law)
+    air_polys = [r.polygon for r in base_regions
+                 if r.source == "cell" and r.role in air_roles
+                 and r.polygon is not None and not r.polygon.is_empty]
+    if not air_polys:
+        return list(pad_regions), counts
+    tree = STRtree(air_polys)
+    out: list = []
+    plat_ids: set[int] = set()
+    for pr in pad_regions:
+        P = pr.polygon
+        if (P is None or P.is_empty or not isinstance(P, Polygon)
+                or P.area < min_m2 or str(pr.ref).endswith(COLLAR_SUFFIX)):
+            out.append(pr)
+            continue
+        cand = [air_polys[int(j)] for j in
+                tree.query(P, predicate="dwithin", distance=near)]
+        if not cand:
+            out.append(pr)                   # fronts no airside: its DEM datum
+            continue
+        air = unary_union(cand)
+        nw = _welded_samples(P, air, near)
+        if nw < _MIN_WELDED:
+            out.append(pr)
+            continue
+        inner = P.buffer(-C, join_style=2, mitre_limit=2.0)
+        parts = sorted(_parts(inner), key=lambda q: -q.area)
+        if not parts:
+            PLATFORMS.append(Platform(str(pr.ref), C, round(P.area, 1), 0.0,
+                                      nw, "eroded_away"))
+            out.append(pr)
+            continue
+        # EVERY piece the erosion leaves is platform (a district pad is
+        # several halls joined by narrow links, and the links are what the
+        # collar eats — HECA T3 ``building4``: its largest piece alone is a
+        # third of the pad).  The pieces keep the pad's ref, so the plate
+        # prices them as ONE plane (``cluster_pad.plane_groups``).  A piece
+        # under ``[building_pad] min_area_m2`` (the smallest pad the mint
+        # keeps) stays in the collar, which is where its ground is.
+        pmin = float(bp.min_area_m2)
+        plats = []
+        for q in parts:
+            if grid > 0.0:
+                # the ring is noded on the arrangement's grid anyway; a
+                # mitred erosion carries no vertex worth half a cell
+                s_ = q.simplify(0.5 * grid, preserve_topology=True)
+                q = s_ if isinstance(s_, Polygon) and not s_.is_empty else q
+            if q.area >= pmin:
+                plats.append(q)
+        tot = sum(q.area for q in plats)
+        if tot < min_m2:
+            PLATFORMS.append(Platform(str(pr.ref), C, round(P.area, 1),
+                                      round(tot, 1), nw, "under_min_area"))
+            out.append(pr)
+            continue
+        cparts = _parts(P.difference(unary_union(plats)))
+        if not cparts:
+            out.append(pr)
+            continue
+        PLATFORMS.append(Platform(str(pr.ref), C, round(P.area, 1),
+                                  round(tot, 1), nw))
+        pieces = [_dc.replace(pr, polygon=q) for q in plats]
+        plat_ids.update(id(q) for q in pieces)
+        out.extend(pieces)
+        # the collar: the annulus around every platform piece (a polygon
+        # with the pieces as its holes); an erosion that split off small
+        # islands leaves them in it, which is where their ground is
+        out.extend(_dc.replace(pr, ref=str(pr.ref) + COLLAR_SUFFIX, polygon=q)
+                   for q in cparts)
+    # ONE REF, ONE PAD: a pad the 23a cut / the 28b terrace left in several
+    # regions carries its ref on each, and a piece left whole above would
+    # read as a PLATFORM face by its ref — MEASURED at HECA T3 ``building4``:
+    # eleven 0.1-2 m2 rim slivers between the pad and ``pav1`` came out as
+    # "platform" faces holding apron vertices, and the plane dragged the
+    # apron with them.  Every other region of a platform ref is COLLAR.
+    minted = {p.ref for p in PLATFORMS if not p.refused}
+    if minted:
+        out = [r if (str(r.ref) not in minted or id(r) in plat_ids)
+               else _dc.replace(r, ref=str(r.ref) + COLLAR_SUFFIX) for r in out]
+    counts["platforms"] = sum(1 for p in PLATFORMS if not p.refused)
+    counts["platforms_refused"] = sum(1 for p in PLATFORMS if p.refused)
+    counts["platform_list"] = "; ".join(
+        f"{p.ref} C {p.collar_m:g} m {p.platform_m2:,.0f}/{p.pad_m2:,.0f} m2"
+        + (f" REFUSED {p.refused}" if p.refused else "") for p in PLATFORMS[:12])
+    return out, counts

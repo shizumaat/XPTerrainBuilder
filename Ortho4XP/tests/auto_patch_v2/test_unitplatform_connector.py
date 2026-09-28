@@ -221,6 +221,7 @@ def test_census_v15_joins_the_law_carrier_by_its_slot_name():
     (1)) through that slot — not the geometric body beneath (HECA: every
     one of the 47 'carried floats' sat at its carrier's zero to 0.00 m and
     was measured against the CUT rail 5.28 m below it)."""
+    from auto_patch_v2.airport import placement_carrier as _pc  # noqa: F401  (import order)
     from auto_patch_v2.airport import placement_census as PCe
 
     def _row(idx, res, box, sz, feet, carrier=None):

@@ -39,7 +39,26 @@ from .frame import XY, Key
 from .structures import Basin, Channel, Tunnel
 
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
-           "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier"]
+           "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
+           "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of"]
+
+#: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
+#: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
+#: so every reader joining a pad on ``ref.split("#")[0]`` reads the collar
+#: as the same pad; the readers that must tell the two apart (the plate,
+#: the collar rows, ``pad_flat``) ask :func:`is_collar_ref`.
+COLLAR_SUFFIX = "#collar"
+
+
+def is_collar_ref(ref: object) -> bool:
+    """Is this face ref a platform COLLAR (unit-platform spec §1 (3))?"""
+    return str(ref).endswith(COLLAR_SUFFIX)
+
+
+def platform_ref_of(ref: object) -> str:
+    """The PLATFORM face's ref of a collar ref (the ref itself otherwise)."""
+    r = str(ref)
+    return r[:-len(COLLAR_SUFFIX)] if r.endswith(COLLAR_SUFFIX) else r
 
 #: Label of a vertex no shape owns (``shape_of_vertex``).  It lives with
 #: the RECORD, not with the pass that fills it (``planar/shapes.py`` — which

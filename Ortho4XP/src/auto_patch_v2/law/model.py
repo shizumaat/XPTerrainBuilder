@@ -208,11 +208,13 @@ class AdjacentGround:
     #: terrain profile across the last ``shore_profile_run_m`` before the
     #: water line reads a BUILT edge where it drops at least
     #: ``shore_profile_drop_m`` there (``planar/shore``).  Fields below.
+    #: (RULINGS 2026-09-29h: the drop calibrated 2.0 -> 3.5 m; the values
+    #: live in ``zones.toml`` ONLY — no numeric default here, the law-python
+    #: literal twin forbids it)
+    shore_profile_drop_m: float
+    shore_profile_run_m: float
     runway: ZoneClass
     taxi: ZoneClass
-    #: (RULINGS 2026-09-29h: the drop calibrated 2.0 -> 3.5 m)
-    shore_profile_drop_m: float = 3.5
-    shore_profile_run_m: float = 10.0
 
 
 @_dc.dataclass(frozen=True)

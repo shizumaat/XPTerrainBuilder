@@ -68,7 +68,7 @@ def test_the_witnesses_are_the_rulings_five_in_order():
 
 def test_the_law_keys(law):
     ag = law.tables.zones.adjacent_ground
-    assert ag.shore_profile_drop_m == 2.0
+    assert ag.shore_profile_drop_m == 3.5       # RULINGS 2026-09-29h
     assert ag.shore_profile_run_m == 10.0
 
 
@@ -138,10 +138,20 @@ def test_the_pavement_edge_on_the_coast_is_a_wall(law):
 
 # ── (4) THE TERRAIN PROFILE ──────────────────────────────────────────────
 
-def test_a_2m_step_within_10m_is_a_built_edge_at_that_height(law):
-    for r in _decide(law, _ProfileDem(_step(2.0))):
+def test_a_4m_step_within_10m_is_a_built_edge_at_that_height(law):
+    for r in _decide(law, _ProfileDem(_step(4.0))):
         assert r.quay and r.shore.witness == "profile", r.shore
-        assert r.shore.height_m == pytest.approx(2.0)
+        assert r.shore.height_m == pytest.approx(4.0)
+
+
+def test_a_2_5m_line_rising_gently_is_not_a_wall(law):
+    """NLWF's class (29h): the DEM stands 2.03–2.69 m above the sea on the
+    coastline and rises ~1:12 inland — under the calibrated 3.5 m drop, so
+    no wall.  Steeper than 1:3 in its first metre, it is no gentle profile
+    either: natural by default (a ``shore_undeclared`` row)."""
+    for r in _decide(law, _ProfileDem(lambda d: 2.5 + d / 12.0)):
+        assert r.natural_shore and not r.quay, r.shore
+        assert r.shore.witness == "default"
 
 
 def test_a_1_in_4_fall_is_natural(law):
@@ -156,10 +166,11 @@ def test_a_profile_at_1_in_3_is_natural(law):
         assert r.natural_shore and r.shore.witness == "profile"
 
 
-def test_a_steep_step_under_2m_is_no_witness(law):
-    """Steeper than 1:3 but only 1.5 m: neither built nor gentle — the
-    contact falls through to the default (a ``shore_undeclared`` row)."""
-    for r in _decide(law, _ProfileDem(_step(1.5))):
+def test_a_steep_step_under_the_drop_is_no_witness(law):
+    """Steeper than 1:3 but only 2 m (under 3.5): neither built nor gentle
+    — the contact falls through to the default (a ``shore_undeclared``
+    row)."""
+    for r in _decide(law, _ProfileDem(_step(2.0))):
         assert r.natural_shore and r.shore.witness == "default"
         assert r.shore.undeclared
 
@@ -193,6 +204,27 @@ def test_a_level_platform_at_the_water_line_is_a_built_edge(law):
     the land at Z0 6.10 m right to the coastline, so the profile's drop is
     the fall from the platform TO THE WATER at the line — 6.1 m in the
     first metre — a wall at that height."""
-    for r in _decide(law, _ProfileDem(lambda d: 6.1)):
+    for r in _decide(law, _ProfileDem(lambda d: 6.0)):
         assert r.quay and r.shore.witness == "profile"
-        assert r.shore.height_m == pytest.approx(6.1)
+        assert r.shore.height_m == pytest.approx(6.0)
+
+
+def test_a_fence_is_no_wall_class_witness():
+    """RULINGS 2026-09-29h (Q-72b): TFFJ's ``beach_fence.obj`` (92 m,
+    2.38 m, thin) passes the footprint test but is a FENCE — the wall-class
+    classifier never admits it; a retaining wall resource still passes."""
+    from types import SimpleNamespace as NS
+    from auto_patch_v2.classify.retaining_wall import wall_class_components
+    from auto_patch_v2.classify.rules import load_rules
+    from auto_patch_v2.model.frame import Frame
+    frame = Frame("TFFJ", (17.9, -62.84), 11)
+    ring = [(17.9, -62.84), (17.9, -62.839), (17.900005, -62.839),
+            (17.900005, -62.84)]
+    part = NS(rings=[ring], height_m=2.38, comp=0, line=False)
+    def ap(resource):
+        m = NS(resource=resource, parts=[part])
+        return NS(partition=NS(units=[NS(members=[m])]), frame=frame)
+    cfg = load_rules().service
+    assert wall_class_components(ap("Objects/Airport/beach_fence.obj"), cfg) == []
+    assert len(wall_class_components(ap("Objects/Hangar_Tower/metal_strip_2.obj"),
+                                     cfg)) == 1

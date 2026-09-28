@@ -84,13 +84,26 @@ class WallComponent:
     comp: int
 
 
+#: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
+#: tell a fence from a retaining or sea wall (TFFJ ``beach_fence.obj``:
+#: 92 m, 2.38 m, thin), so the pack's own resource name decides: a
+#: component whose resource basename names one of these is never wall-class.
+NOT_WALL_RESOURCE_WORDS = ("fence", "railing")
+
+
+def _not_a_wall(resource: str) -> bool:
+    base = str(resource or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return any(w in base for w in NOT_WALL_RESOURCE_WORDS)
+
+
 def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
     """THE WALL-CLASS CLASSIFIER, the one implementation: every pack
     component that is thin, at least ``retaining_wall_min_height_m`` tall
     and at least ``retaining_wall_min_length_m`` long.  Read by
     :func:`retaining_pieces` (a wall along a road edge) and by
     ``planar/shore`` (a wall along the shore — owner RULINGS 2026-09-29a
-    (2))."""
+    (2)).  Retaining / sea-wall classes only: a fence resource is never
+    wall-class (RULINGS 2026-09-29h, Q-72b)."""
     part = getattr(airport, "partition", None)
     if part is None:
         return []
@@ -98,6 +111,8 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
     out: list[WallComponent] = []
     for u in part.units:
         for m in u.members:
+            if _not_a_wall(m.resource):
+                continue                    # 29h (Q-72b): a fence is no wall
             for p in m.parts:
                 if not p.rings or getattr(p, "line", False) or \
                         p.height_m < float(cfg.retaining_wall_min_height_m):

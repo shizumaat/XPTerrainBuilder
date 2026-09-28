@@ -22,7 +22,7 @@ from auto_patch_v2.planar.zones import (                       # noqa: E402
     SHORE_WALL_TAGS, shore_declarations)
 
 _FEED = """<?xml version='1.0' encoding='UTF-8'?>
-<osm version="0.6" o4_tag_schema="2026-09-28">
+<osm version="0.6" o4_tag_schema="2026-09-29">
   <node id="-1" lat="22.1500" lon="113.5700"/>
   <node id="-2" lat="22.1500" lon="113.5710"/>
   <node id="-3" lat="22.1510" lon="113.5710"/>

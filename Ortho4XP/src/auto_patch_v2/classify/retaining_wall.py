@@ -42,7 +42,8 @@ from shapely.ops import unary_union
 
 from ..model.airport import Airport
 
-__all__ = ["RetainingPiece", "retaining_pieces", "road_extension", "STATS"]
+__all__ = ["RetainingPiece", "WallComponent", "retaining_pieces",
+           "road_extension", "wall_class_components", "STATS"]
 
 #: What the last call found (``classify`` publishes it with its stats).
 STATS: dict[str, float] = {}
@@ -72,18 +73,29 @@ def _wall_class(poly: Polygon, height_m: float, cfg) -> bool:
             and length >= float(cfg.retaining_wall_min_length_m))
 
 
-def retaining_pieces(airport: Airport, ribbon, lane_m: float, cfg
-                     ) -> list[RetainingPiece]:
-    """Every RETAINING piece (module docstring) against ``ribbon`` (the
-    service-road corridor union, frame xy)."""
+@_dc.dataclass(frozen=True)
+class WallComponent:
+    """One WALL-CLASS pack component (module docstring: thin, tall, long):
+    its footprint pieces (frame xy), its solid height and its source."""
+
+    pieces: tuple
+    height_m: float
+    resource: str
+    comp: int
+
+
+def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
+    """THE WALL-CLASS CLASSIFIER, the one implementation: every pack
+    component that is thin, at least ``retaining_wall_min_height_m`` tall
+    and at least ``retaining_wall_min_length_m`` long.  Read by
+    :func:`retaining_pieces` (a wall along a road edge) and by
+    ``planar/shore`` (a wall along the shore — owner RULINGS 2026-09-29a
+    (2))."""
     part = getattr(airport, "partition", None)
-    if part is None or ribbon is None or ribbon.is_empty or lane_m <= 0.0:
+    if part is None:
         return []
     to_xy = airport.frame.entry()
-    near = ribbon.buffer(lane_m)
-    frac = float(cfg.retaining_wall_along_fraction)
-    out: list[RetainingPiece] = []
-    walls = 0
+    out: list[WallComponent] = []
     for u in part.units:
         for m in u.members:
             for p in m.parts:
@@ -105,21 +117,37 @@ def retaining_pieces(airport: Airport, ribbon, lane_m: float, cfg
                 if whole.length <= 0.0:
                     continue
                 # the COMPONENT is judged thin and long; its PIECES are
-                # judged along the road one by one
+                # judged against the road (or the shore) one by one
                 wide = 2.0 * whole.area / whole.length
                 if wide > float(cfg.retaining_wall_max_width_m) or \
                         sum(g.length for g in polys) / 2.0 < \
                         float(cfg.retaining_wall_min_length_m):
                     continue
-                walls += 1
-                for g in polys:
-                    if g.area <= 0.0 or not g.intersects(near):
-                        continue
-                    if g.intersection(near).area / g.area < frac:
-                        continue
-                    out.append(RetainingPiece(g, float(p.height_m), m.resource,
-                                              int(p.comp), float(g.distance(ribbon))))
-    STATS.update(wall_components=walls, retaining_pieces=len(out))
+                out.append(WallComponent(tuple(polys), float(p.height_m),
+                                         m.resource, int(p.comp)))
+    return out
+
+
+def retaining_pieces(airport: Airport, ribbon, lane_m: float, cfg
+                     ) -> list[RetainingPiece]:
+    """Every RETAINING piece (module docstring) against ``ribbon`` (the
+    service-road corridor union, frame xy)."""
+    if getattr(airport, "partition", None) is None or ribbon is None or \
+            ribbon.is_empty or lane_m <= 0.0:
+        return []
+    near = ribbon.buffer(lane_m)
+    frac = float(cfg.retaining_wall_along_fraction)
+    out: list[RetainingPiece] = []
+    walls = wall_class_components(airport, cfg)
+    for w in walls:
+        for g in w.pieces:
+            if g.area <= 0.0 or not g.intersects(near):
+                continue
+            if g.intersection(near).area / g.area < frac:
+                continue
+            out.append(RetainingPiece(g, w.height_m, w.resource, w.comp,
+                                      float(g.distance(ribbon))))
+    STATS.update(wall_components=len(walls), retaining_pieces=len(out))
     return out
 
 

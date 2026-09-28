@@ -573,6 +573,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"  [planar] shore (§37 (11) (7)): "
          f"{len(getattr(pm, 'quay_refs', ()) or ())} quay face(s), "
          f"{len(getattr(pm, 'natural_shore_refs', ()) or ())} natural", out)
+    for _ln in shore_decision_lines(pm, airport):
+        _say(_ln, out)
     if _xp:
         _xp["classification"] = cl
         _xp["planar_pm"] = pm
@@ -1318,3 +1320,32 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     return BuildResult(icao, pm, cs, counts, sol, paths, vrows, pieces, wall, size, report,
                        Path(out_dir) / f"{icao}.rebake.json" if report.get("rebake_plan")
                        else None)
+
+
+def shore_decision_lines(pm, airport) -> list[str]:
+    """§37 (11) THE SHORE DECISION (owner RULINGS 2026-09-29a): one summary
+    line — the verdicts per witness — and one ``shore_undeclared`` row per
+    contact no witness spoke for (29a (5)), with its ``lat, lon``."""
+    vs = getattr(pm, "shore_verdicts", ()) or ()
+    if not vs:
+        return []
+    from collections import Counter
+    c = Counter((v[1], v[2]) for v in vs)
+    parts = [f"{k} by {w} {n}" for (k, w), n in sorted(c.items())]
+    lines = [f"  [planar] shore decision (29a): {len(vs)} contact(s): "
+             + ", ".join(parts)]
+    try:
+        to_ll = airport.frame.transformers()[1]
+    except Exception:                                   # pragma: no cover
+        to_ll = None
+    for v in vs:
+        if v[2] != "default":
+            continue
+        ll = ""
+        if to_ll is not None and v[4] == v[4]:
+            la, lo = to_ll(v[4], v[5])
+            ll = f" at {la:.6f}, {lo:.6f}"
+        lines.append(f"  [planar] shore_undeclared {v[0]}{ll}: contact "
+                     f"{v[6]:.0f} m, profile stations {v[7]} built {v[8]} "
+                     f"gentle {v[9]} — natural by default")
+    return lines

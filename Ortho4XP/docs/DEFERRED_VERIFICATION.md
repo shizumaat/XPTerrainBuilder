@@ -6254,3 +6254,13 @@ constraint, and owed:
   profiling round. Also deferred: the #31 rider census on a `--tile` build
   (the closing pair is patch-only, so the object stage never ran) and the
   `.agp` OBJECT_MSL sim read (Q-31). No full-suite run.
+- **surfacesettle2 (2026-09-27, issues #21 #22, RULINGS 27a (10)/(11))** —
+  the CORE half of "the ribbon yields" (`clamp_road_network(join_pins=)`
+  reading the sidecar's `road_join_yield`) is twinned only: the closing
+  build was patch-only, so no GEML `--tile` build has shown the mesh ribbon
+  meeting the patch at the three released joins (2.00 / 0.97 / 0.02 m).
+  TFFJ was measured on replay-emit arms only: `build_airport.py TFFJ`
+  refuses PACK-SET-STALE (#61) without `--refresh-data dem`, which this
+  lane was told not to run. No full-suite run; build-time impact of the
+  second (and third) stage-2 solve paid only when stage 2 does not settle
+  (GEML stage 2 ≈ 0.5 s each) not timed.

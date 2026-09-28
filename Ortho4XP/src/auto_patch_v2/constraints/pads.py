@@ -79,6 +79,7 @@ from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
                           role_cap, rolled_on_roles, senior_role)
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
+from ..model.islands import courtyard_faces
 from ..model.planar import PlanarMap
 from .pad_relief import pad_relief_offsets
 from .precedence import view
@@ -178,8 +179,11 @@ def airside_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     the apron), so a new pavement role joins with no code change.  ONE
     derivation, read by :func:`_pad_rows`."""
     vw = view(planar, law)
+    court = courtyard_faces(planar, law)
     out: set[int] = set()
     for f in vw.faces_of_role(tuple(sorted(rolled_on_roles(law)))):
+        if f.id in court:
+            continue                    # a courtyard is the pad's (islands)
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
             out.update(ring)
     return frozenset(out)
@@ -210,8 +214,11 @@ def _pavement_faces(planar: PlanarMap, law: Law) -> list[tuple[str, set[int]]]:
     :func:`pad_frontage` and :func:`pad_shared`."""
     vw = view(planar, law)
     rigid = set(rigid_roles(law))
+    court = courtyard_faces(planar, law)
     out: list[tuple[str, set[int]]] = []
     for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
+        if f.id in court:
+            continue                    # a pad never fronts its courtyard
         vs = {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
         if vs:
             out.append((f.role, vs))
@@ -256,8 +263,11 @@ def _pavement_geoms(planar: PlanarMap, law: Law
     PROXIMITY read measures against (owner RULINGS 2026-09-10ax (1))."""
     vw = view(planar, law)
     rigid = set(rigid_roles(law))
+    court = courtyard_faces(planar, law)
     out: list[tuple[str, set[int], Polygon]] = []
     for f in vw.faces_of_role(tuple(r for r in pavement_roles(law) if r not in rigid)):
+        if f.id in court:
+            continue                    # a pad never fronts its courtyard
         vs = {v for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring}
         ring = vw.rings[f.id]
         if not vs or len(ring) < 3:

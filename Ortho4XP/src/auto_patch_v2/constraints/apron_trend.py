@@ -57,6 +57,7 @@ from .surface_trend import cell_samples, surface_trend_of
 from ..law import Law
 from ..law.tables import airside_stage_roles, apron_roles
 from ..model.airport import Airport
+from ..model.islands import courtyard_faces
 from ..model.planar import PlanarMap
 
 __all__ = ["ApronTrendReport", "apron_trend_targets", "with_apron_trend",
@@ -97,9 +98,12 @@ def _apron_bodies(pm: PlanarMap, law: Law,
             v = parent[v]
         return v
 
+    # THE COURTYARD (``model.islands``, lane islands #77): an apron island
+    # in a pad hole takes the pad rim's level, never a trend
+    court = courtyard_faces(pm, law)
     members: list[list[int]] = []
     for f in pm.faces.values():
-        if f.role not in roles:
+        if f.role not in roles or f.id in court:
             continue
         vs = [v for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
         if not vs:

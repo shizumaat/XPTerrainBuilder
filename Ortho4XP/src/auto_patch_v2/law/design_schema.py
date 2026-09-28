@@ -162,6 +162,12 @@ class Design:
     #: row.  ``constraints.pad_frontage_gs.frontage_step_max_m`` is the one
     #: derivation site; 0 disables the bound.
     frontage_step_max_m: float
+    #: §20 FRONTING ACROSS BARE GROUND (owner RULINGS 2026-09-27a (9)):
+    #: the plan reach within which a pad faces an apron across bare
+    #: ground, and the roles that can be faced.  ``constraints.
+    #: pad_fronting`` is the one derivation site; 0 disarms.
+    pad_fronting_reach_m: float
+    pad_fronting_roles: tuple[str, ...]
     #: jetway-strip spec §1 (2) / §2 (owner RULINGS 2026-09-18t Q3): the
     #: plan distance D from a 23a pad's RIDER EDGE within which the apron
     #: is ONE level (``constraints.jetway_strip.strip_m`` is the one
@@ -346,6 +352,10 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.frontage_step_max_m {d.frontage_step_max_m}: "
                   "a DEM step in metres, never negative (owner RULINGS "
                   "2026-09-13o/13p)")
+    if d.pad_fronting_reach_m < 0.0:
+        raise err(f"emit.design.pad_fronting_reach_m {d.pad_fronting_reach_m}: a "
+                  "plan distance in metres, never negative (owner RULINGS "
+                  "2026-09-27a (9))")
     if d.jetway_strip_m < 0.0:
         raise err(f"emit.design.jetway_strip_m {d.jetway_strip_m}: a plan "
                   "distance in metres, never negative (jetway-strip spec §1 (2))")

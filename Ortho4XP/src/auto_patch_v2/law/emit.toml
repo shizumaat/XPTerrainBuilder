@@ -643,6 +643,17 @@ jetway_strip_plane_tol_m = 0.5    # spec-author ruling Q-32d (i), 2026-09-25: a 
 # solved-level frame is still unreadable by a generator; 2.4 is the gap
 # centre of the frame that IS readable.
 frontage_step_max_m = 2.4
+# §20 FRONTING ACROSS BARE GROUND (owner RULINGS 2026-09-27a (9), Q-11
+# option A; issue #11): a pad FRONTS every apron within this plan distance
+# of its edge when the ground between them is bare (no pavement face and
+# no building pad crosses the facing segment), and takes that edge's
+# level; the ground between grades as a terrace.  Where a pad both TOUCHES
+# one apron and FACES a higher one, the HIGHER frontage is the senior and
+# the touching weld is released from the pad's plate (the step there is
+# the reported residual).  Nearest apron wins per pad vertex.  0 disarms.
+# `constraints.pad_fronting` is the one derivation site.
+pad_fronting_reach_m = 50.0
+pad_fronting_roles = ["apron"]
 # THE BANK AT THE PATCH BOUNDARY (owner RULINGS 2026-09-09e; spec §9).
 # Ortho4XP's mesh does NOT blend from the patch boundary to the DEM — it
 # drapes the raw DEM right outside the constrained ring (§8.4: a 16.8 m

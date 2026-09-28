@@ -929,8 +929,22 @@ def test_imagery_conversion_tails_run_at_full_width(
     """The imagery half of the behavioural acceptance check (spec §A.2),
     synthetically: six tiles whose imagery steps hand off to a
     processor-burning DDS conversion tail overlap SIX ways, while their
-    download phases never exceed the imagery cap of four."""
+    download phases never exceed the imagery cap of four.
+
+    THE TAIL MUST OUTLAST THE STAGGER (#76).  The downloads are capped at
+    four, which is the whole point — so tiles five and six reach their
+    conversion tail LATER than the first four, by however long a spawned
+    worker takes to get there.  With the stub's default 0.6 s tail the
+    early four can finish before the late two begin, and the twin then
+    reads five-way overlap and reports the cap it exists to disprove.
+    That is what happened on macOS, where process spawn is slowest: red in
+    both runs of ffb580c2, green on Linux.  Lengthening the tail makes the
+    measurement about ADMISSION — six tails allowed at once past a cap of
+    four — instead of about how fast this machine forks.  The concurrency
+    assertion itself is unchanged and still exact.
+    """
     monkeypatch.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
+    monkeypatch.setenv("STUB_WORKER_CONVERT_SECONDS", "3.0")
     session = EngineSession()
     tiles = [(64, -100 - index) for index in range(6)]
     result = _run_build(session, collector, tiles, slots=6, timeout=60.0,

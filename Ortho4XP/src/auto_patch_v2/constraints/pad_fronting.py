@@ -32,7 +32,11 @@ ground: it grades between the two edges as a terrace (§31 (3)).
   low apron (93.5 -> 92.2 m); releasing the touching lower pads too left
   a four-vertex face with no plate at all (118.6 m).  A pad whose facing
   apron must outrank a weld needs a TERRACE at the weld (split identity),
-  which is a planar-map change, not a row — owed to the spec author.
+  which is a planar-map change, not a row: owner RULINGS 2026-09-28b made
+  it (``planar/pad_terrace``) — a touching apron at ANOTHER level than
+  the apron the pad fronts is split off there, so the weld this rule
+  would have had to outrank no longer exists, and the pad never faces
+  the split apron back (``PlanarMap.pad_terraces``).
 
 ONE-WAY, like every §20 row: the pad follows, the apron never moves for
 it (airside is king, 14ai).  The rows carry §20's own ruling heads
@@ -125,10 +129,16 @@ def facing(planar: PlanarMap, law: Law) -> dict[int, dict[int, list[int]]]:
     b_tree = STRtree([b[3] for b in blockers])
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     out: dict[int, dict[int, list[int]]] = {}
+    terr = getattr(planar, "pad_terraces", None) or {}
+    ref_of = {f.id: str(f.ref) for f in planar.faces.values()}
     for fid, _ref, group, poly in _pad_polys(planar, law):
         pad_vs = set(group)
         cand = [aprons[int(i)] for i in
                 a_tree.query(poly, predicate="dwithin", distance=r)]
+        # a TERRACED apron (``planar/pad_terrace``, 28b) was split off this
+        # pad at another level: the pad never faces it back
+        split = terr.get(str(_ref), ())
+        cand = [a for a in cand if ref_of.get(a[0]) not in split]
         # an apron the pad already fronts (weld or 3 m) is §20's own
         cand = [a for a in cand if not (a[2] & pad_vs)
                 and a[3].distance(poly) > near]

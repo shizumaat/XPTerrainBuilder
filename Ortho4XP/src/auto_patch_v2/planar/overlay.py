@@ -212,9 +212,17 @@ def build_arrangement(airport: Airport, classification: Classification,
     # the rim's own coordinates.
     keeps = bool(getattr(law.tables.structures.placement,
                          "pad_keeps_footprint", False))
+    from .pad_terrace import TERRACES, pad_terrace_split
+    TERRACES.clear()
     if keeps:
         base_regions, pad_regions, _pad_clip = apron_cut_to_pads(
             base_regions, pad_regions, law, float(grid))
+        # RULINGS 2026-09-28a (6) / 28b (#11): a pad welds to the apron it
+        # FRONTS; a touching apron at another level is split off as a
+        # declared terrace — at the one site the weld is made
+        base_regions, pad_regions, _terr = pad_terrace_split(
+            base_regions, pad_regions, law, getattr(airport, "dem", None))
+        _pad_clip.update(_terr)
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []

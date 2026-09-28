@@ -141,8 +141,12 @@ def main(argv: list[str] | None = None) -> int:
                             args.feather_m, args.dem_frame, args.allow_degraded_dem)
     law = Law.for_airport(args.icao)
     airport, lrep = load_with_report(args.icao, inputs, law)
+    ocache = None
+    if args.stage == "structures":
+        airport, ocache = with_pack_partition(args.icao, airport, law,
+                                              inputs, lrep)
     t1 = time.perf_counter()
-    cl = classify(airport, law, load_rules())
+    cl = classify(airport, law, load_rules(), cache=ocache)
     t2 = time.perf_counter()
     if args.stage == "structures":
         rec = structure_records(airport, cl, law)
@@ -303,6 +307,40 @@ def main(argv: list[str] | None = None) -> int:
           f"planar {t3 - t2:.2f} s  write {t4 - t3:.2f} s  total {t4 - t0:.2f} s")
     print(f"  wrote {out / 'faces.geojson'}, breaklines.geojson, report.json")
     return 0
+
+
+def with_pack_partition(icao: str, airport, law, inputs, lrep,
+                        out=print):
+    """THE PACK PARTITION ON THE DRY PATH (issue #75).
+
+    ``build`` puts the pack partition, groups and clusters on the
+    ``Airport`` BEFORE classify (``pipeline.build.pack_stage``), and the
+    structure readings that ask ``airport.partition`` — §34 (12) (5) (a)'s
+    pack-building refusal among them — read NOTHING without it.  Measured
+    (lane ``tunnelwitness2``): OTHH's dry ``--stage structures`` at
+    ``0743d43e`` still listed ``tunnel:-10442`` and ``tunnel:-1355`` that
+    the capture replay and the real build both refuse.
+
+    So the dry path runs THE SAME stage — ``pack_stage``, one code path,
+    never a second spelling — with ``write_cache=False``: a cached
+    partition is read where one exists, a missing one is derived in
+    memory, and nothing is written into the mod cache.  Returns
+    ``(airport, ResourceCache)``; a pack stage that cannot run REFUSES
+    naming the capture replay, never a silent partition-less reading."""
+    from ..pipeline.build import pack_stage
+    try:
+        ps = pack_stage(icao, airport, law, inputs, lrep, out,
+                        write_cache=False)
+    except Exception as exc:
+        raise SystemExit(
+            f"REFUSING --stage structures for {icao}: the pack partition "
+            f"could not be derived ({exc!r}), and the structure readings "
+            f"that ask airport.partition (§34 (12) (5) (a)'s pack-building "
+            f"refusal) would silently read nothing (issue #75).  Measure "
+            f"with the capture replay instead: tools/v2_solve_replay.py "
+            f"--capture {icao} --out DIR/{icao}.pkl, then --replay "
+            f"DIR/{icao}.pkl --from planar --emit DIR") from exc
+    return ps["airport"], ps["ocache"]
 
 
 def structure_records(airport, cl, law) -> dict:

@@ -6270,3 +6270,27 @@ constraint, and owed:
   LEMD `--tile` build), the `.agp` OBJECT_MSL sim read (Q-31), and the
   engine's own MESH-sampler reading of the rider terrain (the census reads
   the graded Delaunay; the build logs no rider counts). No full-suite run.
+- 2026-09-28 lane shoreharness (#71): the vertex-on-edge noding pass
+  (`Vector_Map.node_vertices_on_edges`, every tile's vector step) was
+  measured on NLWF's tile only (`shoreharness_t2`: 4 splits, 4 -> 0
+  UNMESHABLE, 1,471,880 -> 69,890 triangles, 1,368,039 -> 38 under
+  0.01 m^2, DSF pools level 14 -> 3) and offline on the LEMD tile `.poly`
+  (`lemdtile_LEMD`: 8 splits, 1.2 s + 0.6 s fixed-point round). No other
+  tile's mesh rebuilt; the insertion route that left NLWF's sea edge
+  un-noded is unattributed (a synthetic `insert_way` nodes it).
+- 2026-09-28 lane shoreharness (#72): the shore-structure feed is filled for
+  +22+113 only (ledger 2026-09-28T08:46:12, scope `shore`, sha256 1fc01eeb);
+  every other tile reads NOT FILLED. PRODUCTION HAS NO FILL: the feed is
+  not in the tile prefetch (adding it there would make every harness
+  `--tile` build refuse or contaminate until each tile is refreshed — an
+  orchestrator/owner call). VMMC was measured by an in-process planar A/B
+  (degraded frame knowingly) only: `build_airport.py VMMC` refuses on the
+  un-stamped `+22+113_airport_small_roads` (scope `osm_layers`, not
+  authorised in this lane). No census, no tile build.
+- 2026-09-28 lane shoreharness (#75): the dry `--stage structures` path
+  now runs the pack stage; verified on OTHH only (the two bores refused
+  as in the capture replay). The dry path never WRITES the partition
+  cache, so a pack with no cached partition pays the derivation every dry
+  run (OTHH: cache MISS, 348 s, peak 31.6 GB RSS against 19.2 GB before);
+  whether the dry path may write that cache (it is the mod-cache class,
+  not a --refresh-data act) is an orchestrator call.

@@ -155,6 +155,11 @@ class LoadReport:
     #: road feeds carrying a SUPERSEDED ``o4_tag_schema`` — a refusal in
     #: the production frame, a named degradation in a frozen one
     osm_road_feeds_stale: tuple[str, ...] = ()
+    #: §37 (11) (7) (issue #72): the shore-structure feed files READ (the
+    #: 3x3 neighbourhood) — empty means no tile around this airport has
+    #: been filled (``--refresh-data shore``) and every coast here reads
+    #: NATURAL for want of a declaration, not because none exists
+    osm_shore_feeds: tuple[str, ...] = ()
     dem_provenance: dict[str, str] = _dc.field(default_factory=dict)
     notes: list[str] = _dc.field(default_factory=list)
     #: The flat-site verdict record (``airport/flat_site.record``; set by
@@ -328,6 +333,13 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                         _float_or_none(w.tags.get("height")),
                         _int_or_none(w.tags.get("building:levels"))))
     rep.osm_sources = tuple(sources)
+    rep.osm_shore_feeds = tuple(p for p, _s in feed_schemas.get(
+        _osm.SHORE_FEED, ()))
+    if inputs.osm_root and not rep.osm_shore_feeds:
+        rep.notes.append(
+            "no shore-structure feed around this airport (issue #72): every "
+            "coast reads NATURAL for want of a quay/seawall declaration — "
+            "fill it with build_airport.py --refresh-data shore")
     rep.osm_relations = osm_relations.line()
     # A ROAD FEED WRITTEN UNDER A SUPERSEDED TAG WHITELIST IS REFUSED BY
     # NAME (lane ``v2othhdet``; the ``dsf_dump_stale`` refusal below is

@@ -245,6 +245,15 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                 wet = geom.intersection(water)
                 if not wet.is_empty and wet.area > 0.0:
                     geom = geom.difference(water)
+                    # the difference can hand back a GeometryCollection
+                    # (zero-area slivers along the coast), whose
+                    # ``boundary`` is None — VMMC's dry planar died here
+                    # (issue #72 verification).  The zone is an AREA: its
+                    # polygonal parts are the whole of it.
+                    if geom.geom_type == "GeometryCollection":
+                        geom = unary_union([
+                            p for p in shapely.get_parts(geom)
+                            if p.geom_type in ("Polygon", "MultiPolygon")])
                     if edge_report is not None:
                         edge_report.shore_cut_m2 += float(wet.area)
                         edge_report.shore_regions += 1

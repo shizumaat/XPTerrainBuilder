@@ -94,20 +94,20 @@ def test_an_apron_beyond_the_reach_is_not_faced(law):
     assert pad_fronting.facing(pm, law) == {}
 
 
-def test_a_touching_frontage_stays_senior_and_the_facing_row_is_junior(law):
-    """The pad is welded to apron A and faces the higher apron B: §20's
-    touching row keeps the plate weight, the facing row is JUNIOR, and the
-    pad's plate still prices every weld vertex (the refuted release is
-    gone — issue #11)."""
+def test_a_touching_apron_at_another_level_is_terraced_and_facing_is_senior(law):
+    """The pad is welded to apron A (DEM 700) and faces the higher apron B
+    (704) along its longest edge: owner RULINGS 2026-09-28b SUPERSEDES the
+    shipped "touching stays senior" — A is split off as a terrace
+    (``planar/pad_terrace``), no vertex is shared, and the facing row is
+    the pad's SENIOR level row (``test_cargoterrace.py`` for the rule)."""
     pm, airport = _built(law, _cells())
-    g = pad_fronting.analysis(pm, law, airport)["groups"][_fid(pm, "padA")]
-    assert not g["senior"] and g["facing_level"] > g["touching_level"]
+    pad = _fid(pm, "padA")
+    g = pad_fronting.analysis(pm, law, airport)["groups"][pad]
+    assert g["senior"]
+    assert pad not in pads.pad_shared(pm, law)
     rows = pad_fronting.pad_fronting_level(pm, law, airport)
-    assert rows and all(r.source.ruling.startswith(pads.LEVEL_JUNIOR_RULING)
+    assert rows and all(r.source.ruling.startswith(pads.LEVEL_RULING + " ")
                         for r in rows)
-    weld = pads.pad_shared(pm, law)[_fid(pm, "padA")]
-    feet = {v for r in pads.pad_slope_ceiling(pm, law, airport) for v in (r.a, r.b)}
-    assert weld <= feet
 
 
 def test_a_pad_that_only_faces_takes_the_faced_edge_as_senior_one_way(law):

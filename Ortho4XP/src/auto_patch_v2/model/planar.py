@@ -356,6 +356,12 @@ class PlanarMap:
     #: ... and the WEDGES inside them where the band falls at the bank slope
     #: (frame exterior rings; ``planar/zones.ZoneRegion.shore_wedge``).
     natural_shore_wedges: tuple = ()
+    #: THE PAD TERRACES (owner RULINGS 2026-09-28a (6) / 28b, issue #11;
+    #: ``planar/pad_terrace``, the ONE derivation): pad ref -> the refs of
+    #: the aprons / lower pads split from it by a declared terrace.  Read by
+    #: ``constraints/pad_fronting.facing`` so a pad never faces back the
+    #: apron it was separated from; empty on a map nothing split.
+    pad_terraces: _t.Mapping[str, frozenset] = _dc.field(default_factory=dict)
     #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
     #: frame polygon rings — the SINGLE derivation is
     #: ``planar/overlay.seam_bands``, recorded here so every downstream

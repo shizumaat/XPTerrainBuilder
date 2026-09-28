@@ -970,6 +970,86 @@ class Vector_Map:
                 break
         return total
 
+    def node_vertices_on_edges(self, radius_m, lat, rounds=6):
+        """§39 (1) NO VERTEX BESIDE AN EDGE, at the vector map (issue #71).
+
+        Every constrained edge whose INTERIOR passes within ``radius_m`` of
+        a node it does not end at is SPLIT AT that node; nothing moves.
+        Returns the split count.
+
+        WHY.  NLWF -14.31235, -178.06844: the shore weld projects a
+        patch-ring vertex onto the coastline, and the ring runs along the
+        coast to it and turns inland.  The tile's ``.poly`` carried the sea
+        edge WHOLE beside that vertex and beside a seawall end (0.008-0.046
+        mm after the 9-dp write, four pairs), and Triangle4XP filled the
+        hairlines with 1,368,039 triangles under 0.01 m^2.  A synthetic
+        :meth:`insert_edge` of the same coordinates DOES node them, so the
+        insertion route that left the edge whole is unattributed; this pass
+        is the one site every route has arrived at (4 splits, 4 -> 0
+        UNMESHABLE, 1.47 M -> 69,890 triangles, pools level 14 -> 3).
+        Run AFTER :meth:`snap_to_grid`, which is the last move
+        any node makes.  ``radius_m`` is ``split_spacing_m`` — the same
+        degenerate floor the crossing test already treats as ONE point.
+        """
+        if radius_m <= 0.0 or not self.edges_dico:
+            return 0
+        import shapely
+        m_lat = GEO.lat_to_m
+        m_lon = GEO.lon_to_m(lat + 0.5)
+        total = 0
+        for _round in range(rounds):
+            # ONE vectorised candidate query (STRtree ``dwithin`` in the
+            # metric frame), then the exact interior test in numpy: the
+            # per-node r-tree loop cost 18.7 s on the LEMD tile's 389 k
+            # nodes; this is the same predicate.
+            nids = numpy.fromiter(self.nodes_dico, dtype=numpy.int64)
+            nxy = numpy.array([self.nodes_dico[i] for i in nids.tolist()],
+                              dtype=float) * (m_lon, m_lat)
+            row = {int(n): k for k, n in enumerate(nids.tolist())}
+            eids = list(self.edges_dico)
+            e01 = numpy.array([(row[self.edges_dico[e][0]],
+                                row[self.edges_dico[e][1]]) for e in eids],
+                              dtype=numpy.int64)
+            segs = shapely.linestrings(numpy.stack(
+                [nxy[e01[:, 0]], nxy[e01[:, 1]]], axis=1))
+            tree = shapely.STRtree(segs)
+            pi, si = tree.query(shapely.points(nxy), predicate="dwithin",
+                                distance=radius_m)
+            keep = (e01[si, 0] != pi) & (e01[si, 1] != pi)
+            pi, si = pi[keep], si[keep]
+            a = nxy[e01[si, 0]]
+            d = nxy[e01[si, 1]] - a
+            L = (d * d).sum(axis=1)
+            ok = L > 0.0
+            t = numpy.zeros(len(pi))
+            t[ok] = ((nxy[pi[ok]] - a[ok]) * d[ok]).sum(axis=1) / L[ok]
+            inside = ok & (t > 0.0) & (t < 1.0)
+            if not inside.any():
+                break
+            # every edge's nodes, in order along it: the edge becomes the
+            # chain through them — ONE split per edge however many stand
+            # on it
+            by_edge: dict = {}
+            for k in numpy.nonzero(inside)[0].tolist():
+                by_edge.setdefault(int(si[k]), []).append(
+                    (float(t[k]), int(nids[pi[k]])))
+            for s_idx, hits in by_edge.items():
+                edge_id = eids[s_idx]
+                (n0, n1) = self.edges_dico[edge_id]
+                marker = self.data_edges[edge_id]
+                del self.dico_edges[(n0, n1)]
+                del self.edges_dico[edge_id]
+                del self.data_edges[edge_id]
+                self.ebbox.delete(edge_id, self.bbox_from_node_ids(n0, n1))
+                chain = [n0] + [n for _t, n in sorted(hits)] + [n1]
+                # a piece may already exist (the ring along the coast):
+                # ``create_edge`` ORs the marker in — ONE segment
+                for p, q in zip(chain, chain[1:]):
+                    if p != q:
+                        self.create_edge(p, q, marker)
+                total += len(hits)
+        return total
+
     def snap_to_grid(self, digits):
         next_node_id = 1
         next_edge_id = 1

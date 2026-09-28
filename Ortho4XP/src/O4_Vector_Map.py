@@ -79,6 +79,26 @@ ROAD_NODE_TAGS_OF_INTEREST = ["aeroway", "crossing:aircraft", "barrier"]
 ROAD_CACHE_TAG_SCHEMA = "2026-09-15"
 COASTLINE_QUERIES = ['way["natural"="coastline"]']
 AIRPORTS_QUERIES = [('node["aeroway"]', 'way["aeroway"]', 'rel["aeroway"]')]
+# §37 (11) (7) THE SHORE-STRUCTURE FEED (issue #72, owner RULINGS
+# 2026-09-27a (7)): the quay wall stands only where OSM DECLARES a built
+# shore, and no cached feed carried the tags — so every coast read
+# natural.  The tag list is ``auto_patch_v2.planar.zones.SHORE_WALL_TAGS``
+# (twin-asserted equal: this module must not import the v2 package's
+# planar stage).  The feed is NOT in the tile prefetch: it is filled only
+# by the explicit, ledgered ``build_airport.py --refresh-data shore``
+# (``fetch_shore_structures``), and the v2 loader reads it where present
+# and NAMES the tiles where it is absent.  Production's own fill is owed.
+SHORE_STRUCTURE_TAGS = {
+    "man_made": ("quay", "pier", "breakwater", "seawall", "groyne", "dyke"),
+    "barrier": ("wall", "retaining_wall", "seawall"),
+    "wall": ("seawall", "retaining_wall"),
+}
+SHORE_STRUCTURE_QUERIES = [tuple(
+    f'way["{k}"="{v}"]' for k, vals in SHORE_STRUCTURE_TAGS.items()
+    for v in vals)]
+SHORE_STRUCTURE_TAGS_OF_INTEREST = sorted(SHORE_STRUCTURE_TAGS) + ["name"]
+SHORE_STRUCTURE_SUFFIX = "shore_structures"
+SHORE_STRUCTURE_CACHE_TAG_SCHEMA = "2026-09-28"
 WATER_QUERIES = [
     'rel["natural"="water"]',
     'rel["waterway"="riverbank"]',
@@ -1082,6 +1102,23 @@ def osm_layer_warm_specifications(tile):
     ] + _osm_layer_prefetch_specifications(tile)
 
 
+def fetch_shore_structures(lat, lon):
+    """Fill (or recycle) tile ``(lat, lon)``'s shore-structure feed through
+    the ONE OSM cache writer (``O4_OSM_Utils.OSM_queries_to_OSM_layer``),
+    at ``FNAMES.osm_cached(lat, lon, SHORE_STRUCTURE_SUFFIX)``.  Called
+    by ``build_airport.py --refresh-data shore`` only (issue #72): a
+    download into the shared corpus is an explicit, ledgered event.
+    Returns ``(path, ways)``."""
+    layer = OSM.OSM_layer()
+    OSM.OSM_queries_to_OSM_layer(
+        SHORE_STRUCTURE_QUERIES, layer, lat, lon,
+        SHORE_STRUCTURE_TAGS_OF_INTEREST,
+        cached_suffix=SHORE_STRUCTURE_SUFFIX,
+        cache_schema=SHORE_STRUCTURE_CACHE_TAG_SCHEMA)
+    ways = len(getattr(layer, "dicosmw", {}) or {})
+    return FNAMES.osm_cached(lat, lon, SHORE_STRUCTURE_SUFFIX), ways
+
+
 def _layer_cache_is_current(lat, lon, cached_suffix, cache_schema):
     """True when this OSM layer's cache is on disk AND schema-current.
 
@@ -1444,6 +1481,19 @@ def build_poly_file(tile):
                  f"{vector_map.split_z_carried} crossing(s) resolved to an "
                  "existing node and took the crossed chain's altitude.")
     vector_map.snap_to_grid(9)
+    # §39 (1) NO VERTEX BESIDE AN EDGE (issue #71): a node standing within
+    # the split radius of another constrained edge's interior is a node OF
+    # that edge — split it there, move nothing.  After the snap, which is
+    # the last move any node makes.  NLWF: four such pairs (0.008-0.046 mm,
+    # a projected patch-ring vertex and a seawall end beside the coast)
+    # carried 1,368,039 triangles under 0.01 m2.
+    _t_noding = time.time()
+    noded = vector_map.node_vertices_on_edges(
+        vector_map.split_spacing_m, tile.lat)
+    UI.vprint(1, f"   Vertex-on-edge noding (§39 (1), #71): {noded} "
+                 f"constrained edge(s) split at a node standing within "
+                 f"{vector_map.split_spacing_m * 1000:g} mm of their interior "
+                 f"({time.time() - _t_noding:.2f} s).")
     # §39 (i) THE HAIRLINE WELD (owner RULINGS 2026-09-13bu), at the LAST
     # site every pass's output has arrived: two constrained nodes closer
     # than the weld radius are ONE node to any mesher, and the degenerate

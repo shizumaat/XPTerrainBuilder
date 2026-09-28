@@ -389,3 +389,20 @@ def test_patch_edge_step_says_so_when_there_is_no_patch_ring(tmp_path,
     open(prefix + ".poly", "w").write(text)
     assert MRT.patch_edge_step(prefix, mesh, 40, -4)["n"] == 0
     assert "no PATCH_RING_MARKER segment" in capsys.readouterr().out
+
+
+def test_pool_depth_is_the_encoders_own_quadtree(tmp_path):
+    """#71: ``--pool-depth`` feeds the vertices to ``O4_DSF_Utils.QuadTree``
+    as ``build_dsf`` does; a cluster over the bucket size splits deeper,
+    a sparse mesh stays at ``quad_init_level``."""
+    sparse = tmp_path / "Data+30+031.mesh"
+    _write_mesh(sparse, [_tri_at(30.5, 31.5, 20.0)])
+    got = MRT.pool_depth(str(sparse), 30, 31)
+    assert got["max_level"] == 3 and sum(got["nodes_by_level"].values()) == 3
+    # 12 vertices in one spot with a bucket of 4 -> the tree must split
+    dense = tmp_path / "Data+30+031b.mesh"
+    _write_mesh(dense, [_tri_at(30.5 + k * 1e-7, 31.5, 0.01)
+                        for k in range(4)])
+    deep = MRT.pool_depth(str(dense), 30, 31, capacity=4)
+    assert deep["max_level"] > 3 and deep["capacity"] == 4
+    assert MRT.main(["--mesh", str(sparse), "--pool-depth"]) == 0

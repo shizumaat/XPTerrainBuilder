@@ -34,6 +34,8 @@ from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.pads import (GEN_LEVEL, frontage_radius_m,
                                             pad_datum_withdrawn, pad_frontage,
                                             pad_frontage_level, pad_shared)
+from auto_patch_v2.constraints.pad_fronting import (pad_fronting_level,
+                                                    reach_m as fronting_reach_m)
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
 from auto_patch_v2.model.constraints import Linear
@@ -162,19 +164,48 @@ def test_the_near_pad_follows_the_apron_up_off_its_own_dem(law):
 
 
 def test_a_pad_beyond_the_horizon_fronts_nothing_and_keeps_its_dem_datum(law):
-    """10 m of gap is not a frontage: 09p (3) stands, the pad sits on its
-    own ground and mints no level row."""
-    gap = 10.0
+    """A gap beyond BOTH horizons is not a frontage: 09p (3) stands, the
+    pad sits on its own ground and mints no level row.
+
+    RE-BASED (issue #76, lane ``reds76b``): this twin used a 10 m gap, past
+    §20's 3 m touching horizon — but owner RULINGS 2026-09-27a (9) (Q-11
+    option A, ``constraints/pad_fronting``, merged ec6cc3f2 ``hecaroad``)
+    made a pad FRONT every apron within ``[design] pad_fronting_reach_m``
+    (50 m) across bare ground, so at 10 m the pad now lawfully takes the
+    apron's level (MEASURED: 699.994 at 10 m and 49 m, 697.000 at 55 m and
+    60 m).  The "beyond the horizon" case is therefore posed past the
+    facing reach too; the 10 m case is pinned as fronted below."""
+    gap = 60.0
     assert gap > frontage_radius_m(law)
+    assert gap > fronting_reach_m(law)
     airport, pm = _map(law, _gap_cells(gap))
     fid = _face(pm, "padA").id
     assert fid not in pad_frontage(pm, law)
     assert not [r for r in pad_frontage_level(pm, law, airport)
                 if f"face:{fid}" in r.source.inputs]
+    assert not [r for r in pad_fronting_level(pm, law, airport)
+                if f"face:{fid}" in r.source.inputs]
     assert not (pad_datum_withdrawn(pm, law) & _verts(pm, "padA"))
     pm2, z, _rep = _solve(law, _gap_cells(gap))
     pad = sorted(_verts(pm2, "padA"))
     assert abs(float(np.mean(z[pad])) - (700.0 - DIP_M)) <= 0.6, float(np.mean(z[pad]))
+
+
+def test_a_pad_within_the_facing_reach_takes_the_apron_level(law):
+    """RULINGS 2026-09-27a (9): 10 m of bare ground is past §20's touching
+    horizon but inside the facing reach — the pad fronts the apron across
+    it (a facing row, not a touching one) and sits at the apron's level,
+    not in its own 3 m dip."""
+    gap = 10.0
+    assert frontage_radius_m(law) < gap <= fronting_reach_m(law)
+    airport, pm = _map(law, _gap_cells(gap))
+    fid = _face(pm, "padA").id
+    assert fid not in pad_frontage(pm, law)
+    assert [r for r in pad_fronting_level(pm, law, airport)
+            if f"face:{fid}" in r.source.inputs]
+    pm2, z, _rep = _solve(law, _gap_cells(gap))
+    pad = sorted(_verts(pm2, "padA"))
+    assert float(np.mean(z[pad])) >= 700.0 - DIP_M + 2.0, float(np.mean(z[pad]))
 
 
 # ── (2) the row is ONE-WAY IN CONSTRUCTION: the pavement never follows ───

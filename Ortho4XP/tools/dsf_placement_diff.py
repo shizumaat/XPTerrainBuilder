@@ -113,6 +113,7 @@ def sweep_noop(root: str, tool: str, *, raw: bool = False,
     tag_re = re.compile(r"\.([0-9a-f]{8})\.text$")
     seen: dict[tuple[str, str], str] = {}
     skipped = []
+    empty = []
     for d, _subs, files in os.walk(root, followlinks=True):
         for f in sorted(files):
             if ".dsf" not in f or not f.endswith(".text"):
@@ -121,6 +122,13 @@ def sweep_noop(root: str, tool: str, *, raw: bool = False,
             m = tag_re.search(f)
             key = (d, m.group(1)) if m else (d, f)
             if key in seen:
+                continue
+            if os.path.getsize(p) == 0:
+                # #60: a 0-byte dump is a DSFTool run that died before
+                # writing — a REFUSED cache entry the engine regenerates
+                # (``find_text_dump`` / ``ensure_dsf_text_path``), not a
+                # writer failure; listed, never round-tripped
+                empty.append(p)
                 continue
             if max_mb and os.path.getsize(p) > max_mb * 1e6:
                 skipped.append(p)
@@ -135,7 +143,8 @@ def sweep_noop(root: str, tool: str, *, raw: bool = False,
     fails = [r for r in results if not r["ok"]]
     return {"root": root, "arm": "raw" if raw else "encode",
             "dumps": len(results), "failed": len(fails),
-            "skipped_over_max_mb": len(skipped), "failures": fails}
+            "skipped_over_max_mb": len(skipped),
+            "empty_dumps_refused": sorted(empty), "failures": fails}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,7 +177,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(rep, indent=1, sort_keys=True))
         else:
             print(f"arm {rep['arm']}: {rep['dumps']} dumps, {rep['failed']} failed, "
-                  f"{rep['skipped_over_max_mb']} skipped (> --max-mb)")
+                  f"{rep['skipped_over_max_mb']} skipped (> --max-mb), "
+                  f"{len(rep['empty_dumps_refused'])} empty dump(s) refused")
+            for p in rep["empty_dumps_refused"]:
+                print(f"  EMPTY {p} (0 bytes: a refused cache entry, "
+                      f"regenerated on read)")
             for r in rep["failures"]:
                 print(f"  FAIL {r['dump']} (long rows {r['long_rows']})")
                 for f in r["findings"]:

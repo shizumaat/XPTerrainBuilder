@@ -26,7 +26,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-__all__ = ["GroundFit", "ground_fit", "neighbour_pairs"]
+__all__ = ["GroundFit", "ground_fit"]
 
 #: metres per degree of latitude — the plane reading a body's feet are
 #: compared in (they span tens of metres, never a projection's worth)
@@ -82,75 +82,24 @@ class GroundFit:
     worst_pair: tuple[int, int] = (-1, -1)
 
 
-def neighbour_pairs(pts: _t.Sequence[tuple[float, float]]
-                    ) -> list[tuple[int, int, float]]:
-    """THE NEIGHBOUR GRAPH over feet in plan: ``(a, b, distance)`` for
-    each edge of the feet's Euclidean MINIMUM SPANNING TREE.
-
-    11x (2) allows "Delaunay or nearest-neighbour"; the EMST is the
-    nearest-neighbour graph made CONNECTED — every foot's own nearest
-    neighbour is an EMST edge, and the extra edges are exactly the ones
-    that join otherwise separate clusters of feet (two columns' corner
-    pairs, say), which a bare nearest-neighbour graph leaves untested
-    and therefore always feasible.  It is a subgraph of the Delaunay
-    triangulation, so no pair it reads is a pair the Delaunay would call
-    non-adjacent.
-
-    Pure Python, O(n^2) Prim — the feet of one body, never a corpus; and
-    ``model`` may import neither ``scipy`` nor ``numpy`` (M0 §1).
-
-    THIS FUNCTION IS THE REFERENCE AND THE DEFAULT.  It is also, on the
-    real maxima, 646.5 s of a 652.3 s TFFG pack stage (findings
-    ``pack-read-profile-20260918.md`` §1.3) — so the callers that see
-    the big bodies inject ``pairs=geom.feet_graph.neighbour_pairs_fast``
-    (spec ``pack-read-once-fast-spec.md`` row 1), which reproduces THIS
-    list exactly, order and float, from a Delaunay candidate graph.  The
-    twins compare against this loop; it is never deleted.
-    """
-    n = len(pts)
-    if n < 2:
-        return []
-    INF = float("inf")
-    best = [INF] * n
-    link = [-1] * n
-    seen = [False] * n
-    best[0] = 0.0
-    out: list[tuple[int, int, float]] = []
-    for _ in range(n):
-        u, du = -1, INF
-        for i in range(n):
-            if not seen[i] and best[i] < du:
-                u, du = i, best[i]
-        if u < 0:
-            break                      # unreachable: distances are finite
-        seen[u] = True
-        if link[u] >= 0:
-            out.append((link[u], u, du))
-        ux, uy = pts[u]
-        for v in range(n):
-            if seen[v]:
-                continue
-            vx, vy = pts[v]
-            d = math.hypot(ux - vx, uy - vy)
-            if d < best[v]:
-                best[v], link[v] = d, u
-    return out
-
-
 def ground_fit(feet: _t.Sequence[Foot], y_zero: float,
                dem_at: _t.Callable[[float, float], float | None],
                bank_slope: float, *,
                pairs: _t.Callable[[_t.Sequence[tuple[float, float]]],
                                   list[tuple[int, int, float]]]
-               = neighbour_pairs) -> GroundFit | None:
+               ) -> GroundFit | None:
     """:class:`GroundFit` over ``feet``, or ``None`` when the DEM has no
     sample under them (nothing to fit, and no verdict to give).
 
-    ``pairs`` is the neighbour graph, :func:`neighbour_pairs` by default;
-    a caller outside ``model`` may inject an equivalent that does not
-    have to be pure Python (``geom/feet_graph.neighbour_pairs_fast``).
-    An injected implementation must return THIS function's ordered list
-    — ``ground_fit`` reads the ORDER."""
+    ``pairs`` is the neighbour graph, INJECTED by the caller: the pure
+    reference ``geom/feet_mst.neighbour_pairs`` or its fast equivalent
+    ``geom/feet_graph.neighbour_pairs_fast``.  "Which feet are
+    neighbours" is SHAPE, so it lives in the ``geom`` leaf; ``model``
+    imports nothing of ``geom`` (it would drag shapely in through the
+    package) and ``geom`` imports nothing of ``model`` (#59) — the
+    caller, which may read both, joins them.  An injected implementation
+    must return the reference's ordered list — ``ground_fit`` reads the
+    ORDER."""
     if not feet:
         return None
     zs: list[float] = []

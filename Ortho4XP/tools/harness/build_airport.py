@@ -1558,7 +1558,7 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
 # THE AUTHORISED DEM REFRESH (--refresh-data dem)
 # ══════════════════════════════════════════════════════════════════════
 
-def refresh_tile_dem(root, lat, lon, prog) -> dict:
+def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     """Warm a COLD tile's DEM frame — base raster and airport insets —
     under the ``dem`` authorisation the caller already holds.
 
@@ -1585,6 +1585,18 @@ def refresh_tile_dem(root, lat, lon, prog) -> dict:
     inset boxes come from the airports layer, which that pass derives.
     Raises ``SystemExit`` when the frame is still cold afterwards — a
     refresh that achieved nothing must not exit 0 (round-2's rule).
+
+    THE BUILD'S OWN AIRPORT, on a WARM tile (#61, TFFJ 2026-09-25): the
+    pre-flight refuses a PACK-SET-STALE or box-STALE inset of ``icao``
+    and names ``--refresh-data dem`` as the cure — but this pass derived
+    only a tile with NO insets, answered "nothing to derive" and the
+    re-judge refused again, so the refusal's own remedy could not clear
+    it.  With ``icao`` given, the per-airport verdict the pre-flight
+    reads (:func:`this_airports_inset_problem`) is asked here too, and a
+    ``packs`` / ``stale`` inset is re-derived through
+    :func:`warm_airport_insets` (``refresh=True``: re-fetch and re-mask)
+    — the same pass ``--warm-insets ICAO`` runs.  Still stale afterwards
+    refuses, like the whole-tile case.
     """
     import O4_Config_Utils as CFG                          # noqa: E402
     import O4_File_Names as FNAMES                         # noqa: E402
@@ -1595,9 +1607,12 @@ def refresh_tile_dem(root, lat, lon, prog) -> dict:
     lat, lon = int(lat), int(lon)
     state = dem_cache_state(root, lat, lon)
     if state["base_raster"] and state["airport_insets"]:
-        prog.note(f"refresh dem: tile {lat:+d}{lon:+d} already has its "
-                  f"base raster and its airport insets — nothing to derive")
-        return {"tile": [lat, lon], "derived": []}
+        derived = _refresh_airport_inset(root, state, lat, lon, icao, prog)
+        if not derived:
+            prog.note(f"refresh dem: tile {lat:+d}{lon:+d} already has its "
+                      f"base raster and its airport insets — nothing to "
+                      f"derive")
+        return {"tile": [lat, lon], "derived": derived}
 
     tile = CFG.Tile(lat, lon, "")
     try:
@@ -1654,8 +1669,38 @@ def refresh_tile_dem(root, lat, lon, prog) -> dict:
             f"nothing is the defect this refuses.  Check provider "
             f"reachability (and, for the insets, that a provider covers "
             f"this tile at all) and re-run.")
+    derived += _refresh_airport_inset(root, after, lat, lon, icao, prog)
     prog.note(f"refresh dem done: {derived}")
     return {"tile": [lat, lon], "derived": derived}
+
+
+#: The per-airport inset verdicts a ``dem`` refresh re-derives (#61):
+#: the inset EXISTS but the build would re-fetch it.  ``empty`` is a
+#: declared state (nothing is fetched), so it is not among them.
+REFRESHABLE_INSET_PROBLEMS = ("packs", "stale")
+
+
+def _refresh_airport_inset(root, state, lat, lon, icao, prog) -> list:
+    """Re-derive ``icao``'s inset when the pre-flight's own per-airport
+    verdict is PACK-SET-STALE or STALE (#61); ``[]`` when there is
+    nothing to do.  Raises ``SystemExit`` when the verdict survives."""
+    if not icao:
+        return []
+    problem = this_airports_inset_problem(state, lat, lon, icao)
+    if problem is None or problem[0] not in REFRESHABLE_INSET_PROBLEMS:
+        return []
+    prog.note(f"REFRESH dem (authorised, locked, ledgered): {icao}'s inset "
+              f"is {problem[0].upper()} — re-deriving it through the "
+              f"--warm-insets pass (refresh): {problem[1]}")
+    warm_airport_insets([icao], root, lat, lon, prog)
+    again = this_airports_inset_problem(dem_cache_state(root, lat, lon),
+                                        lat, lon, icao)
+    if again is not None and again[0] in REFRESHABLE_INSET_PROBLEMS:
+        raise SystemExit(
+            f"REFUSING: --refresh-data dem re-derived {icao}'s inset and it "
+            f"is STILL {again[0].upper()} — {again[1]}")
+    return [f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
+            f"{icao}_*.tif [{problem[0]}]"]
 
 
 def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
@@ -3821,7 +3866,9 @@ def main(argv=None) -> int:
         # derives when it is absent (the cold-neighbour case, +32-097).
         if "dem" in requested and lat is not None:
             with guard:
-                dem_refresh_summary = refresh_tile_dem(root, lat, lon, prog)
+                dem_refresh_summary = refresh_tile_dem(
+                    root, lat, lon, prog,
+                    icao=None if args.tile else args.icao)
         # THE LEDGER RECONCILIATION (--reconcile-ledger), before the
         # re-judge for the same reason the audit moved: it is a RECORD of
         # what is on disk, and a later refusal must not lose it.

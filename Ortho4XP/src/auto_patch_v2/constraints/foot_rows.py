@@ -25,7 +25,7 @@ building pad and no pavement, gets NO PAD ENTITY at all.  Instead:
 * FEASIBILITY is read between NEIGHBOURING feet (11x (2)):
   ``|(target_a - target_b) - (dem_a - dem_b)|`` against ``bank_slope`` x
   their own spacing, over the feet's neighbour graph
-  (``model/ground_fit.neighbour_pairs``).  Beyond it the body is
+  (``geom/feet_mst.neighbour_pairs``).  Beyond it the body is
   INFEASIBLE — no rows, the low-side anchor of §9, and the residual
   REPORTED (HECA's ``road_train/metal_titles.obj b0`` is that class).
   Round 6's nearest-foot SCALAR is deleted: it bought 33 m of licence

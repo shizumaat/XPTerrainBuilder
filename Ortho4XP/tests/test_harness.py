@@ -11450,3 +11450,121 @@ def test_the_per_airport_check_scans_packs_with_the_owners_xplane_root(
     monkeypatch.setattr(build_mod, "apply_xplane_install_paths",
                         lambda owner_cfg: (_ for _ in ()).throw(SystemExit("REFUSING")))
     assert real_preflight(cfg) == {}
+
+
+# ── #61: an ENABLED pack is never read PACK-SET-STALE; the dem refresh
+#    re-derives the build airport's pack-stale inset ─────────────────────
+
+def _synthetic_xplane_root(tmp_path, packs):
+    """``{name: enabled}`` airport packs serving tile +18-064, a
+    ``scenery_packs.ini`` that lists them, and a CIFP folder so the
+    owner-config path resolves the way the owner's does."""
+    xp = tmp_path / "X-Plane 12"
+    cs = xp / "Custom Scenery"
+    lines = ["I", "1000 Version", "SCENERY", ""]
+    for name, enabled in packs.items():
+        nav = cs / name / "Earth nav data" / "+10-070"
+        nav.mkdir(parents=True)
+        (nav.parent / "apt.dat").write_text("I\n1100 Version\n99\n")
+        (nav / "+18-064.dsf").write_bytes(b"XPLNEDSF")
+        lines.append(("SCENERY_PACK " if enabled else "SCENERY_PACK_DISABLED ")
+                     + f"Custom Scenery/{name}/")
+    (cs / "scenery_packs.ini").write_text("\n".join(lines) + "\n")
+    cifp = xp / "Custom Data" / "CIFP"
+    cifp.mkdir(parents=True)
+    (cifp / "TNCM.dat").write_text("APPCH:010,A,I10,1,TNCM,,\n")
+    return xp
+
+
+def test_an_enabled_pack_is_never_read_PACK_SET_STALE(
+        build_mod, monkeypatch, tmp_path):
+    """#61 (TNCM/TFFG 2026-09-25): the pre-flight refused an inset whose
+    recorded pack ``c_NLD - 100_airport - TNCM_1_Apt`` sat ENABLED in
+    ``scenery_packs.ini``.  Through the CURRENT pre-flight path — the
+    owner config applied by ``apply_xplane_install_paths_for_preflight``
+    (573c5a97), then the engine's own predicate — an enabled recorded pack
+    matches, and only a pack the ini DISABLES reads as moved."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Config_Utils as CFG
+    import O4_File_Names as FNAMES
+    import json as _json
+
+    for key in ("cifp_data_path", "custom_scenery_dir", "custom_overlay_src"):
+        monkeypatch.setattr(CFG, key, getattr(CFG, key, ""), raising=False)
+    enabled, disabled = "c_NLD - 100_airport - TNCM_1_Apt", "TNCM Old Mod"
+    xp = _synthetic_xplane_root(tmp_path, {enabled: True, disabled: False})
+    owner = tmp_path / "owner.cfg"
+    owner.write_text(f"cifp_data_path={xp / 'Custom Data' / 'CIFP'}\n"
+                     f"custom_scenery_dir={xp / 'Custom Scenery'}\n")
+    applied = build_mod.apply_xplane_install_paths_for_preflight(owner)
+    assert applied.get("custom_scenery_dir") == str(xp / "Custom Scenery")
+    assert INSETS._xplane_root_for_package_footprints() == str(xp)
+
+    box = (-63.12, 18.03, -63.09, 18.05)          # TNCM, inside +18-064
+    assert INSETS.package_footprint_pack_names(box) == [enabled]
+    prov = tmp_path / "TNCM_copernicusglo30.json"
+    monkeypatch.setattr(FNAMES, "airport_inset_provenance",
+                        lambda lat, lon, icao, code: str(prov))
+
+    def _record(names):
+        prov.write_text(_json.dumps({INSETS.SURFACE_MODEL_BUILDING_MASKING:
+                                     {INSETS.FOOTPRINT_PACKS: names}}))
+
+    _record([enabled])
+    assert not INSETS._sidecar_footprint_packs_mismatch(
+        18, -64, "TNCM", "copernicusglo30", box)
+    # the pack set really moved: a recorded pack the ini now DISABLES
+    _record([enabled, disabled])
+    assert INSETS._sidecar_footprint_packs_mismatch(
+        18, -64, "TNCM", "copernicusglo30", box)
+    # and with NO root (the pre-573c5a97 lane tree) the enabled pack read
+    # as gone — the refusal #61 recorded
+    monkeypatch.setattr(CFG, "cifp_data_path", "")
+    monkeypatch.setattr(CFG, "custom_scenery_dir", "")
+    _record([enabled])
+    assert INSETS._sidecar_footprint_packs_mismatch(
+        18, -64, "TNCM", "copernicusglo30", box)
+
+
+def test_a_dem_refresh_rederives_the_build_airports_PACK_STALE_inset(
+        build_mod, tmp_path, monkeypatch):
+    """#61 (TFFJ 2026-09-25): on a WARM tile ``--refresh-data dem`` said
+    "nothing to derive" and the re-judge refused the same PACK-SET-STALE
+    inset again — the refusal's own remedy could not clear it.  With the
+    build's ICAO, the refresh re-derives a ``packs`` / ``stale`` inset
+    through the ``--warm-insets`` pass, and refuses if it survives."""
+    root = _cold_tile_root(tmp_path, monkeypatch, build_mod, 17, -63)
+    elev = root / "Elevation_data" / "N10W070"
+    (elev / "N17W063_airport_insets").mkdir(parents=True)
+    (elev / "N17W063.hgt").write_bytes(b"raster")
+    assert build_mod.dem_cache_state(root, 17, -63)["airport_insets"]
+
+    verdicts = [("packs", "PACK-SET-STALE airport elevation inset X"), None]
+    monkeypatch.setattr(build_mod, "this_airports_inset_problem",
+                        lambda state, lat, lon, icao: verdicts.pop(0))
+    warmed = []
+    monkeypatch.setattr(build_mod, "warm_airport_insets",
+                        lambda icaos, r, lat, lon, prog: warmed.append(
+                            (tuple(icaos), lat, lon)) or {})
+    out = build_mod.refresh_tile_dem(root, 17, -63, _Notes(), icao="TFFJ")
+    assert warmed == [(("TFFJ",), 17, -63)]
+    assert out["derived"] == [
+        "Elevation_data/**/N17W063_airport_insets/TFFJ_*.tif [packs]"]
+
+    # no ICAO (a --tile run) or no problem: nothing is re-derived
+    warmed.clear()
+    assert build_mod.refresh_tile_dem(root, 17, -63, _Notes())["derived"] == []
+    verdicts[:] = [None]
+    assert build_mod.refresh_tile_dem(root, 17, -63, _Notes(),
+                                      icao="TFFJ")["derived"] == []
+    # an EMPTY inset is declared state, never re-fetched
+    verdicts[:] = [("empty", "EMPTY inset")]
+    assert build_mod.refresh_tile_dem(root, 17, -63, _Notes(),
+                                      icao="TFFJ")["derived"] == []
+    assert warmed == []
+
+    # still stale after the warm: refuses, never exits 0
+    verdicts[:] = [("packs", "P"), ("packs", "STILL")]
+    with pytest.raises(SystemExit) as exc:
+        build_mod.refresh_tile_dem(root, 17, -63, _Notes(), icao="TFFJ")
+    assert "STILL PACKS" in str(exc.value)

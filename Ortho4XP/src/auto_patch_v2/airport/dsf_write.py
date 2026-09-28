@@ -111,6 +111,7 @@ import dataclasses as _dc
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -125,6 +126,7 @@ from . import backup_state as _bs
 from .backup_state import BackupUnproven, State
 
 __all__ = ["conversions_for_dump", "TOL_DEG", "TOL_HEADING_DEG", "TOL_ELEV_M",
+           "pool_tolerances",
            "PLACEMENT_KINDS", "RoundTripReport", "WriteResult", "placement_rows",
            "edit_dump", "dump", "encode", "verify_roundtrip", "write_pack",
            "DSFTOOL_LINE_MAX", "text_properties", "replace_properties",
@@ -159,10 +161,63 @@ def pristine_dsf_path(dsf_path: str) -> str:
 PLACEMENT_KINDS = (KIND_ON_GROUND, KIND_MSL, KIND_AGL)
 
 #: The pinned round-trip tolerances (the table above: ~4x the measured
-#: drift, which is one 16-bit quantum of the widest pool seen).
+#: drift, which is one 16-bit quantum of the widest pool seen).  They are
+#: FLOORS: :func:`pool_tolerances` widens the position and heading ones to
+#: the resolution of the DSF's OWN pools (#60).
 TOL_DEG = 2.0e-6
 TOL_HEADING_DEG = 0.011
 TOL_ELEV_M = 0.0625
+
+#: A pool plane stores ``offset + span * q / 65535`` for a 16-bit ``q``, so
+#: one quantum is ``span / POOL_QUANTA``.
+POOL_QUANTA = 65535.0
+#: Quanta of drift a round trip is allowed per coordinate — the pinned
+#: ``TOL_DEG``'s own derivation (2e-6 ~ 4 x 0.03125 / 65535).  MEASURED
+#: (#60 sweep, 2026-09-27): 2 quanta of position on 0.125 deg pools
+#: (simHeaven ``+46+007``, 3.81e-06 deg) and 3 quanta of heading between
+#: two objects 4.8e-07 deg apart whose headings differ by 2 quanta
+#: (Global Airports ``+39-095``) — both inside 4.
+POOL_QUANTA_ALLOWED = 4.0
+
+_POOL_LINE = re.compile(r"^#\s*pool\s+\d+:\s+p=(\d+)\s+s=\s*\d+\s+(.*)$")
+
+
+def pool_tolerances(*texts: str) -> tuple[float, float]:
+    """``(tol_deg, tol_heading_deg)`` for comparing dumps whose ``# pool``
+    headers are in ``texts`` (#60): :data:`POOL_QUANTA_ALLOWED` quanta of
+    the WIDEST pool plane of each quantity, never below the pinned floors.
+
+    A pool line is ``# pool N: p=P s=S  span0 off0  span1 off1 ...``.
+    Planes 0 and 1 are longitude / latitude in every DSF pool; plane 2 is
+    a HEADING where its span is 360 (object pools — a polygon's or a
+    road's third plane is something else and is not read).  The encoder
+    RE-POOLS the file, so the re-dumped text's pools count as much as the
+    source's: pass both."""
+    span_deg = 0.0
+    span_heading = 0.0
+    for text in texts:
+        seen = False
+        for line in text.splitlines():
+            if not line.startswith("#"):
+                if seen:
+                    break           # the pool block is the header; stop at the body
+                continue
+            m = _POOL_LINE.match(line)
+            if m is None:
+                continue
+            seen = True
+            try:
+                planes = int(m.group(1))
+                vals = [float(v) for v in m.group(2).split()]
+            except ValueError:
+                continue
+            spans = vals[0:2 * planes:2]
+            if len(spans) >= 2:
+                span_deg = max(span_deg, abs(spans[0]), abs(spans[1]))
+            if len(spans) >= 3 and abs(abs(spans[2]) - 360.0) < 1e-6:
+                span_heading = max(span_heading, 360.0)
+    k = POOL_QUANTA_ALLOWED / POOL_QUANTA
+    return (max(TOL_DEG, k * span_deg), max(TOL_HEADING_DEG, k * span_heading))
 
 #: A DSF under one of these is the user's LIVE scenery: never a lane's.
 _LIVE_HINTS = ("/X-Plane 12/", "/X-Plane 11/", "/X-Plane 12 Demo/")
@@ -663,7 +718,8 @@ def _split_rows(text: str) -> tuple[list[list[str]], dict, list[tuple], dict]:
 
 
 def _match(a: list, b: list, tol: float, tiebreak: bool,
-           dims: int = 2) -> tuple[int, list]:
+           dims: int = 2, tol_heading: float = TOL_HEADING_DEG
+           ) -> tuple[int, list]:
     """Greedy nearest-first match of two coordinate-row lists over their
     first ``dims`` columns (indexed on column 0); returns
     ``(unmatched, pairs)``.  ``tiebreak`` separates coincident rows by
@@ -694,7 +750,7 @@ def _match(a: list, b: list, tol: float, tiebreak: bool,
                     ha = _ang(o[-1], row[-1])
                     d += 1e-9 * ha
                     fits = (all(abs(o[i] - row[i]) <= tol for i in range(dims))
-                            and ha <= TOL_HEADING_DEG
+                            and ha <= tol_heading
                             and (len(row) < 4
                                  or abs(o[2] - row[2]) <= TOL_ELEV_M))
                     miss = 0 if fits else 1
@@ -720,6 +776,9 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
     findings: list[str] = []
     sa, pa, ga, na = _split_rows(expected)
     sb, pb, gb, nb = _split_rows(actual)
+    # #60: the tolerances follow the pools of BOTH texts (the encoder
+    # re-pools), floored at the pinned values
+    tol_deg, tol_heading = pool_tolerances(expected, actual)
 
     if len(sa) != len(sb):
         findings.append(f"structural rows {len(sa)} -> {len(sb)}")
@@ -740,7 +799,7 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
         if len(a) != len(b):
             findings.append(f"{key[0]} def {key[1]} (filter {key[2]}): "
                             f"{len(a)} -> {len(b)} placements")
-        u, pairs = _match(a, b, TOL_DEG, True)
+        u, pairs = _match(a, b, tol_deg, True, tol_heading=tol_heading)
         unmatched += u
         has_z = key[0] in CONVERTIBLE_KINDS
         for row, o in pairs:
@@ -750,7 +809,7 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
                 mz = max(mz, abs(o[2] - row[2]))
     if unmatched:
         findings.append(f"{unmatched} placement(s) with no counterpart within "
-                        f"{TOL_DEG} deg")
+                        f"{tol_deg:.3g} deg")
 
     seg_unmatched = 0
     for key in sorted(set(na) | set(nb)):
@@ -758,18 +817,18 @@ def compare_dumps(expected: str, actual: str) -> RoundTripReport:
         b = list(nb.get(key, []))
         if len(a) != len(b):
             findings.append(f"network {key}: {len(a)} -> {len(b)} segments")
-        u, pairs = _match(a, b, TOL_DEG, False, dims=4)
+        u, pairs = _match(a, b, tol_deg, False, dims=4)
         seg_unmatched += u
         for row, o in pairs:
             md = max(md, max(abs(o[i] - row[i]) for i in range(4)))
     if seg_unmatched:
         findings.append(f"{seg_unmatched} road segment(s) with no counterpart "
-                        f"within {TOL_DEG} deg")
+                        f"within {tol_deg:.3g} deg")
 
-    if md > TOL_DEG:
-        findings.append(f"position drift {md:.3g} deg > {TOL_DEG}")
-    if mh > TOL_HEADING_DEG:
-        findings.append(f"heading drift {mh:.4g} deg > {TOL_HEADING_DEG}")
+    if md > tol_deg:
+        findings.append(f"position drift {md:.3g} deg > {tol_deg:.3g}")
+    if mh > tol_heading:
+        findings.append(f"heading drift {mh:.4g} deg > {tol_heading:.4g}")
     if mz > TOL_ELEV_M:
         findings.append(f"elevation drift {mz:.4g} m > {TOL_ELEV_M}")
     return RoundTripReport(not findings, total, unmatched + seg_unmatched, md, mh, mz,

@@ -67,7 +67,8 @@ from shapely.errors import GEOSException
 from shapely.ops import unary_union
 
 __all__ = ["enter", "union", "transform", "quantum", "IDENTITY",
-           "rung_counts", "reset_rung_counts", "rung_note"]
+           "rung_counts", "reset_rung_counts", "rung_note",
+           "set_offender_dump_dir"]
 
 #: The affine of a geometry that is ALREADY in the frame — ``enter`` with
 #: this matrix is the repair alone (``obj8._transformed``'s old identity
@@ -253,13 +254,20 @@ def union(parts, site: str | None = None):
             return unary_union(shapely.buffer(arr, 1e-6).tolist())
 
 
-#: THE OFFENDER DUMP.  ``O4_FRAME_ENTRY_DUMP=<dir>`` writes the operand
-#: list of the FIRST union at each site that fell below the exact rung,
-#: as a WKB collection — the only way to get a real refusing input out of
-#: a 15-minute capture and into a headless twin (§51 (5) T2).  One
-#: ``os.environ`` read at import; nothing on the hot path.
-_DUMP_DIR = __import__("os").environ.get("O4_FRAME_ENTRY_DUMP") or ""
+#: THE OFFENDER DUMP.  When armed, writes the operand list of the FIRST
+#: union at each site that fell below the exact rung, as a WKB collection —
+#: the only way to get a real refusing input out of a 15-minute capture and
+#: into a headless twin (§51 (5) T2).  v2 reads NO environment (M0 §1,
+#: ``test_model``; #59): the ENTRY arms it — ``tools/v2_solve_replay.py``
+#: maps ``O4_FRAME_ENTRY_DUMP=<dir>`` onto :func:`set_offender_dump_dir`.
+_DUMP_DIR = ""
 _DUMPED: set[str] = set()
+
+
+def set_offender_dump_dir(path: str | None) -> None:
+    """Arm (a directory) or disarm (``None`` / ``""``) the offender dump."""
+    global _DUMP_DIR
+    _DUMP_DIR = str(path or "")
 
 
 def _dump(site: str | None, parts) -> None:

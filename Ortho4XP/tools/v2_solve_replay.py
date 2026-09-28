@@ -44,6 +44,7 @@ import argparse
 import dataclasses as _dc
 import json
 import math
+import os
 import pickle
 import re as _re
 import sys
@@ -103,6 +104,31 @@ def _placement_override(law, over: dict[str, object]):
     pl = _dc.replace(law.tables.structures.placement, **kw)
     st = _dc.replace(law.tables.structures, placement=pl)
     return _dc.replace(law, tables=_dc.replace(law.tables, structures=st)), kw
+
+
+#: The cache families a capture READS AND WRITES in the engine: both must
+#: resolve OUTSIDE the shared data repo before :func:`capture` runs (#64).
+CAPTURE_REDIRECTED_SCOPES = frozenset({"airport_mod_cache", "dsf_cache"})
+
+
+def require_capture_isolation() -> None:
+    """Refuse (``SystemExit``) unless every scope in
+    :data:`CAPTURE_REDIRECTED_SCOPES` resolves outside the shared repo —
+    the judge is ``shared_repo_guard.redirected_scopes``, the audit's own
+    predicate (the engine's accessors, asked now)."""
+    _harness_dir = str(ROOT / "tools" / "harness")
+    if _harness_dir not in sys.path:
+        sys.path.insert(0, _harness_dir)
+    from shared_repo_guard import DATA_REPO, redirected_scopes
+    missing = sorted(CAPTURE_REDIRECTED_SCOPES - redirected_scopes())
+    if missing:
+        raise SystemExit(
+            f"REFUSING capture: {', '.join(missing)} still resolve(s) into the "
+            f"SHARED data repo {DATA_REPO} — a capture would write it (#64; "
+            f"owner ruling e9daef5).  Run it through the CLI "
+            f"(`v2_solve_replay.py --capture ICAO --out PKL`), which arms the "
+            f"guard and the lane-local O4_DSF_CACHE_DIR / "
+            f"O4_AIRPORT_MOD_CACHE_DIR overlays before the engine is imported.")
 
 
 def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
@@ -194,7 +220,15 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     corpus files written by an unguarded in-process engine call) — and
     every capture prints ``[guard] shared repo UNCHANGED``.  It is armed
     OUTSIDE this function because the redirect must precede the engine
-    imports below (lane ``v2padqp``)."""
+    imports below (lane ``v2padqp``).
+
+    A CAPTURE WITHOUT THE REDIRECT REFUSES HERE (#64): a direct caller of
+    this function — or a CLI path that forgot the wrapper — would read and
+    WRITE the shared ``Airport_mod_cache`` (``o4_dsf_object_positions_*``,
+    the DSFTool dump a subprocess writes where no Python guard can see).
+    :func:`require_capture_isolation` asks the engine's OWN accessors, so a
+    redirect the engine would ignore reads as absent."""
+    require_capture_isolation()
     from auto_patch_v2.airport import flat_site as _flat
     from auto_patch_v2.airport.load import load_with_report
     from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
@@ -2070,6 +2104,10 @@ def main() -> int:
                          "matched pair (e.g. --probe-arm solver=fixed_point "
                          "--probe-arm solver=qp).  Default: the shipped law alone")
     a = ap.parse_args()
+    if os.environ.get("O4_FRAME_ENTRY_DUMP"):
+        # §51 (5) T2's offender dump: v2 reads no environment, the ENTRY arms it
+        from auto_patch_v2.airport import frame_entry as _frame_entry
+        _frame_entry.set_offender_dump_dir(os.environ["O4_FRAME_ENTRY_DUMP"])
     if a.stage1_diff:
         return stage1_diff(a.stage1_diff[0], a.stage1_diff[1], a.movers, a.json)
     if a.stage1_dump:

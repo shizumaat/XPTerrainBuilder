@@ -782,6 +782,11 @@ def _absorb_enclosed(parts: list, weld_m: float = 0.0) -> list:
             filled = [h for h in filled
                       if h.intersection(inside).area > NESTED_MIN_M2]
             merged = unary_union([closed[k], q, *filled])
+            if merged.geom_type != "Polygon" and weld_m > 0.0:
+                # two pads meeting at a point / across a sub-weld gap: the
+                # weld closes it, so the merged outline carries it closed
+                merged = unary_union([merged, merged.buffer(
+                    weld_m, join_style=2).buffer(-weld_m, join_style=2)])
             if merged.geom_type != "Polygon":
                 continue
             keep, drop = (k, i) if alive[k].area >= q.area else (i, k)

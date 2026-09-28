@@ -6254,3 +6254,9 @@ constraint, and owed:
   profiling round. Also deferred: the #31 rider census on a `--tile` build
   (the closing pair is patch-only, so the object stage never ran) and the
   `.agp` OBJECT_MSL sim read (Q-31). No full-suite run.
+- 2026-09-27 lane ridercensus (#31): the rider census on the `--tile` object
+  stage is now MEASURED (HECA `ridercensus_heca2`, see #31); still deferred:
+  LEMD's 122-rider census (no registered LEMD graded + rebake frame; needs a
+  LEMD `--tile` build), the `.agp` OBJECT_MSL sim read (Q-31), and the
+  engine's own MESH-sampler reading of the rider terrain (the census reads
+  the graded Delaunay; the build logs no rider counts). No full-suite run.

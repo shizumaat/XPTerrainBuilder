@@ -540,6 +540,14 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                                        cap_style="flat", join_style="mitre"))
     if corridors:
         road = unary_union(corridors)
+        # §47 addendum (owner RULINGS 2026-09-27a (8), issue #8): a wall
+        # along the road edge RETAINS it — the road's graded strip
+        # extends to the wall's face and on to its end
+        from . import retaining_wall as _rw
+        lane_m = float(law.tables.emit.road_profile.lane_width_m) if law is not None else 0.0
+        _rpieces = _rw.retaining_pieces(airport, road, lane_m, rules.service)
+        road = unary_union([road, _rw.road_extension(_rpieces, road, lane_m)])
+        stats.update({f"retaining_{k}": v for k, v in _rw.STATS.items()})
         road = road.difference(ev.pavement_union)
         if not ev.pad_union.is_empty:
             road = road.difference(ev.pad_union)

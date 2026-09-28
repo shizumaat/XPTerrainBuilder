@@ -1790,14 +1790,23 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     # reach seed), bound the way ``pipeline/build.py`` binds it; a tree
     # that predates it solves without one
     _kw = {}
+    _stage2: dict = {}
     try:
         from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
-        _kw["stage2_rewrite"] = lambda lv: reach_seed_rewrite(pm, law, cs, lv)
+
+        def _rewrite(lv):
+            out = reach_seed_rewrite(pm, law, cs, lv)
+            _stage2["cs"] = out[0]
+            return out
+        _kw["stage2_rewrite"] = _rewrite
     except ImportError:
         pass
     sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                             method=method, strips=strips, **_kw)
     wall = round(time.perf_counter() - t, 1)
+    # the rows stage 2 SOLVED are the ones --why-hard / --verify must read
+    # (a seeded ramp ceiling read at its pre-seed value is a false row)
+    cs = _stage2.get("cs", cs)
     # 27a (10): the ribbon yields where the solve released a join pin — the
     # build's own post-solve step, so an --emit arm publishes it too
     try:

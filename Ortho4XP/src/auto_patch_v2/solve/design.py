@@ -956,6 +956,19 @@ def _yield_pins(planar: PlanarMap, cs: ConstraintSet, law: Law,
         or rep_y.hard_max_violation_m < rep2.hard_max_violation_m)
     if not better:
         return sol2, rep2, []
+    # ONLY WHERE FORCED: a released pin the re-solve left within
+    # ``hard_tol_m`` of its own value was reached by the flood but not
+    # forced by it — it is PINNED AGAIN, and the narrower release is kept
+    # when the hard set is no worse for it (GEML: 6 reached, 2 forced)
+    tol = float(d.hard_tol_m)
+    loose = [v for v in verts if abs(float(sol_y.z[v]) - pinned[v]) > tol]
+    if loose and len(loose) < len(verts):
+        sol_n, rep_n = _solve_stage(planar, release_pins(cs, loose, yield_heads),
+                                    law, options, fixed=levels, **kw)
+        if sol_n.z and (rep_n.hard_settled or not rep_y.hard_settled) and (
+                rep_n.hard_max_violation_m
+                <= max(rep_y.hard_max_violation_m, tol)):
+            sol_y, rep_y, verts = sol_n, rep_n, loose
     recs = [{"v": int(v), "xy": tuple(float(c) for c in planar.vertices[v].xy),
              "pinned_m": round(pinned[v], 4),
              "z_m": round(float(sol_y.z[v]), 4),

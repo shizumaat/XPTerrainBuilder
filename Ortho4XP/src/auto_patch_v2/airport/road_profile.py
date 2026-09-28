@@ -64,6 +64,7 @@ import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
+from ..geom.coverage import coverage_polygon
 from ..law import Law
 from ..model.frame import rotated_rectangle
 from ..law.tables import family, role_cap, senior_role
@@ -494,7 +495,6 @@ def _band_fn(pm: PlanarMap, lane_width_m: float):
     ``lane_width + 2``, the core's own band (S.1 (1) / S.2 (b)).  A map
     with no face bands nothing, and the clamp then reads as terrain."""
     from shapely.prepared import prep
-    from ..emit.bank import coverage_polygon
     cov = coverage_polygon(pm)
     if cov is None or cov.is_empty:
         return None

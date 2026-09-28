@@ -99,6 +99,7 @@ import numpy as np
 from ..law import Law
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
+from ..geom.coverage import coverage_polygon
 from .seam_band import seam_band_region
 from .surface import GradedSurface, SurfaceBreakline, SurfaceVertex
 
@@ -215,31 +216,6 @@ class BankReport:
                 f"station(s), longest emitted chord {self.max_chord_m:.1f} m; "
                 f"the engine blends the annulus "
                 f"(09-09t); {self.wall_s:.2f} s")
-
-
-def coverage_polygon(planar: PlanarMap):
-    """THE PATCH COVERAGE as ONE polygon in the frame: the union of EVERY
-    planar face (the structure voids included — their rim is emitted as a
-    constrained ring, so the ground inside them is patch geometry and takes
-    no bank).  ``None`` when the map has no face."""
-    from shapely.geometry import Polygon
-    from shapely.ops import unary_union
-    polys = []
-    for f in planar.faces.values():
-        ring = [planar.vertices[v].xy for v in planar.ring_vertices(f.ring)]
-        if len(ring) < 3:
-            continue
-        holes = [[planar.vertices[v].xy for v in planar.ring_vertices(h)]
-                 for h in f.holes]
-        p = Polygon(ring, [h for h in holes if len(h) >= 3])
-        if not p.is_valid:
-            p = p.buffer(0)
-        if not p.is_empty:
-            polys.append(p)
-    if not polys:
-        return None
-    cov = unary_union(polys)
-    return None if cov.is_empty else cov
 
 
 def _outward_normals(pts: list[tuple[float, float]]

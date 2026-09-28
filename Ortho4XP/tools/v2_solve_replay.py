@@ -44,6 +44,7 @@ import argparse
 import dataclasses as _dc
 import json
 import math
+import os
 import pickle
 import re as _re
 import sys
@@ -2038,6 +2039,10 @@ def main() -> int:
                          "matched pair (e.g. --probe-arm solver=fixed_point "
                          "--probe-arm solver=qp).  Default: the shipped law alone")
     a = ap.parse_args()
+    if os.environ.get("O4_FRAME_ENTRY_DUMP"):
+        # §51 (5) T2's offender dump: v2 reads no environment, the ENTRY arms it
+        from auto_patch_v2.airport import frame_entry as _frame_entry
+        _frame_entry.set_offender_dump_dir(os.environ["O4_FRAME_ENTRY_DUMP"])
     if a.stage1_diff:
         return stage1_diff(a.stage1_diff[0], a.stage1_diff[1], a.movers, a.json)
     if a.stage1_dump:

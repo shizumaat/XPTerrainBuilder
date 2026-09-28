@@ -49,8 +49,8 @@ from pathlib import Path
 
 import numpy as np
 
-from auto_patch.selection import DEFAULT_MODE as _MODE_VALUED_KEYS
-from auto_patch.selection import normalize_mode
+from O4_Airport_Modes import DEFAULT_MODE as _MODE_VALUED_KEYS
+from O4_Airport_Modes import mode_admits, normalize_mode, resolved_inset_mode
 
 from ..model.frame import Frame
 from .dem import hgt_name, resolve_dem_files
@@ -169,8 +169,6 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
 def _inset_mode_of(tile) -> str:
     """The tile's normalised inset mode, for the provenance record."""
     try:
-        from auto_patch.selection import resolved_inset_mode
-
         return resolved_inset_mode(tile)
     except Exception:                                    # pragma: no cover
         return "?"
@@ -895,8 +893,6 @@ class ProductionDem:
         inset for it is not a frame problem and must not refuse or warm.
         """
         try:
-            from auto_patch.selection import mode_admits, resolved_inset_mode
-
             return mode_admits(self.icao.upper(), resolved_inset_mode(tile))
         except Exception:                                # pragma: no cover
             return True

@@ -1,5 +1,5 @@
 """SLICE S1 of ``docs/specs/pack-read-once-fast-spec.md`` (row 1): the
-Delaunay-candidate heap Prim must emit ``model/ground_fit.neighbour_pairs``'s
+Delaunay-candidate heap Prim must emit ``geom/feet_mst.neighbour_pairs``'s
 OWN ordered edge list — every edge, in its order, with its float — and fall
 back to that reference on every degenerate input.
 
@@ -30,7 +30,8 @@ import pytest
 from auto_patch_v2.geom import feet_graph
 from auto_patch_v2.geom.feet_graph import neighbour_pairs_fast
 from auto_patch_v2.model import ground_fit as gf_mod
-from auto_patch_v2.model.ground_fit import ground_fit, neighbour_pairs
+from auto_patch_v2.geom.feet_mst import neighbour_pairs
+from auto_patch_v2.model.ground_fit import ground_fit
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "feet_graph"
 LANES = pathlib.Path("/Users/noah/XPTerrainBuilder/.lanes/packreadprofile")
@@ -247,7 +248,7 @@ def test_ground_fit_reads_the_same_verdict_through_either_graph():
     def dem_at(lat, lon):
         return 5.0 + 900.0 * (lat - 18.04) + 700.0 * (lon + 63.11)
 
-    a = ground_fit(feet, 0.0, dem_at, 0.05)
+    a = ground_fit(feet, 0.0, dem_at, 0.05, pairs=neighbour_pairs)
     b = ground_fit(feet, 0.0, dem_at, 0.05, pairs=neighbour_pairs_fast)
     assert a == b
     assert a is not None and a.worst_pair != (-1, -1)

@@ -1,6 +1,6 @@
 """THE FEET NEIGHBOUR GRAPH, FAST — the Euclidean MST over one body's
 feet, emitted edge-for-edge, order-for-order, length-for-length the way
-``model/ground_fit.neighbour_pairs`` emits it, in O(n log n).
+``geom/feet_mst.neighbour_pairs`` emits it, in O(n log n).
 
 WHY THIS MODULE EXISTS (spec ``pack-read-once-fast-spec.md`` row 1;
 findings ``pack-read-profile-20260918.md`` §1.3).  The shipped Prim is
@@ -79,7 +79,7 @@ import numpy as _np
 # THIS module's dependency statically visible too.
 from scipy.spatial import Delaunay as _Delaunay, QhullError as _QhullError
 
-from ..model.ground_fit import neighbour_pairs
+from .feet_mst import neighbour_pairs
 
 __all__ = ["neighbour_pairs_fast", "fallback_count", "reset_fallback_count",
            "SMALL_N", "BIG_N"]
@@ -127,7 +127,7 @@ def _fallback(pts: _t.Sequence[tuple[float, float]], why: str
 
 def neighbour_pairs_fast(pts: _t.Sequence[tuple[float, float]]
                          ) -> list[tuple[int, int, float]]:
-    """``model/ground_fit.neighbour_pairs``'s OWN ordered edge list, from
+    """``geom/feet_mst.neighbour_pairs``'s OWN ordered edge list, from
     a Delaunay candidate graph and a heap (module doc).
 
     The returned list is ``==`` to the reference's, float for float.

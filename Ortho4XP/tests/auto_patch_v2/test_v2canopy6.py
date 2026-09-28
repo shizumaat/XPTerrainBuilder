@@ -42,6 +42,7 @@ import pytest
 
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import foot_rows as FR
+from auto_patch_v2.geom.feet_mst import neighbour_pairs
 from auto_patch_v2.planar.group import Foot, Group, GroupSet, ground_fit
 from tests.auto_patch_v2.test_crown import HALF_WIDTH, _rect  # noqa: F401
 from tests.auto_patch_v2.test_v2grounddem import (_LawfulDem, _X0, _X1, _Y0, _Y1,
@@ -159,7 +160,7 @@ def test_matched_relief_carries_every_foot(matched, law):          # noqa: F811
     g = airport.groups.groups[0]
     fit = ground_fit(g.feet, g.y_zero, FR._sampler(airport.dem,
                                                    airport.frame.transformers()[0]),
-                     float(law.tables.emit.design.bank_slope))
+                     float(law.tables.emit.design.bank_slope), pairs=neighbour_pairs)
     assert fit is not None and fit.feasible
     worst = 0.0
     for j, i in enumerate(fit.keep):
@@ -202,7 +203,7 @@ def test_the_rows_move_the_sheet_off_the_dem_ripple(law):          # noqa: F811
     g = airport.groups.groups[0]
     fit = ground_fit(g.feet, g.y_zero,
                      FR._sampler(dem, airport.frame.transformers()[0]),
-                     float(law.tables.emit.design.bank_slope))
+                     float(law.tables.emit.design.bank_slope), pairs=neighbour_pairs)
     arm = ctrl = 0.0
     for j, i in enumerate(fit.keep):
         t = fit.targets[j]
@@ -393,19 +394,19 @@ def test_the_pair_bar_reads_the_slope_between_neighbouring_feet(law):  # noqa: F
     def sample(dem):
         return lambda lat, lon: dem.z(*_to_xy(lon, lat))
 
-    ok = _fit(feet, 0.0, sample(_Falling()), bank)
+    ok = _fit(feet, 0.0, sample(_Falling()), bank, pairs=neighbour_pairs)
     assert ok is not None and ok.feasible and ok.residual_m <= 0.01, ok
     # the pair bar over a 7 m bay is 0.33 x 7 = 2.31 m
     assert ok.limit_m == pytest.approx(bank * _PITCH, rel=0.05)
     # 0.7 m over a 7 m bay is 1:10 — a BANK.  On flat ground the same
     # colonnade is still feasible, which is the half round 6 got wrong.
-    gentle = _fit(feet, 0.0, sample(_FlatDem()), bank)
+    gentle = _fit(feet, 0.0, sample(_FlatDem()), bank, pairs=neighbour_pairs)
     assert gentle is not None and gentle.feasible, gentle
     # what the pair bar refuses is a fall it cannot make between two
     # feet 7 m apart: 3.0 m against 2.31 m
     steep = tuple(Foot(*to_ll(x, y), 3.0 * i)
                   for i, (x, y) in enumerate(pts))
-    bad = _fit(steep, 0.0, sample(_FlatDem()), bank)
+    bad = _fit(steep, 0.0, sample(_FlatDem()), bank, pairs=neighbour_pairs)
     assert bad is not None and not bad.feasible
     assert bad.residual_m == pytest.approx(3.0, abs=0.01), bad
     # ...and the pair that binds is a NEIGHBOURING pair, not the span

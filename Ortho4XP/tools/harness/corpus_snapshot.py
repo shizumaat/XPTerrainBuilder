@@ -363,6 +363,15 @@ def airport_read_set(icao: str, trace: dict, data_repo: Path,
         hit = classify(p, data_repo, install_root, trace.get("overlays", {}))
         if hit and os.path.isfile(hit[1]):
             out[hit[0]] = hit[1]
+    # RESTORE-BEFORE-READ SIBLINGS (#79).  The loader resolves a pack
+    # placement by STATTING ``X.obj`` and then reads ``X.obj.anchor_bak``
+    # (04f-1); a stat is invisible to the trace, so without the sibling the
+    # snapshot build leaves the placement unresolved (SPJC: 35).
+    for rel, src in list(out.items()):
+        if isinstance(src, str) and src.endswith(".anchor_bak"):
+            sib = src[:-len(".anchor_bak")]
+            if os.path.isfile(sib):
+                out.setdefault(rel[:-len(".anchor_bak")], sib)
     # THE PACK SEARCH IS NOT A READ SET.  ``apt_dat.find_apt_dat`` opens
     # EVERY enabled pack's apt.dat (~1,100 on the owner's install) to find
     # the candidates; the build then reads only the one it SELECTS.  A pack

@@ -430,3 +430,15 @@ def test_a_strip_vertex_yields_to_a_never_moved_neighbour(law, agp):
     d = float(np.hypot(*np.subtract(pm.vertices[near].xy, pm.vertices[v0].xy)))
     assert abs(levels[v0] - before[v0]) <= 0.015 * d + 1e-6
     assert levels[near] == before[near]
+
+
+def test_the_rider_reach_cap_is_12_m(law):
+    """Owner RULINGS 2026-09-28a (3) (Q-31b, issue #31): the cap is 12 m —
+    HECA's ``EGCC_Jetway_metal_03.obj`` (OBJ8 half-extent 13.4 m) stands
+    10.31 m inside ``building10``'s outline and now rides it; the table and
+    the schema default say the same number."""
+    from auto_patch_v2.law.rebake_schema import Placement as _PL
+    cap = float(law.tables.structures.placement.rider_reach_max_m)
+    assert cap == 12.0
+    assert float(_PL(split_tol_m=0.02).rider_reach_max_m) == cap
+    assert min(cap, max(0.5, 13.4)) >= 10.31

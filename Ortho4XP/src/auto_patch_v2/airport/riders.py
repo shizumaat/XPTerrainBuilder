@@ -184,10 +184,30 @@ def _inside(lat: float, lon: float, ring: _t.Sequence[tuple[float, float]]) -> b
     return c
 
 
+def _gate_clamped(lat: float, lon: float, clamps: _t.Sequence[_t.Any],
+                  gate_m: float | None) -> bool:
+    """Is a clamp ``[lat, lon, why, metres]`` of the strip within
+    ``gate_m`` of this anchor (any clamp at all when ``gate_m`` is
+    ``None``)?"""
+    if gate_m is None:
+        return bool(clamps)
+    ky = 111_320.0
+    kx = ky * math.cos(math.radians(lat))
+    for c in clamps:
+        try:
+            d = math.hypot((float(c[1]) - lon) * kx, (float(c[0]) - lat) * ky)
+        except (TypeError, ValueError, IndexError):
+            continue
+        if d <= gate_m:
+            return True
+    return False
+
+
 def riders_for_dump(dump: _t.Any, strips: _t.Sequence[_t.Mapping[str, _t.Any]],
                     pads: _t.Sequence[_t.Any], surface: _t.Callable,
                     split_idx: _t.AbstractSet[int], *, tol_m: float,
-                    authored_ground: float | None = None) -> tuple:
+                    authored_ground: float | None = None,
+                    gate_m: float | None = None) -> tuple:
     """§4: the ``Rider`` seat record of every placement the DESIGN side
     named a rider (the ``riders`` lists of the published ``jetway_strips``
     — ONE derivation of the population, never a second host search), in
@@ -195,17 +215,47 @@ def riders_for_dump(dump: _t.Any, strips: _t.Sequence[_t.Mapping[str, _t.Any]],
 
     ``strips`` are the graded surface's ``provenance.jetway_strips``
     records (``pad_ref``, ``level``, ``riders`` as ``[lat, lon, path,
-    reach_m]``, ``clamps``); ``pads`` the emitted pad rings
-    (``placement_read.pads_rims_from_graded_doc``): the host unit's datum
-    is its pad's own plane, read as the median of its ring heights (the
-    unit datum = the cluster pad plane, 17t; = ``L_strip`` through the
-    pad, spec C15).  A rider row is joined to the dump by its anchor, to
-    7 decimal places (1 cm) and its resource path."""
+    reach_m, dump_index, host_ref, gap_m]`` — the last three since lane
+    ``ridercensus``, #31 — ``clamps``); ``pads`` the emitted pad rings
+    (``placement_read.pads_rims_from_graded_doc``).
+
+    THE DATUM is the strip pad's own plane read by THE ONE PAD DATUM RULE
+    (owner RULINGS 2026-09-17t): the MEDIAN over EVERY FACE of the ref,
+    folded by ``anchor_rule.fold_pad_ref`` — the number
+    ``footprint_unit.plan_unit_datums`` seats the unit at (the unit datum
+    = the cluster pad plane, 17t; = ``L_strip`` through the pad, spec
+    C15).  Reading the FIRST face of the ref instead was an
+    iteration-order datum (fix C's defect again).
+
+    THE JOIN is the rider's identity: its ``dump_index`` (``airport/load``
+    names every placement ``dsf:obj<i>`` by its row in the SAME pristine
+    dump), checked against the row's resource path.  A record written
+    before the index (4 elements) falls back to the anchor at 7 decimal
+    places and the path — which lost 6 of HECA's 105 riders to the
+    0.5 mm projection round trip.  THE GAP is to the rider's OWN host
+    pad (``host_ref``, every face), 0 inside it.
+
+    A CLAMPED GATE (spec §4 (1), §5 bar 1: "its gate is in the
+    ``jetway_strip`` clamp list"): a clamp of the rider's strip standing
+    within ``gate_m`` (the strip depth ``[design] jetway_strip_m``, the
+    gate's own apron) of the rider's anchor.  Reading "any clamp anywhere
+    on the strip" instead wrote HECA T3's 31 non-``.agp`` riders
+    ``OBJECT_MSL`` at the pad median, 20-318 m from the nearest clamp
+    (0.06-0.27 m) and up to 1.46 m off the strip they stand on (lane
+    ``ridercensus``, #31).  ``gate_m=None`` keeps the whole-strip reading
+    for a caller that has no D."""
     from ..model.placement import Rider
+    from .anchor_rule import fold_pad_ref
     from .footprint_unit import authored_offset
-    pad_by_ref: dict[str, _t.Any] = {}
-    for p in pads:
-        pad_by_ref.setdefault(p.ref, p)
+    folded: dict[str, _t.Any] = {}
+
+    def _pad(ref: str) -> _t.Any:
+        if ref not in folded:
+            folded[ref] = fold_pad_ref(pads, ref) if ref else None
+        return folded[ref]
+
+    rows = list(getattr(dump, "placements", ()) or ())
+    by_index: dict[int, tuple[dict, list]] = {}
     want: dict[tuple[float, float, str], tuple[dict, list]] = {}
     for s in strips:
         for r in s.get("riders", ()) or ():
@@ -213,33 +263,42 @@ def riders_for_dump(dump: _t.Any, strips: _t.Sequence[_t.Mapping[str, _t.Any]],
                 key = (round(float(r[0]), 7), round(float(r[1]), 7), str(r[2]))
             except (TypeError, ValueError, IndexError):
                 continue
-            want[key] = (s, list(r))
-    if not want:
+            idx = r[4] if len(r) > 4 else None
+            if (isinstance(idx, int) and 0 <= idx < len(rows)
+                    and rows[idx].def_path == str(r[2])):
+                by_index[idx] = (s, list(r))
+            else:
+                want[key] = (s, list(r))
+    if not want and not by_index:
         return ()
-    rows = list(getattr(dump, "placements", ()) or ())
     out: list = []
     for i, p in enumerate(rows):
-        key = (round(float(p.lat), 7), round(float(p.lon), 7), p.def_path)
-        hit = want.get(key)
+        hit = by_index.get(i)
+        if hit is None:
+            key = (round(float(p.lat), 7), round(float(p.lon), 7), p.def_path)
+            hit = want.get(key)
         if hit is None or i in split_idx:
             continue
         s, r = hit
         ref = str(s.get("pad_ref", ""))
-        pad = pad_by_ref.get(ref)
+        pad = _pad(ref)
+        host = str(r[5]) if len(r) > 5 and r[5] else ref
         reach = float(r[3]) if len(r) > 3 else 0.0
         if pad is None or not pad.z:
             out.append(Rider(i, p.def_path, float(p.lon), float(p.lat),
-                             float(p.heading_deg), p.kind, "", ref, 0.0, reach,
+                             float(p.heading_deg), p.kind, "", host, 0.0, reach,
                              str(s.get("id", "")), None, "no_host"))
             continue
         zs = sorted(float(z) for z in pad.z)
         datum = zs[len(zs) // 2]
-        gap = (0.0 if _inside(p.lat, p.lon, pad.ring)
-               else _ring_dist_m(p.lat, p.lon, pad.ring))
+        hp = _pad(host) or pad
+        rings = tuple(getattr(hp, "rings", ()) or ()) or (hp.ring,)
+        gap = (0.0 if any(_inside(p.lat, p.lon, rg) for rg in rings)
+               else min(_ring_dist_m(p.lat, p.lon, rg) for rg in rings))
         off = authored_offset(p, authored_ground)
         seat = datum + (off or 0.0)
         z = surface(p.lat, p.lon)
-        clamped = bool(s.get("clamps"))
+        clamped = _gate_clamped(p.lat, p.lon, s.get("clamps") or (), gate_m)
         on_datum = z is not None and abs(float(z) - datum) <= tol_m
         is_agp = p.def_path.lower().endswith(".agp")
         if on_datum or not clamped or is_agp or off is None:
@@ -247,7 +306,7 @@ def riders_for_dump(dump: _t.Any, strips: _t.Sequence[_t.Mapping[str, _t.Any]],
         else:
             why = "msl_written"
         out.append(Rider(i, p.def_path, float(p.lon), float(p.lat),
-                         float(p.heading_deg), p.kind, ref, ref,
+                         float(p.heading_deg), p.kind, ref, host,
                          round(gap, 3), reach, str(s.get("id", "")),
                          round(seat, 3), why,
                          None if z is None else round(float(z), 3)))

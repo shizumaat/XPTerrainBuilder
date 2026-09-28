@@ -759,6 +759,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         deck_under_m=law.tables.structures.deck.under_m,
         # jetway-strip spec §4 (C17): the riders' population and strips
         jetway_strips=jetway_strips,
+        # a CLAMPED GATE is a clamp within D of the rider (#31)
+        jetway_strip_m=float(law.tables.emit.design.jetway_strip_m),
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))
     c = dict(plan.counts())

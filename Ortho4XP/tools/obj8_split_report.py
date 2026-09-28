@@ -588,11 +588,34 @@ def msl_census_rows(dump, plan, ss, sampler, tol_m: float):
     return seats, counts, offs
 
 
+def _rider_census(a, dump, sampler, tol: float) -> None:
+    """Issue #31: the RIDERS the writer seats, from the SAME
+    ``riders.riders_for_dump`` call (through ``tools/jetway_rider_census``,
+    the promoted instrument — never a second census), and with
+    ``--rows-near`` the riders standing within R of the site (default
+    60 m): which are left on their own ground, which carry an
+    ``OBJECT_MSL`` row, and each one's terrain against its pad datum."""
+    import jetway_rider_census as _JRC
+    from auto_patch_v2.law import Law as _L2
+    with open(a.graded, encoding="utf-8") as fh:
+        doc = json.loads(fh.read())
+    law = _L2.load()
+    rep = _JRC.census(doc, dump, sampler, tol_m=tol, names="",
+                      gate_m=float(law.tables.emit.design.jetway_strip_m))
+    near = None
+    if a.rows_near:
+        q = [float(v) for v in a.rows_near.split(",")]
+        near = (q[0], q[1], q[2] if len(q) == 3 else 60.0)
+    print("\nRIDERS (jetway-strip spec §4, issue #31)")
+    _JRC.print_report(rep, names="", strip=False, near=near)
+
+
 def _msl_census(a, plan, ss, sampler) -> None:
     from auto_patch_v2.airport import dsf as _dsf
     from auto_patch_v2.law import Law as _L2
     dump = _dsf.read_dump(a.dsf_dump)
     tol = float(_L2.load().tables.emit.design.hard_tol_m)
+    _rider_census(a, dump, sampler, tol)
     seats, counts, offs = msl_census_rows(dump, plan, ss, sampler, tol)
     print("\n§16g (5) PER-PLACEMENT OBJECT_MSL (RULINGS 2026-09-14bo), "
           f"from {os.path.basename(a.dsf_dump)}")
@@ -657,10 +680,29 @@ def _write_pack(a, plan, ss, sampler) -> None:
         tol_m=float(_L2.load().tables.emit.design.hard_tol_m),
         authored_ground=(None if _flat is None else _flat.z0_m),
         counts=_msl_counts)
+    _conv0 = conversions
     _mi = frozenset(m.index for m in msl)
     conversions = tuple(c for c in conversions if c.index not in _mi)
+    # issue #31: THE RIDERS, through the SAME ``placement_write.seat_riders``
+    # the engine's ``build_plan`` calls — this path carried none, so a
+    # pack copy written here left every rider's §16g (5) row in place and
+    # no rider record in the plan (lane ridercensus)
+    from auto_patch_v2.airport import riders as _RD
+    _law2 = _L2.load()
+    with open(a.graded, encoding="utf-8") as _fh:
+        _gd = json.loads(_fh.read())
+    from auto_patch_v2.airport.placement_read import pads_rims_from_graded_doc
+    _pads, _ = pads_rims_from_graded_doc(_gd)
+    _strips = tuple((_gd.get("provenance") or {}).get("jetway_strips") or ())
+    riders, msl, conversions = PW.seat_riders(
+        dump, _strips, _pads, sampler, split_idx, msl, _conv0, conversions,
+        tol_m=float(_law2.tables.emit.design.hard_tol_m),
+        authored_ground=(None if _flat is None else _flat.z0_m),
+        gate_m=float(_law2.tables.emit.design.jetway_strip_m))
     counts = dict(ss.counts)
     counts["conversions"] = len(conversions)
+    counts["msl_seats"] = len(msl)
+    counts.update(_RD.rider_census(riders))
     counts.update(_msl_counts)
     counts.update(_fu.multi_anchor_census(dump, plan, msl, split_idx,
                                           ss.unit_seats))
@@ -670,7 +712,8 @@ def _write_pack(a, plan, ss, sampler) -> None:
                        provenance=Provenance("", "", str(
                            law_tables_digest().get("sha256") or ""), counts),
                        conversions=conversions, splits=splits, kept=kept,
-                       msl_seats=msl)
+                       msl_seats=msl, riders=riders,
+                       jetway_strips=tuple(dict(j) for j in _strips))
     files = tuple(f for s in ss.splits for f in s.files)
     res = PW.apply_plan(pl, files, tool, patch_dir=a.patch_dir or root,
                         work_dir=work)

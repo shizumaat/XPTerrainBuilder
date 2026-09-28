@@ -6264,3 +6264,9 @@ constraint, and owed:
   lane was told not to run. No full-suite run; build-time impact of the
   second (and third) stage-2 solve paid only when stage 2 does not settle
   (GEML stage 2 ≈ 0.5 s each) not timed.
+- 2026-09-27 lane ridercensus (#31): the rider census on the `--tile` object
+  stage is now MEASURED (HECA `ridercensus_heca2`, see #31); still deferred:
+  LEMD's 122-rider census (no registered LEMD graded + rebake frame; needs a
+  LEMD `--tile` build), the `.agp` OBJECT_MSL sim read (Q-31), and the
+  engine's own MESH-sampler reading of the rider terrain (the census reads
+  the graded Delaunay; the build logs no rider counts). No full-suite run.

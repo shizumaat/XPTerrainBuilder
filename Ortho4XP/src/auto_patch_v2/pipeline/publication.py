@@ -563,7 +563,7 @@ def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
     """The ``jetway_strips`` sidecar key (jetway-strip spec §2 (6), §4
     (2)): one record per strip the projection RAN on —
     ``{id, pad_ref, level, plane, rider_count, riders: [[lat, lon, path,
-    reach_m]], polygon_ll: [[[lat, lon], ...], ...], vertices_ll:
+    reach_m, dump_index, host_ref, gap_m]], polygon_ll: [[[lat, lon], ...], ...], vertices_ll:
     [[lat, lon, target_z], ...], clamps: [[lat, lon, why, metres], ...]}``
     — ``target_z`` is the pad plane at the vertex (Q-32a (d)); ``level``
     the median target.
@@ -575,7 +575,7 @@ def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
     _to_xy, to_ll = airport.frame.transformers()
     ll = {vid: [v.key[0], v.key[1]] for vid, v in planar.vertices.items()}
     objs = {o.id: o for o in (getattr(airport, "dsf_objects", ()) or ())}
-    reach = {r.obj_id: r.reach_m for r in getattr(strips, "riders", ())}
+    anchors = {r.obj_id: r for r in getattr(strips, "riders", ())}
     by_id = {d["id"]: d for d in rep.strips}
     out: list[dict[str, _t.Any]] = []
     for st in strips.strips:
@@ -587,8 +587,21 @@ def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,
             if o is None:
                 continue
             la, lo = to_ll(*o.xy)
+            ra = anchors.get(oid)
+            # issue #31 (lane ridercensus): the rider's IDENTITY — its row
+            # in the pristine dump ``airport/load`` read (``dsf:obj<i>``) —
+            # and its OWN host pad ref and gap.  The write side joined by
+            # the round-tripped lat/lon at 7 dp and lost 6 of HECA's 105
+            # riders to the 0.5 mm projection round trip (two of them
+            # jetways, which then read ``no_host``); and it re-derived the
+            # gap against the strip's pad_ref, not the face the rider rides
+            # (gaps of 71-300 m on a four-face ref).
+            idx = (int(oid[7:]) if oid.startswith("dsf:obj")
+                   and oid[7:].isdigit() else None)
             riders.append([round(la, 9), round(lo, 9), o.path,
-                           round(float(reach.get(oid, 0.0)), 3)])
+                           round(float(ra.reach_m if ra else 0.0), 3), idx,
+                           ra.host_ref if ra else "",
+                           round(float(ra.gap_m), 3) if ra else None])
         out.append({
             "id": st.id, "pad_ref": st.pad_ref, "level": d.get("level"),
             "rider_count": len(st.riders), "riders": riders,

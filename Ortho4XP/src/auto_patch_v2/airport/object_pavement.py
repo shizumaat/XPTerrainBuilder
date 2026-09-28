@@ -89,15 +89,9 @@ class Placement:
     heading_deg: float
 
 
-#: §42 (1b): the pavement-id prefix of a HARD-PLANE body (a sub-prefix of
-#: ``classify/sources.OBJECT_PAVEMENT_PREFIX``, so every object-pavement
-#: gate reads it exactly as any other object pavement).
-HARD_PLANE_PREFIX = "dsf:objpavhp"
-
-
-def is_hard_plane_ref(ref: str | None) -> bool:
-    """§42 (1b): does this pavement / cell / face ref name a hard plane?"""
-    return bool(ref) and str(ref).startswith(HARD_PLANE_PREFIX)
+#: §42 (1b): the hard-plane prefix and its predicate live at ONE site in the
+#: model layer (``model/hard_plane``, issue #84) and are re-exported here.
+from ..model.hard_plane import HARD_PLANE_PREFIX, is_hard_plane_ref  # noqa: E402
 
 
 @_dc.dataclass(frozen=True)

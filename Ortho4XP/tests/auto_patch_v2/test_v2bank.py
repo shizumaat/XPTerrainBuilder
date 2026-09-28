@@ -27,6 +27,7 @@ from auto_patch_v2.constraints import pads as padgen
 from auto_patch_v2.emit.bank import (BANK_KIND, BankReport, coverage_polygon,
                                      daylight_feet, smooth_along, with_bank)
 from auto_patch_v2.emit.graded import graded_surface
+from auto_patch_v2.law.tables import design as design_law
 from auto_patch_v2.emit.osm_adapter import BANK_FEATURE, render_patch
 from auto_patch_v2.model.constraints import Diff, Pin
 from auto_patch_v2.solve import solve_design
@@ -448,6 +449,17 @@ def test_a_pad_on_a_three_percent_apron_stays_flat_and_welds(pad_map, law):  # n
     That is §20b MEASURED's third named deviation ("a welded pad's ceiling
     is unreachable"), and it is the airside's drop, never a pad row pulling
     the apron.  Both arms are pinned here.
+
+    RE-BASED (issue #84) on issue #67, §20b (1b) "airside is king" (lane
+    ``clustertrim``, merged 208ef512; spec author accepted its sibling
+    re-basings in ``test_v2staged`` / ``test_v2padlevel``): the pad's 1 %
+    ceiling is a CONFORMING hard ruling (``[design]
+    conforming_hard_rulings``) that stage 1 never assembles, so the apron
+    no longer bends toward the pad's ceiling and the pure-hole rim reads the
+    airside's own drop: spread 0.4003 -> 0.4153 m, tilt 0.0100 -> 0.01038.
+    INTERVENTIONAL (lane ``reds84``): with the ceiling removed from
+    ``conforming_hard_rulings`` and nothing else changed, 788c864f reads the
+    old 0.4003 / 0.0100 again (both twins green).
     """
     from tests.auto_patch_v2.test_v2staged import unstaged
     airport, pm, _r = pad_map
@@ -456,9 +468,13 @@ def test_a_pad_on_a_three_percent_apron_stays_flat_and_welds(pad_map, law):  # n
     sol_s, _rs = solve_design(pm, cs, law)               # the SHIPPED (staged) arm
     (_r_s, tilt_s), ids_s = _pad_plane(pm, sol_s.z, fid)
     spread_s = max(sol_s.z[v] for v in ids_s) - min(sol_s.z[v] for v in ids_s)
-    assert 0.39 <= spread_s <= 0.41, spread_s            # the apron's own 3 %
-    assert tilt_s <= law.tables.emit.within_shape.pad_slope_max + \
-        law.tables.emit.materiality.grade, tilt_s
+    # the mechanism is the ruled one: the ceiling conforms (issue #67)
+    assert "structures.building_pad pad_slope_max ceiling" in \
+        design_law(law).conforming_hard_rulings
+    assert 0.40 <= spread_s <= 0.42, spread_s            # the apron's own 3 %
+    # the pad's plane IS the airside's drop across it (0.01038), not the
+    # pad's 1 % ceiling bending the apron: bounded, not the ceiling
+    assert tilt_s <= 0.0105, tilt_s
     law = unstaged(law)                                  # the joint problem
     sol, _rep = solve_design(pm, cs, law)
     (resid, tilt), ids = _pad_plane(pm, sol.z, fid)
@@ -511,6 +527,12 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     orders under the 0.5 m surface floor, and it is the weld's own
     geometry, not a pad row pulling the apron (§20b MEASURED's third
     deviation).  The joint-solve claim below is unchanged.
+    
+    RE-BASED (issue #84) on issue #67 (lane ``clustertrim``, 208ef512): the
+    ceiling conforms, stage 1 no longer bends the apron toward it, and the
+    fixed rim is the airside's own: 0.010308 -> 0.010801.  Same
+    interventional arm as the sibling above (ceiling back in stage 1 reads
+    0.010308 again).
     """
     from tests.auto_patch_v2.test_v2staged import unstaged
     airport, pm, _r = pad_map
@@ -527,7 +549,7 @@ def test_a_pad_whose_contacts_admit_no_flat_solution_tilts_within_one_percent(
     cs2 = stack(list(cs.rows()) + [Pin(a, z0, src), Pin(b, z0 + 0.30, src)])
     sol_s, _rs = solve_design(pm, cs2, law)              # the SHIPPED (staged) arm
     (_resid_s, tilt_s), _ids_s = _pad_plane(pm, sol_s.z, fid)
-    assert tilt_s <= 0.0104, tilt_s                      # 0.010308, named above
+    assert tilt_s <= 0.0110, tilt_s                      # 0.010801, named above
     law = unstaged(law)                                  # the joint problem
     sol, _rep = solve_design(pm, cs2, law)
     (resid, tilt), ids = _pad_plane(pm, sol.z, fid)

@@ -135,7 +135,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                deck_on_fraction: float = 0.5,
                deck_edge_m: float = 0.0,
                deck_under_m: float = 0.0,
-               jetway_strips: _t.Sequence = ()) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
+               jetway_strips: _t.Sequence = (),
+               jetway_strip_m: float | None = None) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
     ``rebake_plan`` is the build's own ``<ICAO>.rebake.json`` model (the
@@ -205,7 +206,10 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     from . import riders as _riders
     riders = _riders.riders_for_dump(
         dump, jetway_strips, pads, surface, split_idx, tol_m=hard_tol_m,
-        authored_ground=(None if _flat is None else _flat.z0_m))
+        authored_ground=(None if _flat is None else _flat.z0_m),
+        # a CLAMPED GATE is a clamp within the gate's own strip depth
+        # (spec §4 (1); lane ridercensus, #31)
+        gate_m=jetway_strip_m)
     if riders:
         _ground = {r.index for r in riders if r.seat_why == "on_ground"}
         _have = {m.index for m in msl}

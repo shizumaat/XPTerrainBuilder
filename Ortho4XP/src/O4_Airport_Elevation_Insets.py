@@ -8834,6 +8834,37 @@ def _inset_completion_key(tile):
     }
 
 
+def _stamp_key_validates(stamp, wanted):
+    """True when an on-disk stamp settles the key fields ``wanted`` asks.
+
+    THE ONE comparison of a stamp's key fields, shared by :func:`is_cached`
+    and :func:`_write_inset_completion_stamp` (issue #78): the writer must
+    not rewrite a stamp the predicate already accepts.
+    """
+    if not isinstance(stamp, dict):
+        return False
+    for key, value in wanted.items():
+        if key == "selection_mode":
+            # ORDERED, not equality (§B.2): None < ICAO < All, and the
+            # tile is cached when the stamp settled a SUPERSET of what
+            # is wanted now.  A stamp WITHOUT the key — every stamp on
+            # disk today, schema 2026-07-30 — was settled over every
+            # string-keyed aerodrome, which is a superset of any
+            # selection, so it reads as "All".  INSET_COMPLETION_SCHEMA
+            # is deliberately NOT bumped: a bump makes every tile on
+            # the shared corpus uncached, and the next guarded build
+            # would try to REWRITE complete.json — a shared-repo write
+            # inside DEM prep, which the harness refuses.
+            stamped = stamp.get(key, "All")
+            if (MODE_RANK.get(str(stamped), len(MODES))
+                    < MODE_RANK.get(str(value), 0)):
+                return False
+            continue
+        if stamp.get(key) != value:
+            return False
+    return True
+
+
 def _write_inset_completion_stamp(tile):
     """Record that an inset pass left nothing to fetch.  Never raises.
 
@@ -8864,8 +8895,22 @@ def _write_inset_completion_stamp(tile):
         payload = json.dumps(stamp, indent=2, sort_keys=True)
         try:                   # absent, unreadable or different: write it
             with open(path, "r") as handle:
-                if handle.read() == payload:
-                    return
+                on_disk = handle.read()
+            if on_disk == payload:
+                return
+            # Issue #78: a stamp that already VALIDATES for the key fields
+            # :func:`is_cached` reads, over the same inset set, is not
+            # rewritten merely because the payload grew informational
+            # keys (§B.2 ``selection_mode`` / ``selected``).  A stamp-only
+            # rewrite is still a real write into the shared data repo, and
+            # it changes no answer the predicate gives.
+            existing = json.loads(on_disk)
+            key_fields = {k: v for (k, v) in stamp.items()
+                          if k not in ("selected", "insets")}
+            if (_stamp_key_validates(existing, key_fields)
+                    and sorted(existing.get("insets") or [])
+                    == stamp["insets"]):
+                return
         except Exception:
             pass
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -8972,25 +9017,8 @@ def is_cached(tile) -> bool:
         wanted = _inset_completion_key(tile)
         if wanted["airports_layer"] is None:
             return False
-        for key, value in wanted.items():
-            if key == "selection_mode":
-                # ORDERED, not equality (§B.2): None < ICAO < All, and the
-                # tile is cached when the stamp settled a SUPERSET of what
-                # is wanted now.  A stamp WITHOUT the key — every stamp on
-                # disk today, schema 2026-07-30 — was settled over every
-                # string-keyed aerodrome, which is a superset of any
-                # selection, so it reads as "All".  INSET_COMPLETION_SCHEMA
-                # is deliberately NOT bumped: a bump makes every tile on
-                # the shared corpus uncached, and the next guarded build
-                # would try to REWRITE complete.json — a shared-repo write
-                # inside DEM prep, which the harness refuses.
-                stamped = stamp.get(key, "All")
-                if (MODE_RANK.get(str(stamped), len(MODES))
-                        < MODE_RANK.get(str(value), 0)):
-                    return False
-                continue
-            if stamp.get(key) != value:
-                return False
+        if not _stamp_key_validates(stamp, wanted):
+            return False
         directory = FNAMES.airport_inset_directory(tile.lat, tile.lon)
         for name in stamp.get("insets") or ():
             if _file_size_or_zero(os.path.join(directory, name)) <= 0:

@@ -88,3 +88,19 @@ listed in `tools/harness/corpus_snapshot_allowlist.json` (freeware, confirmed
 by the owner). Any other pack refuses the airport, and OTHH is excluded by
 name. Publish the tarballs with
 `gh release create snap-<date>-<hash8> <release dir>/*`.
+
+## Current snapshot
+
+| release | hash | airports (files, raw, tarball) | refused by the licence gate |
+|---|---|---|---|
+| `snap-20260928-70cb6ff7` | `70cb6ff78c6731339b537d469ecfdb422315088f9f1da274acea273a4cb1eb24` | CYXY (120, 198.1 MB, 138.1 MB); HECA (8,507, 2,262.5 MB, 332.4 MB); NLWF (163, 41.9 MB, 5.1 MB) | SPJC (Aerosoft / Limesim static-aircraft library objects and other unlisted packs in its read set), TFFJ (the selected pack is an unlisted product) |
+
+Proof on the owner machine (2026-09-28): CYXY was built from `CYXY.tar.gz`
+alone with rc 0 and 0 snapshot leaks. Its `body_sha` was
+`f4241e3bf75ca9c7856b760f6dbba14813ce471798be52fd14e40dbfb86d2d1b`, identical
+to the shared-corpus build `/tmp/harness/sw0928_CYXY.osm`. The census was
+identical too: law-true 1,340 (airside 1,257, groundside 79, mixed 4).
+
+The allowlist entries are marked `OWNER-CONFIRM`. The lane read them from
+pack readmes and freeware listings, and the owner has not yet confirmed
+them.

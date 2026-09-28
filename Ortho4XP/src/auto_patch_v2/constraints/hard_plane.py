@@ -19,10 +19,10 @@ that edge, never by making the runway's own vertices one unknown.
 """
 from __future__ import annotations
 
-from ..airport.object_pavement import is_hard_plane_ref
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Flat, Row, Source
+from ..model.hard_plane import hard_plane_vertices
 from ..model.planar import PlanarMap
 
 __all__ = ["hard_plane_level", "hard_plane_vertices", "GEN"]
@@ -34,18 +34,6 @@ RULING = ("a hard Y=0 ground plane is graded LEVEL at its runway-edge frontage, 
 _RUNWAY_FAMILY = ("runway", "runway_crossing")
 
 STATS: dict[str, dict] = {}
-
-
-def hard_plane_vertices(planar: PlanarMap) -> set[int]:
-    """Every ring and hole vertex of every hard-plane face."""
-    out: set[int] = set()
-    for f in planar.faces.values():
-        if not is_hard_plane_ref(getattr(f, "ref", None)):
-            continue
-        out.update(planar.ring_vertices(f.ring))
-        for h in f.holes:
-            out.update(planar.ring_vertices(h))
-    return out
 
 
 def hard_plane_level(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

@@ -289,8 +289,17 @@ def test_dependency_direction():
         pkg = py.parent.name if py.parent != SRC else None
         imports = re.findall(r"from \.\.(\w+)", py.read_text())
         if pkg in producers:
+            # A package's ``__main__`` is a CLI ENTRY, not library code: it
+            # runs ABOVE the layers, so it may call the orchestrator
+            # (issue #84: ``planar/__main__``'s dry ``--stage structures``
+            # runs THE SAME ``pipeline.build.pack_stage`` the build runs —
+            # issue #75's one code path, never a second spelling).  Nothing
+            # imports a ``__main__`` except another entry, so the library
+            # layering is untouched.
+            allowed = producers[pkg] | ({"pipeline"} if py.name == "__main__.py"
+                                        else set())
             for m in imports:
-                assert m in producers[pkg], (py, m)
+                assert m in allowed, (py, m)
             continue
         if pkg not in order:
             continue

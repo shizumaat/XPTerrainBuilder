@@ -85,7 +85,10 @@ def courtyard_faces(pm: _t.Any, law: _t.Any) -> frozenset[int]:
     if holes:
         tree = STRtree(holes)
         for f in pm.faces.values():
-            if f.role not in aprons:
+            # a RIGID face is the pad itself, never its courtyard — under
+            # the unit platform (spec §1) a collar's hole IS its platform
+            # (lane ``unitplatform2``; ``apron_roles`` carries ``building``)
+            if f.role not in aprons or is_rigid_role(law, f.role):
                 continue
             vs = [v for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
             if not vs:

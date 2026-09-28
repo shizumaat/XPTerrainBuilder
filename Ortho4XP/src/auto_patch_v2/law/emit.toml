@@ -537,6 +537,7 @@ pad_flat_rulings = [
   "structures.building_pad flat",                        # 09-09c: the pad's flatness target, priced on the PLANE'S TILT (10y)
   "structures.building_pad flat airside-led",            # §16g (10) (11) (a): the SAME plate at the SAME price over a pair with one airside end, priced ONE-WAY toward the pad
   "structures.building_pad frontage_level",              # 09-10l/10y: the SENIOR fronting pavement's edge mean IS the pad's level where one plane cannot meet every frontage
+  "structures.building_pad platform_collar rim",          # unit-platform spec §1 (3) (lane unitplatform2): the pad's OWN (non-airside) rim stays on its platform at the plate's price — the plate held it before the collar existed (a courtyard hole ring: measured 0.26 m off the platform at the law's weight)
   "structures.building_pad groundside_frontage",         # 09-12r / spec §28: the SENIOR pad's edge level IS the level of the parking / service-road face fronting it ("grade frontages only"); the junior head below stays at ``law`` so the senior wins and the junior step is reported
 ]
 # THE PAD IS ONE PLANE FITTED TO ITS FRONTAGE (owner RULINGS 2026-09-10l,

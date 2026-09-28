@@ -18,9 +18,9 @@ where the outer vertex is AIRSIDE (a vertex of a runway / taxi / apron
 face — ``pads.airside_vertices``) the platform vertex FOLLOWS — airside is
 king and the collar never pulls it (its value is stage 1's anyway, §20b).
 Where the outer vertex is the pad's OWN rim (groundside, or bare ground)
-there is no relief to absorb: the row is at cap 0 and the OUTER vertex
-follows — the rim stays on the platform, where the plate held it before
-the collar existed, and the collar never tilts the plate.
+there is no relief to absorb: the row is at cap 0, TWO-SIDED and priced at
+the plate's own weight (``pad_flat_rulings``) — the rim stays on the
+platform, where the plate held it before the collar existed.
 
 Priced as the groundside terrace law prices a bank (``groundside_ramp_max``
 's pattern): a one-sided design penalty at the law's weight, never a hard
@@ -44,6 +44,10 @@ GEN = "platform_collar"
 #: The ruling HEAD (``solve.design.ruling_head``) — named by ``[design]
 #: one_way_rulings``.
 COLLAR_RULING = "structures.building_pad platform_collar bank"
+#: The head of the OWN-rim rows (cap 0, two-sided) — named by
+#: ``pad_flat_rulings``: the pad's own rim stays on its plate at the
+#: plate's price, as it did before the collar
+RIM_RULING = "structures.building_pad platform_collar rim"
 #: How many platform vertices each outer collar vertex is tied to: the
 #: triangulation joins a rim vertex to a fan of inner ones, and three is a
 #: fan (a solver-conditioning constant, not a law value).
@@ -107,6 +111,9 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
         src = Source(GEN, COLLAR_RULING + " (unit-platform spec §1 (3); "
                      "§31 (7) the 1:3 bank; RULINGS 2026-09-28a (1))",
                      (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
+        src_rim = Source(GEN, RIM_RULING + " (unit-platform spec §1 (3); "
+                         "the pad's own rim on its plate)",
+                         (f"face:{cfids[0]}", pref + "#collar", f"platform:{pref}"))
         tree = cKDTree([xy[v] for v in inner])
         seen: set[tuple[int, int]] = set()
 
@@ -127,7 +134,10 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                 # on the platform (cap 0, the rim follows), exactly where
                 # the plate put it before the collar existed
                 n_own += 1
-                rows.append(Diff(o, i, 0.0, d, src, follows=(o,)))
+                # TWO-SIDED, as the plate priced it (a one-way row lags its
+                # leader: MEASURED on the islands twin, a courtyard hole ring
+                # stayed 0.26 m on the platform's round-0 value)
+                rows.append(Diff(o, i, 0.0, d, src_rim))
 
         # WHAT AN OUTER VERTEX IS NOT THE COLLAR'S TO GRADE (measured on the
         # HECA replay, lane ``unitplatform2``: 3,528 cap-0 rows missed by up

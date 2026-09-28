@@ -137,7 +137,9 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     # than that; and its plane rows are already hard equalities.
     from .platform import COLLAR_RULING as _COLLAR
     from .platform import PLANE_RULING as _PLANE
-    _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J, _COLLAR, _PLANE}
+    from .platform import RIM_RULING as _RIM
+    _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J, _COLLAR, _PLANE,
+             _RIM}
     for row in rows:
         if row.source.ruling.split(" (")[0].strip() in _skip:
             continue

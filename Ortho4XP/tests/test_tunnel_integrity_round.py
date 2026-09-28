@@ -642,11 +642,18 @@ class TestSiteModeGainsTheBoreInputs:
     claim checks instead of SKIPPING them."""
 
     def test_the_flags_reach_the_profile(self):
+        """``--bore-ways=...``, with the equals sign, because way ids are
+        NEGATIVE: argparse reads a bare ``-2070,-2119`` as an option
+        string (its negative-number matcher accepts ``-2070`` but not
+        ``-2070,-2119``) and exits 2.  That is true of every Python this
+        runs on, so the twin was asserting a spelling the CLI has never
+        accepted; the attached form is the one a caller must use, and
+        stating it here is the only place it is written down."""
         tpa = _load_acceptance()
         args = tpa.build_parser().parse_args([
             "P.osm", "--site", "A=1,2",
             "--bore-osm", "_airport_road_feed/LEMD_road_feed.cache",
-            "--bore-ways", "-2070,-2119",
+            "--bore-ways=-2070,-2119",
             "--covered-span", "70,740"])
         assert args.bore_osm.endswith("LEMD_road_feed.cache")
         assert args.bore_ways == "-2070,-2119"

@@ -224,10 +224,22 @@ def test_pin_reproduction_on_the_checked_in_mini_case(mini_census,
                                                       mini_disc_rows):
     """The known answer: the mini patch carries the KCLT runway-end strip
     defect at 1.25 m / 13.1078 %.  Pinning it and re-measuring with the
-    same instrument must report REPRODUCED."""
+    same instrument must report REPRODUCED.
+
+    THE RADII ARE MEASURED, not guessed (issue #76).  The two rows the
+    checked-in fixture carries do NOT sit on top of each other: over the
+    40 m disc, ``strip_longitudinal`` is 0.603 m from MINI_CENTER and
+    ``strip_arc`` is 10.175 m from it — an arc row is reported at the
+    arc, not at the longitudinal run's own station.  The strip_arc pin
+    asked for 3 m, so R5 correctly refused a pin the artifact does not
+    carry AT THAT RADIUS, and the twin failed on its own fixture rather
+    than on the tool.  The numbers pinned (1.25 m, 13.1078 %) are
+    unchanged and are still re-measured on the artifact; only the radius
+    now matches where the row is.
+    """
     rep, _rows = mini_census
     pins = [rc.parse_pin(
-        f"row:strip_arc@{MINI_CENTER[0]},{MINI_CENTER[1]}/3:"
+        f"row:strip_arc@{MINI_CENTER[0]},{MINI_CENTER[1]}/12:"
         f"magnitude_m=1.25"),
         rc.parse_pin(
         f"row:strip_longitudinal@{MINI_CENTER[0]},{MINI_CENTER[1]}/3:"

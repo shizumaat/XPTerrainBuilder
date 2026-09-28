@@ -585,6 +585,11 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         src_led = Source(GEN, led_ruling, (f"face:{fid}", ref))
         plate_fids = [q for q in fids if q in per_face]
+        # unit-platform spec §1 (1): a PLATFORM is ONE plane (its hard
+        # ``platform plane`` rows carry no relief, RULINGS 12u) — the
+        # plate over it prices no §30 (6) per-vertex relief either, or the
+        # two contest the plane (measured HECA T3: 0.56 m residual)
+        platformed = any(is_collar_ref(planar.faces[q].ref) for q in fids)
         if len(plate_fids) > 1:
             prs, k = cluster_pairs(planar, [per_face[q] for q in plate_fids],
                                    own=(None if not air else
@@ -628,7 +633,8 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
                     n_led += 1
             rows.append(Diff(a, b, cap, d,
                              src_led if follows is not None else src,
-                             rel=off.get(a, 0.0) - off.get(b, 0.0),
+                             rel=(0.0 if platformed
+                                  else off.get(a, 0.0) - off.get(b, 0.0)),
                              follows=follows))
 
     if airside_led:

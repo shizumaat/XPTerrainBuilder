@@ -1007,7 +1007,7 @@ def _normalize_legacy_mode_value(name: str, normalized: str) -> str:
     A value already in ``values``, and any non-mode setting, is returned
     unchanged.
     """
-    from auto_patch.selection import DEFAULT_MODE, normalize_mode
+    from O4_Airport_Modes import DEFAULT_MODE, normalize_mode
 
     if name not in DEFAULT_MODE:
         return normalized

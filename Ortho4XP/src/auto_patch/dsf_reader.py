@@ -505,13 +505,18 @@ def ensure_dsf_text_path(dsf_path: str,
                 cache_dir, os.path.basename(dsf_path) + ".text")
             try:
                 if (os.path.isfile(legacy)
-                        and os.path.getmtime(legacy) >= mtime):
+                        and os.path.getmtime(legacy) >= mtime
+                        and os.path.getsize(legacy) > 0):
                     return legacy
             except OSError:
                 pass
-    # Re-convert if text is missing or older than the DSF.
+    # Re-convert if text is missing, older than the DSF, or EMPTY — a
+    # 0-byte dump is a DSFTool run that died before writing (#60: Global
+    # Airports ``+47+007.dsf.fa60276f.text``, 0 bytes since 07-23), never
+    # a DSF with no content (every dump carries its header).
     needs_convert = (not os.path.isfile(text_path)
-                     or (os.path.getmtime(text_path) < mtime))
+                     or (os.path.getmtime(text_path) < mtime)
+                     or os.path.getsize(text_path) == 0)
     if needs_convert:
         try:
             os.makedirs(cache_dir, exist_ok=True)

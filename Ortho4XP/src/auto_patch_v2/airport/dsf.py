@@ -125,8 +125,11 @@ def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
         return None
     prefix = (os.path.basename(dsf_path) + "."
               if dsf_path else f"{lat:+03d}{lon:+04d}.dsf.")
+    # a 0-byte dump is a DSFTool run that died before writing (#60) — a
+    # REFUSED cache entry, never a dump: the caller regenerates it
     hits = [os.path.join(d, n) for n in os.listdir(d)
-            if n.startswith(prefix) and n.endswith(".text")]
+            if n.startswith(prefix) and n.endswith(".text")
+            and os.path.getsize(os.path.join(d, n)) > 0]
     if dsf_path and not dsf_path.endswith(".anchor_bak"):
         # ... and the live file's prefix also matches the BACKUP's dumps
         hits = [h for h in hits if ".anchor_bak." not in os.path.basename(h)]

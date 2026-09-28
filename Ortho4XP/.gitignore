@@ -47,3 +47,8 @@ tools/probes_heca_burial_20260729/
 # (the v2 loaders resolve the shared-corpus layout); keep them tracked.
 !tests/auto_patch_v2/fixtures/**
 tests/auto_patch_v2/fixtures/__pycache__/
+
+# CI's Qt-step transcript (ci.yml tees it, then uploads it as the
+# qt-suite-log-<os> artifact so a SIGSEGV is attributable — issue #54).
+# Running that step locally must not dirty the tree.
+qt-suite.log

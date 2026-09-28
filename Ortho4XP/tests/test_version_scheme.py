@@ -47,10 +47,21 @@ app_side = pytest.mark.skipif(
 )
 
 
+#: The build scripts are zsh scripts and these tests run them for real.
+#: ``/bin/zsh`` ships with macOS but not with the Linux or Windows CI
+#: runners, where the whole subprocess raises ``FileNotFoundError`` and 19
+#: tests go red for the shell's absence rather than for anything about the
+#: version scheme.  The skip lives in the helper, not on 19 decorators, so a
+#: test added later inherits it.
+ZSH = Path("/bin/zsh")
+
+
 def _zsh(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
     """Run a zsh snippet under the build scripts' own shell options."""
+    if not ZSH.exists():
+        pytest.skip(f"{ZSH} absent — the build scripts' shell ships with macOS only")
     return subprocess.run(
-        ["/bin/zsh", "-c", script],
+        [str(ZSH), "-c", script],
         capture_output=True,
         text=True,
         cwd=str(cwd) if cwd else None,

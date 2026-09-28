@@ -85,6 +85,8 @@ vertices' canonical lat/lon identity so the census joins exactly.
 """
 from __future__ import annotations
 
+import math
+
 import typing as _t
 
 from ..constraints.contiguity import road_station_caps
@@ -684,6 +686,69 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
                     "faced": False, "kind": "apron_terrace", "faces": [], "shapes": list(j.shapes),
                     "gap": bool(j.gap), "roles": list(j.roles), "pairs": len(j.pairs),
                     "length_m": round(j.length_m, 2)})
+    out.extend(pad_terrace_joints(planar, law, z))
+    return out
+
+
+def pad_terrace_joints(planar: PlanarMap, law: Law,
+                       z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+    """THE PAD TERRACES DECLARED (owner RULINGS 2026-09-28b, issue #11;
+    ``PlanarMap.pad_terraces``, derived once by ``planar/pad_terrace``):
+    one ``terrace_joints`` record per (pad, split body) — the midline of
+    the strip between them (the midpoints of each pad rim vertex's
+    nearest partner across it, in the pad ring's walking order), the
+    emitted step over those pairs, ``kind`` ``pad_terrace``.  A retaining
+    edge the owner ruled, so both instruments forgive the step across it
+    exactly like a shape joint's; nothing is re-derived here."""
+    terr = getattr(planar, "pad_terraces", None) or {}
+    if not terr:
+        return []
+    from ..model.planar import face_vertex_ids
+    ident = law.tables.emit.identity
+    horizon = (float(law.tables.emit.design.pad_frontage_m)
+               + 2.0 * float(ident.weld_spacing_m))
+    by_ref: dict[str, list[int]] = {}
+    for f in planar.faces.values():
+        if f.ref in terr or any(f.ref in o for o in terr.values()):
+            by_ref.setdefault(f.ref, []).append(f.id)
+    fv: dict[int, list[int]] = {}
+    for v, vx in planar.vertices.items():
+        for fid in vx.incident_faces:
+            fv.setdefault(fid, []).append(v)
+    out: list[dict[str, _t.Any]] = []
+    for pad_ref, others in sorted(terr.items()):
+        pad_vs: list[int] = []
+        seen: set[int] = set()
+        for fid in by_ref.get(pad_ref, ()):
+            for v in fv.get(fid, ()):
+                if v not in seen:
+                    seen.add(v)
+                    pad_vs.append(v)
+        for other in sorted(others):
+            ovs = {v for fid in by_ref.get(other, ()) for v in fv.get(fid, ())} - seen
+            if not ovs:
+                continue
+            ox = [(w, planar.vertices[w].xy) for w in ovs]
+            pairs: list[tuple[int, int]] = []
+            for a in pad_vs:
+                ax, ay = planar.vertices[a].xy
+                d, b = min(((math.hypot(ax - bx, ay - by), w) for w, (bx, by) in ox))
+                if d <= horizon:
+                    pairs.append((a, b))
+            if len(pairs) < 2:
+                continue
+            pts = []
+            for a, b in pairs:
+                (la0, lo0), (la1, lo1) = planar.vertices[a].key, planar.vertices[b].key
+                pts.append([(la0 + la1) / 2.0, (lo0 + lo1) / 2.0])
+            step = 0.0
+            if z is not None:
+                step = max(abs(float(z[a]) - float(z[b])) for a, b in pairs)
+            out.append({"points": pts, "step_m": round(step, 4),
+                        "declared_step_m": round(step, 4), "faced": False,
+                        "kind": "pad_terrace", "faces": [], "shapes": [pad_ref, other],
+                        "gap": True, "roles": [], "pairs": len(pairs),
+                        "length_m": 0.0})
     return out
 
 

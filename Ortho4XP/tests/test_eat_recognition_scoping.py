@@ -685,12 +685,54 @@ class TestTheRecognitionVerdictIsCarried:
     def test_the_probe_restore_lists_fence_the_store(self):
         """A measurement instrument must not leave this verdict behind
         in the production layout — the same fence every other pin
-        publication of the seeder carries."""
+        publication of the seeder carries.
+
+        Asserted over the fences THEMSELVES, not over a count of the
+        string literal.  Counting said "all three lists", and there are
+        no longer three: ``mover_stage_boundary`` stopped hand-writing
+        its own list and now reads ``_PROBE_PUBLISHED_ATTRS``, which is
+        the repo's own "one home, never a second copy" rule applied — so
+        removing the duplication turned the twin red for doing the right
+        thing (issue #76).  Walking the fences holds the real property
+        and, unlike the count, it also catches a NEW fence that forgets
+        the key.
+        """
+        import ast
         import inspect
         assert "_eat_scope_refused_keys" in SV._PROBE_PUBLISHED_ATTRS
-        src = inspect.getsource(SV)
-        assert src.count('"_eat_scope_refused_keys"') >= 3, (
-            "all three snapshot/restore lists must fence the store")
+
+        tree = ast.parse(inspect.getsource(SV))
+        fences = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if not any(n.startswith("saved_") for n in names):
+                continue
+            if not isinstance(node.value, ast.ListComp):
+                continue
+            source = node.value.generators[0].iter
+            if isinstance(source, ast.Name):
+                # reads the one declared list
+                assert source.id == "_PROBE_PUBLISHED_ATTRS", (
+                    f"{names[0]} fences from {source.id}, which is neither "
+                    f"_PROBE_PUBLISHED_ATTRS nor an explicit tuple")
+                fences.append(names[0])
+                continue
+            assert isinstance(source, ast.Tuple), (
+                f"{names[0]} fences from an expression this twin cannot "
+                f"read — state the attributes as a tuple or as "
+                f"_PROBE_PUBLISHED_ATTRS")
+            listed = {e.value for e in source.elts
+                      if isinstance(e, ast.Constant)}
+            assert "_eat_scope_refused_keys" in listed, (
+                f"{names[0]} does not fence _eat_scope_refused_keys: a "
+                f"probe would leave the recognition verdict behind in the "
+                f"production layout")
+            fences.append(names[0])
+        assert len(fences) >= 2, (
+            f"only {fences} snapshot/restore fences found in solve.py — "
+            f"this twin has stopped measuring anything")
 
 
 # ── the loud line ──────────────────────────────────────────────────

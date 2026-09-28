@@ -24,6 +24,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "v2_solve_replay.py"
+sys.path.insert(0, str(ROOT / "tools" / "harness"))
+from shared_repo_guard import DATA_REPO as _DATA_REPO  # noqa: E402
 BOUNDED = ROOT / "tools" / "harness" / "bounded_run.py"
 
 
@@ -41,8 +43,17 @@ def test_a_capture_without_the_overlays_refuses_before_the_engine(monkeypatch, t
     from shared_repo_guard import DATA_REPO
     monkeypatch.delenv("O4_AIRPORT_MOD_CACHE_DIR", raising=False)
     monkeypatch.delenv("O4_DSF_CACHE_DIR", raising=False)
+    # BOTH scopes are posed here, not just the DSF cache.  Only on a
+    # machine whose corpus IS the shared repo does airport_mod_cache_root
+    # resolve inside it by default; on a corpus-free runner it already
+    # resolved out, so the refusal named one scope and the twin read as a
+    # guard defect (issue #76).  Posing both makes this hermetic — the
+    # same question on the owner's Mac and on CI.
     monkeypatch.setattr(FNAMES, "Default_dsf_cache_dir",
                         str(Path(DATA_REPO) / "Default_DSF_cache"), raising=False)
+    monkeypatch.setattr(FNAMES, "airport_mod_cache_root",
+                        lambda: str(Path(DATA_REPO) / "Airport_mod_cache"),
+                        raising=False)
     called = []
     # the refusal must come BEFORE the capture reaches the loader
     _load_mod = importlib.import_module("auto_patch_v2.airport.load")
@@ -57,7 +68,23 @@ def test_a_capture_without_the_overlays_refuses_before_the_engine(monkeypatch, t
     assert not (tmp_path / "ZZZZ.pkl").exists()
 
 
+@pytest.mark.skipif(
+    not Path(_DATA_REPO).is_dir(),
+    reason="the shared data repo is not this machine's corpus, so the "
+           "engine's DEFAULT cache roots already resolve outside it and "
+           "there is no un-redirected state for the bare call to refuse")
 def test_the_cli_wrapper_arms_the_overlays_the_capture_requires(tmp_path):
+    """BARE refuses, WRAPPED does not — the MACHINE's own default roots.
+
+    Unlike the twin above this one cannot pose its question hermetically:
+    its subject is precisely what the engine resolves with nothing
+    patched, in a subprocess, and an ORTHO4XP_DATA_ROOT forced at the
+    shared repo would outrank the very O4_*_DIR redirect the wrapper arms
+    (O4_File_Names.airport_mod_cache_root: "an explicitly chosen data
+    root is the more specific instruction") — so the WRAPPED half would
+    refuse too and the twin would assert nothing.  It therefore runs only
+    where the shared repo IS the corpus (issue #76).
+    """
     env = {k: v for k, v in os.environ.items()
            if k not in ("O4_AIRPORT_MOD_CACHE_DIR", "O4_DSF_CACHE_DIR")}
     code = f"""
@@ -82,6 +109,46 @@ r._capture_guarded("ZZZZ", Path({str(tmp_path)!r}) / "ZZZZ.pkl")
     assert "BARE: refused" in out.stdout, out.stdout
     assert "WRAPPED: isolated" in out.stdout, out.stdout
     assert "[guard] shared repo UNCHANGED" in out.stdout, out.stdout
+
+
+def test_an_unsignalable_group_still_times_out_instead_of_raising():
+    """EPERM from the liveness probe is ALIVE, not a crash (#76).
+
+    ``run_bounded`` probes the process GROUP with ``killpg(pgid, 0)``
+    because the session leader can exit while a child runs on.  Linux
+    answers ESRCH when the group is gone; BSD/macOS can answer EPERM —
+    the group is still there but holds a process this uid may not signal.
+    That arm was unhandled, so on macOS the bounder did its job (``[twin]
+    TIMED_OUT after 2 s — SIGTERM to process group``) and then died in the
+    probe with PermissionError, returning 1 where the caller reads 124.
+    Every harness caller that bounds a runaway command would have read
+    that as the command failing rather than as the deadline firing.
+
+    Driven with ``os.killpg`` stubbed, so it holds on every platform —
+    including the Linux runner, where the real EPERM cannot be produced.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_bounded_eperm", BOUNDED)
+    bounded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bounded)
+
+    calls = []
+
+    def _eperm(pgid, sig):
+        calls.append(sig)
+        raise PermissionError(1, "Operation not permitted")
+
+    original = os.killpg
+    os.killpg = _eperm
+    try:
+        rc = bounded.run_bounded(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            deadline_s=0.3, grace_s=0.3, label="eperm-twin")
+    finally:
+        os.killpg = original
+
+    assert rc == bounded.TIMED_OUT_RC, rc
+    assert calls, "the bounder never signalled the group"
 
 
 @pytest.mark.skipif(not os.path.exists("/usr/bin/time"), reason="no /usr/bin/time")

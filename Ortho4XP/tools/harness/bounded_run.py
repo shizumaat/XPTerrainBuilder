@@ -37,6 +37,12 @@ def _signal_group(pgid: int, sig: int) -> None:
         os.killpg(pgid, sig)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # BSD/macOS returns EPERM where Linux returns ESRCH: the group is
+        # still there but holds a process this uid may not signal.  There
+        # is nothing to do about it and nothing to raise — the bounder's
+        # job is to bound, not to guarantee the kill (#76).
+        pass
 
 
 def run_bounded(cmd: list[str], deadline_s: float, grace_s: float = 10.0,
@@ -70,7 +76,14 @@ def run_bounded(cmd: list[str], deadline_s: float, grace_s: float = 10.0,
             try:
                 os.killpg(pgid, 0)
             except ProcessLookupError:
-                break
+                break                    # ESRCH: the group is gone
+            except PermissionError:
+                # EPERM: the group EXISTS and we may not signal it, which
+                # for a liveness probe reads ALIVE.  Linux raises ESRCH
+                # here, so this arm only ever fires on BSD/macOS — where
+                # letting it escape turned a correct TIMED_OUT into an
+                # unhandled traceback and rc 1 instead of 124 (#76).
+                pass
             time.sleep(0.05)
         _signal_group(pgid, signal.SIGKILL)
         try:

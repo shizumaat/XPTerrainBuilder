@@ -722,8 +722,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # graded LEVEL at its runway-edge frontage with NO DEM datum — X-Plane
     # sets the object level at its anchor, it cannot tilt after the ground
     # (``constraints/hard_plane``; the NLWF arm body_datum=0 was 92 -> 5
-    # verify rows).  Its vertices leave every body's plane fit.
-    from ..constraints.hard_plane import hard_plane_vertices
+    # verify rows).  Its vertices leave every body's plane fit.  The vertex
+    # set lives in ``model.hard_plane`` (issue #84: solve never imports
+    # constraints).
+    from ..model.hard_plane import hard_plane_vertices
     hard_v = hard_plane_vertices(planar)
     # THE COURTYARD (``model.islands``, lane islands #77): an apron island in
     # a pad hole takes the pad RIM's level — no DEM datum of its own

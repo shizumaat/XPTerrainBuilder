@@ -35,6 +35,19 @@ equal-valued copy of the radius and step floor under bare-"seam" names:
 * the healer's thresholds ARE the law module's objects (identity);
 * ``adjacent_ground`` declares no strip-seam constant of its own (AST);
 * the retired bare spellings survive nowhere (regex, both sites).
+
+TWO HOMES SINCE SEAM S4 (v1 retirement round 1, 2026-09-17; RULINGS
+2026-09-13aw session ruling (d)).  ``tools/check_grade.py`` may no longer
+import the v1 tree at all — ``tests/test_v1_retired.py`` holds that line —
+so the census reads the law from its own copy,
+``tools/harness/law_support/strip_seam.py``, and the v1 EMITTER
+(``auto_patch.adjacent_ground``) still reads ``auto_patch.strip_seam_law``.
+The identity properties below are therefore asserted WITHIN each half, and
+the two halves are held together by (a) VALUE agreement, asserted here, and
+(b) TEXTUAL identity of the copy against its source, asserted in
+``tests/test_law_support.py`` while the v1 tree is still on disk.  Nothing
+weakened: "no second copy anyone can drift" became "one copy per half, and
+both are checked against the other".
 """
 from __future__ import annotations
 
@@ -52,6 +65,7 @@ for _p in (os.path.join(_ROOT, "tools"), os.path.join(_ROOT, "src")):
         sys.path.insert(0, _p)
 
 import check_grade  # noqa: E402
+from harness.law_support import strip_seam as census_law  # noqa: E402
 from auto_patch import strip_seam_law  # noqa: E402
 from auto_patch import grade_graph_validate  # noqa: E402
 from auto_patch import adjacent_ground  # noqa: E402
@@ -88,15 +102,27 @@ STRIP_CONSTANTS = (
 
 
 def test_check_grade_reads_every_strip_constant_from_the_law_module():
-    """IDENTITY, not equality: an equal-but-separate copy is exactly the
-    drift this move exists to make impossible."""
+    """IDENTITY, not equality, WITHIN the census half: an equal-but-separate
+    copy is exactly the drift this move exists to make impossible.
+
+    The census's law home is ``harness.law_support.strip_seam`` since seam
+    S4 (module docstring); the v1 module it was copied from must still
+    AGREE IN VALUE while it is on disk.
+    """
     for name in STRIP_CONSTANTS:
-        assert hasattr(strip_seam_law, name), (
-            f"{name} is missing from the law module — the census still "
-            f"needs it")
-        assert getattr(check_grade, name) is getattr(strip_seam_law, name), (
+        assert hasattr(census_law, name), (
+            f"{name} is missing from the census's law module — the census "
+            f"still needs it")
+        assert getattr(check_grade, name) is getattr(census_law, name), (
             f"check_grade.{name} is not the law module's object: a second "
             f"copy of a rule value has been re-introduced")
+        assert hasattr(strip_seam_law, name), (
+            f"{name} is missing from auto_patch.strip_seam_law — the "
+            f"emitter half still needs it")
+        assert getattr(census_law, name) == getattr(strip_seam_law, name), (
+            f"the census's {name} and the emitter's have drifted apart: "
+            f"{getattr(census_law, name)!r} vs "
+            f"{getattr(strip_seam_law, name)!r}")
 
 
 def test_check_grade_defines_no_strip_seam_constant_of_its_own():
@@ -114,11 +140,19 @@ def test_check_grade_defines_no_strip_seam_constant_of_its_own():
 
 
 def test_the_strip_seam_predicates_come_from_the_law_module():
-    assert check_grade._GradedDomain is strip_seam_law.GradedDomain
-    assert check_grade._WallFaces is strip_seam_law.WallFaces
+    """The census's predicates ARE its law module's objects (seam S4)."""
+    assert check_grade._GradedDomain is census_law.GradedDomain
+    assert check_grade._WallFaces is census_law.WallFaces
     assert (check_grade._open_ground_between_law
-            is strip_seam_law.open_ground_between)
-    assert check_grade._point_in_ring is strip_seam_law.point_in_ring
+            is census_law.open_ground_between)
+    assert check_grade._point_in_ring is census_law.point_in_ring
+    # …and the v1 law module still declares every one of them, so the
+    # textual-identity twin in tests/test_law_support.py has a source.
+    for name in ("GradedDomain", "WallFaces", "open_ground_between",
+                 "point_in_ring"):
+        assert hasattr(strip_seam_law, name), (
+            f"auto_patch.strip_seam_law lost {name} — the census's copy "
+            f"has nothing left to be checked against")
 
 
 def test_the_law_module_is_import_light():
@@ -163,8 +197,11 @@ def test_the_healer_reads_every_absorbed_constant_from_the_law_module():
             f"adjacent_ground.{name} is not the law module's object: the "
             f"third copy of a rule value has been re-introduced")
         assert (getattr(check_grade, name)
-                is getattr(adjacent_ground, name)), (
-            f"emitter and validator disagree on the object behind {name}")
+                == getattr(adjacent_ground, name)), (
+            f"emitter and validator disagree on the VALUE behind {name} — "
+            f"since seam S4 they read two law homes (module docstring), so "
+            f"agreement is the property, and tests/test_law_support.py "
+            f"holds the textual identity of the copy")
 
 
 def test_the_census_predicate_is_one_function_for_both_halves():
@@ -173,11 +210,21 @@ def test_the_census_predicate_is_one_function_for_both_halves():
 
     IDENTITY half — the validator's verdict call IS the law module's
     ``seam_pair_is_tear``, and the emitter imports the same object."""
-    assert check_grade._seam_pair_is_tear is strip_seam_law.seam_pair_is_tear
+    assert check_grade._seam_pair_is_tear is census_law.seam_pair_is_tear
     assert (adjacent_ground.seam_pair_is_tear
             is strip_seam_law.seam_pair_is_tear)
     assert (adjacent_ground.seam_guard_allowance_m
             is strip_seam_law.seam_guard_allowance_m)
+    # The two halves' verdict functions answer the same, swept over the
+    # pair space — the cross-half half of the property, now that seam S4
+    # puts them in two modules (module docstring).
+    for step in range(0, 121):
+        planar = step * 0.05
+        for de in (0.0, 0.05, 0.2, 0.9, 3.0):
+            assert (census_law.seam_pair_is_tear(de, planar)
+                    is strip_seam_law.seam_pair_is_tear(de, planar)), (
+                f"the census and the emitter disagree on Δ={de} m at "
+                f"{planar:.2f} m")
 
 
 def test_the_guard_allowance_never_permits_a_census_tear():

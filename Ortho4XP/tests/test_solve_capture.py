@@ -227,11 +227,24 @@ def test_a_replay_from_the_wrong_cwd_refuses(tmp_path, monkeypatch):
 
 
 def test_the_build_entry_refuses_solve_capture_with_tile():
-    """A flag that quietly does nothing is worse than one that refuses."""
+    """A flag that quietly does nothing is worse than one that refuses.
+
+    The property is unchanged; WHICH refusal states it moved.  Since v1
+    was retired (owner RULINGS 2026-09-13au) the build entry refuses
+    --solve-capture outright, before it looks at --tile, because the flag
+    is not wired for v2 at all — a strictly broader refusal that also
+    covers this case.  The twin therefore asserts that the combination is
+    refused BY NAME, whichever of the two rules takes it, rather than
+    pinning the wording of the narrower one (which the earlier rule now
+    makes unreachable — noted on the PR for #76, not removed here).
+    """
     import build_airport
-    with pytest.raises(SystemExit, match="--solve-capture with --tile"):
+    with pytest.raises(SystemExit) as excinfo:
         build_airport.main(["+30+031", "--tile", "30", "31",
                             "--solve-capture", "/tmp/nowhere"])
+    message = str(excinfo.value)
+    assert message.startswith("REFUSING:"), message
+    assert "--solve-capture" in message, message
 
 
 # ── the end-to-end twin: capture -> replay -> identical body ─────────

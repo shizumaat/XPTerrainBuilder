@@ -233,6 +233,55 @@ def synthetic_patch_ll(x_m: float, y_m: float, *,
             lon0 + x_m / SYNTHETIC_PATCH_M_PER_DEG)
 
 
+@pytest.fixture(autouse=True)
+def _ui_verbosity_is_not_a_shared_mutable(request):
+    """``O4_UI_Utils.verbosity`` is a MODULE GLOBAL, and production code
+    assigns it (issue #76).
+
+    ``auto_patch.driver`` sets it from ``LOG_VERBOSITY`` for the duration
+    of a build and restores it on the way out; a test whose build raises
+    past one of those restores leaves the global wherever the driver put
+    it, and every later test ON THE SAME XDIST WORKER silently loses its
+    ``UI.vprint`` output.  That is how
+    ``test_nodeless_interior.py::test_the_report_is_loud_at_zero`` — a
+    twin whose whole subject is that the instrument SPEAKS at zero
+    findings — came to assert against an empty capsys blob while passing
+    on its own.  A suite whose result depends on which neighbours a
+    worker drew is not measuring the code.
+
+    Restoring per test makes the order-dependence impossible.  It is
+    isolation, not a mask: the driver's own restore paths are untouched,
+    and their production behaviour is twinned where it belongs.  The
+    leaker is NAMED when it happens, so a real regression in those
+    restore paths is still visible in the log rather than absorbed here.
+    """
+    import O4_UI_Utils as _UI
+    before = _UI.verbosity
+    yield
+    after = _UI.verbosity
+    if after != before:
+        _UI.verbosity = before
+        print(f"\n[suite] {request.node.nodeid} left O4_UI_Utils.verbosity "
+              f"at {after!r} (was {before!r}) — restored; see conftest."
+              f"_ui_verbosity_is_not_a_shared_mutable")
+
+
+#: THE SUPERUSER DEFEATS ``chmod`` (issue #76).  Several twins pose
+#: "this path cannot be read / cannot be written" with ``chmod 0o000`` or
+#: ``0o555`` and then assert the stand-down, refusal or IGNORED note the
+#: engine owes that state.  Running as root every one of those writes and
+#: reads SUCCEEDS, the precondition is silently not posed, and the twin
+#: reads the engine's correct happy-path answer as a defect.  CI
+#: containers run as root, the owner's Mac does not.  Skipping states the
+#: precondition instead of asserting under one that is false — and it is
+#: a SKIP, so the same twins still measure everything on any unprivileged
+#: runner.
+needs_unprivileged_user = pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="running as root: chmod cannot make a path unreadable or "
+           "unwritable, so this twin's precondition cannot be posed")
+
+
 def xplane_available() -> bool:
     root = xplane_root()
     return (os.path.isdir(root)
@@ -287,7 +336,25 @@ def cached_airport_layout(icao: str, *, compute_elevations: bool = True,
                           tile_lat=None, tile_lon=None):
     """Session-cached ``build_airport_pavement`` shared by all test
     modules.  See :func:`_build_cached`.  Treat the result as read-only.
+
+    NO CORPUS, NO QUESTION (issue #76).  Every twin that reaches this
+    helper needs the owner's data corpus — the X-Plane install's apt.dat
+    and CIFP, the DEM and the OSM extracts — and on a runner without one
+    the build raised ``RuntimeError: No apt.dat found for <ICAO>`` deep
+    inside the pipeline, so thirteen corpus twins read as engine defects
+    rather than as an absent fixture.  The skip lives HERE, at the one
+    entry all seventeen corpus-building modules call, so a module added
+    later inherits it and nobody has to remember a decorator; it uses the
+    same predicate ``tests/test_boundary.py`` already guards its builds
+    with.  It changes nothing where the corpus IS mounted.  It is a SKIP
+    and never a pass: a corpus run still measures everything it did.
     """
+    if not xplane_available():
+        import pytest
+        pytest.skip(
+            f"{icao} needs the owner's data corpus: no X-Plane install at "
+            f"{xplane_root()!r} (set XPLANE_ROOT to override), so there is "
+            f"no apt.dat/CIFP to build a layout from")
     return _build_cached(icao, compute_elevations, tile_lat, tile_lon)
 
 

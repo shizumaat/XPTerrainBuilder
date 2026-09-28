@@ -62,43 +62,28 @@ def courtyard_faces(pm: _t.Any, law: _t.Any) -> frozenset[int]:
     key = ("faces", id(law))
     if key in c:
         return c[key]
-    from shapely.geometry import Point, Polygon
-    from shapely.strtree import STRtree
+    from ..geom.containment import sets_inside_one_ring
     from ..law.tables import apron_roles, is_rigid_role
 
     aprons = apron_roles(law)
-    holes: list = []
+    rings: list = []
     for f in pm.faces.values():
         if not f.holes or not is_rigid_role(law, f.role):
             continue
         for h in f.holes:
-            vs = pm.ring_vertices(h)
-            if len(vs) < 3:
-                continue
-            poly = Polygon([pm.vertices[v].xy for v in vs])
-            if not poly.is_valid:
-                poly = poly.buffer(0.0)
-            if poly.is_empty:
-                continue
-            holes.append(poly.buffer(_ON_RING_M))
+            rings.append([pm.vertices[v].xy for v in pm.ring_vertices(h)])
     out: set[int] = set()
-    if holes:
-        tree = STRtree(holes)
-        for f in pm.faces.values():
-            # a RIGID face is the pad itself, never its courtyard — under
-            # the unit platform (spec §1) a collar's hole IS its platform
-            # (lane ``unitplatform2``; ``apron_roles`` carries ``building``)
-            if f.role not in aprons or is_rigid_role(law, f.role):
-                continue
-            vs = [v for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
-            if not vs:
-                continue
-            pts = [Point(*pm.vertices[v].xy) for v in vs]
-            for hi in tree.query(pts[0]):
-                hp = holes[int(hi)]
-                if all(hp.contains(p) for p in pts):
-                    out.add(f.id)
-                    break
+    if rings:
+        # a RIGID face is the pad itself, never its courtyard — under the
+        # unit platform (spec §1) a collar's hole IS its platform (lane
+        # ``unitplatform2``; ``apron_roles`` carries ``building``)
+        cand = [f for f in pm.faces.values()
+                if f.role in aprons and not is_rigid_role(law, f.role)]
+        sets = [[pm.vertices[v].xy for ring in (f.ring, *f.holes)
+                 for v in pm.ring_vertices(ring)] for f in cand]
+        for f, inside in zip(cand, sets_inside_one_ring(rings, sets, _ON_RING_M)):
+            if inside:
+                out.add(f.id)
     got = frozenset(out)
     c[key] = got
     return got

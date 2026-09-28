@@ -56,6 +56,14 @@ from auto_patch import config as C                          # noqa: E402
 from auto_patch import grade_law as GL                      # noqa: E402
 from auto_patch import grade_graph as GG                    # noqa: E402
 from auto_patch import lateral_contiguity as LC             # noqa: E402
+# SEAM S4 (v1 retirement round 1, 2026-09-17; RULINGS 2026-09-13aw ruling
+# (d)): tools/check_grade.py may not import the v1 tree, so the CENSUS
+# half of this law lives in tools/harness/law_support/grade_law.py and the
+# v1 emitter half stays in auto_patch.grade_law.  Identity is asserted
+# within each half below; tests/test_law_support.py holds the textual
+# identity of the copy against its source while the v1 tree is on disk.
+sys.path.insert(0, str(ROOT / "tools"))                       # noqa: E402
+from harness.law_support import grade_law as CENSUS_GL        # noqa: E402
 
 
 #: EVERY module that captures a law object at IMPORT, in dependency order.
@@ -120,10 +128,19 @@ def test_the_axis_reader_is_one_function(cg):
     from shapely.geometry import Polygon
     ring = [(0.0, 0.0), (100.0, 0.0), (100.0, 6.0), (0.0, 6.0)]
     assert LC.long_axis(Polygon(ring)) == GL.long_axis_of_points(ring)
-    # The census reaches the SAME function object, not a copy of it.
-    assert cg._long_axis_of_points is GL.long_axis_of_points
-    assert cg._pair_is_transverse is GL.pair_is_transverse
-    assert cg._road_xsection_cap is GL.road_cross_section_cap
+    # The census reaches the SAME function object, not a copy of it —
+    # its own law home since seam S4 (see the import block above).
+    assert cg._long_axis_of_points is CENSUS_GL.long_axis_of_points
+    assert cg._pair_is_transverse is CENSUS_GL.pair_is_transverse
+    assert cg._road_xsection_cap is CENSUS_GL.road_cross_section_cap
+    # …and the two halves ANSWER the same, which is what the identity
+    # was standing in for once there are two homes.
+    assert (CENSUS_GL.long_axis_of_points(ring)
+            == GL.long_axis_of_points(ring))
+    axis = GL.long_axis_of_points(ring)[0]
+    for dx, dy in ((10.0, 0.0), (0.0, 6.0), (3.0, 3.0), (7.0, 1.0)):
+        assert (CENSUS_GL.pair_is_transverse(axis, dx, dy)
+                is GL.pair_is_transverse(axis, dx, dy))
 
 
 def test_the_classifier_partitions_at_45_degrees():

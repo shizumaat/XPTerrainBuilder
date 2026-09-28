@@ -252,9 +252,12 @@ def test_lawful_road_holds_the_core_profile_and_over_cap_lot_moves(slope, law):
     # The bar is ``tol + solver_margin`` (spec-author ruling on issue #76,
     # 2026-09-28: a law twin's bar is the law tolerance plus the solver's
     # own feasibility margin, 1 mm in metres) — MEASURED 0.0105 on one of
-    # twelve vertices on CI's Linux / py3.13 solve against 0.01.
-    assert road["off"] == 0, (road["off"], road["max_m"], road)
-    assert road["max_m"] <= tol + SOLVER_MARGIN_M, (road["max_m"], road)
+    # twelve vertices on CI's Linux / py3.13 solve against 0.01.  The
+    # verifier's ``off`` counts at the bare law tolerance (that vertex reads
+    # off = 1 on Linux), so the bar is stated on the worst vertex: every
+    # one of the road's vertices is within ``tol + solver_margin``.
+    assert road["max_m"] <= tol + SOLVER_MARGIN_M, (road["off"],
+                                                    road["max_m"], road)
     # the PAGE (a road page welded to its neighbours) is the same profile
     # within a tenth of a metre: under the design surface the road's fit is a
     # TARGET at ``[design] road`` against the sheet's own bending, so a page

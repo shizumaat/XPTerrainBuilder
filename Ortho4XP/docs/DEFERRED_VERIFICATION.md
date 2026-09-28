@@ -6287,3 +6287,10 @@ constraint, and owed:
   (degraded frame knowingly) only: `build_airport.py VMMC` refuses on the
   un-stamped `+22+113_airport_small_roads` (scope `osm_layers`, not
   authorised in this lane). No census, no tile build.
+- 2026-09-28 lane shoreharness (#75): the dry `--stage structures` path
+  now runs the pack stage; verified on OTHH only (the two bores refused
+  as in the capture replay). The dry path never WRITES the partition
+  cache, so a pack with no cached partition pays the derivation every dry
+  run (OTHH: cache MISS, 348 s, peak 31.6 GB RSS against 19.2 GB before);
+  whether the dry path may write that cache (it is the mod-cache class,
+  not a --refresh-data act) is an orchestrator call.

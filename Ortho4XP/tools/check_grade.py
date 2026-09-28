@@ -3134,7 +3134,7 @@ def runway_edge_tie_law():
 
 def _check_runway_edge_tie(ways: List[Way],
                            nodes: Dict[str, Tuple[float, float]],
-                           ll_to_m) -> List[Violation]:
+                           ll_to_m, natural_shore_ll=None) -> List[Violation]:
     """THE RUNWAY-EDGE TIE, geometric (RULINGS 2026-09-06p (1)/(3); owner
     sim read 2026-09-06o: ridges on both sides of HECA 05C/23C that both
     instruments PASSED — each read only the pairs the generators had
@@ -3167,7 +3167,8 @@ def _check_runway_edge_tie(ways: List[Way],
     active one."""
     if not any((w.ref or "").startswith(V2_ADJACENT_GROUND_REF_PREFIX) for w in ways):
         return []
-    from auto_patch_v2.verify.strips import runway_edge_tie
+    from auto_patch_v2.verify.strips import (natural_shore_geometry,
+                                             runway_edge_tie)
     law = runway_edge_tie_law()
     q = law.tables.emit.instrument.coarse_noise_m
     edge_tol = law.tables.emit.identity.min_distinct_spacing_m
@@ -3175,7 +3176,11 @@ def _check_runway_edge_tie(ways: List[Way],
     if not edges:
         return []
     out: List[Violation] = []
-    for h in runway_edge_tie(points, edges, axes, law, q, edge_tol):
+    # §37 (11) (7): the natural-shore wedges the build published — the
+    # SAME reading ``verify/strips.strip_transverse`` takes (one core)
+    shore = natural_shore_geometry(natural_shore_ll, ll_to_m, law)
+    for h in runway_edge_tie(points, edges, axes, law, q, edge_tol,
+                             natural_shore=shore):
         _role, w = h.label
         out.append(Violation(
             grade_pct=100.0 * h.dz / h.d,
@@ -10095,6 +10100,9 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # shore weld ran against — so ``hairline_pair`` prices the population
     # the law ran on and never a second water witness
     "shore_edges": "shore_edges_ll",
+    # §37 (11) (7) (owner RULINGS 2026-09-27a (7)): the natural-shore
+    # wedges — the runway-edge tie reads the bank-slope fall inside them
+    "natural_shore": "natural_shore_ll",
     # §33 (6): the object cuts the emitted patch must answer to
     "object_cuts": "object_cuts_ll",
     "mesh_edges": "mesh_edges_ll",
@@ -10517,6 +10525,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["seam_half_width_m"] = data.get("seam_half_width_m")
     # §39 (1)/(2): the emitter's own foreign-water population
     ctx["shore_edges_ll"] = data.get("shore_edges") or None
+    ctx["natural_shore_ll"] = data.get("natural_shore") or None
     # §33 (6) (owner RULINGS 2026-09-15e/15g): the object cuts
     ctx["object_cuts_ll"] = data.get("object_cuts") or None
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
@@ -11595,6 +11604,8 @@ def run_checks(
     # EFFECTIVE longitudinal cap the build priced it at
     runway_caps: Optional[list] = None,
     shore_edges_ll: Optional[list] = None,
+    # §37 (11) (7): the natural-shore wedges (sidecar ``natural_shore``)
+    natural_shore_ll: Optional[list] = None,
     # §33 (6): per signature-B corridor, the object's wall line (lat/lon
     # ring) and its AUTHORED floor — the witness both new families price
     object_cuts_ll: Optional[list] = None,
@@ -12204,7 +12215,8 @@ def run_checks(
     within = within + strip_seam_tears
 
     runway_edge_tie = _fam(RUNWAY_EDGE_TIE_FAMILY,
-                           _check_runway_edge_tie(ways, nodes, ll_to_m))
+                           _check_runway_edge_tie(ways, nodes, ll_to_m,
+                                                  natural_shore_ll))
     _pv("RUNWAY-EDGE TIE: a vertex of ANY role abeam a runway edge inside "
         "the strip's zone-2 half width standing ABOVE the edge foot by more "
         "than the strip transverse bound (RULINGS 2026-09-06p; geometric, "

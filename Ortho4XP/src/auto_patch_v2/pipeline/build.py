@@ -1099,6 +1099,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(wrep.line(icao), out)
         report["shore_weld"] = _dc.asdict(wrep)
         pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+        wedges = getattr(pm, "natural_shore_wedges", ()) or ()
+        if wedges:
+            _to_ll = airport.frame.transformers()[1]
+            pub["natural_shore"] = [[list(_to_ll(x, y)) for x, y in ring]
+                                    for ring in wedges]
         paths = write_patch(surf_out, law, out_dir, pub, header,
                             face_tags(pm, law, airport))
         if pm.seam_vertices:

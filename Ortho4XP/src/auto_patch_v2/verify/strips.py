@@ -44,13 +44,17 @@ import typing as _t
 from ..constraints.geometry import (longitudinal_runs, point_in_rect_ring,
                                     principal_axis, rect_ring)
 from ..constraints.strips import pavement_ring_vertices, strip_longitudinal_pairs
-from ..law.tables import strip_transverse_bound, zone2_half_width_m
+from shapely.geometry import Point as _ShPoint
+
+from ..law.tables import (snap_margin_m, strip_transverse_bound,
+                          zone2_half_width_m, zone_bounds)
 from .frame import Patch, Row, Shape, row
 from .no_step import rate_breaches
 
 __all__ = ["groups", "strip_longitudinal", "strip_arc", "resa_transverse",
            "raoa", "adjacent_ground_tear", "strip_seam_tear", "strip_transverse",
-           "runway_edge_tie", "TiePoint", "TieEdge", "TieHit"]
+           "runway_edge_tie", "TiePoint", "TieEdge", "TieHit",
+           "natural_shore_geometry"]
 
 FAMILY_STRIP_TRANSVERSE = "strip_transverse"
 RUNWAY_FAMILY = ("runway", "runway_crossing")
@@ -88,7 +92,8 @@ class TieHit(_t.NamedTuple):
 def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
                     axes: _t.Mapping[str, tuple[tuple[float, float], tuple[float, float], float]],
                     law, q: float, edge_tol: float,
-                    all_hits: bool = False) -> list[TieHit]:
+                    all_hits: bool = False,
+                    natural_shore=None) -> list[TieHit]:
     """THE RUNWAY-EDGE TIE, geometric (module docstring; RULINGS
     2026-09-06p (1)/(3)): for every point its nearest runway-family ring
     edge whose runway's lateral extent holds it abeam (``axes[ref] =
@@ -100,7 +105,14 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
     point (RULINGS 2026-09-06q (2); ``both_ways`` is a label now: the 06b
     strip-only reading it named is the reading of every vertex) — with
     ``bound = strip_transverse_bound(law, d, code)``.  ``all_hits`` returns every
-    point in reach with its reading (the harness tool's table)."""
+    point in reach with its reading (the harness tool's table).
+
+    ``natural_shore`` (a shapely geometry in the points' frame, the
+    published §37 (11) (7) wedges): a point inside it that stands BELOW
+    its foot is read against the natural shore's own fall — the zone
+    corridor with the band at the bank slope (``zone_bounds(...,
+    band_max_down=bank_slope)``, owner RULINGS 2026-09-27a (7)); the rise
+    side is unchanged."""
     if not edges:
         return []
     cell = max(zone2_half_width_m(law, "runway", e[3], e[4]) or 0.0 for e in edges)
@@ -148,6 +160,12 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
         if bound is None:
             continue
         dz = z - z_foot
+        if dz < 0.0 and natural_shore is not None and \
+                natural_shore.covers(_ShPoint(x, y)):
+            lo, _hi = zone_bounds(law, "runway", d, cn, cl,
+                                  band_max_down=float(law.tables.emit.design.bank_slope))
+            if lo is not None:
+                bound = max(bound, -lo)
         # TWO-WAY for every point (RULINGS 2026-09-06q (2)): neither above
         # nor below the foot by more than the bound; ``both`` (a strip-
         # only point) is carried as a label only
@@ -513,7 +531,9 @@ def strip_transverse(p: Patch) -> list[Row]:
                            for vid, xy in p.xy.items() if vid not in exempt and vid in role_of]
     pts.sort()
     out: list[Row] = []
-    for h in runway_edge_tie(pts, edges, axes, law, q, edge_tol):
+    shore = natural_shore_geometry(p.publication.get("natural_shore"), p.to_m, law)
+    for h in runway_edge_tie(pts, edges, axes, law, q, edge_tol,
+                             natural_shore=shore):
         role = str(h.label)
         r = row(FAMILY_STRIP_TRANSVERSE, (role, "runway"),
                 p.side(role) if role in law.tables.precedence.roles else p.side("graded_strip"),
@@ -532,3 +552,23 @@ def _ref_of(p: Patch, rings) -> str:
         if sh.role == "runway" and all(point_in_rect_ring(x, y, rings[0]) for x, y in sh.xy[:3]):
             return sh.ref
     return ""
+
+
+def natural_shore_geometry(rings_ll, to_m, law):
+    """§37 (11) (7): the published natural-shore wedges (sidecar
+    ``natural_shore``, ``[[[lat, lon], ...], ...]``) as ONE geometry in the
+    reader's metres frame, grown by the snap margin so a wedge-edge vertex
+    reads inside.  ``None`` when the patch publishes none — every patch
+    written before the rule reads exactly as before."""
+    if not rings_ll:
+        return None
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    polys = []
+    for ring in rings_ll:
+        pts = [to_m(float(a), float(b)) for a, b in ring]
+        if len(pts) >= 3:
+            polys.append(Polygon(pts).buffer(0))
+    if not polys:
+        return None
+    return unary_union(polys).buffer(snap_margin_m(law))

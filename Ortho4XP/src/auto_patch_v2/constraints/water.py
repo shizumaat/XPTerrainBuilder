@@ -117,13 +117,70 @@ def water_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     except Exception:                                     # pragma: no cover
         return []
     rows: list[Row] = []
+    pinned: set[int] = set()
     for v, is_wet, z in zip(cand, np.asarray(wet), np.asarray(level, float)):
         if not bool(is_wet) or not np.isfinite(z):
             continue
         z = float(z)
+        pinned.add(v)
         rows.append(Pin(v, z, Source(GEN, RULING,
                                     (f"vertex:{v}", f"level:{z:.3f}"))))
     STATS["water_pins"]["wet"] = len(rows)
+    rows.extend(_natural_shore_pins(vw, planar, law, airport, pinned))
+    return rows
+
+
+#: The tile's sea level (``O4_Vector_Map.SEAWALL_SEA_LEVEL_M``, the level the
+#: mesh levels the coastline at) — restated, not imported: core v2 never
+#: imports the vector map.
+SEA_LEVEL_M = 0.0
+
+RULING_NATURAL = ("a natural shore slopes to the water line: its coastline "
+                  "vertices take the sea level (owner RULINGS 2026-09-27a (7))")
+
+
+def _natural_shore_pins(vw, planar: PlanarMap, law: Law, airport: Airport,
+                        already: set[int]) -> list[Row]:
+    """§37 (11) (7) THE WATER LINE (owner RULINGS 2026-09-27a (7)): every
+    vertex of a NATURAL-shore region (``PlanarMap.natural_shore_refs``)
+    standing ON the coastline — within the snap margin of the sea — is
+    pinned to the sea level, so the strip meets the water AT the water and
+    no face stands between them.  The wet sample above misses exactly
+    these: a coastline vertex samples dry by construction (the region was
+    clipped BY the sea), and left free it sits on the DEM's last on-land
+    post — 1.29 m over the sea at NLWF's 07 end, a wall."""
+    refs = frozenset(getattr(planar, "natural_shore_refs", ()) or ())
+    fn = getattr(airport.dem, "sea_geometry", None)
+    STATS["water_pins"]["natural_shore"] = 0
+    if not refs or not callable(fn):
+        return []
+    ids: set[int] = set()
+    for f in vw.faces_of_role(GROUND_ROLES):
+        if f.ref in refs:
+            ids.update(vw.rings[f.id])
+            for h in vw.holes[f.id]:
+                ids.update(h)
+    ids -= already
+    ids -= set(vw.pavement_vertices)
+    if not ids:
+        return []
+    from shapely.geometry import MultiPoint, Point
+    from ..law.tables import snap_margin_m
+    pts = MultiPoint([vw.xy[v] for v in ids])
+    try:
+        sea = fn(pts.buffer(50.0).bounds)
+    except Exception:                                     # pragma: no cover
+        return []
+    if sea is None or sea.is_empty:
+        return []
+    tol = snap_margin_m(law)
+    rows: list[Row] = []
+    for v in sorted(ids):
+        if sea.distance(Point(vw.xy[v])) <= tol:
+            rows.append(Pin(v, SEA_LEVEL_M, Source(
+                GEN, RULING_NATURAL, (f"vertex:{v}", "natural_shore",
+                                      f"level:{SEA_LEVEL_M:.3f}"))))
+    STATS["water_pins"]["natural_shore"] = len(rows)
     return rows
 
 

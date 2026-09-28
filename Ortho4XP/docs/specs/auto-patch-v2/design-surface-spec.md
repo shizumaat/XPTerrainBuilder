@@ -17864,3 +17864,39 @@ is the perf spec's business, not this lane's.
 
 **(7) OWNER QUESTIONS.** None. (Peer-session note: if another lane has taken §51 by
 merge time, the spawner renumbers; the content does not depend on the number.)
+
+## §37 (11) (7) A NATURAL SHORE SLOPES TO THE WATER LINE (owner RULINGS 2026-09-27a (7); issue #19) — lane `nlwfends`
+
+**The rule.** A zone part that reaches the coastline is a QUAY (§37 (11) (2): one plane at
+the pavement edge's level, a sea wall at the coast) ONLY where the shore is BUILT: a declared
+`man_made=quay|pier|breakwater|seawall|groyne|dyke`, `barrier=wall|retaining_wall|seawall` or
+`wall=seawall|retaining_wall` way within the lip of the contact (`planar/zones.shore_declarations`,
+read from `Airport.osm_ways`), or the pavement edge itself standing on the coastline (≥ 90 % of the
+contact within the lip — (2)'s second clause: no land is left to slope on). Every other reaching
+part is a NATURAL SHORE: inside the WEDGE — the land within `lip + (field elevation + 1 m) / bank_slope`
+of the sea — zone 2 falls at up to the bank slope (1:3, `emit.design.bank_slope`); its coastline
+vertices are PINNED to the sea level (0.00, `O4_Vector_Map.SEAWALL_SEA_LEVEL_M`). No vertical face.
+The lip and the mandatory-down ceiling stand; the rise side of the runway-edge tie is unchanged.
+
+**Consumer census (08-30l), before any consumer was edited.** One derivation site
+(`planar/zones.zone_regions`); two new classes (`natural_shore` region, its `shore_wedge`).
+
+| # | consumer | reads | RULE |
+|---|---|---|---|
+| N1 | `planar/zones.zone_regions` | water, declarations | **EDITED — THE ONE SITE**: `quay` / `natural_shore` / `shore_wedge` |
+| N2 | `planar/overlay` → `planar/build` → `PlanarMap` | region flags | **EDITED, additive**: `natural_shore_refs`, `natural_shore_wedges` (frame rings) |
+| N3 | `constraints/zones.zone_bands` | band per vertex | **EDITED**: a wedge vertex takes `zone_bounds(..., band_max_down=bank_slope)` |
+| N4 | `law/tables.zone_bounds` | the corridor | **EDITED, additive**: optional `band_max_down` (the one derivation) |
+| N5 | `constraints/water.water_pins` | ground on water | **EDITED**: natural-shore vertices within the snap margin of the SEA pinned at 0.00 (a coastline vertex samples dry by construction) |
+| N6 | `constraints/zones.strip_transverse` (rise side) | runway tie | UNAFFECTED — the rise is not relaxed |
+| N7 | `verify/strips.runway_edge_tie` (verify + census + harness tool, ONE core) | fall side | **EDITED**: `natural_shore=` geometry → the fall bound is the bank-slope corridor inside it |
+| N8 | sidecar `natural_shore` + `check_grade` `strip_transverse` | the wedges | **EDITED, additive**: published by `pipeline/build`, registered in the census key map |
+| N9 | `check_grade` `sea_wall` / `hairline_pair`, `emit/bank`, `O4_Vector_Map.seawall_breaklines` | shore edges | UNAFFECTED CODE — a natural coast vertex stands at the water level, so its "wall" is 0.00 m |
+| N10 | pack wall OBJECTS as a declaration | — | **NOT DONE** (no wall-object class at the shore yet): only OSM declares |
+
+**Measured (NLWF, harness `nlwfends_c0` → `nlwfends_s3`/`s4`):** sea_wall rows 5 (4.75 / 3.65 / 3.60 /
+3.30 / 3.18 m) → 0; census LAW-TRUE 9 → 4 (the 4 hairline_pair, out of scope), ADJUDICATED 0; v2 verify
+3 rows (= control); 7 coastline vertices pinned at 0.00. **DATA GAP:** no cached OSM feed carries
+`man_made` shore tags (the coastline / water / airport feeds were grepped for VMMC +22+113 and NLWF
+-15-179: none), so until a shore-structure feed lands EVERY coast reads natural except where the
+pavement edge is the coastline — VMMC's 15f quay stands only where its taxiway edge is within the lip.

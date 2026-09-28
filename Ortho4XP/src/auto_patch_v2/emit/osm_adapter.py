@@ -141,6 +141,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # census prices every emitted ring edge against, so the instrument and
     # the law read one water witness and never two.
     "shore_edges",
+    # §37 (11) (7) THE NATURAL SHORE (owner RULINGS 2026-09-27a (7)): the
+    # wedges where a natural shore's strip falls at the bank slope, as
+    # ``[[[lat, lon], ...], ...]`` rings — the runway-edge tie (verify and
+    # census, one core) reads the bank-slope fall inside them.
+    "natural_shore",
     # §33 (6) THE OBJECT CUTS (owner RULINGS 2026-09-15e/15g; lane
     # `v2objcut`): per signature-B corridor, the PACK OBJECT'S own wall
     # line as a lat/lon ring and the AUTHORED floor its floor plate

@@ -376,13 +376,18 @@ def zone2_half_width_m(law: Law, role: str, code_number: int | None = None,
 
 def zone_bounds(law: Law, role: str, d_m: float,
                 code_number: int | None = None,
-                code_letter: str | None = None
+                code_letter: str | None = None,
+                band_max_down: float | None = None
                 ) -> tuple[float | None, float | None]:
     """Signed ``(floor, ceiling)`` offset from the pavement-edge elevation
     at lateral distance ``d_m`` — the accumulated two-zone corridor, or
     ``(None, None)`` in zone 3 (the DEM, never graded).  Pure arithmetic
     over the tables; this is the ONE derivation site of the corridor
-    (RULINGS 2026-08-30l: trim at the derivation, not per consumer)."""
+    (RULINGS 2026-08-30l: trim at the derivation, not per consumer).
+
+    ``band_max_down`` overrides the class's zone-2 fall: §37 (11) (7)'s
+    NATURAL shore falls at up to the bank slope (owner RULINGS
+    2026-09-27a (7)); the lip and the ceiling are unchanged."""
     ag = law.tables.zones.adjacent_ground
     zc = zone_class(law, role)
     half = zone2_half_width_m(law, role, code_number, code_letter)
@@ -393,6 +398,8 @@ def zone_bounds(law: Law, role: str, d_m: float,
     ceil = -ag.lip_min_down * lip
     band = max(0.0, d_m - ag.lip_width_m)
     bmax = zc.band_max_down.value(code_number, code_letter)
+    if band_max_down is not None:
+        bmax = max(float(band_max_down), bmax or 0.0)
     if band > 0 and bmax is not None:
         floor -= bmax * band
         ceil -= zc.band_min_down * band

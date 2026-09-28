@@ -20,6 +20,7 @@ the sliver between them never becomes a face.
 from __future__ import annotations
 
 import dataclasses as _dc
+import typing as _t
 import math
 
 import numpy as np
@@ -36,7 +37,7 @@ from .chords import densify, ring_lines, stations
 from .terrain_edge import EdgeReport, road_lines
 from ..geom.cluster_outline import AirsideRim, airside_vertex_snap
 from .weld import WeldStats, weld_cells
-from .zones import zone_regions
+from .zones import shore_declarations, shore_wedge_m, zone_regions
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
            "airside_union",
@@ -69,6 +70,10 @@ class Region:
     edge_kind: str = "none"
     #: §37 (11) (2): this region reaches the coastline — a QUAY.
     quay: bool = False
+    #: §37 (11) (7): this region reaches a NATURAL shore — it slopes.
+    natural_shore: bool = False
+    #: §37 (11) (7): where it slopes (``ZoneRegion.shore_wedge``).
+    shore_wedge: _t.Any = None
 
 
 @_dc.dataclass(frozen=True)
@@ -521,10 +526,13 @@ def build_arrangement(airport: Airport, classification: Classification,
     edge_lines: list[LineString] = []
     for z in zone_regions(cells, law, classification.keepouts,
                           getattr(airport, "dem", None),
-                          road_lines(getattr(airport, "osm_ways", ())), erep):
+                          road_lines(getattr(airport, "osm_ways", ())), erep,
+                          shore_declarations(getattr(airport, "osm_ways", ())),
+                          shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0)):
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
-                              "zone", z.zone, z.edge_kind, z.quay))
+                              "zone", z.zone, z.edge_kind, z.quay,
+                              z.natural_shore, z.shore_wedge))
         edge_lines.extend(z.edge_lines)
 
     # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS

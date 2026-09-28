@@ -331,6 +331,15 @@ class PlanarMap:
     #: one plane at the pavement edge's level (``constraints/zones``
     #: prices their band at exactly zero) ending in a SEA WALL.
     quay_refs: frozenset = frozenset()
+    #: §37 (11) (7) THE NATURAL SHORE (owner RULINGS 2026-09-27a (7)): the
+    #: refs of the adjacent-ground regions that reach an UNDECLARED
+    #: coastline wider than the lip.  They slope to the water line: the
+    #: band falls at up to the bank slope (``constraints/zones``) and the
+    #: coastline vertices take the water level (``constraints/water``).
+    natural_shore_refs: frozenset = frozenset()
+    #: ... and the WEDGES inside them where the band falls at the bank slope
+    #: (frame exterior rings; ``planar/zones.ZoneRegion.shore_wedge``).
+    natural_shore_wedges: tuple = ()
     #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
     #: frame polygon rings — the SINGLE derivation is
     #: ``planar/overlay.seam_bands``, recorded here so every downstream

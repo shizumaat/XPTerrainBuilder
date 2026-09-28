@@ -311,6 +311,10 @@ class Placement:
     post_max_area_m2: float = 4.0
     post_max_extent_m: float = 3.0
     flat_line_max_width_m: float = 1.0
+    #: ... where the outline without them falls into pieces, a post / flat
+    #: line within this of two pieces closes it across its plan gap
+    #: (``geom.cluster_outlines`` rule 2a).  0 disarms.
+    post_bridge_gap_m: float = 1.0
 
     #: §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): THE SKIRT
     #: BAND.  A pad's vertices within this of an edge it SHARES with an

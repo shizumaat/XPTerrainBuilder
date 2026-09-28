@@ -520,7 +520,10 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
                                    # §16g (10) (7): LEAVES GET NO PAD
                                    walled_only=True,
                                    min_m2=float(st.cluster_pad_min_m2),
-                                   shades=shades)
+                                   shades=shades,
+                                   # issue #73 rule 2a: a post that
+                                   # still chains closes the outline
+                                   bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)))
     CLUSTER_PADS.update(counts)
     CLUSTER_PADS["deck_shade_m2"] = round(shades.area, 1) if shades is not None else 0.0
     CLUSTER_PADS["area_m2"] = round(sum(g.area for _i, _c, g in got), 1)

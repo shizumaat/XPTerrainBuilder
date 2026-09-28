@@ -980,6 +980,12 @@ sheet_chain_min_fraction = 0.5
 post_max_area_m2      = 4.0
 post_max_extent_m     = 3.0
 flat_line_max_width_m = 1.0
+# ... AND A POST STILL CHAINS, SO THE UNIT IS ONE (lane courtyards): where
+# the outline without them falls into pieces, a post / flat line within
+# this of two pieces closes the outline across its plan gap
+# (geom.cluster_outlines rule 2a).  OTHH: cluster pads 72 -> see #73.
+# 0 disarms.
+post_bridge_gap_m     = 1.0
 
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated

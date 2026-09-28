@@ -116,3 +116,45 @@ def test_73_thresholds_are_law_keys_and_zero_disarms():
     off = plan_clusters(_plan([_bldg(), post]), TOUCH, chain_min_height_m=2.5,
                         outline_law=(0.0, 0.0, 0.0))
     assert len(off) == 1 and len(off[0].rings) == 2      # the post draws again
+
+
+# ── rule 2a: A POST STILL CHAINS, SO THE UNIT IS ONE (lane courtyards) ──
+
+def _xy(lo, la):
+    return ((lo - LO0) / M_LON, (la - 41.0) * 111_132.0)
+
+
+def _two_halves(post_lo0, post_lo1):
+    """Two 20 x 20 m walled halves 1.2 m apart (wider than the 0.5 m
+    close), and a 5 m post at lon ``post_lo0 .. post_lo1`` (metres)."""
+    a = _PMember("objects/a.obj", [_part(1, _lat(0), _lat(20), height=9.0,
+                                         lo0=_lo(0), lo1=_lo(20))])
+    b = _PMember("objects/b2.obj", [_part(2, _lat(0), _lat(20), height=9.0,
+                                          lo0=_lo(21.2), lo1=_lo(41.2))])
+    post = _PMember("objects/post.obj", [_part(3, _lat(9), _lat(9.8), height=5.0,
+                                               lo0=_lo(post_lo0), lo1=_lo(post_lo1))])
+    return plan_clusters(_plan([a, b, post]), TOUCH, chain_min_height_m=2.5)
+
+
+def test_73_2a_a_post_touching_both_pieces_closes_the_outline():
+    """OTHH ``OTHH_Mace.obj`` (unit:58#0, ONE body): its two canopy rows
+    touch only through 39 posts 5 m tall, 0.83 m2, 1.28 m gap; without
+    the close the one body minted TWO pads (5,869 -> 3,107 + 2,699 m2)."""
+    from auto_patch_v2.geom import cluster_outlines
+    cl = _two_halves(20.2, 21.0)
+    assert len(cl) == 1 and cl[0].bodies == 3 and len(cl[0].bridges) == 1
+    split, c0 = cluster_outlines(cl, _xy, TOUCH)
+    assert len(split) == 2 and c0["post_bridged"] == 0
+    one, c1 = cluster_outlines(cl, _xy, TOUCH, bridge_m=1.0)
+    assert len(one) == 1 and c1["post_bridged"] == 1
+    g = one[0][2]
+    assert not g.interiors and 800.0 < g.area < 805.0     # the post and its two gap fans only
+
+
+def test_73_2a_a_post_reaching_one_piece_adds_nothing():
+    """A post that touches ONE piece closes nothing (that is the lace)."""
+    from auto_patch_v2.geom import cluster_outlines
+    cl = _two_halves(19.0, 19.8)            # inside the first half's reach only
+    got, c = cluster_outlines(cl, _xy, TOUCH, bridge_m=1.0)
+    assert c["post_bridged"] == 0
+    assert sum(len(q.rings) for q in cl) == 2

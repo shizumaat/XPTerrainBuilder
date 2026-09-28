@@ -310,6 +310,14 @@ class PlanCluster:
     #: §16g (10) (4): how many of the member bodies are WALLED (a cluster
     #: of 1 body with 0 walled is a LEAF — a slab, a plate, a deck)
     walled: int = 0
+    #: §16g (10) (2) AMENDED (issue #73, lane ``courtyards``): the rings
+    #: of the member bodies' POSTS and FLAT LINES
+    #: (:func:`draws_outline` False).  They draw no outline, but where
+    #: the outline falls into pieces that one of them touches on both
+    #: sides it CLOSES the outline across its plan gap
+    #: (``geom.cluster_outlines``, ``[placement] post_bridge_gap_m``):
+    #: the post still chains, so the unit is one.
+    bridges: tuple[tuple[tuple[float, float], ...], ...] = ()
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -412,14 +420,16 @@ class _Shim:
     placement candidates.  Nothing else of a candidate is touched."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
-                 "floors", "rings", "floor", "footed", "walled", "outline")
+                 "floors", "rings", "floor", "footed", "walled", "outline",
+                 "bridges")
 
     def __init__(self, member: int, boxes: list, resource: str,
                  floors: "list | None" = None,
                  rings: "list | None" = None,
                  floor: float = 0.0, footed: bool = False,
                  walled: bool = True,
-                 outline: "list | None" = None) -> None:
+                 outline: "list | None" = None,
+                 bridges: "list | None" = None) -> None:
         self.member = member
         self.part_boxes = boxes
         #: §16f (8): the authored floor of each of ``part_boxes``
@@ -432,6 +442,9 @@ class _Shim:
         #: outline — ``rings`` less its posts and flat lines
         #: (:func:`draws_outline`).  ``None``: all of ``rings``.
         self.outline = self.rings if outline is None else list(outline)
+        #: issue #73 (lane ``courtyards``): the rings ``outline`` left out
+        #: — posts and flat lines, which may still CLOSE the outline
+        self.bridges = list(bridges or ())
         #: §16g (10) (1) / 14z: the body's GROUND FLOOR and whether it
         #: has a ground-contact component at all
         self.floor = float(floor)
@@ -574,6 +587,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
             walled = (chain_min_height_m <= 0.0 or not any_height
                       or (tall >= chain_min_height_m
                           and not member_is_deck(u.members[mi])))
+            draw = [draws_outline(q, chain_min_height_m, ml_u, mo_u, *olaw)
+                    for q in live]
             shims.append(_Shim(
                 mi, bx, u.members[mi].resource,
                 [float(q.base_y) for q in live],
@@ -582,9 +597,9 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                 else min(float(q.base_y) for q in live),
                 footed=bool(footed), walled=walled,
                 # issue #73: posts and flat lines chain, never draw
-                outline=[r for q in live
-                         if draws_outline(q, chain_min_height_m, ml_u, mo_u,
-                                          *olaw)
+                outline=[r for q, d in zip(live, draw) if d
+                         for r in q.rings if len(r) >= 3],
+                bridges=[r for q, d in zip(live, draw) if not d
                          for r in q.rings if len(r) >= 3]))
         if not shims:
             continue
@@ -639,6 +654,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                     floors=tuple(shims[i].floor for i in grp),
                     rings=tuple(tuple(r) for i in grp
                                 for r in shims[i].outline),
+                    bridges=tuple(tuple(r) for i in grp
+                                  for r in shims[i].bridges),
                     bodies=len(grp),
                     footed=sum(1 for i in grp if shims[i].footed),
                     walled=sum(1 for i in grp if shims[i].walled)))

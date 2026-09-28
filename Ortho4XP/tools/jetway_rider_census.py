@@ -36,8 +36,10 @@ It prints, numbers first:
    substring of the resource path — names pick the population MEASURED,
    never the one seated, spec §1): per placement, whether the design side
    hosted it, its pad, anchor gap, ``seat_why``, the terrain at its anchor
-   against the pad datum (the pad ring's median, ``riders_for_dump``'s
-   datum) and against the pad EDGE nearest it; an unhosted one reads
+   against THE PAD PLANE at the anchor (bar 1, spec-author ruling on
+   #31 / Q-32a (d): the strip's published plane, or a gated pad's own
+   least-squares plane), against the pad datum (the pad ring's median,
+   ``riders_for_dump``'s datum) and against the pad EDGE nearest it; an unhosted one reads
    ``no_host`` with its nearest pad and distance;
 4. ``--rows-near``: every rider within R m (default 60) of a site.
 
@@ -141,6 +143,50 @@ def census(doc: _t.Mapping[str, _t.Any], dump: _t.Any, surface: _t.Callable,
                 best = (float(z), d)
         return best
 
+    strip_by_id = {str(s.get("id", "")): s for s in strips}
+
+    def _lsq_at(pts: _t.Sequence[tuple[float, float, float]], lat: float,
+                lon: float) -> float | None:
+        """The least-squares plane through ``(lat, lon, z)`` points, in
+        local metres about the anchor, evaluated AT the anchor (the fit's
+        constant term).  Fewer than three / collinear points: None."""
+        if len(pts) < 3:
+            return None
+        import numpy as np
+        ky = 111_320.0
+        kx = ky * math.cos(math.radians(lat))
+        A = np.array([[1.0, (b - lon) * kx, (a - lat) * ky] for a, b, _z in pts])
+        z = np.array([float(zz) for _a, _b, zz in pts])
+        if np.linalg.matrix_rank(A) < 3:
+            return None
+        c, *_ = np.linalg.lstsq(A, z, rcond=None)
+        return float(c[0])
+
+    def _plane(strip_id: str, ref: str, lat: float, lon: float
+               ) -> tuple[float | None, str]:
+        """BAR 1's reference (spec-author ruling on #31, Q-32a (d)): THE PAD
+        PLANE evaluated at the rider's anchor.  A strip that took the plane
+        publishes every vertex's target ON it (``vertices_ll[*][2]``), so
+        the plane through those targets IS the pad plane (``strip``).  A
+        GATED strip (no plane) or a rider outside any strip reads the
+        least-squares plane through its host pad's graded ring, every face
+        of the ref (``pad_fit``)."""
+        st = strip_by_id.get(strip_id)
+        if st is not None and st.get("plane") is not None:
+            pts = [(float(v[0]), float(v[1]), float(v[2]))
+                   for v in (st.get("vertices_ll") or ()) if len(v) > 2]
+            z = _lsq_at(pts, lat, lon)
+            if z is not None:
+                return z, "strip"
+        p = pad_by_ref.get(ref)
+        if p is None or not p.z:
+            return None, ""
+        rings = tuple(getattr(p, "rings", ()) or ()) or (p.ring,)
+        pts = [(a, b, float(z)) for (a, b), z
+               in zip([v for rg in rings for v in rg], p.z)]
+        z = _lsq_at(pts, lat, lon)
+        return (None, "") if z is None else (z, "pad_fit")
+
     # published riders the write side never joined — by the rule it
     # joins with: the dump index (path-checked), else the 7-dp anchor
     keys = {(round(float(p.lat), 7), round(float(p.lon), 7), p.def_path)
@@ -166,6 +212,7 @@ def census(doc: _t.Mapping[str, _t.Any], dump: _t.Any, surface: _t.Callable,
         dat = _datum(r.host_pid)
         ez, ed = _edge_z(r.host_pid, r.lat, r.lon)
         tz = r.terrain_z
+        pz, psrc = _plane(r.strip_id, r.host_pid, r.lat, r.lon)
         return {"index": r.index, "resource": r.resource, "lat": r.lat,
                 "lon": r.lon, "host": r.host_pid, "strip": r.strip_id,
                 "gap_m": r.anchor_gap_m, "reach_m": r.reach_m,
@@ -173,6 +220,10 @@ def census(doc: _t.Mapping[str, _t.Any], dump: _t.Any, surface: _t.Callable,
                 "datum": dat,
                 "terrain_minus_datum": (None if tz is None or dat is None
                                         else round(tz - dat, 3)),
+                "plane_z": None if pz is None else round(pz, 3),
+                "plane_src": psrc,
+                "terrain_minus_plane": (None if tz is None or pz is None
+                                        else round(tz - pz, 3)),
                 "edge_z": ez, "edge_dist_m": (None if ez is None
                                               else round(ed, 2)),
                 "terrain_minus_edge": (None if tz is None or ez is None
@@ -230,9 +281,17 @@ def census(doc: _t.Mapping[str, _t.Any], dump: _t.Any, surface: _t.Callable,
           "msl_written": sum(1 for x in pop if x["seat_why"] == "msl_written"),
           "agp_msl_written": sum(1 for x in pop if x["seat_why"] == "msl_written"
                                  and x["resource"].lower().endswith(".agp")),
+          # BAR 1 (spec-author ruling on #31): on the pad PLANE at the
+          # rider within 0.05 m; the median-datum count stays for the record
+          "on_plane_0p05": sum(1 for x in pop
+                               if x.get("terrain_minus_plane") is not None
+                               and abs(x["terrain_minus_plane"]) <= 0.05),
           "on_datum_0p05": sum(1 for x in pop
                                if x.get("terrain_minus_datum") is not None
                                and abs(x["terrain_minus_datum"]) <= 0.05)}
+    counts["riders_on_plane_0p05"] = sum(
+        1 for x in rider_rows if x["terrain_minus_plane"] is not None
+        and abs(x["terrain_minus_plane"]) <= 0.05)
     counts["riders_agp_msl_written"] = sum(
         1 for x in rider_rows if x["seat_why"] == "msl_written"
         and x["resource"].lower().endswith(".agp"))
@@ -252,15 +311,16 @@ def print_report(rep: _t.Mapping[str, _t.Any], *, names: str, strip: bool,
           f"{c['riders_published']}, unjoined {c['riders_unjoined']}); in a "
           f"strip {c['riders_in_a_strip']}; on ground {c['riders_on_ground']}; "
           f"MSL written {c['riders_msl_written']} (.agp {c['riders_agp_msl_written']}"
-          f", bar 0); no host {c['riders_no_host']}; on datum ±0.05 "
-          f"{c['riders_on_datum']}")
+          f", bar 0); no host {c['riders_no_host']}; BAR 1 on the pad plane "
+          f"±0.05 {c['riders_on_plane_0p05']} (on the median datum ±0.05 "
+          f"{c['riders_on_datum']})")
     if names:
         p = rep["population_counts"]
         print(f"MEASUREMENT population '{names}': {p['population']} placement(s): "
               f"hosted {p['hosted']}, NO HOST {p['no_host']}; on ground "
               f"{p['on_ground']}, MSL written {p['msl_written']} (.agp "
-              f"{p['agp_msl_written']}); terrain on the pad datum ±0.05 m "
-              f"{p['on_datum_0p05']}")
+              f"{p['agp_msl_written']}); BAR 1 terrain on the pad plane ±0.05 m "
+              f"{p['on_plane_0p05']} (median datum {p['on_datum_0p05']})")
     if strip:
         print("\nper strip: pad  level  riders/seated  seat_why  clamps (worst)  "
               "worst |terrain − datum|")
@@ -271,7 +331,7 @@ def print_report(rep: _t.Mapping[str, _t.Any], *, names: str, strip: bool,
                   f"  {_fmt(s['worst_terrain_minus_datum'], '.2f')}")
     if names:
         print(f"\n'{names}' rows: resource  host  gap  seat_why  terrain  "
-              f"terrain−datum  terrain−edge (edge dist)")
+              f"terrain−PLANE (src)  terrain−datum  terrain−edge (edge dist)")
         for x in sorted(rep["population"], key=lambda x: (x["host"], x["lat"])):
             if x["seat_why"] == "no_host":
                 print(f"  {x['resource'].split('/')[-1][:32]:<32} NO HOST  "
@@ -282,6 +342,7 @@ def print_report(rep: _t.Mapping[str, _t.Any], *, names: str, strip: bool,
             print(f"  {x['resource'].split('/')[-1][:32]:<32} {x['host']:<11}"
                   f" {x['gap_m']:5.2f} {x['seat_why']:<11}"
                   f" {_fmt(x['terrain_z'], '.2f'):>7}"
+                  f" {_fmt(x['terrain_minus_plane']):>7} ({x['plane_src'] or '—'})"
                   f" {_fmt(x['terrain_minus_datum']):>7}"
                   f" {_fmt(x['terrain_minus_edge']):>7}"
                   f" ({_fmt(x['edge_dist_m'], '.1f')} m)")
@@ -292,12 +353,16 @@ def print_report(rep: _t.Mapping[str, _t.Any], *, names: str, strip: bool,
         rows = sorted((d, x) for d, x in rows if d <= R)
         print(f"\nriders within {R:g} m of {la},{lo}: {len(rows)} — on ground "
               f"{sum(1 for _d, x in rows if x['seat_why'] == 'on_ground')}, "
-              f"on their pad datum ±0.05 "
+              f"on their pad plane ±0.05 "
+              f"{sum(1 for _d, x in rows if x['terrain_minus_plane'] is not None and abs(x['terrain_minus_plane']) <= 0.05)}"
+              f", on the median datum ±0.05 "
               f"{sum(1 for _d, x in rows if x['terrain_minus_datum'] is not None and abs(x['terrain_minus_datum']) <= 0.05)}")
         for d, x in rows:
             print(f"  {d:6.1f} m  {x['resource'].split('/')[-1][:34]:<34} "
                   f"{x['host']:<11} {x['seat_why']:<11} terrain "
-                  f"{_fmt(x['terrain_z'], '.2f')} datum {_fmt(x['datum'], '.2f')}"
+                  f"{_fmt(x['terrain_z'], '.2f')} plane {_fmt(x['plane_z'], '.2f')}"
+                  f" (Δ {_fmt(x['terrain_minus_plane'])}, {x['plane_src'] or '—'})"
+                  f" datum {_fmt(x['datum'], '.2f')}"
                   f" (Δ {_fmt(x['terrain_minus_datum'])})")
 
 

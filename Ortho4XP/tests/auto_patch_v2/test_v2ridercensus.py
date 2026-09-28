@@ -178,3 +178,48 @@ def test_the_strip_publishes_each_riders_identity_host_and_gap():
     s, = jetway_strips_ll(planar, airport, strips, rep)
     assert s["riders"] == [[10.0, 20.0, "Airport/j.agp", 5.0, 17,
                             "building7", 1.42]]
+
+
+def test_bar_1_reads_the_pad_plane_at_the_rider():
+    """Spec-author ruling on #31 (Q-32a (d)): bar 1 is |terrain − THE PAD
+    PLANE evaluated at the rider's anchor| <= 0.05 — not the pad's median
+    datum.  A strip that took the plane publishes its vertices' targets ON
+    the plane; a rider draped on it reads 0 off the plane while standing
+    well off the median.  A gated strip (no plane) reads the host pad's own
+    least-squares plane (``pad_fit``)."""
+    if str(TOOLS) not in sys.path:
+        sys.path.insert(0, str(TOOLS))
+    import jetway_rider_census as JRC
+    import math
+    g = 0.01                                  # 1 % tilt along +lon
+    kx = 111_320.0 * math.cos(math.radians(10.0))
+
+    def plane(la, lo):
+        return 100.0 + g * (lo - 20.0) * kx
+
+    doc = _graded_doc()
+    s = doc["provenance"]["jetway_strips"][0]
+    s["plane"] = [100.0, g, 0.0, 0.0, 0.0]
+    s["vertices_ll"] = [[la, lo, plane(la, lo)] for la, lo in
+                        ((9.9999, 19.999), (9.9999, 20.003), (10.0001, 20.003),
+                         (10.0001, 19.999))]
+    rider = (10.0, 20.002)
+    s["riders"] = [[rider[0], rider[1], "Airport/Jetway/j.agp", 5.0, 0,
+                    "terminal", 0.1]]
+    rows = (_P(rider[0], rider[1], "Airport/Jetway/j.agp"),)
+    rep = JRC.census(doc, NS(placements=rows), plane, tol_m=0.02,
+                     names="jetway", gate_m=40.0)
+    x, = rep["population"]
+    assert x["plane_src"] == "strip"
+    assert abs(x["terrain_minus_plane"]) <= 1e-3
+    assert abs(x["terrain_minus_datum"]) > 1.0          # 2.2 m up the tilt
+    assert rep["population_counts"]["on_plane_0p05"] == 1
+    assert rep["population_counts"]["on_datum_0p05"] == 0
+    assert rep["counts"]["riders_on_plane_0p05"] == 1
+    # gated: no plane published -> the host pad's own least-squares plane
+    s["plane"], s["level"] = None, None
+    rep = JRC.census(doc, NS(placements=rows), lambda la, lo: 100.0,
+                     tol_m=0.02, names="jetway", gate_m=40.0)
+    x, = rep["population"]
+    assert x["plane_src"] == "pad_fit"
+    assert x["plane_z"] is not None

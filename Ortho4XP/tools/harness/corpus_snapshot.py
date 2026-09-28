@@ -427,6 +427,22 @@ def airport_read_set(icao: str, trace: dict, data_repo: Path,
         hit = classify(p, data_repo, install_root, trace.get("overlays", {}))
         if hit and os.path.isfile(hit[1]):
             out[hit[0]] = hit[1]
+    # WHOLE INSET DIRS (#79).  The ballot reads a NEIGHBOUR tile's inset
+    # index (json, traced) and then its rasters through GDAL (invisible to
+    # the audit hook); dem_cache_state below covers only the airport's own
+    # tile.  Any ``*_airport_insets`` dir the trace touched is carried whole
+    # (SPJC: S12W078 1/4 and S13W077 2/6 files -> densification 1/2 vs 1/3).
+    inset_dirs = {os.path.dirname(src) for src in out.values()
+                  if isinstance(src, str) and
+                  os.path.basename(os.path.dirname(src)).endswith(
+                      "_airport_insets")}
+    for d in sorted(inset_dirs):
+        for dp, _dn, fn in os.walk(d):
+            for f in fn:
+                src = os.path.join(dp, f)
+                hit = classify(src, data_repo, install_root, {})
+                if hit and os.path.isfile(src):
+                    out.setdefault(hit[0], src)
     # RESTORE-BEFORE-READ SIBLINGS (#79).  The loader resolves a pack
     # placement by STATTING ``X.obj`` and then reads ``X.obj.anchor_bak``
     # (04f-1); a stat is invisible to the trace, so without the sibling the

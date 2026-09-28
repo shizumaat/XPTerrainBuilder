@@ -287,7 +287,25 @@ def cached_airport_layout(icao: str, *, compute_elevations: bool = True,
                           tile_lat=None, tile_lon=None):
     """Session-cached ``build_airport_pavement`` shared by all test
     modules.  See :func:`_build_cached`.  Treat the result as read-only.
+
+    NO CORPUS, NO QUESTION (issue #76).  Every twin that reaches this
+    helper needs the owner's data corpus — the X-Plane install's apt.dat
+    and CIFP, the DEM and the OSM extracts — and on a runner without one
+    the build raised ``RuntimeError: No apt.dat found for <ICAO>`` deep
+    inside the pipeline, so thirteen corpus twins read as engine defects
+    rather than as an absent fixture.  The skip lives HERE, at the one
+    entry all seventeen corpus-building modules call, so a module added
+    later inherits it and nobody has to remember a decorator; it uses the
+    same predicate ``tests/test_boundary.py`` already guards its builds
+    with.  It changes nothing where the corpus IS mounted.  It is a SKIP
+    and never a pass: a corpus run still measures everything it did.
     """
+    if not xplane_available():
+        import pytest
+        pytest.skip(
+            f"{icao} needs the owner's data corpus: no X-Plane install at "
+            f"{xplane_root()!r} (set XPLANE_ROOT to override), so there is "
+            f"no apt.dat/CIFP to build a layout from")
     return _build_cached(icao, compute_elevations, tile_lat, tile_lon)
 
 

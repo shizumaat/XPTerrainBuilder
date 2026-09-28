@@ -133,7 +133,7 @@ def _level(dem, apoly: Polygon, near: list[tuple[float, float]], reach: float) -
 def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, dict]:
     """THE SPLIT (module docstring).  Returns ``(base_regions,
     pad_regions, counts)``; a no-op without a DEM."""
-    from ..law.tables import design as design_law
+    from ..law.tables import design as design_law, pavement_roles
     TERRACES.clear()
     counts: dict = {"pad_terraces": 0}
     if dem is None or not pad_regions:
@@ -156,6 +156,13 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
     if not ai:
         return base, pads, counts
     a_tree = STRtree([base[i].polygon for i in ai])
+    # the ground must be BARE (``constraints.pad_fronting``'s blocker test):
+    # a facing segment crossing any other pavement or pad face faces nothing
+    pav = set(pavement_roles(law))
+    bi = [i for i, r in enumerate(base) if r.source == "cell" and r.role in pav
+          and r.polygon is not None and not r.polygon.is_empty]
+    b_geoms = [base[i].polygon for i in bi] + [p.polygon for p in pads]
+    b_tree = STRtree(b_geoms)
     p_tree = STRtree([p.polygon for p in pads])
     cut_apron: dict[int, list] = {}      # base index -> [pad buffers]
     cut_pad: dict[int, list] = {}        # pad index -> [upper-pad buffers]
@@ -182,8 +189,15 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
             d, i = best
             if d > near:
                 q = nearest_points(base[i].polygon, sp)[0]
-                if LineString([s, (q.x, q.y)]).intersection(P).length > _GRAZE_M:
+                seg = LineString([s, (q.x, q.y)])
+                if seg.intersection(P).length > _GRAZE_M:
                     continue           # runs back through the pad: faces nothing
+                own = base[i].polygon
+                if any(g is not P and g is not own
+                       and seg.intersection(g).length > _GRAZE_M
+                       for g in (b_geoms[int(j)] for j in
+                                 b_tree.query(seg, predicate="intersects"))):
+                    continue           # the ground between is not bare
             per.setdefault(i, []).append(s)
         if not per:
             continue

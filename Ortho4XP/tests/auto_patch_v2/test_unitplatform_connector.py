@@ -175,3 +175,16 @@ def test_the_object_stage_seats_a_stamped_cut_connector_at_its_low_end():
     assert len(row) == 7 and row[6] == "cut"
     assert row[4][0] and row[4][1]                  # both ends named
     assert abs(row[5][1] - 100.0) < 1e-6            # the LOW end's ground
+
+
+def test_two_cut_connectors_of_one_unit_are_two_seats():
+    """The end labels name ONE removal's components, so two stamped CUT
+    connectors of one unit both read ``<unit>/c0``; each must keep its OWN
+    low end's seat (HECA: seven pooled, T2's Titles_not_metal +23 m)."""
+    plan, v = _verdict("piers", 29.0)
+    v2 = _dc.replace(v[0], pids=(99,))
+    plan.connectors = (v[0], v2)
+    pw, _s = FU.plan_wide_seats(plan, _ground(29.0), (), 0.5, 0.0, {},
+                                200.0, 2.5)
+    assert pw[10][5][0] != v2.end_a and pw[10][5][0].startswith(v[0].end_a)
+    assert pw[10][0] == pw[10][5][0]

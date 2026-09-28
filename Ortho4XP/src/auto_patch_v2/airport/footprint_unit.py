@@ -1221,16 +1221,24 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
         # test also fires (``_bind_plan_wide``); the HIGH end's seat rides
         # beside it as the alternative, never as the default.
         base = out.get(next(iter(cn.pids)))
+        # §2: a stamped CUT connector is its OWN seat.  The end labels
+        # (``<unit>/cN``) name the components of ONE removal, so two
+        # connectors of one unit share ``.../c0`` for different ground —
+        # MEASURED at HECA (lane unitplatform): seven cut connectors of
+        # ``fu:38:96`` pooled under ``fu:38:96/c0`` took the LAST one's
+        # zero, and T2's ``Titles_not_metal`` b4 sat 23.06 m over its own
+        # ground.  The seat's unit id is made the connector's own.
+        us = u if stamped is None else f"{u}~{cn.id}"
         for q in cn.pids:
             row = out.get(q) or base
             if row is None and stamped is not None:
                 # §2: a CUT connector is in no unit's chain — its own row
                 # IS its low end's seat, and the verdict rides with it
-                row = (u, d[0], d[1], d[2])
+                row = (us, d[0], d[1], d[2])
             if row is None:
                 continue
             out[q] = (row[0], row[1], row[2], row[3],
-                      (cn.end_a, cn.end_b), (u, d[0], d[1], d[2]),
+                      (cn.end_a, cn.end_b), (us, d[0], d[1], d[2]),
                       "cut" if stamped is not None else "")
     counts["plan_wide_units"] = len(units)
     counts["plan_wide_units_seated"] = len(dat)

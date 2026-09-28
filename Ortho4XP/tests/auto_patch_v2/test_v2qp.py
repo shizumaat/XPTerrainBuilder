@@ -204,23 +204,37 @@ def _probe(pm, cs, law, solver):
             float(dz[far].max()) if far.any() else 0.0)
 
 
-def test_a_local_perturbation_is_local_under_the_qp(law, built):
-    """§20c's bar, as a MATCHED PAIR on one fixture (the far field of a
-    520 m apron body is not zero by construction — its datum is ONE PLANE
-    over the whole body, a global row by law — so the twin measures the
-    RESPONSE, which is what 14bw's probe measures).
+#: The QP arm's pinned response to the probe (RULINGS 2026-09-29e): moved
+#: rows 22 (macOS) / 24 (Linux), worst 0.293 m on both platforms.
+QP_ROWS_PINNED = (22, 24)
+QP_MAX_PINNED_M = 0.293
+QP_PIN_TOL = 0.10
+QP_FAR_MAX_M = 0.1
 
-    MEASURED on this fixture: the fixed point moves 273 of 365 vertices,
-    193 of them beyond 250 m, worst 0.7515 m; the QP moves 72, 44 beyond
-    250 m, worst 0.1202 m and worst-far 0.0537 m."""
+
+def test_a_local_perturbation_is_local_under_the_qp(law, built):
+    """§20c's bar on the QP arm ALONE (RULINGS 2026-09-29e, issue #76).
+
+    The fixed-point arm is NOT a control: on Linux it converges to the
+    QP's own local answer (22 rows, far 0) while on macOS it does not
+    (277 rows, 203 far, 1.712 m), so a matched pair cannot separate the
+    two solvers.  The bar is absolute: the far-field response (beyond
+    250 m) is at most 0.1 m (MEASURED 0.022 m on both platforms), and the
+    moved-row count and the worst response stay within ±10 % of the pinned
+    QP values (22 / 24 rows, 0.293 m).  The fixed point is printed, never
+    asserted."""
     pm, cs = built
-    n_f, max_f, far_f, farmax_f = _probe(pm, cs, law, "fixed_point")
     n_q, max_q, far_q, farmax_q = _probe(pm, cs, law, "qp")
-    assert n_q < n_f / 2.0, ((n_q, max_q, far_q, farmax_q),
-                             (n_f, max_f, far_f, farmax_f))
-    assert far_q < far_f / 2.0, (far_q, far_f)
-    assert farmax_q < 0.1 <= farmax_f, (farmax_q, farmax_f)
-    assert max_q < max_f
+    fp = _probe(pm, cs, law, "fixed_point")
+    print(f"v2qp probe: qp (n, max, far, farmax) = "
+          f"({n_q}, {max_q:.4f}, {far_q}, {farmax_q:.4f}); "
+          f"fixed_point (reported, not asserted) = "
+          f"({fp[0]}, {fp[1]:.4f}, {fp[2]}, {fp[3]:.4f})")
+    got = (n_q, max_q, far_q, farmax_q)
+    assert farmax_q <= QP_FAR_MAX_M, got
+    lo, hi = min(QP_ROWS_PINNED), max(QP_ROWS_PINNED)
+    assert lo * (1 - QP_PIN_TOL) <= n_q <= hi * (1 + QP_PIN_TOL), got
+    assert abs(max_q - QP_MAX_PINNED_M) <= QP_PIN_TOL * QP_MAX_PINNED_M, got
 
 
 def test_the_same_problem_solved_twice_is_identical(law, built):

@@ -77,3 +77,13 @@ def test_a_wall_beyond_one_lane_width_retains_nothing(cfg):
     far = box(0.0, 3.0 + LANE + 2.0, 60.0, 3.0 + LANE + 2.3)
     assert rw.retaining_pieces(_airport(((far,), 3.1)), RIBBON, LANE, cfg) == []
     assert rw.road_extension([], RIBBON, LANE).is_empty
+
+
+def test_an_extension_piece_apart_from_the_road_is_dropped(cfg):
+    """Only what JOINS the ribbon extends the road (hecaroad_close1's
+    detached ``route4``)."""
+    from shapely.geometry import Polygon
+    ext = rw.road_extension([rw.RetainingPiece(box(0.0, 5.0, 60.0, 5.3), 3.1,
+                                               "w.obj", 0, 2.0)], RIBBON, LANE)
+    for g in getattr(ext, "geoms", [ext]):
+        assert isinstance(g, Polygon) and g.distance(RIBBON) < 1e-6

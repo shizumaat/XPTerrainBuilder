@@ -140,5 +140,11 @@ def road_extension(pieces: _t.Sequence[RetainingPiece], ribbon, lane_m: float):
         hull = unary_union([rp.poly, bit]).convex_hull
         parts.append(hull.difference(rp.poly))
     ext = unary_union(parts).difference(ribbon) if parts else Polygon()
+    # only what JOINS the road extends it: a hull remnant standing apart
+    # from the ribbon is not the road's strip (closing build hecaroad_close1:
+    # `route4`, 8 vertices, no vertex shared with the road, 2 m below it)
+    keep = [g for g in getattr(ext, "geoms", [ext])
+            if g.geom_type == "Polygon" and g.distance(ribbon) < 1e-6]
+    ext = unary_union(keep) if keep else Polygon()
     STATS.update(extension_m2=round(float(ext.area), 1))
     return ext

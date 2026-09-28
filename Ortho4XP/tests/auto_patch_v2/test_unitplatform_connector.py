@@ -71,7 +71,8 @@ def _plan(kind: str) -> _Plan:
     """Two walled buildings A (0-100 m) and B (400-500 m) joined by a
     300 m connector: ``strip`` one walled component, ``piers`` a plate
     with a 5 m pier every 60 m (a deck on piers), ``deck`` the walled
-    strip the object stage already calls a deck candidate."""
+    strip the object stage calls a deck by its own VERDICT (``signature``),
+    ``candidate`` the strip the signature pass merely looked at."""
     a = _Member("objects/a.obj", [_Part(1, 0, 100, 12.0)])
     b = _Member("objects/b.obj", [_Part(2, 400, 500, 12.0)])
     if kind == "piers":
@@ -83,7 +84,10 @@ def _plan(kind: str) -> _Plan:
         parts = [_Part(10, 100, 400, 4.0, -2.99960, -2.99940)]
         contacts = ()
     c = _Member("objects/link.obj", parts,
-                deck_kind="candidate" if kind == "deck" else "")
+                deck_kind={"deck": "signature",
+                           "candidate": "candidate"}.get(kind, ""))
+    if kind == "candidate":
+        c.elevated_deck = True
     return _Plan((_Unit([a, b, c]),), contacts)
 
 
@@ -109,8 +113,27 @@ def test_s1_s3_s4_each_decide():
     assert v[0].walled_gap_m > 20.0
     _p, v = _verdict("strip", 29.0)         # the rail's end step: S4 fails
     assert [x.solid for x in v] == [False] and v[0].walled
-    _p, v = _verdict("deck", 2.5)           # S3 fails
-    assert [x.solid for x in v] == [False] and v[0].deck
+    # S3: a deck by the object stage's verdict never joins — the topology
+    # already leaves it out of the chain (member_is_deck), and asked
+    # directly the verdict refuses it
+    _p, v = _verdict("deck", 2.5)
+    assert not any(x.solid for x in v)
+    p = _plan("deck")
+    link = p.units[0].members[2]
+    cn = FC.PlanConnector("c", (0, 2, 0), frozenset({10}), link.resource,
+                          300.0, "unit:0", "a", "b")
+    _st, vd = FC.connector_verdict(cn, link.parts, link,
+        _ground(2.5), chain_min_height_m=2.5, gap_max_m=20.0,
+        step_max_m=4.95)
+    assert vd.deck and not vd.solid
+
+
+def test_s3_is_member_is_deck_only():
+    """Spec-author ruling on #66 (2): ``deck_kind == 'candidate'`` (and an
+    ``elevated_deck`` reading) is NOT a deck verdict — SPJC
+    ``LIMANUEVA_xp11_010`` (13cn) and HECA ``T3_7`` stay unit members."""
+    _p, v = _verdict("candidate", 2.5)
+    assert [x.solid for x in v] == [True] and not v[0].deck
 
 
 def test_a_connector_whose_ends_do_not_step_is_a_member():

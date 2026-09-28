@@ -539,12 +539,6 @@ class ConnectorVerdict:
                    tuple(tuple(float(x) for x in b) for b in d.get("own_b", ())))
 
 
-#: S3: the ``Member.deck_kind`` spellings that refuse a join (spec §2 S3:
-#: ``candidate`` counts — the signature pass found a PLATE on the member)
-_S3_DECK_KINDS: frozenset[str] = frozenset({"candidate", "deck", "flag",
-                                            "signature", "family"})
-
-
 def _plate_gap_m(parts: _t.Sequence[_t.Any], chain_min_height_m: float
                  ) -> tuple[float, float, bool]:
     """S1: ``(worst plate-only run along the long axis (m), axis length,
@@ -621,10 +615,13 @@ def connector_verdict(cn: PlanConnector, parts: _t.Sequence[_t.Any],
     gap, _L, along_lat = _plate_gap_m(parts, chain_min_height_m)
     step = _end_step_m(parts, ground, along_lat)
     walled = gap_max_m <= 0.0 or gap <= gap_max_m
-    deck = bool(str(getattr(member, "deck_kind", "") or "") in _S3_DECK_KINDS
-                or getattr(member, "elevated_deck", False)
-                or getattr(member, "deck_ring", None)
-                or getattr(member, "deck_shade_ring", None) is not None)
+    # S3 (spec-author ruling on #66, 2026-09-28): ``member_is_deck`` ONLY —
+    # the object stage's own deck VERDICT.  ``deck_kind == 'candidate'`` is
+    # not a verdict (spjcpads) and ``elevated_deck`` alone is not either:
+    # both cut SPJC ``LIMANUEVA_xp11_010`` (the 13cn viaduct MEMBER) and
+    # HECA ``T3_7`` out of their units.
+    from .placement_family import member_is_deck
+    deck = member_is_deck(member)
     s4 = step is not None and step <= step_max_m
     return step, ConnectorVerdict(
         tuple(sorted(cn.pids)), cn.resource, cn.span_m, cn.end_a, cn.end_b,

@@ -690,6 +690,11 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
     return out
 
 
+#: the patch writes elevations to the centimetre: a step read back from
+#: it can exceed the solved one by up to a rounding on each side
+_EMIT_Z_ROUND_M = 0.01
+
+
 def pad_terrace_joints(planar: PlanarMap, law: Law,
                        z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
     """THE PAD TERRACES DECLARED (owner RULINGS 2026-09-28b, issue #11;
@@ -741,9 +746,22 @@ def pad_terrace_joints(planar: PlanarMap, law: Law,
             for a, b in pairs:
                 (la0, lo0), (la1, lo1) = planar.vertices[a].key, planar.vertices[b].key
                 pts.append([(la0 + la1) / 2.0, (lo0 + lo1) / 2.0])
+            # the DECLARED step is the largest over EVERY chord across the
+            # strip within the horizon, not just the nearest partners: the
+            # census prices every chord crossing the line (closing build
+            # cargoterrace_close2: 4 terrace_actual_step rows at 7.10-7.11 m
+            # against a nearest-pair 7.1087 declared), plus the emit's own
+            # elevation rounding
             step = 0.0
             if z is not None:
-                step = max(abs(float(z[a]) - float(z[b])) for a, b in pairs)
+                oz = [(w, xy, float(z[w])) for w, xy in ox]
+                for a in pad_vs:
+                    ax, ay = planar.vertices[a].xy
+                    za = float(z[a])
+                    for _w, (bx, by), zb in oz:
+                        if math.hypot(ax - bx, ay - by) <= horizon + 1.0:
+                            step = max(step, abs(za - zb))
+                step += _EMIT_Z_ROUND_M
             out.append({"points": pts, "step_m": round(step, 4),
                         "declared_step_m": round(step, 4), "faced": False,
                         "kind": "pad_terrace", "faces": [], "shapes": [pad_ref, other],

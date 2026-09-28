@@ -204,8 +204,15 @@ class AdjacentGround:
     lip_max_down: float
     ungraded_max_up: float
     groundside_cutback_m: float
+    #: §37 (11) THE SHORE DECISION (owner RULINGS 2026-09-29a (4)): the
+    #: terrain profile across the last ``shore_profile_run_m`` before the
+    #: water line reads a BUILT edge where it drops at least
+    #: ``shore_profile_drop_m`` there (``planar/shore``).  Fields below.
     runway: ZoneClass
     taxi: ZoneClass
+    #: (RULINGS 2026-09-29h: the drop calibrated 2.0 -> 3.5 m)
+    shore_profile_drop_m: float = 3.5
+    shore_profile_run_m: float = 10.0
 
 
 @_dc.dataclass(frozen=True)

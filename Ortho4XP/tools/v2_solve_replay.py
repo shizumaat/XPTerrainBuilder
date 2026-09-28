@@ -1764,6 +1764,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
     if resume in ("classify", "planar"):
         pm, _ps = build_planar(airport, cl, law)
+        # §37 (11) THE SHORE DECISION (29a, issue #72): every contact's
+        # verdict — the replay's read of the shore
+        from auto_patch_v2.pipeline.build import shore_decision_lines
+        for _ln in shore_decision_lines(pm, airport, every=True):
+            print(f"[{icao}]{_ln}")
         road_pref, _r, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
                                              inputs.lane_width_m)
         pm = _dc.replace(pm, preferred_z=road_pref)

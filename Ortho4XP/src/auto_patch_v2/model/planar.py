@@ -375,6 +375,12 @@ class PlanarMap:
     #: ... and the WEDGES inside them where the band falls at the bank slope
     #: (frame exterior rings; ``planar/zones.ZoneRegion.shore_wedge``).
     natural_shore_wedges: tuple = ()
+    #: §37 (11) THE SHORE DECISION (owner RULINGS 2026-09-29a;
+    #: ``planar/shore.shore_verdict``): one record per zone region that
+    #: reaches the coastline — ``(ref, kind, witness, height_m, x, y,
+    #: contact_m, stations, built, gentle)`` in the frame.  ``witness ==
+    #: "default"`` is a ``shore_undeclared`` row.
+    shore_verdicts: tuple = ()
     #: THE PAD TERRACES (owner RULINGS 2026-09-28a (6) / 28b, issue #11;
     #: ``planar/pad_terrace``, the ONE derivation): pad ref -> the refs of
     #: the aprons / lower pads split from it by a declared terrace.  Read by

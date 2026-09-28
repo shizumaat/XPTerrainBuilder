@@ -89,16 +89,19 @@ AIRPORTS_QUERIES = [('node["aeroway"]', 'way["aeroway"]', 'rel["aeroway"]')]
 # (``fetch_shore_structures``), and the v2 loader reads it where present
 # and NAMES the tiles where it is absent.  Production's own fill is owed.
 SHORE_STRUCTURE_TAGS = {
-    "man_made": ("quay", "pier", "breakwater", "seawall", "groyne", "dyke"),
+    "man_made": ("quay", "pier", "breakwater", "seawall", "groyne", "dyke",
+                 "embankment"),
     "barrier": ("wall", "retaining_wall", "seawall"),
     "wall": ("seawall", "retaining_wall"),
+    # owner RULINGS 2026-09-29a (1): reclaimed land declares a built edge
+    "landuse": ("reclaimed",),
 }
 SHORE_STRUCTURE_QUERIES = [tuple(
     f'way["{k}"="{v}"]' for k, vals in SHORE_STRUCTURE_TAGS.items()
     for v in vals)]
 SHORE_STRUCTURE_TAGS_OF_INTEREST = sorted(SHORE_STRUCTURE_TAGS) + ["name"]
 SHORE_STRUCTURE_SUFFIX = "shore_structures"
-SHORE_STRUCTURE_CACHE_TAG_SCHEMA = "2026-09-28"
+SHORE_STRUCTURE_CACHE_TAG_SCHEMA = "2026-09-29"
 WATER_QUERIES = [
     'rel["natural"="water"]',
     'rel["waterway"="riverbank"]',

@@ -336,6 +336,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                        r.ref for r in arr.regions
                        if getattr(r, "natural_shore", False)),
                    natural_shore_wedges=_wedge_rings(arr.regions),
+                   shore_verdicts=_shore_verdicts(arr.regions),
                    pad_terraces=_pad_terraces())
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
@@ -487,6 +488,21 @@ def _spacing(pm: PlanarMap) -> tuple[float, float]:
     longest = max(LineString([pm.vertices[e.a].xy, pm.vertices[e.b].xy]).length
                   for e in pm.edges.values())
     return (best if best < float("inf") else 0.0), longest
+
+
+def _shore_verdicts(regions) -> tuple:
+    """§37 (11) (29a): the shore decisions the zones were cut with, one
+    record per reaching region (``PlanarMap.shore_verdicts``)."""
+    out = []
+    for r in regions:
+        v = getattr(r, "shore", None)
+        if v is None:
+            continue
+        x, y = v.at if v.at is not None else (float("nan"), float("nan"))
+        out.append((r.ref, v.kind, v.witness, v.height_m, x, y,
+                    float(v.contact_m), int(v.stations), int(v.built),
+                    int(v.gentle)))
+    return tuple(out)
 
 
 def _wedge_rings(regions) -> tuple:

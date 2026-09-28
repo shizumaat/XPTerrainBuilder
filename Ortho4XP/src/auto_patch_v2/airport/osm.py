@@ -57,7 +57,8 @@ TAGS_OF_INTEREST = frozenset((
 #: §37 (11) (7) THE SHORE-STRUCTURE FEED (issue #72): ``man_made=quay`` /
 #: ``pier`` / ``breakwater`` / ``seawall`` / ``groyne`` / ``dyke``,
 #: ``barrier=wall`` / ``retaining_wall`` / ``seawall``, ``wall=seawall`` /
-#: ``retaining_wall`` — ``planar.zones.SHORE_WALL_TAGS``, the one reader.
+#: ``retaining_wall``, ``man_made=embankment``, ``landuse=reclaimed`` (owner
+#: RULINGS 2026-09-29a (1)) — ``planar.zones.SHORE_WALL_TAGS``, the one reader.
 #: Written by ``O4_Vector_Map.fetch_shore_structures`` (the explicit
 #: ``--refresh-data shore``), never by a build; an absent tile is an empty
 #: feed and is NAMED on the load report.
@@ -67,11 +68,12 @@ FEEDS = ("airports", "airport_small_roads", "big_roads", SHORE_FEED)
 #: The shore feed keeps ITS OWN tags and no others: a ``man_made=pier``
 #: that is also a ``highway=footway`` must not arrive a second time as a
 #: road beside the road feeds' copy of it.
-SHORE_TAGS_OF_INTEREST = frozenset(("man_made", "barrier", "wall", "name"))
+SHORE_TAGS_OF_INTEREST = frozenset(("man_made", "barrier", "wall", "landuse",
+                                    "name"))
 
 #: Mirrored from ``O4_Vector_Map.SHORE_STRUCTURE_CACHE_TAG_SCHEMA``
 #: (twin-asserted equal, like ``ROAD_CACHE_TAG_SCHEMA``).
-SHORE_CACHE_TAG_SCHEMA = "2026-09-28"
+SHORE_CACHE_TAG_SCHEMA = "2026-09-29"
 
 #: The feeds written under a TAG WHITELIST — ``O4_Vector_Map``'s
 #: ``ROADS_TAGS_OF_INTEREST``.  The airports feed keeps ``["all"]`` and

@@ -60,7 +60,8 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     witnesses — the classified cover (pavement, a pad, a roofed
     corridor's footprint) for ``terrain_cover_min_m``; a mapped road or
     railway AT GRADE crossing the bore's INTERIOR; the DEM standing
-    ``terrain_rise_m`` over the bore above the mean at its own two ends;
+    ``terrain_rise_m`` over the bore above the line between its own two
+    mouth grounds (#65);
     or the bore's own ``layer`` at or under ``terrain_layer_max``, which
     is OSM's statement that it runs below what it crosses.
 
@@ -194,8 +195,17 @@ def _crossings(ln, grade, tree, bore, min_inside_m):
 
 
 def _rise_m(airport, ln):
-    """How far the DEM anywhere OVER the bore stands above the mean of the
-    DEM at its two mapped ends — the bore's form of §34 (12) (4) (ii)."""
+    """How far the DEM anywhere OVER the bore stands above THE LINE BETWEEN
+    ITS TWO MOUTH GROUNDS — the bore's form of §34 (12) (4) (ii).
+
+    Issue #65 (owner RULINGS 2026-09-27a, lane ``tunnelwitness2``): this
+    read the rise against the MEAN of the two ends, so a bore under
+    ground that merely SLOPES read half its own fall as a hill — SPJC's
+    -5724 (DEM 21.97 -> 21.44 m, monotone) came out "+0.27 m", and any
+    bore falling 1.0 m or more along a plane passed ``terrain_rise_m``
+    0.5 with nothing over it.  The chord between the mouth grounds is the
+    ground a trench would follow; only ground standing ABOVE that chord
+    is ground the bore passes under."""
     dem = getattr(airport, "dem", None)
     if dem is None or ln.length <= 0.0:
         return None
@@ -207,7 +217,7 @@ def _rise_m(airport, ln):
         if z != z:                                     # NaN: no witness
             return None
         zs.append(z)
-    return max(zs) - (zs[0] + zs[-1]) / 2.0
+    return max(z - (zs[0] + (zs[-1] - zs[0]) * i / n) for i, z in enumerate(zs))
 
 
 def pad_relief_m(airport: Airport, poly: Polygon) -> float:

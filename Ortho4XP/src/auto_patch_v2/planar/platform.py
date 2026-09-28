@@ -19,15 +19,15 @@ bar) is split into TWO regions of its own role:
   ``building`` face with a HOLE, graded as a §31 (7) bank from the welded
   rim to the platform (``constraints.platform``).
 
-C (spec §1 (2), spec-author ruling 4 on #66: "C is the measured value,
-≈ 5 m at HECA, the floor").  The spec's ``max_rim_relief`` is read off
-the STAGE-1 solve, which runs after this arrangement; the relief measured
-there at HECA (lane ``unitplatform``: T3 1.41 m, T2 0.55 m) is under
-``bank_min_width_m x bank_slope`` (1.65 m), so C is the §31 (7) floor
-``emit.design.bank_min_width_m``.  The relief each platform actually
-carries is MEASURED after the solve and published (``platform_rim_relief``,
-with the collar width it would need) — a pad whose relief outgrows its
-collar reads there, never silently.
+C IS MEASURED PER PLATFORM (spec §1 (2); spec-author correction on #66,
+2026-09-28): ``C = clamp(relief / bank_slope, bank_min_width_m,
+platform_collar_max_m)`` where ``relief`` is the WELDED rim's largest
+distance from the platform plane (:func:`rim_relief_m`).  The spec reads it
+off stage 1; stage 1 runs after this arrangement, so the mint reads the
+one level there is here, the DEM along the welded rim, against the same
+tilt-bounded frontage plane — and the SOLVED relief is re-read after the
+solve and published per platform (``platform_rim_relief``, with the collar
+it would need), so a mint that under-read shows there, never silently.
 
 The erosion never touches the rim: no airside vertex is created or moved
 (the inner ring is at least C inside the pad, minted after the 23a cut).
@@ -66,6 +66,9 @@ class Platform:
     pad_m2: float
     platform_m2: float
     welded_samples: int
+    #: the welded rim's relief at the mint (DEM, against the tilt-bounded
+    #: frontage plane) that set C; ``None`` without a DEM
+    relief_m: "float | None" = None
     #: ``""`` when minted, else why not (``"eroded_away"``,
     #: ``"under_min_area"``)
     refused: str = ""
@@ -104,8 +107,50 @@ def _welded_samples(poly: Polygon, air, near_m: float) -> int:
     return k
 
 
+def rim_relief_m(P: Polygon, air, near_m: float, dem, slope_max: float
+                 ) -> "float | None":
+    """The WELDED rim's relief against the platform plane, read at the mint
+    (spec §1 (2); spec-author correction on #66: C is the MEASURED value
+    per platform).  The welded rim is every ring sample of ``P`` within
+    ``near_m`` of the airside; its level there is the DEM (stage 1 has not
+    run at the arrangement — the one level there is; the SOLVED relief is
+    re-read after the solve and published as ``platform_rim_relief``).
+    The platform plane is §20's least-squares fit of that same frontage,
+    its tilt bounded at ``pad_slope_max`` (a steeper fit keeps its direction
+    at the ceiling and re-centres, ``project_strip._pad_plane``'s rule).
+    ``None`` without a DEM or three samples."""
+    import numpy as np
+    if dem is None:
+        return None
+    ring = P.exterior
+    n = max(4, int(ring.length // _STEP_M))
+    pts = []
+    for i in range(n):
+        q = ring.interpolate(i * ring.length / n)
+        if air.distance(q) <= near_m:
+            try:
+                z = float(dem.z(q.x, q.y))
+            except Exception:  # noqa: BLE001 — off the raster: no witness
+                continue
+            if z == z:
+                pts.append((q.x, q.y, z))
+    if len(pts) < 3:
+        return None
+    A = np.asarray(pts, dtype=float)
+    x0, y0 = A[:, 0].mean(), A[:, 1].mean()
+    M = np.c_[np.ones(len(A)), A[:, 0] - x0, A[:, 1] - y0]
+    if np.linalg.matrix_rank(M) < 3:
+        return float(np.max(np.abs(A[:, 2] - np.median(A[:, 2]))))
+    c, *_ = np.linalg.lstsq(M, A[:, 2], rcond=None)
+    g = float(np.hypot(c[1], c[2]))
+    if g > slope_max > 0.0:
+        c[1], c[2] = c[1] * slope_max / g, c[2] * slope_max / g
+        c[0] = float(np.mean(A[:, 2] - c[1] * (A[:, 0] - x0) - c[2] * (A[:, 1] - y0)))
+    return float(np.max(np.abs(A[:, 2] - M @ c)))
+
+
 def platform_split(base_regions, pad_regions, law: Law,
-                   grid: float = 0.0) -> tuple[list, dict]:
+                   grid: float = 0.0, dem=None) -> tuple[list, dict]:
     """THE SPLIT (module docstring).  Returns ``(pad_regions, counts)``;
     a no-op with ``[building_pad] platform_collar`` off."""
     PLATFORMS.clear()
@@ -116,8 +161,11 @@ def platform_split(base_regions, pad_regions, law: Law,
     from ..law.tables import design as design_law
     min_m2 = float(law.tables.structures.placement.cluster_pad_min_m2)
     near = float(design_law(law).pad_frontage_m)
-    C = collar_width_m(law)
-    if min_m2 <= 0.0 or C <= 0.0:
+    C0 = collar_width_m(law)
+    bank = float(law.tables.emit.design.bank_slope)
+    cmax = float(bp.platform_collar_max_m)
+    slope_max = float(law.tables.emit.within_shape.pad_slope_max)
+    if min_m2 <= 0.0 or C0 <= 0.0 or bank <= 0.0:
         return list(pad_regions), counts
     air_roles = rolled_on_roles(law)
     air_polys = [r.polygon for r in base_regions
@@ -144,11 +192,16 @@ def platform_split(base_regions, pad_regions, law: Law,
         if nw < _MIN_WELDED:
             out.append(pr)
             continue
+        # C PER PLATFORM (spec-author correction on #66): the §31 (7) bank
+        # the welded rim's relief needs, clamped to [bank_min_width_m,
+        # platform_collar_max_m]
+        rel = rim_relief_m(P, air, near, dem, slope_max)
+        C = C0 if rel is None else min(cmax, max(C0, rel / bank))
         inner = P.buffer(-C, join_style=2, mitre_limit=2.0)
         parts = sorted(_parts(inner), key=lambda q: -q.area)
         if not parts:
-            PLATFORMS.append(Platform(str(pr.ref), C, round(P.area, 1), 0.0,
-                                      nw, "eroded_away"))
+            PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1), 0.0,
+                                      nw, rel, "eroded_away"))
             out.append(pr)
             continue
         # EVERY piece the erosion leaves is platform (a district pad is
@@ -170,16 +223,16 @@ def platform_split(base_regions, pad_regions, law: Law,
                 plats.append(q)
         tot = sum(q.area for q in plats)
         if tot < min_m2:
-            PLATFORMS.append(Platform(str(pr.ref), C, round(P.area, 1),
-                                      round(tot, 1), nw, "under_min_area"))
+            PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
+                                      round(tot, 1), nw, rel, "under_min_area"))
             out.append(pr)
             continue
         cparts = _parts(P.difference(unary_union(plats)))
         if not cparts:
             out.append(pr)
             continue
-        PLATFORMS.append(Platform(str(pr.ref), C, round(P.area, 1),
-                                  round(tot, 1), nw))
+        PLATFORMS.append(Platform(str(pr.ref), round(C, 2), round(P.area, 1),
+                                  round(tot, 1), nw, rel))
         pieces = [_dc.replace(pr, polygon=q) for q in plats]
         plat_ids.update(id(q) for q in pieces)
         out.extend(pieces)

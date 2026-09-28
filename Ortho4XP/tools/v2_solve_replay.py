@@ -1073,7 +1073,8 @@ def _vkey(pm, vid: int) -> str:
 
 def stage1_population(pkl: Path, drop: list[str], out: Path,
                       design_weights: dict | None = None,
-                      from_capture: bool = False, resume: str = "constraints") -> int:
+                      from_capture: bool = False, resume: str = "constraints",
+                      placement: dict | None = None) -> int:
     """§20b (3) STAGE 1'S POPULATION, dumped off a ``--solved-out`` pickle.
 
     The question RULINGS 2026-09-16v asks first: *what does a pad's
@@ -1105,7 +1106,11 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
         # under the current tree), which is what a stage-1 population
         # measured against a CODE change needs; the ``--solved-out`` path
         # reads the constraint set another arm already built.
-        prob = replay_problem(pkl, resume, drop, design_weights)
+        # ``--placement`` rides the capture path's own prelude (issue #67:
+        # it was dropped here, so a ``pad_keeps_footprint=false`` dump
+        # silently measured the shipped law and printed no arm line)
+        prob = replay_problem(pkl, resume, drop, design_weights,
+                              placement=placement or None)
         icao, pm, cs, law = prob["icao"], prob["pm"], prob["cs"], prob["law"]
     else:
         with pkl.open("rb") as fh:
@@ -2047,9 +2052,15 @@ def main() -> int:
                      "under the current tree)")
         dw = {k.strip(): _design_value(v)
               for k, v in (it.split("=") for it in a.design_weight)}
+        pl = dict(it.split("=", 1) for it in a.placement)
+        if pl and a.why_from:
+            ap.error("--placement with --stage1-dump needs --replay PKL --from "
+                     "classify|planar: a --why-from pickle holds a solved "
+                     "arrangement the key can no longer reach")
         return stage1_population(a.why_from or a.replay, a.drop_generator,
                                  a.stage1_dump, dw,
-                                 from_capture=a.why_from is None, resume=a.resume)
+                                 from_capture=a.why_from is None, resume=a.resume,
+                                 placement=pl)
     if a.probe_site:
         if not a.why_from:
             ap.error("--probe-site needs --why-from PKL (a --solved-out pickle)")

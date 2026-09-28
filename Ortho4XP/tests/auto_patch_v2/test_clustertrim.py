@@ -176,3 +176,33 @@ def test_a_stray_conforming_head_is_refused(law):
                     conforming_hard_rulings=("no such ruling",))
     with pytest.raises(ValueError):
         check_design(d, ValueError, None)
+
+
+# ── (3) THE STAGE-1 DUMP CARRIES THE --placement ARM ────────────────────
+
+def test_the_stage1_dump_passes_the_placement_arm_to_the_prelude(monkeypatch,
+                                                                 tmp_path):
+    """Issue #67's own note: ``--placement pad_keeps_footprint=false``
+    through ``--stage1-dump`` printed no arm line — the dump's capture path
+    called the replay prelude without it, so the arm was silently the
+    shipped law.  The prelude now receives it."""
+    import importlib.util
+    from pathlib import Path
+    tool = Path(__file__).resolve().parents[2] / "tools" / "v2_solve_replay.py"
+    spec = importlib.util.spec_from_file_location("_v2sr_clustertrim", tool)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    seen = {}
+
+    class _Stop(Exception):
+        pass
+
+    def _prelude(pkl, resume, drop, dw=None, *a, **k):
+        seen.update(k)
+        raise _Stop
+    monkeypatch.setattr(mod, "replay_problem", _prelude)
+    with pytest.raises(_Stop):
+        mod.stage1_population(tmp_path / "x.pkl", [], tmp_path / "o.json.gz",
+                              None, from_capture=True, resume="classify",
+                              placement={"pad_keeps_footprint": "false"})
+    assert seen.get("placement") == {"pad_keeps_footprint": "false"}

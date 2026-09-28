@@ -45,19 +45,37 @@ jobs:
   # ════════════════════════════════════════════════════════════════════
   # Until 2026-09-17 CI ran no Python at all: every Windows and Linux
   # regression was found by a user, or by release.yml failing at freeze
-  # time — after the tag.  This matrix runs the corpus-independent test
-  # set (harness twins, the JSONL engine protocol, the Qt app offscreen)
-  # on the three OSes the release ships.
+  # time — after the tag.
   #
-  # The corpus-dependent suites (tests/auto_patch_v2 and the airport
-  # integration files) are NOT here: they need
-  # /Users/noah/XPTerrainBuilderData, which no runner has.  conftest's
-  # shared-repo guard is inert when the corpus is absent, so the files
-  # below collect and run clean without it.
+  # From 2026-09-17 to 2026-09-28 this job ran THREE pytest invocations
+  # naming three globs — tests/test_harness.py, tests/test_engine*.py,
+  # tests/test_qt_*.py.  Those match 31 of the engine's 660 test files
+  # (#63): 629 files, and essentially the whole engine — every law family,
+  # the solver, the tunnels, auto_patch_v2 — were NEVER COLLECTED, so a
+  # green rollup said nothing about them.  #59 is what that costs: three
+  # auto_patch_v2 reds sat on main across a window CI called green.
+  #
+  # It now runs the WHOLE suite, in the split tests/conftest.py documents
+  # as the lawful one: the Qt files SERIAL (-n0), everything else PARALLEL
+  # (-n auto from pytest.ini).  The two halves are disjoint and together
+  # they are `tests/`.
+  #
+  # The corpus: /Users/noah/XPTerrainBuilderData is on no runner, and the
+  # shared-repo guard in tests/conftest.py is inert when it is absent.
+  # tests/auto_patch_v2 carries its own checked-in fixtures (CYXY et al.)
+  # and needs no corpus.  Tests that need a tool CI does not install skip
+  # themselves: GDAL (requirements drops it, below) and /bin/zsh (macOS
+  # only) are the two that bite.
+  #
+  # Wall time (measured 2026-09-28, 4-core Linux container, py3.13):
+  # non-Qt half 21m51s, Qt half ~15s.  Hence timeout-minutes 60, not 30.
+  # If a runner ever outgrows that, split the non-Qt half by directory
+  # (tests/auto_patch_v2 and the rest) into two jobs — never by dropping
+  # files, which is the defect this job just stopped committing.
   python-tests:
     name: Python tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false        # one platform's red must not hide another's
       matrix:
@@ -72,11 +90,14 @@ jobs:
       QT_QPA_PLATFORM: offscreen
       MPLBACKEND: Agg
       # --timeout: a hung test fails with its own stack dump instead of
-      # taking the job's 30 minutes and leaving no log behind.
+      # taking the job's budget and leaving no log behind.  600s, not the
+      # 180s the three-glob era used: the full suite includes the
+      # build-bound fixture airports, and a per-test ceiling below a
+      # legitimate build is a false red.
       PYTEST_FLAGS: >-
         -q --no-header -p no:cacheprovider -rfE
         --continue-on-collection-errors
-        --timeout=180 --timeout-method=thread
+        --timeout=600 --timeout-method=thread
     steps:
       - uses: actions/checkout@v4
 
@@ -119,42 +140,65 @@ jobs:
           python -m pip install pytest-timeout
           python -m pip list
 
-      # Three steps, each `if: always()`, so one group's red does not hide
-      # the other two — a matrix debugged one hidden failure per push is
-      # what six CI rounds are spent on.
+      # The suite runs in TWO disjoint halves whose union is `tests/`, each
+      # `if: always()` so one half's red does not hide the other's.
       #
-      # `|| [ $? -eq 5 ]`: pytest exits 5 for "no tests ran", which on
-      # Windows is the INTENDED state of the harness file (the whole
-      # module is platform-skipped).  Every other non-zero code still
-      # fails the step.
-      - name: Harness twins
+      # WHY THE SPLIT IS NOT OPTIONAL: pytest.ini carries `-n auto`, and
+      # tests/conftest.py REFUSES Qt files collected into a parallel run
+      # (one failing item naming this split, then ~300 skips).  Under xdist
+      # a Qt worker that dies hard leaves the controller waiting with no
+      # --timeout to fire and no log; serial, a crash kills pytest at once.
+      #
+      # A collection floor stands in front of both.  The three-glob era
+      # leaned on `|| [ $? -eq 5 ]`, under which a glob that stopped
+      # matching anything — a rename, a moved directory — passed SILENTLY
+      # (#63).  Nothing here is allowed to pass by collecting nothing.
+      # Floors are deliberately far below the measured counts (11,786
+      # non-Qt and 309 Qt on Linux/py3.13, 2026-09-28) because Windows
+      # platform-skips whole modules: they catch "collected 0" and
+      # "collected 31", not drift.
+      - name: Collection floor
         if: always()
         working-directory: Ortho4XP
         run: |
-          python -m pytest $PYTEST_FLAGS tests/test_harness.py \
-            || [ $? -eq 5 ]
+          # `|| true` on the substitution: the step runs under `bash -eo
+          # pipefail`, where grep finding nothing would abort before the
+          # message that explains why.  An empty $n IS the failure signal.
+          floor () {   # $1 = human name, $2 = floor, $3.. = pytest target args
+            name="$1"; min="$2"; shift 2
+            n=$(python -m pytest -q --no-header -p no:cacheprovider -n0 \
+                  --collect-only --continue-on-collection-errors "$@" 2>&1 \
+                | grep -oE '^[0-9]+' | tail -1 || true)
+            echo "$name: collected ${n:-0} (floor $min)"
+            if [ -z "$n" ] || [ "$n" -lt "$min" ]; then
+              echo "::error::$name collected ${n:-0} tests, below the floor $min —" \
+                   "a glob or path stopped matching.  CI is not running what it claims."
+              return 1
+            fi
+          }
+          floor "non-Qt" 9000 --ignore-glob='tests/test_qt_*.py' tests
+          floor "Qt"      250 tests/test_qt_*.py
 
-      - name: Engine protocol
+      # EVERYTHING except the Qt files, in parallel.  No `|| [ $? -eq 5 ]`:
+      # this target cannot legitimately collect nothing, and the floor above
+      # already said so.
+      - name: Engine suite (parallel, non-Qt)
         if: always()
         working-directory: Ortho4XP
         run: |
-          python -m pytest $PYTEST_FLAGS tests/test_engine*.py \
-            || [ $? -eq 5 ]
+          limit=""
+          if command -v timeout >/dev/null 2>&1; then
+            limit="timeout -k 30 3000"    # absent on the macOS runner
+          fi
+          $limit python -m pytest $PYTEST_FLAGS -n auto \
+            --ignore-glob='tests/test_qt_*.py' tests
 
       # SERIAL (-n0) and, where the runner has coreutils, under a wall
       # clock of its own.  Rounds 1 and 3 both lost this step on Linux to
-      # the job's 30-minute timeout, and a CANCELLED job keeps NO LOGS AT
-      # ALL — two rounds spent learning nothing.  Under xdist a worker
-      # that dies hard leaves the controller waiting and --timeout cannot
-      # fire; serial, a crash kills pytest immediately and -v names the
-      # test it died in.  The step's own `timeout` fails the STEP instead
-      # of the JOB, so the log survives to be read.
-      #
-      # tests/conftest.py now REFUSES a Qt file collected into a parallel
-      # run (one failing item, 300 skips, seconds) so an accidental
-      # `pytest tests/` -- which picks up `-n auto` from pytest.ini --
-      # says why instead of hanging.  This step stays the lawful path.
-      - name: Qt app (offscreen)
+      # the job's timeout, and a CANCELLED job keeps NO LOGS AT ALL — two
+      # rounds spent learning nothing.  The step's own `timeout` fails the
+      # STEP instead of the JOB, so the log survives to be read.
+      - name: Qt app (offscreen, serial)
         if: always()
         working-directory: Ortho4XP
         run: |
@@ -162,5 +206,4 @@ jobs:
           if command -v timeout >/dev/null 2>&1; then
             limit="timeout -k 30 900"     # absent on the macOS runner
           fi
-          $limit python -m pytest $PYTEST_FLAGS -n0 -v tests/test_qt_*.py \
-            || [ $? -eq 5 ]
+          $limit python -m pytest $PYTEST_FLAGS -n0 -v tests/test_qt_*.py

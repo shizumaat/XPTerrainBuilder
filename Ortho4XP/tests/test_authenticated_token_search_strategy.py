@@ -33,6 +33,16 @@ import pytest
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Authenticated_Sessions as SESSIONS
 
+#: Most tests here only need ``has_gdal`` forced on (the ``gdal_stub``
+#: fixture).  One patches ``INSETS.gdal`` itself, which exists only when the
+#: osgeo bindings imported -- CI installs no GDAL (ci.yml drops it from the
+#: requirements), so without this the test fails on the absent attribute
+#: rather than on anything about credential handling.
+requires_gdal = pytest.mark.skipif(
+    getattr(INSETS, "gdal", None) is None,
+    reason="osgeo (GDAL python bindings) not available",
+)
+
 
 # =====================================================================
 # Shared fixtures and fakes
@@ -536,6 +546,7 @@ def test_wcs_fetch_login_error_warns_exactly_once(
     assert capsys.readouterr().out.count("WARNING") == 1
 
 
+@requires_gdal
 def test_wcs_fetch_happy_path_provenance_hides_api_key(
     monkeypatch, gdal_stub, tmp_path
 ):

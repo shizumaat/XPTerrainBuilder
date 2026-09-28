@@ -220,6 +220,7 @@ def test_second_strategy_plugs_in_without_orchestration_change(tmp_path):
 # =====================================================================
 # index.json negative-result caching
 # =====================================================================
+@requires_gdal
 def test_negative_result_is_cached_and_not_requeried(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     discover_calls = {"count": 0}
@@ -324,6 +325,7 @@ def _box_definition(code, strategy_name):
     }
 
 
+@requires_gdal
 def test_margin_growth_refetches_cached_inset(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     fetch_calls = []
@@ -362,6 +364,7 @@ def test_margin_growth_refetches_cached_inset(tmp_path, monkeypatch):
         INSETS.ACCESS_STRATEGIES.pop("box_growth_strategy", None)
 
 
+@requires_gdal
 def test_margin_shrink_reuses_superset_inset(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     fetch_calls = []
@@ -380,6 +383,7 @@ def test_margin_shrink_reuses_superset_inset(tmp_path, monkeypatch):
         INSETS.ACCESS_STRATEGIES.pop("box_shrink_strategy", None)
 
 
+@requires_gdal
 def test_failed_refetch_keeps_previous_inset(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     fetch_calls = []
@@ -416,6 +420,7 @@ def test_failed_refetch_keeps_previous_inset(tmp_path, monkeypatch):
         INSETS.ACCESS_STRATEGIES.pop("box_fail_large_strategy", None)
 
 
+@requires_gdal
 def test_margin_growth_rechecks_negative_results(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     fetch_calls = []
@@ -937,6 +942,7 @@ def test_inset_target_resolution_never_finer_than_native():
     assert resolve({"code": "UNKNOWN"}, 2.0) == 2.0
 
 
+@requires_gdal
 def test_ensure_airport_insets_clamps_a_finer_pin_to_native(
     tmp_path, monkeypatch
 ):
@@ -1242,6 +1248,7 @@ def test_auto_inset_target_resolution_m(definition, expected):
     assert INSETS._auto_inset_target_resolution_m(definition) == expected
 
 
+@requires_gdal
 def test_ensure_airport_insets_auto_target_uses_native_resolution(
     tmp_path, monkeypatch
 ):
@@ -1755,6 +1762,7 @@ def test_stac_asset_href_to_vsicurl():
     assert convert("/vsicurl/https://x/y.tif") == "/vsicurl/https://x/y.tif"
 
 
+@requires_gdal
 def test_stac_strategy_registered_and_dispatches(tmp_path, monkeypatch):
     """The REAL second strategy is in the registry and is dispatched by the
     orchestration's fetch_inset with zero orchestration change -- discovery
@@ -2660,6 +2668,7 @@ def test_warp_durable_failure_still_returns_false(tmp_path, monkeypatch):
     )
 
 
+@requires_gdal
 def test_transient_fetch_failure_is_not_cached_as_negative(
     tmp_path, monkeypatch
 ):
@@ -3620,6 +3629,7 @@ def test_arcgis_lerc_tiles_decodes_and_serves(tmp_path, monkeypatch):
     assert valid.size and abs(float(valid.mean()) - 12.5) < 0.01
 
 
+@requires_gdal
 def test_arcgis_lerc_tiles_missing_tiles_are_no_coverage(
     tmp_path, monkeypatch
 ):
@@ -4808,6 +4818,7 @@ def test_prefetch_serves_and_per_box_path_never_runs(monkeypatch):
     assert result == [building]
 
 
+@requires_gdal
 def test_ensure_airport_insets_threads_one_prefetch_to_masking(
     tmp_path, monkeypatch
 ):
@@ -4922,6 +4933,7 @@ def test_wcs_kvp_requests_target_resolution_pixels():
     assert fine_url == native_url
 
 
+@requires_gdal
 def test_zero_byte_cached_inset_is_swept_and_refetched(tmp_path, monkeypatch):
     """A hard-killed fetch's 0-byte relic (2026-07-23: LSZC_italy10m.tif)
     is deleted at pass start — index record scrubbed — and the provider
@@ -5170,6 +5182,7 @@ def test_tnm_complete_listing_with_products_is_discovered(monkeypatch):
     ]
 
 
+@requires_gdal
 def test_degraded_tnm_200_leaves_the_index_record_absent(
     tmp_path, monkeypatch
 ):
@@ -5277,6 +5290,7 @@ def test_wfs_tile_index_empty_feature_set_stays_durable_none(monkeypatch):
     assert strategy.discover(_wfs_definition(), (6.0, 46.2, 6.1, 46.3)) is None
 
 
+@requires_gdal
 def test_transient_discovery_failure_is_not_cached_as_negative(
     tmp_path, monkeypatch
 ):
@@ -5429,6 +5443,7 @@ def test_an_empty_decode_result_never_writes_no_coverage(monkeypatch):
     assert "LERC decoder" in str(raised.value)
 
 
+@requires_gdal
 def test_unavailable_is_a_status_class_of_its_own(tmp_path, monkeypatch):
     """RULE (1), at the index: ``unavailable:`` is not no-coverage.
 
@@ -5462,6 +5477,7 @@ def test_unavailable_is_a_status_class_of_its_own(tmp_path, monkeypatch):
         INSETS.ACCESS_STRATEGIES.pop("capability_probe_strategy", None)
 
 
+@requires_gdal
 def test_a_legacy_lerc_negative_is_re_probed_exactly_once(
     tmp_path, monkeypatch
 ):
@@ -5668,6 +5684,7 @@ def _write_phoenix_negative(engine=None):
         json.dump({"KPHX": record}, handle)
 
 
+@requires_gdal
 def test_a_capability_free_negative_is_re_probed_once_per_version(
     tmp_path, monkeypatch
 ):
@@ -6258,6 +6275,7 @@ def test_a_toggled_or_added_pack_DOES_move_the_signature(
         "Disabled Airport", "Test Airport"]
 
 
+@requires_gdal
 def test_pack_set_change_refetches_a_cached_inset(tmp_path, monkeypatch):
     """The reuse test's teeth: a cached inset whose recorded pack set no
     longer matches the installed one is refetched, and one whose set is
@@ -6319,6 +6337,7 @@ def test_delivered_bounding_box_comes_from_the_rasters_geotransform(
         str(tmp_path / "absent.tif")) is None
 
 
+@requires_gdal
 def test_fetch_inset_records_requested_and_delivered_boxes(
     tmp_path, monkeypatch
 ):

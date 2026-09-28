@@ -38,7 +38,7 @@ from auto_patch_v2.model.constraints import (Band, ConstraintSet, Diff,  # noqa:
                                              Linear, Pin, Source)
 from auto_patch_v2.solve.design_roles import ruling_head  # noqa: E402
 from auto_patch_v2.solve.pin_yield import (hard_violated, implicated_pins,  # noqa: E402
-                                           release_pins)
+                                           release_pins, stage1_read_pins)
 
 CEIL = "rulesets.common.pavement_max_grade ceiling (owner 2026-09-09b (4))"
 HARD = frozenset({ruling_head(Diff(0, 1, 0.0, 0.0, Source("x", CEIL)))})
@@ -78,6 +78,43 @@ def test_a_constant_stops_the_flood():
     z = numpy.array([50.84, 51.84, 52.84, 56.46, 0, 0, 0, 0, 40.2, 40.0])
     bad = [r for r in cs.diffs if (r.a, r.b) == (0, 1)]
     assert implicated_pins(cs, HARD, YIELD, bad, fixed={1: 51.84}) == []
+
+
+# ISSUE #87 (RULINGS 2026-09-29d (c); spec-author: the yield is decided from
+# STAGE-1 information alone).  HECA 30.13578, 31.41074: the apron/service_road
+# join was held at 72.138 m with the platform off and released to 71.853 m
+# with it on — stage 2's hard set (the platform's rows) moved a pin stage 1
+# had solved the apron against.
+
+
+def test_a_join_a_stage_1_row_reads_is_stage_ones():
+    """v0 is stage 1's apron column; the join v3 is coupled to it by a row
+    stage 1 keeps, so v3 is a stage-1 fact.  v9 is reached only through the
+    foreign v8 (dropped from stage 1): not stage 1's."""
+    cs = _cs_geml_like()
+    cs = _dc.replace(cs, diffs=cs.diffs + (
+        Diff(0, 3, 0.05, 20.0, Source("pavement_ceiling", CEIL)),))
+    assert stage1_read_pins(cs, YIELD, drop={1, 2, 8}) == {3}
+    # every coupling of v3 foreign too -> stage 1 never read it
+    assert stage1_read_pins(_cs_geml_like(), YIELD, drop={1, 2, 8}) == set()
+    assert stage1_read_pins(cs, frozenset(), drop=set()) == set()
+
+
+def test_stage_2_cannot_release_a_join_stage_1_read():
+    """The platform-on arm at the site: stage 2's unsettled row reaches the
+    join, but the join is stage 1's (``among`` excludes it) — it is a
+    constant that stops the flood, and nothing is released.  The join
+    stage 1 never read still yields (GEML, 27a (10), is unchanged)."""
+    cs = _cs_geml_like()
+    z = numpy.array([50.84, 51.84, 52.84, 56.46, 0, 0, 0, 0, 40.2, 40.0])
+    bad = hard_violated(cs, z, HARD, 0.02)
+    all_pins = {p.v for p in cs.pins}
+    assert implicated_pins(cs, HARD, YIELD, bad, fixed={0: 50.84},
+                           among=all_pins - {3}) == []
+    assert implicated_pins(cs, HARD, YIELD, bad, fixed={0: 50.84},
+                           among=all_pins - {9}) == [3]
+    assert implicated_pins(cs, HARD, YIELD, bad, fixed={0: 50.84},
+                           among=None) == [3]
 
 
 def test_no_violation_releases_nothing():

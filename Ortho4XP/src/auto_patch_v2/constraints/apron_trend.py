@@ -53,7 +53,7 @@ import typing as _t
 import numpy as np
 
 from .runway_chord import dem_degraded
-from .surface_trend import cell_samples, surface_trend_of
+from .surface_trend import cell_samples, plan_cell_samples, surface_trend_of
 from ..law import Law
 from ..law.tables import airside_stage_roles, apron_roles
 from ..model.airport import Airport
@@ -122,6 +122,32 @@ def _apron_bodies(pm: PlanarMap, law: Law,
         if keep:
             out.append(keep)
     return out
+
+
+def _body_plan(pm: PlanarMap, roles: _t.AbstractSet[str], vs: _t.Sequence[int],
+               court: _t.AbstractSet[int] = frozenset()):
+    """The body's PLAN: the union of its ``roles`` faces' outer rings (holes
+    FILLED — a pad cut into an apron, RULINGS 23a, leaves the ground under
+    it in the trend), the faces being those whose vertices are the body's.
+    ``None`` where no face yields an areal ring."""
+    import shapely
+    from shapely.geometry import Polygon
+    members = set(vs)
+    polys = []
+    for f in pm.faces.values():
+        if f.role not in roles or f.id in court:
+            continue
+        ring = pm.ring_vertices(f.ring)
+        if len(ring) < 3 or not any(v in members for v in ring):
+            continue
+        p = Polygon([pm.vertices[v].xy for v in ring])
+        if not p.is_valid:
+            p = p.buffer(0)
+        if not p.is_empty and p.area > 0.0:
+            polys.append(p)
+    if not polys:
+        return None
+    return shapely.union_all(polys)
 
 
 def _diameter_m(xy: np.ndarray) -> float:
@@ -195,14 +221,15 @@ def apron_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
     # (pad, lot, groundside pavement) only — they may read the airside's
     # cells, the airside never reads theirs.
     air_roles = frozenset(apron_roles(law)) & airside_stage_roles(law)
+    court = courtyard_faces(pm, law)
     air_v: set[int] = set()
     for f in pm.faces.values():
         if f.role in air_roles:
             for ring in (f.ring, *f.holes):
                 air_v.update(pm.ring_vertices(ring))
-    passes = [(vs, None) for vs in _apron_bodies(pm, law, air_roles)]
-    passes += [(vs, air_v) for vs in bodies]
-    for vs, skip in passes:
+    passes = [(vs, None, air_roles) for vs in _apron_bodies(pm, law, air_roles)]
+    passes += [(vs, air_v, frozenset(apron_roles(law))) for vs in bodies]
+    for vs, skip, face_roles in passes:
         if skip is not None and all(v in skip for v in vs):
             continue                # a body of airside alone: pass one's
         xy = np.asarray([pm.vertices[v].xy for v in vs], dtype=float)
@@ -221,7 +248,11 @@ def apron_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
         # re-read the body's own vertex samples stand — never an invented
         # value (plan §2).
         try:
-            cells = cell_samples(xy, window, lambda a, b: _dem_many(airport, a, b))
+            # the cells the body's AREA covers, never the ones its vertices
+            # happen to fall in (issue #81, ``plan_cell_samples``)
+            cells = plan_cell_samples(_body_plan(pm, face_roles, vs, court), window,
+                                      lambda a, b: _dem_many(airport, a, b)) \
+                or cell_samples(xy, window, lambda a, b: _dem_many(airport, a, b))
         except Exception:
             cells = list(zip(xy[:, 0], xy[:, 1], z))
         tr = surface_trend_of(cells or zip(xy[:, 0], xy[:, 1], z), window)

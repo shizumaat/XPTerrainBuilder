@@ -131,9 +131,18 @@ def pavement_ceiling(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     from .pads import CEILING_RULING as _PAD_CEIL
     from .pads import LEVEL_JUNIOR_RULING as _PAD_LVL_J
     from .pads import LEVEL_RULING as _PAD_LVL
+    # EVERY PAD ROW, NOT ONLY ITS CEILING (issue #81): the pad's FLAT
+    # target runs over the same rim pairs as its 1 % ceiling, and a twin of
+    # it over two AIRSIDE rim vertices is an all-airside HARD row — stage 1
+    # read a pad's (cluster-decimated) pair set through it.  At KCLT rule
+    # 2a's cluster change re-drew 257 -> 269 such twins on the pav37 rim
+    # at 35.217,-80.932 with no airside vertex changed.  The pad's own 1 %
+    # ceiling (conforming, stage 2) dominates every such twin.
+    from .pads import GEN as _PAD_GEN
     _skip = {_PAD_CEIL, _PAD_LVL, _PAD_LVL_J, _GS_LVL, _GS_LVL_J}
     for row in rows:
-        if row.source.ruling.split(" (")[0].strip() in _skip:
+        if (row.source.generator == _PAD_GEN
+                or row.source.ruling.split(" (")[0].strip() in _skip):
             continue
         if isinstance(row, Diff):
             vs: tuple[int, ...] = (row.a, row.b)

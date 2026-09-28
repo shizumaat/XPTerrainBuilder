@@ -233,6 +233,22 @@ def synthetic_patch_ll(x_m: float, y_m: float, *,
             lon0 + x_m / SYNTHETIC_PATCH_M_PER_DEG)
 
 
+#: THE SUPERUSER DEFEATS ``chmod`` (issue #76).  Several twins pose
+#: "this path cannot be read / cannot be written" with ``chmod 0o000`` or
+#: ``0o555`` and then assert the stand-down, refusal or IGNORED note the
+#: engine owes that state.  Running as root every one of those writes and
+#: reads SUCCEEDS, the precondition is silently not posed, and the twin
+#: reads the engine's correct happy-path answer as a defect.  CI
+#: containers run as root, the owner's Mac does not.  Skipping states the
+#: precondition instead of asserting under one that is false — and it is
+#: a SKIP, so the same twins still measure everything on any unprivileged
+#: runner.
+needs_unprivileged_user = pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="running as root: chmod cannot make a path unreadable or "
+           "unwritable, so this twin's precondition cannot be posed")
+
+
 def xplane_available() -> bool:
     root = xplane_root()
     return (os.path.isdir(root)

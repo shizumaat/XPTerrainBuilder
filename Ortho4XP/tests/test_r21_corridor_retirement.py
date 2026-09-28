@@ -31,6 +31,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from conftest import needs_unprivileged_user  # noqa: E402
 import O4_Cfg_Vars as CV  # noqa: E402
 import O4_Config_Utils as CFG  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
@@ -217,6 +218,7 @@ class TestAStaleCfgIsCLEANEDUP:
         assert "removed retired key" not in capsys.readouterr().out
 
     # ── a cfg that cannot be rewritten still builds ─────────────────
+    @needs_unprivileged_user
     def test_a_READ_ONLY_cfg_reports_once_and_carries_on(self, tmp_path,
                                                          capsys):
         self._reset()

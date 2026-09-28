@@ -148,7 +148,18 @@ def test_a_parallel_qt_run_refuses_fast_instead_of_hanging():
     ``timeout=`` is the assertion that matters as much as the exit code —
     a hang is the failure mode this guard exists to replace.
     """
-    pytest.importorskip("PySide6")
+    # PySide6 the PACKAGE imports fine with no GUI libraries present;
+    # QtWidgets is what actually dlopens libEGL, and both twins below
+    # spawn a pytest that COLLECTS tests/test_qt_about.py, which does
+    # exactly that.  Guarding on the package alone let a headless
+    # container reach the assertion and read a collection ImportError
+    # as "the guard did not refuse" (issue #76).
+    # exc_type: a missing SHARED LIBRARY raises a plain ImportError, not
+    # ModuleNotFoundError, and pytest re-raises that by default.
+    pytest.importorskip(
+        "PySide6.QtWidgets", exc_type=ImportError,
+        reason="PySide6 present but its Qt libraries are not loadable "
+               "here (no libEGL), so no Qt module can be collected")
     run = _pytest_run("-n2", "tests/test_qt_about.py", timeout=120)
 
     assert run.returncode != 0, run.stdout
@@ -159,7 +170,18 @@ def test_a_parallel_qt_run_refuses_fast_instead_of_hanging():
 
 def test_a_serial_qt_run_is_not_refused():
     """The guard must not cost the split run CI actually uses."""
-    pytest.importorskip("PySide6")
+    # PySide6 the PACKAGE imports fine with no GUI libraries present;
+    # QtWidgets is what actually dlopens libEGL, and both twins below
+    # spawn a pytest that COLLECTS tests/test_qt_about.py, which does
+    # exactly that.  Guarding on the package alone let a headless
+    # container reach the assertion and read a collection ImportError
+    # as "the guard did not refuse" (issue #76).
+    # exc_type: a missing SHARED LIBRARY raises a plain ImportError, not
+    # ModuleNotFoundError, and pytest re-raises that by default.
+    pytest.importorskip(
+        "PySide6.QtWidgets", exc_type=ImportError,
+        reason="PySide6 present but its Qt libraries are not loadable "
+               "here (no libEGL), so no Qt module can be collected")
     run = _pytest_run("-n0", "--collect-only", "tests/test_qt_about.py",
                       timeout=120)
 

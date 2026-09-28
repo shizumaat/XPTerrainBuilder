@@ -21,6 +21,13 @@ from pathlib import Path
 
 import pytest
 
+#: D8 is "the backup exists but cannot be READ", posed with
+#: ``chmod 0o000`` — which the superuser ignores, so the classifier
+#: correctly finds a readable, matching backup and answers PRISTINE.
+#: One home for the predicate: ``conftest.needs_unprivileged_user``.
+#: Every other row of the table runs unconditionally.
+from conftest import needs_unprivileged_user  # noqa: E402
+
 from auto_patch_v2.airport import backup_state as B
 from auto_patch_v2.airport import dsf_write as W
 from auto_patch_v2.airport import pack as PK
@@ -212,6 +219,7 @@ def test_D7_live_missing_touches_nothing(tmp_path):
     assert _snapshot(pack) == before
 
 
+@needs_unprivileged_user
 def test_D8_unreadable_backup_stands_down(tmp_path):
     pack, dsf = _pack(tmp_path)
     bak = Path(str(dsf) + ".anchor_bak")
@@ -586,7 +594,10 @@ def test_D6_through_write_pack_keeps_a_copy_then_rebuilds(tmp_path,
     assert res.notes and "copy of the installed file" in res.notes[0]
 
 
-@pytest.mark.parametrize("state", ["D2", "D8"])
+@pytest.mark.parametrize("state", [
+    "D2",
+    pytest.param("D8", marks=needs_unprivileged_user),
+])
 def test_apply_plan_touches_NOTHING_when_the_dsf_stands_down(tmp_path,
                                                              monkeypatch,
                                                              state):

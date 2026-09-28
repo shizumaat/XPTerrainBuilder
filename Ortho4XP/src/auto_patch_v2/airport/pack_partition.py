@@ -82,7 +82,8 @@ def counts_zero() -> dict[str, int]:
             "terrain_adapted": 0, "line_objects": 0,
             "below_grade": 0, "below_grade_parts": 0,
             "deck_families": 0, "plate_members": 0, "plate_objects": 0,
-            "signature_decks": 0, "scatter_members": 0, "scatter_parts": 0}
+            "signature_decks": 0, "scatter_members": 0, "scatter_parts": 0,
+            "welded_decks_read": 0, "deck_shades": 0}
 
 
 @_dc.dataclass(frozen=True)
@@ -441,6 +442,61 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
     return member, (o, geom, list(comps)), bool(is_line)
 
 
+def _stamp_deck_shades(units: list[Unit],
+                       member_object: _t.Mapping[tuple[int, int], tuple[str, str]],
+                       placed: _t.Sequence[tuple], member_ref: _t.Sequence[tuple],
+                       cache: _obj8.ResourceCache, law: Law, to_ll,
+                       counts: dict[str, int]) -> list[Unit]:
+    """THE WELDED DECK (issue #14; ``welded-deck-spec.md`` §1): every
+    ``flag`` member is read by :func:`deck_signature.welded_deck` in its
+    UNIT's frame — the section under its plate over every member of its
+    unit and every placement of another unit whose plan box touches its
+    deck ring — and a DECK carries its SHADE (``Member.deck_shade_ring``,
+    ``(lat, lon)``) and the ratio (``deck_pier_ratio``).  Stamped HERE, at
+    load, because the pad the shade leaves is minted in ``classify``
+    (§2 (1)); ``rebake_plan._with_deck`` carries both fields through."""
+    obj_of = {oid: g[0] for g, (_k, _p, oid) in zip(placed, member_ref)}
+    decks = [(ui, mi) for ui, u in enumerate(units) for mi, m in enumerate(u.members)
+             if m.deck_kind == "flag"]
+    if not decks:
+        return units
+    from shapely.strtree import STRtree
+    boxed = [o for o in obj_of.values() if o.plan_bbox is not None]
+    tree = STRtree([o.plan_bbox for o in boxed]) if boxed else None
+    out = list(units)
+    for ui, mi in decks:
+        oid, _path = member_object.get((ui, mi), (units[ui].members[mi].id, ""))
+        o = obj_of.get(oid)
+        if o is None or o.hard_deck is None:
+            continue
+        mates = [obj_of[member_object[(ui, k)][0]] for k in range(len(units[ui].members))
+                 if (ui, k) in member_object and member_object[(ui, k)][0] in obj_of]
+        if tree is not None:
+            mates += [boxed[int(i)] for i in tree.query(o.hard_deck, predicate="intersects")]
+        r = _deck.welded_deck(cache, mates, o, law)
+        if r is None:
+            continue
+        counts["welded_decks_read"] += 1
+        shade = None
+        if r.shade is not None:
+            polys = [r.shade] if r.shade.geom_type == "Polygon" else list(r.shade.geoms)
+            shade = tuple(
+                (tuple(to_ll(x, y) for x, y in p.exterior.coords[:-1]),
+                 *(tuple(to_ll(x, y) for x, y in h.coords[:-1]) for h in p.interiors))
+                for p in polys if p.geom_type == "Polygon" and p.area > 0.0)
+            counts["deck_shades"] += 1
+        u = out[ui]
+        ms = list(u.members)
+        ms[mi] = _dc.replace(ms[mi], deck_shade_ring=shade or None,
+                             deck_pier_ratio=float(r.ratio) if r.ratio != float("inf")
+                             else None)
+        out[ui] = _dc.replace(u, members=tuple(ms))
+    # the section's face readings are a partition-time scratch: release them
+    if hasattr(cache, "deck_faces"):
+        cache.deck_faces = {}
+    return out
+
+
 def _inside(path: str, root: str) -> bool:
     try:
         return os.path.commonpath([os.path.abspath(path), os.path.abspath(root)]) \
@@ -620,6 +676,8 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             member_object[(len(units), mi)] = (oid_of.get((key, nm), ms[mi].id), nm)
         units.append(Unit(f"unit:{len(units)}", (key[0], key[1]), key[2], ms))
         counts["members"] += len(ms)
+    units = _stamp_deck_shades(units, member_object, placed, member_ref, cache,
+                               law, to_ll, counts)
     counts["units"] = len(units)
     counts["contacts"] = len(part.contacts)
     counts["abutments"] = len(part.abutments)

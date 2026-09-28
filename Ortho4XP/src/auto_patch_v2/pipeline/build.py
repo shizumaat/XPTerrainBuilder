@@ -473,6 +473,15 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
             f"{_cwhy.get('with_rings')} with an outline, "
             f"{sum(1 for _c in _clusters if _c.area_m2 >= _cwhy.get('min_m2', 0.0))} "
             f"over the cluster-pad threshold {_cwhy.get('min_m2')} m2)"), out)
+    # issue #14 (``welded-deck-spec.md`` §1 (4)): the welded decks the load
+    # read and the shade that leaves every cluster outline, SAID
+    from ..planar.cluster import deck_shades as _deck_shades
+    _ds = _deck_shades(airport)
+    if _ds["members"]:
+        _say(f"  [deck shades] {_ds['shades']} of {len(_ds['members'])} hard deck(s) "
+             f"read DECK, shade {_ds['area_m2']:,.0f} m2  ("
+             + ", ".join(f"{q['resource']} {q['ratio']}" for q in _ds["members"])
+             + ")", out)
     wall["partition"] = time.perf_counter() - t
     _say(f"[{icao}] pack partition {wall['partition']:.2f} s  "
          f"members {_part.counts['members']}  parts {_part.counts['parts']}  "

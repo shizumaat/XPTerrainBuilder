@@ -56,7 +56,6 @@ class Rebake:
     #: binds no body; it GROUPS the two bodies, which take the SENIOR
     #: body's delta.  0 disables the class (the pre-10ay reading).
     abutment_extent_min_m: float
-    abutment_deck_share_min: float
     min_delta_m: float
     cluster_span_pad_m: float
     cluster_residual_pad_m: float

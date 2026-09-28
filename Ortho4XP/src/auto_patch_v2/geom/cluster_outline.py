@@ -22,7 +22,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
-           "AirsideRim", "ON_BOUNDARY_EPS_M"]
+           "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades"]
 
 #: How close a pad coordinate must be to the airside boundary to count as
 #: lying ON it.  The clip's own output lies on it to float precision; this
@@ -55,6 +55,39 @@ def _parts(g) -> list[Polygon]:
     return [g] if isinstance(g, Polygon) and g.area > 0.0 else []
 
 
+def deck_shades(partition: _t.Any,
+                to_xy: _t.Callable[[float, float], tuple[float, float]]):
+    """THE WELDED DECKS' SHADES (issue #14; ``welded-deck-spec.md`` §2 (1))
+    — the ONE reading both pad readers pass to :func:`cluster_outlines`
+    (``classify/evidence._cluster_pads`` MINTS, ``constraints/cluster_pad
+    .cluster_polys`` CENSUSES), so mint and ``pad_cluster_mismatch`` cannot
+    disagree about where the ground under a deck is.
+
+    The union, in the planar frame's metres, of every
+    ``Member.deck_shade_ring`` of ``partition`` (the load-time pack
+    partition, ``Airport.partition``; ``airport/deck_signature
+    .welded_deck`` stamped them), or ``None`` where there is none — a
+    partition written before plan version 10 carries none and every
+    outline stands as it did.  Duck-typed on the partition: ``geom``
+    imports nothing of v2.  A handful of deck rings per airport: no memo."""
+    if partition is None:
+        return None
+    ps: list[Polygon] = []
+    for u in (getattr(partition, "units", ()) or ()):
+        for m in u.members:
+            for poly in (getattr(m, "deck_shade_ring", None) or ()):
+                if not poly or len(poly[0]) < 3:
+                    continue
+                g = Polygon([to_xy(lo, la) for la, lo in poly[0]],
+                            [[to_xy(lo, la) for la, lo in h] for h in poly[1:]
+                             if len(h) >= 3])
+                if not g.is_valid:
+                    g = g.buffer(0.0)
+                ps.extend(_parts(g))
+    got = unary_union(ps) if ps else None
+    return None if got is None or got.is_empty else got
+
+
 def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      to_xy: _t.Callable[[float, float], tuple[float, float]],
                      touch_m: float,
@@ -63,6 +96,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      walled_only: bool = False,
                      min_m2: float = 0.0,
                      thin_m: float = THIN_PIECE_WIDTH_M,
+                     shades=None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -131,14 +165,27 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        mints nothing (counted ``thin_dropped``); the ground either side of
        it terraces as the owner reads it.
 
+    8. THE GROUND UNDER A WELDED DECK IS NEVER A BUILDING'S PAD (issue
+       #14; ``welded-deck-spec.md`` §2 (1)).  ``shades`` — the union of
+       every deck SHADE of the plan (:func:`deck_shades`) — is SUBTRACTED
+       from every outline AFTER rule 2's close (so the dilate/erode does
+       not refill it) and before rules 3 and 4.  The outline is the union
+       of every part ring of every walled body, elevated storeys included
+       (14x), so a terminal road deck welded to the building was read as
+       the building's ground: OTHH ``TerminalRoads_01_001`` minted
+       ``building7`` (5,659 of 6,042 m2) and 4,921 m2 of ``building4``,
+       of which 1,151 m2 has anything standing on the ground.  A cluster
+       wholly under a shade mints nothing (``under_deck``); one the shade
+       cuts is ``deck_trimmed``, and the pieces it leaves are rule 2's.
+
     ``touch_m <= 0`` disarms the close (rule 2); ``airside=None``
     disarms the clip (rule 4); ``walled_only=False`` and ``min_m2=0``
-    disarm (7); ``thin_m <= 0`` disarms (6).
+    disarm (7); ``thin_m <= 0`` disarms (6); ``shades=None`` disarms (8).
     """
     counts = {"clusters": len(clusters), "no_rings": 0, "over_another": 0,
               "still_in_pieces": 0, "on_airside": 0, "clipped": 0,
               "leaf_dropped": 0, "under_min_m2": 0, "thin_dropped": 0,
-              "pads": 0}
+              "pads": 0, "under_deck": 0, "deck_trimmed": 0}
     if not clusters:
         return [], counts
     order = sorted(
@@ -177,6 +224,15 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         if u.is_empty:
             counts["no_rings"] += 1
             continue
+        if shades is not None and not shades.is_empty and u.intersects(shades):
+            # rule 8: the welded deck's shade leaves the outline
+            u = u.difference(shades)
+            if not u.is_valid:
+                u = u.buffer(0.0)
+            if u.is_empty or u.area <= 0.0:
+                counts["under_deck"] += 1
+                continue
+            counts["deck_trimmed"] += 1
         if airside is not None and not airside.is_empty and u.intersects(airside):
             before = u.area
             u = u.difference(airside)

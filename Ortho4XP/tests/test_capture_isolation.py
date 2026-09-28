@@ -111,6 +111,46 @@ r._capture_guarded("ZZZZ", Path({str(tmp_path)!r}) / "ZZZZ.pkl")
     assert "[guard] shared repo UNCHANGED" in out.stdout, out.stdout
 
 
+def test_an_unsignalable_group_still_times_out_instead_of_raising():
+    """EPERM from the liveness probe is ALIVE, not a crash (#76).
+
+    ``run_bounded`` probes the process GROUP with ``killpg(pgid, 0)``
+    because the session leader can exit while a child runs on.  Linux
+    answers ESRCH when the group is gone; BSD/macOS can answer EPERM —
+    the group is still there but holds a process this uid may not signal.
+    That arm was unhandled, so on macOS the bounder did its job (``[twin]
+    TIMED_OUT after 2 s — SIGTERM to process group``) and then died in the
+    probe with PermissionError, returning 1 where the caller reads 124.
+    Every harness caller that bounds a runaway command would have read
+    that as the command failing rather than as the deadline firing.
+
+    Driven with ``os.killpg`` stubbed, so it holds on every platform —
+    including the Linux runner, where the real EPERM cannot be produced.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_bounded_eperm", BOUNDED)
+    bounded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bounded)
+
+    calls = []
+
+    def _eperm(pgid, sig):
+        calls.append(sig)
+        raise PermissionError(1, "Operation not permitted")
+
+    original = os.killpg
+    os.killpg = _eperm
+    try:
+        rc = bounded.run_bounded(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            deadline_s=0.3, grace_s=0.3, label="eperm-twin")
+    finally:
+        os.killpg = original
+
+    assert rc == bounded.TIMED_OUT_RC, rc
+    assert calls, "the bounder never signalled the group"
+
+
 @pytest.mark.skipif(not os.path.exists("/usr/bin/time"), reason="no /usr/bin/time")
 def test_the_deadline_kills_the_python_child_of_time(tmp_path):
     pidfile = tmp_path / "child.pid"

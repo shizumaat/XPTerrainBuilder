@@ -740,6 +740,10 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         # host's CONTENTS and rides the host's unit (never decomposed apart)
         contents_min_fraction=(law.tables.structures.placement
                                .contents_min_fraction),
+        # §16g (10) (4) AMENDED (owner RULINGS 2026-09-27a (1), #69): a
+        # roof/floor SHEET overlapping two walled bodies links them
+        sheet_chain_min_fraction=(law.tables.structures.placement
+                                  .sheet_chain_min_fraction),
         # §16g (10) (9) (2) (owner RULINGS 2026-09-14az): the unit seated
         # on a pad takes the pad's LOW side, not its median
         low_side=bool(getattr(law.tables.structures.placement,

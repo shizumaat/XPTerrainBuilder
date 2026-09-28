@@ -55,10 +55,11 @@ from __future__ import annotations
 import typing as _t
 
 from ..airport.placement_family import PlanCluster, plan_clusters
+from ..geom import deck_shades as _geom_deck_shades
 from ..law import Law
 from ..model.airport import Airport
 
-__all__ = ["cluster_min_m2", "clusters", "PlanCluster"]
+__all__ = ["cluster_min_m2", "clusters", "PlanCluster", "deck_shades"]
 
 #: The derivation is O(bodies^2) inside a unit and the constraint pass
 #: asks for it once per generator.  A tiny memo keyed on the airport
@@ -93,6 +94,14 @@ def _chain_min_height_m(law: Law) -> float:
     return float(law.tables.structures.placement.chain_min_height_m)
 
 
+def _sheet_chain_min_fraction(law: Law) -> float:
+    """§16g (10) (4) AMENDED (owner RULINGS 2026-09-27a (1), issue #69):
+    ``[placement] sheet_chain_min_fraction`` — ONE derivation site.  0
+    leaves every sheet a leaf, as 14ah read it."""
+    return float(getattr(law.tables.structures.placement,
+                         "sheet_chain_min_fraction", 0.0))
+
+
 def _floor_split_m(law: Law) -> float:
     """§16g (10) (1): ``[placement] floor_split_m`` — ONE derivation
     site.  0 leaves a touching chain one cluster however its floors
@@ -117,6 +126,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     eps = _touch_m(law)
     split = _floor_split_m(law)
     tall = _chain_min_height_m(law)
+    sheet = _sheet_chain_min_fraction(law)
     part = getattr(airport, "partition", None)
     WHY.clear()
     WHY.update(min_m2=cluster_min_m2(law), touch_m=eps, floor_split_m=split,
@@ -130,17 +140,44 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
         return ()
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
-        if k == key and ap is airport and m0 == (split, tall) and e0 == eps:
+        if k == key and ap is airport and m0 == (split, tall, sheet) and e0 == eps:
             return got
     counts: dict = {}
     got = tuple(plan_clusters(part, eps, floor_split_m=split,
-                              chain_min_height_m=tall, counts=counts))
+                              chain_min_height_m=tall, counts=counts,
+                              sheet_chain_min_fraction=sheet))
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)
     WHY["leaf_bodies"] = counts.get("cluster_leaf_bodies", 0)
+    WHY["sheet_links"] = counts.get("cluster_sheet_links", 0)
     WHY["walled_clusters"] = sum(1 for c in got if c.walled)
     if not got:
         WHY["gate"] = "plan_clusters: the partition's units hold no body"
-    _MEMO.append((key, airport, (split, tall), eps, got))
+    _MEMO.append((key, airport, (split, tall, sheet), eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got
+
+
+def deck_shades(airport: Airport) -> dict[str, object]:
+    """THE WELDED DECKS (issue #14; ``welded-deck-spec.md`` §2 (1)) as the
+    build and the sidecar say them: every ``flag`` member the load read
+    (``airport/deck_signature.welded_deck``, stamped on
+    ``Airport.partition``) with its ratio and its shade's area, and the
+    union's area in the planar frame — read through ``geom.deck_shades``,
+    the ONE reading both pad readers subtract.  ``classify`` and
+    ``constraints`` may not import ``planar``, which is why the reading
+    itself lives in ``geom`` and this is its report."""
+    part = getattr(airport, "partition", None)
+    rows: list[dict[str, object]] = []
+    for u in (getattr(part, "units", ()) or ()):
+        for m in u.members:
+            r = getattr(m, "deck_pier_ratio", None)
+            if r is None and getattr(m, "deck_shade_ring", None) is None:
+                continue
+            rows.append({"unit": u.id, "member": m.id,
+                         "resource": m.resource.rsplit("/", 1)[-1],
+                         "ratio": None if r is None else round(float(r), 4),
+                         "deck": getattr(m, "deck_shade_ring", None) is not None})
+    union = _geom_deck_shades(part, airport.frame.entry()) if part is not None else None
+    return {"members": rows, "shades": sum(1 for q in rows if q["deck"]),
+            "area_m2": round(float(union.area), 1) if union is not None else 0.0}

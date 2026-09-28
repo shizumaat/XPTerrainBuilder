@@ -322,10 +322,10 @@ class _PShim:
     """A plan body dressed as the candidate :func:`_clusters` reads."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "key", "pids",
-                 "resource", "rings", "walled", "base_y")
+                 "resource", "rings", "walled", "base_y", "footed")
 
     def __init__(self, seq, key, boxes, pids, resource, rings=(), walled=True,
-                 base_y=None):
+                 base_y=None, footed=True):
         self.member = seq            # a UNIQUE id per body: the chaining
         self.key = key               # is plan-wide, so "member" may not
         self.pids = pids             # collapse two bodies of one member
@@ -340,17 +340,57 @@ class _PShim:
         #: S6: the body's lowest AUTHORED y (its own zero frame) — a body
         #: authored below grade is never CONTENTS (§48 (1) (d))
         self.base_y = base_y
+        #: 27a: the body has a ground-contact component (feet); an
+        #: unfooted leaf is an elevated sheet (roof / upper floor)
+        self.footed = bool(footed)
 
 
 def plan_units(plan: _t.Any, touch_m: float,
-               contents_min_fraction: float = 0.0) -> list[PlanUnit]:
+               contents_min_fraction: float = 0.0,
+               sheet_chain_min_fraction: float = 0.0) -> list[PlanUnit]:
     """§16g (1) PLAN-WIDE: every footprint unit of ``plan``, chained
     across placement ``Unit``s.  A body touching nothing is its own unit
     and is NOT returned — it seats alone (§16c) — unless S6 finds
     CONTENTS inside it (:mod:`contents`)."""
     return plan_units_and_connectors(
         plan, touch_m, 0.0,
-        contents_min_fraction=contents_min_fraction)[0]
+        contents_min_fraction=contents_min_fraction,
+        sheet_chain_min_fraction=sheet_chain_min_fraction)[0]
+
+
+def _welded_to_building(i: int, cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
+                        plan: _t.Any, m: _t.Any, touch_m: float) -> bool:
+    """§2 (5): does unit ``cl`` hold a WALLED NON-DECK body standing
+    mostly (over half its footprint) outside deck member ``m``'s ring —
+    a building, not the deck's own pier?  A body with no ring is not
+    read (no evidence either way)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    ring = getattr(m, "deck_ring", None) or ()
+    shade = getattr(m, "deck_shade_ring", None) or ()
+    outer = [tuple(ring)] if len(ring) >= 3 else [p[0] for p in shade if p and len(p[0]) >= 3]
+    if not outer:
+        return False
+    ml, mo = m_per_deg_exact(shims[i].box[0])
+    D = unary_union([Polygon([(a * ml, b * mo) for a, b in r]).buffer(0.0) for r in outer])
+    if D.is_empty:
+        return False
+    Dt = D.buffer(max(touch_m, 0.0))
+    for j in cl:
+        if j == i or not shims[j].walled:
+            continue
+        ui, mi, _gi = shims[j].key
+        if member_is_deck(plan.units[ui].members[mi]):
+            continue
+        ps = [Polygon([(a * ml, b * mo) for a, b in r]).buffer(0.0)
+              for r in (shims[j].rings or ()) if len(r) >= 3]
+        ps = [p for p in ps if not p.is_empty]
+        if not ps:
+            continue
+        mine = unary_union(ps)
+        if mine.area > 0.0 and mine.difference(Dt).area > 0.5 * mine.area:
+            return True
+    return False
 
 
 def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
@@ -372,7 +412,17 @@ def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
     reached.
 
     A CONNECTOR NEVER LENDS (§16g (7) (2)): a body long enough to be the
-    rail is its own body, and neither unit takes its deck."""
+    rail is its own body, and neither unit takes its deck.
+
+    A WELDED DECK LENDS NO DATUM (issue #14; ``welded-deck-spec.md`` §2
+    (5)).  The guard is confined to units whose walled members are the
+    deck's OWN — a bridge's piers, standing under its ring.  A deck by
+    §1 (``Member.deck_shade_ring`` stamped) inside a unit holding a walled
+    non-deck body that stands mostly OUTSIDE its ring — a BUILDING — is a
+    rider: it lends nothing (counted ``deck_lender_refused_welded``) and
+    the unit keeps the pad plurality (17t).  Without this, OTHH unit:85's
+    kerb bodies would re-seat to the road under the deck the day the pad
+    leaves it."""
     decks = []
     for i in cl:
         ui, mi, _gi = shims[i].key
@@ -385,6 +435,12 @@ def _deck_lending(cl: _t.Sequence[int], shims: _t.Sequence[_PShim],
             if counts is not None:
                 counts["deck_lender_refused_connector"] = \
                     counts.get("deck_lender_refused_connector", 0) + 1
+            continue
+        if (getattr(m, "deck_shade_ring", None)
+                and _welded_to_building(i, cl, shims, plan, m, touch_m)):
+            if counts is not None:
+                counts["deck_lender_refused_welded"] = \
+                    counts.get("deck_lender_refused_welded", 0) + 1
             continue
         decks.append((i, float(dz), m.resource.rsplit("/", 1)[-1],
                       getattr(m, "deck_ring", None)))
@@ -416,7 +472,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                               connector_span_m: float,
                               counts: "dict | None" = None,
                               chain_min_height_m: float = 0.0,
-                              contents_min_fraction: float = 0.0
+                              contents_min_fraction: float = 0.0,
+                              sheet_chain_min_fraction: float = 0.0
                               ) -> "tuple[list[PlanUnit], list[PlanConnector]]":
     """§16g (1) PLAN-WIDE with §16g (6)'s CONNECTOR reading.
 
@@ -465,7 +522,14 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     component's ``Part.height_m`` is under ``chain_min_height_m``, or
     whose member the plan already calls a DECK, is its own unit.  0
     disarms; a plan carrying no height at all does not apply it and the
-    count says so (``unit_chain_no_height``)."""
+    count says so (``unit_chain_no_height``).
+
+    A SPANNING SHEET CHAINS (owner RULINGS 2026-09-27a (1), issue #69):
+    a non-deck leaf overlapping TWO or more walled bodies' footprints by
+    ``sheet_chain_min_fraction`` of the smaller footprint LINKS them and
+    joins their unit — :mod:`sheet_chain`, the one derivation
+    ``plan_clusters`` asks too.  Over one body it stays a leaf (and may
+    still be CONTENTS).  0 disarms."""
     if touch_m <= 0.0 or not getattr(plan, "units", ()):
         return [], []
     bodies, _of_pid = bodies_of_plan(plan)
@@ -490,7 +554,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                                 tuple(r for q in live
                                       for r in getattr(q, "rings", ())
                                       if len(r) >= 3), walled,
-                                base_y=min(float(q.base_y) for q in live)))
+                                base_y=min(float(q.base_y) for q in live),
+                                footed=any(getattr(q, "feet", ()) for q in live)))
     if len(shims) < 2:
         return [], []
     # §16g (10) (4): the chain runs over the WALLED bodies alone; a LEAF
@@ -503,6 +568,24 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         clusters = [[walled_ix[k] for k in cl] for cl in clusters]
     else:
         clusters, _adj = [], {}
+    # §16g (10) (4) AMENDED (RULINGS 2026-09-27a (1)): a SPANNING SHEET
+    # links the walled bodies it overlaps and joins their unit; a walled
+    # body it links that chained with nothing enters the unit with it
+    links: list = []
+    if sheet_chain_min_fraction > 0.0 and leaves and len(walled_ix) >= 2:
+        from .sheet_chain import merge_by_sheets, sheet_links
+        _ml, _mo = m_per_deg_exact(shims[walled_ix[0]].box[0])
+        links = sheet_links(
+            shims, walled_ix, leaves, sheet_chain_min_fraction,
+            is_deck=lambda i: member_is_deck(
+                plan.units[shims[i].key[0]].members[shims[i].key[1]]),
+            is_footed=lambda i: shims[i].footed,
+            ml=_ml, mo=_mo, counts=counts, prefix="unit_")
+        if links:
+            clusters = [cl for cl in merge_by_sheets(clusters, links)
+                        if len(cl) >= 2]
+            _sheets = {s for s, _b in links}
+            leaves = [i for i in leaves if i not in _sheets]
     # NO BACKFILL: a body that chains with nothing has never been a
     # PlanUnit here (``_clusters`` drops the singletons) and is seated on
     # its own ground by the default path — which is exactly what §16g
@@ -993,7 +1076,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     cluster_min_m2: float, counts: dict,
                     connector_span_m: float = 0.0,
                     chain_min_height_m: float = 0.0,
-                    contents_min_fraction: float = 0.0
+                    contents_min_fraction: float = 0.0,
+                    sheet_chain_min_fraction: float = 0.0
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
     where, source, connector ends, the HIGH end's own seat), the units'
@@ -1017,7 +1101,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     units, conns = plan_units_and_connectors(plan, touch_m,
                                              connector_span_m, counts,
                                              chain_min_height_m,
-                                             contents_min_fraction)
+                                             contents_min_fraction,
+                                             sheet_chain_min_fraction)
     _parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
 
     def _feet_of(pids):

@@ -59,7 +59,8 @@ import typing as _t
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 from .placement_contact import (_clusters,  # noqa: F401
-                                boxes_touch, rings_touch)
+                                boxes_touch, m_per_deg_exact, rings_touch)
+from .sheet_chain import merge_by_sheets, sheet_links
 
 __all__ = ["Family", "FAMILY_MIN_MEMBERS", "FAMILY_SHARE_MIN",
            "pad_plurality", "bind_families",
@@ -418,7 +419,8 @@ def _floor_split(cl: _t.Sequence[int], adj: _t.Mapping[int, set],
 def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                   floor_split_m: float = 0.0,
                   chain_min_height_m: float = 0.0,
-                  counts: "dict | None" = None) -> list[PlanCluster]:
+                  counts: "dict | None" = None,
+                  sheet_chain_min_fraction: float = 0.0) -> list[PlanCluster]:
     """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
     derivation, read off a ``RebakePlan`` — the planar-time half of the
     law (design spec §30 (4)).
@@ -521,11 +523,26 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
         else:
             chains, adj = [], {}
         seen = {i for cl in chains for i in cl}
-        chains = list(chains) + [[i] for i in walled if i not in seen] \
-            + [[i] for i in leaves]
+        chains = list(chains) + [[i] for i in walled if i not in seen]
+        # §16g (10) (4) AMENDED (RULINGS 2026-09-27a (1)): a SPANNING
+        # SHEET links the walled bodies it overlaps and joins their chain
+        links = []
+        if sheet_chain_min_fraction > 0.0 and leaves and len(walled) >= 2:
+            ml, mo = m_per_deg_exact(shims[walled[0]].box[0])
+            links = sheet_links(
+                shims, walled, leaves, sheet_chain_min_fraction,
+                is_deck=lambda i: member_is_deck(u.members[shims[i].member]),
+                is_footed=lambda i: shims[i].footed, ml=ml, mo=mo)
+            if links:
+                chains = merge_by_sheets(chains, links, adj)
+        sheets = {s for s, _b in links}
+        chains = chains + [[i] for i in leaves if i not in sheets]
+        if counts is not None and links:
+            counts["cluster_sheet_links"] = \
+                counts.get("cluster_sheet_links", 0) + len(links)
         if counts is not None:
             counts["cluster_leaf_bodies"] = \
-                counts.get("cluster_leaf_bodies", 0) + len(leaves)
+                counts.get("cluster_leaf_bodies", 0) + len(leaves) - len(sheets)
         for cl in chains:
             for grp in _floor_split(cl, adj, shims, floor_split_m):
                 boxes = [b for i in grp for b in shims[i].part_boxes]

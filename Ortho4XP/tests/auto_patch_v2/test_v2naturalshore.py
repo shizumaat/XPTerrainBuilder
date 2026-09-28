@@ -25,6 +25,15 @@ from auto_patch_v2.verify.strips import runway_edge_tie
 from test_v2vmmcshore import _SeaDem, _zone_cells
 
 
+class _BeachDem(_SeaDem):
+    """A low beach: the land rises 1:10 from the water line (29a (4): a
+    profile gentler than 1:3 is NATURAL).  ``_SeaDem``'s flat 700 m plateau
+    is a 700 m built edge under the shore decision."""
+
+    def z(self, x: float, y: float) -> float:
+        return 0.1 * max(0.0, y - self.y_shore)
+
+
 @pytest.fixture(scope="module")
 def law():
     return Law.for_airport("ZZZZ")
@@ -33,7 +42,7 @@ def law():
 def test_an_undeclared_shore_is_natural_not_a_quay(law):
     """The coast 10 m off the pavement, nothing declared: the zone that
     reaches it is a NATURAL shore — no quay, no sea wall."""
-    wet = zone_regions(_zone_cells(), law, (), _SeaDem(), ())
+    wet = zone_regions(_zone_cells(), law, (), _BeachDem(), ())
     reach = [r for r in wet if r.natural_shore or r.quay]
     assert reach, [r.ref for r in wet]
     assert not any(r.quay for r in wet)
@@ -45,14 +54,14 @@ def test_a_declared_quay_or_wall_keeps_the_wall(law):
                  {"barrier": "wall"}, {"man_made": "seawall"}):
         line = OsmWay(-1, "fixture", ((-300.0, -30.0), (300.0, -30.0)),
                       False, tags)
-        wet = zone_regions(_zone_cells(), law, (), _SeaDem(), (), None,
+        wet = zone_regions(_zone_cells(), law, (), _BeachDem(), (), None,
                            shore_declarations((line,)))
         assert any(r.quay for r in wet), tags
         assert not any(r.natural_shore for r in wet), tags
     # a declaration elsewhere declares nothing here
     far = OsmWay(-2, "fixture", ((-300.0, -900.0), (300.0, -900.0)), False,
                  {"man_made": "quay"})
-    wet = zone_regions(_zone_cells(), law, (), _SeaDem(), (), None,
+    wet = zone_regions(_zone_cells(), law, (), _BeachDem(), (), None,
                        shore_declarations((far,)))
     assert not any(r.quay for r in wet)
     # and a road is not a declaration
@@ -76,7 +85,7 @@ def test_the_slope_lives_in_the_wedge_only(law):
     bank = float(law.tables.emit.design.bank_slope)
     lip = float(law.tables.zones.adjacent_ground.lip_width_m)
     assert w == pytest.approx(lip + (3.96 + 1.0) / bank)
-    wet = zone_regions(_zone_cells(), law, (), _SeaDem(), (), None, (), w)
+    wet = zone_regions(_zone_cells(), law, (), _BeachDem(), (), None, (), w)
     nat = [r for r in wet if r.natural_shore]
     assert nat and all(r.shore_wedge is not None for r in nat)
     for r in nat:

@@ -30,9 +30,11 @@ THE READING OF (4).  The ruling's two thresholds overlap as literal
 numbers: 2 m over 10 m is 1:5, gentler than 1:3.  They are read together
 as "a 2 m drop taken at a slope no bank would stand at" — a built edge is a
 STEP, not a long gentle fall (the lane brief's own twin: a 2 m step within
-10 m is a wall, a 1:4 fall is natural).  The drop counted is the sum of the
-profile's rises inland over 1 m steps steeper than the bank slope; the
-height reported is the whole rise across the run.  A contact reads WALL
+10 m is a wall, a 1:4 fall is natural).  The profile starts AT THE
+WATER'S LEVEL on the water line (the sea, 0 m — the band "ends in a 1:3
+slope to the water line") and reads the DEM at 1 m steps inland; the drop
+counted is the sum of its rises steeper than the bank slope, and the height
+reported is the whole rise across the run.  A contact reads WALL
 when at least half its stations are built, NATURAL when at least half are
 gentle, and otherwise falls through to the default.
 
@@ -84,6 +86,10 @@ BUILT_SHORE_SPILL = 0.1
 #: at unbounded cost).  Sampling choices, not law.
 PROFILE_STATION_M = 5.0
 PROFILE_MAX_STATIONS = 400
+#: The level the water line stands at: the shore region is the SEA alone
+#: (``planar/zones.shore_region``), and the sea's level is the mesh's
+#: ``O4_Vector_Map.SEAWALL_SEA_LEVEL_M``.
+SEA_LEVEL_M = 0.0
 #: The profile's sample step across the run (metres).
 PROFILE_STEP_M = 1.0
 #: The gradient tolerance the 1:3 test is read with: the law spells the
@@ -231,8 +237,13 @@ def shore_profile(contact, water, dem, law: Law):
         z = _dem_many(dem, xs, ys).reshape(len(st), k + 1)
     except Exception:                                   # pragma: no cover
         return 0, 0, 0, []
-    ok = np.all(np.isfinite(z), axis=1)
+    ok = np.all(np.isfinite(z[:, 1:]), axis=1)
     z = z[ok]
+    # THE WATER LINE STANDS AT THE WATER'S LEVEL: the drop is the land's
+    # fall TO THE WATER (the natural band "ends in a 1:3 slope to the water
+    # line", the water datum pins the line there).  The shore region is the
+    # SEA alone (``planar/zones.shore_region``), whose level is 0.
+    z[:, 0] = SEA_LEVEL_M
     if not len(z):
         return 0, 0, 0, []
     step = run_m / k

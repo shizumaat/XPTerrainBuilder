@@ -1322,10 +1322,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                        else None)
 
 
-def shore_decision_lines(pm, airport) -> list[str]:
+def shore_decision_lines(pm, airport, every: bool = False) -> list[str]:
     """§37 (11) THE SHORE DECISION (owner RULINGS 2026-09-29a): one summary
     line — the verdicts per witness — and one ``shore_undeclared`` row per
-    contact no witness spoke for (29a (5)), with its ``lat, lon``."""
+    contact no witness spoke for (29a (5)), with its ``lat, lon``.
+    ``every`` lists every contact's verdict (the replay's read)."""
     vs = getattr(pm, "shore_verdicts", ()) or ()
     if not vs:
         return []
@@ -1339,13 +1340,19 @@ def shore_decision_lines(pm, airport) -> list[str]:
     except Exception:                                   # pragma: no cover
         to_ll = None
     for v in vs:
-        if v[2] != "default":
+        if v[2] != "default" and not every:
             continue
         ll = ""
         if to_ll is not None and v[4] == v[4]:
             la, lo = to_ll(v[4], v[5])
             ll = f" at {la:.6f}, {lo:.6f}"
-        lines.append(f"  [planar] shore_undeclared {v[0]}{ll}: contact "
-                     f"{v[6]:.0f} m, profile stations {v[7]} built {v[8]} "
-                     f"gentle {v[9]} — natural by default")
+        tail = (f"contact {v[6]:.0f} m, profile stations {v[7]} built {v[8]} "
+                f"gentle {v[9]}")
+        if v[2] == "default":
+            lines.append(f"  [planar] shore_undeclared {v[0]}{ll}: {tail} "
+                         f"— natural by default")
+        else:
+            h = "" if v[3] is None else f" height {v[3]:.2f} m"
+            lines.append(f"  [planar] shore {v[1]} by {v[2]}{h} {v[0]}{ll}: "
+                         f"{tail}")
     return lines

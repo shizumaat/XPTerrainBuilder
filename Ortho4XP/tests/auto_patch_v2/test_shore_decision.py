@@ -186,3 +186,13 @@ def test_no_dem_no_witness_is_natural_by_default(law):
     v = shore_verdict(shore_contact(part, water, law), pavement=pav,
                       water=water, law=law)
     assert (v.kind, v.witness, v.undeclared) == ("natural", "default", True)
+
+
+def test_a_level_platform_at_the_water_line_is_a_built_edge(law):
+    """VMMC's class (measured, lane shoredecide): the flat-site inset holds
+    the land at Z0 6.10 m right to the coastline, so the profile's drop is
+    the fall from the platform TO THE WATER at the line — 6.1 m in the
+    first metre — a wall at that height."""
+    for r in _decide(law, _ProfileDem(lambda d: 6.1)):
+        assert r.quay and r.shore.witness == "profile"
+        assert r.shore.height_m == pytest.approx(6.1)

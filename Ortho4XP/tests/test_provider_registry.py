@@ -35,7 +35,22 @@ def imagery(monkeypatch_module=None):
             IMG.initialize_combined_providers_dict()
         yield IMG
     finally:
-        os.chdir(old_cwd)
+        # NEVER RESTORE INTO A DEAD DIRECTORY (#76).  This is a MODULE-scoped
+        # fixture, so ``old_cwd`` is whatever the worker happened to be in
+        # when the module started — and under xdist that can be an earlier
+        # test's ``tmp_path``, which pytest may have already removed by the
+        # time this tears down.  Restoring it then leaves the whole worker
+        # with a deleted cwd, and every later test on it fails with
+        # FileNotFoundError on a path it never chose: the imagery registries
+        # resolve ``Providers/`` from the cwd, so the first casualty reads
+        # "providers must load inside the transport".
+        #
+        # Identical behaviour when ``old_cwd`` still exists; only the
+        # already-broken case changes.
+        try:
+            os.chdir(old_cwd)
+        except OSError:
+            os.chdir(REPO_ROOT)
 
 
 def test_every_lay_file_registered(imagery):

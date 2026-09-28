@@ -2741,6 +2741,11 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
         seeded = mirror_tree_as_overlay(str(DATA_REPO / "Airport_mod_cache"),
                                         str(mod_dir))
         os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = str(mod_dir)
+        # a mounted snapshot carries its own library index (#79)
+        n_lib = CS.seed_library_index(DATA_REPO, mod_dir)
+        if n_lib is not None and prog is not None:
+            prog.note(f"library index seeded from the snapshot "
+                      f"({n_lib} entries) into {mod_dir}")
 
     if "masks" in authorised:
         skipped.append("masks")

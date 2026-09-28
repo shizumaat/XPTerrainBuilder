@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -243,6 +244,9 @@ def licence_verdict(rel: str, allow: dict):
     if any(x in low for x in excluded):
         return f"excluded by name ({rel})"
     if pack is not None:
+        ruled = allow.get("refused_by_ruling", {}).get(pack)
+        if ruled is not None:            # an owner NO outranks any listing
+            return f"pack {pack!r} is refused by ruling: {ruled}"
         entry = allow.get("packs", {}).get(pack)
         if entry is None:
             return f"pack {pack!r} is not on the freeware allowlist"
@@ -319,10 +323,69 @@ def templated_cfg(cfg_path, install_root: str) -> str:
     return "\n".join(out) + "\n"
 
 
-def write_apt_slice(src: str, icaos, dst: Path) -> None:
-    """An apt.dat carrying only ``icaos``: the source's two header lines,
-    each airport block verbatim (the engine's own ``read_airport_block``),
-    and the ``99`` terminator."""
+def _block_tile(block):
+    """``(floor lat, floor lon)`` of an apt.dat airport block, or None."""
+    for ln in block:
+        f = ln.split()
+        try:
+            if f and f[0] == "100" and len(f) > 10:
+                return (math.floor(float(f[9])), math.floor(float(f[10])))
+            if f and f[0] in ("101", "102") and len(f) > 3:
+                i = 4 if f[0] == "101" else 2
+                return (math.floor(float(f[i])), math.floor(float(f[i + 1])))
+        except ValueError:
+            continue
+    for ln in block:
+        f = ln.split()
+        if len(f) > 2 and f[0] == "1302" and f[1] == "datum_lat":
+            lat = float(f[2])
+            for l2 in block:
+                g = l2.split()
+                if len(g) > 2 and g[0] == "1302" and g[1] == "datum_lon":
+                    return (math.floor(lat), math.floor(float(g[2])))
+    return None
+
+
+def _neighbour_blocks(src: str, tiles, skip):
+    """Every airport block of ``src`` whose tile is in ``tiles`` and whose
+    code is not in ``skip`` — verbatim lines (issue #79)."""
+    blocks, cur = [], None
+    with open(src, "r", encoding="utf-8", errors="replace") as f:
+        for n, raw in enumerate(f):
+            if n < 2:
+                continue
+            ln = raw.rstrip("\r\n")
+            head = ln.split(None, 1)[0] if ln.strip() else ""
+            if head in ("1", "16", "17", "99"):
+                if cur:
+                    blocks.append(cur)
+                cur = [ln] if head != "99" else None
+            elif cur is not None:
+                cur.append(ln)
+    if cur:
+        blocks.append(cur)
+    out = []
+    for b in blocks:
+        f = b[0].split()
+        code = f[4] if len(f) > 4 else None
+        if code in skip:
+            continue
+        if _block_tile(b) in tiles:
+            while b and not b[-1].strip():
+                b.pop()
+            out.append(b)
+    return out
+
+
+def write_apt_slice(src: str, icaos, dst: Path, tiles=()) -> None:
+    """An apt.dat carrying ``icaos`` plus EVERY airport block in ``tiles``
+    (the cut airports' tiles with neighbours): the source's two header
+    lines, each airport block verbatim (the engine's own
+    ``read_airport_block``), and the ``99`` terminator.  The neighbours
+    matter: the DEM inset bake reads every airport of the tile set
+    (issue #79 — SPJC's S12W078 carries an unnamed airport whose absence
+    changed the inset densification 1/3 -> 1/2 arc-second, ~5 cm on 7,251
+    nodes)."""
     from auto_patch_v2.airport import apt_dat as _apt       # noqa: E402
     with open(src, "r", encoding="utf-8", errors="replace") as f:
         head = [f.readline().rstrip("\r\n"), f.readline().rstrip("\r\n")]
@@ -331,6 +394,10 @@ def write_apt_slice(src: str, icaos, dst: Path) -> None:
         block = _apt.read_airport_block(src, icao)
         if block:
             lines += list(block) + [""]
+    if tiles:
+        for block in _neighbour_blocks(src, set(map(tuple, tiles)),
+                                       set(icaos)):
+            lines += block + [""]
     lines.append("99")
     dst.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -360,6 +427,31 @@ def airport_read_set(icao: str, trace: dict, data_repo: Path,
         hit = classify(p, data_repo, install_root, trace.get("overlays", {}))
         if hit and os.path.isfile(hit[1]):
             out[hit[0]] = hit[1]
+    # WHOLE INSET DIRS (#79).  The ballot reads a NEIGHBOUR tile's inset
+    # index (json, traced) and then its rasters through GDAL (invisible to
+    # the audit hook); dem_cache_state below covers only the airport's own
+    # tile.  Any ``*_airport_insets`` dir the trace touched is carried whole
+    # (SPJC: S12W078 1/4 and S13W077 2/6 files -> densification 1/2 vs 1/3).
+    inset_dirs = {os.path.dirname(src) for src in out.values()
+                  if isinstance(src, str) and
+                  os.path.basename(os.path.dirname(src)).endswith(
+                      "_airport_insets")}
+    for d in sorted(inset_dirs):
+        for dp, _dn, fn in os.walk(d):
+            for f in fn:
+                src = os.path.join(dp, f)
+                hit = classify(src, data_repo, install_root, {})
+                if hit and os.path.isfile(src):
+                    out.setdefault(hit[0], src)
+    # RESTORE-BEFORE-READ SIBLINGS (#79).  The loader resolves a pack
+    # placement by STATTING ``X.obj`` and then reads ``X.obj.anchor_bak``
+    # (04f-1); a stat is invisible to the trace, so without the sibling the
+    # snapshot build leaves the placement unresolved (SPJC: 35).
+    for rel, src in list(out.items()):
+        if isinstance(src, str) and src.endswith(".anchor_bak"):
+            sib = src[:-len(".anchor_bak")]
+            if os.path.isfile(sib):
+                out.setdefault(rel[:-len(".anchor_bak")], sib)
     # THE PACK SEARCH IS NOT A READ SET.  ``apt_dat.find_apt_dat`` opens
     # EVERY enabled pack's apt.dat (~1,100 on the owner's install) to find
     # the candidates; the build then reads only the one it SELECTS.  A pack
@@ -414,6 +506,71 @@ def airport_read_set(icao: str, trace: dict, data_repo: Path,
     return out
 
 
+LIBRARY_INDEX_REL = "data/library_index.json"
+
+
+def write_library_index(out: Path, files: dict, data_repo: Path,
+                        install_root: str):
+    """THE LIBRARY INDEX (issue #79, 2026-09-28).  v2 resolves every
+    ``lib/...`` placement through the engine's CACHED merged index
+    (``o4_library_index_<sha1(xplane_root)>.cache``, read-only, never
+    rebuilt), keyed on the install's absolute path.  A trace never sees the
+    ``library.txt`` files behind a warm cache, and a snapshot's install sits
+    at a different path, so without this every stock/library object went
+    unresolved in snapshot mode (SPJC: 3,354 of 3,585; body_sha diverged).
+    The cut ships the owner's index restricted to entries whose physical
+    file IS in the snapshot, snapshot-relative; :func:`seed_library_index`
+    re-keys it at build time.  Returns the manifest rel, or None."""
+    sys.path.insert(0, str(ENGINE_ROOT / "src"))
+    from auto_patch_v2.airport import obj8 as _obj8           # noqa: E402
+    src = _obj8.library_index_path(str(Path(data_repo) / "Airport_mod_cache"),
+                                   install_root)
+    index = _obj8.read_library_index(src) or {}
+    root = os.path.abspath(install_root).rstrip("/") + "/"
+    kept = {}
+    for virt, phys in index.items():
+        if not phys.startswith(root):
+            continue
+        rel = "xplane/" + phys[len(root):]
+        if rel in files:
+            kept[virt] = rel
+    if not kept:
+        return None
+    dst = out / LIBRARY_INDEX_REL
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps(dict(sorted(kept.items())), indent=0))
+    files[LIBRARY_INDEX_REL] = {"sha256": _sha256(dst),
+                                "size": dst.stat().st_size,
+                                "library_index_from": {
+                                    "path": src, "entries": len(index),
+                                    "kept": len(kept)}}
+    return LIBRARY_INDEX_REL
+
+
+def seed_library_index(data_dir, mod_cache_dir) -> int | None:
+    """Write the snapshot's library index as the engine's cache for the
+    snapshot install (``<data_dir>/../xplane``) into the lane-local mod
+    cache.  No-op (None) outside a snapshot.  Returns the entry count."""
+    data_dir = Path(data_dir)
+    src = data_dir / "library_index.json"
+    if not src.is_file() or mod_cache_dir is None:
+        return None
+    import pickle
+    sys.path.insert(0, str(ENGINE_ROOT / "src"))
+    from auto_patch_v2.airport import obj8 as _obj8           # noqa: E402
+    snap = data_dir.parent
+    rel = json.loads(src.read_text())
+    index = {v: str(snap / r) for v, r in rel.items()}
+    roots = {str(snap / "xplane"), str((snap / "xplane").resolve())}
+    for xroot in roots:
+        path = _obj8.library_index_path(str(mod_cache_dir), xroot)
+        with open(path, "wb") as fh:
+            pickle.dump({"fingerprint": "snapshot:" + _sha256(src),
+                         "index": index}, fh,
+                        protocol=pickle.HIGHEST_PROTOCOL)
+    return len(index)
+
+
 def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
         root: Path = None, skip_refused: bool = False) -> dict:
     root = Path(root or Path.cwd())
@@ -466,7 +623,10 @@ def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
     for rel, (src, icaos_) in slices.items():
         dst = out / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
-        write_apt_slice(src, sorted(icaos_), dst)
+        tiles = {(t[0] + a, t[1] + b)
+                 for i in icaos_ for t in [per_airport[i]["tile"]] if t
+                 for a in (-1, 0, 1) for b in (-1, 0, 1)}
+        write_apt_slice(src, sorted(icaos_), dst, sorted(tiles))
         files[rel] = {"sha256": _sha256(dst), "size": dst.stat().st_size,
                       "sliced_from": {"path": src, "sha256": _sha256(src),
                                       "airports": sorted(icaos_)}}
@@ -479,8 +639,12 @@ def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
                     shutil.copy2(src, dst)
                 files[rel] = {"sha256": _sha256(dst), "size": dst.stat().st_size}
         rec["files"] = sorted(set(rec["sources"]) | {cfg_rel})
-        rec["bytes"] = sum(files[r]["size"] for r in rec["files"])
         del rec["sources"]
+    lib_rel = write_library_index(out, files, data_repo, install_root)
+    for rec in per_airport.values():
+        if lib_rel:
+            rec["files"] = sorted(set(rec["files"]) | {lib_rel})
+        rec["bytes"] = sum(files[r]["size"] for r in rec["files"])
 
     ledger_sha = _sha256(REFRESH_LEDGER) if Path(REFRESH_LEDGER).is_file() else None
     manifest = {

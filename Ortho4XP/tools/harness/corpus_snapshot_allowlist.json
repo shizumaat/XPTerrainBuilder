@@ -13,10 +13,22 @@
   "Faroes4XPlane - Airport": {"basis": "freeware Faroes4XPlane project (library export)", "status": "OWNER-CONFIRM"},
   "c_FRA - 100_airport - LFHU Alpes d Huez XPFR Ypsos": {"basis": "XPFR freeware (OpenSceneryX-based)", "status": "OWNER-CONFIRM"},
   "c_CHL - 100_airport - SCEL New Intl Airpot 2020": {"basis": "freeware x-plane.org airport (library export)", "status": "OWNER-CONFIRM"},
-  "Aerosoft - LDSP Split - 1 - Airport": {"basis": "ONLY the two empty SDK placeholders (126 bytes: an AG_POINT with no objects, an OBJ header) the library index resolves for HECA; no Aerosoft geometry", "only": ["Scenery_SDK/Placeholder/placeholder.agp", "Scenery_SDK/Placeholder/placeholder.obj"], "status": "OWNER-CONFIRM"},
-  "x_300_library - Static Aircrafts (Aerosoft)": {"basis": "ONLY the empty placeholder blank.obj (no Aerosoft geometry)", "only": ["blank.obj"], "status": "OWNER-CONFIRM"}
+  "Aerosoft - LDSP Split - 1 - Airport": {"basis": "ONLY the two empty SDK placeholders (126 bytes: an AG_POINT with no objects, an OBJ header) the library index resolves for HECA; no Aerosoft geometry; PLUS the two static-aircraft objects SPJC reads (owner RULINGS 2026-09-29b, Q-79)", "only": ["Scenery_SDK/Placeholder/placeholder.agp", "Scenery_SDK/Placeholder/placeholder.obj", "objects/staticaircrafts/A320_AUA.obj", "objects/staticaircrafts/A320_DLH.obj"], "status": "OWNER-CONFIRM (placeholders) / OWNER-CONFIRMED 2026-09-29b (SPJC static aircraft)"},
+  "x_300_library - Static Aircrafts (Aerosoft)": {"basis": "ONLY the empty placeholder blank.obj (no Aerosoft geometry)", "only": ["blank.obj"], "status": "OWNER-CONFIRM"},
+  "SPJC Lima by Los Flipantes 3.0 Nueva Terminal XP12": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"},
+  "Aerosoft - ENTC Tromso - 1 - Airport": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"},
+  "Aerosoft - LSZH Zurich - 1 - Airport": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"},
+  "Limesim - EDDB Berlin-Brandenburg - 1 - Airport": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"},
+  "c_DEU - 100_airport - EDDB Berlin-Brandenburg - 01 - Airport (Limesim)": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"},
+  "DepartureDesigns_Library": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"},
+  "PHLI_Northern_Sky_Studio": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"},
+  "x_300_library - AR_Library": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"},
+  "x_300_library - The_Handy_Objects_Library": {"basis": "SPJC pack read set, allowlisted by owner RULINGS 2026-09-29b (Q-79, issue #79): SPJC joins the cloud corpus (static objects / library content SPJC reads)", "status": "OWNER-CONFIRMED 2026-09-29b"}
  },
  "install_prefixes": ["Custom Data/CIFP/", "Global Scenery/Global Airports/", "Resources/default scenery/"],
  "_install_prefixes_doc": "CIFP = the owner's navdata files for the cut airports; Global Airports = the gateway apt.dat, SLICED to the cut's airport blocks; Resources/default scenery = Laminar library objects the object stage opens (OWNER-CONFIRM).",
- "excluded_substrings": ["OTHH"]
+ "excluded_substrings": ["OTHH"],
+ "refused_by_ruling": {
+  "c_FRA - 100_airport - TFFJ_1_Apt": "NOT allowlisted: owner RULINGS 2026-09-29b (Q-79) - the TFFJ 'Princess of the Caribbean' product stays local-only; TFFJ is refused by the licence gate by design"
+ }
 }

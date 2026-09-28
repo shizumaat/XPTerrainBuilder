@@ -193,13 +193,25 @@ jobs:
       # EVERYTHING except the Qt files, in parallel.  No `|| [ $? -eq 5 ]`:
       # this target cannot legitimately collect nothing, and the floor above
       # already said so.
+      #
+      # `-s ABRT` rather than the default TERM: with PYTHONFAULTHANDLER
+      # (job env) an aborted interpreter dumps EVERY thread, so a step
+      # killed on its own clock names the test it was wedged in.  Measured
+      # on a synthetic 600 s sleep:
+      #     TERM   -> "Terminated", rc 124, and nothing else
+      #     ABRT   -> "Fatal Python error: Aborted" + the frame
+      #               test_hang_proof.py line 3 in test_that_wedges
+      # Windows hit this timeout at exactly 50m01s on 2026-09-28 and told
+      # us nothing; that is what this is for.  Signal delivery to a native
+      # process under Git bash may still degrade to a plain kill, which is
+      # no worse than the TERM it replaces.
       - name: Engine suite (parallel, non-Qt)
         if: always()
         working-directory: Ortho4XP
         run: |
           limit=""
           if command -v timeout >/dev/null 2>&1; then
-            limit="timeout -k 30 3000"    # absent on the macOS runner
+            limit="timeout -s ABRT -k 30 3000"   # absent on the macOS runner
           fi
           $limit python -m pytest $PYTEST_FLAGS -n auto \
             --ignore-glob='tests/test_qt_*.py' tests
@@ -238,7 +250,7 @@ jobs:
         run: |
           limit=""
           if command -v timeout >/dev/null 2>&1; then
-            limit="timeout -k 30 900"     # absent on the macOS runner
+            limit="timeout -s ABRT -k 30 900"    # absent on the macOS runner
           fi
           set -o pipefail
           $limit python -m pytest $PYTEST_FLAGS \

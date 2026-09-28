@@ -251,6 +251,14 @@ SOLVE_MODEL = "iterative"
 _HARNESS_DIR = str(Path(__file__).resolve().parent)
 if _HARNESS_DIR not in sys.path:
     sys.path.insert(0, _HARNESS_DIR)
+# THE CLOUD TEST CORPUS (RULINGS 2026-09-28a (7)).  ``--corpus
+# snapshot:DIR`` / ``O4_CORPUS_SNAPSHOT`` must point ``O4_DATA_REPO`` at the
+# snapshot BEFORE the guard module is imported (it reads the env at import),
+# so the request is read off argv here — as ``__main__`` only, never when a
+# twin imports this module.
+import corpus_snapshot as CS                             # noqa: E402
+_SNAPSHOT_DIR = (CS.arm_snapshot_env(sys.argv[1:])
+                 if __name__ == "__main__" else None)
 import artifact_ledger as AL                             # noqa: E402
 from shared_repo_guard import (                          # noqa: E402,F401
     DATA_REPO, HARNESS_STATE, LOCK_DIR, REFRESH_LEDGER, SHARED_DATA_DIRS,
@@ -3441,6 +3449,18 @@ def main(argv=None) -> int:
     ap.add_argument("--no-artifact-ledger", action="store_true",
                     help="neither serve NOR store the artifact ledger entry "
                          "for this run")
+    ap.add_argument("--corpus", default=None, metavar="shared|snapshot:DIR",
+                    help="the data corpus: the SHARED repo (default) or a "
+                         "hash-stamped SNAPSHOT cut by corpus_snapshot.py "
+                         "(env O4_CORPUS_SNAPSHOT=DIR does the same).  A "
+                         "snapshot build records corpus=snapshot@<hash> in "
+                         "frame.json and the ledger key; its numbers compare "
+                         "only with builds on the SAME snapshot hash "
+                         "(RULINGS 2026-09-28a (7))")
+    ap.add_argument("--trace-reads", default=None, metavar="FILE",
+                    help="record every corpus/install file this build OPENS "
+                         "(audit hook) into FILE — the read set "
+                         "corpus_snapshot.py cut derives a snapshot from")
     ap.add_argument("--allow-private-data", action="store_true",
                     help="build against a PRIVATE data corpus instead of "
                          "the shared repo, KNOWINGLY (recorded); its "
@@ -3595,6 +3615,29 @@ def main(argv=None) -> int:
     prog = Progress(out_dir / f"{tag}.progress")
     prog.note(f"START {tag} argv={' '.join(sys.argv[1:])}")
 
+    # ── THE CORPUS: shared repo, or a hash-stamped snapshot (28a (7)) ──
+    snap_dir = _SNAPSHOT_DIR if __name__ == "__main__" else \
+        CS.snapshot_request(argv if argv is not None else sys.argv[1:])
+    snapshot_rec = leak_watch = None
+    if snap_dir is not None:
+        if Path(DATA_REPO).resolve() != (snap_dir / "data").resolve():
+            raise SystemExit(
+                f"REFUSING: snapshot {snap_dir} requested but the guard "
+                f"module was armed on {DATA_REPO} (imported before the "
+                f"request was read) — run build_airport.py as a script")
+        if args.allow_private_data:
+            raise SystemExit("REFUSING: --corpus snapshot with "
+                             "--allow-private-data — a snapshot IS the "
+                             "corpus; there is nothing private to allow")
+        snapshot_rec = CS.mount(root, snap_dir,
+                                icao=None if args.tile else args.icao,
+                                prog=prog)
+        man = json.loads((snap_dir / "snapshot.json").read_text())
+        leak_watch = CS.LeakWatch([
+            CS.SHARED_DATA_REPO_DEFAULT,
+            (man.get("source_corpus") or {}).get("install_root")]).start()
+    trace = CS.ReadTrace().start() if args.trace_reads else None
+
     cfg_diff = require_cfg_frame(root, allow_degraded=args.allow_degraded_dem)
     if cfg_diff:
         prog.note(f"DEGRADED CFG FRAME (accepted by flag): "
@@ -3628,6 +3671,12 @@ def main(argv=None) -> int:
     frame = {"dem_cache_before": None, "requested_constant_dem": args.dem,
              "data_repo": str(DATA_REPO), "data_mounts": mounts,
              "refresh_authorised": sorted(requested)}
+    # ``corpus`` rides every frame; ``corpus_snapshot`` ONLY a snapshot
+    # build's (the ledger's corpus stamp keys it in when present, so every
+    # shared-corpus key stays byte-identical).
+    frame["corpus"] = snapshot_rec["corpus"] if snapshot_rec else "shared"
+    if snapshot_rec:
+        frame["corpus_snapshot"] = snapshot_rec
     if lat is not None:
         state = dem_cache_state(root, lat, lon)
         frame["dem_cache_before"] = state
@@ -4025,6 +4074,18 @@ def main(argv=None) -> int:
     # constant :data:`SOLVE_MODEL` component so stored arms still serve.
     frame["dem_cache_after"] = (dem_cache_state(root, lat, lon)
                                 if lat is not None else None)
+    # THE SNAPSHOT'S BELT: a read of the REAL shared repo or install while a
+    # snapshot is mounted means the snapshot was incomplete (rc 4 below).
+    if leak_watch is not None:
+        leak_watch.stop()
+        frame["snapshot_leaks"] = leak_watch.record()
+    if trace is not None:
+        trace.stop()
+        tr = trace.save(args.trace_reads, {
+            "icao": args.icao, "tile": [lat, lon] if lat is not None else None,
+            "tag": tag, "corpus": frame["corpus"]})
+        prog.note(f"read trace: {len(tr['reads'])} file(s), "
+                  f"{len(tr['listed'])} dir(s) -> {args.trace_reads}")
     (out_dir / f"{tag}.frame.json").write_text(json.dumps(frame, indent=1))
     (out_dir / f"{tag}.result.json").write_text(json.dumps(
         {k: v for k, v in result.items() if not k.startswith("_")},
@@ -4125,6 +4186,13 @@ def main(argv=None) -> int:
           f"{tag}.progress")
     print(f"  [harness] next: venv/bin/python tools/harness/census.py "
           f"{out_dir / (tag + '.osm')}")
+    if leak_watch is not None and leak_watch.leaks:
+        rec = frame["snapshot_leaks"]
+        print(f"\n  [harness] SNAPSHOT LEAK: {rec['count']} read(s) of the "
+              f"real shared repo / X-Plane install while "
+              f"{frame['corpus']} was mounted (first: {rec['first'][:5]}) — "
+              f"the snapshot is INCOMPLETE; re-cut it (rc 4)")
+        return 4
     return 0
 
 

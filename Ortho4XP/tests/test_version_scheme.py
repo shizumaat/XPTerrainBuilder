@@ -332,10 +332,20 @@ def test_app_version_ships_as_a_swiftpm_resource() -> None:
 # every job rather than after an hour of freezing and notarizing.
 # ---------------------------------------------------------------------------
 CHECK_TAG = REPO_ROOT / "scripts" / "check_tag_version.sh"
+CHECK_BLOCKERS = REPO_ROOT / "scripts" / "check_beta_blockers.sh"
 
 tag_gate = pytest.mark.skipif(
     not CHECK_TAG.is_file(), reason="engine checked out standalone — no app tree"
 )
+
+
+def _blocker_gate(tag: str) -> subprocess.CompletedProcess:
+    """The beta-2 blocker gate on its own, over the repo's real list."""
+    return subprocess.run(
+        ["/bin/bash", str(CHECK_BLOCKERS), tag],
+        capture_output=True,
+        text=True,
+    )
 
 
 def _tag_gate(ref: str, version: str, tmp_path: Path) -> subprocess.CompletedProcess:
@@ -350,10 +360,58 @@ def _tag_gate(ref: str, version: str, tmp_path: Path) -> subprocess.CompletedPro
 
 @tag_gate
 def test_tag_gate_accepts_a_matching_tag(tmp_path: Path) -> None:
+    """The SCHEME half accepts a matching tag, in every spelling.
+
+    This asserted ``rc == 0`` until the BETA-2 BLOCKER GATE was chained
+    onto the end of ``check_tag_version.sh`` (owner standing 2026-09-18,
+    repo CLAUDE.md "Beta 2 gate": no tag past beta.1 while a row of
+    docs/BETA2-BLOCKERS.md is not CLOSED/WAIVED).  A `-beta.N>=2` or plain
+    release tag now exits 1 on an open list — the gate working, not the
+    scheme refusing — so the scheme verdict is asserted by its own
+    sentence here, and the exit code is the subject of
+    ``test_the_blocker_gate_decides_a_scheme_good_tags_exit_code`` below.
+    """
     for ref in ("refs/tags/v1.0.347", "refs/tags/v1.0.347-beta.2", "v1.0.347-beta.11"):
         result = _tag_gate(ref, "1.0.347", tmp_path)
-        assert result.returncode == 0, f"{ref}: {result.stdout}{result.stderr}"
-        assert "1.0.347" in result.stdout
+        assert "matches the tree app version 1.0.347" in result.stdout, (
+            f"{ref}: {result.stdout}{result.stderr}")
+
+
+@tag_gate
+def test_tag_gate_accepts_a_matching_beta_1_tag_outright(tmp_path: Path) -> None:
+    """END TO END rc 0 — the path the blocker gate does not touch.
+
+    ``check_beta_blockers.sh`` passes a `-beta.1` tag with a note (beta 1
+    predates the list), so this tag exercises BOTH halves of the gate and
+    still exits 0, whatever state the blocker list is in.
+    """
+    result = _tag_gate("refs/tags/v1.0.347-beta.1", "1.0.347", tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "matches the tree app version 1.0.347" in result.stdout
+    assert "blocker list not enforced" in result.stdout
+
+
+@tag_gate
+def test_the_blocker_gate_decides_a_scheme_good_tags_exit_code(tmp_path: Path) -> None:
+    """The beta-2 blocker gate is CHAINED after the scheme check, and for a
+    scheme-good tag the gate's exit code IS the blocker gate's.
+
+    Stated as an identity against a direct run rather than as a fixed
+    verdict, so this twin holds both while the list has open rows (it
+    refuses) and after the owner closes them (it passes) — the law is the
+    chaining, not today's count.
+    """
+    assert "check_beta_blockers.sh" in CHECK_TAG.read_text(encoding="utf-8"), (
+        "the tag gate must call the beta-2 blocker gate (owner standing "
+        "2026-09-18); an unchained tag gate lets beta 2 be cut over open rows")
+    ref, tag = "refs/tags/v1.0.347-beta.2", "v1.0.347-beta.2"
+    chained = _tag_gate(ref, "1.0.347", tmp_path)
+    direct = _blocker_gate(tag)
+    assert chained.returncode == direct.returncode, (
+        f"chained rc {chained.returncode} != blocker gate rc "
+        f"{direct.returncode}\nchained: {chained.stdout}{chained.stderr}"
+        f"\ndirect: {direct.stdout}{direct.stderr}")
+    assert "matches the tree app version 1.0.347" in chained.stdout
 
 
 @tag_gate
@@ -378,19 +436,61 @@ def test_tag_gate_passes_a_non_tag_ref(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@tag_gate
-def test_tag_gate_runs_first_in_every_release_job() -> None:
-    """Every job checks out, then checks the tag — before anything expensive.
+def _release_jobs() -> dict[str, str]:
+    """``{job name: its block}`` for .github/workflows/release.yml.
 
     Textual, not YAML: no yaml module is installed in the engine venv, and
-    this assertion is about ORDER inside the file anyway.
+    the assertions below are about ORDER inside the file anyway.  A job is
+    a top-level key of ``jobs:``, i.e. a line indented exactly two spaces.
     """
     text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    chunks = text.split("- uses: actions/checkout@v4")
-    assert len(chunks) - 1 == 4, "expected four jobs, each starting with a checkout"
-    for chunk in chunks[1:]:
-        head = chunk[:600]
-        assert "check_tag_version.sh" in head, head
+    body = text.split("\njobs:\n", 1)[1]
+    jobs: dict[str, str] = {}
+    name = None
+    for line in body.splitlines(keepends=True):
+        head = re.fullmatch(r"  ([A-Za-z_][\w-]*):\s*\n", line)
+        if head:
+            name = head.group(1)
+            jobs[name] = ""
+            continue
+        if name:
+            jobs[name] += line
+    return jobs
+
+
+@tag_gate
+def test_tag_gate_runs_first_in_every_release_job() -> None:
+    """Every job that can do expensive work checks out, then checks the tag.
+
+    This counted FOUR checkouts until ``xplat_gate`` was added (§46 (7),
+    "one programme on every platform").  That job is the one lawful
+    exception and is asserted as such rather than dropped from the count:
+    it ``needs: [mac, windows, linux]``, so a mismatching tag has already
+    refused in all three before it can start, and it only downloads their
+    artifacts.  Derived from the file's own job blocks so the next job
+    added is CHECKED, not counted.
+    """
+    jobs = _release_jobs()
+    assert set(jobs) >= {"mac", "windows", "linux", "release"}, sorted(jobs)
+
+    gated = {n for n, b in jobs.items()
+             if "actions/checkout@v4" in b
+             and "check_tag_version.sh" in b.split("- uses: actions/checkout@v4", 1)[1][:600]}
+    assert {"mac", "windows", "linux", "release"} <= gated, (
+        f"jobs that check out without checking the tag first: "
+        f"{sorted(set(jobs) - gated)}")
+
+    for name, block in jobs.items():
+        if name in gated or "actions/checkout@v4" not in block:
+            continue
+        needs = re.search(r"^    needs:\s*\[([^\]]*)\]", block, re.MULTILINE)
+        assert needs, (
+            f"{name} checks out without the tag gate and without needs: — "
+            f"nothing has checked the tag before it runs")
+        upstream = {n.strip() for n in needs.group(1).split(",") if n.strip()}
+        assert upstream and upstream <= gated, (
+            f"{name} skips the tag gate but needs {sorted(upstream)}, which "
+            f"is not a subset of the gated jobs {sorted(gated)}")
 
 
 # ---------------------------------------------------------------------------

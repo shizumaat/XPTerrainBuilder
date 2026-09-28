@@ -53,6 +53,7 @@ spread, the members cut apart and the pad or ground it seated on.
 from __future__ import annotations
 
 import bisect as _bi
+import math
 import dataclasses as _dc
 import typing as _t
 
@@ -309,6 +310,14 @@ class PlanCluster:
     #: §16g (10) (4): how many of the member bodies are WALLED (a cluster
     #: of 1 body with 0 walled is a LEAF — a slab, a plate, a deck)
     walled: int = 0
+    #: §16g (10) (2) AMENDED (issue #73, lane ``courtyards``): the rings
+    #: of the member bodies' POSTS and FLAT LINES
+    #: (:func:`draws_outline` False).  They draw no outline, but where
+    #: the outline falls into pieces that one of them touches on both
+    #: sides it CLOSES the outline across its plan gap
+    #: (``geom.cluster_outlines``, ``[placement] post_bridge_gap_m``):
+    #: the post still chains, so the unit is one.
+    bridges: tuple[tuple[tuple[float, float], ...], ...] = ()
 
     def line(self) -> str:
         return (f"{self.id}: {len(self.members)} member(s), footprint union "
@@ -345,19 +354,82 @@ def member_is_deck(m: _t.Any) -> bool:
                 or str(getattr(m, "deck_kind", "") or "") in DECK_VERDICTS)
 
 
+#: §16g (10) (2) AMENDED (issue #73, spec-author ruling to lane
+#: ``lacepad``): A POST DRAWS NO OUTLINE.  A component small in BOTH plan
+#: dimensions — its footprint rings under ``POST_MAX_AREA_M2`` AND its plan
+#: box's longer side under ``POST_MAX_EXTENT_M`` — still counts for the
+#: body's solid height (it may make the body WALLED, so it CHAINS) but its
+#: ring never joins the cluster's pad outline.  A wall is long and thin; a
+#: post is small both ways.  MEASURED at HECA (``blank.obj`` posts of
+#: ``building13``): 4.8 m tall, 1.4-1.5 m of box, 0.55 m2 of ring.
+POST_MAX_AREA_M2 = 4.0
+POST_MAX_EXTENT_M = 3.0
+
+#: ... AND A FLAT LINE DRAWS NO OUTLINE: a component that is NOT itself a
+#: wall (solid height under ``chain_min_height_m``) whose footprint's mean
+#: width ``2 A / P`` is under this.  MEASURED at HECA (issue #73): with
+#: c16ccee8's chord reading, ``Plastic.obj`` bodies turned walled by their
+#: own rods and chained into ``building13``; their FLAT strips (0.06 m
+#: tall, 0.17 m wide, 11-22 m long, 2-4 m2 — ground markings) drew the
+#: lace: the outline went 37 -> 184 holes.  Posts alone move it 184 -> 184;
+#: posts and flat lines 184 -> 15, with nothing outside the chord-off
+#: outline (0.0 m2).  The thinnest real wall is TALL, so it still draws.
+FLAT_LINE_MAX_WIDTH_M = 1.0
+
+
+def draws_outline(part: _t.Any, chain_min_height_m: float,
+                  ml: float, mo: float,
+                  post_max_area_m2: float = POST_MAX_AREA_M2,
+                  post_max_extent_m: float = POST_MAX_EXTENT_M,
+                  flat_line_max_width_m: float = FLAT_LINE_MAX_WIDTH_M
+                  ) -> bool:
+    """Does ``part`` (a ``model.rebake.Part``) draw its cluster's pad
+    outline?  False for a POST (:data:`POST_MAX_AREA_M2` /
+    :data:`POST_MAX_EXTENT_M`) and for a FLAT LINE
+    (:data:`FLAT_LINE_MAX_WIDTH_M`); both still count for chaining and
+    height.  ``ml``/``mo``: metres per degree of latitude / longitude.
+    The three thresholds are the ``[placement]`` law keys of the same
+    names (``structures.toml``); 0 disarms each test."""
+    rings = [r for r in (getattr(part, "rings", ()) or ()) if len(r) >= 3]
+    if not rings:
+        return True
+    area = per = 0.0
+    for r in rings:
+        xs = [float(lo) * mo for _la, lo in r]
+        ys = [float(la) * ml for la, _lo in r]
+        n = len(xs)
+        area += 0.5 * abs(sum(xs[i] * ys[(i + 1) % n] - xs[(i + 1) % n] * ys[i]
+                              for i in range(n)))
+        per += sum(math.hypot(xs[(i + 1) % n] - xs[i], ys[(i + 1) % n] - ys[i])
+                   for i in range(n))
+    b = getattr(part, "box", None)
+    if b is not None:
+        ext = max((float(b[2]) - float(b[0])) * ml, (float(b[3]) - float(b[1])) * mo)
+        if area < post_max_area_m2 and ext < post_max_extent_m:
+            return False                               # a post
+    if (chain_min_height_m > 0.0
+            and float(getattr(part, "height_m", 0.0)) < chain_min_height_m
+            and per > 0.0 and 2.0 * area / per < flat_line_max_width_m):
+        return False                                   # a flat line
+    return True
+
+
 class _Shim:
     """A plan MEMBER's body dressed as the candidate :func:`_clusters`
     reads — the ONE cluster law, asked of the plan instead of the
     placement candidates.  Nothing else of a candidate is touched."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
-                 "floors", "rings", "floor", "footed", "walled")
+                 "floors", "rings", "floor", "footed", "walled", "outline",
+                 "bridges")
 
     def __init__(self, member: int, boxes: list, resource: str,
                  floors: "list | None" = None,
                  rings: "list | None" = None,
                  floor: float = 0.0, footed: bool = False,
-                 walled: bool = True) -> None:
+                 walled: bool = True,
+                 outline: "list | None" = None,
+                 bridges: "list | None" = None) -> None:
         self.member = member
         self.part_boxes = boxes
         #: §16f (8): the authored floor of each of ``part_boxes``
@@ -366,6 +438,13 @@ class _Shim:
         #: chains on.  Without them the chain falls back to the part
         #: boxes, which is the reading 14c item 1 withdrew.
         self.rings = list(rings or ())
+        #: §16g (10) (2), issue #73: the rings that DRAW the cluster's pad
+        #: outline — ``rings`` less its posts and flat lines
+        #: (:func:`draws_outline`).  ``None``: all of ``rings``.
+        self.outline = self.rings if outline is None else list(outline)
+        #: issue #73 (lane ``courtyards``): the rings ``outline`` left out
+        #: — posts and flat lines, which may still CLOSE the outline
+        self.bridges = list(bridges or ())
         #: §16g (10) (1) / 14z: the body's GROUND FLOOR and whether it
         #: has a ground-contact component at all
         self.floor = float(floor)
@@ -420,7 +499,9 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                   floor_split_m: float = 0.0,
                   chain_min_height_m: float = 0.0,
                   counts: "dict | None" = None,
-                  sheet_chain_min_fraction: float = 0.0) -> list[PlanCluster]:
+                  sheet_chain_min_fraction: float = 0.0,
+                  outline_law: "tuple[float, float, float] | None" = None
+                  ) -> list[PlanCluster]:
     """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
     derivation, read off a ``RebakePlan`` — the planar-time half of the
     law (design spec §30 (4)).
@@ -473,9 +554,16 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
     # ``_clusters`` keeps for a plan carrying no footprint rings.
     any_height = any(float(getattr(q, "height_m", 0.0)) > 0.0
                      for u in plan.units for m in u.members for q in m.parts)
+    # issue #73: (post_max_area_m2, post_max_extent_m,
+    # flat_line_max_width_m) — the [placement] law keys; None = defaults
+    olaw = tuple(outline_law) if outline_law is not None else (
+        POST_MAX_AREA_M2, POST_MAX_EXTENT_M, FLAT_LINE_MAX_WIDTH_M)
     for ui, u in enumerate(plan.units):
         parts_of: dict[int, _t.Any] = {p.pid: p for m in u.members
                                        for p in m.parts}
+        _b0 = next((p.box for p in parts_of.values()), None)
+        ml_u, mo_u = m_per_deg_exact(0.5 * (float(_b0[0]) + float(_b0[2]))) \
+            if _b0 is not None else (0.0, 0.0)
         shims: list[_Shim] = []
         for (bu, mi, _gi), pids in sorted(bodies.items()):
             if bu != ui:
@@ -499,13 +587,20 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
             walled = (chain_min_height_m <= 0.0 or not any_height
                       or (tall >= chain_min_height_m
                           and not member_is_deck(u.members[mi])))
+            draw = [draws_outline(q, chain_min_height_m, ml_u, mo_u, *olaw)
+                    for q in live]
             shims.append(_Shim(
                 mi, bx, u.members[mi].resource,
                 [float(q.base_y) for q in live],
                 rings=[r for q in live for r in q.rings if len(r) >= 3],
                 floor=min(footed) if footed
                 else min(float(q.base_y) for q in live),
-                footed=bool(footed), walled=walled))
+                footed=bool(footed), walled=walled,
+                # issue #73: posts and flat lines chain, never draw
+                outline=[r for q, d in zip(live, draw) if d
+                         for r in q.rings if len(r) >= 3],
+                bridges=[r for q, d in zip(live, draw) if not d
+                         for r in q.rings if len(r) >= 3]))
         if not shims:
             continue
         # ``min_members=1``: §16g (9)'s population has no member gate —
@@ -558,7 +653,9 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                     hull=hull,
                     floors=tuple(shims[i].floor for i in grp),
                     rings=tuple(tuple(r) for i in grp
-                                for r in shims[i].rings),
+                                for r in shims[i].outline),
+                    bridges=tuple(tuple(r) for i in grp
+                                  for r in shims[i].bridges),
                     bodies=len(grp),
                     footed=sum(1 for i in grp if shims[i].footed),
                     walled=sum(1 for i in grp if shims[i].walled)))

@@ -101,7 +101,8 @@ _AIRSIDE_MEMO: list[tuple[int, _t.Any, _t.Any]] = []
 
 
 def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
-                  law_touch: float | None = None, airside=None
+                  law_touch: float | None = None, airside=None,
+                  bridge_m: float = 0.0
                   ) -> list[tuple[str, _t.Any, Polygon]]:
     """§30 (4): each CLUSTER carried on ``Airport.clusters``
     (``planar/cluster.py``, computed once at load beside the pack
@@ -136,7 +137,7 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
         return []
     touch = float(law_touch) if law_touch is not None else 0.0
     got = counts = None
-    akey = (id(airside), min_m2)
+    akey = (id(airside), min_m2, float(bridge_m))
     for k, ap, t0, cached in _POLY_MEMO:
         if k == id(airport) and ap is airport and t0 == (touch, akey):
             got, counts = cached, {}
@@ -155,7 +156,9 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             walled_only=True, min_m2=min_m2,
             # issue #14 (``welded-deck-spec.md`` §2 (1)): the SAME shades
             # the mint subtracted (``geom.deck_shades``)
-            shades=deck_shades(getattr(airport, "partition", None), to_xy))
+            shades=deck_shades(getattr(airport, "partition", None), to_xy),
+            # issue #73 rule 2a: the SAME post close the mint applied
+            bridge_m=bridge_m)
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
     if counts.get("no_rings"):
@@ -242,7 +245,7 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
     pairs = cluster_polys(
         airport, min_m2, _touch_m(law),
         None if bool(law.tables.structures.placement.pad_airside_clip)
-        else airside_union(planar, law))
+        else airside_union(planar, law), _bridge_m(law))
     # §16g (10) (11) A PIECE THE MINT NEVER PADDED IS NOT A PAD.  The
     # mint drops every piece under ``[building_pad] min_area_m2``
     # (``classify/evidence._pads``), so a 7 m2 sliver of a cluster's
@@ -531,7 +534,7 @@ def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
     split = float(law.tables.structures.placement.floor_split_m)
     pairs = cluster_polys(
         airport, float(law.tables.structures.placement.cluster_pad_min_m2),
-        touch, airside_union(planar, law))
+        touch, airside_union(planar, law), _bridge_m(law))
     if len(pairs) < 2:
         return {}
     floor_of: dict[str, float] = {}
@@ -635,6 +638,14 @@ def cluster_pairs(planar: PlanarMap,
                         pairs.add(key)
                         n_cross += 1
     return sorted(pairs), n_cross
+
+
+def _bridge_m(law: Law) -> float:
+    """``[placement] post_bridge_gap_m`` (issue #73 rule 2a) — the same
+    key ``planar/cluster.post_bridge_gap_m`` hands the mint; read here
+    directly because ``constraints`` may not import ``planar``."""
+    return float(getattr(law.tables.structures.placement,
+                         "post_bridge_gap_m", 0.0))
 
 
 def _touch_m(law: Law) -> float:

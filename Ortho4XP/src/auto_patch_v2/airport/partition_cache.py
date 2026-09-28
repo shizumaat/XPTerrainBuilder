@@ -55,7 +55,14 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 6   # issue #69 (lane outlinebisect): ``Part.height_m``
+CACHE_VERSION = 8   # issue #73 (lane courtyards): ``PlanCluster.bridges``
+                    # (the posts' and flat lines' rings, which close a
+                    # split outline); the frozen engine's digest is this.
+# was 7:            # issue #73 (lane lacepad): ``PlanCluster.rings``
+                    # (the cached clusters) omit POSTS and FLAT LINES
+                    # (``placement_family.draws_outline``); the frozen
+                    # engine's digest is this number.
+# was 6:            # issue #69 (lane outlinebisect): ``Part.height_m``
                     # also reads the WALL CHORD of steep triangles
                     # (``contact.wall_chord_height``) — a leaning facade
                     # is a wall; the frozen engine's digest is this number.

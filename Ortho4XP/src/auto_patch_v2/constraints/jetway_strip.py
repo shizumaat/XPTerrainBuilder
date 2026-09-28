@@ -247,6 +247,11 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
     pins = {p.v for p in (cs.pins if cs is not None else ())}
     all_own = set().union(*own_of.values()) if own_of else set()
     taxi, coupled, pad_of = _base_strike(planar, law, airport)
+    # THE COURTYARD (``model.islands``, lane islands #77): an apron island
+    # in a pad hole takes the pad RIM's level in stage 2 — it is never a
+    # stage-1 strip vertex (the projection reads stage 1's levels only)
+    from ..model.islands import courtyard_vertices
+    court = courtyard_vertices(planar, law)
     # the REGION per cluster: each rider edge's rectangle, D along its
     # outward normal and D past each end
     regions: dict[str, _t.Any] = {}
@@ -279,6 +284,8 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
             why = "taxi"
         elif v in pins:
             why = "pin"
+        elif v in court:
+            why = "courtyard"
         elif v in coupled:
             why = "coupled"
         elif v in pad_of and v not in own:

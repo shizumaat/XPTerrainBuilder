@@ -725,6 +725,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # verify rows).  Its vertices leave every body's plane fit.
     from ..constraints.hard_plane import hard_plane_vertices
     hard_v = hard_plane_vertices(planar)
+    # THE COURTYARD (``model.islands``, lane islands #77): an apron island in
+    # a pad hole takes the pad RIM's level — no DEM datum of its own
+    from ..model.islands import courtyard_vertices
+    court_v = courtyard_vertices(planar, law)
     for kind, roles_b in datum_roles(law):
         # THE BODY IS THIS STAGE'S OWN (issue #67; §20b (1c)'s rule for the
         # sheet, applied to the datum): stage 1's body is formed over the
@@ -739,7 +743,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                                   _role_bodies_faced(planar, roles_b, red)):
             # 10l: a pad that fronts pavement takes its frontage's level, not
             # the ground's — its vertices leave every body's datum fit
-            vs_b = [v for v in vs_b if v not in pad_follow and v not in hard_v]
+            vs_b = [v for v in vs_b if v not in pad_follow and v not in hard_v
+                    and v not in court_v]
             zs = [float(planar.vertices[v].dem_z) for v in vs_b]
             if not zs:
                 continue

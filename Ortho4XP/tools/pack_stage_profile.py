@@ -182,7 +182,8 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
             st = law.tables.structures.placement
             to_xy = ps["airport"].frame.entry()
             pads, _c = cluster_outlines(ps["clusters"], to_xy, float(st.footprint_touch_m),
-                                        walled_only=True, min_m2=mn)
+                                        walled_only=True, min_m2=mn,
+                                        bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)))
             sxy = to_xy(site[1], site[0])
         except Exception as exc:                  # an older tree: clusters only
             print(f"[{icao}] pad reading skipped: {exc}", flush=True)
@@ -253,7 +254,8 @@ def read_pickle(path: Path, site: tuple[float, float]) -> dict:
     mn = float(cluster_min_m2(law))
     to_xy = ap.frame.entry()
     pads, _c = cluster_outlines(cl, to_xy, float(st.footprint_touch_m),
-                                walled_only=True, min_m2=mn)
+                                walled_only=True, min_m2=mn,
+                                bridge_m=float(getattr(st, "post_bridge_gap_m", 0.0)))
     rec = site_report(cl, site[0], site[1], mn, pads, to_xy(site[1], site[0]))
     rec["partition_counts"] = {k: int(ap.partition.counts.get(k, 0)) for k in COUNT_KEYS}
     return rec

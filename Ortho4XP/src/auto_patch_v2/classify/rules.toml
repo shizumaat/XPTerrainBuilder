@@ -50,6 +50,23 @@ road_width_m     = 6.0     # the 1206 ground-route corridor width outside paveme
 free_max_width_m = 25.0    # a route station is FREE (cuts its own face) only where the pavement cross-section is at most this wide or absent (owner 2026-07-27 free-road ruling)
 sample_step_m    = 5.0     # station spacing of the cross-section test
 min_run_m        = 12.0    # free stations group into runs; shorter runs stay with the apron
+# §47 ADDENDUM — A WALL ALONG A ROAD EDGE IS A RETAINING WALL (owner RULINGS
+# 2026-09-27a (8), issue #8): a pack component at least this tall, this long
+# and at most this wide in plan is WALL-CLASS; a footprint piece of it with
+# at least this fraction of its area within one lane width of a service-road
+# ribbon RETAINS that road, and the road's graded strip extends to it.
+retaining_wall_min_height_m   = 2.0
+retaining_wall_min_length_m   = 10.0
+retaining_wall_max_width_m    = 1.0
+retaining_wall_along_fraction = 0.8
+# "within one lane width" of the road EDGE: the 1206 corridor is minted
+# `road_width_m` 6.0 wide, narrower than the two-lane road the pack draws,
+# so the reach is read from the corridor's edge as ONE lane (4.0, emit.toml
+# [road_profile] lane_width_m) PLUS the lane the 6 m corridor leaves
+# undrawn — measured at HECA 30.1122535, 31.4062746: the wall's pieces stand
+# 0.96 / 2.59 m off the corridor, with 97-100 % of their area inside 8 m and
+# 49-55 % inside 4 m.  DEVIATION from "one lane width" for the spec author.
+retaining_wall_reach_m        = 8.0
 
 [osm_roads]                    # OSM highway=* ways as ground-vehicle centrelines beside the 1206 routes (RULINGS 2026-08-15: the mapped road IS the spine where nothing better exists; owner 2026-09-04j evidence)
 enabled   = true

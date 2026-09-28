@@ -443,6 +443,24 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # relation.  Carried on the airport because ``constraints`` may not
     # import ``planar``.
     from ..planar.cluster import clusters as _derive_clusters
+    # unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
+    # CONNECTOR VERDICT, derived on the DEM and STAMPED on the partition —
+    # ``plan_clusters`` reads it here and the rebake plan carries it to the
+    # object stage.  It reads the DEM, which the partition cache does not
+    # fingerprint, so it is derived fresh on every build and a cached
+    # cluster set derived under a different verdict is re-derived.
+    from ..planar.cluster import connector_verdicts as _cverdicts
+    _t = time.perf_counter()
+    _stamped = getattr(_part, "connectors", None)
+    _verdicts = _cverdicts(_dc.replace(airport, partition=_dc.replace(
+        _part, connectors=None)), law)
+    _sub["connectors"] = time.perf_counter() - _t
+    if _cached_clusters is not None and _stamped != _verdicts:
+        _cached_clusters = None
+    _part = _dc.replace(_part, connectors=_verdicts)
+    _say(f"  [connectors] {len(_verdicts)} connector(s): "
+         f"{sum(1 for v in _verdicts if v.solid)} SOLID, "
+         f"{sum(1 for v in _verdicts if not v.solid)} CUT", out)
     if _cached_clusters is not None:
         _clusters = _cached_clusters
     else:

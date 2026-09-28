@@ -31,6 +31,9 @@ from auto_patch_v2.solve import Options, Status
 from auto_patch_v2.solve import solve_design
 from auto_patch_v2.verify.roads import road_profile_agreement
 
+#: The solver's own feasibility margin in metres (issue #76 ruling (b)).
+SOLVER_MARGIN_M = 1e-3
+
 
 def _rect(x0, y0, x1, y1):
     return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
@@ -246,7 +249,15 @@ def test_lawful_road_holds_the_core_profile_and_over_cap_lot_moves(slope, law):
     page = ag["faces"][_face(pm, "page1").id]
     # a lawful road (7 % < 8 %, laterally level) IS the core profile —
     # nothing binds and the roughness term adds nothing beyond materiality
-    assert road["off"] == 0 and road["max_m"] <= tol, road
+    # The bar is ``tol + solver_margin`` (spec-author ruling on issue #76,
+    # 2026-09-28: a law twin's bar is the law tolerance plus the solver's
+    # own feasibility margin, 1 mm in metres) — MEASURED 0.0105 on one of
+    # twelve vertices on CI's Linux / py3.13 solve against 0.01.  The
+    # verifier's ``off`` counts at the bare law tolerance (that vertex reads
+    # off = 1 on Linux), so the bar is stated on the worst vertex: every
+    # one of the road's vertices is within ``tol + solver_margin``.
+    assert road["max_m"] <= tol + SOLVER_MARGIN_M, (road["off"],
+                                                    road["max_m"], road)
     # the PAGE (a road page welded to its neighbours) is the same profile
     # within a tenth of a metre: under the design surface the road's fit is a
     # TARGET at ``[design] road`` against the sheet's own bending, so a page

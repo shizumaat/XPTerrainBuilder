@@ -98,6 +98,9 @@ NOT_IMPLEMENTED: tuple[str, ...] = (
     # ``verify`` reads the solved design surface, which by then carries
     # one vertex set and cannot see which of them a pad minted.
     "pad_airside_renode",
+    # unit-platform spec §4 (5): both platform families price the sidecar's
+    # ``platforms`` (the build's own solved-plane reading) — the census's
+    "platform_rim_relief", "platform_refused",
     "terrace_joint_route", "terrace_joint_strip", "terrace_actual_step",
     "drainage_spine", "apron_lattice_membrane", "drainage_minimum",
     # §39 (2) (owner RULINGS 2026-09-13bk/13bt/13bu): the hairline needs the

@@ -110,8 +110,13 @@ def test_the_island_takes_the_pad_rim_level(solved, law):
     """0 step: every island vertex on the pad's own plane (the plate is
     soft, so within a centimetre), never 3 m up on its own DEM bump."""
     pm, z = solved
-    pad = _face(pm, "building")[0]
-    rim = [v for ring in (pad.ring, *pad.holes) for v in pm.ring_vertices(ring)]
+    # unit-platform spec §1 (lane ``unitplatform2``): where the pad is
+    # minted as a PLATFORM inside a COLLAR, the pad's own plane is the
+    # PLATFORM's (the collar's outer rim is the apron weld, off it by the
+    # bank) — the courtyard follows the platform
+    pads = [f for f in _face(pm, "building") if not f.ref.endswith("#collar")]
+    pad = pads[0]
+    rim = [v for f in pads for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)]
     xy = np.array([pm.vertices[v].xy for v in rim])
     A = np.c_[xy, np.ones(len(rim))]
     coef, *_ = np.linalg.lstsq(A, z[rim], rcond=None)

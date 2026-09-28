@@ -67,6 +67,7 @@ from auto_patch import config as _CFG  # noqa: E402
 from auto_patch.layout import (  # noqa: E402
     BuiltShape,
     ROLE_BUILDING,
+    ROLE_GROUNDSIDE_PAVEMENT,
     ROLE_RUNWAY,
     ROLE_SERVICE_JUNCTION,
     ROLE_SERVICE_ROAD,
@@ -519,9 +520,9 @@ class TestClearanceAnnulus:
     dropped as "under pavement"."""
 
     @staticmethod
-    def _scene(clearance_m):
+    def _scene(clearance_m, role=ROLE_SERVICE_JUNCTION):
         pavement = BuiltShape(polygon=box(-50.0, -60.0, 200.0, 60.0),
-                              role=ROLE_SERVICE_JUNCTION,
+                              role=role,
                               node_altitudes=[_APT_ELEV] * 5)
         layout = SimpleNamespace(shapes=[pavement])
         walk = [(0.0, 0.0), (40.0, 0.0), (80.0, 0.0),
@@ -591,7 +592,32 @@ class TestClearanceAnnulus:
 
     def test_without_the_annulus_the_band_is_dropped_as_under_pavement(
             self) -> None:
-        assert _refs(self._scene(0.0), "tunnel_wall") == []
+        """The control arm, posed on a host the annulus cut still governs.
+
+        RE-POSED (issue #76, lane reds76b): since 3a43a0b6 (owner
+        2026-09-03, ``docs/specs/tunnel-wall-crest-dem-spec.md`` L4) a
+        SERVICE-road-family host is taken WHOLE on the tunnel side of the
+        ramp's far-end line, so with the service-junction scene no pavement
+        is left beside the ramp and nothing can drop the band — at 0.0 m it
+        stands 0.6 m off the ramp over open ground (pavement 30,000 ->
+        4,800 m², the road beyond the far-end line).  A pavement host L4
+        does not take whole (``groundside_pavement`` keeps 2026-08-25e's
+        annulus cut) still shows the parent round's defect: the bare-union
+        cut leaves the band under pavement and it is dropped."""
+        assert _refs(self._scene(0.0, ROLE_GROUNDSIDE_PAVEMENT),
+                     "tunnel_wall") == []
+        assert _refs(self._scene(_ANNULUS_M, ROLE_GROUNDSIDE_PAVEMENT),
+                     "tunnel_wall")
+
+    def test_a_service_host_is_taken_whole_so_the_band_stands_at_zero(
+            self) -> None:
+        """L4's side of the same scene: the host is gone beside the ramp,
+        so the band stands even with no clearance."""
+        layout = self._scene(0.0)
+        assert _refs(layout, "tunnel_wall")
+        pavement = unary_union([s.polygon for s in layout.shapes
+                                if s.role == ROLE_SERVICE_JUNCTION])
+        assert pavement.area == pytest.approx(40.0 * 120.0, abs=1.0)
 
 
 class TestRampInternalCornerAgreement:

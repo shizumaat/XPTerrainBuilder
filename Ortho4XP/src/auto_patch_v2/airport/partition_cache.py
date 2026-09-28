@@ -107,6 +107,10 @@ _CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack",
     "auto_patch_v2.planar.basins",
     "auto_patch_v2.planar.cluster",
+    # unit-platform spec §2: the cached clusters read the connector verdict
+    "auto_patch_v2.airport.footprint_connector",
+    "auto_patch_v2.airport.footprint_unit",
+    "auto_patch_v2.airport.sheet_chain",
     "auto_patch_v2.model.rebake",
 )
 

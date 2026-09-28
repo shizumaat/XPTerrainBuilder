@@ -27,6 +27,7 @@ from __future__ import annotations
 import numpy as np
 
 from .frame import Patch, Row, Shape, row
+from ..model.planar import is_collar_ref
 
 __all__ = ["pad_flat", "plane_fit", "plane_fit_quantum", "plane_residual",
            "relief_offsets"]
@@ -133,6 +134,8 @@ def pad_flat(p: Patch) -> list[Row]:
     for sh in p.shapes:
         if not p.is_rigid(sh.role) or len(sh.ids) < 2:
             continue
+        if is_collar_ref(sh.ref):
+            continue      # spec §3 P20: pad_flat reads the PLATFORM face
         xy, z, ids = _pad_points(p, sh, off)
         lo_i = min(range(len(z)), key=z.__getitem__)
         hi_i = max(range(len(z)), key=z.__getitem__)

@@ -43,6 +43,7 @@ from __future__ import annotations
 import itertools
 import math
 
+from ..model.planar import is_collar_ref
 from ..constraints.geometry import (chords_covered, face_cover, long_axis,
                                     pair_is_transverse, station_indices)
 from ..constraints.roads import (NO_FRAME, NOT_A_PAIR, one_ribbon_m,
@@ -343,6 +344,11 @@ def within_shape(p: Patch) -> tuple[list[Row], list[Row]]:
     xsec: list[Row] = []
     joints = joint_index(p)      # APRON TERRACE LOCKSTEP (06n / 07g): the declared step across a joint
     for sh in p.shapes:
+        if is_collar_ref(sh.ref):
+            # unit-platform spec §1 (3) / §3 P20: a platform COLLAR is a 1:3
+            # bank under the building, never a within-shape pad pair — its
+            # reading is the census's ``platform_rim_relief``
+            continue
         cap = p.cap(sh)
         if cap is None:
             continue

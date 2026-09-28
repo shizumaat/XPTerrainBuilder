@@ -89,8 +89,26 @@ def _placement_override(law, over: dict[str, object]):
     law (lane ``v2padqp``, §16g (10) (11)).
     """
     import dataclasses as _d
+    # ``SECTION.KEY`` names another ``structures.toml`` section (lane
+    # ``unitplatform2``: ``building_pad.platform_collar=false`` — the
+    # platform mint is read in ``planar/overlay`` too, so its matched base
+    # arm is this same one-variable replay-time arm)
+    other = {k: v for k, v in over.items() if "." in k}
+    over = {k: v for k, v in over.items() if "." not in k}
+    for k, v in other.items():
+        sec, key = k.split(".", 1)
+        tab = getattr(law.tables.structures, sec, None)
+        if tab is None or key not in {f.name for f in _d.fields(tab)}:
+            raise SystemExit(f"--placement: no such [structures] key {k!r}")
+        cur = getattr(tab, key)
+        val = (str(v).strip().lower() in ("1", "true", "yes", "on")
+               if isinstance(cur, bool) else
+               type(cur)(v) if isinstance(cur, (int, float)) else v)
+        law = _dc.replace(law, tables=_dc.replace(
+            law.tables, structures=_dc.replace(
+                law.tables.structures, **{sec: _dc.replace(tab, **{key: val})})))
     fields = {f.name: f.type for f in _d.fields(law.tables.structures.placement)}
-    kw: dict[str, object] = {}
+    kw: dict[str, object] = {k: v for k, v in other.items()}
     for k, v in over.items():
         if k not in fields:
             raise SystemExit(f"--placement: no such [placement] key {k!r}")
@@ -101,7 +119,8 @@ def _placement_override(law, over: dict[str, object]):
             kw[k] = type(cur)(v)
         else:
             kw[k] = v
-    pl = _dc.replace(law.tables.structures.placement, **kw)
+    pl = _dc.replace(law.tables.structures.placement,
+                     **{k: v for k, v in kw.items() if "." not in k})
     st = _dc.replace(law.tables.structures, placement=pl)
     return _dc.replace(law, tables=_dc.replace(law.tables, structures=st)), kw
 

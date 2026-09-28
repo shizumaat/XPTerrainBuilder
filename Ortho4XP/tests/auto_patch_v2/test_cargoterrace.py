@@ -68,7 +68,8 @@ def _cells(lower_pad: bool = True, front_touches: bool = False, pad=P):
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    from tests.auto_patch_v2._plate import plate_law
+    return plate_law(Law.for_airport("ZZZZ"))    # the subject is the plate (28b)
 
 
 def _built(law, cells, flat=False):

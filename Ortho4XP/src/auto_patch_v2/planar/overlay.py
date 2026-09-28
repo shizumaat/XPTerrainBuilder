@@ -227,6 +227,15 @@ def build_arrangement(airport: Airport, classification: Classification,
         base_regions, pad_regions, _terr = pad_terrace_split(
             base_regions, pad_regions, law, getattr(airport, "dem", None))
         _pad_clip.update(_terr)
+        # unit-platform spec §1 (2)-(4) (RULINGS 2026-09-28a (1)): a unit
+        # pad fronting airside becomes a PLATFORM inside a COLLAR — minted
+        # from the FINAL pad polygon (after the 23a cut and the 28b
+        # terrace), so no airside vertex is created or moved
+        from .platform import platform_split
+        pad_regions, _plat = platform_split(base_regions, pad_regions, law,
+                                            float(grid),
+                                            getattr(airport, "dem", None))
+        _pad_clip.update(_plat)
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []

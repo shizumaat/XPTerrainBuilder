@@ -2223,6 +2223,11 @@ def iter_shape_grade_constraints(
         # entry, which would take it off the step checks too.
         if law_role(w) in _DECLARED_PLATE_ROLES:
             continue
+        if _is_platform_collar(w):
+            # unit-platform spec §1 (3) / §3 P20: the COLLAR is a declared
+            # 1:3 bank under the building — never a within-shape pad pair;
+            # its reading is ``platform_rim_relief``
+            continue
         grade_cap = _role_grade_limit(w, max_grade)
         if grade_cap is None:
             continue  # skip ROLE_GRADE_LIMITS[role] is None
@@ -6335,7 +6340,10 @@ def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
         return out
     per_ref: Dict[str, List["Way"]] = {}
     for w in ways:
-        if effective_role(w) == "building" and w.ref:
+        if effective_role(w) == "building" and w.ref \
+                and not _is_platform_collar(w):
+            # unit-platform spec §3 P20: a platform COLLAR is the 1:3 bank
+            # between the weld and the platform — never a plate to bend
             per_ref.setdefault(str(w.ref), []).append(w)
     for ref, group in sorted(per_ref.items()):
         pts: List[Tuple[float, float]] = []
@@ -6502,6 +6510,67 @@ def _check_pad_airside_renode(renode_ll, nodes) -> List[Violation]:
 #: jetway-strip spec §2 (6) (a): a strip vertex off its strip's ONE level
 #: by more than this is a row — §31's visual floor, the spec's materiality.
 _JETWAY_STRIP_TOL_M = 0.05
+
+
+def _is_platform_collar(w) -> bool:
+    """A platform COLLAR way (unit-platform spec §1 (3)): ref ``<pad>#collar``
+    (``auto_patch_v2.model.planar.COLLAR_SUFFIX``)."""
+    return str(getattr(w, "ref", "") or "").endswith("#collar")
+
+
+def _platform_way(ref: str, kind: str) -> "Way":
+    return Way(kind, "building", f"{kind}:{ref}", "", [], [], {"role": "building"})
+
+
+def _check_platform_rim_relief(platforms_ll) -> List[Violation]:
+    """THE UNIT PLATFORM'S RIM RELIEF (unit-platform spec §4 (5); owner
+    RULINGS 2026-09-28a (1)) — REPORT, one row per platform.
+
+    SIDECAR-DECLARED like ``jetway_strip``: the build publishes per
+    platform its SOLVED plane and the relief its welded (airside) rim
+    carries against it (``platforms``: ``rim_relief_max_m``, ``worst_ll``,
+    ``collar_m``, ``collar_needed_m``); this reports exactly that, so a
+    platform whose relief outgrows its collar is read here and never
+    silently.  A platform with no welded rim carries 0.  A patch with no
+    key reports nothing."""
+    out: List[Violation] = []
+    for rec in platforms_ll or ():
+        if not isinstance(rec, dict) or rec.get("refused"):
+            continue
+        ref = str(rec.get("ref", ""))
+        mx = float(rec.get("rim_relief_max_m", 0.0) or 0.0)
+        ll = rec.get("worst_ll") or rec.get("centroid_ll") or (0.0, 0.0)
+        lvl = float(rec.get("level", 0.0) or 0.0)
+        way = _platform_way(ref, "platform_rim_relief")
+        v = Violation(grade_pct=0.0, excess_pct=0.0,
+                      distance_m=float(rec.get("collar_m", 0.0) or 0.0),
+                      de_m=mx, way_a=way, way_b=way,
+                      pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                      elev_a=float(rec.get("worst_z", lvl) or lvl), elev_b=lvl)
+        v.lat, v.lon = float(ll[0]), float(ll[1])
+        out.append(v)
+    return out
+
+
+def _check_platform_refused(platforms_ll) -> List[Violation]:
+    """A UNIT PAD THE PLATFORM REFUSED (unit-platform spec §1 (2)) — REPORT,
+    one row per refusal (its erosion by the collar left no inner ring of
+    ``cluster_pad_min_m2``; it keeps the welded plate).  Sidecar-declared;
+    the row carries the pad's area in ``distance_m``'s place of honour
+    (``de_m`` 0: a refusal has no height)."""
+    out: List[Violation] = []
+    for rec in platforms_ll or ():
+        if not isinstance(rec, dict) or not rec.get("refused"):
+            continue
+        way = _platform_way(str(rec.get("ref", "")) + ":" + str(rec["refused"]),
+                            "platform_refused")
+        v = Violation(grade_pct=0.0, excess_pct=0.0,
+                      distance_m=float(rec.get("pad_m2", 0.0) or 0.0),
+                      de_m=0.0, way_a=way, way_b=way,
+                      pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=0.0, elev_b=0.0)
+        v.lat, v.lon = 0.0, 0.0
+        out.append(v)
+    return out
 
 
 def _check_jetway_strip(jetway_strips_ll, nodes, ways) -> List[Violation]:
@@ -9434,6 +9503,15 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("jetway_strip",
      "JETWAY STRIP vertex off its ONE level, or a CLAMP the strip reported",
      "within"),
+    # THE UNIT PLATFORM (unit-platform spec §4 (5); RULINGS 2026-09-28a
+    # (1)).  SIDECAR-DECLARED like the strip above: ``platforms`` carries
+    # each platform's solved plane and its welded rim's relief; REPORT.
+    ("platform_rim_relief",
+     "PLATFORM rim relief the collar carries (one row per platform)",
+     "within"),
+    ("platform_refused",
+     "UNIT PAD that got NO platform (erosion left no inner ring)",
+     "within"),
     # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
     # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
     # above it: the accepted rects arrive as ``eat_rects`` and this prices
@@ -10171,6 +10249,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "pad_airside_renode": "pad_airside_renode_ll",
     # jetway-strip spec §2 (6): the strips, their levels, vertices, clamps
     "jetway_strips": "jetway_strips_ll",
+    # unit-platform spec §4 (5): the platforms, their planes and relief
+    "platforms": "platforms_ll",
     # §38 (3)/(5): the band's own half width, so ``bank_across_seam``
     # reads "inside the band" from the law the BUILD ran under
     "seam_half_width_m": "seam_half_width_m",
@@ -10600,6 +10680,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["pad_airside_renode_ll"] = data.get("pad_airside_renode")
     # jetway-strip spec §2 (6) (absent before the strip law: nothing)
     ctx["jetway_strips_ll"] = data.get("jetway_strips") or None
+    # unit-platform spec §4 (5) (absent before the platform: nothing)
+    ctx["platforms_ll"] = data.get("platforms") or None
     ctx["seam_half_width_m"] = data.get("seam_half_width_m")
     # §39 (1)/(2): the emitter's own foreign-water population
     ctx["shore_edges_ll"] = data.get("shore_edges") or None
@@ -11672,6 +11754,7 @@ def run_checks(
     seam_pins_ll: Optional[list] = None,
     pad_airside_renode_ll: Optional[list] = None,
     jetway_strips_ll: Optional[list] = None,
+    platforms_ll: Optional[list] = None,
     seam_half_width_m: Optional[float] = None,
     # §40 (2) as amended (owner RULINGS 2026-09-13dd): each runway's own
     # axis and half width, and the shoulder's transverse maximum — the
@@ -12172,6 +12255,19 @@ def run_checks(
         "spec §2 (6) (a)/(c) — the transition's pairs are within_shape's)",
         jstrip, top_n)
     within = within + jstrip
+
+    prelief = _fam("platform_rim_relief", _check_platform_rim_relief(platforms_ll))
+    _pv("PLATFORM rim relief the collar carries (unit-platform spec §4 (5); "
+        "RULINGS 2026-09-28a (1): one platform per unit, the welded rim "
+        "stays airside's and the collar banks between — REPORT, one row "
+        "per platform, de = the max relief against the solved plane)",
+        prelief, top_n)
+    within = within + prelief
+    prefused = _fam("platform_refused", _check_platform_refused(platforms_ll))
+    _pv("UNIT PAD with NO platform (unit-platform spec §1 (2): the collar's "
+        "erosion left no inner ring; the pad keeps its welded plate) — REPORT",
+        prefused, top_n)
+    within = within + prefused
 
     seam_resid = _fam("seam_residual",
                       _check_seam_residual(seam_pins_ll, nodes, ways))

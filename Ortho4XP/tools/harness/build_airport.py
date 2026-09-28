@@ -3193,7 +3193,7 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
       IMAGERY half (steps 3 masks + 4 tile) when the frame resolves no
       provider (RULINGS 2026-08-31d, ``imagery_capability``); the
       geometry-only *airport* frame is a different entry —
-      ``--geometry-only`` with ``--tile`` still refuses at the arg check.
+      ``--geometry-only`` refuses at the arg check (not wired for v2).
 
     Returns ``(timings, skipped)``: per-step seconds for the steps that
     ran, and the recorded skip reasons.
@@ -3533,7 +3533,11 @@ def main(argv=None) -> int:
     # retired, the setting and the selector gone with it).  These three
     # flags were wired for v1 and are NOT wired for v2; a flag that
     # quietly does nothing is how a lane comes to believe it measured
-    # something it did not, so each is refused by name.
+    # something it did not, so each is refused by name.  This refusal is
+    # THE law for them: the narrower v1-era combination rules
+    # (--geometry-only with --tile / with --solve-capture, --solve-capture
+    # with --tile) sat after it, unreachable, and were deleted with their
+    # twin (spec-author ruling (e) on issue #76, lane reds76b).
     for flag, on in (("--dem", args.dem is not None),
                      ("--geometry-only", bool(args.geometry_only)),
                      ("--solve-capture", args.solve_capture is not None)):
@@ -3553,25 +3557,6 @@ def main(argv=None) -> int:
             "airport patch has no textures; texture_mode is a per-tile "
             "engine key and the flag would silently do nothing.  Build "
             f"the tile: --tile LAT LON --texture-mode {args.texture_mode}.")
-    if args.geometry_only and args.tile:
-        raise SystemExit(
-            "REFUSING: --geometry-only with --tile is not wired — "
-            "build_tile runs the engine through another entry and the "
-            "flag would silently do nothing.  Build the airport directly.")
-    if args.geometry_only and args.solve_capture is not None:
-        raise SystemExit(
-            "REFUSING: --geometry-only never reaches the solve boundary, "
-            "so --solve-capture would silently capture nothing.")
-    if args.solve_capture is not None and args.tile:
-        # A flag that quietly does nothing is how a lane ends up believing
-        # it captured something: ``build_tile`` runs the engine through a
-        # different entry, so the airport-path arming above never fires.
-        raise SystemExit(
-            "REFUSING: --solve-capture with --tile is not wired in v1.  "
-            "Capture the airport directly (build_airport.py ICAO "
-            "--solve-capture DIR), or arm O4_SOLVE_CAPTURE in the "
-            "environment of the tile build knowingly — every airport the "
-            "tile builds then writes its own DIR/<ICAO>/ capture.")
     all_scopes = {sc for sc, _p, _w in REFRESH_SCOPES}
     requested = set()
     if args.refresh_data:

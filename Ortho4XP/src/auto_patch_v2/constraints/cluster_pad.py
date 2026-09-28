@@ -38,7 +38,7 @@ from ..geom import cluster_outlines, deck_shades
 from ..law import Law
 from ..law.tables import rolled_on_roles
 from ..model.airport import Airport
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
 
@@ -403,12 +403,43 @@ def plane_groups(planar: PlanarMap, law: Law, airport: Airport | None
     objects with, so the plane the design surface makes and the plane the
     objects seat on are one thing by construction."""
     groups = _pad_groups(planar, law)
+    # unit-platform spec §3 P1 / P9: a platform pad is TWO faces — the
+    # PLATFORM (the plate, its vertices the group) and the COLLAR (priced
+    # by ``constraints.platform``, never by the plate).  The collar's face
+    # id rides its platform's entry so the FRONTAGE it carries (the outer
+    # rim is the collar's) is read for the platform's level (P4), while
+    # none of its vertices joins the plate.
+    collars = [(fid, ref) for fid, ref, _g in groups if is_collar_ref(ref)]
+    groups = [g for g in groups if not is_collar_ref(g[1])]
+    out = _plane_groups(planar, law, airport, groups)
+    if not collars:
+        return out
+    by_ref: dict[str, int] = {}
+    for i, (_fid, _ref, _g, fids) in enumerate(out):
+        for q in fids:
+            by_ref.setdefault(planar.faces[q].ref, i)
+    for fid, ref in collars:
+        i = by_ref.get(platform_ref_of(ref))
+        if i is None:
+            continue                  # no platform face: the collar prices nothing
+        a, r, g, fids = out[i]
+        out[i] = (a, r, g, tuple(sorted((*fids, fid))))
+    return out
+
+
+def _plane_groups(planar: PlanarMap, law: Law, airport: Airport | None,
+                  groups: list[tuple[int, str, list[int]]]
+                  ) -> list[tuple[int, str, list[int], tuple[int, ...]]]:
+    """:func:`plane_groups` over the PLATE faces ``groups`` (the collars
+    already set aside)."""
     plain = [(fid, ref, group, (fid,)) for fid, ref, group in groups]
     if airport is None:
         return plain
     faces = cluster_pad_faces(planar, law, airport)
     if not faces:
         return plain
+    plate = {fid for fid, _r, _g in groups}
+    faces = {cid: [q for q in fs if q in plate] for cid, fs in faces.items()}
     # CLUSTERS SHARING A FACE ARE ONE PLANE (measured, round 4).  A face
     # belongs to at most one plane, and ``setdefault`` gave it to whichever
     # cluster was enumerated first: KCLT's two terminal rows BOTH stand on

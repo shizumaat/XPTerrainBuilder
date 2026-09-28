@@ -241,7 +241,9 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     if flat is not None:
         counts["flat_site"] = int(flat.substitutes)
     return RebakePlan(airport.icao, airport.pack.name, part.pack_root, tuple(units),
-                      part.skipped, counts, part.contacts, flat, part.abutments)
+                      part.skipped, counts, part.contacts, flat, part.abutments,
+                      connectors=(None if getattr(part, "connectors", None) is None
+                                  else tuple(v.to_dict() for v in part.connectors)))
 
 
 def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,

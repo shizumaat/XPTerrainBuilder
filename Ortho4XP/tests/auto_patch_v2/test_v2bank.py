@@ -45,11 +45,13 @@ def law(_shipped_law):
     ``[design] bank_omit`` says (owner RULINGS 2026-09-13cy ships it TRUE for
     the 1.0.330 read; the class's own law is what these twins prove)."""
     import dataclasses as _dc
-    emit = _shipped_law.tables.emit
+    from tests.auto_patch_v2._plate import plate_law
+    base = plate_law(_shipped_law)                # the pad twins' subject is the plate
+    emit = base.tables.emit
     if not getattr(emit.design, "bank_omit", False):
-        return _shipped_law
+        return base
     emit = _dc.replace(emit, design=_dc.replace(emit.design, bank_omit=False))
-    return _dc.replace(_shipped_law, tables=_dc.replace(_shipped_law.tables, emit=emit))
+    return _dc.replace(base, tables=_dc.replace(base.tables, emit=emit))
 
 
 class _FlatDem:

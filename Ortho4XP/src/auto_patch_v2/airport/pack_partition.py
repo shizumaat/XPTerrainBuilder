@@ -153,6 +153,10 @@ class PackPartition:
     #: the geometry index the incremental phase queries (``_LoadGeom``);
     #: ``None`` on a filtered or already-extended reading
     geom: _t.Any = None
+    #: unit-platform spec §2: THE ONE CONNECTOR VERDICT
+    #: (``footprint_connector.solid_connectors``), stamped by the pipeline
+    #: at planar time; the rebake plan carries it to the object stage
+    connectors: "tuple | None" = None
 
     def member_at(self, key: tuple[int, int]) -> Member:
         return self.units[key[0]].members[key[1]]

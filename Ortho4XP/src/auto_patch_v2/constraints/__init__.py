@@ -17,7 +17,7 @@ from ..model.planar import PlanarMap
 from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
                groundside, hard_plane,
                junction_mesh,
-               no_step, pad_frontage_gs, pad_fronting, pads,
+               no_step, pad_frontage_gs, pad_fronting, pads, platform,
                proximity, road_ramp, roads, routes, runway_chord, runway_profile, seams, strips,
                channel,
                structures,
@@ -86,6 +86,10 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("pad_frontage_level", pads.pad_frontage_level),
     ("pad_fronting_level", pad_fronting.pad_fronting_level),
     ("pad_slope_ceiling", pads.pad_slope_ceiling),
+    # unit-platform spec §1 (3) / §3 P3 (RULINGS 2026-09-28a (1)): the
+    # COLLAR between a platform and its welded rim is a 1:3 bank
+    ("platform_collar", platform.platform_collar_rows),
+    ("platform_plane", platform.platform_plane_rows),
     # §30 (4)'s apron reach / collar generators: DELETED (jetway-strip
     # spec §6 Q3) — the JETWAY STRIP projection is their successor.
     ("frontage_near_miss", pads.frontage_near_miss),

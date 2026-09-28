@@ -80,7 +80,7 @@ from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.islands import courtyard_faces
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
 from .pad_relief import pad_relief_offsets
 from .precedence import view
 
@@ -528,7 +528,11 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # per-face-complete PLUS cross-links, never over the concatenated rim
     # — the merged reading was measured inert (see ``cluster_pairs``).
     AIRSIDE_LED.clear()
-    per_face = {q: g for q, _r, g in _pad_groups(planar, law)}
+    # unit-platform spec §3 P1/P2: a COLLAR face rides its platform's plane
+    # group for the frontage it carries, never for the plate — its
+    # vertices are priced by ``constraints.platform`` alone
+    per_face = {q: g for q, r_, g in _pad_groups(planar, law)
+                if not is_collar_ref(r_)}
     n_cross = 0
     # §16g (10) (11) (a) THE PAD'S PLATE IS ONE-WAY TOWARD THE PAD (owner
     # RULINGS 2026-09-15z; lane ``v2padqp`` r2).  ATTRIBUTED FIRST, at the
@@ -555,11 +559,6 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # non-converging fixed point that §20c has since replaced.
     air = airside_vertices(planar, law) if airside_led else frozenset()
     n_led = n_dropped = n_in_pavement = 0
-    platform = bool(getattr(law.tables.structures.building_pad,
-                            "unit_platform", False))
-    air_all = (air if air else airside_vertices(planar, law)) if platform \
-        else frozenset()
-    n_platform = n_platform_cut = 0
     # §16g (10) (8) IS WITHDRAWN — NO SKIRT (owner RULINGS 2026-09-14ay,
     # confirmed 14bn; lane ``v2padjoin`` round 3).  A pad touching an
     # apron takes the apron's level along the shared edge and stays ONE
@@ -585,9 +584,14 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     for fid, ref, group, fids in plane_groups(planar, law, airport):
         src = Source(GEN, ruling, (f"face:{fid}", ref))
         src_led = Source(GEN, led_ruling, (f"face:{fid}", ref))
-        if len(fids) > 1:
-            prs, k = cluster_pairs(planar, [per_face[q] for q in fids
-                                            if q in per_face],
+        plate_fids = [q for q in fids if q in per_face]
+        # unit-platform spec §1 (1): a PLATFORM is ONE plane (its hard
+        # ``platform plane`` rows carry no relief, RULINGS 12u) — the
+        # plate over it prices no §30 (6) per-vertex relief either, or the
+        # two contest the plane (measured HECA T3: 0.56 m residual)
+        platformed = any(is_collar_ref(planar.faces[q].ref) for q in fids)
+        if len(plate_fids) > 1:
+            prs, k = cluster_pairs(planar, [per_face[q] for q in plate_fids],
                                    own=(None if not air else
                                         {v for v in group if v not in air}))
             n_cross += k
@@ -612,31 +616,7 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         led_here = bool(air) and len(own) >= _PLANE_MIN_OWN
         if air and not led_here:
             n_in_pavement += 1
-        # ONE PLATFORM PER UNIT (owner RULINGS 2026-09-28a (1), issue #66/#4).
-        # A terminal cluster's plate ("cluster:" — one pack unit whose
-        # footed floors share one zero, split at a floor by
-        # ``plan_clusters``) is priced over its OWN vertices only, in BOTH
-        # the flatness target and the 1 % ceiling: the pairs reaching an
-        # AIRSIDE vertex are the bend.  ATTRIBUTED at HECA T2
-        # (``cluster:unit:42#46``, 30.12883,31.40099, z 68.37 against a
-        # plate median 72.86): the only binding pad rows on its lowest
-        # vertex are the airside-led cap-0 pairs toward ``apron#220``,
-        # which falls 6.3 m along the pad — the plate followed each apron
-        # it touches and a 1.8 km unit spanned 21.9 m.  Without them the
-        # plate is one plane (its level still fitted to the frontage by
-        # ``pad_frontage_level``); the airside rim keeps its stage-1 value
-        # (airside is king) and the step between the two is the pad's edge
-        # terrace.  A plate with fewer than three own vertices keeps the
-        # rule above (no plane to hold).
-        plat = (platform and ref.startswith("cluster:")
-                and len([v for v in group if v not in air_all])
-                >= _PLANE_MIN_OWN)
-        if plat:
-            n_platform += 1
         for a, b in prs:
-            if plat and (a in air_all or b in air_all):
-                n_platform_cut += 1
-                continue
             if a == b:
                 continue
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
@@ -653,7 +633,8 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
                     n_led += 1
             rows.append(Diff(a, b, cap, d,
                              src_led if follows is not None else src,
-                             rel=off.get(a, 0.0) - off.get(b, 0.0),
+                             rel=(0.0 if platformed
+                                  else off.get(a, 0.0) - off.get(b, 0.0)),
                              follows=follows))
 
     if airside_led:
@@ -661,9 +642,6 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         AIRSIDE_LED["both_airside_dropped"] = n_dropped
         AIRSIDE_LED["pads_without_own_plane"] = n_in_pavement
     STATS.setdefault("pad_flats", {})["cluster_cross_links"] = n_cross
-    if platform:
-        STATS.setdefault("pad_flats", {}).update(
-            unit_platforms=n_platform, platform_airside_pairs_cut=n_platform_cut)
     STATS.setdefault("pad_flats", {}).update(AIRSIDE_LED)
     return rows
 
@@ -957,6 +935,16 @@ def frontage_contacts(planar: PlanarMap, law: Law
         verts = list(ring)
         for h in vw.holes[f.id]:
             verts.extend(h)
+        if is_collar_ref(f.ref):
+            # unit-platform spec §3 P8: the frontage reads the OUTER rim —
+            # a collar's platform ring (its hole) is 5 m inside the pad and
+            # no frontage's nearest pad vertex (MEASURED at HECA
+            # ``building200``: the near-miss row re-footed on the platform
+            # ring left stage 1 and moved the junction corner 0.149 m)
+            inner = {v for q, g in planar.faces.items()
+                     if g.ref == platform_ref_of(f.ref) and g.role == f.role
+                     for r_ in [vw.rings[q], *vw.holes[q]] for v in r_}
+            verts = [v for v in verts if v not in inner] or verts
         pads.append((f.id, poly, verts))
         pad_vertices.update(verts)
     if not pads:

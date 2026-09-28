@@ -155,3 +155,23 @@ def test_the_verdict_round_trips_the_rebake_plan_json():
     d = [x.to_dict() for x in v]
     back = tuple(FC.ConnectorVerdict.from_dict(x) for x in d)
     assert back == v
+
+
+def test_the_object_stage_seats_a_stamped_cut_connector_at_its_low_end():
+    """§2 at the object stage: the stamped CUT connector is out of every
+    unit's chain, yet never orphaned to §16c — its row IS its low end's
+    seat and carries the verdict ``cut`` that ``_bind_plan_wide`` takes
+    without re-asking the staged step."""
+    plan, v = _verdict("piers", 29.0)
+    plan.connectors = v
+    counts: dict = {}
+    pw, _s = FU.plan_wide_seats(plan, _ground(29.0), (), 0.5, 0.0, counts,
+                                200.0, 2.5)
+    assert counts["connector_verdict_stamped"] == 1
+    assert counts["connectors_cut"] == 1
+    # A and B are no longer one unit
+    assert pw.get(1, ("a",))[0] != pw.get(2, ("b",))[0]
+    row = pw[10]
+    assert len(row) == 7 and row[6] == "cut"
+    assert row[4][0] and row[4][1]                  # both ends named
+    assert abs(row[5][1] - 100.0) < 1e-6            # the LOW end's ground

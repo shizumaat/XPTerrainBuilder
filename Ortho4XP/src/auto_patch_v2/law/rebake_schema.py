@@ -211,7 +211,8 @@ class Placement:
     #: jetway-strip spec §1 (1) (issues #31/#32): the cap on a RIDER's
     #: reach — ``max(footprint_touch_m, declared plan half-extent)``
     #: capped at this.  ``airport/riders.py`` is the one reader.
-    rider_reach_max_m: float = 10.0
+    #: 12 m: owner RULINGS 2026-09-28a (3) (Q-31b).
+    rider_reach_max_m: float = 12.0
 
     #: §16g (10) (1) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x):
     #: "pads must match building clusters ... they should match exactly."

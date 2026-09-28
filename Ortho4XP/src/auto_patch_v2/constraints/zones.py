@@ -75,7 +75,7 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import (is_value_role, role_side, strip_transverse_bound,
-                          zone2_half_width_m, zone_bounds)
+                          snap_margin_m, zone2_half_width_m, zone_bounds)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -184,6 +184,9 @@ class _Context:
     tie_pop: dict[int, int] = _dc.field(default_factory=dict)
     #: rigid face id -> its rim vertices (attached pads included)
     rigid_rims: dict[int, list[int]] = _dc.field(default_factory=dict)
+    #: §37 (11) (7): the NATURAL-SHORE vertices (the band falls at up to
+    #: the bank slope, 1:3, to the water line — owner RULINGS 2026-09-27a (7))
+    natural: set[int] = _dc.field(default_factory=set)
 
 
 def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
@@ -254,11 +257,16 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     # the coastline itself, which the mesh's own Round 7 / R17-3 sea-wall
     # breaklines make vertical from the ring the patch ends at.
     quay_refs = frozenset(getattr(planar, "quay_refs", ()) or ())
+    natural_refs = frozenset(getattr(planar, "natural_shore_refs", ()) or ())
     quay: set[int] = set()
+    natural: set[int] = set()
     for f in vw.faces_of_role(("graded_strip",)):
         if f.ref in quay_refs:
             for ring in [vw.rings[f.id], *vw.holes[f.id]]:
                 quay.update(ring)
+        elif f.ref in natural_refs:
+            for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+                natural.update(ring)
         cls = _face_class(f)
         if cls is None:
             continue
@@ -405,8 +413,22 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
                  or any(_face_class_of(edges[f_[1]]) == c for c in classes)]
         return found
 
+    natural = _in_wedges(vw, natural - quay,
+                         getattr(planar, "natural_shore_wedges", ()) or (), law)
     return _Context(vw, edges, by_family, cell, reach, half_of, abeam, member, own_law,
-                    quay, wall_vertices, pad_rim, _found, tie_pop, rigid_rims)
+                    quay, wall_vertices, pad_rim, _found, tie_pop, rigid_rims,
+                    natural)
+
+
+def _in_wedges(vw, ids: set[int], rings, law: Law) -> set[int]:
+    """§37 (11) (7): the natural-shore vertices standing inside a wedge."""
+    if not ids or not rings:
+        return set()
+    from shapely.geometry import Point, Polygon as _P
+    from shapely.ops import unary_union as _uu
+    tol = snap_margin_m(law)
+    wedges = _uu([_P(r) for r in rings]).buffer(tol)
+    return {v for v in ids if wedges.covers(Point(vw.xy[v]))}
 
 
 def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
@@ -474,6 +496,14 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if rank > 0:
                     continue
                 lo = hi = 0.0
+            elif v in ctx.natural:
+                # §37 (11) (7) (owner RULINGS 2026-09-27a (7)): a NATURAL
+                # shore slopes to the water line — zone 2 falls at up to
+                # the bank slope (1:3), never a vertical face.  Only the
+                # FALL relaxes; the lip and the mandatory-down ceiling stand.
+                lo, hi = zone_bounds(law, role, d_eff, cn, cl,
+                                     band_max_down=float(
+                                         law.tables.emit.design.bank_slope))
             else:
                 lo, hi = zone_bounds(law, role, d_eff, cn, cl)
             if lo is None and hi is None:

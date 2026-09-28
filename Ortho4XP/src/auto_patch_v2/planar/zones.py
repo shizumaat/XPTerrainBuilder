@@ -19,7 +19,7 @@ from __future__ import annotations
 import dataclasses as _dc
 
 import shapely
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
@@ -27,7 +27,8 @@ from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
-__all__ = ["ZoneRegion", "zone_regions", "shore_region"]
+__all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
+           "SHORE_WALL_TAGS", "shore_wedge_m"]
 
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -84,6 +85,34 @@ def shore_region(cells: tuple[Cell, ...], dem):
     return None if w.is_empty else w
 
 
+#: §37 (11) (7) (owner RULINGS 2026-09-27a (7)): the OSM tags that DECLARE
+#: a built shore — a quay, a pier, a breakwater, a sea wall.  Only there
+#: does §37 (11) (2)'s quay wall stand; every other coastline is a NATURAL
+#: shore and the strip slopes to the water line.
+SHORE_WALL_TAGS: dict[str, frozenset] = {
+    "man_made": frozenset({"quay", "pier", "breakwater", "seawall", "groyne",
+                           "dyke"}),
+    "barrier": frozenset({"wall", "retaining_wall", "seawall"}),
+    "wall": frozenset({"seawall", "retaining_wall"}),
+}
+
+
+def shore_declarations(osm_ways=()) -> tuple[LineString, ...]:
+    """§37 (11) (7): the frame lines of every loaded OSM way that DECLARES
+    a built shore (``SHORE_WALL_TAGS``).  ONE derivation, read by the one
+    zone derivation site; an airport with none declares every coast
+    natural."""
+    out: list[LineString] = []
+    for w in osm_ways or ():
+        tags = getattr(w, "tags", None) or {}
+        if not any(tags.get(k) in vals for k, vals in SHORE_WALL_TAGS.items()):
+            continue
+        pts = [(float(p[0]), float(p[1])) for p in getattr(w, "points", ())]
+        if len(pts) >= 2:
+            out.append(LineString(pts))
+    return tuple(out)
+
+
 @_dc.dataclass(frozen=True)
 class ZoneRegion:
     """One zone face source."""
@@ -107,11 +136,25 @@ class ZoneRegion:
     #: the pavement edge's level, ending at the coastline in a SEA WALL;
     #: it takes no zone band (a relaxed band is still a fall).
     quay: bool = False
+    #: §37 (11) (7) (owner RULINGS 2026-09-27a (7)): this region reaches a
+    #: NATURAL shore — no quay or wall is declared there and the land is
+    #: wider than the lip — so it SLOPES to the water line: its band falls
+    #: at up to the bank slope (1:3, ``emit.design.bank_slope``) and its
+    #: coastline vertices take the water level.  No vertical face.
+    natural_shore: bool = False
+    #: §37 (11) (7): the part of a natural-shore region the slope lives in —
+    #: the land within ``shore_wedge_m`` of the coast (the run a 1:3 bank
+    #: needs to fall from the field to the sea).  Only here does the band
+    #: fall at the bank slope; farther ground keeps its class's band.
+    #: ``None`` = the whole region (no wedge width stated).
+    shore_wedge: Polygon | None = None
 
 
 def zone_regions(cells: tuple[Cell, ...], law: Law,
                  keepouts: tuple[tuple, ...] = (), dem=None, roads=(),
-                 edge_report: EdgeReport | None = None) -> list[ZoneRegion]:
+                 edge_report: EdgeReport | None = None,
+                 declared: tuple = (),
+                 shore_wedge_m: float | None = None) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -221,12 +264,70 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                     continue
                 mine = tuple(ln for ln in clip.lines
                              if ln.distance(g) <= snap_margin_m(law))
-                # §37 (11) (2): a part that REACHES the coastline is a QUAY
-                quay = bool(water is not None
-                            and g.distance(water) <= snap_margin_m(law))
+                # §37 (11) (2) as ruled 2026-09-27a (7): a part that
+                # REACHES the coastline is a QUAY only where the shore is
+                # BUILT — a declared quay / wall there, or the pavement
+                # edge itself standing on the coastline (the coast within
+                # the lip: no land is left to slope on).  Every other
+                # reaching part is a NATURAL shore and slopes to the water.
+                reach = bool(water is not None
+                             and g.distance(water) <= snap_margin_m(law))
+                quay = natural = False
+                wedge = None
+                if reach:
+                    quay = _built_shore(g, u, water, declared, lip, law)
+                    natural = not quay
+                    if natural and shore_wedge_m is not None:
+                        wedge = g.intersection(water.buffer(shore_wedge_m, **_MITRE))
                 out.append(ZoneRegion(f"adjacent_ground:{fam}:{cls}:zone{zone}#{k}",
                                       g, zone, fam, cn, cl,
-                                      clip.kind if mine else "none", mine, quay))
+                                      clip.kind if mine else "none", mine, quay,
+                                      natural, wedge))
                 k += 1
         claimed = unary_union([claimed, outer])
     return out
+
+
+def _built_shore(g, pavement, water, declared, lip: float, law: Law) -> bool:
+    """§37 (11) (2)/(7): is the coast this zone part meets a BUILT shore?
+
+    Yes where a declared quay / pier / breakwater / sea wall
+    (:func:`shore_declarations`) lies on that contact, or where the
+    contact lies within the lip of the pavement (all but
+    :data:`BUILT_SHORE_SPILL` of its length — the mitred corners of a lip
+    ring stand a little farther out) — the pavement edge IS the coastline
+    (§37 (11) (2)'s own second clause), so there is no land to slope on
+    and the pavement edge is the wall."""
+    tol = snap_margin_m(law)
+    contact = g.boundary.intersection(water.buffer(tol))
+    if contact.is_empty or contact.length <= 0.0:
+        return False
+    for ln in declared or ():
+        if ln.distance(contact) <= lip:
+            return True
+    far = contact.difference(pavement.buffer(lip + tol, **_MITRE)).length
+    return far <= BUILT_SHORE_SPILL * contact.length
+
+
+#: §37 (11) (7): the share of a zone part's coastline contact that may lie
+#: beyond the lip while the part still reads "the pavement edge IS the
+#: coastline" (the lip ring's mitred corners).  An ASSUMPTION, not a law.
+BUILT_SHORE_SPILL = 0.1
+
+
+#: §37 (11) (7): the head room a natural-shore wedge is sized with above the
+#: field elevation (a pavement edge standing a little over the apt.dat
+#: field elevation still meets the sea inside the wedge).  An ASSUMPTION of
+#: this lane, stated where it is used, never a law.
+SHORE_WEDGE_HEADROOM_M = 1.0
+
+
+def shore_wedge_m(law: Law, field_elevation_m: float) -> float:
+    """§37 (11) (7): the width of land beside a natural coast in which the
+    strip falls at the bank slope — the lip plus the run a 1:3 bank needs
+    to fall from the field (``field_elevation_m`` above the sea, plus
+    :data:`SHORE_WEDGE_HEADROOM_M`) to the water line."""
+    bank = float(law.tables.emit.design.bank_slope)
+    lip = float(law.tables.zones.adjacent_ground.lip_width_m)
+    h = max(float(field_elevation_m), 0.0) + SHORE_WEDGE_HEADROOM_M
+    return lip + h / bank

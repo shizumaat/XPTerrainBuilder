@@ -320,7 +320,11 @@ def build(airport: Airport, classification: Classification, law: Law,
                    edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
                                      if r.edge_kind != "none"},
                    quay_refs=frozenset(r.ref for r in arr.regions
-                                       if getattr(r, "quay", False)))
+                                       if getattr(r, "quay", False)),
+                   natural_shore_refs=frozenset(
+                       r.ref for r in arr.regions
+                       if getattr(r, "natural_shore", False)),
+                   natural_shore_wedges=_wedge_rings(arr.regions))
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps
@@ -471,3 +475,19 @@ def _spacing(pm: PlanarMap) -> tuple[float, float]:
     longest = max(LineString([pm.vertices[e.a].xy, pm.vertices[e.b].xy]).length
                   for e in pm.edges.values())
     return (best if best < float("inf") else 0.0), longest
+
+
+def _wedge_rings(regions) -> tuple:
+    """§37 (11) (7): the natural-shore wedges as frame exterior rings (the
+    constraint membership test and the sidecar publication read these)."""
+    import shapely
+    out = []
+    for r in regions:
+        if not getattr(r, "natural_shore", False):
+            continue
+        w = getattr(r, "shore_wedge", None)
+        geom = r.polygon if w is None else w
+        for g in shapely.get_parts(geom):
+            if g.geom_type == "Polygon" and not g.is_empty and g.area > 0.0:
+                out.append(tuple((float(x), float(y)) for x, y in g.exterior.coords))
+    return tuple(out)

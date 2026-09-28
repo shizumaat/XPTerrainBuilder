@@ -423,10 +423,18 @@ def test_a_zone_that_reaches_the_coastline_is_a_quay(law):
     """§37 (11) (2): where the land between the pavement edge and the
     coastline is narrower than lip + half-width the zone REACHES the
     water, and that land is a QUAY — one plane at the pavement edge's
-    level, ending at the coastline in a sea wall."""
-    wet = zone_regions(_zone_cells(), law, (), _SeaDem(), ())
+    level, ending at the coastline in a sea wall — WHERE THE SHORE IS
+    BUILT (owner RULINGS 2026-09-27a (7)): a declared ``man_made=quay``
+    along the coast (VMMC's reclaimed seafront).  The undeclared case is
+    ``test_v2naturalshore``'s."""
+    quay_line = OsmWay(-900, "fixture", ((-300.0, -30.0), (300.0, -30.0)),
+                       False, {"man_made": "quay"})
+    from auto_patch_v2.planar.zones import shore_declarations
+    wet = zone_regions(_zone_cells(), law, (), _SeaDem(), (), None,
+                       shore_declarations((quay_line,)))
     quays = [r for r in wet if r.quay]
     assert quays, [r.ref for r in wet]
+    assert not any(r.natural_shore for r in wet)
     # ...and a region nowhere near the water is NOT a quay
     inland = zone_regions(_zone_cells(), law, (), _SeaDem(-5000.0), ())
     assert not any(r.quay for r in inland)

@@ -532,7 +532,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         law, pad_union)
     for k, body in enumerate(op_bodies):
         dsf_pavements.append(Pavement(
-            f"dsf:objpav{k}", normalise_surface(
+            (f"{_objpav.HARD_PLANE_PREFIX}{k}" if body.hard_plane
+             else f"dsf:objpav{k}"), normalise_surface(
                 _dsf.pavement_surface_code(body.resource)),
             tuple((float(x), float(y)) for x, y in body.polygon.exterior.coords[:-1]),
             tuple(tuple((float(x), float(y)) for x, y in r.coords[:-1])

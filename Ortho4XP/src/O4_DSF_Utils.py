@@ -64,10 +64,32 @@ def _patch_triangle_commands(indices, opcode, words_per_cmd):
     return b"".join(parts)
 
 
+# The quadtree address of a tile-relative coordinate, one bit per level.
+# A pool at quadtree level L stores each vertex as the 16 bits that FOLLOW
+# its L-bit key (``bits[L : L + 16]``), so the address must carry at least
+# ``QUAD_MAX_LEVEL + 16`` bits.  It carried 24 until 2026-09-27 (#18): any
+# pool deeper than level 8 then read fewer than 16 bits and wrote them as
+# the LOW bits of a 16-bit fraction, pulling every vertex toward its cell's
+# south-west corner by 2**(L-8) — at NLWF (a 1.47 M-triangle island mesh,
+# 532 k nodes in level-14 pools) 60 % of the airport's DSF vertices sat in
+# the lowest 1/64 of their cell, median 3.0 m off the mesh, and the folded
+# triangles were the ridge across the runway and the terraced threshold
+# bars the owner read in the sim.  Every level <= 8 address is a prefix of
+# the longer one, so shallow tiles encode byte-identically.
+QUAD_MAX_LEVEL = 14
+QQUAD_BITS = 32
+assert QUAD_MAX_LEVEL + 16 <= QQUAD_BITS
+
+
 def float2qquad(x):
     if x >= 1:
-        return "111111111111111111111111"
-    return numpy.binary_repr(int(16777216 * x)).zfill(24)  # 2**24 == 16777216
+        return "1" * QQUAD_BITS
+    return numpy.binary_repr(int((1 << QQUAD_BITS) * x)).zfill(QQUAD_BITS)
+
+
+def pool_icoord(qquad, level):
+    """The 16-bit in-pool coordinate of a quadtree address at ``level``."""
+    return int(qquad[level : level + 16], 2)
 
 
 ################################################################################
@@ -115,7 +137,7 @@ class QuadTree(dict):
                 break
             level += 1
         # Complex meshes can cause level to exceed 14, so we cap it
-        if self[key]["size"] < self.bucket_size or level >= 14:
+        if self[key]["size"] < self.bucket_size or level >= QUAD_MAX_LEVEL:
             self[key]["idx_nodes"].add(self.last_node)
             self[key]["size"] += 1
             self.nodes[self.last_node] = (bx, by)
@@ -882,15 +904,11 @@ def build_dsf(tile, download_queue):
         level = len(key[0])
         plist = sorted(list(pool_quadtree[key]["idx_nodes"]))
         node_icoords[[5 * idx_node for idx_node in plist]] = [
-            int(pool_quadtree.nodes[idx_node][0][level : level + 16], 2)
-            if pool_quadtree.nodes[idx_node][0][level : level + 16]
-            else 0
+            pool_icoord(pool_quadtree.nodes[idx_node][0], level)
             for idx_node in plist
         ]
         node_icoords[[5 * idx_node + 1 for idx_node in plist]] = [
-            int(pool_quadtree.nodes[idx_node][1][level : level + 16], 2)
-            if pool_quadtree.nodes[idx_node][1][level : level + 16]
-            else 0
+            pool_icoord(pool_quadtree.nodes[idx_node][1], level)
             for idx_node in plist
         ]
         altitudes = numpy.array(

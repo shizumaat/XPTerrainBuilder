@@ -15,7 +15,7 @@ from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Diff, Linear, Offset, Pin, Row
 from ..model.planar import PlanarMap
 from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
-               groundside,
+               groundside, hard_plane,
                junction_mesh,
                no_step, pad_frontage_gs, pads,
                proximity, road_ramp, roads, routes, runway_chord, runway_profile, seams, strips,
@@ -44,6 +44,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("taxi_box", taxi.taxi_box),
     ("junction_mesh", junction_mesh.junction_mesh),
     ("apron_within_shape", apron.apron_within_shape),
+    # §42 (1b) (owner RULINGS 2026-09-27a (5)): a hard ground plane is ONE
+    # level (a Flat), its level the runway-edge frontage's
+    ("hard_plane_level", hard_plane.hard_plane_level),
     ("apron_edge_portions", apron.apron_edge_portions),
     ("road_within_shape", roads.road_within_shape),
     # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE DEM

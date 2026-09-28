@@ -544,7 +544,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         # along the road edge RETAINS it — the road's graded strip
         # extends to the wall's face and on to its end
         from . import retaining_wall as _rw
-        lane_m = float(law.tables.emit.road_profile.lane_width_m) if law is not None else 0.0
+        lane_m = float(rules.service.retaining_wall_reach_m)
         _rpieces = _rw.retaining_pieces(airport, road, lane_m, rules.service)
         road = unary_union([road, _rw.road_extension(_rpieces, road, lane_m)])
         stats.update({f"retaining_{k}": v for k, v in _rw.STATS.items()})

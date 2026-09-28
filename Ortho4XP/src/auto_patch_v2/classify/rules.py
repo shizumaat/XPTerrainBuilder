@@ -81,6 +81,7 @@ class Service:
     retaining_wall_min_length_m: float = 10.0
     retaining_wall_max_width_m: float = 1.0
     retaining_wall_along_fraction: float = 0.8
+    retaining_wall_reach_m: float = 8.0
 
 
 @_dc.dataclass(frozen=True)

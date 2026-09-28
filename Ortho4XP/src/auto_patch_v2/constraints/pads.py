@@ -545,7 +545,7 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # holding the pad inside a round — was measured under the
     # non-converging fixed point that §20c has since replaced.
     air = airside_vertices(planar, law) if airside_led else frozenset()
-    rel = pad_fronting.released(planar, law, airport)    # 27a (9) junior weld
+    rel_g = pad_fronting.released(planar, law, airport)  # 27a (9) junior weld
     n_led = n_dropped = n_in_pavement = 0
     # §16g (10) (8) IS WITHDRAWN — NO SKIRT (owner RULINGS 2026-09-14ay,
     # confirmed 14bn; lane ``v2padjoin`` round 3).  A pad touching an
@@ -600,7 +600,7 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         if air and not led_here:
             n_in_pavement += 1
         for a, b in prs:
-            if a == b or a in rel or b in rel:
+            if a == b or a in rel_g.get(fid, ()) or b in rel_g.get(fid, ()):
                 continue
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
             if d <= 0.0:

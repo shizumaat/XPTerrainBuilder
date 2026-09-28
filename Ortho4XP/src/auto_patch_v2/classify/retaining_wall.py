@@ -15,7 +15,7 @@ max_width_m``), at least ``[service] retaining_wall_min_height_m`` tall
 and at least ``[service] retaining_wall_min_length_m`` long.  A piece of
 it (one footprint ring) RUNS ALONG A ROAD EDGE when at least
 ``[service] retaining_wall_along_fraction`` of its plan area lies within
-ONE LANE WIDTH (``emit.toml road_profile`` ``lane_width_m``) of a service
+``[service] retaining_wall_reach_m`` (one lane width past the road the 6 m corridor under-draws — see rules.toml) of a service
 road ribbon.  Such a piece is a RETAINING piece.
 
 THE ROAD'S GRADED STRIP EXTENDS TO THE WALL (:func:`road_extension`): the
@@ -87,7 +87,8 @@ def retaining_pieces(airport: Airport, ribbon, lane_m: float, cfg
     for u in part.units:
         for m in u.members:
             for p in m.parts:
-                if not p.rings or p.height_m < float(cfg.retaining_wall_min_height_m):
+                if not p.rings or getattr(p, "line", False) or \
+                        p.height_m < float(cfg.retaining_wall_min_height_m):
                     continue
                 polys = []
                 for rg in p.rings:

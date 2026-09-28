@@ -212,7 +212,7 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
         return hit
     from .cluster_pad import plane_groups
     from .pads import (_pad_polys, frontage_leaders, pad_frontage_leaders,
-                       pad_shared, _LEADER_NEAR_M)
+                       pad_shared, rigid_roles, _LEADER_NEAR_M)
     fac = facing(planar, law)
     polys = {fid: poly for fid, _r, _g, poly in _pad_polys(planar, law)}
     vw = view(planar, law)
@@ -258,8 +258,25 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
                        "facing_level": lf, "touching_level": lt,
                        "facing_m": lf_m, "touching_m": lt_m,
                        "senior": senior, "released": rel}
+    # A SENIOR-FACING pad also lets go of the pads it merely TOUCHES and
+    # that do not face up with it: a vertex shared with such a pad is that
+    # pad's plate, and MEASURED at HECA it chained ``building52`` (201)
+    # through ``building135`` down to the low apron it had just released
+    # (arm 1: the cargo pads fell 93.5 -> 92.2).  Per group: the other
+    # pad keeps the vertex in its own plate.
+    rigid = set(rigid_roles(law))
+    up = {q for g in groups.values() if g["senior"] for q in g["fids"]}
+    for g in groups.values():
+        if not g["senior"]:
+            continue
+        for v in g["group"]:
+            if any(f not in up and planar.faces[f].role in rigid
+                   for f in planar.vertices[v].incident_faces):
+                g["released"].add(v)
     out = {"_pm": planar, "groups": groups,
            "released": {v for g in groups.values() for v in g["released"]},
+           "released_by_group": {gid: g["released"] for gid, g in groups.items()
+                                 if g["released"]},
            "senior_groups": {gid for gid, g in groups.items()
                              if g["senior"] and g["touching_level"] is not None}}
     _CACHE.clear()
@@ -267,11 +284,13 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
     return out
 
 
-def released(planar: PlanarMap, law: Law, airport: Airport | None) -> set[int]:
-    """The weld vertices a pad's plate and ceiling no longer price: those
-    it shares with a JUNIOR touching apron where a higher FACING apron is
-    its senior (module docstring)."""
-    return analysis(planar, law, airport)["released"]
+def released(planar: PlanarMap, law: Law, airport: Airport | None
+             ) -> dict[int, set[int]]:
+    """Plane-group id -> the vertices THAT group's plate and ceiling no
+    longer price: those it shares with a JUNIOR touching apron where a
+    higher FACING apron is its senior, and those it shares with a touching
+    pad that does not face up with it (module docstring)."""
+    return analysis(planar, law, airport)["released_by_group"]
 
 
 def pad_fronting_level(planar: PlanarMap, law: Law, airport: Airport

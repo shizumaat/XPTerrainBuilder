@@ -59,6 +59,14 @@ retaining_wall_min_height_m   = 2.0
 retaining_wall_min_length_m   = 10.0
 retaining_wall_max_width_m    = 1.0
 retaining_wall_along_fraction = 0.8
+# "within one lane width" of the road EDGE: the 1206 corridor is minted
+# `road_width_m` 6.0 wide, narrower than the two-lane road the pack draws,
+# so the reach is read from the corridor's edge as ONE lane (4.0, emit.toml
+# [road_profile] lane_width_m) PLUS the lane the 6 m corridor leaves
+# undrawn — measured at HECA 30.1122535, 31.4062746: the wall's pieces stand
+# 0.96 / 2.59 m off the corridor, with 97-100 % of their area inside 8 m and
+# 49-55 % inside 4 m.  DEVIATION from "one lane width" for the spec author.
+retaining_wall_reach_m        = 8.0
 
 [osm_roads]                    # OSM highway=* ways as ground-vehicle centrelines beside the 1206 routes (RULINGS 2026-08-15: the mapped road IS the spine where nothing better exists; owner 2026-09-04j evidence)
 enabled   = true

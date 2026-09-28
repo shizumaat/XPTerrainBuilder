@@ -144,6 +144,11 @@ def census(doc: _t.Mapping[str, _t.Any], dump: _t.Any, surface: _t.Callable,
         return best
 
     strip_by_id = {str(s.get("id", "")): s for s in strips}
+    to_xy = None
+    crs = (doc.get("frame") or {}).get("crs")
+    if crs:
+        from pyproj import Transformer
+        to_xy = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform
 
     def _lsq_at(pts: _t.Sequence[tuple[float, float, float]], lat: float,
                 lon: float) -> float | None:
@@ -167,12 +172,24 @@ def census(doc: _t.Mapping[str, _t.Any], dump: _t.Any, surface: _t.Callable,
         """BAR 1's reference (spec-author ruling on #31, Q-32a (d)): THE PAD
         PLANE evaluated at the rider's anchor.  A strip that took the plane
         publishes every vertex's target ON it (``vertices_ll[*][2]``), so
-        the plane through those targets IS the pad plane (``strip``).  A
-        GATED strip (no plane) or a rider outside any strip reads the
+        the plane through those targets IS the pad plane.  Read first off
+        the strip's published ``plane`` in the document's ``frame``
+        (``strip``; a GATED strip publishes the frontage fit the gate
+        refused: ``strip_gated``), else through the targets.  A rider
+        outside any strip, or a document with no frame, reads the
         least-squares plane through its host pad's graded ring, every face
         of the ref (``pad_fit``)."""
         st = strip_by_id.get(strip_id)
-        if st is not None and st.get("plane") is not None:
+        pl = None if st is None else st.get("plane")
+        if pl is not None and len(pl) == 5 and to_xy is not None:
+            # the published plane ``(z0, gx, gy, x0, y0)`` in the graded
+            # document's own frame — a GATED strip publishes it too (the
+            # frontage fit the gate refused), read as ``strip_gated``
+            x, y = to_xy(lon, lat)
+            z0, gx, gy, x0, y0 = (float(c) for c in pl)
+            return (z0 + gx * (x - x0) + gy * (y - y0),
+                    "strip" if st.get("level") is not None else "strip_gated")
+        if pl is not None:
             pts = [(float(v[0]), float(v[1]), float(v[2]))
                    for v in (st.get("vertices_ll") or ()) if len(v) > 2]
             z = _lsq_at(pts, lat, lon)

@@ -223,3 +223,35 @@ def test_bar_1_reads_the_pad_plane_at_the_rider():
     x, = rep["population"]
     assert x["plane_src"] == "pad_fit"
     assert x["plane_z"] is not None
+
+
+def test_bar_1_reads_the_published_plane_in_the_documents_frame():
+    """The strip's published ``plane`` ``(z0, gx, gy, x0, y0)`` is read in
+    the graded document's own ``frame``; a GATED strip (level None) still
+    publishes the frontage fit and reads ``strip_gated``."""
+    if str(TOOLS) not in sys.path:
+        sys.path.insert(0, str(TOOLS))
+    import jetway_rider_census as JRC
+    from pyproj import Transformer
+    crs = "+proj=tmerc +lat_0=10 +lon_0=20 +k=1 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs"
+    fwd = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform
+
+    def plane(la, lo):
+        x, y = fwd(lo, la)
+        return 100.0 + 0.008 * (x - 5.0) - 0.003 * (y + 2.0)
+
+    doc = _graded_doc()
+    doc["frame"] = {"crs": crs}
+    s = doc["provenance"]["jetway_strips"][0]
+    s["plane"] = [100.0, 0.008, -0.003, 5.0, -2.0]
+    rider = (10.0, 20.002)
+    s["riders"] = [[rider[0], rider[1], "Airport/Jetway/j.agp", 5.0, 0,
+                    "terminal", 0.1]]
+    rows = (_P(rider[0], rider[1], "Airport/Jetway/j.agp"),)
+    for level, src in ((100.0, "strip"), (None, "strip_gated")):
+        s["level"] = level
+        rep = JRC.census(doc, NS(placements=rows), plane, tol_m=0.02,
+                         names="jetway", gate_m=40.0)
+        x, = rep["population"]
+        assert x["plane_src"] == src
+        assert abs(x["terrain_minus_plane"]) <= 1e-3

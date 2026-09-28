@@ -58,7 +58,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["SurfaceTrend", "surface_trend_of", "cell_samples", "plan_cell_samples"]
+__all__ = ["SurfaceTrend", "surface_trend_of", "cell_samples"]
 
 #: The relative singular-value cutoff below which a query's normal
 #: equations are treated as singular and the fit falls back by degree.  A
@@ -231,59 +231,3 @@ def cell_samples(xy: np.ndarray, window_m: float,
     zc = Z.mean(axis=1)
     return [(float(a), float(b), float(c))
             for a, b, c in zip(centres[:, 0], centres[:, 1], zc)]
-
-
-def _cell_values(centres: np.ndarray, cell: float,
-                 sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray]
-                 ) -> list[tuple[float, float, float]]:
-    """Each cell centre with the production DEM AVERAGED over its cell."""
-    k = _CELL_SUBSAMPLES
-    off = ((np.arange(k, dtype=float) + 0.5) / k - 0.5) * cell
-    ox, oy = np.meshgrid(off, off, indexing="ij")
-    X = (centres[:, 0:1] + ox.ravel()[None, :]).ravel()
-    Y = (centres[:, 1:2] + oy.ravel()[None, :]).ravel()
-    Z = np.asarray(sample(X, Y), dtype=float).reshape(centres.shape[0], k * k)
-    zc = Z.mean(axis=1)
-    return [(float(a), float(b), float(c))
-            for a, b, c in zip(centres[:, 0], centres[:, 1], zc)]
-
-
-def plan_cell_samples(plan, window_m: float,
-                      sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray]
-                      ) -> list[tuple[float, float, float]]:
-    """The fit's samples for a body whose PLAN (a shapely areal geometry,
-    holes filled) is ``plan``: one per cell of the ``cell_samples`` grid the
-    plan COVERS with positive area, its value the DEM averaged over it.
-
-    Issue #81: ``cell_samples`` takes the cells its VERTICES fall in, and a
-    big apron face carries vertices on its rings only, so a new ring inside
-    it (the apron cut to a pad, RULINGS 23a) OCCUPIED new cells and
-    re-fitted the trend a window around — 725 stage-1 apron rows retargeted
-    at KCLT for a pad-outline change, the runway moved.  A cell here is
-    under the body when the body's AREA is in it, whatever its noding."""
-    import shapely
-    cell = float(window_m) * _CELL_FRACTION
-    if plan is None or plan.is_empty or not cell > 0.0:
-        return []
-    x0, y0, x1, y1 = plan.bounds
-    ix = np.arange(int(np.floor(x0 / cell + 0.5)), int(np.floor(x1 / cell + 0.5)) + 1)
-    iy = np.arange(int(np.floor(y0 / cell + 0.5)), int(np.floor(y1 / cell + 0.5)) + 1)
-    KX, KY = np.meshgrid(ix, iy, indexing="ij")
-    cx = KX.ravel().astype(float) * cell
-    cy = KY.ravel().astype(float) * cell
-    h = 0.5 * cell
-    boxes = shapely.box(cx - h, cy - h, cx + h, cy + h)
-    shapely.prepare(plan)
-    hit = shapely.intersects(plan, boxes)
-    if not hit.any():
-        return []
-    area = shapely.area(shapely.intersection(boxes[hit], plan))
-    keep = np.flatnonzero(hit)[area > _PLAN_MIN_FRAC * cell * cell]
-    if keep.size == 0:
-        return []
-    return _cell_values(np.stack([cx[keep], cy[keep]], axis=1), cell, sample)
-
-
-#: A cell the plan covers by less than this fraction of its area is a
-#: touch, not coverage (a numerical guard, not a law value).
-_PLAN_MIN_FRAC = 1e-6

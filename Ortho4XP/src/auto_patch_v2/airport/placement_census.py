@@ -16,6 +16,7 @@ is law / instrument.
 """
 from __future__ import annotations
 
+import re
 import typing as _t
 
 from . import anchor_rule as _ar
@@ -230,6 +231,16 @@ def census_v14(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
 STANDS_OVER_TOL_M = 0.5
 
 
+_TAGGED = re.compile(r"(__b\d+)_[0-9a-f]{8}(\.obj)$")
+
+
+def _slot_name(res: str) -> str:
+    """A body FILE's slot name — ``obj8_split.body_resource_name`` without
+    the RULINGS 14at offset tag (``X__b3_1a2b3c4d.obj`` -> ``X__b3.obj``);
+    any other name is returned unchanged."""
+    return _TAGGED.sub(r"\1\2", res)
+
+
 def _v15_rows(splits: _t.Sequence[_t.Mapping[str, _t.Any]]) -> list[dict]:
     """Every body of the plan as ``{res, idx, box, zero, footed, carried}``
     — the one projection both §15 (3) readings are taken from.  A body
@@ -365,6 +376,26 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     for r in rows:
         if r["zero"] is not None and r["whole_res"]:
             by_res.setdefault(r["whole_res"], r)
+    # THE CARRIER IS NAMED BY ITS SLOT, THE ROW BY ITS FILE (lane
+    # ``unitplatform2``, #66): ``placement_plan`` names the law's carrier
+    # with the UNTAGGED ``body_resource_name`` (``X__b13.obj``) and every
+    # body row carries its offset-tagged file (``X__b13_<tag>.obj``,
+    # RULINGS 2026-09-14at), so the exact-name join above missed every
+    # tagged carrier and the bar silently read the GEOMETRIC stands-over
+    # instead — HECA c8b6049d: all 47 "carried floats" (base 479dbb64: all
+    # 29) sat at their law carrier's zero to 0.00 m and were measured
+    # against a CUT connector or another unit's body beneath them.  The
+    # slot is joined within the body's own unit first (two placements of
+    # one resource share a slot name), then airport-wide.
+    by_slot_unit: dict[tuple, dict] = {}
+    by_slot: dict[str, dict] = {}
+    for r in rows:
+        if r["zero"] is None:
+            continue
+        slot = _slot_name(r["res"])
+        if slot != r["res"]:
+            by_slot_unit.setdefault((r["unit"], slot), r)
+            by_slot.setdefault(slot, r)
     carried_over: list[tuple[float, str, str]] = []
     footed_over: list[tuple[float, str, str]] = []
     refused_rows: list[tuple[float, str, str]] = []
@@ -400,7 +431,9 @@ def census_v15(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
         under = geo
         if r["carried"]:
             # the law's own answer, by the file the body was merged into
-            law_under = by_res.get(r["carrier"] or "")
+            _c = r["carrier"] or ""
+            law_under = (by_res.get(_c) or by_slot_unit.get((r["unit"], _c))
+                         or by_slot.get(_c))
             if law_under is not None and law_under["zero"] is not None:
                 under = law_under
             elif geo is not None:

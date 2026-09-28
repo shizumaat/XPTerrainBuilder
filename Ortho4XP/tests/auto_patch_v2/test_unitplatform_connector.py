@@ -211,3 +211,35 @@ def test_two_cut_connectors_of_one_unit_are_two_seats():
                                 200.0, 2.5)
     assert pw[10][5][0] != v2.end_a and pw[10][5][0].startswith(v[0].end_a)
     assert pw[10][0] == pw[10][5][0]
+
+
+def test_census_v15_joins_the_law_carrier_by_its_slot_name():
+    """#66 attribution (lane ``unitplatform2``): ``placement_plan`` names a
+    carried body's carrier by its UNTAGGED slot (``X__b13.obj``) while
+    every body row carries its offset-tagged file (``X__b13_<tag>.obj``,
+    RULINGS 14at).  The census must read the carrier THE LAW CHOSE (11ak
+    (1)) through that slot — not the geometric body beneath (HECA: every
+    one of the 47 'carried floats' sat at its carrier's zero to 0.00 m and
+    was measured against the CUT rail 5.28 m below it)."""
+    from auto_patch_v2.airport import placement_census as PCe
+
+    def _row(idx, res, box, sz, feet, carrier=None):
+        return {"placement": {"index": idx, "lat": 30.0, "lon": 31.0},
+                "bodies": [{"new_resource": res, "plan_box": list(box),
+                            "surface_z": sz, "y_zero": 0.0, "feet": feet,
+                            "merged_into": carrier}]}
+    box = (30.0, 31.0, 30.001, 31.001)
+    rail = _row(1, "a/rail__b0_0badf00d.obj", box, 94.56, 8)       # CUT, low end
+    walls = _row(2, "a/glass__b9_95cf9609.obj", (30.0, 31.0, 30.0002, 31.0002),
+                 99.84, 8)
+    roof = _row(3, "a/celling__b4_95cf9609.obj", box, 99.84, 0,
+                carrier="a/glass__b9.obj")
+    got = PCe.census_v15([rail, walls, roof])
+    assert got["carried_float_gt"] == 0 and got["bars_ok"], got["carried_worst"]
+    # and a carried body truly off its law carrier is still caught
+    roof["bodies"][0]["surface_z"] = 101.0
+    bad = PCe.census_v15([rail, walls, roof])
+    assert bad["carried_float_gt"] == 1
+    assert round(bad["carried_worst"][0][0], 2) == 1.16
+    assert PCe._slot_name("x/y__b3_1a2b3c4d.obj") == "x/y__b3.obj"
+    assert PCe._slot_name("x/y__b3.obj") == "x/y__b3.obj"

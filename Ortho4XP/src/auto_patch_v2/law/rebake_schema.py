@@ -208,9 +208,9 @@ class Placement:
     #: its deck, it does not share a vertex with it.  0 disarms §16g.
     footprint_touch_m: float = 0.5
 
-    #: jetway-strip spec §1 (1) (issues #31/#32): the cap on a RIDER's
-    #: reach — ``max(footprint_touch_m, declared plan half-extent)``
-    #: capped at this.  ``airport/riders.py`` is the one reader.
+    #: jetway-strip spec §1 (1) (issues #31/#32): EVERY RIDER's reach —
+    #: a floor as well as a cap (spec-author ruling on #31, 2026-09-28
+    #: (b)); ``airport/riders.py`` is the one reader.
     #: 12 m: owner RULINGS 2026-09-28a (3) (Q-31b).
     rider_reach_max_m: float = 12.0
 

@@ -25,6 +25,8 @@ from shapely.ops import unary_union
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
 from ..law import Law
 from ..law.tables import snap_margin_m, zone2_half_width_m
+from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
+                    shore_declarations, shore_verdict)
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
 __all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
@@ -85,32 +87,8 @@ def shore_region(cells: tuple[Cell, ...], dem):
     return None if w.is_empty else w
 
 
-#: §37 (11) (7) (owner RULINGS 2026-09-27a (7)): the OSM tags that DECLARE
-#: a built shore — a quay, a pier, a breakwater, a sea wall.  Only there
-#: does §37 (11) (2)'s quay wall stand; every other coastline is a NATURAL
-#: shore and the strip slopes to the water line.
-SHORE_WALL_TAGS: dict[str, frozenset] = {
-    "man_made": frozenset({"quay", "pier", "breakwater", "seawall", "groyne",
-                           "dyke"}),
-    "barrier": frozenset({"wall", "retaining_wall", "seawall"}),
-    "wall": frozenset({"seawall", "retaining_wall"}),
-}
-
-
-def shore_declarations(osm_ways=()) -> tuple[LineString, ...]:
-    """§37 (11) (7): the frame lines of every loaded OSM way that DECLARES
-    a built shore (``SHORE_WALL_TAGS``).  ONE derivation, read by the one
-    zone derivation site; an airport with none declares every coast
-    natural."""
-    out: list[LineString] = []
-    for w in osm_ways or ():
-        tags = getattr(w, "tags", None) or {}
-        if not any(tags.get(k) in vals for k, vals in SHORE_WALL_TAGS.items()):
-            continue
-        pts = [(float(p[0]), float(p[1])) for p in getattr(w, "points", ())]
-        if len(pts) >= 2:
-            out.append(LineString(pts))
-    return tuple(out)
+# §37 (11) (7) / 29a: ``SHORE_WALL_TAGS`` and ``shore_declarations`` live
+# in ``planar/shore`` (the one shore decision) and are re-exported here.
 
 
 @_dc.dataclass(frozen=True)
@@ -148,13 +126,19 @@ class ZoneRegion:
     #: fall at the bank slope; farther ground keeps its class's band.
     #: ``None`` = the whole region (no wedge width stated).
     shore_wedge: Polygon | None = None
+    #: §37 (11) THE SHORE DECISION (owner RULINGS 2026-09-29a): the verdict
+    #: on this region's coastline contact (``planar/shore.shore_verdict``)
+    #: — ``quay`` / ``natural_shore`` above are its kind; the witness and
+    #: the height ride along for the report.  ``None`` = no contact.
+    shore: ShoreVerdict | None = None
 
 
 def zone_regions(cells: tuple[Cell, ...], law: Law,
                  keepouts: tuple[tuple, ...] = (), dem=None, roads=(),
                  edge_report: EdgeReport | None = None,
                  declared: tuple = (),
-                 shore_wedge_m: float | None = None) -> list[ZoneRegion]:
+                 shore_wedge_m: float | None = None,
+                 pack_walls: tuple = ()) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -273,55 +257,32 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                     continue
                 mine = tuple(ln for ln in clip.lines
                              if ln.distance(g) <= snap_margin_m(law))
-                # §37 (11) (2) as ruled 2026-09-27a (7): a part that
-                # REACHES the coastline is a QUAY only where the shore is
-                # BUILT — a declared quay / wall there, or the pavement
-                # edge itself standing on the coastline (the coast within
-                # the lip: no land is left to slope on).  Every other
-                # reaching part is a NATURAL shore and slopes to the water.
+                # §37 (11) THE SHORE DECISION (owner RULINGS 2026-09-29a):
+                # a part that REACHES the coastline is decided ONCE, by
+                # precedence — declared, pack wall, pavement edge on the
+                # coast, terrain profile, default natural
+                # (``planar/shore.shore_verdict``).
                 reach = bool(water is not None
                              and g.distance(water) <= snap_margin_m(law))
                 quay = natural = False
                 wedge = None
+                verdict = None
                 if reach:
-                    quay = _built_shore(g, u, water, declared, lip, law)
+                    verdict = shore_verdict(
+                        shore_contact(g, water, law), pavement=u, water=water,
+                        law=law, declared=declared, pack_walls=pack_walls,
+                        dem=dem)
+                    quay = verdict.kind == "quay"
                     natural = not quay
                     if natural and shore_wedge_m is not None:
                         wedge = g.intersection(water.buffer(shore_wedge_m, **_MITRE))
                 out.append(ZoneRegion(f"adjacent_ground:{fam}:{cls}:zone{zone}#{k}",
                                       g, zone, fam, cn, cl,
                                       clip.kind if mine else "none", mine, quay,
-                                      natural, wedge))
+                                      natural, wedge, verdict))
                 k += 1
         claimed = unary_union([claimed, outer])
     return out
-
-
-def _built_shore(g, pavement, water, declared, lip: float, law: Law) -> bool:
-    """§37 (11) (2)/(7): is the coast this zone part meets a BUILT shore?
-
-    Yes where a declared quay / pier / breakwater / sea wall
-    (:func:`shore_declarations`) lies on that contact, or where the
-    contact lies within the lip of the pavement (all but
-    :data:`BUILT_SHORE_SPILL` of its length — the mitred corners of a lip
-    ring stand a little farther out) — the pavement edge IS the coastline
-    (§37 (11) (2)'s own second clause), so there is no land to slope on
-    and the pavement edge is the wall."""
-    tol = snap_margin_m(law)
-    contact = g.boundary.intersection(water.buffer(tol))
-    if contact.is_empty or contact.length <= 0.0:
-        return False
-    for ln in declared or ():
-        if ln.distance(contact) <= lip:
-            return True
-    far = contact.difference(pavement.buffer(lip + tol, **_MITRE)).length
-    return far <= BUILT_SHORE_SPILL * contact.length
-
-
-#: §37 (11) (7): the share of a zone part's coastline contact that may lie
-#: beyond the lip while the part still reads "the pavement edge IS the
-#: coastline" (the lip ring's mitred corners).  An ASSUMPTION, not a law.
-BUILT_SHORE_SPILL = 0.1
 
 
 #: §37 (11) (7): the head room a natural-shore wedge is sized with above the

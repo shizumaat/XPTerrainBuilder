@@ -410,7 +410,7 @@ def lookup(key: str, key_parts: dict, store=None):
                       f"arm was built on corpus {name(their_c.get('snapshot'))}"
                       f", this run reads {name(ours_c.get('snapshot'))} — "
                       f"numbers compare only within ONE snapshot hash "
-                      f"(RULINGS 2026-09-28a (7)); BUILDING this arm")
+                      f"(RULINGS 2026-09-28a (7))")
     moved = sorted(k for k in set(ours_c) | set(their_c)
                    if ours_c.get(k) != their_c.get(k))
     if moved:

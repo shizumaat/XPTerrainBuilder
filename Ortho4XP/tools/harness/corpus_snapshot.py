@@ -79,6 +79,8 @@ OVERLAY_ENVS = {"O4_AIRPORT_MOD_CACHE_DIR": "Airport_mod_cache",
                 "O4_MASKS_DIR": "Masks",
                 "O4_DSF_CACHE_DIR": "Default_DSF_cache"}
 SNAPSHOT_ENV = "O4_CORPUS_SNAPSHOT"
+#: The lane's original (shared) mount targets, written at the first mount.
+MOUNTS_RECORD = ".corpus_snapshot_mounts.json"
 
 
 def _sha256(path) -> str:
@@ -376,10 +378,13 @@ def airport_read_set(icao: str, trace: dict, data_repo: Path,
             by_pack.setdefault(pk, []).append(rel)
     search_only = 0
     for pk, rels in by_pack.items():
+        # a non-selected pack's apt.dat is ALWAYS a search read (the same
+        # pack may still serve library objects, which stay)
+        for r in rels:
+            if r.endswith("/Earth nav data/apt.dat") and r != sel_rel:
+                del out[r]
         if all(r.endswith("/Earth nav data/apt.dat") for r in rels) and \
                 sel_rel not in rels:
-            for r in rels:
-                del out[r]
             search_only += 1
     # THE GLOBAL AIRPORTS FILE IS READ BY BLOCK (``read_airport_block``),
     # and it is ~380 MB: the snapshot carries a SLICE — its header and the
@@ -593,12 +598,18 @@ def mount(root: Path, snap: Path, icao=None, prog=None) -> dict:
                          f"(complete: {v['complete']}) — fetch its tarball")
     data = snap / "data"
     previous = {}
+    # THE LANE'S OWN MOUNTS are recorded ONCE, at the first mount, so a
+    # second mount (another snapshot) never mistakes the first snapshot's
+    # links for the lane's shared mounts (measured 2026-09-28: an unmount
+    # after two mounts restored the FIRST snapshot, not the shared repo).
+    origin = root / MOUNTS_RECORD
     for name in DATA_DIRS:
         target = data / name
         target.mkdir(parents=True, exist_ok=True)
         link = root / name
         if link.is_symlink():
-            previous[name] = os.readlink(link)
+            if not origin.exists():
+                previous[name] = os.readlink(link)
             if Path(os.readlink(link)) != target:
                 link.unlink()
                 link.symlink_to(target)
@@ -608,6 +619,9 @@ def mount(root: Path, snap: Path, icao=None, prog=None) -> dict:
                              f"snapshot; move it aside first")
         else:
             link.symlink_to(target)
+    if not origin.exists():
+        origin.write_text(json.dumps(previous, indent=1))
+    previous = json.loads(origin.read_text())
     rendered = (data / "Ortho4XP.cfg.in").read_text().replace(
         XPLANE_TOKEN, str(snap / "xplane"))
     (data / "Ortho4XP.cfg").write_text(rendered)
@@ -636,14 +650,19 @@ def unmount(root: Path, record: dict) -> None:
     """Undo :func:`mount` on a local lane (re-point the previous symlinks,
     restore the cfg backup)."""
     root = Path(root)
-    for name, target in (record.get("previous_mounts") or {}).items():
+    origin = root / MOUNTS_RECORD
+    mounts = (json.loads(origin.read_text()) if origin.is_file()
+              else record.get("previous_mounts") or {})
+    for name, target in mounts.items():
         link = root / name
         if link.is_symlink():
             link.unlink()
         link.symlink_to(target)
-    backup = record.get("lane_cfg_backup")
+    backup = record.get("lane_cfg_backup") or str(root / "Ortho4XP.cfg.shared-corpus")
     if backup and Path(backup).is_file():
         shutil.move(backup, root / "Ortho4XP.cfg")
+    if origin.is_file():
+        origin.unlink()
 
 
 def main(argv=None) -> int:

@@ -13,6 +13,7 @@
   "Faroes4XPlane - Airport": {"basis": "freeware Faroes4XPlane project (library export)", "status": "OWNER-CONFIRM"},
   "c_FRA - 100_airport - LFHU Alpes d Huez XPFR Ypsos": {"basis": "XPFR freeware (OpenSceneryX-based)", "status": "OWNER-CONFIRM"},
   "c_CHL - 100_airport - SCEL New Intl Airpot 2020": {"basis": "freeware x-plane.org airport (library export)", "status": "OWNER-CONFIRM"},
+  "Aerosoft - LDSP Split - 1 - Airport": {"basis": "ONLY the two empty SDK placeholders (126 bytes: an AG_POINT with no objects, an OBJ header) the library index resolves for HECA; no Aerosoft geometry", "only": ["Scenery_SDK/Placeholder/placeholder.agp", "Scenery_SDK/Placeholder/placeholder.obj"], "status": "OWNER-CONFIRM"},
   "x_300_library - Static Aircrafts (Aerosoft)": {"basis": "ONLY the empty placeholder blank.obj (no Aerosoft geometry)", "only": ["blank.obj"], "status": "OWNER-CONFIRM"}
  },
  "install_prefixes": ["Custom Data/CIFP/", "Global Scenery/Global Airports/", "Resources/default scenery/"],

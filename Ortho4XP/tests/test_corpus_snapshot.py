@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -145,8 +146,14 @@ def test_mount_and_unmount(CS, tmp_path, monkeypatch):
     assert os.environ["XPLANE_ROOT"] == str(snap / "xplane")
     with pytest.raises(SystemExit, match="complete read set"):
         CS.mount(root, snap, icao="QQQQ")
-    CS.unmount(root, rec)
+    # a SECOND mount (another snapshot) must not forget the lane's origin
+    snap2 = tmp_path / "snap2"
+    shutil.copytree(snap, snap2)
+    rec2 = CS.mount(root, snap2, icao="ZZZZ")
+    assert (root / "OSM_data").resolve() == (snap2 / "data" / "OSM_data").resolve()
+    CS.unmount(root, rec2)
     assert (root / "OSM_data").resolve() == shared.resolve()
+    assert not (root / CS.MOUNTS_RECORD).exists()
     assert "/real/X" in (root / "Ortho4XP.cfg").read_text()
 
 

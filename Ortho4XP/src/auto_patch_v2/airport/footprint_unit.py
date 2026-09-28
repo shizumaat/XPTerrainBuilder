@@ -322,10 +322,10 @@ class _PShim:
     """A plan body dressed as the candidate :func:`_clusters` reads."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "key", "pids",
-                 "resource", "rings", "walled", "base_y")
+                 "resource", "rings", "walled", "base_y", "footed")
 
     def __init__(self, seq, key, boxes, pids, resource, rings=(), walled=True,
-                 base_y=None):
+                 base_y=None, footed=True):
         self.member = seq            # a UNIQUE id per body: the chaining
         self.key = key               # is plan-wide, so "member" may not
         self.pids = pids             # collapse two bodies of one member
@@ -340,6 +340,9 @@ class _PShim:
         #: S6: the body's lowest AUTHORED y (its own zero frame) — a body
         #: authored below grade is never CONTENTS (§48 (1) (d))
         self.base_y = base_y
+        #: 27a: the body has a ground-contact component (feet); an
+        #: unfooted leaf is an elevated sheet (roof / upper floor)
+        self.footed = bool(footed)
 
 
 def plan_units(plan: _t.Any, touch_m: float,
@@ -500,7 +503,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                                 tuple(r for q in live
                                       for r in getattr(q, "rings", ())
                                       if len(r) >= 3), walled,
-                                base_y=min(float(q.base_y) for q in live)))
+                                base_y=min(float(q.base_y) for q in live),
+                                footed=any(getattr(q, "feet", ()) for q in live)))
     if len(shims) < 2:
         return [], []
     # §16g (10) (4): the chain runs over the WALLED bodies alone; a LEAF
@@ -524,6 +528,7 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
             shims, walled_ix, leaves, sheet_chain_min_fraction,
             is_deck=lambda i: member_is_deck(
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
+            is_footed=lambda i: shims[i].footed,
             ml=_ml, mo=_mo, counts=counts, prefix="unit_")
         if links:
             clusters = [cl for cl in merge_by_sheets(clusters, links)

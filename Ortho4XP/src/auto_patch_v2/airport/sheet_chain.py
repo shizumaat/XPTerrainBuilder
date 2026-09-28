@@ -20,7 +20,16 @@ THE RULE, ONE DERIVATION, asked by both chain sites
 §16g (9) ONE POPULATION):
 
 * a LEAF that is not a deck (``member_is_deck``: its own datum law, §16e)
-  is a SHEET candidate;
+  and stands OFF the ground — no component with ground feet — is a SHEET
+  candidate.  A FOOTED leaf (a paving / ground slab two buildings stand
+  on) is not: the buildings on it are still separated by clear space
+  (18t), and it is exactly the class 14ah measured over-chaining HECA's
+  T3 district (``floor_more_yellow``, ``T3_concrete_Yellow``,
+  ``concrete_3``: one 9,334-body cluster).  MEASURED on the OTHH main
+  partition (sheetchain, fraction 0.5): every non-deck leaf 59 pads, site
+  pad 504,448 m2; elevated leaves only 61 pads, site pad 484,190 m2 (the
+  othhjunction figure 484,538); HECA every leaf 93 pads (fourteen 34 m2
+  slivers minted by ground slabs), elevated only 79;
 * it LINKS every walled body whose footprint it OVERLAPS by at least
   ``[placement] sheet_chain_min_fraction`` of the SMALLER of the two
   footprints (overlap, not touch: a sheet resting against a wall's face
@@ -43,7 +52,8 @@ __all__ = ["sheet_links", "merge_by_sheets"]
 
 def sheet_links(shims: _t.Sequence[_t.Any], walled_ix: _t.Sequence[int],
                 leaves: _t.Sequence[int], min_fraction: float,
-                *, is_deck: _t.Callable[[int], bool], ml: float, mo: float,
+                *, is_deck: _t.Callable[[int], bool],
+                is_footed: _t.Callable[[int], bool], ml: float, mo: float,
                 counts: "dict | None" = None, prefix: str = "",
                 fractions: "list | None" = None
                 ) -> list[tuple[int, tuple[int, ...]]]:
@@ -66,10 +76,13 @@ def sheet_links(shims: _t.Sequence[_t.Any], walled_ix: _t.Sequence[int],
         return []
     tree = shapely.STRtree(polys)
     out: list[tuple[int, tuple[int, ...]]] = []
-    n_single = n_deck = 0
+    n_single = n_deck = n_footed = 0
     for i in leaves:
         if is_deck(i):
             n_deck += 1
+            continue
+        if is_footed(i):
+            n_footed += 1
             continue
         g = _poly(shims[i].rings, shims[i].part_boxes, ml, mo)
         if g is None or g.is_empty or g.area <= 0.0:
@@ -92,6 +105,8 @@ def sheet_links(shims: _t.Sequence[_t.Any], walled_ix: _t.Sequence[int],
         counts[prefix + "sheet_links"] = len(out)
         counts[prefix + "sheet_link_bodies"] = sum(len(b) for _s, b in out)
         counts[prefix + "sheet_over_one_body"] = n_single
+        counts[prefix + "sheet_refused_deck"] = n_deck
+        counts[prefix + "sheet_refused_footed"] = n_footed
     return out
 
 

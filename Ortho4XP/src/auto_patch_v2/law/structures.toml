@@ -961,7 +961,7 @@ contents_min_fraction = 0.95
 # footprint overlaps TWO or more walled bodies' footprints, each by at least
 # this share of the smaller footprint, LINKS them into one unit (one pad)
 # and joins it; over one body (a canopy) it links nothing.  0 disarms.
-sheet_chain_min_fraction = 0.0
+sheet_chain_min_fraction = 0.5
 
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated

@@ -299,7 +299,7 @@ class Placement:
     #: at least this share of the smaller of the two footprints, LINKS
     #: them into one §16g unit (one pad) and joins it.  Over one body (a
     #: canopy) it links nothing.  0 disarms (every sheet a leaf, 14ah).
-    sheet_chain_min_fraction: float = 0.0
+    sheet_chain_min_fraction: float = 0.5
 
     #: §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): THE SKIRT
     #: BAND.  A pad's vertices within this of an edge it SHARES with an

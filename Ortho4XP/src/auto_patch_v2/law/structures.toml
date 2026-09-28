@@ -969,6 +969,18 @@ contents_min_fraction = 0.95
 # and joins it; over one body (a canopy) it links nothing.  0 disarms.
 sheet_chain_min_fraction = 0.5
 
+# §16g (10) (2) AMENDED — POSTS AND FLAT LINES CHAIN BUT DRAW NO OUTLINE
+# (issue #73, spec-author ruling to lanes lacepad / courtyards).  A body
+# component small in BOTH plan dimensions (ring area under
+# `post_max_area_m2` AND plan box under `post_max_extent_m`) is a POST; a
+# component under `chain_min_height_m` whose mean width 2A/P is under
+# `flat_line_max_width_m` is a FLAT LINE.  Both still count for the body's
+# height and the chain; neither draws the cluster's pad outline.  MEASURED
+# HECA building13: holes 184 -> 15.  0 disarms each test.
+post_max_area_m2      = 4.0
+post_max_extent_m     = 3.0
+flat_line_max_width_m = 1.0
+
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two

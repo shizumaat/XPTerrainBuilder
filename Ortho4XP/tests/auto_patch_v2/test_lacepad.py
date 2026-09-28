@@ -98,3 +98,21 @@ def test_73_draws_outline_thresholds():
     p.height_m = 0.1
     assert draws_outline(p, 2.5, ml, mo)                     # 1.5 m wide: > line
     assert POST_MAX_AREA_M2 == 4.0 and FLAT_LINE_MAX_WIDTH_M == 1.0
+
+
+def test_73_thresholds_are_law_keys_and_zero_disarms():
+    """The three thresholds are ``[placement]`` law keys
+    (``structures.toml``), read at the ONE derivation site
+    ``planar/cluster._outline_law``; 0 disarms the post and line tests."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.planar.cluster import _outline_law
+    law = Law.for_airport("HECA")
+    pl = law.tables.structures.placement
+    assert (pl.post_max_area_m2, pl.post_max_extent_m,
+            pl.flat_line_max_width_m) == (4.0, 3.0, 1.0)
+    assert _outline_law(law) == (4.0, 3.0, 1.0)
+    post = _PMember("objects/post.obj", [_part(2, _lat(40.2), _lat(41.2), height=4.8,
+                                               lo0=_lo(10), lo1=_lo(11))])
+    off = plan_clusters(_plan([_bldg(), post]), TOUCH, chain_min_height_m=2.5,
+                        outline_law=(0.0, 0.0, 0.0))
+    assert len(off) == 1 and len(off[0].rings) == 2      # the post draws again

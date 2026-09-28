@@ -370,12 +370,18 @@ FLAT_LINE_MAX_WIDTH_M = 1.0
 
 
 def draws_outline(part: _t.Any, chain_min_height_m: float,
-                  ml: float, mo: float) -> bool:
+                  ml: float, mo: float,
+                  post_max_area_m2: float = POST_MAX_AREA_M2,
+                  post_max_extent_m: float = POST_MAX_EXTENT_M,
+                  flat_line_max_width_m: float = FLAT_LINE_MAX_WIDTH_M
+                  ) -> bool:
     """Does ``part`` (a ``model.rebake.Part``) draw its cluster's pad
     outline?  False for a POST (:data:`POST_MAX_AREA_M2` /
     :data:`POST_MAX_EXTENT_M`) and for a FLAT LINE
     (:data:`FLAT_LINE_MAX_WIDTH_M`); both still count for chaining and
-    height.  ``ml``/``mo``: metres per degree of latitude / longitude."""
+    height.  ``ml``/``mo``: metres per degree of latitude / longitude.
+    The three thresholds are the ``[placement]`` law keys of the same
+    names (``structures.toml``); 0 disarms each test."""
     rings = [r for r in (getattr(part, "rings", ()) or ()) if len(r) >= 3]
     if not rings:
         return True
@@ -391,11 +397,11 @@ def draws_outline(part: _t.Any, chain_min_height_m: float,
     b = getattr(part, "box", None)
     if b is not None:
         ext = max((float(b[2]) - float(b[0])) * ml, (float(b[3]) - float(b[1])) * mo)
-        if area < POST_MAX_AREA_M2 and ext < POST_MAX_EXTENT_M:
+        if area < post_max_area_m2 and ext < post_max_extent_m:
             return False                               # a post
     if (chain_min_height_m > 0.0
             and float(getattr(part, "height_m", 0.0)) < chain_min_height_m
-            and per > 0.0 and 2.0 * area / per < FLAT_LINE_MAX_WIDTH_M):
+            and per > 0.0 and 2.0 * area / per < flat_line_max_width_m):
         return False                                   # a flat line
     return True
 
@@ -480,7 +486,9 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                   floor_split_m: float = 0.0,
                   chain_min_height_m: float = 0.0,
                   counts: "dict | None" = None,
-                  sheet_chain_min_fraction: float = 0.0) -> list[PlanCluster]:
+                  sheet_chain_min_fraction: float = 0.0,
+                  outline_law: "tuple[float, float, float] | None" = None
+                  ) -> list[PlanCluster]:
     """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
     derivation, read off a ``RebakePlan`` — the planar-time half of the
     law (design spec §30 (4)).
@@ -533,6 +541,10 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
     # ``_clusters`` keeps for a plan carrying no footprint rings.
     any_height = any(float(getattr(q, "height_m", 0.0)) > 0.0
                      for u in plan.units for m in u.members for q in m.parts)
+    # issue #73: (post_max_area_m2, post_max_extent_m,
+    # flat_line_max_width_m) — the [placement] law keys; None = defaults
+    olaw = tuple(outline_law) if outline_law is not None else (
+        POST_MAX_AREA_M2, POST_MAX_EXTENT_M, FLAT_LINE_MAX_WIDTH_M)
     for ui, u in enumerate(plan.units):
         parts_of: dict[int, _t.Any] = {p.pid: p for m in u.members
                                        for p in m.parts}
@@ -571,7 +583,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                 footed=bool(footed), walled=walled,
                 # issue #73: posts and flat lines chain, never draw
                 outline=[r for q in live
-                         if draws_outline(q, chain_min_height_m, ml_u, mo_u)
+                         if draws_outline(q, chain_min_height_m, ml_u, mo_u,
+                                          *olaw)
                          for r in q.rings if len(r) >= 3]))
         if not shims:
             continue

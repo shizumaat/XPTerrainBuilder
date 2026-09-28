@@ -216,7 +216,8 @@ def test_a_local_perturbation_is_local_under_the_qp(law, built):
     pm, cs = built
     n_f, max_f, far_f, farmax_f = _probe(pm, cs, law, "fixed_point")
     n_q, max_q, far_q, farmax_q = _probe(pm, cs, law, "qp")
-    assert n_q < n_f / 2.0, (n_q, n_f)
+    assert n_q < n_f / 2.0, ((n_q, max_q, far_q, farmax_q),
+                             (n_f, max_f, far_f, farmax_f))
     assert far_q < far_f / 2.0, (far_q, far_f)
     assert farmax_q < 0.1 <= farmax_f, (farmax_q, farmax_f)
     assert max_q < max_f

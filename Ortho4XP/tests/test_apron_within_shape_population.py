@@ -54,6 +54,7 @@ from auto_patch.config import BUILDING_REACH_CORRIDOR_M, TAXI_MAX_GRADE
 from auto_patch.layout import BuiltShape, PavementLayout
 
 import check_grade as cg
+from harness.law_support import grade_law as CENSUS_GL  # noqa: E402
 
 
 # ── THE SYNTHETIC AIRPORT ────────────────────────────────────────────
@@ -508,12 +509,19 @@ def test_census_and_bake_agree_on_the_CAP_of_every_apron_pair():
                  if abs(bake[k] - census[k]) > 1e-9}, bake)
 
     on_drift, bake = _drift()
-    saved = GL.APRON_INTERIOR_RAMP_CAP
+    # The RULE-OFF arm flips the flag in BOTH law homes: since v1retire
+    # round 1 (c70d4ac2) the census reads ``harness.law_support.grade_law``,
+    # a textual copy of the bake's ``auto_patch.grade_law`` held identical
+    # by tests/test_law_support.py.  Flipping only the bake's copy left the
+    # census at 5 % on every interior pair and read as a 13-pair "drift"
+    # that no build configuration can produce (issue #76, lane reds76b).
+    saved = (GL.APRON_INTERIOR_RAMP_CAP, CENSUS_GL.APRON_INTERIOR_RAMP_CAP)
     try:
         GL.APRON_INTERIOR_RAMP_CAP = False
+        CENSUS_GL.APRON_INTERIOR_RAMP_CAP = False
         off_drift, _ = _drift()
     finally:
-        GL.APRON_INTERIOR_RAMP_CAP = saved
+        GL.APRON_INTERIOR_RAMP_CAP, CENSUS_GL.APRON_INTERIOR_RAMP_CAP = saved
 
     # WITH THE RULE ON THERE IS NO CAP DRIFT AT ALL, and A2 is what closed
     # it.  One pair used to drift and still does on the RULE-OFF arm: the

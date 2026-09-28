@@ -665,8 +665,15 @@ def test_zone_split_reports_the_cap_bound_its_count_was_taken_at(report):
     assert zs["caps"] == [0.05]
     assert zs["steeper_than_zone_cap_bound"] == 0.05
     assert zs["steeper_than_zone_cap"] == 13
+    # RE-PINNED (issue #76, lane reds76b): owner RULINGS 2026-09-12aj (c),
+    # commit 4e8449e5 — ``run_checks`` stamps each node with the SENIOR
+    # face carrying it (``precedence.toml`` authority order), not the ring
+    # the pair was walked on.  One of the two groundside rows has a node the
+    # apron also carries, so it reads ``apron|groundside_pavement`` now;
+    # the total (14) is unchanged.
     assert zs["top_role_pairs"] == {
-        "apron|apron": 12, "groundside_pavement|groundside_pavement": 2}
+        "apron|apron": 12, "apron|groundside_pavement": 1,
+        "groundside_pavement|groundside_pavement": 1}
 
 
 def test_zone_split_prints_its_frame_and_bound(report, census, capsys):

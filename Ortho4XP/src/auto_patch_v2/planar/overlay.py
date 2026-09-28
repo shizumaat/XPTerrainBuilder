@@ -30,7 +30,7 @@ from shapely.strtree import STRtree
 
 from ..classify.roles import Classification
 from ..law import Law
-from ..law.tables import chord_cap_m, is_rigid_role, role_side
+from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
 from ..model.airport import Airport
 from .chords import densify, ring_lines, stations
 from .terrain_edge import EdgeReport, road_lines
@@ -332,13 +332,8 @@ def build_arrangement(airport: Airport, classification: Classification,
         if bands and any(b.contains(poly.representative_point()) for b in bands):
             dropped_seam += 1
             continue
-        best: Region | None = None
-        best_a = 0.0
-        for j in tree.query(poly, predicate="intersects"):
-            r = regions[int(j)]
-            a = poly.intersection(r.polygon).area
-            if a > best_a:
-                best, best_a = r, a
+        best, best_a = _claiming_region(poly, regions,
+                                        tree.query(poly, predicate="intersects"), law)
         if best is None or best_a < 0.5 * poly.area:
             dropped += 1
             continue
@@ -370,6 +365,39 @@ def build_arrangement(airport: Airport, classification: Classification,
                        tuple(edge_lines), erep, holes_gone,
                        absorbed, detached,
                        zs_dissolved, zs_dropped, zs_area, zs_rows)
+
+
+#: Two overlaps within this many m² of each other are ONE overlap (a tie).
+CLAIM_TIE_M2 = 1e-6
+
+
+def _claiming_region(poly: Polygon, regions: "list[Region]", hits,
+                     law: Law) -> "tuple[Region | None, float]":
+    """The region a polygonised face belongs to: the LARGEST overlap, and on
+    a TIE the senior role (``precedence.toml`` authority order), then the
+    smaller region (the one drawn inside the other), then the ref.
+
+    Issue #81: two overlapping cells (KCLT ``dsf:pol52`` parking lot over
+    ``dsf:pol10`` apron) overlap a 59 m² face by EXACTLY the same area, and
+    the old strict ``>`` kept whichever the STRtree query returned first.
+    The query order is the tree's packing, a function of EVERY region at
+    the airport, so a pad outline 2.4 km away flipped the face between
+    parking lot and apron and re-drew the stage-1 airside problem around
+    it.  The tie-break reads only the two regions, never an index."""
+    cands: list[tuple[float, Region]] = []
+    for j in hits:
+        r = regions[int(j)]
+        a = poly.intersection(r.polygon).area
+        if a > 0.0:
+            cands.append((a, r))
+    if not cands:
+        return None, 0.0
+    top = max(a for a, _ in cands)
+    tied = [(a, r) for a, r in cands if top - a <= CLAIM_TIE_M2]
+    a, r = min(tied, key=lambda t: (authority_rank(law, t[1].role),
+                                    t[1].polygon.area, str(t[1].ref),
+                                    t[1].polygon.wkb))
+    return r, a
 
 
 def dissolve_degenerate_holes(faces: list[tuple[Polygon, Region]], sep_m: float,

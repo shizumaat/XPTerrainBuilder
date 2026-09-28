@@ -417,7 +417,11 @@ def test_beyond_one_percent_the_pad_follows_the_senior_pavement(law):
     cells, dem = _two_pavement_cells(1.8)
     pm, z, rep, _cs = _solve(law, cells, dem)
     lo, hi, tilt = _pad_plane(pm, z)
-    assert tilt <= 0.010 + 2e-3, tilt          # the hard ceiling holds
+    # issue #67 (§20b (1b), airside is king): the pad's 1 % ceiling is a
+    # CONFORMING hard law — stage 1 never assembles it, so the two fixed
+    # pavements keep their own 3 % and the pad's plane IS that drop (the
+    # single solve, where they yield, holds 1 %: ``test_v2staged``)
+    assert abs(tilt - 0.030) <= 2e-3, tilt
     taxi = sorted(_verts(pm, "taxiN") - _verts(pm, "padA"))
     apron = sorted(_verts(pm, "apronA") - _verts(pm, "padA"))
     z_taxi, z_apron = float(np.mean(z[taxi])), float(np.mean(z[apron]))

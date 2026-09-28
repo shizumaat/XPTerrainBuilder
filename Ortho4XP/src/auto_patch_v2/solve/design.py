@@ -726,6 +726,15 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     from ..constraints.hard_plane import hard_plane_vertices
     hard_v = hard_plane_vertices(planar)
     for kind, roles_b in datum_roles(law):
+        # THE BODY IS THIS STAGE'S OWN (issue #67; §20b (1c)'s rule for the
+        # sheet, applied to the datum): stage 1's body is formed over the
+        # airside faces alone.  Formed over every bending role, a pad face
+        # JOINED two aprons into one body — so whether an apron carried its
+        # own datum or none (a touched body takes the trend instead, below)
+        # depended on a pad outline, which is the groundside deciding an
+        # airside value.  The single solve and stage 2 keep every role.
+        if stage_roles is not None:
+            roles_b = frozenset(roles_b) & frozenset(stage_roles)
         for vs_b in _shape_bodies(planar, red,
                                   _role_bodies_faced(planar, roles_b, red)):
             # 10l: a pad that fronts pavement takes its frontage's level, not

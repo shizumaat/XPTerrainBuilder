@@ -55,7 +55,7 @@ import numpy as np
 from .runway_chord import dem_degraded
 from .surface_trend import cell_samples, surface_trend_of
 from ..law import Law
-from ..law.tables import apron_roles
+from ..law.tables import airside_stage_roles, apron_roles
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
@@ -81,11 +81,13 @@ class ApronTrendReport(_t.TypedDict, total=False):
     by_body: list              # [{"ll", "vertices", "diameter_m", ...}]
 
 
-def _apron_bodies(pm: PlanarMap, law: Law) -> list[list[int]]:
+def _apron_bodies(pm: PlanarMap, law: Law,
+                  roles: _t.AbstractSet[str] | None = None) -> list[list[int]]:
     """The connected BODIES of the apron-role faces (faces sharing a
     vertex), each as its vertices carrying a DEM sample — the same
-    construction the per-body datum uses (module docstring)."""
-    roles = apron_roles(law)
+    construction the per-body datum uses (module docstring).  ``roles``
+    narrows the faces (default: every ``apron_roles`` role)."""
+    roles = apron_roles(law) if roles is None else roles
     parent: dict[int, int] = {}
 
     def find(v: int) -> int:
@@ -174,7 +176,31 @@ def apron_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
     n_big = n_small = n_rwy = n_taxi = n_samples = 0
     worst_d = above = below = 0.0
     by_body: list[dict[str, _t.Any]] = []
-    for vs in bodies:
+    # AIRSIDE IS FITTED OVER AIRSIDE ALONE (issue #67; §20b (1), 14ah
+    # "airside is king").  ``apron_roles`` is the BENDING class, and it
+    # holds the pad (``building``), ``groundside_pavement`` and
+    # ``parking_lot`` beside ``apron``: one body over all of them made the
+    # CELLS the trend is fitted on — and so every apron vertex's target
+    # within a window of them — a function of where a pad's outline runs.
+    # MEASURED at HECA (capture on main be2dfd43): a 142 m square trimmed
+    # off one pad outline RETARGETED 680 stage-1 apron rows by up to 0.36 m
+    # 250-750 m away, and with it moved airside 1 km off.  So the trend is
+    # taken in TWO passes: first the bodies of the airside-stage apron
+    # faces alone, which give every AIRSIDE vertex its target; then the
+    # whole bending bodies, which give a target to the CONFORMING vertices
+    # (pad, lot, groundside pavement) only — they may read the airside's
+    # cells, the airside never reads theirs.
+    air_roles = frozenset(apron_roles(law)) & airside_stage_roles(law)
+    air_v: set[int] = set()
+    for f in pm.faces.values():
+        if f.role in air_roles:
+            for ring in (f.ring, *f.holes):
+                air_v.update(pm.ring_vertices(ring))
+    passes = [(vs, None) for vs in _apron_bodies(pm, law, air_roles)]
+    passes += [(vs, air_v) for vs in bodies]
+    for vs, skip in passes:
+        if skip is not None and all(v in skip for v in vs):
+            continue                # a body of airside alone: pass one's
         xy = np.asarray([pm.vertices[v].xy for v in vs], dtype=float)
         diam = _diameter_m(xy)
         worst_d = max(worst_d, diam)
@@ -212,6 +238,8 @@ def apron_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
             if v in taxi_held:
                 n_taxi += 1
                 continue
+            if skip is not None and v in skip:
+                continue            # an airside vertex: the first pass's
             out[v] = float(t)
             n += 1
             above = max(above, float(t) - float(dem))

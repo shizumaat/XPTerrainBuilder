@@ -165,6 +165,27 @@ def apron_roles(law: Law) -> frozenset[str]:
                      if bend_class(law, r) == "apron")
 
 
+def airside_stage_roles(law: Law) -> frozenset[str]:
+    """§20b STAGE 1's ROLES — AIRSIDE PAVEMENT (owner RULINGS 2026-09-13dh,
+    ordered 2026-09-14an): the runway family, the taxi family and the apron.
+
+    ONE derivation from the law tables, never a hand list: every
+    :func:`pavement_roles` role (a VALUE role that is not a structure) whose
+    ``role_side`` is ``airside`` and that is not RIGID.  The rigid exclusion
+    is the PAD (``building``): a pad is airside by ``role_side`` and is
+    exactly what must conform in stage 2.  The strip / clearance / boundary
+    family is airside too and is not pavement, so it conforms as well — the
+    ground blends to an airside that is already fixed.
+
+    IT LIVES IN THE LAW LAYER because two packages read it and neither may
+    import the other (M0 §1): ``solve/design_roles`` splits the staged solve
+    by it, and ``constraints/apron_trend`` fits the AIRSIDE apron's trend
+    over the airside alone (issue #67).  ``design_roles`` re-exports it."""
+    return frozenset(r for r in pavement_roles(law)
+                     if role_side(law, r) == "airside"
+                     and not is_rigid_role(law, r))
+
+
 def role_cap(law: Law, role: str, code_number: int | None = None,
              code_letter: str | None = None) -> RoleCap | None:
     """Longitudinal and transverse caps for ``role`` under the airport's

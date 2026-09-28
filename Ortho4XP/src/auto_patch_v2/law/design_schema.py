@@ -151,6 +151,16 @@ class Design:
     #: DEM datum mean — a pad's own datum (09p (3)) is for a pad that
     #: fronts NO pavement.
     pad_level_rulings: tuple[str, ...]
+    #: THE PAD'S HARD LAWS CONFORM (issue #67; §20b (1b)): the ruling HEADS
+    #: of HARD rows that belong to a CONFORMING surface — the pad's 1 %
+    #: tilt ceiling.  Stage 1 refuses them even where every column is
+    #: airside (a pad welded to the apron under RULINGS 2026-09-23a prices
+    #: its ceiling over PAIRS OF APRON VERTICES — 20,748 such rows at HECA),
+    #: exactly as it refuses the pad's flatness target; in stage 2 their
+    #: airside feet are constants.  Every head must also be in
+    #: ``hard_rulings``: this names which hard law conforms, it makes
+    #: nothing hard.  May be empty (the class disarmed).
+    conforming_hard_rulings: tuple[str, ...]
     #: A PAD FRONTS BY PROXIMITY (owner RULINGS 2026-09-10ax (1)): the
     #: plan distance within which a pad EDGE fronts a pavement EDGE,
     #: shared vertex or not.  ``constraints.pads.frontage_radius_m`` is
@@ -429,6 +439,11 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.edge_grid_m {d.edge_grid_m}: finer than the "
                   f"probe {d.edge_probe_m} — the crest is read over the probe, "
                   "marked on the grid (09-10c)")
+    stray = [r for r in d.conforming_hard_rulings if r not in d.hard_rulings]
+    if stray:
+        raise err(f"emit.design.conforming_hard_rulings {stray}: not in "
+                  "hard_rulings — the register names which HARD law conforms "
+                  "(issue #67), it makes nothing hard")
     if not d.hard_rulings:
         raise err("emit.design.hard_rulings: at least one ruling "
                   "(RULINGS 2026-09-08v: the runway family's laws are hard)")

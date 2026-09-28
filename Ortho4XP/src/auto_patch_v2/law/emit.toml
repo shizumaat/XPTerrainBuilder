@@ -557,6 +557,20 @@ pad_level_rulings = [
   "structures.building_pad frontage_level",
   "structures.building_pad frontage_level junior",
 ]
+# THE PAD'S HARD LAW CONFORMS (issue #67, §20b (1b); airside is king,
+# 14ah / 23a: the pad takes the apron's level, never the reverse).  A HARD
+# ruling whose rows belong to the pad: stage 1 never assembles them, even
+# over two apron vertices (a pad welded to the apron prices its 1 % ceiling
+# over pairs of its rim, and the rim IS apron).  MEASURED at HECA (capture
+# on main be2dfd43): 20,748 such rows stood in stage 1, and a 142 m square
+# trimmed off one pad outline re-drew 438 -> 490 of them 1.5 km away (the
+# cluster's decimated pair set); with the apron trend's pad cells, that
+# moved 413 airside vertices up to 0.27 m, 388 of them beyond 500 m.
+# Stage 2 still states every one of them; the verify's ``pad_flat`` judges
+# the pad against the apron it was given.
+conforming_hard_rulings = [
+  "structures.building_pad pad_slope_max ceiling",
+]
 # A PAD FRONTS BY PROXIMITY (owner RULINGS 2026-09-10ax (1)): a pad EDGE
 # within this of a pavement EDGE fronts it, shared vertex or not.  Until
 # 10ax frontage was identity only (a shared vertex), and LEMD's

@@ -20,17 +20,19 @@ ground: it grades between the two edges as a terrace (§31 (3)).
 
 * NEAREST WINS per pad vertex: a vertex facing two aprons fronts the
   nearer one.
-* HIGHER WINS between a TOUCHING frontage and a FACING one: where the pad
-  also shares a weld with (or stands within 3 m of) another apron, the
-  one whose edge stands HIGHER is the senior.  "Higher" is read on the
-  only level a generator can see before the solve — the leaders' own
-  fit target (``PlanarMap.preferred_z``, else ``Vertex.dem_z``), the §28
-  (6) precedent for a DEM-frame seniority test.  When the FACING frontage
-  is senior, the pad's plate and its 1 % ceiling release the vertices it
-  SHARES with the junior touching apron (:func:`released`): those are the
-  apron's own vertices (09-01g) and the pad no longer carries their level
-  across its whole plane; the step at that weld is the ``pad_level``
-  junior residual, reported, never hidden.
+* A TOUCHING FRONTAGE STAYS SENIOR.  Where the pad also shares a weld
+  with (or stands within 3 m of) another pavement face, §20's touching
+  row keeps the pad's plate weight and the facing row is JUNIOR (the law's
+  weight; its miss is the ``pad_level`` family's reported residual).
+  27a (9) asks "the higher/nearer apron wins where two front"; the HIGHER
+  facing frontage overriding a touching weld was built and MEASURED at
+  HECA and REFUTED twice (attempt cap, owner 2026-08-02 guard (b)) — see
+  issue #11: releasing the junior apron weld from the pad's plate let
+  ``building52`` fall through the pad it touches (``building135``) to the
+  low apron (93.5 -> 92.2 m); releasing the touching lower pads too left
+  a four-vertex face with no plate at all (118.6 m).  A pad whose facing
+  apron must outrank a weld needs a TERRACE at the weld (split identity),
+  which is a planar-map change, not a row — owed to the spec author.
 
 ONE-WAY, like every §20 row: the pad follows, the apron never moves for
 it (airside is king, 14ai).  The rows carry §20's own ruling heads
@@ -42,10 +44,8 @@ register entry.
 THE CONSUMER CENSUS (owner 2026-08-30l).  The facing relation is kept OUT
 of ``pads._fronting``: that relation's contacts are read as WELDS by
 ``no_step.pad_contacts`` and as §28's airside test, and a contact 40 m
-from its apron is neither.  Its readers are exactly two: this module's
-level rows (:func:`pad_fronting_level`) and the release set
-(:func:`released`) that ``pads._pad_rows`` and ``pads.pad_frontage_level``
-consult.
+from its apron is neither.  Its one reader is this module's level rows
+(:func:`pad_fronting_level`); ``pads`` is not edited.
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ from ..model.constraints import Row, Source
 from ..model.planar import PlanarMap
 from .precedence import view
 
-__all__ = ["reach_m", "facing", "analysis", "released", "pad_fronting_level",
+__all__ = ["reach_m", "facing", "analysis", "pad_fronting_level",
            "FRONTING_NOTE", "STATS"]
 
 #: The ruling note the rows carry after §20's head.
@@ -185,22 +185,6 @@ def _level(planar: PlanarMap,
     return sum(vals) / len(vals) if vals else None
 
 
-def _edge_len(vw, fids: _t.Iterable[int], contacts: set[int]) -> float:
-    """Plan length of the pads' own ring edges whose two ends are both
-    ``contacts`` — the LENGTH of a frontage, never its vertex count (a
-    straight 250 m pad edge carries two vertices, a curved 27 m weld 20)."""
-    import math
-    tot = 0.0
-    for q in fids:
-        for ring in [vw.rings[q], *vw.holes[q]]:
-            n = len(ring)
-            for i in range(n):
-                a, b = ring[i], ring[(i + 1) % n]
-                if a in contacts and b in contacts and a != b:
-                    tot += math.dist(vw.xy[a], vw.xy[b])
-    return tot
-
-
 def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
     """Per PLANE GROUP (§30 (4)): the facing contacts with their leaders,
     the facing and touching proxy levels, whether FACING is senior, and
@@ -212,14 +196,13 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
         return hit
     from .cluster_pad import plane_groups
     from .pads import (_pad_polys, frontage_leaders, pad_frontage_leaders,
-                       pad_shared, rigid_roles, _LEADER_NEAR_M)
+                       _LEADER_NEAR_M)
     fac = facing(planar, law)
     polys = {fid: poly for fid, _r, _g, poly in _pad_polys(planar, law)}
     vw = view(planar, law)
     face_vs = {fid: {v for r in [vw.rings[fid], *vw.holes[fid]] for v in r}
                for fid in {a for d in fac.values() for a in d}}
     touch = pad_frontage_leaders(planar, law) if fac else {}
-    shared = pad_shared(planar, law) if fac else {}
     groups: dict[int, dict] = {}
     for gid, ref, group, fids in plane_groups(planar, law, airport):
         per: list[tuple[int, list[tuple[int, float]]]] = []
@@ -235,62 +218,17 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
                 per.extend(frontage_leaders(planar, contacts, own, near=near))
         if not per:
             continue
-        t_roles = {role for q in fids for role in (touch.get(q) or {})}
         t_per = [pr for q in fids for prs in (touch.get(q) or {}).values() for pr in prs]
         lf, lt = _level(planar, per), _level(planar, t_per)
-        # a touching RUNWAY/TAXI frontage outranks any faced apron (the
-        # seniority of ``precedence.toml``); "higher wins" is between
-        # aprons, and only where the faced edge is also the pad's LONGER
-        # frontage — a terminal welded along 486 vertices never gives its
-        # weld up to a 26-vertex glimpse of a higher apron (measured, HECA
-        # T3; DEVIATION reported for the spec author: 27a (9) says
-        # "higher/nearer wins", the length test is this lane's guard)
-        t_c = {c for c, _lw in t_per}
-        f_c = {c for c, _lw in per}
-        lf_m, lt_m = (_edge_len(vw, fids, f_c), _edge_len(vw, fids, t_c))
-        senior = lt is None or (lf is not None and lf > lt and lf_m > lt_m
-                                and t_roles <= set(design_law(law).pad_fronting_roles))
-        rel: set[int] = set()
-        if senior and t_per:
-            for q in fids:
-                rel |= shared.get(q, set())
+        # a touching frontage stays senior (module docstring)
+        senior = not t_per
         groups[gid] = {"ref": ref, "group": group, "fids": fids, "per": per,
                        "facing_level": lf, "touching_level": lt,
-                       "facing_m": lf_m, "touching_m": lt_m,
-                       "senior": senior, "released": rel}
-    # A SENIOR-FACING pad also lets go of the pads it merely TOUCHES and
-    # that do not face up with it: a vertex shared with such a pad is that
-    # pad's plate, and MEASURED at HECA it chained ``building52`` (201)
-    # through ``building135`` down to the low apron it had just released
-    # (arm 1: the cargo pads fell 93.5 -> 92.2).  Per group: the other
-    # pad keeps the vertex in its own plate.
-    rigid = set(rigid_roles(law))
-    up = {q for g in groups.values() if g["senior"] for q in g["fids"]}
-    for g in groups.values():
-        if not g["senior"]:
-            continue
-        for v in g["group"]:
-            if any(f not in up and planar.faces[f].role in rigid
-                   for f in planar.vertices[v].incident_faces):
-                g["released"].add(v)
-    out = {"_pm": planar, "groups": groups,
-           "released": {v for g in groups.values() for v in g["released"]},
-           "released_by_group": {gid: g["released"] for gid, g in groups.items()
-                                 if g["released"]},
-           "senior_groups": {gid for gid, g in groups.items()
-                             if g["senior"] and g["touching_level"] is not None}}
+                       "senior": senior}
+    out = {"_pm": planar, "groups": groups}
     _CACHE.clear()
     _CACHE[key] = out
     return out
-
-
-def released(planar: PlanarMap, law: Law, airport: Airport | None
-             ) -> dict[int, set[int]]:
-    """Plane-group id -> the vertices THAT group's plate and ceiling no
-    longer price: those it shares with a JUNIOR touching apron where a
-    higher FACING apron is its senior, and those it shares with a touching
-    pad that does not face up with it (module docstring)."""
-    return analysis(planar, law, airport)["released_by_group"]
 
 
 def pad_fronting_level(planar: PlanarMap, law: Law, airport: Airport
@@ -300,8 +238,8 @@ def pad_fronting_level(planar: PlanarMap, law: Law, airport: Airport
     facing contacts — exactly §20's :func:`pads.pad_frontage_level` row,
     with the facing contacts in place of the touching ones, ONE-WAY with
     the pad's own (non-shared) vertices as the followers.  Senior (the
-    pad's plate weight) where the facing edge is the higher frontage or
-    the only one; junior (the law's weight) otherwise."""
+    pad's plate weight) where facing is the pad's only frontage; junior
+    (the law's weight) where §20's touching frontage stands."""
     from .pads import (GEN_LEVEL, LEVEL_JUNIOR_RULING, LEVEL_RULING,
                        _two_sided, pad_shared)
     an = analysis(planar, law, airport)
@@ -328,6 +266,5 @@ def pad_fronting_level(planar: PlanarMap, law: Law, airport: Airport
         n_jun += int(not g["senior"])
         n_contacts += len(per)
     STATS["pad_fronting_level"] = {"senior": n_sen, "junior": n_jun,
-                                   "contacts": n_contacts,
-                                   "released": len(an["released"])}
+                                   "contacts": n_contacts}
     return rows

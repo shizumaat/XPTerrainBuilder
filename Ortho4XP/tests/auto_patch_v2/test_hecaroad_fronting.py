@@ -94,46 +94,32 @@ def test_an_apron_beyond_the_reach_is_not_faced(law):
     assert pad_fronting.facing(pm, law) == {}
 
 
-def test_the_higher_longer_facing_frontage_is_senior_and_releases_the_weld(law):
-    """Higher (704 against 700) AND longer (200 m against 40 m): the faced
-    apron is the senior, §20's welded row goes junior, and the pad's
-    plate and 1 % ceiling no longer price the weld vertices."""
+def test_a_touching_frontage_stays_senior_and_the_facing_row_is_junior(law):
+    """The pad is welded to apron A and faces the higher apron B: §20's
+    touching row keeps the plate weight, the facing row is JUNIOR, and the
+    pad's plate still prices every weld vertex (the refuted release is
+    gone — issue #11)."""
     pm, airport = _built(law, _cells())
-    an = pad_fronting.analysis(pm, law, airport)
-    pad = _fid(pm, "padA")
-    g = an["groups"][pad]
-    assert g["senior"] and g["facing_level"] > g["touching_level"]
-    assert g["facing_m"] > g["touching_m"]
-    weld = pads.pad_shared(pm, law)[pad]
-    assert weld and g["released"] == weld
-    for row in pads.pad_slope_ceiling(pm, law, airport):
-        assert row.a not in weld and row.b not in weld
-    rows = pad_fronting.pad_fronting_level(pm, law, airport)
-    assert rows and all(r.source.ruling.startswith(pads.LEVEL_RULING + " ")
-                        for r in rows)
-    junior = [r for r in pads.pad_frontage_level(pm, law, airport)]
-    assert junior and all(r.source.ruling.startswith(pads.LEVEL_JUNIOR_RULING)
-                          for r in junior)
-    # one-way, the pad's own vertices follow; the apron never does
-    b = {v for v in pm.vertices if _fid(pm, "apronB") in pm.vertices[v].incident_faces}
-    for r in rows:
-        assert set(r.follows) & b == set()
-        assert set(r.follows) <= set(v for v in pm.vertices
-                                     if pad in pm.vertices[v].incident_faces)
-
-
-def test_a_lower_faced_apron_is_junior_and_releases_nothing(law):
-    """HIGHER WINS: flip the ground so the welded apron is the high one —
-    the faced apron's row is junior and the weld stays in the plate."""
-
-    class _Low(_Dem):
-        def z(self, x, y):
-            return 696.0 if x >= 35.0 else 700.0
-    airport = _airport(law, _Low())
-    pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
-    an = pad_fronting.analysis(pm, law, airport)
-    g = an["groups"][_fid(pm, "padA")]
-    assert not g["senior"] and not g["released"]
+    g = pad_fronting.analysis(pm, law, airport)["groups"][_fid(pm, "padA")]
+    assert not g["senior"] and g["facing_level"] > g["touching_level"]
     rows = pad_fronting.pad_fronting_level(pm, law, airport)
     assert rows and all(r.source.ruling.startswith(pads.LEVEL_JUNIOR_RULING)
                         for r in rows)
+    weld = pads.pad_shared(pm, law)[_fid(pm, "padA")]
+    feet = {v for r in pads.pad_slope_ceiling(pm, law, airport) for v in (r.a, r.b)}
+    assert weld <= feet
+
+
+def test_a_pad_that_only_faces_takes_the_faced_edge_as_senior_one_way(law):
+    """No weld: the facing row is the pad's SENIOR level row, one-way with
+    the pad's own vertices as the followers — the apron never moves."""
+    cells = [c for c in _cells() if c.ref != "apronA"]
+    pm, airport = _built(law, cells)
+    pad = _fid(pm, "padA")
+    rows = pad_fronting.pad_fronting_level(pm, law, airport)
+    assert rows and all(r.source.ruling.startswith(pads.LEVEL_RULING + " ")
+                        for r in rows)
+    b = {v for v in pm.vertices if _fid(pm, "apronB") in pm.vertices[v].incident_faces}
+    padv = {v for v in pm.vertices if pad in pm.vertices[v].incident_faces}
+    for r in rows:
+        assert set(r.follows) & b == set() and set(r.follows) <= padv

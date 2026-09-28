@@ -80,7 +80,6 @@ from ..law.tables import (design as design_law, is_rigid_role, pavement_roles,
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
-from . import pad_fronting
 from .pad_relief import pad_relief_offsets
 from .precedence import view
 
@@ -545,7 +544,6 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # holding the pad inside a round — was measured under the
     # non-converging fixed point that §20c has since replaced.
     air = airside_vertices(planar, law) if airside_led else frozenset()
-    rel_g = pad_fronting.released(planar, law, airport)  # 27a (9) junior weld
     n_led = n_dropped = n_in_pavement = 0
     # §16g (10) (8) IS WITHDRAWN — NO SKIRT (owner RULINGS 2026-09-14ay,
     # confirmed 14bn; lane ``v2padjoin`` round 3).  A pad touching an
@@ -600,7 +598,7 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         if air and not led_here:
             n_in_pavement += 1
         for a, b in prs:
-            if a == b or a in rel_g.get(fid, ()) or b in rel_g.get(fid, ()):
+            if a == b:
                 continue
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
             if d <= 0.0:
@@ -831,8 +829,7 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
         sh: set[int] = set()
         for q in fids:
             sh |= shared.get(q, set())
-        top = ("" if fid in pad_fronting.analysis(planar, law, airport)["senior_groups"]
-               else senior_role(law, sorted(by_role)))   # 27a (9): higher wins
+        top = senior_role(law, sorted(by_role))
         # §9b reads the FOLLOWERS: a fronting pad's own vertices carry no
         # DEM datum (10l).  Its CONTACTS are the pavement's edge and stay
         # in the pavement body's mean.

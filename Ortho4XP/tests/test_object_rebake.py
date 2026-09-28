@@ -37,6 +37,8 @@ import stat
 
 import pytest
 
+from conftest import needs_unprivileged_user
+
 from auto_patch import config
 from auto_patch.object_anchor import RebakeDecision, Structure
 from auto_patch import object_rebake
@@ -664,6 +666,7 @@ def test_check_reads_the_prototype_format_sidecar(tmp_path):
 # whole-pool refusal on an unwritable pack (torn-geometry guard)
 # ---------------------------------------------------------------------------
 
+@needs_unprivileged_user
 def test_unwritable_directory_refuses_the_whole_pool(tmp_path):
     locked_resource = "LockedDirectory/locked.obj"
     open_resource = "Objects/open.obj"

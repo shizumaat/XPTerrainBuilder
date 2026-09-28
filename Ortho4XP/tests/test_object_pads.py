@@ -790,7 +790,18 @@ def test_no_terrain_module_reads_the_pad_sidecar():
     root = pathlib.Path(object_pads.__file__).parent
     offenders = []
     for path in sorted(root.glob("*.py")):
-        if path.name in ("object_pads.py", "post_mesh.py"):
+        if path.name in ("object_pads.py", "post_mesh.py",
+                         # THE READER MOVED, it did not multiply: the v1
+                         # phase-2 y-bake (``rebake_dsf_objects``) came out
+                         # of post_mesh.py into post_mesh_v1.py on
+                         # 2026-09-17 (lane v1retire round 1, seam S3 of
+                         # RULINGS 2026-09-13aw), because its one call into
+                         # object_terrain_assembly re-admitted the whole v1
+                         # tree into the production closure from a KEEP
+                         # module.  Its bodies are byte-identical to what
+                         # shipped and it is a DELETE module — round 2
+                         # removes it, and this exemption with it.
+                         "post_mesh_v1.py"):
             continue                              # the writer and the reader
         text = path.read_text()
         if "load_sidecar" in text or "OBJECT_FOOT_PAD_SIDECAR" in text:

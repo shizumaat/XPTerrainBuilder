@@ -103,10 +103,42 @@ def _census(cg, *, adjudicated=0, deferred=0):
             "families": [{"family": "within_shape", "n": adjudicated}]}
 
 
+def _skip_if_retired(oracle) -> None:
+    """Skip a twin that can only run through ``oracle.main``'s v1 body."""
+    if not hasattr(oracle.HB, "build_patch"):
+        pytest.skip(
+            "the constant-DEM oracle is a v1 instrument and v1 is retired "
+            "(RULINGS 2026-09-13au/13aw; lane v1retire 2026-09-17, stage-B "
+            "ruling (f)): build_airport.build_patch is deleted and "
+            "oracle.main refuses by name, so main's body cannot run.  "
+            "Round 2 re-wires the runner over v2's solve product or "
+            "deletes it; these twins move with that decision.")
+
+
 def _run(oracle, cg, monkeypatch, tmp_path, *, lo_vals, hi_vals, band,
          adjudicated=0, deferred=0, analytic_band=None):
     """Drive ``oracle.main`` over injected builds.  Returns
-    ``(rc, verdicts, progress_text)``."""
+    ``(rc, verdicts, progress_text)``.
+
+    RETIRED WITH v1, AND SO ARE ITS TWINS (lane v1retire round 1,
+    2026-09-17; RULINGS 2026-09-13au / 13aw, ruling (f) of the stage-B
+    brief).  Everything below ``main``'s refusal is read off a v1
+    ``PavementLayout`` built twice by ``build_airport.build_patch``, which
+    was DELETED with the v1 tree — so there is no ``HB.build_patch`` left
+    to inject a build through, and ``main`` refuses by name before it
+    would reach one.  The twins are kept whole, not deleted, because round
+    2 decides the runner's fate (re-wire the band readers over v2's own
+    solve product, or delete the runner); whichever it is, these come back
+    or go with it.  The skip lives HERE, in the one helper every affected
+    twin calls, rather than on ten decorators — ``test_version_scheme``'s
+    ``_zsh`` idiom — so a twin added later inherits it.
+
+    What is still LIVE about the runner is twinned, unskipped:
+    ``test_the_retired_oracle_refuses_by_name`` below, plus every twin in
+    this file that exercises ``_band_of``/``_analytic_band``/the verdict
+    arithmetic directly instead of through ``main``.
+    """
+    _skip_if_retired(oracle)
     lo_layout, hi_layout = _layout(lo_vals), _layout(hi_vals)
 
     def _build_patch(icao, root, out_dir, tag, prog, const_dem=None, **kw):
@@ -175,6 +207,27 @@ def _patch_band_internals(monkeypatch, *, nodes=None, band=..., raises=None,
     monkeypatch.setattr(SP, "_build_node_list", _nodes)
     monkeypatch.setattr(GG, "build_unified_graph", lambda lay, b2i: object())
     monkeypatch.setattr(BF, "reach_band_unified", _band)
+
+
+def test_the_retired_oracle_refuses_by_name(oracle) -> None:
+    """THE LIVE BEHAVIOUR of ``oracle.py``: it refuses, and says why.
+
+    Ruling (f) of the stage-B brief (lane v1retire, 2026-09-17) is "refuse
+    BY NAME where an option becomes meaningless, never leave an option
+    inert".  A retired instrument that raised ``AttributeError`` deep
+    inside a build would satisfy the letter and none of the point, so this
+    asserts the three things the refusal owes a reader: that it IS a
+    refusal, WHY (v1 is retired, and which ruling says so), and WHAT
+    answers the same questions on v2.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        oracle.main(["HEAZ"])
+    message = str(excinfo.value)
+    assert message.startswith("REFUSED:"), message
+    assert "v1 is " in message and "retired" in message, message
+    assert "2026-09-13au" in message, message
+    for pointer in ("v2_solve_replay", "census.py"):
+        assert pointer in message, f"the refusal names no {pointer}: {message}"
 
 
 def test_an_empty_node_list_is_named_no_nodes(oracle, monkeypatch):
@@ -377,7 +430,12 @@ def test_the_frame_stamp_records_the_tree_the_corpus_and_the_worlds(
 def test_the_run_writes_its_env_and_frame_beside_the_verdicts(
         oracle, cg, monkeypatch, tmp_path):
     """An oracle number must be joinable to a tree from the artifacts
-    alone."""
+    alone.
+
+    Injects its own build rather than going through ``_run``, so it
+    carries the retirement skip itself (see ``_skip_if_retired``).
+    """
+    _skip_if_retired(oracle)
     monkeypatch.setattr(oracle.HB, "cfg_frame_diff", lambda root: {})
     monkeypatch.setattr(oracle.HB, "env_snapshot",
                         lambda root, d: {"git_head": "h", "git_dirty": False,

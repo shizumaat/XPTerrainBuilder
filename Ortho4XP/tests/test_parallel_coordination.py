@@ -37,6 +37,38 @@ STUB_WORKER = os.path.join(
 )
 
 
+#: The machine every coordination twin in this file is measured on.
+#: The compute class limit IS the logical core count (owner ruling
+#: 2026-07-30) and the admission ceiling is 80 % of the memory the
+#: machine can hand out — so on a small runner the SCHEDULER's law and
+#: the RUNNER's hardware are indistinguishable in a concurrency figure.
+#: A 4-core / ~13 GB-available CI container admitted 3 vector steps
+#: (3.0 GB each against a ~10 GB ceiling) where these twins assert 4 and
+#: 6, and ten of them went red for the box rather than for the
+#: scheduler (issue #76).  Pinning both here makes every figure below a
+#: statement about ``parallel.py``, identical on the owner's Mac, a CI
+#: runner and a laptop.  A twin that is ABOUT the sizing rules
+#: (``test_compute_class_limit_is_the_core_count``,
+#: ``test_memory_budget_is_eighty_percent_of_available``) patches these
+#: again itself and is unaffected — the later patch wins.
+PINNED_CORES = 8
+PINNED_MEMORY_GB = 64.0
+
+
+@pytest.fixture(autouse=True)
+def pinned_machine_capacity(monkeypatch):
+    """Measure the scheduler, never the runner (see above)."""
+    import O4_Parallel_Utils as PARALLEL_UTILS
+
+    monkeypatch.setattr(
+        PARALLEL_UTILS, "machine_core_count", lambda: PINNED_CORES)
+    monkeypatch.setattr(
+        PARALLEL_UTILS, "machine_memory_gigabytes", lambda: PINNED_MEMORY_GB)
+    monkeypatch.setattr(
+        PARALLEL_UTILS, "machine_available_memory_gigabytes",
+        lambda: PINNED_MEMORY_GB)
+
+
 @pytest.fixture
 def stub_worker_command(monkeypatch):
     monkeypatch.setattr(
@@ -897,8 +929,22 @@ def test_imagery_conversion_tails_run_at_full_width(
     """The imagery half of the behavioural acceptance check (spec §A.2),
     synthetically: six tiles whose imagery steps hand off to a
     processor-burning DDS conversion tail overlap SIX ways, while their
-    download phases never exceed the imagery cap of four."""
+    download phases never exceed the imagery cap of four.
+
+    THE TAIL MUST OUTLAST THE STAGGER (#76).  The downloads are capped at
+    four, which is the whole point — so tiles five and six reach their
+    conversion tail LATER than the first four, by however long a spawned
+    worker takes to get there.  With the stub's default 0.6 s tail the
+    early four can finish before the late two begin, and the twin then
+    reads five-way overlap and reports the cap it exists to disprove.
+    That is what happened on macOS, where process spawn is slowest: red in
+    both runs of ffb580c2, green on Linux.  Lengthening the tail makes the
+    measurement about ADMISSION — six tails allowed at once past a cap of
+    four — instead of about how fast this machine forks.  The concurrency
+    assertion itself is unchanged and still exact.
+    """
     monkeypatch.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
+    monkeypatch.setenv("STUB_WORKER_CONVERT_SECONDS", "3.0")
     session = EngineSession()
     tiles = [(64, -100 - index) for index in range(6)]
     result = _run_build(session, collector, tiles, slots=6, timeout=60.0,

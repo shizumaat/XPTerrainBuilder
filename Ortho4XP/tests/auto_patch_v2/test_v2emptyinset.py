@@ -43,8 +43,22 @@ REQUIRED = (6.228775334989304, 46.38548829431761,
 
 
 def _write_raster(path, *, valid):
-    """A small georeferenced float32 GeoTIFF: all-nodata, or all data."""
-    from osgeo import gdal
+    """A small georeferenced float32 GeoTIFF: all-nodata, or all data.
+
+    GDAL is what WRITES the fixture, so a runner without it cannot pose
+    the question at all.  The skip lives here, in the one helper every
+    raster-bearing twin calls, rather than on eight decorators — and NOT
+    at module scope, because the five twins below that need no raster
+    (the predicate's own arithmetic, the declared-empty manifest path)
+    are real coverage on a GDAL-less runner and must keep running.
+    Same class as the module-level ``pytest.importorskip("osgeo")`` in
+    ``tests/test_bathymetry_masks.py``; the engine venv carries no GDAL
+    wheel on Linux or Windows CI.
+    """
+    gdal = pytest.importorskip(
+        "osgeo.gdal",
+        reason="GDAL writes this twin's raster fixtures and the engine venv "
+               "carries no GDAL wheel on this runner")
     driver = gdal.GetDriverByName("GTiff")
     dataset = driver.Create(str(path), 32, 32, 1, gdal.GDT_Float32)
     (west, south, east, north) = REQUIRED

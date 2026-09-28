@@ -528,11 +528,17 @@ def test_shape_constraints_batched_and_unbatched_agree():
     real_vis, real_cross = (GG._visibility_predicate,
                             GG._spine_crossing_predicate)
     try:
-        GG._visibility_predicate = lambda ring: (
-            _NoBatch(real_vis(ring)) if real_vis(ring) is not None else None)
-        GG._spine_crossing_predicate = lambda sh, c, m: (
-            _NoBatch(real_cross(sh, c, m))
-            if real_cross(sh, c, m) is not None else None)
+        # ``holes``: the face's open rings, added to the factory by
+        # RULINGS 2026-09-05ae (1) (a chord crossing a hole is not a
+        # visible chord).  Both stubs forward whatever the caller passes
+        # rather than pinning an arity, so the next parameter a ruling
+        # adds cannot turn this twin into a TypeError again.
+        GG._visibility_predicate = lambda *a, **k: (
+            _NoBatch(real_vis(*a, **k))
+            if real_vis(*a, **k) is not None else None)
+        GG._spine_crossing_predicate = lambda *a, **k: (
+            _NoBatch(real_cross(*a, **k))
+            if real_cross(*a, **k) is not None else None)
         plain = GG.shape_constraints(shape, ctx)
     finally:
         GG._visibility_predicate = real_vis

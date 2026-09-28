@@ -156,7 +156,14 @@ class TestItIsNotAPostPass:
     def test_the_merge_is_called_from_the_chain_emitter(self):
         import inspect
         src = inspect.getsource(bridges._emit_portal_cluster)
-        assert "_emit_merged_ramp_runs(layout, _ramp_runs)" in src, (
+        # Matched WITHOUT the closing paren: the call gained an
+        # ``exclusion_zones`` argument (the merged run must register THE
+        # EMITTED SURFACE'S polygon, not the pre-merge quads — lane
+        # hard8, 2026-09-01), and pinning the exact argument list made
+        # this twin fail for a change it has no opinion about.  What it
+        # asserts is the CALL SITE: inside the chain emitter, on the
+        # accumulated runs.
+        assert "_emit_merged_ramp_runs(layout, _ramp_runs" in src, (
             "the merge must run inside the chain emitter, before "
             "emission — a later sweep over layout.shapes would be the "
             "stand-down again")

@@ -110,7 +110,23 @@ jobs:
         --continue-on-collection-errors
         --timeout=600 --timeout-method=thread
     steps:
+      # FULL HISTORY, not the default depth-1 clone (#76).  Two twins in the
+      # suite CI now collects read the repository's own history, and both
+      # went red for the clone rather than for the code:
+      #   * tests/test_dsf_texture_modes.py pins a baseline commit
+      #     (38b3eaf) and builds the same synthetic tile with the base
+      #     build_dsf to prove full_ortho is byte-identical.  It REFUSES to
+      #     skip here — "CI checkouts must include it (fetch full history,
+      #     not a shallow clone); this guard must not silently skip in CI"
+      #     — so the fix belongs in the checkout, which is what it asks for.
+      #   * tests/test_blast_index.py asserts co-change coupling over 200+
+      #     commits; at depth 1 there is no co-change to find.
+      # This is the #63/#74 principle applied to the checkout: a test the
+      # runner cannot pose the question to is not a test that should be
+      # quietly skipped — give it its input.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:

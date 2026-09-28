@@ -152,7 +152,8 @@ def test_from_classify_is_a_replay_resume():
 # ── 4. RULINGS 2026-09-23a ──────────────────────────────────────────────
 
 def _law(keeps=True):
-    law = Law.for_airport("ZZZZ")
+    from tests.auto_patch_v2._plate import plate_law
+    law = plate_law(Law.for_airport("ZZZZ"))      # the subject is the 23a cut
     p = _dc.replace(law.tables.structures.placement, pad_airside_clip=True,
                     pad_keeps_footprint=keeps)
     st = _dc.replace(law.tables.structures, placement=p)

@@ -136,6 +136,11 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     # so a ``why`` trace on a pad names the pavement edge holding it rather
     # than its flatness target
     ("pad_level", "", "pad_frontage_level"),
+    # THE UNIT PLATFORM (unit-platform spec §3 P12): the collar's bank and
+    # the platform's one plane are their own families, so a ``why`` trace
+    # on a platform names the collar pulling it, not the pad plate
+    ("platform_collar", "platform plane", "platform_plane"),
+    ("platform_collar", "", "platform_collar"),
     # THE GROUNDSIDE FRONTAGE (owner RULINGS 2026-09-12r, spec §28): its own
     # family, so a ``why`` trace on a car-park or service-road edge names the
     # PAD holding it, and a JUNIOR pad's miss is a residual with a name

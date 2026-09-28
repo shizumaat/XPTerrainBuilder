@@ -371,9 +371,14 @@ class BuildingPad:
     step_exemption_pad_to_pad: bool
     frontage_near_miss_m: float
     frontage_soft_roles: tuple[str, ...]
-    #: owner RULINGS 2026-09-28a (1): a terminal cluster pad is ONE PLATFORM
-    #: (``constraints/pads._pad_rows``); false = the 15z airside-led plate
-    unit_platform: bool = False
+    #: unit-platform spec §1 (2) / §2 S4 (owner RULINGS 2026-09-28a): the
+    #: widest collar a platform may take (a 1:3 bank, ``emit.design.
+    #: bank_slope``); ``platform_collar_max_m * bank_slope`` is also the
+    #: largest end-ground step a SOLID connector may join across
+    platform_collar_max_m: float
+    #: unit-platform spec §1: mint the platform + collar (``planar/
+    #: platform.py``); false keeps today's welded plate
+    platform_collar: bool
 
 
 @_dc.dataclass(frozen=True)

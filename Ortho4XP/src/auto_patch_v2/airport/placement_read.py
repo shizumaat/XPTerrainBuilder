@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import typing as _t
 
+from ..model.planar import is_collar_ref, platform_ref_of
 from ..model.rebake import RebakePlan
 from . import anchor_rule as _ar
 
@@ -95,7 +96,9 @@ def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
                              tuple(float(z_id[i]) for i in f["ring"]
                                    if i in by_id))
                  for f in d["faces"]
-                 if f["role"] == PAD_FACE_ROLE and len(f["ring"]) >= 3)
+                 if f["role"] == PAD_FACE_ROLE and len(f["ring"]) >= 3
+                 and not is_collar_ref(f["ref"]))
+    pads = pads + _collars_as_platform(d, by_id, z_id, pads)
     rims = tuple(_ar.RimRing(b["ref"],
                              tuple(by_id[i] for i in b["vertices"] if i in by_id),
                              tuple(float(z_id[i]) for i in b["vertices"]
@@ -103,6 +106,45 @@ def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
                  for b in d["breaklines"]
                  if b["kind"] == RIM_BREAKLINE_KIND and len(b["vertices"]) >= 3)
     return pads, rims
+
+
+def _collars_as_platform(d, by_id, z_id, pads) -> tuple[_ar.PadRing, ...]:
+    """unit-platform spec §3 P15 — THE ONE SITE the object stage learns of
+    the platform.  A platform pad is two kinds of face: the PLATFORM
+    pieces (the pad's ref, on the one plane) and the COLLAR
+    (``<ref>#collar``, the bank from the welded rim).  The collar is
+    published here UNDER THE PLATFORM'S REF with its OUTER ring — so
+    containment (``pad_contains`` / ``pad_majority``) reads the whole unit
+    footprint — and with the PLATFORM PLANE's heights along that ring, never
+    the rim's own (which are the apron's): every min / median a caller
+    takes of the folded ref is the platform's (17u fix (A)/(C)), so the
+    unit is seated on the platform and a wall on the collar with it
+    (spec §1 (5))."""
+    import numpy as np
+
+    from .placement_contact import m_per_deg_exact
+    out: list[_ar.PadRing] = []
+    plat: dict[str, list[_ar.PadRing]] = {}
+    for p in pads:
+        plat.setdefault(p.ref, []).append(p)
+    for f in d["faces"]:
+        if f["role"] != PAD_FACE_ROLE or not is_collar_ref(f["ref"]):
+            continue
+        ref = platform_ref_of(f["ref"])
+        ring = tuple(by_id[i] for i in f["ring"] if i in by_id)
+        faces = plat.get(ref) or []
+        pts = [(q[0], q[1], z) for p in faces for q, z in zip(p.ring, p.z)]
+        if len(ring) < 3 or len(pts) < 3:
+            continue
+        P = np.asarray(pts, dtype=float)
+        la0, lo0 = float(P[:, 0].mean()), float(P[:, 1].mean())
+        ky, kx = m_per_deg_exact(la0)
+        A = np.c_[(P[:, 1] - lo0) * kx, (P[:, 0] - la0) * ky, np.ones(len(P))]
+        co, *_ = np.linalg.lstsq(A, P[:, 2], rcond=None)
+        zs = tuple(float(co[0] * (q[1] - lo0) * kx + co[1] * (q[0] - la0) * ky
+                         + co[2]) for q in ring)
+        out.append(_ar.PadRing(ref, ring, zs))
+    return tuple(out)
 
 
 def pads_rims_from_graded(path: str) -> tuple[tuple[_ar.PadRing, ...],

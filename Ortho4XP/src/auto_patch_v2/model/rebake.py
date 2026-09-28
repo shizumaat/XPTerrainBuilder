@@ -298,6 +298,14 @@ class RebakePlan:
     #: — they GROUP the bodies they fall in, which take the senior
     #: body's delta.  Empty in a plan written before 10ay.
     abutments: tuple[tuple[int, int], ...] = ()
+    #: unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
+    #: CONNECTOR VERDICT, stamped at planar time on the load partition and
+    #: carried here for the object stage — every §16g (6) connector as the
+    #: JSON form of ``airport.footprint_connector.ConnectorVerdict`` (its
+    #: pids, ends, S1/S3/S4 readings and ``solid``).  Empty in a plan
+    #: written before the field; the object stage then keeps its own
+    #: staged connector reading and SAYS SO.
+    connectors: "tuple[_t.Mapping[str, _t.Any], ...] | None" = None
 
     def bounds(self) -> tuple[float, float, float, float]:
         """``(min_lon, min_lat, max_lon, max_lat)`` over every witness."""
@@ -324,6 +332,8 @@ class RebakePlan:
             "skipped": [list(s) for s in self.skipped],
             "contacts": [[a, b] for a, b in self.contacts],
             "abutments": [[a, b] for a, b in self.abutments],
+            "connectors": (None if self.connectors is None
+                           else [dict(c) for c in self.connectors]),
             "flat": None if self.flat is None else self.flat.to_dict(),
             "units": [{
                 "id": u.id, "anchor": [u.anchor[0], u.anchor[1]], "agl_m": u.agl_m,
@@ -427,6 +437,8 @@ class RebakePlan:
                    counts=dict(d.get("counts", {})),
                    contacts=tuple((int(a), int(b)) for a, b in d.get("contacts", ())),
                    abutments=tuple((int(a), int(b)) for a, b in d.get("abutments", ())),
+                   connectors=(None if d.get("connectors") is None else
+                               tuple(dict(c) for c in d["connectors"])),
                    flat=None if d.get("flat") is None else FlatDatum.from_dict(d["flat"]))
 
     @classmethod

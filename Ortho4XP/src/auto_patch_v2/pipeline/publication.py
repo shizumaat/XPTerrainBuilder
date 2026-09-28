@@ -432,6 +432,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # what the report reads to name the apron faces that stayed
             # graded.  Empty at an airport with no cluster (CYXY's class).
             "cluster_pads": cluster_pads(planar, law, airport, z),
+            # unit-platform spec §3 P21 / §4 (5): per platform its collar,
+            # its solved plane and the rim relief the collar carries; the
+            # refused ones by reason — LAW INPUT for the census's
+            # ``platform_rim_relief`` / ``platform_refused``
+            "platforms": _platforms(planar, law, z),
             # issue #14 (``welded-deck-spec.md`` §3, additive): the welded
             # decks the load read, their pier ratios, and the shade area
             # that left every cluster outline.  Informational.
@@ -563,6 +568,19 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     if _doc.get("pad_airside_renode") is None:
         _doc.pop("pad_airside_renode", None)
     return _doc
+
+
+def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:
+    """The ``platforms`` sidecar key: the minted platforms' solved records
+    (``constraints.platform.platform_records``) plus every REFUSED one the
+    arrangement named (``planar.platform.PLATFORMS``)."""
+    from ..constraints.platform import platform_records
+    from ..planar.platform import PLATFORMS
+    out = platform_records(planar, law, z)
+    out.extend({"ref": p.ref, "refused": p.refused, "pad_m2": p.pad_m2,
+                "platform_m2": p.platform_m2, "collar_m": p.collar_m}
+               for p in PLATFORMS if p.refused)
+    return out
 
 
 def jetway_strips_ll(planar: PlanarMap, airport: Airport, strips: _t.Any,

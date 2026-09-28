@@ -44,7 +44,8 @@ CEILING = "structures.building_pad pad_slope_max ceiling"
 
 @pytest.fixture(scope="module")
 def law():
-    return Law.for_airport("ZZZZ")
+    from tests.auto_patch_v2._plate import plate_law
+    return plate_law(Law.for_airport("ZZZZ"))    # the subject is the welded plate (#67)
 
 
 # ── (1) THE APRON TREND IS FITTED OVER THE AIRSIDE ALONE ────────────────

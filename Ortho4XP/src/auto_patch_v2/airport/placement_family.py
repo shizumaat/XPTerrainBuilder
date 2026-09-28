@@ -420,17 +420,20 @@ class _Shim:
     placement candidates.  Nothing else of a candidate is touched."""
 
     __slots__ = ("member", "part_boxes", "box", "body_class", "resource",
-                 "floors", "rings", "floor", "footed", "walled", "outline",
-                 "bridges")
+                 "floors", "rings", "floor", "footed", "walled", "pids",
+                 "outline", "bridges")
 
     def __init__(self, member: int, boxes: list, resource: str,
                  floors: "list | None" = None,
                  rings: "list | None" = None,
                  floor: float = 0.0, footed: bool = False,
                  walled: bool = True,
+                 pids: "frozenset[int]" = frozenset(),
                  outline: "list | None" = None,
                  bridges: "list | None" = None) -> None:
         self.member = member
+        #: the body's part ids — the join to the §2 connector verdict
+        self.pids = frozenset(pids)
         self.part_boxes = boxes
         #: §16f (8): the authored floor of each of ``part_boxes``
         self.floors = list(floors or ())
@@ -500,6 +503,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                   chain_min_height_m: float = 0.0,
                   counts: "dict | None" = None,
                   sheet_chain_min_fraction: float = 0.0,
+                  cut: _t.AbstractSet[int] = frozenset(),
                   outline_law: "tuple[float, float, float] | None" = None
                   ) -> list[PlanCluster]:
     """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
@@ -541,7 +545,17 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
     The BODY is the unit of contact, as it is at the object stage
     (``_clusters``'s own docstring: a member-level read dragged a body
     500 m out on the apron onto the plane).  ``planar/group.bodies_of_plan``
-    is the ONE body derivation and is imported, never re-implemented."""
+    is the ONE body derivation and is imported, never re-implemented.
+
+    THE CUT CONNECTORS (unit-platform spec §2, owner RULINGS 2026-09-28a
+    (2), §16g (9) one population): ``cut`` is the part-id set of every
+    §16g (6) connector the plan's ONE verdict
+    (``footprint_connector.solid_connectors``) calls NOT solid.  Such a
+    body is CUT out of the chain — its own single-body cluster, linking
+    nothing — exactly where ``footprint_unit`` cuts it.  A SOLID connector
+    stays in the chain and so MERGES the clusters it joins.  Measured
+    before the cut at HECA: the elevated rail chained T2 to T3 and one
+    plate over 30 m of relief took T2 to 96.35 over its 68-74 apron."""
     if contact_eps_m <= 0.0 or not getattr(plan, "units", ()):
         return []
     bodies, _of_pid = bodies_of_plan(plan)
@@ -595,7 +609,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                 rings=[r for q in live for r in q.rings if len(r) >= 3],
                 floor=min(footed) if footed
                 else min(float(q.base_y) for q in live),
-                footed=bool(footed), walled=walled,
+                footed=bool(footed), walled=walled, pids=frozenset(pids),
                 # issue #73: posts and flat lines chain, never draw
                 outline=[r for q, d in zip(live, draw) if d
                          for r in q.rings if len(r) >= 3],
@@ -607,8 +621,15 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
         # a single member's own touching bodies ARE one building
         # §16g (10) (4): the chain is built over the WALLED bodies alone;
         # every LEAF is its own single-body cluster.
-        walled = [i for i, q in enumerate(shims) if q.walled]
-        leaves = [i for i, q in enumerate(shims) if not q.walled]
+        gone = ({i for i, q in enumerate(shims) if q.pids & cut}
+                if cut else set())
+        walled = [i for i, q in enumerate(shims)
+                  if q.walled and i not in gone]
+        leaves = [i for i, q in enumerate(shims)
+                  if not q.walled and i not in gone]
+        if counts is not None and gone:
+            counts["cluster_connectors_cut_out"] = \
+                counts.get("cluster_connectors_cut_out", 0) + len(gone)
         if walled:
             sub = [shims[i] for i in walled]
             chains, sadj = _clusters(sub, contact_eps_m, min_members=1)
@@ -632,6 +653,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                 chains = merge_by_sheets(chains, links, adj)
         sheets = {s for s, _b in links}
         chains = chains + [[i] for i in leaves if i not in sheets]
+        chains = chains + [[i] for i in sorted(gone)]
         if counts is not None and links:
             counts["cluster_sheet_links"] = \
                 counts.get("cluster_sheet_links", 0) + len(links)

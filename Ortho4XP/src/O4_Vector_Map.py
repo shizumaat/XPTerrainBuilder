@@ -1444,6 +1444,19 @@ def build_poly_file(tile):
                  f"{vector_map.split_z_carried} crossing(s) resolved to an "
                  "existing node and took the crossed chain's altitude.")
     vector_map.snap_to_grid(9)
+    # §39 (1) NO VERTEX BESIDE AN EDGE (issue #71): a node standing within
+    # the split radius of another constrained edge's interior is a node OF
+    # that edge — split it there, move nothing.  After the snap, which is
+    # the last move any node makes.  NLWF: four such pairs (0.008-0.046 mm,
+    # a projected patch-ring vertex and a seawall end beside the coast)
+    # carried 1,368,039 triangles under 0.01 m2.
+    _t_noding = time.time()
+    noded = vector_map.node_vertices_on_edges(
+        vector_map.split_spacing_m, tile.lat)
+    UI.vprint(1, f"   Vertex-on-edge noding (§39 (1), #71): {noded} "
+                 f"constrained edge(s) split at a node standing within "
+                 f"{vector_map.split_spacing_m * 1000:g} mm of their interior "
+                 f"({time.time() - _t_noding:.2f} s).")
     # §39 (i) THE HAIRLINE WELD (owner RULINGS 2026-09-13bu), at the LAST
     # site every pass's output has arrived: two constrained nodes closer
     # than the weld radius are ONE node to any mesher, and the degenerate

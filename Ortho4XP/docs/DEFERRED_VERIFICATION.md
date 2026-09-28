@@ -6270,3 +6270,11 @@ constraint, and owed:
   LEMD `--tile` build), the `.agp` OBJECT_MSL sim read (Q-31), and the
   engine's own MESH-sampler reading of the rider terrain (the census reads
   the graded Delaunay; the build logs no rider counts). No full-suite run.
+- 2026-09-28 lane shoreharness (#71): the vertex-on-edge noding pass
+  (`Vector_Map.node_vertices_on_edges`, every tile's vector step) was
+  measured on NLWF's tile only (`shoreharness_t2`: 4 splits, 4 -> 0
+  UNMESHABLE, 1,471,880 -> 69,890 triangles, 1,368,039 -> 38 under
+  0.01 m^2, DSF pools level 14 -> 3) and offline on the LEMD tile `.poly`
+  (`lemdtile_LEMD`: 8 splits, 1.2 s + 0.6 s fixed-point round). No other
+  tile's mesh rebuilt; the insertion route that left NLWF's sea edge
+  un-noded is unattributed (a synthetic `insert_way` nodes it).

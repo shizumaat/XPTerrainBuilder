@@ -93,6 +93,14 @@ def _chain_min_height_m(law: Law) -> float:
     return float(law.tables.structures.placement.chain_min_height_m)
 
 
+def _sheet_chain_min_fraction(law: Law) -> float:
+    """§16g (10) (4) AMENDED (owner RULINGS 2026-09-27a (1), issue #69):
+    ``[placement] sheet_chain_min_fraction`` — ONE derivation site.  0
+    leaves every sheet a leaf, as 14ah read it."""
+    return float(getattr(law.tables.structures.placement,
+                         "sheet_chain_min_fraction", 0.0))
+
+
 def _floor_split_m(law: Law) -> float:
     """§16g (10) (1): ``[placement] floor_split_m`` — ONE derivation
     site.  0 leaves a touching chain one cluster however its floors
@@ -117,6 +125,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     eps = _touch_m(law)
     split = _floor_split_m(law)
     tall = _chain_min_height_m(law)
+    sheet = _sheet_chain_min_fraction(law)
     part = getattr(airport, "partition", None)
     WHY.clear()
     WHY.update(min_m2=cluster_min_m2(law), touch_m=eps, floor_split_m=split,
@@ -130,17 +139,19 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
         return ()
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
-        if k == key and ap is airport and m0 == (split, tall) and e0 == eps:
+        if k == key and ap is airport and m0 == (split, tall, sheet) and e0 == eps:
             return got
     counts: dict = {}
     got = tuple(plan_clusters(part, eps, floor_split_m=split,
-                              chain_min_height_m=tall, counts=counts))
+                              chain_min_height_m=tall, counts=counts,
+                              sheet_chain_min_fraction=sheet))
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)
     WHY["leaf_bodies"] = counts.get("cluster_leaf_bodies", 0)
+    WHY["sheet_links"] = counts.get("cluster_sheet_links", 0)
     WHY["walled_clusters"] = sum(1 for c in got if c.walled)
     if not got:
         WHY["gate"] = "plan_clusters: the partition's units hold no body"
-    _MEMO.append((key, airport, (split, tall), eps, got))
+    _MEMO.append((key, airport, (split, tall, sheet), eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got

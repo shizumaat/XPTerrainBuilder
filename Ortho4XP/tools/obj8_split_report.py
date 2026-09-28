@@ -926,6 +926,12 @@ def _main() -> int:
                              .contents_min_fraction
                              if a.contents_min_fraction is None
                              else a.contents_min_fraction),
+                         # §16g (10) (4) AMENDED (RULINGS 27a (1), #69)
+                         **({"sheet_chain_min_fraction": float(
+                             _law.tables.structures.placement
+                             .sheet_chain_min_fraction)}
+                            if hasattr(_law.tables.structures.placement,
+                                       "sheet_chain_min_fraction") else {}),
                          coarsen_reach_m=(_law.tables.structures.placement
                                           .coarsen_reach_m
                                           if a.coarsen_reach is None

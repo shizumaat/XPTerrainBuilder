@@ -467,6 +467,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # S6 CONTENTS (issue #30 / #10): a leaf inside a walled
                  # host rides the host's unit; 0 disarms
                  contents_min_fraction: float = 0.0,
+                 # §16g (10) (4) AMENDED (RULINGS 2026-09-27a (1)): a
+                 # spanning sheet links the walled bodies it overlaps
+                 sheet_chain_min_fraction: float = 0.0,
                  # §16g (2) AMENDED (owner RULINGS 2026-09-17x (1))
                  airside_floor: bool = False,
                  # RETIRED (owner RULINGS 2026-09-17t: "Pad datum: median,
@@ -607,7 +610,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)
                                       chain_min_height_m,  # §16g (10) (4)
-                                      contents_min_fraction)  # S6
+                                      contents_min_fraction,  # S6
+                                      sheet_chain_min_fraction)  # 27a
 
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────

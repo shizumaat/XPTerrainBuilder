@@ -956,6 +956,13 @@ chain_min_height_m  = 2.5
 # were seated apart from their building.  0 disarms.
 contents_min_fraction = 0.95
 
+# §16g (10) (4) AMENDED — A SPANNING SHEET CHAINS (owner RULINGS 2026-09-27a
+# (1), issue #69, Q-69 (b)): a non-deck LEAF (roof / floor sheet) whose plan
+# footprint overlaps TWO or more walled bodies' footprints, each by at least
+# this share of the smaller footprint, LINKS them into one unit (one pad)
+# and joins it; over one body (a canopy) it links nothing.  0 disarms.
+sheet_chain_min_fraction = 0.0
+
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two

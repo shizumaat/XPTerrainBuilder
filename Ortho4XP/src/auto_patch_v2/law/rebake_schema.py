@@ -293,6 +293,14 @@ class Placement:
     #: glass, the doors, the upper levels).  0 disarms.
     contents_min_fraction: float = 0.95
 
+    #: §16g (10) (4) AMENDED — A SPANNING SHEET CHAINS (owner RULINGS
+    #: 2026-09-27a (1), issue #69, Q-69 (b)): a non-deck LEAF whose plan
+    #: footprint overlaps TWO or more walled bodies' footprints, each by
+    #: at least this share of the smaller of the two footprints, LINKS
+    #: them into one §16g unit (one pad) and joins it.  Over one body (a
+    #: canopy) it links nothing.  0 disarms (every sheet a leaf, 14ah).
+    sheet_chain_min_fraction: float = 0.0
+
     #: §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): THE SKIRT
     #: BAND.  A pad's vertices within this of an edge it SHARES with an
     #: airside face follow the airside ONE-WAY within the pad's slope

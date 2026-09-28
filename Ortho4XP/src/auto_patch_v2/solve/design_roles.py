@@ -72,9 +72,13 @@ def airside_stage_vertices(planar: _t.Any, law: Law) -> frozenset[int]:
     """Every vertex of an :func:`airside_stage_roles` face — §20b stage 1's
     own population, read off the planar map's faces (rings and holes)."""
     roles = airside_stage_roles(law)
+    # THE COURTYARD (``model.islands``, lane islands #77): an apron island
+    # in a pad hole is solved in stage 2 with its pad, never in stage 1
+    from ..model.islands import courtyard_faces
+    court = courtyard_faces(planar, law)
     out: set[int] = set()
     for f in planar.faces.values():
-        if f.role not in roles:
+        if f.role not in roles or f.id in court:
             continue
         for ring in (f.ring, *f.holes):
             out.update(planar.ring_vertices(ring))

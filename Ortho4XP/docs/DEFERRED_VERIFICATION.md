@@ -6278,3 +6278,12 @@ constraint, and owed:
   (`lemdtile_LEMD`: 8 splits, 1.2 s + 0.6 s fixed-point round). No other
   tile's mesh rebuilt; the insertion route that left NLWF's sea edge
   un-noded is unattributed (a synthetic `insert_way` nodes it).
+- 2026-09-28 lane shoreharness (#72): the shore-structure feed is filled for
+  +22+113 only (ledger 2026-09-28T08:46:12, scope `shore`, sha256 1fc01eeb);
+  every other tile reads NOT FILLED. PRODUCTION HAS NO FILL: the feed is
+  not in the tile prefetch (adding it there would make every harness
+  `--tile` build refuse or contaminate until each tile is refreshed — an
+  orchestrator/owner call). VMMC was measured by an in-process planar A/B
+  (degraded frame knowingly) only: `build_airport.py VMMC` refuses on the
+  un-stamped `+22+113_airport_small_roads` (scope `osm_layers`, not
+  authorised in this lane). No census, no tile build.

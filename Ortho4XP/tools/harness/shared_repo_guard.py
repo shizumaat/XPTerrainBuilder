@@ -57,6 +57,18 @@ REFRESH_SCOPES = (
      "build read a different feed and nobody was told"),
     ("osm_layers", "OSM_data",
      "cached OSM layers and regional extracts (overpass downloads)"),
+    # THE SHORE-STRUCTURE FEED (issue #72) lives beside the other cached
+    # layers (``OSM_data/<block>/<tile>/<tile>_shore_structures.osm.bz2``,
+    # the one OSM cache writer's own path), so its PREFIX is osm_layers'
+    # and :func:`scope_of` names it by SUFFIX first (``SUFFIX_SCOPES``):
+    # authorising an overpass layer refresh does not authorise a shore
+    # fill, and a shore fill writes nothing else.
+    ("shore", "OSM_data",
+     "the per-tile SHORE-STRUCTURE feed (man_made=quay/pier/breakwater/"
+     "seawall/groyne/dyke, barrier=wall/retaining_wall/seawall, "
+     "wall=seawall/retaining_wall) that §37 (11) (7)'s quay declaration "
+     "reads — an overpass download, filled only by --refresh-data shore "
+     "(issue #72), never by a build"),
     ("dem", "Elevation_data",
      "base DEM rasters and airport elevation insets (provider downloads)"),
     ("airport_mod_cache", "Airport_mod_cache",
@@ -99,10 +111,21 @@ def install_relpath(path) -> str:
     return ("Custom Scenery/" + p[i + len(marker):]) if i >= 0 else p
 
 
+#: Scopes named by a FILE SUFFIX, consulted before the prefixes: a layer
+#: that shares its directory with others but is filled by its own refresh.
+SUFFIX_SCOPES = (
+    ("shore", "OSM_data/", ("_shore_structures.osm.bz2",
+                            "_shore_structures.osm.bz2.lock")),
+)
+
+
 def scope_of(relpath: str):
     """The ``--refresh-data`` scope a shared-repo path belongs to, most
     specific prefix first.  ``None`` for a path outside every scope."""
     rel = str(relpath)
+    for name, under, suffixes in SUFFIX_SCOPES:
+        if rel.startswith(under) and rel.endswith(suffixes):
+            return name
     for name, prefix, _why in REFRESH_SCOPES:
         if rel == prefix or rel.startswith(prefix + "/"):
             return name

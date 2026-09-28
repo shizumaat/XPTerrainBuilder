@@ -243,6 +243,9 @@ def licence_verdict(rel: str, allow: dict):
     if any(x in low for x in excluded):
         return f"excluded by name ({rel})"
     if pack is not None:
+        ruled = allow.get("refused_by_ruling", {}).get(pack)
+        if ruled is not None:            # an owner NO outranks any listing
+            return f"pack {pack!r} is refused by ruling: {ruled}"
         entry = allow.get("packs", {}).get(pack)
         if entry is None:
             return f"pack {pack!r} is not on the freeware allowlist"

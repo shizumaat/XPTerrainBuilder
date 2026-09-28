@@ -92,6 +92,33 @@ def test_licence_gate(CS):
     assert ok("data/Elevation_data/+30+030/N30E031.hgt", allow) is None
 
 
+def test_refused_by_ruling_outranks_a_listing(CS):
+    """RULINGS 2026-09-29b (Q-79): a pack the owner kept local-only refuses
+    even when someone also lists it under ``packs``."""
+    allow = {"packs": {"TFFJ Pack": "x"},
+             "refused_by_ruling": {"TFFJ Pack": "RULINGS 2026-09-29b"}}
+    why = CS.licence_verdict("xplane/Custom Scenery/TFFJ Pack/a.obj", allow)
+    assert why and "2026-09-29b" in why
+
+
+def test_shipped_allowlist_follows_ruling_20260929b(CS):
+    """The shipped allowlist carries SPJC's read set and refuses TFFJ's pack."""
+    allow = CS.load_allowlist()
+    ok = CS.licence_verdict
+    for pack in ("SPJC Lima by Los Flipantes 3.0 Nueva Terminal XP12",
+                 "Aerosoft - ENTC Tromso - 1 - Airport",
+                 "Aerosoft - LSZH Zurich - 1 - Airport",
+                 "Limesim - EDDB Berlin-Brandenburg - 1 - Airport"):
+        assert ok(f"xplane/Custom Scenery/{pack}/objects/a.obj", allow) is None
+        assert "2026-09-29b" in allow["packs"][pack]["status"]
+    ldsp = "xplane/Custom Scenery/Aerosoft - LDSP Split - 1 - Airport/"
+    assert ok(ldsp + "objects/staticaircrafts/A320_DLH.obj", allow) is None
+    assert ok(ldsp + "objects/terminal.obj", allow)       # still 'only'
+    why = ok("xplane/Custom Scenery/c_FRA - 100_airport - TFFJ_1_Apt/"
+             "Earth nav data/apt.dat", allow)
+    assert why and "2026-09-29b" in why
+
+
 def test_classify_maps_overlays_back_to_the_corpus(CS, tmp_path):
     repo = tmp_path / "repo"
     (repo / "Airport_mod_cache" / "P").mkdir(parents=True)

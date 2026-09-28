@@ -8684,7 +8684,9 @@ def _check_cross_shape_proximity(
 
 
 def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
-                              apron_tier: Optional[dict] = None
+                              apron_tier: Optional[dict] = None,
+                              face_holes_m: Optional[dict] = None,
+                              feature_ways: "Optional[List[Way]]" = None
                               ) -> List[Violation]:
     """NEAR-MISS BUILDING FRONTAGE — the validator twin of the solve's
     near-miss frontage LAW EDGES (cycle-5 instrument-fix spec item 6).
@@ -8733,6 +8735,20 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
     scales with each endpoint's own ``d`` (see the emitter's docstring — SPJC's
     49 m frontage edge with endpoints 1.5 m and 10 m from the pad is the type
     specimen).
+
+    THE PAD'S HOLES (spec-author ruling 2026-09-28, lane islands, #77/#73).
+    A pad is its outer ring MINUS its holes (sidecar ``face_holes`` by
+    ``shapeID``, the frame ``zone_on_pavement`` already reads).  Read as
+    ``Polygon(outer ring)`` alone, an apron ISLAND inside a hole (KCLT
+    building84: 42 holes, 24 pieces of pav14) read as "inside the pad" at
+    ``d = 0`` and was judged against the nearest OUTER-ring node — 256 of
+    KCLT's 280 rows, every one of them an island vertex that IS a hole-ring
+    vertex.  Now: the hole rings join the pad's canonical vertex set (a
+    vertex ON a hole ring is identity-reconciled, like one on the outer
+    ring), ``d`` is the distance to the pad WITH its holes, and a vertex
+    inside a hole is judged against THAT hole ring's nodes (their ``z`` is
+    the emitted vertex at the ring coordinate, within the 0.5 m canonical
+    radius; a ring vertex with no emitted node is not a witness).
     """
     if (_near_miss_frontage_budget is None
             or not _NEAR_MISS_FRONTAGE_SOFT_ROLES):
@@ -8783,6 +8799,53 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
     soft = _rings(set(_NEAR_MISS_FRONTAGE_SOFT_ROLES))
     if not pads or not soft:
         return []
+    _tol = float(SHARED_VERTEX_TOL_M)
+    # THE PAD'S HOLES (see the docstring): per pad, its hole rings in metres
+    # and, per hole, the ring vertices an emitted node witnesses (x, y, z).
+    pad_holes: Dict[int, List[List[Tuple[float, float]]]] = {}
+    hole_nodes: Dict[int, List[List[Tuple[float, float, float]]]] = {}
+    if face_holes_m:
+        zgrid: Dict[Tuple[int, int], List[Tuple[float, float, float]]] = \
+            defaultdict(list)
+        for w in list(ways) + list(feature_ways or ()):
+            for k, nid in enumerate(w.nids):
+                if nid not in nodes or k >= len(w.elevs) or w.elevs[k] is None:
+                    continue
+                x, y = ll_to_m(*nodes[nid])
+                zgrid[(int(math.floor(x / _tol)),
+                       int(math.floor(y / _tol)))].append((x, y, float(w.elevs[k])))
+
+        def _z_at(x: float, y: float) -> Optional[float]:
+            cx, cy = int(math.floor(x / _tol)), int(math.floor(y / _tol))
+            best = None
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for (qx, qy, qz) in zgrid.get((cx + dx, cy + dy), ()):
+                        dd = math.hypot(qx - x, qy - y)
+                        if dd <= _tol and (best is None or dd < best[0]):
+                            best = (dd, qz)
+            return None if best is None else best[1]
+
+        for pi, (p_idx, p_pts, _e, _n, p_poly) in enumerate(pads):
+            rings = [[(float(x), float(y)) for (x, y) in h]
+                     for h in (face_holes_m.get(
+                         str(ways[p_idx].tags.get("shapeID"))) or ())
+                     if len(h) >= 3]
+            if not rings:
+                continue
+            try:
+                poly = Polygon(p_pts, rings)
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+            except Exception:                              # pragma: no cover
+                continue
+            if poly.is_empty:
+                continue
+            pads[pi] = (p_idx, p_pts, _e, _n, poly)
+            pad_holes[pi] = rings
+            hole_nodes[pi] = [[(x, y, zz) for (x, y) in h
+                               for zz in (_z_at(x, y),) if zz is not None]
+                              for h in rings]
     # CANONICAL IDENTITY, POSITIONALLY.  The emitter's "unshared with the pad"
     # test is over ``layout.canonical_points``, which INTERNS within
     # ``SHARED_VERTEX_TOL_M`` (0.5 m) — that radius IS the one canonical
@@ -8795,11 +8858,11 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
     # patch, "carries a building seat" is exactly "is a pad ring node").
     # Note the SPJC type specimen survives by design: its 0.68 m source offset
     # is outside 0.5 m, so no vertex is canonically shared and the law binds.
-    _tol = float(SHARED_VERTEX_TOL_M)
     pad_grid: Dict[Tuple[int, int], List[Tuple[float, float, int]]] = \
         defaultdict(list)
     for (pi, (_i, p_pts, _e, _n, _poly)) in enumerate(pads):
-        for (px, py) in p_pts:
+        for (px, py) in list(p_pts) + [q for h in pad_holes.get(pi, ())
+                                       for q in h]:
             pad_grid[(int(math.floor(px / _tol)),
                       int(math.floor(py / _tol)))].append((px, py, pi))
 
@@ -8852,12 +8915,27 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
                         d = float(p_poly.distance(Point(x, y)))
                     except Exception:                      # pragma: no cover
                         continue
-                    j = min(range(len(p_pts)),
-                            key=lambda k: ((p_pts[k][0] - x) ** 2
-                                           + (p_pts[k][1] - y) ** 2))
-                    pz = p_elevs[j]
-                    if pz is None:
+                    # the witnesses: a vertex INSIDE a hole reads that
+                    # hole's ring; any other reads the outer ring and the
+                    # hole rings (every ring of the pad it can touch)
+                    wit = None
+                    for hi, h in enumerate(pad_holes.get(int(pi), ())):
+                        try:
+                            if Polygon(h).contains(Point(x, y)):
+                                wit = list(hole_nodes[int(pi)][hi])
+                                break
+                        except Exception:                  # pragma: no cover
+                            continue
+                    if wit is None:
+                        wit = [(p_pts[k][0], p_pts[k][1], p_elevs[k])
+                               for k in range(len(p_pts))
+                               if p_elevs[k] is not None]
+                        for hn in hole_nodes.get(int(pi), ()):
+                            wit.extend(hn)
+                    if not wit:
                         continue
+                    wx, wy, pz = min(wit, key=lambda q: ((q[0] - x) ** 2
+                                                         + (q[1] - y) ** 2))
                     de = abs(float(ez) - float(pz))
                     if tier_hard is not None:
                         budget = tier_hard * d
@@ -8888,7 +8966,7 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
                         de_m=de,
                         way_a=ways[s_idx],
                         way_b=ways[p_idx],
-                        pt_a=(x, y), pt_b=p_pts[j],
+                        pt_a=(x, y), pt_b=(wx, wy),
                         elev_a=float(ez), elev_b=float(pz)))
     out.sort(key=lambda v: -v.de_m)
     return out
@@ -12477,8 +12555,11 @@ def run_checks(
     # at SHARED_VERTEX_TOL_M (0.5 m) and reads 0 everywhere, while this binds
     # out to BUILDING_FRONTAGE_NEAR_MISS_M against the pad's own node.
     near_miss = _fam("frontage_near_miss",
-                     _check_frontage_near_miss(ways, nodes, ll_to_m,
-                                               apron_tier=apron_tier))
+                     _check_frontage_near_miss(
+                         ways, nodes, ll_to_m, apron_tier=apron_tier,
+                         face_holes_m=face_holes_m,
+                         feature_ways=[w for v in open_features.values()
+                                       for w in v]))
     _pv(f"NEAR-MISS BUILDING FRONTAGE (soft pavement within "
         f"{_BUILDING_FRONTAGE_NEAR_MISS_M:g} m of a pad, across the sliver, "
         f"vs the pad's own node at the apron cap)",

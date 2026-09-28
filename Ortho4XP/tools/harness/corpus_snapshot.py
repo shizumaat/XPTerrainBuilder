@@ -417,6 +417,71 @@ def airport_read_set(icao: str, trace: dict, data_repo: Path,
     return out
 
 
+LIBRARY_INDEX_REL = "data/library_index.json"
+
+
+def write_library_index(out: Path, files: dict, data_repo: Path,
+                        install_root: str):
+    """THE LIBRARY INDEX (issue #79, 2026-09-28).  v2 resolves every
+    ``lib/...`` placement through the engine's CACHED merged index
+    (``o4_library_index_<sha1(xplane_root)>.cache``, read-only, never
+    rebuilt), keyed on the install's absolute path.  A trace never sees the
+    ``library.txt`` files behind a warm cache, and a snapshot's install sits
+    at a different path, so without this every stock/library object went
+    unresolved in snapshot mode (SPJC: 3,354 of 3,585; body_sha diverged).
+    The cut ships the owner's index restricted to entries whose physical
+    file IS in the snapshot, snapshot-relative; :func:`seed_library_index`
+    re-keys it at build time.  Returns the manifest rel, or None."""
+    sys.path.insert(0, str(ENGINE_ROOT / "src"))
+    from auto_patch_v2.airport import obj8 as _obj8           # noqa: E402
+    src = _obj8.library_index_path(str(Path(data_repo) / "Airport_mod_cache"),
+                                   install_root)
+    index = _obj8.read_library_index(src) or {}
+    root = os.path.abspath(install_root).rstrip("/") + "/"
+    kept = {}
+    for virt, phys in index.items():
+        if not phys.startswith(root):
+            continue
+        rel = "xplane/" + phys[len(root):]
+        if rel in files:
+            kept[virt] = rel
+    if not kept:
+        return None
+    dst = out / LIBRARY_INDEX_REL
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps(dict(sorted(kept.items())), indent=0))
+    files[LIBRARY_INDEX_REL] = {"sha256": _sha256(dst),
+                                "size": dst.stat().st_size,
+                                "library_index_from": {
+                                    "path": src, "entries": len(index),
+                                    "kept": len(kept)}}
+    return LIBRARY_INDEX_REL
+
+
+def seed_library_index(data_dir, mod_cache_dir) -> int | None:
+    """Write the snapshot's library index as the engine's cache for the
+    snapshot install (``<data_dir>/../xplane``) into the lane-local mod
+    cache.  No-op (None) outside a snapshot.  Returns the entry count."""
+    data_dir = Path(data_dir)
+    src = data_dir / "library_index.json"
+    if not src.is_file() or mod_cache_dir is None:
+        return None
+    import pickle
+    sys.path.insert(0, str(ENGINE_ROOT / "src"))
+    from auto_patch_v2.airport import obj8 as _obj8           # noqa: E402
+    snap = data_dir.parent
+    rel = json.loads(src.read_text())
+    index = {v: str(snap / r) for v, r in rel.items()}
+    roots = {str(snap / "xplane"), str((snap / "xplane").resolve())}
+    for xroot in roots:
+        path = _obj8.library_index_path(str(mod_cache_dir), xroot)
+        with open(path, "wb") as fh:
+            pickle.dump({"fingerprint": "snapshot:" + _sha256(src),
+                         "index": index}, fh,
+                        protocol=pickle.HIGHEST_PROTOCOL)
+    return len(index)
+
+
 def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
         root: Path = None, skip_refused: bool = False) -> dict:
     root = Path(root or Path.cwd())
@@ -482,8 +547,12 @@ def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
                     shutil.copy2(src, dst)
                 files[rel] = {"sha256": _sha256(dst), "size": dst.stat().st_size}
         rec["files"] = sorted(set(rec["sources"]) | {cfg_rel})
-        rec["bytes"] = sum(files[r]["size"] for r in rec["files"])
         del rec["sources"]
+    lib_rel = write_library_index(out, files, data_repo, install_root)
+    for rec in per_airport.values():
+        if lib_rel:
+            rec["files"] = sorted(set(rec["files"]) | {lib_rel})
+        rec["bytes"] = sum(files[r]["size"] for r in rec["files"])
 
     ledger_sha = _sha256(REFRESH_LEDGER) if Path(REFRESH_LEDGER).is_file() else None
     manifest = {

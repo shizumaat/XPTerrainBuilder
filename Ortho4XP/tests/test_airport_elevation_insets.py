@@ -6585,3 +6585,89 @@ def test_every_strategy_stamps_native_resolution_beside_the_target():
         assert '"native_resolution_m"' in window, (
             "a manifest states the warp target without the source's "
             "native resolution near offset %d" % start)
+
+
+
+def _stamp_writer_fixture(tmp_path, monkeypatch, insets_on_disk):
+    """A tile whose key matches a pre-§B.2 stamp (schema 2026-07-30, no
+    ``selection_mode`` / ``selected``) — the shape of every stamp on the
+    shared corpus (issue #78)."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "insets_enabled_for_tile", lambda tile: True)
+    monkeypatch.setattr(INSETS, "select_provider_definitions",
+                        lambda *a, **k: [])
+    monkeypatch.setattr(
+        INSETS, "_inset_completion_key",
+        lambda tile: {"schema": INSETS.INSET_COMPLETION_SCHEMA,
+                      "margin_m": 2000.0, "providers": "auto",
+                      "level": "auto", "airports_layer": [179210, 1.5],
+                      "selection_mode": "All"})
+    directory = FNAMES.airport_inset_directory(40, -4)
+    os.makedirs(directory, exist_ok=True)
+    for name in insets_on_disk:
+        with open(os.path.join(directory, name), "wb") as handle:
+            handle.write(b"x")
+    monkeypatch.setattr(
+        INSETS, "list_cached_inset_dems",
+        lambda lat, lon: [os.path.join(directory, n) for n in insets_on_disk])
+    stamp_path = INSETS.inset_completion_stamp_path(40, -4)
+    legacy = json.dumps({
+        "schema": INSETS.INSET_COMPLETION_SCHEMA, "margin_m": 2000.0,
+        "providers": "auto", "level": "auto",
+        "airports_layer": [179210, 1.5],
+        "insets": ["LEMD_copernicusglo30.tif", "LEMD_spain5m.tif"],
+    }, indent=2, sort_keys=True)
+    with open(stamp_path, "w") as handle:
+        handle.write(legacy)
+
+    class _Tile:
+        lat, lon = 40, -4
+        airport_elevation_providers = "auto"
+        inset_selection_keys = ["LEMD"]
+
+    return _Tile(), stamp_path, legacy
+
+
+def test_a_validating_pre_B2_stamp_is_NOT_rewritten(tmp_path, monkeypatch):
+    """Issue #78: the §B.2 payload keys made every pass rewrite a stamp
+    ``is_cached`` already accepts — a shared-repo write the guarded
+    ``--tile`` build refused.  A stamp-only rewrite is a real data write,
+    not churn: the writer must skip it."""
+    tile, stamp_path, legacy = _stamp_writer_fixture(
+        tmp_path, monkeypatch,
+        ["LEMD_copernicusglo30.tif", "LEMD_spain5m.tif"])
+    assert INSETS.is_cached(tile) is True
+    before = os.stat(stamp_path).st_mtime_ns
+    INSETS._write_inset_completion_stamp(tile)
+    with open(stamp_path) as handle:
+        assert handle.read() == legacy
+    assert os.stat(stamp_path).st_mtime_ns == before
+    assert not os.path.exists(stamp_path + ".tmp")
+
+
+def test_a_stamp_missing_an_inset_IS_rewritten(tmp_path, monkeypatch):
+    """The skip is for key-field-valid stamps over the SAME inset set: a
+    pass that settled a new inset still records it."""
+    tile, stamp_path, legacy = _stamp_writer_fixture(
+        tmp_path, monkeypatch,
+        ["LEMD_copernicusglo30.tif", "LEMD_spain5m.tif", "LETO_spain5m.tif"])
+    INSETS._write_inset_completion_stamp(tile)
+    with open(stamp_path) as handle:
+        stamp = json.load(handle)
+    assert stamp["insets"] == ["LEMD_copernicusglo30.tif",
+                               "LEMD_spain5m.tif", "LETO_spain5m.tif"]
+    assert stamp["selection_mode"] == "All"
+    assert stamp["selected"] == ["LEMD"]
+
+
+def test_a_stamp_with_a_changed_key_field_IS_rewritten(tmp_path, monkeypatch):
+    tile, stamp_path, legacy = _stamp_writer_fixture(
+        tmp_path, monkeypatch,
+        ["LEMD_copernicusglo30.tif", "LEMD_spain5m.tif"])
+    with open(stamp_path, "w") as handle:
+        handle.write(legacy.replace("2000.0", "1500.0"))
+    assert INSETS.is_cached(tile) is False
+    INSETS._write_inset_completion_stamp(tile)
+    with open(stamp_path) as handle:
+        assert json.load(handle)["margin_m"] == 2000.0
+    assert INSETS.is_cached(tile) is True

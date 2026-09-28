@@ -1,0 +1,6 @@
+{
+ "_doc": "Packs whose files (and Airport_mod_cache dumps) corpus_snapshot.py may copy into the PRIVATE cloud test corpus (RULINGS 2026-09-28a (7)). FREEWARE ONLY; add a pack only on the owner's word. A pack not listed REFUSES the airport. OTHH is excluded by name.",
+ "packs": {},
+ "install_prefixes": ["Custom Data/CIFP/"],
+ "excluded_substrings": ["OTHH"]
+}

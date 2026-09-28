@@ -202,6 +202,12 @@ def corpus_stamp(frame: dict, root=None) -> dict:
         "dem_files": _sha_of(files),
         "dem_frame_cfg": _sha_of(frame.get("dem_frame_effective")),
     }
+    # THE CLOUD TEST CORPUS (RULINGS 2026-09-28a (7)): a snapshot build is
+    # keyed by the snapshot's own hash.  Present ONLY on a snapshot frame,
+    # so every shared-corpus key is byte-identical to before.
+    snap = frame.get("corpus_snapshot")
+    if snap:
+        parts["snapshot"] = snap.get("hash")
     return {"sha256": _sha_of(parts), "parts": parts}
 
 
@@ -388,6 +394,13 @@ def lookup(key: str, key_parts: dict, store=None):
             diffs.append(name)
     ours_c = (key_parts.get("corpus") or {}).get("parts", {})
     their_c = (theirs.get("corpus") or {}).get("parts", {})
+    if ours_c.get("snapshot") != their_c.get("snapshot"):
+        name = lambda h: f"snapshot@{h[:12]}" if h else "shared"  # noqa: E731
+        return None, (f"REFUSED: the newest stored {key_parts.get('icao')} "
+                      f"arm was built on corpus {name(their_c.get('snapshot'))}"
+                      f", this run reads {name(ours_c.get('snapshot'))} — "
+                      f"numbers compare only within ONE snapshot hash "
+                      f"(RULINGS 2026-09-28a (7)); BUILDING this arm")
     moved = sorted(k for k in set(ours_c) | set(their_c)
                    if ours_c.get(k) != their_c.get(k))
     if moved:

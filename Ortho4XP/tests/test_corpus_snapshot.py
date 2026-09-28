@@ -119,6 +119,51 @@ def test_shipped_allowlist_follows_ruling_20260929b(CS):
     assert why and "2026-09-29b" in why
 
 
+def test_apt_slice_carries_the_neighbour_tiles(CS, tmp_path):
+    """#79: the Global Airports slice keeps every airport block of the cut
+    tiles with neighbours (the inset bake reads them), not only the ICAOs."""
+    src = tmp_path / "apt.dat"
+    src.write_text("I\n1200 Version\n\n"
+                   "1 30 0 0 AAAA Cut\n100 45 1 0 0.25 0 2 1 09 "
+                   "-12.5 -77.5 0 0 2 0 0 0 27 -12.5 -77.4 0 0 2 0 0 0\n\n"
+                   "1 10 0 0 BBBB Near\n1302 datum_lat -11.2\n"
+                   "1302 datum_lon -77.6\n\n"
+                   "1 10 0 0 CCCC Far\n101 40 0 -30.0 20.0 x -30.1 20.1\n"
+                   "\n99\n")
+    dst = tmp_path / "slice.dat"
+    CS.write_apt_slice(str(src), ["AAAA"], dst,
+                       [(-13 + a, -78 + b) for a in (-1, 0, 1)
+                        for b in (-1, 0, 1)])
+    text = dst.read_text()
+    assert "AAAA" in text and "BBBB" in text and "CCCC" not in text
+    assert text.rstrip().endswith("99")
+
+
+def test_read_set_carries_anchor_bak_siblings_and_whole_inset_dirs(
+        CS, tmp_path, monkeypatch):
+    """#79: a read ``X.obj.anchor_bak`` brings ``X.obj`` (the loader STATS
+    it), and a touched ``*_airport_insets`` dir comes whole (GDAL reads)."""
+    repo, inst = tmp_path / "data", tmp_path / "xp"
+    ins = repo / "Elevation_data" / "-20-080" / "S12W078_airport_insets"
+    ins.mkdir(parents=True)
+    for f in ("index.json", "SPJC_x.tif"):
+        (ins / f).write_text("x")
+    obj = inst / "Custom Scenery" / "P" / "o"
+    obj.mkdir(parents=True)
+    (obj / "a.obj").write_text("x")
+    (obj / "a.obj.anchor_bak").write_text("x")
+    trace = {"reads": [str(ins / "index.json"),
+                       str(obj / "a.obj.anchor_bak")], "overlays": {},
+             "tile": None}
+    import build_airport as BA
+    monkeypatch.setattr(BA, "resolve_tile_for", lambda *a: None)
+    from auto_patch_v2.airport import apt_dat as _apt
+    monkeypatch.setattr(_apt, "find_apt_dat", lambda *a: None)
+    rs = CS.airport_read_set("SPJC", trace, repo, str(inst), tmp_path)
+    assert any(r.endswith("S12W078_airport_insets/SPJC_x.tif") for r in rs)
+    assert any(r.endswith("P/o/a.obj") for r in rs)
+
+
 def test_classify_maps_overlays_back_to_the_corpus(CS, tmp_path):
     repo = tmp_path / "repo"
     (repo / "Airport_mod_cache" / "P").mkdir(parents=True)
@@ -246,3 +291,24 @@ def test_build_airport_publishes_the_flags():
     for needle in ('"--corpus"', '"--trace-reads"', "CS.mount(",
                    'frame["corpus"]', "SNAPSHOT LEAK", "arm_snapshot_env"):
         assert needle in src, needle
+
+
+def test_snapshot_library_index_is_rekeyed_for_the_snapshot_install(
+        CS, tmp_path):
+    """#79: v2 resolves ``lib/`` placements only through the cached index
+    keyed on the install path; the mount re-keys the snapshot's copy."""
+    snap = tmp_path / "snap"
+    (snap / "data").mkdir(parents=True)
+    (snap / "xplane" / "R").mkdir(parents=True)
+    (snap / "xplane" / "R" / "a.obj").write_text("x")
+    (snap / "data" / "library_index.json").write_text(
+        json.dumps({"lib/a.obj": "xplane/R/a.obj"}))
+    mod = tmp_path / "mod"
+    mod.mkdir()
+    assert CS.seed_library_index(snap / "data", mod) == 1
+    from auto_patch_v2.airport import obj8
+    idx = obj8.read_library_index(
+        obj8.library_index_path(str(mod), str(snap / "xplane")))
+    assert obj8.resolve_resource("lib/a.obj", None, idx) == \
+        str(snap / "xplane" / "R" / "a.obj")
+    assert CS.seed_library_index(tmp_path / "nowhere", mod) is None

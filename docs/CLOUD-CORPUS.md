@@ -93,14 +93,30 @@ name. Publish the tarballs with
 
 | release | hash | airports (files, raw, tarball) | refused by the licence gate |
 |---|---|---|---|
-| `snap-20260928-70cb6ff7` | `70cb6ff78c6731339b537d469ecfdb422315088f9f1da274acea273a4cb1eb24` | CYXY (120, 198.1 MB, 138.1 MB); HECA (8,507, 2,262.5 MB, 332.4 MB); NLWF (163, 41.9 MB, 5.1 MB) | SPJC (Aerosoft / Limesim static-aircraft library objects and other unlisted packs in its read set), TFFJ (the selected pack is an unlisted product) |
+| `snap-20260928-002e4dda` | `002e4dda26a6c5b874430c728bc62ff89e7aa7f676a9d5422fab2bb2a85ceea9` | CYXY (121, 199.4 MB, 138.4 MB); HECA (8,555, 2,264.5 MB, 332.8 MB); NLWF (164, 43.2 MB, 5.4 MB); SPJC (886, 410.5 MB, 71.5 MB) | TFFJ (owner RULINGS 2026-09-29b: the TFFJ product stays local-only; `refused_by_ruling` in the allowlist) |
 
-Proof on the owner machine (2026-09-28): CYXY was built from `CYXY.tar.gz`
-alone with rc 0 and 0 snapshot leaks. Its `body_sha` was
-`f4241e3bf75ca9c7856b760f6dbba14813ce471798be52fd14e40dbfb86d2d1b`, identical
-to the shared-corpus build `/tmp/harness/sw0928_CYXY.osm`. The census was
-identical too: law-true 1,340 (airside 1,257, groundside 79, mixed 4).
+It supersedes `snap-20260928-70cb6ff7` (CYXY, HECA, NLWF only). Numbers
+from that hash don't carry over.
 
-The allowlist entries are marked `OWNER-CONFIRM`. The lane read them from
-pack readmes and freeware listings, and the owner has not yet confirmed
-them.
+Proof on the owner machine (2026-09-28, issue #79): SPJC was built from
+`SPJC.tar.gz` alone with rc 0 and 0 snapshot leaks. Its `body_sha` was
+`754fc43f209e4df3e857a77faa401891c42bd7301edc8cb9635af419600df617` (420
+shapes), identical to the shared-corpus build on the same code. Getting
+there took three fixes to the cut, all things a read trace cannot see:
+
+- the library index. v2 resolves `lib/...` placements only through the
+  engine's cached index, keyed on the install path. The cut ships
+  `data/library_index.json` and the mount re-keys it for the snapshot.
+- restore-before-read siblings. The loader stats `X.obj`, then reads
+  `X.obj.anchor_bak`, so the cut carries `X.obj` too.
+- neighbour tiles. Every `*_airport_insets` dir the trace touched is carried
+  whole, since neighbour rasters are GDAL reads. The Global Airports slice
+  keeps every airport of the cut tiles with neighbours.
+
+CYXY, HECA and NLWF on this hash have not been re-proven by a snapshot
+build.
+
+SPJC's packs are `OWNER-CONFIRMED 2026-09-29b`. The other allowlist entries
+are still marked `OWNER-CONFIRM`: the lane read them from pack readmes and
+freeware listings, and RULINGS 2026-09-29b says the rest of the allowlist
+stands as cut.

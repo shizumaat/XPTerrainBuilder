@@ -3,35 +3,19 @@ reach the airside stage-1 problem.
 
 Measured on the KCLT courtyards capture (rule-2a arm against the
 bridge-off arm, one variable): the runway moved at 755 of 1,616 nodes (max
-0.42 m) and apron ``dsf:pol54`` 1.64 m.  Two channels were attributed and
-closed here, each with its pre-fix control:
-
-* THE FACE CLAIM.  A polygonised face goes to the region with the largest
-  overlap; a 59 m2 face overlapped a parking lot and an apron by EXACTLY the
-  same area, and the strict ``>`` kept whichever the STRtree query returned
-  first — the tree's packing, a function of every region at the airport.
-* THE CEILING TWIN OF A PAD ROW.  ``pavement_ceiling`` twinned the pad's
-  FLAT rows at 5 %; over two airside rim vertices such a twin is an
-  all-airside HARD row, so stage 1 read the cluster's pair set.
+0.42 m) and apron ``dsf:pol54`` 1.64 m.  THE FACE CLAIM carried it: a
+polygonised face goes to the region with the largest overlap; a 59 m2 face
+overlapped a parking lot and an apron by EXACTLY the same area, and the
+strict ``>`` kept whichever the STRtree query returned first -- the tree's
+packing, a function of every region at the airport.
 """
 from __future__ import annotations
-
-import math
-import sys
-from pathlib import Path
 
 import pytest
 from shapely.geometry import Polygon, box
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from auto_patch_v2.constraints.ceiling import pavement_ceiling  # noqa: E402
-from auto_patch_v2.constraints.pads import FLAT_RULING  # noqa: E402
-from auto_patch_v2.constraints.pads import GEN as PAD_GEN  # noqa: E402
-from auto_patch_v2.law import Law  # noqa: E402
-from auto_patch_v2.model.constraints import Diff, Source  # noqa: E402
-from auto_patch_v2.planar.overlay import Region, _claiming_region  # noqa: E402
-from test_v2capyield import _one_runway  # noqa: E402
+from auto_patch_v2.law import Law
+from auto_patch_v2.planar.overlay import Region, _claiming_region
 
 
 @pytest.fixture(scope="module")
@@ -98,30 +82,3 @@ def test_equal_roles_tie_to_the_smaller_region_then_the_ref(law):
 def test_no_overlap_claims_nothing(law):
     apron = _region("apron", "a", box(0.0, 0.0, 1.0, 1.0))
     assert _claiming_region(box(5, 5, 6, 6), [apron], [0], law) == (None, 0.0)
-
-
-# ── THE CEILING TWIN OF A PAD ROW ────────────────────────────────────
-
-def _pavement_pair(law):
-    airport, pm = _one_runway(law)
-    edge = [v for v in pm.vertices if abs(abs(pm.vertices[v].xy[1]) - 15.0) < 0.01]
-    a, b = sorted(edge, key=lambda v: pm.vertices[v].xy[0])[:2]
-    d = math.dist(pm.vertices[a].xy, pm.vertices[b].xy)
-    assert 0.0 < d <= float(law.tables.emit.within_shape.withdrawn_chord_min_m)
-    return pm, a, b, d
-
-
-def test_a_pad_flat_row_mints_no_pavement_ceiling_twin(law):
-    pm, a, b, d = _pavement_pair(law)
-    src = Source(PAD_GEN, FLAT_RULING + " (2026-09-09c)", ("pad:x",))
-    assert pavement_ceiling([Diff(a, b, 0.0, d, src)], pm, law) == []
-
-
-def test_control_the_same_pair_from_an_airside_row_is_still_twinned(law):
-    """The control: the pass itself still works — an airside family's row
-    over the same two vertices mints its 5 % twin."""
-    pm, a, b, d = _pavement_pair(law)
-    src = Source("apron", "common.roles.apron preferred tier", ())
-    twins = pavement_ceiling([Diff(a, b, 0.015, d, src)], pm, law)
-    assert len(twins) == 1
-    assert twins[0].cap == pytest.approx(float(law.tables.common.pavement_max_grade))

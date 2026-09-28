@@ -982,8 +982,8 @@ post_max_extent_m     = 3.0
 flat_line_max_width_m = 1.0
 # ... AND A POST STILL CHAINS, SO THE UNIT IS ONE (lane courtyards): where
 # the outline without them falls into pieces, a post / flat line within
-# this of two pieces closes the outline across its plan gap
-# (geom.cluster_outlines rule 2a).  OTHH: cluster pads 72 -> see #73.
+# this of two pieces AT ONCE closes the outline across that gap
+# (geom.cluster_outlines rule 2a).  OTHH: cluster pads 72 -> 69 (main 61).
 # 0 disarms.
 post_bridge_gap_m     = 1.0
 

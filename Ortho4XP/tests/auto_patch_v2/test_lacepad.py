@@ -158,3 +158,24 @@ def test_73_2a_a_post_reaching_one_piece_adds_nothing():
     got, c = cluster_outlines(cl, _xy, TOUCH, bridge_m=1.0)
     assert c["post_bridged"] == 0
     assert sum(len(q.rings) for q in cl) == 2
+
+
+def test_73_2a_a_flat_line_across_open_ground_closes_nothing():
+    """HECA ``Plastic.obj``: 0.72 m flat strips 90-150 m long ran from the
+    192,033 m2 piece to a 1,911 m2 one 2.72 m away; drawing them redrew
+    the lace (holes 32 -> 84).  No plan point of the line lies within
+    ``bridge_m`` of both pieces, so nothing closes."""
+    import dataclasses as _dc
+    from auto_patch_v2.geom import cluster_outlines
+
+    def sq(la0, la1, lo0, lo1):
+        return ((_lat(la0), _lo(lo0)), (_lat(la1), _lo(lo0)),
+                (_lat(la1), _lo(lo1)), (_lat(la0), _lo(lo1)))
+    base = _two_halves(20.2, 21.0)[0]
+    far = _dc.replace(base, rings=(sq(0, 20, 0, 20), sq(0, 20, 23, 43)),
+                      bridges=(sq(9.4, 9.8, 5, 38),))
+    got, c = cluster_outlines([far], _xy, TOUCH, bridge_m=1.0)
+    assert c["post_bridged"] == 0 and len(got) == 2
+    near = _dc.replace(far, rings=(sq(0, 20, 0, 20), sq(0, 20, 21.5, 41.5)))
+    got2, c2 = cluster_outlines([near], _xy, TOUCH, bridge_m=1.0)
+    assert c2["post_bridged"] == 1 and len(got2) == 1   # a 1.5 m gap closes

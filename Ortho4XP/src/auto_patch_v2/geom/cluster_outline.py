@@ -50,19 +50,27 @@ THIN_PIECE_WIDTH_M = 2.0
 def _bridge(u, bridges, to_xy, gap_m: float):
     """§16g (10) (2) AMENDED (issue #73, spec-author rule to lane
     ``courtyards``): A POST STILL CHAINS, SO THE UNIT IS ONE.  ``u`` is a
-    cluster's closed outline; where it has fallen into PIECES, each post
-    / flat-line ring of ``bridges`` (``PlanCluster.bridges``, ``(lat,
-    lon)``) that lies within ``gap_m`` of two or more pieces joins them:
-    the ring itself plus, per piece it reaches, the hull of the two
-    facing patches (the ring within ``gap_m`` of the piece and the piece
-    within ``gap_m`` of the ring) — the outline is closed across the
-    post's plan gap and nowhere else.  A ring reaching one piece adds
-    nothing (it would redraw the lace, 37 -> 184 holes at HECA).
+    cluster's closed outline; where it has fallen into PIECES, a post /
+    flat-line ring of ``bridges`` (``PlanCluster.bridges``, ``(lat,
+    lon)``) that has a plan point within ``gap_m`` of TWO pieces at once
+    closes the gap between those two: the part of the ring within
+    ``gap_m`` of both (the post IN the gap) and the facing patches of the
+    two pieces within ``gap_m`` of it, hulled.  The ring itself is never
+    drawn — a flat line that merely runs from one piece to another
+    across open ground draws no outline (HECA ``Plastic.obj`` strips
+    between pieces 2.72 m apart redrew the lace: holes 32 -> 84).
     Returns ``(outline, joins)``."""
     pieces = _parts(u)
     if len(pieces) < 2 or not bridges or gap_m <= 0.0:
         return u, 0
     tree = STRtree(pieces)
+    grown: dict[int, _t.Any] = {}
+
+    def grow(k):
+        if k not in grown:
+            grown[k] = pieces[k].buffer(gap_m, join_style=2)
+        return grown[k]
+
     add: list = []
     joins = 0
     for r in bridges:
@@ -73,19 +81,19 @@ def _bridge(u, bridges, to_xy, gap_m: float):
             b = b.buffer(0.0)
         if b.is_empty:
             continue
-        near = [int(k) for k in tree.query(b, predicate="dwithin", distance=gap_m)]
-        if len(near) < 2:
-            continue
-        bb = b.buffer(gap_m, join_style=2)
-        con = [b]
-        for k in near:
-            p = pieces[k]
-            face = unary_union([b.intersection(p.buffer(gap_m, join_style=2)),
-                                p.intersection(bb)])
-            if not face.is_empty:
-                con.append(face.convex_hull)
-        add.append(unary_union(con))
-        joins += 1
+        near = sorted(int(k) for k in tree.query(b, predicate="dwithin",
+                                                  distance=gap_m))
+        for x in range(len(near)):
+            for y in range(x + 1, len(near)):
+                i, j = near[x], near[y]
+                gap = b.intersection(grow(i)).intersection(grow(j))
+                if gap.is_empty or gap.area <= 0.0:
+                    continue
+                reach = gap.buffer(gap_m, join_style=2)
+                con = unary_union([gap, pieces[i].intersection(reach),
+                                   pieces[j].intersection(reach)]).convex_hull
+                add.append(con)
+                joins += 1
     if not add:
         return u, 0
     g = unary_union([u] + add)
@@ -230,10 +238,10 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        ``courtyards``).  Posts and flat lines draw no outline
        (``placement_family.draws_outline``), so a cluster whose pieces
        touched only through one falls apart at rule 2.  Each such ring
-       (``PlanCluster.bridges``) within ``bridge_m`` of two pieces closes
-       the outline across its gap (:func:`_bridge`); counted
-       ``post_bridged``.  MEASURED OTHH (sheetchain capture): cluster
-       pads 61 -> 72 without it.
+       (``PlanCluster.bridges``) with a plan point within ``bridge_m`` of
+       two pieces closes the outline across that gap, and only there
+       (:func:`_bridge`); counted ``post_bridged``.  MEASURED OTHH (sheetchain capture): cluster
+       pads 61 (main) -> 72 without it -> 69 with it; HECA 79 -> 80 -> 80.
 
     ``touch_m <= 0`` disarms the close (rule 2); ``bridge_m <= 0``
     disarms (2a); ``airside=None``

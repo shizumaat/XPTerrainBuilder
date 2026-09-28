@@ -29,12 +29,31 @@ def test_unpaced_phase_without_prediction_offers_no_basis():
 
 
 def test_pace_prices_remaining_units():
+    """The pace arithmetic, priced against THIS run's clock (#76).
+
+    This asserted ``remaining == approx(0.8, rel=0.5)`` — a band derived
+    from the 0.2 s the sleep ASKS for, times four.  A loaded runner gives
+    the sleep back late: macOS CI measured 1.2678 s against a 0.4-1.2 s
+    band, so a correctness twin went red for the machine, which is the
+    class RULINGS 2026-09-12z names (a wall-clock bar in a correctness
+    suite fails under load while every correctness assertion passes).
+
+    The subject is the ARITHMETIC, not the wall time:
+    ``active_remaining_seconds`` computes ``(elapsed / done) * (total -
+    done)``, so with 2 of 10 units done the answer is exactly ``elapsed *
+    4`` whatever the sleep really took.  Measuring the elapsed time this
+    run actually saw makes the assertion load-independent AND tighter
+    than the old one — 15 % of the real value, not 50 % of a guessed one.
+    """
+    t0 = time.time()                      # the clock the meter itself uses
     task_meter.begin("insets", 10)
     time.sleep(0.2)
     task_meter.advance("insets", 2)
     remaining = task_meter.active_remaining_seconds()
-    # 2 units in ~0.2 s -> ~0.1 s/unit -> ~0.8 s for the other 8.
-    assert remaining == pytest.approx(0.8, rel=0.5)
+    elapsed = time.time() - t0
+    assert remaining == pytest.approx(elapsed * 4.0, rel=0.15), (
+        f"remaining {remaining} is not the pace price of {elapsed} s "
+        f"elapsed over 2 of 10 units")
     task_meter.end("insets")
     assert task_meter.active_remaining_seconds() is None
 

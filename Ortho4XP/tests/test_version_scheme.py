@@ -69,8 +69,30 @@ def _zsh(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
 
 
 def _helper(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
-    """Run a snippet with scripts/version.sh sourced, as the scripts do."""
-    preamble = f"set -euo pipefail\nsource {VERSION_SH!s}\n"
+    """Run a snippet with scripts/version.sh sourced, as the scripts do.
+
+    THE RUNNER'S OWN MARKER IS UNSET FIRST (#76).  ``xptb_version_bump`` has
+    a NO-BUMP MODE — "print the CURRENT version and write nothing" — taken
+    when ``GITHUB_ACTIONS=true`` or ``XPTB_NO_BUMP=1``, because a CI build
+    must package the tagged tree's version as it is (owner ruling, Release
+    run 35239347609: the mac job bumped on the runner and shipped 1.0.348
+    for a tree and a tag at 1.0.347).  Every GitHub runner sets
+    ``GITHUB_ACTIONS=true``, so on CI the nine twins below that exercise the
+    LOCAL bump path were silently handed the CI path instead and asserted
+    '1.50.3' == '1.50.4' — the helper working exactly as ruled, and the
+    twins measuring the wrong branch of it.  They are green on a developer's
+    machine, which is why nothing caught it until CI collected the whole
+    suite.
+
+    Unsetting here rather than on nine call sites: a twin added later
+    inherits it, and it cannot weaken the no-bump law, which is asserted by
+    its OWN twins (``test_ci_bump_writes_nothing_and_reports_the_current_version``
+    for both spellings, and ``test_ci_bump_works_for_the_engine_assignment_shape_too``).
+    Those set their prefix INLINE on the command, which still overrides a
+    plain unset, so they are unaffected.
+    """
+    preamble = (f"set -euo pipefail\nunset GITHUB_ACTIONS XPTB_NO_BUMP\n"
+                f"source {VERSION_SH!s}\n")
     return _zsh(preamble + script, cwd=cwd)
 
 

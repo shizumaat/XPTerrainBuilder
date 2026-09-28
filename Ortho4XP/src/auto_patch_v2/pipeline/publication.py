@@ -729,6 +729,13 @@ def pad_terrace_joints(planar: PlanarMap, law: Law,
                 if v not in seen:
                     seen.add(v)
                     pad_vs.append(v)
+        # every body split off this pad stands at the OTHER level, and the
+        # census pairs across each line with whatever lies beyond it (the
+        # lower pad's line sits beside the apron's: closing arm3 read
+        # building50|dsf:objpav399 chords 7.11 m against the pad-pad line's
+        # 6.94) — so each line declares the step against all of them
+        all_o = {v for o in others for fid in by_ref.get(o, ()) for v in fv.get(fid, ())} - seen
+        ox_all = [(w, planar.vertices[w].xy) for w in all_o]
         for other in sorted(others):
             ovs = {v for fid in by_ref.get(other, ()) for v in fv.get(fid, ())} - seen
             if not ovs:
@@ -754,7 +761,7 @@ def pad_terrace_joints(planar: PlanarMap, law: Law,
             # elevation rounding
             step = 0.0
             if z is not None:
-                oz = [(w, xy, float(z[w])) for w, xy in ox]
+                oz = [(w, xy, float(z[w])) for w, xy in ox_all]
                 for a in pad_vs:
                     ax, ay = planar.vertices[a].xy
                     za = float(z[a])

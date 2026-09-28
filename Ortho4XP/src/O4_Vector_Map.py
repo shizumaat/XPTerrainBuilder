@@ -2254,6 +2254,47 @@ def road_bridge_deck_pins(tile):
     return pins
 
 
+def road_join_yield_pins(tile):
+    """``[(x, y, level_m)]`` — the §37 (9) coverage-edge joins where
+    auto_patch RELEASED its pin and the core ribbon must take the patch's
+    level (OWNER RULINGS 2026-09-27a (10), "the road RIBBON yields"), in
+    the tile-relative ``(lon − tile.lon, lat − tile.lat)`` frame.
+
+    Read from the patch sidecars (``<patch>.axes.json`` →
+    ``road_join_yield``: ``[lat, lon, patch level, ribbon level]``), the
+    same way :func:`road_bridge_deck_pins` reads the decks — ONE
+    AUTHORITY: nothing here re-derives a join.  Empty when no patch
+    released one (every join the patch could reach keeps the ribbon's own
+    value by construction).
+    """
+    import json
+
+    pins = []
+    try:
+        patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
+        if not os.path.isdir(patch_dir):
+            return pins
+        for name in sorted(os.listdir(patch_dir)):
+            if not name.endswith(".patch.osm.axes.json"):
+                continue
+            try:
+                with open(os.path.join(patch_dir, name), "r",
+                          encoding="utf-8") as handle:
+                    data = json.load(handle)
+            except (OSError, ValueError):
+                continue
+            for rec in (data.get("road_join_yield") or []):
+                try:
+                    lat, lon, level = (float(rec[0]), float(rec[1]),
+                                       float(rec[2]))
+                except (TypeError, ValueError, IndexError):
+                    continue
+                pins.append((lon - tile.lon, lat - tile.lat, level))
+    except Exception:                                    # pragma: no cover
+        return []
+    return pins
+
+
 def levelled_roads_sidecar_path(build_dir):
     """Path of a tile's levelled-roads sidecar (one spelling, shared with
     ``tools/road_terrain_conformance.py --levelled-roads``)."""
@@ -2516,6 +2557,8 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
                                       tile.lane_width + 2, 0, 0)
                  if _band_seed else geometry.Polygon())
         _law = _road_neighbourhood_law()
+        # 27a (10) THE RIBBON YIELDS at the joins auto_patch released
+        _join_pins = road_join_yield_pins(tile)
         levelled["roads"] = VECT.clamp_road_network(
             road_network_banked,
             tile.dem.alt_vec,
@@ -2529,6 +2572,7 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
             budget_m=_law["budget_m"],
             cap_ceiling=_law["cap_ceiling"],
             class_caps=_law["class_caps"],
+            join_pins=_join_pins,
         )
         _clamp_report = levelled["roads"].summary()
         UI.vprint(3, "Time for road profile clamp:", time.time() - timer)
@@ -2581,6 +2625,16 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
                     _clamp_report["deck_pinned_ways"],
                     _clamp_report["deck_pins_refused"],
                     _clamp_report["deck_pin_worst_infeasibility_m"]),
+            )
+        if _join_pins:
+            UI.vprint(
+                1,
+                "      %d coverage-edge join(s) RELEASED by the patch (27a "
+                "(10)): %d ribbon station(s) PINNED at the patch level, the "
+                "budget exceeded by at most %.2f m there." % (
+                    len(_join_pins),
+                    _clamp_report["join_pinned_stations"],
+                    _clamp_report["join_pin_worst_excess_m"]),
             )
         write_levelled_roads_sidecar(tile, levelled["roads"])
         if UI.red_flag:

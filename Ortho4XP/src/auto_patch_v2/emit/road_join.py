@@ -33,7 +33,8 @@ import typing as _t
 from ..law import Law
 from ..model.planar import PlanarMap
 
-__all__ = ["road_coverage_joins", "with_road_coverage_join", "JOIN_RULING"]
+__all__ = ["road_coverage_joins", "with_road_coverage_join", "with_pin_yield",
+           "JOIN_RULING"]
 
 #: The ruling head the generator stamps (``solve.design.ruling_head``).
 JOIN_RULING = ("roads.coverage_edge join "
@@ -149,3 +150,27 @@ def with_road_coverage_join(pm: PlanarMap, law: Law, profiles,
     if not joins:
         return pm
     return _dc.replace(pm, road_coverage_join=joins)
+
+
+def with_pin_yield(pm: PlanarMap, pin_yield: _t.Sequence[dict],
+                   tol_m: float = 0.0) -> PlanarMap:
+    """OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS.  ``pin_yield`` is
+    the solve's ``DesignReport.pin_yield`` — the §37 (9) joins it released
+    to settle the hard set.  Each join whose patch level stands more than
+    ``tol_m`` off the ribbon's is recorded in ``PlanarMap.road_join_yield``
+    (``(ribbon, patch)``) and its ``road_coverage_join`` value becomes the
+    PATCH's level: the census's ``road_coverage_join`` family then prices
+    the join the mesh will carry, and the core clamp reads the sidecar's
+    ``road_join_yield`` and pins its ribbon there
+    (``O4_Vector_Map.road_join_yield_pins``).  A join the release left
+    within ``tol_m`` keeps the ribbon's value."""
+    moved = {int(r["v"]): (float(r["pinned_m"]), float(r["z_m"]))
+             for r in pin_yield or ()
+             if abs(float(r["excess_m"])) > tol_m
+             and int(r["v"]) in pm.road_coverage_join}
+    if not moved:
+        return pm
+    joins = dict(pm.road_coverage_join)
+    for v, (_rib, z) in moved.items():
+        joins[v] = z
+    return _dc.replace(pm, road_coverage_join=joins, road_join_yield=moved)

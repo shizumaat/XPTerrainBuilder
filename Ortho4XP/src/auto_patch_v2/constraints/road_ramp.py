@@ -14,15 +14,18 @@ row binding it.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
+import typing as _t
+
 from ..law import Law
 from ..law.tables import family, role_cap
 from ..model.airport import Airport
-from ..model.constraints import Band, Linear, Pin, Row, Source
+from ..model.constraints import Band, ConstraintSet, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
-           "road_contact_rows"]
+           "road_contact_rows", "reach_seed_rewrite"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -135,3 +138,71 @@ def road_join_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         rows.append(Pin(v, float(joins[v]),
                         Source(GEN, JOIN_RULING, (f"vertex:{v}", ref))))
     return rows
+
+
+def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
+                       levels: _t.Mapping[int, float]
+                       ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
+    """OWNER RULINGS 2026-09-27a (11) (Q-22): A REACH CONTACT WITHIN ONE
+    LANE WIDTH SEEDS THE RAMP FROM STAGE 1's SOLVED APRON LEVEL, LIKE A
+    TOUCHING ONE.
+
+    Called BETWEEN §20b's two stages (``solve.design.solve_design``'s
+    ``stage2_rewrite``), with ``levels`` = stage 1's solved airside
+    columns: for every vertex ``PlanarMap.road_reach_seed`` names
+    (``(a, b, u, s)``, published by ``airport/road_ramp.with_road_ramp``)
+    the seed is ``z_edge - cap * s`` with ``z_edge = (1-u)·L[a] + u·L[b]``,
+    and the vertex's §37 (6) DESIGN TARGET and HARD CEILING (``+ visual_m``)
+    are raised to it where it stands above them — ``max(target, seed)``,
+    the same higher envelope a touching mouth makes.  Both terms are
+    cap-Lipschitz in the route station, so a section still cannot tilt
+    (§37 (8)).  A seed whose edge stage 1 did not level is skipped and
+    counted.  Returns the rewritten set and the report (``seeded``,
+    ``raised``, ``max_raise_m``, ``unlevelled``)."""
+    seed = getattr(planar, "road_reach_seed", None) or {}
+    rep: dict[str, _t.Any] = {"seeded": len(seed), "raised": 0,
+                              "max_raise_m": 0.0, "unlevelled": 0,
+                              "worst": None}
+    if not seed:
+        return cs, rep
+    roles = family(law, "road_cross_section").roles
+    caps = [role_cap(law, r).longitudinal for r in roles if role_cap(law, r)]
+    if not caps:
+        return cs, rep
+    cap = min(caps)
+    vis = float(law.tables.emit.cockpit.visual_m)
+    lift: dict[int, float] = {}
+    for v, (a, b, u, s) in seed.items():
+        if a not in levels or b not in levels:
+            rep["unlevelled"] += 1
+            continue
+        lift[v] = ((1.0 - u) * float(levels[a]) + u * float(levels[b])
+                   - cap * float(s))
+    if not lift:
+        return cs, rep
+
+    def _vertex(src: Source) -> int | None:
+        tag = src.inputs[0] if src.inputs else ""
+        return int(tag[7:]) if tag.startswith("vertex:") else None
+
+    linears = []
+    for r in cs.linears:
+        if r.source.generator == GEN and r.source.ruling == RULING:
+            v = _vertex(r.source)
+            if v in lift and lift[v] > float(r.hi):
+                dz = lift[v] - float(r.hi)
+                rep["raised"] += 1
+                if dz > rep["max_raise_m"]:
+                    rep["max_raise_m"] = dz
+                    rep["worst"] = v
+                r = _dc.replace(r, lo=lift[v], hi=lift[v])
+        linears.append(r)
+    bands = []
+    for r in cs.bands:
+        if r.source.generator == GEN and r.source.ruling == RULING_CEILING:
+            v = _vertex(r.source)
+            if v in lift and r.hi is not None and lift[v] + vis > float(r.hi):
+                r = _dc.replace(r, hi=lift[v] + vis)
+        bands.append(r)
+    rep["max_raise_m"] = round(rep["max_raise_m"], 4)
+    return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep

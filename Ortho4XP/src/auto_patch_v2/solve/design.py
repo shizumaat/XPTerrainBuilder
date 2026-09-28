@@ -763,8 +763,26 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  size_out: dict | None = None,
                  method: str = DEFAULT_METHOD,
                  low_rank: str = DEFAULT_LOW_RANK,
-                 strips: _t.Any = None) -> tuple[Solution, DesignReport]:
+                 strips: _t.Any = None,
+                 stage2_rewrite: _t.Callable[
+                     [_t.Mapping[int, float]],
+                     tuple[ConstraintSet, dict]] | None = None
+                 ) -> tuple[Solution, DesignReport]:
     """THE DESIGN SURFACE, in ONE stage or TWO (§20b).
+
+    ``stage2_rewrite`` (owner RULINGS 2026-09-27a (11)): the caller's
+    rewrite of the constraint set from STAGE 1's solved levels, applied
+    before stage 2 is assembled — ``constraints/road_ramp
+    .reach_seed_rewrite`` bound to the map and law (this layer may not
+    import ``constraints``, M0 §1).  Its report lands in
+    ``DesignReport.reach_seed``.  Ignored by the single solve.
+
+    THE PINS THAT YIELD (owner RULINGS 2026-09-27a (10), ``[design]
+    yielding_pin_rulings``; ``solve/pin_yield.py``): when stage 2's hard set
+    does not settle, the yielding pins the unsettled rows reach are
+    released to design targets and stage 2 is solved once more; the
+    release is kept only when the hard set is better for it, and every
+    released pin is reported (``DesignReport.pin_yield``).
 
     ``[design] staged_solve`` false is the single solve this module has
     always been: one problem, one report.  True is §20b THE STAGED SOLVE
@@ -812,9 +830,19 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         from .project_strip import project_strips
         strip_rep = project_strips(planar, law, strips, levels, sol1.z,
                                    cs.flats)
+    seed_rep: dict = {}
+    if stage2_rewrite is not None:
+        cs, seed_rep = stage2_rewrite(levels)
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
                               method=method, low_rank=low_rank, fixed=levels)
+    yielded: list[dict] = []
+    if not rep2.hard_settled and sol2.z:
+        sol2, rep2, yielded = _yield_pins(planar, cs, law, options, sol2,
+                                          rep2, levels, size_out=size_out,
+                                          method=method, low_rank=low_rank)
+    rep2.reach_seed = seed_rep
+    rep2.pin_yield = yielded
     if strip_rep is not None:
         rep2.jetway_strip = strip_rep
     w2 = time.perf_counter() - t2
@@ -899,6 +927,41 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                       message=f"staged design surface (20b): stage 1 {sol1.message}; "
                               f"stage 2 {sol2.message}")
     return sol, rep2
+
+
+def _yield_pins(planar: PlanarMap, cs: ConstraintSet, law: Law,
+                options: Options | None, sol2: Solution, rep2: DesignReport,
+                levels: _t.Mapping[int, float], **kw
+                ) -> tuple[Solution, DesignReport, list[dict]]:
+    """§20b stage 2 AGAIN with the yielding pins the unsettled hard rows
+    reach released (``solve/pin_yield.py``; owner RULINGS 2026-09-27a
+    (10)).  Returns stage 2's solution and report — the re-solve's when its
+    hard set is better (settled, or a smaller worst violation), else the
+    original's — and the release records (empty when nothing was kept)."""
+    from .pin_yield import hard_violated, implicated_pins, release_pins
+    d = design_law(law)
+    yield_heads = frozenset(getattr(d, "yielding_pin_rulings", ()) or ())
+    if not yield_heads:
+        return sol2, rep2, []
+    heads = hard_rulings(law)
+    bad = hard_violated(cs, sol2.z, heads, float(d.hard_tol_m))
+    verts = implicated_pins(cs, heads, yield_heads, bad, levels)
+    if not verts:
+        return sol2, rep2, []
+    pinned = {p.v: float(p.z) for p in cs.pins if p.v in set(verts)}
+    cs_y = release_pins(cs, verts, yield_heads)
+    sol_y, rep_y = _solve_stage(planar, cs_y, law, options, fixed=levels, **kw)
+    better = bool(sol_y.z) and (
+        (rep_y.hard_settled and not rep2.hard_settled)
+        or rep_y.hard_max_violation_m < rep2.hard_max_violation_m)
+    if not better:
+        return sol2, rep2, []
+    recs = [{"v": int(v), "xy": tuple(float(c) for c in planar.vertices[v].xy),
+             "pinned_m": round(pinned[v], 4),
+             "z_m": round(float(sol_y.z[v]), 4),
+             "excess_m": round(float(sol_y.z[v]) - pinned[v], 4)}
+            for v in verts]
+    return sol_y, rep_y, recs
 
 
 def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,

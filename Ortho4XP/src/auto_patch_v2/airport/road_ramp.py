@@ -184,7 +184,8 @@ _CONTACT_TIE_DP = 9
 def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                    mouths: _t.Mapping[int, float],
                    frame: _t.Mapping[int, tuple[int, float, float]],
-                   reach_m: float, end_m: float
+                   reach_m: float, end_m: float,
+                   gaps_out: dict[int, float] | None = None
                    ) -> tuple[dict[int, tuple[int, int, float, float]],
                               list[dict[str, _t.Any]]]:
     """§37 (10) (1) THE CONTACT A ROAD DOES NOT TOUCH (owner RULINGS
@@ -214,6 +215,12 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     where the vehicle crosses, and that is an end.  A vertex with a
     touching MOUTH between it and the end keeps that mouth's ramp; the
     nearer of two reach ends wins.
+
+    ``gaps_out`` (when given) receives ``vertex -> the plan GAP of the end
+    that governs it`` (the road end's distance to the airside edge) — the
+    figure owner RULINGS 2026-09-27a (11) classifies by: a gap within one
+    lane width seeds the ramp like a touching mouth
+    (:func:`with_road_ramp`, ``PlanarMap.road_reach_seed``).
     """
     from shapely.geometry import LineString, Point
     from shapely.strtree import STRtree
@@ -305,6 +312,8 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                     continue                   # a nearer end already governs
                 at[v] = ds
                 out[v] = (a, b, u, ds)
+                if gaps_out is not None:
+                    gaps_out[v] = float(_d)
                 n += 1
             named.append({"route": r, "governs": n, "gap_m": round(_d, 2),
                           "edge": (a, b), "u": round(u, 3),
@@ -689,9 +698,10 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # to 108.29 — measured, arm 1).  It is a ROW: see
     # ``constraints/road_ramp.road_contact_rows``.
     rc = law.tables.emit.road_contact
+    gaps: dict[int, float] = {}
     contact, reach_named = reach_contacts(pm, law, owned, mouths, frame,
                                           rc.contact_reach_m,
-                                          prof_f.lane_width_m)
+                                          prof_f.lane_width_m, gaps)
     rep["reach_contacts"] = len(reach_named)
     rep["reach_governed"] = len(contact)
     rep["reach_ends"] = reach_named
@@ -753,6 +763,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["max_clamp_over_dem_m"] = round(rep.get("max_clamp_over_dem_m", 0.0), 3)
     rep["_frame_report"] = frep
     rep["_contact_edge"] = contact
+    rep["_contact_gap"] = gaps
     return RampTargets(targets, rep, frame)
 
 
@@ -777,6 +788,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report.update(tg.report)
         report.update({f"frame_{k}": v for k, v in frep.items()})
     contact = tg.report.pop("_contact_edge", {})
+    gaps = tg.report.pop("_contact_gap", {})
     merged = tg.report.pop("_merged", frozenset())
     # §37 (10) (1) AT THE MOUTH THE LEVEL IS THE AIRSIDE'S, AND ONLY THE
     # AIRSIDE'S.  A road END that takes a reach contact carries the §37 (6)
@@ -793,9 +805,24 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     targets = {v: z for v, z in tg.targets.items() if v not in at_mouth}
     if report is not None:
         report["contact_mouth_withdrawn"] = len(tg.targets) - len(targets)
+    # OWNER RULINGS 2026-09-27a (11) (Q-22, TFFJ ``dsf:objpav0#1`` ending
+    # 0.5 m short of apron ``pav2`` 3.7 m over its DEM): A REACH CONTACT
+    # WITHIN ONE LANE WIDTH SEEDS THE RAMP FROM STAGE 1's SOLVED APRON
+    # LEVEL, LIKE A TOUCHING ONE.  Pre-solve that level does not exist
+    # (the reason §37 (10) made the contact a row and not a seed — HECA
+    # ``pav74``, arm 1), so the seed is PUBLISHED here as the contact's
+    # edge and route distance and applied BETWEEN §20b's stages
+    # (``constraints/road_ramp.reach_seed_rewrite``), where the airside
+    # edge's level is a constant: every governed vertex's ramp target and
+    # its hard ceiling become ``max(target, z_edge - cap * s)``.  A gap
+    # over one lane width stays §37 (10)'s one-way row alone.
+    seed = {v: contact[v] for v in targets
+            if v in contact and gaps.get(v, math.inf) <= lane}
+    if report is not None:
+        report["reach_seeded"] = len(seed)
     keep = {v: z for v, z in pm.preferred_z.items() if v not in tg.targets}
     if report is not None:
         report["preferred_withdrawn"] = len(pm.preferred_z) - len(keep)
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
                        road_contact_edge=contact, road_route_merged=merged,
-                       preferred_z=keep)
+                       road_reach_seed=seed, preferred_z=keep)

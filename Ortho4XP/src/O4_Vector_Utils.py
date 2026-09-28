@@ -2057,6 +2057,13 @@ class Levelled_Roads:
         #: inverted, §6's refusal.  Published in the sidecar so a reader
         #: can re-derive the refusal without the build log (30c §6).
         self.deck_pins = {}
+        #: ``{way index: [join record]}`` — OWNER RULINGS 2026-09-27a (10):
+        #: the §37 (9) joins where the PATCH released its pin and the ribbon
+        #: YIELDS to the patch's level (sidecar ``road_join_yield``).  Each
+        #: record names the pinned station, the level, the terrain under it
+        #: and ``excess_m`` — how far past ``budget_m`` the ribbon stands
+        #: there.  Reported, never silent.
+        self.join_pins = {}
 
     def note_deck_pins(self, way_index, report):
         self.deck_pins[int(way_index)] = dict(report)
@@ -2221,6 +2228,10 @@ class Levelled_Roads:
             "deck_pinned_stations": n_dp,
             "deck_pins_refused": n_ref,
             "deck_pin_worst_infeasibility_m": worst,
+            "join_pinned_stations": sum(len(v) for v in self.join_pins.values()),
+            "join_pin_worst_excess_m": round(max(
+                (r["excess_m"] for v in self.join_pins.values() for r in v),
+                default=0.0), 4),
         }
 
     def sidecar(self, lat, lon):
@@ -2256,6 +2267,7 @@ class Levelled_Roads:
                 "cap_class": w.get("cap_class"),
                 "runs": list(w.get("runs", ())),
                 "deck_pins": self.deck_pins.get(i),
+                "join_pins": self.join_pins.get(i),
                 "stations": len(w["alt"]),
                 "length_m": round(float(w["s_m"][-1]) if len(w["s_m"])
                                   else 0.0, 2),
@@ -2298,7 +2310,8 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
                        station_m=DEFAULT_ROAD_STATION_M, deck_pins=None,
                        coverage=None, way_classes=None, way_ids=None,
                        runout_m=None,
-                       budget_m=None, cap_ceiling=None, class_caps=None):
+                       budget_m=None, cap_ceiling=None, class_caps=None,
+                       join_pins=None):
     """Clamp every way of a banked-road MultiLineString, INDEPENDENTLY.
 
     THE ONE SITE THAT DECIDES WHO IS CLAMPED (owner RULINGS 2026-09-18n;
@@ -2331,6 +2344,16 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     approaches on either side reach it at the cap instead of draping to
     terrain and stepping at the abutment.  The polygons are tile-relative
     ``(lon-offset, lat-offset)``, the frame the stations are already in.
+
+    ``join_pins`` — ``[(x, y, level_m)]`` in the same frame: OWNER RULINGS
+    2026-09-27a (10), THE RIBBON YIELDS.  Where auto_patch released a §37
+    (9) coverage-edge join pin (the 5 % pavement ceiling from its apron
+    could not reach the ribbon's level), the ribbon takes the PATCH's
+    level: the nearest station of an in-band way within ``2 × lane_width``
+    of the join is PINNED there.  A pinned station is never judged against
+    ``budget_m`` (S.3), so the budget yields at the join and nowhere else;
+    the excess over the budget is recorded per station
+    (``Levelled_Roads.join_pins``).
     """
     if runout_m is None or budget_m is None or cap_ceiling is None \
             or class_caps is None:
@@ -2404,6 +2427,16 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
                         way_class=cls, layer_way_id=wid_layer)
             continue
         pin_idx, pin_val, pin_wid = [], [], []
+        joins_here = []
+        if join_pins and coverage is not None:
+            st_m = numpy.asarray(stations, dtype=numpy.float64) * numpy.array(
+                [[scalx * GEO.lat_to_m, GEO.lat_to_m]])
+            for jx, jy, jlevel in join_pins:
+                d = numpy.hypot(st_m[:, 0] - float(jx) * scalx * GEO.lat_to_m,
+                                st_m[:, 1] - float(jy) * GEO.lat_to_m)
+                k = int(numpy.argmin(d))
+                if float(d[k]) <= out.radius_m and in_band[k]:
+                    joins_here.append((k, float(jlevel), float(d[k])))
         for pre, (bx0, by0, bx1, by1), level, wid, _P in prepared:
             for k, (px, py) in enumerate(stations):
                 if px < bx0 or px > bx1 or py < by0 or py > by1:
@@ -2431,13 +2464,26 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
                                    numpy.abs(clamped - dem).max()), 4)}])
             continue
         cap_class = road_class_cap(cls, class_caps, cap)
+        n_deck = len(pin_idx)
+        for k, jlevel, _d in joins_here:
+            pin_idx.append(k)
+            pin_val.append(jlevel)
         clamped, report = neighbourhood_road_profile(
             s, dem, in_band, cap_class, cap_inside=cap,
             runout_m=runout_m, budget_m=budget_m, cap_ceiling=cap_ceiling,
             pin_idx=pin_idx or None, pin_val=pin_val or None)
-        if pin_idx:
+        if n_deck:
             report["deck_ways"] = sorted(set(str(w) for w in pin_wid))
             out.note_deck_pins(len(out.ways), report)
+        if joins_here:
+            out.join_pins[len(out.ways)] = [
+                {"station": int(k), "level_m": round(jl, 4),
+                 "dem_m": round(float(dem[k]), 4),
+                 "z_m": round(float(clamped[k]), 4),
+                 "snap_m": round(jd, 3),
+                 "excess_m": round(max(abs(float(clamped[k]) - float(dem[k]))
+                                       - float(budget_m), 0.0), 4)}
+                for k, jl, jd in joins_here]
         out.add_way(stations, dem, clamped, s, scope=report["scope"],
                     runs=report["runs"], way_class=cls,
                     layer_way_id=wid_layer, cap_class=cap_class)

@@ -337,6 +337,18 @@ class DesignReport:
     #: §2): the apron under the jetways levelled between the stages
     #: (``solve/project_strip.project_strips``)
     jetway_strip: StripReport = _dc.field(default_factory=StripReport)
+    #: OWNER RULINGS 2026-09-27a (11): the reach contacts within one lane
+    #: width that SEEDED the ramp from stage 1's solved level
+    #: (``constraints/road_ramp.reach_seed_rewrite``'s report; empty when
+    #: nothing was seeded or the solve was not staged)
+    reach_seed: dict = _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-09-27a (10): the yielding pins (``[design]
+    #: yielding_pin_rulings`` — §37 (9)'s coverage-edge join) that stage 2
+    #: RELEASED because the hard set could not settle with them: one record
+    #: per released vertex, ``{v, xy, pinned_m, z_m, excess_m}`` — the
+    #: ribbon's own level, the level the patch took and the step the core
+    #: ribbon must now take at the join.  Never silent: the line names it.
+    pin_yield: list = _dc.field(default_factory=list)
     #: THE ONE-WAY ROWS (RULINGS 2026-09-09b (2)/(3)): the adjacent-ground
     #: corridor and strip-tie rows whose pavement feet are LAGGED — how
     #: many, how many lag rounds the outer loop paid, whether the lag
@@ -620,6 +632,8 @@ class DesignReport:
                 "runway_projection": self.runway_projection.as_dict(),
                 "zone_projection": self.zone_projection.as_dict(),
                 "jetway_strip": self.jetway_strip.as_dict(),
+                "reach_seed": self.reach_seed,
+                "pin_yield": self.pin_yield,
                 "one_way_rows": self.one_way_rows,
                 "one_way_rounds": self.one_way_rounds,
                 "one_way_settled": self.one_way_settled,
@@ -697,6 +711,28 @@ class DesignReport:
                 f"{self.unknowns} unknowns / {self.rows} rows, "
                 f"{self.stage2_wall_s:.2f} s; ")
 
+    def seed_yield_line(self) -> str:
+        """RULINGS 2026-09-27a (10)/(11) in one clause each (empty when
+        neither acted), ending in ``"; "`` so :meth:`line` can splice it."""
+        out = ""
+        rs = self.reach_seed or {}
+        if rs.get("seeded"):
+            out += (f"reach seed (27a (11)): {rs['seeded']} vertices within one "
+                    f"lane width of a reach contact, {rs.get('raised', 0)} ramp "
+                    f"targets raised to stage 1's edge level (max "
+                    f"{rs.get('max_raise_m', 0.0):.3f} m"
+                    + (f", {rs['unlevelled']} on an unlevelled edge"
+                       if rs.get("unlevelled") else "") + "); ")
+        if self.pin_yield:
+            worst = max(self.pin_yield, key=lambda r: abs(r["excess_m"]))
+            out += (f"PIN YIELD (27a (10)): {len(self.pin_yield)} coverage-edge "
+                    f"join pin(s) released to settle the hard set, ribbon excess "
+                    + " / ".join(f"{abs(r['excess_m']):.2f}" for r in sorted(
+                        self.pin_yield, key=lambda r: -abs(r["excess_m"])))
+                    + f" m (worst v{worst['v']}: ribbon {worst['pinned_m']:.3f} -> "
+                    f"patch {worst['z_m']:.3f}); ")
+        return out
+
     def line(self) -> str:
         worst = sorted(self.families.items(), key=lambda kv: -kv[1]["max_m"])[:6]
         return (self.staged_line()
@@ -732,7 +768,8 @@ class DesignReport:
                 + self.runway_projection.line() + "; "
                 + self.zone_projection.line() + "; "
                 + self.jetway_strip.line() + "; "
-                "worst targets " + ", ".join(
+                + self.seed_yield_line()
+                + "worst targets " + ", ".join(
                     f"{k} {v['missed']}/{v['rows']} max {v['max_m']:.3f} m"
                     for k, v in worst if v["missed"]))
 

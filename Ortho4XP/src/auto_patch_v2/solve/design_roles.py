@@ -11,7 +11,8 @@ import typing as _t
 
 from ..law import Law
 from ..law.design_schema import BEND_CLASSES
-from ..law.tables import (apron_roles as _apron_roles,
+from ..law.tables import (airside_stage_roles as _airside_stage_roles,
+                          apron_roles as _apron_roles,
                           bend_class as _bend_class,
                           design as design_law, is_rigid_role, is_structure_role,
                           is_value_role, pavement_roles as _pavement_roles,
@@ -61,20 +62,10 @@ def taxi_body_roles(law: Law) -> frozenset[str]:
                      if bend_class(law, r) == "taxi")
 
 
-def airside_stage_roles(law: Law) -> frozenset[str]:
-    """§20b STAGE 1's ROLES — AIRSIDE PAVEMENT (owner RULINGS 2026-09-13dh,
-    ordered 2026-09-14an): the runway family, the taxi family and the apron.
-
-    ONE derivation from the law tables, never a hand list: every
-    :func:`pavement_roles` role (a VALUE role that is not a structure) whose
-    ``role_side`` is ``airside`` and that is not RIGID.  The rigid exclusion
-    is the PAD (``building``): a pad is airside by ``role_side`` and is
-    exactly what must conform in stage 2.  The strip / clearance / boundary
-    family is airside too and is not pavement, so it conforms as well — the
-    ground blends to an airside that is already fixed."""
-    return frozenset(r for r in pavement_roles(law)
-                     if role_side(law, r) == "airside"
-                     and not is_rigid_role(law, r))
+#: §20b STAGE 1's ROLES moved down to the LAW layer (issue #67: the apron
+#: trend reads them too, and ``constraints`` may not import ``solve``);
+#: re-exported here, so every importer is unchanged.
+airside_stage_roles = _airside_stage_roles
 
 
 def airside_stage_vertices(planar: _t.Any, law: Law) -> frozenset[int]:
@@ -110,7 +101,9 @@ def conforming_rulings(law: Law) -> frozenset[str]:
 
     The registers are the law's own; there is no hand list here."""
     return (one_way_rulings(law) | pad_flat_rulings(law) | pad_level_rulings(law)
-            | foot_row_rulings(law))
+            | foot_row_rulings(law)
+            # issue #67: the pad's HARD law conforms too (its 1 % ceiling)
+            | frozenset(design_law(law).conforming_hard_rulings))
 
 
 def datum_roles(law: Law) -> tuple[tuple[str, frozenset[str]], ...]:

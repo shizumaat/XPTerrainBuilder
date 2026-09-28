@@ -235,9 +235,14 @@ def licence_verdict(rel: str, allow: dict):
     if any(x in low for x in excluded):
         return f"excluded by name ({rel})"
     if pack is not None:
-        if pack in allow.get("packs", {}):
-            return None
-        return f"pack {pack!r} is not on the freeware allowlist"
+        entry = allow.get("packs", {}).get(pack)
+        if entry is None:
+            return f"pack {pack!r} is not on the freeware allowlist"
+        only = entry.get("only") if isinstance(entry, dict) else None
+        if only and rel.split("/", 3)[3] not in only:
+            return (f"pack {pack!r} is allowlisted for {only} only, not "
+                    f"{rel.split('/', 3)[3]!r}")
+        return None
     if rel.startswith("xplane/"):
         sub = rel[len("xplane/"):]
         if sub.startswith("Custom Scenery/") and sub.count("/") == 1:
@@ -306,6 +311,22 @@ def templated_cfg(cfg_path, install_root: str) -> str:
     return "\n".join(out) + "\n"
 
 
+def write_apt_slice(src: str, icaos, dst: Path) -> None:
+    """An apt.dat carrying only ``icaos``: the source's two header lines,
+    each airport block verbatim (the engine's own ``read_airport_block``),
+    and the ``99`` terminator."""
+    from auto_patch_v2.airport import apt_dat as _apt       # noqa: E402
+    with open(src, "r", encoding="utf-8", errors="replace") as f:
+        head = [f.readline().rstrip("\r\n"), f.readline().rstrip("\r\n")]
+    lines = head + [""]
+    for icao in icaos:
+        block = _apt.read_airport_block(src, icao)
+        if block:
+            lines += list(block) + [""]
+    lines.append("99")
+    dst.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def trace_build(icao: str, trace_path: Path, out_dir: Path) -> None:
     """The harness build that names the read set (``--trace-reads``)."""
     cmd = [sys.executable, str(HERE / "build_airport.py"), icao,
@@ -324,12 +345,47 @@ def airport_read_set(icao: str, trace: dict, data_repo: Path,
     with the harness's own DEM resolution (GDAL reads are invisible to the
     audit hook)."""
     sys.path.insert(0, str(HERE))
+    sys.path.insert(0, str(ENGINE_ROOT / "src"))
     import build_airport as BA                      # noqa: E402
     out = {}
     for p in trace.get("reads", []):
         hit = classify(p, data_repo, install_root, trace.get("overlays", {}))
         if hit and os.path.isfile(hit[1]):
             out[hit[0]] = hit[1]
+    # THE PACK SEARCH IS NOT A READ SET.  ``apt_dat.find_apt_dat`` opens
+    # EVERY enabled pack's apt.dat (~1,100 on the owner's install) to find
+    # the candidates; the build then reads only the one it SELECTS.  A pack
+    # whose only read is its apt.dat is a search hit, dropped — unless it
+    # is the selection itself (re-derived through the engine's own
+    # selector).  Dropping a losing candidate cannot move the selection
+    # (first pack with pavement, sorted); the mounted build proves it.
+    from auto_patch_v2.airport import apt_dat as _apt       # noqa: E402
+    sel = _apt.find_apt_dat(install_root, icao)
+    sel_rel = classify(os.path.realpath(sel), data_repo, install_root,
+                       {})[0] if sel else None
+    by_pack = {}
+    for rel in out:
+        pk = pack_of(rel)
+        if pk is not None and rel.startswith("xplane/"):
+            by_pack.setdefault(pk, []).append(rel)
+    search_only = 0
+    for pk, rels in by_pack.items():
+        if all(r.endswith("/Earth nav data/apt.dat") for r in rels) and \
+                sel_rel not in rels:
+            for r in rels:
+                del out[r]
+            search_only += 1
+    # THE GLOBAL AIRPORTS FILE IS READ BY BLOCK (``read_airport_block``),
+    # and it is ~380 MB: the snapshot carries a SLICE — its header and the
+    # cut's airport blocks, byte-identical block text, so ``block_sha256``
+    # cannot move.  Sliced in :func:`cut` (one file for the whole cut).
+    globals_ = [r for r in out if r.endswith(
+        "Global Airports/Earth nav data/apt.dat") or r.endswith(
+        "default apt dat/Earth nav data/apt.dat")]
+    for r in globals_:
+        out[r] = ("slice", out[r])
+    out["__meta__"] = {"search_only_packs_dropped": search_only,
+                       "selected_apt_dat": sel_rel}
     tile = trace.get("tile") or BA.resolve_tile_for(icao, root)
     if tile:
         state = BA.dem_cache_state(root, *tile)
@@ -348,9 +404,10 @@ def airport_read_set(icao: str, trace: dict, data_repo: Path,
 
 
 def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
-        root: Path = None) -> dict:
+        root: Path = None, skip_refused: bool = False) -> dict:
     root = Path(root or Path.cwd())
     sys.path.insert(0, str(HERE))
+    sys.path.insert(0, str(ENGINE_ROOT / "src"))
     from shared_repo_guard import DATA_REPO, REFRESH_LEDGER   # noqa: E402
     import build_airport as BA                                # noqa: E402
     data_repo = Path(DATA_REPO)
@@ -367,16 +424,17 @@ def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
             trace_build(icao, tpath, traces / "builds")
         trace = json.loads(tpath.read_text())
         rs = airport_read_set(icao, trace, data_repo, install_root, root)
+        meta = rs.pop("__meta__")
         bad = sorted({why for rel in rs
                       if (why := licence_verdict(rel, allow))})
         if bad:
             refusals[icao] = bad
             continue
         per_airport[icao] = {"tile": list(BA.resolve_tile_for(icao, root) or []),
-                             "sources": rs,
+                             "sources": rs, **meta,
                              "packs": sorted({pk for r in rs
                                               if (pk := pack_of(r))})}
-    if refusals:
+    if refusals and (not skip_refused or not per_airport):
         lines = "\n".join(f"  {i}: {'; '.join(w[:6])}"
                           for i, w in refusals.items())
         raise SystemExit(f"REFUSING: licence gate (payware/unknown packs "
@@ -389,6 +447,18 @@ def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
     (out / cfg_rel).write_text(templated_cfg(owner_cfg, install_root))
     files[cfg_rel] = {"sha256": _sha256(out / cfg_rel),
                       "size": (out / cfg_rel).stat().st_size}
+    slices = {}
+    for icao, rec in per_airport.items():
+        for rel, src in rec["sources"].items():
+            if isinstance(src, tuple):
+                slices.setdefault(rel, (src[1], set()))[1].add(icao)
+    for rel, (src, icaos_) in slices.items():
+        dst = out / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        write_apt_slice(src, sorted(icaos_), dst)
+        files[rel] = {"sha256": _sha256(dst), "size": dst.stat().st_size,
+                      "sliced_from": {"path": src, "sha256": _sha256(src),
+                                      "airports": sorted(icaos_)}}
     for icao, rec in per_airport.items():
         for rel, src in sorted(rec["sources"].items()):
             dst = out / rel
@@ -413,6 +483,8 @@ def cut(icaos, out: Path, traces: Path, release: Path, allowlist=None,
                                                for r, f in files.items()}}),
         },
         "airports": per_airport,
+        # airports the licence gate refused (--skip-refused), with why
+        "refused": refusals,
         "files": files,
     }
     manifest["hash"] = manifest_hash(files)
@@ -576,6 +648,10 @@ def main(argv=None) -> int:
     c.add_argument("--release", type=Path, default=None,
                    help="tarball dir (default OUT.release)")
     c.add_argument("--allowlist", type=Path, default=None)
+    c.add_argument("--skip-refused", action="store_true",
+                   help="cut the airports that pass the licence gate and "
+                        "RECORD the refused ones in snapshot.json (default: "
+                        "one refusal refuses the whole cut)")
     v = sub.add_parser("verify", help="re-hash a snapshot against its manifest")
     v.add_argument("dir", type=Path)
     u = sub.add_parser("unmount", help="restore a lane mounted by --corpus "
@@ -587,7 +663,9 @@ def main(argv=None) -> int:
         man = cut([i.upper() for i in args.icaos], out,
                   (args.traces or Path(str(out) + ".traces")).resolve(),
                   (args.release or Path(str(out) + ".release")).resolve(),
-                  args.allowlist)
+                  args.allowlist, skip_refused=args.skip_refused)
+        for icao, why in man.get("refused", {}).items():
+            print(f"  {icao}: REFUSED by the licence gate — {'; '.join(why)}")
         total = 0
         for icao, rec in man["airports"].items():
             total += rec["bytes"]

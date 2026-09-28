@@ -1,6 +1,21 @@
 {
- "_doc": "Packs whose files (and Airport_mod_cache dumps) corpus_snapshot.py may copy into the PRIVATE cloud test corpus (RULINGS 2026-09-28a (7)). FREEWARE ONLY; add a pack only on the owner's word. A pack not listed REFUSES the airport. OTHH is excluded by name.",
- "packs": {},
- "install_prefixes": ["Custom Data/CIFP/"],
+ "_doc": "Packs whose files (and Airport_mod_cache dumps) corpus_snapshot.py may copy into the PRIVATE cloud test corpus (owner RULINGS 2026-09-28a (7): open data + NON-PAYWARE pack content; OTHH stays local). A pack not listed REFUSES the airport. Each entry says why it is here; 'only' restricts it to named files (path inside the pack). Entries marked OWNER-CONFIRM were added by lane cloudcorpus 2026-09-28 from the pack's own readme / x-plane.org freeware listing as the lane understood it, and await the owner's word; removing one and re-cutting drops it from the next snapshot.",
+ "packs": {
+  "CYXY Whitehorse": {"basis": "WED gateway-style freeware airport (WorldEditor export, no custom art)", "status": "OWNER-CONFIRM"},
+  "NLWF-Point Vele WALLIS-ET-FUTUNA": {"basis": "freeware x-plane.org airport (readme: requires the free CDB-Library)", "status": "OWNER-CONFIRM"},
+  "c_EGY - 100_airport - HECA Cairo (Tai Models)": {"basis": "Tai Models HECA, x-plane.org freeware", "status": "OWNER-CONFIRM"},
+  "AEP": {"basis": "freeware airport-environment object library", "status": "OWNER-CONFIRM"},
+  "MisterX_Library": {"basis": "freeware library (x-plane.org)", "status": "OWNER-CONFIRM"},
+  "x_300_library - CFSS-Library": {"basis": "freeware library (x-plane.org)", "status": "OWNER-CONFIRM"},
+  "x_300_library - CDB-Library": {"basis": "freeware library (x-plane.org), required by NLWF", "status": "OWNER-CONFIRM"},
+  "c_HUN - 100_airport - Library (HungryVFR)": {"basis": "freeware HungryVFR library", "status": "OWNER-CONFIRM"},
+  "X-Codr Designs Library": {"basis": "freeware library (x-plane.org)", "status": "OWNER-CONFIRM"},
+  "Faroes4XPlane - Airport": {"basis": "freeware Faroes4XPlane project (library export)", "status": "OWNER-CONFIRM"},
+  "c_FRA - 100_airport - LFHU Alpes d Huez XPFR Ypsos": {"basis": "XPFR freeware (OpenSceneryX-based)", "status": "OWNER-CONFIRM"},
+  "c_CHL - 100_airport - SCEL New Intl Airpot 2020": {"basis": "freeware x-plane.org airport (library export)", "status": "OWNER-CONFIRM"},
+  "x_300_library - Static Aircrafts (Aerosoft)": {"basis": "ONLY the empty placeholder blank.obj (no Aerosoft geometry)", "only": ["blank.obj"], "status": "OWNER-CONFIRM"}
+ },
+ "install_prefixes": ["Custom Data/CIFP/", "Global Scenery/Global Airports/", "Resources/default scenery/"],
+ "_install_prefixes_doc": "CIFP = the owner's navdata files for the cut airports; Global Airports = the gateway apt.dat, SLICED to the cut's airport blocks; Resources/default scenery = Laminar library objects the object stage opens (OWNER-CONFIRM).",
  "excluded_substrings": ["OTHH"]
 }

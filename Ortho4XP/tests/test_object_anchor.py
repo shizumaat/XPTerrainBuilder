@@ -1944,6 +1944,23 @@ KCLT_MESH_PATH = (
 KCLT_DSF_PATH = os.path.join(
     KCLT_PACK_ROOT, "Earth nav data", "+30-090", "+35-081.dsf"
 )
+#: THE ORIGINAL DSF (stale-fixture repair, #70 2026-09-27).  The live
+#: ``+35-081.dsf`` is the owner's X-Plane install, and the v2 per-body object
+#: rebake rewrote it on 2026-09-18 00:40 (``o4_placement_provenance.json``
+#: beside it: every placement of the eight ``_ALB`` bakes now points at a
+#: ``__b<N>_<hash>.obj`` body file), so reading the live DSF found 0 of the
+#: 8 placements.  No code moved: ``git log -S`` finds the ``== 8`` bar
+#: unchanged since it landed (bfd22008, 2026-07-20).  The rebake keeps the
+#: pack's own DSF as ``.anchor_bak`` — the same originals this test already reads the object
+#: GEOMETRY from — so the placements are read there too, when it exists.
+KCLT_DSF_ORIGINAL_PATH = KCLT_DSF_PATH + ".anchor_bak"
+
+
+def _kclt_dsf_source():
+    return (KCLT_DSF_ORIGINAL_PATH if os.path.isfile(KCLT_DSF_ORIGINAL_PATH)
+            else KCLT_DSF_PATH)
+
+
 KCLT_RESOURCES = [
     f"Terminals/Hangar/Charlotte_Airport_{number:03d}_ALB.obj"
     for number in range(1, 9)
@@ -1993,7 +2010,7 @@ def test_kclt_eight_bake_pool_end_to_end(monkeypatch):
     monkeypatch.setattr(_cfg, "DSF_OBJECT_BAKE_MIN_DELTA_M", 0.0)
     from auto_patch import dsf_reader
 
-    dsf_text_lines = dsf_reader._load_dsf_text(KCLT_DSF_PATH)
+    dsf_text_lines = dsf_reader._load_dsf_text(_kclt_dsf_source())
     if not dsf_text_lines:
         pytest.skip("DSF text unavailable (DSFTool missing?)")
     wanted = set(KCLT_RESOURCES)

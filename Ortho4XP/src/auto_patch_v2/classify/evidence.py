@@ -621,7 +621,11 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             fb = unary_union(keep) if keep else None
         if fb is not None and not fb.is_empty:
             parts.extend(polygon_parts(fb))
-        parts = _absorb_enclosed(parts)
+    # #6: NEVER ONE SHAPE INSIDE ANOTHER, cluster or fallback alike, read on
+    # the shells the arrangement's sliver weld will close (lane nestedpads)
+    parts = _absorb_enclosed(
+        parts, float(law.tables.emit.identity.weld_spacing_m)
+        if law is not None else 0.0)
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
     # RULINGS 2026-09-14ax: THE PAD CLIP IS THE ARRANGEMENT'S, NOT THIS
     # SITE'S.  Round 1 clipped every pad here by ``runway_union |
@@ -707,34 +711,93 @@ def _inside_gate(piece, gate) -> bool:
     return piece.intersection(gate).area >= PAD_GATE_MIN_FRACTION * piece.area
 
 
-def _absorb_enclosed(parts: list) -> list:
+#: #6 (lane ``nestedpads``): a pad standing at least this far (m2) into a
+#: hole of another pad's weld-closed shell is NESTED — a numerical floor for
+#: the overlay's slivers, far below any building (the owner's lobe 2,300 m2).
+NESTED_MIN_M2 = 1.0
+
+
+def _weld_closed(g, weld_m: float):
+    """``g`` as the arrangement will see it: every gap narrower than the
+    sliver weld (``emit.identity.weld_spacing_m``) closed, never shrunk —
+    a morphological closing unioned with ``g`` itself."""
+    if weld_m <= 0.0:
+        return g
+    c = g.buffer(weld_m, join_style=2).buffer(-weld_m, join_style=2)
+    c = unary_union([g, c]) if c.is_valid and not c.is_empty else g
+    return c if c.geom_type == "Polygon" else g
+
+
+def _absorb_enclosed(parts: list, weld_m: float = 0.0) -> list:
     """HECA-1 (#6): "a building shape must never be nested inside another;
-    only the larger footprint matters".  A pad polygon lying wholly inside
-    ANOTHER pad's outline (in one of its holes) is merged into the pad that
-    encloses it — whichever half it came from.  MEASURED at the owner's
-    site after the fallback difference: the T3_20 cluster's 2,325 m2 lobe
-    stood in a hole of the concrete slab's 7,247 m2 pad — no overlap, but
-    still one shape inside the other."""
+    only the larger footprint matters".  A pad reaching into ANOTHER pad's
+    hole is merged with the pad around it into ONE outline — whichever
+    half each came from, whichever is larger.
+
+    The hole is read on the WELD-CLOSED shell (lane ``nestedpads``): at
+    the owner's site the concrete slab's pad ``building19`` (7,303 m2) is
+    a U at classify time whose mouth is under half a metre, and the
+    arrangement's sliver weld (``weld_spacing_m``, 1.0 m) closes that
+    mouth into a hole with a 2,300 m2 lobe of the T3_20 cluster pad
+    ``building22`` standing in it — MEASURED: closing the U at 0.5 m
+    already leaves a 2,300 m2 hole.  A shell test on the raw rings never
+    sees it, so the enclosure is read on :func:`_weld_closed` and the
+    merged outline carries the closed mouth, so the arrangement has no
+    gap to re-open.
+
+    MEASURED before this test: a pad lying wholly inside another pad's
+    outline (the T3_20 lobe after the fallback difference, lane
+    ``hecabodies``) — the ``weld_m = 0`` case, unchanged."""
     if len(parts) < 2:
         return parts
-    shells = [Polygon(q.exterior) for q in parts]
-    tree = STRtree(shells)
-    alive = list(parts)
-    for i in sorted(range(len(parts)), key=lambda k: parts[k].area):
-        q = alive[i]
-        if q is None:
-            continue
-        hosts = [int(k) for k in tree.query(q, predicate="covered_by")
-                 if int(k) != i and alive[int(k)] is not None
-                 and parts[int(k)].area > q.area
-                 and not parts[int(k)].covers(q)]
-        if not hosts:
-            continue
-        k = max(hosts, key=lambda h: parts[h].area)
-        merged = alive[k].union(q)
-        if merged.geom_type == "Polygon":
-            alive[k] = merged
-            alive[i] = None
+    alive: list = list(parts)
+    for _pass in range(4):
+        changed = False
+        closed = [None if g is None else _weld_closed(g, weld_m) for g in alive]
+        shells = [Polygon() if c is None else Polygon(c.exterior) for c in closed]
+        tree = STRtree(shells)
+        for i in sorted(range(len(alive)),
+                        key=lambda k: 0.0 if alive[k] is None else alive[k].area):
+            q = alive[i]
+            if q is None:
+                continue
+            hosts = []
+            for k in tree.query(q, predicate="intersects"):
+                k = int(k)
+                h = alive[k]
+                if k == i or h is None or closed[k] is None \
+                        or not list(closed[k].interiors):
+                    continue
+                # the part of q standing in a hole of the host's closed shell
+                inside = q.intersection(shells[k]).difference(closed[k])
+                if inside.area > NESTED_MIN_M2:
+                    hosts.append((k, inside))
+            if not hosts:
+                continue
+            k, inside = max(hosts, key=lambda h: alive[h[0]].area)
+            # the pad around takes the WHOLE hole the other stands in — the
+            # ground between them too (the larger footprint's shell): a
+            # courtyard holding a building is not a gap to terrace
+            filled = [Polygon(r) for r in closed[k].interiors]
+            filled = [h for h in filled
+                      if h.intersection(inside).area > NESTED_MIN_M2]
+            merged = unary_union([closed[k], q, *filled])
+            if merged.geom_type != "Polygon" and weld_m > 0.0:
+                # two pads meeting at a point / across a sub-weld gap: the
+                # weld closes it, so the merged outline carries it closed
+                merged = unary_union([merged, merged.buffer(
+                    weld_m, join_style=2).buffer(-weld_m, join_style=2)])
+            if merged.geom_type != "Polygon":
+                continue
+            keep, drop = (k, i) if alive[k].area >= q.area else (i, k)
+            alive[keep] = merged
+            alive[drop] = None
+            closed[keep] = _weld_closed(merged, weld_m)
+            shells[keep] = Polygon(closed[keep].exterior)
+            closed[drop] = None
+            changed = True
+        if not changed:
+            break
     return [q for q in alive if q is not None]
 
 

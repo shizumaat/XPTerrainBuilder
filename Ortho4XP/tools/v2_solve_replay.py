@@ -1525,16 +1525,35 @@ def pad_read(icao: str, pm, law, airport, sites: list[tuple[float, float]]) -> d
             weld_refs += 1
             weld_v += n
     mism = pad_cluster_mismatch(pm, law, airport)
+    nested_all = nested_pads(pm, polys, airport)
+    # two SHAPES (the owner's "two building20's") = two base refs; a face of
+    # a ref inside a hole of the SAME ref (``building10`` / ``building10#2``)
+    # is one pad broken by what cuts it, counted apart
+    _base = lambda r: r.split("#")[0]  # noqa: E731
+    nested = [r for r in nested_all if _base(r["inner_ref"]) != _base(r["outer_ref"])]
+    same = [r for r in nested_all if _base(r["inner_ref"]) == _base(r["outer_ref"])]
     pa = {k: v for k, v in PAD_AIRSIDE.items() if not isinstance(v, (list, tuple, set))}
     out = {"pad_airside": pa, "building_faces": sum(len(v) for v in bref.values()),
            "building_refs": len(bref), "building_area_m2": round(b_area, 1),
            "airside_area_m2": round(air_area, 1), "weld_refs": weld_refs,
-           "weld_vertices": weld_v, "pad_cluster_mismatch": len(mism), "sites": []}
+           "weld_vertices": weld_v, "pad_cluster_mismatch": len(mism),
+           "nested_pads": len(nested),
+           "nested_pads_m2": round(sum(r["inner_m2"] for r in nested), 1),
+           "nested_rows": nested, "nested_same_ref": len(same),
+           "nested_same_ref_m2": round(sum(r["inner_m2"] for r in same), 1),
+           "sites": []}
     print(f"[{icao}] PAD READ arrangement {pa}")
     print(f"[{icao}] PAD READ building faces {out['building_faces']} in "
           f"{len(bref)} refs, {b_area:,.0f} m2; airside (rolled-on) faces "
           f"{air_area:,.0f} m2; weld: {weld_refs} pad refs share {weld_v} "
           f"vertices with airside; pad_cluster_mismatch {len(mism)}")
+    print(f"[{icao}] PAD READ nested pads (HECA-1 #6: a building face inside "
+          f"another pad's shell) {len(nested)}, "
+          f"{out['nested_pads_m2']:,.0f} m2 (two refs); a ref's own face in "
+          f"its own hole {len(same)}, {out['nested_same_ref_m2']:,.0f} m2")
+    for r in nested[:10]:
+        print(f"[{icao}]     {r['inner_ref']} ({r['inner_m2']:,.0f} m2) inside "
+              f"{r['outer_ref']} ({r['outer_m2']:,.0f} m2) at {r['lat']},{r['lon']}")
     to_xy = airport.frame.entry()
     for lat, lon in sites:
         P = Point(to_xy(lon, lat))
@@ -1552,6 +1571,40 @@ def pad_read(icao: str, pm, law, airport, sites: list[tuple[float, float]]) -> d
         if not hit:
             print(f"[{icao}] PAD READ site {lat},{lon}: no face")
     return out
+
+
+def nested_pads(pm, polys: dict, airport) -> list[dict]:
+    """HECA-1 (#6, owner: "a building shape must never be nested inside
+    another"): every ``building`` face standing inside the SHELL of another
+    ``building`` face (in one of its holes), whatever the two refs — the
+    arrangement's faces, so a hole the planar build closed is read as it
+    ships.  Rows largest inner first; prices no law."""
+    from shapely.geometry import Polygon
+    from shapely.strtree import STRtree
+    fids = [fid for fid, f in pm.faces.items() if f.role == "building"
+            and polys.get(fid) is not None and not polys[fid].is_empty]
+    holed = [fid for fid in fids if list(polys[fid].interiors)]
+    if not holed:
+        return []
+    shells = [Polygon(polys[fid].exterior) for fid in holed]
+    tree = STRtree(shells)
+    to_ll = airport.frame.transformers()[1]
+    rows: list[dict] = []
+    for fid in fids:
+        g = polys[fid]
+        for k in tree.query(g, predicate="covered_by"):
+            host = holed[int(k)]
+            if host == fid:
+                continue
+            p = g.representative_point()
+            lat, lon = to_ll(p.x, p.y)
+            rows.append({"inner_face": fid, "inner_ref": str(pm.faces[fid].ref),
+                         "inner_m2": round(g.area, 1), "outer_face": host,
+                         "outer_ref": str(pm.faces[host].ref),
+                         "outer_m2": round(polys[host].area, 1),
+                         "lat": round(lat, 7), "lon": round(lon, 7)})
+    rows.sort(key=lambda r: -r["inner_m2"])
+    return rows
 
 
 def _face_vids(f) -> list[int]:

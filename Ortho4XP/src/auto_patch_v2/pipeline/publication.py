@@ -85,6 +85,8 @@ vertices' canonical lat/lon identity so the census joins exactly.
 """
 from __future__ import annotations
 
+import math
+
 import typing as _t
 
 from ..constraints.contiguity import road_station_caps
@@ -684,6 +686,94 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
                     "faced": False, "kind": "apron_terrace", "faces": [], "shapes": list(j.shapes),
                     "gap": bool(j.gap), "roles": list(j.roles), "pairs": len(j.pairs),
                     "length_m": round(j.length_m, 2)})
+    out.extend(pad_terrace_joints(planar, law, z))
+    return out
+
+
+#: the patch writes elevations to the centimetre: a step read back from
+#: it can exceed the solved one by up to a rounding on each side
+_EMIT_Z_ROUND_M = 0.01
+
+
+def pad_terrace_joints(planar: PlanarMap, law: Law,
+                       z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+    """THE PAD TERRACES DECLARED (owner RULINGS 2026-09-28b, issue #11;
+    ``PlanarMap.pad_terraces``, derived once by ``planar/pad_terrace``):
+    one ``terrace_joints`` record per (pad, split body) — the midline of
+    the strip between them (the midpoints of each pad rim vertex's
+    nearest partner across it, in the pad ring's walking order), the
+    emitted step over those pairs, ``kind`` ``pad_terrace``.  A retaining
+    edge the owner ruled, so both instruments forgive the step across it
+    exactly like a shape joint's; nothing is re-derived here."""
+    terr = getattr(planar, "pad_terraces", None) or {}
+    if not terr:
+        return []
+    from ..model.planar import face_vertex_ids
+    ident = law.tables.emit.identity
+    horizon = (float(law.tables.emit.design.pad_frontage_m)
+               + 2.0 * float(ident.weld_spacing_m))
+    by_ref: dict[str, list[int]] = {}
+    for f in planar.faces.values():
+        if f.ref in terr or any(f.ref in o for o in terr.values()):
+            by_ref.setdefault(f.ref, []).append(f.id)
+    fv: dict[int, list[int]] = {}
+    for v, vx in planar.vertices.items():
+        for fid in vx.incident_faces:
+            fv.setdefault(fid, []).append(v)
+    out: list[dict[str, _t.Any]] = []
+    for pad_ref, others in sorted(terr.items()):
+        pad_vs: list[int] = []
+        seen: set[int] = set()
+        for fid in by_ref.get(pad_ref, ()):
+            for v in fv.get(fid, ()):
+                if v not in seen:
+                    seen.add(v)
+                    pad_vs.append(v)
+        # every body split off this pad stands at the OTHER level, and the
+        # census pairs across each line with whatever lies beyond it (the
+        # lower pad's line sits beside the apron's: closing arm3 read
+        # building50|dsf:objpav399 chords 7.11 m against the pad-pad line's
+        # 6.94) — so each line declares the step against all of them
+        all_o = {v for o in others for fid in by_ref.get(o, ()) for v in fv.get(fid, ())} - seen
+        ox_all = [(w, planar.vertices[w].xy) for w in all_o]
+        for other in sorted(others):
+            ovs = {v for fid in by_ref.get(other, ()) for v in fv.get(fid, ())} - seen
+            if not ovs:
+                continue
+            ox = [(w, planar.vertices[w].xy) for w in ovs]
+            pairs: list[tuple[int, int]] = []
+            for a in pad_vs:
+                ax, ay = planar.vertices[a].xy
+                d, b = min(((math.hypot(ax - bx, ay - by), w) for w, (bx, by) in ox))
+                if d <= horizon:
+                    pairs.append((a, b))
+            if len(pairs) < 2:
+                continue
+            pts = []
+            for a, b in pairs:
+                (la0, lo0), (la1, lo1) = planar.vertices[a].key, planar.vertices[b].key
+                pts.append([(la0 + la1) / 2.0, (lo0 + lo1) / 2.0])
+            # the DECLARED step is the largest over EVERY chord across the
+            # strip within the horizon, not just the nearest partners: the
+            # census prices every chord crossing the line (closing build
+            # cargoterrace_close2: 4 terrace_actual_step rows at 7.10-7.11 m
+            # against a nearest-pair 7.1087 declared), plus the emit's own
+            # elevation rounding
+            step = 0.0
+            if z is not None:
+                oz = [(w, xy, float(z[w])) for w, xy in ox_all]
+                for a in pad_vs:
+                    ax, ay = planar.vertices[a].xy
+                    za = float(z[a])
+                    for _w, (bx, by), zb in oz:
+                        if math.hypot(ax - bx, ay - by) <= horizon + 1.0:
+                            step = max(step, abs(za - zb))
+                step += _EMIT_Z_ROUND_M
+            out.append({"points": pts, "step_m": round(step, 4),
+                        "declared_step_m": round(step, 4), "faced": False,
+                        "kind": "pad_terrace", "faces": [], "shapes": [pad_ref, other],
+                        "gap": True, "roles": [], "pairs": len(pairs),
+                        "length_m": 0.0})
     return out
 
 

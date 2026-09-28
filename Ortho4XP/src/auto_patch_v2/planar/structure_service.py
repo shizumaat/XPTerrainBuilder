@@ -64,6 +64,9 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     mouth grounds (#65);
     or the bore's own ``layer`` at or under ``terrain_layer_max``, which
     is OSM's statement that it runs below what it crosses.
+    (d) An OSM ``tunnel`` bore lying INSIDE THE AIRPORT BOUNDARY is a
+    terrain tunnel on its own (owner RULINGS 2026-09-27a (4), issue #5:
+    SPJC's -5724 builds its two mouths).
 
     THE LAST TWO ARE §34 (12) (4)'S OWN WITNESSES, in the form a BORE
     takes them: (4) (i) reads a tag, (4) (ii) reads the DEM against the
@@ -119,6 +122,14 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         grade.append((LineString(w.points), w))
     grade_tree = STRtree([ln for ln, _w in grade]) if grade else None
 
+    # (d) THE FENCE (owner RULINGS 2026-09-27a (4), issue #5): an OSM
+    # ``tunnel`` bore lying INSIDE the airport boundary (apt.dat row 130)
+    # is a terrain tunnel on its own — "the sim shows the pack's ground
+    # over it".  Outside the fence the four witnesses of (c) apply as
+    # before.  (a)'s refusal runs FIRST: a bore entering a building is
+    # that building's ramp inside the fence too.
+    fence = _fence_of(airport)
+
     def witness(bore) -> tuple[bool, str]:
         ln = bore.line
         ids = "+".join(str(w.id) for w in bore.ways)
@@ -142,15 +153,46 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
             return True, ("under " + ", ".join(crossed[:3]) + " at grade")
         rise = _rise_m(airport, ln)
         if rise is not None and rise >= tn.terrain_rise_m:
-            return True, f"the ground over it stands {rise:+.2f} m above its own ends"
+            return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
+        if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
+                and fence.covers(ln):
+            return True, ("an OSM tunnel inside the airport boundary "
+                          "(§34 (12) (5) (d), owner RULINGS 2026-09-27a (4))")
         return False, (f"bore {ids} PASSES UNDER NOTHING AT GRADE "
                        f"({ln.length:.0f} m; cover {cover:.1f} m, no road or railway "
                        f"across it, ground "
                        f"{'unreadable' if rise is None else f'{rise:+.2f} m'} over its "
-                       f"own ends, layer {'none' if lay is None else lay}) — the sim's "
+                       f"mouth chord, layer {'none' if lay is None else lay}) — the sim's "
                        f"elevated roads carry it (§34 (12) (5) (c))")
 
     return witness
+
+
+def _fence_of(airport):
+    """The airport boundary (apt.dat row 130) as one polygon — every
+    ``boundaries`` entry, holes kept — or ``None`` with none."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    polys = []
+    for b in getattr(airport, "boundaries", ()) or ():
+        try:
+            p = Polygon(b.outer, list(b.holes))
+        except (ValueError, TypeError):
+            continue
+        if not p.is_valid:
+            p = p.buffer(0)
+        if not p.is_empty:
+            polys.append(p)
+    return unary_union(polys) if polys else None
+
+
+def _osm_tunnel(bore, admitted) -> bool:
+    """Every way of the bore chain is a MAPPED ``tunnel`` way — never a
+    bore §34 (5) synthesised under an aeroway bridge (``o4_underpass``)."""
+    from ..airport.deck_signature import is_tunnel_way
+    from .structure_underpass import UNDERPASS_TAG
+    return all(is_tunnel_way(w.tags or {}, admitted)
+               and UNDERPASS_TAG not in (w.tags or {}) for w in bore.ways)
 
 
 def _layer_of(tags, default=None):

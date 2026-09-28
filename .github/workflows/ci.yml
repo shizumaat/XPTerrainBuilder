@@ -89,6 +89,17 @@ jobs:
       # the interactive backends for the same reason.
       QT_QPA_PLATFORM: offscreen
       MPLBACKEND: Agg
+      # #54: a one-off SIGSEGV in the serial Qt suite (rc 139,
+      # shiboken6/PySide6) whose dump named no test.  pytest's faulthandler
+      # plugin arms only once the session starts, which leaves import and
+      # collection uncovered; PYTHONFAULTHANDLER arms it at interpreter
+      # start, so a crash anywhere dumps every thread to the real stderr.
+      PYTHONFAULTHANDLER: "1"
+      # Not load-bearing on Linux — pytest's terminal writer flushes per
+      # test once verbose (measured).  It costs nothing and removes the
+      # question on the Windows and macOS runners, which this was not
+      # measured on.
+      PYTHONUNBUFFERED: "1"
       # --timeout: a hung test fails with its own stack dump instead of
       # taking the job's budget and leaving no log behind.  600s, not the
       # 180s the three-glob era used: the full suite includes the
@@ -198,6 +209,29 @@ jobs:
       # the job's timeout, and a CANCELLED job keeps NO LOGS AT ALL — two
       # rounds spent learning nothing.  The step's own `timeout` fails the
       # STEP instead of the JOB, so the log survives to be read.
+      #
+      # #54 (attribution, not a fix): one run of this recipe died rc 139
+      # with a faulthandler dump that named no test — not reproduced in 13
+      # serial runs since, so the next occurrence is the only evidence
+      # there will be, and it has to be complete.
+      #   * -p faulthandler: load the plugin explicitly, so the dump
+      #     survives pytest's output capture.  PYTHONFAULTHANDLER (job env)
+      #     covers the window before the plugin arms.
+      #   * -o faulthandler_timeout=0: the pytest-9 spelling is the INI
+      #     option, not a --faulthandler-timeout flag, which pytest 9
+      #     rejects as an unrecognised argument (rc 4, nothing runs — the
+      #     shape that already cost issue #54 one repro attempt).  0 is
+      #     explicit-default: hangs belong to pytest-timeout, above, and a
+      #     second dumper racing it only muddies the log.
+      #   * -v -v, not -v: pytest SUMS verbosity, and PYTEST_FLAGS above
+      #     carries -q.  `-q -v` is net zero — ordinary file-level progress
+      #     dots, no node IDs — so the -v this step has carried since
+      #     2026-09-17 has been a no-op.  -q -v -v is net verbose, which
+      #     prints each node ID as it STARTS, so the last line before rc
+      #     139 names the test that died.
+      #   * tee: a step that fails keeps its log in the UI, but a job that
+      #     is cancelled or times out keeps nothing.  The file is uploaded
+      #     below either way, so the dump is readable after the fact.
       - name: Qt app (offscreen, serial)
         if: always()
         working-directory: Ortho4XP
@@ -206,4 +240,18 @@ jobs:
           if command -v timeout >/dev/null 2>&1; then
             limit="timeout -k 30 900"     # absent on the macOS runner
           fi
-          $limit python -m pytest $PYTEST_FLAGS -n0 -v tests/test_qt_*.py
+          set -o pipefail
+          $limit python -m pytest $PYTEST_FLAGS \
+            -p faulthandler -o faulthandler_timeout=0 \
+            -n0 -v -v tests/test_qt_*.py 2>&1 | tee qt-suite.log
+
+      # `if: always()`: the crash log is worth exactly as much as the run
+      # that produced it is red.
+      - name: Upload Qt suite log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-suite-log-${{ matrix.os }}
+          path: Ortho4XP/qt-suite.log
+          if-no-files-found: warn
+          retention-days: 30

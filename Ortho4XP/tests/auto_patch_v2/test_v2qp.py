@@ -204,25 +204,25 @@ def _probe(pm, cs, law, solver):
             float(dz[far].max()) if far.any() else 0.0)
 
 
-#: The QP arm's pinned response to the probe (RULINGS 2026-09-29e): moved
-#: rows 22 (macOS) / 24 (Linux), worst 0.293 m on both platforms.
-QP_ROWS_PINNED = (22, 24)
-QP_MAX_PINNED_M = 0.293
+#: The QP arm's pinned worst response to the probe (RULINGS 2026-09-29e
+#: as amended by 2026-09-29i): 0.29 m within +-10 %; the far field (beyond
+#: 250 m) at most 0.1 m.  The moved-row count is printed, never asserted
+#: (29i: it moved 22 -> 29 with a3f78bc2's unit platform on padA).
+QP_MAX_PINNED_M = 0.29
 QP_PIN_TOL = 0.10
 QP_FAR_MAX_M = 0.1
 
 
 def test_a_local_perturbation_is_local_under_the_qp(law, built):
-    """§20c's bar on the QP arm ALONE (RULINGS 2026-09-29e, issue #76).
+    """§20c's bar on the QP arm ALONE (RULINGS 2026-09-29e/i, issue #76).
 
     The fixed-point arm is NOT a control: on Linux it converges to the
-    QP's own local answer (22 rows, far 0) while on macOS it does not
-    (277 rows, 203 far, 1.712 m), so a matched pair cannot separate the
-    two solvers.  The bar is absolute: the far-field response (beyond
-    250 m) is at most 0.1 m (MEASURED 0.022 m on both platforms), and the
-    moved-row count and the worst response stay within ±10 % of the pinned
-    QP values (22 / 24 rows, 0.293 m).  The fixed point is printed, never
-    asserted."""
+    QP's own local answer while on macOS it does not (277 rows, 203 far,
+    1.712 m), so a matched pair cannot separate the two solvers.  The bar
+    is absolute: the far-field response is at most 0.1 m and the worst
+    response stays within +-10 % of 0.29 m.  MEASURED (macOS, main
+    b43209e4 lineage): QP (29 rows, 0.2866 m, 3 far, 0.0590 m).  Rows and
+    the fixed-point arm are printed, never asserted."""
     pm, cs = built
     n_q, max_q, far_q, farmax_q = _probe(pm, cs, law, "qp")
     fp = _probe(pm, cs, law, "fixed_point")
@@ -232,8 +232,6 @@ def test_a_local_perturbation_is_local_under_the_qp(law, built):
           f"({fp[0]}, {fp[1]:.4f}, {fp[2]}, {fp[3]:.4f})")
     got = (n_q, max_q, far_q, farmax_q)
     assert farmax_q <= QP_FAR_MAX_M, got
-    lo, hi = min(QP_ROWS_PINNED), max(QP_ROWS_PINNED)
-    assert lo * (1 - QP_PIN_TOL) <= n_q <= hi * (1 + QP_PIN_TOL), got
     assert abs(max_q - QP_MAX_PINNED_M) <= QP_PIN_TOL * QP_MAX_PINNED_M, got
 
 

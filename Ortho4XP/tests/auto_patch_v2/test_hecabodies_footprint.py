@@ -241,3 +241,65 @@ def test_a_pad_inside_another_pads_hole_joins_the_pad_around_it():
     assert len(got) == 2
     big = max(got, key=lambda g: g.area)
     assert abs(big.area - 10000.0) < 1e-6 and not big.interiors
+
+
+def test_a_pad_in_a_u_whose_mouth_the_weld_closes_is_one_outline():
+    """#6 residual (lane ``nestedpads``) at the owner's site: the slab pad
+    is a U at classify time and the arrangement's weld closes its sub-metre
+    mouth into a HOLE, with a lobe of the cluster pad standing in it.  The
+    enclosure is read on the WELD-CLOSED shell, so the U and the pad
+    reaching into it come out as ONE outline with no hole holding a pad —
+    whichever of the two is larger."""
+    from shapely.geometry import Polygon as _P
+
+    from auto_patch_v2.classify.evidence import _absorb_enclosed
+    # a U around (40..60, 20..80), its mouth at the top 0.4 m wide
+    u = _P([(0, 0), (100, 0), (100, 100), (50.2, 100), (50.2, 80),
+            (60, 80), (60, 20), (40, 20), (40, 80), (49.8, 80),
+            (49.8, 100), (0, 100)])
+    # the cluster pad: a lobe filling the U's interior, reaching out
+    # through the mouth into a large body north of the U
+    cluster = _P([(40, 20), (60, 20), (60, 80), (50.2, 80), (50.2, 100),
+                  (200, 100), (200, 300), (-100, 300),
+                  (-100, 100), (49.8, 100), (49.8, 80), (40, 80)])
+    apart = _P([(500, 0), (520, 0), (520, 20), (500, 20)])
+    assert u.is_valid and cluster.is_valid
+    # without the weld spacing the two touch but neither is in a hole
+    assert len(_absorb_enclosed([u, cluster, apart])) == 3
+    got = _absorb_enclosed([u, cluster, apart], weld_m=1.0)
+    assert len(got) == 2
+    one = max(got, key=lambda g: g.area)
+    assert one.geom_type == "Polygon" and not list(one.interiors)
+    assert one.covers(u) and one.covers(cluster)
+    # nothing else grew: the outline is the two pads plus the mouth
+    assert one.area - (u.area + cluster.area) < 2.0
+
+
+def test_the_weld_closed_test_never_joins_pads_beyond_the_spacing():
+    """Two pads whose gap is wider than the weld spacing stay two pads
+    even when one is a U around the other's lobe (an open courtyard is
+    not a hole)."""
+    from shapely.geometry import Polygon as _P
+
+    from auto_patch_v2.classify.evidence import _absorb_enclosed
+    u = _P([(0, 0), (100, 0), (100, 100), (55, 100), (55, 80), (60, 80),
+            (60, 20), (40, 20), (40, 80), (45, 80), (45, 100), (0, 100)])
+    lobe = _P([(41, 21), (59, 21), (59, 79), (41, 79)])
+    assert len(_absorb_enclosed([u, lobe], weld_m=1.0)) == 2
+
+
+def test_a_pad_standing_apart_in_a_courtyard_takes_the_courtyard():
+    """#6: a pad standing in another pad's hole WITHOUT touching it (the
+    HECA ``building93`` in ``building82``'s courtyard, 1,585 m2) is merged
+    with the pad around it and the courtyard ground between them — one
+    outline, no hole holding a pad."""
+    from shapely.geometry import Polygon as _P
+
+    from auto_patch_v2.classify.evidence import _absorb_enclosed
+    ring = _P([(0, 0), (100, 0), (100, 100), (0, 100)],
+              [[(30, 30), (70, 30), (70, 70), (30, 70)]])
+    inner = _P([(40, 40), (60, 40), (60, 60), (40, 60)])
+    got = _absorb_enclosed([ring, inner], weld_m=1.0)
+    assert len(got) == 1
+    assert got[0].geom_type == "Polygon" and not list(got[0].interiors)
+    assert abs(got[0].area - 10000.0) < 1e-6

@@ -156,3 +156,80 @@ def test_the_fence_reads_a_MAPPED_tunnel_only(law):
     assert _osm_tunnel(mk(SPJC_TAGS), tn.admitted_values)
     assert not _osm_tunnel(mk(dict(SPJC_TAGS, tunnel="building_passage")), tn.admitted_values)
     assert not _osm_tunnel(mk(dict(SPJC_TAGS, **{UNDERPASS_TAG: "-1"})), tn.admitted_values)
+
+
+# ── #12 Q-12b: a bore entering a PACK building unit is refused ──────────
+
+def _ll_ring(x0, y0, x1, y1):
+    to_ll = Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11).transformers()[1]
+    return tuple(to_ll(x, y) for x, y in _rect(x0, y0, x1, y1))
+
+
+def _part(base_y, height_m, ring, **kw):
+    la = [c[0] for c in ring]
+    lo = [c[1] for c in ring]
+    return types.SimpleNamespace(base_y=base_y, height_m=height_m, rings=(ring,),
+                                 box=(min(la), min(lo), max(la), max(lo)),
+                                 line=kw.get("line", False), scatter=False)
+
+
+def _partition(*members):
+    """``members``: ``(id, resource, deck_kind, parts)``."""
+    ms = [types.SimpleNamespace(id=i, resource=r, deck_kind=d, deck_ring=None,
+                                scatter=False, parts=tuple(p)) for i, r, d, p in members]
+    return types.SimpleNamespace(units=(types.SimpleNamespace(id="unit:24", members=ms),))
+
+
+EAST_END = _ll_ring(325, -115, 360, -85)      # holds the bore's east mouth (335, -100)
+
+
+def test_a_bore_into_a_multi_storey_PACK_CAR_PARK_is_REFUSED_even_inside_the_fence(law):
+    """OTHH ``tunnel:-10442`` (Q-12b, ratified 27a (3)): both mouths stand
+    in ``OTHH_Terminal_Parking_000`` — 0.67 m floor slabs at 0.52 / 3.45 m,
+    every one a LEAF by §16g's walled test, the car park 4.1 m over its
+    zero.  (a) runs before the fence: the building's ramp is not a
+    terrain tunnel inside the fence either."""
+    park = _partition(("dsf:obj1", "Buildings/Terminal/OTHH_Terminal_Parking_000.obj",
+                       "candidate", (_part(0.52, 0.67, EAST_END),
+                                     _part(3.45, 0.67, EAST_END))))
+    _cl, tunnels, st = _spjc(law, partition=park)
+    assert st.tunnels == 0 and not tunnels
+    named = _refusals(st)
+    assert len(named) == 1, st.mouths_off_field_nearest
+    assert "-5724 ENTERS A PACK BUILDING" in named[0]
+    assert "OTHH_Terminal_Parking_000.obj (unit:24) stands 4.1 m" in named[0]
+
+
+def test_SUNK_trench_geometry_DECKS_and_TUNNEL_OBJECTS_are_not_buildings(law):
+    """What a real tunnel ends in stays built: HECA's ``concrete_3`` (base
+    -1.84, 2.66 m: 0.82 m over its zero) and GEML's portal geometry (base
+    -26); a DECK member (HECA ``T3_road``, ``deck_kind`` flag) however
+    tall; a pack tunnel object read as a corridor (by placement id)."""
+    sunk = _partition(("dsf:obj2", "concrete_3.obj", "", (_part(-1.84, 2.66, EAST_END),)),
+                      ("dsf:obj3", "GEML_Misc2.obj", "candidate",
+                       (_part(-26.2, 12.8, EAST_END),)))
+    _cl, _t, st = _spjc(law, partition=sunk)
+    assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
+    deck = _partition(("dsf:obj4", "T3_road.obj", "flag", (_part(0.0, 9.0, EAST_END),)))
+    _cl, _t, st = _spjc(law, partition=deck)
+    assert st.tunnels == 2 and not _refusals(st)
+    from auto_patch_v2.planar.structure_service import _PackBuildings
+    tun = _partition(("dsf:obj14034", "Objects/tunnels/tunnel middle - east.obj",
+                      "candidate", (_part(-15.0, 20.0, EAST_END),)))
+    ap = types.SimpleNamespace(partition=tun,
+                               frame=Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11))
+    assert _PackBuildings(ap, law).at((335.0, -100.0)) is not None
+    assert _PackBuildings(ap, law, (), {"dsf:obj14034"}).at((335.0, -100.0)) is None
+
+
+def test_the_pack_building_reads_its_RING_not_its_plan_box(law):
+    """``Part.box`` is the solid's plan box and a footprint ring can stand
+    past it (OTHH ``tunnel south west 2``: its ring runs 16 m beyond the
+    box, where -5214 ends).  The index is the ring's own bounds."""
+    from auto_patch_v2.planar.structure_service import _PackBuildings
+    p = _part(0.5, 6.0, EAST_END)
+    p.box = (p.box[0], p.box[1], p.box[0] + 1e-6, p.box[1] + 1e-6)     # a tiny box
+    ap = types.SimpleNamespace(partition=_partition(("dsf:obj5", "Garage.obj", "", (p,))),
+                               frame=Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11))
+    hit = _PackBuildings(ap, law).at((335.0, -100.0))
+    assert hit is not None and hit[0] == "Garage.obj" and hit[2] == pytest.approx(6.5)

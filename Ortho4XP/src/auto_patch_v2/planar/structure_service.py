@@ -52,7 +52,9 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
 
     (a) A bore whose MAPPED END stands inside a BUILDING footprint, an
     underground parking or a ``covered=yes`` structure is that building's
-    own ramp — the object or the sim carries it — and is NOT built.
+    own ramp — the object or the sim carries it — and is NOT built; a PACK
+    building's footprint counts like an OSM one (owner RULINGS 2026-09-27a
+    (3), :class:`_PackBuildings`).
     (b) A mapped bridge / overpass / ramp over ordinary ground is the
     SIM'S ELEVATED ROAD: it is not a crossing at grade, so it is no
     witness at all here (and §34 (12) (4) already withholds its deck).
@@ -105,6 +107,12 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         if poly.is_valid and not poly.is_empty:
             encl.append((poly, why, w.id))
     encl_tree = STRtree([p for p, _w, _i in encl]) if encl else None
+    # (a) EXTENDED TO THE PACK (owner RULINGS 2026-09-27a (3), issue #12
+    # Q-12b): a bore entering a PACK building unit is refused like one
+    # entering an OSM building
+    pack_bldg = _PackBuildings(airport, law,
+                               getattr(on_field, "corridor_prints", ()) or (),
+                               getattr(on_field, "corridor_objects", ()) or ())
 
     # (b)/(c) the roads and railways AT GRADE.  A `bridge` way, or one at
     # `layer >= 1`, is the sim's elevated road and is not a crossing.
@@ -142,6 +150,15 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"{end[0]:.0f},{end[1]:.0f} — way {wid} {why}: it is "
                                f"that structure's own ramp, not a terrain tunnel "
                                f"(§34 (12) (5) (a))")
+            hit = pack_bldg.at(end)
+            if hit is not None:
+                res, uid, top = hit
+                return False, (f"bore {ids} ENTERS A PACK BUILDING at "
+                               f"{end[0]:.0f},{end[1]:.0f} — {res} ({uid}) stands "
+                               f"{top:.1f} m over its zero there: it is that "
+                               f"building's own ramp, not a terrain tunnel "
+                               f"(§34 (12) (5) (a) extended, owner RULINGS "
+                               f"2026-09-27a (3))")
         cover = on_field.cover_run_m(ln) if on_field is not None else 0.0
         if cover >= tn.terrain_cover_min_m:
             return True, f"under the classified cover for {cover:.1f} m"
@@ -166,6 +183,109 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                        f"elevated roads carry it (§34 (12) (5) (c))")
 
     return witness
+
+
+class _PackBuildings:
+    """§34 (12) (5) (a) EXTENDED TO THE PACK (owner RULINGS 2026-09-27a
+    (3), ratifying Q-12b; lane ``tunnelwitness2``): the pack's BUILDING
+    footprints a bore's mapped end may stand inside.
+
+    THE UNIT OUTLINE FROM THE PLAN: the footprint rings of the load
+    partition's parts (``Part.rings`` — the same outlines §16g's clusters
+    and pads are made of), kept where the part is a BUILDING there:
+
+    * its solid rises ``[placement] chain_min_height_m`` or more above the
+      object's zero (``base_y + height_m``) — §16g (10) (4)'s own number
+      for a WALLED body, read here as how far the building stands over the
+      ground at the end.  A per-body "walled" test cannot be used: OTHH's
+      multi-storey car park ``OTHH_Terminal_Parking_000`` is stacked 0.67 m
+      floor slabs (base 0.52 / 3.45 m), every one a LEAF by that test, and
+      it is the building Q-12b names.  MEASURED over the OTHH / SPJC / HECA /
+      GEML captures: the ends it holds read 4.1 m (the car park) and 6.2 m
+      (``OTHH_Emiri_Terminal_17``); the sunk trench / portal geometry the
+      real tunnels end in reads 0.8 m (HECA ``concrete_3``, base -1.84) and
+      -11 .. -13 m (GEML ``GEML_Misc2``, base -19 / -26);
+    * its member is not a DECK by the object stage's own verdict
+      (``placement_family.member_is_deck`` — HECA's ``T3_road``): a bore
+      under a deck passes under it, it does not enter it;
+    * the member is not a pack TUNNEL OBJECT read as a corridor
+      (``corridor_objects``, the placement ids of the roofed corridors
+      ``build_structures`` hands the field region) and the end does not
+      stand in one's footprint (``corridor_prints``): that mouth is the
+      object's by §33's precedence (RULINGS 2026-09-05n-3), and its 20 m
+      bounding solid (OTHH ``tunnel middle - east``, base -15 m) is the
+      tunnel, not a building.
+
+    Line and scatter parts never count.  A caller with no partition (the
+    fixtures, ``explain``) refuses nothing here."""
+
+    def __init__(self, airport, law: Law, corridor_prints=(),
+                 corridor_objects=()) -> None:
+        from shapely.geometry import box
+        from shapely.strtree import STRtree
+        from ..airport.placement_family import member_is_deck
+        self._items: list = []
+        part = getattr(airport, "partition", None)
+        self._tree = None
+        self._corr = None
+        if part is None or not getattr(part, "units", ()):
+            return
+        thr = float(law.tables.structures.placement.chain_min_height_m)
+        skip = set(corridor_objects)
+        boxes = []
+        for u in part.units:
+            for m in u.members:
+                if getattr(m, "scatter", False) or member_is_deck(m) \
+                        or m.id in skip:
+                    continue
+                for q in m.parts:
+                    if q.line or getattr(q, "scatter", False) or not q.rings:
+                        continue
+                    top = float(q.base_y) + float(getattr(q, "height_m", 0.0))
+                    if top < thr:
+                        continue
+                    # indexed by each RING's own bounds: ``Part.box`` is the
+                    # plan box of the solid and a ring can stand past it
+                    # (OTHH ``tunnel south west 2``: 16 m beyond, where -5214
+                    # ends)
+                    for r in q.rings:
+                        if len(r) < 3:
+                            continue
+                        la = [c[0] for c in r]
+                        lo = [c[1] for c in r]
+                        boxes.append(box(min(la), min(lo), max(la), max(lo)))
+                        self._items.append((r, m.resource, u.id, top))
+        if not boxes:
+            return
+        self._tree = STRtree(boxes)
+        self._to_xy, self._to_ll = airport.frame.transformers()
+        prints = [p for p in corridor_prints if p is not None and not p.is_empty]
+        self._corr = STRtree(prints) if prints else None
+
+    def at(self, xy):
+        """``(resource, unit id, top)`` of the tallest pack building whose
+        footprint holds the frame point ``xy``, or ``None``."""
+        from shapely.geometry import Point, Polygon
+        if self._tree is None:
+            return None
+        pt = Point(xy)
+        if self._corr is not None and len(self._corr.query(pt, predicate="intersects")):
+            return None
+        lat, lon = self._to_ll(*xy)
+        best = None
+        for j in self._tree.query(Point(lat, lon)):
+            r, res, uid, top = self._items[int(j)]
+            if best is not None and top <= best[2]:
+                continue
+            try:
+                poly = Polygon([self._to_xy(lo, la) for la, lo in r])
+            except (ValueError, TypeError):
+                continue
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly.contains(pt):
+                best = (res, uid, top)
+        return best
 
 
 def _fence_of(airport):

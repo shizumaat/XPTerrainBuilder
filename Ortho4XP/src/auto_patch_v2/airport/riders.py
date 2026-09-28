@@ -12,11 +12,14 @@ never rides, whatever it is called.
 Two halves, one module:
 
 * the DESIGN side (:func:`rider_candidates`) — per candidate placement
-  its ``rider_reach = max(footprint_touch_m, declared plan half-extent)``
-  capped at ``[placement] rider_reach_max_m``, the half-extent being the
-  ``.agp`` ``TILE`` (a number in the file, read once per resource) or the
-  OBJ8 plan box.  ``constraints/jetway_strip`` reads it (it may not read
-  files itself) to find the rider edges.
+  its ``rider_reach``.  An ``.agp`` (a format class with gate logic, not
+  a name — 18t holds) reaches ``[placement] rider_reach_max_m`` (12 m), a
+  floor as well as a cap, and hosts a pad it stands INSIDE at gap 0
+  (spec-author rulings on #31, 2026-09-28, (a)/(b), ``.agp`` ONLY).
+  Every other rider keeps ``max(footprint_touch_m, declared plan
+  half-extent)`` capped at the same 12 m (the OBJ8 plan box).
+  ``constraints/jetway_strip`` reads it (it may not read files itself) to
+  find the rider edges.
 * the WRITE side (:func:`riders_for_dump`) — the §4 ``Rider`` seat
   records against the design surface the build emitted: ON GROUND where
   the terrain at the anchor already equals the host unit's datum within
@@ -121,10 +124,18 @@ def _no_geometry_paths(airport: _t.Any) -> tuple[frozenset[str], frozenset[str]]
 def rider_candidates(airport: _t.Any, law: Law) -> dict[str, tuple[float, str]]:
     """``DsfObject.id -> (rider_reach_m, kind)`` for every placement the
     plan holds no geometry for (spec §1 (1)): ``kind`` is ``agp`` /
-    ``lib`` / ``skipped``.  The reach is ``max(footprint_touch_m, the
-    declared half-extent)`` capped at ``rider_reach_max_m``; a resource
-    whose extent cannot be read keeps ``footprint_touch_m`` — the 0.5 m
-    anchor rule of F.5 (1), never a guess."""
+    ``lib`` / ``skipped``.
+
+    THE REACH (spec-author rulings on #31, 2026-09-28; owner RULINGS
+    2026-09-28a (3)): an ``.agp`` reaches ``rider_reach_max_m`` — a floor
+    as well as a cap, whatever its ``TILE`` says (the 5 m TILE left HECA's
+    No_glass at 7.92 m and three LEMD ``LEMD_Jetway_alt`` at 6.8-8.5 m
+    unhosted) — and ``constraints/jetway_strip.rider_hosts`` seats an
+    ``.agp`` standing INSIDE a pad at gap 0.  ``.agp`` ONLY: every other
+    rider keeps ``max(footprint_touch_m, declared plan half-extent)``
+    capped at ``rider_reach_max_m``; one whose extent cannot be read keeps
+    ``footprint_touch_m`` — the 0.5 m anchor rule of F.5 (1), never a
+    guess.  ONE site: this is where every rider's reach is born."""
     pl = law.tables.structures.placement
     touch = float(pl.footprint_touch_m)
     cap = float(pl.rider_reach_max_m)
@@ -141,11 +152,13 @@ def rider_candidates(airport: _t.Any, law: Law) -> dict[str, tuple[float, str]]:
             kind = "skipped"
         else:
             continue
+        if kind == "agp":
+            out[o.id] = (max(touch, cap), kind)
+            continue
         ext = None
         rp = getattr(o, "resolved_path", None)
         if rp and os.path.isfile(rp):
-            ext = (agp_half_extent_m(rp) if rp.lower().endswith(".agp")
-                   else obj_half_extent_m(rp))
+            ext = obj_half_extent_m(rp)
         reach = min(cap, max(touch, float(ext) if ext is not None
                              and math.isfinite(ext) else touch))
         out[o.id] = (reach, kind)

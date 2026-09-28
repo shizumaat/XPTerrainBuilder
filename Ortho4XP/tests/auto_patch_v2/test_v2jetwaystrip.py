@@ -146,15 +146,59 @@ def _verts(pm, ref):
     return out
 
 
-def test_the_agp_tile_is_the_rider_reach(law, agp):
-    """§1 (1): reach = max(footprint_touch_m, the .agp TILE half-extent)
-    capped at rider_reach_max_m — HECA's jetway reads 5.0 m."""
+def test_the_agp_reach_is_12_m_and_the_rest_keep_their_touch(law, agp):
+    """#31 rule (b) (spec-author rulings 2026-09-28, ``.agp`` ONLY): an
+    ``.agp`` reaches rider_reach_max_m (12 m) whatever its 5 m TILE (still
+    read: 5.0 m); a non-``.agp`` keeps max(footprint_touch_m, its plan box)
+    — an unreadable extent keeps the 0.5 m anchor rule, never a guess."""
     from auto_patch_v2.airport.riders import agp_half_extent_m, rider_candidates
     assert agp_half_extent_m(agp) == pytest.approx(5.0)
+    cap = float(law.tables.structures.placement.rider_reach_max_m)
+    assert cap == pytest.approx(12.0)
     got = rider_candidates(_airport(law, agp), law)
-    assert got["dsf:obj0"] == (pytest.approx(5.0), "agp")
-    # an unreadable extent keeps the 0.5 m anchor rule, never a guess
+    assert got["dsf:obj0"] == (pytest.approx(cap), "agp")
     assert got["dsf:obj3"] == (pytest.approx(0.5), "lib")
+
+
+def _extra_riders(law, agp, extra):
+    """The fixture with ``extra`` ``(id, xy, path)`` placements added (an
+    ``.agp`` path resolves to the same 5 m TILE jetway, a ``lib/`` one to
+    nothing)."""
+    airport, pm, cs = _prep(law, agp)
+    objs = tuple(airport.dsf_objects) + tuple(
+        DsfObject(oid, path, xy, 180.0, None, False, None, 0.0,
+                  agp if path.endswith(".agp") else None)
+        for oid, xy, path in extra)
+    airport = _dc.replace(airport, dsf_objects=objs)
+    return {r.obj_id: r for r in _strips(law, airport, pm, cs).riders}
+
+
+def test_an_agp_inside_the_pad_hosts_it_at_gap_0(law, agp):
+    """#31 rule (a): an ``.agp`` standing INSIDE a pad's outline (20 m in
+    — LEMD's LEBL_jetway class, 22-97 m inside the T4 sheet pad) stands on
+    the terminal and hosts it at gap 0; a ``lib/`` object at the same
+    spot does not (``.agp`` ONLY — a format class, not a name)."""
+    riders = _extra_riders(law, agp, [
+        ("dsf:in", (0.0, 280.0), "Airport/Jetway.agp"),
+        ("dsf:in_lib", (10.0, 280.0), "lib/airport/marshaller.obj")])
+    assert riders["dsf:in"].host_ref == "terminal"
+    assert riders["dsf:in"].gap_m == pytest.approx(0.0)
+    assert "dsf:in_lib" not in riders
+
+
+def test_8_m_off_an_agp_hosts_and_a_lib_object_and_13_m_do_not(law, agp):
+    """#31 rule (b): an ``.agp`` 8 m off the wall with a 5 m TILE hosts
+    (reach 12 m — HECA No_glass 7.92 m, LEMD_Jetway_alt 6.8-8.5 m); a
+    non-``.agp`` 8 m off keeps its touch reach and does not; an ``.agp``
+    13 m off does not."""
+    riders = _extra_riders(law, agp, [
+        ("dsf:8m", (-50.0, 252.0), "Airport/Jetway.agp"),
+        ("dsf:8m_lib", (-20.0, 252.0), "lib/airport/marshaller.obj"),
+        ("dsf:13m", (50.0, 247.0), "Airport/Jetway.agp")])
+    assert riders["dsf:8m"].host_ref == "terminal"
+    assert riders["dsf:8m"].gap_m == pytest.approx(8.0, abs=1e-6)
+    assert "dsf:8m_lib" not in riders
+    assert "dsf:13m" not in riders
 
 
 def test_a_rotunda_off_the_wall_rides_and_the_far_ones_do_not(law, agp):

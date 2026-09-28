@@ -842,6 +842,10 @@ footprint_touch_m   = 0.5
 # rotundas stand 1-2 m off the wall inside their +/-5 m TILE.
 # 12 m: owner RULINGS 2026-09-28a (3) (Q-31b) — HECA's EGCC_Jetway_metal_03
 # stands 10.31 m inside building10's outline (OBJ8 half-extent 13.4).
+# Spec-author rulings on #31 (2026-09-28), `.agp` ONLY (a format class,
+# not a name): an `.agp` reaches this — a floor as well as a cap, whatever
+# its TILE says — and hosts a pad it stands INSIDE at gap 0.  Every other
+# rider keeps max(footprint_touch_m, its plan box) capped here.
 rider_reach_max_m   = 12.0
 
 # §16g (10) (1) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x): a

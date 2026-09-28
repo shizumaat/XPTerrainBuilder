@@ -135,8 +135,9 @@ def rider_hosts(planar: PlanarMap, law: Law, airport: Airport | None,
                 candidates: _t.Mapping[str, tuple[float, str]]
                 ) -> tuple[list[RiderAnchor], dict[int, str]]:
     """§1 (1): ``(riders, face -> cluster id)``.  Every candidate standing
-    within its own reach of a CLUSTER pad face's outline rides the
-    nearest (ties: larger area, lower face id).  A candidate within no
+    within its own reach of a CLUSTER pad face's outline — or, an
+    ``.agp``, INSIDE it at gap 0 (#31 rule (a)) — rides the nearest (ties: larger area,
+    lower face id).  A candidate within no
     reach rides nothing — the marshaller 40 m out never rides."""
     from .cluster_pad import cluster_pad_faces
     from .pads import _pad_polys
@@ -149,7 +150,7 @@ def rider_hosts(planar: PlanarMap, law: Law, airport: Airport | None,
     tree = STRtree([p for _f, _r, p in polys])
     riders: list[RiderAnchor] = []
     objs = {o.id: o for o in (getattr(airport, "dsf_objects", ()) or ())}
-    for oid, (reach, _kind) in candidates.items():
+    for oid, (reach, kind) in candidates.items():
         o = objs.get(oid)
         if o is None:
             continue
@@ -157,7 +158,13 @@ def rider_hosts(planar: PlanarMap, law: Law, airport: Airport | None,
         best = None
         for i in tree.query(pt.buffer(reach)):
             fid, ref, poly = polys[int(i)]
-            d = float(poly.exterior.distance(pt))
+            # rule (a) (spec-author rulings on #31, 2026-09-28): an ``.agp``
+            # rider (a format class, not a name — 18t) standing INSIDE a
+            # pad's outline stands on the terminal — it hosts that pad at
+            # gap 0 (LEMD: ten LEBL_jetway.agp 22-97 m inside the T4 sheet
+            # pad).  Every other rider is measured to the outline.
+            d = (0.0 if kind == "agp" and poly.covers(pt)
+                 else float(poly.exterior.distance(pt)))
             if d > reach:
                 continue
             k = (round(d, 6), -poly.area, fid)

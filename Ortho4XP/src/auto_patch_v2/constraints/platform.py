@@ -30,6 +30,7 @@ an infeasible hard set."""
 from __future__ import annotations
 
 import math
+import typing as _t
 
 from ..law import Law
 from ..model.airport import Airport
@@ -37,7 +38,7 @@ from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import PlanarMap, is_collar_ref, platform_ref_of
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "COLLAR_RULING",
-           "PLANE_RULING", "GEN", "collar_faces"]
+           "PLANE_RULING", "GEN", "collar_faces", "platform_records"]
 
 GEN = "platform_collar"
 #: The ruling HEAD (``solve.design.ruling_head``) — named by ``[design]
@@ -93,6 +94,9 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     rows: list[Row] = []
     n_air = n_own = 0
+    # the COVERAGE EDGE: a vertex of an edge with no face on one side
+    edge_v = {v for e in planar.edges.values()
+              if e.left_face is None or e.right_face is None for v in (e.a, e.b)}
     for pref, cfids, pfids in pairs:
         inner = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]]
                         for v in r})
@@ -125,6 +129,31 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
                 n_own += 1
                 rows.append(Diff(o, i, 0.0, d, src, follows=(o,)))
 
+        # WHAT AN OUTER VERTEX IS NOT THE COLLAR'S TO GRADE (measured on the
+        # HECA replay, lane ``unitplatform2``: 3,528 cap-0 rows missed by up
+        # to 16.2 m):
+        # * a vertex on the COVERAGE EDGE — a courtyard HOLE of the pad no
+        #   region claims, where the DEM governs (a fixed vertex: its
+        #   "follower" row turns two-way and drags the PLATFORM to the
+        #   courtyard's DEM, which is how the plate bent);
+        # * a vertex shared with ANOTHER pad — two pads may sit at different
+        #   floors (``step_exemption_pad_to_pad``); T2's ``building281``
+        #   abuts ``building68`` 16.4 m higher, and a cap-0 row there is a
+        #   contest the plane loses.
+        base = pref.split("#")[0]
+        own_f = set(cfids) | set(pfids)
+        keep: list[int] = []
+        for o in outer:
+            if o in edge_v:
+                continue                   # the coverage edge: the DEM's
+            inc = [q for q in planar.vertices[o].incident_faces if q not in own_f]
+            if any(planar.faces[q].role == planar.faces[cfids[0]].role
+                   and planar.faces[q].ref.split("#")[0] != base for q in inc):
+                continue
+            keep.append(o)
+        outer = keep
+        if not outer:
+            continue
         k = min(_K, len(inner))
         for o in outer:
             _d, js = tree.query(xy[o], k=k)
@@ -227,3 +256,88 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
             rows.append(Linear(tuple((q, -k) for q, k in terms), None, 0.0, src))
     STATS["platform_plane_rows"] = {"planes": n_planes, "rows": len(rows)}
     return rows
+
+
+def platform_records(planar: PlanarMap, law: Law,
+                     z: "_t.Sequence[float] | None") -> list[dict]:
+    """The sidecar's ``platforms`` key (unit-platform spec §3 P21, §4 (5)):
+    per MINTED platform its ref, collar width C, the SOLVED plane (level at
+    the platform's centroid, gradient, tilt, residual — the plane every
+    piece lies on) and THE RELIEF THE COLLAR CARRIES — every welded
+    (airside) outer collar vertex against that plane: p50, max, where, and
+    the collar width the §31 (7) bank would need (``max / bank_slope``,
+    clamped to ``bank_min_width_m``; over ``platform_collar_max_m`` the
+    spec would refuse the platform).  Read off the solved surface; the
+    census's ``platform_rim_relief`` prices exactly this.  ``[]`` without
+    a platform or a surface."""
+    import numpy as np
+
+    from .pads import airside_vertices
+    from .precedence import view
+    pairs = collar_faces(planar, law)
+    if not pairs or z is None:
+        return []
+    vw = view(planar, law)
+    air = airside_vertices(planar, law)
+    bs = float(law.tables.emit.design.bank_slope)
+    cmin = float(law.tables.emit.design.bank_min_width_m)
+    cmax = float(law.tables.structures.building_pad.platform_collar_max_m)
+    out: list[dict] = []
+    for pref, cfids, pfids in pairs:
+        inner = sorted({v for q in pfids for r in [vw.rings[q], *vw.holes[q]] for v in r})
+        cvs = {v for q in cfids for r in [vw.rings[q], *vw.holes[q]] for v in r}
+        if len(inner) < 3:
+            continue
+        X = np.array([planar.vertices[v].xy for v in inner], dtype=float)
+        Z = np.array([float(z[v]) for v in inner])
+        c0 = X.mean(axis=0)
+        A = np.c_[X - c0, np.ones(len(X))]
+        co, *_ = np.linalg.lstsq(A, Z, rcond=None)
+        res = np.abs(A @ co - Z)
+        weld = sorted(v for v in cvs - set(inner) if v in air)
+        rec: dict = {"ref": pref, "collar_m": collar_width(planar, cfids, pfids),
+                     "level": round(float(co[2]), 3),
+                     "grad": [round(float(co[0]), 6), round(float(co[1]), 6)],
+                     "tilt_pct": round(100.0 * math.hypot(co[0], co[1]), 3),
+                     "plane_residual_max_m": round(float(res.max()), 3),
+                     "platform_vertices": len(inner), "welded": len(weld),
+                     "centroid_ll": _ll_of(planar, inner, c0)}
+        if weld:
+            W = np.array([planar.vertices[v].xy for v in weld], dtype=float)
+            rel = np.array([float(z[v]) for v in weld]) - (np.c_[W - c0, np.ones(len(W))] @ co)
+            k = int(np.argmax(np.abs(rel)))
+            mx = float(abs(rel[k]))
+            rec.update({"rim_relief_p50_m": round(float(np.median(np.abs(rel))), 3),
+                        "rim_relief_max_m": round(mx, 3),
+                        "worst_ll": list(planar.vertices[weld[k]].key),
+                        "worst_z": round(float(z[weld[k]]), 3),
+                        "collar_needed_m": round(max(cmin, mx / bs), 2),
+                        "over_collar_max": bool(mx / bs > cmax)})
+        out.append(rec)
+    return out
+
+
+def collar_width(planar: PlanarMap, cfids, pfids) -> float:
+    """C as built: the least distance from a platform vertex to the pad's
+    OUTER ring (the collar's own outer ring) — what the mint's erosion
+    left, read back off the map."""
+    from shapely.geometry import LineString, Point
+    outer = []
+    for q in cfids:
+        f = planar.faces[q]
+        ring = planar.ring_vertices(f.ring)
+        if len(ring) >= 2:
+            outer.append(LineString([planar.vertices[v].xy for v in (*ring, ring[0])]))
+    inner = {v for q in pfids for v in planar.ring_vertices(planar.faces[q].ring)}
+    if not outer or not inner:
+        return 0.0
+    return round(min(min(g.distance(Point(planar.vertices[v].xy)) for g in outer)
+                     for v in inner), 2)
+
+
+def _ll_of(planar: PlanarMap, vs, xy) -> list:
+    """The canonical lat/lon of the vertex of ``vs`` nearest ``xy`` (the
+    frame's own identity — no projection here)."""
+    v = min(vs, key=lambda q: (planar.vertices[q].xy[0] - xy[0]) ** 2
+            + (planar.vertices[q].xy[1] - xy[1]) ** 2)
+    return list(planar.vertices[v].key)

@@ -309,8 +309,14 @@ def test_a_pad_welded_to_two_pavements_takes_the_airsides_own_drop(law):
         tilts[staged] = _pad_plane(pm, np.asarray(sol.z, float))[2]
     assert tilts[False] <= 0.012, tilts          # the 1 % ceiling holds
     # RE-FOUNDED with the skirt's withdrawal: 0.0300 (the airside's drop)
-    # -> 0.0100 (the pad's own ceiling).  Both arms now hold 1 %.
-    assert tilts[True] <= 0.012, tilts
+    # -> 0.0100 (the pad's own ceiling) — which was the pad's ceiling
+    # standing IN STAGE 1 over two apron/taxi vertices and bending the
+    # airside to 1 %, i.e. the pad pulling airside (issue #67).  RE-FOUNDED
+    # AGAIN (lane ``clustertrim``): the ceiling is a CONFORMING hard law
+    # (``[design] conforming_hard_rulings``), stage 1 never assembles it,
+    # and the pad's plane is the airside's own drop, 3 %, as this
+    # docstring's "it cannot pull the airside" always said it should be.
+    assert abs(tilts[True] - 0.030) <= 2e-3, tilts
 
 
 # ── §20b (3) stage 1's SHEET is stage 1's own roles ──────────────────────

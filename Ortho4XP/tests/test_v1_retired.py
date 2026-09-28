@@ -85,6 +85,13 @@ KEEP = frozenset({
     "auto_patch.geom_safe",
     "auto_patch.progress",
     "auto_patch.provenance",
+    # THE PATCH-SET SELECTOR (insets-follow-patch-set spec §A.3 / §C.3,
+    # RULINGS 2026-09-18b): ``select_patch_airports`` and the boundary
+    # policy are the head of every tile build (``O4_Vector_Map``,
+    # ``driver``, ``o4_engine.session``) — production, not the v1 solve.
+    # Its mode predicates moved core-side (``O4_Airport_Modes``, #59) and
+    # the core readers import them from there; what stays is the selector.
+    "auto_patch.selection",
 })
 
 

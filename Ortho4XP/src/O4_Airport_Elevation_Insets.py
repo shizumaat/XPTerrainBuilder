@@ -120,7 +120,7 @@ import math
 import datetime
 import threading
 
-from auto_patch.selection import (               # pure; stdlib-only module
+from O4_Airport_Modes import (                    # core; stdlib-only module (#59, #70)
     MODE_RANK,
     MODES,
     inset_keys,

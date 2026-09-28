@@ -2601,7 +2601,7 @@ def solve_color_field(tile):
         path = color_field_path(tile)
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         temporary = path + ".tmp"
-        with open(temporary, "w") as handle:
+        with open(temporary, "w", newline="\n") as handle:
             json.dump(
                 _color_field_record(tile, fields, seam_table, statistics),
                 handle,

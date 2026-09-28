@@ -322,7 +322,8 @@ def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
 
 
 def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
-               out: _t.Callable[[str], None] = print) -> dict:
+               out: _t.Callable[[str], None] = print, *,
+               write_cache: bool = True) -> dict:
     """THE PACK STAGE — read the pack, partition it (or revive the cached
     partition), derive the groups and the clusters — exactly as ``build``
     runs it; ``build`` and ``tools/pack_stage_profile.py`` call THIS (one
@@ -331,7 +332,9 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     "clusters", "cache", "wall"}`` — ``airport`` carries the partition,
     the groups and the clusters; ``cache`` is ``HIT`` / ``MISS`` / ``OFF``;
     ``wall`` the stage seconds by part (``read``, ``partition``,
-    ``groups``, ``clusters``, ``total``)."""
+    ``groups``, ``clusters``, ``total``).  ``write_cache=False`` reads a
+    cached partition but never writes one (the dry ``planar --stage
+    structures`` replay, issue #75: a replay writes nothing shared)."""
     wall: dict[str, float] = {}
     _sub: dict[str, float] = {}
     t = time.perf_counter()
@@ -446,7 +449,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _t = time.perf_counter()
         _clusters = _derive_clusters(_dc.replace(airport, partition=_part), law)
         _sub["clusters"] = time.perf_counter() - _t
-        if _pcache.write(_cpath, _fp,
+        if write_cache and _pcache.write(_cpath, _fp,
                          (pack_objects, pack_report, _part, _clusters,
                           ocache.derived_state())):
             _say(f"  [partition] cache WROTE {_cpath}", out)

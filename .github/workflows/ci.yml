@@ -201,10 +201,24 @@ jobs:
       #     TERM   -> "Terminated", rc 124, and nothing else
       #     ABRT   -> "Fatal Python error: Aborted" + the frame
       #               test_hang_proof.py line 3 in test_that_wedges
-      # Windows hit this timeout at exactly 50m01s on 2026-09-28 and told
-      # us nothing; that is what this is for.  Signal delivery to a native
-      # process under Git bash may still degrade to a plain kill, which is
-      # no worse than the TERM it replaces.
+      # MEASURED ON WINDOWS 2026-09-28: it does NOT survive there.  Git
+      # bash delivers something the native interpreter takes as an ordinary
+      # termination, so the kill produced no dump at all — only execnet's
+      # "OSError: cannot send (already closed?)" out of pytest_sessionfinish,
+      # which is teardown noise from being killed, not the cause.  Kept
+      # because it is no worse than the TERM it replaces and it DOES work
+      # on the two runners where a wedge is also possible.
+      #
+      # WINDOWS PROGRESS TRACE.  Windows is killed at this timeout every
+      # run (50m01s, 50m03s) while macOS takes ~7m and Linux ~7-10m, and
+      # nothing in the log says whether it is grinding or stuck.  Under
+      # xdist, -v -v prints a dispatch line per test AND a completion line
+      # `[gwN] [ nn%] PASSED ...`, so a killed step's LAST lines answer it:
+      # still advancing => merely slow, and the percentage sizes the budget
+      # it needs; stopped advancing => wedged, and the dispatched-but-never-
+      # completed test names itself.  Windows only: this is ~12k lines per
+      # run and the other two runners have nothing to diagnose.  Drop it
+      # once Windows is settled.
       - name: Engine suite (parallel, non-Qt)
         if: always()
         working-directory: Ortho4XP
@@ -213,7 +227,11 @@ jobs:
           if command -v timeout >/dev/null 2>&1; then
             limit="timeout -s ABRT -k 30 3000"   # absent on the macOS runner
           fi
-          $limit python -m pytest $PYTEST_FLAGS -n auto \
+          progress=""
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            progress="-v -v"                     # net verbose over PYTEST_FLAGS' -q
+          fi
+          $limit python -m pytest $PYTEST_FLAGS -n auto $progress \
             --ignore-glob='tests/test_qt_*.py' tests
 
       # SERIAL (-n0) and, where the runner has coreutils, under a wall

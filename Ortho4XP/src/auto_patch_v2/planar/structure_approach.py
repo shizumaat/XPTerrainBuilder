@@ -319,18 +319,25 @@ def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
     return bool(parts) and unary_union(parts).length >= 1.0
 
 
-def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon]
-                     ) -> "FieldRegion":
+def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
+                     corridors: _t.Sequence = ()) -> "FieldRegion":
     """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
     classified cover (with the roofed corridors' footprints, which the
     caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
     the approach corridor of §31 (2), union THE RUNWAY LATERAL BAND of
-    §29 (7)."""
-    return FieldRegion(list(polys),
-                       law.tables.structures.tunnel.mouth_standoff_m,
-                       approach_corridor_of(airport, law),
-                       runway_band_of(airport, law),
-                       airport)
+    §29 (7).  ``corridors`` are the pack's roofed TUNNEL corridors
+    (``airport.tunnel_objects.Corridor``) whose footprints ``polys``
+    carries — §34 (12) (5) (a)'s pack-building reading never takes their
+    objects for buildings nor refuses a mouth inside one (owner RULINGS
+    2026-09-27a (3))."""
+    region = FieldRegion(list(polys),
+                         law.tables.structures.tunnel.mouth_standoff_m,
+                         approach_corridor_of(airport, law),
+                         runway_band_of(airport, law),
+                         airport)
+    region.corridor_prints = [c.footprint for c in corridors]
+    region.corridor_objects = {i for c in corridors for i in c.objects}
+    return region
 
 
 def mouth_reports(on_field: "FieldRegion", mouth_list: _t.Sequence["Mouth"],
@@ -451,6 +458,12 @@ class FieldRegion:
         #: TERRAIN TUNNEL, kept apart from §29 (1)'s off-field drops
         #: (two reports are never one region: the r1 discipline).
         self.not_terrain: list[str] = []
+        #: the pack's roofed TUNNEL corridors' footprints among ``polys``
+        #: and their placement ids (``field_region_for``'s ``corridors``):
+        #: §34 (12) (5) (a)'s pack-building reading never refuses a mouth
+        #: standing in one, nor takes their objects for buildings
+        self.corridor_prints: list = []
+        self.corridor_objects: set = set()
         self.corridor = corridor
         rings = list(corridor.rings()) if corridor is not None else []
         self._corridor_tree = (STRtree([Polygon(r) for r in rings])

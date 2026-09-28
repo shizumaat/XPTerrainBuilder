@@ -8,9 +8,9 @@ OBJ footprint (``Costa del sol_001``) 63.2 m away, the only pack DSF
 polygons within 40 m are shrub-planter forests covering 0.0 m of it, no
 pack road segment within 40 m, and the DEM falls monotonically 21.97 ->
 21.44 m along it (rise +0.27 m over its own ends is the chord sag, not a
-hill).  §34 (12) (5) (c) refuses it and NO witness is invented — the
-question is the owner's (Q-5 on the issue).  These twins pin the refusal
-as the law stands, so an answer to Q-5 moves a known number.
+hill).  §34 (12) (5) (c) refused it; the owner answered Q-5 (RULINGS
+2026-09-27a (4)): an OSM tunnel inside the fence is a witness on its own,
+and it is built (lane ``tunnelwitness2``).
 """
 from __future__ import annotations
 
@@ -94,17 +94,19 @@ def _run(law, extra_cells=()):
     return build_structures(airport, Classification(tuple(cells), (), {}, ()), law)
 
 
-def test_SPJC_bore_inside_the_fence_under_nothing_is_REFUSED_pending_Q5(law):
-    """#5 as the law stands: the fence is not a witness (§34 (12) (5) (c)
-    names cover, a road or railway at grade, the ground, or ``layer``);
-    the refusal is named with its evidence.  Q-5 asks the owner whether
-    an OSM ``tunnel=yes`` tag alone is trusted inside the fence."""
+def test_SPJC_bore_inside_the_fence_under_nothing_is_BUILT_by_the_fence(law):
+    """#5 as RULED (owner RULINGS 2026-09-27a (4), answering Q-5): an OSM
+    ``tunnel=yes`` bore INSIDE the airport boundary is a terrain tunnel
+    on its own.  Both mouths are built (lane ``tunnelwitness2``); the
+    fence case and the refusal outside it are pinned in
+    ``test_tunnelwitness2.py``."""
     _cl, tunnels, st = _run(law)
     assert st.bores == 1
-    assert st.tunnels == 0 and not tunnels
-    named = [ln for ln in st.mouths_off_field_nearest if "NOT A TERRAIN TUNNEL" in ln]
-    assert len(named) == 1, st.mouths_off_field_nearest
-    assert "-5724 PASSES UNDER NOTHING AT GRADE" in named[0]
+    # both mouths admitted; this fixture's apron stands ON the bore's line
+    # east of it, so the east ramp is stopped there (the two-ramp read is
+    # ``test_tunnelwitness2``'s fixture, apron off the line as at SPJC)
+    assert st.mouths == 2 and st.tunnels >= 1, st.mouths_off_field_nearest
+    assert not [ln for ln in st.mouths_off_field_nearest if "NOT A TERRAIN TUNNEL" in ln]
 
 
 def test_the_same_bore_under_a_pack_PAD_is_built(law):

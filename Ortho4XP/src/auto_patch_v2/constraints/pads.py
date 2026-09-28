@@ -545,11 +545,6 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
     # non-converging fixed point that §20c has since replaced.
     air = airside_vertices(planar, law) if airside_led else frozenset()
     n_led = n_dropped = n_in_pavement = 0
-    platform = bool(getattr(law.tables.structures.building_pad,
-                            "unit_platform", False))
-    air_all = (air if air else airside_vertices(planar, law)) if platform \
-        else frozenset()
-    n_platform = n_platform_cut = 0
     # §16g (10) (8) IS WITHDRAWN — NO SKIRT (owner RULINGS 2026-09-14ay,
     # confirmed 14bn; lane ``v2padjoin`` round 3).  A pad touching an
     # apron takes the apron's level along the shared edge and stays ONE
@@ -602,31 +597,7 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         led_here = bool(air) and len(own) >= _PLANE_MIN_OWN
         if air and not led_here:
             n_in_pavement += 1
-        # ONE PLATFORM PER UNIT (owner RULINGS 2026-09-28a (1), issue #66/#4).
-        # A terminal cluster's plate ("cluster:" — one pack unit whose
-        # footed floors share one zero, split at a floor by
-        # ``plan_clusters``) is priced over its OWN vertices only, in BOTH
-        # the flatness target and the 1 % ceiling: the pairs reaching an
-        # AIRSIDE vertex are the bend.  ATTRIBUTED at HECA T2
-        # (``cluster:unit:42#46``, 30.12883,31.40099, z 68.37 against a
-        # plate median 72.86): the only binding pad rows on its lowest
-        # vertex are the airside-led cap-0 pairs toward ``apron#220``,
-        # which falls 6.3 m along the pad — the plate followed each apron
-        # it touches and a 1.8 km unit spanned 21.9 m.  Without them the
-        # plate is one plane (its level still fitted to the frontage by
-        # ``pad_frontage_level``); the airside rim keeps its stage-1 value
-        # (airside is king) and the step between the two is the pad's edge
-        # terrace.  A plate with fewer than three own vertices keeps the
-        # rule above (no plane to hold).
-        plat = (platform and ref.startswith("cluster:")
-                and len([v for v in group if v not in air_all])
-                >= _PLANE_MIN_OWN)
-        if plat:
-            n_platform += 1
         for a, b in prs:
-            if plat and (a in air_all or b in air_all):
-                n_platform_cut += 1
-                continue
             if a == b:
                 continue
             d = math.hypot(xy[a][0] - xy[b][0], xy[a][1] - xy[b][1])
@@ -651,9 +622,6 @@ def _pad_rows(planar: PlanarMap, law: Law, cap: float, ruling: str,
         AIRSIDE_LED["both_airside_dropped"] = n_dropped
         AIRSIDE_LED["pads_without_own_plane"] = n_in_pavement
     STATS.setdefault("pad_flats", {})["cluster_cross_links"] = n_cross
-    if platform:
-        STATS.setdefault("pad_flats", {}).update(
-            unit_platforms=n_platform, platform_airside_pairs_cut=n_platform_cut)
     STATS.setdefault("pad_flats", {}).update(AIRSIDE_LED)
     return rows
 

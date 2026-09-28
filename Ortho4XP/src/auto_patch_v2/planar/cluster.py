@@ -59,7 +59,8 @@ from ..geom import deck_shades as _geom_deck_shades
 from ..law import Law
 from ..model.airport import Airport
 
-__all__ = ["cluster_min_m2", "clusters", "PlanCluster", "deck_shades"]
+__all__ = ["cluster_min_m2", "clusters", "PlanCluster", "deck_shades",
+           "connector_verdicts"]
 
 #: The derivation is O(bodies^2) inside a unit and the constraint pass
 #: asks for it once per generator.  A tiny memo keyed on the airport
@@ -109,6 +110,51 @@ def _floor_split_m(law: Law) -> float:
     return float(law.tables.structures.placement.floor_split_m)
 
 
+def connector_verdicts(airport: Airport, law: Law) -> tuple:
+    """unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
+    CONNECTOR VERDICT for this airport's pack — every §16g (6) connector
+    SOLID or CUT (``airport.footprint_connector.solid_connectors``).
+
+    Read off the plan's own stamp where the pipeline put one; otherwise
+    derived here on the DEM (the only ground at planar time), which is
+    what a replay of a capture taken before the stamp does.  The pipeline
+    stamps the SAME result on the partition, so the rebake plan carries it
+    to the object stage and the two readers cannot disagree."""
+    from ..airport.footprint_connector import solid_connectors, verdicts_of
+    part = getattr(airport, "partition", None)
+    if part is None or not getattr(part, "units", ()):
+        return ()
+    got = verdicts_of(part)
+    if got is not None:
+        return got
+    pl = law.tables.structures.placement
+    to_xy = airport.frame.entry()
+
+    def _ground(lat: float, lon: float) -> "float | None":
+        x, y = to_xy(lon, lat)
+        try:
+            z = airport.dem.z(x, y)
+        except Exception:
+            return None
+        if z is None:
+            return None
+        z = float(z)
+        return None if z != z else z
+    counts: dict = {}
+    got = solid_connectors(
+        part, _ground, touch_m=_touch_m(law),
+        span_m=float(pl.connector_span_m),
+        visual_m=float(law.tables.emit.cockpit.visual_m),
+        chain_min_height_m=_chain_min_height_m(law),
+        gap_max_m=float(getattr(pl, "connector_solid_gap_m", 0.0)),
+        step_max_m=(float(law.tables.structures.building_pad.platform_collar_max_m)
+                    * float(law.tables.emit.design.bank_slope)),
+        sheet_chain_min_fraction=_sheet_chain_min_fraction(law),
+        counts=counts)
+    WHY.update({k: v for k, v in counts.items()})
+    return got
+
+
 #: §16g (8)/(9) (owner RULINGS 2026-09-14w): WHY a derivation came out
 #: empty — the gate that closed, so a silent ``()`` is never mistaken for
 #: "this airport has no terminal".  Read by the build's own say-line.
@@ -138,14 +184,23 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
                        else "no pack partition" if part is None
                        else "partition carries no units")
         return ()
+    # unit-platform spec §2: every NOT-solid connector is cut out of the
+    # chain, by the ONE verdict the object stage reads too
+    from ..airport.footprint_connector import cut_pids
+    verdicts = connector_verdicts(airport, law)
+    cut = cut_pids(verdicts)
+    WHY["connectors_cut"] = sum(1 for v in verdicts if not v.solid)
+    WHY["connectors_solid"] = sum(1 for v in verdicts if v.solid)
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
-        if k == key and ap is airport and m0 == (split, tall, sheet) and e0 == eps:
+        if (k == key and ap is airport and m0 == (split, tall, sheet, cut)
+                and e0 == eps):
             return got
     counts: dict = {}
     got = tuple(plan_clusters(part, eps, floor_split_m=split,
                               chain_min_height_m=tall, counts=counts,
-                              sheet_chain_min_fraction=sheet))
+                              sheet_chain_min_fraction=sheet, cut=cut))
+    WHY["connectors_cut_out"] = counts.get("cluster_connectors_cut_out", 0)
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)
     WHY["leaf_bodies"] = counts.get("cluster_leaf_bodies", 0)
@@ -153,7 +208,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     WHY["walled_clusters"] = sum(1 for c in got if c.walled)
     if not got:
         WHY["gate"] = "plan_clusters: the partition's units hold no body"
-    _MEMO.append((key, airport, (split, tall, sheet), eps, got))
+    _MEMO.append((key, airport, (split, tall, sheet, cut), eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got
 

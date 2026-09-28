@@ -473,7 +473,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                               counts: "dict | None" = None,
                               chain_min_height_m: float = 0.0,
                               contents_min_fraction: float = 0.0,
-                              sheet_chain_min_fraction: float = 0.0
+                              sheet_chain_min_fraction: float = 0.0,
+                              cut: _t.AbstractSet[int] = frozenset()
                               ) -> "tuple[list[PlanUnit], list[PlanConnector]]":
     """§16g (1) PLAN-WIDE with §16g (6)'s CONNECTOR reading.
 
@@ -529,7 +530,16 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     ``sheet_chain_min_fraction`` of the smaller footprint LINKS them and
     joins their unit — :mod:`sheet_chain`, the one derivation
     ``plan_clusters`` asks too.  Over one body it stays a leaf (and may
-    still be CONTENTS).  0 disarms."""
+    still be CONTENTS).  0 disarms.
+
+    THE CUT CONNECTORS (unit-platform spec §2, owner RULINGS 2026-09-28a
+    (2)): ``cut`` is the part-id set of every connector the plan's ONE
+    verdict (``footprint_connector.solid_connectors``) calls NOT solid.  A
+    body carrying one of them neither chains, links as a sheet, nor rides
+    as contents — it is cut out of its chain exactly as
+    ``plan_clusters`` cuts it, so the rail no longer makes HECA's T2 and
+    T3 one unit.  Empty = every body chains as before (a plan with no
+    stamped verdict)."""
     if touch_m <= 0.0 or not getattr(plan, "units", ()):
         return [], []
     bodies, _of_pid = bodies_of_plan(plan)
@@ -559,9 +569,15 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     if len(shims) < 2:
         return [], []
     # §16g (10) (4): the chain runs over the WALLED bodies alone; a LEAF
-    # is its own unit, seated on its own ground or its carrier
-    walled_ix = [i for i, q in enumerate(shims) if q.walled]
-    leaves = [i for i, q in enumerate(shims) if not q.walled]
+    # is its own unit, seated on its own ground or its carrier.  §2: a
+    # CUT connector is neither — it is out of the chain altogether.
+    gone = ({i for i, q in enumerate(shims) if q.pids & cut}
+            if cut else set())
+    walled_ix = [i for i, q in enumerate(shims) if q.walled and i not in gone]
+    leaves = [i for i, q in enumerate(shims)
+              if not q.walled and i not in gone]
+    if counts is not None and cut:
+        counts["unit_connectors_cut_out"] = len(gone)
     if walled_ix:
         sub = [shims[i] for i in walled_ix]
         clusters, _adj = _clusters(sub, touch_m, min_members=1, counts=counts)
@@ -873,9 +889,15 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             continue
         pair = row[4] if len(row) > 4 else ("", "")
         high = row[5] if len(row) > 5 else None
+        # unit-platform spec §2: the plan's ONE verdict decides where it
+        # was stamped ("cut" -> the low end's seat); only a plan written
+        # before the stamp re-asks the staged ground-step test
+        verdict = row[6] if len(row) > 6 else ""
         if (high is not None and pair and pair[0] != pair[1]
-                and _is_connector(c, cc, connector_span_m, visual_m,
-                                  ends=pair)):
+                and (verdict == "cut"
+                     or (not verdict
+                         and _is_connector(c, cc, connector_span_m, visual_m,
+                                           ends=pair)))):
             conn[ci] = pair
             uid, z, where, src = high
             counts["unit_connectors_seated"] = \
@@ -1098,11 +1120,33 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     be placed by WHERE IT STANDS."""
     if touch_m <= 0.0:
         return {}, []
+    # unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
+    # CONNECTOR VERDICT stamped on the plan at planar time — the same one
+    # ``plan_clusters`` cut the design surface's chains by.  A CUT
+    # connector leaves its unit's chain here too, and is seated on its low
+    # end's contact below; a SOLID one is an ordinary member of the unit it
+    # joins.  A plan written before the stamp keeps the staged reading.
+    from .footprint_connector import cut_pids, verdicts_of
+    stamped = verdicts_of(plan) if connector_span_m > 0.0 else None
+    cut = cut_pids(stamped) if stamped else frozenset()
     units, conns = plan_units_and_connectors(plan, touch_m,
                                              connector_span_m, counts,
                                              chain_min_height_m,
                                              contents_min_fraction,
-                                             sheet_chain_min_fraction)
+                                             sheet_chain_min_fraction,
+                                             cut=cut)
+    counts["connector_verdict_stamped"] = int(stamped is not None)
+    if stamped is not None:
+        counts["connectors_solid"] = sum(1 for v in stamped if v.solid)
+        counts["connectors_cut"] = sum(1 for v in stamped if not v.solid)
+        conns = [PlanConnector(
+            id=f"cn:{v.pids[0] if v.pids else 0}", key=(-1, -1, -1),
+            pids=frozenset(v.pids), resource=v.resource, span_m=v.span_m,
+            unit="", end_a=v.end_a, end_b=v.end_b,
+            boxes_a=v.own_a if v.end_a else (),
+            boxes_b=v.own_b if v.end_b else (),
+            own_a=v.own_a, own_b=v.own_b)
+            for v in stamped if not v.solid]
     _parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
 
     def _feet_of(pids):
@@ -1179,10 +1223,15 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
         base = out.get(next(iter(cn.pids)))
         for q in cn.pids:
             row = out.get(q) or base
+            if row is None and stamped is not None:
+                # §2: a CUT connector is in no unit's chain — its own row
+                # IS its low end's seat, and the verdict rides with it
+                row = (u, d[0], d[1], d[2])
             if row is None:
                 continue
             out[q] = (row[0], row[1], row[2], row[3],
-                      (cn.end_a, cn.end_b), (u, d[0], d[1], d[2]))
+                      (cn.end_a, cn.end_b), (u, d[0], d[1], d[2]),
+                      "cut" if stamped is not None else "")
     counts["plan_wide_units"] = len(units)
     counts["plan_wide_units_seated"] = len(dat)
     counts["plan_wide_connectors"] = len(conns)

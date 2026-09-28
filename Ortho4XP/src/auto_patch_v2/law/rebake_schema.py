@@ -325,6 +325,11 @@ class Placement:
     #: it is cut at §10's line stations and never holds its unit rigid.
     #: 0 disarms the class and every body stays rigid.
     connector_span_m: float = 200.0
+    #: unit-platform spec §2 S1 (owner RULINGS 2026-09-28a (2)): the
+    #: longest stretch of a connector's long axis that may be plate alone
+    #: (no component of ``chain_min_height_m`` solid height) for it to be
+    #: WALLED ALONG ITS WHOLE LENGTH.  0 disarms S1.
+    connector_solid_gap_m: float = 20.0
 
 
 @_dc.dataclass(frozen=True)

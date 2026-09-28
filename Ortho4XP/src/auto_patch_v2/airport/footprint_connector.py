@@ -36,7 +36,8 @@ from .placement_contact import (_polys_touch, boxes_touch,
 
 __all__ = ["PlanConnector", "CONNECTOR_BOXES_MAX", "_span_m",
            "_is_connector", "_connector_ends", "authored_units",
-           "authored_unit_census"]
+           "authored_unit_census", "ConnectorVerdict", "connector_verdict",
+           "solid_connectors", "cut_pids", "verdicts_of"]
 
 
 def _span_m(boxes: _t.Sequence[tuple[float, float, float, float]]) -> float:
@@ -467,6 +468,245 @@ def connectors_of_cluster(cl: _t.Sequence[int], uid: str,
         if got is not None:
             out.append(got)
     return out
+
+
+# ── unit-platform spec §2: THE SOLID-CONNECTOR DISCRIMINATOR ─────────────
+#
+# Owner RULINGS 2026-09-28a (2): a SOLID CONNECTOR makes the units it joins
+# ONE contiguous building with one flat pad, unless that creates an airside
+# law violation.  Every other §16g (6) connector is CUT out of its chain.
+# ONE verdict, computed HERE once per plan and stamped on it
+# (``PackPartition.connectors`` -> ``RebakePlan.connectors``), read by BOTH
+# ``placement_family.plan_clusters`` (the design surface) and
+# ``footprint_unit`` (the object stage) — §16g (9) one population.
+
+@_dc.dataclass(frozen=True)
+class ConnectorVerdict:
+    """One §16g (6) connector and its §2 verdict.
+
+    ``solid`` = S1 walled along its whole length AND S3 not a deck AND S4
+    the join's end-ground step within ``step_max_m``.  A connector that is
+    not solid is CUT: it is removed from its unit's chain by both readers
+    and seated on its LOW end's contact (§16g (7) (2)).  ``own_a`` /
+    ``own_b`` are the connector's own boxes at each end (PlanConnector's),
+    carried so the object stage seats a cut connector without re-deriving
+    the topology."""
+
+    pids: tuple[int, ...]
+    resource: str
+    span_m: float
+    end_a: str
+    end_b: str
+    step_m: float
+    walled_gap_m: float
+    walled: bool
+    deck: bool
+    solid: bool
+    own_a: tuple[tuple[float, float, float, float], ...] = ()
+    own_b: tuple[tuple[float, float, float, float], ...] = ()
+
+    @property
+    def verdict(self) -> str:
+        return "solid" if self.solid else "cut"
+
+    def why(self) -> str:
+        """S1/S3/S4, each named — the line a census posts per connector."""
+        return (f"S1 walled={'yes' if self.walled else 'no'} "
+                f"(worst plate-only run {self.walled_gap_m:.1f} m) "
+                f"S3 deck={'yes' if self.deck else 'no'} "
+                f"S4 end step {self.step_m:.2f} m")
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"pids": list(self.pids), "resource": self.resource,
+                "span_m": self.span_m, "end_a": self.end_a,
+                "end_b": self.end_b, "step_m": self.step_m,
+                "walled_gap_m": self.walled_gap_m,
+                "walled": self.walled, "deck": self.deck,
+                "solid": self.solid,
+                "own_a": [list(b) for b in self.own_a],
+                "own_b": [list(b) for b in self.own_b]}
+
+    @classmethod
+    def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "ConnectorVerdict":
+        return cls(tuple(int(q) for q in d.get("pids", ())),
+                   str(d.get("resource", "")), float(d.get("span_m", 0.0)),
+                   str(d.get("end_a", "")), str(d.get("end_b", "")),
+                   float(d.get("step_m", 0.0)),
+                   float(d.get("walled_gap_m", 0.0)),
+                   bool(d.get("walled", False)), bool(d.get("deck", False)),
+                   bool(d.get("solid", False)),
+                   tuple(tuple(float(x) for x in b) for b in d.get("own_a", ())),
+                   tuple(tuple(float(x) for x in b) for b in d.get("own_b", ())))
+
+
+#: S3: the ``Member.deck_kind`` spellings that refuse a join (spec §2 S3:
+#: ``candidate`` counts — the signature pass found a PLATE on the member)
+_S3_DECK_KINDS: frozenset[str] = frozenset({"candidate", "deck", "flag",
+                                            "signature", "family"})
+
+
+def _plate_gap_m(parts: _t.Sequence[_t.Any], chain_min_height_m: float
+                 ) -> tuple[float, float, bool]:
+    """S1: ``(worst plate-only run along the long axis (m), axis length,
+    along_lat)`` over a body's non-line parts.  The axis is the metric
+    long side of the body's hull; every component of solid height >=
+    ``chain_min_height_m`` covers its box's interval on it, and the worst
+    uncovered run — both ends included — is what a deck on piers shows
+    between its piers."""
+    boxes = [p.box for p in parts if not p.line]
+    h = _pb.hull_of(boxes)
+    if h is None:
+        return 0.0, 0.0, True
+    ml, mo = m_per_deg_exact(0.5 * (h[0] + h[2]))
+    along_lat = (h[2] - h[0]) * ml >= (h[3] - h[1]) * mo
+    if along_lat:
+        a0, sc, L = h[0], ml, (h[2] - h[0]) * ml
+        iv = lambda b: ((b[0] - a0) * sc, (b[2] - a0) * sc)   # noqa: E731
+    else:
+        a0, sc, L = h[1], mo, (h[3] - h[1]) * mo
+        iv = lambda b: ((b[1] - a0) * sc, (b[3] - a0) * sc)   # noqa: E731
+    tall = sorted(iv(p.box) for p in parts if not p.line
+                  and float(getattr(p, "height_m", 0.0)) >= chain_min_height_m)
+    cur = gap = 0.0
+    for lo, hi in tall:
+        if lo > cur:
+            gap = max(gap, lo - cur)
+        cur = max(cur, hi)
+    return max(gap, L - cur), L, along_lat
+
+
+def _end_step_m(parts: _t.Sequence[_t.Any], ground, along_lat: bool
+                ) -> "float | None":
+    """S4's plan-time proxy: the connector's END-GROUND STEP — the median
+    ``ground`` under its own outline vertices and feet in the third of its
+    long axis nearest each end, differenced.  ``ground(lat, lon)`` is the
+    DEM at planar time (the only ground there is)."""
+    pts: list[tuple[float, float]] = []
+    for p in parts:
+        if p.line:
+            continue
+        rings = [r for r in (getattr(p, "rings", ()) or ()) if len(r) >= 3]
+        for r in rings:
+            pts.extend((float(q[0]), float(q[1])) for q in r)
+        if not rings:
+            # a part with no outline: its box corners are its extent
+            b = p.box
+            pts.extend(((b[0], b[1]), (b[0], b[3]), (b[2], b[1]),
+                        (b[2], b[3])))
+        pts.extend((float(f[0]), float(f[1])) for f in (p.feet or ()))
+    if len(pts) < 2:
+        return None
+    k = 0 if along_lat else 1
+    lo = min(q[k] for q in pts)
+    hi = max(q[k] for q in pts)
+    third = (hi - lo) / 3.0
+
+    def _med(sel) -> "float | None":
+        z = sorted(v for v in (ground(q[0], q[1]) for q in pts if sel(q[k]))
+                   if v is not None)
+        return z[len(z) // 2] if z else None
+    za = _med(lambda x: x <= lo + third)
+    zb = _med(lambda x: x >= hi - third)
+    return None if za is None or zb is None else abs(za - zb)
+
+
+def connector_verdict(cn: PlanConnector, parts: _t.Sequence[_t.Any],
+                      member: _t.Any, ground, *, chain_min_height_m: float,
+                      gap_max_m: float, step_max_m: float
+                      ) -> "tuple[float | None, ConnectorVerdict]":
+    """``(end step, verdict)`` for one topology-connector (§2 S1/S3/S4).
+    The step is returned apart so the caller applies §16g (6)'s own
+    ``visual_m`` identification test first — a body whose ends do not
+    step is a MEMBER and gets no verdict at all."""
+    gap, _L, along_lat = _plate_gap_m(parts, chain_min_height_m)
+    step = _end_step_m(parts, ground, along_lat)
+    walled = gap_max_m <= 0.0 or gap <= gap_max_m
+    deck = bool(str(getattr(member, "deck_kind", "") or "") in _S3_DECK_KINDS
+                or getattr(member, "elevated_deck", False)
+                or getattr(member, "deck_ring", None)
+                or getattr(member, "deck_shade_ring", None) is not None)
+    s4 = step is not None and step <= step_max_m
+    return step, ConnectorVerdict(
+        tuple(sorted(cn.pids)), cn.resource, cn.span_m, cn.end_a, cn.end_b,
+        -1.0 if step is None else step, gap, walled, deck,
+        bool(walled and not deck and s4), tuple(cn.own_a), tuple(cn.own_b))
+
+
+_VERDICT_MEMO: list[tuple[int, _t.Any, tuple, tuple]] = []
+
+
+def solid_connectors(plan: _t.Any, ground, *, touch_m: float, span_m: float,
+                     visual_m: float, chain_min_height_m: float,
+                     gap_max_m: float, step_max_m: float,
+                     sheet_chain_min_fraction: float = 0.0,
+                     counts: "dict | None" = None
+                     ) -> tuple[ConnectorVerdict, ...]:
+    """unit-platform spec §2: EVERY §16g (6) connector of ``plan`` with its
+    SOLID / CUT verdict — computed ONCE and stamped on the plan.
+
+    A connector is §16g (6)'s: the TOPOLOGY (``footprint_unit.
+    plan_units_and_connectors``, the articulation reading), a span of
+    ``span_m`` AND an end-ground step of ``visual_m`` — read here on
+    ``ground`` (the DEM at planar time).  Then S1 walled along its whole
+    length (no plate-only run over ``gap_max_m``), S3 not a deck, S4 the
+    step within ``step_max_m`` (``platform_collar_max_m x bank_slope``).
+    ``()`` where the law is disarmed or the plan carries no unit."""
+    if touch_m <= 0.0 or span_m <= 0.0 or not getattr(plan, "units", ()):
+        return ()
+    key = (touch_m, span_m, visual_m, chain_min_height_m, gap_max_m,
+           step_max_m, sheet_chain_min_fraction)
+    for k, p0, k0, got in _VERDICT_MEMO:
+        if k == id(plan) and p0 is plan and k0 == key:
+            return got
+    from .footprint_unit import plan_units_and_connectors
+    _u, conns = plan_units_and_connectors(
+        plan, touch_m, span_m, None, chain_min_height_m, 0.0,
+        sheet_chain_min_fraction)
+    parts: dict[int, tuple[_t.Any, _t.Any]] = {}
+    for u in plan.units:
+        for m in u.members:
+            for p in m.parts:
+                parts[p.pid] = (p, m)
+    out: list[ConnectorVerdict] = []
+    n_member = 0
+    for cn in conns:
+        ps = [parts[q][0] for q in sorted(cn.pids) if q in parts]
+        if not ps:
+            continue
+        m = parts[next(q for q in sorted(cn.pids) if q in parts)][1]
+        step, v = connector_verdict(cn, ps, m, ground,
+                                    chain_min_height_m=chain_min_height_m,
+                                    gap_max_m=gap_max_m, step_max_m=step_max_m)
+        if step is None or step < visual_m:
+            n_member += 1          # §16g (6): ends that do not step -> MEMBER
+            continue
+        out.append(v)
+    got = tuple(out)
+    if counts is not None:
+        counts["connectors_topology"] = len(conns)
+        counts["connectors_member_no_step"] = n_member
+        counts["connectors_solid"] = sum(1 for v in got if v.solid)
+        counts["connectors_cut"] = sum(1 for v in got if not v.solid)
+    _VERDICT_MEMO.append((id(plan), plan, key, got))
+    del _VERDICT_MEMO[:-2]
+    return got
+
+
+def verdicts_of(plan: _t.Any) -> "tuple[ConnectorVerdict, ...] | None":
+    """The verdict STAMPED on ``plan`` (a load partition carries
+    :class:`ConnectorVerdict` objects, a rebake plan their JSON form), or
+    ``None`` where nothing was stamped."""
+    got = getattr(plan, "connectors", None)
+    if got is None:
+        return None
+    return tuple(v if isinstance(v, ConnectorVerdict)
+                 else ConnectorVerdict.from_dict(v) for v in got)
+
+
+def cut_pids(verdicts: _t.Iterable[ConnectorVerdict]) -> frozenset[int]:
+    """The part ids of every CUT connector — what both readers remove from
+    their chains (§2: "CUTS every non-solid connector out of its chain")."""
+    return frozenset(q for v in verdicts if not v.solid for q in v.pids)
 
 
 # ── §16g (6) (3) PROVENANCE IS A WITNESS ─────────────────────────────────

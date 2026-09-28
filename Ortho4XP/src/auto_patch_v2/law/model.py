@@ -371,6 +371,9 @@ class BuildingPad:
     step_exemption_pad_to_pad: bool
     frontage_near_miss_m: float
     frontage_soft_roles: tuple[str, ...]
+    #: owner RULINGS 2026-09-28a (1): a terminal cluster pad is ONE PLATFORM
+    #: (``constraints/pads._pad_rows``); false = the 15z airside-led plate
+    unit_platform: bool = False
 
 
 @_dc.dataclass(frozen=True)

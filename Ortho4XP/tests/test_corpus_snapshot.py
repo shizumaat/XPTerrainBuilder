@@ -126,7 +126,8 @@ def test_verify_refuses_an_edited_manifest(CS, tmp_path):
         CS.verify(snap, quiet=True)
 
 
-def test_mount_and_unmount(CS, tmp_path):
+def test_mount_and_unmount(CS, tmp_path, monkeypatch):
+    monkeypatch.setenv("XPLANE_ROOT", "/real/X")
     snap, man = _fake_snapshot(CS, tmp_path)
     root = tmp_path / "lane"
     root.mkdir()
@@ -141,6 +142,7 @@ def test_mount_and_unmount(CS, tmp_path):
     cfg = (root / "Ortho4XP.cfg").read_text()
     assert f"custom_scenery_dir={snap}/xplane/Custom Scenery" in cfg
     assert CS.XPLANE_TOKEN not in cfg
+    assert os.environ["XPLANE_ROOT"] == str(snap / "xplane")
     with pytest.raises(SystemExit, match="complete read set"):
         CS.mount(root, snap, icao="QQQQ")
     CS.unmount(root, rec)
@@ -166,6 +168,12 @@ def test_corpus_stamp_keys_the_snapshot_and_only_the_snapshot(AL):
     snap_b = AL.corpus_stamp(dict(frame, corpus_snapshot={"hash": "b" * 64}),
                              "/nonexistent")
     assert len({shared["sha256"], snap_a["sha256"], snap_b["sha256"]}) == 3
+    # one snapshot, two machines (different paths/mounts): ONE stamp
+    moved = dict(frame, data_repo="/elsewhere", corpus_snapshot={"hash": "a" * 64},
+                 data_mounts={"OSM_data": {"realpath": "/x"}})
+    assert AL.corpus_stamp(moved, "/nonexistent") == snap_a
+    assert "O4_CORPUS_SNAPSHOT" not in AL.key_env(
+        {"O4_CORPUS_SNAPSHOT": "/a", "O4_DATA_REPO": "/a/data", "O4_X": "1"})
 
 
 def test_lookup_refuses_across_snapshot_hashes(AL, tmp_path):

@@ -178,6 +178,7 @@ class LeakWatch:
     def __init__(self, roots):
         self.roots = tuple(str(r).rstrip("/") + "/" for r in roots if r)
         self.leaks: set = set()
+        self.stacks: list = []           # WHO read it: the first 5 leaks
         self.active = False
 
     def _hook(self, event, args):
@@ -190,6 +191,11 @@ class LeakWatch:
                 return
             p = os.path.abspath(os.fsdecode(path))
             if p.startswith(self.roots):
+                if p not in self.leaks and len(self.stacks) < 5:
+                    import traceback
+                    self.stacks.append([p] + [
+                        f"{f.filename}:{f.lineno} {f.name}"
+                        for f in traceback.extract_stack()[-14:-2]])
                 self.leaks.add(p)
         except Exception:
             pass
@@ -206,7 +212,7 @@ class LeakWatch:
     def record(self) -> dict:
         leaks = sorted(self.leaks)
         return {"roots": list(self.roots), "count": len(leaks),
-                "first": leaks[:25]}
+                "first": leaks[:25], "stacks": self.stacks}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -611,6 +617,11 @@ def mount(root: Path, snap: Path, icao=None, prog=None) -> dict:
             lane_cfg.read_text(errors="replace") != rendered:
         shutil.copy2(lane_cfg, backup)
     lane_cfg.write_text(rendered)
+    # The harness's OWN install resolver (``resolve_tile_for`` reads
+    # ``conftest.xplane_root()``, i.e. ``XPLANE_ROOT``) — caught by the
+    # leak watch on the first snapshot build (2026-09-28: 3 reads of the
+    # real ``Custom Scenery`` from the tile pre-flight).
+    os.environ["XPLANE_ROOT"] = str(snap / "xplane")
     rec = {"corpus": f"snapshot@{v['hash'][:12]}", "hash": v["hash"],
            "dir": str(snap), "complete_airports": v["complete"],
            "files_present": v["present"], "previous_mounts": previous,

@@ -80,7 +80,11 @@ DEFAULT_STORE = Path(os.environ.get(
 #: the ledger a write-only directory.
 VOLATILE_ENV = ("O4_HARNESS_IN_LEDGER", "O4_DSF_CACHE_DIR",
                 "O4_AIRPORT_MOD_CACHE_DIR", "O4_RUN_LEDGER_PATH",
-                "O4_ARTIFACT_LEDGER_DIR", "O4_ARTIFACT_LEDGER_MAX_MB")
+                "O4_ARTIFACT_LEDGER_DIR", "O4_ARTIFACT_LEDGER_MAX_MB",
+                # WHERE a corpus lives is not WHICH corpus it is: the
+                # corpus stamp keys that (the snapshot's own hash, or the
+                # shared repo's ``data_repo`` + mounts parts)
+                "O4_CORPUS_SNAPSHOT", "O4_DATA_REPO")
 
 #: The artifacts a patch build produces, and which of them a served arm must
 #: reproduce byte-for-byte.  ``patch`` and ``sidecar`` are the measurement;
@@ -172,6 +176,18 @@ def corpus_stamp(frame: dict, root=None) -> dict:
     of rasters on every build would cost more than it protects.
     """
     root = Path(root or ROOT)
+    # THE CLOUD TEST CORPUS (RULINGS 2026-09-28a (7)): a VERIFIED snapshot
+    # is named by the hash of its whole file manifest (sha256 of every
+    # file), which already covers every raster, inset and layer below —
+    # and the parts below carry the machine's PATHS and mtimes, so two
+    # lanes on one snapshot would never share a control.  The snapshot
+    # hash plus the DEM-frame cfg is the stamp.  Only a snapshot frame
+    # takes this branch: every shared-corpus key is byte-identical.
+    snap = frame.get("corpus_snapshot")
+    if snap:
+        parts = {"snapshot": snap.get("hash"),
+                 "dem_frame_cfg": _sha_of(frame.get("dem_frame_effective"))}
+        return {"sha256": _sha_of(parts), "parts": parts}
     cache = frame.get("dem_cache_before") or {}
     files = []
     for rel in (cache.get("base_raster_files") or []) + \
@@ -202,12 +218,6 @@ def corpus_stamp(frame: dict, root=None) -> dict:
         "dem_files": _sha_of(files),
         "dem_frame_cfg": _sha_of(frame.get("dem_frame_effective")),
     }
-    # THE CLOUD TEST CORPUS (RULINGS 2026-09-28a (7)): a snapshot build is
-    # keyed by the snapshot's own hash.  Present ONLY on a snapshot frame,
-    # so every shared-corpus key is byte-identical to before.
-    snap = frame.get("corpus_snapshot")
-    if snap:
-        parts["snapshot"] = snap.get("hash")
     return {"sha256": _sha_of(parts), "parts": parts}
 
 

@@ -47,6 +47,61 @@ OUTLINE_SIMPLIFY_M = 0.05
 THIN_PIECE_WIDTH_M = 2.0
 
 
+def _bridge(u, bridges, to_xy, gap_m: float):
+    """§16g (10) (2) AMENDED (issue #73, spec-author rule to lane
+    ``courtyards``): A POST STILL CHAINS, SO THE UNIT IS ONE.  ``u`` is a
+    cluster's closed outline; where it has fallen into PIECES, a post /
+    flat-line ring of ``bridges`` (``PlanCluster.bridges``, ``(lat,
+    lon)``) that has a plan point within ``gap_m`` of TWO pieces at once
+    closes the gap between those two: the part of the ring within
+    ``gap_m`` of both (the post IN the gap) and the facing patches of the
+    two pieces within ``gap_m`` of it, hulled.  The ring itself is never
+    drawn — a flat line that merely runs from one piece to another
+    across open ground draws no outline (HECA ``Plastic.obj`` strips
+    between pieces 2.72 m apart redrew the lace: holes 32 -> 84).
+    Returns ``(outline, joins)``."""
+    pieces = _parts(u)
+    if len(pieces) < 2 or not bridges or gap_m <= 0.0:
+        return u, 0
+    tree = STRtree(pieces)
+    grown: dict[int, _t.Any] = {}
+
+    def grow(k):
+        if k not in grown:
+            grown[k] = pieces[k].buffer(gap_m, join_style=2)
+        return grown[k]
+
+    add: list = []
+    joins = 0
+    for r in bridges:
+        if len(r) < 3:
+            continue
+        b = Polygon([to_xy(lo, la) for la, lo in r])
+        if not b.is_valid:
+            b = b.buffer(0.0)
+        if b.is_empty:
+            continue
+        near = sorted(int(k) for k in tree.query(b, predicate="dwithin",
+                                                  distance=gap_m))
+        for x in range(len(near)):
+            for y in range(x + 1, len(near)):
+                i, j = near[x], near[y]
+                gap = b.intersection(grow(i)).intersection(grow(j))
+                if gap.is_empty or gap.area <= 0.0:
+                    continue
+                reach = gap.buffer(gap_m, join_style=2)
+                con = unary_union([gap, pieces[i].intersection(reach),
+                                   pieces[j].intersection(reach)]).convex_hull
+                add.append(con)
+                joins += 1
+    if not add:
+        return u, 0
+    g = unary_union([u] + add)
+    if not g.is_valid:
+        g = g.buffer(0.0)
+    return g, joins
+
+
 def _parts(g) -> list[Polygon]:
     if g is None or g.is_empty:
         return []
@@ -97,6 +152,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      min_m2: float = 0.0,
                      thin_m: float = THIN_PIECE_WIDTH_M,
                      shades=None,
+                     bridge_m: float = 0.0,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -178,14 +234,25 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
        wholly under a shade mints nothing (``under_deck``); one the shade
        cuts is ``deck_trimmed``, and the pieces it leaves are rule 2's.
 
-    ``touch_m <= 0`` disarms the close (rule 2); ``airside=None``
+    2a. A POST STILL CHAINS, SO THE UNIT IS ONE (issue #73, lane
+       ``courtyards``).  Posts and flat lines draw no outline
+       (``placement_family.draws_outline``), so a cluster whose pieces
+       touched only through one falls apart at rule 2.  Each such ring
+       (``PlanCluster.bridges``) with a plan point within ``bridge_m`` of
+       two pieces closes the outline across that gap, and only there
+       (:func:`_bridge`); counted ``post_bridged``.  MEASURED OTHH (sheetchain capture): cluster
+       pads 61 (main) -> 72 without it -> 69 with it; HECA 79 -> 80 -> 80.
+
+    ``touch_m <= 0`` disarms the close (rule 2); ``bridge_m <= 0``
+    disarms (2a); ``airside=None``
     disarms the clip (rule 4); ``walled_only=False`` and ``min_m2=0``
     disarm (7); ``thin_m <= 0`` disarms (6); ``shades=None`` disarms (8).
     """
     counts = {"clusters": len(clusters), "no_rings": 0, "over_another": 0,
               "still_in_pieces": 0, "on_airside": 0, "clipped": 0,
               "leaf_dropped": 0, "under_min_m2": 0, "thin_dropped": 0,
-              "pads": 0, "under_deck": 0, "deck_trimmed": 0}
+              "pads": 0, "under_deck": 0, "deck_trimmed": 0,
+              "post_bridged": 0}
     if not clusters:
         return [], counts
     order = sorted(
@@ -221,6 +288,10 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                 u = u.simplify(simplify_m)
             if not u.is_valid:
                 u = u.buffer(0.0)
+        if bridge_m > 0.0 and getattr(c, "bridges", ()):
+            # rule 2a: the posts that still chain close the outline
+            u, nj = _bridge(u, c.bridges, to_xy, bridge_m)
+            counts["post_bridged"] += nj
         if u.is_empty:
             counts["no_rings"] += 1
             continue

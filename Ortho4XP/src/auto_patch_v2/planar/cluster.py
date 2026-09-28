@@ -103,6 +103,16 @@ def _sheet_chain_min_fraction(law: Law) -> float:
                          "sheet_chain_min_fraction", 0.0))
 
 
+def _outline_law(law: Law) -> tuple[float, float, float]:
+    """§16g (10) (2) AMENDED (issue #73): ``[placement] post_max_area_m2``,
+    ``post_max_extent_m``, ``flat_line_max_width_m`` — ONE derivation
+    site.  Posts and flat lines chain but draw no pad outline."""
+    pl = law.tables.structures.placement
+    return (float(getattr(pl, "post_max_area_m2", 0.0)),
+            float(getattr(pl, "post_max_extent_m", 0.0)),
+            float(getattr(pl, "flat_line_max_width_m", 0.0)))
+
+
 def _floor_split_m(law: Law) -> float:
     """§16g (10) (1): ``[placement] floor_split_m`` — ONE derivation
     site.  0 leaves a touching chain one cluster however its floors
@@ -173,6 +183,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     split = _floor_split_m(law)
     tall = _chain_min_height_m(law)
     sheet = _sheet_chain_min_fraction(law)
+    olaw = _outline_law(law)
     part = getattr(airport, "partition", None)
     WHY.clear()
     WHY.update(min_m2=cluster_min_m2(law), touch_m=eps, floor_split_m=split,
@@ -193,13 +204,14 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     WHY["connectors_solid"] = sum(1 for v in verdicts if v.solid)
     key = id(airport)
     for k, ap, m0, e0, got in _MEMO:
-        if (k == key and ap is airport and m0 == (split, tall, sheet, cut)
+        if (k == key and ap is airport and m0 == (split, tall, sheet, cut, olaw)
                 and e0 == eps):
             return got
     counts: dict = {}
     got = tuple(plan_clusters(part, eps, floor_split_m=split,
                               chain_min_height_m=tall, counts=counts,
-                              sheet_chain_min_fraction=sheet, cut=cut))
+                              sheet_chain_min_fraction=sheet, cut=cut,
+                              outline_law=olaw))
     WHY["connectors_cut_out"] = counts.get("cluster_connectors_cut_out", 0)
     WHY["clusters"] = len(got)
     WHY["with_rings"] = sum(1 for c in got if c.rings)
@@ -208,7 +220,7 @@ def clusters(airport: Airport, law: Law) -> tuple[PlanCluster, ...]:
     WHY["walled_clusters"] = sum(1 for c in got if c.walled)
     if not got:
         WHY["gate"] = "plan_clusters: the partition's units hold no body"
-    _MEMO.append((key, airport, (split, tall, sheet, cut), eps, got))
+    _MEMO.append((key, airport, (split, tall, sheet, cut, olaw), eps, got))
     del _MEMO[:-_MEMO_MAX]
     return got
 

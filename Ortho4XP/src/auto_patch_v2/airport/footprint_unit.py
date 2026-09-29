@@ -1269,27 +1269,47 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     # share the pack's ONE authored datum — never each leg on its own
     # low-end contact, which put b0 at 93.12 and b1 at 76.75, 16.4 m
     # apart where they meet at the station, b1's piers buried 16.8 m.  The
-    # datum is the contact where the legs JOIN (the closest pair of ends
-    # across two legs, the lower of the two): that is where the pack's
-    # pieces meet each other, the plane they were authored on together.
-    # A single leg keeps its low end's contact (§16g (7) (2)).
+    # datum is the contact AT THE JOINT, where the legs meet each other —
+    # the plane the pack's pieces were authored on together: the joint is
+    # the midpoint of the closest pair of ends across two legs, and the
+    # contact is read under EACH leg's ground foot nearest it (an END box
+    # is a whole stretch of the leg — HECA's N leg's station end spans
+    # 360 m and its median ground, 89.23, is not the ground at the
+    # station, 93.3).  A single leg keeps its low end's contact (§16g (7)
+    # (2)).
     for mk, legs in sorted(_legs.items()):
         seat = None
         if len(legs) >= 2:
             best = None
             for i, (_c1, _u1, _d1, e1) in enumerate(legs):
                 for _c2, _u2, _d2, e2 in legs[i + 1:]:
-                    for da, ca in e1:
-                        for db, cb in e2:
+                    for _da, ca in e1:
+                        for _db, cb in e2:
                             g = _pb.box_gap_m((ca[0], ca[1], ca[0], ca[1]),
                                               (cb[0], cb[1], cb[0], cb[1]))
-                            lo = da if da[0] <= db[0] else db
                             if best is None or g < best[0]:
-                                best = (g, lo)
+                                best = (g, (0.5 * (ca[0] + cb[0]),
+                                            0.5 * (ca[1] + cb[1])))
+            probe = []
             if best is not None:
-                seat = best[1]
-                counts["connector_legs_one_seat"] = \
-                    counts.get("connector_legs_one_seat", 0) + len(legs)
+                jl, jo = best[1]
+                ml, mo = _ar._m_per_deg(jl)
+                for cn, _us, _d, _e in legs:
+                    ft = _feet_of(cn.pids)
+                    if ft:
+                        f = min(ft, key=lambda q: ((q[0] - jl) * ml) ** 2
+                                + ((q[1] - jo) * mo) ** 2)
+                        probe.append((f[0], f[1], f[0], f[1]))
+            if probe:
+                jd = plan_unit_datums(
+                    [PlanUnit(id="joint", bodies=(), pids=frozenset(),
+                              members=(), boxes=tuple(probe),
+                              area_m2=union_area_m2(probe))],
+                    plan, surface, pads, cluster_min_m2).get("joint")
+                if jd is not None:
+                    seat = jd
+                    counts["connector_legs_one_seat"] = \
+                        counts.get("connector_legs_one_seat", 0) + len(legs)
         us0 = sorted(us for _c, us, _d, _e in legs)[0] + "~joint"
         for cn, us, d, _e in legs:
             _write(cn, us0 if seat is not None else us,

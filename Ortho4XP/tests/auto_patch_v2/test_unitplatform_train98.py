@@ -119,7 +119,9 @@ def _two_leg_plan():
     """A (0-100 m) and B (400-500 m) joined by ONE member split by a
     station at 250 m into two legs: leg 1 plate 100-240 m on piers at
     100 and 230 m, leg 2 plate 260-400 m on piers at 260 and 398 m.
-    Ground: 110 at A's end, 120 around the station, 90 at B's end."""
+    Ground: 110 at A's end, 120 around the station, 100 on leg 2's
+    station-end stretch past 270 m (its END box median reads 110, not the
+    station), 90 at B's end."""
     a = _Member("objects/a.obj", [_ringed(_Part(1, 0, 100, 12.0))])
     b = _Member("objects/b.obj", [_ringed(_Part(2, 400, 500, 12.0))])
     lo = (-2.99960, -2.99940)
@@ -128,14 +130,16 @@ def _two_leg_plan():
              _ringed(_Part(12, 230, 232, 5.0, *lo)),
              _ringed(_Part(20, 260, 400, 0.0, *lo), 8.2),
              _ringed(_Part(21, 260, 262, 5.0, *lo)),
+             _ringed(_Part(23, 330, 332, 5.0, *lo)),
              _ringed(_Part(22, 398, 400, 5.0, *lo))]
     link = _Member("objects/rail.obj", parts)
     plan = _Plan((_Unit([a, b, link]),), ((10, 11), (10, 12), (20, 21),
-                                          (20, 22)))
+                                          (20, 23), (20, 22)))
 
     def ground(la, _lo):
         m = (la - 41.0) * 111_132.0
-        return 110.0 if m < 150 else (120.0 if m < 350 else 90.0)
+        return (110.0 if m < 150 else 120.0 if m < 270 else
+                100.0 if m < 350 else 90.0)
 
     def box(m0, m1):
         return ((_lat(m0), lo[0], _lat(m1), lo[1]),)
@@ -147,13 +151,15 @@ def _two_leg_plan():
             walled_gap_m=130.0, walled=False, deck=False, solid=False,
             own_a=box(a0, a1), own_b=box(b0, b1))
     plan.connectors = (leg((10, 11, 12), 99, 103, 229, 233),
-                       leg((20, 21, 22), 259, 263, 397, 401))
+                       leg((20, 21, 23, 22), 259, 333, 397, 401))
     return plan, ground
 
 
 def test_a_two_leg_linear_connector_has_one_seat():
     """29v (2): the legs share ONE datum — the contact where they join
-    (the station, 120) — never each leg's own low end (110 and 90)."""
+    (the station, 120, read under each leg's foot nearest the joint) —
+    never each leg's own low end (110 and 90), nor the median of a whole
+    end stretch (leg 2's station end reads 110)."""
     plan, ground = _two_leg_plan()
     counts: dict = {}
     pw, _s = FU.plan_wide_seats(plan, ground, (), 0.5, 0.0, counts,

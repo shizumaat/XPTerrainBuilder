@@ -91,7 +91,7 @@ def _offset_box(path, x0, x1, hz, depth, top):
                      if len(idx[k:k + 10]) == 10
                      else "IDX " + " ".join(str(i) for i in idx[k:k + 10]))
     lines.append(f"TRIS 0 {len(idx)}")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return path
 
 
@@ -105,7 +105,7 @@ def objs(tmp_path_factory, law):
     d = tmp_path_factory.mktemp("v2basin_pack") / "objects"
     d.mkdir()
     (d.parent / "Earth nav data").mkdir()
-    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n")
+    (d.parent / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8", newline="")
     dd = law.tables.structures.basin.admission_depth_m
     return {
         "dir": d,

@@ -54,13 +54,18 @@ STANDING = """\
 
 
 def _run(cmd: list[str]) -> str:
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     if r.returncode != 0:
         raise SystemExit(f"brief_pack: {' '.join(cmd)} failed:\n{r.stderr.strip()}")
     return r.stdout.rstrip("\n")
 
 
 def main(argv=None) -> int:
+    # UTF-8 on every OS: a piped stdout on Windows is cp1252 and the first
+    # non-ASCII character (→, −, §) raised UnicodeEncodeError (#92)
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--lane", required=True)
     ap.add_argument("--base", required=True, help="main sha the lane branches from")

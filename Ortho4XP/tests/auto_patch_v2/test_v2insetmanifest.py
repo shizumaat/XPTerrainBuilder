@@ -46,7 +46,7 @@ def _inset(tmp_path, name="KDFW_usgs3dep", sidecar=None):
     tif = tmp_path / f"{name}.tif"
     tif.write_bytes(b"\x00")
     if sidecar is not None:
-        (tmp_path / f"{name}.json").write_text(json.dumps(sidecar))
+        (tmp_path / f"{name}.json").write_text(json.dumps(sidecar), encoding="utf-8", newline="")
     return str(tif)
 
 
@@ -123,7 +123,7 @@ def test_an_unusable_sidecar_stays_none(tmp_path, sidecar):
 
 def test_a_corrupt_sidecar_does_not_raise(tmp_path):
     path = _inset(tmp_path)
-    (tmp_path / "KDFW_usgs3dep.json").write_text("{not json")
+    (tmp_path / "KDFW_usgs3dep.json").write_text("{not json", encoding="utf-8", newline="")
     dem = _dem([{"icao": "KDFW", "path": path, "native_resolution_m": None}])
     assert dem.source_pixel_m() == (None, "base_tier")
 

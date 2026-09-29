@@ -24,7 +24,7 @@ _ENGINE_TOP = {"auto_patch", "auto_patch_v2", "o4_engine"}
 
 def _requirement_names() -> set[str]:
     names = set()
-    for line in (ROOT / "requirements.txt").read_text().splitlines():
+    for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
         line = line.split("#", 1)[0].strip()
         if not line:
             continue
@@ -47,7 +47,7 @@ def _lazy_third_party_imports() -> dict[str, list[str]]:
     stdlib = set(sys.stdlib_module_names)
     found: dict[str, list[str]] = {}
     for py in sorted(SRC.rglob("*.py")):
-        tree = ast.parse(py.read_text(), filename=str(py))
+        tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue

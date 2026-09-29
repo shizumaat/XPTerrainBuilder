@@ -78,7 +78,7 @@ def test_every_phase_b_flag_read_in_source_is_registered():
     pat = re.compile(r"""O4_FABRIC_(?:W[23]|R[ABC])_[A-Z0-9_]+""")
     stray: dict = {}
     for path in _source_files():
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         for name in set(pat.findall(text)):
             if name not in FF.FLAG_INDEX:
                 stray.setdefault(name, []).append(path.name)
@@ -86,7 +86,7 @@ def test_every_phase_b_flag_read_in_source_is_registered():
 
 
 def test_every_registered_flag_is_consulted_somewhere():
-    blob = "\n".join(p.read_text() for p in _source_files())
+    blob = "\n".join(p.read_text(encoding="utf-8") for p in _source_files())
     for flag in FF.FLAGS:
         assert flag.env in blob, (
             f"{flag.env} is registered but nothing reads it — a flag with "

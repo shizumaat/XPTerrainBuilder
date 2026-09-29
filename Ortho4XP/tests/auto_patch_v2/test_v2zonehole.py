@@ -227,9 +227,9 @@ def test_a_sidecar_without_an_anchor_is_not_a_crash(tmp_path):
 
     import role_overlap_read as ROR
     patch = tmp_path / "X_auto.patch.osm"
-    patch.write_text(_two_face_patch())
+    patch.write_text(_two_face_patch(), encoding="utf-8", newline="")
     (tmp_path / "X_auto.patch.osm.axes.json").write_text(json.dumps(
-        {"ruleset": "icao", "face_holes": {}}))
+        {"ruleset": "icao", "face_holes": {}}), encoding="utf-8", newline="")
     res = ROR.read(patch, over="graded_strip", on="primary_parallel")
     assert res["anchor"] is None
     assert res["frame"] == "mean-of-nodes"
@@ -240,11 +240,11 @@ def test_the_containment_census_reads_the_ring_frame(tmp_path):
 
     import role_overlap_read as ROR
     patch = tmp_path / "X_auto.patch.osm"
-    patch.write_text(_two_face_patch())
+    patch.write_text(_two_face_patch(), encoding="utf-8", newline="")
     (tmp_path / "X_auto.patch.osm.axes.json").write_text(json.dumps(
         {"ruleset": "icao",
          "face_holes": {"1": [[[0.0002, 0.0002], [0.0002, 0.0006],
-                               [0.0006, 0.0006], [0.0006, 0.0002]]]}}))
+                               [0.0006, 0.0006], [0.0006, 0.0002]]]}}), encoding="utf-8", newline="")
     res = ROR.contained(patch, min_frac=0.95)
     assert res["contained"] == 1
     row = res["rows"][0]
@@ -355,13 +355,13 @@ def test_a_hole_holding_a_zone_strip_survives_the_emit_intact(tmp_path):
     # the caller's (stale) publication is superseded by the writer's own
     paths = A.write_patch(surf, law, tmp_path,
                           {"face_holes": A.face_holes_ll(surf0)})
-    side = json.loads(paths.sidecar.read_text())
+    side = json.loads(paths.sidecar.read_text(encoding="utf-8"))
     holes = side["face_holes"]
     assert list(holes) == ["1"] and len(holes["1"]) == 1, "one host, one hole"
     ring = [tuple(pt) for pt in holes["1"][0]]
     assert len(ring) == 4 and b_ll not in ring
     # the hole ring IS the emitted strip ring (same vertices, same identity)
-    text = paths.patch.read_text()
+    text = paths.patch.read_text(encoding="utf-8")
     assert f"lat='{b_ll[0]:.11f}'" not in text, "the merged vertex is not a node"
     assert _family_rows(paths.patch, holes) == []
 

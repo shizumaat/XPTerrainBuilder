@@ -91,7 +91,7 @@ def _gate_spellings_in_source() -> set:
     import re
     seen = set()
     for rel in _GATE_SOURCES:
-        seen |= set(re.findall(r"O4_PROBE_[A-Z_]+", (ROOT / rel).read_text()))
+        seen |= set(re.findall(r"O4_PROBE_[A-Z_]+", (ROOT / rel).read_text(encoding="utf-8")))
     return seen
 
 

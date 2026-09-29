@@ -37,20 +37,20 @@ def _make_pack(scenery_dir, name, tiles=(), apt_dat=None,
                                                   lon // 10 * 10))
         os.makedirs(group, exist_ok=True)
         with open(os.path.join(group, "%+03d%+04d.dsf" % (lat, lon)),
-                  "w") as f:
+                  "w", encoding="utf-8", newline="") as f:
             f.write("dsf")
     if apt_dat is not None:
-        with open(os.path.join(nav, "apt.dat"), "w") as f:
+        with open(os.path.join(nav, "apt.dat"), "w", encoding="utf-8", newline="") as f:
             f.write(apt_dat)
     if ter or images:
         terrain = os.path.join(pack, "terrain")
         os.makedirs(terrain, exist_ok=True)
         for index in range(ter):
-            open(os.path.join(terrain, "t%d.ter" % index), "w").close()
+            open(os.path.join(terrain, "t%d.ter" % index), "w", encoding="utf-8", newline="").close()
         for index in range(images):
-            open(os.path.join(terrain, "t%d.dds" % index), "w").close()
+            open(os.path.join(terrain, "t%d.dds" % index), "w", encoding="utf-8", newline="").close()
     if library:
-        open(os.path.join(pack, "library.txt"), "w").close()
+        open(os.path.join(pack, "library.txt"), "w", encoding="utf-8", newline="").close()
     return pack
 
 
@@ -115,7 +115,7 @@ def test_dsf_date_is_the_packs_own_file(tmp_path):
 def test_disabled_packs_are_reported_dimmed_not_hidden(tmp_path):
     scenery = _scenery_dir(tmp_path)
     _make_pack(scenery, "SomeMesh", tiles=[(45, 5)], ter=30, images=2)
-    with open(os.path.join(scenery, "scenery_packs.ini"), "w") as f:
+    with open(os.path.join(scenery, "scenery_packs.ini"), "w", encoding="utf-8", newline="") as f:
         f.write("SCENERY_PACK Custom Scenery/Other/\n"
                 "SCENERY_PACK_DISABLED Custom Scenery/SomeMesh/\n")
     assert PACKS.disabled_pack_names(scenery) == {"SomeMesh"}

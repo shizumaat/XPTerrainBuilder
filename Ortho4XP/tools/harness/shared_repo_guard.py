@@ -22,7 +22,6 @@ UNCHANGED.
 """
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -30,6 +29,22 @@ import re
 import time
 from pathlib import Path
 
+
+
+def _load_flock():
+    import importlib.util as _ilu
+    import sys as _sys
+    _m = _sys.modules.get("_o4_portable_flock")
+    if _m is None:
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portable_flock.py")
+        _s = _ilu.spec_from_file_location("_o4_portable_flock", _p)
+        _m = _ilu.module_from_spec(_s)
+        _sys.modules["_o4_portable_flock"] = _m
+        _s.loader.exec_module(_m)
+    return _m
+
+
+_flock = _load_flock()   # fcntl on POSIX, msvcrt on Windows (#92)
 
 #: THE shared data repo (owner ruling e9daef5).  Every lane mounts it; no
 #: lane redownloads or regenerates a cache into a private corpus.
@@ -485,9 +500,9 @@ def record_refresh(scope: str, changes: dict, meta: dict,
               "removed": changes["removed"], "files": stamps, **meta}
     REFRESH_LEDGER.parent.mkdir(parents=True, exist_ok=True)
     with open(REFRESH_LEDGER, "a") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        _flock.lock(fh.fileno())
         fh.write(json.dumps(record) + "\n")
-        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        _flock.unlock(fh.fileno())
     return record
 
 
@@ -963,7 +978,9 @@ class SharedRepoWriteGuard:
             ap = real_s
         try:                                   # follow the lane's symlinks
             real = Path(ap).resolve()
-            rel = str(real.relative_to(self.repo.resolve()))
+            # '/'-spelled on every OS: every scope/lock/allowance table
+            # below is written with '/' (#92)
+            rel = real.relative_to(self.repo.resolve()).as_posix()
         except (OSError, ValueError):
             return None                        # not in the shared repo
         if rel.startswith(".harness"):

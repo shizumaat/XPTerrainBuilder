@@ -88,7 +88,7 @@ def _run_stringing(tmp_path, monkeypatch):
                              m_to_ll=lambda x, y: (30.0 + y / 1e5,
                                                    31.0 + x / 1e5))
     GG._write_service_stringing_diag(layout, G)
-    return json.loads(out.read_text())
+    return json.loads(out.read_text(encoding="utf-8"))
 
 
 def test_the_stringing_diagnostic_classifies_every_known_case(tmp_path,
@@ -191,7 +191,7 @@ def test_the_band_counterfactual_names_exactly_the_lost_node(tmp_path,
         "groundside_reach_band", _fake_builder)
     band = _fake_builder(layout, G)
     GS._service_edge_counterfactual(layout, G, band)
-    rec = json.loads(out.read_text())
+    rec = json.loads(out.read_text(encoding="utf-8"))
     assert rec["sources_full"] == 3
     assert rec["sources_no_service_edges"] == 2
     assert rec["lost_band_entirely"] == 1

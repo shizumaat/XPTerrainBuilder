@@ -78,10 +78,10 @@ class _Patch:
         path.write_text(
             "<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"
             + "\n".join(self.nodes) + "\n" + "\n".join(self.ways)
-            + "\n</osm>\n")
+            + "\n</osm>\n", encoding="utf-8", newline="")
         if sidecar:
             (path.parent / (path.name + ".axes.json")).write_text(
-                json.dumps({"anchor": list(ANCHOR), "ruleset": "icao"}))
+                json.dumps({"anchor": list(ANCHOR), "ruleset": "icao"}), encoding="utf-8", newline="")
         return path
 
 
@@ -348,6 +348,6 @@ def test_the_cli_writes_its_json(tmp_path, capsys):
     path = patch.write(tmp_path / "cli.osm")
     out = tmp_path / "voids.json"
     assert VC.main([str(path), "--json", str(out)]) == 0
-    data = json.loads(out.read_text())
+    data = json.loads(out.read_text(encoding="utf-8"))
     assert len(data) == 1 and data[0]["voids"] == 1
     assert "voids=1" in capsys.readouterr().out

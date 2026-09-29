@@ -5,7 +5,7 @@ from collections import defaultdict
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-recs = [json.loads(l) for l in open(os.path.join(HERE, sys.argv[1] if len(sys.argv) > 1 else "results.jsonl"))]
+recs = [json.loads(l) for l in open(os.path.join(HERE, sys.argv[1] if len(sys.argv) > 1 else "results.jsonl"), encoding="utf-8")]
 by = defaultdict(list)
 for r in recs:
     by[(r["n"], r["kind"], r["arm"])].append(r)

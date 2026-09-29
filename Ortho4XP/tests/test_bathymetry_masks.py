@@ -548,7 +548,7 @@ def _write_minimal_mesh(tile, filler_count=150):
     triangle_lines = ["1 2 3 2"] + ["1 1 1 0"] * filler_count
     lines += ["", "Triangles", str(len(triangle_lines))] + triangle_lines
     mesh_path = FNAMES.mesh_file(tile.build_dir, lat, lon)
-    with open(mesh_path, "w") as mesh_file:
+    with open(mesh_path, "w", encoding="utf-8", newline="") as mesh_file:
         mesh_file.write("\n".join(lines) + "\n")
     return mesh_path
 

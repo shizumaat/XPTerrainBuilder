@@ -282,9 +282,9 @@ class _Patch:
             out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
             out.append("  </way>")
         out.append("</osm>")
-        path.write_text("\n".join(out) + "\n")
+        path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
         Path(str(path) + ".axes.json").write_text(json.dumps(
-            {"anchor": list(ANCHOR), "ruleset": "icao"}))
+            {"anchor": list(ANCHOR), "ruleset": "icao"}), encoding="utf-8", newline="")
         return path
 
 

@@ -24,7 +24,7 @@ def test_the_quantities_are_the_modules_own_and_never_re_spelled():
     bound is its own reader — a private re-derivation is the
     census-wrapper defect (CLAUDE.md)."""
     from auto_patch_v2.constraints import pad_frontage_gs as G
-    src = (ROOT / "tools" / "pad_frontage_step.py").read_text()
+    src = (ROOT / "tools" / "pad_frontage_step.py").read_text(encoding="utf-8")
     for name in ("pair_dem_step_m", "pad_airside_frontage",
                  "pad_area_weighted_dem", "frontage_step_max_m",
                  "_groundside_geoms", "frontage_radius_m"):
@@ -71,6 +71,6 @@ def test_the_table_is_the_relations_own_population(tmp_path):
 def test_the_tool_is_in_the_index():
     """RULINGS `7e90032`: a tool absent from `tools/INDEX.md` is treated as
     absent, and every new tool lands with its index entry."""
-    index = (ROOT.parent / "tools" / "INDEX.md").read_text()
+    index = (ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "Ortho4XP/tools/pad_frontage_step.py" in index
     assert "tests/test_pad_frontage_step.py" in index

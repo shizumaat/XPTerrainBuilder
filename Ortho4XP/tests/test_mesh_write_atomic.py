@@ -41,7 +41,7 @@ def _make_tile(build_directory) -> types.SimpleNamespace:
 def _seed_ele_file(tile) -> None:
     """Write the Triangle4XP ``.ele`` output ``write_mesh_file`` reads:
     a count header, then one ``index v1 v2 v3 type`` row per triangle."""
-    with open(FNAMES.output_ele_file(tile), "w") as handle:
+    with open(FNAMES.output_ele_file(tile), "w", encoding="utf-8", newline="") as handle:
         handle.write("2 3 1\n")
         handle.write("1 1 2 3 0\n")
         handle.write("2 1 3 4 0\n")
@@ -66,7 +66,7 @@ def _square_vertices() -> list[float]:
 
 
 def _assert_mesh_file_complete(mesh_path: str) -> None:
-    with open(mesh_path, "r") as handle:
+    with open(mesh_path, "r", encoding="utf-8") as handle:
         lines = handle.read().splitlines()
     assert lines[0] == "MeshVersionFormatted 2"
     vertex_header_index = lines.index("Vertices")
@@ -131,7 +131,7 @@ def test_write_mesh_file_overwrite_keeps_old_mesh_readable(
     _seed_ele_file(tile)
     final_mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
     stale_content = "MeshVersionFormatted 2\nstale but complete\n"
-    with open(final_mesh_path, "w") as handle:
+    with open(final_mesh_path, "w", encoding="utf-8", newline="") as handle:
         handle.write(stale_content)
 
     observed = {}
@@ -140,7 +140,7 @@ def test_write_mesh_file_overwrite_keeps_old_mesh_readable(
     def spying_replace(source, destination):
         # Right up to the swap, a reader of the final path still gets
         # the intact previous mesh.
-        with open(destination, "r") as handle:
+        with open(destination, "r", encoding="utf-8") as handle:
             observed["content_at_replace_time"] = handle.read()
         real_replace(source, destination)
 

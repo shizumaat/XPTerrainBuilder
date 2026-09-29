@@ -25,13 +25,13 @@ import no_step_term_split as NTS                           # noqa: E402
 def _rows(tmp_path, rows):
     p = tmp_path / "rows.json"
     p.write_text(json.dumps({"patch": "x.osm", "n_rows": len(rows),
-                             "rows": rows}))
+                             "rows": rows}), encoding="utf-8", newline="")
     return p
 
 
 def _sidecar(tmp_path, edges):
     p = tmp_path / "x.osm.axes.json"
-    p.write_text(json.dumps({"airside_no_step_edges": edges}))
+    p.write_text(json.dumps({"airside_no_step_edges": edges}), encoding="utf-8", newline="")
     return p
 
 
@@ -91,7 +91,7 @@ def test_a_pre_amendment_publication_reports_None_for_the_split(tmp_path):
 
 
 def test_it_counts_nothing_itself():
-    src = Path(NTS.__file__).read_text()
+    src = Path(NTS.__file__).read_text(encoding="utf-8")
     assert "run_checks" not in src
     assert "_parse_osm" not in src
     assert NTS.FAMILY == "airside_no_step"
@@ -105,9 +105,9 @@ def test_the_CLI_json_IS_the_library_result(tmp_path):
                                 "budget_m": 1.0, "imposed": True}])
     out = tmp_path / "o.json"
     assert NTS.main([str(rows), str(side), "--json", str(out)]) == 0
-    assert json.loads(out.read_text()) == NTS.split(rows, side)
+    assert json.loads(out.read_text(encoding="utf-8")) == NTS.split(rows, side)
 
 
 def test_the_index_row_exists():
-    idx = (_ROOT.parent / "tools" / "INDEX.md").read_text()
+    idx = (_ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "Ortho4XP/tools/no_step_term_split.py" in idx

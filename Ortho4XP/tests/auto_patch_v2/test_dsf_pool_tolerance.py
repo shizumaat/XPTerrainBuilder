@@ -88,7 +88,7 @@ def test_a_zero_byte_dump_is_never_served(tmp_path):
     os.utime(keyed, (st.st_atime + 60, st.st_mtime + 60))
     assert D.find_text_dump(str(root), "P", 47, 7, dsf_path=str(dsf)) is None
     assert D.find_text_dump(str(root), "P", 47, 7) is None
-    keyed.write_text("A\n800\nDSF2TEXT\n")
+    keyed.write_text("A\n800\nDSF2TEXT\n", encoding="utf-8", newline="")
     os.utime(keyed, (st.st_atime + 60, st.st_mtime + 60))
     assert D.find_text_dump(str(root), "P", 47, 7, dsf_path=str(dsf)) == str(keyed)
 
@@ -104,7 +104,7 @@ def test_the_v1_reader_regenerates_a_zero_byte_cached_dump(tmp_path, monkeypatch
 
     def _fake_run(cmd, **kw):
         ran.append(cmd)
-        Path(cmd[-1]).write_text("A\n800\nDSF2TEXT\n")
+        Path(cmd[-1]).write_text("A\n800\nDSF2TEXT\n", encoding="utf-8", newline="")
         return subprocess.CompletedProcess(cmd, 0, b"", b"")
 
     monkeypatch.setattr(R, "_dsftool_path", lambda: "/fixture/DSFTool")

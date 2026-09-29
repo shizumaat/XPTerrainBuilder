@@ -206,7 +206,7 @@ class TestDeckClearanceCorridorYieldsToAMappedBore:
              "lat": 40.4982699, "lon": -3.5850514}]
         out = tmp_path / "p.osm"
         lay.to_osm(str(out))
-        data = json.loads((tmp_path / "p.osm.axes.json").read_text())
+        data = json.loads((tmp_path / "p.osm.axes.json").read_text(encoding="utf-8"))
         assert data["object_corridor_suppressions"][0]["contract"] == \
             "TERRAIN_CARRIED"
 
@@ -216,7 +216,7 @@ class TestDeckClearanceCorridorYieldsToAMappedBore:
         lay = PavementLayout(icao="LEMD", anchor=(40.5, -3.58))
         out = tmp_path / "p.osm"
         lay.to_osm(str(out))
-        data = json.loads((tmp_path / "p.osm.axes.json").read_text())
+        data = json.loads((tmp_path / "p.osm.axes.json").read_text(encoding="utf-8"))
         assert data["object_corridor_suppressions"] == []
 
 
@@ -519,7 +519,7 @@ class TestTheVetoIsRecordedNotThrownAway:
         ]
         out = tmp_path / "p.osm"
         lay.to_osm(str(out))
-        data = json.loads((tmp_path / "p.osm.axes.json").read_text())
+        data = json.loads((tmp_path / "p.osm.axes.json").read_text(encoding="utf-8"))
         assert "tunnel_vetoes" in data, (
             "written UNCONDITIONALLY so 'nothing was refused' ([]) is "
             "distinguishable from 'this patch predates the register'")
@@ -531,7 +531,7 @@ class TestTheVetoIsRecordedNotThrownAway:
         lay = PavementLayout(icao="LEMD", anchor=(40.5, -3.58))
         out = tmp_path / "p.osm"
         lay.to_osm(str(out))
-        data = json.loads((tmp_path / "p.osm.axes.json").read_text())
+        data = json.loads((tmp_path / "p.osm.axes.json").read_text(encoding="utf-8"))
         assert data["tunnel_vetoes"] == []
 
 

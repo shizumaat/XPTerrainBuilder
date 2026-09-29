@@ -164,6 +164,11 @@ def index_full(sub: str) -> str:
 
 
 def main(argv=None) -> int:
+    # UTF-8 on every OS: a piped stdout on Windows is cp1252 and the first
+    # non-ASCII character (→, −, §) raised UnicodeEncodeError (#92)
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("spec"); s.add_argument("key", nargs="?"); s.add_argument("--list", action="store_true"); s.add_argument("--object", action="store_true")

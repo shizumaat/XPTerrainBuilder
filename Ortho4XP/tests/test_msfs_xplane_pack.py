@@ -61,7 +61,7 @@ def _write_apt_dat(directory: Path) -> Path:
         ]
     )
     apt_dat_path = directory / "apt.dat"
-    apt_dat_path.write_text(text, encoding="utf-8")
+    apt_dat_path.write_text(text, encoding="utf-8", newline="")
     return apt_dat_path
 
 
@@ -141,7 +141,7 @@ def test_find_airport_near_falls_back_to_runway(tmp_path):
         ]
     )
     apt_dat_path = tmp_path / "apt.dat"
-    apt_dat_path.write_text("I\n1100 x\n" + block + "\n99\n", encoding="utf-8")
+    apt_dat_path.write_text("I\n1100 x\n" + block + "\n99\n", encoding="utf-8", newline="")
     midpoint_latitude = (10.0 + 10.01) / 2.0
     midpoint_longitude = (20.0 + 20.01) / 2.0
     assert (
@@ -161,7 +161,7 @@ def test_find_airport_near_falls_back_to_helipad(tmp_path):
         ]
     )
     apt_dat_path = tmp_path / "apt.dat"
-    apt_dat_path.write_text("I\n1100 x\n" + block + "\n99\n", encoding="utf-8")
+    apt_dat_path.write_text("I\n1100 x\n" + block + "\n99\n", encoding="utf-8", newline="")
     assert (
         PACK.find_airport_near(apt_dat_path, 51.5001, -0.1001, max_kilometers=5.0)
         == "DDDD"

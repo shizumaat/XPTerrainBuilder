@@ -130,7 +130,7 @@ def _mini(tmp_path):
         "<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"
         + nd +
         f"  <way id='-900'>\n{refs}    <nd ref='-1' />\n"
-        "    <tag k='role' v='apron' />\n  </way>\n</osm>\n")
+        "    <tag k='role' v='apron' />\n  </way>\n</osm>\n", encoding="utf-8", newline="")
     a = fwd(*ring[0])
     b = fwd(*ring[2])
     rows = {"rows": [
@@ -146,7 +146,7 @@ def _mini(tmp_path):
          "way_b": "-900"},
     ]}
     rj = tmp_path / "rows.json"
-    rj.write_text(json.dumps(rows))
+    rj.write_text(json.dumps(rows), encoding="utf-8", newline="")
     sc = tmp_path / "MINI_auto.patch.osm.axes.json"
     sc.write_text(json.dumps({
         "anchor": list(ANCHOR),
@@ -154,7 +154,7 @@ def _mini(tmp_path):
                        "unified:apron:spine"]],
         "apron_seniority": [[ring[0][0], ring[0][1], "senior"],
                             [ring[1][0], ring[1][1], "interior"]],
-    }))
+    }), encoding="utf-8", newline="")
     return patch, rj
 
 
@@ -185,7 +185,7 @@ def test_every_value_written_is_the_censuss_own(tmp_path):
                 if any(t.get("k") == "trouble" for t in w.findall("tag"))]
     tags = {t.get("k"): t.get("v")
             for t in row_ways[0].findall("tag")}
-    src = json.loads(rows.read_text())["rows"][0]
+    src = json.loads(rows.read_text(encoding="utf-8"))["rows"][0]
     assert tags["family"] == src["family"]
     assert tags["roles"] == src["roles"]
     assert tags["side"] == src["side"]
@@ -205,7 +205,7 @@ def test_the_row_chord_lands_back_on_its_own_coordinates(tmp_path):
     w = [w for w in root.findall("way")
          if any(t.get("k") == "trouble" for t in w.findall("tag"))][0]
     a = by_id[w.findall("nd")[0].get("ref")]
-    src = json.loads(rows.read_text())["rows"][0]
+    src = json.loads(rows.read_text(encoding="utf-8"))["rows"][0]
     inv = TO.m_to_ll_factory(ANCHOR)
     want = inv(*src["site_m"][0])
     assert float(a.get("lat")) == pytest.approx(want[0], abs=1e-9)
@@ -252,14 +252,14 @@ def test_groundside_rows_are_kept_only_for_airside_families(tmp_path):
     """The brief's own scoping — airside rows plus the groundside rows of the
     SAME families, so the file stays readable."""
     patch, rows = _mini(tmp_path)
-    d = json.loads(rows.read_text())
+    d = json.loads(rows.read_text(encoding="utf-8"))
     d["rows"].append({
         "family": "lateral_contiguity", "roles": "service_road|service_road",
         "side": "groundside", "magnitude_m": 0.1, "grade_pct": 9.0,
         "cap_pct": 8.0, "distance_m": 3.0,
         "site_m": [[0.0, 0.0], [3.0, 0.0]], "lat": 30.11, "lon": 31.41,
         "way_a": "-901", "way_b": "-901"})
-    rows.write_text(json.dumps(d))
+    rows.write_text(json.dumps(d), encoding="utf-8", newline="")
     rep = TO.build(patch, rows, tmp_path / "out", icao="MINI")
     assert rep["rows"] == 2, (
         "a groundside-only family must not reach the file")
@@ -286,7 +286,7 @@ def _findings(tmp_path):
                 [30.14, 31.44], [30.1401, 31.44], [30.1401, 31.4401]],
              "tags": {"way_ref": "-10555", "role": "apron"}},
             {"cls": "road_break", "kind": "node", "tags": {"way_ref": "-1"}},
-        ]}))
+        ]}), encoding="utf-8", newline="")
     return p
 
 

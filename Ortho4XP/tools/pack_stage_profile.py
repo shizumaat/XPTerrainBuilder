@@ -31,7 +31,10 @@ import argparse
 import dataclasses as _dc
 import json
 import os
-import resource
+try:
+    import resource          # POSIX only; absent on Windows (#92)
+except ImportError:
+    resource = None
 import statistics
 import subprocess
 import sys
@@ -159,7 +162,8 @@ def run_once(icao: str, cache_on: bool, out_dir: Path,
         "counts": {k: int(part.counts.get(k, 0)) for k in COUNT_KEYS},
         "groups": {k: int(grp.counts.get(k, 0)) for k in GROUP_KEYS},
         "clusters": len(ps["clusters"]),
-        "max_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2),
+        "max_rss_gb": (round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9, 2)
+                       if resource is not None else None),
         "cache_lines": [ln.strip() for ln in lines if "[partition] cache" in ln],
     }
     if pickle_out is not None:

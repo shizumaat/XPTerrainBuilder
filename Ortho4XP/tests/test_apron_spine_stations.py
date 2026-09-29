@@ -765,13 +765,13 @@ def test_the_membrane_family_joins_station_ways_too(tmp_path):
                "    <tag k='o4_feature' v='apron_spine_station'/>\n"
                "  </way>\n</osm>\n")
     p = tmp_path / "st.osm"
-    p.write_text("".join(txt))
+    p.write_text("".join(txt), encoding="utf-8", newline="")
     edges = [{"a": [lat0, lon0], "b": [lat0, lon0 + dlon],
               "budget_m": 0.10, "shapeID": 3,
               "provenance": "apron_spine_station"}]
     (tmp_path / "st.osm.axes.json").write_text(json.dumps(
         {"anchor": list(ANCHOR), "ruleset": "icao",
-         "apron_lattice_edges": edges}))
+         "apron_lattice_edges": edges}), encoding="utf-8", newline="")
     nodes, ways, feats = _parse_with_features(p)
     to_m = CG._ll_to_m_factory(nodes, ANCHOR)
     join = (list(feats.get("apron_lattice", []))
@@ -1100,7 +1100,7 @@ def _emit_and_parse(layout):
         path = f.name
     try:
         layout.to_osm(path)
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
     finally:
         for p in (Path(path), Path(path + ".axes.json")):
             if p.exists():

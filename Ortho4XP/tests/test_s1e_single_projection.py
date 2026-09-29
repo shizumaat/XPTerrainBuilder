@@ -40,7 +40,7 @@ _PROJECTION_NAMES = frozenset({"final_grade_projection", "_late_fgp"})
 
 
 def _pipeline_tree() -> ast.AST:
-    return ast.parse(_PIPELINE.read_text())
+    return ast.parse(_PIPELINE.read_text(encoding="utf-8"))
 
 
 # ── (1) ONE PROJECTION ───────────────────────────────────────────────────
@@ -261,7 +261,7 @@ def test_the_seam_ledger_dump_is_the_report_s_own_log(tmp_path,
     monkeypatch.setenv("O4_GEOM_SEAM_AUDIT_JSON", str(dest))
     GG.seam_report(layout, "TEST")
     assert dest.exists(), "the armed audit must write the ledger it prints"
-    got = json.loads(dest.read_text())
+    got = json.loads(dest.read_text(encoding="utf-8"))
     assert got["icao"] == "TEST"
     assert got["seams"] == log, (
         "the dump must be the report's own ledger, verbatim — a second "

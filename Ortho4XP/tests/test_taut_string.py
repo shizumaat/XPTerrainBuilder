@@ -504,7 +504,7 @@ def _chord1_fixture():
     import pathlib
     p = (pathlib.Path(__file__).parent / "fixtures"
          / "heca_chord1_authorship.json")
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 class _Pts:
@@ -1722,7 +1722,7 @@ def test_sidecar_is_written_after_the_grip_filter_stamps_it(tmp_path):
     for r in inv["pins"]:
         r["grip"] = "kept"
     assert write_string_sidecar(layout, str(dump)) == str(dump)
-    side = json.loads((tmp_path / "w.csv.domains.json").read_text())
+    side = json.loads((tmp_path / "w.csv.domains.json").read_text(encoding="utf-8"))
     assert side["n_over_cap_pairs"] == 7
     assert side["pins"] and all(r["grip"] == "kept" for r in side["pins"])
     assert (tmp_path / "w.csv").exists()              # endpoint witness CSV

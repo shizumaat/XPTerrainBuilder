@@ -91,7 +91,7 @@ def _write_tile_cfg(window, lat, lon, website=None, zoomlevel=None):
         lines.append("default_website=%s" % website)
     if zoomlevel is not None:
         lines.append("default_zl=%s" % zoomlevel)
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("\n".join(lines) + "\n")
 
 

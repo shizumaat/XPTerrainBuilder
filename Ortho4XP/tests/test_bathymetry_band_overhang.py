@@ -172,7 +172,7 @@ def test_overhang_cell_fetches_into_owner_directory(monkeypatch):
     assert any("@" not in stem for stem in stems)
     # The VRT mosaics both cells (the overhang one lives in another
     # directory).
-    with open(band_vrt) as handle:
+    with open(band_vrt, encoding="utf-8") as handle:
         vrt_text = handle.read()
     assert os.path.basename(_in_tile_cell_path()) in vrt_text
     assert "N01E000_bathymetry_band" in vrt_text
@@ -192,7 +192,7 @@ def test_overhang_reuses_owner_cell_without_fetch(monkeypatch):
     assert band_vrt is not None
     assert len(fetch_calls) == 1
     assert fetch_calls[0][1] < 1.0  # the in-tile cell
-    with open(band_vrt) as handle:
+    with open(band_vrt, encoding="utf-8") as handle:
         assert "N01E000_bathymetry_band" in handle.read()
 
 

@@ -79,7 +79,7 @@ def _canopy_obj(path, rise: float = 2.4):
         lines.append(("IDX10 " if len(chunk) == 10 else "IDX ")
                      + " ".join(str(i) for i in chunk))
     lines.append(f"TRIS 0 {len(idx)}")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return str(path)
 
 

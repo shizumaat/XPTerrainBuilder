@@ -69,7 +69,7 @@ def store(tmp_path, monkeypatch):
         ],
     }
     os.makedirs(directory, exist_ok=True)
-    with open(os.path.join(directory, "index-v1.json"), "w") as index_file:
+    with open(os.path.join(directory, "index-v1.json"), "w", encoding="utf-8", newline="") as index_file:
         json.dump(index, index_file)
     yield directory
     EXTRACTS._leaf_regions.cache = None
@@ -479,7 +479,7 @@ class TestDownloadCancellation:
         assert not os.path.isfile(
             EXTRACTS._region_file("portugal") + ".tmp")
         assert not os.path.isfile(EXTRACTS._region_file("portugal"))
-        with open(os.path.join(store, "wanted.json")) as wanted_file:
+        with open(os.path.join(store, "wanted.json"), encoding="utf-8") as wanted_file:
             assert json.load(wanted_file) == ["portugal"]
 
     def test_without_red_flag_download_completes(self, store, monkeypatch):
@@ -635,7 +635,7 @@ class TestClipCutterDispatch:
             '</osm>\n'
         )
         xml_path = tmp_path / ("%s_source.osm" % region_id)
-        xml_path.write_text(body)
+        xml_path.write_text(body, encoding="utf-8", newline="")
         target = EXTRACTS._region_file(region_id)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         FILTER.clip_extracts_to_pbf(
@@ -677,7 +677,7 @@ class TestClipCutterDispatch:
             '</osm>\n'
         )
         xml_path = tmp_path / "spain_source.osm"
-        xml_path.write_text(body)
+        xml_path.write_text(body, encoding="utf-8", newline="")
         second = EXTRACTS._region_file("spain")
         os.makedirs(os.path.dirname(second), exist_ok=True)
         FILTER.clip_extracts_to_pbf(
@@ -775,7 +775,7 @@ class TestOsmiumBinaryDiscovery:
         bundled_dir = tmp_path / "Utils" / subdirectory
         bundled_dir.mkdir(parents=True)
         stub = bundled_dir / name
-        stub.write_text("#!/bin/sh\n")
+        stub.write_text("#!/bin/sh\n", encoding="utf-8", newline="")
         stub.chmod(0o755)
         monkeypatch.setattr(FNAMES, "Utils_dir", str(tmp_path / "Utils"))
         monkeypatch.setattr(
@@ -797,7 +797,7 @@ class TestOsmiumBinaryDiscovery:
         bundled_dir.mkdir(parents=True)
         for name in ("osmium", "osmium-aarch64"):
             stub = bundled_dir / name
-            stub.write_text("#!/bin/sh\n")
+            stub.write_text("#!/bin/sh\n", encoding="utf-8", newline="")
             stub.chmod(0o755)
         monkeypatch.setattr(EXTRACTS.sys, "platform", "linux")
         monkeypatch.setattr(platform, "machine", lambda: "aarch64")

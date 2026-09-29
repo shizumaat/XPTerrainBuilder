@@ -63,7 +63,7 @@ def _write(path, vt, tris, hard=()):
     if deck:
         lines.append("ATTR_hard_deck concrete")
         lines.append(f"TRIS {3 * len(soft)} {3 * len(deck)}")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return str(path)
 
 

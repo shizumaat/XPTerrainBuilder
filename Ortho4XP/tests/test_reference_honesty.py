@@ -144,7 +144,7 @@ def test_branch_rigid_gate_off_is_the_landed_pointwise_behaviour():
 
 def test_the_corridor_ref_string_path_is_gone():
     import auto_patch.elevation_per_surface.route_profile.solve as SV
-    src = open(SV.__file__).read()
+    src = open(SV.__file__, encoding="utf-8").read()
     assert 'environ.get("O4_CORRIDOR_REF_STRING"' not in src
     assert not hasattr(SV, "_rod_string_values")
 

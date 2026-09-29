@@ -34,3 +34,4 @@ Ortho4XP/version_info.txt
 
 # scripts/check_frozen_tile.py default --logs dir (local runs)
 frozen-tile-logs/
+Ortho4XP/.corpus_snapshot_mounts.json

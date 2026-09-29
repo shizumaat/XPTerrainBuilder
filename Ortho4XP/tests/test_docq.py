@@ -27,7 +27,8 @@ import frames  # noqa: E402
 
 def _cli(*args):
     return subprocess.run([sys.executable, os.path.join(TOOLS, "docq.py"), *args],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8")
 
 
 def test_spec_section_returns_the_section_and_all_its_sub_blocks():
@@ -110,7 +111,7 @@ def test_frames_registry_round_trip(tmp_path, monkeypatch):
         frames.register("KCLT", "bogus", str(p), "x", "y")
     p.unlink()
     assert frames.latest("KCLT", "capture") is None   # a vanished path is never served
-    assert json.loads(reg.read_text().splitlines()[0])["lane"] == "v2test"
+    assert json.loads(reg.read_text(encoding="utf-8").splitlines()[0])["lane"] == "v2test"
 
 
 def _durable(tmp_path, monkeypatch):
@@ -143,7 +144,9 @@ def test_frames_register_refuses_a_tmp_path_naming_the_durable_root(tmp_path, mo
     empty (a row pointing at a path the next reboot purges is the defect)."""
     reg, durable = _durable(tmp_path, monkeypatch)
     import tempfile
-    with tempfile.TemporaryDirectory(dir="/tmp") as td:   # deliberately /tmp
+    # deliberately /tmp; the OS temp dir where there is no /tmp (Windows, #92)
+    with tempfile.TemporaryDirectory(
+            dir="/tmp" if os.path.isdir("/tmp") else None) as td:
         p = os.path.join(td, "KCLT.pkl")
         open(p, "wb").write(b"x")
         with pytest.raises(SystemExit) as exc:
@@ -168,14 +171,14 @@ def test_frames_register_copy_lands_under_the_lane_and_keeps_the_original(tmp_pa
     src = tmp_path / "scratch"; src.mkdir()
     # a file, and a patch WITH its sidecar (the census needs both)
     patch = src / "KCLT.patch.osm"; patch.write_bytes(b"<osm/>")
-    (src / "KCLT.patch.osm.axes.json").write_text('{"ruleset": "FAA"}')
+    (src / "KCLT.patch.osm.axes.json").write_text('{"ruleset": "FAA"}', encoding="utf-8", newline="")
     rec = frames.register("kclt", "patch", str(patch), "864e7577", "v2test", copy=True)
     assert rec["path"] == str(durable / "v2test" / "KCLT.patch.osm")
     assert rec["copied_from"] == str(patch)
     assert frames.is_durable(rec["path"])
-    assert (durable / "v2test" / "KCLT.patch.osm.axes.json").read_text() == '{"ruleset": "FAA"}'
+    assert (durable / "v2test" / "KCLT.patch.osm.axes.json").read_text(encoding="utf-8") == '{"ruleset": "FAA"}'
     assert frames.latest("KCLT", "patch")["path"] == rec["path"]
-    assert json.loads(reg.read_text().splitlines()[0])["copied_from"] == str(patch)
+    assert json.loads(reg.read_text(encoding="utf-8").splitlines()[0])["copied_from"] == str(patch)
     # a directory product (a capture dir) copies whole
     cap = src / "cap"; cap.mkdir(); (cap / "stage.pkl").write_bytes(b"s")
     rec = frames.register("KCLT", "capture", str(cap), "864e7577", "v2test", copy=True)
@@ -208,17 +211,18 @@ def test_frames_list_marks_a_vanished_path_missing(tmp_path, monkeypatch, capsys
     out = capsys.readouterr().out
     assert "[MISSING]" in out and str(p) in out
     # ...and the rows written before this law are read, never rewritten
-    assert reg.read_text().count("\n") == 1
+    assert reg.read_text(encoding="utf-8").count("\n") == 1
 
 
 def test_brief_pack_assembles_from_the_tools(tmp_path):
-    notes = tmp_path / "n.md"; notes.write_text("Do the thing.")
-    bars = tmp_path / "b.md"; bars.write_text("- bar one")
+    notes = tmp_path / "n.md"; notes.write_text("Do the thing.", encoding="utf-8", newline="")
+    bars = tmp_path / "b.md"; bars.write_text("- bar one", encoding="utf-8", newline="")
     r = subprocess.run([sys.executable, os.path.join(TOOLS, "brief_pack.py"),
                         "--lane", "v2test", "--base", "abcdef12", "--spec", "§37 (6)",
                         "--rulings", "13aj", "--index", "road_terrain_conformance",
                         "--notes", str(notes), "--bars", str(bars)],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True,
+                          encoding="utf-8")
     assert r.returncode == 0, r.stderr
     out = r.stdout
     assert out.startswith("# Brief pack — lane `v2test`")

@@ -42,11 +42,11 @@ def _dlon(metres):
 def _write(tmp_path, name, nodes, segments):
     """A Triangle ``.node``/``.poly`` pair in TILE-RELATIVE degrees."""
     prefix = tmp_path / name
-    with open(str(prefix) + ".node", "w") as fh:
+    with open(str(prefix) + ".node", "w", encoding="utf-8", newline="") as fh:
         fh.write(f"{len(nodes)} 2 1 0\n")
         for i, (x, y) in enumerate(nodes, start=1):
             fh.write(f"{i} {x!r} {y!r} 0\n")
-    with open(str(prefix) + ".poly", "w") as fh:
+    with open(str(prefix) + ".poly", "w", encoding="utf-8", newline="") as fh:
         fh.write(f"0 2 1 0\n{len(segments)} 1\n")
         for i, (a, b, mk) in enumerate(segments, start=1):
             fh.write(f"{i} {a} {b} {mk}\n")

@@ -70,7 +70,7 @@ class _FakeState:
     @staticmethod
     def save_cookies(session_name):
         """A saved cookie jar (the 'Session saved' state)."""
-        open(SESSIONS.cookie_file_path(session_name), "w").close()
+        open(SESSIONS.cookie_file_path(session_name), "w", encoding="utf-8", newline="").close()
 
 
 @pytest.fixture

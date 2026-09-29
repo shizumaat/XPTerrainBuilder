@@ -4387,8 +4387,10 @@ def _atomic_write_text(path: str, text: str) -> None:
             os.chmod(tmp_path, 0o666 & ~_process_umask())
         # Explicit UTF-8: the file declares ``encoding='UTF-8'`` in its XML
         # header and ``read_patch_source`` reads it back as UTF-8, so the
-        # writer must not follow a non-UTF-8 locale default.
-        with os.fdopen(handle, "w", encoding="utf-8") as tmp_file:
+        # writer must not follow a non-UTF-8 locale default.  LF on every OS
+        # (RULINGS 17g): the default text newline made this THE patch writer
+        # emit CRLF on Windows (#92, test_single_authority_emit).
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as tmp_file:
             tmp_file.write(text)
         os.replace(tmp_path, path)
     except BaseException:

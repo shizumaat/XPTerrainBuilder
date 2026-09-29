@@ -318,17 +318,17 @@ def test_the_completion_stamp_is_not_rewritten_when_nothing_changed(
 
     INSETS._write_inset_completion_stamp(tile)
     path = INSETS.inset_completion_stamp_path(30, 31)
-    os.utime(path, ns=(1, 1))
+    os.utime(path, ns=(10**9, 10**9))   # 1 s: representable on NTFS (100 ns ticks, #92)
 
     INSETS._write_inset_completion_stamp(tile)     # the settled warm pass
-    assert os.stat(path).st_mtime_ns == 1
+    assert os.stat(path).st_mtime_ns == 10**9
     assert INSETS.is_cached(tile) is True
 
     # A configuration change IS content, and still lands.
     INSETS._write_inset_completion_stamp(
         _inset_tile(airport_elevation_inset_margin_m=4000.0))
     assert os.stat(path).st_mtime_ns != 1
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         assert json.load(handle)["margin_m"] == 4000.0
 
 
@@ -398,10 +398,10 @@ def test_bathymetry_predicate_needs_settled_cells_and_a_mosaic(
     assert BAND.is_cached(tile) is False, "the mosaic is still missing"
     # The mosaic must reference EXACTLY the settled cells (2026-09-04:
     # a stale one is rebuilt by the pass — a GDAL write).
-    with open(FNAMES.bathymetry_band_vrt(21, -160, "CUDEM"), "w") as handle:
+    with open(FNAMES.bathymetry_band_vrt(21, -160, "CUDEM"), "w", encoding="utf-8", newline="") as handle:
         handle.write("<VRTDataset/>")
     assert BAND.is_cached(tile) is False, "the mosaic references no cell"
-    with open(FNAMES.bathymetry_band_vrt(21, -160, "CUDEM"), "w") as handle:
+    with open(FNAMES.bathymetry_band_vrt(21, -160, "CUDEM"), "w", encoding="utf-8", newline="") as handle:
         handle.write(
             '<VRTDataset><SourceFilename relativeToVRT="1">%s.tif'
             "</SourceFilename></VRTDataset>" % cell_name)
@@ -440,7 +440,7 @@ def _write_mesh(tile):
 
     path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("mesh")
     return path
 
@@ -471,7 +471,7 @@ def test_imagery_manifest_is_invalidated_by_its_own_inputs(tmp_path):
     assert TILE.is_cached(
         _imagery_tile(tmp_path, texture_mode="default_xplane")) is False
     # The needed set is MESH-derived: a rebuilt mesh invalidates it.
-    with open(mesh_path, "w") as handle:
+    with open(mesh_path, "w", encoding="utf-8", newline="") as handle:
         handle.write("a different mesh")
     assert TILE.is_cached(tile) is False
 
@@ -513,14 +513,14 @@ def test_imagery_manifest_rejects_a_foreign_schema(tmp_path):
     TILE._write_imagery_manifest(tile, {"done": 1, "failed": 0},
                                  {"done": 1})
     path = TILE.imagery_manifest_path(tile)
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         manifest = json.load(handle)
     manifest["schema"] = "1999-01-01"
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         json.dump(manifest, handle)
     assert TILE.is_cached(tile) is False
     # And an unreadable one.
-    with open(path, "w") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write("{not json")
     assert TILE.is_cached(tile) is False
 

@@ -77,7 +77,7 @@ def _parse_version_info(text: str) -> dict:
 
 
 def _tracked_app_version() -> str:
-    match = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", APP_VERSION_FILE.read_text())
+    match = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", APP_VERSION_FILE.read_text(encoding="utf-8"))
     assert match, "no app version triple tracked"
     return match.group(0)
 
@@ -135,7 +135,7 @@ def _spec_branding(cwd: Path) -> dict:
 def test_spec_prefers_the_generated_icon_and_version_resource(tmp_path):
     (tmp_path / "Utils" / "icons" / "generated").mkdir(parents=True)
     (tmp_path / "Utils" / "icons" / "generated" / "icon.ico").write_bytes(b"")
-    (tmp_path / "version_info.txt").write_text("VSVersionInfo()")
+    (tmp_path / "version_info.txt").write_text("VSVersionInfo()", encoding="utf-8", newline="")
     branding = _spec_branding(tmp_path)
     assert branding["win_icon"] == os.path.join(
         "Utils", "icons", "generated", "icon.ico")

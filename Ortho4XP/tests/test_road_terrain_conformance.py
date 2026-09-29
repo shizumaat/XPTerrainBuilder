@@ -98,7 +98,7 @@ def _patch(tmp_path: Path, name: str, levels, refs=None) -> Path:
         lines.append("  </way>")
     lines.append("</osm>")
     p = tmp_path / name
-    p.write_text("\n".join(lines))
+    p.write_text("\n".join(lines), encoding="utf-8", newline="")
     return p
 
 
@@ -206,7 +206,7 @@ def test_road_family_and_dem_sampler_are_imported_not_respelled():
     ``apron_drape_read``'s — not a second spelling of either."""
     import check_grade as CG
     import apron_drape_read as ADR
-    src = Path(RTC.__file__).read_text()
+    src = Path(RTC.__file__).read_text(encoding="utf-8")
     assert "CG._ROAD_FAMILY_ROLES" in src
     assert "ADR._dem_at" in src and "ADR._load_dem" in src
     # And no private role literal list of its own.
@@ -228,10 +228,10 @@ def test_a_lone_ring_is_still_a_chain(tmp_path):
     Its spine is its own longest diagonal."""
     p = _patch(tmp_path, "LONE.osm", _levels_flat())
     # Keep only the FIRST way: one ring, no neighbours.
-    txt = p.read_text()
+    txt = p.read_text(encoding="utf-8")
     head, _, rest = txt.partition("  <way id='-1001'")
     first_way, _, _ = rest.partition("</way>")
-    p.write_text(head + "  <way id='-1001'" + first_way + "</way>\n</osm>")
+    p.write_text(head + "  <way id='-1001'" + first_way + "</way>\n</osm>", encoding="utf-8", newline="")
     r = _read(p)
     assert len(r["chains"]) == 1
     ch = r["chains"][0]
@@ -419,7 +419,7 @@ def test_by_ref_reports_fill_separately_from_cut(tmp_path):
 
 def test_by_ref_is_in_the_tool_index(tmp_path):
     """RULINGS ``7e90032``: a new option lands with its index row."""
-    index = (_ROOT.parent / "tools" / "INDEX.md").read_text()
+    index = (_ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     row = [ln for ln in index.splitlines()
            if "tools/road_terrain_conformance.py`" in ln]
     assert row and "--by-ref" in row[0], (
@@ -440,7 +440,7 @@ def _v2_sidecar(tmp_path, ways, cap=0.08, **top):
            "answer_radius_m": 8.0, "materiality_m": 0.01,
            "summary": {}, "ways": ways}
     doc.update(top)
-    p.write_text(json.dumps(doc))
+    p.write_text(json.dumps(doc), encoding="utf-8", newline="")
     return p
 
 
@@ -491,7 +491,7 @@ def test_v1_sidecar_still_reads_as_today(tmp_path):
         {"version": 1, "producer": "twin", "lat": 17, "lon": -63,
          "grade_cap": 0.08, "materiality_m": 0.01, "station_max_m": 20.0,
          "lane_width_m": 4.0, "answer_radius_m": 8.0, "summary": {},
-         "ways": [w]}))
+         "ways": [w]}), encoding="utf-8", newline="")
     r = RTC.read_levelled_roads(p)
     assert r["clamp"]["sidecar_version"] == 1
     assert r["clamp"]["terrain_ways"] == 0

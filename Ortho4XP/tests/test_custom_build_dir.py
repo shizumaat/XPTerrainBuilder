@@ -91,8 +91,8 @@ def test_normalized_path_yields_ungrouped_tile(tmp_path):
 
     for name in ("zOrtho4XP_+36-008", "zOrtho4XP_+37-008"):
         (tmp_path / name).mkdir()
-    (tmp_path / "zOrtho4XP_+36-008" / "Data+36-008.mesh").write_text("")
-    (tmp_path / "zOrtho4XP_+37-008" / "Data+37-008.mesh").write_text("")
+    (tmp_path / "zOrtho4XP_+36-008" / "Data+36-008.mesh").write_text("", encoding="utf-8", newline="")
+    (tmp_path / "zOrtho4XP_+37-008" / "Data+37-008.mesh").write_text("", encoding="utf-8", newline="")
 
     assert sorted(MASK.select_neighbor_meshes(tile)) == [
         str(tmp_path / "zOrtho4XP_+36-008" / "Data+36-008.mesh"),

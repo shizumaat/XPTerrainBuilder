@@ -318,7 +318,7 @@ def test_sidecar_carries_every_station_and_its_two_altitudes(tmp_path):
                                  build_dir=str(tmp_path / "tile"))
     path = VM.write_levelled_roads_sidecar(tile, lev)
     assert path and Path(path).name == "o4_levelled_roads.json"
-    doc = json.loads(Path(path).read_text())
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
     assert doc["grade_cap"] == CAP
     assert doc["station_max_m"] == STATION_M
     assert doc["lat"] == 40 and doc["lon"] == -4
@@ -361,7 +361,7 @@ def test_sidecar_precision_cannot_manufacture_an_over_cap_grade(tmp_path):
     tile = types.SimpleNamespace(lat=40, lon=-4,
                                  build_dir=str(tmp_path / "dense"))
     doc = json.loads(Path(VM.write_levelled_roads_sidecar(tile, lev))
-                     .read_text())
+                     .read_text(encoding="utf-8"))
     (way,) = doc["ways"]
     s = way["s_m"]
     z = way["alt"]
@@ -384,7 +384,7 @@ def test_sidecar_failure_is_not_fatal(tmp_path):
             [(0.0, 0.0), (0.0, 0.001)])]),
         lambda pts: numpy.zeros(len(pts)), CAP, 4.0)
     blocked = tmp_path / "file"
-    blocked.write_text("not a directory")
+    blocked.write_text("not a directory", encoding="utf-8", newline="")
     tile = types.SimpleNamespace(lat=0, lon=0,
                                  build_dir=str(blocked / "tile"))
     assert VM.write_levelled_roads_sidecar(tile, lev) is None
@@ -515,7 +515,7 @@ def test_both_road_cap_readers_read_the_LAW_TABLE_and_not_the_v1_engine():
     assert VM.ROAD_GRADE_CAP_DEFAULT == ROAD_CAP_FROM_LAW
     assert CFGVARS.cfg_vars["road_grade_limit"]["default"] == ROAD_CAP_FROM_LAW
     for mod in (CFGVARS, VM):
-        src = Path(mod.__file__).read_text()
+        src = Path(mod.__file__).read_text(encoding="utf-8")
         code = "\n".join(l for l in src.splitlines()
                          if not l.lstrip().startswith("#"))
         assert "SERVICE_ROAD_MAX_GRADE" not in code, (
@@ -542,7 +542,7 @@ FIXTURE = (_ROOT / "tests" / "fixtures" / "roadclampscope"
 
 
 def _fixture():
-    doc = json.loads(FIXTURE.read_text())
+    doc = json.loads(FIXTURE.read_text(encoding="utf-8"))
     return doc["params"], {w["sidecar_index"]: w for w in doc["ways"]}
 
 
@@ -815,7 +815,7 @@ def test_t8_sidecar_v2_keys(tmp_path):
     tile = types.SimpleNamespace(lat=17, lon=-63,
                                  build_dir=str(tmp_path / "t"))
     doc = json.loads(Path(VM.write_levelled_roads_sidecar(tile, lev))
-                     .read_text())
+                     .read_text(encoding="utf-8"))
     assert doc["version"] == 2
     assert doc["grade_cap"] == doc["cap_inside"] == CAP
     for k in ("runout_m", "budget_m", "cap_ceiling", "class_caps"):

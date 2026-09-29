@@ -31,7 +31,7 @@ class _Tile:
 
 
 def _touch(p, text="<osm/>"):
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8", newline="")
     return p
 
 

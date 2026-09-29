@@ -353,7 +353,7 @@ def test_parse_osm_can_hand_back_the_open_breakline_ways(tmp_path):
         "<tag k='alt_abs' v='10.5' /></node>\n"
         "<way id='-10'><nd ref='-1' /><nd ref='-2' /><nd ref='-3' />"
         "<tag k='o4_feature' v='gap_drainage_spine' /></way>\n"
-        "</osm>\n")
+        "</osm>\n", encoding="utf-8", newline="")
     feats = {}
     _nodes, ways = CG._parse_osm(osm, feature_out=feats)
     assert ways == []                                  # ring-skip kept

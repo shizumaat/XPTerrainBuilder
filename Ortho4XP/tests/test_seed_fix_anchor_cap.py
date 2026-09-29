@@ -141,7 +141,7 @@ def test_the_seat_stamp_guard_is_standing_law():
     it cap-contradicts — manufactures the very both-hard pair that
     ``feasibility-is-guaranteed`` forbids, so it is gone, not gated."""
     assert not hasattr(SV, "seat_stamp_guard_enabled")
-    src = open(SV.__file__).read()
+    src = open(SV.__file__, encoding="utf-8").read()
     assert 'environ.get("O4_SEAT_STAMP_GUARD"' not in src
 
 

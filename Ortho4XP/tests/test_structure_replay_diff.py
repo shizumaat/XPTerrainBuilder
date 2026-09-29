@@ -15,7 +15,7 @@ import structure_replay_diff as srd            # noqa: E402
 def _arm(root: Path, name: str, rec: dict) -> None:
     d = root / name
     d.mkdir(parents=True, exist_ok=True)
-    (d / "structures.json").write_text(json.dumps(rec))
+    (d / "structures.json").write_text(json.dumps(rec), encoding="utf-8", newline="")
 
 
 BASE = {"tunnels": [{"id": "t0", "ways": [-1], "replaced_ways": [-2]}],

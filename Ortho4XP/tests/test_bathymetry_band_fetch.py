@@ -175,7 +175,7 @@ def test_fetch_writes_cells_index_and_vrt_with_no_partial_files(
     assert len(fetch_calls) == len(FOUR_CELLS)
     for (cell_column, cell_row) in FOUR_CELLS:
         assert os.path.isfile(_cell_path(cell_column, cell_row))
-    with open(FNAMES.bathymetry_band_index(0, 0)) as index_file:
+    with open(FNAMES.bathymetry_band_index(0, 0), encoding="utf-8") as index_file:
         stamp = json.load(index_file)
     assert stamp["provider"] == PROVIDER_CODE
     assert sorted(stamp["cells"].values()) == ["ok"] * len(FOUR_CELLS)
@@ -289,7 +289,7 @@ def test_stale_lock_from_dead_process_is_stolen(monkeypatch):
     lock_path = os.path.join(
         band_directory, BATHYBAND.BAND_LOCK_FILE_NAME
     )
-    with open(lock_path, "w") as lock_file:
+    with open(lock_path, "w", encoding="utf-8", newline="") as lock_file:
         json.dump(
             {"pid": dead_child.pid, "host": socket.gethostname()},
             lock_file,
@@ -309,7 +309,7 @@ def test_waiter_resumes_from_the_other_process_cells(monkeypatch):
         band_directory, BATHYBAND.BAND_LOCK_FILE_NAME
     )
     # A live lock: our own pid is alive, so it is never judged stale.
-    with open(lock_path, "w") as lock_file:
+    with open(lock_path, "w", encoding="utf-8", newline="") as lock_file:
         json.dump(
             {"pid": os.getpid(), "host": socket.gethostname()}, lock_file
         )
@@ -330,7 +330,7 @@ def test_waiter_resumes_from_the_other_process_cells(monkeypatch):
         cell_path = _cell_path(cell_column, cell_row)
         _write_cell_geotiff(cell_path)
         stems[os.path.splitext(os.path.basename(cell_path))[0]] = "ok"
-    with open(FNAMES.bathymetry_band_index(0, 0), "w") as index_file:
+    with open(FNAMES.bathymetry_band_index(0, 0), "w", encoding="utf-8", newline="") as index_file:
         json.dump(
             {"provider": PROVIDER_CODE, "cells": stems,
              "checked": "2026-07-16"},
@@ -355,7 +355,7 @@ def test_red_flag_while_waiting_on_a_live_lock_returns_none(monkeypatch):
     lock_path = os.path.join(
         band_directory, BATHYBAND.BAND_LOCK_FILE_NAME
     )
-    with open(lock_path, "w") as lock_file:
+    with open(lock_path, "w", encoding="utf-8", newline="") as lock_file:
         json.dump(
             {"pid": os.getpid(), "host": socket.gethostname()}, lock_file
         )
@@ -397,7 +397,7 @@ def test_broken_cached_cells_are_refetched_despite_index_ok(monkeypatch):
     for (cell_column, cell_row) in FOUR_CELLS:
         cell_path = _cell_path(cell_column, cell_row)
         stems[os.path.splitext(os.path.basename(cell_path))[0]] = "ok"
-    with open(FNAMES.bathymetry_band_index(0, 0), "w") as index_file:
+    with open(FNAMES.bathymetry_band_index(0, 0), "w", encoding="utf-8", newline="") as index_file:
         json.dump(
             {"provider": PROVIDER_CODE, "cells": stems,
              "checked": "2026-07-15"},
@@ -422,7 +422,7 @@ def test_all_nodata_fetch_records_durable_no_coverage(monkeypatch):
     _install_fake_fetch(monkeypatch, fetch_calls, all_nodata=True)
     assert BATHYBAND.ensure_bathymetry_band(_tile()) is None
     assert len(fetch_calls) == len(FOUR_CELLS)
-    with open(FNAMES.bathymetry_band_index(0, 0)) as index_file:
+    with open(FNAMES.bathymetry_band_index(0, 0), encoding="utf-8") as index_file:
         stamp = json.load(index_file)
     assert sorted(stamp["cells"].values()) == (
         [BATHYBAND.NO_COVERAGE] * len(FOUR_CELLS)

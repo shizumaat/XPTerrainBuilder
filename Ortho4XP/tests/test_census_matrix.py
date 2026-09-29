@@ -50,7 +50,7 @@ def _entry(patch, lawtrue, adj, air, gs, mix, bands=None):
 
 def _write(tmp_path, name, entries):
     p = tmp_path / name
-    p.write_text(json.dumps(entries))
+    p.write_text(json.dumps(entries), encoding="utf-8", newline="")
     return p
 
 
@@ -115,7 +115,7 @@ def test_a_recorded_frame_of_record_can_be_the_ceiling(cm, tmp_path):
     """The lane copy hard-coded one round's frame as a module constant —
     the thing that goes stale.  A recorded frame is an argument."""
     frame = tmp_path / "frame.json"
-    frame.write_text(json.dumps({"A_lo": 390, "A_hi": 162}))
+    frame.write_text(json.dumps({"A_lo": 390, "A_hi": 162}), encoding="utf-8", newline="")
     arm = _write(tmp_path, "arm.json", [
         _entry("/x/A_lo.osm", 148, 115, 91, 24, 0),
         _entry("/x/A_hi.osm", 277, 265, 162, 103, 0)])

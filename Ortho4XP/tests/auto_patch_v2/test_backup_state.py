@@ -57,7 +57,7 @@ def _pack(tmp_path, *, dsf_text: str = DUMP, name: str = "+40-004.dsf"):
     nav = pack / "Earth nav data" / "+40-010"
     nav.mkdir(parents=True, exist_ok=True)
     dsf = nav / name
-    dsf.write_text(dsf_text)
+    dsf.write_text(dsf_text, encoding="utf-8", newline="")
     return pack, dsf
 
 
@@ -82,7 +82,7 @@ def _record(dsf: Path, entry: dict, *, version: int = 2,
     else:
         doc["dsf"] = dsf.name
         doc.update(entry)
-    (dsf.parent / "o4_placement_provenance.json").write_text(json.dumps(doc))
+    (dsf.parent / "o4_placement_provenance.json").write_text(json.dumps(doc), encoding="utf-8", newline="")
 
 
 def _sha(p: Path) -> str:
@@ -95,7 +95,7 @@ def _stand_in_dsftool(tmp_path, monkeypatch):
     own twin in ``test_v2dsfagl``)."""
     tool = tmp_path / "dsftool.py"
     tool.write_text("import shutil, sys\n"
-                    "shutil.copyfile(sys.argv[2], sys.argv[3])\n")
+                    "shutil.copyfile(sys.argv[2], sys.argv[3])\n", encoding="utf-8", newline="")
     real_run = W.subprocess.run
 
     def fake_run(args, **kw):
@@ -129,7 +129,7 @@ def test_D1_no_backup_is_the_pack_as_installed(tmp_path):
 def test_D2_original_lost_stands_the_write_down(tmp_path):
     pack, dsf = _pack(tmp_path)
     # our own output (it carries the mark), and the backup is GONE
-    dsf.write_text(DUMP + f"PROPERTY {B.OWNERSHIP_PROPERTY} 1.0.352\n")
+    dsf.write_text(DUMP + f"PROPERTY {B.OWNERSHIP_PROPERTY} 1.0.352\n", encoding="utf-8", newline="")
     before = _snapshot(pack)
     v = B.classify_dsf(str(dsf))
     assert v.state is B.State.ORIGINAL_LOST and v.row == "D2"
@@ -154,7 +154,7 @@ def test_D4_ours_is_the_normal_path_and_costs_no_hash(tmp_path,
     pack, dsf = _pack(tmp_path)
     bak = Path(str(dsf) + ".anchor_bak")
     shutil.copy2(dsf, bak)
-    dsf.write_text(DUMP + "OBJECT 1 -3.7 40.7 0.0\n")      # our rewrite
+    dsf.write_text(DUMP + "OBJECT 1 -3.7 40.7 0.0\n", encoding="utf-8", newline="")      # our rewrite
     st = os.stat(dsf)
     _record(dsf, {"written_sha256": _sha(dsf), "written_size": st.st_size,
                   "written_mtime_ns": st.st_mtime_ns})
@@ -181,7 +181,7 @@ def test_D5_replaced_reads_the_users_new_file(tmp_path):
     bak = Path(str(dsf) + ".anchor_bak")
     shutil.copy2(dsf, bak)
     _record(dsf, {"written_sha256": "0" * 64, "backup_sha256": _sha(bak)})
-    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n")      # THE USER'S
+    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n", encoding="utf-8", newline="")      # THE USER'S
     before = _snapshot(pack)
     v = B.classify_dsf(str(dsf))
     assert v.state is B.State.REPLACED and v.row == "D5"
@@ -196,7 +196,7 @@ def test_D6_unproven_assumes_ours_and_keeps_a_copy_owner_Q2(tmp_path):
     pack, dsf = _pack(tmp_path)
     bak = Path(str(dsf) + ".anchor_bak")
     shutil.copy2(dsf, bak)
-    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n")      # no record at all
+    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n", encoding="utf-8", newline="")      # no record at all
     before = _snapshot(pack)
     v = B.classify_dsf(str(dsf))
     assert v.state is B.State.UNPROVEN and v.row == "D6"
@@ -237,7 +237,7 @@ def test_D4_a_backup_that_left_its_record_is_still_built_from(tmp_path):
     pack, dsf = _pack(tmp_path)
     bak = Path(str(dsf) + ".anchor_bak")
     shutil.copy2(dsf, bak)
-    dsf.write_text(DUMP + "OBJECT 1 -3.7 40.7 0.0\n")
+    dsf.write_text(DUMP + "OBJECT 1 -3.7 40.7 0.0\n", encoding="utf-8", newline="")
     st = os.stat(dsf)
     _record(dsf, {"written_sha256": _sha(dsf), "written_size": st.st_size,
                   "written_mtime_ns": st.st_mtime_ns,
@@ -265,7 +265,7 @@ def test_the_mark_is_found_by_a_raw_byte_scan(tmp_path):
 
 def test_the_body_name_witness_covers_marks_written_before_1_0_352(tmp_path):
     pack, dsf = _pack(tmp_path)
-    dsf.write_text(DUMP + "OBJECT_DEF objects/b__b3.obj\n")
+    dsf.write_text(DUMP + "OBJECT_DEF objects/b__b3.obj\n", encoding="utf-8", newline="")
     v = B.classify_dsf(str(dsf))
     assert v.state is B.State.ORIGINAL_LOST and v.witness == "body-names"
 
@@ -275,7 +275,7 @@ def test_the_body_name_witness_covers_marks_written_before_1_0_352(tmp_path):
 def _obj(pack: Path, name: str, text: str) -> Path:
     p = pack / "objects" / name
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8", newline="")
     return p
 
 
@@ -316,7 +316,7 @@ def test_O3_same_bytes_moved_mtime_syncs_then_is_O2(tmp_path):
     v = B.classify_object(str(o), str(pack))
     assert v.state is B.State.PRISTINE and v.witness == "sha256" and v.may_write
     PW.restore_pack_objects(str(pack))
-    assert o.read_text() == OBJ
+    assert o.read_text(encoding="utf-8") == OBJ
     B.invalidate_memo()
     assert B.classify_object(str(o), str(pack)).witness == "stat"
 
@@ -326,13 +326,13 @@ def test_O4_ours_by_the_v1_sidecar_is_restored(tmp_path):
     o = _obj(pack, "a.obj", OBJ)
     bak = Path(str(o) + ".anchor_bak")
     shutil.copy2(o, bak)
-    o.write_text("I\n800\nOBJ\nVT 1.0 -7.0 2.0\nVT 3.0 -7.0 4.0\nX\n")
+    o.write_text("I\n800\nOBJ\nVT 1.0 -7.0 2.0\nVT 3.0 -7.0 4.0\nX\n", encoding="utf-8", newline="")
     (pack / ".o4_reanchor_provenance.json").write_text(json.dumps(
-        {"objects": {"objects/a.obj": {"written_sha256": _sha(o)}}}))
+        {"objects": {"objects/a.obj": {"written_sha256": _sha(o)}}}), encoding="utf-8", newline="")
     v = B.classify_object(str(o), str(pack))
     assert v.state is B.State.OURS and v.witness == "sha256" and v.may_write
     res = PW.restore_pack_objects(str(pack))
-    assert o.read_text() == OBJ and str(o) in res.restored
+    assert o.read_text(encoding="utf-8") == OBJ and str(o) in res.restored
     assert os.stat(o).st_mtime_ns == os.stat(bak).st_mtime_ns   # O3 next time
 
 
@@ -342,15 +342,15 @@ def test_O5_y_only_witness_keeps_the_live_bytes_first(tmp_path):
     bak = Path(str(o) + ".anchor_bak")
     shutil.copy2(o, bak)
     baked = "I\n800\nOBJ\nVT 1.0 -7.5 2.0\nVT 3.0 -7.5 4.0\n"
-    o.write_text(baked)
+    o.write_text(baked, encoding="utf-8", newline="")
     v = B.classify_object(str(o), str(pack))
     assert v.state is B.State.OURS and v.witness == "y-only"
     res = PW.restore_pack_objects(str(pack))
-    assert o.read_text() == OBJ
+    assert o.read_text(encoding="utf-8") == OBJ
     assert len(res.unproven) == 1
     kept = Path(res.unproven[0])
     assert B.UNRECOGNISED_INFIX in kept.name
-    assert kept.read_text() == baked, "a witness is not a proof"
+    assert kept.read_text(encoding="utf-8") == baked, "a witness is not a proof"
 
 
 def test_O6_replaced_is_never_overwritten_and_retires_the_backup(tmp_path):
@@ -359,16 +359,16 @@ def test_O6_replaced_is_never_overwritten_and_retires_the_backup(tmp_path):
     bak = Path(str(o) + ".anchor_bak")
     shutil.copy2(o, bak)
     new = "I\n800\nOBJ\nTRIS 0 3\nA COMPLETELY NEW VERSION\n"
-    o.write_text(new)
+    o.write_text(new, encoding="utf-8", newline="")
     v = B.classify_object(str(o), str(pack))
     assert v.state is B.State.REPLACED and v.read_path == str(o)
     assert not v.may_write
     res = PW.restore_pack_objects(str(pack))
-    assert o.read_text() == new, "THE USER'S FILE LOSES NO BYTES"
+    assert o.read_text(encoding="utf-8") == new, "THE USER'S FILE LOSES NO BYTES"
     assert not bak.exists()
     assert len(res.adopted) == 1
     kept = Path(res.adopted[0])
-    assert B.SUPERSEDED_INFIX in kept.name and kept.read_text() == OBJ
+    assert B.SUPERSEDED_INFIX in kept.name and kept.read_text(encoding="utf-8") == OBJ
 
 
 def test_O7_a_dropped_object_is_never_resurrected(tmp_path):
@@ -391,7 +391,7 @@ def test_authored_source_takes_the_object_tables_read_frame(tmp_path):
     bak = Path(str(o) + ".anchor_bak")
     shutil.copy2(o, bak)
     assert PK.authored_source(str(o), str(pack)) == (str(bak), True)  # O2
-    o.write_text("I\n800\nOBJ\nA NEW VERSION ENTIRELY\n")
+    o.write_text("I\n800\nOBJ\nA NEW VERSION ENTIRELY\n", encoding="utf-8", newline="")
     B.invalidate_memo()
     assert PK.authored_source(str(o), str(pack)) == (str(o), False)   # O6
 
@@ -403,14 +403,14 @@ def test_a_second_adoption_never_overwrites_the_first(tmp_path):
     o = _obj(pack, "a.obj", OBJ)
     bak = Path(str(o) + ".anchor_bak")
     for k, body in enumerate(("first original\n", "second original\n")):
-        bak.write_text(body)
+        bak.write_text(body, encoding="utf-8", newline="")
         v = B.classify_object(str(o), str(pack))
         B.adopt(v, now=None)
         B.invalidate_memo()
     kept = sorted(p.name for p in (pack / "objects").iterdir()
                   if B.SUPERSEDED_INFIX in p.name)
     assert len(kept) == 2, kept
-    bodies = sorted((pack / "objects" / n).read_text() for n in kept)
+    bodies = sorted((pack / "objects" / n).read_text(encoding="utf-8") for n in kept)
     assert bodies == ["first original\n", "second original\n"]
 
 
@@ -419,7 +419,7 @@ def test_the_superseded_name_is_read_by_no_walker(tmp_path):
     bak = Path(str(dsf) + ".anchor_bak")
     shutil.copy2(dsf, bak)
     _record(dsf, {"written_sha256": "0" * 64})
-    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n")
+    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n", encoding="utf-8", newline="")
     name = B.adopt(B.classify_dsf(str(dsf)))
     assert not name.endswith((".anchor_bak", ".dsf", ".obj"))
     assert ".anchor_bak." in os.path.basename(name)
@@ -430,13 +430,13 @@ def test_the_superseded_name_is_read_by_no_walker(tmp_path):
 def test_two_dsfs_in_one_bucket_keep_two_entries(tmp_path, monkeypatch):
     pack, dsf_a = _pack(tmp_path, name="+40-004.dsf")
     dsf_b = dsf_a.parent / "+40-005.dsf"
-    dsf_b.write_text(DUMP)
+    dsf_b.write_text(DUMP, encoding="utf-8", newline="")
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     W.write_pack(str(pack), _plan(pack, dsf_a), tool,
                  work_dir=str(tmp_path / "wa"), body_files=[])
     W.write_pack(str(pack), _plan(pack, dsf_b), tool,
                  work_dir=str(tmp_path / "wb"), body_files=[])
-    doc = json.loads((dsf_a.parent / "o4_placement_provenance.json").read_text())
+    doc = json.loads((dsf_a.parent / "o4_placement_provenance.json").read_text(encoding="utf-8"))
     assert doc["version"] == 2
     assert set(doc["dsfs"]) == {"+40-004.dsf", "+40-005.dsf"}
     assert doc["dsf"] == "+40-005.dsf", "the LAST write's top level, as today"
@@ -449,9 +449,9 @@ def test_writing_dsf_B_leaves_dsf_As_body_files_on_disk(tmp_path,
     live DSF still referenced them."""
     pack, dsf_a = _pack(tmp_path, name="+40-004.dsf")
     dsf_b = dsf_a.parent / "+40-005.dsf"
-    dsf_b.write_text(DUMP)
+    dsf_b.write_text(DUMP, encoding="utf-8", newline="")
     body_a = pack / "objects" / "a__b0.obj"
-    body_a.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}a body 0\n")
+    body_a.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}a body 0\n", encoding="utf-8", newline="")
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     W.write_pack(str(pack), _plan(pack, dsf_a), tool,
                  work_dir=str(tmp_path / "wa"), body_files=[str(body_a)])
@@ -466,7 +466,7 @@ def test_writing_dsf_B_leaves_dsf_As_body_files_on_disk(tmp_path,
 def test_a_version_1_record_for_a_sibling_dsf_names_no_body(tmp_path):
     pack, dsf = _pack(tmp_path, name="+40-004.dsf")
     sib = dsf.parent / "+40-005.dsf"
-    sib.write_text(DUMP)
+    sib.write_text(DUMP, encoding="utf-8", newline="")
     _record(sib, {"body_files": ["objects/a__b0.obj"]}, version=1)
     assert W.written_body_files(str(pack), str(sib)) == (
         str(pack / "objects" / "a__b0.obj"),)
@@ -479,7 +479,7 @@ def test_the_record_is_written_before_the_move_and_again_after(tmp_path,
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     res = W.write_pack(str(pack), _plan(pack, dsf), tool,
                        work_dir=str(tmp_path / "w"), body_files=[])
-    e = json.loads(Path(res.provenance_path).read_text())["dsfs"][dsf.name]
+    e = json.loads(Path(res.provenance_path).read_text(encoding="utf-8"))["dsfs"][dsf.name]
     st = os.stat(dsf)
     assert e["written_sha256"] == _sha(dsf)
     assert e["written_size"] == st.st_size
@@ -548,10 +548,10 @@ def test_D5_through_write_pack_adopts_exactly_once(tmp_path, monkeypatch):
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     W.write_pack(str(pack), _plan(pack, dsf), tool,
                  work_dir=str(tmp_path / "w1"), body_files=[])
-    old_backup = Path(str(dsf) + ".anchor_bak").read_text()
+    old_backup = Path(str(dsf) + ".anchor_bak").read_text(encoding="utf-8")
 
     new_dump = DUMP.replace("-3.6 40.6", "-3.8 40.8")
-    dsf.write_text(new_dump)                       # the user's in-place update
+    dsf.write_text(new_dump, encoding="utf-8", newline="")                       # the user's in-place update
     B.invalidate_memo()
     assert B.classify_dsf(str(dsf)).state is B.State.REPLACED
 
@@ -559,20 +559,20 @@ def test_D5_through_write_pack_adopts_exactly_once(tmp_path, monkeypatch):
                        work_dir=str(tmp_path / "w2"), body_files=[])
     assert res.state == "replaced" and res.superseded_path
     sup = Path(res.superseded_path)
-    assert B.SUPERSEDED_INFIX in sup.name and sup.read_text() == old_backup
+    assert B.SUPERSEDED_INFIX in sup.name and sup.read_text(encoding="utf-8") == old_backup
     bak = Path(str(dsf) + ".anchor_bak")
-    assert bak.read_text() == new_dump, "the user's file is the new original"
-    assert "-3.8 40.8" in dsf.read_text()
-    e = json.loads(Path(res.provenance_path).read_text())["dsfs"][dsf.name]
+    assert bak.read_text(encoding="utf-8") == new_dump, "the user's file is the new original"
+    assert "-3.8 40.8" in dsf.read_text(encoding="utf-8")
+    e = json.loads(Path(res.provenance_path).read_text(encoding="utf-8"))["dsfs"][dsf.name]
     assert len(e["adopted"]) == 1
 
     # ...and a SECOND adoption makes a SECOND superseded file
-    dsf.write_text(DUMP.replace("-3.6 40.6", "-4.4 41.4"))
+    dsf.write_text(DUMP.replace("-3.6 40.6", "-4.4 41.4"), encoding="utf-8", newline="")
     B.invalidate_memo()
     res2 = W.write_pack(str(pack), _plan(pack, dsf), tool,
                         work_dir=str(tmp_path / "w3"), body_files=[])
     assert res2.superseded_path != res.superseded_path
-    assert sup.read_text() == old_backup, "the first is untouched"
+    assert sup.read_text(encoding="utf-8") == old_backup, "the first is untouched"
 
 
 def test_D6_through_write_pack_keeps_a_copy_then_rebuilds(tmp_path,
@@ -583,14 +583,14 @@ def test_D6_through_write_pack_keeps_a_copy_then_rebuilds(tmp_path,
     bak = Path(str(dsf) + ".anchor_bak")
     shutil.copy2(dsf, bak)
     mystery = DUMP + "OBJECT 1 -9.9 40.9 0.0\n"
-    dsf.write_text(mystery)
+    dsf.write_text(mystery, encoding="utf-8", newline="")
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     res = W.write_pack(str(pack), _plan(pack, dsf), tool,
                        work_dir=str(tmp_path / "w"), body_files=[])
     assert res.state == "unproven" and res.preserved_path
     kept = Path(res.preserved_path)
-    assert B.UNRECOGNISED_INFIX in kept.name and kept.read_text() == mystery
-    assert "-9.9 40.9" not in dsf.read_text(), "rebuilt from the old backup"
+    assert B.UNRECOGNISED_INFIX in kept.name and kept.read_text(encoding="utf-8") == mystery
+    assert "-9.9 40.9" not in dsf.read_text(encoding="utf-8"), "rebuilt from the old backup"
     assert res.notes and "copy of the installed file" in res.notes[0]
 
 
@@ -604,13 +604,13 @@ def test_apply_plan_touches_NOTHING_when_the_dsf_stands_down(tmp_path,
     pack, dsf = _pack(tmp_path)
     bak = Path(str(dsf) + ".anchor_bak")
     if state == "D2":
-        dsf.write_text(DUMP + f"PROPERTY {B.OWNERSHIP_PROPERTY} 1.0.352\n")
+        dsf.write_text(DUMP + f"PROPERTY {B.OWNERSHIP_PROPERTY} 1.0.352\n", encoding="utf-8", newline="")
     else:
         shutil.copy2(dsf, bak)
         os.chmod(bak, 0o000)
     o = _obj(pack, "a.obj", OBJ)
     shutil.copy2(o, str(o) + ".anchor_bak")
-    o.write_text("I\n800\nOBJ\nA NEW VERSION\n")
+    o.write_text("I\n800\nOBJ\nA NEW VERSION\n", encoding="utf-8", newline="")
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
 
     class _F:
@@ -636,7 +636,7 @@ def test_partial_D5_plus_O2(tmp_path):
     pack, dsf = _pack(tmp_path)
     shutil.copy2(dsf, str(dsf) + ".anchor_bak")
     _record(dsf, {"written_sha256": "0" * 64})
-    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n")
+    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n", encoding="utf-8", newline="")
     o = _obj(pack, "a.obj", OBJ)
     shutil.copy2(o, str(o) + ".anchor_bak")
     assert B.classify_dsf(str(dsf)).state is B.State.REPLACED
@@ -646,40 +646,40 @@ def test_partial_D5_plus_O2(tmp_path):
 def test_partial_D4_plus_O6_rebuilds_the_dsf_from_its_valid_backup(tmp_path):
     pack, dsf = _pack(tmp_path)
     shutil.copy2(dsf, str(dsf) + ".anchor_bak")
-    dsf.write_text(DUMP + f"PROPERTY {B.OWNERSHIP_PROPERTY} 1.0.352\n")
+    dsf.write_text(DUMP + f"PROPERTY {B.OWNERSHIP_PROPERTY} 1.0.352\n", encoding="utf-8", newline="")
     o = _obj(pack, "a.obj", OBJ)
     shutil.copy2(o, str(o) + ".anchor_bak")
     new = "I\n800\nOBJ\nTHE USER'S NEW OBJECT\n"
-    o.write_text(new)
+    o.write_text(new, encoding="utf-8", newline="")
     assert B.classify_dsf(str(dsf)).state is B.State.OURS
     assert B.classify_object(str(o), str(pack)).state is B.State.REPLACED
     PW.restore_pack_objects(str(pack))
-    assert o.read_text() == new
+    assert o.read_text(encoding="utf-8") == new
 
 
 def test_an_added_obj_is_O1_and_a_removed_one_is_O7(tmp_path):
     pack, _dsf = _pack(tmp_path)
     added = _obj(pack, "new.obj", OBJ)
     gone = pack / "objects" / "gone.obj"
-    Path(str(gone) + ".anchor_bak").write_text(OBJ)
+    Path(str(gone) + ".anchor_bak").write_text(OBJ, encoding="utf-8", newline="")
     assert B.classify_object(str(added), str(pack)).state is B.State.NO_BACKUP
     assert B.classify_object(str(gone), str(pack)).state is B.State.LIVE_MISSING
     PW.restore_pack_objects(str(pack))
-    assert added.read_text() == OBJ and not gone.exists()
+    assert added.read_text(encoding="utf-8") == OBJ and not gone.exists()
 
 
 def test_minted_bodies_are_removed_after_adoption_and_a_foreign_b_name_is_not(
         tmp_path, monkeypatch):
     pack, dsf = _pack(tmp_path)
     ours = pack / "objects" / "a__b0.obj"
-    ours.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}a body 0\n")
+    ours.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}a body 0\n", encoding="utf-8", newline="")
     theirs = pack / "objects" / "z__b9.obj"
-    theirs.write_text("I\n800\nOBJ\nauthored by the pack, honestly\n")
+    theirs.write_text("I\n800\nOBJ\nauthored by the pack, honestly\n", encoding="utf-8", newline="")
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     W.write_pack(str(pack), _plan(pack, dsf), tool,
                  work_dir=str(tmp_path / "w"),
                  body_files=[str(ours), str(theirs)])
-    dsf.write_text(DUMP.replace("-3.6 40.6", "-3.8 40.8"))
+    dsf.write_text(DUMP.replace("-3.6 40.6", "-3.8 40.8"), encoding="utf-8", newline="")
     B.invalidate_memo()
     PW.restore_pack_objects(str(pack), dsf_path=str(dsf))
     assert not ours.exists(), "our own previous bodies go"
@@ -697,12 +697,12 @@ def test_find_text_dump_never_serves_another_tags_dump(tmp_path):
     d.mkdir(parents=True)
     pack, dsf = _pack(tmp_path)
     old = d / (dsf.name + ".deadbeef.text")
-    old.write_text("the previous version's dump")
+    old.write_text("the previous version's dump", encoding="utf-8", newline="")
     st = os.stat(dsf)
     os.utime(old, (st.st_atime + 600, st.st_mtime + 600))
     assert D.find_text_dump(str(root), "pack", 40, -4, str(dsf)) is None
     keyed = d / f"{dsf.name}.{D.text_dump_tag(str(dsf))}.text"
-    keyed.write_text("the right one")
+    keyed.write_text("the right one", encoding="utf-8", newline="")
     os.utime(keyed, (st.st_atime + 600, st.st_mtime + 600))
     assert D.find_text_dump(str(root), "pack", 40, -4, str(dsf)) == str(keyed)
 
@@ -714,7 +714,7 @@ def test_after_adoption_the_dump_is_keyed_on_the_new_bytes(tmp_path):
     shutil.copy2(dsf, bak)
     tag_before = D.text_dump_tag(W.pristine_dsf_path(str(dsf)))
     _record(dsf, {"written_sha256": "0" * 64})
-    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n")
+    dsf.write_text(DUMP + "OBJECT 1 -9.9 40.9 0.0\n", encoding="utf-8", newline="")
     B.invalidate_memo()
     B.adopt(B.classify_dsf(str(dsf)))
     B.invalidate_memo()
@@ -728,15 +728,15 @@ def test_ui_restore_restores_ours_and_keeps_the_users_file(tmp_path):
     pack, _dsf = _pack(tmp_path)
     mine = _obj(pack, "mine.obj", OBJ)
     shutil.copy2(mine, str(mine) + ".anchor_bak")
-    mine.write_text("I\n800\nOBJ\nVT 1.0 -3.0 2.0\nVT 3.0 -3.0 4.0\n")
+    mine.write_text("I\n800\nOBJ\nVT 1.0 -3.0 2.0\nVT 3.0 -3.0 4.0\n", encoding="utf-8", newline="")
     yours = _obj(pack, "yours.obj", OBJ)
     shutil.copy2(yours, str(yours) + ".anchor_bak")
     new = "I\n800\nOBJ\nA WHOLE NEW OBJECT FROM THE NEW PACK VERSION\n"
-    yours.write_text(new)
+    yours.write_text(new, encoding="utf-8", newline="")
     out = object_rebake.restore_detail(str(pack))
     assert out == {"restored": 1, "kept_changed": 1, "bodies_removed": 0}
-    assert mine.read_text() == OBJ
-    assert yours.read_text() == new, "THE USER'S FILE LOSES NO BYTES"
+    assert mine.read_text(encoding="utf-8") == OBJ
+    assert yours.read_text(encoding="utf-8") == new, "THE USER'S FILE LOSES NO BYTES"
     assert object_rebake.restore(str(pack)) == 0        # idempotent, int reply
 
 
@@ -745,7 +745,7 @@ def test_the_session_reply_carries_restored_and_kept_changed(tmp_path):
     pack, _dsf = _pack(tmp_path)
     o = _obj(pack, "a.obj", OBJ)
     shutil.copy2(o, str(o) + ".anchor_bak")
-    o.write_text("I\n800\nOBJ\nTHE USER'S OWN\n")
+    o.write_text("I\n800\nOBJ\nTHE USER'S OWN\n", encoding="utf-8", newline="")
     reply = EngineSession.reanchor_restore(
         object.__new__(EngineSession), str(pack))
     assert reply["restored"] == 0 and reply["kept_changed"] == 1
@@ -812,19 +812,19 @@ def test_the_ownership_mark_round_trips_through_dsftool(tmp_path):
     shutil.copy2(src, dsf)
 
     pristine_text = W.dump(str(dsf), str(tmp_path / "p.text"), tool)
-    text = Path(pristine_text).read_text(errors="replace")
+    text = Path(pristine_text).read_text(errors="replace", encoding="utf-8")
     assert B.OWNERSHIP_PROPERTY not in text
     assert not B.carries_our_mark(str(dsf))
 
     plan = _plan(pack, dsf, conversions=())
     edited = W.edit_dump(text, plan, "1.0.352")
     assert edited.count(f"PROPERTY {B.OWNERSHIP_PROPERTY} 1.0.352") == 1
-    (tmp_path / "e.text").write_text(edited)
+    (tmp_path / "e.text").write_text(edited, encoding="utf-8", newline="")
     out = W.encode(str(tmp_path / "e.text"), str(tmp_path / "out.dsf"), tool)
 
     # the property survives text -> dsf -> text ...
     again = Path(W.dump(out, str(tmp_path / "a.text"), tool)).read_text(
-        errors="replace")
+        errors="replace", encoding="utf-8")
     assert f"PROPERTY {B.OWNERSHIP_PROPERTY} 1.0.352" in again
     # ... the byte scan finds it in the ENCODED file ...
     assert B.carries_our_mark(out)
@@ -978,7 +978,7 @@ def _objs(pack: Path) -> list[str]:
 
 
 def _record_doc(dsf: Path) -> dict:
-    return json.loads((dsf.parent / "o4_placement_provenance.json").read_text())
+    return json.loads((dsf.parent / "o4_placement_provenance.json").read_text(encoding="utf-8"))
 
 
 def test_25_the_second_airports_write_keeps_the_firsts_bodies_and_rows(
@@ -1009,7 +1009,7 @@ def test_25_the_second_airports_write_keeps_the_firsts_bodies_and_rows(
     assert second.dsf.orphaned_bodies == ()
 
     # 2. the live DSF carries BOTH airports' edits over the pristine dump
-    text = dsf.read_text()
+    text = dsf.read_text(encoding="utf-8")
     assert "OBJECT 0 -63.1 18.04 10.0\n" in text            # TNCM conversion
     assert "OBJECT 2 -63.15 18.1 30.0\n" in text            # TFFG conversion
     assert "OBJECT_DEF objects/b__b0.obj\n" in text
@@ -1031,7 +1031,7 @@ def test_25_the_second_airports_write_keeps_the_firsts_bodies_and_rows(
     assert W.written_body_files(str(pack), str(dsf)) == tuple(
         str(pack / "objects" / n) for n in ("b__b0.obj", "b__b1.obj", "d__b0.obj"))
     # the backup is still the PRISTINE pack
-    assert (dsf.parent / "+18-064.dsf.anchor_bak").read_text() == DUMP4
+    assert (dsf.parent / "+18-064.dsf.anchor_bak").read_text(encoding="utf-8") == DUMP4
 
 
 def test_25_a_rerun_of_the_first_airport_removes_only_its_own_bodies(
@@ -1050,7 +1050,7 @@ def test_25_a_rerun_of_the_first_airport_removes_only_its_own_bodies(
 
     def _rows(p: Path) -> list[str]:
         return sorted(_re.sub(r"^(OBJECT\S*) \d+ ", r"\1 ", l)
-                      for l in p.read_text().splitlines())
+                      for l in p.read_text(encoding="utf-8").splitlines())
     rows_after_two = _rows(dsf)
 
     # TNCM again (the next tile build): its OWN two bodies are removed and
@@ -1081,7 +1081,7 @@ def test_25_a_placement_both_airports_claim_goes_to_the_writer(
     p2, f2 = _tffg(pack, dsf, split_index=1, split_res="objects/b.obj")
     second = PW.apply_plan(p2, f2, tool, patch_dir=patch,
                            work_dir=str(tmp_path / "w2"))
-    text = dsf.read_text()
+    text = dsf.read_text(encoding="utf-8")
     assert "OBJECT_DEF objects/d__b0.obj\n" in text
     assert "objects/b__b" not in text
     assert "OBJECT 0 -63.1 18.04 10.0\n" in text, "TNCM's other edit survives"
@@ -1105,14 +1105,14 @@ def test_25_a_sibling_recorded_against_another_dump_is_not_reapplied(
     PW.apply_plan(p1, f1, tool, patch_dir=patch, work_dir=str(tmp_path / "w1"))
     doc = _record_doc(dsf)
     doc["dsfs"]["+18-064.dsf"]["airports"]["TNCM"]["dump_sha256"] = "0" * 64
-    (dsf.parent / "o4_placement_provenance.json").write_text(json.dumps(doc))
+    (dsf.parent / "o4_placement_provenance.json").write_text(json.dumps(doc), encoding="utf-8", newline="")
     B.invalidate_memo()
     p2, f2 = _tffg(pack, dsf)
     second = PW.apply_plan(p2, f2, tool, patch_dir=patch,
                            work_dir=str(tmp_path / "w2"))
     assert second.dsf.composed_airports == ()
     assert _objs(pack) == ["d__b0.obj"]
-    assert "objects/b__b" not in dsf.read_text()
+    assert "objects/b__b" not in dsf.read_text(encoding="utf-8")
     assert set(_record_doc(dsf)["dsfs"]["+18-064.dsf"]["airports"]) == {"TFFG"}
 
 
@@ -1124,7 +1124,7 @@ def test_25_a_record_from_before_the_airports_map_cleans_up_as_before(
     pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     old = pack / "objects" / "z__b0.obj"
-    old.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}z\n")
+    old.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}z\n", encoding="utf-8", newline="")
     _record(dsf, {"body_files": ["objects/z__b0.obj"], "written_sha256": ""})
     assert W.written_body_files(str(pack), str(dsf), "TFFG") == (str(old),)
     p2, f2 = _tffg(pack, dsf)
@@ -1205,7 +1205,7 @@ def test_26_a_pack_carrying_BOTH_records_is_listed_once(tmp_path, monkeypatch):
     (pack / object_rebake.PROVENANCE_FILENAME).write_text(json.dumps({
         "version": 1, "meshes": {},
         "objects": {"objects/tower.obj": {"tile": "+18-064"},
-                    "objects/far.obj": {"tile": "+46+008"}}}))
+                    "objects/far.obj": {"tile": "+46+008"}}}), encoding="utf-8", newline="")
 
     packs = object_rebake.modified_packs(str(tmp_path))
     assert len(packs) == 1, "ONE pack, ONE row"
@@ -1227,14 +1227,14 @@ def test_26_restore_removes_the_v2_bodies_and_the_record(tmp_path,
     assert _objs(pack) == ["b__b0.obj", "b__b1.obj", "d__b0.obj"]
     assert record.is_file()
     theirs = pack / "objects" / "z__b9.obj"
-    theirs.write_text("I\n800\nOBJ\nauthored by the pack, honestly\n")
+    theirs.write_text("I\n800\nOBJ\nauthored by the pack, honestly\n", encoding="utf-8", newline="")
 
     out = object_rebake.restore_detail(str(pack))
 
     assert out == {"restored": 1, "kept_changed": 0, "bodies_removed": 3}
-    assert dsf.read_text() == DUMP4, "the original is back, byte for byte"
+    assert dsf.read_text(encoding="utf-8") == DUMP4, "the original is back, byte for byte"
     assert _objs(pack) == ["z__b9.obj"], "every minted body went"
-    assert theirs.read_text() == "I\n800\nOBJ\nauthored by the pack, honestly\n"
+    assert theirs.read_text(encoding="utf-8") == "I\n800\nOBJ\nauthored by the pack, honestly\n"
     assert not record.exists(), "the write is forgotten with its bodies"
     assert Path(str(dsf) + ".anchor_bak").is_file(), "backups stay in place"
 
@@ -1251,9 +1251,9 @@ def test_26_a_dsf_we_cannot_prove_is_ours_keeps_its_bodies(tmp_path):
     pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
     shutil.copy2(dsf, str(dsf) + ".anchor_bak")
     body = pack / "objects" / "b__b0.obj"
-    body.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}objects/b__b0.obj\n")
+    body.write_text(f"I\n800\nOBJ\n{PW.CUT_MARK}objects/b__b0.obj\n", encoding="utf-8", newline="")
     _record(dsf, {"body_files": ["objects/b__b0.obj"]})   # D6: no hashes
-    dsf.write_text(DUMP4 + "OBJECT 0 -63.0 18.0 0.0\n")
+    dsf.write_text(DUMP4 + "OBJECT 0 -63.0 18.0 0.0\n", encoding="utf-8", newline="")
     B.invalidate_memo()
     assert B.classify_dsf(str(dsf)).state is B.State.UNPROVEN
 
@@ -1266,14 +1266,14 @@ def test_26_a_dsf_we_cannot_prove_is_ours_keeps_its_bodies(tmp_path):
 def test_26_a_sibling_dsfs_entry_survives_the_drop(tmp_path):
     a = _pack(tmp_path, name="+18-064.dsf")[1]
     b = a.parent / "+18-063.dsf"
-    b.write_text(DUMP)
+    b.write_text(DUMP, encoding="utf-8", newline="")
     doc = {"version": 2, "dsf": a.name, "written_sha256": "a" * 64,
            "dsfs": {a.name: {"body_files": ["objects/a__b0.obj"]},
                     b.name: {"body_files": ["objects/c__b0.obj"]}}}
-    (a.parent / "o4_placement_provenance.json").write_text(json.dumps(doc))
+    (a.parent / "o4_placement_provenance.json").write_text(json.dumps(doc), encoding="utf-8", newline="")
 
     assert B.drop_dsf_entry(str(a)) is True
-    left = json.loads((a.parent / "o4_placement_provenance.json").read_text())
+    left = json.loads((a.parent / "o4_placement_provenance.json").read_text(encoding="utf-8"))
     assert list(left["dsfs"]) == [b.name]
     assert "written_sha256" not in left and "dsf" not in left, \
         "the last write's top-level description named the dropped DSF"
@@ -1287,12 +1287,12 @@ def test_26_a_v1_only_pack_restores_exactly_as_it_did(tmp_path):
     pack, _dsf = _pack(tmp_path)
     mine = _obj(pack, "mine.obj", OBJ)
     shutil.copy2(mine, str(mine) + ".anchor_bak")
-    mine.write_text("I\n800\nOBJ\nVT 1.0 -3.0 2.0\nVT 3.0 -3.0 4.0\n")
+    mine.write_text("I\n800\nOBJ\nVT 1.0 -3.0 2.0\nVT 3.0 -3.0 4.0\n", encoding="utf-8", newline="")
     (pack / object_rebake.PROVENANCE_FILENAME).write_text(json.dumps(
         {"version": 1, "meshes": {},
-         "objects": {"objects/mine.obj": {"tile": "+40-004"}}}))
+         "objects": {"objects/mine.obj": {"tile": "+40-004"}}}), encoding="utf-8", newline="")
 
     out = object_rebake.restore_detail(str(pack))
     assert out == {"restored": 1, "kept_changed": 0, "bodies_removed": 0}
-    assert mine.read_text() == OBJ
+    assert mine.read_text(encoding="utf-8") == OBJ
     assert not (pack / object_rebake.PROVENANCE_FILENAME).exists()

@@ -82,7 +82,7 @@ def _box_obj(path, hx, hz, depth, top=0.0, extra="", attr="", lid=False,
         lines.append(attr)
     lines.append(f"TRIS 0 {len(idx)}")
     lines.append(extra)
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return path
 
 
@@ -91,9 +91,9 @@ def _two_box_obj(path, a, b):
     object): ``a`` and ``b`` are keyword dicts for ``_box_obj``."""
     import re
     pa = _box_obj(path, **a)
-    text_a = pa.read_text().rstrip("\n").splitlines()
+    text_a = pa.read_text(encoding="utf-8").rstrip("\n").splitlines()
     pb = _box_obj(path.with_name(path.stem + "_b.obj"), **b)
-    text_b = pb.read_text().rstrip("\n").splitlines()
+    text_b = pb.read_text(encoding="utf-8").rstrip("\n").splitlines()
     vt_a = [ln for ln in text_a if ln.startswith("VT")]
     vt_b = [ln for ln in text_b if ln.startswith("VT")]
     idx_a = [int(t) for ln in text_a if ln.startswith("IDX") for t in ln.split()[1:]]
@@ -103,7 +103,7 @@ def _two_box_obj(path, a, b):
              f"POINT_COUNTS {len(vt_a) + len(vt_b)} 0 0 {len(idx)}"] + vt_a + vt_b
     lines += ["IDX " + " ".join(str(i) for i in idx[k:k + 10]) for k in range(0, len(idx), 10)]
     lines.append(f"TRIS 0 {len(idx)}")
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     pb.unlink()
     return path
 
@@ -122,12 +122,12 @@ def objs(tmp_path_factory):
     d.mkdir()
     pit = _box_obj(d / "pit.obj", 30.0, 20.0, 6.0)
     # the decal: a flat 200 m quad 50 m down, as a separate TRIS range
-    text = pit.read_text().rstrip("\n").splitlines()
+    text = pit.read_text(encoding="utf-8").rstrip("\n").splitlines()
     n_vt = sum(1 for ln in text if ln.startswith("VT"))
     n_idx = sum(len(ln.split()) - 1 for ln in text if ln.startswith("IDX"))
     text += _decal_lines(-50.0, 100.0, n_vt)
     text.append(f"TRIS {n_idx} 6")
-    pit.write_text("\n".join(text) + "\n")
+    pit.write_text("\n".join(text) + "\n", encoding="utf-8", newline="")
     # a hard-deck bridge: a 20 × 12 slab at y = +6 with the deck attribute
     bridge = _box_obj(d / "bridge.obj", 10.0, 6.0, 0.5, top=6.0, attr="ATTR_hard_deck")
     # a low deck (an IIS case): deck top 6 m under grade — clearance

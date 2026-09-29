@@ -70,7 +70,7 @@ _APT_DAT_2 = """I
 
 
 def _write(path, text):
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
     return str(path)
 
@@ -499,7 +499,7 @@ def test_stale_size_change_with_restored_mtime_is_true(apt1, tmp_path):
     recorded = os.stat(apt1)
     # Append a byte (size grows), then restore the recorded mtime so only
     # the size differs -- size alone must still trigger a rebuild.
-    with open(apt1, "a", encoding="utf-8") as fh:
+    with open(apt1, "a", encoding="utf-8", newline="") as fh:
         fh.write("X")
     os.utime(apt1, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
     now = os.stat(apt1)
@@ -529,11 +529,15 @@ def test_stale_recorded_source_deleted_is_true(apt1, tmp_path):
     assert AI.index_is_stale([apt1], cache) is True
 
 
-def test_stale_abspath_vs_relative_equivalent_is_false(apt1, tmp_path):
+def test_stale_abspath_vs_relative_equivalent_is_false(apt1, tmp_path,
+                                                        monkeypatch):
     cache = str(tmp_path / "index.tsv")
     AI.build_index([apt1], cache)
     # Build recorded the absolute apt1 path; a relative path to the same
-    # file must normalize equal -> not stale.
+    # file must normalize equal -> not stale.  Relative to a cwd on the
+    # file's own drive: Windows has no relpath across drives (tmp on C:,
+    # checkout on D: — #92).
+    monkeypatch.chdir(tmp_path)
     rel = os.path.relpath(apt1)
     assert os.path.abspath(rel) == os.path.abspath(apt1)
     assert AI.index_is_stale([rel], cache) is False

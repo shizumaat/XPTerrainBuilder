@@ -225,12 +225,12 @@ class TestPatchCoveragePolygon:
         node.write_text(
             "4 2 1 0\n" + "".join(
                 f"{i + 1} {x:.9f} {y:.9f} 0.000000000\n"
-                for i, (x, y) in enumerate(corners)))
+                for i, (x, y) in enumerate(corners)), encoding="utf-8", newline="")
         poly.write_text(
             "0 2 1 0\n\n4 1\n"
             + "".join(f"{i + 1} {i + 1} {(i + 1) % 4 + 1} {marker}\n"
                       for i in range(4))
-            + "\n0\n\n0\n")
+            + "\n0\n\n0\n", encoding="utf-8", newline="")
 
         class Tile:
             lat, lon = 60, -136

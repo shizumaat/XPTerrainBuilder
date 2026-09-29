@@ -122,7 +122,7 @@ def test_cli_fail_over_bar_and_json(synthetic_tile, tmp_path, capsys):
     rc = m.main([str(tile), "--orthophotos", str(ortho), "--strip", "4",
                  "--json", str(out), "--fail-over-bar"])
     assert rc == 1  # the B|C seam introduces 4 counts > the 2-count bar
-    assert json.loads(out.read_text())["summary"]["seams_over_bar"] == 1
+    assert json.loads(out.read_text(encoding="utf-8"))["summary"]["seams_over_bar"] == 1
     rc = m.main([str(tile), "--orthophotos", str(ortho), "--strip", "4",
                  "--bar", "5", "--fail-over-bar"])
     assert rc == 0
@@ -143,7 +143,7 @@ def test_harness_build_dir_resolves_its_tile_and_a_vacuous_census_refuses(
                  "--bar", "5", "--fail-over-bar"])
     assert rc == 2  # no product names the tile: 0 judged -> REFUSING
     assert "REFUSING" in capsys.readouterr().err
-    (lane_dir / "Data+25+051.mesh").write_text("")
+    (lane_dir / "Data+25+051.mesh").write_text("", encoding="utf-8", newline="")
     report = m.census(lane_dir, ortho, strip=4)
     assert sum(t["source_found"] for t in report["textures"]) == 4
     rc = m.main([str(lane_dir), "--orthophotos", str(ortho), "--strip", "4",

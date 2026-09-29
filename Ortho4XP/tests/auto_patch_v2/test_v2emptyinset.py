@@ -90,10 +90,10 @@ def _corpus(tmp_path, monkeypatch, *, valid, manifest=True):
     if manifest:
         (insets / f"{ICAO}_swissalti3d.json").write_text(json.dumps(
             {"provider": "SWISSALTI3D",
-             "bounding_box_wgs84": list(REQUIRED)}))
+             "bounding_box_wgs84": list(REQUIRED)}), encoding="utf-8", newline="")
     (insets / "index.json").write_text(json.dumps(
         {ICAO: {"SWISSALTI3D": "ok", "bounding_box": list(REQUIRED),
-                "checked": "2026-07-23"}}))
+                "checked": "2026-07-23"}}), encoding="utf-8", newline="")
     return (str(elevation), str(osm), str(raster))
 
 

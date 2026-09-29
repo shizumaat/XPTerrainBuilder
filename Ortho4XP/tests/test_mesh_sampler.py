@@ -233,9 +233,9 @@ def test_parse_cache_invalidates_when_the_mesh_file_changes(
     monkeypatch.setattr(sampler_module, "_parse_cache_key", None)
     monkeypatch.setattr(sampler_module, "_parse_cache_arrays", None)
     mesh_path = tmp_path / "Data+00+000.mesh"
-    with open(FIXTURE_MESH_PATH) as handle:
+    with open(FIXTURE_MESH_PATH, encoding="utf-8") as handle:
         original = handle.read()
-    mesh_path.write_text(original)
+    mesh_path.write_text(original, encoding="utf-8", newline="")
 
     parse_calls = []
     real_read_mesh = MeshElevationSampler._read_mesh
@@ -253,6 +253,6 @@ def test_parse_cache_invalidates_when_the_mesh_file_changes(
 
     # Rewrite with different bytes (a rebuilt mesh): size changes, so
     # the (path, mtime_ns, size) key misses even on coarse filesystems.
-    mesh_path.write_text(original + "\n")
+    mesh_path.write_text(original + "\n", encoding="utf-8", newline="")
     MeshElevationSampler(str(mesh_path), FIXTURE_BOUNDS)
     assert len(parse_calls) == 2

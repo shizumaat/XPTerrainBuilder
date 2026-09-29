@@ -76,9 +76,9 @@ def _write_fake_dsf(tmp_path, body):
     """Create a fake .dsf + a fresh .dsf.text cache so ``_read_dsf_polys``
     parses our synthetic text without invoking DSFTool."""
     dsf = tmp_path / "fake.dsf"
-    dsf.write_text("binary-placeholder")
+    dsf.write_text("binary-placeholder", encoding="utf-8", newline="")
     txt = tmp_path / "fake.dsf.text"
-    txt.write_text(body)
+    txt.write_text(body, encoding="utf-8", newline="")
     # Ensure the cache is NEWER than the dsf so no re-conversion is tried.
     now = os.path.getmtime(txt)
     os.utime(dsf, (now - 10, now - 10))

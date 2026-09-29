@@ -275,7 +275,7 @@ def test_pack_partition_builds_its_Member_entirely_by_keyword():
 
     src = pathlib.Path(
         __import__("auto_patch_v2.airport.pack_partition", fromlist=["x"]).__file__)
-    tree = ast.parse(src.read_text())
+    tree = ast.parse(src.read_text(encoding="utf-8"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
              and n.func.id == "Member"]

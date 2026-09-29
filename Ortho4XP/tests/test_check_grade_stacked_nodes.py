@@ -95,7 +95,7 @@ def _write_osm(tmp_path: Path,
         + "\n".join(node_lines) + "\n"
         + "\n".join(way_lines) + "\n</osm>\n")
     out = tmp_path / filename
-    out.write_text(text)
+    out.write_text(text, encoding="utf-8", newline="")
     return out
 
 

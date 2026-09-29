@@ -170,7 +170,7 @@ class TestMaskingPassIntegration:
 class TestSidecarUpgradeDetection:
     def _write_sidecar(self, tmp_path, monkeypatch, payload):
         sidecar = tmp_path / "sidecar.json"
-        sidecar.write_text(json.dumps(payload))
+        sidecar.write_text(json.dumps(payload), encoding="utf-8", newline="")
         import O4_File_Names as FNAMES
 
         monkeypatch.setattr(

@@ -311,7 +311,7 @@ def _stub_clip_store(tmp_path, monkeypatch, clip_name):
     directory.mkdir()
     (directory / (clip_name + "-part0.osm")).write_bytes(_osm_xml())
     (directory / (clip_name + ".parts.json")).write_text(
-        json.dumps([clip_name + "-part0.osm"]))
+        json.dumps([clip_name + "-part0.osm"]), encoding="utf-8", newline="")
     monkeypatch.setattr(EXTRACTS, "_clip_directory", lambda: str(directory))
     monkeypatch.setattr(EXTRACTS, "extracts_enabled", lambda: True)
     monkeypatch.setattr(EXTRACTS, "covering_regions",

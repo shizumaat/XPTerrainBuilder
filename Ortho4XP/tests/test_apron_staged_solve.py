@@ -306,7 +306,7 @@ def test_the_A2_docket_exists_and_mirrors_A1s():
     src = inspect.getsource(OS)
     assert '_report["a2_both_hard_raw"]' in src
     from auto_patch.elevation_per_surface.route_profile import solve as S
-    csrc = Path(S.__file__).read_text()
+    csrc = Path(S.__file__).read_text(encoding="utf-8")
     # (the phrase is split across source lines by the formatter, so match
     # its halves rather than the concatenated literal)
     assert "A2 BOTH-HARD top" in csrc

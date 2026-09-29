@@ -937,7 +937,7 @@ class TestExclusionWiringR4:
         placement_lines = []
         for index in range(6):
             resource = f"objects/building{index}.obj"
-            (pack_root / resource).write_text(_FLAT_BOX_OBJ_TEXT)
+            (pack_root / resource).write_text(_FLAT_BOX_OBJ_TEXT, encoding="utf-8", newline="")
             definition_lines.append(f"OBJECT_DEF {resource}")
             # Every terrain placement on ONE shared datum coordinate.
             placement_lines.append(f"OBJECT {index} 6.109073 46.238144 0.0")
@@ -974,9 +974,9 @@ class TestClassificationReadsAuthoredGeometry:
         pack_root = tmp_path / "Pack"
         (pack_root / "objects").mkdir(parents=True)
         live_path = pack_root / "objects" / "box.obj"
-        live_path.write_text(_BAKED_BOX_OBJ_TEXT)
+        live_path.write_text(_BAKED_BOX_OBJ_TEXT, encoding="utf-8", newline="")
         (pack_root / "objects" / "box.obj.anchor_bak").write_text(
-            _FLAT_BOX_OBJ_TEXT
+            _FLAT_BOX_OBJ_TEXT, encoding="utf-8", newline=""
         )
         placement = ObjectPlacement(
             definition_index=0, resource_path="objects/box.obj",
@@ -994,7 +994,7 @@ class TestClassificationReadsAuthoredGeometry:
         pack_root = tmp_path / "Pack"
         (pack_root / "objects").mkdir(parents=True)
         (pack_root / "objects" / "box.obj").write_text(
-            _BAKED_BOX_OBJ_TEXT
+            _BAKED_BOX_OBJ_TEXT, encoding="utf-8", newline=""
         )
         placement = ObjectPlacement(
             definition_index=0, resource_path="objects/box.obj",
@@ -1034,7 +1034,7 @@ class TestColdScanProgress:
         resources = []
         for index in range(count):
             resource = f"objects/building{index}.obj"
-            (pack_root / resource).write_text(_FLAT_BOX_OBJ_TEXT)
+            (pack_root / resource).write_text(_FLAT_BOX_OBJ_TEXT, encoding="utf-8", newline="")
             resources.append(resource)
         return pack_root, resources
 
@@ -2233,7 +2233,7 @@ class TestPerNodeEmissionForBridgePlates:
             node_altitudes=[161.01] * 5))
         out = str(tmp_path / "plate.osm")
         layout.to_osm(out)
-        return open(out).read()
+        return open(out, encoding="utf-8").read()
 
     def test_trench_emits_per_node_alt_abs_never_flat(self, tmp_path):
         # Round-8 measured defect: to_osm collapsed all-equal
@@ -2368,7 +2368,7 @@ class TestLawValueEmissionExemptions:
         layout.shapes.extend(shapes)
         out = str(tmp_path / "law.osm")
         layout.to_osm(out)
-        return open(out).read()
+        return open(out, encoding="utf-8").read()
 
     def test_lip_node_keeps_law_value_against_coincident_rect(
         self, tmp_path
@@ -2903,8 +2903,8 @@ class TestClassificationSidecar:
         (pack / "Objects").mkdir(parents=True)
         dsf = pack / "overlay.dsf"
         dsf.write_bytes(b"dsf-bytes")
-        (pack / "Objects" / "a.obj").write_text("VT 0 0 0\n")
-        (pack / "Objects" / "b.obj").write_text("VT 1 1 1\n")
+        (pack / "Objects" / "a.obj").write_text("VT 0 0 0\n", encoding="utf-8", newline="")
+        (pack / "Objects" / "b.obj").write_text("VT 1 1 1\n", encoding="utf-8", newline="")
         return pack, dsf
 
     def test_fingerprint_stable_and_path_under_data_root(self, tmp_path):
@@ -2966,7 +2966,7 @@ class TestClassificationSidecar:
 
         live = pack / "Objects" / "a.obj"
         shutil.copy2(str(live), str(live) + ".anchor_bak")
-        live.write_text("VT 0 -9.4 0\n")        # the Phase 2 y-bake
+        live.write_text("VT 0 -9.4 0\n", encoding="utf-8", newline="")        # the Phase 2 y-bake
         _os.utime(str(live), (1e9, 1e9))
         _path, after = assembly._classification_sidecar(
             str(dsf), str(pack), None)
@@ -2974,7 +2974,7 @@ class TestClassificationSidecar:
 
         # A stray backup whose live file does not exist is not an input
         # to anything, and still adds no entry.
-        (pack / "Objects" / "ghost.obj.anchor_bak").write_text("backup")
+        (pack / "Objects" / "ghost.obj.anchor_bak").write_text("backup", encoding="utf-8", newline="")
         _path, with_stray = assembly._classification_sidecar(
             str(dsf), str(pack), None)
         assert with_stray == before
@@ -3001,7 +3001,7 @@ class TestClassificationSidecar:
         apt_dat = pack / "Earth nav data"
         apt_dat.mkdir()
         apt_dat = apt_dat / "apt.dat"
-        apt_dat.write_text("1 599 KBNA\n")
+        apt_dat.write_text("1 599 KBNA\n", encoding="utf-8", newline="")
         _path, before = assembly._classification_sidecar(
             str(dsf), str(pack), None, apt_dat_path=str(apt_dat))
         _os.utime(apt_dat, (1e9, 1e9))
@@ -3064,7 +3064,7 @@ class TestRoadNetworkSidecarCache:
         pack_root = xplane_root / "Custom Scenery" / "US-KBNA Nashville Roads"
         earth_nav_data = pack_root / "Earth nav data" / "+30-090"
         earth_nav_data.mkdir(parents=True)
-        (earth_nav_data / "+36-087.dsf").write_text("binary-placeholder")
+        (earth_nav_data / "+36-087.dsf").write_text("binary-placeholder", encoding="utf-8", newline="")
         return str(xplane_root), str(pack_root)
 
     def _patch_pack_order_and_loader(self, monkeypatch):
@@ -3176,7 +3176,7 @@ class TestRoadNetworkSidecarCache:
         # When the pack root cannot be resolved the helper declines and
         # the discovery loop falls back to its uncached dump/parse.
         loose_dsf = tmp_path / "loose.dsf"
-        loose_dsf.write_text("binary-placeholder")
+        loose_dsf.write_text("binary-placeholder", encoding="utf-8", newline="")
         monkeypatch.setattr(assembly.dsf_reader, "_pack_root_for_dsf",
                             lambda _path: None)
         assert assembly._road_network_sidecar(
@@ -3644,12 +3644,12 @@ def _write_two_level_mesh(mesh_path, *, water_half_span_m,
     lines += ["", "Normals", "0", "", "Triangles", str(len(triangles))]
     for first, second, third in triangles:
         lines.append(f"{first} {second} {third} 0")
-    mesh_path.write_text("\n".join(lines) + "\n")
+    mesh_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 def _seat_vertex_y_values(path) -> list:
     out = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("VT "):
             out.append(float(line.split()[2]))
     return out
@@ -3736,7 +3736,7 @@ class TestBridgeAbutmentSeat:
         pack_root = tmp_path / "OTHH-TEST Pack"
         (pack_root / _SEAT_RESOURCE).parent.mkdir(parents=True,
                                                   exist_ok=True)
-        (pack_root / _SEAT_RESOURCE).write_text(_SEAT_BOX_OBJ_TEXT)
+        (pack_root / _SEAT_RESOURCE).write_text(_SEAT_BOX_OBJ_TEXT, encoding="utf-8", newline="")
         dsf_path = pack_root / "overlay.dsf"
         dsf_path.write_bytes(b"")
         monkeypatch.setattr(
@@ -3863,7 +3863,7 @@ class TestBridgeAbutmentSeat:
         """``modify_custom_airports`` off: the decision is computed and
         RECORDED, no delta is produced, the pack is untouched."""
         dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
-        authored = (pack_root / _SEAT_RESOURCE).read_text()
+        authored = (pack_root / _SEAT_RESOURCE).read_text(encoding="utf-8")
         mesh_path = self._mesh(tmp_path)
         result = self._rebake(
             dsf_path, mesh_path, pack_root, [self._candidate()],
@@ -3876,7 +3876,7 @@ class TestBridgeAbutmentSeat:
         assert record["baked"] is False
         assert "measure-only" in record["decision"]
         assert result["objects_written"] == []
-        assert (pack_root / _SEAT_RESOURCE).read_text() == authored
+        assert (pack_root / _SEAT_RESOURCE).read_text(encoding="utf-8") == authored
 
     def test_the_decision_kind_reaches_the_rebake_decision(
         self, tmp_path, monkeypatch

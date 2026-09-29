@@ -98,7 +98,7 @@ class TestInlandTerrainBorder:
         name = DSF.create_terrain_file(
             tile, "24000_31000_Arc16.dds", 24000, 31000, 16, "Arc",
             1, True, mask_border=mask_border)
-        with open(os.path.join(str(tmp_path), "terrain", name)) as ter:
+        with open(os.path.join(str(tmp_path), "terrain", name), encoding="utf-8") as ter:
             return ter.read()
 
     def test_mask_border_references_the_tile_mask(self, tmp_path):

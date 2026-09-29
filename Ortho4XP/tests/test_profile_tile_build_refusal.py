@@ -78,7 +78,7 @@ def build_entry(profiler):
 
 def _owner_cfg(tmp_path, **values):
     cfg = tmp_path / "Ortho4XP.cfg"
-    cfg.write_text("".join(f"{k}={v}\n" for k, v in values.items()))
+    cfg.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8", newline="")
     return cfg
 
 
@@ -88,7 +88,7 @@ def test_the_profiler_uses_THE_build_entrys_refusal_not_a_copy(
         build_entry.apply_xplane_install_paths
     assert Path(inspect.getfile(profiler.apply_xplane_install_paths)) == \
         BUILD_ENTRY
-    source = PROFILER.read_text()
+    source = PROFILER.read_text(encoding="utf-8")
     assert "REFUSING" not in source, (
         "the profiler is spelling a refusal of its own — it must import "
         "the harness's (the census-wrapper precedent)")

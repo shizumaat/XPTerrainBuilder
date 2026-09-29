@@ -61,7 +61,7 @@ def _write_patch(directory: Path, rings, lat=30, lon=31):
         way_id -= 1
     lines.append("</osm>")
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "ZZZZ_auto.patch.osm").write_text("\n".join(lines))
+    (directory / "ZZZZ_auto.patch.osm").write_text("\n".join(lines), encoding="utf-8", newline="")
     return directory
 
 

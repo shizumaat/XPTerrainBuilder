@@ -146,7 +146,7 @@ def _record_invalidation_arm(tmp_path, monkeypatch, icao, raster_values):
     if raster_values is not None:
         _write_geotiff(destination, raster_values)
     with open(FNAMES.airport_inset_provenance(*TILE, icao, "USGS3DEP"),
-              "w") as handle:
+              "w", encoding="utf-8", newline="") as handle:
         json.dump({"provider": "USGS3DEP",
                    "project_titles": ["USGS 1 Meter KS_Statewide_2018_A18"]},
                   handle, indent=2, sort_keys=True)
@@ -206,7 +206,7 @@ def test_a_record_with_a_valid_raster_is_left_alone(tmp_path, monkeypatch):
     assert fetched == []
     assert [name for name in os.listdir(directory)
             if ".invalid-" in name] == []
-    with open(sidecar, "r") as handle:
+    with open(sidecar, "r", encoding="utf-8") as handle:
         assert json.load(handle)["provider"] == "USGS3DEP"
     assert numpy.all(_values_of(destination) == 250.0)
 

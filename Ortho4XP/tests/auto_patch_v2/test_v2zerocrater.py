@@ -185,7 +185,7 @@ def _patch(tmp_path, elevations):
     parts.append("<tag k='role' v='apron'/><tag k='aeroway' v='apron'/>"
                  "<tag k='ref' v='dsf:pol31'/></way>\n</osm>\n")
     p = tmp_path / "ZZZZ_auto.patch.osm"
-    p.write_text("".join(parts))
+    p.write_text("".join(parts), encoding="utf-8", newline="")
     return p
 
 

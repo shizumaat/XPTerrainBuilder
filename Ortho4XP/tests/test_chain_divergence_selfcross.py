@@ -46,7 +46,7 @@ def _write_osm(path, ways):
         lines.append("<tag k='o4_feature' v='gap_interior_ring'/>")
         lines.append("</way>")
     lines.append("</osm>")
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write("\n".join(lines))
 
 

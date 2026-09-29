@@ -34,7 +34,7 @@ DUP = _os.environ.get("O4_FOO", "1")       # duplicate name, first wins
 
 def _write(tmp_path, text):
     path = tmp_path / "synthetic_config.py"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8", newline="")
     return str(path)
 
 
@@ -139,7 +139,7 @@ def _write_patch(tmp_path, prov):
     root += ">"
     text = "<?xml version='1.0' encoding='UTF-8'?>\n" + root + "\n</osm>\n"
     path = tmp_path / "TEST_auto.patch.osm"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8", newline="")
     return str(path)
 
 
@@ -171,7 +171,7 @@ def test_reader_round_trip_raw(tmp_path):
 
 def test_reader_unstamped_patch_returns_none(tmp_path):
     path = tmp_path / "old_auto.patch.osm"
-    path.write_text("<?xml version='1.0'?>\n<osm version='0.6'>\n</osm>\n")
+    path.write_text("<?xml version='1.0'?>\n<osm version='0.6'>\n</osm>\n", encoding="utf-8", newline="")
     assert P.parse_patch_provenance(str(path)) is None
 
 
@@ -208,7 +208,7 @@ def test_inset_bake_provenance_entry_reads_sidecar(tmp_path):
         "source_ids": ["YT-Whitehorse_2019-1m"],
         "fetch_date": "2026-07-11",
         "native_resolution_m": 1.0,
-    }))
+    }), encoding="utf-8", newline="")
     entry = INSETS._inset_bake_provenance_entry(str(tif))
     assert entry["icao"] == "CYXY"
     assert entry["provider"] == "HRDEM"

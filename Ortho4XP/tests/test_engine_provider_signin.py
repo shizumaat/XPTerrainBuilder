@@ -178,7 +178,7 @@ def test_descriptor_status_mirrors_local_state(fake_registry,
 
     # A saved cookie file alone: the session is usable, the account is not
     # remembered.
-    with open(SESSIONS.cookie_file_path("dgterritorio"), "w") as handle:
+    with open(SESSIONS.cookie_file_path("dgterritorio"), "w", encoding="utf-8", newline="") as handle:
         handle.write("# Netscape HTTP Cookie File\n")
     portugal = _descriptors(session)["dgterritorio"]
     assert portugal["signed_in"] is True
@@ -394,7 +394,7 @@ def test_remember_store_fails_on_the_read_loop_but_the_worker_stores(
         stdin.close()
     # The username sidecar landed; the password went to the FRONT END's
     # store (the SecretRequest above), never to a keyring in this process.
-    with open(os.path.join(directory, "dgterritorio.account.json")) as handle:
+    with open(os.path.join(directory, "dgterritorio.account.json"), encoding="utf-8") as handle:
         assert json.load(handle) == {"username": "user@example.org"}
 
 

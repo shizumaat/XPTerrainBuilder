@@ -48,7 +48,7 @@ def _write_mesh(path, tris):
     lines += ["Triangles", str(len(faces))]
     lines += [f"{a} {b} {c} 0" for a, b, c in faces]
     lines += ["End", ""]
-    Path(path).write_text("\n".join(lines))
+    Path(path).write_text("\n".join(lines), encoding="utf-8", newline="")
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ def test_the_bbox_split_and_the_area_bands_are_hand_computable(mesh, capsys,
     MRT.main(["--mesh", str(mesh),
               "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--area-bands", "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["triangles_tile"] == 6
     assert d["triangles_in_bbox"] == 5
     # bands: [<0.1, 0.1-1, 1-texel^2, >=texel^2]
@@ -101,7 +101,7 @@ def test_band_edges_may_be_given_explicitly(mesh, tmp_path):
     MRT.main(["--mesh", str(mesh),
               "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--area-bands", "1", "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["area_band_edges_m2"] == [1.0]
     assert d["area_bands_in_bbox"] == [3, 2]   # <1 m^2: 0.02,0.02,0.5
 
@@ -111,7 +111,7 @@ def test_no_bands_asked_no_bands_reported(mesh, tmp_path):
     MRT.main(["--mesh", str(mesh),
               "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert "area_bands_in_bbox" not in d
     assert d["triangles_in_bbox"] == 5
 
@@ -162,7 +162,7 @@ def test_aspect_is_one_for_equilateral_and_large_for_a_needle(tmp_path):
     out = tmp_path / "e.json"
     MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--aspect", "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["aspect_in_bbox"]["n"] == 1
     assert d["aspect_in_bbox"]["max"] == pytest.approx(1.0, rel=2e-3)
 
@@ -171,7 +171,7 @@ def test_aspect_is_one_for_equilateral_and_large_for_a_needle(tmp_path):
     out2 = tmp_path / "n.json"
     MRT.main(["--mesh", str(p2), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--aspect", "--json", str(out2)])
-    d2 = json.loads(out2.read_text())
+    d2 = json.loads(out2.read_text(encoding="utf-8"))
     # 40 x 0.5 right triangle: longest edge 40.003, area 10, s = 40.2515
     # -> 40.003 * 40.2515 / (2*sqrt(3) * 10) ~= 46.48
     assert d2["aspect_in_bbox"]["max"] == pytest.approx(46.48, rel=0.02)
@@ -189,7 +189,7 @@ def test_aspect_separates_shape_from_size(tmp_path):
     MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--area-bands", "1", "--aspect", "--aspect-flag", "20",
               "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["area_bands_in_bbox"] == [0, 2]          # one band, both
     assert d["aspect_in_bbox"]["needles"] == 1        # only the needle
     assert d["aspect_flag"] == 20.0
@@ -204,12 +204,12 @@ def test_aspect_counts_only_in_bbox_and_is_absent_unasked(tmp_path):
     out = tmp_path / "c.json"
     MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--aspect", "--json", str(out)])
-    d = json.loads(out.read_text())
+    d = json.loads(out.read_text(encoding="utf-8"))
     assert d["aspect_in_bbox"]["n"] == 1
     out2 = tmp_path / "d.json"
     MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
               "--json", str(out2)])
-    assert "aspect_in_bbox" not in json.loads(out2.read_text())
+    assert "aspect_in_bbox" not in json.loads(out2.read_text(encoding="utf-8"))
 
 
 # ── THE EDGE AUDIT (owner RULINGS 2026-09-10g) ────────────────────────
@@ -240,7 +240,7 @@ def _write_mesh_z(path, tris):
     lines += ["Triangles", str(len(faces))]
     lines += [f"{a} {b} {c} 0" for a, b, c in faces]
     lines += ["End", ""]
-    path.write_text("\n".join(lines))
+    path.write_text("\n".join(lines), encoding="utf-8", newline="")
     return path
 
 
@@ -337,14 +337,14 @@ def _write_edge_step_inputs(tmp_path, outside_z):
     (prefix.with_suffix(".node")).write_text(
         "5 2 1 0\n" + "".join(
             f"{i + 1} {x:.9f} {y:.9f} {z:.9f}\n"
-            for i, ((x, y), z) in enumerate(zip(nodes, z_node))))
+            for i, ((x, y), z) in enumerate(zip(nodes, z_node))), encoding="utf-8", newline="")
     segments = [(i + 1, (i + 1) % 4 + 1, MRT.PATCH_RING_MARKER)
                 for i in range(4)]
     (prefix.with_suffix(".poly")).write_text(
         "0 2 1 0\n\n" + f"{len(segments)} 1\n"
         + "".join(f"{k + 1} {a} {b} {m}\n"
                   for k, (a, b, m) in enumerate(segments))
-        + "\n0\n\n0\n")
+        + "\n0\n\n0\n", encoding="utf-8", newline="")
     verts = [(x - 4.0, y + 40.0, z) for (x, y), z in zip(nodes, z_node)]
     faces = [(1, 2, 3), (1, 3, 4), (2, 3, 5)]
     lines = ["MeshVersionFormatted 1", "Dimension 3", "Vertices",
@@ -355,7 +355,7 @@ def _write_edge_step_inputs(tmp_path, outside_z):
     lines += [f"{a} {b} {c} 8" for a, b, c in faces]
     lines += ["End", ""]
     mesh = tmp_path / "Data+40-004.mesh"
-    mesh.write_text("\n".join(lines))
+    mesh.write_text("\n".join(lines), encoding="utf-8", newline="")
     return (str(prefix), str(mesh))
 
 
@@ -384,9 +384,9 @@ def test_patch_edge_step_says_so_when_there_is_no_patch_ring(tmp_path,
     import mesh_region_tris as MRT
 
     (prefix, mesh) = _write_edge_step_inputs(tmp_path, 588.0)
-    text = open(prefix + ".poly").read().replace(
+    text = open(prefix + ".poly", encoding="utf-8").read().replace(
         f" {MRT.PATCH_RING_MARKER}\n", " 0\n")
-    open(prefix + ".poly", "w").write(text)
+    open(prefix + ".poly", "w", encoding="utf-8", newline="").write(text)
     assert MRT.patch_edge_step(prefix, mesh, 40, -4)["n"] == 0
     assert "no PATCH_RING_MARKER segment" in capsys.readouterr().out
 

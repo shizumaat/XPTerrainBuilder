@@ -127,7 +127,7 @@ def test_neck_widths_are_law_not_literals(rules):
     lit = re.compile(r"(neck_\w+|arm_\w+|max_width_m)\s*[=:]\s*"
                      r"\(?\s*(45|50|60|3|2)\.\d")
     bad = [(p.name, line.strip()) for p in SRC.rglob("*.py")
-           for line in p.read_text().splitlines()
+           for line in p.read_text(encoding="utf-8").splitlines()
            if lit.search(line) and not line.lstrip().startswith("#")]
     assert not bad, bad
 

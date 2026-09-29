@@ -763,7 +763,7 @@ def test_summary_reads_cached_inset_index_ground_truth(
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     index_path = FNAMES.airport_inset_index(51, -1)
     os.makedirs(os.path.dirname(index_path))
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(
             {
                 "EGLL": {

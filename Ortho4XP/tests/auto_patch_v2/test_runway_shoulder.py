@@ -539,8 +539,8 @@ def test_the_dry_band_reader_is_the_classifier_s_own_verdict(law, rules, tmp_pat
     assert mod.reclassify(cap, {}, out_on) == 0
     assert mod.reclassify(
         cap, {"corridor.runway_shoulder_band_end_cap": "false"}, out_off) == 0
-    on = json.loads(out_on.read_text())
-    off = json.loads(out_off.read_text())
+    on = json.loads(out_on.read_text(encoding="utf-8"))
+    off = json.loads(out_off.read_text(encoding="utf-8"))
 
     # the band table IS the classifier's (the twins above, through the tool)
     assert on["runway_shoulder"]["cells"] == off["runway_shoulder"]["cells"] == 1

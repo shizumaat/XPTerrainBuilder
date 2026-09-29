@@ -627,7 +627,7 @@ def test_gate_off_leaves_verify_output_untouched(monkeypatch, tmp_path):
     log = tmp_path / "verify_off.log"
     counts = V.verify_and_log(_real_layout(), "KTST", str(log))
     assert "eat_ceiling" not in counts
-    text = log.read_text() if log.exists() else ""
+    text = log.read_text(encoding="utf-8") if log.exists() else ""
     assert "EAT-CEILING" not in text
 
 
@@ -637,7 +637,7 @@ def test_gate_on_counts_and_logs_the_finding(monkeypatch, tmp_path):
     log = tmp_path / "verify_on.log"
     counts = V.verify_and_log(_real_layout(), "KTST", str(log))
     assert counts["eat_ceiling"] > 0
-    assert "EAT-CEILING" in log.read_text()
+    assert "EAT-CEILING" in log.read_text(encoding="utf-8")
 
 
 def test_gate_on_without_a_store_is_silent(monkeypatch, tmp_path):
@@ -648,7 +648,7 @@ def test_gate_on_without_a_store_is_silent(monkeypatch, tmp_path):
     log = tmp_path / "verify_nostore.log"
     counts = V.verify_and_log(layout, "KTST", str(log))
     assert counts["eat_ceiling"] == 0
-    assert "EAT-CEILING" not in (log.read_text() if log.exists() else "")
+    assert "EAT-CEILING" not in (log.read_text(encoding="utf-8") if log.exists() else "")
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -665,9 +665,9 @@ def _write_fake_dsf(tmp_path, body):
     dsf_directory = pack_root / "Earth nav data" / "+30-090"
     dsf_directory.mkdir(parents=True)
     dsf = dsf_directory / "+35-081.dsf"
-    dsf.write_text("binary-placeholder")
+    dsf.write_text("binary-placeholder", encoding="utf-8", newline="")
     text = dsf_directory / "+35-081.dsf.text"
-    text.write_text(body)
+    text.write_text(body, encoding="utf-8", newline="")
     now = os.path.getmtime(text)
     os.utime(dsf, (now - 10, now - 10))
     return str(dsf), str(pack_root)
@@ -770,7 +770,7 @@ def object_building_harness(tmp_path, monkeypatch, fake_projection):
     for resource_path, geometry in geometry_by_resource.items():
         physical = os.path.join(pack_root, *resource_path.split("/"))
         os.makedirs(os.path.dirname(physical), exist_ok=True)
-        with open(physical, "w") as handle:
+        with open(physical, "w", encoding="utf-8", newline="") as handle:
             handle.write("placeholder\n")
         physical_by_resource[resource_path] = physical
         geometry_by_physical[os.path.abspath(physical)] = geometry
@@ -1113,7 +1113,7 @@ class TestObjectFootprintCache:
         # The backup is what the reader parses from now on (ruling R1).
         harness.geometry_by_physical[os.path.abspath(backup_path)] = (
             harness.geometry_by_physical[os.path.abspath(obj_path)])
-        with open(obj_path, "w") as handle:
+        with open(obj_path, "w", encoding="utf-8", newline="") as handle:
             handle.write("placeholder\nVT 0 -9.4 0\n")
         file_stat = os.stat(obj_path)
         os.utime(obj_path,
@@ -1159,7 +1159,7 @@ class TestObjectFootprintCache:
         obj_path = os.path.join(harness.pack_root, *resource.split("/"))
         # Provenance as ``apply`` writes it (this bake's two hashes).
         with open(os.path.join(harness.pack_root,
-                               REBAKE.PROVENANCE_FILENAME), "w") as handle:
+                               REBAKE.PROVENANCE_FILENAME), "w", encoding="utf-8", newline="") as handle:
             json.dump({
                 "version": REBAKE.PROVENANCE_VERSION,
                 "meshes": {}, "runs": {},
@@ -1174,7 +1174,7 @@ class TestObjectFootprintCache:
         partitions_before = len(harness.partition_calls)
 
         # A new pack version lands on the live file.
-        with open(obj_path, "w") as handle:
+        with open(obj_path, "w", encoding="utf-8", newline="") as handle:
             handle.write("placeholder\n# new pack version\n")
         D._OBJECT_READER_MEMO.clear()
         D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
@@ -1218,7 +1218,7 @@ class TestObjectFootprintCache:
         # sidecar helper declines — the reader then behaves as it did
         # before the cache existed.
         loose_dsf = tmp_path / "loose.dsf"
-        loose_dsf.write_text("binary-placeholder")
+        loose_dsf.write_text("binary-placeholder", encoding="utf-8", newline="")
         assert D._object_footprint_sidecar(
             str(loose_dsf), None, 1.0, 25.0) == (None, None)
         assert D._object_footprint_sidecar(
@@ -1474,7 +1474,7 @@ class TestReadDsfObjectBuildingsRealReader:
         physical = os.path.join(pack_root, "Terminals", "Hangar",
                                 "pack_box.obj")
         os.makedirs(os.path.dirname(physical), exist_ok=True)
-        with open(physical, "w") as handle:
+        with open(physical, "w", encoding="utf-8", newline="") as handle:
             handle.write(_REAL_BOX_OBJ)
 
         buildings = D.read_dsf_object_buildings(dsf_path,
@@ -1514,7 +1514,7 @@ class TestReadDsfObjectBuildingsRealReader:
         physical = os.path.join(pack_root, "Terminals", "Hangar",
                                 "two_box.obj")
         os.makedirs(os.path.dirname(physical), exist_ok=True)
-        with open(physical, "w") as handle:
+        with open(physical, "w", encoding="utf-8", newline="") as handle:
             handle.write(_REAL_TWO_BOX_OBJ)
 
         buildings = D.read_dsf_object_buildings(dsf_path,
@@ -1552,7 +1552,7 @@ class TestReadDsfObjectBuildingsRealReader:
         pack_physical = os.path.join(pack_root, "Terminals", "Hangar",
                                      "pack_box.obj")
         os.makedirs(os.path.dirname(pack_physical), exist_ok=True)
-        with open(pack_physical, "w") as handle:
+        with open(pack_physical, "w", encoding="utf-8", newline="") as handle:
             handle.write(_REAL_BOX_OBJ)
         # A library.txt in a synthetic X-Plane root exports the SAME
         # virtual path to a DIFFERENT (10 m) box.
@@ -1560,10 +1560,10 @@ class TestReadDsfObjectBuildingsRealReader:
         library_pack = xplane_root / "Custom Scenery" / "TestLibrary"
         library_pack.mkdir(parents=True)
         library_physical = library_pack / "library_box.obj"
-        library_physical.write_text(_REAL_SMALL_BOX_OBJ)
+        library_physical.write_text(_REAL_SMALL_BOX_OBJ, encoding="utf-8", newline="")
         (library_pack / "library.txt").write_text(
             "A\n800\nLIBRARY\n\n"
-            "EXPORT Terminals/Hangar/pack_box.obj library_box.obj\n")
+            "EXPORT Terminals/Hangar/pack_box.obj library_box.obj\n", encoding="utf-8", newline="")
 
         buildings = D.read_dsf_object_buildings(
             dsf_path, xplane_root=str(xplane_root))
@@ -2045,7 +2045,7 @@ class TestReaderStampsTheEvidenceRole:
         dsf_path, pack_root = _write_fake_dsf(tmp_path, body)
         physical = os.path.join(pack_root, "Objects", "slab.obj")
         os.makedirs(os.path.dirname(physical), exist_ok=True)
-        with open(physical, "w") as handle:
+        with open(physical, "w", encoding="utf-8", newline="") as handle:
             handle.write(_REAL_BOX_OBJ)
         buildings, evidence = D.read_dsf_object_building_evidence(
             dsf_path, xplane_root=None)

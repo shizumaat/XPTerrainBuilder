@@ -75,7 +75,7 @@ def test_scan_cache_version_bump_drops_the_snapshot(tmp_path):
     GUI.save_scan_cache(
         {TILE: _tile_info(*TILE, build_dir="/w/t")}, set(),
         "/w", "/cs", path=path)
-    with open(path, "r") as handle:
+    with open(path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
     payload["version"] = GUI.TILE_SCAN_CACHE_VERSION + 1
     assert GUI.scan_cache_restore(payload, "/w", "/cs") is None
@@ -188,18 +188,18 @@ def test_has_foreign_sources(tmp_path):
     textures.mkdir()
     for name in ("22528_38912_BI16.dds", "22528_38912_BI17.dds",
                  "22528_38912_BI16_mask.dds", "notes.txt"):
-        (textures / name).write_text("")
+        (textures / name).write_text("", encoding="utf-8", newline="")
     # Zones legitimately mix ZOOM LEVELS — only the provider decides.
     assert QTMAP.has_foreign_sources(str(textures), "BI") is False
     assert QTMAP.has_foreign_sources(str(textures), "bi") is False
-    (textures / "22528_38912_Arc16.dds").write_text("")
+    (textures / "22528_38912_Arc16.dds").write_text("", encoding="utf-8", newline="")
     assert QTMAP.has_foreign_sources(str(textures), "BI") is True
 
 
 def test_has_foreign_sources_needs_a_current_provider(tmp_path):
     textures = tmp_path / "textures"
     textures.mkdir()
-    (textures / "22528_38912_Arc16.dds").write_text("")
+    (textures / "22528_38912_Arc16.dds").write_text("", encoding="utf-8", newline="")
     assert QTMAP.has_foreign_sources(str(textures), "") is False
     assert QTMAP.has_foreign_sources(str(tmp_path / "gone"), "BI") is False
 
@@ -299,7 +299,7 @@ def make_window(qapp, tmp_path, monkeypatch):
     working dir pointed at ``tmp_path`` from the start (the cache load
     runs in ``__init__``, before a test could set it)."""
     prefs_path = str(tmp_path / "prefs.json")
-    with open(prefs_path, "w") as handle:
+    with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         # An EXISTING prefs file: an absent one arms the onboarding
         # wizard, whose modal exec would sit there forever headless.
         json.dump({"output_dir": str(tmp_path)}, handle)
@@ -387,7 +387,7 @@ def test_conflict_sweep_reaches_the_map_and_the_info_panel(
     build_dir = tmp_path / "zOrtho4XP_+48-006"
     (build_dir / "textures").mkdir(parents=True)
     for name in ("22528_38912_BI16.dds", "22528_38912_Arc16.dds"):
-        (build_dir / "textures" / name).write_text("")
+        (build_dir / "textures" / name).write_text("", encoding="utf-8", newline="")
     window = make_window()
     window._built = {TILE: _tile_info(*TILE, build_dir=str(build_dir))}
     window._refresh_conflict_tiles()

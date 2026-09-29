@@ -167,8 +167,8 @@ def _run(oracle, cg, monkeypatch, tmp_path, *, lo_vals, hi_vals, band,
     monkeypatch.setattr(oracle, "_analytic_band", analytic_band)
 
     rc = oracle.main(["ORCL", "--out", str(tmp_path)])
-    doc = json.loads((tmp_path / "ORCL_oracle.json").read_text())
-    prog = (tmp_path / "ORCL_oracle.progress").read_text()
+    doc = json.loads((tmp_path / "ORCL_oracle.json").read_text(encoding="utf-8"))
+    prog = (tmp_path / "ORCL_oracle.progress").read_text(encoding="utf-8")
     return rc, doc["verdicts"], prog
 
 
@@ -456,9 +456,9 @@ def test_the_run_writes_its_env_and_frame_beside_the_verdicts(
     monkeypatch.setattr(oracle, "_analytic_band",
                         lambda lay: (None, _status(oracle, "no_nodes")))
     oracle.main(["ORCL", "--out", str(tmp_path)])
-    env = json.loads((tmp_path / "ORCL_oracle.env.json").read_text())
-    frame = json.loads((tmp_path / "ORCL_oracle.frame.json").read_text())
-    doc = json.loads((tmp_path / "ORCL_oracle.json").read_text())
+    env = json.loads((tmp_path / "ORCL_oracle.env.json").read_text(encoding="utf-8"))
+    frame = json.loads((tmp_path / "ORCL_oracle.frame.json").read_text(encoding="utf-8"))
+    doc = json.loads((tmp_path / "ORCL_oracle.json").read_text(encoding="utf-8"))
     assert env["git_head"] == "h"
     assert frame["join"] and frame["guards_armed"]
     assert doc["frame"]["env"]["code_tree_hash"] == "t", (

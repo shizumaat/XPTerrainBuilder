@@ -116,7 +116,7 @@ def _write_marker(kind, lat, lon, step=None, only_if_absent=False):
         # Atomic write (temp + rename): a reader must never observe a
         # created-but-empty file, whatever the read/write interleaving.
         temporary = path + ".tmp"
-        with open(temporary, "w") as handle:
+        with open(temporary, "w", encoding="utf-8", newline="") as handle:
             handle.write(repr(time.time()))
         os.replace(temporary, path)
     except OSError as error:

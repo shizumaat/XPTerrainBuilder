@@ -68,7 +68,7 @@ def test_every_class_is_declared():
 
 
 def test_the_tool_is_in_the_index():
-    idx = (_ROOT.parent / "tools" / "INDEX.md").read_text()
+    idx = (_ROOT.parent / "tools" / "INDEX.md").read_text(encoding="utf-8")
     assert "Ortho4XP/tools/apron_pull_attrib.py" in idx
 
 

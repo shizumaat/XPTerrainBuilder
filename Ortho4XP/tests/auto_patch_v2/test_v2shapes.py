@@ -181,8 +181,13 @@ def _dumbbell(neck_w: float):
     return [RUNWAY, Cell(1, "apron", "dumbbell", ring, (), None, None, "airside", "apron", {})]
 
 
+#: 29k: an in-face joint is lawful only where the terrain EARNS it — the
+#: DEM drops at least ``materiality.step_m`` across the mouth (x = 0)
+MOUTH_BENCH = _Bench(0.0)
+
+
 def test_a_narrow_mouth_separates_two_bodies_with_a_joint_across_it(law):
-    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [])
+    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [], dem=MOUTH_BENCH)
     assert _shape_of(pm, (-150.0, Y0)) != _shape_of(pm, (150.0, Y0))
     assert st.shapes.bodies == 2 and st.shapes.contours == 1   # the runway is no body (08p)
     (j,) = pm.shape_joints
@@ -192,6 +197,15 @@ def test_a_narrow_mouth_separates_two_bodies_with_a_joint_across_it(law):
     assert max(abs(x) for x in xs) <= 15.0 + 1.0, xs         # across the neck
     assert min(ys) <= 165.0 + 1.0 and max(ys) >= 175.0 - 1.0
     assert j.pairs and all(S.straddles(pm, p) for p in j.pairs)
+
+
+def test_a_flat_narrow_mouth_earns_no_joint_and_is_one_shape(law):
+    """29k: the same mouth over FLAT ground is an unearned in-face joint —
+    the minority side re-joins the face's shape (29j's relabel)."""
+    _ap, pm, st, _cl = _airport(law, _dumbbell(10.0), [])
+    assert _shape_of(pm, (-150.0, Y0)) == _shape_of(pm, (150.0, Y0))
+    assert st.shapes.orphans_relabelled > 0 and st.shapes.orphans_earned == 0
+    assert not pm.shape_joints
 
 
 def test_a_wide_neck_joins_the_bodies(law):
@@ -409,7 +423,7 @@ def test_two_route_contacts_in_one_shape_make_no_joint_and_the_apron_grades_thro
 # ── 6. the joint's step reads lawful in both censuses ────────────────────
 
 def test_the_step_across_a_shape_joint_is_lawful_in_both_censuses(law, tmp_path):
-    airport, pm, st, cl = _airport(law, _dumbbell(10.0), [])
+    airport, pm, st, cl = _airport(law, _dumbbell(10.0), [], dem=MOUTH_BENCH)
     stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
     cs, _c, _w = shape_constraints(pm, law, airport, stage)
     a, b = _vid(pm, (-150.0, Y0)), _vid(pm, (150.0, Y0))

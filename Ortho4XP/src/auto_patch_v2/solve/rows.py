@@ -544,6 +544,28 @@ def _role_bodies_faced(pm: PlanarMap, roles: _t.AbstractSet[str],
     return out
 
 
+class OrphanShapeError(ValueError):
+    """A shape id labels vertices but owns no face (RULINGS 2026-09-29j)."""
+
+    def __init__(self, orphans: dict[int, int]):
+        self.orphans = dict(orphans)
+        super().__init__(
+            "orphan_shape: shape(s) owning no face would float outside every "
+            "body datum (RULINGS 2026-09-29j, issue #81): "
+            + ", ".join(f"shape {s} ({n} vertices)" for s, n in sorted(orphans.items())))
+
+
+def orphan_shapes(pm: PlanarMap) -> dict[int, int]:
+    """``{shape id: vertex count}`` for every shape that labels a vertex and
+    owns no face (``shape_of_face``) — empty on a lawful map."""
+    owned = set(pm.shape_of_face.values())
+    out: dict[int, int] = {}
+    for sh in pm.shape_of_vertex.values():
+        if sh != NO_SHAPE and sh not in owned:
+            out[sh] = out.get(sh, 0) + 1
+    return out
+
+
 def _shape_bodies(pm: PlanarMap, red: "_Reduction",
                   bodies: list[tuple[list[int], list[int]]]) -> list[list[int]]:
     """The PER-BODY DATUM's vertex sets (owner RULINGS 2026-09-09v): a
@@ -572,7 +594,25 @@ def _shape_bodies(pm: PlanarMap, red: "_Reduction",
     round 2's 275 (law-true 2,073 against 1,180).  The bodies therefore
     stay as the datum has always taken them and only the MEMBERSHIP is
     enforced — which at CYXY is byte-identical to the round-2 patch."""
+    # A FACE-LESS SHAPE (08k's earned in-face terrace, owner RULINGS
+    # 2026-09-29k) has no faces of its own, so the membership rule drops its
+    # vertices from the ringing face's body: it gets ITS OWN body here, made
+    # of exactly those dropped vertices.  One that could land in NO body —
+    # its vertices ring no face at all — is a defect upstream, REFUSED by
+    # name (29j), never a silently free vertex (KCLT dsf:pol54, 21 vertices
+    # 4.5 m under the DEM on bending alone).
+    orphans = orphan_shapes(pm)
+    if orphans:
+        ringed = {v for f in pm.faces.values()
+                  for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+        lost: dict[int, int] = {}
+        for v, sh in pm.shape_of_vertex.items():
+            if sh in orphans and v not in ringed:
+                lost[sh] = lost.get(sh, 0) + 1
+        if lost:
+            raise OrphanShapeError(lost)
     out: list[list[int]] = []
+    minted: dict[int, set[int]] = {}
     for vs, fs in bodies:
         labs: dict[int, int] = {}
         for fid in fs:
@@ -580,11 +620,19 @@ def _shape_bodies(pm: PlanarMap, red: "_Reduction",
             if sh != NO_SHAPE:
                 labs[sh] = labs.get(sh, 0) + 1
         own = max(labs, key=lambda sh: (labs[sh], -sh)) if labs else NO_SHAPE
-        keep = [v for v in vs
-                if pm.shape_of_vertex.get(v, NO_SHAPE) in (own, NO_SHAPE)
-                and red.col[v] >= 0 and pm.vertices[v].dem_z is not None]
+        keep = []
+        for v in vs:
+            if red.col[v] < 0 or pm.vertices[v].dem_z is None:
+                continue
+            sh = pm.shape_of_vertex.get(v, NO_SHAPE)
+            if sh in (own, NO_SHAPE):
+                keep.append(v)
+            elif sh in orphans:
+                minted.setdefault(sh, set()).add(v)
         if keep:
             out.append(keep)
+    for sh in sorted(minted):
+        out.append(sorted(minted[sh]))
     return out
 
 

@@ -115,6 +115,8 @@ class ShapeStats:
     bodies: int = 0                 # bodies after the opening (components with one body count one)
     shapes: int = 0                 # distinct shape ids after the strip welds
     vertices_labelled: int = 0
+    orphans_relabelled: int = 0     # 29j/29k: vertices of an UNEARNED face-less label given their ringing face's shape
+    orphans_earned: int = 0         # 29k: face-less labels kept (DEM drop across the mouth >= materiality.step_m)
     road_vertices_labelled: int = 0
     road_vertices_relabelled: int = 0   # 08r-2: a body's vertex on an along road taking the road's shape
     road_vertices_unlabelled: int = 0   # 08r-2: a crossing road's contact vertices freed
@@ -885,6 +887,54 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
             area[top] = area.get(top, 0.0) + (poly.area if poly is not None else 0.0)
             nfaces[top] = nfaces.get(top, 0) + 1
             roles_of.setdefault(top, set()).add(f.role)
+    # NO UNEARNED FACE-LESS SHAPE (owner RULINGS 2026-09-29j, narrowed by
+    # 29k; issue #81): a face takes its vertices' MAJORITY label, so a
+    # contour joint cut across a narrow mouth INSIDE one face (08k) leaves a
+    # label that is the majority of no face.  08k stands where the terrain
+    # EARNS the joint: the DEM across the mouth — the mean DEM difference
+    # over the face ring edges that STRADDLE it (one end the minority label,
+    # the other the face's own) — drops at least the terrace floor
+    # (``materiality.step_m``); a mouth with no straddling ring edge has no
+    # terrain witness and is unearned.  (A face-wide mean is not the mouth:
+    # KCLT pol54 read 0.73 m face-wide against -0.02 m across its mouth.)  An EARNED minority stays a shape (the body
+    # datum mints its own body, ``solve/rows._shape_bodies``); an UNEARNED
+    # one (KCLT dsf:pol54, 214.98 vs 215.12 across joints 10-12, whose 21
+    # vertices floated 4.5 m under the DEM) re-joins the ringing face's
+    # shape.  The ringing face is the one holding most of the label's
+    # vertices (lowest face id on a tie).
+    owned = set(of_face.values())
+    orphan = {l for l in set(label.values()) if l not in owned}
+    if orphan:
+        floor = law.tables.emit.materiality.step_m
+        verts_of: dict[int, dict[int, list[int]]] = {}   # label -> face -> its vertices
+        for fid in of_face:
+            for v in _face_vertices(pm, fid):
+                if label.get(v) in orphan:
+                    verts_of.setdefault(label[v], {}).setdefault(fid, []).append(v)
+
+        for l, by_face in verts_of.items():
+            ring = min(by_face, key=lambda f: (-len(by_face[f]), f))
+            drops: list[float] = []
+            for fid in by_face:
+                f = pm.faces[fid]
+                for r in (f.ring, *f.holes):
+                    rv = list(pm.ring_vertices(r))
+                    for a, b in zip(rv, rv[1:] + rv[:1]):
+                        la, lb = label.get(a), label.get(b)
+                        if {la, lb} != {l, of_face[fid]}:
+                            continue
+                        o, w = (a, b) if la == l else (b, a)
+                        if pm.vertices[o].dem_z is None or pm.vertices[w].dem_z is None:
+                            continue
+                        drops.append(float(pm.vertices[w].dem_z) - float(pm.vertices[o].dem_z))
+            if drops and abs(sum(drops) / len(drops)) >= floor:
+                stats.orphans_earned += 1
+                continue
+            for fid, vs in by_face.items():
+                for v in vs:
+                    if label.get(v) == l:
+                        label[v] = of_face[ring]
+                        stats.orphans_relabelled += 1
     order = sorted(set(label.values()), key=lambda l: (-area.get(l, 0.0), l))
     dense = {l: k for k, l in enumerate(order)}
     label = {v: dense[l] for v, l in label.items()}

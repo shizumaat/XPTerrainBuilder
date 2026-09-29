@@ -268,24 +268,28 @@ def licence_verdict(rel: str, allow: dict):
 def classify(path: str, data_repo: Path, install_root, overlays: dict):
     """Map one traced real path to ``(snapshot relpath, source path)`` or
     ``None`` when it is not corpus (engine source, venv, lane products)."""
-    p = str(path)
-    dr = str(data_repo.resolve()).rstrip("/") + "/"
+    # '/'-spelled for the prefix tests on every OS; the SOURCE path returned
+    # stays native (#92)
+    orig = str(path)
+    p = orig.replace(os.sep, "/")
+    dr = str(data_repo.resolve()).replace(os.sep, "/").rstrip("/") + "/"
     if p.startswith(dr):
         rel = p[len(dr):]
         if rel.split("/")[0] in DATA_DIRS:
-            return f"data/{rel}", p
+            return f"data/{rel}", orig
         return None
     for env, name in OVERLAY_ENVS.items():
         root = overlays.get(env)
-        if root and p.startswith(root.rstrip("/") + "/"):
-            rel = p[len(root.rstrip("/")) + 1:]
+        root = root.replace(os.sep, "/").rstrip("/") if root else root
+        if root and p.startswith(root + "/"):
+            rel = p[len(root) + 1:]
             src = data_repo / name / rel
             # a file the build DERIVED lane-local is not corpus
             return (f"data/{name}/{rel}", str(src)) if src.is_file() else None
     if install_root:
-        ir = str(Path(install_root).resolve()).rstrip("/") + "/"
+        ir = str(Path(install_root).resolve()).replace(os.sep, "/").rstrip("/") + "/"
         if p.startswith(ir):
-            return f"xplane/{p[len(ir):]}", p
+            return f"xplane/{p[len(ir):]}", orig
     return None
 
 

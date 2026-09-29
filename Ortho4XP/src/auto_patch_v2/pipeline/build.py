@@ -605,6 +605,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
          f"{len(getattr(pm, 'natural_shore_refs', ()) or ())} natural", out)
     for _ln in shore_decision_lines(pm, airport):
         _say(_ln, out)
+    for _ln in road_exit_lines(airport):
+        _say(_ln, out)
     if _xp:
         _xp["classification"] = cl
         _xp["planar_pm"] = pm
@@ -1350,6 +1352,27 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     return BuildResult(icao, pm, cs, counts, sol, paths, vrows, pieces, wall, size, report,
                        Path(out_dir) / f"{icao}.rebake.json" if report.get("rebake_plan")
                        else None)
+
+
+def road_exit_lines(airport) -> list[str]:
+    """Road-exit corridor report (spec ``road-exit-corridor-spec.md``
+    §1.4): count, and per corridor its mouth ``lat, lon``, band-exit step,
+    length and class — from the last arrangement (``overlay.ROAD_EXITS``)."""
+    from ..planar.overlay import ROAD_EXITS
+    lines = [f"  [planar] road_exit (#100): {len(ROAD_EXITS)} corridor(s)"]
+    try:
+        to_ll = airport.frame.transformers()[1]
+    except Exception:                                   # pragma: no cover
+        to_ll = None
+    for rx in ROAD_EXITS:
+        ll = ""
+        if to_ll is not None:
+            la, lo = to_ll(*rx.exit_xy)
+            ll = f" mouth {la:.6f}, {lo:.6f}"
+        lines.append(f"  [planar] road_exit {rx.ref}{ll}: step {rx.step_m:+.2f} m, "
+                     f"length {rx.length_m:.1f} m, {rx.kind}, "
+                     f"area {rx.polygon.area:.0f} m2")
+    return lines
 
 
 def shore_decision_lines(pm, airport, every: bool = False) -> list[str]:

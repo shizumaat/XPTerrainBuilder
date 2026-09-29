@@ -215,52 +215,40 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
 
 
 def road_exit_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """RULINGS 2026-09-29r: every vertex of a ROAD EXIT corridor (``planar/
-    zones.road_exit_corridors``) off the band seam stands within the road's
-    longitudinal cap of its NEAREST seam vertex:
-
-        ``-cap · d  <=  z[v] - z[a]  <=  cap · d``
-
-    ONE-WAY (``follows=(v,)``): the seam is the band edge, whose level the
-    band law alone sets (13ar: inside the band the road grades WITH the
-    zone, mandatory-down) — the corridor climbs away from it and never
-    lifts it.  ``d`` is the straight distance, never longer than the route,
-    so the row is never looser than the cap along the road."""
+    """Spec road-exit §1.3 (1) (RULINGS 2026-09-29r/29y): the corridor's
+    COURSE from its mouth.  The two-way course and cross-section rows AMONG
+    corridor vertices are ``roads.road_within_shape``'s (every pair of the
+    corridor ring, read on the corridor's own route frame, §1.4); this
+    generator adds the ONE-WAY hop from each mouth to the FIRST STATION —
+    every corridor vertex within one edge grid of chainage from a mouth
+    vertex stands within ``cap * |ds| + trans * |dt|`` of it, the corridor
+    vertex following (``follows=(v,)``): the mouth is a band vertex whose
+    level the band law alone sets (13ar; the 29u interventional read).
+    One hop to the leader, so the lag settles in the mouth's round."""
     from ..airport.road_ramp import road_exit_vertices
-    from ..planar.zones import ROAD_EXIT_PREFIX
     exit_v, seam = road_exit_vertices(planar)
     if not exit_v or not seam:
         return []
     rc = role_cap(law, "service_road")
     if rc is None:
         return []
-    cap = float(rc.longitudinal)
-    sxy = [(a, planar.vertices[a].xy) for a in sorted(seam)]
-    # the band EDGE the corridor leaves: the seam's own ring edges.  The
-    # bound is taken over the distance to that LINE (never longer than to
-    # its nearest vertex): a plane over a corridor triangle standing on
-    # two seam vertices climbs over its height above the seam edge, not
-    # over the vertex distance (measured NLWF road -1 NE exit: 8.4 % on a
-    # vertex-distance cap of 8 %)
-    from shapely.geometry import LineString as _LS, Point as _Pt
-    seam_lines = []
-    for f in planar.faces.values():
-        if not (f.ref or "").startswith(ROAD_EXIT_PREFIX):
-            continue
-        for cyc in (f.ring, *f.holes):
-            ring = planar.ring_vertices(cyc)
-            for i in range(len(ring)):
-                a, b = ring[i], ring[(i + 1) % len(ring)]
-                if a in seam and b in seam:
-                    seam_lines.append(_LS([planar.vertices[a].xy, planar.vertices[b].xy]))
+    cap, trans = float(rc.longitudinal), float(rc.transverse)
+    frame = getattr(planar, "road_route_frame", None) or {}
+    grid = float(law.tables.emit.design.edge_grid_m)
     rows: list[Row] = []
     for v in sorted(exit_v - seam):
-        x, y = planar.vertices[v].xy
-        a, d = min(((a, math.hypot(x - ax, y - ay)) for a, (ax, ay) in sxy),
-                   key=lambda t: t[1])
-        if seam_lines:
-            d = min(d, min(ln.distance(_Pt(x, y)) for ln in seam_lines))
-        rows.append(Linear(((v, 1.0), (a, -1.0)), -cap * d, cap * d,
-                           Source(GEN, EXIT_RULING, (f"vertex:{v}", f"seam:{a}")),
-                           follows=(v,)))
+        fv = frame.get(v)
+        if fv is None:
+            continue
+        for a in sorted(seam):
+            fa = frame.get(a)
+            if fa is None or fa[0] != fv[0]:
+                continue
+            ds, dt = abs(fv[1] - fa[1]), abs(fv[2] - fa[2])
+            if ds > grid:
+                continue
+            bound = cap * ds + trans * dt
+            rows.append(Linear(((v, 1.0), (a, -1.0)), -bound, bound,
+                               Source(GEN, EXIT_RULING, (f"vertex:{v}", f"seam:{a}")),
+                               follows=(v,)))
     return rows

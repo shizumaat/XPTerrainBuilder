@@ -612,7 +612,17 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    too, even where a shared vertex ties it to the airside sheet.  The
     #    airside design surface is never given one.
     gs_roles = {r for r in pav_roles if role_side(law, r) == "groundside"}
+    # spec road-exit §2 row 26: a body made ONLY of road-exit corridor
+    # faces carries no plane datum — its datum is the centreline profile
+    # (``airport/road_ramp.road_exit_profile``), which a DEM plane would
+    # fight.  The literal is ``planar/zones.ROAD_EXIT_PREFIX`` (``solve``
+    # imports ``law`` and ``model`` only, M0 §1).
+    exit_only = {v for f in planar.faces.values()
+                 if (f.ref or "").startswith("road_exit:")
+                 for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
     for vs in _role_bodies(planar, gs_roles, red):
+        if exit_only and set(vs) <= exit_only:
+            continue
         by_comp.setdefault(("groundside", vs[0]), vs)
     #    A RIGID GROUP (a pad, a plate, a wall band) is ONE column, so its
     #    own bending rows collapse to nothing: bending gives it no level at

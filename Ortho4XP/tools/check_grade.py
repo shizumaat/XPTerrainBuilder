@@ -2299,6 +2299,16 @@ def iter_shape_grade_constraints(
                 return d
             return max(d, _ring_route_m(_ramp_xy, ia, ib))
 
+        def _route_cap_l(cap) -> float:
+            """The LONGITUDINAL cap a routed road pair is read at: the
+            way's own role cap (``grade_cap``), exactly as the generator
+            (``constraints/roads.road_within_shape``: ``cap.longitudinal``)
+            — never the pair's ``classify_pair`` cap, which the RING's
+            long axis may already have tightened to the cross-section cap
+            (a curved road-exit ring, spec road-exit-corridor §1.4: pairs
+            32.8 m along the route were read at 2 %)."""
+            return grade_cap if grade_cap is not None else cap.flat_cap()
+
         def _route_read(ia: int, ib: int, cap_l: float):
             """§37 (7) A ROAD PAIR IS PRICED ALONG THE ROUTE (owner RULINGS
             2026-09-13av; sidecar ``road_route_frame``).
@@ -2474,7 +2484,7 @@ def iter_shape_grade_constraints(
                     # ring walk, the cap the ramp's own.  Applied before the road
                     # reading, which returns None for a non-road role anyway.
                     d = _ramp_span(ia, ib, d)
-                    _rr = _route_read(ia, ib, cap.flat_cap())
+                    _rr = _route_read(ia, ib, _route_cap_l(cap))
                     if _rr == "skip":
                         continue                       # §37 (7): not a pair
                     if _rr is not None:
@@ -2528,7 +2538,7 @@ def iter_shape_grade_constraints(
                 # ring walk, the cap the ramp's own.  Applied before the road
                 # reading, which returns None for a non-road role anyway.
                 d = _ramp_span(ia, ib, d)
-                _rr = _route_read(ia, ib, cap.flat_cap())
+                _rr = _route_read(ia, ib, _route_cap_l(cap))
                 if _rr == "skip":
                     continue                           # §37 (7): not a pair
                 if _rr is not None:

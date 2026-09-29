@@ -39,8 +39,9 @@ from .pad_cut import (_drop_rim_midpoints, _renode_counts, airside_clip,
                       airside_union, apron_cut_to_pads, build_rim)
 from .weld import WeldStats, weld_cells
 from .shore import pack_shore_walls
-from .zones import (road_exit_corridors, shore_declarations, shore_region,
-                    shore_wedge_m, zone_regions)
+from .zones import (road_exit_corridors, road_exit_cutback,
+                    shore_declarations, shore_region, shore_wedge_m,
+                    zone_regions)
 
 #: RULINGS 2026-09-29r: the road exit corridors of the last arrangement
 #: (``zones.RoadExit``), for the build log and the replay read.
@@ -186,26 +187,36 @@ def build_arrangement(airport: Airport, classification: Classification,
     # and the tile's OSM road centrelines
     erep = EdgeReport()
     edge_lines: list[LineString] = []
-    _zones = zone_regions(cells, law, classification.keepouts,
-                          getattr(airport, "dem", None),
-                          road_lines(getattr(airport, "osm_ways", ())), erep,
-                          shore_declarations(getattr(airport, "osm_ways", ())),
-                          shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
-                          pack_shore_walls(airport))
+    _zargs = (cells, law, classification.keepouts,
+              getattr(airport, "dem", None),
+              road_lines(getattr(airport, "osm_ways", ())))
+    _zkw = dict(declared=shore_declarations(getattr(airport, "osm_ways", ())),
+                shore_wedge_m=shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
+                pack_walls=pack_shore_walls(airport))
+    _zones = zone_regions(*_zargs, EdgeReport(), **_zkw)
+    # ROAD EXIT CORRIDORS (spec road-exit-corridor-spec.md §1, consumer
+    # rows 1-2; RULINGS 2026-09-29r/29y/29ab): zones -> corridors (mouths
+    # from the UNCUT band boundary) -> the band cut-back re-applied with
+    # the corridors as groundside pavement -> regions.  Where no road
+    # exits a band the second derivation is skipped (bit-identical zones).
+    ROAD_EXITS.clear()
+    _exits = road_exit_corridors(
+        _zones, cells, law, getattr(airport, "dem", None),
+        road_lines(getattr(airport, "osm_ways", ())),
+        shore_region(cells, getattr(airport, "dem", None)),
+        _zkw["shore_wedge_m"])
+    if _exits:
+        _zones = zone_regions(*_zargs, erep, **_zkw,
+                              road_cut=road_exit_cutback(_exits, law))
+    else:
+        _zones = zone_regions(*_zargs, erep, **_zkw)
     for z in _zones:
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone, z.edge_kind, z.quay,
                               z.natural_shore, z.shore_wedge, z.shore))
         edge_lines.extend(z.edge_lines)
-    # RULINGS 2026-09-29r: where a mapped road LEAVES a band its corridor
-    # is a ROAD (service_road), climbing from the band edge at the road
-    # cap; derived beside the zones, at the one zone derivation site
-    ROAD_EXITS.clear()
-    for rx in road_exit_corridors(
-            _zones, cells, law, getattr(airport, "dem", None),
-            road_lines(getattr(airport, "osm_ways", ())),
-            shore_region(cells, getattr(airport, "dem", None))):
+    for rx in _exits:
         ROAD_EXITS.append(rx)
         regions.append(Region("service_road", rx.ref, rx.polygon, None, None,
                               role_side(law, "service_road"), "cell"))

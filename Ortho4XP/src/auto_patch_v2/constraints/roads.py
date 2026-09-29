@@ -219,6 +219,11 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     ribbon = one_ribbon_m(law)          # §37 (10) (2): one ribbon's width
     min_d = law.tables.emit.identity.min_distinct_spacing_m
     rows: list[Row] = []
+    # spec road-exit §2 row 24: a pair touching a road-exit MOUTH vertex
+    # (a band vertex the corridor shares) is ONE-WAY — the road follows,
+    # the band (13ar, mandatory-down) never lifts for it
+    from ..airport.road_ramp import road_exit_vertices
+    _ex, exit_mouth = road_exit_vertices(planar)
     # groundside classes without a cross-section axis: all pairs at the
     # role's longitudinal cap (parking_lot: owner 2026-09-04j, 5 %)
     roles = tuple(roads) + ("groundside_pavement", "parking_lot")
@@ -303,13 +308,22 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                                                  src_ribbon,
                                                  follows=(b if air_a else a,)))
                                 continue
+                        if exit_mouth and ((a in exit_mouth) != (b in exit_mouth)):
+                            stats["ribbon_follower"] += 1
+                            rows.append(Diff(a, b, bound / d, d, src_ribbon,
+                                             follows=(b if a in exit_mouth else a,)))
+                            continue
                         rows.append(Diff(a, b, bound / d, d,
                                          src_t if transverse else src_l))
                         continue
                     stats["chord"] += 1
                     (ax_, ay_), (bx_, by_) = vw.xy[a], vw.xy[b]
-                    if axis is not None and pair_is_transverse(
-                            axis, bx_ - ax_, by_ - ay_, min_deg):
+                    tr = axis is not None and pair_is_transverse(
+                        axis, bx_ - ax_, by_ - ay_, min_deg)
+                    if exit_mouth and ((a in exit_mouth) != (b in exit_mouth)):
+                        rows.append(Diff(a, b, cap_t if tr else cap_l, d, src_ribbon,
+                                         follows=(b if a in exit_mouth else a,)))
+                    elif tr:
                         rows.append(Diff(a, b, cap_t, d, src_t))
                     else:
                         rows.append(Diff(a, b, cap_l, d, src_l))

@@ -30,7 +30,8 @@ from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
 __all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
-           "SHORE_WALL_TAGS", "shore_wedge_m"]
+           "SHORE_WALL_TAGS", "shore_wedge_m", "road_exit_corridors",
+           "road_exit_cutback", "RoadExit", "ROAD_EXIT_PREFIX"]
 
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -138,7 +139,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  edge_report: EdgeReport | None = None,
                  declared: tuple = (),
                  shore_wedge_m: float | None = None,
-                 pack_walls: tuple = ()) -> list[ZoneRegion]:
+                 pack_walls: tuple = (),
+                 road_cut: tuple = ()) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -174,7 +176,12 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     everything = unary_union(
         [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
          if c.side == "groundside" else Polygon(c.ring, c.holes) for c in cells]
-        + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
+        + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]
+        # ROAD EXIT CORRIDORS ARE GROUNDSIDE PAVEMENT HERE (spec road-exit
+        # §1.1 (4), consumer row 1): already buffered by the same stand-off
+        # and minus their mouth boxes (``road_exit_cutback``) — the ONE
+        # stand-off mechanism; nothing else subtracts bands from corridors
+        + list(road_cut)) if cells else Polygon()
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
     for c in cells:
@@ -311,129 +318,297 @@ ROAD_EXIT_PREFIX = "road_exit:"
 
 @_dc.dataclass(frozen=True)
 class RoadExit:
-    """One road exit corridor: where a mapped road LEAVES an adjacent-
-    ground band, the stretch of its own corridor the road cap needs to
-    climb (or fall) from the band's level to the terrain."""
+    """One road exit corridor (spec ``road-exit-corridor-spec.md`` §1):
+    where a mapped road LEAVES an adjacent-ground band onto ground that is
+    not the band's level, the stretch of its own lane ribbon the road cap
+    needs to climb (or fall) from the band's level to the terrain."""
 
     ref: str
     polygon: Polygon
     exit_xy: tuple[float, float]
     step_m: float           # DEM at the exit minus the band-level estimate
     length_m: float         # the corridor's run along the road
+    #: §1.1 (1) THE AXIS: the OSM way's own centreline from the mouth(s)
+    #: outward, one polyline per mouth (published ``road_exit_axes``)
+    axes: tuple = ()
+    #: per axis: the pre-solve band-level estimate at its mouth (sizes the
+    #: polygon and seeds the centreline profile target, §1.3 (3))
+    z_mouth: tuple = ()
+    #: §1.4 report: "terminal exit" / "runway-end corner" / "in-band pocket"
+    kind: str = "terminal exit"
+    #: §1.1 (4): the mouth keep-out boxes — the band is NOT cut back here
+    mouths: tuple = ()
+    #: §1.4: the whole OSM way the corridor lies on (its route frame axis)
+    route: LineString | None = None
+
+
+def road_exit_cutback(exits: list, law: Law) -> tuple:
+    """§1.1 (4) / consumer row 1: the corridors as GROUNDSIDE PAVEMENT for
+    :func:`zone_regions`' one cut-back — each corridor buffered by the
+    stand-off (``groundside_cutback_m`` + snap), minus its mouth boxes so
+    the band it exits is not cut at the mouth.  The band is trimmed at its
+    single derivation site; the corridor stays one ribbon."""
+    ag = law.tables.zones.adjacent_ground
+    cut = float(ag.groundside_cutback_m) + snap_margin_m(law)
+    out = []
+    for rx in exits:
+        g = rx.polygon.buffer(cut, **_MITRE)
+        for m in rx.mouths:
+            g = g.difference(m)
+        if not g.is_empty:
+            out.append(g)
+    return tuple(out)
+
+
+def _family_levels(cells, zones, dem, law: Law):
+    """The pre-solve level of a band of each family at a point: the DEM of
+    the family's nearest pavement less its mandatory minimum fall over the
+    distance (the in-band pocket's step estimate, §1.2)."""
+    t = law.tables.zones.adjacent_ground
+    fams = {}
+    for c in cells or ():
+        if c.side != "airside":
+            continue
+        if c.role in RUNWAY_FAMILY and not is_runway_shoulder(c):
+            fams.setdefault("runway", []).append(Polygon(c.ring, c.holes))
+        elif c.role in TAXI_FAMILY:
+            fams.setdefault("taxi", []).append(Polygon(c.ring, c.holes))
+    fams = {k: unary_union(v) for k, v in fams.items()}
+
+    def level(fam: str, pt) -> float | None:
+        u = fams.get(fam)
+        if u is None or u.is_empty:
+            return None
+        from shapely.ops import nearest_points
+        q = nearest_points(u, pt)[0]
+        down = float((t.runway if fam == "runway" else t.taxi).band_min_down)
+        return float(dem.z(q.x, q.y)) - down * u.distance(pt)
+    return level
 
 
 def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
-                        dem, roads=(), water=None) -> list[RoadExit]:
-    """RULINGS 2026-09-29r (#100 cause 2; resolves 2026-08-12b vs 13ar by
-    WHERE the road is): INSIDE an adjacent-ground band the road grades
-    WITH the zone (13ar — this function mints nothing there).  Where the
-    road LEAVES the band its own corridor — the road ribbon's half-width
-    (``terrain_edge.road_half_width_m``: lane width + the 0.6 m
-    ``groundside_cutback_m``) — is a ROAD, not zone-3 ground: it climbs
-    from the band edge at <= the road cap (``service_road.longitudinal``,
-    8 %) until the cap meets the DEM, and its sides terrace to the raw
-    DEM.  No ground outside the corridor is minted or moved.
+                        dem, roads=(), water=None,
+                        wedge_m: float | None = None) -> list[RoadExit]:
+    """RULINGS 2026-09-29r/29u/29y/29ab; spec ``road-exit-corridor-spec.md``
+    §1.  INSIDE one continuous adjacent-ground band the road grades WITH
+    the zone (13ar — nothing is minted there).  Where a mapped road LEAVES
+    the band onto ground whose DEM stands ``>= cockpit.visual_m`` off the
+    band's (estimated) level, its own LANE RIBBON (``road_half_width_m``
+    less the cut-back: the cut-back is not road face) is a ROAD from the
+    MOUTH (the road centreline on the band boundary) outward along the OSM
+    way, for as long as the 8 % cap needs to meet the DEM (+25 % slack +
+    one edge grid).
 
-    Derived HERE, at the zone derivation site (owner 2026-08-30l): the
-    corridor is the road piece OUTSIDE every band and cell, starting at
-    the band boundary, as long as the cap needs (``step / cap``, the first
-    station where ``|DEM(s) - z_band| <= cap * s``), minus the bands,
-    the cells and the water.  The band level at the exit is ESTIMATED
-    pre-solve (the DEM at the nearest pavement point less the band's
-    mandatory minimum fall over the distance); the solve owns the real
-    level — the corridor's length only has to cover the cap's reach.
-    A step under ``emit.cockpit.visual_m`` (the step a pilot sees) needs
-    no corridor."""
+    The ribbon is square-capped into the band and differenced by the UNCUT
+    bands, the airside cells and every groundside cell, so its mouth
+    cross-section is the band's own boundary.  NO stand-off is subtracted
+    here: the stand-off is the band's cut-back from the corridor
+    (:func:`road_exit_cutback` fed to :func:`zone_regions`).  The corridor
+    is clipped by the sea widened by the natural-shore wedge
+    (``wedge_m``), and a mouth inside that wedge is not minted: the road
+    ends at the sea and the band's shore law governs there (§1.1 (5)).
+
+    IN-BAND POCKET (29ab (1)): where the road, walking INWARD from the
+    mouth, crosses from the exit band into a band of the other family whose
+    estimated level differs by ``>= visual_m``, the corridor extends inward
+    across that boundary for the cap's reach; its inner end is the mouth."""
     if dem is None or not roads or not zones:
         return []
     from .terrain_edge import road_half_width_m
     from ..law.tables import role_cap
+    from shapely.geometry import Point
+    from shapely.ops import substring
     ag = law.tables.zones.adjacent_ground
     cap = float(role_cap(law, "service_road").longitudinal)
-    half = road_half_width_m(law)
     cutback = float(ag.groundside_cutback_m)
+    half = road_half_width_m(law) - cutback       # the lane: §1.1 (2)
     grid = float(law.tables.emit.design.edge_grid_m)
     snap = snap_margin_m(law)
-    # THE GATE IS THE BAND-EXIT STEP A PILOT SEES (``cockpit.visual_m``),
-    # never a terrain drop: NLWF's road -3 west exit steps 2.4 m where the
-    # pre-solve estimate read 1.8 m, under §19's 2 m ``edge_min_drop_m``
     min_step = float(law.tables.emit.cockpit.visual_m)
     bands = unary_union([z.polygon for z in zones])
     paved = unary_union([Polygon(c.ring, c.holes) for c in cells
                          if c.side == "airside"]) if cells else Polygon()
+    ground_cells = unary_union([Polygon(c.ring, c.holes) for c in cells
+                                if c.side != "airside"]) if cells else Polygon()
     inside = unary_union([bands, paved])
-    blocked = inside if water is None else unary_union([inside, water])
-    from shapely.geometry import Point
-    from shapely.ops import nearest_points, substring
+    sea = None
+    if water is not None and not water.is_empty:
+        sea = water.buffer(max(float(wedge_m or 0.0), snap), **_MITRE)
+    blocked = unary_union([g for g in (inside, ground_cells, sea)
+                           if g is not None and not g.is_empty])
+    level = _family_levels(cells, zones, dem, law)
+    zone_of = [(z, z.polygon) for z in zones]
+
+    def fam_at(pt):
+        for z, g in zone_of:
+            if g.covers(pt):
+                return z.family
+        best = min(zone_of, key=lambda t_: t_[1].distance(pt), default=None)
+        return best[0].family if best and best[1].distance(pt) <= snap else None
+
+    def run_for(line, z0: float) -> float | None:
+        s = grid / 2.0
+        while s <= line.length:
+            pt = line.interpolate(s)
+            if abs(float(dem.z(pt.x, pt.y)) - z0) <= cap * s:
+                return s
+            s += grid / 2.0
+        return None
+
     out: list[RoadExit] = []
     k = 0
     for road in roads:
         if road.distance(bands) > snap:
             continue
         rest = road.difference(inside)
+        # A SHORT IN-BAND GAP BETWEEN TWO EXITS IS ROAD (spec §1.1 (2): one
+        # corridor per road piece): where the road dips into a band for
+        # less than ``_GAP_BRIDGE_M`` between two stretches outside it, the
+        # corridor runs through (cut out of the band by the cut-back, no
+        # mouth there) — measured NLWF road -3 west: two mouths 35 m apart
+        # and the band between them cut back to nothing, a 25 % drape
+        bridge = []
+        inn = road.intersection(bands.difference(paved))
+        for g in getattr(inn, "geoms", [inn]):
+            if g.geom_type != "LineString" or g.length <= 0.0 \
+                    or g.length > _GAP_BRIDGE_M:
+                continue
+            e0, e1 = Point(g.coords[0]), Point(g.coords[-1])
+            if min(road.project(e0), road.project(e1)) <= snap \
+                    or max(road.project(e0), road.project(e1)) >= road.length - snap:
+                continue
+            if rest.distance(e0) <= snap and rest.distance(e1) <= snap:
+                bridge.append(g)
+        bridged = None
+        if bridge:
+            from shapely.ops import linemerge
+            rest = linemerge(unary_union([rest, *bridge]))
+            bridged = unary_union([g.buffer(half + snap, cap_style="flat")
+                                   for g in bridge])
         for piece in getattr(rest, "geoms", [rest]):
             if piece.geom_type != "LineString" or piece.length < grid:
                 continue
             a, b = piece.coords[0], piece.coords[-1]
-            da = bands.distance(Point(a))
-            db = bands.distance(Point(b))
-            ends = [c for c, d in ((a, da), (b, db)) if d <= snap]
-            stretches = []
-            steps = []
+            ends = [c for c in (a, b) if bands.distance(Point(c)) <= snap]
+            stretches, axes, zm, mouths, steps = [], [], [], [], []
+            kind = "terminal exit"
             for p0 in ends:
+                # §1.1 (5): no mouth inside the shore wedge
+                if sea is not None and sea.distance(Point(p0)) <= snap:
+                    continue
                 line = piece if p0 == a else LineString(piece.coords[::-1])
-                # the band level at the exit: the LOWEST pavement DEM
-                # within the band's reach of it (a pavement cut into a
-                # hill — NLWF's apron, 9.9 m off its DEM — is not the
-                # band's level), less the band's mandatory minimum fall
                 z_band = _band_level(paved, zones, p0, dem, law, grid)
                 step = float(dem.z(p0[0], p0[1])) - z_band
                 if abs(step) < min_step:
                     continue
-                need = None
-                s = grid / 2.0
-                while s <= line.length:
-                    pt = line.interpolate(s)
-                    if abs(float(dem.z(pt.x, pt.y)) - z_band) <= cap * s:
-                        need = s
-                        break
-                    s += grid / 2.0
-                # the solve owns the band's real level: a quarter of slack
-                # on the cap's reach so the corridor still meets the DEM
+                need = run_for(line, z_band)
                 run = min(line.length,
                           (1.25 * need if need is not None else line.length) + grid)
-                stretches.append(substring(line, 0.0, run))
+                st = substring(line, 0.0, run)
+                # IN-BAND POCKET (29ab (1)): walk the road INWARD from the
+                # mouth; a crossing into the other family's band with a
+                # visible step extends the corridor across it
+                inward = None
+                rd = road.project(Point(p0))
+                for sgn in (-1.0, 1.0):
+                    q = road.interpolate(rd + sgn * grid / 2.0)
+                    if bands.covers(q) or bands.distance(q) <= snap / 2.0:
+                        inward = sgn
+                        break
+                fam0 = fam_at(road.interpolate(rd + (inward or 0.0) * grid / 2.0))
+                if inward is not None and fam0 is not None:
+                    s = grid / 2.0
+                    reach = 60.0
+                    while s <= reach:
+                        dd = rd + inward * s
+                        if dd <= 0.0 or dd >= road.length:
+                            break
+                        q = road.interpolate(dd)
+                        if not bands.covers(q):
+                            break
+                        f1 = fam_at(q)
+                        if f1 is not None and f1 != fam0:
+                            z0 = level(fam0, q)
+                            z1 = level(f1, q)
+                            if z0 is not None and z1 is not None \
+                                    and abs(z1 - z0) >= min_step:
+                                ext = 1.25 * abs(z1 - z0) / cap + grid
+                                d_in = max(0.0, min(road.length,
+                                                    dd + inward * ext))
+                                lo, hi = sorted((rd, d_in))
+                                inner = substring(road, lo, hi)
+                                if inner.length > 0.0:
+                                    # the axis from the INNER end outward
+                                    ic = list(inner.coords)
+                                    if inward > 0:
+                                        ic = ic[::-1]
+                                    st = LineString(ic[:-1] + list(st.coords))
+                                    p0 = ic[0]
+                                    z_band = z1
+                                    kind = "in-band pocket"
+                            break
+                        s += grid / 2.0
+                if kind != "in-band pocket" and fam0 == "runway":
+                    kind = "runway-end corner" if _past_runway_end(
+                        cells, Point(p0)) else kind
+                stretches.append(st)
+                axes.append(st)
+                zm.append(z_band)
                 steps.append((p0, step, run))
+                # the mouth box: the ribbon's first stand-off of run,
+                # widened by the stand-off, is not cut out of the band
+                cut = cutback + snap
+                head = substring(st, 0.0, min(st.length, cut + grid / 5.0))
+                back = LineString([
+                    (2 * head.coords[0][0] - head.coords[-1][0],
+                     2 * head.coords[0][1] - head.coords[-1][1]),
+                    head.coords[0]]) if head.length > 0 else None
+                # only the part BEHIND the mouth (inside the band it steps
+                # from) is kept: ahead of it the band is cut back as along
+                # the rest of the corridor
+                if back is not None:
+                    mouths.append(back.buffer(half + cut, cap_style="flat"))
+            # a bridged gap inside this piece is corridor either side of it
+            for g in bridge:
+                m = g.interpolate(0.5, normalized=True)
+                if piece.distance(m) > snap:
+                    continue
+                s0 = min(piece.project(Point(g.coords[0])), piece.project(Point(g.coords[-1])))
+                s1 = max(piece.project(Point(g.coords[0])), piece.project(Point(g.coords[-1])))
+                st = substring(piece, max(0.0, s0 - _GAP_BRIDGE_M / 2.0),
+                               min(piece.length, s1 + _GAP_BRIDGE_M / 2.0))
+                zg = _band_level(paved, zones, (m.x, m.y), dem, law, grid)
+                stretches.append(st)
+                axes.append(st)
+                zm.append(zg)
+                steps.append(((m.x, m.y), float(dem.z(m.x, m.y)) - zg, st.length))
             if not stretches:
                 continue
-            # ONE corridor per road piece: two exits of one piece (a road
-            # leaving a band over a hill and coming back) ramp as one road
             # SQUARE caps: the ribbon starts INSIDE the band and the
-            # difference hands back the band's own boundary as the seam
-            # (a flat cap across the band edge left a 0.5 m sliver and an
-            # unwelded 3.8 m step at NLWF)
-            ribbon = unary_union([st.buffer(half, cap_style="square", **_MITRE)
-                                  for st in stretches]).difference(blocked)
-            # 29u (ii) THE STAND-OFF: the corridor stands off every band
-            # it does NOT exit by the 0.6 m cutback and WELDS only at the
-            # MOUTH of the band it exits — a corridor running ALONGSIDE the
-            # band it leaves shared the band's edge vertices over its whole
-            # length and the band-follower rows pinned it to the band
-            # (measured NLWF road -3 west exit: 4.3 m on a 6.1–7.6 m DEM,
-            # 24.8 % where it met the DEM).  The mouth is the ribbon's
-            # cross-section at the exit (a disc of the ribbon half-width).
-            mouths = unary_union([Point(p0).buffer(half) for p0, _s, _r in steps])
-            standoff = bands.buffer(cutback, **_MITRE).difference(mouths)
-            poly = ribbon.difference(standoff)
-            poly = _one_ribbon(poly, ribbon, mouths, stretches, half)
+            # difference hands back the band's own boundary as the mouth.
+            # An in-band pocket corridor is cut out of the bands it crosses
+            # (the ribbon is not differenced by them; the band cut-back
+            # trims them instead).
+            pocket = kind == "in-band pocket"
+            ribbon = unary_union([s_.buffer(half, cap_style="flat" if pocket
+                                            else "square", **_MITRE)
+                                  for s_ in stretches])
+            blk = blocked if not pocket else unary_union(
+                [g for g in (paved, ground_cells, sea)
+                 if g is not None and not g.is_empty])
+            if bridged is not None:
+                blk = blk.difference(bridged.difference(paved))
+            poly = ribbon.difference(blk)
             parts = [g for g in shapely.get_parts(poly)
                      if g.geom_type == "Polygon" and g.area >= 1.0
                      and any(g.distance(Point(p0)) <= half for p0, _s, _r in steps)]
             for g in parts:
-                p0, step, run = min(steps, key=lambda t: g.distance(Point(t[0])))
+                p0, step, run = min(steps, key=lambda t_: g.distance(Point(t_[0])))
                 out.append(RoadExit(f"{ROAD_EXIT_PREFIX}{k}", g,
                                     (float(p0[0]), float(p0[1])), step,
-                                    sum(r for _p, _s, r in steps)))
+                                    sum(r for _p, _s, r in steps),
+                                    tuple(axes), tuple(zm), kind,
+                                    tuple(mouths), road))
                 k += 1
     # two exits of one road may overlap at a short gap: the first keeps it
     kept: list[RoadExit] = []
@@ -449,19 +624,33 @@ def road_exit_corridors(zones: list, cells: tuple[Cell, ...], law: Law,
     return kept
 
 
-def _one_ribbon(poly, ribbon, mouths, stretches, half: float):
-    """29u (ii) ONE CONTINUOUS RIBBON: the stand-off may sever the corridor,
-    or notch it past its centreline, where the road passes a band
-    mid-course (NLWF road -3 behind the terminal: an earlier arm's
-    stand-off left pieces with a DEM gap between them, 62 %; this arm's
-    first cut notched the course at s 2124, 55 %).  The pieces are re-joined along the road's own
-    CENTRELINE — the ribbon narrowed to a thin core there, never the
-    band's edge — so the corridor is one face from its mouth to its end;
-    only a core that the stand-off still cuts (the road itself inside the
-    cutback of a band) welds there, the least contact the ribbon allows."""
-    core = unary_union([st.buffer(0.25 * half, cap_style="flat") for st in stretches])
-    joined = unary_union([poly, core.intersection(ribbon)])
-    return joined
+#: The longest in-band stretch of a road between two exits that the
+#: corridor bridges (``road_exit_corridors``) — an ASSUMPTION of this lane,
+#: sized on NLWF road -3's west gap (35 m); stated where used, not law.
+_GAP_BRIDGE_M = 60.0
+
+
+def _past_runway_end(cells, pt) -> bool:
+    """A mouth beyond a runway's end quadrant (the report's class only)."""
+    for c in cells or ():
+        if c.role not in RUNWAY_FAMILY or c.side != "airside":
+            continue
+        p = Polygon(c.ring, c.holes)
+        r = p.minimum_rotated_rectangle
+        xs = list(r.exterior.coords)[:4]
+        import math as _m
+        e0 = (xs[1][0] - xs[0][0], xs[1][1] - xs[0][1])
+        e1 = (xs[2][0] - xs[1][0], xs[2][1] - xs[1][1])
+        ax = e0 if _m.hypot(*e0) >= _m.hypot(*e1) else e1
+        L = _m.hypot(*ax)
+        if L <= 0:
+            continue
+        ux, uy = ax[0] / L, ax[1] / L
+        cx, cy = r.centroid.x, r.centroid.y
+        s = (pt.x - cx) * ux + (pt.y - cy) * uy
+        if abs(s) > L / 2.0 and p.distance(pt) < 400.0:
+            return True
+    return False
 
 
 def _band_level(paved, zones: list, p0, dem, law: Law, grid: float) -> float:

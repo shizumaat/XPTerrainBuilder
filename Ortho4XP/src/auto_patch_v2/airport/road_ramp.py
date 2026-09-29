@@ -780,6 +780,79 @@ def road_exit_vertices(pm: PlanarMap) -> tuple[set[int], set[int]]:
     return exit_v, seam
 
 
+#: spec road-exit §1.4: the route id base of a corridor's own axis in
+#: ``road_route_frame`` (one route per corridor, never an OSM route id, so
+#: a vertex shared with a neighbouring road cell never borrows its s).
+ROAD_EXIT_ROUTE_BASE = 1_000_000
+
+
+def road_exit_profile(pm: PlanarMap, law: Law, airport: Airport,
+                      exit_v: set[int], seam_v: set[int]
+                      ) -> tuple[dict[int, float],
+                                 dict[int, tuple[int, float, float]]]:
+    """Spec road-exit §1.3 (3) / §1.4: per corridor vertex off the mouth,
+    the CENTRELINE PROFILE target ``z(s) = clamp(DEM_axis(s), max_i(z_i -
+    cap s_i), min_i(z_i + cap s_i))`` over the corridor's mouths ``i``
+    (``z_i`` the pre-solve band-level estimate at mouth ``i``, ``s_i`` the
+    chainage from it along its axis) — the road climbs only at its cap and
+    the terrain is cut or filled to it (29y); and the ROUTE FRAME
+    ``(ROAD_EXIT_ROUTE_BASE + k, s, t)`` of EVERY corridor vertex (mouth
+    included) on the corridor's own axis (the OSM way), so the census and
+    ``road_within_shape`` price the corridor along the road."""
+    from ..planar.overlay import ROAD_EXITS
+    from ..planar.zones import ROAD_EXIT_PREFIX
+    from ..law.tables import role_cap
+    from .road_profile import _signed_offset
+    from shapely.geometry import LineString, Point
+    by_ref = {rx.ref: rx for rx in ROAD_EXITS}
+    dem = getattr(airport, "dem", None)
+    cap = float(role_cap(law, "service_road").longitudinal)
+    prof: dict[int, float] = {}
+    fr: dict[int, tuple[int, float, float]] = {}
+    for f in pm.faces.values():
+        ref = f.ref or ""
+        if not ref.startswith(ROAD_EXIT_PREFIX):
+            continue
+        rx = by_ref.get(ref)
+        if rx is None or not rx.axes:
+            continue
+        try:
+            k = int(ref[len(ROAD_EXIT_PREFIX):])
+        except ValueError:
+            k = len(by_ref)
+        # the frame axis: the first mouth's axis, extended back through
+        # the mouth so a mouth vertex projects to s ~ 0, never clamped
+        c = list((rx.route if rx.route is not None else rx.axes[0]).coords)
+        ext = 50.0
+
+        def _out(p, q):
+            L = math.hypot(p[0] - q[0], p[1] - q[1]) or 1.0
+            return (p[0] + (p[0] - q[0]) / L * ext, p[1] + (p[1] - q[1]) / L * ext)
+        line = LineString([_out(c[0], c[1])] + c + [_out(c[-1], c[-2])])
+        for cyc in (f.ring, *f.holes):
+            for v in pm.ring_vertices(cyc):
+                p = pm.vertices[v].xy
+                s_ = float(line.project(Point(p)))
+                fr[v] = (ROAD_EXIT_ROUTE_BASE + k, s_ - ext,
+                         float(_signed_offset(line, s_, p)))
+                if v in seam_v or dem is None:
+                    continue
+                lo, hi = -math.inf, math.inf
+                best = None
+                for ax, zm in zip(rx.axes, rx.z_mouth):
+                    si = float(ax.project(Point(p)))
+                    lo = max(lo, zm - cap * si)
+                    hi = min(hi, zm + cap * si)
+                    dd = ax.distance(Point(p))
+                    if best is None or dd < best[0]:
+                        best = (dd, ax.interpolate(si))
+                q = best[1]
+                z_dem = float(dem.z(q.x, q.y))
+                prof[v] = (min(max(z_dem, lo), hi) if lo <= hi
+                           else 0.5 * (lo + hi))
+    return prof, fr
+
+
 def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                    report: dict[str, _t.Any] | None = None,
                    profiles=None) -> PlanarMap:
@@ -845,15 +918,22 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     if exit_v:
         targets = {v: z for v, z in targets.items() if v not in exit_v}
         seed = {v: c for v, c in seed.items() if v not in exit_v}
-        # the corridor's fit target is the TERRAIN it climbs to (29r: the
-        # ramp ends where the cap meets the DEM); the one-way cap rows from
-        # the seam outprice it wherever the DEM is out of the cap's reach
-        keep.update({v: float(pm.vertices[v].dem_z)
-                     for v in exit_v - seam_v})
+        # spec road-exit §1.3 (3): the corridor's soft target is its
+        # CENTRELINE PROFILE, one value per station applied to every
+        # vertex of that station (the round-3 per-vertex DEM keep put the
+        # two ribbon edges of a side-hill at two heights — 41
+        # ``road_cross_section`` rows); §1.4 / consumer rows 16, 30: every
+        # corridor vertex is framed on the road's own axis
+        prof_z, exit_frame = road_exit_profile(pm, law, airport, exit_v, seam_v)
+        keep.update(prof_z)
         for v in seam_v:
             keep.pop(v, None)
+        frame = dict(frame)
+        frame.update(exit_frame)
         if report is not None:
             report["road_exit_withdrawn"] = len(exit_v)
+            report["road_exit_profiled"] = len(prof_z)
+            report["road_exit_framed"] = len(exit_frame)
     if report is not None:
         report["preferred_withdrawn"] = len(pm.preferred_z) - len(keep)
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,

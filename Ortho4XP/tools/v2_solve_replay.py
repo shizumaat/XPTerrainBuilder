@@ -1769,6 +1769,9 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.pipeline.build import shore_decision_lines
         for _ln in shore_decision_lines(pm, airport, every=True):
             print(f"[{icao}]{_ln}")
+        from auto_patch_v2.pipeline.build import road_exit_lines
+        for _ln in road_exit_lines(airport):
+            print(f"[{icao}]{_ln}")
         road_pref, _r, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
                                              inputs.lane_width_m)
         pm = _dc.replace(pm, preferred_z=road_pref)

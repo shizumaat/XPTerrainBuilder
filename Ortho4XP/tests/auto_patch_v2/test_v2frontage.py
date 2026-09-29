@@ -229,10 +229,11 @@ def test_the_only_channel_left_is_the_two_way_apron_edge_ramp_law(law):
     _pm_s, z_s, _rs = _solve(law, _cells())              # the SHIPPED (staged) arm
     _pm_sb, z_sb, _rsb = _solve(law, _cells(), drop={GEN_GS})
     pad_s = sorted(_verts(_pm_sb, "padA"))
-    # 1e-5 (RULINGS 2026-09-29m (d)): the channel stays CLOSED — measured
-    # 1.24e-6 on the unit platform, three orders under the 0.01 m
-    # elevation materiality; the bar was 1e-6 before the platform
-    assert float(np.max(np.abs(z_s[pad_s] - z_sb[pad_s]))) < 1e-5
+    # 1e-4 (RULINGS 2026-09-29n (2)): the channel stays CLOSED — measured
+    # 1.54e-5 on the pad UNIT (the collar's vertices; 1.24e-6 on the
+    # platform alone), two orders under the 0.01 m elevation materiality;
+    # the bar was 1e-6 before the platform
+    assert float(np.max(np.abs(z_s[pad_s] - z_sb[pad_s]))) < 1e-4
     law = unstaged(law)                                  # the joint problem
     _pm_a, z_a, _r = _solve(law, _cells())
     pm_b, z_b, _r2 = _solve(law, _cells(), drop={GEN_GS})

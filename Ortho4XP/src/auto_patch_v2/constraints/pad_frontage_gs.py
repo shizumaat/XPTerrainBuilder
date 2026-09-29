@@ -42,7 +42,7 @@ from ..law import Law
 from ..law.tables import pavement_roles, role_side
 from ..model.airport import Airport
 from ..model.constraints import Row, Source
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_collar_ref
 from .groundside import groundside_face_roles
 from .pads import (_pad_polys, _two_sided, design_law, frontage_radius_m,
                    pad_frontage, pad_fronts_airside, rigid_roles)
@@ -144,6 +144,48 @@ def pad_airside_frontage(planar: PlanarMap, law: Law, pad_id: int,
                    if role_side(law, role) == "airside" for v in contacts})
 
 
+def _unit_outline(planar: PlanarMap, pad_poly: Polygon,
+                  pad_rim: _t.Iterable[int]) -> tuple[Polygon, list[int]]:
+    """THE PAD'S OWN OUTLINE IS ITS UNIT'S (owner RULINGS 2026-09-29n (3),
+    issue #91): a unit pad is a PLATFORM (``ref``) inside a COLLAR
+    (``ref#collar``, ``model.planar.COLLAR_SUFFIX``), and a collar face is
+    an ANNULUS — its triangulation keeps only the triangles whose centroid
+    falls in the ring, so which ones survive is the arrangement's
+    re-noding (measured on the ``v2frontagestep`` twin: 701.614 against
+    702.000 between two notings of one pad).  When the rim is a collar's,
+    the outline is the union of every face of the unit (platform ∪
+    collar) and the rim every vertex of it; otherwise both pass through."""
+    rim = list(pad_rim)
+    bases = set()
+    for v in rim:
+        for q in planar.vertices[v].incident_faces:
+            f = planar.faces.get(q)
+            if f is not None and is_collar_ref(f.ref):
+                bases.add(str(f.ref).split("#")[0])
+    if len(bases) != 1:
+        return pad_poly, rim
+    base = next(iter(bases))
+    from shapely.ops import unary_union
+    polys, vs = [], set(rim)
+    for f in planar.faces.values():
+        if str(f.ref).split("#")[0] != base:
+            continue
+        ring = planar.ring_vertices(f.ring)
+        holes = [planar.ring_vertices(h) for h in (f.holes or ())]
+        vs.update(ring)
+        for h in holes:
+            vs.update(h)
+        try:
+            polys.append(Polygon([planar.vertices[v].xy for v in ring],
+                                 [[planar.vertices[v].xy for v in h] for h in holes]))
+        except (ValueError, TypeError):
+            return pad_poly, rim
+    u = unary_union(polys) if polys else None
+    if not isinstance(u, Polygon) or u.is_empty:
+        return pad_poly, rim
+    return u, sorted(vs)
+
+
 def pad_area_weighted_dem(planar: PlanarMap, pad_poly: Polygon,
                           pad_rim: _t.Iterable[int]) -> float | None:
     """§28 (6)'s FALLBACK DATUM for a pad with no readable airside
@@ -157,6 +199,7 @@ def pad_area_weighted_dem(planar: PlanarMap, pad_poly: Polygon,
     counts vertices, and a hillside pad's vertex DENSITY is the
     arrangement's business (``dba32406``), while its AREA is not."""
     from shapely.ops import triangulate
+    pad_poly, pad_rim = _unit_outline(planar, pad_poly, pad_rim)
     z_at: dict[tuple[float, float], float] = {}
     for v in pad_rim:
         dz = planar.vertices[v].dem_z

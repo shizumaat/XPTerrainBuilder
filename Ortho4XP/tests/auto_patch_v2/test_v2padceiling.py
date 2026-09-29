@@ -109,7 +109,15 @@ def test_the_ceiling_rows_carry_rel_zero_while_the_flat_target_carries_it(
     """The one sentence §30 (1) is: the same pairs, the same caps, and the
     relief on the TARGET only.  Measured at LEMD: with the relief in the
     ceiling the shipped surface violated 725 hard rows (365 of them this
-    family) at 1.3037 m; without it, 0."""
+    family) at 1.3037 m; without it, 0.
+
+    THE PLATE LAW, ON THE PLATE (owner RULINGS 2026-09-29n (1), issue
+    #91): the fixture runs with ``[building_pad] platform_collar`` off, so
+    the pad is the one-face plate this law is about; on a PLATFORM the
+    target carries no relief at all (29d (3) supersedes it there — the
+    twin below)."""
+    from tests.auto_patch_v2._plate import plate_law
+    law = plate_law(law)
     pm, airport = _pm(law, _cells())
     vs = _pad_vertices(pm)
     assert len(vs) >= 4
@@ -127,6 +135,28 @@ def test_the_ceiling_rows_carry_rel_zero_while_the_flat_target_carries_it(
     assert {(r.a, r.b) for r in ceil} == {(r.a, r.b) for r in flat}
     cap = float(law.tables.emit.within_shape.pad_slope_max)
     assert {round(float(r.cap), 9) for r in ceil} == {round(cap, 9)}
+
+
+def test_on_a_platform_neither_the_ceiling_nor_the_flat_target_carries_relief(
+        law, monkeypatch):
+    """The PLATFORM case (owner RULINGS 2026-09-29n (1); 29d (3), b1665267):
+    a platform is ONE plane — its hard ``platform plane`` rows carry no
+    relief, so neither does the plate over it (measured HECA T3: the two
+    contested the plane, 0.56 m residual).  The same authored body that
+    puts 2.20 m on the plate's target above puts 0 on a platform's."""
+    from auto_patch_v2.model.planar import COLLAR_SUFFIX
+    pm, airport = _pm(law, _cells())
+    assert {f.ref for f in pm.faces.values()} >= {"padA", "padA" + COLLAR_SUFFIX}
+    vs = _pad_vertices(pm)
+    assert len(vs) >= 4
+    off = {v: (-2.20 if i % 2 else 0.0) for i, v in enumerate(vs)}
+    monkeypatch.setattr("auto_patch_v2.constraints.pads.pad_relief_offsets",
+                        lambda _p, _l, _a: off)
+    ceil = pad_slope_ceiling(pm, law, airport)
+    flat = pad_flats(pm, law, airport)
+    assert ceil and flat
+    assert {round(float(r.rel), 9) for r in ceil} == {0.0}
+    assert {round(float(r.rel), 9) for r in flat} == {0.0}
 
 
 def test_the_ceilings_ruling_head_still_names_the_hard_register(law):

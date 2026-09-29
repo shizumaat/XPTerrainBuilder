@@ -551,8 +551,10 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
     (2), §16g (9) one population): ``cut`` is the part-id set of every
     §16g (6) connector the plan's ONE verdict
     (``footprint_connector.solid_connectors``) calls NOT solid.  Such a
-    body is CUT out of the chain — its own single-body cluster, linking
-    nothing — exactly where ``footprint_unit`` cuts it.  A SOLID connector
+    body is CUT out of the chain — linking nothing — exactly where
+    ``footprint_unit`` cuts it, and (RULINGS 2026-09-29q) it forms NO
+    cluster at all: a cut connector is a linear elevated structure, emits
+    no pad and carries no ground.  A SOLID connector
     stays in the chain and so MERGES the clusters it joins.  Measured
     before the cut at HECA: the elevated rail chained T2 to T3 and one
     plate over 30 m of relief took T2 to 96.35 over its 68-74 apron."""
@@ -653,7 +655,15 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                 chains = merge_by_sheets(chains, links, adj)
         sheets = {s for s, _b in links}
         chains = chains + [[i] for i in leaves if i not in sheets]
-        chains = chains + [[i] for i in sorted(gone)]
+        # RULINGS 2026-09-29q (#98): A CUT CONNECTOR IS A LINEAR ELEVATED
+        # STRUCTURE — it forms NO cluster, so no pad is derived for it and
+        # the ground beneath follows the ground law.  Until 29q it was its
+        # own single-body cluster, and HECA's rail minted two flat pads at
+        # the station level (`building13` 87.02-87.49, −12.3 m of cut;
+        # `building69` 86.65-87.19, +13.45 m of berm).
+        if counts is not None and gone:
+            counts["cluster_connectors_no_cluster"] = \
+                counts.get("cluster_connectors_no_cluster", 0) + len(gone)
         if counts is not None and links:
             counts["cluster_sheet_links"] = \
                 counts.get("cluster_sheet_links", 0) + len(links)

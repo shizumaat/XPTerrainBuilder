@@ -37,7 +37,7 @@ from .placement_contact import (_polys_touch, boxes_touch,
 __all__ = ["PlanConnector", "CONNECTOR_BOXES_MAX", "_span_m",
            "_is_connector", "_connector_ends", "authored_units",
            "authored_unit_census", "ConnectorVerdict", "connector_verdict",
-           "solid_connectors", "cut_pids", "verdicts_of"]
+           "solid_connectors", "cut_pids", "verdicts_of", "deck_riders"]
 
 
 def _span_m(boxes: _t.Sequence[tuple[float, float, float, float]]) -> float:
@@ -704,6 +704,125 @@ def cut_pids(verdicts: _t.Iterable[ConnectorVerdict]) -> frozenset[int]:
     """The part ids of every CUT connector — what both readers remove from
     their chains (§2: "CUTS every non-solid connector out of its chain")."""
     return frozenset(q for v in verdicts if not v.solid for q in v.pids)
+
+
+def _plan_shape(parts: _t.Iterable[_t.Any]):
+    """The plan footprint of ``parts`` in the (lat, lon) plane: their
+    outline rings where the plan carries them, else their boxes."""
+    from shapely.geometry import Polygon, box as _box
+    from shapely.ops import unary_union
+    polys = []
+    for p in parts:
+        rings = [r for r in (getattr(p, "rings", ()) or ()) if len(r) >= 3]
+        if rings:
+            for r in rings:
+                q = Polygon([(float(v[0]), float(v[1])) for v in r])
+                polys.append(q if q.is_valid else q.buffer(0))
+        else:
+            b = getattr(p, "box", None)
+            if b is not None and b[2] > b[0] and b[3] > b[1]:
+                polys.append(_box(b[0], b[1], b[2], b[3]))
+    polys = [q for q in polys if not q.is_empty]
+    return unary_union(polys) if polys else None
+
+
+def deck_riders(plan: _t.Any, ui: int, staged: _t.Sequence[_t.Any],
+                cands: _t.Sequence[_t.Any], cut: _t.AbstractSet[int],
+                contacts: _t.Iterable[tuple[int, int]] = (),
+                touch_m: float = 0.0, level_tol_m: float = 0.0,
+                counts: "dict | None" = None
+                ) -> dict[tuple[int, int], int]:
+    """RULINGS 2026-09-29q (#98): A CUT CONNECTOR'S RAIL TOP AND FLOOR
+    FOLLOW THE DECK, never a station unit.
+
+    ``(member index, raw body index) -> candidate index`` of the DECK body
+    (a candidate carrying cut-connector pids) that an ELEVATED or FOOTLESS
+    body of the same unit rides, where the body is written at the deck's
+    own authored heading (:func:`authored_units` — the pack's witness of
+    one rigid object) and it is ON the deck by either reading:
+
+    1. it carries an ε-CONTACT edge with one of the deck's parts (the
+       plan's own graph — HECA's rail top `road_train/metal_strip_2.obj`,
+       3 edges); or
+    2. its plan footprint comes within ``touch_m`` of a deck part AND its
+       lowest authored base stands within ``level_tol_m`` of that part's
+       base — it is authored AT THE DECK'S LEVEL at the deck's edge (the
+       station platform `road_train/floor.obj`, y 8.11 against the slab's
+       8.24, 0 m in plan from the N leg).
+
+    §16c (7)'s contact bind had put both on the station unit's senior
+    (`titles_1__b6`, `fu:42:4636` on `building60`).  Several decks: the
+    one with the most contact edges, then the nearest.  A body holding
+    cut pids itself (the deck) is never a rider."""
+    if not cut or not cands:
+        return {}
+    decks = [k for k, c in enumerate(cands) if c.pids & cut]
+    if not decks:
+        return {}
+    au = authored_units(plan)
+    by_mi = {st.mi: st for st in staged}
+    deck_parts: dict[int, list] = {}
+    for k in decks:
+        c = cands[k]
+        st = by_mi.get(c.member)
+        if st is not None:
+            deck_parts[k] = [p for r in st.raw for p in r[0] if p.pid in c.pids]
+    owner = {p.pid: k for k, ps in deck_parts.items() for p in ps}
+    touch: dict[int, dict[int, int]] = {}
+    for a, b in contacts:
+        for x, y in ((a, b), (b, a)):
+            k = owner.get(x)
+            if k is not None and y not in cut:
+                touch.setdefault(y, {})
+                touch[y][k] = touch[y].get(k, 0) + 1
+    out: dict[tuple[int, int], int] = {}
+    shapes: dict[int, _t.Any] = {}
+    for st in staged:
+        a = au.get((ui, st.mi))
+        mine = [k for k in deck_parts
+                if au.get((ui, cands[k].member)) == a and a is not None]
+        if not mine:
+            continue
+        idx = range(len(st.raw)) if st.footless else sorted(st.elevated)
+        for i in idx:
+            parts = st.raw[i][0]
+            if not parts or any(p.pid in cut for p in parts):
+                continue
+            edges: dict[int, int] = {}
+            for p in parts:
+                for k, n in touch.get(p.pid, {}).items():
+                    if k in mine:
+                        edges[k] = edges.get(k, 0) + n
+            if edges:
+                out[(st.mi, i)] = max(edges, key=lambda k: (edges[k], -k))
+                continue
+            if touch_m <= 0.0:
+                continue
+            g = _plan_shape(parts)
+            if g is None:
+                continue
+            base = min(float(p.base_y) for p in parts)
+            ml, mo = _ar._m_per_deg(float(parts[0].lat))
+            deg = touch_m / max(1.0, min(ml, mo))
+            best = None
+            for k in mine:
+                for q in deck_parts[k]:
+                    if abs(float(q.base_y) - base) > level_tol_m:
+                        continue
+                    sq = shapes.get(q.pid)
+                    if sq is None:
+                        sq = shapes[q.pid] = _plan_shape([q])
+                    if sq is None:
+                        continue
+                    d = g.distance(sq)
+                    if d <= deg and (best is None or d < best[0]):
+                        best = (d, k)
+            if best is not None:
+                out[(st.mi, i)] = best[1]
+    if counts is not None and out:
+        counts["bodies_ride_cut_connector_deck"] = \
+            counts.get("bodies_ride_cut_connector_deck", 0) + len(out)
+    return out
 
 
 # ── §16g (6) (3) PROVENANCE IS A WITNESS ─────────────────────────────────

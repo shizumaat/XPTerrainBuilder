@@ -613,6 +613,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       contents_min_fraction,  # S6
                                       sheet_chain_min_fraction)  # 27a
 
+    # RULINGS 2026-09-29q: the ONE verdict's cut connectors (their decks
+    # carry what is authored on them)
+    from . import footprint_connector as _fc
+    _st29q = _fc.verdicts_of(plan) if connector_span_m > 0.0 else None
+    _cut29q = _fc.cut_pids(_st29q) if _st29q else frozenset()
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
         # §14a (2): each basin ring's DEPTH, read ONCE per unit — a pit is
@@ -805,6 +810,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m,
             plan_wide=_pw, cluster_of=(_clus if airside_floor else None),
             airside_floor=airside_floor))
+        # RULINGS 2026-09-29q (#98): a CUT connector's rail top and floor
+        # ride the DECK — the authored unit's own body — never the station
+        # unit the §16c (7) contact bind above handed them to
+        _rides29q: dict = {}
+        if _cut29q:
+            _rides29q = _fc.deck_riders(
+                plan, ui, staged, cands, _cut29q,
+                contacts=unit_pairs.get(ui, ()), touch_m=touch_m,
+                level_tol_m=split_tol_m, counts=counts)
+            forced.update(_rides29q)
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})
         by_key = {(c.member, c.group): c for c in cands}
@@ -885,7 +900,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if _f:
                     counts["bodies_bound_to_cluster_by_contact"] = \
                         counts.get("bodies_bound_to_cluster_by_contact", 0) + 1
-                    over = [(cands[_f[0]], "§16c (7) bound by contact into "
+                    over = [(cands[_f[0]],
+                             "RULINGS 2026-09-29q rides the cut connector's "
+                             "deck" if any((st.mi, i) in _rides29q
+                                           for i in src)
+                             else "§16c (7) bound by contact into "
                              "the unit's rigid cluster")]
                 else:
                     over = _pc.carriers_for(

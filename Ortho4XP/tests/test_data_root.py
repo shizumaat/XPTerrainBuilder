@@ -15,7 +15,7 @@ import O4_File_Names as FNAMES
 
 
 @pytest.fixture(autouse=True)
-def restore_file_names_module():
+def restore_file_names_module(monkeypatch):
     """Every test may mutate module-level path state; reload to restore.
 
     THE RELOAD UNDOES THE SESSION'S DSF-DUMP-CACHE REDIRECT (cycle-8
@@ -24,8 +24,18 @@ def restore_file_names_module():
     the SHARED data repo in a lane worktree.  That is how the suite kept
     authoring junk directories in everyone's corpus while a session
     fixture said it could not.  Whoever reloads the module owns putting
-    the redirect back."""
+    the redirect back.
+
+    THE RELOAD RUNS AFTER EVERY MONKEYPATCH IS UNDONE (issue #91).  The
+    conftest autouse ``_no_modal_first_run_wizard`` requests ``monkeypatch``
+    (9741696c), so the ONE function-scoped monkeypatch outlives this
+    fixture and its teardown — a test's ``chdir`` / ``setenv`` — ran AFTER
+    this reload: ``test_source_run_data_path_follows_working_directory``
+    left ``Patch_dir`` at ``<its tmp_path>/Patches`` and the next test on
+    the worker (xdist gw2, CI 36510170759) listed a folder that does not
+    exist.  Undo first, then reload in the restored cwd and environment."""
     yield
+    monkeypatch.undo()
     importlib.reload(FNAMES)
     import conftest
     conftest.reapply_dsf_dump_cache_redirect()

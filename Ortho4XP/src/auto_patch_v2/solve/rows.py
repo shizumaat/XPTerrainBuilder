@@ -573,9 +573,6 @@ def _shape_bodies(pm: PlanarMap, red: "_Reduction",
     stay as the datum has always taken them and only the MEMBERSHIP is
     enforced — which at CYXY is byte-identical to the round-2 patch."""
     out: list[list[int]] = []
-    # a shape that owns NO face (a contour joint cut inside one face) has no
-    # body of its own: its vertices stay with the body whose faces ring them
-    faced = set(pm.shape_of_face.values())
     for vs, fs in bodies:
         labs: dict[int, int] = {}
         for fid in fs:
@@ -584,8 +581,7 @@ def _shape_bodies(pm: PlanarMap, red: "_Reduction",
                 labs[sh] = labs.get(sh, 0) + 1
         own = max(labs, key=lambda sh: (labs[sh], -sh)) if labs else NO_SHAPE
         keep = [v for v in vs
-                if (pm.shape_of_vertex.get(v, NO_SHAPE) in (own, NO_SHAPE)
-                    or pm.shape_of_vertex[v] not in faced)
+                if pm.shape_of_vertex.get(v, NO_SHAPE) in (own, NO_SHAPE)
                 and red.col[v] >= 0 and pm.vertices[v].dem_z is not None]
         if keep:
             out.append(keep)

@@ -27,6 +27,16 @@ THE FINGERPRINT covers everything the reading is a function of:
 * the FRAME the geometry is placed in (its CRS and origin) — every
   coordinate in the result is in it;
 * the placement window (``radius_deg``) and the airport;
+* THE RESOLVED-PLACEMENT SET (issue #88): the count and a sha256 of the
+  sorted ``(def_path, resolved_path)`` pairs of the airport's placements
+  that resolved — pack-relative OR through the library index.  The pack
+  walk above cannot see the index (``lib/`` resolves outside the pack),
+  so a partition read while 3,354 of 3,585 ``lib/`` placements were
+  unresolved was served to a run that resolved them all (SPJC, lane
+  corpusspjc).  The resolved path is taken at its LIVE name (the
+  ``.anchor_bak`` suffix stripped), so the engine's own y-bake does not
+  invalidate its own cache (owner ruling 2026-08-13).  A miss on a file
+  whose stored set differs is logged with both digests (:func:`peek`);
 * THE CODE that produced it: the source bytes of the modules the
   reading runs through.  A derived cache keyed only on data is a
   correctness hazard in a tree that changes every commit, and this one
@@ -51,7 +61,7 @@ import typing as _t
 import zlib
 
 __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
-           "pristine_stamps"]
+           "pristine_stamps", "resolved_digest", "peek"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
@@ -158,6 +168,33 @@ def code_digest() -> str:
 #: checks them (§12a: size in the key, mtime + content hash in the header).
 _STAMPS: dict[str, list[tuple[str, int, float, str]]] = {}
 
+#: ``fingerprint -> resolved digest`` (:func:`resolved_digest`) of the
+#: fingerprints this process took — stored in the payload so a later
+#: miss can say whether the resolved set is what moved (issue #88).
+_RESOLVED: dict[str, tuple[int, str]] = {}
+
+
+def resolved_digest(airport) -> tuple[int, str]:
+    """``(count, sha256)`` of the airport's RESOLVED placements (module
+    doc, issue #88): the sorted ``(def_path, live resolved path)`` pairs
+    of every ``dsf_objects`` entry with a ``resolved_path``.  An airport
+    with no placements digests to ``(0, sha256(b""))``."""
+    from .pack import AUTHORED_BACKUP_SUFFIX as _sfx
+    pairs = []
+    for o in getattr(airport, "dsf_objects", None) or ():
+        rp = getattr(o, "resolved_path", None)
+        if not rp:
+            continue
+        rp = str(rp)
+        if rp.endswith(_sfx):
+            rp = rp[:-len(_sfx)]
+        pairs.append(f"{getattr(o, 'path', '')}\t{rp}")
+    pairs.sort()
+    h = hashlib.sha256()
+    for ln in pairs:
+        h.update(ln.encode("utf-8", "surrogateescape")); h.update(b"\n")
+    return len(pairs), h.hexdigest()
+
 
 def fingerprint(airport, law, *, dump_path: str | None,
                 radius_deg: float | None,
@@ -207,8 +244,12 @@ def fingerprint(airport, law, *, dump_path: str | None,
     pk = getattr(airport, "pack", None)
     h.update(f"borrowed:{getattr(pk, 'borrowed_apt_dat_path', '')}:"
              f"{getattr(pk, 'borrowed_block_sha256', '')}|".encode())
+    # issue #88: the resolved-placement set (library-index resolution)
+    rd = resolved_digest(airport)
+    h.update(f"resolved:{rd[0]}:{rd[1]}|".encode())
     fp = h.hexdigest()
     _STAMPS[fp] = list(ents)
+    _RESOLVED[fp] = rd
     return fp
 
 
@@ -328,6 +369,28 @@ def read(path: str | None, fp: str | None) -> _t.Any | None:
     return blob.get("result")
 
 
+def peek(path: str | None) -> "tuple[int, str] | None":
+    """The resolved digest a cache file was WRITTEN under (issue #88), or
+    ``None`` (no file, unreadable, or written before the digest was
+    stored).  Only read on a miss, to log what moved."""
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        try:
+            raw = zlib.decompress(raw)
+        except zlib.error:
+            pass
+        blob = pickle.loads(raw)
+    except Exception:
+        return None
+    rd = blob.get("resolved") if isinstance(blob, dict) else None
+    if isinstance(rd, (tuple, list)) and len(rd) == 2:
+        return int(rd[0]), str(rd[1])
+    return None
+
+
 def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
     """Store ``result`` under ``fp``.  ``False`` (never an exception) when
     the write is refused or fails — a build never depends on it."""
@@ -339,6 +402,7 @@ def write(path: str | None, fp: str | None, result: _t.Any) -> bool:
         with open(tmp, "wb") as fh:
             fh.write(zlib.compress(
                 pickle.dumps({"fingerprint": fp, "pristine": _header(fp),
+                              "resolved": _RESOLVED.get(fp),
                               "result": result},
                              protocol=pickle.HIGHEST_PROTOCOL), _ZLIB_LEVEL))
         os.replace(tmp, path)

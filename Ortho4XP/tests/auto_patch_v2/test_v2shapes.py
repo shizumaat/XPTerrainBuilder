@@ -502,7 +502,9 @@ def test_the_law_table_carries_the_shape_keys(law):
     # sliver floors and the hole-cover slack joined the table
     assert tt.strip_min_m2 >= 0.0 and tt.strip_min_width_m >= 0.0
     assert 0.0 <= tt.hole_cover_eps < 1.0
-    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05, 50.0, 3.0, 0.02)
+    # RULINGS 2026-09-30i (#11): the pad|apron terrace floor joined the table
+    assert tt.pad_terrace_floor_m > 0.0
+    good = Terrace(0.5, 12.0, ("apron",), ("apron",), 8.0, 0.05, 50.0, 3.0, 0.02, 1.0)
     check_terrace(good, {"apron"}, LawError)
     with pytest.raises(LawError):
         check_terrace(_dc.replace(good, strip_min_width_m=-1.0), {"apron"}, LawError)

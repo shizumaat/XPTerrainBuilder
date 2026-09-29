@@ -46,6 +46,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..law.tables import rolled_on_roles
 from ..model.planar import COLLAR_SUFFIX
+from ..model.platform import PLATFORMS, Platform
 
 __all__ = ["platform_split", "Platform", "PLATFORMS", "collar_width_m",
            "merge_platform_faces"]
@@ -58,29 +59,9 @@ _STEP_M = 2.0
 _MIN_WELDED = 3
 
 
-@_dc.dataclass(frozen=True)
-class Platform:
-    """One unit pad's platform verdict at the arrangement."""
-
-    ref: str
-    collar_m: float
-    pad_m2: float
-    platform_m2: float
-    welded_samples: int
-    #: the welded rim's relief at the mint (DEM, against the tilt-bounded
-    #: frontage plane) that set C; ``None`` without a DEM
-    relief_m: "float | None" = None
-    #: ``""`` when minted, else why not (``"eroded_away"``,
-    #: ``"under_min_area"``)
-    refused: str = ""
-
-    def to_dict(self) -> dict[str, _t.Any]:
-        return _dc.asdict(self)
-
-
-#: The last arrangement's platform verdicts (the ``pad_terrace.TERRACES``
-#: pattern: read back by the publication and the census).
-PLATFORMS: list[Platform] = []
+# ``Platform`` / ``PLATFORMS`` live in ``model/platform`` (issue #104:
+# ``constraints/platform`` reads them and may not import ``planar``);
+# re-exported.
 
 
 def collar_width_m(law: Law) -> float:

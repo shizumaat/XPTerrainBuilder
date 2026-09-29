@@ -64,6 +64,8 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import nearest_points
 from shapely.strtree import STRtree
 
+from ..model.pad_terrace import TERRACES, Terrace
+
 __all__ = ["pad_terrace_split", "Terrace", "TERRACES"]
 
 #: The ring sampling step of the facing read (m): a geometric resolution,
@@ -74,27 +76,8 @@ _STEP_M = 2.0
 _GRAZE_M = 0.5
 
 
-@_dc.dataclass(frozen=True)
-class Terrace:
-    """One declared pad terrace: the pad, the apron (or lower pad) split
-    from it, the two proxy levels and the weld bound they exceeded."""
-
-    pad_ref: str
-    front_ref: str
-    other_ref: str
-    kind: str                 # "apron" | "pad"
-    front_level: float
-    other_level: float
-    bound_m: float
-    gap_m: float
-    #: the contact line (frame metres) the strip runs along — the pad's
-    #: own ring within the frontage horizon of the other body
-    line: tuple[tuple[float, float], ...]
-
-
-#: The last arrangement's terraces (the ``overlay.PAD_AIRSIDE`` pattern:
-#: read back by the arrangement's joint declaration and by readers).
-TERRACES: list[Terrace] = []
+# ``Terrace`` / ``TERRACES`` live in ``model/pad_terrace`` (issue #104:
+# ``constraints`` reads them and may not import ``planar``); re-exported.
 
 
 def _polys(g) -> list[Polygon]:

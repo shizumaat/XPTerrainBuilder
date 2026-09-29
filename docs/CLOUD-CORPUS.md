@@ -49,6 +49,9 @@ repository is not enabled for this session" even with a valid PAT, and
 
    ```sh
    set -e
+   # the image ships PPAs (deadsnakes, ondrej/php) the egress proxy answers
+   # 403 to; apt-get update exits 100 on them (measured 2026-09-29) — drop them
+   rm -f /etc/apt/sources.list.d/*deadsnakes* /etc/apt/sources.list.d/*ondrej*
    apt-get update -qq
    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgdal-dev gdal-bin libspatialindex-dev
    cd Ortho4XP

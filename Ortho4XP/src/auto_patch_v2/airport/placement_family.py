@@ -504,6 +504,7 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
                   counts: "dict | None" = None,
                   sheet_chain_min_fraction: float = 0.0,
                   cut: _t.AbstractSet[int] = frozenset(),
+                  linear: "_t.AbstractSet[int] | None" = None,
                   outline_law: "tuple[float, float, float] | None" = None
                   ) -> list[PlanCluster]:
     """§16g (9) ONE POPULATION / (10) (1) THE PAD IS THE CLUSTER's own
@@ -552,9 +553,10 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
     §16g (6) connector the plan's ONE verdict
     (``footprint_connector.solid_connectors``) calls NOT solid.  Such a
     body is CUT out of the chain — linking nothing — exactly where
-    ``footprint_unit`` cuts it, and (RULINGS 2026-09-29q) it forms NO
-    cluster at all: a cut connector is a linear elevated structure, emits
-    no pad and carries no ground.  A SOLID connector
+    ``footprint_unit`` cuts it.  RULINGS 2026-09-29q/29v (1): a cut
+    connector in ``linear`` (NOT walled — a linear elevated structure)
+    forms NO cluster at all, emits no pad and carries no ground; a WALLED
+    cut connector stays its own single-body cluster.  A SOLID connector
     stays in the chain and so MERGES the clusters it joins.  Measured
     before the cut at HECA: the elevated rail chained T2 to T3 and one
     plate over 30 m of relief took T2 to 96.35 over its 68-74 apron."""
@@ -661,9 +663,16 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
         # own single-body cluster, and HECA's rail minted two flat pads at
         # the station level (`building13` 87.02-87.49, −12.3 m of cut;
         # `building69` 86.65-87.19, +13.45 m of berm).
+        # 29v (1): only a NOT-WALLED cut connector is a linear structure;
+        # a walled one (a building body cut by its end step) keeps its own
+        # single-body cluster.  ``linear`` None: every cut body is linear.
+        kept = ([i for i in sorted(gone) if not (shims[i].pids & linear)]
+                if linear is not None else [])
+        chains = chains + [[i] for i in kept]
         if counts is not None and gone:
             counts["cluster_connectors_no_cluster"] = \
-                counts.get("cluster_connectors_no_cluster", 0) + len(gone)
+                counts.get("cluster_connectors_no_cluster", 0) \
+                + len(gone) - len(kept)
         if counts is not None and links:
             counts["cluster_sheet_links"] = \
                 counts.get("cluster_sheet_links", 0) + len(links)

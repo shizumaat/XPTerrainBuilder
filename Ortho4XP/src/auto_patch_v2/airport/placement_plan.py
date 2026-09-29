@@ -617,7 +617,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # carry what is authored on them)
     from . import footprint_connector as _fc
     _st29q = _fc.verdicts_of(plan) if connector_span_m > 0.0 else None
-    _cut29q = _fc.cut_pids(_st29q) if _st29q else frozenset()
+    _cut29q = _fc.linear_pids(_st29q) if _st29q else frozenset()   # 29v
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
         # §14a (2): each basin ring's DEPTH, read ONCE per unit — a pit is
@@ -817,8 +817,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         if _cut29q:
             _rides29q = _fc.deck_riders(
                 plan, ui, staged, cands, _cut29q,
-                contacts=unit_pairs.get(ui, ()), touch_m=touch_m,
-                level_tol_m=split_tol_m, counts=counts)
+                contacts=unit_pairs.get(ui, ()), counts=counts)
             forced.update(_rides29q)
         # ── PASS 3: what does each elevated body STAND OVER? ──────────
         adj = _pc.unit_edges(pairs, {p.pid for m in u.members for p in m.parts})

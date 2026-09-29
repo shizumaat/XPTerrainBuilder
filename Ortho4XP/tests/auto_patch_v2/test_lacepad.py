@@ -179,3 +179,70 @@ def test_73_2a_a_flat_line_across_open_ground_closes_nothing():
     near = _dc.replace(far, rings=(sq(0, 20, 0, 20), sq(0, 20, 21.5, 41.5)))
     got2, c2 = cluster_outlines([near], _xy, TOUCH, bridge_m=1.0)
     assert c2["post_bridged"] == 1 and len(got2) == 1   # a 1.5 m gap closes
+
+
+def test_73b_post_bridge_gap_is_per_side_1_25_bridges_2_06_not_2_72():
+    """Owner RULINGS 2026-09-29c / 29g (Q-73b): OTHH terminal parking
+    ``unit:24#0`` is ONE pad — its halves (33,392 + 21,316 m2) stand
+    2.06 m apart joined by markings and one 4.4 m post, and the dry mint
+    on ``frames/sheetchain/OTHH.pkl`` reads 54,714 m2 in one piece at the
+    law value (``tools/pad_gap_diff.py``).  The key is PER SIDE, so the
+    shipped 1.25 bridges a plan gap up to 2.5 m: 2.06 m closes, HECA's
+    2.72 m lace gap (``Plastic.obj``) does not."""
+    import dataclasses as _dc
+    from auto_patch_v2.geom import cluster_outlines
+    from auto_patch_v2.law import Law
+    for icao in ("OTHH", "HECA", "KCLT"):
+        assert Law.for_airport(icao).tables.structures.placement.post_bridge_gap_m == 1.25
+    import auto_patch_v2.law.rebake_schema as _rs
+    defaults = [f.default for cls in vars(_rs).values() if _dc.is_dataclass(cls)
+                for f in _dc.fields(cls) if f.name == "post_bridge_gap_m"]
+    assert defaults == [1.25]                                # the schema default agrees
+    gap_m = Law.for_airport("OTHH").tables.structures.placement.post_bridge_gap_m
+
+    def sq(la0, la1, lo0, lo1):
+        return ((_lat(la0), _lo(lo0)), (_lat(la1), _lo(lo0)),
+                (_lat(la1), _lo(lo1)), (_lat(la0), _lo(lo1)))
+    base = _two_halves(20.2, 21.0)[0]
+
+    def arm(gap):                     # a post spanning the whole gap
+        c = _dc.replace(base, rings=(sq(0, 20, 0, 20), sq(0, 20, 20 + gap, 40 + gap)),
+                        bridges=(sq(9.0, 9.8, 19.8, 20.2 + gap),))
+        return cluster_outlines([c], _xy, TOUCH, bridge_m=gap_m)
+    got, c = arm(2.06)
+    assert c["post_bridged"] == 1 and len(got) == 1          # the garage: one pad
+    got, c = arm(2.72)
+    assert c["post_bridged"] == 0 and len(got) == 2          # the lace stays open
+    got, c = cluster_outlines([_dc.replace(base, rings=(sq(0, 20, 0, 20), sq(0, 20, 22.06, 42.06)),
+                                           bridges=(sq(9.0, 9.8, 19.8, 22.26),))],
+                              _xy, TOUCH, bridge_m=1.0)
+    assert c["post_bridged"] == 0 and len(got) == 2          # the pre-29c value missed it
+
+
+def test_pad_gap_diff_reports_the_merge_with_its_plan_gap():
+    """``tools/pad_gap_diff.py`` (the instrument RULINGS 2026-09-29g cites):
+    over one cluster minted at two bridge values it names the MERGE, the
+    pieces joined and their plan gap, and the mint call is the classify
+    mint's own (``cluster_outlines`` — the arms here are the same call)."""
+    import dataclasses as _dc
+    import importlib.util
+    from pathlib import Path
+    from auto_patch_v2.geom import cluster_outlines
+    spec = importlib.util.spec_from_file_location(
+        "pad_gap_diff", Path(__file__).resolve().parents[2] / "tools" / "pad_gap_diff.py")
+    pgd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pgd)
+
+    def sq(la0, la1, lo0, lo1):
+        return ((_lat(la0), _lo(lo0)), (_lat(la1), _lo(lo0)),
+                (_lat(la1), _lo(lo1)), (_lat(la0), _lo(lo1)))
+    base = _two_halves(20.2, 21.0)[0]
+    c = _dc.replace(base, rings=(sq(0, 20, 0, 20), sq(0, 20, 22.06, 42.06)),
+                    bridges=(sq(9.0, 9.8, 19.8, 22.26),))
+    ga, _ = cluster_outlines([c], _xy, TOUCH, bridge_m=1.0)
+    gb, _ = cluster_outlines([c], _xy, TOUCH, bridge_m=1.25)
+    r = pgd.diff(ga, gb, lambda x, y: (y, x))
+    assert [(x["pads_a"], x["pads_b"]) for x in r["changed"]] == [(2, 1)]
+    (m,) = [e for e in r["events"] if e["kind"] == "merge"]
+    assert m["gaps_m"] == [2.06] and sorted(m["pieces_m2_a"]) == [400, 400]
+    assert pgd.diff(ga, ga, lambda x, y: (y, x)) == {"changed": [], "events": []}

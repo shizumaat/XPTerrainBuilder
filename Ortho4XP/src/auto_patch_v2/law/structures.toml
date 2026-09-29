@@ -985,8 +985,12 @@ flat_line_max_width_m = 1.0
 # the outline without them falls into pieces, a post / flat line within
 # this of two pieces AT ONCE closes the outline across that gap
 # (geom.cluster_outlines rule 2a).  OTHH: cluster pads 72 -> 69 (main 61).
-# 0 disarms.
-post_bridge_gap_m     = 1.0
+# PER SIDE: a plan point within this of BOTH pieces, so it bridges plan
+# gaps up to TWICE this.  Owner RULINGS 2026-09-29c / 29g (Q-73b): 1.25
+# (plan gap 2.5 m) — OTHH terminal parking unit:24#0 is ONE pad
+# (33,392 + 21,316 -> 54,714 m2 across its 2.06 m gap); HECA 86 / KCLT 39
+# pads unchanged; HECA's 2.72 m lace gap stays open.  0 disarms.
+post_bridge_gap_m     = 1.25
 
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated

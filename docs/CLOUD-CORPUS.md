@@ -48,18 +48,21 @@ repository is not enabled for this session" even with a valid PAT, and
    Claude starts, skipped when a cached environment exists):
 
    ```sh
-   set -e
+   set -ex
    # the image ships PPAs (deadsnakes, ondrej/php) the egress proxy answers
    # 403 to; apt-get update exits 100 on them (measured 2026-09-29) — drop them
    rm -f /etc/apt/sources.list.d/*deadsnakes* /etc/apt/sources.list.d/*ondrej*
    apt-get update -qq
-   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgdal-dev gdal-bin libspatialindex-dev
-   cd Ortho4XP
+   # build-essential + python3-dev: the GDAL Python wheel is built from source
+   # against the distro libgdal (no binary wheel matches 3.8.4)
+   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgdal-dev gdal-bin libspatialindex-dev build-essential python3-dev
+   cd "$(git rev-parse --show-toplevel)/Ortho4XP"
    python3 -m venv venv
-   venv/bin/python -m pip install -q --upgrade pip
+   venv/bin/python -m pip install -q --upgrade pip setuptools wheel
    grep -v '^gdal' requirements.txt > /tmp/req.txt
    venv/bin/python -m pip install -q -r /tmp/req.txt
-   venv/bin/python -m pip install -q "gdal==$(gdal-config --version)"
+   CPLUS_INCLUDE_PATH=/usr/include/gdal C_INCLUDE_PATH=/usr/include/gdal venv/bin/python -m pip install -q --no-build-isolation "gdal==$(gdal-config --version)"
+   venv/bin/python -c 'from osgeo import gdal; print("gdal", gdal.__version__)'
    ```
 
    The Linux pin in `requirements.txt` (`gdal==3.9.0`) is for the AppImage

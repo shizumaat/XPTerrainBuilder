@@ -7209,6 +7209,16 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m) -> List[Violation]:
     seen: set = set()
 
     def _row(wa, na, za, pa, wb, nb, zb, pb, d):
+        # RULINGS 2026-09-30l (1): a pair at zero plan distance is a weld
+        # the emitter owns, not a grade — the engine copy
+        # (``constraints/pavement_cap._mint``) skips it; so does this one
+        # (``stacked_nodes`` prices the weld).
+        if d <= SHARED_VERTEX_TOL_M:
+            return
+        # RULINGS 2026-09-30l (2): a declared pad|pad terrace is a STEP;
+        # the step families' ``building_to_building`` exemption carries.
+        if wa is not wb and _step_exemption_for(wa, wb):
+            return
         noise = max(_pair_quant_noise_m(wa), _pair_quant_noise_m(wb))
         de = abs(za - zb)
         if de <= cap * d + noise:
@@ -9926,10 +9936,17 @@ def step_exempt(row) -> Optional[str]:
     way_e = getattr(row, "way_e", None)
     if way_v is None or way_e is None:
         return None
-    tags_v = getattr(way_v, "tags", None) or {}
-    tags_e = getattr(way_e, "tags", None) or {}
-    if (tags_v.get("role") == "building"
-            and tags_e.get("role") == "building"):
+    return _step_exemption_for(way_v, way_e)
+
+
+def _step_exemption_for(way_a, way_b) -> Optional[str]:
+    """The registered step exemption two WAYS' pair holds, else None —
+    the ONE predicate behind ``step_exempt`` (the steps bucket) and
+    ``pavement_over_road_cap``'s welded pairs (RULINGS 2026-09-30l (2))."""
+    tags_a = getattr(way_a, "tags", None) or {}
+    tags_b = getattr(way_b, "tags", None) or {}
+    if (tags_a.get("role") == "building"
+            and tags_b.get("role") == "building"):
         return "building_to_building"
     return None
 

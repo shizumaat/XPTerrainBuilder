@@ -499,7 +499,7 @@ def test_beyond_one_percent_the_pad_follows_the_senior_pavement(law):
     assert fam["missed"] > 0 and fam["max_m"] > 0.0, fam
 
 
-def test_16g_10_11_a_the_plate_is_one_way_toward_the_pad_at_an_airside_pair(law):
+def _16g_plate_only_arm(law):
     """§16g (10) (11) (a) (owner RULINGS 2026-09-15z; lane ``v2padqp``
     r2): THE PAD'S PLATE NEVER MOVES THE AIRSIDE.
 
@@ -547,3 +547,50 @@ def test_16g_10_11_a_the_plate_is_one_way_toward_the_pad_at_an_airside_pair(law)
     # ... and the hard ceiling still prices every pair, two-sided
     assert all(r.follows is None for r in ceil)
     assert len(ceil) == len(rim) * (len(rim) - 1) // 2 >= len(flats)
+
+
+def test_16g_10_11_a_the_plate_is_one_way_toward_the_pad_at_an_airside_pair(law):
+    """§16g (10) (11) (a) (owner RULINGS 2026-09-15z): THE PAD'S PLATE
+    NEVER MOVES THE AIRSIDE, the law unchanged at a moved locus (RULINGS
+    2026-09-29o / 29m (a)).  PLATE-ONLY arm (``platform_collar`` off,
+    :func:`_16g_plate_only_arm`): a pair with ONE airside end is ``flat
+    airside-led``, the pad follows.  UNIT arm: the platform holds NO
+    airside vertex (its plate rows two-sided, cap 0, none airside-led),
+    and every contact-to-platform coupling row is one-way (the airside
+    contact LEADS, the platform vertex FOLLOWS) under
+    ``structures.building_pad platform_collar bank``."""
+    from tests.auto_patch_v2._plate import plate_law
+    from auto_patch_v2.constraints.pads import airside_vertices, pad_flats
+    from auto_patch_v2.constraints.platform import (COLLAR_RULING,
+                                                    platform_collar_rows)
+    from auto_patch_v2.model.planar import COLLAR_SUFFIX
+    _16g_plate_only_arm(plate_law(law))
+    # ── the UNIT arm ──
+    airport = _airport(law, _Dem())
+    pm, _st = build(airport, Classification(tuple(_mixed_rim_cells()), (), {}, ()), law)
+    air = airside_vertices(pm, law)
+    plats = [f for f in pm.faces.values() if f.ref == "padA"]
+    collars = [f for f in pm.faces.values() if f.ref == "padA" + COLLAR_SUFFIX]
+    assert len(plats) == 1 and collars
+    plat = _verts(pm, "padA")
+    contacts = _unit_verts(pm, "padA") & air
+    assert contacts                                  # the unit is welded
+    # (i) the platform holds no airside vertex: its plate is two-sided
+    assert not (plat & air)
+    flats = [r for r in pad_flats(pm, law, airport)
+             if f"face:{plats[0].id}" in r.source.inputs]
+    assert flats and all(r.follows is None for r in flats)
+    assert not any(r.source.ruling.startswith("structures.building_pad flat "
+                                              "airside-led") for r in flats)
+    assert {r.cap for r in flats} == {0.0}
+    # (ii) every contact -> platform coupling row is airside-led (measured
+    # 2026-09-29: 17 bank rows, all contact -> platform, over 5 of the 7
+    # contacts; 2 contacts carry no bank row — reported on #94)
+    coupling = [r for r in platform_collar_rows(pm, law, airport)
+                if ({r.a, r.b} & contacts) and ({r.a, r.b} & plat)]
+    assert coupling
+    for r in coupling:
+        assert r.source.ruling.startswith(COLLAR_RULING)
+        lead, fol = (r.a, r.b) if r.a in contacts else (r.b, r.a)
+        assert lead in air and fol in plat and fol not in air
+        assert r.follows == (fol,)

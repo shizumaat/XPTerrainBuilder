@@ -176,6 +176,10 @@ def test_divergence_census_is_write_only(tmp_path, monkeypatch):
     patch is byte-identical to a build without it.  It still names every
     node where the author differs from the mean the retired consensus
     would have emitted."""
+    # Byte identity needs a pinned clock: the <osm> root carries the
+    # whole-second ``o4_provenance_built`` stamp, and two emits straddling
+    # a second boundary differ there by one byte (#115).
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1790000000")
     plain = str(tmp_path / "plain.osm")
     monkeypatch.delenv("O4_EMIT_DIVERGENCE_CENSUS", raising=False)
     _emit(_four_authority_layout(), plain)

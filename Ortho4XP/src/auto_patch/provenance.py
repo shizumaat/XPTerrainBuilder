@@ -353,8 +353,31 @@ def assemble_provenance(icao: str, dem_meta: dict | None) -> dict:
         "git": git_provenance(),
         "gates": gate_provenance(),
         "dem": dem_meta,
-        "built": datetime.datetime.now().replace(microsecond=0).isoformat(),
+        "built": build_timestamp(),
     }
+
+
+def build_timestamp() -> str:
+    """The ``built`` stamp: whole-second ISO time, or the pinned clock.
+
+    The stamp is the ONE wall-clock value on the patch's ``<osm>`` root, so
+    two emissions of the same layout straddling a second boundary differ in
+    exactly one byte (issue #115: ``...T16:30:50`` vs ``...T16:30:51`` broke
+    ``test_divergence_census_is_write_only`` ~1 run in 10, more under
+    load).  ``SOURCE_DATE_EPOCH`` (the reproducible-builds convention, an
+    integer Unix time, interpreted as UTC) pins it, so an emission frame
+    that wants byte identity sets the clock instead of masking the header.
+    Unset or unparseable → the live local clock, as before.
+    """
+    pinned = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
+    if pinned:
+        try:
+            return (datetime.datetime.fromtimestamp(
+                int(pinned), tz=datetime.timezone.utc)
+                .replace(tzinfo=None).isoformat())
+        except (ValueError, OverflowError, OSError):
+            pass
+    return datetime.datetime.now().replace(microsecond=0).isoformat()
 
 
 def _quote(value: str) -> str:

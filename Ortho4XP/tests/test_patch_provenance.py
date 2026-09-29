@@ -13,6 +13,7 @@ These are fast, build-free unit tests -- no airport build, no DEM, no network.
 from __future__ import annotations
 
 import json
+import re
 import os
 import subprocess
 
@@ -281,3 +282,16 @@ def test_v2_provenance_line_shares_the_source_label():
         ruleset="icao", dem_prov={}, status="optimal")
     assert line.startswith("  [provenance] CYXY patch: engine=v2 sha=absent version=")
     assert P.engine_version() in line
+
+
+def test_build_timestamp_honours_source_date_epoch(monkeypatch):
+    """#115: the ``built`` stamp is the one wall-clock byte on the <osm>
+    root; ``SOURCE_DATE_EPOCH`` pins it (UTC), garbage falls back live."""
+    from auto_patch import provenance as prov
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1790000000")
+    assert prov.build_timestamp() == "2026-09-21T14:13:20"
+    assert prov.assemble_provenance("KFAKE", None)["built"] == (
+        "2026-09-21T14:13:20")
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "not-a-number")
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d",
+                        prov.build_timestamp())
